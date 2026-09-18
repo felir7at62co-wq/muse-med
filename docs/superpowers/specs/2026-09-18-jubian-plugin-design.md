@@ -10,7 +10,7 @@ English | [中文](2026-09-18-jubian-plugin-design.zh.md)
 
 Jubian (`web.jubianai.net`) is the only multimedia generation backend behind the MUSE short-drama product. Today it exists in exactly two forms:
 
-1. roughly 3000 lines of adapter code interwoven with the MUSE governance layer (`packages/bundle/muse-product/src/jubian-*.ts`, 20 files, 3434 lines), most of which depends on MUSE-specific machinery such as Task admission, leases, receipts, and quotes;
+1. roughly 3000 lines of adapter code interwoven with the MUSE governance layer (the 20 `jubian-*.ts` adapters under `packages/bundle/muse-product/src/`, 3434 lines), most of which depends on MUSE-specific machinery such as Task admission, leases, receipts, and quotes;
 2. a Python CLI (`jubianai-api/scripts/jubianai_api.py`, about 203 KB) that **product code never calls**, pinned by hash as archived knowledge only.
 
 The consequence: no DSH session outside MUSE can query or operate a Jubian project.

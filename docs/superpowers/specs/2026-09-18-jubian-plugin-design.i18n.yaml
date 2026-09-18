@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/specs/2026-09-18-jubian-plugin-design.md
-2026-09-18-jubian-plugin-design.md: 09a4ef5239406788c33e4f6739f889d4693d83bf
-2026-09-18-jubian-plugin-design.zh.md: 2cc37a52775040ad8ab65f09d5c274535e1a9f6e
+2026-09-18-jubian-plugin-design.md: f66f81afa1c892683b6102a008add78a7dcf470b
+2026-09-18-jubian-plugin-design.zh.md: a0085e61958128d613593877f78d80e586ed7e6c

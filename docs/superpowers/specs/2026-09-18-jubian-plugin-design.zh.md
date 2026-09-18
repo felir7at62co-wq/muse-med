@@ -10,7 +10,7 @@
 
 剧变（`web.jubianai.net`）是 MUSE 短剧产品唯一的多媒体生成后端。它今天只以两种形态存在：
 
-1. 约 3000 行与 MUSE 治理层交织的适配代码（`packages/bundle/muse-product/src/jubian-*.ts`，20 个文件 3434 行），其中大部分依赖 Task 准入、租约、收据、报价等 MUSE 专属机制；
+1. 约 3000 行与 MUSE 治理层交织的适配代码（`packages/bundle/muse-product/src/` 下的 20 个 `jubian-*.ts`，3434 行），其中大部分依赖 Task 准入、租约、收据、报价等 MUSE 专属机制；
 2. 一个 Python CLI（`jubianai-api/scripts/jubianai_api.py`，约 203 KB），**产品代码从不调用它**，只作为归档知识被哈希钉住。
 
 结果是：任何非 MUSE 的 DSH 会话都无法查询或操作剧变项目。
