@@ -1,0 +1,16 @@
+# 剧变（Jubian）工具插件的组合包补丁：把插件行插入 profile。
+#
+# 本行按 id 覆盖；用户可以在自己 profile 的 cordis.patch.yml 里覆盖它的整个
+# config（见下面的示例）。全部字段都可省略，省略时用插件的默认值。
+#
+# 示例（用户 profile 的 cordis.patch.yml）：
+#   - id: tool-jubian
+#     name: '@deepseek-ai/dsh-tool-jubian'
+#     config:
+#       # ledgerRoot: D:\somewhere\jubian-ledger   # 写账本目录，默认 <DSH_HOME>/jubian/ledger
+#       # baseUrl: https://web.jubianai.net/prod-api
+#       # timeoutMs: 30000
+#
+- insert:
+    - id: tool-jubian
+      name: '@deepseek-ai/dsh-tool-jubian'

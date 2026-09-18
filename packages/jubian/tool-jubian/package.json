@@ -12,23 +12,31 @@
       "default": "./lib/index.js"
     },
     "./src/*": "./src/*",
+    "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
-    "lib/types/**/*.d.ts"
+    "lib/types/**/*.d.ts",
+    "cordis.patch.yml",
+    "README.md"
   ],
   "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-credentials": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-util-values": "workspace:^"
   },
   "dependencies": {
     "@deepseek-ai/dsh-jubian": "workspace:^",
-    "@deepseek-ai/dsh-jubian-api": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^"
+    "@deepseek-ai/dsh-jubian-api": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
