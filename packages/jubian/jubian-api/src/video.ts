@@ -227,6 +227,7 @@ function box(row: Record<string, unknown>): SubtitleBox | null {
 /**
  * Read one video generation task.
  * @param data - Envelope `data` from `/admin/aigc/video/task/{taskId}`.
+ * @returns The task's identity, status and progress.
  */
 export function readTaskPage(data: unknown): VideoTask {
   return task(object(data))
@@ -235,6 +236,7 @@ export function readTaskPage(data: unknown): VideoTask {
 /**
  * Read one page of generation tasks for a project.
  * @param data - Envelope `data` from `/admin/aigc/video/task/list`.
+ * @returns The page total and its mapped tasks.
  */
 export function readTaskList(data: unknown): { total: number; rows: VideoTask[] } {
   const rows = rowsOf(data)
@@ -245,6 +247,7 @@ export function readTaskList(data: unknown): { total: number; rows: VideoTask[] 
  * Read one page of child results, keeping the finished-video URL and the
  * geometry a regional erasure needs.
  * @param data - Envelope `data` from `/admin/aigc/video/task/sub/list`.
+ * @returns The page total and its mapped child results.
  */
 export function readSubtaskPage(data: unknown): { total: number; rows: VideoSubtask[] } {
   const rows = rowsOf(data)

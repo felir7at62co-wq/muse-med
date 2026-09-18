@@ -101,6 +101,7 @@ function page(args: MethodArgs): string {
 /**
  * Canonical hash of a request body, so the ledger can tell two attempts apart.
  * @param body - The exact body about to be sent, or undefined for a bodyless write.
+ * @returns The `sha256:`-prefixed hash of the body's canonical JSON.
  */
 export function bodyHash(body: Record<string, unknown> | undefined): string {
   return `sha256:${createHash('sha256').update(JSON.stringify(body ?? null)).digest('hex')}`
@@ -173,6 +174,7 @@ export async function writeUnderLedger(
  * `jubian_catalog` — catalogue, screenplay and episode reads.
  * @param client - Jubian transport.
  * @param args - Dispatched on `method`.
+ * @returns The requested slice, keyed by the `method` that asked for it.
  */
 export async function catalogMethod(client: JubianClient, args: MethodArgs): Promise<Record<string, unknown>> {
   switch (args.method) {
@@ -209,6 +211,7 @@ export async function catalogMethod(client: JubianClient, args: MethodArgs): Pro
  * @param client - Jubian transport.
  * @param ledger - Write-path ledger, used only by `confirm_casting`.
  * @param args - Dispatched on `method`.
+ * @returns The requested asset view, keyed by the `method` that asked for it.
  */
 export async function assetMethod(client: JubianClient, ledger: JubianLedger,
   args: MethodArgs): Promise<Record<string, unknown>> {
@@ -265,6 +268,7 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
  * @param client - Jubian transport.
  * @param ledger - Write-path ledger, used only by `image_generate`.
  * @param args - Dispatched on `method`.
+ * @returns The requested video view, keyed by the `method` that asked for it.
  */
 export async function videoMethod(client: JubianClient, ledger: JubianLedger,
   args: MethodArgs): Promise<Record<string, unknown>> {
@@ -384,6 +388,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
  * @param client - Jubian transport.
  * @param ledger - Write-path ledger.
  * @param args - Dispatched on `method`.
+ * @returns The requested storyboard view, keyed by the `method` that asked for it.
  */
 export async function storyboardMethod(client: JubianClient, ledger: JubianLedger,
   args: MethodArgs): Promise<Record<string, unknown>> {
@@ -475,6 +480,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
  * which exposes only `writeText` and has no binary write. Jubian's CDN needs no
  * credential, so this sends none.
  * @param args - `media_url`, `media_kind` and `output_path` are required.
+ * @returns The written file's path, kind, media type, byte length and digest.
  */
 export async function mediaMethod(args: MethodArgs): Promise<Record<string, unknown>> {
   const kind = need(args.media_kind)

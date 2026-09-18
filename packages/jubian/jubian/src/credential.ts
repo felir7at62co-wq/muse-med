@@ -28,7 +28,11 @@ export function trimBearerToken(value: string): string {
   return candidate
 }
 
-/** Whether a repaired value is still something a bearer header may carry. */
+/**
+ * Whether a repaired value is still something a bearer header may carry.
+ * @param value - A value already passed through {@link trimBearerToken}.
+ * @returns True when the value is non-empty and carries no whitespace.
+ */
 export function isUsableBearerToken(value: string): boolean {
   return value.length > 0 && !/\s/.test(value)
 }

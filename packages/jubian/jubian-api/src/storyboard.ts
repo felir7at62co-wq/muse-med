@@ -50,6 +50,7 @@ function configOf(source: Record<string, unknown>): Record<string, unknown> {
  * Read one storyboard snapshot.
  * @param data - Envelope `data` from `/aigc/storyboard/{storyboardId}`.
  * @param expectedStoryboardId - When given, the snapshot must be that storyboard.
+ * @returns The snapshot's identity, duration and material keys.
  */
 export function readStoryboard(data: unknown, expectedStoryboardId?: number): StoryboardView {
   if (!data || typeof data !== 'object' || Array.isArray(data)) invalid()

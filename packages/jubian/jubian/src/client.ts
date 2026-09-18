@@ -44,12 +44,15 @@ export interface JubianResponse {
   data: unknown
 }
 
+/** How one client resolves its credential, its origin and its byte budget. */
 export interface JubianClientOptions {
   /** Resolves the bearer token; the client repairs its boundary and never logs it. */
   credential: () => Promise<string>
   /** Origin override; defaults to {@link JUBIAN_DEFAULT_BASE_URL}. */
   baseUrl?: string
+  /** Abort a call after this many milliseconds. */
   timeoutMs?: number
+  /** Refuse a response body larger than this many bytes. */
   maxResponseBytes?: number
   /** Transport override, used by tests. */
   fetch?: typeof fetch

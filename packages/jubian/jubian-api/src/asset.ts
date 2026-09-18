@@ -59,6 +59,7 @@ export interface MaterialRow {
 /**
  * Read one page of the project's assets.
  * @param data - Envelope `data` from `/aigc/asset/list`.
+ * @returns The page total and its mapped asset rows.
  */
 export function readAssetList(data: unknown): { total: number; rows: AssetRow[] } {
   const rows = rowsOf(data)
@@ -69,6 +70,7 @@ export function readAssetList(data: unknown): { total: number; rows: AssetRow[] 
 /**
  * Read one asset, keeping the flags an admission rule needs.
  * @param data - Envelope `data` from `/aigc/asset/{assetId}`.
+ * @returns The asset's identity plus its local and Hosting status flags.
  */
 export function readAssetPage(data: unknown): AssetDetail {
   const row = object(data)
@@ -80,6 +82,7 @@ export function readAssetPage(data: unknown): AssetDetail {
 /**
  * Read the project's subject-setting materials.
  * @param data - Envelope `data` from `/aigc/material/list`.
+ * @returns The page total and its mapped material rows.
  */
 export function readMaterialList(data: unknown): { total: number; rows: MaterialRow[] } {
   const rows = rowsOf(data)
@@ -94,6 +97,7 @@ export function readMaterialList(data: unknown): { total: number; rows: Material
 /**
  * Read the generated image reference for one asset.
  * @param data - Envelope `data` from `/aigc/material/getGeneratedImageByAssetId`.
+ * @returns The reference URL and its material id when the provider sent one.
  */
 export function readGeneratedImage(data: unknown): { url: string; material_id: number | null } {
   const row = object(data)

@@ -24,10 +24,13 @@ import type { MethodArgs } from './methods.ts'
 export const name = 'tool-jubian'
 export const inject = ['tools', 'credentials']
 
+/** Where the tool row keeps its ledger and which origin it calls. */
 export interface Config {
   /** Directory holding the write ledger; defaults to `<DSH_HOME>/jubian/ledger`. */
   ledgerRoot?: string
+  /** Origin override; defaults to the client's own default base URL. */
   baseUrl?: string
+  /** Per-call abort budget in milliseconds. */
   timeoutMs?: number
 }
 

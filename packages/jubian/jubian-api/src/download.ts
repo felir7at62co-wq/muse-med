@@ -30,15 +30,19 @@ export interface DownloadedMedia {
   sha256: string
 }
 
+/** How one download call picks its transport, its allowlist and its limits. */
 export interface DownloadMediaOptions {
   /** Explicit kind: the caller knows whether it asked for a still or a video. */
   kind: MediaKind
   /** Origin allowlist; defaults to {@link MEDIA_ALLOWED_ORIGINS}. */
   allowedOrigins?: readonly string[]
+  /** Refuse a body larger than this many bytes; defaults to the module's cap. */
   maxBytes?: number
+  /** Abort the request after this many milliseconds. */
   timeoutMs?: number
   /** Transport override, used by tests. */
   fetch?: typeof fetch
+  /** Caller-owned cancellation, raced against the timeout. */
   signal?: AbortSignal
 }
 

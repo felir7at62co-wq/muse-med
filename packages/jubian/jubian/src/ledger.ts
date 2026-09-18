@@ -70,10 +70,13 @@ export interface JubianLedgerSettlement {
 
 /** The verdict of a `begin`: a fresh intent, or an existing record that must not be re-sent. */
 export interface JubianLedgerBeginResult {
+  /** True when the key was already recorded, so nothing was or should be sent. */
   replayed: boolean
+  /** The record as the ledger now holds it. */
   record: JubianLedgerRecord
 }
 
+/** Where one ledger keeps its records. */
 export interface JubianLedgerOptions {
   /** Directory holding the per-day NDJSON files. */
   root: string
