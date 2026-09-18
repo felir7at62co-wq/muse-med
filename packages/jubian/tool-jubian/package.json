@@ -1,8 +1,15 @@
 {
   "name": "@deepseek-ai/dsh-tool-jubian",
   "description": "Jubian tools for the DeepSeek Harness: catalogue, assets, storyboards, video tasks and media download",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.6-alpha.1",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/jubian/tool-jubian"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

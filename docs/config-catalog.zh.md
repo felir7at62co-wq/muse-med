@@ -3004,6 +3004,26 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 
 来源：[`packages/jobs/tool-jobs/src/index.ts:31`](../packages/jobs/tool-jobs/src/index.ts)
 
+<a id="deepseek-aidsh-tool-jubian"></a>
+
+## `@deepseek-ai/dsh-tool-jubian`
+
+需要：`tools` · `credentials`
+
+```ts config-catalog
+/** Where the tool row keeps its ledger and which origin it calls. */
+export interface Config {
+  /** Directory holding the write ledger; defaults to `<DSH_HOME>/jubian/ledger`. */
+  ledgerRoot?: string
+  /** Origin override; defaults to the client's own default base URL. */
+  baseUrl?: string
+  /** Per-call abort budget in milliseconds. */
+  timeoutMs?: number
+}
+```
+
+来源：[`packages/jubian/tool-jubian/src/index.ts:28`](../packages/jubian/tool-jubian/src/index.ts)
+
 <a id="deepseek-aidsh-tool-lsp"></a>
 
 ## `@deepseek-ai/dsh-tool-lsp`
@@ -3730,6 +3750,8 @@ export interface Config {
 - `@deepseek-ai/dsh-home-paths`（[`packages/util/home-paths/src/index.ts`](../packages/util/home-paths/src/index.ts)）
 - `@deepseek-ai/dsh-hook-protocol`（[`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts)）
 - `@deepseek-ai/dsh-http-proxy`（[`packages/util/http-proxy/src/index.ts`](../packages/util/http-proxy/src/index.ts)）
+- `@deepseek-ai/dsh-jubian`（[`packages/jubian/jubian/src/index.ts`](../packages/jubian/jubian/src/index.ts)）
+- `@deepseek-ai/dsh-jubian-api`（[`packages/jubian/jubian-api/src/index.ts`](../packages/jubian/jubian-api/src/index.ts)）
 - `@deepseek-ai/dsh-launch-environment`（[`packages/util/launch-environment/src/index.ts`](../packages/util/launch-environment/src/index.ts)）
 - `@deepseek-ai/dsh-lazy-require`（[`packages/util/lazy-require/src/index.ts`](../packages/util/lazy-require/src/index.ts)）
 - `@deepseek-ai/dsh-llm-mock-server`（[`packages/test-support/llm-mock-server/src/index.ts`](../packages/test-support/llm-mock-server/src/index.ts)）

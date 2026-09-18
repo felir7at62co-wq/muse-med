@@ -7,10 +7,12 @@
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
-import { basename, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { basename, join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
+import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
@@ -64,6 +66,7 @@ import * as StagehandBrowserTools from '@deepseek-ai/dsh-experimental-browser-us
 import type TeamService from '@deepseek-ai/dsh-experimental-agent-team'
 import * as ToolTeam from '@deepseek-ai/dsh-experimental-tool-agent-team'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
+import * as ToolJubian from '@deepseek-ai/dsh-tool-jubian'
 import McpResources from '@deepseek-ai/dsh-mcp-resources'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import { registerListSubagentModels } from '../packages/subagent/tool-subagent/src/list-models.ts'
@@ -637,6 +640,27 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-jubian',
+    dir: 'tool-jubian',
+    source: 'packages/jubian/tool-jubian/src/index.ts',
+    requires: ['ctx.tools', 'ctx.credentials'],
+    writes: ['tool/call', 'tool/result', 'Jubian two-phase write ledger (NDJSON record pairs under its configured root)'],
+    async mount(ctx) {
+      // The row injects `credentials`: it resolves JUBIANAI_ADMIN_TOKEN on every
+      // call, so the harvest needs a provider that satisfies the injection
+      // without reading the operator's real store.
+      await ctx.plugin(LocalCredentialProvider, {
+        path: join(tmpdir(), 'dsh-tool-catalog', 'credentials.yaml'),
+        dshHome: join(tmpdir(), 'dsh-tool-catalog'),
+        watch: false,
+      })
+      await ctx.plugin(ToolJubian, { ledgerRoot: join(tmpdir(), 'dsh-tool-catalog', 'jubian-ledger') })
+    },
+    note:
+      'Every paid write (image_generate, generate, erase_subtitle, upscale) requires a caller-supplied idempotency_key and records its intent in the ledger before the request leaves; '
+      + 'erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call.',
   },
 ]
 

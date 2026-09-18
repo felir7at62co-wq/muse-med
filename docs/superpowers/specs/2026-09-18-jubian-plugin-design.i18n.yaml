@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/superpowers/specs/2026-09-18-jubian-plugin-design.md
+2026-09-18-jubian-plugin-design.md: 09a4ef5239406788c33e4f6739f889d4693d83bf
+2026-09-18-jubian-plugin-design.zh.md: 2cc37a52775040ad8ab65f09d5c274535e1a9f6e

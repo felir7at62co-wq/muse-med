@@ -1,30 +1,32 @@
-# 剧变（Jubian）工具插件设计
+# Jubian tool plugin design
 
-- 日期：2026-09-18
-- 状态：待评审
-- 范围：`packages/jubian/*`（新增）。**本轮不改动 `packages/bundle/muse-product` 的任何代码。**
+English | [中文](2026-09-18-jubian-plugin-design.zh.md)
 
-## 1. 背景与目标
+- Date: 2026-09-18
+- Status: pending review
+- Scope: `packages/jubian/*` (new). **This round changes no code in `packages/bundle/muse-product`.**
 
-剧变（`web.jubianai.net`）是 MUSE 短剧产品唯一的多媒体生成后端。它今天只以两种形态存在：
+## 1. Background and goals
 
-1. 约 3000 行与 MUSE 治理层交织的适配代码（`packages/bundle/muse-product/src/jubian-*.ts`，20 个文件 3434 行），其中大部分依赖 Task 准入、租约、收据、报价等 MUSE 专属机制；
-2. 一个 Python CLI（`jubianai-api/scripts/jubianai_api.py`，约 203 KB），**产品代码从不调用它**，只作为归档知识被哈希钉住。
+Jubian (`web.jubianai.net`) is the only multimedia generation backend behind the MUSE short-drama product. Today it exists in exactly two forms:
 
-结果是：任何非 MUSE 的 DSH 会话都无法查询或操作剧变项目。
+1. roughly 3000 lines of adapter code interwoven with the MUSE governance layer (`packages/bundle/muse-product/src/jubian-*.ts`, 20 files, 3434 lines), most of which depends on MUSE-specific machinery such as Task admission, leases, receipts, and quotes;
+2. a Python CLI (`jubianai-api/scripts/jubianai_api.py`, about 203 KB) that **product code never calls**, pinned by hash as archived knowledge only.
 
-**目标**：把剧变的全部 HTTP 能力做成一个 DSH 插件包，使任意 DSH 模式挂上即可查询与操作剧变；凭证、错误语义与审计口径在一个地方定义。
+The consequence: no DSH session outside MUSE can query or operate a Jubian project.
 
-**非目标**（本轮明确不做）：
+**Goal**: turn every Jubian HTTP capability into one DSH plugin package, so that mounting it in any DSH mode is enough to query and operate Jubian, with the credential, the error semantics, and the audit standard defined in one place.
 
-- 不修改、不重构 MUSE；不让 MUSE 依赖新包；
-- 不提供旧 CLI 的兼容命令（`create-video`、`submit-video-task`、直连 `POST /admin/aigc/video/task/create`）；
-- 不做多账号；
-- 不做消费配额封顶（写工具开箱可用，是否封顶留待后续单独决定）。
+**Non-goals** (explicitly out of scope this round):
 
-## 2. 包结构
+- do not modify or refactor MUSE; do not let MUSE depend on the new packages;
+- do not provide compatibility commands for the old CLI (`create-video`, `submit-video-task`, or a direct `POST /admin/aigc/video/task/create`);
+- do not support multiple accounts;
+- do not cap spending (write tools work out of the box; whether to cap them is a separate later decision).
 
-遵循仓库现有约定：目录 `packages/<组>/<名>`，包名 `@deepseek-ai/dsh-<名>`（与 `packages/tool-*` 下 23 个包一致）。
+## 2. Package structure
+
+Following the repository's existing convention: the directory is `packages/<group>/<name>` and the package name is `@deepseek-ai/dsh-<name>` (matching the 23 packages under `packages/tool-*`).
 
 ```
 packages/jubian/
@@ -34,19 +36,19 @@ packages/jubian/
   client-jubian/  @deepseek-ai/dsh-client-jubian 设置页那一格：粘贴 token（Client 半，第 10 节阶段 4 才做）
 ```
 
-依赖单向 `jubian ← jubian-api ← tool-jubian`，**没有任何一条指向 MUSE**。
+The dependency direction is one-way, `jubian ← jubian-api ← tool-jubian`, and **not one edge points at MUSE**.
 
-- `jubian` 与 `jubian-api` 是纯库，不注册工具、不消费 Cordis 服务，可用 vitest 直接单测（与 `dsh-skill`、`dsh-llm` 同形）。
-- `tool-jubian` 是 Host 插件行，可被任意 preset 以一行挂载。
-- `client-jubian` 是浏览器半，遵循仓库既有约定：**客户端界面单独成包**（如 `packages/settings/ui-settings-plugin-inventory`、`packages/client/ui-settings-models`），因为它需要自己的客户端打包配置。它只负责 token 写入那一格，不影响工具可用性——先不装它，工具照样能读能写，只是没有粘贴界面。
+- `jubian` and `jubian-api` are pure libraries: they register no tool and consume no Cordis service, and vitest unit-tests them directly (the same shape as `dsh-skill` and `dsh-llm`).
+- `tool-jubian` is a Host plugin row that any preset can mount with one line.
+- `client-jubian` is the browser half, following the repository's existing convention that **a client interface is its own package** (as in `packages/client/ui-settings-plugin-inventory` and `packages/client/ui-settings-models`), because it needs its own client bundling configuration. It owns only the token-writing cell and does not affect whether the tools work: without it the tools still read and write, there is just no paste interface.
 
-## 3. 端点清单（21 个）
+## 3. Endpoint inventory (21)
 
-从产品代码静态提取，出处为 `packages/bundle/muse-product/src/` 下文件与行号。
+Statically extracted from product code; the citations are files and line numbers under `packages/bundle/muse-product/src/`.
 
-### 3.1 读（17）
+### 3.1 Reads (17)
 
-| 端点 | 出处 |
+| Endpoint | Source |
 |---|---|
 | `GET /model/charge/getSelectList?taskType=1\|2\|10` | `jubian-catalog.ts:62,198` |
 | `GET /model/charge/{standardId}` | `jubian-catalog.ts:75,99,204` |
@@ -59,80 +61,80 @@ packages/jubian/
 | `GET /aigc/storyboard/{storyboardId}` | `jubian-asset-reader.ts:428` |
 | `GET /admin/aigc/video/task/{taskId}` | `jubian-asset-reader.ts:161,242,554,925` |
 | `GET /admin/aigc/video/task/list?scriptId=&taskType=1&pageNum=` | `jubian-asset-reader.ts:491` |
-| `POST /admin/aigc/video/task/sub/list`（查询体 `{aigcVideoTaskId}`，**只读语义**） | `jubian-asset-reader.ts:166,245,509,556,654` |
+| `POST /admin/aigc/video/task/sub/list` (query body `{aigcVideoTaskId}`, **read-only semantics**) | `jubian-asset-reader.ts:166,245,509,556,654` |
 
-> 注：第 12 项是读接口但动词为 POST，因为查询体承载 `aigcVideoTaskId`。工具层必须把它标注为"只读"。
+> Note: item 12 is a read endpoint whose verb is POST, because its query body carries `aigcVideoTaskId`. The tool layer must label it read-only.
 
-**这 17 个读接口足以还原一个剧变项目的全貌**：`script → episode/list → asset/list → material/list（含 isLocal、hsAssetStatus）→ storyboard → video/task(+sub/list)`。查询能力不依赖 MUSE 任何机制。
+**These 17 read endpoints are enough to reconstruct a Jubian project whole**: `script → episode/list → asset/list → material/list` (including `isLocal` and `hsAssetStatus`) `→ storyboard → video/task(+sub/list)`. Query capability depends on no MUSE machinery.
 
-### 3.2 写（4）
+### 3.2 Writes (4)
 
-| 端点 | 动词 | 出处 | 性质 |
+| Endpoint | Verb | Source | Nature |
 |---|---|---|---|
-| `/aigc/asset` | POST（无父）/ PUT（有父） | `jubian-image-sender.ts:88` | **收费**：单张图片生成/重生成 |
-| `/aigc/storyboard` | POST 建 / PUT 存 | `jubian-storyboard-save.ts:99` | PUT 带 `isGenerate:0` 免费；`:1` **收费** |
-| `/aigc/storyboard/subtitleEraser` | POST | `jubian-storyboard-save.ts:99` | **收费**：去字幕任务 |
-| `/aigc/material/confirm/{materialId}` | **GET** | `jubian-casting.ts:33` | **写·GET 有副作用**（确认出演） |
+| `/aigc/asset` | POST (no parent) / PUT (with parent) | `jubian-image-sender.ts:88` | **Billable**: generation or regeneration of one image |
+| `/aigc/storyboard` | POST to create / PUT to save | `jubian-storyboard-save.ts:99` | A PUT with `isGenerate:0` is free; `:1` is **billable** |
+| `/aigc/storyboard/subtitleEraser` | POST | `jubian-storyboard-save.ts:99` | **Billable**: the subtitle erasure task |
+| `/aigc/material/confirm/{materialId}` | **GET** | `jubian-casting.ts:33` | **Write · side-effecting GET** (confirm casting) |
 
-> 最后一项是全仓库唯一用读动词做写事的地方。工具描述必须显式写明"不要重试"，否则任何幂等框架都会误判。
+> The last item is the only place in the repository where a read verb does a write. The tool description must state "do not retry" explicitly, or any idempotency framework will misjudge it.
 
-## 4. 工具面（4 个工具 / 21 个方法）
+## 4. Tool surface (4 tools / 21 methods)
 
-按域分组，不按端点一工具。理由：工具 schema 常驻请求前缀，工具数与参数表直接乘每轮 token 成本，且改动会打断 KV cache（`packages/bundle/muse-product/README.md:61-67`）。
+Group by domain, not one tool per endpoint. The reason: tool schemas sit permanently in the request prefix, so the number of tools and the size of their parameter tables multiply per-turn token cost directly, and any change breaks the KV cache (`packages/bundle/muse-product/README.md:61-67`).
 
-| 工具 | 方法 | 端点 | 计费标注 |
+| Tool | Method | Endpoint | Billing label |
 |---|---|---|---|
-| `jubian_catalog` | `models` | getSelectList | 只读 |
-| | `rate` | model/charge/{id} | 只读 |
-| | `script` | aigc/script/{id} | 只读 |
-| | `episodes` | aigc/episode/list | 只读 |
-| `jubian_asset` | `get` | aigc/asset/{id} | 只读 |
-| | `list` | aigc/asset/list | 只读 |
-| | `materials` | aigc/material/list | 只读 |
-| | `generated_image` | material/getGeneratedImageByAssetId | 只读 |
-| | `confirm_casting` | material/confirm/{id} | **写·GET 副作用** |
-| `jubian_storyboard` | `get` | aigc/storyboard/{id} | 只读 |
-| | `create` | storyboard POST | 写·免费 |
-| | `save` | storyboard PUT (`isGenerate:0`) | 写·免费 |
-| | `generate` | storyboard PUT (`isGenerate:1`) | **收费·不可撤销** |
-| | `erase_subtitle` | storyboard/subtitleEraser | **收费** |
-| `jubian_video` | `task` | video/task/{id} | 只读 |
-| | `tasks` | video/task/list | 只读 |
-| | `subtasks` | video/task/sub/list | 只读（动词为 POST） |
-| | `image_generate` | aigc/asset POST/PUT | **收费·不可撤销** |
+| `jubian_catalog` | `models` | getSelectList | read-only |
+| | `rate` | model/charge/{id} | read-only |
+| | `script` | aigc/script/{id} | read-only |
+| | `episodes` | aigc/episode/list | read-only |
+| `jubian_asset` | `get` | aigc/asset/{id} | read-only |
+| | `list` | aigc/asset/list | read-only |
+| | `materials` | aigc/material/list | read-only |
+| | `generated_image` | material/getGeneratedImageByAssetId | read-only |
+| | `confirm_casting` | material/confirm/{id} | **write · side-effecting GET** |
+| `jubian_storyboard` | `get` | aigc/storyboard/{id} | read-only |
+| | `create` | storyboard POST | write · free |
+| | `save` | storyboard PUT (`isGenerate:0`) | write · free |
+| | `generate` | storyboard PUT (`isGenerate:1`) | **billable · irreversible** |
+| | `erase_subtitle` | storyboard/subtitleEraser | **billable** |
+| `jubian_video` | `task` | video/task/{id} | read-only |
+| | `tasks` | video/task/list | read-only |
+| | `subtasks` | video/task/sub/list | read-only (verb is POST) |
+| | `image_generate` | aigc/asset POST/PUT | **billable · irreversible** |
 
-**计费与副作用必须写进 tool description 本身**——模型读的是 description，不是源码。至少包含：
+**Billing and side effects must be written into the tool description itself** — the model reads the description, not the source. At minimum it must cover:
 
-- `generate` / `erase_subtitle` / `image_generate`：会真实计费、不可撤销、不要在超时后盲目重试；
-- `confirm_casting`：GET 动词但有副作用；
-- `subtasks`：POST 动词但只读。
+- `generate` / `erase_subtitle` / `image_generate`: these charge real money, cannot be undone, and must not be retried blindly after a timeout;
+- `confirm_casting`: a GET verb that has a side effect;
+- `subtasks`: a POST verb that only reads.
 
-写方法默认注册、开箱可用（与读一致），不设 `writes` 开关。
+Write methods are registered by default and work out of the box (exactly like reads), with no `writes` switch.
 
-### 4.1 待定映射（实现阶段第一步要定）
+### 4.1 Pending mapping (to settle first in implementation)
 
-下列方法的**入参形态**尚未从产品代码完整提取，spec 只钉住其来源与语义边界，实现时以源码为准：
+The **input shape** of the following methods has not been extracted from product code in full; the spec pins only their source and their semantic boundary, and the source code is authoritative at implementation time:
 
-| 方法 | 入参来源 | 已知约束 |
+| Method | Input source | Known constraints |
 |---|---|---|
-| `image_generate` | `jubian-image-request.ts:buildJubianImageRequest` | 无父 POST / 有父 PUT；请求体 ≤ 1 MiB；token 不含空白 |
-| `storyboard.create` / `save` | `storyboard-save-payload.ts:buildStoryboardCreatePayload` / `buildStoryboardSavePayload` | 请求体 ≤ 8 MiB；`save` 的载荷 `isGenerate` 必须为 0 |
-| `storyboard.generate` | `storyboard-save-payload.ts:buildStoryboardGenerationPayload` | 必须先有已保存的 `isGenerate:0` 分镜；`contentDurationMs` 为 4000–14000 的整数秒 |
-| `erase_subtitle` | `jubian-subtitle-request.ts:buildJubianSubtitleRequest` | 需要解码后的画面几何与已批准像素区域 |
-| `confirm_casting` | `jubian-casting.ts` | `materialId` 必须匹配 `^[1-9][0-9]*$`，且必须是生成材质 ID，不能是父资产或异步任务 ID |
+| `image_generate` | `jubian-image-request.ts:buildJubianImageRequest` | POST without a parent / PUT with one; request body ≤ 1 MiB; the token carries no whitespace |
+| `storyboard.create` / `save` | `storyboard-save-payload.ts:buildStoryboardCreatePayload` / `buildStoryboardSavePayload` | request body ≤ 8 MiB; the `save` payload's `isGenerate` must be 0 |
+| `storyboard.generate` | `storyboard-save-payload.ts:buildStoryboardGenerationPayload` | a saved `isGenerate:0` storyboard must already exist; `contentDurationMs` is a whole number of seconds from 4000 to 14000 |
+| `erase_subtitle` | `jubian-subtitle-request.ts:buildJubianSubtitleRequest` | needs the decoded frame geometry and the approved pixel region |
+| `confirm_casting` | `jubian-casting.ts` | `materialId` must match `^[1-9][0-9]*$`, and must be a generated material id, never a parent asset or an asynchronous task id |
 
-## 5. 凭证
+## 5. Credential
 
-**归属**：键归插件，值归宿主。包内不含任何密钥。
+**Ownership**: the key belongs to the plugin, the value belongs to the host. No package contains a secret.
 
-| 项 | 位置 |
+| Item | Location |
 |---|---|
-| 键名（唯一权威） | `JUBIANAI_ADMIN_TOKEN`，由 `tool-jubian` 定义并导出 |
-| 值的存储 | `$DSH_HOME/.credentials.yaml`，经 `credentials` 服务读写 |
-| 写入界面 | `tool-jubian` 提供 `settings.section` 一个"剧变"页；`credentials.describe([ref])` 查状态、`credentials.set(ref, value)` 写入（照 `packages/client/ui-settings-models/src/client/operations.ts:85,89` 的现成做法） |
-| 环境变量覆盖 | `JUBIANAI_ADMIN_TOKEN`，用于 CI/容器 |
+| Key name (sole authority) | `JUBIANAI_ADMIN_TOKEN`, defined and exported by `tool-jubian` |
+| Value store | `$DSH_HOME/.credentials.yaml`, read and written through the `credentials` service |
+| Write interface | `tool-jubian` provides one "剧变" page in `settings.section`; `credentials.describe([ref])` reads the status and `credentials.set(ref, value)` writes it (following the existing practice in `packages/client/ui-settings-models/src/client/operations.ts:85,89`) |
+| Environment override | `JUBIANAI_ADMIN_TOKEN`, for CI and containers |
 
-**凭证层级**（`packages/credentials/credentials-local/src/index.ts:5-10`）：
+**Credential precedence** (`packages/credentials/credentials-local/src/index.ts:5-10`):
 
 ```
 继承的进程环境（只读，最高）
@@ -141,54 +143,54 @@ packages/jubian/
 > $DSH_HOME/.env
 ```
 
-进程环境优先，因此 `JUBIANAI_ADMIN_TOKEN=… dsh` 会盖过设置页的值并使其显示为只读。这是设计意图，文档需写明，避免"改了没生效"的误判。
+The process environment wins, so `JUBIANAI_ADMIN_TOKEN=… dsh` overrides the settings page and makes it display as read-only. That is the intent, and the documentation must say so, to avoid the misjudgement that "my change had no effect".
 
-**禁止**：任何把 `.credentials.yaml` 或明文 token 复制进 `packages/jubian/` 的做法。该文件当前不被 git 跟踪，一旦入包即随检出外流，而检出 remote 是 `deepseek-ai/deepseek-harness`。
+**Forbidden**: any practice that copies `.credentials.yaml` or a plaintext token into `packages/jubian/`. That file is currently untracked by git, and once it enters a package it leaks with the checkout, whose remote is `deepseek-ai/deepseek-harness`.
 
-**token 边界修复**：沿用 `jubian-credential.ts:12-23` 的语义——去掉首尾空白、一个 shell 分隔符（`;`/`&`）、一对成对引号；值内部仍有空白则本地按 `AUTHENTICATION_REQUIRED` 失败，不发请求、不记录、不回显。
+**Token boundary repair**: follow the semantics of `jubian-credential.ts:12-23` — strip leading and trailing whitespace, one shell separator (`;`/`&`), and one pair of matching quotes; if whitespace remains inside the value, fail locally with `AUTHENTICATION_REQUIRED`, sending no request, recording nothing, and echoing nothing.
 
-## 6. 幂等账本
+## 6. Idempotency ledger
 
-目的只有一个：网络超时或回应歧义时，能查清"这笔到底发出去没有"，而不是靠猜。
+It has exactly one purpose: when the network times out or a response is ambiguous, establish whether "this one actually went out" instead of guessing.
 
-每次写方法的记录：
+The record of every write method:
 
-| 字段 | 含义 |
+| Field | Meaning |
 |---|---|
-| `record_id` | `req_` + 单调 ID |
-| `at` | 出网前的时间戳 |
-| `method` | 工具方法名 |
-| `idempotency_key` | **调用方通过工具入参提供，必填**；缺失即 `INVALID_ARGUMENT`，不代生成（见下） |
-| `request_sha256` | 请求体规范化哈希 |
-| `quoted_amount` / `quote_standard_id` / `quote_observed_at` | 出网前抓取的报价快照（能取到时） |
-| `http_status` / `application_code` / `response_sha256` | 出网后回填；未回填即为未知 |
-| `outcome` | `accepted` = HTTP 2xx 且 `application_code` 为 0 或 200；其余（含超时、异常、非成功码）一律 `unknown` |
+| `record_id` | `req_` + a monotonic ID |
+| `at` | the timestamp before the request leaves |
+| `method` | the tool method name |
+| `idempotency_key` | **supplied by the caller through the tool input, required**; absent means `INVALID_ARGUMENT` and it is never generated for the caller (see below) |
+| `request_sha256` | canonicalized hash of the request body |
+| `quoted_amount` / `quote_standard_id` / `quote_observed_at` | the quote snapshot taken before the request leaves (when one is available) |
+| `http_status` / `application_code` / `response_sha256` | filled in after the request returns; unfilled means unknown |
+| `outcome` | `accepted` = HTTP 2xx with `application_code` 0 or 200; everything else (including timeouts, exceptions, and non-success codes) is `unknown` |
 
-实现要求：
+Implementation requirements:
 
-- **`idempotency_key` 必填且不代生成。** 它唯一的用途是让调用方在一次超时后能安全重发。若插件在缺失时自动生成，重发就会拿到新键、绕过既有记录，正是这个机制要防的事——因此缺失是错误，不是便利。
-- 同键重复调用**不重发**，直接返回既有记录，并在结果里标明 `replayed: true`。
-- **出网前先落一条，回填第二条**；崩溃或超时留下的"只有前半条"的记录就是未知态，可被查询与对账；
-- **绝不自动重试**写请求。未知态只能由调用方看到记录后自行决定；
-- 存储：NDJSON 追加写，按日分片，位于 `$DSH_HOME/jubian/ledger/`（路径可配置）。
+- **`idempotency_key` is required and is never generated for the caller.** Its only purpose is to let the caller resend safely after a timeout. If the plugin generated one when it was missing, the resend would get a new key and bypass the existing record — precisely what this mechanism exists to prevent. A missing key is therefore an error, not a convenience.
+- A repeated call with the same key **does not resend**; it returns the existing record directly and marks the result `replayed: true`.
+- **Write one record before the request leaves and fill in the second after it returns**; a record left with only its first half by a crash or timeout is the unknown state, open to query and reconciliation;
+- **never retry a write request automatically.** The caller alone decides after seeing the record left in the unknown state;
+- Storage: NDJSON append-only, sharded by day, under `$DSH_HOME/jubian/ledger/` (path configurable).
 
-## 7. 错误处理
+## 7. Error handling
 
-五个稳定错误码，与远端响应体、远端 message、token 完全隔离（`jubian-catalog.ts:8-17,239-243,265-267`）：
+Five stable error codes, fully isolated from the remote response body, the remote message, and the token (`jubian-catalog.ts:8-17,239-243,265-267`):
 
-| 码 | 触发 |
+| Code | Trigger |
 |---|---|
-| `AUTHENTICATION_REQUIRED` | 无 token / token 含内部空白 / HTTP 401 或 403 / 信封 code 401 或 403 |
-| `PERMISSION_DENIED` | 信封 code 403 且 HTTP 为 2xx（HTTP 层的 403 一律归 `AUTHENTICATION_REQUIRED`） |
-| `RATE_LIMITED` | HTTP 429 / 信封 code 429 |
-| `CONTRACT_CHANGED` | 响应不是 JSON 对象、非严格 UTF-8、超字节上限、信封形状不符 |
-| `NETWORK_ERROR` | 连接失败、超时、重定向被拒、其他非 2xx |
+| `AUTHENTICATION_REQUIRED` | no token / interior whitespace in the token / HTTP 401 or 403 / envelope code 401 or 403 |
+| `PERMISSION_DENIED` | envelope code 403 while HTTP is 2xx (an HTTP-layer 403 always maps to `AUTHENTICATION_REQUIRED`) |
+| `RATE_LIMITED` | HTTP 429 / envelope code 429 |
+| `CONTRACT_CHANGED` | the response is not a JSON object, is not strictly UTF-8, exceeds the byte cap, or has an unexpected envelope shape |
+| `NETWORK_ERROR` | connection failure, timeout, refused redirect, or any other non-2xx |
 
-**已解析的一处历史不一致**：产品代码对 HTTP 403 有两种处理——`jubian-catalog.ts:241` 归 `PERMISSION_DENIED`，`jubian-asset-reader.ts:306` 归 `AUTHENTICATION_REQUIRED`。本设计统一取后者：HTTP 层的 401 与 403 都表示"这个 token 用不了"，`PERMISSION_DENIED` 只由信封内的 `code: 403` 产生（HTTP 2xx 但应用层拒绝）。实现与测试均以此为准，不再重新推导。
+**One historical inconsistency, now resolved**: product code handles HTTP 403 two ways — `jubian-catalog.ts:241` maps it to `PERMISSION_DENIED` and `jubian-asset-reader.ts:306` maps it to `AUTHENTICATION_REQUIRED`. This design adopts the latter uniformly: at the HTTP layer both 401 and 403 mean "this token is unusable", and `PERMISSION_DENIED` arises only from `code: 403` inside the envelope (HTTP 2xx but rejected by the application layer). Implementation and tests follow that, and do not re-derive it.
 
-工具层把错误码转成可读文本返回给模型，**永不携带远端响应体**。
+The tool layer turns an error code into readable text for the model and **never carries the remote response body**.
 
-## 8. HTTP 客户端契约
+## 8. HTTP client contract
 
 ```ts
 class JubianClient {
@@ -212,39 +214,39 @@ class JubianClient {
 }
 ```
 
-固化行为（与产品现有实现逐条对齐）：
+Fixed behavior (aligned item by item with the existing product implementation):
 
-- 固定 origin，`redirect: 'error'`，单次尝试，**不重试**；
-- 超时通过 `AbortSignal.timeout` 与该次调用自身的 signal 组合；
-- 流式读取并按 `maxResponseBytes` 截断，超限报 `CONTRACT_CHANGED`；
-- 严格 UTF-8 解码（`fatal: true`）、必须是 JSON 对象、`code` 必须为 0 或 200；
-- `code === 0` 与 `200` 都视为成功（远端两种都出现过）。
+- a fixed origin, `redirect: 'error'`, a single attempt, and **no retry**;
+- the timeout combines `AbortSignal.timeout` with that call's own signal;
+- read as a stream and truncate at `maxResponseBytes`, reporting `CONTRACT_CHANGED` when the cap is exceeded;
+- strict UTF-8 decoding (`fatal: true`), the payload must be a JSON object, and `code` must be 0 or 200;
+- both `code === 0` and `200` count as success (the remote has produced both).
 
-**`jubian` 与 `jubian-api` 内不得出现任何按业务字段取值的逻辑**，只有信封形状检查；业务字段解析一律留在 `jubian-api` 各自的读取器里，上游新增字段不会导致工具报错。
+**No logic that reads a business field by name may appear in `jubian` or `jubian-api`** — only envelope shape checks; business-field parsing stays in each reader inside `jubian-api`, so a field the provider adds upstream cannot make a tool fail.
 
-## 9. 测试
+## 9. Tests
 
-- 单元：`trimBearerToken` / `isUsableBearerToken` 的全部边界；信封与错误码映射；幂等键计算与账本追加-回填。
-- 契约：用录制的响应样本钉住每个读取器的字段解析，新增样本即新增用例。
-- 网络：所有测试经注入的 `fetch` 替身进行；**默认测试套件不发起真实网络请求**。
-- 写路径：以一个显式的、需人工开启的 opt-in 用例验证真实提交（默认跳过）。
+- Unit: every boundary of `trimBearerToken` / `isUsableBearerToken`; the envelope and error-code mapping; idempotency-key computation and the ledger's append-then-fill.
+- Contract: pin each reader's field parsing with recorded response samples; a new sample is a new case.
+- Network: every test runs through an injected `fetch` double; **the default suite sends no real network request**.
+- Write path: verify a real submission with one explicit, manually enabled opt-in case (skipped by default).
 
-## 10. 实施顺序
+## 10. Implementation order
 
-1. `packages/jubian/jubian` + `packages/jubian/jubian-api`：客户端、错误码、账本、凭证修复；先只接通 `/model/charge/getSelectList`，用它验证登录态与信封。
-2. `packages/jubian/tool-jubian`：注册 4 个工具，**这一阶段只注册读方法**（17 个中的 12 个读端点）。
-3. 写方法逐个落地，每个都必须先有账本：`image_generate` → `storyboard.create`/`save` → `generate` → `erase_subtitle` → `confirm_casting`。
-   - 顺序理由：从"最像普通 POST"到"GET 带副作用"，风险递增，前面的阶段为后面的建立账本与错误处理的可信度。
-4. `packages/jubian/client-jubian`：设置页那一格 token 写入界面。
-   - 可选。不做也能用（环境变量或直接编辑 `.credentials.yaml`），做了才是"挂上就能用"。
-5. 文档：`packages/jubian/tool-jubian/README.md` 记录端点表、计费标注、凭证层级与账本位置。
+1. `packages/jubian/jubian` + `packages/jubian/jubian-api`: the client, the error codes, the ledger, and credential repair; wire up only `/model/charge/getSelectList` first and use it to verify the login state and the envelope.
+2. `packages/jubian/tool-jubian`: register the 4 tools, **registering read methods only at this stage** (12 of the 17 read endpoints).
+3. Land the write methods one by one, each of which must have the ledger first: `image_generate` → `storyboard.create`/`save` → `generate` → `erase_subtitle` → `confirm_casting`.
+   - Why that order: from "most like an ordinary POST" to "a GET with a side effect" risk rises, and the earlier stages build the credibility of the ledger and the error handling for the later ones.
+4. `packages/jubian/client-jubian`: the token-writing interface in that one settings-page cell.
+   - Optional. Everything works without it (an environment variable, or editing `.credentials.yaml` directly), but only with it is the package "mount it and go".
+5. Documentation: `packages/jubian/tool-jubian/README.md` records the endpoint table, the billing labels, the credential precedence, and the ledger location.
 
-**阶段 1–3 交付后，DSH 任意模式即可读、可写剧变**；阶段 4 只消除首次配置的摩擦。
+**Once stages 1–3 ship, any DSH mode can read and write Jubian**; stage 4 only removes the friction of first-time configuration.
 
-## 11. 风险
+## 11. Risks
 
-1. **第三方实现，无官方文档**。`web.jubianai.net` 的响应结构可能变化，当前所有形状都是从产品代码与归档的 `references/api-contract.md` 反推的。缓解：信封与业务解析分层（第 8 节末）。
-2. **静态提取不等于运行时验证**。第 3 节清单来自代码，未逐个发起真实请求核对。缓解：实施第 1 步先用一个只读端点验证登录态与信封，再逐个确认。
-3. **写方法的入参形态尚未完整提取**（第 4.1 节）。这是实施阶段的第一项工作，不是可以跳过的细节。
-4. **`isGenerate` 与计费耦合**。同一个 `/aigc/storyboard` PUT，`:0` 免费、`:1` 收费，工具层必须把两者拆成两个方法，不能合成一个带布尔参数的方法。
-5. **凭证层级会静默覆盖设置页**（第 5 节）。
+1. **A third-party implementation with no official documentation.** The response shapes of `web.jubianai.net` may change, and every shape here is inferred backwards from product code and the archived `references/api-contract.md`. Mitigation: layer the envelope apart from business parsing (end of section 8).
+2. **Static extraction is not runtime verification.** The inventory in section 3 comes from code and no endpoint was checked by issuing a real request. Mitigation: implementation step 1 verifies the login state and the envelope with one read-only endpoint, then confirms the rest one by one.
+3. **The input shape of the write methods is not fully extracted** (section 4.1). That is the first task of implementation, not a detail that can be skipped.
+4. **`isGenerate` is coupled to billing.** The same `/aigc/storyboard` PUT is free with `:0` and billable with `:1`, so the tool layer must split the two into two methods and must not merge them into one method with a boolean parameter.
+5. **The credential precedence silently overrides the settings page** (section 5).
