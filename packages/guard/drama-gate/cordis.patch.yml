@@ -1,0 +1,21 @@
+# 短剧门禁插件（drama-gate）的组合包补丁：把插件行插入 preset。
+#
+# 本行按 id 覆盖；preset 或用户 profile 可以在自己的 cordis.patch.yml 里覆盖它的
+# 整个 config。全部字段都可省略，省略时用插件的默认值。
+#
+# 挂进短剧预设时用这一行（id / name / config）：
+#
+#   - id: drama-gate
+#     name: '@deepseek-ai/dsh-guard-drama'
+#     config:
+#       # workspaceRoot: E:\aa-manju      # 会话无 cwd 时的兜底工作区根（绝对路径）
+#       # workshopDir: short-drama        # 工作间目录名，默认 short-drama
+#       # projectRoot: E:\aa-manju\short-drama\my-drama   # 覆盖项目根推导（绝对路径）
+#       # idempotencyKey: true            # 写/计费方法必须带 idempotency_key
+#       # shotScript: true                # 镜头脚本与 matched JSON 的内容门禁
+#       # officialAssets: true            # 付费提交前必须有 official=true 资产
+#       # museToolNames: true             # 用中文说明已下线的 MUSE 工具名
+#
+- insert:
+    - id: drama-gate
+      name: '@deepseek-ai/dsh-guard-drama'
