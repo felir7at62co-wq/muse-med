@@ -6,23 +6,30 @@
  * second paid request, which is the only honest answer to "did that timeout
  * already charge me?".
  *
- * Read methods never touch the ledger. Two of them are worth naming here
- * because their HTTP verbs lie: `subtasks` is a POST that only reads, and
- * `confirm_casting` is a GET that changes provider state.
+ * Read methods never touch the ledger. Three of them are worth naming here
+ * because their HTTP verbs lie: `subtasks` is a POST that only reads,
+ * `confirm_casting` is a GET that changes provider state, and `prepare_video`
+ * writes only a local preview file while reading everything it needs.
  */
-import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
-import type { JubianClient, JubianLedger, JubianLedgerMethod, JubianResponse } from '@deepseek-ai/dsh-jubian'
+import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import {
-  MODEL_TASK_TYPES as TASKS, buildImageRequest, buildSubtitleEraseRequest, buildVideoUpscaleRequest,
-  downloadMedia, readAssetList, readAssetPage, readEpisodes, readGeneratedImage, readImageDisplayPrice,
-  readMaterialList, readModels, readScript, readStoryboard, readSubtaskPage, readTaskList, readTaskPage,
-  readSubtitleTaskId, readUpscaleTaskId, needsUpscale, resolveImageModel, withGenerationDisabled,
-  withGenerationEnabled, AUTOMATIC_ERASE_MODEL,
+  MODEL_TASK_TYPES as TASKS, FAILED_STATUSES, SUCCESS_STATUSES, buildImageRequest, buildSubtitleEraseRequest,
+  buildVideoUpscaleRequest, downloadMedia, readAssetList, readAssetPage, readEpisodes, readGeneratedImage,
+  readImageDisplayPrice, readMaterialList, readModels, readScript, readStoryboard, readSubtaskPage,
+  readTaskList, readTaskPage, readSubtitleTaskId, readUpscaleTaskId, needsUpscale, resolveImageModel,
+  withGenerationDisabled, withGenerationEnabled,
 } from '@deepseek-ai/dsh-jubian-api'
-import type { MediaKind } from '@deepseek-ai/dsh-jubian-api'
+import type { ImageModelSelection, ImageModelSelectors, MediaKind, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
+import { prepareVideoMethod, selectAssetsMethod, submitVideoMethod } from './native.ts'
+import { uploadReferenceMethod } from './reference.ts'
+import type { ReferenceUploadDeps } from './reference.ts'
+import { need, requireKey, writeUnderLedger } from './write.ts'
+
+export { bodyHash, writeUnderLedger } from './write.ts'
+export type { WriteOutcome } from './write.ts'
 
 /** Arguments as the tool layer receives them, already schema-validated. */
 export interface MethodArgs {
@@ -58,35 +65,163 @@ export interface MethodArgs {
   output_path?: string
   /** The resolution the caller intends to deliver, e.g. `1080p`; drives the needs_upscale verdict. */
   delivery_resolution?: string
-}
-
-/** What one ledger-guarded write produced. */
-export interface WriteOutcome {
-  replayed: boolean
-  outcome: 'accepted' | 'unknown'
-  response_sha256: string | null
-  data: unknown
+  /** `upload_reference`: the local image file to normalize and upload. */
+  image_path?: string
+  /** `prepare_video` / `submit_video`: the project directory holding `project_config.json`. */
+  project_dir?: string
+  /** `submit_video`: the prepared preview file the submission must be bound to. */
+  preview_path?: string
+  /** `select_assets`: the ordered `material_key`/parent `asset_id` pairs to save. */
+  selections?: SubjectSelectionRequest[]
 }
 
 /** One provider response, as the transport returns it. */
 type ClientResponse = JubianResponse
 
-function need<T>(value: T | undefined): T {
-  if (value === undefined) throw new JubianError('CONTRACT_CHANGED')
-  return value
+/**
+ * Everything the paid image path takes from outside the transport.
+ *
+ * `selection` pins which of several `gpt-image-2` catalogue rows this deployment
+ * buys from. The readback fields bound the wait for the asset's image to exist,
+ * and the clock and sleep are injectable so the timeout path is testable without
+ * spending three minutes of wall clock.
+ */
+export interface ImageMethodOptions {
+  /** The `gpt-image-2` catalogue row this deployment pinned. */
+  selection?: ImageModelSelection
+  /** Total budget for reaching `hsAssetStatus === 'Active'`, in milliseconds. */
+  activeTimeoutMs?: number
+  /** Delay between readback polls, in milliseconds. */
+  pollIntervalMs?: number
+  /** Clock used for the readback budget. */
+  now?: () => number
+  /** Sleep between readback polls. */
+  sleep?: (ms: number) => Promise<void>
+}
+
+/** The seams a method needs besides the provider transport, injectable for tests. */
+export interface MethodDeps {
+  /** Local reference upload: transport, re-encode, clock and `ffmpeg` path. */
+  reference?: ReferenceUploadDeps
+  /** Paid image generation: the pinned catalogue row and the post-write readback budget. */
+  image?: ImageMethodOptions
+}
+
+/** Provider statuses that mean a task is still moving and a retry would race it. */
+const ACTIVE_STATUSES = ['submit', 'submitted', 'pending', 'queued', 'running', 'processing']
+
+/** Default readback budget: a measured image asset reaches `Active` in one to two minutes. */
+const IMAGE_ACTIVE_TIMEOUT_MS = 180_000
+
+/** Default readback poll interval. */
+const IMAGE_ACTIVE_POLL_MS = 3_000
+
+/**
+ * What one `image_generate` readback concluded.
+ *
+ * The four non-`active` states are distinct facts, and none of them means "the
+ * image is there": `failed` saw a terminal asset status, `timeout` ran out of
+ * budget, `replayed` sent nothing at all, and `unverified` could not even name
+ * the asset to read.
+ */
+type ImageAssetStatus = 'active' | 'failed' | 'timeout' | 'replayed' | 'unverified'
+
+/** One post-write readback, as the tool result carries it. */
+interface ImageReadback {
+  status: ImageAssetStatus
+  material_id: number | null
+  image_url: string | null
+  observed_status: string | null
+  waited_ms: number
+  error: string | null
+}
+
+/** One readback with nothing read and one reason why. */
+function unread(status: 'replayed' | 'unverified', error: string): ImageReadback {
+  return { status, material_id: null, image_url: null, observed_status: null, waited_ms: 0, error }
 }
 
 /**
- * Reject a write that carries no usable idempotency key.
- *
- * Every write method calls this before its first network request, including the
- * reads that compile its body: a missing key must fail without spending even a
- * read. The key is never generated here — a generated key would let a retry
- * after an ambiguous outcome bypass the record of the first attempt.
- * @param value - Caller-supplied key.
+ * The one instruction that matches what the readback actually established.
+ * @param readback - The readback outcome.
+ * @returns Caller-facing guidance naming the only safe next action.
  */
-function requireKey(value: string | undefined): void {
-  if (typeof value !== 'string' || !value.trim()) throw new JubianError('CONTRACT_CHANGED')
+function imageNext(readback: ImageReadback): string {
+  switch (readback.status) {
+    case 'active':
+      return '资产已 Active：material_id 是可用于 confirm_casting 的生成材质 ID，image_url 是这张生成图。'
+        + '此时再落盘或审核，才不会拿到一个空资产。'
+    case 'failed':
+      return '资产已被提供方判为失败，不会再有生成图；重新生成要换一个新的 idempotency_key，'
+        + '同一个 key 不会再次发送。'
+    case 'timeout':
+      return '受理已计费（outcome=accepted）但回读超时：不要换 key 重投，'
+        + '用 jubian_asset get 读 parent_asset_id 的状态，Active 之后再用 generated_image 取图。'
+    case 'replayed':
+      return '本次是重放：没有发送任何请求。资产身份请用 jubian_asset list/get 回读。'
+    case 'unverified':
+      return '没有确认资产与生成图：先回读 jubian_asset list 核对，确认前不要落盘，也不要换 key 重投。'
+  }
+}
+
+/**
+ * Wait for the accepted asset to become `Active`, then read its generated image.
+ *
+ * `POST /aigc/asset` is asynchronous: the response carries the new asset id, and
+ * the asset has no image until the provider's own pipeline finishes. Returning at
+ * acceptance would hand the caller an asset that reads back empty, so this polls
+ * the free asset read until `hsAssetStatus` is `Active` and then reads the one
+ * endpoint that carries both the material id and the image URL.
+ * @param client - Jubian transport.
+ * @param assetId - The asset id the accepted response carried, or null when it carried none.
+ * @param options - Readback budget, poll interval, clock and sleep.
+ * @returns The readback outcome; a timed-out readback is reported, never thrown, because the
+ *   paid write was already accepted and the ledger already records it.
+ */
+async function awaitGeneratedImage(client: JubianClient, assetId: number | null,
+  options: ImageMethodOptions): Promise<ImageReadback> {
+  if (assetId === null) {
+    return unread('unverified', '受理响应没有给出可回读的资产 ID，无法确认生成图；'
+      + '用 jubian_asset list 按 asset_name 找到该资产后再读 generated_image。')
+  }
+  const now = options.now ?? ((): number => Date.now())
+  const sleep = options.sleep
+    ?? ((ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms) }))
+  const budget = options.activeTimeoutMs ?? IMAGE_ACTIVE_TIMEOUT_MS
+  const interval = options.pollIntervalMs ?? IMAGE_ACTIVE_POLL_MS
+  const started = now()
+  let observed: string | null = null
+  let lastError: string | null = null
+  for (;;) {
+    const asset = readAssetPage((await client.request({ method: 'GET', path: `/aigc/asset/${assetId}` })).data)
+    observed = asset.status
+    if (observed !== null && observed.trim().toLowerCase() === 'active') {
+      try {
+        const image = readGeneratedImage((await client.request({ method: 'GET',
+          path: `/aigc/material/getGeneratedImageByAssetId?assetId=${assetId}` })).data)
+        return { status: 'active', material_id: image.material_id, image_url: image.url,
+          observed_status: observed, waited_ms: now() - started, error: null }
+      } catch (error) {
+        // The image row can lag the status it belongs to by one poll; any other
+        // failure is a real one and is reported rather than slept over.
+        if (!(error instanceof JubianError) || error.code !== 'CONTRACT_CHANGED') throw error
+        lastError = error.message
+      }
+    } else if (observed !== null
+      && (FAILED_STATUSES as readonly string[]).includes(observed.trim().toLowerCase())) {
+      return { status: 'failed', material_id: null, image_url: null, observed_status: observed,
+        waited_ms: now() - started, error: `资产状态为 ${observed}，不会再有生成图。` }
+    }
+    const elapsed = now() - started
+    if (elapsed + interval > budget) {
+      return { status: 'timeout', material_id: null, image_url: null, observed_status: observed,
+        waited_ms: elapsed,
+        error: `回读超时：资产在 ${budget}ms 内没有变为 Active`
+          + `（最后观察到的状态：${observed ?? '未提供'}${lastError === null ? '' : `；生成图读取失败：${lastError}`}）。`
+          + '受理已被计费，不要换 key 重投。' }
+    }
+    await sleep(interval)
+  }
 }
 
 function page(args: MethodArgs): string {
@@ -96,78 +231,6 @@ function page(args: MethodArgs): string {
     throw new JubianError('CONTRACT_CHANGED')
   }
   return `pageNum=${num}&pageSize=${size}`
-}
-
-/**
- * Canonical hash of a request body, so the ledger can tell two attempts apart.
- * @param body - The exact body about to be sent, or undefined for a bodyless write.
- * @returns The `sha256:`-prefixed hash of the body's canonical JSON.
- */
-export function bodyHash(body: Record<string, unknown> | undefined): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(body ?? null)).digest('hex')}`
-}
-
-/**
- * Run one write method under the two-phase ledger.
- *
- * The intent line lands before the request leaves; the settle line lands after
- * the response is read. A replayed key returns the recorded outcome and sends
- * nothing at all.
- *
- * `body` is an async thunk on purpose, and it is awaited. Some bodies can only be
- * compiled by reading the provider first — an image request needs its selectors
- * from the live catalogue — and that read must not happen for a key already
- * recorded. Building the body lazily is what makes "replayed" mean zero network
- * requests rather than one, and awaiting it is what lets the quote below observe
- * what that read returned.
- * @param ledger - The write-path ledger.
- * @param idempotencyKey - Caller-supplied key; required, never generated here.
- * @param method - Ledger method name.
- * @param body - Computes the exact body about to be sent, or undefined for a bodyless write.
- * @param send - Performs the single request, receiving the computed body.
- * @param quote - Optional quote snapshot, observed after the body is built.
- * @returns The outcome, whether it was replayed, and any envelope data.
- */
-export async function writeUnderLedger(
-  ledger: JubianLedger,
-  idempotencyKey: string | undefined,
-  method: JubianLedgerMethod,
-  body: () => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined,
-  send: (body: Record<string, unknown> | undefined) => Promise<{
-    transport: { http_status: number | null; application_code: number | null }
-    response_sha256: string | null
-    data: unknown
-  }>,
-  quote?: () => { amount?: string; standardId?: number; observedAt?: string } | undefined,
-): Promise<WriteOutcome> {
-  if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
-    throw new JubianError('CONTRACT_CHANGED')
-  }
-  const existing = await ledger.find(idempotencyKey)
-  if (existing !== undefined) {
-    return { replayed: true, outcome: existing.outcome ?? 'unknown', response_sha256: existing.response_sha256, data: null }
-  }
-  // Awaited on purpose: a body may be compiled from a provider read, and the
-  // quote below observes what that read returned.
-  const payload = await body()
-  const quoted = quote?.()
-  await ledger.begin({ idempotencyKey, method, requestSha256: bodyHash(payload),
-    ...(quoted?.amount === undefined ? {} : { quotedAmount: quoted.amount }),
-    ...(quoted?.standardId === undefined ? {} : { quoteStandardId: quoted.standardId }),
-    ...(quoted?.observedAt === undefined ? {} : { quoteObservedAt: quoted.observedAt }) })
-  try {
-    const response = await send(payload)
-    const code = response.transport.application_code
-    const http = response.transport.http_status
-    const outcome = http !== null && http >= 200 && http < 300 && (code === 0 || code === 200) ? 'accepted' : 'unknown'
-    await ledger.settle(idempotencyKey, { httpStatus: http, applicationCode: code,
-      responseSha256: response.response_sha256, outcome })
-    return { replayed: false, outcome, response_sha256: response.response_sha256, data: response.data }
-  } catch (error) {
-    // The provider may have applied the change; only readback can resolve this.
-    await ledger.settle(idempotencyKey, { httpStatus: null, applicationCode: null, responseSha256: null, outcome: 'unknown' })
-    throw error
-  }
 }
 
 /**
@@ -207,14 +270,16 @@ export async function catalogMethod(client: JubianClient, args: MethodArgs): Pro
 }
 
 /**
- * `jubian_asset` — asset and material reads plus the state-changing casting confirmation.
+ * `jubian_asset` — asset and material reads, the state-changing casting
+ * confirmation, the irreversible removal and the local reference upload.
  * @param client - Jubian transport.
- * @param ledger - Write-path ledger, used only by `confirm_casting`.
+ * @param ledger - Write-path ledger, used only by the two state-changing methods.
  * @param args - Dispatched on `method`.
+ * @param deps - Optional seams for the local reference upload.
  * @returns The requested asset view, keyed by the `method` that asked for it.
  */
 export async function assetMethod(client: JubianClient, ledger: JubianLedger,
-  args: MethodArgs): Promise<Record<string, unknown>> {
+  args: MethodArgs, deps: MethodDeps = {}): Promise<Record<string, unknown>> {
   switch (args.method) {
     case 'get': {
       const result = await client.request({ method: 'GET', path: `/aigc/asset/${need(args.asset_id)}` })
@@ -258,20 +323,25 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
         next: '删除不可恢复：该父资产及其媒体版本已被移除，引用它的镜头匹配与已生成视频不会因此重建。'
           + '如果只是想取消"正式选用"，那不该调用它。' }
     }
+    case 'upload_reference':
+      // Free and task-free, but it does write one object into the provider's
+      // bucket: the URL it returns is the only shape `gpt-image-2` accepts.
+      return await uploadReferenceMethod({ image_path: args.image_path }, deps.reference)
     default:
       throw new JubianError('CONTRACT_CHANGED')
   }
 }
 
 /**
- * `jubian_video` — video task reads plus the paid image generation.
+ * `jubian_video` — video task reads, the paid image generation and the upscale.
  * @param client - Jubian transport.
- * @param ledger - Write-path ledger, used only by `image_generate`.
+ * @param ledger - Write-path ledger, used by every state-changing method here.
  * @param args - Dispatched on `method`.
+ * @param deps - Optional seams for the paid image path: the pinned catalogue row and the readback budget.
  * @returns The requested video view, keyed by the `method` that asked for it.
  */
 export async function videoMethod(client: JubianClient, ledger: JubianLedger,
-  args: MethodArgs): Promise<Record<string, unknown>> {
+  args: MethodArgs, deps: MethodDeps = {}): Promise<Record<string, unknown>> {
   switch (args.method) {
     case 'task': {
       const result = await client.request({ method: 'GET', path: `/admin/aigc/video/task/${need(args.task_id)}` })
@@ -307,6 +377,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     }
     case 'image_generate': {
       requireKey(args.idempotency_key)
+      const selection = deps.image?.selection ?? {}
       // The catalogue read lives behind a thunk: a replayed key must not even
       // read the provider, let alone write to it. It is fetched at most once and
       // reused by the body, the selectors and the quote.
@@ -316,28 +387,42 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })
         return cached.data
       }
-      let resolution = ''
+      let selectors: ImageModelSelectors | undefined
       const result = await writeUnderLedger(ledger, args.idempotency_key, 'image_generate',
         async () => {
           const rows = await catalogue()
+          selectors = resolveImageModel(rows, selection)
           return buildImageRequest({ scriptId: need(args.script_id), assetName: need(args.asset_name),
             assetType: need(args.asset_type), prompt: need(args.prompt), references: args.references ?? [],
-            ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }) }, rows)
+            ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }) }, rows, selection)
         },
-        async (body) => {
-          const rows = await catalogue()
-          resolution = resolveImageModel(rows).resolution
-          return client.request({ method: args.parent_asset_id === undefined ? 'POST' : 'PUT',
-            path: '/aigc/asset', body: need(body) })
-        },
+        body => client.request({ method: args.parent_asset_id === undefined ? 'POST' : 'PUT',
+          path: '/aigc/asset', body: need(body) }),
         () => {
-          const price = readImageDisplayPrice(cached?.data)
+          const price = readImageDisplayPrice(cached?.data, selection)
           return { ...(price.status === 'available' ? { amount: String(price.unit_price) } : {}),
             observedAt: new Date().toISOString() }
         })
+      const assetId = result.data === null || result.data === undefined || !Number.isSafeInteger(Number(result.data))
+        ? null : Number(result.data)
+      const readback = result.replayed
+        ? unread('replayed', '这个 idempotency_key 已有记录：本次没有发送请求，也没有回读资产。'
+          + '用 jubian_asset get/list 读取该资产，再用 generated_image 确认生成图。')
+        : result.outcome === 'accepted'
+          ? await awaitGeneratedImage(client, assetId, deps.image ?? {})
+          : unread('unverified', '受理结果不是 accepted，无法确认资产是否真的创建；'
+            + '先回读 jubian_asset list，不要换 key 重投。')
       return { replayed: result.replayed, outcome: result.outcome, response_sha256: result.response_sha256,
-        parent_asset_id: result.data === null || result.data === undefined ? null : Number(result.data),
-        resolution }
+        parent_asset_id: assetId,
+        resolution: selectors?.resolution ?? '',
+        // Which catalogue row was actually bought from, echoed so a price can never
+        // be attributed to the wrong platform.
+        model_selection: selectors === undefined ? null
+          : { standard_id: selectors.standardId, platform_id: selectors.platformId },
+        asset_status: readback.status, material_id: readback.material_id, image_url: readback.image_url,
+        observed_asset_status: readback.observed_status, waited_ms: readback.waited_ms,
+        readback_error: readback.error,
+        next: imageNext(readback) }
     }
     case 'upscale': {
       requireKey(args.idempotency_key)
@@ -357,7 +442,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           if (baseUrl === null) throw new JubianError('CONTRACT_CHANGED')
           if (source.duration_seconds === null) throw new JubianError('CONTRACT_CHANGED')
           return buildVideoUpscaleRequest({
-            scriptId: need(args.script_id),
+            scriptId: need(task.script_id ?? args.script_id, 'script_id'),
             episodeId: need(task.episode_id ?? undefined),
             episodeCount: task.episode_count ?? 1,
             firstResultId: need(source.first_result_id ?? source.subtask_id),
@@ -374,13 +459,41 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         next: '转高清是异步任务，会持续数分钟到十几分钟。不要在这里等待——先做别的，'
           + '之后再用 subtasks 回读该任务的 hd_count / last_task_type / resolution 判断是否转好。' }
     }
+    case 'retry': {
+      requireKey(args.idempotency_key)
+      const taskId = need(args.task_id)
+      const result = await writeUnderLedger(ledger, args.idempotency_key, 'video_task_retry',
+        async () => {
+          // The retry service can change a child result's state before it answers
+          // (`NoClassDefFoundError` after a successful re-submit), so the gate is
+          // read first and from complete evidence: a retry is only sent for a
+          // fully terminal failure that produced no file and no real cost.
+          const task = readTaskPage((await client.request({
+            method: 'GET', path: `/admin/aigc/video/task/${taskId}` })).data)
+          const page = readSubtaskPage((await client.request({ method: 'POST',
+            path: '/admin/aigc/video/task/sub/list', body: { aigcVideoTaskId: taskId } })).data)
+          const status = (task.status ?? '').trim().toLowerCase()
+          const terminalFailure = (FAILED_STATUSES as readonly string[]).includes(status)
+          const settledChild = page.rows.some(row => row.video_url !== null
+            || [...SUCCESS_STATUSES, ...ACTIVE_STATUSES].includes((row.status ?? '').trim().toLowerCase()))
+          const charged = task.real_cost !== null && task.real_cost !== '0' && task.real_cost !== '0.0'
+          if (!terminalFailure || settledChild || charged) throw new JubianError('CONTRACT_CHANGED')
+          return undefined
+        },
+        () => client.request({ method: 'POST', path: `/admin/aigc/video/task/retry/${taskId}` }))
+      return { ...result,
+        next: '重试是服务端状态变更：只在父子任务都已终止失败、没有结果 URL、也没有真实费用时才会发出。'
+          + '重试响应异常时不要盲目重提——先回读父任务与生成子素材：子素材已有成功 URL 就按成功处理，'
+          + '子素材仍在活动就继续等待，不删除、不创建替代任务。' }
+    }
     default:
       throw new JubianError('CONTRACT_CHANGED')
   }
 }
 
 /**
- * `jubian_storyboard` — storyboard reads, the free saves, the paid generation and the erasure.
+ * `jubian_storyboard` — storyboard reads, the free saves, the paid generation,
+ * the erasure and the storyboard-native video channel.
  *
  * `save` and `generate` both work by reading the provider's own snapshot and
  * changing exactly one field, so every field the provider owns survives the
@@ -427,6 +540,21 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         })
       return { ...result }
     }
+    case 'select_assets': {
+      requireKey(args.idempotency_key)
+      return await selectAssetsMethod(client, ledger, { storyboard_id: args.storyboard_id,
+        selections: args.selections, idempotency_key: args.idempotency_key })
+    }
+    case 'prepare_video':
+      // Free and read-only on the provider: the only write is the local preview.
+      return await prepareVideoMethod(client, { storyboard_id: args.storyboard_id,
+        project_dir: args.project_dir, content_duration_ms: args.content_duration_ms })
+    case 'submit_video': {
+      requireKey(args.idempotency_key)
+      return await submitVideoMethod(client, ledger, { preview_path: args.preview_path,
+        project_dir: args.project_dir, storyboard_id: args.storyboard_id,
+        idempotency_key: args.idempotency_key })
+    }
     case 'erase_subtitle': {
       requireKey(args.idempotency_key)
       const taskId = need(args.task_id)
@@ -445,8 +573,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
           const baseUrl = source.base_video_url ?? source.video_url
           if (baseUrl === null) throw new JubianError('CONTRACT_CHANGED')
           if (source.duration_seconds === null) throw new JubianError('CONTRACT_CHANGED')
-          return buildSubtitleEraseRequest(args.model_id ?? AUTOMATIC_ERASE_MODEL, {
-            scriptId: need(args.script_id),
+          return buildSubtitleEraseRequest(need(args.model_id, 'model_id'), {
+            scriptId: need(task.script_id ?? args.script_id, 'script_id'),
             episodeId: need(task.episode_id ?? undefined),
             episodeCount: task.episode_count ?? 1,
             taskName: args.task_name ?? `${task.task_name ?? `task-${taskId}`}-去字幕`,

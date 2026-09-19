@@ -8,13 +8,16 @@ describe('readTaskPage', () => {
   it('reads task identity, status and the cost observation when present', () => {
     expect(readTaskPage(PARENT)).toEqual({ task_id: 335343, task_type: 10, status: 'success',
       first_result_id: 1, parent_result_id: 2, real_cost: '3.50', estimated_cost: '4.00', discount_cost: null,
-      episode_id: null, episode_count: null, task_name: null })
+      script_id: null, episode_id: null, episode_count: null, task_name: null })
   })
 
-  it('reads the episode and count an upscale request needs', () => {
-    // Captured from a real task row; the upscale body needs both.
-    const row = readTaskPage({ id: 428322, taskType: 1, taskStatus: 'succeeded', episodeId: 46734,
-      episodeCount: 1, taskName: 'null-第1集-第1集｜三百万，和我领证｜第二包' })
+  it('reads the project, episode and count a billed method needs', () => {
+    // Captured from a real task row. The subtitle erasure takes the project from
+    // here, which is what lets a caller send a correct request with only
+    // task_id and the frame size.
+    const row = readTaskPage({ id: 428322, taskType: 1, taskStatus: 'succeeded', scriptId: 2708,
+      episodeId: 46734, episodeCount: 1, taskName: 'null-第1集-第1集｜三百万，和我领证｜第二包' })
+    expect(row.script_id).toBe(2708)
     expect(row.episode_id).toBe(46734)
     expect(row.episode_count).toBe(1)
     expect(row.task_name).toBe('null-第1集-第1集｜三百万，和我领证｜第二包')

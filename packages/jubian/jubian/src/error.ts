@@ -1,9 +1,11 @@
 /**
- * The five stable failure codes every Jubian call can produce.
+ * The stable failure codes every Jubian call can produce.
  *
  * No provider message, provider body or nested transport cause ever reaches a
  * caller: a tool renders these codes, so a remote error text can never be
- * echoed into a model's context or a log.
+ * echoed into a model's context or a log. `INVALID_ARGUMENT` is the one code a
+ * caller can act on without a network round trip, so it carries the argument
+ * name the caller has to supply — a name this package owns, never remote text.
  */
 
 /** Stable failure categories shared by every Jubian reader. */
@@ -12,6 +14,7 @@ export type JubianErrorCode =
   | 'PERMISSION_DENIED'
   | 'RATE_LIMITED'
   | 'CONTRACT_CHANGED'
+  | 'INVALID_ARGUMENT'
   | 'NETWORK_ERROR'
 
 const MESSAGES: Record<JubianErrorCode, string> = {
@@ -19,6 +22,7 @@ const MESSAGES: Record<JubianErrorCode, string> = {
   PERMISSION_DENIED: 'Jubian account cannot access this resource',
   RATE_LIMITED: 'Jubian rate limit reached',
   CONTRACT_CHANGED: 'Jubian response did not match the expected envelope',
+  INVALID_ARGUMENT: 'Jubian tool call is missing an argument it cannot run without',
   NETWORK_ERROR: 'Jubian request failed',
 }
 
@@ -29,9 +33,12 @@ export class JubianError extends Error {
 
   /**
    * @param code - Stable failure category.
+   * @param detail - Optional caller-facing detail this package authored, such as the name of a missing
+   *   argument. Provider text must never be passed here: a remote message would then reach a model's
+   *   context through the error, which is exactly what the codes exist to prevent.
    */
-  constructor(code: JubianErrorCode) {
-    super(MESSAGES[code])
+  constructor(code: JubianErrorCode, detail?: string) {
+    super(detail === undefined ? MESSAGES[code] : `${MESSAGES[code]}: ${detail}`)
     this.name = 'JubianError'
     this.code = code
   }

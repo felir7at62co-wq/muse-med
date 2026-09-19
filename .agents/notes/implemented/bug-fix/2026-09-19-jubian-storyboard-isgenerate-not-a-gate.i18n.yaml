@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-19-jubian-storyboard-isgenerate-not-a-gate.md
+2026-09-19-jubian-storyboard-isgenerate-not-a-gate.md: 77537b28c562c624b1b6f93639fb14550d959ef7
+2026-09-19-jubian-storyboard-isgenerate-not-a-gate.zh.md: 7820dd24ce78c236a82ce79896c98f6723cce41d

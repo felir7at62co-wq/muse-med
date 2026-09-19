@@ -5,12 +5,27 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { assetMethod, catalogMethod, mediaMethod, storyboardMethod, videoMethod } from '../src/methods.ts'
 import type { MethodArgs } from '../src/methods.ts'
+import { requireArguments } from '../src/write.ts'
 
 const IMAGE_CATALOGUE = [{ id: 42, standardId: 42, modelId: 'gpt-image-2', platformId: 'YU_DIAN', unitPrice: 0.5,
   unit: '张', genTypes: [{ id: 7, type: 3 }],
   videoStandards: [{ id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 }] }]
 
-const STORYBOARD = { id: 916953, scriptId: 2708, isGenerate: 0, storyboardName: '第1集-分镜1',
+// The live account catalogue lists gpt-image-2 twice: two platforms, two prices.
+const MULTI_IMAGE_CATALOGUE = [
+  { id: 66, modelId: 'gpt-image-2', platformId: 'KU_AI', unitPrice: 0.12, unit: '张',
+    genTypes: [{ id: 7, type: 3 }],
+    videoStandards: [{ id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 }] },
+  { id: 76, modelId: 'gpt-image-2', platformId: 'DUO_YUAN_TAN_SUO', unitPrice: 1.05, unit: '条',
+    genTypes: [{ id: 8, type: 3 }],
+    videoStandards: [{ id: 92, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 }] },
+]
+
+/** The generated image row the endpoint really answers with: a list, `assetUrl` and `id`. */
+const GENERATED_IMAGE = [{ id: 900, assetId: 83749, assetUrl: 'https://x/gen.png', hsAssetStatus: 'Active' }]
+
+// What the provider stores on every storyboard it holds, generated or not.
+const STORYBOARD = { id: 916953, scriptId: 2708, isGenerate: 1, storyboardName: '第1集-分镜1',
   modelConfig: JSON.stringify({ platformId: 'YU_DIAN', modelId: 'doubao-seedance-2-0-1', standardId: 11, genType: 3,
     modelGenerationTypeId: 7, videoStandardId: 91, duration: 8, ratio: '9:16', resolution: '720p', genNum: 1,
     materialList: [], backupModelList: [] }),
@@ -36,6 +51,35 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'jubian-tools-'))
   ledger = new JubianLedger({ root })
 })
+
+/** A provider stub for the paid image path, with a scripted sequence of asset statuses. */
+function imageProvider(catalogue: unknown = IMAGE_CATALOGUE, statuses: string[] = ['Active']) {
+  let reads = 0
+  return stubClient((request) => {
+    if (request.path.includes('getSelectList')) return catalogue
+    if (request.path.includes('getGeneratedImageByAssetId')) return GENERATED_IMAGE
+    if (request.method === 'GET' && request.path.includes('/aigc/asset/')) {
+      const status = statuses[Math.min(reads, statuses.length - 1)]
+      reads += 1
+      return { id: 83749, name: '陆沉舟', assetType: 1, hsLocal: 0, hsAssetStatus: status }
+    }
+    return 83749
+  })
+}
+
+/** Readback seams that advance instantly, so a poll loop costs no wall clock. */
+function imageDeps(
+  image: { selection?: { platformId?: string; standardId?: number }; timeoutMs?: number; pollMs?: number } = {},
+) {
+  const clock = { value: 0 }
+  return { image: {
+    ...(image.selection === undefined ? {} : { selection: image.selection }),
+    activeTimeoutMs: image.timeoutMs ?? 180_000,
+    pollIntervalMs: image.pollMs ?? 100,
+    now: (): number => clock.value,
+    sleep: async (ms: number): Promise<void> => { clock.value += ms },
+  } }
+}
 
 describe('jubian_catalog reads', () => {
   it('addresses each catalogue endpoint exactly once', async () => {
@@ -71,7 +115,8 @@ describe('jubian_asset reads and the side-effecting GET', () => {
       [{ method: 'materials', script_id: 2708 },
         '/aigc/material/list?scriptId=2708&isUsed=1&pageNum=1&pageSize=1000', { total: 0, rows: [] }],
       [{ method: 'generated_image', asset_id: 83749 },
-        '/aigc/material/getGeneratedImageByAssetId?assetId=83749', { url: 'https://x/y.png', materialId: 1 }],
+        '/aigc/material/getGeneratedImageByAssetId?assetId=83749',
+        [{ id: 1, assetUrl: 'https://x/y.png', hsAssetStatus: 'Active' }]],
     ]
     for (const [args, suffix, data] of cases) {
       const { client, calls } = stubClient(() => data)
@@ -124,37 +169,87 @@ describe('jubian_video', () => {
   })
 
   it('requires an idempotency key for the paid image generation and sends nothing without one', async () => {
-    const { client, calls } = stubClient(request => request.path.includes('getSelectList')
-      ? IMAGE_CATALOGUE : 83749)
+    const { client, calls } = imageProvider()
     await expect(videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
       asset_name: '陆沉舟', asset_type: 1, prompt: '一位中年男性' })).rejects.toThrow()
     expect(calls.length).toBe(0)
   })
 
-  it('quotes, records and settles one image generation', async () => {
-    const { client, calls } = stubClient(request => request.path.includes('getSelectList')
-      ? IMAGE_CATALOGUE : 83749)
+  it('quotes, records, settles, then reads the asset back until it is Active', async () => {
+    const { client, calls } = imageProvider()
     const result = await videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'k-1',
-      script_id: 2708, asset_name: '陆沉舟', asset_type: 1, prompt: '一位中年男性' })
-    expect(calls.length).toBe(2)
-    expect(calls[1]!.method).toBe('POST')
+      script_id: 2708, asset_name: '陆沉舟', asset_type: 1, prompt: '一位中年男性' }, imageDeps())
+    // Catalogue, the one paid write, the asset status read, then the generated image.
+    expect(calls.map(call => call.method)).toEqual(['GET', 'POST', 'GET', 'GET'])
+    expect(calls[1]!.path.endsWith('/aigc/asset')).toBe(true)
+    expect(calls[3]!.path).toContain('getGeneratedImageByAssetId?assetId=83749')
     expect(result.outcome).toBe('accepted')
     expect(result.parent_asset_id).toBe(83749)
+    expect(result.asset_status).toBe('active')
+    expect(result.material_id).toBe(900)
+    expect(result.image_url).toBe('https://x/gen.png')
     const record = await ledger.find('k-1')
     expect(record?.outcome).toBe('accepted')
     expect(record?.quoted_amount).toBe('0.5')
   })
 
+  it('polls a pending asset instead of returning an accepted asset with no image', async () => {
+    const { client, calls } = imageProvider(IMAGE_CATALOGUE, ['Pending', 'Pending', 'Active'])
+    const result = await videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'k-poll',
+      script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p' }, imageDeps())
+    expect(result.asset_status).toBe('active')
+    expect(result.material_id).toBe(900)
+    expect(calls.filter(call => call.path.includes('/aigc/asset/')).length).toBe(3)
+  })
+
+  it('reports a readback timeout explicitly and never resends the paid write', async () => {
+    const { client, calls } = imageProvider(IMAGE_CATALOGUE, ['Pending'])
+    const result = await videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'k-timeout',
+      script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p' }, imageDeps({ timeoutMs: 1000, pollMs: 100 }))
+    expect(result.asset_status).toBe('timeout')
+    expect(result.material_id).toBeNull()
+    expect(result.image_url).toBeNull()
+    expect(String(result.readback_error)).toContain('回读超时')
+    expect(String(result.readback_error)).toContain('Active')
+    expect(String(result.next)).toContain('不要换 key 重投')
+    expect(calls.filter(call => call.method === 'POST').length).toBe(1)
+    expect((await ledger.find('k-timeout'))?.outcome).toBe('accepted')
+  })
+
+  it('refuses to buy from one of several gpt-image-2 rows and sends no request', async () => {
+    const { client, calls } = imageProvider(MULTI_IMAGE_CATALOGUE)
+    await expect(videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'k-multi',
+      script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p' }, imageDeps()))
+      .rejects.toThrow(/KU_AI.*DUO_YUAN_TAN_SUO|DUO_YUAN_TAN_SUO.*KU_AI/)
+    expect(calls.filter(call => call.method === 'POST').length).toBe(0)
+    // The refusal happens while the body is compiled, so the ledger records nothing either.
+    expect(await ledger.find('k-multi')).toBeUndefined()
+  })
+
+  it('buys from the pinned row and echoes which row the price belongs to', async () => {
+    const { client, calls } = imageProvider(MULTI_IMAGE_CATALOGUE)
+    const result = await videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'k-pin',
+      script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p' },
+    imageDeps({ selection: { platformId: 'KU_AI' } }))
+    const config = JSON.parse(calls[1]!.body!.modelConfig as string) as Record<string, unknown>
+    expect(config).toMatchObject({ standardId: 66, platformId: 'KU_AI', videoStandardId: 91 })
+    expect(result.model_selection).toEqual({ standard_id: 66, platform_id: 'KU_AI' })
+    // 0.12 is the pinned platform's price; 1.05 belongs to the other row.
+    expect((await ledger.find('k-pin'))?.quoted_amount).toBe('0.12')
+  })
+
   it('never sends a second paid request for a key it already recorded', async () => {
-    const first = stubClient(request => request.path.includes('getSelectList') ? IMAGE_CATALOGUE : 83749)
+    const first = imageProvider()
     const initial = await videoMethod(first.client, ledger, { method: 'image_generate', idempotency_key: 'k-2',
-      script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p' })
+      script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p' }, imageDeps())
     expect(initial.replayed).toBe(false)
     const second = stubClient(() => IMAGE_CATALOGUE)
     const replayed = await videoMethod(second.client, ledger, { method: 'image_generate', idempotency_key: 'k-2',
-      script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p' })
+      script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p' }, imageDeps())
     expect(second.calls.length).toBe(0)
     expect(replayed.replayed).toBe(true)
+    expect(replayed.asset_status).toBe('replayed')
+    expect(replayed.material_id).toBeNull()
   })
 })
 
@@ -205,6 +300,61 @@ describe('jubian_storyboard', () => {
       episodeId: 46734, episodeCount: 1, firstResultId: 972949, duration: 13,
       zimuLeft: 0, zimuTop: 570, zimuWidth: 719, zimuHeight: 720,
       videoWidth: 720, videoHeight: 1280 })
+  })
+
+  it('reads the project from the task row, so erase_subtitle needs no script_id', async () => {
+    // Regression: the description promised "task_id and the frame size" while the
+    // body demanded script_id, so a caller following the description failed with a
+    // bare CONTRACT_CHANGED and no request ever left.
+    const { client, calls } = stubClient(request => request.path.includes('sub/list')
+      ? { total: 1, rows: [{ id: 972949, aigcVideoTaskId: 428322, taskStatus: 'succeeded', duration: 13,
+        modelId: 'doubao-seedance-2-0-260128', resolution: '720p',
+        resultList: [{ taskType: 1, hdCount: 0, lastTaskType: 1,
+          tosVideoUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/v.mp4' }] }] }
+      : { id: 428322, taskType: 1, taskStatus: 'succeeded', scriptId: 2708, episodeId: 46734,
+        episodeCount: 1, taskName: 'null-第1集' })
+    await storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'k-6b',
+      task_id: 428322, model_id: 'quzimuToB', video_width: 720, video_height: 1280 })
+    expect(calls.length).toBe(3)
+    expect(calls[2]!.path.endsWith('/aigc/storyboard/subtitleEraser')).toBe(true)
+    expect(calls[2]!.body).toMatchObject({ scriptId: 2708 })
+  })
+
+  it('refuses an erasure with no model rather than defaulting to one', async () => {
+    const { client, calls } = stubClient(request => request.path.includes('sub/list')
+      ? { total: 1, rows: [{ id: 972949, aigcVideoTaskId: 428322, taskStatus: 'succeeded', duration: 13,
+        modelId: 'doubao-seedance-2-0-260128', resolution: '720p',
+        resultList: [{ taskType: 1, hdCount: 0, lastTaskType: 1,
+          tosVideoUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/v.mp4' }] }] }
+      : { id: 428322, taskType: 1, taskStatus: 'succeeded', scriptId: 2708, episodeId: 46734,
+        episodeCount: 1, taskName: 'null-第1集' })
+    await expect(storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'k-6c',
+      task_id: 428322, video_width: 720, video_height: 1280 })).rejects.toThrow(/model_id/)
+    expect(calls.some(call => call.path.includes('subtitleEraser'))).toBe(false)
+  })
+})
+
+describe('required arguments', () => {
+  it('names the missing argument and lets nothing reach the transport', () => {
+    // The schema is one object per tool, so it cannot say "required for this
+    // method only"; this check is what turns that into an actionable failure.
+    expect(() => {
+      requireArguments('jubian_storyboard',
+        { method: 'erase_subtitle', task_id: 1, model_id: 'quzimuToB', video_width: 720 })
+    }).toThrow(/jubian_storyboard erase_subtitle requires video_height/)
+    expect(() => {
+      requireArguments('jubian_catalog', { method: 'script' })
+    }).toThrow(/jubian_catalog script requires script_id/)
+  })
+
+  it('accepts a method whose derived arguments are absent from the call', () => {
+    expect(() => {
+      requireArguments('jubian_storyboard',
+        { method: 'erase_subtitle', task_id: 1, model_id: 'quzimuToB', video_width: 720, video_height: 1280 })
+    }).not.toThrow()
+    expect(() => {
+      requireArguments('jubian_video', { method: 'upscale', task_id: 1 })
+    }).not.toThrow()
   })
 })
 

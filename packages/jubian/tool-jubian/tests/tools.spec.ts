@@ -1,9 +1,9 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import { apply, inject, name } from '../src/index.ts'
+import { apply, inject, name, workspacePipelineToken } from '../src/index.ts'
 
 interface Registered {
   name: string
@@ -68,7 +68,12 @@ describe('tool-jubian registration', () => {
 
     const video = byName.get('jubian_video')!
     expect((video.properties as Record<string, { enum?: string[] }>).method!.enum)
-      .toEqual(['task', 'tasks', 'subtasks', 'image_generate', 'upscale'])
+      .toEqual(['task', 'tasks', 'subtasks', 'image_generate', 'upscale', 'retry'])
+
+    const asset = byName.get('jubian_asset')!
+    expect((asset.properties as Record<string, { enum?: string[] }>).method!.enum)
+      .toEqual(['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'remove', 'upload_reference'])
+    expect(Object.keys(asset.properties as Record<string, unknown>).sort()).toContain('image_path')
 
     const media = byName.get('jubian_media')!
     expect((media.properties as Record<string, { enum?: string[] }>).media_kind!.enum).toEqual(['image', 'video'])
@@ -77,6 +82,17 @@ describe('tool-jubian registration', () => {
     const storyboard = byName.get('jubian_storyboard')!
     const subtitleBox = (storyboard.properties as Record<string, Record<string, unknown>>).subtitle_box!
     expect(subtitleBox).toMatchObject({ type: 'object', additionalProperties: true })
+    // The storyboard-native channel is the only normal subject-video path, so its
+    // three methods and their arguments must be visible in the schema.
+    expect((storyboard.properties as Record<string, { enum?: string[] }>).method!.enum)
+      .toEqual(['get', 'create', 'save', 'generate', 'select_assets', 'prepare_video', 'submit_video',
+        'erase_subtitle'])
+    expect((storyboard.properties as Record<string, Record<string, unknown>>).selections!).toMatchObject(
+      { type: 'array',
+        items: { type: 'object', additionalProperties: false, required: ['material_key', 'asset_id'] } })
+    const storyboardKeys = Object.keys(storyboard.properties as Record<string, unknown>).sort()
+    expect(storyboardKeys).toContain('project_dir')
+    expect(storyboardKeys).toContain('preview_path')
   })
 
   it('refuses a paid method with no idempotency key before it touches the network', async () => {
@@ -96,5 +112,22 @@ describe('tool-jubian registration', () => {
     const catalog = registered.find(tool => tool.name === 'jubian_catalog')!
     await expect(catalog.execute({ method: 'models', task_type: 2 }, {})).rejects.toMatchObject(
       { code: 'AUTHENTICATION_REQUIRED' })
+  })
+
+  it('falls back to the workspace pipeline secret file, preferring the admin token', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'jubian-workspace-'))
+    const nested = join(workspace, 'projects', 'demo')
+    await mkdir(join(workspace, '.agents', 'secrets'), { recursive: true })
+    await mkdir(nested, { recursive: true })
+    await writeFile(join(workspace, '.agents', 'secrets', 'pipeline.env'),
+      '# comment\nJUBIANAI_TOKEN=legacy-value\nJUBIANAI_ADMIN_TOKEN="preferred-value"\n', 'utf8')
+    try {
+      expect(await workspacePipelineToken(nested)).toBe('preferred-value')
+      await writeFile(join(workspace, '.agents', 'secrets', 'pipeline.env'),
+        'JUBIANAI_TOKEN=legacy-only\n', 'utf8')
+      expect(await workspacePipelineToken(nested)).toBe('legacy-only')
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
   })
 })

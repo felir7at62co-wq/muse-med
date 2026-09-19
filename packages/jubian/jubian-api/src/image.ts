@@ -5,10 +5,15 @@
  * than accepted from a caller: `standardId`, `platformId` and `videoStandardId`
  * are account state, and a stale pair would produce a request the provider
  * rejects after the caller already believes it was accepted.
+ *
+ * One model id can however be listed several times, once per platform and price.
+ * Which of those rows to buy from is the deployment's decision, so it arrives as
+ * an {@link ImageModelSelection} and an ambiguous catalogue fails instead of
+ * picking one.
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 
-function invalid(): never { throw new JubianError('CONTRACT_CHANGED') }
+function invalid(detail?: string): never { throw new JubianError('CONTRACT_CHANGED', detail) }
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) invalid()
@@ -43,20 +48,57 @@ export interface ImageModelSelectors {
   resolution: string
 }
 
-function imageModelRow(catalogue: unknown): Record<string, unknown> {
+/**
+ * The catalogue row a deployment pinned for image generation.
+ *
+ * One model id may be listed once per platform, and the platforms are not
+ * interchangeable: a measured account lists `gpt-image-2` on `KU_AI` at 0.12 CNY
+ * per image and on `DUO_YUAN_TAN_SUO` at 1.05 CNY per item. An empty selection
+ * therefore works only while the catalogue carries exactly one such row; with
+ * several rows the call fails and names every candidate instead of choosing.
+ */
+export interface ImageModelSelection {
+  /** The row's `platformId`, such as `KU_AI`. */
+  platformId?: string
+  /** The row's own `id`, which is the request's `standardId`, such as `66`. */
+  standardId?: number
+}
+
+/** The row field that becomes the request's `standardId`. */
+function standardIdOf(row: Record<string, unknown>): unknown { return row.id ?? row.standardId }
+
+/** One candidate row as a failure names it, so a caller can pin one explicitly. */
+function candidateSummary(row: Record<string, unknown>): string {
+  const standardId = standardIdOf(row)
+  const unitPrice = typeof row.unitPrice === 'number' || typeof row.unitPrice === 'string'
+    ? String(row.unitPrice) : '?'
+  return `standardId=${typeof standardId === 'number' || typeof standardId === 'string' ? String(standardId) : '?'}`
+    + ` platformId=${typeof row.platformId === 'string' ? row.platformId : '?'}`
+    + ` unitPrice=${unitPrice} unit=${typeof row.unit === 'string' && row.unit.trim() ? row.unit : '?'}`
+}
+
+/** Pick the one `gpt-image-2` row the selection names, or fail naming every candidate. */
+function imageModelRow(catalogue: unknown, selection: ImageModelSelection): Record<string, unknown> {
   const matches = rows(catalogue).filter(row => row.modelId === 'gpt-image-2')
-  const first = matches.length === 1 ? matches[0] : undefined
-  if (first === undefined) invalid()
-  return first
+  if (matches.length === 0) invalid('the account catalogue carries no gpt-image-2 row')
+  const selected = matches.filter(row => (selection.platformId === undefined || row.platformId === selection.platformId)
+    && (selection.standardId === undefined || Number(standardIdOf(row)) === selection.standardId))
+  if (selected.length === 1) return selected[0] as Record<string, unknown>
+  invalid(`${matches.length} catalogue rows carry gpt-image-2 and the configured imagePlatformId/imageStandardId`
+    + ` selected ${selected.length} of them; pin exactly one in the tool config. Candidates:`
+    + ` ${matches.map(candidateSummary).join(' | ')}`)
 }
 
 /**
  * Resolve the supported image selectors from a live `taskType=2` catalogue.
  * @param catalogue - Envelope `data` already read from `/model/charge/getSelectList?taskType=2`.
+ * @param selection - The row this deployment pinned; required as soon as the catalogue lists several.
  * @returns The lowest supported resolution whose standard has exact 16:9 dimensions divisible by 16.
+ * @throws {JubianError} `CONTRACT_CHANGED` when no unambiguous row is selected; the message lists every
+ *   `gpt-image-2` candidate with its `platformId`, `standardId`, unit price and unit.
  */
-export function resolveImageModel(catalogue: unknown): ImageModelSelectors {
-  const model = imageModelRow(catalogue)
+export function resolveImageModel(catalogue: unknown, selection: ImageModelSelection = {}): ImageModelSelectors {
+  const model = imageModelRow(catalogue, selection)
   const standards = rows(model.videoStandards).filter(row => row.ratio === '16:9'
     && typeof row.resolution === 'string' && ['1K', '2K', '4K'].includes(row.resolution.toUpperCase())
     && typeof row.width === 'number' && Number.isSafeInteger(row.width) && row.width > 0 && row.width <= 8192
@@ -94,10 +136,12 @@ export interface ImageRequestInput {
  * Build the exact `/aigc/asset` body.
  * @param input - Caller-supplied identity, prompt and ordered reference URLs.
  * @param catalogue - Live `taskType=2` catalogue.
+ * @param selection - The catalogue row this deployment pinned.
  * @returns The wire body, with `id` present only on the update route.
  */
-export function buildImageRequest(input: ImageRequestInput, catalogue: unknown): Record<string, unknown> {
-  const { resolution, ...selectors } = resolveImageModel(catalogue)
+export function buildImageRequest(input: ImageRequestInput, catalogue: unknown,
+  selection: ImageModelSelection = {}): Record<string, unknown> {
+  const { resolution, ...selectors } = resolveImageModel(catalogue, selection)
   const references = input.references.map((materialUrl, index) => {
     let url: URL
     try { url = new URL(materialUrl) } catch { return invalid() }
@@ -115,10 +159,12 @@ export function buildImageRequest(input: ImageRequestInput, catalogue: unknown):
 /**
  * Read the catalogue's display price for the image route.
  * @param catalogue - Live `taskType=2` catalogue.
+ * @param selection - The catalogue row this deployment pinned; the quote is that row's own price.
  * @returns Display fields only; never a verified quote or spending authorization.
  */
-export function readImageDisplayPrice(catalogue: unknown): Record<string, unknown> {
-  const model = imageModelRow(catalogue)
+export function readImageDisplayPrice(catalogue: unknown,
+  selection: ImageModelSelection = {}): Record<string, unknown> {
+  const model = imageModelRow(catalogue, selection)
   const { unitPrice, unit } = model
   if (typeof unitPrice !== 'number' || !Number.isFinite(unitPrice) || unitPrice < 0
     || typeof unit !== 'string' || !unit.trim() || unit.length > 128 || !unit.isWellFormed()

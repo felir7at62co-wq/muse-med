@@ -17,8 +17,13 @@ export type JubianLedgerMethod =
   | 'storyboard_save'
   | 'storyboard_create'
   | 'storyboard_generate'
+  | 'storyboard_select_assets'
+  | 'storyboard_native_submit'
   | 'erase_subtitle'
   | 'video_upscale'
+  | 'video_task_retry'
+  | 'video_task_execute'
+  | 'video_task_terminate'
   | 'confirm_casting'
   | 'asset_remove'
 

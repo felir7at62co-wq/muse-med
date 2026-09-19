@@ -34,7 +34,24 @@ describe('readGeneratedImage', () => {
       .toEqual({ url: 'https://x/gen.png', material_id: 900 })
   })
 
+  it('reads the list the endpoint really answers with, using assetUrl and id', () => {
+    expect(readGeneratedImage([{ id: 900, assetId: 83749, assetUrl: 'https://x/gen.png',
+      hsAssetStatus: 'Active' }]))
+      .toEqual({ url: 'https://x/gen.png', material_id: 900 })
+  })
+
+  it('takes the first row of a multi-row list', () => {
+    expect(readGeneratedImage([{ id: 901, assetUrl: 'https://x/first.png' },
+      { id: 900, assetUrl: 'https://x/second.png' }]))
+      .toEqual({ url: 'https://x/first.png', material_id: 901 })
+  })
+
   it('rejects a payload with no usable URL', () => {
     expect(() => readGeneratedImage({ materialId: 900 })).toThrow()
+    expect(() => readGeneratedImage([{ id: 900 }])).toThrow()
+  })
+
+  it('rejects an empty list rather than reporting a reference it never read', () => {
+    expect(() => readGeneratedImage([])).toThrow()
   })
 })

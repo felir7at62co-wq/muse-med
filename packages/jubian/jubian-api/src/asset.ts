@@ -96,13 +96,22 @@ export function readMaterialList(data: unknown): { total: number; rows: Material
 
 /**
  * Read the generated image reference for one asset.
+ *
+ * The endpoint answers with the asset's generated images as a list, and each row
+ * carries the material id as `id` and the file as `assetUrl`. Both the list and
+ * the single-object form are accepted; other observed spellings (`url`,
+ * `materialUrl`, `materialId`) still read, because the same endpoint answered
+ * with them before. An empty list is a failure rather than an empty reference:
+ * the caller asked for an image this asset does not have yet.
  * @param data - Envelope `data` from `/aigc/material/getGeneratedImageByAssetId`.
  * @returns The reference URL and its material id when the provider sent one.
+ * @throws {JubianError} `CONTRACT_CHANGED` when the payload is neither a non-empty list nor an object,
+ *   or when the row it reads carries no usable URL.
  */
 export function readGeneratedImage(data: unknown): { url: string; material_id: number | null } {
-  const row = object(data)
-  const url = row.url ?? row.materialUrl
+  const row = Array.isArray(data) ? object(data[0]) : object(data)
+  const url = row.assetUrl ?? row.url ?? row.materialUrl
   if (typeof url !== 'string' || !url.trim()) invalid()
-  return { url, material_id: row.materialId === undefined || row.materialId === null
-    ? null : id(row.materialId) }
+  const materialId = row.id ?? row.materialId
+  return { url, material_id: materialId === undefined || materialId === null ? null : id(materialId) }
 }

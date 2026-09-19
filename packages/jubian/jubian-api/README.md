@@ -131,7 +131,7 @@ The library is eight small modules with one shape each: they read a payload the 
 
 ### How validation stays compatible
 
-Each reader validates the fields it promises and ignores everything else. A field the provider adds is therefore not an error, and a field the reader needs but the payload omits is. Some readers also accept two observed spellings of the same fact: the asset id arrives as `id` or `assetId`, a result identity arrives as a number or as a numeric string, and a scenario may arrive as one object or as a nested result.
+Each reader validates the fields it promises and ignores everything else. A field the provider adds is therefore not an error, and a field the reader needs but the payload omits is. Some readers also accept two observed spellings of the same fact: the asset id arrives as `id` or `assetId`, a result identity arrives as a number or as a numeric string, and a scenario may arrive as one object or as a nested result. `readGeneratedImage()` goes one step further and accepts both forms the same endpoint has answered with: the list the provider sends today, whose rows carry the material as `id` and the file as `assetUrl`, and the single object earlier captures showed, whose fields were `materialId` and `url` or `materialUrl`. An empty list is a failure, not an empty reference.
 
 Where a field is optional in the provider's own data, the reader carries that optionality forward as `null` rather than inventing a default. A cost the provider did not send stays `null`; it never becomes `0`.
 
@@ -143,7 +143,7 @@ The provider records each result's stage as a number. `VIDEO_TASK_TYPES` maps `1
 
 ### Where the wire shapes come from
 
-The builder bodies are captured from the product workbench and reproduced field for field: the erasure body with `taskType` 10 and its per-model standard, and the upscale body with `taskType` 20, the SeedVR2 model id, and its two standard identifiers. The image body is different in kind: it resolves `standardId`, `platformId`, and `videoStandardId` from the live catalogue instead of accepting them, because those values are account state and a stale pair produces a request the provider rejects after the caller already believes it succeeded.
+The builder bodies are captured from the product workbench and reproduced field for field: the erasure body with `taskType` 10 and its per-model standard, and the upscale body with `taskType` 20, the SeedVR2 model id, and its two standard identifiers. The image body is different in kind: it resolves `standardId`, `platformId`, and `videoStandardId` from the live catalogue instead of accepting them, because those values are account state and a stale pair produces a request the provider rejects after the caller already believes it succeeded. One model id can be listed once per platform at its own price, so `resolveImageModel()`, `buildImageRequest()` and `readImageDisplayPrice()` all take an `ImageModelSelection` (`platformId`, `standardId`, or both) and fail with every candidate named when that selection does not leave exactly one row.
 
 ### What the download module adds
 
@@ -181,11 +181,12 @@ No direct invalidation; the tool layer that renders their output owns any reques
 These constraints are current package behavior, not a task backlog.
 
 - **A payload that stops matching rejects the call** — a reader throws `CONTRACT_CHANGED` rather than degrade, and the error carries no field name, so a caller reports a contract change and an operator reads the raw payload to find which field moved.
+- **The image selectors are the caller's choice** — `resolveImageModel()` accepts a catalogue only when the selection leaves exactly one `gpt-image-2` row. With several rows and no selection the call fails and the message lists each candidate's `platformId`, `standardId`, unit price and unit; with a selection that matches none it fails the same way. This library has no rule for preferring one platform or the cheaper row.
 - **Cost and price fields are evidence, not a settlement** — `real_cost`, `estimated_cost`, `discount_cost`, and `readImageDisplayPrice()` carry what the provider reported, and `readImageDisplayPrice()` always returns `quote_verified: false`; nothing here authorizes spending.
 - **The default erasure rectangle is not clamped to the frame** — `defaultSubtitleBox()` reproduces the provider's observed proportions (`zimuTop` 570/1280, height 720/1280, width one pixel inside the frame), so the box can reach past the bottom edge on a 720x1280 source; that shape was captured from an accepted request, not guaranteed by the provider.
 - **`needsUpscale()` answers `null` when it cannot know** — an unrecognised resolution label on either side produces `null` instead of a boolean, and a caller must treat that as unanswered rather than as permission to deliver.
 - **Media transfer is bounded and single-origin** — `downloadMedia()` accepts only the origins in `MEDIA_ALLOWED_ORIGINS`, caps a body at `MEDIA_LIMITS` (64 MiB for an image, 512 MiB for a video), refuses redirects, and writes nothing to disk.
-- **A storyboard body is never composed from scratch** — `readStoryboard()` accepts only `ratio` 9:16, `resolution` 720p, and `genNum` 1, and `withGenerationEnabled()` requires the saved duration to equal the requested content duration plus one second, because the provider derives its own video length from that field.
+- **A storyboard body is never composed from scratch** — `readStoryboard()` accepts only `ratio` 9:16, `resolution` 720p, and `genNum` 1, and `withGenerationEnabled()` requires the saved duration to equal the requested content duration plus one second, because the provider derives its own video length from that field. Neither gates on `isGenerate`: the provider stores 1 on every storyboard it holds, generated or not, so the field cannot tell the two apart, and what it acts on is the `isGenerate` a caller writes into a body.
 - **No transport behavior is retried or resumed** — this package performs no request of its own except the media download, so every retry, timeout, and polling decision belongs to the caller.
 
 <a id="dev-note"></a>

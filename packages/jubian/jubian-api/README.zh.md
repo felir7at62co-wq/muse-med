@@ -131,7 +131,7 @@ console.log(media.media_type, media.kind, media.sha256, media.bytes.byteLength)
 
 ### 校验如何保持兼容
 
-每个读取器只校验它承诺的字段，忽略其余一切。因此，提供方新增一个字段不构成错误；而读取器需要、载荷却缺少的字段才是错误。部分读取器还接受同一事实的两种已观测写法：资产 id 可能是 `id` 或 `assetId`，结果身份可能是数字或数字字符串，而一个场景可能是一个对象，也可能是嵌套的结果。
+每个读取器只校验它承诺的字段，忽略其余一切。因此，提供方新增一个字段不构成错误；而读取器需要、载荷却缺少的字段才是错误。部分读取器还接受同一事实的两种已观测写法：资产 id 可能是 `id` 或 `assetId`，结果身份可能是数字或数字字符串，而一个场景可能是一个对象，也可能是嵌套的结果。`readGeneratedImage()` 更进一步，同时接受同一个端点给过的两种形态：提供方今天返回的列表——每行用 `id` 给材质、用 `assetUrl` 给文件——以及早期抓包里的单体对象——字段是 `materialId` 与 `url` 或 `materialUrl`。空列表是失败，不是空引用。
 
 当某个字段在提供方自己的数据里本就可选时，读取器把这种可选性以 `null` 延续下去，而不是编造一个默认值。提供方没有发来的费用保持 `null`；它绝不会变成 `0`。
 
@@ -143,7 +143,7 @@ console.log(media.media_type, media.kind, media.sha256, media.bytes.byteLength)
 
 ### 线上形状从何而来
 
-构造器的请求体取自产品工作台的抓包并逐字段复现：去字幕请求体带 `taskType` 10 及其按模型固定的标准，转高清请求体带 `taskType` 20、SeedVR2 模型 id 及其两个标准标识。图片请求体则属于另一类：它从实时目录解析 `standardId`、`platformId` 与 `videoStandardId`，而不是接受调用方传入，因为这些值是账户状态，而过期的一组会让提供方在调用方已经以为成功之后才拒绝请求。
+构造器的请求体取自产品工作台的抓包并逐字段复现：去字幕请求体带 `taskType` 10 及其按模型固定的标准，转高清请求体带 `taskType` 20、SeedVR2 模型 id 及其两个标准标识。图片请求体则属于另一类：它从实时目录解析 `standardId`、`platformId` 与 `videoStandardId`，而不是接受调用方传入，因为这些值是账户状态，而过期的一组会让提供方在调用方已经以为成功之后才拒绝请求。同一个 modelId 可能按平台列成多行、各自定价，因此 `resolveImageModel()`、`buildImageRequest()` 与 `readImageDisplayPrice()` 都接受一个 `ImageModelSelection`（`platformId`、`standardId`，或两者都给）；当这个选择没能把候选收敛到恰好一行时，它们会带着全部候选一起失败。
 
 ### 下载模块额外做了什么
 
@@ -181,11 +181,12 @@ console.log(media.media_type, media.kind, media.sha256, media.bytes.byteLength)
 这些约束是当前的包行为，不是任务清单。
 
 - **载荷一旦不再匹配就使调用失败**——读取器宁可抛出 `CONTRACT_CHANGED` 也不降级，而该错误不携带字段名，所以调用方报告的是契约变化，运维者要读原始载荷才能找出是哪个字段动了。
+- **图片选择器由调用方决定**——只有当这个选择把候选收敛到恰好一行 `gpt-image-2` 时，`resolveImageModel()` 才接受该目录。多行而未给选择时调用失败，错误里列出每个候选的 `platformId`、`standardId`、单价与单位；给了选择却匹配不到任何候选时同样失败。本库没有任何偏好某个平台或更便宜那一行的规则。
 - **费用与价格字段是证据，不是结算**——`real_cost`、`estimated_cost`、`discount_cost` 与 `readImageDisplayPrice()` 承载提供方报告的内容，且 `readImageDisplayPrice()` 始终返回 `quote_verified: false`；这里没有任何东西授权花钱。
 - **默认擦除矩形不裁切到画面内**——`defaultSubtitleBox()` 复现提供方实测的比例（`zimuTop` 570/1280、高 720/1280、宽为画面内缩一个像素），因此在 720x1280 的源上这个框可以越过底边；该形状取自一次被接受的请求，而不是提供方的保证。
 - **`needsUpscale()` 在无法判断时回答 `null`**——任一侧出现无法识别的分辨率标签都会得到 `null` 而不是布尔值，调用方必须把它当作未回答，而不是可以交付的许可。
 - **媒体传输有界且只允许单一来源**——`downloadMedia()` 只接受 `MEDIA_ALLOWED_ORIGINS` 中的来源，把响应体限制在 `MEDIA_LIMITS`（图片 64 MiB，视频 512 MiB），拒绝重定向，且不写入磁盘。
-- **分镜请求体从不从零拼装**——`readStoryboard()` 只接受 `ratio` 9:16、`resolution` 720p 与 `genNum` 1，并且 `withGenerationEnabled()` 要求已保存的时长等于所请求的内容时长加一秒，因为提供方从该字段推导自己的视频长度。
+- **分镜请求体从不从零拼装**——`readStoryboard()` 只接受 `ratio` 9:16、`resolution` 720p 与 `genNum` 1，并且 `withGenerationEnabled()` 要求已保存的时长等于所请求的内容时长加一秒，因为提供方从该字段推导自己的视频长度。两者都不以 `isGenerate` 为条件：提供方对它持有的每个分镜都存 1，无论是否生成过，因此该字段无法区分二者，而它真正响应的是调用方写进请求体里的 `isGenerate`。
 - **没有任何传输行为会被重试或续跑**——除媒体下载外，本包不自己发起任何请求，因此每一次重试、超时与轮询决定都属于调用方。
 
 <a id="dev-note"></a>

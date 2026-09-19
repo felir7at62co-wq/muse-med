@@ -73,6 +73,11 @@ export function readStoryboard(data: unknown, expectedStoryboardId?: number): St
 
 /**
  * The paid transformation: hand the provider its own snapshot with generation enabled.
+ *
+ * `is_generate` is deliberately not a precondition. The provider stores 1 on every storyboard it holds,
+ * including ones that never generated, so the field cannot tell a generated storyboard from an ungenerated
+ * one. What the provider acts on is the `isGenerate` inside the body this function returns.
+ *
  * @param data - Envelope `data` from `/aigc/storyboard/{storyboardId}`, read in the same call.
  * @param contentDurationMs - The package duration to generate: a whole 4000..14000 millisecond value.
  * @returns A PUT body that differs from the snapshot only in `isGenerate`.
@@ -81,7 +86,6 @@ export function withGenerationEnabled(data: unknown, contentDurationMs: number):
   if (!Number.isSafeInteger(contentDurationMs) || contentDurationMs < 4000 || contentDurationMs > 14000
     || contentDurationMs % 1000 !== 0) invalid()
   const view = readStoryboard(data)
-  if (view.is_generate !== 0) invalid()
   if (view.model_config.duration !== contentDurationMs / 1000 + 1) invalid()
   return { ...view.snapshot, isGenerate: 1 }
 }

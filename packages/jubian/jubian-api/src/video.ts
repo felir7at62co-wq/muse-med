@@ -54,6 +54,8 @@ export interface VideoTask {
   real_cost: string | null
   estimated_cost: string | null
   discount_cost: string | null
+  /** Project the task belongs to; a subtitle erasure or an upscale request needs it. */
+  script_id: number | null
   /** Episode the package belongs to; the upscale request needs it. */
   episode_id: number | null
   /** How many episodes the package covers; the upscale request needs it. */
@@ -212,6 +214,7 @@ function task(row: Record<string, unknown>): VideoTask {
     status: nullableText(row.taskStatus), first_result_id: nullableId(row.firstResultId),
     parent_result_id: nullableId(row.parentResultId), real_cost: cost(row.realCost),
     estimated_cost: cost(row.estimatedCost), discount_cost: cost(row.discountCost),
+    script_id: nullableId(row.scriptId),
     episode_id: nullableId(row.episodeId),
     episode_count: nullableId(row.episodeCount),
     task_name: nullableText(row.taskName) }
