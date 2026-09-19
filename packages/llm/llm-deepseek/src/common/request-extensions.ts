@@ -4,6 +4,11 @@ import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { DeepSeekLlmApiExtensionRequest, PreparedDeepSeekLlmApiExtensions } from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 import type { DeepSeekAdapterOptions } from './types.ts'
 
+/** Human-readable reason from a wrapped contributor failure, so the Operator reads it in the turn error. */
+function causeDetail(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 /**
  * Merge contributions without replacing protocol-owned fields. Preparation and
  * acceptance failures retain the same error category across DeepSeek protocols.
@@ -21,7 +26,8 @@ export async function prepareRequestExtensions(
   try {
     extensions = await prepare({ body, ...options })
   } catch (error) {
-    throw new LlmError('DeepSeek request extension preparation failed', 'REQUEST_EXTENSION', { cause: error })
+    throw new LlmError(`DeepSeek request extension preparation failed: ${causeDetail(error)}`,
+      'REQUEST_EXTENSION', { cause: error })
   }
   for (const field of Object.keys(extensions.fields)) {
     if (Object.hasOwn(body, field)) {
@@ -34,7 +40,8 @@ export async function prepareRequestExtensions(
       try {
         await extensions.accept()
       } catch (error) {
-        throw new LlmError('DeepSeek request extension acceptance failed', 'REQUEST_EXTENSION', { cause: error })
+        throw new LlmError(`DeepSeek request extension acceptance failed: ${causeDetail(error)}`,
+          'REQUEST_EXTENSION', { cause: error })
       }
     },
   }

@@ -27,6 +27,8 @@ export interface WireRequest {
    * produces any one of these strings. Mapped from `GenerateOptions.stop`.
    */
   stop?: string[]
+  /** OpenAI-compatible JSON object response mode, mapped from GenerateOptions. */
+  response_format?: { type: 'json_object' }
 }
 
 /** System-role message: a single string of instructions. */

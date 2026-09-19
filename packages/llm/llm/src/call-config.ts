@@ -27,6 +27,7 @@ export interface LlmCallConfig {
   temperature?: number
   maxTokens?: number
   stop?: string[]
+  responseFormat?: { readonly type: 'json_object' }
 }
 
 /**
@@ -53,6 +54,7 @@ export function callConfigEquals(a: LlmCallConfig, b: LlmCallConfig): boolean {
     || a.reasoningEffort !== b.reasoningEffort
     || a.temperature !== b.temperature
     || a.maxTokens !== b.maxTokens
+    || a.responseFormat?.type !== b.responseFormat?.type
   ) return false
   if (a.stop === undefined || b.stop === undefined) return a.stop === b.stop
   return a.stop.length === b.stop.length && a.stop.every((s, i) => s === b.stop?.[i])

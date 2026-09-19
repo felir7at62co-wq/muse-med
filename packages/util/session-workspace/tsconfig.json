@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    // This helper runs on the Host, so the Node filesystem API is part of its contract.
+    "types": ["node"]
+  },
+  "include": [
+    "src"
+  ]
+}

@@ -108,6 +108,12 @@ export class RequestFiles {
   beginAttempt(): void { this.used = [] }
 
   /**
+   * Files resolved so far in the current serialization attempt.
+   * @returns each resolved provider file id with the request image variant it represents.
+   */
+  get usedFiles(): readonly { fileId: DeepSeekFileId; version: RequestImageAttachment }[] { return this.used }
+
+  /**
    * Resolve a retained image under its own upload deadline.
    * @param version - prepared request image.
    * @param location - occurrence used by provider-rejection diagnostics.

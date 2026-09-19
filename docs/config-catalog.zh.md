@@ -185,6 +185,40 @@ export interface Config {
 
 来源：[`packages/core/agent-tool-presentation/src/index.ts:38`](../packages/core/agent-tool-presentation/src/index.ts)
 
+<a id="deepseek-aidsh-api-agent-notes"></a>
+
+## `@deepseek-ai/dsh-api-agent-notes`
+
+需要：`fs`
+
+```ts config-catalog
+/** Deployment configuration of the notes root and its listing cap. */
+export interface Config {
+  /**
+   * Directory holding the notes tree.
+   *
+   * No schema default: the constructor resolves it so the stored root is
+   * absolute whatever form it arrived in, and a deployment that omits the key
+   * fails at mount instead of silently reading a tree nobody named. That is the
+   * loud half of the rule; the quiet half is that this is the deployment's own
+   * choice, not the service's guess.
+   *
+   * Point it at the tree that actually holds the notes. A tree kept beside a
+   * repository's source is not the workspace a session runs in, so a deployment
+   * whose notes live there — the common case for Agent Notes written into the
+   * checkout — must set this to that absolute path.
+   */
+  readonly root: string
+  /**
+   * Cap on notes reported by one listing. A larger tree is cut and reported as
+   * `truncated` rather than silently shortened.
+   */
+  readonly maxNotes: number
+}
+```
+
+来源：[`packages/api/agent-notes/src/index.ts:59`](../packages/api/agent-notes/src/index.ts)
+
 <a id="deepseek-aidsh-api-gateway"></a>
 
 ## `@deepseek-ai/dsh-api-gateway`
@@ -507,6 +541,37 @@ export interface ToolResultPruneConfig {
 ```
 
 来源：[`packages/compaction/compaction-tool-result-pruner/src/types.ts:5`](../packages/compaction/compaction-tool-result-pruner/src/types.ts)
+
+<a id="deepseek-aidsh-composition-guard"></a>
+
+## `@deepseek-ai/dsh-composition-guard`
+
+需要：`agents` · `tools`
+
+```ts config-catalog
+/** Plugin config, validated by the same-named schemastery schema plus the load-time checks in `apply`. */
+export interface Config {
+  /**
+   * Whether the affected session also receives the notice in its own
+   * conversation (default `true`). The log line is always written; this governs
+   * only the model-visible message, for a deployment that wants the guard's
+   * record without writing into a conversation.
+   */
+  announceInSession?: boolean
+  /**
+   * Maximum live agents inspected per loader update (default `64`).
+   *
+   * One live frame is a full scope-layer traversal per agent, and a patch reload
+   * can update many rows at once, so the ceiling bounds a guard's cost in a
+   * deployment with very many concurrent sessions. Agents beyond the cap are
+   * inspected by the next update; the cap has no effect on ordinary deployments,
+   * which run far fewer agents at once.
+   */
+  maxAgentsPerUpdate?: number
+}
+```
+
+来源：[`packages/guard/composition-guard/src/index.ts:54`](../packages/guard/composition-guard/src/index.ts)
 
 <a id="deepseek-aidsh-cordis-host-runner"></a>
 
@@ -890,6 +955,39 @@ export interface Config {
 ```
 
 来源：[`packages/goal/goal/src/index.ts:172`](../packages/goal/goal/src/index.ts)
+
+<a id="deepseek-aidsh-guard-drama"></a>
+
+## `@deepseek-ai/dsh-guard-drama`
+
+需要：`tools`
+
+```ts config-catalog
+/** Plugin config, validated by the same-named schemastery schema plus the load-time checks in `apply`. */
+export interface Config {
+  /**
+   * Absolute workspace root used only when the session states no working
+   * directory of its own (default: none). The session's own cwd always wins,
+   * because treating a configured root as stronger would read one conversation's
+   * project while judging another's call.
+   */
+  workspaceRoot?: string
+  /** Directory name below the workspace root that holds the drama projects (default `short-drama`). */
+  workshopDir?: string
+  /** Absolute project root that overrides the workshop-root derivation (default: none). */
+  projectRoot?: string
+  /** Refuse a Jubian write/paid method that carries no `idempotency_key` (default `true`). */
+  idempotencyKey?: boolean
+  /** Refuse a write/edit that would land an invalid shot script or matched JSON (default `true`). */
+  shotScript?: boolean
+  /** Refuse a paid storyboard submission while no `official=true` asset record exists (default `true`). */
+  officialAssets?: boolean
+  /** Explain a call to a retired MUSE tool name instead of a bare `UNKNOWN_TOOL` (default `true`). */
+  museToolNames?: boolean
+}
+```
+
+来源：[`packages/guard/drama-gate/src/index.ts:46`](../packages/guard/drama-gate/src/index.ts)
 
 <a id="deepseek-aidsh-headless"></a>
 
@@ -2897,6 +2995,38 @@ export interface Config {
 
 来源：[`packages/shell/tool-bash-persistent/src/index.ts:435`](../packages/shell/tool-bash-persistent/src/index.ts)
 
+<a id="deepseek-aidsh-tool-episode-render"></a>
+
+## `@deepseek-ai/dsh-tool-episode-render`
+
+需要：`tools`
+
+```ts config-catalog
+/**
+ * Plugin config. Every field is a deployment-varying choice: where the media
+ * binaries are, the two audio gains the operator approved, whether the GPU
+ * encoder is probed, and where the subtitle font lives. The delivery
+ * specification itself — geometry, frame rate, bitrates, subtitle style, ending
+ * length — is not configurable.
+ */
+export interface Config {
+  /** ffmpeg executable; defaults to `ffmpeg` from `PATH`. */
+  ffmpegPath?: string
+  /** ffprobe executable; defaults to `ffprobe` from `PATH`. */
+  ffprobePath?: string
+  /** Gain applied to the episode's own master audio; defaults to 1.45. */
+  masterVolume?: number
+  /** Gain applied to the BGM bed; defaults to 0.24. */
+  bgmVolume?: number
+  /** Whether the GPU encoder is probed before each render; defaults to true. */
+  preferNvenc?: boolean
+  /** Directory libass resolves the subtitle font from; defaults to `C:/Windows/Fonts`. */
+  fontsDir?: string
+}
+```
+
+来源：[`packages/drama/tool-episode-render/src/index.ts:63`](../packages/drama/tool-episode-render/src/index.ts)
+
 <a id="deepseek-aidsh-tool-fs"></a>
 
 ## `@deepseek-ai/dsh-tool-fs`
@@ -3019,10 +3149,36 @@ export interface Config {
   baseUrl?: string
   /** Per-call abort budget in milliseconds. */
   timeoutMs?: number
+  /**
+   * Whether the workspace's own pipeline secret file may stand in for a missing
+   * credential-store value; defaults to true.
+   */
+  workspaceSecrets?: boolean
+  /**
+   * Which `platformId` of the `taskType=2` catalogue `image_generate` buys from,
+   * such as `KU_AI`. The account catalogue can list one model id once per
+   * platform at different prices, and this plugin never picks one for you: with
+   * several rows and no configured platform or standard, the call fails and
+   * names every candidate.
+   */
+  imagePlatformId?: string
+  /**
+   * Which catalogue row (`standardId`, the row's own `id`) `image_generate` buys
+   * from, such as `66`. Either this or `imagePlatformId` is enough to pin one row.
+   */
+  imageStandardId?: number
+  /**
+   * How long `image_generate` waits for the new asset to reach
+   * `hsAssetStatus === "Active"` before reporting a timeout, in milliseconds;
+   * defaults to 180000, because a measured asset took one to two minutes.
+   */
+  imageActiveTimeoutMs?: number
+  /** Delay between the readback polls above, in milliseconds; defaults to 3000. */
+  imageActivePollMs?: number
 }
 ```
 
-来源：[`packages/jubian/tool-jubian/src/index.ts:28`](../packages/jubian/tool-jubian/src/index.ts)
+来源：[`packages/jubian/tool-jubian/src/index.ts:30`](../packages/jubian/tool-jubian/src/index.ts)
 
 <a id="deepseek-aidsh-tool-lsp"></a>
 
@@ -3137,6 +3293,28 @@ export interface Config {
 ```
 
 来源：[`packages/session-query/tool-session-query/src/index.ts:28`](../packages/session-query/tool-session-query/src/index.ts)
+
+<a id="deepseek-aidsh-tool-skill"></a>
+
+<a id="deepseek-aidsh-tool-shot-script"></a>
+
+## `@deepseek-ai/dsh-tool-shot-script`
+
+需要：`tools`
+
+```ts config-catalog
+/**
+ * Plugin config. `actionShotSeconds` is the only deployment-varying choice: it is
+ * the packing budget for a silent shot that carries no `动作复杂度` label, matching
+ * the compiler flag the drama skills used to pass.
+ */
+export interface Config {
+  /** Seconds charged to a silent shot without a complexity label, 1–4; defaults to 2. */
+  actionShotSeconds?: number
+}
+```
+
+来源：[`packages/drama/tool-shot-script/src/index.ts:48`](../packages/drama/tool-shot-script/src/index.ts)
 
 <a id="deepseek-aidsh-tool-skill"></a>
 
@@ -3644,6 +3822,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-schedule`（[`packages/client/ui-schedule/src/index.ts`](../packages/client/ui-schedule/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-session`（[`packages/client/ui-session/src/index.ts`](../packages/client/ui-session/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-settings`（[`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts)）
+- `@deepseek-ai/dsh-client-ui-settings-agent-notes` ([`packages/client/ui-settings-agent-notes/src/index.ts`](../packages/client/ui-settings-agent-notes/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-general`（[`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-settings-models`（[`packages/client/ui-settings-models/src/index.ts`](../packages/client/ui-settings-models/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-settings-plugin-inventory`（[`packages/client/ui-settings-plugin-inventory/src/index.ts`](../packages/client/ui-settings-plugin-inventory/src/index.ts)）
@@ -3773,6 +3952,7 @@ export interface Config {
 - `@deepseek-ai/dsh-session-snapshot`（[`packages/test-support/session-snapshot/src/index.ts`](../packages/test-support/session-snapshot/src/index.ts)）
 - `@deepseek-ai/dsh-session-telemetry`（[`packages/session/session-telemetry/src/index.ts`](../packages/session/session-telemetry/src/index.ts)）
 - `@deepseek-ai/dsh-session-title-llm`（[`packages/session/session-title-llm/src/index.ts`](../packages/session/session-title-llm/src/index.ts)）
+- `@deepseek-ai/dsh-session-workspace` ([`packages/util/session-workspace/src/index.ts`](../packages/util/session-workspace/src/index.ts))
 - `@deepseek-ai/dsh-subagent-in-process-driver`（[`packages/subagent/subagent-in-process-driver/src/index.ts`](../packages/subagent/subagent-in-process-driver/src/index.ts)）
 - `@deepseek-ai/dsh-timeout`（[`packages/util/timeout/src/index.ts`](../packages/util/timeout/src/index.ts)）
 - `@deepseek-ai/dsh-typert-generator`（[`packages/typert/generator/src/index.ts`](../packages/typert/generator/src/index.ts)）

@@ -189,6 +189,8 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/api/settings-controller': { kind: 'none', reason: 'Configuration-surface API owner; it registers no prompt, tool, or session event.' },
   'packages/api/workspace-controller': { kind: 'none', reason: 'Workspace API and state projection owner; it registers no prompt, tool, or session event.' },
   'packages/api/workspace-files': { kind: 'none', reason: 'Workspace file read API and its Client resource provider; it registers no prompt, tool, or session event.' },
+  'packages/api/agent-notes': { kind: 'none', reason: 'The notes service serves a Client settings surface over ctx.fs; it registers no prompt, tool, or session event, and the notes it stores are user-authored files rather than model context.' },
+  'packages/client/ui-settings-agent-notes': { kind: 'none', reason: 'Browser-side settings section over the agent-notes Remote namespace; it renders and edits user-authored notes without registering anything model-facing.' },
   'packages/typert/protocol': { kind: 'none', reason: 'Compiler-independent Remote protocol declarations; registers nothing model-facing.' },
   'packages/typert/generator': { kind: 'none', reason: 'The build-time generator runs outside any agent runtime and touches no model request.' },
   'packages/jobs/jobs': { kind: 'indirect', reason: 'Producer and controller plugins own all model rendering over the job registry.' },
@@ -206,6 +208,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/web/web-fetch-http': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },
   'packages/web/web-search-exa': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },
   'packages/workflow/workflow': { kind: 'indirect', reason: 'The service delegates parent and child model rendering to its consumer and engine.' },
+  'packages/guard/drama-gate': { kind: 'none', reason: 'The gate only intercepts tools/pre-execute and refuses a pending call; it registers no tool, prompt section, or session event, so the model reads nothing but the ordinary tool result a denied call already produces.' },
 }
 
 interface Failure {

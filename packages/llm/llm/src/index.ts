@@ -201,6 +201,8 @@ export interface PreparedAdapterCall {
  * DeepSeek and library-backed pi-ai adapters meet this contract through different internals.
  */
 export abstract class LlmAdapter {
+  /** Whether this adapter verifies required images remain in its final provider request, including fallback paths. */
+  readonly supportsRequiredImageInput: boolean = false
   /**
    * Describe one provider route owned by this adapter.
    * @param provider - a route passed to `registerAdapter()` for this instance.
@@ -1043,6 +1045,10 @@ export class LlmRuntime extends TypertRemoteService {
         : Object.isFrozen(options)
           ? deepFreeze({ ...options, ...resolvedConfig })
           : { ...options, ...resolvedConfig }
+      if (resolvedOptions.requireImageInput && (!adapter.supportsRequiredImageInput || !modelInfo.inputModalities?.includes('image')
+        || !resolvedOptions.messages.some(message => contentHasImage(message.content)))) {
+        throw new LlmError('Required image input cannot be guaranteed by this route', 'IMAGE_INPUT_REQUIRED')
+      }
       // Files are never dispatched natively: every route receives handle text.
       let projectedMessages: readonly Message[] = resolvedOptions.messages
       if (projectedMessages.some(message => contentHasFile(message.content))) {

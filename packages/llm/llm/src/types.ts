@@ -451,6 +451,18 @@ export interface ToolSchema {
 
 /** A single model request, fully assembled. */
 export interface GenerateOptions {
+  /** Host-only awaited hook over the exact provider payload immediately before SDK dispatch. */
+  onPayload?: (payload: unknown, route: { provider: string; model: string }, images?: readonly {
+    attachmentId: string
+    variantId: string
+    sha256: string
+    bytes: number
+    width: number
+    height: number
+    representation: 'base64'
+  }[]) => unknown
+  /** Require every input image to survive provider serialization; unsupported adapters and text-only projection must reject. */
+  requireImageInput?: boolean
   /** Registered provider route selecting the adapter instance. */
   provider: string
   model: string
@@ -490,4 +502,6 @@ export interface GenerateOptions {
    * generation policy. Ordinary conversation requests leave it unset.
    */
   purpose?: 'compaction' | 'session-title'
+  /** Provider response format requested for strict JSON model calls. */
+  responseFormat?: { readonly type: 'json_object' }
 }

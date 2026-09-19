@@ -38,6 +38,7 @@ import type { DeepSeekAdapterOptions, DeepSeekCatalogModel, DeepSeekConnectionOp
 import type { DeepSeekFileStore } from '../../common/file-store.ts'
 import { FileResolutionFailure, RequestFiles } from '../../common/request-files.ts'
 import { prepareRequestExtensions } from '../../common/request-extensions.ts'
+import { requestImageEvidence } from '../../request-image-evidence.ts'
 import { parseSse } from './sse.ts'
 import { translate } from './translate.ts'
 import type { WireError, WireRequest } from './types.ts'
@@ -116,6 +117,7 @@ export function httpErrorCode(status: number, error?: WireError['error']): strin
  * map to `ABORTED`; the configured per-read idle watchdog maps to `TIMEOUT`.
  */
 export class ChatCompletionsAdapter extends LlmAdapter {
+  override readonly supportsRequiredImageInput = true
   private readonly files: DeepSeekFileStore
 
   constructor(private readonly config: DeepSeekAdapterOptions & { resolveFiles: () => DeepSeekFileStore }) {
@@ -275,6 +277,14 @@ export class ChatCompletionsAdapter extends LlmAdapter {
       : (ref: ImageAttachmentRef): ImageAttachmentAccess | undefined => this.config.resolveImageAccess?.(attachments, ref)
     const imageAccessOptions = resolveImageAccess === undefined ? {} : { resolveImageAccess }
     const requestOptions = options
+    const countImages = (blocks: readonly ContentBlock[]): number => blocks.reduce((count, block) => count
+      + (block.type === 'image' ? 1 : block.type === 'tool-result' ? countImages(block.content) : 0), 0)
+    const requiredImages = options.requireImageInput
+      ? options.messages.reduce((count, message) => count + countImages(message.content), 0) : 0
+    if (options.requireImageInput && (!requiredImages
+      || requestOptions.messages.reduce((count, message) => count + countImages(message.content), 0) !== requiredImages)) {
+      throw new LlmError('Required image input was removed by request limits', 'IMAGE_INPUT_REQUIRED')
+    }
     const requestImages = attachments === undefined || model === undefined
       ? new Map<AttachmentId, RequestImageAttachment>()
       : await prepareRequestImages(requestOptions, attachments, model, signal)
@@ -317,7 +327,13 @@ export class ChatCompletionsAdapter extends LlmAdapter {
           continue
         }
       }
+      if (options.requireImageInput) {
+        const represented = body.messages.reduce((count, message) => count + (message.role === 'user' && Array.isArray(message.content)
+          ? message.content.filter(part => part.type === 'file' || part.type === 'image_url').length : 0), 0)
+        if (represented !== requiredImages) throw new LlmError('Required image input is missing from the provider request', 'IMAGE_INPUT_REQUIRED')
+      }
       const extensions = await prepareRequestExtensions(body as unknown as Readonly<Record<string, DeepSeekLlmApiJson>>, {
+        images: requestImageEvidence(body, [...requestImages.values()], requestFiles.usedFiles),
         signal,
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
         ...options.purpose === undefined ? {} : { purpose: options.purpose },

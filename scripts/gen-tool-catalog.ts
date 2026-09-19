@@ -67,6 +67,8 @@ import type TeamService from '@deepseek-ai/dsh-experimental-agent-team'
 import * as ToolTeam from '@deepseek-ai/dsh-experimental-tool-agent-team'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolJubian from '@deepseek-ai/dsh-tool-jubian'
+import * as ToolShotScript from '@deepseek-ai/dsh-tool-shot-script'
+import * as ToolEpisodeRender from '@deepseek-ai/dsh-tool-episode-render'
 import McpResources from '@deepseek-ai/dsh-mcp-resources'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import { registerListSubagentModels } from '../packages/subagent/tool-subagent/src/list-models.ts'
@@ -661,6 +663,41 @@ const TOOL_PACKAGES: ToolPackage[] = [
     note:
       'Every paid write (image_generate, generate, erase_subtitle, upscale) requires a caller-supplied idempotency_key and records its intent in the ledger before the request leaves; '
       + 'erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-shot-script',
+    dir: 'tool-shot-script',
+    source: 'packages/drama/tool-shot-script/src/index.ts',
+    requires: ['ctx.tools', 'the project layout it reads and writes (episodes/, prompts/, matches/, episode_packages/)'],
+    writes: ['tool/call', 'tool/result', 'on compile: the compiled prompt, the matched JSON, and the episode package under the project root'],
+    async mount(ctx) {
+      await ctx.plugin(ToolShotScript)
+    },
+    note:
+      'The three methods share one schema: `validate` and `preview` only read, and `compile` writes the matched JSON and the episode package, returning each package\'s '
+      + '`content_duration_ms`, its submitted whole-second length, and the prompt-ordered `material_keys` that `jubian_storyboard` `select_assets` must match. '
+      + 'A script with any hard failure returns that failure list and writes nothing.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-episode-render',
+    dir: 'tool-episode-render',
+    source: 'packages/drama/tool-episode-render/src/index.ts',
+    requires: ['ctx.tools', 'ffmpeg and ffprobe on PATH (or configured), the project layout it reads and writes (video/, audio/, editing/, exports/)'],
+    writes: [
+      'tool/call',
+      'tool/result',
+      'on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt',
+      'on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/',
+    ],
+    async mount(ctx) {
+      await ctx.plugin(ToolEpisodeRender)
+    },
+    note:
+      'One schema, three methods: `prepare` lays out render inputs without encoding picture, `render` produces the delivery and reports its measured '
+      + 'resolution, frame rate, bitrate, duration, size, and encoder, and `verify` checks the delivered file. The delivery style is fixed — 1440x2560 at '
+      + '60 fps, 24M target with a 30M ceiling and a 4.6 Mbps floor, SimHei 68 subtitles with the single bottom-right AI-content mark, and a two-second ending '
+      + 'frozen from the last shot\u2019s proved tail frame. A render that cannot proceed throws with its repair instruction; a delivered file that misses the '
+      + 'specification returns `ok: false` with per-check repairs.',
   },
 ]
 

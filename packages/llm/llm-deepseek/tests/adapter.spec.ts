@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -18,7 +19,7 @@ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getOrCreateAnonymousUserId, type AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import DeepSeekLlmApiExtensionRegistry from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
-import type { PreparedDeepSeekLlmApiExtensions } from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
+import type { DeepSeekLlmApiExtensionRequest, PreparedDeepSeekLlmApiExtensions } from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
 import { httpErrorCode } from '../src/protocols/chat-completions/adapter.ts'
@@ -26,6 +27,12 @@ import { resolveRequestImageTarget } from '../src/common/request-pricing.ts'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 import type { Behavior } from './mock-server.ts'
+
+declare module '@deepseek-ai/dsh-deepseek-llm-api-extensions/types' {
+  interface DeepSeekLlmApiExtensionMap {
+    dsh_image_evidence_test: { readonly value: string }
+  }
+}
 
 const TEST_USER_ID = '00000000-0000-4000-8000-000000000001' as AnonymousUserId
 let testHome: string
@@ -63,6 +70,7 @@ function adapterOf(
   config: Partial<LlmDeepSeek.Config> & { apiKey?: string } = {},
   attachments?: AttachmentStore,
   files?: LlmDeepSeek.DeepSeekFileStore,
+  prepareExtensions: LlmDeepSeek.DeepSeekAdapterOptions['prepareExtensions'] = noExtensions,
 ): DeepSeekAdapter {
   const { apiKey, ...rest } = config
   return new DeepSeekAdapter({
@@ -71,7 +79,7 @@ function adapterOf(
     resolveUserId: () => TEST_USER_ID,
     resolveAttachments: () => attachments,
     ...files === undefined ? {} : { resolveFiles: () => files },
-    prepareExtensions: noExtensions,
+    prepareExtensions,
   })
 }
 
@@ -2351,5 +2359,155 @@ describe('plugin registration and config', () => {
       retryPolicy: { mode: 'normal', maxRetries: -1 },
     })).rejects.toThrow(/retryPolicy/)
     expect(ctx.llm.listProviders()).toEqual([])
+  })
+})
+
+describe('required image input', () => {
+  const VISION_MODEL: LlmDeepSeek.DeepSeekCatalogModel[] = [{ id: 'deepseek-v4-flash-vision-exp', inputModalities: ['text', 'image'] }]
+
+  function imageMessage(offloaded: boolean) {
+    return createUserMessage({
+      content: [{ type: 'image', attachment: imageRef, ...offloaded ? { offloaded: true as const } : {} }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+  }
+
+  function expectedEvidence(representation: 'file' | 'base64', partIndex: number, messageIndex = 0) {
+    return [{
+      attachmentId: String(imageRef.attachmentId),
+      variantId: String(requestImage().variantId),
+      sha256: `sha256:${createHash('sha256').update(requestImage().data).digest('hex')}`,
+      bytes: 3,
+      width: 1,
+      height: 1,
+      representation,
+      messageIndex,
+      partIndex,
+    }]
+  }
+
+  it('refuses a required-image request that carries no image at all', async () => {
+    const server = await mockServer([])
+    const adapter = adapterOf({ baseURL: server.url, models: VISION_MODEL })
+
+    await expect(drain(adapter.stream({
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash-vision-exp',
+      requireImageInput: true,
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'plain' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    }))).rejects.toMatchObject({
+      code: 'IMAGE_INPUT_REQUIRED',
+      message: 'Required image input was removed by request limits',
+    })
+    expect(server.requests).toHaveLength(0)
+  })
+
+  it('refuses a required image the serializer can only project to placeholder text', async () => {
+    const server = await mockServer([])
+    const attachments = attachmentStoreOf(ref => Promise.resolve(requestImage(ref))).store
+    const adapter = adapterOf({ baseURL: server.url, models: VISION_MODEL }, attachments)
+
+    await expect(drain(adapter.stream({
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash-vision-exp',
+      requireImageInput: true,
+      messages: [imageMessage(true)],
+    }))).rejects.toMatchObject({
+      code: 'IMAGE_INPUT_REQUIRED',
+      message: 'Required image input is missing from the provider request',
+    })
+    expect(server.requests).toHaveLength(0)
+  })
+
+  it('dispatches a required image and hands its file evidence to request extensions', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const ctx = await harness(server.url, { models: VISION_MODEL })
+    ctx.provide('attachments', attachmentStoreOf(ref => Promise.resolve(requestImage(ref))).store)
+    const seen: DeepSeekLlmApiExtensionRequest[] = []
+    ctx.deepseekLlmApiExtensions.register('dsh_image_evidence_test', {
+      prepare(request) {
+        seen.push(request)
+        return undefined
+      },
+    })
+
+    const result = await assemble(ctx, {
+      model: 'deepseek-v4-flash-vision-exp',
+      requireImageInput: true,
+      messages: [imageMessage(false)],
+    })
+
+    expect(result.finish).toEqual({ kind: 'stop' })
+    const body = server.requests[0] as { messages: Array<{ content: Array<{ type: string; file_id?: string }> }> }
+    expect(body.messages[0]?.content.map(part => part.type)).toEqual(['text', 'file'])
+    expect(body.messages[0]?.content[1]?.file_id).toMatch(/^file-api-/u)
+    expect(seen).toHaveLength(1)
+    expect(Object.isFrozen(seen[0])).toBe(true)
+    expect(Object.isFrozen(seen[0]?.body)).toBe(true)
+    expect(seen[0]?.images).toEqual(expectedEvidence('file', 1))
+  })
+
+  it('carries base64 evidence after a Files API fallback', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const attachments = attachmentStoreOf(ref => Promise.resolve(requestImage(ref))).store
+    const files = fileStoreOf(() => Promise.reject(new LlmError('Files unavailable', 'SERVER')))
+    const seen: DeepSeekLlmApiExtensionRequest[] = []
+    const adapter = adapterOf(
+      { baseURL: server.url, models: VISION_MODEL },
+      attachments,
+      files.store,
+      (request) => {
+        seen.push(request)
+        return Promise.resolve({ fields: {}, accept: () => Promise.resolve() })
+      },
+    )
+
+    await drain(adapter.stream({
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash-vision-exp',
+      requireImageInput: true,
+      messages: [imageMessage(false)],
+    }))
+
+    expect(JSON.stringify(server.requests[0])).toContain('"type":"image_url"')
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.images).toEqual(expectedEvidence('base64', 1))
+  })
+
+  it('counts a required image nested in a tool result and binds its hoisted wire location', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const ctx = await harness(server.url, { models: VISION_MODEL })
+    ctx.provide('attachments', attachmentStoreOf(ref => Promise.resolve(requestImage(ref))).store)
+    const seen: DeepSeekLlmApiExtensionRequest[] = []
+    ctx.deepseekLlmApiExtensions.register('dsh_image_evidence_test', {
+      prepare(request) {
+        seen.push(request)
+        return undefined
+      },
+    })
+
+    const result = await assemble(ctx, {
+      model: 'deepseek-v4-flash-vision-exp',
+      requireImageInput: true,
+      messages: [createUserMessage({
+        content: [{
+          type: 'tool-result',
+          toolCallId: ToolCallId('shot'),
+          content: [{ type: 'image', attachment: imageRef }],
+        }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })
+
+    // The tool result becomes a role:tool message and its image is hoisted into
+    // the trailing user message, which is the location the evidence must name.
+    expect(result.finish).toEqual({ kind: 'stop' })
+    const body = server.requests[0] as { messages: Array<{ role: string; content: unknown }> }
+    expect(body.messages.map(message => message.role)).toEqual(['tool', 'user'])
+    expect((body.messages[1]?.content as Array<{ type: string }>).map(part => part.type)).toEqual(['text', 'file'])
+    expect(seen[0]?.images).toEqual(expectedEvidence('file', 1, 1))
   })
 })

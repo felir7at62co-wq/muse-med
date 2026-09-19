@@ -107,10 +107,12 @@ export class DeepSeekLlmApiExtensionRegistry extends Service {
    */
   async prepare(request: DeepSeekLlmApiExtensionRequest): Promise<PreparedDeepSeekLlmApiExtensions> {
     request.signal.throwIfAborted()
+    const snapshot = Object.freeze({ ...request, body: freezeJson(structuredClone(request.body)),
+      ...(request.images === undefined ? {} : { images: Object.freeze(request.images.map(image => Object.freeze({ ...image }))) }) })
     const entries = [...this.providers.entries()]
     const prepared = await abortable(Promise.all(entries.map(async ([field, provider]) => ({
       field,
-      result: await provider.prepare(request),
+      result: await provider.prepare(snapshot),
     }))), request.signal)
     const fields: Record<string, DeepSeekLlmApiJson> = Object.create(null) as Record<string, DeepSeekLlmApiJson>
     const callbacks: Array<() => void | Promise<void>> = []

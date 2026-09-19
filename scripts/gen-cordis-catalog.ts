@@ -101,6 +101,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   sessionProjectionCache: 'session-projection.md',
   sessionProjections: 'session-projection.md',
   sessionController: 'session.md',
+  agentNotes: 'settings.md',
   sessionSkillCatalog: 'skills.md',
   sessions: 'session.md',
   settings: 'settings.md',

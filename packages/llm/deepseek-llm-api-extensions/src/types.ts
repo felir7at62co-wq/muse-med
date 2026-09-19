@@ -15,10 +15,25 @@ export type DeepSeekLlmApiJson =
  */
 export interface DeepSeekLlmApiExtensionMap {}
 
+/** Client-side image bytes bound to a location in the final base request, never provider interpretation proof. */
+export interface DeepSeekRequestImageEvidence {
+  readonly attachmentId: string
+  readonly variantId: string
+  readonly sha256: string
+  readonly bytes: number
+  readonly width: number
+  readonly height: number
+  readonly representation: 'file' | 'base64'
+  readonly messageIndex: number
+  readonly partIndex: number
+}
+
 /** Exact serialized request facts visible to extension providers. */
 export interface DeepSeekLlmApiExtensionRequest {
   /** Base DeepSeek request body before extension fields are merged. */
   readonly body: Readonly<Record<string, DeepSeekLlmApiJson>>
+  /** Host-only evidence; never merged into the outgoing body automatically. */
+  readonly images?: readonly DeepSeekRequestImageEvidence[]
   /** Session identity carried by the model request, when present. */
   readonly sessionId?: string
   /** Auxiliary request classification, when present. */

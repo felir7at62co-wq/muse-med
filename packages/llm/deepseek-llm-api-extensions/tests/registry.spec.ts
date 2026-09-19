@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import DeepSeekLlmApiExtensionRegistry from '../src/index.ts'
+import type { DeepSeekLlmApiExtensionRequest, DeepSeekRequestImageEvidence } from '../src/index.ts'
 
 declare module '@deepseek-ai/dsh-deepseek-llm-api-extensions/types' {
   interface DeepSeekLlmApiExtensionMap {
@@ -151,4 +152,53 @@ describe('DeepSeekLlmApiExtensionRegistry', () => {
     controller.abort(new Error('cancelled during extension preparation'))
     await expect(pending).rejects.toBe(controller.signal.reason)
   }, 500)
+})
+
+describe('image evidence passthrough', () => {
+  const EVIDENCE: DeepSeekRequestImageEvidence[] = [{
+    attachmentId: 'sha256:a',
+    variantId: 'sha256:b',
+    sha256: 'sha256:c',
+    bytes: 3,
+    width: 1,
+    height: 1,
+    representation: 'file',
+    messageIndex: 0,
+    partIndex: 1,
+  }]
+
+  function capture(ctx: Context): { seen: DeepSeekLlmApiExtensionRequest[] } {
+    const seen: DeepSeekLlmApiExtensionRequest[] = []
+    ctx.deepseekLlmApiExtensions.register('test_alpha', {
+      prepare(request) {
+        seen.push(request)
+        return undefined
+      },
+    })
+    return { seen }
+  }
+
+  it('hands providers a frozen detached snapshot that carries the images intact', async () => {
+    const ctx = await harness()
+    const { seen } = capture(ctx)
+
+    await ctx.deepseekLlmApiExtensions.prepare({ body: { messages: [] }, signal: SIGNAL, images: EVIDENCE })
+
+    expect(seen).toHaveLength(1)
+    expect(Object.isFrozen(seen[0])).toBe(true)
+    expect(Object.isFrozen(seen[0]?.body)).toBe(true)
+    expect(seen[0]?.signal).toBe(SIGNAL)
+    expect(seen[0]?.images).toEqual(EVIDENCE)
+    expect(Object.isFrozen(seen[0]?.images)).toBe(true)
+    expect(Object.isFrozen(seen[0]?.images?.[0])).toBe(true)
+  })
+
+  it('adds no images key when the caller supplied no evidence', async () => {
+    const ctx = await harness()
+    const { seen } = capture(ctx)
+
+    await ctx.deepseekLlmApiExtensions.prepare({ body: {}, signal: SIGNAL })
+
+    expect(seen.map(request => Object.keys(request))).toEqual([['body', 'signal']])
+  })
 })

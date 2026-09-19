@@ -360,6 +360,7 @@ function requestWithMessages(
     ...options.temperature !== undefined ? { temperature: options.temperature } : {},
     ...options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens },
     ...options.stop !== undefined ? { stop: options.stop } : {},
+    ...options.responseFormat === undefined ? {} : { response_format: options.responseFormat },
   }
 }
 

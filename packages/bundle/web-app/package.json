@@ -40,6 +40,7 @@
   },
   "dependencies": {
     "@deepseek-ai/dsh-agent-presets": "workspace:^",
+    "@deepseek-ai/dsh-api-agent-notes": "workspace:^",
     "@deepseek-ai/dsh-api-remotes": "workspace:^",
     "@deepseek-ai/dsh-api-session-controller": "workspace:^",
     "@deepseek-ai/dsh-api-settings-controller": "workspace:^",
@@ -77,6 +78,7 @@
     "@deepseek-ai/dsh-client-ui-schedule": "workspace:^",
     "@deepseek-ai/dsh-client-ui-session": "workspace:^",
     "@deepseek-ai/dsh-client-ui-settings": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-settings-agent-notes": "workspace:^",
     "@deepseek-ai/dsh-client-ui-settings-general": "workspace:^",
     "@deepseek-ai/dsh-client-ui-settings-models": "workspace:^",
     "@deepseek-ai/dsh-client-ui-settings-plugin-inventory": "workspace:^",

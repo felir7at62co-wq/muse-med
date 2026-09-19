@@ -109,6 +109,17 @@
     - id: workspace-files
       name: '@deepseek-ai/dsh-api-workspace-files'
 
+    # Agent Notes: list, read, and save the markdown engineering notes under the
+    # deployment's configured notes root, over Typert Remote. The root is
+    # required — a row that omits it fails to mount rather than reading a tree
+    # nobody named — so this states the repository-local convention, and a
+    # deployment whose notes live elsewhere (a checkout other than the session
+    # workspace is the common case) overrides `root` in its own later patch layer.
+    - id: agent-notes
+      name: '@deepseek-ai/dsh-api-agent-notes'
+      config:
+        root: !!js process.env.DSH_AGENT_NOTES_ROOT ?? process.cwd() + '/.agents/notes'
+
     # Configuration-surface reads and writes over Typert Remote. Each method
     # reports an actionable error when its settings-domain provider is absent.
     - id: settings-controller
@@ -247,6 +258,11 @@
 
     - id: ui-settings-plugin-inventory
       name: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'
+
+    # Agent Notes settings section: browse the configured notes tree by category
+    # and edit a note in place.
+    - id: ui-settings-agent-notes
+      name: '@deepseek-ai/dsh-client-ui-settings-agent-notes'
 
     - id: ui-settings-unarchive-sessions
       name: '@deepseek-ai/dsh-client-ui-settings-unarchive-sessions'

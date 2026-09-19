@@ -9,6 +9,9 @@ import { DeepSeekMessagesAdapter } from './protocols/messages/adapter.ts'
 
 /** One provider route with protocol-local transport and shared credentials and model configuration. */
 export class DeepSeekAdapter extends LlmAdapter {
+  // Both protocol implementations guarantee it: chat-completions verifies the
+  // serialized request, and Messages rejects any image it cannot represent.
+  override readonly supportsRequiredImageInput = true
   private readonly files: DeepSeekFileStore
 
   constructor(private readonly dependencies: DeepSeekAdapterOptions) {

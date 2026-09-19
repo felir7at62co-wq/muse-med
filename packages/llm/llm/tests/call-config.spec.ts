@@ -27,6 +27,11 @@ describe('callConfigEquals', () => {
     expect(callConfigEquals({ ...base, stop: ['a'] }, { ...base, stop: ['a', 'b'] })).toBe(false)
     expect(callConfigEquals({ ...base, stop: ['a'] }, { ...base, stop: ['b'] })).toBe(false)
     expect(callConfigEquals({ ...base, stop: ['a', 'b'] }, { ...base, stop: ['a', 'b'] })).toBe(true)
+    expect(callConfigEquals({ ...base, responseFormat: { type: 'json_object' } as const }, base)).toBe(false)
+    expect(callConfigEquals(
+      { ...base, responseFormat: { type: 'json_object' } as const },
+      { ...base, responseFormat: { type: 'json_object' } as const },
+    )).toBe(true)
   })
 })
 
