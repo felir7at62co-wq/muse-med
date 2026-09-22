@@ -236,10 +236,14 @@ export function parseAlignment(document: unknown, path: string): AlignedShot[] {
       return { text: cue.text, startSeconds: start, endSeconds: end }
     })
     const strategy = (row as { strategy?: unknown }).strategy
+    if (strategy !== undefined && typeof strategy !== 'string') {
+      throw new Error(`${path}：镜头 ${String(row.shot)} 的 strategy 必须是字符串。`
+        + '标签类型不对时不能当成「没有标签」放行，请检查生成对齐的脚本输出。')
+    }
     return {
       shot: row.shot as number,
       cues,
-      ...(typeof strategy === 'string' ? { strategy } : {}),
+      ...(strategy === undefined ? {} : { strategy }),
     }
   })
   const shots = rows.map(row => row.shot)

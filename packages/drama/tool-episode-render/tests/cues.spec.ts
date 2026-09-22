@@ -136,11 +136,11 @@ describe('line plans, alignment documents, and times', () => {
 
 /** The alignment both shots share: one stretch per declared line. */
 const ALIGNMENT = { shots: [
-  { shot: 1, cues: [
+  { shot: 1, strategy: 'asr_aligned', cues: [
     { text: '第一句', start: 0.4, end: 1.2 },
     { text: '第二句', start: 1.8, end: 2.6 },
   ] },
-  { shot: 2, cues: [{ text: '第三句', start: 0.3, end: 1.6 }] },
+  { shot: 2, strategy: 'asr_aligned', cues: [{ text: '第三句', start: 0.3, end: 1.6 }] },
 ] }
 
 /** The lines both shots declare, matching {@link ALIGNMENT}. */
@@ -200,7 +200,7 @@ describe('drama_render subtitles', () => {
 
   it('blocks when a shot with lines has no alignment for it', async () => {
     const { project, shots, plan, aligned, subtitle } = await cueProject(LINES, { shots: [
-      { shot: 1, cues: [
+      { shot: 1, strategy: 'asr_aligned', cues: [
         { text: '第一句', start: 0.4, end: 1.2 },
         { text: '第二句', start: 1.8, end: 2.6 },
       ] },
@@ -217,11 +217,11 @@ describe('drama_render subtitles', () => {
 
   it('blocks when the recognizer heard a line the script does not contain', async () => {
     const { project, shots, plan, aligned, subtitle } = await cueProject(LINES, { shots: [
-      { shot: 1, cues: [
+      { shot: 1, strategy: 'asr_aligned', cues: [
         { text: '第一句', start: 0.4, end: 1.2 },
         { text: '另一句', start: 1.8, end: 2.6 },
       ] },
-      { shot: 2, cues: [{ text: '第三句', start: 0.3, end: 1.6 }] },
+      { shot: 2, strategy: 'asr_aligned', cues: [{ text: '第三句', start: 0.3, end: 1.6 }] },
     ] })
     const stub = stubChannel([cueProbes(project)])
     const report = await runDramaRender({
@@ -251,8 +251,8 @@ describe('drama_render subtitles', () => {
       { shot: 1, lines: [impossible] },
       { shot: 2, lines: ['第三句'] },
     ] }, { shots: [
-      { shot: 1, cues: [{ text: impossible, start: 0, end: 0.4 }] },
-      { shot: 2, cues: [{ text: '第三句', start: 0.3, end: 1.6 }] },
+      { shot: 1, strategy: 'asr_aligned', cues: [{ text: impossible, start: 0, end: 0.4 }] },
+      { shot: 2, strategy: 'asr_aligned', cues: [{ text: '第三句', start: 0.3, end: 1.6 }] },
     ] })
     const stub = stubChannel([cueProbes(project)])
     const report = await runDramaRender({
@@ -265,12 +265,12 @@ describe('drama_render subtitles', () => {
 
   it('blocks a cue the alignment places past the end of its own shot', async () => {
     const { project, shots, plan, aligned, subtitle } = await cueProject(LINES, { shots: [
-      { shot: 1, cues: [
+      { shot: 1, strategy: 'asr_aligned', cues: [
         { text: '第一句', start: 0.4, end: 1.2 },
         { text: '第二句', start: 1.8, end: 2.6 },
       ] },
       // Shot 2 is two seconds long; these times describe a longer take.
-      { shot: 2, cues: [{ text: '第三句', start: 5, end: 5.5 }] },
+      { shot: 2, strategy: 'asr_aligned', cues: [{ text: '第三句', start: 5, end: 5.5 }] },
     ] })
     const stub = stubChannel([cueProbes(project)])
     const report = await runDramaRender({
@@ -311,6 +311,41 @@ describe('drama_render subtitles', () => {
     expect(report.ok).toBe(false)
     expect(report.failures.join('\n')).toContain('estimated_total')
     expect(report.failures.join('\n')).toContain('asr_aligned')
+  })
+
+  it('refuses an alignment document that never states how it was produced', async () => {
+    // Times from an unlabelled document are unverified rather than verified: the
+    // aligner always writes the strategy, so absence means the file came from
+    // somewhere else.
+    const { project, shots, plan, aligned, subtitle } = await cueProject(LINES, { shots: [
+      { shot: 1, cues: [
+        { text: '第一句', start: 0.4, end: 1.2 },
+        { text: '第二句', start: 1.8, end: 2.6 },
+      ] },
+      { shot: 2, cues: [{ text: '第三句', start: 0.3, end: 1.6 }] },
+    ] })
+    const stub = stubChannel([cueProbes(project)])
+    const report = await runDramaRender({
+      method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
+    }, settingsWith(stub.channel))
+
+    expect(report.ok).toBe(false)
+    expect(report.failures.join('\n')).toContain('对齐来源未验证')
+    expect(report.failures.join('\n')).toContain('文档没有标 strategy')
+  })
+
+  it('rejects a strategy that is not a string instead of treating it as absent', async () => {
+    const { project, shots, plan, aligned, subtitle } = await cueProject(LINES, { shots: [
+      { shot: 1, strategy: 1, cues: [
+        { text: '第一句', start: 0.4, end: 1.2 },
+        { text: '第二句', start: 1.8, end: 2.6 },
+      ] },
+      { shot: 2, strategy: 'asr_aligned', cues: [{ text: '第三句', start: 0.3, end: 1.6 }] },
+    ] })
+    const stub = stubChannel([cueProbes(project)])
+    await expect(runDramaRender({
+      method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
+    }, settingsWith(stub.channel))).rejects.toThrow('strategy 必须是字符串')
   })
 
   it('still disclaims how accurate the recognizer itself was', async () => {

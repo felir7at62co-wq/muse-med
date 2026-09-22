@@ -621,6 +621,11 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
   }
   const beforeTaskIds = beforeRecords.filter(record => isRelatedTaskCandidate(record, preview.scriptId,
     preview.storyboardId)).map(taskIdOf).filter((value): value is string => value !== null)
+  // The two sets answer different questions and must not be swapped: claiming this
+  // storyboard's task asks which tasks were already related to it, while naming what
+  // appeared asks which tasks the project did not have before the PUT. Diffing the
+  // after-list against the related set reported every unrelated task as new.
+  const beforeAllTaskIds = new Set(secondIds)
 
   const state = { putFailed: false, reconciliationFailed: false, sent: false, appearedIds: [] as string[],
     claim: { status: 'none' } as NativeClaim }
@@ -643,9 +648,11 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
         // The tasks that appeared across the PUT, whether or not any of them could be
         // claimed. An accepted PUT that claims nothing still created a task and may
         // already have billed it, so these ids are the caller's only handle on it.
+        // "Appeared while we were submitting" is not "created by this request": the
+        // claim below is what decides attribution, and these ids only say where to look.
         state.appearedIds = afterRecords.map(taskIdOf)
           .filter((value): value is string => value !== null)
-          .filter(id => !beforeTaskIds.includes(id))
+          .filter(id => !beforeAllTaskIds.has(id))
         const hydrated = await hydrateRelated(client, afterRecords, preview.scriptId, preview.storyboardId, preview.payload.episodeId)
         state.claim = classifyNewNativeCandidates(hydrated, expectationOf(preview, beforeTaskIds))
       } catch {

@@ -207,6 +207,26 @@ describe('submit_video', () => {
       .toMatchObject({ storyboard_id_read: null, children: 1 })
   })
 
+  it('names only the tasks the project did not have before the PUT', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    // Another storyboard's task already exists under this project. It appears in both
+    // snapshots, so it was not created by this request and must not be named as new.
+    const unrelated = { id: 400009, scriptId: 2708, storyboardId: 999999, taskType: 1, taskStatus: 'submit' }
+    provider.tasks = [unrelated]
+    provider.onPut = (payload) => {
+      provider.tasks = [unrelated,
+        { id: 335500, scriptId: 2708, storyboardId: 916953, taskType: 1, taskStatus: 'submit' }]
+      provider.subtasks['335500'] = [childOf(payload, { aigcVideoTaskId: 335500,
+        imageMaterials: MATERIALS.map(material => ({ ...material, materialName: 'other' })) })]
+    }
+    const result = await submitVideoMethod(clientFor(provider), ledger, { preview_path: previewPath,
+      idempotency_key: idempotencyKey })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(result.new_task_ids).toEqual(['335500'])
+    expect(result.before_task_ids).toEqual([])
+  })
+
   it('reports an accepted PUT it could not claim as reconcile_required, naming the task it created', async () => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const { previewPath, idempotencyKey } = await prepared(provider)

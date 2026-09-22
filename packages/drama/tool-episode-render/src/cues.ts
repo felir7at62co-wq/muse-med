@@ -164,13 +164,18 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
       })
       continue
     }
-    if (recognized.strategy !== undefined && recognized.strategy !== ALIGNED_STRATEGY) {
+    if (recognized.strategy !== ALIGNED_STRATEGY) {
+      // A missing label is not a verified one: the only document this pass trusts is
+      // the one the aligner writes, and that one always states the strategy it placed
+      // each shot with. Absence means the file came from somewhere else, so its times
+      // are reported as unverified instead of being taken as recognition output.
       failures.push({
         id: 'subtitle_line_coverage',
-        detail: `镜头 ${String(shot.source.shot)} 的对齐标着 ${recognized.strategy}：`
-          + '这一镜里有台词是按比例铺的，不是按识别到的说话位置定的。',
-        fix: '复核该镜台词与成片是否同一版，必要时重听该镜，'
-          + '然后用 align_subtitles.py 重跑识别，直到这一镜的策略是 asr_aligned。',
+        detail: `镜头 ${String(shot.source.shot)} 的对齐来源未验证：`
+          + `${recognized.strategy === undefined ? '文档没有标 strategy' : `标着 ${recognized.strategy}`}，`
+          + '不是 align_subtitles.py 写出的整镜锚定结果。',
+        fix: '用 align_subtitles.py 对该镜重跑识别，并把整份对齐文档换成它写出的那一份；'
+          + '只有 asr_aligned 的镜头才允许生成正式字幕。',
       })
       continue
     }
