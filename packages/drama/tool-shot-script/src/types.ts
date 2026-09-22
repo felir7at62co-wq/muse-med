@@ -56,6 +56,7 @@ export type IssueCode =
   | 'missing_voice_type'
   | 'action_voice_with_dialogue'
   | 'speech_too_long'
+  | 'speech_exceeds_project_limit'
   | 'shot_exceeds_package_budget'
   | 'speech_above_writing_threshold'
   | 'unknown_action_complexity'

@@ -21,6 +21,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
 import { bindShot, parseAssetManifest } from './assets.ts'
+import { readProjectDelivery } from './delivery.ts'
 import {
   buildMatchedPayload,
   NATURAL_HOLD_SECONDS,
@@ -95,6 +96,8 @@ interface ResolvedCall {
   script: string
   /** Absolute path of the asset manifest, absent when the caller gave none. */
   assets?: string
+  /** Absolute project root the call names, absent when it names none. */
+  project?: string | undefined
   /** Compile destination, absent for `validate` and `preview`. */
   target?: EpisodeTarget
 }
@@ -110,23 +113,25 @@ async function readText(path: string): Promise<string> {
  *
  * `validate` needs only the script; `preview` adds the asset manifest, because
  * the scene key decides package boundaries; `compile` adds the project root and
- * the episode number it writes under.
+ * the episode number it writes under. A `project` given to any method is kept, so
+ * every method reads the project's own delivery requirements.
  * @param args - The dispatched arguments.
- * @returns The resolved script, manifest, and compile destination.
+ * @returns The resolved script, manifest, project, and compile destination.
  * @throws {Error} When the method's required arguments are missing or the episode number is not a positive integer.
  */
 function resolveCall(args: DramaShotArguments): ResolvedCall {
   const script = resolve(args.script)
+  const project = args.project === undefined ? undefined : resolve(args.project)
   if (args.method === 'validate') {
-    return args.assets === undefined ? { script } : { script, assets: resolve(args.assets) }
+    return args.assets === undefined ? { script, project } : { script, assets: resolve(args.assets), project }
   }
   if (args.assets === undefined) {
     throw new Error(`drama_shot ${args.method} 需要 assets：资产清单（assets_manifest.json）的路径，`
       + '它决定资产绑定与每包的场景边界。')
   }
   const assets = resolve(args.assets)
-  if (args.method === 'preview') return { script, assets }
-  const { project, episode } = args
+  if (args.method === 'preview') return { script, assets, project }
+  const { episode } = args
   if (project === undefined || episode === undefined) {
     throw new Error('drama_shot compile 需要 project 与 episode：'
       + 'project 是项目根目录（含 episodes/、prompts/、matches/、episode_packages/），episode 是集号。')
@@ -134,16 +139,16 @@ function resolveCall(args: DramaShotArguments): ResolvedCall {
   if (episode < 1) {
     throw new Error(`drama_shot compile 的 episode 必须是正整数集号，收到 ${episode}。`)
   }
-  const root = resolve(project)
   const number = String(episode).padStart(2, '0')
   return {
     script,
     assets,
+    project,
     target: {
-      project: root,
+      project,
       episode: number,
-      promptPath: join(root, 'prompts', `${number}.txt`),
-      matchedPath: join(root, 'matches', `${number}.matched.json`),
+      promptPath: join(project, 'prompts', `${number}.txt`),
+      matchedPath: join(project, 'matches', `${number}.matched.json`),
     },
   }
 }
@@ -220,7 +225,11 @@ async function writeTarget(
 async function runDramaShot(args: DramaShotArguments, config: ResolvedConfig): Promise<DramaShotReport> {
   const call = resolveCall(args)
   const scriptText = await readText(call.script)
-  const parsed = parseShotScript(scriptText, { actionShotSeconds: config.actionShotSeconds })
+  const delivery = await readProjectDelivery(call.script, call.project)
+  const parsed = parseShotScript(scriptText, {
+    actionShotSeconds: config.actionShotSeconds,
+    maxEffectiveChars: delivery?.maxEffectiveChars,
+  })
   const manifest = call.assets === undefined ? undefined : await readManifest(call.assets)
   const { compiled, issues: bindingIssues } = compileShots(parsed.shots, manifest)
   const issues = [...parsed.issues, ...bindingIssues]
@@ -375,7 +384,9 @@ const DESCRIPTION = '短剧镜头脚本的判定与编译（剧变流水线）�
   + 'compile=判定通过后写入 matched JSON（matches/<集号>.matched.json）与单集 package'
   + '（prompts/<集号>.txt、episode_packages/<集号>/），并回报每包的 content_duration_ms、'
   + '提交给剧变的整秒时长与素材键顺序。'
-  + '时长：N秒的正整数声明优先；省略时按 9 有效字/秒估算。超过 15 或 36 有效字、偏离估算仅警告，可保留长慢镜头；'
+  + '时长：N秒的正整数声明优先；省略时按 9 有效字/秒估算。超过 15 字写作阈值或内建 36 字建议、偏离估算仅警告，可保留长慢镜头；'
+  + '但项目在 project_config.json 的 delivery.max_effective_chars_per_shot 里声明了每镜上限时，超过该上限判失败'
+  + '（按原文语义拆镜，或改掉该项目的这条要求），不删字、不改顺序、不换说话人；'
   + '无发声镜必须写 发声类型：action，时长由 动作复杂度（简单/一般/较复杂/复杂 = 1/2/3/4 秒）决定，'
   + '没写就按默认 2 秒计；'
   + '台词：无、空台词行、出镜人物：无 一律判失败（无声镜整行省略台词行与出镜人物）；'
@@ -406,7 +417,9 @@ export function apply(ctx: Context, config: Config = {}): void {
         description: '资产清单 assets_manifest.json 的路径；preview 与 compile 必填，'
           + 'validate 可选——给了才判定资产绑定。' },
       project: { type: 'string',
-        description: '项目根目录（含 episodes/、prompts/、matches/、episode_packages/）；compile 必填。' },
+        description: '项目根目录（含 episodes/、prompts/、matches/、episode_packages/）；compile 必填。'
+          + '给了它就读该项目的 project_config.json（每镜有效字上限等交付要求）；'
+          + 'validate/preview 省略时，从脚本所在目录向上找最近的 project_config.json。' },
       max_submit_seconds: { type: 'integer',
         description: 'preview/compile 必填：目标分镜实际请求总秒数，含1秒收束且在已确认模型能力内。例如分镜请求8秒就填8，不默认取模型最大值；已配置15或30秒时才填15或30。' },
       episode: { type: 'integer',

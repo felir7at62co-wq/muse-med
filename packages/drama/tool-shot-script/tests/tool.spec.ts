@@ -49,8 +49,8 @@ describe('registration', () => {
   it('registers exactly the drama_shot tool with the rules the model must know', () => {
     const tool = dramaShot()
     expect(tool.name).toBe('drama_shot')
-    for (const phrase of ['9 有效字/秒', '36 有效字', '发声类型：action', '动作复杂度', '台词：无',
-      '出镜人物：无', '画外', 'official=true', 'max_submit_seconds']) {
+    for (const phrase of ['9 有效字/秒', '36 字建议', '发声类型：action', '动作复杂度', '台词：无',
+      '出镜人物：无', '画外', 'official=true', 'max_submit_seconds', 'delivery.max_effective_chars_per_shot']) {
       expect(tool.description).toContain(phrase)
     }
   })

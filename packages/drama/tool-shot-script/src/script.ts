@@ -70,8 +70,8 @@ const ACTION_COMPLEXITY: Readonly<Record<string, number>> = {
 /** Every accepted `动作复杂度` label, for the refusal message. */
 const COMPLEXITY_LABELS = '简单/一般/较复杂/复杂'
 
-/** Advisory spoken-text threshold; longer speech remains intact. */
-const MAX_EFFECTIVE_CHARS = 36
+/** The per-shot spoken-text ceiling a deployment keeps when the project declares none. */
+export const DEFAULT_MAX_EFFECTIVE_CHARS = 36
 
 /** The writing threshold above which the source sentence should have been split. */
 const WRITING_THRESHOLD_CHARS = 15
@@ -84,6 +84,12 @@ const NARRATION_FIX_HINT = '将作为 vo 画外发声保留，不阻塞编译；
 export interface ParseOptions {
   /** Seconds charged to a silent shot with no `动作复杂度` label. */
   actionShotSeconds: number
+  /**
+   * The per-shot spoken-text ceiling this project declares in its
+   * `project_config.json`. Omitted means the project states none, and
+   * {@link DEFAULT_MAX_EFFECTIVE_CHARS} applies as advice rather than as a rule.
+   */
+  maxEffectiveChars?: number | undefined
 }
 
 /** Everything one parse produced. */
@@ -343,10 +349,17 @@ function readDuration(
   }
   const chars = effectiveChars(speech.text)
   const seconds = speechSeconds(chars)
-  if (chars > MAX_EFFECTIVE_CHARS) {
-    issues.push(issue('warning', 'speech_too_long', block.number, speech.line,
-      `镜头${block.number}语音${chars}字，超过建议的 ${MAX_EFFECTIVE_CHARS} 字（估算 ${seconds} 秒）：`
-      + '请核对节奏与实际发声时长；可保留长镜头，或按原文语义拆镜，不删改原文与说话人。'))
+  const declared = options.maxEffectiveChars
+  const limit = declared ?? DEFAULT_MAX_EFFECTIVE_CHARS
+  if (chars > limit) {
+    issues.push(declared === undefined
+      ? issue('warning', 'speech_too_long', block.number, speech.line,
+        `镜头${block.number}语音${chars}字，超过建议的 ${limit} 字（估算 ${seconds} 秒）：`
+        + '请核对节奏与实际发声时长；可保留长镜头，或按原文语义拆镜，不删改原文与说话人。')
+      : issue('failure', 'speech_exceeds_project_limit', block.number, speech.line,
+        `镜头${block.number}语音${chars}字，超过本项目 project_config.json 声明的每镜上限 ${limit} 字（估算 ${seconds} 秒）：`
+        + '按原文语义拆成连续镜头，不删字、不改顺序、不换说话人；'
+        + '若本项目实际不适用这条要求，改掉或删掉 project_config.json 的 delivery.max_effective_chars_per_shot 再编译。'))
   } else if (chars > WRITING_THRESHOLD_CHARS) {
     issues.push(issue('warning', 'speech_above_writing_threshold', block.number, speech.line,
       `镜头${block.number}语音${chars}字，超过 ${WRITING_THRESHOLD_CHARS} 字的写作阈值：`

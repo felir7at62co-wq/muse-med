@@ -2632,13 +2632,14 @@ web_search and web_fetch keep provider selection behind ctx.web so model-visible
   "properties": {
     "method": {
       "type": "string",
-      "description": "get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；remove=删除一个父资产（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名。",
+      "description": "get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；register=按指定类别新建一条资产，只引用已有图片、不生成新图（有副作用）；remove=删除一个父资产（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名。",
       "enum": [
         "get",
         "list",
         "materials",
         "generated_image",
         "confirm_casting",
+        "register",
         "remove",
         "upload_reference",
         "create_folder",
@@ -2726,6 +2727,19 @@ web_search and web_fetch keep provider selection behind ctx.web so model-visible
         "场景",
         "道具"
       ]
+    },
+    "asset_type": {
+      "type": "number",
+      "description": "image_generate 的资产类别号：1=角色，2=场景，3=道具。给了 asset_category 时可以不传（插件按类别推导）；两个都给时必须一致。场景与道具必须传 2/3——一律传 1 会把它们建进控制台的角色库。",
+      "enum": [
+        1,
+        2,
+        3
+      ]
+    },
+    "asset_url": {
+      "type": "string",
+      "description": "register 必填：这条新资产要引用的图片 HTTPS 地址（通常是原资产的 materialUrl）。register 按它新建资产，不生成新图。"
     }
   },
   "required": [
@@ -3090,11 +3104,12 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
   "properties": {
     "method": {
       "type": "string",
-      "description": "task=单个任务（含 cost 观测）；tasks=项目任务分页；subtasks=任务的子结果（成片 URL、字幕框、阶段、分辨率与 needs_upscale）；image_generate=生成图片（计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。",
+      "description": "task=单个任务（含 cost 观测）；tasks=项目任务分页；subtasks=任务的子结果（成片 URL、字幕框、阶段、分辨率与 needs_upscale）；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成图片（计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。",
       "enum": [
         "task",
         "tasks",
         "subtasks",
+        "unresolved",
         "image_generate",
         "upscale",
         "retry"
@@ -3217,7 +3232,7 @@ Every paid write (image_generate, generate, erase_subtitle, upscale) requires a 
 
 ### `drama_shot`
 
-短剧镜头脚本的判定与编译（剧变流水线）。validate=只读校验：逐镜给出推导时长（9 有效字/秒）、有效字、发声类型、画外音合法性、资产绑定，硬失败与警告分开列出；preview=只读预算：在 validate 之上算出每包内容时长与打包方案，不落盘，用于提交前看预算；compile=判定通过后写入 matched JSON（matches/<集号>.matched.json）与单集 package（prompts/<集号>.txt、episode_packages/<集号>/），并回报每包的 content_duration_ms、提交给剧变的整秒时长与素材键顺序。时长：N秒的正整数声明优先；省略时按 9 有效字/秒估算。超过 15 或 36 有效字、偏离估算仅警告，可保留长慢镜头；无发声镜必须写 发声类型：action，时长由 动作复杂度（简单/一般/较复杂/复杂 = 1/2/3/4 秒）决定，没写就按默认 2 秒计；台词：无、空台词行、出镜人物：无 一律判失败（无声镜整行省略台词行与出镜人物）；旁白/解说/心声/画外声/OS 作为 vo 画外发声保留原文与说话人，提醒核对项目配音；风格/负面词缺失和正文秒数仅警告；只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产；preview/compile 必填 max_submit_seconds：目标分镜实际请求总秒数（在已确认模型能力内），不是自动取模型最大值。只合并同场连续完整镜头，内容加1秒收束不得超过该值，超长单镜拒绝，禁止截断。硬失败时不会写任何文件，也不给打包方案。
+短剧镜头脚本的判定与编译（剧变流水线）。validate=只读校验：逐镜给出推导时长（9 有效字/秒）、有效字、发声类型、画外音合法性、资产绑定，硬失败与警告分开列出；preview=只读预算：在 validate 之上算出每包内容时长与打包方案，不落盘，用于提交前看预算；compile=判定通过后写入 matched JSON（matches/<集号>.matched.json）与单集 package（prompts/<集号>.txt、episode_packages/<集号>/），并回报每包的 content_duration_ms、提交给剧变的整秒时长与素材键顺序。时长：N秒的正整数声明优先；省略时按 9 有效字/秒估算。超过 15 字写作阈值或内建 36 字建议、偏离估算仅警告，可保留长慢镜头；但项目在 project_config.json 的 delivery.max_effective_chars_per_shot 里声明了每镜上限时，超过该上限判失败（按原文语义拆镜，或改掉该项目的这条要求），不删字、不改顺序、不换说话人；无发声镜必须写 发声类型：action，时长由 动作复杂度（简单/一般/较复杂/复杂 = 1/2/3/4 秒）决定，没写就按默认 2 秒计；台词：无、空台词行、出镜人物：无 一律判失败（无声镜整行省略台词行与出镜人物）；旁白/解说/心声/画外声/OS 作为 vo 画外发声保留原文与说话人，提醒核对项目配音；风格/负面词缺失和正文秒数仅警告；只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产；preview/compile 必填 max_submit_seconds：目标分镜实际请求总秒数（在已确认模型能力内），不是自动取模型最大值。只合并同场连续完整镜头，内容加1秒收束不得超过该值，超长单镜拒绝，禁止截断。硬失败时不会写任何文件，也不给打包方案。
 
 ```json
 {
@@ -3242,7 +3257,7 @@ Every paid write (image_generate, generate, erase_subtitle, upscale) requires a 
     },
     "project": {
       "type": "string",
-      "description": "项目根目录（含 episodes/、prompts/、matches/、episode_packages/）；compile 必填。"
+      "description": "项目根目录（含 episodes/、prompts/、matches/、episode_packages/）；compile 必填。给了它就读该项目的 project_config.json（每镜有效字上限等交付要求）；validate/preview 省略时，从脚本所在目录向上找最近的 project_config.json。"
     },
     "max_submit_seconds": {
       "type": "integer",
@@ -3270,7 +3285,7 @@ The three methods share one schema: `validate` and `preview` only read, and `com
 
 ### `drama_bgm`
 
-短剧整集 BGM 合成工具；只执行 Agent 已确认的 episodes/segments 计划，不选曲、不替代试听。可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。preview=安全预检：验证时间线、来源和完整连续覆盖，检测 1–5 秒内的起音，测量源窗口平均响度并计算目标 -17.5 dB、最大 +9 dB 的增益，不写正式产物。compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。compose 返回的 output 传给 drama_render.bgm，同一 plan 传给 drama_render.bgm_plan。本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。
+短剧整集 BGM 合成工具；只执行 Agent 已确认的 episodes/segments 计划，不选曲、不替代试听。可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。preview=安全预检：验证时间线、来源和完整连续覆盖，检测 1–5 秒内的起音，测量源窗口平均响度并计算目标 -17.5 dB、最大 +9 dB 的增益，不写正式产物。compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。**跨集复用规则以 policy_findings 返回，不拦截调用；读到了就必须照 fix 改完再交付**：每集至少 2 首不同曲目（R1）、一集内不得重复同一首（R2）、整批之内同一首最多出现在 2 集（R3）、每集至少 1 首是本批其它集没用过的（R4）、每个切点必须落在镜头包边界上（R5，容差 0.05 秒）。批次 = 计划文件所在目录里所有含 episodes 数组的 JSON（通常 episodes/segments/*.json），因此同目录放不相关的 JSON 没关系，但读不动的文件会直接报错；返回的 batch_episodes 就是本次核对过的集号。同一首曲子的身份按解析后的绝对 source 路径判定，track 只当展示名。阈值是部署配置项（minTracksPerEpisode、maxEpisodesPerTrack、freshTracksPerEpisode、boundaryToleranceSeconds）。compose 返回的 output 传给 drama_render.bgm，同一 plan 传给 drama_render.bgm_plan。本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。
 
 ```json
 {
@@ -3299,7 +3314,7 @@ The three methods share one schema: `validate` and `preview` only read, and `com
     },
     "plan": {
       "type": "string",
-      "description": "项目内 episodes/segments BGM 计划 JSON；段落必须连续完整覆盖正文。"
+      "description": "项目内 episodes/segments BGM 计划 JSON；段落必须连续完整覆盖正文，跨集复用规则见 policy_findings（每集至少 2 首、集内不重复、单曲最多 2 集、至少 1 首全新、切点在镜头包边界）。"
     },
     "output": {
       "type": "string",
@@ -3326,7 +3341,7 @@ Source: [`packages/drama/tool-bgm-compose/src/index.ts`](../packages/drama/tool-
 
 ### `drama_render`
 
-短剧整集渲染编排（剧变流水线）。subtitles=按逐镜发声测出字幕时间并写出 SRT：逐镜对成片自己的音轨跑静音检测，把静音段反演成发声段，再把你给出的每镜台词放到这些发声段里，cue 时间 = 该镜在时间线上的起点 + 镜内偏移；**不做语音转写、不联网、不需要模型**，因为你已经知道每镜说了什么，缺的只有时间。台词按 lines 计划里的顺序一一对应；一镜检出的发声段少于台词条数时，段内按有效字数切分，这些 cue 标成估算并在 warnings 里点名，同时 speech_alignment 会留在 not_checked。声明了台词却检不出任何发声、或有发声却没声明台词，都按 failure 报出（subtitle_line_coverage）。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。render=出片：逐镜编码到交付规格 1440x2560@60、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1，片尾用最后一镜的真实尾帧定格 2 秒并叠 ending_effect，拼接后烧录 ASS 字幕（SimHei 68、字间距 -2、7px 黑描边、底部居中，右下角唯一的「内容由AI生成」标记），再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。
+短剧整集渲染编排（剧变流水线）。subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，字幕文字只取 lines 里的剧本原文，cue 时间 = 该镜在时间线上的起点 + 镜内偏移。**本工具不做识别、不测能量、不估算时间**：能量门限分不出具体哪句在哪里，估算出来的时间正是字幕压在错句上的原因。缺某一镜的对齐、段数与台词条数不符、识别文本与剧本对不上，都按 failure 报出（subtitle_line_coverage），并指出该对哪一镜重跑识别；有识别结果却没声明台词，同样报 failure。写出的每条字幕还会检查时长、重叠、越界与阅读速度（超过 20 字/秒按 failure，超过 12 字/秒按 warning）。对齐时间本身的准确度不由本工具判断，识别模型与语言选择由调用方负责。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。render=出片：逐镜编码到交付规格 1440x2560@60、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1，片尾用最后一镜的真实尾帧定格 2 秒并叠 ending_effect，拼接后烧录 ASS 字幕（SimHei 68、字间距 -2、7px 黑描边、底部居中，右下角唯一的「内容由AI生成」标记），再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。
 
 ```json
 {
@@ -3334,7 +3349,7 @@ Source: [`packages/drama/tool-bgm-compose/src/index.ts`](../packages/drama/tool-
   "properties": {
     "method": {
       "type": "string",
-      "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按逐镜发声测出字幕时间并写出 SRT（不编码、不需要语音转写）。",
+      "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）。",
       "enum": [
         "prepare",
         "render",
@@ -3357,6 +3372,10 @@ Source: [`packages/drama/tool-bgm-compose/src/index.ts`](../packages/drama/tool-
     "lines": {
       "type": "string",
       "description": "台词计划 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"lines\":[\"第一句\",\"第二句\"]}]}；subtitles 必填。每镜的台词在这里就按字幕条切好（单条不超过 14 个字），工具只给时间，不改文字。"
+    },
+    "alignment": {
+      "type": "string",
+      "description": "语音识别对齐文档 JSON 路径，subtitles 必填，形如 {\"shots\":[{\"shot\":1,\"cues\":[{\"text\":\"识别文本\",\"start\":0.0,\"end\":0.8}]}]}（镜内、相对该镜起点，秒）。只取它的时间：字幕文字仍来自 lines，识别文本仅用于核对是不是同一段表演。缺某一镜、段数与台词条数不符、或文本对不上，都会按 failure 报出。"
     },
     "timeline": {
       "type": "string",

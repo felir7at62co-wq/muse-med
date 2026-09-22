@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `drama_shot` to validate director-format scripts, preview package timing, or compile matched JSON and episode files. Long shots, slow delivery, narration and inner monologue are allowed with advisory warnings. Malformed fields, incomplete or unconfirmed bound assets, and packages exceeding the caller's explicit duration budget still prevent compilation. The tool preserves spoken text and speaker identity and makes no provider calls.
+Use `drama_shot` to validate director-format scripts, preview package timing, or compile matched JSON and episode files. Long shots, slow delivery, narration and inner monologue are allowed with advisory warnings. Malformed fields, incomplete or unconfirmed bound assets, speech above a ceiling the project declares for itself, and packages exceeding the caller's explicit duration budget still prevent compilation. The tool preserves spoken text and speaker identity and makes no provider calls.
 
 ## Table of Contents
 
@@ -28,11 +28,15 @@ Mount this plugin beside the tool registry in the drama preset. `actionShotSecon
 
 | Method | Required inputs | Result |
 |---|---|---|
-| `validate` | `script`; optional `assets` | Read-only shot facts, failures and warnings |
-| `preview` | `script`, `assets`, `max_submit_seconds` | Read-only packaging plan |
+| `validate` | `script`; optional `assets`, `project` | Read-only shot facts, failures and warnings |
+| `preview` | `script`, `assets`, `max_submit_seconds`; optional `project` | Read-only packaging plan |
 | `compile` | Preview inputs plus `project`, `episode` | Matched JSON and episode files; no writes on validation failure |
 
 `max_submit_seconds` is the target storyboard's actual requested total duration, including the one-second natural hold. It must already be within the selected model's verified capability. A board configured for 8 seconds requires 8, even if its model supports 30. Existing 15-second boards pass 15 explicitly; a configured 30-second board may pass 30. The compiler does not fetch provider capabilities or silently assume a 14-second content ceiling.
+
+### Project requirements
+
+Every method reads its project's own requirements: the `project` argument when the call names one, otherwise the nearest `project_config.json` at or above the script, up to four directories — the same ancestor lookup the pipeline's own scripts use. Today the one requirement read is `delivery.max_effective_chars_per_shot`, the project's per-shot ceiling in effective characters. It outranks this tool's built-in numbers: speech above it is a failure rather than a warning, because a project's stated requirement is not advice, and the repair text names both honest ways out — split the line along the original semantics, or change that project's requirement. A project config that declares no such key, or none that parses, leaves the built-in numbers as advice. A key that is present but not a positive integer fails the call instead of being ignored.
 
 ### Script and timing
 
@@ -43,6 +47,7 @@ The result separates `failures` from `warnings`; only failures prevent a packagi
 | Check | Outcome |
 |---|---|
 | More than 15 or 36 effective characters; declared timing differs from estimate | Warning: review pacing and actual speech, without forced splitting |
+| More than `delivery.max_effective_chars_per_shot` declared in the project's `project_config.json` | Failure (`speech_exceeds_project_limit`): split along the original semantics, or change that project requirement |
 | Narration/inner-monologue declarations | Warning; preserve the complete payload, including colons, as `vo`; use `说话人` to identify its speaker |
 | Missing suggested realistic style or fixed negative phrase | Warning; neither phrase is automatically inserted |
 | Seconds expressions in shot prose or dialogue | Warning; preserve text, and do not infer duration from prose |

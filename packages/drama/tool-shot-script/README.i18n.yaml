@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-shot-script/README.md
-README.md: 7d80552412d33d241832a0ac98350efe57481495
-README.zh.md: 9ca1b0f6fb2ad8f8a27c92d8591c7595e4f9b4a0
+README.md: 2f2da719ee38af24d4e858b867ee41ddf5e424e4
+README.zh.md: b17f8ef0c217871aaaed16aa2b45c583d1be28ed
