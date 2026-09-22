@@ -522,7 +522,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           const price = readImageDisplayPrice(cached?.data, selection)
           return { ...(price.status === 'available' ? { amount: String(price.unit_price) } : {}),
             observedAt: new Date().toISOString() }
-        })
+        }, { scriptId: need(args.script_id) })
       const assetId = result.data === null || result.data === undefined || !Number.isSafeInteger(Number(result.data))
         ? null : Number(result.data)
       const readback = result.replayed

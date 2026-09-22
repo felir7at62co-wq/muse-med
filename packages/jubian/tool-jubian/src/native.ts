@@ -659,7 +659,7 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
         state.reconciliationFailed = true
       }
       return response
-    })
+    }, undefined, { scriptId: preview.scriptId })
   const putSent = state.sent || result.replayed
   const putOutcome = result.outcome
   // An accepted PUT whose task no candidate could claim is not "nothing happened": the

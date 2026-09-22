@@ -45,12 +45,16 @@ export interface JubianLedgerRecord {
   idempotency_key: string
   /** Tool method that produced this attempt. */
   method: JubianLedgerMethod
+  /** Project the attempt belongs to, or null when the caller stated none. */
+  script_id: number | null
   /** ISO timestamp of the intent line. */
   at: string
   /** Canonical hash of the request body. */
   request_sha256: string
   /** Quoted amount observed before the request, when one was available. */
   quoted_amount: string | null
+  /** Unit the quote is denominated in, when one was observed. */
+  quote_unit: string | null
   /** Catalogue standard the quote came from. */
   quote_standard_id: number | null
   /** When the quote was observed. */
@@ -70,7 +74,9 @@ export interface JubianLedgerBegin {
   idempotencyKey: string
   method: JubianLedgerMethod
   requestSha256: string
+  scriptId?: number
   quotedAmount?: string
+  quoteUnit?: string
   quoteStandardId?: number
   quoteObservedAt?: string
 }
@@ -108,8 +114,11 @@ function fold(lines: Record<string, unknown>[]): JubianLedgerRecord | undefined 
     if (line.phase === 'begin') {
       record = {
         record_id: String(line.record_id), idempotency_key: String(line.idempotency_key),
-        method: line.method as JubianLedgerMethod, at: String(line.at), request_sha256: String(line.request_sha256),
+        method: line.method as JubianLedgerMethod,
+        script_id: typeof line.script_id === 'number' ? line.script_id : null,
+        at: String(line.at), request_sha256: String(line.request_sha256),
         quoted_amount: (line.quoted_amount as string | null) ?? null,
+        quote_unit: (line.quote_unit as string | null) ?? null,
         quote_standard_id: (line.quote_standard_id as number | null) ?? null,
         quote_observed_at: (line.quote_observed_at as string | null) ?? null,
         http_status: null, application_code: null, response_sha256: null, outcome: null,
@@ -125,7 +134,8 @@ function fold(lines: Record<string, unknown>[]): JubianLedgerRecord | undefined 
 
 /** Append-only, two-phase ledger for paid and state-changing Jubian calls. */
 export class JubianLedger {
-  private readonly root: string
+  /** Directory holding this ledger's records; the budget file lives beside them. */
+  readonly root: string
 
   constructor(options: JubianLedgerOptions) {
     this.root = resolve(options.root)
@@ -174,7 +184,9 @@ export class JubianLedger {
     recordCounter += 1
     const record_id = `jub_${now.getTime().toString(36)}_${recordCounter.toString(36)}`
     const record: JubianLedgerRecord = { record_id, idempotency_key: input.idempotencyKey, method: input.method,
+      script_id: input.scriptId ?? null,
       at: now.toISOString(), request_sha256: input.requestSha256, quoted_amount: input.quotedAmount ?? null,
+      quote_unit: input.quoteUnit ?? null,
       quote_standard_id: input.quoteStandardId ?? null, quote_observed_at: input.quoteObservedAt ?? null,
       http_status: null, application_code: null, response_sha256: null, outcome: null }
     await mkdir(this.root, { recursive: true })
@@ -208,5 +220,32 @@ export class JubianLedger {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
       throw error
     }
+  }
+
+  /**
+   * Read the whole ledger.
+   *
+   * The budget gate and any recovery pass need every record, not one key, so this
+   * reads each line once and folds the two phases together.
+   * @returns Every record, in append order.
+   */
+  async records(): Promise<JubianLedgerRecord[]> {
+    const byKey = new Map<string, Record<string, unknown>[]>()
+    for (const file of await this.files()) {
+      for (const line of (await readFile(file, 'utf8')).split('\n')) {
+        if (!line.trim()) continue
+        const parsed = JSON.parse(line) as Record<string, unknown>
+        const key = String(parsed.idempotency_key)
+        const lines = byKey.get(key) ?? []
+        lines.push(parsed)
+        byKey.set(key, lines)
+      }
+    }
+    const records: JubianLedgerRecord[] = []
+    for (const lines of byKey.values()) {
+      const record = fold(lines)
+      if (record !== undefined) records.push(record)
+    }
+    return records.sort((left, right) => left.at.localeCompare(right.at))
   }
 }

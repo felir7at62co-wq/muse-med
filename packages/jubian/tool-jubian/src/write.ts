@@ -12,7 +12,7 @@
  */
 import { createHash } from 'node:crypto'
 import type { JubianLedger, JubianLedgerMethod } from '@deepseek-ai/dsh-jubian'
-import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { JubianError, checkBudget } from '@deepseek-ai/dsh-jubian'
 
 /** What one ledger-guarded write produced. */
 export interface WriteOutcome {
@@ -20,6 +20,22 @@ export interface WriteOutcome {
   outcome: 'accepted' | 'unknown'
   response_sha256: string | null
   data: unknown
+  /**
+   * What the spend cap said about this call.
+   *
+   * Present for every write so a caller can report it: `unauthorized` means the
+   * deployment holds no limit for this project and the call went out unprotected,
+   * which is a fact the operator wants to see rather than infer.
+   */
+  budget?: { status: string; reason: string; settledCents: number; reservedCents: number } | undefined
+}
+
+/** What one write call states about itself beyond its body. */
+export interface WriteOptions {
+  /** Project the charge belongs to; the budget gate refuses a paid call without it. */
+  readonly scriptId?: number | undefined
+  /** Authorization file to read instead of the ledger's own; tests set this. */
+  readonly authorizationPath?: string | undefined
 }
 
 /**
@@ -150,7 +166,9 @@ export function bodyHash(body: Record<string, unknown> | undefined): string {
  * @param body - Computes the exact body about to be sent, or undefined for a bodyless write.
  * @param send - Performs the single request, receiving the computed body.
  * @param quote - Optional quote snapshot, observed after the body is built.
- * @returns The outcome, whether it was replayed, and any envelope data.
+ * @param options - The project the charge belongs to, and an authorization path override.
+ * @returns The outcome, whether it was replayed, any envelope data, and the spend verdict.
+ * @throws {JubianError} `BUDGET_EXCEEDED` when a paid call is not covered by the authorization.
  */
 export async function writeUnderLedger(
   ledger: JubianLedger,
@@ -162,7 +180,8 @@ export async function writeUnderLedger(
     response_sha256: string | null
     data: unknown
   }>,
-  quote?: () => { amount?: string; standardId?: number; observedAt?: string } | undefined,
+  quote?: () => { amount?: string; unit?: string; standardId?: number; observedAt?: string } | undefined,
+  options?: WriteOptions,
 ): Promise<WriteOutcome> {
   const key = requireKey(idempotencyKey)
   const existing = await ledger.find(key)
@@ -174,8 +193,18 @@ export async function writeUnderLedger(
   // quote below observes what that read returned.
   const payload = await body()
   const quoted = quote?.()
+  // The cap is checked here, at the one path every write takes, and before the
+  // intent line lands: a refused call must leave no record that reads like an
+  // attempt, and must reach no provider.
+  const budget = await checkBudget({ ledger, method,
+    ...(options?.scriptId === undefined ? {} : { scriptId: options.scriptId }),
+    ...(quoted === undefined ? {} : { quote: quoted }),
+    ...(options?.authorizationPath === undefined ? {} : { authorizationPath: options.authorizationPath }) })
+  if (budget.status === 'refused') throw new JubianError('BUDGET_EXCEEDED', budget.reason)
   const begun = await ledger.begin({ idempotencyKey: key, method, requestSha256: bodyHash(payload),
+    ...(options?.scriptId === undefined ? {} : { scriptId: options.scriptId }),
     ...(quoted?.amount === undefined ? {} : { quotedAmount: quoted.amount }),
+    ...(quoted?.unit === undefined ? {} : { quoteUnit: quoted.unit }),
     ...(quoted?.standardId === undefined ? {} : { quoteStandardId: quoted.standardId }),
     ...(quoted?.observedAt === undefined ? {} : { quoteObservedAt: quoted.observedAt }) })
   if (begun.replayed) {
@@ -183,7 +212,9 @@ export async function writeUnderLedger(
       throw new JubianError('CONTRACT_CHANGED', 'Idempotency key belongs to a different write')
     }
     return { replayed: true, outcome: begun.record.outcome ?? 'unknown',
-      response_sha256: begun.record.response_sha256, data: null }
+      response_sha256: begun.record.response_sha256, data: null,
+      budget: { status: budget.status, reason: budget.reason, settledCents: budget.settledCents,
+        reservedCents: budget.reservedCents } }
   }
   try {
     const response = await send(payload)
@@ -192,7 +223,9 @@ export async function writeUnderLedger(
     const outcome = http !== null && http >= 200 && http < 300 && (code === 0 || code === 200) ? 'accepted' : 'unknown'
     await ledger.settle(key, { httpStatus: http, applicationCode: code,
       responseSha256: response.response_sha256, outcome })
-    return { replayed: false, outcome, response_sha256: response.response_sha256, data: response.data }
+    return { replayed: false, outcome, response_sha256: response.response_sha256, data: response.data,
+      budget: { status: budget.status, reason: budget.reason, settledCents: budget.settledCents,
+        reservedCents: budget.reservedCents } }
   } catch (error) {
     // The provider may have applied the change; only readback can resolve this.
     await ledger.settle(key, { httpStatus: null, applicationCode: null, responseSha256: null,

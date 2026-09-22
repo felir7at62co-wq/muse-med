@@ -16,6 +16,7 @@ export type JubianErrorCode =
   | 'CONTRACT_CHANGED'
   | 'INVALID_ARGUMENT'
   | 'NETWORK_ERROR'
+  | 'BUDGET_EXCEEDED'
 
 const MESSAGES: Record<JubianErrorCode, string> = {
   AUTHENTICATION_REQUIRED: 'Jubian login is unavailable or expired',
@@ -24,6 +25,7 @@ const MESSAGES: Record<JubianErrorCode, string> = {
   CONTRACT_CHANGED: 'Jubian response did not match the expected envelope',
   INVALID_ARGUMENT: 'Jubian tool call is missing an argument it cannot run without',
   NETWORK_ERROR: 'Jubian request failed',
+  BUDGET_EXCEEDED: 'Jubian spend is not covered by the authorization this deployment holds',
 }
 
 /** One Jubian failure, carrying only its stable code. */
