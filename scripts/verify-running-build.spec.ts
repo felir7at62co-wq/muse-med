@@ -5,8 +5,10 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   STALE_TOLERANCE_MS,
+  chainedPackages,
   inspectPackage,
   loadedPackages,
+  moduleDirectories,
   newestMtime,
   verdictOf,
   workspacePackages,
@@ -114,6 +116,56 @@ describe('loadedPackages', () => {
 
   it('returns nothing when the profile has no scope directory', () => {
     expect(loadedPackages(join(tempDir(), 'node_modules'))).toEqual([])
+  })
+})
+
+describe('module resolution chain', () => {
+  /** One directory holding a linked `@deepseek-ai/dsh-alpha` that reaches `real`. */
+  function chainLink(directory: string, real: string): void {
+    const scope = join(directory, 'node_modules', '@deepseek-ai')
+    mkdirSync(scope, { recursive: true })
+    symlinkSync(real, join(scope, 'dsh-alpha'), 'junction')
+  }
+
+  it('reads the profile, its parent, and the shared root, nearest first', () => {
+    const root = tempDir()
+    const profile = join(root, 'profiles', 'web')
+    mkdirSync(join(profile, 'node_modules'), { recursive: true })
+    mkdirSync(join(root, 'profiles', 'node_modules'), { recursive: true })
+    mkdirSync(join(root, 'node_modules'), { recursive: true })
+    expect(moduleDirectories(profile)).toEqual([
+      join(profile, 'node_modules'),
+      join(root, 'profiles', 'node_modules'),
+      join(root, 'node_modules'),
+    ])
+  })
+
+  it('skips a directory that does not exist rather than reporting it', () => {
+    const profile = join(tempDir(), 'profiles', 'web')
+    mkdirSync(join(profile, 'node_modules'), { recursive: true })
+    expect(moduleDirectories(profile)).toEqual([join(profile, 'node_modules')])
+  })
+
+  it('reports a package found above the profile, which is where a preset row resolves', () => {
+    const root = tempDir()
+    const profile = join(root, 'profiles', 'web')
+    const mounted = join(root, 'checkout', 'alpha')
+    mkdirSync(profile, { recursive: true })
+    mkdirSync(mounted, { recursive: true })
+    chainLink(join(root, 'profiles'), mounted)
+    expect(chainedPackages(profile)).toEqual([{ name: '@deepseek-ai/dsh-alpha', resolved: mounted }])
+  })
+
+  it('reports the nearer entry when both the profile and its parent hold the package', () => {
+    const root = tempDir()
+    const profile = join(root, 'profiles', 'web')
+    const near = join(root, 'checkout', 'near')
+    const far = join(root, 'checkout', 'far')
+    mkdirSync(near, { recursive: true })
+    mkdirSync(far, { recursive: true })
+    chainLink(profile, near)
+    chainLink(join(root, 'profiles'), far)
+    expect(chainedPackages(profile)).toEqual([{ name: '@deepseek-ai/dsh-alpha', resolved: near }])
   })
 })
 

@@ -13,6 +13,11 @@
  * what it was built from, and whether that bundle is current. It reads no
  * credentials and starts no process.
  *
+ * The packages a session loads are not all in the profile's own `node_modules`:
+ * Node walks the ancestor directories too, which is where the rows an agent preset
+ * mounts resolve from. Every directory in that chain is read, nearest first, so a
+ * package found in both is reported as the one resolution would actually pick.
+ *
  * Usage:
  *   tsx scripts/verify-running-build.ts [--profile <dir>] [--json]
  */
@@ -201,6 +206,49 @@ export function loadedPackages(modules: string): LoadedEntry[] {
   return entries
 }
 
+/** How many ancestor directories above the profile the resolution chain is read from. */
+const MODULE_CHAIN_HOPS = 3
+
+/**
+ * The `node_modules` directories Node's resolution walks, nearest first.
+ *
+ * A session resolves a plugin from the profile's own `node_modules`, then from
+ * each ancestor's — the parent `profiles/node_modules` is where the rows a preset
+ * mounts are linked from. Reading only the first would report a session as loading
+ * nothing from this checkout while most of its tools come from it.
+ * @param profile - Absolute profile directory.
+ * @returns The existing `node_modules` directories, nearest first, deduplicated.
+ */
+export function moduleDirectories(profile: string): string[] {
+  const directories: string[] = []
+  let directory = resolve(profile)
+  for (let hop = 0; hop <= MODULE_CHAIN_HOPS; hop += 1) {
+    const modules = join(directory, 'node_modules')
+    if (statSync(modules, { throwIfNoEntry: false })?.isDirectory() === true && !directories.includes(modules)) {
+      directories.push(modules)
+    }
+    const parent = dirname(directory)
+    if (parent === directory) break
+    directory = parent
+  }
+  return directories
+}
+
+/**
+ * Every package the profile's resolution chain offers, nearest entry per name.
+ * @param profile - Absolute profile directory.
+ * @returns One entry per package name, sorted by name.
+ */
+export function chainedPackages(profile: string): LoadedEntry[] {
+  const nearest = new Map<string, LoadedEntry>()
+  for (const modules of moduleDirectories(profile)) {
+    for (const entry of loadedPackages(modules)) {
+      if (!nearest.has(entry.name)) nearest.set(entry.name, entry)
+    }
+  }
+  return [...nearest.values()].sort((left, right) => left.name.localeCompare(right.name))
+}
+
 /**
  * Build one package's report row from measured paths.
  * @param input - The package name, the directory the profile loads, and this checkout's directory for it.
@@ -252,13 +300,13 @@ function profileDirectory(argv: readonly string[]): string {
 function main(): void {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   const profile = profileDirectory(process.argv.slice(2))
-  const modules = join(profile, 'node_modules')
-  if (statSync(modules, { throwIfNoEntry: false })?.isDirectory() !== true) {
-    console.log(`没有可核对的 profile（${modules} 不存在）：这台机器不加载本仓的包，视为通过。`)
+  const modules = moduleDirectories(profile)
+  if (modules.length === 0) {
+    console.log(`没有可核对的 profile（${join(profile, 'node_modules')} 不存在）：这台机器不加载本仓的包，视为通过。`)
     return
   }
   const workspace = workspacePackages(root)
-  const rows = loadedPackages(modules)
+  const rows = chainedPackages(profile)
     .map(entry => inspectPackage({
       name: entry.name,
       loaded: entry.resolved,
