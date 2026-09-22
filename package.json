@@ -182,6 +182,7 @@
     "publish:npm-baseline": "tsx scripts/publish-npm-baseline.ts",
     "release:dsh": "tsx scripts/release/bump.ts --family dsh",
     "release:vendor": "tsx scripts/release/bump.ts --family vendor",
+    "verify-running-build": "tsx scripts/verify-running-build.ts",
     "release:verify": "tsx scripts/release/verify.ts",
     "release:pack": "tsx scripts/release/pack.ts",
     "release:verify-packed-install": "tsx scripts/release/verify-packed-install.ts",
