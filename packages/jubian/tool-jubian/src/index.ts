@@ -151,6 +151,9 @@ const ARGS = {
   references: { type: 'array', items: { type: 'string' },
     description: 'image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。' },
   parent_asset_id: { type: 'number', description: 'image_generate 可选：给了就是重生成（PUT），不给是新建（POST）。' },
+  asset_url: { type: 'string',
+    description: 'register 必填：这条新资产要引用的图片 HTTPS 地址（通常是原资产的 materialUrl）。'
+      + 'register 按它新建资产，不生成新图。' },
   content_duration_ms: { type: 'number', description: 'generate 必填：本包内容时长，4000–14000 的整千毫秒。' },
   model_id: { type: 'string', description: 'erase_subtitle 必填：quzimuToB（羽点，区域性）或 '
     + 'ark-erase-video-subtitle-pro（自动）。插件不设默认值——省略即在发请求前报错，'
@@ -325,10 +328,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。' + WRITE_NOTE,
     parameters: {
       method: { type: 'string', required: true,
-        enum: ['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'remove', 'upload_reference',
+        enum: ['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'register', 'remove', 'upload_reference',
           'create_folder', 'move', 'rename'],
         description: 'get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；'
           + 'generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；'
+          + 'register=按指定类别新建一条资产，只引用已有图片、不生成新图（有副作用）；'
           + 'remove=删除一个父资产（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；'
           + 'create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名。' },
       script_id: ARGS.script_id, asset_id: ARGS.asset_id, material_id: ARGS.material_id,
@@ -338,6 +342,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       asset_scope_type: ARGS.asset_scope_type, root_category_type: ARGS.root_category_type,
       material_ids: ARGS.material_ids, target_folder_id: ARGS.target_folder_id,
       asset_name: ARGS.asset_name, episode: ARGS.episode, asset_category: ARGS.asset_category,
+      asset_type: ARGS.asset_type, asset_url: ARGS.asset_url,
     },
     output: OUTPUT,
     execute: guarded('jubian_asset', args => assetMethod(client, ledger, args, { naming })),

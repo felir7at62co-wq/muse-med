@@ -19,6 +19,7 @@ let recordCounter = 0
 /** The write methods this ledger can record. */
 export type JubianLedgerMethod =
   | 'image_generate'
+  | 'asset_register'
   | 'storyboard_save'
   | 'storyboard_model_settings'
   | 'storyboard_create'

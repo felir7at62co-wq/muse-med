@@ -99,7 +99,7 @@ describe('tool-jubian registration', () => {
 
     const asset = byName.get('jubian_asset')!
     expect((asset.properties as Record<string, { enum?: string[] }>).method!.enum)
-      .toEqual(['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'remove', 'upload_reference',
+      .toEqual(['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'register', 'remove', 'upload_reference',
         'create_folder', 'move', 'rename'])
     const assetKeys = Object.keys(asset.properties as Record<string, unknown>).sort()
     expect(assetKeys).toContain('image_path')

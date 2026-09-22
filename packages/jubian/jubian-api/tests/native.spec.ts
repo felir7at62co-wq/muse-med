@@ -295,6 +295,36 @@ describe('task claiming', () => {
     expect(classifyNewNativeCandidates([related, settled], EXPECTATION)).toMatchObject({ status: 'matched' })
   })
 
+  /** What the provider leaves on a result once it has run: its own fields, no materials. */
+  const processedChild = (overrides: Record<string, unknown> = {}) => ({ id: 972949, aigcVideoTaskId: 335343,
+    storyboardId: 916953, taskStatus: 'succeeded', image_urls: [URL_LEAD, URL_GUEST],
+    modelId: 'doubao-seedance-2-0-260128', standardId: 11, resolution: '720p', ...overrides })
+
+  it('drops a processed child whose image sequence contradicts this submission', () => {
+    // A different ordered image list proves the child belongs to another submission, which
+    // is a decision rather than the unreadable evidence a conflict is for.
+    expect(classifyExistingNativeMatches([{ ...related,
+      children: [processedChild({ image_urls: ['https://other.test/x.jpg'] })] }], EXPECTATION))
+      .toEqual({ status: 'none' })
+  })
+
+  it('drops a processed child whose recorded model contradicts this submission', () => {
+    // The live case: same materials re-run under a newer model. The URLs agree, so only the
+    // recorded model proves this child is the older submission rather than this one.
+    expect(classifyExistingNativeMatches([{ ...related,
+      children: [processedChild({ modelId: 'doubao-seedance-2-5-260628', resolution: '480p' })] }], EXPECTATION))
+      .toEqual({ status: 'none' })
+  })
+
+  it('keeps a processed child a conflict while its evidence cannot contradict this submission', () => {
+    // Agreeing evidence still cannot prove the child is this submission, and a child that
+    // states nothing at all is exactly as undecidable as before.
+    expect(classifyExistingNativeMatches([{ ...related, children: [processedChild()] }], EXPECTATION))
+      .toEqual({ status: 'reconcile_conflict' })
+    expect(classifyExistingNativeMatches([{ ...related, children: [{ id: 972949, aigcVideoTaskId: 335343,
+      storyboardId: 916953, taskStatus: 'succeeded' }] }], EXPECTATION)).toEqual({ status: 'reconcile_conflict' })
+  })
+
   it('ignores storyboard-less history from a different episode', () => {
     const oldEpisode = { ...related, taskId: '444610',
       task: { id: 444610, scriptId: 2708, episodeId: 46735, taskType: 1 }, children: [] }

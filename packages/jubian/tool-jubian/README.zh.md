@@ -445,6 +445,7 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 - **模型配置不是远端事务** —— 同一运行时内、共享规范化根目录的账本实例会串行认领计划，不跨进程互斥。即时回读会检测先前编辑，但提供方没有条件 PUT，无法排除回读之后发生的竞争写入。错误会停止整批但不回滚；保留账本，先对账再创建另一份计划。项目/分集列表超过 40 页时直接失败，不应用不完整范围。
 - **没有花费上限、预算检查或付费写确认** —— 只要调用方要求且请求体完整，这一行就会提交。幂等只防止同一个 key 的重复扣费，不阻止第一次扣费。需要封顶或人工确认的部署必须自己加一条 `tools/pre-execute` 策略。资产库写方法同理：`rename`、`create_folder` 与 `move` 改的是人在控制台里读到的东西，而这一行唯一的护栏就是描述里那句「先问用户」。
 - **类别错了只能重新生成资产** —— 资产库写方法能改名、能移动，没有一个能改它的 `assetType`。按错类别建出来的资产会一直保持那个类别，索引把它列进 `category_mismatches` 而不是提供一个修复动作。
+- **工作区构建不会重新生成加载器实际导入的那个 bundle** —— `pnpm run build:lib:host` 只把本包的 TypeScript 产出到 `lib/types/`；若部署是从工作副本加载本包，宿主会一直运行旧的 `lib/index.js`，直到运行 `pnpm exec tsdown --config packages/jubian/tool-jubian/tsdown.config.ts` 重写它并重启宿主。只重启不会改变任何东西，而只改 TypeScript 会看起来已经生效、实际宿主仍在执行旧 bundle。
 - **`move` 与 `rename` 收的是材质 ID，不是父资产 ID** —— 控制台自己的改名与移动是 `PUT /aigc/material/reName` 与 `PUT /aigc/material/move`，它们的 `id`／`ids` 是材质行的标识，也就是 `jubian_asset` 的 `materials` 返回的 `material_id`。传父 `asset_id` 会以未知行的身份到达提供方，回来时是某个稳定失败码，而不是可区分的「没有这个材质」。
 - **组织视图只读个人资产库的文件夹** —— 读树用的是 `assetScopeType=2`，即控制台默认打开的那个范围。团队资产库里的文件夹不会出现在索引里；`create_folder` 与 `move` 仍然接受显式的 `asset_scope_type`，在两个库里都能用。
 - **计费生图只会从部署锁定的那一行购买** —— 账户目录可能把 `gpt-image-2` 按平台列成多行、各自定价，而本插件没有在它们之间选择的规则：多行且没有锁定行时，请求体构造阶段就会失败并列出全部候选。这是刻意的——给一个默认值意味着在没人选过的平台上花真钱——但代价是：新账户一旦多出第二行 `gpt-image-2`，`image_generate` 就得等有人去锁定：在短剧设置页上选一行，或（没有那个页面的部署）在本行的 `imagePlatformId`/`imageStandardId` 里写一行。

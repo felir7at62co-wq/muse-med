@@ -688,6 +688,61 @@ export interface NativeClaimExpectation {
   beforeTaskIds: string[]
 }
 
+/**
+ * The evidence a processed child result states in its own fields.
+ *
+ * The provider strips a result down once it has run: the structured materials the
+ * submission answered with are replaced by an ordered `image_urls` list, and the model is
+ * recorded as `modelId`/`standardId`/`resolution` rather than a `modelConfig`. Those axes
+ * still answer the preflight's only question — could this child be the submission about to
+ * be sent — by contradicting it.
+ * @param child - One child result.
+ * @returns Each axis as read, or null where the child is silent.
+ */
+function childReadableEvidence(child: Record<string, unknown>): {
+  urls: string[] | null
+  modelId: string | null
+  standardId: string | null
+  resolution: string | null
+} {
+  const rawUrls = child.image_urls ?? child.imageUrls
+  const urls = Array.isArray(rawUrls)
+    ? rawUrls.map(item => wireText(item)).filter((url): url is string => url !== null)
+    : []
+  return { urls: urls.length > 0 ? urls : null,
+    modelId: wireText(child.modelId ?? child.model_id),
+    standardId: wireText(child.standardId ?? child.standard_id),
+    resolution: wireText(child.resolution) }
+}
+
+/** Look one model axis up in the signature the preview froze. */
+function expectedAxis(expectation: NativeClaimExpectation, field: string): string | null {
+  return expectation.expectedModel.find(([name]) => name === field)?.[1] ?? null
+}
+
+/**
+ * Whether a child's readable evidence disproves that it is the submission being checked.
+ *
+ * Only a readable disagreement counts. Silence never disqualifies: an axis the child does
+ * not state leaves the candidate exactly as undecidable as before, which is what keeps
+ * "unreadable evidence is a conflict, not a miss" — and the second charge it prevents.
+ * @param child - One child result.
+ * @param expectation - The submission's frozen identity.
+ * @returns True when at least one readable axis disagrees with the submission.
+ */
+function contradictsExpectation(child: Record<string, unknown>, expectation: NativeClaimExpectation): boolean {
+  const evidence = childReadableEvidence(child)
+  if (evidence.urls !== null
+    && stableJson(evidence.urls) !== stableJson(expectation.expectedIdentity.map(item => item.imageUrl))) return true
+  const axes: [string, string | null][] = [['modelId', evidence.modelId],
+    ['standardId', evidence.standardId], ['resolution', evidence.resolution]]
+  for (const [field, read] of axes) {
+    const expected = expectedAxis(expectation, field)
+    if (read !== null && expected !== null && read !== expected) return true
+  }
+  return false
+}
+
 function childIdentity(child: Record<string, unknown>): SubjectIdentityItem[] | null {
   const materials = child.imageMaterials ?? child.storyboardMaterialList
   try { return subjectIdentitySignature(materials) } catch { return null }
@@ -797,7 +852,14 @@ export function classifyExistingNativeMatches(candidates: HydratedTask[],
     if (candidate.children.length !== 1) { unsafe = true; continue }
     const child = candidate.children[0] ?? invalid()
     const identity = childIdentity(child)
-    if (identity === null) { unsafe = true; continue }
+    if (identity === null) {
+      // A processed child keeps only the provider's own fields. When those contradict the
+      // submission they prove it is a different one and the candidate is dropped; when they
+      // are silent the candidate stays undecidable and the conflict stands.
+      if (contradictsExpectation(child, expectation)) continue
+      unsafe = true
+      continue
+    }
     if (stableJson(identity) !== stableJson(expectation.expectedIdentity)) continue
     const model = childModel(child)
     const prompt = childPrompt(child)

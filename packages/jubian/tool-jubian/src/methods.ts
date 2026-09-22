@@ -55,6 +55,8 @@ export interface MethodArgs {
   task_id?: number
   asset_name?: string
   asset_type?: number
+  /** `jubian_asset register`: the existing image URL the new asset will reference. */
+  asset_url?: string
   prompt?: string
   references?: string[]
   parent_asset_id?: number
@@ -316,8 +318,22 @@ export async function catalogMethod(client: JubianClient, args: MethodArgs): Pro
 }
 
 /**
+ * Every asset the provider lists for one project, as identity plus declared category.
+ * @param client - Jubian transport.
+ * @param scriptId - The project to list.
+ * @returns One entry per listed asset.
+ */
+async function listedAssets(client: JubianClient, scriptId: number):
+Promise<{ asset_id: number; asset_type: number | null }[]> {
+  const result = await client.request({ method: 'GET',
+    path: `/aigc/asset/list?scriptId=${scriptId}&pageNum=1&pageSize=1000` })
+  return readAssetList(result.data).rows.map(row => ({ asset_id: row.asset_id, asset_type: row.asset_type }))
+}
+
+/**
  * `jubian_asset` — asset and material reads, the state-changing casting
- * confirmation, the irreversible removal and the local reference upload.
+ * confirmation, the irreversible removal, the explicit-category registration
+ * and the local reference upload.
  * @param client - Jubian transport.
  * @param ledger - Write-path ledger, used only by the two state-changing methods.
  * @param args - Dispatched on `method`.
@@ -368,6 +384,39 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
       return { ...result,
         next: '删除不可恢复：该父资产及其媒体版本已被移除，引用它的镜头匹配与已生成视频不会因此重建。'
           + '如果只是想取消"正式选用"，那不该调用它。' }
+    }
+    case 'register': {
+      requireKey(args.idempotency_key)
+      const scriptId = need(args.script_id)
+      const assetName = need(args.asset_name)
+      const assetType = need(args.asset_type)
+      const assetUrl = need(args.asset_url)
+      if (assetType !== 1 && assetType !== 2 && assetType !== 3) {
+        throw new JubianError('INVALID_ARGUMENT', 'asset_type 必须是 1（角色）、2（场景）或 3（道具）')
+      }
+      // The provider's own upload-register branch: an existing image URL plus
+      // `isLocal`, and deliberately no modelConfig and no isGenerate, which is
+      // what keeps this off the paid generation path. The captured request and
+      // its reasoning are in the project's `_probe/asset-category-fix-plan.md`.
+      const before = await listedAssets(client, scriptId)
+      const result = await writeUnderLedger(ledger, args.idempotency_key, 'asset_register',
+        () => ({ scriptId, assetName, assetType, isLocal: 1, url: assetUrl }),
+        payload => client.request({ method: 'POST', path: '/aigc/asset', body: need(payload) }))
+      if (result.replayed) {
+        return { ...result, created_asset_id: null, new_asset_ids: [],
+          next: '同一个 idempotency_key 已经登记过，没有重发。用 jubian_asset list 按名字核对那条资产的类别。' }
+      }
+      // Identity comes from the list rather than the response body: the capture
+      // records the request, not a response shape to depend on.
+      const created = (await listedAssets(client, scriptId))
+        .filter(asset => !before.some(seen => seen.asset_id === asset.asset_id) && asset.asset_type === assetType)
+      return { ...result,
+        created_asset_id: created.length === 1 ? created[0]?.asset_id ?? null : null,
+        new_asset_ids: created.map(asset => asset.asset_id),
+        next: created.length === 1
+          ? '新资产已登记：它引用你给的图片地址，没有触发生成。费用与状态以账户账单为准，不要仅凭本结果断言免费。'
+            + '让它进入主体设定还需要一步确认（jubian_asset confirm_casting 要的是生成材质 ID）。'
+          : '登记请求已受理，但列表里无法唯一确定新资产：用 jubian_asset list 按名字人工核对类别。' }
     }
     case 'upload_reference':
       // Free and task-free, but it does write one object into the provider's

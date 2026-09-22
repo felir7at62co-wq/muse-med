@@ -16,7 +16,8 @@ type Row = Record<string, unknown>
 interface Selector { scope: 'storyboards' | 'episodes' | 'project'; storyboard_ids: number[]; episode_ids: number[] }
 interface Target { storyboard_id: number; episode_id: number; before_hash: string; preserved_hash: string; before: Row; after: Row }
 interface Plan {
-  version: 1
+  /** 2 since the preserved hash stopped counting the provider's per-save material churn. */
+  version: 2
   operation: 'storyboard_model_settings'
   script_id: number
   selector: Selector
@@ -75,13 +76,45 @@ function snapshot(board: Row): Row {
   const { isGenerate: _generate, ...rest } = board
   return { ...rest, modelConfig: configOf(board) }
 }
+/**
+ * Fields the provider rewrites inside a material row every time it saves a storyboard.
+ *
+ * The row's surrogate id and its audit columns are regenerated on each save, so keeping
+ * them made the preserved hash differ after every successful write. Everything the row
+ * means — `materialKey`, `assetId`, `materialAssetId`, `fileName`, `materialUrl`,
+ * `sortOrder` — stays, so a wiped, reordered or replaced material list still differs.
+ */
+const MATERIAL_ROW_VOLATILE_KEYS = ['id', ...PROVIDER_AUDIT_KEYS] as const
+
+/** One nested list with the provider's per-save churn removed; order is preserved. */
+function withoutRowChurn(value: unknown): unknown {
+  if (!Array.isArray(value)) return value
+  const rows: unknown[] = value
+  return rows.map((row) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return row
+    return Object.fromEntries(Object.entries(row as Row)
+      .filter(([key]) => !(MATERIAL_ROW_VOLATILE_KEYS as readonly string[]).includes(key)))
+  })
+}
+
 function preservedHash(board: Row): string {
   const rest = Object.fromEntries(Object.entries(snapshot(board))
-    .filter(([key]) => key !== 'modelConfig' && !(PROVIDER_AUDIT_KEYS as readonly string[]).includes(key)))
+    .filter(([key]) => key !== 'modelConfig' && !(PROVIDER_AUDIT_KEYS as readonly string[]).includes(key))
+    .map(([key, value]) => [key, key === 'storyboardMaterialList' ? withoutRowChurn(value) : value]))
   const nonModel = Object.fromEntries(Object.entries(configOf(board))
     .filter(([key]) => !(MODEL_KEYS as readonly string[]).includes(key)))
   return hash({ ...rest, modelConfig: nonModel })
 }
+/**
+ * Whether the board matches everything the preview froze: the model settings it
+ * asked for, and every field outside them.
+ *
+ * The preserved half is a real guard — a save that empties `storyboardMaterialList`
+ * destroys the ordered subject identity — so it stays a failure. It is also what
+ * currently misfires, because the provider rewrites each material row's own audit
+ * fields on every save. Normalizing those churned fields out of `preservedHash`
+ * is the fix; until then a successful write can still read back as a mismatch.
+ */
 function matches(board: Row, target: Target): boolean {
   return preservedHash(board) === target.preserved_hash && stableJson(settings(configOf(board))) === stableJson(target.after)
 }
@@ -145,13 +178,14 @@ async function build(client: JubianClient, scriptId: number, selector: Selector,
     if (selector.scope === 'episodes' && !selector.episode_ids.includes(target.episode_id)) fail('Episode membership drift')
     items.push(target)
   }
-  const plan = { version: 1, operation: 'storyboard_model_settings', script_id: scriptId,
+  const plan = { version: 2, operation: 'storyboard_model_settings', script_id: scriptId,
     selector, changes, targets: items } as const
   return { ...plan, fingerprint: fingerprint(plan) }
 }
 function parsePlan(value: unknown): Plan {
   const row = object(value)
-  if (row.version !== 1 || row.operation !== 'storyboard_model_settings' || !Array.isArray(row.targets)
+  if (row.version === 1) return fail('这份计划由旧版本生成，当时的保存核对会把服务端重建素材行误判成失败；请重新 preview')
+  if (row.version !== 2 || row.operation !== 'storyboard_model_settings' || !Array.isArray(row.targets)
     || !row.targets.length) return fail('Invalid model settings plan')
   const parsedTargets = row.targets.map((raw) => {
     const target = object(raw)
@@ -161,7 +195,7 @@ function parsePlan(value: unknown): Plan {
       preserved_hash: target.preserved_hash, before: object(target.before), after: object(target.after) }
   })
   ids(parsedTargets.map(target => target.storyboard_id))
-  const plan = { version: 1, operation: 'storyboard_model_settings', script_id: id(row.script_id),
+  const plan = { version: 2, operation: 'storyboard_model_settings', script_id: id(row.script_id),
     selector: selectorOf(object(row.selector)), changes: changesOf(row.changes), targets: parsedTargets } as const
   const result = { ...plan, fingerprint: fingerprint(plan) }
   if (row.fingerprint !== result.fingerprint || stableJson(row) !== stableJson(result)) fail('Plan fingerprint mismatch')
@@ -228,7 +262,10 @@ async function applyPlan(client: JubianClient, ledger: JubianLedger, args: Metho
         })
       if (saved.replayed || saved.outcome !== 'accepted') { item.status = 'unknown'; break }
       const verified = await readBoard(client, scriptId, target.storyboard_id)
-      if (!matches(verified, target)) { item.status = 'readback_mismatch'; break }
+      // A target whose settings did not land is recorded and the batch moves on:
+      // the plan is claimed once and never resumes, so stopping here would leave
+      // the remaining targets unwritten with no way back.
+      if (!matches(verified, target)) { item.status = 'readback_mismatch'; continue }
       item.status = 'applied'
     } catch (error) {
       item.status = state.sent ? 'unknown' : 'stale'

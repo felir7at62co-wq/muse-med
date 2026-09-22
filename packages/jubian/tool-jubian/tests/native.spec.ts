@@ -182,6 +182,31 @@ describe('submit_video', () => {
       idempotencyKey: String(preview.idempotencyKey) }
   }
 
+  it('reports what it read for every candidate when the preflight conflicts', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    // Two shapes of historical task whose only child lost its model evidence. The second
+    // is the production one: the task row itself states no storyboard id, so the classifier
+    // reads it as null and cannot exclude the task from this submission's candidates.
+    provider.tasks = [
+      { id: 400003, scriptId: 2708, storyboardId: 916953, taskType: 1, taskStatus: 'submit' },
+      { id: 400004, scriptId: 2708, taskType: 1, taskStatus: 'submit' },
+    ]
+    const childWithoutModel = (taskId: number, childId: number) => ({ id: childId, aigcVideoTaskId: taskId,
+      storyboardId: 916953, taskStatus: 'submit', imageMaterials: MATERIALS })
+    provider.subtasks['400003'] = [childWithoutModel(400003, 1)]
+    provider.subtasks['400004'] = [childWithoutModel(400004, 2)]
+    const result = await submitVideoMethod(clientFor(provider), ledger, { preview_path: previewPath,
+      idempotency_key: idempotencyKey })
+    expect(putCalls(provider)).toHaveLength(0)
+    expect(result).toMatchObject({ status: 'reconcile_conflict' })
+    const candidates = result.candidates as Record<string, unknown>[]
+    expect(candidates.find(candidate => candidate.task_id === '400003'))
+      .toMatchObject({ storyboard_id_read: '916953', children: 1 })
+    expect(candidates.find(candidate => candidate.task_id === '400004'))
+      .toMatchObject({ storyboard_id_read: null, children: 1 })
+  })
+
   it('submits exactly one PUT and claims the task it created', async () => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const { previewPath, idempotencyKey } = await prepared(provider)

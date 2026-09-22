@@ -77,6 +77,7 @@ export const REQUIRED_ARGUMENTS: Record<string, readonly string[]> = {
   'jubian_asset.materials': ['script_id'],
   'jubian_asset.generated_image': ['asset_id'],
   'jubian_asset.confirm_casting': ['material_id'],
+  'jubian_asset.register': ['script_id', 'asset_name', 'asset_type', 'asset_url'],
   'jubian_asset.remove': ['asset_id', 'script_id'],
   'jubian_asset.upload_reference': ['image_path'],
   'jubian_asset.create_folder': ['folder_name', 'asset_scope_type', 'root_category_type'],

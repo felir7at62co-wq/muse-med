@@ -231,10 +231,42 @@ describe('scoped model settings', () => {
   it('checks preserved ordered assets after save', async () => {
     const plan = await preview()
     onPut = (body) => { body.storyboardMaterialList = [] }
+    // The wiped material list still fails each target that saved it. What changed
+    // is that the batch keeps going: two PUTs happen instead of one, because a plan
+    // is claimed once and never resumes, so stopping early would strand the rest.
     expect(await apply(plan)).toMatchObject({ status: 'partial', items: [
-      expect.objectContaining({ status: 'readback_mismatch' }), expect.objectContaining({ status: 'not_attempted' }),
+      expect.objectContaining({ status: 'readback_mismatch' }), expect.objectContaining({ status: 'readback_mismatch' }),
     ] })
-    expect(puts()).toHaveLength(1)
+    expect(puts()).toHaveLength(2)
+  })
+
+  it('accepts a save whose only change is the provider rebuilding material rows', async () => {
+    const plan = await preview()
+    // What the provider does on save: each material row comes back with a new surrogate id
+    // and fresh audit columns, while every field that carries meaning keeps its value.
+    // Counting those churned fields made every successful write read back as a mismatch.
+    onPut = (body) => {
+      const rows = body.storyboardMaterialList as Record<string, unknown>[]
+      body.storyboardMaterialList = rows.map((row, index) => ({ ...row, id: 900000 + index,
+        createTime: '2026-09-22 16:00:00', updateTime: '2026-09-22 16:00:00' }))
+    }
+    expect(await apply(plan)).toMatchObject({ status: 'applied', items: [
+      expect.objectContaining({ status: 'applied' }), expect.objectContaining({ status: 'applied' }),
+    ] })
+    expect(puts()).toHaveLength(2)
+  })
+
+  it('still fails a save that changes what a material row means', async () => {
+    const plan = await preview()
+    // Same shape as the provider's rebuild, but the row now names a different asset:
+    // normalization must not swallow a real change to the ordered subject identity.
+    onPut = (body) => {
+      const rows = body.storyboardMaterialList as Record<string, unknown>[]
+      body.storyboardMaterialList = rows.map(row => ({ ...row, materialAssetId: 99, id: 900001 }))
+    }
+    expect(await apply(plan)).toMatchObject({ status: 'partial', items: [
+      expect.objectContaining({ status: 'readback_mismatch' }), expect.objectContaining({ status: 'readback_mismatch' }),
+    ] })
   })
 
   it('claims concurrent application of the same plan only once', async () => {

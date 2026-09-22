@@ -526,6 +526,36 @@ async function resolvePreviewPath(args: {
  * @returns The submission verdict, the claimed task when there is one, and the next step.
  * @throws {JubianError} `CONTRACT_CHANGED` when the preview is stale, mismatched or not this plugin's own.
  */
+/**
+ * What the classifier actually read for each candidate it could not decide.
+ *
+ * A bare `reconcile_conflict` is not actionable: one verdict covers an unreadable
+ * storyboard id, a task whose child lost its identity, and a task that is simply
+ * not this submission. This reports the fields `isRelatedTaskCandidate` and
+ * `taskSemanticFields` read, so the next conflict names its own cause. Read-only:
+ * it re-derives nothing the classifier did not already consult.
+ * @param candidates - The hydrated tasks the conflict was decided over.
+ * @param expectation - The submission identity the classifier compared against.
+ * @returns One row per related candidate, with `storyboard_id_read` null when unreadable.
+ */
+function conflictEvidence(candidates: HydratedTask[], expectation: NativeClaimExpectation):
+Record<string, unknown>[] {
+  return candidates
+    .filter(candidate => isRelatedTaskCandidate(candidate.task, expectation.scriptId, expectation.storyboardId))
+    .map((candidate) => {
+      const semantic = taskSemanticFields(candidate.task)
+      return {
+        task_id: candidate.taskId,
+        task_name: candidate.task.taskName ?? candidate.task.task_name ?? null,
+        // Read exactly the way the classifier reads it, so a null here is the same
+        // "unreadable" that made this candidate related in the first place.
+        storyboard_id_read: wireText(semantic.storyboardId),
+        episode_id: episodeIdOf(candidate.task.episodeId ?? candidate.task.episode_id),
+        children: candidate.children.length,
+      }
+    })
+}
+
 export async function submitVideoMethod(client: JubianClient, ledger: JubianLedger, args: {
   preview_path?: string | undefined
   project_dir?: string | undefined
@@ -564,11 +594,15 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
 
   const preflightRecords = await listAllVideoTasks(client, preview.scriptId)
   const preflight = await hydrateRelated(client, preflightRecords, preview.scriptId, preview.storyboardId, preview.payload.episodeId)
-  const existing = classifyExistingNativeMatches(preflight, expectationOf(preview, []))
+  const expectation = expectationOf(preview, [])
+  const existing = classifyExistingNativeMatches(preflight, expectation)
   if (existing.status === 'reconcile_conflict') {
     return { replayed: false, outcome: 'unknown', status: 'reconcile_conflict', task_id: null,
       preview_path: previewPath,
-      next: '提交前对账发现多个候选或证据不完整：没有发送 PUT。人工核对远端任务后再说。' }
+      candidates: conflictEvidence(preflight, expectation),
+      next: '提交前对账发现多个候选或证据不完整：没有发送 PUT。人工核对远端任务后再说。'
+        + '上面的 candidates 是判定时实际读到的字段；storyboard_id_read 为 null 表示那条任务的归属读不出来，'
+        + '它因此被当成可能属于本分镜。' }
   }
   if (existing.status === 'matched') {
     return { replayed: false, outcome: 'unknown', status: 'already_submitted', task_id: existing.taskId,
