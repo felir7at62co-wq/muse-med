@@ -94,8 +94,16 @@ export function packEpisode(shots: readonly CompiledShot[], maxContentSeconds: n
     if (duration > maxContentSeconds) {
       throw new Error(`镜头${item.shot.shot}时长${duration}秒超过内容预算${maxContentSeconds}秒；不能截断镜头。`)
     }
-    if (current.length > 0 && (item.scene !== scene || seconds + duration > maxContentSeconds)) flush()
-    if (scene === undefined) scene = item.scene
+    // A shot whose scene is not bound carries an empty name, which is a missing
+    // declaration rather than a scene of its own: it stays in the package it
+    // arrived in and never closes one. Reading it as a scene split an episode
+    // whose script declares a scene on every other shot into one package per
+    // shot; the missing binding itself is reported as `no_scene_bound` where the
+    // script was compiled.
+    const declared = item.scene === '' ? undefined : item.scene
+    const changedScene = declared !== undefined && scene !== undefined && declared !== scene
+    if (current.length > 0 && (changedScene || seconds + duration > maxContentSeconds)) flush()
+    if (scene === undefined) scene = declared
     current.push(item)
     seconds += duration
     if (item.shot.breakAfter) flush()

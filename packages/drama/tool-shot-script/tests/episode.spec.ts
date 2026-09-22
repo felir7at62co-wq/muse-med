@@ -96,6 +96,32 @@ describe('packing an episode', () => {
     expect(packEpisode(shots, 14).map(task => task.shots)).toEqual([[1], [2]])
   })
 
+  it('keeps a shot with no declared scene in the package it arrived in', () => {
+    // The alternating shape that broke an episode: every other shot binds the same
+    // scene, the rest bind none. A missing binding is not a scene of its own, so
+    // the four shots stay one package.
+    const shots = fixture([
+      speakingShot(1, '苏晚：原文台词'),
+      speakingShot(2, '苏晚：第二句台词', ['核心场景：后厨']),
+      speakingShot(3, '苏晚：第三句台词'),
+      speakingShot(4, '苏晚：第四句台词', ['核心场景：后厨']),
+    ], DEFAULT_ASSETS).map((item, index) => index % 2 === 0 ? { ...item, scene: '' } : item)
+    expect(shots.map(item => item.scene)).toEqual(['', '后厨', '', '后厨'])
+    expect(packEpisode(shots, 14).map(task => task.shots)).toEqual([[1, 2, 3, 4]])
+  })
+
+  it('still closes a package when a declared scene replaces another', () => {
+    const shots = fixture([
+      speakingShot(1, '苏晚：原文台词'),
+      speakingShot(2, '苏晚：第二句台词', ['核心场景：后厨']),
+      speakingShot(3, '苏晚：第三句台词', ['核心场景：客厅']),
+    ], DEFAULT_ASSETS).map((item, index) => index === 0 ? { ...item, scene: '' } : item)
+    expect(shots.map(item => item.scene)).toEqual(['', '后厨', '客厅'])
+    // The undeclared shot rides along with the first declared scene; the declared
+    // change after it still closes the package.
+    expect(packEpisode(shots, 14).map(task => task.shots)).toEqual([[1, 2], [3]])
+  })
+
   it('closes a package instead of exceeding the content budget', () => {
     const shots = fixture([
       actionShot(1, ['核心场景：后厨', '动作复杂度：复杂']),
