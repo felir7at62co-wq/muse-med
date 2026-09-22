@@ -106,11 +106,18 @@ def probe_seconds(video: Path) -> float:
 
 
 def transcribe(video: Path, work: Path, model) -> list:
-    """Return (char, start, end) for every recognized character of one shot."""
+    """Return (char, start, end) for every recognized character of one shot.
+
+    Decoding is pinned to one thread and one temperature. Multi-threaded int8
+    beam search is not reproducible: two runs over the same shot returned 34 and
+    30 characters, which is enough to make one line anchor on one run and not on
+    the next. Temperature fallback is off for the same reason.
+    """
     wav = work / f"{video.stem}.asr.wav"
     decode(video, wav)
     segments, _ = model.transcribe(str(wav), language="zh", word_timestamps=True, beam_size=5,
-                                   vad_filter=False, no_speech_threshold=0.95)
+                                   vad_filter=False, no_speech_threshold=0.95,
+                                   temperature=0.0, condition_on_previous_text=False)
     chars: list = []
     for segment in segments:
         for word in segment.words or []:
@@ -391,7 +398,7 @@ def main() -> None:
 
     model_dir = resolve_model(args)
     from faster_whisper import WhisperModel
-    model = WhisperModel(str(model_dir), device="cpu", compute_type="int8")
+    model = WhisperModel(str(model_dir), device="cpu", compute_type="int8", cpu_threads=1)
     print(f"模型 {model_dir}")
 
     placed, strategies = [], []
