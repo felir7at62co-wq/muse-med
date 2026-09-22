@@ -58,6 +58,7 @@
     "skills/tweet-drama-draft-build/references/dependencies.md",
     "skills/tweet-drama-draft-build/references/io-contract.md",
     "skills/tweet-drama-draft-build/requirements.txt",
+    "skills/tweet-drama-draft-build/scripts/align_subtitles.py",
     "skills/tweet-drama-draft-build/scripts/build_spoken_subtitles.py",
     "skills/tweet-drama-draft-build/scripts/draft_generator.py",
     "skills/tweet-drama-draft-build/scripts/jianying_draft.py",
@@ -95,6 +96,6 @@
     "skills/xiaohongshu-reference/scripts/xhs_release_manifest.json"
   ],
   "scripts": {
-    "test": "python -B -m unittest tests/test_resources.py tests/test_skill_suite.py tests/helpers/test_helper_migration.py tests/creation/test_creation_resources.py tests/render/test_portability.py && python -B -m unittest discover -s tests/core && python -B -m unittest discover -s tests/jubian_snatch"
+    "test": "python -B -m unittest tests/test_resources.py tests/test_skill_suite.py tests/helpers/test_helper_migration.py tests/creation/test_creation_resources.py tests/render/test_portability.py tests/render/test_align_subtitles.py && python -B -m unittest discover -s tests/core && python -B -m unittest discover -s tests/jubian_snatch"
   }
 }

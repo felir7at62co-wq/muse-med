@@ -17,11 +17,6 @@
 /** Shortest cue written to the delivery. */
 export const MIN_CUE_SECONDS = 0.8
 
-/** Longest cue written to the delivery, however long the line's stretch runs. */
-export const MAX_CUE_SECONDS = 9
-
-/** Seconds per spoken character a line needs at a natural pace. */
-export const SECONDS_PER_CHARACTER = 1 / 6
 
 /** Characters per second past which a cue cannot be read at all. */
 export const IMPOSSIBLE_CHARACTER_RATE = 20
@@ -53,7 +48,18 @@ export interface AlignedShot {
   readonly shot: number
   /** Recognized stretches, in time order. */
   readonly cues: readonly AlignedCue[]
+  /**
+   * How the producing script placed this shot, when it says so.
+   *
+   * Only `asr_aligned` is accepted: any other label means some line in this shot
+   * was laid out by proportion rather than matched to speech, and a guessed time
+   * is what this package refuses to turn into a subtitle.
+   */
+  readonly strategy?: string | undefined
 }
+
+/** The one alignment label this package accepts. */
+export const ALIGNED_STRATEGY = 'asr_aligned'
 
 /** One cue placed on the episode clock. */
 export interface PlacedCue {
@@ -90,15 +96,6 @@ export function effectiveCharacterCount(text: string): number {
   return (text.match(/[\u4e00-\u9fffA-Za-z0-9]/g) ?? []).length
 }
 
-/**
- * The seconds one line needs to be read at a natural pace.
- * @param text - The line to weigh.
- * @returns Seconds between {@link MIN_CUE_SECONDS} and {@link MAX_CUE_SECONDS}.
- */
-export function requiredSeconds(text: string): number {
-  const spoken = effectiveCharacterCount(text)
-  return Math.min(MAX_CUE_SECONDS, Math.max(MIN_CUE_SECONDS, spoken * SECONDS_PER_CHARACTER + 0.5))
-}
 
 /** Remove the whitespace a recognizer and a script disagree about. */
 function withoutSpace(text: string): string {
@@ -238,7 +235,12 @@ export function parseAlignment(document: unknown, path: string): AlignedShot[] {
       }
       return { text: cue.text, startSeconds: start, endSeconds: end }
     })
-    return { shot: row.shot as number, cues }
+    const strategy = (row as { strategy?: unknown }).strategy
+    return {
+      shot: row.shot as number,
+      cues,
+      ...(typeof strategy === 'string' ? { strategy } : {}),
+    }
   })
   const shots = rows.map(row => row.shot)
   if (new Set(shots).size !== shots.length) {

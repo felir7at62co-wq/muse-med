@@ -15,7 +15,6 @@ import {
   parseAlignment,
   parseLinePlan,
   placeAlignedCues,
-  requiredSeconds,
 } from '../src/speech.ts'
 import { formatSrtTime } from '../src/subtitles.ts'
 import type { ProcessChannel, RenderSettings } from '../src/types.ts'
@@ -98,10 +97,6 @@ describe('line plans, alignment documents, and times', () => {
     expect(effectiveCharacterCount('他说 A1，。')).toBe(4)
   })
 
-  it('gives a short line the minimum reading time and a long one the maximum', () => {
-    expect(requiredSeconds('甲')).toBe(0.8)
-    expect(requiredSeconds('甲'.repeat(80))).toBe(9)
-  })
 
   it('formats SRT timestamps with a comma and milliseconds', () => {
     expect(formatSrtTime(0.4)).toBe('00:00:00,400')
@@ -298,6 +293,24 @@ describe('drama_render subtitles', () => {
 
     expect(report.ok).toBe(false)
     expect(report.failures.join('\n')).toContain('不在成片清单里')
+  })
+
+  it('refuses a shot the aligner labelled as anything but fully aligned', async () => {
+    const { project, shots, plan, aligned, subtitle } = await cueProject(LINES, { shots: [
+      { shot: 1, strategy: 'asr_aligned', cues: [
+        { text: '第一句', start: 0.4, end: 1.2 },
+        { text: '第二句', start: 1.8, end: 2.6 },
+      ] },
+      { shot: 2, strategy: 'estimated_total', cues: [{ text: '第三句', start: 0.3, end: 1.6 }] },
+    ] })
+    const stub = stubChannel([cueProbes(project)])
+    const report = await runDramaRender({
+      method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
+    }, settingsWith(stub.channel))
+
+    expect(report.ok).toBe(false)
+    expect(report.failures.join('\n')).toContain('estimated_total')
+    expect(report.failures.join('\n')).toContain('asr_aligned')
   })
 
   it('still disclaims how accurate the recognizer itself was', async () => {

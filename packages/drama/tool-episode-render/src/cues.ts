@@ -17,8 +17,9 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { parseShotManifest, readJsonDocument, resolveShots } from './prepare.ts'
 import type { ResolvedShot } from './prepare.ts'
-import { cueRateFindings, effectiveCharacterCount, parseAlignment, parseLinePlan, placeAlignedCues } from './speech.ts'
-import type { AlignedCue, CueRateFinding, PlacedCue, ShotPlacement } from './speech.ts'
+import { ALIGNED_STRATEGY, cueRateFindings, effectiveCharacterCount, parseAlignment, parseLinePlan,
+  placeAlignedCues } from './speech.ts'
+import type { CueRateFinding, PlacedCue, ShotPlacement } from './speech.ts'
 import { formatSrtDocument } from './subtitles.ts'
 import { appendClips } from './timeline.ts'
 import type { MediaToolkit, SubtitleCue, Timeline } from './types.ts'
@@ -129,7 +130,7 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
   const rows = parseShotManifest(await readJsonDocument(input.shotsPath, '成片清单'), input.shotsPath)
   const plan = parseLinePlan(await readJsonDocument(input.linesPath, '台词计划'), input.linesPath)
   const aligned = new Map(parseAlignment(await readJsonDocument(input.alignmentPath, '对齐文档'),
-    input.alignmentPath).map(row => [row.shot, row.cues]))
+    input.alignmentPath).map(row => [row.shot, row]))
   const shots = await resolveShots(input.toolkit, input.project, rows)
   const timeline = appendClips(shots.map(shot => shot.durationUs))
   const planned = new Map(plan.map(row => [row.shot, row.lines]))
@@ -142,12 +143,12 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
     const durationSeconds = shot.durationUs / 1_000_000
     const startSeconds = clip === undefined ? 0 : clip.startUs / 1_000_000
     const lines = planned.get(shot.source.shot) ?? []
-    const recognized: readonly AlignedCue[] | undefined = aligned.get(shot.source.shot)
+    const recognized = aligned.get(shot.source.shot)
     if (lines.length === 0) {
-      if ((recognized ?? []).length === 0) continue
+      if ((recognized?.cues ?? []).length === 0) continue
       failures.push({
         id: 'subtitle_line_coverage',
-        detail: `镜头 ${String(shot.source.shot)} 的对齐文档里有 ${String(recognized?.length ?? 0)} 段识别结果，`
+        detail: `镜头 ${String(shot.source.shot)} 的对齐文档里有 ${String(recognized?.cues.length ?? 0)} 段识别结果，`
           + '但台词计划里没有它的台词，这一镜说的话会变成没有字幕的语音。',
         fix: `把该镜的台词补进 ${input.linesPath}，或确认这一镜本就不该有台词。`,
       })
@@ -163,7 +164,17 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
       })
       continue
     }
-    const placement = placeAlignedCues(shot.source.shot, lines, recognized, startSeconds, durationSeconds)
+    if (recognized.strategy !== undefined && recognized.strategy !== ALIGNED_STRATEGY) {
+      failures.push({
+        id: 'subtitle_line_coverage',
+        detail: `镜头 ${String(shot.source.shot)} 的对齐标着 ${recognized.strategy}：`
+          + '这一镜里有台词是按比例铺的，不是按识别到的说话位置定的。',
+        fix: '复核该镜台词与成片是否同一版，必要时重听该镜，'
+          + '然后用 align_subtitles.py 重跑识别，直到这一镜的策略是 asr_aligned。',
+      })
+      continue
+    }
+    const placement = placeAlignedCues(shot.source.shot, lines, recognized.cues, startSeconds, durationSeconds)
     placements.push(placement)
     if (placement.defect !== '') {
       failures.push({
