@@ -45,6 +45,16 @@ export interface ProjectAuthorization {
   readonly unit: string
   /** Who authorized it and when, for the record. */
   readonly note?: string | undefined
+  /**
+   * Amount the operator accepts as one call of a method's cost, per method.
+   *
+   * Some provider prices cannot be derived before submitting: a token-priced video
+   * model states a rate per million tokens rather than a price per task, and the
+   * token count is only known from the finished task. An estimate written here is
+   * what such a call is charged against, and it is recorded as that call's quote,
+   * so the ledger shows an operator-accepted estimate instead of nothing.
+   */
+  readonly estimates?: Readonly<Record<string, string>> | undefined
 }
 
 /** Everything one deployment is authorized to spend. */
@@ -67,6 +77,8 @@ export interface BudgetDecision {
   readonly settledCents: number
   /** In-flight reservations, in hundredths. */
   readonly reservedCents: number
+  /** True when the amount came from the operator's estimate rather than a quote. */
+  readonly estimated?: boolean | undefined
 }
 
 /**
@@ -117,13 +129,22 @@ export async function readAuthorization(path: string): Promise<BudgetAuthorizati
   }
   const projects: Record<string, ProjectAuthorization> = {}
   for (const [id, value] of Object.entries(document.projects as Record<string, unknown>)) {
-    const entry = value as { limit?: unknown; unit?: unknown; note?: unknown }
+    const entry = value as { limit?: unknown; unit?: unknown; note?: unknown; estimates?: unknown }
     if (typeof entry.limit !== 'string' || typeof entry.unit !== 'string'
       || centsOf(entry.limit) === null || entry.unit.trim() === '') {
       throw new Error(`${path} 里项目 ${id} 的 limit 与 unit 必须是非空字符串（limit 为十进制金额）。`)
     }
+    const estimates: Record<string, string> = {}
+    for (const [method, amount] of Object.entries(
+      typeof entry.estimates === 'object' && entry.estimates !== null ? entry.estimates : {})) {
+      if (typeof amount !== 'string' || centsOf(amount) === null) {
+        throw new Error(`${path} 里项目 ${id} 的 estimates.${method} 必须是十进制金额字符串。`)
+      }
+      estimates[method] = amount
+    }
     projects[id] = { limit: entry.limit, unit: entry.unit,
-      ...(typeof entry.note === 'string' ? { note: entry.note } : {}) }
+      ...(typeof entry.note === 'string' ? { note: entry.note } : {}),
+      ...(Object.keys(estimates).length === 0 ? {} : { estimates }) }
   }
   return { version: 1, projects }
 }
@@ -213,18 +234,27 @@ export async function checkBudget(input: {
       reason: `账本里的报价单位是 ${[...summary.units].join('、')}，而授权写的是 ${entry.unit}：单位不一致不能相加比较。` }
   }
   const quoteCents = centsOf(input.quote?.amount)
-  if (quoteCents === null) {
+  const estimate = entry.estimates?.[input.method]
+  const estimateCents = centsOf(estimate)
+  // A call that cannot quote itself is charged against the operator's estimate for
+  // that method. Without either, the amount is unknown and the call is refused:
+  // counting it as zero would make the cap meaningless exactly where it matters.
+  const chargeCents = quoteCents ?? estimateCents
+  if (chargeCents === null) {
     return { status: 'refused', ...base,
       reason: `这次 ${input.method} 没有报价，无法证明它落在 ${entry.limit} ${entry.unit} 之内。`
-        + '请让调用点先读目录拿到报价（quote）再提交；没有报价的计费调用一律不放行。' }
+        + `请在授权文件里给这个项目写上 estimates.${input.method}（人给的每次估算金额），`
+        + '或让调用点先读目录拿到报价再提交；没有报价的计费调用一律不放行。' }
   }
-  const total = summary.settled + summary.reserved + quoteCents
+  const total = summary.settled + summary.reserved + chargeCents
   if (total > limitCents) {
+    const from = quoteCents === null ? '按授权文件里的估算' : '按报价'
     return { status: 'refused', ...base,
-      reason: `本次预计 ${(quoteCents / 100).toFixed(2)} ${entry.unit}，`
+      reason: `本次${from} ${(chargeCents / 100).toFixed(2)} ${entry.unit}，`
         + `而已结算 ${(summary.settled / 100).toFixed(2)}、在途 ${(summary.reserved / 100).toFixed(2)}，`
         + `合计将超过项目 ${String(scriptId)} 的授权上限 ${entry.limit} ${entry.unit}。`
         + '请先结算或取消在途任务，或由人提高该项目的授权额度。' }
   }
-  return { status: 'authorized', ...base, reason: '' }
+  return { status: 'authorized', ...base, reason: '',
+    ...(quoteCents === null ? { estimated: true } : {}) }
 }

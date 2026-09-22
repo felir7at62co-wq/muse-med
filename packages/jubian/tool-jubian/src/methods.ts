@@ -23,7 +23,7 @@ import {
   withGenerationDisabled, withGenerationEnabled,
 } from '@deepseek-ai/dsh-jubian-api'
 import type { ImageModelSelection, ImageModelSelectors, MediaKind, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
-import { prepareVideoMethod, selectAssetsMethod, submitVideoMethod } from './native.ts'
+import { positiveInteger, prepareVideoMethod, selectAssetsMethod, submitVideoMethod } from './native.ts'
 import { createFolderMethod, moveMethod, renameMethod } from './folders.ts'
 import { composedAssetName, resolveNaming, taskPrefix } from './naming.ts'
 import { ASSET_CATEGORY_TYPES } from './naming.ts'
@@ -547,6 +547,9 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     case 'upscale': {
       requireKey(args.idempotency_key)
       const taskId = need(args.task_id)
+      // The project is only known after the task row is read, so the body records it
+      // for the budget gate; the quote thunk below runs after the body and hands it on.
+      let projectId: number | undefined
       const result = await writeUnderLedger(ledger, args.idempotency_key, 'video_upscale',
         async () => {
           // The upscale body needs identities the provider splits across two
@@ -561,8 +564,9 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           const baseUrl = source.base_video_url ?? source.video_url
           if (baseUrl === null) throw new JubianError('CONTRACT_CHANGED')
           if (source.duration_seconds === null) throw new JubianError('CONTRACT_CHANGED')
+          projectId = need(task.script_id ?? args.script_id, 'script_id')
           return buildVideoUpscaleRequest({
-            scriptId: need(task.script_id ?? args.script_id, 'script_id'),
+            scriptId: projectId,
             episodeId: need(task.episode_id ?? undefined),
             episodeCount: task.episode_count ?? 1,
             firstResultId: need(source.first_result_id ?? source.subtask_id),
@@ -573,7 +577,8 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
               ?? `${stagePrefix(args, deps.naming)}${task.task_name ?? `task-${taskId}`}-高清转换`,
           })
         },
-        sent => client.request({ method: 'POST', path: '/aigc/storyboard/hdConversion', body: need(sent) }))
+        sent => client.request({ method: 'POST', path: '/aigc/storyboard/hdConversion', body: need(sent) }),
+        () => (projectId === undefined ? undefined : { scriptId: projectId }))
       // Upscaling is asynchronous and was measured taking minutes, so this
       // returns the submission rather than waiting for the result.
       return { ...result, accepted_task_id: result.data === undefined ? null : readUpscaleTaskId({ data: result.data }),
@@ -661,13 +666,18 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
     }
     case 'generate': {
       requireKey(args.idempotency_key)
+      // The project is only in the storyboard the body reads, so it is captured
+      // there and handed to the budget gate by the quote thunk below.
+      let projectId: number | undefined
       const result = await writeUnderLedger(ledger, args.idempotency_key, 'storyboard_generate',
         () => undefined,
         async () => {
           const current = await client.request({ method: 'GET', path: `/aigc/storyboard/${storyboardId()}` })
+          projectId = positiveInteger((current.data as { scriptId?: unknown } | null)?.scriptId)
           return client.request({ method: 'PUT', path: '/aigc/storyboard',
             body: withGenerationEnabled(current.data, need(args.content_duration_ms)) })
-        })
+        },
+        () => (projectId === undefined ? undefined : { scriptId: projectId }))
       return { ...result }
     }
     case 'select_assets': {
@@ -688,6 +698,9 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
     case 'erase_subtitle': {
       requireKey(args.idempotency_key)
       const taskId = need(args.task_id)
+      // Read from the task row by the body below; the quote thunk passes it to the
+      // budget gate, which cannot ask for a project the caller never states.
+      let projectId: number | undefined
       const result = await writeUnderLedger(ledger, args.idempotency_key, 'erase_subtitle',
         async () => {
           // Identities come from the provider, split across two reads. The
@@ -703,8 +716,9 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
           const baseUrl = source.base_video_url ?? source.video_url
           if (baseUrl === null) throw new JubianError('CONTRACT_CHANGED')
           if (source.duration_seconds === null) throw new JubianError('CONTRACT_CHANGED')
+          projectId = need(task.script_id ?? args.script_id, 'script_id')
           return buildSubtitleEraseRequest(need(args.model_id, 'model_id'), {
-            scriptId: need(task.script_id ?? args.script_id, 'script_id'),
+            scriptId: projectId,
             episodeId: need(task.episode_id ?? undefined),
             episodeCount: task.episode_count ?? 1,
             taskName: args.task_name
@@ -718,7 +732,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
             ...(args.subtitle_box === undefined ? {} : { subtitleBox: args.subtitle_box }),
           })
         },
-        sent => client.request({ method: 'POST', path: '/aigc/storyboard/subtitleEraser', body: need(sent) }))
+        sent => client.request({ method: 'POST', path: '/aigc/storyboard/subtitleEraser', body: need(sent) }),
+        () => (projectId === undefined ? undefined : { scriptId: projectId }))
       return { ...result, accepted_task_id: readSubtitleTaskId({ code: 200, data: result.data }),
         next: '去字幕是异步任务。不要在这里等待——先做别的，之后用 subtasks 回读；只有 subtitle_erased=true 且 video_url 有值才表示当前文件已有成功的去字幕记录。' }
     }

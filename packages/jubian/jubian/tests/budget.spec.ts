@@ -180,3 +180,46 @@ describe('checkBudget', () => {
     expect(decision.settledCents).toBe(0)
   })
 })
+
+describe('operator estimates', () => {
+  const WITH_ESTIMATE = { version: 1, projects: { '2708': { limit: '20.00', unit: 'CNY',
+    estimates: { storyboard_native_submit: '15.00' } } } }
+
+  it('charges a call that cannot quote itself against the operator’s estimate', async () => {
+    const { ledger, authorizationPath } = await fixture(WITH_ESTIMATE)
+    const decision = await checkBudget({ ledger, method: 'storyboard_native_submit', scriptId: 2708,
+      authorizationPath })
+    expect(decision).toMatchObject({ status: 'authorized', estimated: true })
+  })
+
+  it('refuses the next one once the estimates have consumed the limit', async () => {
+    const { ledger, authorizationPath } = await fixture(WITH_ESTIMATE)
+    await record(ledger, { key: 'a', scriptId: 2708, amount: '15.00', unit: 'CNY',
+      method: 'storyboard_native_submit', settle: 'accepted' })
+    const decision = await checkBudget({ ledger, method: 'storyboard_native_submit', scriptId: 2708,
+      authorizationPath })
+    expect(decision.status).toBe('refused')
+    expect(decision.reason).toContain('按授权文件里的估算')
+  })
+
+  it('prefers a real quote over the estimate and is not marked estimated', async () => {
+    const { ledger, authorizationPath } = await fixture(WITH_ESTIMATE)
+    const decision = await checkBudget({ ledger, method: 'storyboard_native_submit', scriptId: 2708,
+      quote: { amount: '3.00', unit: 'CNY' }, authorizationPath })
+    expect(decision).toMatchObject({ status: 'authorized' })
+    expect(decision.estimated).toBeUndefined()
+  })
+
+  it('refuses an estimate that is not a decimal amount', async () => {
+    const { authorizationPath } = await fixture({ version: 1, projects: { '2708': { limit: '20.00',
+      unit: 'CNY', estimates: { storyboard_native_submit: 'lots' } } } })
+    await expect(readAuthorization(authorizationPath)).rejects.toThrow('estimates.storyboard_native_submit')
+  })
+
+  it('still refuses a method the estimates do not cover', async () => {
+    const { ledger, authorizationPath } = await fixture(WITH_ESTIMATE)
+    const decision = await checkBudget({ ledger, method: 'image_generate', scriptId: 2708, authorizationPath })
+    expect(decision.status).toBe('refused')
+    expect(decision.reason).toContain('没有报价')
+  })
+})

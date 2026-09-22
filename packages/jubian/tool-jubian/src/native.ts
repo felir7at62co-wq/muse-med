@@ -54,7 +54,7 @@ function object(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-function positiveInteger(value: unknown): number {
+export function positiveInteger(value: unknown): number {
   const candidate = typeof value === 'string' && /^[0-9]+$/.test(value.trim()) ? Number(value.trim()) : value
   if (typeof candidate !== 'number' || !Number.isSafeInteger(candidate) || candidate < 1) {
     throw new JubianError('CONTRACT_CHANGED')

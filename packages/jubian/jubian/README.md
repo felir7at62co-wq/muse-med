@@ -1,5 +1,5 @@
 ---
-description: "Jubian HTTP transport, credential repair, five stable failure codes and the two-phase NDJSON write ledger that dsh-tool-jubian and dsh-jubian-api build on."
+description: "Jubian HTTP transport, credential repair, six stable failure codes and the two-phase NDJSON write ledger that dsh-tool-jubian and dsh-jubian-api build on."
 kind: "package-reference"
 ---
 
@@ -58,7 +58,7 @@ Two shapes are live on this provider, and the client hides the difference from y
 
 `trimBearerToken()` removes surrounding whitespace, one trailing shell separator (`;` or `&`) and one matching quote pair — the artifacts a shell export or a copied settings value leaves behind — and never rewrites the interior. `isUsableBearerToken()` then requires a non-empty value with no whitespace. A value that still carries an interior space fails locally as `AUTHENTICATION_REQUIRED` before any request leaves, so a broken secret reaches neither the network nor a log. The credential reference this package owns is `JUBIANAI_ADMIN_TOKEN`; the host owns its value.
 
-### The five stable failure codes
+### The six stable failure codes
 
 Every failure is one `JubianError` carrying only its code. Neither the provider's response text nor the token is attached, so a remote message can never be echoed into model context or a log.
 
@@ -69,8 +69,31 @@ Every failure is one `JubianError` carrying only its code. Neither the provider'
 | `RATE_LIMITED` | HTTP is 429, or the envelope `code` is 429 |
 | `CONTRACT_CHANGED` | The body is not JSON, is not valid UTF-8, is not an object, exceeds the byte cap, carries no integer `code`, or carries a code this package does not map |
 | `NETWORK_ERROR` | The connection failed, the call timed out, a redirect was refused, or HTTP is any other non-2xx status |
+| `BUDGET_EXCEEDED` | A paid call is not covered by the deployment's authorization; the detail names what is missing |
 
 HTTP 200 with an envelope `code` of 401 is the shape this provider returns for a token it will not accept, and it fails exactly like an HTTP 401. The two success codes are `0` and `200`.
+
+### Capping what a project may spend
+
+`checkBudget` answers whether one more paid call fits:
+
+```
+settled spend + in-flight reservations + this call's quote <= the project's limit
+```
+
+The limit lives in `<ledger>/authorization.json`, written by the operator — never an argument a caller passes, so a model cannot authorize its own spending:
+
+```json
+{ "version": 1,
+  "projects": { "2708": { "limit": "200", "unit": "CNY", "note": "2026-09-22 用户授权",
+                          "estimates": { "storyboard_native_submit": "15" } } } }
+```
+
+`estimates` is what a call is charged against when it cannot quote itself. A token-priced video model states a rate per million tokens rather than a price per task, and the token count is only known from the finished task, so the operator states what one such call is worth; the ledger records that estimate as the call's quote. A call with neither a quote nor an estimate is refused, because counting an unknown cost as zero would make the cap meaningless exactly where it matters.
+
+A call whose intent line was written and never settled counts as reserved: it was sent and may have been charged. A paid record with no project, or any earlier paid call whose cost the ledger cannot state, refuses every later paid call for that deployment until a person reconciles it. Amounts are compared as integer hundredths.
+
+With no authorization file, paid calls run and the result carries `budget: { status: 'unauthorized' }`, so an unprotected deployment says so instead of implying a limit it does not have. This is a cap against runaway spending, not a security boundary: the file sits where the agent can write it, so it stops an careless loop rather than a hostile one.
 
 ### Recording a write in two phases
 
@@ -116,8 +139,9 @@ The package is five small modules over `fetch`: one boundary that owns the wire,
 | [`src/index.ts`](src/index.ts) | The public surface: the client, the credential helpers, the failure codes and the ledger |
 | [`src/client.ts`](src/client.ts) | The one HTTP path: fixed origin, single attempt, byte-bounded read, envelope validation and the response hash |
 | [`src/credential.ts`](src/credential.ts) | The credential reference name and the paste-artifact repair applied before any header is built |
-| [`src/error.ts`](src/error.ts) | The five stable codes, the HTTP-status mapping and the envelope-code mapping |
-| [`src/ledger.ts`](src/ledger.ts) | The two-phase NDJSON write ledger: intent lines, settle lines and replay folding |
+| [`src/error.ts`](src/error.ts) | The six stable codes, the HTTP-status mapping and the envelope-code mapping |
+| [src/budget.ts](src/budget.ts) | The spend cap: the operator's authorization file, and the verdict for one paid call |
+| [src/ledger.ts](src/ledger.ts) | The two-phase NDJSON write ledger: intent lines, settle lines and replay folding |
 | — | No runtime invariant companion is published; this transport owns no independently observable lifecycle stream, and its boundary rules are enforced by unit tests instead. |
 
 ### One attempt, a fixed origin and a byte bound

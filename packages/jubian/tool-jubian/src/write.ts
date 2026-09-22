@@ -180,7 +180,13 @@ export async function writeUnderLedger(
     response_sha256: string | null
     data: unknown
   }>,
-  quote?: () => { amount?: string; unit?: string; standardId?: number; observedAt?: string } | undefined,
+  quote?: () => {
+    amount?: string
+    unit?: string
+    scriptId?: number
+    standardId?: number
+    observedAt?: string
+  } | undefined,
   options?: WriteOptions,
 ): Promise<WriteOutcome> {
   const key = requireKey(idempotencyKey)
@@ -196,13 +202,16 @@ export async function writeUnderLedger(
   // The cap is checked here, at the one path every write takes, and before the
   // intent line lands: a refused call must leave no record that reads like an
   // attempt, and must reach no provider.
+  // A body may only learn the project from the provider, so the quote thunk — which runs
+  // after the body — can state it too, and it wins over the caller's argument.
+  const scriptId = quoted?.scriptId ?? options?.scriptId
   const budget = await checkBudget({ ledger, method,
-    ...(options?.scriptId === undefined ? {} : { scriptId: options.scriptId }),
+    ...(scriptId === undefined ? {} : { scriptId }),
     ...(quoted === undefined ? {} : { quote: quoted }),
     ...(options?.authorizationPath === undefined ? {} : { authorizationPath: options.authorizationPath }) })
   if (budget.status === 'refused') throw new JubianError('BUDGET_EXCEEDED', budget.reason)
   const begun = await ledger.begin({ idempotencyKey: key, method, requestSha256: bodyHash(payload),
-    ...(options?.scriptId === undefined ? {} : { scriptId: options.scriptId }),
+    ...(scriptId === undefined ? {} : { scriptId }),
     ...(quoted?.amount === undefined ? {} : { quotedAmount: quoted.amount }),
     ...(quoted?.unit === undefined ? {} : { quoteUnit: quoted.unit }),
     ...(quoted?.standardId === undefined ? {} : { quoteStandardId: quoted.standardId }),

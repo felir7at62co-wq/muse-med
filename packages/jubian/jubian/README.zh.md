@@ -1,5 +1,5 @@
 ---
-description: "剧变 HTTP 传输、凭据修复、五个稳定错误码，以及 dsh-tool-jubian 与 dsh-jubian-api 所依赖的两阶段 NDJSON 写入账本。"
+description: "剧变 HTTP 传输、凭据修复、六个稳定错误码，以及 dsh-tool-jubian 与 dsh-jubian-api 所依赖的两阶段 NDJSON 写入账本。"
 kind: "package-reference"
 ---
 
@@ -58,7 +58,7 @@ try {
 
 `trimBearerToken()` 去掉首尾空白、一个尾部 shell 分隔符（`;` 或 `&`）以及一对匹配的引号——这些是 shell 导出或复制的设置值留下的残留——并且从不改写内部字符。`isUsableBearerToken()` 随后要求取值非空且不含空白。仍带内部空格的取值会在任何请求离开之前于本地以 `AUTHENTICATION_REQUIRED` 失败，因此损坏的密钥既不会到达网络，也不会进入日志。本包拥有的凭据引用名是 `JUBIANAI_ADMIN_TOKEN`；它的值由宿主拥有。
 
-### 五个稳定错误码
+### 六个稳定错误码
 
 每一次失败都是一个只携带错误码的 `JubianError`。提供方的响应文本与令牌都不会被附加，因此远端消息永远不会被回显进模型上下文或日志。
 
@@ -69,8 +69,31 @@ try {
 | `RATE_LIMITED` | HTTP 为 429，或信封 `code` 为 429 |
 | `CONTRACT_CHANGED` | 响应体不是 JSON、不是合法 UTF-8、不是对象、超出字节上限、不带整数 `code`，或带有本包不映射的错误码 |
 | `NETWORK_ERROR` | 连接失败、调用超时、重定向被拒绝，或 HTTP 为任何其他非 2xx 状态 |
+| `BUDGET_EXCEEDED` | 一次计费调用不被本部署的授权覆盖；详情说明缺的是哪一项 |
 
 HTTP 200 而信封 `code` 为 401，是该提供方对无法接受的令牌返回的形态，它的失败方式与 HTTP 401 完全一致。两个成功码是 `0` 与 `200`。
+
+### 给一个项目的花费设上限
+
+`checkBudget` 回答"再来一次计费调用是否放得下"：
+
+```
+settled spend + in-flight reservations + this call's quote <= the project's limit
+```
+
+上限写在 `<账本目录>/authorization.json`，由人填写——绝不是调用方传的参数，因此模型无法给自己批钱：
+
+```json
+{ "version": 1,
+  "projects": { "2708": { "limit": "200", "unit": "CNY", "note": "2026-09-22 用户授权",
+                          "estimates": { "storyboard_native_submit": "15" } } } }
+```
+
+`estimates` 是"这次调用自己报不出价"时用来记账的额度。按 token 计价的视频模型给的是每百万 token 的单价，不是每条任务的价格，而 token 数只有任务跑完才知道，所以由人声明一次这样的调用值多少；账本会把这份估算记成该次调用的报价。既没有报价、也没有估算的调用一律拒绝——把未知花费当成 0，会让上限恰恰在最需要它的地方失效。
+
+写了 intent 行却从未结算的调用算作在途预留：它发出去了，可能已经扣费。若账本里存在没有项目归属的计费记录，或任何本账本报不出花费的历史计费，则该部署后续所有计费调用一律拒绝，直到人工核对。金额按整数分比较。
+
+没有授权文件时计费调用照常执行，结果里带 `budget: { status: 'unauthorized' }`，让"这次没有任何上限在保护它"显式可见，而不是让人以为有上限。这是防失控消费的上限，不是安全边界：文件就在 agent 能写的地方，它挡得住失控的循环，挡不住恶意的对手。
 
 ### 以两个阶段记录一次写入
 
@@ -107,7 +130,7 @@ if (!begun.replayed) {
 <details>
 <summary>实现细节——点击展开</summary>
 
-本包是在 `fetch` 之上的五个小模块：一个拥有线路边界的模块、一个修复凭据的模块、一个命名失败的模块，以及一个记录写入的模块。除账本自己的文件外，这里没有任何东西在调用之间持有状态。
+本包是在 `fetch` 之上的几个小模块：一个拥有线路边界的模块、一个修复凭据的模块、一个命名失败的模块，以及一个记录写入的模块。除账本自己的文件外，这里没有任何东西在调用之间持有状态。
 
 ### 源码地图
 
@@ -116,8 +139,9 @@ if (!begun.replayed) {
 | [`src/index.ts`](src/index.ts) | 公开接口：客户端、凭据 helper、错误码与账本 |
 | [`src/client.ts`](src/client.ts) | 唯一的 HTTP 通道：固定源、单次尝试、有界读取、信封校验与响应哈希 |
 | [`src/credential.ts`](src/credential.ts) | 凭据引用名，以及构建任何请求头之前应用的粘贴残留修复 |
-| [`src/error.ts`](src/error.ts) | 五个稳定错误码、HTTP 状态映射与信封 code 映射 |
-| [`src/ledger.ts`](src/ledger.ts) | 两阶段 NDJSON 写入账本：intent 行、settle 行与重放折叠 |
+| [`src/error.ts`](src/error.ts) | 六个稳定错误码、HTTP 状态映射与信封 code 映射 |
+| [src/budget.ts](src/budget.ts) | 花费上限：人的授权文件，以及一次计费调用的判定 |
+| [src/ledger.ts](src/ledger.ts) | 两阶段 NDJSON 写入账本：intent 行、settle 行与重放折叠 |
 | — | 不发布运行时不变量配套入口；本传输不拥有可独立观察的生命周期流，其边界规则改由单元测试保障。 |
 
 ### 单次尝试、固定源与字节上限
