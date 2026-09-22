@@ -14,6 +14,123 @@ export const MAX_BOOST_DB = 9
 
 const EPSILON_SECONDS = 0.001
 
+/** Limits one batch of episode plans is held to. */
+export interface BgmBatchPolicy {
+  /** Distinct tracks each episode must use. */
+  readonly minTracksPerEpisode: number
+  /** Episodes one track may appear in across the whole batch. */
+  readonly maxEpisodesPerTrack: number
+  /** Tracks each episode must use that no other episode in the batch uses. */
+  readonly freshTracksPerEpisode: number
+  /** Seconds a cut may sit away from a package boundary. */
+  readonly boundaryToleranceSeconds: number
+}
+
+/** The policy the short-drama pipeline runs with. */
+export const DEFAULT_BGM_BATCH_POLICY: BgmBatchPolicy = {
+  minTracksPerEpisode: 2,
+  maxEpisodesPerTrack: 2,
+  freshTracksPerEpisode: 1,
+  boundaryToleranceSeconds: 0.05,
+}
+
+/** One episode row as the batch gate reads it. */
+export interface BgmBatchRow {
+  /** Episode number, conventionally two digits. */
+  readonly episode: string
+  /** The episode's ordered segments. */
+  readonly segments: readonly Pick<BgmPlanSegment, 'track' | 'source' | 'start_seconds' | 'end_seconds'>[]
+}
+
+/** What the batch gate compares. */
+export interface BgmBatchContext {
+  /** Project root that relative sources resolve against. */
+  readonly project: string
+  /** Every other episode plan in the same batch, including this episode. */
+  readonly batch: readonly BgmBatchRow[]
+  /** Package boundaries on the body timeline, in seconds. */
+  readonly boundaries: readonly number[]
+  /** Limits to enforce; defaults to {@link DEFAULT_BGM_BATCH_POLICY}. */
+  readonly limits?: BgmBatchPolicy | undefined
+}
+
+/**
+ * Resolve the identity one segment's track has across a batch.
+ *
+ * Two episodes share a track when their sources resolve to the same file. The
+ * plan's own `track` label is a display name and is not compared: production
+ * plans have carried two labels for one file and one label for two files.
+ * @param project - Project root that relative sources resolve against.
+ * @param source - The segment's declared source.
+ * @returns The absolute path that identifies the track.
+ */
+export function trackIdentity(project: string, source: string): string {
+  return isAbsolute(source) ? resolve(source) : resolve(project, source)
+}
+
+/**
+ * Hold one episode's plan to the batch policy before anything is composed.
+ *
+ * The rules are per batch, so a single episode cannot be judged alone: a track
+ * two episodes share is only a violation when a third one joins, and a fresh
+ * track is only fresh relative to what the other episodes used.
+ * @param selected - The episode about to be composed.
+ * @param context - The batch, its boundaries, and the limits.
+ * @throws {Error} With the rule and the offending segment when the batch fails.
+ */
+export function validateBgmBatch(selected: BgmBatchRow, context: BgmBatchContext): void {
+  const limits = context.limits ?? DEFAULT_BGM_BATCH_POLICY
+  const episode = selected.episode
+  const tracks = selected.segments.map(segment => trackIdentity(context.project, segment.source))
+  const distinct = [...new Set(tracks)]
+  if (distinct.length < limits.minTracksPerEpisode) {
+    throw new Error(`第 ${episode} 集只用了 ${String(distinct.length)} 首曲子，`
+      + `要求每集至少 ${String(limits.minTracksPerEpisode)} 首：一集不得压成一首，请按剧情情绪分段选曲。`)
+  }
+  if (distinct.length !== tracks.length) {
+    throw new Error(`第 ${episode} 集在 ${String(tracks.length)} 段里重复使用了同一首曲子：`
+      + '同一集内不得重复，请换掉重复的段落。')
+  }
+  const users = new Map<string, Set<string>>()
+  const members = new Map<string, BgmBatchRow>()
+  for (const row of [...context.batch, selected]) members.set(row.episode.padStart(2, '0'), row)
+  for (const row of members.values()) {
+    for (const segment of row.segments) {
+      const id = trackIdentity(context.project, segment.source)
+      const list = users.get(id) ?? new Set<string>()
+      list.add(row.episode.padStart(2, '0'))
+      users.set(id, list)
+    }
+  }
+  for (const id of distinct) {
+    const episodes = [...(users.get(id) ?? new Set<string>())].sort()
+    if (episodes.length > limits.maxEpisodesPerTrack) {
+      throw new Error(`曲目 ${id} 出现在 ${String(episodes.length)} 集（${episodes.join('、')}），`
+        + `超过整批上限 ${String(limits.maxEpisodesPerTrack)} 集：请换掉其中几集的这首曲子。`)
+    }
+  }
+  const fresh = distinct.filter(id => (users.get(id) ?? new Set<string>()).size === 1)
+  if (fresh.length < limits.freshTracksPerEpisode) {
+    throw new Error(`第 ${episode} 集没有任何一首是本批其它集没用的（要求至少 `
+      + `${String(limits.freshTracksPerEpisode)} 首）：请为本集换入一首全新曲目。`)
+  }
+  if (context.boundaries.length === 0) {
+    throw new Error(`第 ${episode} 集的切点无法核对：时间线里没有镜头包边界。`
+      + '请确认传的是本集时间线（含 clips），再重跑。')
+  }
+  for (const [index, segment] of selected.segments.entries()) {
+    if (index === 0) continue
+    const nearest = context.boundaries
+      .map(boundary => ({ boundary, distance: Math.abs(boundary - segment.start_seconds) }))
+      .sort((left, right) => left.distance - right.distance)[0]
+    if (nearest === undefined || nearest.distance > limits.boundaryToleranceSeconds) {
+      throw new Error(`第 ${episode} 集的切点 ${segment.start_seconds.toFixed(3)}s 不在任何镜头包边界上`
+        + `${nearest === undefined ? '' : `（最近的是 ${nearest.boundary.toFixed(3)}s）`}：`
+        + '配乐分段必须落在镜头包边界，请把切点移到某个包的起点。')
+    }
+  }
+}
+
 /**
  * Derive the amount of source audio each story interval contributes before overlaps are removed.
  * @param segments - Contiguous story intervals.

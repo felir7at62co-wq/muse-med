@@ -195,6 +195,8 @@ export interface DramaBgmReport {
   readonly segments: BgmSegmentReport[]
   /** Other episodes declaring the same ordered source sequence. */
   readonly repeated_sequence_episodes: string[]
+  /** Every episode in the plan directory whose tracks this call was checked against. */
+  readonly batch_episodes: string[]
   /** Output media facts. */
   readonly media: BgmMediaReport
 }

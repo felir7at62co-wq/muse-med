@@ -2,8 +2,8 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { mkdir, open, readFile, realpath, stat, unlink } from 'node:fs/promises'
-import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'node:path'
+import { mkdir, open, readdir, readFile, realpath, stat, unlink } from 'node:fs/promises'
+import { dirname, extname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 import z from '@deepseek-ai/schemastery'
 import {
   createMediaToolkit,
@@ -11,7 +11,14 @@ import {
   publishNoClobber,
   renderBgm,
 } from './media.ts'
-import { appliedGain, buildMixFilter, resolveOutputPath, validateEpisodePlan } from './plan.ts'
+import {
+  appliedGain,
+  buildMixFilter,
+  resolveOutputPath,
+  validateBgmBatch,
+  validateEpisodePlan,
+} from './plan.ts'
+import type { BgmBatchPolicy, BgmBatchRow } from './plan.ts'
 import type {
   BgmEpisodePlan,
   BgmMediaReport,
@@ -59,11 +66,17 @@ export interface DramaBgmSettings {
   readonly channel: ProcessChannel
   /** Caller cancellation signal. */
   readonly signal?: AbortSignal
+  /** Batch limits the plan's reuse rules are held to. */
+  readonly policy?: BgmBatchPolicy | undefined
 }
 
 interface LoadedPlan {
   readonly selected: BgmEpisodePlan
   readonly repeated: string[]
+  /** Every episode row the batch gate read, including this one. */
+  readonly batch: BgmBatchRow[]
+  /** Episodes the gate found in the same directory as this plan. */
+  readonly batchEpisodes: string[]
 }
 
 /** Calculate one file's SHA-256 without loading it into one buffer. */
@@ -128,8 +141,8 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-/** Read the timeline's measured body end. */
-async function readBodyDuration(path: string): Promise<number> {
+/** Read the timeline's measured body end and its package boundaries. */
+async function readTimeline(path: string): Promise<{ bodyEndSeconds: number; boundaries: number[] }> {
   let document: unknown
   try {
     document = JSON.parse((await readFile(path, 'utf8')).replace(/^\ufeff/u, ''))
@@ -140,7 +153,52 @@ async function readBodyDuration(path: string): Promise<number> {
     ? Number((document as { body_end?: unknown }).body_end)
     : Number.NaN
   if (!Number.isFinite(body) || body <= 0) throw new Error(`时间线缺少有效 body_end：${path}`)
-  return body
+  const clips = (document as { clips?: unknown }).clips
+  const boundaries = (Array.isArray(clips) ? clips : [])
+    .map(clip => Number((clip as { start_us?: unknown }).start_us) / 1_000_000)
+    .filter(seconds => Number.isFinite(seconds) && seconds > 0)
+  return { bodyEndSeconds: body, boundaries: [...new Set(boundaries)].sort((left, right) => left - right) }
+}
+
+/**
+ * Read every plan in one directory.
+ *
+ * A batch is the plan directory's own contents, which is how the pipeline lays
+ * episodes out (`episodes/segments/<集>.json`). A JSON file that parses but
+ * carries no `episodes` array is not a plan and is ignored, so a timeline may
+ * sit beside the plans. A file that cannot be parsed at all is a failure: it
+ * might be a plan, and a batch quietly missing one member would let a track
+ * exceed its limit with nothing reporting it.
+ * @param directory - The directory holding the selected plan.
+ * @returns Every episode row found, in directory order.
+ * @throws {Error} When a JSON file in the directory cannot be read as JSON.
+ */
+async function loadBatch(directory: string): Promise<BgmBatchRow[]> {
+  const rows: BgmBatchRow[] = []
+  const entries = await readdir(directory, { withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isFile() || extname(entry.name).toLowerCase() !== '.json') continue
+    const path = join(directory, entry.name)
+    let document: unknown
+    try {
+      document = JSON.parse((await readFile(path, 'utf8')).replace(/^\ufeff/u, ''))
+    } catch (error) {
+      throw new Error(`${directory} 里的 ${entry.name} 不是可读的 JSON：`
+        + '同一目录的 JSON 可能属于同一批，读不出来就无法判断跨集复用。'
+        + '请把不相关的文件移出该目录，或修好它后重试。', { cause: error })
+    }
+    if (typeof document !== 'object' || document === null
+      || !Array.isArray((document as { episodes?: unknown }).episodes)) continue
+    let parsed: { episodes: BgmEpisodePlan[] }
+    try {
+      parsed = PlanSchema(document)
+    } catch (error) {
+      throw new Error(`${directory} 里的 ${entry.name} 有 episodes 数组但不是合法的 BGM 计划：`
+        + '请修好它的字段后重试。', { cause: error })
+    }
+    for (const row of parsed.episodes) rows.push({ episode: row.episode, segments: [...row.segments] })
+  }
+  return rows
 }
 
 /** Read and select one episode while reporting repeated ordered source sequences. */
@@ -161,11 +219,14 @@ async function loadPlan(path: string, episode: string, project: string): Promise
   const signature = (row: BgmEpisodePlan): string => JSON.stringify(row.segments.map(segment =>
     isAbsolute(segment.source) ? resolve(segment.source) : resolve(project, segment.source)))
   const selectedSignature = signature(selected)
+  const batch = await loadBatch(dirname(path))
   return {
     selected,
     repeated: plan.episodes
       .filter(row => row !== selected && signature(row) === selectedSignature)
       .map(row => row.episode.padStart(2, '0')),
+    batch,
+    batchEpisodes: [...new Set(batch.map(row => row.episode.padStart(2, '0')))].sort(),
   }
 }
 
@@ -256,9 +317,17 @@ export async function runDramaBgm(
   await requireProjectFile(projectRoot, timeline, '时间线', args.timeline)
   await requireProjectFile(projectRoot, planPath, 'BGM 计划', args.plan)
   const episode = String(args.episode).padStart(2, '0')
-  const bodyDurationSeconds = await readBodyDuration(timeline)
+  const { bodyEndSeconds, boundaries } = await readTimeline(timeline)
   const loaded = await loadPlan(planPath, episode, project)
-  const plan = validateEpisodePlan(loaded.selected, bodyDurationSeconds)
+  const plan = validateEpisodePlan(loaded.selected, bodyEndSeconds)
+  // The batch gate runs before any source is opened or any output is written:
+  // a plan that breaks the reuse rules must cost nothing but the call.
+  validateBgmBatch({ episode, segments: loaded.selected.segments }, {
+    project,
+    batch: loaded.batch,
+    boundaries,
+    ...(settings.policy === undefined ? {} : { limits: settings.policy }),
+  })
   const output = resolveOutputPath(project, args.output ?? `audio/bgm/${episode}.wav`)
   if (extname(output).toLowerCase() !== '.wav') throw new Error('BGM 输出必须使用 .wav 扩展名。')
   const parsed = parse(output)
@@ -269,14 +338,15 @@ export async function runDramaBgm(
     plan: planPath,
     timeline,
     output,
-    body_duration_seconds: bodyDurationSeconds,
+    body_duration_seconds: bodyEndSeconds,
     crossfade_seconds: plan.crossfadeSeconds,
     repeated_sequence_episodes: loaded.repeated,
+    batch_episodes: loaded.batchEpisodes,
   }
   if (args.method === 'verify') {
     await requireProjectFile(projectRoot, output, 'BGM 输出', args.output ?? `audio/bgm/${episode}.wav`)
     const probe = await probeAudio(settings.ffprobePath, settings.channel, output, settings.signal)
-    validateOutput(probe, bodyDurationSeconds)
+    validateOutput(probe, bodyEndSeconds)
     return { method: 'verify', ...base, segments: [], report: '', media: await mediaReport(output, probe) }
   }
   const segments = await analyzeSegments(project, plan, settings)
@@ -293,13 +363,13 @@ export async function runDramaBgm(
       segments.map(segment => segment.input_duration_seconds),
       segments.map(segment => segment.source_start_seconds),
       segments.map(segment => segment.applied_gain_db),
-      bodyDurationSeconds,
+      bodyEndSeconds,
       plan.crossfadeSeconds,
     )
     await renderBgm(settings.ffmpegPath, settings.channel, segments.map(segment => segment.source),
       graph, wavTemporary, settings.signal)
     const probe = await probeAudio(settings.ffprobePath, settings.channel, wavTemporary, settings.signal)
-    validateOutput(probe, bodyDurationSeconds)
+    validateOutput(probe, bodyEndSeconds)
     const report: DramaBgmReport = {
       method: 'compose', ...analyzed, report: reportPath, media: await mediaReport(wavTemporary, probe),
     }

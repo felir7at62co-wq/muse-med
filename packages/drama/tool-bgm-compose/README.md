@@ -39,6 +39,10 @@ Mount the plugin after the tool registry and a subprocess provider. The provider
 | `commandTimeoutMs` | `300000` | Maximum duration of one media command |
 | `terminationGraceMs` | `5000` | Provider termination grace |
 | `outputMaxBytes` | `1048576` | Maximum collected bytes for each process stream |
+| `minTracksPerEpisode` | `2` | Distinct tracks every episode must use |
+| `maxEpisodesPerTrack` | `2` | Episodes one track may appear in across a batch |
+| `freshTracksPerEpisode` | `1` | Tracks each episode must use that no other episode in the batch uses |
+| `boundaryToleranceSeconds` | `0.05` | Seconds a cut may sit away from a package boundary |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-bgm-compose) is the exhaustive source for accepted fields.
 
@@ -48,9 +52,11 @@ The plan uses `episodes[].segments[]`. Each selected episode declares `body_dura
 
 | Method | Writes | Result |
 |---|---|---|
-| `preview` | Nothing permanent | Resolved source hashes, source starts, measured mean volume, applied gains, and repeated-sequence advice |
+| `preview` | Nothing permanent | Resolved source hashes, source starts, measured mean volume, applied gains, and the batch episodes the reuse rules were checked against |
 | `compose` | A 48 kHz stereo `pcm_s16le` WAV and adjacent `.generation.json` | The preview facts plus probed media facts and output SHA-256 |
 | `verify` | Nothing | Probed container and audio facts for an existing WAV; original source tracks are not read and `segments` is empty |
+
+All three methods run the batch gate before anything is opened or written, so a plan that breaks the reuse rules fails without producing a file. The batch is every JSON in the plan's own directory that carries an `episodes` array — how the pipeline lays episodes out (`episodes/segments/<集>.json`) — and `batch_episodes` reports what was checked. A file in that directory that cannot be parsed at all is a failure, because a batch quietly missing one member would let a track exceed its limit unnoticed; a parseable file without an `episodes` array is simply not a plan. The rules are: at least `minTracksPerEpisode` distinct tracks per episode, no track twice inside one episode, no track in more than `maxEpisodesPerTrack` episodes of the batch, at least `freshTracksPerEpisode` tracks that no other batch episode uses, every cut within `boundaryToleranceSeconds` of a package boundary from the timeline, and a non-empty `reason` on every segment. A track is identified by its resolved `source` path; the `track` label is a display name and is never compared, because production plans have carried two labels for one file and one label for two files. The gate cannot run without package boundaries, so a timeline that carries no `clips` is a failure rather than a silently skipped check.
 
 `compose` targets mean volume `-17.5 dB`, caps automatic boost at `+9 dB`, centers each crossfade on the story boundary, fades in for 1.5 seconds, and fades out over the last 2.5 seconds. It stages and probes both artifacts before no-clobber publication; a failed command or validation removes staged files and leaves an existing destination untouched. Pass the returned `output` to `drama_render.bgm` and the same plan to `drama_render.bgm_plan`.
 

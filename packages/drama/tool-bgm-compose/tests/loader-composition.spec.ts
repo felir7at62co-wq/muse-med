@@ -79,10 +79,18 @@ it('loads the composer, previews public arguments, and removes its tool on dispo
     await mkdir(join(root, 'editing'), { recursive: true })
     await mkdir(join(root, 'music'), { recursive: true })
     await writeFile(join(root, 'music', 'cue.mp3'), 'cue bytes')
-    await writeFile(join(root, 'editing', '01-timeline.json'), JSON.stringify({ body_end: 12 }))
+    await writeFile(join(root, 'music', 'tail.mp3'), 'tail bytes')
+    // The batch gate wants two tracks per episode and a cut on a package
+    // boundary, so the fixture carries both.
+    await writeFile(join(root, 'editing', '01-timeline.json'), JSON.stringify({
+      body_end: 12, clips: [{ shot: 1, start_us: 0 }, { shot: 2, start_us: 6_000_000 }],
+    }))
     await writeFile(join(root, 'editing', 'bgm-plan.json'), JSON.stringify({ episodes: [{
       episode: '01', body_duration_seconds: 12,
-      segments: [{ track: 'cue', source: 'music/cue.mp3', start_seconds: 0, end_seconds: 12, reason: '开场' }],
+      segments: [
+        { track: 'cue', source: 'music/cue.mp3', start_seconds: 0, end_seconds: 6, reason: '开场' },
+        { track: 'tail', source: 'music/tail.mp3', start_seconds: 6, end_seconds: 12, reason: '收束' },
+      ],
     }] }))
     const config = join(root, 'cordis.yml')
     await writeFile(config, [
@@ -123,8 +131,13 @@ it('loads the composer, previews public arguments, and removes its tool on dispo
     expect(validateJsonSchemaValue(tool.output.schema, report, '')).toEqual([])
     expect(report).toMatchObject({
       method: 'preview', episode: '01', body_duration_seconds: 12, crossfade_seconds: 1.5,
-      segments: [{ track: 'cue', source_start_seconds: 1.75, source_start_kind: 'onset',
-        source_mean_db: -20, applied_gain_db: 2.5, reason: '开场' }],
+      batch_episodes: ['01'],
+      segments: [
+        { track: 'cue', source_start_seconds: 1.75, source_start_kind: 'onset',
+          source_mean_db: -20, applied_gain_db: 2.5, reason: '开场' },
+        { track: 'tail', source_start_seconds: 1.75, source_start_kind: 'onset',
+          source_mean_db: -20, applied_gain_db: 2.5, reason: '收束' },
+      ],
       media: { codec: '', sample_rate: 0, channels: 0, duration_seconds: 0, size_bytes: 0, sha256: '' },
     })
     const entry = [...ctx.loader.entries()].find(row => row.options.name === '@deepseek-ai/dsh-tool-bgm-compose')

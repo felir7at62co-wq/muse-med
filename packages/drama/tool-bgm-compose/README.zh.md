@@ -39,6 +39,10 @@ kind: "package-reference"
 | `commandTimeoutMs` | `300000` | 单条媒体命令的最长执行时间 |
 | `terminationGraceMs` | `5000` | provider 终止进程的宽限时间 |
 | `outputMaxBytes` | `1048576` | 每条进程输出流的最大收集字节数 |
+| `minTracksPerEpisode` | `2` | 每集必须用到的不同曲目数 |
+| `maxEpisodesPerTrack` | `2` | 一首曲子在整批中最多出现的集数 |
+| `freshTracksPerEpisode` | `1` | 每集必须有的、本批其它集都没用过的曲目数 |
+| `boundaryToleranceSeconds` | `0.05` | 切点距离镜头包边界允许的秒数 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-bgm-compose)是全部可用字段的完整来源。
 
@@ -48,9 +52,11 @@ kind: "package-reference"
 
 | 方法 | 写入 | 结果 |
 |---|---|---|
-| `preview` | 不写正式产物 | 解析后的源哈希、源曲起点、实测平均音量、应用增益与同序复用提醒 |
+| `preview` | 不写正式产物 | 解析后的源哈希、源曲起点、实测平均音量、应用增益，以及本次核对过的批次集号 |
 | `compose` | 48 kHz 双声道 `pcm_s16le` WAV 及相邻 `.generation.json` | 预检事实，加上实测媒体参数与输出 SHA-256 |
 | `verify` | 无 | 现有 WAV 的实测容器与音频参数；不读取原始源曲，`segments` 为空 |
+
+三个方法都会在打开任何文件、写出任何产物之前先跑批次门禁：违反复用规则的计划直接失败，不产出任何文件。批次 = 计划文件所在目录里所有含 `episodes` 数组的 JSON（流水线的布局就是 `episodes/segments/<集>.json`），返回的 `batch_episodes` 说明这次核对了哪些集。该目录里读不动的文件会直接失败——批次悄悄少一个成员，就会让一首曲子超限而无人报告；能解析但没有 `episodes` 数组的文件则只是「不是计划」。规则是：每集至少 `minTracksPerEpisode` 首不同曲目、一集内不得重复同一首、整批之内同一首最多出现在 `maxEpisodesPerTrack` 集、每集至少 `freshTracksPerEpisode` 首是本批其它集没用过的、每个切点必须落在时间线的镜头包边界 `boundaryToleranceSeconds` 秒以内、每段 `reason` 非空。曲目身份按解析后的 `source` 路径判定；`track` 只是展示名，从不参与比较——线上计划出现过同一文件两个名字、以及同一名字两个文件。门禁没有包边界就无法运行，所以时间线缺 `clips` 会直接失败，而不是悄悄跳过这项检查。
 
 `compose` 以 `-17.5 dB` 为平均音量目标，自动提升最多 `+9 dB`，让每个交叉淡化以剧情边界为中心，开头淡入 1.5 秒，结尾 2.5 秒淡出。它在无覆盖发布前暂存并探测两个产物；命令或校验失败会清除暂存文件，并保留已有目标不变。把返回的 `output` 传给 `drama_render.bgm`，同一计划传给 `drama_render.bgm_plan`。
 

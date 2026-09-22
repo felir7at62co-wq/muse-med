@@ -100,6 +100,8 @@ interface DramaRenderArguments {
   shots?: string
   /** Path of the per-shot line plan; required by `subtitles`. */
   lines?: string
+  /** Optional recognition alignment for `subtitles`, whose times replace the measured ones. */
+  alignment?: string
   /** Path of the episode timeline; required by `render` and `verify`. */
   timeline?: string
   /** Path of the subtitle to install, burn, or check. */
@@ -146,6 +148,8 @@ interface SubtitlesCall extends CallBase {
   readonly shotsPath: string
   /** Absolute path of the per-shot line plan. */
   readonly linesPath: string
+  /** Absolute path of the alignment document, when the caller supplied one. */
+  readonly alignmentPath?: string | undefined
   /** Absolute path of the SRT to write. */
   readonly subtitleSrt: string
 }
@@ -249,6 +253,7 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
       linesPath: resolve(required(args.lines, 'subtitles', 'lines',
         '台词计划的路径，内容形如 {"shots":[{"shot":1,"lines":["第一句","第二句"]}]}；'
         + '每镜的台词要在这里按字幕条切好。')),
+      ...(args.alignment === undefined ? {} : { alignmentPath: resolve(args.alignment) }),
       subtitleSrt: resolve(args.subtitleSrt ?? paths.subtitle),
     }
   }
@@ -320,9 +325,10 @@ function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typeof pr
 /**
  * The result of a `subtitles` call.
  *
- * The line-coverage defects become failure checks so `ok` states plainly whether
- * every declared line found speech, and `speech_alignment` leaves `not_checked`
- * only when every cue's times came from a detected stretch rather than a count.
+ * The line-coverage and timing defects become failure checks so `ok` states
+ * plainly whether every declared line found speech and whether the written cues
+ * fit the episode, and `speech_alignment` leaves `not_checked` only when every
+ * cue's times came from a measurement rather than a count.
  * @param call - The resolved call.
  * @param built - What the cue build measured and wrote.
  * @returns The canonical report.
@@ -330,8 +336,11 @@ function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typeof pr
 function subtitlesReport(call: SubtitlesCall, built: BuiltCues): DramaRenderReport {
   const sources = new Map(built.shots.map(shot => [shot.source.shot, shot.video]))
   const estimated = built.placements.reduce((sum, placement) => sum + placement.estimated, 0)
+  const aligned = built.placements.reduce((sum, placement) => sum + placement.aligned, 0)
+  const measured = built.placements.reduce((sum, placement) => sum + placement.cues.length - placement.estimated,
+    0) - aligned
   const checks: RenderCheck[] = built.failures.map(failure => ({
-    id: 'subtitle_line_coverage',
+    id: failure.id,
     severity: 'failure',
     ok: false,
     detail: failure.detail,
@@ -342,7 +351,8 @@ function subtitlesReport(call: SubtitlesCall, built: BuiltCues): DramaRenderRepo
       id: 'speech_alignment',
       severity: 'failure',
       ok: true,
-      detail: `${String(built.cues.length)} 条字幕的时间全部来自逐镜发声检测，没有任何一条按字数估算。`,
+      detail: `${String(built.cues.length)} 条字幕的时间全部来自测量（发声检测 ${String(measured)} 条`
+        + `${aligned === 0 ? '' : `、对齐文档 ${String(aligned)} 条`}），没有任何一条按字数估算。`,
       fix: '',
     })
   }
@@ -399,6 +409,7 @@ export async function runDramaRender(
       episode: call.episode,
       shotsPath: call.shotsPath,
       linesPath: call.linesPath,
+      ...(call.alignmentPath === undefined ? {} : { alignmentPath: call.alignmentPath }),
       subtitleSrt: call.subtitleSrt,
     }))
   }
@@ -557,13 +568,19 @@ const RESULT_SCHEMA = {
 
 /** What the model reads before calling: the four methods, the fixed style, and the two known traps. */
 const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
-  + 'subtitles=按逐镜发声测出字幕时间并写出 SRT：逐镜对成片自己的音轨跑静音检测，'
-  + '把静音段反演成发声段，再把你给出的每镜台词放到这些发声段里，'
+  + 'subtitles=按逐镜发声测出字幕时间并写出 SRT：逐镜解码成片自己的音轨，'
+  + '用该镜自己的噪声底（第 20 百分位）加 12dB 余量、且不低于 -45dB 得出门限，'
+  + '门限以上的段就是发声段，再把你给出的每镜台词放到这些发声段里，'
   + 'cue 时间 = 该镜在时间线上的起点 + 镜内偏移；**不做语音转写、不联网、不需要模型**，'
   + '因为你已经知道每镜说了什么，缺的只有时间。'
-  + '台词按 lines 计划里的顺序一一对应；一镜检出的发声段少于台词条数时，段内按有效字数切分，'
-  + '这些 cue 标成估算并在 warnings 里点名，同时 speech_alignment 会留在 not_checked。'
+  + '台词按 lines 计划里的顺序一一对应；一镜检出的发声段少于台词条数时，'
+  + '先把台词按各段时长分配，再在段内按有效字数切分，这些 cue 标成估算并在 warnings 里点名，'
+  + '同时 speech_alignment 会留在 not_checked。'
   + '声明了台词却检不出任何发声、或有发声却没声明台词，都按 failure 报出（subtitle_line_coverage）。'
+  + '如果已经用语音识别跑过这些镜，把识别结果按 {"shots":[{"shot":1,"cues":[{"text":"…","start":0.0,"end":0.8}]}]}'
+  + '写成文件传给 alignment：它只提供时间，字幕文字仍然只取 lines 里的剧本原文；'
+  + '对齐文本与剧本对不上、段数与台词条数不一致都会按 failure 报出，不会照抄识别文本。'
+  + '写出的每条字幕还会检查时长、重叠、越界与阅读速度（超过 20 字/秒按 failure，超过 12 字/秒按 warning）。'
   + 'prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，'
   + '按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master'
   + '（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。'
@@ -604,6 +621,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       lines: { type: 'string',
         description: '台词计划 JSON 路径，形如 {"shots":[{"shot":1,"lines":["第一句","第二句"]}]}；subtitles 必填。'
           + '每镜的台词在这里就按字幕条切好（单条不超过 14 个字），工具只给时间，不改文字。' },
+      alignment: { type: 'string',
+        description: 'subtitles 可选：语音识别对齐文档 JSON 路径，形如'
+          + ' {"shots":[{"shot":1,"cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}（镜内、相对该镜起点，秒）。'
+          + '只取它的时间：字幕文字仍来自 lines，识别文本仅用于核对是不是同一段表演。'
+          + '段数或文本对不上会按 failure 报出；不传则完全按发声检测测时间。' },
       timeline: { type: 'string',
         description: '时间线 JSON 路径；render 与 verify 必填，通常是 prepare 写出的 editing/<集>-timeline.json。' },
       subtitle_srt: { type: 'string',

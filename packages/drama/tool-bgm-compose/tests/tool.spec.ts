@@ -41,7 +41,7 @@ describe('registration', () => {
     const tool = mount()
     const output = tool.output.schema as { properties: Record<string, unknown> }
     expect(Object.keys(output.properties).sort()).toEqual([
-      'body_duration_seconds', 'crossfade_seconds', 'episode', 'media', 'method', 'output', 'plan',
+      'batch_episodes', 'body_duration_seconds', 'crossfade_seconds', 'episode', 'media', 'method', 'output', 'plan',
       'project', 'repeated_sequence_episodes', 'report', 'segments', 'timeline',
     ])
     expect(validateJsonSchemaValue(tool.parameters, {
@@ -54,15 +54,18 @@ describe('registration', () => {
 })
 
 describe('Config', () => {
-  it('defaults every deployment-varying process setting', () => {
+  it('defaults every deployment-varying process setting and batch limit', () => {
     expect(Config({})).toEqual({
       ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', commandTimeoutMs: 300_000,
       terminationGraceMs: 5_000, outputMaxBytes: 1_048_576,
+      minTracksPerEpisode: 2, maxEpisodesPerTrack: 2, freshTracksPerEpisode: 1,
+      boundaryToleranceSeconds: 0.05,
     })
   })
 
   it('rejects invalid command limits', () => {
     expect(() => Config({ commandTimeoutMs: 0 })).toThrow()
     expect(() => Config({ outputMaxBytes: 0 })).toThrow()
+    expect(() => Config({ minTracksPerEpisode: 0 })).toThrow()
   })
 })

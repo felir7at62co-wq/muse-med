@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-bgm-compose/README.md
-README.md: 42c7fb84ab4f76aae3626dba1dedac0c0b6469af
-README.zh.md: bb68847623825409681767b6dcbda770e309ce4c
+README.md: 0e51324dd1d4402febea30c3fc0305e197109c06
+README.zh.md: fe8698bad3702d8814df4e5eadbb05df16f3e885

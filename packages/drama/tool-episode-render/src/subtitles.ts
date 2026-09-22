@@ -104,7 +104,7 @@ export function formatSrtTime(seconds: number): string {
 export function formatSrtDocument(cues: readonly SubtitleCue[]): string {
   const blocks = cues.map(cue => `${String(cue.index)}\n`
     + `${formatSrtTime(cue.startSeconds)} --> ${formatSrtTime(cue.endSeconds)}\n`
-    + `${cue.text}`)
+    + cue.text)
   return `${blocks.join('\n\n')}\n`
 }
 

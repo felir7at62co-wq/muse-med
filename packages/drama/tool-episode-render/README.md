@@ -72,6 +72,7 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 | `episode` | always | Episode number; padded to two digits on every path |
 | `shots` | `subtitles`, `prepare` | Shot-sources manifest: `{"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"optional"}]}` |
 | `lines` | `subtitles` | Per-shot line plan: `{"shots":[{"shot":1,"lines":["第一句","第二句"]}]}`; each entry is one cue, already split to delivery length |
+| `alignment` | `subtitles` (optional) | Recognition timings: `{"shots":[{"shot":1,"cues":[{"text":"recognized","start":0.0,"end":0.8}]}]}`, clip-relative. Only the times are used; the text must match the script's lines |
 | `timeline` | `render`, `verify` | Timeline JSON, normally the one `prepare` wrote |
 | `subtitle_srt` | `prepare`, `render`, `verify` (`subtitles` optional) | The SRT to write, install, burn, or check; `subtitles` defaults to `editing/<集>.srt` |
 | `last_shot` | `render` | Last body shot this delivery covers; the timeline must hold exactly that many clips up to it |
@@ -86,9 +87,13 @@ Tool calls use the snake_case parameter names above; the registered executor map
 
 ### What subtitles measures
 
-`subtitles` needs no speech recognition, because the text is already written: the line plan says what each shot says, and only the times are missing. It probes every shot, runs `silencedetect` over that shot's own audio — before any music bed is mixed under it — inverts the silent stretches into the moments the shot speaks, and gives each declared line the stretch it occupies. A cue's time is the shot's own start on the timeline plus its offset inside the clip.
+`subtitles` needs no speech recognition, because the text is already written: the line plan says what each shot says, and only the times are missing. It probes every shot, decodes that shot's own audio — before any music bed is mixed under it — estimates the clip's own noise floor as the 20th percentile of its 20 ms frame levels, and counts every frame more than 12 dB above that floor as speech, never below -45 dBFS. Runs separated by less than 0.3 s are one utterance and runs shorter than 0.25 s are dropped. The declared lines then go into the stretches that remain, and a cue's time is the shot's own start on the timeline plus its offset inside the clip. A fixed level cannot do this: provider encoder noise can sit above any level this package could pick, and then every frame reads as speech and the split silently degrades to counting characters.
 
-A line placed on its own stretch is measured. When one stretch must carry several lines, the split inside it is a character count, those cues are marked `estimated_within_run`, each is named in `warnings`, and `speech_alignment` stays in `not_checked` instead of claiming the episode was aligned. Two defects block: a shot that declares lines whose audio holds no speech (the line was never spoken, so a subtitle would sit over silence), and a shot that speaks while the plan declares no line for it (a spoken line would ship without a subtitle). Both are reported as `subtitle_line_coverage` failures, and the SRT is still written so the operator can inspect what was measured.
+A line placed on its own stretch is measured, and its cue ends at the earlier of that stretch's end and the length the line needs to be read. When stretches are fewer than lines, the lines are apportioned across those stretches by duration and split inside each by spoken character, those cues are marked `estimated_within_run`, each is named in `warnings`, and `speech_alignment` stays in `not_checked` instead of claiming the episode was aligned. No cue is ever placed across a silent gap between two stretches.
+
+When recognition has already been run over the same clips, `alignment` supplies its times: a per-shot, clip-relative document of `{"shots":[{"shot":1,"cues":[{"text":"…","start":0.0,"end":0.8}]}]}`. Its text is only matched against the script's lines to prove the two describe the same take, and a cue's text is always the script's; a mismatch in text or in cue count is a `subtitle_line_coverage` failure instead of a number taken on trust.
+
+Two defects always block: a shot that declares lines whose audio holds no speech (the line was never spoken, so a subtitle would sit over silence), and a shot that speaks while the plan declares no line for it (a spoken line would ship without a subtitle). Every written cue is then checked against the episode: an empty cue, one overlapping its predecessor, or one running past `body_end` fails `subtitle_timing`, as does a cue asking for more than 20 spoken characters per second; past 12 characters per second is a warning. The SRT is still written so the operator can inspect what was measured.
 
 The written file is plain SRT, so a line can be hand-edited before `prepare` installs it and `render` burns it.
 
@@ -137,7 +142,8 @@ A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,s
 | `subtitle_bounds` | failure | Every cue lies inside `0`–`body_end` and inside the file |
 | `subtitle_present` | warning | The subtitle carries at least one cue |
 | `subtitle_line_coverage` | failure | Every declared line found speech in its own shot, and every shot that speaks declared a line |
-| `speech_alignment` | failure | `subtitles` only: every cue's times came from detected speech rather than a character count |
+| `speech_alignment` | failure | `subtitles` only: every cue's times came from a measurement rather than a character count |
+| `subtitle_timing` | failure | `subtitles` only: every cue is non-empty, ordered, inside `body_end`, and below 20 spoken characters per second |
 
 -----
 
@@ -168,7 +174,8 @@ The package is built on four commitments:
 | [`src/paths.ts`](src/paths.ts) | Where one episode's render inputs and outputs live, and the existence check that distinguishes a cache miss from a broken path |
 | [`src/timeline.ts`](src/timeline.ts) | Reading, validating, selecting, laying out, and serializing the episode timeline |
 | [`src/subtitles.ts`](src/subtitles.ts) | SRT parsing and writing, and the ASS document the delivery burns |
-| [`src/speech.ts`](src/speech.ts) | Silence inversion and line placement: the cue pass's measurement, with no recognition |
+| [`src/vad.ts`](src/vad.ts) | Adaptive speech detection: decoding, frame levels, the derived floor and threshold, and run merging |
+| [`src/speech.ts`](src/speech.ts) | Line placement on measured stretches and on supplied alignment, with no recognition |
 | [`src/cues.ts`](src/cues.ts) | `subtitles`: the line plan, the per-shot detection, and the written SRT |
 | [`src/encoder.ts`](src/encoder.ts) | The NVENC probe and the CPU fallback with its recorded reason |
 | [`src/ending.ts`](src/ending.ts) | Tail-frame extraction with its framemd5 proof, and the ending clip |
@@ -226,7 +233,7 @@ These limits define what this package is and what it is not. They are current co
 - **One episode per call** — `last_shot` bounds a render to the body shots it delivers, but a call never renders several episodes, and no method reads `pipeline_state.json`.
 - **The mix is not metered** — `amix` with `normalize=0` keeps the operator's gains exactly, and `alimiter=0.95` is the only ceiling. A source louder than the master it replaced can still clip before the limiter, and `verify`'s silence check does not detect it.
 - **Subtitle bounds are checked, not corrected** — `verify` reports a cue that runs past `body_end`; nothing clamps it, because where a line should end is the subtitle author's decision.
-- **`subtitles` measures silence, not words** — the pass reports where a shot speaks, not what it said. A line read wrongly, or a line read twice, still gets a cue on time; catching that needs a transcription pass the caller runs separately, and `speech_alignment` covers only the times it measured.
+- **`subtitles` measures energy, not words** — the pass reports where a shot speaks, not what it said. A line read wrongly, or a line read twice, still gets a cue on time; catching that needs a transcription pass the caller runs separately, and `speech_alignment` covers only the times it measured. An `alignment` document settles the times but is trusted only for them, and its text is matched against the script rather than written to a cue.
 - **One stretch split across lines is estimated** — a shot whose audio carries fewer speaking stretches than its lines are split by effective character count, marked `estimated_within_run`, and named in `warnings`. Word-level alignment would need a model this package does not carry.
 
 <a id="dev-note"></a>

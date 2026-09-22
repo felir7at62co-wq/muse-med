@@ -29,7 +29,16 @@ async function fixture(): Promise<Fixture> {
   const sources = ['light.mp3', 'romance.mp3', 'conflict.mp3']
   for (const source of sources) await writeFile(join(project, 'music', source), source)
   const timeline = join(project, 'editing', '05-timeline.json')
-  await writeFile(timeline, JSON.stringify({ body_end: 58.508, clips: [] }))
+  // The cuts at 26.5s and 35.5s are package boundaries, which the batch gate checks.
+  await writeFile(timeline, JSON.stringify({
+    body_end: 58.508,
+    clips: [
+      { shot: 1, start_us: 0, duration_us: 8_000_000 },
+      { shot: 2, start_us: 8_000_000, duration_us: 18_500_000 },
+      { shot: 3, start_us: 26_500_000, duration_us: 9_000_000 },
+      { shot: 4, start_us: 35_500_000, duration_us: 23_008_000 },
+    ],
+  }))
   const plan = join(project, 'editing', 'bgm-plan.json')
   await writeFile(plan, JSON.stringify({
     version: 1,

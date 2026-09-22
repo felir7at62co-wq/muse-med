@@ -147,7 +147,7 @@ describe('registration', () => {
       required: string[]
     }
     expect(Object.keys(parameters.properties).sort()).toEqual([
-      'bgm', 'bgm_plan', 'ending_audio', 'ending_effect', 'episode', 'force', 'last_shot', 'lines',
+      'alignment', 'bgm', 'bgm_plan', 'ending_audio', 'ending_effect', 'episode', 'force', 'last_shot', 'lines',
       'method', 'output', 'project', 'shots', 'subtitle_srt', 'timeline',
     ])
     expect(parameters.properties.method?.enum).toEqual(['prepare', 'render', 'verify', 'subtitles'])
