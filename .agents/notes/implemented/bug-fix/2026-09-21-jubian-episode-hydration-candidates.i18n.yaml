@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-21-jubian-episode-hydration-candidates.md
+2026-09-21-jubian-episode-hydration-candidates.md: 4d8f272159b20a118bf419f9c577a4e7b8c0f23a
+2026-09-21-jubian-episode-hydration-candidates.zh.md: ee0ce185f5eca8b59bc50179e71da09a30429f60

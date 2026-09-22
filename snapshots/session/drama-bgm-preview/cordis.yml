@@ -1,0 +1,7 @@
+# Exercise drama_bgm input validation through the shipped Loader entry path.
+- insert:
+    - id: tool-bgm-compose
+      name: '@deepseek-ai/dsh-tool-bgm-compose'
+
+- id: timeout-policy
+  name: '@deepseek-ai/dsh-tool-call-timeout-policy'

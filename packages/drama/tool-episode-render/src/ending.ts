@@ -121,10 +121,25 @@ export async function extractTailFrame(
     '-y', '-v', 'error', '-sseof', TAIL_SEEK_SECONDS, '-i', sourceVideo, '-frames:v', '1', '-f', 'image2', target,
   ])
   if (!await pathExists(target)) {
-    throw new Error(`尾帧抽取没有写出任何文件：${target}`
-      + `（用 -sseof ${TAIL_SEEK_SECONDS} 从 ${sourceVideo} 抽取）。`
-      + '这是 -sseof 窗口过短导致的静默失败：请把 TAIL_SEEK_SECONDS 放宽到 -0.1 以上，'
-      + '或先用 ffmpeg -i 该文件确认它真的含视频帧。')
+    const hashes = await sequentialFrameHashes(toolkit, sourceVideo)
+    const sequentialTailMd5 = hashes.slice(-1).join('')
+    await runFfmpeg(toolkit, [
+      '-y', '-v', 'error', '-i', sourceVideo,
+      '-vf', `select=eq(n\\,${String(lastFrameIndex(hashes.length))})`,
+      '-frames:v', '1', '-f', 'image2', target,
+    ])
+    const decodedMd5 = await frameHash(toolkit, target)
+    if (decodedMd5 !== sequentialTailMd5) {
+      throw new Error(`尾帧校验不通过：顺序抽出的帧 ${decodedMd5} 与最后一帧 ${sequentialTailMd5} 不一致`
+        + `（源文件 ${sourceVideo}）。请确认该文件在渲染期间没有被改写，然后重跑 render。`)
+    }
+    return {
+      path: target,
+      frameMd5: decodedMd5,
+      sequentialTailMd5,
+      fromSequentialDecode: true,
+      matchesSequentialTail: true,
+    }
   }
   const frameMd5 = await frameHash(toolkit, target)
   const hashes = await sequentialFrameHashes(toolkit, sourceVideo)

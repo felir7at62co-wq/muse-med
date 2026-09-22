@@ -98,6 +98,7 @@ describe('readSubtaskPage', () => {
     // The newest file is the one to use; the generation file stays behind.
     expect(row.video_url).toBe('https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/2026/09/18/hd.mp4')
     expect(row.base_video_url).toBe('https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/2026/09/17/base.mp4')
+    expect(needsUpscale(row, '1080p')).toBe(false)
   })
 
   it('reports the upscaled sibling the provider creates as its own subtask', () => {
@@ -113,10 +114,36 @@ describe('readSubtaskPage', () => {
     expect(row.video_url).toBe(row.base_video_url)
   })
 
-  it('reports a subtitle-erased result by its stage', () => {
+  it.each(['failed', 'running', undefined])('does not treat an erasure stage with status %s as clean', (status) => {
+    const row = readSubtaskPage({ rows: [{ id: 1, taskStatus: 'succeeded', resultList: [{
+      taskType: 1, resultStatus: 'succeeded', lastTaskType: 10, lastResultStatus: status,
+      tosVideoUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/base.mp4',
+      lastTosVideoUrl: '',
+    }] }] }).rows[0]!
+    expect(row.subtitle_erased).toBe(false)
+    expect(row.video_url).toBe('https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/base.mp4')
+  })
+
+  it('requires an available artifact even when an erasure reports success', () => {
+    const row = readSubtaskPage({ rows: [{ id: 1, resultList: [{ taskType: 10,
+      resultStatus: 'succeeded', lastTaskType: 10, lastResultStatus: 'succeeded' }] }] }).rows[0]!
+    expect(row.subtitle_erased).toBe(false)
+  })
+
+  it('does not apply an older successful erasure verdict to a different current file', () => {
+    const row = readSubtaskPage({ rows: [{ id: 1, resultList: [
+      { taskType: 1, resultStatus: 'succeeded', tosVideoUrl: 'https://x/base.mp4' },
+      { taskType: 10, resultStatus: 'succeeded', tosVideoUrl: 'https://x/clean.mp4' },
+    ] }] }).rows[0]!
+    expect(row.subtitle_erased).toBe(false)
+  })
+
+  it('reports a successful erasure only with its processed file, without calling it an upscale', () => {
     const child = { id: 1, aigcVideoTaskId: 2, taskStatus: 'succeeded', resolution: '720p',
       resultList: [{ taskType: 1, hdCount: 0, lastTaskType: 10, resultStatus: 'succeeded',
-        tosVideoUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/clean.mp4' }] }
+        lastResultStatus: 'succeeded',
+        tosVideoUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/base.mp4',
+        lastTosVideoUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/clean.mp4' }] }
     const row = readSubtaskPage({ total: 1, rows: [child] }).rows[0]!
     expect(row.subtitle_erased).toBe(true)
     expect(row.last_stage).toBe('erase_subtitle')

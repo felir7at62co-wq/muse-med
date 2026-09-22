@@ -12,6 +12,7 @@
  * mismatch would silently generate a video of the wrong length.
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { validateVideoDuration } from './native.ts'
 
 function invalid(): never { throw new JubianError('CONTRACT_CHANGED') }
 
@@ -41,8 +42,10 @@ function configOf(source: Record<string, unknown>): Record<string, unknown> {
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) invalid()
   const config = parsed as Record<string, unknown>
-  if (config.ratio !== '9:16' || config.resolution !== '720p' || config.genNum !== 1
-    || !Number.isSafeInteger(config.duration)) invalid()
+  if (typeof config.ratio !== 'string' || !config.ratio.trim()
+    || typeof config.resolution !== 'string' || !config.resolution.trim() || config.genNum !== 1
+    || typeof config.duration !== 'number' || !Number.isSafeInteger(config.duration) || config.duration < 1
+    || !Number.isSafeInteger(config.duration * 1000)) invalid()
   return config
 }
 
@@ -86,7 +89,13 @@ export function withGenerationEnabled(data: unknown, contentDurationMs: number):
   if (!Number.isSafeInteger(contentDurationMs) || contentDurationMs < 4000 || contentDurationMs > 14000
     || contentDurationMs % 1000 !== 0) invalid()
   const view = readStoryboard(data)
-  if (view.model_config.duration !== contentDurationMs / 1000 + 1) invalid()
+  const config = view.model_config
+  if (config.ratio !== '9:16' || config.resolution !== '720p') {
+    throw new JubianError('INVALID_ARGUMENT', '旧 generate 不支持该分镜规格；保留当前设置，改用 prepare_video → submit_video，不要为绕过此限制切换模型或分辨率。')
+  }
+  if (typeof config.modelId !== 'string') invalid()
+  validateVideoDuration(config.modelId, config.duration)
+  if (config.duration !== contentDurationMs / 1000 + 1) invalid()
   return { ...view.snapshot, isGenerate: 1 }
 }
 

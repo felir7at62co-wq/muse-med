@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-21-jubian-asset-organization.md
+2026-09-21-jubian-asset-organization.md: 6e70de0b1f103f40d9c220c20f43ce2ecef127c4
+2026-09-21-jubian-asset-organization.zh.md: c5fcdfefd832e13a8e019fa32f243da1548881cf

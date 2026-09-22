@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildNativeVideoPreview, childrenOf, classifyExistingNativeMatches, classifyNewNativeCandidates,
   isRelatedTaskCandidate, nativeModelSignature, nativeObservablePrompt, nativeResultUrls,
-  normalizedPrompt, readBackIdentity, selectSeedanceVideoModel, stableJson, stableSha256,
+  normalizedPrompt, readBackIdentity, resolveVideoModel, validateVideoDuration, stableJson, stableSha256,
   subjectIdentitySignature, submissionSemantics, taskIdOf, taskSemanticFields, taskStatusOf,
   terminalOutcome, validateNativeVideoPreview, validatedVideoMaterials, wireText,
 } from '../src/native.ts'
@@ -11,7 +11,7 @@ const URL_LEAD = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/lead.jpg'
 const URL_GUEST = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/guest.jpg'
 const PROMPT = '雨夜街头 @[陆沉舟](lead) 与 @[苏晚](guest)'
 
-const MODEL_CONFIG = { platformId: 'YU_DIAN', modelId: 'doubao-seedance-2-0-1', standardId: 11, genType: 3,
+const MODEL_CONFIG = { platformId: 'YU_DIAN', modelId: 'doubao-seedance-2-0-260128', standardId: 11, genType: 3,
   modelGenerationTypeId: 7, videoStandardId: 91, duration: 8, ratio: '9:16', resolution: '720p', genNum: 1,
   materialList: [], backupModelList: [], prompt: PROMPT }
 
@@ -44,7 +44,7 @@ const CHILD = { id: 972949, aigcVideoTaskId: 335343, storyboardId: 916953, taskS
 const PREVIEW = buildNativeVideoPreview({ storyboard: STORYBOARD, assets: ASSETS, models: CATALOGUE,
   createdAt: '2026-09-20T10:00:00.000Z' })
 
-const EXPECTATION = { scriptId: 2708, storyboardId: 916953,
+const EXPECTATION = { scriptId: 2708, storyboardId: 916953, episodeId: 46737,
   expectedIdentity: subjectIdentitySignature(MATERIALS),
   expectedModel: nativeModelSignature(JSON.stringify(MODEL_CONFIG)),
   expectedPrompt: normalizedPrompt(PROMPT), beforeTaskIds: [] as string[] }
@@ -91,15 +91,47 @@ describe('canonical hashing and wire reading', () => {
 })
 
 describe('model and identity readers', () => {
-  it('selects the non-Mini Seedance 2.0 model with a 9:16/720p genNum=1 standard', () => {
-    expect(selectSeedanceVideoModel(CATALOGUE)).toMatchObject({ modelId: 'doubao-seedance-2-0-260128',
-      standardId: 11, genType: 3, modelGenerationTypeId: 7, videoStandardId: 91, ratio: '9:16', resolution: '720p',
-      genNum: 1 })
+  it('refreshes selectors without changing exact live intent or duration', () => {
+    expect(resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, standardId: 999, modelGenerationTypeId: 999,
+      videoStandardId: 999, duration: 12, resolution: '720P' })).toEqual({
+      platformId: 'YU_DIAN', modelId: MODEL_CONFIG.modelId, standardId: 11, genType: 3,
+      modelGenerationTypeId: 7, videoStandardId: 91, ratio: '9:16', resolution: '720p', duration: 12, genNum: 1 })
   })
 
-  it('refuses a catalogue without such a model', () => {
-    expect(() => selectSeedanceVideoModel([CATALOGUE[1]])).toThrow()
-    expect(() => selectSeedanceVideoModel({ rows: [] })).toThrow()
+  it('refuses missing models, ambiguous platforms and duplicate matching standards', () => {
+    expect(() => resolveVideoModel([CATALOGUE[1]], MODEL_CONFIG)).toThrow('No catalogue row matches video settings')
+    expect(() => resolveVideoModel({ rows: [] }, MODEL_CONFIG)).toThrow()
+    const other = { ...CATALOGUE[0]!, platformId: 'FANG_ZHOU', id: 61 }
+    expect(() => resolveVideoModel([CATALOGUE[0], other], { ...MODEL_CONFIG, platformId: undefined }))
+      .toThrow('Video settings match multiple catalogue selectors')
+    expect(resolveVideoModel([CATALOGUE[0], other], MODEL_CONFIG).platformId).toBe('YU_DIAN')
+    expect(() => resolveVideoModel([{ ...CATALOGUE[0]!, videoStandards: [
+      ...CATALOGUE[0]!.videoStandards, { ...CATALOGUE[0]!.videoStandards[0]!, id: 92 },
+    ] }], MODEL_CONFIG)).toThrow()
+  })
+
+  it('rejects foreign model ids on matching generation and video-standard rows', () => {
+    const row = CATALOGUE[0]!
+    expect(() => resolveVideoModel([{ ...row,
+      genTypes: [{ ...row.genTypes[0]!, modelId: 'foreign-model' }] }], MODEL_CONFIG)).toThrow()
+    expect(() => resolveVideoModel([{ ...row,
+      videoStandards: [{ ...row.videoStandards[0]!, modelId: 'foreign-model' }] }], MODEL_CONFIG)).toThrow()
+    expect(resolveVideoModel([{ ...row,
+      genTypes: [{ ...row.genTypes[0]!, modelId: MODEL_CONFIG.modelId }],
+      videoStandards: [{ ...row.videoStandards[0]!, modelId: MODEL_CONFIG.modelId }] }], MODEL_CONFIG))
+      .toMatchObject({ modelGenerationTypeId: 7, videoStandardId: 91 })
+  })
+
+  it('requires duration evidence for the exact model and integer numeric bounds', () => {
+    expect(validateVideoDuration(MODEL_CONFIG.modelId, 15)).toBe(15)
+    expect(() => validateVideoDuration(MODEL_CONFIG.modelId, 16)).toThrow()
+    expect(validateVideoDuration('doubao-seedance-2-5-260628', 30)).toBe(30)
+    for (const duration of [1, 31, 2.5, NaN, Infinity, '30', null]) {
+      expect(() => validateVideoDuration('doubao-seedance-2-5-260628', duration)).toThrow('Duration must be an integer')
+    }
+    expect(() => validateVideoDuration('doubao-seedance-2-5-unknown', 8)).toThrow('No verified duration capability')
+    expect(() => resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, genNum: 2 })).toThrow()
+    expect(() => resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, genType: 4 })).toThrow()
   })
 
   it('reads a model signature only when every field is present', () => {
@@ -130,10 +162,29 @@ describe('model and identity readers', () => {
 })
 
 describe('preview construction and validation', () => {
+  it('prepares and validates the live 2.5 480p 30-second setting without downgrading it', () => {
+    const modelId = 'doubao-seedance-2-5-260628'
+    const models = [...CATALOGUE, { id: 61, platformId: 'FANG_ZHOU', modelId,
+      genTypes: [{ id: 71, type: 3 }, { id: 72, type: 4 }],
+      videoStandards: [{ id: 338, ratio: '9:16', resolution: '480p' }] }]
+    const preview = buildNativeVideoPreview({ storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, modelId, platformId: 'FANG_ZHOU',
+        resolution: '480P', duration: 30, genType: 4 }) }, assets: ASSETS, models, createdAt: 'now' })
+    expect(JSON.parse(String(preview.payload.modelConfig))).toMatchObject({
+      modelId, platformId: 'FANG_ZHOU', standardId: 61, modelGenerationTypeId: 72, genType: 4,
+      videoStandardId: 338, resolution: '480p', duration: 30, genNum: 1 })
+    expect(validateNativeVideoPreview(preview)).toEqual(preview)
+    const payload = { ...preview.payload, modelConfig: JSON.stringify({
+      ...JSON.parse(String(preview.payload.modelConfig)), duration: 31 }) }
+    expect(() => validateNativeVideoPreview({ ...preview, payload,
+      idempotencyKey: stableSha256(submissionSemantics(payload)) })).toThrow()
+  })
+
   it('builds one PUT body with the live model selectors and a deterministic fingerprint', () => {
     expect(PREVIEW.operation).toBe('prepare_storyboard_native_video')
     expect(PREVIEW.payload.isGenerate).toBe(1)
     expect(PREVIEW.estimatedSubmissions).toBe(1)
+    expect(PREVIEW.nextAction).toBe('核对 preview 的项目、主体、配置、预计费用与已有任务；在用户已授权范围内调用 submit_video，超出范围先取得授权。prepare 本身不 PUT、不创建任务、不收费。')
     expect(PREVIEW.assetSummary.orderedAssets[0]).toEqual({ assetId: 'asset-lead', materialAssetId: 81285,
       materialKey: 'lead', materialName: '陆沉舟｜西装', imageUrl: URL_LEAD })
     const config = JSON.parse(String(PREVIEW.payload.modelConfig)) as Record<string, unknown>
@@ -148,7 +199,7 @@ describe('preview construction and validation', () => {
   })
 
   it('refuses a payload whose settings, duration or assets break the contract', () => {
-    const broken = (overrides: Record<string, unknown>): unknown => ({ ...STORYBOARD,
+    const broken = (overrides: Record<string, unknown>) => ({ ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, ...overrides }) })
     expect(() => buildNativeVideoPreview({ storyboard: broken({ ratio: '16:9' }), assets: ASSETS,
       models: CATALOGUE, createdAt: 'now' })).toThrow()
@@ -242,6 +293,12 @@ describe('task claiming', () => {
     // A settled mismatch cannot converge any more, so the one exact candidate still wins.
     const settled = { ...other, task: { ...other.task, taskStatus: 'succeeded' } }
     expect(classifyNewNativeCandidates([related, settled], EXPECTATION)).toMatchObject({ status: 'matched' })
+  })
+
+  it('ignores storyboard-less history from a different episode', () => {
+    const oldEpisode = { ...related, taskId: '444610',
+      task: { id: 444610, scriptId: 2708, episodeId: 46735, taskType: 1 }, children: [] }
+    expect(classifyExistingNativeMatches([oldEpisode], EXPECTATION)).toEqual({ status: 'none' })
   })
 
   it('only considers tasks of the same project and storyboard', () => {

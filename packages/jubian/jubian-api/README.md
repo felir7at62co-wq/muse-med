@@ -71,7 +71,7 @@ for (const row of page.rows) {
 }
 ```
 
-`needsUpscale()` compares the row's recorded resolution against the delivery target. It returns `true` below the target, `false` at or above it, and `null` when either label is unrecognised, so you never read a guess as a verdict. Use `row.video_url` as the file to use: after an upscale the provider keeps the generation output in `row.base_video_url` and reports the newest file in `video_url`.
+`needsUpscale()` compares the current file against the delivery target. A recorded SeedVR2 pass counts the current file as 1080p even when the generation row keeps its old label; otherwise the function returns `true` below the target, `false` at or above it, and `null` when the available evidence cannot rank either side. Use `row.video_url` as the file to use: after an upscale the provider keeps the generation output in `row.base_video_url` and reports the newest file in `video_url`.
 
 ### Building a request body
 
@@ -90,6 +90,12 @@ const body = buildSubtitleEraseRequest('quzimuToB', {
 ```
 
 A builder returns a plain object and sends nothing. Submit it with `client.request()`, and read the task identity back out of the response with `readSubtitleTaskId()`. `buildSubtitleEraseRequest` pins the standard identifiers per model: `26` for `quzimuToB` and `67` for `ark-erase-video-subtitle-pro`, which is the automatic route and takes no rectangle. When a caller omits `subtitleBox`, the regional route derives the rectangle from the frame size instead.
+
+### Resolving video settings
+
+`resolveVideoModel(catalogue, intent)` preserves the exact `modelId`, explicit `platformId`, generation type and duration, and matches ratio and resolution case-insensitively. Exactly one catalogue match must remain; missing or ambiguous choices fail rather than selecting another model or platform. The returned selectors refresh stale standard identifiers and retain `genNum=1`. Native preparation uses the live storyboard intent; use `prepare_video`/`submit_video` for model-driven generation.
+
+`validateVideoDuration()` accepts integer seconds only. The catalogue has no duration bounds: the exact `doubao-seedance-2-0-260128` id retains 2–15 seconds, and `doubao-seedance-2-5-260628` uses a user-confirmed 30-second maximum with the existing 2-second minimum. This fallback is not provider-verified duration evidence. Unknown ids fail closed. Preview validation applies the same bounds without weakening project, fingerprint or ordered-identity checks.
 
 ### Downloading media
 
@@ -137,9 +143,9 @@ Where a field is optional in the provider's own data, the reader carries that op
 
 ### The video stage vocabulary
 
-The provider records each result's stage as a number. `VIDEO_TASK_TYPES` maps `1` to `generate`, `10` to `erase_subtitle`, and `20` to `upscale`, and `20` is the upscale stage. A result also carries the whole recorded history in `versions`, which this library maps to the same stage names. `subtitle_erased` and `upscaled` read that stage and the recorded upscale count, so a caller can tell a raw generation from a processed one without opening the file.
+`VIDEO_TASK_TYPES` maps `1` to `generate`, `10` to `erase_subtitle`, and `20` to `upscale`; `versions` carries the result history. `subtitle_erased` requires a current URL and either a successful latest type-10 result with an explicit output URL or a successful type-10 history entry whose URL equals the current URL. Stage 10 alone is insufficient, and this flag does not imply visual subtitle review. `upscaled` requires a positive upscale count or latest stage 20, not merely a changed URL.
 
-`RESOLUTION_ORDER` lists this provider's ladder from `480p` to `4K`. `resolutionRank()` returns a label's index or `-1` when the label is unrecognised, and `needsUpscale()` returns `null` in that case. A delivery target is a comparison, not a constant, because a generation model can top out below it.
+`RESOLUTION_ORDER` lists this provider's ladder from `480p` to `4K`. `resolutionRank()` returns a label's index or `-1` when the label is unrecognised. `needsUpscale()` returns `null` for an unrecognised target, or for an unrecognised source without a recorded upscale; a recorded upscale establishes a 1080p current file. A delivery target is a comparison, not a constant, because a generation model can top out below it.
 
 ### Where the wire shapes come from
 
@@ -184,9 +190,9 @@ These constraints are current package behavior, not a task backlog.
 - **The image selectors are the caller's choice** — `resolveImageModel()` accepts a catalogue only when the selection leaves exactly one `gpt-image-2` row. With several rows and no selection the call fails and the message lists each candidate's `platformId`, `standardId`, unit price and unit; with a selection that matches none it fails the same way. This library has no rule for preferring one platform or the cheaper row.
 - **Cost and price fields are evidence, not a settlement** — `real_cost`, `estimated_cost`, `discount_cost`, and `readImageDisplayPrice()` carry what the provider reported, and `readImageDisplayPrice()` always returns `quote_verified: false`; nothing here authorizes spending.
 - **The default erasure rectangle is not clamped to the frame** — `defaultSubtitleBox()` reproduces the provider's observed proportions (`zimuTop` 570/1280, height 720/1280, width one pixel inside the frame), so the box can reach past the bottom edge on a 720x1280 source; that shape was captured from an accepted request, not guaranteed by the provider.
-- **`needsUpscale()` answers `null` when it cannot know** — an unrecognised resolution label on either side produces `null` instead of a boolean, and a caller must treat that as unanswered rather than as permission to deliver.
+- **`needsUpscale()` answers `null` when it cannot know** — an unrecognised delivery target, or an unrecognised source without recorded upscale evidence, produces `null` instead of a boolean; a caller must treat that as unanswered rather than as permission to deliver.
 - **Media transfer is bounded and single-origin** — `downloadMedia()` accepts only the origins in `MEDIA_ALLOWED_ORIGINS`, caps a body at `MEDIA_LIMITS` (64 MiB for an image, 512 MiB for a video), refuses redirects, and writes nothing to disk.
-- **A storyboard body is never composed from scratch** — `readStoryboard()` accepts only `ratio` 9:16, `resolution` 720p, and `genNum` 1, and `withGenerationEnabled()` requires the saved duration to equal the requested content duration plus one second, because the provider derives its own video length from that field. Neither gates on `isGenerate`: the provider stores 1 on every storyboard it holds, generated or not, so the field cannot tell the two apart, and what it acts on is the `isGenerate` a caller writes into a body.
+- **A storyboard body is never composed from scratch** — reads and free saves preserve nonempty ratio/resolution labels, `genNum=1` and a positive integer duration representable safely in milliseconds. The legacy `withGenerationEnabled()` path retains 9:16/720p and 4–14 seconds of content, requires saved duration to equal content plus one second, and validates the exact model's duration capability. It does not resolve catalogue selectors; other ratios/resolutions return an actionable `INVALID_ARGUMENT` directing callers to native preparation without changing the saved settings. Stored `isGenerate=1` is not evidence that generation occurred.
 - **No transport behavior is retried or resumed** — this package performs no request of its own except the media download, so every retry, timeout, and polling decision belongs to the caller.
 
 <a id="dev-note"></a>

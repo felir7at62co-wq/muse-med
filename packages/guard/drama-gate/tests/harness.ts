@@ -17,12 +17,15 @@ export const PROJECT = join(WORKSHOP, 'demo-drama')
 export const PROMPTS = join(PROJECT, 'prompts', '01.txt')
 /** The matched JSON for episode 01. */
 export const MATCHED = join(PROJECT, 'matches', '01.matched.json')
+/** The reconcile evidence the paid-asset rule reads below a project root. */
+export const RECONCILE = join(PROJECT, '_probe', 'asset-reconcile.json')
 
 /** Every rule enabled, the shipped default. */
 export const ALL_ON: RuleSwitches = {
   idempotencyKey: true,
   shotScript: true,
   officialAssets: true,
+  reconcileFirst: true,
   museToolNames: true,
 }
 

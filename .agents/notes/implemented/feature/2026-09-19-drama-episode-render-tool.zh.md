@@ -12,6 +12,8 @@ Status: implemented
 
 ## Decision
 
+[制作策略与结果证据决策](2026-09-21-drama-policy-and-result-evidence.zh.md) 扩展了素材选择、缓存身份与审核报告。本文保留交付样式、尾帧与工具归属决策。
+
 `drama/` 组的第二个包 `@deepseek-ai/dsh-tool-episode-render` 注册一个模型可见的工具 `drama_render`，含三个方法。
 
 `prepare` 在不编码画面的前提下构建渲染器要读的目录布局：每个源成片复制到 `video/<集>/shot_00N.mp4`，时间线按 **ffprobe 实测**时长（而不是声明时长）铺进 `editing/<集>-timeline.json`，整集原声在 `audio/<集>.wav` 里按每镜各自的起点放置它自己的声音拼成（不加增益、不逐镜重采样），字幕装到 `editing/<集>.srt`。结束时刻超过整集画面的 cue 作为警告报出。

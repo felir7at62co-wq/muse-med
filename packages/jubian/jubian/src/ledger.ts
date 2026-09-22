@@ -9,12 +9,18 @@
  * never sends a second request.
  */
 import { appendFile, mkdir, readdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+
+/** Same-runtime claims share a queue even when separate tool instances own the ledger. */
+const claims = new Map<string, Promise<JubianLedgerBeginResult>>()
+/** Per-process suffix for record identities created in the same millisecond. */
+let recordCounter = 0
 
 /** The write methods this ledger can record. */
 export type JubianLedgerMethod =
   | 'image_generate'
   | 'storyboard_save'
+  | 'storyboard_model_settings'
   | 'storyboard_create'
   | 'storyboard_generate'
   | 'storyboard_select_assets'
@@ -26,6 +32,9 @@ export type JubianLedgerMethod =
   | 'video_task_terminate'
   | 'confirm_casting'
   | 'asset_remove'
+  | 'asset_folder_create'
+  | 'asset_move'
+  | 'asset_rename'
 
 /** A durable record of one write attempt. */
 export interface JubianLedgerRecord {
@@ -116,10 +125,9 @@ function fold(lines: Record<string, unknown>[]): JubianLedgerRecord | undefined 
 /** Append-only, two-phase ledger for paid and state-changing Jubian calls. */
 export class JubianLedger {
   private readonly root: string
-  private counter = 0
 
   constructor(options: JubianLedgerOptions) {
-    this.root = options.root
+    this.root = resolve(options.root)
   }
 
   private fileFor(now: Date): string {
@@ -145,15 +153,25 @@ export class JubianLedger {
 
   /**
    * Persist the intent line, or replay the record an earlier call already wrote.
+   * Claims are serialized across instances sharing a resolved root in this runtime, not across processes.
    * @param input - Key, method and request identity.
    * @returns Whether this call replayed an existing record, and the record itself.
    */
   async begin(input: JubianLedgerBegin): Promise<JubianLedgerBeginResult> {
+    const rootKey = process.platform === 'win32' ? this.root.toLowerCase() : this.root
+    const previous = claims.get(rootKey) ?? Promise.resolve()
+    const operation = previous.catch(() => undefined).then(() => this.appendIntent(input))
+    claims.set(rootKey, operation)
+    try { return await operation }
+    finally { if (claims.get(rootKey) === operation) claims.delete(rootKey) }
+  }
+
+  private async appendIntent(input: JubianLedgerBegin): Promise<JubianLedgerBeginResult> {
     const existing = await this.find(input.idempotencyKey)
     if (existing !== undefined) return { replayed: true, record: existing }
     const now = new Date()
-    this.counter += 1
-    const record_id = `jub_${now.getTime().toString(36)}_${this.counter.toString(36)}`
+    recordCounter += 1
+    const record_id = `jub_${now.getTime().toString(36)}_${recordCounter.toString(36)}`
     const record: JubianLedgerRecord = { record_id, idempotency_key: input.idempotencyKey, method: input.method,
       at: now.toISOString(), request_sha256: input.requestSha256, quoted_amount: input.quotedAmount ?? null,
       quote_standard_id: input.quoteStandardId ?? null, quote_observed_at: input.quoteObservedAt ?? null,

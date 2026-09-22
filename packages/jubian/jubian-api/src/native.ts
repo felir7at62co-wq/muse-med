@@ -42,7 +42,7 @@ export interface SubjectIdentityItem {
   imageUrl: string
 }
 
-/** The selectors one non-Mini Seedance 2.0 video request needs, read from the live catalogue. */
+/** The selectors for one exact video model and specification, read from the live catalogue. */
 export interface SeedanceVideoModel {
   platformId: string
   modelId: string
@@ -50,7 +50,7 @@ export interface SeedanceVideoModel {
   genType: number
   modelGenerationTypeId: number
   videoStandardId: number
-  duration: number | null
+  duration: number
   ratio: string
   resolution: string
   genNum: 1
@@ -131,11 +131,6 @@ function integer(value: unknown): number {
   const candidate = typeof value === 'string' && /^[0-9]+$/.test(value.trim()) ? Number(value.trim()) : value
   if (typeof candidate !== 'number' || !Number.isSafeInteger(candidate) || candidate < 1) invalid()
   return candidate
-}
-
-function nullableInteger(value: unknown): number | null {
-  if (value === undefined || value === null || value === '') return null
-  try { return integer(value) } catch { return null }
 }
 
 function text(value: unknown): string {
@@ -407,37 +402,48 @@ export function taskStatusOf(...records: Record<string, unknown>[]): string {
 }
 
 /**
- * Resolve the one non-Mini Seedance 2.0 model with a 9:16/720p `genNum=1` standard.
- *
- * The selectors are account state: they are read from the live catalogue on
- * every call rather than cached, because a stale pair produces a request the
- * provider rejects after the caller believes it was accepted.
+ * Resolve exact live intent without substituting a model, platform or specification.
+ * Stale selector ids are ignored; ratio and resolution match case-insensitively.
+ * Matching child rows that name a model must name the same model as their parent.
  * @param catalogue - Envelope `data` from `/model/charge/getSelectList?taskType=1`.
- * @returns The model's platform, model, standard, generation-type and video-standard ids.
- * @throws {JubianError} `CONTRACT_CHANGED` when no non-Mini Seedance 2.0 row offers that standard.
+ * @param intent - Live modelConfig with modelId, ratio, resolution, genType, duration and genNum;
+ * platformId may be omitted only when the catalogue match is unambiguous.
+ * @returns Fresh catalogue selectors with the requested duration and one generation.
+ * @throws {JubianError} `CONTRACT_CHANGED` for unsupported, ambiguous or malformed settings.
  */
-export function selectSeedanceVideoModel(catalogue: unknown): SeedanceVideoModel {
+export function resolveVideoModel(catalogue: unknown, intent: unknown): SeedanceVideoModel {
+  const config = object(intent)
+  const modelId = text(config.modelId)
+  const platformId = config.platformId === undefined ? undefined : text(config.platformId)
+  const ratio = text(config.ratio).toLowerCase()
+  const resolution = text(config.resolution).toLowerCase()
+  const genType = integer(config.genType)
+  if (integer(config.genNum) !== 1) invalid()
+  const duration = validateVideoDuration(modelId, config.duration)
   const rows = Array.isArray(catalogue) ? catalogue.map(object) : invalid()
+  const matches: SeedanceVideoModel[] = []
   for (const selected of rows) {
-    const modelId = wireText(selected.modelId) ?? ''
-    if (!modelId.toLowerCase().startsWith('doubao-seedance-2-0-') || modelId.toLowerCase().includes('mini')) continue
-    const genTypes = Array.isArray(selected.genTypes) ? selected.genTypes.map(object) : []
-    const generation = genTypes.find(item => Number(item.type) === 3
-      && item.id !== undefined && item.id !== null && item.id !== '')
-    const standards = Array.isArray(selected.videoStandards) ? selected.videoStandards.map(object) : []
-    const standard = standards.find(item => (wireText(item.ratio) ?? '').toLowerCase() === '9:16'
-      && (wireText(item.resolution) ?? '').toLowerCase() === '720p'
-      && item.id !== undefined && item.id !== null && item.id !== ''
-      && Number(item.genNum ?? selected.genNum ?? 1) === 1)
-    const standardId = selected.id ?? selected.standardId
-    if (generation === undefined || standard === undefined || wireText(selected.platformId) === null
-      || standardId === undefined || standardId === null || standardId === '') continue
-    return { platformId: text(selected.platformId), modelId, standardId: integer(standardId),
-      genType: integer(generation.type), modelGenerationTypeId: integer(generation.id),
-      videoStandardId: integer(standard.id), duration: nullableInteger(selected.duration),
-      ratio: text(standard.ratio), resolution: text(standard.resolution), genNum: 1 }
+    if (selected.modelId !== modelId || (platformId !== undefined && selected.platformId !== platformId)) continue
+    const genTypes = Array.isArray(selected.genTypes) ? selected.genTypes.map(object) : invalid()
+    const standards = Array.isArray(selected.videoStandards) ? selected.videoStandards.map(object) : invalid()
+    for (const generation of genTypes.filter(item => integer(item.type) === genType)) {
+      for (const standard of standards.filter(item => text(item.ratio).toLowerCase() === ratio
+        && text(item.resolution).toLowerCase() === resolution
+        && integer(item.genNum ?? selected.genNum ?? 1) === 1)) {
+        if ((generation.modelId !== undefined && generation.modelId !== modelId)
+          || (standard.modelId !== undefined && standard.modelId !== modelId)) invalid()
+        matches.push({ platformId: text(selected.platformId), modelId,
+          standardId: integer(selected.id ?? selected.standardId), genType,
+          modelGenerationTypeId: integer(generation.id), videoStandardId: integer(standard.id),
+          duration, ratio: text(standard.ratio), resolution: text(standard.resolution), genNum: 1 })
+      }
+    }
   }
-  return invalid()
+  if (matches.length === 0) throw new JubianError('CONTRACT_CHANGED', 'No catalogue row matches video settings')
+  if (matches.length !== 1) {
+    throw new JubianError('CONTRACT_CHANGED', 'Video settings match multiple catalogue selectors; specify one platform and specification')
+  }
+  return matches[0] ?? invalid()
 }
 
 /**
@@ -554,25 +560,15 @@ export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoP
     if (Number(asset.isUsed) !== 1) invalid()
   }
   const { materials, prompt, config } = validatedVideoMaterials(input.storyboard, input.assets)
-  for (const [field, expected] of [['ratio', '9:16'], ['resolution', '720p'], ['genNum', 1]] as const) {
-    if (config[field] !== expected) invalid()
-  }
-  requireDuration(config.duration)
-
-  const model = selectSeedanceVideoModel(input.models)
+  const model = resolveVideoModel(input.models, config)
   const payload: Record<string, unknown> = { ...input.storyboard }
   payload.storyboardMaterialList = materials.map(material => ({ ...material }))
   payload.isGenerate = 1
   const modelConfig: Record<string, unknown> = { ...config }
   for (const field of ['platformId', 'modelId', 'standardId', 'genType', 'modelGenerationTypeId',
     'videoStandardId', 'duration', 'ratio', 'resolution', 'genNum'] as const) {
-    const value = model[field]
-    if (value !== null) modelConfig[field] = value
+    modelConfig[field] = model[field]
   }
-  for (const [field, expected] of [['ratio', '9:16'], ['resolution', '720p'], ['genNum', 1]] as const) {
-    if (modelConfig[field] !== expected) invalid()
-  }
-  requireDuration(modelConfig.duration)
   modelConfig.prompt = prompt
   modelConfig.materialList = materials.map(material => ({ ...material }))
   payload.modelConfig = JSON.stringify(modelConfig)
@@ -602,12 +598,28 @@ export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoP
     estimatedSubmissions: 1,
     assetSummary: { count: orderedAssets.length, orderedAssets },
     payload,
-    nextAction: '审查该 preview 并取得本次即时授权，然后调用 submit_video；prepare 本身不 PUT、不创建任务、不收费。',
+    nextAction: '核对 preview 的项目、主体、配置、预计费用与已有任务；在用户已授权范围内调用 submit_video，超出范围先取得授权。prepare 本身不 PUT、不创建任务、不收费。',
   }
 }
 
-function requireDuration(value: unknown): void {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 2 || value > 15) invalid()
+/**
+ * Validate whole-second duration against an exact model's recorded capability.
+ * The catalogue does not expose duration bounds. Seedance 2.0 retains its 2–15-second
+ * limit; the user-confirmed 2.5 capability permits 2–30 seconds for this exact id.
+ * Unknown model revisions fail closed rather than inheriting another model's limit.
+ * @param modelId - Exact catalogue model id.
+ * @param duration - Requested numeric duration in seconds.
+ * @returns The validated integer duration.
+ * @throws {JubianError} `CONTRACT_CHANGED` for absent evidence or out-of-range duration.
+ */
+export function validateVideoDuration(modelId: string, duration: unknown): number {
+  const maximum = modelId === 'doubao-seedance-2-0-260128' ? 15
+    : modelId === 'doubao-seedance-2-5-260628' ? 30 : null
+  if (maximum === null) throw new JubianError('CONTRACT_CHANGED', 'No verified duration capability for the exact model id')
+  if (typeof duration !== 'number' || !Number.isSafeInteger(duration) || duration < 2 || duration > maximum) {
+    throw new JubianError('CONTRACT_CHANGED', `Duration must be an integer from 2 to ${maximum} seconds`)
+  }
+  return duration
 }
 
 /**
@@ -626,6 +638,11 @@ export function validateNativeVideoPreview(value: unknown): NativeVideoPreview {
   if (preview.status !== 'prepared') invalid()
   const payload = object(preview.payload)
   if (Number(payload.isGenerate) !== 1) invalid()
+  const config = parseConfig(payload.modelConfig) ?? invalid()
+  validateVideoDuration(text(config.modelId), config.duration)
+  if (integer(config.genNum) !== 1) invalid()
+  for (const field of ['standardId', 'genType', 'modelGenerationTypeId', 'videoStandardId']) integer(config[field])
+  for (const field of ['platformId', 'ratio', 'resolution']) text(config[field])
   const storyboardId = integer(preview.storyboardId)
   if (integer(payload.id) !== storyboardId) invalid()
   const scriptId = integer(preview.scriptId)
@@ -660,6 +677,7 @@ function hasSecretField(value: unknown): boolean {
 export interface NativeClaimExpectation {
   scriptId: number
   storyboardId: number
+  episodeId: number
   /** Ordered trusted identity the submission claimed. */
   expectedIdentity: SubjectIdentityItem[]
   /** Model evidence the child must repeat. */
@@ -686,6 +704,8 @@ function childPrompt(child: Record<string, unknown>): string | null {
 /** Whether one hydrated candidate names this storyboard, using the detail's own fields first. */
 function candidateBelongsTo(candidate: HydratedTask, expectation: NativeClaimExpectation): boolean {
   if (!isRelatedTaskCandidate(candidate.task, expectation.scriptId, expectation.storyboardId)) return false
+  const remoteEpisode = wireText(candidate.task.episodeId ?? candidate.task.episode_id)
+  if (remoteEpisode !== null && remoteEpisode !== String(expectation.episodeId)) return false
   const semantic = taskSemanticFields(candidate.task)
   const remoteStoryboard = wireText(semantic.storyboardId ?? candidate.task.storyboardId)
   if (remoteStoryboard === null) return true

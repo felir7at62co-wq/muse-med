@@ -44,3 +44,19 @@ worktrees/
 .agents/worktrees/
 .typert-*/
 native/system/test/bin/
+
+# Real secrets that live beside maintained source, never in it.
+# `.agents/secrets/pipeline.env` is the pipeline's own secret file that the
+# skill scripts and `tool-jubian` resolve by walking up from the workspace, so a
+# copy can appear in any project directory. The XHS runtime holds live browser
+# cookies and account backups. Neither is ever source.
+.agents/secrets/
+.xiaohongshu-runtime/
+.credentials.yaml
+# Machine-local scratch beside this checkout (migration ledgers, draft plans).
+/.local/
+# Generated residue: a full coverage dump, and a stray file literally named `-`.
+cov-all.txt
+/-
+# VitePress writes a timestamped copy of the site config while building.
+*.timestamp-*.mjs

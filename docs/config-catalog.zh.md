@@ -982,12 +982,20 @@ export interface Config {
   shotScript?: boolean
   /** Refuse a paid storyboard submission while no `official=true` asset record exists (default `true`). */
   officialAssets?: boolean
+  /**
+   * Refuse creating a new billed asset — `jubian_video` `image_generate` — until
+   * the project root holds a fresh `_probe/asset-reconcile.json` that is
+   * `ready` and fully disposed (default `true`). The manifest records what this
+   * pipeline generated, not what the Jubian project already has, so the evidence
+   * is what keeps an existing asset from being regenerated.
+   */
+  reconcileFirst?: boolean
   /** Explain a call to a retired MUSE tool name instead of a bare `UNKNOWN_TOOL` (default `true`). */
   museToolNames?: boolean
 }
 ```
 
-来源：[`packages/guard/drama-gate/src/index.ts:46`](../packages/guard/drama-gate/src/index.ts)
+来源：[`packages/guard/drama-gate/src/index.ts:48`](../packages/guard/drama-gate/src/index.ts)
 
 <a id="deepseek-aidsh-headless"></a>
 
@@ -2995,6 +3003,56 @@ export interface Config {
 
 来源：[`packages/shell/tool-bash-persistent/src/index.ts:435`](../packages/shell/tool-bash-persistent/src/index.ts)
 
+<a id="deepseek-aidsh-tool-bgm-compose"></a>
+
+## `@deepseek-ai/dsh-tool-bgm-compose`
+
+需要：`tools` · `subprocess`
+
+```ts config-catalog
+/** Deployment-varying executable and subprocess limits. */
+export interface Config {
+  /** FFmpeg executable or command name. */
+  readonly ffmpegPath?: string
+  /** ffprobe executable or command name. */
+  readonly ffprobePath?: string
+  /** Maximum duration of one media command. */
+  readonly commandTimeoutMs?: number
+  /** Provider termination grace. */
+  readonly terminationGraceMs?: number
+  /** Collected output cap for each process stream. */
+  readonly outputMaxBytes?: number
+}
+```
+
+来源：[`packages/drama/tool-bgm-compose/src/index.ts:21`](../packages/drama/tool-bgm-compose/src/index.ts)
+
+<a id="deepseek-aidsh-tool-drama-assets"></a>
+
+## `@deepseek-ai/dsh-tool-drama-assets`
+
+需要：`tools` · `credentials`
+
+```ts config-catalog
+/**
+ * Plugin config. Every field is a deployment-varying choice: which origin the
+ * remote reads go to, how long one read may take, and whether the workspace's own
+ * pipeline secret file may stand in for a missing credential-store value. The
+ * comparison's own rules — `delFlag`, `isUsed`, `Active`, the policy numbers —
+ * are the pipeline's contract and are not configurable.
+ */
+export interface Config {
+  /** Origin override; defaults to the client's own default base URL. */
+  baseUrl?: string
+  /** Per-call abort budget in milliseconds. */
+  timeoutMs?: number
+  /** Whether the workspace's own pipeline secret file may stand in for a missing credential-store value; defaults to true. */
+  workspaceSecrets?: boolean
+}
+```
+
+来源：[`packages/drama/tool-drama-assets/src/index.ts:46`](../packages/drama/tool-drama-assets/src/index.ts)
+
 <a id="deepseek-aidsh-tool-episode-render"></a>
 
 ## `@deepseek-ai/dsh-tool-episode-render`
@@ -3142,18 +3200,51 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
-export interface Config {
+export interface Config extends ImageRouteConfig {
   /** Directory holding the write ledger; defaults to `<DSH_HOME>/jubian/ledger`. */
   ledgerRoot?: string
   /** Origin override; defaults to the client's own default base URL. */
   baseUrl?: string
   /** Per-call abort budget in milliseconds. */
   timeoutMs?: number
+  /** Watch polling interval in milliseconds; integer 1..60000, default 15000. */
+  watchPollIntervalMs?: number
+  /** Watch deadline in milliseconds; integer 1..86400000, default 1800000. */
+  watchTimeoutMs?: number
   /**
    * Whether the workspace's own pipeline secret file may stand in for a missing
    * credential-store value; defaults to true.
    */
   workspaceSecrets?: boolean
+  /**
+   * How long `image_generate` waits for the new asset to reach
+   * `hsAssetStatus === "Active"` before reporting a timeout, in milliseconds;
+   * defaults to 180000, because a measured asset took one to two minutes.
+   */
+  imageActiveTimeoutMs?: number
+  /** Delay between the readback polls above, in milliseconds; defaults to 3000. */
+  imageActivePollMs?: number
+  /**
+   * Separator between the segments of a composed asset name; defaults to `｜`.
+   * Applies only to names this row composes from an `episode` argument — a caller
+   * that passes no episode keeps its own `asset_name` and `task_name` verbatim.
+   */
+  nameSeparator?: string
+  /**
+   * Episode token of an asset that serves the whole series; defaults to `全剧`.
+   * A caller passes exactly this value as `episode` to place an asset outside any
+   * one episode.
+   */
+  seriesLabel?: string
+  /**
+   * Where `jubian_organize` writes its index, relative to the project directory;
+   * defaults to `_probe/asset-index.md`.
+   */
+  assetIndexPath?: string
+}
+
+/** The composition fields the paid image route reads. */
+export interface ImageRouteConfig {
   /**
    * Which `platformId` of the `taskType=2` catalogue `image_generate` buys from,
    * such as `KU_AI`. The account catalogue can list one model id once per
@@ -3167,18 +3258,10 @@ export interface Config {
    * from, such as `66`. Either this or `imagePlatformId` is enough to pin one row.
    */
   imageStandardId?: number
-  /**
-   * How long `image_generate` waits for the new asset to reach
-   * `hsAssetStatus === "Active"` before reporting a timeout, in milliseconds;
-   * defaults to 180000, because a measured asset took one to two minutes.
-   */
-  imageActiveTimeoutMs?: number
-  /** Delay between the readback polls above, in milliseconds; defaults to 3000. */
-  imageActivePollMs?: number
 }
 ```
 
-来源：[`packages/jubian/tool-jubian/src/index.ts:30`](../packages/jubian/tool-jubian/src/index.ts)
+来源：[`packages/jubian/tool-jubian/src/index.ts:45`](../packages/jubian/tool-jubian/src/index.ts)
 
 <a id="deepseek-aidsh-tool-lsp"></a>
 
@@ -3849,6 +3932,7 @@ export interface Config {
 - `@deepseek-ai/dsh-computer-use` ([`packages/computer-use/computer-use/src/index.ts`](../packages/computer-use/computer-use/src/index.ts))
 - `@deepseek-ai/dsh-cordis-client-runner`（[`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts)）
 - `@deepseek-ai/dsh-deepseek-llm-api-extensions`（[`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts)）
+- `@deepseek-ai/dsh-drama-settings` ([`packages/drama/drama-settings/src/index.ts`](../packages/drama/drama-settings/src/index.ts))
 - `@deepseek-ai/dsh-experimental-auto-review` — 需要 `llm` · `permissionPresets` · `sessions` · `tools`（[`packages/experimental/auto-review/src/index.ts`](../packages/experimental/auto-review/src/index.ts)）
 - `@deepseek-ai/dsh-experimental-client-ui-agent-team`（[`packages/experimental/client-ui-agent-team/src/index.ts`](../packages/experimental/client-ui-agent-team/src/index.ts)）
 - `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native` — requires `computerUse` · `tools` · `systemPrompt` ([`packages/experimental/computer-use-cua-driver-native/src/index.ts`](../packages/experimental/computer-use-cua-driver-native/src/index.ts))

@@ -14,6 +14,7 @@
 #       # idempotencyKey: true            # 写/计费方法必须带 idempotency_key
 #       # shotScript: true                # 镜头脚本与 matched JSON 的内容门禁
 #       # officialAssets: true            # 付费提交前必须有 official=true 资产
+#       # reconcileFirst: true            # 新建计费资产前必须有新鲜且已处置的对账证据
 #       # museToolNames: true             # 用中文说明已下线的 MUSE 工具名
 #
 - insert:

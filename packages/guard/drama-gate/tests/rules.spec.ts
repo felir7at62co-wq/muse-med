@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
 import { evaluateCall } from '@deepseek-ai/dsh-guard-drama'
-import type { GateCall, GateDecision } from '@deepseek-ai/dsh-guard-drama'
+import type { GateCall, GateDecision, GateReader } from '@deepseek-ai/dsh-guard-drama'
 import {
-  ALL_ON, MATCHED, PROJECT, PROMPTS, WORKSHOP, WORKSPACE, block, call, fakeReader, han, matchedJson,
+  ALL_ON, MATCHED, PROJECT, PROMPTS, RECONCILE, WORKSHOP, WORKSPACE, block, call, fakeReader, han, matchedJson,
 } from './harness.ts'
 
 /**
@@ -20,6 +20,7 @@ function reason(decision: GateDecision): string {
 
 /** One `jubian_*` write method plus the argument object that omits its key. */
 const WRITES: [string, string, Record<string, unknown>][] = [
+  ['jubian_model', 'apply', { script_id: 1, preview_path: 'model-settings.json' }],
   ['jubian_storyboard', 'create', {}],
   ['jubian_storyboard', 'save', {}],
   ['jubian_storyboard', 'generate', {}],
@@ -39,12 +40,13 @@ describe('paid/write methods require an idempotency key', () => {
   })
 
   it.each(WRITES)('allows %s.%s once the key is present', (toolName, method, extra) => {
-    // The official-asset rule is switched off so this case isolates the key rule:
-    // `jubian_storyboard.generate` is otherwise also a paid submission.
+    // The two other paid rules are switched off so this case isolates the key
+    // rule: `jubian_storyboard.generate` is otherwise also a paid submission, and
+    // `jubian_video.image_generate` otherwise also needs project reconcile evidence.
     const decision = evaluateCall(call({
       toolName,
       arguments: { method, idempotency_key: 'k-1', ...extra },
-      switches: { ...ALL_ON, officialAssets: false },
+      switches: { ...ALL_ON, officialAssets: false, reconcileFirst: false },
     }))
     expect(decision).toEqual({ kind: 'allow' })
   })
@@ -66,6 +68,8 @@ describe('paid/write methods require an idempotency key', () => {
     for (const method of ['get', 'list', 'materials', 'generated_image', 'task', 'tasks', 'subtasks']) {
       expect(evaluateCall(call({ toolName: 'jubian_video', arguments: { method } }))).toEqual({ kind: 'allow' })
     }
+    expect(evaluateCall(call({ toolName: 'jubian_model', arguments: { method: 'preview' } })))
+      .toEqual({ kind: 'allow' })
   })
 
   it('ignores a method argument on an unrelated tool', () => {
@@ -126,17 +130,9 @@ describe('shot-script content gate', () => {
     expect(write(PROMPTS, script)).toEqual({ kind: 'allow' })
   })
 
-  it.each(['旁白', '画外音', '画外声', '心声', '（OS）', 'VO'])('denies the narration marker %s', (marker) => {
-    const script = `真人短剧写实风格\n${block(1, '1秒', '方恒：你好')}\n${marker}：他走了\n`
-    const text = reason(write(PROMPTS, script))
-    expect(text).toContain('短剧门禁拦下这次 write')
-    expect(text).toContain('本格式没有旁白：把该台词落成画面内台词')
-    expect(text).toContain('落不进画面内的段落回报失败，不要静默丢弃')
-  })
-
-  it('names the offending line in the narration refusal', () => {
-    const script = '真人短剧写实风格\n【镜头1】\n时长：1秒\n旁白：他走了\n'
-    expect(reason(write(PROMPTS, script))).toContain('第 4 行出现旁白/心声标记「旁白」')
+  it.each(['旁白', '画外音', '画外声', '心声', '（OS）', 'VO'])('allows the creative voice choice %s', (marker) => {
+    const script = `真人短剧写实风格\n${block(1, '20秒', '方恒：你好')}\n${marker}：他走了\n`
+    expect(write(PROMPTS, script)).toEqual({ kind: 'allow' })
   })
 
   it('does not read `voice_type` or `visual` as narration tokens', () => {
@@ -144,31 +140,18 @@ describe('shot-script content gate', () => {
     expect(write(PROMPTS, script)).toEqual({ kind: 'allow' })
   })
 
-  it('denies a duration outside 1–4 seconds', () => {
-    const script = `真人短剧写实风格\n${block(1, '5秒', `方恒：${han(45)}`)}`
-    expect(reason(write(PROMPTS, script))).toContain('镜头1的时长「5秒」不合法')
+  it('allows long shots, long speech and deliberate pauses', () => {
+    for (const [seconds, characters] of [['20秒', 45], ['1秒', 37], ['10秒', 2]] as const) {
+      expect(write(PROMPTS, block(1, seconds, `方恒：${han(characters)}`))).toEqual({ kind: 'allow' })
+    }
   })
 
-  it('denies a fractional duration', () => {
-    const script = `真人短剧写实风格\n${block(1, '3.5秒', `方恒：${han(10)}`)}`
-    expect(reason(write(PROMPTS, script))).toContain('小数秒和 5 秒及以上都不接受')
+  it.each(['0秒', '-1秒', '3.5秒', '', '很多秒'])('denies malformed explicit duration %s', (seconds) => {
+    expect(reason(write(PROMPTS, block(1, seconds, '方恒：你好')))).toContain('正整数秒')
   })
 
-  it('denies a block with no duration declaration', () => {
-    const script = '真人短剧写实风格\n【镜头1】\n发声类型：action\n'
-    expect(reason(write(PROMPTS, script))).toContain('镜头1没有「时长：」声明')
-  })
-
-  it('denies more than 36 effective characters', () => {
-    const script = `真人短剧写实风格\n${block(1, '1秒', `方恒：${han(37)}`)}`
-    expect(reason(write(PROMPTS, script))).toContain('镜头1的单镜有效字 37 超过 36')
-  })
-
-  it('denies a declared duration that contradicts the 9-characters-per-second rule', () => {
-    const script = `真人短剧写实风格\n${block(1, '1秒', `方恒：${han(10)}`)}`
-    const text = reason(write(PROMPTS, script))
-    expect(text).toContain('10 个有效字按 9 有效字/秒应为 2 秒，实际写成 1 秒')
-    expect(text).toContain('标点和空格不计')
+  it('allows omitted duration for compiler estimation', () => {
+    expect(write(PROMPTS, '【镜头1】\n发声类型：action\n')).toEqual({ kind: 'allow' })
   })
 
   it('counts only Han, letters, and digits', () => {
@@ -178,7 +161,7 @@ describe('shot-script content gate', () => {
 
   it('gates the episode package copies as well as the prompts directory', () => {
     const path = join(PROJECT, 'episode_packages', '01', 'shot_script.txt')
-    expect(write(path, `真人短剧写实风格\n${block(1, '1秒', '方恒：旁白说')}`).kind).toBe('deny')
+    expect(write(path, `真人短剧写实风格\n${block(1, '0秒', '方恒：旁白说')}`).kind).toBe('deny')
   })
 
   it('leaves the archived source script alone', () => {
@@ -221,55 +204,24 @@ describe('matched JSON content gate', () => {
     expect(write(MATCHED, matchedJson({ duration: 1, text: han(9) }))).toEqual({ kind: 'allow' })
   })
 
-  it('denies a duration outside 1–4 seconds', () => {
-    expect(reason(write(MATCHED, matchedJson({ script_duration: 5, text: han(45) })))).toContain('镜头1的时长不合法（5）')
+  it('allows long slow shots and voice choices without changing text', () => {
+    expect(write(MATCHED, matchedJson({ script_duration: 20, text: han(45),
+      voice_type: 'vo', visual: '（心声）他转身离开' }))).toEqual({ kind: 'allow' })
   })
 
-  it('denies a fractional duration', () => {
-    expect(reason(write(MATCHED, matchedJson({ script_duration: 2.5, text: han(20) })))).toContain('每镜必须是 1–4 的整数秒')
+  it.each([0, -1, 2.5, '3', null, undefined])('denies malformed duration %s', (duration) => {
+    expect(reason(write(MATCHED, matchedJson({ script_duration: duration, text: han(9) })))).toContain('正整数秒')
   })
 
-  it('denies a missing duration', () => {
-    expect(reason(write(MATCHED, matchedJson({ text: han(9) })))).toContain('镜头1的时长不合法（缺失）')
-  })
-
-  it('denies more than 36 effective characters', () => {
-    expect(reason(write(MATCHED, matchedJson({ script_duration: 4, text: han(37) })))).toContain('单镜有效字 37 超过 36')
-  })
-
-  it('denies a duration that contradicts the dialogue length', () => {
-    const text = reason(write(MATCHED, matchedJson({ script_duration: 3, text: han(10) })))
-    expect(text).toContain('10 个有效字按 9 有效字/秒应为 2 秒，实际是 3 秒')
-  })
-
-  it('denies narration inside a shot prose field', () => {
-    const text = reason(write(MATCHED, matchedJson({ script_duration: 1, text: han(9), visual: '（心声）他转身离开' })))
-    expect(text).toContain('出现旁白/心声标记「心声」')
-    expect(text).toContain('本格式没有旁白')
-  })
-
-  it('does not read a `voice_type` key or a word containing `vo`/`os` as narration', () => {
-    // The unparseable document takes the raw-text fallback, which is the only
-    // path where a JSON key could ever be mistaken for a marker.
-    expect(write(MATCHED, '{ "voice_type": "dialogue", "visual": "provost closing"')).toEqual({ kind: 'allow' })
-  })
-
-  it('still catches a standalone VO value', () => {
-    expect(reason(write(MATCHED, '{ "voice_type": "VO"'))).toContain('出现旁白/心声标记「VO」')
-  })
-
-  it('falls back to a raw-text narration scan when the JSON does not parse', () => {
-    expect(write(MATCHED, '{ "shots": [ { "visual": "旁白：他走了" }').kind).toBe('deny')
-    expect(write(MATCHED, '{ "shots": [ { "visual": "好" }').kind).toBe('allow')
-  })
-
-  it('leaves a JSON document with no shots container to the compiler', () => {
-    expect(write(MATCHED, '{ "version": 4, "episode": "01" }')).toEqual({ kind: 'allow' })
+  it('rejects malformed JSON, missing shot arrays and malformed fields', () => {
+    for (const text of ['{', '{ "version": 4 }', '{"shots":[null]}', matchedJson({ duration: 1, text: 42 })]) {
+      expect(write(MATCHED, text).kind).toBe('deny')
+    }
   })
 
   it('gates the episode package copy', () => {
     const path = join(PROJECT, 'episode_packages', '01', 'matched.json')
-    expect(write(path, matchedJson({ script_duration: 6, text: '' })).kind).toBe('deny')
+    expect(write(path, matchedJson({ script_duration: 0, text: '' })).kind).toBe('deny')
   })
 })
 
@@ -290,11 +242,11 @@ describe('edit simulation', () => {
   })
 
   it('denies an edit that breaks the duration rule', () => {
-    expect(reason(edit('时长：2秒', '时长：5秒'))).toContain('镜头1的时长「5秒」不合法')
+    expect(reason(edit('时长：2秒', '时长：0秒'))).toContain('正整数秒')
   })
 
-  it('denies an edit that reintroduces narration', () => {
-    expect(reason(edit('主体状态追踪：在场', '主体状态追踪：在场\n旁白：他走了'))).toContain('本格式没有旁白')
+  it('allows narration edits', () => {
+    expect(edit('主体状态追踪：在场', '主体状态追踪：在场\n旁白：他走了')).toEqual({ kind: 'allow' })
   })
 
   it('replaces every occurrence with replace_all', () => {
@@ -305,11 +257,11 @@ describe('edit simulation', () => {
         [PROMPTS]: `真人短剧写实风格\n${block(1, '2秒', '方恒：今天天气很好我们出门吧')}${block(2, '2秒', '方恒：今天天气很好我们出门吧')}`,
       }),
     }))
-    expect(reason(decision)).toContain('镜头1声明的时长与台词不符')
+    expect(decision).toEqual({ kind: 'allow' })
   })
 
   it('treats `$&` in the new text literally, as the edit tool does', () => {
-    expect(reason(edit('2秒', '$&'))).toContain('镜头1的时长「$&」不合法')
+    expect(reason(edit('2秒', '$&'))).toContain('时长「$&」不合法')
   })
 
   it('leaves an edit the tool itself would refuse to the tool', () => {
@@ -354,10 +306,10 @@ describe('edit simulation', () => {
   it('resolves a relative file_path against the session cwd', () => {
     const relativeEdit = evaluateCall(call({
       toolName: 'edit',
-      arguments: { file_path: 'short-drama/demo-drama/prompts/01.txt', old_string: '在场', new_string: '在场\n旁白：他走了' },
+      arguments: { file_path: 'short-drama/demo-drama/prompts/01.txt', old_string: '2秒', new_string: '0秒' },
       reader: fakeReader({ [PROMPTS]: before }),
     }))
-    expect(reason(relativeEdit)).toContain('本格式没有旁白')
+    expect(reason(relativeEdit)).toContain('正整数秒')
   })
 })
 
@@ -435,9 +387,12 @@ describe('official assets before a paid submission', () => {
   })
 
   it('does not block asset generation, which runs before any official asset exists', () => {
+    // The reconcile rule is the one that guards asset generation, so it is
+    // switched off here to isolate this rule.
     const decision = evaluateCall(call({
       toolName: 'jubian_video',
       arguments: { method: 'image_generate', asset_name: 'a', asset_type: 1, prompt: 'p', idempotency_key: 'k' },
+      switches: { ...ALL_ON, reconcileFirst: false },
     }))
     expect(decision).toEqual({ kind: 'allow' })
   })
@@ -464,6 +419,177 @@ describe('official assets before a paid submission', () => {
 
   it('honors the switch', () => {
     expect(submit({ switches: { ...ALL_ON, officialAssets: false } })).toEqual({ kind: 'allow' })
+  })
+})
+
+describe('a project reconcile before creating a paid asset', () => {
+  /** One reconcile report as the pipeline's tool writes it, `minutesAgo` minutes old. */
+  function report(overrides: Record<string, unknown> = {}, minutesAgo = 0): Record<string, unknown> {
+    return {
+      script_id: 2708,
+      ran_at: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+      unregistered: [],
+      dangling: [],
+      disposition: {},
+      blocking: [],
+      ignored_without_note: [],
+      ready: true,
+      policy: {},
+      ...overrides,
+    }
+  }
+
+  /** The reader of a workshop whose only project holds that evidence text. */
+  function withEvidence(content: string): GateReader {
+    return fakeReader({ [RECONCILE]: content }, { [WORKSHOP]: ['demo-drama'] })
+  }
+
+  /** A `jubian_video.image_generate` call carrying a key, as the pipeline sends it. */
+  function generate(overrides: Partial<GateCall> = {}): GateDecision {
+    return evaluateCall(call({
+      toolName: 'jubian_video',
+      arguments: { method: 'image_generate', asset_name: 'a', asset_type: 1, prompt: 'p', idempotency_key: 'k' },
+      ...overrides,
+    }))
+  }
+
+  it('denies when no reconcile evidence exists', () => {
+    const text = reason(generate())
+    expect(text).toContain('jubian_video.image_generate 会新建资产并真实计费')
+    expect(text).toContain('没有 _probe/asset-reconcile.json')
+    expect(text).toContain('python _tools/asset_reconcile.py')
+    expect(text).toContain('--dispose <asset_id> --status ignored --note')
+  })
+
+  it('denies evidence that is not parseable JSON', () => {
+    expect(reason(generate({ reader: withEvidence('{ not json') }))).toContain('不是可解析的对账 JSON')
+  })
+
+  it('denies evidence that is JSON but not a report object', () => {
+    expect(reason(generate({ reader: withEvidence('[1, 2]') }))).toContain('不是可解析的对账 JSON')
+  })
+
+  const BAD_TIMESTAMPS: [string, Record<string, unknown>][] = [
+    ['missing', { ran_at: undefined }],
+    ['not a string', { ran_at: 42 }],
+    ['not a time', { ran_at: '昨天下午' }],
+  ]
+
+  it.each(BAD_TIMESTAMPS)('denies a ran_at that is %s', (_label, overrides) => {
+    expect(reason(generate({ reader: withEvidence(JSON.stringify(report(overrides))) })))
+      .toContain('ran_at 缺失或不是 ISO 时间')
+  })
+
+  it('denies evidence older than 24 hours', () => {
+    const text = reason(generate({ reader: withEvidence(JSON.stringify(report({}, 25 * 60))) }))
+    expect(text).toContain('对账已过期')
+    expect(text).toContain('超过 24 小时')
+  })
+
+  it('denies evidence more than five minutes ahead of the clock', () => {
+    expect(reason(generate({ reader: withEvidence(JSON.stringify(report({}, -10))) }))).toContain('对账时间在未来')
+  })
+
+  it('accepts evidence a minute ahead of the clock', () => {
+    expect(generate({ reader: withEvidence(JSON.stringify(report({}, -1))) })).toEqual({ kind: 'allow' })
+  })
+
+  it('reads a timestamp with no zone as China Standard Time', () => {
+    // The pipeline's tool may write a naive stamp; it means +08:00 wherever the
+    // gate runs, so the verdict cannot depend on the host's own zone.
+    const cn = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 19)
+    expect(generate({ reader: withEvidence(JSON.stringify(report({ ran_at: cn }))) })).toEqual({ kind: 'allow' })
+    const ahead = new Date(Date.now() + (8 * 60 + 10) * 60 * 1000).toISOString().slice(0, 19)
+    expect(reason(generate({ reader: withEvidence(JSON.stringify(report({ ran_at: ahead }))) }))).toContain('对账时间在未来')
+  })
+
+  it('denies a remote asset that is selected but still undisposed', () => {
+    const text = reason(generate({ reader: withEvidence(JSON.stringify(report({ blocking: [83840], ready: false }))) }))
+    expect(text).toContain('对账里还有 1 条未处置的未登记资产：83840')
+  })
+
+  it('denies an asset ignored without a note', () => {
+    const text = reason(generate({ reader: withEvidence(JSON.stringify(report({ ignored_without_note: [83840], ready: false }))) }))
+    expect(text).toContain('有 1 条判为 ignored 但没写 note：83840')
+  })
+
+  it('denies a report that is not marked ready', () => {
+    expect(reason(generate({ reader: withEvidence(JSON.stringify(report({ ready: false }))) }))).toContain('对账未标记 ready')
+  })
+
+  it('allows fresh evidence whose unregistered assets are all disposed', () => {
+    const disposed = report({
+      unregistered: [{ asset_id: 83840, name: '陆沉舟｜深巧克力年轻高定西装' }],
+      disposition: { 83840: { status: 'registered', note: '' } },
+    })
+    expect(generate({ reader: withEvidence(JSON.stringify(disposed)) })).toEqual({ kind: 'allow' })
+  })
+
+  it('allows a minimal ready report carrying no disposition fields at all', () => {
+    expect(generate({ reader: withEvidence(JSON.stringify({ ran_at: report()['ran_at'], ready: true })) }))
+      .toEqual({ kind: 'allow' })
+  })
+
+  it('reads the evidence below an explicitly configured project root', () => {
+    const explicit = join(WORKSPACE, 'elsewhere')
+    const reader = fakeReader({ [join(explicit, '_probe', 'asset-reconcile.json')]: JSON.stringify(report()) })
+    expect(generate({ reader, projectRoot: explicit })).toEqual({ kind: 'allow' })
+  })
+
+  it('accepts evidence found under any project of the workshop', () => {
+    // The search is per workshop, not per project: a sibling's fresh evidence
+    // satisfies the rule for a project that has none. The README records it.
+    const sibling = join(WORKSHOP, 'other-drama')
+    const reader = fakeReader(
+      { [join(sibling, '_probe', 'asset-reconcile.json')]: JSON.stringify(report()) },
+      { [WORKSHOP]: ['other-drama'] },
+    )
+    expect(generate({ reader })).toEqual({ kind: 'allow' })
+  })
+
+  it('reports the unusable candidate rather than the absent one', () => {
+    const text = reason(generate({ reader: withEvidence(JSON.stringify(report({}, 25 * 60))) }))
+    expect(text).toContain('对账已过期')
+    expect(text).toContain(`已查：${WORKSHOP}、${PROJECT}`)
+  })
+
+  it('leaves a read method alone', () => {
+    for (const method of ['asset', 'assets', 'get', 'list', 'subtasks']) {
+      expect(evaluateCall(call({ toolName: 'jubian_video', arguments: { method } }))).toEqual({ kind: 'allow' })
+    }
+  })
+
+  it('leaves every other paid method alone', () => {
+    const manifest = fakeReader(
+      { [join(PROJECT, 'assets_manifest.json')]: JSON.stringify({ assets: [{ official: true }] }) },
+      { [WORKSHOP]: ['demo-drama'] },
+    )
+    expect(evaluateCall(call({
+      toolName: 'jubian_storyboard',
+      arguments: { method: 'generate', idempotency_key: 'k' },
+      reader: manifest,
+    }))).toEqual({ kind: 'allow' })
+    const OTHERS: [string, Record<string, unknown>][] = [
+      ['jubian_storyboard', { method: 'erase_subtitle', idempotency_key: 'k' }],
+      ['jubian_video', { method: 'upscale', idempotency_key: 'k' }],
+      ['jubian_asset', { method: 'confirm_casting', idempotency_key: 'k' }],
+      ['jubian_asset', { method: 'remove', idempotency_key: 'k' }],
+    ]
+    for (const [toolName, args] of OTHERS) {
+      expect(evaluateCall(call({ toolName, arguments: args }))).toEqual({ kind: 'allow' })
+    }
+  })
+
+  it('ignores a method that is not a string', () => {
+    expect(evaluateCall(call({ toolName: 'jubian_video', arguments: { method: 7 } }))).toEqual({ kind: 'allow' })
+  })
+
+  it('allows when no workspace root can be resolved', () => {
+    expect(generate({ sessionCwd: undefined, configuredRoot: undefined })).toEqual({ kind: 'allow' })
+  })
+
+  it('honors the switch', () => {
+    expect(generate({ switches: { ...ALL_ON, reconcileFirst: false } })).toEqual({ kind: 'allow' })
   })
 })
 

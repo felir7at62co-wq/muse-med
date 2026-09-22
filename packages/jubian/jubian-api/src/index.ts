@@ -2,13 +2,15 @@
 export { MODEL_TASK_TYPES, readEpisodes, readModels, readScript } from './catalog.ts'
 export { readAssetList, readAssetPage, readGeneratedImage, readMaterialList } from './asset.ts'
 export type { AssetDetail, AssetRow, MaterialRow } from './asset.ts'
+export { findFolder, findFolderById, readFolderTree } from './folder.ts'
+export type { FolderNode } from './folder.ts'
 export { RESOLUTION_ORDER, VIDEO_TASK_TYPES, needsUpscale, readSubtaskPage, readTaskList, readTaskPage,
   resolutionRank } from './video.ts'
 export type { SubtitleBox, VideoSubtask, VideoTask, VideoVersionRecord } from './video.ts'
 export { readStoryboard, withGenerationDisabled, withGenerationEnabled } from './storyboard.ts'
 export type { StoryboardView } from './storyboard.ts'
-export { buildImageRequest, readImageDisplayPrice, resolveImageModel } from './image.ts'
-export type { ImageModelSelection, ImageModelSelectors, ImageRequestInput } from './image.ts'
+export { buildImageRequest, imageCandidates, readImageDisplayPrice, resolveImageModel } from './image.ts'
+export type { ImageModelCandidate, ImageModelSelection, ImageModelSelectors, ImageRequestInput } from './image.ts'
 export { AUTOMATIC_ERASE_MODEL, DEFAULT_SUBTITLE_REGION, SUBTITLE_ERASE_MODELS, SUBTITLE_ERASE_STANDARDS,
   buildSubtitleEraseRequest, defaultSubtitleBox, readSubtitleTaskId } from './subtitle.ts'
 export type { SubtitleEraseInput } from './subtitle.ts'
@@ -28,7 +30,7 @@ export type { SelectionState, SubjectSelectionInput, SubjectSelectionPlan,
 export { FAILED_STATUSES, NATIVE_MODEL_FIELDS, SUCCESS_STATUSES, buildNativeVideoPreview,
   childrenOf, classifyExistingNativeMatches, classifyNewNativeCandidates, isRelatedTaskCandidate,
   nativeModelSignature, nativeObservablePrompt, nativeResultUrls, normalizedPrompt, readBackIdentity,
-  responseRecords, selectSeedanceVideoModel, stableJson, stableSha256, storyboardMaterials,
+  responseRecords, resolveVideoModel, validateVideoDuration, stableJson, stableSha256, storyboardMaterials,
   subjectIdentitySignature, submissionSemantics, taskIdOf, taskSemanticFields, taskStatusOf,
   terminalOutcome, validateNativeVideoPreview, validatedVideoMaterials, wireText } from './native.ts'
 export type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeOrderedAsset, NativePreviewInput,

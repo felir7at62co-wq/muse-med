@@ -1,0 +1,53 @@
+{"type":"session_rebound","value":{"reason":"startup"},"at":"2026-09-17T08:27:47.723Z"}
+{"type":"session_waiting_for_load","value":{"reason":"startup"},"at":"2026-09-17T08:27:47.741Z"}
+{"type":"state","value":{"goal":null,"list":[],"loop":null,"mainModelRecovery":null,"lastModelRef":"deepseek/deepseek-v4-flash-vision-exp","lastCompactionAt":null,"supervisorPausedAt":null,"loadHoldAt":null,"lastOutcome":null},"at":"2026-09-17T08:27:57.360Z"}
+{"type":"context_usage_sample","value":{"goalId":null,"provider":"deepseek","model":"deepseek-v4-flash-vision-exp","providerUsage":{"inputTokens":228,"outputTokens":526,"cacheReadTokens":25216,"cacheWriteTokens":0,"totalTokens":25970},"contextUsage":{"tokens":25970,"contextWindow":1000000,"percent":2.597}},"at":"2026-09-17T08:28:06.361Z"}
+{"type":"context_usage_sample","value":{"goalId":null,"provider":"deepseek","model":"deepseek-v4-flash-vision-exp","providerUsage":{"inputTokens":439,"outputTokens":764,"cacheReadTokens":28928,"cacheWriteTokens":0,"totalTokens":30131},"contextUsage":{"tokens":30131,"contextWindow":1000000,"percent":3.0131}},"at":"2026-09-17T08:32:54.204Z"}
+{"type":"session_shutdown","value":{"reason":"quit"},"at":"2026-09-17T08:34:33.130Z"}
+{"type":"session_rebound","value":{"reason":"startup"},"at":"2026-09-17T08:43:29.735Z"}
+{"type":"context_usage_sample","value":{"goalId":null,"provider":"deepseek","model":"deepseek-v4-flash-vision-exp","providerUsage":null,"contextUsage":{"tokens":32286,"contextWindow":1000000,"percent":3.2286}},"at":"2026-09-17T08:46:07.809Z"}
+{"type":"context_usage_sample","value":{"goalId":null,"provider":"deepseek","model":"deepseek-v4-flash-vision-exp","providerUsage":null,"contextUsage":{"tokens":39056,"contextWindow":1000000,"percent":3.9056}},"at":"2026-09-17T08:46:21.514Z"}
+{"type":"context_usage_sample","value":{"goalId":null,"provider":"deepseek","model":"deepseek-v4-flash-vision-exp","providerUsage":{"inputTokens":159,"outputTokens":896,"cacheReadTokens":56960,"cacheWriteTokens":0,"totalTokens":58015},"contextUsage":{"tokens":58015,"contextWindow":1000000,"percent":5.8015}},"at":"2026-09-17T08:47:58.997Z"}
+{"type":"context_usage_sample","value":{"goalId":null,"provider":"deepseek","model":"deepseek-v4-flash-vision-exp","providerUsage":null,"contextUsage":{"tokens":125564,"contextWindow":1000000,"percent":12.5564}},"at":"2026-09-17T08:59:04.813Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T08:59:06.039Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T08:59:09.302Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T08:59:26.736Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T08:59:28.777Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T08:59:32.312Z"}
+{"type":"context_usage_sample","value":{"goalId":null,"provider":"deepseek","model":"deepseek-v4-flash-vision-exp","providerUsage":{"inputTokens":611,"outputTokens":3558,"cacheReadTokens":128128,"cacheWriteTokens":0,"totalTokens":132297},"contextUsage":{"tokens":132297,"contextWindow":1000000,"percent":13.2297}},"at":"2026-09-17T08:59:48.282Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:00:32.947Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:00:41.269Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:00:43.442Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:00:58.391Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:01:03.214Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:01:16.077Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:01:24.273Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:01:27.791Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:02:00.627Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:02:02.897Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:02:07.934Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:02:42.112Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:02:45.898Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:02:48.593Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:02:50.255Z"}
+{"type":"context_usage_sample","value":{"goalId":null,"provider":"deepseek","model":"deepseek-v4-flash-vision-exp","providerUsage":{"inputTokens":209,"outputTokens":923,"cacheReadTokens":156928,"cacheWriteTokens":0,"totalTokens":158060},"contextUsage":{"tokens":158060,"contextWindow":1000000,"percent":15.806000000000001}},"at":"2026-09-17T09:02:54.878Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:04:30.192Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:04:35.170Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:04:39.744Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:04:42.392Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T09:04:44.095Z"}
+{"type":"context_usage_sample","value":{"goalId":null,"provider":"deepseek","model":"deepseek-v4-flash-vision-exp","providerUsage":{"inputTokens":213,"outputTokens":5143,"cacheReadTokens":161280,"cacheWriteTokens":0,"totalTokens":166636},"contextUsage":{"tokens":166636,"contextWindow":1000000,"percent":16.663600000000002}},"at":"2026-09-17T09:05:04.566Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T11:23:07.282Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T11:23:08.876Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T11:23:13.382Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T11:23:20.565Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T11:23:32.392Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T11:23:39.599Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T11:23:45.936Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T11:24:00.181Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T11:24:05.297Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T11:24:07.710Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T11:24:09.720Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T11:24:11.421Z"}
+{"type":"context_hygiene_dropped","value":{"dropped":1,"kept":1,"lastError":"This operation was aborted","generation":2},"at":"2026-09-17T11:24:15.154Z"}
+{"type":"session_rebound","value":{"reason":"startup"},"at":"2026-09-17T11:24:56.927Z"}

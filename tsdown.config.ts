@@ -12,13 +12,18 @@ function isBuildFaceClient(value: unknown): boolean {
  * TypeScript project and runs Typert. The Client pass selects packages that
  * declare a browser bundle and lets their package-local configs emit both
  * their Node loader entry and browser artifact.
+ *
+ * `packages/drama/skills` is a workspace package that ships static skill
+ * resources and has no JavaScript entry at all, so the workspace-wide entry
+ * glob cannot resolve it; exclude it rather than give it an empty build.
  */
 export default defineConfig(({ env }) => {
   const client = isBuildFaceClient(env?.DSH_BUILD_FACE)
+  const resourceOnly = '!packages/drama/skills'
   return {
     workspace: client
-      ? ['vendor/*', 'packages/*/*', 'apps/cli']
-      : ['vendor/*', 'packages/*/*', 'apps/cli', 'apps/desktop', 'apps/desktop-host'],
+      ? ['vendor/*', 'packages/*/*', resourceOnly, 'apps/cli']
+      : ['vendor/*', 'packages/*/*', resourceOnly, 'apps/cli', 'apps/desktop', 'apps/desktop-host'],
     entry: client ? '' : ['lib/types/{index,invariant,startup}.js'],
     outDir: 'lib',
     format: ['esm'],

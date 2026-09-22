@@ -47,6 +47,8 @@ export interface RuleSwitches {
   readonly shotScript: boolean
   /** Refuse a paid storyboard submission while no `official=true` asset record exists. */
   readonly officialAssets: boolean
+  /** Refuse creating a new billed asset while the project's assets are not reconciled. */
+  readonly reconcileFirst: boolean
   /** Explain a call to a retired MUSE tool name instead of a bare `UNKNOWN_TOOL`. */
   readonly museToolNames: boolean
 }
@@ -75,6 +77,7 @@ export interface GateCall {
 
 /** Jubian methods that write or bill, and therefore require an idempotency key. */
 const WRITE_METHODS: Readonly<Record<string, readonly string[]>> = {
+  jubian_model: ['apply'],
   jubian_storyboard: ['create', 'save', 'generate', 'erase_subtitle'],
   jubian_video: ['image_generate', 'upscale'],
   jubian_asset: ['confirm_casting', 'remove'],
@@ -83,6 +86,11 @@ const WRITE_METHODS: Readonly<Record<string, readonly string[]>> = {
 /** Jubian methods that spend money on the storyboard, which may only follow confirmed official assets. */
 const PAID_SUBMISSIONS: Readonly<Record<string, readonly string[]>> = {
   jubian_storyboard: ['generate'],
+}
+
+/** Jubian methods that create a new billed asset, which may only follow a reconcile of the project. */
+const ASSET_CREATIONS: Readonly<Record<string, readonly string[]>> = {
+  jubian_video: ['image_generate'],
 }
 
 /** The retired MUSE tool names the drama skills replaced; they resolve to nothing in this deployment. */
@@ -99,6 +107,23 @@ const PIPELINE_STATE = 'pipeline_state.json'
 /** The stage whose completion is accepted as official-asset evidence when no manifest exists. */
 const OFFICIAL_STAGE = 'official_assets'
 
+/** Where the pipeline's read-only reconcile tool writes its evidence, below one project root. */
+const RECONCILE_PROBE_DIR = '_probe'
+const RECONCILE_FILE = 'asset-reconcile.json'
+
+/** That same evidence path as the pipeline's own commands spell it, for the refusal text. */
+const RECONCILE_LABEL = `${RECONCILE_PROBE_DIR}/${RECONCILE_FILE}`
+
+/** How old reconcile evidence may be before a new billed asset needs a fresh reconcile. */
+const RECONCILE_FRESH_HOURS = 24
+/** How far ahead of the clock an evidence timestamp may sit before it counts as unusable. */
+const RECONCILE_FUTURE_MINUTES = 5
+
+/** An ISO date-time carrying no zone, which the pipeline's tool writes and reads as China Standard Time. */
+const NAIVE_STAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/
+/** China Standard Time, the zone a naive evidence timestamp is read in. */
+const CN_OFFSET = '+08:00'
+
 /**
  * Judge one pending tool call.
  * @param call - the tool name, its arguments, and the injected readers and switches.
@@ -108,6 +133,7 @@ export function evaluateCall(call: GateCall): GateDecision {
   const refusals = [
     call.switches.museToolNames ? retiredToolRefusal(call) : undefined,
     call.switches.idempotencyKey ? idempotencyRefusal(call) : undefined,
+    call.switches.reconcileFirst ? reconcileRefusal(call) : undefined,
     call.switches.officialAssets ? officialAssetRefusal(call) : undefined,
     call.switches.shotScript ? shotContentRefusal(call) : undefined,
   ]
@@ -151,6 +177,94 @@ function officialAssetRefusal(call: GateCall): string | undefined {
     + `（已查：${roots.join('、')}）。镜头与视频只能引用 official=true 且有剧变 asset/material id 与 URL 的资产；`
     + '先走资产三阶段门禁（写提示词 → 生图 → 候选审核 → 确认出演 / isLocal 主体设定门禁），'
     + '把 official 记录写进 assets_manifest.json 后再提交。'
+}
+
+/**
+ * Refuse creating a new billed asset while the project holds no usable reconcile
+ * of what the remote project already contains. The manifest records what this
+ * pipeline generated, not what the project has, so a model reading only the
+ * manifest regenerates an asset that is already there and selected.
+ */
+function reconcileRefusal(call: GateCall): string | undefined {
+  const methods = ASSET_CREATIONS[call.toolName]
+  const method = calledMethod(call)
+  if (methods === undefined || method === undefined || !methods.includes(method)) return undefined
+  const workspace = workspaceRoot(call)
+  // Same boundary as the official-asset rule: with no root there is no project to
+  // reconcile, and a refusal the session cannot repair is a worse defect than the
+  // regeneration this rule prevents. The README records the boundary.
+  if (workspace === undefined) return undefined
+  const roots = projectRoots(call, resolve(workspace, call.workshopDir))
+  const states = roots.map(root => reconcileState(join(root, RECONCILE_PROBE_DIR, RECONCILE_FILE), call.reader))
+  if (states.some(state => state.kind === 'ready')) return undefined
+  return `${call.toolName}.${method} 会新建资产并真实计费，但先要有本项目的资产对账证据：${describeReconcile(states)}`
+    + `（已查：${roots.join('、')}）。清单只记录我们生成过什么，不等于剧变项目里已经有什么；`
+    + '先在项目根跑一次对账：`python _tools/asset_reconcile.py`。'
+    + '对账列出的「远端已选用、清单里没有」的资产不要重新生成，登记进 assets_manifest.json 复用；'
+    + '确认不需要的写明原因：`python _tools/asset_reconcile.py --dispose <asset_id> --status ignored --note "为什么不需要"`。'
+    + `证据 ${RECONCILE_FRESH_HOURS} 小时内有效，ready=true 且 blocking 与 ignored_without_note 都为空才放行。`
+}
+
+/** What one candidate project's reconcile evidence says: usable, absent, or the requirement it misses. */
+type ReconcileState =
+  | { readonly kind: 'ready' }
+  | { readonly kind: 'absent' }
+  | { readonly kind: 'unusable'; readonly why: string }
+
+/**
+ * Judge one project's reconcile evidence, mirroring the pipeline tool's own
+ * `evidence_state`: the file must parse, its `ran_at` must be at most
+ * {@link RECONCILE_FRESH_HOURS} old and not more than {@link RECONCILE_FUTURE_MINUTES}
+ * ahead, and it must report no undisposed unregistered asset, no ignored asset
+ * without a note, and `ready: true`.
+ */
+function reconcileState(path: string, reader: GateReader): ReconcileState {
+  const text = reader.readText(path)
+  if (text === undefined) return { kind: 'absent' }
+  const report = record(parsedJson(text))
+  if (report === undefined) return { kind: 'unusable', why: `${RECONCILE_LABEL} 不是可解析的对账 JSON` }
+  const ranAt = report['ran_at']
+  const instant = ranAtInstant(ranAt)
+  if (instant === undefined) return { kind: 'unusable', why: '对账证据的 ran_at 缺失或不是 ISO 时间' }
+  const age = Date.now() - instant
+  if (age > RECONCILE_FRESH_HOURS * 60 * 60 * 1000) {
+    return { kind: 'unusable', why: `对账已过期（${String(ranAt)}，超过 ${RECONCILE_FRESH_HOURS} 小时）` }
+  }
+  if (age < -RECONCILE_FUTURE_MINUTES * 60 * 1000) {
+    return { kind: 'unusable', why: `对账时间在未来（${String(ranAt)}）` }
+  }
+  const blocking = nonEmptyList(report['blocking'])
+  if (blocking !== undefined) {
+    return { kind: 'unusable', why: `对账里还有 ${blocking.length} 条未处置的未登记资产：${blocking.join('、')}` }
+  }
+  const ignored = nonEmptyList(report['ignored_without_note'])
+  if (ignored !== undefined) {
+    return { kind: 'unusable', why: `有 ${ignored.length} 条判为 ignored 但没写 note：${ignored.join('、')}` }
+  }
+  if (report['ready'] !== true) return { kind: 'unusable', why: '对账未标记 ready' }
+  return { kind: 'ready' }
+}
+
+/** The instant one `ran_at` value denotes, or undefined when it is not a timestamp at all. */
+function ranAtInstant(value: unknown): number | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  const stamp = NAIVE_STAMP.test(trimmed) ? `${trimmed.replace(' ', 'T')}${CN_OFFSET}` : trimmed
+  const instant = Date.parse(stamp)
+  return Number.isNaN(instant) ? undefined : instant
+}
+
+/** The non-empty list one evidence field carries, or undefined when it is empty, absent, or not a list. */
+function nonEmptyList(value: unknown): readonly unknown[] | undefined {
+  return Array.isArray(value) && value.length > 0 ? value : undefined
+}
+
+/** The one shortcoming a refusal reports: the first candidate that has evidence, else its absence everywhere. */
+function describeReconcile(states: readonly ReconcileState[]): string {
+  for (const state of states) {
+    if (state.kind === 'unusable') return state.why
+  }
+  return `没有 ${RECONCILE_LABEL}`
 }
 
 /** Refuse a write/edit whose resulting text would violate the shot-script or matched-JSON contract. */

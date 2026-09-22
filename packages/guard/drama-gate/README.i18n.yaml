@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/guard/drama-gate/README.md
-README.md: 95ab0333eef6b5dda7dd69962614b9a3579d20c4
-README.zh.md: bb77a7474a825ae50b9a73f463eb918bad5d4b83
+README.md: 4bf8f7f896afc3a494c218872bbfee9b1e813f12
+README.zh.md: dead031138deccc36c6c57f290ba6ddd20addf32

@@ -25,6 +25,8 @@ export interface EpisodePaths {
   readonly masterAudio: string
   /** The timeline `prepare` writes and `render` reads. */
   readonly timeline: string
+  /** Selected source identities written only after preparation succeeds. */
+  readonly sources: string
   /** The subtitle `prepare` writes and `render` burns. */
   readonly subtitle: string
   /** The delivered file, when the caller gives no explicit output path. */
@@ -86,6 +88,7 @@ export function episodePaths(project: string, episode: string): EpisodePaths {
     videoDir: join(project, 'video', episode),
     masterAudio: join(project, 'audio', `${episode}.wav`),
     timeline: join(project, 'editing', `${episode}-timeline.json`),
+    sources: join(project, 'editing', `${episode}-sources.json`),
     subtitle: join(project, 'editing', `${episode}.srt`),
     output: join(project, 'exports', `${episode}.mp4`),
     cacheDir: join(project, 'exports', '.render_cache', episode),

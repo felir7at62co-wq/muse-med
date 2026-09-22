@@ -7,7 +7,6 @@ import {
   HOLD_INSTRUCTION,
   materialKeys,
   MATCHED_VERSION,
-  MAX_CONTENT_SECONDS,
   NATURAL_HOLD_SECONDS,
   packEpisode,
   writeEpisode,
@@ -67,12 +66,17 @@ describe('material keys', () => {
 })
 
 describe('packing an episode', () => {
+  it('never emits an indivisible shot above the explicit content bound', () => {
+    const shots = fixture([actionShot(1, ['时长：20秒'])], DEFAULT_ASSETS)
+    expect(() => packEpisode(shots, 14)).toThrow('20')
+    expect(packEpisode(shots, 29)[0]).toMatchObject({ contentSeconds: 20, submitSeconds: 21 })
+  })
   it('keeps continuous same-scene shots in one package and adds the natural hold', () => {
     const shots = fixture(
       [speakingShot(1, '苏晚：原文台词', ['核心场景：后厨']), speakingShot(2, '苏晚：第二句台词', ['核心场景：后厨'])],
       DEFAULT_ASSETS,
     )
-    const tasks = packEpisode(shots, MAX_CONTENT_SECONDS)
+    const tasks = packEpisode(shots, 14)
     expect(tasks).toHaveLength(1)
     expect(tasks[0]).toMatchObject({
       index: 1,
@@ -89,7 +93,7 @@ describe('packing an episode', () => {
       [speakingShot(1, '苏晚：原文台词', ['核心场景：后厨']), speakingShot(2, '苏晚：第二句台词', ['核心场景：客厅'])],
       DEFAULT_ASSETS,
     )
-    expect(packEpisode(shots, MAX_CONTENT_SECONDS).map(task => task.shots)).toEqual([[1], [2]])
+    expect(packEpisode(shots, 14).map(task => task.shots)).toEqual([[1], [2]])
   })
 
   it('closes a package instead of exceeding the content budget', () => {
@@ -99,7 +103,7 @@ describe('packing an episode', () => {
       actionShot(3, ['核心场景：后厨', '动作复杂度：复杂']),
       actionShot(4, ['核心场景：后厨', '动作复杂度：复杂']),
     ], DEFAULT_ASSETS)
-    const tasks = packEpisode(shots, MAX_CONTENT_SECONDS)
+    const tasks = packEpisode(shots, 14)
     expect(tasks.map(task => task.contentSeconds)).toEqual([12, 4])
     expect(tasks.map(task => task.shots)).toEqual([[1, 2, 3], [4]])
   })
@@ -110,7 +114,7 @@ describe('packing an episode', () => {
         speakingShot(2, '苏晚：第二句台词', ['核心场景：后厨'])],
       DEFAULT_ASSETS,
     )
-    expect(packEpisode(shots, MAX_CONTENT_SECONDS).map(task => task.shots)).toEqual([[1], [2]])
+    expect(packEpisode(shots, 14).map(task => task.shots)).toEqual([[1], [2]])
   })
 
   it('reads each package material keys out of its own shots in script order', () => {
@@ -119,11 +123,11 @@ describe('packing an episode', () => {
         speakingShot(2, '苏晚：@[苏晚](lead) 又是 @[奶瓶](prop)', ['核心场景：后厨'])],
       DEFAULT_ASSETS,
     )
-    expect(packEpisode(shots, MAX_CONTENT_SECONDS)[0]?.materialKeys).toEqual(['lead', 'prop'])
+    expect(packEpisode(shots, 14)[0]?.materialKeys).toEqual(['lead', 'prop'])
   })
 
   it('plans no package for an episode with no shots', () => {
-    expect(packEpisode([], MAX_CONTENT_SECONDS)).toEqual([])
+    expect(packEpisode([], 14)).toEqual([])
   })
 })
 
@@ -133,7 +137,7 @@ describe('the matched payload', () => {
       speakingShot(1, '苏晚：@[苏晚](lead) 站住', ['核心场景：后厨', '关键道具：奶瓶', '出镜人物：苏晚']),
       actionShot(2, ['核心场景：后厨', '动作复杂度：复杂']),
     ], [...DEFAULT_ASSETS, assetRow('奶瓶', '道具', { image_path: 'assets/props/bottle.png' })])
-    const tasks = packEpisode(shots, MAX_CONTENT_SECONDS)
+    const tasks = packEpisode(shots, 14)
     const payload = buildMatchedPayload({ episode: '03', promptFile: 'C:/p/03.txt', shots, tasks })
     expect(payload.version).toBe(MATCHED_VERSION)
     expect(payload).toMatchObject({
@@ -182,7 +186,7 @@ describe('writing an episode package', () => {
         actionShot(2, ['核心场景：后厨'])],
       options.assets ?? [...DEFAULT_ASSETS, assetRow('奶瓶', '道具')],
     )
-    const tasks = packEpisode(shots, MAX_CONTENT_SECONDS)
+    const tasks = packEpisode(shots, 14)
     return await writeEpisode({
       project: root,
       episode: '01',

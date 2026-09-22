@@ -7,7 +7,7 @@
  */
 
 /** The operation one `drama_render` call runs. */
-export type DramaRenderMethod = 'prepare' | 'render' | 'verify'
+export type DramaRenderMethod = 'prepare' | 'render' | 'verify' | 'subtitles'
 
 /** How much one render check's failure matters. */
 export type CheckSeverity = 'failure' | 'warning'
@@ -32,6 +32,8 @@ export interface Timeline {
 
 /** One shot's own media, as the shot-sources manifest declares it. */
 export interface ShotSource {
+  /** Explicit 1-based video_tasks package number; omitted when the source has not been mapped. */
+  readonly package?: number
   /** Shot number, 1-based. */
   readonly shot: number
   /** Absolute path of the reviewed provider video that supplies this shot's picture. */
@@ -286,8 +288,12 @@ export interface DramaRenderReport {
   readonly tail_frame: TailFrameReport
   /** The delivered file's measured facts. */
   readonly media: MediaFactsReport
-  /** Every check this operation ran. */
+  /** Every check this operation ran; `ok` applies only to these checks, not overall creative approval. */
   readonly checks: RenderCheck[]
+  /** QA areas not measured by this operation, even when `ok` is true. */
+  readonly not_checked: string[]
+  /** Optional music-plan evidence; empty values when no plan was checked. */
+  readonly bgm_plan: BgmPlanReport
   /** One Chinese line per failure-severity check that failed. */
   readonly failures: string[]
   /** One Chinese line per warning-severity check that failed, plus every non-blocking observation. */
@@ -296,6 +302,32 @@ export interface DramaRenderReport {
   readonly log_path: string
   /** Counts a caller can read without walking the lists. */
   readonly summary: RenderSummary
+}
+
+/** A declared music segment on the episode clock, not an acoustic measurement. */
+export interface BgmSegment {
+  /** Human-readable track identity. */
+  readonly track: string
+  /** Track source path declared by the plan. */
+  readonly source: string
+  /** Segment start on the body clock. */
+  readonly start_seconds: number
+  /** Segment end on the body clock. */
+  readonly end_seconds: number
+  /** Creative rationale supplied by the caller. */
+  readonly reason: string
+}
+
+/** Declared BGM metadata bound to the bed used by this render. */
+export interface BgmPlanReport {
+  /** Plan file, or empty when none was supplied. */
+  readonly path: string
+  /** SHA-256 of the bed, not a verification that it matches the declared tracks. */
+  readonly bed_sha256: string
+  /** Segments for this episode, or empty when not checked. */
+  readonly segments: BgmSegment[]
+  /** Other planned episodes with the same ordered track sources; advisory only. */
+  readonly repeated_sequence_episodes: string[]
 }
 
 /** The deployment-varying choices one render resolves. */

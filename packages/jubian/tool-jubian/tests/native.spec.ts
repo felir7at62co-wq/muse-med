@@ -9,7 +9,7 @@ const URL_LEAD = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/lead.jpg'
 const URL_GUEST = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/guest.jpg'
 const PROMPT = '雨夜街头 @[陆沉舟](lead) 与 @[苏晚](guest)'
 
-const MODEL_CONFIG = { platformId: 'YU_DIAN', modelId: 'doubao-seedance-2-0-1', standardId: 11, genType: 3,
+const MODEL_CONFIG = { platformId: 'YU_DIAN', modelId: 'doubao-seedance-2-0-260128', standardId: 11, genType: 3,
   modelGenerationTypeId: 7, videoStandardId: 91, duration: 8, ratio: '9:16', resolution: '720p', genNum: 1,
   materialList: [], backupModelList: [], prompt: PROMPT }
 
@@ -86,7 +86,10 @@ function clientFor(provider: FakeProvider): JubianClient {
       }
       if (path.startsWith('/model/charge/getSelectList')) return answer(CATALOGUE)
       if (path.startsWith('/admin/aigc/video/task/list')) {
-        return answer({ total: provider.tasks.length, rows: provider.tasks })
+        const query = new URL(`https://example.test${path}`).searchParams
+        const page = Number(query.get('pageNum') ?? 1)
+        const size = Number(query.get('pageSize') ?? 100)
+        return answer({ total: provider.tasks.length, rows: provider.tasks.slice((page - 1) * size, page * size) })
       }
       if (path.startsWith('/admin/aigc/video/task/sub/list')) {
         return answer({ total: 1, rows: provider.subtasks[String(body?.aigcVideoTaskId)] ?? [] })
@@ -221,7 +224,9 @@ describe('submit_video', () => {
       idempotency_key: idempotencyKey })
     expect(result).toMatchObject({ replayed: false, outcome: 'unknown', put_ambiguous: true })
     expect((await ledger.find(idempotencyKey))?.outcome).toBe('unknown')
-    const second: FakeProvider = { ...provider, calls: [], onPut: undefined,
+    // The replay reads the storyboard the failed PUT already stored, and has no
+    // PUT hook at all: an optional member is absent, never an explicit `undefined`.
+    const second: FakeProvider = { calls: [], storyboard: provider.storyboard,
       tasks: [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 }],
       subtasks: { 335343: [savedChild(provider)] } }
     const replayed = await submitVideoMethod(clientFor(second), ledger, { preview_path: previewPath,
@@ -329,6 +334,90 @@ describe('submit_video', () => {
     const result = await submitVideoMethod(clientFor(provider), ledger, { project_dir: directory,
       storyboard_id: 916953, idempotency_key: idempotencyKey })
     expect(result.status).toBe('submitted')
+  })
+
+  /**
+   * Project 2708's real preflight shape: 50 video tasks that state no `storyboardId`,
+   * each owning one child result that names another storyboard.
+   */
+  function otherStoryboards(count = 50): Pick<FakeProvider, 'tasks' | 'subtasks'> {
+    const tasks = Array.from({ length: count }, (_, index) => ({ id: 324493 + index, scriptId: 2708,
+      taskType: 1, taskStatus: 'succeeded' }))
+    const subtasks = Object.fromEntries(tasks.map((task, index) => [String(task.id),
+      [{ id: 900000 + index, aigcVideoTaskId: task.id, storyboardId: 1033895 + index,
+        taskStatus: 'succeeded' }]]))
+    return { tasks, subtasks }
+  }
+
+  /** The submitted child one task holds when it is this storyboard's own task. */
+  async function ownChild(previewPath: string): Promise<Record<string, unknown>> {
+    const preview = JSON.parse(await readFile(previewPath, 'utf8')) as { payload: Record<string, unknown> }
+    return childOf(preview.payload)
+  }
+
+  it('excludes explicitly different episodes before the hydration cap on submit and replay', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 46744 },
+      ...otherStoryboards(101) }
+    provider.tasks = provider.tasks.map(task => ({ ...task, episodeId: '46734' }))
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    provider.onPut = (payload) => {
+      provider.tasks.push({ id: 335343, scriptId: 2708, episodeId: 46744, taskType: 1 })
+      provider.subtasks['335343'] = [childOf(payload)]
+    }
+    const args = { preview_path: previewPath, idempotency_key: idempotencyKey }
+    expect(await submitVideoMethod(clientFor(provider), ledger, args)).toMatchObject({ status: 'submitted' })
+    expect(await submitVideoMethod(clientFor(provider), ledger, args)).toMatchObject({ replayed: true, status: 'submitted' })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(provider.calls.filter(call => call.path.startsWith('/admin/aigc/video/task/sub/list'))
+      .every(call => String(call.body?.aigcVideoTaskId) === '335343')).toBe(true)
+  })
+
+  it.each([undefined, null, '', 'unknown', false, {}, 46744, '46744'])
+  ('retains the hydration cap for an unresolved or matching episode %j', async (episodeId) => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 46744 },
+      ...otherStoryboards(101) }
+    provider.tasks = provider.tasks.map(task => ({ ...task, episodeId }))
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    await expect(submitVideoMethod(clientFor(provider), ledger, { preview_path: previewPath,
+      idempotency_key: idempotencyKey })).rejects.toThrow()
+    expect(putCalls(provider)).toHaveLength(0)
+    expect(await ledger.find(idempotencyKey)).toBeUndefined()
+  })
+
+  it('never calls another storyboard\'s tasks unsafe candidates', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, ...otherStoryboards() }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const result = await submitVideoMethod(clientFor(provider), ledger, { preview_path: previewPath,
+      idempotency_key: idempotencyKey })
+    // Every related row is still judged from its own detail and child results...
+    const inspected = new Set(provider.calls.filter(call => call.path.startsWith('/admin/aigc/video/task/sub/list'))
+      .map(call => String(call.body?.aigcVideoTaskId)))
+    expect(inspected.size).toBe(50)
+    // ...and none of them proves this storyboard, so the preflight is not a conflict.
+    expect(result).toMatchObject({ replayed: false, outcome: 'accepted', status: 'reconcile_required' })
+    expect(putCalls(provider)).toHaveLength(1)
+  })
+
+  it('reconciles to the one task whose child result names this storyboard', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, ...otherStoryboards() }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    provider.subtasks['324493'] = [await ownChild(previewPath)]
+    const result = await submitVideoMethod(clientFor(provider), ledger, { preview_path: previewPath,
+      idempotency_key: idempotencyKey })
+    expect(putCalls(provider)).toHaveLength(0)
+    expect(result).toMatchObject({ status: 'already_submitted', task_id: '324493' })
+  })
+
+  it('still calls two tasks of this storyboard a conflict', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, ...otherStoryboards() }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const child = await ownChild(previewPath)
+    provider.subtasks['324493'] = [child]
+    provider.subtasks['324494'] = [child]
+    const result = await submitVideoMethod(clientFor(provider), ledger, { preview_path: previewPath,
+      idempotency_key: idempotencyKey })
+    expect(putCalls(provider)).toHaveLength(0)
+    expect(result).toMatchObject({ status: 'reconcile_conflict', task_id: null })
   })
 })
 

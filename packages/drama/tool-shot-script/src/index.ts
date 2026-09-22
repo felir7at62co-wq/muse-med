@@ -23,7 +23,7 @@ import z from '@deepseek-ai/schemastery'
 import { bindShot, parseAssetManifest } from './assets.ts'
 import {
   buildMatchedPayload,
-  MAX_CONTENT_SECONDS,
+  NATURAL_HOLD_SECONDS,
   packEpisode,
   writeEpisode,
 } from './episode.ts'
@@ -73,6 +73,8 @@ interface DramaShotArguments {
   project?: string
   /** Episode number; required by `compile`. */
   episode?: number
+  /** Verified provider/board maximum duration, including the natural hold; required for packing. */
+  max_submit_seconds?: number
 }
 
 /** Where `compile` writes one episode. */
@@ -222,8 +224,22 @@ async function runDramaShot(args: DramaShotArguments, config: ResolvedConfig): P
   const manifest = call.assets === undefined ? undefined : await readManifest(call.assets)
   const { compiled, issues: bindingIssues } = compileShots(parsed.shots, manifest)
   const issues = [...parsed.issues, ...bindingIssues]
+  let maxContentSeconds = 0
+  if (args.method !== 'validate') {
+    const maximum = args.max_submit_seconds
+    if (maximum === undefined || !Number.isSafeInteger(maximum) || maximum <= NATURAL_HOLD_SECONDS) {
+      throw new Error('preview/compile 需要 max_submit_seconds：目标分镜实际请求的整数总秒数（含收束秒），且在已确认模型能力内；不要默认取模型最大值。')
+    }
+    maxContentSeconds = maximum - NATURAL_HOLD_SECONDS
+    for (const { shot } of compiled) {
+      if (shot.durationSeconds > maxContentSeconds) {
+        issues.push({ severity: 'failure', code: 'shot_exceeds_package_budget', shot: shot.shot, line: shot.line,
+          message: `镜头${shot.shot}为${shot.durationSeconds}秒，超过本次内容预算${maxContentSeconds}秒（提交上限${maximum}秒，含${NATURAL_HOLD_SECONDS}秒收束）；请选择支持的分镜时长或按原文语义拆镜，不能截断。` })
+      }
+    }
+  }
   const failed = issues.some(issue => issue.severity === 'failure')
-  const tasks = args.method === 'validate' || failed ? [] : packEpisode(compiled, MAX_CONTENT_SECONDS)
+  const tasks = args.method === 'validate' || failed ? [] : packEpisode(compiled, maxContentSeconds)
   const written = args.method === 'compile' ? await writeTarget(call, compiled, tasks, failed) : []
   return buildReport({
     method: args.method,
@@ -261,13 +277,13 @@ const RESULT_SCHEMA = {
           shot: { type: 'integer', required: true, description: '镜头号。' },
           line: { type: 'integer', required: true, description: '【镜头N】在脚本里的行号。' },
           voice_type: { type: 'string', required: true, enum: ['dialogue', 'vo', 'action'],
-            description: 'dialogue=画面内台词；vo=同场画外音；action=无发声。' },
+            description: 'dialogue=画面内台词；vo=画外发声，含旁白/心声；action=无发声。' },
           speaker: { type: 'string', required: true, description: '说话人；无声镜为空串。' },
           text: { type: 'string', required: true, description: '去掉说话人前缀后的台词原文；无声镜为空串。' },
           effective_chars: { type: 'integer', required: true, description: '有效字：汉字/字母/数字，标点与空格不计。' },
           duration_seconds: { type: 'integer', required: true, description: '本镜计入打包预算的整秒数。' },
-          duration_source: { type: 'string', required: true, enum: ['speech', 'complexity', 'default'],
-            description: '时长来源：9 有效字/秒推导、动作复杂度、或编译器默认值。' },
+          duration_source: { type: 'string', required: true, enum: ['speech', 'declared', 'complexity', 'default'],
+            description: '时长来源：明确声明、9 有效字/秒估算、动作复杂度、或编译器默认值。' },
           offscreen: { type: 'boolean', required: true, description: '是否是同场画外音。' },
           characters_field: { type: 'string', required: true, description: '出镜人物 字段原文；整行省略时为空串。' },
           scene: { type: 'string', required: true, description: '绑定到的正式场景名；空串表示没有绑定场景。' },
@@ -297,7 +313,7 @@ const RESULT_SCHEMA = {
           index: { type: 'integer', required: true, description: '包序号，从 1 开始。' },
           shots: { type: 'array', required: true, items: { type: 'integer' },
             description: '本包镜头号，按脚本顺序。' },
-          content_seconds: { type: 'integer', required: true, description: '本包内容时长（整秒），不超过 14。' },
+          content_seconds: { type: 'integer', required: true, description: '本包内容时长（整秒），加收束不超过 max_submit_seconds。' },
           content_duration_ms: { type: 'integer', required: true,
             description: '提交 jubian_storyboard generate 的 content_duration_ms（整千毫秒）。' },
           submit_seconds: { type: 'integer', required: true,
@@ -359,13 +375,14 @@ const DESCRIPTION = '短剧镜头脚本的判定与编译（剧变流水线）�
   + 'compile=判定通过后写入 matched JSON（matches/<集号>.matched.json）与单集 package'
   + '（prompts/<集号>.txt、episode_packages/<集号>/），并回报每包的 content_duration_ms、'
   + '提交给剧变的整秒时长与素材键顺序。'
-  + '判定规则：单镜 1–4 整数秒；有台词的镜头按 9 有效字/秒推导，超过 15 有效字给警告，超过 36 有效字判失败；'
+  + '时长：N秒的正整数声明优先；省略时按 9 有效字/秒估算。超过 15 或 36 有效字、偏离估算仅警告，可保留长慢镜头；'
   + '无发声镜必须写 发声类型：action，时长由 动作复杂度（简单/一般/较复杂/复杂 = 1/2/3/4 秒）决定，'
   + '没写就按默认 2 秒计；'
   + '台词：无、空台词行、出镜人物：无 一律判失败（无声镜整行省略台词行与出镜人物）；'
-  + '旁白/解说/心声/画外声/OS 判失败，但同一句话没说完就切镜时写成 台词：角色名（画外音）：原文 是允许的；'
-  + '脚本与提示词里都不得出现任何秒数；只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产；'
-  + '只合并同场戏的连续完整镜头，每包内容 ≤14 秒，另加 1 秒自然收束，禁止截断镜头凑时长。'
+  + '旁白/解说/心声/画外声/OS 作为 vo 画外发声保留原文与说话人，提醒核对项目配音；'
+  + '风格/负面词缺失和正文秒数仅警告；只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产；'
+  + 'preview/compile 必填 max_submit_seconds：目标分镜实际请求总秒数（在已确认模型能力内），不是自动取模型最大值。'
+  + '只合并同场连续完整镜头，内容加1秒收束不得超过该值，超长单镜拒绝，禁止截断。'
   + '硬失败时不会写任何文件，也不给打包方案。'
 
 /**
@@ -390,6 +407,8 @@ export function apply(ctx: Context, config: Config = {}): void {
           + 'validate 可选——给了才判定资产绑定。' },
       project: { type: 'string',
         description: '项目根目录（含 episodes/、prompts/、matches/、episode_packages/）；compile 必填。' },
+      max_submit_seconds: { type: 'integer',
+        description: 'preview/compile 必填：目标分镜实际请求总秒数，含1秒收束且在已确认模型能力内。例如分镜请求8秒就填8，不默认取模型最大值；已配置15或30秒时才填15或30。' },
       episode: { type: 'integer',
         description: '集号（正整数，如 3）；compile 必填，写入时补成两位，如 03。' },
     },

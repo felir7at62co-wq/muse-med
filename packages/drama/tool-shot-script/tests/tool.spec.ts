@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { Config, inject, name } from '../src/index.ts'
-import type { DramaShotReport } from '../src/types.ts'
+import type { DramaShotReport, MatchedPayload } from '../src/types.ts'
 import { actionShot, assetRow, cleanup, dramaShot, manifestDocument, mount, scriptOf, speakingShot, tempDir } from './harness.ts'
 
 const temporary: string[] = []
@@ -34,7 +34,7 @@ Promise<{ root: string; scriptPath: string; manifestPath: string }> {
 /** Run one call and assert its value satisfies the tool's own output schema. */
 async function run(args: Record<string, unknown>): Promise<DramaShotReport> {
   const tool = dramaShot()
-  const value = await tool.execute(args, {})
+  const value = await tool.execute(args)
   const violations = validateJsonSchemaValue(tool.output.schema, value, '')
   expect(violations).toEqual([])
   return value as DramaShotReport
@@ -50,7 +50,7 @@ describe('registration', () => {
     const tool = dramaShot()
     expect(tool.name).toBe('drama_shot')
     for (const phrase of ['9 有效字/秒', '36 有效字', '发声类型：action', '动作复杂度', '台词：无',
-      '出镜人物：无', '画外音', 'official=true', '14 秒']) {
+      '出镜人物：无', '画外', 'official=true', 'max_submit_seconds']) {
       expect(tool.description).toContain(phrase)
     }
   })
@@ -60,7 +60,7 @@ describe('registration', () => {
       properties: Record<string, { enum?: string[] }>
       required: string[]
     }
-    expect(Object.keys(parameters.properties).sort()).toEqual(['assets', 'episode', 'method', 'project', 'script'])
+    expect(Object.keys(parameters.properties).sort()).toEqual(['assets', 'episode', 'max_submit_seconds', 'method', 'project', 'script'])
     expect(parameters.properties.method?.enum).toEqual(['validate', 'preview', 'compile'])
     expect(parameters.required.sort()).toEqual(['method', 'script'])
   })
@@ -81,8 +81,8 @@ describe('registration', () => {
   })
 
   it('refuses arguments the schema does not allow', async () => {
-    await expect(dramaShot().execute({ method: 'bogus', script: 'x' }, {})).rejects.toThrow()
-    await expect(dramaShot().execute({ method: 'validate' }, {})).rejects.toThrow()
+    await expect(dramaShot().execute({ method: 'bogus', script: 'x' })).rejects.toThrow()
+    await expect(dramaShot().execute({ method: 'validate' })).rejects.toThrow()
   })
 })
 
@@ -151,7 +151,7 @@ describe('validate', () => {
 describe('preview', () => {
   it('plans the packages without writing anything', async () => {
     const files = await project()
-    const report = await run({ method: 'preview', script: files.scriptPath, assets: files.manifestPath })
+    const report = await run({ max_submit_seconds: 15, method: 'preview', script: files.scriptPath, assets: files.manifestPath })
     expect(report.method).toBe('preview')
     expect(report.ok).toBe(true)
     expect(report.written).toEqual([])
@@ -172,14 +172,46 @@ describe('preview', () => {
 
   it('requires the asset manifest', async () => {
     const files = await project()
-    await expect(run({ method: 'preview', script: files.scriptPath }))
+    await expect(run({ max_submit_seconds: 15, method: 'preview', script: files.scriptPath }))
       .rejects.toThrow('drama_shot preview 需要 assets')
   })
 
   it('returns no packaging plan while a hard failure stands', async () => {
     const files = await project({ script: scriptOf(actionShot(1, ['出镜人物：无'])) })
-    const report = await run({ method: 'preview', script: files.scriptPath, assets: files.manifestPath })
+    const report = await run({ max_submit_seconds: 15, method: 'preview', script: files.scriptPath, assets: files.manifestPath })
     expect(report.ok).toBe(false)
+    expect(report.packages).toEqual([])
+  })
+})
+
+describe('creative guidance and explicit provider budget', () => {
+  it('compiles a long slow narration shot with actionable warnings and unchanged speech', async () => {
+    const spoken = '字'.repeat(40) + '等我3秒'
+    const script = scriptOf(speakingShot(1, `苏晚：${spoken}`, ['发声类型：心声', '时长：20秒', '核心场景：后厨']))
+      .replace('真人短剧写实风格\n', '').replace('无噪点，无跳帧，五官稳定不变形', '')
+    const files = await project({ script })
+    const report = await run({ method: 'compile', script: files.scriptPath, assets: files.manifestPath,
+      project: files.root, episode: 1, max_submit_seconds: 30 })
+    expect(report.ok).toBe(true)
+    expect(report.shots[0]).toMatchObject({ duration_seconds: 20, duration_source: 'declared',
+      voice_type: 'vo', speaker: '苏晚', text: spoken })
+    expect(report.packages[0]).toMatchObject({ content_seconds: 20, submit_seconds: 21 })
+    expect(report.warnings.map(issue => issue.code)).toEqual(expect.arrayContaining([
+      'narration_marker', 'speech_too_long', 'legacy_duration_mismatch', 'missing_style_line',
+      'missing_negative_prompt', 'seconds_in_shot_body',
+    ]))
+    const matched = JSON.parse(await readFile(join(files.root, 'matches', '01.matched.json'), 'utf8')) as MatchedPayload
+    expect(matched.shots[0]).toMatchObject({ text: spoken, speaker: '苏晚', voice_type: 'vo', duration: 20 })
+    expect(matched.shots[0]?.visual).not.toContain('真人短剧写实风格')
+  })
+
+  it('requires an explicit provider budget and rejects an oversized indivisible shot', async () => {
+    const files = await project({ script: scriptOf(actionShot(1, ['时长：20秒', '核心场景：后厨'])) })
+    const args = { method: 'preview', script: files.scriptPath, assets: files.manifestPath }
+    await expect(run(args)).rejects.toThrow('max_submit_seconds')
+    const report = await run({ ...args, max_submit_seconds: 15 })
+    expect(report.ok).toBe(false)
+    expect(report.failures.map(issue => issue.code)).toContain('shot_exceeds_package_budget')
     expect(report.packages).toEqual([])
   })
 })
@@ -187,7 +219,7 @@ describe('preview', () => {
 describe('compile', () => {
   it('writes the matched JSON and the episode package', async () => {
     const files = await project()
-    const report = await run({ method: 'compile', script: files.scriptPath, assets: files.manifestPath,
+    const report = await run({ max_submit_seconds: 15, method: 'compile', script: files.scriptPath, assets: files.manifestPath,
       project: files.root, episode: 1 })
     expect(report.ok).toBe(true)
     expect(report.packages).toHaveLength(1)
@@ -208,7 +240,7 @@ describe('compile', () => {
 
   it('writes nothing at all while a hard failure stands', async () => {
     const files = await project({ script: scriptOf(actionShot(1, ['出镜人物：无'])) })
-    const report = await run({ method: 'compile', script: files.scriptPath, assets: files.manifestPath,
+    const report = await run({ max_submit_seconds: 15, method: 'compile', script: files.scriptPath, assets: files.manifestPath,
       project: files.root, episode: 1 })
     expect(report.ok).toBe(false)
     expect(report.written).toEqual([])
@@ -217,14 +249,14 @@ describe('compile', () => {
 
   it('requires the project and the episode number', async () => {
     const files = await project()
-    await expect(run({ method: 'compile', script: files.scriptPath, assets: files.manifestPath }))
+    await expect(run({ max_submit_seconds: 15, method: 'compile', script: files.scriptPath, assets: files.manifestPath }))
       .rejects.toThrow('需要 project 与 episode')
-    await expect(run({ method: 'compile', script: files.scriptPath, assets: files.manifestPath,
+    await expect(run({ max_submit_seconds: 15, method: 'compile', script: files.scriptPath, assets: files.manifestPath,
       project: files.root, episode: 0 })).rejects.toThrow('必须是正整数集号')
-    await expect(run({ method: 'compile', script: files.scriptPath, assets: files.manifestPath,
+    await expect(run({ max_submit_seconds: 15, method: 'compile', script: files.scriptPath, assets: files.manifestPath,
       project: files.root, episode: -3 })).rejects.toThrow('必须是正整数集号')
     // The parameter schema owns integrality, so a fractional episode never reaches the compiler.
-    await expect(run({ method: 'compile', script: files.scriptPath, assets: files.manifestPath,
+    await expect(run({ max_submit_seconds: 15, method: 'compile', script: files.scriptPath, assets: files.manifestPath,
       project: files.root, episode: 1.5 })).rejects.toThrow()
   })
 
@@ -232,7 +264,7 @@ describe('compile', () => {
     const files = await project()
     const broken = join(files.root, 'broken.json')
     await writeFile(broken, '{ not json', 'utf8')
-    await expect(run({ method: 'preview', script: files.scriptPath, assets: broken }))
+    await expect(run({ max_submit_seconds: 15, method: 'preview', script: files.scriptPath, assets: broken }))
       .rejects.toThrow('资产清单不是合法 JSON')
   })
 
@@ -240,7 +272,7 @@ describe('compile', () => {
     const files = await project()
     const wrong = join(files.root, 'wrong.json')
     await writeFile(wrong, JSON.stringify({ rows: [] }), 'utf8')
-    await expect(run({ method: 'preview', script: files.scriptPath, assets: wrong }))
+    await expect(run({ max_submit_seconds: 15, method: 'preview', script: files.scriptPath, assets: wrong }))
       .rejects.toThrow('缺少 assets 数组')
   })
 
@@ -248,7 +280,7 @@ describe('compile', () => {
     const files = await project({ script: scriptOf(actionShot(1, ['核心场景：后厨'])),
       assets: [assetRow('苏晚', '角色'), assetRow('后厨', '场景')] })
     const tool = mount({ actionShotSeconds: 3 })[0]
-    const report = await tool?.execute({ method: 'validate', script: files.scriptPath }, {}) as DramaShotReport
+    const report = await tool?.execute({ method: 'validate', script: files.scriptPath }) as DramaShotReport
     expect(report.shots[0]).toMatchObject({ duration_seconds: 3, duration_source: 'default' })
   })
 })

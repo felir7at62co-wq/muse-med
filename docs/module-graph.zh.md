@@ -223,6 +223,9 @@ flowchart TD
     pkg_credentials_local["credentials-local"]
   end
   subgraph group_drama["packages/drama"]
+    pkg_drama_settings["drama-settings"]
+    pkg_tool_bgm_compose["tool-bgm-compose"]
+    pkg_tool_drama_assets["tool-drama-assets"]
     pkg_tool_episode_render["tool-episode-render"]
     pkg_tool_shot_script["tool-shot-script"]
   end
@@ -833,6 +836,12 @@ flowchart TD
   pkg_file_reference_local --> pkg_file_reference
   pkg_file_reference_local --> pkg_system_prompt
   pkg_file_reference_local --> pkg_tools
+  pkg_tool_bgm_compose --> pkg_llm
+  pkg_tool_bgm_compose --> pkg_subprocess
+  pkg_tool_bgm_compose --> pkg_tools
+  pkg_tool_drama_assets --> pkg_credentials
+  pkg_tool_drama_assets --> pkg_llm
+  pkg_tool_drama_assets --> pkg_tools
   pkg_tool_episode_render --> pkg_llm
   pkg_tool_episode_render --> pkg_tools
   pkg_tool_shot_script --> pkg_llm
@@ -885,8 +894,10 @@ flowchart TD
   pkg_tool_jobs --> pkg_system_prompt
   pkg_tool_jobs --> pkg_tools
   pkg_tool_jubian --> pkg_credentials
+  pkg_tool_jubian --> pkg_jobs
   pkg_tool_jubian --> pkg_llm
   pkg_tool_jubian --> pkg_tools
+  pkg_tool_jubian --> pkg_typert_protocol
   pkg_tool_jubian --> pkg_util_values
   pkg_tool_lsp --> pkg_llm
   pkg_tool_lsp --> pkg_lsp
@@ -1388,6 +1399,7 @@ flowchart TD
 | [`client-ui-workflow-run`](../packages/client/ui-workflow-run) | `client` | — |
 | [`client-ui-workspace`](../packages/client/ui-workspace) | `client` | — |
 | [`client-web`](../packages/client/web) | `client` | — |
+| [`drama-settings`](../packages/drama/drama-settings) | `drama` | — |
 | [`experimental-agent-team-profile`](../packages/experimental/agent-team-profile) | `experimental` | — |
 | [`experimental-agent-team-web-profile`](../packages/experimental/agent-team-web-profile) | `experimental` | — |
 | [`experimental-webworker-packer`](../packages/experimental/webworker-packer) | `experimental` | — |
@@ -1527,6 +1539,8 @@ flowchart TD
 | [`compaction-image-offload`](../packages/compaction/compaction-image-offload) | `compaction` | [`agent`](../packages/core/agent), [`compaction`](../packages/compaction/compaction), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`agent-instructions`](../packages/context/agent-instructions) | `context` | [`agent`](../packages/core/agent), [`fs`](../packages/fs/fs), [`home-paths`](../packages/util/home-paths), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tools`](../packages/core/tools) |
 | [`file-reference-local`](../packages/context/file-reference-local) | `context` | [`agent`](../packages/core/agent), [`file-reference`](../packages/context/file-reference), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
+| [`tool-bgm-compose`](../packages/drama/tool-bgm-compose) | `drama` | [`llm`](../packages/llm/llm), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
+| [`tool-drama-assets`](../packages/drama/tool-drama-assets) | `drama` | [`credentials`](../packages/credentials/credentials), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-episode-render`](../packages/drama/tool-episode-render) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-shot-script`](../packages/drama/tool-shot-script) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`experimental-browser-use-chrome-devtools-mcp`](../packages/experimental/browser-use-chrome-devtools-mcp) | `experimental` | [`agent`](../packages/core/agent), [`browser-use`](../packages/browser-use/browser-use), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
@@ -1541,7 +1555,7 @@ flowchart TD
 | [`tool-call-timeout-policy`](../packages/guard/timeout-policy) | `guard` | [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`tool-ask-user`](../packages/interaction/tool-ask-user) | `interaction` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools), [`user-questions`](../packages/interaction/user-questions) |
 | [`tool-jobs`](../packages/jobs/tool-jobs) | `jobs` | [`agent`](../packages/core/agent), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`output-retention`](../packages/util/output-retention), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
-| [`tool-jubian`](../packages/jubian/tool-jubian) | `jubian` | [`credentials`](../packages/credentials/credentials), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools), [`util-values`](../packages/util/values) |
+| [`tool-jubian`](../packages/jubian/tool-jubian) | `jubian` | [`credentials`](../packages/credentials/credentials), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol), [`util-values`](../packages/util/values) |
 | [`tool-lsp`](../packages/lsp/tool-lsp) | `lsp` | [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`system-prompt`](../packages/core/system-prompt), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`mcp-resources`](../packages/mcp/mcp-resources) | `mcp` | [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`agent-presets`](../packages/preset/agent-presets) | `preset` | [`agent`](../packages/core/agent), [`atomic-write`](../packages/util/atomic-write), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`settings`](../packages/settings/settings), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol) |

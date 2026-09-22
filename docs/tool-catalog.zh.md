@@ -47,9 +47,11 @@
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`、`owning Agent session` | `tool/call`、`todo/write`、`tool/result` | - | todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。 |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
-| `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`、`jubian_catalog`、`jubian_media`、`jubian_storyboard`、`jubian_video` | `ctx.tools`、`ctx.credentials` | `tool/call`、`tool/result`、`Jubian 两阶段写账本（位于其配置根目录下的 NDJSON 记录对）` | - | 每个计费的写入（`image_generate`、`generate`、`erase_subtitle`、`upscale`）都要求调用方给出 `idempotency_key`，并在请求离开前把 `intent` 记入账本；`erase_subtitle` 与 `upscale` 是异步的，提供方受理任务后立即返回，因此调用方应回读 `subtasks`，而不是在那次调用上等待。 |
+| `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`、`jubian_catalog`、`jubian_media`、`jubian_model`、`jubian_organize`、`jubian_storyboard`、`jubian_video`、`jubian_watch` | `ctx.tools`、`ctx.credentials` | `tool/call`、`tool/result`、`Jubian 两阶段写账本（位于其配置根目录下的 NDJSON 记录对）` | - | 每个计费的写入（`image_generate`、`generate`、`erase_subtitle`、`upscale`）都要求调用方给出 `idempotency_key`，并在请求离开前把 `intent` 记入账本；`erase_subtitle` 与 `upscale` 是异步的，提供方受理任务后立即返回，因此调用方应回读 `subtasks`，而不是在那次调用上等待。 |
 | `@deepseek-ai/dsh-tool-shot-script` | `drama_shot` | `ctx.tools`, `the project layout it reads and writes (episodes/, prompts/, matches/, episode_packages/)` | `tool/call`, `tool/result`, `on compile: the compiled prompt, the matched JSON, and the episode package under the project root` | - | The three methods share one schema: `validate` and `preview` only read, and `compile` writes the matched JSON and the episode package, returning each package's `content_duration_ms`, its submitted whole-second length, and the prompt-ordered `material_keys` that `jubian_storyboard` `select_assets` must match. A script with any hard failure returns that failure list and writes nothing. |
-| `@deepseek-ai/dsh-tool-episode-render` | `drama_render` | `ctx.tools`, `ffmpeg and ffprobe on PATH (or configured), the project layout it reads and writes (video/, audio/, editing/, exports/)` | `tool/call`, `tool/result`, `on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt`, `on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/` | - | One schema, three methods: `prepare` lays out render inputs without encoding picture, `render` produces the delivery and reports its measured resolution, frame rate, bitrate, duration, size, and encoder, and `verify` checks the delivered file. The delivery style is fixed — 1440x2560 at 60 fps, 24M target with a 30M ceiling and a 4.6 Mbps floor, SimHei 68 subtitles with the single bottom-right AI-content mark, and a two-second ending frozen from the last shot’s proved tail frame. A render that cannot proceed throws with its repair instruction; a delivered file that misses the specification returns `ok: false` with per-check repairs. |
+| `@deepseek-ai/dsh-tool-bgm-compose` | `drama_bgm` | `ctx.tools`、`ctx.subprocess`、`PATH` 上（或配置的）ffmpeg 与 ffprobe、单集时间线与明确 BGM 计划 | `tool/call`、`tool/result`、`compose` 时写项目内的 48 kHz 双声道 PCM WAV 及相邻生成报告 | - | `preview` 校验剧情完整覆盖并回报源哈希、偏移、实测平均音量与增益，不发布产物；`compose` 交叉淡化选定曲目，暂存 WAV 通过 ffprobe 后才发布；`verify` 测量已有 WAV，不重写它。工具不选曲，也不调用 `bgm_match`；剧情解读与最终选曲归 Agent。 |
+| `@deepseek-ai/dsh-tool-episode-render` | `drama_render`、`drama_video` | `ctx.tools`, `ffmpeg and ffprobe on PATH (or configured), the project layout it reads and writes (video/, audio/, editing/, exports/)` | `tool/call`, `tool/result`, `on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt`, `on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/`, `drama_video ban/unban 写入项目内 video-bans.json；媒体字节不变` | - | `drama_video` 记录带标签、可逆的 SHA256 禁用决定，不要求审核证据；解除禁用不等于批准。`drama_render` 在 `prepare`/`render` 中拒绝已禁用的选用字节，`verify` 则报告风险，不删除媒体。其三个方法：`prepare` 构建渲染输入但不编码画面，`render` 出片并回报实测的分辨率、帧率、码率、时长、大小与编码器，`verify` 检查成片。交付样式固定——1440x2560@60、24M 目标码率与 30M 上限、4.6 Mbps 下限、SimHei 68 字幕加右下角唯一的 AI 标记，以及用最后一镜经过证明的真实尾帧定格的 2 秒片尾。无法进行下去的渲染会抛错并给修法；不符合规格的成片返回 `ok: false` 与逐项修法。 |
+| `@deepseek-ai/dsh-tool-drama-assets` | `drama_assets` | `ctx.tools`, `ctx.credentials`, `the project layout it reads and writes (assets_manifest.json, _probe/asset-reconcile.json)` | `tool/call`, `tool/result`, `on reconcile: _probe/asset-reconcile.json under the project root` | - | Two methods over one evidence file: `reconcile` reads the remote project’s asset and material lists and the manifest and writes the evidence the host’s reconcile gate reads, and `dispose` records one disposition in it without any remote read. The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate’s inputs. |
 
 <a id="deepseek-aidsh-mcp-resources"></a>
 
@@ -2630,7 +2632,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 
 ### `jubian_asset`
 
-剧变（Jubian）主体设定与资产的查询、确认出演与删除。get/list/materials/generated_image 只读。**confirm_casting 有副作用**：它用 GET 动词改变了远端状态，会使该材质被本次制作采用。它同样需要 idempotency_key，且不要重试。**remove 会不可恢复地删除一个父资产**（`DELETE /aigc/asset/removeAsset/{id}`，带 scriptId 与 isParent=1）：资产与其媒体版本会被移除，引用它的镜头匹配与已生成视频不会因此重建。**如果只是想取消"正式选用"，不要用 remove** —— 那是一个不同的动作。**upload_reference 免费**：把本地参考图（jpg/jpeg/png/webp）按剧变前端自身的上传配置送到它的对象存储，返回 HTTPS material_url —— gpt-image-2 的参考图只接受 URL。两条边必须是 16 的倍数：已合规的文件原样上传，不合规时调用本机 ffmpeg 重编码（可用 DSH_JUBIAN_FFMPEG/FFMPEG_PATH 指定二进制）；本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。写方法必须提供 idempotency_key：同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
+剧变（Jubian）主体设定与资产的查询、确认出演与删除。get/list/materials/generated_image 只读。**confirm_casting 有副作用**：它用 GET 动词改变了远端状态，会使该材质被本次制作采用。它同样需要 idempotency_key，且不要重试。**remove 会不可恢复地删除一个父资产**（`DELETE /aigc/asset/removeAsset/{id}`，带 scriptId 与 isParent=1）：资产与其媒体版本会被移除，引用它的镜头匹配与已生成视频不会因此重建。**如果只是想取消"正式选用"，不要用 remove** —— 那是一个不同的动作。**create_folder / move / rename 会改变控制台里的组织方式**（都在 `/aigc/*` 上真实写入）：create_folder 建一个类别库里的文件夹，同名同级已存在时直接报告、不发请求；move 把材质行移进文件夹，目标文件夹不在该库里时同样只报告；rename 改资产的显示名称。三者都需要 idempotency_key，都不改图片、不改 id、不换类别。**批量改名或搬家前必须先取得用户明确同意**：这些是用户已经在控制台里看到的名字和位置。**upload_reference 免费**：把本地参考图（jpg/jpeg/png/webp）按剧变前端自身的上传配置送到它的对象存储，返回 HTTPS material_url —— gpt-image-2 的参考图只接受 URL。两条边必须是 16 的倍数：已合规的文件原样上传，不合规时调用本机 ffmpeg 重编码（可用 DSH_JUBIAN_FFMPEG/FFMPEG_PATH 指定二进制）；本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。写方法必须提供 idempotency_key：同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
 
 ```json
 {
@@ -2638,7 +2640,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
   "properties": {
     "method": {
       "type": "string",
-      "description": "get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；remove=删除一个父资产（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）。",
+      "description": "get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；remove=删除一个父资产（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名。",
       "enum": [
         "get",
         "list",
@@ -2646,7 +2648,10 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
         "generated_image",
         "confirm_casting",
         "remove",
-        "upload_reference"
+        "upload_reference",
+        "create_folder",
+        "move",
+        "rename"
       ]
     },
     "script_id": {
@@ -2676,6 +2681,59 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
     "image_path": {
       "type": "string",
       "description": "upload_reference 必填：本地参考图路径（jpg/jpeg/png/webp）。"
+    },
+    "folder_name": {
+      "type": "string",
+      "description": "create_folder 必填：文件夹名，例如 `EP05`。"
+    },
+    "parent_id": {
+      "type": "number",
+      "description": "create_folder 可选：父文件夹 ID；省略则建在该类别库的根下（根自己的 ID 就是 root_category_type 的数字）。"
+    },
+    "asset_scope_type": {
+      "type": "number",
+      "description": "create_folder / move 必填：1=团队资产，2=个人资产。资产在哪个库就在哪个库建夹与移动。",
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "root_category_type": {
+      "type": "number",
+      "description": "create_folder / move 必填：1=角色库，2=场景库，3=道具库。move 只用它在本地读文件夹树做前置校验，请求体仍与前端一致（不发这个字段）。",
+      "enum": [
+        1,
+        2,
+        3
+      ]
+    },
+    "material_ids": {
+      "type": "array",
+      "description": "move 必填：要移动的材质行 ID（素材列表里每行的 id，不是父 asset_id）。",
+      "items": {
+        "type": "number"
+      }
+    },
+    "target_folder_id": {
+      "type": "number",
+      "description": "move 必填：目标文件夹 ID；要放回库根目录就传该库的 root_category_type 数字。"
+    },
+    "asset_name": {
+      "type": "string",
+      "description": "image_generate 必填、rename 必填：资产名。给了 episode 时这里只写资产自己的名字（如 `红包`），插件按规范补齐前缀与类别段；不给 episode 时原样发送。rename 发送的就是最终的完整名称。"
+    },
+    "episode": {
+      "type": "string",
+      "description": "可选：集号（`5` 与 `05` 都规范成 `EP05`）或配置的跨集母版标记（默认「全剧」）。给了它，资产名会按规范组合成 `EP05｜角色｜陆沉舟`，处理任务名会加上 `EP05-P3-` 这样的可排序前缀；不给就完全按调用方原样使用 asset_name / task_name。"
+    },
+    "asset_category": {
+      "type": "string",
+      "description": "资产类别。与 episode 同时给出时决定资产名里的类别段，并决定 image_generate 的 assetType（角色=1、场景=2、道具=3）——场景与道具必须传对应类别，否则资产会落进控制台的角色库。",
+      "enum": [
+        "角色",
+        "场景",
+        "道具"
+      ]
     }
   },
   "required": [
@@ -2776,9 +2834,144 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 
 来源：[`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
+### `jubian_model`
+
+免费配置现有分镜的视频模型与分辨率。preview 只读实时目录和分镜，按明确范围写本地冻结计划，返回每项 before/after 与 fingerprint；不 PUT、不生成。scope=storyboards 使用远端 storyboard_ids，episodes 使用远端 episode_ids（不是集号），project 仅包含当前项目已有分镜。apply 必须先取得用户对范围和配置的同意，使用 preview_path 与 idempotency_key=fingerprint。写前校验全部目标、成员和目录，每项再即时回读；只改 modelConfig 模型字段，所有 PUT 强制 isGenerate=0，保留提示词、资产身份和顺序、非模型设置，回读核验。未提供的设置保留，不会默认切换模型；更换模型未指定 platformId 时要求目录唯一匹配，否则拒绝。项目未来默认值和已生成媒体不变。错误或超时立即停止剩余项并逐项报告；同一计划不会重发或续写，先回读对账，不要换 key 盲目重试。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "description": "preview=只读预览并落冻结计划；apply=应用用户批准的计划（免费，不生成）。",
+      "enum": [
+        "preview",
+        "apply"
+      ]
+    },
+    "project_dir": {
+      "type": "string",
+      "description": "含 project_config.json 的项目目录。"
+    },
+    "script_id": {
+      "type": "number",
+      "description": "必须与 project_config.json 及所有目标一致的远端项目 ID。"
+    },
+    "scope": {
+      "type": "string",
+      "description": "preview 必填：已有分镜的明确范围。",
+      "enum": [
+        "storyboards",
+        "episodes",
+        "project"
+      ]
+    },
+    "storyboard_ids": {
+      "type": "array",
+      "description": "storyboards 范围必填：精确远端分镜 ID，不能重复。",
+      "items": {
+        "type": "number"
+      }
+    },
+    "episode_ids": {
+      "type": "array",
+      "description": "episodes 范围必填：精确远端 episodeId，不是显示集号。",
+      "items": {
+        "type": "number"
+      }
+    },
+    "changes": {
+      "type": "object",
+      "description": "preview 必填：至少一项。未指定字段保留，目录中不支持或不唯一时拒绝。",
+      "additionalProperties": false,
+      "properties": {
+        "modelId": {
+          "type": "string",
+          "description": "账户视频目录中的精确模型 ID，不接受别名或默认替换。"
+        },
+        "platformId": {
+          "type": "string",
+          "description": "明确指定的平台；换模型时省略则要求唯一匹配。"
+        },
+        "ratio": {
+          "type": "string",
+          "description": "目录支持的比例，例如 9:16。"
+        },
+        "resolution": {
+          "type": "string",
+          "description": "目录支持的分辨率，例如 720p、1080p。"
+        },
+        "genType": {
+          "type": "number",
+          "description": "目录支持的生成类型。"
+        },
+        "duration": {
+          "type": "number",
+          "description": "模型允许的整数秒数，包含末尾自然收束。"
+        },
+        "genNum": {
+          "type": "number",
+          "description": "目录支持的生成数量。"
+        }
+      }
+    },
+    "preview_path": {
+      "type": "string",
+      "description": "apply 必填：preview 返回的冻结计划路径。"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "apply 必填：必须等于计划 fingerprint；同计划永不重发。"
+    }
+  },
+  "required": [
+    "method",
+    "project_dir",
+    "script_id"
+  ]
+}
+```
+
+来源：[`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+
+### `jubian_organize`
+
+只读、免费的资产组织视图：把剧变项目按「集数 → 类别」列出（每集用到哪些角色/场景/道具，各自的 asset_id、material_id 与状态），并做两份审计——不符合 `EP{两位集数}｜{类别}｜{名称}` 规范的远端名称，以及 assetType 与自身名字或清单声明不一致的资产（历史遗留的类别错放）。同时读出个人资产库里每个类别的文件夹树。**它只读：不重命名、不移动、不改动任何远端资产**，结果同时写一份本地索引文件。要改，用 jubian_asset 的 create_folder / move / rename，且批量操作前先取得用户同意。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "description": "index=按集数与类别输出组织视图，并写本地索引文件。",
+      "enum": [
+        "index"
+      ]
+    },
+    "script_id": {
+      "type": "number",
+      "description": "剧变项目 ID（scriptId）。erase_subtitle 与 upscale 从任务行读取它，不必单独提供；其余方法按上面的必填说明传入。"
+    },
+    "project_dir": {
+      "type": "string",
+      "description": "prepare_video 必填、submit_video 可选：项目目录，必须含 project_config.json，且其 jubian_script_id 必须等于实时 scriptId。"
+    }
+  },
+  "required": [
+    "method",
+    "script_id",
+    "project_dir"
+  ]
+}
+```
+
+来源：[`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+
 ### `jubian_storyboard`
 
-剧变（Jubian）分镜查询与提交。get/create/save 免费（save 强制 isGenerate=0）。**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，且它必须与该分镜已保存的时长一致，否则会在发请求前失败。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：select_assets 把选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 只读实时分镜、主体设定与非 Mini Seedance 模型，在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key：同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
+剧变（Jubian）分镜查询与提交。get/create/save 免费（create/save 强制 isGenerate=0）。**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，且它必须与该分镜已保存的时长一致，否则会在发请求前失败。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：select_assets 把选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key：同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
 
 ```json
 {
@@ -2822,6 +3015,14 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
       "type": "string",
       "description": "erase_subtitle 可选：任务名，省略时按「<源任务名>-去字幕」生成。"
     },
+    "episode": {
+      "type": "string",
+      "description": "可选：集号（`5` 与 `05` 都规范成 `EP05`）或配置的跨集母版标记（默认「全剧」）。给了它，资产名会按规范组合成 `EP05｜角色｜陆沉舟`，处理任务名会加上 `EP05-P3-` 这样的可排序前缀；不给就完全按调用方原样使用 asset_name / task_name。"
+    },
+    "package_number": {
+      "type": "string",
+      "description": "erase_subtitle / upscale 可选：本集内的包号，配合 episode 生成 `EP05-P3` 前缀。"
+    },
     "video_width": {
       "type": "number",
       "description": "erase_subtitle 必填：画面宽度。"
@@ -2837,8 +3038,12 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
     },
     "body": {
       "type": "object",
-      "description": "create 必填：完整的远端请求体（本插件不做体编译）。",
+      "description": "create 二选一：完整的远端请求体（本插件不做体编译）。",
       "additionalProperties": true
+    },
+    "body_path": {
+      "type": "string",
+      "description": "create 二选一：包含完整冻结请求体的本地 UTF-8 JSON 文件路径。"
     },
     "idempotency_key": {
       "type": "string",
@@ -2885,7 +3090,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 
 ### `jubian_video`
 
-剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读（subtasks 用 POST 承载查询体，仍然只读；它返回成片 videoUrl 与字幕像素框）。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；给了 parent_asset_id 就是重生成（PUT），否则新建（POST）。**upscale 会真实计费（SeedVR2 视频高清，1 元/条）**：把低于交付分辨率的成片转成 1080p。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key：同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
+剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读（subtasks 用 POST 承载查询体，仍然只读；它返回成片 videoUrl 与字幕像素框）。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；给了 parent_asset_id 就是重生成（PUT），否则新建（POST）。它只在同一个 idempotency_key 下发送一次，并在受理后回读该资产直到 hsAssetStatus 变为 Active，然后返回 material_id（confirm_casting 需要它）与 image_url。返回里的 asset_status 说明回读结论：active 才是拿到图（此时才可落盘/审核）；timeout 表示受理已计费但资产尚未 Active，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。锁定行由人在 Web 设置的「短剧 → 资产图生成通道」里选，或由部署在插件配置里给 imagePlatformId/imageStandardId；遇到这个报错时把候选念给用户，请他在设置里选一行，不要自己挑。**upscale 会真实计费（SeedVR2 视频高清，1 元/条）**：把成片转成 1080p。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key：同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
 
 ```json
 {
@@ -2917,15 +3122,20 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
     },
     "delivery_resolution": {
       "type": "string",
-      "description": "subtasks 可选但强烈建议：本次要交付的分辨率，如 1080p。给定后每行都会得到 needs_upscale：低于该分辨率的结果为 true，表示必须先转高清才能使用；无法判断时为 null。"
+      "description": "subtasks 可选但强烈建议：本次要交付的分辨率，如 1080p。给定后每行都会得到 needs_upscale：低于该分辨率的结果为 true，否则为 false，无法判断时为 null。true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。"
     },
     "asset_name": {
       "type": "string",
-      "description": "image_generate 必填：资产名。"
+      "description": "image_generate 必填、rename 必填：资产名。给了 episode 时这里只写资产自己的名字（如 `红包`），插件按规范补齐前缀与类别段；不给 episode 时原样发送。rename 发送的就是最终的完整名称。"
     },
     "asset_type": {
       "type": "number",
-      "description": "image_generate 必填：平台资产类型数字，当前只有 1（角色）有证据。"
+      "description": "image_generate 的资产类别号：1=角色，2=场景，3=道具。给了 asset_category 时可以不传（插件按类别推导）；两个都给时必须一致。场景与道具必须传 2/3——一律传 1 会把它们建进控制台的角色库。",
+      "enum": [
+        1,
+        2,
+        3
+      ]
     },
     "prompt": {
       "type": "string",
@@ -2941,6 +3151,23 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
     "parent_asset_id": {
       "type": "number",
       "description": "image_generate 可选：给了就是重生成（PUT），不给是新建（POST）。"
+    },
+    "episode": {
+      "type": "string",
+      "description": "可选：集号（`5` 与 `05` 都规范成 `EP05`）或配置的跨集母版标记（默认「全剧」）。给了它，资产名会按规范组合成 `EP05｜角色｜陆沉舟`，处理任务名会加上 `EP05-P3-` 这样的可排序前缀；不给就完全按调用方原样使用 asset_name / task_name。"
+    },
+    "asset_category": {
+      "type": "string",
+      "description": "资产类别。与 episode 同时给出时决定资产名里的类别段，并决定 image_generate 的 assetType（角色=1、场景=2、道具=3）——场景与道具必须传对应类别，否则资产会落进控制台的角色库。",
+      "enum": [
+        "角色",
+        "场景",
+        "道具"
+      ]
+    },
+    "package_number": {
+      "type": "string",
+      "description": "erase_subtitle / upscale 可选：本集内的包号，配合 episode 生成 `EP05-P3` 前缀。"
     },
     "task_name": {
       "type": "string",
@@ -2959,6 +3186,37 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 
 来源：[`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
+### `jubian_watch`
+
+只读后台观察已受理的剧变操作，立即返回 job_id；task_id 必须是本次生成/转高清/去字幕操作的任务 ID，不是源视频任务 ID。只读同一任务及其完整子结果，严格核对身份、阶段和成功状态；旧 URL 或 hdCount 不代表本次完成。完成后由 jobs 通知，用 job_output 取结果；job_kill 只停观察，不取消提供方操作。进程重启不恢复，超时失败不重投收费请求。提供方完成不等于视觉审核通过：结果仍需抽帧、音频和交付分辨率检查。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "integer",
+      "description": "已受理的本次操作任务 ID（正安全整数），不是源任务 ID。"
+    },
+    "stage": {
+      "type": "string",
+      "description": "本次操作的阶段，必须与任务类型及全部输出一致。",
+      "enum": [
+        "generate",
+        "upscale",
+        "erase_subtitle"
+      ]
+    }
+  },
+  "required": [
+    "task_id",
+    "stage"
+  ]
+}
+```
+
+来源：[`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+
 每个计费的写入（`image_generate`、`generate`、`erase_subtitle`、`upscale`）都要求调用方给出 `idempotency_key`，并在请求离开前把 `intent` 记入账本；`erase_subtitle` 与 `upscale` 是异步的，提供方受理任务后立即返回，因此调用方应回读 `subtasks`，而不是在那次调用上等待。
 
 <a id="deepseek-aidsh-tool-shot-script"></a>
@@ -2967,7 +3225,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 
 ### `drama_shot`
 
-短剧镜头脚本的判定与编译（剧变流水线）。validate=只读校验：逐镜给出推导时长（9 有效字/秒）、有效字、发声类型、画外音合法性、资产绑定，硬失败与警告分开列出；preview=只读预算：在 validate 之上算出每包内容时长与打包方案，不落盘，用于提交前看预算；compile=判定通过后写入 matched JSON（matches/<集号>.matched.json）与单集 package（prompts/<集号>.txt、episode_packages/<集号>/），并回报每包的 content_duration_ms、提交给剧变的整秒时长与素材键顺序。判定规则：单镜 1–4 整数秒；有台词的镜头按 9 有效字/秒推导，超过 15 有效字给警告，超过 36 有效字判失败；无发声镜必须写 发声类型：action，时长由 动作复杂度（简单/一般/较复杂/复杂 = 1/2/3/4 秒）决定，没写就按默认 2 秒计；台词：无、空台词行、出镜人物：无 一律判失败（无声镜整行省略台词行与出镜人物）；旁白/解说/心声/画外声/OS 判失败，但同一句话没说完就切镜时写成 台词：角色名（画外音）：原文 是允许的；脚本与提示词里都不得出现任何秒数；只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产；只合并同场戏的连续完整镜头，每包内容 ≤14 秒，另加 1 秒自然收束，禁止截断镜头凑时长。硬失败时不会写任何文件，也不给打包方案。
+短剧镜头脚本的判定与编译（剧变流水线）。validate=只读校验：逐镜给出推导时长（9 有效字/秒）、有效字、发声类型、画外音合法性、资产绑定，硬失败与警告分开列出；preview=只读预算：在 validate 之上算出每包内容时长与打包方案，不落盘，用于提交前看预算；compile=判定通过后写入 matched JSON（matches/<集号>.matched.json）与单集 package（prompts/<集号>.txt、episode_packages/<集号>/），并回报每包的 content_duration_ms、提交给剧变的整秒时长与素材键顺序。时长：N秒的正整数声明优先；省略时按 9 有效字/秒估算。超过 15 或 36 有效字、偏离估算仅警告，可保留长慢镜头；无发声镜必须写 发声类型：action，时长由 动作复杂度（简单/一般/较复杂/复杂 = 1/2/3/4 秒）决定，没写就按默认 2 秒计；台词：无、空台词行、出镜人物：无 一律判失败（无声镜整行省略台词行与出镜人物）；旁白/解说/心声/画外声/OS 作为 vo 画外发声保留原文与说话人，提醒核对项目配音；风格/负面词缺失和正文秒数仅警告；只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产；preview/compile 必填 max_submit_seconds：目标分镜实际请求总秒数（在已确认模型能力内），不是自动取模型最大值。只合并同场连续完整镜头，内容加1秒收束不得超过该值，超长单镜拒绝，禁止截断。硬失败时不会写任何文件，也不给打包方案。
 
 ```json
 {
@@ -2994,6 +3252,10 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
       "type": "string",
       "description": "项目根目录（含 episodes/、prompts/、matches/、episode_packages/）；compile 必填。"
     },
+    "max_submit_seconds": {
+      "type": "integer",
+      "description": "preview/compile 必填：目标分镜实际请求总秒数，含1秒收束且在已确认模型能力内。例如分镜请求8秒就填8，不默认取模型最大值；已配置15或30秒时才填15或30。"
+    },
     "episode": {
       "type": "integer",
       "description": "集号（正整数，如 3）；compile 必填，写入时补成两位，如 03。"
@@ -3010,13 +3272,13 @@ Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-
 
 三个方法共用一份 schema：`validate` 与 `preview` 只读，`compile` 写入 matched JSON 与单集 package，并回传每包的 `content_duration_ms`、提交的整秒时长，以及 `jubian_storyboard` `select_assets` 必须对齐的提示词顺序 `material_keys`。存在任何硬失败的脚本会返回这份失败清单，不写任何文件。
 
-<a id="deepseek-aidsh-tool-episode-render"></a>
+<a id="deepseek-aidsh-tool-bgm-compose"></a>
 
-## `@deepseek-ai/dsh-tool-episode-render`
+## `@deepseek-ai/dsh-tool-bgm-compose`
 
-### `drama_render`
+### `drama_bgm`
 
-短剧整集渲染编排（剧变流水线）。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。render=出片：逐镜编码到交付规格 1440x2560@60、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1，片尾用最后一镜的真实尾帧定格 2 秒并叠 ending_effect，拼接后烧录 ASS 字幕（SimHei 68、字间距 -2、7px 黑描边、底部居中，右下角唯一的「内容由AI生成」标记），再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。
+短剧整集 BGM 合成工具；只执行 Agent 已确认的 episodes/segments 计划，不选曲、不替代试听。可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。preview=安全预检：验证时间线、来源和完整连续覆盖，检测 1–5 秒内的起音，测量源窗口平均响度并计算目标 -17.5 dB、最大 +9 dB 的增益，不写正式产物。compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。compose 返回的 output 传给 drama_render.bgm，同一 plan 传给 drama_render.bgm_plan。本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。
 
 ```json
 {
@@ -3024,16 +3286,73 @@ Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-
   "properties": {
     "method": {
       "type": "string",
-      "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查。",
+      "description": "preview=预检且不发布；compose=合成并无覆盖发布；verify=核验已有 WAV。",
       "enum": [
-        "prepare",
-        "render",
+        "preview",
+        "compose",
         "verify"
       ]
     },
     "project": {
       "type": "string",
-      "description": "项目根目录（含 video/、audio/、editing/、exports/）；三种方法都必填。"
+      "description": "短剧项目根目录。"
+    },
+    "episode": {
+      "type": "integer",
+      "description": "正整数集号，内部补成两位。"
+    },
+    "timeline": {
+      "type": "string",
+      "description": "项目内时间线 JSON，必须含 body_end，通常为 editing/<集>-timeline.json。"
+    },
+    "plan": {
+      "type": "string",
+      "description": "项目内 episodes/segments BGM 计划 JSON；段落必须连续完整覆盖正文。"
+    },
+    "output": {
+      "type": "string",
+      "description": "项目内 WAV 路径；省略为 audio/bgm/<集>.wav。"
+    }
+  },
+  "required": [
+    "method",
+    "project",
+    "episode",
+    "timeline",
+    "plan"
+  ]
+}
+```
+
+来源：[`packages/drama/tool-bgm-compose/src/index.ts`](../packages/drama/tool-bgm-compose/src/index.ts)
+
+`preview` 校验剧情完整覆盖并回报源哈希、偏移、实测平均音量与增益，不发布产物；`compose` 交叉淡化选定曲目，暂存 WAV 通过 ffprobe 后才发布；`verify` 测量已有 WAV，不重写它。工具不选曲，也不调用 `bgm_match`；剧情解读与最终选曲归 Agent。
+
+<a id="deepseek-aidsh-tool-episode-render"></a>
+
+## `@deepseek-ai/dsh-tool-episode-render`
+
+### `drama_render`
+
+短剧整集渲染编排（剧变流水线）。subtitles=按逐镜发声测出字幕时间并写出 SRT：逐镜对成片自己的音轨跑静音检测，把静音段反演成发声段，再把你给出的每镜台词放到这些发声段里，cue 时间 = 该镜在时间线上的起点 + 镜内偏移；**不做语音转写、不联网、不需要模型**，因为你已经知道每镜说了什么，缺的只有时间。台词按 lines 计划里的顺序一一对应；一镜检出的发声段少于台词条数时，段内按有效字数切分，这些 cue 标成估算并在 warnings 里点名，同时 speech_alignment 会留在 not_checked。声明了台词却检不出任何发声、或有发声却没声明台词，都按 failure 报出（subtitle_line_coverage）。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。render=出片：逐镜编码到交付规格 1440x2560@60、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1，片尾用最后一镜的真实尾帧定格 2 秒并叠 ending_effect，拼接后烧录 ASS 字幕（SimHei 68、字间距 -2、7px 黑描边、底部居中，右下角唯一的「内容由AI生成」标记），再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按逐镜发声测出字幕时间并写出 SRT（不编码、不需要语音转写）。",
+      "enum": [
+        "prepare",
+        "render",
+        "verify",
+        "subtitles"
+      ]
+    },
+    "project": {
+      "type": "string",
+      "description": "项目根目录（含 video/、audio/、editing/、exports/）；四个方法都必填。"
     },
     "episode": {
       "type": "integer",
@@ -3041,7 +3360,11 @@ Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-
     },
     "shots": {
       "type": "string",
-      "description": "成片清单 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"video\":\"media/02/p1-clean.mp4\",\"audio\":\"可选\"}]}；prepare 必填。video 缺音轨时必须给 audio。"
+      "description": "成片清单 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"video\":\"media/02/p1-clean.mp4\",\"audio\":\"可选\"}]}；prepare 与 subtitles 必填。video 缺音轨时必须给 audio。"
+    },
+    "lines": {
+      "type": "string",
+      "description": "台词计划 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"lines\":[\"第一句\",\"第二句\"]}]}；subtitles 必填。每镜的台词在这里就按字幕条切好（单条不超过 14 个字），工具只给时间，不改文字。"
     },
     "timeline": {
       "type": "string",
@@ -3049,7 +3372,7 @@ Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-
     },
     "subtitle_srt": {
       "type": "string",
-      "description": "本集 SRT 字幕路径；prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。"
+      "description": "本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。"
     },
     "last_shot": {
       "type": "integer",
@@ -3058,6 +3381,10 @@ Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-
     "bgm": {
       "type": "string",
       "description": "本集实际使用的 BGM 文件路径；render 必填，会循环铺到正片结束。"
+    },
+    "bgm_plan": {
+      "type": "string",
+      "description": "render 可选：现有 episodes/segments 配乐计划 JSON；校验时间、记录曲目与复用提醒，不代替试听。"
     },
     "ending_audio": {
       "type": "string",
@@ -3086,4 +3413,104 @@ Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-
 
 Source: [`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/tool-episode-render/src/index.ts)
 
-一个 schema 三个方法：`prepare` 构建渲染输入但不编码画面，`render` 出片并回报实测的分辨率、帧率、码率、时长、大小与编码器，`verify` 检查成片。交付样式固定——1440x2560@60、24M 目标码率与 30M 上限、4.6 Mbps 下限、SimHei 68 字幕加右下角唯一的 AI 标记，以及用最后一镜经过证明的真实尾帧定格的 2 秒片尾。无法进行下去的渲染会抛错并给修法；不符合规格的成片返回 `ok: false` 与逐项修法。
+### `drama_video`
+
+按用户决定禁用或解除禁用具体视频版本。ban 必须提供本地 video 和至少一个 labels 标签（如人物对调、字幕错误），reason 可选，不要求审图证据。内部按 SHA256 标识，同字节副本共享禁用，新生成不同字节不受影响。unban 不等于审核通过；list/inspect 可读标签和原因。只在 drama_render prepare/render 拦截，verify 报告风险不删文件；不拦截通用 ffmpeg。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "enum": [
+        "ban",
+        "unban",
+        "list",
+        "inspect"
+      ]
+    },
+    "project": {
+      "type": "string",
+      "description": "现有项目目录，禁用清单持久化在该目录。"
+    },
+    "video": {
+      "type": "string",
+      "description": "本地视频路径，相对项目或绝对路径；ban 必填，内部计算 SHA256。"
+    },
+    "sha256": {
+      "type": "string",
+      "description": "仅 unban/inspect 可用清单返回的 SHA256 代替已不存在的 video，二者互斥。"
+    },
+    "labels": {
+      "type": "array",
+      "description": "ban 必填：至少一个非空标签，如人物对调、字幕错误。",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reason": {
+      "type": "string",
+      "description": "ban 可选：用户禁用原因；不是审图证据。"
+    }
+  },
+  "required": [
+    "method",
+    "project"
+  ]
+}
+```
+
+来源：[`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/tool-episode-render/src/index.ts)
+
+`drama_video` 记录带标签、可逆的 SHA256 禁用决定，不要求审核证据；解除禁用不等于批准。`drama_render` 在 `prepare`/`render` 中拒绝已禁用的选用字节，`verify` 则报告风险，不删除媒体。其三个方法：`prepare` 构建渲染输入但不编码画面，`render` 出片并回报实测的分辨率、帧率、码率、时长、大小与编码器，`verify` 检查成片。交付样式固定——1440x2560@60、24M 目标码率与 30M 上限、4.6 Mbps 下限、SimHei 68 字幕加右下角唯一的 AI 标记，以及用最后一镜经过证明的真实尾帧定格的 2 秒片尾。无法进行下去的渲染会抛错并给修法；不符合规格的成片返回 `ok: false` 与逐项修法。
+
+## `@deepseek-ai/dsh-tool-drama-assets`
+
+### `drama_assets`
+
+短剧流水线的付费生成前资产对账（剧变）。reconcile=只读剧变、免费：把「剧变远端这个项目里已选用的资产」与「assets_manifest.json 里写了什么」逐条比一遍，产出机读证据 <project_dir>/_probe/asset-reconcile.json。判定口径：远端存活 = asset/list 里 delFlag == "0"；已选用 = material/list 里 isUsed == 1 且 hsAssetStatus == "Active"；unregistered = 已选用但清单里没有（不许直接生成，先登记复用或写明不需要）；dangling = 清单里有但远端没有；matched = 两端都有的数量。dispose=给某条 unregistered 写处置：status=registered（已登记进清单）或 ignored（确认不需要，必须带非空 note）；只更新证据里的 disposition 并重算 blocking / ignored_without_note / ready，不重新对账、不联网。ready = blocking 与 ignored_without_note 都为空，宿主侧的付费前置钩子只认这一条，证据 24 小时内有效。为什么清单不够：清单只记录我们生成过什么，不等于剧变项目里已经有什么——2026-09-20 就因为只看清单，给一张项目里早就存在的正式资产重新生成了两次（花掉 1.17 元）。本工具绝不调用剧变的任何写方法、绝不计费：远端只读，本地只写 _probe/asset-reconcile.json 这一个文件。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "description": "reconcile=只读剧变做对账并写证据（免费）；dispose=只改证据里的处置记录（不联网）。",
+      "enum": [
+        "reconcile",
+        "dispose"
+      ]
+    },
+    "project_dir": {
+      "type": "string",
+      "description": "项目根目录绝对路径，必须含 assets_manifest.json；证据写在它的 _probe/asset-reconcile.json。"
+    },
+    "asset_id": {
+      "type": "integer",
+      "description": "dispose 必填：要处置的 unregistered 资产 ID（不是 material_id、不是任务 ID）。"
+    },
+    "status": {
+      "type": "string",
+      "description": "dispose 必填：registered=已登记进清单（下次 reconcile 会自动确认）；ignored=确认不需要，必须同时给 note 说明原因。",
+      "enum": [
+        "registered",
+        "ignored"
+      ]
+    },
+    "note": {
+      "type": "string",
+      "description": "dispose 可选但 status=ignored 时必填且非空：写清为什么这个资产不需要（例如是别的剧的备选、失败遗留、废弃版本）。"
+    }
+  },
+  "required": [
+    "method",
+    "project_dir"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-drama-assets/src/index.ts`](../packages/drama/tool-drama-assets/src/index.ts)
+
+Two methods over one evidence file: `reconcile` reads the remote project’s asset and material lists and the manifest and writes the evidence the host’s reconcile gate reads, and `dispose` records one disposition in it without any remote read. The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate’s inputs.

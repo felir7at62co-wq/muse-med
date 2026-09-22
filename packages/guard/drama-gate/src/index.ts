@@ -5,10 +5,11 @@
  * `tools/pre-execute` hands this plugin the tool name and the already-parsed
  * arguments, and a host-plane plugin may read files, so the rules that are
  * genuinely decidable live here: a paid Jubian method must carry an idempotency
- * key, a write into the workshop's shot scripts and matched JSON must satisfy the
- * integer-second / 9-characters-per-second / 36-character contract and must not
- * reintroduce narration, and a paid storyboard submission must follow a recorded
- * `official=true` asset. Everything that needs pixels, taste, or a judgement
+ * key, a write into the workshop's shot scripts and matched JSON must use
+ * structurally valid duration fields and JSON, a paid storyboard submission must follow a recorded
+ * `official=true` asset, and creating a new billed asset must follow a fresh,
+ * fully disposed reconcile of the project against the remote project's
+ * already-selected assets. Everything that needs pixels, taste, or a judgement
  * about the story stays in the shot-script skill.
  *
  * The plugin is a preset row: it is mounted for the drama session only, so no
@@ -61,6 +62,14 @@ export interface Config {
   shotScript?: boolean
   /** Refuse a paid storyboard submission while no `official=true` asset record exists (default `true`). */
   officialAssets?: boolean
+  /**
+   * Refuse creating a new billed asset — `jubian_video` `image_generate` — until
+   * the project root holds a fresh `_probe/asset-reconcile.json` that is
+   * `ready` and fully disposed (default `true`). The manifest records what this
+   * pipeline generated, not what the Jubian project already has, so the evidence
+   * is what keeps an existing asset from being regenerated.
+   */
+  reconcileFirst?: boolean
   /** Explain a call to a retired MUSE tool name instead of a bare `UNKNOWN_TOOL` (default `true`). */
   museToolNames?: boolean
 }
@@ -72,6 +81,7 @@ export const Config: z<Config> = z.object({
   idempotencyKey: z.boolean().default(true),
   shotScript: z.boolean().default(true),
   officialAssets: z.boolean().default(true),
+  reconcileFirst: z.boolean().default(true),
   museToolNames: z.boolean().default(true),
 })
 
@@ -142,6 +152,7 @@ export function apply(ctx: Context, config: Config): void {
     idempotencyKey: config.idempotencyKey as boolean,
     shotScript: config.shotScript as boolean,
     officialAssets: config.officialAssets as boolean,
+    reconcileFirst: config.reconcileFirst as boolean,
     museToolNames: config.museToolNames as boolean,
   }
 

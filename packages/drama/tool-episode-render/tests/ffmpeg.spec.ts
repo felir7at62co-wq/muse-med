@@ -1,10 +1,12 @@
 /** The external-process edge: the spawn channel, the two ffmpeg wrappers, and ffprobe parsing. */
 
+import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import {
   captureFfmpeg,
+  createFileCaptureChannel,
   createMediaToolkit,
   createSpawnChannel,
   describeCommand,
@@ -92,8 +94,41 @@ describe('createSpawnChannel', () => {
   })
 })
 
+describe('createFileCaptureChannel', () => {
+  const node = process.execPath
+
+  it('captures standard output and error through files', async () => {
+    const outcome = await createFileCaptureChannel().run(node, [
+      '-e', "process.stdout.write('out');process.stderr.write('err')",
+    ])
+    expect(outcome).toEqual({ code: 0, stdout: 'out', stderr: 'err' })
+  })
+
+  it('preserves an ordinary non-zero exit and its stderr', async () => {
+    const outcome = await createFileCaptureChannel().run(node, [
+      '-e', "process.stderr.write('bad');process.exit(6)",
+    ])
+    expect(outcome).toEqual({ code: 6, stdout: '', stderr: 'bad' })
+  })
+
+  it('reports a missing executable as exit code 127', async () => {
+    const missing = join(tmpdir(), 'drama-render-file-channel-no-such-binary-9f27')
+    const outcome = await createFileCaptureChannel().run(missing, [])
+    expect(outcome.code).toBe(127)
+    expect(outcome.stderr.length).toBeGreaterThan(0)
+  })
+
+  it('removes its temporary directory after success and failure', async () => {
+    const before = new Set((await readdir(tmpdir())).filter(name => name.startsWith('dsh-drama-render-')))
+    await createFileCaptureChannel().run(node, ['-e', 'process.exit(0)'])
+    await createFileCaptureChannel().run(node, ['-e', 'process.exit(4)'])
+    const after = (await readdir(tmpdir())).filter(name => name.startsWith('dsh-drama-render-'))
+    expect(after.filter(name => !before.has(name))).toEqual([])
+  })
+})
+
 describe('createMediaToolkit', () => {
-  it('uses the spawn channel when none is injected', () => {
+  it('uses the file-capture channel when none is injected', () => {
     const built = createMediaToolkit({ ffmpeg: 'f', ffprobe: 'p' })
     expect(built.ffmpeg).toBe('f')
     expect(built.ffprobe).toBe('p')

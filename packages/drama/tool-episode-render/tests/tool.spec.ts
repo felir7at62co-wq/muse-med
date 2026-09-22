@@ -147,11 +147,23 @@ describe('registration', () => {
       required: string[]
     }
     expect(Object.keys(parameters.properties).sort()).toEqual([
-      'bgm', 'ending_audio', 'ending_effect', 'episode', 'force', 'last_shot',
+      'bgm', 'bgm_plan', 'ending_audio', 'ending_effect', 'episode', 'force', 'last_shot', 'lines',
       'method', 'output', 'project', 'shots', 'subtitle_srt', 'timeline',
     ])
-    expect(parameters.properties.method?.enum).toEqual(['prepare', 'render', 'verify'])
+    expect(parameters.properties.method?.enum).toEqual(['prepare', 'render', 'verify', 'subtitles'])
     expect(parameters.required.sort()).toEqual(['episode', 'method', 'project'])
+  })
+
+  it('maps a BGM plan through call resolution and returns only declared report fields', async () => {
+    const prepared = await preparedProject()
+    const plan = join(prepared.project, 'bgm-plan.json')
+    await writePlaceholder(plan, JSON.stringify({ episodes: [{ episode: '02', body_duration_seconds: 114.733332,
+      segments: [{ index: 1, track: 'song', source: prepared.bgm, start_seconds: 0, end_seconds: 114.733332, reason: 'scene' }],
+    }] }))
+    const report = await run({ method: 'render', ...prepared, episode: 2, subtitleSrt: prepared.subtitle,
+      lastShot: 1, bgmPlan: plan }, settingsWith(callChannel(prepared.project).channel))
+    expect(report.bgm_plan.path).toBe(plan)
+    expect(report.bgm_plan.segments[0]).not.toHaveProperty('index')
   })
 
   it('renders the canonical value as pretty JSON', () => {
@@ -160,6 +172,23 @@ describe('registration', () => {
     expect(blocks[0]?.type).toBe('text')
     expect(blocks[0]?.text).toContain('"ok": true')
   })
+
+  it.each(['prepare', 'render', 'verify'] as const)(
+    'accepts public snake_case arguments for %s before reading inputs', async (method) => {
+      const project = await tempProject()
+      temporary.push(project)
+      const missing = join(project, 'missing.json')
+      const args = {
+        method, project, episode: 1, shots: missing, timeline: missing,
+        subtitle_srt: join(project, 'subtitles.srt'), last_shot: 1,
+        bgm: join(project, 'bgm.wav'), ending_audio: join(project, 'ending.wav'),
+        ending_effect: join(project, 'effect.mp4'), output: join(project, 'output.mp4'),
+      }
+      const tool = dramaRender()
+      expect(validateJsonSchemaValue(tool.parameters, args, '')).toEqual([])
+      await expect(tool.execute(args, runContext())).rejects.toMatchObject({ code: 'ENOENT', path: missing })
+    },
+  )
 
   it('fails a call through the registered executor when an argument is missing', async () => {
     await expect(dramaRender().execute({ method: 'verify', project: 'C:/proj', episode: 1 }, runContext()))

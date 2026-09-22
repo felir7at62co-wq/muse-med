@@ -1,0 +1,9 @@
+# Draft build dependencies
+
+The spoken-cue builder uses the Python standard library. Editable Jianying drafts require an externally installed compatible `pyJianYingDraft`; `pydub` is optional for audio analysis. Media inspection also requires the dependencies of that installed draft library, including MediaInfo where its distribution requires it. No site-packages, vendored Python libraries, executables, models, fonts or media are distributed with this skill.
+
+Install FFmpeg/ffprobe separately. `scripts/paths.py` resolves `DSH_FFMPEG_PATH` / `DSH_FFPROBE_PATH`, then `FFMPEG_PATH` / `FFPROBE_PATH`, then PATH. For direct `jianying_draft.py` use, configure `FFMPEG_BINARY` / `FFPROBE_BINARY` and PATH before importing the external library. Keep this skill adjacent to `tweet-drama-core`: `draft_generator.py` and `jianying_draft.py` import its `video_bans` checks. `draft_generator.py` also imports local `jianying_draft`; run with this skill's scripts directory on Python's import path. Its FFmpeg setup reads the explicit constructor path, then `DSH_FFMPEG_PATH`, `FFMPEG_PATH`, or PATH without importing another skill's generic `paths` module.
+
+No speech-transcription model is required. Final cues require measured actual speech timing; 9-effective-characters-per-second estimates are draft-only. Supply each episode's reviewed multi-track BGM mix as the one input audio file; the generator does not select or mix music.
+
+Third-party code is not redistributed here. Verify the license and compatibility of the installed `pyJianYingDraft`, pydub, MediaInfo and FFmpeg build before use; licenses of the excluded local vendor copies were not established. Fonts, BGM and ending media require separate usage rights. No separate upstream license was present among the maintained skill files; this migration does not grant rights to excluded dependencies or media.

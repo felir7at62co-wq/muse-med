@@ -10,6 +10,8 @@ Status: implemented
 
 ## Decision
 
+[制作策略与结果证据决策](2026-09-21-drama-policy-and-result-evidence.zh.md) 部分取代本文记录的创作限制与固定时长预算。本文保留独立的工具归属理由；原先支持创作检查直接判失败的论证不是当前策略。
+
 新的 `drama/` 包组承载 `@deepseek-ai/dsh-tool-shot-script`，它注册一个模型可见的工具 `drama_shot`，含三个方法。`validate` 读取脚本，逐镜给出推导时长及其来源、有效字数、发声类型、画外音是否合法、以及资产绑定，并把硬失败与警告分成两个列表。`preview` 在不落盘的前提下补上打包方案。`compile` 写入 `prompts/<集号>.txt`、`matches/<集号>.matched.json` 与 `episode_packages/<集号>/` 目录树（`package.json`、`shot_script.txt`、`matched.json`、`episode.txt`，以及每个本地存储的绑定资产各一份拷贝），并回传每包的 `content_seconds`、`content_duration_ms`、`submit_seconds` 与按提示词顺序去重的 `material_keys`。
 
 任何 failure 级问题都会让脚本带着这份失败清单返回、一个文件都不写：编译器在写第一个字节之前先解析分集正文与每个本地资产图片，被拒的编译让项目保持原样。脚本问题是业务结果，承载在规范返回值里；只有环境问题（文件不存在、清单不是 JSON）才抛错。

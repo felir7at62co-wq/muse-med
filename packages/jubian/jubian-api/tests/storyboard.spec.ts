@@ -10,7 +10,7 @@ import { readStoryboard, withGenerationDisabled, withGenerationEnabled } from '.
 function snapshot(overrides: Record<string, unknown> = {}) {
   return { id: 916953, scriptId: 2708, isGenerate: 1, storyboardName: '第1集-分镜1',
     prompt: '@[陆沉舟](83749) 走进办公室',
-    modelConfig: JSON.stringify({ platformId: 'YU_DIAN', modelId: 'doubao-seedance-2-0-1', standardId: 11,
+    modelConfig: JSON.stringify({ platformId: 'YU_DIAN', modelId: 'doubao-seedance-2-0-260128', standardId: 11,
       genType: 3, modelGenerationTypeId: 7, videoStandardId: 91, duration: 8, ratio: '9:16', resolution: '720p',
       genNum: 1, prompt: '@[陆沉舟](83749) 走进办公室', materialList: [{ materialKey: '83749', sortOrder: 1 }],
       backupModelList: [] }),
@@ -26,6 +26,32 @@ describe('readStoryboard', () => {
     expect(result.model_config.duration).toBe(8)
     expect(result.content_duration_ms).toBe(7000)
     expect(result.material_keys).toEqual(['83749'])
+  })
+
+  it('reads and freely saves 2.5 480p settings without enabling generic paid generation', () => {
+    const config = { modelId: 'doubao-seedance-2-5-260628',
+      ratio: '16:9', resolution: '480p', duration: 30, genNum: 1 }
+    const data = snapshot({ modelConfig: config })
+    expect(readStoryboard(data).model_config.duration).toBe(30)
+    expect(withGenerationDisabled(data)).toEqual({ ...data, isGenerate: 0 })
+    expect(() => withGenerationEnabled(data, 14000)).toThrow()
+    expect(() => withGenerationEnabled(snapshot({ modelConfig: {
+      ...config, duration: 8 } }), 7000)).toThrow()
+  })
+
+  it('directs valid 480p boards to native preparation instead of reporting an envelope error', () => {
+    const data = snapshot({ modelConfig: { modelId: 'doubao-seedance-2-5-260628',
+      ratio: '9:16', resolution: '480p', duration: 13, genNum: 1 } })
+    expect(() => withGenerationEnabled(data, 12000)).toThrow('prepare_video → submit_video')
+  })
+
+  it('rejects malformed duration and empty specification labels', () => {
+    for (const duration of [0, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER, '8']) {
+      expect(() => readStoryboard(snapshot({ modelConfig: {
+        ratio: '9:16', resolution: '720p', genNum: 1, duration } }))).toThrow()
+    }
+    expect(() => readStoryboard(snapshot({ modelConfig: {
+      ratio: '', resolution: '720p', genNum: 1, duration: 8 } }))).toThrow()
   })
 
   it('rejects a snapshot whose identity does not match the requested storyboard', () => {

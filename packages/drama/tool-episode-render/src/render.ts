@@ -17,8 +17,11 @@
  * @module @deepseek-ai/dsh-tool-episode-render/render
  */
 
-import { appendFile, mkdir, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { dirname, resolve } from 'node:path'
+import { readBgmPlan } from './bgm.ts'
+import { fileSha256, readCacheIdentity } from './cache.ts'
 import {
   audioMixFilter,
   deliveryScaleFilter,
@@ -37,6 +40,7 @@ import { readSubtitleCues, buildAssDocument } from './subtitles.ts'
 import { bodyEndSecondsOf, readTimeline, selectBodyClips } from './timeline.ts'
 import type { DramaRenderReport, MediaFacts, MediaToolkit, RenderCheck, RenderSettings } from './types.ts'
 import { deliveryChecks } from './verify.ts'
+import { assertVideoHashesAllowed, assertVideosAllowed } from './video.ts'
 
 /** Microseconds in one second. */
 const MICROSECONDS_PER_SECOND = 1_000_000
@@ -59,6 +63,8 @@ export interface RenderInput {
   readonly lastShot: number
   /** Absolute path of the BGM bed. */
   readonly bgm: string
+  /** Optional declared segment plan; never substitutes for listening review. */
+  readonly bgmPlan?: string
   /** Absolute path of the ending sound. */
   readonly endingAudio: string
   /** Absolute path of the ending effect video. */
@@ -120,6 +126,8 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const paths = episodePaths(input.project, input.episode)
   const timeline = await readTimeline(input.timelinePath)
   const clips = selectBodyClips(timeline, input.lastShot)
+  const selectedVideos = clips.map(clip => resolve(paths.videoDir, shotFileName(clip.shot)))
+  await assertVideosAllowed(input.project, [...selectedVideos, input.endingEffect])
   const bodyEndSeconds = bodyEndSecondsOf(clips)
   const totalSeconds = bodyEndSeconds + ENDING_SECONDS
   const expectedDurationSeconds = Number(totalSeconds.toFixed(6))
@@ -129,6 +137,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   await requireFile(input.endingAudio, '片尾音', '请给出片尾音文件路径（技能 assets 目录下的 ending_audio.mp3）。')
   await requireFile(input.endingEffect, '片尾特效', '请给出片尾特效文件路径（技能 assets 目录下的 ending_effect.mp4）。')
 
+  const bgmPlan = await readBgmPlan(input.bgmPlan, input.episode, bodyEndSeconds, input.bgm, input.project)
   const choice = await chooseEncoder(toolkit, settings.preferNvenc)
   const gpuUsed = choice.encoder !== 'libx264'
   await mkdir(paths.cacheDir, { recursive: true })
@@ -137,6 +146,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const log: string[] = [
     `episode=${input.episode}`,
     `project=${input.project}`,
+    `bgm_plan=${JSON.stringify(bgmPlan)}`,
     `encoder=${choice.encoder} gpu_requested=${String(settings.preferNvenc)} gpu_used=${String(gpuUsed)}`,
     `encoder_fallback_reason=${choice.fallbackReason === '' ? '(none)' : choice.fallbackReason}`,
     `body_end_seconds=${bodyEndSeconds.toFixed(6)} ending_seconds=${ENDING_SECONDS.toFixed(3)} `
@@ -148,21 +158,34 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const encodedShots: number[] = []
   const reusedShots: number[] = []
   const segments: string[] = []
+  const consumedHashes: string[] = [await fileSha256(input.endingEffect)]
   for (const clip of clips) {
     const source = resolve(paths.videoDir, shotFileName(clip.shot))
     await requireFile(source, `镜头 ${String(clip.shot)} 的渲染输入`,
       `请先跑 prepare，把该镜的成片放进 video/${input.episode}/。`)
     const target = resolve(paths.cacheDir, shotFileName(clip.shot))
-    if (!input.force && await pathExists(target)) {
+    const args = [
+      '-y', '-v', 'error', '-i', source,
+      '-t', (clip.durationUs / MICROSECONDS_PER_SECOND).toFixed(6),
+      '-vf', scaleFilter, '-an', '-c:v', choice.encoder, ...choice.args, target,
+    ]
+    const sourceHash = await fileSha256(source)
+    consumedHashes.push(sourceHash)
+    await assertVideoHashesAllowed(input.project, [sourceHash])
+    const identity = JSON.stringify([sourceHash, toolkit.ffmpeg, args])
+    const sidecar = `${target}.identity`
+    if (!input.force && await pathExists(target) && await readCacheIdentity(sidecar) === identity) {
       reusedShots.push(clip.shot)
     } else {
-      await runFfmpeg(toolkit, [
-        '-y', '-v', 'error', '-i', source,
-        '-t', (clip.durationUs / MICROSECONDS_PER_SECOND).toFixed(6),
-        '-vf', scaleFilter, '-an', '-c:v', choice.encoder, ...choice.args, target,
-      ])
+      await rm(sidecar, { force: true })
+      await runFfmpeg(toolkit, args)
+      await requireFile(target, '编码缓存', '请重跑 render。')
+      if (await fileSha256(source) !== sourceHash) throw new Error(`编码期间源视频发生变化：${source}。请重跑 render。`)
+      await writeFile(sidecar, identity, 'utf8')
       encodedShots.push(clip.shot)
     }
+    await assertVideosAllowed(input.project, [target])
+    consumedHashes.push(await fileSha256(target))
     segments.push(target)
   }
   log.push(`encoded_shots=${encodedShots.join(',') || '(none)'} reused_shots=${reusedShots.join(',') || '(none)'}`)
@@ -177,6 +200,8 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     + `from_sequential_decode=${String(tailFrame.fromSequentialDecode)}`)
   const ending = resolve(paths.cacheDir, 'ending.mp4')
   await buildEndingClip(toolkit, tailFrame.path, input.endingEffect, ending, choice.encoder, choice.args)
+  consumedHashes.push(await fileSha256(ending))
+  await assertVideoHashesAllowed(input.project, consumedHashes)
   segments.push(ending)
 
   const concatFile = resolve(paths.cacheDir, 'concat.txt')
@@ -193,19 +218,33 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     '-an', '-c:v', choice.encoder, ...choice.args, subtitled,
   ])
 
-  await runFfmpeg(toolkit, [
-    '-y', '-v', 'error', '-i', subtitled, '-i', paths.masterAudio,
-    '-stream_loop', '-1', '-i', input.bgm, '-i', input.endingAudio,
-    '-filter_complex', audioMixFilter({
-      bodyEndSeconds,
-      totalSeconds,
-      endingSeconds: ENDING_SECONDS,
-      masterVolume: settings.masterVolume,
-      bgmVolume: settings.bgmVolume,
-    }),
-    '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy',
-    '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', input.output,
-  ])
+  consumedHashes.push(await fileSha256(subtitled))
+  await assertVideoHashesAllowed(input.project, consumedHashes)
+  await assertVideosAllowed(input.project, [...selectedVideos, ...segments, subtitled, input.endingEffect])
+  const staging = await mkdtemp(resolve(dirname(input.output), '.drama-render-'))
+  const stagedOutput = resolve(staging, 'output.mp4')
+  try {
+    await runFfmpeg(toolkit, [
+      '-y', '-v', 'error', '-i', subtitled, '-i', paths.masterAudio,
+      '-stream_loop', '-1', '-i', input.bgm, '-i', input.endingAudio,
+      '-filter_complex', audioMixFilter({
+        bodyEndSeconds,
+        totalSeconds,
+        endingSeconds: ENDING_SECONDS,
+        masterVolume: settings.masterVolume,
+        bgmVolume: settings.bgmVolume,
+      }),
+      '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy',
+      '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', stagedOutput,
+    ])
+    consumedHashes.push(await fileSha256(stagedOutput))
+    await withFileLock(resolve(input.project, 'video-bans.json'), async () => {
+      await assertVideoHashesAllowed(input.project, consumedHashes)
+      await rename(stagedOutput, input.output)
+    })
+  } finally {
+    await rm(staging, { recursive: true, force: true })
+  }
 
   await writeFile(paths.renderLog, `${log.join('\n')}\n`, 'utf8')
   const media = await measure(toolkit, input.output)
@@ -218,6 +257,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const sources = new Map(clips.map(clip => [clip.shot, resolve(paths.videoDir, shotFileName(clip.shot))]))
   const reportInput: ReportInput = {
     method: 'render',
+    bgmPlan,
     project: input.project,
     episode: input.episode,
     timeline: { clips, bodyEndSeconds },

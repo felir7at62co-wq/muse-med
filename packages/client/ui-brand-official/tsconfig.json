@@ -15,13 +15,16 @@
       "path": "../ui-renderer"
     },
     {
-      "path": "../ui-primitives"
+      "path": "../ui-conversation"
     },
     {
       "path": "../ui-sidebar"
     },
     {
       "path": "../ui-slots"
+    },
+    {
+      "path": "../ui-theme"
     }
   ]
 }

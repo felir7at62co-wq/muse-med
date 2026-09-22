@@ -1,0 +1,8 @@
+version: 1
+scenario: drama-bgm-preview
+profile: headless
+composition: drama-bgm
+recording: authored
+header:
+  class: drama-bgm
+  pin: true

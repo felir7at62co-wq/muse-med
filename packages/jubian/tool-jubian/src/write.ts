@@ -63,8 +63,10 @@ export function requireKey(value: string | undefined): string {
  * Arguments a method derives from what it already reads are deliberately absent:
  * `erase_subtitle` and `upscale` read the project from the task row, and
  * `submit_video` accepts either a preview file or the pair that locates one, so
- * none of those is listed here. `idempotency_key` is absent too — {@link requireKey}
- * owns it and names it for every write method.
+ * none of those is listed here. `image_generate` is absent for `asset_type`
+ * because either it or `asset_category` states the category, and the pair is
+ * checked against each other in the method. `idempotency_key` is absent too —
+ * {@link requireKey} owns it and names it for every write method.
  */
 export const REQUIRED_ARGUMENTS: Record<string, readonly string[]> = {
   'jubian_catalog.rate': ['standard_id'],
@@ -77,20 +79,26 @@ export const REQUIRED_ARGUMENTS: Record<string, readonly string[]> = {
   'jubian_asset.confirm_casting': ['material_id'],
   'jubian_asset.remove': ['asset_id', 'script_id'],
   'jubian_asset.upload_reference': ['image_path'],
+  'jubian_asset.create_folder': ['folder_name', 'asset_scope_type', 'root_category_type'],
+  'jubian_asset.move': ['material_ids', 'target_folder_id', 'asset_scope_type', 'root_category_type'],
+  'jubian_asset.rename': ['material_id', 'asset_name'],
   'jubian_video.task': ['task_id'],
   'jubian_video.tasks': ['script_id'],
   'jubian_video.subtasks': ['task_id'],
-  'jubian_video.image_generate': ['script_id', 'asset_name', 'asset_type', 'prompt'],
+  'jubian_video.image_generate': ['script_id', 'asset_name', 'prompt'],
   'jubian_video.upscale': ['task_id'],
   'jubian_video.retry': ['task_id'],
   'jubian_storyboard.get': ['storyboard_id'],
-  'jubian_storyboard.create': ['body'],
+  'jubian_storyboard.create': [],
   'jubian_storyboard.save': ['storyboard_id'],
   'jubian_storyboard.generate': ['storyboard_id', 'content_duration_ms'],
   'jubian_storyboard.select_assets': ['storyboard_id', 'selections'],
   'jubian_storyboard.prepare_video': ['storyboard_id', 'project_dir'],
   'jubian_storyboard.erase_subtitle': ['task_id', 'model_id', 'video_width', 'video_height'],
   'jubian_media.download': ['media_url', 'media_kind', 'output_path'],
+  'jubian_organize.index': ['script_id', 'project_dir'],
+  'jubian_model.preview': ['script_id', 'project_dir', 'scope', 'changes'],
+  'jubian_model.apply': ['script_id', 'project_dir', 'preview_path'],
 }
 
 /**
@@ -104,6 +112,10 @@ export const REQUIRED_ARGUMENTS: Record<string, readonly string[]> = {
  */
 export function requireArguments(tool: string, args: { method?: string } & Record<string, unknown>): void {
   const method = typeof args.method === 'string' ? args.method : ''
+  if (tool === 'jubian_storyboard' && method === 'create'
+    && args.body === undefined && args.body_path === undefined) {
+    throw new JubianError('INVALID_ARGUMENT', 'jubian_storyboard create requires body or body_path')
+  }
   for (const name of REQUIRED_ARGUMENTS[`${tool}.${method}`] ?? []) {
     if (args[name] === undefined) throw new JubianError('INVALID_ARGUMENT', `${tool} ${method} requires ${name}`)
   }
@@ -122,8 +134,8 @@ export function bodyHash(body: Record<string, unknown> | undefined): string {
  * Run one write method under the two-phase ledger.
  *
  * The intent line lands before the request leaves; the settle line lands after
- * the response is read. A replayed key returns the recorded outcome and sends
- * nothing at all.
+ * the response is read. A replayed key for the same method returns the recorded
+ * outcome and sends nothing; a key owned by another method is rejected.
  *
  * `body` is an async thunk on purpose, and it is awaited. Some bodies can only be
  * compiled by reading the provider first — an image request needs its selectors
@@ -154,16 +166,24 @@ export async function writeUnderLedger(
   const key = requireKey(idempotencyKey)
   const existing = await ledger.find(key)
   if (existing !== undefined) {
+    if (existing.method !== method) throw new JubianError('CONTRACT_CHANGED', 'Idempotency key belongs to a different write')
     return { replayed: true, outcome: existing.outcome ?? 'unknown', response_sha256: existing.response_sha256, data: null }
   }
   // Awaited on purpose: a body may be compiled from a provider read, and the
   // quote below observes what that read returned.
   const payload = await body()
   const quoted = quote?.()
-  await ledger.begin({ idempotencyKey: key, method, requestSha256: bodyHash(payload),
+  const begun = await ledger.begin({ idempotencyKey: key, method, requestSha256: bodyHash(payload),
     ...(quoted?.amount === undefined ? {} : { quotedAmount: quoted.amount }),
     ...(quoted?.standardId === undefined ? {} : { quoteStandardId: quoted.standardId }),
     ...(quoted?.observedAt === undefined ? {} : { quoteObservedAt: quoted.observedAt }) })
+  if (begun.replayed) {
+    if (begun.record.method !== method || begun.record.request_sha256 !== bodyHash(payload)) {
+      throw new JubianError('CONTRACT_CHANGED', 'Idempotency key belongs to a different write')
+    }
+    return { replayed: true, outcome: begun.record.outcome ?? 'unknown',
+      response_sha256: begun.record.response_sha256, data: null }
+  }
   try {
     const response = await send(payload)
     const code = response.transport.application_code

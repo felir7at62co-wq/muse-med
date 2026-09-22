@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildImageRequest, readImageDisplayPrice, resolveImageModel } from '../src/image.ts'
+import { buildImageRequest, imageCandidates, readImageDisplayPrice, resolveImageModel } from '../src/image.ts'
 
 const CATALOGUE = [{ id: 42, standardId: 42, modelId: 'gpt-image-2', platformId: 'YU_DIAN', unitPrice: 0.5, unit: '张',
   genTypes: [{ id: 7, type: 3 }],
@@ -109,5 +109,34 @@ describe('readImageDisplayPrice', () => {
     expect(readImageDisplayPrice(CATALOGUE)).toEqual({ status: 'available', unit_price: 0.5, unit: '张', quote_verified: false })
     expect(readImageDisplayPrice([{ ...CATALOGUE[0], unitPrice: 'free' }]))
       .toEqual({ status: 'unavailable', quote_verified: false })
+  })
+
+  it('reports an unquotable row as unavailable whatever the price says', () => {
+    expect(readImageDisplayPrice([{ ...CATALOGUE[0], unit: 'x'.repeat(129) }]))
+      .toEqual({ status: 'unavailable', quote_verified: false })
+    expect(readImageDisplayPrice([{ ...CATALOGUE[0], unit: ' \u0000 ' }]))
+      .toEqual({ status: 'unavailable', quote_verified: false })
+  })
+})
+
+describe('imageCandidates', () => {
+  it('lists every gpt-image-2 row with its own platform and price, and no other model', () => {
+    const other = { id: 35, modelId: 'doubao-seedream-4-0-250828', platformId: 'FANG_ZHOU',
+      unitPrice: 0.116, unit: '元/张' }
+    expect(imageCandidates([...MULTI, other])).toEqual([
+      { standardId: 66, platformId: 'KU_AI', unitPrice: 0.12, unit: '张' },
+      { standardId: 76, platformId: 'DUO_YUAN_TAN_SUO', unitPrice: 1.05, unit: '条' },
+    ])
+    expect(imageCandidates([])).toEqual([])
+  })
+
+  it('leaves a price or unit the catalogue does not state out of the entry', () => {
+    expect(imageCandidates([{ id: 66, modelId: 'gpt-image-2', platformId: 'KU_AI', unitPrice: '0.12' }]))
+      .toEqual([{ standardId: 66, platformId: 'KU_AI', unitPrice: null, unit: null }])
+  })
+
+  it('rejects a matching row without a usable id or platform', () => {
+    expect(() => imageCandidates([{ modelId: 'gpt-image-2', platformId: 'KU_AI' }])).toThrow()
+    expect(() => imageCandidates([{ id: 66, modelId: 'gpt-image-2' }])).toThrow()
   })
 })

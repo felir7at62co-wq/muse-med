@@ -98,6 +98,8 @@ function createWindow(preload: string, show = false): BrowserWindow {
     minWidth: 880,
     minHeight: 600,
     show,
+    title: resolveDesktopLocale(app.getLocale()).messages.productName,
+    icon: join(app.getAppPath(), 'renderer', 'icon.png'),
     webPreferences: {
       preload,
       nodeIntegration: false,
@@ -439,7 +441,7 @@ async function main(): Promise<void> {
   }
 
   Menu.setApplicationMenu(Menu.buildFromTemplate([{
-    label: process.platform === 'darwin' ? app.name : messages.application,
+    label: process.platform === 'darwin' ? messages.productName : messages.application,
     submenu: [
       {
         label: development === undefined ? messages.pluginsMenu : messages.pluginsMenuPackagedOnly,

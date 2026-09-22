@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { NotarizeOptions } from '@electron/notarize'
 import {
@@ -57,6 +58,10 @@ describe('desktop macOS release signature', () => {
     ]))
     expect(config).toMatchObject({
       appId: RELEASE_ENVIRONMENT.DSH_DESKTOP_APP_ID,
+      productName: 'muse-med',
+      artifactName: 'deepseek-harness-${version}-${os}-${arch}.${ext}',
+      icon: 'renderer/icon.png',
+      win: { executableName: 'DeepSeek Harness' },
       mac: {
         identity: RELEASE_ENVIRONMENT.DSH_DESKTOP_MACOS_SIGNING_IDENTITY,
         forceCodeSigning: true,
@@ -72,6 +77,10 @@ describe('desktop macOS release signature', () => {
         url: 'https://desktop-updates.example.com/_/harness/desktop/stable/mac-arm64/',
       }],
     })
+    const icon = readFileSync(new URL(`../${config.icon}`, import.meta.url))
+    expect(icon.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+    expect([icon.readUInt32BE(16), icon.readUInt32BE(20)]).toEqual([1024, 1024])
+    expect(config.files).toContain('renderer/**/*')
     expect(typeof config.artifactBuildCompleted).toBe('function')
   })
 

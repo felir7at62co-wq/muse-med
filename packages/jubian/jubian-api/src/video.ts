@@ -96,13 +96,7 @@ export interface VideoVersionRecord {
   video_url: string | null
 }
 
-/**
- * The resolution ladder this provider uses, lowest first.
- *
- * A generation model can top out below the delivery target — seedance2.5 offers
- * only 480p and 720p — which is why "is this usable as-is" is a comparison and
- * not a constant.
- */
+/** The resolution ladder this provider uses, lowest first. */
 export const RESOLUTION_ORDER = ['480p', '720p', '768p', '1080p', '2K', '4K'] as const
 
 /**
@@ -116,11 +110,11 @@ export function resolutionRank(value: string | null): number {
 }
 
 /**
- * Whether one result must be upscaled before it can be used at the target.
+ * Compare the current result resolution with the delivery target.
  *
- * A result at or above the target is usable as generated. A result below it is
- * not, and the caller must run the upscale stage first — a lower-resolution file
- * cannot be promoted by renaming or re-encoding it locally.
+ * A recorded SeedVR2 upscale supplies a 1080p current file even when the
+ * generation row keeps its old resolution label. This comparison does not
+ * judge content usability or authorize paid processing.
  * @param row - One read subtask.
  * @param deliveryTarget - The resolution the caller intends to deliver, e.g. `1080p`.
  * @returns `true` when the source is below the target, `false` when it is not, and
@@ -128,9 +122,10 @@ export function resolutionRank(value: string | null): number {
  */
 export function needsUpscale(row: Pick<VideoSubtask, 'resolution' | 'upscaled'>,
   deliveryTarget: string): boolean | null {
-  const source = resolutionRank(row.resolution)
+  const recorded = resolutionRank(row.resolution)
   const target = resolutionRank(deliveryTarget)
-  if (source < 0 || target < 0) return null
+  if (target < 0 || (recorded < 0 && !row.upscaled)) return null
+  const source = row.upscaled ? Math.max(recorded, resolutionRank('1080p')) : recorded
   return source < target
 }
 
@@ -167,7 +162,7 @@ export interface VideoSubtask {
   /**
    * The stage that produced the current file, as the provider records it.
    *
-   * `1` generation, `2` upscale, `10` subtitle erasure; null when the provider
+   * `1` generation, `20` upscale, `10` subtitle erasure; null when the provider
    * does not say. This is how a caller tells a raw generation from a processed
    * one without opening the file.
    */
@@ -185,7 +180,7 @@ export interface VideoSubtask {
   expiration_time: string | null
   /** Every stage the provider holds for this result, in provider order. */
   versions: VideoVersionRecord[]
-  /** Whether a subtitle erasure has been recorded as the latest stage. */
+  /** Whether a successful erasure record identifies the current file; not visual subtitle QA. */
   subtitle_erased: boolean
   /** Whether an upscale pass has been recorded. */
   upscaled: boolean
@@ -195,7 +190,8 @@ export interface VideoSubtask {
 function resultVideoUrl(entry: Record<string, unknown>): string | null {
   // `lastTosVideoUrl` is the newest file; `tosVideoUrl` is the generation output
   // and stays behind once an upscale has run.
-  return nullableText(entry.lastTosVideoUrl ?? entry.tosVideoUrl ?? entry.originalVideoUrl)
+  return nullableText(entry.lastTosVideoUrl) ?? nullableText(entry.tosVideoUrl)
+    ?? nullableText(entry.originalVideoUrl)
 }
 
 /** Read one entry of the provider's per-result stage history. */
@@ -291,13 +287,11 @@ export function readSubtaskPage(data: unknown): { total: number; rows: VideoSubt
       hd_count: hdCount,
       expiration_time: nullableText(row.videoExpirationTime ?? result?.expirationTime),
       versions: entries,
-      subtitle_erased: lastTaskType === 10
-        || entries.some(entry => entry.task_type === 10 && entry.status === 'succeeded'),
-      // An upscale is recorded by its count and its stage, and it is visible as a
-      // newer file than the generation output. The count alone is the provider's
-      // own statement, so it is the primary signal.
-      upscaled: (hdCount !== null && hdCount > 0)
-        || lastTaskType === 20
-        || (base !== null && current !== null && base !== current) }
+      subtitle_erased: current !== null && ((lastTaskType === 10
+        && result?.lastResultStatus === 'succeeded' && nullableText(result.lastTosVideoUrl) !== null)
+        || entries.some(entry => entry.task_type === 10 && entry.status === 'succeeded'
+          && entry.video_url === current)),
+      // Erasure also changes the URL; only an upscale-specific marker counts.
+      upscaled: (hdCount !== null && hdCount > 0) || lastTaskType === 20 }
   }) }
 }

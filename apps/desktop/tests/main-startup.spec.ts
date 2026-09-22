@@ -157,6 +157,16 @@ afterEach(async () => {
 })
 
 describe('desktop main startup', () => {
+  it('uses the muse-med window name and packaged spider icon without changing renderer security', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    expect(harness.windows[0]?.options).toMatchObject({
+      title: 'muse-med',
+      icon: join('desktop-test-app', 'renderer', 'icon.png'),
+      webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true },
+    })
+  })
+
   it('exits with a diagnostic when both initialization and emergency navigation fail', async () => {
     const exited = Promise.withResolvers<undefined>()
     vi.spyOn(harness.app, 'getLocale').mockImplementationOnce(() => { throw new Error('locale unavailable') })

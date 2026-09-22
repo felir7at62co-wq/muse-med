@@ -10,6 +10,10 @@
  * @module @deepseek-ai/dsh-tool-episode-render/verify
  */
 
+import { resolve } from 'node:path'
+import { fileSha256 } from './cache.ts'
+import { episodePaths, pathExists, shotFileName } from './paths.ts'
+import { readVideoBans } from './video.ts'
 import { DELIVERY_FPS, DELIVERY_HEIGHT, DELIVERY_WIDTH, ENDING_SECONDS, MIN_BITRATE_BPS } from './delivery.ts'
 import { firstStreamOfType, frameRateOf, probeMedia } from './ffmpeg.ts'
 import { buildReport, NO_TAIL_FRAME, type ReportInput } from './report.ts'
@@ -258,6 +262,29 @@ export function subtitleChecks(
   ]
 }
 
+/** Report exact output bans and current selected-source risks, without certifying historical output sources. */
+async function videoBanChecks(input: VerifyInput, shots: readonly number[]): Promise<RenderCheck[]> {
+  try {
+    const bans = (await readVideoBans(input.project)).filter(row => row.banned)
+    if (bans.length === 0) return []
+    const paths = episodePaths(input.project, input.episode)
+    const files = [input.output, ...shots.map(shot => resolve(paths.videoDir, shotFileName(shot)))]
+    const affected: string[] = []
+    for (const file of files) {
+      if (!await pathExists(file)) continue
+      const hash = await fileSha256(file)
+      const ban = bans.find(row => row.sha256 === hash)
+      if (ban !== undefined) affected.push(`${file === input.output ? '输出版本已禁用' : '当前选片含禁用素材，已有输出需复核'}：`
+        + `${file} [${hash}] labels=${ban.labels.join('、')} reason=${ban.reason}`)
+    }
+    return [verdict('video_bans', 'failure', affected.length === 0,
+      affected.length > 0 ? affected.join('；') : '当前可读输出与选片未命中禁用 SHA256；未确认历史输出的原源映射。',
+      '请更换禁用版本后重新准备和渲染，或经用户同意解除禁用；解除禁用不代表审核通过。已有文件未删除。')]
+  } catch (error) {
+    return [verdict('video_bans', 'failure', false, String(error), '请修复禁用清单或文件读取问题后重新检查；已有文件未删除。')]
+  }
+}
+
 /** Everything one `verify` call needs. */
 export interface VerifyInput {
   /** The binaries and channel to use, or a stub in tests. */
@@ -305,6 +332,7 @@ export async function verifyEpisode(input: VerifyInput): Promise<DramaRenderRepo
   const cues = await readSubtitleCues(input.subtitleSrt)
   const checks: RenderCheck[] = [
     ...deliveryChecks(media, expectedDurationSeconds),
+    ...await videoBanChecks(input, timeline.clips.map(clip => clip.shot)),
     verdict('black_frames', 'failure', longestSeconds(black) < BLACK_FAILURE_SECONDS,
       describeSegments(black),
       `检出持续 ${String(BLACK_FAILURE_SECONDS)} 秒以上的黑场。`

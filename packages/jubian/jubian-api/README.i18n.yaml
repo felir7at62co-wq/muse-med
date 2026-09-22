@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/jubian/jubian-api/README.md
-README.md: 5f1260dd057c2c5a81c3bb9037e5c72019391fa2
-README.zh.md: 0d2e66ef558129822b2ed929cfa5e3f7c3525134
+README.md: 58286a7e9cc2b78a70c78de992773f012f68e866
+README.zh.md: e7fe65136e1e4611b23d2f082ef0a621f0d045f2

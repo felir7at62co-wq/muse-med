@@ -1,5 +1,5 @@
 /**
- * Episode packing: the 14-second content budget, the matched JSON, and the files
+ * Episode packing: an explicit content budget, the matched JSON, and the files
  * one compiled episode package holds.
  *
  * A package is a run of complete, continuous shots of one scene. The packer
@@ -20,9 +20,6 @@ import type {
   MatchedVideoTask,
   PackedTask,
 } from './types.ts'
-
-/** Content seconds one package may hold; the provider's whole-thousand-millisecond ceiling. */
-export const MAX_CONTENT_SECONDS = 14
 
 /** Seconds of natural reaction, breath, or movement closure every package adds. */
 export const NATURAL_HOLD_SECONDS = 1
@@ -94,6 +91,9 @@ export function packEpisode(shots: readonly CompiledShot[], maxContentSeconds: n
   }
   for (const item of shots) {
     const duration = item.shot.durationSeconds
+    if (duration > maxContentSeconds) {
+      throw new Error(`镜头${item.shot.shot}时长${duration}秒超过内容预算${maxContentSeconds}秒；不能截断镜头。`)
+    }
     if (current.length > 0 && (item.scene !== scene || seconds + duration > maxContentSeconds)) flush()
     if (scene === undefined) scene = item.scene
     current.push(item)

@@ -14,7 +14,7 @@
 export type VoiceType =
   /** On-screen dialogue the character speaks in frame. */
   | 'dialogue'
-  /** Same-scene off-screen continuation of one sentence that a cut interrupted. */
+  /** Off-screen speech, including narration and inner monologue. */
   | 'vo'
   /** No speech at all; the shot is an action, a reaction, or a silent insert. */
   | 'action'
@@ -23,6 +23,8 @@ export type VoiceType =
 export type DurationSource =
   /** Derived from the spoken text at nine effective characters per second. */
   | 'speech'
+  /** Explicit positive whole-second duration in the script. */
+  | 'declared'
   /** Derived from the shot's own `动作复杂度` label. */
   | 'complexity'
   /** The compiler default for a silent shot that declares no `动作复杂度`. */
@@ -54,6 +56,7 @@ export type IssueCode =
   | 'missing_voice_type'
   | 'action_voice_with_dialogue'
   | 'speech_too_long'
+  | 'shot_exceeds_package_budget'
   | 'speech_above_writing_threshold'
   | 'unknown_action_complexity'
   | 'action_complexity_on_speaking_shot'
@@ -251,7 +254,7 @@ export interface PackageReport {
   index: number
   /** Shot numbers in this package, in script order. */
   shots: number[]
-  /** Content seconds, at most 14. */
+  /** Content seconds within the caller's explicit package budget. */
   content_seconds: number
   /** Content duration in whole milliseconds, the value `jubian_storyboard` `generate` takes. */
   content_duration_ms: number
@@ -364,7 +367,7 @@ export interface MatchedAsset {
 export interface MatchedVideoTask {
   /** Shot numbers in this package, in script order. */
   shots: number[]
-  /** Content seconds, at most 14. */
+  /** Content seconds within the caller's explicit package budget. */
   content_duration: number
   /** Extra seconds the prompt asks the provider to hold at the end. */
   natural_hold_duration: number

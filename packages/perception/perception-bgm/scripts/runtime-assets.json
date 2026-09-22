@@ -1,0 +1,17 @@
+[
+  {
+    "filename": "python_docx-1.2.0-py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/d0/00/1e03a4989fa5795da308cd774f05b704ace555a70f9bf9d3be057b680bcf/python_docx-1.2.0-py3-none-any.whl",
+    "sha256": "3fd478f3250fbbbfd3b94fe1e985955737c145627498896a8a6bf81f4baf66c7"
+  },
+  {
+    "filename": "lxml-6.0.2-cp311-cp311-win_amd64.whl",
+    "url": "https://files.pythonhosted.org/packages/e2/7d/ca6fb13349b473d5732fb0ee3eec8f6c80fc0688e76b7d79c1008481bf1f/lxml-6.0.2-cp311-cp311-win_amd64.whl",
+    "sha256": "e5867f2651016a3afd8dd2c8238baa66f1e2802f44bc17e236f547ace6647078"
+  },
+  {
+    "filename": "LICENSE-CC-BY-NC-4.0.txt",
+    "url": "https://creativecommons.org/licenses/by-nc/4.0/legalcode.txt",
+    "sha256": "41003d4a74749c0220e33dd415042164b5a1093ed401f36277234f772d22d3d0"
+  }
+]

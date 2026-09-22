@@ -45,6 +45,12 @@ describe('parseShotManifest', () => {
     ])
   })
 
+  it('preserves explicit package identity but never derives it from the shot number', () => {
+    const rows = parseShotManifest({ shots: [{ shot: 1, package: 3, video: 'a.mp4' }] }, 'shots.json')
+    expect(rows[0]?.package).toBe(3)
+    expect(() => parseShotManifest({ shots: [{ shot: 1, package: 0, video: 'a.mp4' }] }, 'shots.json')).toThrow('package')
+  })
+
   it('rejects a document without a shots array', () => {
     expect(() => parseShotManifest({ clip: [] }, 'shots.json')).toThrow('成片清单必须是')
   })
@@ -158,14 +164,58 @@ describe('cueOverrunWarnings', () => {
 })
 
 describe('prepareEpisode', () => {
+  it('rejects a copied banned selection before probing or changing the prepared layout, and unban restores preparation', async () => {
+    const project = await tempProject()
+    temporary.push(project)
+    const { runDramaVideo } = await import('../src/video.ts')
+    const video = join(project, 'original.mp4')
+    const copy = join(project, 'copy.mp4')
+    await writePlaceholder(video, 'same banned bytes')
+    await writePlaceholder(copy, 'same banned bytes')
+    const shotsPath = join(project, 'shots.json')
+    await writePlaceholder(shotsPath, JSON.stringify({ shots: [{ shot: 1, video: 'copy.mp4' }] }))
+    const subtitle = join(project, 'source.srt')
+    await writePlaceholder(subtitle, '')
+    const paths = episodePaths(project, '02')
+    await writePlaceholder(join(paths.videoDir, 'shot_001.mp4'), 'keep previous')
+    const channel = stubChannel([probeHandler({ [copy]: { durationSeconds: 1, video: {}, audio: {} } }), () => ({})])
+    const input = { toolkit: createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }),
+      project, episode: '02', shotsPath, subtitleSrt: subtitle }
+    await runDramaVideo({ method: 'ban', project, video, labels: ['人物对调'] })
+    await expect(prepareEpisode(input)).rejects.toThrow('人物对调')
+    expect(channel.calls).toEqual([])
+    expect(await readFile(join(paths.videoDir, 'shot_001.mp4'), 'utf8')).toBe('keep previous')
+    await runDramaVideo({ method: 'unban', project, video })
+    await prepareEpisode(input)
+    expect(await readFile(join(paths.videoDir, 'shot_001.mp4'), 'utf8')).toBe('same banned bytes')
+  })
+
+  it('rechecks selected bytes after probes before copying when a user bans during preparation', async () => {
+    const project = await tempProject()
+    temporary.push(project)
+    const { runDramaVideo } = await import('../src/video.ts')
+    const video = join(project, 'original.mp4')
+    await writePlaceholder(video, 'banned during probe')
+    const shotsPath = join(project, 'shots.json')
+    await writePlaceholder(shotsPath, JSON.stringify({ shots: [{ shot: 1, video }] }))
+    const probe = probeHandler({ [video]: { durationSeconds: 1, video: {}, audio: {} } })
+    const channel = stubChannel([call => ({ ...probe(call), after: async () => {
+      await runDramaVideo({ method: 'ban', project, video, labels: ['人物对调'] })
+    } })])
+    await expect(prepareEpisode({ toolkit: createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }),
+      project, episode: '02', shotsPath, subtitleSrt: 'unused.srt' })).rejects.toThrow('人物对调')
+    expect(await pathExists(episodePaths(project, '02').videoDir)).toBe(false)
+  })
+
   it('copies the shots, writes the timeline and the master, and installs the subtitle', async () => {
     const project = await tempProject()
     temporary.push(project)
     const shotsPath = join(project, 'ep02-shots.json')
     const subtitle = join(project, 'ep02-source.srt')
+    await writePlaceholder(join(project, 'episode_packages', '02', 'package.json'), '{"video_tasks":[{},{}]}')
     await writeFile(shotsPath, JSON.stringify({
       shots: [
-        { shot: 1, video: 'media/p1-clean.mp4' },
+        { shot: 1, package: 2, video: 'media/p1-clean.mp4' },
         { shot: 2, video: 'media/p2-clean.mp4' },
       ],
     }), 'utf8')
@@ -206,7 +256,16 @@ describe('prepareEpisode', () => {
       paths.timeline,
       paths.masterAudio,
       paths.subtitle,
+      paths.sources,
     ])
+    const selected = JSON.parse(await readFile(paths.sources, 'utf8')) as {
+      shots: { shot: number; package?: number; video: string; sha256: string; package_sha256?: string }[]
+    }
+    expect(selected.shots[0]).toMatchObject({ shot: 1, package: 2, video: join(project, 'media', 'p1-clean.mp4') })
+    expect(selected.shots[0]?.sha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(selected.shots[0]?.package_sha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(selected.shots[1]).not.toHaveProperty('package_sha256')
+    expect(selected.shots[1]).not.toHaveProperty('package')
     expect(await readFile(join(paths.videoDir, 'shot_001.mp4'), 'utf8')).toBe('bytes of p1-clean.mp4')
     expect(JSON.parse(await readFile(paths.timeline, 'utf8'))).toEqual({
       clips: [

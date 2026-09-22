@@ -64,8 +64,48 @@ export interface ImageModelSelection {
   standardId?: number
 }
 
+/** The one model id the paid image route buys. */
+const IMAGE_MODEL_ID = 'gpt-image-2'
+
 /** The row field that becomes the request's `standardId`. */
 function standardIdOf(row: Record<string, unknown>): unknown { return row.id ?? row.standardId }
+
+/** One catalogue display unit, or null for a value no surface can show. */
+function displayUnit(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() && value.length <= 128 && value.isWellFormed()
+    && !/[\u0000-\u001f\u007f]/.test(value) ? value : null
+}
+
+/** One `gpt-image-2` catalogue row, as a surface that pins a row offers it. */
+export interface ImageModelCandidate {
+  /** The row's own `id`, which the request carries as `standardId`. */
+  standardId: number
+  /** The platform the row buys from, such as `KU_AI`. */
+  platformId: string
+  /** The row's unit price, or null while the catalogue states none. */
+  unitPrice: number | null
+  /** The unit that price is quoted in, or null while the catalogue states none. */
+  unit: string | null
+}
+
+/**
+ * The `gpt-image-2` rows a deployment may pin, in catalogue order.
+ *
+ * A surface that lets a person choose lists these, so the choice does not have to
+ * be read out of a failure message; the `standardId` it returns is what
+ * {@link resolveImageModel} accepts as a selection.
+ * @param catalogue - Envelope `data` from `/model/charge/getSelectList?taskType=2`.
+ * @returns One entry per `gpt-image-2` row, empty when the catalogue carries none.
+ * @throws {JubianError} `CONTRACT_CHANGED` when a matching row lacks a usable id or platform.
+ */
+export function imageCandidates(catalogue: unknown): ImageModelCandidate[] {
+  return rows(catalogue).filter(row => row.modelId === IMAGE_MODEL_ID).map(row => ({
+    standardId: positive(standardIdOf(row)),
+    platformId: text(row.platformId),
+    unitPrice: typeof row.unitPrice === 'number' && Number.isFinite(row.unitPrice) ? row.unitPrice : null,
+    unit: displayUnit(row.unit),
+  }))
+}
 
 /** One candidate row as a failure names it, so a caller can pin one explicitly. */
 function candidateSummary(row: Record<string, unknown>): string {
@@ -79,14 +119,15 @@ function candidateSummary(row: Record<string, unknown>): string {
 
 /** Pick the one `gpt-image-2` row the selection names, or fail naming every candidate. */
 function imageModelRow(catalogue: unknown, selection: ImageModelSelection): Record<string, unknown> {
-  const matches = rows(catalogue).filter(row => row.modelId === 'gpt-image-2')
+  const matches = rows(catalogue).filter(row => row.modelId === IMAGE_MODEL_ID)
   if (matches.length === 0) invalid('the account catalogue carries no gpt-image-2 row')
   const selected = matches.filter(row => (selection.platformId === undefined || row.platformId === selection.platformId)
     && (selection.standardId === undefined || Number(standardIdOf(row)) === selection.standardId))
   if (selected.length === 1) return selected[0] as Record<string, unknown>
-  invalid(`${matches.length} catalogue rows carry gpt-image-2 and the configured imagePlatformId/imageStandardId`
-    + ` selected ${selected.length} of them; pin exactly one in the tool config. Candidates:`
-    + ` ${matches.map(candidateSummary).join(' | ')}`)
+  const candidates = matches.map(candidateSummary).join(' | ')
+  invalid(`${matches.length} catalogue rows carry gpt-image-2 and the configured selection`
+    + ` selected ${selected.length} of them; pin exactly one row — on the 短剧 settings page (资产图生成通道),`
+    + ` or with the tool config fields imagePlatformId/imageStandardId. Candidates: ${candidates}`)
 }
 
 /**
@@ -114,7 +155,7 @@ export function resolveImageModel(catalogue: unknown, selection: ImageModelSelec
   const generation = generations.length === 1 ? generations[0] : undefined
   const standard = atResolution.length === 1 ? atResolution[0] : undefined
   if (standard === undefined) invalid()
-  return { standardId: positive(model.id ?? model.standardId), modelId: 'gpt-image-2',
+  return { standardId: positive(model.id ?? model.standardId), modelId: IMAGE_MODEL_ID,
     platformId: text(model.platformId), genType: 3,
     modelGenerationTypeId: generation === undefined || generation.id === undefined || generation.id === null
       ? null : positive(generation.id),
@@ -165,9 +206,10 @@ export function buildImageRequest(input: ImageRequestInput, catalogue: unknown,
 export function readImageDisplayPrice(catalogue: unknown,
   selection: ImageModelSelection = {}): Record<string, unknown> {
   const model = imageModelRow(catalogue, selection)
-  const { unitPrice, unit } = model
-  if (typeof unitPrice !== 'number' || !Number.isFinite(unitPrice) || unitPrice < 0
-    || typeof unit !== 'string' || !unit.trim() || unit.length > 128 || !unit.isWellFormed()
-    || /[\u0000-\u001f\u007f]/.test(unit)) return { status: 'unavailable', quote_verified: false }
+  const { unitPrice } = model
+  const unit = displayUnit(model.unit)
+  if (typeof unitPrice !== 'number' || !Number.isFinite(unitPrice) || unitPrice < 0 || unit === null) {
+    return { status: 'unavailable', quote_verified: false }
+  }
   return { status: 'available', unit_price: unitPrice, unit, quote_verified: false }
 }

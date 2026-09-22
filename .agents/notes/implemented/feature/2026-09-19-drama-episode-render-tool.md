@@ -12,6 +12,8 @@ Three things made that the wrong home. The style is decidable — resolution, fr
 
 ## Decision
 
+The [production policy and result-evidence decision](2026-09-21-drama-policy-and-result-evidence.md) extends source selection, cache identity and review reporting. This note retains the delivery-style, tail-frame and tool-ownership decisions.
+
 A second `drama/` package, `@deepseek-ai/dsh-tool-episode-render`, registers one model-facing tool, `drama_render`, with three methods.
 
 `prepare` builds the directory layout a render consumes without encoding picture: each source video is copied to `video/<集>/shot_00N.mp4`, the timeline is laid out in `editing/<集>-timeline.json` from the **ffprobe-measured** durations rather than declared ones, the episode master is assembled in `audio/<集>.wav` by placing each shot's own sound at its own start with no gain and no per-shot resampling, and the subtitle is installed at `editing/<集>.srt`. A cue that ends past the assembled picture is reported as a warning.

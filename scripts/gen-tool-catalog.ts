@@ -68,7 +68,9 @@ import * as ToolTeam from '@deepseek-ai/dsh-experimental-tool-agent-team'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolJubian from '@deepseek-ai/dsh-tool-jubian'
 import * as ToolShotScript from '@deepseek-ai/dsh-tool-shot-script'
+import * as ToolBgmCompose from '@deepseek-ai/dsh-tool-bgm-compose'
 import * as ToolEpisodeRender from '@deepseek-ai/dsh-tool-episode-render'
+import * as ToolDramaAssets from '@deepseek-ai/dsh-tool-drama-assets'
 import McpResources from '@deepseek-ai/dsh-mcp-resources'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import { registerListSubagentModels } from '../packages/subagent/tool-subagent/src/list-models.ts'
@@ -679,6 +681,21 @@ const TOOL_PACKAGES: ToolPackage[] = [
       + 'A script with any hard failure returns that failure list and writes nothing.',
   },
   {
+    pkg: '@deepseek-ai/dsh-tool-bgm-compose',
+    dir: 'tool-bgm-compose',
+    source: 'packages/drama/tool-bgm-compose/src/index.ts',
+    requires: ['ctx.tools', 'ctx.subprocess', 'ffmpeg and ffprobe on PATH (or configured)', 'an episode timeline and explicit BGM plan'],
+    writes: ['tool/call', 'tool/result', 'on compose: a 48 kHz stereo PCM WAV and adjacent generation report under the project root'],
+    async mount(ctx) {
+      await ctx.plugin(LocalSubprocessRuntime)
+      await ctx.plugin(ToolBgmCompose)
+    },
+    note:
+      '`preview` validates complete story coverage and reports source hashes, offsets, measured mean volume, and gains without publishing; '
+      + '`compose` crossfades the selected tracks and publishes only after the staged WAV passes ffprobe; `verify` measures an existing WAV without rewriting it. '
+      + 'The tool does not choose music or call `bgm_match`; the agent owns plot interpretation and final track selection.',
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-episode-render',
     dir: 'tool-episode-render',
     source: 'packages/drama/tool-episode-render/src/index.ts',
@@ -688,16 +705,40 @@ const TOOL_PACKAGES: ToolPackage[] = [
       'tool/result',
       'on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt',
       'on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/',
+      'on drama_video ban/unban: project-local video-bans.json; media bytes are unchanged',
     ],
     async mount(ctx) {
       await ctx.plugin(ToolEpisodeRender)
     },
     note:
-      'One schema, three methods: `prepare` lays out render inputs without encoding picture, `render` produces the delivery and reports its measured '
+      '`drama_video` stores reversible, labelled SHA256 exclusions without review evidence; release is not approval. '
+      + '`drama_render` refuses banned selected bytes in `prepare`/`render`, while `verify` reports risks without deleting media. '
+      + 'Its three methods: `prepare` lays out render inputs without encoding picture, `render` produces the delivery and reports its measured '
       + 'resolution, frame rate, bitrate, duration, size, and encoder, and `verify` checks the delivered file. The delivery style is fixed — 1440x2560 at '
       + '60 fps, 24M target with a 30M ceiling and a 4.6 Mbps floor, SimHei 68 subtitles with the single bottom-right AI-content mark, and a two-second ending '
       + 'frozen from the last shot\u2019s proved tail frame. A render that cannot proceed throws with its repair instruction; a delivered file that misses the '
       + 'specification returns `ok: false` with per-check repairs.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-drama-assets',
+    dir: 'tool-drama-assets',
+    source: 'packages/drama/tool-drama-assets/src/index.ts',
+    requires: ['ctx.tools', 'ctx.credentials', 'the project layout it reads and writes (assets_manifest.json, _probe/asset-reconcile.json)'],
+    writes: ['tool/call', 'tool/result', 'on reconcile: _probe/asset-reconcile.json under the project root'],
+    async mount(ctx) {
+      // Like the Jubian row: this one also injects `credentials` and resolves the
+      // token per read, so the harvest mounts the same stub provider.
+      await ctx.plugin(LocalCredentialProvider, {
+        path: join(tmpdir(), 'dsh-tool-catalog', 'credentials.yaml'),
+        dshHome: join(tmpdir(), 'dsh-tool-catalog'),
+        watch: false,
+      })
+      await ctx.plugin(ToolDramaAssets)
+    },
+    note:
+      'Two methods over one evidence file: `reconcile` reads the remote project\u2019s asset and material lists and the manifest and writes the evidence the host\u2019s '
+      + 'reconcile gate reads, and `dispose` records one disposition in it without any remote read. '
+      + 'The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate\u2019s inputs.',
   },
 ]
 

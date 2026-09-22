@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-19-drama-episode-render-tool.md
-2026-09-19-drama-episode-render-tool.md: 330d12b3f02543dfd30fb0fbacf4891f058c95bc
-2026-09-19-drama-episode-render-tool.zh.md: babdd07fdfe01b3556bbfc42d97654136a0b4173
+2026-09-19-drama-episode-render-tool.md: 54f0c9c2334cc0a1d1496dbad37e095d61ddd23a
+2026-09-19-drama-episode-render-tool.zh.md: 482b43af774d658a5371ceeeea292aeaac38732e

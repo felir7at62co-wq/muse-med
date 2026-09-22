@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-20-jubian-token-settings-page.md
+2026-09-20-jubian-token-settings-page.md: c9ed2fa6a43b86f9be268ffba8e7a125d9e8d5fe
+2026-09-20-jubian-token-settings-page.zh.md: 2c65a278bc468917208b0f05ada4f6a4da83dff5

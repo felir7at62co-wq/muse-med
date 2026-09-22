@@ -1,0 +1,320 @@
+{
+  "tolerance": 0.0001,
+  "agree": [
+    {
+      "file": "悲伤剧情氛围.mp3",
+      "ours": {
+        "schema_version": 1,
+        "source_sha256": "sha256:7084cf2c075aa5c115fdeb6ce9761f74e51fb412d3be4bfbe6a4cd60c4bd430c",
+        "seconds": 183.589,
+        "segments_used": 7,
+        "dropped_trailing_samples": 0,
+        "key_signature": "a",
+        "key_type": "minor",
+        "chord_count": 54,
+        "valence": 3.9928605556488037,
+        "arousal": 2.2679271697998047,
+        "moods": [
+          "background",
+          "calm",
+          "commercial",
+          "dream",
+          "emotional",
+          "hopeful",
+          "inspiring",
+          "melancholic",
+          "nature",
+          "relaxing",
+          "romantic",
+          "sad",
+          "slow",
+          "soft"
+        ],
+        "elapsed_seconds": 34.45,
+        "dependencies": {
+          "torch": "2.3.1+cpu",
+          "transformers": "4.44.0",
+          "librosa": "0.10.2.post1",
+          "music21": "9.3.0"
+        }
+      },
+      "theirs": {
+        "valence": 3.9928605556488037,
+        "arousal": 2.2679269313812256,
+        "predicted_moods": [
+          "background",
+          "calm",
+          "commercial",
+          "dream",
+          "emotional",
+          "hopeful",
+          "inspiring",
+          "melancholic",
+          "nature",
+          "relaxing",
+          "romantic",
+          "sad",
+          "slow",
+          "soft"
+        ]
+      },
+      "pass": true
+    },
+    {
+      "file": "紧张打斗 战争 史诗 绝处逢生.mp3",
+      "ours": {
+        "schema_version": 1,
+        "source_sha256": "sha256:edd7c4137b99397ed46c1eee16ea30aa4f015c8ae9bdb885968911706f251338",
+        "seconds": 74.266,
+        "segments_used": 3,
+        "dropped_trailing_samples": 0,
+        "key_signature": "a",
+        "key_type": "minor",
+        "chord_count": 86,
+        "valence": 4.631120204925537,
+        "arousal": 5.189459800720215,
+        "moods": [
+          "action",
+          "adventure",
+          "advertising",
+          "dark",
+          "documentary",
+          "drama",
+          "dramatic",
+          "emotional",
+          "epic",
+          "film",
+          "game",
+          "movie",
+          "powerful",
+          "trailer"
+        ],
+        "elapsed_seconds": 13.74,
+        "dependencies": {
+          "torch": "2.3.1+cpu",
+          "transformers": "4.44.0",
+          "librosa": "0.10.2.post1",
+          "music21": "9.3.0"
+        }
+      },
+      "theirs": {
+        "valence": 4.631120204925537,
+        "arousal": 5.189459800720215,
+        "predicted_moods": [
+          "action",
+          "adventure",
+          "advertising",
+          "dark",
+          "documentary",
+          "drama",
+          "dramatic",
+          "emotional",
+          "epic",
+          "film",
+          "game",
+          "movie",
+          "powerful",
+          "trailer"
+        ]
+      },
+      "pass": true
+    },
+    {
+      "file": "vroken.mp3",
+      "ours": {
+        "schema_version": 1,
+        "source_sha256": "sha256:1ef376a9a3fcad9d2c90c649b9ca49ed0c99f6603b9d826079ddc9c8c7e213c5",
+        "seconds": 130.874,
+        "segments_used": 5,
+        "dropped_trailing_samples": 0,
+        "key_signature": "Ab",
+        "key_type": "major",
+        "chord_count": 70,
+        "valence": 4.889449596405029,
+        "arousal": 4.37873649597168,
+        "moods": [
+          "adventure",
+          "advertising",
+          "background",
+          "calm",
+          "commercial",
+          "cool",
+          "corporate",
+          "documentary",
+          "dream",
+          "emotional",
+          "groovy",
+          "hopeful",
+          "motivational",
+          "movie",
+          "relaxing",
+          "romantic",
+          "sad",
+          "soft",
+          "uplifting"
+        ],
+        "elapsed_seconds": 24.64,
+        "dependencies": {
+          "torch": "2.3.1+cpu",
+          "transformers": "4.44.0",
+          "librosa": "0.10.2.post1",
+          "music21": "9.3.0"
+        }
+      },
+      "theirs": {
+        "valence": 4.889449596405029,
+        "arousal": 4.37873649597168,
+        "predicted_moods": [
+          "adventure",
+          "advertising",
+          "background",
+          "calm",
+          "commercial",
+          "cool",
+          "corporate",
+          "documentary",
+          "dream",
+          "emotional",
+          "groovy",
+          "hopeful",
+          "motivational",
+          "movie",
+          "relaxing",
+          "romantic",
+          "sad",
+          "soft",
+          "uplifting"
+        ]
+      },
+      "pass": true
+    }
+  ],
+  "crash": [
+    {
+      "file": "危险降临.mp3",
+      "upstream_crashed": true,
+      "ours": {
+        "schema_version": 1,
+        "source_sha256": "sha256:50030f2beae16e34e715352b4b9e2e2d1327dd6a33a9fd50e8b4506021bff3ec",
+        "seconds": 60.029,
+        "segments_used": 2,
+        "dropped_trailing_samples": 706,
+        "key_signature": "D",
+        "key_type": "major",
+        "chord_count": 26,
+        "valence": 4.296289443969727,
+        "arousal": 3.3078484535217285,
+        "moods": [
+          "action",
+          "adventure",
+          "advertising",
+          "children",
+          "commercial",
+          "corporate",
+          "documentary",
+          "drama",
+          "dramatic",
+          "emotional",
+          "epic",
+          "film",
+          "inspiring",
+          "movie",
+          "nature",
+          "romantic",
+          "trailer"
+        ],
+        "elapsed_seconds": 11.03,
+        "dependencies": {
+          "torch": "2.3.1+cpu",
+          "transformers": "4.44.0",
+          "librosa": "0.10.2.post1",
+          "music21": "9.3.0"
+        }
+      },
+      "pass": true
+    },
+    {
+      "file": "悬疑推理迷离.mp3",
+      "upstream_crashed": true,
+      "ours": {
+        "schema_version": 1,
+        "source_sha256": "sha256:7030ecb292f24be9009e9c5c9aaf9a9a2577143d71b21b11f8f5672ce55ae378",
+        "seconds": 60.029,
+        "segments_used": 2,
+        "dropped_trailing_samples": 706,
+        "key_signature": "D",
+        "key_type": "major",
+        "chord_count": 5,
+        "valence": 3.697490692138672,
+        "arousal": 3.195887565612793,
+        "moods": [
+          "background",
+          "calm",
+          "dark",
+          "documentary",
+          "film",
+          "movie",
+          "nature",
+          "relaxing",
+          "soundscape",
+          "space"
+        ],
+        "elapsed_seconds": 11.14,
+        "dependencies": {
+          "torch": "2.3.1+cpu",
+          "transformers": "4.44.0",
+          "librosa": "0.10.2.post1",
+          "music21": "9.3.0"
+        }
+      },
+      "pass": true
+    },
+    {
+      "file": "悲壮交响哀曲.mp3",
+      "upstream_crashed": true,
+      "ours": {
+        "schema_version": 1,
+        "source_sha256": "sha256:ca898e1b85976a10db3d1617797034ca788d343eaf91fab6aee29620f79e64dd",
+        "seconds": 60.029,
+        "segments_used": 2,
+        "dropped_trailing_samples": 706,
+        "key_signature": "G",
+        "key_type": "major",
+        "chord_count": 52,
+        "valence": 5.282599925994873,
+        "arousal": 3.6129398345947266,
+        "moods": [
+          "background",
+          "children",
+          "commercial",
+          "corporate",
+          "documentary",
+          "drama",
+          "dramatic",
+          "emotional",
+          "film",
+          "happy",
+          "hopeful",
+          "inspiring",
+          "love",
+          "melancholic",
+          "motivational",
+          "nature",
+          "positive",
+          "romantic",
+          "sad",
+          "soft",
+          "trailer"
+        ],
+        "elapsed_seconds": 11.66,
+        "dependencies": {
+          "torch": "2.3.1+cpu",
+          "transformers": "4.44.0",
+          "librosa": "0.10.2.post1",
+          "music21": "9.3.0"
+        }
+      },
+      "pass": true
+    }
+  ]
+}

@@ -138,16 +138,20 @@ describe('extractTailFrame', () => {
     )).rejects.toThrow('尾帧校验不通过')
   })
 
-  it('reports the silent `-sseof` failure instead of accepting an empty result', async () => {
+  it('falls back to the proven sequential tail when `-sseof` writes no file', async () => {
     const project = await tempProject()
     temporary.push(project)
-    const channel = tailChannel({ seekWrites: false, imageHashes: [], videoHashes: [] })
-    await expect(extractTailFrame(
+    const channel = tailChannel({ seekWrites: false, imageHashes: ['tail'], videoHashes: ['a', 'tail'] })
+    const evidence = await extractTailFrame(
       createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }),
       'C:/proj/video/02/shot_006.mp4',
       join(project, 'tail.png'),
-    )).rejects.toThrow('尾帧抽取没有写出任何文件')
-    expect(await readdir(project)).toEqual([])
+    )
+    expect(evidence.fromSequentialDecode).toBe(true)
+    expect(evidence.matchesSequentialTail).toBe(true)
+    expect(evidence.frameMd5).toBe('tail')
+    expect(channel.calls.some(isSelect)).toBe(true)
+    expect(await readdir(project)).toEqual(['tail.png'])
   })
 
   it('fails loud when the written frame cannot be hashed', async () => {

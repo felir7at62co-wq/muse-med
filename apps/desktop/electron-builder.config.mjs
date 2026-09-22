@@ -54,7 +54,8 @@ export function createElectronBuilderConfig(
   const buildPaths = desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch))
   return {
     appId,
-    productName: 'DeepSeek Harness',
+    productName: 'muse-med',
+    icon: 'renderer/icon.png',
     artifactName: 'deepseek-harness-${version}-${os}-${arch}.${ext}',
     directories: { output: unsigned ? join(buildPaths.root, 'unsigned-artifacts') : buildPaths.artifacts },
     asar: true,
@@ -103,6 +104,7 @@ export function createElectronBuilderConfig(
       )
     },
     win: {
+      executableName: 'DeepSeek Harness',
       forceCodeSigning: !unsigned,
       signtoolOptions: {
         sign: windowsSigner,

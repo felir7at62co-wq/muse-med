@@ -10,6 +10,8 @@ The short-drama pipeline's hard rules — one to four whole seconds per shot, ni
 
 ## Decision
 
+The [production policy and result-evidence decision](2026-09-21-drama-policy-and-result-evidence.md) partially supersedes the creative restrictions and fixed duration budget recorded here. This note retains the independent tool-ownership rationale; its original case for fatal creative checks is not the current policy.
+
 A new `drama/` package group holds `@deepseek-ai/dsh-tool-shot-script`, which registers one model-facing tool, `drama_shot`, with three methods. `validate` reads a script and reports, per shot, the derived duration and its source, the effective-character count, the voice type, whether an off-screen continuation is legal, and the asset bindings, with hard failures and warnings in separate lists. `preview` adds the package plan without writing. `compile` writes `prompts/<episode>.txt`, `matches/<episode>.matched.json`, and the `episode_packages/<episode>/` tree (`package.json`, `shot_script.txt`, `matched.json`, `episode.txt`, and one copy per locally stored bound asset), and returns each package's `content_seconds`, `content_duration_ms`, `submit_seconds`, and its prompt-ordered `material_keys`.
 
 A script with any failure-severity issue returns those failures and writes nothing: the compiler pre-resolves the episode text and every local asset image before the first byte, so a refused compile leaves the project unchanged. Script problems are a domain outcome carried in the canonical result; only environment problems (a missing file, a manifest that is not JSON) throw.

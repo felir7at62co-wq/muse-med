@@ -1,13 +1,34 @@
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { JubianLedger } from '../src/ledger.ts'
 
 let root: string
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'jubian-ledger-')) })
+afterEach(async () => { await rm(root, { recursive: true, force: true }) })
 
 describe('JubianLedger', () => {
+  it('claims a key once across distinct ledger instances sharing one resolved root', async () => {
+    const ledgers = [new JubianLedger({ root }), new JubianLedger({ root: join(root, '.') })]
+    const outcomes = await Promise.all(ledgers.map(ledger => ledger.begin({ idempotencyKey: 'shared',
+      method: 'storyboard_model_settings', requestSha256: 'sha256:0' })))
+    expect(outcomes.map(result => result.replayed).sort()).toEqual([false, true])
+    expect(outcomes[0]?.record.record_id).toBe(outcomes[1]?.record.record_id)
+  })
+
+  it('gives distinct ledger instances unique record identities in the same millisecond', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-21T00:00:00.000Z'))
+    try {
+      const records = await Promise.all([
+        new JubianLedger({ root }).begin({ idempotencyKey: 'first', method: 'storyboard_save', requestSha256: 'sha256:1' }),
+        new JubianLedger({ root: join(root, 'other') }).begin({ idempotencyKey: 'second', method: 'storyboard_save', requestSha256: 'sha256:2' }),
+      ])
+      expect(new Set(records.map(result => result.record.record_id)).size).toBe(2)
+    } finally { vi.useRealTimers() }
+  })
+
   it('records the intent before the request leaves and settles it afterwards', async () => {
     const ledger = new JubianLedger({ root })
     const began = await ledger.begin({

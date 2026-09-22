@@ -15,6 +15,19 @@ interface EraseFailure {
   message: string
 }
 
+/**
+ * The failure one rejected submission surfaced.
+ *
+ * A provider that answers without a code leaves the key absent: `code` is optional,
+ * and `exactOptionalPropertyTypes` rejects an explicit `undefined`.
+ * @param error - The value the submission threw.
+ * @returns The code, when the error carried one, and its message.
+ */
+function failureOf(error: unknown): EraseFailure {
+  const { code } = error as { code?: string }
+  return { ...code === undefined ? {} : { code }, message: (error as Error).message }
+}
+
 async function storedToken(): Promise<string> {
   const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
   const doc = yaml.load(await readFile(join(home, '.credentials.yaml'), 'utf8')) as
@@ -49,7 +62,7 @@ describe.skipIf(!enabled)('live erasure submission', () => {
         idempotency_key: key, task_id: taskId, script_id: SCRIPT_ID,
         model_id: 'quzimuToB', video_width: 720, video_height: 1280 })
     } catch (error) {
-      failure = { code: (error as { code?: string }).code, message: (error as Error).message }
+      failure = failureOf(error)
     }
     console.log('SUBMIT outcome =', JSON.stringify(outcome))
     console.log('SUBMIT failure =', JSON.stringify(failure))
@@ -90,7 +103,7 @@ describe.skipIf(!enabled)('live erasure submission', () => {
         idempotency_key: key, task_id: 428322, script_id: SCRIPT_ID,
         model_id: 'ark-erase-video-subtitle-pro', video_width: 720, video_height: 1280 })
     } catch (error) {
-      failure = { code: (error as { code?: string }).code, message: (error as Error).message }
+      failure = failureOf(error)
     }
     console.log('FAIL outcome =', JSON.stringify(outcome))
     console.log('FAIL thrown  =', JSON.stringify(failure))

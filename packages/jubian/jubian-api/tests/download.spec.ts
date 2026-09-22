@@ -16,10 +16,14 @@ function mp4(): Uint8Array {
   return bytes
 }
 
+/**
+ * A transport answering every request with `body`, copied into the `ArrayBuffer`-backed
+ * bytes a `Response` body accepts.
+ */
 function transport(body: Uint8Array, init: { status?: number; seen?: RequestInit[] } = {}): typeof fetch {
   return async (_url: string | URL | Request, request?: RequestInit) => {
     init.seen?.push(request ?? {})
-    return new Response(body, { status: init.status ?? 200 })
+    return new Response(body.slice(), { status: init.status ?? 200 })
   }
 }
 

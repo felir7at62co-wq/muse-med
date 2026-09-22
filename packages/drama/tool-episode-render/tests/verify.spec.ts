@@ -1,5 +1,6 @@
 /** `verify`: the delivery verdict, the two detection passes, and the subtitle bounds. */
 
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
@@ -238,6 +239,27 @@ describe('verifyEpisode', () => {
     await writePlaceholder(subtitle, srtDocument([{ start: '00:00:01,680', end: '00:00:03,580', text: '台词' }]))
     return { project, output, timeline, subtitle }
   }
+
+  it('reports banned copied selections without claiming historical output identity or deleting output', async () => {
+    const files = await delivered()
+    const { runDramaVideo } = await import('../src/video.ts')
+    const source = join(files.project, 'video', '02', 'shot_001.mp4')
+    await writePlaceholder(source, 'banned copy')
+    await runDramaVideo({ method: 'ban', project: files.project, video: source, labels: ['人物对调'], reason: '用户明确禁用' })
+    const report = await verifyEpisode({
+      toolkit: toolkit([probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }), () => ({})]),
+      settings: { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', masterVolume: 1.45, bgmVolume: 0.24, preferNvenc: true, fontsDir: '' },
+      project: files.project, episode: '02', output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
+    })
+    expect(report.ok).toBe(false)
+    const banCheck = report.checks.find(check => check.id === 'video_bans')
+    expect(banCheck?.ok).toBe(false)
+    expect(banCheck?.detail).toContain('当前选片含禁用素材')
+    expect(report.failures.join(' ')).toContain('人物对调')
+    expect(report.not_checked).toContain('output_source_mapping')
+    expect(report.written).toEqual([])
+    expect(await readFile(files.output, 'utf8')).toBe('delivered')
+  })
 
   it('reports every check and passes a delivery that meets the specification', async () => {
     const files = await delivered()

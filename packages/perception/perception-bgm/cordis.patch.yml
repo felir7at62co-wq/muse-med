@@ -1,0 +1,28 @@
+# BGM 情绪匹配插件的组合包补丁：把插件行插入 profile。
+#
+# 本行按 id 覆盖；可以在自己 profile 的 cordis.patch.yml 里覆盖它的整个 config。
+# 省略的字段用插件的默认值。
+#
+# index/inspect 使用前必须配好解释器与权重；match 只读取已有索引，不启动 Python：
+#   pythonExecutable  装有 torch / transformers / librosa / music21 / mir_eval /
+#                     pretty_midi 的解释器绝对路径（实测 Python 3.11 + torch CPU 可用）
+#   weightsPath       Music2Emo 情感头 J_all.ckpt 的绝对路径
+#   dataDir           分析时指向外部目录，含包内全部静态 data 与 BTC 权重（权重不随包提供）
+#   indexPath         可省略；默认 <DSH_HOME>/perception/bgm/bgm-index.json
+#   catalogUrl        可选公开 HTTPS 曲库；配置后 match 返回远端候选，download 明确下载
+#   cacheDir          可省略；默认 <DSH_HOME>/perception/bgm/cache，下载后供合成使用
+#   networkTimeoutMs  默认 60000；maxCatalogBytes 默认 2097152；maxTrackBytes 默认 134217728
+#
+# 模型骨干（MERT-v1-95M，约 360 MB）在首次分析时从 HuggingFace 下载并缓存；
+# 缓存位置由 HF_HOME 决定，该变量会传给子进程。
+#
+# 示例（用户 profile 的 cordis.patch.yml）：
+#   - id: perception-bgm
+#     name: '@deepseek-ai/dsh-perception-bgm'
+#     config:
+#       pythonExecutable: 'C:\path\to\python.exe'
+#       weightsPath: 'C:\path\to\J_all.ckpt'
+#
+- insert:
+    - id: perception-bgm
+      name: '@deepseek-ai/dsh-perception-bgm'

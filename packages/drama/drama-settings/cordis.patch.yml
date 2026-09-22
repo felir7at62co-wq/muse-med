@@ -1,0 +1,13 @@
+# 短剧设置插件（drama-settings）的组合包补丁：把插件行插入 composition。
+#
+# 这一行同时挂载 Host 半（注册 `drama` 设置命名空间）与 Client 半（「设置 → 短剧」页，
+# 含只读的组件状态清单）；它不接收任何 config —— 四个设置项的默认值由命名空间 schema
+# 持有，用户值存在 DSH 设置文档里，改默认值应当改 schema，而不是在这里写第二份。
+#
+# 示例（profile 的 cordis.patch.yml 或 preset）：
+#   - id: drama-settings
+#     name: '@deepseek-ai/dsh-drama-settings'
+#
+- insert:
+    - id: drama-settings
+      name: '@deepseek-ai/dsh-drama-settings'

@@ -71,7 +71,7 @@ for (const row of page.rows) {
 }
 ```
 
-`needsUpscale()` 把该行记录的分辨率与交付目标作比较：低于目标返回 `true`，等于或高于目标返回 `false`，任一侧标签无法识别则返回 `null`，因此你不会把猜测当成结论。要使用的文件是 `row.video_url`：转高清之后，提供方把生成输出保留在 `row.base_video_url`，并在 `video_url` 里报告最新的那个文件。
+`needsUpscale()` 把当前文件与交付目标作比较。已记录的 SeedVR2 处理会把当前文件视为 1080p，即使生成行仍保留旧标签；其他情况下，低于目标返回 `true`，等于或高于目标返回 `false`，现有证据无法对任一侧排序时返回 `null`。要使用的文件是 `row.video_url`：转高清之后，提供方把生成输出保留在 `row.base_video_url`，并在 `video_url` 里报告最新的那个文件。
 
 ### 构造请求体
 
@@ -90,6 +90,12 @@ const body = buildSubtitleEraseRequest('quzimuToB', {
 ```
 
 构造器返回一个普通对象，不发送任何东西。用 `client.request()` 提交它，再用 `readSubtitleTaskId()` 从响应里读回任务身份。`buildSubtitleEraseRequest` 按模型固定标准标识：`quzimuToB` 用 `26`，`ark-erase-video-subtitle-pro` 用 `67`；后者是自动路线，不接受矩形框。调用方省略 `subtitleBox` 时，区域路线改为从画面尺寸推导这个矩形。
+
+### 解析视频设置
+
+`resolveVideoModel(catalogue, intent)` 保留精确的 `modelId`、显式 `platformId`、生成类型和时长，宽高比与分辨率匹配不区分大小写。目录必须恰好匹配一项；缺失或歧义会失败，而不是改选其他模型或平台。返回的选择器刷新过期标准标识，并保留 `genNum=1`。原生准备流程使用实时分镜设置；按模型生成应使用 `prepare_video`/`submit_video`。
+
+`validateVideoDuration()` 只接受整数秒。目录没有时长上下限：精确 id `doubao-seedance-2-0-260128` 保留 2–15 秒，`doubao-seedance-2-5-260628` 使用用户确认的 30 秒上限并保留现有 2 秒下限。此回退不是提供方验证的时长证据。未知 id 拒绝放行。预览校验应用相同范围，且不削弱项目、指纹或有序身份校验。
 
 ### 下载媒体
 
@@ -137,9 +143,9 @@ console.log(media.media_type, media.kind, media.sha256, media.bytes.byteLength)
 
 ### 视频阶段词表
 
-提供方把每个结果的阶段记成一个数字。`VIDEO_TASK_TYPES` 把 `1` 映射为 `generate`、`10` 映射为 `erase_subtitle`、`20` 映射为 `upscale`，其中 `20` 才是转高清阶段。一个结果还会在 `versions` 里携带完整的历史记录，本库把它映射成同一套阶段名。`subtitle_erased` 与 `upscaled` 读取该阶段与记录下的转高清次数，因此调用方不必打开文件就能区分原始生成与已处理结果。
+`VIDEO_TASK_TYPES` 把 `1` 映射为 `generate`、`10` 映射为 `erase_subtitle`、`20` 映射为 `upscale`；`versions` 携带结果历史。`subtitle_erased` 要求存在当前 URL，且最新类型 10 结果成功并有显式输出 URL，或存在成功的类型 10 历史条目且其 URL 等于当前 URL。只有阶段 10 不足以成立，该标记也不代表字幕视觉审核通过。`upscaled` 要求转高清次数为正或最新阶段为 20，不能仅凭 URL 变化判断。
 
-`RESOLUTION_ORDER` 列出该提供方从 `480p` 到 `4K` 的阶梯。`resolutionRank()` 返回标签的下标，标签无法识别时返回 `-1`，此时 `needsUpscale()` 返回 `null`。交付目标是比较，不是常量，因为生成模型可能封顶在目标之下。
+`RESOLUTION_ORDER` 列出该提供方从 `480p` 到 `4K` 的阶梯。`resolutionRank()` 返回标签的下标，标签无法识别时返回 `-1`。交付目标无法识别时，或来源无法识别且没有已记录的转高清时，`needsUpscale()` 返回 `null`；已记录的转高清会确立一个 1080p 当前文件。交付目标是比较，不是常量，因为生成模型可能封顶在目标之下。
 
 ### 线上形状从何而来
 
@@ -184,9 +190,9 @@ console.log(media.media_type, media.kind, media.sha256, media.bytes.byteLength)
 - **图片选择器由调用方决定**——只有当这个选择把候选收敛到恰好一行 `gpt-image-2` 时，`resolveImageModel()` 才接受该目录。多行而未给选择时调用失败，错误里列出每个候选的 `platformId`、`standardId`、单价与单位；给了选择却匹配不到任何候选时同样失败。本库没有任何偏好某个平台或更便宜那一行的规则。
 - **费用与价格字段是证据，不是结算**——`real_cost`、`estimated_cost`、`discount_cost` 与 `readImageDisplayPrice()` 承载提供方报告的内容，且 `readImageDisplayPrice()` 始终返回 `quote_verified: false`；这里没有任何东西授权花钱。
 - **默认擦除矩形不裁切到画面内**——`defaultSubtitleBox()` 复现提供方实测的比例（`zimuTop` 570/1280、高 720/1280、宽为画面内缩一个像素），因此在 720x1280 的源上这个框可以越过底边；该形状取自一次被接受的请求，而不是提供方的保证。
-- **`needsUpscale()` 在无法判断时回答 `null`**——任一侧出现无法识别的分辨率标签都会得到 `null` 而不是布尔值，调用方必须把它当作未回答，而不是可以交付的许可。
+- **`needsUpscale()` 在无法判断时回答 `null`**——交付目标无法识别，或来源无法识别且没有已记录的转高清证据时，会得到 `null` 而不是布尔值；调用方必须把它当作未回答，而不是可以交付的许可。
 - **媒体传输有界且只允许单一来源**——`downloadMedia()` 只接受 `MEDIA_ALLOWED_ORIGINS` 中的来源，把响应体限制在 `MEDIA_LIMITS`（图片 64 MiB，视频 512 MiB），拒绝重定向，且不写入磁盘。
-- **分镜请求体从不从零拼装**——`readStoryboard()` 只接受 `ratio` 9:16、`resolution` 720p 与 `genNum` 1，并且 `withGenerationEnabled()` 要求已保存的时长等于所请求的内容时长加一秒，因为提供方从该字段推导自己的视频长度。两者都不以 `isGenerate` 为条件：提供方对它持有的每个分镜都存 1，无论是否生成过，因此该字段无法区分二者，而它真正响应的是调用方写进请求体里的 `isGenerate`。
+- **分镜请求体从不从零拼装**——读取与免费保存保留非空宽高比/分辨率标签、`genNum=1` 和可安全表示为毫秒的正整数时长。传统 `withGenerationEnabled()` 路径保留 9:16/720p 与 4–14 秒内容时长，要求保存时长等于内容加一秒，并校验精确模型的时长能力。它不解析目录选择器；其他比例/分辨率返回可操作的 `INVALID_ARGUMENT`，指引调用方保留已存设置并使用原生准备流程。已存储的 `isGenerate=1` 不能证明生成已发生。
 - **没有任何传输行为会被重试或续跑**——除媒体下载外，本包不自己发起任何请求，因此每一次重试、超时与轮询决定都属于调用方。
 
 <a id="dev-note"></a>

@@ -11,6 +11,7 @@
  */
 
 import type {
+  BgmPlanReport,
   DramaRenderMethod,
   DramaRenderReport,
   MediaFacts,
@@ -50,6 +51,8 @@ export const NO_MEDIA: MediaFacts = {
 export interface ReportInput {
   /** The operation that produced the result. */
   readonly method: DramaRenderMethod
+  /** Optional declared BGM plan validated by render. */
+  readonly bgmPlan?: BgmPlanReport
   /** Absolute project root. */
   readonly project: string
   /** Two-digit episode number. */
@@ -166,6 +169,14 @@ export function buildReport(input: ReportInput): DramaRenderReport {
     tail_frame: tailFrameReport(input.tailFrame),
     media: mediaReport(input.media),
     checks: [...input.checks],
+    not_checked: [
+      'duration', 'video_stream', 'frame_rate', 'audio_stream', 'bitrate_floor',
+      'black_frames', 'silence', 'subtitle_bounds', 'subtitle_present',
+      'speech_alignment', 'embedded_subtitles', 'content_review', 'bgm_listening', 'bgm_plan_audio_match',
+      ...(input.method === 'verify' ? ['output_source_mapping'] : []),
+      ...(input.bgmPlan?.path ? [] : ['bgm_plan']),
+    ].filter(id => !input.checks.some(check => check.id === id)),
+    bgm_plan: input.bgmPlan ?? { path: '', bed_sha256: '', segments: [], repeated_sequence_episodes: [] },
     failures,
     warnings,
     log_path: input.logPath,

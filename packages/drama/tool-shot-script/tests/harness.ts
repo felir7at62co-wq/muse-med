@@ -80,12 +80,23 @@ export function manifestDocument(...rows: readonly Record<string, unknown>[]): {
   return { assets: [...rows] }
 }
 
+/**
+ * The registered `drama_shot` definition as these specs drive it.
+ *
+ * The tool body reads only its arguments, and `dsh-tools` mints `ToolRunContext.token`
+ * inside the registry with no exported constructor, so `execute` takes the one argument
+ * the body reads.
+ */
+export type RegisteredShot = Omit<ToolDefinition, 'execute'> & {
+  execute(args: unknown): Promise<unknown>
+}
+
 /** Mount the plugin against a stub tool registry and return what it registered. */
-export function mount(config: Config = {}): ToolDefinition[] {
-  const registered: ToolDefinition[] = []
+export function mount(config: Config = {}): RegisteredShot[] {
+  const registered: RegisteredShot[] = []
   const ctx = {
     tools: {
-      register: (definition: ToolDefinition) => {
+      register: (definition: RegisteredShot) => {
         registered.push(definition)
         return () => {}
       },
@@ -96,7 +107,7 @@ export function mount(config: Config = {}): ToolDefinition[] {
 }
 
 /** The one `drama_shot` definition this package registers. */
-export function dramaShot(): ToolDefinition {
+export function dramaShot(): RegisteredShot {
   const tool = mount().find(candidate => candidate.name === 'drama_shot')
   if (tool === undefined) throw new Error('drama_shot was not registered')
   return tool
@@ -104,7 +115,7 @@ export function dramaShot(): ToolDefinition {
 
 /** Run one `drama_shot` call through the registered definition. */
 export async function call(args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return await dramaShot().execute(args, {}) as Record<string, unknown>
+  return await dramaShot().execute(args) as Record<string, unknown>
 }
 
 /** Create a temporary directory the caller removes. */

@@ -1,5 +1,5 @@
 ---
-description: "面向侧栏的官方 DeepSeek Harness 品牌填充，仅在官方构建中生效；供选择或替换品牌呈现的用户与维护者阅读。"
+description: "在本地与发布构建的侧栏和会话首屏展示 muse-med 蜘蛛图案。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-本包让以 `official` profile 构建的客户端在侧栏显示 DeepSeek Harness 标志与名称。其他构建 profile 保留外壳的鱼形标志与本地构建标签，会话首屏则始终使用动画鱼。品牌为 DeepSeek Harness 的部署应选择本包；使用其他品牌的部署应提供替代品牌包。本包不保留运行时状态，也不影响模型请求。
+本包在所有构建 profile 的侧栏和会话首屏展示 muse-med 蜘蛛图案。侧栏提供本地化的 muse-med 名称，并保留版本、提交和工作区修改状态元数据。本包保留内部标识，不保留运行时状态，也不影响模型请求。
 
 ## 目录
 
@@ -25,15 +25,15 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在采用 DeepSeek 自有品牌的部署中，将本插件挂载到浏览器插件名单，然后以 `official` profile 构建客户端，让填充得以注册。
+在 muse-med 部署的浏览器插件名单中挂载本插件。其图片填充在本地与发布构建中都会注册。
 
-### 选择 profile
+### 图案与构建 profile
 
-`DSH_CLIENT_BUILD_PROFILE` 决定渲染哪个品牌。`official` 构建在侧栏显示官方标志与名称；任何其他取值都让外壳回退——鱼形标志与本地构建标签——保持原样。会话首屏无论 profile 如何都显示来自 `dsh-client-ui-conversation` 的动画首屏鱼，因为这个回退本身就是官方标志。两种情况下插件都会照常加载并通过校验；只有注册受 profile 门控。
+Web 应用以 `./muse-med-logo-black.webp` 和 `./muse-med-logo-white.webp` 提供原始透明的 1254 × 1254 图案。品牌图案在应用解析后的浅色主题中使用黑色，在深色主题中使用白色，支持手动选择和跟随系统模式。浏览器 favicon 始终使用黑色图案，不跟随应用主题。打包的桌面图标与 PWA 安装图标不随主题变化。`DSH_CLIENT_BUILD_PROFILE` 不限制注册。本插件不占据 `sidebar.brand.name`；侧栏拥有本地化名称与构建元数据。
 
 ### 替换品牌
 
-自有身份的部署不组合本包，而是组合另一个占据侧栏 slot——以及本包留给回退的首屏 slot——的包。占据 slot 是唯一的组合路径；这里不存在任何品牌配置面。
+使用其他品牌的部署不组合本包，而是组合另一个占据侧栏与首屏图片 slot 的包。占据 slot 是组合路径；本包没有品牌配置字段。
 
 -----
 
@@ -43,7 +43,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-两个填充作为一组声明感知的注册安装：嵌套的 `ctx.slots.inject()` 调用等待侧栏声明，因此无论本行在声明者之前还是之后激活，这组注册都能工作；声明消失时两个填充一并撤回，HMR 期间也不会留下残缺的品牌混合。浏览器半部是 [`src/client/index.ts`](src/client/index.ts)；node 半部是一个空 Loader 座位。浏览器标题是构建环境的事（`DSH_CLIENT_TITLE`），不在 slot 系统之内。
+浏览器半部 [`src/client/index.ts`](src/client/index.ts) 为 `sidebar.brand.mark` 与 `conversation.hero.brand.mark` 安装两个独立、感知声明的 `ctx.slots.inject()` effect。各注册等待自己的声明，声明消失时撤回，并随插件 fiber 释放。node 半部是一个空 Loader 座位。浏览器标题位于 slot 系统之外：`DSH_CLIENT_TITLE` 覆盖 Web 构建默认的 `muse-med` 标题。
 
 </details>
 
@@ -52,7 +52,7 @@ kind: "package-reference"
 <a id="further-exploration"></a>
 ## 进一步探索
 
-当品牌面不够用时阅读以下页面。它们从本包占据的 slot 进入渲染这些 slot 的外壳。
+以下页面说明渲染图案的 slot 与外壳。
 
 - [ui-sidebar](../ui-sidebar/README.zh.md)——声明 `sidebar.brand.mark` 与 `sidebar.brand.name` 并渲染其回退。
 - [ui-conversation](../ui-conversation/README.zh.md)——在首屏声明 `conversation.hero.brand.mark`。
@@ -74,9 +74,9 @@ kind: "package-reference"
 <a id="known-limitations-and-deferred-work"></a>
 
 
-这些限制界定了品牌呈现的供给方式。它们是当前包约束，不是品牌设计对比或任务积压。
+品牌呈现依赖宿主应用的资源和 slot 声明。
 
-- **只有一组填充**——替代呈现属于占据相同 slot 的另一个 Cordis 包。
+- **宿主拥有图案**——Web 应用必须提供两个主题图案 URL；插件不内嵌图片。插件更新现有的 `link[rel="icon"]`，卸载时恢复其原始 URL 和类型。
 - **浏览器标题独立**——`DSH_CLIENT_TITLE` 在构建时选择标题文本，而非通过 UI slot。
 
 <a id="dev-note"></a>
@@ -89,4 +89,4 @@ kind: "package-reference"
 
 </details>
 
-**运行时不变式：** 不发布伴生入口。本包不保留可变状态，三个 slot occupant 通过同一个事务性 effect 安装和释放。
+**运行时不变式：** 不发布伴生入口。本包不保留可变状态；两个 slot occupant 分别由独立的插件 fiber effect 拥有。

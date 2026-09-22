@@ -80,6 +80,35 @@ export async function readSubtitleCues(path: string): Promise<SubtitleCue[]> {
 }
 
 /**
+ * Format one SRT timestamp.
+ * @param seconds - Seconds from the episode start.
+ * @returns `HH:MM:SS,mmm`.
+ */
+export function formatSrtTime(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds * 1000))
+  const milliseconds = total % 1000
+  const whole = (total - milliseconds) / 1000
+  const pad = (value: number, width = 2): string => String(value).padStart(width, '0')
+  return `${pad(Math.floor(whole / 3600))}:${pad(Math.floor(whole / 60) % 60)}:${pad(whole % 60)},${pad(milliseconds, 3)}`
+}
+
+/**
+ * Compose one SRT document from placed cues.
+ *
+ * The written file is the artifact `prepare` installs and `render` burns, and it
+ * stays plain SRT so the operator can hand-edit a line before the delivery is
+ * encoded.
+ * @param cues - The cues to write, in delivery order.
+ * @returns The complete SRT document, one block per cue.
+ */
+export function formatSrtDocument(cues: readonly SubtitleCue[]): string {
+  const blocks = cues.map(cue => `${String(cue.index)}\n`
+    + `${formatSrtTime(cue.startSeconds)} --> ${formatSrtTime(cue.endSeconds)}\n`
+    + `${cue.text}`)
+  return `${blocks.join('\n\n')}\n`
+}
+
+/**
  * Compose the ASS script for one episode.
  *
  * Every cue becomes a `Default` dialogue line and the delivery spec's AI-content

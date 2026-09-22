@@ -13,10 +13,12 @@
  * @module @deepseek-ai/dsh-tool-episode-render/prepare
  */
 
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
+import { fileSha256 } from './cache.ts'
+import { assertVideoHashesAllowed, assertVideosAllowed } from './video.ts'
 import { firstStreamOfType, probeMedia, runFfmpeg } from './ffmpeg.ts'
-import { episodePaths, shotFileName } from './paths.ts'
+import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { readSubtitleCues } from './subtitles.ts'
 import { appendClips, formatTimelineDocument } from './timeline.ts'
 import type { MediaToolkit, ShotSource, SubtitleCue, Timeline, TimelineClip } from './types.ts'
@@ -87,7 +89,10 @@ export function parseShotManifest(document: unknown, path: string): ShotSource[]
       throw new Error(`${path}：第 ${String(index + 1)} 行不是对象。`
         + '请提供 {"shot":N,"video":"<成片路径>","audio":"<可选音轨路径>"} 形式的行。')
     }
-    const row = entry as { shot?: unknown; video?: unknown; audio?: unknown }
+    const row = entry as { shot?: unknown; video?: unknown; audio?: unknown; package?: unknown }
+    if (row.package !== undefined && (!Number.isInteger(row.package) || (row.package as number) < 1)) {
+      throw new Error(`${path}：package 必须是 video_tasks 中从 1 开始的整数包号，不得从镜头号猜测。`)
+    }
     if (!Number.isInteger(row.shot) || (row.shot as number) < 1) {
       throw new Error(`${path}：第 ${String(index + 1)} 行的 shot 必须是正整数镜头号，收到 ${JSON.stringify(row.shot)}。`)
     }
@@ -101,6 +106,7 @@ export function parseShotManifest(document: unknown, path: string): ShotSource[]
     }
     return {
       shot: row.shot as number,
+      ...(row.package === undefined ? {} : { package: row.package as number }),
       video: row.video,
       audio: typeof row.audio === 'string' ? row.audio : row.video,
     }
@@ -195,14 +201,20 @@ export function cueOverrunWarnings(cues: readonly SubtitleCue[], bodyEndSeconds:
       + '请把该条字幕的时间收到 body_end 以内后重跑 prepare。')
 }
 
-/** Read one manifest file as JSON. */
-async function readManifestDocument(path: string): Promise<unknown> {
+/**
+ * Read one JSON document.
+ * @param path - Absolute path of the file.
+ * @param description - What the document is, named in the diagnostic.
+ * @returns The parsed value.
+ * @throws {Error} When the file cannot be read or is not valid JSON.
+ */
+export async function readJsonDocument(path: string, description: string): Promise<unknown> {
   const text = await readFile(path, 'utf8')
   try {
     return JSON.parse(text.startsWith('\ufeff') ? text.slice(1) : text)
   } catch (error) {
-    throw new Error(`${path}: 成片清单不是合法 JSON。`
-      + '请确认它是 UTF-8 的 {"shots":[...]} 文件。', { cause: error })
+    throw new Error(`${path}: ${description}不是合法 JSON。`
+      + '请确认它是 UTF-8 的 JSON 文件。', { cause: error })
   }
 }
 
@@ -227,16 +239,34 @@ async function buildMaster(
  */
 export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpisode> {
   const paths = episodePaths(input.project, input.episode)
-  const rows = parseShotManifest(await readManifestDocument(input.shotsPath), input.shotsPath)
+  const rows = parseShotManifest(
+    await readJsonDocument(input.shotsPath, '成片清单'),
+    input.shotsPath,
+  )
+  await assertVideosAllowed(input.project, rows.flatMap(row => [
+    resolveAgainst(input.project, row.video), resolveAgainst(input.project, row.audio),
+  ]))
   const shots = await resolveShots(input.toolkit, input.project, rows)
   const timeline = appendClips(shots.map(shot => shot.durationUs))
+  const packagePath = resolve(input.project, 'episode_packages', input.episode, 'package.json')
+  const packageHash = rows.some(row => row.package !== undefined) && await pathExists(packagePath)
+    ? await fileSha256(packagePath) : undefined
 
+  await assertVideosAllowed(input.project, shots.flatMap(shot => [shot.video, shot.audio]))
   const written: string[] = []
+  await rm(paths.sources, { force: true })
+  const selected = []
   await mkdir(paths.videoDir, { recursive: true })
   for (const shot of shots) {
     const target = resolve(paths.videoDir, shotFileName(shot.source.shot))
     await copyFile(shot.video, target)
+    const sha256 = await fileSha256(target)
+    await assertVideoHashesAllowed(input.project, [sha256])
     written.push(target)
+    selected.push({
+      ...shot.source, video: shot.video, audio: shot.audio, sha256,
+      ...(shot.source.package === undefined || packageHash === undefined ? {} : { package_sha256: packageHash }),
+    })
   }
 
   await mkdir(resolve(input.project, 'editing'), { recursive: true })
@@ -250,6 +280,9 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
   const cues = await readSubtitleCues(input.subtitleSrt)
   await copyFile(input.subtitleSrt, paths.subtitle)
   written.push(paths.subtitle)
+  await assertVideoHashesAllowed(input.project, selected.map(shot => shot.sha256))
+  await writeFile(paths.sources, `${JSON.stringify({ shots: selected }, null, 2)}\n`, 'utf8')
+  written.push(paths.sources)
 
   return { shots, timeline, cues, written, warnings: cueOverrunWarnings(cues, timeline.bodyEndSeconds) }
 }

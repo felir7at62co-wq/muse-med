@@ -91,7 +91,7 @@ describe('script-level rules', () => {
     const withoutStyle = scriptOf(speakingShot(1), speakingShot(2).replace('真人短剧写实风格\n', ''))
     const result = parse(withoutStyle)
     expect(codes(result.issues)).toEqual(['missing_style_line'])
-    expect(result.issues[0]).toMatchObject({ shot: 2, severity: 'failure' })
+    expect(result.issues[0]).toMatchObject({ shot: 2, severity: 'warning' })
   })
 
   it('refuses non-contiguous shot numbers', () => {
@@ -102,10 +102,17 @@ describe('script-level rules', () => {
 })
 
 describe('the spoken track', () => {
+  it.each(['', '说话人：苏晚\n'])('preserves narration punctuation and explicit speaker: %s', (speaker) => {
+    const result = parse(`【镜头1】\n主体状态追踪：\n发声类型：心声\n${speaker}旁白：他说：明天再来。`)
+    expect(result.shots[0]).toMatchObject({ text: '他说：明天再来。', speaker: speaker ? '苏晚' : '', voiceType: 'vo' })
+    expect(result.issues.filter(issue => issue.severity === 'failure')).toEqual([])
+  })
   it('refuses narration, inner monologue, and stage-narration markers', () => {
     const voice = parse(scriptOf(speakingShot(1, '苏晚：原文台词', ['发声类型：心声'])))
     expect(codes(voice.issues)).toContain('narration_marker')
-    expect(voice.issues[0]?.message).toContain('本格式没有旁白')
+    expect(voice.issues[0]).toMatchObject({ severity: 'warning' })
+    expect(voice.issues[0]?.message).toContain('作为 vo')
+    expect(voice.shots[0]).toMatchObject({ voiceType: 'vo', text: '原文台词', speaker: '苏晚' })
 
     const label = parse(scriptOf(speakingShot(1, '旁白：这是旁白')))
     expect(codes(label.issues)).toContain('narration_marker')
@@ -244,6 +251,7 @@ describe('the packing duration rules', () => {
   it('refuses a complexity label on a speaking shot', () => {
     const result = parse(scriptOf(speakingShot(1, '苏晚：原文台词', ['动作复杂度：复杂'])))
     expect(codes(result.issues)).toEqual(['action_complexity_on_speaking_shot'])
+    expect(result.issues[0]?.severity).toBe('warning')
     expect(result.shots[0]?.durationSource).toBe('speech')
   })
 
@@ -254,6 +262,10 @@ describe('the packing duration rules', () => {
 })
 
 describe('durations written into the script', () => {
+  it('rejects a present but empty duration field', () => {
+    const result = parse(scriptOf(speakingShot(1, '苏晚：你好', ['时长：'])))
+    expect(result.issues).toContainEqual(expect.objectContaining({ severity: 'failure', code: 'legacy_duration_invalid' }))
+  })
   it('strips a legacy duration line out of the prompt text', () => {
     const result = parse(scriptOf(speakingShot(1, '苏晚：宝宝……那是我的宝宝！', ['时长：1秒'])))
     expect(result.issues).toEqual([])
@@ -263,7 +275,8 @@ describe('durations written into the script', () => {
   it('refuses a legacy duration that disagrees with the derived seconds', () => {
     const result = parse(scriptOf(speakingShot(1, '苏晚：宝宝……那是我的宝宝！', ['时长：3秒'])))
     expect(codes(result.issues)).toEqual(['legacy_duration_mismatch'])
-    expect(result.issues[0]?.message).toContain('应为1秒')
+    expect(result.issues[0]).toMatchObject({ severity: 'warning' })
+    expect(result.shots[0]).toMatchObject({ durationSeconds: 3, durationSource: 'declared' })
   })
 
   it('refuses a legacy duration outside whole 1–4 seconds', () => {
@@ -274,7 +287,8 @@ describe('durations written into the script', () => {
   it('refuses any other seconds expression in the shot body', () => {
     const result = parse(scriptOf(speakingShot(1, '苏晚：宝宝……那是我的宝宝！', ['运镜：相机固定，保持 3 秒不动'])))
     expect(codes(result.issues)).toEqual(['seconds_in_shot_body'])
-    expect(result.issues[0]?.message).toContain('不得出现任何时长')
+    expect(result.issues[0]).toMatchObject({ severity: 'warning' })
+    expect(result.issues[0]?.message).toContain('正文秒数不改变打包时长')
   })
 })
 

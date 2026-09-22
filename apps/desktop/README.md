@@ -1,8 +1,10 @@
-# DeepSeek Harness Desktop
+# muse-med Desktop
 
 English | [中文](README.zh.md)
 
 The desktop application is an Electron shell around the dsh Web UI. It opens no listening port: a bundled upstream Node.js child boots the installed dsh project, versioned framed byte pipes carry Fetch requests and streaming responses without an outer Base64 envelope, Node IPC carries lifecycle control, and `dsh-app://` serves the matching client assets.
+
+The shell displays **muse-med** and uses `renderer/icon.png`, a square PNG converted from the supplied black-background white-spider artwork; electron-builder converts it to platform installer icons. Package identifiers, Windows executable name, storage locations, release artifact filenames, and update endpoints retain their DSH identities.
 
 ## Key technical decisions
 

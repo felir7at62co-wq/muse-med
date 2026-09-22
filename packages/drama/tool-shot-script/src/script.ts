@@ -1,11 +1,9 @@
 /**
  * Director-format shot-script parsing and this format's decidable rules.
  *
- * One shot is one `【镜头N】` block, and the text before every marker ends with
- * the style line `真人短剧写实风格`; that line plus the block is the shot's prompt
- * text (`visual`). The script never declares a duration: a speaking shot is
- * charged `ceil(effective characters / 9)` seconds, and a silent shot takes its
- * `动作复杂度` label or the compiler default.
+ * Each `【镜头N】` block preserves its speech and voice choice. Explicit positive
+ * whole-second durations take precedence over speech/complexity estimates.
+ * Creative checks produce warnings; malformed fields remain failures.
  *
  * The parser never throws and never stops at the first problem: it returns every
  * parsed shot plus the complete issue list, so one call tells the model
@@ -20,11 +18,8 @@ import type { DurationSource, IssueCode, IssueSeverity, ParsedShot, ShotIssue, V
 const EFFECTIVE_CHARS = /[\u4e00-\u9fffA-Za-z0-9]/g
 
 /**
- * Narration, inner-monologue, and stage-narration markers. This format has no
- * narration track, so a marker here is always a defect the script must repair.
- * `画外音` is deliberately absent: a same-scene off-screen continuation is legal
- * speech that still produces a subtitle. `\bos\b` matches the whole-token `OS`
- * spelling without matching the letters inside a Latin word.
+ * Narration declarations produce advisory guidance and retain speech as `vo`.
+ * Ordinary dialogue containing these words is not scanned.
  */
 const NARRATION_MARKERS = /(旁白|解说|心声|画外声|叙述|\bos\b)/i
 
@@ -46,17 +41,17 @@ const SPEAKER_PREFIX_ONLY = /^([^：:]{1,30})[：:]\s*$/
 /** The style line every shot block is preceded by, with the whitespace that follows it. */
 const STYLE_LINE = /真人短剧写实风格\s*$/
 
-/** The fixed negative prompt the director format requires. */
+/** A suggested negative prompt; absence only produces a warning. */
 const NEGATIVE_PROMPT = '无噪点，无跳帧，五官稳定不变形'
 
 /** A marker line, captured together with its shot number. */
 const SHOT_MARKER = /^【镜头(\d+)】[ \t]*$/gm
 
 /** The legacy `时长` field, tolerated on old scripts and stripped from the prompt. */
-const LEGACY_DURATION = /^时长[：:][ \t]*(.+)$/m
+const LEGACY_DURATION = /^时长[：:][ \t]*(.*)$/m
 
 /** A legacy duration value this format still accepts on an old script. */
-const LEGACY_DURATION_VALUE = /^[1-4]秒$/
+const LEGACY_DURATION_VALUE = /^[1-9]\d*秒$/
 
 /** Any seconds expression left in a shot body. */
 const SECONDS_IN_BODY = /\d[ \t]*秒/
@@ -75,18 +70,15 @@ const ACTION_COMPLEXITY: Readonly<Record<string, number>> = {
 /** Every accepted `动作复杂度` label, for the refusal message. */
 const COMPLEXITY_LABELS = '简单/一般/较复杂/复杂'
 
-/** The longest spoken text one shot may carry, at nine effective characters per second. */
+/** Advisory spoken-text threshold; longer speech remains intact. */
 const MAX_EFFECTIVE_CHARS = 36
 
 /** The writing threshold above which the source sentence should have been split. */
 const WRITING_THRESHOLD_CHARS = 15
 
-/** The repair instruction every narration-marker refusal ends with. */
-const NARRATION_FIX_HINT = '本格式没有旁白、解说或心声：请先把该台词落成画面内台词'
-  + '（角色在画面中当场说出，文字逐字不改）再编译；'
-  + '落不进画面内的段落判失败并回报，不得静默丢弃、不得改写成叙述字幕。'
-  + '若只是「一句没说完就切镜」，不要改写成画面内台词，'
-  + '而是写成 台词：角色名（画外音）：原文台词——这种同场画外音是允许的。'
+/** Guidance for checking the project's voice choice without rewriting speech. */
+const NARRATION_FIX_HINT = '将作为 vo 画外发声保留，不阻塞编译；请核对本项目是否需要旁白/心声，'
+  + '并核对说话人、原文与后期发声轨，不要删改原文。'
 
 /** How the parser charges a silent shot that declares no complexity. */
 export interface ParseOptions {
@@ -217,7 +209,7 @@ function readVoiceType(text: string, block: Block, blockText: string): VoiceDecl
   return {
     value,
     line,
-    issues: [issue('failure', 'narration_marker', block.number, line,
+    issues: [issue('warning', 'narration_marker', block.number, line,
       `镜头${block.number}（脚本第${line}行）出现旁白/心声标记「${marker[0]}」：${NARRATION_FIX_HINT}`)],
   }
 }
@@ -247,7 +239,7 @@ function readSpeech(text: string, block: Block, blockText: string, directorForma
     const marker = NARRATION_MARKERS.exec(capture(line, 1))
     if (marker === null) continue
     const at = lineAt(text, block.start + line.index)
-    issues.push(issue('failure', 'narration_marker', block.number, at,
+    issues.push(issue('warning', 'narration_marker', block.number, at,
       `镜头${block.number}（脚本第${at}行）出现旁白/心声标记「${marker[0]}」：${NARRATION_FIX_HINT}`))
   }
   const first = speechLines[0]
@@ -271,19 +263,20 @@ function readSpeech(text: string, block: Block, blockText: string, directorForma
       + '有台词就删掉 action 行（时长按字数推导），无台词就删掉台词行。'))
   }
 
-  let offscreen = OFFSCREEN_LABEL.test(voice.value.trim())
+  let offscreen = OFFSCREEN_LABEL.test(voice.value.trim()) || NARRATION_MARKERS.test(voice.value)
+    || OFFSCREEN_LABEL.test(capture(first, 1)) || NARRATION_MARKERS.test(capture(first, 1))
   let speaker = field(blockText, '说话人')
   let spoken = capture(first, 2).trim()
-  if (directorFormat) {
+  if (directorFormat && !NARRATION_MARKERS.test(capture(first, 1))) {
     const prefix = SPEAKER_PREFIX.exec(spoken)
     if (prefix !== null) {
       const possibleSpeaker = capture(prefix, 1).trim()
       const marker = NARRATION_MARKERS.exec(possibleSpeaker)
       if (marker !== null) {
-        issues.push(issue('failure', 'narration_marker', block.number, line,
+        issues.push(issue('warning', 'narration_marker', block.number, line,
           `镜头${block.number}（脚本第${line}行）出现旁白/心声标记「${marker[0]}」：${NARRATION_FIX_HINT}`))
       }
-      offscreen = offscreen || OFFSCREEN_SUFFIX.test(possibleSpeaker)
+      offscreen = offscreen || marker !== null || OFFSCREEN_SUFFIX.test(possibleSpeaker)
       speaker = possibleSpeaker.replace(OFFSCREEN_SUFFIX, '').trim()
       spoken = capture(prefix, 2).trim()
     } else if (SPEAKER_PREFIX_ONLY.test(spoken)) {
@@ -344,16 +337,16 @@ function readDuration(
     return { seconds, source: 'complexity', issues }
   }
   if (complexity !== '') {
-    issues.push(issue('failure', 'action_complexity_on_speaking_shot', block.number, complexityLine,
-      `镜头${block.number}既有台词又写 动作复杂度：有台词的镜头时长由字数推导（9 有效字/秒），`
-      + '请删掉 动作复杂度 行。'))
+    issues.push(issue('warning', 'action_complexity_on_speaking_shot', block.number, complexityLine,
+      `镜头${block.number}同时有台词与动作复杂度：估算以发声为准，明确时长声明优先；`
+      + '请核对说话时的动作与停顿是否需要额外时间，不必删除动作描述。'))
   }
   const chars = effectiveChars(speech.text)
   const seconds = speechSeconds(chars)
   if (chars > MAX_EFFECTIVE_CHARS) {
-    issues.push(issue('failure', 'speech_too_long', block.number, speech.line,
-      `镜头${block.number}语音${chars}字，超过单镜 ${MAX_EFFECTIVE_CHARS} 字上限（${seconds} 秒 > 4 秒）：`
-      + '必须按原文语义拆成连续镜头，原文、说话人和顺序不变。'))
+    issues.push(issue('warning', 'speech_too_long', block.number, speech.line,
+      `镜头${block.number}语音${chars}字，超过建议的 ${MAX_EFFECTIVE_CHARS} 字（估算 ${seconds} 秒）：`
+      + '请核对节奏与实际发声时长；可保留长镜头，或按原文语义拆镜，不删改原文与说话人。'))
   } else if (chars > WRITING_THRESHOLD_CHARS) {
     issues.push(issue('warning', 'speech_above_writing_threshold', block.number, speech.line,
       `镜头${block.number}语音${chars}字，超过 ${WRITING_THRESHOLD_CHARS} 字的写作阈值：`
@@ -384,33 +377,35 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
     const blockText = text.slice(block.start, block.end)
     const markerLine = lineAt(text, block.start)
     if (!STYLE_LINE.test(text.slice(0, block.start))) {
-      issues.push(issue('failure', 'missing_style_line', block.number, markerLine,
-        `镜头${block.number}（脚本第${markerLine}行）前缺少「真人短剧写实风格」行：`
-        + '每个镜头块前必须有一行 真人短剧写实风格，它是该镜提示词的第一行。'))
+      issues.push(issue('warning', 'missing_style_line', block.number, markerLine,
+        `镜头${block.number}（脚本第${markerLine}行）前没有建议的「真人短剧写实风格」行：`
+        + '请按项目选择风格，不会自动补入固定风格。'))
     }
 
     const legacy = LEGACY_DURATION.exec(blockText)
     const legacyValue = legacy === null ? '' : capture(legacy, 1).trim()
     const legacyLine = legacy === null ? 0 : lineAt(text, block.start + legacy.index)
     const body = blockText.replace(/^时长[：:].*$\n?/gm, '')
-    if (legacyValue !== '' && !LEGACY_DURATION_VALUE.test(legacyValue)) {
+    const declaredSeconds = legacy === null ? undefined : Number(legacyValue.replace(/秒$/, ''))
+    const validDuration = legacy !== null && LEGACY_DURATION_VALUE.test(legacyValue)
+      && Number.isSafeInteger(declaredSeconds)
+    if (legacy !== null && !validDuration) {
       issues.push(issue('failure', 'legacy_duration_invalid', block.number, legacyLine,
-        `镜头${block.number}时长必须是1-4整数秒：${legacyValue}。`
-        + '新脚本不写任何时长，时长由编译器推导。'))
+        `镜头${block.number}时长必须是正整数秒：${legacyValue}。例如「时长：20秒」；`
+        + '省略时长行时按台词或动作复杂度估算。'))
     }
     const seconds = SECONDS_IN_BODY.exec(body)
     if (seconds !== null) {
       const line = lineAt(text, block.start + seconds.index)
-      issues.push(issue('failure', 'seconds_in_shot_body', block.number, line,
+      issues.push(issue('warning', 'seconds_in_shot_body', block.number, line,
         `镜头${block.number}（脚本第${line}行）出现秒数「${seconds[0]}」：`
-        + `脚本与提示词里都不得出现任何时长；无发声镜的时长由 动作复杂度（${COMPLEXITY_LABELS}）表达，`
-        + '有台词的镜头按 9 有效字/秒推导。'))
+        + '请区分台词原文与拍摄时间要求；正文秒数不改变打包时长，需指定预算时写独立的「时长：N秒」。'))
     }
 
     const directorFormat = blockText.includes('主体状态追踪：')
     if (directorFormat && !blockText.includes(NEGATIVE_PROMPT)) {
-      issues.push(issue('failure', 'missing_negative_prompt', block.number, markerLine,
-        `镜头${block.number}缺少固定负面提示「${NEGATIVE_PROMPT}」：导演格式的每个镜头都必须带这一行。`))
+      issues.push(issue('warning', 'missing_negative_prompt', block.number, markerLine,
+        `镜头${block.number}没有建议的负面提示「${NEGATIVE_PROMPT}」：请按项目与模型选择是否需要，不自动补入。`))
     }
 
     const speech = readSpeech(text, block, blockText, directorFormat)
@@ -418,11 +413,14 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
     const duration = readDuration(text, block, blockText, speech, options)
     issues.push(...duration.issues)
 
-    if (legacyValue !== '' && LEGACY_DURATION_VALUE.test(legacyValue)
-      && Number(legacyValue.slice(0, 1)) !== duration.seconds) {
-      issues.push(issue('failure', 'legacy_duration_mismatch', block.number, legacyLine,
-        `镜头${block.number}时长错误：${effectiveChars(speech.text)}字按9字/秒应为${duration.seconds}秒，`
-        + `实际写了${legacyValue}。请删掉时长行，让编译器推导。`))
+    if (validDuration && declaredSeconds !== duration.seconds) {
+      issues.push(issue('warning', 'legacy_duration_mismatch', block.number, legacyLine,
+        `镜头${block.number}估算为${duration.seconds}秒，采用声明的${legacyValue}。`
+        + '请试听确认语速、停顿与动作时间；估算不覆盖导演声明。'))
+    }
+    if (validDuration && declaredSeconds !== undefined) {
+      duration.seconds = declaredSeconds
+      duration.source = 'declared'
     }
 
     const charactersField = field(blockText, '出镜人物')
@@ -446,7 +444,7 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
       charactersField,
       sceneField: field(blockText, '核心场景'),
       propsField: field(blockText, '关键道具'),
-      visual: `真人短剧写实风格\n${body.trim()}`,
+      visual: `${STYLE_LINE.test(text.slice(0, block.start)) ? '真人短剧写实风格\n' : ''}${body.trim()}`,
       directorFormat,
       breakAfter: field(blockText, '子任务边界') === '是',
     })

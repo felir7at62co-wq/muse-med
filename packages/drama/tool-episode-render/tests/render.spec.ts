@@ -124,7 +124,7 @@ function toolkit(channel: ReturnType<typeof stubChannel>) {
 }
 
 /** Run one full render. */
-async function render(prepared: Prepared, channel: ReturnType<typeof stubChannel>, force = false) {
+async function render(prepared: Prepared, channel: ReturnType<typeof stubChannel>, force = false, bgmPlan?: string) {
   return await renderEpisode({
     toolkit: toolkit(channel),
     settings,
@@ -134,6 +134,7 @@ async function render(prepared: Prepared, channel: ReturnType<typeof stubChannel
     subtitleSrt: prepared.subtitle,
     lastShot: 2,
     bgm: prepared.bgm,
+    ...(bgmPlan === undefined ? {} : { bgmPlan }),
     endingAudio: prepared.endingAudio,
     endingEffect: prepared.endingEffect,
     output: prepared.output,
@@ -142,6 +143,82 @@ async function render(prepared: Prepared, channel: ReturnType<typeof stubChannel
 }
 
 describe('renderEpisode', () => {
+  it.each(['source', 'ending', 'subtitled'])('keeps the old delivery when a %s ban arrives during final mux', async (kind) => {
+    const prepared = await preparedProject()
+    await writePlaceholder(prepared.output, 'previous delivery')
+    const { runDramaVideo } = await import('../src/video.ts')
+    const base = renderChannel(prepared)
+    const channel: ReturnType<typeof stubChannel> = { calls: base.calls, channel: {
+      async run(command, args) {
+        const result = await base.channel.run(command, args)
+        if (args.at(-1) === join(prepared.paths.cacheDir, 'ending.mp4')) {
+          await writePlaceholder(join(prepared.paths.cacheDir, 'ending.mp4'), 'distinct ending')
+        }
+        if (args.at(-1) === join(prepared.paths.cacheDir, 'subtitled.mp4')) {
+          await writePlaceholder(join(prepared.paths.cacheDir, 'subtitled.mp4'), 'distinct subtitled')
+        }
+        if (args.includes('-movflags')) {
+          await runDramaVideo({ method: 'ban', project: prepared.project,
+            video: kind === 'source' ? join(prepared.paths.videoDir, 'shot_001.mp4')
+              : join(prepared.paths.cacheDir, `${kind}.mp4`), labels: ['人物对调'] })
+        }
+        return result
+      },
+    } }
+    await expect(render(prepared, channel)).rejects.toThrow('人物对调')
+    expect(await readFile(prepared.output, 'utf8')).toBe('previous delivery')
+  })
+
+  it('rechecks user bans before final mux when a ban arrives during encoding', async () => {
+    const prepared = await preparedProject()
+    const { runDramaVideo } = await import('../src/video.ts')
+    const base = renderChannel(prepared)
+    const channel: ReturnType<typeof stubChannel> = { calls: base.calls, channel: {
+      async run(command, args) {
+        const result = await base.channel.run(command, args)
+        if (args.at(-1)?.endsWith('subtitled.mp4')) {
+          await runDramaVideo({ method: 'ban', project: prepared.project,
+            video: join(prepared.paths.videoDir, 'shot_001.mp4'), labels: ['字幕错误'] })
+        }
+        return result
+      },
+    } }
+    await expect(render(prepared, channel)).rejects.toThrow('字幕错误')
+    expect(channel.calls.some(call => call.args.at(-1) === prepared.output)).toBe(false)
+  })
+
+  it('refuses a directly banned encoded cache before reusing it', async () => {
+    const prepared = await preparedProject()
+    await render(prepared, renderChannel(prepared))
+    const { runDramaVideo } = await import('../src/video.ts')
+    await runDramaVideo({ method: 'ban', project: prepared.project,
+      video: join(prepared.paths.cacheDir, 'shot_001.mp4'), labels: ['缓存字幕错误'] })
+    await expect(render(prepared, renderChannel(prepared))).rejects.toThrow('缓存字幕错误')
+  })
+
+  it('refuses a banned prepared copy even when its encoded cache already exists', async () => {
+    const prepared = await preparedProject()
+    await render(prepared, renderChannel(prepared))
+    const { fileSha256 } = await import('../src/cache.ts')
+    const source = join(prepared.paths.videoDir, 'shot_001.mp4')
+    await writePlaceholder(join(prepared.project, 'video-bans.json'), JSON.stringify({ version: 1, videos: [{
+      sha256: await fileSha256(source), video: source, labels: ['人物对调'], reason: '用户禁用',
+      banned: true, updated_at: new Date().toISOString(),
+    }] }))
+    const channel = renderChannel(prepared)
+    await expect(render(prepared, channel)).rejects.toThrow('人物对调')
+    expect(channel.calls).toEqual([])
+    const { runDramaVideo } = await import('../src/video.ts')
+    await runDramaVideo({ method: 'unban', project: prepared.project, video: source })
+    expect((await render(prepared, renderChannel(prepared))).reused_shots).toEqual([1, 2])
+    await runDramaVideo({ method: 'ban', project: prepared.project, video: source, labels: ['人物对调'] })
+    await writePlaceholder(source, 'new generation at the same path')
+    const replacement = await render(prepared, renderChannel(prepared))
+    expect(replacement.ok).toBe(true)
+    expect(replacement.encoded_shots).toEqual([1])
+    expect(replacement.not_checked).toContain('content_review')
+  })
+
   it('encodes every body clip, rebuilds the ending, burns the subtitle, and reports the delivery', async () => {
     const prepared = await preparedProject()
     const channel = renderChannel(prepared)
@@ -202,7 +279,8 @@ describe('renderEpisode', () => {
     expect(mux?.args[mux.args.indexOf('-filter_complex') + 1] ?? '')
       .toContain('alimiter=limit=0.95:level=false[a]')
     expect(mux?.args).toContain('+faststart')
-    expect(mux?.args.at(-1)).toBe(prepared.output)
+    expect(mux?.args.at(-1)).toContain('.drama-render-')
+    expect(mux?.args.at(-1)).not.toBe(prepared.output)
   })
 
   it('records the GPU probe failure and reports the CPU encoder it fell back to', async () => {
@@ -227,6 +305,78 @@ describe('renderEpisode', () => {
     const forced = await render(prepared, renderChannel(prepared), true)
     expect(forced.encoded_shots).toEqual([1, 2])
     expect(forced.reused_shots).toEqual([])
+  })
+
+  it('invalidates cached pictures when selected source bytes change', async () => {
+    const prepared = await preparedProject()
+    await render(prepared, renderChannel(prepared))
+    await writePlaceholder(join(prepared.paths.videoDir, 'shot_001.mp4'), 'clean replacement')
+    const report = await render(prepared, renderChannel(prepared))
+    expect(report.encoded_shots).toEqual([1])
+    expect(report.reused_shots).toEqual([2])
+  })
+
+  it('does not reuse a partial cache after a failed forced encode', async () => {
+    const prepared = await preparedProject()
+    await render(prepared, renderChannel(prepared))
+    const broken = stubChannel([
+      call => call.args.includes('lavfi') ? {} : undefined,
+      call => ({ code: 1, stderr: 'encode interrupted', after: async () => {
+        await writePlaceholder(call.args.at(-1) ?? '', 'partial')
+      } }),
+    ])
+    await expect(render(prepared, broken, true)).rejects.toThrow('encode interrupted')
+    const report = await render(prepared, renderChannel(prepared))
+    expect(report.encoded_shots).toEqual([1])
+    expect(report.reused_shots).toEqual([2])
+  })
+
+  it('invalidates cached pictures when durations or encoder arguments change', async () => {
+    const prepared = await preparedProject()
+    await render(prepared, renderChannel(prepared))
+    await writePlaceholder(prepared.timeline, timelineJson([
+      { shot: 1, startUs: 0, durationUs: 6_050_000 },
+      { shot: 2, startUs: 6_050_000, durationUs: 108_683_332 },
+    ], 114.733332))
+    expect((await render(prepared, renderChannel(prepared))).encoded_shots).toEqual([1, 2])
+    expect((await render(prepared, renderChannel(prepared, { gpu: false }))).encoded_shots).toEqual([1, 2])
+  })
+
+  it('reports optional BGM segments and repeated sequences as advice, not listening approval', async () => {
+    const prepared = await preparedProject()
+    const bgmPlan = join(prepared.project, 'bgm-plan.json')
+    const segments = [{ track: 'song', source: prepared.bgm, start_seconds: 0, end_seconds: 114.733332, reason: 'quiet scene' }]
+    await writePlaceholder(bgmPlan, JSON.stringify({ episodes: [
+      { episode: '02', body_duration_seconds: 114.733332, segments },
+      { episode: '03', body_duration_seconds: 114.733332, segments },
+    ] }))
+    const report = await render(prepared, renderChannel(prepared), false, bgmPlan)
+    expect(report.bgm_plan).toMatchObject({ path: bgmPlan, segments, repeated_sequence_episodes: ['03'] })
+    expect(report.bgm_plan.bed_sha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(report.not_checked).toContain('bgm_listening')
+    expect(report.not_checked).not.toContain('bgm_plan')
+    expect(report.ok).toBe(true)
+  })
+
+  it('rejects BGM plans with out-of-bounds segments before any encode', async () => {
+    const prepared = await preparedProject()
+    const bgmPlan = join(prepared.project, 'bgm-plan.json')
+    await writePlaceholder(bgmPlan, JSON.stringify({ episodes: [
+      { episode: '02', body_duration_seconds: 114.733332,
+        segments: [{ track: 'song', source: prepared.bgm, start_seconds: 2, end_seconds: 120, reason: 'quiet scene' }] },
+    ] }))
+    const channel = renderChannel(prepared)
+    await expect(render(prepared, channel, false, bgmPlan)).rejects.toThrow('BGM')
+    expect(channel.calls).toHaveLength(0)
+  })
+
+  it('reports unchecked QA independently of a successful render', async () => {
+    const prepared = await preparedProject()
+    const report = await render(prepared, renderChannel(prepared))
+    expect(report.ok).toBe(true)
+    expect(report.not_checked).toEqual(expect.arrayContaining([
+      'black_frames', 'silence', 'subtitle_bounds', 'speech_alignment', 'embedded_subtitles', 'bgm_listening',
+    ]))
   })
 
   it('reports a delivery below the bitrate floor instead of refusing to hand it back', async () => {
@@ -366,9 +516,13 @@ describe('renderEpisode', () => {
     })).rejects.toThrow()
   })
 
-  it('stops when the tail frame cannot be proved', async () => {
+  it('falls back to the proved sequential tail when seek writes no file', async () => {
     const prepared = await preparedProject()
-    await expect(render(prepared, renderChannel(prepared, { seekWrites: false })))
-      .rejects.toThrow('尾帧抽取没有写出任何文件')
+    const report = await render(prepared, renderChannel(prepared, { seekWrites: false }))
+    expect(report.tail_frame.from_sequential_decode).toBe(true)
+    expect(report.tail_frame.matches_sequential_tail).toBe(true)
+    expect(report.warnings).toContain(
+      'sseof 抽到的帧不是真实尾帧，已改用顺序解码的最后一帧作为片尾定格（见 tail_frame 字段）。',
+    )
   })
 })

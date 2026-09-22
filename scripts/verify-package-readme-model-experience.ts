@@ -209,6 +209,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/web/web-search-exa': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },
   'packages/workflow/workflow': { kind: 'indirect', reason: 'The service delegates parent and child model rendering to its consumer and engine.' },
   'packages/guard/drama-gate': { kind: 'none', reason: 'The gate only intercepts tools/pre-execute and refuses a pending call; it registers no tool, prompt section, or session event, so the model reads nothing but the ordinary tool result a denied call already produces.' },
+  'packages/drama/drama-settings': { kind: 'indirect', reason: 'Browser-side settings page over one durable Host settings namespace, plus its read-only plugin-inventory list; the package registers no tool, prompt section, or session event, and the row that reads a value owns every model-visible effect of it.' },
 }
 
 interface Failure {

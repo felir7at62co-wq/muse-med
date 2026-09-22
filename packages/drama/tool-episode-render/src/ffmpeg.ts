@@ -11,6 +11,9 @@
  */
 
 import { spawn } from 'node:child_process'
+import { mkdtemp, open, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { MediaCommandOutcome, MediaToolkit, ProcessChannel, ProbedMedia, ProbedStream } from './types.ts'
 
 /** Bytes of a failed command's stderr kept for the diagnostic message. */
@@ -106,11 +109,55 @@ export function createSpawnChannel(): ProcessChannel {
 }
 
 /**
+ * Build a process channel that captures output through ordinary files.
+ *
+ * The DSH Windows sandbox rejects Node child-process pipes with EPERM. File
+ * descriptors preserve the same capture contract without named pipes.
+ */
+export function createFileCaptureChannel(): ProcessChannel {
+  return {
+    run: async (command, args) => {
+      const directory = await mkdtemp(join(tmpdir(), 'dsh-drama-render-'))
+      const stdoutPath = join(directory, 'stdout.txt')
+      const stderrPath = join(directory, 'stderr.txt')
+      let stdoutFile: Awaited<ReturnType<typeof open>> | undefined
+      let stderrFile: Awaited<ReturnType<typeof open>> | undefined
+      try {
+        stdoutFile = await open(stdoutPath, 'w')
+        stderrFile = await open(stderrPath, 'w')
+        const outcome = await new Promise<{ code: number; spawnError: string }>((resolve) => {
+          const child = spawn(command, [...args], {
+            stdio: ['ignore', stdoutFile?.fd, stderrFile?.fd], windowsHide: true,
+          })
+          let settled = false
+          const settle = (code: number, spawnError = ''): void => {
+            if (settled) return
+            settled = true
+            resolve({ code, spawnError })
+          }
+          child.on('error', (error: Error) => { settle(UNKNOWN_EXIT_CODE, error.message) })
+          child.on('close', (code: number | null) => { settle(exitCodeOf(code)) })
+        })
+        await stdoutFile.close()
+        await stderrFile.close()
+        const stdout = await readFile(stdoutPath, 'utf8')
+        const stderr = `${await readFile(stderrPath, 'utf8')}${outcome.spawnError}`
+        return { code: outcome.code, stdout, stderr }
+      } finally {
+        await stdoutFile?.close().catch(() => undefined)
+        await stderrFile?.close().catch(() => undefined)
+        await rm(directory, { recursive: true, force: true })
+      }
+    },
+  }
+}
+
+/**
  * Assemble the toolkit one call uses.
  * @param settings - The resolved binaries and an optional channel override.
  * @param settings.ffmpeg - The ffmpeg executable to start.
  * @param settings.ffprobe - The ffprobe executable to start.
- * @param settings.channel - The process channel; the real spawn channel when omitted.
+ * @param settings.channel - The process channel; the file-capture channel when omitted.
  * @returns A toolkit every pipeline step can share.
  */
 export function createMediaToolkit(
@@ -119,7 +166,7 @@ export function createMediaToolkit(
   return {
     ffmpeg: settings.ffmpeg,
     ffprobe: settings.ffprobe,
-    channel: settings.channel ?? createSpawnChannel(),
+    channel: settings.channel ?? createFileCaptureChannel(),
   }
 }
 

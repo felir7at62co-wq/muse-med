@@ -73,7 +73,7 @@ describe('the gate intercepts real dispatch', () => {
     expect(ran.get('jubian_storyboard')).toBe(1)
   })
 
-  it('refuses a gated write into the workshop', async () => {
+  it('allows long slow narration in workshop writes', async () => {
     // A dispatched call carries no session cwd here, so the configured root is what
     // resolves the workshop-relative path the model wrote.
     const { ctx, ran } = await harness(['write'], { workspaceRoot: WORKSPACE })
@@ -81,11 +81,10 @@ describe('the gate intercepts real dispatch', () => {
       signal,
       callId: ToolCallId('c3'),
       name: 'write',
-      arguments: { file_path: 'short-drama/demo/prompts/01.txt', content: '【镜头1】\n时长：1秒\n旁白：他走了\n' },
+      arguments: { file_path: 'short-drama/demo/prompts/01.txt', content: '【镜头1】\n时长：20秒\n旁白：他走了\n' },
     })
-    expect(result.isError).toBe(true)
-    expect(ran.get('write')).toBeUndefined()
-    expect(JSON.stringify(result.content)).toContain('本格式没有旁白')
+    expect(result.isError).toBe(false)
+    expect(ran.get('write')).toBe(1)
   })
 
   it('leaves an unrelated tool untouched', async () => {
@@ -110,6 +109,20 @@ describe('the gate intercepts real dispatch', () => {
     })
     expect(result.isError).toBe(true)
     expect(JSON.stringify(result.content)).toContain('已下线的 MUSE 工具名')
+  })
+
+  it('refuses a paid asset creation while the project has no reconcile evidence', async () => {
+    // The configured root stands in for the session cwd a dispatched call lacks.
+    const { ctx, ran } = await harness(['jubian_video'], { workspaceRoot: WORKSPACE })
+    const result = await ctx.tools.execute({
+      signal,
+      callId: ToolCallId('c7'),
+      name: 'jubian_video',
+      arguments: { method: 'image_generate', idempotency_key: 'k' },
+    })
+    expect(result.isError).toBe(true)
+    expect(ran.get('jubian_video')).toBeUndefined()
+    expect(JSON.stringify(result.content)).toContain('asset_reconcile.py')
   })
 
   it('honors a switch, letting the same call through when the rule is off', async () => {

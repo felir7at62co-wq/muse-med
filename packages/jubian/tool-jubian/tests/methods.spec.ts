@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -26,7 +26,7 @@ const GENERATED_IMAGE = [{ id: 900, assetId: 83749, assetUrl: 'https://x/gen.png
 
 // What the provider stores on every storyboard it holds, generated or not.
 const STORYBOARD = { id: 916953, scriptId: 2708, isGenerate: 1, storyboardName: '第1集-分镜1',
-  modelConfig: JSON.stringify({ platformId: 'YU_DIAN', modelId: 'doubao-seedance-2-0-1', standardId: 11, genType: 3,
+  modelConfig: JSON.stringify({ platformId: 'YU_DIAN', modelId: 'doubao-seedance-2-0-260128', standardId: 11, genType: 3,
     modelGenerationTypeId: 7, videoStandardId: 91, duration: 8, ratio: '9:16', resolution: '720p', genNum: 1,
     materialList: [], backupModelList: [] }),
   storyboardMaterialList: [] }
@@ -80,6 +80,66 @@ function imageDeps(
     sleep: async (ms: number): Promise<void> => { clock.value += ms },
   } }
 }
+
+describe('jubian_video resolution guidance', () => {
+  it.each([undefined, '1080p'])('keeps %s resolution hints separate from paid authorization', async (target) => {
+    const { client, calls } = stubClient(() => ({ total: 3, rows: [
+      { id: 1, resolution: '720p' }, { id: 2, resolution: '1080p' }, { id: 3 },
+    ] }))
+    try {
+      const result = await videoMethod(client, ledger, { method: 'subtasks', task_id: 42,
+        ...(target === undefined ? {} : { delivery_resolution: target }) })
+      expect((result.subtasks as { rows: { needs_upscale: boolean | null }[] }).rows.map(row => row.needs_upscale))
+        .toEqual(target === undefined ? [null, null, null] : [true, false, null])
+      expect(result.guidance).toContain('仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务')
+      expect(result.guidance).toContain('SD2.5 默认使用原片，不自动提交或等待高清')
+      expect(result.guidance).toContain('任何模型都不能仅因 needs_upscale=true 自动付费')
+      expect(result.guidance).toContain('仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）')
+      expect(result.guidance).toContain('普通导出尺寸与真实源分辨率须分别如实报告')
+      expect(result.guidance).not.toContain('必须先转高清才能使用')
+      expect(calls).toHaveLength(1)
+      expect(calls[0]?.path).toContain('/admin/aigc/video/task/sub/list')
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+})
+
+describe('jubian_video upscale', () => {
+  it('posts the workbench HD conversion body once under the same ledger key', async () => {
+    const { client, calls } = stubClient((request) => {
+      if (request.method === 'GET') return { id: 42, scriptId: 2708, episodeId: 46744, episodeCount: 1 }
+      if (request.path.endsWith('/sub/list')) return { total: 1, rows: [{ id: 990,
+        aigcVideoTaskId: 42, duration: 13.5, firstResultId: 1007193, parentResultId: 1007193,
+        resultList: [{ tosVideoUrl: 'https://example.test/source.mp4' }] }] }
+      return 429001
+    })
+    try {
+      const args = { method: 'upscale', task_id: 42, task_name: 'EP11-P1-HD', idempotency_key: 'hd-once' }
+      expect(await videoMethod(client, ledger, args)).toMatchObject({ outcome: 'accepted', accepted_task_id: '429001' })
+      expect(calls[2]).toEqual({ method: 'POST',
+        path: 'https://web.jubianai.net/prod-api/aigc/storyboard/hdConversion',
+        body: { scriptId: 2708, episodeId: 46744, episodeCount: 1,
+          firstResultId: 1007193, parentResultId: 1007193, duration: 13.5,
+          taskName: 'EP11-P1-HD', taskType: 20, modelId: '2074071626416742401',
+          platformId: 'RUNNING_HUB', standardId: 55, videoStandardId: 303,
+          videoUrl: 'https://example.test/source.mp4' } })
+      expect(await videoMethod(client, new JubianLedger({ root }), args)).toMatchObject({ replayed: true })
+      expect(calls).toHaveLength(3)
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('does not resend an unknown upscale recorded before the route repair', async () => {
+    const { client, calls } = stubClient(() => { throw new Error('must not send') })
+    try {
+      await ledger.begin({ idempotencyKey: 'old-route', method: 'video_upscale', requestSha256: 'sha256:old' })
+      await ledger.settle('old-route', { httpStatus: null, applicationCode: null,
+        responseSha256: null, outcome: 'unknown' })
+      expect(await videoMethod(client, new JubianLedger({ root }), {
+        method: 'upscale', task_id: 42, idempotency_key: 'old-route',
+      })).toMatchObject({ replayed: true, outcome: 'unknown', accepted_task_id: null })
+      expect(calls).toHaveLength(0)
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+})
 
 describe('jubian_catalog reads', () => {
   it('addresses each catalogue endpoint exactly once', async () => {
@@ -261,6 +321,26 @@ describe('jubian_storyboard', () => {
     expect((result.storyboard as { content_duration_ms: number }).content_duration_ms).toBe(7000)
   })
 
+  it('creates from a frozen JSON body file', async () => {
+    const bodyPath = join(root, 'storyboard.json')
+    await writeFile(bodyPath, JSON.stringify({ scriptId: 2708, episodeCount: 4, isGenerate: 0 }))
+    const { client, calls } = stubClient(() => 1572762)
+    await storyboardMethod(client, ledger, { method: 'create', idempotency_key: 'k-file', body_path: bodyPath })
+    expect(calls[0]).toMatchObject({ method: 'POST', body: { scriptId: 2708, episodeCount: 4, isGenerate: 0 } })
+  })
+
+  it.each(['inline', 'file'])('creates without generation even when the %s input requests it', async (mode) => {
+    const body = { scriptId: 2708, episodeCount: 4, isGenerate: 1, content: 'preserve this prompt' }
+    const bodyPath = join(root, 'requested-generation.json')
+    await writeFile(bodyPath, JSON.stringify(body))
+    const { client, calls } = stubClient(() => 1572762)
+    await storyboardMethod(client, ledger, { method: 'create', idempotency_key: `free-${mode}`,
+      ...(mode === 'file' ? { body_path: bodyPath } : { body }) })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({ method: 'POST', body: { ...body, isGenerate: 0 } })
+    expect(body.isGenerate).toBe(1)
+  })
+
   it('saves with generation disabled and generates from the same snapshot', async () => {
     const save = stubClient(() => STORYBOARD)
     await storyboardMethod(save.client, ledger, { method: 'save', idempotency_key: 'k-3', storyboard_id: 916953 })
@@ -289,8 +369,10 @@ describe('jubian_storyboard', () => {
           tosVideoUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/v.mp4' }] }] }
       : { id: 428322, taskType: 1, taskStatus: 'succeeded', episodeId: 46734, episodeCount: 1,
         taskName: 'null-第1集' })
-    await storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'k-6',
+    const result = await storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'k-6',
       task_id: 428322, script_id: 2708, model_id: 'quzimuToB', video_width: 720, video_height: 1280 })
+    expect(result.next).toContain('subtitle_erased=true')
+    expect(result.next).not.toContain('last_task_type=10')
     // Two reads then one submit — the selectors are pinned, so no catalogue call.
     expect(calls.length).toBe(3)
     expect(calls.some(call => call.path.includes('getSelectList'))).toBe(false)

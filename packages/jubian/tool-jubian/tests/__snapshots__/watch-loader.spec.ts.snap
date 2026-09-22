@@ -1,0 +1,93 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`registers the watcher without requiring jobs and rejects invalid operation IDs before admission > watch input schema 1`] = `
+{
+  "properties": {
+    "stage": {
+      "description": "本次操作的阶段，必须与任务类型及全部输出一致。",
+      "enum": [
+        "generate",
+        "upscale",
+        "erase_subtitle",
+      ],
+      "type": "string",
+    },
+    "task_id": {
+      "description": "已受理的本次操作任务 ID（正安全整数），不是源任务 ID。",
+      "type": "integer",
+    },
+  },
+  "required": [
+    "task_id",
+    "stage",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`registers the watcher without requiring jobs and rejects invalid operation IDs before admission > watch output schema 1`] = `
+{
+  "additionalProperties": false,
+  "properties": {
+    "job_id": {
+      "type": "string",
+    },
+    "stage": {
+      "enum": [
+        "generate",
+        "upscale",
+        "erase_subtitle",
+      ],
+      "type": "string",
+    },
+    "status": {
+      "enum": [
+        "running",
+      ],
+      "type": "string",
+    },
+    "task_id": {
+      "type": "integer",
+    },
+  },
+  "required": [
+    "job_id",
+    "task_id",
+    "stage",
+    "status",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`returns immediately, reaches idle, then delivers the jobs notice in a second model request > verified operation output 1`] = `
+{
+  "next": "Review every output with frame/audio inspection and verify delivery resolution. Provider completion is not visual QA; subtitle removal still needs visual review. Do not repeat paid operations automatically.",
+  "outputs": [
+    {
+      "first_result_id": null,
+      "parent_result_id": null,
+      "resolution": "1080p",
+      "subtask_id": 51,
+      "video_url": "https://cdn.example/hd.mp4",
+    },
+  ],
+  "stage": "upscale",
+  "status": "succeeded",
+  "task_id": 42,
+}
+`;
+
+exports[`returns immediately, reaches idle, then delivers the jobs notice in a second model request > watch admission output 1`] = `
+[
+  {
+    "text": "{
+  "job_id": "jubian-1",
+  "task_id": 42,
+  "stage": "upscale",
+  "status": "running"
+}",
+    "type": "text",
+  },
+]
+`;

@@ -10,7 +10,7 @@
  * constants, and the operation that produces the delivery is the operation that
  * enforces it.
  *
- * `prepare` and `render` write; `verify` only reads. Everything that makes a
+ * `subtitles`, `prepare`, and `render` write; `verify` only reads. Everything that makes a
  * render impossible throws with a Chinese repair instruction. The delivered
  * file's own properties do not throw: `render` and `verify` report them as
  * checks, so one call tells the operator everything that needs fixing while
@@ -25,12 +25,15 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
 import { createMediaToolkit } from './ffmpeg.ts'
+import { buildEpisodeCues } from './cues.ts'
+import type { BuiltCues } from './cues.ts'
 import { episodeNumberOf, episodePaths } from './paths.ts'
 import { prepareEpisode } from './prepare.ts'
 import { buildReport, NO_MEDIA, NO_TAIL_FRAME, type ReportInput } from './report.ts'
 import { renderEpisode } from './render.ts'
-import type { DramaRenderMethod, DramaRenderReport, RenderSettings } from './types.ts'
+import type { DramaRenderMethod, DramaRenderReport, RenderCheck, RenderSettings } from './types.ts'
 import { verifyEpisode } from './verify.ts'
+import { registerDramaVideo } from './video.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-episode-render'
@@ -85,7 +88,7 @@ export const Config: z<Config> = z.object({
   fontsDir: z.string().default(DEFAULT_FONTS_DIR),
 })
 
-/** One call's arguments, exactly as the parameter schema declares them. */
+/** Internal call arguments after the tool's snake_case parameters are mapped. */
 interface DramaRenderArguments {
   /** The operation to run. */
   method: DramaRenderMethod
@@ -95,6 +98,8 @@ interface DramaRenderArguments {
   episode: number
   /** Path of the shot-sources manifest; required by `prepare`. */
   shots?: string
+  /** Path of the per-shot line plan; required by `subtitles`. */
+  lines?: string
   /** Path of the episode timeline; required by `render` and `verify`. */
   timeline?: string
   /** Path of the subtitle to install, burn, or check. */
@@ -103,6 +108,8 @@ interface DramaRenderArguments {
   lastShot?: number
   /** BGM bed; required by `render`. */
   bgm?: string
+  /** Optional episode/segments music plan to report, not a listening verdict. */
+  bgmPlan?: string
   /** Ending sound; required by `render`. */
   endingAudio?: string
   /** Ending effect video; required by `render`. */
@@ -131,6 +138,18 @@ interface PrepareCall extends CallBase {
   readonly subtitleSrt: string
 }
 
+/** A resolved `subtitles` call: the manifest, the declared lines, and the SRT to write. */
+interface SubtitlesCall extends CallBase {
+  /** The operation to run. */
+  readonly method: 'subtitles'
+  /** Absolute path of the shot-sources manifest. */
+  readonly shotsPath: string
+  /** Absolute path of the per-shot line plan. */
+  readonly linesPath: string
+  /** Absolute path of the SRT to write. */
+  readonly subtitleSrt: string
+}
+
 /** A resolved `render` call: every input the delivery is built from. */
 interface RenderCall extends CallBase {
   /** The operation to run. */
@@ -143,6 +162,8 @@ interface RenderCall extends CallBase {
   readonly lastShot: number
   /** Absolute path of the BGM bed. */
   readonly bgm: string
+  /** Optional absolute path of the declared BGM plan. */
+  readonly bgmPlan?: string
   /** Absolute path of the ending sound. */
   readonly endingAudio: string
   /** Absolute path of the ending effect video. */
@@ -166,7 +187,7 @@ interface VerifyCall extends CallBase {
 }
 
 /** One call with every path it needs already resolved. */
-type ResolvedCall = PrepareCall | RenderCall | VerifyCall
+type ResolvedCall = PrepareCall | RenderCall | VerifyCall | SubtitlesCall
 
 /**
  * Resolve one call's configuration into the settings every method takes.
@@ -218,6 +239,19 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
         '本集 SRT 字幕的路径，prepare 会把它装到 editing/<集>.srt 供烧录。')),
     }
   }
+  if (args.method === 'subtitles') {
+    return {
+      method: 'subtitles',
+      project,
+      episode,
+      shotsPath: resolve(required(args.shots, 'subtitles', 'shots',
+        '成片清单的路径，内容形如 {"shots":[{"shot":1,"video":"media/02/p1-clean.mp4"}]}。')),
+      linesPath: resolve(required(args.lines, 'subtitles', 'lines',
+        '台词计划的路径，内容形如 {"shots":[{"shot":1,"lines":["第一句","第二句"]}]}；'
+        + '每镜的台词要在这里按字幕条切好。')),
+      subtitleSrt: resolve(args.subtitleSrt ?? paths.subtitle),
+    }
+  }
   if (args.method === 'render') {
     const lastShot = required(args.lastShot, 'render', 'lastShot',
       '本集最后一个镜头号，例如 9；时间线里 shot <= lastShot 的镜头数必须正好等于它。')
@@ -234,6 +268,7 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
         '本集 SRT 字幕的路径，通常是 prepare 装好的 editing/<集>.srt。')),
       lastShot,
       bgm: resolve(required(args.bgm, 'render', 'bgm', '本集实际使用的 BGM 文件路径。')),
+      ...(args.bgmPlan === undefined ? {} : { bgmPlan: resolve(args.bgmPlan) }),
       endingAudio: resolve(required(args.endingAudio, 'render', 'endingAudio',
         '片尾音文件路径（技能的 assets/ending_audio.mp3）。')),
       endingEffect: resolve(required(args.endingEffect, 'render', 'endingEffect',
@@ -283,6 +318,59 @@ function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typeof pr
 }
 
 /**
+ * The result of a `subtitles` call.
+ *
+ * The line-coverage defects become failure checks so `ok` states plainly whether
+ * every declared line found speech, and `speech_alignment` leaves `not_checked`
+ * only when every cue's times came from a detected stretch rather than a count.
+ * @param call - The resolved call.
+ * @param built - What the cue build measured and wrote.
+ * @returns The canonical report.
+ */
+function subtitlesReport(call: SubtitlesCall, built: BuiltCues): DramaRenderReport {
+  const sources = new Map(built.shots.map(shot => [shot.source.shot, shot.video]))
+  const estimated = built.placements.reduce((sum, placement) => sum + placement.estimated, 0)
+  const checks: RenderCheck[] = built.failures.map(failure => ({
+    id: 'subtitle_line_coverage',
+    severity: 'failure',
+    ok: false,
+    detail: failure.detail,
+    fix: failure.fix,
+  }))
+  if (estimated === 0 && built.cues.length > 0) {
+    checks.push({
+      id: 'speech_alignment',
+      severity: 'failure',
+      ok: true,
+      detail: `${String(built.cues.length)} 条字幕的时间全部来自逐镜发声检测，没有任何一条按字数估算。`,
+      fix: '',
+    })
+  }
+  const reportInput: ReportInput = {
+    method: 'subtitles',
+    project: call.project,
+    episode: call.episode,
+    timeline: built.timeline,
+    sources,
+    expectedDurationSeconds: built.timeline.bodyEndSeconds,
+    written: built.written,
+    output: '',
+    encoder: '',
+    gpuRequested: false,
+    gpuUsed: false,
+    encoderFallbackReason: '',
+    encodedShots: [],
+    reusedShots: [],
+    tailFrame: NO_TAIL_FRAME,
+    media: NO_MEDIA,
+    checks,
+    warnings: built.warnings,
+    logPath: '',
+  }
+  return buildReport(reportInput)
+}
+
+/**
  * Run one `drama_render` call.
  * @param args - The dispatched arguments.
  * @param settings - The resolved binaries, gains, and encoder preference.
@@ -304,6 +392,16 @@ export async function runDramaRender(
       subtitleSrt: call.subtitleSrt,
     }))
   }
+  if (call.method === 'subtitles') {
+    return subtitlesReport(call, await buildEpisodeCues({
+      toolkit,
+      project: call.project,
+      episode: call.episode,
+      shotsPath: call.shotsPath,
+      linesPath: call.linesPath,
+      subtitleSrt: call.subtitleSrt,
+    }))
+  }
   if (call.method === 'render') {
     return await renderEpisode({
       toolkit,
@@ -314,6 +412,7 @@ export async function runDramaRender(
       subtitleSrt: call.subtitleSrt,
       lastShot: call.lastShot,
       bgm: call.bgm,
+      ...(call.bgmPlan === undefined ? {} : { bgmPlan: call.bgmPlan }),
       endingAudio: call.endingAudio,
       endingEffect: call.endingEffect,
       output: call.output,
@@ -339,7 +438,7 @@ const RESULT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    method: { type: 'string', required: true, enum: ['prepare', 'render', 'verify'],
+    method: { type: 'string', required: true, enum: ['prepare', 'render', 'verify', 'subtitles'],
       description: '产生本结果的操作。' },
     ok: { type: 'boolean', required: true,
       description: '是否成功且没有任何 failure 级检查失败；false 时交付不可用，看 failures 里的修法。' },
@@ -418,6 +517,22 @@ const RESULT_SCHEMA = {
           fix: { type: 'string', required: true, description: '中文修法；通过时为空串。' },
         },
       } },
+    bgm_plan: { type: 'object', required: true, additionalProperties: false,
+      description: '声明的配乐段落和同序曲目复用提醒；不是试听结论。未提供计划时为空值。',
+      properties: {
+        path: { type: 'string', required: true },
+        bed_sha256: { type: 'string', required: true },
+        repeated_sequence_episodes: { type: 'array', required: true, items: { type: 'string' } },
+        segments: { type: 'array', required: true, items: {
+          type: 'object', additionalProperties: false, properties: {
+            track: { type: 'string', required: true }, source: { type: 'string', required: true },
+            start_seconds: { type: 'number', required: true }, end_seconds: { type: 'number', required: true },
+            reason: { type: 'string', required: true },
+          },
+        } },
+      } },
+    not_checked: { type: 'array', required: true, items: { type: 'string' },
+      description: '本次未测量的 QA 项；ok=true 只表示已执行检查通过，不代表内容、字幕或配乐全部通过。' },
     failures: { type: 'array', required: true, items: { type: 'string' },
       description: '每条 failure 级失败一行中文说明与修法。' },
     warnings: { type: 'array', required: true, items: { type: 'string' },
@@ -440,8 +555,15 @@ const RESULT_SCHEMA = {
   },
 } as const
 
-/** What the model reads before calling: the three methods, the fixed style, and the two known traps. */
+/** What the model reads before calling: the four methods, the fixed style, and the two known traps. */
 const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
+  + 'subtitles=按逐镜发声测出字幕时间并写出 SRT：逐镜对成片自己的音轨跑静音检测，'
+  + '把静音段反演成发声段，再把你给出的每镜台词放到这些发声段里，'
+  + 'cue 时间 = 该镜在时间线上的起点 + 镜内偏移；**不做语音转写、不联网、不需要模型**，'
+  + '因为你已经知道每镜说了什么，缺的只有时间。'
+  + '台词按 lines 计划里的顺序一一对应；一镜检出的发声段少于台词条数时，段内按有效字数切分，'
+  + '这些 cue 标成估算并在 warnings 里点名，同时 speech_alignment 会留在 not_checked。'
+  + '声明了台词却检不出任何发声、或有发声却没声明台词，都按 failure 报出（subtitle_line_coverage）。'
   + 'prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，'
   + '按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master'
   + '（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。'
@@ -465,25 +587,32 @@ const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
  */
 export function apply(ctx: Context, config: Config = {}): void {
   const settings = resolveSettings(config)
+  registerDramaVideo(ctx)
   ctx.tools.register(defineTool({
     name: 'drama_render',
     description: DESCRIPTION,
     parameters: {
-      method: { type: 'string', required: true, enum: ['prepare', 'render', 'verify'],
-        description: 'prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查。' },
+      method: { type: 'string', required: true, enum: ['prepare', 'render', 'verify', 'subtitles'],
+        description: 'prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；'
+          + 'subtitles=按逐镜发声测出字幕时间并写出 SRT（不编码、不需要语音转写）。' },
       project: { type: 'string', required: true,
-        description: '项目根目录（含 video/、audio/、editing/、exports/）；三种方法都必填。' },
+        description: '项目根目录（含 video/、audio/、editing/、exports/）；四个方法都必填。' },
       episode: { type: 'integer', required: true, description: '集号（正整数，如 2）；写入时补成两位，如 02。' },
       shots: { type: 'string',
         description: '成片清单 JSON 路径，形如 {"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"可选"}]}；'
-          + 'prepare 必填。video 缺音轨时必须给 audio。' },
+          + 'prepare 与 subtitles 必填。video 缺音轨时必须给 audio。' },
+      lines: { type: 'string',
+        description: '台词计划 JSON 路径，形如 {"shots":[{"shot":1,"lines":["第一句","第二句"]}]}；subtitles 必填。'
+          + '每镜的台词在这里就按字幕条切好（单条不超过 14 个字），工具只给时间，不改文字。' },
       timeline: { type: 'string',
         description: '时间线 JSON 路径；render 与 verify 必填，通常是 prepare 写出的 editing/<集>-timeline.json。' },
       subtitle_srt: { type: 'string',
-        description: '本集 SRT 字幕路径；prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。' },
+        description: '本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），'
+          + 'prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。' },
       last_shot: { type: 'integer',
         description: '本次交付的最后一个镜头号（如 9）；render 必填，时间线里 shot <= last_shot 的镜头数必须正好等于它。' },
       bgm: { type: 'string', description: '本集实际使用的 BGM 文件路径；render 必填，会循环铺到正片结束。' },
+      bgm_plan: { type: 'string', description: 'render 可选：现有 episodes/segments 配乐计划 JSON；校验时间、记录曲目与复用提醒，不代替试听。' },
       ending_audio: { type: 'string', description: '片尾音文件路径；render 必填。' },
       ending_effect: { type: 'string', description: '片尾特效视频路径；render 必填。' },
       output: { type: 'string',
@@ -495,6 +624,13 @@ export function apply(ctx: Context, config: Config = {}): void {
       schema: RESULT_SCHEMA,
       render: (_args, value): ContentBlock[] => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
-    execute: async args => await runDramaRender(args, settings),
+    execute: async ({ subtitle_srt, last_shot, ending_audio, ending_effect, bgm_plan, ...args }) => await runDramaRender({
+      ...args,
+      ...(subtitle_srt === undefined ? {} : { subtitleSrt: subtitle_srt }),
+      ...(bgm_plan === undefined ? {} : { bgmPlan: bgm_plan }),
+      ...(last_shot === undefined ? {} : { lastShot: last_shot }),
+      ...(ending_audio === undefined ? {} : { endingAudio: ending_audio }),
+      ...(ending_effect === undefined ? {} : { endingEffect: ending_effect }),
+    }, settings),
   }))
 }

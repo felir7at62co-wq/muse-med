@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-19-drama-shot-gate-tool.md
-2026-09-19-drama-shot-gate-tool.md: 02619ce1ed4bd78f233c98340a4a8db18e988af3
-2026-09-19-drama-shot-gate-tool.zh.md: d518f6dd8d87f9bd33d19ab2584d7aa68004fb31
+2026-09-19-drama-shot-gate-tool.md: 0ca8082e77385742e9741ced200192460a0af77e
+2026-09-19-drama-shot-gate-tool.zh.md: f630add0ddfe4d257d64a8424e46c870b3db13c3

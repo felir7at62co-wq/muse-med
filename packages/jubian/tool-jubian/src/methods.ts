@@ -11,7 +11,7 @@
  * `confirm_casting` is a GET that changes provider state, and `prepare_video`
  * writes only a local preview file while reading everything it needs.
  */
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
@@ -24,6 +24,10 @@ import {
 } from '@deepseek-ai/dsh-jubian-api'
 import type { ImageModelSelection, ImageModelSelectors, MediaKind, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
 import { prepareVideoMethod, selectAssetsMethod, submitVideoMethod } from './native.ts'
+import { createFolderMethod, moveMethod, renameMethod } from './folders.ts'
+import { composedAssetName, resolveNaming, taskPrefix } from './naming.ts'
+import { ASSET_CATEGORY_TYPES } from './naming.ts'
+import type { AssetCategory, Naming } from './naming.ts'
 import { uploadReferenceMethod } from './reference.ts'
 import type { ReferenceUploadDeps } from './reference.ts'
 import { need, requireKey, writeUnderLedger } from './write.ts'
@@ -34,6 +38,11 @@ export type { WriteOutcome } from './write.ts'
 /** Arguments as the tool layer receives them, already schema-validated. */
 export interface MethodArgs {
   method: string
+  /** `jubian_model preview`: exact remote scope and partial model intent. */
+  scope?: 'storyboards' | 'episodes' | 'project'
+  storyboard_ids?: number[]
+  episode_ids?: number[]
+  changes?: Record<string, unknown>
   idempotency_key?: string
   task_type?: number
   standard_id?: number
@@ -60,6 +69,8 @@ export interface MethodArgs {
   video_height?: number
   subtitle_box?: { zimuLeft: number; zimuTop: number; zimuWidth: number; zimuHeight: number }
   body?: Record<string, unknown>
+  /** `create`: UTF-8 JSON file containing the complete frozen request body. */
+  body_path?: string
   media_url?: string
   media_kind?: MediaKind
   output_path?: string
@@ -73,6 +84,27 @@ export interface MethodArgs {
   preview_path?: string
   /** `select_assets`: the ordered `material_key`/parent `asset_id` pairs to save. */
   selections?: SubjectSelectionRequest[]
+  /**
+   * Episode an asset name or a task name is prefixed with: a number (`5` or `05`) or the
+   * configured series label. Omitting it leaves every name exactly as the caller wrote it.
+   */
+  episode?: string
+  /** `image_generate`: the category segment {@link composedAssetName} writes; required with `episode`. */
+  asset_category?: AssetCategory
+  /** `erase_subtitle` / `upscale`: package number inside the episode, as in `EP05-P3`. */
+  package_number?: string
+  /** `create_folder`: the folder's name, such as `EP05`. */
+  folder_name?: string
+  /** `create_folder`: parent folder; the category library's root when omitted. */
+  parent_id?: number
+  /** `create_folder` / `move`: 1 team library, 2 personal library. */
+  asset_scope_type?: number
+  /** `create_folder` / `move`: 1 character, 2 scene, 3 prop — the same number as `asset_type`. */
+  root_category_type?: number
+  /** `move`: the material rows to move. */
+  material_ids?: number[]
+  /** `move`: destination folder, or the category number to move back to the library root. */
+  target_folder_id?: number
 }
 
 /** One provider response, as the transport returns it. */
@@ -105,6 +137,8 @@ export interface MethodDeps {
   reference?: ReferenceUploadDeps
   /** Paid image generation: the pinned catalogue row and the post-write readback budget. */
   image?: ImageMethodOptions
+  /** Naming choices; defaults to the convention's own defaults when omitted. */
+  naming?: Naming
 }
 
 /** Provider statuses that mean a task is still moving and a retry would race it. */
@@ -224,6 +258,18 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number | null,
   }
 }
 
+/**
+ * Compose the sortable prefix a processing stage puts in front of the source
+ * task's own name.
+ * @param args - The dispatched arguments, read for `episode` and `package_number`.
+ * @param naming - Resolved naming choices, or undefined for their defaults.
+ * @returns `EP05-P3-`, or an empty string when the caller named no episode.
+ */
+function stagePrefix(args: MethodArgs, naming: Naming | undefined): string {
+  if (args.episode === undefined) return ''
+  return `${taskPrefix(args.episode, args.package_number, naming ?? resolveNaming())}-`
+}
+
 function page(args: MethodArgs): string {
   const num = args.page_num ?? 1
   const size = args.page_size ?? 20
@@ -327,6 +373,12 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
       // Free and task-free, but it does write one object into the provider's
       // bucket: the URL it returns is the only shape `gpt-image-2` accepts.
       return await uploadReferenceMethod({ image_path: args.image_path }, deps.reference)
+    case 'create_folder':
+      return await createFolderMethod(client, ledger, args)
+    case 'move':
+      return await moveMethod(client, ledger, args)
+    case 'rename':
+      return await renameMethod(client, ledger, args, deps)
     default:
       throw new JubianError('CONTRACT_CHANGED')
   }
@@ -359,25 +411,44 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       const result = await client.request({ method: 'POST', path: '/admin/aigc/video/task/sub/list',
         body: { aigcVideoTaskId: need(args.task_id) } })
       const page = readSubtaskPage(result.data)
-      // A caller states the resolution it intends to deliver; every result below
-      // it is flagged as requiring the upscale stage before use, so a lower
-      // resolution can never be delivered silently.
+      // Resolution comparison is a hint, not authorization for paid processing.
       const target = args.delivery_resolution
       return {
         subtasks: { ...page, rows: page.rows.map(row => ({ ...row,
           needs_upscale: target === undefined ? null : needsUpscale(row, target),
           delivery_resolution: target ?? null })) },
-        guidance: target === undefined
+        guidance: (target === undefined
           ? '未指定 delivery_resolution：无法判断哪些结果低于交付分辨率。'
-            + '给出交付分辨率后，needs_upscale=true 的结果必须先转高清才能使用。'
-          : `交付分辨率 ${target}。needs_upscale=true 的结果低于交付分辨率，必须先转高清`
-            + '（SeedVR2 视频高清，taskType=20）才能使用；低于交付分辨率的文件不能靠改扩展名或本地转码顶替。'
-            + '另：去字幕与转高清都是异步任务，提交后不要干等——先做别的，稍后再查。',
+          : `交付分辨率 ${target}。`)
+          + 'needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。'
+          + 'SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。'
+          + '仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。'
+          + '普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。'
+          + '已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。',
       }
     }
     case 'image_generate': {
       requireKey(args.idempotency_key)
       const selection = deps.image?.selection ?? {}
+      const naming = deps.naming ?? resolveNaming()
+      // The category decides both the name's middle segment and the library the
+      // asset lands in. `asset_type` stays accepted for callers that predate the
+      // category, but the two must agree: an asset whose name says 场景 and whose
+      // type says 角色 is the exact defect this pairing removes.
+      const assetCategory = args.asset_category
+      const derivedType = assetCategory === undefined ? undefined : ASSET_CATEGORY_TYPES[assetCategory]
+      if (assetCategory !== undefined && args.asset_type !== undefined
+        && args.asset_type !== derivedType) {
+        throw new JubianError('INVALID_ARGUMENT',
+          `asset_type=${args.asset_type} 与 asset_category=${assetCategory}（应为 ${derivedType}）不一致`)
+      }
+      const assetType = derivedType ?? need(args.asset_type, 'asset_type 或 asset_category')
+      // A caller that names the episode gets the convention's own asset name;
+      // one that does not gets its `asset_name` byte for byte, so an existing
+      // call keeps meaning exactly what it meant.
+      const assetName = args.episode === undefined
+        ? need(args.asset_name)
+        : composedAssetName(args.episode, need(assetCategory, 'asset_category'), need(args.asset_name), naming)
       // The catalogue read lives behind a thunk: a replayed key must not even
       // read the provider, let alone write to it. It is fetched at most once and
       // reused by the body, the selectors and the quote.
@@ -392,8 +463,8 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         async () => {
           const rows = await catalogue()
           selectors = resolveImageModel(rows, selection)
-          return buildImageRequest({ scriptId: need(args.script_id), assetName: need(args.asset_name),
-            assetType: need(args.asset_type), prompt: need(args.prompt), references: args.references ?? [],
+          return buildImageRequest({ scriptId: need(args.script_id), assetName,
+            assetType, prompt: need(args.prompt), references: args.references ?? [],
             ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }) }, rows, selection)
         },
         body => client.request({ method: args.parent_asset_id === undefined ? 'POST' : 'PUT',
@@ -449,10 +520,11 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
             parentResultId: source.parent_result_id ?? source.first_result_id ?? source.subtask_id,
             duration: source.duration_seconds,
             videoUrl: baseUrl,
-            taskName: args.task_name ?? `${task.task_name ?? `task-${taskId}`}-高清转换`,
+            taskName: args.task_name
+              ?? `${stagePrefix(args, deps.naming)}${task.task_name ?? `task-${taskId}`}-高清转换`,
           })
         },
-        sent => client.request({ method: 'POST', path: '/aigc/storyboard/upscale', body: need(sent) }))
+        sent => client.request({ method: 'POST', path: '/aigc/storyboard/hdConversion', body: need(sent) }))
       // Upscaling is asynchronous and was measured taking minutes, so this
       // returns the submission rather than waiting for the result.
       return { ...result, accepted_task_id: result.data === undefined ? null : readUpscaleTaskId({ data: result.data }),
@@ -501,10 +573,11 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
  * @param client - Jubian transport.
  * @param ledger - Write-path ledger.
  * @param args - Dispatched on `method`.
+ * @param deps - Optional seams; the naming convention drives the `erase_subtitle` task name.
  * @returns The requested storyboard view, keyed by the `method` that asked for it.
  */
 export async function storyboardMethod(client: JubianClient, ledger: JubianLedger,
-  args: MethodArgs): Promise<Record<string, unknown>> {
+  args: MethodArgs, deps: MethodDeps = {}): Promise<Record<string, unknown>> {
   const storyboardId = (): number => need(args.storyboard_id)
   switch (args.method) {
     case 'get': {
@@ -513,8 +586,16 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
     }
     case 'create': {
       requireKey(args.idempotency_key)
-      const body = need(args.body)
-      const result = await writeUnderLedger(ledger, args.idempotency_key, 'storyboard_create', () => body,
+      if (args.body !== undefined && args.body_path !== undefined) throw new JubianError('INVALID_ARGUMENT')
+      let body = args.body
+      if (args.body_path !== undefined) {
+        let parsed: unknown
+        try { parsed = JSON.parse(await readFile(resolve(args.body_path), 'utf8')) as unknown }
+        catch { throw new JubianError('INVALID_ARGUMENT') }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new JubianError('INVALID_ARGUMENT')
+        body = parsed as Record<string, unknown>
+      }
+      const result = await writeUnderLedger(ledger, args.idempotency_key, 'storyboard_create', () => ({ ...need(body), isGenerate: 0 }),
         sent => client.request({ method: 'POST', path: '/aigc/storyboard', body: need(sent) }))
       return { ...result }
     }
@@ -577,7 +658,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
             scriptId: need(task.script_id ?? args.script_id, 'script_id'),
             episodeId: need(task.episode_id ?? undefined),
             episodeCount: task.episode_count ?? 1,
-            taskName: args.task_name ?? `${task.task_name ?? `task-${taskId}`}-去字幕`,
+            taskName: args.task_name
+              ?? `${stagePrefix(args, deps.naming)}${task.task_name ?? `task-${taskId}`}-去字幕`,
             firstResultId: need(source.first_result_id ?? source.subtask_id),
             parentResultId: source.parent_result_id ?? source.first_result_id ?? source.subtask_id,
             videoUrl: baseUrl,
@@ -589,7 +671,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         },
         sent => client.request({ method: 'POST', path: '/aigc/storyboard/subtitleEraser', body: need(sent) }))
       return { ...result, accepted_task_id: readSubtitleTaskId({ code: 200, data: result.data }),
-        next: '去字幕是异步任务。不要在这里等待——先做别的，之后用 subtasks 回读 last_task_type=10 判断是否完成。' }
+        next: '去字幕是异步任务。不要在这里等待——先做别的，之后用 subtasks 回读；只有 subtitle_erased=true 且 video_url 有值才表示当前文件已有成功的去字幕记录。' }
     }
     default:
       throw new JubianError('CONTRACT_CHANGED')

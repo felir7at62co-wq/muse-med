@@ -9,6 +9,11 @@
  * generated here: a generated key would let a retry after an ambiguous outcome
  * bypass the record of the first attempt, which is the only thing standing
  * between a timeout and a second charge.
+ *
+ * The row mounts {@link JubianToken} beside the tools. The same credential the
+ * tools resolve is the one a person edits in Web Settings, so the page that
+ * writes it belongs to the package that consumes it rather than to a generic
+ * configuration surface that can write any reference.
  */
 import { homedir } from 'node:os'
 import { readFile } from 'node:fs/promises'
@@ -21,37 +26,40 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { JUBIAN_TOKEN_REF, JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { assetMethod, catalogMethod, mediaMethod, storyboardMethod, videoMethod } from './methods.ts'
 import type { ImageMethodOptions, MethodArgs } from './methods.ts'
+import { JubianImageRoutes, pinnedImageSelection } from './image.ts'
+import type { ImageRouteConfig } from './image.ts'
+import { ASSET_CATEGORIES, resolveNaming } from './naming.ts'
+import type { Naming } from './naming.ts'
+import { organizeMethod } from './organize.ts'
+import { modelMethod } from './model-settings.ts'
+import { JubianToken } from './token.ts'
 import { requireArguments } from './write.ts'
+import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
+
+export { JubianToken } from './token.ts'
+export { JubianImageRoutes, pinnedImageSelection } from './image.ts'
+export type { ImageRouteConfig } from './image.ts'
 
 export const name = 'tool-jubian'
 export const inject = ['tools', 'credentials']
 
 /** Where the tool row keeps its ledger and which origin it calls. */
-export interface Config {
+export interface Config extends ImageRouteConfig {
   /** Directory holding the write ledger; defaults to `<DSH_HOME>/jubian/ledger`. */
   ledgerRoot?: string
   /** Origin override; defaults to the client's own default base URL. */
   baseUrl?: string
   /** Per-call abort budget in milliseconds. */
   timeoutMs?: number
+  /** Watch polling interval in milliseconds; integer 1..60000, default 15000. */
+  watchPollIntervalMs?: number
+  /** Watch deadline in milliseconds; integer 1..86400000, default 1800000. */
+  watchTimeoutMs?: number
   /**
    * Whether the workspace's own pipeline secret file may stand in for a missing
    * credential-store value; defaults to true.
    */
   workspaceSecrets?: boolean
-  /**
-   * Which `platformId` of the `taskType=2` catalogue `image_generate` buys from,
-   * such as `KU_AI`. The account catalogue can list one model id once per
-   * platform at different prices, and this plugin never picks one for you: with
-   * several rows and no configured platform or standard, the call fails and
-   * names every candidate.
-   */
-  imagePlatformId?: string
-  /**
-   * Which catalogue row (`standardId`, the row's own `id`) `image_generate` buys
-   * from, such as `66`. Either this or `imagePlatformId` is enough to pin one row.
-   */
-  imageStandardId?: number
   /**
    * How long `image_generate` waits for the new asset to reach
    * `hsAssetStatus === "Active"` before reporting a timeout, in milliseconds;
@@ -60,6 +68,23 @@ export interface Config {
   imageActiveTimeoutMs?: number
   /** Delay between the readback polls above, in milliseconds; defaults to 3000. */
   imageActivePollMs?: number
+  /**
+   * Separator between the segments of a composed asset name; defaults to `｜`.
+   * Applies only to names this row composes from an `episode` argument — a caller
+   * that passes no episode keeps its own `asset_name` and `task_name` verbatim.
+   */
+  nameSeparator?: string
+  /**
+   * Episode token of an asset that serves the whole series; defaults to `全剧`.
+   * A caller passes exactly this value as `episode` to place an asset outside any
+   * one episode.
+   */
+  seriesLabel?: string
+  /**
+   * Where `jubian_organize` writes its index, relative to the project directory;
+   * defaults to `_probe/asset-index.md`.
+   */
+  assetIndexPath?: string
 }
 
 /** The one sentence every write method's description carries. */
@@ -114,8 +139,14 @@ const ARGS = {
   material_id: { type: 'number', description: 'confirm_casting 必填：生成材质 ID（不是父资产、不是任务 ID）。' },
   storyboard_id: { type: 'number', description: '分镜 ID。' },
   task_id: { type: 'number', description: 'task / subtasks 必填：视频任务 ID。' },
-  asset_name: { type: 'string', description: 'image_generate 必填：资产名。' },
-  asset_type: { type: 'number', description: 'image_generate 必填：平台资产类型数字，当前只有 1（角色）有证据。' },
+  asset_name: { type: 'string',
+    description: 'image_generate 必填、rename 必填：资产名。'
+      + '给了 episode 时这里只写资产自己的名字（如 `红包`），插件按规范补齐前缀与类别段；'
+      + '不给 episode 时原样发送。rename 发送的就是最终的完整名称。' },
+  asset_type: { type: 'number', enum: [1, 2, 3],
+    description: 'image_generate 的资产类别号：1=角色，2=场景，3=道具。'
+      + '给了 asset_category 时可以不传（插件按类别推导）；两个都给时必须一致。'
+      + '场景与道具必须传 2/3——一律传 1 会把它们建进控制台的角色库。' },
   prompt: { type: 'string', description: 'image_generate 必填：图片提示词。' },
   references: { type: 'array', items: { type: 'string' },
     description: 'image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。' },
@@ -135,13 +166,16 @@ const ARGS = {
     description: 'erase_subtitle 可选：{zimuLeft,zimuTop,zimuWidth,zimuHeight}。'
       + '省略时按画面尺寸推导提供方默认比例——通常不要传，工作台的预览坐标无法由调用方复现。' },
   body: { type: 'object', additionalProperties: true,
-    description: 'create 必填：完整的远端请求体（本插件不做体编译）。' },
+    description: 'create 二选一：完整的远端请求体（本插件不做体编译）。' },
+  body_path: { type: 'string',
+    description: 'create 二选一：包含完整冻结请求体的本地 UTF-8 JSON 文件路径。' },
   media_url: { type: 'string', description: 'media 必填：剧变 CDN 上的媒体 URL（来自其他方法的返回值）。' },
   media_kind: { type: 'string', enum: ['image', 'video'], description: 'media 必填：要下载的是图片还是视频。' },
   output_path: { type: 'string', description: 'media 必填：落盘的本地绝对路径。' },
   delivery_resolution: { type: 'string',
     description: 'subtasks 可选但强烈建议：本次要交付的分辨率，如 1080p。给定后每行都会得到 '
-      + 'needs_upscale：低于该分辨率的结果为 true，表示必须先转高清才能使用；无法判断时为 null。' },
+      + 'needs_upscale：低于该分辨率的结果为 true，否则为 false，无法判断时为 null。'
+      + 'true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。' },
   image_path: { type: 'string',
     description: 'upload_reference 必填：本地参考图路径（jpg/jpeg/png/webp）。' },
   project_dir: { type: 'string',
@@ -158,6 +192,29 @@ const ARGS = {
     } },
     description: 'select_assets 必填：有序的 (material_key, 父 asset_id) 列表，'
       + '顺序必须与提示词里的 key 顺序完全一致。' },
+  episode: { type: 'string',
+    description: '可选：集号（`5` 与 `05` 都规范成 `EP05`）或配置的跨集母版标记（默认「全剧」）。'
+      + '给了它，资产名会按规范组合成 `EP05｜角色｜陆沉舟`，处理任务名会加上 `EP05-P3-` 这样的可排序前缀；'
+      + '不给就完全按调用方原样使用 asset_name / task_name。' },
+  asset_category: { type: 'string', enum: [...ASSET_CATEGORIES],
+    description: '资产类别。与 episode 同时给出时决定资产名里的类别段，'
+      + '并决定 image_generate 的 assetType（角色=1、场景=2、道具=3）——'
+      + '场景与道具必须传对应类别，否则资产会落进控制台的角色库。' },
+  package_number: { type: 'string',
+    description: 'erase_subtitle / upscale 可选：本集内的包号，配合 episode 生成 `EP05-P3` 前缀。' },
+  folder_name: { type: 'string', description: 'create_folder 必填：文件夹名，例如 `EP05`。' },
+  parent_id: { type: 'number',
+    description: 'create_folder 可选：父文件夹 ID；省略则建在该类别库的根下'
+      + '（根自己的 ID 就是 root_category_type 的数字）。' },
+  asset_scope_type: { type: 'number', enum: [1, 2],
+    description: 'create_folder / move 必填：1=团队资产，2=个人资产。资产在哪个库就在哪个库建夹与移动。' },
+  root_category_type: { type: 'number', enum: [1, 2, 3],
+    description: 'create_folder / move 必填：1=角色库，2=场景库，3=道具库。'
+      + 'move 只用它在本地读文件夹树做前置校验，请求体仍与前端一致（不发这个字段）。' },
+  material_ids: { type: 'array', items: { type: 'number' },
+    description: 'move 必填：要移动的材质行 ID（素材列表里每行的 id，不是父 asset_id）。' },
+  target_folder_id: { type: 'number',
+    description: 'move 必填：目标文件夹 ID；要放回库根目录就传该库的 root_category_type 数字。' },
 } as const
 
 /** One canonical value, as the tool registry requires it to be losslessly JSON. */
@@ -198,12 +255,19 @@ function guarded(
 }
 
 /**
- * Install the four Jubian tools.
+ * Install the Jubian tools and the two Remote namespaces they expose.
  * @param ctx - Host context carrying `tools` and `credentials`.
- * @param config - Optional ledger location, origin, timeout and image-row overrides.
+ * @param config - Optional ledger location, origin, timeout and image-route values.
  */
 export function apply(ctx: Context, config: Config = {}): void {
+  const watchConfig = resolveWatchConfig(config)
+  ctx.plugin(JubianToken)
   const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  // Resolved once, here, so a blank separator or series label fails the mount
+  // rather than composing a name no reader can split.
+  const naming: Naming = resolveNaming(
+    { ...(config.nameSeparator === undefined ? {} : { separator: config.nameSeparator }),
+      ...(config.seriesLabel === undefined ? {} : { seriesLabel: config.seriesLabel }) })
   const ledger = new JubianLedger({ root: config.ledgerRoot ?? join(home, 'jubian', 'ledger') })
   const client = new JubianClient({
     credential: async () => {
@@ -214,18 +278,20 @@ export function apply(ctx: Context, config: Config = {}): void {
     ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
     ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
   })
-  // Deployment-varying choices live here, not in a constant: which platform the
-  // paid image route buys from, and how long its readback may take. An omitted
-  // platform and standard leaves `resolveImageModel` to accept the catalogue
-  // only while it offers exactly one `gpt-image-2` row.
-  const image: ImageMethodOptions = {
-    selection: {
-      ...(config.imagePlatformId === undefined ? {} : { platformId: config.imagePlatformId }),
-      ...(config.imageStandardId === undefined ? {} : { standardId: config.imageStandardId }),
-    },
+  // The rows a Settings page may pick between. It shares the transport above, so
+  // the token that authorizes the read stays in this process.
+  ctx.plugin(JubianImageRoutes, { client })
+  // Which row the paid image route buys from, and how long its readback may take:
+  // deployment-varying values, so they live in config and in the settings document
+  // rather than in a constant. Both are read per call, because the settings page
+  // can repin the route while this row stays loaded; an unpinned catalogue leaves
+  // `resolveImageModel` to accept it only while it offers exactly one
+  // `gpt-image-2` row.
+  const image = (): ImageMethodOptions => ({
+    selection: pinnedImageSelection(ctx, config),
     ...(config.imageActiveTimeoutMs === undefined ? {} : { activeTimeoutMs: config.imageActiveTimeoutMs }),
     ...(config.imageActivePollMs === undefined ? {} : { pollIntervalMs: config.imageActivePollMs }),
-  }
+  })
 
   ctx.tools.register(defineTool({
     name: 'jubian_catalog',
@@ -248,33 +314,101 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '**remove 会不可恢复地删除一个父资产**（`DELETE /aigc/asset/removeAsset/{id}`，带 scriptId 与 isParent=1）：'
       + '资产与其媒体版本会被移除，引用它的镜头匹配与已生成视频不会因此重建。'
       + '**如果只是想取消"正式选用"，不要用 remove** —— 那是一个不同的动作。'
+      + '**create_folder / move / rename 会改变控制台里的组织方式**（都在 `/aigc/*` 上真实写入）：'
+      + 'create_folder 建一个类别库里的文件夹，同名同级已存在时直接报告、不发请求；'
+      + 'move 把材质行移进文件夹，目标文件夹不在该库里时同样只报告；'
+      + 'rename 改资产的显示名称。三者都需要 idempotency_key，都不改图片、不改 id、不换类别。'
+      + '**批量改名或搬家前必须先取得用户明确同意**：这些是用户已经在控制台里看到的名字和位置。'
       + '**upload_reference 免费**：把本地参考图（jpg/jpeg/png/webp）按剧变前端自身的上传配置送到它的对象存储，'
       + '返回 HTTPS material_url —— gpt-image-2 的参考图只接受 URL。两条边必须是 16 的倍数：已合规的文件原样上传，'
       + '不合规时调用本机 ffmpeg 重编码（可用 DSH_JUBIAN_FFMPEG/FFMPEG_PATH 指定二进制）；'
       + '本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。' + WRITE_NOTE,
     parameters: {
       method: { type: 'string', required: true,
-        enum: ['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'remove', 'upload_reference'],
+        enum: ['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'remove', 'upload_reference',
+          'create_folder', 'move', 'rename'],
         description: 'get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；'
           + 'generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；'
-          + 'remove=删除一个父资产（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）。' },
+          + 'remove=删除一个父资产（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；'
+          + 'create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名。' },
       script_id: ARGS.script_id, asset_id: ARGS.asset_id, material_id: ARGS.material_id,
       page_num: ARGS.page_num, page_size: ARGS.page_size, idempotency_key: ARGS.idempotency_key,
       image_path: ARGS.image_path,
+      folder_name: ARGS.folder_name, parent_id: ARGS.parent_id,
+      asset_scope_type: ARGS.asset_scope_type, root_category_type: ARGS.root_category_type,
+      material_ids: ARGS.material_ids, target_folder_id: ARGS.target_folder_id,
+      asset_name: ARGS.asset_name, episode: ARGS.episode, asset_category: ARGS.asset_category,
     },
     output: OUTPUT,
-    execute: guarded('jubian_asset', args => assetMethod(client, ledger, args)),
+    execute: guarded('jubian_asset', args => assetMethod(client, ledger, args, { naming })),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'jubian_organize',
+    description: '只读、免费的资产组织视图：把剧变项目按「集数 → 类别」列出'
+      + '（每集用到哪些角色/场景/道具，各自的 asset_id、material_id 与状态），'
+      + '并做两份审计——不符合 `EP{两位集数}｜{类别}｜{名称}` 规范的远端名称，'
+      + '以及 assetType 与自身名字或清单声明不一致的资产（历史遗留的类别错放）。'
+      + '同时读出个人资产库里每个类别的文件夹树。'
+      + '**它只读：不重命名、不移动、不改动任何远端资产**，结果同时写一份本地索引文件。'
+      + '要改，用 jubian_asset 的 create_folder / move / rename，且批量操作前先取得用户同意。',
+    parameters: {
+      method: { type: 'string', required: true, enum: ['index'],
+        description: 'index=按集数与类别输出组织视图，并写本地索引文件。' },
+      script_id: { ...ARGS.script_id, required: true }, project_dir: { ...ARGS.project_dir, required: true },
+    },
+    output: OUTPUT,
+    execute: guarded('jubian_organize', args => organizeMethod(client, args, {
+      naming,
+      ...(config.assetIndexPath === undefined ? {} : { indexPath: config.assetIndexPath }),
+    })),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'jubian_model',
+    description: '免费配置现有分镜的视频模型与分辨率。preview 只读实时目录和分镜，按明确范围写本地冻结计划，'
+      + '返回每项 before/after 与 fingerprint；不 PUT、不生成。scope=storyboards 使用远端 storyboard_ids，'
+      + 'episodes 使用远端 episode_ids（不是集号），project 仅包含当前项目已有分镜。'
+      + 'apply 必须先取得用户对范围和配置的同意，使用 preview_path 与 idempotency_key=fingerprint。'
+      + '写前校验全部目标、成员和目录，每项再即时回读；只改 modelConfig 模型字段，所有 PUT 强制 isGenerate=0，'
+      + '保留提示词、资产身份和顺序、非模型设置，回读核验。未提供的设置保留，不会默认切换模型；'
+      + '更换模型未指定 platformId 时要求目录唯一匹配，否则拒绝。项目未来默认值和已生成媒体不变。'
+      + '错误或超时立即停止剩余项并逐项报告；同一计划不会重发或续写，先回读对账，不要换 key 盲目重试。',
+    parameters: {
+      method: { type: 'string', required: true, enum: ['preview', 'apply'],
+        description: 'preview=只读预览并落冻结计划；apply=应用用户批准的计划（免费，不生成）。' },
+      project_dir: { type: 'string', required: true, description: '含 project_config.json 的项目目录。' },
+      script_id: { type: 'number', required: true, description: '必须与 project_config.json 及所有目标一致的远端项目 ID。' },
+      scope: { type: 'string', enum: ['storyboards', 'episodes', 'project'], description: 'preview 必填：已有分镜的明确范围。' },
+      storyboard_ids: { type: 'array', items: { type: 'number' }, description: 'storyboards 范围必填：精确远端分镜 ID，不能重复。' },
+      episode_ids: { type: 'array', items: { type: 'number' }, description: 'episodes 范围必填：精确远端 episodeId，不是显示集号。' },
+      changes: { type: 'object', additionalProperties: false, description: 'preview 必填：至少一项。未指定字段保留，目录中不支持或不唯一时拒绝。',
+        properties: {
+          modelId: { type: 'string', description: '账户视频目录中的精确模型 ID，不接受别名或默认替换。' },
+          platformId: { type: 'string', description: '明确指定的平台；换模型时省略则要求唯一匹配。' },
+          ratio: { type: 'string', description: '目录支持的比例，例如 9:16。' },
+          resolution: { type: 'string', description: '目录支持的分辨率，例如 720p、1080p。' },
+          genType: { type: 'number', description: '目录支持的生成类型。' },
+          duration: { type: 'number', description: '模型允许的整数秒数，包含末尾自然收束。' },
+          genNum: { type: 'number', description: '目录支持的生成数量。' },
+        } },
+      preview_path: { type: 'string', description: 'apply 必填：preview 返回的冻结计划路径。' },
+      idempotency_key: { type: 'string', description: 'apply 必填：必须等于计划 fingerprint；同计划永不重发。' },
+    },
+    output: OUTPUT,
+    execute: guarded('jubian_model', args => modelMethod(client, ledger, args)),
   }))
 
   ctx.tools.register(defineTool({
     name: 'jubian_storyboard',
-    description: '剧变（Jubian）分镜查询与提交。get/create/save 免费（save 强制 isGenerate=0）。'
+    description: '剧变（Jubian）分镜查询与提交。get/create/save 免费（create/save 强制 isGenerate=0）。'
       + '**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。'
       + 'generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，'
       + '且它必须与该分镜已保存的时长一致，否则会在发请求前失败。'
       + '**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：'
       + 'select_assets 把选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；'
-      + 'prepare_video 只读实时分镜、主体设定与非 Mini Seedance 模型，'
+      + 'prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，'
+      + '按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，'
       + '在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；'
       + 'submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，'
       + 'PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），'
@@ -298,12 +432,13 @@ export function apply(ctx: Context, config: Config = {}): void {
       storyboard_id: ARGS.storyboard_id, content_duration_ms: ARGS.content_duration_ms,
       task_id: ARGS.task_id, script_id: ARGS.script_id,
       model_id: ARGS.model_id, task_name: ARGS.task_name,
+      episode: ARGS.episode, package_number: ARGS.package_number,
       video_width: ARGS.video_width, video_height: ARGS.video_height, subtitle_box: ARGS.subtitle_box,
-      body: ARGS.body, idempotency_key: ARGS.idempotency_key,
+      body: ARGS.body, body_path: ARGS.body_path, idempotency_key: ARGS.idempotency_key,
       selections: ARGS.selections, project_dir: ARGS.project_dir, preview_path: ARGS.preview_path,
     },
     output: OUTPUT,
-    execute: guarded('jubian_storyboard', args => storyboardMethod(client, ledger, args)),
+    execute: guarded('jubian_storyboard', args => storyboardMethod(client, ledger, args, { naming })),
   }))
 
   ctx.tools.register(defineTool({
@@ -318,9 +453,14 @@ export function apply(ctx: Context, config: Config = {}): void {
       + 'timeout 表示受理已计费但资产尚未 Active，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；'
       + 'failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。'
       + '账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；'
-      + '插件不替你挑平台：未在配置里指定 imagePlatformId/imageStandardId 且目录多于一行时，'
-      + '请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。'
-      + '**upscale 会真实计费（SeedVR2 视频高清，1 元/条）**：把低于交付分辨率的成片转成 1080p。'
+      + '插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行'
+      + '（platformId、standardId、单价）。锁定行由人在 Web 设置的「短剧 → 资产图生成通道」里选，'
+      + '或由部署在插件配置里给 imagePlatformId/imageStandardId；遇到这个报错时把候选念给用户，'
+      + '请他在设置里选一行，不要自己挑。'
+      + '**upscale 会真实计费（SeedVR2 视频高清，1 元/条）**：把成片转成 1080p。'
+      + 'SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。'
+      + '仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。'
+      + '普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。'
       + '它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，'
       + '之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。'
       + '**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；'
@@ -336,11 +476,44 @@ export function apply(ctx: Context, config: Config = {}): void {
       delivery_resolution: ARGS.delivery_resolution,
       asset_name: ARGS.asset_name, asset_type: ARGS.asset_type, prompt: ARGS.prompt,
       references: ARGS.references, parent_asset_id: ARGS.parent_asset_id,
+      episode: ARGS.episode, asset_category: ARGS.asset_category, package_number: ARGS.package_number,
       task_name: ARGS.task_name,
       idempotency_key: ARGS.idempotency_key,
     },
     output: OUTPUT,
-    execute: guarded('jubian_video', args => videoMethod(client, ledger, args, { image })),
+    execute: guarded('jubian_video', args => videoMethod(client, ledger, args, { image: image(), naming })),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'jubian_watch',
+    description: '只读后台观察已受理的剧变操作，立即返回 job_id；task_id 必须是本次生成/转高清/去字幕操作的任务 ID，'
+      + '不是源视频任务 ID。只读同一任务及其完整子结果，严格核对身份、阶段和成功状态；旧 URL 或 hdCount 不代表本次完成。'
+      + '完成后由 jobs 通知，用 job_output 取结果；job_kill 只停观察，不取消提供方操作。进程重启不恢复，超时失败不重投收费请求。'
+      + '提供方完成不等于视觉审核通过：结果仍需抽帧、音频和交付分辨率检查。',
+    parameters: {
+      task_id: { type: 'integer', required: true,
+        description: '已受理的本次操作任务 ID（正安全整数），不是源任务 ID。' },
+      stage: { type: 'string', required: true, enum: ['generate', 'upscale', 'erase_subtitle'],
+        description: '本次操作的阶段，必须与任务类型及全部输出一致。' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: false, properties: {
+        job_id: { type: 'string', required: true }, task_id: { type: 'integer', required: true },
+        stage: { type: 'string', enum: ['generate', 'upscale', 'erase_subtitle'], required: true },
+        status: { type: 'string', enum: ['running'], required: true },
+      } },
+      render: OUTPUT.render,
+    },
+    execute: async (args, exec) => {
+      const input = watchArgs(args)
+      const jobs = ctx.get('jobs')
+      if (!jobs) throw new Error('jubian_watch requires a jobs provider and job controller; other Jubian tools remain available')
+      if (!exec.agent) throw new Error('jubian_watch requires an owning Agent for completion delivery')
+      const job_id = jobs.start({ kind: 'jubian', owner: exec.agent,
+        label: `Jubian ${input.stage} operation ${input.task_id}`,
+        run: () => watchJob(client, input, watchConfig) })
+      return { job_id, ...input, status: 'running' as const }
+    },
   }))
 
   ctx.tools.register(defineTool({
