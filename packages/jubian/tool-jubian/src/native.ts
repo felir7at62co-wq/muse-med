@@ -622,8 +622,8 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
   const beforeTaskIds = beforeRecords.filter(record => isRelatedTaskCandidate(record, preview.scriptId,
     preview.storyboardId)).map(taskIdOf).filter((value): value is string => value !== null)
 
-  const state = { putFailed: false, reconciliationFailed: false }
-  let claim: NativeClaim = { status: 'none' }
+  const state = { putFailed: false, reconciliationFailed: false, sent: false, appearedIds: [] as string[],
+    claim: { status: 'none' } as NativeClaim }
   const result = await writeUnderLedger(ledger, key, 'storyboard_native_submit', () => preview.payload,
     async (payload): Promise<JubianResponse> => {
       let response: JubianResponse
@@ -637,24 +637,46 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
         state.putFailed = true
         return { transport: { http_status: null, application_code: null }, response_sha256: null, data: null }
       }
+      state.sent = true
       try {
         const afterRecords = await listAllVideoTasks(client, preview.scriptId)
+        // The tasks that appeared across the PUT, whether or not any of them could be
+        // claimed. An accepted PUT that claims nothing still created a task and may
+        // already have billed it, so these ids are the caller's only handle on it.
+        state.appearedIds = afterRecords.map(taskIdOf)
+          .filter((value): value is string => value !== null)
+          .filter(id => !beforeTaskIds.includes(id))
         const hydrated = await hydrateRelated(client, afterRecords, preview.scriptId, preview.storyboardId, preview.payload.episodeId)
-        claim = classifyNewNativeCandidates(hydrated, expectationOf(preview, beforeTaskIds))
+        state.claim = classifyNewNativeCandidates(hydrated, expectationOf(preview, beforeTaskIds))
       } catch {
         state.reconciliationFailed = true
       }
       return response
     })
+  const putSent = state.sent || result.replayed
+  const putOutcome = result.outcome
+  // An accepted PUT whose task no candidate could claim is not "nothing happened": the
+  // task exists and may already be billed. That case gets the verdict which states the PUT
+  // happened, and keeps the ambiguous claim in its own field so the caller still knows not
+  // to resubmit this preview.
+  const acceptedUnclaimed = putOutcome === 'accepted' && state.claim.status === 'reconcile_conflict'
   const report = state.reconciliationFailed
     ? { status: 'reconcile_required', task_id: null, result_urls: [] as string[],
       next: 'PUT 已发出但第二次快照或认领失败：只做对账。用同一个 preview 和同一个 key 再调一次 submit_video。' }
-    : claimReport(claim, preview)
+    : claimReport(state.claim, preview)
   return { ...result, preview_path: previewPath, idempotency_key: key,
-    ...report, status: state.putFailed ? 'reconcile_required' : report.status,
+    ...report,
+    status: state.putFailed || acceptedUnclaimed ? 'reconcile_required' : report.status,
+    put_sent: putSent,
+    put_outcome: putOutcome,
+    ...(acceptedUnclaimed ? { claim_status: 'reconcile_conflict' } : {}),
+    ...(state.appearedIds.length > 0 ? { new_task_ids: state.appearedIds } : {}),
     put_ambiguous: state.putFailed, before_task_ids: beforeTaskIds,
     next: state.putFailed
       ? 'PUT 的结果不明确（超时/5xx/连接中断）：没有任何自动重试，这个 key 也不会再发 PUT。'
         + '按上面的对账结果处理：submitted 就是已创建，否则继续用同一个 key 对账。'
-      : report.next }
+      : acceptedUnclaimed
+        ? 'PUT 已被提供方受理（很可能已计费），但没有一条候选能被完整认领：不要重新提交这个 preview。'
+          + '按 new_task_ids 回读那些新任务（jubian_video subtasks），或人工核对归属。'
+        : report.next }
 }

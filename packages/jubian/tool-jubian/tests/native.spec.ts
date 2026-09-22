@@ -207,6 +207,24 @@ describe('submit_video', () => {
       .toMatchObject({ storyboard_id_read: null, children: 1 })
   })
 
+  it('reports an accepted PUT it could not claim as reconcile_required, naming the task it created', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    provider.onPut = (payload) => {
+      provider.tasks = [{ id: 335500, scriptId: 2708, storyboardId: 916953, taskType: 1, taskStatus: 'submit' }]
+      // The task exists and may already be billed, but its settled child repeats a
+      // different identity: the claim conflicts even though the PUT was accepted.
+      provider.subtasks['335500'] = [childOf(payload, { aigcVideoTaskId: 335500,
+        imageMaterials: MATERIALS.map(material => ({ ...material, materialName: 'other' })) })]
+    }
+    const result = await submitVideoMethod(clientFor(provider), ledger, { preview_path: previewPath,
+      idempotency_key: idempotencyKey })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(result).toMatchObject({ replayed: false, outcome: 'accepted', put_sent: true, put_outcome: 'accepted',
+      status: 'reconcile_required', task_id: null, claim_status: 'reconcile_conflict', new_task_ids: ['335500'] })
+    expect(String(result.next)).toContain('已被提供方受理')
+  })
+
   it('submits exactly one PUT and claims the task it created', async () => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const { previewPath, idempotencyKey } = await prepared(provider)
