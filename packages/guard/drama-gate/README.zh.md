@@ -101,8 +101,9 @@ jubian_video.image_generate 会新建资产并真实计费，但先要有本项�
 
 - **写与计费方法必须带幂等键。** 对 `jubian_model` 的 `apply`、`jubian_storyboard` 的 `create`/`save`/`generate`/`erase_subtitle`、`jubian_video` 的 `image_generate`/`upscale`、`jubian_asset` 的 `confirm_casting`/`remove`，缺失或空白的 `idempotency_key` 会拒绝该调用，并复述流水线规则：补上键；结果不明时用同一个键重复，而不是换一个新键。
 - **镜头产物必须能按结构读取。** 在工作间的 `prompts/`、`matches/`、`episode_packages/` 中，明确的 `时长` 必须是安全正整数秒；允许省略时长供编译器估算。matched JSON 必须能解析、包含对象组成的 shots 数组，每镜 `script_duration` 或 `duration` 为正整数，给出的 `text` 为字符串。长镜头、慢台词、旁白与风格选择不拒绝。[`drama_shot`](../../drama/tool-shot-script/README.zh.md) 返回可操作的创作警告，并在编译时执行明确的分镜预算。
-- **付费分镜提交必须有正式资产。** 除非工作间下某个项目记录了 `official=true` 资产——`assets_manifest.json` 中的条目，或在没有 manifest 时 `pipeline_state.json` 里已完成的 `official_assets` 阶段——否则 `jubian_storyboard` 的 `generate` 会被拒绝。资产生成本身刻意不受本规则约束，因为它正是「还没有任何正式资产」时运行的那一步。
-- **新建计费资产前必须先对账项目。** 除非某个候选项目根下的 `_probe/asset-reconcile.json` 满足：`ran_at` 不超过 24 小时且不比时钟超前 5 分钟以上、`blocking` 与 `ignored_without_note` 都为空、`ready` 为真，否则 `jubian_video` 的 `image_generate` 会被拒绝。不带时区的时间戳按中国标准时间读取，也就是流水线工具写出的那个时区。证据来自流水线自己的只读对账——它才是把 `assets_manifest.json` 与剧变项目里已选用的资产逐条比对的那一步：清单记录的是我们生成过什么，而不是项目里有什么，只看清单的模型会重新生成一张早就存在的图。本规则只约束这一个方法；`erase_subtitle`、`upscale`、`confirm_casting` 与各只读方法仍由它们各自的规则管。
+- **付费分镜提交必须在它所指名的项目里有正式资产。** `jubian_storyboard` 的 `generate` 会先要求这次调用绑定到一个具体项目——用 `project_dir`，或用某个 `project_config.json` 声明的 `script_id`——然后要求那个项目记录 `official=true` 资产：`assets_manifest.json` 中的条目，或在没有 manifest 时 `pipeline_state.json` 里已完成的 `official_assets` 阶段。门禁放不到具体项目上的调用会被拒绝，并给出两种绑定方式，而不是拿「工作间里恰好有证据的某个项目」去判定。资产生成本身刻意不受本规则约束，因为它正是「还没有任何正式资产」时运行的那一步。
+- **新建计费资产前必须先对账它所指名的项目。** 除非调用按上面的方式绑定到的那个项目下有 `_probe/asset-reconcile.json` 满足：`ran_at` 不超过 24 小时且不比时钟超前 5 分钟以上、`blocking` 与 `ignored_without_note` 都为空、`ready` 为真，否则 `jubian_video` 的 `image_generate` 会被拒绝。不带时区的时间戳按中国标准时间读取，也就是流水线工具写出的那个时区。证据来自流水线自己的只读对账——它才是把 `assets_manifest.json` 与剧变项目里已选用的资产逐条比对的那一步：清单记录的是我们生成过什么，而不是项目里有什么，只看清单的模型会重新生成一张早就存在的图。本规则只约束这一个方法；`erase_subtitle`、`upscale`、`confirm_casting` 与各只读方法仍由它们各自的规则管。
+- **两条项目规则都按本次操作绑定，从不做搜索。** 上面两条规则只从调用本身解析出一个项目：注入的 `projectRoot`，其次是调用自己的 `project_dir`，再次是工作间里 `project_config.json` 声明了本次调用 `script_id` 的那个子项目。这里不会为了「让调用通过」去扫工作间——一个项目的证据不能给另一个项目的付费调用背书。
 - **已下线的 MUSE 工具名会得到回答，而不是被无视。** 调用注册表解析不到的 `drama`、`asset`、`shot`、`project`、`timeline` 或 `delivery` 时，会被拒绝并给出替代工具名，而不是让模型读到会被理解成「部署坏了」的裸 `UNKNOWN_TOOL`。
 
 ### 源码地图
@@ -110,7 +111,7 @@ jubian_video.image_generate 会新建资产并真实计费，但先要有本项�
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`Config` schema、快速失败的路径校验、宿主文件系统读取器与 `tools/pre-execute` 拦截器 |
-| [`src/rules.ts`](src/rules.ts) | 纯判定器：规则顺序、写方法/付费提交/资产新建三张表、工作间路径分类，以及正式资产与对账证据读取 |
+| [`src/rules.ts`](src/rules.ts) | 纯判定器：规则顺序、写方法/付费提交/资产新建三张表、工作间路径分类、本次操作的项目解析，以及正式资产与对账证据读取 |
 | [`src/shot-script.ts`](src/shot-script.ts) | 内容规则：`【镜头N】` 解析器、matched JSON 读取、有效字计数与全部拒绝文案 |
 | — | 不发布运行时不变式配套组件；门禁不拥有任何独立变化的观测值。它在调用之间不保存状态、不公开快照，其全部约定都是「调用 + 所读文件」的纯函数。 |
 
@@ -147,9 +148,9 @@ jubian_video.image_generate 会新建资产并真实计费，但先要有本项�
 - **只覆盖工具可见面**——短剧预设实际使用的付费分镜路径还会经过技能脚本（`select-storyboard-assets`、`prepare-storyboard-video`、`submit-storyboard-video`），它们从 shell 启动，从不经过工具调度，因此本门禁看不到它们。
 - **shell 写入完全绕过内容规则**——只有 `write` 与 `edit` 工具会被检查。由 shell 命令生成或复制的脚本改由编译器判定。
 - **工作间之外的写入不被检查**——内容规则只作用于 `<workspaceRoot>/<workshopDir>` 之下，且只在流水线写入的 `prompts/`、`matches/`、`episode_packages/` 目录内，因此归档的原始剧本与其他任何文件都不受影响。
-- **没有工作区根就没有文件规则**——会话没有声明工作目录、部署也没有配置兜底根时，内容规则、正式资产规则与对账规则都没有可判定的项目，会放行而不是拒绝；幂等键规则与下线工具名规则仍然生效。
-- **正式资产证据按工作间而非按镜头**——门禁证明的是工作间下某个项目有正式资产，而不是本次提交的镜头引用了这些资产。在工作间存放多个项目时，这项检查比字面读起来更弱。
-- **对账证据同样按工作间、且不认项目身份**——同一次搜索接受任何候选项目根，证据里的 `script_id` 也从不与正在写入的项目比对，因此在存放多个项目的工作间里，一个项目的新鲜报告会让另一个项目也能新建资产。
+- **没有工作区根就没有文件规则**——会话没有声明工作目录、部署也没有配置兜底根时，内容规则没有可判定的路径，`write` 与 `edit` 因此放行；两条项目规则反而会拒绝，因为「放不到具体项目上的付费调用」正是它们要拦的东西，拒绝文案会给出 `project_dir` 与 `script_id` 两种绑定方式。幂等键规则与下线工具名规则不受影响。
+- **正式资产证据按项目而非按镜头**——门禁证明的是调用所指名的项目里有正式资产，而不是本次提交的镜头引用了这些资产。它也信任调用方自己的绑定：一个指名项目 A、但 `storyboard_id` 属于项目 B 的调用，会被按 A 判定。
+- **对账报告不与它所在的项目比对**——门禁读取的是调用所指名项目下的 `_probe/asset-reconcile.json`，但从不用该项目的 `project_config.json` 去核对报告里的 `script_id`，所以一份被复制到错误项目目录里的报告仍然算数。
 - **对账只覆盖本项目**——它比对的是 `assets_manifest.json` 与剧变项目里已选用的资产。别的项目里现成资产能否复用是另一次检索（asset-library 技能与报告自带的 `cross_project_note`），本门禁从不读那个字段。
 - **只校验 `official` 标记本身**——拒绝文案同时说明资产需要剧变 asset/material id 与 URL，但检查只读该标记，因此 `official: true` 的记录即使 id 已失效或缺失也仍然通过。
 - **创作警告属于编译器结果**——文件拦截器不向成功写入追加建议；调用 `drama_shot validate/preview/compile` 复核节奏、发声与提示词建议。

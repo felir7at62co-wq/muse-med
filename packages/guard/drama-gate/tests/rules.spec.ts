@@ -3,7 +3,8 @@ import { join } from 'node:path'
 import { evaluateCall } from '@deepseek-ai/dsh-guard-drama'
 import type { GateCall, GateDecision, GateReader } from '@deepseek-ai/dsh-guard-drama'
 import {
-  ALL_ON, MATCHED, PROJECT, PROMPTS, RECONCILE, WORKSHOP, WORKSPACE, block, call, fakeReader, han, matchedJson,
+  ALL_ON, MATCHED, PROJECT, PROJECT_CONFIG, PROJECT_CONFIG_TEXT, PROMPTS, RECONCILE, SCRIPT_ID, WORKSHOP, WORKSPACE,
+  block, call, fakeReader, han, matchedJson, projectReader,
 } from './harness.ts'
 
 /**
@@ -315,75 +316,103 @@ describe('edit simulation', () => {
 
 describe('official assets before a paid submission', () => {
   const manifest = (official: boolean): string => JSON.stringify({ assets: [{ name: '方恒', official }] })
+  const MANIFEST = join(PROJECT, 'assets_manifest.json')
+  const STATE = join(PROJECT, 'pipeline_state.json')
 
-  /** A `jubian_storyboard.generate` call with a valid key. */
-  function submit(overrides: Partial<GateCall> = {}): GateDecision {
+  /** A `jubian_storyboard.generate` call that names its project, with a valid key. */
+  function submit(overrides: Partial<GateCall> = {}, files: Readonly<Record<string, string>> = {}): GateDecision {
     return evaluateCall(call({
       toolName: 'jubian_storyboard',
-      arguments: { method: 'generate', idempotency_key: 'k', content_duration_ms: 12000, storyboard_id: 1 },
+      arguments: {
+        method: 'generate', idempotency_key: 'k', content_duration_ms: 12000, storyboard_id: 1, script_id: SCRIPT_ID,
+      },
+      reader: projectReader(files),
       ...overrides,
     }))
   }
 
-  it('denies when no official asset record exists anywhere in the workshop', () => {
+  it("denies when the call's own project holds no official asset record", () => {
     const text = reason(submit())
-    expect(text).toContain('jubian_storyboard.generate 会真实计费，但工作间里找不到 official=true 的正式资产记录')
+    expect(text).toContain('jubian_storyboard.generate 会真实计费，但这个项目里找不到 official=true 的正式资产记录')
     expect(text).toContain('先走资产三阶段门禁')
   })
 
   it('denies when the manifest exists but lists no official asset', () => {
-    const reader = fakeReader({ [join(PROJECT, 'assets_manifest.json')]: manifest(false) }, { [WORKSHOP]: ['demo-drama'] })
-    expect(submit({ reader }).kind).toBe('deny')
+    expect(submit({}, { [MANIFEST]: manifest(false) }).kind).toBe('deny')
   })
 
-  it('allows a manifest at the workshop root', () => {
-    const reader = fakeReader({ [join(WORKSHOP, 'assets_manifest.json')]: manifest(true) })
-    expect(submit({ reader })).toEqual({ kind: 'allow' })
+  it("does not read a manifest from another project's directory", () => {
+    // Only the project the call names carries evidence; a sibling's manifest is
+    // not evidence for this submission, which is the whole point of the binding.
+    const sibling = join(WORKSHOP, 'other-drama')
+    const reader = fakeReader(
+      { [PROJECT_CONFIG]: PROJECT_CONFIG_TEXT, [join(sibling, 'assets_manifest.json')]: manifest(true) },
+      { [WORKSHOP]: ['demo-drama', 'other-drama'] },
+    )
+    expect(reason(submit({ reader }))).toContain('找不到 official=true 的正式资产记录')
   })
 
-  it('allows a manifest inside a child project directory', () => {
-    const reader = fakeReader({ [join(PROJECT, 'assets_manifest.json')]: manifest(true) }, { [WORKSHOP]: ['demo-drama'] })
-    expect(submit({ reader })).toEqual({ kind: 'allow' })
+  it('does not read a manifest from the workshop root', () => {
+    const reader = projectReader({ [join(WORKSHOP, 'assets_manifest.json')]: manifest(true) })
+    expect(reason(submit({ reader }))).toContain('找不到 official=true')
+  })
+
+  it('allows a manifest in the project the call names', () => {
+    expect(submit({}, { [MANIFEST]: manifest(true) })).toEqual({ kind: 'allow' })
+  })
+
+  it('binds a call that names the project by project_dir instead of script_id', () => {
+    const decision = evaluateCall(call({
+      toolName: 'jubian_storyboard',
+      arguments: { method: 'generate', idempotency_key: 'k', project_dir: PROJECT },
+      reader: projectReader({ [MANIFEST]: manifest(true) }),
+    }))
+    expect(decision).toEqual({ kind: 'allow' })
   })
 
   it('allows a bare array manifest', () => {
-    const reader = fakeReader({ [join(PROJECT, 'assets_manifest.json')]: JSON.stringify([{ official: true }]) }, { [WORKSHOP]: ['demo-drama'] })
-    expect(submit({ reader })).toEqual({ kind: 'allow' })
+    expect(submit({}, { [MANIFEST]: JSON.stringify([{ official: true }]) })).toEqual({ kind: 'allow' })
   })
 
   it('allows a manifest whose assets are keyed by id', () => {
     const assets = { assets: { fang: { official: true } } }
-    const reader = fakeReader({ [join(PROJECT, 'assets_manifest.json')]: JSON.stringify(assets) }, { [WORKSHOP]: ['demo-drama'] })
-    expect(submit({ reader })).toEqual({ kind: 'allow' })
+    expect(submit({}, { [MANIFEST]: JSON.stringify(assets) })).toEqual({ kind: 'allow' })
   })
 
   it('falls back to a completed official_assets stage when no manifest exists', () => {
     const state = JSON.stringify({ version: 3, stages: { official_assets: { status: 'completed' } } })
-    const reader = fakeReader({ [join(PROJECT, 'pipeline_state.json')]: state }, { [WORKSHOP]: ['demo-drama'] })
-    expect(submit({ reader })).toEqual({ kind: 'allow' })
+    expect(submit({}, { [STATE]: state })).toEqual({ kind: 'allow' })
   })
 
   it('accepts a per-episode official_assets completion', () => {
     const state = JSON.stringify({ version: 3, stages: {}, episodes: { '01': { official_assets: { status: 'completed' } } } })
-    const reader = fakeReader({ [join(PROJECT, 'pipeline_state.json')]: state }, { [WORKSHOP]: ['demo-drama'] })
-    expect(submit({ reader })).toEqual({ kind: 'allow' })
+    expect(submit({}, { [STATE]: state })).toEqual({ kind: 'allow' })
   })
 
   it('does not accept a merely running official_assets stage', () => {
     const state = JSON.stringify({ stages: { official_assets: { status: 'running' } } })
-    const reader = fakeReader({ [join(PROJECT, 'pipeline_state.json')]: state }, { [WORKSHOP]: ['demo-drama'] })
-    expect(submit({ reader }).kind).toBe('deny')
+    expect(submit({}, { [STATE]: state }).kind).toBe('deny')
   })
 
   it('ignores unreadable or malformed evidence', () => {
-    const reader = fakeReader({ [join(PROJECT, 'assets_manifest.json')]: '{ not json' }, { [WORKSHOP]: ['demo-drama'] })
-    expect(submit({ reader }).kind).toBe('deny')
+    expect(submit({}, { [MANIFEST]: '{ not json' }).kind).toBe('deny')
   })
 
-  it('prefers an explicit projectRoot over the workshop root', () => {
+  it('reads an injected projectRoot instead of resolving the call arguments', () => {
     const explicit = join(WORKSPACE, 'elsewhere')
     const reader = fakeReader({ [join(explicit, 'assets_manifest.json')]: manifest(true) })
     expect(submit({ reader, projectRoot: explicit })).toEqual({ kind: 'allow' })
+  })
+
+  it('denies a paid submission the gate cannot bind to a project', () => {
+    const text = reason(submit({ arguments: { method: 'generate', idempotency_key: 'k', storyboard_id: 1 } }))
+    expect(text).toContain('门禁无法核对它引用的资产')
+    expect(text).toContain('请在调用里给出 project_dir（项目根目录）或 script_id（剧变项目 ID）')
+  })
+
+  it('denies a script_id that matches no project of the workshop', () => {
+    const text = reason(submit({ arguments: { method: 'generate', idempotency_key: 'k', script_id: 9999 } }))
+    expect(text).toContain('门禁无法核对它引用的资产')
   })
 
   it('does not block asset generation, which runs before any official asset exists', () => {
@@ -401,20 +430,25 @@ describe('official assets before a paid submission', () => {
     expect(submit({ arguments: { method: 'get', storyboard_id: 1 } })).toEqual({ kind: 'allow' })
   })
 
-  it('allows when no workspace root can be resolved', () => {
-    expect(submit({ sessionCwd: undefined, configuredRoot: undefined })).toEqual({ kind: 'allow' })
+  it('refuses to guess a project when no workspace root can be resolved', () => {
+    // Without one, neither `project_dir` nor a search by `script_id` has a base
+    // directory, so the call cannot be placed and the gate says so rather than
+    // allowing it on the assumption that some project somewhere would qualify.
+    const text = reason(submit({ sessionCwd: undefined, configuredRoot: undefined }))
+    expect(text).toContain('找不到工作目录')
+    expect(text).toContain('门禁无法核对它引用的资产')
   })
 
   it('falls back to the configured root when the session states no cwd', () => {
-    const reader = fakeReader({ [`${PROJECT}\\assets_manifest.json`]: manifest(true) }, { [WORKSHOP]: ['demo-drama'] })
-    expect(submit({ sessionCwd: undefined, configuredRoot: WORKSPACE, reader })).toEqual({ kind: 'allow' })
+    expect(submit({ sessionCwd: undefined, configuredRoot: WORKSPACE }, { [MANIFEST]: manifest(true) }))
+      .toEqual({ kind: 'allow' })
   })
 
   it('falls through a relative session cwd to the configured root', () => {
-    const reader = fakeReader({ [join(PROJECT, 'assets_manifest.json')]: manifest(true) }, { [WORKSHOP]: ['demo-drama'] })
+    const reader = projectReader({ [MANIFEST]: manifest(true) })
     expect(submit({ sessionCwd: 'relative/path', configuredRoot: WORKSPACE, reader })).toEqual({ kind: 'allow' })
-    expect(submit({ sessionCwd: 'relative/path', configuredRoot: WORKSPACE }).kind).toBe('deny')
-    expect(submit({ sessionCwd: '   ', configuredRoot: WORKSPACE }).kind).toBe('deny')
+    expect(submit({ sessionCwd: 'relative/path', configuredRoot: WORKSPACE, reader: projectReader() }).kind).toBe('deny')
+    expect(submit({ sessionCwd: '   ', configuredRoot: WORKSPACE, reader: projectReader() }).kind).toBe('deny')
   })
 
   it('honors the switch', () => {
@@ -426,7 +460,7 @@ describe('a project reconcile before creating a paid asset', () => {
   /** One reconcile report as the pipeline's tool writes it, `minutesAgo` minutes old. */
   function report(overrides: Record<string, unknown> = {}, minutesAgo = 0): Record<string, unknown> {
     return {
-      script_id: 2708,
+      script_id: SCRIPT_ID,
       ran_at: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
       unregistered: [],
       dangling: [],
@@ -439,16 +473,19 @@ describe('a project reconcile before creating a paid asset', () => {
     }
   }
 
-  /** The reader of a workshop whose only project holds that evidence text. */
+  /** The reader of a workshop whose only project is {@link PROJECT}, holding that evidence text. */
   function withEvidence(content: string): GateReader {
-    return fakeReader({ [RECONCILE]: content }, { [WORKSHOP]: ['demo-drama'] })
+    return projectReader({ [RECONCILE]: content })
   }
 
-  /** A `jubian_video.image_generate` call carrying a key, as the pipeline sends it. */
+  /** A `jubian_video.image_generate` call carrying a key and its project, as the pipeline sends it. */
   function generate(overrides: Partial<GateCall> = {}): GateDecision {
     return evaluateCall(call({
       toolName: 'jubian_video',
-      arguments: { method: 'image_generate', asset_name: 'a', asset_type: 1, prompt: 'p', idempotency_key: 'k' },
+      arguments: {
+        method: 'image_generate', asset_name: 'a', asset_type: 1, prompt: 'p', idempotency_key: 'k', script_id: SCRIPT_ID,
+      },
+      reader: projectReader(),
       ...overrides,
     }))
   }
@@ -536,21 +573,29 @@ describe('a project reconcile before creating a paid asset', () => {
     expect(generate({ reader, projectRoot: explicit })).toEqual({ kind: 'allow' })
   })
 
-  it('accepts evidence found under any project of the workshop', () => {
-    // The search is per workshop, not per project: a sibling's fresh evidence
-    // satisfies the rule for a project that has none. The README records it.
+  it("does not accept a sibling project's evidence", () => {
+    // The evidence is per project: a sibling's fresh reconcile says nothing about
+    // what this project's remote side already contains, so it cannot authorize
+    // creating an asset here.
     const sibling = join(WORKSHOP, 'other-drama')
     const reader = fakeReader(
-      { [join(sibling, '_probe', 'asset-reconcile.json')]: JSON.stringify(report()) },
-      { [WORKSHOP]: ['other-drama'] },
+      { [PROJECT_CONFIG]: PROJECT_CONFIG_TEXT, [join(sibling, '_probe', 'asset-reconcile.json')]: JSON.stringify(report()) },
+      { [WORKSHOP]: ['demo-drama', 'other-drama'] },
     )
-    expect(generate({ reader })).toEqual({ kind: 'allow' })
+    expect(reason(generate({ reader }))).toContain('没有 _probe/asset-reconcile.json')
   })
 
-  it('reports the unusable candidate rather than the absent one', () => {
+  it('names exactly the one project it judged', () => {
     const text = reason(generate({ reader: withEvidence(JSON.stringify(report({}, 25 * 60))) }))
     expect(text).toContain('对账已过期')
-    expect(text).toContain(`已查：${WORKSHOP}、${PROJECT}`)
+    expect(text.match(/已查：/g)).toHaveLength(1)
+    expect(text).toContain(`已查：${PROJECT}`)
+  })
+
+  it('denies an asset creation the gate cannot bind to a project', () => {
+    const text = reason(generate({ arguments: { method: 'image_generate', idempotency_key: 'k' } }))
+    expect(text).toContain('这次调用没有说明它属于哪个项目')
+    expect(text).toContain('请在调用里给出 project_dir（项目根目录）或 script_id（剧变项目 ID）')
   })
 
   it('leaves a read method alone', () => {
@@ -560,14 +605,13 @@ describe('a project reconcile before creating a paid asset', () => {
   })
 
   it('leaves every other paid method alone', () => {
-    const manifest = fakeReader(
-      { [join(PROJECT, 'assets_manifest.json')]: JSON.stringify({ assets: [{ official: true }] }) },
-      { [WORKSHOP]: ['demo-drama'] },
-    )
+    // The official-asset rule is the one that judges those submissions, so it is
+    // switched off here to isolate this rule.
+    const switches = { ...ALL_ON, officialAssets: false }
     expect(evaluateCall(call({
       toolName: 'jubian_storyboard',
       arguments: { method: 'generate', idempotency_key: 'k' },
-      reader: manifest,
+      switches,
     }))).toEqual({ kind: 'allow' })
     const OTHERS: [string, Record<string, unknown>][] = [
       ['jubian_storyboard', { method: 'erase_subtitle', idempotency_key: 'k' }],
@@ -576,7 +620,7 @@ describe('a project reconcile before creating a paid asset', () => {
       ['jubian_asset', { method: 'remove', idempotency_key: 'k' }],
     ]
     for (const [toolName, args] of OTHERS) {
-      expect(evaluateCall(call({ toolName, arguments: args }))).toEqual({ kind: 'allow' })
+      expect(evaluateCall(call({ toolName, arguments: args, switches }))).toEqual({ kind: 'allow' })
     }
   })
 
@@ -584,8 +628,10 @@ describe('a project reconcile before creating a paid asset', () => {
     expect(evaluateCall(call({ toolName: 'jubian_video', arguments: { method: 7 } }))).toEqual({ kind: 'allow' })
   })
 
-  it('allows when no workspace root can be resolved', () => {
-    expect(generate({ sessionCwd: undefined, configuredRoot: undefined })).toEqual({ kind: 'allow' })
+  it('refuses to guess a project when no workspace root can be resolved', () => {
+    const text = reason(generate({ sessionCwd: undefined, configuredRoot: undefined }))
+    expect(text).toContain('找不到工作目录')
+    expect(text).toContain('门禁无法核对它引用的资产')
   })
 
   it('honors the switch', () => {

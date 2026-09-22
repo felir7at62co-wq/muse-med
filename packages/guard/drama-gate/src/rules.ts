@@ -102,6 +102,9 @@ const EDIT_TOOL = 'edit'
 
 /** The canonical project artifacts the official-asset gate reads. */
 const ASSETS_MANIFEST = 'assets_manifest.json'
+
+/** Project file that binds a directory to one Jubian project. */
+const PROJECT_CONFIG = 'project_config.json'
 const PIPELINE_STATE = 'pipeline_state.json'
 
 /** The stage whose completion is accepted as official-asset evidence when no manifest exists. */
@@ -160,23 +163,34 @@ function idempotencyRefusal(call: GateCall): string | undefined {
     + '补上 idempotency_key 后重发；如果上一次调用的结果不明，用同一个 key 再调一次，不要换 key 重发。'
 }
 
-/** Refuse a paid storyboard submission while the workshop holds no official asset record. */
+/** Refuse a paid storyboard submission while its own project holds no official asset record. */
 function officialAssetRefusal(call: GateCall): string | undefined {
   const methods = PAID_SUBMISSIONS[call.toolName]
   const method = calledMethod(call)
   if (methods === undefined || method === undefined || !methods.includes(method)) return undefined
   const workspace = workspaceRoot(call)
-  // Without a root there is nothing to read, and a gate that refused every paid
-  // call in a deployment whose sessions state no cwd would be a worse defect
-  // than the one it prevents. The README records the boundary.
-  if (workspace === undefined) return undefined
-  const workshopRoot = resolve(workspace, call.workshopDir)
-  const roots = projectRoots(call, workshopRoot)
-  if (hasOfficialAssetEvidence(roots, call.reader)) return undefined
-  return `${call.toolName}.${method} 会真实计费，但工作间里找不到 official=true 的正式资产记录`
-    + `（已查：${roots.join('、')}）。镜头与视频只能引用 official=true 且有剧变 asset/material id 与 URL 的资产；`
+  if (workspace === undefined) return unboundRefusal(call, method, '找不到工作目录')
+  const project = operationProject(call, resolve(workspace, call.workshopDir))
+  if (project === undefined) return unboundRefusal(call, method, '这次调用没有说明它属于哪个项目')
+  if (hasOfficialAssetEvidence([project], call.reader)) return undefined
+  return `${call.toolName}.${method} 会真实计费，但这个项目里找不到 official=true 的正式资产记录（已查：${project}）。`
+    + '镜头与视频只能引用 official=true 且有剧变 asset/material id 与 URL 的资产；'
     + '先走资产三阶段门禁（写提示词 → 生图 → 候选审核 → 确认出演 / isLocal 主体设定门禁），'
-    + '把 official 记录写进 assets_manifest.json 后再提交。'
+    + '把 official 记录写进该项目的 assets_manifest.json 后再提交。'
+}
+
+/**
+ * Refuse a side-effecting call the gate cannot bind to one project.
+ *
+ * The check used to pass whenever *any* project in the workshop carried the evidence,
+ * so one project's manifest could authorize another project's paid call. Binding by the
+ * operation is what makes the evidence mean what it says; a call the gate cannot place
+ * is refused with the two ways to place it rather than allowed on a guess.
+ */
+function unboundRefusal(call: GateCall, method: string, cause: string): string {
+  return `${call.toolName}.${method} 会真实计费或改变项目内容，但${cause}，门禁无法核对它引用的资产。`
+    + '请在调用里给出 project_dir（项目根目录）或 script_id（剧变项目 ID），'
+    + '让本次操作绑定到一个具体项目后重试；普通查询与草稿编辑不受此限制。'
 }
 
 /**
@@ -190,15 +204,13 @@ function reconcileRefusal(call: GateCall): string | undefined {
   const method = calledMethod(call)
   if (methods === undefined || method === undefined || !methods.includes(method)) return undefined
   const workspace = workspaceRoot(call)
-  // Same boundary as the official-asset rule: with no root there is no project to
-  // reconcile, and a refusal the session cannot repair is a worse defect than the
-  // regeneration this rule prevents. The README records the boundary.
-  if (workspace === undefined) return undefined
-  const roots = projectRoots(call, resolve(workspace, call.workshopDir))
-  const states = roots.map(root => reconcileState(join(root, RECONCILE_PROBE_DIR, RECONCILE_FILE), call.reader))
-  if (states.some(state => state.kind === 'ready')) return undefined
-  return `${call.toolName}.${method} 会新建资产并真实计费，但先要有本项目的资产对账证据：${describeReconcile(states)}`
-    + `（已查：${roots.join('、')}）。清单只记录我们生成过什么，不等于剧变项目里已经有什么；`
+  if (workspace === undefined) return unboundRefusal(call, method, '找不到工作目录')
+  const project = operationProject(call, resolve(workspace, call.workshopDir))
+  if (project === undefined) return unboundRefusal(call, method, '这次调用没有说明它属于哪个项目')
+  const state = reconcileState(join(project, RECONCILE_PROBE_DIR, RECONCILE_FILE), call.reader)
+  if (state.kind === 'ready') return undefined
+  return `${call.toolName}.${method} 会新建资产并真实计费，但先要有本项目的资产对账证据：${describeReconcile(state)}`
+    + `（已查：${project}）。清单只记录我们生成过什么，不等于剧变项目里已经有什么；`
     + '先在项目根跑一次对账：`python _tools/asset_reconcile.py`。'
     + '对账列出的「远端已选用、清单里没有」的资产不要重新生成，登记进 assets_manifest.json 复用；'
     + '确认不需要的写明原因：`python _tools/asset_reconcile.py --dispose <asset_id> --status ignored --note "为什么不需要"`。'
@@ -259,12 +271,9 @@ function nonEmptyList(value: unknown): readonly unknown[] | undefined {
   return Array.isArray(value) && value.length > 0 ? value : undefined
 }
 
-/** The one shortcoming a refusal reports: the first candidate that has evidence, else its absence everywhere. */
-function describeReconcile(states: readonly ReconcileState[]): string {
-  for (const state of states) {
-    if (state.kind === 'unusable') return state.why
-  }
-  return `没有 ${RECONCILE_LABEL}`
+/** One state's shortcoming: why its evidence is unusable, else that it is missing. */
+function describeReconcile(state: ReconcileState): string {
+  return state.kind === 'unusable' ? state.why : `没有 ${RECONCILE_LABEL}`
 }
 
 /** Refuse a write/edit whose resulting text would violate the shot-script or matched-JSON contract. */
@@ -333,6 +342,42 @@ function calledMethod(call: GateCall): string | undefined {
   return normalized.length === 0 ? undefined : normalized
 }
 
+/**
+ * The one project a call operates on, resolved from the call itself.
+ *
+ * In order: an explicit `projectRoot` the caller injected, then the call's own
+ * `project_dir` argument, then the project among the workshop's children whose
+ * `project_config.json` declares the `script_id` the call names. Nothing here
+ * searches sideways — a call that names no project yields no project, which is what
+ * stops one project's evidence from authorizing another project's operation.
+ * @param call - The pending call and its readers.
+ * @param workshopRoot - Directory holding the drama projects.
+ * @returns The project root, or undefined when the call does not identify one.
+ */
+function operationProject(call: GateCall, workshopRoot: string): string | undefined {
+  const explicit = call.projectRoot
+  if (typeof explicit === 'string' && explicit.trim().length > 0 && isAbsolute(explicit)) return resolve(explicit)
+  const args = record(call.arguments)
+  const directory = args?.['project_dir']
+  if (typeof directory === 'string' && directory.trim().length > 0) {
+    return isAbsolute(directory) ? resolve(directory) : resolve(workshopRoot, directory)
+  }
+  const wanted = Number(args?.['script_id'])
+  if (args?.['script_id'] !== undefined && Number.isFinite(wanted)) {
+    for (const name of call.reader.listDirectoryNames(workshopRoot)) {
+      const candidate = resolve(workshopRoot, name)
+      if (projectScriptId(join(candidate, PROJECT_CONFIG), call.reader) === wanted) return candidate
+    }
+  }
+  return undefined
+}
+
+/** The project id one `project_config.json` declares, or undefined when it names none. */
+function projectScriptId(path: string, reader: GateReader): number | undefined {
+  const declared = Number(record(parsedJson(reader.readText(path)))?.['jubian_script_id'])
+  return Number.isFinite(declared) ? declared : undefined
+}
+
 /** The root the gate resolves paths against: the session's stated cwd, then the configured fallback. */
 function workspaceRoot(call: GateCall): string | undefined {
   const stated = call.sessionCwd
@@ -342,16 +387,6 @@ function workspaceRoot(call: GateCall): string | undefined {
   return undefined
 }
 
-/** Every project root worth reading: the explicit one, the workshop root, then each immediate child. */
-function projectRoots(call: GateCall, workshopRoot: string): string[] {
-  const roots: string[] = []
-  const explicit = call.projectRoot
-  if (typeof explicit === 'string' && explicit.trim().length > 0 && isAbsolute(explicit)) roots.push(resolve(explicit))
-  for (const candidate of [workshopRoot, ...call.reader.listDirectoryNames(workshopRoot).map(name => resolve(workshopRoot, name))]) {
-    if (!roots.includes(candidate)) roots.push(candidate)
-  }
-  return roots
-}
 
 /** Whether any candidate root carries an official-asset record, preferring a manifest over a state file. */
 function hasOfficialAssetEvidence(roots: readonly string[], reader: GateReader): boolean {

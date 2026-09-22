@@ -35,6 +35,8 @@ async function harness(names: readonly string[], config: Config = {}): Promise<{
         idempotency_key: { type: 'string' },
         file_path: { type: 'string' },
         content: { type: 'string' },
+        script_id: { type: 'number' },
+        project_dir: { type: 'string' },
       },
       async execute() {
         ran.set(name, (ran.get(name) ?? 0) + 1)
@@ -111,18 +113,34 @@ describe('the gate intercepts real dispatch', () => {
     expect(JSON.stringify(result.content)).toContain('已下线的 MUSE 工具名')
   })
 
-  it('refuses a paid asset creation while the project has no reconcile evidence', async () => {
-    // The configured root stands in for the session cwd a dispatched call lacks.
+  it('refuses a paid asset creation while the project it names has no reconcile evidence', async () => {
+    // The configured root stands in for the session cwd a dispatched call lacks;
+    // `project_dir` is what binds the operation to one project.
     const { ctx, ran } = await harness(['jubian_video'], { workspaceRoot: WORKSPACE })
     const result = await ctx.tools.execute({
       signal,
       callId: ToolCallId('c7'),
       name: 'jubian_video',
-      arguments: { method: 'image_generate', idempotency_key: 'k' },
+      arguments: {
+        method: 'image_generate', idempotency_key: 'k', project_dir: join(WORKSPACE, 'short-drama', 'demo'),
+      },
     })
     expect(result.isError).toBe(true)
     expect(ran.get('jubian_video')).toBeUndefined()
     expect(JSON.stringify(result.content)).toContain('asset_reconcile.py')
+  })
+
+  it('refuses a paid asset creation that names no project at all', async () => {
+    const { ctx, ran } = await harness(['jubian_video'], { workspaceRoot: WORKSPACE })
+    const result = await ctx.tools.execute({
+      signal,
+      callId: ToolCallId('c8'),
+      name: 'jubian_video',
+      arguments: { method: 'image_generate', idempotency_key: 'k' },
+    })
+    expect(result.isError).toBe(true)
+    expect(ran.get('jubian_video')).toBeUndefined()
+    expect(JSON.stringify(result.content)).toContain('门禁无法核对它引用的资产')
   })
 
   it('honors a switch, letting the same call through when the rule is off', async () => {
@@ -131,7 +149,7 @@ describe('the gate intercepts real dispatch', () => {
       signal,
       callId: ToolCallId('c6'),
       name: 'jubian_storyboard',
-      arguments: { method: 'generate' },
+      arguments: { method: 'save', idempotency_key: 'k' },
     })
     expect(result.isError).toBe(false)
     expect(ran.get('jubian_storyboard')).toBe(1)
