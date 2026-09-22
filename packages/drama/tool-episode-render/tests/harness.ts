@@ -88,62 +88,6 @@ export function stubChannel(handlers: readonly StubHandler[]): StubChannel {
   return { channel, calls }
 }
 
-/** One speaking stretch a stub clip's samples carry. */
-export interface SpeechSpan {
-  /** Stretch start, seconds from the clip start; a multiple of the analysis frame. */
-  readonly start: number
-  /** Stretch end, seconds from the clip start; a multiple of the analysis frame. */
-  readonly end: number
-}
-
-/** One stub clip's synthesized audio. */
-export interface ClipAudio {
-  /** Clip length in seconds. */
-  readonly seconds: number
-  /** Stretches in which the clip speaks; the rest carries a quiet floor. */
-  readonly spans?: readonly SpeechSpan[]
-  /** Amplitude of the clip's own floor; defaults to a nearly silent one. */
-  readonly floorAmplitude?: number
-}
-
-/** Amplitude of a speaking frame; loud enough to clear any derived level. */
-const SPEAKING_AMPLITUDE = 8000
-
-/** Amplitude of a silent frame; the clip's own floor the analysis must derive. */
-const SILENT_AMPLITUDE = 30
-
-/**
- * Build the handler that answers the speech analysis's PCM decode.
- *
- * The command writes raw mono samples to the file named last, which is what the
- * analysis then measures, so a stub clip speaks exactly where its table says.
- * @param clips - Clip audio keyed by input path.
- * @returns The handler; an unregistered path answers like a missing file.
- */
-export function pcmHandler(clips: Readonly<Record<string, ClipAudio>>): StubHandler {
-  const table = new Map(Object.entries(clips).map(([path, value]) => [slash(path), value]))
-  return (call) => {
-    const formatAt = call.args.indexOf('-f')
-    if (call.command !== 'ffmpeg' || call.args[formatAt + 1] !== 's16le') return undefined
-    const input = call.args[call.args.indexOf('-i') + 1] ?? ''
-    const clip = table.get(slash(input))
-    if (clip === undefined) return { code: 1, stderr: `No such file or directory: ${input}` }
-    const rate = Number(call.args[call.args.indexOf('-ar') + 1] ?? 16_000)
-    const frame = Math.max(1, Math.round(rate * 0.02))
-    const frames = Math.max(1, Math.round(clip.seconds / 0.02))
-    const samples = Buffer.alloc(frames * frame * 2)
-    const floor = clip.floorAmplitude ?? SILENT_AMPLITUDE
-    for (let index = 0; index < frames; index += 1) {
-      const at = index * 0.02
-      const speaking = (clip.spans ?? []).some(span => at >= span.start && at < span.end)
-      const value = speaking ? SPEAKING_AMPLITUDE : floor
-      for (let offset = 0; offset < frame; offset += 1) samples.writeInt16LE(value, (index * frame + offset) * 2)
-    }
-    const target = outputPath(call)
-    return { after: async () => { await mkdir(dirname(target), { recursive: true }); await writeFile(target, samples) } }
-  }
-}
-
 /** The last argument of a call, which is the output path of every command this package builds. */
 export function outputPath(call: ChannelCall): string {
   return call.args[call.args.length - 1] ?? ''

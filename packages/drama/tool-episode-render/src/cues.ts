@@ -1,14 +1,14 @@
 /**
- * Build one episode's subtitle from the shots' own audio.
+ * Build one episode's subtitle from a recognition alignment.
  *
  * `prepare` consumes an SRT and `render` burns it; this module is the step that
- * produces that SRT. Each shot's own audio is analysed by an adaptive level
- * derived from that clip, the detected stretches carry the lines the shot script
- * already declared, and recognition output — when one is supplied — only settles
- * their times. No recognizer text reaches a cue: the words are the script's.
+ * produces that SRT. The line plan says what each shot says and the alignment
+ * document says when — the two are checked against each other, and only then do
+ * the cues land on the episode clock. The words in a cue are always the script's.
  *
- * A shot whose audio speaks while the plan declares no line for it is reported
- * rather than silently dropped, because that is how a delivery loses a line.
+ * A shot whose alignment speaks while the plan declares no line for it is
+ * reported rather than silently dropped, because that is how a delivery loses a
+ * line, and a declared line the alignment does not cover blocks the same way.
  *
  * @module @deepseek-ai/dsh-tool-episode-render/cues
  */
@@ -17,15 +17,8 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { parseShotManifest, readJsonDocument, resolveShots } from './prepare.ts'
 import type { ResolvedShot } from './prepare.ts'
-import {
-  cueRateFindings,
-  parseAlignment,
-  parseLinePlan,
-  placeAlignedCues,
-  placeShotCues,
-} from './speech.ts'
+import { cueRateFindings, effectiveCharacterCount, parseAlignment, parseLinePlan, placeAlignedCues } from './speech.ts'
 import type { AlignedCue, CueRateFinding, PlacedCue, ShotPlacement } from './speech.ts'
-import { detectSpeechRegions } from './vad.ts'
 import { formatSrtDocument } from './subtitles.ts'
 import { appendClips } from './timeline.ts'
 import type { MediaToolkit, SubtitleCue, Timeline } from './types.ts'
@@ -42,8 +35,8 @@ export interface CueBuildInput {
   readonly shotsPath: string
   /** Absolute path of the per-shot line plan. */
   readonly linesPath: string
-  /** Absolute path of an alignment document, or `undefined` to measure every shot. */
-  readonly alignmentPath?: string | undefined
+  /** Absolute path of the per-shot alignment document. */
+  readonly alignmentPath: string
   /** Absolute path of the SRT to write. */
   readonly subtitleSrt: string
 }
@@ -92,7 +85,7 @@ function timelineDefects(
   const defects: CueDefect[] = []
   let previousEnd = -Infinity
   for (const cue of cues) {
-    const fix = '请复核该镜的成片与台词计划；字幕时间由本工具按发声检测写出，不要手工改 SRT。'
+    const fix = '请复核该镜的成片与台词计划，并用同一版台词重新生成对齐；不要手工改 SRT。'
     if (cue.endSeconds - cue.startSeconds <= 0) {
       defects.push({
         id: 'subtitle_timing',
@@ -124,21 +117,19 @@ function timelineDefects(
 }
 
 /**
- * Measure every shot's speech and write the episode's SRT.
+ * Place every shot's declared lines on the episode clock and write the SRT.
  *
  * The plan is read rather than composed: a line's text and its split into cues
- * are the shot script's decisions, and this call only gives them times.
+ * are the shot script's decisions, and the alignment only says when they happen.
  * @param input - The resolved call.
  * @returns The timeline, the per-shot placements, the written cues, and the reported defects.
- * @throws {Error} When the manifest, the plan, an alignment document, or a shot's audio is unusable.
+ * @throws {Error} When the manifest, the plan, or the alignment document is unusable.
  */
 export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues> {
   const rows = parseShotManifest(await readJsonDocument(input.shotsPath, '成片清单'), input.shotsPath)
   const plan = parseLinePlan(await readJsonDocument(input.linesPath, '台词计划'), input.linesPath)
-  const aligned = input.alignmentPath === undefined
-    ? new Map<number, readonly AlignedCue[]>()
-    : new Map(parseAlignment(await readJsonDocument(input.alignmentPath, '对齐文档'), input.alignmentPath)
-      .map(row => [row.shot, row.cues]))
+  const aligned = new Map(parseAlignment(await readJsonDocument(input.alignmentPath, '对齐文档'),
+    input.alignmentPath).map(row => [row.shot, row.cues]))
   const shots = await resolveShots(input.toolkit, input.project, rows)
   const timeline = appendClips(shots.map(shot => shot.durationUs))
   const planned = new Map(plan.map(row => [row.shot, row.lines]))
@@ -151,30 +142,36 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
     const durationSeconds = shot.durationUs / 1_000_000
     const startSeconds = clip === undefined ? 0 : clip.startUs / 1_000_000
     const lines = planned.get(shot.source.shot) ?? []
-    const detection = await detectSpeechRegions(input.toolkit, shot.audio, durationSeconds)
-    const recognized = aligned.get(shot.source.shot)
+    const recognized: readonly AlignedCue[] | undefined = aligned.get(shot.source.shot)
     if (lines.length === 0) {
-      if (detection.regions.length === 0 && (recognized ?? []).length === 0) continue
+      if ((recognized ?? []).length === 0) continue
       failures.push({
         id: 'subtitle_line_coverage',
-        detail: `镜头 ${String(shot.source.shot)} 的音频里有 ${String(detection.regions.length)} 段发声，`
+        detail: `镜头 ${String(shot.source.shot)} 的对齐文档里有 ${String(recognized?.length ?? 0)} 段识别结果，`
           + '但台词计划里没有它的台词，这一镜说的话会变成没有字幕的语音。',
         fix: `把该镜的台词补进 ${input.linesPath}，或确认这一镜本就不该有台词。`,
       })
       continue
     }
-    const placement = recognized === undefined
-      ? placeShotCues(shot.source.shot, lines, detection, startSeconds, durationSeconds)
-      : placeAlignedCues(shot.source.shot, lines, recognized, startSeconds, durationSeconds)
+    if (recognized === undefined) {
+      failures.push({
+        id: 'subtitle_line_coverage',
+        detail: `镜头 ${String(shot.source.shot)} 声明了 ${String(lines.length)} 条台词，`
+          + '但对齐文档里没有这一镜的时间。',
+        fix: `对 ${shot.video} 重跑一次语音识别，把这一镜的结果补进 ${input.alignmentPath}；`
+          + '不要用估算时间给这一镜排字幕。',
+      })
+      continue
+    }
+    const placement = placeAlignedCues(shot.source.shot, lines, recognized, startSeconds, durationSeconds)
     placements.push(placement)
     if (placement.defect !== '') {
       failures.push({
         id: 'subtitle_line_coverage',
         detail: placement.defect,
-        fix: '复核该镜成片是否真的读了这句台词；确认无声后重做该镜，不要给它排字幕。',
+        fix: '复核该镜成片是否真的读了这句台词；确认后重跑识别，让对齐与台词计划指向同一版台词。',
       })
     }
-    warnings.push(...placement.warnings)
   }
 
   const unknown = plan
@@ -200,7 +197,7 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
   const findings: CueRateFinding[] = cueRateFindings(placed, clipStarts)
   for (const finding of findings) {
     const detail = `镜头 ${String(finding.shot)} 的“${finding.text}”要求 ${finding.charactersPerSecond.toFixed(1)} 字/秒`
-      + `（${String(Math.round(finding.text.length))} 字），`
+      + `（${String(effectiveCharacterCount(finding.text))} 字），`
     if (finding.impossible) {
       failures.push({
         id: 'subtitle_timing',

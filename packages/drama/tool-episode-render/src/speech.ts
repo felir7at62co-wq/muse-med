@@ -1,31 +1,18 @@
 /**
- * Subtitle timing measured from each shot's own audio.
+ * Subtitle timing taken from a recognition alignment.
  *
- * The lines are already known — the shot script declares them — so nothing here
- * recognizes speech. Each shot's audio is analysed by {@link detectSpeechRegions},
- * which derives its level from that clip's own noise floor instead of a fixed
- * one, and the declared lines are placed inside the stretches it finds.
+ * The lines are already known — the shot script declares them — and their times
+ * come from a recognizer that ran over the same clips. Nothing here recognizes
+ * speech or measures energy: a level cannot say which words fall where, and an
+ * estimated split inside a stretch is what puts a subtitle on the wrong line.
+ * The document says when each line is spoken; this module keeps the script's
+ * text, orders the cues on the episode clock, and reports what does not fit.
  *
- * A line placed on its own stretch is measured (`audio_vad`). When one stretch
- * has to carry several lines, the split inside it is a character count
- * (`estimated_within_run`), and the caller reports those counts instead of
- * letting them pass as measurement. A shot that declares lines while its audio
- * has no detected speech is a defect, not an empty placement: nobody says that
- * line, so the delivery would carry a subtitle for silence.
- *
- * When recognition has already been run over the same clips, an alignment
- * document can supply the times (`asr_aligned`). Its text is only matched
- * against the script's lines to prove the two describe the same take; the cue
- * text is always the script's, never the recognizer's.
+ * A document whose text disagrees with the script describes a different take,
+ * which is a defect rather than a number to trust.
  *
  * @module @deepseek-ai/dsh-tool-episode-render/speech
  */
-
-import { detectSpeechRegions } from './vad.ts'
-import type { SpeechDetection, SpeechRegion } from './vad.ts'
-
-export { detectSpeechRegions }
-export type { SpeechDetection, SpeechRegion }
 
 /** Shortest cue written to the delivery. */
 export const MIN_CUE_SECONDS = 0.8
@@ -33,7 +20,7 @@ export const MIN_CUE_SECONDS = 0.8
 /** Longest cue written to the delivery, however long the line's stretch runs. */
 export const MAX_CUE_SECONDS = 9
 
-/** Seconds per spoken character the estimator assumes when a stretch carries several lines. */
+/** Seconds per spoken character a line needs at a natural pace. */
 export const SECONDS_PER_CHARACTER = 1 / 6
 
 /** Characters per second past which a cue cannot be read at all. */
@@ -68,15 +55,6 @@ export interface AlignedShot {
   readonly cues: readonly AlignedCue[]
 }
 
-/** How one cue's times were obtained. */
-export type CueTimingSource =
-  /** Measured: the line occupies its own stretch of detected speech. */
-  | 'audio_vad'
-  /** Measured: the line's times come from an alignment document. */
-  | 'asr_aligned'
-  /** Estimated: the line shares a stretch of detected speech with its neighbours. */
-  | 'estimated_within_run'
-
 /** One cue placed on the episode clock. */
 export interface PlacedCue {
   /** Shot this line belongs to. */
@@ -87,8 +65,8 @@ export interface PlacedCue {
   readonly startSeconds: number
   /** Cue end on the episode clock. */
   readonly endSeconds: number
-  /** Whether the times were measured or estimated. */
-  readonly timingSource: CueTimingSource
+  /** Where the times came from. */
+  readonly timingSource: 'asr_aligned'
 }
 
 /** What placing one shot's lines produced. */
@@ -97,16 +75,10 @@ export interface ShotPlacement {
   readonly shot: number
   /** The placed cues, in line order. */
   readonly cues: readonly PlacedCue[]
-  /** Speaking stretches detected in this shot's audio. */
-  readonly regions: number
-  /** Cues whose times came from an alignment document. */
+  /** Cues whose times came from the alignment document. */
   readonly aligned: number
-  /** Cues whose times were estimated rather than measured. */
-  readonly estimated: number
   /** The blocking defect for this shot, or an empty string. */
   readonly defect: string
-  /** Non-blocking observations about this shot. */
-  readonly warnings: readonly string[]
 }
 
 /**
@@ -139,131 +111,9 @@ function toMilliseconds(seconds: number): number {
 }
 
 /**
- * Split an ordered line list across ordered stretches by their duration.
- *
- * Longest-remainder apportionment, so every stretch receives at least the lines
- * its share of the audio pays for and no line is dropped.
- * @param lengths - Stretch durations, in order.
- * @param count - Lines to distribute.
- * @returns One line count per stretch, in order, summing to `count`.
- */
-function apportion(lengths: readonly number[], count: number): number[] {
-  const total = lengths.reduce((sum, length) => sum + length, 0)
-  if (total <= 0) {
-    const base = Math.floor(count / Math.max(1, lengths.length))
-    return lengths.map((_, index) => (index < count % Math.max(1, lengths.length) ? base + 1 : base))
-  }
-  const exact = lengths.map(length => (length / total) * count)
-  const counts = exact.map(value => Math.floor(value))
-  let remaining = count - counts.reduce((sum, value) => sum + value, 0)
-  const order = exact
-    .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
-    .sort((left, right) => right.fraction - left.fraction || left.index - right.index)
-  for (const entry of order) {
-    if (remaining <= 0) break
-    counts[entry.index] = (counts[entry.index] ?? 0) + 1
-    remaining -= 1
-  }
-  return counts
-}
-
-/**
- * Place one shot's declared lines on the episode clock.
- * @param shot - Shot number.
- * @param lines - The shot's lines, already split to cue length, in spoken order.
- * @param detection - What this shot's audio measured.
- * @param clipStartSeconds - Where this shot starts on the episode clock.
- * @param clipDurationSeconds - This shot's probed duration.
- * @returns The placed cues plus this shot's defect and warnings.
- */
-export function placeShotCues(
-  shot: number,
-  lines: readonly string[],
-  detection: SpeechDetection,
-  clipStartSeconds: number,
-  clipDurationSeconds: number,
-): ShotPlacement {
-  const regions = detection.regions
-  const spoken = lines.map(line => line.trim()).filter(line => line !== '')
-  const empty: ShotPlacement = {
-    shot, cues: [], regions: regions.length, aligned: 0, estimated: 0, defect: '', warnings: [],
-  }
-  if (spoken.length === 0) return empty
-  const clipEnd = clipStartSeconds + clipDurationSeconds
-  const clamp = (value: number): number => toMilliseconds(Math.min(Math.max(value, clipStartSeconds), clipEnd))
-  if (regions.length === 0) {
-    return {
-      ...empty,
-      defect: `镜头 ${String(shot)} 声明了 ${String(spoken.length)} 条台词，但这镜的音频里没有检出发声`
-        + `（噪声底 ${detection.floorDb.toFixed(1)}dB，门限 ${detection.thresholdDb.toFixed(1)}dB）。`
-        + '这一镜很可能没有读出剧本台词，请先复核该镜成片，不要直接给它排字幕。',
-    }
-  }
-  if (regions.length >= spoken.length) {
-    const cues = spoken.map((text, index) => {
-      const region = regions[index] as SpeechRegion
-      const start = region.startSeconds
-      return {
-        shot,
-        text,
-        startSeconds: clamp(clipStartSeconds + start),
-        endSeconds: clamp(clipStartSeconds + Math.min(region.endSeconds, start + requiredSeconds(text))),
-        timingSource: 'audio_vad' as const,
-      }
-    })
-    const warnings = regions.length > spoken.length
-      ? [`镜头 ${String(shot)} 检出 ${String(regions.length)} 段发声但只声明 ${String(spoken.length)} 条台词：`
-        + '多出的发声可能是叹词、气声或剧本漏写的台词，请复核该镜。']
-      : []
-    return { shot, cues, regions: regions.length, aligned: 0, estimated: 0, defect: '', warnings }
-  }
-  const lengths = regions.map(region => region.endSeconds - region.startSeconds)
-  const counts = apportion(lengths, spoken.length)
-  const cues: PlacedCue[] = []
-  let line = 0
-  for (const [index, region] of regions.entries()) {
-    const assigned = spoken.slice(line, line + (counts[index] ?? 0))
-    line += assigned.length
-    if (assigned.length === 0) continue
-    const weights = assigned.map(effectiveCharacterCount)
-    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0)
-    const span = region.endSeconds - region.startSeconds
-    let consumed = 0
-    let elapsed = region.startSeconds
-    for (const [position, text] of assigned.entries()) {
-      const weight = weights[position] ?? 0
-      consumed += weight
-      const next = position === assigned.length - 1
-        ? region.endSeconds
-        : region.startSeconds + (totalWeight === 0 ? (position + 1) / assigned.length : consumed / totalWeight) * span
-      cues.push({
-        shot,
-        text,
-        startSeconds: clamp(clipStartSeconds + elapsed),
-        endSeconds: clamp(clipStartSeconds + next),
-        timingSource: 'estimated_within_run',
-      })
-      elapsed = next
-    }
-  }
-  return {
-    shot,
-    cues,
-    regions: regions.length,
-    aligned: 0,
-    estimated: cues.length,
-    defect: '',
-    warnings: [`镜头 ${String(shot)} 只检出 ${String(regions.length)} 段发声却要装 ${String(spoken.length)} 条台词：`
-      + '镜内切分按有效字数估算（timing_source=estimated_within_run），请试听后校正。'],
-  }
-}
-
-/**
- * Place one shot's lines on times an external alignment already measured.
+ * Place one shot's lines on times an outside alignment already measured.
  *
  * The alignment proves where each line is spoken; it never supplies the words.
- * A cue whose text disagrees with the script means the document describes a
- * different take, which is a defect rather than a number to trust.
  * @param shot - Shot number.
  * @param lines - The shot's lines, in spoken order.
  * @param aligned - The recognized stretches for this shot, in time order.
@@ -279,15 +129,13 @@ export function placeAlignedCues(
   clipDurationSeconds: number,
 ): ShotPlacement {
   const spoken = lines.map(line => line.trim()).filter(line => line !== '')
-  const empty: ShotPlacement = {
-    shot, cues: [], regions: 0, aligned: 0, estimated: 0, defect: '', warnings: [],
-  }
+  const empty: ShotPlacement = { shot, cues: [], aligned: 0, defect: '' }
   if (spoken.length === 0) return empty
   if (aligned.length !== spoken.length) {
     return {
       ...empty,
       defect: `镜头 ${String(shot)} 的对齐文档有 ${String(aligned.length)} 段，但台词计划声明 ${String(spoken.length)} 条：`
-        + '这份对齐不是为当前台词做的，请用同一版台词重新生成对齐，或去掉 alignment 让工具用发声检测。',
+        + '这份对齐不是为当前台词做的，请用同一版台词重新生成对齐。',
     }
   }
   const clipEnd = clipStartSeconds + clipDurationSeconds
@@ -316,7 +164,7 @@ export function placeAlignedCues(
     cues.push({ shot, text, startSeconds: start, endSeconds: end, timingSource: 'asr_aligned' })
     clock = end
   }
-  return { shot, cues, regions: 0, aligned: cues.length, estimated: 0, defect: '', warnings: [] }
+  return { shot, cues, aligned: cues.length, defect: '' }
 }
 
 /**
@@ -356,7 +204,7 @@ export function parseLinePlan(document: unknown, path: string): LinePlanShot[] {
 /**
  * Read one episode's alignment document.
  *
- * The document is per-shot and clip-relative, which is how a recognizer running
+ * The document is per shot and clip-relative, which is how a recognizer running
  * over one shot's own clip reports it: `{"shots":[{"shot":1,"cues":[{"text":
  * "陆沉舟","start":0.0,"end":0.85}]}]}`. Its text is matched against the script
  * and never written to a subtitle.

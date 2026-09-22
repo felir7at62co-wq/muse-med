@@ -1,7 +1,7 @@
 /** Validate BGM story intervals and compile their FFmpeg mix graph. */
 
 import { isAbsolute, relative, resolve } from 'node:path'
-import type { BgmEpisodePlan, BgmPlanSegment, ValidatedBgmEpisodePlan } from './types.ts'
+import type { BgmEpisodePlan, BgmPlanSegment, BgmPolicyFinding, ValidatedBgmEpisodePlan } from './types.ts'
 
 /** Default overlap centered on each story boundary. */
 export const DEFAULT_CROSSFADE_SECONDS = 1.5
@@ -69,27 +69,34 @@ export function trackIdentity(project: string, source: string): string {
 }
 
 /**
- * Hold one episode's plan to the batch policy before anything is composed.
+ * Audit one episode's plan against the batch rules.
  *
  * The rules are per batch, so a single episode cannot be judged alone: a track
- * two episodes share is only a violation when a third one joins, and a fresh
- * track is only fresh relative to what the other episodes used.
- * @param selected - The episode about to be composed.
+ * two episodes share only becomes a problem when a third one joins, and a fresh
+ * track is fresh only relative to what the other episodes used.
+ *
+ * Nothing here blocks the call. The findings are returned in the tool result so
+ * the agent reads them before delivering, and each one says what to change.
+ * @param selected - The episode being composed.
  * @param context - The batch, its boundaries, and the limits.
- * @throws {Error} With the rule and the offending segment when the batch fails.
+ * @returns One finding per rule the plan breaks, in rule order; empty when it breaks none.
  */
-export function validateBgmBatch(selected: BgmBatchRow, context: BgmBatchContext): void {
+export function auditBgmBatch(selected: BgmBatchRow, context: BgmBatchContext): BgmPolicyFinding[] {
   const limits = context.limits ?? DEFAULT_BGM_BATCH_POLICY
   const episode = selected.episode
+  const findings: BgmPolicyFinding[] = []
   const tracks = selected.segments.map(segment => trackIdentity(context.project, segment.source))
   const distinct = [...new Set(tracks)]
   if (distinct.length < limits.minTracksPerEpisode) {
-    throw new Error(`第 ${episode} 集只用了 ${String(distinct.length)} 首曲子，`
-      + `要求每集至少 ${String(limits.minTracksPerEpisode)} 首：一集不得压成一首，请按剧情情绪分段选曲。`)
+    findings.push({ rule: 'R1',
+      detail: `第 ${episode} 集只用了 ${String(distinct.length)} 首曲子，用户要求每集至少 ${String(limits.minTracksPerEpisode)} 首。`,
+      fix: '按正文情绪把这一集再分成至少 2 段，各用一首不同曲子，然后重跑 preview。' })
   }
   if (distinct.length !== tracks.length) {
-    throw new Error(`第 ${episode} 集在 ${String(tracks.length)} 段里重复使用了同一首曲子：`
-      + '同一集内不得重复，请换掉重复的段落。')
+    const repeated = tracks.filter((track, index) => tracks.indexOf(track) !== index)
+    findings.push({ rule: 'R2',
+      detail: `第 ${episode} 集在 ${String(tracks.length)} 段里重复使用了同一首曲子：${[...new Set(repeated)].join('、')}。`,
+      fix: '把重复段落中的后几段换成别的曲子；同一集内每段一首不同的曲子。' })
   }
   const users = new Map<string, Set<string>>()
   const members = new Map<string, BgmBatchRow>()
@@ -105,18 +112,23 @@ export function validateBgmBatch(selected: BgmBatchRow, context: BgmBatchContext
   for (const id of distinct) {
     const episodes = [...(users.get(id) ?? new Set<string>())].sort()
     if (episodes.length > limits.maxEpisodesPerTrack) {
-      throw new Error(`曲目 ${id} 出现在 ${String(episodes.length)} 集（${episodes.join('、')}），`
-        + `超过整批上限 ${String(limits.maxEpisodesPerTrack)} 集：请换掉其中几集的这首曲子。`)
+      findings.push({ rule: 'R3',
+        detail: `曲目 ${id} 出现在 ${String(episodes.length)} 集（${episodes.join('、')}），`
+          + `超过整批上限 ${String(limits.maxEpisodesPerTrack)} 集。`,
+        fix: `从 ${episodes.slice(limits.maxEpisodesPerTrack).join('、')} 里换掉这首，另选一首情绪接近、本批还没用满的曲子。` })
     }
   }
   const fresh = distinct.filter(id => (users.get(id) ?? new Set<string>()).size === 1)
   if (fresh.length < limits.freshTracksPerEpisode) {
-    throw new Error(`第 ${episode} 集没有任何一首是本批其它集没用的（要求至少 `
-      + `${String(limits.freshTracksPerEpisode)} 首）：请为本集换入一首全新曲目。`)
+    findings.push({ rule: 'R4',
+      detail: `第 ${episode} 集没有任何一首是本批其它集没用的，用户要求每集至少 ${String(limits.freshTracksPerEpisode)} 首全新曲目。`,
+      fix: '为本集换入一首本批其它集都没用过的曲子（可用 bgm_match 按这一段正文的情绪取候选）。' })
   }
   if (context.boundaries.length === 0) {
-    throw new Error(`第 ${episode} 集的切点无法核对：时间线里没有镜头包边界。`
-      + '请确认传的是本集时间线（含 clips），再重跑。')
+    findings.push({ rule: 'R5',
+      detail: `第 ${episode} 集的切点无法核对：时间线里没有镜头包边界（clips）。`,
+      fix: '确认传的是本集时间线（含 clips，通常是 prepare 写出的 editing/<集>-timeline.json），再重跑。' })
+    return findings.sort((left, right) => left.rule.localeCompare(right.rule))
   }
   for (const [index, segment] of selected.segments.entries()) {
     if (index === 0) continue
@@ -124,11 +136,13 @@ export function validateBgmBatch(selected: BgmBatchRow, context: BgmBatchContext
       .map(boundary => ({ boundary, distance: Math.abs(boundary - segment.start_seconds) }))
       .sort((left, right) => left.distance - right.distance)[0]
     if (nearest === undefined || nearest.distance > limits.boundaryToleranceSeconds) {
-      throw new Error(`第 ${episode} 集的切点 ${segment.start_seconds.toFixed(3)}s 不在任何镜头包边界上`
-        + `${nearest === undefined ? '' : `（最近的是 ${nearest.boundary.toFixed(3)}s）`}：`
-        + '配乐分段必须落在镜头包边界，请把切点移到某个包的起点。')
+      findings.push({ rule: 'R5',
+        detail: `第 ${episode} 集的切点 ${segment.start_seconds.toFixed(3)}s 不在任何镜头包边界上`
+          + `${nearest === undefined ? '' : `（最近的是 ${nearest.boundary.toFixed(3)}s）`}。`,
+        fix: '把切点移到某个镜头包的起点；段的时间必须与时间线的包边界对齐。' })
     }
   }
+  return findings.sort((left, right) => left.rule.localeCompare(right.rule))
 }
 
 /**

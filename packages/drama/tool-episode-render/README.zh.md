@@ -72,7 +72,7 @@ kind: "package-reference"
 | `episode` | 总是 | 集号；所有路径都补成两位 |
 | `shots` | `subtitles`、`prepare` | 成片清单：`{"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"可选"}]}` |
 | `lines` | `subtitles` | 逐镜台词计划：`{"shots":[{"shot":1,"lines":["第一句","第二句"]}]}`；每一项就是一条字幕，已按交付长度切好 |
-| `alignment` | `subtitles`（可选） | 识别时间：`{"shots":[{"shot":1,"cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}`，镜内相对。只取时间，文本必须与剧本台词一致 |
+| `alignment` | `subtitles` | 识别时间：`{"shots":[{"shot":1,"cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}`，镜内相对。只取时间，文本必须与剧本台词一致 |
 | `timeline` | `render`、`verify` | 时间线 JSON，通常是 `prepare` 写出的那个 |
 | `subtitle_srt` | `prepare`、`render`、`verify`（`subtitles` 可选） | 要写出、安装、烧录或检查的 SRT；`subtitles` 省略时写 `editing/<集>.srt` |
 | `last_shot` | `render` | 本次交付覆盖到的最后一个镜头号；时间线里 `shot <= last_shot` 的镜头数必须正好等于它 |
@@ -85,15 +85,13 @@ kind: "package-reference"
 
 工具调用使用上表的 snake_case 参数名；注册的执行入口将其映射为渲染器内部的 camelCase 参数。方法缺自己的必填参数时，在打开任何文件之前就失败。让渲染无法进行的一切——缺输入、命令失败、尾帧无法证明——都会抛错并给中文修法。成片自身的属性不抛错：它们作为检查项返回，所以一次调用既报清全部缺陷，也照常交回实测值。
 
-### subtitles 测什么
+### subtitles 做什么
 
-`subtitles` 不需要语音转写，因为文字早就写好了：台词计划说明每一镜说什么，缺的只有时间。它逐镜探测，把该镜**自己的**音轨（此时还没有任何 BGM 混进来）解码成 16kHz 单声道，按 20ms 帧测电平，用这一镜自己的噪声底（帧电平第 20 百分位）加 12dB 余量、且不低于 -45dBFS 得出门限；门限以上的帧就是发声。间隔小于 0.3 秒的两段算同一句，短于 0.25 秒的段丢弃。然后让每条声明台词占住剩下的发声段，cue 的时间 = 该镜在时间线上的起点 + 镜内偏移。固定门限做不到这件事：提供方的编码底噪可能高于我们能选的任何固定值，那时每一帧都被读成发声，切分就悄悄退化成数字数。
+`subtitles` 自己不识别，因为两半都是现成的：台词计划说明每一镜说什么，同一批成片的语音识别对齐说明什么时候说。它逐镜读对齐文档、与台词计划互相核对，字幕文字始终取剧本原文，每条 cue 夹在该镜范围内，再落到整集时钟上：cue 时间 = 该镜在时间线上的起点 + 镜内偏移。这里**不测能量**：能量只能说明有人在说话，说不出具体哪句落在哪里，而在某一段里估算切分正是字幕压错句的原因。
 
-独占一段发声的台词是**实测**的，它的 cue 结束于「该段结束」与「这条台词读完所需时长」中更早的那个。发声段少于台词条数时，先按各段时长把台词分配到段上，再在段内按有效字数切分；这些 cue 标成 `estimated_within_run`、逐镜写进 `warnings`，而 `speech_alignment` 会留在 `not_checked` 里，不宣称整集已对齐。**没有任何一条 cue 会横跨两段之间的静音。**
+对齐文档里的识别文本**绝不写进字幕**：它只用来核对两份是不是同一段表演；文本或条数对不上按 `subtitle_line_coverage` failure 报出，而不是照抄一个数。
 
-已经对这些镜跑过语音识别时，`alignment` 提供它的时间：逐镜、镜内相对的 `{"shots":[{"shot":1,"cues":[{"text":"…","start":0.0,"end":0.8}]}]}`。其中的识别文本只用来核对是不是同一段表演，字幕文字始终取剧本原文；文本或条数对不上按 `subtitle_line_coverage` failure 报出，而不是照抄一个数。
-
-两类缺陷一定阻塞：声明了台词但音频里没有发声（这句根本没被读出来，字幕会压在静音上），以及有发声却没声明台词（说了话却没有字幕）。写出的每条 cue 还会整集复核：空 cue、与上一条重叠、越出 `body_end`，以及要求超过 20 有效字/秒，都按 `subtitle_timing` failure 报出；超过 12 字/秒是 warning。SRT 仍照常写出，便于核对我们测到了什么。
+三类缺陷阻塞：声明了台词却没有这一镜的对齐；对齐里有识别结果而计划里没声明台词（说了话却没有字幕）；对齐的时间把 cue 落到该镜之外。写出的每条 cue 还会整集复核：空 cue、与上一条重叠、越出 `body_end`，以及要求超过 20 有效字/秒，都按 `subtitle_timing` failure 报出；超过 12 字/秒是 warning。SRT 仍照常写出，便于核对排了什么。
 
 写出的文件是纯 SRT，`prepare` 安装、`render` 烧录之前，可以手工改某一条。
 
@@ -141,8 +139,7 @@ kind: "package-reference"
 | `long_pauses` | warning | 没有达到 1.0 秒的静音 |
 | `subtitle_bounds` | failure | 每条 cue 都落在 `0`–`body_end` 之内、也在文件时长之内 |
 | `subtitle_present` | warning | 字幕至少有一条 cue |
-| `subtitle_line_coverage` | failure | 每条声明台词都在它自己那一镜里找到了发声，且每一镜有发声就有声明台词 |
-| `speech_alignment` | failure | 仅 `subtitles`：每条 cue 的时间都来自测量，而不是字数估算 |
+| `subtitle_line_coverage` | failure | 每条声明台词都有它自己那一镜的对齐，且每一镜有识别结果就有声明台词 |
 | `subtitle_timing` | failure | 仅 `subtitles`：每条 cue 非空、按序、在 `body_end` 之内，且不超过 20 有效字/秒 |
 
 -----
@@ -174,9 +171,8 @@ kind: "package-reference"
 | [`src/paths.ts`](src/paths.ts) | 一集的渲染输入与产物路径，以及把「缓存未命中」与「路径坏了」区分开的存在性检查 |
 | [`src/timeline.ts`](src/timeline.ts) | 分集时间线的读取、校验、选取、铺排与序列化 |
 | [`src/subtitles.ts`](src/subtitles.ts) | SRT 解析与写出，以及交付烧录用的 ASS 文档 |
-| [`src/vad.ts`](src/vad.ts) | 自适应发声检测：解码、帧电平、推导出的噪声底与门限、发声段合并 |
-| [`src/speech.ts`](src/speech.ts) | 把台词落到实测发声段或外部对齐上，不做识别 |
-| [`src/cues.ts`](src/cues.ts) | `subtitles`：台词计划、逐镜检测与写出的 SRT |
+| [`src/speech.ts`](src/speech.ts) | 读对齐文档并把台词落到整集时钟上，不做识别 |
+| [`src/cues.ts`](src/cues.ts) | `subtitles`：台词计划、对齐文档与写出的 SRT |
 | [`src/encoder.ts`](src/encoder.ts) | NVENC 探测，以及带原因记录的 CPU 回退 |
 | [`src/ending.ts`](src/ending.ts) | 带 framemd5 证明的尾帧抽取，以及片尾片段 |
 | [`src/prepare.ts`](src/prepare.ts) | `prepare`：成片清单、探测、复制出的布局与整集原声滤镜图 |
@@ -233,8 +229,7 @@ kind: "package-reference"
 - **一次调用只处理一集**——`last_shot` 把一次渲染限定在它交付的正片镜头上，但一次调用从不渲染多集，也没有任何方法读取 `pipeline_state.json`。
 - **混音不做电平表**——`normalize=0` 的 `amix` 精确保留运营给的增益，`alimiter=0.95` 是唯一的天花板。比被替换的 master 更响的素材仍可能在限幅器之前就削顶，而 `verify` 的静音检查发现不了。
 - **字幕只检查不修正**——`verify` 报出越过 `body_end` 的 cue；没有任何东西去钳制它，因为一句字幕该在哪里结束是字幕作者的决定。
-- **`subtitles` 测能量，不测字**——它报告一镜在哪里发声，不报告说了什么。台词读错、或同一句读了两遍，时间照样排对；要抓这类问题得由调用方另外跑一次转写，而 `speech_alignment` 只覆盖它实测过的那些时间。`alignment` 只用来定时间：它的文本要跟剧本核对，绝不写进字幕。
-- **一段发声装多条台词时是估算**——某一镜的发声段少于台词条数时，按有效字数切分，标成 `estimated_within_run` 并写进 `warnings`。逐字对齐需要本包不携带的模型。
+- **`subtitles` 信任识别给出的时间**——对齐文档决定每一句什么时候说；本包只核对它覆盖了每条声明台词、且文本就是剧本原文，判断不了识别本身有多准，所以 `speech_alignment` 一直留在 `not_checked`。对齐文档由调用方产出。
 
 <a id="dev-note"></a>
 ### Dev Note

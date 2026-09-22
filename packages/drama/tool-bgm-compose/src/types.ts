@@ -197,8 +197,20 @@ export interface DramaBgmReport {
   readonly repeated_sequence_episodes: string[]
   /** Every episode in the plan directory whose tracks this call was checked against. */
   readonly batch_episodes: string[]
+  /** Batch rules this plan breaks, each with the change to make; empty when it breaks none. */
+  readonly policy_findings: BgmPolicyFinding[]
   /** Output media facts. */
   readonly media: BgmMediaReport
+}
+
+/** One batch policy rule the plan breaks, with the change the agent should make. */
+export interface BgmPolicyFinding {
+  /** Rule identifier: R1 tracks per episode, R2 repeat inside one episode, R3 episodes per track, R4 fresh tracks, R5 cut placement. */
+  readonly rule: string
+  /** What the batch shows. */
+  readonly detail: string
+  /** What to change before delivering. */
+  readonly fix: string
 }
 
 /** Validated values used by preview and compose. */

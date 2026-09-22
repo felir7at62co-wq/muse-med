@@ -138,6 +138,26 @@ describe('runDramaBgm', () => {
     expect(await readdir(join(files.project, 'audio', 'bgm'))).toEqual(['05.generation.json', '05.wav'])
   })
 
+  it('composes a plan that breaks the reuse rules and reports what to change instead of blocking', async () => {
+    const files = await fixture()
+    // One track for the whole episode, and a cut that is not a package boundary.
+    await writeFile(files.plan, JSON.stringify({ episodes: [{
+      episode: '05', body_duration_seconds: 58.508, crossfade_seconds: 1.5,
+      segments: [
+        { track: '轻松', source: 'music/light.mp3', start_seconds: 0, end_seconds: 26.6, reason: '入场' },
+        { track: '轻松', source: 'music/light.mp3', start_seconds: 26.6, end_seconds: 58.508, reason: '继续' },
+      ],
+    }] }))
+    const report = await runDramaBgm({
+      method: 'compose', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan,
+    }, settings(processChannel()))
+    expect(report.policy_findings.map(finding => finding.rule)).toEqual(['R1', 'R2', 'R5'])
+    expect(report.policy_findings.every(finding => finding.fix !== '')).toBe(true)
+    expect(report.batch_episodes).toEqual(['05'])
+    // The call still produced the bed: the rules guide the agent, they do not stop it.
+    await expect(readFile(files.output, 'utf8')).resolves.toBe('generated wav')
+  })
+
   it('leaves no output, report, or temporary file when FFmpeg fails', async () => {
     const files = await fixture()
     await expect(runDramaBgm({

@@ -42,7 +42,7 @@ describe('registration', () => {
     const output = tool.output.schema as { properties: Record<string, unknown> }
     expect(Object.keys(output.properties).sort()).toEqual([
       'batch_episodes', 'body_duration_seconds', 'crossfade_seconds', 'episode', 'media', 'method', 'output', 'plan',
-      'project', 'repeated_sequence_episodes', 'report', 'segments', 'timeline',
+      'policy_findings', 'project', 'repeated_sequence_episodes', 'report', 'segments', 'timeline',
     ])
     expect(validateJsonSchemaValue(tool.parameters, {
       method: 'compose', project: 'D:/project', episode: 5,

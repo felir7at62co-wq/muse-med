@@ -15,7 +15,7 @@ import {
   appliedGain,
   buildMixFilter,
   resolveOutputPath,
-  validateBgmBatch,
+  auditBgmBatch,
   validateEpisodePlan,
 } from './plan.ts'
 import type { BgmBatchPolicy, BgmBatchRow } from './plan.ts'
@@ -320,9 +320,10 @@ export async function runDramaBgm(
   const { bodyEndSeconds, boundaries } = await readTimeline(timeline)
   const loaded = await loadPlan(planPath, episode, project)
   const plan = validateEpisodePlan(loaded.selected, bodyEndSeconds)
-  // The batch gate runs before any source is opened or any output is written:
-  // a plan that breaks the reuse rules must cost nothing but the call.
-  validateBgmBatch({ episode, segments: loaded.selected.segments }, {
+  // The reuse rules are reported, not enforced: the agent reads them in this
+  // call's own result and changes the selection, and a delivery that still
+  // breaks them is the agent's decision to make, not this tool's to block.
+  const policyFindings = auditBgmBatch({ episode, segments: loaded.selected.segments }, {
     project,
     batch: loaded.batch,
     boundaries,
@@ -342,6 +343,7 @@ export async function runDramaBgm(
     crossfade_seconds: plan.crossfadeSeconds,
     repeated_sequence_episodes: loaded.repeated,
     batch_episodes: loaded.batchEpisodes,
+    policy_findings: policyFindings,
   }
   if (args.method === 'verify') {
     await requireProjectFile(projectRoot, output, 'BGM 输出', args.output ?? `audio/bgm/${episode}.wav`)

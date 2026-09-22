@@ -90,6 +90,13 @@ const RESULT_SCHEMA = {
     repeated_sequence_episodes: { type: 'array', required: true, items: { type: 'string' } },
     batch_episodes: { type: 'array', required: true, items: { type: 'string' },
       description: '本批参与跨集复用核对的集号（来自计划同目录的全部计划文件）。' },
+    policy_findings: { type: 'array', required: true,
+      description: '本计划违反的批次选曲规则，每条含规则号、现状与改法；合规时为空。不拦截调用。',
+      items: { type: 'object', additionalProperties: false, properties: {
+        rule: { type: 'string', required: true, description: '规则号：R1 每集曲目数、R2 集内重复、R3 单曲集数、R4 全新曲目、R5 切点。' },
+        detail: { type: 'string', required: true, description: '这条规则现在违反成什么样。' },
+        fix: { type: 'string', required: true, description: '该改什么：换哪几首、切点移到哪。' },
+      } } },
     media: {
       type: 'object', required: true, additionalProperties: false,
       properties: {
@@ -110,14 +117,14 @@ const DESCRIPTION = '短剧整集 BGM 合成工具；只执行 Agent 已确认�
   + 'compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；'
   + '先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。'
   + 'verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。'
-  + '**跨集复用是硬门禁，三个方法都先过，不合格就失败、不写任何产物**：'
+  + '**跨集复用规则以 policy_findings 返回，不拦截调用；读到了就必须照 fix 改完再交付**：'
   + '每集至少 2 首不同曲目（R1）、一集内不得重复同一首（R2）、'
   + '整批之内同一首最多出现在 2 集（R3）、每集至少 1 首是本批其它集没用过的（R4）、'
-  + '每个切点必须落在镜头包边界上（R5，容差 0.05 秒）、每段必须有非空 reason（R6）。'
+  + '每个切点必须落在镜头包边界上（R5，容差 0.05 秒）。'
   + '批次 = 计划文件所在目录里所有含 episodes 数组的 JSON（通常 episodes/segments/*.json），'
   + '因此同目录放不相关的 JSON 没关系，但读不动的文件会直接报错；返回的 batch_episodes 就是本次核对过的集号。'
   + '同一首曲子的身份按解析后的绝对 source 路径判定，track 只当展示名。'
-  + '这些阈值是部署配置项（minTracksPerEpisode、maxEpisodesPerTrack、freshTracksPerEpisode、boundaryToleranceSeconds）。'
+  + '阈值是部署配置项（minTracksPerEpisode、maxEpisodesPerTrack、freshTracksPerEpisode、boundaryToleranceSeconds）。'
   + 'compose 返回的 output 传给 drama_render.bgm，同一 plan 传给 drama_render.bgm_plan。'
   + '本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。'
 
@@ -140,7 +147,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         description: '项目内时间线 JSON，必须含 body_end，通常为 editing/<集>-timeline.json。' },
       plan: { type: 'string', required: true,
         description: '项目内 episodes/segments BGM 计划 JSON；段落必须连续完整覆盖正文，'
-          + '且满足跨集复用门禁（每集至少 2 首、集内不重复、单曲最多 2 集、至少 1 首全新、切点落在镜头包边界）。' },
+          + '跨集复用规则见 policy_findings（每集至少 2 首、集内不重复、单曲最多 2 集、至少 1 首全新、切点在镜头包边界）。' },
       output: { type: 'string', description: '项目内 WAV 路径；省略为 audio/bgm/<集>.wav。' },
     },
     output: {

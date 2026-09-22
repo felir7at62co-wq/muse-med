@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-episode-render/README.md
-README.md: e773661b1a65c7472cf844b964b85def59255e43
-README.zh.md: 37990c440739aa43285d4d1059fa99ba89006fbe
+README.md: d0220938268c1b368a8af78024817930e59aee3a
+README.zh.md: 8a86d09c2dd10ddeeaa78ecb58de8c366f20ceb7
