@@ -81,8 +81,14 @@ export interface DramaSettings {
 export const DEFAULT_JIANYING_DRAFT_DIR
   = 'C:\\Users\\EDY\\AppData\\Local\\JianyingPro\\User Data\\Projects\\com.lveditor.draft'
 
-/** Local BGM library the mood matcher searches when the section declares none. */
-export const DEFAULT_BGM_DIR = 'E:\\aa-manju\\bgm'
+/**
+ * Where a downloaded BGM track lands when the section declares no directory.
+ *
+ * Empty means no local library: `bgm_match` searches the published catalogue and
+ * downloads the one chosen track into its own cache, so nothing here points at a
+ * folder that has to be kept in sync.
+ */
+export const DEFAULT_BGM_DIR = ''
 
 /** Delivery target of a finished episode when the section declares none. */
 export const DEFAULT_DELIVERY_SPEC: DramaDeliverySpec = {

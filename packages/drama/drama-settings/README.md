@@ -40,7 +40,7 @@ There is no config. A default is the schema's own, and a deployment that wants a
 | `deliveryDir` | empty | Absolute directory finished episodes are delivered to; empty means `<project>/delivery`, the root the delivery template fills (`00成片`, `01主角`, `02海报`, `05剧本&简介`) |
 | `jianyingDraftDir` | this machine's JianyingPro root | Absolute draft root an editable draft is written under; empty means the default |
 | `deliverySpec` | `1440` × `2560`, `60` fps, `4.6` Mbps | Resolution, frame rate and bitrate floor of a delivered episode |
-| `bgmDir` | `E:\aa-manju\bgm` | Local BGM library the mood matcher searches |
+| `bgmDir` | (empty) | Where a downloaded track lands; empty keeps the published catalogue and the matcher's own download cache as the only source |
 | `imageStandardId` | absent | The `gpt-image-2` catalogue row the paid asset-image route buys from, named by that row's own `id`; absent means the route decides for itself, which works only while the account lists exactly one such row |
 
 ### The Settings page
