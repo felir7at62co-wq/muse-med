@@ -1,8 +1,10 @@
 /** `verify`: the delivery verdict, the two detection passes, and the subtitle bounds. */
 
-import { readFile } from 'node:fs/promises'
+import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { fileSha256 } from '../src/cache.ts'
+import { provenancePathFor } from '../src/provenance.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { NO_MEDIA } from '../src/report.ts'
 import type { MediaFacts, SubtitleCue } from '../src/types.ts'
@@ -237,8 +239,46 @@ describe('verifyEpisode', () => {
       { shot: 2, startUs: 5_050_000, durationUs: 109_683_332 },
     ], 114.733332))
     await writePlaceholder(subtitle, srtDocument([{ start: '00:00:01,680', end: '00:00:03,580', text: '台词' }]))
+    // A delivery normally carries the record its render wrote; without it every check
+    // below is answering about a file nobody can prove was the one reviewed.
+    await writePlaceholder(provenancePathFor(output), JSON.stringify({
+      version: 1, episode: '02', rendered_at: new Date().toISOString(),
+      output: { path: output, sha256: await fileSha256(output), size_bytes: 9,
+        duration_seconds: 116.733332 },
+      inputs: ['sha256:shot-1'], encoder: 'libx264', checks: [],
+    }))
     return { project, output, timeline, subtitle }
   }
+
+  it('warns when the delivery carries no record of what was rendered and checked', async () => {
+    const files = await delivered()
+    await rm(provenancePathFor(files.output))
+    const report = await verifyEpisode({
+      toolkit: toolkit([probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }), () => ({})]),
+      settings: { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', masterVolume: 1.45, bgmVolume: 0.24, preferNvenc: true, fontsDir: '' },
+      project: files.project, episode: '02', output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
+    })
+    const check = report.checks.find(item => item.id === 'output_provenance')
+    expect(check?.ok).toBe(false)
+    expect(check?.detail).toContain('没有来源清单')
+    expect(report.warnings.join(' ')).toContain('无法证明当前文件就是当初检查过的那个')
+  })
+
+  it('fails a delivery whose bytes changed after its record was written', async () => {
+    const files = await delivered()
+    // The same path now holds different bytes. Every technical check below still
+    // passes, so only the digest comparison can say that the review is stale.
+    await writePlaceholder(files.output, 'replaced after the record')
+    const report = await verifyEpisode({
+      toolkit: toolkit([probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }), () => ({})]),
+      settings: { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', masterVolume: 1.45, bgmVolume: 0.24, preferNvenc: true, fontsDir: '' },
+      project: files.project, episode: '02', output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
+    })
+    const check = report.checks.find(item => item.id === 'output_provenance')
+    expect(check?.ok).toBe(false)
+    expect(report.failures.join(' ')).toContain('output_provenance')
+    expect(report.failures.join(' ')).toContain('已经被换过')
+  })
 
   it('reports banned copied selections without claiming historical output identity or deleting output', async () => {
     const files = await delivered()
@@ -283,6 +323,7 @@ describe('verifyEpisode', () => {
     expect(report.checks.map(check => check.id)).toEqual([
       'duration', 'video_stream', 'frame_rate', 'audio_stream', 'bitrate_floor',
       'black_frames', 'fade_to_black', 'silence', 'long_pauses', 'subtitle_bounds', 'subtitle_present',
+      'output_provenance',
     ])
     expect(report.failures).toEqual([])
     expect(report.warnings).toEqual([])
@@ -302,7 +343,7 @@ describe('verifyEpisode', () => {
       audio_codec: 'aac',
       audio_sample_rate: 48000,
     })
-    expect(report.summary).toEqual({ shots: 2, encoded: 0, reused: 0, checks: 11, failed_checks: 0, warnings: 0 })
+    expect(report.summary).toEqual({ shots: 2, encoded: 0, reused: 0, checks: 12, failed_checks: 0, warnings: 0 })
     expect(report.written).toEqual([])
     expect(report.log_path).toBe('')
   })

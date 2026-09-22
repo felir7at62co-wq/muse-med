@@ -17,6 +17,7 @@ import { readVideoBans } from './video.ts'
 import { DELIVERY_FPS, DELIVERY_HEIGHT, DELIVERY_WIDTH, ENDING_SECONDS, MIN_BITRATE_BPS } from './delivery.ts'
 import { firstStreamOfType, frameRateOf, probeMedia } from './ffmpeg.ts'
 import { buildReport, NO_TAIL_FRAME, type ReportInput } from './report.ts'
+import { provenancePathFor, readProvenance } from './provenance.ts'
 import { readSubtitleCues } from './subtitles.ts'
 import { readTimeline } from './timeline.ts'
 import type {
@@ -285,6 +286,33 @@ async function videoBanChecks(input: VerifyInput, shots: readonly number[]): Pro
   }
 }
 
+/**
+ * Check the delivery against the record of what was rendered and checked.
+ *
+ * The point is that a review belongs to the bytes it was run on. A file replaced at
+ * the same path still passes every technical check here, so without this comparison
+ * an older verdict would silently stand in for a file nobody looked at.
+ * @param input - The resolved verify call.
+ * @returns The provenance verdict for this delivery.
+ * @throws {Error} When the sidecar exists but cannot be read as a record.
+ */
+async function provenanceCheck(input: VerifyInput): Promise<RenderCheck> {
+  const path = provenancePathFor(input.output)
+  const recorded = await readProvenance(path)
+  if (recorded === undefined) {
+    return verdict('output_provenance', 'warning', false,
+      `这份成片没有来源清单（${path} 不存在）`,
+      '无法证明当前文件就是当初检查过的那个。请重跑 render（它会写出清单），'
+      + '再对此文件跑 verify；在那之前不要把这份成片的检查结论当作对当前文件生效。')
+  }
+  const current = await fileSha256(input.output)
+  return verdict('output_provenance', 'failure', current === recorded.output.sha256,
+    `清单记录 ${recorded.rendered_at} 渲染的 sha256=${recorded.output.sha256.slice(0, 16)}…，`
+    + `当前文件 sha256=${current.slice(0, 16)}…`,
+    '成片字节与来源清单不符：同一路径上的文件已经被换过，清单里那些检查与审核不再对应当前文件。'
+    + '请对当前文件重新跑 render 与审核，不要用旧结论交付。')
+}
+
 /** Everything one `verify` call needs. */
 export interface VerifyInput {
   /** The binaries and channel to use, or a stub in tests. */
@@ -348,6 +376,7 @@ export async function verifyEpisode(input: VerifyInput): Promise<DramaRenderRepo
       describeSegments(silence),
       `检出持续 ${String(SILENCE_WARNING_SECONDS)} 秒以上的静音，未达失败线但值得确认是否符合这集的节奏。`),
     ...subtitleChecks(cues, timeline.bodyEndSeconds, media.durationSeconds),
+    await provenanceCheck(input),
   ]
   const sources = new Map<number, string>()
   const reportInput: ReportInput = {

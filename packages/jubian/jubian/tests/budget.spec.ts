@@ -181,6 +181,32 @@ describe('checkBudget', () => {
   })
 })
 
+describe('ledger.unresolved', () => {
+  it('lists what a restart must reconcile, and nothing that already settled', async () => {
+    const { ledger } = await fixture()
+    await record(ledger, { key: 'sent-never-read', scriptId: 2708, amount: '1.00', unit: 'CNY' })
+    await record(ledger, { key: 'provider-said-no', scriptId: 2708, amount: '1.00', unit: 'CNY',
+      settle: 'unknown' })
+    await record(ledger, { key: 'settled', scriptId: 2708, amount: '1.00', unit: 'CNY', settle: 'accepted' })
+    const open = await ledger.unresolved()
+    expect(open.map(item => item.idempotency_key)).toEqual(['sent-never-read', 'provider-said-no'])
+    expect(open[0]?.outcome).toBeNull()
+    expect(open[1]?.outcome).toBe('unknown')
+  })
+
+  it('filters by project', async () => {
+    const { ledger } = await fixture()
+    await record(ledger, { key: 'mine', scriptId: 2708 })
+    await record(ledger, { key: 'other', scriptId: 9999 })
+    expect((await ledger.unresolved(2708)).map(item => item.idempotency_key)).toEqual(['mine'])
+  })
+
+  it('reports nothing on an untouched ledger', async () => {
+    const { ledger } = await fixture()
+    expect(await ledger.unresolved()).toEqual([])
+  })
+})
+
 describe('operator estimates', () => {
   const WITH_ESTIMATE = { version: 1, projects: { '2708': { limit: '20.00', unit: 'CNY',
     estimates: { storyboard_native_submit: '15.00' } } } }

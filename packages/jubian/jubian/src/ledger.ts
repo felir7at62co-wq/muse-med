@@ -223,6 +223,24 @@ export class JubianLedger {
   }
 
   /**
+   * Every record whose outcome is still open.
+   *
+   * A record is open while its intent has no settlement — the process died between
+   * sending and reading, or the read timed out — and while a settlement says
+   * `unknown`, which is the provider answering something other than success. Neither
+   * state may be resolved by sending again: this is the list to reconcile read-only
+   * after a restart, and the reason no caller of this ledger has to guess whether a
+   * charge happened.
+   * @param scriptId - Project to filter by, or undefined for every project.
+   * @returns The open records, oldest first.
+   */
+  async unresolved(scriptId?: number): Promise<JubianLedgerRecord[]> {
+    return (await this.records())
+      .filter(record => record.outcome === null || record.outcome === 'unknown')
+      .filter(record => scriptId === undefined || record.script_id === scriptId)
+  }
+
+  /**
    * Read the whole ledger.
    *
    * The budget gate and any recovery pass need every record, not one key, so this

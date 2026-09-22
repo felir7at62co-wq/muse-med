@@ -473,9 +473,10 @@ export function apply(ctx: Context, config: Config = {}): void {
       + WRITE_NOTE,
     parameters: {
       method: { type: 'string', required: true,
-        enum: ['task', 'tasks', 'subtasks', 'image_generate', 'upscale', 'retry'],
+        enum: ['task', 'tasks', 'subtasks', 'unresolved', 'image_generate', 'upscale', 'retry'],
         description: 'task=单个任务（含 cost 观测）；tasks=项目任务分页；'
           + 'subtasks=任务的子结果（成片 URL、字幕框、阶段、分辨率与 needs_upscale）；'
+          + 'unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；'
           + 'image_generate=生成图片（计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。' },
       task_id: ARGS.task_id, script_id: ARGS.script_id, page_num: ARGS.page_num,
       delivery_resolution: ARGS.delivery_resolution,
@@ -509,6 +510,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       } },
       render: OUTPUT.render,
     },
+    // `async` is required by the tool contract, which types `execute` as returning a
+    // promise; this body itself only starts a job and returns its id.
     execute: async (args, exec) => {
       const input = watchArgs(args)
       const jobs = ctx.get('jobs')

@@ -444,6 +444,30 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
 export async function videoMethod(client: JubianClient, ledger: JubianLedger,
   args: MethodArgs, deps: MethodDeps = {}): Promise<Record<string, unknown>> {
   switch (args.method) {
+    case 'unresolved': {
+      // Local only, no network: what a restart must reconcile before anything else
+      // is sent. An open record is an intent that never settled or a provider answer
+      // that was not success, and neither may be resolved by sending again.
+      const records = await ledger.unresolved(args.script_id)
+      return {
+        unresolved: records.map(record => ({
+          record_id: record.record_id,
+          idempotency_key: record.idempotency_key,
+          method: record.method,
+          script_id: record.script_id,
+          at: record.at,
+          outcome: record.outcome ?? 'unsettled',
+        })),
+        next: records.length === 0
+          ? '账本里没有未完成的写入：没有需要重新对账的收费调用。'
+          : `有 ${String(records.length)} 笔写入没有确定结果。对账方式按 method 区分：`
+            + 'storyboard_native_submit 用同一个 idempotency_key 再调一次 submit_video（只重新对账，不会再发 PUT）；'
+            + 'storyboard_generate 用 jubian_storyboard get 回读该分镜的 isGenerate；'
+            + 'image_generate 用 jubian_asset list/get 回读资产；'
+            + 'erase_subtitle 与 video_upscale 用 jubian_video subtasks 回读该任务。'
+            + '**任何情况下都不要换 key 重发**：没有远端证据就保持未知。',
+      }
+    }
     case 'task': {
       const result = await client.request({ method: 'GET', path: `/admin/aigc/video/task/${need(args.task_id)}` })
       return { task: readTaskPage(result.data) }

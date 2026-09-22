@@ -95,7 +95,7 @@ describe('tool-jubian registration', () => {
 
     const video = byName.get('jubian_video')!
     expect((video.properties as Record<string, { enum?: string[] }>).method!.enum)
-      .toEqual(['task', 'tasks', 'subtasks', 'image_generate', 'upscale', 'retry'])
+      .toEqual(['task', 'tasks', 'subtasks', 'unresolved', 'image_generate', 'upscale', 'retry'])
 
     const asset = byName.get('jubian_asset')!
     expect((asset.properties as Record<string, { enum?: string[] }>).method!.enum)

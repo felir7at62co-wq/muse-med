@@ -407,6 +407,7 @@ describe('runDramaRender', () => {
     expect(report.checks.map(check => check.id)).toEqual([
       'duration', 'video_stream', 'frame_rate', 'audio_stream', 'bitrate_floor',
       'black_frames', 'fade_to_black', 'silence', 'long_pauses', 'subtitle_bounds', 'subtitle_present',
+      'output_provenance',
     ])
     expect(report.written).toEqual([])
   })

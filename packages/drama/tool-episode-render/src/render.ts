@@ -22,6 +22,7 @@ import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { dirname, resolve } from 'node:path'
 import { readBgmPlan } from './bgm.ts'
 import { fileSha256, readCacheIdentity } from './cache.ts'
+import { buildProvenance, provenancePathFor, writeProvenance } from './provenance.ts'
 import {
   audioMixFilter,
   deliveryScaleFilter,
@@ -254,6 +255,23 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   log.push(...checks.map(logCheck))
   await appendFile(paths.renderLog, `${log.join('\n')}\n`, 'utf8')
 
+  // The record that answers "made from what, checked against which file". It keeps the
+  // output's own digest beside the digests consumed, so replacing the delivery at the
+  // same path leaves this record describing bytes that are no longer there — and
+  // `verify` reports that instead of letting these checks stand in for a newer file.
+  const provenancePath = provenancePathFor(input.output)
+  await writeProvenance(provenancePath, buildProvenance({
+    episode: input.episode,
+    output: input.output,
+    outputSha256: await fileSha256(input.output),
+    sizeBytes: media.sizeBytes,
+    durationSeconds: media.durationSeconds,
+    inputs: consumedHashes,
+    encoder: choice.encoder,
+    checks,
+    now: new Date(),
+  }))
+
   const sources = new Map(clips.map(clip => [clip.shot, resolve(paths.videoDir, shotFileName(clip.shot))]))
   const reportInput: ReportInput = {
     method: 'render',
@@ -263,7 +281,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     timeline: { clips, bodyEndSeconds },
     sources,
     expectedDurationSeconds,
-    written: [input.output, paths.renderLog],
+    written: [input.output, provenancePath, paths.renderLog],
     output: input.output,
     encoder: choice.encoder,
     gpuRequested: settings.preferNvenc,
