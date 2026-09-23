@@ -18,6 +18,7 @@ import {
   DESKTOP_HOST_RUNTIME_FILES,
   DESKTOP_PACKAGES_DIR,
   DESKTOP_PACKAGE_SET_FILE,
+  DESKTOP_SOURCE_PLUGINS,
   parseDesktopCorePackageSet,
   type DesktopCorePackageRecord,
 } from '../src/core-package-set.ts'
@@ -51,10 +52,12 @@ function dependencyNames(manifest: Readonly<Record<string, unknown>>, section: s
 /**
  * Select the complete available first-party dependency closures rooted at dsh and its private Host.
  * @param available - Packed packages indexed by package name.
+ * @param additionalRoots - Required source-built plugin roots; absent tarballs fail instead of using registry packages.
  * @returns Selected packages sorted by name.
  */
 export function selectDesktopPackageClosure(
   available: ReadonlyMap<string, PackedDesktopPackage>,
+  additionalRoots: readonly string[] = [],
 ): PackedDesktopPackage[] {
   const selected = new Map<string, PackedDesktopPackage>()
   const visit = (name: string): void => {
@@ -74,7 +77,7 @@ export function selectDesktopPackageClosure(
       if (available.has(dependency)) visit(dependency)
     }
   }
-  for (const name of ROOT_PACKAGES) {
+  for (const name of [...ROOT_PACKAGES, ...additionalRoots]) {
     if (!available.has(name)) throw new Error(`desktop package set: packed inputs omit ${name}`)
     visit(name)
   }
@@ -123,7 +126,7 @@ export function assertDesktopHostPackageFiles(files: readonly string[]): void {
 
 /** Prepare a package set from release tarball directories. */
 export function prepareDesktopPackageSet(inputs: readonly string[], output: string): void {
-  const selected = selectDesktopPackageClosure(packedPackages(inputs))
+  const selected = selectDesktopPackageClosure(packedPackages(inputs), DESKTOP_SOURCE_PLUGINS)
   const host = selected.find(packed => packed.manifest.name === DESKTOP_HOST_PACKAGE)
   if (host === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_HOST_PACKAGE}`)
   assertDesktopHostPackageFiles(tarballFiles(host.tarball))

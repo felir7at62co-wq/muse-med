@@ -4,8 +4,12 @@ The fixtures are synthetic character timelines, so the indexing that reads a mat
 span out of difflib is proven here rather than on an episode.
 """
 import importlib.util
+import os
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 PACKAGE = Path(__file__).resolve().parents[2]
 SCRIPTS = PACKAGE / 'skills' / 'tweet-drama-draft-build' / 'scripts'
@@ -111,6 +115,45 @@ class SettleTests(unittest.TestCase):
 
 
 class ModelSourceTests(unittest.TestCase):
+    def test_bundled_model_env_is_used_without_network_and_explicit_cli_wins(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundled, explicit = root / 'bundled', root / 'explicit'
+            for directory in (bundled, explicit):
+                directory.mkdir()
+                for name in ALIGN.MODEL_FILES:
+                    (directory / name).write_bytes(b'fixture')
+            args = SimpleNamespace(model_dir='', model_url='', model_sha256='', cache_dir=str(root / 'cache'))
+            with patch.dict(os.environ, {'MUSE_WHISPER_MODEL_DIR': str(bundled)}), patch.object(ALIGN, 'fetch_model', side_effect=AssertionError('network')):
+                self.assertEqual(ALIGN.resolve_model(args), bundled)
+                args.model_dir = str(explicit)
+                self.assertEqual(ALIGN.resolve_model(args), explicit)
+                args.model_dir = ''
+                (bundled / 'model.bin').unlink()
+                with self.assertRaises(SystemExit):
+                    ALIGN.resolve_model(args)
+
+    def test_explicit_archive_choice_precedes_bundled_environment(self):
+        args = SimpleNamespace(model_dir='', model_url='https://example.test/model.zip', model_sha256='a' * 64, cache_dir='cache')
+        with patch.dict(os.environ, {'MUSE_WHISPER_MODEL_DIR': 'unused'}), patch.object(ALIGN, 'fetch_model', return_value=Path('downloaded')) as fetch:
+            self.assertEqual(ALIGN.resolve_model(args), Path('downloaded'))
+            fetch.assert_called_once_with(args.model_url, args.model_sha256, Path('cache').resolve())
+
+    def test_default_harness_cache_and_explicit_cache_are_resolved_without_download(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            default = root / 'cache' / 'models' / 'faster-whisper' / 'faster-whisper-fixture'
+            explicit = root / 'explicit' / 'faster-whisper-fixture'
+            for directory in (default, explicit):
+                directory.mkdir(parents=True)
+                for name in ALIGN.MODEL_FILES:
+                    (directory / name).write_bytes(b'fixture')
+            args = SimpleNamespace(model_dir='', model_url='', model_sha256='', cache_dir='')
+            with patch.dict(os.environ, {'DSH_HOME': temporary, 'MUSE_WHISPER_MODEL_DIR': ''}), patch.object(ALIGN, 'fetch_model', side_effect=AssertionError('network')):
+                self.assertEqual(ALIGN.resolve_model(args), default)
+                args.cache_dir = str(explicit.parent)
+                self.assertEqual(ALIGN.resolve_model(args), explicit)
+
     def test_refuses_a_download_without_a_digest(self):
         with self.assertRaises(SystemExit):
             ALIGN.fetch_model('https://example.test/model.zip', '', Path('/tmp/never-used'))
@@ -122,8 +165,11 @@ class ModelSourceTests(unittest.TestCase):
             model_sha256 = ''
             cache_dir = ''
 
-        with self.assertRaises(SystemExit) as caught:
-            ALIGN.resolve_model(Args())
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {'MUSE_WHISPER_MODEL_DIR': ''}):
+            args = Args()
+            args.cache_dir = temporary
+            with self.assertRaises(SystemExit) as caught:
+                ALIGN.resolve_model(args)
         message = str(caught.exception)
         self.assertIn('--model-dir', message)
         self.assertIn('--model-url', message)

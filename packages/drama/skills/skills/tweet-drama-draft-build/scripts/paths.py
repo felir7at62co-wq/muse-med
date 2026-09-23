@@ -47,7 +47,9 @@ def get_voices_dir() -> str:
 
 
 def get_models_dir() -> str:
-    return os.path.join(get_app_dir(), "models")
+    """Writable model cache under DSH_HOME, never inside installed skill resources."""
+    home = os.environ.get('DSH_HOME') or os.path.join(os.path.expanduser('~'), '.dsh')
+    return os.path.join(os.path.abspath(os.path.expanduser(home)), 'cache', 'models')
 
 
 def get_voice_library_dir() -> str:

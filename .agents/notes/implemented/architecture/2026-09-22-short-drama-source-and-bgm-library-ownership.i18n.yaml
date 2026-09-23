@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-22-short-drama-source-and-bgm-library-ownership.md
-2026-09-22-short-drama-source-and-bgm-library-ownership.md: f2b2a3edd3d881e505ef4f19586865cfcef52f60
-2026-09-22-short-drama-source-and-bgm-library-ownership.zh.md: 6fe9da4301ec172c7d4295b08d774b63118ad611
+2026-09-22-short-drama-source-and-bgm-library-ownership.md: c926a7a5149d41cc60c3ab84dfd46a6149139263
+2026-09-22-short-drama-source-and-bgm-library-ownership.zh.md: 5b389941e3e0157da7589788d3971d313e853f48

@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveDesktopPaths } from '../src/paths.ts'
-import { DesktopProjectManager, packageNameFromSpec, type DesktopProjectHooks } from '../src/project-manager.ts'
+import { createDevelopmentProjectMetadata, DesktopProjectManager, packageNameFromSpec, type DesktopProjectHooks } from '../src/project-manager.ts'
+import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { readDesktopProfileState } from '../src/profile-packages.ts'
 import { runtimeFixture } from './runtime-fixture.ts'
 
@@ -71,6 +72,25 @@ afterEach(async () => {
 })
 
 describe('desktop external plugin profile', () => {
+  it('activates source-built production tools without starting marketplace routes or Lark onboarding', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    const manifest = JSON.parse(readFileSync(join(manager.paths.profile, 'package.json'), 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    expect(manifest.dsh.profile.bundles).toEqual([
+      '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
+      'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail',
+    ])
+  })
+
+  it('does not authorize native builds for dependencies absent from the Desktop runtime', () => {
+    const root = temporaryRoot()
+    createDevelopmentProjectMetadata(root, { schemaVersion: 1, version: '1.0.0', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
+      nodeVersion: '24.17.0', pnpmVersion: '11.7.0' })
+    expect(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')).not.toContain('fs-ext: true')
+  })
+
   it('changes runtime generations without deleting legacy host links', async () => {
     const { root, manager } = setup()
     await manager.applyRelease()

@@ -14,6 +14,7 @@
 import { spawn } from 'node:child_process'
 import { createInterface, type Interface } from 'node:readline'
 
+/** Interpreter, worker script, environment, and limits for one resident analysis process. */
 export interface EmotionWorkerOptions {
   pythonExecutable: string
   scriptPath: string
@@ -26,6 +27,7 @@ export interface EmotionWorkerOptions {
   onLaunch?: (argv: string[], env: NodeJS.ProcessEnv) => void
 }
 
+/** Worker startup report describing the active face and missing analysis dependencies. */
 export interface Handshake {
   ready: boolean
   face: string
@@ -64,7 +66,10 @@ export class EmotionWorker {
     return !this.dead && this.child !== undefined && this.child.exitCode === null
   }
 
-  /** Start once and wait for the worker's dependency handshake. */
+  /**
+   * Start once and wait for the worker's dependency handshake.
+   * @returns The shared startup report, including any missing dependencies.
+   */
   async start(): Promise<Handshake> {
     if (this.ready !== undefined) return this.ready
     if (this.startPromise !== undefined) return await this.startPromise
@@ -77,7 +82,12 @@ export class EmotionWorker {
     }
   }
 
-  /** Send one request; callers must await {@link start} first. */
+  /**
+   * Send one request; callers must await {@link start} first.
+   * @param method - Python worker operation name.
+   * @param params - JSON-serializable arguments for that operation.
+   * @returns The decoded result, or a rejection on worker error, timeout, or process exit.
+   */
   async call(method: string, params: Record<string, unknown>): Promise<unknown> {
     if (!this.alive) throw new Error('worker is not running')
     const child = this.child

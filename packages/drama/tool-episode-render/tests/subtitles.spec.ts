@@ -3,12 +3,14 @@
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ASS_DOCUMENT_HEADER, WATERMARK_TEXT } from '../src/delivery.ts'
+import { buildAssHeader, WATERMARK_TEXT } from '../src/delivery.ts'
 import { buildAssDocument, parseSrtDocument, parseSrtTime, readSubtitleCues } from '../src/subtitles.ts'
 import type { SubtitleCue } from '../src/types.ts'
 import { cleanup, srtDocument, tempProject } from './harness.ts'
 
 const temporary: string[] = []
+const fonts = { subtitleFontFamily: 'SimHei', watermarkFontFamily: 'Microsoft YaHei' }
+const ASS_DOCUMENT_HEADER = buildAssHeader(fonts)
 
 afterEach(async () => {
   await Promise.all(temporary.splice(0).map(async (dir) => { await cleanup(dir) }))
@@ -79,7 +81,7 @@ describe('readSubtitleCues', () => {
 
 describe('buildAssDocument', () => {
   it('writes the fixed header, one Default line per cue, and the single AI-content mark', () => {
-    const document = buildAssDocument([cue(1, 1.68, 3.58, '京市户口 单身'), cue(2, 59.999, 60.5, '履历干净 嘴严')])
+    const document = buildAssDocument([cue(1, 1.68, 3.58, '京市户口 单身'), cue(2, 59.999, 60.5, '履历干净 嘴严')], fonts)
     expect(document.startsWith(ASS_DOCUMENT_HEADER)).toBe(true)
     const header = ASS_DOCUMENT_HEADER.split('\n')
     expect(header).toContain('Style: Default,SimHei,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,'
@@ -92,12 +94,12 @@ describe('buildAssDocument', () => {
   })
 
   it('replaces braces so a cue cannot open an ASS override block', () => {
-    expect(buildAssDocument([cue(1, 0, 1, '{\\fs120}放大')]))
+    expect(buildAssDocument([cue(1, 0, 1, '{\\fs120}放大')], fonts))
       .toContain('Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,（\\fs120）放大')
   })
 
   it('writes only the AI-content mark when the subtitle carries no cue', () => {
-    const document = buildAssDocument([])
+    const document = buildAssDocument([], fonts)
     expect(document).toContain('内容由AI生成')
     expect(document).not.toContain('Dialogue: 0,')
   })

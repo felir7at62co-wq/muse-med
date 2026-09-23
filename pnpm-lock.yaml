@@ -598,6 +598,15 @@ importers:
       '@deepseek-ai/dsh-cmdline':
         specifier: workspace:^
         version: link:../../packages/boot/cmdline
+      '@deepseek-ai/dsh-drama-settings':
+        specifier: workspace:^
+        version: link:../../packages/drama/drama-settings
+      '@deepseek-ai/dsh-drama-skills':
+        specifier: workspace:^
+        version: link:../../packages/drama/skills
+      '@deepseek-ai/dsh-guard-drama':
+        specifier: workspace:^
+        version: link:../../packages/guard/drama-gate
       '@deepseek-ai/dsh-host-directory-picker-native':
         specifier: workspace:^
         version: link:../../packages/host/directory-picker-native
@@ -607,6 +616,24 @@ importers:
       '@deepseek-ai/dsh-launch-environment':
         specifier: workspace:^
         version: link:../../packages/util/launch-environment
+      '@deepseek-ai/dsh-perception-bgm':
+        specifier: workspace:^
+        version: link:../../packages/perception/perception-bgm
+      '@deepseek-ai/dsh-tool-bgm-compose':
+        specifier: workspace:^
+        version: link:../../packages/drama/tool-bgm-compose
+      '@deepseek-ai/dsh-tool-drama-assets':
+        specifier: workspace:^
+        version: link:../../packages/drama/tool-drama-assets
+      '@deepseek-ai/dsh-tool-episode-render':
+        specifier: workspace:^
+        version: link:../../packages/drama/tool-episode-render
+      '@deepseek-ai/dsh-tool-jubian':
+        specifier: workspace:^
+        version: link:../../packages/jubian/tool-jubian
+      '@deepseek-ai/dsh-tool-shot-script':
+        specifier: workspace:^
+        version: link:../../packages/drama/tool-shot-script
       '@deepseek-ai/dsh-web-frontend':
         specifier: workspace:^
         version: link:../web

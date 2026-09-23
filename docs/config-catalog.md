@@ -1796,6 +1796,50 @@ export interface Config {
 
 Source: [`packages/feedback/message-feedback/src/index.ts:40`](../packages/feedback/message-feedback/src/index.ts)
 
+<a id="deepseek-aidsh-perception-bgm"></a>
+
+## `@deepseek-ai/dsh-perception-bgm`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Deployment settings for track matching, downloads, and optional local emotion analysis. */
+export interface BgmConfig {
+  /** Absolute path to the Python interpreter that has the model's dependencies. */
+  pythonExecutable?: string
+  /** Directory holding `tag_list.npy`, `run_config.yaml` and the chord model. */
+  dataDir?: string
+  /** The Music2Emo emotion head checkpoint (`J_all.ckpt`). */
+  weightsPath?: string
+  /** Override for the analysed-track index location. */
+  indexPath?: string
+  /** Optional public HTTPS catalogue; omitted keeps local-index matching. */
+  catalogUrl?: string
+  /** Absolute download cache directory; defaults under DSH_HOME. */
+  cacheDir?: string
+  /** Deadline covering one catalogue/download operation, default 60000 ms. */
+  networkTimeoutMs?: number
+  /** Maximum decoded catalogue size, default 2 MiB. */
+  maxCatalogBytes?: number
+  /** Maximum track size accepted from the catalogue, default 128 MiB. */
+  maxTrackBytes?: number
+  /**
+   * Extra environment for the model process, most importantly `HF_HOME`.
+   *
+   * Stated here rather than inherited: a deployment that keeps the ~360 MB
+   * backbone cache outside the default location would otherwise re-download it on
+   * every fresh host, and the failure mode — a long silent download — looks like a
+   * hang. Only these entries plus a fixed ambient allowlist reach the child;
+   * do not put credentials in this explicit environment.
+   */
+  env?: Record<string, string>
+  /** Deadline for one Python analysis request; defaults to 300000 ms and kills the worker on expiry. */
+  callTimeoutMs?: number
+}
+```
+
+Source: [`packages/perception/perception-bgm/src/config.ts:19`](../packages/perception/perception-bgm/src/config.ts)
+
 <a id="deepseek-aidsh-permission-presets"></a>
 
 ## `@deepseek-ai/dsh-permission-presets`
@@ -3008,7 +3052,7 @@ Source: [`packages/shell/tool-bash-persistent/src/index.ts:435`](../packages/she
 Requires: `tools` · `subprocess`
 
 ```ts config-catalog
-/** Deployment-varying executable and subprocess limits. */
+/** Deployment-varying executable, subprocess limits, and batch policy. */
 export interface Config {
   /** FFmpeg executable or command name. */
   readonly ffmpegPath?: string
@@ -3020,10 +3064,18 @@ export interface Config {
   readonly terminationGraceMs?: number
   /** Collected output cap for each process stream. */
   readonly outputMaxBytes?: number
+  /** Distinct tracks every episode must use. */
+  readonly minTracksPerEpisode?: number
+  /** Episodes one track may appear in across a batch. */
+  readonly maxEpisodesPerTrack?: number
+  /** Tracks every episode must use that no other episode in the batch uses. */
+  readonly freshTracksPerEpisode?: number
+  /** Seconds a cut may sit away from a package boundary. */
+  readonly boundaryToleranceSeconds?: number
 }
 ```
 
-Source: [`packages/drama/tool-bgm-compose/src/index.ts:21`](../packages/drama/tool-bgm-compose/src/index.ts)
+Source: [`packages/drama/tool-bgm-compose/src/index.ts:22`](../packages/drama/tool-bgm-compose/src/index.ts)
 
 <a id="deepseek-aidsh-tool-drama-assets"></a>
 
@@ -3061,8 +3113,8 @@ Requires: `tools`
 /**
  * Plugin config. Every field is a deployment-varying choice: where the media
  * binaries are, the two audio gains the operator approved, whether the GPU
- * encoder is probed, and where the subtitle font lives. The delivery
- * specification itself — geometry, frame rate, bitrates, subtitle style, ending
+ * encoder is probed, and the font directory and families. The delivery
+ * specification itself — geometry, frame rate, bitrates, subtitle layout, ending
  * length — is not configurable.
  */
 export interface Config {
@@ -3078,10 +3130,14 @@ export interface Config {
   preferNvenc?: boolean
   /** Directory libass resolves the subtitle font from; defaults to `C:/Windows/Fonts`. */
   fontsDir?: string
+  /** ASS subtitle font family; nonblank, no commas or line breaks; defaults to SimHei. */
+  subtitleFontFamily?: string
+  /** ASS watermark font family; nonblank, no commas or line breaks; defaults to Microsoft YaHei. */
+  watermarkFontFamily?: string
 }
 ```
 
-Source: [`packages/drama/tool-episode-render/src/index.ts:66`](../packages/drama/tool-episode-render/src/index.ts)
+Source: [`packages/drama/tool-episode-render/src/index.ts:73`](../packages/drama/tool-episode-render/src/index.ts)
 
 <a id="deepseek-aidsh-tool-fs"></a>
 
@@ -3259,7 +3315,7 @@ export interface ImageRouteConfig {
 }
 ```
 
-Source: [`packages/jubian/tool-jubian/src/index.ts:47`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts:48`](../packages/jubian/tool-jubian/src/index.ts)
 
 <a id="deepseek-aidsh-tool-lsp"></a>
 
@@ -3393,7 +3449,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/drama/tool-shot-script/src/index.ts:48`](../packages/drama/tool-shot-script/src/index.ts)
+Source: [`packages/drama/tool-shot-script/src/index.ts:51`](../packages/drama/tool-shot-script/src/index.ts)
 
 <a id="deepseek-aidsh-tool-skill"></a>
 

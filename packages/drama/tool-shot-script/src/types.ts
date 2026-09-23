@@ -58,6 +58,7 @@ export type IssueCode =
   | 'speech_too_long'
   | 'speech_exceeds_project_limit'
   | 'shot_exceeds_package_budget'
+  | 'package_below_minimum'
   | 'speech_above_writing_threshold'
   | 'unknown_action_complexity'
   | 'action_complexity_on_speaking_shot'

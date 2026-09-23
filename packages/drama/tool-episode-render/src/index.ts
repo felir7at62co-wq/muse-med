@@ -4,7 +4,7 @@
  *
  * The delivery style used to be encoded in a skill script the model launched
  * with a shell. The style itself is a fixed specification — 1440x2560 at 60 fps,
- * 24M target with a 30M ceiling and a 4.6 Mbps floor, SimHei 68 with -2 spacing
+ * 24M target with a 30M ceiling and a 4.6 Mbps floor, 68px subtitles with -2 spacing
  * and a 7px outline, the bottom-right `内容由AI生成` mark, and a two-second ending
  * frozen from the last body shot's real tail frame — so it lives here as
  * constants, and the operation that produces the delivery is the operation that
@@ -56,11 +56,18 @@ const DEFAULT_BGM_VOLUME = 0.24
 /** Font directory used when the deployment does not name one. */
 const DEFAULT_FONTS_DIR = 'C:/Windows/Fonts'
 
+/** Default ASS font families for deployments without overrides. */
+const DEFAULT_SUBTITLE_FONT_FAMILY = 'SimHei'
+const DEFAULT_WATERMARK_FONT_FAMILY = 'Microsoft YaHei'
+
+/** ASS font names must contain visible text and cannot inject fields or lines. */
+const FONT_FAMILY_PATTERN = /^(?=[^,\r\n]*\S)[^,\r\n]+$/u
+
 /**
  * Plugin config. Every field is a deployment-varying choice: where the media
  * binaries are, the two audio gains the operator approved, whether the GPU
- * encoder is probed, and where the subtitle font lives. The delivery
- * specification itself — geometry, frame rate, bitrates, subtitle style, ending
+ * encoder is probed, and the font directory and families. The delivery
+ * specification itself — geometry, frame rate, bitrates, subtitle layout, ending
  * length — is not configurable.
  */
 export interface Config {
@@ -76,9 +83,13 @@ export interface Config {
   preferNvenc?: boolean
   /** Directory libass resolves the subtitle font from; defaults to `C:/Windows/Fonts`. */
   fontsDir?: string
+  /** ASS subtitle font family; nonblank, no commas or line breaks; defaults to SimHei. */
+  subtitleFontFamily?: string
+  /** ASS watermark font family; nonblank, no commas or line breaks; defaults to Microsoft YaHei. */
+  watermarkFontFamily?: string
 }
 
-/** Validated config schema: the two gains must stay inside the range that keeps a delivery audible. */
+/** Validated deployment config, including gain ranges and ASS-safe font families. */
 export const Config: z<Config> = z.object({
   ffmpegPath: z.string().default(DEFAULT_FFMPEG),
   ffprobePath: z.string().default(DEFAULT_FFPROBE),
@@ -86,6 +97,8 @@ export const Config: z<Config> = z.object({
   bgmVolume: z.number().min(0).max(8).default(DEFAULT_BGM_VOLUME),
   preferNvenc: z.boolean().default(true),
   fontsDir: z.string().default(DEFAULT_FONTS_DIR),
+  subtitleFontFamily: z.string().pattern(FONT_FAMILY_PATTERN).default(DEFAULT_SUBTITLE_FONT_FAMILY),
+  watermarkFontFamily: z.string().pattern(FONT_FAMILY_PATTERN).default(DEFAULT_WATERMARK_FONT_FAMILY),
 })
 
 /** Internal call arguments after the tool's snake_case parameters are mapped. */
@@ -196,7 +209,7 @@ type ResolvedCall = PrepareCall | RenderCall | VerifyCall | SubtitlesCall
 /**
  * Resolve one call's configuration into the settings every method takes.
  * @param config - The validated plugin config.
- * @returns The binaries, gains, encoder preference, and font directory.
+ * @returns The binaries, gains, encoder preference, font directory and families.
  */
 export function resolveSettings(config: Config = {}): RenderSettings {
   return {
@@ -206,6 +219,8 @@ export function resolveSettings(config: Config = {}): RenderSettings {
     bgmVolume: config.bgmVolume ?? DEFAULT_BGM_VOLUME,
     preferNvenc: config.preferNvenc ?? true,
     fontsDir: config.fontsDir ?? DEFAULT_FONTS_DIR,
+    subtitleFontFamily: config.subtitleFontFamily ?? DEFAULT_SUBTITLE_FONT_FAMILY,
+    watermarkFontFamily: config.watermarkFontFamily ?? DEFAULT_WATERMARK_FONT_FAMILY,
   }
 }
 
@@ -569,7 +584,7 @@ const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
   + '（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。'
   + 'render=出片：逐镜编码到交付规格 1440x2560@60、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1，'
   + '片尾用最后一镜的真实尾帧定格 2 秒并叠 ending_effect，拼接后烧录 ASS 字幕'
-  + '（SimHei 68、字间距 -2、7px 黑描边、底部居中，右下角唯一的「内容由AI生成」标记），'
+  + '（默认 SimHei 68，字体服从部署配置；字间距 -2、7px 黑描边、底部居中，右下角唯一的「内容由AI生成」标记），'
   + '再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，'
   + 'AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。'
   + 'GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，'

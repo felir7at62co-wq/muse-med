@@ -1,7 +1,8 @@
 /** Electron shell: desktop project ownership, custom protocol, windows, and lifecycle. */
 
 import { readFile, writeFile } from 'node:fs/promises'
-import { extname, join, normalize, resolve, sep } from 'node:path'
+import { homedir } from 'node:os'
+import { delimiter, extname, join, normalize, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   app,
@@ -22,6 +23,26 @@ import { claimDesktopSingleInstance } from './single-instance.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { desktopErrorState } from './startup-error.ts'
 import { startupFailureDocument } from './startup-document.ts'
+
+// The independent product never imports a parent DSH installation's credentials or sessions.
+const productHome = process.env.MUSE_MED_HOME
+if (app.isPackaged) {
+  process.env.DSH_HOME = productHome?.trim() ? resolve(productHome) : join(homedir(), '.muse-med')
+  if (process.platform === 'win32') {
+    const media = join(process.resourcesPath, 'runtime', 'media')
+    const inheritedPath = Object.entries(process.env).find(([name]) => name.toUpperCase() === 'PATH')?.[1]
+    for (const name of Object.keys(process.env)) {
+      if (['PATH', 'PYTHONHOME', 'PYTHONPATH'].includes(name.toUpperCase())) Reflect.deleteProperty(process.env, name)
+    }
+    process.env.PATH = [join(media, 'python'), join(media, 'ffmpeg', 'bin'), ...(inheritedPath ? [inheritedPath] : [])].join(delimiter)
+    process.env.DSH_FFMPEG_PATH = process.env.FFMPEG_PATH = join(media, 'ffmpeg', 'bin', 'ffmpeg.exe')
+    process.env.DSH_FFPROBE_PATH = process.env.FFPROBE_PATH = join(media, 'ffmpeg', 'bin', 'ffprobe.exe')
+    process.env.MUSE_WHISPER_MODEL_DIR = join(media, 'models', 'faster-whisper-small')
+    process.env.PYTHONDONTWRITEBYTECODE = '1'
+    process.env.MUSE_FONTS_DIR = join(media, 'fonts')
+    process.env.MUSE_FONT_FAMILY = 'Noto Sans CJK SC'
+  }
+}
 
 const SCHEME = 'dsh-app'
 let focusPrimaryWindow = (): void => {}
@@ -201,11 +222,13 @@ async function main(): Promise<void> {
     const state = pageError ?? backend.state
     return state.phase === 'error' ? { ...state, profileRecovery: profileRecoveryAvailable() } : state
   }
-  const publishBackend = (state: DesktopBackendState): void => {
+  const publishState = (channel: string, state: DesktopBackendState | DesktopUpdateState): void => {
+    if (quitting || shellInstallerOwnsQuit) return
     for (const window of BrowserWindow.getAllWindows()) {
-      window.webContents.send(DESKTOP_IPC.backendState, state)
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(channel, state)
     }
   }
+  const publishBackend = (state: DesktopBackendState): void => { publishState(DESKTOP_IPC.backendState, state) }
   const backend = new DesktopBackendController((onFailure) => {
     if (development === undefined) manager.assertProfileRuntime(activeProject)
     const hostInspectPort = developmentHostInspectPort(development !== undefined)
@@ -224,9 +247,7 @@ async function main(): Promise<void> {
 
   const publishUpdate = (state: DesktopUpdateState): DesktopUpdateState => {
     updateState = state
-    for (const window of BrowserWindow.getAllWindows()) {
-      window.webContents.send(DESKTOP_IPC.updatesState, state)
-    }
+    publishState(DESKTOP_IPC.updatesState, state)
     return state
   }
 

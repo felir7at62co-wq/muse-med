@@ -1,24 +1,30 @@
-# DeepSeek Harness
+# muse-med
 
 [English](README.md) | 中文
 
-DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的开源 agent harness（智能体框架）。
+muse-med 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）分支开发的短剧 AIGC 桌面智能体。底层框架由 [DeepSeek AI](https://deepseek.com) 开发；本分支保留上游包名与署名，并非 DeepSeek 官方发行版。
 
-它构建于**一切皆插件**的架构之上，由 [Cordis](https://github.com/cordiverse/cordis) 驱动，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://arxiv.org/abs/2608.25512)。
+底层框架采用**一切皆插件**的架构，由 [Cordis](https://github.com/cordiverse/cordis) 驱动，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://arxiv.org/abs/2608.25512)。
 
-文档：[https://deepseek-harness.github.io/deepseek-harness/](https://deepseek-harness.github.io/deepseek-harness/)
+上游 dsh 文档：[https://deepseek-harness.github.io/deepseek-harness/](https://deepseek-harness.github.io/deepseek-harness/)
 
 ## 开发者预览
 
-DeepSeek Harness 处于 _开发者预览_ 阶段，正在快速迭代。**未来将出现破坏兼容性的变更。**
+muse-med 与底层框架目前都处于 _开发者预览_ 阶段。**未来将出现破坏兼容性的变更。** Windows 安装包与完整的免安装媒体运行时尚未发布；源码目录不是组员可用的安装包。
 
-运行本项目前，请阅读[安全说明](SAFETY.zh.md)。
+运行前请阅读[安全说明](SAFETY.zh.md)。桌面开发版可从源码执行 `pnpm run dev:desktop`，开发机器仍需 Node.js 和 pnpm。详见[桌面端说明](apps/desktop/README.zh.md)和[社区插件源码快照](third_party/plugins/README.zh.md)。
+
+## 短剧工作流
+
+桌面预览版在一个短剧预设中结合剧本准备、用户提供的视觉参考、资产审核、镜头规划、BGM 选择和分集交付。参考图由用户提供，不要求或附带小红书接入。参考审核和用户确认是技能层面的工作流要求，不是每个收费工具都会强制执行的授权检查。
+
+Windows 媒体运行时为本地渲染和 Whisper 转写准备了依赖及锁定的 OFL 许可 Noto 字体；这不代表在线模型提供方、剧变账号或公开 BGM 下载能够离线使用。可选的 MERT 分析需要另行准备模型资源，且仅限非商业用途。最新安装包仍需完成新配置与干净机器验收；未签名测试产物不等于已签名的公开发行版。运行时与凭据限制详见[桌面端说明](apps/desktop/README.zh.md)。
 
 <a id="run"></a>
 
 ## 运行
 
-### 通过 `npm` 运行
+### 通过 `npm` 运行上游 `dsh` 命令行
 
 安装 `Node.js`，然后运行：
 
@@ -35,8 +41,8 @@ npx @deepseek-ai/dsh web
 如需从仓库源码运行：
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-cd deepseek-harness
+git clone https://github.com/felir7at62co-wq/muse-med.git
+cd muse-med
 pnpm install
 pnpm run build
 pnpm dsh web
@@ -46,9 +52,9 @@ pnpm dsh web
 
 ## 社区与支持
 
-- 通过 [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 提交反馈或 bug 报告。
-- 为你的插件仓库添加 [`dsh-plugin`](https://github.com/topics/dsh-plugin) 话题，便于被发现。
-- 欢迎加入 DeepSeek Harness 企微群：扫码添加企微小助手并填写入群问卷，完成后小助手会邀请你入群。
+- muse-med 的问题请提交到 [muse-med 仓库](https://github.com/felir7at62co-wq/muse-med/issues)。
+- 上游 dsh 的问题请到 [DeepSeek Harness Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 或 [Discord 社区](https://discord.gg/Ycq5dCaS4)。
+- 兼容插件可使用 [`dsh-plugin`](https://github.com/topics/dsh-plugin) 话题；下方企微群是 DeepSeek Harness 上游社区，并非 muse-med 的官方支持渠道。
 
 <table>
   <thead>
@@ -77,7 +83,7 @@ pnpm dsh web
 
 面向 agent：请遵循 [AGENTS.md](AGENTS.md)。
 
-## 引用
+## 上游引用
 
 ```bibtex
 @misc{deepseek-harness2026,

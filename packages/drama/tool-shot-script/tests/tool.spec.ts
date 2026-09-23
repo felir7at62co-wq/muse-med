@@ -150,7 +150,12 @@ describe('validate', () => {
 
 describe('preview', () => {
   it('plans the packages without writing anything', async () => {
-    const files = await project()
+    // Five seconds of content: comfortably above the three-second content floor the
+    // provider's four-second request minimum leaves under the hold.
+    const files = await project({ script: scriptOf(
+      speakingShot(1, '苏晚：@[苏晚](lead) 站住', ['核心场景：后厨', '关键道具：奶瓶', '出镜人物：苏晚']),
+      actionShot(2, ['核心场景：后厨', '动作复杂度：复杂']),
+    ) })
     const report = await run({ max_submit_seconds: 15, method: 'preview', script: files.scriptPath, assets: files.manifestPath })
     expect(report.method).toBe('preview')
     expect(report.ok).toBe(true)
@@ -159,15 +164,42 @@ describe('preview', () => {
     expect(report.packages[0]).toMatchObject({
       index: 1,
       shots: [1, 2],
-      content_seconds: 3,
-      content_duration_ms: 3000,
-      submit_seconds: 4,
+      content_seconds: 5,
+      content_duration_ms: 5000,
+      submit_seconds: 6,
       natural_hold_seconds: 1,
       material_keys: ['lead'],
       material_names: ['苏晚', '后厨', '奶瓶'],
     })
     expect(report.packages[0]?.hold_instruction).toContain('不新增台词')
-    expect(report.summary).toMatchObject({ packages: 1, content_seconds: 3 })
+    expect(report.summary).toMatchObject({ packages: 1, content_seconds: 5 })
+  })
+
+  it('plans the provider floor request without a failure', async () => {
+    // Three seconds of content plus the hold is the four-second request the provider
+    // accepts at its lowest, so the run must plan it rather than refuse it.
+    const files = await project({ script: scriptOf(actionShot(1, ['核心场景：后厨'])) })
+    const tool = mount({ actionShotSeconds: 3 })[0]
+    const report = await tool?.execute({ max_submit_seconds: 15, method: 'preview',
+      script: files.scriptPath, assets: files.manifestPath }) as DramaShotReport
+    expect(report.ok).toBe(true)
+    expect(report.failures).toEqual([])
+    expect(report.packages).toHaveLength(1)
+    expect(report.packages[0]).toMatchObject({ content_seconds: 3, content_duration_ms: 3000, submit_seconds: 4 })
+  })
+
+  it('hints at a package below the provider request floor without refusing the run', async () => {
+    // One one-second shot in its own scene cannot be merged anywhere: the tool still
+    // plans it and warns that its two-second request is below the provider's floor.
+    const files = await project({ script: scriptOf(speakingShot(1, '苏晚：站住', ['核心场景：后厨'])) })
+    const report = await run({ max_submit_seconds: 15, method: 'preview', script: files.scriptPath, assets: files.manifestPath })
+    expect(report.ok).toBe(true)
+    expect(report.failures).toEqual([])
+    expect(report.warnings.map(issue => issue.code)).toEqual(['package_below_minimum'])
+    expect(report.warnings[0]?.message).toContain('镜头1')
+    expect(report.warnings[0]?.message).toContain('4秒请求下限')
+    expect(report.packages[0]).toMatchObject({ content_seconds: 1, submit_seconds: 2 })
+    expect(report.summary).toMatchObject({ packages: 1, warnings: 1, failures: 0 })
   })
 
   it('requires the asset manifest', async () => {
@@ -218,7 +250,12 @@ describe('creative guidance and explicit provider budget', () => {
 
 describe('compile', () => {
   it('writes the matched JSON and the episode package', async () => {
-    const files = await project()
+    // Same five-second fixture as the preview test: a package below the floor
+    // fails the run, so nothing is written.
+    const files = await project({ script: scriptOf(
+      speakingShot(1, '苏晚：@[苏晚](lead) 站住', ['核心场景：后厨', '关键道具：奶瓶', '出镜人物：苏晚']),
+      actionShot(2, ['核心场景：后厨', '动作复杂度：复杂']),
+    ) })
     const report = await run({ max_submit_seconds: 15, method: 'compile', script: files.scriptPath, assets: files.manifestPath,
       project: files.root, episode: 1 })
     expect(report.ok).toBe(true)
@@ -234,7 +271,7 @@ describe('compile', () => {
     const matched = JSON.parse(await readFile(join(files.root, 'matches', '01.matched.json'), 'utf8')) as
       { episode: string; video_tasks: { content_duration: number }[] }
     expect(matched.episode).toBe('01')
-    expect(matched.video_tasks[0]?.content_duration).toBe(3)
+    expect(matched.video_tasks[0]?.content_duration).toBe(5)
     expect(await readFile(join(files.root, 'prompts', '01.txt'), 'utf8')).toContain('真人短剧写实风格')
   })
 

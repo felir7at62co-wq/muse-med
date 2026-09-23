@@ -37,6 +37,8 @@ dsh plugin --profile <name> remove @deepseek-ai/dsh-subagent-codex
 dsh --profile <name>
 ```
 
+Electron distributions must unpack the complete `@openai/codex` wrapper package and its selected `@openai/codex-*` platform package. The provider maps an `app.asar` path segment to `app.asar.unpacked` before reading the wrapper manifest, so the wrapper resolves and spawns a native filesystem binary; ordinary installation paths stay unchanged.
+
 Removing the package withdraws the provider and its private runtime closure on the next Profile start. Installation controls Host availability, not model permission: the model can only reach the provider through a delegation tool row you compose.
 
 ### Configuration

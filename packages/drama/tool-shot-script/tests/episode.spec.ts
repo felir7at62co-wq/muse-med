@@ -7,6 +7,7 @@ import {
   HOLD_INSTRUCTION,
   materialKeys,
   MATCHED_VERSION,
+  MIN_CONTENT_SECONDS,
   NATURAL_HOLD_SECONDS,
   packEpisode,
   writeEpisode,
@@ -122,16 +123,58 @@ describe('packing an episode', () => {
     expect(packEpisode(shots, 14).map(task => task.shots)).toEqual([[1, 2], [3]])
   })
 
-  it('closes a package instead of exceeding the content budget', () => {
+  it('splits a long run evenly instead of leaving a short tail', () => {
     const shots = fixture([
       actionShot(1, ['核心场景：后厨', '动作复杂度：复杂']),
       actionShot(2, ['核心场景：后厨', '动作复杂度：复杂']),
       actionShot(3, ['核心场景：后厨', '动作复杂度：复杂']),
       actionShot(4, ['核心场景：后厨', '动作复杂度：复杂']),
     ], DEFAULT_ASSETS)
+    // Sixteen seconds over a fourteen-second ceiling is two packages either way;
+    // filling greedily would leave 12+4, and that four-second tail sits exactly on
+    // the provider floor. The split is 8+8 instead.
     const tasks = packEpisode(shots, 14)
-    expect(tasks.map(task => task.contentSeconds)).toEqual([12, 4])
-    expect(tasks.map(task => task.shots)).toEqual([[1, 2, 3], [4]])
+    expect(tasks.map(task => task.contentSeconds)).toEqual([8, 8])
+    expect(tasks.map(task => task.shots)).toEqual([[1, 2], [3, 4]])
+  })
+
+  it('explores cuts that leave a suffix too long for the packs that remain', () => {
+    const shots = fixture([
+      actionShot(1, ['核心场景：后厨', '动作复杂度：复杂']),
+      actionShot(2, ['核心场景：后厨', '动作复杂度：复杂']),
+      actionShot(3, ['核心场景：后厨', '动作复杂度：复杂']),
+      actionShot(4, ['核心场景：后厨', '动作复杂度：复杂']),
+      actionShot(5, ['核心场景：后厨', '动作复杂度：复杂']),
+    ], DEFAULT_ASSETS)
+    // Twenty seconds over a fourteen-second ceiling is two packages. Cutting after
+    // the first shot would leave sixteen seconds for one package, which does not
+    // fit, so that candidate is dropped and 8+12 wins.
+    const tasks = packEpisode(shots, 14)
+    expect(tasks.map(task => task.contentSeconds)).toEqual([8, 12])
+    expect(tasks.map(task => task.shots)).toEqual([[1, 2], [3, 4, 5]])
+  })
+
+  it('leaves the smallest request the provider accepts exactly at the floor', () => {
+    // The provider rejects a request below four seconds, and every package spends
+    // NATURAL_HOLD_SECONDS of that request on closure, so three seconds of content
+    // is the floor itself rather than below it.
+    const shots = fixture(
+      [speakingShot(1, '苏晚：短', ['核心场景：后厨']), actionShot(2, ['核心场景：后厨'])],
+      DEFAULT_ASSETS,
+    )
+    const tasks = packEpisode(shots, 14)
+    expect(tasks.map(task => [task.contentSeconds, task.submitSeconds])).toEqual([[3, 4]])
+    expect(tasks[0]!.contentSeconds).toBeGreaterThanOrEqual(MIN_CONTENT_SECONDS)
+  })
+
+  it('returns a package below the provider floor for the caller to hint at', () => {
+    // One short shot alone in its scene cannot be merged anywhere; the packer still
+    // reports it, and `drama_shot` turns it into a `package_below_minimum` hint
+    // rather than refusing a run whose request the provider would reject.
+    const shots = fixture([speakingShot(1, '苏晚：短', ['核心场景：后厨'])], DEFAULT_ASSETS)
+    const tasks = packEpisode(shots, 14)
+    expect(tasks.map(task => task.contentSeconds)).toEqual([1])
+    expect(tasks[0]!.contentSeconds).toBeLessThan(MIN_CONTENT_SECONDS)
   })
 
   it('closes a package after a shot that declares the task boundary', () => {

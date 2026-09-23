@@ -8,9 +8,9 @@
 #   - id: drama-gate
 #     name: '@deepseek-ai/dsh-guard-drama'
 #     config:
-#       # workspaceRoot: E:\aa-manju      # 会话无 cwd 时的兜底工作区根（绝对路径）
+#       # workspaceRoot: D:\projects      # 会话无 cwd 时的兜底工作区根（绝对路径）
 #       # workshopDir: short-drama        # 工作间目录名，默认 short-drama
-#       # projectRoot: E:\aa-manju\short-drama\my-drama   # 覆盖项目根推导（绝对路径）
+#       # projectRoot: D:\projects\short-drama\example   # 覆盖项目根推导（绝对路径）
 #       # idempotencyKey: true            # 写/计费方法必须带 idempotency_key
 #       # shotScript: true                # 镜头脚本与 matched JSON 的内容门禁
 #       # officialAssets: true            # 付费提交前必须有 official=true 资产

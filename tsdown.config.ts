@@ -1,4 +1,5 @@
 import { defineConfig } from 'tsdown'
+import { clientBuildConcurrency } from './scripts/client-build-concurrency.ts'
 import { typertPlugin } from './packages/typert/generator/lib/types/tsdown-plugin.js'
 
 function isBuildFaceClient(value: unknown): boolean {
@@ -20,6 +21,7 @@ function isBuildFaceClient(value: unknown): boolean {
 export default defineConfig(({ env }) => {
   const client = isBuildFaceClient(env?.DSH_BUILD_FACE)
   const resourceOnly = '!packages/drama/skills'
+  const hooks = client ? clientBuildConcurrency(process.env.DSH_BUILD_CLIENT_CONCURRENCY) : undefined
   return {
     workspace: client
       ? ['vendor/*', 'packages/*/*', resourceOnly, 'apps/cli']
@@ -33,5 +35,6 @@ export default defineConfig(({ env }) => {
     dts: false,
     clean: false,
     plugins: client ? [] : [typertPlugin({ mode: 'workspace', faces: ['host'] })],
+    ...(hooks === undefined ? {} : { hooks }),
   }
 })

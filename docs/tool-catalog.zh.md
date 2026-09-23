@@ -9,7 +9,7 @@
 
 英文源文件由系统**生成**，并通过 `pnpm run verify-tool-catalog`（`doc-sync`（文档同步门禁）的一部分）验证新鲜度；本中文文件作为经评审对侧通过双语配对维护。与 Cordis 目录（纯源码 AST 处理）不同，英文生成器会在真实上下文中**启动**每个工具插件并读取 `ctx.tools.schemas()`，因为工具 schema 无法通过静态分析完全确定，例如运行时展开的枚举、拼接的描述、由配置决定的名称以及使用原始 JSON Schema 的 MCP 工具。完整性守卫会 glob 匹配 `packages/*/tool-*`；如果生成器的启动 manifest（元数据清单）遗漏任何包，检查就会失败，因此新工具不会在无人察觉的情况下缺少文档。
 
-范围：`packages/*/tool-*` 下已发布的产品工具，每个工具均使用其**默认**配置启动；但如果某个 Config 字段是**必填项**且没有默认值，生成器就必须作出选择，对应包的说明会记录本页展示的是哪个分支。注册的工具**名称**可以是加载时配置，例如 `tool-subagent` 的 `toolName`，因此部署可能以不同名称或额外名称提供某个包；如果存在随产品发布的别名，对应包的说明会予以记录。`examples/` 中的演示工具（例如 `echo`）不在范围内，这与 Cordis 目录仅涵盖包的范围一致。
+范围：`packages/*/tool-*` 下已发布的产品工具，以及 `perception-bgm` 等显式列出的工具提供方，每个工具均使用其**默认**配置启动；但如果某个 Config 字段是**必填项**且没有默认值，生成器就必须作出选择，对应包的说明会记录本页展示的是哪个分支。注册的工具**名称**可以是加载时配置，例如 `tool-subagent` 的 `toolName`，因此部署可能以不同名称或额外名称提供某个包；如果存在随产品发布的别名，对应包的说明会予以记录。`examples/` 中的演示工具（例如 `echo`）不在范围内，这与 Cordis 目录仅涵盖包的范围一致。
 
 <a id="tool-package-map"></a>
 
@@ -49,6 +49,7 @@
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
 | `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`、`jubian_catalog`、`jubian_media`、`jubian_model`、`jubian_organize`、`jubian_storyboard`、`jubian_video`、`jubian_watch` | `ctx.tools`、`ctx.credentials` | `tool/call`、`tool/result`、`Jubian 两阶段写账本（位于其配置根目录下的 NDJSON 记录对）` | - | 每个计费的写入（`image_generate`、`generate`、`erase_subtitle`、`upscale`）都要求调用方给出 `idempotency_key`，并在请求离开前把 `intent` 记入账本；`erase_subtitle` 与 `upscale` 是异步的，提供方受理任务后立即返回，因此调用方应回读 `subtasks`，而不是在那次调用上等待。 |
 | `@deepseek-ai/dsh-tool-shot-script` | `drama_shot` | `ctx.tools`, `the project layout it reads and writes (episodes/, prompts/, matches/, episode_packages/)` | `tool/call`, `tool/result`, `on compile: the compiled prompt, the matched JSON, and the episode package under the project root` | - | The three methods share one schema: `validate` and `preview` only read, and `compile` writes the matched JSON and the episode package, returning each package's `content_duration_ms`, its submitted whole-second length, and the prompt-ordered `material_keys` that `jubian_storyboard` `select_assets` must match. A script with any hard failure returns that failure list and writes nothing. |
+| `@deepseek-ai/dsh-perception-bgm` | `bgm_match` | `ctx.tools`、本地曲目索引或配置的公开目录；仅 index/inspect 需要 Python 和模型资源 | `tool/call`、`tool/result`、index 写本地情绪索引；download 在配置的缓存中写入经校验的音频 | - | `match` 排序候选，不代替选曲；公开库模式返回 ID 与 URL，不自动下载。`download` 接受选定的目录曲目 ID，返回经校验的本地文件。默认使用本地索引；公开库匹配需由部署配置。`index` 和 `inspect` 仅在执行时启动 Python，收集 schema 时不会启动。MERT 分析骨干仅限非商业用途（CC-BY-NC-4.0）；音频权利须另行确认。 |
 | `@deepseek-ai/dsh-tool-bgm-compose` | `drama_bgm` | `ctx.tools`、`ctx.subprocess`、`PATH` 上（或配置的）ffmpeg 与 ffprobe、单集时间线与明确 BGM 计划 | `tool/call`、`tool/result`、`compose` 时写项目内的 48 kHz 双声道 PCM WAV 及相邻生成报告 | - | `preview` 校验剧情完整覆盖并回报源哈希、偏移、实测平均音量与增益，不发布产物；`compose` 交叉淡化选定曲目，暂存 WAV 通过 ffprobe 后才发布；`verify` 测量已有 WAV，不重写它。工具不选曲，也不调用 `bgm_match`；剧情解读与最终选曲归 Agent。 |
 | `@deepseek-ai/dsh-tool-episode-render` | `drama_render`、`drama_video` | `ctx.tools`, `ffmpeg and ffprobe on PATH (or configured), the project layout it reads and writes (video/, audio/, editing/, exports/)` | `tool/call`, `tool/result`, `on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt`, `on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/`, `drama_video ban/unban 写入项目内 video-bans.json；媒体字节不变` | - | `drama_video` 记录带标签、可逆的 SHA256 禁用决定，不要求审核证据；解除禁用不等于批准。`drama_render` 在 `prepare`/`render` 中拒绝已禁用的选用字节，`verify` 则报告风险，不删除媒体。其三个方法：`prepare` 构建渲染输入但不编码画面，`render` 出片并回报实测的分辨率、帧率、码率、时长、大小与编码器，`verify` 检查成片。交付样式固定——1440x2560@60、24M 目标码率与 30M 上限、4.6 Mbps 下限、SimHei 68 字幕加右下角唯一的 AI 标记，以及用最后一镜经过证明的真实尾帧定格的 2 秒片尾。无法进行下去的渲染会抛错并给修法；不符合规格的成片返回 `ok: false` 与逐项修法。 |
 | `@deepseek-ai/dsh-tool-drama-assets` | `drama_assets` | `ctx.tools`, `ctx.credentials`, `the project layout it reads and writes (assets_manifest.json, _probe/asset-reconcile.json)` | `tool/call`, `tool/result`, `on reconcile: _probe/asset-reconcile.json under the project root` | - | Two methods over one evidence file: `reconcile` reads the remote project’s asset and material lists and the manifest and writes the evidence the host’s reconcile gate reads, and `dispose` records one disposition in it without any remote read. The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate’s inputs. |
@@ -2640,13 +2641,14 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
   "properties": {
     "method": {
       "type": "string",
-      "description": "get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；remove=删除一个父资产（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名。",
+      "description": "get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；register=按指定类别新建一条资产，只引用已有图片、不生成新图（有副作用）；remove=删除一个父资产（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名。",
       "enum": [
         "get",
         "list",
         "materials",
         "generated_image",
         "confirm_casting",
+        "register",
         "remove",
         "upload_reference",
         "create_folder",
@@ -2734,6 +2736,19 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
         "场景",
         "道具"
       ]
+    },
+    "asset_type": {
+      "type": "number",
+      "description": "image_generate 的资产类别号：1=角色，2=场景，3=道具。给了 asset_category 时可以不传（插件按类别推导）；两个都给时必须一致。场景与道具必须传 2/3——一律传 1 会把它们建进控制台的角色库。",
+      "enum": [
+        1,
+        2,
+        3
+      ]
+    },
+    "asset_url": {
+      "type": "string",
+      "description": "register 必填：这条新资产要引用的图片 HTTPS 地址（通常是原资产的 materialUrl）。register 按它新建资产，不生成新图。"
     }
   },
   "required": [
@@ -3098,11 +3113,12 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
   "properties": {
     "method": {
       "type": "string",
-      "description": "task=单个任务（含 cost 观测）；tasks=项目任务分页；subtasks=任务的子结果（成片 URL、字幕框、阶段、分辨率与 needs_upscale）；image_generate=生成图片（计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。",
+      "description": "task=单个任务（含 cost 观测）；tasks=项目任务分页；subtasks=任务的子结果（成片 URL、字幕框、阶段、分辨率与 needs_upscale）；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成图片（计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。",
       "enum": [
         "task",
         "tasks",
         "subtasks",
+        "unresolved",
         "image_generate",
         "upscale",
         "retry"
@@ -3250,7 +3266,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
     },
     "project": {
       "type": "string",
-      "description": "项目根目录（含 episodes/、prompts/、matches/、episode_packages/）；compile 必填。"
+      "description": "项目根目录（含 episodes/、prompts/、matches/、episode_packages/）；compile 必填。给了它就读该项目的 project_config.json（每镜有效字上限等交付要求）；validate/preview 省略时，从脚本所在目录向上找最近的 project_config.json。"
     },
     "max_submit_seconds": {
       "type": "integer",
@@ -3271,6 +3287,63 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-shot-script/src/index.ts)
 
 三个方法共用一份 schema：`validate` 与 `preview` 只读，`compile` 写入 matched JSON 与单集 package，并回传每包的 `content_duration_ms`、提交的整秒时长，以及 `jubian_storyboard` `select_assets` 必须对齐的提示词顺序 `material_keys`。存在任何硬失败的脚本会返回这份失败清单，不写任何文件。
+
+<a id="deepseek-aidsh-perception-bgm"></a>
+
+## `@deepseek-ai/dsh-perception-bgm`
+
+### `bgm_match`
+
+在本地索引或部署配置的公开 BGM 库里按情绪选曲。match：给出目标「愉悦度」与「能量」（都用 1–9 的刻度，1=最消极/最平静，9=最积极/最激烈），返回最接近的候选及每首的实际测量值。index：扫描一个目录，逐首分析情绪并入库；约 15–30 秒一首，按内容哈希增量更新，可随时中断续跑。inspect：只分析一首并返回它的数值。公开库 match 仅返回 track_id/name/url 和测量值，不自动下载；选定后用 download + track_id 下载并校验，返回可供配乐合成使用的真实本地 path。match/download 不需要 Python。**返回的是候选排序，不是决定**——最终选哪首由你判断；每首附带的 valence/arousal 原值就是判断依据。**注意：底层音乐理解骨干 m-a-p/MERT-v1-95M 采用 CC-BY-NC-4.0 许可，仅限非商业用途。**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "description": "match=按坐标排序候选；index=扫描目录建库（可续跑）；inspect=分析单个音频文件；download=下载公开库中明确选定的 track_id。",
+      "enum": [
+        "match",
+        "index",
+        "inspect",
+        "download"
+      ]
+    },
+    "track_id": {
+      "type": "string",
+      "description": "download 必填：公开库 match 返回的 track_id；不接受任意 URL。"
+    },
+    "directory": {
+      "type": "string",
+      "description": "index 必填：要扫描的音乐目录。"
+    },
+    "audio_path": {
+      "type": "string",
+      "description": "inspect 必填：单个音频文件的路径。"
+    },
+    "valence": {
+      "type": "number",
+      "description": "match 必填：目标愉悦度，1–9。"
+    },
+    "arousal": {
+      "type": "number",
+      "description": "match 必填：目标能量，1–9。"
+    },
+    "limit": {
+      "type": "number",
+      "description": "match 可选：返回候选数，默认 5，上限 20。"
+    }
+  },
+  "required": [
+    "method"
+  ]
+}
+```
+
+来源：[`packages/perception/perception-bgm/src/index.ts`](../packages/perception/perception-bgm/src/index.ts)
+
+`match` 排序候选，不代替选曲；公开库模式返回 ID 与 URL，不自动下载。`download` 接受选定的目录曲目 ID，返回经校验的本地文件。默认使用本地索引；公开库匹配需由部署配置。`index` 和 `inspect` 仅在执行时启动 Python，收集 schema 时不会启动。MERT 分析骨干仅限非商业用途（CC-BY-NC-4.0）；音频权利须另行确认。
 
 <a id="deepseek-aidsh-tool-bgm-compose"></a>
 
@@ -3307,7 +3380,7 @@ Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-
     },
     "plan": {
       "type": "string",
-      "description": "项目内 episodes/segments BGM 计划 JSON；段落必须连续完整覆盖正文。"
+      "description": "项目内 episodes/segments BGM 计划 JSON；段落必须连续完整覆盖正文，跨集复用规则见 policy_findings（每集至少 2 首、集内不重复、单曲最多 2 集、至少 1 首全新、切点在镜头包边界）。"
     },
     "output": {
       "type": "string",
@@ -3342,7 +3415,7 @@ Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-
   "properties": {
     "method": {
       "type": "string",
-      "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按逐镜发声测出字幕时间并写出 SRT（不编码、不需要语音转写）。",
+      "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）。",
       "enum": [
         "prepare",
         "render",
@@ -3365,6 +3438,10 @@ Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-
     "lines": {
       "type": "string",
       "description": "台词计划 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"lines\":[\"第一句\",\"第二句\"]}]}；subtitles 必填。每镜的台词在这里就按字幕条切好（单条不超过 14 个字），工具只给时间，不改文字。"
+    },
+    "alignment": {
+      "type": "string",
+      "description": "语音识别对齐文档 JSON 路径，subtitles 必填，形如 {\"shots\":[{\"shot\":1,\"cues\":[{\"text\":\"识别文本\",\"start\":0.0,\"end\":0.8}]}]}（镜内、相对该镜起点，秒）。只取它的时间：字幕文字仍来自 lines，识别文本仅用于核对是不是同一段表演。缺某一镜、段数与台词条数不符、或文本对不上，都会按 failure 报出。"
     },
     "timeline": {
       "type": "string",

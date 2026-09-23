@@ -679,9 +679,22 @@ export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
   const pkgDirByName = new Map<string, string>()
   const pkgExportsByName = new Map<string, unknown>()
   const manifests: { dir: string; pkg: string }[] = []
-  for (const manifestRel of globSync('packages/*/*/package.json', { cwd: scanRoot }).map(path => path.split(sep).join('/')).sort()) {
+  const manifestPaths = globSync('packages/*/*/package.json', { cwd: scanRoot }).map(path => path.split(sep).join('/')).sort()
+  if (manifestPaths.length === 0) report(['no package manifests found; refusing an empty catalog scan'])
+  for (const manifestRel of manifestPaths) {
     const dir = manifestRel.slice(0, -'/package.json'.length)
-    const manifest = JSON.parse(readFileSync(resolve(scanRoot, manifestRel), 'utf8')) as { name?: string; os?: string[]; cpu?: string[]; exports?: unknown }
+    const manifest = JSON.parse(readFileSync(resolve(scanRoot, manifestRel), 'utf8')) as {
+      name?: string
+      os?: string[]
+      cpu?: string[]
+      exports?: unknown
+      main?: unknown
+      module?: unknown
+      bin?: unknown
+      browser?: unknown
+      types?: unknown
+      dsh?: unknown
+    }
     const pkg = manifest.name
     if (!pkg) {
       violations.push(`${manifestRel} has no "name".`)
@@ -690,6 +703,17 @@ export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
     if (manifest.os !== undefined && manifest.cpu !== undefined) {
       // A per-platform native-binary package (npm os/cpu selection) ships no
       // JavaScript at all — nothing to classify, no Config to catalog.
+      continue
+    }
+    // Metadata-only resource packages have no JavaScript Config to catalog.
+    // Any executable declaration or source keeps the normal entry-point checks.
+    const exports = manifest.exports
+    if (exports !== null && typeof exports === 'object' && !Array.isArray(exports)
+      && Object.keys(exports).length === 1
+      && './package.json' in exports && exports['./package.json'] === './package.json'
+      && [manifest.main, manifest.module, manifest.bin, manifest.browser, manifest.types, manifest.dsh]
+        .every(value => value === undefined)
+      && globSync(`${dir}/src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}`, { cwd: scanRoot }).length === 0) {
       continue
     }
     pkgDirByName.set(pkg, dir)

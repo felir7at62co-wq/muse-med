@@ -96,7 +96,7 @@ The manifest includes every `lib/*.js` chunk, declarations, worker scripts, vend
 
 #### What the model sees
 
-One tool exposes `match`, `download`, `index`, and `inspect`. Its description states “返回的是候选排序，不是决定” and identifies MERT as “仅限非商业用途”. Public candidates contain stable IDs rather than local paths; only an explicit download returns a verified local `path`. Results include measured valence/arousal, mood tags and candidate distance; the agent chooses the track.
+The [generated `bgm_match` schema](../../../docs/tool-catalog.md#deepseek-aidsh-perception-bgm) exposes `match`, `download`, `index`, and `inspect`. Its description states “返回的是候选排序，不是决定” and identifies MERT as “仅限非商业用途”. Public candidates contain stable IDs rather than local paths; only an explicit download returns a verified local `path`. Results include measured valence/arousal, mood tags and candidate distance; the agent chooses the track.
 
 #### Token effect
 

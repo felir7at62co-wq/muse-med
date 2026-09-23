@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-08-desktop-bundled-runtime-and-external-plugins.md
-2026-09-08-desktop-bundled-runtime-and-external-plugins.md: 581a4ad31121bfda651cb99e550487a0a712e943
-2026-09-08-desktop-bundled-runtime-and-external-plugins.zh.md: fbbb25a4a3446d52ac56dc35bb176c0b706d7cb4
+2026-09-08-desktop-bundled-runtime-and-external-plugins.md: 7230a683dd162bf4121abbb5c2302f1cb5f298e8
+2026-09-08-desktop-bundled-runtime-and-external-plugins.zh.md: 422bc8709de147ceade2219bd19d6a7e9f5ee037

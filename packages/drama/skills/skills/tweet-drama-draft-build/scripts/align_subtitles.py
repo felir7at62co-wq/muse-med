@@ -59,11 +59,31 @@ MODEL_FILES = ("config.json", "model.bin", "tokenizer.json", "vocabulary.txt")
 ALL_ALIGNED = "asr_aligned"
 
 
+try:
+    from zhconv import convert as _zh_convert
+except Exception:  # pragma: no cover - folding is best effort
+    _zh_convert = None
+
+
+def to_simplified(text: str) -> str:
+    """Fold traditional characters onto the script's own variant.
+
+    The pinned recognizer intermittently emits traditional characters for syllables it
+    otherwise writes simplified. A character-level comparison then scores a correctly
+    heard line near zero and refuses to anchor it, which reads as "the take is different"
+    when only the character variant differs. Folding both sides before scoring removes
+    that false negative; every acceptance threshold stays exactly where it was.
+    """
+    if _zh_convert is None or not text:
+        return text
+    return _zh_convert(text, "zh-cn")
+
+
 def normalise(text: str) -> str:
     """Drop punctuation and whitespace so recognized and script text can be compared."""
     for char in PUNCT:
         text = text.replace(char, "")
-    return re.sub(r"\s+", "", text)
+    return to_simplified(re.sub(r"\s+", "", text))
 
 
 def required_seconds(text: str) -> float:
@@ -332,9 +352,10 @@ def fetch_model(url: str, expected: str, cache_root: Path) -> Path:
 
 
 def resolve_model(args) -> Path:
-    """Resolve the model directory from an explicit path, the cache, or a pinned archive."""
-    if args.model_dir:
-        directory = Path(args.model_dir).expanduser().resolve()
+    """Resolve explicit CLI model choices, then the bundled model environment, then the cache."""
+    configured = args.model_dir or (os.environ.get('MUSE_WHISPER_MODEL_DIR', '') if not args.model_url else '')
+    if configured:
+        directory = Path(configured).expanduser().resolve()
         missing = [name for name in MODEL_FILES if not (directory / name).is_file()]
         if missing:
             raise SystemExit(f"模型目录缺少 {', '.join(missing)}：{directory}")

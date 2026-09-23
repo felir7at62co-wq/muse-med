@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-09-08-desktop-bundled-runtime-and-external-plugins.zh.md)
 
-Profile mutation and recovery follow the [in-place profile decision](2026-09-09-desktop-in-place-profile.md).
+Profile mutation and recovery follow the [in-place profile decision](2026-09-09-desktop-in-place-profile.md). The [independent-product decision](2026-09-23-muse-med-independent-desktop.md) owns muse-med's separate home and preset root.
 
 ## Problem
 
@@ -24,7 +24,7 @@ The resource descriptor records the exact release, Node version, platform, archi
 
 The [Desktop file policy](../../../../apps/desktop/scripts/runtime-file-policy.ts) applies after production npm installation and before native signing or descriptor generation. npm publication lists serve library consumers and can include declarations, maps, tests, and native build inputs; they do not identify the files needed by the Desktop process. The Desktop copy omits declarations and recognized source maps because Host execution uses JavaScript and generated Typert artifacts, clears inherited `NODE_OPTIONS`, and does not enable source mapping. Reviewed plugin lifecycle builds cover native dependencies, not arbitrary TypeScript compilation. Published npm packages and external plugin directories retain their own files. Source debugger navigation is a development-package capability.
 
-Package-specific exclusions remove Domino tests, fs-ext compilation outputs, Koffi's Windows import library, and non-target node-pty prebuilds and debug symbols. The policy retains native executable dependencies, node-pty's ConPTY source distribution, licenses, and unrecognized assets; broad `src`, `test`, `.ts`, or `.map` exclusions could remove executable code or runtime data. Copy tests preserve sentinel assets and seal the filtered inventory; the bundled-Node [payload smoke](../../../../apps/desktop/tests/fixtures/runtime-payload-smoke.mjs) verifies PTY output, native file seeking, FFI, image conversion, and HTML parsing. Runtime preparation still verifies every retained byte and boots the complete Host with an external plugin.
+Package-specific exclusions remove Domino tests, Koffi's Windows import library, and non-target node-pty prebuilds and debug symbols. The policy retains native executable dependencies, node-pty's ConPTY source distribution, licenses, and unrecognized assets; broad `src`, `test`, `.ts`, or `.map` exclusions could remove executable code or runtime data. Copy tests preserve sentinel assets and seal the filtered inventory; the bundled-Node [payload smoke](../../../../apps/desktop/tests/fixtures/runtime-payload-smoke.mjs) verifies PTY output, FFI, image conversion, and HTML parsing. Runtime preparation still verifies every retained byte and boots the complete Host with an external plugin.
 
 Every first-party package in the dsh and private Host production closures is shared. The profile contains directory symlinks to those resource packages, or junctions on Windows. Links resolve to real host package directories under normal Node resolution. Host and plugin imports therefore share the same module instance for each resolved export. Distinct ESM and CommonJS conditional exports remain distinct entry points; a link cannot merge a package’s dual implementations.
 

@@ -143,6 +143,11 @@ Style: Watermark,Microsoft YaHei,44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,
 [Events]
 Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
 """
+    family = os.environ.get('MUSE_FONT_FAMILY')
+    if family is not None:
+        if not family.strip() or any(ord(c) < 32 or c in ',{}' for c in family):
+            raise ValueError('MUSE_FONT_FAMILY must be a nonempty ASS font family without delimiters')
+        header = header.replace('Default,SimHei,', f'Default,{family},').replace('Watermark,Microsoft YaHei,', f'Watermark,{family},')
     events = []
     for start, end, text in parse_srt(srt):
         def ass_time(value: str) -> str:
@@ -299,7 +304,7 @@ def render(args: argparse.Namespace) -> dict:
 
 def subtitle_filter(ass: Path) -> str:
     """Use system font discovery unless a licensed font directory is configured."""
-    fonts = os.environ.get("DSH_FONTS_DIR", "")
+    fonts = os.environ.get('MUSE_FONTS_DIR') or os.environ.get('DSH_FONTS_DIR', '')
     font_option = ":fontsdir='" + Path(fonts).as_posix().replace(":", "\\:") + "'" if fonts else ""
     return (f"scale={WIDTH * 2}:{HEIGHT * 2}:flags=lanczos,"
             + "ass='" + ass.as_posix().replace(":", "\\:") + "'" + font_option

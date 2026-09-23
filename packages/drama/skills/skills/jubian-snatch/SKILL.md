@@ -15,7 +15,7 @@ description: Use when 需要看剧变剧本池现在有多少本、哪些能领�
 - envelope 两种形状都要吃：单对象 `{code,msg,data}`、列表 `{code,total,rows}`。
 - 认证失败是 **HTTP 200 + `code:401`**，不是 HTTP 401。
 - token 是服务端会话键，JWT payload 只有 `login_user_key`，**没有 `exp`**；平台重新登录会吊销旧 token。所以窗口期别登录剧变网页版。
-- token 来源：`JUBIAN_TOKEN` 环境变量 > `~/.dsh/.credentials.yaml` 的 `JUBIANAI_ADMIN_TOKEN`。**同目录 `.credentials-alt.yaml` 里的 `jubian/token/alt` 是已失效的旧 token，而它的默认优先级更高**——两个脚本都在启动时把 `config.CREDENTIAL_FILES` 固定到 `.credentials.yaml`，别把这个修正删掉。
+- token 来源统一由 `snatcher.config.prefill_token()` 解析：`JUBIANAI_ADMIN_TOKEN` 环境变量 > 用户显式设置的兼容变量 `JUBIAN_TOKEN` > 当前 Harness home 的 `.credentials.yaml` 中的 `JUBIANAI_ADMIN_TOKEN`。非空 `DSH_HOME` 是唯一 home，缺文件、缺值或损坏都不得回退另一账户的 `~/.dsh`；仅未设置或为空时使用 `~/.dsh`。不自动读取 `.credentials-alt.yaml` 或 `jubian/token/alt`，CLI 不覆盖共享解析器的路径。
 - `viewRole` 决定认领路径：`prodlead`（制片组长）走 `POST /script/center/pool/claim/{id}`；组员走 `POST /script/center/pool/memberClaim/{id}`。组长入口被拒且 `msg` 含「只有制作组员」时，按组员路径再提交一次——这是第二次真实请求，只有在服务端明确答复「刚才那次没有发生」之后才允许。
 - 池子比一页大：一页 `pageSize` 默认 300，读取必须翻页读完（`api.read_pool`）；翻到页数上限还没读完就如实标记 `complete=False`，不能当成「池子就这些本」。
 - 状态机：`pending_leader_claim` / `pending_lead_claim` / `pending_member_claim`（等认领）→ 认领成功 → `pending_distribute`（等你分发，`claimLeaderName` 变成你）→ `returned`（被退回，`sendbackCount` +1）。**状态名只用来缩小轮询响应，候选判据始终是 `canClaim`**；组长那一档两种写法都出现过，`config.CLAIMABLE_STATUSES` 是唯一来源。**退回不重抢**。
@@ -74,6 +74,7 @@ python snatch_batch.py --start 18:25 --burst 18:29:30 --end 19:00 --skip 859 --l
 
 ## 已知限制
 
+- Python 脚本没有接入桌面 UI 的凭据 Service／安全存储，也不自动读取 key-manager 的 `pipeline.env`。UI 已保存 token 不等于脚本已获授权配置；缺值时两个 CLI 都在发请求前以退出码 2 报「认证配置不足」。不要提取或复制 Vault、打印 token，或改用另一 home 解决；应通过当前进程的显式环境配置提供所需凭据。
 - 只覆盖组长/组员两条认领路径，不做「分发给组员」等后续阶段。
 - `statusCount` 与池子行的状态名对不齐，`pending_lead_claim` / `pending_claim` / `pending_produce_claim` 的语义至今未验证；所以候选判据只用 `canClaim`，状态名只用于缩小轮询响应，并且每 20 轮做一次完整扫描兜底。
 - 脚本不替你判断这本该不该做（题材、版权、集数都在 `--dump` 出来的 JSON 里：`genreTagNames`、`copyrightOwner`、`episodeCount`、`sendbackCount` 等）。

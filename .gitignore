@@ -34,6 +34,8 @@ python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/
 python/**/__pycache__/
 python/**/.pytest_cache/
 packages/**/__pycache__/
+# Local ASR downloads are data, never maintained skill source.
+/packages/drama/skills/skills/tweet-drama-draft-build/models/
 apps/web/dist/
 .artifacts/
 .dsh-build/

@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  ASS_DOCUMENT_HEADER,
+  buildAssHeader,
   audioMixFilter,
   BUFFER_SIZE,
   DELIVERY_FPS,
@@ -47,6 +47,7 @@ describe('the delivery constants', () => {
   })
 
   it('keeps the subtitle style inside the ASS header', () => {
+    const ASS_DOCUMENT_HEADER = buildAssHeader({ subtitleFontFamily: 'SimHei', watermarkFontFamily: 'Microsoft YaHei' })
     expect(ASS_DOCUMENT_HEADER).toContain('PlayResX: 1080')
     expect(ASS_DOCUMENT_HEADER).toContain('PlayResY: 1920')
     expect(ASS_DOCUMENT_HEADER).toContain('WrapStyle: 2')

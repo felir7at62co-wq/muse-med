@@ -37,6 +37,8 @@ dsh plugin --profile <name> remove @deepseek-ai/dsh-subagent-codex
 dsh --profile <name>
 ```
 
+Electron 分发必须完整解包 `@openai/codex` wrapper 包及选定的 `@openai/codex-*` 平台包。提供方在读取 wrapper manifest 前，将路径中的 `app.asar` 段映射为 `app.asar.unpacked`，让 wrapper 解析并启动原生文件系统中的二进制文件；普通安装路径保持不变。
+
 移除包后，下一次 Profile 启动会撤回提供方及其私有运行时闭包。安装决定 Host 可用性，而不是模型权限：模型只能通过你组合的委派工具行触达提供方。
 
 ### 配置

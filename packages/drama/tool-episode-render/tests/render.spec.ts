@@ -34,6 +34,8 @@ const settings: RenderSettings = {
   bgmVolume: 0.24,
   preferNvenc: true,
   fontsDir: 'C:/Windows/Fonts',
+  subtitleFontFamily: 'SimHei',
+  watermarkFontFamily: 'Microsoft YaHei',
 }
 
 /** A prepared project: two shots, a master, a timeline, and a subtitle. */

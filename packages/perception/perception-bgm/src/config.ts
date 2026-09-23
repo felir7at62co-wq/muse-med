@@ -15,6 +15,7 @@ import { isAbsolute } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { CatalogConfig } from './types.ts'
 
+/** Deployment settings for track matching, downloads, and optional local emotion analysis. */
 export interface BgmConfig {
   /** Absolute path to the Python interpreter that has the model's dependencies. */
   pythonExecutable?: string
@@ -44,6 +45,7 @@ export interface BgmConfig {
    * do not put credentials in this explicit environment.
    */
   env?: Record<string, string>
+  /** Deadline for one Python analysis request; defaults to 300000 ms and kills the worker on expiry. */
   callTimeoutMs?: number
 }
 
@@ -72,10 +74,15 @@ export function resolveCatalogConfig(config: BgmConfig): CatalogConfig | undefin
   return resolved
 }
 
+/** Deployment environment variable supplying the analysis interpreter path. */
 export const PYTHON_ENV_VAR = 'DSH_PERCEPTION_PYTHON'
+/** Deployment environment variable supplying the emotion-head checkpoint path. */
 export const WEIGHTS_ENV_VAR = 'DSH_PERCEPTION_BGM_WEIGHTS'
 
-/** Where the emotion head is cached when no path is configured. */
+/**
+ * Locate the emotion head cache when no path is configured.
+ * @returns The checkpoint path under the harness home; the file need not exist yet.
+ */
 export function defaultWeightsPath(): string {
   return dshHomePath('perception', 'bgm', 'J_all.ckpt')
 }
@@ -87,6 +94,7 @@ export function defaultWeightsPath(): string {
  * fresh install must not carry, that an upgrade must not overwrite, and that a
  * read-only package install could not accept at all. It is also shared across
  * sessions, which is what makes one indexing run reusable by the next.
+ * @returns The writable-location convention under the harness home; no file is created.
  */
 export function defaultIndexPath(): string {
   return dshHomePath('perception', 'bgm', 'bgm-index.json')

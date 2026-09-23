@@ -4,15 +4,13 @@
 
 ## 安装、登录与只读边界
 
-固定使用 `xpzouying/xiaohongshu-mcp` v2.2.6，需要 Windows amd64、PowerShell 和 Python 3.11+。以下命令从本技能实际目录运行。运行时目录由 `XIAOHONGSHU_RUNTIME` 指定，默认 `${DSH_HOME:-~/.dsh}/xiaohongshu-runtime`。安装和启动必须由调用方明确执行，迁移或离线校验不执行它们：
+默认使用用户本地图片，不需要小红书。只有用户主动另选本渠道并自行配置合法 v2.2.6 运行时、明确提供且确认当前账号归属的独立 endpoint 后才可使用。缺 endpoint、未登录或账号不明就暂停；不能连接默认 18060 猜测身份，不运行旧安装/启动 helper，不代处理 Cookie。源代码保留不等于这些 helper 已通过产品账号隔离验收。
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/install_xiaohongshu_mcp.ps1
-powershell -ExecutionPolicy Bypass -File scripts/start_xiaohongshu_mcp.ps1
-python -B scripts/xhs_reference_search.py status
+python -B scripts/xhs_reference_search.py --endpoint <用户确认的端点> status
 ```
 
-返回 `login_required` 时运行 `start_xiaohongshu_mcp.ps1 -Login`，由用户在可见窗口扫码。Cookie 留在上述运行时目录，不进入项目或技能安装目录。
+上游 MCP 的 Apache-2.0 不覆盖其定制浏览器的再分发权利，产品不捆绑或自动下载该浏览器。
 
 包装器硬性只允许 `check_login_status`、`search_feeds`、`get_feed_detail`。禁止发布、编辑、删除、评论、回复、点赞、收藏及其取消操作。
 
@@ -21,7 +19,7 @@ python -B scripts/xhs_reference_search.py status
 从剧本提取身份、年龄、阶层、地域审美、场次和气质，每个重要角色写 2–3 个互补查询：身份穿搭、妆容、发型。禁止使用演员或博主姓名做身份复刻查询。
 
 ```powershell
-python -B scripts/xhs_reference_search.py search `
+python -B scripts/xhs_reference_search.py --endpoint <用户确认的端点> search `
   --role-id char_shen_zhiyi `
   --role-name 沈知意 `
   --role-class lead `
@@ -44,7 +42,7 @@ python -B scripts/xhs_reference_search.py search `
 - 完整人物参考图必须明确哪些图只参考服装、哪些只参考妆发或抽象五官，以及不得继承的元素。
 - 剧本中的年龄、职业、经济阶层、伤病、孕期、婚礼和服装连续性优先于平台潮流。
 
-调用方 Agent 在 `asset_style_references.json` 为候选填写采用/淘汰原因和视觉元素。只有调用方审核完毕才可把主体的 `style_reference_status` 写为 `approved`；本 skill 输出时只能写 `pending_review`。仿真人资产流程随后才可将采用的本地参考图交给剧变 `gpt-image-2`。
+调用方 Agent 在 `asset_style_references.json` 为候选填写采用/淘汰原因和视觉元素。逐图审核并取得用户确认后，按 [本地参考图流程](../../tweet-drama-core/references/style-references.md) 记录确认依据、检查证据，再把采用的本地参考图交给剧变 `gpt-image-2`。本 skill 输出时只能写 `pending_review`，检索成功不等于批准。
 
 ## 产物与安全
 

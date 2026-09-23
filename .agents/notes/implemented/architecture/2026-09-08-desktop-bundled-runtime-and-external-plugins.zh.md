@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-09-08-desktop-bundled-runtime-and-external-plugins.md) | 中文
 
-profile 修改与恢复遵循[直接修改 profile 决策](2026-09-09-desktop-in-place-profile.zh.md)。
+profile 修改与恢复遵循[直接修改 profile 决策](2026-09-09-desktop-in-place-profile.zh.md)。[独立产品决策](2026-09-23-muse-med-independent-desktop.zh.md)负责 muse-med 的独立 home 与预设根目录。
 
 ## 问题
 
@@ -24,7 +24,7 @@ Desktop 尚未发布。这是它的第一种安装格式；不提供未发布 se
 
 [桌面文件规则](../../../../apps/desktop/scripts/runtime-file-policy.ts)在生产 npm 依赖安装之后、原生签名或描述文件生成之前执行。npm 发布列表服务于库的使用者，可以包含声明、map、测试和原生构建输入，不能直接表示桌面进程需要哪些文件。桌面副本排除声明和已识别的 source map，因为 Host 执行 JavaScript 和生成的 Typert 产物，清除继承的 `NODE_OPTIONS`，且不开启源码映射。经过审核的插件生命周期构建面向原生依赖，不执行任意 TypeScript 编译。已发布的 npm 包和外部插件目录保留各自的文件。源码调试导航由开发包提供。
 
-包专用排除项包括 Domino 测试、fs-ext 编译产物、Koffi 的 Windows 导入库，以及非目标平台的 node-pty 预构建文件和调试符号。规则保留原生可执行依赖、node-pty 的 ConPTY 源分发内容、许可证和未知资源；宽泛排除 `src`、`test`、`.ts` 或 `.map` 可能移除可执行代码或运行时数据。复制测试保留哨兵资源并封存过滤后的清单；内置 Node 的[产物 smoke](../../../../apps/desktop/tests/fixtures/runtime-payload-smoke.mjs)验证 PTY 输出、原生文件定位、FFI、图像转换和 HTML 解析。运行时准备仍会验证每个保留字节，并携带外部插件启动完整 Host。
+包专用排除项包括 Domino 测试、Koffi 的 Windows 导入库，以及非目标平台的 node-pty 预构建文件和调试符号。规则保留原生可执行依赖、node-pty 的 ConPTY 源分发内容、许可证和未知资源；宽泛排除 `src`、`test`、`.ts` 或 `.map` 可能移除可执行代码或运行时数据。复制测试保留哨兵资源并封存过滤后的清单；内置 Node 的[产物 smoke](../../../../apps/desktop/tests/fixtures/runtime-payload-smoke.mjs)验证 PTY 输出、FFI、图像转换和 HTML 解析。运行时准备仍会验证每个保留字节，并携带外部插件启动完整 Host。
 
 dsh 与私有 Host 生产闭包中的每个第一方包都共享。profile 包含指向这些资源包的目录软链接，在 Windows 上使用 junction。正常 Node 解析会把链接解析到实际宿主包目录。因此，宿主与插件对每个已解析导出的导入共享同一模块实例。不同的 ESM 与 CommonJS 条件导出仍是不同入口；链接不能合并包的两套实现。
 

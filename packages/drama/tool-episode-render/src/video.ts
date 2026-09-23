@@ -113,7 +113,17 @@ interface VideoArguments {
  * @param args - User-requested operation and local project/video selection.
  * @returns Latest labels and reason, with review explicitly unassessed.
  */
-export async function runDramaVideo(args: VideoArguments) {
+export async function runDramaVideo(args: VideoArguments): Promise<{
+  method: VideoArguments['method']
+  project: string
+  manifest_path: string
+  sha256: string
+  banned: boolean
+  labels: string[]
+  reason: string
+  review_status: 'not_assessed'
+  videos: VideoBan[]
+}> {
   if (typeof args.project !== 'string' || args.project.trim() === '') throw new Error('project 必须是项目目录。')
   const project = resolve(args.project)
   if (!(await stat(project)).isDirectory()) throw new Error('project 必须是项目目录。')

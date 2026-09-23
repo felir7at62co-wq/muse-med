@@ -15,14 +15,14 @@ Agent 处理文本与质量决策，剧变插件（`jubian_*`）是唯一多媒�
 
 ## 正式资产
 
-先读取主体设定，再处理真正缺少的资产。资产图按项目确认的版式；角色、场景、道具不可混用。资产自动审核，max_review_attempts=3 是定向审核上限，不是自动花满次数的许可。
+先读取主体设定，再处理真正缺少的资产。缺失重要角色资产默认先索取用户参考图，按 `tweet-drama-core` 本地参考图流程归档、逐图审核并取得用户确认，收费生图前运行 `style_references.py <项目目录> <role_id> check`；缺图或证据不全就暂停，不自动安装、启动或调用小红书。资产图按项目确认的版式；角色、场景、道具不可混用。生成资产仍须自动审核（实际视觉检查）与确认出演，max_review_attempts=3 是定向审核上限，不是自动花满次数的许可。
 
 非本地生成候选必须具有生成 `material_id`；`jubian_asset confirm_casting` 成功且父资产回查一致后才写 asset_confirmation=verified、official=true。`isLocal=1` 正式主体可无生成 material_id，但须实时回读 materials/get：属于当前 scriptId、已在主体设定、isUsed=1、hsAssetStatus=Active、URL 和 hsAssetId 与父资产及 picker 一致。满足后跳过该资产生成链，在 writer 合法阶段记录 skipped 与 skipped_with_official_local_evidence 及门禁证据。本地 manifest 不能替代远端来源。
 
 ## 提交与费用
 
 1. 主体视频只走 `jubian_storyboard` 的 `select_assets`（免费 isGenerate=0）→ `prepare_video`（只读 preview）→ `submit_video`（收费 isGenerate=1）。禁止 direct `POST /admin/aigc/video/task/create`。
-2. 每次收费前自检项目归属、正式资产身份及顺序、当前规格、目录报价和预计费用、授权范围及已有任务。用户已授权项目范围内自主执行，不逐笔索要即时批准；超出项目/预算/规格授权才询问。记录预计调用数、费用与回读 realCost。
+2. 每次收费前自检项目归属、正式资产身份及顺序、当前规格、目录报价和预计费用、授权范围及已有任务。收费须有当前用户对具体项目、操作范围及预算的明确授权；token 存在不等于花费授权，不得继承其他操作者或历史项目的授权，也不以预算配置代替授权。未授权、范围不明或超出项目/预算/规格授权时先询问并获准；在当前用户已明确授权的范围内自主执行，不逐笔索要即时批准。记录预计调用数、费用与回读 realCost。
 3. submit_video 的 idempotency_key 必须等于 preview fingerprint。结果未知、超时或 pending 时查已有任务/子结果，保持原 key，禁止换 key 盲目付费重投。生成后核对每个子项 ID、名称、URL 和顺序；身份丢失停止该分支并诊断。
 4. 确认终止失败后才评估根因、已有费用、可用恢复路径和剩余授权。工具 retry 仅在其无结果且未计费条件满足时可用；必要的新任务须有修正证据和新 preview，不是未知任务的重提。连续无进展或预算不足停止该分支，不能无限付费试错。
 

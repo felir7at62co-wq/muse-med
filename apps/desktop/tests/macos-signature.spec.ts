@@ -55,13 +55,15 @@ describe('desktop macOS release signature', () => {
     expect(config.asarUnpack).toEqual(expect.arrayContaining([
       '**/*.{node,dylib,dll,so,exe}',
       '**/@vscode/ripgrep/bin/rg',
+      '**/@deepseek-ai/dsh-drama-skills/**',
+      '**/@openai/codex*/**',
     ]))
     expect(config).toMatchObject({
       appId: RELEASE_ENVIRONMENT.DSH_DESKTOP_APP_ID,
       productName: 'muse-med',
-      artifactName: 'deepseek-harness-${version}-${os}-${arch}.${ext}',
+      artifactName: 'muse-med-${version}-${os}-${arch}.${ext}',
       icon: 'renderer/icon.png',
-      win: { executableName: 'DeepSeek Harness' },
+      win: { executableName: 'muse-med', icon: 'renderer/icon.ico' },
       mac: {
         identity: RELEASE_ENVIRONMENT.DSH_DESKTOP_MACOS_SIGNING_IDENTITY,
         forceCodeSigning: true,
@@ -116,6 +118,7 @@ describe('desktop macOS release signature', () => {
     }, 'win32', 'x64')
     expect(portablePath(config.directories.output)).toContain('/targets/win-x64/unsigned-artifacts')
     expect(portablePath(config.nsis.include)).toMatch(/\/scripts\/installer\.nsh$/u)
+    expect(config.nsis.installerLanguages).toEqual(['en_US', 'zh_CN'])
     expect(config).toMatchObject({
       win: { forceCodeSigning: false, signtoolOptions: { sign: undefined } },
       publish: null,

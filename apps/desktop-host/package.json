@@ -8,7 +8,8 @@
   "main": "lib/index.js",
   "files": [
     "lib/index.js",
-    "config/desktop.cordis.patch.yml"
+    "config/desktop.cordis.patch.yml",
+    "presets"
   ],
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:^",
@@ -20,9 +21,18 @@
     "@deepseek-ai/dsh-client-modules": "workspace:^",
     "@deepseek-ai/dsh-client-ui-directory-picker-native": "workspace:^",
     "@deepseek-ai/dsh-cmdline": "workspace:^",
+    "@deepseek-ai/dsh-drama-settings": "workspace:^",
+    "@deepseek-ai/dsh-drama-skills": "workspace:^",
+    "@deepseek-ai/dsh-guard-drama": "workspace:^",
     "@deepseek-ai/dsh-host-directory-picker-native": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-launch-environment": "workspace:^",
+    "@deepseek-ai/dsh-perception-bgm": "workspace:^",
+    "@deepseek-ai/dsh-tool-bgm-compose": "workspace:^",
+    "@deepseek-ai/dsh-tool-drama-assets": "workspace:^",
+    "@deepseek-ai/dsh-tool-episode-render": "workspace:^",
+    "@deepseek-ai/dsh-tool-jubian": "workspace:^",
+    "@deepseek-ai/dsh-tool-shot-script": "workspace:^",
     "@deepseek-ai/dsh-web-frontend": "workspace:^"
   }
 }

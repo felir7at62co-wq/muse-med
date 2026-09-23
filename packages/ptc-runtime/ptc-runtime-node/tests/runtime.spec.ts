@@ -49,7 +49,12 @@ describe('Node program process', () => {
   })
 
   it('keeps native startup paths available for nested Node creation with an empty model environment', async () => {
-    const { run } = await setup()
+    const { run, ctx } = await setup()
+    const spawn = vi.spyOn(ctx.subprocess, 'spawn')
+    onTestFinished(() => { spawn.mockRestore(); vi.unstubAllEnvs() })
+    vi.stubEnv('ELECTRON_RUN_AS_NODE', '1')
+    vi.stubEnv('DEEPSEEK_API_KEY', 'must-not-inherit')
+    vi.stubEnv('DSH_TEST_RUNTIME_SECRET', 'must-not-inherit')
     const result = await run({
       program: 'const {spawnSync}=await import("node:child_process"); const child=spawnSync(process.execPath,["-e","process.stdout.write(JSON.stringify(Object.keys(process.env)))"],{encoding:"utf8"}); return {env:Object.keys(process.env),status:child.status,error:child.error?.message ?? null,childKeys:JSON.parse(child.stdout || "[]")};',
       bindings: [],
@@ -59,7 +64,11 @@ describe('Node program process', () => {
     expect(value.env).toEqual([])
     expect(value.status).toBe(0)
     expect(value.error).toBeNull()
-    const nativeKeys = ['PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP']
+    expect(spawn.mock.calls[0]?.[0].env).not.toHaveProperty('ELECTRON_RUN_AS_NODE')
+    expect(spawn.mock.calls[0]?.[0].env).toHaveProperty('DEEPSEEK_API_KEY', undefined)
+    expect(value.childKeys).not.toContain('DEEPSEEK_API_KEY')
+    expect(value.childKeys).not.toContain('DSH_TEST_RUNTIME_SECRET')
+    const nativeKeys = ['PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'ELECTRON_RUN_AS_NODE']
     // CoreFoundation initializes this entry independently when a macOS child starts.
     if (process.platform === 'darwin') nativeKeys.push('__CF_USER_TEXT_ENCODING')
     expect(value.childKeys.filter(key => !nativeKeys.includes(key.toUpperCase()))).toEqual([])

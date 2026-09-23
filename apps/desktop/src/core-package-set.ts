@@ -17,6 +17,14 @@ export const DESKTOP_HOST_PACKAGE = '@deepseek-ai/dsh-desktop-host'
 export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
   'config/desktop.cordis.patch.yml',
+  'presets/short-drama-local/agent.cordis.yml',
+  'presets/short-drama-local/preset.yml',
+] as const
+
+/** Community packages built from pinned source, never substituted from the npm registry. */
+export const DESKTOP_SOURCE_PLUGINS = [
+  'dshmarket', 'dsh-codex-subscription', 'dsh-ffmpeg',
+  '@mengyuly/dsh-ponytail', '@moyu-good/dsh-lark-bridge',
 ] as const
 
 /** One immutable npm tarball in the Desktop core package set. */

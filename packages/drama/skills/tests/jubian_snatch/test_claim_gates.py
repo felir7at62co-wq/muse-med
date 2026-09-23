@@ -131,8 +131,9 @@ class BatchRun(LedgerCase):
         self.runs = 0
         self.env = patch.dict(
             os.environ,
-            {"JUBIAN_TOKEN": "offline-fixture-token", "HOME": str(self.temp.name),
+            {"JUBIANAI_ADMIN_TOKEN": "offline-fixture-token", "HOME": str(self.temp.name),
              "USERPROFILE": str(self.temp.name)},
+            clear=True,
         )
         self.env.start()
         self.addCleanup(self.env.stop)

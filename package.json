@@ -1,5 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-root",
+  "description": "muse-med short-drama desktop agent, built on the DeepSeek Harness fork",
   "version": "0.1.6-alpha.1",
   "license": "MIT",
   "private": true,

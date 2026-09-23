@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { join } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
 import { DESKTOP_IPC } from '../src/ipc.ts'
+import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 
 const harness = await vi.hoisted(async () => {
   const { EventEmitter } = await import('node:events')
@@ -23,12 +25,15 @@ const harness = await vi.hoisted(async () => {
   let quitCompleted = deferred()
   class FakeWindow extends EventEmitter {
     destroyed = false
+    contentsDestroyed = false
     readonly urls: string[] = []
     readonly webContents = Object.assign(new EventEmitter(), {
       setWindowOpenHandler: vi.fn(),
       openDevTools: vi.fn(),
       getURL: () => this.urls.at(-1) ?? '',
+      isDestroyed: () => this.contentsDestroyed,
       send: vi.fn((channel: string, state: { phase?: string }) => {
+        if (this.contentsDestroyed || this.destroyed) throw new TypeError('Object has been destroyed')
         if (channel === 'dsh-desktop:backend-state' && state.phase === 'error') errorPublished.resolve()
       }),
     })
@@ -141,6 +146,12 @@ beforeEach(() => {
   vi.stubEnv('DSH_DESKTOP_DSH_DIR', 'test-runtime')
   vi.stubGlobal('process', { ...process, resourcesPath: 'desktop-test-resources' })
   vi.stubEnv('DSH_DESKTOP_HOST_INSPECT_PORT', undefined)
+  vi.stubEnv('DSH_HOME', 'upstream-dsh-home')
+  vi.stubEnv('MUSE_MED_HOME', undefined)
+  for (const name of ['PATH', 'Path', 'PYTHONHOME', 'PYTHONPATH', 'PYTHONDONTWRITEBYTECODE',
+    'DSH_FFMPEG_PATH', 'DSH_FFPROBE_PATH', 'FFMPEG_PATH', 'FFPROBE_PATH', 'MUSE_WHISPER_MODEL_DIR', 'MUSE_FONTS_DIR', 'MUSE_FONT_FAMILY']) {
+    vi.stubEnv(name, process.env[name])
+  }
 })
 
 afterEach(async () => {
@@ -157,6 +168,43 @@ afterEach(async () => {
 })
 
 describe('desktop main startup', () => {
+  it.each([undefined, '', '  '])('isolates product data from inherited DSH_HOME with override %s', async (override) => {
+    vi.stubEnv('MUSE_MED_HOME', override)
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    expect(process.env.DSH_HOME).toBe(join(homedir(), '.muse-med'))
+  })
+
+  it('makes packaged Windows media tools and model available without system dependencies', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'win32', resourcesPath: 'desktop-test-resources' })
+    vi.stubEnv('PATH', 'system-tools')
+    vi.stubEnv('PYTHONHOME', 'external-python')
+    vi.stubEnv('PYTHONPATH', 'external-modules')
+    vi.stubEnv('PYTHONDONTWRITEBYTECODE', '0')
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    const media = join('desktop-test-resources', 'runtime', 'media')
+    expect(process.env.PATH).toBe([join(media, 'python'), join(media, 'ffmpeg', 'bin'), 'system-tools'].join(delimiter))
+    expect(process.env.DSH_FFMPEG_PATH).toBe(join(media, 'ffmpeg', 'bin', 'ffmpeg.exe'))
+    expect(process.env.DSH_FFPROBE_PATH).toBe(join(media, 'ffmpeg', 'bin', 'ffprobe.exe'))
+    expect(process.env.FFMPEG_PATH).toBe(process.env.DSH_FFMPEG_PATH)
+    expect(process.env.FFPROBE_PATH).toBe(process.env.DSH_FFPROBE_PATH)
+    expect(process.env.MUSE_WHISPER_MODEL_DIR).toBe(join(media, 'models', 'faster-whisper-small'))
+    expect(process.env.PYTHONHOME).toBeUndefined()
+    expect(process.env.PYTHONPATH).toBeUndefined()
+    expect(process.env.PYTHONDONTWRITEBYTECODE).toBe('1')
+    expect(process.env.MUSE_FONTS_DIR).toBe(join(media, 'fonts'))
+    expect(process.env.MUSE_FONT_FAMILY).toBe('Noto Sans CJK SC')
+    expect(scrubbedParentEnv()).toMatchObject({ MUSE_FONTS_DIR: join(media, 'fonts'), MUSE_FONT_FAMILY: 'Noto Sans CJK SC' })
+  })
+
+  it('passes the explicit product home to the backend environment', async () => {
+    vi.stubEnv('MUSE_MED_HOME', 'muse test home')
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    expect(process.env.DSH_HOME).toBe(resolve('muse test home'))
+  })
+
   it('uses the muse-med window name and packaged spider icon without changing renderer security', async () => {
     await import('../src/main.ts')
     await harness.preparing.promise
@@ -326,6 +374,7 @@ describe('desktop main startup', () => {
     harness.app.isPackaged = false
     await import('../src/main.ts')
     await harness.hostStarted.promise
+    expect(process.env.DSH_HOME).toBe('upstream-dsh-home')
     const project = join(harness.app.getAppPath(), '.desktop-build', 'development', 'project')
     expect(harness.hosts[0]).toMatchObject({ node: 'test-node', runtime: project, profile: project })
     expect(harness.applyRelease).not.toHaveBeenCalled()
@@ -357,6 +406,40 @@ describe('desktop main startup', () => {
     expect(harness.windows).toHaveLength(1)
     expect(harness.windows[0]!.urls.at(-1)).toBe('dsh-app://app/index.html')
     expect(harness.dialog.showErrorBox).not.toHaveBeenCalled()
+  })
+
+  it('skips destroyed WebContents for update and backend publications while live windows still receive them', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    const { DesktopUpdateCoordinator } = await import('../src/update-coordinator.ts')
+    const publish = vi.mocked(DesktopUpdateCoordinator).mock.calls[0]![0]
+    const closing = harness.windows[0]!
+    closing.contentsDestroyed = true
+    closing.webContents.send.mockClear()
+    const live = new harness.FakeWindow({ show: true })
+    expect(() => publish({ phase: 'idle' })).not.toThrow()
+    expect(live.webContents.send).toHaveBeenCalledWith(DESKTOP_IPC.updatesState, { phase: 'idle' })
+    harness.prepared.resolve()
+    await harness.hostStarted.promise
+    const retry = Promise.resolve(invoke(DESKTOP_IPC.backendRetry))
+    harness.hosts[0]!.ready.resolve()
+    await retry
+    expect(closing.webContents.send).not.toHaveBeenCalled()
+    expect(live.webContents.send).toHaveBeenCalledWith(DESKTOP_IPC.backendState, { phase: 'ready' })
+    live.webContents.send.mockImplementationOnce(() => { throw new Error('invalid update payload') })
+    expect(() => publish({ phase: 'idle' })).toThrow('invalid update payload')
+  })
+
+  it('keeps update state without notifying renderer windows after quit begins', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    const { DesktopUpdateCoordinator } = await import('../src/update-coordinator.ts')
+    const publish = vi.mocked(DesktopUpdateCoordinator).mock.calls[0]![0]
+    const window = harness.windows[0]!
+    harness.app.quit()
+    window.webContents.send.mockClear()
+    expect(publish({ phase: 'idle' })).toEqual({ phase: 'idle' })
+    expect(window.webContents.send).not.toHaveBeenCalled()
   })
 
   it('waits for a pending child to exit on quit without late window navigation', async () => {

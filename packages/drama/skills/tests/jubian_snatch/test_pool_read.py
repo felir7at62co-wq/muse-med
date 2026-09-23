@@ -86,7 +86,8 @@ class DiagnosticGate(unittest.TestCase):
         self.ledger = self.root / "claims.ndjson"
         self.env = patch.dict(
             os.environ,
-            {"JUBIAN_TOKEN": "offline-fixture-token", "HOME": str(self.root), "USERPROFILE": str(self.root)},
+            {"JUBIANAI_ADMIN_TOKEN": "offline-fixture-token", "HOME": str(self.root), "USERPROFILE": str(self.root)},
+            clear=True,
         )
         self.env.start()
         self.addCleanup(self.env.stop)

@@ -113,6 +113,7 @@ export function createSpawnChannel(): ProcessChannel {
  *
  * The DSH Windows sandbox rejects Node child-process pipes with EPERM. File
  * descriptors preserve the same capture contract without named pipes.
+ * @returns A channel that collects stdout/stderr and removes its temporary files after each command.
  */
 export function createFileCaptureChannel(): ProcessChannel {
   return {

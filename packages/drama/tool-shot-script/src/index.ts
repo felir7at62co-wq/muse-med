@@ -24,6 +24,8 @@ import { bindShot, parseAssetManifest } from './assets.ts'
 import { readProjectDelivery } from './delivery.ts'
 import {
   buildMatchedPayload,
+  MIN_CONTENT_SECONDS,
+  MIN_SUBMIT_SECONDS,
   NATURAL_HOLD_SECONDS,
   packEpisode,
   writeEpisode,
@@ -234,6 +236,7 @@ async function runDramaShot(args: DramaShotArguments, config: ResolvedConfig): P
   const { compiled, issues: bindingIssues } = compileShots(parsed.shots, manifest)
   const issues = [...parsed.issues, ...bindingIssues]
   let maxContentSeconds = 0
+  let tasks: PackedTask[] = []
   if (args.method !== 'validate') {
     const maximum = args.max_submit_seconds
     if (maximum === undefined || !Number.isSafeInteger(maximum) || maximum <= NATURAL_HOLD_SECONDS) {
@@ -246,9 +249,25 @@ async function runDramaShot(args: DramaShotArguments, config: ResolvedConfig): P
           message: `镜头${shot.shot}为${shot.durationSeconds}秒，超过本次内容预算${maxContentSeconds}秒（提交上限${maximum}秒，含${NATURAL_HOLD_SECONDS}秒收束）；请选择支持的分镜时长或按原文语义拆镜，不能截断。` })
       }
     }
+    if (!issues.some(issue => issue.severity === 'failure')) {
+      tasks = packEpisode(compiled, maxContentSeconds)
+      // A scene too short to fill one package produces a request below the
+      // provider's four-second floor, which that provider rejects uncharged. Report
+      // it as a hint rather than refusing the run: the operator decides whether to
+      // re-cut the scene.
+      for (const task of tasks) {
+        if (task.contentSeconds >= MIN_CONTENT_SECONDS) continue
+        const first = compiled.find(item => item.shot.shot === task.shots[0])
+        /* v8 ignore next -- the packer numbers every package from these same shots. */
+        if (first === undefined) continue
+        issues.push({ severity: 'warning', code: 'package_below_minimum', shot: first.shot.shot, line: first.shot.line,
+          message: `第${task.index}包只有${task.contentSeconds}秒内容（请求${task.submitSeconds}秒，镜头${task.shots.join('、')}），`
+            + `低于供应商${MIN_SUBMIT_SECONDS}秒请求下限，提交会被平台拒且不计费；建议把这几镜并进同场相邻包，或按原文语义把这一场写足。` })
+      }
+    }
   }
   const failed = issues.some(issue => issue.severity === 'failure')
-  const tasks = args.method === 'validate' || failed ? [] : packEpisode(compiled, maxContentSeconds)
+  if (failed) tasks = []
   const written = args.method === 'compile' ? await writeTarget(call, compiled, tasks, failed) : []
   return buildReport({
     method: args.method,

@@ -59,6 +59,13 @@ describe('componentStates', () => {
     ]), '@deepseek-ai/dsh-perception-bgm')).toBe('loaded')
   })
 
+  it('lets a mounted Loader entry answer for a package an unmounted preset named first', () => {
+    expect(statusOf(snapshot(
+      [{ moduleName: '@deepseek-ai/dsh-perception-bgm', enabled: true, fiberPhase: null }],
+      [{ moduleName: '@deepseek-ai/dsh-perception-bgm', enabled: true, fiberPhase: 'active' }],
+    ), '@deepseek-ai/dsh-perception-bgm')).toBe('loaded')
+  })
+
   it('prefers the preset row over a Loader entry for the same module', () => {
     const states = componentStates(snapshot(
       [{ moduleName: '@deepseek-ai/dsh-guard-drama', enabled: false, fiberPhase: 'active' }],
@@ -73,6 +80,32 @@ describe('componentStates', () => {
       { moduleName: '@deepseek-ai/dsh-guard-drama', enabled: true, fiberPhase: 'active' },
     ]))
     expect(states[0]?.status).toBe('failed')
+  })
+
+  it('lets a mounted preset answer for a package an unmounted preset named first', () => {
+    const twoPresets = {
+      entries: [],
+      agentPresets: [
+        { id: 'short-drama', trust: 'system', isDefault: false, rows: [
+          { moduleName: '@deepseek-ai/dsh-guard-drama', enabled: true, fiberPhase: null }] },
+        { id: 'short-drama-local', trust: 'user', isDefault: false, rows: [
+          { moduleName: '@deepseek-ai/dsh-guard-drama', enabled: true, fiberPhase: 'active' }] },
+      ],
+    } as unknown as PluginInventorySnapshot
+    expect(statusOf(twoPresets, '@deepseek-ai/dsh-guard-drama')).toBe('loaded')
+  })
+
+  it('keeps a mounted preset’s row over an unmounted one seen later', () => {
+    const twoPresets = {
+      entries: [],
+      agentPresets: [
+        { id: 'short-drama', trust: 'system', isDefault: false, rows: [
+          { moduleName: '@deepseek-ai/dsh-guard-drama', enabled: true, fiberPhase: 'failed' }] },
+        { id: 'short-drama-local', trust: 'user', isDefault: false, rows: [
+          { moduleName: '@deepseek-ai/dsh-guard-drama', enabled: true, fiberPhase: null }] },
+      ],
+    } as unknown as PluginInventorySnapshot
+    expect(statusOf(twoPresets, '@deepseek-ai/dsh-guard-drama')).toBe('failed')
   })
 
   it('reads every fiber phase and enablement as its own state', () => {

@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process'
 import { cpSync, createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { chmod, readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import extractZip from 'extract-zip'
 import { extract } from 'tar'
@@ -36,7 +36,12 @@ async function download(url: string, path: string): Promise<void> {
   writeFileSync(path, new Uint8Array(await response.arrayBuffer()), { mode: 0o600 })
 }
 
-async function prepareNode(platform: RuntimePlatform, arch: RuntimeArch): Promise<void> {
+/**
+ * Prepare a checksum-verified Node release and preserve its upstream license.
+ * @param platform Target operating system.
+ * @param arch Target processor architecture.
+ */
+export async function prepareNode(platform: RuntimePlatform, arch: RuntimeArch): Promise<void> {
   const extension = platform === 'win' ? 'zip' : 'tar.gz'
   const folder = `node-v${NODE_VERSION}-${platform}-${arch}`
   const archiveName = `${folder}.${extension}`
@@ -57,11 +62,13 @@ async function prepareNode(platform: RuntimePlatform, arch: RuntimeArch): Promis
   mkdirSync(extraction, { recursive: true })
   if (platform === 'win') await extractZip(archive, { dir: extraction })
   else await extract({ cwd: extraction, file: archive })
+  const license = await readFile(join(extraction, folder, 'LICENSE'))
   const source = join(extraction, folder, platform === 'win' ? 'node.exe' : 'bin/node')
   const destinationRoot = join(RUNTIME_ROOT, 'node')
   const destination = join(destinationRoot, platform === 'win' ? 'node.exe' : 'node')
   rmSync(destinationRoot, { recursive: true, force: true })
   mkdirSync(destinationRoot, { recursive: true })
+  writeFileSync(join(destinationRoot, 'LICENSE'), license, { flag: 'wx' })
   // A fresh write prevents macOS from retaining invalid code-signature vnode state from a tar-extracted Mach-O clone.
   await pipeline(createReadStream(source), createWriteStream(destination, { flags: 'wx' }))
   if (platform !== 'win') await chmod(destination, 0o755)
@@ -104,4 +111,4 @@ async function main(): Promise<void> {
   }, undefined, 2)}\n`)
 }
 
-await main()
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === import.meta.filename) await main()

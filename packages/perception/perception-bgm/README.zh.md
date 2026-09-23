@@ -96,7 +96,7 @@ manifest 包含全部 `lib/*.js` 产物、类型声明、worker 脚本、第三�
 
 #### 模型看到什么
 
-一个工具提供 `match`、`download`、`index` 和 `inspect`。描述明确说明“返回的是候选排序，不是决定”，并标注 MERT“仅限非商业用途”。公开候选包含稳定 ID 而非本地路径；只有明确下载后才返回经校验的本地 `path`。结果包含测量的愉悦度/能量、情绪标签和候选距离，由代理选择曲目。
+[生成的 `bgm_match` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-perception-bgm)提供 `match`、`download`、`index` 和 `inspect`。描述明确说明“返回的是候选排序，不是决定”，并标注 MERT“仅限非商业用途”。公开候选包含稳定 ID 而非本地路径；只有明确下载后才返回经校验的本地 `path`。结果包含测量的愉悦度/能量、情绪标签和候选距离，由代理选择曲目。
 
 #### Token 影响
 

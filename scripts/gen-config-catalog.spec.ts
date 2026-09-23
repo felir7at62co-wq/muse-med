@@ -59,6 +59,54 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
+describe('resource-only package classification', () => {
+  it('admits metadata-only resources while still collecting code packages', () => {
+    const { root, write } = fixture()
+    write('packages/test/resources/package.json', JSON.stringify({
+      name: '@test/resources', exports: { './package.json': './package.json' },
+    }))
+    expect(collectConfigCatalog(root).map(entry => entry.pkg)).toContain('@test/provider')
+  })
+
+  it.each([
+    { exports: { '.': './lib/index.js' } },
+    { exports: { './package.json': './package.json', './run': './lib/run.js' } },
+    { exports: { './package.json': './package.json' }, main: './lib/index.js' },
+    { exports: { './package.json': './package.json' }, dsh: { bundle: { patch: './cordis.patch.yml' } } },
+    { exports: { './package.json': './package.json' }, bin: './cli.js' },
+    { exports: { './package.json': './lib/not-metadata.js' } },
+    { exports: {} },
+    { private: true },
+  ])('refuses a missing entry for executable or unclassified manifests: %j', (fields) => {
+    const { root, write } = fixture()
+    write('packages/test/resources/package.json', JSON.stringify({ name: '@test/resources', ...fields }))
+    expect(() => collectConfigCatalog(root)).toThrow('packages/test/resources/src/index.ts is missing or unreadable')
+  })
+
+  it('still checks a plugin source even when exports expose only metadata', () => {
+    const { root, write } = fixture()
+    write('packages/test/provider/package.json', JSON.stringify({
+      name: '@test/provider', exports: { './package.json': './package.json' },
+    }))
+    expect(collectConfigCatalog(root).find(entry => entry.pkg === '@test/provider')?.kind).toBe('config')
+  })
+
+  it('refuses plugin source without the required index entry', () => {
+    const { root, write } = fixture()
+    write('packages/test/resources/package.json', JSON.stringify({
+      name: '@test/resources', exports: { './package.json': './package.json' },
+    }))
+    write('packages/test/resources/src/plugin.ts', 'export function apply(): void {}\n')
+    expect(() => collectConfigCatalog(root)).toThrow('packages/test/resources/src/index.ts is missing or unreadable')
+  })
+
+  it('refuses an empty package scan', () => {
+    const { root } = fixture()
+    rmSync(join(root, 'packages'), { recursive: true })
+    expect(() => collectConfigCatalog(root)).toThrow('no package manifests')
+  })
+})
+
 describe('shared config schema catalog', () => {
   it('collects every branch through a renamed named import from a public source subpath', () => {
     const { root } = fixture()

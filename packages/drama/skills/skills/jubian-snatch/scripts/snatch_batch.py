@@ -22,7 +22,6 @@ import queue
 import sys
 import threading
 import time
-from pathlib import Path
 from typing import Any
 
 from snatcher import api, config
@@ -107,13 +106,6 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str], *, pool: Any = None, clock=time.time, sleep=time.sleep) -> int:
     args = _parser().parse_args(argv)
 
-    # 只读 ~/.dsh/.credentials.yaml 的 JUBIANAI_ADMIN_TOKEN：同目录的
-    # .credentials-alt.yaml（jubian/token/alt）里是已失效的旧 token，而它的
-    # 默认优先级更高。环境变量 JUBIAN_TOKEN 仍然优先（prefill_token 先看它）。
-    creds = Path.home() / ".dsh" / ".credentials.yaml"
-    if creds.is_file():
-        config.CREDENTIAL_FILES = (creds,)
-
     today = dt.date.today()
     start_at, burst_at, end_at = (parse_hhmm(t, today) for t in (args.start, args.burst, args.end))
     log_path = args.log or f"snatch-{today.strftime('%Y%m%d')}.log"
@@ -123,7 +115,7 @@ def main(argv: list[str], *, pool: Any = None, clock=time.time, sleep=time.sleep
     try:
         token = config.prefill_token()
         if not token:
-            log.write("没有可用 token（JUBIAN_TOKEN 与凭据文件都为空），退出。")
+            log.write("认证配置不足：请配置当前进程的 JUBIANAI_ADMIN_TOKEN（兼容显式 JUBIAN_TOKEN）；只读取当前 home 主凭据，不读取其他账号或桌面安全存储。")
             return 2
 
         if pool is None:

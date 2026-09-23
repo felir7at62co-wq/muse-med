@@ -344,6 +344,10 @@ export interface RenderSettings {
   readonly preferNvenc: boolean
   /** Directory libass resolves the subtitle font from. */
   readonly fontsDir: string
+  /** Validated ASS subtitle font family. */
+  readonly subtitleFontFamily: string
+  /** Validated ASS watermark font family. */
+  readonly watermarkFontFamily: string
   /** Injection point for tests; the process channel is otherwise the real one. */
   readonly channel?: ProcessChannel
 }

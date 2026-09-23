@@ -135,6 +135,7 @@ describe('registration', () => {
   it('registers exactly the drama_render tool with the delivery style and both known traps', () => {
     const tool = dramaRender()
     expect(tool.name).toBe('drama_render')
+    expect(tool.description).toContain('默认 SimHei 68，字体服从部署配置')
     for (const phrase of ['1440x2560@60', '24M', '30M', '48M', '4.6 Mbps', 'SimHei 68', '字间距 -2', '7px 黑描边',
       '内容由AI生成', '-sseof -0.1', 'framemd5', 'h264_nvenc', 'libx264', 'alimiter=0.95', '定格 2 秒']) {
       expect(tool.description).toContain(phrase)
@@ -205,6 +206,19 @@ describe('Config', () => {
     expect(resolved.bgmVolume).toBe(0.24)
     expect(resolved.preferNvenc).toBe(true)
     expect(resolved.fontsDir).toBe('C:/Windows/Fonts')
+    expect(resolved.subtitleFontFamily).toBe('SimHei')
+    expect(resolved.watermarkFontFamily).toBe('Microsoft YaHei')
+  })
+
+  it.each(['subtitleFontFamily', 'watermarkFontFamily'])('rejects invalid ASS font names in %s', (field) => {
+    for (const value of ['', '   ', 'Noto,Injected', 'Noto\nStyle: Injected', 'Noto\rStyle: Injected', 'Noto\n', 'Noto\r\n']) {
+      expect(() => Config({ [field]: value })).toThrow()
+    }
+  })
+
+  it('accepts deployment font families without changing the font directory', () => {
+    expect(resolveSettings(Config({ subtitleFontFamily: 'Noto Sans CJK SC', watermarkFontFamily: '思源黑体' })))
+      .toMatchObject({ subtitleFontFamily: 'Noto Sans CJK SC', watermarkFontFamily: '思源黑体', fontsDir: 'C:/Windows/Fonts' })
   })
 
   it('rejects a gain outside the audible range', () => {
@@ -221,6 +235,8 @@ describe('resolveSettings', () => {
       bgmVolume: 0.3,
       preferNvenc: false,
       fontsDir: 'D:/Fonts',
+      subtitleFontFamily: 'Noto Sans CJK SC',
+      watermarkFontFamily: '思源黑体',
     })).toEqual({
       ffmpeg: 'D:/ffmpeg/bin/ffmpeg.exe',
       ffprobe: 'D:/ffmpeg/bin/ffprobe.exe',
@@ -228,6 +244,8 @@ describe('resolveSettings', () => {
       bgmVolume: 0.3,
       preferNvenc: false,
       fontsDir: 'D:/Fonts',
+      subtitleFontFamily: 'Noto Sans CJK SC',
+      watermarkFontFamily: '思源黑体',
     })
   })
 
@@ -239,6 +257,8 @@ describe('resolveSettings', () => {
       bgmVolume: 0.24,
       preferNvenc: true,
       fontsDir: 'C:/Windows/Fonts',
+      subtitleFontFamily: 'SimHei',
+      watermarkFontFamily: 'Microsoft YaHei',
     })
   })
 })
@@ -337,6 +357,28 @@ describe('resolveCall', () => {
 })
 
 describe('runDramaRender', () => {
+  it.each([
+    [{}, 'SimHei', 'Microsoft YaHei'],
+    [{ subtitleFontFamily: 'Noto Sans CJK SC' }, 'Noto Sans CJK SC', 'Microsoft YaHei'],
+    [{ watermarkFontFamily: '思源黑体' }, 'SimHei', '思源黑体'],
+    [{ subtitleFontFamily: 'Noto Sans CJK SC', watermarkFontFamily: 'Noto Sans CJK SC' }, 'Noto Sans CJK SC', 'Noto Sans CJK SC'],
+  ] as const)('burns configured fonts over the concatenated body and ending: %j', async (config, subtitle, watermark) => {
+    const files = await preparedProject()
+    const channel = callChannel(files.project)
+    await run({ method: 'render', ...files, episode: 2, subtitleSrt: files.subtitle, lastShot: 1 },
+      { ...resolveSettings(Config(config)), channel: channel.channel })
+    const cache = join(files.project, 'exports', '.render_cache', '02')
+    const ass = await readFile(join(cache, 'display.ass'), 'utf8')
+    expect(ass).toContain(`Style: Default,${subtitle},68,`)
+    expect(ass).toContain(`Style: Watermark,${watermark},44,`)
+    expect(ass).toContain('Dialogue: 1,0:00:00.00,9:59:59.00,Watermark')
+    const concat = channel.calls.find(call => call.args.includes('concat'))
+    expect(await readFile(join(cache, 'concat.txt'), 'utf8')).toContain('/ending.mp4')
+    const burn = channel.calls.find(call => call.args.at(-1) === join(cache, 'subtitled.mp4'))
+    expect(burn?.args).toContain(concat?.args.at(-1))
+    expect(burn?.args.join(' ')).toContain("fontsdir='C\\:/Windows/Fonts'")
+  })
+
   it('prepares the episode layout and returns the timeline it laid out', async () => {
     const files = await preparedProject()
     const report = await run({

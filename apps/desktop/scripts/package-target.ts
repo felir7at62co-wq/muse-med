@@ -296,6 +296,12 @@ async function main(): Promise<void> {
     '--pack-destination',
     buildPaths.packedDsh,
   ], buildEnv, REPOSITORY_ROOT)
+  for (const packageDir of ['packages/drama/skills', 'packages/perception/perception-bgm']) {
+    await runPnpm([
+      '--dir', packageDir, 'pack', '--pack-destination', buildPaths.packedDsh,
+    ], buildEnv, REPOSITORY_ROOT)
+  }
+  await runPnpm(['exec', 'node', 'third_party/plugins/build.mjs', '--out', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT)
   await runPnpm(['run', 'release:pack', '--family', 'vendor', '--out', buildPaths.packedVendor], buildEnv, REPOSITORY_ROOT)
   rmSync(buildPaths.packedLandlock, { recursive: true, force: true })
   mkdirSync(buildPaths.packedLandlock, { recursive: true })
@@ -308,6 +314,11 @@ async function main(): Promise<void> {
     buildPaths.packedLandlock,
   ], buildEnv, REPOSITORY_ROOT)
   await runPnpm(['run', 'prepare:runtime'], targetEnv)
+  if (target.platform === 'win32' && target.arch === 'x64') {
+    await runPnpm(['exec', 'tsx', 'apps/desktop/scripts/prepare-media-runtime.ts',
+      '--output', join(buildPaths.runtime, 'media'), '--cache', join(buildPaths.downloads, 'media'),
+    ], buildEnv, REPOSITORY_ROOT)
+  }
   await runPnpm(['run', 'prepare:packages'], targetEnv)
   await runPnpm(['run', 'prepare:dsh'], targetEnv)
   if (invocation.prepareOnly) return

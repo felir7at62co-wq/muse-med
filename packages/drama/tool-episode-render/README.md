@@ -47,6 +47,10 @@ Mount the plugin as one row of a short-drama preset; it needs only the tool regi
 | `bgmVolume` | `0.24` | Gain applied to the BGM bed; 0–8 |
 | `preferNvenc` | `true` | Whether the GPU encoder is probed at all |
 | `fontsDir` | `C:/Windows/Fonts` | Directory libass resolves the subtitle font from |
+| `subtitleFontFamily` | `SimHei` | ASS subtitle font family |
+| `watermarkFontFamily` | `Microsoft YaHei` | ASS watermark font family |
+
+Font families are deployment configuration, not model tool parameters. Both must be nonblank strings without commas or line breaks; invalid values fail Config validation. Deployments providing Noto Sans CJK SC can set both families to `Noto Sans CJK SC`. This does not change `fontsDir` or install fonts: libass must have access to the selected families. The single ASS burn follows body/ending concatenation, so the watermark uses the same family throughout the ending.
 
 ### Reversible video bans
 
@@ -113,7 +117,7 @@ A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,s
 | Rate control | 24M target, 30M peak, 48M buffer, 120-frame GOP |
 | Overall bitrate floor | 4.6 Mbps over the delivered file |
 | Endings | 2.000 seconds frozen from the last body shot's real tail frame, with the ending effect screen-blended over it at 0.90 |
-| Subtitles | SimHei 68, spacing -2, 7px black outline, bottom-centred, plus the single bottom-right `内容由AI生成` mark |
+| Subtitles | Configured font family, size 68, spacing -2, 7px black outline, bottom-centred, plus the single bottom-right `内容由AI生成` mark |
 | Audio | Episode master at 1.45, BGM at 0.24 to the body end, ending sound delayed to the body end, `amix` normalised off, `alimiter=0.95` |
 | Container | AAC 192k at 48 kHz, `+faststart` |
 
@@ -221,7 +225,7 @@ Append-only. The tool registration carries a stable name, description, and schem
 These limits define what this package is and what it is not. They are current constraints, not a task backlog.
 
 - **ffmpeg and ffprobe are external** — the package starts whatever `ffmpegPath` and `ffprobePath` name. A build without `libass`, `minterpolate`, or the `screen` blend mode fails at the command that needs it, and only that command's stderr is reported.
-- **The delivery style is not configurable** — geometry, frame rate, rate control, the subtitle style, the ending length, and the limiter are constants, because they are the operator-approved specification. Only the binaries, the two gains, the encoder preference, and the font directory are `Config` fields.
+- **The delivery style is not configurable** — geometry, frame rate, rate control, the subtitle layout, the ending length, and the limiter are constants, because they are the operator-approved specification. Only the binaries, the two gains, the encoder preference, the font directory and families are `Config` fields.
 - **Cache and log writes are not transactional** — failed renders can leave intermediate files for the next run to overwrite. Final MP4 publication uses a staged sibling and rename after ban checks; failures before publication retain the old delivery.
 - **Bans are not a global media filter** — generic FFmpeg tools and arbitrary external transcodes are not intercepted. Prepared copies are checked by their actual SHA256; official rendering associates encoded caches with the currently hashed source. Missing or stale mappings never establish an arbitrary transcode's original version.
 - **The ending is rebuilt on every render** — the tail frame is re-extracted and re-proved, and the ending clip is re-encoded, even when the cache holds both. The proof is the point, and a cached ending could predate a re-cut.

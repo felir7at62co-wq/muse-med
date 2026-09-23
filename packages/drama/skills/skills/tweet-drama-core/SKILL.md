@@ -24,6 +24,10 @@ source、episodes、style、asset_prompts、asset_candidates、official_assets�
 
 stable_id、type、name、aliases、episodes、prompt、review、review_attempts、max_review_attempts、jubian_asset_id、jubian_material_id、url、asset_confirmation、official。正式资产必须 official=true；非本地生成候选确认响应可追溯，本地正式主体使用总控规定的实时独立门禁证据，不伪造 material_id 或确认响应。
 
+## 用户参考图
+
+缺失重要角色资产的生图前置见[本地参考图流程](references/style-references.md)：默认接收用户图片，归档、逐图审核、记录用户确认后运行 `scripts/style_references.py <项目目录> <role_id> check`。缺图就询问并暂停，不自动搜索或启动小红书；空 approved 不构成证据。此流程不替代付费授权、生成资产视觉审核或确认出演。
+
 ## 视频禁用标签
 
 `drama_video` 的 ban/unban/list/inspect 统一管理本项目 `video-bans.json`；ban 按实际文件 SHA256 标记具体版本，labels 至少一个自由可读标签（如“人物对调”），reason 可选，不要索取证据。同字节副本同样禁用；同路径换成不同字节不是旧版本。查标签、没有标签或 unban 都不等于审核通过，保留现有 hashreview 与 QA。标错用 unban；旧文件已替换时用 list 中旧 SHA256 解除，不删媒体、不删清单。

@@ -69,6 +69,7 @@ import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolJubian from '@deepseek-ai/dsh-tool-jubian'
 import * as ToolShotScript from '@deepseek-ai/dsh-tool-shot-script'
 import * as ToolBgmCompose from '@deepseek-ai/dsh-tool-bgm-compose'
+import * as PerceptionBgm from '@deepseek-ai/dsh-perception-bgm'
 import * as ToolEpisodeRender from '@deepseek-ai/dsh-tool-episode-render'
 import * as ToolDramaAssets from '@deepseek-ai/dsh-tool-drama-assets'
 import McpResources from '@deepseek-ai/dsh-mcp-resources'
@@ -681,6 +682,22 @@ const TOOL_PACKAGES: ToolPackage[] = [
       + 'A script with any hard failure returns that failure list and writes nothing.',
   },
   {
+    pkg: '@deepseek-ai/dsh-perception-bgm',
+    dir: 'perception-bgm',
+    source: 'packages/perception/perception-bgm/src/index.ts',
+    requires: ['ctx.tools', 'a local track index or configured public catalogue; Python and model resources only for index/inspect'],
+    writes: ['tool/call', 'tool/result', 'on index: the local emotion index; on download: verified audio in the configured cache'],
+    async mount(ctx) {
+      await ctx.plugin(PerceptionBgm)
+    },
+    note:
+      '`match` ranks candidates without choosing a track; public mode returns IDs and URLs without downloading. '
+      + '`download` accepts a selected catalogue track ID and returns a verified local file. '
+      + 'The default is local-index mode; public matching requires deployment configuration. '
+      + '`index` and `inspect` start Python only when executed, never during schema collection. '
+      + 'The MERT analysis backbone is non-commercial (CC-BY-NC-4.0); audio rights remain separate.',
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-bgm-compose',
     dir: 'tool-bgm-compose',
     source: 'packages/drama/tool-bgm-compose/src/index.ts',
@@ -883,7 +900,7 @@ export function render(catalog: ToolCatalog): string {
     '',
     'This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator\'s boot manifest, so a new tool cannot be silently undocumented.',
     '',
-    'Scope: shipped product tools under `packages/*/tool-*`, each booted with its DEFAULT config, except where a Config field is REQUIRED with no default — there the generator must choose, and the per-package note records which branch this page shows. The registered tool NAME can be a load-time config (e.g. `tool-subagent`\'s `toolName`), so a deployment may expose a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog\'s packages-only scope.',
+    'Scope: shipped product tools under `packages/*/tool-*` and explicitly listed tool providers such as `perception-bgm`, each booted with its DEFAULT config, except where a Config field is REQUIRED with no default — there the generator must choose, and the per-package note records which branch this page shows. The registered tool NAME can be a load-time config (e.g. `tool-subagent`\'s `toolName`), so a deployment may expose a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog\'s packages-only scope.',
     '',
     '## Tool Package Map',
     '',

@@ -2,7 +2,7 @@
 
 ## Maintained adapter
 
-The TypeScript plugin, Python worker and inference adapter come from the DSH perception worktree package `packages/perception/perception-bgm`; its latest package commit at migration was `55047cae8e3bc9dc3c23d007b6f1dcacdcff7c20`. This copy contains maintained source, not an installed `node_modules` tree or prebuilt cache. The package's MIT declaration does not relicense third-party models or audio.
+The TypeScript plugin, Python worker and inference adapter are maintained in this package. It contains source, not an installed `node_modules` tree or prebuilt cache. Its MIT declaration does not relicense third-party models or audio.
 
 ## Music2Emotion
 

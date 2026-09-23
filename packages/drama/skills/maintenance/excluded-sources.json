@@ -25,8 +25,6 @@
     {"path":"tweet-drama-draft-build/tools/ffmpeg/","reason":"Executable binaries; provision FFmpeg and ffprobe separately."},
     {"path":"tweet-drama-draft-build/assets/bgm.mp3","reason":"User music media without established distribution rights; supply explicit mixed BGM."},
     {"path":"tweet-drama-draft-build/_legacy/build_tweet_task_draft.py","reason":"Legacy helper not referenced by maintained scripts."},
-    {"path":"tweet-drama-background-render/assets/ending_audio.mp3","reason":"User ending audio without established distribution rights; supply an explicit path."},
-    {"path":"tweet-drama-background-render/assets/ending_effect.mp4","reason":"User ending video without established distribution rights; supply an explicit path."},
     {"path":"tweet-drama-script-split/scripts/tweet-drama-split.exe","reason":"Executable binary; source-only migration."},
     {"path":"tweet-drama-script-convert/scripts/vendor/olefile/olefile2.py","reason":"Unused Python 2 implementation; runtime imports olefile.py."},
     {"path":"tweet-drama-script-convert/scripts/vendor/olefile/olefile.html","reason":"Generated documentation, not a runtime dependency."},

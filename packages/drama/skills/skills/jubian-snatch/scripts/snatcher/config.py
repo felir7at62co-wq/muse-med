@@ -61,11 +61,11 @@ def default_ledger_path(cwd: str | None = None) -> Path:
 
 
 # —— token 预填来源（环境变量优先，凭据文件只做兜底）——
-ENV_TOKEN_KEY = "JUBIAN_TOKEN"
-# 默认凭据文件名，按优先级排列：alt 在前。
-_CRED_FILENAMES = (".credentials-alt.yaml", ".credentials.yaml")
-# 凭据文件里可能存放 token 的 ref key（精确相等，不做子串匹配）。
-_CRED_REF_KEYS = ("jubian/token/alt", "JUBIANAI_ADMIN_TOKEN")
+ENV_TOKEN_KEY = "JUBIANAI_ADMIN_TOKEN"
+LEGACY_ENV_TOKEN_KEY = "JUBIAN_TOKEN"
+# 只读当前 Harness home 的主凭据文件，不自动选择其他账号。
+_CRED_FILENAMES = (".credentials.yaml",)
+_CRED_REF_KEYS = (ENV_TOKEN_KEY,)
 
 # CREDENTIAL_FILES 的声明（值由模块 __getattr__ 惰性给出，见文件末尾）：
 # 用 mock.patch.object(config, "CREDENTIAL_FILES", ...) 覆盖它仍然有效。
@@ -109,16 +109,13 @@ def clean_token(raw: str | None, *, once: bool = False) -> str:
 
 
 def _default_credential_files() -> tuple[Path, ...]:
-    """解析默认凭据文件路径。
-
-    Path.home() 在 HOME/USERPROFILE/HOMEDRIVE 全都没设时抛 RuntimeError；
-    预填只是"锦上添花"，绝不能因此让 GUI 起不来，所以兜底成空元组。
-    """
+    """只解析 DSH_HOME；未设置或为空才使用 ~/.dsh，无法解析时不读任何文件。"""
     try:
-        home = Path.home()
+        configured = os.environ.get("DSH_HOME")
+        home = Path(configured).expanduser() if configured else Path.home() / ".dsh"
     except RuntimeError:
         return ()
-    return tuple(home / ".dsh" / name for name in _CRED_FILENAMES)
+    return tuple(home / name for name in _CRED_FILENAMES)
 
 
 def _credential_files() -> tuple[Path, ...]:
@@ -182,17 +179,17 @@ def _read_credential_file(path: Path) -> str:
 
 
 def prefill_token() -> str:
-    """按优先级取预填 token：环境变量 → 凭据文件。取不到返回空串。
+    """依次取产品环境变量、显式旧环境变量、当前 home 主凭据；缺值返回空串。
 
+    非空环境变量清理后为空时返回空串，不切换到另一凭据来源。
     环境变量和凭据文件都是可信来源（机器/用户显式写入，没有"粘贴"
     环节），走 clean_token(once=True) 保住 token 自身可能合法的尾分号。
     界面上粘贴进来的文本属于用户输入，用 clean_token() 的收敛默认值。
     """
-    env = os.environ.get(ENV_TOKEN_KEY, "")
-    if env:
-        token = clean_token(env, once=True)
-        if token:
-            return token
+    for key in (ENV_TOKEN_KEY, LEGACY_ENV_TOKEN_KEY):
+        env = os.environ.get(key, "")
+        if env:
+            return clean_token(env, once=True)
     for path in _credential_files():
         token = _read_credential_file(path)
         if token:

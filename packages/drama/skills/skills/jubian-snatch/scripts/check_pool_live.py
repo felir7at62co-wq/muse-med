@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 import sys
 from collections import Counter
-from pathlib import Path
 from typing import Any
 
 from snatcher import api, config
@@ -39,22 +38,14 @@ def main(argv: list[str], *, pool: Any = None) -> int:
     dump_path = _option(argv, "--dump")
     ledger = ClaimLedger(_option(argv, "--ledger") or config.default_ledger_path())
 
-    # 只读 ~/.dsh/.credentials.yaml 的 JUBIANAI_ADMIN_TOKEN：同目录的
-    # .credentials-alt.yaml（jubian/token/alt）里是已失效的旧 token，而它的
-    # 默认优先级更高。环境变量 JUBIAN_TOKEN 仍然优先（prefill_token 先看它）。
-    creds = Path.home() / ".dsh" / ".credentials.yaml"
-    if creds.is_file():
-        config.CREDENTIAL_FILES = (creds,)
-
     token = config.prefill_token()
     print("=== 剧变剧本池联网自检（不打印 token）===")
     print(f"base       : {config.BASE_URL}")
     print(f"token 预填 : {'有' if token else '无'}")
     if not token:
-        print("没有可用 token（JUBIAN_TOKEN 与凭据文件都为空），无法联网核对。")
-        print("取法：登录 https://web.jubianai.net 后在浏览器里复制 token，")
-        print("     或把它写进 JUBIAN_TOKEN 环境变量 / ~/.dsh/.credentials.yaml 的 JUBIANAI_ADMIN_TOKEN。")
-        return 0
+        print("认证配置不足：请为当前进程配置 JUBIANAI_ADMIN_TOKEN；兼容显式 JUBIAN_TOKEN。")
+        print("只读取当前 DSH_HOME（未设置才 ~/.dsh）的 .credentials.yaml，不读取其他账号或桌面安全存储。")
+        return 2
 
     owned_pool = pool is None
     if pool is None:

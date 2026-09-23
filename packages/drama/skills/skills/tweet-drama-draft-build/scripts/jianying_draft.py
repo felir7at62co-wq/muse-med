@@ -2,7 +2,6 @@ import os
 import re
 import json
 import logging
-import shutil
 import sys
 from pathlib import Path
 
@@ -554,6 +553,8 @@ def _media_shot_number(media_file: Path) -> int:
 
 
 def main_with_args(args):
+    if not isinstance(args.name_prefix, str) or re.search(r'[<>:"/\\|?*\x00-\x1f]', args.name_prefix):
+        raise DraftInputError('name_prefix 只能包含合法的草稿名称字符，不能包含路径或 Windows 保留字符。')
     drafts_dir = Path(args.drafts)
     # 如果template-dir为None，使用与drafts相同的目录
     if args.template_dir is None:
@@ -695,18 +696,9 @@ def main_with_args(args):
         # 使用简单的名称格式，只包含前缀和序列编号
         draft_name = f"{args.name_prefix}{seq}"
 
-        # 草稿覆盖逻辑 - 如果草稿已存在，先删除旧的
         draft_path = drafts_dir / draft_name
         if draft_path.exists():
-            logger.info(f"[{draft_name}] 草稿已存在，正在删除旧草稿...")
-            try:
-                import shutil
-                shutil.rmtree(draft_path)
-                logger.info(f"[{draft_name}] 旧草稿删除成功")
-            except Exception as e:
-                logger.info(f"[{draft_name}] 删除旧草稿失败: {e}")
-                # 尝试继续创建新草稿，可能会覆盖
-                pass
+            raise DraftInputError(f"{draft_path} 已存在，拒绝覆盖；请为新候选指定唯一 name_prefix。")
 
         # 复制模板草稿为新草稿
         script = None

@@ -5,14 +5,14 @@
  * These values are the operator-approved delivery specification, not
  * deployment-varying choices, so they live here as constants and every method
  * builds its commands from them. What does vary per deployment — the binaries,
- * the two audio gains, the font directory — is a validated `Config` field on the
- * plugin.
+ * the two audio gains, the font directory and families — is validated by the
+ * plugin's Config.
  *
  * @module @deepseek-ai/dsh-tool-episode-render/delivery
  */
 
 import { escapeFilterPath } from './ffmpeg.ts'
-import type { AudioMixSpec } from './types.ts'
+import type { AudioMixSpec, RenderSettings } from './types.ts'
 
 /** Delivered picture width in pixels. */
 export const DELIVERY_WIDTH = 1440
@@ -59,8 +59,13 @@ export const WATERMARK_TEXT = '内容由AI生成'
 /** Keyframe interval in frames. */
 const KEYFRAME_INTERVAL = DELIVERY_FPS * 2
 
-/** Everything before `[Events]`, byte for byte as the delivery spec fixes it. */
-const ASS_HEADER = `[Script Info]
+/**
+ * Compose the ASS styles and event format with deployment-selected fonts.
+ * @param settings - Font families validated by the plugin Config.
+ * @returns The ASS header, including the event format line.
+ */
+export function buildAssHeader(settings: Pick<RenderSettings, 'subtitleFontFamily' | 'watermarkFontFamily'>): string {
+  return `[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
@@ -68,15 +73,13 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Default,SimHei,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,7,0,2,40,40,520,1
-Style: Watermark,Microsoft YaHei,44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,20,20,20,1
+Style: Default,${settings.subtitleFontFamily},68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,7,0,2,40,40,520,1
+Style: Watermark,${settings.watermarkFontFamily},44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,20,20,20,1
 
 [Events]
 Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
 `
-
-/** The ASS script sections this package composes: the fixed header plus the events. */
-export const ASS_DOCUMENT_HEADER = ASS_HEADER
+}
 
 /**
  * The filter every body clip and the ending frame pass through.

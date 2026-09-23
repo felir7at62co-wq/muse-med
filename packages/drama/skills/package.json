@@ -38,16 +38,20 @@
     "skills/tweet-drama-asset-vision-check/references/io-contract.md",
     "skills/tweet-drama-background-render/SKILL.md",
     "skills/tweet-drama-background-render/agents/openai.yaml",
+    "skills/tweet-drama-background-render/assets/ending_audio.mp3",
+    "skills/tweet-drama-background-render/assets/ending_effect.mp4",
     "skills/tweet-drama-background-render/scripts/render_batch.py",
     "skills/tweet-drama-background-render/scripts/render_episode.py",
     "skills/tweet-drama-core/SKILL.md",
     "skills/tweet-drama-core/references/io-contract.md",
+    "skills/tweet-drama-core/references/style-references.md",
     "skills/tweet-drama-core/scripts/asset_catalog.py",
     "skills/tweet-drama-core/scripts/asset_context.py",
     "skills/tweet-drama-core/scripts/asset_image_import.py",
     "skills/tweet-drama-core/scripts/asset_prompt_templates.py",
     "skills/tweet-drama-core/scripts/paths.py",
     "skills/tweet-drama-core/scripts/pipeline_state.py",
+    "skills/tweet-drama-core/scripts/style_references.py",
     "skills/tweet-drama-core/scripts/validate_live_action_skills.py",
     "skills/tweet-drama-core/scripts/video_bans.py",
     "skills/tweet-drama-delivery/SKILL.md",
@@ -85,17 +89,9 @@
     "skills/tweet-drama-script-split/scripts/script_processor.py",
     "skills/tweet-drama-shot-asset-match/SKILL.md",
     "skills/tweet-drama-shot-asset-match/agents/openai.yaml",
-    "skills/tweet-drama-shot-asset-match/references/io-contract.md",
-    "skills/xiaohongshu-reference/SKILL.md",
-    "skills/xiaohongshu-reference/agents/openai.yaml",
-    "skills/xiaohongshu-reference/references/LICENSE.xiaohongshu-mcp.txt",
-    "skills/xiaohongshu-reference/references/usage-contract.md",
-    "skills/xiaohongshu-reference/scripts/install_xiaohongshu_mcp.ps1",
-    "skills/xiaohongshu-reference/scripts/start_xiaohongshu_mcp.ps1",
-    "skills/xiaohongshu-reference/scripts/xhs_reference_search.py",
-    "skills/xiaohongshu-reference/scripts/xhs_release_manifest.json"
+    "skills/tweet-drama-shot-asset-match/references/io-contract.md"
   ],
   "scripts": {
-    "test": "python -B -m unittest tests/test_resources.py tests/test_skill_suite.py tests/helpers/test_helper_migration.py tests/creation/test_creation_resources.py tests/render/test_portability.py tests/render/test_align_subtitles.py && python -B -m unittest discover -s tests/core && python -B -m unittest discover -s tests/jubian_snatch"
+    "test": "python -B -m unittest tests/test_resources.py tests/test_skill_suite.py tests/helpers/test_helper_migration.py tests/creation/test_creation_resources.py tests/render/test_portability.py tests/render/test_align_subtitles.py tests/render/test_draft_preservation.py && python -B -m unittest discover -s tests/core && python -B -m unittest discover -s tests/jubian_snatch"
   }
 }

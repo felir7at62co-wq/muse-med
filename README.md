@@ -1,22 +1,28 @@
-# DeepSeek Harness
+# muse-med
 
 English | [中文](README.zh.md)
 
-DeepSeek Harness (`dsh`) is an open-source agent harness developed by [DeepSeek AI](https://deepseek.com).
+muse-med is a short-drama AIGC desktop agent built on a fork of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`), the open-source agent harness developed by [DeepSeek AI](https://deepseek.com). It retains upstream package names and credits; it is not an official DeepSeek release.
 
-It is built on an **everything-is-a-plugin** architecture and powered by [Cordis](https://github.com/cordiverse/cordis), whose design is described in [_A Programming Paradigm for Spatiotemporal Composability_](https://arxiv.org/abs/2608.25512).
+The underlying harness uses an **everything-is-a-plugin** architecture powered by [Cordis](https://github.com/cordiverse/cordis), whose design is described in [_A Programming Paradigm for Spatiotemporal Composability_](https://arxiv.org/abs/2608.25512).
 
-Documentation: [https://deepseek-harness.github.io/deepseek-harness/](https://deepseek-harness.github.io/deepseek-harness/)
+Upstream dsh documentation: [https://deepseek-harness.github.io/deepseek-harness/](https://deepseek-harness.github.io/deepseek-harness/)
 
 ## Developer preview
 
-DeepSeek Harness is in _developer preview_ and iterating rapidly. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.**
+muse-med and its underlying harness are in _developer preview_. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.** The Windows installer and complete portable media runtime are not yet released; do not present a source checkout as an installer.
 
-Review the [safety notice](SAFETY.md) before running the project.
+Review the [safety notice](SAFETY.md) before running the project. Desktop development builds the current source with `pnpm run dev:desktop` and still requires Node.js and pnpm on the developer's machine. See the [desktop guide](apps/desktop/README.md) and the [community plugin source snapshots](third_party/plugins/README.md).
+
+## Short-drama workflow
+
+The desktop preview combines script preparation, user-provided visual references, asset review, shot planning, BGM selection, and episode delivery in one short-drama preset. Reference images come from the user; Xiaohongshu access is not required or bundled. Reference review and user confirmation are skill-level workflow requirements, not an authorization check enforced by every paid tool.
+
+The Windows media payload is prepared for local rendering and Whisper transcription, with pinned OFL-licensed Noto fonts; it does not make online model providers, Jubian accounts, or public BGM downloads offline. Optional MERT analysis requires separately prepared model resources and is restricted to non-commercial use. The latest installer still requires fresh-profile and clean-machine qualification; unsigned test artifacts are not a signed public release. See the [desktop guide](apps/desktop/README.md) for runtime and credential limitations.
 
 ## Run
 
-### Run from `npm`
+### Upstream `dsh` CLI from `npm`
 
 Install `Node.js`, then run:
 
@@ -31,8 +37,8 @@ The command starts the Web UI at `http://127.0.0.1:3080` by default and opens it
 To run from a repository checkout:
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-cd deepseek-harness
+git clone https://github.com/felir7at62co-wq/muse-med.git
+cd muse-med
 pnpm install
 pnpm run build
 pnpm dsh web
@@ -42,9 +48,9 @@ pnpm dsh web
 
 ## Community and support
 
-- Submit feedback or bug reports through [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).
-- Add the [`dsh-plugin`](https://github.com/topics/dsh-plugin) topic to your plugin repository for discoverability.
-- Join <a href="https://discord.gg/Ycq5dCaS4">DeepSeek Harness Discord community</a>.
+- Report muse-med issues in the [muse-med repository](https://github.com/felir7at62co-wq/muse-med/issues).
+- For upstream dsh questions, use [DeepSeek Harness Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) or its [Discord community](https://discord.gg/Ycq5dCaS4).
+- Add the [`dsh-plugin`](https://github.com/topics/dsh-plugin) topic to interoperable plugin repositories.
 
 ## Contributing
 
@@ -56,7 +62,7 @@ Start with the [development guide](docs/development.md) and [architecture docume
 
 For agents, follow [AGENTS.md](AGENTS.md).
 
-## Citation
+## Upstream citation
 
 ```bibtex
 @misc{deepseek-harness2026,

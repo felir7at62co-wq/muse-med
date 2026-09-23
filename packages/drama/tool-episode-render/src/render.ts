@@ -212,7 +212,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
 
   const cues = await readSubtitleCues(input.subtitleSrt)
   const ass = resolve(paths.cacheDir, 'display.ass')
-  await writeFile(ass, `\ufeff${buildAssDocument(cues)}`, 'utf8')
+  await writeFile(ass, `\ufeff${buildAssDocument(cues, settings)}`, 'utf8')
   const subtitled = resolve(paths.cacheDir, 'subtitled.mp4')
   await runFfmpeg(toolkit, [
     '-y', '-v', 'error', '-i', base, '-vf', subtitleBurnFilter(ass, settings.fontsDir),

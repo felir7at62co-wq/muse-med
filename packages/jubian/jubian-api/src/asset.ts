@@ -4,6 +4,10 @@
  * `is_local` mirrors the provider's `isLocal` flag and `status` mirrors
  * `hsAssetStatus`; both are carried through so a caller can apply its own
  * admission rules without re-reading the raw payload.
+ *
+ * The asset and material endpoints spell the display name `assetName` and the
+ * file `assetUrl`; a reader accepts those first and keeps the spelling the
+ * earlier captures showed.
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 
@@ -64,7 +68,7 @@ export interface MaterialRow {
 export function readAssetList(data: unknown): { total: number; rows: AssetRow[] } {
   const rows = rowsOf(data)
   return { total: totalOf(data, rows.length), rows: rows.map(row => ({ asset_id: id(row.id ?? row.assetId),
-    name: nullableText(row.name), asset_type: typeof row.assetType === 'number' ? row.assetType : null })) }
+    name: nullableText(row.assetName ?? row.name), asset_type: typeof row.assetType === 'number' ? row.assetType : null })) }
 }
 
 /**
@@ -74,7 +78,7 @@ export function readAssetList(data: unknown): { total: number; rows: AssetRow[] 
  */
 export function readAssetPage(data: unknown): AssetDetail {
   const row = object(data)
-  return { asset_id: id(row.id ?? row.assetId), name: nullableText(row.name),
+  return { asset_id: id(row.id ?? row.assetId), name: nullableText(row.assetName ?? row.name),
     asset_type: typeof row.assetType === 'number' ? row.assetType : null,
     is_local: flag(row.isLocal), status: nullableText(row.hsAssetStatus) }
 }
@@ -89,8 +93,10 @@ export function readMaterialList(data: unknown): { total: number; rows: Material
   return { total: totalOf(data, rows.length), rows: rows.map(row => ({
     material_id: id(row.id ?? row.materialId),
     asset_id: row.assetId === undefined || row.assetId === null ? null : id(row.assetId),
-    name: nullableText(row.materialName ?? row.name), url: nullableText(row.materialUrl ?? row.url),
-    material_type: typeof row.materialType === 'number' ? row.materialType : null,
+    name: nullableText(row.assetName ?? row.materialName ?? row.name),
+    url: nullableText(row.assetUrl ?? row.materialUrl ?? row.url),
+    material_type: typeof row.materialType === 'number' ? row.materialType
+      : typeof row.assetType === 'number' ? row.assetType : null,
     is_used: flag(row.isUsed), status: nullableText(row.hsAssetStatus) })) }
 }
 

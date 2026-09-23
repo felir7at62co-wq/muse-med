@@ -91,23 +91,32 @@ function statusOf(row: InventoryRow): DramaComponentStatus {
 /**
  * The state of every composed component.
  *
- * Preset rows win over Loader entries: a short-drama session is composed by the
- * preset, and its row is what decides whether that session gets the package. An
- * absent snapshot means no inventory was read, which is not the same as an
+ * A mounted row answers for its package: presets and the host Loader can both
+ * compose one package, and a row with no fiber phase — a preset nothing
+ * composed — would otherwise report a loaded package as inactive. Between two
+ * mounted rows the first wins, because the short-drama session is composed by
+ * the preset and its row is what decides whether that session gets the package.
+ * An absent snapshot means no inventory was read, which is not the same as an
  * inventory that answered without naming a package.
  * @param snapshot - the last inventory answer, or undefined when none was read.
  * @returns one entry per composed package, in composition order.
  */
 export function componentStates(snapshot: PluginInventorySnapshot | undefined): DramaComponentState[] {
   const rows = new Map<string, InventoryRow>()
-  for (const preset of snapshot?.agentPresets ?? []) {
-    for (const row of preset.rows) {
-      if (!rows.has(row.moduleName)) rows.set(row.moduleName, row)
+  const keep = (moduleName: string, row: InventoryRow): void => {
+    const kept = rows.get(moduleName)
+    // A row carrying a fiber phase is the composition that is actually mounted,
+    // so it answers for the package even when another row named that package
+    // first: presets and the host Loader can both compose one package, and only
+    // a mounted row says whether a session has it.
+    if (kept === undefined || (kept.fiberPhase === null && row.fiberPhase !== null)) {
+      rows.set(moduleName, row)
     }
   }
-  for (const entry of snapshot?.entries ?? []) {
-    if (!rows.has(entry.moduleName)) rows.set(entry.moduleName, entry)
+  for (const preset of snapshot?.agentPresets ?? []) {
+    for (const row of preset.rows) keep(row.moduleName, row)
   }
+  for (const entry of snapshot?.entries ?? []) keep(entry.moduleName, entry)
   return DRAMA_COMPONENTS.map((component) => {
     const row = rows.get(component.pkg)
     if (row === undefined) {

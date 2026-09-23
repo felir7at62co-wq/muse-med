@@ -12,7 +12,7 @@ Status: implemented
 
 BGM 情绪插件的维护源码位于 [`packages/perception/perception-bgm`](../../../../packages/perception/perception-bgm/README.zh.md)。它的 npm 白名单现在列出每个运行时文件，worker 把中间文件写入私有临时目录，两个 Hugging Face 加载器都冻结 MERT revision。云端配置可选且默认关闭：未设 `catalogUrl` 时仍读本地索引，`match` 从不下载。`download` 是唯一抓取音频的方法，发布缓存条目前校验大小与 SHA-256。
 
-[`packages/drama/skills`](../../../../packages/drama/skills/README.zh.md) 以 `@deepseek-ai/dsh-drama-skills` 拥有短剧技能资源。它只带当前技能使用的源码、参考文档和静态资源；GUI 前端、已退役应用的辅助模块及其独立状态链、可执行文件、用户媒体、凭据和缓存都不进入，`maintenance/excluded-sources.json` 逐条记录每项排除及原因。清单逐文件列出分发内容，当技能文件存在而清单缺项时打包检查会失败。
+[`packages/drama/skills`](../../../../packages/drama/skills/README.zh.md) 以 `@deepseek-ai/dsh-drama-skills` 拥有短剧技能资源。它只带当前技能使用的源码、参考文档和静态资源；GUI 前端、已退役应用的辅助模块及其独立状态链、可执行文件、逐项目媒体、凭据和缓存都不进入，`maintenance/excluded-sources.json` 逐条记录每项排除及原因。清单逐文件列出分发内容，当技能文件存在而清单缺项时打包检查会失败。渲染器需要的两份片尾素材是唯一的媒体例外（[片尾素材](2026-09-22-bundle-the-renderer-ending-media.zh.md)）。
 
 操作者授权公开分发的 60 首曲目是同一 bucket origin 下的内容寻址对象，索引位于 `/bgm/index.json`。发布先按索引校验每个本地源文件再上传，只创建缺失对象，对每个公开下载核对大小与 SHA-256，最后才写索引。凭据只来自一条 DSH 托管凭证记录，不进入源码或发布输入；已存在但字节不同的对象会被拒绝而不是覆盖。
 
@@ -32,4 +32,4 @@ BGM 情绪插件的维护源码位于 [`packages/perception/perception-bgm`](../
 
 `SOURCES.md` 分别记录三项许可事实：适配层与 Music2Emotion 源码是 MIT，现有副本无法确定其上游 revision；m-a-p/MERT-v1-95M 骨干是 CC-BY-NC-4.0，仅限非商业用途；已发布曲目是操作者确认可公开分发的音频。三者互不重新授权。
 
-本地开发根目录仍是操作者自有数据的归处 —— 项目、历史资产库和用于对照的依赖版本 —— 但已不再是这些包的运行时依赖。
+本地开发根目录仍是操作者自有数据的归处 —— 项目、历史资产库和用于对照的依赖版本 —— 但已不再是这些包的运行时依赖。[独立产品决策](2026-09-23-muse-med-independent-desktop.zh.md)负责 Desktop 账号隔离及其生产预设。

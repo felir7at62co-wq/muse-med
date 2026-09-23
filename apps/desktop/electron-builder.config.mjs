@@ -56,7 +56,7 @@ export function createElectronBuilderConfig(
     appId,
     productName: 'muse-med',
     icon: 'renderer/icon.png',
-    artifactName: 'deepseek-harness-${version}-${os}-${arch}.${ext}',
+    artifactName: 'muse-med-${version}-${os}-${arch}.${ext}',
     directories: { output: unsigned ? join(buildPaths.root, 'unsigned-artifacts') : buildPaths.artifacts },
     asar: true,
     files: [
@@ -73,6 +73,8 @@ export function createElectronBuilderConfig(
       '**/*.so.*',
       '**/spawn-helper',
       '**/@vscode/ripgrep/bin/rg',
+      '**/@deepseek-ai/dsh-drama-skills/**',
+      '**/@openai/codex*/**',
     ],
     extraResources: [
       { from: buildPaths.runtime, to: 'runtime' },
@@ -104,7 +106,8 @@ export function createElectronBuilderConfig(
       )
     },
     win: {
-      executableName: 'DeepSeek Harness',
+      icon: 'renderer/icon.ico',
+      executableName: 'muse-med',
       forceCodeSigning: !unsigned,
       signtoolOptions: {
         sign: windowsSigner,
@@ -119,6 +122,7 @@ export function createElectronBuilderConfig(
     nsis: {
       include: fileURLToPath(new URL('./scripts/installer.nsh', import.meta.url)),
       oneClick: false,
+      installerLanguages: ['en_US', 'zh_CN'],
       allowToChangeInstallationDirectory: true,
       differentialPackage: true,
     },

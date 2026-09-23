@@ -24,6 +24,15 @@ import type {
 /** Seconds of natural reaction, breath, or movement closure every package adds. */
 export const NATURAL_HOLD_SECONDS = 1
 
+/**
+ * The provider's floor on a requested duration, in its own words on `doubao-seedance-2-5-260628`:
+ * a two-second request fails with `火山方舟创建任务失败: 时长仅支持 4~30 秒之间 或 -1`, a four-second one succeeds.
+ */
+export const MIN_SUBMIT_SECONDS = 4
+
+/** The content that stays legal under {@link MIN_SUBMIT_SECONDS}, once the hold is taken out of the request. */
+export const MIN_CONTENT_SECONDS = MIN_SUBMIT_SECONDS - NATURAL_HOLD_SECONDS
+
 /** The hold instruction the submitted prompt carries; it adds no dialogue. */
 export const HOLD_INSTRUCTION = '结尾保持自然反应、呼吸或动作收束，不新增台词'
 
@@ -62,53 +71,121 @@ export function materialKeys(prompt: string): string[] {
 }
 
 /**
+ * Split shots at the boundaries one package may never cross.
+ *
+ * A package closes before a shot of another scene and after a shot marked
+ * `子任务边界：是`. A shot whose scene is not bound carries an empty name, which is a
+ * missing declaration rather than a scene of its own: it stays in the run it
+ * arrived in and never closes one. Reading it as a scene split an episode whose
+ * script declares a scene on every other shot into one package per shot; the
+ * missing binding itself is reported as `no_scene_bound` where the script was
+ * compiled.
+ * @param shots - Compiled shots in script order.
+ * @param maxContentSeconds - Content-second ceiling of one package.
+ * @returns Runs of shots, each packable on its own.
+ */
+function splitContinuityUnits(
+  shots: readonly CompiledShot[], maxContentSeconds: number,
+): CompiledShot[][] {
+  const units: CompiledShot[][] = []
+  let current: CompiledShot[] = []
+  let scene: string | undefined
+  for (const item of shots) {
+    const duration = item.shot.durationSeconds
+    if (duration > maxContentSeconds) {
+      throw new Error(`镜头${item.shot.shot}时长${duration}秒超过内容预算${maxContentSeconds}秒；不能截断镜头。`)
+    }
+    const declared = item.scene === '' ? undefined : item.scene
+    const changedScene = declared !== undefined && scene !== undefined && declared !== scene
+    if (current.length > 0 && changedScene) {
+      units.push(current)
+      current = []
+      scene = undefined
+    }
+    if (scene === undefined) scene = declared
+    current.push(item)
+    if (item.shot.breakAfter) {
+      units.push(current)
+      current = []
+      scene = undefined
+    }
+  }
+  if (current.length > 0) units.push(current)
+  return units
+}
+
+/**
+ * Cut one run into the fewest packages that each fit the ceiling, as evenly as the
+ * shots allow.
+ *
+ * A greedy fill leaves a short tail (14+14+6), and a tail below the provider floor
+ * is an illegal request. Balancing keeps the package count identical while removing
+ * that tail; cuts stay between whole shots.
+ * @param unit - One run of continuous shots.
+ * @param ceiling - Content-second ceiling of one package.
+ * @returns Consecutive packs covering the run in order.
+ */
+function splitUnitEvenly(unit: readonly CompiledShot[], ceiling: number): readonly (readonly CompiledShot[])[] {
+  const secondsOf = (shots: readonly CompiledShot[]): number =>
+    shots.reduce((sum, item) => sum + item.shot.durationSeconds, 0)
+  const total = secondsOf(unit)
+  const count = Math.max(1, Math.ceil(total / ceiling))
+  const fair = total / count
+
+  /** Best split of one suffix into `packs` packages; `undefined` when impossible. */
+  const solve = (
+    packs: number, shots: readonly CompiledShot[],
+  ): { packs: readonly (readonly CompiledShot[])[]; cost: number } | undefined => {
+    let winner: { packs: readonly (readonly CompiledShot[])[]; cost: number } | undefined
+    if (packs === 1) {
+      const only = secondsOf(shots)
+      if (only <= ceiling) winner = { packs: [shots], cost: (only - fair) ** 2 }
+    } else {
+      let run = 0
+      for (const [index, item] of shots.entries()) {
+        run += item.shot.durationSeconds
+        if (run > ceiling) break
+        const rest = solve(packs - 1, shots.slice(index + 1))
+        if (rest === undefined) continue
+        const cost = (run - fair) ** 2 + rest.cost
+        if (winner === undefined || cost < winner.cost) {
+          winner = { packs: [shots.slice(0, index + 1), ...rest.packs], cost }
+        }
+      }
+    }
+    return winner
+  }
+
+  /* v8 ignore next -- `count` is `ceil(total/ceiling)`, which always admits a split. */
+  return solve(count, unit)?.packs ?? [unit]
+}
+
+/**
  * Pack an episode's shots into the packages one submission each renders.
  *
- * A package closes before a shot that would exceed the content budget, before a
- * shot of another scene, and after a shot marked `子任务边界：是`.
+ * A package holds a run of complete, continuous shots of one scene, never exceeds
+ * the content budget, and is split as evenly as the run allows. A package below
+ * {@link MIN_CONTENT_SECONDS} is still returned, and the caller reports it as a
+ * hint: refusing the run would block a legal edit the operator may still want.
  * @param shots - Compiled shots in script order.
  * @param maxContentSeconds - Content-second ceiling of one package.
  * @returns Packages in submission order.
  */
 export function packEpisode(shots: readonly CompiledShot[], maxContentSeconds: number): PackedTask[] {
   const tasks: PackedTask[] = []
-  let current: CompiledShot[] = []
-  let seconds = 0
-  let scene: string | undefined
-  const flush = (): void => {
-    if (current.length === 0) return
-    tasks.push({
-      index: tasks.length + 1,
-      shots: current.map(item => item.shot.shot),
-      contentSeconds: seconds,
-      submitSeconds: seconds + NATURAL_HOLD_SECONDS,
-      materialKeys: materialKeys(current.map(item => item.shot.visual).join('\n')),
-      materialNames: [...new Set(current.flatMap(item => item.assets.map(asset => asset.name)))],
-    })
-    current = []
-    seconds = 0
-    scene = undefined
-  }
-  for (const item of shots) {
-    const duration = item.shot.durationSeconds
-    if (duration > maxContentSeconds) {
-      throw new Error(`镜头${item.shot.shot}时长${duration}秒超过内容预算${maxContentSeconds}秒；不能截断镜头。`)
+  for (const unit of splitContinuityUnits(shots, maxContentSeconds)) {
+    for (const pack of splitUnitEvenly(unit, maxContentSeconds)) {
+      const contentSeconds = pack.reduce((sum, item) => sum + item.shot.durationSeconds, 0)
+      tasks.push({
+        index: tasks.length + 1,
+        shots: pack.map(item => item.shot.shot),
+        contentSeconds,
+        submitSeconds: contentSeconds + NATURAL_HOLD_SECONDS,
+        materialKeys: materialKeys(pack.map(item => item.shot.visual).join('\n')),
+        materialNames: [...new Set(pack.flatMap(item => item.assets.map(asset => asset.name)))],
+      })
     }
-    // A shot whose scene is not bound carries an empty name, which is a missing
-    // declaration rather than a scene of its own: it stays in the package it
-    // arrived in and never closes one. Reading it as a scene split an episode
-    // whose script declares a scene on every other shot into one package per
-    // shot; the missing binding itself is reported as `no_scene_bound` where the
-    // script was compiled.
-    const declared = item.scene === '' ? undefined : item.scene
-    const changedScene = declared !== undefined && scene !== undefined && declared !== scene
-    if (current.length > 0 && (changedScene || seconds + duration > maxContentSeconds)) flush()
-    if (scene === undefined) scene = declared
-    current.push(item)
-    seconds += duration
-    if (item.shot.breakAfter) flush()
   }
-  flush()
   return tasks
 }
 

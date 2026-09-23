@@ -41,6 +41,8 @@ import {
   type DesktopHostRequestFrame,
 } from './wire.ts'
 
+import { bundledSkillDirectory } from './bundled-skills.ts'
+
 export { DESKTOP_HOST_PROTOCOL_VERSION } from './wire.ts'
 
 /** One request forwarded from Electron's `dsh-app://` handler. */
@@ -153,7 +155,6 @@ function isProjectPath(projectDir: string, target: string): boolean {
 }
 
 interface DesktopComposition {
-  readonly installAnchor: string
   readonly profile: Profile
   readonly patches: PatchOptions[]
 }
@@ -164,7 +165,6 @@ function desktopComposition(
   allowLinkedPackages: boolean,
 ): DesktopComposition {
   const installAnchor = packageManifestPath(runtimeDir, '@deepseek-ai/dsh')
-  const dshRoot = dirname(installAnchor)
   const profile = loadProfileDirectory('dsh desktop', projectDir, installAnchor)
   for (const layer of profile.layers) {
     if (!allowLinkedPackages && !isProjectPath(projectDir, layer.packageDir) && !isProjectPath(runtimeDir, layer.packageDir)) {
@@ -183,11 +183,21 @@ function desktopComposition(
       id: 'agent-presets',
       config: {
         ...(agentPresets.config ?? {}) as Record<string, unknown>,
-        roots: [{ path: join(dshRoot, 'config', 'agent-presets'), trust: 'system' }],
+        roots: [{ path: fileURLToPath(new URL('../presets', import.meta.url)), trust: 'system' }],
       },
     }])
   }
-  return { installAnchor, profile, patches: layers.flat() }
+  const skillFilesystem = rows.get('skill-filesystem')
+  if (skillFilesystem === undefined) throw new Error('dsh desktop: profile has no skill-filesystem row')
+  const bundledSkillDir = bundledSkillDirectory(runtimeDir)
+  layers.push([{
+    id: 'skill-filesystem',
+    config: {
+      ...(skillFilesystem.config ?? {}) as Record<string, unknown>,
+      bundledSkillDir,
+    },
+  }])
+  return { profile, patches: layers.flat() }
 }
 
 function dshVersion(runtimeDir: string): string {
@@ -304,7 +314,7 @@ export async function runDesktopHost(
   const environment = loadLayeredEnv('dsh desktop')
   const composition = desktopComposition(absoluteRuntime, absoluteProject, options.allowLinkedPackages === true)
   const resolution = await createProfileResolutionGeneration({
-    installAnchor: composition.installAnchor,
+    installAnchor: join(absoluteRuntime, 'package.json'),
     profile: composition.profile,
   })
   let current: Context | undefined

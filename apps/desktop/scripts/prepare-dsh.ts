@@ -16,6 +16,8 @@ import {
   verifyDesktopCoreLockfile,
 } from '../src/core-package-set.ts'
 import { smokeDesktopRuntime } from './smoke-runtime.ts'
+import { verifyCodexRuntime } from './verify-codex-runtime.ts'
+import { desktopFetchTimeout } from './desktop-fetch-timeout.ts'
 import { writeDesktopRuntime, verifyDesktopRuntime } from '../src/runtime-tree.ts'
 import {
   resolveDesktopAppId,
@@ -114,7 +116,10 @@ async function main(): Promise<void> {
       readFileSync(join(BUILD_ROOT, 'pnpm-lock.yaml'), 'utf8'),
       readDesktopCorePackageSet(BUILD_ROOT, release.version),
     )
-    await runPnpm(['install', '--prod', '--frozen-lockfile', '--trust-lockfile'])
+    await runPnpm([
+      'install', '--prod', '--frozen-lockfile', '--trust-lockfile',
+      `--fetch-timeout=${desktopFetchTimeout(process.env)}`,
+    ])
     const packageSet = readDesktopCorePackageSet(BUILD_ROOT, release.version)
     const targetName = resolveDesktopBuildTarget()
     const target = { platform: process.platform, arch: targetName.endsWith('arm64') ? 'arm64' : 'x64' }
@@ -136,6 +141,12 @@ async function main(): Promise<void> {
     if (process.platform === 'darwin') {
       await signMacOSRuntime(DSH_OUTPUT_ROOT, resolveDesktopAppId(process.env), resolveMacOSSigningEnvironment(process.env))
     }
+    const sourceProvider = JSON.parse(readFileSync(resolve(APP_ROOT, '../../packages/subagent/subagent-codex/package.json'), 'utf8')) as {
+      dependencies?: Record<string, unknown>
+    }
+    const codexVersion = sourceProvider.dependencies?.['@openai/codex']
+    if (typeof codexVersion !== 'string') throw new Error('desktop runtime: source Codex provider has no CLI dependency pin')
+    await verifyCodexRuntime(DSH_OUTPUT_ROOT, NODE, codexVersion, target)
     writeDesktopRuntime(DSH_OUTPUT_ROOT, release, packageSet.packages.map(entry => entry.name), target)
     const descriptor = await verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target)
     await new Promise<void>((accept, reject) => {

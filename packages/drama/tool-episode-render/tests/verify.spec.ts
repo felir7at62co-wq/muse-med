@@ -7,6 +7,7 @@ import { fileSha256 } from '../src/cache.ts'
 import { provenancePathFor } from '../src/provenance.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { NO_MEDIA } from '../src/report.ts'
+import { resolveSettings } from '../src/index.ts'
 import type { MediaFacts, SubtitleCue } from '../src/types.ts'
 import {
   deliveryChecks,
@@ -255,7 +256,7 @@ describe('verifyEpisode', () => {
     await rm(provenancePathFor(files.output))
     const report = await verifyEpisode({
       toolkit: toolkit([probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }), () => ({})]),
-      settings: { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', masterVolume: 1.45, bgmVolume: 0.24, preferNvenc: true, fontsDir: '' },
+      settings: resolveSettings({ fontsDir: '' }),
       project: files.project, episode: '02', output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
     })
     const check = report.checks.find(item => item.id === 'output_provenance')
@@ -271,7 +272,7 @@ describe('verifyEpisode', () => {
     await writePlaceholder(files.output, 'replaced after the record')
     const report = await verifyEpisode({
       toolkit: toolkit([probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }), () => ({})]),
-      settings: { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', masterVolume: 1.45, bgmVolume: 0.24, preferNvenc: true, fontsDir: '' },
+      settings: resolveSettings({ fontsDir: '' }),
       project: files.project, episode: '02', output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
     })
     const check = report.checks.find(item => item.id === 'output_provenance')
@@ -288,7 +289,7 @@ describe('verifyEpisode', () => {
     await runDramaVideo({ method: 'ban', project: files.project, video: source, labels: ['人物对调'], reason: '用户明确禁用' })
     const report = await verifyEpisode({
       toolkit: toolkit([probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }), () => ({})]),
-      settings: { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', masterVolume: 1.45, bgmVolume: 0.24, preferNvenc: true, fontsDir: '' },
+      settings: resolveSettings({ fontsDir: '' }),
       project: files.project, episode: '02', output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
     })
     expect(report.ok).toBe(false)
@@ -312,7 +313,7 @@ describe('verifyEpisode', () => {
         }),
         () => ({ stderr: '' }),
       ]),
-      settings: { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', masterVolume: 1.45, bgmVolume: 0.24, preferNvenc: true, fontsDir: 'C:/Windows/Fonts' },
+      settings: resolveSettings({}),
       project: files.project,
       episode: '02',
       output: files.output,
@@ -358,7 +359,7 @@ describe('verifyEpisode', () => {
           ? { stderr: blackLog(10, 12, 2) }
           : { stderr: '[silencedetect @ 0x1] silence_start: 0\n[silencedetect @ 0x1] silence_end: 5 | silence_duration: 5\n' }),
       ]),
-      settings: { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', masterVolume: 1.45, bgmVolume: 0.24, preferNvenc: true, fontsDir: 'C:/Windows/Fonts' },
+      settings: resolveSettings({}),
       project: files.project,
       episode: '02',
       output: files.output,
@@ -383,7 +384,7 @@ describe('verifyEpisode', () => {
         probeHandler({ [files.output]: { durationSeconds: 0, sizeBytes: 0, bitRateBps: 0, video: undefined, audio: false } }),
         () => ({ stderr: '' }),
       ]),
-      settings: { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', masterVolume: 1.45, bgmVolume: 0.24, preferNvenc: true, fontsDir: 'C:/Windows/Fonts' },
+      settings: resolveSettings({}),
       project: files.project,
       episode: '02',
       output: files.output,

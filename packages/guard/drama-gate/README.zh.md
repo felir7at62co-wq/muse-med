@@ -39,7 +39,7 @@ kind: "package-reference"
 - id: drama-gate
   name: '@deepseek-ai/dsh-guard-drama'
   config:
-    workspaceRoot: E:\aa-manju        # fallback root when the session states no cwd
+    workspaceRoot: D:\projects        # fallback root when the session states no cwd
     workshopDir: short-drama          # the workshop directory below that root
     projectRoot: ''                   # explicit project root; empty means derive it
     idempotencyKey: true              # refuse a Jubian write method with no key

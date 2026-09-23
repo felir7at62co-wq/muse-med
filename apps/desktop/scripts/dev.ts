@@ -85,6 +85,7 @@ async function main(): Promise<void> {
   if (!values['skip-build']) {
     await runPackageScript('build', REPOSITORY_ROOT)
     await runPackageScript('build', APP_ROOT)
+    await run(process.execPath, [join(REPOSITORY_ROOT, 'third_party', 'plugins', 'build.mjs'), '--out', join(DEVELOPMENT_ROOT, 'community-plugins')], REPOSITORY_ROOT)
   }
   for (const path of [
     join(APP_ROOT, 'lib', 'main.js'),
@@ -102,6 +103,8 @@ async function main(): Promise<void> {
     pnpmVersion,
   }
   prepareDevelopmentProject({
+    repositoryRoot: REPOSITORY_ROOT,
+    communityArtifactsDir: join(DEVELOPMENT_ROOT, 'community-plugins'),
     projectDir: join(DEVELOPMENT_ROOT, 'project'),
     cliDir: join(REPOSITORY_ROOT, 'apps', 'cli'),
     hostDir: join(REPOSITORY_ROOT, 'apps', 'desktop-host'),

@@ -3,7 +3,7 @@
  * script the delivery style burns in.
  *
  * The burned-in subtitle is part of the delivered picture, so its style is the
- * delivery specification rather than a parameter: SimHei at 68 with -2 spacing
+ * delivery specification rather than a tool parameter: size 68 with -2 spacing
  * and a 7px black outline, bottom-centred on a 1080x1920 canvas, plus the single
  * bottom-right `内容由AI生成` mark.
  *
@@ -11,8 +11,8 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import { ASS_DOCUMENT_HEADER, escapeAssText, formatAssTime, WATERMARK_POSITION, WATERMARK_TEXT } from './delivery.ts'
-import type { SubtitleCue } from './types.ts'
+import { buildAssHeader, escapeAssText, formatAssTime, WATERMARK_POSITION, WATERMARK_TEXT } from './delivery.ts'
+import type { RenderSettings, SubtitleCue } from './types.ts'
 
 /** The watermark event runs the whole programme; ASS has no "until the end" timestamp. */
 const WATERMARK_END = '9:59:59.00'
@@ -115,13 +115,17 @@ export function formatSrtDocument(cues: readonly SubtitleCue[]): string {
  * mark becomes the single `Watermark` line, so the burn-in carries both the
  * operator's subtitle style and the platform's declaration in one file.
  * @param cues - The cues to burn, in file order.
+ * @param settings - Font families validated by the plugin Config.
  * @returns The complete ASS document.
  */
-export function buildAssDocument(cues: readonly SubtitleCue[]): string {
+export function buildAssDocument(
+  cues: readonly SubtitleCue[],
+  settings: Pick<RenderSettings, 'subtitleFontFamily' | 'watermarkFontFamily'>,
+): string {
   const events = cues.map(cue => 'Dialogue: 0,'
     + `${formatAssTime(cue.startSeconds)},${formatAssTime(cue.endSeconds)},Default,,0,0,0,,`
     + escapeAssText(cue.text))
   events.push(`Dialogue: 1,0:00:00.00,${WATERMARK_END},Watermark,,0,0,0,,`
     + `${WATERMARK_POSITION}${WATERMARK_TEXT}`)
-  return `${ASS_DOCUMENT_HEADER}${events.join('\n')}\n`
+  return `${buildAssHeader(settings)}${events.join('\n')}\n`
 }

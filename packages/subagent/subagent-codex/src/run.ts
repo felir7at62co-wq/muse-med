@@ -41,7 +41,9 @@ interface CodexPackageManifest {
   }
 }
 
+// The wrapper spawns its sibling native binary; both packages must be unpacked by Electron.
 const codexPackageJsonPath = createRequire(import.meta.url).resolve('@openai/codex/package.json')
+  .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
 const codexPackageManifest = JSON.parse(
   readFileSync(codexPackageJsonPath, 'utf8'),
 ) as CodexPackageManifest
