@@ -1,0 +1,9 @@
+{
+  "version": "9.0.2",
+  "builder_repository": "https://github.com/BtbN/FFmpeg-Builds.git",
+  "builder_commit": "2bd8d14b1f858e3a1dd04b038f288e58b77abf84",
+  "ffmpeg_repository": "https://github.com/FFmpeg/FFmpeg.git",
+  "ffmpeg_commit": "946fcce07b6dcd0331c8cc609192aeff5e1924f8",
+  "base_image": "ghcr.io/btbn/ffmpeg-builds/base@sha256:83f574f203cf8cdc456d46b5f2163e6b95b2f6c9ec2b44cfee146d1a7e823deb",
+  "toolchain_image": "ghcr.io/btbn/ffmpeg-builds/base-win64@sha256:6b20ea081b10f4792d7209ef0b9371ab90ea6749040e0e91371b26b6add9377d"
+}
