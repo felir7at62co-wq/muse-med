@@ -1,0 +1,4 @@
+# Preserve whitespace already present in these pinned upstream files.
+dsh-codex-subscription/src/client-model-select.jsx -whitespace
+dsh-ffmpeg/README.en.md -whitespace
+dsh-ponytail/src/modes.ts -whitespace

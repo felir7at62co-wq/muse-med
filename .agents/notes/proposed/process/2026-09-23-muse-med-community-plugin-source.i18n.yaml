@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/proposed/process/2026-09-23-muse-med-community-plugin-source.md
+2026-09-23-muse-med-community-plugin-source.md: a060ebd429401209b04465645b67b46fbe27a760
+2026-09-23-muse-med-community-plugin-source.zh.md: 87cac45f8cfe6343386f1de1b65906af835a88f3

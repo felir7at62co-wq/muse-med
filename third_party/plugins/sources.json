@@ -1,0 +1,32 @@
+{
+  "dshmarket": {
+    "repository": "https://github.com/dsh-market/dsh-market",
+    "version": "1.47.0",
+    "commit": "a8401c46fb45d9d18a76b918fab6b56ab3c32ab1",
+    "license": "MIT"
+  },
+  "dsh-codex-subscription": {
+    "repository": "https://github.com/WSL043/dsh-codex-subscription",
+    "version": "2.1.5",
+    "commit": "257f7c719690321ee2963ec7f63e96c734712e36",
+    "license": "MIT"
+  },
+  "dsh-ponytail": {
+    "repository": "https://github.com/MengYuil/dsh-ponytail",
+    "version": "0.3.3",
+    "commit": "9b03d3ffcff96b7e8e4ff749802b04cca23e1b51",
+    "license": "MIT"
+  },
+  "dsh-lark-bridge": {
+    "repository": "https://github.com/moyu-good/dsh-lark-bridge",
+    "version": "0.6.1",
+    "commit": "1c555fd1cda026e1d0ac4f1f8643d46478d562f9",
+    "license": "BSD-3-Clause"
+  },
+  "dsh-ffmpeg": {
+    "repository": "https://github.com/STARDUSTLC666/dsh-ffmpeg",
+    "version": "0.4.3",
+    "commit": "dac4f507abc10a787a7479a07617acb4c3f511a8",
+    "license": "MIT"
+  }
+}

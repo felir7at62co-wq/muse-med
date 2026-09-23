@@ -1,0 +1,92 @@
+[中文](README.md)
+
+![npm](https://img.shields.io/npm/v/dsh-ffmpeg) ![downloads](https://img.shields.io/npm/dm/dsh-ffmpeg) ![license](https://img.shields.io/github/license/STARDUSTLC666/dsh-ffmpeg) ![stars](https://img.shields.io/github/stars/STARDUSTLC666/dsh-ffmpeg?style=social)
+
+# dsh-ffmpeg
+
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
+
+DSH (DeepSeek Harness) video-processing plugin: seven tools covering probing, cutting, concatenation, transcoding, subtitles, extraction and GIF creation — all powered by ffmpeg/ffprobe.
+
+## Compatibility
+
+Verified with official `@deepseek-ai/dsh@0.1.5-rc.1` and Node `24.16.0` on 2026-09-11: all 18 components load alongside Modlens, with passing tool-schema, skill-registration and offline read-only invocation checks. Uses the `cordis.patch.yml` + `dsh.bundle.patch` bundle model. Node requirements match this Harness release: 22.19 or later within 22.x, or 24 or later. Live external-service workflows require separate configuration and validation.
+
+2026-09-13 fix: retain the service receiver when calling `subprocess.spawn`, preventing failures caused by passing the method as an unbound callback. Verified with official `0.1.5-rc.1` and `0.1.5-rc.2` on Node `24.16.0`. FFmpeg/ffprobe version checks and probing a real MP4 pass. This fixes the tool invocation failure reported in [#3](https://github.com/STARDUSTLC666/dsh-ffmpeg/issues/3).
+
+## Installation
+
+```bash
+dsh plugin --profile web add dsh-ffmpeg
+```
+
+ffmpeg must be installed locally (`ffmpeg -version` should work); use `ffmpegPath` / `ffprobePath`, or the `DSH_FFMPEG_PATH` / `DSH_FFPROBE_PATH` environment variables, when it is not on PATH.
+
+## Uninstall
+
+```bash
+dsh plugin --profile web remove dsh-ffmpeg
+```
+
+Then restart the web service. To clean up fully, also remove the plugin entry from your profile `cordis.patch.yml` if you overrode it.
+
+
+## Configuration
+
+Override the plugin row in your profile's `cordis.patch.yml` (defaults apply when absent):
+
+```yaml
+- id: ffmpeg
+  name: 'dsh-ffmpeg'
+  config:
+    # ffmpegPath: C:\tools\ffmpeg\bin\ffmpeg.exe   # explicit path (or DSH_FFMPEG_PATH)
+    # ffprobePath: C:\tools\ffmpeg\bin\ffprobe.exe # or DSH_FFPROBE_PATH
+    timeoutMs: 300000                                # per-operation timeout (default 5 min, 10s - 2h)
+    # overwrite: true                                 # allow overwriting outputs (default auto-suffix _1/_2)
+```
+
+## Tools
+
+| Tool | Purpose | Key parameters |
+| :-- | :-- | :-- |
+| `ffmpeg_probe` | Probe media info (format/duration/resolution/fps/bitrate/audio/subtitle streams; multi-video files return a full videos list) | `input` required |
+| `ffmpeg_cut` | Cut a clip (stream copy by default, accurate re-encode optional) | `input` required; `start`/`end`/`duration` |
+| `ffmpeg_concat` | Concatenate 2-20 clips (stream copy for identical codecs / re-encode for mixed; video-only when any input has no audio) | `inputs` array required |
+| `ffmpeg_encode` | Transcode with presets (bilibili 1080p/4K, vertical 1080p, web-720p) plus crf/fps/scale overrides | `input` required; `preset` optional |
+| `ffmpeg_subtitle` | Burn subtitles (SRT/ASS hard subs) | `input` + `subtitle` required |
+| `ffmpeg_extract` | Extract audio (m4a; non-AAC is auto-transcoded to AAC) / frame sequences / single frame / subtitle stream | `input` + `what` required |
+| `ffmpeg_gif` | Video to high-quality GIF (two-pass palette) | `input` required; `fps`/`width`/`duration` optional |
+
+### Examples
+
+```text
+ffmpeg_probe { input: E:\videos\raw.mp4 }
+ffmpeg_cut { input: E:\videos\raw.mp4, start: 10, end: 30 }
+ffmpeg_encode { input: E:\videos\raw.mp4, preset: bilibili-1080p }
+ffmpeg_subtitle { input: E:\videos\raw.mp4, subtitle: E:\videos\subs.srt }
+ffmpeg_extract { input: E:\videos\raw.webm, what: audio }
+ffmpeg_gif { input: E:\videos\raw.mp4, duration: 3, width: 480 }
+```
+
+## Safety
+
+- **No shell**: every argument is passed as its own argv element — user input cannot inject commands
+- **Runs on the official DSH subprocess service**: the timeout AbortSignal now really drives tree-scoped termination (SIGTERM → kill; taskkill /T on Windows), zero runtime dependencies
+- **No accidental overwrites**: existing outputs get auto-suffixed; output == input is rejected
+- **Timeout clamps**: per-operation 10s - 2h; probes additionally capped at 60s
+- **Input validation**: time formats, preset enums, crf/fps/scale ranges are validated up front; directory inputs are rejected and extension-less frame-sequence outputs are auto-fixed
+
+## Development
+
+```bash
+pnpm install
+pnpm test       # build + 102 tests, including a real-ffmpeg end-to-end suite (auto-skipped without ffmpeg)
+```
+
+## License
+
+MIT
+
+## Changelog
+
+- **0.4.3 (2026-09-18)**: 修复抽帧数到旧帧/清单截断、取消被当成功、取消文案丢原因、`+2dB` 被拒; 音轨提取非 AAC 自动转 AAC、concat 混合音轨可用、ffprobe 截断明确报错. 测试 102 项. 

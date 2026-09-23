@@ -1,7 +1,7 @@
 /** Regression tests for bilingual snapshots, corpus scope, and structure. */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { globSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -27,6 +27,7 @@ import {
   parseTranslationPairingManifest,
   partitionGeneratedRegions,
   requiresSourceLanguageSwitcher,
+  TRANSLATION_SCOPE_GLOB_EXCLUDES,
   translationPairSourcePredicate,
   translationStructureDiff,
   translationStructureSignature,
@@ -301,6 +302,37 @@ describe('translation pairing records', () => {
 })
 
 describe('translation scope discovery', () => {
+  const upstreamDirectories = ['dshmarket', 'dsh-codex-subscription', 'dsh-ponytail', 'dsh-lark-bridge', 'dsh-ffmpeg']
+
+  it.each(upstreamDirectories)('preserves original upstream documentation in %s', (directory) => {
+    for (const file of ['README.md', 'README.zh.md', 'README.i18n.yaml', 'docs/README.md']) {
+      expect(isTranslationScopeFile(`third_party/plugins/${directory}/${file}`)).toBe(false)
+    }
+    expect(isTranslationScopeFile(`third_party/plugins/${directory}-owned/README.md`)).toBe(true)
+    expect(isTranslationScopeFile(`packages/example/${directory}/README.md`)).toBe(true)
+  })
+
+  it('excludes only pinned upstream trees from filesystem discovery', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-upstream-doc-scope-'))
+    const owned = [
+      'README.md', 'docs/README.md', 'third_party/plugins/README.md',
+      'third_party/plugins/toolchain/README.md', 'third_party/plugins/new-plugin/README.md',
+      ...upstreamDirectories.map(directory => `third_party/plugins/${directory}-owned/README.md`),
+    ]
+    try {
+      for (const file of [...owned, ...upstreamDirectories.map(directory => `third_party/plugins/${directory}/docs/README.md`)]) {
+        mkdirSync(join(root, file, '..'), { recursive: true })
+        writeFileSync(join(root, file), '# Documentation\n')
+      }
+      const discovered = globSync('**/README.md', { cwd: root, exclude: TRANSLATION_SCOPE_GLOB_EXCLUDES })
+        .map(file => file.replaceAll('\\', '/')).sort()
+      expect(discovered).toEqual(owned.sort())
+      for (const file of discovered) expect(isTranslationScopeFile(file)).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it.each([
     'README.md',
     'CONTRIBUTING.md',

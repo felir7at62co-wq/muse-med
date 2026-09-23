@@ -147,6 +147,15 @@ const NON_SOURCE_DIRECTORIES = new Set([
   'vendor',
 ])
 
+// Preserve pinned upstream prose; the parent README and new plugin directories remain owned.
+const UPSTREAM_PLUGIN_DIRECTORIES = [
+  'third_party/plugins/dshmarket/',
+  'third_party/plugins/dsh-codex-subscription/',
+  'third_party/plugins/dsh-ponytail/',
+  'third_party/plugins/dsh-lark-bridge/',
+  'third_party/plugins/dsh-ffmpeg/',
+]
+
 /** Glob traversal exclusions corresponding to the non-source path predicate. */
 export const TRANSLATION_SCOPE_GLOB_EXCLUDES = [
   '.agents/notes/archived/**',
@@ -168,6 +177,7 @@ export const TRANSLATION_SCOPE_GLOB_EXCLUDES = [
   'python/sdk-runtime/src/deepseek_harness_runtime/runtime/deepseek-harness-sdk-runtime-*/**',
   'python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/**',
   'vendor/**',
+  ...UPSTREAM_PLUGIN_DIRECTORIES.map(directory => `${directory}**`),
 ]
 
 /** Whether a repository-relative path belongs to a dependency or generated tree. */
@@ -176,6 +186,7 @@ function isTranslationSourceExcluded(file: string): boolean {
   return segments.some(segment => NON_SOURCE_DIRECTORIES.has(segment)
       || segment.startsWith('.doc-typecheck-')
     || segment.startsWith('.node-next-types-'))
+    || UPSTREAM_PLUGIN_DIRECTORIES.some(directory => file.startsWith(directory))
     || file.startsWith('apps/web/dist/')
     || file.startsWith('python/sdk-runtime/src/deepseek_harness_runtime/runtime/deepseek-harness-sdk-runtime-')
     || file.startsWith('python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/')

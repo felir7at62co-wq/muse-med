@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { join, relative } from 'node:path'
+import { join, matchesGlob, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { flattenDiagnosticMessageText, parseConfigFileTextToJson } from 'typescript'
 import { describe, expect, it } from 'vitest'
@@ -46,6 +46,31 @@ async function writeContractConfig(suffix: string): Promise<string> {
 }
 
 describe('Oxlint executable contract', () => {
+  it.each(['.oxlintrc.json', '.oxlintrc.staged.json'])('protects only pinned community source directories in %s', async (config) => {
+    const sources: unknown = JSON.parse(await readFile(join(repositoryRoot, 'third_party/plugins/sources.json'), 'utf8'))
+    if (!isRecord(sources)) throw new Error('Community source manifest must be an object')
+    const names = Object.keys(sources).sort()
+    expect(names).toEqual(['dsh-codex-subscription', 'dsh-ffmpeg', 'dsh-lark-bridge', 'dsh-ponytail', 'dshmarket'])
+    const result = parseConfigFileTextToJson(config, await readFile(join(repositoryRoot, config), 'utf8'))
+    if (result.error !== undefined) throw new Error(flattenDiagnosticMessageText(result.error.messageText, '\n'))
+    const parsed: unknown = result.config
+    if (!isRecord(parsed) || !isUnknownArray(parsed.ignorePatterns)
+      || !parsed.ignorePatterns.every((value): value is string => typeof value === 'string')) {
+      throw new Error('Oxlint configuration must declare string ignore patterns')
+    }
+    const patterns = parsed.ignorePatterns
+    for (const name of names) {
+      expect(patterns).toContain(`third_party/plugins/${name}/**`)
+      expect(patterns.some(pattern => matchesGlob(`third_party/plugins/${name}/src/index.ts`, pattern))).toBe(true)
+    }
+    // TypeScript probes avoid the separate repository-wide JavaScript exclusions.
+    for (const path of ['third_party/plugins/build.ts', 'third_party/plugins/checks/source.ts',
+      'third_party/plugins/toolchain/build.ts', 'third_party/plugins/unlisted/src/index.ts',
+      'third_party/plugins/dsh-ffmpeg-extra/src/index.ts']) {
+      expect(patterns.some(pattern => matchesGlob(path, pattern)), path).toBe(false)
+    }
+  })
+
   it('discovers the owning TypeScript project for every file class', async () => {
     const suffix = randomUUID()
     const configPath = await writeContractConfig(suffix)

@@ -1,0 +1,672 @@
+/**
+ * 九个面向模型的视频工具：probe / cut / concat / encode / subtitle / extract / gif / frames / adjust。
+ * 直接调用 ctx.tools.register 注册【编译好的 JSON Schema】参数与 canonical 输出。
+ *
+ * @module dsh-ffmpeg/tools
+ */
+
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { tmpdir } from 'node:os'
+import { basename, dirname, extname, join } from 'node:path'
+import {
+  adjustArgs, concatArgs, concatListContent, cutArgs, ENCODE_PRESETS, encodeArgs,
+  extractArgs, fmtSeconds, frameAtArgs, gifPaletteArgs, gifUseArgs, probeArgs, subtitleArgs,
+  type EncodePreset, type ExtractWhat, type RotateDeg,
+} from './args.js'
+import { type ResolvedFfmpegConfig } from './config.js'
+import { type ProcessRunner, type RunResult } from './exec.js'
+import { parseProbeJson, type MediaInfo } from './ffprobe.js'
+import { assertInputFile, resolveOutputPath, sanitizeName } from './paths.js'
+import { parseTimeArg } from './config.js'
+
+/** 模型可见的内容块。 */
+export interface ContentBlock {
+  type: 'text'
+  text: string
+}
+
+/** v0.1.2-rc.1 工具执行上下文中本插件需要的公共最小面。 */
+export interface FfmpegToolRunContext {
+  readonly signal: AbortSignal
+}
+
+/** 注册给 ctx.tools.register 的原始工具定义。 */
+export interface FfmpegToolDefinition {
+  name: string
+  description: string
+  parameters: { type: 'object'; properties: Record<string, unknown>; required?: string[] }
+  output: {
+    schema: Record<string, unknown>
+    render(args: unknown, value: unknown): ContentBlock[]
+  }
+  execute(args: unknown, exec: FfmpegToolRunContext): Promise<unknown>
+  timeoutMs?: number
+}
+
+/** 编译作者 DSL 为原始 JSON Schema（正是 defineTool 存为 definition.parameters 的值）。 */
+function compileParameters(spec: Record<string, any>): { type: 'object'; properties: Record<string, unknown>; required?: string[] } {
+  const properties: Record<string, unknown> = {}
+  const required: string[] = []
+  for (const [key, prop] of Object.entries(spec)) {
+    if (prop?.required === true) required.push(key)
+    const node: Record<string, unknown> = {}
+    if (typeof prop?.type === 'string') node.type = prop.type
+    if (typeof prop?.description === 'string') node.description = prop.description
+    if (prop?.type === 'array' && prop.items !== null && typeof prop.items === 'object') {
+      node.items = { type: 'string' }
+    }
+    properties[key] = node
+  }
+  return { type: 'object', properties, ...(required.length > 0 ? { required } : {}) }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+}
+
+function optionalString(args: Record<string, unknown>, key: string): string | undefined {
+  const value = args[key]
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
+}
+
+function requiredString(args: Record<string, unknown>, key: string, label: string): string {
+  const value = optionalString(args, key)
+  if (value === undefined) throw new Error(label + '（参数 ' + key + '）为必填，请提供非空字符串。')
+  return value
+}
+
+function optionalNumber(args: Record<string, unknown>, key: string): number | undefined {
+  const value = args[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function requiredTime(args: Record<string, unknown>, key: string, label: string): number {
+  const value = parseTimeArg(args[key])
+  if (value === null) throw new Error(label + '（参数 ' + key + '）非法：请用秒数或 HH:MM:SS[.mmm] 格式。')
+  return value
+}
+
+function optionalTime(args: Record<string, unknown>, key: string): number | undefined {
+  const value = parseTimeArg(args[key])
+  return value === null ? undefined : value
+}
+
+function stringArray(args: Record<string, unknown>, key: string): string[] {
+  const value = args[key]
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is string => typeof item === 'string' && item.trim() !== '').map((item) => item.trim())
+}
+
+/** 已取消则抛出取消原因；作为 await 前后的统一取消检查。 */
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted === true) throw signal.reason
+}
+
+/** 执行并检查退出码；非零抛中文错误（附 stderr 尾部）。 */
+async function runChecked(runner: ProcessRunner, argv: string[], timeoutMs: number, label: string, signal?: AbortSignal): Promise<RunResult> {
+  throwIfAborted(signal)
+  const result = await runner.run(argv, { timeoutMs, ...(signal === undefined ? {} : { signal }) })
+  throwIfAborted(signal)
+  if (result.exitCode !== 0) {
+    const tail = result.stderr.trim().split(/\r?\n/).slice(-6).join(' | ')
+    throw new Error(label + '失败（退出码 ' + String(result.exitCode ?? 'null') + (result.signal ? '，信号 ' + result.signal : '') + '）：' + (tail || '无错误输出'))
+  }
+  return result
+}
+
+function buildTextRenderer(lines: (args: unknown, value: unknown) => string[]): (args: unknown, value: unknown) => ContentBlock[] {
+  return (args, value) => [{ type: 'text', text: lines(args, value).join('\n') }]
+}
+
+// ---------- 输出 JSON Schema ----------
+
+const baseSchema = { type: 'object', additionalProperties: true } as const
+
+const videoStreamSchema = {
+  type: 'object',
+  properties: { width: { type: 'number' }, height: { type: 'number' }, fps: { oneOf: [{ type: 'number' }, { type: 'null' }] }, codec: { type: 'string' }, durationSeconds: { oneOf: [{ type: 'number' }, { type: 'null' }] }, bitrate: { oneOf: [{ type: 'number' }, { type: 'null' }] } },
+  additionalProperties: true,
+}
+
+const audioStreamSchema = {
+  type: 'object',
+  properties: { codec: { type: 'string' }, sampleRate: { oneOf: [{ type: 'number' }, { type: 'null' }] }, channels: { oneOf: [{ type: 'number' }, { type: 'null' }] }, durationSeconds: { oneOf: [{ type: 'number' }, { type: 'null' }] } },
+  additionalProperties: true,
+}
+
+const subtitleStreamSchema = {
+  type: 'object',
+  properties: { codec: { type: 'string' }, language: { oneOf: [{ type: 'string' }, { type: 'null' }] } },
+  additionalProperties: true,
+}
+
+const probeSchema = {
+  type: 'object',
+  properties: {
+    ok: { type: 'boolean' },
+    input: { type: 'string' },
+    summary: { type: 'string' },
+    formatName: { type: 'string' },
+    durationSeconds: { oneOf: [{ type: 'number' }, { type: 'null' }] },
+    sizeBytes: { oneOf: [{ type: 'number' }, { type: 'null' }] },
+    bitrate: { oneOf: [{ type: 'number' }, { type: 'null' }] },
+    video: { oneOf: [videoStreamSchema, { type: 'null' }] },
+    videos: { type: 'array', items: videoStreamSchema },
+    audio: { type: 'array', items: audioStreamSchema },
+    subtitles: { type: 'array', items: subtitleStreamSchema },
+  },
+  additionalProperties: true,
+}
+
+const produceSchema = {
+  type: 'object',
+  properties: { output: { type: 'string' } },
+  additionalProperties: true,
+}
+
+// ---------- probe 摘要 ----------
+
+/** 码率人类可读。 */
+function formatBitrate(bps: number | null): string {
+  if (bps === null) return '码率未知'
+  if (bps >= 1000000) return (bps / 1000000).toFixed(2) + ' Mbps'
+  return Math.round(bps / 1000) + ' kbps'
+}
+
+/** 生成一行人类可读的媒体摘要：容器、时长、主视频、帧率、码率、体积。 */
+export function buildProbeSummary(media: MediaInfo): string {
+  const parts: string[] = []
+  if (media.formatName !== '') parts.push(media.formatName)
+  if (media.durationSeconds !== null) parts.push(fmtSeconds(media.durationSeconds))
+  if (media.video !== null) {
+    const v = media.video
+    parts.push((v.codec !== '' ? v.codec + ' ' : '') + v.width + 'x' + v.height)
+    if (v.fps !== null) parts.push(Math.round(v.fps * 100) / 100 + ' fps')
+  }
+  parts.push(formatBitrate(media.bitrate))
+  if (media.sizeBytes !== null) {
+    const mb = media.sizeBytes / 1024 / 1024
+    parts.push(mb >= 1 ? mb.toFixed(1) + ' MB' : Math.round(media.sizeBytes / 1024) + ' KB')
+  }
+  parts.push('音频流 ' + media.audio.length + ' / 字幕流 ' + media.subtitles.length)
+  return parts.join('，')
+}
+
+/** 只接受 AAC 音轨的常见输出容器：音频流拷贝失败时回退转码。 */
+const AAC_CONTAINER_EXTS = ['.m4a', '.mp4', '.mov', '.m4v', '.3gp', '.3g2', '.aac']
+
+// ---------- 工具构建 ----------
+
+/**
+ * 构建七个工具定义。
+ * @param config - 已解析配置。
+ * @param runner - 进程执行器（生产为 subprocess 服务封装，测试可注入假实现）。
+ */
+export function buildFfmpegTools(config: ResolvedFfmpegConfig, runner: ProcessRunner): FfmpegToolDefinition[] {
+  const cfg = config
+  const timeout = cfg.timeoutMs
+
+  const probe: FfmpegToolDefinition = {
+    name: 'ffmpeg_probe',
+    description: '探测媒体文件信息：容器格式、时长、体积、码率，以及视频流（分辨率/帧率/编码）、音频流、字幕流。所有后续处理前建议先 probe。',
+    parameters: compileParameters({
+      input: { type: 'string', required: true, description: '媒体文件路径（必填）。' },
+    }),
+    output: {
+      schema: probeSchema,
+      render: buildTextRenderer((_args, value) => {
+        const rec = asRecord(value)
+        const videos = Array.isArray(rec.videos) ? rec.videos : []
+        const video = videos.length > 0 ? asRecord(videos[0]) : asRecord(rec.video)
+        const lines = ['媒体信息（' + rec.input + '）：']
+        if (typeof rec.summary === 'string' && rec.summary !== '') lines.push('- 摘要：' + rec.summary)
+        lines.push('- 容器：' + rec.formatName + '，时长：' + (rec.durationSeconds ?? '未知') + ' 秒，大小：' + (rec.sizeBytes ?? '未知') + ' 字节')
+        if (videos.length > 0) {
+          lines.push('- 视频流 ' + videos.length + ' 个；主视频：' + video.codec + ' ' + video.width + 'x' + video.height + '，帧率：' + (video.fps ?? '未知'))
+        }
+        lines.push('- 音频流：' + (Array.isArray(rec.audio) ? rec.audio.length : 0) + ' 个，字幕流：' + (Array.isArray(rec.subtitles) ? rec.subtitles.length : 0) + ' 个')
+        return lines
+      }),
+    },
+    async execute(rawArgs: unknown, exec) {
+      const args = asRecord(rawArgs)
+      const input = assertInputFile(requiredString(args, 'input', '输入文件'))
+      const result = await runChecked(runner, probeArgs(cfg.ffprobePath, input), Math.min(timeout, 60000), 'ffprobe', exec?.signal)
+      const media: MediaInfo = parseProbeJson(result.stdout)
+      return { ok: true, input, summary: buildProbeSummary(media), ...media }
+    },
+    timeoutMs: Math.min(timeout, 60000),
+  }
+
+  const cut: FfmpegToolDefinition = {
+    name: 'ffmpeg_cut',
+    description: '剪辑视频片段。默认流拷贝（极快、关键帧对齐）；reencode=true 时精确到帧重编码（慢）。start 为起始时间（秒或 HH:MM:SS.mmm，默认 0）；end 与 duration 至少给一个（end 优先）。输出默认放在输入同目录，同名自动加序号。',
+    parameters: compileParameters({
+      input: { type: 'string', required: true, description: '输入文件（必填）。' },
+      start: { type: 'string', description: '起始时间（秒或 HH:MM:SS.mmm，默认 0）。' },
+      end: { type: 'string', description: '结束时间；与 duration 至少给一个。' },
+      duration: { type: 'string', description: '片段时长；与 end 至少给一个。' },
+      output: { type: 'string', description: '输出路径（可选，默认输入同目录加 .cut 后缀）。' },
+      reencode: { type: 'boolean', description: '是否精确重编码（默认 false=流拷贝）。' },
+    }),
+    output: {
+      schema: produceSchema,
+      render: buildTextRenderer((_args, value) => {
+        const rec = asRecord(value)
+        return ['剪辑完成：' + rec.output + '（' + fmtSeconds(Number(rec.duration ?? 0)) + ' 秒' + (rec.reencode === true ? '，已重编码' : '，流拷贝') + '）']
+      }),
+    },
+    async execute(rawArgs: unknown, exec) {
+      const args = asRecord(rawArgs)
+      const input = assertInputFile(requiredString(args, 'input', '输入文件'))
+      const start = optionalTime(args, 'start') ?? 0
+      const end = optionalTime(args, 'end')
+      let duration: number
+      if (end !== undefined) {
+        duration = end - start
+        if (duration <= 0) throw new Error('end 必须晚于 start。')
+      } else {
+        duration = requiredTime(args, 'duration', '片段时长')
+        if (duration <= 0) throw new Error('duration 必须大于 0。')
+      }
+      const reencode = args.reencode === true
+      const output = resolveOutputPath(input, optionalString(args, 'output'), '.cut', extname(input) || '.mp4', cfg.overwrite)
+      await runChecked(runner, cutArgs(cfg.ffmpegPath, { input, start, duration, output, overwrite: cfg.overwrite, reencode }), timeout, 'ffmpeg 剪辑', exec?.signal)
+      return { output, start, duration, reencode }
+    },
+    timeoutMs: timeout,
+  }
+
+  const concat: FfmpegToolDefinition = {
+    name: 'ffmpeg_concat',
+    description: '拼接多个视频片段。默认要求编码一致（流拷贝，秒级完成）；reencode=true 时统一重编码拼接（慢；先 probe 各输入，任一输入无音轨就按纯视频拼接，避免音轨绑定失败）。inputs 为 2-20 个文件路径。',
+    parameters: compileParameters({
+      inputs: { type: 'array', items: { type: 'string' }, required: true, description: '输入文件路径数组（2-20 个，必填）。' },
+      output: { type: 'string', description: '输出路径（可选，默认第一个输入同目录加 .concat 后缀）。' },
+      reencode: { type: 'boolean', description: '是否统一重编码拼接（默认 false=流拷贝）。' },
+    }),
+    output: {
+      schema: produceSchema,
+      render: buildTextRenderer((_args, value) => {
+        const rec = asRecord(value)
+        return ['拼接完成：' + rec.output + '（' + rec.count + ' 个片段' + (rec.reencode === true ? '，已重编码' : '，流拷贝') + '）']
+      }),
+    },
+    async execute(rawArgs: unknown, exec) {
+      const args = asRecord(rawArgs)
+      const inputs = stringArray(args, 'inputs')
+      if (inputs.length < 2) throw new Error('inputs 至少需要 2 个文件（当前 ' + inputs.length + ' 个）。')
+      if (inputs.length > 20) throw new Error('inputs 最多 20 个文件（当前 ' + inputs.length + ' 个）。')
+      const absolute = inputs.map(assertInputFile)
+      const reencode = args.reencode === true
+      const firstExt = extname(absolute[0]) || '.mp4'
+      const output = resolveOutputPath(absolute[0], optionalString(args, 'output'), '.concat', firstExt, cfg.overwrite)
+      if (!reencode) {
+        const listPath = join(tmpdir(), 'dsh-ffmpeg-concat-' + Date.now() + '-' + randomUUID().slice(0, 8) + '.txt')
+        writeFileSync(listPath, concatListContent(absolute), 'utf8')
+        try {
+          await runChecked(runner, concatArgs(cfg.ffmpegPath, { inputs: absolute, listFilePath: listPath, output, overwrite: cfg.overwrite, reencode: false }), timeout, 'ffmpeg 拼接', exec?.signal)
+        } finally {
+          rmSync(listPath, { force: true })
+        }
+      } else {
+        // concat filter 的 a=1 要求每个输入都含音频轨，否则报 Error binding filtergraph inputs/outputs；先 probe 确认
+        let allHaveAudio = true
+        for (const inputPath of absolute) {
+          const probeResult = await runChecked(runner, probeArgs(cfg.ffprobePath, inputPath), Math.min(timeout, 60000), 'ffprobe', exec?.signal)
+          if (parseProbeJson(probeResult.stdout).audio.length === 0) {
+            allHaveAudio = false
+            break
+          }
+        }
+        await runChecked(runner, concatArgs(cfg.ffmpegPath, { inputs: absolute, output, overwrite: cfg.overwrite, reencode: true, hasAudio: allHaveAudio }), timeout, 'ffmpeg 拼接', exec?.signal)
+      }
+      return { output, count: absolute.length, reencode }
+    },
+    timeoutMs: timeout,
+  }
+
+  const encode: FfmpegToolDefinition = {
+    name: 'ffmpeg_encode',
+    description: '转码输出。预设：bilibili-1080p（H.264+AAC，码率上限 6000k，faststart，B 站推荐）、bilibili-4k（上限 20000k）、vertical-1080p（竖屏 1080x1920）、web-720p（轻量）。可选覆盖 crf（0-51）、fps、scale（如 1920:1080）。',
+    parameters: compileParameters({
+      input: { type: 'string', required: true, description: '输入文件（必填）。' },
+      preset: { type: 'string', description: '预设档位：bilibili-1080p / bilibili-4k / vertical-1080p / web-720p（默认 bilibili-1080p）。' },
+      crf: { type: 'integer', description: '质量系数 0-51，越小越清晰（可选，覆盖预设）。' },
+      fps: { type: 'number', description: '输出帧率（可选）。' },
+      scale: { type: 'string', description: '输出分辨率，如 1920:1080 或 -2:720（可选）。' },
+      output: { type: 'string', description: '输出路径（可选，默认输入同目录加 .encoded 后缀）。' },
+    }),
+    output: {
+      schema: produceSchema,
+      render: buildTextRenderer((_args, value) => {
+        const rec = asRecord(value)
+        return ['转码完成：' + rec.output + '（预设 ' + rec.preset + '，crf=' + rec.crf + '）']
+      }),
+    },
+    async execute(rawArgs: unknown, exec) {
+      const args = asRecord(rawArgs)
+      const input = assertInputFile(requiredString(args, 'input', '输入文件'))
+      const presetRaw = optionalString(args, 'preset') ?? 'bilibili-1080p'
+      if (!ENCODE_PRESETS.includes(presetRaw as EncodePreset)) {
+        throw new Error('preset 必须是 ' + ENCODE_PRESETS.join(' / ') + ' 之一（当前：' + presetRaw + '）。')
+      }
+      const preset = presetRaw as EncodePreset
+      let crf: number | undefined
+      const crfRaw = args.crf
+      if (crfRaw !== undefined) {
+        if (typeof crfRaw !== 'number' || !Number.isInteger(crfRaw) || crfRaw < 0 || crfRaw > 51) throw new Error('crf 必须是 0-51 的整数。')
+        crf = crfRaw
+      }
+      let fps: number | undefined
+      const fpsRaw = optionalNumber(args, 'fps')
+      if (fpsRaw !== undefined) {
+        if (fpsRaw <= 0 || fpsRaw > 240) throw new Error('fps 必须是 0-240 之间的正数。')
+        fps = fpsRaw
+      }
+      let scale: string | undefined
+      const scaleRaw = optionalString(args, 'scale')
+      if (scaleRaw !== undefined) {
+        if (!/^-?\d+:-?\d+$/.test(scaleRaw)) throw new Error('scale 格式必须是 宽:高，如 1920:1080 或 -2:720。')
+        scale = scaleRaw
+      }
+      const output = resolveOutputPath(input, optionalString(args, 'output'), '.encoded', extname(input) || '.mp4', cfg.overwrite)
+      await runChecked(runner, encodeArgs(cfg.ffmpegPath, { input, output, preset, crf, fps, scale, overwrite: cfg.overwrite }), timeout, 'ffmpeg 转码', exec?.signal)
+      return { output, preset, crf: crf ?? 'preset', fps: fps ?? null, scale: scale ?? null }
+    },
+    timeoutMs: timeout,
+  }
+
+  const subtitle: FfmpegToolDefinition = {
+    name: 'ffmpeg_subtitle',
+    description: '把字幕文件（SRT/ASS 等）烧录进视频画面（硬字幕，任何播放器可见）。subtitle 为字幕文件路径。',
+    parameters: compileParameters({
+      input: { type: 'string', required: true, description: '输入视频（必填）。' },
+      subtitle: { type: 'string', required: true, description: '字幕文件路径（SRT/ASS，必填）。' },
+      output: { type: 'string', description: '输出路径（可选，默认输入同目录加 .sub 后缀）。' },
+    }),
+    output: {
+      schema: produceSchema,
+      render: buildTextRenderer((_args, value) => {
+        const rec = asRecord(value)
+        return ['字幕烧录完成：' + rec.output + '（硬字幕）']
+      }),
+    },
+    async execute(rawArgs: unknown, exec) {
+      const args = asRecord(rawArgs)
+      const input = assertInputFile(requiredString(args, 'input', '输入视频'))
+      const subtitlePath = assertInputFile(requiredString(args, 'subtitle', '字幕文件'))
+      const output = resolveOutputPath(input, optionalString(args, 'output'), '.sub', extname(input) || '.mp4', cfg.overwrite)
+      await runChecked(runner, subtitleArgs(cfg.ffmpegPath, { input, subtitle: subtitlePath, output, overwrite: cfg.overwrite }), timeout, 'ffmpeg 字幕', exec?.signal)
+      return { output, mode: 'burn' }
+    },
+    timeoutMs: timeout,
+  }
+
+  const extract: FfmpegToolDefinition = {
+    name: 'ffmpeg_extract',
+    description: '提取媒体成分。what=audio 提取音轨（默认 .m4a：AAC 流拷贝，非 AAC 自动回退转码为 AAC）；what=frames 按 fps 抽帧序列（输出为含 %03d 的 PNG 序列）；what=frame 抽单帧（start 时刻，默认首帧）；what=subtitle 提取字幕流（streamIndex 默认 0）。',
+    parameters: compileParameters({
+      input: { type: 'string', required: true, description: '输入文件（必填）。' },
+      what: { type: 'string', required: true, description: '提取内容：audio / frames / frame / subtitle（必填）。' },
+      output: { type: 'string', description: '输出路径（可选，frames 默认 输入名-%03d.png）。' },
+      start: { type: 'string', description: '起始时间（可选）。' },
+      duration: { type: 'string', description: '时长（frames 用，可选）。' },
+      fps: { type: 'number', description: '抽帧帧率（frames 用，默认 1）。' },
+      streamIndex: { type: 'integer', description: '字幕流序号（subtitle 用，默认 0）。' },
+    }),
+    output: {
+      schema: produceSchema,
+      render: buildTextRenderer((_args, value) => {
+        const rec = asRecord(value)
+        return ['提取完成（' + rec.what + '）：' + rec.output]
+      }),
+    },
+    async execute(rawArgs: unknown, exec) {
+      const args = asRecord(rawArgs)
+      const input = assertInputFile(requiredString(args, 'input', '输入文件'))
+      const what = requiredString(args, 'what', '提取内容')
+      const allowed: ExtractWhat[] = ['audio', 'frames', 'frame', 'subtitle']
+      if (!allowed.includes(what as ExtractWhat)) throw new Error('what 必须是 ' + allowed.join(' / ') + ' 之一（当前：' + what + '）。')
+      const start = optionalTime(args, 'start')
+      const duration = optionalTime(args, 'duration')
+      const fps = optionalNumber(args, 'fps')
+      const streamIndex = typeof args.streamIndex === 'number' && Number.isInteger(args.streamIndex) && args.streamIndex >= 0 ? args.streamIndex : 0
+      let output: string
+      if (what === 'audio') {
+        output = resolveOutputPath(input, optionalString(args, 'output'), '.audio', '.m4a', cfg.overwrite)
+      } else if (what === 'frame') {
+        output = resolveOutputPath(input, optionalString(args, 'output'), '.frame', '.png', cfg.overwrite)
+      } else if (what === 'subtitle') {
+        output = resolveOutputPath(input, optionalString(args, 'output'), '.subtitle', '.srt', cfg.overwrite)
+      } else {
+        const explicit = optionalString(args, 'output')
+        if (explicit !== undefined) {
+          if (explicit.includes('%')) {
+            output = explicit
+          } else {
+            const explicitExt = extname(explicit)
+            output = explicitExt === '' ? explicit + '-%03d.png' : explicit.slice(0, -explicitExt.length) + '-%03d' + explicitExt
+          }
+        } else {
+          output = join(dirname(input), sanitizeName(basename(input, extname(input))) + '-%03d.png')
+        }
+      }
+      const spec = { input, what: what as ExtractWhat, output, overwrite: cfg.overwrite, start, duration, fps, streamIndex }
+      try {
+        await runChecked(runner, extractArgs(cfg.ffmpegPath, spec), timeout, 'ffmpeg 提取', exec?.signal)
+      } catch (error) {
+        throwIfAborted(exec?.signal)
+        if (what !== 'audio') throw error
+        const detail = error instanceof Error ? error.message : String(error)
+        // 只有「编码不被容器支持」才值得换 AAC；超时/取消/权限等原样抛出，避免重试一次翻倍
+        if (!/not currently supported in container|Could not find tag for codec/i.test(detail)) throw error
+        if (!AAC_CONTAINER_EXTS.includes(extname(output).toLowerCase())) {
+          throw new Error('ffmpeg 提取失败：音频编码无法原样复制到 ' + (extname(output) || '该') + ' 容器。请把 output 改成 .m4a（会自动转码为 AAC），或使用与输入音轨匹配的输出扩展名。原始错误：' + detail)
+        }
+        // m4a 等 AAC 容器不支持非 AAC 流拷贝：回退 -c:a aac；首次失败可能留下半成品，用 -y 覆盖
+        await runChecked(runner, extractArgs(cfg.ffmpegPath, { ...spec, overwrite: true, transcodeAudio: true }), timeout, 'ffmpeg 提取（音轨转 AAC）', exec?.signal)
+      }
+      return { output, what, start: start ?? null, duration: duration ?? null, fps: fps ?? null, streamIndex }
+    },
+    timeoutMs: timeout,
+  }
+
+  const gif: FfmpegToolDefinition = {
+    name: 'ffmpeg_gif',
+    description: '视频转高质量 GIF（两遍调色板）。start 默认 0；duration 默认 10 秒；fps 默认 10（1-30）；width 默认 480（64-1280）。',
+    parameters: compileParameters({
+      input: { type: 'string', required: true, description: '输入视频（必填）。' },
+      start: { type: 'string', description: '起始时间（默认 0）。' },
+      duration: { type: 'string', description: '时长（默认 10 秒）。' },
+      fps: { type: 'integer', description: '帧率 1-30（默认 10）。' },
+      width: { type: 'integer', description: '输出宽度 64-1280（默认 480）。' },
+      output: { type: 'string', description: '输出路径（可选，默认输入同目录加 .gif 后缀）。' },
+    }),
+    output: {
+      schema: produceSchema,
+      render: buildTextRenderer((_args, value) => {
+        const rec = asRecord(value)
+        return ['GIF 生成完成：' + rec.output + '（' + rec.width + 'px，' + rec.fps + 'fps，' + fmtSeconds(Number(rec.duration ?? 0)) + ' 秒）']
+      }),
+    },
+    async execute(rawArgs: unknown, exec) {
+      const args = asRecord(rawArgs)
+      const input = assertInputFile(requiredString(args, 'input', '输入视频'))
+      const start = optionalTime(args, 'start') ?? 0
+      const duration = optionalTime(args, 'duration') ?? 10
+      if (duration <= 0) throw new Error('duration 必须大于 0。')
+      const fpsRaw = args.fps
+      const fps = typeof fpsRaw === 'number' && Number.isInteger(fpsRaw) ? Math.min(30, Math.max(1, fpsRaw)) : 10
+      const widthRaw = args.width
+      const width = typeof widthRaw === 'number' && Number.isInteger(widthRaw) ? Math.min(1280, Math.max(64, widthRaw)) : 480
+      const output = resolveOutputPath(input, optionalString(args, 'output'), '.gif', '.gif', cfg.overwrite)
+      // 调色板属于内部临时产物，不能借用用户输出旁的可预测路径；否则 -y 与
+      // finally 清理都可能覆盖/删除用户原有的 <output>.palette.png。
+      const paletteDir = mkdtempSync(join(tmpdir(), 'dsh-ffmpeg-gif-'))
+      const palettePath = join(paletteDir, 'palette.png')
+      const spec = { input, output, palettePath, overwrite: cfg.overwrite, start, duration, fps, width }
+      try {
+        await runChecked(runner, gifPaletteArgs(cfg.ffmpegPath, spec), timeout, 'ffmpeg GIF 调色板', exec?.signal)
+        await runChecked(runner, gifUseArgs(cfg.ffmpegPath, spec), timeout, 'ffmpeg GIF 合成', exec?.signal)
+      } finally {
+        rmSync(paletteDir, { recursive: true, force: true })
+      }
+      return { output, start, duration, fps, width }
+    },
+    timeoutMs: timeout,
+  }
+
+  const frames: FfmpegToolDefinition = {
+    name: 'ffmpeg_frames',
+    description: '从视频批量抽帧为图片（PNG/JPG）。两种模式：every（固定秒间隔抽帧，如 every=2 表示每 2 秒一帧，默认 1）或 times（指定时间点列表，如 ["00:00:05","00:01:30"]，最多 20 个）。maxFrames 限制 every 模式的帧数上限（1-500，默认 100）。每次运行在 outputDir 下新建独立 run-* 子目录，只返回本次运行的输出目录、文件清单与数量，便于后续视觉模型读图。',
+    parameters: compileParameters({
+      input: { type: 'string', required: true, description: '输入视频（必填）。' },
+      every: { type: 'number', description: '抽帧间隔秒数（与 times 二选一，默认 1）。' },
+      times: { type: 'array', items: { type: 'string' }, description: '时间点列表（与 every 二选一，最多 20 个，秒数或 HH:MM:SS.mmm）。' },
+      maxFrames: { type: 'integer', description: 'every 模式帧数上限 1-500（默认 100）。' },
+      outputDir: { type: 'string', description: '输出目录（可选，默认输入同目录 <文件名>-frames）；每次运行会在其中新建 run-* 独立子目录。' },
+      format: { type: 'string', description: '图片格式：png（默认）或 jpg。' },
+    }),
+    output: {
+      schema: baseSchema,
+      render: buildTextRenderer((_args, value) => {
+        const rec = asRecord(value)
+        return ['抽帧完成：共 ' + rec.count + ' 张，输出目录 ' + rec.outputDir + (rec.mode === 'times' ? '（指定时间点）' : '（每 ' + rec.every + ' 秒一帧）')]
+      }),
+    },
+    async execute(rawArgs: unknown, exec) {
+      const args = asRecord(rawArgs)
+      const input = assertInputFile(requiredString(args, 'input', '输入文件'))
+      const formatRaw = optionalString(args, 'format')?.toLowerCase() ?? 'png'
+      if (formatRaw !== 'png' && formatRaw !== 'jpg' && formatRaw !== 'jpeg') throw new Error('format 只支持 png 或 jpg。')
+      const ext = formatRaw === 'png' ? '.png' : '.jpg'
+      const times = stringArray(args, 'times')
+      const outDir = optionalString(args, 'outputDir') ?? join(dirname(input), sanitizeName(basename(input, extname(input))) + '-frames')
+      mkdirSync(outDir, { recursive: true })
+      // 每次运行独占 run-* 子目录：历史 frame-* 不参与计数，也不会被本次 -y 覆盖
+      const runDir = mkdtempSync(join(outDir, 'run-'))
+      if (times.length > 0) {
+        if (times.length > 20) throw new Error('times 最多 20 个时间点（当前 ' + times.length + ' 个）。')
+        let i = 0
+        for (const raw of times) {
+          const at = parseTimeArg(raw)
+          if (at === null) throw new Error('times 里第 ' + (i + 1) + ' 个时间点非法：' + raw + '（请用秒数或 HH:MM:SS.mmm）。')
+          const target = join(runDir, 'frame-' + String(i + 1).padStart(3, '0') + ext)
+          await runChecked(runner, frameAtArgs(cfg.ffmpegPath, { input, time: at, output: target, overwrite: cfg.overwrite }), timeout, 'ffmpeg 定点抽帧', exec?.signal)
+          i++
+        }
+      } else {
+        const every = optionalNumber(args, 'every') ?? 1
+        if (every <= 0) throw new Error('every 必须大于 0。')
+        const maxFramesRaw = args.maxFrames
+        const maxFrames = typeof maxFramesRaw === 'number' && Number.isInteger(maxFramesRaw) ? Math.min(500, Math.max(1, maxFramesRaw)) : 100
+        const pattern = join(runDir, 'frame-%03d' + ext)
+        await runChecked(runner, extractArgs(cfg.ffmpegPath, { input, what: 'frames', output: pattern, overwrite: cfg.overwrite, fps: 1 / every, streamIndex: 0, maxFrames }), timeout, 'ffmpeg 抽帧', exec?.signal)
+      }
+      const files = readdirSync(runDir).filter((f) => f.startsWith('frame-') && f.endsWith(ext)).sort()
+      const every = optionalNumber(args, 'every') ?? 1
+      return { outputDir: runDir, mode: times.length > 0 ? 'times' : 'every', every: times.length > 0 ? null : every, count: files.length, files }
+    },
+    timeoutMs: timeout,
+  }
+
+  const adjust: FfmpegToolDefinition = {
+    name: 'ffmpeg_adjust',
+    description: '调整媒体：变速（speed 倍率，>1 加速 <1 减速，音视频同步变速）、音量（volume 倍数如 1.5 或分贝如 -3dB）、静音（mute）、顺时针旋转（rotate 90/180/270，竖横屏互转）。可组合使用。只静音/调音量时视频走流拷贝（快）；变速/旋转会重编码。四个操作至少给一个。',
+    parameters: compileParameters({
+      input: { type: 'string', required: true, description: '输入文件（必填）。' },
+      speed: { type: 'number', description: '倍速 0.1-100：2 为两倍速，0.5 为半速（可选）。' },
+      volume: { type: 'string', description: '音量：倍数如 1.5 / 0.6，或分贝如 -3dB / +2dB（可选）。' },
+      mute: { type: 'boolean', description: 'true 时移除音轨（可选）。' },
+      rotate: { type: 'integer', description: '顺时针旋转角度：90 / 180 / 270（可选）。' },
+      output: { type: 'string', description: '输出路径（可选，默认输入同目录加 .adjust 后缀）。' },
+    }),
+    output: {
+      schema: produceSchema,
+      render: buildTextRenderer((_args, value) => {
+        const rec = asRecord(value)
+        const ops = Array.isArray(rec.ops) ? (rec.ops as string[]).join('，') : ''
+        return ['调整完成：' + rec.output + '（' + ops + '）']
+      }),
+    },
+    async execute(rawArgs: unknown, exec) {
+      const args = asRecord(rawArgs)
+      const input = assertInputFile(requiredString(args, 'input', '输入文件'))
+      const speed = optionalNumber(args, 'speed')
+      if (speed !== undefined && (speed < 0.1 || speed > 100)) throw new Error('speed 必须在 0.1-100 之间（当前：' + speed + '）。')
+      const volume = optionalString(args, 'volume')
+      if (volume !== undefined && !/^[+-]?\d+(\.\d+)?(dB)?$/.test(volume)) {
+        throw new Error('volume 格式必须是倍数（如 1.5）或分贝（如 -3dB / +2dB）。')
+      }
+      const mute = args.mute === true
+      let rotate: RotateDeg | undefined
+      const rotateRaw = args.rotate
+      if (rotateRaw !== undefined) {
+        if (rotateRaw !== 90 && rotateRaw !== 180 && rotateRaw !== 270) throw new Error('rotate 只支持 90 / 180 / 270。')
+        rotate = rotateRaw
+      }
+      if (speed === undefined && volume === undefined && !mute && rotate === undefined) {
+        throw new Error('speed / volume / mute / rotate 至少提供一个。')
+      }
+      // 先探测：确认有没有音轨，避免对无声文件构建音频滤镜报错
+      const probeResult = await runChecked(runner, probeArgs(cfg.ffprobePath, input), Math.min(timeout, 60000), 'ffprobe', exec?.signal)
+      const hasAudio = parseProbeJson(probeResult.stdout).audio.length > 0
+      const output = resolveOutputPath(input, optionalString(args, 'output'), '.adjust', extname(input) || '.mp4', cfg.overwrite)
+      await runChecked(runner, adjustArgs(cfg.ffmpegPath, { input, output, overwrite: cfg.overwrite, speed, volume, mute, rotate, hasAudio }), timeout, 'ffmpeg 调整', exec?.signal)
+      const ops: string[] = []
+      if (speed !== undefined) ops.push('倍速 x' + speed)
+      if (volume !== undefined) ops.push('音量 ' + volume)
+      if (mute) ops.push('静音')
+      if (rotate !== undefined) ops.push('旋转 ' + rotate + '°')
+      return { output, ops, hasAudio }
+    },
+    timeoutMs: timeout,
+  }
+
+  const health: FfmpegToolDefinition = {
+    name: 'ffmpeg_health',
+    description: 'dsh-ffmpeg 自检：验证 ffmpeg / ffprobe 可执行文件是否可用（执行 -version）。遇到问题时先运行本工具定位。',
+    parameters: compileParameters({}),
+    output: {
+      schema: baseSchema,
+      render: buildTextRenderer((_args, value) => {
+        const rec = asRecord(value)
+        const checks = Array.isArray(rec.checks) ? rec.checks : []
+        const lines = ['dsh-ffmpeg 自检' + (rec.ok === true ? '：正常。' : '：发现问题。')]
+        for (const item of checks) {
+          const c = asRecord(item)
+          lines.push('- ' + c.name + '：' + (c.ok === true ? '✅ ' + String(c.version ?? '') : '❌ ' + String(c.detail ?? '')))
+        }
+        return lines
+      }),
+    },
+    async execute(_rawArgs: unknown, exec) {
+      const checks: Array<Record<string, unknown>> = []
+      let ok = true
+      for (const [label, bin] of [['ffmpeg', cfg.ffmpegPath], ['ffprobe', cfg.ffprobePath]] as const) {
+        throwIfAborted(exec?.signal)
+        try {
+          const result = await runner.run([bin, '-version'], { timeoutMs: 15000, ...(exec?.signal === undefined ? {} : { signal: exec.signal }) })
+          throwIfAborted(exec?.signal)
+          const firstLine = result.stdout.split(/\r?\n/)[0]?.trim() ?? ''
+          if (result.exitCode === 0) {
+            checks.push({ name: label, ok: true, path: bin, version: firstLine })
+          } else {
+            ok = false
+            checks.push({ name: label, ok: false, path: bin, detail: '退出码 ' + String(result.exitCode) + '：' + firstLine })
+          }
+        } catch (error) {
+          throwIfAborted(exec?.signal)
+          ok = false
+          checks.push({ name: label, ok: false, path: bin, detail: error instanceof Error ? error.message : String(error) })
+        }
+      }
+      return { ok, plugin: 'dsh-ffmpeg', checks }
+    },
+    timeoutMs: 30000,
+  }
+
+  return [probe, cut, concat, encode, subtitle, extract, gif, frames, adjust, health]
+}

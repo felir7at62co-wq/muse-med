@@ -1,0 +1,96 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { createSubprocessRunner } from '../lib/index.js'
+
+test('createSubprocessRunner 超时真正触发 AbortSignal', async () => {
+  let observed
+  let abortReject
+  const done = new Promise((_resolve, reject) => { abortReject = reject })
+  const spawn = (spec) => {
+    observed = spec
+    spec.signal.addEventListener('abort', () => abortReject(new Error('aborted by timeout')))
+    return {
+      done,
+      collected: { stdout: { readFrom: () => ({ text: '' }) }, stderr: { readFrom: () => ({ text: '' }) } },
+      terminate: () => {},
+    }
+  }
+  const runner = createSubprocessRunner(spawn, 1000, 40)
+  await assert.rejects(() => runner.run(['ffmpeg', '-i', 'in.mp4']), /aborted by timeout/)
+  assert.equal(observed.graceMs, 1000)
+  assert.deepEqual(observed.argv, ['ffmpeg', '-i', 'in.mp4'])
+})
+
+test('createSubprocessRunner 正常结束收集 stdout/stderr', async () => {
+  const spawn = () => ({
+    done: Promise.resolve({ exitCode: 0, signal: null }),
+    collected: {
+      stdout: { readFrom: () => ({ text: 'ok' }) },
+      stderr: { readFrom: () => ({ text: 'warn' }) },
+    },
+    terminate: () => {},
+  })
+  const runner = createSubprocessRunner(spawn, 1000, 5000)
+  const result = await runner.run(['ffmpeg', '-version'])
+  assert.deepEqual(result, { exitCode: 0, signal: null, stdout: 'ok', stderr: 'warn' })
+})
+
+test('createSubprocessRunner 将工具调用的 AbortSignal 透传给前台子进程', async () => {
+  const caller = new AbortController()
+  let observed
+  let rejectDone
+  const done = new Promise((_resolve, reject) => { rejectDone = reject })
+  const spawn = (spec) => {
+    observed = spec.signal
+    spec.signal.addEventListener('abort', () => rejectDone(spec.signal.reason), { once: true })
+    return { done, collected: {}, terminate() {} }
+  }
+  const runner = createSubprocessRunner(spawn, 1000, 5000)
+  const running = runner.run(['ffmpeg', '-version'], { signal: caller.signal })
+  const reason = new Error('cancelled by caller')
+  caller.abort(reason)
+  await assert.rejects(() => running, /cancelled by caller/)
+  assert.equal(observed.aborted, true)
+  assert.equal(observed.reason, reason)
+})
+
+test('createSubprocessRunner 取消后 done 立即成功 resolve 也必须抛取消原因', async () => {
+  const caller = new AbortController()
+  const reason = new Error('cancelled but process reported exitCode 0')
+  let resolveDone
+  let observed
+  const spawn = (spec) => {
+    observed = spec
+    spec.signal.addEventListener('abort', () => resolveDone({ exitCode: 0, signal: null }), { once: true })
+    return {
+      done: new Promise((resolve) => { resolveDone = resolve }),
+      collected: { stdout: { readFrom: () => ({ text: 'done' }) }, stderr: { readFrom: () => ({ text: '' }) } },
+      terminate: () => {},
+    }
+  }
+  const runner = createSubprocessRunner(spawn, 1000, 5000)
+  const running = runner.run(['ffmpeg', '-version'], { signal: caller.signal })
+  caller.abort(reason)
+  await assert.rejects(() => running, /cancelled but process reported exitCode 0/)
+  assert.equal(observed.signal.aborted, true)
+})
+
+test('createSubprocessRunner stdout 被宿主截断（lossy）时抛 4MB 截断错误', async () => {
+  const spawn = () => ({
+    done: Promise.resolve({ exitCode: 0, signal: null }),
+    collected: {
+      stdout: { readFrom: () => ({ text: '\"streams\":[{\"codec_type\":\"video\"}]}', lossy: true }) },
+      stderr: { readFrom: () => ({ text: '' }) },
+    },
+    terminate: () => {},
+  })
+  const runner = createSubprocessRunner(spawn, 1000, 5000)
+  await assert.rejects(
+    () => runner.run(['ffprobe', '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', 'huge.mkv']),
+    (error) => {
+      assert.match(String(error.message), /ffprobe 输出超过 4MB 已截断/)
+      assert.doesNotMatch(String(error.message), /解析失败/)
+      return true
+    },
+  )
+})
