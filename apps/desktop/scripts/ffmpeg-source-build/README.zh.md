@@ -25,7 +25,7 @@ description: "离线 muse-med 安装包所用的固定版本 Windows x64 FFmpeg 
 
 固定版本的 Mingw 源码已用优先级为零的构造函数初始化栈保护 guard。构建配方将 BtbN 已过时的构造函数修改替换为对该优先级的精确断言；遇到非预期源码或构建脚本版本时会失败，而不会削弱栈保护。这项本地构建脚本调整包含在归档补丁中。
 
-构建需要 Linux amd64、Python 3.11+、Bash、Git、带 buildx 的 Docker、访问固定公开仓库／镜像的网络，以及容纳镜像和源码缓存的临时磁盘空间。它不调用宿主包安装器。GitHub 专用 Ubuntu job 执行交叉编译；独立 Windows job 运行产出的 PE 二进制。源码在编译前下载；依赖编译和 FFmpeg 编译均在 Docker 禁网条件下运行。
+构建需要 Linux amd64、Python 3.11+、Bash、Git、带 buildx 的 Docker、访问固定公开仓库／镜像的网络，以及容纳镜像和源码缓存的临时磁盘空间。它不调用宿主包安装器。GitHub 专用 Ubuntu job 执行交叉编译；独立 Windows job 运行产出的 PE 二进制。源码下载阶段在归档前，按记录的 gitlink 版本递归初始化依赖子模块，包括 FreeType 的 dlg 源码。依赖编译和 FFmpeg 编译均在 Docker 禁网条件下运行；构建期间不补下载缺失源码。
 
 <a id="build-and-rebuild"></a>
 ## 构建与重建

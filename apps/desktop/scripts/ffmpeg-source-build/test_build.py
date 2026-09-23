@@ -83,6 +83,27 @@ class SourceBuildTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.module.patch_mingw_guard(builder)
 
+    def test_default_source_download_includes_pinned_recursive_submodules(self):
+        builder = self.root / 'builder'
+        helper = builder / 'util/dl_functions.sh'
+        helper.parent.mkdir(parents=True)
+        helper.write_text('default_dl() {\n    echo "git-mini-clone \\"$SCRIPT_REPO\\" \\"$SCRIPT_COMMIT\\" \\"$1\\""\n}\n',
+                          encoding='utf-8', newline='\n')
+        self.assertTrue(hasattr(self.module, 'patch_submodule_downloads'), 'source caches must contain gitlink dependencies')
+        self.module.patch_submodule_downloads(builder)
+        shell = (Path(os.environ.get('ProgramFiles', 'C:/Program Files')) / 'Git/bin/bash.exe'
+                 if os.name == 'nt' else shutil.which('bash'))
+        if not shell or not Path(shell).is_file():
+            self.skipTest('Bash unavailable; Linux job exercises generated download commands')
+        command = subprocess.check_output([str(shell), '-c',
+            'source util/dl_functions.sh; SCRIPT_REPO=https://example.invalid/repo; SCRIPT_COMMIT=abc; default_dl .'],
+            cwd=builder, text=True).strip()
+        self.assertEqual(command, 'git-mini-clone "https://example.invalid/repo" "abc" "." && '
+                         'git -C "." submodule update --init --recursive --depth=1')
+        helper.write_text('unexpected upstream script\n', encoding='utf-8')
+        with self.assertRaises(ValueError):
+            self.module.patch_submodule_downloads(builder)
+
     def make_inputs(self):
         for relative, content in {
             'builder/README.md': 'builder scripts',

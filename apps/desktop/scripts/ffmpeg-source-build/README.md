@@ -25,7 +25,7 @@ This directory owns the manual [FFmpeg workflow](../../../../.github/workflows/m
 
 The pinned Mingw source already initializes its stack-protection guard with constructor priority zero. The recipe replaces BtbN's obsolete constructor edit with an exact assertion of that priority; an unexpected source or build-script revision fails rather than weakening stack protection. This local build-script adjustment is included in the archived patch.
 
-The build needs Linux amd64, Python 3.11+, Bash, Git, Docker with buildx, network access to the pinned public repositories/images, and sufficient temporary disk space for those images and source caches. It invokes no host package installer. GitHub's dedicated Ubuntu job cross-compiles; a separate Windows job executes the resulting PE binaries. Source downloads happen before compilation; dependency compilation and FFmpeg compilation run with Docker networking disabled.
+The build needs Linux amd64, Python 3.11+, Bash, Git, Docker with buildx, network access to the pinned public repositories/images, and sufficient temporary disk space for those images and source caches. It invokes no host package installer. GitHub's dedicated Ubuntu job cross-compiles; a separate Windows job executes the resulting PE binaries. Source downloads recursively initialize dependency submodules at their recorded gitlink revisions before archiving, including FreeType's dlg sources. Dependency compilation and FFmpeg compilation run with Docker networking disabled; no missing source is downloaded during a build.
 
 <a id="build-and-rebuild"></a>
 ## Build and rebuild

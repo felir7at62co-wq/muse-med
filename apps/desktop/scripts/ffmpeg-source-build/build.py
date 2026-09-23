@@ -93,6 +93,15 @@ def patch_mingw_guard(builder):
     stage.write_text(text, encoding='utf-8', newline='\n')
 
 
+def patch_submodule_downloads(builder):
+    """Archive gitlink-pinned dependency sources before the network-disabled build starts."""
+    helper = builder / 'util' / 'dl_functions.sh'
+    text = helper.read_text(encoding='utf-8')
+    before = r'echo "git-mini-clone \"$SCRIPT_REPO\" \"$SCRIPT_COMMIT\" \"$1\""'
+    after = r'echo "git-mini-clone \"$SCRIPT_REPO\" \"$SCRIPT_COMMIT\" \"$1\" && git -C \"$1\" submodule update --init --recursive --depth=1"'
+    helper.write_text(replace_once(text, before, after), encoding='utf-8', newline='\n')
+
+
 def prepare_sources(work, lock):
     """Resolve the minimal BtbN dependency graph and retain every source input before compiling."""
     builder, ffmpeg = work / 'builder', work / 'ffmpeg'
@@ -108,6 +117,7 @@ def prepare_sources(work, lock):
         raise ValueError('Missing upstream dependency root')
     final.write_text(text, encoding='utf-8', newline='\n')
     patch_mingw_guard(builder)
+    patch_submodule_downloads(builder)
     # BtbN generates image names from this value; do not inherit the application's repository name.
     env = {**os.environ, 'GITHUB_REPOSITORY': 'BtbN/FFmpeg-Builds', 'REGISTRY_OVERRIDE': 'ghcr.io'}
     run(['bash', 'generate.sh', 'win64', 'gpl', '9.0'], cwd=builder, env=env)
