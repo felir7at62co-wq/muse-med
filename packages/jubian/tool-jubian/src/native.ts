@@ -54,6 +54,12 @@ function object(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
+/**
+ * Parse a positive safe integer from a number or a trimmed decimal digit string.
+ * @param value - Untrusted input or provider field.
+ * @returns The parsed positive integer.
+ * @throws JubianError with CONTRACT_CHANGED when the value is not a positive safe integer.
+ */
 export function positiveInteger(value: unknown): number {
   const candidate = typeof value === 'string' && /^[0-9]+$/.test(value.trim()) ? Number(value.trim()) : value
   if (typeof candidate !== 'number' || !Number.isSafeInteger(candidate) || candidate < 1) {
@@ -556,6 +562,13 @@ Record<string, unknown>[] {
     })
 }
 
+/**
+ * Reconcile a frozen native-video preview and submit at most one charged storyboard PUT for its key.
+ * @param client - Authenticated transport for live reads and the optional submission.
+ * @param ledger - Write ledger used to reserve the charge and prevent a repeated PUT.
+ * @param args - Preview locator, optional project/storyboard identity, and matching idempotency key.
+ * @returns Submission or reconciliation evidence, including unresolved outcomes without automatic resubmission.
+ */
 export async function submitVideoMethod(client: JubianClient, ledger: JubianLedger, args: {
   preview_path?: string | undefined
   project_dir?: string | undefined

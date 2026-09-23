@@ -31,6 +31,11 @@ async function bench() {
 }
 
 describe('drama-settings host', () => {
+  it('does not assume the author’s Jianying root on another machine', async () => {
+    const { ctx } = await bench()
+    expect(ctx.settings.get(DRAMA_SETTINGS_NAMESPACE)).toMatchObject({ jianyingDraftDir: '' })
+  })
+
   it('resolves every field to its documented default while the document holds no section', async () => {
     const { ctx } = await bench()
     expect(ctx.settings.get(DRAMA_SETTINGS_NAMESPACE)).toEqual({
@@ -38,6 +43,7 @@ describe('drama-settings host', () => {
       jianyingDraftDir: DEFAULT_JIANYING_DRAFT_DIR,
       deliverySpec: { width: 1440, height: 2560, fps: 60, minBitrateMbps: 4.6 },
       bgmDir: DEFAULT_BGM_DIR,
+      seriesBudgetCents: 400000,
     })
     expect(DRAMA_SETTINGS_DEFAULTS.deliverySpec).toBe(DEFAULT_DELIVERY_SPEC)
   })
@@ -53,6 +59,7 @@ describe('drama-settings host', () => {
       jianyingDraftDir: DEFAULT_JIANYING_DRAFT_DIR,
       deliverySpec: { width: 1440, height: 2560, fps: 30, minBitrateMbps: 4.6 },
       bgmDir: DEFAULT_BGM_DIR,
+      seriesBudgetCents: 400000,
     })
   })
 
@@ -65,6 +72,19 @@ describe('drama-settings host', () => {
     await expect(ctx.settings.update(DRAMA_SETTINGS_NAMESPACE, { imageStandardId: 6.5 })).rejects.toThrow()
     await ctx.settings.replace(DRAMA_SETTINGS_NAMESPACE, {})
     expect(ctx.settings.get(DRAMA_SETTINGS_NAMESPACE)).toEqual(DRAMA_SETTINGS_DEFAULTS)
+  })
+
+  it('accepts a zero budget and refuses unsafe, negative and fractional cents', async () => {
+    const { ctx } = await bench()
+    await ctx.settings.update(DRAMA_SETTINGS_NAMESPACE, { seriesBudgetCents: 0 })
+    expect(ctx.settings.get(DRAMA_SETTINGS_NAMESPACE)).toMatchObject({ seriesBudgetCents: 0 })
+    await ctx.settings.update(DRAMA_SETTINGS_NAMESPACE, { seriesBudgetCents: Number.MAX_SAFE_INTEGER })
+    expect(ctx.settings.get(DRAMA_SETTINGS_NAMESPACE)).toMatchObject({ seriesBudgetCents: Number.MAX_SAFE_INTEGER })
+    for (const value of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      await expect(ctx.settings.update(DRAMA_SETTINGS_NAMESPACE, { seriesBudgetCents: value })).rejects.toThrow()
+    }
+    await ctx.settings.replace(DRAMA_SETTINGS_NAMESPACE, {})
+    expect(ctx.settings.get(DRAMA_SETTINGS_NAMESPACE)).toMatchObject({ seriesBudgetCents: 400000 })
   })
 
   it('refuses a fractional frame count and a zero bitrate floor', async () => {

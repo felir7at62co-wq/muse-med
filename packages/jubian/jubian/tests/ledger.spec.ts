@@ -29,6 +29,18 @@ describe('JubianLedger', () => {
     } finally { vi.useRealTimers() }
   })
 
+  it('runs the authorization inside a serialized claim only for a new key', async () => {
+    const ledger = new JubianLedger({ root })
+    const input = { idempotencyKey: 'guarded', method: 'image_generate' as const, requestSha256: 'sha256:a' }
+    await expect(ledger.beginChecked('guarded', async () => { throw new Error('not authorized') }))
+      .rejects.toThrow('not authorized')
+    expect(await ledger.records()).toEqual([])
+    const authorize = vi.fn(async () => input)
+    expect((await ledger.beginChecked('guarded', authorize)).replayed).toBe(false)
+    expect((await ledger.beginChecked('guarded', authorize)).replayed).toBe(true)
+    expect(authorize).toHaveBeenCalledTimes(1)
+  })
+
   it('records the intent before the request leaves and settles it afterwards', async () => {
     const ledger = new JubianLedger({ root })
     const began = await ledger.begin({

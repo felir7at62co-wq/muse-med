@@ -62,6 +62,39 @@ function hash(bytes: Uint8Array): string {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`
 }
 
+// Node fetch wraps transport errors in one cause. Never inspect messages or recurse into arbitrary causes.
+function transportDetail(error: unknown): string | undefined {
+  if (error === null || typeof error !== 'object') return undefined
+  if ('name' in error && error.name === 'TimeoutError') return 'request timed out'
+  if ('name' in error && error.name === 'AbortError') return 'request aborted'
+  if (!('code' in error)) return undefined
+  switch (error.code) {
+    case 'ENOTFOUND': return 'DNS lookup failed (ENOTFOUND)'
+    case 'EAI_AGAIN': return 'DNS lookup failed (EAI_AGAIN)'
+    case 'ECONNREFUSED': return 'connection refused (ECONNREFUSED)'
+    case 'ECONNRESET': return 'connection reset (ECONNRESET)'
+    case 'ETIMEDOUT': return 'request timed out (ETIMEDOUT)'
+    case 'UND_ERR_CONNECT_TIMEOUT': return 'connection timed out (UND_ERR_CONNECT_TIMEOUT)'
+    case 'UND_ERR_HEADERS_TIMEOUT': return 'response headers timed out (UND_ERR_HEADERS_TIMEOUT)'
+    case 'UND_ERR_BODY_TIMEOUT': return 'response body timed out (UND_ERR_BODY_TIMEOUT)'
+    case 'ERR_TLS_CERT_ALTNAME_INVALID': return 'TLS certificate rejected (ERR_TLS_CERT_ALTNAME_INVALID)'
+    case 'CERT_HAS_EXPIRED': return 'TLS certificate rejected (CERT_HAS_EXPIRED)'
+    case 'DEPTH_ZERO_SELF_SIGNED_CERT': return 'TLS certificate rejected (DEPTH_ZERO_SELF_SIGNED_CERT)'
+    case 'UNABLE_TO_VERIFY_LEAF_SIGNATURE': return 'TLS certificate rejected (UNABLE_TO_VERIFY_LEAF_SIGNATURE)'
+    case 'ABORT_ERR': return 'request aborted'
+    default: return undefined
+  }
+}
+
+function networkFailure(error: unknown, signal: AbortSignal, timeout: AbortSignal): JubianError {
+  const detail = signal.aborted
+    ? timeout.aborted && signal.reason === timeout.reason ? 'request timed out' : 'request aborted'
+    : transportDetail(error) ?? transportDetail(
+      error !== null && typeof error === 'object' && 'cause' in error ? error.cause : undefined,
+    )
+  return new JubianError('NETWORK_ERROR', detail)
+}
+
 /** Fixed-origin, single-attempt, byte-bounded Jubian transport. */
 export class JubianClient {
   private readonly credential: () => Promise<string>
@@ -91,7 +124,8 @@ export class JubianClient {
    * Send one request and return its envelope `data`.
    * @param request - Method, path, optional body and cancellation.
    * @returns Transport evidence, the response hash and the envelope's data.
-   * @throws {JubianError} With one of the five stable codes.
+   * @throws {JubianError} With a stable code and only numeric HTTP status or allowlisted local transport detail;
+   *   provider text, URLs, tokens and original causes are never attached. Failures are not retried.
    */
   async request(request: JubianRequest): Promise<JubianResponse> {
     const token = await this.resolveToken()
@@ -108,12 +142,12 @@ export class JubianClient {
         signal,
         ...(body === undefined ? {} : { body }),
       })
-    } catch { throw new JubianError('NETWORK_ERROR') }
+    } catch (error) { throw networkFailure(error, signal, timeout) }
     if (!response.ok) {
       await response.body?.cancel().catch(() => {})
-      throw new JubianError(codeForHttpStatus(response.status))
+      throw new JubianError(codeForHttpStatus(response.status), `HTTP ${response.status}`)
     }
-    const bytes = await this.readBounded(response)
+    const bytes = await this.readBounded(response, signal, timeout)
     const response_sha256 = hash(bytes)
     let parsed: unknown
     try { parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) }
@@ -142,7 +176,7 @@ export class JubianClient {
     return trimmed
   }
 
-  private async readBounded(response: Response): Promise<Uint8Array> {
+  private async readBounded(response: Response, signal: AbortSignal, timeout: AbortSignal): Promise<Uint8Array> {
     const reader = response.body?.getReader()
     if (!reader) throw new JubianError('CONTRACT_CHANGED')
     const chunks: Uint8Array[] = []
@@ -157,7 +191,7 @@ export class JubianClient {
       }
     } catch (error) {
       await reader.cancel().catch(() => {})
-      throw error instanceof JubianError ? error : new JubianError('NETWORK_ERROR')
+      throw error instanceof JubianError ? error : networkFailure(error, signal, timeout)
     } finally { reader.releaseLock() }
     const merged = new Uint8Array(size)
     let offset = 0

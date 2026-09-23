@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-23-jubian-safe-transport-diagnostics.md
+2026-09-23-jubian-safe-transport-diagnostics.md: 413fadafa1f419c02568ff3c4fc0249ce20d70f2
+2026-09-23-jubian-safe-transport-diagnostics.zh.md: f8c135620c5247ac7ef21c69022fee0a664bb4ed

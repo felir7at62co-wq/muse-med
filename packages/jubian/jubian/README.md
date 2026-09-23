@@ -60,7 +60,7 @@ Two shapes are live on this provider, and the client hides the difference from y
 
 ### The six stable failure codes
 
-Every failure is one `JubianError` carrying only its code. Neither the provider's response text nor the token is attached, so a remote message can never be echoed into model context or a log.
+`JubianError` keeps its stable code and local message. HTTP failures append only the numeric status, such as `HTTP 502`; recognized timeout, abort, DNS, connection and TLS failures append allowlisted, locally authored detail. Provider messages, bodies, URLs, tokens and original causes are never attached. Unknown transport failures retain `Jubian request failed`; diagnostics do not trigger retries.
 
 | Code | Raised when |
 |---|---|
@@ -81,7 +81,7 @@ HTTP 200 with an envelope `code` of 401 is the shape this provider returns for a
 settled spend + in-flight reservations + this call's quote <= the project's limit
 ```
 
-The limit lives in `<ledger>/authorization.json`, written by the operator — never an argument a caller passes, so a model cannot authorize its own spending:
+The limit lives in `<ledger>/authorization.json`, written by the operator rather than supplied as a tool argument:
 
 ```json
 { "version": 1,
@@ -91,9 +91,9 @@ The limit lives in `<ledger>/authorization.json`, written by the operator — ne
 
 `estimates` is what a call is charged against when it cannot quote itself. A token-priced video model states a rate per million tokens rather than a price per task, and the token count is only known from the finished task, so the operator states what one such call is worth; the ledger records that estimate as the call's quote. A call with neither a quote nor an estimate is refused, because counting an unknown cost as zero would make the cap meaningless exactly where it matters.
 
-A call whose intent line was written and never settled counts as reserved: it was sent and may have been charged. A paid record with no project, or any earlier paid call whose cost the ledger cannot state, refuses every later paid call for that deployment until a person reconciles it. Amounts are compared as integer hundredths.
+An unsettled or `unknown` paid call with a usable quote counts as reserved: it may have been charged. A paid record without a usable quote blocks further spending for its own project, including when its outcome is `unknown`; another known project's records stay isolated. A paid record with no project blocks further spending across all projects sharing the ledger, regardless of outcome, until a person reconciles its attribution. An unknown outcome never proves zero cost. Amounts are compared as integer hundredths.
 
-With no authorization file, paid calls run and the result carries `budget: { status: 'unauthorized' }`, so an unprotected deployment says so instead of implying a limit it does not have. This is a cap against runaway spending, not a security boundary: the file sits where the agent can write it, so it stops an careless loop rather than a hostile one.
+Without an authorization file or a mounted drama series budget, paid calls are refused before recording an intent or sending a provider request. A mounted drama budget supplies an automatic CNY ceiling per `script_id`; any existing authorization file can only lower that ceiling, and its absent project entries still refuse. Calls without a quote or accepted per-method estimate remain refused. The shared writer uses `beginChecked` to check the cap and reserve the accepted quote or estimate in one same-process ledger claim; separate processes still have no mutual-exclusion lock. These local settings and files limit accidental spending, not hostile code: an agent with filesystem write access could edit them. A deployment needing human-owned authorization must enforce that separately.
 
 ### Recording a write in two phases
 
@@ -152,9 +152,9 @@ The package is five small modules over `fetch`: one boundary that owns the wire,
 
 The body is parsed once and checked for an integer `code`. `failureForEnvelopeCode()` classifies the non-success codes, and the payload is then chosen: `data` when that key is present, otherwise every top-level field except `msg`. That second branch is what keeps the provider's list endpoints — which report `total` and `rows` and carry no `data` — readable through the same return type as a single-object endpoint.
 
-### Why an error carries only a code
+### Safe failure diagnostics
 
-`JubianError` stores the code and one fixed local message. Nothing copies a provider string, a response body or a nested cause into it, so a failure can be rendered into a tool result, a log line or a model turn without importing remote text. HTTP 401 and 403 both become `AUTHENTICATION_REQUIRED`, while an envelope `code` of 403 behind HTTP 2xx becomes `PERMISSION_DENIED`; the transport layer and the application layer therefore stay distinguishable without exposing why the provider refused.
+The client matches exact transport codes or timeout/abort names on the thrown object and its immediate cause, without traversing deeper causes. The combined signal identifies caller cancellation or the client's deadline, including during body reads. HTTP 401 and 403 remain `AUTHENTICATION_REQUIRED`; an envelope `code` of 403 behind HTTP 2xx remains `PERMISSION_DENIED`. The [diagnostic decision](../../../.agents/notes/implemented/bug-fix/2026-09-23-jubian-safe-transport-diagnostics.md) records the redaction trade-off and verification limits.
 
 ### What the two-phase ledger buys
 

@@ -690,17 +690,16 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
     }
     case 'generate': {
       requireKey(args.idempotency_key)
-      // The project is only in the storyboard the body reads, so it is captured
-      // there and handed to the budget gate by the quote thunk below.
+      // The body reads the project before the budget check; the send step may
+      // reach the paid PUT only after the project's authorization passes.
       let projectId: number | undefined
       const result = await writeUnderLedger(ledger, args.idempotency_key, 'storyboard_generate',
-        () => undefined,
         async () => {
           const current = await client.request({ method: 'GET', path: `/aigc/storyboard/${storyboardId()}` })
           projectId = positiveInteger((current.data as { scriptId?: unknown } | null)?.scriptId)
-          return client.request({ method: 'PUT', path: '/aigc/storyboard',
-            body: withGenerationEnabled(current.data, need(args.content_duration_ms)) })
+          return withGenerationEnabled(current.data, need(args.content_duration_ms))
         },
+        body => client.request({ method: 'PUT', path: '/aigc/storyboard', body: need(body) }),
         () => (projectId === undefined ? undefined : { scriptId: projectId }))
       return { ...result }
     }

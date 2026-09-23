@@ -67,8 +67,8 @@ export interface BudgetAuthorization {
 
 /** What the gate decided about one paid call. */
 export interface BudgetDecision {
-  /** `authorized` may send, `refused` must not, `unauthorized` may send while no cap exists. */
-  readonly status: 'authorized' | 'refused' | 'unauthorized'
+  /** Only `authorized` may send; `refused` leaves no paid intent or provider request. */
+  readonly status: 'authorized' | 'refused'
   /** Model-facing explanation, empty when the call is authorized. */
   readonly reason: string
   /** Limit as recorded, in hundredths; absent while no authorization exists. */
@@ -77,6 +77,9 @@ export interface BudgetDecision {
   readonly settledCents: number
   /** In-flight reservations, in hundredths. */
   readonly reservedCents: number
+  /** Accepted amount and currency persisted as the intent's reservation. */
+  readonly chargedAmount?: string | undefined
+  readonly chargedUnit?: string | undefined
   /** True when the amount came from the operator's estimate rather than a quote. */
   readonly estimated?: boolean | undefined
 }
@@ -163,13 +166,13 @@ function summarise(records: readonly JubianLedgerRecord[], scriptId: number): {
     if (!SPENDING_METHODS.has(record.method)) continue
     if (record.script_id === null) {
       // A charge nobody attributed cannot be counted against any project's limit.
-      if (record.outcome !== 'unknown') summary.unattributed.push(record.record_id)
+      summary.unattributed.push(record.record_id)
       continue
     }
     if (record.script_id !== scriptId) continue
     const cents = centsOf(record.quoted_amount)
     if (cents === null) {
-      if (record.outcome === null || record.outcome === 'accepted') summary.unquoted.push(record.record_id)
+      summary.unquoted.push(record.record_id)
       continue
     }
     if (record.quote_unit !== null) summary.units.add(record.quote_unit)
@@ -183,7 +186,7 @@ function summarise(records: readonly JubianLedgerRecord[], scriptId: number): {
  * Decide whether one paid call may be sent.
  * @param input - The ledger, the method about to run, its project, and the quote observed for it.
  * @returns The decision, with the amounts it was made from.
- * @throws {Error} When the authorization file exists but cannot be read.
+ * @throws {Error} When the authorization file is invalid or the automatic CNY limit is malformed.
  */
 export async function checkBudget(input: {
   readonly ledger: JubianLedger
@@ -199,24 +202,36 @@ export async function checkBudget(input: {
 
   const path = input.authorizationPath ?? authorizationPathFor(input.ledger.root)
   const authorization = await readAuthorization(path)
-  if (authorization === undefined) {
-    return { status: 'unauthorized', ...empty,
-      reason: `本次是计费调用，而 ${path} 不存在，没有任何金额上限在保护它。`
-        + '要设上限就在该文件里写 {"version":1,"projects":{"<项目ID>":{"limit":"200","unit":"CNY","note":"谁在何时授权"}}}；'
-        + '没有上限时继续调用是被允许的，但花多少都由你自己承担。' }
+  const autoLimitCents = input.ledger.defaultLimitCents?.()
+  if (autoLimitCents !== undefined && (!Number.isSafeInteger(autoLimitCents) || autoLimitCents < 0)) {
+    throw new Error('Jubian budget: automatic series limit must be nonnegative safe integer cents')
   }
-  if (scriptId === null) {
+  if (authorization === undefined && autoLimitCents === undefined) {
     return { status: 'refused', ...empty,
-      reason: '这次计费调用没有带项目 ID，无法对上任何授权额度。请在调用里给出 script_id，并确认该项目已写进 '
-        + AUTHORIZATION_FILE + '。' }
+      reason: `本次是计费调用，而 ${path} 不存在，项目未获授权，不会提交。`
+        + '请由使用者确认项目及预算，再由可信操作方在该文件里写'
+        + ' {"version":1,"projects":{"<项目ID>":{"limit":"200","unit":"CNY","note":"谁在何时授权"}}}。' }
   }
-  const entry = authorization.projects[String(scriptId)]
-  if (entry === undefined) {
+  if (scriptId === null || !Number.isSafeInteger(scriptId) || scriptId <= 0) {
+    return { status: 'refused', ...empty,
+      reason: '这次计费调用没有带项目 ID，或项目 ID 无效，无法对上整部剧的授权额度。请先确认剧变 script_id。' }
+  }
+  const savedEntry = authorization?.projects[String(scriptId)]
+  if (authorization !== undefined && savedEntry === undefined) {
     return { status: 'refused', ...empty,
       reason: `项目 ${String(scriptId)} 没有授权记录（${path} 里没有这一项）。`
         + '请由人在该文件里写上这个项目的 limit 与 unit，模型不能自己授权消费。' }
   }
-  const limitCents = centsOf(entry.limit) ?? 0
+  if (autoLimitCents !== undefined && savedEntry !== undefined && savedEntry.unit !== 'CNY') {
+    return { status: 'refused', ...empty,
+      reason: `项目 ${String(scriptId)} 的历史授权单位 ${savedEntry.unit} 与自动预算 CNY 不一致。` }
+  }
+  const entry = savedEntry ?? { limit: ((autoLimitCents ?? 0) / 100).toFixed(2), unit: 'CNY' }
+  if (input.quote?.unit !== undefined && input.quote.unit !== entry.unit) {
+    return { status: 'refused', ...empty,
+      reason: `本次计费报价单位 ${input.quote.unit} 与项目授权单位 ${entry.unit} 不一致。` }
+  }
+  const limitCents = Math.min(centsOf(entry.limit) ?? 0, autoLimitCents ?? Number.MAX_SAFE_INTEGER)
   const summary = summarise(records, scriptId)
   const base = { limitCents, settledCents: summary.settled, reservedCents: summary.reserved }
   if (summary.unattributed.length > 0) {
@@ -242,7 +257,7 @@ export async function checkBudget(input: {
   const chargeCents = quoteCents ?? estimateCents
   if (chargeCents === null) {
     return { status: 'refused', ...base,
-      reason: `这次 ${input.method} 没有报价，无法证明它落在 ${entry.limit} ${entry.unit} 之内。`
+      reason: `这次 ${input.method} 没有报价，无法证明它落在 ${(limitCents / 100).toFixed(2)} ${entry.unit} 之内。`
         + `请在授权文件里给这个项目写上 estimates.${input.method}（人给的每次估算金额），`
         + '或让调用点先读目录拿到报价再提交；没有报价的计费调用一律不放行。' }
   }
@@ -252,9 +267,11 @@ export async function checkBudget(input: {
     return { status: 'refused', ...base,
       reason: `本次${from} ${(chargeCents / 100).toFixed(2)} ${entry.unit}，`
         + `而已结算 ${(summary.settled / 100).toFixed(2)}、在途 ${(summary.reserved / 100).toFixed(2)}，`
-        + `合计将超过项目 ${String(scriptId)} 的授权上限 ${entry.limit} ${entry.unit}。`
+        + `合计将超过项目 ${String(scriptId)} 的授权上限 ${(limitCents / 100).toFixed(2)} ${entry.unit}。`
         + '请先结算或取消在途任务，或由人提高该项目的授权额度。' }
   }
   return { status: 'authorized', ...base, reason: '',
+    chargedAmount: quoteCents === null ? (chargeCents / 100).toFixed(2) : input.quote?.amount,
+    chargedUnit: entry.unit,
     ...(quoteCents === null ? { estimated: true } : {}) }
 }

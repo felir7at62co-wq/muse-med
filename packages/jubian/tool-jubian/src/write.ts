@@ -23,9 +23,8 @@ export interface WriteOutcome {
   /**
    * What the spend cap said about this call.
    *
-   * Present for every write so a caller can report it: `unauthorized` means the
-   * deployment holds no limit for this project and the call went out unprotected,
-   * which is a fact the operator wants to see rather than infer.
+   * Present for a successful write so callers can report the grant and recorded
+   * spending. Missing authorization refuses a paid write before the intent line.
    */
   budget?: { status: string; reason: string; settledCents: number; reservedCents: number } | undefined
 }
@@ -199,32 +198,35 @@ export async function writeUnderLedger(
   // quote below observes what that read returned.
   const payload = await body()
   const quoted = quote?.()
-  // The cap is checked here, at the one path every write takes, and before the
-  // intent line lands: a refused call must leave no record that reads like an
-  // attempt, and must reach no provider.
-  // A body may only learn the project from the provider, so the quote thunk — which runs
-  // after the body — can state it too, and it wins over the caller's argument.
+  // A body may learn the project from the provider; its quote takes precedence.
+  // Check the current cap and persist the reservation under one ledger claim.
   const scriptId = quoted?.scriptId ?? options?.scriptId
-  const budget = await checkBudget({ ledger, method,
-    ...(scriptId === undefined ? {} : { scriptId }),
-    ...(quoted === undefined ? {} : { quote: quoted }),
-    ...(options?.authorizationPath === undefined ? {} : { authorizationPath: options.authorizationPath }) })
-  if (budget.status === 'refused') throw new JubianError('BUDGET_EXCEEDED', budget.reason)
-  const begun = await ledger.begin({ idempotencyKey: key, method, requestSha256: bodyHash(payload),
-    ...(scriptId === undefined ? {} : { scriptId }),
-    ...(quoted?.amount === undefined ? {} : { quotedAmount: quoted.amount }),
-    ...(quoted?.unit === undefined ? {} : { quoteUnit: quoted.unit }),
-    ...(quoted?.standardId === undefined ? {} : { quoteStandardId: quoted.standardId }),
-    ...(quoted?.observedAt === undefined ? {} : { quoteObservedAt: quoted.observedAt }) })
+  let budget: Awaited<ReturnType<typeof checkBudget>> | undefined
+  const begun = await ledger.beginChecked(key, async () => {
+    budget = await checkBudget({ ledger, method,
+      ...(scriptId === undefined ? {} : { scriptId }),
+      ...(quoted === undefined ? {} : { quote: quoted }),
+      ...(options?.authorizationPath === undefined ? {} : { authorizationPath: options.authorizationPath }) })
+    if (budget.status === 'refused') throw new JubianError('BUDGET_EXCEEDED', budget.reason)
+    return { idempotencyKey: key, method, requestSha256: bodyHash(payload),
+      ...(scriptId === undefined ? {} : { scriptId }),
+      ...(budget.chargedAmount === undefined ? {} : { quotedAmount: budget.chargedAmount }),
+      ...(budget.chargedUnit === undefined ? {} : { quoteUnit: budget.chargedUnit }),
+      ...(quoted?.standardId === undefined ? {} : { quoteStandardId: quoted.standardId }),
+      ...(quoted?.observedAt === undefined ? {} : { quoteObservedAt: quoted.observedAt }) }
+  })
+  const budgetSummary = budget === undefined ? undefined
+    : { status: budget.status, reason: budget.reason, settledCents: budget.settledCents,
+      reservedCents: budget.reservedCents }
   if (begun.replayed) {
     if (begun.record.method !== method || begun.record.request_sha256 !== bodyHash(payload)) {
       throw new JubianError('CONTRACT_CHANGED', 'Idempotency key belongs to a different write')
     }
     return { replayed: true, outcome: begun.record.outcome ?? 'unknown',
       response_sha256: begun.record.response_sha256, data: null,
-      budget: { status: budget.status, reason: budget.reason, settledCents: budget.settledCents,
-        reservedCents: budget.reservedCents } }
+      ...(budgetSummary === undefined ? {} : { budget: budgetSummary }) }
   }
+  if (budgetSummary === undefined) throw new JubianError('CONTRACT_CHANGED', 'Fresh write has no budget decision')
   try {
     const response = await send(payload)
     const code = response.transport.application_code
@@ -233,8 +235,7 @@ export async function writeUnderLedger(
     await ledger.settle(key, { httpStatus: http, applicationCode: code,
       responseSha256: response.response_sha256, outcome })
     return { replayed: false, outcome, response_sha256: response.response_sha256, data: response.data,
-      budget: { status: budget.status, reason: budget.reason, settledCents: budget.settledCents,
-        reservedCents: budget.reservedCents } }
+      budget: budgetSummary }
   } catch (error) {
     // The provider may have applied the change; only readback can resolve this.
     await ledger.settle(key, { httpStatus: null, applicationCode: null, responseSha256: null,

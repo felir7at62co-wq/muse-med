@@ -16,7 +16,7 @@ Status: implemented
 
 Host 半是 `src/index.ts`，而且只有那次注册：`ctx.inject(['settings'], settingsCtx => settingsCtx.settings.register('drama', DramaSettingsSchema))`。这一行不发布服务、自身不持状态，也不接收 `Config`——每个默认值都是 schema 自己的默认值，所以每个事实只有一处出处，部署要改就只会改设置文档。没有设置提供方的组合下它什么都不注册，Client 半则把该命名空间报告为不可用，而不是编造一个值。
 
-`src/settings.ts` 由两个编译面共用。它持有命名空间、字段名、默认值，以及 Host 注册、浏览器作用域校验其设置段所用的 schemastery schema。
+`src/settings.ts` 由两个编译面共用。它持有命名空间、字段名、默认值，以及 Host 注册、浏览器作用域校验其设置段所用的 schemastery schema。`jianyingDraftDir` 的默认值为空：一位运营者安装的目录不能用来指认另一位运营者的软件。页面要求明确填写草稿根目录，不展示虚构的本机默认路径。
 
 Client 半只绑定一个作用域——`ctx.settingsScope.bind({ namespace: 'drama' })`。`src/client/section.ts` 把页面的表单编译成路径操作：已经等于目标值的字段不动，而目标值等于 schema 默认值的字段会被*清空*，这样用户层永远不会存下一份什么都不表示的默认值副本。`src/client/DramaSettingsSection.tsx` 是纯 props 组件：作用域与写入都从注入面到来，由渲染器绑定 hook。
 

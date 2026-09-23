@@ -26,6 +26,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { JUBIAN_TOKEN_REF, JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { assetMethod, catalogMethod, mediaMethod, storyboardMethod, videoMethod } from './methods.ts'
 import type { ImageMethodOptions, MethodArgs } from './methods.ts'
+import { seriesBudgetLimit } from './budget-settings.ts'
 import { JubianImageRoutes, pinnedImageSelection } from './image.ts'
 import type { ImageRouteConfig } from './image.ts'
 import { ASSET_CATEGORIES, resolveNaming } from './naming.ts'
@@ -271,7 +272,8 @@ export function apply(ctx: Context, config: Config = {}): void {
   const naming: Naming = resolveNaming(
     { ...(config.nameSeparator === undefined ? {} : { separator: config.nameSeparator }),
       ...(config.seriesLabel === undefined ? {} : { seriesLabel: config.seriesLabel }) })
-  const ledger = new JubianLedger({ root: config.ledgerRoot ?? join(home, 'jubian', 'ledger') })
+  const ledger = new JubianLedger({ root: config.ledgerRoot ?? join(home, 'jubian', 'ledger'),
+    defaultLimitCents: () => seriesBudgetLimit(ctx) })
   const client = new JubianClient({
     credential: async () => {
       const stored = (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? ''

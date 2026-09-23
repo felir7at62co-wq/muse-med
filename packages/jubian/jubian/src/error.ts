@@ -28,7 +28,7 @@ const MESSAGES: Record<JubianErrorCode, string> = {
   BUDGET_EXCEEDED: 'Jubian spend is not covered by the authorization this deployment holds',
 }
 
-/** One Jubian failure, carrying only its stable code. */
+/** One Jubian failure with a stable code and a local message, optionally including package-authored detail. */
 export class JubianError extends Error {
   /** Stable category for callers and tool output. */
   readonly code: JubianErrorCode

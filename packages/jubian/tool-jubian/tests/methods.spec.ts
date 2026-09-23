@@ -50,6 +50,11 @@ let ledger: JubianLedger
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'jubian-tools-'))
   ledger = new JubianLedger({ root })
+  await writeFile(join(root, 'authorization.json'), JSON.stringify({ version: 1, projects: {
+    '2708': { limit: '1000', unit: 'CNY', estimates: {
+      image_generate: '1', storyboard_generate: '1', erase_subtitle: '1', video_upscale: '1',
+    } },
+  } }))
 })
 
 /** A provider stub for the paid image path, with a scripted sequence of asset statuses. */
@@ -157,6 +162,16 @@ describe('jubian_catalog reads', () => {
       expect(calls[0]!.method).toBe(method)
       expect(calls[0]!.path.endsWith(suffix)).toBe(true)
     }
+  })
+
+  it('reads the provider scriptName through the public catalogue tool without extra requests', async () => {
+    const { client, calls } = stubClient(() => ({ id: 2708, scriptName: '山海自有相逢处',
+      privateToken: 'must-not-leak' }))
+    const result = await catalogMethod(client, { method: 'script', script_id: 2708 })
+    expect(result).toEqual({ script: { script_id: 2708, name: '山海自有相逢处', production_type: null } })
+    expect(JSON.stringify(result)).not.toContain('must-not-leak')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.method).toBe('GET')
   })
 
   it('refuses an unsupported model task type instead of guessing one', async () => {
@@ -352,6 +367,15 @@ describe('jubian_storyboard', () => {
       storyboard_id: 916953, content_duration_ms: 7000 })
     expect(generate.calls[1]!.method).toBe('PUT')
     expect(generate.calls[1]!.body!.isGenerate).toBe(1)
+  })
+
+  it('reads the storyboard but never submits paid generation without a project grant', async () => {
+    await rm(join(root, 'authorization.json'))
+    const { client, calls } = stubClient(() => STORYBOARD)
+    await expect(storyboardMethod(client, ledger, { method: 'generate', idempotency_key: 'ungranted',
+      storyboard_id: 916953, content_duration_ms: 7000 })).rejects.toThrow('authorization.json')
+    expect(calls.map(call => call.method)).toEqual(['GET'])
+    expect(await ledger.records()).toEqual([])
   })
 
   it('refuses to generate when the package duration disagrees with the saved snapshot, before sending', async () => {

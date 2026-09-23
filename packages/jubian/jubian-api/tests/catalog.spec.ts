@@ -18,6 +18,13 @@ describe('readScript', () => {
       .toEqual({ script_id: 2708, name: '山海自有相逢处', production_type: 2 })
   })
 
+  it('reads the observed scriptName and keeps legacy name as a fallback', () => {
+    expect(readScript({ id: 2708, scriptName: '山海自有相逢处' }))
+      .toEqual({ script_id: 2708, name: '山海自有相逢处', production_type: null })
+    expect(readScript({ id: 2708, name: 'legacy', scriptName: null }).name).toBe('legacy')
+    expect(readScript({ id: 2708, name: 'legacy', scriptName: 'current' }).name).toBe('current')
+  })
+
   it('rejects a payload without a usable identity', () => {
     expect(() => readScript({ name: 'x' })).toThrow()
     expect(() => readScript(null)).toThrow()

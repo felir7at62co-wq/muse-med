@@ -8,10 +8,9 @@
  * into path operations, so the defaults declared here are also what the page
  * shows as a field's reset value.
  *
- * When and whether to ask before a paid or state-changing step is deliberately
- * NOT a setting: the pipeline's agent judges that per call, and a stored tier
- * would be a second, staler answer to the same question. Which catalogue row the
- * paid image route buys from is a different question — the account lists
+ * Paid calls are automatically allowed up to the per-drama budget without
+ * per-call or first-use confirmation; zero disables them. Which catalogue row
+ * the paid image route buys from is a different question — the account lists
  * `gpt-image-2` once per platform at its own price, and nothing here may pick one
  * of them on the deployment's behalf, so {@link DramaSettings.imageStandardId}
  * carries that choice and the paid call reads it.
@@ -33,7 +32,7 @@ export const DELIVERY_SPEC_FIELD = 'deliverySpec'
 
 /** Every field of the section, in the order a reader meets them. */
 export const DRAMA_SETTINGS_FIELDS = [
-  'deliveryDir', 'jianyingDraftDir', DELIVERY_SPEC_FIELD, 'bgmDir', 'imageStandardId',
+  'deliveryDir', 'jianyingDraftDir', DELIVERY_SPEC_FIELD, 'bgmDir', 'imageStandardId', 'seriesBudgetCents',
 ] as const satisfies readonly (keyof DramaSettings)[]
 
 /** One durable field of the section. */
@@ -61,7 +60,7 @@ export type DramaDeliverySpec = {
 export interface DramaSettings {
   /** Absolute directory finished episodes are delivered to; empty means `<project>/delivery`. */
   deliveryDir: string
-  /** Absolute JianyingPro draft root; empty means this machine's default root. */
+  /** Absolute JianyingPro draft root; empty means no root is configured. */
   jianyingDraftDir: string
   /** Resolution, frame rate and bitrate floor of a delivered episode. */
   deliverySpec: DramaDeliverySpec
@@ -75,11 +74,15 @@ export interface DramaSettings {
    * candidate rather than buying from a platform nobody chose.
    */
   imageStandardId?: number
+  /**
+   * Automatic paid-call ceiling per drama/Jubian script_id, in nonnegative
+   * safe integer CNY cents; zero disables paid calls.
+   */
+  seriesBudgetCents: number
 }
 
-/** JianyingPro draft root this deployment renders to when the section declares none. */
-export const DEFAULT_JIANYING_DRAFT_DIR
-  = 'C:\\Users\\EDY\\AppData\\Local\\JianyingPro\\User Data\\Projects\\com.lveditor.draft'
+/** No installed JianyingPro draft root can be assumed on another machine. */
+export const DEFAULT_JIANYING_DRAFT_DIR = ''
 
 /**
  * Where a downloaded BGM track lands when the section declares no directory.
@@ -104,13 +107,14 @@ export const DRAMA_SETTINGS_DEFAULTS: DramaSettings = {
   jianyingDraftDir: DEFAULT_JIANYING_DRAFT_DIR,
   deliverySpec: DEFAULT_DELIVERY_SPEC,
   bgmDir: DEFAULT_BGM_DIR,
+  seriesBudgetCents: 400000,
 }
 
 /**
  * Durable short-drama schema, and the wire envelope the browser scope validates
  * its section against. A section absent from a layer resolves to
  * {@link DRAMA_SETTINGS_DEFAULTS}; the paths are plain strings because a blank
- * one means "use the default", which is what the page's reset leaves behind.
+ * one leaves the schema default, including an unconfigured Jianying draft root.
  */
 export const DramaSettingsSchema: z<DramaSettings> = z.object({
   deliveryDir: z.string().default(DRAMA_SETTINGS_DEFAULTS.deliveryDir),
@@ -123,4 +127,6 @@ export const DramaSettingsSchema: z<DramaSettings> = z.object({
   }),
   bgmDir: z.string().default(DEFAULT_BGM_DIR),
   imageStandardId: z.number().step(1).min(1),
+  seriesBudgetCents: z.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER)
+    .default(DRAMA_SETTINGS_DEFAULTS.seriesBudgetCents),
 })

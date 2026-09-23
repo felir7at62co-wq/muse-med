@@ -82,7 +82,7 @@ function decodeHeader(bytes: Uint8Array): { media_type: string; kind: MediaKind 
   }
   if (bytes.length >= 16 && view.toString('ascii', 4, 8) === 'ftyp'
     && view.readUInt32BE(0) >= 16 && view.readUInt32BE(0) <= bytes.length
-    && /^(isom|iso[2-9]|mp4[12]|avc1|dash|M4[ABPV] )$/.test(view.toString('ascii', 8, 12))) {
+    && /^(isom|iso[2-9]|mp4[12]|avc1|dash|M4[ABPV] |qt  )$/.test(view.toString('ascii', 8, 12))) {
     return { media_type: 'video/mp4', kind: 'video' }
   }
   return reject()

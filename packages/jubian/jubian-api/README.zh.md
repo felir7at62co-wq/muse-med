@@ -186,6 +186,7 @@ console.log(media.media_type, media.kind, media.sha256, media.bytes.byteLength)
 
 这些约束是当前的包行为，不是任务清单。
 
+- **项目名称不会修补分镜名称**——`readScript()` 把提供方的 `scriptName` 读成 `name`，旧载荷可回退读取 `name`；两者都不是文本时返回 `null`。`readStoryboard()` 在快照中原样保留分镜自己的 `scriptName`，即使它是 `null`；本库不会用项目数据写回分镜。
 - **载荷一旦不再匹配就使调用失败**——读取器宁可抛出 `CONTRACT_CHANGED` 也不降级，而该错误不携带字段名，所以调用方报告的是契约变化，运维者要读原始载荷才能找出是哪个字段动了。
 - **图片选择器由调用方决定**——只有当这个选择把候选收敛到恰好一行 `gpt-image-2` 时，`resolveImageModel()` 才接受该目录。多行而未给选择时调用失败，错误里列出每个候选的 `platformId`、`standardId`、单价与单位；给了选择却匹配不到任何候选时同样失败。本库没有任何偏好某个平台或更便宜那一行的规则。
 - **费用与价格字段是证据，不是结算**——`real_cost`、`estimated_cost`、`discount_cost` 与 `readImageDisplayPrice()` 承载提供方报告的内容，且 `readImageDisplayPrice()` 始终返回 `quote_verified: false`；这里没有任何东西授权花钱。

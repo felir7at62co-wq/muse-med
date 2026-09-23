@@ -77,12 +77,44 @@ describe('readAuthorization', () => {
 })
 
 describe('checkBudget', () => {
-  it('lets a paid call run while no authorization exists, and says so', async () => {
+  it('refuses a paid call while no authorization exists', async () => {
     const { ledger, authorizationPath } = await fixture()
     const decision = await checkBudget({ ledger, method: 'image_generate', scriptId: 2708,
       quote: { amount: '1.00', unit: 'CNY' }, authorizationPath })
-    expect(decision.status).toBe('unauthorized')
+    expect(decision.status).toBe('refused')
     expect(decision.reason).toContain('authorization.json')
+    expect(decision.reason).toContain('不会提交')
+  })
+
+  it('uses an automatic CNY cap for each project when the local policy supplies one', async () => {
+    const { ledger, authorizationPath } = await fixture()
+    const auto = new JubianLedger({ root: ledger.root, defaultLimitCents: () => 400_000 })
+    const decision = await checkBudget({ ledger: auto, method: 'image_generate', scriptId: 2708,
+      quote: { amount: '0.50', unit: 'CNY' }, authorizationPath })
+    expect(decision).toMatchObject({ status: 'authorized', limitCents: 400_000,
+      chargedAmount: '0.50', chargedUnit: 'CNY' })
+  })
+
+  it('accounts the automatic cap separately for each drama script ID', async () => {
+    const { ledger, authorizationPath } = await fixture()
+    const auto = new JubianLedger({ root: ledger.root, defaultLimitCents: () => 400_000 })
+    await record(auto, { key: 'first-drama', scriptId: 2708, amount: '4000.00', unit: 'CNY', settle: 'accepted' })
+    const a = await checkBudget({ ledger: auto, method: 'image_generate', scriptId: 2708,
+      quote: { amount: '0.01', unit: 'CNY' }, authorizationPath })
+    const b = await checkBudget({ ledger: auto, method: 'image_generate', scriptId: 2709,
+      quote: { amount: '0.01', unit: 'CNY' }, authorizationPath })
+    expect(a.status).toBe('refused')
+    expect(b).toMatchObject({ status: 'authorized', limitCents: 400_000, settledCents: 0 })
+  })
+
+  it('never lets a legacy file raise the automatic project cap', async () => {
+    const { ledger, authorizationPath } = await fixture({ version: 1, projects: {
+      '2708': { limit: '10000.00', unit: 'CNY' },
+    } })
+    const auto = new JubianLedger({ root: ledger.root, defaultLimitCents: () => 400_000 })
+    const decision = await checkBudget({ ledger: auto, method: 'image_generate', scriptId: 2708,
+      quote: { amount: '5000.00', unit: 'CNY' }, authorizationPath })
+    expect(decision).toMatchObject({ status: 'refused', limitCents: 400_000 })
   })
 
   it('never asks for an authorization on a call that cannot spend', async () => {
@@ -142,9 +174,9 @@ describe('checkBudget', () => {
     expect(decision.reason).toContain('没有报价')
   })
 
-  it('refuses while an earlier paid call has no quote at all', async () => {
+  it.each(['accepted', 'unknown', 'none'] as const)('refuses an unquoted paid record with outcome %s', async (settle) => {
     const { ledger, authorizationPath } = await fixture(AUTHORIZED)
-    await record(ledger, { key: 'a', scriptId: 2708, settle: 'accepted' })
+    await record(ledger, { key: 'a', scriptId: 2708, settle })
     const decision = await checkBudget({ ledger, method: 'image_generate', scriptId: 2708,
       quote: { amount: '1.00', unit: 'CNY' }, authorizationPath })
     expect(decision.status).toBe('refused')
@@ -153,9 +185,9 @@ describe('checkBudget', () => {
     expect(decision.reason).toContain('jub_')
   })
 
-  it('refuses while a paid record carries no project, which no limit can cover', async () => {
+  it.each(['accepted', 'unknown', 'none'] as const)('refuses an unattributed paid record with outcome %s', async (settle) => {
     const { ledger, authorizationPath } = await fixture(AUTHORIZED)
-    await record(ledger, { key: 'a', amount: '1.00', unit: 'CNY', settle: 'accepted' })
+    await record(ledger, { key: 'a', amount: '1.00', unit: 'CNY', settle })
     const decision = await checkBudget({ ledger, method: 'image_generate', scriptId: 2708,
       quote: { amount: '1.00', unit: 'CNY' }, authorizationPath })
     expect(decision.status).toBe('refused')
@@ -169,6 +201,33 @@ describe('checkBudget', () => {
       quote: { amount: '1.00', unit: 'USD' }, authorizationPath })
     expect(decision.status).toBe('refused')
     expect(decision.reason).toContain('单位')
+  })
+
+  it('refuses a new quote in a different currency even without earlier spend', async () => {
+    const { ledger, authorizationPath } = await fixture(AUTHORIZED)
+    const decision = await checkBudget({ ledger, method: 'image_generate', scriptId: 2708,
+      quote: { amount: '1.00', unit: 'USD' }, authorizationPath })
+    expect(decision.status).toBe('refused')
+    expect(decision.reason).toContain('USD')
+  })
+
+  it.each([undefined, 'invalid'])('isolates another project’s unknown unpriced charge (%s)', async (amount) => {
+    const { ledger, authorizationPath } = await fixture(AUTHORIZED)
+    await record(ledger, { key: 'unknown', scriptId: 9999, amount, settle: 'unknown' })
+    const decision = await checkBudget({ ledger, method: 'image_generate', scriptId: 2708,
+      quote: { amount: '1.00', unit: 'CNY' }, authorizationPath })
+    expect(decision.status).toBe('authorized')
+    expect(decision.settledCents).toBe(0)
+    expect(decision.reservedCents).toBe(0)
+  })
+
+  it('refuses an unknown charge whose recorded quote is invalid', async () => {
+    const { ledger, authorizationPath } = await fixture(AUTHORIZED)
+    await record(ledger, { key: 'unknown', scriptId: 2708, amount: 'invalid', settle: 'unknown' })
+    const decision = await checkBudget({ ledger, method: 'image_generate', scriptId: 2708,
+      quote: { amount: '1.00', unit: 'CNY' }, authorizationPath })
+    expect(decision.status).toBe('refused')
+    expect(decision.reason).toContain('没有报价')
   })
 
   it('ignores another project’s spend when judging this one', async () => {

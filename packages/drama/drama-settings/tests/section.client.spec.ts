@@ -36,6 +36,7 @@ describe('draftOf', () => {
         minBitrateMbps: '3.25',
         bgmDir: DEFAULT_BGM_DIR,
         imageStandardId: '',
+        seriesBudgetYuan: '4000',
       })
   })
 
@@ -60,12 +61,25 @@ describe('draftSection', () => {
       jianyingDraftDir: 'D:\\draft',
       deliverySpec: { width: 1080, height: 1920, fps: 30, minBitrateMbps: 3.25 },
       bgmDir: 'D:\\bgm',
+      seriesBudgetCents: 400000,
     })
   })
 
   it('reads a blank path box as that field’s default', () => {
     expect(draftSection(draft({ deliveryDir: '', jianyingDraftDir: '   ', bgmDir: '' })))
       .toEqual(DRAMA_SETTINGS_DEFAULTS)
+  })
+
+  it('converts yuan decimals exactly and refuses blank or invalid budgets', () => {
+    expect(draftSection(draft({ seriesBudgetYuan: '0' }))).toMatchObject({ seriesBudgetCents: 0 })
+    expect(draftSection(draft({ seriesBudgetYuan: ' 12.30 ' }))).toMatchObject({ seriesBudgetCents: 1230 })
+    expect(draftSection(draft({ seriesBudgetYuan: '90071992547409.91' })))
+      .toMatchObject({ seriesBudgetCents: Number.MAX_SAFE_INTEGER })
+    for (const value of ['', ' ', '-1', '1.234', '1e3', 'NaN', '90071992547409.92']) {
+      expect(draftSection(draft({ seriesBudgetYuan: value }))).toBeUndefined()
+    }
+    expect(draftOf(section({ seriesBudgetCents: 1230 })).seriesBudgetYuan).toBe('12.3')
+    expect(draftOf(section({ seriesBudgetCents: 1 })).seriesBudgetYuan).toBe('0.01')
   })
 
   it('refuses a spec box that holds no number', () => {
@@ -111,6 +125,15 @@ describe('sectionOps', () => {
       .toEqual([{ op: 'set', path: ['bgmDir'], value: 'D:\\bgm' }])
   })
 
+  it('sets a per-drama budget and unsets it when restored to the default', () => {
+    expect(sectionOps(DRAMA_SETTINGS_DEFAULTS, section({ seriesBudgetCents: 0 })))
+      .toEqual([{ op: 'set', path: ['seriesBudgetCents'], value: 0 }])
+    expect(sectionOps(section({ seriesBudgetCents: 0 }), DRAMA_SETTINGS_DEFAULTS))
+      .toEqual([{ op: 'unset', path: ['seriesBudgetCents'] }])
+    expect(sameSettings(DRAMA_SETTINGS_DEFAULTS, section({ seriesBudgetCents: 0 }))).toBe(false)
+    expect(landed(section({ seriesBudgetCents: 0 }), DRAMA_SETTINGS_DEFAULTS)).toBe(false)
+  })
+
   it('pins the image-route row when one is chosen and clears it when none is', () => {
     expect(sectionOps(DRAMA_SETTINGS_DEFAULTS, section({ imageStandardId: 66 })))
       .toEqual([{ op: 'set', path: ['imageStandardId'], value: 66 }])
@@ -144,6 +167,7 @@ describe('sectionOps', () => {
       { op: 'unset', path: ['deliverySpec'] },
       { op: 'unset', path: ['bgmDir'] },
       { op: 'unset', path: ['imageStandardId'] },
+      { op: 'unset', path: ['seriesBudgetCents'] },
     ])
   })
 

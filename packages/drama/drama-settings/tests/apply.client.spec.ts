@@ -177,6 +177,8 @@ describe('drama-settings browser plugin', () => {
 
     expect(await face.write({ ...draftOf(DRAMA_SETTINGS_DEFAULTS), fps: 'fast' })).toBe('invalid')
     expect(b.mutate).not.toHaveBeenCalled()
+    expect(await face.write({ ...draftOf(DRAMA_SETTINGS_DEFAULTS), seriesBudgetYuan: '' })).toBe('invalid')
+    expect(b.mutate).not.toHaveBeenCalled()
   })
 
   it('restores every field to its default in one write', async () => {
@@ -194,6 +196,7 @@ describe('drama-settings browser plugin', () => {
       { op: 'unset', path: ['deliverySpec'] },
       { op: 'unset', path: ['bgmDir'] },
       { op: 'unset', path: ['imageStandardId'] },
+      { op: 'unset', path: ['seriesBudgetCents'] },
     ], expect.anything())
     await b.ctx.fiber.dispose()
   })

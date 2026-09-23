@@ -106,7 +106,12 @@ let root: string
 let ledger: JubianLedger
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'jubian-native-'))
-  ledger = new JubianLedger({ root: join(root, 'ledger') })
+  const ledgerRoot = join(root, 'ledger')
+  await mkdir(ledgerRoot)
+  await writeFile(join(ledgerRoot, 'authorization.json'), JSON.stringify({ version: 1, projects: {
+    '2708': { limit: '1000', unit: 'CNY', estimates: { storyboard_native_submit: '1' } },
+  } }))
+  ledger = new JubianLedger({ root: ledgerRoot })
 })
 
 afterEach(async () => {

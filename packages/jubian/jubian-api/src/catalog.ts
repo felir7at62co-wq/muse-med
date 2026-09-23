@@ -43,14 +43,14 @@ export function readModels(data: unknown): Record<string, unknown>[] {
 /**
  * Read the identity fields of one remote screenplay.
  * @param data - Envelope `data` from `/aigc/script/{scriptId}`.
- * @returns The project identity a caller needs to address the remote project.
+ * @returns The project identity, with the provider's `scriptName` projected as `name` and legacy `name` retained as fallback.
  */
 export function readScript(data: unknown): { script_id: number; name: string | null; production_type: number | null } {
   if (!data || typeof data !== 'object' || Array.isArray(data)) invalid()
   const record = data as Record<string, unknown>
   const id = record.id ?? record.scriptId
   if (typeof id !== 'number' && typeof id !== 'string') invalid()
-  return { script_id: positiveInteger(id), name: optionalText(record.name),
+  return { script_id: positiveInteger(id), name: optionalText(record.scriptName) ?? optionalText(record.name),
     production_type: typeof record.productionType === 'number' ? record.productionType : null }
 }
 

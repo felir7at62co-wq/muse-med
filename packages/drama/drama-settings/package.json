@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-drama-settings",
-  "description": "Short-drama settings for the Web GUI — the delivery directories, delivery spec and BGM library the drama pipeline reads — with the Settings page that edits them and a read-only component list",
+  "description": "Short-drama settings and Web UI for delivery, media and the automatic per-drama paid-call budget",
   "version": "0.1.6-alpha.1",
   "publishConfig": {
     "access": "public"

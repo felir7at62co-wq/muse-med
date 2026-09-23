@@ -4,8 +4,8 @@
  *
  * The page registers through `ctx.slots.inject`, which waits for the slot's own
  * declaration — this package does not own the Settings shell — and it leaves with
- * its fiber when the declarer collapses. When and whether a paid step asks first
- * is not configured here: the pipeline's agent decides that per call.
+ * its fiber when the declarer collapses. The per-drama budget is resolved from
+ * the same settings namespace and included in save and restore writes.
  *
  * @module @deepseek-ai/dsh-drama-settings/src/client
  */

@@ -5,9 +5,8 @@ import type { DramaComponentStatus } from './components.ts'
 /**
  * Simplified Chinese dictionary and key source of truth.
  *
- * Machine paths are not translated here: the page shows a path default as an
- * input's placeholder, straight from the settings schema defaults, so no key
- * carries a copy of one.
+ * Machine paths are not translated: the draft-root placeholder tells the
+ * operator to select the editor's real root without assuming a user's path.
  */
 export const zh = {
   'nav': '短剧',
@@ -18,7 +17,8 @@ export const zh = {
   'deliveryDirDescription': '留空表示用项目自己的 <项目>/delivery（00成片、01主角、02海报、05剧本&简介都在它下面）。',
   'deliveryDirPlaceholder': '留空 = <项目>/delivery',
   'jianyingDraftDirTitle': '剪映草稿根目录',
-  'jianyingDraftDirDescription': '留空表示用本机默认草稿根目录，占位符就是它。',
+  'jianyingDraftDirDescription': '请填写剪映专业版中设置的真实草稿根目录；留空表示未配置，不会自动发现。',
+  'jianyingDraftDirPlaceholder': '填写剪映专业版的草稿根目录',
   'specTitle': '交付规格',
   'specDescription': '成片的分辨率、帧率与最低码率；渲染与验收都按这四个数执行。',
   'specWidth': '宽度',
@@ -27,6 +27,8 @@ export const zh = {
   'specBitrate': '最低码率（Mbps）',
   'bgmDirTitle': 'BGM 库目录',
   'bgmDirDescription': '本地 BGM 库，选曲按情绪从这里检索；留空表示用默认库，占位符就是它。',
+  'seriesBudgetTitle': '每部剧自动收费预算（元）',
+  'seriesBudgetDescription': '每部剧/剧变 script_id 自动允许收费直到累计 ¥{amount} 上限；各剧单独计算；这是本机可编辑预算，不是不可篡改的人类批准。无报价或认可估算的收费操作仍会被拒绝。填 0 禁止收费调用；保存时只接受非负金额，最多两位小数。',
   'imageRouteTitle': '资产图生成通道',
   'imageRouteDescription': '账户目录里的 gpt-image-2 按平台分行、各自定价；没选定时只有目录里恰好一行才自动使用，多行会在发起请求前报错。',
   'imageRouteUnset': '不指定（目录只有一行时自动使用）',
@@ -62,7 +64,7 @@ export const zh = {
   'resetting': '正在恢复…',
   'resetDone': '已恢复默认。',
   'rejected': '保存失败：宿主没有接受这次写入。',
-  'invalidNumber': '交付规格或资产图通道里有一项不是数字，请改好再保存。',
+  'invalidNumber': '交付规格、资产图通道或每部剧预算无效；预算不得留空，须为最多两位小数的非负金额，请改好再保存。',
 } satisfies Record<string, string>
 
 /** Short-drama locale key union. */
@@ -78,7 +80,8 @@ export const en = {
   'deliveryDirDescription': 'Leave it blank to use the project’s own <project>/delivery, which holds 00成片, 01主角, 02海报 and 05剧本&简介.',
   'deliveryDirPlaceholder': 'blank = <project>/delivery',
   'jianyingDraftDirTitle': 'JianyingPro draft root',
-  'jianyingDraftDirDescription': 'Leave it blank to use this machine’s default draft root — the placeholder is it.',
+  'jianyingDraftDirDescription': 'Enter the actual draft root configured in JianyingPro; blank means not configured and is not automatically detected.',
+  'jianyingDraftDirPlaceholder': 'Enter the JianyingPro draft root',
   'specTitle': 'Delivery spec',
   'specDescription': 'Resolution, frame rate and bitrate floor of a delivered episode; rendering and acceptance both follow these four numbers.',
   'specWidth': 'Width',
@@ -87,6 +90,8 @@ export const en = {
   'specBitrate': 'Bitrate floor (Mbps)',
   'bgmDirTitle': 'BGM library',
   'bgmDirDescription': 'Local BGM library the mood matcher searches; leave it blank to use the default one — the placeholder is it.',
+  'seriesBudgetTitle': 'Automatic budget per drama (CNY)',
+  'seriesBudgetDescription': 'Paid calls are automatically allowed up to a cumulative ¥{amount} per drama/Jubian script_id; each drama is counted separately. This is a locally editable budget, not tamper-proof human approval. Paid calls without a usable quote or accepted estimate are still refused. Enter 0 to disable paid calls; only nonnegative amounts with at most two decimal places can be saved.',
   'imageRouteTitle': 'Asset-image route',
   'imageRouteDescription': 'The account catalogue lists gpt-image-2 once per platform at its own price. With no row chosen, only a catalogue holding exactly one row works; several rows fail before any request is sent.',
   'imageRouteUnset': 'No row pinned (the catalogue decides while it lists one)',
@@ -122,7 +127,7 @@ export const en = {
   'resetting': 'Restoring…',
   'resetDone': 'Defaults restored.',
   'rejected': 'Could not save: the host refused this write.',
-  'invalidNumber': 'One delivery-spec field or the asset-image route is not a number; fix it before saving.',
+  'invalidNumber': 'A delivery-spec field, asset-image route or per-drama budget is invalid. The budget must be nonblank, nonnegative and have at most two decimal places; fix it before saving.',
 } satisfies Record<DramaLocaleKey, string>
 
 /** The label key of one component status. */

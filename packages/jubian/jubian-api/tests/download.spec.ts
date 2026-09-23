@@ -57,6 +57,14 @@ describe('downloadMedia', () => {
       fetch: transport(Uint8Array.from([1, 2, 3, 4])) })).rejects.toThrow()
   })
 
+  it('accepts a bounded QuickTime ftyp video but still rejects a mismatched kind', async () => {
+    const qt = mp4()
+    Buffer.from(qt.buffer).write('qt  ', 8, 'ascii')
+    const result = await downloadMedia(`${CDN}/v.mp4`, { kind: 'video', fetch: transport(qt) })
+    expect(result).toMatchObject({ kind: 'video', media_type: 'video/mp4' })
+    await expect(downloadMedia(`${CDN}/a.png`, { kind: 'image', fetch: transport(qt) })).rejects.toThrow()
+  })
+
   it('bounds the payload by the ceiling for its kind', async () => {
     await expect(downloadMedia(`${CDN}/a.png`, { kind: 'image', fetch: transport(PNG), maxBytes: 8 }))
       .rejects.toThrow()

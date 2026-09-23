@@ -1,6 +1,6 @@
 ---
-description: "Short-drama settings for the Web GUI: the durable `drama` settings section (delivery directory, JianyingPro draft root, delivery spec, BGM library, paid image-route row), the Settings page that edits it, and its read-only component list; for users and maintainers of the short-drama pipeline."
-kind: "package-reference"
+description: "Short-drama settings for the Web GUI: the durable `drama` settings section (delivery directory, JianyingPro draft root, delivery spec, BGM library, paid image-route row, per-drama automatic budget), the Settings page that edits it, and its read-only component list; for users and maintainers of the short-drama pipeline."
+kind: "package-bundle"
 ---
 
 # @deepseek-ai/dsh-drama-settings
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Owns the durable `drama` settings section, the **Settings → 短剧** page that edits it, and that page's read-only component list. The section carries what the pipeline reads: the delivery and JianyingPro draft directories, the delivery spec, the BGM library, and the paid image route's `gpt-image-2` catalogue row. The Host half registers the schema with the settings service; the browser half binds that namespace, renders the page, and reports a refused write rather than showing it as saved. Whether a paid step asks first stays the agent's call, so no tier is stored here.
+Owns the durable `drama` settings section, the **Settings → 短剧** page that edits it, and that page's read-only component list. The section carries the delivery and JianyingPro draft directories, delivery spec, BGM library, paid image route's `gpt-image-2` catalogue row, and the automatic per-drama paid-call budget. The Host registers its schema with the settings service; the browser edits resolved values and reports refused writes rather than showing them as saved. Paid calls within the budget require no per-call or first-use confirmation.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ Owns the durable `drama` settings section, the **Settings → 短剧** page that
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the row wherever the Web GUI runs. The Host half needs a composed settings provider; without one it registers nothing and the browser half reports the namespace as unavailable.
+This bundle's `cordis.patch.yml` inserts the row into a profile; the same row can be mounted manually wherever the Web GUI runs. The Host half needs a composed settings provider; without one it registers nothing and the browser half reports the namespace as unavailable.
 
 ```yaml
 - insert:
@@ -38,16 +38,19 @@ There is no config. A default is the schema's own, and a deployment that wants a
 | Field | Default | Meaning |
 |---|---|---|
 | `deliveryDir` | empty | Absolute directory finished episodes are delivered to; empty means `<project>/delivery`, the root the delivery template fills (`00成片`, `01主角`, `02海报`, `05剧本&简介`) |
-| `jianyingDraftDir` | this machine's JianyingPro root | Absolute draft root an editable draft is written under; empty means the default |
+| `jianyingDraftDir` | empty | Absolute root configured in the installed JianyingPro; empty means unconfigured, not an automatically detected directory |
 | `deliverySpec` | `1440` × `2560`, `60` fps, `4.6` Mbps | Resolution, frame rate and bitrate floor of a delivered episode |
 | `bgmDir` | (empty) | Where a downloaded track lands; empty keeps the published catalogue and the matcher's own download cache as the only source |
 | `imageStandardId` | absent | The `gpt-image-2` catalogue row the paid asset-image route buys from, named by that row's own `id`; absent means the route decides for itself, which works only while the account lists exactly one such row |
+| `seriesBudgetCents` | `400000` (¥4000 CNY) | Nonnegative safe integer cents per drama/Jubian `script_id`; priced paid calls automatically use that drama's cumulative limit, with no per-call or first-use confirmation; unquoted calls without an accepted estimate still refuse; `0` disables paid calls |
 
 ### The Settings page
 
-**Settings → 短剧** holds one group per field: the two directories, the four delivery-spec numbers, the BGM library, and the asset-image route. Every group shows the resolved value, and a path box left blank means the schema default — its placeholder is that default.
+**Settings → 短剧** holds one group per field: the two directories, the four delivery-spec numbers, the BGM library, the asset-image route, and the prominent per-drama budget. A fresh page shows ¥4000 without a stored override. The budget box edits yuan to at most two decimal places; blank, negative, fractional cents, or values above safe integer cents cannot be saved. Every group shows the resolved value. A blank path box uses the schema default; for JianyingPro, that is an unconfigured root, and its placeholder asks for the editor's real directory instead of showing another person's path.
 
-**保存** compiles the form into one atomic namespace write and reports what happened: `已保存。`, the failure line when the host kept a different section, or the number line when a delivery-spec box holds no number (nothing is sent in that case). **恢复默认** clears every field in one write, which is what returns the section to the schema defaults. A field that already holds its default stays cleared rather than storing a copy of it, so the user layer never says something it does not mean. A read-only settings document disables both buttons and says why.
+**保存** compiles the form into one atomic namespace write and reports what happened: `已保存。`, the failure line when the host kept a different section, or a validation line when a numeric field or the budget is invalid (nothing is sent in that case). **恢复默认** clears every field in one write, which is what returns the section to the schema defaults. A field that already holds its default stays cleared rather than storing a copy of it, so the user layer never says something it does not mean. A read-only settings document disables both buttons and says why.
+
+The page warns: “Paid calls are automatically allowed up to a cumulative ¥… per drama/Jubian script_id; each drama is counted separately. This is a locally editable budget, not tamper-proof human approval; calls without a usable quote or accepted estimate still refuse.” The budget is a local editable limit, not immutable authorization.
 
 ### The asset-image route
 
@@ -96,7 +99,7 @@ Read these pages when the surfaces above are not enough. They move from this pac
 
 - [Settings subsystem reference](../../../docs/subsystems/settings.md) — namespace registration, the defaults → composition base → user layer resolution, and the browser transport a page writes through.
 - [ui-settings](../../client/ui-settings/README.md) — the `settingsScope` service this package binds and the Settings shell it registers into.
-- [drama-gate](../../guard/drama-gate/README.md) — the tool-dispatch gate that owns the pipeline's hard rules; when a paid step asks first is the agent's call, not a stored tier.
+- [drama-gate](../../guard/drama-gate/README.md) — the tool-dispatch gate that owns the pipeline's hard rules.
 - [dsh-tool-jubian](../../jubian/tool-jubian/README.md) — the package that owns the `jubianImage` namespace this page lists the payable rows over, and the tool row whose `imageStandardId` config is the fallback pin.
 
 -----
@@ -117,10 +120,10 @@ No direct invalidation: the section reaches no prompt, tool schema, or session e
 
 These limits mark where the package is deliberately incomplete or needs the operator's cooperation. They are current constraints, not a task backlog.
 
-- **The two directories are opaque strings** — the page validates that a delivery-spec box holds a number and validates nothing about a path: no existence check, no normalization, no expand of an environment variable. A path that does not exist on the host is stored as typed.
+- **The two directories are opaque strings** — the page validates nothing about a path: no existence check, no normalization, no environment-variable expansion. A path that does not exist on the host is stored as typed. The episode renderer does not consume `jianyingDraftDir` or create a native draft.
 - **The delivery spec is stored, not applied** — `dsh-tool-episode-render` still renders its own fixed 1440x2560 style; this section is where that contract will be read from, and until then a change here does not move the delivered file.
 - **The defaults are the package's** — a deployment that wants different defaults edits the schema; the composition declares no `base` layer for this namespace, so there is exactly one home for each default. The flip side is that an upgrade may change a default a deployment was relying on, which is why the page shows every resolved value.
-- **A blank path box means "the default", not "empty"** — clearing one and saving removes the override, and the box then shows the default again. There is no way to store an intentionally empty string in those two fields, which matches what their consumers do with one.
+- **A blank path box clears its override** — the resolved `deliveryDir` then means `<project>/delivery`; the resolved `jianyingDraftDir` stays empty and does not identify any installed editor directory. Neither path is validated against the host by this page.
 - **The component list is only as good as the inventory it reads** — the status comes from `pluginInventory`, which a deployment may not compose; the page then reports every package as 无法查询 rather than assuming anything. Even with an inventory, a package mounted under a different module specifier than the one listed reads as 清单里没有, and a preset row that is only conditionally enabled reads as 按条件加载, because the Loader owns that decision.
 - **The route picker is only as good as the catalogue read** — the rows come from the `jubianImage` namespace, which belongs to `@deepseek-ai/dsh-tool-jubian`; a deployment that composes no Jubian tools reports 暂时列不出通道, and a catalogue the credential cannot read reports the transport's own reason. The stored pin survives all of that: what the page cannot read, it also never clears.
 - **The stored row id is not checked against the catalogue at write time** — the schema accepts any positive integer, so a row id typed or written into the document directly is stored even when the account never listed it. It fails loudly at the next paid call, which names every candidate instead of buying from a row nobody selected.

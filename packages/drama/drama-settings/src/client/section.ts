@@ -2,7 +2,7 @@
  * The page's editable draft, the write set it compiles to, and the verdict a
  * write settles with.
  *
- * A draft holds the delivery spec's four numbers as typed text, because a form
+ * A draft holds the delivery spec and yuan budget as typed text, because a form
  * field that is briefly not a number is a normal state and typing it must not
  * write anything. {@link draftSection} is the one place that decides what a
  * draft means: a blank path field means "the schema default" — the same value
@@ -21,7 +21,7 @@ import {
 export type DramaWriteOutcome =
   /** The resolved section now carries everything the draft asked for. */
   | 'saved'
-  /** A delivery-spec box held no number, so nothing was sent. */
+  /** A numeric field or yuan budget was invalid, so nothing was sent. */
   | 'invalid'
   /** The host kept a different section, which is what a refusal looks like here. */
   | 'rejected'
@@ -44,6 +44,8 @@ export interface DramaSettingsDraft {
   bgmDir: string
   /** Chosen image-route row as the select holds it; blank means no row is pinned. */
   imageStandardId: string
+  /** Automatic per-drama spending ceiling in yuan as typed; blank is invalid. */
+  seriesBudgetYuan: string
 }
 
 /**
@@ -61,6 +63,8 @@ export function draftOf(settings: DramaSettings): DramaSettingsDraft {
     minBitrateMbps: String(settings.deliverySpec.minBitrateMbps),
     bgmDir: settings.bgmDir,
     imageStandardId: settings.imageStandardId === undefined ? '' : String(settings.imageStandardId),
+    seriesBudgetYuan: `${Math.trunc(settings.seriesBudgetCents / 100)}${settings.seriesBudgetCents % 100 === 0
+      ? '' : `.${String(settings.seriesBudgetCents % 100).padStart(2, '0').replace(/0$/, '')}`}`,
   }
 }
 
@@ -68,6 +72,14 @@ export function draftOf(settings: DramaSettings): DramaSettingsDraft {
 function parseNumber(text: string): number | undefined {
   const value = Number(text.trim())
   return text.trim().length > 0 && Number.isFinite(value) ? value : undefined
+}
+
+/** Convert yuan text to safe integer cents without a floating-point decimal conversion. */
+function parseBudget(text: string): number | undefined {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text.trim())
+  if (match === null) return undefined
+  const cents = Number(match[1]) * 100 + Number((match[2] ?? '').padEnd(2, '0'))
+  return Number.isSafeInteger(cents) ? cents : undefined
 }
 
 /** One path box, or its default while the box is blank. */
@@ -79,15 +91,17 @@ function parsePath(text: string, fallback: string): string {
 /**
  * The section one draft asks for.
  * @param draft - the current form values.
- * @returns the section to persist, or undefined while a spec box or the image-route
- *   select holds something that is not a number.
+ * @returns the section to persist, or undefined while a spec box, image-route
+ *   select or yuan budget holds an invalid value.
  */
 export function draftSection(draft: DramaSettingsDraft): DramaSettings | undefined {
   const width = parseNumber(draft.width)
   const height = parseNumber(draft.height)
   const fps = parseNumber(draft.fps)
   const minBitrateMbps = parseNumber(draft.minBitrateMbps)
-  if (width === undefined || height === undefined || fps === undefined || minBitrateMbps === undefined) {
+  const seriesBudgetCents = parseBudget(draft.seriesBudgetYuan)
+  if (width === undefined || height === undefined || fps === undefined || minBitrateMbps === undefined
+    || seriesBudgetCents === undefined) {
     return undefined
   }
   // An empty select means "pin no row", which is a value rather than a failure:
@@ -100,6 +114,7 @@ export function draftSection(draft: DramaSettingsDraft): DramaSettings | undefin
     jianyingDraftDir: parsePath(draft.jianyingDraftDir, DRAMA_SETTINGS_DEFAULTS.jianyingDraftDir),
     deliverySpec: { width, height, fps, minBitrateMbps },
     bgmDir: parsePath(draft.bgmDir, DRAMA_SETTINGS_DEFAULTS.bgmDir),
+    seriesBudgetCents,
   }
   // Past the guard, an absent id can only mean the select was blank.
   return imageStandardId === undefined ? section : { ...section, imageStandardId }
@@ -122,6 +137,7 @@ export function sameSettings(current: DramaSettings, intended: DramaSettings): b
   return current.deliveryDir === intended.deliveryDir
     && current.jianyingDraftDir === intended.jianyingDraftDir
     && current.bgmDir === intended.bgmDir
+    && current.seriesBudgetCents === intended.seriesBudgetCents
     && current.imageStandardId === intended.imageStandardId
     && sameSpec(current.deliverySpec, intended.deliverySpec)
 }
@@ -168,6 +184,7 @@ export function sectionOps(current: DramaSettings | undefined, intended: DramaSe
   scalar('jianyingDraftDir')
   scalar('bgmDir')
   scalar('imageStandardId')
+  scalar('seriesBudgetCents')
   if (!sameSpec(intended.deliverySpec, from.deliverySpec)) {
     ops.push(sameSpec(intended.deliverySpec, DRAMA_SETTINGS_DEFAULTS.deliverySpec)
       ? { op: 'unset', path: [DELIVERY_SPEC_FIELD] }

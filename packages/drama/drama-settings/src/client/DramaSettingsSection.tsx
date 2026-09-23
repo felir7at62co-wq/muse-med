@@ -2,7 +2,8 @@
  * The short-drama Settings page, browser half.
  *
  * One form over the `drama` settings section — the two directories, the delivery
- * spec's four numbers, the BGM library and the paid image route's catalogue row —
+ * spec's four numbers, the BGM library, the paid image route's catalogue row and
+ * the per-drama paid-call budget —
  * plus the read-only component list that says which packages a short-drama
  * production is built from and what the plugin inventory reports about each.
  *
@@ -10,7 +11,7 @@
  * commit it adopts the values the Host reports, and a write that did not land is
  * reported as a failure instead of being shown as saved. The component list is
  * read once per mount and never claims a package is loaded that no inventory
- * named. Whether a paid step asks first is the agent's call, not a field here.
+ * named. Paid calls within the editable budget need no per-call confirmation.
  */
 
 import { useEffect, useState, type ReactNode } from 'react'
@@ -248,6 +249,19 @@ export function DramaSettingsSection(props: DramaSettingsSectionProps): ReactNod
   return (
     <div className={css.section}>
       <section className={css.group}>
+        <h3 className={css.groupTitle}>{t('seriesBudgetTitle')}</h3>
+        <p className={css.budgetWarning}>{t('seriesBudgetDescription', { amount: draftOf(settings).seriesBudgetYuan })}</p>
+        <input
+          className={css.input}
+          type="text"
+          inputMode="decimal"
+          value={draft.seriesBudgetYuan}
+          aria-label={t('seriesBudgetTitle')}
+          onChange={(event) => { setDraft({ ...draft, seriesBudgetYuan: event.currentTarget.value }) }}
+        />
+      </section>
+
+      <section className={css.group}>
         <h3 className={css.groupTitle}>{t('deliveryDirTitle')}</h3>
         <p className={css.groupDescription}>{t('deliveryDirDescription')}</p>
         <input
@@ -267,7 +281,7 @@ export function DramaSettingsSection(props: DramaSettingsSectionProps): ReactNod
           className={css.input}
           value={draft.jianyingDraftDir}
           spellCheck={false}
-          placeholder={DRAMA_SETTINGS_DEFAULTS.jianyingDraftDir}
+          placeholder={t('jianyingDraftDirPlaceholder')}
           aria-label={t('jianyingDraftDirTitle')}
           onChange={(event) => { setDraft({ ...draft, jianyingDraftDir: event.currentTarget.value }) }}
         />
@@ -322,7 +336,7 @@ export function DramaSettingsSection(props: DramaSettingsSectionProps): ReactNod
         <Button
           variant="primary"
           size="sm"
-          disabled={busy || !snapshot.writable || !dirty}
+          disabled={busy || !snapshot.writable || !dirty || intended === undefined}
           onClick={() => { run(() => write(draft), t('saved')) }}
         >
           {busy ? t('saving') : t('save')}
@@ -336,6 +350,7 @@ export function DramaSettingsSection(props: DramaSettingsSectionProps): ReactNod
           {busy ? t('resetting') : t('reset')}
         </Button>
       </div>
+      {intended === undefined ? <p className={css.notice} role="status">{t('invalidNumber')}</p> : null}
       {notice === undefined ? null : <p className={css.notice} role="status">{notice}</p>}
       {snapshot.writable ? null : <p className={css.notice}>{t('readOnly')}</p>}
       {componentList}

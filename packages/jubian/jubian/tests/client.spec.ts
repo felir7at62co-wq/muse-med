@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { JubianClient } from '../src/client.ts'
 import { JubianError } from '../src/error.ts'
 
@@ -65,6 +65,131 @@ describe('JubianClient.request', () => {
       .request({ method: 'GET', path: '/x' }).catch((error: unknown) => error)
     expect(thrown).toBeInstanceOf(JubianError)
     expect((thrown as JubianError).message).not.toContain('socket hang up')
+  })
+
+  it.each([
+    [401, 'AUTHENTICATION_REQUIRED', 'Jubian login is unavailable or expired'],
+    [403, 'AUTHENTICATION_REQUIRED', 'Jubian login is unavailable or expired'],
+    [429, 'RATE_LIMITED', 'Jubian rate limit reached'],
+    [502, 'NETWORK_ERROR', 'Jubian request failed'],
+  ])('reports HTTP %i without response text or another attempt', async (status, code, message) => {
+    let calls = 0
+    const response = new Response(`provider secret ${TOKEN}`, { status, statusText: `secret ${TOKEN}` })
+    const thrown = await client(async () => { calls++; return response })
+      .request({ method: 'PUT', path: `/secret?token=${TOKEN}`, body: { isGenerate: 1 } })
+      .catch((error: unknown) => error)
+    expect(thrown).toBeInstanceOf(JubianError)
+    expect(thrown).toMatchObject({ code, message: `${message}: HTTP ${status}` })
+    expect((thrown as Error).cause).toBeUndefined()
+    expect(response.bodyUsed).toBe(true)
+    expect(calls).toBe(1)
+  })
+
+  it.each([
+    ['ENOTFOUND', 'DNS lookup failed (ENOTFOUND)'],
+    ['EAI_AGAIN', 'DNS lookup failed (EAI_AGAIN)'],
+    ['ECONNREFUSED', 'connection refused (ECONNREFUSED)'],
+    ['ECONNRESET', 'connection reset (ECONNRESET)'],
+    ['ETIMEDOUT', 'request timed out (ETIMEDOUT)'],
+    ['UND_ERR_CONNECT_TIMEOUT', 'connection timed out (UND_ERR_CONNECT_TIMEOUT)'],
+    ['UND_ERR_HEADERS_TIMEOUT', 'response headers timed out (UND_ERR_HEADERS_TIMEOUT)'],
+    ['UND_ERR_BODY_TIMEOUT', 'response body timed out (UND_ERR_BODY_TIMEOUT)'],
+    ['ERR_TLS_CERT_ALTNAME_INVALID', 'TLS certificate rejected (ERR_TLS_CERT_ALTNAME_INVALID)'],
+    ['CERT_HAS_EXPIRED', 'TLS certificate rejected (CERT_HAS_EXPIRED)'],
+    ['DEPTH_ZERO_SELF_SIGNED_CERT', 'TLS certificate rejected (DEPTH_ZERO_SELF_SIGNED_CERT)'],
+    ['UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'TLS certificate rejected (UNABLE_TO_VERIFY_LEAF_SIGNATURE)'],
+    ['ABORT_ERR', 'request aborted'],
+  ])('reports only allowlisted %s for direct and wrapped failures', async (code, detail) => {
+    const cause = Object.assign(new Error(`https://secret.invalid/${TOKEN}`), { code, hostname: TOKEN })
+    for (const failure of [cause, new TypeError(`fetch ${TOKEN}`, { cause })]) {
+      let calls = 0
+      const thrown = await client(async () => { calls++; throw failure })
+        .request({ method: 'PUT', path: '/x', body: { isGenerate: 1 } }).catch((error: unknown) => error)
+      expect(thrown).toBeInstanceOf(JubianError)
+      expect(thrown).toMatchObject({ code: 'NETWORK_ERROR', message: `Jubian request failed: ${detail}` })
+      expect((thrown as Error).cause).toBeUndefined()
+      expect(calls).toBe(1)
+    }
+  })
+
+  it.each([
+    ['TimeoutError', 'request timed out'],
+    ['AbortError', 'request aborted'],
+  ])('recognizes %s without copying its message', async (name, detail) => {
+    const thrown = await client(async () => { throw new DOMException(TOKEN, name) })
+      .request({ method: 'GET', path: '/x' }).catch((error: unknown) => error)
+    expect(thrown).toMatchObject({ code: 'NETWORK_ERROR', message: `Jubian request failed: ${detail}` })
+  })
+
+  it('reports caller cancellation without exposing its arbitrary reason', async () => {
+    const signal = AbortSignal.abort({ secret: TOKEN })
+    const thrown = await client(async (_url, init) => { init!.signal!.throwIfAborted(); throw new Error('unreachable') })
+      .request({ method: 'GET', path: '/x', signal }).catch((error: unknown) => error)
+    expect(thrown).toMatchObject({ code: 'NETWORK_ERROR', message: 'Jubian request failed: request aborted' })
+    expect((thrown as Error).cause).toBeUndefined()
+  })
+
+  it.each(['fetch', 'body'])('reports the client deadline during %s without copying its reason', async (phase) => {
+    const deadline = new AbortController()
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal)
+    try {
+      let calls = 0
+      const subject = client(async (_url, init) => {
+        calls++
+        deadline.abort(TOKEN)
+        if (phase === 'fetch') init!.signal!.throwIfAborted()
+        return new Response(new ReadableStream({ start(controller) { controller.error(TOKEN) } }))
+      })
+      await expect(subject.request({ method: 'GET', path: '/x' })).rejects.toMatchObject({
+        code: 'NETWORK_ERROR', message: 'Jubian request failed: request timed out',
+      })
+      expect(calls).toBe(1)
+    } finally { timeout.mockRestore() }
+  })
+
+  it('retains caller cancellation when the deadline also expires before rejection', async () => {
+    const caller = new AbortController()
+    const deadline = new AbortController()
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal)
+    try {
+      const subject = client(async (_url, init) => {
+        caller.abort(TOKEN)
+        deadline.abort(new Error(TOKEN))
+        init!.signal!.throwIfAborted()
+        throw new Error('unreachable')
+      })
+      await expect(subject.request({ method: 'GET', path: '/x', signal: caller.signal })).rejects.toMatchObject({
+        code: 'NETWORK_ERROR', message: 'Jubian request failed: request aborted',
+      })
+    } finally { timeout.mockRestore() }
+  })
+
+  it('classifies response-body transport failures without another request', async () => {
+    let calls = 0
+    const subject = client(async () => {
+      calls++
+      return new Response(new ReadableStream({ start(controller) {
+        controller.error(new TypeError(TOKEN, { cause: { code: 'ECONNRESET', message: TOKEN } }))
+      } }))
+    })
+    await expect(subject.request({ method: 'GET', path: '/x' })).rejects.toMatchObject({
+      code: 'NETWORK_ERROR', message: 'Jubian request failed: connection reset (ECONNRESET)',
+    })
+    expect(calls).toBe(1)
+  })
+
+  it.each([
+    undefined, null, 'secret',
+    { name: TOKEN, code: TOKEN, message: TOKEN, cause: { code: TOKEN, message: TOKEN } },
+    { code: 'ENOTFOUND secret', cause: { code: { toString: (): string => TOKEN } } },
+    { code: 'toString', cause: { code: '__proto__' } },
+    { cause: { cause: { code: 'ENOTFOUND', message: TOKEN } } },
+  ])('keeps unknown failures opaque, including nested secrets (%j)', async (failure) => {
+    const thrown = await client(async () => { throw failure })
+      .request({ method: 'GET', path: '/x' }).catch((error: unknown) => error)
+    expect(thrown).toMatchObject({ name: 'JubianError', code: 'NETWORK_ERROR', message: 'Jubian request failed' })
+    expect((thrown as Error).cause).toBeUndefined()
+    expect(JSON.stringify(thrown)).not.toContain(TOKEN)
   })
 
   it('fails locally on an unusable token without issuing a request', async () => {

@@ -1,4 +1,4 @@
-/* Short-drama settings page: six stacked groups, one action row, one status
+/* Short-drama settings page: stacked groups, one action row, one status
  * line.
  *
  * The Settings shell already scrolls this content column, so nothing here
@@ -31,6 +31,16 @@
   font-size: 13px;
   line-height: 20px;
   color: var(--dsw-alias-label-tertiary);
+}
+
+.budgetWarning {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
 }
 
 .spec {

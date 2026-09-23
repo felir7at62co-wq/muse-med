@@ -11,7 +11,7 @@ import { cleanup, fireEvent, render, screen, waitFor, act } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
-  DEFAULT_BGM_DIR, DEFAULT_JIANYING_DRAFT_DIR, DRAMA_SETTINGS_DEFAULTS, type DramaSettings,
+  DEFAULT_BGM_DIR, DRAMA_SETTINGS_DEFAULTS, type DramaSettings,
 } from '../src/settings.ts'
 import { DramaSettingsSection } from '../src/client/DramaSettingsSection.tsx'
 import type { DramaSettingsSectionProps } from '../src/client/DramaSettingsSection.tsx'
@@ -143,8 +143,9 @@ describe('DramaSettingsSection — read states', () => {
     mount()
     expect(box(en.deliveryDirTitle).value).toBe('')
     expect(box(en.deliveryDirTitle).placeholder).toBe(en.deliveryDirPlaceholder)
-    expect(box(en.jianyingDraftDirTitle).value).toBe(DEFAULT_JIANYING_DRAFT_DIR)
-    expect(box(en.jianyingDraftDirTitle).placeholder).toBe(DEFAULT_JIANYING_DRAFT_DIR)
+    expect(box(en.jianyingDraftDirTitle).value).toBe('')
+    expect(box(en.jianyingDraftDirTitle).placeholder).toBe(en.jianyingDraftDirPlaceholder)
+    expect(screen.getByText(en.jianyingDraftDirDescription)).toBeDefined()
     expect(box(en.specWidth).value).toBe('1440')
     expect(box(en.specHeight).value).toBe('2560')
     expect(box(en.specFps).value).toBe('60')
@@ -152,6 +153,8 @@ describe('DramaSettingsSection — read states', () => {
     expect(box(en.bgmDirTitle).value).toBe(DEFAULT_BGM_DIR)
     expect(box(en.bgmDirTitle).placeholder).toBe(DEFAULT_BGM_DIR)
     expect(routeSelect().value).toBe('')
+    expect(box(en.seriesBudgetTitle).value).toBe('4000')
+    expect(screen.getByText(en.seriesBudgetDescription.replace('{amount}', '4000'))).toBeDefined()
   })
 
   it('adopts a commit made elsewhere', () => {
@@ -203,6 +206,27 @@ describe('DramaSettingsSection — writes', () => {
     })
   })
 
+  it('edits a yuan budget and preserves it in the draft sent for saving', async () => {
+    const bench = mount()
+    fireEvent.change(box(en.seriesBudgetTitle), { target: { value: '12.30' } })
+    fireEvent.click(screen.getByRole('button', { name: en.save }))
+    await screen.findByText(en.saved)
+    expect(bench.write).toHaveBeenCalledWith({ ...draftOf(DRAMA_SETTINGS_DEFAULTS), seriesBudgetYuan: '12.30' })
+    bench.commit({ value: { ...DRAMA_SETTINGS_DEFAULTS, seriesBudgetCents: 1230 } })
+    expect(box(en.seriesBudgetTitle).value).toBe('12.3')
+    expect(screen.getByText(en.seriesBudgetDescription.replace('{amount}', '12.3'))).toBeDefined()
+  })
+
+  it('refuses blank and invalid budgets without sending a write', () => {
+    const bench = mount()
+    for (const value of ['', '-1', '1.234', '90071992547409.92']) {
+      fireEvent.change(box(en.seriesBudgetTitle), { target: { value } })
+      expect(screen.getByRole('button', { name: en.save }).hasAttribute('disabled')).toBe(true)
+      expect(screen.getByText(en.invalidNumber)).toBeDefined()
+    }
+    expect(bench.write).not.toHaveBeenCalled()
+  })
+
   it('shows the busy label while a write is in flight', async () => {
     let settle: (outcome: DramaWriteOutcome) => void = () => {}
     const bench = mount()
@@ -231,13 +255,12 @@ describe('DramaSettingsSection — writes', () => {
     })
   })
 
-  it('reports a delivery-spec box that holds no number', async () => {
-    mount({}, { write: 'invalid' })
-    fireEvent.change(box(en.specWidth), { target: { value: 'wide' } })
-    fireEvent.click(screen.getByRole('button', { name: en.save }))
-
-    await screen.findByText(en.invalidNumber)
-    expect(screen.queryByText(en.saved)).toBeNull()
+  it('rejects a delivery-spec box that holds no number before sending a write', () => {
+    const bench = mount()
+    fireEvent.change(box(en.specWidth), { target: { value: '' } })
+    expect(screen.getByText(en.invalidNumber)).toBeDefined()
+    expect(screen.getByRole('button', { name: en.save }).hasAttribute('disabled')).toBe(true)
+    expect(bench.write).not.toHaveBeenCalled()
   })
 
   it('restores the defaults through the face and reports it', async () => {

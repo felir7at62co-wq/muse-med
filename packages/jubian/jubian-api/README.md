@@ -186,6 +186,7 @@ No direct invalidation; the tool layer that renders their output owns any reques
 
 These constraints are current package behavior, not a task backlog.
 
+- **A project title does not repair a storyboard title** — `readScript()` reads the provider's `scriptName` into `name`, falling back to `name` for older payloads; if neither is text, it returns `null`. `readStoryboard()` preserves the storyboard's raw `scriptName` in its snapshot, even when that field is `null`; the library never writes it from project data.
 - **A payload that stops matching rejects the call** — a reader throws `CONTRACT_CHANGED` rather than degrade, and the error carries no field name, so a caller reports a contract change and an operator reads the raw payload to find which field moved.
 - **The image selectors are the caller's choice** — `resolveImageModel()` accepts a catalogue only when the selection leaves exactly one `gpt-image-2` row. With several rows and no selection the call fails and the message lists each candidate's `platformId`, `standardId`, unit price and unit; with a selection that matches none it fails the same way. This library has no rule for preferring one platform or the cheaper row.
 - **Cost and price fields are evidence, not a settlement** — `real_cost`, `estimated_cost`, `discount_cost`, and `readImageDisplayPrice()` carry what the provider reported, and `readImageDisplayPrice()` always returns `quote_verified: false`; nothing here authorizes spending.

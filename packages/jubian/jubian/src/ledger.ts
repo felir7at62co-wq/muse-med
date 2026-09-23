@@ -51,9 +51,9 @@ export interface JubianLedgerRecord {
   at: string
   /** Canonical hash of the request body. */
   request_sha256: string
-  /** Quoted amount observed before the request, when one was available. */
+  /** Accepted quote or operator estimate reserved before the request. */
   quoted_amount: string | null
-  /** Unit the quote is denominated in, when one was observed. */
+  /** Currency unit of the accepted reservation, when one was available. */
   quote_unit: string | null
   /** Catalogue standard the quote came from. */
   quote_standard_id: number | null
@@ -101,6 +101,8 @@ export interface JubianLedgerBeginResult {
 export interface JubianLedgerOptions {
   /** Directory holding the per-day NDJSON files. */
   root: string
+  /** Per-project CNY cap from the local app's current automatic series setting; absent keeps manual authorization. */
+  defaultLimitCents?: () => number | undefined
 }
 
 /**
@@ -136,9 +138,12 @@ function fold(lines: Record<string, unknown>[]): JubianLedgerRecord | undefined 
 export class JubianLedger {
   /** Directory holding this ledger's records; the budget file lives beside them. */
   readonly root: string
+  /** Read at each paid claim, so a Settings edit affects the next request. */
+  readonly defaultLimitCents: (() => number | undefined) | undefined
 
   constructor(options: JubianLedgerOptions) {
     this.root = resolve(options.root)
+    this.defaultLimitCents = options.defaultLimitCents
   }
 
   private fileFor(now: Date): string {
@@ -169,17 +174,32 @@ export class JubianLedger {
    * @returns Whether this call replayed an existing record, and the record itself.
    */
   async begin(input: JubianLedgerBegin): Promise<JubianLedgerBeginResult> {
+    return this.beginChecked(input.idempotencyKey, () => Promise.resolve(input))
+  }
+
+  /**
+   * Check a fresh key and prepare its priced intent under the same root-wide queue.
+   * A replay skips preparation, so a later cap cannot turn a prior request into a new send.
+   * @param idempotencyKey - Key to check before preparing the intent.
+   * @param prepare - Validates authorization and supplies the intent after reading current records.
+   * @returns A fresh or replayed intent; a rejected preparation writes nothing.
+   */
+  async beginChecked(idempotencyKey: string, prepare: () => Promise<JubianLedgerBegin>): Promise<JubianLedgerBeginResult> {
     const rootKey = process.platform === 'win32' ? this.root.toLowerCase() : this.root
     const previous = claims.get(rootKey) ?? Promise.resolve()
-    const operation = previous.catch(() => undefined).then(() => this.appendIntent(input))
+    const operation = previous.catch(() => undefined).then(async () => {
+      const existing = await this.find(idempotencyKey)
+      if (existing !== undefined) return { replayed: true, record: existing }
+      const input = await prepare()
+      if (input.idempotencyKey !== idempotencyKey) throw new Error('Jubian ledger: prepared key differs from claim')
+      return this.appendIntent(input)
+    })
     claims.set(rootKey, operation)
     try { return await operation }
     finally { if (claims.get(rootKey) === operation) claims.delete(rootKey) }
   }
 
   private async appendIntent(input: JubianLedgerBegin): Promise<JubianLedgerBeginResult> {
-    const existing = await this.find(input.idempotencyKey)
-    if (existing !== undefined) return { replayed: true, record: existing }
     const now = new Date()
     recordCounter += 1
     const record_id = `jub_${now.getTime().toString(36)}_${recordCounter.toString(36)}`
