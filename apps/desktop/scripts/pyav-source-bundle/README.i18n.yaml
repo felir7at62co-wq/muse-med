@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write apps/desktop/scripts/pyav-source-bundle/README.md
+README.md: e4721ff5992bd21773d81a1e063585a29fcc56bb
+README.zh.md: 8bbe9487ed174de87c3ec3f2dab3a07a88995880

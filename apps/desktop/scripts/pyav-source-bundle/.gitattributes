@@ -1,0 +1,2 @@
+# Preserve checksum-verified upstream patch context and Git mail footer bytes.
+inputs/*.patch -whitespace

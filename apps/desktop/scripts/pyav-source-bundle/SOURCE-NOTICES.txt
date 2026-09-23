@@ -1,0 +1,36 @@
+PyAV 18.1.0 Windows native libraries — source and license notice
+
+This notice applies to av-18.1.0-cp311-abi3-win_amd64.whl and its av.libs DLLs.
+Original wheel SHA256: ea1480b7a8d5405cb5f382b344731bf125fd2c1c6fae3964f6c48595628387ff
+These FFmpeg 8.1.2 libraries are separate from the application's FFmpeg 9.0.2 executables.
+Do not replace or overwrite the executables' separate license/source notice with this notice.
+
+PyAV's own code is BSD-3-Clause. The bundled FFmpeg combination includes GPL-licensed
+x264 and x265. The upstream build patches FFmpeg's configure license classification;
+its runtime label "LGPL version 3 or later" does not describe or override the licenses
+of the included GPL components. Do not present this wheel as an LGPL-only distribution.
+Other components retain their own licenses, including LAME and GNU libiconv (LGPL),
+GCC runtime libraries (GPL with the GCC Runtime Library Exception), and the included
+certifi/tqdm source distributions (MPL and the additional notices in their sources).
+The original license and copyright texts are retained in the source archive's licenses/
+and in the original source archives. These terms are not replaced by the application's license.
+
+Matching source collection: pyav-18.1.0-windows-vendor-sources.tar.gz
+The same application release must supply that archive, manifest.json and SHA256SUMS,
+and link the archive from its download page and third-party notices. A temporary CI
+artifact or this filename without an accessible source download is not a source offer.
+
+The collection contains pinned PyAV/pyav-ffmpeg sources, all declared vendor sources,
+MSYS2 package recipes, original local/external patches, native runtime sources and
+build/install instructions. See recipe/lock.json and sources.json for versions, source
+URLs, checksums and the original Windows build job. To rebuild, use the archived
+upstream workflows/scripts and the exact MSYS2 recipes. Vendor source archives go in
+the upstream pyav-ffmpeg source/ directory; MSYS recipe source inputs go beside their
+PKGBUILD files. The native mingw-w64 archive contains the recorded checkout contents;
+initialize a Git checkout at the recorded revision when using its Git-based PKGBUILD.
+Keep the shared libraries replaceable and preserve the applicable license rights,
+including modification and debugging rights; do not add incompatible restrictions.
+
+Source collection and SHA256 verification have been exercised. This does NOT establish
+that the original wheel has been rebuilt byte-for-byte: no wheel compilation was run.
+It also does not establish installer readiness, codec patent clearance or legal compliance.
