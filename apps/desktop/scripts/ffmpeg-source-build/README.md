@@ -23,6 +23,8 @@ This directory owns the manual [FFmpeg workflow](../../../../.github/workflows/m
 
 [lock.json](lock.json) pins the BtbN build scripts, FFmpeg 9.0.2 source revision, and Linux amd64 downloader/toolchain container digests. The selected dependency root is x264/libass/zlib; BtbN resolves its own transitive dependencies and their pinned source revisions. This is not Gyan's binary or its full feature set. The generated configuration includes fonts, iconv, XML and subtitle support; it does not request the unrelated GPU, AV1, x265 or network-library dependencies from BtbN's full build.
 
+The pinned Mingw source already initializes its stack-protection guard with constructor priority zero. The recipe replaces BtbN's obsolete constructor edit with an exact assertion of that priority; an unexpected source or build-script revision fails rather than weakening stack protection. This local build-script adjustment is included in the archived patch.
+
 The build needs Linux amd64, Python 3.11+, Bash, Git, Docker with buildx, network access to the pinned public repositories/images, and sufficient temporary disk space for those images and source caches. It invokes no host package installer. GitHub's dedicated Ubuntu job cross-compiles; a separate Windows job executes the resulting PE binaries. Source downloads happen before compilation; dependency compilation and FFmpeg compilation run with Docker networking disabled.
 
 <a id="build-and-rebuild"></a>

@@ -23,6 +23,8 @@ description: "离线 muse-med 安装包所用的固定版本 Windows x64 FFmpeg 
 
 [lock.json](lock.json) 固定 BtbN 构建脚本、FFmpeg 9.0.2 源码版本以及 Linux amd64 下载器／工具链容器摘要。选定的依赖根为 x264/libass/zlib；BtbN 解析其自身的传递依赖及固定源码版本。这不是 Gyan 二进制，也不包含它的全部功能。生成配置包含字体、iconv、XML 与字幕支持；不请求 BtbN 完整构建中无关的 GPU、AV1、x265 或网络库依赖。
 
+固定版本的 Mingw 源码已用优先级为零的构造函数初始化栈保护 guard。构建配方将 BtbN 已过时的构造函数修改替换为对该优先级的精确断言；遇到非预期源码或构建脚本版本时会失败，而不会削弱栈保护。这项本地构建脚本调整包含在归档补丁中。
+
 构建需要 Linux amd64、Python 3.11+、Bash、Git、带 buildx 的 Docker、访问固定公开仓库／镜像的网络，以及容纳镜像和源码缓存的临时磁盘空间。它不调用宿主包安装器。GitHub 专用 Ubuntu job 执行交叉编译；独立 Windows job 运行产出的 PE 二进制。源码在编译前下载；依赖编译和 FFmpeg 编译均在 Docker 禁网条件下运行。
 
 <a id="build-and-rebuild"></a>

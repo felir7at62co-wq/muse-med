@@ -2,7 +2,10 @@
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -52,6 +55,33 @@ class SourceBuildTests(unittest.TestCase):
         (builder / 'Dockerfile').write_text('FROM unreviewed:latest\n', encoding='utf-8')
         with self.assertRaises(ValueError):
             self.module.pin_generated_inputs(builder, self.lock)
+
+    def test_mingw_guard_accepts_only_the_pinned_priority_zero_constructor(self):
+        shell = (Path(os.environ.get('ProgramFiles', 'C:/Program Files')) / 'Git/bin/bash.exe'
+                 if os.name == 'nt' else shutil.which('bash'))
+        if not shell or not Path(shell).is_file():
+            self.skipTest('Bash unavailable; Linux cross-build job runs this check')
+        builder = self.root / 'builder'
+        stage = builder / 'scripts.d/10-mingw.sh'
+        stage.parent.mkdir(parents=True)
+        stage.write_text("    sed -zi 's/__constructor__\\s*)/__constructor__(0))/g; t; q1' "
+                         "mingw-w64-crt/ssp/stack_chk_guard.c\n", encoding='utf-8')
+        self.assertTrue(hasattr(self.module, 'patch_mingw_guard'), 'pinned Mingw source already has priority zero')
+        self.module.patch_mingw_guard(builder)
+        guard = builder / 'mingw-w64-crt/ssp/stack_chk_guard.c'
+        guard.parent.mkdir(parents=True)
+        for source, succeeds in [('__attribute__((constructor(0)))\n', True),
+                                 ('__attribute__((constructor(1)))\n', False),
+                                 ('__attribute__((__constructor__))\n', False)]:
+            with self.subTest(source=source):
+                guard.write_text(source, encoding='utf-8', newline='\n')
+                result = subprocess.run([str(shell), 'scripts.d/10-mingw.sh'], cwd=builder,
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                self.assertEqual(result.returncode == 0, succeeds)
+                self.assertEqual(guard.read_text(), source)
+        stage.write_text('unexpected upstream script\n', encoding='utf-8')
+        with self.assertRaises(ValueError):
+            self.module.patch_mingw_guard(builder)
 
     def make_inputs(self):
         for relative, content in {

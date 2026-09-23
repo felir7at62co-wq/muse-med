@@ -82,6 +82,17 @@ def checkout(repository, commit, destination):
     run(['git', '-C', str(destination), 'checkout', '--detach', commit])
 
 
+def patch_mingw_guard(builder):
+    """Require the pinned Mingw source's existing SSP priority instead of reapplying an obsolete patch."""
+    stage = builder / 'scripts.d' / '10-mingw.sh'
+    text = stage.read_text(encoding='utf-8')
+    text = replace_once(text,
+                        "sed -zi 's/__constructor__\\s*)/__constructor__(0))/g; t; q1' "
+                        'mingw-w64-crt/ssp/stack_chk_guard.c',
+                        "grep -Fxq '__attribute__((constructor(0)))' mingw-w64-crt/ssp/stack_chk_guard.c")
+    stage.write_text(text, encoding='utf-8', newline='\n')
+
+
 def prepare_sources(work, lock):
     """Resolve the minimal BtbN dependency graph and retain every source input before compiling."""
     builder, ffmpeg = work / 'builder', work / 'ffmpeg'
@@ -96,6 +107,7 @@ def prepare_sources(work, lock):
     if count != 1:
         raise ValueError('Missing upstream dependency root')
     final.write_text(text, encoding='utf-8', newline='\n')
+    patch_mingw_guard(builder)
     # BtbN generates image names from this value; do not inherit the application's repository name.
     env = {**os.environ, 'GITHUB_REPOSITORY': 'BtbN/FFmpeg-Builds', 'REGISTRY_OVERRIDE': 'ghcr.io'}
     run(['bash', 'generate.sh', 'win64', 'gpl', '9.0'], cwd=builder, env=env)
