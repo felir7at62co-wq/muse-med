@@ -196,9 +196,10 @@ class SourceBuildTests(unittest.TestCase):
 
     def test_resolved_source_outside_cache_refuses_packaging_without_link_privileges(self):
         builder, ffmpeg, runtime, evidence = self.make_inputs()
-        alias = builder / '.cache/downloads/dep.tar.xz'
+        alias = (builder / '.cache/downloads/dep.tar.xz').resolve()
         outside = self.root / 'outside-source.tar.xz'
         outside.write_bytes(b'outside cache')
+        outside = outside.resolve()
         resolve = Path.resolve
         def resolved(path, *args, **kwargs):
             return outside if path == alias else resolve(path, *args, **kwargs)
