@@ -47,7 +47,7 @@ describe('tool-jubian registration', () => {
   it('registers the domain tools and background watcher', async () => {
     const tools = (await mount()).registered
     expect(tools.map(tool => tool.name).sort()).toEqual(
-      ['jubian_asset', 'jubian_catalog', 'jubian_media', 'jubian_model', 'jubian_organize', 'jubian_storyboard', 'jubian_video', 'jubian_watch'])
+      ['jubian_asset', 'jubian_catalog', 'jubian_find', 'jubian_media', 'jubian_model', 'jubian_organize', 'jubian_storyboard', 'jubian_video', 'jubian_watch'])
   })
 
   it('states the paid and side-effecting nature in the description itself', async () => {

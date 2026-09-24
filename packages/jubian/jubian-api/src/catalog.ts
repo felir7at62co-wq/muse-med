@@ -28,6 +28,12 @@ function optionalText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null
 }
 
+/**
+ * Read one of the provider's non-negative integers, which it spells as a number
+ * on some rows and as its decimal string on others. A value it does not send, or
+ * one that is not a whole non-negative number, reads as `null` rather than
+ * failing the page: a field the provider omits never breaks a caller.
+ */
 function optionalCount(value: unknown): number | null {
   const candidate = typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value) ? Number(value) : value
   return typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate >= 0 ? candidate : null
@@ -89,6 +95,8 @@ export interface ScriptRow {
   manuscript_name: string | null
   /** Declared episode count, or null when the row carried no readable number. */
   episode_count: number | null
+  /** `scriptStyle`, the provider's own production-style code, or null when the row carried none. */
+  script_style: number | null
   /** The pool state name, such as `pending_leader_claim`; null when the row carries none. */
   status: string | null
   /** `canClaim` for the calling account, or null when the row carried no boolean. */
@@ -137,6 +145,7 @@ export function readScriptList(data: unknown): { total: number; rows: ScriptRow[
     script_name: optionalText(item.scriptName),
     manuscript_name: optionalText(item.manuscriptName),
     episode_count: optionalCount(item.episodeCount),
+    script_style: optionalCount(item.scriptStyle),
     status: optionalText(item.status),
     can_claim: optionalFlag(item.canClaim),
     claim_leader_name: optionalText(item.claimLeaderName),

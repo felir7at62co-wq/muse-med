@@ -5,8 +5,9 @@ import { MAX_MATCHES, MAX_SCAN_PAGES, findMethod } from '../src/find.ts'
 /** The caller's own canvas projects, as `/aigc/script/list` lists them. */
 const MINE = [
   { id: 2708, scriptName: '山海自有相逢处', manuscriptName: '山海自有相逢处（v3）',
-    episodeCount: 60, status: 'in_production' },
-  { id: 2711, scriptName: 'My   Drama', manuscriptName: '风起  第二季', episodeCount: 12, status: null },
+    episodeCount: 60, status: 'in_production', scriptStyle: 0 },
+  { id: 2711, scriptName: 'My   Drama', manuscriptName: '风起  第二季', episodeCount: 12, status: null,
+    scriptStyle: 1 },
   { id: 2712, scriptName: '拼车惊魂', manuscriptName: '拼车惊魂', episodeCount: 48,
     status: 'produce_finished' },
 ]
@@ -56,6 +57,7 @@ interface Match {
   manuscript_name: string | null
   episode_count: number | null
   status: string | null
+  script_style?: number | null
   can_claim?: boolean | null
 }
 
@@ -65,7 +67,7 @@ describe('findMethod over the caller\'s own projects', () => {
     const byScriptName = await findMethod(client, { scope: 'mine', name: '山海自有' })
     expect(byScriptName.matches).toEqual([
       { script_id: 2708, script_name: '山海自有相逢处', manuscript_name: '山海自有相逢处（v3）',
-        episode_count: 60, status: 'in_production' },
+        episode_count: 60, status: 'in_production', script_style: 0 },
     ])
 
     const byManuscript = await findMethod(client, { scope: 'mine', name: 'v3）' })
@@ -100,7 +102,85 @@ describe('findMethod over the caller\'s own projects', () => {
     const { client } = stubClient(paged(MINE))
     const result = await findMethod(client, { scope: 'mine', name: '拼车' })
     expect(Object.keys((result.matches as Match[])[0]!).sort()).toEqual(
-      ['episode_count', 'manuscript_name', 'script_id', 'script_name', 'status'])
+      ['episode_count', 'manuscript_name', 'script_id', 'script_name', 'script_style', 'status'])
+  })
+
+  it('returns script_style in every match', async () => {
+    const { client } = stubClient(paged(MINE))
+    const stated = await findMethod(client, { scope: 'mine', name: '山海' })
+    expect(stated.matches).toEqual([
+      { script_id: 2708, script_name: '山海自有相逢处', manuscript_name: '山海自有相逢处（v3）',
+        episode_count: 60, status: 'in_production', script_style: 0 },
+    ])
+
+    const threeD = await findMethod(client, { scope: 'mine', name: 'drama' })
+    expect(threeD.matches).toMatchObject([{ script_id: 2711, script_style: 1 }])
+
+    // A row the provider sent no style for reports null instead of a guessed one.
+    const absent = await findMethod(client, { scope: 'mine', name: '拼车' })
+    expect(absent.matches).toMatchObject([{ script_id: 2712, script_style: null }])
+  })
+})
+
+describe('findMethod over the 漫剧 project lists', () => {
+  it('forwards production_type and share_target_type as productionType and shareTargetType', async () => {
+    const { calls, client } = stubClient(paged(MINE))
+    await findMethod(client, { scope: 'mine', production_type: 0, share_target_type: 1 })
+    // Captured from the console's own 漫剧视频 request; the values are the
+    // provider's codes and this tool interprets neither of them.
+    expect(calls).toEqual([{ method: 'GET',
+      path: 'https://web.jubianai.net/prod-api/aigc/script/list'
+        + '?pageNum=1&pageSize=20&productionType=0&shareTargetType=1' }])
+  })
+
+  it('forwards each parameter on its own and leaves an absent one out of the query', async () => {
+    const production = stubClient(paged(MINE))
+    await findMethod(production.client, { scope: 'mine', production_type: 0 })
+    expect(production.calls[0]!.path).toBe('https://web.jubianai.net/prod-api/aigc/script/list'
+      + '?pageNum=1&pageSize=20&productionType=0')
+
+    const share = stubClient(paged(MINE))
+    await findMethod(share.client, { scope: 'mine', share_target_type: 1 })
+    expect(share.calls[0]!.path).toBe('https://web.jubianai.net/prod-api/aigc/script/list'
+      + '?pageNum=1&pageSize=20&shareTargetType=1')
+
+    const plain = stubClient(paged(MINE))
+    await findMethod(plain.client, { scope: 'mine' })
+    expect(plain.calls[0]!.path).toBe('https://web.jubianai.net/prod-api/aigc/script/list'
+      + '?pageNum=1&pageSize=20')
+  })
+
+  it('repeats both parameters on every page of a scan', async () => {
+    const { calls, client } = stubClient(paged(MINE))
+    const result = await findMethod(client, { scope: 'mine', name: '不存在', page_size: 2,
+      production_type: 0, share_target_type: 1 })
+    expect(calls).toHaveLength(2)
+    expect(calls[0]!.path).toContain('pageNum=1&pageSize=2&productionType=0&shareTargetType=1')
+    expect(calls[1]!.path).toContain('pageNum=2&pageSize=2&productionType=0&shareTargetType=1')
+    expect(result).toMatchObject({ total: 3, scanned_pages: 2, complete: true, returned: 0 })
+  })
+
+  it('refuses both parameters on the claimable pool instead of ignoring them', async () => {
+    const { calls, client } = stubClient(paged(POOL))
+    expect(await codeOf(() => findMethod(client, { scope: 'pool', production_type: 0 })))
+      .toBe('INVALID_ARGUMENT')
+    expect(await codeOf(() => findMethod(client, { scope: 'pool', share_target_type: 1 })))
+      .toBe('INVALID_ARGUMENT')
+    const chinese = /[\u4e00-\u9fff]/
+    await expect(findMethod(client, { scope: 'pool', production_type: 0 })).rejects.toThrow(chinese)
+    await expect(findMethod(client, { scope: 'pool', share_target_type: 1 })).rejects.toThrow(chinese)
+    expect(calls).toEqual([])
+  })
+
+  it('refuses a value that is not an integer, before any request leaves', async () => {
+    const { calls, client } = stubClient(paged(MINE))
+    for (const value of [1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 2]) {
+      expect(await codeOf(() => findMethod(client, { scope: 'mine', production_type: value })))
+        .toBe('INVALID_ARGUMENT')
+      expect(await codeOf(() => findMethod(client, { scope: 'mine', share_target_type: value })))
+        .toBe('INVALID_ARGUMENT')
+    }
+    expect(calls).toEqual([])
   })
 })
 

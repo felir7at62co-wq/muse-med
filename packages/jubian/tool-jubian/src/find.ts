@@ -47,6 +47,10 @@ export interface FindArgs {
   page_size?: number
   /** `pool` only: the provider's own status name to filter by. */
   status?: string
+  /** `mine` only: the provider's own `productionType` code, forwarded verbatim. */
+  production_type?: number
+  /** `mine` only: the provider's own `shareTargetType` code, forwarded verbatim. */
+  share_target_type?: number
 }
 
 /**
@@ -78,6 +82,24 @@ function paging(args: FindArgs): { num: number; size: number } {
   return { num, size }
 }
 
+/**
+ * Read one of the provider's own filter codes.
+ *
+ * The tool forwards these verbatim and interprets neither, so the only rule it
+ * can enforce is that the code is a whole number the provider could accept.
+ * @param name - The query parameter name, which is the provider's own spelling.
+ * @param value - The caller's value, or undefined when it was not supplied.
+ * @returns The query fragment, empty when the caller supplied no value.
+ * @throws {JubianError} `INVALID_ARGUMENT` when the value is not a safe integer.
+ */
+function codeQuery(name: string, value: number | undefined): string {
+  if (value === undefined) return ''
+  if (!Number.isSafeInteger(value)) {
+    throw new JubianError('INVALID_ARGUMENT', `${name} 必须是整数——其取值由提供方定义，本工具不解释也不校验`)
+  }
+  return `&${name}=${value}`
+}
+
 /** The one normalization both the query and the provider's names go through. */
 function normalized(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLowerCase()
@@ -99,10 +121,11 @@ function matchesName(row: ScriptRow, needle: string): boolean {
  * pages covered `total` — a scan that hit {@link MAX_SCAN_PAGES} reports
  * `complete: false` and names that bound in `scan_page_limit`.
  * @param client - Jubian transport.
- * @param args - Scope, optional name fragment, paging and the pool-only status filter.
+ * @param args - Scope, optional name fragment, paging, the pool-only status filter and the
+ *   mine-only provider filter codes.
  * @returns The matches, the fields read for each, and how completely the scope was scanned.
- * @throws {JubianError} `INVALID_ARGUMENT` for a scope or a paging value this tool cannot send,
- *   `CONTRACT_CHANGED` for a payload that is not a screenplay list.
+ * @throws {JubianError} `INVALID_ARGUMENT` for a scope, a filter or a paging value this tool
+ *   cannot send, `CONTRACT_CHANGED` for a payload that is not a screenplay list.
  */
 export async function findMethod(client: JubianClient, args: FindArgs): Promise<Record<string, unknown>> {
   const scope = scopeOf(args.scope)
@@ -110,6 +133,14 @@ export async function findMethod(client: JubianClient, args: FindArgs): Promise<
   if (status !== undefined && scope !== 'pool') {
     throw new JubianError('INVALID_ARGUMENT', 'status 只适用于 scope=pool：自己的画布项目没有池子状态')
   }
+  const mineOnly = args.production_type !== undefined || args.share_target_type !== undefined
+  if (mineOnly && scope !== 'mine') {
+    throw new JubianError('INVALID_ARGUMENT',
+      'production_type 与 share_target_type 只适用于 scope=mine（自己的画布项目，含漫剧视频）'
+      + '：可认领剧本池不按它们过滤')
+  }
+  const codes = codeQuery('productionType', args.production_type)
+    + codeQuery('shareTargetType', args.share_target_type)
   const { num, size } = paging(args)
   const raw = args.name
   const needle = raw === undefined ? undefined : normalized(raw)
@@ -123,7 +154,7 @@ export async function findMethod(client: JubianClient, args: FindArgs): Promise<
   for (;;) {
     const result = await client.request({ method: 'GET',
       path: `${PATHS[scope]}?pageNum=${num + scannedPages}&pageSize=${size}`
-        + (status === undefined ? '' : `&status=${encodeURIComponent(status)}`) })
+        + (status === undefined ? '' : `&status=${encodeURIComponent(status)}`) + codes })
     const page = readScriptList(result.data)
     total = page.total
     scannedPages += 1
@@ -151,6 +182,8 @@ export async function findMethod(client: JubianClient, args: FindArgs): Promise<
     truncated: matches.length > returned.length, scan_page_limit: MAX_SCAN_PAGES,
     matches: returned.map(row => ({ script_id: row.script_id, script_name: row.script_name,
       manuscript_name: row.manuscript_name, episode_count: row.episode_count, status: row.status,
+      // Every `mine` row carries the style the caller needs to tell 真人 from 漫剧;
+      // the pool rows were not measured as carrying it, so it stays out there.
       ...(poolOnly ? { can_claim: row.can_claim, claim_leader_name: row.claim_leader_name,
-        claim_member_name: row.claim_member_name } : {}) })) }
+        claim_member_name: row.claim_member_name } : { script_style: row.script_style }) })) }
 }

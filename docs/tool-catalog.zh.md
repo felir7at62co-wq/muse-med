@@ -2808,7 +2808,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 
 ### `jubian_find`
 
-按名字查找剧变（Jubian）剧本。只读、免费，不需要 idempotency_key，也不改变任何远端状态。两个 scope：mine=你自己名下的画布项目（`GET /aigc/script/list`）；pool=可认领的剧本池（`GET /script/center/pool/list`）。name 先去掉首尾空白、把内部连续空白并成一个空格、忽略大小写，再同时匹配 scriptName 与 manuscriptName 的子串——没有拼音、别名或模糊匹配，差一个字就是没找到。page_size 只限制单次请求的条数，不是扫描上限：工具会一直翻页，直到读完 total、某一页为空，或达到 scan_page_limit（页数上限，返回值里有）。complete=false 表示这次没有覆盖 total（或用了页数上限），不要读成"就这些"；scanned_pages 是实际请求的页数。returned 是本次返回的匹配数，truncated=true 表示匹配列表被输出上限截断（扫描本身可能已完整）。每条匹配给出 script_id、script_name、manuscript_name、episode_count、status；scope=pool 时另有 can_claim、claim_leader_name、claim_member_name。省略 name 就是列出该 scope 的第一页（page_size 条），不是错误。status 只对 pool 有效，会原样作为查询参数转发；给 mine 传 status 会被拒绝，不会静默忽略。它不写账本、不检查预算、不重试。响应读不懂时直接报 CONTRACT_CHANGED，绝不把读不懂的响应当成"没找到"——漏本和没本必须能区分。
+按名字查找剧变（Jubian）剧本。只读、免费，不需要 idempotency_key，也不改变任何远端状态。两个 scope：mine=你自己名下的画布项目（`GET /aigc/script/list`）；pool=可认领的剧本池（`GET /script/center/pool/list`）。name 先去掉首尾空白、把内部连续空白并成一个空格、忽略大小写，再同时匹配 scriptName 与 manuscriptName 的子串——没有拼音、别名或模糊匹配，差一个字就是没找到。page_size 只限制单次请求的条数，不是扫描上限：工具会一直翻页，直到读完 total、某一页为空，或达到 scan_page_limit（页数上限，返回值里有）。complete=false 表示这次没有覆盖 total（或用了页数上限），不要读成"就这些"；scanned_pages 是实际请求的页数。returned 是本次返回的匹配数，truncated=true 表示匹配列表被输出上限截断（扫描本身可能已完整）。每条匹配给出 script_id、script_name、manuscript_name、episode_count、status 与 script_style；scope=pool 时另有 can_claim、claim_leader_name、claim_member_name，但没有 script_style——这个字段只有 mine 的行被实测到。省略 name 就是列出该 scope 的第一页（page_size 条），不是错误。status 只对 pool 有效，会原样作为查询参数转发；给 mine 传 status 会被拒绝，不会静默忽略。production_type 与 share_target_type 只对 mine 有效，同样原样转发为 productionType 与 shareTargetType；控制台打开「漫剧视频」时发的就是 productionType=0 + shareTargetType=1，要列漫剧项目就传这两个值。两个取值都是提供方自己的编码，本工具不解释、不校验、也不设默认值，省略就不出现在查询串里；给 pool 传会被拒绝。它不写账本、不检查预算、不重试。响应读不懂时直接报 CONTRACT_CHANGED，绝不把读不懂的响应当成"没找到"——漏本和没本必须能区分。
 
 ```json
 {
@@ -2837,6 +2837,14 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
     "status": {
       "type": "string",
       "description": "可选，仅 scope=pool：按池子状态过滤，原样转发（例如 returned、claimed、pending_leader_claim）。状态名由提供方定义，本工具不解释也不校验。"
+    },
+    "production_type": {
+      "type": "number",
+      "description": "可选，仅 scope=mine：按提供方自己的 productionType 编码过滤，原样转发为查询参数 productionType。控制台打开「漫剧视频」时发的是 productionType=0，所以要列漫剧项目就传 0；这个编码由提供方定义，本工具不解释也不校验取值，省略就不出现在查询串里。"
+    },
+    "share_target_type": {
+      "type": "number",
+      "description": "可选，仅 scope=mine：按提供方自己的 shareTargetType 编码过滤，原样转发为查询参数 shareTargetType。控制台打开「漫剧视频」时发的是 shareTargetType=1，所以要列漫剧项目就传 1；这个编码由提供方定义，本工具不解释也不校验取值，省略就不出现在查询串里。"
     }
   },
   "required": [

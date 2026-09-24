@@ -66,6 +66,7 @@ const SCRIPT_READ = {
   can_claim: true,
   claim_leader_name: '杨礼楷',
   claim_member_name: null,
+  script_style: null,
 }
 
 /** The stable code a throwing call produced, or undefined when it did not throw. */
@@ -90,7 +91,18 @@ describe('readScriptList', () => {
   it('projects only the promised fields', () => {
     expect(Object.keys(readScriptList({ code: 200, total: 1, rows: [SCRIPT_ROW] }).rows[0]!).sort())
       .toEqual(['can_claim', 'claim_leader_name', 'claim_member_name', 'episode_count', 'manuscript_name',
-        'script_id', 'script_name', 'status'])
+        'script_id', 'script_name', 'script_style', 'status'])
+  })
+
+  it('reads the provider\'s scriptStyle code, and null when the row carries none', () => {
+    const style = (row: Record<string, unknown>): unknown =>
+      readScriptList({ code: 200, total: 1, rows: [{ id: 2708, ...row }] }).rows[0]?.script_style
+    expect(style({ scriptStyle: 0 })).toBe(0)
+    expect(style({ scriptStyle: 1 })).toBe(1)
+    expect(style({ scriptStyle: '1' })).toBe(1)
+    expect(style({ scriptStyle: null })).toBeNull()
+    expect(style({})).toBeNull()
+    expect(style({ scriptStyle: '3D' })).toBeNull()
   })
 
   it('fails loud on a payload that is neither list shape', () => {
@@ -114,7 +126,7 @@ describe('readScriptList', () => {
   it('leaves every field the provider did not send null', () => {
     expect(readScriptList({ code: 200, total: 1, rows: [{ id: '412' }] })).toEqual({ total: 1, rows: [
       { script_id: 412, script_name: null, manuscript_name: null, episode_count: null, status: null,
-        can_claim: null, claim_leader_name: null, claim_member_name: null },
+        can_claim: null, claim_leader_name: null, claim_member_name: null, script_style: null },
     ] })
   })
 
