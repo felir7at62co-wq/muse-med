@@ -12,7 +12,7 @@ import Tools, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { expect, it, vi } from 'vitest'
 import NativePreset from '../../desktop-host/src/native-preset.ts'
 
-it.each(['standard', 'ptc', 'minimal'])('includes native %s without changing its source or registering another skill provider', async (preset) => {
+it.each(['standard', 'ptc'])('includes native %s without changing its source or registering another skill provider', async (preset) => {
   const path = join(SHIPPED_PRESET_ROOT, preset, 'agent.cordis.yml')
   const before = await readFile(path, 'utf8')
   const ctx = new Context()
@@ -48,10 +48,9 @@ it.each(['standard', 'ptc', 'minimal'])('includes native %s without changing its
     expect(imported).toContain('@deepseek-ai/dsh-persona')
     expect(fromNativeTree.some(Boolean)).toBe(false)
     expect(imported).not.toContain('@deepseek-ai/dsh-skill-filesystem')
-    if (preset !== 'minimal') expect(imported).toContain('@deepseek-ai/dsh-tool-skill')
-    else expect(imported).not.toContain('@deepseek-ai/dsh-tool-skill')
+    expect(imported).toContain('@deepseek-ai/dsh-tool-skill')
     const scopedNames = ctx.get('tools')!.schemas(key).map(tool => tool.name)
-    expect(scopedNames.includes('global-paid-tool')).toBe(preset !== 'minimal')
+    expect(scopedNames).toContain('global-paid-tool')
     expect(ctx.get('tools')!.schemas({}).map(tool => tool.name)).toContain('global-paid-tool')
     await handle.dispose()
     expect(ctx.get('tools')!.schemas(key).map(tool => tool.name)).toContain('global-paid-tool')

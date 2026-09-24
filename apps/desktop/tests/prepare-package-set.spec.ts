@@ -100,7 +100,7 @@ describe('desktop package-set selection', () => {
       'package/presets/short-drama-local/agent.cordis.yml',
       'package/presets/short-drama-local/preset.yml',
       'package/lib/native-preset.js',
-      ...['standard', 'ptc', 'minimal'].flatMap(id => [
+      ...['standard', 'ptc'].flatMap(id => [
         `package/presets/${id}/agent.cordis.yml`, `package/presets/${id}/preset.yml`,
       ]),
     ]

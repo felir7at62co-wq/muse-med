@@ -24,8 +24,6 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   'presets/standard/preset.yml',
   'presets/ptc/agent.cordis.yml',
   'presets/ptc/preset.yml',
-  'presets/minimal/agent.cordis.yml',
-  'presets/minimal/preset.yml',
 ] as const
 
 /** Community packages built from pinned source, never substituted from the npm registry. */

@@ -18,7 +18,7 @@ import { expect, it } from 'vitest'
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
 
-it('loads exactly four product modes without discovering other shipped or personal presets', async () => {
+it('loads exactly the three product modes without discovering other shipped or personal presets', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-product-preset-'))
   const ctx = new Context()
   try {
@@ -51,7 +51,7 @@ it('loads exactly four product modes without discovering other shipped or person
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['minimal', 'ptc', 'short-drama-local', 'standard'])
+    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['ptc', 'short-drama-local', 'standard'])
     expect(ctx.agentPresets.defaultId).toBe('short-drama-local')
     expect(ctx.agentPresets.authorable).toBe(false)
     const source = await ctx.agentPresets.read('short-drama-local')

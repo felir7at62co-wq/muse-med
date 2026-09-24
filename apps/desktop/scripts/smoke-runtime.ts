@@ -20,7 +20,7 @@ export async function apply(ctx) {
   const root = ${JSON.stringify(root)}
   const home = ${JSON.stringify(home)}
   try {
-  const ids = ['short-drama-local', 'standard', 'ptc', 'minimal']
+  const ids = ['short-drama-local', 'ptc', 'standard']
   const presets = await ctx.agentPresets.list()
   if (presets.length !== ids.length || ids.some(id => !presets.some(preset => preset.id === id))) {
     throw new Error('desktop runtime: expected exactly the four product presets')
@@ -43,12 +43,11 @@ export async function apply(ctx) {
     for (const handle of handles) {
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
-    const required = id === 'minimal' ? [shell] : id !== 'short-drama-local' ? ['read', 'skill', shell, 'subagent'] : ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video',
+    const required = id === 'short-drama-local' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
       'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'read', 'present',
-      process.platform === 'win32' ? 'pwsh' : 'bash']
+      process.platform === 'win32' ? 'pwsh' : 'bash'] : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
-    if (id === 'minimal' && names.size !== 1) throw new Error('desktop runtime: Minimal inherited non-shell tools')
     if (id === 'ptc' && (!names.has('run_code') || names.has('workflow'))) throw new Error('desktop runtime: PTC tool presentation is incomplete')
     const skills = await ctx.skills.list({ scope: handle.agent, cwd: home })
     const custom = skills.find(skill => skill.name === 'desktop-user-skill')

@@ -11,17 +11,24 @@ interface NativePresetConfig {
   preset: string
 }
 
-/** Include the native composition while inheriting the product's Host skill provider. */
+/**
+ * Include one upstream coding composition while inheriting the product's Host
+ * skill provider.
+ *
+ * Only `standard` and `ptc` are adapted: the upstream `minimal` composition
+ * keeps its shell inside a nested group, and a group's rows are not imported
+ * into a composition nested this way, so that mode would mount without its only
+ * tool.
+ */
 export default class NativePreset extends Include {
   static override inject = ['loader', 'tools']
 
   constructor(ctx: Context, config: NativePresetConfig) {
-    if (!['standard', 'ptc', 'minimal'].includes(config.preset)) throw new Error('desktop: unsupported native product preset')
+    if (!['standard', 'ptc'].includes(config.preset)) throw new Error('desktop: unsupported native product preset')
     super(ctx, {
       path: pathToFileURL(join(SHIPPED_PRESET_ROOT, config.preset, 'agent.cordis.yml')).href,
-      patches: config.preset === 'minimal' ? [] : [{ id: 'skill-filesystem', disabled: true }],
+      patches: [{ id: 'skill-filesystem', disabled: true }],
     })
-    if (config.preset === 'minimal') ctx.tools.restrict({ allow: [] })
   }
 
   /**

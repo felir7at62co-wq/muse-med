@@ -17,7 +17,7 @@ function fixture() {
   roots.push(root)
   const home = join(root, 'home')
   mkdirSync(home)
-  const ids = ['short-drama-local', 'standard', 'ptc', 'minimal']
+  const ids = ['short-drama-local', 'standard', 'ptc']
   const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
   for (const id of ids) {
     mkdirSync(dirname(presetPath(id)), { recursive: true })
@@ -57,7 +57,7 @@ function fixture() {
     }) }
     tools = { schemas: vi.fn((key: { preset: string }) => {
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
-      return (key.preset === 'short-drama-local' ? names : key.preset === 'minimal' ? [shell]
+      return (key.preset === 'short-drama-local' ? names
         : ['read', 'skill', shell, 'subagent', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
     }) }
     skills = { list: vi.fn(async () => skills) }
@@ -78,8 +78,8 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'short-drama-local')
   expect(f.ctx.tools.schemas).toHaveBeenCalledWith(f.agent)
   expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.home })
-  expect(f.dispose).toHaveBeenCalledTimes(8)
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(8)
+  expect(f.dispose).toHaveBeenCalledTimes(6)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(6)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
@@ -129,14 +129,6 @@ it('rejects a missing native provider rather than reporting a partial roster suc
   const f = fixture()
   f.mount.mockImplementation(async (_context, id) => { if (id === 'ptc') throw new Error('waiting for ptcRuntime') })
   await expect(f.apply(f.ctx)).rejects.toThrow('waiting for ptcRuntime')
-  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
-})
-
-it('rejects inherited paid tools in the Minimal preset', async () => {
-  const f = fixture()
-  const schemas = f.ctx.tools.schemas.getMockImplementation()!
-  f.ctx.tools.schemas.mockImplementation(key => [...schemas(key), ...(key.preset === 'minimal' ? [{ name: 'jubian_video' }] : [])])
-  await expect(f.apply(f.ctx)).rejects.toThrow('Minimal inherited non-shell tools')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
