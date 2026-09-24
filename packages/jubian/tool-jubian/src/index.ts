@@ -25,7 +25,9 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { JUBIAN_TOKEN_REF, JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { assetMethod, catalogMethod, mediaMethod, storyboardMethod, videoMethod } from './methods.ts'
-import type { ImageMethodOptions, MethodArgs } from './methods.ts'
+import type { ImageMethodOptions } from './methods.ts'
+import { findMethod } from './find.ts'
+import type { FindArgs } from './find.ts'
 import { seriesBudgetLimit } from './budget-settings.ts'
 import { JubianImageRoutes, pinnedImageSelection } from './image.ts'
 import type { ImageRouteConfig } from './image.ts'
@@ -244,17 +246,16 @@ const OUTPUT = {
  * argument its method cannot run without fails without a request, a ledger line
  * or any provider state change.
  * @param tool - Registered tool name, which keys {@link REQUIRED_ARGUMENTS}.
- * @param run - The domain method, given the validated argument bag.
+ * @param run - The domain method, given the argument bag its own signature declares.
  * @returns An execute function for `defineTool`.
  */
-function guarded(
+function guarded<A>(
   tool: string,
-  run: (args: MethodArgs) => Promise<Record<string, unknown>>,
+  run: (args: A) => Promise<Record<string, unknown>>,
 ): (args: unknown) => Promise<ToolValue> {
   return async (args: unknown) => {
-    const dispatched = args as MethodArgs
-    requireArguments(tool, dispatched as unknown as { method?: string } & Record<string, unknown>)
-    return await run(dispatched) as ToolValue
+    requireArguments(tool, args as { method?: string } & Record<string, unknown>)
+    return await run(args as A) as ToolValue
   }
 }
 
@@ -309,6 +310,45 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     output: OUTPUT,
     execute: guarded('jubian_catalog', args => catalogMethod(client, args)),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'jubian_find',
+    description: '按名字查找剧变（Jubian）剧本。只读、免费，不需要 idempotency_key，也不改变任何远端状态。'
+      + '两个 scope：mine=你自己名下的画布项目（`GET /aigc/script/list`）；'
+      + 'pool=可认领的剧本池（`GET /script/center/pool/list`）。'
+      + 'name 先去掉首尾空白、把内部连续空白并成一个空格、忽略大小写，再同时匹配 '
+      + 'scriptName 与 manuscriptName 的子串——没有拼音、别名或模糊匹配，差一个字就是没找到。'
+      + 'page_size 只限制单次请求的条数，不是扫描上限：工具会一直翻页，直到读完 total、'
+      + '某一页为空，或达到 scan_page_limit（页数上限，返回值里有）。'
+      + 'complete=false 表示这次没有覆盖 total（或用了页数上限），不要读成"就这些"；'
+      + 'scanned_pages 是实际请求的页数。'
+      + 'returned 是本次返回的匹配数，truncated=true 表示匹配列表被输出上限截断（扫描本身可能已完整）。'
+      + '每条匹配给出 script_id、script_name、manuscript_name、episode_count、status；'
+      + 'scope=pool 时另有 can_claim、claim_leader_name、claim_member_name。'
+      + '省略 name 就是列出该 scope 的第一页（page_size 条），不是错误。'
+      + 'status 只对 pool 有效，会原样作为查询参数转发；给 mine 传 status 会被拒绝，不会静默忽略。'
+      + '它不写账本、不检查预算、不重试。响应读不懂时直接报 CONTRACT_CHANGED，'
+      + '绝不把读不懂的响应当成"没找到"——漏本和没本必须能区分。',
+    parameters: {
+      scope: { type: 'string', required: true, enum: ['mine', 'pool'],
+        description: 'mine=自己名下的画布项目；pool=可认领的剧本池。必填，两者只能选一个。' },
+      name: { type: 'string',
+        description: '可选：要查的名字片段，同时匹配 scriptName 与 manuscriptName 的子串。'
+          + '先去掉首尾空白、内部连续空白并成一个空格、忽略大小写；不支持拼音、别名与模糊匹配。'
+          + '省略就是列出该 scope 的第一页。空白字符串会被拒绝。' },
+      page_num: { type: 'number',
+        description: '可选：从第几页开始扫描，默认 1。它会同时决定 completeness 的起点：'
+          + '第 2 页起要读完的仍是 total 里剩下的部分。' },
+      page_size: { type: 'number',
+        description: '可选：单次请求的条数，默认 20，上限 1000。它只限制一次请求，不限制整次扫描——'
+          + '扫描会翻页读到 total 或达到 scan_page_limit。结果太大时用它调小每次请求。' },
+      status: { type: 'string',
+        description: '可选，仅 scope=pool：按池子状态过滤，原样转发（例如 returned、claimed、'
+          + 'pending_leader_claim）。状态名由提供方定义，本工具不解释也不校验。' },
+    },
+    output: OUTPUT,
+    execute: guarded<FindArgs>('jubian_find', args => findMethod(client, args)),
   }))
 
   ctx.tools.register(defineTool({

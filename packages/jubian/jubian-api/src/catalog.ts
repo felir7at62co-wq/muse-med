@@ -28,6 +28,16 @@ function optionalText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null
 }
 
+function optionalCount(value: unknown): number | null {
+  const candidate = typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value) ? Number(value) : value
+  return typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate >= 0 ? candidate : null
+}
+
+function optionalFlag(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value
+  return value === 1 || value === 0 ? value === 1 : null
+}
+
 /** Model catalogue selectors, as the provider's own `taskType` numbering. */
 export const MODEL_TASK_TYPES = { video: 1, image: 2, subtitleErasure: 10 } as const
 
@@ -67,4 +77,69 @@ export function readEpisodes(data: unknown): { total: number; rows: { episode_id
   return { total: typeof record.total === 'number' && Number.isSafeInteger(record.total) ? record.total : list.length,
     rows: rows(list).map(item => ({ episode_id: positiveInteger(item.id ?? item.episodeId),
       name: optionalText(item.name) })) }
+}
+
+/** One screenplay row as `/aigc/script/list` and `/script/center/pool/list` return it. */
+export interface ScriptRow {
+  /** Provider identity of the screenplay, which every later call addresses it by. */
+  script_id: number
+  /** `scriptName`, the name the console lists the project under. */
+  script_name: string | null
+  /** `manuscriptName`, the name the screenplay manuscript itself carries. */
+  manuscript_name: string | null
+  /** Declared episode count, or null when the row carried no readable number. */
+  episode_count: number | null
+  /** The pool state name, such as `pending_leader_claim`; null when the row carries none. */
+  status: string | null
+  /** `canClaim` for the calling account, or null when the row carried no boolean. */
+  can_claim: boolean | null
+  /** Name of the leader the pool says holds this screenplay, when it names one. */
+  claim_leader_name: string | null
+  /** Name of the member the pool says holds this screenplay, when it names one. */
+  claim_member_name: string | null
+}
+
+/** The object holding `rows`: the payload itself, or the `data` it wraps. */
+function pageCarrier(data: unknown): Record<string, unknown> {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) invalid()
+  const record = data as Record<string, unknown>
+  if (Array.isArray(record.rows)) return record
+  const nested = record.data
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)
+    && Array.isArray((nested as Record<string, unknown>).rows)) {
+    return nested as Record<string, unknown>
+  }
+  invalid()
+}
+
+/**
+ * Read one page of screenplays from either list endpoint.
+ *
+ * These two endpoints are the provider's unwrapped family — `{code, total, rows}`
+ * with no `data` — while the single-object endpoints nest their payload, so both
+ * spellings are accepted. Anything else fails as `CONTRACT_CHANGED` rather than
+ * reading as an empty page: "no screenplay matched" and "this payload was not a
+ * list" must not look the same to a caller. `total` is required for the same
+ * reason, because it is the only bound on how many pages remain unread.
+ * @param data - The unwrapped envelope keys, the enveloped `data`, or a payload
+ *   whose own `data` still nests the page.
+ * @returns The page's own total and its rows projected onto the fields readers promise.
+ */
+export function readScriptList(data: unknown): { total: number; rows: ScriptRow[] } {
+  const page = pageCarrier(data)
+  // Stricter than {@link optionalCount}: a scan's `complete` claim is measured
+  // against this number, so a value that is not the provider's own integer total
+  // stops the call here rather than reading as a complete single-page scan.
+  const total = page.total
+  if (typeof total !== 'number' || !Number.isSafeInteger(total) || total < 0) invalid()
+  return { total, rows: rows(page.rows).map(item => ({
+    script_id: positiveInteger(item.id ?? item.scriptId),
+    script_name: optionalText(item.scriptName),
+    manuscript_name: optionalText(item.manuscriptName),
+    episode_count: optionalCount(item.episodeCount),
+    status: optionalText(item.status),
+    can_claim: optionalFlag(item.canClaim),
+    claim_leader_name: optionalText(item.claimLeaderName),
+    claim_member_name: optionalText(item.claimMemberName),
+  })) }
 }

@@ -43,7 +43,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
-| `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`, `jubian_catalog`, `jubian_media`, `jubian_model`, `jubian_organize`, `jubian_storyboard`, `jubian_video`, `jubian_watch` | `ctx.tools`, `ctx.credentials` | `tool/call`, `tool/result`, `Jubian two-phase write ledger (NDJSON record pairs under its configured root)` | - | Every paid write (image_generate, generate, erase_subtitle, upscale) requires a caller-supplied idempotency_key and records its intent in the ledger before the request leaves; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. |
+| `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`, `jubian_catalog`, `jubian_find`, `jubian_media`, `jubian_model`, `jubian_organize`, `jubian_storyboard`, `jubian_video`, `jubian_watch` | `ctx.tools`, `ctx.credentials` | `tool/call`, `tool/result`, `Jubian two-phase write ledger (NDJSON record pairs under its configured root)` | - | Every paid write (image_generate, generate, erase_subtitle, upscale) requires a caller-supplied idempotency_key and records its intent in the ledger before the request leaves; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. |
 | `@deepseek-ai/dsh-tool-shot-script` | `drama_shot` | `ctx.tools`, `the project layout it reads and writes (episodes/, prompts/, matches/, episode_packages/)` | `tool/call`, `tool/result`, `on compile: the compiled prompt, the matched JSON, and the episode package under the project root` | - | The three methods share one schema: `validate` and `preview` only read, and `compile` writes the matched JSON and the episode package, returning each package's `content_duration_ms`, its submitted whole-second length, and the prompt-ordered `material_keys` that `jubian_storyboard` `select_assets` must match. A script with any hard failure returns that failure list and writes nothing. |
 | `@deepseek-ai/dsh-perception-bgm` | `bgm_match` | `ctx.tools`, `a local track index or configured public catalogue; Python and model resources only for index/inspect` | `tool/call`, `tool/result`, `on index: the local emotion index; on download: verified audio in the configured cache` | - | `match` ranks candidates without choosing a track; public mode returns IDs and URLs without downloading. `download` accepts a selected catalogue track ID and returns a verified local file. The default is local-index mode; public matching requires deployment configuration. `index` and `inspect` start Python only when executed, never during schema collection. The MERT analysis backbone is non-commercial (CC-BY-NC-4.0); audio rights remain separate. |
 | `@deepseek-ai/dsh-tool-bgm-compose` | `drama_bgm` | `ctx.tools`, `ctx.subprocess`, `ffmpeg and ffprobe on PATH (or configured)`, `an episode timeline and explicit BGM plan` | `tool/call`, `tool/result`, `on compose: a 48 kHz stereo PCM WAV and adjacent generation report under the project root` | - | `preview` validates complete story coverage and reports source hashes, offsets, measured mean volume, and gains without publishing; `compose` crossfades the selected tracks and publishes only after the staged WAV passes ffprobe; `verify` measures an existing WAV without rewriting it. The tool does not choose music or call `bgm_match`; the agent owns plot interpretation and final track selection. |
@@ -2798,6 +2798,47 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 
 Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
+### `jubian_find`
+
+按名字查找剧变（Jubian）剧本。只读、免费，不需要 idempotency_key，也不改变任何远端状态。两个 scope：mine=你自己名下的画布项目（`GET /aigc/script/list`）；pool=可认领的剧本池（`GET /script/center/pool/list`）。name 先去掉首尾空白、把内部连续空白并成一个空格、忽略大小写，再同时匹配 scriptName 与 manuscriptName 的子串——没有拼音、别名或模糊匹配，差一个字就是没找到。page_size 只限制单次请求的条数，不是扫描上限：工具会一直翻页，直到读完 total、某一页为空，或达到 scan_page_limit（页数上限，返回值里有）。complete=false 表示这次没有覆盖 total（或用了页数上限），不要读成"就这些"；scanned_pages 是实际请求的页数。returned 是本次返回的匹配数，truncated=true 表示匹配列表被输出上限截断（扫描本身可能已完整）。每条匹配给出 script_id、script_name、manuscript_name、episode_count、status；scope=pool 时另有 can_claim、claim_leader_name、claim_member_name。省略 name 就是列出该 scope 的第一页（page_size 条），不是错误。status 只对 pool 有效，会原样作为查询参数转发；给 mine 传 status 会被拒绝，不会静默忽略。它不写账本、不检查预算、不重试。响应读不懂时直接报 CONTRACT_CHANGED，绝不把读不懂的响应当成"没找到"——漏本和没本必须能区分。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "scope": {
+      "type": "string",
+      "description": "mine=自己名下的画布项目；pool=可认领的剧本池。必填，两者只能选一个。",
+      "enum": [
+        "mine",
+        "pool"
+      ]
+    },
+    "name": {
+      "type": "string",
+      "description": "可选：要查的名字片段，同时匹配 scriptName 与 manuscriptName 的子串。先去掉首尾空白、内部连续空白并成一个空格、忽略大小写；不支持拼音、别名与模糊匹配。省略就是列出该 scope 的第一页。空白字符串会被拒绝。"
+    },
+    "page_num": {
+      "type": "number",
+      "description": "可选：从第几页开始扫描，默认 1。它会同时决定 completeness 的起点：第 2 页起要读完的仍是 total 里剩下的部分。"
+    },
+    "page_size": {
+      "type": "number",
+      "description": "可选：单次请求的条数，默认 20，上限 1000。它只限制一次请求，不限制整次扫描——扫描会翻页读到 total 或达到 scan_page_limit。结果太大时用它调小每次请求。"
+    },
+    "status": {
+      "type": "string",
+      "description": "可选，仅 scope=pool：按池子状态过滤，原样转发（例如 returned、claimed、pending_leader_claim）。状态名由提供方定义，本工具不解释也不校验。"
+    }
+  },
+  "required": [
+    "scope"
+  ]
+}
+```
+
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+
 ### `jubian_media`
 
 把剧变（Jubian）CDN 上的媒体下载到本地文件，返回本地路径、字节数与 sha256。不产生费用、不需要凭证（该 CDN 是公开的）。下载后请用你自己的看图工具（如 read_image）或抽帧工具读取该路径——本工具不会把图片或视频内容放进返回值。
@@ -3399,7 +3440,7 @@ Source: [`packages/drama/tool-bgm-compose/src/index.ts`](../packages/drama/tool-
 
 ### `drama_render`
 
-短剧整集渲染编排（剧变流水线）。subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，字幕文字只取 lines 里的剧本原文，cue 时间 = 该镜在时间线上的起点 + 镜内偏移。**本工具不做识别、不测能量、不估算时间**：能量门限分不出具体哪句在哪里，估算出来的时间正是字幕压在错句上的原因。缺某一镜的对齐、段数与台词条数不符、识别文本与剧本对不上，都按 failure 报出（subtitle_line_coverage），并指出该对哪一镜重跑识别；有识别结果却没声明台词，同样报 failure。写出的每条字幕还会检查时长、重叠、越界与阅读速度（超过 20 字/秒按 failure，超过 12 字/秒按 warning）。对齐时间本身的准确度不由本工具判断，识别模型与语言选择由调用方负责。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。render=出片：逐镜编码到交付规格 1440x2560@60、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1，片尾用最后一镜的真实尾帧定格 2 秒并叠 ending_effect，拼接后烧录 ASS 字幕（SimHei 68、字间距 -2、7px 黑描边、底部居中，右下角唯一的「内容由AI生成」标记），再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。
+短剧整集渲染编排（剧变流水线）。subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，字幕文字只取 lines 里的剧本原文，cue 时间 = 该镜在时间线上的起点 + 镜内偏移。**本工具不做识别、不测能量、不估算时间**：能量门限分不出具体哪句在哪里，估算出来的时间正是字幕压在错句上的原因。缺某一镜的对齐、段数与台词条数不符、识别文本与剧本对不上，都按 failure 报出（subtitle_line_coverage），并指出该对哪一镜重跑识别；有识别结果却没声明台词，同样报 failure。写出的每条字幕还会检查时长、重叠、越界与阅读速度（超过 20 字/秒按 failure，超过 12 字/秒按 warning）。对齐时间本身的准确度不由本工具判断，识别模型与语言选择由调用方负责。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。render=出片：逐镜编码到交付规格 1440x2560@60、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1，片尾用最后一镜的真实尾帧定格 2 秒并叠 ending_effect，拼接后烧录 ASS 字幕（默认 SimHei 68，字体服从部署配置；字间距 -2、7px 黑描边、底部居中，右下角唯一的「内容由AI生成」标记），再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。
 
 ```json
 {

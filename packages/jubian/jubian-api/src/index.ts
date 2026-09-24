@@ -1,5 +1,6 @@
 /** Typed Jubian endpoint readers over the shared Jubian transport. */
-export { MODEL_TASK_TYPES, readEpisodes, readModels, readScript } from './catalog.ts'
+export { MODEL_TASK_TYPES, readEpisodes, readModels, readScript, readScriptList } from './catalog.ts'
+export type { ScriptRow } from './catalog.ts'
 export { readAssetList, readAssetPage, readGeneratedImage, readMaterialList } from './asset.ts'
 export type { AssetDetail, AssetRow, MaterialRow } from './asset.ts'
 export { findFolder, findFolderById, readFolderTree } from './folder.ts'

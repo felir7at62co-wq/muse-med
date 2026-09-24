@@ -1,5 +1,5 @@
 ---
-description: "八个剧变（Jubian）工具：DSH 模型用它们驱动一次制作——目录读取、资产与分镜写入、按类别的命名规范、资产库文件夹与改名、只读的组织视图、本地参考图上传、主体视频的分镜原生通道、计费的图片与视频生成与去字幕，以及提供方媒体下载。"
+description: "九个剧变（Jubian）工具：DSH 模型用它们驱动一次制作——目录读取与剧本名查找、资产与分镜写入、按类别的命名规范、资产库文件夹与改名、只读的组织视图、本地参考图上传、主体视频的分镜原生通道、计费的图片与视频生成与去字幕，以及提供方媒体下载。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-tool-jubian` 给 DSH 模型八个工具，端到端驱动一次剧变制作：目录读取、资产与分镜编辑、资产库文件夹与改名、按「集数 → 类别」的只读组织视图、本地参考图上传、主体视频的分镜原生通道、计费的图片与视频生成、去字幕、转高清，以及媒体下载。读取免费；每个计费或改变状态的调用都需要调用方给出的 `idempotency_key`，插件在请求离开前写一条 intent，在响应返回后写一条 settle。同一个 key 重放不会重复写入；支持对账的方法可以重新读取。
+`dsh-tool-jubian` 给 DSH 模型九个工具，端到端驱动一次剧变制作：目录读取、剧本名查找、资产与分镜编辑、资产库文件夹与改名、按「集数 → 类别」的只读组织视图、本地参考图上传、主体视频的分镜原生通道、计费的图片与视频生成、去字幕、转高清，以及媒体下载。读取免费；每个计费或改变状态的调用都需要调用方给出的 `idempotency_key`，插件在请求离开前写一条 intent，在响应返回后写一条 settle。同一个 key 重放不会重复写入；支持对账的方法可以重新读取。
 
 ## 目录
 
@@ -25,11 +25,11 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在需要读取或改变剧变制作的任意 preset 里挂载这一行，然后把任务交给模型；八个工具会把各自的费用写在描述里一起出现。
+在需要读取或改变剧变制作的任意 preset 里挂载这一行，然后把任务交给模型；九个工具会把各自的费用写在描述里一起出现。
 
 ### 何时选择
 
-当 agent 必须查看项目、按集数与类别整理资产、上传本地参考图、保存主体设定选择、准备并提交主体视频、确认出演、生成图片、生成或擦除视频、把成片转成 1080p，或把提供方媒体取回给本地的看图工具时，选择本包。凭证能解析的地方都可以挂载它，因为同一行既服务只读勘察，也服务计费生成。会话完全不接触剧变时不要挂载：无论是否使用，八个 schema 与它们的描述都会一直对模型可见。
+当 agent 必须把一个剧本名解析成它的项目、查看项目、按集数与类别整理资产、上传本地参考图、保存主体设定选择、准备并提交主体视频、确认出演、生成图片、生成或擦除视频、把成片转成 1080p，或把提供方媒体取回给本地的看图工具时，选择本包。凭证能解析的地方都可以挂载它，因为同一行既服务只读勘察，也服务计费生成。会话完全不接触剧变时不要挂载：无论是否使用，九个 schema 与它们的描述都会一直对模型可见。
 
 ### 最小配置
 
@@ -73,7 +73,7 @@ kind: "package-reference"
 
 锁定行有两个去处，设置页优先：**设置 → 短剧 → 资产图生成通道**把选择存进 `drama` 设置段，并按实时目录列出每个候选及其价格；这两个 config 字段则留给没有那个页面的部署。锁定在每次计费调用发生时解析，因此页面上的改动不需要重启就能到达下一次调用；而页面锁定的那一行就是整个选择——旁边的 config 平台会被丢掉，而不是并进一个人并没有做出的锁定里。
 
-生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)是每个受支持字段及其 JSDoc 的穷尽式真源。这一行注入 `tools` 与 `credentials`，在挂载时注册全部八个工具，并挂载两个 Remote 命名空间：设置页调用的 `jubianToken`，以及只为短剧页面的选择器读取账户 `gpt-image-2` 行的 `jubianImage`；既没有按工具启用的开关，也没有单独的一行页面配置。
+生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)是每个受支持字段及其 JSDoc 的穷尽式真源。这一行注入 `tools` 与 `credentials`，在挂载时注册全部九个工具，并挂载两个 Remote 命名空间：设置页调用的 `jubianToken`，以及只为短剧页面的选择器读取账户 `gpt-image-2` 行的 `jubianImage`；既没有按工具启用的开关，也没有单独的一行页面配置。
 
 ### 凭证
 
@@ -112,13 +112,14 @@ inherited process environment (read-only, highest)
 
 读不动的目录报告为 `jubian-image/catalogue-unreadable`，消息就是传输层自己的原因，页面原样显示。这里不缓存：每次调用都重读账户，因为某一行的价格与是否存在属于账户状态，而不是插件状态。
 
-### 八个工具
+### 九个工具
 
-八个注册工具就是全部面向模型的表面。本包不发布系统提示词区段，因此模型需要的每条操作事实都写在工具描述或 schema 描述里。
+九个注册工具就是全部面向模型的表面。本包不发布系统提示词区段，因此模型需要的每条操作事实都写在工具描述或 schema 描述里。
 
 | 工具 | 方法 | 计费与副作用 |
 |---|---|---|
 | `jubian_catalog` | `models`、`rate`、`script`、`episodes` | 只读，不产生费用 |
+| `jubian_find` | `scope`（`mine`、`pool`） | 只读，不产生费用 |
 | `jubian_asset` | `get`、`list`、`materials`、`generated_image` | 只读，不产生费用 |
 | | `confirm_casting` | 用 `GET` 改变远端状态；需要 `idempotency_key` |
 | | `remove` | 不可恢复地删除一个父资产；需要 `idempotency_key` |
@@ -137,6 +138,7 @@ inherited process environment (read-only, highest)
 | `jubian_watch` | `task_id`, `stage` | 只读后台观察；返回当前进程内的 job ID |
 
 - `jubian_catalog` 读取某一任务类型的账户模型目录（`task_type` 1 视频、2 图片、10 去字幕）、用 `standard_id` 读取单个计价标准、用 `script_id` 读取剧本身份，以及它的分集分页。
+- `jubian_find` 在不知道 `script_id` 的情况下按名字定位一个剧本，范围二选一：`mine`——调用方自己名下的画布项目（`GET /aigc/script/list`）；`pool`——可认领的剧本池（`GET /script/center/pool/list`）。`name` 可选，先去掉首尾空白、把内部连续空白并成一个空格、忽略大小写，再匹配 `script_name` 或 `manuscript_name` 的子串；没有拼音、别名或模糊匹配，所以差一个字就是没找到，而不是给出一个看着像的错项目。省略 `name` 就是列出该范围的第一页，而不是报错。`page_size` 只限制单次请求，不限制扫描：工具会一直翻页，直到读完 `total`、某一页为空，或达到 `scan_page_limit`；`complete: false` 表示这次没有覆盖 `total`，不要读成"就这些"，而 `scanned_pages`、`returned` 与 `truncated` 说明实际发生了什么。`status` 原样转发，且只对 `pool` 有效。它不写账本、不需要 `idempotency_key`、不改动任何远端，也不会从池子里认领剧本；读不懂的响应直接报 `CONTRACT_CHANGED`，而不是当成"没找到"，因此漏本和没本仍然能区分。
 - `jubian_asset` 读取单个资产、项目资产分页、已确认的主体设定材质，或某个资产的生成图 URL。`confirm_casting` 接受的是生成材质 ID——不是父资产，也不是任务 ID——并让该材质被本次制作采用。`remove` 发出 `DELETE /aigc/asset/removeAsset/{assetId}?scriptId=<id>&isParent=1`：父资产与其媒体版本被移除，引用它的镜头匹配不会因此重建，已生成的视频也不会重新生成。取消一次选用决定是另一个动作；`remove` 不是它。`upload_reference` 接受本地 `image_path`，检查两条边是否都是 16 的倍数（提供方图片流水线要求的那条规则），上传到实时前端 bundle 配置的目的地，并返回资产请求或 `image_generate` 的 `references` 所需的 `materialUrl`/`materialType`/`sortOrder` 条目。它不收费、不创建任务，但确实会向提供方对象存储写入一个对象。三个资产库写方法见下文「组织资产库」。
 - `jubian_organize` 为一个项目建立一份只读视图：每一集用到哪些角色、场景与道具，各自远端的标识与状态；命名审计；类别审计；以及个人资产库每个类别的文件夹树。它不改动任何远端，只写一个本地索引文件。详见下文「组织视图」。
 - `jubian_storyboard` 读取单个分镜、用调用方给出的完整请求体新建分镜、保存而不生成、提交生成，或擦除烧录字幕。`generate` 先读当前分镜快照，把 `isGenerate=1` 写回，因此还必须给出与该分镜已保存时长一致的 `content_duration_ms`；不一致时在任何请求离开前就失败。`erase_subtitle` 需要任务 ID、视频画面尺寸和一个明确的 `model_id`：`quzimuToB`（区域性——擦除矩形按提供方对画面的默认比例推导，所以 `subtitle_box` 可选且通常省略）或 `ark-erase-video-subtitle-pro`（自动，不接受 `subtitle_box`）。它没有默认模型，所以省略 `model_id` 的调用方会被告知缺哪个参数，而不是被替它挑一个。项目、分集与源身份从任务及其子结果读取，因此不需要 `script_id`。三个分镜原生方法见下文「主体视频的分镜原生通道」一节。
@@ -323,8 +325,9 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：`Config` 接口、账本/客户端/命名规范的构造、凭证回落、八次 `ctx.tools.register`，以及共享的参数与输出约定 |
+| [`src/index.ts`](src/index.ts) | 插件入口：`Config` 接口、账本/客户端/命名规范的构造、凭证回落、九次 `ctx.tools.register`，以及共享的参数与输出约定 |
 | [`src/methods.ts`](src/methods.ts) | 每个工具一个 async 函数：方法派发、请求塑形，以及本地媒体写入 |
+| [`src/find.ts`](src/find.ts) | 剧本名查找：两条范围路径、共用的名字归一，以及 `complete` 判定背后的有界扫描 |
 | [`src/naming.ts`](src/naming.ts) | 集数与类别的命名规范：名字组合、提供方的类别编号，以及两份审计 |
 | [`src/folders.ts`](src/folders.ts) | 三个资产库写方法：建文件夹、移动、改名，以及两种在本地判定的拒绝 |
 | [`src/organize.ts`](src/organize.ts) | 只读的组织视图：分页读取、清单连接、markdown 渲染与本地原子写入 |
@@ -353,7 +356,7 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 当包级约定不够用时阅读以下页面。它们从生成目录进入这一行之下的两个包，以及它所依赖的凭证规则。
 
-- [生成工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-jubian)——八个工具的精确 schema 与描述。
+- [生成工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-jubian)——九个工具的精确 schema 与描述。
 - [生成配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)——每个受支持配置字段及其源声明。
 - [dsh-jubian 传输层源码](../jubian/src/index.ts)——这一行所依赖的客户端、五个稳定失败码、凭证修复与写账本。
 - [dsh-jubian-api](../jubian-api/README.zh.md)——每个方法背后的读取器与请求构造器。
@@ -369,11 +372,11 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 #### 模型看到的内容
 
-模型会看到 `jubian_catalog`、`jubian_asset`、`jubian_organize`、`jubian_model`、`jubian_storyboard`、`jubian_video` 与 `jubian_media` 的 schema 与描述，即[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-jubian)中生成的那一份。每个 schema 都是一个开放 JSON 对象，带必填的 `method` 枚举与该方法是接受的参数；参数与枚举描述是纯中文文本，因为它们面向模型而不是面向本地化 UI。提供方定义的数字码照原样出现——`task_type`（`1` 视频、`2` 图片、`10` 去字幕）、`asset_type` 与 `asset_category`（`1`／`2`／`3` 对应角色／场景／道具）、`asset_scope_type`（`1` 团队、`2` 个人），以及 `subtasks` 的 `hd_count`／`last_task_type`／`resolution`。
+模型会看到 `jubian_catalog`、`jubian_find`、`jubian_asset`、`jubian_organize`、`jubian_model`、`jubian_storyboard`、`jubian_video`、`jubian_media` 与 `jubian_watch` 的 schema 与描述，即[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-jubian)中生成的那一份。每个 schema 都是一个开放 JSON 对象：派发型工具用必填的 `method` 枚举做选择器，其他工具用这次调用自己的必填参数——`jubian_find` 是 `scope`，`jubian_watch` 是 `task_id` 与 `stage`——其后是该调用接受的参数；参数与枚举描述是纯中文文本，因为它们面向模型而不是面向本地化 UI。提供方定义的数字码照原样出现——`task_type`（`1` 视频、`2` 图片、`10` 去字幕）、`asset_type` 与 `asset_category`（`1`／`2`／`3` 对应角色／场景／道具）、`asset_scope_type`（`1` 团队、`2` 个人），以及 `subtasks` 的 `hd_count`／`last_task_type`／`resolution`。
 
 #### Token 影响
 
-这一行挂载期间每次请求固定开销：八份工具定义及其枚举与参数描述，没有提示词区段。启用或移除这一行是这笔开销的唯一手段。
+这一行挂载期间每次请求固定开销：九份工具定义及其枚举与参数描述，没有提示词区段。启用或移除这一行是这笔开销的唯一手段。
 
 #### KV Cache 影响
 
@@ -411,7 +414,7 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 #### 模型看到的内容
 
-每次调用都在共享的开放对象输出 schema 下返回一个美化打印的 JSON 对象，按发问的方法命名（`asset`、`assets`、`storyboard`、`subtasks`、`task` 等），并附模型用的指引字段。写结果带 `replayed`、`outcome`、`response_sha256` 与信封数据；`erase_subtitle` 与 `upscale` 另加 `accepted_task_id` 和一句告诉模型不要等待的 `next`。`image_generate` 返回 `parent_asset_id`、`model_selection`、`asset_status`、`material_id`、`image_url`、`observed_asset_status`、`waited_ms`、`readback_error` 与一句 `next`，因此模型从结果里读到这张图的身份，而不是把「受理」当成「已有图」。`create_folder` 返回 `sent`、`status`、`folder_id`、`confirmed` 与一句 `next`；`move` 与 `rename` 返回 `sent`、`status` 与一句 `next`，两种本地拒绝则返回 `status: folder_exists` 或 `status: target_folder_missing` 并带 `sent: false` 与它查找过的 ID。`jubian_organize` 返回 `episodes`、`series`、`unmatched_remote_assets`、`naming_checked`、`naming_violations`、`category_mismatches`、`folders` 与 `index_path`，与它写出的文件内容一致。`prepare_video` 返回整份 preview 及其 `preview_path`；`submit_video` 返回认领判定（`submitted`、`subject_identity_lost`、`reconcile_conflict` 或 `reconcile_required`）、认领到的 `task_id`，以及一句只指出唯一安全动作的 `next`。`jubian_model` 的 preview 返回冻结的 before/after 设置与 fingerprint；apply/重放则逐项目标报告 `applied`、`stale`、`unknown`、`readback_mismatch` 与 `not_attempted`。每个工具结果产生后都会留在会话里。
+每次调用都在共享的开放对象输出 schema 下返回一个美化打印的 JSON 对象，按发问的方法命名（`asset`、`assets`、`storyboard`、`subtasks`、`task` 等），并附模型用的指引字段；只有 `jubian_find` 按它扫描的范围命名自己的结果。写结果带 `replayed`、`outcome`、`response_sha256` 与信封数据；`erase_subtitle` 与 `upscale` 另加 `accepted_task_id` 和一句告诉模型不要等待的 `next`。`image_generate` 返回 `parent_asset_id`、`model_selection`、`asset_status`、`material_id`、`image_url`、`observed_asset_status`、`waited_ms`、`readback_error` 与一句 `next`，因此模型从结果里读到这张图的身份，而不是把「受理」当成「已有图」。`create_folder` 返回 `sent`、`status`、`folder_id`、`confirmed` 与一句 `next`；`move` 与 `rename` 返回 `sent`、`status` 与一句 `next`，两种本地拒绝则返回 `status: folder_exists` 或 `status: target_folder_missing` 并带 `sent: false` 与它查找过的 ID。`jubian_organize` 返回 `episodes`、`series`、`unmatched_remote_assets`、`naming_checked`、`naming_violations`、`category_mismatches`、`folders` 与 `index_path`，与它写出的文件内容一致。`jubian_find` 返回它扫描的 `scope` 与 `name`、`total`、`scanned_pages`、`complete`、`returned`、`truncated` 与 `scan_page_limit`，以及 `matches`——每行带 `script_id`、`script_name`、`manuscript_name`、`episode_count` 与 `status`，`scope: pool` 时另有 `can_claim`、`claim_leader_name` 与 `claim_member_name`。`prepare_video` 返回整份 preview 及其 `preview_path`；`submit_video` 返回认领判定（`submitted`、`subject_identity_lost`、`reconcile_conflict` 或 `reconcile_required`）、认领到的 `task_id`，以及一句只指出唯一安全动作的 `next`。`jubian_model` 的 preview 返回冻结的 before/after 设置与 fingerprint；apply/重放则逐项目标报告 `applied`、`stale`、`unknown`、`readback_mismatch` 与 `not_attempted`。每个工具结果产生后都会留在会话里。
 
 #### Token 影响
 

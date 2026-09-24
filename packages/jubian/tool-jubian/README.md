@@ -1,5 +1,5 @@
 ---
-description: "The eight Jubian (剧变) tools a DSH model calls to drive a production: catalogue, asset and storyboard writes, the category-aware naming convention, asset-library folders and renames, the read-only organization index, local reference upload, the storyboard-native video channel, paid image/video generation and erasure, and provider media download."
+description: "The nine Jubian (剧变) tools a DSH model calls to drive a production: catalogue reads and screenplay-name lookup, asset and storyboard writes, the category-aware naming convention, asset-library folders and renames, the read-only organization index, local reference upload, the storyboard-native video channel, paid image/video generation and erasure, and provider media download."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-tool-jubian` gives a DSH model eight tools that drive a Jubian production end to end: catalogue reads, asset and storyboard edits, asset-library folders and renames, a read-only episode-by-category organization index, a local reference-image upload, the storyboard-native subject-video channel, paid image and video generation, subtitle erasure, upscaling, and media download. Reads are free; every paid or state-changing call needs a caller-supplied `idempotency_key`, and the plugin records an intent line before the request leaves and a settle line after the response returns. A replayed key never repeats a write; reconciliation methods may perform fresh reads.
+`dsh-tool-jubian` gives a DSH model nine tools that drive a Jubian production end to end: catalogue reads, screenplay-name lookup, asset and storyboard edits, asset-library folders and renames, a read-only episode-by-category organization index, a local reference-image upload, the storyboard-native subject-video channel, paid image and video generation, subtitle erasure, upscaling, and media download. Reads are free; every paid or state-changing call needs a caller-supplied `idempotency_key`, and the plugin records an intent line before the request leaves and a settle line after the response returns. A replayed key never repeats a write; reconciliation methods may perform fresh reads.
 
 ## Table of Contents
 
@@ -25,11 +25,11 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the row in any preset that needs to read or change a Jubian production, then give the model a task; the eight tools appear with their costs written into their descriptions.
+Mount the row in any preset that needs to read or change a Jubian production, then give the model a task; the nine tools appear with their costs written into their descriptions.
 
 ### When to choose it
 
-Choose this package when an agent must inspect a project, organize its assets by episode and category, upload a local reference image, save a subject selection, prepare and submit subject-backed video, confirm casting, generate images, generate or erase video, upscale a finished clip to 1080p, or pull provider media down for its own vision tools. Mount it wherever the credential resolves, because the same row serves a read-only survey and a paid generation run. Skip it when nothing in the session talks to Jubian: the eight schemas and their descriptions stay visible to the model whether or not they are used.
+Choose this package when an agent must resolve a screenplay name to its project, inspect a project, organize its assets by episode and category, upload a local reference image, save a subject selection, prepare and submit subject-backed video, confirm casting, generate images, generate or erase video, upscale a finished clip to 1080p, or pull provider media down for its own vision tools. Mount it wherever the credential resolves, because the same row serves a read-only survey and a paid generation run. Skip it when nothing in the session talks to Jubian: the nine schemas and their descriptions stay visible to the model whether or not they are used.
 
 ### Minimal configuration
 
@@ -73,7 +73,7 @@ An account catalogue can list one model id once per platform at different prices
 
 A row is pinned in one of two places, and the settings page wins: **Settings → 短剧 → 资产图生成通道** stores the choice in the `drama` settings section and lists the live candidates with their prices, while these two config fields remain what a deployment without that page states. The pin is resolved as each paid call is made, so a page edit reaches the next call without a restart, and a page-pinned row is the whole selection — a config platform beside it is dropped rather than merged into a pin the person did not choose.
 
-The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-jubian) is the exhaustive source for every accepted field and its JSDoc. The row injects `tools` and `credentials`, registers all eight tools at mount, and mounts two Remote namespaces: `jubianToken`, which the Settings page calls, and `jubianImage`, which only reads the account's `gpt-image-2` rows for the short-drama page's picker. There is no per-tool enable flag and no separate page row.
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-jubian) is the exhaustive source for every accepted field and its JSDoc. The row injects `tools` and `credentials`, registers all nine tools at mount, and mounts two Remote namespaces: `jubianToken`, which the Settings page calls, and `jubianImage`, which only reads the account's `gpt-image-2` rows for the short-drama page's picker. There is no per-tool enable flag and no separate page row.
 
 ### Credential
 
@@ -112,13 +112,14 @@ The second namespace, `jubianImage`, exists for one read: `routes()` returns the
 
 A catalogue it cannot read is reported as `jubian-image/catalogue-unreadable` carrying the transport's own message, and the page shows that message verbatim. Nothing is cached: every call reads the account, because a row's price and existence are account state rather than plugin state.
 
-### The eight tools
+### The nine tools
 
-The eight registered tools are the whole model-facing surface. This package publishes no system-prompt section, so every operational fact the model needs travels in a tool description or a schema description.
+The nine registered tools are the whole model-facing surface. This package publishes no system-prompt section, so every operational fact the model needs travels in a tool description or a schema description.
 
 | Tool | Methods | Billing and effect |
 |---|---|---|
 | `jubian_catalog` | `models`, `rate`, `script`, `episodes` | Read-only, no charge |
+| `jubian_find` | `scope` (`mine`, `pool`) | Read-only, no charge |
 | `jubian_asset` | `get`, `list`, `materials`, `generated_image` | Read-only, no charge |
 | | `confirm_casting` | Changes provider state through a `GET`; needs `idempotency_key` |
 | | `remove` | Deletes one parent asset irrecoverably; needs `idempotency_key` |
@@ -137,6 +138,7 @@ The eight registered tools are the whole model-facing surface. This package publ
 | `jubian_watch` | `task_id`, `stage` | Read-only background observation; returns a process-local job ID |
 
 - `jubian_catalog` reads the account model catalogue for a task type (`task_type` 1 video, 2 image, 10 subtitle erasure), one pricing standard by `standard_id`, a screenplay identity by `script_id`, and its paged episodes.
+- `jubian_find` locates a screenplay by name without being told its `script_id` first, in one of two scopes: `mine`, the caller's own canvas projects (`GET /aigc/script/list`), and `pool`, the claimable pool (`GET /script/center/pool/list`). `name` is optional and matches a trimmed, whitespace-collapsed, case-insensitive substring of `script_name` or `manuscript_name`; there is no pinyin, alias or fuzzy matching, so a near miss returns nothing rather than a plausible wrong project. Omitting `name` lists that scope's first page instead of failing. `page_size` bounds one request and not the scan, so the call reads pages until it has covered `total`, an empty page arrives, or it reaches `scan_page_limit`; `complete: false` means the scan did not cover `total` and must not be read as "that is all", and `scanned_pages`, `returned` and `truncated` report what actually happened. `status` is forwarded verbatim, only for `pool`. It writes no ledger line, needs no `idempotency_key`, changes nothing remote, and does not claim a screenplay out of the pool; a payload it cannot read fails as `CONTRACT_CHANGED` rather than reading as no match, so a missed screenplay and an absent one stay distinguishable.
 - `jubian_asset` reads one asset, a paged project asset list, the confirmed casting materials, or the generated image URL of an asset. `confirm_casting` takes the generated material id — not the parent asset and not a task id — and adopts that material for this production. `remove` issues `DELETE /aigc/asset/removeAsset/{assetId}?scriptId=<id>&isParent=1`: the parent asset and its media versions are removed, the shot matches that referenced it are not rebuilt, and already generated video is not regenerated. Cancelling a casting decision is a different operation; `remove` is not it. `upload_reference` takes a local `image_path`, verifies both edges are multiples of 16 (the rule the provider's own image pipeline needs), uploads to the destination the live frontend bundle configures, and returns the `materialUrl`/`materialType`/`sortOrder` item an asset request or `image_generate` `references` list needs. It charges nothing and creates no task, but it does write an object into the provider's bucket. The three library writes are described under "Organizing the asset library".
 - `jubian_organize` builds one read-only view of a project: which episode uses which character, scene and prop, with each asset's remote identifiers and status; the naming audit; the category audit; and the folder tree of each personal-library category. It changes nothing remote and writes one local index file. It is described under "The organization index".
 - `jubian_storyboard` reads one storyboard, creates one from a complete request body the caller supplies, saves without generating, submits generation, or erases burned-in subtitles. `generate` reads the current storyboard snapshot, sets `isGenerate=1`, and writes it back, so it also requires `content_duration_ms` equal to the duration already saved on that storyboard; a mismatch fails before any request leaves. `erase_subtitle` needs the task id, the video frame size and an explicit `model_id`: `quzimuToB` (regional — the erase rectangle defaults to the provider's own proportion of the frame, so `subtitle_box` is optional and normally omitted) or `ark-erase-video-subtitle-pro` (automatic, rejects `subtitle_box`). It has no default model, so a caller that omits `model_id` is told which argument is missing instead of having a model chosen for it. The project, episode and source identities are read from the task and its child results, so `script_id` is not required. The three storyboard-native methods are described in the section below, "The storyboard-native video channel".
@@ -323,8 +325,9 @@ The package is built on three decisions:
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: the `Config` interface, the ledger, client and naming construction, the credential fallback, the eight `ctx.tools.register` calls, and the shared argument and output contracts |
+| [`src/index.ts`](src/index.ts) | Plugin entry: the `Config` interface, the ledger, client and naming construction, the credential fallback, the nine `ctx.tools.register` calls, and the shared argument and output contracts |
 | [`src/methods.ts`](src/methods.ts) | One async function per tool: method dispatch, request shaping, and the local media write |
+| [`src/find.ts`](src/find.ts) | The screenplay-name lookup: the two scope paths, the shared name normalization, and the bounded scan behind the `complete` verdict |
 | [`src/naming.ts`](src/naming.ts) | The episode-and-category convention: name composition, the provider's category numbering, and the two audits |
 | [`src/folders.ts`](src/folders.ts) | The three asset-library writes: folder creation, the move, the rename, and the two locally decided refusals |
 | [`src/organize.ts`](src/organize.ts) | The read-only organization index: the paged reads, the manifest join, the markdown rendering and the atomic local write |
@@ -353,7 +356,7 @@ Read methods never touch the ledger. Each sends one request and passes the envel
 
 Read these pages when the package-level contract is not enough. They move from the generated catalogues to the two packages underneath this row and the credential rules it depends on.
 
-- [Generated tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-jubian) — the exact schema and description of all eight tools.
+- [Generated tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-jubian) — the exact schema and description of all nine tools.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-jubian) — every accepted config field and its source declaration.
 - [dsh-jubian transport source](../jubian/src/index.ts) — the client, the five stable failure codes, credential repair, and the write ledger this row builds on.
 - [dsh-jubian-api](../jubian-api/README.md) — the readers and request builders behind every method.
@@ -369,11 +372,11 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-The model sees the schemas and descriptions of `jubian_catalog`, `jubian_asset`, `jubian_organize`, `jubian_model`, `jubian_storyboard`, `jubian_video` and `jubian_media` as generated in the [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-jubian). Each schema is one open JSON object with a required `method` enum and the arguments that method accepts; parameter and enum descriptions are plain Chinese text, because they address the model rather than a localized UI. Numeric codes appear where the provider defines them — `task_type` (`1` video, `2` image, `10` subtitle erasure), `asset_type` and `asset_category` (`1`/`2`/`3` for 角色/场景/道具), `asset_scope_type` (`1` team, `2` personal), and `subtasks` `hd_count` / `last_task_type` / `resolution`.
+The model sees the schemas and descriptions of `jubian_catalog`, `jubian_find`, `jubian_asset`, `jubian_organize`, `jubian_model`, `jubian_storyboard`, `jubian_video`, `jubian_media` and `jubian_watch` as generated in the [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-jubian). Each schema is one open JSON object whose required selector is the `method` enum on the dispatching tools and the call's own required argument elsewhere — `scope` for `jubian_find`, `task_id` and `stage` for `jubian_watch` — followed by the arguments that call accepts; parameter and enum descriptions are plain Chinese text, because they address the model rather than a localized UI. Numeric codes appear where the provider defines them — `task_type` (`1` video, `2` image, `10` subtitle erasure), `asset_type` and `asset_category` (`1`/`2`/`3` for 角色/场景/道具), `asset_scope_type` (`1` team, `2` personal), and `subtasks` `hd_count` / `last_task_type` / `resolution`.
 
 #### Token effect
 
-Fixed per request while the row is mounted: eight tool definitions with their enum and argument descriptions, and no prompt section. Enabling or removing the row is the only lever on this cost.
+Fixed per request while the row is mounted: nine tool definitions with their enum and argument descriptions, and no prompt section. Enabling or removing the row is the only lever on this cost.
 
 #### KV Cache effect
 
@@ -411,7 +414,7 @@ Prefix-stable while the mounted set and these descriptions are unchanged; a pack
 
 #### What the model sees
 
-Every call returns one pretty-printed JSON object under a shared open-object output schema, keyed by the method that asked for it (`asset`, `assets`, `storyboard`, `subtasks`, `task`, and so on) plus the model's guidance fields. Write results carry `replayed`, `outcome`, `response_sha256` and the envelope data; `erase_subtitle` and `upscale` add `accepted_task_id` and a `next` line telling the model not to wait. `image_generate` returns `parent_asset_id`, `model_selection`, `asset_status`, `material_id`, `image_url`, `observed_asset_status`, `waited_ms`, `readback_error` and a `next` line, so a model reads the image's identity from the result instead of assuming acceptance produced one. `create_folder` returns `sent`, `status`, `folder_id`, `confirmed` and a `next` line; `move` and `rename` return `sent`, `status` and a `next` line, and either of the two refusals returns `status: folder_exists` or `status: target_folder_missing` with `sent: false` and the id it looked for. `jubian_organize` returns `episodes`, `series`, `unmatched_remote_assets`, `naming_checked`, `naming_violations`, `category_mismatches`, `folders` and `index_path`, which is the same content as the file it wrote. `prepare_video` returns the whole preview plus its `preview_path`, and `submit_video` returns the claim verdict (`submitted`, `subject_identity_lost`, `reconcile_conflict` or `reconcile_required`) with the claimed `task_id` and a `next` line naming the only safe action. `jubian_model` returns frozen before/after settings and a fingerprint for preview, or per-target `applied`, `stale`, `unknown`, `readback_mismatch` and `not_attempted` outcomes for apply/replay. Each tool result stays in the conversation once it is produced.
+Every call returns one pretty-printed JSON object under a shared open-object output schema, keyed by the method that asked for it (`asset`, `assets`, `storyboard`, `subtasks`, `task`, and so on) plus the model's guidance fields; `jubian_find` alone keys its result by the scope it scanned. Write results carry `replayed`, `outcome`, `response_sha256` and the envelope data; `erase_subtitle` and `upscale` add `accepted_task_id` and a `next` line telling the model not to wait. `image_generate` returns `parent_asset_id`, `model_selection`, `asset_status`, `material_id`, `image_url`, `observed_asset_status`, `waited_ms`, `readback_error` and a `next` line, so a model reads the image's identity from the result instead of assuming acceptance produced one. `create_folder` returns `sent`, `status`, `folder_id`, `confirmed` and a `next` line; `move` and `rename` return `sent`, `status` and a `next` line, and either of the two refusals returns `status: folder_exists` or `status: target_folder_missing` with `sent: false` and the id it looked for. `jubian_organize` returns `episodes`, `series`, `unmatched_remote_assets`, `naming_checked`, `naming_violations`, `category_mismatches`, `folders` and `index_path`, which is the same content as the file it wrote. `jubian_find` returns the `scope` and `name` it searched, `total`, `scanned_pages`, `complete`, `returned`, `truncated` and `scan_page_limit` beside `matches`, whose rows carry `script_id`, `script_name`, `manuscript_name`, `episode_count` and `status`, plus `can_claim`, `claim_leader_name` and `claim_member_name` under `scope: pool`. `prepare_video` returns the whole preview plus its `preview_path`, and `submit_video` returns the claim verdict (`submitted`, `subject_identity_lost`, `reconcile_conflict` or `reconcile_required`) with the claimed `task_id` and a `next` line naming the only safe action. `jubian_model` returns frozen before/after settings and a fingerprint for preview, or per-target `applied`, `stale`, `unknown`, `readback_mismatch` and `not_attempted` outcomes for apply/replay. Each tool result stays in the conversation once it is produced.
 
 #### Token effect
 
