@@ -155,7 +155,7 @@ Company proxies can accelerate uploads to Apple's notarization service. See the 
 
 ### Unsigned Windows test installer
 
-The Windows installer supports English and Simplified Chinese. On Windows x64, use the complete unsigned packaging command for local installation testing:
+The Windows installer supports English and Simplified Chinese. It defaults to a dedicated `muse-med` installation directory; do not install directly into a drive root. On Windows x64, use the complete unsigned packaging command for local installation testing:
 
 ```sh
 pnpm run package:desktop:win:x64:unsigned

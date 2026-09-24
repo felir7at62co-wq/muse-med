@@ -155,7 +155,7 @@ macOS 签名遍历真实文件，不跟随 Framework 的软链接别名。PAK �
 
 ### 未签名 Windows 测试安装包
 
-Windows 安装器支持英语和简体中文。在 Windows x64 上，使用完整的未签名打包命令进行本地安装测试：
+Windows 安装器支持英语和简体中文，默认使用专属的 `muse-med` 安装目录；不要直接安装到盘根目录。在 Windows x64 上，使用完整的未签名打包命令进行本地安装测试：
 
 ```sh
 pnpm run package:desktop:win:x64:unsigned

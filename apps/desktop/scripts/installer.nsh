@@ -1,6 +1,7 @@
 !include "LogicLib.nsh"
 !include "WordFunc.nsh"
 !include "StdUtils.nsh"
+InstallDir "$LOCALAPPDATA\Programs\${APP_FILENAME}"
 
 ; customHeader runs after electron-builder registers the installer languages.
 !macro customHeader

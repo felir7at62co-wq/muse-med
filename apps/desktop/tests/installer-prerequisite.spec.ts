@@ -3,6 +3,8 @@ import { expect, it } from 'vitest'
 
 it('checks the x64 runtime before any offline elevated installation and fails closed', async () => {
   const source = await readFile(new URL('../scripts/installer.nsh', import.meta.url), 'utf8')
+  expect(source).toContain('InstallDir "$LOCALAPPDATA\\Programs\\${APP_FILENAME}"')
+  expect(source).not.toMatch(/AllowRootDirInstall\s+true/iu)
   expect(source).toContain('SetRegView 64')
   expect(source).toContain('SetRegView lastused')
   expect(source).toContain('SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64')
