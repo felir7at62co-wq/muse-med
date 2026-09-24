@@ -126,6 +126,49 @@ describe('maintained repository reference policy', () => {
     ])
   })
 
+  it('exempts a commit identifier only in the pin record at the repository root', (test) => {
+    const fixture = repository(test)
+    fixture.write('upstream.json', `{\n  "pinnedCommit": "${fixture.commit}"\n}\n`)
+    expect(scanRepositoryReferences(fixture.root)).toEqual([])
+  })
+
+  it('still rejects the same commit identifier in any other file at the root', (test) => {
+    const fixture = repository(test)
+    fixture.write('docs/example.md', fixture.commit)
+    fixture.write('.agents/notes/proposed/process/example.md', fixture.commit)
+    expect(scanRepositoryReferences(fixture.root)).toEqual([
+      { file: '.agents/notes/proposed/process/example.md', line: 1, kind: 'commit-hash' },
+      { file: 'docs/example.md', line: 1, kind: 'commit-hash' },
+    ])
+  })
+
+  it('still rejects a pin record that is not the repository-root file', (test) => {
+    const fixture = repository(test)
+    fixture.write('nested/upstream.json', fixture.commit)
+    fixture.write('packages/preset/agent-presets/upstream.json', fixture.commit)
+    expect(scanRepositoryReferences(fixture.root)).toEqual([
+      { file: 'nested/upstream.json', line: 1, kind: 'commit-hash' },
+      { file: 'packages/preset/agent-presets/upstream.json', line: 1, kind: 'commit-hash' },
+    ])
+  })
+
+  it('exempts only the pin record file, not every commit identifier in root files', (test) => {
+    const fixture = repository(test)
+    fixture.write('upstream.json', `{\n  "pinnedCommit": "${fixture.commit}"\n}\n`)
+    fixture.write('notes.md', `notes\n\n${fixture.commit}\n`)
+    expect(scanRepositoryReferences(fixture.root)).toEqual([
+      { file: 'notes.md', line: 3, kind: 'commit-hash' },
+    ])
+  })
+
+  it('still rejects the organization URL inside the pin record', (test) => {
+    const fixture = repository(test)
+    fixture.write('upstream.json', `"pinnedCommit": "${fixture.commit}"\n${organizationUrl}/deepseek-harness\n`)
+    expect(scanRepositoryReferences(fixture.root)).toEqual([
+      { file: 'upstream.json', line: 2, kind: 'organization-url' },
+    ])
+  })
+
   it.skipIf(process.platform === 'win32')('inspects dangling symlink targets without following files outside the tree', (test) => {
     const fixture = repository(test)
     symlinkSync(`../${fixture.commit}`, join(fixture.root, 'reference-link'))

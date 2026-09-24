@@ -24,6 +24,8 @@ Status: proposed
 
 阶段 0 已落地：三个文件。`upstream.json` 记录 pin；`scripts/upstream-sync-rehearsal.ts` 读取它，用 `git merge-base HEAD <ref>` 推导基线，运行 `git merge-tree --write-tree --name-only`，把每个冲突归类为内容冲突或改删冲突，并断言工作树与 ref 集合在演习前后逐字节不变；`scripts/upstream-sync-rehearsal.spec.ts` 用一个临时仓库验证它，该仓库自行造出分叉、上游前进、双方改同一文件，以及每一侧各删除一个文件。`pnpm exec tsx scripts/upstream-sync-rehearsal.ts` 报告 77 个冲突文件——63 个内容冲突、14 个改删冲突——而 `pnpm exec vitest run scripts/upstream-sync-rehearsal.spec.ts --maxWorkers=1` 的 14 个用例全部通过。pin 不会静默通过：无法解析的 ref、没有共同祖先的 ref、与 Git 不一致的 pin，以及未知参数，都会在失败时点名原因。
 
+把提交 ID 写进受跟踪文件，需要在 [`verify-repository-references`](../../../../scripts/verify-repository-references.ts) 上加一处例外——该门禁的规则本意是阻止正文与文档携带会失效的哈希引用，而 pin 记录里的提交 ID 是该文件的主体，不是对它的引用。例外仅限仓库根那一个精确路径 `upstream.json`：该文件内的组织 URL 仍被拒绝，任何目录下的同名文件仍被拒绝，其余文件一律照旧。
+
 阶段 0 之后的一切都未实现，带验收检查与回滚的分阶段方案存放于 `.local/architecture/pinned-runtime-migration.md`，位于仓库受跟踪文档之外。没有任何版本点被改动，没有任何依赖离开 workspace 协议，也没有任何包被改名；23 处版本点、指向上游拥有包的 68 条 workspace 边、scope 决策，以及 `## Risks` 中命名的两处非公开上游导入，全都仍然开放。产品将要针对的那个 DSH 发布也尚未选定——`apps/desktop/package.json` 与 `package.json` 仍然都写着 `0.1.6-alpha.1`。
 
 vendoring 问题同样被有意地留在与参考项目相反的方向上。参考桌面客户端在三个 pin 上 vendored 了 891 个 tarball（占其 82.6 MB 检出的 48 MB），每次升级改写 618 条 `resolutions`。其当前 pin 的全部 309 个包、以及本次会话探测的 120 个，都已在该版本发布到 npm，所以对这个产品运行时所需的 36 个包而言，registry 解析是可用的。vendoring 被推迟到某个具体包必须打补丁的情形；今天没有任何包被打补丁。

@@ -13,6 +13,20 @@ const commitCandidate = /(?<![a-z0-9])[\da-f]{7,40}(?![a-z0-9])/gi
 const excludedPrefixes = ['vendor/', '.agents/notes/archived/']
 const gitOutputLimit = 64 * 1024 * 1024
 
+/**
+ * The one maintained file allowed to contain a commit identifier.
+ *
+ * `upstream.json` is the pin record for the upstream base this fork was taken from, so the pinned
+ * commit identifier is that file's subject rather than a reference to one: re-deriving it needs
+ * `git merge-base`, and the recorded value is what a rehearsal compares Git against. Everywhere
+ * else this gate's rule stands, and it stands inside this file too for the organization URL and for
+ * a pin record that is not the repository-root path.
+ *
+ * Matched as one exact repository-root-relative path, never as a prefix or glob, so a pin record
+ * nested under a package directory cannot inherit the exemption.
+ */
+export const UPSTREAM_PIN_RECORD = 'upstream.json'
+
 /** One prohibited reference in a maintained source file. */
 export interface RepositoryReference {
   /** Repository-relative path, with forward slashes. */
@@ -32,7 +46,8 @@ function isMaintained(file: string): boolean {
  * @param file - Repository-relative path used in diagnostics and exclusions.
  * @param source - File text or a symlink's stored target.
  * @param commits - Lowercase, unambiguous full or abbreviated commit identifiers.
- * @returns One finding per line and reference kind; digests and other Git object types are accepted.
+ * @returns One finding per line and reference kind; digests and other Git object types are accepted,
+ * and the pin record alone is accepted for commit identifiers.
  */
 export function findRepositoryReferences(
   file: string,
@@ -40,12 +55,13 @@ export function findRepositoryReferences(
   commits: ReadonlySet<string>,
 ): RepositoryReference[] {
   if (!isMaintained(file)) return []
+  const isPinRecord = file === UPSTREAM_PIN_RECORD
   const references: RepositoryReference[] = []
   for (const [index, line] of source.split('\n').entries()) {
     if (organizationUrl.test(canonicalReferenceText(line))) {
       references.push({ file, line: index + 1, kind: 'organization-url' })
     }
-    if ([...line.matchAll(commitCandidate)].some(match => commits.has(match[0].toLowerCase()))) {
+    if (!isPinRecord && [...line.matchAll(commitCandidate)].some(match => commits.has(match[0].toLowerCase()))) {
       references.push({ file, line: index + 1, kind: 'commit-hash' })
     }
   }
