@@ -30,6 +30,7 @@ export interface DesktopElectronBuilderConfig {
   }
   readonly nsis: {
     readonly include: string
+    readonly installerLanguages: readonly string[]
   }
   readonly artifactBuildCompleted: (artifact: { readonly file: string }) => Promise<void> | undefined
   readonly publish: readonly [{ readonly provider: 'generic', readonly url: string }] | null

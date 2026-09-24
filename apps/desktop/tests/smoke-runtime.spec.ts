@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm'
 import { afterEach, expect, it, vi } from 'vitest'
 import { desktopSmokePluginSource, smokeDesktopRuntime } from '../scripts/smoke-runtime.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
-import type { DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
+import { runtimeFixture } from './runtime-fixture.ts'
 
 vi.mock('../src/profile-packages.ts', () => ({ linkDesktopHostPackages: vi.fn(), validateDesktopPluginGraph: vi.fn() }))
 
@@ -71,12 +71,13 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
 })
 
 it('rejects Host readiness when the private preset smoke never completes', async () => {
-  const start = vi.spyOn(DesktopHostProcess.prototype, 'start').mockResolvedValue({ type: 'ready', protocolVersion: 3, dshVersion: '1.0.0' })
+  const start = vi.spyOn(DesktopHostProcess.prototype, 'start').mockResolvedValue({ protocolVersion: 3, dshVersion: '1.0.0' })
   const fetch = vi.spyOn(DesktopHostProcess.prototype, 'fetch').mockResolvedValue(new Response('<html></html>'))
   const stop = vi.spyOn(DesktopHostProcess.prototype, 'stop').mockResolvedValue()
   try {
-    const runtime = { release: { version: '1.0.0' }, sharedPackages: [{ name: '@deepseek-ai/cordis', version: '1.0.0' }] } as DesktopRuntimeDescriptor
-    await expect(smokeDesktopRuntime(fixture().home, process.execPath, runtime)).rejects.toThrow('product preset smoke did not complete')
+    const root = fixture().home
+    const runtime = runtimeFixture(root)
+    await expect(smokeDesktopRuntime(root, process.execPath, runtime)).rejects.toThrow('product preset smoke did not complete')
     expect(stop).toHaveBeenCalledOnce()
   } finally {
     start.mockRestore()
@@ -90,8 +91,9 @@ it('bounds startup when an activation never settles', async () => {
   const start = vi.spyOn(DesktopHostProcess.prototype, 'start').mockImplementation(async () => new Promise(() => {}))
   const stop = vi.spyOn(DesktopHostProcess.prototype, 'stop').mockResolvedValue()
   try {
-    const runtime = { release: { version: '1.0.0' }, sharedPackages: [{ name: '@deepseek-ai/cordis', version: '1.0.0' }] } as DesktopRuntimeDescriptor
-    const result = expect(smokeDesktopRuntime(fixture().home, process.execPath, runtime)).rejects.toThrow('smoke startup timed out')
+    const root = fixture().home
+    const runtime = runtimeFixture(root)
+    const result = expect(smokeDesktopRuntime(root, process.execPath, runtime)).rejects.toThrow('smoke startup timed out')
     await vi.advanceTimersByTimeAsync(60_000)
     await result
     expect(stop).toHaveBeenCalledOnce()
