@@ -1,0 +1,24 @@
+{
+  "description": "Outputs owned by a generator script rather than by hand. Regenerate these; never resolve a merge conflict in them by editing. Extend this file when a generator is added.",
+  "paths": [
+    { "path": "docs/config-catalog.md", "generator": "scripts/gen-config-catalog.ts" },
+    { "path": "docs/config-catalog.zh.md", "generator": "scripts/gen-config-catalog.ts" },
+    { "path": "docs/dependency-catalog.json", "generator": "scripts/gen-dependency-catalog.ts" },
+    { "path": "docs/module-graph.md", "generator": "scripts/gen-module-graph.ts" },
+    { "path": "docs/module-graph.zh.md", "generator": "scripts/gen-module-graph.ts" },
+    { "path": "docs/module-graph.i18n.yaml", "generator": "scripts/gen-module-graph.ts" },
+    { "path": "docs/tool-catalog.md", "generator": "scripts/gen-tool-catalog.ts" },
+    { "path": "docs/tool-catalog.zh.md", "generator": "scripts/gen-tool-catalog.ts" },
+    { "path": "THIRD_PARTY_NOTICES.md", "generator": "scripts/gen-third-party-notices.ts" },
+    { "path": "packages/core/scope/src/scoped-events.generated.ts", "generator": "scripts/gen-scoped-events.ts" },
+    { "path": "packages/core/session/src/known-event-types.ts", "generator": "scripts/gen-persistence-catalog.ts" },
+    { "path": "packages/extensions/cordis-client-runner/src/client/api-catalog.ts", "generator": "scripts/gen-cordis-inspect-catalog.ts" },
+    { "path": "packages/extensions/cordis-client-runner/src/client/slot-catalog.ts", "generator": "scripts/gen-client-catalog.ts" },
+    { "path": "packages/extensions/tool-cordis/src/api-catalog.ts", "generator": "scripts/gen-cordis-catalog.ts" },
+    { "path": "packages/session/session-format-catalog/src/generated.ts", "generator": "scripts/gen-session-format-catalog.ts" },
+    { "path": "docs/persistence-catalog.md", "generator": "scripts/gen-persistence-catalog.ts" },
+    { "path": "docs/persistence-catalog.zh.md", "generator": "scripts/gen-persistence-catalog.ts" },
+    { "path": "docs/persistence-schema.json", "generator": "scripts/gen-persistence-catalog.ts" },
+    { "path": "docs/cordis-api/inherited.md", "generator": "scripts/gen-cordis-api.ts" }
+  ]
+}

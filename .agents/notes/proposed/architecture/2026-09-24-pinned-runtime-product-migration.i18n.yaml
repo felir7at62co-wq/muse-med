@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/architecture/2026-09-24-pinned-runtime-product-migration.md
-2026-09-24-pinned-runtime-product-migration.md: 42309905b51e62457cdebd3648c15e51da8dc3b7
-2026-09-24-pinned-runtime-product-migration.zh.md: 384825b7dc0ef3f16631126e34a411977d16c09c
+2026-09-24-pinned-runtime-product-migration.md: 2e034df7bf26a0fe7deb4865dccfd4344a0fe4ae
+2026-09-24-pinned-runtime-product-migration.zh.md: e6672aea903b01f8f5bc5bfc1123102d3f82f3f0

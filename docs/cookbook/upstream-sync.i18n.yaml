@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/cookbook/upstream-sync.md
+upstream-sync.md: 9f5bbabba689798a7b9aa8354dbba43f8e4850bd
+upstream-sync.zh.md: de94e31b6f30c65790bb58743d0b652f2c998d7c
