@@ -8,6 +8,7 @@ const api: DshDesktopApi = {
   protocolVersion: 1,
   locale: () => ipcRenderer.invoke(DESKTOP_IPC.localeGet) as Promise<ReturnType<DshDesktopApi['locale']> extends Promise<infer T> ? T : never>,
   plugins: {
+    catalog: discover => ipcRenderer.invoke(DESKTOP_IPC.pluginsCatalog, discover) as Promise<ReturnType<DshDesktopApi['plugins']['catalog']> extends Promise<infer T> ? T : never>,
     list: () => ipcRenderer.invoke(DESKTOP_IPC.pluginsList) as Promise<ReturnType<DshDesktopApi['plugins']['list']> extends Promise<infer T> ? T : never>,
     add: spec => ipcRenderer.invoke(DESKTOP_IPC.pluginsAdd, spec) as Promise<void>,
     remove: name => ipcRenderer.invoke(DESKTOP_IPC.pluginsRemove, name) as Promise<void>,

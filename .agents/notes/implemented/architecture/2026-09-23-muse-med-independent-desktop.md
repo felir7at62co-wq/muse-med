@@ -12,11 +12,11 @@ A branded desktop shell can still read the development installation's credential
 
 The packaged Electron entry sets the backend's `DSH_HOME` to `~/.muse-med`, or an explicit `MUSE_MED_HOME`, before profile access. An inherited `DSH_HOME` cannot silently import developer data. Unpackaged development retains the launcher-managed home. The product does not migrate existing sessions or credentials. Windows executable and installer artifact names use `muse-med`, with the same prefix enforced by macOS artifact promotion and upload validation. Package IDs, application IDs, updater endpoints, and protocols are not renamed by this artifact branding.
 
-The Desktop Host owns `presets/short-drama-local` and discovers only that product root. The preset combines maintained drama tools with the production workflow rules, keeps shared Jubian services on the Host, and uses the public BGM catalog. Neither the deployment's shipped presets nor the user's existing Web presets are modified. The current user's explicit production authorization is required by the persona; the existing automatic per-project budget ceiling remains a separate execution policy, not a new authorization mechanism.
+The Desktop Host discovers only its product root, containing the default `short-drama-local` and three read-only native adapters: `standard`, `ptc`, and `minimal`. The adapters reuse upstream compositions without maintaining copies or changing roster discovery APIs. Minimal masks inherited Host tools within its own scope and retains exactly its native persistent shell. The short-drama preset combines maintained drama tools with the production workflow rules, keeps shared Jubian services on the Host, and uses the public BGM catalog. Neither the deployment's shipped presets nor the user's existing Web presets are modified. The current user's explicit production authorization is required by the persona; the existing automatic per-project budget ceiling remains a separate execution policy, not a new authorization mechanism.
 
 Packaged Windows startup prepends its media Python and FFmpeg directories to the child environment, removes inherited Python import overrides, and provides the bundled ASR model directory. Runtime preparation and installed-artifact verification own the existence and compatibility of those resources; environment wiring alone does not establish a complete installer.
 
-The Host enables one filesystem skill provider with an explicit bundled root and default-root discovery disabled. The product preset inherits it rather than registering a nearer provider that can select old `.agents` or inherited environment roots. Explicit plugin skill registration remains available.
+The Host enables one filesystem skill provider with explicit bundled and product-home `skills` roots, and creates the writable directory during boot. Default-root discovery remains disabled. The Standard and PTC adapters disable their nearer native filesystem providers so all product presets inherit the Host provider instead of selecting old `.agents` or project roots. Short-drama, Standard, and PTC expose the skill tool; Minimal retains its shell-only interface. Explicit plugin skill registration remains available.
 
 External Python and the Codex CLI require real filesystem paths, so their complete resource packages are unpacked from ASAR and their consumers resolve those unpacked paths before launch. PTC retains the non-secret `ELECTRON_RUN_AS_NODE` startup flag because the packaged Host's executable is Electron; the model program still receives an empty environment and no API credentials.
 
@@ -30,7 +30,7 @@ Development uses the same source-owned community tarballs and compatibility over
 
 Profile resolution starts from the materialized runtime root's `package.json`, which owns the CLI, Desktop Host, and all source-owned plugins. A CLI-only or Host-only dependency graph omits product or community packages even when their files are present. Development records its validated installed community packages in that same root dependency map.
 
-The private preparation smoke waits for the credentials Service, mounts the full product Agent, checks its tools and bundled skills, and records success only after Agent disposal. The parent requires this completion record; Host readiness alone does not imply successful plugin activation. Startup is bounded to 60 seconds, and the smoke neither supplies credentials nor sends a model request.
+The private preparation smoke waits for the credentials Service, mounts two concurrent Agents for each of the four product presets, checks tools, bundled skills, and product-owned custom skills against same-name legacy decoys, and records success only after all Agents are disposed. The parent requires this completion record; Host readiness alone does not imply successful plugin activation. Startup is bounded to 60 seconds, and the smoke neither supplies credentials nor sends a model request.
 
 ## Alternatives considered
 
@@ -38,7 +38,7 @@ The private preparation smoke waits for the credentials Service, mounts the full
 
 **Edit or remove a shipped preset.** The active deployment also reads this checkout's shipped presets, so an edit affects existing sessions and may be overwritten by deployment updates. A private product root leaves the original installation intact.
 
-**Introduce preset aliases or hidden IDs.** A new product with a fresh home has no legacy sessions to migrate. A roster protocol extension is unnecessary for its single production mode; migrating an existing Web installation remains separate work.
+**Introduce preset aliases or hidden IDs.** A new product with a fresh home has no legacy sessions to migrate. A product-owned root and native composition adapters require no roster protocol extension; migrating an existing Web installation remains separate work.
 
 ## Consequences
 

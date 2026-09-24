@@ -19,6 +19,13 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   'config/desktop.cordis.patch.yml',
   'presets/short-drama-local/agent.cordis.yml',
   'presets/short-drama-local/preset.yml',
+  'lib/native-preset.js',
+  'presets/standard/agent.cordis.yml',
+  'presets/standard/preset.yml',
+  'presets/ptc/agent.cordis.yml',
+  'presets/ptc/preset.yml',
+  'presets/minimal/agent.cordis.yml',
+  'presets/minimal/preset.yml',
 ] as const
 
 /** Community packages built from pinned source, never substituted from the npm registry. */

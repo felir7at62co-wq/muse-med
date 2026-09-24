@@ -45,7 +45,7 @@ The published catalogue at `https://muse.tos-cn-beijing.volces.com/bgm/index.jso
 | `maxCatalogBytes` | Defaults to 2097152 decoded bytes |
 | `maxTrackBytes` | Defaults to 134217728 bytes per catalogue track |
 
-No model weights ship in npm. See [sources and licenses](SOURCES.md) before acquiring weights; the default package data directory alone is insufficient for analysis. Without offline mode, the first analysis can download the frozen MERT snapshot. Ambient cache-location environment variables override the same entries in `env`.
+No model weights ship in npm. See [sources and licenses](SOURCES.md) before acquiring weights; the default package data directory alone is insufficient for analysis. Without offline mode, the first analysis can download the frozen MERT snapshot. Explicit `env` entries take precedence. Setting any of `HF_HOME`, `HF_HUB_CACHE`, `TRANSFORMERS_CACHE` or `HF_ENDPOINT` excludes all four ambient values; otherwise the worker inherits that allowlisted group. Read-only model deployments must provide writable `HF_MODULES_CACHE`, `NUMBA_CACHE_DIR` and application cache locations outside the installation.
 
 -----
 
@@ -57,7 +57,7 @@ No model weights ship in npm. See [sources and licenses](SOURCES.md) before acqu
 
 The public manifest is `{version:1,tracks:[{id,name,sha256,bytes,url,valence,arousal,moods}]}`. Each `id` equals its `sha256:<64 lowercase hex>` digest. Track URLs must exactly match the catalogue's origin plus `/bgm/tracks/<hash>.<audio extension>`. HTTPS transfers omit credentials and reject redirects, partial responses, oversize bodies, invalid measurements, duplicate IDs and unsafe filenames. Downloads stream into exclusive files in private temporary directories, verify size and SHA-256, then atomically rename into content-addressed cache paths; errors remove staging files. Caller cancellation and plugin unload abort network operations.
 
-The TypeScript tool ranks cached or public measurements and lazily starts an isolated NDJSON Python worker only for analysis. The worker uses the maintained Music2Emotion inference adapter and vendored helpers. Each chord/key operation owns a random OS temporary directory, removed on return or exception; no intermediate is written into package data. No invariant companion is published because the package has no independently maintained observations to reconcile.
+The TypeScript tool ranks cached or public measurements and lazily starts an isolated NDJSON Python worker only for analysis. The worker uses the maintained Music2Emotion inference adapter and vendored helpers; analysis-library print diagnostics go to stderr, while stdout carries only NDJSON responses. Each chord/key operation owns a random OS temporary directory, removed on return or exception; no intermediate is written into package data. No invariant companion is published because the package has no independently maintained observations to reconcile.
 
 From the repository root, the focused source build and offline checks are:
 

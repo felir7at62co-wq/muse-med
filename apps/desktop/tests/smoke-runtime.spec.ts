@@ -17,9 +17,12 @@ function fixture() {
   roots.push(root)
   const home = join(root, 'home')
   mkdirSync(home)
-  const preset = join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets/short-drama-local/agent.cordis.yml')
-  mkdirSync(dirname(preset), { recursive: true })
-  writeFileSync(preset, '[]')
+  const ids = ['short-drama-local', 'standard', 'ptc', 'minimal']
+  const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
+  for (const id of ids) {
+    mkdirSync(dirname(presetPath(id)), { recursive: true })
+    writeFileSync(presetPath(id), '[]')
+  }
   const skillRoot = join(root, 'node_modules/@deepseek-ai/dsh-drama-skills/skills')
   const skillNames = ['tweet-drama-pipeline', 'tweet-drama-core', 'tweet-drama-script-convert',
     'tweet-drama-script-split', 'tweet-drama-asset-extract', 'tweet-drama-asset-vision-check',
@@ -31,23 +34,32 @@ function fixture() {
     writeFileSync(path, '# fixture')
     return { name, path, invocation: { modelInvocable: true } }
   })
-  const agent = {}
+  const customPath = join(home, 'skills/desktop-user-skill/SKILL.md')
+  mkdirSync(dirname(customPath), { recursive: true })
+  writeFileSync(customPath, '# fixture')
+  skills.push({ name: 'desktop-user-skill', path: customPath, invocation: { modelInvocable: true } })
+  const agent = { preset: 'short-drama-local' }
   const agentCtx = {}
   const dispose = vi.fn(async () => {})
-  const mount = vi.fn(async () => {})
+  const mount = vi.fn(async (_context: object, _id: string) => {})
   const names = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video',
     'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
     'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'read', 'present', process.platform === 'win32' ? 'pwsh' : 'bash']
   class TestContext {
     agentPresets = {
-      list: vi.fn(async () => [{ id: 'short-drama-local' }]),
-      resolve: vi.fn(async () => ({ path: preset, trust: 'system' })), mount,
+      defaultId: 'short-drama-local',
+      list: vi.fn(async () => ids.map(id => ({ id }))),
+      resolve: vi.fn(async (id: string) => ({ path: presetPath(id), trust: 'system' })), mount,
     }
-    agents = { create: vi.fn(async (options: { setup: (context: object) => Promise<void> }) => {
+    agents = { create: vi.fn(async (options: { setup: (context: object) => Promise<void>; meta: { agentPreset: string } }) => {
       await options.setup(agentCtx)
-      return { agent, dispose }
+      return { agent: options.meta.agentPreset === 'short-drama-local' ? agent : { preset: options.meta.agentPreset }, dispose }
     }) }
-    tools = { schemas: vi.fn(() => names.map(name => ({ name }))) }
+    tools = { schemas: vi.fn((key: { preset: string }) => {
+      const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
+      return (key.preset === 'short-drama-local' ? names : key.preset === 'minimal' ? [shell]
+        : ['read', 'skill', shell, 'subagent', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
+    }) }
     skills = { list: vi.fn(async () => skills) }
   }
   // Execute exactly the emitted plugin body; fixture services never impersonate a real prepared-runtime smoke.
@@ -66,7 +78,8 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'short-drama-local')
   expect(f.ctx.tools.schemas).toHaveBeenCalledWith(f.agent)
   expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.home })
-  expect(f.dispose).toHaveBeenCalledOnce()
+  expect(f.dispose).toHaveBeenCalledTimes(8)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(8)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
@@ -112,10 +125,40 @@ it('propagates a preset mount rejection without announcing a successful smoke', 
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
+it('rejects a missing native provider rather than reporting a partial roster success', async () => {
+  const f = fixture()
+  f.mount.mockImplementation(async (_context, id) => { if (id === 'ptc') throw new Error('waiting for ptcRuntime') })
+  await expect(f.apply(f.ctx)).rejects.toThrow('waiting for ptcRuntime')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('rejects inherited paid tools in the Minimal preset', async () => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => [...schemas(key), ...(key.preset === 'minimal' ? [{ name: 'jubian_video' }] : [])])
+  await expect(f.apply(f.ctx)).rejects.toThrow('Minimal inherited non-shell tools')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it.each(['missing', 'legacy-only', 'shadow'])('rejects %s custom skill isolation failures', async (kind) => {
+  const f = fixture()
+  const custom = f.skills.find(skill => skill.name === 'desktop-user-skill')!
+  if (kind === 'missing') f.skills.splice(f.skills.indexOf(custom), 1)
+  else if (kind === 'legacy-only') f.skills.push({ ...custom, name: 'desktop-legacy-only' })
+  else {
+    const path = join(f.home, '.agents/skills/desktop-user-skill/SKILL.md')
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, '# legacy')
+    custom.path = path
+  }
+  await expect(f.apply(f.ctx)).rejects.toThrow('product custom skills missing or legacy skills discovered')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
 it('refuses a roster with additional presets before creating an agent', async () => {
   const f = fixture()
   f.ctx.agentPresets.list.mockResolvedValue([{ id: 'short-drama-local' }, { id: 'personal' }])
-  await expect(f.apply(f.ctx)).rejects.toThrow('expected only short-drama-local')
+  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the four product presets')
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
 })
 
@@ -123,7 +166,7 @@ it('fails missing tools and still disposes the created agent', async () => {
   const f = fixture()
   f.names.splice(f.names.indexOf('bgm_match'), 1)
   await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool bgm_match')
-  expect(f.dispose).toHaveBeenCalledOnce()
+  expect(f.dispose).toHaveBeenCalledTimes(2)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
@@ -132,7 +175,7 @@ it.each(['directory', 'registry'])('rejects XHS in the product %s and disposes t
   if (source === 'directory') mkdirSync(join(f.skillRoot, 'xiaohongshu-reference'))
   else f.skills.push({ name: 'xiaohongshu-reference', path: '', invocation: { modelInvocable: false } })
   await expect(f.apply(f.ctx)).rejects.toThrow('XHS must not ship')
-  expect(f.dispose).toHaveBeenCalledOnce()
+  expect(f.dispose).toHaveBeenCalledTimes(2)
 })
 
 it('rejects a personal skill shadow and still disposes the created agent', async () => {
@@ -141,5 +184,5 @@ it('rejects a personal skill shadow and still disposes the created agent', async
   writeFileSync(personal, '# personal')
   f.skills[0]!.path = personal
   await expect(f.apply(f.ctx)).rejects.toThrow('skill outside product bundle')
-  expect(f.dispose).toHaveBeenCalledOnce()
+  expect(f.dispose).toHaveBeenCalledTimes(2)
 })

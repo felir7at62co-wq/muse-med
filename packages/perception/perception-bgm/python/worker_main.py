@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import sys
 import traceback
+from contextlib import redirect_stdout
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -67,8 +68,10 @@ def main() -> int:
         try:
             request = json.loads(line)
             request_id = request.get('id')
-            emit({'id': request_id, 'status': 'ok',
-                  'result': dispatch(request['method'], request.get('params') or {})})
+            # Model-library diagnostics must not enter the NDJSON response stream.
+            with redirect_stdout(sys.stderr):
+                result = dispatch(request['method'], request.get('params') or {})
+            emit({'id': request_id, 'status': 'ok', 'result': result})
         except Exception as error:  # noqa: BLE001 - every failure must answer, never die
             emit({'id': request_id, 'status': 'error',
                   'error': {'code': type(error).__name__, 'message': str(error)[:500],

@@ -1,5 +1,7 @@
 """Offline regression checks; no model imports, downloads or audio inference."""
 import importlib.util
+import io
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -20,6 +22,24 @@ def load_module(name, path):
 
 
 class ResourcesTest(unittest.TestCase):
+    def test_dependency_stdout_is_diagnostic_not_ndjson(self):
+        def noisy_analysis(_method, _params):
+            print('optional model dependency warning')
+            return {'valence': 5.0}
+
+        with patch.object(sys, 'path', sys.path.copy()):
+            worker = load_module('bgm_worker_test', ROOT / 'python/worker_main.py')
+            output, diagnostic = io.StringIO(), io.StringIO()
+            with patch.object(sys, 'stdin', io.StringIO('{"id":"one","method":"analyse"}\n')), \
+                 patch.object(sys, 'stdout', output), patch.object(sys, 'stderr', diagnostic), \
+                 patch.object(worker, 'handshake', return_value={'ready': True}), \
+                 patch.object(worker, 'dispatch', side_effect=noisy_analysis):
+                self.assertEqual(worker.main(), 0)
+            messages = [json.loads(line) for line in output.getvalue().splitlines()]
+            self.assertEqual([row['id'] for row in messages], ['__handshake__', 'one'])
+            self.assertEqual(messages[-1]['result'], {'valence': 5.0})
+            self.assertIn('optional model dependency warning', diagnostic.getvalue())
+
     def test_analysis_uses_private_temp_and_cleans_success_and_failure(self):
         with patch.dict(sys.modules, {name: MagicMock() for name in
                                      ('numpy', 'torch', 'torchaudio', 'yaml', 'mert')}):

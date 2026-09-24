@@ -1,6 +1,7 @@
 /** Typed preload operations exposed only by the Electron shell. */
 
 import type { DesktopPluginRecord } from './project-manager.ts'
+import type { DesktopPluginCatalog } from './plugin-catalog.ts'
 import type { DesktopLocale } from './locale.ts'
 import type { DesktopBackendState } from './backend-controller.ts'
 
@@ -8,6 +9,7 @@ import type { DesktopBackendState } from './backend-controller.ts'
 export const DESKTOP_IPC = {
   localeGet: 'dsh-desktop:locale-get',
   pluginsList: 'dsh-desktop:plugins-list',
+  pluginsCatalog: 'dsh-desktop:plugins-catalog',
   pluginsAdd: 'dsh-desktop:plugins-add',
   pluginsRemove: 'dsh-desktop:plugins-remove',
   pluginsUpdate: 'dsh-desktop:plugins-update',
@@ -36,6 +38,8 @@ export interface DshDesktopApi {
   locale(): Promise<DesktopLocale>
   readonly plugins: {
     list(): Promise<readonly DesktopPluginRecord[]>
+    /** Read local inventory; discover=true explicitly requests the public online catalog. */
+    catalog(discover: boolean): Promise<DesktopPluginCatalog>
     add(spec: string): Promise<void>
     remove(name: string): Promise<void>
     update(name: string, version: string): Promise<void>

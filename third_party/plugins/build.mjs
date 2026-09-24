@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
+import { applyLarkDesktopCompatibility, larkDesktopCompatibility } from './compatibility/lark-desktop.mjs'
 
 const sourceRoot = import.meta.dirname
 const repository = resolve(sourceRoot, '../..')
@@ -68,6 +69,7 @@ for (const name of values.only ? [values.only] : Object.keys(pins)) {
     if (!readFileSync(join(directory, 'LICENSE'), 'utf8').trim()) throw new Error(`community plugins: ${name} has no license`)
     const modules = join(directory, 'node_modules')
     linkDependencies(modules, links)
+    if (name === 'dsh-lark-bridge') applyLarkDesktopCompatibility(directory)
     const tsc = join(toolchain, 'node_modules/typescript/bin/tsc')
     const tsdown = join(toolchain, 'node_modules/tsdown/dist/run.mjs')
     if (name === 'dsh-codex-subscription') {
@@ -113,6 +115,13 @@ export function codexFilesystemPath(value) {
     if (name === 'dsh-ffmpeg') {
       run(['--test', '--test-concurrency=1', ...['args', 'config', 'exec', 'ffprobe', 'paths', 'register', 'subprocess-context', 'tools', 'frames-probe', 'adjust', 'health'].map(test => `test/${test}.test.mjs`)], directory)
     }
+    if (name === 'dshmarket') {
+      manifest.exports['./catalog'] = { types: './lib/types/registry.d.ts', default: './lib/registry.js' }
+    }
+    if (name === 'dsh-lark-bridge') {
+      cpSync(join(sourceRoot, 'checks/lark-desktop-runtime.mjs'), join(directory, '.muse-lark.test.mjs'))
+      run(['--test', '--test-concurrency=1', '.muse-lark.test.mjs'], directory)
+    }
     manifest.scripts = {}
     manifest.packageManager = tools.packageManager
     for (const [dependency, range] of Object.entries(manifest.peerDependencies ?? {})) {
@@ -131,11 +140,16 @@ export function codexFilesystemPath(value) {
     writeFileSync(join(directory, 'SOURCE.json'), `${JSON.stringify({
       upstream: pins[name], hostVersion,
       compatibilityOverlay: name === 'dsh-codex-subscription'
-        ? { subagentRuntimeVersion: hostVersion, codexCliVersion: '0.153.4', codexAsarUnpack: true } : undefined,
+        ? { subagentRuntimeVersion: hostVersion, codexCliVersion: '0.153.4', codexAsarUnpack: true }
+        : name === 'dshmarket' ? { catalogExport: './catalog' }
+          : name === 'dsh-lark-bridge' ? larkDesktopCompatibility : undefined,
       toolchainLockSha256: createHash('sha256').update(readFileSync(join(toolchain, 'pnpm-lock.yaml'))).digest('hex'),
     }, null, 2)}\n`)
     manifest.files = [...new Set([...(manifest.files ?? []), 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'BUNDLED_LICENSES.md', 'SOURCE.json'])]
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    if (name === 'dshmarket') {
+      run(['--input-type=module', '-e', "const catalog = await import('dshmarket/catalog'); if (typeof catalog.loadRegistry !== 'function') throw new Error('missing catalog export')"], directory)
+    }
     run([pnpm, '--ignore-workspace', 'pack', '--pack-destination', output], directory)
   } finally {
     for (const link of links.reverse()) unlinkSync(link)

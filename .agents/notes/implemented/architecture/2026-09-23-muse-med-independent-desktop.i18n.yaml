@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-23-muse-med-independent-desktop.md
-2026-09-23-muse-med-independent-desktop.md: cfe189427c7bcdc1eb8d9fa2a5e10c1a1adfa2ec
-2026-09-23-muse-med-independent-desktop.zh.md: 16cb94c8cb0166474e0758d82e0230fd43bfa73b
+2026-09-23-muse-med-independent-desktop.md: 3340c34e19b3adba7fbf87b92a5a2d8af7afb76f
+2026-09-23-muse-med-independent-desktop.zh.md: 41bc0f723d0501ffc366c86f320ef15d4a2f1381

@@ -1,0 +1,963 @@
+{
+  "schema": "dsh.bgm-native-notices/coverage/v1",
+  "purpose": "Map every native location in the BGM payload to the notice that covers it. Notice remediation only: this file makes no legal conclusion and does not clear the release.",
+  "payload_root": "the installed BGM payload directory; every payload_paths entry is relative to it",
+  "derived_from": [
+    ".local/bgmprep/compliance/bgm-native-compliance.json",
+    "apps/desktop/scripts/bgm-runtime.lock.json",
+    "apps/desktop/scripts/bgm-source-bundle/lock.json",
+    "string scans of the shipped binaries named in version_evidence"
+  ],
+  "status_legend": {
+    "covered": "a notice file in this directory names this component and its license",
+    "covered_by_shipped_license": "the license text already installs with the payload; BGM-NATIVE-NOTICES.txt names the component and points at it",
+    "uncovered": "no notice text ships for it, in the payload or in this directory",
+    "unverified": "coverage could not be determined from the available evidence"
+  },
+  "entries": [
+    {
+      "id": "openssl",
+      "payload_paths": [
+        "python/DLLs/libcrypto-3-x64.dll",
+        "python/DLLs/libssl-3-x64.dll"
+      ],
+      "component": "OpenSSL",
+      "version": "3.5.8",
+      "version_status": "verified",
+      "version_evidence": "binary string 'OpenSSL 3.5.8' in python/DLLs/libcrypto-3-x64.dll",
+      "license": "Apache-2.0",
+      "status": "covered",
+      "covered_by": [
+        "texts/openssl-LICENSE.txt"
+      ]
+    },
+    {
+      "id": "sqlite",
+      "payload_paths": [
+        "python/DLLs/sqlite3.dll"
+      ],
+      "component": "SQLite",
+      "version": "3.53.1",
+      "version_status": "verified",
+      "version_evidence": "version resource '3.53.1.0' in python/DLLs/sqlite3.dll",
+      "license": "Public domain",
+      "status": "covered",
+      "covered_by": [
+        "texts/sqlite-copyright.html"
+      ]
+    },
+    {
+      "id": "libffi",
+      "payload_paths": [
+        "python/DLLs/libffi-8.dll"
+      ],
+      "component": "libffi",
+      "version_status": "unverified",
+      "version_evidence": "only the soname libffi-8 appears in the DLL; no version string or version resource",
+      "license": "MIT",
+      "status": "covered",
+      "covered_by": [
+        "texts/libffi-LICENSE.txt"
+      ]
+    },
+    {
+      "id": "tcl-tk",
+      "payload_paths": [
+        "python/DLLs/tcl86t.dll",
+        "python/DLLs/tk86t.dll",
+        "python/tcl/**/*.dll",
+        "python/tcl/tk8.6/license.terms"
+      ],
+      "component": "Tcl/Tk",
+      "version": "8.6.12",
+      "version_status": "verified",
+      "version_evidence": "version resources '8.6.12' and 'Tcl 8.6 for Windows' / 'Tk 8.6 for Windows'",
+      "license": "BSD-style Tcl/Tk license",
+      "status": "covered",
+      "covered_by": [
+        "texts/tcl-tk-license.terms.txt",
+        "payload:python/tcl/tk8.6/license.terms"
+      ],
+      "note": "the license.terms shipped in the payload is the same text as the notice file, modulo CRLF line endings"
+    },
+    {
+      "id": "msvc-runtime-interpreter",
+      "payload_paths": [
+        "python/vcruntime140.dll",
+        "python/vcruntime140_1.dll"
+      ],
+      "component": "Microsoft Visual C++ runtime",
+      "version": "14.44.35211.0",
+      "version_status": "verified",
+      "version_evidence": "version resource '14.44.35211.0' in both DLLs",
+      "license": "Microsoft distributable code terms for the Visual C++ redistributable",
+      "status": "covered",
+      "covered_by": [
+        "texts/msvc-vc-runtime-redistributable-list.html"
+      ]
+    },
+    {
+      "id": "cpython",
+      "payload_paths": [
+        "python/DLLs/*.pyd",
+        "python/python3.dll",
+        "python/python311.dll",
+        "python/python.exe",
+        "python/pythonw.exe",
+        "python/Lib/**"
+      ],
+      "component": "CPython",
+      "version": "3.11.16+20260901",
+      "version_status": "verified",
+      "version_evidence": "apps/desktop/scripts/bgm-runtime.lock.json python resource",
+      "license": "PSF-2.0",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/LICENSE.txt",
+        "BGM-NATIVE-NOTICES.txt"
+      ]
+    },
+    {
+      "id": "intel-mkl",
+      "payload_paths": [
+        "python/Library/bin/mkl_*.dll",
+        "python/Library/bin/libimalloc.dll"
+      ],
+      "component": "Intel Math Kernel Library (oneMKL)",
+      "version": "2021.4.0",
+      "version_status": "verified",
+      "version_evidence": "wheel record mkl-2021.4.0-py2.py3-none-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "Intel Simplified Software License (February 2020)",
+      "status": "covered",
+      "covered_by": [
+        "texts/intel-mkl-LICENSE-ISSL-2020-02.txt",
+        "payload:python/Lib/site-packages/mkl-2021.4.0.dist-info/LICENSE.txt"
+      ],
+      "notice_gap": "mkl-third-party-programs-absent"
+    },
+    {
+      "id": "intel-openmp",
+      "payload_paths": [
+        "python/Library/bin/libiomp5md.dll",
+        "python/Library/bin/libiompstubs5md.dll",
+        "python/Library/bin/omptarget*.dll"
+      ],
+      "component": "Intel OpenMP runtime",
+      "version": "2021.4.0",
+      "version_status": "verified",
+      "version_evidence": "wheel record intel_openmp-2021.4.0-py2.py3-none-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "Intel End User License Agreement for Developer Tools (October 2020)",
+      "status": "covered",
+      "covered_by": [
+        "texts/intel-openmp-LICENSE-EULA-2020-10.txt",
+        "payload:python/Lib/site-packages/intel_openmp-2021.4.0.dist-info/LICENSE.txt"
+      ],
+      "notice_gap": "intel-openmp-redist-list-absent"
+    },
+    {
+      "id": "torch-intel-openmp",
+      "payload_paths": [
+        "python/Lib/site-packages/torch/lib/libiomp5md.dll",
+        "python/Lib/site-packages/torch/lib/libiompstubs5md.dll"
+      ],
+      "component": "Intel OpenMP runtime (second copy inside torch)",
+      "version": "2021.4.0",
+      "version_status": "verified",
+      "version_evidence": "same file name and byte size as the intel_openmp wheel copy (1942464 bytes)",
+      "license": "Intel End User License Agreement for Developer Tools (October 2020)",
+      "status": "covered",
+      "covered_by": [
+        "texts/intel-openmp-LICENSE-EULA-2020-10.txt",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "the torch wheel's own LICENSE and NOTICE do not name this bundled Intel runtime"
+    },
+    {
+      "id": "intel-tbb",
+      "payload_paths": [
+        "python/Library/bin/tbb12.dll",
+        "python/Library/bin/tbbbind*.dll",
+        "python/Library/bin/tbbmalloc*.dll",
+        "python/Library/bin/../share/doc/tbb/licensing/third-party-programs.txt"
+      ],
+      "component": "Intel oneTBB",
+      "version": "2021.13.1",
+      "version_status": "verified",
+      "version_evidence": "wheel record tbb-2021.13.1-py3-none-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "Intel Simplified Software License (October 2022)",
+      "status": "covered",
+      "covered_by": [
+        "texts/intel-onetbb-LICENSE-ISSL-2022-10.txt",
+        "texts/intel-onetbb-third-party-programs.txt",
+        "payload:python/Lib/site-packages/tbb-2021.13.1.dist-info/LICENSE.txt"
+      ],
+      "note": "oneTBB 2021.13.1 is under the Intel Simplified Software License (October 2022), not Apache-2.0"
+    },
+    {
+      "id": "torch-native",
+      "payload_paths": [
+        "python/Lib/site-packages/torch/lib/*.dll",
+        "python/Lib/site-packages/torch/bin/*.dll",
+        "python/Lib/site-packages/torch/_C.cp311-win_amd64.pyd",
+        "python/Lib/site-packages/functorch/_C.cp311-win_amd64.pyd"
+      ],
+      "component": "torch native libraries (torch_cpu.dll, c10.dll, fbgemm.dll, asmjit.dll and the C extensions)",
+      "version": "2.3.1+cpu",
+      "version_status": "verified",
+      "version_evidence": "wheel record torch-2.3.1+cpu-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "BSD-3-Clause for torch, with vendored third-party code inside torch_cpu.dll",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/torch-2.3.1+cpu.dist-info/LICENSE",
+        "payload:python/Lib/site-packages/torch-2.3.1+cpu.dist-info/NOTICE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "libiomp5md.dll and libiompstubs5md.dll in torch/lib are covered by the torch-intel-openmp entry, not by torch's own LICENSE, which does not name them"
+    },
+    {
+      "id": "libsndfile",
+      "payload_paths": [
+        "python/Lib/site-packages/_soundfile_data/libsndfile_64bit.dll"
+      ],
+      "component": "libsndfile",
+      "version": "1.2.0",
+      "version_status": "verified",
+      "version_evidence": "binary string 'libsndfile-1.2.0' in the DLL",
+      "license": "LGPL-2.1",
+      "status": "covered",
+      "covered_by": [
+        "texts/LGPL-2.1.txt",
+        "payload:python/Lib/site-packages/_soundfile_data/COPYING"
+      ]
+    },
+    {
+      "id": "mpg123",
+      "payload_paths": [
+        "python/Lib/site-packages/_soundfile_data/libsndfile_64bit.dll"
+      ],
+      "component": "libmpg123, statically linked into libsndfile_64bit.dll",
+      "version_status": "unverified",
+      "version_evidence": "no version literal in the DLL; the only mpg123 provenance is the vcpkg build path 'C:\\vcpkg\\buildtrees\\mpg123\\src\\0d8db63f9b-3db975bc05.clean\\src\\libmpg123\\id3.c'",
+      "license": "LGPL-2.1",
+      "status": "covered",
+      "covered_by": [
+        "texts/mpg123-COPYING.txt",
+        "texts/LGPL-2.1.txt"
+      ]
+    },
+    {
+      "id": "lame",
+      "payload_paths": [
+        "python/Lib/site-packages/_soundfile_data/libsndfile_64bit.dll"
+      ],
+      "component": "LAME, statically linked into libsndfile_64bit.dll",
+      "version": "3.100",
+      "version_status": "verified",
+      "version_evidence": "binary string 'LAME3.100 ' in the DLL",
+      "license": "LGPL-2.1",
+      "status": "covered",
+      "covered_by": [
+        "texts/lame-license.txt",
+        "texts/LGPL-2.1.txt"
+      ]
+    },
+    {
+      "id": "flac",
+      "payload_paths": [
+        "python/Lib/site-packages/_soundfile_data/libsndfile_64bit.dll"
+      ],
+      "component": "reference libFLAC, statically linked into libsndfile_64bit.dll",
+      "version": "1.3.4",
+      "version_status": "verified",
+      "version_evidence": "binary string 'reference libFLAC 1.3.4 20220220'",
+      "license": "BSD-3-Clause (Xiph)",
+      "status": "covered",
+      "covered_by": [
+        "texts/flac-COPYING.Xiph.txt"
+      ]
+    },
+    {
+      "id": "libogg",
+      "payload_paths": [
+        "python/Lib/site-packages/_soundfile_data/libsndfile_64bit.dll"
+      ],
+      "component": "libogg, statically linked into libsndfile_64bit.dll",
+      "version_status": "unverified",
+      "version_evidence": "no version literal in the DLL",
+      "license": "BSD-3-Clause (Xiph)",
+      "status": "covered",
+      "covered_by": [
+        "texts/libogg-COPYING.txt"
+      ]
+    },
+    {
+      "id": "libvorbis",
+      "payload_paths": [
+        "python/Lib/site-packages/_soundfile_data/libsndfile_64bit.dll"
+      ],
+      "component": "libVorbis, statically linked into libsndfile_64bit.dll",
+      "version": "1.3.7",
+      "version_status": "verified",
+      "version_evidence": "binary string 'Xiph.Org libVorbis 1.3.7'",
+      "license": "BSD-3-Clause (Xiph)",
+      "status": "covered",
+      "covered_by": [
+        "texts/libvorbis-COPYING.txt"
+      ]
+    },
+    {
+      "id": "libopus",
+      "payload_paths": [
+        "python/Lib/site-packages/_soundfile_data/libsndfile_64bit.dll"
+      ],
+      "component": "libopus, statically linked into libsndfile_64bit.dll",
+      "version": "1.3.1",
+      "version_status": "verified",
+      "version_evidence": "binary string 'libopus 1.3.1'",
+      "license": "BSD-3-Clause (Xiph/Opus)",
+      "status": "covered",
+      "covered_by": [
+        "texts/libopus-COPYING.txt"
+      ]
+    },
+    {
+      "id": "libsoxr",
+      "payload_paths": [
+        "python/Lib/site-packages/soxr/soxr_ext.cp311-win_amd64.pyd"
+      ],
+      "component": "libsoxr, statically linked into soxr_ext.pyd",
+      "version": "0.1.3",
+      "version_status": "verified",
+      "version_evidence": "soxr 1.1.0 sdist reports SOXR_THIS_VERSION_STR 0.1.3 and the shipped .pyd exports libsoxr_version; no separate libsoxr DLL ships",
+      "license": "LGPL-2.1-or-later",
+      "status": "covered",
+      "covered_by": [
+        "texts/LGPL-2.1.txt",
+        "texts/libsoxr-LICENSE.txt",
+        "payload:python/Lib/site-packages/soxr-1.1.0.dist-info/licenses/COPYING.LGPL"
+      ]
+    },
+    {
+      "id": "timgm6mb-soundfont",
+      "payload_paths": [
+        "python/Lib/site-packages/pretty_midi/TimGM6mb.sf2"
+      ],
+      "component": "TimGM6mb SoundFont",
+      "version": "as distributed with pretty_midi 0.2.10",
+      "version_status": "verified",
+      "version_evidence": "pretty_midi-0.2.10.tar.gz in bgm-runtime.lock.json sdists",
+      "license": "GPL-2 per the Debian copyright record; pretty_midi's own MIT label covers the code only",
+      "status": "covered",
+      "covered_by": [
+        "texts/GPL-2.0.txt",
+        "texts/timgm6mb-debian-copyright.txt",
+        "payload:bgm/licenses/TimGM6mb-Debian-copyright.txt",
+        "payload:bgm/licenses/sources/pretty_midi-0.2.10.tar.gz"
+      ],
+      "note": "the soundfont's GPL-2 status rests on the Debian copyright record, not on pretty_midi's MIT metadata"
+    },
+    {
+      "id": "mert-v1-95m",
+      "payload_paths": [
+        "models/hf-cache/hub/models--m-a-p--MERT-v1-95M/**"
+      ],
+      "component": "MERT-v1-95M backbone",
+      "version": "12af15fef9d0ac838c3f475bfbbf26d2060dd4f5",
+      "version_status": "verified",
+      "version_evidence": "bgm-runtime.lock.json mertRevision",
+      "license": "CC-BY-NC-4.0 (noncommercial only)",
+      "status": "covered",
+      "covered_by": [
+        "texts/CC-BY-NC-4.0.txt",
+        "payload:bgm/licenses/LICENSE-CC-BY-NC-4.0.txt",
+        "payload:bgm/licenses/MERT-ATTRIBUTION.txt",
+        "payload:licenses/REDISTRIBUTION.txt"
+      ]
+    },
+    {
+      "id": "music2emo-checkpoints",
+      "payload_paths": [
+        "models/J_all.ckpt",
+        "models/data/btc_model_large_voca.pt",
+        "models/data/**"
+      ],
+      "component": "Music2Emo checkpoints",
+      "version": "c5f7984f78d9928b841f25bd05a47377c12c58ca",
+      "version_status": "verified",
+      "version_evidence": "bgm-runtime.lock.json model URLs",
+      "license": "as shipped in bgm/licenses/LICENSE-Music2Emo",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:bgm/licenses/LICENSE-Music2Emo",
+        "payload:bgm/licenses/Music2Emo-SOURCES.md"
+      ]
+    },
+    {
+      "id": "PyYAML-6.0.1",
+      "payload_paths": [
+        "python/Lib/site-packages/yaml/**"
+      ],
+      "component": "PyYAML native extension modules",
+      "version": "6.0.1",
+      "version_status": "verified",
+      "version_evidence": "wheel record PyYAML-6.0.1-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "MIT",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/PyYAML-6.0.1.dist-info/LICENSE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "aiohttp-3.14.3",
+      "payload_paths": [
+        "python/Lib/site-packages/aiohttp/**"
+      ],
+      "component": "aiohttp native extension modules",
+      "version": "3.14.3",
+      "version_status": "verified",
+      "version_evidence": "wheel record aiohttp-3.14.3-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "Apache-2.0 AND MIT",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/aiohttp-3.14.3.dist-info/licenses/LICENSE.txt",
+        "payload:python/Lib/site-packages/aiohttp-3.14.3.dist-info/licenses/vendor/llhttp/LICENSE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "cffi-2.1.1",
+      "payload_paths": [
+        "python/Lib/site-packages/_cffi_backend.cp311-win_amd64.pyd"
+      ],
+      "component": "cffi native extension modules",
+      "version": "2.1.1",
+      "version_status": "verified",
+      "version_evidence": "wheel record cffi-2.1.1-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "MIT-0",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/cffi-2.1.1.dist-info/licenses/LICENSE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "charset-normalizer-3.5.1",
+      "payload_paths": [
+        "python/Lib/site-packages/charset_normalizer/**"
+      ],
+      "component": "charset-normalizer native extension modules",
+      "version": "3.5.1",
+      "version_status": "verified",
+      "version_evidence": "wheel record charset_normalizer-3.5.1-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "MIT",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/charset_normalizer-3.5.1.dist-info/licenses/LICENSE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "contourpy-1.3.3",
+      "payload_paths": [
+        "python/Lib/site-packages/contourpy/**"
+      ],
+      "component": "contourpy native extension modules",
+      "version": "1.3.3",
+      "version_status": "verified",
+      "version_evidence": "wheel record contourpy-1.3.3-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "BSD 3-Clause License",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/contourpy-1.3.3.dist-info/LICENSE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "fonttools-4.66.0",
+      "payload_paths": [
+        "python/Lib/site-packages/fontTools/**"
+      ],
+      "component": "fonttools native extension modules",
+      "version": "4.66.0",
+      "version_status": "verified",
+      "version_evidence": "wheel record fonttools-4.66.0-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "MIT",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/fonttools-4.66.0.dist-info/licenses/LICENSE",
+        "payload:python/Lib/site-packages/fonttools-4.66.0.dist-info/licenses/LICENSE.external",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "frozenlist-1.8.0",
+      "payload_paths": [
+        "python/Lib/site-packages/frozenlist/**"
+      ],
+      "component": "frozenlist native extension modules",
+      "version": "1.8.0",
+      "version_status": "verified",
+      "version_evidence": "wheel record frozenlist-1.8.0-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "Apache-2.0",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/frozenlist-1.8.0.dist-info/licenses/LICENSE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "kiwisolver-1.5.1",
+      "payload_paths": [
+        "python/Lib/site-packages/kiwisolver/**"
+      ],
+      "component": "kiwisolver native extension modules",
+      "version": "1.5.1",
+      "version_status": "verified",
+      "version_evidence": "wheel record kiwisolver-1.5.1-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "not stated in wheel METADATA",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/kiwisolver-1.5.1.dist-info/licenses/LICENSE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "llvmlite-0.43.0",
+      "payload_paths": [
+        "python/Lib/site-packages/llvmlite/**"
+      ],
+      "component": "llvmlite native extension modules",
+      "version": "0.43.0",
+      "version_status": "verified",
+      "version_evidence": "wheel record llvmlite-0.43.0-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "BSD",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/llvmlite-0.43.0.dist-info/LICENSE",
+        "payload:python/Lib/site-packages/llvmlite-0.43.0.dist-info/LICENSE.thirdparty",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "llvmlite/binding/llvmlite.dll (80374272 bytes) contains LLVM 14.0.6 (Apache-2.0 WITH LLVM-exception); LICENSE and LICENSE.thirdparty ship in the dist-info.; ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "lxml-6.0.2",
+      "payload_paths": [
+        "python/Lib/site-packages/lxml/**"
+      ],
+      "component": "lxml native extension modules",
+      "version": "6.0.2",
+      "version_status": "verified",
+      "version_evidence": "wheel record lxml-6.0.2-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "BSD-3-Clause",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/lxml-6.0.2.dist-info/licenses/LICENSE.txt",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "extension modules statically include libxml2, libxslt and libexslt (MIT); LICENSES.txt ships. The libxml2/libxslt versions could not be read from the binary.; ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "MarkupSafe-3.0.3",
+      "payload_paths": [
+        "python/Lib/site-packages/markupsafe/**"
+      ],
+      "component": "MarkupSafe native extension modules",
+      "version": "3.0.3",
+      "version_status": "verified",
+      "version_evidence": "wheel record markupsafe-3.0.3-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "BSD-3-Clause",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/markupsafe-3.0.3.dist-info/licenses/LICENSE.txt",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "matplotlib-3.11.2",
+      "payload_paths": [
+        "python/Lib/site-packages/matplotlib/**"
+      ],
+      "component": "matplotlib native extension modules",
+      "version": "3.11.2",
+      "version_status": "verified",
+      "version_evidence": "wheel record matplotlib-3.11.2-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "License agreement for matplotlib versions 1.3.0 and later",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/matplotlib-3.11.2.dist-info/LICENSE",
+        "payload:python/Lib/site-packages/matplotlib/mpl-data/fonts/ttf/LICENSE_DEJAVU",
+        "payload:python/Lib/site-packages/matplotlib/mpl-data/fonts/ttf/LICENSE_STIX",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ft2font includes FreeType; the wheel ships LICENSE plus LICENSE_DEJAVU and LICENSE_STIX for the bundled fonts.; ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "msgpack-1.2.2",
+      "payload_paths": [
+        "python/Lib/site-packages/msgpack/**"
+      ],
+      "component": "msgpack native extension modules",
+      "version": "1.2.2",
+      "version_status": "verified",
+      "version_evidence": "wheel record msgpack-1.2.2-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "Apache-2.0",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/msgpack-1.2.2.dist-info/licenses/COPYING",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "multidict-6.9.1",
+      "payload_paths": [
+        "python/Lib/site-packages/multidict/**"
+      ],
+      "component": "multidict native extension modules",
+      "version": "6.9.1",
+      "version_status": "verified",
+      "version_evidence": "wheel record multidict-6.9.1-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "Apache License 2.0",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/multidict-6.9.1.dist-info/licenses/LICENSE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "numba-0.60.0",
+      "payload_paths": [
+        "python/Lib/site-packages/numba/**"
+      ],
+      "component": "numba native extension modules",
+      "version": "0.60.0",
+      "version_status": "verified",
+      "version_evidence": "wheel record numba-0.60.0-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "BSD",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/numba-0.60.0.dist-info/LICENSE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "numpy-1.26.4",
+      "payload_paths": [
+        "python/Lib/site-packages/numpy.libs/**",
+        "python/Lib/site-packages/numpy/**"
+      ],
+      "component": "numpy native extension modules",
+      "version": "1.26.4",
+      "version_status": "verified",
+      "version_evidence": "wheel record numpy-1.26.4-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "Copyright (c) 2005-2023, NumPy Developers.",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/numpy-1.26.4.dist-info/LICENSE.txt",
+        "payload:python/Lib/site-packages/numpy/core/include/numpy/random/LICENSE.txt",
+        "payload:python/Lib/site-packages/numpy/ma/LICENSE",
+        "payload:python/Lib/site-packages/numpy/random/LICENSE.md",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "numpy.libs/libopenblas64__v0.3.23-293-gc2f4bdbb-...dll (38168576 bytes) is OpenBLAS (BSD-3-Clause); numpy's LICENSE.txt also carries the GPLv3 plus GCC Runtime Library Exception text for the GCC runtime sources, and no _gfortran_/libquadmath markers were found in the sampled extension modules.; ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "pillow-11.1.0",
+      "payload_paths": [
+        "python/Lib/site-packages/PIL/**"
+      ],
+      "component": "pillow native extension modules",
+      "version": "11.1.0",
+      "version_status": "verified",
+      "version_evidence": "wheel record pillow-11.1.0-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "MIT-CMU",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/pillow-11.1.0.dist-info/LICENSE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "extension modules statically include libjpeg-turbo 3.1.0, libtiff 4.5.1, zlib-ng 2.2.2, FreeType (FTL or GPLv2; FTL is the applicable branch here), OpenJPEG and libwebp; the wheel LICENSE documents these components.; ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "propcache-0.5.4",
+      "payload_paths": [
+        "python/Lib/site-packages/propcache/**"
+      ],
+      "component": "propcache native extension modules",
+      "version": "0.5.4",
+      "version_status": "verified",
+      "version_evidence": "wheel record propcache-0.5.4-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "Apache-2.0",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/propcache-0.5.4.dist-info/licenses/LICENSE",
+        "payload:python/Lib/site-packages/propcache-0.5.4.dist-info/licenses/NOTICE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "regex-2026.9.10",
+      "payload_paths": [
+        "python/Lib/site-packages/regex/**"
+      ],
+      "component": "regex native extension modules",
+      "version": "2026.9.10",
+      "version_status": "verified",
+      "version_evidence": "wheel record regex-2026.9.10-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "Apache-2.0 AND CNRI-Python",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/regex-2026.9.10.dist-info/licenses/LICENSE.txt",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "safetensors-0.8.0",
+      "payload_paths": [
+        "python/Lib/site-packages/safetensors/**"
+      ],
+      "component": "safetensors native extension modules",
+      "version": "0.8.0",
+      "version_status": "verified",
+      "version_evidence": "wheel record safetensors-0.8.0-cp310-abi3-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "License :: OSI Approved :: Apache Software License",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/safetensors-0.8.0.dist-info/licenses/LICENSE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "scikit-learn-1.6.1",
+      "payload_paths": [
+        "python/Lib/site-packages/sklearn/**"
+      ],
+      "component": "scikit-learn native extension modules",
+      "version": "1.6.1",
+      "version_status": "verified",
+      "version_evidence": "wheel record scikit_learn-1.6.1-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "BSD 3-Clause License",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/scikit_learn-1.6.1.dist-info/COPYING",
+        "payload:python/Lib/site-packages/sklearn/svm/src/liblinear/COPYRIGHT",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]; ships sklearn/.libs/msvcp140.dll and vcomp140.dll (Microsoft Visual C++ runtime) alongside BSD-3-Clause sklearn extension modules."
+    },
+    {
+      "id": "scipy-1.17.1",
+      "payload_paths": [
+        "python/Lib/site-packages/scipy.libs/**",
+        "python/Lib/site-packages/scipy/**"
+      ],
+      "component": "scipy native extension modules",
+      "version": "1.17.1",
+      "version_status": "verified",
+      "version_evidence": "wheel record scipy-1.17.1-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "Copyright (c) 2001-2002 Enthought, Inc. 2003, SciPy Developers.",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/scipy-1.17.1.dist-info/LICENSE.txt",
+        "payload:python/Lib/site-packages/scipy/_lib/_uarray/LICENSE",
+        "payload:python/Lib/site-packages/scipy/fft/_pocketfft/LICENSE.md",
+        "payload:python/Lib/site-packages/scipy/integrate/LICENSE_DOP",
+        "payload:python/Lib/site-packages/scipy/spatial/qhull_src/COPYING_QHULL.txt",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "scipy.libs/libscipy_openblas-64eda39e79589aedb16f58e5547eb599.dll (20260864 bytes) is OpenBLAS; scipy's LICENSE.txt carries the same GPLv3 plus GCC Runtime Library Exception block.; ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "tokenizers-0.19.1",
+      "payload_paths": [
+        "python/Lib/site-packages/tokenizers/**"
+      ],
+      "component": "tokenizers native extension modules",
+      "version": "0.19.1",
+      "version_status": "verified",
+      "version_evidence": "wheel record tokenizers-0.19.1-cp311-none-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "License :: OSI Approved :: Apache Software License",
+      "status": "uncovered",
+      "covered_by": [],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]",
+      "uncovered_reason": "the wheel ships no license file and no notice in this directory names it"
+    },
+    {
+      "id": "torchaudio-2.3.1",
+      "payload_paths": [
+        "python/Lib/site-packages/torchaudio/**",
+        "python/Lib/site-packages/torio/**"
+      ],
+      "component": "torchaudio native extension modules",
+      "version": "2.3.1+cpu",
+      "version_status": "verified",
+      "version_evidence": "wheel record torchaudio-2.3.1+cpu-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "License :: OSI Approved :: BSD License",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/torchaudio-2.3.1+cpu.dist-info/LICENSE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    },
+    {
+      "id": "yarl-1.25.1",
+      "payload_paths": [
+        "python/Lib/site-packages/yarl/**"
+      ],
+      "component": "yarl native extension modules",
+      "version": "1.25.1",
+      "version_status": "verified",
+      "version_evidence": "wheel record yarl-1.25.1-cp311-cp311-win_amd64.whl in bgm-runtime.lock.json",
+      "license": "Apache-2.0",
+      "status": "covered_by_shipped_license",
+      "covered_by": [
+        "payload:python/Lib/site-packages/yarl-1.25.1.dist-info/licenses/LICENSE",
+        "payload:python/Lib/site-packages/yarl-1.25.1.dist-info/licenses/NOTICE",
+        "BGM-NATIVE-NOTICES.txt"
+      ],
+      "note": "ships native extension modules; bundled native dependencies listed in components[]"
+    }
+  ],
+  "gaps": [
+    {
+      "id": "mkl-third-party-programs-absent",
+      "status": "unobtained",
+      "affects": [
+        "intel-mkl"
+      ],
+      "detail": "The Intel Simplified Software License in mkl-2021.4.0.dist-info names a third-party-programs.txt that the wheel does not ship. Intel's article path for it returns HTTP 403 to this host, so no byte-verifiable copy could be placed here. See lock.json not_obtained."
+    },
+    {
+      "id": "intel-openmp-redist-list-absent",
+      "status": "unobtained",
+      "affects": [
+        "intel-openmp",
+        "torch-intel-openmp"
+      ],
+      "detail": "The developer-tools EULA defines Redistributables by a redist.txt that the wheel does not ship and that Intel publishes only inside its installers or behind an HTTP 403 article page. See lock.json not_obtained."
+    },
+    {
+      "id": "mpg123-version",
+      "status": "unverified",
+      "affects": [
+        "mpg123"
+      ],
+      "detail": "No mpg123 version literal and no mpg123_version symbol exist in libsndfile_64bit.dll. The corresponding-source bundle carries mpg123-1.29.3.tar.bz2, but nothing in the shipped bytes confirms that version."
+    },
+    {
+      "id": "libogg-version",
+      "status": "unverified",
+      "affects": [
+        "libogg"
+      ],
+      "detail": "libogg is statically linked into libsndfile_64bit.dll with no version literal; the source bundle carries libogg-1.3.5.tar.xz on the same unverified basis."
+    },
+    {
+      "id": "libffi-version",
+      "status": "unverified",
+      "affects": [
+        "libffi"
+      ],
+      "detail": "python/DLLs/libffi-8.dll exposes only its soname; the MIT license text is unaffected by the version."
+    },
+    {
+      "id": "sklearn-msvc-runtime-version",
+      "status": "unverified",
+      "affects": [
+        "scikit-learn-1.6.1"
+      ],
+      "detail": "sklearn/.libs/msvcp140.dll and vcomp140.dll are Microsoft runtime copies whose version was not read."
+    },
+    {
+      "id": "torch-cpu-internal-versions",
+      "status": "unverified",
+      "affects": [
+        "torch-2.3.1"
+      ],
+      "detail": "The oneDNN, XNNPACK, QNNPACK, NNPACK, cpuinfo, pthreadpool, protobuf and libuv versions compiled into torch_cpu.dll were not established."
+    },
+    {
+      "id": "lxml-vendored-versions",
+      "status": "unverified",
+      "affects": [
+        "lxml-6.0.2"
+      ],
+      "detail": "The libxml2, libxslt and libexslt versions inside the lxml extension modules were not read; the MIT notice ships in the wheel's LICENSES.txt."
+    },
+    {
+      "id": "freeType-and-font-versions",
+      "status": "unverified",
+      "affects": [
+        "matplotlib-3.11.2",
+        "pillow-11.1.0"
+      ],
+      "detail": "The FreeType version inside ft2font and the Pillow imaging modules was not read; both wheels document their bundled components in their own license files."
+    },
+    {
+      "id": "gpl-object-code-presence",
+      "status": "unverified",
+      "affects": [
+        "numpy-1.26.4",
+        "scipy-1.17.1",
+        "torch-2.3.1"
+      ],
+      "detail": "Their consolidated license texts carry a GPLv3 block (torch's is attributed to a vendored test directory) and no _gfortran_ or libquadmath markers were found in sampled modules, but no exhaustive scan of every shipped binary was run."
+    }
+  ],
+  "out_of_scope": [
+    {
+      "wheel": "chardet-7.6.0-cp311-cp311-win_amd64.whl",
+      "reason": "present in the audit's wheel cache but not in bgm-runtime.lock.json, so it does not ship in the BGM payload and needs no entry here"
+    },
+    {
+      "wheel": "requests-2.32.3-py3-none-any.whl",
+      "reason": "present in the audit's wheel cache but not in bgm-runtime.lock.json, so it does not ship in the BGM payload and needs no entry here"
+    },
+    {
+      "wheel": "setuptools-84.0.0-py3-none-any.whl",
+      "reason": "present in the audit's wheel cache but not in bgm-runtime.lock.json, so it does not ship in the BGM payload and needs no entry here"
+    }
+  ],
+  "summary": {
+    "entries": 47,
+    "covered": 46,
+    "uncovered": [
+      "tokenizers-0.19.1"
+    ],
+    "unverified_versions": [
+      "libffi",
+      "libogg",
+      "mpg123"
+    ],
+    "notice_gaps": [
+      "mkl-third-party-programs-absent",
+      "intel-openmp-redist-list-absent"
+    ],
+    "unverified": [
+      "mpg123-version",
+      "libogg-version",
+      "libffi-version",
+      "sklearn-msvc-runtime-version",
+      "torch-cpu-internal-versions",
+      "lxml-vendored-versions",
+      "freeType-and-font-versions",
+      "gpl-object-code-presence"
+    ]
+  }
+}

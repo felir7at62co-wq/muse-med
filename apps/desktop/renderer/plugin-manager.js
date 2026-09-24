@@ -13,6 +13,11 @@ async function main() {
   document.querySelector('#install').textContent = messages.install
   document.querySelector('#installed-heading').textContent = messages.installed
   document.querySelector('#empty').textContent = messages.noPlugins
+  for (const [selector, key] of [
+    ['#bundled-heading', 'bundledHeading'], ['#bundled-description', 'bundledDescription'],
+    ['#catalog-heading', 'catalogHeading'], ['#catalog-description', 'catalogDescription'],
+    ['#discover', 'discoverPlugins'], ['#catalog-search-label', 'catalogSearch'],
+  ]) document.querySelector(selector).textContent = messages[key]
 
   document.querySelector('#recovery-description').textContent = messages.recoveryDescription
   document.querySelector('#retry').textContent = messages.retry
@@ -24,9 +29,67 @@ async function main() {
   const form = document.querySelector('#install-form')
   const input = document.querySelector('#package-spec')
   const refresh = document.querySelector('#refresh')
+  const search = document.querySelector('#catalog-search')
+  let catalogPlugins = []
+  let installed = []
+  let canInstall = false
+
+  function renderCatalog() {
+    const query = search.value.toLocaleLowerCase().trim()
+    const matches = catalogPlugins.filter(plugin => [plugin.name, plugin.npm ?? '', ...Object.values(plugin.description)]
+      .some(value => value.toLocaleLowerCase().includes(query)))
+    document.querySelector('#catalog-count').textContent = message('catalogCount', { shown: matches.length, total: catalogPlugins.length })
+    document.querySelector('#catalog-plugins').replaceChildren(...matches.map(plugin => {
+      const item = document.createElement('li')
+      const detail = document.createElement('div')
+      detail.className = 'catalog-detail'
+      const title = document.createElement('strong')
+      title.textContent = plugin.name
+      const description = document.createElement('p')
+      description.textContent = plugin.description[locale.id === 'zh-CN' ? 'zh' : 'en'] ?? plugin.description.en ?? plugin.description.zh ?? ''
+      const repository = document.createElement('a')
+      repository.href = plugin.repository
+      repository.target = '_blank'
+      repository.rel = 'noopener noreferrer'
+      repository.textContent = messages.catalogRepository
+      detail.append(title, description, repository)
+      let action = document.createElement('span')
+      if (plugin.bundled) action.textContent = messages.bundledBadge
+      else if (installed.some(entry => plugin.npm === entry.name || plugin.npm?.startsWith(`${entry.name}@`))) action.textContent = messages.installed
+      else if (plugin.npm === undefined) action.textContent = messages.catalogNpmOnly
+      else if (!canInstall) action.textContent = messages.packagedChangesOnly
+      else {
+        action = document.createElement('button')
+        action.type = 'button'
+        action.textContent = messages.install
+        action.addEventListener('click', () => {
+          if (!window.confirm(message('catalogConfirm', { spec: plugin.npm }))) return
+          void run(() => api.plugins.add(plugin.npm), message('installing', { spec: plugin.npm }))
+        })
+      }
+      item.append(detail, action)
+      return item
+    }))
+  }
+
+  search.addEventListener('input', renderCatalog)
+  document.querySelector('#discover').addEventListener('click', async () => {
+    setBusy(true, messages.catalogLoading)
+    try {
+      const catalog = await api.plugins.catalog(true)
+      catalogPlugins = catalog.plugins
+      canInstall = catalog.canInstall
+      renderCatalog()
+      status.textContent = messages.catalogLoaded
+    } catch (error) {
+      status.textContent = error instanceof Error ? error.message : String(error)
+    } finally {
+      setBusy(false, status.textContent)
+    }
+  })
 
   function setBusy(busy, statusMessage = '') {
-    for (const control of document.querySelectorAll('button, input')) control.disabled = busy
+    for (const control of document.querySelectorAll('button, input')) control.disabled = busy || control.dataset.unavailable === 'true'
     status.textContent = statusMessage
   }
 
@@ -35,6 +98,20 @@ async function main() {
     document.querySelector('#recovery').hidden = backend.phase !== 'error'
     document.querySelector('#startup-error').textContent = backend.phase === 'error' ? backend.message : ''
     const plugins = await api.plugins.list()
+    installed = plugins
+    const catalog = await api.plugins.catalog(false)
+    canInstall = catalog.canInstall
+    for (const control of form.querySelectorAll('button, input')) control.dataset.unavailable = String(!canInstall)
+    document.querySelector('#bundled-plugins').replaceChildren(...catalog.bundled.map(plugin => {
+      const item = document.createElement('li')
+      const name = document.createElement('span')
+      name.textContent = `${plugin.name} · ${plugin.version}`
+      const state = document.createElement('span')
+      state.textContent = plugin.mounted ? messages.bundledMounted : messages.bundledDormant
+      item.append(name, state)
+      return item
+    }))
+    renderCatalog()
     list.replaceChildren(...plugins.map(plugin => {
       const item = document.createElement('li')
       const identity = document.createElement('span')

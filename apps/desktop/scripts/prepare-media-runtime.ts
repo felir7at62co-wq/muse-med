@@ -8,6 +8,8 @@ import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
 import { parseArgs } from 'node:util'
 import extractZip from 'extract-zip'
+import { shortStage } from './media-resources.ts'
+import { type BgmRuntimeLock, prepareBgmRuntime, smokeBgmRuntime, validateBgmRuntimeLock, verifyPreparedBgmRuntime } from './prepare-bgm-runtime.ts'
 import { extract } from 'tar'
 
 /** One public resource accepted only with the recorded size and SHA-256. */
@@ -140,11 +142,33 @@ async function inventory(root: string, relative = ''): Promise<Array<{ path: str
   return output.sort((a, b) => a.path.localeCompare(b.path))
 }
 
+/** The BGM section every descriptor carries, so a reuse verifies the same facts it was built with.
+ * @param lock - Validated BGM runtime lock.
+ * @returns Descriptor fields for the bundled emotion runtime.
+ */
+export function bgmDescriptorSection(lock: BgmRuntimeLock): {
+  mertRevision: string
+  license: string
+  restriction: string
+} {
+  return {
+    mertRevision: lock.mertRevision,
+    license: lock.license,
+    restriction: 'NONCOMMERCIAL use only; no commercial use or commercial redistribution',
+  }
+}
+
+/** Redistribution notice for the payload, including the bundled emotion runtime's limit. */
+export const REDISTRIBUTION_NOTICE = 'Python and wheel licenses are retained beside their code. The complete FFmpeg distribution retains its LICENSE and README.\n'
+  + 'FFmpeg is GPLv3; public binary distribution additionally requires corresponding source for all linked libraries and build scripts. A URL to FFmpeg alone is insufficient. Release owner must complete source-compliance review before publication.\n'
+  + 'zhconv source archive and model license are included. The bundled MERT-v1-95M backbone in the bgm payload is CC-BY-NC-4.0 and is authorized for NONCOMMERCIAL use only; its model card, attribution and license notices ship beside it. Both bundled interpreters come from hash-locked public builds: no personal Python environment or user cache is copied.\n'
+
 /** Verify every existing payload file and the exact input lock without repairing or deleting anything.
  * @param root - Existing media payload directory.
  * @param lock - Expected release input lock.
+ * @param bgmLock - Expected emotion-runtime input lock.
  */
-export async function verifyPreparedMediaRuntime(root: string, lock: MediaLock): Promise<void> {
+export async function verifyPreparedMediaRuntime(root: string, lock: MediaLock, bgmLock: BgmRuntimeLock): Promise<void> {
   if (!(await lstat(root)).isDirectory()) throw new Error('media reuse: expected a real directory')
   for (const name of ['resources.lock.json', 'media-runtime.json']) {
     if (!(await lstat(join(root, name))).isFile()) throw new Error('media reuse: metadata must be regular files')
@@ -165,6 +189,9 @@ export async function verifyPreparedMediaRuntime(root: string, lock: MediaLock):
     throw new Error('media reuse: locked CJK font missing or changed; select a fresh output')
   }
   if (JSON.stringify(actual) !== JSON.stringify(descriptor.files)) throw new Error('media reuse: payload inventory or checksum changed')
+  const bgm = (descriptor as { bgm?: unknown }).bgm
+  if (JSON.stringify(bgm) !== JSON.stringify(bgmDescriptorSection(bgmLock))) throw new Error('media reuse: BGM descriptor changed')
+  await verifyPreparedBgmRuntime(join(root, 'bgm'), bgmLock)
 }
 
 async function verifyVisualCpp(path: string, version: string, environment: NodeJS.ProcessEnv): Promise<void> {
@@ -186,10 +213,11 @@ async function smoke(root: string, environment: NodeJS.ProcessEnv): Promise<void
     ...environment, PATH: `${join(root, 'ffmpeg', 'bin')};${environment.PATH ?? ''}`, HF_HUB_OFFLINE: '1', PYTHONDONTWRITEBYTECODE: '1',
     OMP_NUM_THREADS: '1', MKL_NUM_THREADS: '1', OPENBLAS_NUM_THREADS: '1',
   })
+  await smokeBgmRuntime(join(root, 'bgm'), join(root, 'ffmpeg', 'bin', 'ffmpeg.exe'))
 }
 
 /** Reuse a verified payload or build and smoke an exclusive staging directory without replacing existing data.
- * @param options - Output/cache paths and build-only Python executable with pip.
+ * @param options - Output/cache paths, the BGM cache, and a build-only Python executable with pip.
  * @returns Final runtime directory.
  */
 export async function prepareMediaRuntime(options: {
@@ -197,10 +225,13 @@ export async function prepareMediaRuntime(options: {
   cache: string
   buildPython: string
   lock: MediaLock
+  bgmLock: BgmRuntimeLock
+  bgmCache: string
   modelCache?: string
 }): Promise<string> {
   if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('media preparation requires Windows x64')
   const lock = validateMediaLock(options.lock)
+  const bgmLock = validateBgmRuntimeLock(options.bgmLock)
   const output = resolve(options.output)
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
     /^(?:PATH|SystemRoot|WINDIR|TEMP|TMP|COMSPEC|PATHEXT|USERPROFILE|LOCALAPPDATA)$/iu.test(key)))
@@ -209,17 +240,16 @@ export async function prepareMediaRuntime(options: {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
   }
   if (exists) {
-    await verifyPreparedMediaRuntime(output, lock)
+    await verifyPreparedMediaRuntime(output, lock, bgmLock)
     await verifyVisualCpp(join(output, 'prerequisites', lock.vcRedist.filename), lock.vcRedist.productVersion, environment)
     await smoke(output, environment)
-    await verifyPreparedMediaRuntime(output, lock)
+    await verifyPreparedMediaRuntime(output, lock, bgmLock)
     process.stdout.write('media: existing payload verified and reused\n')
     return output
   }
   await mkdir(options.cache, { recursive: true })
   await mkdir(dirname(output), { recursive: true })
-  const stage = `${output}.${randomUUID()}.preparing`
-  await mkdir(stage)
+  const stage = await shortStage(output)
   try {
     if (options.modelCache !== undefined) {
       await verifyMediaResource(options.modelCache, lock.model)
@@ -251,6 +281,10 @@ export async function prepareMediaRuntime(options: {
     if (ffmpegRoots.length !== 1) throw new Error('media: FFmpeg archive must have one root')
     await rename(join(stage, '_ffmpeg', ffmpegRoots[0]!), join(stage, 'ffmpeg'))
     await rm(join(stage, '_ffmpeg'), { recursive: true })
+    // The emotion runtime has its own interpreter, model cache and smoke; it is
+    // prepared from the payload's own FFmpeg, before the shared inventory runs.
+    await prepareBgmRuntime({ output: join(stage, 'bgm'), cache: options.bgmCache,
+      ffmpegPath: join(stage, 'ffmpeg', 'bin', 'ffmpeg.exe'), lock: bgmLock })
     await unzip(files.get(lock.model.filename)!, join(stage, 'models', 'faster-whisper-small'))
     const site = join(python, 'Lib', 'site-packages')
     const requirements = lock.wheels.map((wheel) => {
@@ -287,7 +321,7 @@ export async function prepareMediaRuntime(options: {
     for (const notice of lock.notices) await cp(files.get(notice.filename)!, join(stage, 'licenses', notice.filename))
     await cp(new URL('./pyav-source-bundle/SOURCE-NOTICES.txt', import.meta.url), join(stage, 'licenses', 'PYAV-SOURCE-NOTICES.txt'))
     await writeFile(join(stage, 'resources.lock.json'), JSON.stringify(lock, null, 2) + '\n')
-    await writeFile(join(stage, 'licenses', 'REDISTRIBUTION.txt'), 'Python and wheel licenses are retained beside their code. The complete FFmpeg distribution retains its LICENSE and README.\nFFmpeg is GPLv3; public binary distribution additionally requires corresponding source for all linked libraries and build scripts. A URL to FFmpeg alone is insufficient. Release owner must complete source-compliance review before publication.\nzhconv source archive and model license are included. No MERT inference model or personal environment is included.\n')
+    await writeFile(join(stage, 'licenses', 'REDISTRIBUTION.txt'), REDISTRIBUTION_NOTICE)
     await run(options.buildPython, ['-I', '-B', resolve(import.meta.dirname, 'audit-media-pe.py'), '--root', stage,
       '--pefile-wheel', files.get(lock.peInspector.filename)!, '--report', join(stage, 'native-dependencies.json')], environment)
     await writeFile(join(stage, 'licenses', 'MICROSOFT-REDISTRIBUTION.txt'), [
@@ -306,7 +340,9 @@ export async function prepareMediaRuntime(options: {
       prerequisites: { visualCpp: { path: `prerequisites/${lock.vcRedist.filename}`, productVersion: lock.vcRedist.productVersion,
         sha256: lock.vcRedist.sha256, authenticode: 'Valid Microsoft Corporation signature', installationRequired: true } },
       redistributionReviewRequired: ['FFmpeg corresponding source and static dependencies',
-        'PyAV vendor GPL combination corresponding-source distribution; source collection is not a wheel rebuild or legal clearance'],
+        'PyAV vendor GPL combination corresponding-source distribution; source collection is not a wheel rebuild or legal clearance',
+        'BGM native libraries (libsndfile, libsoxr, Intel MKL/OpenMP/TBB) corresponding source and notices'],
+      bgm: bgmDescriptorSection(bgmLock),
       files: await inventory(stage) }, null, 2) + '\n')
     await rename(stage, output)
     return output
@@ -314,10 +350,15 @@ export async function prepareMediaRuntime(options: {
 }
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: { output: { type: 'string' }, cache: { type: 'string' }, 'build-python': { type: 'string', default: 'python' }, 'model-cache': { type: 'string' } } })
-  if (!values.output || !values.cache) throw new Error('Required: --output <new directory> --cache <download directory>')
+  const { values } = parseArgs({ options: { output: { type: 'string' }, cache: { type: 'string' },
+    'build-python': { type: 'string', default: 'python' }, 'model-cache': { type: 'string' }, 'bgm-cache': { type: 'string' } } })
+  if (!values.output || !values.cache || !values['bgm-cache']) {
+    throw new Error('Required: --output <new directory> --cache <download directory> --bgm-cache <bgm download directory>')
+  }
   const lock = validateMediaLock(JSON.parse(await readFile(new URL('./media-runtime.lock.json', import.meta.url), 'utf8')))
-  await prepareMediaRuntime({ output: values.output, cache: values.cache, buildPython: values['build-python'], lock,
+  const bgmLock = validateBgmRuntimeLock(JSON.parse(await readFile(new URL('./bgm-runtime.lock.json', import.meta.url), 'utf8')))
+  await prepareMediaRuntime({ output: values.output, cache: values.cache, bgmCache: resolve(values['bgm-cache']),
+    buildPython: values['build-python'], lock, bgmLock,
     ...(values['model-cache'] === undefined ? {} : { modelCache: values['model-cache'] }) })
 }
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === import.meta.filename) await main()

@@ -42,7 +42,9 @@ export interface BgmConfig {
    * backbone cache outside the default location would otherwise re-download it on
    * every fresh host, and the failure mode — a long silent download — looks like a
    * hang. Only these entries plus a fixed ambient allowlist reach the child;
-   * do not put credentials in this explicit environment.
+   * do not put credentials in this explicit environment. Explicit values win;
+   * declaring any HF cache location or endpoint excludes all ambient HF cache
+   * aliases and endpoints. Put module and compilation caches outside read-only installs.
    */
   env?: Record<string, string>
   /** Deadline for one Python analysis request; defaults to 300000 ms and kills the worker on expiry. */

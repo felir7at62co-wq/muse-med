@@ -5,6 +5,14 @@ import { expect, it } from 'vitest'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../third_party/plugins')
 
+it('exports the maintained catalog loader only in the product build overlay', async () => {
+  const builder = await readFile(join(root, 'build.mjs'), 'utf8')
+  expect(builder).toContain("manifest.exports['./catalog']")
+  expect(builder).toContain("import('dshmarket/catalog')")
+  const upstream = JSON.parse(await readFile(join(root, 'dshmarket/package.json'), 'utf8')) as { exports: Record<string, unknown> }
+  expect(upstream.exports['./catalog']).toBeUndefined()
+})
+
 it('retains pinned community source and licenses without installed runtime data', async () => {
   const pins = JSON.parse(await readFile(join(root, 'sources.json'), 'utf8')) as Record<string, {
     repository: string

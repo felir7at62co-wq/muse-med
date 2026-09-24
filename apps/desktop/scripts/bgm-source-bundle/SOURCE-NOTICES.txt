@@ -1,0 +1,52 @@
+BGM native libraries — corresponding source and license notice
+
+This notice applies to the BGM emotion runtime's native libraries: the libsndfile DLL
+shipped in the soundfile 0.12.1 wheel, the extension module in the soxr 1.1.0 wheel, and
+the TimGM6mb SoundFont data asset shipped by pretty_midi 0.2.10.
+Original wheel SHA256:
+  soundfile-0.12.1-py2.py3-none-win_amd64.whl  0d86924c00b62552b650ddd28af426e3ff2d4dc2e9047dae5b3d8452e0a49a77
+  soxr-1.1.0-cp311-cp311-win_amd64.whl         ae30c48ac795378cf23ba3c7c640b8ff794af714ac388b9fd6b31a40b39e6e86
+It covers only those libraries. It does not replace the interpreter, FFmpeg, Intel or
+media-payload notices, and must not be used to overwrite them.
+
+libsndfile 1.2.0 (LGPL-2.1) ships as the separate DLL
+_soundfile_data/libsndfile_64bit.dll. Statically linked into that DLL are reference libFLAC
+1.3.4 (BSD-3-Clause), libogg 1.3.5 (BSD-3-Clause), libVorbis 1.3.7 (BSD-3-Clause), libopus
+1.3.1 (BSD-3-Clause), LAME 3.100 (LGPL-2.1) and libmpg123 1.29.3 (LGPL-2.1). The DLL's own
+banner strings name libsndfile 1.2.0, libFLAC 1.3.4, libVorbis 1.3.7, libopus 1.3.1 and
+LAME 3.100. libmpg123 carries no banner: its version is established from the vcpkg build
+tree path the DLL embeds, C:\vcpkg\buildtrees\mpg123\src\0d8db63f9b-3db975bc05.clean\src\
+libmpg123\id3.c, whose first token is the first ten hex digits of the SHA-512 of the
+mpg123 1.29.3 source archive. libogg carries no version string in the binary and its
+version is recorded as unverified.
+
+soxr 1.1.0 (LGPL-2.1-or-later) statically links the libsoxr 0.1.3 vendored in its sdist;
+libsoxr is not a separate shipped library.
+
+The TimGM6mb SoundFont shipped at python/Lib/site-packages/pretty_midi/TimGM6mb.sf2 is
+GPL-2 per the Debian copyright record for that soundfont. pretty_midi's own MIT label
+covers its code only. The pretty_midi 0.2.10 source distribution, in which that file is
+distributed, is the corresponding source form of the soundfont.
+
+Matching source collection: muse-bgm-native-corresponding-source.tar.gz
+The same application release must supply that archive, manifest.json and SHA256SUMS, and
+link the archive from its download page and third-party notices. A temporary CI artifact
+or this filename without an accessible source download is not a source offer.
+
+The collection holds each locked upstream archive at its official URL, size and SHA-256,
+the license texts found inside those archives, and this recipe. The recipe for the shipped
+libsndfile DLL is bastibe/libsndfile-binaries at d9887ef926bb11cf1a2526be4ab6f9dc690234c0:
+.github/workflows/build-libs.yml builds it with
+"vcpkg install libsndfile:x64-windows-custom --overlay-triplets=triplets", and
+triplets/x64-windows-custom.cmake is the overlay triplet that build used. The codec
+archives in this collection are that build's vcpkg port inputs, which vcpkg pins by
+SHA-512. The workflow runs against the runner image's preinstalled vcpkg, so the vcpkg
+baseline itself is chosen by that image and is not pinned by the recipe archive; pin the
+baseline explicitly before treating a build as a reproduction. The python-soundfile 0.12.1
+sdist alone is not a source offer: its setup.py packages a pre-existing DLL and contains no
+libsndfile or codec sources.
+
+No rebuild was run and no wheel was replaced. Source collection and the SHA256 and
+build-tree checks have been exercised for these pinned archives. That does not establish a
+byte-identical rebuild of the shipped DLL, installer readiness, codec patent clearance or
+legal compliance.

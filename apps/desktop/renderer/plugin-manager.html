@@ -22,6 +22,20 @@
         <button id="retry" type="button"></button>
         <button id="disable-all" type="button"></button>
       </section>
+      <section aria-labelledby="bundled-heading">
+        <h2 id="bundled-heading"></h2>
+        <p id="bundled-description"></p>
+        <ul id="bundled-plugins"></ul>
+      </section>
+      <section aria-labelledby="catalog-heading">
+        <h2 id="catalog-heading"></h2>
+        <p id="catalog-description"></p>
+        <button id="discover" type="button"></button>
+        <label id="catalog-search-label" for="catalog-search"></label>
+        <input id="catalog-search" type="search" autocomplete="off">
+        <p id="catalog-count" role="status" aria-live="polite"></p>
+        <ul id="catalog-plugins"></ul>
+      </section>
       <form id="install-form">
         <label id="package-label" for="package-spec"></label>
         <div class="install-row">

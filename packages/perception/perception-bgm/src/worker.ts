@@ -130,15 +130,16 @@ export class EmotionWorker {
     })
 
     const argv = [this.options.pythonExecutable, '-I', '-B', '-X', 'utf8', this.options.scriptPath]
-    const env: NodeJS.ProcessEnv = { ...this.options.env }
-    // An allowlist, not a copy: API keys, proxy credentials and session facts must
-    // not reach model code. `HF_HOME` is here because it names where the backbone is
-    // cached — deployment configuration, not a secret — and without it a deployment
-    // that keeps its cache outside the default location cannot load the model at all.
-    for (const key of ['SystemRoot', 'WINDIR', 'SYSTEMROOT', 'PATH', 'TEMP', 'TMP',
-      'HF_HOME', 'HF_HUB_CACHE', 'TRANSFORMERS_CACHE', 'HF_ENDPOINT']) {
+    const env: NodeJS.ProcessEnv = {}
+    const modelEnvironment = ['HF_HOME', 'HF_HUB_CACHE', 'TRANSFORMERS_CACHE', 'HF_ENDPOINT']
+    const configuredCache = modelEnvironment.some(key => this.options.env?.[key] !== undefined)
+    // Declared model locations exclude ambient cache aliases and mirror endpoints.
+    // Other launches retain the allowlisted deployment environment, never credentials.
+    for (const key of ['SystemRoot', 'WINDIR', 'SYSTEMROOT', 'PATH', 'TEMP', 'TMP', ...modelEnvironment]) {
+      if (configuredCache && modelEnvironment.includes(key)) continue
       if (process.env[key] !== undefined) env[key] = process.env[key]
     }
+    Object.assign(env, this.options.env)
     this.options.onLaunch?.(argv, env)
     this.dead = false
     let child: ReturnType<typeof spawn>

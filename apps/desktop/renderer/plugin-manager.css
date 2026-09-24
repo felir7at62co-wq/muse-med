@@ -106,3 +106,48 @@ li {
   display: flex;
   gap: 8px;
 }
+
+#catalog-search {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+#catalog-search-label {
+  margin-top: 16px;
+}
+
+.catalog-detail {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.catalog-detail p {
+  margin: 6px 0;
+}
+
+#catalog-plugins li {
+  align-items: flex-start;
+}
+
+#catalog-plugins li > span {
+  max-width: 180px;
+  color: GrayText;
+}
+
+#bundled-plugins li {
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+
+#bundled-description,
+#catalog-description {
+  color: GrayText;
+}
+
+button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: 2px;
+}

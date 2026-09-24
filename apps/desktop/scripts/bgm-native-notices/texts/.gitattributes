@@ -1,0 +1,6 @@
+# Verbatim upstream license and notice texts.
+#
+# These files are distributed exactly as their publishers ship them, and the
+# SHA-256 recorded for each one covers these bytes, so Git must not normalise
+# line endings or flag the trailing whitespace those documents contain.
+* -text -whitespace

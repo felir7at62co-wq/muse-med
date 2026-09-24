@@ -11,6 +11,7 @@ import {
   ipcMain,
   Menu,
   protocol,
+  shell,
   type IpcMainInvokeEvent,
 } from 'electron'
 import { resolveDesktopPaths } from './paths.ts'
@@ -23,6 +24,7 @@ import { claimDesktopSingleInstance } from './single-instance.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { desktopErrorState } from './startup-error.ts'
 import { startupFailureDocument } from './startup-document.ts'
+import { desktopPluginCatalog, repositoryUrl } from './plugin-catalog.ts'
 
 // The independent product never imports a parent DSH installation's credentials or sessions.
 const productHome = process.env.MUSE_MED_HOME
@@ -38,6 +40,9 @@ if (app.isPackaged) {
     process.env.DSH_FFMPEG_PATH = process.env.FFMPEG_PATH = join(media, 'ffmpeg', 'bin', 'ffmpeg.exe')
     process.env.DSH_FFPROBE_PATH = process.env.FFPROBE_PATH = join(media, 'ffmpeg', 'bin', 'ffprobe.exe')
     process.env.MUSE_WHISPER_MODEL_DIR = join(media, 'models', 'faster-whisper-small')
+    // The BGM emotion runtime is a separate 3.11 interpreter with its own model
+    // cache; the product preset binds these paths to the perception plugin.
+    process.env.MUSE_BGM_RUNTIME_DIR = join(media, 'bgm')
     process.env.PYTHONDONTWRITEBYTECODE = '1'
     process.env.MUSE_FONTS_DIR = join(media, 'fonts')
     process.env.MUSE_FONT_FAMILY = 'Noto Sans CJK SC'
@@ -342,6 +347,12 @@ async function main(): Promise<void> {
     assertDesktopSender(event, ['shell'])
     return locale
   })
+  ipcMain.handle(DESKTOP_IPC.pluginsCatalog, (event, discover: unknown) => {
+    assertDesktopSender(event, ['shell'])
+    if (typeof discover !== 'boolean') throw new Error('dsh desktop: catalog discovery must be a boolean')
+    return desktopPluginCatalog(resources.dsh, activeProject, discover)
+      .then(catalog => ({ ...catalog, canInstall: development === undefined }))
+  })
   ipcMain.handle(DESKTOP_IPC.pluginsList, (event) => {
     assertDesktopSender(event, ['shell'])
     if (development !== undefined) return []
@@ -454,6 +465,21 @@ async function main(): Promise<void> {
       return
     }
     pluginWindow = createWindow(managementPreload)
+    const window = pluginWindow
+    window.webContents.setWindowOpenHandler(({ url }) => {
+      if (window.webContents.getURL() !== `${SCHEME}://shell/plugin-manager.html`) return { action: 'deny' }
+      let repository: string
+      try {
+        repository = repositoryUrl(url)
+      } catch {
+        // The catalog popup may open only validated public repository pages, never arbitrary protocols.
+        return { action: 'deny' }
+      }
+      void shell.openExternal(repository).catch((error: unknown) => {
+        dialog.showErrorBox(messages.pluginWindowTitle, desktopErrorState(error).message)
+      })
+      return { action: 'deny' }
+    })
     pluginWindow.setSize(900, 620)
     pluginWindow.setTitle(messages.pluginWindowTitle)
     pluginWindow.once('ready-to-show', () => { pluginWindow?.show() })
@@ -465,9 +491,8 @@ async function main(): Promise<void> {
     label: process.platform === 'darwin' ? messages.productName : messages.application,
     submenu: [
       {
-        label: development === undefined ? messages.pluginsMenu : messages.pluginsMenuPackagedOnly,
+        label: messages.pluginsMenu,
         accelerator: 'CmdOrCtrl+,',
-        enabled: development === undefined,
         click: openPluginWindow,
       },
       { label: messages.checkUpdatesMenu, click: () => { void checkAndPrompt(true) } },

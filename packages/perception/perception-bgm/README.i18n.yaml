@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/perception/perception-bgm/README.md
-README.md: a29623ddc2ee2b61901fbeb4dccace12a582c214
-README.zh.md: 716a16428575cb42cd1b2d21c669f64a922a7bda
+README.md: 4b01157c8d1b9894d8ce401eb5d04e1bf05360eb
+README.zh.md: d90fed3be4f433f4aa517b2f27031f6403d52432

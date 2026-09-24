@@ -317,6 +317,7 @@ async function main(): Promise<void> {
   if (target.platform === 'win32' && target.arch === 'x64') {
     await runPnpm(['exec', 'tsx', 'apps/desktop/scripts/prepare-media-runtime.ts',
       '--output', join(buildPaths.runtime, 'media'), '--cache', join(buildPaths.downloads, 'media'),
+      '--bgm-cache', join(buildPaths.downloads, 'bgm'),
     ], buildEnv, REPOSITORY_ROOT)
   }
   await runPnpm(['run', 'prepare:packages'], targetEnv)

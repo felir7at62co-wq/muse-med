@@ -6,8 +6,13 @@
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./native-preset": "./lib/native-preset.js"
+  },
   "files": [
     "lib/index.js",
+    "lib/native-preset.js",
     "config/desktop.cordis.patch.yml",
     "presets"
   ],
@@ -15,6 +20,7 @@
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/cordis-plugin-include": "workspace:^",
     "@deepseek-ai/dsh": "workspace:^",
+    "@deepseek-ai/dsh-agent-presets": "workspace:^",
     "@deepseek-ai/dsh-api-gateway": "workspace:^",
     "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
@@ -24,6 +30,7 @@
     "@deepseek-ai/dsh-drama-settings": "workspace:^",
     "@deepseek-ai/dsh-drama-skills": "workspace:^",
     "@deepseek-ai/dsh-guard-drama": "workspace:^",
+    "@deepseek-ai/dsh-home-paths": "workspace:^",
     "@deepseek-ai/dsh-host-directory-picker-native": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-launch-environment": "workspace:^",
@@ -33,6 +40,7 @@
     "@deepseek-ai/dsh-tool-episode-render": "workspace:^",
     "@deepseek-ai/dsh-tool-jubian": "workspace:^",
     "@deepseek-ai/dsh-tool-shot-script": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-web-frontend": "workspace:^"
   }
 }

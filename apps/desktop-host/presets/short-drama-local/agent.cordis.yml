@@ -75,6 +75,35 @@
   name: '@deepseek-ai/dsh-perception-bgm'
   config:
     catalogUrl: https://muse.tos-cn-beijing.volces.com/bgm/index.json
+    # The packaged product binds its own offline interpreter, model and caches;
+    # a deployment without that payload keeps catalogue matching only.
+    pythonExecutable: !!js >-
+      process.env.MUSE_BGM_RUNTIME_DIR ? `${process.env.MUSE_BGM_RUNTIME_DIR}/python/python.exe` : undefined
+    dataDir: !!js >-
+      process.env.MUSE_BGM_RUNTIME_DIR ? `${process.env.MUSE_BGM_RUNTIME_DIR}/models/data` : undefined
+    weightsPath: !!js >-
+      process.env.MUSE_BGM_RUNTIME_DIR ? `${process.env.MUSE_BGM_RUNTIME_DIR}/models/J_all.ckpt` : undefined
+    env: !!js >-
+      (() => {
+        const root = process.env.MUSE_BGM_RUNTIME_DIR;
+        if (!root) return undefined;
+        const home = process.env.DSH_HOME;
+        if (!home) throw new Error('Bundled BGM requires an explicit product home');
+        const cache = `${home}/perception/bgm/runtime-cache`;
+        const interpreter = `${root}/python`;
+        const separated = [interpreter, `${interpreter}/DLLs`, `${interpreter}/Library/bin`, process.env.PATH ?? ''].filter(Boolean);
+        return {
+          PATH: separated.join(process.platform === 'win32' ? ';' : ':'),
+          HF_HOME: `${root}/models/hf-cache`,
+          HF_MODULES_CACHE: `${cache}/hf-modules`,
+          NUMBA_CACHE_DIR: `${cache}/numba`,
+          MPLCONFIGDIR: `${cache}/matplotlib`,
+          HOME: cache, USERPROFILE: cache, APPDATA: cache, LOCALAPPDATA: cache,
+          HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1',
+          PYTHONNOUSERSITE: '1', PYTHONDONTWRITEBYTECODE: '1',
+          OMP_NUM_THREADS: '1', MKL_NUM_THREADS: '1', OPENBLAS_NUM_THREADS: '1'
+        };
+      })()
 - id: command-goal
   name: '@deepseek-ai/dsh-command-goal'
 - id: tool-goal

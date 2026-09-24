@@ -42,6 +42,7 @@ import {
 } from './wire.ts'
 
 import { bundledSkillDirectory } from './bundled-skills.ts'
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 
 export { DESKTOP_HOST_PROTOCOL_VERSION } from './wire.ts'
 
@@ -190,11 +191,14 @@ function desktopComposition(
   const skillFilesystem = rows.get('skill-filesystem')
   if (skillFilesystem === undefined) throw new Error('dsh desktop: profile has no skill-filesystem row')
   const bundledSkillDir = bundledSkillDirectory(runtimeDir)
+  const userSkillDir = dshHomePath('skills')
+  mkdirSync(userSkillDir, { recursive: true })
   layers.push([{
     id: 'skill-filesystem',
     config: {
       ...(skillFilesystem.config ?? {}) as Record<string, unknown>,
       bundledSkillDir,
+      customSkillDirs: [userSkillDir],
     },
   }])
   return { profile, patches: layers.flat() }

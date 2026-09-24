@@ -19,26 +19,43 @@ export async function apply(ctx) {
   if (!(ctx instanceof Context)) throw new Error('desktop runtime: external plugin loaded another Cordis instance')
   const root = ${JSON.stringify(root)}
   const home = ${JSON.stringify(home)}
-  const id = 'short-drama-local'
+  try {
+  const ids = ['short-drama-local', 'standard', 'ptc', 'minimal']
   const presets = await ctx.agentPresets.list()
-  if (presets.length !== 1 || presets[0].id !== id) throw new Error('desktop runtime: expected only short-drama-local preset')
+  if (presets.length !== ids.length || ids.some(id => !presets.some(preset => preset.id === id))) {
+    throw new Error('desktop runtime: expected exactly the four product presets')
+  }
+  if (ctx.agentPresets.defaultId !== 'short-drama-local') throw new Error('desktop runtime: product default preset changed')
+  for (const id of ids) {
   const preset = await ctx.agentPresets.resolve(id)
   const expected = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'presets', id, 'agent.cordis.yml')
   if (preset.broken || preset.trust !== 'system' || realpathSync(preset.path) !== realpathSync(expected)) {
     throw new Error('desktop runtime: preset is broken or outside the product path')
   }
-  const handle = await ctx.agents.create({
-    sessionId: 'desktop-product-smoke', meta: { cwd: home, agentPreset: id },
-    setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, id) },
-  })
+  const handles = []
   try {
+    for (let index = 0; index < 2; index++) {
+      handles.push(await ctx.agents.create({
+        sessionId: 'desktop-product-smoke-' + id + '-' + index, meta: { cwd: home, agentPreset: id },
+        setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, id) },
+      }))
+    }
+    for (const handle of handles) {
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
-    const required = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video',
+    const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
+    const required = id === 'minimal' ? [shell] : id !== 'short-drama-local' ? ['read', 'skill', shell, 'subagent'] : ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
       'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'read', 'present',
       process.platform === 'win32' ? 'pwsh' : 'bash']
-    for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name)
+    for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
+    if (id === 'minimal' && names.size !== 1) throw new Error('desktop runtime: Minimal inherited non-shell tools')
+    if (id === 'ptc' && (!names.has('run_code') || names.has('workflow'))) throw new Error('desktop runtime: PTC tool presentation is incomplete')
     const skills = await ctx.skills.list({ scope: handle.agent, cwd: home })
+    const custom = skills.find(skill => skill.name === 'desktop-user-skill')
+    if (!custom || realpathSync(custom.path) !== realpathSync(join(home, 'skills/desktop-user-skill/SKILL.md'))
+      || skills.some(skill => skill.name === 'desktop-legacy-only')) {
+      throw new Error('desktop runtime: product custom skills missing or legacy skills discovered in ' + id)
+    }
     const bundled = realpathSync(join(root, 'node_modules', '@deepseek-ai', 'dsh-drama-skills', 'skills')
       .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2'))
     if (existsSync(join(bundled, 'xiaohongshu-reference')) || skills.some(skill => skill.name === 'xiaohongshu-reference')) {
@@ -56,10 +73,16 @@ export async function apply(ctx) {
         throw new Error('desktop runtime: skill outside product bundle ' + name)
       }
     }
+    }
   } finally {
-    await handle.dispose()
+    for (const handle of handles.reverse()) await handle.dispose()
+  }
   }
   writeFileSync(join(home, '.desktop-product-smoke-complete'), 'ok\\n', { flag: 'wx' })
+  } catch (error) {
+    writeFileSync(join(home, '.desktop-product-smoke-error'), String(error && error.stack ? error.stack : error), { flag: 'wx' })
+    throw error
+  }
 }
 `
 }
@@ -87,6 +110,14 @@ export async function smokeDesktopRuntime(root: string, node: string, runtime: D
   let startupTimeout: ReturnType<typeof setTimeout> | undefined
   try {
     createPluginProfile(profile)
+    for (const [directory, name] of [
+      ['skills', 'desktop-user-skill'], ['.agents/skills', 'desktop-user-skill'],
+      ['.agents/skills', 'desktop-legacy-only'], ['.dsh/skills', 'desktop-legacy-only'],
+    ] as const) {
+      const skill = join(home, directory, name)
+      mkdirSync(skill, { recursive: true })
+      writeFileSync(join(skill, 'SKILL.md'), `---\nname: ${name}\ndescription: Isolated Desktop smoke fixture.\n---\n# ${name}\n`)
+    }
     const pluginName = 'desktop-runtime-smoke-plugin'
     const plugin = join(profile, 'node_modules', pluginName)
     mkdirSync(plugin, { recursive: true })
@@ -116,7 +147,10 @@ export async function smokeDesktopRuntime(root: string, node: string, runtime: D
     clearTimeout(startupTimeout)
     if (ready.dshVersion !== runtime.release.version) throw new Error('desktop runtime: Host reported another dsh release')
     if (!existsSync(join(home, '.desktop-product-smoke-complete'))) {
-      throw new Error('desktop runtime: product preset smoke did not complete; inspect Host plugin activation errors')
+      const failure = existsSync(join(home, '.desktop-product-smoke-error'))
+        ? readFileSync(join(home, '.desktop-product-smoke-error'), 'utf8').trim()
+        : 'no activation error was recorded'
+      throw new Error(`desktop runtime: product preset smoke did not complete: ${failure}`)
     }
     const response = await host.fetch(new Request('dsh-app://app/'))
     if (response.status !== 200 || !(await response.text()).includes('<html')) {

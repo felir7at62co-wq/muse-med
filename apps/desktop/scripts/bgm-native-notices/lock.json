@@ -1,0 +1,253 @@
+{
+  "version": 1,
+  "schema": "dsh.bgm-native-notices/v1",
+  "inventory": "BGM-NATIVE-NOTICES.txt",
+  "coverage": "coverage.json",
+  "purpose": "Notice remediation for the BGM offline runtime payload. Every file here is either a verbatim vendor text or a verbatim license file taken out of a locked wheel. This is not legal clearance, not a rebuild, and not a security review.",
+  "recollect": "python fetch.py fetch   # re-collect and verify every file; python fetch.py check  # verify this directory only",
+  "files": [
+    {
+      "path": "texts/LGPL-2.1.txt",
+      "bytes": 26419,
+      "sha256": "20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d3555d95",
+      "licenses": "GNU Lesser General Public License version 2.1",
+      "covers": ["libsndfile 1.2.0", "libmpg123 (version unresolved)", "LAME 3.100", "libsoxr 0.1.3"],
+      "source": {"kind": "https", "url": "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt"}
+    },
+    {
+      "path": "texts/mpg123-COPYING.txt",
+      "bytes": 40718,
+      "sha256": "c22482728a634a8dfdb4ff72a96d4c1ed64cd8f3e79335c401751ac591609366",
+      "licenses": "LGPL-2.1 with the mpg123 project's own copying preamble",
+      "covers": ["libmpg123, statically linked into libsndfile_64bit.dll"],
+      "source": {"kind": "https", "url": "https://www.mpg123.de/trunk/COPYING"},
+      "note": "mpg123's own license file at the project's current trunk; the linked mpg123 version could not be established, and the license terms are LGPL-2.1 in every candidate version."
+    },
+    {
+      "path": "texts/lame-license.txt",
+      "bytes": 969,
+      "sha256": "93085c9af1ea81725a56079fecaa49fa2dbd252678f2b6f12186e1652edc5678",
+      "licenses": "LGPL-2.1 (LAME's own license file)",
+      "covers": ["LAME 3.100, statically linked into libsndfile_64bit.dll"],
+      "source": {"kind": "https", "url": "https://lame.sourceforge.io/license.txt"}
+    },
+    {
+      "path": "texts/flac-COPYING.Xiph.txt",
+      "bytes": 1509,
+      "sha256": "fa27cb11f13f97b0c5f3ff363b1e2610c6efe87ed175779cb2a78e44eb19d34c",
+      "licenses": "BSD-3-Clause (Xiph.Org)",
+      "covers": ["reference libFLAC 1.3.4, statically linked into libsndfile_64bit.dll"],
+      "source": {"kind": "https", "url": "https://raw.githubusercontent.com/xiph/flac/1.3.4/COPYING.Xiph"}
+    },
+    {
+      "path": "texts/libogg-COPYING.txt",
+      "bytes": 1466,
+      "sha256": "d2ab5758336489da61c12cc5bb757da5339c4ae9001f9bb0562b4370249af814",
+      "licenses": "BSD-3-Clause (Xiph.Org)",
+      "covers": ["libogg, statically linked into libsndfile_64bit.dll"],
+      "source": {"kind": "https", "url": "https://raw.githubusercontent.com/xiph/ogg/v1.3.5/COPYING"},
+      "note": "the linked libogg version could not be established; the corresponding-source bundle carries libogg 1.3.5 on the same unverified basis."
+    },
+    {
+      "path": "texts/libvorbis-COPYING.txt",
+      "bytes": 1470,
+      "sha256": "ec1815db59fcd302846df949d7424876cb2e2dc5ed1606c5fb0b36787b1cf43a",
+      "licenses": "BSD-3-Clause (Xiph.Org)",
+      "covers": ["libvorbis 1.3.7, statically linked into libsndfile_64bit.dll"],
+      "source": {"kind": "https", "url": "https://raw.githubusercontent.com/xiph/vorbis/v1.3.7/COPYING"}
+    },
+    {
+      "path": "texts/libopus-COPYING.txt",
+      "bytes": 1928,
+      "sha256": "8338ce8d922bb4416ce3dd1e5680173332435e3f0755007ac7801ccd674fe682",
+      "licenses": "BSD-3-Clause (Xiph.Org / Opus)",
+      "covers": ["libopus 1.3.1, statically linked into libsndfile_64bit.dll"],
+      "source": {"kind": "https", "url": "https://raw.githubusercontent.com/xiph/opus/v1.3.1/COPYING"}
+    },
+    {
+      "path": "texts/libsoxr-LICENSE.txt",
+      "bytes": 1047,
+      "sha256": "73b946c198ad27fc2ae7bea2de6ec6d1b6c0733340d1759a450150271347e5af",
+      "licenses": "LGPL-2.1-or-later (libsoxr's own license statement)",
+      "covers": ["libsoxr 0.1.3, statically linked into soxr_ext.pyd"],
+      "source": {
+        "kind": "wheel",
+        "url": "https://files.pythonhosted.org/packages/8f/29/371467eb86c7ba6810df0bfe9409bcd9c52ec5615b111190fafe23e4d2e1/soxr-1.1.0-cp311-cp311-win_amd64.whl",
+        "wheel": "soxr-1.1.0-cp311-cp311-win_amd64.whl",
+        "wheel_sha256": "ae30c48ac795378cf23ba3c7c640b8ff794af714ac388b9fd6b31a40b39e6e86",
+        "member": "soxr-1.1.0.dist-info/licenses/LICENSE-libsoxr.txt"
+      }
+    },
+    {
+      "path": "texts/intel-mkl-LICENSE-ISSL-2020-02.txt",
+      "bytes": 4547,
+      "sha256": "a421bfeca04d4777490dfe83a5103dc8df506999ea11c294b40491018b124313",
+      "licenses": "Intel Simplified Software License (February 2020)",
+      "covers": ["Intel Math Kernel Library 2021.4.0"],
+      "source": {
+        "kind": "wheel",
+        "url": "https://files.pythonhosted.org/packages/fe/1c/5f6dbf18e8b73e0a5472466f0ea8d48ce9efae39bd2ff38cebf8dce61259/mkl-2021.4.0-py2.py3-none-win_amd64.whl",
+        "wheel": "mkl-2021.4.0-py2.py3-none-win_amd64.whl",
+        "wheel_sha256": "ceef3cafce4c009dd25f65d7ad0d833a0fbadc3d8903991ec92351fe5de1e718",
+        "member": "mkl-2021.4.0.dist-info/LICENSE.txt"
+      },
+      "note": "the license refers to a third-party-programs.txt the wheel does not ship; see not_obtained."
+    },
+    {
+      "path": "texts/intel-openmp-LICENSE-EULA-2020-10.txt",
+      "bytes": 34478,
+      "sha256": "ac2e128f51e89e1b1cf549ce5ebff2c255f1e542f51dbca1570932a8980ff31b",
+      "licenses": "Intel End User License Agreement for Developer Tools (October 2020)",
+      "covers": ["intel-openmp 2021.4.0", "the second libiomp5md.dll at python/Lib/site-packages/torch/lib"],
+      "source": {
+        "kind": "wheel",
+        "url": "https://files.pythonhosted.org/packages/6f/21/b590c0cc3888b24f2ac9898c41d852d7454a1695fbad34bee85dba6dc408/intel_openmp-2021.4.0-py2.py3-none-win_amd64.whl",
+        "wheel": "intel_openmp-2021.4.0-py2.py3-none-win_amd64.whl",
+        "wheel_sha256": "eef4c8bcc8acefd7f5cd3b9384dbf73d59e2c99fc56545712ded913f43c4a94f",
+        "member": "intel_openmp-2021.4.0.dist-info/LICENSE.txt"
+      },
+      "note": "the agreement defines Redistributables by a redist.txt the wheel does not ship; see not_obtained."
+    },
+    {
+      "path": "texts/intel-onetbb-LICENSE-ISSL-2022-10.txt",
+      "bytes": 4105,
+      "sha256": "7721633d0ddff43fae25ebfd405f8166a0ce730cbcec44f2f3ad9d5eb8ac9a6f",
+      "licenses": "Intel Simplified Software License (October 2022)",
+      "covers": ["oneTBB 2021.13.1"],
+      "source": {
+        "kind": "wheel",
+        "url": "https://files.pythonhosted.org/packages/9b/24/84ce997e8ae6296168a74d0d9c4dde572d90fb23fd7c0b219c30ff71e00e/tbb-2021.13.1-py3-none-win_amd64.whl",
+        "wheel": "tbb-2021.13.1-py3-none-win_amd64.whl",
+        "wheel_sha256": "cbf024b2463fdab3ebe3fa6ff453026358e6b903839c80d647e08ad6d0796ee9",
+        "member": "tbb-2021.13.1.dist-info/LICENSE.txt"
+      },
+      "note": "oneTBB 2021.13.1 is under the Intel Simplified Software License (October 2022), not Apache-2.0."
+    },
+    {
+      "path": "texts/intel-onetbb-third-party-programs.txt",
+      "bytes": 19827,
+      "sha256": "cceb68770e641fc304dbbf74fb9da8c5a5a8716b5d0d331fcf254d20faf6f4ab",
+      "licenses": "third-party notices referenced by the oneTBB license (ITT notify, hwloc, gperftools/Tachyon, doctest and others)",
+      "covers": ["oneTBB 2021.13.1"],
+      "source": {
+        "kind": "wheel",
+        "url": "https://files.pythonhosted.org/packages/9b/24/84ce997e8ae6296168a74d0d9c4dde572d90fb23fd7c0b219c30ff71e00e/tbb-2021.13.1-py3-none-win_amd64.whl",
+        "wheel": "tbb-2021.13.1-py3-none-win_amd64.whl",
+        "wheel_sha256": "cbf024b2463fdab3ebe3fa6ff453026358e6b903839c80d647e08ad6d0796ee9",
+        "member": "tbb-2021.13.1.data/data/Library/share/doc/tbb/licensing/third-party-programs.txt"
+      },
+      "note": "the wheel's own copy, which is what ships; the file at the oneTBB v2021.13.1 tag of the Intel repository differs in length (11631 bytes), so the shipped copy is used here."
+    },
+    {
+      "path": "texts/openssl-LICENSE.txt",
+      "bytes": 10175,
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+      "licenses": "Apache-2.0",
+      "covers": ["OpenSSL 3.5.8 (python/DLLs/libcrypto-3-x64.dll, python/DLLs/libssl-3-x64.dll)"],
+      "source": {"kind": "https", "url": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.5.8/LICENSE.txt"}
+    },
+    {
+      "path": "texts/libffi-LICENSE.txt",
+      "bytes": 1132,
+      "sha256": "17b64dc60f3b6897a60f971e288b973f655c2edcdf08b25f3c3dd5549857881c",
+      "licenses": "MIT",
+      "covers": ["libffi (python/DLLs/libffi-8.dll)"],
+      "source": {"kind": "https", "url": "https://raw.githubusercontent.com/libffi/libffi/master/LICENSE"},
+      "note": "libffi's own LICENSE on the default branch; the DLL exposes no version, and the MIT text is unchanged across libffi 3.x."
+    },
+    {
+      "path": "texts/sqlite-copyright.html",
+      "bytes": 8351,
+      "sha256": "44ca9f793055c8e32fc65f65a4f5bcf813a33f5bdaaa084067dd617a4ed3cc70",
+      "licenses": "Public domain",
+      "covers": ["SQLite 3.53.1 (python/DLLs/sqlite3.dll)"],
+      "source": {"kind": "https", "url": "https://www.sqlite.org/copyright.html"}
+    },
+    {
+      "path": "texts/tcl-tk-license.terms.txt",
+      "bytes": 2267,
+      "sha256": "2cde822b93ca16ae535c954b7dfe658b4ad10df2a193628d1b358f1765e8b198",
+      "licenses": "BSD-style Tcl/Tk license",
+      "covers": ["Tcl/Tk 8.6.12 (python/DLLs/tcl86t.dll, python/DLLs/tk86t.dll, python/tcl/**)"],
+      "source": {"kind": "https", "url": "https://raw.githubusercontent.com/tcltk/tk/core-8-6-12/license.terms"},
+      "note": "this text is the same as the license.terms that installs at python/tcl/tk8.6/license.terms, modulo CRLF line endings."
+    },
+    {
+      "path": "texts/msvc-vc-runtime-redistributable-list.html",
+      "bytes": 62969,
+      "sha256": "b0dbfbc5e396ce204890a1d7be73dd577c2940303143ded1b8e29d1597c5d523",
+      "licenses": "Microsoft distributable code terms for the Visual C++ redistributable (the REDIST list)",
+      "covers": ["Microsoft Visual C++ runtime 14.44.35211.0 (python/vcruntime140.dll, python/vcruntime140_1.dll)", "the msvcp140.dll and vcomp140.dll copies under sklearn/.libs"],
+      "source": {"kind": "https", "url": "https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution"},
+      "note": "Microsoft publishes the redistributable file list as this page; the granting terms are the Microsoft Software License Terms for Visual Studio 2022, whose Distributable Code section this list is referenced from."
+    },
+    {
+      "path": "texts/GPL-2.0.txt",
+      "bytes": 17984,
+      "sha256": "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6",
+      "licenses": "GNU General Public License version 2",
+      "covers": ["TimGM6mb.sf2"],
+      "source": {"kind": "https", "url": "https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt"},
+      "note": "the same bytes as the LICENSE-GPL-2.0.txt already locked by apps/desktop/scripts/bgm-runtime.lock.json."
+    },
+    {
+      "path": "texts/timgm6mb-debian-copyright.txt",
+      "bytes": 2307,
+      "sha256": "6ef01652619cf29b289a9403cd2ab59550fa3e2c30844c67292eea5421f993e9",
+      "licenses": "Debian copyright record placing TimGM6mb.sf2 under GPL-2",
+      "covers": ["TimGM6mb.sf2 (python/Lib/site-packages/pretty_midi/TimGM6mb.sf2)"],
+      "source": {"kind": "https", "url": "https://metadata.ftp-master.debian.org/changelogs/main/t/timgm6mb-soundfont/unstable_copyright"},
+      "note": "this URL serves the copyright record of the current unstable version; these bytes are the copy already locked by apps/desktop/scripts/bgm-runtime.lock.json."
+    },
+    {
+      "path": "texts/CC-BY-NC-4.0.txt",
+      "bytes": 19347,
+      "sha256": "41003d4a74749c0220e33dd415042164b5a1093ed401f36277234f772d22d3d0",
+      "licenses": "Creative Commons Attribution-NonCommercial 4.0 International",
+      "covers": ["MERT-v1-95M backbone (models/hf-cache/hub/models--m-a-p--MERT-v1-95M)"],
+      "source": {"kind": "https", "url": "https://creativecommons.org/licenses/by-nc/4.0/legalcode.txt"},
+      "note": "the payload already writes this text to bgm/licenses/LICENSE-CC-BY-NC-4.0.txt; it is repeated here so the notice set is self-contained."
+    }
+  ],
+  "not_obtained": [
+    {
+      "id": "mkl-third-party-programs-absent",
+      "file": "Intel MKL 2021.4.0 third-party-programs.txt",
+      "licenses": "third-party notices the Intel Simplified Software License (February 2020) refers to",
+      "url": "https://www.intel.com/content/www/us/en/developer/articles/technical/third-party-programs-math-kernel-library.html",
+      "attempted": "2026-09-24",
+      "result": "HTTP 403 (Akamai access denied) from this host for that article path and for the license path; the file is not a member of mkl-2021.4.0-py2.py3-none-win_amd64.whl, whose only non-DLL members are LICENSE.txt, METADATA, WHEEL, top_level.txt and RECORD.",
+      "remaining": "Must be taken from Intel's distribution (installer or published article) by someone who can reach it, then recorded here with its URL, size and SHA-256."
+    },
+    {
+      "id": "intel-openmp-redist-list-absent",
+      "file": "Intel developer-tools redistributable list (redist.txt)",
+      "licenses": "the list the Intel End User License Agreement for Developer Tools (October 2020) uses to define Redistributables",
+      "url": "https://www.intel.com/content/www/us/en/developer/articles/tool/compilers-redistributable-libraries-by-version.html",
+      "attempted": "2026-09-24",
+      "result": "HTTP 403 from this host for the article paths that publish the runtime list; the file is not a member of intel_openmp-2021.4.0-py2.py3-none-win_amd64.whl.",
+      "remaining": "Must be taken from Intel's distribution by someone who can reach it, then recorded here with its URL, size and SHA-256."
+    }
+  ],
+  "binary_evidence": [
+    {"file": "python/Lib/site-packages/_soundfile_data/libsndfile_64bit.dll", "string": "libsndfile-1.2.0", "reads": "libsndfile 1.2.0 (wheel member _soundfile_data/libsndfile_64bit.dll)"},
+    {"file": "python/Lib/site-packages/_soundfile_data/libsndfile_64bit.dll", "string": "reference libFLAC 1.3.4 20220220", "reads": "FLAC 1.3.4"},
+    {"file": "python/Lib/site-packages/_soundfile_data/libsndfile_64bit.dll", "string": "Xiph.Org libVorbis 1.3.7", "reads": "libvorbis 1.3.7"},
+    {"file": "python/Lib/site-packages/_soundfile_data/libsndfile_64bit.dll", "string": "libopus 1.3.1", "reads": "libopus 1.3.1"},
+    {"file": "python/Lib/site-packages/_soundfile_data/libsndfile_64bit.dll", "string": "LAME3.100 ", "reads": "LAME 3.100"},
+    {"file": "python/Lib/site-packages/_soundfile_data/libsndfile_64bit.dll", "string": "\\vcpkg\\buildtrees\\mpg123\\src\\0d8db63f9b-3db975bc05.clean\\src\\libmpg123\\id3.c", "reads": "mpg123 is linked in and was built by vcpkg; the directory component is a vcpkg hash, not a version"},
+    {"file": "python/Lib/site-packages/_soundfile_data/libsndfile_64bit.dll", "string": "mpg123_version (absent)", "reads": "no mpg123 version string and no mpg123_version symbol exist in the DLL; every 3-component version literal in it is 1.2.0, 1.3.1, 1.3.4 or 1.3.7, none of which is mpg123's"},
+    {"file": "python/DLLs/libcrypto-3-x64.dll", "string": "OpenSSL 3.5.8", "reads": "OpenSSL 3.5.8"},
+    {"file": "python/DLLs/sqlite3.dll", "string": "version resource 3.53.1.0", "reads": "SQLite 3.53.1"},
+    {"file": "python/DLLs/tcl86t.dll", "string": "Tcl 8.6 for Windows / 8.6.12", "reads": "Tcl 8.6.12"},
+    {"file": "python/DLLs/tk86t.dll", "string": "Tk 8.6 for Windows / 8.6.12", "reads": "Tk 8.6.12"},
+    {"file": "python/vcruntime140.dll", "string": "version resource 14.44.35211.0", "reads": "Microsoft Visual C++ runtime 14.44.35211.0; python/vcruntime140_1.dll reports the same"},
+    {"file": "python/DLLs/libffi-8.dll", "string": "libffi-8 (soname only)", "reads": "libffi of the 3.x ABI; the version is unverified"}
+  ],
+  "not_claimed": [
+    "This directory is notice remediation. It is not legal clearance, not a compliance opinion, and not a statement that the release may ship.",
+    "No wheel, DLL or payload was rebuilt, modified or byte-compared against a build.",
+    "No security review was performed; nothing here reports on vulnerabilities.",
+    "The payload was not inspected: .local/bgmprep/prepared-bgm did not exist, so every payload path in coverage.json comes from the locked wheels, the locked interpreter archive and the payload-writing scripts."
+  ]
+}

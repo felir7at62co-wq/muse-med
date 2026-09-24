@@ -45,7 +45,7 @@ kind: "package-bundle"
 | `maxCatalogBytes` | 默认 2097152 解码字节 |
 | `maxTrackBytes` | 每条曲库音频默认 134217728 字节 |
 
-npm 不携带任何模型权重。获取权重前请阅读[来源与许可](SOURCES.md)；仅有包内默认数据目录不足以分析。不启用离线模式时，首次分析可能下载冻结的 MERT 快照。当前进程的缓存位置环境变量会覆盖 `env` 中的同名项。
+npm 不携带任何模型权重。获取权重前请阅读[来源与许可](SOURCES.md)；仅有包内默认数据目录不足以分析。不启用离线模式时，首次分析可能下载冻结的 MERT 快照。显式 `env` 项优先。设置 `HF_HOME`、`HF_HUB_CACHE`、`TRANSFORMERS_CACHE` 或 `HF_ENDPOINT` 中任一项时，不继承当前进程的这四项；未设置时才继承这组白名单。只读模型部署必须将 `HF_MODULES_CACHE`、`NUMBA_CACHE_DIR` 和应用缓存目录设在安装目录外的可写位置。
 
 -----
 
@@ -57,7 +57,7 @@ npm 不携带任何模型权重。获取权重前请阅读[来源与许可](SOUR
 
 公开 manifest 为 `{version:1,tracks:[{id,name,sha256,bytes,url,valence,arousal,moods}]}`。每个 `id` 等于其 `sha256:<64 位小写十六进制>` 摘要。音轨 URL 必须精确等于曲库同源地址加 `/bgm/tracks/<hash>.<音频扩展名>`。HTTPS 传输不发送凭证，并拒绝重定向、部分响应、超限内容、无效测量值、重复 ID 和不安全文件名。下载流式写入私有临时目录内的独占文件，校验大小与 SHA-256，再原子重命名到内容寻址缓存路径；错误时删除暂存文件。调用取消与插件卸载会中止网络操作。
 
-TypeScript 工具对缓存或公开测量值排序，仅在分析时延迟启动隔离的 NDJSON Python worker。worker 使用维护中的 Music2Emotion 推理适配器和第三方辅助源码。每次和弦/调性操作独占随机的系统临时目录，返回或异常时清理；不会向包内数据目录写中间文件。不发布 invariant 附件，因为本包没有需要核对的独立维护观测值。
+TypeScript 工具对缓存或公开测量值排序，仅在分析时延迟启动隔离的 NDJSON Python worker。worker 使用维护中的 Music2Emotion 推理适配器和第三方辅助源码；分析库打印的诊断进入 stderr，stdout 只承载 NDJSON 响应。每次和弦/调性操作独占随机的系统临时目录，返回或异常时清理；不会向包内数据目录写中间文件。不发布 invariant 附件，因为本包没有需要核对的独立维护观测值。
 
 在仓库根目录运行以下定向源码构建和离线检查：
 

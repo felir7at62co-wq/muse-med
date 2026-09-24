@@ -1,0 +1,4 @@
+- id: native-minimal
+  name: '@deepseek-ai/dsh-desktop-host/native-preset'
+  config:
+    preset: minimal

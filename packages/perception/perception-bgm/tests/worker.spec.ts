@@ -1,7 +1,7 @@
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EmotionWorker } from '../src/worker.ts'
 
 let dir: string
@@ -38,7 +38,30 @@ time.sleep(60)
 
 beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'perception-bgm-')) })
 
+afterEach(() => { vi.unstubAllEnvs() })
+
 describe('EmotionWorker', () => {
+  it('keeps an explicitly deployed model cache independent of ambient cache locations', async () => {
+    vi.stubEnv('HF_HOME', join(dir, 'ambient-home'))
+    vi.stubEnv('HF_HUB_CACHE', join(dir, 'ambient-hub'))
+    vi.stubEnv('TRANSFORMERS_CACHE', join(dir, 'ambient-transformers'))
+    vi.stubEnv('HF_ENDPOINT', 'https://ambient.invalid')
+    const script = await writeWorker(ECHO_WORKER)
+    const launches: NodeJS.ProcessEnv[] = []
+    const configured = {
+      HF_HOME: join(dir, 'bundled-models'), HF_MODULES_CACHE: join(dir, 'writable-modules'),
+      HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1',
+    }
+    const worker = new EmotionWorker({ pythonExecutable: 'python', scriptPath: script,
+      env: configured, readyTimeoutMs: 20000, onLaunch: (_argv, env) => { launches.push(env) } })
+    try {
+      await worker.start()
+      expect(launches[0]).toMatchObject(configured)
+      for (const key of ['HF_HUB_CACHE', 'TRANSFORMERS_CACHE', 'HF_ENDPOINT']) expect(launches[0]?.[key]).toBeUndefined()
+      expect(await worker.call('analyse', {})).toEqual({ echo: {} })
+    } finally { await worker.dispose() }
+  }, 30000)
+
   it('starts one resident process and answers more than one request', async () => {
     const script = await writeWorker(ECHO_WORKER)
     const worker = new EmotionWorker({ pythonExecutable: 'python', scriptPath: script, readyTimeoutMs: 20000 })

@@ -1,0 +1,156 @@
+{
+  "version": 1,
+  "retained_input_origins": {
+    "directory": "../../../../.local/bgmprep/compliance/sources",
+    "record": "apps/desktop/scripts/bgm-source-bundle/README.md#collect-and-verify; the eight archives fetched by the BGM native compliance audit, plus the python-soundfile recipe archives and the pretty_midi sdist fetched for this bundle"
+  },
+  "components": [
+    {
+      "name": "libsndfile-1.2.0.tar.xz",
+      "id": "libsndfile-1.2.0",
+      "component": "libsndfile",
+      "version": "1.2.0",
+      "license": "LGPL-2.1",
+      "linkage": "separate DLL shipped as soundfile 0.12.1 _soundfile_data/libsndfile_64bit.dll",
+      "evidence": "the shipped DLL carries the banner 'libsndfile-1.2.0'; the same wheel's _soundfile_data/COPYING is the verbatim LGPL-2.1 text",
+      "url": "https://github.com/libsndfile/libsndfile/releases/download/1.2.0/libsndfile-1.2.0.tar.xz",
+      "bytes": 730268,
+      "sha256": "0e30e7072f83dc84863e2e55f299175c7e04a5902ae79cfb99d4249ee8f6d60a"
+    },
+    {
+      "name": "flac-1.3.4.tar.xz",
+      "id": "flac-1.3.4",
+      "component": "reference libFLAC",
+      "version": "1.3.4",
+      "license": "BSD-3-Clause",
+      "linkage": "statically linked into libsndfile_64bit.dll",
+      "evidence": "the shipped DLL carries the banner 'reference libFLAC 1.3.4 20220220'",
+      "url": "https://github.com/xiph/flac/releases/download/1.3.4/flac-1.3.4.tar.xz",
+      "bytes": 1038356,
+      "sha256": "8ff0607e75a322dd7cd6ec48f4f225471404ae2730d0ea945127b1355155e737"
+    },
+    {
+      "name": "libogg-1.3.5.tar.xz",
+      "id": "libogg-1.3.5",
+      "component": "libogg",
+      "version": "1.3.5",
+      "license": "BSD-3-Clause",
+      "linkage": "statically linked into libsndfile_64bit.dll",
+      "evidence": "the shipped DLL carries no libogg version string, so the audit records this version as unverified and collected 1.3.5 as the corresponding source",
+      "url": "https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.xz",
+      "bytes": 429076,
+      "sha256": "c4d91be36fc8e54deae7575241e03f4211eb102afb3fc0775fbbc1b740016705"
+    },
+    {
+      "name": "libvorbis-1.3.7.tar.xz",
+      "id": "libvorbis-1.3.7",
+      "component": "libVorbis",
+      "version": "1.3.7",
+      "license": "BSD-3-Clause",
+      "linkage": "statically linked into libsndfile_64bit.dll",
+      "evidence": "the shipped DLL carries the banner 'Xiph.Org libVorbis 1.3.7'",
+      "url": "https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz",
+      "bytes": 1203792,
+      "sha256": "b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b"
+    },
+    {
+      "name": "opus-1.3.1.tar.gz",
+      "id": "opus-1.3.1",
+      "component": "libopus",
+      "version": "1.3.1",
+      "license": "BSD-3-Clause",
+      "linkage": "statically linked into libsndfile_64bit.dll",
+      "evidence": "the shipped DLL carries the banner 'libopus 1.3.1'",
+      "url": "https://downloads.xiph.org/releases/opus/opus-1.3.1.tar.gz",
+      "bytes": 1040054,
+      "sha256": "65b58e1e25b2a114157014736a3d9dfeaad8d41be1c8179866f144a2fb44ff9d"
+    },
+    {
+      "name": "lame-3.100.tar.gz",
+      "id": "lame-3.100",
+      "component": "LAME",
+      "version": "3.100",
+      "license": "LGPL-2.1",
+      "linkage": "statically linked into libsndfile_64bit.dll",
+      "evidence": "the shipped DLL carries the banner 'LAME3.100 '",
+      "url": "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
+      "bytes": 1524133,
+      "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e"
+    },
+    {
+      "name": "mpg123-1.29.3.tar.bz2",
+      "id": "mpg123-1.29.3",
+      "component": "libmpg123",
+      "version": "1.29.3",
+      "license": "LGPL-2.1",
+      "linkage": "statically linked into libsndfile_64bit.dll",
+      "evidence": "the shipped DLL exposes no version banner but embeds its own build path 'C:\\vcpkg\\buildtrees\\mpg123\\src\\0d8db63f9b-3db975bc05.clean\\src\\libmpg123\\id3.c'; vcpkg names an extracted build tree buildtrees/<port>/src/<SHA-512 of the source archive, first 10> -<port hash>.clean, and vcpkg's ports/mpg123/portfile.cmake at baseline 2023.01.09 pins MPG123_VERSION 1.29.3 with SHA512 0d8db63f9bae1507887bc5241a56abccfeb767b7ba8362eb0fce9de2f63369e57fdd6f25a953f8ef5f9ead4f400237db51914816e278566fdf8e6f205ebca5d6, which is the SHA-512 of this archive. The lock's build_tree_path is checked against the archive at build time.",
+      "build_tree_path": "C:\\vcpkg\\buildtrees\\mpg123\\src\\0d8db63f9b-3db975bc05.clean\\src\\libmpg123\\id3.c",
+      "url": "https://www.mpg123.de/download/mpg123-1.29.3.tar.bz2",
+      "bytes": 1069979,
+      "sha256": "963885d8cc77262f28b77187c7d189e32195e64244de2530b798ddf32183e847"
+    },
+    {
+      "name": "soxr-1.1.0.tar.gz",
+      "id": "libsoxr-0.1.3",
+      "component": "soxr 1.1.0 with its vendored libsoxr",
+      "version": "soxr 1.1.0, vendoring libsoxr 0.1.3",
+      "license": "LGPL-2.1-or-later",
+      "linkage": "statically linked into soxr/soxr_ext.cp311-win_amd64.pyd",
+      "evidence": "this sdist ships libsoxr sources; libsoxr/src/soxr.h defines SOXR_THIS_VERSION_STR \"0.1.3\" and libsoxr/NEWS opens with 'Version 0.1.3 (2018-02-24)'; the wheel's licenses state LGPL-2.1-or-later",
+      "url": "https://files.pythonhosted.org/packages/ed/11/27cebce4a108f77afea7c80545115536b45e3f11ebfb914f638fdd9ba847/soxr-1.1.0.tar.gz",
+      "bytes": 173067,
+      "sha256": "9f228ae21c78fa9359ca98d8a5e8e91f30639e438e574133dace62c5b5309e44"
+    },
+    {
+      "name": "soundfile-0.12.1.tar.gz",
+      "id": "python-soundfile-0.12.1",
+      "component": "python-soundfile packaging sdist",
+      "version": "0.12.1",
+      "license": "BSD-3-Clause",
+      "linkage": "cffi wrapper around the shipped libsndfile DLL",
+      "evidence": "the locked soundfile wheel is built from this sdist; setup.py packages only a pre-existing _soundfile_data/libsndfile_64bit.dll and carries no library sources, which is why the recipe archives below are also required",
+      "url": "https://files.pythonhosted.org/packages/6f/96/5ff33900998bad58d5381fd1acfcdac11cbea4f08fc72ac1dc25ffb13f6a/soundfile-0.12.1.tar.gz",
+      "bytes": 43184,
+      "sha256": "e8e1017b2cf1dda767aef19d2fd9ee5ebe07e050d430f77a0a7c66ba08b8cdae"
+    },
+    {
+      "name": "python-soundfile-0.12.1.tar.gz",
+      "id": "python-soundfile-recipe-0.12.1",
+      "component": "python-soundfile repository at the 0.12.1 release",
+      "version": "0.12.1",
+      "license": "BSD-3-Clause",
+      "linkage": "packaging recipe: build_wheels.py and setup.py assemble the released wheels around the DLL below",
+      "evidence": "repository archive of the release; its .gitmodules resolves _soundfile_data to bastibe/libsndfile-binaries, the archive that supplies the DLL",
+      "url": "https://codeload.github.com/bastibe/python-soundfile/tar.gz/0.12.1",
+      "bytes": 38409,
+      "sha256": "3a859dc8220b5e6bca67fc1df6d38871cfe7fbafff313c98c6a143bf3fe74b23"
+    },
+    {
+      "name": "libsndfile-binaries-d9887ef926bb11cf1a2526be4ab6f9dc690234c0.tar.gz",
+      "id": "libsndfile-binaries-d9887ef9",
+      "component": "libsndfile_64bit.dll build recipe and vcpkg inputs",
+      "version": "bastibe/libsndfile-binaries at d9887ef926bb11cf1a2526be4ab6f9dc690234c0",
+      "license": "the recipe is part of the python-soundfile project; the DLL it ships is LGPL-2.1",
+      "linkage": "produced the released _soundfile_data/libsndfile_64bit.dll",
+      "evidence": ".github/workflows/build-libs.yml builds with 'vcpkg install libsndfile:x64-windows-custom --overlay-triplets=triplets', triplets/x64-windows-custom.cmake holds that triplet, and the archive carries the produced DLL; the codec source archives above are the vcpkg port inputs for that build, whose upstream URLs and hashes vcpkg pins per port",
+      "url": "https://codeload.github.com/bastibe/libsndfile-binaries/tar.gz/d9887ef926bb11cf1a2526be4ab6f9dc690234c0",
+      "bytes": 5214375,
+      "sha256": "de6061bd090928b1cc3bb1d91b5db92ca873afaf7d8d55af02c80e3b0e394613"
+    },
+    {
+      "name": "pretty_midi-0.2.10.tar.gz",
+      "id": "timgm6mb-soundfont",
+      "component": "TimGM6mb SoundFont as distributed in pretty_midi 0.2.10",
+      "version": "pretty_midi 0.2.10",
+      "license": "GPL-2 for the soundfont data; pretty_midi's MIT label covers its code only",
+      "linkage": "data asset shipped at python/Lib/site-packages/pretty_midi/TimGM6mb.sf2 (5994284 bytes)",
+      "evidence": "the sdist and the wheel built from it both contain TimGM6mb.sf2; the Debian copyright record for timgm6mb-soundfont licenses that file under GPL-2",
+      "url": "https://files.pythonhosted.org/packages/c2/81/f3e47efdf65eab347d1b78e8279222f6e3122d722cc9d68d443503a3c0e7/pretty_midi-0.2.10.tar.gz",
+      "bytes": 5592108,
+      "sha256": "ea6e192f94044674e833336ea1f415318ddf28e320302ac7b109edff0d4534bd",
+      "license_files": false,
+      "license_reason": "this sdist contains no COPYING, LICENSE or copyright file, and no license text for the soundfont; the GPL-2 record that covers TimGM6mb.sf2 is the Debian copyright file carried by the BGM payload's own notices, not by this archive"
+    }
+  ]
+}

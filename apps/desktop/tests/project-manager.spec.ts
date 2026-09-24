@@ -80,7 +80,7 @@ describe('desktop external plugin profile', () => {
     }
     expect(manifest.dsh.profile.bundles).toEqual([
       '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
-      'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail',
+      'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@moyu-good/dsh-lark-bridge',
     ])
   })
 

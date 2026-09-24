@@ -55,3 +55,16 @@
     # it belongs on the Host rather than inside one agent preset.
     - id: tool-jubian
       name: '@deepseek-ai/dsh-tool-jubian'
+
+# The bundled Feishu bridge is inert until this product's own settings namespace
+# holds credentials: no QR app registration, no cross-instance sync, and no read
+# of another deployment's sync directory. A patch replaces the whole config, so
+# credentials are deliberately absent here and come from that namespace alone.
+# Enabling it takes effect after a backend restart.
+- id: feishu-channel
+  config:
+    enabled: false
+    autoRegistration: false
+    crossInstanceSync: false
+    requireMention: true
+    denyTools: [ask_user_question, exit_plan_mode]

@@ -15,7 +15,7 @@ const harness = await vi.hoisted(async () => {
   const windows: FakeWindow[] = []
   const hosts: FakeHost[] = []
   const managerRuntimes: unknown[] = []
-  const handlers = new Map<string, (event: { senderFrame: { url: string } }) => unknown>()
+  const handlers = new Map<string, (event: { senderFrame: { url: string } }, ...args: unknown[]) => unknown>()
   let pluginsEnabled = false
   let preparing = deferred()
   let prepared = deferred()
@@ -38,6 +38,8 @@ const harness = await vi.hoisted(async () => {
       }),
     })
     readonly show = vi.fn()
+    readonly setSize = vi.fn()
+    readonly setTitle = vi.fn()
     readonly focus = vi.fn()
     readonly restore = vi.fn()
     constructor(readonly options: { show: boolean }) { super(); windows.push(this) }
@@ -81,6 +83,9 @@ const harness = await vi.hoisted(async () => {
   return {
     windows, hosts, managerRuntimes, handlers, app, FakeWindow, FakeHost,
     dialog: { showErrorBox: vi.fn(), showMessageBox: vi.fn() },
+    menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
+    openExternal: vi.fn(async () => {}),
+    catalog: vi.fn(async () => ({ bundled: [], plugins: [] })),
     applyRelease: vi.fn(() => { preparing.resolve(); return prepared.promise }),
     assertProfileRuntime: vi.fn(),
     canRecoverProfile: vi.fn(() => true),
@@ -105,9 +110,12 @@ vi.mock('electron', () => ({
   BrowserWindow: harness.FakeWindow,
   dialog: harness.dialog,
   ipcMain: {
-    handle: (channel: string, handler: (event: { senderFrame: { url: string } }) => unknown) => { harness.handlers.set(channel, handler) },
+    handle: (channel: string, handler: (event: { senderFrame: { url: string } }, ...args: unknown[]) => unknown) => {
+      harness.handlers.set(channel, handler)
+    },
   },
-  Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
+  Menu: harness.menu,
+  shell: { openExternal: harness.openExternal },
   protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() },
 }))
 vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile' }) }))
@@ -126,6 +134,10 @@ vi.mock('../src/project-manager.ts', () => ({
       await this.mutate(undefined, hooks)
     }
   },
+}))
+vi.mock('../src/plugin-catalog.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/plugin-catalog.ts')>(),
+  desktopPluginCatalog: harness.catalog,
 }))
 vi.mock('../src/host-process.ts', () => ({ DesktopHostProcess: harness.FakeHost }))
 vi.mock('../src/update-coordinator.ts', () => ({ DesktopUpdateCoordinator: vi.fn() }))
@@ -149,7 +161,7 @@ beforeEach(() => {
   vi.stubEnv('DSH_HOME', 'upstream-dsh-home')
   vi.stubEnv('MUSE_MED_HOME', undefined)
   for (const name of ['PATH', 'Path', 'PYTHONHOME', 'PYTHONPATH', 'PYTHONDONTWRITEBYTECODE',
-    'DSH_FFMPEG_PATH', 'DSH_FFPROBE_PATH', 'FFMPEG_PATH', 'FFPROBE_PATH', 'MUSE_WHISPER_MODEL_DIR', 'MUSE_FONTS_DIR', 'MUSE_FONT_FAMILY']) {
+    'DSH_FFMPEG_PATH', 'DSH_FFPROBE_PATH', 'FFMPEG_PATH', 'FFPROBE_PATH', 'MUSE_WHISPER_MODEL_DIR', 'MUSE_BGM_RUNTIME_DIR', 'MUSE_FONTS_DIR', 'MUSE_FONT_FAMILY']) {
     vi.stubEnv(name, process.env[name])
   }
 })
@@ -168,6 +180,48 @@ afterEach(async () => {
 })
 
 describe('desktop main startup', () => {
+  it('exposes catalog reads only to desktop-owned shell documents', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    const catalog = harness.handlers.get('dsh-desktop:plugins-catalog')
+    expect(catalog).toBeTypeOf('function')
+    expect(() => catalog!({ senderFrame: { url: 'dsh-app://app/index.html' } })).toThrow(/rejected IPC/u)
+    expect(() => catalog!({ senderFrame: { url: 'https://example.org/plugin-manager.html' } })).toThrow(/rejected IPC/u)
+    const sender = { senderFrame: { url: 'dsh-app://shell/plugin-manager.html' } }
+    expect(() => catalog!(sender, 'true')).toThrow(/must be a boolean/u)
+    expect(harness.catalog).not.toHaveBeenCalled()
+    await expect(catalog!(sender, false)).resolves.toEqual({ bundled: [], plugins: [], canInstall: true })
+    expect(harness.catalog).toHaveBeenCalledWith(join('desktop-test-app', 'dsh'), 'desktop-test-profile', false)
+  })
+
+  it('lets development browse the catalog but still rejects package mutations', async () => {
+    harness.app.isPackaged = false
+    await import('../src/main.ts')
+    await harness.hostStarted.promise
+    const sender = { senderFrame: { url: 'dsh-app://shell/plugin-manager.html' } }
+    await expect(harness.handlers.get(DESKTOP_IPC.pluginsCatalog)!(sender, false))
+      .resolves.toEqual({ bundled: [], plugins: [], canInstall: false })
+    await expect(harness.handlers.get(DESKTOP_IPC.pluginsAdd)!(sender, 'safe-plugin'))
+      .rejects.toThrow(/require a packaged application/u)
+  })
+
+  it('opens repository links only from the plugin popup and denies arbitrary protocols', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    const template = harness.menu.buildFromTemplate.mock.calls[0]?.[0] as { submenu: { click?: () => void }[] }[]
+    template[0]!.submenu[0]!.click!()
+    const popup = harness.windows.at(-1)!
+    const handler = popup.webContents.setWindowOpenHandler.mock.calls.at(-1)?.[0] as (details: { url: string }) => { action: string }
+    expect(handler({ url: 'file:///C:/Windows' })).toEqual({ action: 'deny' })
+    expect(handler({ url: 'https://github.com@evil.test/a/b' })).toEqual({ action: 'deny' })
+    expect(harness.openExternal).not.toHaveBeenCalled()
+    expect(handler({ url: 'https://github.com/owner/repo' })).toEqual({ action: 'deny' })
+    expect(harness.openExternal).toHaveBeenCalledExactlyOnceWith('https://github.com/owner/repo')
+    popup.urls.push('dsh-app://app/index.html')
+    handler({ url: 'https://github.com/owner/repo' })
+    expect(harness.openExternal).toHaveBeenCalledTimes(1)
+  })
+
   it.each([undefined, '', '  '])('isolates product data from inherited DSH_HOME with override %s', async (override) => {
     vi.stubEnv('MUSE_MED_HOME', override)
     await import('../src/main.ts')
@@ -190,6 +244,7 @@ describe('desktop main startup', () => {
     expect(process.env.FFMPEG_PATH).toBe(process.env.DSH_FFMPEG_PATH)
     expect(process.env.FFPROBE_PATH).toBe(process.env.DSH_FFPROBE_PATH)
     expect(process.env.MUSE_WHISPER_MODEL_DIR).toBe(join(media, 'models', 'faster-whisper-small'))
+    expect(process.env.MUSE_BGM_RUNTIME_DIR).toBe(join(media, 'bgm'))
     expect(process.env.PYTHONHOME).toBeUndefined()
     expect(process.env.PYTHONPATH).toBeUndefined()
     expect(process.env.PYTHONDONTWRITEBYTECODE).toBe('1')
