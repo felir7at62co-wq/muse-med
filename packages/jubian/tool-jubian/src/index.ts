@@ -25,7 +25,7 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { JUBIAN_TOKEN_REF, JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { assetMethod, catalogMethod, mediaMethod, storyboardMethod, videoMethod } from './methods.ts'
-import type { ImageMethodOptions } from './methods.ts'
+import type { ImageMethodOptions, MethodArgs } from './methods.ts'
 import { findMethod } from './find.ts'
 import type { FindArgs } from './find.ts'
 import { seriesBudgetLimit } from './budget-settings.ts'
@@ -249,7 +249,7 @@ const OUTPUT = {
  * @param run - The domain method, given the argument bag its own signature declares.
  * @returns An execute function for `defineTool`.
  */
-function guarded<A>(
+function guarded<A = MethodArgs>(
   tool: string,
   run: (args: A) => Promise<Record<string, unknown>>,
 ): (args: unknown) => Promise<ToolValue> {

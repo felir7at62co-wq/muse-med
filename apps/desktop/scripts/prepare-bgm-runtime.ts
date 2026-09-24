@@ -1,5 +1,5 @@
 /** Prepare the separately licensed, isolated Windows CPU music-emotion runtime. */
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { extract } from 'tar'

@@ -9,6 +9,7 @@
     "src/index.ts",
     "src/budget-settings.ts",
     "src/folders.ts",
+    "src/find.ts",
     "src/image.ts",
     "src/methods.ts",
     "src/model-settings.ts",
