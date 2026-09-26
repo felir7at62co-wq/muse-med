@@ -14,6 +14,8 @@ Status: implemented
 
 三个开关来自[兼容性覆盖](../../../../third_party/plugins/compatibility/lark-desktop.mjs)，它只改写私有暂存树；固定的上游快照保持不变。三个开关都是可选字段且默认 `true`，因此未被补丁覆盖的行仍保留桥接上游的常开行为；当它要改写的源码锚点缺失或重复时，覆盖会让构建失败。
 
+同一个包还被一个本仓库不参与组合的界面挂载：muse Web profile（`~/.muse/profiles/web`）在 `dsh.profile.bundles` 里列的是市场原版 0.6.1，没有 `SOURCE.json`，也没有那三个插件级开关——那份 `Config` 只有 `appId`、`appSecret` 与 `requireMention`，且该行一旦启动，启动路径就无条件开启同步层与扫码注册。在那里唯一能阻止该行运行的开关是 Loader 的 entry 级 `disabled`，因此已安装 profile 自己的 patch 层（`cordis.patch.yml`，作用于所有 bundle 层之后）禁用 `feishu-channel`。桌面闸门层只覆盖桌面组合，两个界面各自独立受闸；而 Web 侧这条闸门存放在已安装的 profile 状态里、不在本仓库中：重建 profile 或日后改动 bundle 列表，都需要重新补上。
+
 在产品开关生效时，桥接完全跳过跨实例分支：不读取共享设置文档，不启动控制服务，不发布对等心跳，也不续订 presence。`DSH_SYNC_HOME` 只由该同步存储的目录解析读取，因此产品绝不读取另一个部署的同步目录。被禁用或缺凭据时，它也不启动扫码注册。
 
 该行被激活后，桥接先注册设置段，再经过它自己的 `enabled` 门，这正是该包在休眠状态下仍可配置的原因。凭据填入产品自有设置文档中的 `dsh-lark-bridge` 设置段，绝不放进该行；注册声明的 `applies: 'restart'` 使改动在下一次后端启动时生效。该注册还让这个设置段在桥接解析出的配置里高于该行的组合 base：那里存着 `enabled: false` 时，该行已被激活桥接仍保持休眠；而存着 `enabled: true` 也无法激活一个 `disabled` 的行。补丁会替换目标行的整个 config，所以 `appId` 和 `appSecret` 有意缺席：基础 bundle 行从 `FEISHU_APP_ID` 与 `FEISHU_APP_SECRET` 推导它们，保留这两个键会让继承来的变量把产品绑定到另一个部署的应用。
