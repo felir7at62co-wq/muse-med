@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-24-desktop-feishu-bridge-opt-in.md
-2026-09-24-desktop-feishu-bridge-opt-in.md: 9b5f0efce0a3e325bef6f8beb21cff4695f9eb8c
-2026-09-24-desktop-feishu-bridge-opt-in.zh.md: 70b9a56316d895412e3e2ff1ba9fa8da83afda28
+2026-09-24-desktop-feishu-bridge-opt-in.md: f5d0f49120afcc73081d8ef4cbe933964efbfbbd
+2026-09-24-desktop-feishu-bridge-opt-in.zh.md: 31e96d029ad732058b9669b72458988d5df43141
