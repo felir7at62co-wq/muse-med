@@ -101,10 +101,10 @@ describe('dsh path helpers', () => {
     expect(resolveDshHome(undefined, {})).toBe(join(home, MUSE_HOME_DIR_NAME))
   })
 
-  it('selects the muse default once it exists beside a legacy home', async () => {
+  it('keeps the legacy default when a muse home exists beside it', async () => {
     const home = await stubOsHome({ legacy: true, muse: true })
 
-    expect(resolveDshHome(undefined, {})).toBe(join(home, MUSE_HOME_DIR_NAME))
+    expect(resolveDshHome(undefined, {})).toBe(join(home, DSH_HOME_DIR_NAME))
   })
 
   it('resolves the muse home independently of the legacy default', async () => {

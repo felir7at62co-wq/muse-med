@@ -38,7 +38,7 @@ const cache = dshCachePath('models')         // <home>/cache/models
 
 显式配置的路径优先级最高，然后是 `$MUSE_HOME`，然后是 `$DSH_HOME`，最后是默认主目录。空或仅含空白的 `$MUSE_HOME` 或 `$DSH_HOME` 视为未设置，因此空白的覆盖值绝不会把主目录解析到当前工作目录。两个环境变量都设置时，`$MUSE_HOME` 胜出。
 
-默认主目录是 `~/.muse`，但有一条兼容规则：当旧有的 `~/.dsh` 主目录存在、而 `~/.muse` 不存在时，默认主目录仍是 `~/.dsh`。因此早于 muse 的安装会继续读取已经存放在旧主目录下的会话、设置与数据，只有没有旧主目录的机器才从 `~/.muse` 开始。`$DSH_HOME` 绝不重命名，也不会停止支持。
+默认主目录在没有旧主目录的机器上是 `~/.muse`，而只要旧有的 `~/.dsh` 主目录存在就仍是 `~/.dsh`。仅仅存在一个 `~/.muse` 目录不会改变默认值——另一个以 muse 命名的产品面（打包的桌面端）会为自己的数据创建它——因此早于 muse 的安装会继续读取已经存放在旧主目录下的会话、设置与数据；只有显式设置 `$MUSE_HOME` 才会迁移该安装。`$DSH_HOME` 绝不重命名，也不会停止支持。
 
 `resolveMuseHome()` 解析承载 muse 命名位置的主目录——依次是显式路径、`$MUSE_HOME`、`~/.muse`——其默认值绝不跟随旧有的 `~/.dsh` 主目录。以 muse 命名的位置与 harness 主目录并列，因此当既有安装继续读取 `$DSH_HOME` 时，它们仍停留在 Muse 位置；`dsh-skill-filesystem` 用它解析用户级 `skills` 根目录。
 
@@ -75,7 +75,7 @@ const cache = dshCachePath('models')         // <home>/cache/models
 
 ### 解析规则
 
-`resolveDshHome` 先读显式覆盖值，然后读 `$MUSE_HOME`，然后读 `$DSH_HOME`，最后回退到操作系统主目录拼接 `.muse`——当旧有的 `.dsh` 目录存在而 `.muse` 不存在时则拼接 `.dsh`。选中的值经过波浪号展开并规范化为绝对路径；`dshHomePath` 用 Node 的平台路径规则拼接子路径段。`dshHomeDisplay` 把解析出的路径与两个默认根目录比较并返回符号标签，因此已配置的主目录绝不泄露其绝对路径。
+`resolveDshHome` 先读显式覆盖值，然后读 `$MUSE_HOME`，然后读 `$DSH_HOME`，最后回退到操作系统主目录：只要旧有的 `.dsh` 目录存在就拼接 `.dsh`，否则拼接 `.muse`。选中的值经过波浪号展开并规范化为绝对路径；`dshHomePath` 用 Node 的平台路径规则拼接子路径段。`dshHomeDisplay` 把解析出的路径与两个默认根目录比较并返回符号标签，因此已配置的主目录绝不泄露其绝对路径。
 
 ### 规范化机制
 

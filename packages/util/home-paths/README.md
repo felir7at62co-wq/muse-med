@@ -38,7 +38,7 @@ const cache = dshCachePath('models')         // <home>/cache/models
 
 An explicit configured path has the highest precedence, then `$MUSE_HOME`, then `$DSH_HOME`, then the default home. An empty or whitespace-only `$MUSE_HOME` or `$DSH_HOME` is treated as unset, so a blank override never resolves the home to the current working directory. When both environment variables are set, `$MUSE_HOME` wins.
 
-The default home is `~/.muse`, with one compatibility rule: while a legacy `~/.dsh` home exists and `~/.muse` does not, the default stays `~/.dsh`. An installation that predates muse therefore keeps reading the sessions, settings, and stored data already under its old home, and only a machine with no legacy home starts on `~/.muse`. `$DSH_HOME` is never renamed or withdrawn.
+The default home is `~/.muse` on a machine with no legacy home, and a legacy `~/.dsh` home for as long as that directory exists. A `~/.muse` directory alone never moves the home — another muse-named surface, such as the packaged desktop app, creates one for its own data — so an installation that predates muse keeps reading the sessions, settings, and stored data already under its old home. Only an explicit `$MUSE_HOME` moves that installation. `$DSH_HOME` is never renamed or withdrawn.
 
 `resolveMuseHome()` resolves the Muse home that owns muse-named locations — an explicit path, then `$MUSE_HOME`, then `~/.muse` — and its default never follows the legacy `~/.dsh` home. Locations named after muse sit beside the harness home, so they stay at the Muse location while an existing installation keeps reading `$DSH_HOME`; `dsh-skill-filesystem` uses it for the user `skills` root.
 
@@ -75,7 +75,7 @@ The package is built on one principle: all harness user data lives under one roo
 
 ### Resolution rules
 
-`resolveDshHome` reads the explicit override, then `$MUSE_HOME`, then `$DSH_HOME`, then falls back to the operating-system home joined with `.muse` — or with `.dsh` while that legacy directory exists and `.muse` does not. The chosen value is tilde-expanded and normalized to an absolute path; `dshHomePath` joins child segments with Node's platform path rules. `dshHomeDisplay` compares the resolved path against both default roots and returns the symbolic label, so a configured home never leaks its absolute path.
+`resolveDshHome` reads the explicit override, then `$MUSE_HOME`, then `$DSH_HOME`, then falls back to the operating-system home joined with `.dsh` while that legacy directory exists, and with `.muse` otherwise. The chosen value is tilde-expanded and normalized to an absolute path; `dshHomePath` joins child segments with Node's platform path rules. `dshHomeDisplay` compares the resolved path against both default roots and returns the symbolic label, so a configured home never leaks its absolute path.
 
 ### Canonicalization mechanics
 

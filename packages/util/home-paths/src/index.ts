@@ -67,8 +67,8 @@ export async function canonicalizeWatchPath(path: string): Promise<string> {
 /**
  * Resolve the default DeepSeek Harness home using Node's platform path rules.
  *
- * This is the legacy default: {@link resolveDshHome} selects it only while that
- * home already exists and the Muse default does not.
+ * This is the legacy default: {@link resolveDshHome} selects it whenever that
+ * home already exists.
  * @returns the absolute default DeepSeek Harness home path.
  */
 export function defaultDshHome(): string {
@@ -103,12 +103,14 @@ export function expandHomePath(path: string): string {
  * empty or whitespace-only override is treated as unset, so a blank value never
  * resolves the home to the current working directory.
  *
- * The default is `~/.muse`. One compatibility rule qualifies it, and it is a
- * contract rather than an oversight: while the legacy `~/.dsh` home exists and
- * `~/.muse` does not, the legacy home keeps winning, so an existing
- * installation's sessions, settings, and stored data are never stranded on a
- * home it stopped reading. Only a machine with no legacy home starts on
- * `~/.muse`. `$DSH_HOME` itself is never renamed or withdrawn.
+ * The default is `~/.muse` on a machine with no legacy home, and the legacy
+ * `~/.dsh` home for as long as that directory exists. One compatibility rule
+ * qualifies it, and it is a contract rather than an oversight: a `~/.muse`
+ * directory alone never moves the home, so an existing installation's sessions,
+ * settings, and stored data are never stranded on a home it stopped reading.
+ * Only a machine with no legacy home starts on `~/.muse`, and only an explicit
+ * `$MUSE_HOME` moves an installation that has one. `$DSH_HOME` itself is never
+ * renamed or withdrawn.
  * @param configured - explicit harness-home override, which has highest precedence.
  * @param env - environment mapping used to read `MUSE_HOME` and `DSH_HOME`.
  * @returns the normalized absolute harness home path.
@@ -150,13 +152,16 @@ function envPath(env: Record<string, string | undefined>, key: string): string |
 /**
  * Select the default harness home for a machine with no override.
  *
- * An existing legacy `~/.dsh` wins while `~/.muse` does not exist; see
- * {@link resolveDshHome} for why that asymmetry is required.
+ * An existing legacy `~/.dsh` wins for as long as it exists. A `~/.muse`
+ * directory alone never moves the home: its existence is not evidence that this
+ * installation's sessions live there, and a muse-named surface of another
+ * product — the packaged desktop app — creates one for its own data. An
+ * explicit `$MUSE_HOME` still moves the home.
  * @returns the absolute default harness home path.
  */
 function defaultHarnessHome(): string {
   const legacy = defaultDshHome()
-  return existsSync(legacy) && !existsSync(defaultMuseHome()) ? legacy : defaultMuseHome()
+  return existsSync(legacy) ? legacy : defaultMuseHome()
 }
 
 /**
