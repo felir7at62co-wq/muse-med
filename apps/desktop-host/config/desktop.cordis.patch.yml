@@ -9,9 +9,12 @@
     includeHarnessIdentity: false
 
 # The independent product owns its roster; it does not import DSH user modes.
+# The short-drama preset is the product's own composition, not the shipped preset
+# of the same id: `includeShippedRoot` stays false so a deployment upgrade cannot
+# shadow it, and the roster reads exactly the five directories under `presets/`.
 - id: agent-presets
   config:
-    default: short-drama-local
+    default: short-drama
     includeShippedRoot: false
     includeUserRoot: false
 

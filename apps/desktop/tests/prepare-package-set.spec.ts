@@ -97,17 +97,17 @@ describe('desktop package-set selection', () => {
     const files = [
       'package/lib/index.js',
       'package/config/desktop.cordis.patch.yml',
-      'package/presets/short-drama-local/agent.cordis.yml',
-      'package/presets/short-drama-local/preset.yml',
+      'package/presets/short-drama/agent.cordis.yml',
+      'package/presets/short-drama/preset.yml',
       'package/lib/native-preset.js',
-      ...['standard', 'ptc'].flatMap(id => [
+      ...['standard', 'ptc', 'minimal', 'cordis'].flatMap(id => [
         `package/presets/${id}/agent.cordis.yml`, `package/presets/${id}/preset.yml`,
       ]),
     ]
     for (const required of files.slice(4)) {
       expect(() => assertDesktopHostPackageFiles(files.filter(file => file !== required))).toThrow(required)
     }
-    expect(() => { assertDesktopHostPackageFiles(files.slice(0, 2)) }).toThrow(/short-drama-local/u)
+    expect(() => { assertDesktopHostPackageFiles(files.slice(0, 2)) }).toThrow(/short-drama/u)
     expect(() => {
       assertDesktopHostPackageFiles(files)
     }).not.toThrow()

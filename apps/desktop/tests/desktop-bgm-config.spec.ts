@@ -9,7 +9,7 @@ it('matches the public BGM catalogue without claiming a bundled analysis model',
   // Emotion values live in the catalogue, so the packaged product matches,
   // selects and downloads without a local interpreter; nothing may point the
   // plugin at a model path this installer does not ship.
-  const source = await readFile(new URL('../../desktop-host/presets/short-drama-local/agent.cordis.yml', import.meta.url), 'utf8')
+  const source = await readFile(new URL('../../desktop-host/presets/short-drama/agent.cordis.yml', import.meta.url), 'utf8')
   const rows = yaml.load(source, { schema: entryListSchema }) as Array<{ id: string; name: string; config?: unknown }>
   const row = rows.find(entry => entry.id === 'perception-bgm')!
   let captured: Record<string, unknown> | undefined

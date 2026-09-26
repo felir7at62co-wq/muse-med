@@ -20,12 +20,12 @@ export async function apply(ctx) {
   const root = ${JSON.stringify(root)}
   const home = ${JSON.stringify(home)}
   try {
-  const ids = ['short-drama-local', 'ptc', 'standard']
+  const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis']
   const presets = await ctx.agentPresets.list()
   if (presets.length !== ids.length || ids.some(id => !presets.some(preset => preset.id === id))) {
-    throw new Error('desktop runtime: expected exactly the four product presets')
+    throw new Error('desktop runtime: expected exactly the five product presets')
   }
-  if (ctx.agentPresets.defaultId !== 'short-drama-local') throw new Error('desktop runtime: product default preset changed')
+  if (ctx.agentPresets.defaultId !== 'short-drama') throw new Error('desktop runtime: product default preset changed')
   for (const id of ids) {
   const preset = await ctx.agentPresets.resolve(id)
   const expected = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'presets', id, 'agent.cordis.yml')
@@ -43,13 +43,22 @@ export async function apply(ctx) {
     for (const handle of handles) {
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
-    const required = id === 'short-drama-local' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video',
+    const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
       'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'read', 'present',
-      process.platform === 'win32' ? 'pwsh' : 'bash'] : ['read', 'skill', shell, 'subagent']
+      process.platform === 'win32' ? 'pwsh' : 'bash']
+      // The minimal composition mounts the persistent shell and nothing else, so
+      // the shell is its whole required tool set.
+      : id === 'minimal' ? [shell]
+        : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
     if (id === 'ptc' && (!names.has('run_code') || names.has('workflow'))) throw new Error('desktop runtime: PTC tool presentation is incomplete')
     const skills = await ctx.skills.list({ scope: handle.agent, cwd: home })
+    // The cordis adapter keeps the composition's own skill directory, so the
+    // authoring skill its persona names must resolve from the packaged preset.
+    if (id === 'cordis' && !skills.some(skill => skill.name === 'editing-cordis-compositions')) {
+      throw new Error('desktop runtime: cordis authoring skill is not mounted')
+    }
     const custom = skills.find(skill => skill.name === 'desktop-user-skill')
     if (!custom || realpathSync(custom.path) !== realpathSync(join(home, 'skills/desktop-user-skill/SKILL.md'))
       || skills.some(skill => skill.name === 'desktop-legacy-only')) {

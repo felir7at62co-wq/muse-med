@@ -1,33 +1,69 @@
-/** Read-only product adapters for the selected upstream coding presets. */
+/** Read-only product adapters for the native coding compositions the roster exposes. */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-tools'
-import Include from '@deepseek-ai/cordis-plugin-include'
+import Include, { type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { SHIPPED_PRESET_ROOT } from '@deepseek-ai/dsh-agent-presets'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+
+/** Native compositions this product exposes as presets of its own roster. */
+const ADAPTED_PRESETS = ['standard', 'ptc', 'minimal', 'cordis'] as const
+
+/** One adapted composition's id. */
+type AdaptedPreset = typeof ADAPTED_PRESETS[number]
 
 /** Selection supplied by a product-owned composition row. */
 interface NativePresetConfig {
   preset: string
 }
 
+/** Whether a roster row names a composition this adapter exposes. */
+function isAdaptedPreset(value: string): value is AdaptedPreset {
+  return (ADAPTED_PRESETS as readonly string[]).includes(value)
+}
+
 /**
- * Include one upstream coding composition while inheriting the product's Host
- * skill provider.
+ * Adapt one native composition's filesystem skill provider to the product.
  *
- * Only `standard` and `ptc` are adapted: the upstream `minimal` composition
- * keeps its shell inside a nested group, and a group's rows are not imported
- * into a composition nested this way, so that mode would mount without its only
- * tool.
+ * The Host owns the only provider that selects default roots
+ * (`config/desktop.cordis.patch.yml`), so no adapted composition may leave its
+ * own provider selecting them. `standard` and `ptc` publish no skill of their
+ * own and give that row up entirely. `cordis` carries the composition-authoring
+ * skills its own persona tells the agent to load, so its row survives serving
+ * exactly that directory with default discovery off. `minimal` composes no
+ * skill provider and needs no patch.
+ * @param preset - the adapted composition's id.
+ * @param directory - that composition's directory under the shipped preset root.
+ * @returns the patches applied to the composition as this adapter includes it.
+ */
+function nativePatches(preset: AdaptedPreset, directory: string): PatchOptions[] {
+  switch (preset) {
+    case 'minimal':
+      return []
+    case 'cordis':
+      return [{
+        id: 'skill-filesystem',
+        config: { includeDefaultRoots: false, customSkillDirs: [join(directory, 'skills')] },
+      }]
+    case 'standard':
+    case 'ptc':
+      return [{ id: 'skill-filesystem', disabled: true }]
+  }
+}
+
+/**
+ * Include one native coding composition unchanged, as a read-only product
+ * preset that inherits the product's Host skill provider and skill tool.
  */
 export default class NativePreset extends Include {
   static override inject = ['loader', 'tools']
 
   constructor(ctx: Context, config: NativePresetConfig) {
-    if (!['standard', 'ptc'].includes(config.preset)) throw new Error('desktop: unsupported native product preset')
+    if (!isAdaptedPreset(config.preset)) throw new Error('desktop: unsupported native product preset')
+    const directory = join(SHIPPED_PRESET_ROOT, config.preset)
     super(ctx, {
-      path: pathToFileURL(join(SHIPPED_PRESET_ROOT, config.preset, 'agent.cordis.yml')).href,
-      patches: [{ id: 'skill-filesystem', disabled: true }],
+      path: pathToFileURL(join(directory, 'agent.cordis.yml')).href,
+      patches: nativePatches(config.preset, directory),
     })
   }
 

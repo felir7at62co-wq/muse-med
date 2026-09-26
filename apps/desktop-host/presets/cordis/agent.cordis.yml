@@ -1,0 +1,4 @@
+- id: native-cordis
+  name: '@deepseek-ai/dsh-desktop-host/native-preset'
+  config:
+    preset: cordis

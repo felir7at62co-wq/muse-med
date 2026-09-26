@@ -17,7 +17,7 @@ function fixture() {
   roots.push(root)
   const home = join(root, 'home')
   mkdirSync(home)
-  const ids = ['short-drama-local', 'standard', 'ptc']
+  const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis']
   const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
   for (const id of ids) {
     mkdirSync(dirname(presetPath(id)), { recursive: true })
@@ -38,7 +38,12 @@ function fixture() {
   mkdirSync(dirname(customPath), { recursive: true })
   writeFileSync(customPath, '# fixture')
   skills.push({ name: 'desktop-user-skill', path: customPath, invocation: { modelInvocable: true } })
-  const agent = { preset: 'short-drama-local' }
+  const cordisSkill = {
+    name: 'editing-cordis-compositions',
+    path: join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/editing-cordis-compositions/SKILL.md'),
+    invocation: { modelInvocable: true },
+  }
+  const agent = { preset: 'short-drama' }
   const agentCtx = {}
   const dispose = vi.fn(async () => {})
   const mount = vi.fn(async (_context: object, _id: string) => {})
@@ -47,20 +52,22 @@ function fixture() {
     'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'read', 'present', process.platform === 'win32' ? 'pwsh' : 'bash']
   class TestContext {
     agentPresets = {
-      defaultId: 'short-drama-local',
+      defaultId: 'short-drama',
       list: vi.fn(async () => ids.map(id => ({ id }))),
       resolve: vi.fn(async (id: string) => ({ path: presetPath(id), trust: 'system' })), mount,
     }
     agents = { create: vi.fn(async (options: { setup: (context: object) => Promise<void>; meta: { agentPreset: string } }) => {
       await options.setup(agentCtx)
-      return { agent: options.meta.agentPreset === 'short-drama-local' ? agent : { preset: options.meta.agentPreset }, dispose }
+      return { agent: options.meta.agentPreset === 'short-drama' ? agent : { preset: options.meta.agentPreset }, dispose }
     }) }
     tools = { schemas: vi.fn((key: { preset: string }) => {
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
-      return (key.preset === 'short-drama-local' ? names
-        : ['read', 'skill', shell, 'subagent', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
+      return (key.preset === 'short-drama' ? names
+        : key.preset === 'minimal' ? [shell]
+          : ['read', 'skill', shell, 'subagent', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
     }) }
-    skills = { list: vi.fn(async () => skills) }
+    skills = { list: vi.fn(async (options: { scope: { preset: string } }) =>
+      options.scope.preset === 'cordis' ? [...skills, cordisSkill] : skills) }
   }
   // Execute exactly the emitted plugin body; fixture services never impersonate a real prepared-runtime smoke.
   const source = desktopSmokePluginSource(root, home)
@@ -75,11 +82,11 @@ function fixture() {
 it('awaits full preset mounting and reads agent-scoped tools and bundled skills before disposal', async () => {
   const f = fixture()
   await f.apply(f.ctx)
-  expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'short-drama-local')
+  expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'short-drama')
   expect(f.ctx.tools.schemas).toHaveBeenCalledWith(f.agent)
   expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.home })
-  expect(f.dispose).toHaveBeenCalledTimes(6)
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(6)
+  expect(f.dispose).toHaveBeenCalledTimes(10)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(10)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
@@ -149,8 +156,8 @@ it.each(['missing', 'legacy-only', 'shadow'])('rejects %s custom skill isolation
 
 it('refuses a roster with additional presets before creating an agent', async () => {
   const f = fixture()
-  f.ctx.agentPresets.list.mockResolvedValue([{ id: 'short-drama-local' }, { id: 'personal' }])
-  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the four product presets')
+  f.ctx.agentPresets.list.mockResolvedValue([{ id: 'short-drama' }, { id: 'personal' }])
+  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the five product presets')
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
 })
 

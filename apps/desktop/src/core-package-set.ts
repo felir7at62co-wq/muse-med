@@ -17,13 +17,17 @@ export const DESKTOP_HOST_PACKAGE = '@deepseek-ai/dsh-desktop-host'
 export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
   'config/desktop.cordis.patch.yml',
-  'presets/short-drama-local/agent.cordis.yml',
-  'presets/short-drama-local/preset.yml',
+  'presets/short-drama/agent.cordis.yml',
+  'presets/short-drama/preset.yml',
   'lib/native-preset.js',
   'presets/standard/agent.cordis.yml',
   'presets/standard/preset.yml',
   'presets/ptc/agent.cordis.yml',
   'presets/ptc/preset.yml',
+  'presets/minimal/agent.cordis.yml',
+  'presets/minimal/preset.yml',
+  'presets/cordis/agent.cordis.yml',
+  'presets/cordis/preset.yml',
 ] as const
 
 /** Community packages built from pinned source, never substituted from the npm registry. */
