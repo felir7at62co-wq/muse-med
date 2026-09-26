@@ -6,8 +6,8 @@ import { desktopErrorState } from './startup-error.ts'
 export type DesktopBackendState =
   | { readonly phase: 'starting' }
   | { readonly phase: 'ready' }
-  /** `message` is the rendered text; `failure` is the original error so a crash report keeps its stack, properties, and cause. */
-  | { readonly phase: 'error'; readonly message: string; readonly failure: unknown }
+  /** Rendered message, the original error, and whether the packaged application can still rebuild the profile. */
+  | { readonly phase: 'error'; readonly message: string; readonly failure: unknown; readonly profileRecovery?: boolean }
 
 /** The error state for one failure: rendered message plus the failure itself. */
 function errorState(failure: unknown): DesktopBackendState {

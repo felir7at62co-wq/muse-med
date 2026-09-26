@@ -90,6 +90,19 @@ export interface DesktopUpdatePresentation {
 /** Product documents cannot supply update versions, package URLs, or installation authorization. */
 export interface DshDesktopProductApi {
   readonly protocolVersion: 1
+  readonly browser: DesktopBrowserBridge
+  readonly keyboard: DesktopKeyboardApi
+  readonly shortcuts: DesktopShortcutsApi
+  readonly updates: {
+    status(): Promise<DesktopUpdatePresentation>
+    open(): Promise<void>
+    subscribe(listener: (state: DesktopUpdatePresentation) => void): () => void
+  }
+}
+
+/** Plugin-window bridge, exposed only to the shell-hosted plugin manager document. */
+export interface DshDesktopPluginApi {
+  readonly protocolVersion: 1
   locale(): Promise<DesktopLocale>
   readonly plugins: {
     list(): Promise<readonly DesktopPluginRecord[]>
@@ -106,13 +119,10 @@ export interface DshDesktopProductApi {
     retry(): Promise<void>
     subscribe(listener: (state: DesktopBackendState) => void): () => void
   }
-  readonly browser: DesktopBrowserBridge
-  readonly keyboard: DesktopKeyboardApi
-  readonly shortcuts: DesktopShortcutsApi
   readonly updates: {
-    status(): Promise<DesktopUpdatePresentation>
-    open(): Promise<void>
-    subscribe(listener: (state: DesktopUpdatePresentation) => void): () => void
+    check(): Promise<DesktopUpdateState>
+    install(): Promise<void>
+    subscribe(listener: (state: DesktopUpdateState) => void): () => void
   }
 }
 

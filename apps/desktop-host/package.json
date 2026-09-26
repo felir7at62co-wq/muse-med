@@ -13,6 +13,7 @@
     "presets"
   ],
   "dependencies": {
+    "yaml": "^2.9.0",
     "@deepseek-ai/libreoffice-kit": "^0.1.1",
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh": "workspace:*",

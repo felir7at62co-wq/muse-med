@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { runInContext } from 'node:vm'
 import { JSDOM } from 'jsdom'
 import { expect, it, onTestFinished, vi } from 'vitest'
-import type { DshDesktopApi } from '../src/ipc.ts'
+import type { DshDesktopPluginApi } from '../src/ipc.ts'
 import { resolveDesktopLocale } from '../src/locale.ts'
 
 function manager(locale = 'en', canInstall = true) {
@@ -18,7 +18,7 @@ function manager(locale = 'en', canInstall = true) {
   ]
   const catalog = vi.fn(async (discover: boolean) => ({ bundled, plugins: discover ? plugins : [], canInstall }))
   const add = vi.fn(async () => {})
-  const api: DshDesktopApi = {
+  const api: DshDesktopPluginApi = {
     protocolVersion: 1, locale: async () => resolveDesktopLocale(locale),
     plugins: { catalog, add, list: async () => [], remove: async () => {}, toggle: async () => {},
       disableAll: async () => {}, update: async () => {} },

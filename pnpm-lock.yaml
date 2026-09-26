@@ -762,6 +762,9 @@ importers:
       '@deepseek-ai/libreoffice-kit':
         specifier: ^0.1.1
         version: 0.1.1
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
 
   apps/web:
     devDependencies:
