@@ -128,6 +128,16 @@ describe('the shipped preset root', () => {
     expect(minimal?.path.startsWith(SYSTEM_ROOT)).toBe(true)
   })
 
+  it('keeps shared Jubian services on the Host and production tools in short-drama', async () => {
+    const entries = await shippedEntries('short-drama')
+    for (const id of ['drama-gate', 'tool-drama-assets', 'tool-shot-script', 'tool-bgm-compose', 'tool-episode-render', 'perception-bgm']) {
+      expect(findEntry(entries, id), id).toBeDefined()
+    }
+    expect(findEntry(entries, 'tool-jubian')).toBeUndefined()
+    expect(findEntry(entries, 'skill-filesystem')).toBeDefined()
+    expect(findEntry(entries, 'tool-skill')).toBeDefined()
+  })
+
   it('enables web_fetch in each tool-bearing Web app preset', async () => {
     for (const id of ['cordis', 'ptc', 'standard']) {
       const entries = await shippedEntries(id)
