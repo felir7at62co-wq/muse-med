@@ -127,7 +127,7 @@ export class DesktopHostProcess {
     const responsePipe = child.stdio[DESKTOP_RESPONSE_PIPE_FD]
     if (!(requestPipe instanceof Writable) || !(responsePipe instanceof Readable)) {
       child.kill('SIGTERM')
-      throw new Error('dsh desktop host did not expose the required byte pipes and IPC channel')
+      throw new Error('muse-med host did not expose the required byte pipes and IPC channel')
     }
     this.child = child
     this.requestPipe = requestPipe
@@ -139,16 +139,16 @@ export class DesktopHostProcess {
     responsePipe.once('end', () => {
       try {
         this.responseDecoder.finish()
-        this.fail(new Error('dsh desktop host response pipe ended'))
+        this.fail(new Error('muse-med host response pipe ended'))
       } catch (error) {
-        this.fail(errorOf(error, 'dsh desktop host response pipe failed'))
+        this.fail(errorOf(error, 'muse-med host response pipe failed'))
       }
     })
     requestPipe.once('error', (error) => { this.fail(error) })
     responsePipe.once('error', (error) => { this.fail(error) })
     child.on('message', (message: unknown) => {
       if (!isDesktopHostEvent(message)) {
-        this.fail(new Error('dsh desktop host sent an invalid IPC event'))
+        this.fail(new Error('muse-med host sent an invalid IPC event'))
         child.kill('SIGTERM')
         return
       }
@@ -158,8 +158,8 @@ export class DesktopHostProcess {
     this.exitPromise = new Promise<void>((resolve) => {
       child.once('close', (code) => {
         const suffix = this.stderr.trim() === '' ? '' : `: ${this.stderr.trim()}`
-        if (code !== 0 && code !== null) this.fail(new Error(`dsh desktop host exited with ${String(code)}${suffix}`))
-        else this.fail(new Error(`dsh desktop host stopped${suffix}`))
+        if (code !== 0 && code !== null) this.fail(new Error(`muse-med host exited with ${String(code)}${suffix}`))
+        else this.fail(new Error(`muse-med host stopped${suffix}`))
         resolve()
       })
     })
@@ -171,9 +171,9 @@ export class DesktopHostProcess {
     await this.start()
     const child = this.child
     if (child === undefined || !child.connected || this.requestPipe === undefined) {
-      throw new Error('dsh desktop host is unavailable')
+      throw new Error('muse-med host is unavailable')
     }
-    if (this.nextStreamId > 0xffff_ffff) throw new Error('dsh desktop host exhausted its request stream ids')
+    if (this.nextStreamId > 0xffff_ffff) throw new Error('muse-med host exhausted its request stream ids')
     const streamId = this.nextStreamId++
     const method = request.method.toUpperCase()
     const hasBody = method !== 'GET' && method !== 'HEAD' && request.body !== null
@@ -190,7 +190,7 @@ export class DesktopHostProcess {
         pending.uploadOpen = false
         void pending.requestReader?.cancel(error).catch(() => undefined)
         this.enqueueRequestFrame(encodeDesktopRequestCancel(streamId)).catch((pipeError: unknown) => {
-          this.fail(errorOf(pipeError, 'dsh desktop request pipe failed'))
+          this.fail(errorOf(pipeError, 'muse-med request pipe failed'))
         })
         if (pending.controller === undefined) pending.reject(error)
         else pending.controller.error(error)
@@ -204,7 +204,7 @@ export class DesktopHostProcess {
       pending.removeAbort = () => { request.signal.removeEventListener('abort', abort) }
       this.pending.set(streamId, pending)
       this.pumpRequest(streamId, request, hasBody).catch((error: unknown) => {
-        this.failPending(streamId, errorOf(error, 'dsh desktop request upload failed'))
+        this.failPending(streamId, errorOf(error, 'muse-med request upload failed'))
       })
     })
   }
@@ -223,7 +223,7 @@ export class DesktopHostProcess {
     if (!await exitsWithin(exited, 5_000)) {
       child.kill('SIGKILL')
       if (!await exitsWithin(exited, 5_000)) {
-        throw new Error('dsh desktop host did not exit after SIGKILL')
+        throw new Error('muse-med host did not exit after SIGKILL')
       }
     }
     this.child = undefined
@@ -240,7 +240,7 @@ export class DesktopHostProcess {
     }))
     if (!hasBody) return
     const body = request.body
-    if (body === null) throw new Error('dsh desktop request body disappeared before upload')
+    if (body === null) throw new Error('muse-med request body disappeared before upload')
     const reader = body.getReader()
     const pending = this.pending.get(streamId)
     if (pending === undefined) {
@@ -275,7 +275,7 @@ export class DesktopHostProcess {
   private enqueueRequestFrame(frame: Buffer): Promise<void> {
     const write = this.requestWriteTail.then(async () => {
       const pipe = this.requestPipe
-      if (pipe === undefined || pipe.destroyed) throw new Error('dsh desktop host request pipe is unavailable')
+      if (pipe === undefined || pipe.destroyed) throw new Error('muse-med host request pipe is unavailable')
       if (!pipe.write(frame)) await once(pipe, 'drain')
     })
     this.requestWriteTail = write.catch(() => undefined)
@@ -284,7 +284,7 @@ export class DesktopHostProcess {
 
   private send(message: DesktopHostCommand): void {
     const child = this.child
-    if (child === undefined || !child.connected) throw new Error('dsh desktop host IPC is unavailable')
+    if (child === undefined || !child.connected) throw new Error('muse-med host IPC is unavailable')
     child.send(message, (error) => { if (error !== null) this.fail(error) })
   }
 
@@ -292,7 +292,7 @@ export class DesktopHostProcess {
     try {
       for (const frame of this.responseDecoder.push(chunk)) this.handleResponseFrame(frame)
     } catch (error) {
-      this.fail(errorOf(error, 'dsh desktop host response pipe failed'))
+      this.fail(errorOf(error, 'muse-med host response pipe failed'))
       this.child?.kill('SIGTERM')
     }
   }
@@ -301,13 +301,13 @@ export class DesktopHostProcess {
     const pending = this.pending.get(frame.streamId)
     if (pending === undefined) {
       if (frame.streamId >= this.nextStreamId) {
-        throw new Error(`dsh desktop host responded for unknown stream ${String(frame.streamId)}`)
+        throw new Error(`muse-med host responded for unknown stream ${String(frame.streamId)}`)
       }
       return
     }
     switch (frame.type) {
       case 'start': {
-        if (pending.responseStarted) throw new Error(`dsh desktop host started stream ${String(frame.streamId)} twice`)
+        if (pending.responseStarted) throw new Error(`muse-med host started stream ${String(frame.streamId)} twice`)
         pending.responseStarted = true
         let body: ReadableStream<Uint8Array> | null = null
         if (frame.hasBody) {
@@ -329,7 +329,7 @@ export class DesktopHostProcess {
       case 'data': {
         const controller = pending.controller
         if (!pending.responseStarted || controller === undefined) {
-          throw new Error(`dsh desktop host sent body data before a body start for stream ${String(frame.streamId)}`)
+          throw new Error(`muse-med host sent body data before a body start for stream ${String(frame.streamId)}`)
         }
         controller.enqueue(frame.data)
         if ((controller.desiredSize ?? 0) <= 0) {
@@ -340,7 +340,7 @@ export class DesktopHostProcess {
       }
       case 'end':
         if (!pending.responseStarted) {
-          throw new Error(`dsh desktop host ended stream ${String(frame.streamId)} before its response start`)
+          throw new Error(`muse-med host ended stream ${String(frame.streamId)} before its response start`)
         }
         pending.controller?.close()
         this.finishPending(frame.streamId, true)
@@ -359,7 +359,7 @@ export class DesktopHostProcess {
     pending.uploadOpen = false
     void pending.requestReader?.cancel(reason).catch(() => undefined)
     this.enqueueRequestFrame(encodeDesktopRequestCancel(streamId)).catch((error: unknown) => {
-      this.fail(errorOf(error, 'dsh desktop request pipe failed'))
+      this.fail(errorOf(error, 'muse-med request pipe failed'))
     })
     this.finishPending(streamId, false)
   }
@@ -372,7 +372,7 @@ export class DesktopHostProcess {
     if (pending.controller === undefined) pending.reject(error)
     else pending.controller.error(error)
     this.enqueueRequestFrame(encodeDesktopRequestCancel(streamId)).catch((pipeError: unknown) => {
-      this.fail(errorOf(pipeError, 'dsh desktop request pipe failed'))
+      this.fail(errorOf(pipeError, 'muse-med request pipe failed'))
     })
     this.finishPending(streamId, false)
   }
@@ -384,7 +384,7 @@ export class DesktopHostProcess {
       pending.uploadOpen = false
       void pending.requestReader?.cancel().catch(() => undefined)
       this.enqueueRequestFrame(encodeDesktopRequestCancel(streamId)).catch((error: unknown) => {
-        this.fail(errorOf(error, 'dsh desktop request pipe failed'))
+        this.fail(errorOf(error, 'muse-med request pipe failed'))
       })
     }
     pending.removeAbort?.()

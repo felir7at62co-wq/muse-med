@@ -118,7 +118,7 @@ function developmentHostInspectPort(enabled: boolean): number | undefined {
   if (!enabled || configured === undefined || configured === '') return undefined
   const port = Number(configured)
   if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
-    throw new Error('dsh desktop: DSH_DESKTOP_HOST_INSPECT_PORT must be an integer from 1 through 65535')
+    throw new Error('muse-med: DSH_DESKTOP_HOST_INSPECT_PORT must be an integer from 1 through 65535')
   }
   return port
 }
@@ -158,10 +158,10 @@ function createWindow(preload: string, show = false): BrowserWindow {
 
 function assertDesktopSender(event: IpcMainInvokeEvent, hostnames: readonly string[]): void {
   const senderFrame = event.senderFrame
-  if (senderFrame === null) throw new Error('dsh desktop: rejected IPC without a sender frame')
+  if (senderFrame === null) throw new Error('muse-med: rejected IPC without a sender frame')
   const url = new URL(senderFrame.url)
   if (url.protocol !== `${SCHEME}:` || !hostnames.includes(url.hostname)) {
-    throw new Error('dsh desktop: rejected IPC from an unowned renderer')
+    throw new Error('muse-med: rejected IPC from an unowned renderer')
   }
 }
 
@@ -336,7 +336,7 @@ async function main(): Promise<void> {
   const mutate = async (event: IpcMainInvokeEvent, mutation: Parameters<DesktopProjectManager['mutate']>[0]): Promise<void> => {
     assertDesktopSender(event, ['shell'])
     if (development !== undefined) {
-      throw new Error('dsh desktop: plugin package changes require a packaged application')
+      throw new Error('muse-med: plugin package changes require a packaged application')
     }
     await startup?.catch(() => undefined)
     pageError = undefined
@@ -355,7 +355,7 @@ async function main(): Promise<void> {
   })
   ipcMain.handle(DESKTOP_IPC.pluginsCatalog, (event, discover: unknown) => {
     assertDesktopSender(event, ['shell'])
-    if (typeof discover !== 'boolean') throw new Error('dsh desktop: catalog discovery must be a boolean')
+    if (typeof discover !== 'boolean') throw new Error('muse-med: catalog discovery must be a boolean')
     return desktopPluginCatalog(resources.dsh, activeProject, discover)
       .then(catalog => ({ ...catalog, canInstall: development === undefined }))
   })
@@ -365,21 +365,21 @@ async function main(): Promise<void> {
     return manager.listPlugins()
   })
   ipcMain.handle(DESKTOP_IPC.pluginsAdd, (event, spec: unknown) => {
-    if (typeof spec !== 'string') throw new Error('dsh desktop: plugin spec must be a string')
+    if (typeof spec !== 'string') throw new Error('muse-med: plugin spec must be a string')
     return mutate(event, { type: 'plugin-add', spec })
   })
   ipcMain.handle(DESKTOP_IPC.pluginsRemove, (event, name: unknown) => {
-    if (typeof name !== 'string') throw new Error('dsh desktop: plugin name must be a string')
+    if (typeof name !== 'string') throw new Error('muse-med: plugin name must be a string')
     return mutate(event, { type: 'plugin-remove', name })
   })
   ipcMain.handle(DESKTOP_IPC.pluginsUpdate, (event, name: unknown, version: unknown) => {
     if (typeof name !== 'string' || typeof version !== 'string') {
-      throw new Error('dsh desktop: plugin name and version must be strings')
+      throw new Error('muse-med: plugin name and version must be strings')
     }
     return mutate(event, { type: 'plugin-update', name, version })
   })
   ipcMain.handle(DESKTOP_IPC.pluginsToggle, (event, name: unknown, enabled: unknown) => {
-    if (typeof name !== 'string' || typeof enabled !== 'boolean') throw new Error('dsh desktop: invalid plugin activation request')
+    if (typeof name !== 'string' || typeof enabled !== 'boolean') throw new Error('muse-med: invalid plugin activation request')
     return mutate(event, { type: 'plugin-toggle', name, enabled })
   })
   ipcMain.handle(DESKTOP_IPC.pluginsDisableAll, event => mutate(event, { type: 'plugins-disable-all' }))
