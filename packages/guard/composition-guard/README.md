@@ -121,7 +121,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-When a live composition reload withdraws tools from a session whose preset did not change, that agent's conversation receives one user-role message attributed to this plugin (`{ kind: 'plugin', plugin: 'composition-guard', form: 'notice' }`). The missing tool names are data-dependent; the surrounding text is fixed. The collapsed transcript row shows the bounded summary `工具被热加载撤掉：缺少 <toolNames>`.
+When a live composition reload withdraws tools from a session whose preset did not change, that agent's conversation receives one user-role message attributed to this guard (`{ kind: 'composition-guard', form: 'notice' }`). The missing tool names are data-dependent; the surrounding text is fixed. The collapsed transcript row shows the bounded summary `工具被热加载撤掉：缺少 <toolNames>`.
 
 ##### Withdrawn-composition notice
 

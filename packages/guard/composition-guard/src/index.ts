@@ -23,6 +23,13 @@ import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, boundContextSummary } from '@deepseek-ai/dsh-llm'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
+// Each producer declares its own message source kind; the shared `plugin` catch-all is gone
+// (docs in packages/llm/llm/src/message.ts). This notice is the guard's own producer kind.
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'composition-guard': { readonly kind: 'composition-guard'; readonly form: 'notice'; readonly summary: string }
+  }
+}
 // Type-only: resolves the `agents` and `tools` services this plugin injects, the
 // `agentPresets` service it reads, and the `agent/created` / `agent/disposed`
 // events it watches.
@@ -191,8 +198,7 @@ export function apply(ctx: Context, config: Config): void {
       agent.inject(createUserMessage({
         content: [{ type: 'text', text: noticeText(missing) }],
         source: {
-          kind: 'plugin',
-          plugin: name,
+          kind: 'composition-guard',
           form: 'notice',
           summary: noticeSummary(missing),
         },

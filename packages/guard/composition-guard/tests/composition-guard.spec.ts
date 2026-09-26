@@ -249,8 +249,7 @@ describe('detection', () => {
       + '**重启一次 DSH 宿主**即可恢复；已经打开的会话不方便重启时，可新开一个会话继续。',
     )
     expect(session.injected[0]!.source).toEqual({
-      kind: 'plugin',
-      plugin: 'composition-guard',
+      kind: 'composition-guard',
       form: 'notice',
       summary: '工具被热加载撤掉：缺少 edit、read、write',
     })
