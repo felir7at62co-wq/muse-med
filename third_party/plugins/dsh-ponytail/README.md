@@ -131,7 +131,7 @@ Smoke Benchmark 只提供方向性证据（见 `docs/dsh-smoke-summary.md`）。
 |---|---|---|
 | Node.js | 22.x / 24.x | CI 矩阵 4 组合全绿 |
 | OS | ubuntu-latest / windows-latest | CI 矩阵 |
-| DSH | 0.1.6-alpha.1（构建所用 checkout 的项目版本） | 与上游正式发布版本的精确对应关系**待确认** |
+| DSH | 0.1.6-alpha.2（构建所用 checkout 的项目版本） | 与上游正式发布版本的精确对应关系**待确认** |
 | Cordis | 4.0.1（构建所用 vendor） | 同上 |
 | web profile | 已验证 | 本机真实 profile 长期运行 + 三路径隔离安装实测（npm / GitHub / tgz） |
 | tui profile | 未验证 | 未在 tui profile 中启动测试 |

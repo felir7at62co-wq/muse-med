@@ -10,7 +10,7 @@ import { inspectSubagentRuntime, loadSubagentRuntime, SUBAGENT_RUNTIME_VERSION }
 import { authenticatedSubagentChild } from './src/subagent-auth.js'
 import { createRuntimeManagement } from './src/runtime-management.js'
 
-const approvedVersion = '0.1.6-alpha.1'
+const approvedVersion = '0.1.6-alpha.2'
 
 test('runs the real current provider and authenticated transport against a local protocol peer', async () => {
   const official = await import('@deepseek-ai/dsh-subagent-codex')
@@ -89,7 +89,7 @@ test('rejects unreviewed and obsolete runtimes before importing or executing the
   try {
     const manifest = join(temporary, 'package.json')
     const resolve = () => manifest
-    for (const version of ['0.1.5-rc.2', '0.1.5-rc.3', '0.1.6-alpha.2', '9.9.9']) {
+    for (const version of ['0.1.5-rc.2', '0.1.5-rc.3', '0.1.6-alpha.1', '9.9.9']) {
       writeFileSync(manifest, JSON.stringify({ version }))
       assert.deepEqual(inspectSubagentRuntime(resolve), { installed: false, present: true })
       await assert.rejects(loadSubagentRuntime({ resolve, run: () => assert.fail('must not launch'), importModule: () => assert.fail('must not import') }), /not prepared/)

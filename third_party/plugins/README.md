@@ -17,7 +17,7 @@ pnpm exec node --test third_party/plugins/build.test.mjs
 
 Each tarball retains its upstream license and Codex notices, adds the bundled Heroicons license where needed, and records the upstream pin, Host version, and toolchain-lock digest in `SOURCE.json`. Artifact manifests disable lifecycle scripts, pin runtime dependencies used by the build, and add only the exact tested Host version to DSH peer alternatives. Upstream manifests remain unchanged. A different Host version fails pending a new compatibility review.
 
-The Codex staged-runtime overlay records its changes in `SOURCE.json`: subtask inspection and preparation accept only provider `0.1.6-alpha.1`, and the CLI remains pinned to `0.153.4`. It resolves the CLI manifest and wrapper under `app.asar.unpacked` when packaged. Retained upstream files remain unchanged; unexpected source text fails the overlay rather than silently skipping it.
+The Codex staged-runtime overlay records its changes in `SOURCE.json`: subtask inspection and preparation accept only provider `0.1.6-alpha.2`, and the CLI remains pinned to `0.153.4`. It resolves the CLI manifest and wrapper under `app.asar.unpacked` when packaged. Retained upstream files remain unchanged; unexpected source text fails the overlay rather than silently skipping it.
 
 ## Compatibility and Desktop integration
 

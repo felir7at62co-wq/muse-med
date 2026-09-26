@@ -54,7 +54,7 @@ function linkDependencies(modules, links) {
 }
 
 const hostVersion = JSON.parse(readFileSync(join(repository, 'package.json'), 'utf8')).version
-if (hostVersion !== '0.1.6-alpha.1') throw new Error(`community plugins: host ${hostVersion} needs a new compatibility review`)
+if (hostVersion !== '0.1.6-alpha.2') throw new Error(`community plugins: host ${hostVersion} needs a new compatibility review`)
 run([pnpm, 'install', '--ignore-workspace', '--frozen-lockfile', '--ignore-scripts'], toolchain)
 
 for (const name of values.only ? [values.only] : Object.keys(pins)) {
