@@ -15,7 +15,7 @@ import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import {
   boot,
   composeEntries,
-  createProfileResolutionGeneration,
+  createRuntimeResolution,
   loadLayeredEnv,
   loadProfileDirectory,
   loadOverlayPatches,
@@ -272,7 +272,9 @@ function remoteStreamHandler(ctx: Context): ConnectionFetchHandler {
       const stream = new ReadableStream<Uint8Array>({
         async start(controller) {
           try {
-            const values = await gateway.wireStream.open(body.endpoint as string, body.payload, abort.signal)
+            // The HTTP bridge is downlink-only: an immediately-ended uplink keeps the signature explicit.
+            const values = await gateway.wireStream.open(body.endpoint as string, body.payload,
+              (async function* emptyUplink() {})(), undefined, abort.signal)
             for await (const value of values) {
               controller.enqueue(encoder.encode(`${JSON.stringify(value)}\n`))
             }
@@ -319,7 +321,7 @@ export async function runDesktopHost(
   writeFileSync(rootConfig, ROOT_CONFIG)
   const environment = loadLayeredEnv('muse-med')
   const composition = desktopComposition(absoluteRuntime, absoluteProject, options.allowLinkedPackages === true)
-  const resolution = await createProfileResolutionGeneration({
+  const resolution = await createRuntimeResolution({
     installAnchor: join(absoluteRuntime, 'package.json'),
     profile: composition.profile,
   })
@@ -327,7 +329,7 @@ export async function runDesktopHost(
   const ctx = await boot('muse-med', rootConfig, structuredClone(composition.patches), async (hostCtx) => {
     current = hostCtx
     hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment)
-    await hostCtx.plugin(PluginPackages, { generation: resolution })
+    await hostCtx.plugin(PluginPackages, { resolution })
     provideCmdline(hostCtx, { args: [], exit: () => {} })
   })
   current = ctx
