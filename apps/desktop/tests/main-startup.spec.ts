@@ -160,7 +160,7 @@ beforeEach(() => {
   vi.stubEnv('DSH_DESKTOP_HOST_INSPECT_PORT', undefined)
   vi.stubEnv('DSH_HOME', 'upstream-dsh-home')
   vi.stubEnv('MUSE_MED_HOME', undefined)
-  for (const name of ['PATH', 'Path', 'PYTHONHOME', 'PYTHONPATH', 'PYTHONDONTWRITEBYTECODE',
+  for (const name of ['PATH', 'Path', 'PYTHONHOME', 'PYTHONPATH', 'PYTHONDONTWRITEBYTECODE', 'MUSE_HOME',
     'DSH_FFMPEG_PATH', 'DSH_FFPROBE_PATH', 'FFMPEG_PATH', 'FFPROBE_PATH', 'MUSE_WHISPER_MODEL_DIR', 'MUSE_BGM_RUNTIME_DIR', 'MUSE_FONTS_DIR', 'MUSE_FONT_FAMILY']) {
     vi.stubEnv(name, process.env[name])
   }
@@ -227,6 +227,7 @@ describe('desktop main startup', () => {
     await import('../src/main.ts')
     await harness.preparing.promise
     expect(process.env.DSH_HOME).toBe(join(homedir(), '.muse-med'))
+    expect(process.env.MUSE_HOME).toBe(join(homedir(), '.muse-med'))
   })
 
   it('makes packaged Windows media tools and model available without system dependencies', async () => {
@@ -258,6 +259,7 @@ describe('desktop main startup', () => {
     await import('../src/main.ts')
     await harness.preparing.promise
     expect(process.env.DSH_HOME).toBe(resolve('muse test home'))
+    expect(process.env.MUSE_HOME).toBe(resolve('muse test home'))
   })
 
   it('uses the muse-med window name and packaged spider icon without changing renderer security', async () => {

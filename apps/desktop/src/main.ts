@@ -29,7 +29,12 @@ import { desktopPluginCatalog, repositoryUrl } from './plugin-catalog.ts'
 // The independent product never imports a parent DSH installation's credentials or sessions.
 const productHome = process.env.MUSE_MED_HOME
 if (app.isPackaged) {
-  process.env.DSH_HOME = productHome?.trim() ? resolve(productHome) : join(homedir(), '.muse-med')
+  const isolatedHome = productHome?.trim() ? resolve(productHome) : join(homedir(), '.muse-med')
+  process.env.DSH_HOME = isolatedHome
+  // Muse-first defaults (the muse skill root, the user AGENTS.md mapping, the Jubian
+  // ledger) resolve this variable first; pointing it at the product home keeps those
+  // reads inside the product directory instead of creating a second `~/.muse` one.
+  process.env.MUSE_HOME = isolatedHome
   if (process.platform === 'win32') {
     const media = join(process.resourcesPath, 'runtime', 'media')
     const inheritedPath = Object.entries(process.env).find(([name]) => name.toUpperCase() === 'PATH')?.[1]
