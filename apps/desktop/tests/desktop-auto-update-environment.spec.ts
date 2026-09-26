@@ -5,6 +5,7 @@ import {
   resolveDesktopAutoUpdateConfig,
   resolveDesktopAutoUpdateEnvironment,
   resolveDesktopAutoUpdateTarget,
+  resolveDesktopGitHubUpdateConfig,
   resolveDesktopUploadConfig,
 } from '../scripts/desktop-auto-update-environment.mjs'
 
@@ -85,5 +86,13 @@ describe('desktop auto-update environment', () => {
     expect(desktopUpdateMetadataFilename('1.2.3-beta.2', 'win32')).toBe('beta.yml')
     expect(() => desktopUpdateMetadataFilename('not-semver', 'darwin')).toThrow(/invalid Desktop version/u)
     expect(() => desktopUpdateMetadataFilename('1.2.3', 'linux')).toThrow(/unsupported metadata platform/u)
+  })
+
+  it('records the GitHub repository that publishes this product as the update source', () => {
+    expect(resolveDesktopGitHubUpdateConfig()).toEqual({
+      provider: 'github',
+      owner: 'felir7at62co-wq',
+      repo: 'muse-med',
+    })
   })
 })

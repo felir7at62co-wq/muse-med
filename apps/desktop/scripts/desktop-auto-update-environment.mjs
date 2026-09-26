@@ -1,4 +1,4 @@
-/** Resolve the Desktop auto-update channel and its Tencent COS destination. */
+/** Resolve the Desktop auto-update channel, its GitHub Releases source, and its Tencent COS upload destination. */
 
 import { prerelease, valid } from 'semver'
 
@@ -23,6 +23,12 @@ const UPDATE_ENVIRONMENTS = {
 }
 
 const UPDATE_TARGETS = new Set(['mac-arm64', 'mac-x64', 'win-x64'])
+
+/** Owner of the GitHub repository that publishes this product's Desktop releases. */
+const GITHUB_UPDATE_OWNER = 'felir7at62co-wq'
+
+/** Name of the GitHub repository that publishes this product's Desktop releases. */
+const GITHUB_UPDATE_REPO = 'muse-med'
 
 /**
  * Resolve the update deployment, defaulting local release work to test.
@@ -122,7 +128,23 @@ function httpsOrigin(value, name) {
 }
 
 /**
+ * Resolve the GitHub Releases publish target that packaging records for the updater.
+ *
+ * electron-builder writes the resolved entry into the packaged `resources/app-update.yml`,
+ * which is the Desktop updater's activation switch (`src/update-coordinator.ts`), so every
+ * target records it, including `--unsigned`. An unsigned build records no `publisherName`,
+ * and electron-updater skips the update package's Authenticode check without one.
+ * @returns {{ provider: 'github', owner: string, repo: string }} electron-builder publish entry for GitHub Releases.
+ */
+export function resolveDesktopGitHubUpdateConfig() {
+  return { provider: 'github', owner: GITHUB_UPDATE_OWNER, repo: GITHUB_UPDATE_REPO }
+}
+
+/**
  * Resolve the public updater URL for one release target.
+ *
+ * Packaging records the GitHub Releases source instead; this resolver serves the retained
+ * Tencent COS upload chain and the signed target's completion record.
  * @param {NodeJS.ProcessEnv} env - Packaging or upload environment.
  * @param {NodeJS.Platform} platform - Target Node.js platform.
  * @param {string} arch - Target Node.js architecture.

@@ -11,7 +11,7 @@ import {
   createWindowsTokenSigner,
   installWindowsNsisBootstrapSigner,
 } from './scripts/windows-sign.mjs'
-import { resolveDesktopAutoUpdateConfig } from './scripts/desktop-auto-update-environment.mjs'
+import { resolveDesktopGitHubUpdateConfig } from './scripts/desktop-auto-update-environment.mjs'
 import { desktopTargetBuildPaths, resolveDesktopBuildTarget } from './scripts/desktop-build-paths.mjs'
 
 /**
@@ -50,7 +50,6 @@ export function createElectronBuilderConfig(
   if (windowsSigner !== undefined) {
     installWindowsNsisBootstrapSigner({ sign: windowsSigner })
   }
-  const update = unsigned ? undefined : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
   const buildPaths = desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch))
   return {
     appId,
@@ -126,7 +125,9 @@ export function createElectronBuilderConfig(
       allowToChangeInstallationDirectory: true,
       differentialPackage: true,
     },
-    publish: update === undefined ? null : [{ provider: 'generic', url: update.publicUrl }],
+    // Every target, unsigned included, records the update source: the packaged updater
+    // activates only while `resources/app-update.yml` exists.
+    publish: [resolveDesktopGitHubUpdateConfig()],
   }
 }
 

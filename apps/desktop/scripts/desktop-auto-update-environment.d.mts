@@ -61,8 +61,29 @@ export function desktopUpdateMetadataFilename(
   platform: NodeJS.Platform,
 ): string
 
+/** electron-builder publish entry that records the GitHub Releases update source. */
+export interface DesktopGitHubUpdateConfig {
+  readonly provider: 'github'
+  readonly owner: string
+  readonly repo: string
+}
+
+/**
+ * Resolve the GitHub Releases publish target that packaging records for the updater.
+ *
+ * electron-builder writes the resolved entry into the packaged `resources/app-update.yml`,
+ * which is the Desktop updater's activation switch (`src/update-coordinator.ts`), so every
+ * target records it, including `--unsigned`. An unsigned build records no `publisherName`,
+ * and electron-updater skips the update package's Authenticode check without one.
+ * @returns electron-builder publish entry for GitHub Releases.
+ */
+export function resolveDesktopGitHubUpdateConfig(): DesktopGitHubUpdateConfig
+
 /**
  * Resolve the public updater URL for one release target.
+ *
+ * Packaging records the GitHub Releases source instead; this resolver serves the retained
+ * Tencent COS upload chain and the signed target's completion record.
  * @param env - Packaging or upload environment.
  * @param platform - Target Node.js platform.
  * @param arch - Target Node.js architecture.

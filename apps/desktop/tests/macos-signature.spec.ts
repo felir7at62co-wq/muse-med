@@ -75,8 +75,9 @@ describe('desktop macOS release signature', () => {
         writeUpdateInfo: false,
       },
       publish: [{
-        provider: 'generic',
-        url: 'https://desktop-updates.example.com/_/harness/desktop/stable/mac-arm64/',
+        provider: 'github',
+        owner: 'felir7at62co-wq',
+        repo: 'muse-med',
       }],
     })
     const icon = readFileSync(new URL(`../${config.icon}`, import.meta.url))
@@ -109,7 +110,7 @@ describe('desktop macOS release signature', () => {
     }, 'win32')).toThrow(/DSH_DESKTOP_WINDOWS_CER_FILE/u)
   })
 
-  it('isolates unsigned Windows artifacts and omits updater metadata without release credentials', async () => {
+  it('isolates unsigned Windows artifacts and records the GitHub update source without release credentials', async () => {
     const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
     const config = createElectronBuilderConfig({
       DSH_DESKTOP_APP_ID: RELEASE_ENVIRONMENT.DSH_DESKTOP_APP_ID,
@@ -121,7 +122,7 @@ describe('desktop macOS release signature', () => {
     expect(config.nsis.installerLanguages).toEqual(['en_US', 'zh_CN'])
     expect(config).toMatchObject({
       win: { forceCodeSigning: false, signtoolOptions: { sign: undefined } },
-      publish: null,
+      publish: [{ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med' }],
     })
   })
 
