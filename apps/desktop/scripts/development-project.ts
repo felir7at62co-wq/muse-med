@@ -228,13 +228,13 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
     for (const pkg of packages) metadata.dependencies[pkg.name] = pkg.version
     writeFileSync(`${manifestPath}.tmp`, `${JSON.stringify(metadata, undefined, 2)}\n`)
     renameSync(`${manifestPath}.tmp`, manifestPath)
-  const sharedPackages = [...new Set([...names, '@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host'])].flatMap((name) => {
-    const manifest = readManifest(join(destinationModules, name, 'package.json'))
-    return typeof manifest.version === 'string' ? [{ name, version: manifest.version, path: `node_modules/${name}` }] : []
-  })
-  const runtime: DesktopRuntimeDescriptor = { schemaVersion: 1, release: options.release,
-    ...desktopTargetPlatform(options.target), sharedPackages, files: [] }
-  writeFileSync(join(options.projectDir, DESKTOP_RUNTIME_FILE), `${JSON.stringify(runtime, undefined, 2)}\n`)
+    const sharedPackages = [...new Set([...names, '@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host'])].flatMap((name) => {
+      const manifest = readManifest(join(destinationModules, name, 'package.json'))
+      return typeof manifest.version === 'string' ? [{ name, version: manifest.version, path: `node_modules/${name}` }] : []
+    })
+    const runtime: DesktopRuntimeDescriptor = { schemaVersion: 1, release: options.release,
+      ...desktopTargetPlatform(options.target), sharedPackages, files: [] }
+    writeFileSync(join(options.projectDir, DESKTOP_RUNTIME_FILE), `${JSON.stringify(runtime, undefined, 2)}\n`)
   } finally {
     rmSync(staging, { recursive: true, force: true })
   }

@@ -27,7 +27,7 @@ import { scopeOf } from '@deepseek-ai/dsh-scope'
 // `agentPresets` service it reads, and the `agent/created` / `agent/disposed`
 // events it watches.
 import type {} from '@deepseek-ai/dsh-agent'
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-tools'
 import {
   guardState, markReported, openRuntime, rearm, rebaseline, track, trackedEntry,

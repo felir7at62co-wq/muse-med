@@ -27,7 +27,7 @@
     "@deepseek-ai/dsh-skill-office": "workspace:*",
     "@deepseek-ai/dsh-deepseek-account": "workspace:*",
     "@deepseek-ai/dsh-workspace": "workspace:*",
-    "@deepseek-ai/dsh-agent-presets": "workspace:^",
+    "@deepseek-ai/dsh-agent-preset-registry": "workspace:*",
     "@deepseek-ai/dsh-drama-settings": "workspace:^",
     "@deepseek-ai/dsh-drama-skills": "workspace:^",
     "@deepseek-ai/dsh-guard-drama": "workspace:^",
