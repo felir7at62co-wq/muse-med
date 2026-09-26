@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   desktopElectronBuilderArguments,
   desktopElectronBuilderEnvironment,
+  desktopPrepareMediaRuntimeArguments,
+  missingBgmRuntimeInputs,
   parseDesktopPackageInvocation,
   resolveDesktopPackageTarget,
   withoutDesktopUploadCredentials,
@@ -122,5 +126,40 @@ describe('desktop package target', () => {
       DOWNLOAD_PROD_COS_BUCKET: 'production-download-bucket',
       DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
     })
+  })
+
+  it('parses the BGM opt-in and rejects it outside win-x64', () => {
+    expect(parseDesktopPackageInvocation(['win-x64', '--unsigned'], 'win32', 'x64').withBgm).toBe(false)
+    expect(parseDesktopPackageInvocation(['win-x64', '--unsigned', '--with-bgm'], 'win32', 'x64'))
+      .toMatchObject({ unsigned: true, withBgm: true })
+    expect(() => parseDesktopPackageInvocation(['mac-arm64', '--with-bgm'], 'darwin', 'arm64'))
+      .toThrow(/requires win-x64/u)
+  })
+
+  it('prepares no emotion runtime unless the invocation asks for one', () => {
+    const target = resolveDesktopPackageTarget('win-x64', 'win32', 'x64')
+    const paths = { runtime: join('build', 'runtime'), downloads: join('build', 'downloads') }
+    const defaultArguments = desktopPrepareMediaRuntimeArguments(target, paths, false)
+    expect(defaultArguments).toEqual([
+      'exec',
+      'tsx',
+      'apps/desktop/scripts/prepare-media-runtime.ts',
+      '--output', join(paths.runtime, 'media'),
+      '--cache', join(paths.downloads, 'media'),
+    ])
+    expect(defaultArguments).not.toContain('--bgm-cache')
+    const optInArguments = desktopPrepareMediaRuntimeArguments(target, paths, true)
+    expect(optInArguments).toContain('--bgm-cache')
+    expect(optInArguments?.at(-1)).toBe(join(paths.downloads, 'bgm'))
+    expect(desktopPrepareMediaRuntimeArguments(
+      resolveDesktopPackageTarget('mac-arm64', 'darwin', 'arm64'), paths, true,
+    )).toBeUndefined()
+  })
+
+  it('names the emotion-runtime inputs a BGM opt-in still needs', () => {
+    const lock = fileURLToPath(new URL('../scripts/bgm-runtime.lock.json', import.meta.url))
+    const absent = fileURLToPath(new URL('./no-such-emotion-model-cache', import.meta.url))
+    expect(missingBgmRuntimeInputs(lock, absent)).toEqual([absent])
+    expect(missingBgmRuntimeInputs(lock, lock)).toEqual([])
   })
 })

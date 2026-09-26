@@ -1,7 +1,7 @@
 /** Build one release target with matching Electron, Node.js, and dsh architecture. */
 
 import { spawn } from 'node:child_process'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import { join, resolve } from 'node:path'
 import {
@@ -173,6 +173,7 @@ interface DesktopPackageInvocation {
   readonly directory: boolean
   readonly prepareOnly: boolean
   readonly unsigned: boolean
+  readonly withBgm: boolean
 }
 
 function hostTargetName(platform: NodeJS.Platform, arch: string): DesktopPackageTargetName {
@@ -186,7 +187,7 @@ function hostTargetName(platform: NodeJS.Platform, arch: string): DesktopPackage
  * @param argv - Arguments after the script entry point.
  * @param hostPlatform - Build-host Node.js platform.
  * @param hostArch - Build-host Node.js architecture.
- * @returns The validated target and whether to emit an unpacked directory.
+ * @returns The validated target and the requested output flags.
  */
 export function parseDesktopPackageInvocation(
   argv: readonly string[],
@@ -200,17 +201,20 @@ export function parseDesktopPackageInvocation(
       dir: { type: 'boolean', default: false },
       'prepare-only': { type: 'boolean', default: false },
       unsigned: { type: 'boolean', default: false },
+      'with-bgm': { type: 'boolean', default: false },
     },
   })
   if (positionals.length > 1) throw new Error('desktop package: expected at most one target')
   const name = positionals[0] ?? hostTargetName(hostPlatform, hostArch)
   if (values.unsigned && name !== 'win-x64') throw new Error('desktop package: --unsigned requires win-x64')
   if (values.unsigned && values['prepare-only']) throw new Error('desktop package: --unsigned cannot use --prepare-only')
+  if (values['with-bgm'] && name !== 'win-x64') throw new Error('desktop package: --with-bgm requires win-x64')
   return {
     target: resolveDesktopPackageTarget(name, hostPlatform, hostArch),
     directory: values.dir,
     prepareOnly: values['prepare-only'],
     unsigned: values.unsigned,
+    withBgm: values['with-bgm'],
   }
 }
 
@@ -245,6 +249,42 @@ export function desktopElectronBuilderArguments(
   ]
 }
 
+/**
+ * Build the media-runtime preparation arguments for one validated target.
+ *
+ * Naming the emotion-model cache is what adds that runtime to the payload, so only
+ * an explicit opt-in may pass it: the shipped combination is the payload without it.
+ * @param target - Supported release target.
+ * @param paths - Target runtime directory and the shared download cache.
+ * @param withBgm - Whether this invocation explicitly requests the emotion runtime.
+ * @returns Arguments for the media preparation step, absent for targets that have none.
+ */
+export function desktopPrepareMediaRuntimeArguments(
+  target: DesktopPackageTarget,
+  paths: { readonly runtime: string; readonly downloads: string },
+  withBgm: boolean,
+): readonly string[] | undefined {
+  if (target.platform !== 'win32' || target.arch !== 'x64') return undefined
+  return [
+    'exec',
+    'tsx',
+    'apps/desktop/scripts/prepare-media-runtime.ts',
+    '--output', join(paths.runtime, 'media'),
+    '--cache', join(paths.downloads, 'media'),
+    ...(withBgm ? ['--bgm-cache', join(paths.downloads, 'bgm')] : []),
+  ]
+}
+
+/**
+ * Name the emotion-runtime inputs a BGM opt-in still needs.
+ * @param lockPath - The emotion-runtime lock beside this script.
+ * @param cachePath - The emotion-model download cache the media step would read.
+ * @returns The absent paths, empty when the opt-in can proceed.
+ */
+export function missingBgmRuntimeInputs(lockPath: string, cachePath: string): readonly string[] {
+  return [lockPath, cachePath].filter(candidate => !existsSync(candidate))
+}
+
 function runPnpm(
   args: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
@@ -272,6 +312,13 @@ async function main(): Promise<void> {
   const invocation = parseDesktopPackageInvocation(process.argv.slice(2))
   const { target } = invocation
   const buildPaths = desktopTargetBuildPaths(target.name)
+  if (invocation.withBgm) {
+    const missing = missingBgmRuntimeInputs(
+      join(APP_ROOT, 'scripts', 'bgm-runtime.lock.json'),
+      join(buildPaths.downloads, 'bgm'),
+    )
+    if (missing.length > 0) throw new Error(`desktop package: --with-bgm requires ${missing.join(' and ')}`)
+  }
   const releaseRecordPath = join(buildPaths.artifacts, desktopBuildRecordFilename(target.name))
   if (!invocation.prepareOnly && !invocation.unsigned) {
     rmSync(releaseRecordPath, { force: true })
@@ -314,11 +361,9 @@ async function main(): Promise<void> {
     buildPaths.packedLandlock,
   ], buildEnv, REPOSITORY_ROOT)
   await runPnpm(['run', 'prepare:runtime'], targetEnv)
-  if (target.platform === 'win32' && target.arch === 'x64') {
-    await runPnpm(['exec', 'tsx', 'apps/desktop/scripts/prepare-media-runtime.ts',
-      '--output', join(buildPaths.runtime, 'media'), '--cache', join(buildPaths.downloads, 'media'),
-      '--bgm-cache', join(buildPaths.downloads, 'bgm'),
-    ], buildEnv, REPOSITORY_ROOT)
+  const mediaArguments = desktopPrepareMediaRuntimeArguments(target, buildPaths, invocation.withBgm)
+  if (mediaArguments !== undefined) {
+    await runPnpm(mediaArguments, buildEnv, REPOSITORY_ROOT)
   }
   await runPnpm(['run', 'prepare:packages'], targetEnv)
   await runPnpm(['run', 'prepare:dsh'], targetEnv)
