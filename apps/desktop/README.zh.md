@@ -43,7 +43,7 @@ Electron 根据应用 locale 选择类型化的英文或中文桌面壳文案，
 
 应用 → 桌面插件把五个内置社区包与用户自装插件分开显示，仅在你主动加载在线目录后联网，本地过滤，并把确认过的 npm 来源条目交给既有桌面包事务安装。仅 GitHub 或 tarball 来源的条目仍可浏览并给出仓库链接，但不能由该管理器安装。开发模式下包变更是只读的；目录网络失败既不会下载任何内容，也不会隐藏内置清单。
 
-内置飞书插件在你于本产品设置中填写 `appId`/`appSecret` 并显式启用前保持停用。停用期间不进行扫码注册、跨实例同步，不启动控制服务，也不读取其他实例的同步目录；能否触达机器人仍取决于飞书应用自身的权限与可见范围。
+内置飞书插件在本产品自己的设置文档打开它之前不挂载：产品 home 下 `settings.yaml` 里的 `feishu.enabled`，文档或分节缺失即关闭。patch 让该行以 entry 级 `disabled` 随包发布——真正阻止插件代码运行的 Loader 开关，而 `config.enabled` 不是——Host 在启动后端时按该文档重新计算生效值。该 entry 开关是唯一的激活权威，但它本身并不充分：社区构建的兼容 overlay 给该行加入三个默认 `true` 的插件级开关，patch 与闸门层都把 `enabled`、`autoRegistration`、`crossInstanceSync` 保持 `false`，所以打开产品开关只是挂载桥接，扫码注册与跨实例同步仍然关闭；桥接还会用同一文档里的 `dsh-lark-bridge` 分节覆盖 entry 配置，那里存着 `enabled: false` 时，即使 `feishu.enabled` 为 true 桥接也不工作。因此默认桌面不发起扫码注册，不启动同步层与控制服务，也不读取其他实例的同步目录；凭证不进 patch，只来自本产品自己的设置命名空间。开关在后端下次启动时生效；能否触达机器人仍取决于飞书应用自身的权限与可见范围。
 
 产品加载随包技能及自身 `$DSH_HOME/skills`，不扫描已有 DSH、`.agents` 或默认项目技能源；显式插件技能注册仍然可用。Windows 用户将自定义技能放在 `%USERPROFILE%\.muse\skills\<skill-name>\SKILL.md`；`MUSE_MED_HOME` 可指定其他产品 home。Host 在启动时创建 skills 目录。开发模式使用下文说明的独立 home。短剧、标准和 PTC 模式提供技能工具。短剧技能从 ASAR 解包，Host 向外部 Python 提供真实的 `app.asar.unpacked` 路径。Windows 启动将 `runtime/media/python` 和 `runtime/media/ffmpeg/bin` 放到子进程搜索路径前部，并设置本地 ASR 模型目录。[媒体准备器](scripts/prepare-media-runtime.ts)在发布输出前检查锁定输入、依赖导入、编码、字幕烧录、草稿媒体探测及离线 ASR；复用时验证完整文件清单并重跑这些检查。构建机器上的验证不能替代无开发工具机器上的安装验证。安装器附带微软官方 VC++ 前置运行库，检查已装版本并在安装前请求授权；拒绝或失败会阻止成功完成和自动启动。再分发需要发行者具有适用的微软许可，不能仅依据运行库终端许可。
 

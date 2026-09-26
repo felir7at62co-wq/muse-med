@@ -64,12 +64,31 @@
     - id: tool-jubian
       name: '@deepseek-ai/dsh-tool-jubian'
 
-# The bundled Feishu bridge is inert until this product's own settings namespace
-# holds credentials: no QR app registration, no cross-instance sync, and no read
-# of another deployment's sync directory. A patch replaces the whole config, so
-# credentials are deliberately absent here and come from that namespace alone.
-# Enabling it takes effect after a backend restart.
+# The bundled Feishu bridge ships off. `disabled` is the entry-level switch the
+# Loader honors and the only one that keeps this row's plugin code from running
+# at all; `desktopComposition` appends the effective value from this product's
+# settings document (`feishu.enabled`, an absent document or section meaning
+# off), so an untouched Desktop runs none of the bridge: no sync layer, no
+# control server, no peer heartbeat, no QR app registration, and no read of
+# another deployment's sync directory. The switch takes effect at the next
+# backend start.
+#
+# The three activation controls below are real keys of the staged package,
+# because the community build applies the compatibility overlay at
+# third_party/plugins/compatibility/lark-desktop.mjs, which adds them to the
+# bridge's Config with `true` defaults. This patch alone is what they are for: a
+# composition that skips the gate layer mounts the bridge and returns before
+# those paths, `enabled: false` keeping it inert there, and the other two keeping
+# closed the paths this product never opted into. The gate layer replaces this
+# config wholesale with these controls and the product's switch, so activation is
+# the switch alone. The bridge registers that config as the base of its own
+# `dsh-lark-bridge` settings namespace, so an override stored under that section
+# still wins: a stored `enabled: false` keeps the bridge inert with the row
+# activated, and a stored `enabled: true` cannot activate a disabled row. A patch
+# replaces the whole config, so credentials are deliberately absent here and come
+# from this product's settings namespace alone.
 - id: feishu-channel
+  disabled: true
   config:
     enabled: false
     autoRegistration: false

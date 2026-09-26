@@ -646,6 +646,9 @@ importers:
       '@deepseek-ai/dsh-web-frontend':
         specifier: workspace:^
         version: link:../web
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
 
   apps/web:
     devDependencies:

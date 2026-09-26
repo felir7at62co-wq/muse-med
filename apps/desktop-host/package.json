@@ -41,6 +41,7 @@
     "@deepseek-ai/dsh-tool-jubian": "workspace:^",
     "@deepseek-ai/dsh-tool-shot-script": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
-    "@deepseek-ai/dsh-web-frontend": "workspace:^"
+    "@deepseek-ai/dsh-web-frontend": "workspace:^",
+    "yaml": "^2.9.0"
   }
 }
