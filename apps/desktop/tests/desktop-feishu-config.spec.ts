@@ -7,7 +7,7 @@
  * product never asked for.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -230,27 +230,46 @@ it('resolves the stored switch exactly as the settings service resolves that sec
   }
 })
 
-it('refuses a malformed settings document instead of gating open, without echoing its text', async () => {
+it('keeps the gate closed on a document it cannot read, without echoing its text', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-desktop-feishu-invalid-'))
   const documentPath = join(root, 'settings.yaml')
+  /** Read once, keeping whether the gate opened and what it reported. */
+  const read = (): { enabled: boolean; diagnostics: string } => {
+    const lines: string[] = []
+    const enabled = readFeishuEnabled(documentPath, message => lines.push(message))
+    return { enabled, diagnostics: lines.join('\n') }
+  }
   try {
     await writeFile(documentPath, 'feishu: [\n')
-    expect(() => readFeishuEnabled(documentPath)).toThrow(/invalid settings document/u)
+    expect(read().enabled).toBe(false)
+    expect(read().diagnostics).toMatch(/invalid settings document/u)
     await writeFile(documentPath, '- feishu\n')
-    expect(() => readFeishuEnabled(documentPath)).toThrow(/must be a map of settings sections/u)
+    expect(read().enabled).toBe(false)
+    expect(read().diagnostics).toMatch(/must be a map of settings sections/u)
     await writeFile(documentPath, 'feishu: enabled\n')
-    expect(() => readFeishuEnabled(documentPath)).toThrow(/section "feishu"/u)
+    expect(read().enabled).toBe(false)
+    expect(read().diagnostics).toMatch(/section "feishu"/u)
     // The reader quotes the offending source line, and a settings document can
-    // hold a `role('secret')` value, so the failure must report position only.
+    // hold a `role('secret')` value, so every reason reports position only.
     await writeFile(documentPath, 'feishu:\n  appSecret: hunter2-secret\n  enabled: [\n')
-    expect(() => readFeishuEnabled(documentPath)).toThrow(/invalid settings document at .*settings\.yaml: .* at line \d+, column \d+/u)
-    expect(() => readFeishuEnabled(documentPath)).not.toThrow(/hunter2-secret/u)
+    const syntax = read()
+    expect(syntax.enabled).toBe(false)
+    expect(syntax.diagnostics).toMatch(/invalid settings document at .*settings\.yaml: .* at line \d+, column \d+/u)
+    expect(syntax.diagnostics).not.toMatch(/hunter2-secret/u)
     // An alias bomb is a resource-exhaustion input, not a switch: the reader's
     // own alias limit decides, and the gate never expands it.
     const alias = Array.from({ length: 101 }, () => '*a').join(', ')
     await writeFile(documentPath, `feishu:\n  appId: &a hunter2-secret\n  appSecret: [${alias}]\n`)
-    expect(() => readFeishuEnabled(documentPath)).toThrow(/cannot be resolved/u)
-    expect(() => readFeishuEnabled(documentPath)).not.toThrow(/hunter2-secret/u)
+    const bomb = read()
+    expect(bomb.enabled).toBe(false)
+    expect(bomb.diagnostics).toMatch(/cannot be resolved/u)
+    expect(bomb.diagnostics).not.toMatch(/hunter2-secret/u)
+    // A directory where the document belongs is unreadable, which is not consent.
+    await rm(documentPath, { force: true })
+    await mkdir(documentPath)
+    const unreadable = read()
+    expect(unreadable.enabled).toBe(false)
+    expect(unreadable.diagnostics).toMatch(/cannot read/u)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

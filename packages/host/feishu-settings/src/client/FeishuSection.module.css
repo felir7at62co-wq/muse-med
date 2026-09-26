@@ -1,0 +1,55 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.heading {
+  margin: 0.75rem 0 0;
+  font-size: 0.95rem;
+}
+
+.status {
+  margin: 0;
+  font-weight: 500;
+}
+
+.hint {
+  margin: 0;
+  opacity: 0.75;
+}
+
+.notice {
+  margin: 0;
+  color: var(--dsh-color-accent, inherit);
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.qr {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.qrImage {
+  width: 12rem;
+  height: 12rem;
+  image-rendering: pixelated;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}

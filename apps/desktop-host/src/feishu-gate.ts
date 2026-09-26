@@ -9,6 +9,11 @@
  * settings document before the Loader sees the entry list, because this
  * composition has no live patch reload: a switch flipped in the UI takes effect
  * at the next backend start.
+ *
+ * Nothing here reads, composes, or copies credentials: the pair the Settings
+ * page stores lives in the bridge's own settings section, so no composed entry
+ * — and therefore no configuration dump — can carry it.
+ *
  * @module @deepseek-ai/dsh-desktop-host/feishu-gate
  */
 
@@ -49,31 +54,42 @@ function isENOENT(error: unknown): boolean {
  *
  * The document is parsed with the settings provider's own reader and its
  * default core schema, so a hand-edited document cannot read as enabled here
- * while the service resolves something else. An absent document, an absent
- * section, and a section without the key all mean off; everything the provider
- * itself fails loud on (an unreadable document, a syntax error, an unresolvable
- * document, a non-map root or section) fails loud here too, because a
- * misconfigured settings document is not a decision to run with the gate open.
+ * while the service resolves something else. Every failure — an absent
+ * document, an unreadable file, a syntax error, an unresolvable document, a
+ * non-map root or section — answers `false`: a document nobody can read is not
+ * consent to run the bridge, and the composed settings provider reads the same
+ * document and is the loud path for a broken one, so the gate never turns a
+ * broken document into a failed boot. Diagnostics carry the reader's own code
+ * and position only, because a settings document can hold a `role('secret')`
+ * value and no source text may reach a log.
  * @param documentPath - absolute path of the settings document (`settings.yaml` by default).
- * @returns whether the stored switch is exactly `true`.
+ * @param onDiagnostic - sink for one reason line; defaults to silent.
+ * @returns whether the stored switch is exactly `true`; `false` whenever it cannot be read.
  */
-export function readFeishuEnabled(documentPath: string): boolean {
+export function readFeishuEnabled(
+  documentPath: string,
+  onDiagnostic: (message: string) => void = () => {},
+): boolean {
   let text: string
   try {
     text = readFileSync(documentPath, 'utf8')
   } catch (error) {
-    if (isENOENT(error)) return false
-    throw new Error(`muse-med: failed to read the settings document ${documentPath}: ${String(error)}`)
+    if (!isENOENT(error)) {
+      const code = (error as NodeJS.ErrnoException | null)?.code
+      onDiagnostic(`feishu gate: cannot read ${documentPath} (${typeof code === 'string' ? code : 'read error'})`)
+    }
+    return false
   }
   const document = parseDocument(text, { prettyErrors: true })
   if (document.errors.length > 0) {
-    // The reader's own message quotes the offending source line, and a settings
-    // document can hold a `role('secret')` value; report the position instead.
+    // The reader's own message quotes the offending source line, so report the
+    // position it already carries instead of any of that text.
     const reasons = document.errors.map((error) => {
       const at = error.linePos?.[0]
       return `${error.code}${at === undefined ? '' : ` at line ${String(at.line)}, column ${String(at.col)}`}`
     })
-    throw new Error(`muse-med: invalid settings document at ${documentPath}: ${reasons.join('; ')}`)
+    onDiagnostic(`feishu gate: invalid settings document at ${documentPath}: ${reasons.join('; ')}`)
+    return false
   }
   let root: unknown
   try {
@@ -81,15 +97,18 @@ export function readFeishuEnabled(documentPath: string): boolean {
   } catch (error) {
     // Same reason: an unresolvable document names the node it rejected, which
     // can be document text.
-    throw new Error(`muse-med: settings document at ${documentPath} cannot be resolved (${error instanceof Error ? error.name : typeof error})`)
+    onDiagnostic(`feishu gate: settings document at ${documentPath} cannot be resolved (${error instanceof Error ? error.name : typeof error})`)
+    return false
   }
   if (!isMap(root)) {
-    throw new TypeError(`muse-med: ${documentPath} must be a map of settings sections`)
+    onDiagnostic(`feishu gate: ${documentPath} must be a map of settings sections`)
+    return false
   }
   const section = root[FEISHU_SETTINGS_NAMESPACE]
   if (section === undefined || section === null) return false
   if (!isMap(section)) {
-    throw new TypeError(`muse-med: settings section "${FEISHU_SETTINGS_NAMESPACE}" in ${documentPath} must be a map of keys`)
+    onDiagnostic(`feishu gate: settings section "${FEISHU_SETTINGS_NAMESPACE}" in ${documentPath} must be a map of keys`)
+    return false
   }
   return section[FEISHU_ENABLED_KEY] === true
 }
@@ -104,10 +123,13 @@ export function readFeishuEnabled(documentPath: string): boolean {
  * of the row it targets — dropping `enabled` would leave an activated bridge
  * inert, and dropping the other two would let an activation this product
  * deliberately did not ask for — cross-instance sync and QR app registration —
- * follow the switch on.
+ * follow the switch on. Credentials are deliberately absent from the composed
+ * config: they live in the bridge's own settings section, where no dump can
+ * reach them.
  * @param rows - entries composed from the layers this one is appended to.
  * @param documentPath - absolute path of the settings document; defaults to the
  *   `settings.yaml` the composed settings provider itself reads.
+ * @param onDiagnostic - sink for one reason line when the document is unreadable.
  * @returns one patch layer holding the entry-level switch and the resolved
  *   activation controls, or no layer at all when the composition has no Feishu
  *   bridge row to gate.
@@ -115,10 +137,11 @@ export function readFeishuEnabled(documentPath: string): boolean {
 export function feishuGateLayer(
   rows: readonly FeishuGateRow[],
   documentPath: string = dshHomePath('settings.yaml'),
+  onDiagnostic: (message: string) => void = () => {},
 ): PatchOptions[] {
   const row = rows.find(candidate => candidate.id === FEISHU_CHANNEL_ROW_ID)
   if (row === undefined) return []
-  const enabled = readFeishuEnabled(documentPath)
+  const enabled = readFeishuEnabled(documentPath, onDiagnostic)
   return [{
     id: FEISHU_CHANNEL_ROW_ID,
     disabled: !enabled,

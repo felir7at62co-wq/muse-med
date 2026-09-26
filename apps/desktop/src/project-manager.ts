@@ -83,6 +83,7 @@ const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
 const DESKTOP_PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
   'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@moyu-good/dsh-lark-bridge',
+  '@deepseek-ai/dsh-feishu-settings',
 ] as const
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\nstrictDepBuilds: true\n'
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/[a-z0-9][a-z0-9._~-]*|[a-z0-9][a-z0-9._~-]*)$/u

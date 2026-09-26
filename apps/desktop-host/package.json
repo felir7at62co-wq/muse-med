@@ -29,6 +29,7 @@
     "@deepseek-ai/dsh-cmdline": "workspace:^",
     "@deepseek-ai/dsh-drama-settings": "workspace:^",
     "@deepseek-ai/dsh-drama-skills": "workspace:^",
+    "@deepseek-ai/dsh-feishu-settings": "workspace:^",
     "@deepseek-ai/dsh-guard-drama": "workspace:^",
     "@deepseek-ai/dsh-home-paths": "workspace:^",
     "@deepseek-ai/dsh-host-directory-picker-native": "workspace:^",

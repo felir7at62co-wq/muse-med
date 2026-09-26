@@ -1,0 +1,15 @@
+# 飞书设置插件的组合包补丁：把插件行插入 composition。
+#
+# 这一行同时挂载 Host 半（自有 `feishu` 设置命名空间 + `feishuSetup` Remote 服务）
+# 与 Client 半（「设置 → 飞书」页）。它不接收任何 config：`enabled`、`appId`、
+# `appSecret` 的默认值由命名空间 schema 持有，用户值存在本产品自己的设置文档里；
+# 桌面组合的 entry 级闸门（apps/desktop-host 的 feishuGateLayer）读的是同一个
+# `feishu.enabled`，所以这里不写第二份开关。
+#
+# 示例（profile 的 cordis.patch.yml 或 preset）：
+#   - id: feishu-settings
+#     name: '@deepseek-ai/dsh-feishu-settings'
+#
+- insert:
+    - id: feishu-settings
+      name: '@deepseek-ai/dsh-feishu-settings'
