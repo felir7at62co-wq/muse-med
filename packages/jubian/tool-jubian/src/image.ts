@@ -24,15 +24,16 @@ import type { ImageModelSelection } from '@deepseek-ai/dsh-jubian-api'
 import type {} from '@deepseek-ai/dsh-settings'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { ImageRouteRow } from './types.ts'
+import { dramaSection } from './budget-settings.ts'
 import './types.ts'
 
 /**
- * The short-drama settings section that may pin the paid image row, and the field
- * inside it. Spelled here rather than imported: the section is read through the
- * settings service's generic `get`, so this row keeps working — and keeps its
- * dependency list — whether or not the drama settings package is composed.
+ * The field inside the short-drama settings section that may pin the paid image
+ * row. Only the field is spelled here: the section itself is read through
+ * {@link dramaSection}, so this row keeps working — and keeps its dependency
+ * list — whether or not the drama settings package is composed.
  */
-const DRAMA_IMAGE_SETTING = { namespace: 'drama', field: 'imageStandardId' } as const
+const DRAMA_IMAGE_SETTING = { field: 'imageStandardId' } as const
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -69,11 +70,9 @@ export interface ImageRouteConfig {
  * @returns the pinned catalogue row id, or undefined while nothing pins one.
  */
 function pinnedStandardId(ctx: Context): number | undefined {
-  const settings = ctx.get('settings')
-  if (settings === undefined) return undefined
-  const section = settings.get(DRAMA_IMAGE_SETTING.namespace)
-  if (typeof section !== 'object' || section === null) return undefined
-  const value = (section as Record<string, unknown>)[DRAMA_IMAGE_SETTING.field]
+  const section = dramaSection(ctx)
+  if (section === undefined) return undefined
+  const value = section[DRAMA_IMAGE_SETTING.field]
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined
 }
 
