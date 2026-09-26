@@ -1,5 +1,13 @@
 # Electron reuses the browser composition without its network and browser-launch rows.
 
+# The product speaks for itself: the harness identity line would tell every agent it
+# is powered by the upstream harness, and a model repeats that to the team. The base
+# bundle's own persona prefix is restated because a patch replaces the whole config.
+- id: system-prompt
+  config:
+    personaPrefix: ''
+    includeHarnessIdentity: false
+
 # The independent product owns its roster; it does not import DSH user modes.
 - id: agent-presets
   config:
