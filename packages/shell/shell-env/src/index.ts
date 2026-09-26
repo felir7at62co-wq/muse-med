@@ -26,7 +26,7 @@ export const inject: string[] = []
 
 /** Plugin config (all optional — the built-in facts resolve without defaults). */
 export interface Config {
-  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to `$DSH_HOME` or `~/.dsh`. */
+  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to the resolved harness home: `$MUSE_HOME`, `$DSH_HOME`, or the default (`~/.dsh` while it exists, otherwise `~/.muse`). */
   dshHome?: string
 }
 

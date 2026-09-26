@@ -60,7 +60,7 @@ export interface Config {
 ```ts config-catalog
 /** User-facing workspace instruction loader configuration. */
 export interface Config {
-  /** Harness home containing the fixed user-global `AGENTS.md`; defaults to `$DSH_HOME` or `~/.dsh`. */
+  /** Harness home containing the fixed user-global `AGENTS.md`; defaults to the resolved harness home: `$MUSE_HOME`, `$DSH_HOME`, or the default (`~/.dsh` while it exists, otherwise `~/.muse`). */
   dshHome?: string
   /** Directory entries that identify the project root while walking upward from the session cwd. */
   projectRootMarkers?: string[]
@@ -339,7 +339,7 @@ export interface Config {
 ```ts config-catalog
 /** Local attachment backend configuration. */
 export interface Config {
-  /** Explicit harness home; omitted follows `DSH_HOME`, then `~/.dsh`. */
+  /** Explicit harness home; omitted follows `$MUSE_HOME`, then `$DSH_HOME`, then the default (`~/.dsh` while it exists, otherwise `~/.muse`). */
   dshHome?: string
   /** Maximum encoded bytes accepted for one submitted image. Default: 20 MiB. */
   maxImageBytes?: number
@@ -598,7 +598,7 @@ export interface Config {
 export interface Config {
   /** Credentials document path; defaults to `.credentials.yaml` under the harness home. */
   path?: string
-  /** Harness home used when `path` is omitted; defaults to `$DSH_HOME` or `~/.dsh`. */
+  /** Harness home used when `path` is omitted; defaults to the resolved harness home: `$MUSE_HOME`, `$DSH_HOME`, or the default (`~/.dsh` while it exists, otherwise `~/.muse`). */
   dshHome?: string
   /** Watch the document and hot-publish external edits; defaults to true. */
   watch?: boolean
@@ -2429,7 +2429,7 @@ export type Config = SessionTitleLlmConfig
 export interface Config {
   /** Settings document path; defaults to `settings.yaml` under the harness home. */
   path?: string
-  /** Harness home used when `path` is omitted; defaults to `$DSH_HOME` or `~/.dsh`. */
+  /** Harness home used when `path` is omitted; defaults to the resolved harness home: `$MUSE_HOME`, `$DSH_HOME`, or the default (`~/.dsh` while it exists, otherwise `~/.muse`). */
   dshHome?: string
   /** Watch the document and hot-publish external edits; defaults to true. */
   watch?: boolean
@@ -2447,7 +2447,7 @@ export interface Config {
 ```ts config-catalog
 /** Plugin config (all optional — the built-in facts resolve without defaults). */
 export interface Config {
-  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to `$DSH_HOME` or `~/.dsh`. */
+  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to the resolved harness home: `$MUSE_HOME`, `$DSH_HOME`, or the default (`~/.dsh` while it exists, otherwise `~/.muse`). */
   dshHome?: string
 }
 ```

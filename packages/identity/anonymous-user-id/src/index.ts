@@ -2,7 +2,8 @@
  * Per-harness-home anonymous user id shared by telemetry and feedback.
  *
  * The id is a random UUID persisted as a bare line in `.anonymous-user-id` inside the
- * harness home resolved by {@link resolveDshHome} (`$DSH_HOME` > `~/.dsh`),
+ * harness home resolved by {@link resolveDshHome} (`$MUSE_HOME` > `$DSH_HOME` > the
+ * default: `~/.dsh` while it exists, otherwise `~/.muse`),
  * and never derived from the hostname, network address, git remote, or any
  * other identifying source. It is scoped to the harness home, not the
  * machine: every process sharing one `$DSH_HOME` reports the same id, and
@@ -32,7 +33,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 
 /** Ambient hooks for locating and generating the id; every field has a default. */
 export interface AnonymousUserIdOptions {
-  /** Environment consulted for `DSH_HOME`; defaults to `process.env`. */
+  /** Environment consulted for `MUSE_HOME` and `DSH_HOME`; defaults to `process.env`. */
   env?: NodeJS.ProcessEnv
   /** UUID generator; defaults to `crypto.randomUUID` (test hook). */
   randomUUID?: () => string
