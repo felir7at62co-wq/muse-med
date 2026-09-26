@@ -5,7 +5,7 @@
  */
 
 import { createRequire } from 'node:module'
-import { closeSync, createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { closeSync, createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { once } from 'node:events'
 import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
@@ -179,16 +179,35 @@ function desktopComposition(
     loadOverlayPatches('muse-med', DESKTOP_PATCH),
   ]
   const rows = new Map(composeEntries(layers).flatMap(row => typeof row.id === 'string' ? [[row.id, row] as const] : []))
-  const agentPresets = rows.get('agent-presets')
-  if (agentPresets !== undefined) {
-    layers.push([{
-      id: 'agent-presets',
-      config: {
-        ...(agentPresets.config ?? {}) as Record<string, unknown>,
-        roots: [{ path: fileURLToPath(new URL('../presets', import.meta.url)), trust: 'system' }],
-      },
-    }])
+  if (rows.get('agent-preset-registry') === undefined) {
+    throw new Error('muse-med: profile has no agent-preset-registry row')
   }
+  // The product owns its roster as product data: every packaged `presets/<id>` directory becomes one
+  // preset row through the adapter that registers it with the upstream registry. A `preset-<id>` the
+  // composed layers already declare wins, because re-declaring a row id is a duplicate-row failure;
+  // those ids are the base bundle's shipped presets and are reported as shadowed instead.
+  const presetRoot = fileURLToPath(new URL('../presets', import.meta.url))
+  const shadowedPresets: string[] = []
+  const productPresetRows = readdirSync(presetRoot, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => entry.name)
+    .sort()
+    .flatMap((preset) => {
+      if (rows.has(`preset-${preset}`)) {
+        shadowedPresets.push(preset)
+        return []
+      }
+      return [{
+        id: `preset-${preset}`,
+        name: '@deepseek-ai/dsh-desktop-host/native-preset',
+        config: { id: preset, directory: join(presetRoot, preset) },
+      }]
+    })
+  if (productPresetRows.length === 0) throw new Error('muse-med: no product preset row could be declared')
+  if (shadowedPresets.length > 0) {
+    console.warn(`muse-med: shipped presets shadow the packaged product presets: ${shadowedPresets.join(', ')}`)
+  }
+  layers.push(productPresetRows)
   const skillFilesystem = rows.get('skill-filesystem')
   if (skillFilesystem === undefined) throw new Error('muse-med: profile has no skill-filesystem row')
   const bundledSkillDir = bundledSkillDirectory(runtimeDir)

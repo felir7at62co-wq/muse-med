@@ -8,12 +8,12 @@
     personaPrefix: ''
     includeHarnessIdentity: false
 
-# The independent product owns its roster; it does not import DSH user modes.
-- id: agent-presets
+# The upstream preset registry is the engine. This patch selects the product's default preset;
+# the product's own preset rows are composed in src/index.ts, which knows the runtime directory
+# holding `presets/<id>`.
+- id: agent-preset-registry
   config:
     default: short-drama-local
-    includeShippedRoot: false
-    includeUserRoot: false
 
 # All product agents inherit this Host provider. The runtime supplies its real bundled path.
 - id: skill-filesystem
