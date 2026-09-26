@@ -20,6 +20,7 @@ function release(version = '1.2.3'): DesktopRelease {
   return {
     schemaVersion: 1,
     version,
+    dshVersion: version,
     hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
     nodeVersion: '24.17.0',
     pnpmVersion: '11.7.0',

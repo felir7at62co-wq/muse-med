@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { DESKTOP_HOST_PACKAGE, DESKTOP_HOST_RUNTIME_FILES } from '../src/core-package-set.ts'
+import { parseDesktopRelease } from '../src/release.ts'
 import { DESKTOP_RUNTIME_FILE, desktopRuntimeId, readDesktopRuntime, runtimePath, verifyDesktopRuntime } from '../src/runtime-tree.ts'
 import { runtimeFixture } from './runtime-fixture.ts'
 
@@ -58,6 +59,36 @@ it('checks the shell version only during build verification', async () => {
   const dsh = join(fixture(), 'dsh')
   expect(readDesktopRuntime(dsh).release.version).toBe('1.0.0')
   await expect(verifyDesktopRuntime(dsh, '2.0.0')).rejects.toThrow(/does not match Electron/u)
+})
+it('records the product version and the pinned DSH version as separate facts', () => {
+  const dsh = join(fixture(), 'dsh')
+  const release = parseDesktopRelease(readDesktopRuntime(dsh).release)
+  expect(release.version).toBe('1.0.0')
+  expect(release.dshVersion).toBe('1.0.0')
+})
+it('enforces the shell-version binding when reading the descriptor, not only when building it', async () => {
+  // Two valid but different versions on purpose: the descriptor claims shell version 2.0.0 while the
+  // shared packages still carry 1.0.0. `readDesktopRuntime` refuses that, which is the observable
+  // proof that Stage 2a left `runtime-tree.ts:173` bound to `release.version` — moving it onto the
+  // pinned `dshVersion` is Stage 2b's change, and this case must change with it.
+  const dsh = join(fixture(), 'dsh')
+  runtimeFixture(dsh, '1.0.0')
+  const path = join(dsh, DESKTOP_RUNTIME_FILE)
+  const descriptor = JSON.parse(readFileSync(path, 'utf8')) as { release: Record<string, unknown> }
+  descriptor.release.version = '2.0.0'
+  descriptor.release.dshVersion = '2.0.0'
+  writeFileSync(path, JSON.stringify(descriptor))
+  expect(() => readDesktopRuntime(dsh)).toThrow(/missing or mismatched @deepseek-ai\/dsh/u)
+})
+it('reads a descriptor sealed before the DSH pin existed', () => {
+  const dsh = join(fixture(), 'dsh')
+  const path = join(dsh, DESKTOP_RUNTIME_FILE)
+  const descriptor = JSON.parse(readFileSync(path, 'utf8')) as { release: Record<string, unknown> }
+  delete descriptor.release.dshVersion
+  writeFileSync(path, JSON.stringify(descriptor))
+  const release = parseDesktopRelease(readDesktopRuntime(dsh).release)
+  expect(release.version).toBe('1.0.0')
+  expect(release.dshVersion).toBe('1.0.0')
 })
 it.each([
   { schemaVersion: 2 },

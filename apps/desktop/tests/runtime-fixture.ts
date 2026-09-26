@@ -24,8 +24,12 @@ export function writePackage(modules: string, name: string, fields: Record<strin
 
 /**
  * Seal a minimal release containing Host entry files and a shared Cordis package.
+ *
+ * Every package carries one version, because `readDesktopRuntime` requires the shared `@deepseek-ai`
+ * packages to equal the descriptor's `release.version` on every read, not only during build
+ * verification. A fixture with two different versions describes a tree no reader would accept.
  * @param root - New runtime directory.
- * @param version - Shell and dsh version.
+ * @param version - Shell, shared-package, and pinned DSH version the descriptor records.
  * @param nodeVersion - Bundled Node version used for native rebuild selection.
  * @returns Sealed runtime metadata.
  */
@@ -38,5 +42,5 @@ export function runtimeFixture(root: string, version = '1.0.0', nodeVersion = '2
     writeFileSync(path, '')
   }
   writeFileSync(join(root, 'package.json'), '{"type":"module"}\n')
-  return writeDesktopRuntime(root, { schemaVersion: 1, version, nodeVersion, pnpmVersion: '11.7.0', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION }, names)
+  return writeDesktopRuntime(root, { schemaVersion: 1, version, dshVersion: version, nodeVersion, pnpmVersion: '11.7.0', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION }, names)
 }

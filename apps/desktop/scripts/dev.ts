@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
-import type { DesktopRelease } from '../src/release.ts'
+import { readReleasePin, type DesktopRelease } from '../src/release.ts'
 import { prepareDevelopmentProject } from './development-project.ts'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
@@ -98,6 +98,7 @@ async function main(): Promise<void> {
   const release: DesktopRelease = {
     schemaVersion: 1,
     version,
+    dshVersion: readReleasePin(REPOSITORY_ROOT, version),
     hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
     nodeVersion: process.versions.node,
     pnpmVersion,

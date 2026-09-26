@@ -86,7 +86,7 @@ describe('desktop external plugin profile', () => {
 
   it('does not authorize native builds for dependencies absent from the Desktop runtime', () => {
     const root = temporaryRoot()
-    createDevelopmentProjectMetadata(root, { schemaVersion: 1, version: '1.0.0', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
+    createDevelopmentProjectMetadata(root, { schemaVersion: 1, version: '1.0.0', dshVersion: '1.0.0', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
       nodeVersion: '24.17.0', pnpmVersion: '11.7.0' })
     expect(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')).not.toContain('fs-ext: true')
   })

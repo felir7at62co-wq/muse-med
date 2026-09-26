@@ -46,7 +46,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
       repositoryRoot, communityArtifactsDir: artifacts, projectDir: join(home, 'project'),
       cliDir: join(repositoryRoot, 'apps/cli'), hostDir: host,
       dependencyDir: join(repositoryRoot, 'node_modules/.pnpm/node_modules'),
-      release: { schemaVersion: 1, version, hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION, nodeVersion: process.versions.node, pnpmVersion: '11.7.0' },
+      release: { schemaVersion: 1, version, dshVersion: version, hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION, nodeVersion: process.versions.node, pnpmVersion: '11.7.0' },
     })
     const installAnchor = join(project, 'package.json')
     const profile = loadProfileDirectory('dsh desktop', profileDir, installAnchor)

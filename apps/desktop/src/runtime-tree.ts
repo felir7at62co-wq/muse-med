@@ -134,8 +134,11 @@ export function writeDesktopRuntime(
     }
     return { name, version: manifest.version, path }
   })
+  // The descriptor always records both version facts, so a caller that predates the DSH pin cannot
+  // write a descriptor whose missing field would later read as the product version by accident.
+  const sealed = parseDesktopRelease(release)
   const descriptor: DesktopRuntimeDescriptor = {
-    schemaVersion: 1, release, platform: target.platform, arch: target.arch,
+    schemaVersion: 1, release: sealed, platform: target.platform, arch: target.arch,
     sharedPackages, files: inventoryDesktopRuntime(root),
   }
   writeFileSync(join(root, DESKTOP_RUNTIME_FILE), `${JSON.stringify(descriptor, undefined, 2)}\n`)

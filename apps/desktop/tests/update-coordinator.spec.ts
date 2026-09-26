@@ -12,7 +12,9 @@ vi.mock('electron-updater', () => ({
 const { DesktopUpdateCoordinator } = await import('../src/update-coordinator.ts')
 
 describe('desktop release metadata', () => {
-  it('accepts one exact release identity for Electron and dsh', () => {
+  it('reads one identity for Electron and dsh from a descriptor sealed before the pin existed', () => {
+    // No dshVersion on the way in: a descriptor written by the previous build binds both facts to one
+    // version, and that is the only fallback the additive field carries.
     expect(parseDesktopRelease({
       schemaVersion: 1,
       version: '1.2.3',
@@ -22,6 +24,7 @@ describe('desktop release metadata', () => {
     })).toEqual({
       schemaVersion: 1,
       version: '1.2.3',
+      dshVersion: '1.2.3',
       hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
       nodeVersion: '24.17.0',
       pnpmVersion: '11.7.0',
