@@ -16,6 +16,8 @@ Status: implemented
 
 同一个包还被一个本仓库不参与组合的界面挂载：muse Web profile（`~/.muse/profiles/web`）在 `dsh.profile.bundles` 里列的是市场原版 0.6.1，没有 `SOURCE.json`，也没有那三个插件级开关——那份 `Config` 只有 `appId`、`appSecret` 与 `requireMention`，且该行一旦启动，启动路径就无条件开启同步层与扫码注册。在那里唯一能阻止该行运行的开关是 Loader 的 entry 级 `disabled`，因此该 profile 自己的 patch 层（`cordis.patch.yml`，作用于所有 bundle 层之后）禁用 `feishu-channel`，并由受支持的启动路径固化这条默认：`pnpm muse:web` 在启动 Web 应用之前确保该条目存在，只在 profile 列了该 bundle 时追加——没有对应行的条目会让 Loader 记录 `patch: entry "feishu-channel" not found`——已有条目则原样跳过，操作者自己的选择得以保留。桌面闸门层只覆盖桌面组合，两个界面各自独立受闸；在上游 profile 模板能自带 Web profile 默认 overlay 之前，这条默认由该启动器承担。
 
+muse Web profile 也组合了同一个设置行：它的 patch 层插入了同一个 `@deepseek-ai/dsh-feishu-settings` bundle，于是 Web GUI 的设置侧边栏出现飞书分区，而 `feishu-channel` 仍是 entry 级禁用，分区如实报告这一状态。让该行在那里可见需要两个 profile 本地步骤：包的 bundle 必须构建（`lib/client.js` 由 client 行表提供，另有 `lib/index.js`），且 profile 必须能解析到该包（依赖条目 + profile 自己的链接）。官方 `dsh web` 的 home 组合的是市场原包，既没有闸门也没有设置行，因此那条路径启动时仍会自行发起终端扫码注册；要在那里挂同一行是另一个决定，因为同样需要上述两步再加它自己的闸门。
+
 产品自有的设置行把那个开关变成页面：`@deepseek-ai/dsh-feishu-settings` 注册 `feishu` 段（文档缺失、分节缺失、键缺失都表示关闭），发布 `feishuSetup` Remote 命名空间（`status`、`setEnabled`、`setCredentials`、`beginLogin`、`cancelLogin`、`forget`），并在 Host 侧把每个注册 URL 渲染成 SVG data URL——浏览器 bundle 不带二维码编码器。凭证绝不进入补丁或任何组合条目：该行把 `appId`/`appSecret` 这一对写进桥**自己**的 `dsh-lark-bridge` 段，采用读-合并-写，因此该段其余键全部保留，任何配置 dump 也带不走这对凭证。settings 服务拒写未注册的命名空间，所以该行只在开关为 off 时预注册这个段——那正是闸门禁用桥行的唯一一次启动——这也正是流程只有两步的原因：存好凭证并打开开关，然后重启后端，此后桥在自身组合 config 之上解析到已存的凭证。损坏的设置文档同样不构成同意：闸门 fail-closed，只报读取器的 code 与位置，绝不把坏文档变成启动失败。
 
 在产品开关生效时，桥接完全跳过跨实例分支：不读取共享设置文档，不启动控制服务，不发布对等心跳，也不续订 presence。`DSH_SYNC_HOME` 只由该同步存储的目录解析读取，因此产品绝不读取另一个部署的同步目录。被禁用或缺凭据时，它也不启动扫码注册。
