@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-jubian",
   "description": "Jubian tools for the DeepSeek Harness — catalogue, assets, storyboards, video tasks, media download — plus the Web Settings page for their admin token",
-  "version": "0.1.6-alpha.1",
+  "version": "0.1.6-alpha.2",
   "publishConfig": {
     "access": "public"
   },

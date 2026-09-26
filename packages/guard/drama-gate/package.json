@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-guard-drama",
   "description": "Drama-pipeline gate plugin: intercepts tool dispatch to enforce the short-drama pipeline's decidable hard rules",
-  "version": "0.1.6-alpha.1",
+  "version": "0.1.6-alpha.2",
   "publishConfig": {
     "access": "public"
   },

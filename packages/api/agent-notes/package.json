@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-api-agent-notes",
   "description": "Agent Notes service: list, read, and save the markdown notes under one configured root over the agentNotes Remote namespace",
-  "version": "0.1.6-alpha.1",
+  "version": "0.1.6-alpha.2",
   "publishConfig": {
     "access": "public"
   },
