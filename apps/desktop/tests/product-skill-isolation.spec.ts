@@ -21,7 +21,7 @@ import { scopeOf } from '@deepseek-ai/dsh-scope'
 import * as yaml from 'js-yaml'
 import { expect, it, vi } from 'vitest'
 
-const preset = fileURLToPath(new URL('../../desktop-host/presets/short-drama-local/agent.cordis.yml', import.meta.url))
+const preset = fileURLToPath(new URL('../../desktop-host/presets/short-drama/agent.cordis.yml', import.meta.url))
 const patch = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
 
 it('an actual Agent inherits bundled skills without legacy environment roots shadowing them', async () => {
@@ -42,7 +42,7 @@ it('an actual Agent inherits bundled skills without legacy environment roots sha
     vi.stubEnv('DSH_AGENTS_HOME', legacy)
     vi.stubEnv('DSH_HOME', legacy)
     vi.stubEnv('DSH_BUNDLED_SKILL_DIR', inherited)
-    const hostProvider = loadOverlayPatches('dsh desktop', patch).find(row => row.id === 'skill-filesystem')
+    const hostProvider = loadOverlayPatches('muse-med', patch).find(row => row.id === 'skill-filesystem')
     expect(hostProvider).toMatchObject({ disabled: false, config: { includeDefaultRoots: false } })
     const rows = yaml.load(await readFile(preset, 'utf8'), { schema: entryListSchema }) as Array<{ name: string }>
     // This fixture mounts the actual product's entire skill contribution, not its shell/model/media rows.

@@ -28,7 +28,7 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(() => { throw new Error('Unexpected Jubian request') })
   try {
     const presetRows = yaml.load(await readFile(presetPath, 'utf8'), { schema: entryListSchema }) as Array<{ id: string; name: string; config?: object }>
-    const hostRows = loadOverlayPatches('dsh desktop', hostPatch).flatMap(patch => patch.insert ?? [])
+    const hostRows = loadOverlayPatches('muse-med', hostPatch).flatMap(patch => patch.insert ?? [])
     const jubian = hostRows.find(row => row.id === 'tool-jubian')
     const filesystem = presetRows.find(row => row.id === 'skill-filesystem')
     const skill = presetRows.find(row => row.id === 'tool-skill')

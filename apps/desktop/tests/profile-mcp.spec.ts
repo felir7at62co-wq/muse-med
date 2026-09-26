@@ -49,13 +49,13 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
       release: { schemaVersion: 1, version, hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION, nodeVersion: process.versions.node, pnpmVersion: '11.7.0' },
     })
     const installAnchor = join(project, 'package.json')
-    const profile = loadProfileDirectory('dsh desktop', profileDir, installAnchor)
+    const profile = loadProfileDirectory('muse-med', profileDir, installAnchor)
     const overlay = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
     const warnings: string[] = []
     const rows = composeEntries([
       ...profile.layers.map(layer => layer.patches),
       profile.patches,
-      loadOverlayPatches('dsh desktop', overlay),
+      loadOverlayPatches('muse-med', overlay),
     ], message => warnings.push(message))
 
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-mcp-resources')).toEqual([

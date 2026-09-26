@@ -18,14 +18,14 @@ import { expect, it } from 'vitest'
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
 
-it('loads exactly the three product modes without discovering other shipped or personal presets', async () => {
+it('loads exactly the five product modes without discovering other shipped or personal presets', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-product-preset-'))
   const ctx = new Context()
   try {
-    const patch = loadOverlayPatches('dsh desktop', patchPath).find(row => row.id === 'agent-presets')
+    const patch = loadOverlayPatches('muse-med', patchPath).find(row => row.id === 'agent-presets')
     const presetConfig = patch?.config as Record<string, unknown> | undefined
-    expect(presetConfig).toMatchObject({ default: 'short-drama-local', includeShippedRoot: false, includeUserRoot: false })
-    const productRows = yaml.load(await readFile(join(productRoot, 'short-drama-local', 'agent.cordis.yml'), 'utf8'),
+    expect(presetConfig).toMatchObject({ default: 'short-drama', includeShippedRoot: false, includeUserRoot: false })
+    const productRows = yaml.load(await readFile(join(productRoot, 'short-drama', 'agent.cordis.yml'), 'utf8'),
       { schema: entryListSchema }) as Array<{ id: string; name: string }>
     const guard = productRows.find(row => row.id === 'drama-gate')
     expect(guard).toBeDefined()
@@ -51,10 +51,10 @@ it('loads exactly the three product modes without discovering other shipped or p
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['ptc', 'short-drama-local', 'standard'])
-    expect(ctx.agentPresets.defaultId).toBe('short-drama-local')
+    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['cordis', 'minimal', 'ptc', 'short-drama', 'standard'])
+    expect(ctx.agentPresets.defaultId).toBe('short-drama')
     expect(ctx.agentPresets.authorable).toBe(false)
-    const source = await ctx.agentPresets.read('short-drama-local')
+    const source = await ctx.agentPresets.read('short-drama')
     const rows = yaml.load(source, { schema: entryListSchema }) as Array<{ id: string; config?: { prefix?: string } }>
     expect(rows.some(row => row.id === 'tool-jubian')).toBe(false)
     for (const id of ['drama-gate', 'tool-drama-assets', 'tool-shot-script', 'tool-bgm-compose', 'tool-episode-render', 'perception-bgm']) {
