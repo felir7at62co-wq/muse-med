@@ -18,7 +18,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { DRAMA_SETTINGS_DEFAULTS, type DramaSettings } from '../settings.ts'
 import type { DramaComponentState, DramaComponentStatus } from './components.ts'
 import { STATUS_COPY } from './locales.ts'
@@ -31,8 +31,8 @@ import css from './DramaSettingsSection.module.css'
 /** Registration-side face the page calls; the write reports failures as values. */
 export interface DramaSettingsSectionInjected {
   hooks: {
-    /** The bound `drama` namespace scope, rendered as useDrama. */
-    drama: SettingsScope<DramaSettings>
+    /** The form over the `drama-settings` namespace, rendered as useDrama. */
+    drama: ConfigForm<DramaSettings>
   }
   /** Persist the draft, or report that it could not be persisted. */
   write: (draft: DramaSettingsDraft) => Promise<DramaWriteOutcome>
@@ -171,7 +171,7 @@ function ImageRouteGroup({ draft, routes, t, onChange }: {
  */
 export function DramaSettingsSection(props: DramaSettingsSectionProps): ReactNode {
   const { t, useDrama, write, restoreDefaults, components, imageRoutes } = props
-  const snapshot: SettingsScopeSnapshot<DramaSettings> = useDrama(value => value)
+  const snapshot: ConfigFormSnapshot<DramaSettings> = useDrama(value => value)
   const settings = snapshot.value
   const [draft, setDraft] = useState<DramaSettingsDraft | undefined>(undefined)
   const [states, setStates] = useState<DramaComponentState[] | undefined>(undefined)

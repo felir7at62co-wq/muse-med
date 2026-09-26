@@ -20,7 +20,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: resolves the `settings` service and its Context merge.
 import type {} from '@deepseek-ai/dsh-settings'
-import { DRAMA_SETTINGS_NAMESPACE, DramaSettingsSchema } from './settings.ts'
+import { DramaSettingsSchema } from './settings.ts'
 
 export {
   DEFAULT_BGM_DIR, DEFAULT_DELIVERY_SPEC, DEFAULT_JIANYING_DRAFT_DIR, DELIVERY_SPEC_FIELD,
@@ -32,16 +32,29 @@ export type { DramaDeliverySpec, DramaSettings, DramaSettingsField } from './set
 export const name = 'drama-settings'
 
 /**
- * Register the durable short-drama section, when a settings provider is
- * composed.
+ * The durable short-drama section as this row's composition config.
  *
- * The registration is an effect on this row's fiber: unloading the row removes
- * the namespace, and a stored section that no longer satisfies the schema warns
- * and keeps the last good value rather than stranding the page.
+ * The settings service builds one namespace per owned entry from that entry's
+ * own `Config` and the values the profile document stores for it, so this export
+ * is what puts {@link DramaSettingsSchema} behind the `drama-settings`
+ * namespace; the schema's defaults are the values an unconfigured deployment
+ * reads.
+ */
+export const Config = DramaSettingsSchema
+
+/**
+ * Mark this row as one that ships its own Settings page, when a settings
+ * provider is composed.
+ *
+ * The automatic form is suppressed because the browser half renders the same
+ * section explicitly: leaving `auto` on would expose the namespace twice, once
+ * through the page and once through the generated form. The registration is an
+ * effect on this row's fiber, so a late-loading or replaced Settings service
+ * adopts the policy and unloading the row removes it.
  * @param ctx - Host context that may acquire the settings service.
  */
 export function apply(ctx: Context): void {
   ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.settings.register(DRAMA_SETTINGS_NAMESPACE, DramaSettingsSchema)
+    settingsCtx.effect(() => settingsCtx.settings.configure({ auto: false }, ctx.fiber))
   })
 }

@@ -24,8 +24,16 @@
 
 import z from '@deepseek-ai/schemastery'
 
-/** Settings namespace owned by this plugin. */
-export const DRAMA_SETTINGS_NAMESPACE = 'drama'
+/**
+ * Settings namespace owned by this plugin.
+ *
+ * A plugin's namespace is the composition entry id it is mounted under:
+ * `describe()` reports `entry.options.id`, and a page binds that same id through
+ * `ctx.configForms.get(entryId)`. Both shipped compositions mount this row as
+ * `drama-settings`, so the constant has to keep that name — a page bound to a
+ * namespace nobody serves renders empty instead of failing loudly.
+ */
+export const DRAMA_SETTINGS_NAMESPACE = 'drama-settings'
 
 /** The one field carrying the delivery spec. */
 export const DELIVERY_SPEC_FIELD = 'deliverySpec'
