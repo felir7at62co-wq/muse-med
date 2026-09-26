@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-bgm-compose/README.md
 README.md: 0e51324dd1d4402febea30c3fc0305e197109c06
-README.zh.md: fe8698bad3702d8814df4e5eadbb05df16f3e885
+README.zh.md: 7d1d6d635879c5cb705eba26f51d95567ff62ed3

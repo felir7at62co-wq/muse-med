@@ -7,18 +7,18 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
 用这个包，可以在一个正在运行的会话悄悄失去它的组装所赋予的工具时立刻知道。DSH 可以热加载 profile 补丁；当某个 Host 平面配置行在一个运行中的 Host 之下被改动时，改动之前就已发布的 agent 可能失去它通过作用域链解析到的工具，而 DSH 从不会在进程内重新组装一个常驻挂载。本守卫把这一种形态——工具没了，而该 agent 的预设没有变——说出来：一行日志，外加一条进入该对话的消息，并写明恢复方式：重启宿主。它无法把工具放回去。
 
-## Table of Contents
+## 目录
 
 - [Use this package](#use-this-package)
 - [Understand the implementation](#understand-the-implementation)
 - [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
-- [Dev Note](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -149,7 +149,7 @@ kind: "package-reference"
 - **通知文本是中文** — 它是写给那个失去工具的人看的；仓库的客户端文案归 locale 所有，而这是发给对话的宿主侧消息。
 
 <a id="dev-note"></a>
-### Dev Note
+### 开发备注
 
 <details>
 <summary>Working context for maintainers — click to expand</summary>

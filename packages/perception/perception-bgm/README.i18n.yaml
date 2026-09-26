@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/perception/perception-bgm/README.md
 README.md: 4b01157c8d1b9894d8ce401eb5d04e1bf05360eb
-README.zh.md: d90fed3be4f433f4aa517b2f27031f6403d52432
+README.zh.md: c6df145348870add5e680f740b39c74499bab9f7

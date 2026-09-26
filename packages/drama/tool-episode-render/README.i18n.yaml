@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-episode-render/README.md
 README.md: 81dbb68c877f62f0849c2ad28bf01d848adfefcb
-README.zh.md: 480196b2cd35e62a76275ca3883bd155b067aacf
+README.zh.md: cd934a773fd20859dd6640839014a42cda2d5450

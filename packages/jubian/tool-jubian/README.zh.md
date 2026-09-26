@@ -1,6 +1,6 @@
 ---
 description: "九个剧变（Jubian）工具：DSH 模型用它们驱动一次制作——目录读取与剧本名查找、资产与分镜写入、按类别的命名规范、资产库文件夹与改名、只读的组织视图、本地参考图上传、主体视频的分镜原生通道、计费的图片与视频生成与去字幕，以及提供方媒体下载。"
-kind: "package-reference"
+kind: "package-bundle"
 ---
 
 # @deepseek-ai/dsh-tool-jubian

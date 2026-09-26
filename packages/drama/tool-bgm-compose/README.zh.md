@@ -7,18 +7,18 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
 无需手写 FFmpeg 命令，即可把 Agent 已确认的单集配乐计划变成一条实测 WAV 底轨。`drama_bgm` 校验剧情完整覆盖、测量源曲起点与音量、交叉淡化选定曲目，并核验固定输出格式。它不选曲，也不判断音乐是否适合剧情。需要情绪候选时单独调用 `bgm_match`；其 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，合成器本身不依赖该模型。
 
-## Table of Contents
+## 目录
 
 - [使用本包](#use-this-package)
 - [实现说明](#understand-the-implementation)
 - [延伸阅读](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与后续工作](#known-limitations-and-deferred-work)
-- [Dev Note](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -122,7 +122,7 @@ kind: "package-reference"
 - **本工具视已发布文件为不可变**——WAV 或 sidecar 已存在时，`compose` 失败，不会覆盖。
 
 <a id="dev-note"></a>
-### Dev Note
+### 开发备注
 
 <details>
 <summary>给维护者的工作上下文——点击展开</summary>

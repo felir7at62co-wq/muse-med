@@ -1,6 +1,6 @@
 ---
 description: "The nine Jubian (剧变) tools a DSH model calls to drive a production: catalogue reads and screenplay-name lookup, asset and storyboard writes, the category-aware naming convention, asset-library folders and renames, the read-only organization index, local reference upload, the storyboard-native video channel, paid image/video generation and erasure, and provider media download."
-kind: "package-reference"
+kind: "package-bundle"
 ---
 
 # @deepseek-ai/dsh-tool-jubian

@@ -7,7 +7,7 @@ kind: "package-bundle"
 
 [English](README.md) | 中文
 
-## 摘要
+## 概述
 
 在 1–9 的愉悦度/能量坐标上查找接近目标情绪的 BGM 候选。`match` 读取本地索引或配置的公开曲库，不需要 Python 或模型权重。用 `download` 明确选定远端候选后，获得经校验、可用于合成的本地文件。`index` 和 `inspect` 需要单独准备的 Python 运行时和模型；MERT 骨干仅限非商业用途。
 

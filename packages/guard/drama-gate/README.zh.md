@@ -1,6 +1,6 @@
 ---
 description: "短剧流水线门禁插件：在短剧会话里拦截工具调度，拒绝提示词无法保证的违规调用，供运行或排查剧变短剧流水线的用户与维护者阅读。"
-kind: "package-reference"
+kind: "package-bundle"
 ---
 
 # @deepseek-ai/dsh-guard-drama

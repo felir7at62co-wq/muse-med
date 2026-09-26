@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-shot-script/README.md
 README.md: 2f2da719ee38af24d4e858b867ee41ddf5e424e4
-README.zh.md: b17f8ef0c217871aaaed16aa2b45c583d1be28ed
+README.zh.md: 0408a04272dd69a13d4608508c3fe8b67e26f0f0

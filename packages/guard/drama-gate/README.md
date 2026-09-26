@@ -1,6 +1,6 @@
 ---
 description: "Drama-pipeline gate plugin that intercepts tool dispatch for a short-drama session and refuses the calls a prompt cannot be trusted to prevent, for users and maintainers running or debugging the Jubian drama pipeline."
-kind: "package-reference"
+kind: "package-bundle"
 ---
 
 # @deepseek-ai/dsh-guard-drama

@@ -7,18 +7,18 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
 当短剧会话必须在为一张新资产付费之前知道剧变项目里已经有什么时，用这个包。工具 `drama_assets` 同时读两边——剧变远端已选用的资产与项目自己的 `assets_manifest.json`——并写出宿主付费钩子读的证据：`_probe/asset-reconcile.json`。`reconcile` 做这次比对；`dispose` 记录某人对它发现的某条资产的决定。清单只记录这条流水线生成过什么，不等于项目里有什么——只看清单的模型会把已经存在的资产生成第二遍。
 
-## Table of Contents
+## 目录
 
 - [使用本包](#use-this-package)
 - [实现说明](#understand-the-implementation)
 - [延伸阅读](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与后续工作](#known-limitations-and-deferred-work)
-- [Dev Note](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -158,7 +158,7 @@ token 本身就是凭据引用 `JUBIANAI_ADMIN_TOKEN`，每次读取都经 `ctx.
 - **写入不是跨进程事务** —— 临时文件加改名让一次写入是原子的，但同一个项目上两个并发的 `dispose` 仍可能交错各自的读-改-写。
 
 <a id="dev-note"></a>
-### Dev Note
+### 开发备注
 
 <details>
 <summary>维护者工作上下文——点击展开</summary>

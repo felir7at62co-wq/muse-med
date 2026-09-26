@@ -237,7 +237,7 @@
       ],
       "component": "libmpg123, statically linked into libsndfile_64bit.dll",
       "version_status": "unverified",
-      "version_evidence": "no version literal in the DLL; the only mpg123 provenance is the vcpkg build path 'C:\\vcpkg\\buildtrees\\mpg123\\src\\0d8db63f9b-3db975bc05.clean\\src\\libmpg123\\id3.c'",
+      "version_evidence": "no version literal in the DLL; the only mpg123 source evidence is the vcpkg build path 'C:\\vcpkg\\buildtrees\\mpg123\\src\\0d8db63f9b-3db975bc05.clean\\src\\libmpg123\\id3.c'",
       "license": "LGPL-2.1",
       "status": "covered",
       "covered_by": [

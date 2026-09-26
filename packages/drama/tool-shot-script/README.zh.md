@@ -7,17 +7,17 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
 使用 `drama_shot` 校验导演格式脚本、预演打包时长或编译 matched JSON 与单集文件。长镜头、慢台词、旁白与心声可以通过，并附建议性警告。字段格式错误、已绑定资产未确认或信息不完整、超过项目自己声明的每镜上限，以及超出调用方明确时长预算的包仍阻止编译。工具保留台词原文与说话人身份，不调用提供方。
 
-## Table of Contents
+## 目录
 
 - [使用本包](#use-this-package)
 - [实现说明](#understand-the-implementation)
 - [模型体验](#model-experience)
 - [已知限制与后续工作](#known-limitations-and-deferred-work)
-- [Dev Note](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -107,6 +107,6 @@ schema 固定；结果随镜头、包与问题数增长。失败时不打包、�
 - 写入前会预检，但不是跨并发进程的事务。
 
 <a id="dev-note"></a>
-### Dev Note
+### 开发备注
 
 无。

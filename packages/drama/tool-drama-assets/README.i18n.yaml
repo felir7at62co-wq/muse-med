@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-drama-assets/README.md
 README.md: 49ed82bbb444bca28bf9ff43d13dd095a3a80ed5
-README.zh.md: e65e7489d6cb2d947664001049d9ea51bebe8500
+README.zh.md: 91b2b7a946c979c080653f0290a9143dd48b5992
