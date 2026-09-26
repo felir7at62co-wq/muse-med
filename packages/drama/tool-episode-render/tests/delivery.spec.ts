@@ -10,9 +10,11 @@ import {
   DELIVERY_WIDTH,
   deliveryScaleFilter,
   EFFECT_BLEND_OPACITY,
-  EFFECT_SPEED,
   ENCODER_PROBE_SOURCE,
   encoderArguments,
+  ENDING_AUDIO_ASSET,
+  ENDING_EFFECT_ASSET,
+  ENDING_SECONDS,
   endingEffectFilter,
   escapeAssText,
   formatAssTime,
@@ -36,10 +38,23 @@ describe('the delivery constants', () => {
   })
 
   it('fix the ending and the AI-content mark', () => {
-    expect(EFFECT_SPEED).toBe('0.729')
+    expect(ENDING_SECONDS).toBe(2)
     expect(EFFECT_BLEND_OPACITY).toBe('0.90')
     expect(WATERMARK_TEXT).toBe('内容由AI生成')
     expect(WATERMARK_POSITION).toBe('{\\an3\\pos(1025,1810)}')
+  })
+
+  it('accepts only the shipped ending assets, by the bytes they ship with', () => {
+    expect(ENDING_EFFECT_ASSET).toEqual({
+      label: '片尾特效',
+      file: 'tweet-drama-background-render/assets/ending_effect.mp4',
+      sha256: '49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010',
+    })
+    expect(ENDING_AUDIO_ASSET).toEqual({
+      label: '片尾音',
+      file: 'tweet-drama-background-render/assets/ending_audio.mp3',
+      sha256: 'd1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f',
+    })
   })
 
   it('puts the probe on a source NVENC accepts', () => {
@@ -85,15 +100,23 @@ describe('encoderArguments', () => {
 })
 
 describe('endingEffectFilter', () => {
-  it('freezes the frame, speeds the effect up, and screens it over at the fixed opacity', () => {
+  it('plays the effect at its own speed, then leaves the freeze frame for the rest of the ending', () => {
     const filter = endingEffectFilter()
     expect(filter.startsWith('[0:v]scale=1440:2560:force_original_aspect_ratio=increase,crop=1440:2560,fps=60,format=gbrp[base];'))
       .toBe(true)
-    expect(filter).toContain('[1:v]setpts=(PTS-STARTPTS)/0.729,')
+    expect(filter).toContain('[1:v]setpts=PTS-STARTPTS,')
+    expect(filter).not.toContain('setpts=(PTS-STARTPTS)/')
     expect(filter).toContain("tmix=frames=2:weights='1 1',")
     expect(filter).toContain('tpad=stop_mode=add:stop_duration=2.000:color=black,')
     expect(filter).toContain('trim=0:2.000,fps=60,scale=1440:2560:flags=lanczos,')
     expect(filter.endsWith('[base][fx]blend=all_mode=screen:all_opacity=0.90:shortest=1,format=yuv420p[v]')).toBe(true)
+  })
+
+  it('keeps the effect branch exactly as long as the ending window', () => {
+    const filter = endingEffectFilter()
+    const effectBranch = filter.slice(filter.indexOf('[1:v]'), filter.indexOf('[fx]'))
+    expect(effectBranch).toContain(`trim=0:${ENDING_SECONDS.toFixed(3)}`)
+    expect(effectBranch).toContain(`tpad=stop_mode=add:stop_duration=${ENDING_SECONDS.toFixed(3)}`)
   })
 })
 

@@ -10,11 +10,16 @@
  * decode; when it does not, the frame is re-extracted by index, and if that still
  * does not match, the render stops instead of freezing an unverified frame.
  *
+ * The effect and the ending sound are caller-supplied paths, so this module also
+ * checks what those paths hold: the shipped asset's bytes, and an effect that
+ * fits inside the ending window it is blended over.
+ *
  * @module @deepseek-ai/dsh-tool-episode-render/ending
  */
 
-import { ENDING_SECONDS, endingEffectFilter } from './delivery.ts'
-import { runFfmpeg } from './ffmpeg.ts'
+import { fileSha256 } from './cache.ts'
+import { ENDING_SECONDS, endingEffectFilter, type ShippedEndingAsset } from './delivery.ts'
+import { probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { pathExists } from './paths.ts'
 import type { MediaToolkit, TailFrameEvidence } from './types.ts'
 
@@ -28,6 +33,44 @@ export const TAIL_SEEK_SECONDS = '-0.1'
 
 /** The pixel format both sides of the comparison are hashed in. */
 const COMPARISON_PIXEL_FORMAT = 'rgb24'
+
+/**
+ * Fail unless one supplied ending file is the shipped asset.
+ *
+ * The two ending files arrive as caller-supplied paths, so the location proves
+ * nothing: only the bytes do. A file that exists and is non-empty but is not the
+ * shipped asset would render an ending the delivery spec never approved, so it is
+ * refused by name instead.
+ * @param path - Absolute path of the file the caller supplied.
+ * @param asset - The asset the delivery spec ships and accepts.
+ * @throws {Error} When the file's SHA-256 is not the shipped asset's.
+ */
+export async function requireShippedEndingAsset(path: string, asset: ShippedEndingAsset): Promise<void> {
+  const measured = await fileSha256(path)
+  if (measured === asset.sha256) return
+  throw new Error(`${asset.label}不是随包素材：${path} 的 SHA-256 是 ${measured}，`
+    + `随包 ${asset.file} 才是本片尾的素材（SHA-256 ${asset.sha256}）。`
+    + '请改用随包素材，不要换成其它文件。')
+}
+
+/**
+ * Fail when the ending effect cannot fit inside the ending window.
+ *
+ * The effect plays at its own speed and is never retimed, so an effect longer
+ * than the window would be cut mid-action by the ending's own length. That
+ * mismatch is a failed render rather than a silently truncated ending.
+ * @param toolkit - The binaries and channel to use.
+ * @param effect - Absolute path of the ending effect video.
+ * @throws {Error} When the effect's own duration exceeds {@link ENDING_SECONDS}.
+ * @throws {MediaCommandError} When the effect cannot be probed.
+ */
+export async function requireEndingEffectFits(toolkit: MediaToolkit, effect: string): Promise<void> {
+  const measured = (await probeMedia(toolkit, effect)).durationSeconds
+  if (measured <= ENDING_SECONDS) return
+  throw new Error(`片尾特效 ${effect} 时长 ${measured.toFixed(3)} 秒，超过片尾 ${ENDING_SECONDS.toFixed(3)} 秒的窗口。`
+    + '特效按自身原速只播放一次，超出的部分会被截断；'
+    + '请换用不超长的片尾特效，或先把它裁到这个窗口以内。')
+}
 
 /**
  * The last video frame's index in a sequential `framemd5` report.
@@ -171,7 +214,8 @@ export async function extractTailFrame(
  *
  * The freeze image is a looped input and `-t` cuts the result at exactly
  * {@link ENDING_SECONDS}, so the ending's length never depends on the effect's own
- * duration.
+ * duration: the effect plays at its own speed over the opening of the window and
+ * the rest of it is the freeze frame.
  * @param toolkit - The binaries and channel to use.
  * @param tailFrame - Absolute path of the frozen frame.
  * @param effect - Absolute path of the ending effect video.

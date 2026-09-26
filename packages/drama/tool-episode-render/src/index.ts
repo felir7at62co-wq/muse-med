@@ -583,7 +583,10 @@ const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
   + '按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master'
   + '（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。'
   + 'render=出片：逐镜编码到交付规格 1440x2560@60、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1，'
-  + '片尾用最后一镜的真实尾帧定格 2 秒并叠 ending_effect，拼接后烧录 ASS 字幕'
+  + '片尾用最后一镜的真实尾帧定格 2 秒：ending_effect 按自身原速只播放一次，覆盖片尾开头它自己的时长，'
+  + '其余时间是纯定格帧（不变速、不拉伸、不补黑场），只有 ending_audio 的前 2 秒在正片结束处进入混音；'
+  + '这两份素材按 SHA-256 校验，只接受随包字节，换成别的文件或送上长于 2 秒的特效都会直接报错。'
+  + '拼接后烧录 ASS 字幕'
   + '（默认 SimHei 68，字体服从部署配置；字间距 -2、7px 黑描边、底部居中，右下角唯一的「内容由AI生成」标记），'
   + '再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，'
   + 'AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。'
@@ -633,8 +636,15 @@ export function apply(ctx: Context, config: Config = {}): void {
         description: '本次交付的最后一个镜头号（如 9）；render 必填，时间线里 shot <= last_shot 的镜头数必须正好等于它。' },
       bgm: { type: 'string', description: '本集实际使用的 BGM 文件路径；render 必填，会循环铺到正片结束。' },
       bgm_plan: { type: 'string', description: 'render 可选：现有 episodes/segments 配乐计划 JSON；校验时间、记录曲目与复用提醒，不代替试听。' },
-      ending_audio: { type: 'string', description: '片尾音文件路径；render 必填。' },
-      ending_effect: { type: 'string', description: '片尾特效视频路径；render 必填。' },
+      ending_audio: { type: 'string',
+        description: '片尾音文件路径；render 必填。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3'
+          + '（SHA-256 d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f，全长 3.474 秒）：'
+          + '只有前 2 秒延迟到正片结束处进入混音，其余不进成片；换成别的文件 render 直接报错。' },
+      ending_effect: { type: 'string',
+        description: '片尾特效视频路径；render 必填。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4'
+          + '（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：'
+          + '它按自身原速只播放一次，覆盖片尾开头 1.020 秒，其余 0.980 秒是定格帧；'
+          + '换成别的文件、或长于片尾 2 秒窗口的素材，render 直接报错，不做截断。' },
       output: { type: 'string',
         description: '成片输出路径；render 省略时写 exports/<集>.mp4，verify 必填（要检查哪个文件）。' },
       force: { type: 'boolean',

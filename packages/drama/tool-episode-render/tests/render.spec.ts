@@ -1,16 +1,17 @@
 /** `render`: the encode pipeline, its cache, its log, and the delivery verdict it returns. */
 
-import { readFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { episodePaths } from '../src/paths.ts'
-import { renderEpisode } from '../src/render.ts'
+import { renderEpisode, type RenderInput } from '../src/render.ts'
 import type { RenderSettings } from '../src/types.ts'
 import {
   cleanup,
   framemd5Line,
   probeHandler,
+  shippedEndingAsset,
   sizeOf,
   srtDocument,
   stubChannel,
@@ -66,11 +67,15 @@ async function preparedProject(): Promise<Prepared> {
   const subtitle = join(project, 'editing', '02.srt')
   await writePlaceholder(subtitle, srtDocument([{ start: '00:00:01,680', end: '00:00:03,580', text: '台词' }]))
   const bgm = join(project, 'audio', 'bgm.mp3')
+  await writePlaceholder(bgm, 'bgm')
+  // `render` accepts the ending sound and effect only as the shipped bytes, so the
+  // fixture copies the shipped assets in: the checks read real bytes, and a stub
+  // that writes over an output path can never touch the repository's own assets.
   const endingAudio = join(project, 'audio', 'ending_audio.mp3')
   const endingEffect = join(project, 'assets', 'ending_effect.mp4')
-  await writePlaceholder(bgm, 'bgm')
-  await writePlaceholder(endingAudio, 'ending sound')
-  await writePlaceholder(endingEffect, 'ending effect')
+  await mkdir(join(project, 'assets'), { recursive: true })
+  await copyFile(shippedEndingAsset('ending_audio.mp3'), endingAudio)
+  await copyFile(shippedEndingAsset('ending_effect.mp4'), endingEffect)
   return { project, paths, timeline, subtitle, bgm, endingAudio, endingEffect, output: join(project, 'export', 'ep02.mp4') }
 }
 
@@ -99,6 +104,7 @@ function renderChannel(prepared: Prepared, options: {
         video: options.deliveredHasStreams === false ? undefined : {},
         audio: options.deliveredHasStreams === false ? false : {},
       },
+      [prepared.endingEffect]: { durationSeconds: 1.02 },
     }),
     call => (call.args.includes('lavfi') ? { code: options.gpu === false ? 1 : 0, stderr: 'Cannot load nvcuda.dll' } : undefined),
     (call) => {
@@ -115,7 +121,9 @@ function renderChannel(prepared: Prepared, options: {
       }
       return { stdout: `${(options.videoHashes ?? ['a', 'tail']).map((hash, index) => framemd5Line(index, hash)).join('\n')}\n` }
     },
-    call => ({ after: async () => { await writePlaceholder(call.args[call.args.length - 1] ?? '', 'media') } }),
+    call => (call.command === 'ffmpeg'
+      ? { after: async () => { await writePlaceholder(call.args[call.args.length - 1] ?? '', 'media') } }
+      : undefined),
   ]
   return stubChannel(handlers)
 }
@@ -125,8 +133,14 @@ function toolkit(channel: ReturnType<typeof stubChannel>) {
   return createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel })
 }
 
-/** Run one full render. */
-async function render(prepared: Prepared, channel: ReturnType<typeof stubChannel>, force = false, bgmPlan?: string) {
+/** Run one full render, with any input the case substitutes. */
+async function render(
+  prepared: Prepared,
+  channel: ReturnType<typeof stubChannel>,
+  force = false,
+  bgmPlan?: string,
+  overrides: Partial<RenderInput> = {},
+) {
   return await renderEpisode({
     toolkit: toolkit(channel),
     settings,
@@ -141,6 +155,7 @@ async function render(prepared: Prepared, channel: ReturnType<typeof stubChannel
     endingEffect: prepared.endingEffect,
     output: prepared.output,
     force,
+    ...overrides,
   })
 }
 
@@ -323,10 +338,12 @@ describe('renderEpisode', () => {
     const prepared = await preparedProject()
     await render(prepared, renderChannel(prepared))
     const broken = stubChannel([
-      call => call.args.includes('lavfi') ? {} : undefined,
-      call => ({ code: 1, stderr: 'encode interrupted', after: async () => {
+      // The ending checks run before the encode, so the failure has to be the encode itself.
+      probeHandler({ [prepared.endingEffect]: { durationSeconds: 1.02 } }),
+      call => (call.args.includes('lavfi') ? {} : undefined),
+      call => (call.command === 'ffmpeg' ? { code: 1, stderr: 'encode interrupted', after: async () => {
         await writePlaceholder(call.args.at(-1) ?? '', 'partial')
-      } }),
+      } } : undefined),
     ])
     await expect(render(prepared, broken, true)).rejects.toThrow('encode interrupted')
     const report = await render(prepared, renderChannel(prepared))
@@ -499,6 +516,26 @@ describe('renderEpisode', () => {
       output: prepared.output,
       force: false,
     })).rejects.toThrow('片尾特效不存在或不可读')
+  })
+
+  it('refuses a substituted ending effect before any encode', async () => {
+    const prepared = await preparedProject()
+    const substituted = join(prepared.project, 'assets', 'substituted.mp4')
+    await writePlaceholder(substituted, 'some other ending')
+    const channel = renderChannel(prepared)
+    await expect(render(prepared, channel, false, undefined, { endingEffect: substituted }))
+      .rejects.toThrow('片尾特效不是随包素材')
+    expect(channel.calls).toEqual([])
+  })
+
+  it('refuses a substituted ending sound before any encode', async () => {
+    const prepared = await preparedProject()
+    const substituted = join(prepared.project, 'audio', 'substituted.mp3')
+    await writePlaceholder(substituted, 'some other ending sound')
+    const channel = renderChannel(prepared)
+    await expect(render(prepared, channel, false, undefined, { endingAudio: substituted }))
+      .rejects.toThrow('片尾音不是随包素材')
+    expect(channel.calls).toEqual([])
   })
 
   it('fails loud when the timeline file does not exist', async () => {

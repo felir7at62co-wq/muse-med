@@ -1,6 +1,6 @@
 /** The plugin entry: its registration, its argument resolution, and one call per method. */
 
-import { readFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
@@ -13,6 +13,7 @@ import {
   framemd5Line,
   probeHandler,
   runContext,
+  shippedEndingAsset,
   srtDocument,
   stubChannel,
   tempProject,
@@ -88,11 +89,15 @@ async function preparedProject(): Promise<{
   const timeline = join(project, 'editing', '02-timeline.json')
   await writePlaceholder(timeline, timelineJson([{ shot: 1, startUs: 0, durationUs: 114_733_332 }], 114.733332))
   const bgm = join(project, 'audio', 'bgm.mp3')
+  await writePlaceholder(bgm, 'bgm')
+  // `render` accepts the ending sound and effect only as the shipped bytes: the
+  // fixture copies those bytes in, so no stub can write over the repository's own
+  // assets while the checks still read what actually ships.
   const endingAudio = join(project, 'audio', 'ending_audio.mp3')
   const endingEffect = join(project, 'assets', 'ending_effect.mp4')
-  await writePlaceholder(bgm, 'bgm')
-  await writePlaceholder(endingAudio, 'ending sound')
-  await writePlaceholder(endingEffect, 'ending effect')
+  await mkdir(join(project, 'assets'), { recursive: true })
+  await copyFile(shippedEndingAsset('ending_audio.mp3'), endingAudio)
+  await copyFile(shippedEndingAsset('ending_effect.mp4'), endingEffect)
   return {
     project,
     timeline,
@@ -117,11 +122,14 @@ function callChannel(project: string): ReturnType<typeof stubChannel> {
       [join(project, 'export', 'ep02.mp4')]: {
         durationSeconds: 116.733332, sizeBytes: 400_000_000, bitRateBps: 27_000_000, video: {}, audio: {},
       },
+      [join(project, 'assets', 'ending_effect.mp4')]: { durationSeconds: 1.02 },
     }),
     call => (call.args.includes('lavfi') ? {} : undefined),
     call => (call.args.includes('-sseof') ? { after: async () => { await writePlaceholder(call.args.at(-1) ?? '', 'png') } } : undefined),
     call => (call.args.includes('framemd5') ? { stdout: `${framemd5Line(0, 'tail')}\n` } : undefined),
-    call => ({ after: async () => { await writePlaceholder(call.args.at(-1) ?? '', 'media') } }),
+    call => (call.command === 'ffmpeg'
+      ? { after: async () => { await writePlaceholder(call.args.at(-1) ?? '', 'media') } }
+      : undefined),
   ]
   return stubChannel(handlers)
 }
@@ -140,6 +148,18 @@ describe('registration', () => {
       '内容由AI生成', '-sseof -0.1', 'framemd5', 'h264_nvenc', 'libx264', 'alimiter=0.95', '定格 2 秒']) {
       expect(tool.description).toContain(phrase)
     }
+  })
+
+  it('states the shipped ending bytes in the ending parameter descriptions', () => {
+    const properties = (dramaRender().parameters as { properties: Record<string, { description?: string }> }).properties
+    const effect = properties.ending_effect?.description ?? ''
+    const audio = properties.ending_audio?.description ?? ''
+    expect(effect).toContain('tweet-drama-background-render/assets/ending_effect.mp4')
+    expect(effect).toContain('49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010')
+    expect(effect).toContain('原速')
+    expect(audio).toContain('tweet-drama-background-render/assets/ending_audio.mp3')
+    expect(audio).toContain('d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f')
+    expect(audio).toContain('前 2 秒')
   })
 
   it('exposes the method enum and every path argument', () => {

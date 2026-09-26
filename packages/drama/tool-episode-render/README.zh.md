@@ -82,12 +82,12 @@ kind: "package-reference"
 | `last_shot` | `render` | 本次交付覆盖到的最后一个镜头号；时间线里 `shot <= last_shot` 的镜头数必须正好等于它 |
 | `bgm` | `render` | BGM，循环铺到正片结束 |
 | `bgm_plan` | 可选，`render` | 现有 `episodes[].segments[]` 计划；返回声明的曲目来源、时间、理由、音轨哈希与同序复用集号，不代表试听通过 |
-| `ending_audio` | `render` | 片尾音，延迟到正片结束处 |
-| `ending_effect` | `render` | 叠在定格帧上的片尾特效视频 |
+| `ending_audio` | `render` | 片尾音；只接受随包 `tweet-drama-background-render/assets/ending_audio.mp3`。成片只取它的前 2 秒，延迟到正片结束处 |
+| `ending_effect` | `render` | 片尾特效；只接受随包 `tweet-drama-background-render/assets/ending_effect.mp4`。按自身原速只播放一次，覆盖 2 秒片尾的开头 |
 | `output` | `verify`（`render` 可选） | 成片文件；`render` 省略时写 `exports/<集>.mp4` |
 | `force` | 可选 | `render` 忽略逐镜缓存、全部重编 |
 
-工具调用使用上表的 snake_case 参数名；注册的执行入口将其映射为渲染器内部的 camelCase 参数。方法缺自己的必填参数时，在打开任何文件之前就失败。让渲染无法进行的一切——缺输入、命令失败、尾帧无法证明——都会抛错并给中文修法。成片自身的属性不抛错：它们作为检查项返回，所以一次调用既报清全部缺陷，也照常交回实测值。
+工具调用使用上表的 snake_case 参数名；注册的执行入口将其映射为渲染器内部的 camelCase 参数。方法缺自己的必填参数时，在打开任何文件之前就失败。让渲染无法进行的一切——缺输入、命令失败、片尾素材不是随包字节、特效长于片尾窗口、尾帧无法证明——都会抛错并给中文修法。成片自身的属性不抛错：它们作为检查项返回，所以一次调用既报清全部缺陷，也照常交回实测值。
 
 ### subtitles 做什么
 
@@ -116,9 +116,9 @@ kind: "package-reference"
 | 画面 | 1440x2560@60，H.264 high@5.1，`yuv420p` |
 | 码率控制 | 目标 24M、上限 30M、缓冲 48M、GOP 120 帧 |
 | 总码率下限 | 成片整体 4.6 Mbps |
-| 片尾 | 用最后一镜的真实尾帧定格 2.000 秒，叠 0.90 不透明度的片尾特效 |
+| 片尾 | 用最后一镜的真实尾帧定格 2.000 秒。随包特效按自身原速只播放一次，覆盖开头 1.020 秒，以 0.90 不透明度叠在定格帧上；剩下 0.980 秒是纯定格帧 |
 | 字幕 | 配置的字体族、字号 68、字间距 -2、7px 黑描边、底部居中，另有右下角唯一的 `内容由AI生成` 标记 |
-| 音频 | 整集原声 1.45、BGM 0.24 铺到正片结束、片尾音延迟到正片结束，`amix` 关闭归一化，`alimiter=0.95` |
+| 音频 | 整集原声 1.45、BGM 0.24 铺到正片结束、片尾音的前 2 秒延迟到正片结束，`amix` 关闭归一化，`alimiter=0.95` |
 | 容器 | AAC 192k / 48kHz，`+faststart` |
 
 ### 两个已知的坑
@@ -170,7 +170,7 @@ kind: "package-reference"
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`Config`、参数解析、方法分发，以及 `drama_render` 的 schema 与描述 |
-| [`src/delivery.ts`](src/delivery.ts) | 固定交付规格：画面几何、编码器参数、ASS 头与时间码、片尾滤镜、混音图 |
+| [`src/delivery.ts`](src/delivery.ts) | 固定交付规格：画面几何、编码器参数、ASS 头与时间码、随包片尾素材、片尾滤镜、混音图 |
 | [`src/ffmpeg.ts`](src/ffmpeg.ts) | 进程边界：spawn 通道、ffmpeg 与 ffprobe 包装、ffprobe 报告解析 |
 | [`src/paths.ts`](src/paths.ts) | 一集的渲染输入与产物路径，以及把「缓存未命中」与「路径坏了」区分开的存在性检查 |
 | [`src/timeline.ts`](src/timeline.ts) | 分集时间线的读取、校验、选取、铺排与序列化 |
@@ -178,7 +178,7 @@ kind: "package-reference"
 | [`src/speech.ts`](src/speech.ts) | 读对齐文档并把台词落到整集时钟上，不做识别 |
 | [`src/cues.ts`](src/cues.ts) | `subtitles`：台词计划、对齐文档与写出的 SRT |
 | [`src/encoder.ts`](src/encoder.ts) | NVENC 探测，以及带原因记录的 CPU 回退 |
-| [`src/ending.ts`](src/ending.ts) | 带 framemd5 证明的尾帧抽取，以及片尾片段 |
+| [`src/ending.ts`](src/ending.ts) | 带 framemd5 证明的尾帧抽取、片尾素材校验，以及片尾片段 |
 | [`src/prepare.ts`](src/prepare.ts) | `prepare`：成片清单、探测、复制出的布局与整集原声滤镜图 |
 | [`src/render.ts`](src/render.ts) | `render`：编码流水线、拼接、烧录、混音与渲染日志 |
 | [`src/verify.ts`](src/verify.ts) | `render` 共用的交付判定，以及 `verify` 的黑帧、静音与字幕越界检查 |
@@ -225,7 +225,7 @@ kind: "package-reference"
 这些限制界定了本包是什么、不是什么。它们是当前约束，不是任务清单。
 
 - **ffmpeg 与 ffprobe 是外部依赖**——本包启动 `ffmpegPath` 与 `ffprobePath` 指向的任何东西。缺少 `libass`、`minterpolate` 或 `screen` 混合模式的构建会在需要它的那条命令上失败，而报告里只有那条命令的 stderr。
-- **交付样式不可配置**——画面几何、帧率、码率控制、字幕布局、片尾长度与限幅器都是常量，因为它们是运营确认过的规格。只有可执行文件、两个增益、编码器偏好、字体目录与字体族是 `Config` 字段。
+- **交付样式不可配置**——画面几何、帧率、码率控制、字幕布局、片尾长度、片尾素材字节与限幅器都是常量，因为它们是运营确认过的规格。只有可执行文件、两个增益、编码器偏好、字体目录与字体族是 `Config` 字段。
 - **缓存与日志写入不是事务**——渲染失败可能留下中间文件，由下一次运行覆盖。最终 MP4 在同目录暂存，禁用检查后以 rename 发布；发布前失败会保留旧成片。
 - **禁用不是全局媒体过滤器**——不拦截通用 FFmpeg 工具和任意外部转码。准备后的副本按实际 SHA256 检查；正式渲染以当前源哈希关联编码缓存。缺失或过期的映射不能证明任意转码文件的原始版本。
 - **每次渲染都重建片尾**——尾帧会重新抽取并重新证明，片尾片段会重新编码，即使缓存里两者都在。证明正是重点，而缓存里的片尾可能早于一次重剪。

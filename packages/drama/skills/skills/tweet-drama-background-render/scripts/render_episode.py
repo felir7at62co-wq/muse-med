@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import json
 import re
@@ -25,6 +26,14 @@ FPS = 60
 TARGET_BITRATE = "24M"
 MAX_BITRATE = "30M"
 BUFFER_SIZE = "48M"
+
+# The ending accepts the shipped assets and nothing else, so a wrong file fails here
+# instead of rendering an ending the delivery spec never approved. Each token is
+# (what the diagnostic calls it, where it ships, SHA-256 of the shipped bytes).
+ENDING_AUDIO = ('片尾音', 'assets/ending_audio.mp3',
+                'd1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f')
+ENDING_EFFECT = ('片尾特效', 'assets/ending_effect.mp4',
+                 '49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010')
 
 
 def run(cmd: list[str]) -> None:
@@ -170,11 +179,51 @@ def find_audio(project: Path, episode: str) -> Path:
     raise FileNotFoundError(f"Missing master audio for episode {episode}")
 
 
+def verify_ending_asset(path: Path, asset: tuple[str, str, str]) -> None:
+    """Reject an ending file that exists but is not the shipped asset.
+
+    The path proves nothing about the bytes: a non-empty file of anything else would
+    render an ending the delivery spec never approved, so the file is accepted only
+    when its SHA-256 is the shipped one.
+    """
+    name, shipped, digest = asset
+    measured = hashlib.sha256(path.read_bytes()).hexdigest()
+    if measured != digest:
+        raise ValueError(f"{name}不是随包素材：{path} 的 SHA-256 是 {measured}，"
+                         f"随包 {shipped} 才是本片尾的素材（SHA-256 {digest}）。"
+                         "请改用随包素材，不要换成其它文件。")
+
+
+def ending_effect_filter(ending_duration: float) -> str:
+    """Blend the ending effect over the frozen frame, at the effect's own speed.
+
+    Nothing retimes the effect, so it covers the opening of the ending for as long
+    as it lasts and the rest of the window is the freeze frame; the black pad is
+    what makes that remainder the freeze, because a black effect frame screens over
+    the frozen frame without changing it.
+    """
+    return (
+        f"[0:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
+        f"crop={WIDTH}:{HEIGHT},fps={FPS},format=gbrp[base];"
+        "[1:v]setpts=PTS-STARTPTS,"
+        "scale=540:960:force_original_aspect_ratio=increase,"
+        "crop=540:960,minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,"
+        "tmix=frames=2:weights='1 1',"
+        f"tpad=stop_mode=add:stop_duration={ending_duration:.3f}:color=black,"
+        f"trim=0:{ending_duration:.3f},fps={FPS},scale={WIDTH}:{HEIGHT}:flags=lanczos,"
+        "eq=contrast=1.28:brightness=-0.14:saturation=1.15,format=gbrp[fx];"
+        "[base][fx]blend=all_mode=screen:all_opacity=0.90:shortest=1,"
+        "format=yuv420p[v]"
+    )
+
+
 def render(args: argparse.Namespace) -> dict:
     project = args.project.resolve()
     for resource in (args.bgm, args.ending_audio, args.ending_effect):
         if not resource.is_file():
             raise FileNotFoundError(resource)
+    verify_ending_asset(args.ending_audio.resolve(), ENDING_AUDIO)
+    verify_ending_asset(args.ending_effect.resolve(), ENDING_EFFECT)
     episode = str(args.episode).zfill(2)
     timeline = json.loads(args.timeline.read_text(encoding="utf-8"))
     clips = [item for item in timeline.get("clips", []) if int(item.get("shot", 0)) <= args.last_shot]
@@ -232,18 +281,7 @@ def render(args: argparse.Namespace) -> dict:
         ending_effect = args.ending_effect.resolve()
         if not ending_effect.exists():
             raise FileNotFoundError(ending_effect)
-        effect_filter = (
-            f"[0:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
-            f"crop={WIDTH}:{HEIGHT},fps={FPS},format=gbrp[base];"
-            f"[1:v]setpts=(PTS-STARTPTS)/{args.effect_speed:.3f},"
-            "scale=540:960:force_original_aspect_ratio=increase,"
-            "crop=540:960,minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,"
-            f"tmix=frames=2:weights='1 1',tpad=stop_mode=add:stop_duration={args.ending_duration:.3f}:color=black,"
-            f"trim=0:{args.ending_duration:.3f},fps={FPS},scale={WIDTH}:{HEIGHT}:flags=lanczos,"
-            "eq=contrast=1.28:brightness=-0.14:saturation=1.15,format=gbrp[fx];"
-            "[base][fx]blend=all_mode=screen:all_opacity=0.90:shortest=1,"
-            "format=yuv420p[v]"
-        )
+        effect_filter = ending_effect_filter(args.ending_duration)
         run([FFMPEG, "-y", "-v", "error", "-loop", "1", "-i", str(freeze_image),
              "-i", str(ending_effect), "-filter_complex", effect_filter, "-map", "[v]",
              "-t", f"{args.ending_duration:.3f}", "-an",
@@ -323,7 +361,6 @@ def main() -> None:
     parser.add_argument("--ending-audio", type=Path, required=True)
     parser.add_argument("--ending-effect", type=Path, required=True)
     parser.add_argument("--ending-duration", type=float, default=2.0)
-    parser.add_argument("--effect-speed", type=float, default=0.728571)
     parser.add_argument("--master-volume", type=float, default=1.45)
     parser.add_argument("--bgm-volume", type=float, default=0.24)
     parser.add_argument("--output", type=Path)

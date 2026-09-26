@@ -82,12 +82,12 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 | `last_shot` | `render` | Last body shot this delivery covers; the timeline must hold exactly that many clips up to it |
 | `bgm` | `render` | The BGM bed, looped to the body end |
 | `bgm_plan` | optional, `render` | Existing `episodes[].segments[]` plan; reports declared track sources, times, reasons, bed hash and same-sequence episodes without claiming listening approval |
-| `ending_audio` | `render` | The ending sound, delayed to the body end |
-| `ending_effect` | `render` | The ending effect video blended over the frozen frame |
+| `ending_audio` | `render` | The ending sound; only the shipped `tweet-drama-background-render/assets/ending_audio.mp3` is accepted. The ending plays its first 2 seconds, delayed to the body end |
+| `ending_effect` | `render` | The ending effect; only the shipped `tweet-drama-background-render/assets/ending_effect.mp4` is accepted. It plays once at its own speed over the opening of the 2-second ending |
 | `output` | `verify` (`render` optional) | The delivered file; `render` defaults to `exports/<集>.mp4` |
 | `force` | optional | `render` ignores its per-shot cache and re-encodes every clip |
 
-Tool calls use the snake_case parameter names above; the registered executor maps them to the renderer's internal camelCase arguments. A method missing one of its own arguments fails before any file is opened. Everything that makes a render impossible — a missing input, a failed command, a tail frame that cannot be proved — throws with a Chinese repair instruction. The delivered file's own properties do not throw: they come back as checks, so one call reports every defect while still handing back the measurement.
+Tool calls use the snake_case parameter names above; the registered executor maps them to the renderer's internal camelCase arguments. A method missing one of its own arguments fails before any file is opened. Everything that makes a render impossible — a missing input, a failed command, an ending file whose bytes are not the shipped asset's, an ending effect longer than the ending window, a tail frame that cannot be proved — throws with a Chinese repair instruction. The delivered file's own properties do not throw: they come back as checks, so one call reports every defect while still handing back the measurement.
 
 ### What subtitles does
 
@@ -116,9 +116,9 @@ A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,s
 | Picture | 1440x2560 at 60 fps, H.264 high@5.1, `yuv420p` |
 | Rate control | 24M target, 30M peak, 48M buffer, 120-frame GOP |
 | Overall bitrate floor | 4.6 Mbps over the delivered file |
-| Endings | 2.000 seconds frozen from the last body shot's real tail frame, with the ending effect screen-blended over it at 0.90 |
+| Endings | 2.000 seconds frozen from the last body shot's real tail frame. The shipped effect plays once at its own speed over the opening 1.020 seconds, screen-blended over the freeze at 0.90; the remaining 0.980 seconds are the freeze frame |
 | Subtitles | Configured font family, size 68, spacing -2, 7px black outline, bottom-centred, plus the single bottom-right `内容由AI生成` mark |
-| Audio | Episode master at 1.45, BGM at 0.24 to the body end, ending sound delayed to the body end, `amix` normalised off, `alimiter=0.95` |
+| Audio | Episode master at 1.45, BGM at 0.24 to the body end, the ending sound's first 2 seconds delayed to the body end, `amix` normalised off, `alimiter=0.95` |
 | Container | AAC 192k at 48 kHz, `+faststart` |
 
 ### The two known traps
@@ -170,7 +170,7 @@ The package is built on four commitments:
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config`, argument resolution, the method dispatch, and the `drama_render` schema and description |
-| [`src/delivery.ts`](src/delivery.ts) | The fixed delivery specification: geometry, encoder arguments, the ASS header and timestamps, the ending filter, and the audio mix graph |
+| [`src/delivery.ts`](src/delivery.ts) | The fixed delivery specification: geometry, encoder arguments, the ASS header and timestamps, the shipped ending assets, the ending filter, and the audio mix graph |
 | [`src/ffmpeg.ts`](src/ffmpeg.ts) | The process edge: the spawn channel, the ffmpeg and ffprobe wrappers, and ffprobe report parsing |
 | [`src/paths.ts`](src/paths.ts) | Where one episode's render inputs and outputs live, and the existence check that distinguishes a cache miss from a broken path |
 | [`src/timeline.ts`](src/timeline.ts) | Reading, validating, selecting, laying out, and serializing the episode timeline |
@@ -178,7 +178,7 @@ The package is built on four commitments:
 | [`src/speech.ts`](src/speech.ts) | Alignment parsing and line placement on the episode clock, with no recognition |
 | [`src/cues.ts`](src/cues.ts) | `subtitles`: the line plan, the per-shot detection, and the written SRT |
 | [`src/encoder.ts`](src/encoder.ts) | The NVENC probe and the CPU fallback with its recorded reason |
-| [`src/ending.ts`](src/ending.ts) | Tail-frame extraction with its framemd5 proof, and the ending clip |
+| [`src/ending.ts`](src/ending.ts) | Tail-frame extraction with its framemd5 proof, the shipped ending assets, and the ending clip |
 | [`src/prepare.ts`](src/prepare.ts) | `prepare`: the shot-sources manifest, the probes, the copied layout, and the master audio graph |
 | [`src/render.ts`](src/render.ts) | `render`: the encode pipeline, the concat, the burn-in, the mix, and the render log |
 | [`src/verify.ts`](src/verify.ts) | The delivery verdict `render` shares, plus `verify`'s black, silence, and subtitle-bound checks |
@@ -225,7 +225,7 @@ Append-only. The tool registration carries a stable name, description, and schem
 These limits define what this package is and what it is not. They are current constraints, not a task backlog.
 
 - **ffmpeg and ffprobe are external** — the package starts whatever `ffmpegPath` and `ffprobePath` name. A build without `libass`, `minterpolate`, or the `screen` blend mode fails at the command that needs it, and only that command's stderr is reported.
-- **The delivery style is not configurable** — geometry, frame rate, rate control, the subtitle layout, the ending length, and the limiter are constants, because they are the operator-approved specification. Only the binaries, the two gains, the encoder preference, the font directory and families are `Config` fields.
+- **The delivery style is not configurable** — geometry, frame rate, rate control, the subtitle layout, the ending length, the ending assets' bytes, and the limiter are constants, because they are the operator-approved specification. Only the binaries, the two gains, the encoder preference, the font directory and families are `Config` fields.
 - **Cache and log writes are not transactional** — failed renders can leave intermediate files for the next run to overwrite. Final MP4 publication uses a staged sibling and rename after ban checks; failures before publication retain the old delivery.
 - **Bans are not a global media filter** — generic FFmpeg tools and arbitrary external transcodes are not intercepted. Prepared copies are checked by their actual SHA256; official rendering associates encoded caches with the currently hashed source. Missing or stale mappings never establish an arbitrary transcode's original version.
 - **The ending is rebuilt on every render** — the tail frame is re-extracted and re-proved, and the ending clip is re-encoded, even when the cache holds both. The proof is the point, and a cached ending could predate a re-cut.

@@ -7,8 +7,22 @@
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { MediaCommandOutcome, ProcessChannel } from '../src/types.ts'
+
+/**
+ * Absolute path of one shipped ending asset in this repository.
+ *
+ * The renderer accepts the ending sound and effect only when their bytes are the
+ * shipped ones, so a spec that needs an accepted asset reads the real file
+ * instead of a placeholder that the check would reject.
+ * @param name - The asset file name.
+ * @returns The absolute path of the asset shipped with the background-render skill.
+ */
+export function shippedEndingAsset(name: 'ending_effect.mp4' | 'ending_audio.mp3'): string {
+  return fileURLToPath(new URL(`../../skills/skills/tweet-drama-background-render/assets/${name}`, import.meta.url))
+}
 
 /**
  * The registry context a registered tool's executor receives.

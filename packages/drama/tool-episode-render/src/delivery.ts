@@ -41,14 +41,46 @@ export const BUFFER_SIZE = '48M'
  */
 export const MIN_BITRATE_BPS = 4_600_000
 
-/** Seconds the ending freeze occupies. */
+/**
+ * Seconds the ending occupies, and the frozen frame behind it.
+ *
+ * The effect plays once at its own speed over the opening of this window; every
+ * remaining frame of the ending is the freeze frame, unchanged.
+ */
 export const ENDING_SECONDS = 2
-
-/** How much of the ending effect's own timeline one second of the freeze consumes. */
-export const EFFECT_SPEED = '0.729'
 
 /** The ending effect's blend opacity over the frozen frame. */
 export const EFFECT_BLEND_OPACITY = '0.90'
+
+/**
+ * One ending asset the delivery spec ships, and the only bytes it accepts.
+ *
+ * `render` is given a path for each of the two ending files, so the file is
+ * accepted on its content rather than on where it was found: the supplied bytes
+ * are the asset exactly when their SHA-256 is the shipped one.
+ */
+export interface ShippedEndingAsset {
+  /** What the model-facing diagnostic calls this asset. */
+  readonly label: string
+  /** Path of the asset inside the `tweet-drama-background-render` skill package. */
+  readonly file: string
+  /** Lowercase SHA-256 of the shipped bytes. */
+  readonly sha256: string
+}
+
+/** The shipped ending effect: 1.020 seconds, played once at its own speed. */
+export const ENDING_EFFECT_ASSET: ShippedEndingAsset = {
+  label: '片尾特效',
+  file: 'tweet-drama-background-render/assets/ending_effect.mp4',
+  sha256: '49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010',
+}
+
+/** The shipped ending sound: 3.474 seconds, of which the ending plays the first 2. */
+export const ENDING_AUDIO_ASSET: ShippedEndingAsset = {
+  label: '片尾音',
+  file: 'tweet-drama-background-render/assets/ending_audio.mp3',
+  sha256: 'd1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f',
+}
 
 /** Where the AI-content mark sits on the 1080x1920 script canvas. */
 export const WATERMARK_POSITION = '{\\an3\\pos(1025,1810)}'
@@ -117,15 +149,19 @@ export const ENCODER_PROBE_SOURCE = 'color=black:s=256x256:d=0.1'
  * The filter graph that turns the frozen tail frame and the ending effect into
  * the ending clip.
  *
- * The effect is sped up to {@link EFFECT_SPEED}, interpolated to 120 fps and
- * blended back to 60, then screen-blended over the freeze at
- * {@link EFFECT_BLEND_OPACITY}; the freeze itself is a single still, so the
- * ending's length is exactly the trim, independent of the effect's own duration.
+ * The effect keeps its own timeline — nothing retimes it — so it covers the
+ * opening of the ending for as long as it lasts, 1.020 seconds for the shipped
+ * asset, and the rest of the window is the freeze frame. What makes that
+ * remainder the freeze is the black pad: a black effect frame screens over the
+ * frozen frame without changing it, so the ending still runs the full
+ * {@link ENDING_SECONDS} even though the effect is shorter. The effect's frames
+ * are interpolated to 120 fps and averaged back to 60 before the pad, and the
+ * result is screen-blended over the freeze at {@link EFFECT_BLEND_OPACITY}.
  * @returns The filter graph, whose only output pad is `[v]`.
  */
 export function endingEffectFilter(): string {
   return `[0:v]${deliveryScaleFilter('gbrp')}[base];`
-    + `[1:v]setpts=(PTS-STARTPTS)/${EFFECT_SPEED},`
+    + '[1:v]setpts=PTS-STARTPTS,'
     + 'scale=540:960:force_original_aspect_ratio=increase,'
     + 'crop=540:960,minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,'
     + "tmix=frames=2:weights='1 1',"

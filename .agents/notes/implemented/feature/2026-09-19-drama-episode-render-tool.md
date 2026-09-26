@@ -24,7 +24,7 @@ A second `drama/` package, `@deepseek-ai/dsh-tool-episode-render`, registers one
 
 A problem that makes a render impossible — a missing argument, a missing input, a failed command, a tail frame that cannot be proved — throws with a Chinese repair instruction. A problem in the delivered file itself does not: it comes back as a check with `ok: false`, one repair line per failed check, because the operator still needs the file and the measurement. `verify` never throws on a bad file at all.
 
-The delivery style is not configurable. Geometry, frame rate, rate control, the subtitle style, the ending length, the effect speed, and the limiter are constants in `src/delivery.ts`, because they are the operator-approved specification rather than a per-deployment choice. What `Config` exposes is what genuinely varies: the ffmpeg and ffprobe executables, the two audio gains the operator approved, whether the GPU encoder is probed, and where libass finds the subtitle font.
+The delivery style is not configurable. Geometry, frame rate, rate control, the subtitle style, the ending length, the shipped ending assets and their digests, and the limiter are constants in `src/delivery.ts`, because they are the operator-approved specification rather than a per-deployment choice. The ending effect keeps its own timeline: it plays once at its own speed over the opening of the two-second ending, and the rest of the window is the freeze frame ([ending speed](../bug-fix/2026-09-26-ending-plays-at-its-own-speed.md)). What `Config` exposes is what genuinely varies: the ffmpeg and ffprobe executables, the two audio gains the operator approved, whether the GPU encoder is probed, and where libass finds the subtitle font.
 
 ## The two traps
 
@@ -48,7 +48,7 @@ The delivery style is not configurable. Geometry, frame rate, rate control, the 
 
 The delivery style now has one executable home, and the two silent failures have somewhere to be recorded. A session that never reads the skill still cannot deliver a file outside the specification without the result saying so, and it can read every defect from one call.
 
-The cost is a second implementation during the transition. `render_episode.py` stays the production path until sessions move over, so the style exists twice for a while; the Python remains the reference for the byte layout the operator has already approved, and the package's Dev Note lists the five places the port deliberately differs. The `tweet-drama-background-render` skill is untouched.
+The cost is a second implementation during the transition. `render_episode.py` stays the production path until sessions move over, so the style exists twice for a while; the Python remains the reference for the byte layout the operator has already approved, and the package's Dev Note lists the five places the port deliberately differs. Both entries now carry the same ending rule—natural speed over the freeze and the shipped bytes only—and the skill text states it ([ending speed](../bug-fix/2026-09-26-ending-plays-at-its-own-speed.md)).
 
 Three limits are deliberate and recorded in the package README: the ending is rebuilt on every render rather than reused from the cache, because a cached ending could predate a re-cut and the proof is the point of the step; `render` is not transactional, so an interrupted run can leave a partial `base.mp4` that the next run overwrites rather than validates; and the audio mix is not metered, so `alimiter=0.95` is the only ceiling and a source louder than the master it replaced can still clip before it.
 

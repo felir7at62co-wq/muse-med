@@ -3,9 +3,28 @@
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { buildEndingClip, extractTailFrame, lastFrameIndex, parseFramemd5, TAIL_SEEK_SECONDS } from '../src/ending.ts'
+import { ENDING_AUDIO_ASSET, ENDING_EFFECT_ASSET, ENDING_SECONDS } from '../src/delivery.ts'
+import {
+  buildEndingClip,
+  extractTailFrame,
+  lastFrameIndex,
+  parseFramemd5,
+  requireEndingEffectFits,
+  requireShippedEndingAsset,
+  TAIL_SEEK_SECONDS,
+} from '../src/ending.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
-import { cleanup, framemd5Line, sizeOf, stubChannel, tempProject, writePlaceholder, type ChannelCall } from './harness.ts'
+import {
+  cleanup,
+  framemd5Line,
+  probeHandler,
+  shippedEndingAsset,
+  sizeOf,
+  stubChannel,
+  tempProject,
+  writePlaceholder,
+  type ChannelCall,
+} from './harness.ts'
 
 const temporary: string[] = []
 
@@ -207,6 +226,70 @@ describe('extractTailFrame', () => {
     )).rejects.toThrow()
   })
 })
+describe('requireShippedEndingAsset', () => {
+  it('accepts the shipped ending effect and the shipped ending sound', async () => {
+    await expect(requireShippedEndingAsset(shippedEndingAsset('ending_effect.mp4'), ENDING_EFFECT_ASSET))
+      .resolves.toBeUndefined()
+    await expect(requireShippedEndingAsset(shippedEndingAsset('ending_audio.mp3'), ENDING_AUDIO_ASSET))
+      .resolves.toBeUndefined()
+  })
+
+  it('rejects a substituted ending effect and names the shipped asset', async () => {
+    const project = await tempProject()
+    temporary.push(project)
+    const wrong = join(project, 'ending_effect.mp4')
+    await writePlaceholder(wrong, 'not the shipped effect')
+    await expect(requireShippedEndingAsset(wrong, ENDING_EFFECT_ASSET))
+      .rejects.toThrow('片尾特效不是随包素材')
+    await expect(requireShippedEndingAsset(wrong, ENDING_EFFECT_ASSET))
+      .rejects.toThrow(ENDING_EFFECT_ASSET.sha256)
+    await expect(requireShippedEndingAsset(wrong, ENDING_EFFECT_ASSET))
+      .rejects.toThrow('tweet-drama-background-render/assets/ending_effect.mp4')
+  })
+
+  it('rejects a substituted ending sound and names the shipped asset', async () => {
+    const project = await tempProject()
+    temporary.push(project)
+    const wrong = join(project, 'ending_audio.mp3')
+    await writePlaceholder(wrong, 'not the shipped sound')
+    await expect(requireShippedEndingAsset(wrong, ENDING_AUDIO_ASSET))
+      .rejects.toThrow('片尾音不是随包素材')
+    await expect(requireShippedEndingAsset(wrong, ENDING_AUDIO_ASSET))
+      .rejects.toThrow(ENDING_AUDIO_ASSET.sha256)
+    await expect(requireShippedEndingAsset(wrong, ENDING_AUDIO_ASSET))
+      .rejects.toThrow('tweet-drama-background-render/assets/ending_audio.mp3')
+  })
+})
+
+describe('requireEndingEffectFits', () => {
+  /** The toolkit one duration check talks to. */
+  function probingToolkit(path: string, durationSeconds: number) {
+    const channel = stubChannel([probeHandler({ [path]: { durationSeconds } })])
+    return createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel })
+  }
+
+  it('accepts the shipped effect, which is shorter than the ending window', async () => {
+    const effect = shippedEndingAsset('ending_effect.mp4')
+    await expect(requireEndingEffectFits(probingToolkit(effect, 1.02), effect)).resolves.toBeUndefined()
+  })
+
+  it('accepts an effect that ends exactly on the ending window', async () => {
+    const effect = 'C:/proj/assets/ending_effect.mp4'
+    await expect(requireEndingEffectFits(probingToolkit(effect, ENDING_SECONDS), effect)).resolves.toBeUndefined()
+  })
+
+  it('rejects an effect longer than the ending window instead of truncating it', async () => {
+    const effect = 'C:/proj/assets/longer_effect.mp4'
+    await expect(requireEndingEffectFits(probingToolkit(effect, 2.5), effect)).rejects.toThrow('超过片尾 2.000 秒的窗口')
+  })
+
+  it('fails loud when the effect cannot be probed at all', async () => {
+    const effect = 'C:/proj/assets/unreadable_effect.mp4'
+    await expect(requireEndingEffectFits(probingToolkit(effect, 1.02), effect + '.other'))
+      .rejects.toThrow('ffprobe')
+  })
+})
+
 describe('buildEndingClip', () => {
   it('loops the frozen frame for exactly two seconds and blends the effect over it', async () => {
     const project = await tempProject()

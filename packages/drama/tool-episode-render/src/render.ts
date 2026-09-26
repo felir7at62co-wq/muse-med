@@ -26,6 +26,8 @@ import { buildProvenance, provenancePathFor, writeProvenance } from './provenanc
 import {
   audioMixFilter,
   deliveryScaleFilter,
+  ENDING_AUDIO_ASSET,
+  ENDING_EFFECT_ASSET,
   ENDING_SECONDS,
   MAX_BITRATE,
   MIN_BITRATE_BPS,
@@ -33,7 +35,12 @@ import {
   TARGET_BITRATE,
 } from './delivery.ts'
 import { chooseEncoder } from './encoder.ts'
-import { buildEndingClip, extractTailFrame } from './ending.ts'
+import {
+  buildEndingClip,
+  extractTailFrame,
+  requireEndingEffectFits,
+  requireShippedEndingAsset,
+} from './ending.ts'
 import { firstStreamOfType, frameRateOf, probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { buildReport, type ReportInput } from './report.ts'
@@ -139,6 +146,11 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   await requireFile(input.endingEffect, '片尾特效', '请给出片尾特效文件路径（技能 assets 目录下的 ending_effect.mp4）。')
 
   const bgmPlan = await readBgmPlan(input.bgmPlan, input.episode, bodyEndSeconds, input.bgm, input.project)
+  // Every input is judged before the first media command runs, so a substituted
+  // ending asset or an over-long effect costs nothing but the message.
+  await requireShippedEndingAsset(input.endingAudio, ENDING_AUDIO_ASSET)
+  await requireShippedEndingAsset(input.endingEffect, ENDING_EFFECT_ASSET)
+  await requireEndingEffectFits(toolkit, input.endingEffect)
   const choice = await chooseEncoder(toolkit, settings.preferNvenc)
   const gpuUsed = choice.encoder !== 'libx264'
   await mkdir(paths.cacheDir, { recursive: true })

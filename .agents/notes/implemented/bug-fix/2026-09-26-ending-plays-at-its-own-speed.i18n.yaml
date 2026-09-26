@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-26-ending-plays-at-its-own-speed.md
+2026-09-26-ending-plays-at-its-own-speed.md: 3bac3a48d74f868f386109ec5247fe990b3f8ebc
+2026-09-26-ending-plays-at-its-own-speed.zh.md: f81d06b735d3619fc4041b3151bf472ee3317d02

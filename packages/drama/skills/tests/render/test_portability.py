@@ -158,6 +158,40 @@ class PortabilityTests(unittest.TestCase):
                 render.render(args)
             self.assertFalse((project / 'exports').exists())
 
+    def test_ending_effect_filter_plays_the_effect_at_its_own_speed(self):
+        render = load('render_ending_speed_test', RENDER / 'scripts/render_episode.py')
+        value = render.ending_effect_filter(2.0)
+        self.assertIn('[1:v]setpts=PTS-STARTPTS,', value)
+        self.assertNotIn('setpts=(PTS-STARTPTS)/', value)
+        self.assertIn('tpad=stop_mode=add:stop_duration=2.000:color=black', value)
+        self.assertIn('trim=0:2.000', value)
+
+    def test_ending_assets_are_the_shipped_bytes(self):
+        render = load('render_ending_asset_test', RENDER / 'scripts/render_episode.py')
+        assets = RENDER / 'assets'
+        render.verify_ending_asset(assets / 'ending_effect.mp4', render.ENDING_EFFECT)
+        render.verify_ending_asset(assets / 'ending_audio.mp3', render.ENDING_AUDIO)
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
+            wrong = Path(temporary) / 'ending_effect.mp4'
+            wrong.write_bytes(b'not the shipped effect')
+            with self.assertRaisesRegex(ValueError, 'ending_effect.mp4'):
+                render.verify_ending_asset(wrong, render.ENDING_EFFECT)
+
+    def test_render_refuses_a_substituted_ending_effect_before_any_work(self):
+        import argparse
+        render = load('render_ending_gate_test', RENDER / 'scripts/render_episode.py')
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
+            project = Path(temporary)
+            mix = project / 'mix.mp3'
+            mix.touch()
+            effect = project / 'ending.mp4'
+            effect.touch()
+            args = argparse.Namespace(project=project, episode='01', bgm=mix,
+                                      ending_audio=RENDER / 'assets/ending_audio.mp3', ending_effect=effect)
+            with self.assertRaisesRegex(ValueError, 'ending_effect.mp4'):
+                render.render(args)
+            self.assertFalse((project / 'exports').exists())
+
     def test_current_spoken_and_bgm_rules(self):
         text = (DRAFT / 'references/io-contract.md').read_text(encoding='utf-8')
         self.assertNotIn('on-screen spoken lines only', text)
