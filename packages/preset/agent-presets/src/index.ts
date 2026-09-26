@@ -55,6 +55,30 @@ export type {
 /** Settings namespace carrying the user's preset-picker preference and chosen default. */
 export const SETTINGS_NAMESPACE = 'agent-presets'
 
+/**
+ * Deprecated preset ids resolved to the preset that replaced them.
+ *
+ * The product's own short-drama preset was renamed from `short-drama-local` to
+ * `short-drama`. A session created before that rename names the old id in its
+ * creation header and in every `agent-preset/selected` event after it, and this
+ * version has no alias mechanism, so resuming one failed with
+ * `agent-preset/not-found` — a durable record outlived the directory that
+ * answered it.
+ *
+ * The mapping is resolution-only: the alias never joins the roster (`list` and
+ * the picker still show exactly what the roots supply), and {@link
+ * AgentPresets.resolve} prefers a real preset, so a restored directory using the
+ * old id is never shadowed by its successor.
+ *
+ * Delete an entry once no durable record can still name it. For
+ * `short-drama-local` that is when no session created before the rename
+ * (2026-09-26) remains resumable, and no settings document still stores it as
+ * the chosen default.
+ */
+export const DEPRECATED_PRESET_IDS: Readonly<Record<string, string>> = {
+  'short-drama-local': 'short-drama',
+}
+
 /** Refuse an empty preset id before invoking a domain operation. */
 function validatePresetId(value: string, field: 'agentPreset' | 'from'): void {
   if (value.length === 0) {
@@ -364,15 +388,22 @@ export class AgentPresets extends TypertRemoteService {
    *
    * A broken preset resolves — deleting one, reading one, and reporting one
    * all need the row — and the mounting paths refuse it AFTER resolution
-   * through {@link resolveMountable}.
+   * through {@link resolveMountable}. A deprecated id resolves to the preset
+   * that replaced it unless a root still supplies it, which is what lets a
+   * session recorded before a rename resume without the alias joining the
+   * roster.
    * @param id - the preset id, or `undefined` for {@link defaultId}.
    * @returns the resolved preset.
-   * @throws when no configured root supplies that id.
+   * @throws when no configured root supplies that id or its successor.
    */
   async resolve(id?: string): Promise<AgentPreset> {
     const wanted = id ?? this.defaultId
     const presets = await this.list()
+    // The rename fallback is second so a root that DOES supply the old id keeps
+    // answering for it: restoring an archived preset directory must reach that
+    // preset rather than the one that replaced it.
     const found = presets.find(preset => preset.id === wanted)
+      ?? presets.find(preset => preset.id === DEPRECATED_PRESET_IDS[wanted])
     if (found === undefined) {
       const available = presets.map(preset => preset.id)
       throw new RemoteError(

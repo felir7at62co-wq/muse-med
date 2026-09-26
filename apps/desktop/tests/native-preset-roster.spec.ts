@@ -25,7 +25,8 @@ import { Context } from '@deepseek-ai/cordis'
 import Include, { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import Loader, { Group } from '@deepseek-ai/cordis-plugin-loader'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
-import AgentPresets from '@deepseek-ai/dsh-agent-presets'
+import AgentPresets, { SHIPPED_PRESET_ROOT } from '@deepseek-ai/dsh-agent-presets'
+import { createScope } from '@deepseek-ai/dsh-scope'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import Skills from '@deepseek-ai/dsh-skill'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -98,13 +99,14 @@ async function linkWorkspacePackages(root: string, names: Iterable<string>): Pro
  * Boot a Loader over the real product roster.
  * @param modules - modules the composition rows resolve, keyed by specifier.
  * @param run - receives the booted context; the harness disposes it afterwards.
- * @param fallback - module for rows this case does not assert on; absent leaves
- * an unmapped specifier a failure, so a case can require every row it mounts.
+ * @param options - `fallback` is the module for rows this case does not assert
+ * on, absent leaving an unmapped specifier a failure; `config` overrides the
+ * real `agent-presets` row for a case that composes another root.
  */
 async function withRoster(
   modules: ReadonlyMap<string, unknown>,
   run: (ctx: Context) => Promise<void>,
-  fallback?: unknown,
+  options: { fallback?: unknown; config?: Record<string, unknown> } = {},
 ): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'muse-preset-roster-'))
   const ctx = new Context()
@@ -120,7 +122,11 @@ async function withRoster(
       {
         id: 'agent-presets',
         name: 'test:presets',
-        config: { ...presetConfig as object, roots: [{ path: productRoot, trust: 'system' }] },
+        config: {
+          ...presetConfig as object,
+          roots: [{ path: productRoot, trust: 'system' }],
+          ...options.config,
+        },
       },
     ]))
     ctx.baseUrl = pathToFileURL(root).href + '/'
@@ -140,7 +146,7 @@ async function withRoster(
       ['@deepseek-ai/dsh-desktop-host/native-preset', { default: NativePreset }],
     ])
     ctx.loader.internal = { version: 'v2', async import(specifier: string) {
-      const found = host.get(specifier) ?? modules.get(specifier) ?? fallback
+      const found = host.get(specifier) ?? modules.get(specifier) ?? options.fallback
       if (found === undefined) throw new Error(`Unexpected module ${specifier}`)
       return found
     } } as unknown as NonNullable<typeof ctx.loader.internal>
@@ -194,7 +200,7 @@ it('mounts the cordis composition with the authoring skills its persona names', 
     const names = (await ctx.skills.list({ scope: key })).map(skill => skill.name)
     expect(names).toContain('editing-cordis-compositions')
     expect(names).toContain('cordis-plugin-development')
-  }, INERT)
+  }, { fallback: INERT })
 })
 
 it('leaves standard and ptc without a skill provider of their own', async () => {
@@ -208,5 +214,29 @@ it('leaves standard and ptc without a skill provider of their own', async () => 
       const key = await ctx.agentPresets.standingKeyFor(id)
       expect(await ctx.skills.list({ scope: key })).toEqual([])
     }
-  }, INERT)
+  }, { fallback: INERT })
+})
+
+it('resumes a session recorded before the short-drama rename, without joining the roster', async () => {
+  // The reported failure: a session header and its `agent-preset/selected`
+  // events name `short-drama-local`, and composing it threw `not found`.
+  await withRoster(new Map(), async (ctx) => {
+    const scope = createScope(ctx, {})
+    const preset = await ctx.agentPresets.mount(scope.ctx, 'short-drama-local')
+    expect(preset.id).toBe('short-drama')
+    expect(preset.path).toBe(join(productRoot, 'short-drama', 'agent.cordis.yml'))
+    const ids = (await ctx.agentPresets.list()).map(row => row.id)
+    expect(ids).toEqual(['standard', 'ptc', 'minimal', 'cordis', 'short-drama'])
+  }, { fallback: INERT })
+})
+
+it('resolves the renamed id on the shipped root a Web profile composes', async () => {
+  // Both sides mount the same roster service; this case pins the other root.
+  await withRoster(new Map(), async (ctx) => {
+    const legacy = await ctx.agentPresets.resolve('short-drama-local')
+    expect(legacy.id).toBe('short-drama')
+    expect(legacy.path).toBe(join(SHIPPED_PRESET_ROOT, 'short-drama', 'agent.cordis.yml'))
+    expect((await ctx.agentPresets.list()).map(row => row.id))
+      .toEqual(['standard', 'ptc', 'minimal', 'cordis', 'short-drama'])
+  }, { config: { includeShippedRoot: true, roots: [] } })
 })
