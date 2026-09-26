@@ -1,16 +1,20 @@
 /**
  * Start the Web GUI against the muse product home instead of the official dsh home.
  *
- * The launcher owns three things: `MUSE_HOME`, the Web port, and the Feishu bridge gate in
- * that home's Web profile. `dsh-home-paths` already prefers `MUSE_HOME` over `DSH_HOME`, so
- * the CLI, the profile directory, settings, credentials, skills, and the session store all
- * resolve under one home without a second application or a change to any composed default.
- * The port defaults to 327, because the official 3080 is where a plain `dsh web` binds and
- * the two must not collide; an explicit `--port` wins. Before the Web app starts, the
- * launcher ensures the profile's own patch layer disables the market Feishu bridge row
- * whenever that profile lists the bundle: the market package has no plugin-level activation
- * control, so the Loader's entry-level `disabled` is the only switch that keeps its code from
- * running. The append is idempotent and copies the previous patch file under `.local/`.
+ * The launcher owns four things: `MUSE_HOME`, the Web port, the Feishu bridge gate, and the
+ * product's Feishu setup row in that home's Web profile. `dsh-home-paths` already prefers
+ * `MUSE_HOME` over `DSH_HOME`, so the CLI, the profile directory, settings, credentials,
+ * skills, and the session store all resolve under one home without a second application or a
+ * change to any composed default. The port defaults to 327, because the official 3080 is
+ * where a plain `dsh web` binds and the two must not collide; an explicit `--port` wins.
+ * Before the Web app starts, the launcher ensures the profile's own patch layer disables the
+ * market Feishu bridge row whenever that profile lists the bundle: the market package has no
+ * plugin-level activation control, so the Loader's entry-level `disabled` is the only switch
+ * that keeps its code from running. It then ensures the same patch mounts
+ * `@deepseek-ai/dsh-feishu-settings`, that the profile declares that dependency, and that the
+ * profile links the repository package, so one `pnpm muse:web` carries the Settings page on a
+ * fresh checkout; a missing client bundle is reported with the command to run, never built
+ * here. Every append copies the previous file under `.local/`.
  * One line reports the resolved home, port, and URL, so it is visible which data the GUI
  * serves. Extra arguments are forwarded verbatim to the web app; `--dry-run` performs the
  * home preparation and exits without starting the app.
@@ -22,9 +26,9 @@
  */
 
 import { spawn } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -38,6 +42,20 @@ const FEISHU_BUNDLE = '@moyu-good/dsh-lark-bridge'
 
 /** Row id that bundle inserts, and the id this launcher's gate patches. */
 const FEISHU_ROW_ID = 'feishu-channel'
+
+/** Package whose row mounts the product's own Feishu switch and Settings page. */
+const FEISHU_SETTINGS_PACKAGE = '@deepseek-ai/dsh-feishu-settings'
+
+/** Repository directory that package builds from. */
+const FEISHU_SETTINGS_DIR = join(ROOT, 'packages', 'host', 'feishu-settings')
+
+/** Row the profile patch gains when it carries no setup page yet. */
+const FEISHU_SETTINGS_ENTRY = `# ── 飞书设置分区：本产品自有的开关 + 扫码注册页（host + client 同挂）──────
+# 由 scripts/muse-web.mjs 幂等维护：缺则追加，已有则原样跳过。
+- insert:
+    - id: feishu-settings
+      name: '@deepseek-ai/dsh-feishu-settings'
+`
 
 /**
  * Gate appended to the Web profile's patch layer.
@@ -99,6 +117,92 @@ function gateValue(text) {
 }
 
 /**
+ * Copy one profile file into the repository's `.local/` scratch area.
+ * @param path - file to copy.
+ * @param name - file name the backup keeps.
+ * @returns the backup path.
+ */
+function backUp(path, name) {
+  const backupDir = join(ROOT, '.local', 'muse-web-gate')
+  mkdirSync(backupDir, { recursive: true })
+  const stamp = new Date().toISOString().replaceAll(/[:.]/gu, '-')
+  const backupPath = join(backupDir, `${name}.${stamp}.bak`)
+  copyFileSync(path, backupPath)
+  return backupPath
+}
+
+/**
+ * Whether a parsed JSON value is a plain mapping.
+ * @param value - candidate.
+ * @returns true for a non-array object.
+ */
+function isRecord(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Ensure this home's Web profile mounts the product's Feishu setup page.
+ *
+ * Idempotent by row id, dependency key, and link target, so the supported launch
+ * path carries the page on any repository checkout after `git pull` and
+ * `pnpm install`. Building stays out of the launcher: a missing client bundle is
+ * reported as the command to run instead of being built here.
+ * @param homeDir - resolved `MUSE_HOME`.
+ * @returns one line per step, for the launcher log.
+ */
+function ensureFeishuSettings(homeDir) {
+  const profileDir = join(homeDir, 'profiles', 'web')
+  const patchPath = join(profileDir, 'cordis.patch.yml')
+  const manifestPath = join(profileDir, 'package.json')
+  const linkPath = join(profileDir, 'node_modules', '@deepseek-ai', 'dsh-feishu-settings')
+  if (!existsSync(patchPath)) return [`feishu settings: ${patchPath} is absent; profile initialization owns it`]
+  const lines = []
+
+  const patch = readFileSync(patchPath, 'utf8')
+  if (/^\s*-\s*id:\s*["']?feishu-settings["']?\s*$/mu.test(patch)) {
+    lines.push('feishu settings: row already present; left untouched')
+  } else {
+    const backupPath = backUp(patchPath, 'cordis.patch.yml')
+    const separated = patch.endsWith('\n') || patch.length === 0 ? patch : `${patch}\n`
+    writeFileSync(patchPath, `${separated}\n${FEISHU_SETTINGS_ENTRY}`)
+    lines.push(`feishu settings: row appended to ${patchPath} (backup ${backupPath})`)
+  }
+
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    if (!isRecord(manifest)) throw new TypeError('manifest is not an object')
+    const dependencies = isRecord(manifest.dependencies) ? manifest.dependencies : {}
+    if (dependencies[FEISHU_SETTINGS_PACKAGE] === undefined) {
+      const backupPath = backUp(manifestPath, 'package.json')
+      manifest.dependencies = { ...dependencies, [FEISHU_SETTINGS_PACKAGE]: 'workspace:^' }
+      writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
+      lines.push(`feishu settings: dependency ${FEISHU_SETTINGS_PACKAGE} added (backup ${backupPath})`)
+    } else {
+      lines.push('feishu settings: dependency already declared; left untouched')
+    }
+  } catch (error) {
+    lines.push(`feishu settings: cannot read ${manifestPath} (${error?.code ?? 'parse error'}); dependency left untouched`)
+  }
+
+  if (existsSync(linkPath)) {
+    lines.push('feishu settings: package link already present; left untouched')
+  } else {
+    try {
+      mkdirSync(dirname(linkPath), { recursive: true })
+      symlinkSync(FEISHU_SETTINGS_DIR, linkPath, process.platform === 'win32' ? 'junction' : 'dir')
+      lines.push(`feishu settings: linked ${linkPath} -> ${FEISHU_SETTINGS_DIR}`)
+    } catch (error) {
+      lines.push(`feishu settings: cannot link ${linkPath} (${error?.code ?? 'link error'}); create it yourself, e.g. run \`pnpm install\` in ${profileDir}, or \`mklink /J "${linkPath}" "${FEISHU_SETTINGS_DIR}"\` on Windows`)
+    }
+  }
+
+  if (!existsSync(join(FEISHU_SETTINGS_DIR, 'lib', 'client.js'))) {
+    lines.push('feishu settings: lib/client.js is missing, so the Settings section cannot appear yet; run `pnpm run build:lib:host` and `pnpm --filter @deepseek-ai/dsh-feishu-settings run bundle`, then restart')
+  }
+  return lines
+}
+
+/**
  * Ensure this home's Web profile patch keeps the Feishu bridge row off.
  *
  * A profile that does not list the bundle gets no entry: the Loader reports an
@@ -128,11 +232,7 @@ function ensureFeishuGate(homeDir) {
       : `feishu gate: row ${describe} but profile no longer lists ${FEISHU_BUNDLE}; left untouched (the Loader reports the unmatched patch)`
   }
   if (declared !== undefined) return `feishu gate: row ${describe}; left untouched`
-  const backupDir = join(ROOT, '.local', 'muse-web-gate')
-  mkdirSync(backupDir, { recursive: true })
-  const stamp = new Date().toISOString().replaceAll(/[:.]/gu, '-')
-  const backupPath = join(backupDir, `cordis.patch.yml.${stamp}.bak`)
-  copyFileSync(patchPath, backupPath)
+  const backupPath = backUp(patchPath, 'cordis.patch.yml')
   const separated = text.endsWith('\n') || text.length === 0 ? text : `${text}\n`
   writeFileSync(patchPath, `${separated}\n${FEISHU_GATE}`)
   return `feishu gate: appended to ${patchPath} (backup ${backupPath})`
@@ -145,6 +245,7 @@ const forwarded = args.filter(arg => arg !== '--dry-run')
 const requested = requestedPort(forwarded)
 const port = requested === undefined ? MUSE_WEB_PORT : requested
 process.stdout.write(`muse-web: home=${home}  port=${port === '' ? '(missing --port value)' : port}  url=http://127.0.0.1:${port}/\n`)
+for (const line of ensureFeishuSettings(home)) process.stdout.write(`muse-web: ${line}\n`)
 process.stdout.write(`muse-web: ${ensureFeishuGate(home)}\n`)
 if (dryRun) {
   process.stdout.write('muse-web: --dry-run prepared the home; the Web app was not started\n')
