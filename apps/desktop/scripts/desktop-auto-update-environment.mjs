@@ -71,20 +71,32 @@ export function desktopBuildRecordFilename(target) {
 }
 
 /**
+ * Return the update channel an application version belongs to.
+ *
+ * One derivation serves both the metadata filename and the publish entry, so the emitted
+ * file and the entry that names it cannot disagree.
+ * @param {string} version - Desktop semantic version.
+ * @returns {string} First prerelease identifier, or `latest` for a stable version.
+ */
+export function desktopUpdateChannel(version) {
+  if (valid(version) === null) {
+    throw new Error(`desktop auto-update: invalid Desktop version ${JSON.stringify(version)}`)
+  }
+  const release = prerelease(version)
+  return release === null ? 'latest' : String(release[0])
+}
+
+/**
  * Return the electron-builder channel metadata filename for an application version.
  * @param {string} version - Desktop semantic version.
  * @param {NodeJS.Platform} platform - Target platform.
  * @returns {string} Channel metadata filename emitted for the target.
  */
 export function desktopUpdateMetadataFilename(version, platform) {
-  if (valid(version) === null) {
-    throw new Error(`desktop auto-update: invalid Desktop version ${JSON.stringify(version)}`)
-  }
+  const channel = desktopUpdateChannel(version)
   if (platform !== 'darwin' && platform !== 'win32') {
     throw new Error(`desktop auto-update: unsupported metadata platform ${platform}`)
   }
-  const release = prerelease(version)
-  const channel = release === null ? 'latest' : String(release[0])
   return `${channel}${platform === 'darwin' ? '-mac' : ''}.yml`
 }
 
@@ -134,10 +146,23 @@ function httpsOrigin(value, name) {
  * which is the Desktop updater's activation switch (`src/update-coordinator.ts`), so every
  * target records it, including `--unsigned`. An unsigned build records no `publisherName`,
  * and electron-updater skips the update package's Authenticode check without one.
- * @returns {{ provider: 'github', owner: string, repo: string }} electron-builder publish entry for GitHub Releases.
+ *
+ * `channel` is explicit because electron-builder names the metadata file from this entry
+ * alone (`app-builder-lib` `updateInfoBuilder.computeChannelNames` reads
+ * `publishConfig.channel || "latest"`) and applies the version-derived channel only to the
+ * `generic`, `s3`, and `spaces` providers. A `github` entry without it emits `latest.yml`
+ * for a prerelease, so every installed client asks for `alpha.yml`, takes a 404, and only
+ * then falls back.
+ * @param {string} version - Desktop semantic version, read from the packaged manifest.
+ * @returns {{ provider: 'github', owner: string, repo: string, channel: string }} electron-builder publish entry for GitHub Releases.
  */
-export function resolveDesktopGitHubUpdateConfig() {
-  return { provider: 'github', owner: GITHUB_UPDATE_OWNER, repo: GITHUB_UPDATE_REPO }
+export function resolveDesktopGitHubUpdateConfig(version) {
+  return {
+    provider: 'github',
+    owner: GITHUB_UPDATE_OWNER,
+    repo: GITHUB_UPDATE_REPO,
+    channel: desktopUpdateChannel(version),
+  }
 }
 
 /**

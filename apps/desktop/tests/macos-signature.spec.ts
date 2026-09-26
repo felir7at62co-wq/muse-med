@@ -6,6 +6,7 @@ import {
   resolveMacOSNotarizationEnvironment,
   resolveMacOSSigningEnvironment,
 } from '../scripts/desktop-release-environment.mjs'
+import { desktopUpdateChannel } from '../scripts/desktop-auto-update-environment.mjs'
 import { notarizeMacOSDiskImageArtifact } from '../scripts/notarize-macos-disk-images.mjs'
 import {
   assertMacOSRuntimeSignatureDetails,
@@ -124,6 +125,8 @@ describe('desktop macOS release signature', () => {
       win: { forceCodeSigning: false, signtoolOptions: { sign: undefined } },
       publish: [{ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med' }],
     })
+    const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
+    expect(config.publish[0].channel).toBe(desktopUpdateChannel(manifest.version))
   })
 
   it('rejects unsigned macOS builds and malformed signing modes', async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   desktopBuildRecordFilename,
+  desktopUpdateChannel,
   desktopUpdateMetadataFilename,
   resolveDesktopAutoUpdateConfig,
   resolveDesktopAutoUpdateEnvironment,
@@ -88,11 +89,23 @@ describe('desktop auto-update environment', () => {
     expect(() => desktopUpdateMetadataFilename('1.2.3', 'linux')).toThrow(/unsupported metadata platform/u)
   })
 
+  it('derives one channel for both the metadata file and the publish entry', () => {
+    expect(desktopUpdateChannel('1.2.3')).toBe('latest')
+    expect(desktopUpdateChannel('1.2.3-alpha.4')).toBe('alpha')
+    expect(() => desktopUpdateChannel('not-semver')).toThrow(/invalid Desktop version/u)
+    for (const version of ['1.2.3', '1.2.3-beta.2']) {
+      expect(resolveDesktopGitHubUpdateConfig(version).channel)
+        .toBe(desktopUpdateMetadataFilename(version, 'win32').replace(/\.yml$/u, ''))
+    }
+  })
+
   it('records the GitHub repository that publishes this product as the update source', () => {
-    expect(resolveDesktopGitHubUpdateConfig()).toEqual({
+    expect(resolveDesktopGitHubUpdateConfig('0.1.6-alpha.2')).toEqual({
       provider: 'github',
       owner: 'felir7at62co-wq',
       repo: 'muse-med',
+      channel: 'alpha',
     })
+    expect(resolveDesktopGitHubUpdateConfig('0.1.6').channel).toBe('latest')
   })
 })

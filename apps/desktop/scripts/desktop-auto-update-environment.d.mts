@@ -51,6 +51,13 @@ export function resolveDesktopAutoUpdateTarget(
 export function desktopBuildRecordFilename(target: DesktopAutoUpdateTarget): string
 
 /**
+ * Return the update channel an application version belongs to.
+ * @param version - Desktop semantic version.
+ * @returns First prerelease identifier, or `latest` for a stable version.
+ */
+export function desktopUpdateChannel(version: string): string
+
+/**
  * Return the electron-builder channel metadata filename for an application version.
  * @param version - Desktop semantic version.
  * @param platform - Target platform.
@@ -66,6 +73,7 @@ export interface DesktopGitHubUpdateConfig {
   readonly provider: 'github'
   readonly owner: string
   readonly repo: string
+  readonly channel: string
 }
 
 /**
@@ -75,9 +83,13 @@ export interface DesktopGitHubUpdateConfig {
  * which is the Desktop updater's activation switch (`src/update-coordinator.ts`), so every
  * target records it, including `--unsigned`. An unsigned build records no `publisherName`,
  * and electron-updater skips the update package's Authenticode check without one.
+ *
+ * `channel` is explicit because electron-builder names the metadata file from this entry
+ * alone and applies the version-derived channel only to other providers.
+ * @param version - Desktop semantic version, read from the packaged manifest.
  * @returns electron-builder publish entry for GitHub Releases.
  */
-export function resolveDesktopGitHubUpdateConfig(): DesktopGitHubUpdateConfig
+export function resolveDesktopGitHubUpdateConfig(version: string): DesktopGitHubUpdateConfig
 
 /**
  * Resolve the public updater URL for one release target.

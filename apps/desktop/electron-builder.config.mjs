@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -13,6 +14,18 @@ import {
 } from './scripts/windows-sign.mjs'
 import { resolveDesktopGitHubUpdateConfig } from './scripts/desktop-auto-update-environment.mjs'
 import { desktopTargetBuildPaths, resolveDesktopBuildTarget } from './scripts/desktop-build-paths.mjs'
+
+/**
+ * Read the Desktop application version electron-builder stamps into the artifact name.
+ * @returns Version from this application's manifest.
+ */
+function desktopPackageVersion() {
+  const manifest = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+  if (typeof manifest.version !== 'string' || manifest.version === '') {
+    throw new Error('desktop package: apps/desktop/package.json has no version')
+  }
+  return manifest.version
+}
 
 /**
  * Create electron-builder configuration from one release environment.
@@ -127,7 +140,7 @@ export function createElectronBuilderConfig(
     },
     // Every target, unsigned included, records the update source: the packaged updater
     // activates only while `resources/app-update.yml` exists.
-    publish: [resolveDesktopGitHubUpdateConfig()],
+    publish: [resolveDesktopGitHubUpdateConfig(desktopPackageVersion())],
   }
 }
 

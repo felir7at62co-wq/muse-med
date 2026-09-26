@@ -33,7 +33,12 @@ export interface DesktopElectronBuilderConfig {
     readonly installerLanguages: readonly string[]
   }
   readonly artifactBuildCompleted: (artifact: { readonly file: string }) => Promise<void> | undefined
-  readonly publish: readonly [{ readonly provider: 'generic', readonly url: string }] | null
+  readonly publish: readonly [{
+    readonly provider: 'github'
+    readonly owner: string
+    readonly repo: string
+    readonly channel: string
+  }]
 }
 
 /**
