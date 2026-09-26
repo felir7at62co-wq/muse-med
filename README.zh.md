@@ -50,6 +50,19 @@ pnpm dsh web
 
 `pnpm run build` 会准备仓库产物。`pnpm dsh web` 会直接使用这些已构建产物，不会重新构建。
 
+### muse-med 入口
+
+在仓库检出目录里，产品入口是 Web GUI 的 `pnpm muse:web` 与桌面壳的 `pnpm muse:desktop`：
+
+```sh
+pnpm muse:web
+pnpm muse:web -- --port 3399
+pnpm muse:desktop
+pnpm muse:desktop:start
+```
+
+`muse:web` 在 muse 产品 home（`$MUSE_HOME`，否则 `~/.muse`）上提供 Web GUI，默认端口 327，因此不会与默认绑定 3080 的普通 `dsh web` 冲突；`--port` 可指定其他端口，`--dry-run` 只准备 home 后退出。`muse:desktop` 构建当前源码并启动桌面壳，桌面壳使用同一 home 并保留旧 `~/.muse-med` 回退；`muse:desktop:start` 跳过构建。`MUSE_MED_HOME` 可覆盖桌面 home，而继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它。
+
 ## 社区与支持
 
 - muse-med 的问题请提交到 [muse-med 仓库](https://github.com/felir7at62co-wq/muse-med/issues)。

@@ -46,6 +46,19 @@ pnpm dsh web
 
 `pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
 
+### muse-med entry points
+
+From a repository checkout, the product entry points are `pnpm muse:web` for the Web GUI and `pnpm muse:desktop` for the desktop shell:
+
+```sh
+pnpm muse:web
+pnpm muse:web -- --port 3399
+pnpm muse:desktop
+pnpm muse:desktop:start
+```
+
+`muse:web` serves the Web GUI against the muse product home (`$MUSE_HOME`, otherwise `~/.muse`) on port 327 by default, so it never collides with a plain `dsh web` on 3080; `--port` selects another port and `--dry-run` prepares the home and exits. `muse:desktop` builds the current source and launches the desktop shell, which uses the same home with a legacy `~/.muse-med` fallback; `muse:desktop:start` skips the build. `MUSE_MED_HOME` overrides the desktop home, while an inherited `DSH_HOME` or `MUSE_HOME` does not select it.
+
 ## Community and support
 
 - Report muse-med issues in the [muse-med repository](https://github.com/felir7at62co-wq/muse-med/issues).
