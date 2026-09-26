@@ -117,6 +117,7 @@
     { "path": "./packages/client/ui-settings-agent-notes" },
     { "path": "./packages/jubian/tool-jubian/tsconfig.client.json" },
     { "path": "./packages/drama/drama-settings/tsconfig.client.json" },
+    { "path": "./packages/host/feishu-settings/tsconfig.client.json" },
     { "path": "./packages/client/locale" },
     { "path": "./packages/client/ui-renderer" },
     { "path": "./packages/client/ui-session" },

@@ -30,7 +30,11 @@ export type { QRCodeInfo, RegisterAppResult }
 /** The registration call; tests substitute a fake, so no request leaves the process. */
 export type RegisterAppPort = (request: RegisterAppRequest) => Promise<RegisterAppResult>
 
-/** The official call, re-exported by `@larksuite/channel` from the platform SDK. */
+/**
+ * The official call, re-exported by `@larksuite/channel` from the platform SDK.
+ * @param request - the registration request this plugin builds.
+ * @returns the app credentials the platform reports once somebody scans.
+ */
 export const officialRegisterApp: RegisterAppPort = request => registerApp(request)
 
 /** One completed scan. */
