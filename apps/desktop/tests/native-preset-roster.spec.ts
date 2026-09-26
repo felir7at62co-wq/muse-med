@@ -187,8 +187,10 @@ it('mounts the minimal composition with the persistent shell inside its group', 
     const key = await ctx.agentPresets.standingKeyFor('minimal')
     expect(ctx.tools.schemas(key).map(tool => tool.name))
       .toContain(process.platform === 'win32' ? 'pwsh' : 'bash')
-  })
-})
+  }, {})
+  // Composing a whole shipped composition takes longer than the default budget
+  // once the suite runs beside the rest of the repository's workers.
+}, 30_000)
 
 it('mounts the cordis composition with the authoring skills its persona names', async () => {
   const modules = new Map<string, unknown>([
@@ -201,7 +203,7 @@ it('mounts the cordis composition with the authoring skills its persona names', 
     expect(names).toContain('editing-cordis-compositions')
     expect(names).toContain('cordis-plugin-development')
   }, { fallback: INERT })
-})
+}, 30_000)
 
 it('leaves standard and ptc without a skill provider of their own', async () => {
   // The Host owns the only provider that selects default roots. Both adapters
@@ -215,7 +217,7 @@ it('leaves standard and ptc without a skill provider of their own', async () => 
       expect(await ctx.skills.list({ scope: key })).toEqual([])
     }
   }, { fallback: INERT })
-})
+}, 30_000)
 
 it('resumes a session recorded before the short-drama rename, without joining the roster', async () => {
   // The reported failure: a session header and its `agent-preset/selected`
@@ -228,7 +230,7 @@ it('resumes a session recorded before the short-drama rename, without joining th
     const ids = (await ctx.agentPresets.list()).map(row => row.id)
     expect(ids).toEqual(['standard', 'ptc', 'minimal', 'cordis', 'short-drama'])
   }, { fallback: INERT })
-})
+}, 30_000)
 
 it('resolves the renamed id on the shipped root a Web profile composes', async () => {
   // Both sides mount the same roster service; this case pins the other root.

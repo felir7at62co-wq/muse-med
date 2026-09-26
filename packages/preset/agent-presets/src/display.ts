@@ -4,8 +4,37 @@
  * user-authored metadata is never translated. A pure fold with no imports, so
  * browser bundles inline it and the Host uses the same single home for which
  * shipped id carries which copy key.
+ *
+ * It also carries {@link DEPRECATED_PRESET_IDS}, the one mapping from a renamed
+ * preset id to its successor: roster resolution, the session projection's wire
+ * view, and the default comparison all read this table rather than keeping a
+ * copy each.
  * @module @deepseek-ai/dsh-agent-presets/display
  */
+
+/**
+ * Deprecated preset ids resolved to the preset that replaced them.
+ *
+ * The product's own short-drama preset was renamed from `short-drama-local` to
+ * `short-drama`. A session created before that rename names the old id in its
+ * creation header and in every `agent-preset/selected` event after it, and this
+ * version has no alias mechanism, so resuming one failed with
+ * `agent-preset/not-found` — a durable record outlived the directory that
+ * answered it.
+ *
+ * The mapping is resolution-only: the alias never joins the roster (`list` and
+ * the picker still show exactly what the roots supply), and a real preset wins
+ * the lookup, so a directory restored under the old id keeps answering for
+ * itself.
+ *
+ * Delete an entry once no durable record can still name it. For
+ * `short-drama-local` that is when no session created before the rename
+ * (2026-09-26) remains resumable, and no settings document still stores it as
+ * the chosen default.
+ */
+export const DEPRECATED_PRESET_IDS: Readonly<Record<string, string>> = {
+  'short-drama-local': 'short-drama',
+}
 
 /** Dictionary keys carrying one shipped preset's display copy. */
 export type BuiltInPresetCopyKey =

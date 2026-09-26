@@ -47,6 +47,7 @@ import {
 } from './composition-inventory.ts'
 import type { AgentPreset, Config, PresetRoot } from './preset.ts'
 import { agentPresetProjectionDefinition } from './session.ts'
+import { DEPRECATED_PRESET_IDS } from './display.ts'
 export type * from './types.ts'
 export type {
   AgentPresetComposition, AgentPresetCompositionRow, CompositionRowEnablement,
@@ -56,27 +57,18 @@ export type {
 export const SETTINGS_NAMESPACE = 'agent-presets'
 
 /**
- * Deprecated preset ids resolved to the preset that replaced them.
- *
- * The product's own short-drama preset was renamed from `short-drama-local` to
- * `short-drama`. A session created before that rename names the old id in its
- * creation header and in every `agent-preset/selected` event after it, and this
- * version has no alias mechanism, so resuming one failed with
- * `agent-preset/not-found` — a durable record outlived the directory that
- * answered it.
- *
- * The mapping is resolution-only: the alias never joins the roster (`list` and
- * the picker still show exactly what the roots supply), and {@link
- * AgentPresets.resolve} prefers a real preset, so a restored directory using the
- * old id is never shadowed by its successor.
- *
- * Delete an entry once no durable record can still name it. For
- * `short-drama-local` that is when no session created before the rename
- * (2026-09-26) remains resumable, and no settings document still stores it as
- * the chosen default.
+ * The preset id a requested id resolves to against one roster: the requested id
+ * when a root still supplies it, otherwise the deprecated successor that
+ * replaced it. One rule for resolution, the marked default, and the projection
+ * view, so a restored directory using an old id is never shadowed by its
+ * successor.
+ * @param presets - the roster the request is resolved against.
+ * @param requested - the id from a caller, a durable record, or a settings document.
+ * @returns the id of the preset that answers for `requested`.
  */
-export const DEPRECATED_PRESET_IDS: Readonly<Record<string, string>> = {
-  'short-drama-local': 'short-drama',
+export function effectivePresetId(presets: readonly AgentPreset[], requested: string): string {
+  if (presets.some(preset => preset.id === requested)) return requested
+  return DEPRECATED_PRESET_IDS[requested] ?? requested
 }
 
 /** Refuse an empty preset id before invoking a domain operation. */
@@ -110,6 +102,7 @@ export {
 } from './mount.ts'
 export { copyComposition, deleteComposition, readComposition, writableRoot } from './authoring.ts'
 export { agentPresetProjectionDefinition } from './session.ts'
+export { DEPRECATED_PRESET_IDS } from './display.ts'
 export type { AgentPreset, Config, PresetRoot, PresetTrust } from './preset.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -312,11 +305,14 @@ export class AgentPresets extends TypertRemoteService {
     // snapshot even when discovery yields while settings are hot-reloaded.
     const policy = this.selectionPolicy()
     const presets = await this.list()
+    // The marked default is the row that will actually answer for the stored
+    // value, so a stored id that was renamed still lights its successor up.
+    const defaultId = effectivePresetId(presets, policy.defaultId)
     return {
       presets: presets.map(preset => ({
         id: preset.id,
         trust: preset.trust,
-        isDefault: preset.id === policy.defaultId,
+        isDefault: preset.id === defaultId,
         ...preset.name === undefined ? {} : { name: preset.name },
         ...preset.description === undefined ? {} : { description: preset.description },
         ...preset.broken === undefined ? {} : { broken: preset.broken },
@@ -344,7 +340,9 @@ export class AgentPresets extends TypertRemoteService {
    * @returns one composition per roster preset, in roster order.
    */
   async compositionInventory(): Promise<AgentPresetComposition[]> {
-    const defaultId = this.defaultId
+    const presets = await this.list()
+    // Same marked default the picker reads, over the same roster snapshot.
+    const defaultId = effectivePresetId(presets, this.defaultId)
     // The Loader's own expression scope: what a mount decision would consult.
     // An identifier this scope cannot resolve throws under `with`, and the
     // row stays `'conditional'`; only a gate whose identifiers resolve BOTH
@@ -355,7 +353,7 @@ export class AgentPresets extends TypertRemoteService {
     // runtime's mounts describe this roster's presets.
     const rootFiber = this.ctx.root.fiber
     const found: AgentPresetComposition[] = []
-    for (const preset of await this.list()) {
+    for (const preset of presets) {
       const identity = {
         id: preset.id,
         trust: preset.trust,
@@ -399,11 +397,7 @@ export class AgentPresets extends TypertRemoteService {
   async resolve(id?: string): Promise<AgentPreset> {
     const wanted = id ?? this.defaultId
     const presets = await this.list()
-    // The rename fallback is second so a root that DOES supply the old id keeps
-    // answering for it: restoring an archived preset directory must reach that
-    // preset rather than the one that replaced it.
-    const found = presets.find(preset => preset.id === wanted)
-      ?? presets.find(preset => preset.id === DEPRECATED_PRESET_IDS[wanted])
+    const found = presets.find(preset => preset.id === effectivePresetId(presets, wanted))
     if (found === undefined) {
       const available = presets.map(preset => preset.id)
       throw new RemoteError(

@@ -16,6 +16,7 @@
 
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { z } from 'zod'
+import { DEPRECATED_PRESET_IDS } from './display.ts'
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -31,7 +32,15 @@ declare module '@deepseek-ai/dsh-session/types' {
 
 const agentPresetSchema = z.union([z.string(), z.null()])
 
-/** Current Session preset, initialized from its header and advanced by selection events. */
+/**
+ * Current Session preset, initialized from its header and advanced by selection events.
+ *
+ * The wire view resolves a renamed id to its successor so every surface that
+ * renders "what this session runs" — the header label and the picker's current
+ * mode — reads the id the roster actually carries rather than the id a durable
+ * record happened to store. Only the view moves: the durable state, and the
+ * state host readers reconstruct the composition from, keep the recorded value.
+ */
 export const agentPresetProjectionDefinition = {
   key: 'agentPreset',
   stateSchema: agentPresetSchema,
@@ -39,6 +48,6 @@ export const agentPresetProjectionDefinition = {
   apply: (state, event) => event.type === 'agent-preset/selected'
     ? event.data.agentPreset
     : state,
-  wire: { viewSchema: agentPresetSchema, view: state => state },
+  wire: { viewSchema: agentPresetSchema, view: state => state === null ? null : DEPRECATED_PRESET_IDS[state] ?? state },
   stateVersion: 1,
 } satisfies ProjectionDefinition<'agentPreset', string | null>

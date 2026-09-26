@@ -20,7 +20,11 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import AgentPresets, { COMPOSITION_FILE, SHIPPED_PRESET_ROOT, type Config } from '@deepseek-ai/dsh-agent-presets'
+import AgentPresets, {
+  agentPresetProjectionDefinition, COMPOSITION_FILE, SHIPPED_PRESET_ROOT, type Config,
+} from '@deepseek-ai/dsh-agent-presets'
+import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionHeader } from '@deepseek-ai/dsh-session'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const USER_ROOT_SEGMENT = '.agent-presets'
@@ -97,5 +101,45 @@ describe('a deprecated preset id', () => {
     const ctx = await roster()
 
     await expect(ctx.agentPresets.resolve('never-existed')).rejects.toThrow(/not found/)
+  })
+
+  it('is what a session labels itself with, through the projection view', async () => {
+    // The header label and the picker's current mode read this wire view and
+    // look the value up in the roster, so an unresolved id renders as itself.
+    const definition = agentPresetProjectionDefinition
+    const created: SessionHeader = {
+      version: SESSION_FORMAT_VERSION,
+      id: SessionId('legacy'),
+      createdAt: 1,
+      isSeeded: false,
+      delegationDepth: 0,
+      agentPreset: 'short-drama-local',
+    }
+
+    expect(definition.wire.view(definition.init(created))).toBe('short-drama')
+    expect(definition.wire.view(definition.apply('short-drama-local', {
+      type: 'agent-preset/selected', seq: 0 as never, time: 0, data: { agentPreset: 'short-drama-local' },
+    }))).toBe('short-drama')
+    expect(definition.wire.view(null)).toBeNull()
+  })
+
+  it('marks its successor as the default when the stored default was renamed', async () => {
+    const ctx = await roster({ default: 'short-drama-local' })
+
+    const exported = await ctx.agentPresets.remoteExportList()
+
+    expect(exported.presets.find(row => row.id === 'short-drama')?.isDefault).toBe(true)
+    expect(exported.presets.filter(row => row.isDefault)).toHaveLength(1)
+    expect(exported.presets.map(row => row.id)).toHaveLength(5)
+  })
+
+  it('marks a real preset as the default when a root still supplies the old id', async () => {
+    await seedHomePreset('short-drama-local')
+    const ctx = await roster({ default: 'short-drama-local' })
+
+    const exported = await ctx.agentPresets.remoteExportList()
+
+    expect(exported.presets.find(row => row.id === 'short-drama-local')?.isDefault).toBe(true)
+    expect(exported.presets.find(row => row.id === 'short-drama')?.isDefault).toBe(false)
   })
 })
