@@ -1,6 +1,8 @@
 """Offline checks for the complete maintained drama skill suite."""
+import ast
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -54,6 +56,31 @@ class SkillSuite(unittest.TestCase):
             self.assertIn(required, shots)
         for required in ("一集的 BGM 必须多于一首", "按正文情绪分段选曲", "valence/arousal", "仅限非商业用途"):
             self.assertIn(required, render)
+
+    def test_shipped_scripts_start_console_children_hidden(self):
+        """A windowless parent must pass CREATE_NO_WINDOW, or Windows pops a console."""
+        launches = 0
+        for path in sorted(SKILLS.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            source = path.read_text(encoding="utf-8")
+            calls = [
+                node for node in ast.walk(ast.parse(source))
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess"
+                and node.func.attr in {"run", "Popen", "call", "check_call", "check_output"}
+            ]
+            if not calls:
+                continue
+            self.assertIn('NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)', source, str(path))
+            for call in calls:
+                flags = [keyword for keyword in call.keywords if keyword.arg == "creationflags"]
+                self.assertEqual([ast.unparse(flag.value) for flag in flags], ["NO_WINDOW"],
+                                 f"{path}:{call.lineno} starts a console child without CREATE_NO_WINDOW")
+                launches += 1
+        self.assertGreater(launches, 0, "no shipped subprocess launch was checked")
+        if hasattr(subprocess, "CREATE_NO_WINDOW"):
+            self.assertEqual(subprocess.CREATE_NO_WINDOW, 0x08000000)
 
 
 if __name__ == "__main__":

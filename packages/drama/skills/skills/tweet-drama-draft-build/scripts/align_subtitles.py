@@ -42,6 +42,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from paths import get_ffmpeg_path, get_models_dir  # noqa: E402  (needs the path above)
 
 SAMPLE_RATE = 16000
+# A console child of a windowless parent would otherwise open its own visible console.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 PUNCT = "，。！？；：、,.!?;:\"'“”‘’（）()《》【】…—-·"
 MIN_CUE_SECONDS = 0.80
 MAX_CUE_SECONDS = 9.0
@@ -108,7 +110,7 @@ def decode(video: Path, target: Path) -> None:
         [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(video),
          "-vn", "-af", "loudnorm=I=-18:LRA=11:TP=-1.5",
          "-ac", "1", "-ar", str(SAMPLE_RATE), "-f", "wav", str(target)],
-        check=True,
+        check=True, creationflags=NO_WINDOW,
     )
 
 
@@ -117,6 +119,7 @@ def probe_seconds(video: Path) -> float:
     done = subprocess.run(
         [get_ffmpeg_path(), "-hide_banner", "-i", str(video), "-f", "null", "-"],
         capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+        creationflags=NO_WINDOW,
     )
     matches = re.findall(r"Duration: (\d+):(\d+):(\d+\.\d+)", done.stderr or "")
     if not matches:

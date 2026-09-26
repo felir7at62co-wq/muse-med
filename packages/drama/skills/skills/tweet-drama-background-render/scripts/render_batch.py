@@ -9,6 +9,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+# A console child of a windowless parent would otherwise open its own visible console.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 def episode_ids(spec: str) -> list[str]:
     result: list[int] = []
@@ -63,7 +66,8 @@ def main() -> None:
                    "--ending-effect", str(ending_effect)]
             if args.force:
                 cmd.append("--force")
-            proc = subprocess.run(cmd, text=True, encoding="utf-8", errors="replace", capture_output=True)
+            proc = subprocess.run(cmd, text=True, encoding="utf-8", errors="replace", capture_output=True,
+                                  creationflags=NO_WINDOW)
             if proc.returncode:
                 raise RuntimeError(proc.stderr[-3000:] or proc.stdout[-3000:])
             state["tasks"][episode] = {"status": "succeeded", "output": str(project / "exports" / f"{episode}.mp4")}

@@ -14,6 +14,8 @@ from xml.etree import ElementTree as ET
 
 
 TEXT_ENCODINGS = ("utf-8-sig", "utf-8", "gb18030", "gbk")
+# A console child of a windowless parent would otherwise open its own visible console.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 SCRIPT_DIR = Path(__file__).resolve().parent
 VENDOR_DIR = SCRIPT_DIR / "vendor"
 if VENDOR_DIR.exists():
@@ -87,6 +89,7 @@ def convert_doc_with_libreoffice(path: Path) -> str | None:
             text=True,
             encoding="utf-8",
             errors="replace",
+            creationflags=NO_WINDOW,
         )
         txt_files = list(temp_path.glob("*.txt"))
         if not txt_files:

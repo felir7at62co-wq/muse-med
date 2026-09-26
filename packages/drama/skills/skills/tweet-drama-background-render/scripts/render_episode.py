@@ -19,6 +19,8 @@ from video_bans import check_videos
 # FFmpeg/ffprobe resolve from the deployment's own variables first: this machine keeps them off PATH.
 FFMPEG = os.environ.get('DSH_FFMPEG_PATH') or os.environ.get('FFMPEG_PATH') or 'ffmpeg'
 FFPROBE = os.environ.get('DSH_FFPROBE_PATH') or os.environ.get('FFPROBE_PATH') or 'ffprobe'
+# A console child of a windowless parent would otherwise open its own visible console.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 WIDTH = 1440
 HEIGHT = 2560
@@ -37,13 +39,15 @@ ENDING_EFFECT = ('片尾特效', 'assets/ending_effect.mp4',
 
 
 def run(cmd: list[str]) -> None:
-    proc = subprocess.run(cmd, text=True, encoding="utf-8", errors="replace", capture_output=True)
+    proc = subprocess.run(cmd, text=True, encoding="utf-8", errors="replace", capture_output=True,
+                          creationflags=NO_WINDOW)
     if proc.returncode:
         raise RuntimeError("FFmpeg failed:\n" + " ".join(cmd) + "\n" + proc.stderr[-4000:])
 
 
 def run_capture(cmd: list[str]) -> str:
-    proc = subprocess.run(cmd, text=True, encoding="utf-8", errors="replace", capture_output=True)
+    proc = subprocess.run(cmd, text=True, encoding="utf-8", errors="replace", capture_output=True,
+                          creationflags=NO_WINDOW)
     if proc.returncode:
         raise RuntimeError("FFmpeg failed:\n" + " ".join(cmd) + "\n" + proc.stderr[-4000:])
     return proc.stdout
@@ -100,7 +104,8 @@ def extract_tail_frame(video: Path, target: Path) -> None:
 def probe(path: Path) -> dict:
     proc = subprocess.run([
         FFPROBE, "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)
-    ], text=True, encoding="utf-8", errors="replace", capture_output=True, check=True)
+    ], text=True, encoding="utf-8", errors="replace", capture_output=True, check=True,
+        creationflags=NO_WINDOW)
     return json.loads(proc.stdout)
 
 
@@ -109,7 +114,7 @@ def choose_encoder() -> tuple[str, list[str], str]:
         # Some NVIDIA generations reject 64x64 as below NVENC's minimum frame size.
         FFMPEG, "-v", "error", "-f", "lavfi", "-i", "color=black:s=256x256:d=0.1",
         "-frames:v", "1", "-c:v", "h264_nvenc", "-f", "null", "-"
-    ], text=True, encoding="utf-8", errors="replace", capture_output=True)
+    ], text=True, encoding="utf-8", errors="replace", capture_output=True, creationflags=NO_WINDOW)
     if test.returncode == 0:
         return "h264_nvenc", [
             "-preset", "p5", "-rc", "vbr", "-cq", "19",

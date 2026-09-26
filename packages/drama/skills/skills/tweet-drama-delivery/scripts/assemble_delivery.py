@@ -29,6 +29,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tweet-drama-core' / 'scripts'))
 from video_bans import check_videos
 
+# A console child of a windowless parent would otherwise open its own visible console.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 TEMPLATE = Path(__file__).resolve().parents[1] / "assets" / "template.json"
 SKELETON = json.loads(TEMPLATE.read_text(encoding="utf-8"))
 OURS = {"00成片", "01主角", "02海报", "05剧本&简介"}
@@ -82,6 +84,7 @@ def probe(path: Path, ffprobe: str | None) -> dict:
              "-show_entries", "stream=width,height,r_frame_rate:format=duration,bit_rate",
              "-of", "json", str(path)],
             capture_output=True, text=True, encoding="utf-8", timeout=120, check=True,
+            creationflags=NO_WINDOW,
         ).stdout
         data = json.loads(out)
         st = (data.get("streams") or [{}])[0]

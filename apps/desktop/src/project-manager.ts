@@ -476,6 +476,7 @@ export class DesktopProjectManager {
           XDG_STATE_HOME: this.paths.pnpm.state,
         },
         stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
       })
       let failure: Error | undefined
       let diagnostics = ''
