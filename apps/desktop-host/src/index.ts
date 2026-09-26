@@ -136,7 +136,7 @@ const MIME: Readonly<Record<string, string>> = {
 
 function readManifest(path: string): PackageManifest {
   const value: unknown = JSON.parse(readFileSync(path, 'utf8'))
-  if (!isRecord(value)) throw new Error(`dsh desktop: ${path} must contain a package manifest`)
+  if (!isRecord(value)) throw new Error(`muse-med: ${path} must contain a package manifest`)
   return {
     ...(typeof value.name === 'string' ? { name: value.name } : {}),
     ...(typeof value.version === 'string' ? { version: value.version } : {}),
@@ -145,7 +145,7 @@ function readManifest(path: string): PackageManifest {
 
 function packageManifestPath(projectDir: string, packageName: string): string {
   const path = join(projectDir, 'node_modules', ...packageName.split('/'), 'package.json')
-  if (!existsSync(path)) throw new Error(`dsh desktop: installed package ${JSON.stringify(packageName)} has no manifest`)
+  if (!existsSync(path)) throw new Error(`muse-med: installed package ${JSON.stringify(packageName)} has no manifest`)
   return path
 }
 
@@ -166,16 +166,16 @@ function desktopComposition(
   allowLinkedPackages: boolean,
 ): DesktopComposition {
   const installAnchor = packageManifestPath(runtimeDir, '@deepseek-ai/dsh')
-  const profile = loadProfileDirectory('dsh desktop', projectDir, installAnchor)
+  const profile = loadProfileDirectory('muse-med', projectDir, installAnchor)
   for (const layer of profile.layers) {
     if (!allowLinkedPackages && !isProjectPath(projectDir, layer.packageDir) && !isProjectPath(runtimeDir, layer.packageDir)) {
-      throw new Error(`dsh desktop: profile bundle ${JSON.stringify(layer.packageName)} resolved outside the Desktop runtime and profile`)
+      throw new Error(`muse-med: profile bundle ${JSON.stringify(layer.packageName)} resolved outside the Desktop runtime and profile`)
     }
   }
   const layers = [
     ...profile.layers.map(layer => layer.patches),
     profile.patches,
-    loadOverlayPatches('dsh desktop', DESKTOP_PATCH),
+    loadOverlayPatches('muse-med', DESKTOP_PATCH),
   ]
   const rows = new Map(composeEntries(layers).flatMap(row => typeof row.id === 'string' ? [[row.id, row] as const] : []))
   const agentPresets = rows.get('agent-presets')
@@ -189,7 +189,7 @@ function desktopComposition(
     }])
   }
   const skillFilesystem = rows.get('skill-filesystem')
-  if (skillFilesystem === undefined) throw new Error('dsh desktop: profile has no skill-filesystem row')
+  if (skillFilesystem === undefined) throw new Error('muse-med: profile has no skill-filesystem row')
   const bundledSkillDir = bundledSkillDirectory(runtimeDir)
   const userSkillDir = dshHomePath('skills')
   mkdirSync(userSkillDir, { recursive: true })
@@ -206,7 +206,7 @@ function desktopComposition(
 
 function dshVersion(runtimeDir: string): string {
   const manifest = readManifest(packageManifestPath(runtimeDir, '@deepseek-ai/dsh'))
-  if (typeof manifest.version !== 'string') throw new Error('dsh desktop: installed dsh manifest has no version')
+  if (typeof manifest.version !== 'string') throw new Error('muse-med: installed dsh manifest has no version')
   return manifest.version
 }
 
@@ -315,14 +315,14 @@ export async function runDesktopHost(
   mkdirSync(absoluteProject, { recursive: true })
   const rootConfig = join(absoluteProject, ROOT_CONFIG_FILENAME)
   writeFileSync(rootConfig, ROOT_CONFIG)
-  const environment = loadLayeredEnv('dsh desktop')
+  const environment = loadLayeredEnv('muse-med')
   const composition = desktopComposition(absoluteRuntime, absoluteProject, options.allowLinkedPackages === true)
   const resolution = await createProfileResolutionGeneration({
     installAnchor: join(absoluteRuntime, 'package.json'),
     profile: composition.profile,
   })
   let current: Context | undefined
-  const ctx = await boot('dsh desktop', rootConfig, structuredClone(composition.patches), async (hostCtx) => {
+  const ctx = await boot('muse-med', rootConfig, structuredClone(composition.patches), async (hostCtx) => {
     current = hostCtx
     hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment)
     await hostCtx.plugin(PluginPackages, { generation: resolution })
@@ -334,7 +334,7 @@ export async function runDesktopHost(
   const gateway = ctx.get('typertGateway')
   if (connection === undefined || clientModules === undefined || gateway === undefined) {
     await ctx.fiber.dispose()
-    throw new Error('dsh desktop: composition did not provide connection, typertGateway, and clientModules')
+    throw new Error('muse-med: composition did not provide connection, typertGateway, and clientModules')
   }
   const api = connection.createSharedFetchHandler('/api')
   const assets = assetHandler(ctx, absoluteRuntime)
@@ -358,7 +358,7 @@ export async function runDesktopHost(
       requests.get(streamId)?.abort()
     },
     async fetch(command, body) {
-      if (disposing !== undefined) throw new Error('dsh desktop: host is disposing')
+      if (disposing !== undefined) throw new Error('muse-med: host is disposing')
       const controller = new AbortController()
       requests.set(command.streamId, controller)
       try {
@@ -411,18 +411,18 @@ async function main(): Promise<void> {
   const runtimeDir = process.argv[2]
   const projectDir = process.argv[3]
   if (runtimeDir === undefined || projectDir === undefined || process.send === undefined) {
-    throw new Error('dsh desktop: expected runtime and profile directories, byte pipes, and a Node IPC channel')
+    throw new Error('muse-med: expected runtime and profile directories, byte pipes, and a Node IPC channel')
   }
   const option = process.argv[4]
   if (option !== undefined && option !== '--allow-linked-profile') {
-    throw new Error(`dsh desktop: unsupported internal option ${JSON.stringify(option)}`)
+    throw new Error(`muse-med: unsupported internal option ${JSON.stringify(option)}`)
   }
   const requestPipe = createReadStream('', { fd: DESKTOP_REQUEST_PIPE_FD, autoClose: false })
   const responsePipe = createWriteStream('', { fd: DESKTOP_RESPONSE_PIPE_FD, autoClose: false })
   let responseWriteTail: Promise<void> = Promise.resolve()
   const writeResponse = (frame: Buffer): Promise<void> => {
     const write = responseWriteTail.then(async () => {
-      if (responsePipe.destroyed) throw new Error('dsh desktop: Electron response pipe is unavailable')
+      if (responsePipe.destroyed) throw new Error('muse-med: Electron response pipe is unavailable')
       if (!responsePipe.write(frame)) await once(responsePipe, 'drain')
     })
     responseWriteTail = write.catch(() => undefined)
@@ -462,7 +462,7 @@ async function main(): Promise<void> {
     stopping ??= (async () => {
       requestPipe.pause()
       requestPipe.removeAllListeners('data')
-      const stopped = new Error('dsh desktop: Host is stopping')
+      const stopped = new Error('muse-med: Host is stopping')
       for (const body of requestBodies.values()) body.error(stopped)
       requestBodies.clear()
       blockedRequests.clear()
@@ -491,7 +491,7 @@ async function main(): Promise<void> {
 
   const beginRequest = (frame: Extract<DesktopHostRequestFrame, { type: 'start' }>): void => {
     if (frame.streamId <= lastStreamId) {
-      throw new Error(`dsh desktop: Electron reused or reordered request stream ${String(frame.streamId)}`)
+      throw new Error(`muse-med: Electron reused or reordered request stream ${String(frame.streamId)}`)
     }
     lastStreamId = frame.streamId
     let body: ReadableStream<Uint8Array> | null = null
@@ -525,7 +525,7 @@ async function main(): Promise<void> {
       runs.delete(run)
       const openBody = requestBodies.get(frame.streamId)
       if (openBody === undefined) return
-      openBody.error(new Error('dsh desktop: response completed before the request body ended'))
+      openBody.error(new Error('muse-med: response completed before the request body ended'))
       requestBodies.delete(frame.streamId)
       blockedRequests.delete(frame.streamId)
       discardedRequestBodies.add(frame.streamId)
@@ -542,7 +542,7 @@ async function main(): Promise<void> {
         const body = requestBodies.get(frame.streamId)
         if (body === undefined) {
           if (discardedRequestBodies.has(frame.streamId)) return
-          throw new Error(`dsh desktop: Electron sent body data for inactive stream ${String(frame.streamId)}`)
+          throw new Error(`muse-med: Electron sent body data for inactive stream ${String(frame.streamId)}`)
         }
         body.enqueue(frame.data)
         if ((body.desiredSize ?? 0) <= 0) {
@@ -555,7 +555,7 @@ async function main(): Promise<void> {
         const body = requestBodies.get(frame.streamId)
         if (body === undefined) {
           if (discardedRequestBodies.delete(frame.streamId)) return
-          throw new Error(`dsh desktop: Electron ended inactive body stream ${String(frame.streamId)}`)
+          throw new Error(`muse-med: Electron ended inactive body stream ${String(frame.streamId)}`)
         }
         body.close()
         requestBodies.delete(frame.streamId)
@@ -565,10 +565,10 @@ async function main(): Promise<void> {
       }
       case 'cancel': {
         if (frame.streamId > lastStreamId) {
-          throw new Error(`dsh desktop: Electron canceled unknown stream ${String(frame.streamId)}`)
+          throw new Error(`muse-med: Electron canceled unknown stream ${String(frame.streamId)}`)
         }
         const body = requestBodies.get(frame.streamId)
-        body?.error(new Error('dsh desktop: Electron canceled the request'))
+        body?.error(new Error('muse-med: Electron canceled the request'))
         requestBodies.delete(frame.streamId)
         blockedRequests.delete(frame.streamId)
         discardedRequestBodies.delete(frame.streamId)
@@ -592,7 +592,7 @@ async function main(): Promise<void> {
     if (stopping !== undefined) return
     try {
       decoder.finish()
-      failTransport(new Error('dsh desktop: Electron request pipe ended'))
+      failTransport(new Error('muse-med: Electron request pipe ended'))
     } catch (error) {
       failTransport(error)
     }
@@ -601,7 +601,7 @@ async function main(): Promise<void> {
   responsePipe.once('error', failTransport)
   process.on('message', (message: unknown) => {
     if (!isDesktopHostCommand(message)) {
-      send({ type: 'fatal', message: 'dsh desktop: invalid Electron IPC command' })
+      send({ type: 'fatal', message: 'muse-med: invalid Electron IPC command' })
       void stop(1)
       return
     }
@@ -616,7 +616,7 @@ if (import.meta.main) {
   main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error)
     if (process.send !== undefined) process.send({ type: 'fatal', message } satisfies DesktopHostEvent)
-    else process.stderr.write(`dsh desktop: ${message}\n`)
+    else process.stderr.write(`muse-med: ${message}\n`)
     process.exitCode = 1
   })
 }

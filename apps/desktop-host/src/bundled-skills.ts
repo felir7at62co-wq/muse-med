@@ -11,6 +11,6 @@ import { join } from 'node:path'
 export function bundledSkillDirectory(runtimeDir: string): string {
   const path = join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh-drama-skills', 'skills')
     .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
-  if (!existsSync(path)) throw new Error(`dsh desktop: bundled skills are missing at ${path}`)
+  if (!existsSync(path)) throw new Error(`muse-med: bundled skills are missing at ${path}`)
   return path
 }
