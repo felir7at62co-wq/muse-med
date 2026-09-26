@@ -226,8 +226,8 @@ describe('desktop main startup', () => {
     vi.stubEnv('MUSE_MED_HOME', override)
     await import('../src/main.ts')
     await harness.preparing.promise
-    expect(process.env.DSH_HOME).toBe(join(homedir(), '.muse-med'))
-    expect(process.env.MUSE_HOME).toBe(join(homedir(), '.muse-med'))
+    expect(process.env.DSH_HOME).toBe(join(homedir(), '.muse'))
+    expect(process.env.MUSE_HOME).toBe(join(homedir(), '.muse'))
   })
 
   it('makes packaged Windows media tools and model available without system dependencies', async () => {

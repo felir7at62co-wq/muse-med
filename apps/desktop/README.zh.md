@@ -4,7 +4,7 @@
 
 桌面应用是包裹 dsh Web UI 的 Electron 壳。它不打开监听端口：内置的上游 Node.js 子进程启动已安装的 dsh 项目，带版本的分帧字节管道在没有外层 Base64 信封的情况下承载 Fetch 请求与流式响应，Node IPC 承载生命周期控制，`dsh-app://` 则提供与后端版本匹配的客户端资源。
 
-桌面壳显示 **muse-med**，使用 `renderer/icon.png`：由提供的黑底白蜘蛛原图转换的方形 PNG；electron-builder 将其转换为各平台安装包图标。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。包标识和更新地址保留 DSH 身份。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse-med`；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 不生效。开发模式保留启动器管理的独立 home。
+桌面壳显示 **muse-med**，使用 `renderer/icon.png`：由提供的黑底白蜘蛛原图转换的方形 PNG；electron-builder 将其转换为各平台安装包图标。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。包标识和更新地址保留 DSH 身份。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
 
 ## 关键技术决策
 
@@ -45,7 +45,7 @@ Electron 根据应用 locale 选择类型化的英文或中文桌面壳文案，
 
 内置飞书插件在你于本产品设置中填写 `appId`/`appSecret` 并显式启用前保持停用。停用期间不进行扫码注册、跨实例同步，不启动控制服务，也不读取其他实例的同步目录；能否触达机器人仍取决于飞书应用自身的权限与可见范围。
 
-产品加载随包技能及自身 `$DSH_HOME/skills`，不扫描已有 DSH、`.agents` 或默认项目技能源；显式插件技能注册仍然可用。Windows 用户将自定义技能放在 `%USERPROFILE%\.muse-med\skills\<skill-name>\SKILL.md`；`MUSE_MED_HOME` 可指定其他产品 home。Host 在启动时创建 skills 目录。开发模式使用下文说明的独立 home。短剧、标准和 PTC 模式提供技能工具。短剧技能从 ASAR 解包，Host 向外部 Python 提供真实的 `app.asar.unpacked` 路径。Windows 启动将 `runtime/media/python` 和 `runtime/media/ffmpeg/bin` 放到子进程搜索路径前部，并设置本地 ASR 模型目录。[媒体准备器](scripts/prepare-media-runtime.ts)在发布输出前检查锁定输入、依赖导入、编码、字幕烧录、草稿媒体探测及离线 ASR；复用时验证完整文件清单并重跑这些检查。构建机器上的验证不能替代无开发工具机器上的安装验证。安装器附带微软官方 VC++ 前置运行库，检查已装版本并在安装前请求授权；拒绝或失败会阻止成功完成和自动启动。再分发需要发行者具有适用的微软许可，不能仅依据运行库终端许可。
+产品加载随包技能及自身 `$DSH_HOME/skills`，不扫描已有 DSH、`.agents` 或默认项目技能源；显式插件技能注册仍然可用。Windows 用户将自定义技能放在 `%USERPROFILE%\.muse\skills\<skill-name>\SKILL.md`；`MUSE_MED_HOME` 可指定其他产品 home。Host 在启动时创建 skills 目录。开发模式使用下文说明的独立 home。短剧、标准和 PTC 模式提供技能工具。短剧技能从 ASAR 解包，Host 向外部 Python 提供真实的 `app.asar.unpacked` 路径。Windows 启动将 `runtime/media/python` 和 `runtime/media/ffmpeg/bin` 放到子进程搜索路径前部，并设置本地 ASR 模型目录。[媒体准备器](scripts/prepare-media-runtime.ts)在发布输出前检查锁定输入、依赖导入、编码、字幕烧录、草稿媒体探测及离线 ASR；复用时验证完整文件清单并重跑这些检查。构建机器上的验证不能替代无开发工具机器上的安装验证。安装器附带微软官方 VC++ 前置运行库，检查已装版本并在安装前请求授权；拒绝或失败会阻止成功完成和自动启动。再分发需要发行者具有适用的微软许可，不能仅依据运行库终端许可。
 
 [FFmpeg 源码构建流程](scripts/ffmpeg-source-build/README.zh.md)为离线发行生成二进制与对应源码配对。两个 CI job 均须通过后才能替换开发验证用的 FFmpeg 输入，对应源码归档必须与桌面版本一同发布；提交构建不等于产物通过验收。
 
