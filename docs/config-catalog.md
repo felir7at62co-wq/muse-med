@@ -1830,7 +1830,9 @@ export interface BgmConfig {
    * backbone cache outside the default location would otherwise re-download it on
    * every fresh host, and the failure mode — a long silent download — looks like a
    * hang. Only these entries plus a fixed ambient allowlist reach the child;
-   * do not put credentials in this explicit environment.
+   * do not put credentials in this explicit environment. Explicit values win;
+   * declaring any HF cache location or endpoint excludes all ambient HF cache
+   * aliases and endpoints. Put module and compilation caches outside read-only installs.
    */
   env?: Record<string, string>
   /** Deadline for one Python analysis request; defaults to 300000 ms and kills the worker on expiry. */
@@ -2477,8 +2479,10 @@ export interface Config {
   providerName?: string
   /** Whether project and user roots are included around custom roots. */
   includeDefaultRoots?: boolean
-  /** DeepSeek Harness config root. Defaults to `$DSH_HOME` or `~/.dsh`. */
+  /** DeepSeek Harness config root. Defaults to the resolved harness home: `$MUSE_HOME`, `$DSH_HOME`, or the default home. */
   dshHome?: string
+  /** Muse home root. Defaults to `$MUSE_HOME` or `~/.muse`. */
+  museHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
   agentsHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
@@ -2500,7 +2504,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill-filesystem/src/index.ts:49`](../packages/skill/skill-filesystem/src/index.ts)
+Source: [`packages/skill/skill-filesystem/src/index.ts:55`](../packages/skill/skill-filesystem/src/index.ts)
 
 <a id="deepseek-aidsh-spill-local"></a>
 
@@ -3315,7 +3319,7 @@ export interface ImageRouteConfig {
 }
 ```
 
-Source: [`packages/jubian/tool-jubian/src/index.ts:48`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts:50`](../packages/jubian/tool-jubian/src/index.ts)
 
 <a id="deepseek-aidsh-tool-lsp"></a>
 

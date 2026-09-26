@@ -93,7 +93,10 @@ const SkillFileSystem = await import('../src/index.ts')
 
 /** Every temp dir created by this file, removed after each test. */
 const tempDirs: string[] = []
+let previousMuseHome: string | undefined
 afterEach(async () => {
+  if (previousMuseHome === undefined) delete process.env.MUSE_HOME
+  else process.env.MUSE_HOME = previousMuseHome
   for (const dir of tempDirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
 
@@ -113,13 +116,17 @@ async function settle(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 0))
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   watcherHarness.watchers.length = 0
   watcherHarness.startupErrors.length = 0
   watcherHarness.closeErrors = 0
   watcherHarness.deferredReady = 0
   watcherHarness.watchFiles.length = 0
   watcherHarness.statGates.length = 0
+  // The muse user root defaults to `$MUSE_HOME` or `~/.muse`; pin it inside a
+  // temp dir so no case here probes or watches the machine's real muse home.
+  previousMuseHome = process.env.MUSE_HOME
+  process.env.MUSE_HOME = await tempDir('skill-watch-muse-home')
 })
 
 describe('skill-filesystem watcher failures', () => {
@@ -181,7 +188,8 @@ describe('skill-filesystem watcher failures', () => {
       watchPollIntervalMs: 10,
     })
     expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: true })
-    expect(watcherHarness.watchFiles).toHaveLength(2)
+    // One missing-path probe per absent user root: muse, dsh, and agents.
+    expect(watcherHarness.watchFiles).toHaveLength(3)
     let invalidations = 0
     ctx.on('skills/change', () => { invalidations += 1 })
 
@@ -191,7 +199,7 @@ describe('skill-filesystem watcher failures', () => {
     await settle()
 
     expect(invalidations).toBe(0)
-    expect(watcherHarness.watchFiles).toHaveLength(2)
+    expect(watcherHarness.watchFiles).toHaveLength(3)
     await fiber.dispose()
   })
 

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -9,7 +9,18 @@ import * as SkillFileSystem from '../src/index.ts'
 
 /** Every temp dir created by this file, removed after each test. */
 const tempDirs: string[] = []
+let previousMuseHome: string | undefined
+
+// The muse user root defaults to `$MUSE_HOME` or `~/.muse`. Pin it inside a
+// temp dir so no case here reads or watches the machine's real muse home.
+beforeEach(async () => {
+  previousMuseHome = process.env.MUSE_HOME
+  process.env.MUSE_HOME = await tempDir('muse-home')
+})
+
 afterEach(async () => {
+  if (previousMuseHome === undefined) delete process.env.MUSE_HOME
+  else process.env.MUSE_HOME = previousMuseHome
   for (const dir of tempDirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
 
@@ -32,6 +43,7 @@ async function writeFlatSkill(root: string, name: string, description: string, b
 
 class TestFileSystem extends FileSystem {
   listDirCalls = 0
+  listDirPaths: string[] = []
   failResolvePaths = new Set<string>()
   failStatPaths = new Set<string>()
   failListDirPaths = new Set<string>()
@@ -114,6 +126,7 @@ class TestFileSystem extends FileSystem {
 
   override async listDir(target: FsTarget): Promise<FsDirEntry[]> {
     this.listDirCalls += 1
+    this.listDirPaths.push(target.displayPath)
     if (this.failListDirPaths.has(target.displayPath)) throw new Error('list temporarily failed')
     const entries = await readdir(target.displayPath, { withFileTypes: true, encoding: 'utf8' })
     const result: FsDirEntry[] = []
@@ -215,6 +228,71 @@ describe('FileSystemSkillProvider', () => {
     const noGit = await tempDir('skill-no-git')
     await writeSkill(join(noGit, '.dsh/skills'), 'fallback-root', 'Fallback root')
     expect((await ctx.skills.list({ cwd: noGit })).map(skill => skill.name)).toContain('fallback-root')
+  })
+
+  it('discovers muse project and user roots that outrank their dsh siblings', async () => {
+    const home = await tempDir('skill-muse')
+    const project = await tempDir('skill-muse-project')
+    const custom = await tempDir('skill-muse-custom')
+    await mkdir(join(project, '.git'), { recursive: true })
+
+    await writeSkill(join(project, '.muse/skills'), 'same', 'project muse skill')
+    await writeSkill(join(project, '.dsh/skills'), 'same', 'project dsh skill')
+    await writeSkill(join(home, '.muse/skills'), 'muse-user-only', 'muse user skill')
+    await writeSkill(join(home, '.dsh/skills'), 'same', 'user dsh skill')
+    await writeSkill(custom, 'custom-only', 'custom only')
+
+    const bundled = await tempDir('skill-muse-bundled')
+    await writeSkill(bundled, 'same', 'bundled skill')
+    await writeSkill(bundled, 'bundled-only', 'bundled skill')
+    const ctx = await setupLocal(home, {
+      customSkillDirs: [custom],
+      bundledSkillDir: bundled,
+      museHome: join(home, '.muse'),
+    })
+
+    const skills = await ctx.skills.list({ cwd: join(project, 'src') })
+    expect(skills.find(skill => skill.name === 'same'))
+      .toMatchObject({ description: 'project muse skill', source: 'project-muse' })
+    expect(skills.find(skill => skill.name === 'muse-user-only'))
+      .toMatchObject({ description: 'muse user skill', source: 'user-muse' })
+    expect(skills.find(skill => skill.name === 'custom-only')?.description).toBe('custom only')
+    expect(skills.find(skill => skill.name === 'bundled-only')?.source).toBe('bundled')
+  })
+
+  it('keeps a muse user root above its dsh sibling when no project root claims the name', async () => {
+    const home = await tempDir('skill-muse-user')
+    const project = await tempDir('skill-muse-user-project')
+    await writeSkill(join(home, '.muse/skills'), 'same', 'user muse skill')
+    await writeSkill(join(home, '.dsh/skills'), 'same', 'user dsh skill')
+    const ctx = await setupLocal(home, { museHome: join(home, '.muse') })
+
+    const skills = await ctx.skills.list({ cwd: project })
+    expect(skills.filter(skill => skill.name === 'same'))
+      .toEqual([expect.objectContaining({ description: 'user muse skill', source: 'user-muse' })])
+  })
+
+  it('scans one user root when the muse home and the harness home coincide', async () => {
+    const home = await tempDir('skill-muse-coincident')
+    const project = await tempDir('skill-muse-coincident-project')
+    await mkdir(join(project, '.git'), { recursive: true })
+    await writeSkill(join(home, '.muse/skills'), 'shared-root', 'Shared root skill')
+
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: join(home, '.muse'),
+      museHome: join(home, '.muse'),
+      agentsHome: join(home, '.agents'),
+      watch: false,
+    })
+
+    const skills = await ctx.skills.list({ cwd: project })
+    expect(skills.filter(skill => skill.name === 'shared-root'))
+      .toEqual([expect.objectContaining({ source: 'user-muse' })])
+    expect(fs.listDirPaths.filter(path => path === join(home, '.muse/skills'))).toHaveLength(1)
   })
 
   it('lets project skills override runtime while runtime overrides custom and user skills', async () => {
@@ -858,18 +936,24 @@ describe('FileSystemSkillProvider', () => {
     const previousDshHome = process.env.DSH_HOME
     const previousAgentsHome = process.env.DSH_AGENTS_HOME
     const previousBundledSkillDir = process.env.DSH_BUNDLED_SKILL_DIR
+    const previousEnvMuseHome = process.env.MUSE_HOME
     const envHome = await tempDir('skill-env-home')
     try {
       process.env.DSH_HOME = join(envHome, '.dsh')
       process.env.DSH_AGENTS_HOME = join(envHome, '.agents')
+      // MUSE_HOME outranks DSH_HOME: the harness home becomes the muse home,
+      // so while both are set the DSH_HOME tree is not a scanned user root.
+      process.env.MUSE_HOME = join(envHome, 'muse-home')
       const bundled = join(envHome, 'bundled-skills')
       process.env.DSH_BUNDLED_SKILL_DIR = bundled
-      await writeSkill(join(envHome, '.dsh/skills'), 'env-skill', 'Env skill')
+      await writeSkill(join(envHome, '.dsh/skills'), 'env-dsh-skill', 'Env dsh skill')
+      await writeSkill(join(envHome, 'muse-home/skills'), 'env-muse-skill', 'Env muse skill')
       await writeSkill(bundled, 'env-bundled-skill', 'Env bundled skill')
       const ctx = new Context()
       await ctx.plugin(SkillRegistry)
       await ctx.plugin(SkillFileSystem, { watch: false })
-      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['env-bundled-skill', 'env-skill'])
+      expect((await ctx.skills.list()).map(skill => skill.name))
+        .toEqual(['env-bundled-skill', 'env-muse-skill'])
 
       // Isolated providers see only their explicit roots: the environment
       // bundled root is a default root, so includeDefaultRoots: false must
@@ -890,6 +974,7 @@ describe('FileSystemSkillProvider', () => {
       process.env.DSH_HOME = join(envHome, 'empty-dsh')
       delete process.env.DSH_BUNDLED_SKILL_DIR
       process.env.DSH_AGENTS_HOME = join(envHome, 'empty-agents')
+      process.env.MUSE_HOME = join(envHome, 'empty-muse')
       const empty = new Context()
       await empty.plugin(SkillRegistry)
       SkillFileSystem.apply(empty, { watch: false })
@@ -916,6 +1001,8 @@ describe('FileSystemSkillProvider', () => {
       } else {
         process.env.DSH_BUNDLED_SKILL_DIR = previousBundledSkillDir
       }
+      // The file-level beforeEach owns this variable; restore its temp value.
+      process.env.MUSE_HOME = previousEnvMuseHome
     }
   })
 })

@@ -9,7 +9,7 @@ kind: "package-library"
 
 ## 概述
 
-`@deepseek-ai/dsh-home-paths` 让包作者能够解析统一的 DeepSeek Harness 数据根目录，并由它派生子路径。显式路径优先于 `$DSH_HOME`，后者优先于 `~/.dsh`；空白环境变量会被忽略。其公开辅助函数可以在不暴露机器绝对路径的情况下显示根目录，仅展开单独或当前用户的波浪号形式，并规范化最终路径段尚不存在的监听目标。请把它作为库依赖直接使用，不要通过 `cordis.yml` 加载。
+`@deepseek-ai/dsh-home-paths` 让包作者能够解析统一的 DeepSeek Harness 数据根目录，并由它派生子路径。显式路径优先于 `$MUSE_HOME`，后者优先于 `$DSH_HOME`，再优先于默认主目录；空白环境变量会被忽略。其公开辅助函数可以在不暴露机器绝对路径的情况下显示根目录，仅展开单独或当前用户的波浪号形式，并规范化最终路径段尚不存在的监听目标。请把它作为库依赖直接使用，不要通过 `cordis.yml` 加载。
 
 ## 目录
 
@@ -31,18 +31,22 @@ kind: "package-library"
 ```ts
 import { resolveDshHome, dshHomePath, dshCachePath } from '@deepseek-ai/dsh-home-paths'
 
-const home = resolveDshHome()                // configured path, else $DSH_HOME, else ~/.dsh
+const home = resolveDshHome()                // configured path, else $MUSE_HOME, else $DSH_HOME, else the default home
 const settings = dshHomePath('settings')     // join one child onto the resolved home
-const cache = dshCachePath('models')         // $DSH_HOME/cache/models, default ~/.dsh/cache/models
+const cache = dshCachePath('models')         // <home>/cache/models
 ```
 
-显式配置的路径优先级最高，然后是 `$DSH_HOME`，最后是默认的 `~/.dsh`。空或仅含空白的 `$DSH_HOME` 视为未设置，因此空白的覆盖值绝不会把主目录解析到当前工作目录。
+显式配置的路径优先级最高，然后是 `$MUSE_HOME`，然后是 `$DSH_HOME`，最后是默认主目录。空或仅含空白的 `$MUSE_HOME` 或 `$DSH_HOME` 视为未设置，因此空白的覆盖值绝不会把主目录解析到当前工作目录。两个环境变量都设置时，`$MUSE_HOME` 胜出。
+
+默认主目录是 `~/.muse`，但有一条兼容规则：当旧有的 `~/.dsh` 主目录存在、而 `~/.muse` 不存在时，默认主目录仍是 `~/.dsh`。因此早于 muse 的安装会继续读取已经存放在旧主目录下的会话、设置与数据，只有没有旧主目录的机器才从 `~/.muse` 开始。`$DSH_HOME` 绝不重命名，也不会停止支持。
+
+`resolveMuseHome()` 解析承载 muse 命名位置的主目录——依次是显式路径、`$MUSE_HOME`、`~/.muse`——其默认值绝不跟随旧有的 `~/.dsh` 主目录。以 muse 命名的位置与 harness 主目录并列，因此当既有安装继续读取 `$DSH_HOME` 时，它们仍停留在 Muse 位置；`dsh-skill-filesystem` 用它解析用户级 `skills` 根目录。
 
 `dshCachePath(...segments)` 从解析出的主目录下的 `cache` 目录派生路径。不传路径段时返回缓存目录本身。传入首个选项对象 `dshCachePath({ dshHome: home }, ...segments)` 可使用显式配置的主目录，遵循相同的优先级与波浪号展开规则。它返回绝对路径，不会创建目录。
 
 ### 展示主目录
 
-面向用户的路径请以符号形式渲染根目录，而不是机器路径：默认主目录显示为 `~/.dsh`，任何已配置的主目录显示为 `$DSH_HOME`。展示形式绝不会泄露机器的绝对路径。
+面向用户的路径请以符号形式渲染根目录，而不是机器路径：两个默认主目录分别显示为 `~/.muse` 或 `~/.dsh`，任何已配置的主目录显示为 `$DSH_HOME`。展示形式绝不会泄露机器的绝对路径。
 
 ### 展开用户路径
 
@@ -71,7 +75,7 @@ const cache = dshCachePath('models')         // $DSH_HOME/cache/models, default 
 
 ### 解析规则
 
-`resolveDshHome` 先读显式覆盖值，然后读 `$DSH_HOME`，最后回退到操作系统主目录拼接 `.dsh`。选中的值经过波浪号展开并规范化为绝对路径；`dshHomePath` 用 Node 的平台路径规则拼接子路径段。`dshHomeDisplay` 把解析出的路径与默认根目录比较并返回符号标签，因此已配置的主目录绝不泄露其绝对路径。
+`resolveDshHome` 先读显式覆盖值，然后读 `$MUSE_HOME`，然后读 `$DSH_HOME`，最后回退到操作系统主目录拼接 `.muse`——当旧有的 `.dsh` 目录存在而 `.muse` 不存在时则拼接 `.dsh`。选中的值经过波浪号展开并规范化为绝对路径；`dshHomePath` 用 Node 的平台路径规则拼接子路径段。`dshHomeDisplay` 把解析出的路径与两个默认根目录比较并返回符号标签，因此已配置的主目录绝不泄露其绝对路径。
 
 ### 规范化机制
 

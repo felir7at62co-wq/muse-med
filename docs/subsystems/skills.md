@@ -67,14 +67,18 @@ The shipped local provider scans roots in rank order:
 
 | Rank | Source | Root |
 |---|---|---|
+| 90 | `project-muse` | `<projectRoot>/.muse/skills` |
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
+| 390 | `user-muse` | `<museHome>/skills` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
 | 600 | `bundled` | `Config.bundledSkillDir` when configured |
 
-The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user DSH root skips its `.system` child. The local provider does not synthesize built-in system skills; deployments supply packaged skills through configured bundled roots or dedicated providers.
+A muse root ranks one step above its DSH counterpart, so a name present under both resolves to the muse copy while the DSH roots stay scanned. `museHome` defaults to `$MUSE_HOME` or `~/.muse`; `dshHome` defaults to the [resolved harness home](../../packages/util/home-paths/README.md), where `$MUSE_HOME` outranks `$DSH_HOME`. A deployment that sets only `MUSE_HOME` resolves both user roots to one directory, which the provider scans once and reports as `user-muse`.
+
+The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user muse and DSH roots skip their `.system` child. The local provider does not synthesize built-in system skills; deployments supply packaged skills through configured bundled roots or dedicated providers.
 
 `dsh-skill-badge` registers one immutable `bundled` candidate at `BUNDLED_SKILL_RANK` and exposes its packaged asset directory through `resourceBase`. The shipped CLI declares the plugin disabled, so enabling its composition row is an explicit opt-in.
 

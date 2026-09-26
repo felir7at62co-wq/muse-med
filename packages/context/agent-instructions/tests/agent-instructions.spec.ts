@@ -41,7 +41,7 @@ import {
   type InstructionVersionCache,
 } from '../src/state.ts'
 import { resolveConfig } from '../src/config.ts'
-import { candidateScopeKey, renderInstructionChanges, renderAgentInstructionSet, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE } from '../src/render.ts'
+import { candidateScopeKey, instructionScopeKey, renderInstructionChanges, renderAgentInstructionSet, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE } from '../src/render.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import {
   mountAgentLoopTestDependencies,
@@ -671,6 +671,32 @@ describe('workspace context instruction discovery', () => {
       const files = await isolated.discoverBaselineInstructionFiles({ cwd: root })
 
       expect(files.map(file => file.displayPath)).toEqual(['~/.dsh/AGENTS.md'])
+    } finally {
+      vi.unstubAllEnvs()
+      vi.doUnmock('node:os')
+      vi.resetModules()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('labels and scopes the muse default home when the legacy home is absent', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await write(join(home, '.muse/AGENTS.md'), 'global muse rule')
+
+      vi.stubEnv('DSH_HOME', '')
+      vi.resetModules()
+      vi.doMock('node:os', () => ({ homedir: () => home }))
+      const isolated = await import('@deepseek-ai/dsh-agent-instructions')
+      const files = await isolated.discoverBaselineInstructionFiles({ cwd: root })
+
+      expect(files).toEqual([{ absolutePath: join(home, '.muse/AGENTS.md'), displayPath: '~/.muse/AGENTS.md' }])
+      // The user-global scope key must match discovery's, or the file loads
+      // under `~/.muse` and never reconciles against the user-global scope.
+      expect(instructionScopeKey('~/.muse/AGENTS.md'))
+        .toBe(candidateScopeKey(USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE))
     } finally {
       vi.unstubAllEnvs()
       vi.doUnmock('node:os')

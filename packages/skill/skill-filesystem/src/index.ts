@@ -19,7 +19,7 @@ import z from '@deepseek-ai/schemastery'
 import type Schema from '@deepseek-ai/schemastery'
 import { parse as parseYaml } from 'yaml'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
-import { canonicalizeWatchPath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { canonicalizeWatchPath, resolveDshHome, resolveMuseHome } from '@deepseek-ai/dsh-home-paths'
 import {
   BUNDLED_SKILL_RANK,
   isSkillName,
@@ -33,9 +33,15 @@ import {
   type SkillSource,
 } from '@deepseek-ai/dsh-skill'
 
+// A muse root ranks one step above its dsh counterpart: `.muse` is the product
+// name for the same locations, `.dsh` stays honoured for existing
+// installations and plugins, and a skill present under both roots must resolve
+// to the muse copy.
+const PROJECT_MUSE_RANK = 90
 const PROJECT_DSH_RANK = 100
 const PROJECT_AGENTS_RANK = 200
 const CUSTOM_RANK = 300
+const USER_MUSE_RANK = 390
 const USER_DSH_RANK = 400
 const USER_AGENTS_RANK = 500
 const DEFAULT_WATCH_STABILITY_THRESHOLD_MS = 200
@@ -51,8 +57,10 @@ export interface Config {
   providerName?: string
   /** Whether project and user roots are included around custom roots. */
   includeDefaultRoots?: boolean
-  /** DeepSeek Harness config root. Defaults to `$DSH_HOME` or `~/.dsh`. */
+  /** DeepSeek Harness config root. Defaults to the resolved harness home: `$MUSE_HOME`, `$DSH_HOME`, or the default home. */
   dshHome?: string
+  /** Muse home root. Defaults to `$MUSE_HOME` or `~/.muse`. */
+  museHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
   agentsHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
@@ -77,6 +85,7 @@ export const Config: Schema<Config> = z.object({
   providerName: z.string().min(1).default('filesystem'),
   includeDefaultRoots: z.boolean().default(true),
   dshHome: z.string(),
+  museHome: z.string(),
   agentsHome: z.string(),
   customSkillDirs: z.array(z.string()).default([]),
   watch: z.boolean().default(true),
@@ -151,6 +160,7 @@ export class FileSystemSkillProvider implements SkillProvider {
   readonly name: string
   private readonly includeDefaultRoots: boolean
   private readonly dshHome: string
+  private readonly museHome: string
   private readonly agentsHome: string
   private readonly customSkillDirs: string[]
   private readonly watchManager: SkillWatchManager
@@ -165,6 +175,7 @@ export class FileSystemSkillProvider implements SkillProvider {
     this.name = config.providerName ?? 'filesystem'
     this.includeDefaultRoots = config.includeDefaultRoots ?? true
     this.dshHome = resolveDshHome(config.dshHome)
+    this.museHome = resolveMuseHome(config.museHome)
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
@@ -247,16 +258,22 @@ export class FileSystemSkillProvider implements SkillProvider {
     if (this.includeDefaultRoots && cwd !== undefined) {
       const projectRoot = await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx))
       roots.push(
+        { path: join(projectRoot, '.muse/skills'), source: 'project-muse', rank: PROJECT_MUSE_RANK, projectRoot },
         { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
         { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, projectRoot },
       )
     }
     roots.push(...this.customSkillDirs.map(path => ({ path, source: 'custom' as const, rank: CUSTOM_RANK })))
     if (this.includeDefaultRoots) {
-      roots.push(
-        { path: join(this.dshHome, 'skills'), source: 'user-dsh', rank: USER_DSH_RANK, skipSystem: true },
-        { path: join(this.agentsHome, 'skills'), source: 'user-agents', rank: USER_AGENTS_RANK },
-      )
+      const museSkills = join(this.museHome, 'skills')
+      roots.push({ path: museSkills, source: 'user-muse', rank: USER_MUSE_RANK, skipSystem: true })
+      // A deployment that sets MUSE_HOME resolves the harness home to the same
+      // directory; scanning it twice would read every skill file twice.
+      const dshSkills = join(this.dshHome, 'skills')
+      if (dshSkills !== museSkills) {
+        roots.push({ path: dshSkills, source: 'user-dsh', rank: USER_DSH_RANK, skipSystem: true })
+      }
+      roots.push({ path: join(this.agentsHome, 'skills'), source: 'user-agents', rank: USER_AGENTS_RANK })
     }
     if (this.bundledSkillDir !== undefined) {
       roots.push({ path: this.bundledSkillDir, source: 'bundled', rank: BUNDLED_SKILL_RANK, trustedHost: true })

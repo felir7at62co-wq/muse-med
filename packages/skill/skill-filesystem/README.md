@@ -47,13 +47,17 @@ Default roots are scanned in this provider's rank order:
 
 | Rank | Source | Path |
 |---|---|---|
+| 90 | `project-muse` | `<projectRoot>/.muse/skills` |
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
+| 390 | `user-muse` | `<museHome>/skills` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
 
-The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user DSH root skips its `.system` child. `includeDefaultRoots: false` omits the project and user rows plus the `$DSH_BUNDLED_SKILL_DIR` default so an isolated provider sees only its own configured roots; `bundledSkillDir` adds a bundled root at rank 600.
+Each muse root ranks one step above its DSH counterpart, so a skill present under both resolves to the muse copy while the DSH roots keep working unchanged; `museHome` defaults to `$MUSE_HOME` or `~/.muse`, and `dshHome` to the [resolved harness home](../../util/home-paths/README.md) that `$MUSE_HOME`, `$DSH_HOME`, or the default decides. When both resolve to one directory — a deployment that sets only `MUSE_HOME` — that root is scanned once and reported as `user-muse`.
+
+The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user muse and DSH roots skip their `.system` child. `includeDefaultRoots: false` omits the project and user rows plus the `$DSH_BUNDLED_SKILL_DIR` default so an isolated provider sees only its own configured roots; `bundledSkillDir` adds a bundled root at rank 600.
 
 ### Mount and configure
 
@@ -68,7 +72,8 @@ Load the plugin alongside the skill registry; it requires `ctx.skills`.
 |---|---|---|
 | `providerName` | `filesystem` | Unique provider name registered on `ctx.skills` |
 | `includeDefaultRoots` | `true` | Include project and user roots around `customSkillDirs` |
-| `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness config root; its `skills` subdirectory is scanned |
+| `dshHome` | the resolved harness home | Harness config root; its `skills` subdirectory is scanned |
+| `museHome` | `$MUSE_HOME` or `~/.muse` | Muse home root; its `skills` subdirectory is scanned at rank 390 |
 | `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills |
 | `customSkillDirs` | `[]` | Additional local skill roots, after project roots and before user roots |
 | `watch` | `true` | Watch local roots and invalidate the provider when the catalog may have changed |

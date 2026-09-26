@@ -4,7 +4,8 @@
  * the explicit disposer contract.
  */
 
-import { homedir } from 'node:os'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -17,7 +18,29 @@ import * as BashEnvPlugin from '@deepseek-ai/dsh-shell-env'
 
 const testToolSignal = new AbortController().signal
 
-afterEach(() => vi.unstubAllEnvs())
+/** Operating-system homes created by {@link stubOsHome}, removed after each test. */
+const tempHomes: string[] = []
+
+afterEach(async () => {
+  vi.unstubAllEnvs()
+  for (const home of tempHomes.splice(0)) await rm(home, { recursive: true, force: true })
+})
+
+/**
+ * Point `homedir()` at a temp directory whose legacy `.dsh` home exists only
+ * when the case asks for it. POSIX reads `HOME` and Windows reads
+ * `USERPROFILE`, so both are stubbed.
+ * @param options - whether to create the legacy default home inside the temp home.
+ * @returns the temp operating-system home now reported by `homedir()`.
+ */
+async function stubOsHome(options: { legacy?: boolean } = {}): Promise<string> {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-shell-env-home-'))
+  tempHomes.push(home)
+  if (options.legacy === true) await mkdir(join(home, '.dsh'))
+  vi.stubEnv('HOME', home)
+  vi.stubEnv('USERPROFILE', home)
+  return home
+}
 
 function execution(sessionId?: string): ToolExecution {
   return {
@@ -55,14 +78,21 @@ describe('ShellEnvRegistry', () => {
     })
   })
 
-  it('resolves DSH_HOME from the ambient override or the user-home default', () => {
+  it('resolves DSH_HOME from the ambient override or the user-home default', async () => {
     vi.stubEnv('DSH_HOME', './ambient-dsh-home')
     const fromEnvironment = new ShellEnvRegistry(new Context())
     expect(fromEnvironment.collect(execution()).DSH_HOME).toBe(resolve('./ambient-dsh-home'))
 
+    // With no override the harness default follows the legacy `~/.dsh` home
+    // while it exists, and the muse default only on a machine without one.
+    const legacyHome = await stubOsHome({ legacy: true })
     vi.stubEnv('DSH_HOME', undefined)
-    const fromDefault = new ShellEnvRegistry(new Context())
-    expect(fromDefault.collect(execution()).DSH_HOME).toBe(join(homedir(), '.dsh'))
+    const fromLegacyDefault = new ShellEnvRegistry(new Context())
+    expect(fromLegacyDefault.collect(execution()).DSH_HOME).toBe(join(legacyHome, '.dsh'))
+
+    const freshHome = await stubOsHome()
+    const fromFreshDefault = new ShellEnvRegistry(new Context())
+    expect(fromFreshDefault.collect(execution()).DSH_HOME).toBe(join(freshHome, '.muse'))
   })
 
   it('collects declared contributor variables and omits unavailable values', () => {

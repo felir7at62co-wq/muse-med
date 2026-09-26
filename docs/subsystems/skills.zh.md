@@ -67,14 +67,18 @@ interface SkillProviderControl {
 
 | Rank | Source | Root |
 |---|---|---|
+| 90 | `project-muse` | `<projectRoot>/.muse/skills` |
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
+| 390 | `user-muse` | `<museHome>/skills` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
 | 600 | `bundled` | 配置了 `Config.bundledSkillDir` 时使用该目录 |
 
-项目根目录为包含 `.git` 的最近祖先目录；找不到时使用当前 cwd。当 `ctx.fs` 可用时，git-root 向上查找通过文件系统服务探测 `.git`，使远程或沙箱工作区不会回退到宿主文件系统边界。用户 DSH 根目录会跳过其 `.system` 子目录。本地提供方不会合成内置系统 skill；部署方通过已配置的 bundled 根目录或专用提供方提供随包 skill。
+muse 根目录的 rank 比它对应的 DSH 根目录高一位，因此同时存在于两者之下的同名 skill 解析到 muse 副本，而 DSH 根目录仍会被扫描。`museHome` 默认取 `$MUSE_HOME` 或 `~/.muse`；`dshHome` 默认取[解析后的 harness 主目录](../../packages/util/home-paths/README.zh.md)，其中 `$MUSE_HOME` 优先于 `$DSH_HOME`。只设置了 `MUSE_HOME` 的部署会让两个用户根解析到同一目录，提供方只扫描一次并报告为 `user-muse`。
+
+项目根目录为包含 `.git` 的最近祖先目录；找不到时使用当前 cwd。当 `ctx.fs` 可用时，git-root 向上查找通过文件系统服务探测 `.git`，使远程或沙箱工作区不会回退到宿主文件系统边界。用户 muse 根目录与用户 DSH 根目录都会跳过其 `.system` 子目录。本地提供方不会合成内置系统 skill；部署方通过已配置的 bundled 根目录或专用提供方提供随包 skill。
 
 `dsh-skill-badge` 在 `BUNDLED_SKILL_RANK` 注册一个不可变的 `bundled` 候选项，并通过 `resourceBase` 公开其随包资产目录。交付的 CLI（命令行界面）将该插件声明为禁用，因此启用其组合配置行即为显式选择加入。
 
