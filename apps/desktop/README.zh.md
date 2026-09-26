@@ -4,7 +4,7 @@
 
 桌面应用是包裹 dsh Web UI 的 Electron 壳。它不打开监听端口：内置的上游 Node.js 子进程启动已安装的 dsh 项目，带版本的分帧字节管道在没有外层 Base64 信封的情况下承载 Fetch 请求与流式响应，Node IPC 承载生命周期控制，`dsh-app://` 则提供与后端版本匹配的客户端资源。
 
-桌面壳显示 **muse-med**，使用 `renderer/icon.png`：由提供的黑底白蜘蛛原图转换的方形 PNG；electron-builder 将其转换为各平台安装包图标。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。包标识和更新地址保留 DSH 身份。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
+桌面壳显示 **muse-med**，使用 `renderer/icon.png`：由提供的黑底白蜘蛛原图转换的方形 PNG；electron-builder 将其转换为各平台安装包图标。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。包标识和更新地址保留 DSH 身份。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
 
 ## 关键技术决策
 

@@ -25,11 +25,12 @@ import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { desktopErrorState } from './startup-error.ts'
 import { startupFailureDocument } from './startup-document.ts'
 import { desktopPluginCatalog, repositoryUrl } from './plugin-catalog.ts'
+import { productHomeFor } from './product-home.ts'
 
 // The independent product never imports a parent DSH installation's credentials or sessions.
 const productHome = process.env.MUSE_MED_HOME
 if (app.isPackaged) {
-  const isolatedHome = productHome?.trim() ? resolve(productHome) : join(homedir(), '.muse')
+  const isolatedHome = productHome?.trim() ? resolve(productHome) : productHomeFor(homedir())
   process.env.DSH_HOME = isolatedHome
   // Muse-first defaults (the muse skill root, the user AGENTS.md mapping, the Jubian
   // ledger) resolve this variable first; pointing it at the product home keeps those
