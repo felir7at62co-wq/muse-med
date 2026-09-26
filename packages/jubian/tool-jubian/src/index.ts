@@ -249,13 +249,14 @@ const OUTPUT = {
  * @param run - The domain method, given the argument bag its own signature declares.
  * @returns An execute function for `defineTool`.
  */
-function guarded(
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- jubian_find passes FindArgs, not MethodArgs.
+function guarded<A = MethodArgs>(
   tool: string,
-  run: (args: MethodArgs) => Promise<Record<string, unknown>>,
+  run: (args: A) => Promise<Record<string, unknown>>,
 ): (args: unknown) => Promise<ToolValue> {
   return async (args: unknown) => {
     requireArguments(tool, args as { method?: string } & Record<string, unknown>)
-    return await run(args as MethodArgs) as ToolValue
+    return await run(args as A) as ToolValue
   }
 }
 
