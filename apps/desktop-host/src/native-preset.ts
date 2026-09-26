@@ -1,52 +1,72 @@
-/** Read-only product adapters for the selected upstream coding presets. */
+/**
+ * Register product-owned agent presets with the upstream preset registry.
+ *
+ * The product's presets are ordinary Cordis composition files under
+ * `apps/desktop-host/presets/<id>/` — `agent.cordis.yml` plus the display metadata in `preset.yml`.
+ * Upstream replaced its shipped-preset directory and `SHIPPED_PRESET_ROOT` constant with a registry
+ * (`@deepseek-ai/dsh-agent-preset-registry`) whose `register()` accepts a `PresetDefinition`
+ * (`{ id, name?, description?, order?, plugins }`). This plugin is the adapter: it reads the
+ * product's composition and registers it, so the compositions stay product-owned data and no
+ * upstream package has to keep existing for them to load.
+ *
+ * Registration is an effect of the owning fiber: the disposer `register()` returns is yielded from
+ * the initializer, so stopping the row retires the preset with it.
+ */
+import { readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-tools'
-import Include from '@deepseek-ai/cordis-plugin-include'
-import { SHIPPED_PRESET_ROOT } from '@deepseek-ai/dsh-agent-presets'
-import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { parse as parseYaml } from 'yaml'
+import type { PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 
-/** Selection supplied by a product-owned composition row. */
-interface NativePresetConfig {
-  preset: string
+/** One product preset row: the id it is exposed under and its product-owned directory. */
+export interface Config {
+  /** Preset id the roster exposes and `mount()` selects. */
+  id: string
+  /** Absolute or repository-relative directory holding `agent.cordis.yml` and `preset.yml`. */
+  directory: string
+}
+
+interface PresetMetadata {
+  readonly name?: string
+  readonly description?: string
+  readonly order?: number
 }
 
 /**
- * Include one upstream coding composition while inheriting the product's Host
- * skill provider.
- *
- * Only `standard` and `ptc` are adapted: the upstream `minimal` composition
- * keeps its shell inside a nested group, and a group's rows are not imported
- * into a composition nested this way, so that mode would mount without its only
- * tool.
+ * Read the display metadata beside a product composition, tolerating its absence.
+ * @param path - Absolute `preset.yml` path.
+ * @returns The declared display fields, or an empty object when the file is absent.
  */
-export default class NativePreset extends Include {
-  static override inject = ['loader', 'tools']
-
-  constructor(ctx: Context, config: NativePresetConfig) {
-    if (!['standard', 'ptc'].includes(config.preset)) throw new Error('desktop: unsupported native product preset')
-    super(ctx, {
-      path: pathToFileURL(join(SHIPPED_PRESET_ROOT, config.preset, 'agent.cordis.yml')).href,
-      patches: [{ id: 'skill-filesystem', disabled: true }],
-    })
+function readMetadata(path: string): PresetMetadata {
+  let text: string
+  try {
+    text = readFileSync(path, 'utf8')
+  } catch {
+    return {}
   }
+  return (parseYaml(text) as PresetMetadata | null) ?? {}
+}
+
+/** Registers one product-owned preset definition from its composition directory. */
+export default class NativePreset {
+  static inject = ['agentPresets']
 
   /**
-   * Resolve rows through the tree that composed this row.
-   *
-   * The nested composition holds upstream rows, whose bare package names must
-   * resolve from the harness the owning tree already resolves against: a preset
-   * package installed under `node_modules` cannot reach the deployment's tool
-   * packages through Node's own upward walk, while the roster's tree carries the
-   * base those specifiers were written against. Relative rows keep resolving
-   * against the native composition directory through the inherited behavior.
+   * @param ctx - Owning context providing the preset registry.
+   * @param config - Product preset id and composition directory.
    */
-  override import(name: string, getOuterStack?: () => string[]): unknown {
-    const owner = this.ctx.fiber.entry?.parent?.tree
-    if (owner === undefined || owner === this) return super.import(name, getOuterStack)
-    return owner.import(name, getOuterStack)
-  }
+  constructor(private readonly ctx: Context, private readonly config: Config) {}
 
-  /** Native presets are immutable inputs, including during subtree disposal. */
-  override write(): void {}
+  async* [Service.init](): AsyncGenerator<() => Promise<void>> {
+    const directory = resolve(this.config.directory)
+    const plugins = parseYaml(readFileSync(join(directory, 'agent.cordis.yml'), 'utf8')) as readonly unknown[]
+    const definition: PresetDefinition = {
+      id: this.config.id,
+      ...readMetadata(join(directory, 'preset.yml')),
+      plugins: plugins as PresetDefinition['plugins'],
+    }
+    yield await this.ctx.agentPresets.register(definition)
+  }
 }

@@ -31,6 +31,7 @@ import {
   desktopPluginLockHash, linkDesktopHostPackages, readDesktopProfileState, recordDesktopRuntimeProfile,
   unlinkDesktopHostPackages, validateDesktopPluginGraph, type DesktopProfileState,
 } from './profile-packages.ts'
+import { sanitizeProfile } from '@deepseek-ai/dsh-app-boot'
 
 /** Desktop plugin record derived from the installed profile. */
 export interface DesktopPluginRecord {
@@ -329,6 +330,15 @@ export class DesktopProjectManager {
     })
   }
 
+  /**
+   * Back up the profile patch and disable every third-party bundle without loading application resources.
+   * The fatal-recovery dialog's "disable third-party plugins" action stops the Host and then runs this.
+   * @returns the backup path after the locked profile write, or undefined when no patch existed.
+   */
+  async disableAllPlugins(): Promise<string | undefined> {
+    return this.withLock(async () => sanitizeProfile('dsh', this.paths.profile, DESKTOP_PROFILE_BUNDLES))
+  }
+
   /** Modify the current profile while its backend is stopped; failures retain partial changes. */
   async mutate(mutation: DesktopProjectMutation, hooks: DesktopProjectHooks): Promise<void> {
     await this.withLock(async () => {
@@ -476,6 +486,7 @@ export class DesktopProjectManager {
           XDG_STATE_HOME: this.paths.pnpm.state,
         },
         stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
       })
       let failure: Error | undefined
       let diagnostics = ''

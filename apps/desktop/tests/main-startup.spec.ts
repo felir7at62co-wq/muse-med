@@ -6,6 +6,14 @@ import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 
 const harness = await vi.hoisted(async () => {
   const { EventEmitter } = await import('node:events')
+  const { tmpdir } = await import('node:os')
+  const { mkdirSync, writeFileSync } = await import('node:fs')
+  const { join } = await import('node:path')
+  // The shell reads its own package.json from the application path; keep it in the OS temp directory
+  // so a test run never writes into the repository.
+  const appRoot = join(tmpdir(), 'dsh-desktop-test-app')
+  mkdirSync(appRoot, { recursive: true })
+  writeFileSync(join(appRoot, 'package.json'), '{"name":"dsh-desktop-test","version":"1.0.0"}\n')
   function deferred() {
     let resolve!: () => void
     let reject!: (error: Error) => void
@@ -15,6 +23,8 @@ const harness = await vi.hoisted(async () => {
   const windows: FakeWindow[] = []
   const hosts: FakeHost[] = []
   const managerRuntimes: unknown[] = []
+  const mutations: unknown[] = []
+  const listeners = new Map<string, (event: unknown, ...args: unknown[]) => void>()
   const handlers = new Map<string, (event: { senderFrame: { url: string } }, ...args: unknown[]) => unknown>()
   let pluginsEnabled = false
   let preparing = deferred()
@@ -42,6 +52,19 @@ const harness = await vi.hoisted(async () => {
     readonly setTitle = vi.fn()
     readonly focus = vi.fn()
     readonly restore = vi.fn()
+    visible = true
+    readonly hide = vi.fn(() => { this.visible = false })
+    readonly destroy = vi.fn(() => { this.destroyed = true; this.emit('closed') })
+    readonly getBounds = vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 820 }))
+    readonly isVisible = vi.fn(() => this.visible)
+    readonly isFullScreen = vi.fn(() => false)
+    readonly setFullScreen = vi.fn()
+    readonly setBounds = vi.fn()
+    readonly setMinimumSize = vi.fn()
+    readonly setBackgroundColor = vi.fn()
+    readonly setTitleBarOverlay = vi.fn()
+    readonly setVibrancy = vi.fn()
+    readonly moveTop = vi.fn()
     constructor(readonly options: { show: boolean }) { super(); windows.push(this) }
     isDestroyed() { return this.destroyed }
     isMinimized() { return false }
@@ -56,7 +79,12 @@ const harness = await vi.hoisted(async () => {
     readonly ready = deferred()
     readonly exited = deferred()
     readonly stopping = deferred()
-    readonly start = vi.fn(() => { hostStarted.resolve(); return this.ready.promise })
+    readonly inspectQuit = vi.fn(async () => ({ activeTasks: false, scheduledTasks: false }))
+    readonly start = vi.fn(async () => {
+      hostStarted.resolve()
+      await this.ready.promise
+      return { url: 'http://127.0.0.1:9/', injections: [] }
+    })
     readonly stop = vi.fn(() => {
       this.stopping.resolve()
       this.ready.reject(new Error('child stopped'))
@@ -70,8 +98,14 @@ const harness = await vi.hoisted(async () => {
     whenReady: () => Promise.resolve(),
     getLocale: () => 'en-US',
     getVersion: () => '1.0.0',
-    getAppPath: () => 'desktop-test-app',
+    getAppPath: () => appRoot,
+    getPath: (name: string) => `${tmpdir()}/dsh-desktop-test-logs/${name}`,
+    setAppLogsPath: vi.fn(),
+    getPreferredSystemLanguages: () => ['en-US'],
     requestSingleInstanceLock: () => true,
+    focus: vi.fn(),
+    setAboutPanelOptions: vi.fn(),
+    setAsDefaultProtocolClient: vi.fn(() => true),
     exit: vi.fn(),
     relaunch: vi.fn(),
     quit: vi.fn(() => {
@@ -81,10 +115,23 @@ const harness = await vi.hoisted(async () => {
     }),
   })
   return {
-    windows, hosts, managerRuntimes, handlers, app, FakeWindow, FakeHost,
-    dialog: { showErrorBox: vi.fn(), showMessageBox: vi.fn() },
+    windows, hosts, managerRuntimes, mutations, listeners, handlers, app, appRoot, FakeWindow, FakeHost,
+    dialog: { showErrorBox: vi.fn(), showMessageBox: vi.fn(async () => ({ response: 1, checkboxChecked: false })) },
     menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
     openExternal: vi.fn(async () => {}),
+    clipboard: { writeText: vi.fn(), readText: vi.fn(() => '') },
+    nativeImage: { createFromPath: vi.fn(() => ({ isEmpty: () => true })) },
+    nativeTheme: { shouldUseDarkColors: false, themeSource: 'system' },
+    net: { fetch: vi.fn(async () => new Response('', { status: 200 })) },
+    powerMonitor: new EventEmitter(),
+    session: {
+      defaultSession: {
+        cookies: { get: vi.fn(async () => []) },
+        webRequest: { onBeforeSendHeaders: vi.fn(), onHeadersReceived: vi.fn() },
+        setPermissionRequestHandler: vi.fn(),
+        setPermissionCheckHandler: vi.fn(),
+      },
+    },
     catalog: vi.fn(async () => ({ bundled: [], plugins: [] })),
     applyRelease: vi.fn(() => { preparing.resolve(); return prepared.promise }),
     assertProfileRuntime: vi.fn(),
@@ -96,7 +143,8 @@ const harness = await vi.hoisted(async () => {
     get pluginsEnabled() { return pluginsEnabled },
     set pluginsEnabled(value: boolean) { pluginsEnabled = value },
     reset() {
-      windows.length = 0; hosts.length = 0; managerRuntimes.length = 0; handlers.clear(); app.removeAllListeners()
+      windows.length = 0; hosts.length = 0; managerRuntimes.length = 0; mutations.length = 0
+      listeners.clear(); handlers.clear(); app.removeAllListeners()
       app.isPackaged = true
       pluginsEnabled = false
       preparing = deferred(); prepared = deferred(); hostStarted = deferred()
@@ -108,14 +156,32 @@ const harness = await vi.hoisted(async () => {
 vi.mock('electron', () => ({
   app: harness.app,
   BrowserWindow: harness.FakeWindow,
+  clipboard: harness.clipboard,
   dialog: harness.dialog,
   ipcMain: {
     handle: (channel: string, handler: (event: { senderFrame: { url: string } }, ...args: unknown[]) => unknown) => {
       harness.handlers.set(channel, handler)
     },
+    on: (channel: string, listener: (event: unknown, ...args: unknown[]) => void) => {
+      harness.listeners.set(channel, listener)
+    },
+    removeHandler: vi.fn(),
   },
   Menu: harness.menu,
+  nativeImage: harness.nativeImage,
+  nativeTheme: harness.nativeTheme,
+  net: harness.net,
+  powerMonitor: harness.powerMonitor,
+  session: harness.session,
   shell: { openExternal: harness.openExternal },
+  Tray: class {
+    readonly setToolTip = vi.fn()
+    readonly setContextMenu = vi.fn()
+    readonly setImage = vi.fn()
+    readonly popUpContextMenu = vi.fn()
+    readonly destroy = vi.fn()
+    on = vi.fn()
+  },
   protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() },
 }))
 vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile' }) }))
@@ -125,7 +191,8 @@ vi.mock('../src/project-manager.ts', () => ({
     readonly assertProfileRuntime = harness.assertProfileRuntime
     canRecoverProfile = harness.canRecoverProfile
     constructor(_paths: unknown, runtime: unknown) { harness.managerRuntimes.push(runtime) }
-    async mutate(_mutation: unknown, hooks: { beforeChange(): Promise<void>; afterChange(): Promise<void> }) {
+    async mutate(mutation: unknown, hooks: { beforeChange(): Promise<void>; afterChange(): Promise<void> }) {
+      harness.mutations.push(mutation)
       await hooks.beforeChange()
       harness.pluginsEnabled = false
       await hooks.afterChange()
@@ -139,8 +206,27 @@ vi.mock('../src/plugin-catalog.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/plugin-catalog.ts')>(),
   desktopPluginCatalog: harness.catalog,
 }))
-vi.mock('../src/host-process.ts', () => ({ DesktopHostProcess: harness.FakeHost }))
-vi.mock('../src/update-coordinator.ts', () => ({ DesktopUpdateCoordinator: vi.fn() }))
+vi.mock('../src/host-process.ts', () => ({
+  DesktopHostProcess: harness.FakeHost,
+  DesktopHostFatalError: class DesktopHostFatalError extends Error {},
+}))
+vi.mock('../src/web-document.ts', () => ({
+  serveWebDocument: vi.fn(async () => new Response('<html></html>', { status: 200 })),
+  authenticateWebHost: vi.fn(async () => 'session=test'),
+  forwardWebRequest: vi.fn(async () => new Response('', { status: 200 })),
+}))
+vi.mock('../src/update-coordinator.ts', () => ({
+  DesktopUpdateCoordinator: class {
+    state: { phase: string; version?: string } = { phase: 'idle' }
+    readonly check = vi.fn(async () => this.state)
+    readonly download = vi.fn(async (version: string) => ({ phase: 'ready', version }))
+    readonly install = vi.fn(async (version: string) => {
+      this.state = { phase: 'ready', version }
+      return this.state
+    })
+    readonly dispose = vi.fn()
+  },
+}))
 
 function invoke(channel: string): unknown {
   const handler = harness.handlers.get(channel)
@@ -156,11 +242,12 @@ beforeEach(() => {
   vi.stubEnv('DSH_DESKTOP_NODE_BINARY', 'test-node')
   vi.stubEnv('DSH_DESKTOP_PNPM_ENTRY', 'test-pnpm')
   vi.stubEnv('DSH_DESKTOP_DSH_DIR', 'test-runtime')
+  vi.stubEnv('DSH_DESKTOP_PRIMARY_RUNTIME_DIR', 'test-primary-runtime')
   vi.stubGlobal('process', { ...process, resourcesPath: 'desktop-test-resources' })
   vi.stubEnv('DSH_DESKTOP_HOST_INSPECT_PORT', undefined)
   vi.stubEnv('DSH_HOME', 'upstream-dsh-home')
   vi.stubEnv('MUSE_MED_HOME', undefined)
-  for (const name of ['PATH', 'Path', 'PYTHONHOME', 'PYTHONPATH', 'PYTHONDONTWRITEBYTECODE',
+  for (const name of ['PATH', 'Path', 'PYTHONHOME', 'PYTHONPATH', 'PYTHONDONTWRITEBYTECODE', 'MUSE_HOME',
     'DSH_FFMPEG_PATH', 'DSH_FFPROBE_PATH', 'FFMPEG_PATH', 'FFPROBE_PATH', 'MUSE_WHISPER_MODEL_DIR', 'MUSE_BGM_RUNTIME_DIR', 'MUSE_FONTS_DIR', 'MUSE_FONT_FAMILY']) {
     vi.stubEnv(name, process.env[name])
   }
@@ -191,7 +278,7 @@ describe('desktop main startup', () => {
     expect(() => catalog!(sender, 'true')).toThrow(/must be a boolean/u)
     expect(harness.catalog).not.toHaveBeenCalled()
     await expect(catalog!(sender, false)).resolves.toEqual({ bundled: [], plugins: [], canInstall: true })
-    expect(harness.catalog).toHaveBeenCalledWith(join('desktop-test-app', 'dsh'), 'desktop-test-profile', false)
+    expect(harness.catalog).toHaveBeenCalledWith(join(harness.appRoot, 'dsh'), 'desktop-test-profile', false)
   })
 
   it('lets development browse the catalog but still rejects package mutations', async () => {
@@ -203,6 +290,31 @@ describe('desktop main startup', () => {
       .resolves.toEqual({ bundled: [], plugins: [], canInstall: false })
     await expect(harness.handlers.get(DESKTOP_IPC.pluginsAdd)!(sender, 'safe-plugin'))
       .rejects.toThrow(/require a packaged application/u)
+  })
+
+  it('routes every plugin package channel to the profile mutation it names', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    harness.prepared.resolve()
+    await harness.hostStarted.promise
+    const sender = { senderFrame: { url: 'dsh-app://shell/plugin-manager.html' } }
+    const call = async (channel: string, ...args: unknown[]): Promise<void> => {
+      await harness.handlers.get(channel)!(sender, ...args) as Promise<void>
+    }
+    await call(DESKTOP_IPC.pluginsAdd, 'safe-plugin@1.2.3')
+    await call(DESKTOP_IPC.pluginsRemove, 'safe-plugin')
+    await call(DESKTOP_IPC.pluginsUpdate, 'safe-plugin', '1.3.0')
+    await call(DESKTOP_IPC.pluginsToggle, 'safe-plugin', false)
+    await call(DESKTOP_IPC.pluginsDisableAll)
+    expect(harness.mutations).toEqual([
+      { type: 'plugin-add', spec: 'safe-plugin@1.2.3' },
+      { type: 'plugin-remove', name: 'safe-plugin' },
+      { type: 'plugin-update', name: 'safe-plugin', version: '1.3.0' },
+      { type: 'plugin-toggle', name: 'safe-plugin', enabled: false },
+      { type: 'plugins-disable-all' },
+    ])
+    // Each mutation restarts the Host through the hooks, so the plugin window keeps a live backend.
+    expect(harness.hosts.length).toBeGreaterThan(1)
   })
 
   it('opens repository links only from the plugin popup and denies arbitrary protocols', async () => {
@@ -226,7 +338,8 @@ describe('desktop main startup', () => {
     vi.stubEnv('MUSE_MED_HOME', override)
     await import('../src/main.ts')
     await harness.preparing.promise
-    expect(process.env.DSH_HOME).toBe(join(homedir(), '.muse-med'))
+    expect(process.env.DSH_HOME).toBe(join(homedir(), '.muse'))
+    expect(process.env.MUSE_HOME).toBe(join(homedir(), '.muse'))
   })
 
   it('makes packaged Windows media tools and model available without system dependencies', async () => {
@@ -258,6 +371,7 @@ describe('desktop main startup', () => {
     await import('../src/main.ts')
     await harness.preparing.promise
     expect(process.env.DSH_HOME).toBe(resolve('muse test home'))
+    expect(process.env.MUSE_HOME).toBe(resolve('muse test home'))
   })
 
   it('uses the muse-med window name and packaged spider icon without changing renderer security', async () => {

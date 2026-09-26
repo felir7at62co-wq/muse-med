@@ -1,13 +1,12 @@
 {
-  "id": "/",
   "name": "muse-med",
   "short_name": "muse-med",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "fullscreen",
   "icons": [
     {
-      "src": "/muse-med-logo.png",
+      "src": "muse-med-logo.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
