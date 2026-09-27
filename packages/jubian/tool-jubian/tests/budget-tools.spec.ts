@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { expect, it, vi } from 'vitest'
+import { DRAMA_SETTINGS_NAMESPACE } from '../src/budget-settings.ts'
 import { apply } from '../src/index.ts'
 
 it('applies the live drama budget before a paid image request without an authorization file', async () => {
@@ -22,7 +23,7 @@ it('applies the live drama budget before a paid image request without an authori
   })
   try {
     const ctx = { plugin: () => {}, get: (name: string) => name === 'settings'
-      ? { get: () => section } : undefined,
+      ? { describe: () => [{ ns: DRAMA_SETTINGS_NAMESPACE, value: section }] } : undefined,
     tools: { register: (tool: { name: string; execute: (args: unknown) => Promise<unknown> }) => {
       registered.push(tool); return () => {}
     } }, credentials: { resolve: async () => ({ value: 'token' }) } } as unknown as Context

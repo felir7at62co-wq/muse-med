@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { JubianClient } from '@deepseek-ai/dsh-jubian'
+import { DRAMA_SETTINGS_NAMESPACE } from '../src/budget-settings.ts'
 import { JubianImageRoutes, pinnedImageSelection } from '../src/image.ts'
 
 /** The live account catalogue's shape: two `gpt-image-2` rows beside another model. */
@@ -21,13 +22,15 @@ const CATALOGUE = [
 ]
 
 /**
- * A host context whose settings service resolves one `drama` section.
+ * A host context whose settings service resolves one short-drama section.
  * @param section - the section to resolve, or undefined for a namespace with no document.
  * @returns the context, with the settings service provided when a section was given.
  */
 function host(section?: unknown): Context {
   const ctx = new Context()
-  ctx.provide('settings', { get: (ns: string) => (ns === 'drama' ? section : undefined) })
+  ctx.provide('settings', {
+    describe: () => section === undefined ? [] : [{ ns: DRAMA_SETTINGS_NAMESPACE, value: section }],
+  })
   return ctx
 }
 
