@@ -75,8 +75,8 @@ kind: "package-bundle"
 | 文件 | 作用 |
 |---|---|
 | [`src/settings.ts`](src/settings.ts) | 两个编译面共用：命名空间、字段名、默认值，以及 Host 注册、浏览器校验所用的 schemastery schema |
-| [`src/index.ts`](src/index.ts) | Host 半：`ctx.inject(['settings'])` 然后 `settings.register('drama', DramaSettingsSchema)`——没有服务、没有 config、自身不持状态 |
-| [`src/client/index.ts`](src/client/index.ts) | Client 半：一次 `ctx.settingsScope.bind({ namespace: 'drama' })`、字典、设置页注册，以及可选的清单与生图通道探针 |
+| [`src/index.ts`](src/index.ts) | Host 半：导出该行自己的 `Config`，并在 `ctx.inject(['settings'])` 下调用 `settings.configure({ auto: false })`——命名空间 `drama-settings` 由 settings 服务拥有 |
+| [`src/client/index.ts`](src/client/index.ts) | Client 半：一次 `ctx.configForms.get('drama-settings')`、字典、设置页注册，以及可选的清单与生图通道探针 |
 | [`src/client/section.ts`](src/client/section.ts) | 页面的草稿编译器：表单值到设置段、设置段加当前值到路径操作，以及「写进去了没有」的判定 |
 | [`src/client/routes.ts`](src/client/routes.ts) | 页面读到的计费生图行：一次 `jubianImage.routes` 回答的含义，包括它可能「没有行」的两种情形 |
 | [`src/client/components.ts`](src/client/components.ts) | 组成生产的那些包，以及从一次清单回答折算出每行状态的过程 |
@@ -97,7 +97,7 @@ kind: "package-bundle"
 当上面的界面不够用时读这些页面。它们从本包的设置段走到持有它的接缝，以及读取它的各行。
 
 - [设置子系统参考](../../../docs/subsystems/settings.zh.md) —— 命名空间注册、默认值 → 组合基础层 → 用户层的解析顺序，以及页面写入所经的浏览器传输。
-- [ui-settings](../../client/ui-settings/README.zh.md) —— 本包绑定其 `settingsScope` 服务，并注册进它的设置外壳。
+- [ui-settings](../../client/ui-settings/README.zh.md) —— 本包从其 `configForms` 读取自己的表单，并注册进它的设置外壳。
 - [drama-gate](../../guard/drama-gate/README.zh.md) —— 拥有流水线硬规则的工具分发门禁。
 - [dsh-tool-jubian](../../jubian/tool-jubian/README.zh.md) —— 持有本页列出可购行所经 `jubianImage` 命名空间的包，也是 `imageStandardId` 配置作为兜底锁定的那个工具行。
 

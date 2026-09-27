@@ -75,8 +75,8 @@ Each row carries one status: 已加载, 启动中, 加载失败, 按条件加载
 | File | Role |
 |---|---|
 | [`src/settings.ts`](src/settings.ts) | Shared by both faces: the namespace, the field names, the defaults, and the schemastery schema the Host registers and the browser validates against |
-| [`src/index.ts`](src/index.ts) | Host half: `ctx.inject(['settings'])` then `settings.register('drama', DramaSettingsSchema)` — no service, no config, no state of its own |
-| [`src/client/index.ts`](src/client/index.ts) | Browser half: one `ctx.settingsScope.bind({ namespace: 'drama' })`, the dictionaries, the page registration, and the optional inventory and image-route probes |
+| [`src/index.ts`](src/index.ts) | Host half: exports the row's own `Config` and, under `ctx.inject(['settings'])`, `settings.configure({ auto: false })` — the settings service owns the `drama-settings` namespace |
+| [`src/client/index.ts`](src/client/index.ts) | Browser half: one `ctx.configForms.get('drama-settings')`, the dictionaries, the page registration, and the optional inventory and image-route probes |
 | [`src/client/section.ts`](src/client/section.ts) | The page's draft compiler: form values to a section, a section plus the current one to path operations, and the "did it land" verdict |
 | [`src/client/routes.ts`](src/client/routes.ts) | The paid image route's rows as the page reads them: what one `jubianImage.routes` answer means, including the two ways it can carry none |
 | [`src/client/components.ts`](src/client/components.ts) | The composed packages and the fold from one inventory answer to the status each row shows |
@@ -98,7 +98,7 @@ The write verdict is read, not assumed. The settings scope does not throw when a
 Read these pages when the surfaces above are not enough. They move from this package's settings section to the seam that stores it and the rows that read it.
 
 - [Settings subsystem reference](../../../docs/subsystems/settings.md) — namespace registration, the defaults → composition base → user layer resolution, and the browser transport a page writes through.
-- [ui-settings](../../client/ui-settings/README.md) — the `settingsScope` service this package binds and the Settings shell it registers into.
+- [ui-settings](../../client/ui-settings/README.md) — the `configForms` service this package reads its form from and the Settings shell it registers into.
 - [drama-gate](../../guard/drama-gate/README.md) — the tool-dispatch gate that owns the pipeline's hard rules.
 - [dsh-tool-jubian](../../jubian/tool-jubian/README.md) — the package that owns the `jubianImage` namespace this page lists the payable rows over, and the tool row whose `imageStandardId` config is the fallback pin.
 
