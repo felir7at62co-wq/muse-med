@@ -22,7 +22,7 @@ The outline is 3 in the 1080x1920 design coordinates, in both renderers: [`build
 
 The watermark, the subtitle style and the ending bytes are all enforced by `drama_render`, so the skill now sends renders through `subtitles` → `prepare` → `render` and names hand-written ffmpeg as the path that inherits none of those checks; a hand-built render remains allowed only where the tool lacks a capability, and then the fixed style and the bottom-right visual check apply the same way.
 
-[tweet-drama-shot-asset-match](../../../../packages/drama/skills/skills/tweet-drama-shot-asset-match/SKILL.md) owns character state at binding time: a per-character, per-episode state card (body state including pregnancy week or age band, costume version, hair, time of day) drawn from the script or a confirmed outline, checked line by line against the asset's own board before binding. An asset whose board disagrees with the script's state is the wrong version even when its name matches; `state_or_costume` in `assets_manifest.json` holds costume only, so body state is recorded beside it. The check runs before each `select_assets`/`compile`.
+[tweet-drama-shot-asset-match](../../../../packages/drama/skills/skills/tweet-drama-shot-asset-match/SKILL.md) owns character state at binding time: a per-character, per-episode state card (body state including pregnancy week or age band, costume version, hair, time of day) drawn from the script or a confirmed outline, checked line by line against the asset's own board before binding. An asset whose board disagrees with the script's state is the wrong version even when its name matches. The card now lands in two machine-readable places — the shot's `身体状态` field and the asset's `state_or_costume` plus `episodes` registration — and `drama_shot` refuses a binding that disagrees; [the state gate note](2026-09-28-character-state-gate-at-binding.md) owns that enforcement.
 
 [shot-script-creator-9-16](../../../../packages/drama/skills/skills/shot-script-creator-9-16/SKILL.md) owns reactions: a reaction expression (惊讶, 震惊, 瞪眼, 挑眉, 后退, 捂嘴) requires a trigger written in the same or the preceding shot and taken from the episode's own dialogue or ▲ action lines. A shot whose source line is an ordinary question may not carry raised eyebrows or widened eyes, and one expression word may not be reused across unrelated shots.
 
@@ -30,13 +30,13 @@ The watermark, the subtitle style and the ending bytes are all enforced by `dram
 
 **Make the outline a plugin `Config` field.** Rejected: the outline is part of the delivery specification, exactly like the frame size and bitrate the same header fixes, and a deployment-varying field would let one project silently ship a different look.
 
-**Let `drama_shot validate` reject a state-mismatched asset.** The manifest carries `state_or_costume` as costume text, so the check would need the episode's body state in a machine-readable field and a rule mapping 孕八周 onto a board's silhouette. That is a real seam, and the prompt-level check plus the review the tool already requires covers the defect that was reported.
+**Make the state card a machine-checked field.** Left deferred here, then implemented in [the state gate note](2026-09-28-character-state-gate-at-binding.md): the episode's body state goes into the shot's own `主体状态追踪` block as `身体状态`, the manifest's existing `state_or_costume` and `episodes` carry the registered side, and `drama_shot` refuses the binding. The prompt-level check the 2026-09-28 run already had was not enough — the run wrote the card and bound the wrong version anyway.
 
 **Forbid the surprise vocabulary outright.** The vocabulary is legitimate where the script has a surprise; banning it would break 林晚's 捂嘴瞪圆 beat. The trigger requirement keeps the legitimate use and blocks the invented one.
 
 ## Consequences
 
-Three of the four fixes are prompt and default values, not enforcement: `drama_shot` still validates asset identity, not body state, so an official asset of the wrong state still compiles. The state card and the trigger rule reach the model through the skills, which is where the 2026-09-28 run's ad-hoc 分镜 spec was derived from.
+Two of the four fixes are prompt and default values, not enforcement. Asset identity, the bound version's registered state, and that registration's episode coverage are now enforced by `drama_shot` ([state gate](2026-09-28-character-state-gate-at-binding.md)); the asset's board image itself, and the state of a character whose state nobody declares, still rest on the skills and on the review the tool requires.
 
 Regenerating `docs/tool-catalog.md` also brought two lines current that were stale at HEAD — the `drama_shot` placeholder rules (`ff5437838d`) and the workflow `agent()` reporting contract (`95c98cc31b`) changed their tool descriptions without the catalog being regenerated, so `verify-tool-catalog` was failing before this change.
 

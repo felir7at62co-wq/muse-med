@@ -10,13 +10,16 @@ Output asset record fields:
 
 - `name`
 - `aliases`
-- `episodes`
+- `episodes`: the episodes this version serves — episode numbers, or `["all"]` for a series-wide master
 - `type`
+- `state_or_costume`: the stage or body state plus the costume and hair, such as `孕早期（孕八周）、孕期职场装、长发`; a version with no body change states `非孕期`
 - `visual_prompt` or image-generation prompt
 - `image_path`
 - `vision_checked`
 
 Rule: records must preserve outfit/appearance variants as separate usable assets when the script requires them.
+
+`episodes` and `state_or_costume` are read at binding time by `drama_shot`: a character asset whose registration states no stage, or an episode list that does not cover the episode being compiled, is refused by name before any shot is submitted. Each pregnancy week, age band or costume version is its own row with its own stage; an asset name that mentions 孕期 does not stand in for the stage it renders.
 
 Important character reference fields:
 

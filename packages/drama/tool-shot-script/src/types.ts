@@ -10,6 +10,8 @@
  * @module @deepseek-ai/dsh-tool-shot-script/types
  */
 
+import type { EpisodeList } from './state.ts'
+
 /** How one shot produces sound, as the format declares it. */
 export type VoiceType =
   /** On-screen dialogue the character speaks in frame. */
@@ -67,6 +69,13 @@ export type IssueCode =
   | 'no_scene_bound'
   | 'unconfirmed_asset'
   | 'incomplete_asset'
+  | 'shot_body_state_missing'
+  | 'shot_body_state_unusable'
+  | 'asset_state_unregistered'
+  | 'asset_state_mismatch'
+  | 'asset_episodes_unregistered'
+  | 'asset_episode_mismatch'
+  | 'asset_state_missing'
 
 /** One decidable problem found in a shot script or its asset binding. */
 export interface ShotIssue {
@@ -114,6 +123,8 @@ export interface ParsedShot {
   directorFormat: boolean
   /** Whether `子任务边界：是` closes a package after this shot. */
   breakAfter: boolean
+  /** Per-character `身体状态` the shot declares, keyed by the character name it wrote. */
+  bodyStates: Map<string, string>
 }
 
 /** One asset row read from the project's asset manifest. */
@@ -134,6 +145,12 @@ export interface ManifestAsset {
   url: string
   /** Local image path, or an empty string when the asset is remote. */
   localPath: string
+  /** Other names this asset answers to, as the registration declared them. */
+  aliases: string
+  /** The episodes this version serves, as the registration declared them. */
+  episodes: EpisodeList
+  /** Costume and body state this version registers, or an empty string when the row omits it. */
+  stateOrCostume: string
 }
 
 /** One asset bound to a shot, with the current manifest values. */

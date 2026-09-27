@@ -74,7 +74,7 @@ interface DramaShotArguments {
   assets?: string
   /** Project root; required by `compile`. */
   project?: string
-  /** Episode number; required by `compile`. */
+  /** Episode number; required by `compile`, optional elsewhere for the episode-coverage check. */
   episode?: number
   /** Verified provider/board maximum duration, including the natural hold; required for packing. */
   max_submit_seconds?: number
@@ -100,6 +100,8 @@ interface ResolvedCall {
   assets?: string
   /** Absolute project root the call names, absent when it names none. */
   project?: string | undefined
+  /** The episode the call names, absent when it names none. */
+  episode?: number | undefined
   /** Compile destination, absent for `validate` and `preview`. */
   target?: EpisodeTarget
 }
@@ -116,36 +118,41 @@ async function readText(path: string): Promise<string> {
  * `validate` needs only the script; `preview` adds the asset manifest, because
  * the scene key decides package boundaries; `compile` adds the project root and
  * the episode number it writes under. A `project` given to any method is kept, so
- * every method reads the project's own delivery requirements.
+ * every method reads the project's own delivery requirements, and an `episode`
+ * given to any method is kept, so every method can judge whether a bound asset's
+ * registration covers the episode.
  * @param args - The dispatched arguments.
- * @returns The resolved script, manifest, project, and compile destination.
+ * @returns The resolved script, manifest, project, episode, and compile destination.
  * @throws {Error} When the method's required arguments are missing or the episode number is not a positive integer.
  */
 function resolveCall(args: DramaShotArguments): ResolvedCall {
   const script = resolve(args.script)
   const project = args.project === undefined ? undefined : resolve(args.project)
+  const episode = args.episode
+  if (episode !== undefined && (!Number.isSafeInteger(episode) || episode < 1)) {
+    throw new Error(`drama_shot 的 episode 必须是正整数集号，收到 ${String(episode)}。`)
+  }
   if (args.method === 'validate') {
-    return args.assets === undefined ? { script, project } : { script, assets: resolve(args.assets), project }
+    return args.assets === undefined
+      ? { script, project, episode }
+      : { script, assets: resolve(args.assets), project, episode }
   }
   if (args.assets === undefined) {
     throw new Error(`drama_shot ${args.method} 需要 assets：资产清单（assets_manifest.json）的路径，`
       + '它决定资产绑定与每包的场景边界。')
   }
   const assets = resolve(args.assets)
-  if (args.method === 'preview') return { script, assets, project }
-  const { episode } = args
+  if (args.method === 'preview') return { script, assets, project, episode }
   if (project === undefined || episode === undefined) {
     throw new Error('drama_shot compile 需要 project 与 episode：'
       + 'project 是项目根目录（含 episodes/、prompts/、matches/、episode_packages/），episode 是集号。')
-  }
-  if (episode < 1) {
-    throw new Error(`drama_shot compile 的 episode 必须是正整数集号，收到 ${episode}。`)
   }
   const number = String(episode).padStart(2, '0')
   return {
     script,
     assets,
     project,
+    episode,
     target: {
       project,
       episode: number,
@@ -169,7 +176,11 @@ async function readManifest(path: string): Promise<ManifestAsset[]> {
 }
 
 /** Bind every parsed shot and lay the episode timeline out from the derived durations. */
-function compileShots(shots: ReturnType<typeof parseShotScript>['shots'], manifest: ManifestAsset[] | undefined): {
+function compileShots(
+  shots: ReturnType<typeof parseShotScript>['shots'],
+  manifest: ManifestAsset[] | undefined,
+  episode: number | undefined,
+): {
   compiled: CompiledShot[]
   issues: ShotIssue[]
 } {
@@ -177,7 +188,7 @@ function compileShots(shots: ReturnType<typeof parseShotScript>['shots'], manife
   const issues: ShotIssue[] = []
   let cursor = 0
   for (const shot of shots) {
-    const binding = manifest === undefined ? undefined : bindShot(shot, manifest)
+    const binding = manifest === undefined ? undefined : bindShot(shot, manifest, episode)
     if (binding !== undefined) issues.push(...binding.issues)
     compiled.push({
       shot,
@@ -233,7 +244,7 @@ async function runDramaShot(args: DramaShotArguments, config: ResolvedConfig): P
     maxEffectiveChars: delivery?.maxEffectiveChars,
   })
   const manifest = call.assets === undefined ? undefined : await readManifest(call.assets)
-  const { compiled, issues: bindingIssues } = compileShots(parsed.shots, manifest)
+  const { compiled, issues: bindingIssues } = compileShots(parsed.shots, manifest, call.episode)
   const issues = [...parsed.issues, ...bindingIssues]
   let maxContentSeconds = 0
   let tasks: PackedTask[] = []
@@ -412,6 +423,12 @@ const DESCRIPTION = '短剧镜头脚本的判定与编译（剧变流水线）�
   + '不要用占位值占位；本说明、技能正文与检查清单里出现这些字样不算脚本违规，校验只看脚本里写了什么。'
   + '旁白/解说/心声/画外声/OS 作为 vo 画外发声保留原文与说话人，提醒核对项目配音；'
   + '风格/负面词缺失和正文秒数仅警告；只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产；'
+  + '角色状态在绑定前强制核对：每个入画角色都要在自己的 主体状态追踪 段落里写 '
+  + '身体状态：【阶段（孕周/年龄段）；服装；发型】；'
+  + '（孕八周记孕早期，没有体型变化写 非孕期），所挂资产的 state_or_costume（连同资产名）必须登记同一组维度，'
+  + '资产还必须登记 episodes（本集号数组，或 ["all"] 全剧母版）；'
+  + '任一侧没写、写了别的阶段、或本集不在登记集数里都判失败并点名资产 id，'
+  + '清单里根本没有该状态的资产时给出补料需求（角色/阶段/服装/用于哪几集）与补料路径，不静默绑定。'
   + 'preview/compile 必填 max_submit_seconds：目标分镜实际请求总秒数（在已确认模型能力内），不是自动取模型最大值。'
   + '只合并同场连续完整镜头，内容加1秒收束不得超过该值，超长单镜拒绝，禁止截断。'
   + '硬失败时不会写任何文件，也不给打包方案。'
@@ -443,7 +460,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       max_submit_seconds: { type: 'integer',
         description: 'preview/compile 必填：目标分镜实际请求总秒数，含1秒收束且在已确认模型能力内。例如分镜请求8秒就填8，不默认取模型最大值；已配置15或30秒时才填15或30。' },
       episode: { type: 'integer',
-        description: '集号（正整数，如 3）；compile 必填，写入时补成两位，如 03。' },
+        description: '集号（正整数，如 3）；compile 必填，写入时补成两位，如 03。'
+          + 'validate/preview 也接受：给了就同时判定所挂资产登记的 episodes 是否覆盖这一集。' },
     },
     output: {
       schema: RESULT_SCHEMA,

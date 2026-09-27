@@ -206,7 +206,7 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 结果带四样东西，同样的内容会写到 `<project_dir>/<assetIndexPath>`：
 
 - `episodes`——每集一条，`categories`（角色/场景/道具）列出该集用到的资产及其 `asset_id`、`material_id`、清单状态、远端名与远端状态，外加名字里带该集号 token 的视频任务。
-- `series`——清单里没有写集号的资产，也就是跨集母版。
+- `series`——清单里没有写集号的资产，也就是跨集母版。`episodes` 写 `all`、`*` 或配置的 `seriesLabel` 声明的是同一件事——该资产服务全剧而不是某一集——因此归到这里，而不是让读取失败。
 - `naming_violations`——每个读起来不是 `EP{nn}｜{类别}｜{名称}` 或 `全剧｜{类别}｜{名称}` 的远端资产名与材质名，以及原因。它只报告，绝不改名。
 - `category_mismatches`——提供方 `assetType` 与清单声明或自身名字声明（名字里的 场景/道具 段、`scene_`/`prop_` 前缀、日/夜 场次标记）不一致的资产。那 77 个场景与 21 个道具按 `assetType` 1 建出来的资产就在这张表里。
 

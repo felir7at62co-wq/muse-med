@@ -47,6 +47,9 @@ const TYPE_ALIASES: Record<string, AssetCategory> = {
 /** The accepted `type` spellings, as a failure that rejected one names them. */
 const TYPE_SPELLINGS = 'character/角色、scene/场景、prop/道具，或类别号 1/2/3'
 
+/** Episode entries that declare an asset serves every episode; `drama_shot` reads the same ones. */
+const ALL_EPISODES = new Set(['all', '*', '全剧'])
+
 /** Everything the organization view takes from outside the transport. */
 export interface OrganizeOptions {
   /** Resolved naming choices, used by the audit and the episode tokens it reads. */
@@ -137,10 +140,11 @@ function object(value: unknown, detail: string): Record<string, unknown> {
  * held, because "an asset is missing name or type" is indistinguishable from a
  * check that read the wrong structure.
  * @param projectDir - Resolved project directory.
+ * @param seriesLabel - The naming choice that also spells a series master, such as 全剧.
  * @returns Every declared asset, in manifest order.
  * @throws {JubianError} `CONTRACT_CHANGED` when the file, a row or an episode number cannot be read.
  */
-async function readManifest(projectDir: string): Promise<ManifestAsset[]> {
+async function readManifest(projectDir: string, seriesLabel: string): Promise<ManifestAsset[]> {
   const path = join(projectDir, 'assets_manifest.json')
   let raw: string
   try {
@@ -175,6 +179,9 @@ async function readManifest(projectDir: string): Promise<ManifestAsset[]> {
       for (const entry of record.episodes) {
         const episode = text(entry)
         if (!episode) continue
+        // An all-episodes entry declares a series master: it names no single
+        // episode, so the row lands in the series bucket like one that declares none.
+        if (ALL_EPISODES.has(episode.toLowerCase()) || episode === seriesLabel) continue
         const normalized = normalizedEpisode(episode)
         if (normalized === null) {
           throw new JubianError('CONTRACT_CHANGED',
@@ -314,7 +321,7 @@ export async function organizeMethod(client: JubianClient, args: {
 }, options: OrganizeOptions): Promise<Record<string, unknown>> {
   const scriptId = need(args.script_id, 'script_id')
   const projectRoot = resolve(need(args.project_dir, 'project_dir'))
-  const manifest = await readManifest(projectRoot)
+  const manifest = await readManifest(projectRoot, options.naming.seriesLabel)
   const assets = await readAllAssets(client, scriptId)
   const materials = readMaterialList((await client.request({ method: 'GET',
     path: `/aigc/material/list?scriptId=${scriptId}&isUsed=1&pageNum=1&pageSize=${PAGE_SIZE}` })).data)

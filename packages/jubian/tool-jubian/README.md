@@ -206,7 +206,7 @@ The asset list is paged to the end; the manifest is the episode map. A manifest 
 The result carries four things, and the same content is written to `<project_dir>/<assetIndexPath>`:
 
 - `episodes` — one entry per episode, each with `categories` (角色/场景/道具) listing the assets that episode uses, their `asset_id`, `material_id`, manifest status, remote name and remote status, plus the video tasks whose name carries that episode token.
-- `series` — the assets the manifest declares with no episode number, which are the cross-episode masters.
+- `series` — the assets the manifest declares with no episode number, which are the cross-episode masters. An `episodes` entry of `all`, `*` or the configured `seriesLabel` declares the same thing — the asset serves every episode rather than one — so it lands here instead of failing the read.
 - `naming_violations` — every remote asset and material name that does not read as `EP{nn}｜{类别}｜{名称}` or `全剧｜{类别}｜{名称}`, with the reason. It reports; it never renames.
 - `category_mismatches` — every asset whose provider `assetType` disagrees with the category its manifest row declares or its own name declares (a name segment of 场景/道具, a `scene_`/`prop_` prefix, or a 日/夜 scene slug). This is the list the 77 scenes and 21 props created under `assetType` 1 appear in.
 

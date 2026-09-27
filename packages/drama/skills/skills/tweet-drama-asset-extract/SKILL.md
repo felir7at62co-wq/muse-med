@@ -63,6 +63,8 @@ description: Use when 仿真人剧本需要提取角色服装版本、场景、�
 
 每项至少包含 stable_id、type、name、aliases、episodes、scenes、state_or_costume、prompt、negative_prompt、review_criteria、generation_ratio=16:9、generation_layout、generation_version、remote_asset_name、jubian_asset_id、jubian_material_id、url、asset_status、review_attempts、max_review_attempts=3、review、asset_confirmation、official=false。重要角色另含 role_class、style_reference_ids 和 style_reference_status。实际请求必须读取 manifest 的生成字段，不得在提交器中另行硬编码构图。
 
+`episodes` 与 `state_or_costume` 是登记即带、绑定时强制的两项，不能留空：`episodes` 写这个版本用于哪几集（具体集号数组，如 `[25]`；全剧通用母版写 `["all"]`），`state_or_costume` 写**阶段/体型语义**加服装与发型（如 `孕早期（孕八周）、孕期职场装、长发`；没有体型变化写 `非孕期`）。只写服装不写阶段的资产在镜头绑定时会被判「未标阶段」并点名该资产 id，同一个角色按孕周、年龄段拆分版本时，每个版本都要写清自己属于哪个阶段。这三项缺失时不要靠名字里的「孕期」之类字样顶上——名字只是名字，判定读的是登记值。
+
 初次写出均为 candidate。生成图片、自动审核和确认出演由后续 skills 完成，提取阶段不得提前写 official=true。用户已授权完整流水线时，提示词落盘并报告批次数量后可继续批量生成，不再要求逐项人工选择。
 
 ## 生成前必须先跑对账

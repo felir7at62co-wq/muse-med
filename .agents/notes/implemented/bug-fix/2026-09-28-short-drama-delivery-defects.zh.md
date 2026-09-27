@@ -22,7 +22,7 @@ Status: implemented
 
 水印、字幕样式与片尾字节都由 `drama_render` 执行，因此技能现在要求出片走 `subtitles` → `prepare` → `render`，并点名手写 ffmpeg 是不继承这些校验的那条路；只有工具确实缺能力时才允许手工出片，且同样适用固定样式与右下角目视复核。
 
-[tweet-drama-shot-asset-match](../../../../packages/drama/skills/skills/tweet-drama-shot-asset-match/SKILL.md) 在绑定环节拥有角色状态：每个角色每集先写一张状态卡（含孕周或年龄段的体型、服装版本、发型、时段），取自剧本或已确认大纲，绑定前与该资产设定板逐条对齐。设定板与剧本状态不一致的资产就是错的版本，哪怕名字对得上；`assets_manifest.json` 的 `state_or_costume` 只记服装，体型与孕周记在它旁边。该检查在每个 `select_assets`/`compile` 之前执行。
+[tweet-drama-shot-asset-match](../../../../packages/drama/skills/skills/tweet-drama-shot-asset-match/SKILL.md) 在绑定环节拥有角色状态：每个角色每集先写一张状态卡（含孕周或年龄段的体型、服装版本、发型、时段），取自剧本或已确认大纲，绑定前与该资产设定板逐条对齐。设定板与剧本状态不一致的资产就是错的版本，哪怕名字对得上。状态卡现在落在两处机器可读的地方——镜头的 `身体状态` 字段，以及资产的 `state_or_costume` 加 `episodes` 登记——不一致时 `drama_shot` 直接拒绝绑定；该强制由[状态门禁那份 Note](2026-09-28-character-state-gate-at-binding.zh.md) 拥有。
 
 [shot-script-creator-9-16](../../../../packages/drama/skills/skills/shot-script-creator-9-16/SKILL.md) 拥有表情：反应类表情（惊讶、震惊、瞪眼、挑眉、后退、捂嘴）必须在同一镜或上一镜写明触发事件，且触发事件取自本集台词或 ▲ 动作行。原文只是平常问句的镜头不得写挑眉或瞪眼，同一个表情词也不得跨无关镜头复用。
 
@@ -30,13 +30,13 @@ Status: implemented
 
 **把描边做成插件 `Config` 字段。** 否决：描边与同一个表头固定的画面尺寸、码率一样，属于交付规格；做成随部署变化的字段，就会允许某个项目悄悄交付另一种观感。
 
-**让 `drama_shot validate` 拒绝状态不符的资产。** manifest 的 `state_or_costume` 是服装文本，要判就得让本集体型进入机器可读字段，并给「孕八周对应什么身形」立规则。那是一个真实的接缝；已报告的缺陷由提示词层检查加上工具本就要求的评审覆盖。
+**把状态卡做成机器可校验的字段。** 本 Note 当时留作待办，后在[状态门禁那份 Note](2026-09-28-character-state-gate-at-binding.zh.md) 里实现：本集体型进入镜头自己的 `主体状态追踪` 块（`身体状态`），登记侧用清单已有的 `state_or_costume` 与 `episodes`，由 `drama_shot` 拒绝不符的绑定。2026-09-28 那次运行本就有提示词层检查，仍然挂错了版本——提示词层不够。
 
 **直接禁用惊讶类词汇。** 该词汇在剧本确有惊讶时是合法的，全面禁用会破坏林晚「捂嘴瞪圆」那一下。改为要求触发事件，既保住合法用法，也挡住凭空添加。
 
 ## Consequences
 
-四项修复里有三项是提示词与默认值，不是强制：`drama_shot` 校验的仍是资产身份而不是体型，所以一个 official 但状态错误的资产照样能编译。状态卡与触发规则通过技能到达模型——2026-09-28 那次运行临时写的分镜规格正是从这些技能派生出来的。
+四项修复里有两项是提示词与默认值，不是强制。资产身份、所绑版本登记的状态、以及该登记的集数覆盖现在由 `drama_shot` 强制（见[状态门禁](2026-09-28-character-state-gate-at-binding.zh.md)）；资产设定板图片本身、以及没人声明状态的角色，仍依赖技能与工具本就要求的评审。
 
 重新生成 `docs/tool-catalog.md` 同时带正了两行在 HEAD 就已过期的文字：`drama_shot` 的占位值规则（`ff5437838d`）与 workflow `agent()` 的上报契约（`95c98cc31b`）改了工具描述却没有重新生成目录，因此本次改动之前 `verify-tool-catalog` 就是失败的。
 

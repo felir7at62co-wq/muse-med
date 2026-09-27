@@ -14,6 +14,17 @@ import type { Config } from '../src/index.ts'
 /** The fixed negative prompt the director format requires on every shot. */
 export const NEGATIVE_PROMPT = '无噪点，无跳帧，五官稳定不变形'
 
+/** The body state 苏晚's shots declare, and the state her registered asset carries. */
+export const SU_WAN_STATE = '非孕期；青年；家常装'
+
+/**
+ * The `身体状态` line of one on-screen subject, written the way the format's other
+ * per-subject fields are: bare, inside that subject's `主体状态追踪` section.
+ */
+export function bodyState(state: string): string {
+  return `身体状态：【${state}】；`
+}
+
 /** One shot block: the style line, the marker, the body lines, and the negative prompt. */
 export function shot(number: number, lines: readonly string[]): string {
   return ['真人短剧写实风格', `【镜头${number}】`, ...lines, NEGATIVE_PROMPT].join('\n')
@@ -28,6 +39,7 @@ export function speakingShot(number: number, dialogue = '苏晚：宝宝……�
     '视角：相机视角平视',
     '主体状态追踪：',
     '【苏晚】-位置：【场景图视角后厨左侧洗碗池前靠近柜门处】；',
+    bodyState(SU_WAN_STATE),
     '动作状态：【双手撑着台面，肩膀发抖】；',
     '四层朝向链：【身体朝向画外方向，面部朝向那里，目光固定，眼神发紧】；',
     '手部状态：【双手撑在台面】，【无】；',
@@ -45,6 +57,7 @@ export function actionShot(number: number, extra: readonly string[] = []): strin
     '视角：相机视角平视',
     '主体状态追踪：',
     '【苏晚】-位置：【场景图视角客厅中央靠近楼梯口处】；',
+    bodyState(SU_WAN_STATE),
     '动作状态：【快步穿过客厅】；',
     '四层朝向链：【身体朝向楼梯方向，面部朝向那里，目光固定，眼神着急】；',
     '手部状态：【双手提着裙摆】，【无】；',
@@ -71,6 +84,9 @@ Record<string, unknown> {
     jubian_material_id: '80001',
     url: 'https://cdn.example.test/asset.png',
     image_path: '',
+    aliases: '',
+    episodes: [1],
+    state_or_costume: SU_WAN_STATE,
     ...overrides,
   }
 }

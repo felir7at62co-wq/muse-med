@@ -33,6 +33,9 @@ describe('reading the asset manifest', () => {
       materialId: '80001',
       url: 'https://cdn.example.test/asset.png',
       localPath: '',
+      aliases: '',
+      episodes: { kind: 'list', numbers: [1] },
+      stateOrCostume: '非孕期；青年；家常装',
     })
     expect(rows[1]).toEqual({
       name: '后厨',
@@ -43,7 +46,20 @@ describe('reading the asset manifest', () => {
       materialId: '80002',
       url: 'https://cdn/x.png',
       localPath: '',
+      aliases: '',
+      episodes: { kind: 'missing' },
+      stateOrCostume: '',
     })
+  })
+
+  it('reads the project manifest that spells its asset array items', () => {
+    const rows = parseAssetManifest({
+      script_id: 2708,
+      items: [assetRow('苏晚', '角色', { episodes: ['all'], state_or_costume: '孕早期（孕八周）、孕期职场装' })],
+    }, 'manifest.json')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.episodes).toEqual({ kind: 'all' })
+    expect(rows[0]?.stateOrCostume).toBe('孕早期（孕八周）、孕期职场装')
   })
 
   it('refuses a document that is not an object with an assets array', () => {

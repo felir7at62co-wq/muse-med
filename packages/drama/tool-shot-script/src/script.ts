@@ -1,9 +1,11 @@
 /**
  * Director-format shot-script parsing and this format's decidable rules.
  *
- * Each `【镜头N】` block preserves its speech and voice choice. Explicit positive
- * whole-second durations take precedence over speech/complexity estimates.
- * Creative checks produce warnings; malformed fields remain failures.
+ * Each `【镜头N】` block preserves its speech and voice choice, and the `身体状态`
+ * each of its `主体状态追踪` entries declares for one on-screen character, which
+ * the asset binding then has to agree with. Explicit positive whole-second
+ * durations take precedence over speech/complexity estimates. Creative checks
+ * produce warnings; malformed fields remain failures.
  *
  * The parser never throws and never stops at the first problem: it returns every
  * parsed shot plus the complete issue list, so one call tells the model
@@ -12,6 +14,7 @@
  * @module @deepseek-ai/dsh-tool-shot-script/script
  */
 
+import { declaredBodyStates } from './state.ts'
 import type { DurationSource, IssueCode, IssueSeverity, ParsedShot, ShotIssue, VoiceType } from './types.ts'
 
 /** Han characters, Latin letters, and digits: punctuation and spaces never count. */
@@ -460,6 +463,7 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
       visual: `${STYLE_LINE.test(text.slice(0, block.start)) ? '真人短剧写实风格\n' : ''}${body.trim()}`,
       directorFormat,
       breakAfter: field(blockText, '子任务边界') === '是',
+      bodyStates: declaredBodyStates(blockText),
     })
   }
 

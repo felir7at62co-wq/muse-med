@@ -102,6 +102,22 @@ describe('organizeMethod', () => {
     expect(calls.filter(call => call.path.includes('/aigc/asset/list'))).toHaveLength(2)
   })
 
+  it('reads an all-episodes entry as a series master instead of refusing it', async () => {
+    await writeFile(join(project, 'assets_manifest.json'), JSON.stringify(manifest({ items: [
+      { type: 'character', name: '陆沉舟', episodes: ['all'], jubian_asset_id: 125204, official: true },
+      { type: 'scene', name: '酒店大堂', episodes: ['全剧'], jubian_asset_id: 125400, official: true },
+      { type: 'prop', name: '红包', episodes: ['05'], jubian_asset_id: 125300, official: true },
+    ] })), 'utf8')
+    const { client } = stubClient()
+    const index = await organizeMethod(client, { script_id: 2708, project_dir: project }, { naming: NAMING })
+    const episodes = index.episodes as { label: string; asset_count: number }[]
+    expect(episodes.map(episode => episode.label)).toEqual(['EP05'])
+    expect(episodes[0]).toMatchObject({ asset_count: 1 })
+    const series = index.series as Record<string, { name: string }[]>
+    expect(series['角色']!.map(asset => asset.name)).toEqual(['陆沉舟'])
+    expect(series['场景']!.map(asset => asset.name)).toEqual(['酒店大堂'])
+  })
+
   it('reports the remote names that predate the convention', async () => {
     await writeFile(join(project, 'assets_manifest.json'), JSON.stringify(manifest()), 'utf8')
     const { client } = stubClient()
