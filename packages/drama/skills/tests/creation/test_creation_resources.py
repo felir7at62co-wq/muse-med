@@ -37,6 +37,13 @@ class CreationResourcesTests(unittest.TestCase):
         self.assertIn("drama_shot", text)
         self.assertNotIn("scripts/compile_director_shots.py", text)
 
+    def test_self_check_judges_shot_fields_not_whole_file_text(self):
+        text = (SKILLS / "tweet-drama-early-shot-script/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("自检只看脚本", text)
+        self.assertIn("每个镜头块的字段", text)
+        self.assertIn("不是违规", text)
+        self.assertIn("validate", text)
+
     def test_project_config_schema_is_documented_where_the_compiler_reads_it(self):
         schema = (SKILLS / "tweet-drama-early-shot-script/references/project-config.md").read_text(encoding="utf-8")
         skill = (SKILLS / "tweet-drama-early-shot-script/SKILL.md").read_text(encoding="utf-8")
