@@ -16,6 +16,29 @@ function firstDifference(actual, expected) {
 }
 
 /**
+ * Create the two output directories one reproducible-build comparison needs.
+ *
+ * Both outputs must sit at the SAME directory depth: `build.mjs` stages every build in a
+ * `.source-build-*` directory inside `--out` and links the toolchain into it with junctions, and
+ * rolldown records every module it inlines in a `//#region` comment naming the file. Those paths
+ * leave the staging tree for the checkout, so they are written relative to the emitted file (or
+ * absolute when output and checkout sit on different Windows drives, which is why this only
+ * reproduces with both on one drive). One extra `--out` level adds one `../` to each of the four
+ * bundled `@heroicons/react` comments in the Codex client bundle, and the two tarballs then differ
+ * in `lib/client.js` alone. Two `mkdtempSync` siblings under the OS temp root keep the depth equal;
+ * nesting the second output inside the first cannot.
+ *
+ * @param {string} label Prefix naming the fixtures the two directories belong to.
+ * @returns {[string, string]} The first and second output directories.
+ */
+function sameDepthOutputs(label) {
+  return [
+    mkdtempSync(join(tmpdir(), `${label}-first-`)),
+    mkdtempSync(join(tmpdir(), `${label}-second-`)),
+  ]
+}
+
+/**
  * Assert that two builds produced byte-identical bytes, by length and then SHA-256.
  *
  * The digests are compared before anything renders the buffers: `assert.deepEqual` on two
@@ -52,17 +75,7 @@ test('rejects an unknown source', () => {
 })
 
 test('builds every pinned plugin with its declared runtime entries and notices', () => {
-  // The two outputs must sit at the SAME directory depth, so they are two mkdtemp siblings under
-  // one parent; nesting the second output inside the first cannot reproduce. build.mjs stages each
-  // build in a `.source-build-*` directory inside --out and links the toolchain into it with
-  // junctions, and rolldown records every module it inlines in a `//#region` comment naming the
-  // file. Those paths leave the staging tree for the checkout, so they are written relative to the
-  // emitted file (or absolute when output and checkout sit on different Windows drives, which is
-  // why this only reproduces with both on one drive). One extra --out level adds one `../` to each
-  // of the four bundled `@heroicons/react` comments in the Codex client bundle, and the tarballs
-  // then differ in `lib/client.js` alone.
-  const first = mkdtempSync(join(tmpdir(), 'muse-all-plugins-first-'))
-  const second = mkdtempSync(join(tmpdir(), 'muse-all-plugins-second-'))
+  const [first, second] = sameDepthOutputs('muse-all-plugins')
   try {
     const result = spawnSync(process.execPath, [join(root, 'third_party/plugins/build.mjs'), '--out', first], { cwd: root, stdio: 'inherit' })
     assert.equal(result.status, 0)
@@ -117,14 +130,13 @@ test('builds every pinned plugin with its declared runtime entries and notices',
 })
 
 test('builds ffmpeg twice from source into identical licensed tarballs', () => {
-  const temporary = mkdtempSync(join(tmpdir(), 'muse-plugin-build-test-'))
+  const [first, second] = sameDepthOutputs('muse-plugin-build-test')
   try {
-    const outputs = ['first', 'second'].map(name => join(temporary, name))
-    for (const output of outputs) {
+    for (const output of [first, second]) {
       const result = spawnSync(process.execPath, [join(root, 'third_party/plugins/build.mjs'), '--only', 'dsh-ffmpeg', '--out', output], { cwd: root, stdio: 'inherit' })
       assert.equal(result.status, 0, 'source build must succeed')
     }
-    const files = outputs.map(output => join(output, readdirSync(output).find(file => file.endsWith('.tgz'))))
+    const files = [first, second].map(output => join(output, readdirSync(output).find(file => file.endsWith('.tgz'))))
     assertSameBytes(readFileSync(files[1]), readFileSync(files[0]), 'dsh-ffmpeg must reproduce from clean source')
     const list = spawnSync('tar', ['-tzf', files[0]], { encoding: 'utf8' })
     assert.equal(list.status, 0)
@@ -133,6 +145,7 @@ test('builds ffmpeg twice from source into identical licensed tarballs', () => {
     assert.match(list.stdout, /package\/cordis.patch.yml/)
     assert.doesNotMatch(list.stdout, /node_modules|\.env|\.git\//)
   } finally {
-    rmSync(temporary, { recursive: true, force: true })
+    rmSync(first, { recursive: true, force: true })
+    rmSync(second, { recursive: true, force: true })
   }
 })
