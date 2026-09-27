@@ -46,6 +46,8 @@ Collect mode keeps the last `maxBytes` of a stream in memory — errors and fina
 
 The `./output` export shares this collector and retained-spill storage with process adapters. `snapshot()` returns the retained raw bytes and total byte count, allowing remote adapters to preserve offsets without forwarding the complete stream.
 
+Collected bytes become text through `decodeStreamText`: a read that is well-formed UTF-8 decodes exactly as it always did, and a read that is not is decoded with the Windows ANSI code page (`GetACP`), which is the encoding a native Windows program writes to a redirected standard stream. PowerShell's own parse errors are the case that forced this: the whole `-Command` text is parsed before `ENCODING_PREAMBLE` can pin `[Console]::OutputEncoding`, so the error text arrives in the console code page. A read that well-formed UTF-8 explains once a character split at a window edge is restored keeps its replacement character instead — the retained tail is byte-exact and an incremental read starts and ends at pipe-chunk offsets — and so does every read on a host with no console code page. `consoleCodePageFallbacks` counts the fallback decodes for residual encoding statistics.
+
 ### Control transport
 
 An ordinary spawn can request the [subprocess control pipe](../subprocess/README.md#using-a-control-pipe). A Node target receives fd 7 on every supported host; Windows descriptor numbering requires CRT initialization. POSIX runners preserve that descriptor across `execve`; Windows Job and ACL runners establish it in the child's CRT startup table before Node initializes and close their own carrier copies after spawning. Standard streams and the runner's private management channel remain independent.
@@ -84,6 +86,8 @@ Each spawn selects one owner for both signalling and quiescence. Supported Linux
 |---|---|
 | [`src/index.ts`](src/index.ts) | Service wiring: live-handle sets, disposal, host-exit finalization, executable lookup |
 | [`src/spawn.ts`](src/spawn.ts) | Shared process plumbing: direct outcomes, tail-keep collection, spill files, and fallback spawning |
+| [`src/output.ts`](src/output.ts) | Bounded output tails, spill files, and the decode of every read |
+| [`src/stream-decoding.ts`](src/stream-decoding.ts) | Read decoding: UTF-8, then the Windows console code page |
 | [`src/managed-owner.ts`](src/managed-owner.ts) | Private signal-and-wait owner used by each ordinary handle |
 | [`src/linux-scope.ts`](src/linux-scope.ts) | Linux user-systemd capability checks, scope launch, signalling, and quiescence |
 | [`src/linux-execve.ts`](src/linux-execve.ts) | Linux libc image replacement and inherited-standard-descriptor preservation |
@@ -148,6 +152,7 @@ These limits define when the provider is a poor fit or needs special operational
 - **In-process cleanup requires a JavaScript-observable exit** — direct `process.exit()`, default uncaught exceptions, and default unhandled rejections emit Node's synchronous `exit` event. The default OS disposition for an unhandled `SIGTERM`, `SIGINT`, or `SIGHUP` bypasses that event; an application covers those signals only by installing a handler that performs normal disposal or calls `process.exit()`. `SIGKILL`, fatal OOM, `process.abort()`, native crashes, power loss, and any failure that cannot run JavaScript require an external supervisor, container init, or equivalent OS owner.
 - **The credential scrub is a name heuristic** — `*KEY*`/`*PASSWORD*`/`*SECRET*`/`*TOKEN*` only; differently named secrets (for example `*PASSPHRASE*`) pass through, and a whitelist for over-scrubbed variables is noted future work.
 - **Completed spill files are not deleted** — bounded full-output recovery files accumulate under the OS tmpdir until something external cleans them; the private per-process spill directory is removed at a JavaScript-observable exit only when it holds no completed spill file.
+- **Stream decoding reads one legacy encoding** — only the Windows ANSI code page is re-read, and only on a Windows host whose runtime carries a decoder for that code page. A read holding nothing but a character split across chunks, a stream whose bytes happen to be well-formed UTF-8 under another encoding, a stream in a differently configured console's code page, and a binary payload all keep the UTF-8 reading.
 
 <a id="dev-note"></a>
 ### Dev Note

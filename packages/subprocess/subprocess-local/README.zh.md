@@ -46,6 +46,8 @@ kind: "package-reference"
 
 `./output` 导出向进程适配器共享该收集器与保留 spill 的存储。`snapshot()` 返回保留的原始字节及总字节数，使远程适配器能够保留偏移量，而无需转发完整的流。
 
+收集到的字节经 `decodeStreamText` 变成文本：合法 UTF-8 的读取解码结果与以往完全一致；不是合法 UTF-8 的读取按 Windows ANSI 代码页（`GetACP`）解码，也就是原生 Windows 程序写入被重定向标准流时所用的编码。PowerShell 自身的解析错误正是促成这一点的情形：整段 `-Command` 文本在 `ENCODING_PREAMBLE` 能固定 `[Console]::OutputEncoding` 之前就已被解析，因此错误文本以控制台代码页到达。只要补回窗口边缘被切开的一个字符后就能用合法 UTF-8 解释的读取，保留其替换字符——保留尾部是字节精确的，且增量读取的起点与终点都落在管道分块偏移上——没有控制台代码页的主机上每一次读取同样如此。`consoleCodePageFallbacks` 统计回退解码次数，供残留编码统计使用。
+
 ### 控制传输
 
 普通 spawn 可以请求 [subprocess 控制管道](../subprocess/README.zh.md#using-a-control-pipe)。Node 目标在所有受支持的宿主上均收到 fd 7；Windows 描述符编号依赖 CRT 初始化。POSIX runner 在 `execve` 时保留该描述符；Windows Job 和 ACL runner 在 Node 初始化前通过子进程的 CRT 启动表建立它，并在 spawn 后关闭自身的承载副本。标准流与 runner 的私有管理通道保持独立。
@@ -84,6 +86,8 @@ Linux 普通进程和终端进程即使在 bootstrap 消费启动请求前被取
 |---|---|
 | [`src/index.ts`](src/index.ts) | 服务接线：存活句柄集合、dispose、宿主退出最终清理、可执行文件查找 |
 | [`src/spawn.ts`](src/spawn.ts) | 共享进程管道：直接结果、保尾收集、spill 文件与 fallback spawn |
+| [`src/output.ts`](src/output.ts) | 有界输出尾部、spill 文件，以及每次读取的解码 |
+| [`src/stream-decoding.ts`](src/stream-decoding.ts) | 读取解码：先 UTF-8，再 Windows 控制台代码页 |
 | [`src/managed-owner.ts`](src/managed-owner.ts) | 每个普通句柄使用的私有信号与等待 owner |
 | [`src/linux-scope.ts`](src/linux-scope.ts) | Linux user-systemd 能力检查、scope 启动、信号发送与完全停稳 |
 | [`src/linux-execve.ts`](src/linux-execve.ts) | Linux libc 进程映像替换与继承标准文件描述符保留 |
@@ -148,6 +152,7 @@ spill 文件以 `0600` 权限、`O_EXCL` 与随机名称在 `0700` 每进程目�
 - **进程内清理要求退出阶段仍能执行 JavaScript**——直接 `process.exit()`、默认未捕获异常和默认未处理 rejection 会发出 Node 同步 `exit` 事件。未安装 handler 时，`SIGTERM`、`SIGINT` 或 `SIGHUP` 的默认 OS 处置不会发出该事件；应用只有安装执行正常 dispose 或调用 `process.exit()` 的 handler 才能覆盖这些信号。`SIGKILL`、fatal OOM、`process.abort()`、native crash、断电，以及任何无法运行 JavaScript 的故障，都需要外部 supervisor、容器 init 或等价的 OS owner 负责。
 - **凭据清除依赖名称启发式规则**——只匹配 `*KEY*`／`*PASSWORD*`／`*SECRET*`／`*TOKEN*`；名称不同的 secret（例如 `*PASSPHRASE*`）会继续传递，对误删变量引入白名单属于已记录的后续工作。
 - **不会删除已完成的 spill 文件**——有界的完整输出恢复文件会在 OS tmpdir 下累积，直到外部机制进行清理；每进程私有 spill 目录仅在未持有任何已完成 spill 文件时于 JavaScript 可观察的退出阶段删除。
+- **流解码只重读一种遗留编码**——只有 Windows ANSI 代码页会被重读，且仅当 Windows 主机上的运行时带有该代码页的解码器时。只含跨分块被切开字符的读取、字节恰好在另一种编码下构成合法 UTF-8 的流、控制台配置不同的主机代码页流，以及二进制载荷，都保留 UTF-8 读法。
 
 <a id="dev-note"></a>
 ### 开发备注

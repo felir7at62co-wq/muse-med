@@ -1,9 +1,14 @@
-/** Bounded output tails and private spill files shared by process providers. */
+/**
+ * Bounded output tails and private spill files shared by process providers.
+ * This is the only layer that holds a stream's raw bytes, so it is also where
+ * those bytes become text (see `stream-decoding.ts`).
+ */
 import { randomBytes } from 'node:crypto'
 import { closeSync, mkdtempSync, openSync, rmdirSync, unlinkSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { CollectedOutput } from '@deepseek-ai/dsh-subprocess'
+import { decodeStreamText } from './stream-decoding.ts'
 
 let spillCounter = 0
 let defaultSpillDir: string | undefined
@@ -53,6 +58,10 @@ export function prepareManagedProcessBinding(
  *
  * Tail-keep rationale (pi/OpenCode): errors and final results cluster at the
  * end of command output; the spill file covers the head.
+ *
+ * Every read decodes its raw bytes through `decodeStreamText`, so text reaches
+ * a consumer as UTF-8, or as the Windows console code page when the bytes are
+ * not UTF-8 at all.
  */
 export class OutputCollector {
   private chunks: Buffer[] = []
@@ -163,7 +172,7 @@ export class OutputCollector {
     const lossy = fromByte < windowStart
     const slice = lossy ? buffer : buffer.subarray(fromByte - windowStart)
     return {
-      text: slice.toString('utf8'),
+      text: decodeStreamText(slice),
       nextOffset: this.total,
       lossy,
       ...this.spillFile !== undefined ? { spillPath: this.spillFile } : {},
@@ -204,7 +213,7 @@ export class OutputCollector {
   finalize(): CollectedOutput {
     this.seal()
     return {
-      text: Buffer.concat(this.chunks).toString('utf8'),
+      text: decodeStreamText(Buffer.concat(this.chunks)),
       truncated: this.dropped,
       ...this.spillFile !== undefined ? { spillPath: this.spillFile } : {},
     }
