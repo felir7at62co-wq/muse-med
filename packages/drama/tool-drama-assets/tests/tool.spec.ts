@@ -234,6 +234,7 @@ describe('runDramaAssets', () => {
         hs_asset_status: 'Active', url: '', create_time: '',
       }],
       dangling: [],
+      issues: [],
       disposition: { 83840: { status: 'pending', note: '' } },
       blocking: [83840],
       ignored_without_note: [],
@@ -353,6 +354,7 @@ describe('runDramaAssets', () => {
       disposition: { 83840: { status: 'ignored', note: '失败遗留' } },
       blocking: [],
       ignored_without_note: [],
+      issues: [],
       next: '处置已写入证据：宿主付费钩子下次读到它就会按新的 blocking / ignored_without_note 判定；'
         + '要刷新远端比对结果与 ran_at，再跑一次 reconcile。',
     })
@@ -397,7 +399,7 @@ describe('runDramaAssets', () => {
     expect(result.blocking).toEqual([])
     expect(await evidence(projectDir)).toEqual({
       disposition: { 83840: { status: 'ignored', note: '原因' } },
-      blocking: [], ignored_without_note: [], ready: true,
+      blocking: [], ignored_without_note: [], issues: [], ready: true,
     })
   })
 

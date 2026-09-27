@@ -68,6 +68,7 @@ The result separates `failures` from `warnings`; only failures prevent a packagi
 | Unknown silent-shot complexity or character placeholder | Failure |
 | Action complexity alongside speech | Warning: explicit timing wins; otherwise review speech-based timing |
 | Unregistered explicit scene, unconfirmed or incomplete bound asset | Failure |
+| A manifest row whose `type` is none of the spellings the binder matches | Failure (`asset_type_unusable`): the row binds nothing and no other rule would notice, so the message names the row, the asset, the value read, the accepted spellings and the repair, while the readable rows still take part in the same run |
 | A bound character with no `身体状态`, or one that states no dimension | Failure (`shot_body_state_missing`, `shot_body_state_unusable`): declare the state inside that subject's `主体状态追踪` section |
 | A registration whose dimensions disagree, whose state carries none, or that omits costume or hair the shot requires | Failure (`asset_state_mismatch`, `asset_state_unregistered`): fix the registration or bind the version that states it |
 | A registration that declares no episode, an unreadable one, or one not covering the episode being compiled | Failure (`asset_episodes_unregistered`, `asset_episode_mismatch`) |

@@ -68,6 +68,7 @@ kind: "package-reference"
 | 无声镜复杂度未知或人物占位 | 失败 |
 | 台词与动作复杂度并存 | 警告：明确时长优先；否则复核发声估算时长 |
 | 明确场景未登记、绑定资产未确认或不完整 | 失败 |
+| 清单某行的 `type` 不是绑定规则认的拼法 | 失败（`asset_type_unusable`）：这一行谁也绑不上、别的规则也不会发现，所以说明里点出第几条、资产名、读到的值、允许的拼法与修法；读得出来的行仍在同一次运行里照常参与 |
 | 已挂角色没有 `身体状态`，或声明里没有维度 | 失败（`shot_body_state_missing`、`shot_body_state_unusable`）：在该主体的 `主体状态追踪` 段落里补声明 |
 | 登记维度不一致、登记值没有阶段，或缺少镜头要求的服装/发型 | 失败（`asset_state_mismatch`、`asset_state_unregistered`）：改登记，或改挂写了这一版状态的资产 |
 | 登记没有 episodes、读不出集号，或未覆盖本次编译的集号 | 失败（`asset_episodes_unregistered`、`asset_episode_mismatch`） |

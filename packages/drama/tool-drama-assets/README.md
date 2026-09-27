@@ -69,17 +69,20 @@ The token itself is the credential reference `JUBIANAI_ADMIN_TOKEN`, resolved th
 | `matched` | Used remote assets the manifest also records |
 | `unregistered` | Used remote assets the manifest does not record, with the material's id, name, category, URL and creation stamp |
 | `dangling` | Manifest records whose asset id the remote project does not hold |
+| `issues` | Every defect in the manifest's own declarations, each with a stable `code` and the repair: no `items`/`assets` array, an asset array spelled `assets`, no `lead_readonly_records` array, or a record that is not an object. Additive to the file's original fields: the two external readers ignore a key they do not know |
 | `disposition` | One `{status, note}` per unregistered asset, carried across runs |
 | `blocking` | Unregistered asset ids with no `registered` or `ignored` decision |
 | `ignored_without_note` | Ignored asset ids whose note is empty |
-| `ready` | Whether `blocking` and `ignored_without_note` are both empty |
+| `ready` | Whether `issues`, `blocking` and `ignored_without_note` are all empty |
 | `policy` | The paid-generation policy the gate reads: KU_AI at 0.12 CNY per image, at most 3 attempts, 0.36 CNY worst case |
 
 Two rules close the loop. An asset a person registers in the manifest is recognized on the next `reconcile` and its disposition becomes `registered` automatically, keeping whatever note it had. An asset that was used and whose material is still `Active` but whose asset row carries a `delFlag` other than `"0"` is not an asset: only alive rows are compared.
 
+A manifest this comparison cannot read is reported, not refused. `jubian_organize` reads the same file and raises `CONTRACT_CHANGED` for an array it cannot find; `reconcile` answers `ready: false` with a structured `issues` entry instead, because this file is authored by a model that still has to repair it — an error ends the call and hides every other finding, while a reported issue arrives beside the whole `unregistered` and `dangling` list. The rows that could be read still take part, so an older manifest whose asset array is spelled `assets` compares its real rows rather than reporting every asset the remote already holds as unregistered. Only the three facts that leave nothing to compare at all — a missing file, a non-JSON body, and a missing integer `script_id` — still fail the call.
+
 The tool result is not the evidence file. The file follows the pipeline's own spelling — an absent provider field is JSON `null` — while the tool result spells the same fact as an empty string or `0`, because the tool schema has no nullable scalar. `0` is never a category the provider issues, so `asset_type: 0` reads as "no category number".
 
-`ready` is the dispositions alone, exactly as the pipeline's own Python tool computes it. The host gate additionally requires a fresh `ran_at`, which `dispose` does not write: a project whose only evidence is a bare `dispose` result is reported `ready: true` and is still refused by the gate as unusable.
+`ready` is `issues`, `blocking` and `ignored_without_note` together: a comparison whose local side could not be read reports an asset the remote already holds as unregistered, and that verdict is what a paid creation would act on. `dispose` carries the `issues` the evidence already holds rather than recomputing them, so a disposition cannot turn that verdict back into a ready one. The host gate additionally requires a fresh `ran_at`, which `dispose` does not write: a project whose only evidence is a bare `dispose` result is reported `ready: true` and is still refused by the gate as unusable.
 
 -----
 

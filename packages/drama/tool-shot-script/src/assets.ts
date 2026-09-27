@@ -43,6 +43,17 @@ const PROP_TYPES = new Set(['道具', 'prop'])
 /** The `关键道具` placeholder that means "this shot binds no prop". */
 const NO_PROPS = new Set(['', '无'])
 
+/**
+ * Every `type` spelling a manifest row may declare, in the order a failure names
+ * them.
+ *
+ * This is exactly the set {@link bindShot} can act on, and no wider: a spelling
+ * added here without a matching binding rule would pass validation and then be
+ * skipped at binding, which is the silent green `validate` this list exists to
+ * prevent.
+ */
+const TYPE_SPELLINGS = [...CHARACTER_TYPES, ...SCENE_TYPES, ...PROP_TYPES]
+
 /** Read one manifest field as a trimmed string, or an empty string when absent. */
 function text(value: unknown): string {
   if (typeof value === 'string') return value.trim()
@@ -51,19 +62,55 @@ function text(value: unknown): string {
 }
 
 /**
+ * What reading one manifest produced: the declared assets, and every row defect
+ * the caller has to report.
+ *
+ * A row defect is an issue rather than a rejection because this manifest is
+ * authored by a model and read by three tools: failing the whole read would turn
+ * one row into a parse failure that hides every other finding, and the caller
+ * would never see the issue list it has to repair. Every issue here is a
+ * failure-severity one, so a read carrying any of them cannot answer `ok`.
+ */
+export interface ManifestRead {
+  /** Every declared asset, in manifest order, including a row whose `type` no binding rule matches. */
+  assets: ManifestAsset[]
+  /** Every row defect found while reading, in manifest order. */
+  issues: ShotIssue[]
+}
+
+/**
+ * The failure one row's unusable `type` produces: the row, the name, the value
+ * read, the accepted spellings, and the repair.
+ */
+function assetTypeIssue(source: string, index: number, name: string, type: string): ShotIssue {
+  return { severity: 'failure', code: 'asset_type_unusable', line: 0, shot: 0,
+    message: `${source}: 第 ${index + 1} 条资产（${name}）的 type="${type}" 不在允许的取值里：`
+      + `只接受 ${TYPE_SPELLINGS.join('、')}。`
+      + '别的拼法（例如 role）不绑定任何资产，也不会产生别的失败——'
+      + '角色资产被跳过时 drama_shot validate 会误报 ok:true、0 failures。'
+      + '请把这行的 type 改成上面的拼法之一后重跑。' }
+}
+
+/**
  * Read the asset array of one project's `assets_manifest.json`.
  *
- * The manifest is a wire boundary: its document, its `assets` array, and every
- * row's declared name and type are validated here, because a malformed manifest
- * must fail loud instead of silently binding nothing. The registration fields a
+ * The manifest is a durable-file boundary, so its document, its asset array, and
+ * every row's declared name and type are read here. The registration fields a
  * bound asset needs — `episodes`, `state_or_costume` — are read as declared and
  * judged at binding, where the failure names the asset and the repair.
+ *
+ * A `type` outside {@link TYPE_SPELLINGS} is kept in the returned assets and
+ * reported as a failure issue instead of ending the read: the binder matches
+ * types by exact spelling, so an unknown one binds nothing without any other
+ * rule noticing, and a `validate` that bound no character would otherwise answer
+ * `ok: true` over an empty finding list — the silent green this check exists to
+ * prevent. Reporting it leaves the caller the rest of the run's findings.
  * @param document - Parsed manifest contents.
  * @param source - Manifest path, named in every failure.
- * @returns The declared assets in manifest order.
- * @throws {Error} When the document, its `assets` array, or a row is malformed.
+ * @returns The declared assets in manifest order, plus one issue per row whose `type` binds nothing.
+ * @throws {Error} When the document, its asset array, or a row is malformed.
  */
-export function parseAssetManifest(document: unknown, source: string): ManifestAsset[] {
+export function parseAssetManifest(document: unknown, source: string): ManifestRead {
   if (typeof document !== 'object' || document === null || Array.isArray(document)) {
     throw new Error(`${source}: 资产清单必须是 JSON 对象，顶层键 assets 是资产数组`)
   }
@@ -74,7 +121,8 @@ export function parseAssetManifest(document: unknown, source: string): ManifestA
   if (!Array.isArray(rows)) {
     throw new Error(`${source}: 资产清单缺少 assets 数组`)
   }
-  return rows.map((row, index) => {
+  const issues: ShotIssue[] = []
+  const assets = rows.map((row, index) => {
     if (typeof row !== 'object' || row === null || Array.isArray(row)) {
       throw new Error(`${source}: assets[${index}] 不是对象`)
     }
@@ -83,6 +131,7 @@ export function parseAssetManifest(document: unknown, source: string): ManifestA
     const type = text(record.type)
     if (name === '') throw new Error(`${source}: assets[${index}] 缺少 name`)
     if (type === '') throw new Error(`${source}: assets[${index}]（${name}）缺少 type`)
+    if (!TYPE_SPELLINGS.includes(type)) issues.push(assetTypeIssue(source, index, name, type))
     return {
       name,
       id: text(record.id) || name,
@@ -97,6 +146,7 @@ export function parseAssetManifest(document: unknown, source: string): ManifestA
       stateOrCostume: text(record.state_or_costume) || text(record.state),
     }
   })
+  return { assets, issues }
 }
 
 /** One shot's resolved binding: which assets it uses and what is wrong with them. */
