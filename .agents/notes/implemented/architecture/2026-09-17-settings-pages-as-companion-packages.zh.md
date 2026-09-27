@@ -38,3 +38,5 @@
 ## 测试
 
 每个伴生包的 `tests/apply.client.spec.ts` 在 Host 服务命名空间时注册页面、停止服务时注销、teardown 时收拢；其 card 与 controller 用例延续原包里的页面行为。`packages/client/ui-primitives/tests/settings-form-model.client.spec.ts`、`packages/client/ui-primitives/tests/settings-form.client.spec.tsx` 与 `packages/client/ui-primitives/tests/settings-fields.client.spec.tsx` 钉住套件；`packages/client/ui-settings/tests/while-served.client.spec.ts` 钉住注册规则。`apps/web/tests/plugin-config.e2e.ts` 走真实链路验证终端页与 Subagent 页。
+
+**部分被取代（2026-09-26）。** 上游 rc.2 合并移除了 fork 的 `settingsScope` 服务。现行机制是 `ctx.configForms.get('<row id>')`：settings 服务按每个自有组合条目提供一份表单，并以该条目 id 命名；自带页面的行导出自己的 `Config`，再用 `settings.configure({ auto: false })` 关掉自动表单。上面各段记录的是本笔记写作时的设计；迁移已由本分支这次 `settingsScope` → `configForms` 清扫落地（见合并偏差附录 §14j）。
