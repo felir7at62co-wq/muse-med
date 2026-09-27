@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-28-merge-rc2-loader-preset-path-and-shadowed-preset-ids.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-28-merge-rc2-loader-preset-path-and-shadowed-preset-ids.md
+/agent-note-the-deleted-preset-path-in-the-desktop-loader-spec-and-the-preset-ids-the-shipped-rows-shadow:
+  en: 3d1953f4ee5da1b2
+  zh: 3a4b9975dcab4932
+/agent-note-the-deleted-preset-path-in-the-desktop-loader-spec-and-the-preset-ids-the-shipped-rows-shadow/problem:
+  en: 3941dd0fd9862adc
+  zh: 5819a67424e1b9eb
+/agent-note-the-deleted-preset-path-in-the-desktop-loader-spec-and-the-preset-ids-the-shipped-rows-shadow/decision:
+  en: 729ffef940ce94a4
+  zh: 7a87dcbb955ecb8c
+/agent-note-the-deleted-preset-path-in-the-desktop-loader-spec-and-the-preset-ids-the-shipped-rows-shadow/verification:
+  en: 851d254765456879
+  zh: 61eb22b4f3ddaa6a
+/agent-note-the-deleted-preset-path-in-the-desktop-loader-spec-and-the-preset-ids-the-shipped-rows-shadow/alternatives-considered:
+  en: 9077e067d1e43e11
+  zh: 944ebb5bc8d8b476
+/agent-note-the-deleted-preset-path-in-the-desktop-loader-spec-and-the-preset-ids-the-shipped-rows-shadow/consequences:
+  en: 044eebd648f57758
+  zh: e44494dee8f3528f
