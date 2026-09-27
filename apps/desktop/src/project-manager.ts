@@ -208,9 +208,10 @@ function backupProfileManifest(projectDir: string): void {
  * Read the profile's third-party bundle names, completing a stored list that only lacks built-in
  * bundles this release added.
  *
- * Every entry point that reads the list — startup reconciliation, the plugin inventory, and
- * dependency mutations — reaches the stored list through this function, so an upgrade completes the
- * list once instead of failing where it is read. The completed manifest is written only after the
+ * Every entry point that reads the list — startup, the plugin inventory, and dependency mutations —
+ * reaches the stored list through this function, and startup reads it before it decides that the
+ * profile is current, so a list left by a release that appended a built-in bundle is completed even
+ * when nothing else about the profile changed. The completed manifest is written only after the
  * stored list, its third-party names, and its duplicate check all pass, and only after the manifest
  * is copied aside.
  *
@@ -369,6 +370,11 @@ export class DesktopProjectManager {
       const target = this.readRuntime()
       this.descriptor = target
       const previous = readDesktopProfileState(this.paths.profile)
+      // A preparation that fails after recording its state leaves the early return
+      // below current, so the stored list would keep the rows of the release that
+      // wrote it. Read it here to complete it on every startup, not only on the
+      // one that reconciles packages.
+      if (existsSync(join(this.paths.profile, 'package.json'))) profilePluginNames(this.paths.profile)
       if (!existsSync(this.pendingPackages) && previous?.runtimeId === desktopRuntimeId(target)
         && previous.lockHash === desktopPluginLockHash(this.paths.profile)
         && (this.runtime.profileResolution === 'runtime' || (previous.links.length === target.sharedPackages.length

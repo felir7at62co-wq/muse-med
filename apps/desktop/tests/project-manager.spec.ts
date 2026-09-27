@@ -140,6 +140,28 @@ describe('desktop external plugin profile', () => {
     expect(manifestBackups(manager.paths.profile)).toEqual([])
   })
 
+  it('completes the stored list a restart finds after a failed upgrade recorded its runtime state', async () => {
+    const { root, manager } = setup()
+    await manager.applyRelease()
+    await manager.mutate({ type: 'plugin-add', spec: 'plugin@1.0.0' }, hooks())
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    const installs = calls(root).length
+    // The upgrade links the profile and records this runtime's state before it
+    // reads the stored list, so refusing the list that lacks the bundle the
+    // release appended leaves a current state beside that stale list.
+    writeBundles(manifestPath, [...BUILT_IN_BUNDLES.slice(0, 6), 'plugin'])
+    const written = readFileSync(manifestPath, 'utf8')
+
+    await expect(manager.applyRelease()).resolves.toBe(false)
+
+    expect(storedBundles(manifestPath)).toEqual([...BUILT_IN_BUNDLES, 'plugin'])
+    expect(manager.listPlugins()).toEqual([{ name: 'plugin', version: '1.0.0', enabled: true }])
+    expect(calls(root)).toHaveLength(installs)
+    const backups = manifestBackups(manager.paths.profile)
+    expect(backups).toHaveLength(1)
+    expect(readFileSync(join(manager.paths.profile, backups[0]!), 'utf8')).toBe(written)
+  })
+
   it('leaves a complete bundle list and its manifest untouched across an upgrade', async () => {
     const { root, manager } = setup()
     await manager.applyRelease()
