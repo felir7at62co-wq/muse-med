@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Include, { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
-import AgentPresets from '@deepseek-ai/dsh-agent-presets'
+import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import Llm from '@deepseek-ai/dsh-llm'
@@ -20,6 +20,7 @@ import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import * as yaml from 'js-yaml'
 import { expect, it, vi } from 'vitest'
+import NativePreset from '../../desktop-host/src/native-preset.ts'
 
 const preset = fileURLToPath(new URL('../../desktop-host/presets/short-drama-local/agent.cordis.yml', import.meta.url))
 const patch = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
@@ -59,7 +60,8 @@ it('an actual Agent inherits bundled skills without legacy environment roots sha
         id, name: `test:${id}`, ...(id === 'loop' ? { config: { agents: [] } } : {}),
       })),
       { ...hostProvider, name: '@deepseek-ai/dsh-skill-filesystem', config: { ...hostProvider?.config, bundledSkillDir: bundled, watch: false } },
-      { id: 'presets', name: 'test:presets', config: { default: 'product-skills', includeShippedRoot: false, includeUserRoot: false, roots: [{ path: presetRoot, trust: 'system' }] } },
+      { id: 'presets', name: 'test:presets', config: { default: 'product-skills' } },
+      { id: 'preset-product-skills', name: 'test:native', config: { id: 'product-skills', directory: join(presetRoot, 'product-skills') } },
     ]))
     ctx.baseUrl = pathToFileURL(root).href + '/'
     await ctx.plugin(Loader)
@@ -68,6 +70,7 @@ it('an actual Agent inherits bundled skills without legacy environment roots sha
       ['test:llm', Llm], ['test:sessions', Sessions], ['test:projections', SessionProjections],
       ['test:prompt', SystemPrompt], ['test:tools', Tools], ['test:agents', AgentRegistry],
       ['test:loop', AgentLoop], ['test:skills', Skills], ['test:presets', AgentPresets],
+      ['test:native', NativePreset],
       ['@deepseek-ai/dsh-skill-filesystem', SkillFilesystem], ['@deepseek-ai/dsh-tool-skill', ToolSkill],
     ])
     ctx.loader.internal = { version: 'v2', async import(specifier: string) {
