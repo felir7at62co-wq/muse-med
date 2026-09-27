@@ -830,7 +830,7 @@ describe('desktop main startup', () => {
     expect(live.webContents.send).toHaveBeenCalledWith(DESKTOP_IPC.backendState, { phase: 'ready' })
   })
 
-  it('keeps update state without notifying renderer windows after quit begins', async () => {
+  it('keeps update state without notifying renderer windows on either update channel after quit begins', async () => {
     await import('../src/main.ts')
     const window = await reachWorkspace()
     const publish = harness.updatePublish
@@ -842,9 +842,21 @@ describe('desktop main startup', () => {
     await quitting
     window.webContents.send.mockClear()
     expect(publish({ phase: 'idle' })).toEqual({ phase: 'idle' })
-    // The shell's own state publications stop with the quit; the presentation channel is sent outside them.
+    // Every shell publication stops with the quit, including the update presentation.
     expect(window.webContents.send).not.toHaveBeenCalledWith(DESKTOP_IPC.updatesState, expect.anything())
+    expect(window.webContents.send).not.toHaveBeenCalledWith(DESKTOP_IPC.updatesPresentation, expect.anything())
     expect(window.webContents.send).not.toHaveBeenCalledWith(DESKTOP_IPC.backendState, expect.anything())
+  })
+
+  it('publishes no update presentation to a window whose WebContents is gone', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    const publish = harness.updatePublish
+    window.contentsDestroyed = true
+    window.webContents.send.mockClear()
+    // The presentation send would have thrown on destroyed WebContents.
+    expect(publish({ phase: 'downloading', percent: 10 })).toEqual({ phase: 'downloading', percent: 10 })
+    expect(window.webContents.send).not.toHaveBeenCalled()
   })
 
   it('waits for a pending child to exit on quit without late window navigation', async () => {

@@ -29,7 +29,7 @@ import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-vi
 import { installDesktopDirectoryPicker } from './directory-picker.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { DesktopBackendController, type DesktopBackendState } from './backend-controller.ts'
-import { DESKTOP_IPC, SCHEME, assertDesktopSender, type DesktopUpdateState } from './ipc.ts'
+import { DESKTOP_IPC, SCHEME, assertDesktopSender, type DesktopUpdatePresentation, type DesktopUpdateState } from './ipc.ts'
 import { desktopUpdateReadyConfirmation, formatDesktopMessage, resolveDesktopLocale, resolveDesktopStartupLocale } from './locale.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
@@ -447,7 +447,7 @@ async function main(): Promise<void> {
     const state = backend.state
     return state.phase === 'error' ? { ...state, profileRecovery: profileRecoveryAvailable() } : state
   }
-  const publishState = (channel: string, state: DesktopBackendState | DesktopUpdateState): void => {
+  const publishState = (channel: string, state: DesktopBackendState | DesktopUpdateState | DesktopUpdatePresentation): void => {
     if (quitting || shellInstallerOwnsQuit) return
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(channel, state)
@@ -547,9 +547,7 @@ async function main(): Promise<void> {
     updateState = state
     publishState(DESKTOP_IPC.updatesState, state)
     mandatoryUI?.sync()
-    for (const window of BrowserWindow.getAllWindows()) {
-      window.webContents.send(DESKTOP_IPC.updatesPresentation, presentDesktopUpdate(state))
-    }
+    publishState(DESKTOP_IPC.updatesPresentation, presentDesktopUpdate(state))
     if (state.phase === 'error' && state.failedOperation !== 'check') {
       const restoreHost = state.failedOperation === 'install' && updateStoppedHost && !quitting
       shellInstallerOwnsQuit = false
