@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { delimiter, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
+import type { MessageBoxOptions } from 'electron'
 import { DESKTOP_IPC } from '../src/ipc.ts'
+import { en } from '../src/locale.ts'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 
 const harness = await vi.hoisted(async () => {
@@ -22,24 +24,36 @@ const harness = await vi.hoisted(async () => {
   }
   const windows: FakeWindow[] = []
   const hosts: FakeHost[] = []
-  const managerRuntimes: unknown[] = []
   const mutations: unknown[] = []
   const listeners = new Map<string, (event: unknown, ...args: unknown[]) => void>()
   const handlers = new Map<string, (event: { senderFrame: { url: string } }, ...args: unknown[]) => unknown>()
   let pluginsEnabled = false
+  let resets = 0
   let preparing = deferred()
   let prepared = deferred()
   let hostStarted = deferred()
-  let navigated = deferred()
   let errorPublished = deferred()
+  let dialogShown = deferred()
   let quitCompleted = deferred()
+  let welcomeState = { loggedIn: false, hasApiKey: true, writable: true, localePreference: null as string | null }
+  let updatePublish: ((state: { phase: string }) => unknown) | undefined
   class FakeWindow extends EventEmitter {
     destroyed = false
     contentsDestroyed = false
     readonly urls: string[] = []
+    readonly shown = deferred()
     readonly webContents = Object.assign(new EventEmitter(), {
+      id: 1,
+      mainFrame: { url: '' },
       setWindowOpenHandler: vi.fn(),
       openDevTools: vi.fn(),
+      insertCSS: vi.fn(async () => 'inserted'),
+      removeInsertedCSS: vi.fn(async () => {}),
+      setIgnoreMenuShortcuts: vi.fn(),
+      sendInputEvent: vi.fn(),
+      focus: vi.fn(),
+      isFocused: () => true,
+      getZoomFactor: () => 1,
       getURL: () => this.urls.at(-1) ?? '',
       isDestroyed: () => this.contentsDestroyed,
       send: vi.fn((channel: string, state: { phase?: string }) => {
@@ -47,14 +61,14 @@ const harness = await vi.hoisted(async () => {
         if (channel === 'dsh-desktop:backend-state' && state.phase === 'error') errorPublished.resolve()
       }),
     })
-    readonly show = vi.fn()
+    readonly show = vi.fn(() => { this.visible = true; this.shown.resolve() })
+    readonly showInactive = vi.fn(() => { this.visible = true; this.shown.resolve() })
     readonly setSize = vi.fn()
     readonly setTitle = vi.fn()
     readonly focus = vi.fn()
     readonly restore = vi.fn()
     visible = true
     readonly hide = vi.fn(() => { this.visible = false })
-    readonly destroy = vi.fn(() => { this.destroyed = true; this.emit('closed') })
     readonly getBounds = vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 820 }))
     readonly isVisible = vi.fn(() => this.visible)
     readonly isFullScreen = vi.fn(() => false)
@@ -65,15 +79,21 @@ const harness = await vi.hoisted(async () => {
     readonly setTitleBarOverlay = vi.fn()
     readonly setVibrancy = vi.fn()
     readonly moveTop = vi.fn()
-    constructor(readonly options: { show: boolean }) { super(); windows.push(this) }
+    constructor(readonly options: { show: boolean } & Record<string, unknown>) { super(); windows.push(this) }
     isDestroyed() { return this.destroyed }
     isMinimized() { return false }
     async loadURL(url: string) {
       this.urls.push(url)
-      if (url === 'dsh-app://app/index.html') navigated.resolve()
+      this.webContents.mainFrame.url = url
     }
+    async loadFile(file: string) { this.urls.push(file) }
     static getAllWindows() { return windows.filter(window => !window.destroyed) }
-    close() { this.destroyed = true; this.emit('closed') }
+    destroy() { this.destroyed = true; this.emit('closed') }
+    close() {
+      const event = { preventDefault: vi.fn() }
+      this.emit('close', event)
+      if (event.preventDefault.mock.calls.length === 0) this.destroy()
+    }
   }
   class FakeHost {
     readonly ready = deferred()
@@ -90,7 +110,11 @@ const harness = await vi.hoisted(async () => {
       this.ready.reject(new Error('child stopped'))
       return this.exited.promise
     })
-    constructor(readonly node: string, readonly runtime: string, readonly profile: string) { hosts.push(this) }
+    constructor(
+      readonly node: string, readonly runtime: string, readonly profile: string,
+      readonly inspectPort?: number, readonly environment?: NodeJS.ProcessEnv,
+      readonly onFailure?: (error: Error) => void, readonly primaryRuntime?: string,
+    ) { hosts.push(this) }
   }
   const app = Object.assign(new EventEmitter(), {
     isPackaged: true,
@@ -114,9 +138,13 @@ const harness = await vi.hoisted(async () => {
       if (event.preventDefault.mock.calls.length === 0) quitCompleted.resolve()
     }),
   })
+  const disableAllPlugins = vi.fn(async () => {
+    pluginsEnabled = false
+    return 'desktop-test-profile/cordis.patch.yml.bak-1'
+  })
   return {
-    windows, hosts, managerRuntimes, mutations, listeners, handlers, app, appRoot, FakeWindow, FakeHost,
-    dialog: { showErrorBox: vi.fn(), showMessageBox: vi.fn(async () => ({ response: 1, checkboxChecked: false })) },
+    windows, hosts, mutations, listeners, handlers, app, appRoot, FakeWindow, FakeHost, disableAllPlugins,
+    dialog: { showErrorBox: vi.fn(), showMessageBox: vi.fn() },
     menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
     openExternal: vi.fn(async () => {}),
     clipboard: { writeText: vi.fn(), readText: vi.fn(() => '') },
@@ -130,6 +158,7 @@ const harness = await vi.hoisted(async () => {
         webRequest: { onBeforeSendHeaders: vi.fn(), onHeadersReceived: vi.fn() },
         setPermissionRequestHandler: vi.fn(),
         setPermissionCheckHandler: vi.fn(),
+        closeAllConnections: vi.fn(async () => {}),
       },
     },
     catalog: vi.fn(async () => ({ bundled: [], plugins: [] })),
@@ -137,18 +166,33 @@ const harness = await vi.hoisted(async () => {
     assertProfileRuntime: vi.fn(),
     canRecoverProfile: vi.fn(() => true),
     get preparing() { return preparing }, get prepared() { return prepared },
-    get hostStarted() { return hostStarted }, get navigated() { return navigated },
-    get errorPublished() { return errorPublished }, get quitCompleted() { return quitCompleted },
+    get hostStarted() { return hostStarted },
+    get errorPublished() { return errorPublished }, get dialogShown() { return dialogShown },
+    get quitCompleted() { return quitCompleted },
     nextHostStart() { hostStarted = deferred(); return hostStarted.promise },
+    noteReset() { resets += 1 },
+    get resets() { return resets },
     get pluginsEnabled() { return pluginsEnabled },
     set pluginsEnabled(value: boolean) { pluginsEnabled = value },
+    get welcomeState() { return welcomeState },
+    set welcomeState(value: { loggedIn: boolean; hasApiKey: boolean; writable: boolean; localePreference: string | null }) {
+      welcomeState = value
+    },
+    set updatePublish(value: (state: { phase: string }) => unknown) { updatePublish = value },
+    get updatePublish(): (state: { phase: string }) => unknown {
+      if (updatePublish === undefined) throw new Error('desktop update coordinator was not constructed')
+      return updatePublish
+    },
     reset() {
-      windows.length = 0; hosts.length = 0; managerRuntimes.length = 0; mutations.length = 0
+      windows.length = 0; hosts.length = 0; mutations.length = 0
       listeners.clear(); handlers.clear(); app.removeAllListeners()
       app.isPackaged = true
       pluginsEnabled = false
+      resets = 0
+      welcomeState = { loggedIn: false, hasApiKey: true, writable: true, localePreference: null }
+      updatePublish = undefined
       preparing = deferred(); prepared = deferred(); hostStarted = deferred()
-      navigated = deferred(); errorPublished = deferred(); quitCompleted = deferred()
+      errorPublished = deferred(); dialogShown = deferred(); quitCompleted = deferred()
     },
   }
 })
@@ -181,16 +225,44 @@ vi.mock('electron', () => ({
     readonly popUpContextMenu = vi.fn()
     readonly destroy = vi.fn()
     on = vi.fn()
+    relabel = vi.fn()
   },
   protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() },
+}))
+// Crash-report persistence has its own spec; here it must resolve inside microtasks so the native
+// recovery dialog never outlives the test that opened it.
+vi.mock('../src/crash-report.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/crash-report.ts')>(),
+  pruneCrashReports: vi.fn(async () => {}),
+  writeCrashReport: vi.fn(async () => 'desktop-test-logs/crash-test.log'),
+}))
+// The Windows tray acknowledgement is covered by its own spec; window close hides immediately here.
+vi.mock('../src/background-notice.ts', () => ({
+  DesktopBackgroundNotice: class {
+    readonly close = vi.fn((hide: () => void) => { hide() })
+    readonly dispose = vi.fn()
+  },
+}))
+vi.mock('../src/welcome-backend.ts', () => ({
+  connectDesktopWelcome: async () => ({
+    read: async () => harness.welcomeState,
+    readLocalePreference: async () => null,
+    save: async () => ({ ok: true }),
+    account: {
+      watch: () => () => {},
+      state: async () => ({ status: 'signed-out', attempt: null }),
+      start: async () => { throw new Error('desktop welcome: sign-in is unavailable in this spec') },
+      cancel: async () => undefined,
+    },
+  }),
 }))
 vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile' }) }))
 vi.mock('../src/project-manager.ts', () => ({
   DesktopProjectManager: class {
     readonly applyRelease = harness.applyRelease
     readonly assertProfileRuntime = harness.assertProfileRuntime
+    readonly disableAllPlugins = harness.disableAllPlugins
     canRecoverProfile = harness.canRecoverProfile
-    constructor(_paths: unknown, runtime: unknown) { harness.managerRuntimes.push(runtime) }
     async mutate(mutation: unknown, hooks: { beforeChange(): Promise<void>; afterChange(): Promise<void> }) {
       harness.mutations.push(mutation)
       await hooks.beforeChange()
@@ -198,6 +270,7 @@ vi.mock('../src/project-manager.ts', () => ({
       await hooks.afterChange()
     }
     async resetConfiguration(hooks: { beforeChange(): Promise<void>; afterChange(): Promise<void> }) {
+      harness.noteReset()
       await this.mutate(undefined, hooks)
     }
   },
@@ -206,9 +279,9 @@ vi.mock('../src/plugin-catalog.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/plugin-catalog.ts')>(),
   desktopPluginCatalog: harness.catalog,
 }))
-vi.mock('../src/host-process.ts', () => ({
+vi.mock('../src/host-process.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/host-process.ts')>(),
   DesktopHostProcess: harness.FakeHost,
-  DesktopHostFatalError: class DesktopHostFatalError extends Error {},
 }))
 vi.mock('../src/web-document.ts', () => ({
   serveWebDocument: vi.fn(async () => new Response('<html></html>', { status: 200 })),
@@ -218,6 +291,7 @@ vi.mock('../src/web-document.ts', () => ({
 vi.mock('../src/update-coordinator.ts', () => ({
   DesktopUpdateCoordinator: class {
     state: { phase: string; version?: string } = { phase: 'idle' }
+    constructor(publish: (state: { phase: string }) => unknown) { harness.updatePublish = publish }
     readonly check = vi.fn(async () => this.state)
     readonly download = vi.fn(async (version: string) => ({ phase: 'ready', version }))
     readonly install = vi.fn(async (version: string) => {
@@ -228,10 +302,37 @@ vi.mock('../src/update-coordinator.ts', () => ({
   },
 }))
 
-function invoke(channel: string): unknown {
+type FakeWindowInstance = (typeof harness.windows)[number]
+type MenuTemplateItem = { accelerator?: string; click?: () => void; submenu?: MenuTemplateItem[] }
+
+function invoke(channel: string, ...args: unknown[]): unknown {
   const handler = harness.handlers.get(channel)
   if (handler === undefined) throw new Error(`missing handler ${channel}`)
-  return handler({ senderFrame: { url: 'dsh-app://shell/startup.html' } })
+  return handler({ senderFrame: { url: 'dsh-app://shell/plugin-manager.html' } }, ...args)
+}
+
+/** Answer the native recovery dialog with one of its buttons. */
+function answerRecovery(response: number): void {
+  harness.dialog.showMessageBox.mockImplementation((options: { title?: string }) => {
+    if (options.title === en.startupFailed) harness.dialogShown.resolve()
+    return Promise.resolve({ response, checkboxChecked: false })
+  })
+}
+
+/** Let the merged startup settle across the awaits that follow one resolved Host readiness. */
+async function flushMicrotasks(): Promise<void> {
+  for (let pass = 0; pass < 32; pass += 1) await Promise.resolve()
+}
+
+/** Prepare the profile, start the single Host, and wait for the first visible workspace window. */
+async function reachWorkspace(): Promise<FakeWindowInstance> {
+  await harness.preparing.promise
+  harness.prepared.resolve()
+  await harness.hostStarted.promise
+  const window = harness.windows[0]!
+  harness.hosts[0]!.ready.resolve()
+  await window.shown.promise
+  return window
 }
 
 beforeEach(() => {
@@ -239,7 +340,16 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.useFakeTimers()
   harness.reset()
-  vi.stubEnv('DSH_DESKTOP_NODE_BINARY', 'test-node')
+  // The native recovery dialog stays open until the test chooses an action; every other dialog
+  // (quit confirmation, update prompts) answers as cancelled.
+  harness.dialog.showMessageBox.mockReset()
+  harness.dialog.showMessageBox.mockImplementation((options: { title?: string }) => {
+    if (options.title !== en.startupFailed) return Promise.resolve({ response: 1, checkboxChecked: false })
+    harness.dialogShown.resolve()
+    return new Promise(() => {})
+  })
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  vi.spyOn(console, 'info').mockImplementation(() => {})
   vi.stubEnv('DSH_DESKTOP_PNPM_ENTRY', 'test-pnpm')
   vi.stubEnv('DSH_DESKTOP_DSH_DIR', 'test-runtime')
   vi.stubEnv('DSH_DESKTOP_PRIMARY_RUNTIME_DIR', 'test-primary-runtime')
@@ -257,6 +367,9 @@ afterEach(async () => {
   harness.prepared.resolve()
   for (const host of harness.hosts) { host.ready.resolve(); host.exited.resolve() }
   harness.app.quit()
+  // The quit decides asynchronously; a Host that starts meanwhile must still be released.
+  await vi.advanceTimersByTimeAsync(0)
+  for (const host of harness.hosts) { host.ready.resolve(); host.exited.resolve() }
   await harness.quitCompleted.promise
   vi.restoreAllMocks()
   harness.canRecoverProfile.mockReturnValue(true)
@@ -284,6 +397,8 @@ describe('desktop main startup', () => {
   it('lets development browse the catalog but still rejects package mutations', async () => {
     harness.app.isPackaged = false
     await import('../src/main.ts')
+    await harness.preparing.promise
+    harness.prepared.resolve()
     await harness.hostStarted.promise
     const sender = { senderFrame: { url: 'dsh-app://shell/plugin-manager.html' } }
     await expect(harness.handlers.get(DESKTOP_IPC.pluginsCatalog)!(sender, false))
@@ -294,12 +409,19 @@ describe('desktop main startup', () => {
 
   it('routes every plugin package channel to the profile mutation it names', async () => {
     await import('../src/main.ts')
-    await harness.preparing.promise
-    harness.prepared.resolve()
-    await harness.hostStarted.promise
+    await reachWorkspace()
     const sender = { senderFrame: { url: 'dsh-app://shell/plugin-manager.html' } }
+    // Every package change stops the Host, rewrites the profile, and starts the Host again, so each
+    // call settles only after the replacement child reported readiness.
     const call = async (channel: string, ...args: unknown[]): Promise<void> => {
-      await harness.handlers.get(channel)!(sender, ...args) as Promise<void>
+      const stopped = harness.hosts.at(-1)!
+      const started = harness.nextHostStart()
+      const pending = Promise.resolve(harness.handlers.get(channel)!(sender, ...args))
+      await stopped.stopping.promise
+      stopped.exited.resolve()
+      await started
+      harness.hosts.at(-1)!.ready.resolve()
+      await pending
     }
     await call(DESKTOP_IPC.pluginsAdd, 'safe-plugin@1.2.3')
     await call(DESKTOP_IPC.pluginsRemove, 'safe-plugin')
@@ -313,15 +435,20 @@ describe('desktop main startup', () => {
       { type: 'plugin-toggle', name: 'safe-plugin', enabled: false },
       { type: 'plugins-disable-all' },
     ])
-    // Each mutation restarts the Host through the hooks, so the plugin window keeps a live backend.
     expect(harness.hosts.length).toBeGreaterThan(1)
+    expect(invoke(DESKTOP_IPC.backendStatus)).toEqual({ phase: 'ready' })
   })
 
   it('opens repository links only from the plugin popup and denies arbitrary protocols', async () => {
     await import('../src/main.ts')
     await harness.preparing.promise
-    const template = harness.menu.buildFromTemplate.mock.calls[0]?.[0] as { submenu: { click?: () => void }[] }[]
-    template[0]!.submenu[0]!.click!()
+    // The plugin window is reachable from the application menu the merged shell installs for it.
+    const pluginItem = harness.menu.buildFromTemplate.mock.calls
+      .flatMap(call => (call[0] as MenuTemplateItem[]))
+      .flatMap(item => item.submenu ?? [])
+      .find(item => item.accelerator === 'CmdOrCtrl+,')
+    expect(pluginItem).toBeDefined()
+    pluginItem!.click!()
     const popup = harness.windows.at(-1)!
     const handler = popup.webContents.setWindowOpenHandler.mock.calls.at(-1)?.[0] as (details: { url: string }) => { action: string }
     expect(handler({ url: 'file:///C:/Windows' })).toEqual({ action: 'deny' })
@@ -379,21 +506,22 @@ describe('desktop main startup', () => {
     await harness.preparing.promise
     expect(harness.windows[0]?.options).toMatchObject({
       title: 'muse-med',
-      icon: join('desktop-test-app', 'renderer', 'icon.png'),
+      icon: join(harness.appRoot, 'renderer', 'icon.png'),
       webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true },
     })
   })
 
-  it('exits with a diagnostic when both initialization and emergency navigation fail', async () => {
-    const exited = Promise.withResolvers<undefined>()
+  it('exits through native recovery when the main window cannot be constructed', async () => {
     vi.spyOn(harness.app, 'getLocale').mockImplementationOnce(() => { throw new Error('locale unavailable') })
-    vi.spyOn(harness.FakeWindow.prototype, 'loadURL').mockRejectedValueOnce(new Error('emergency navigation failed'))
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    harness.app.exit.mockImplementationOnce(() => { exited.resolve(undefined) })
+    answerRecovery(0)
     await import('../src/main.ts')
-    await exited.promise
-    expect(harness.app.exit).toHaveBeenCalledWith(1)
-    expect(console.error).toHaveBeenCalledWith(expect.objectContaining({ message: 'emergency navigation failed' }))
+    await harness.quitCompleted.promise
+    expect(harness.windows).toHaveLength(0)
+    const options = harness.dialog.showMessageBox.mock.calls[0]![0] as MessageBoxOptions
+    expect(options.detail).toContain('locale unavailable')
+    expect(console.error).toHaveBeenCalledWith(expect.objectContaining({ message: 'locale unavailable' }))
+    // Exiting through the dialog is the only path left once no window exists to navigate.
+    expect(harness.app.relaunch).not.toHaveBeenCalled()
   })
 
   it('withholds profile recovery after application resources fail to load', async () => {
@@ -403,43 +531,72 @@ describe('desktop main startup', () => {
     harness.prepared.reject(new Error('runtime resources missing'))
     await harness.errorPublished.promise
     expect(invoke(DESKTOP_IPC.backendStatus)).toMatchObject({ phase: 'error', profileRecovery: false })
-    const window = harness.windows[0]!
-    window.webContents.emit('preload-error', {}, 'preload-app.cjs', new Error('preload unavailable'))
-    const html = decodeURIComponent(window.urls.at(-1)!)
-    expect(html).toContain('dsh-recovery://restart')
-    expect(html).not.toContain('dsh-recovery://reset')
-    expect(html).not.toContain('dsh-recovery://plugins')
+    // The window keeps the application document: recovery is the native dialog, not an in-window page.
+    expect(harness.windows[0]!.urls).toEqual(['dsh-app://app/'])
+    await expect(Promise.resolve(invoke(DESKTOP_IPC.configurationReset))).rejects.toThrow(en.startupReinstallAdvice)
+    await harness.dialogShown.promise
+    expect((harness.dialog.showMessageBox.mock.calls[0]![0] as MessageBoxOptions).detail).toContain('runtime resources missing')
   })
 
-  it('reloads a crashed startup renderer in the same window', async () => {
+  it('reports a crashed startup renderer once and relaunches only through the recovery choice', async () => {
+    answerRecovery(1)
     await import('../src/main.ts')
-    await harness.preparing.promise
-    const window = harness.windows[0]!
+    const window = await reachWorkspace()
     window.webContents.emit('render-process-gone', {}, { reason: 'crashed' })
-    await harness.errorPublished.promise
-    expect(window.urls).toEqual(['dsh-app://shell/startup.html', 'dsh-app://shell/startup.html'])
-    expect(invoke(DESKTOP_IPC.backendStatus)).toMatchObject({ phase: 'error', message: 'Desktop renderer exited: crashed' })
+    window.webContents.emit('render-process-gone', {}, { reason: 'crashed' })
+    await harness.dialogShown.promise
+    expect(harness.dialog.showMessageBox).toHaveBeenCalledOnce()
+    expect((harness.dialog.showMessageBox.mock.calls[0]![0] as MessageBoxOptions).detail).toContain('Desktop renderer exited: crashed')
+    const quitting = harness.quitCompleted.promise
+    const host = harness.hosts[0]!
+    await host.stopping.promise
+    host.exited.resolve()
+    await quitting
+    // The crashed window keeps its document; recovery relaunches the application instead of swapping the page.
+    expect(window.urls).toEqual(['dsh-app://app/'])
+    expect(harness.windows).toHaveLength(1)
+    expect(harness.app.relaunch).toHaveBeenCalledOnce()
   })
 
-  it.each(['plugins', 'reset'])('runs %s recovery from a document with a broken preload', async (action) => {
+  it('disables every plugin through native recovery before relaunching after a load failure', async () => {
+    harness.pluginsEnabled = true
+    answerRecovery(2)
     await import('../src/main.ts')
-    await harness.preparing.promise
-    const window = harness.windows[0]!
+    const window = await reachWorkspace()
+    const host = harness.hosts[0]!
+    const quitting = harness.quitCompleted.promise
     window.webContents.emit('preload-error', {}, 'preload-app.cjs', new Error('preload unavailable'))
-    harness.prepared.resolve()
-    await harness.hostStarted.promise
-    harness.hosts[0]!.ready.resolve()
-    await Promise.resolve(invoke(DESKTOP_IPC.backendRetry))
+    await host.stopping.promise
+    host.exited.resolve()
+    await quitting
+    const options = harness.dialog.showMessageBox.mock.calls[0]![0] as MessageBoxOptions
+    expect(options.buttons).toEqual([en.exitApplication, en.restartApplication, en.disableThirdPartyPlugins])
+    expect(options.detail).toContain('preload unavailable')
+    expect(harness.disableAllPlugins).toHaveBeenCalledOnce()
+    expect(harness.pluginsEnabled).toBe(false)
+    expect(console.info).toHaveBeenCalledWith('Desktop profile recovery completed:', {
+      profilePatchBackup: 'desktop-test-profile/cordis.patch.yml.bak-1', homePatch: 'unchanged',
+    })
+    expect(harness.app.relaunch).toHaveBeenCalledOnce()
+    expect(harness.windows).toHaveLength(1)
+    expect(window.urls).toEqual(['dsh-app://app/'])
+  })
+
+  it('resets the profile through the shell channel after a load failure', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    window.webContents.emit('preload-error', {}, 'preload-app.cjs', new Error('preload unavailable'))
+    const stopped = harness.hosts[0]!
     const started = harness.nextHostStart()
-    const event = { preventDefault: vi.fn() }
-    window.webContents.emit('will-navigate', event, `dsh-recovery://${action}/?`)
-    await harness.hosts[0]!.stopping.promise
-    harness.hosts[0]!.exited.resolve()
+    const reset = Promise.resolve(invoke(DESKTOP_IPC.configurationReset))
+    await stopped.stopping.promise
+    stopped.exited.resolve()
     await started
     harness.hosts[1]!.ready.resolve()
-    await harness.navigated.promise
-    expect(event.preventDefault).toHaveBeenCalled()
-    expect(window.urls.at(-1)).toBe('dsh-app://app/index.html')
+    await reset
+    expect(harness.resets).toBe(1)
+    expect(harness.pluginsEnabled).toBe(false)
+    expect(invoke(DESKTOP_IPC.backendStatus)).toEqual({ phase: 'ready' })
   })
 
   it('allows a full profile reset for an unclassified startup failure', async () => {
@@ -450,27 +607,32 @@ describe('desktop main startup', () => {
     harness.hosts[0]!.exited.resolve()
     harness.hosts[0]!.ready.reject(new Error('Unknown startup failure'))
     await harness.errorPublished.promise
+    const stopped = harness.hosts[0]!
     const started = harness.nextHostStart()
     const reset = Promise.resolve(invoke(DESKTOP_IPC.configurationReset))
+    await stopped.stopping.promise
     await started
     harness.hosts[1]!.ready.resolve()
     await reset
+    expect(harness.resets).toBe(1)
     expect(invoke(DESKTOP_IPC.backendStatus)).toEqual({ phase: 'ready' })
   })
 
-  it('keeps a self-contained reinstall document in the main window after preload failure', async () => {
+  it('keeps the application document and offers reinstall advice through the native recovery dialog', async () => {
     await import('../src/main.ts')
     await harness.preparing.promise
     const window = harness.windows[0]!
     window.webContents.emit('preload-error', {}, 'preload-app.cjs', new Error('preload unavailable'))
-    expect(window.urls.at(-1)).toContain('data:text/html')
-    expect(decodeURIComponent(window.urls.at(-1)!)).toContain('preload unavailable')
-    harness.prepared.resolve()
-    await harness.hostStarted.promise
-    harness.hosts[0]!.ready.resolve()
-    await Promise.resolve(invoke(DESKTOP_IPC.backendRetry))
+    await harness.dialogShown.promise
+    window.webContents.emit('preload-error', {}, 'preload-app.cjs', new Error('secondary failure'))
+    await flushMicrotasks()
+    expect(harness.dialog.showMessageBox).toHaveBeenCalledOnce()
+    const options = harness.dialog.showMessageBox.mock.calls[0]![0] as MessageBoxOptions
+    expect(options.detail).toContain('preload unavailable')
+    expect(options.detail).not.toContain('secondary failure')
+    expect(options.detail).toContain(en.startupReinstallAdvice)
+    expect(window.urls).toEqual(['dsh-app://app/'])
     expect(harness.windows).toHaveLength(1)
-    expect(window.urls.at(-1)).toContain('data:text/html')
     expect(harness.dialog.showErrorBox).not.toHaveBeenCalled()
   })
 
@@ -494,62 +656,70 @@ describe('desktop main startup', () => {
     expect(invoke(DESKTOP_IPC.backendStatus)).toEqual({ phase: 'ready' })
   })
 
-  it('waits for Host exit before relaunching the application', async () => {
+  it('waits for Host exit before the application restart quit completes', async () => {
     await import('../src/main.ts')
-    await harness.preparing.promise
-    harness.prepared.resolve()
-    await harness.hostStarted.promise
-    harness.hosts[0]!.ready.resolve()
-    await harness.navigated.promise
+    const window = await reachWorkspace()
+    const host = harness.hosts[0]!
+    let quitCompleted = false
+    void harness.quitCompleted.promise.then(() => { quitCompleted = true })
     const restart = Promise.resolve(invoke(DESKTOP_IPC.applicationRestart))
-    await harness.hosts[0]!.stopping.promise
-    expect(harness.app.relaunch).not.toHaveBeenCalled()
-    harness.hosts[0]!.exited.resolve()
+    await host.stopping.promise
     await restart
     expect(harness.app.relaunch).toHaveBeenCalledOnce()
+    await flushMicrotasks()
+    // The relaunch is scheduled, but the process stays alive until the Host has exited.
+    expect(quitCompleted).toBe(false)
+    host.exited.resolve()
+    await harness.quitCompleted.promise
+    expect(window.urls).toEqual(['dsh-app://app/'])
   })
 
-  it('shows the loading window before profile preparation and starts one actual Host', async () => {
+  it('prepares the profile offscreen and starts one actual Host before the first visible window', async () => {
     await import('../src/main.ts')
     await harness.preparing.promise
     expect(harness.windows).toHaveLength(1)
     const window = harness.windows[0]!
-    expect(window.options.show).toBe(true)
-    expect(window.urls).toEqual(['dsh-app://shell/startup.html'])
+    expect(window.options.show).toBe(false)
+    expect(window.show).not.toHaveBeenCalled()
+    expect(window.urls).toEqual(['dsh-app://app/'])
     expect(harness.hosts).toHaveLength(0)
     const retry = invoke(DESKTOP_IPC.backendRetry)
     const secondRetry = invoke(DESKTOP_IPC.backendRetry)
     harness.prepared.resolve()
     await harness.hostStarted.promise
     expect(harness.hosts).toHaveLength(1)
-    expect(window.urls).toEqual(['dsh-app://shell/startup.html'])
     harness.hosts[0]!.ready.resolve()
-    await Promise.all([retry, secondRetry, harness.navigated.promise])
+    await Promise.all([retry, secondRetry, window.shown.promise])
+    // Concurrent retries join one preparation and one Host.
     expect(harness.applyRelease).toHaveBeenCalledTimes(1)
-    expect(harness.assertProfileRuntime).toHaveBeenCalledWith('desktop-test-profile')
+    expect(harness.hosts[0]!.start).toHaveBeenCalledTimes(1)
     expect(harness.hosts[0]).toMatchObject({
       node: process.execPath,
-      runtime: join(harness.app.getAppPath(), 'dsh'),
+      runtime: join(harness.appRoot, 'dsh'),
+      primaryRuntime: join('desktop-test-resources', 'runtime', 'primary-runtime'),
       profile: 'desktop-test-profile',
     })
-    expect(harness.managerRuntimes[0]).toMatchObject({ profileResolution: 'runtime' })
-    expect(harness.hosts[0]!.start).toHaveBeenCalledTimes(1)
     expect(harness.windows).toHaveLength(1)
-    expect(window.urls).toEqual(['dsh-app://shell/startup.html', 'dsh-app://app/index.html'])
+    expect(window.urls).toEqual(['dsh-app://app/'])
     expect(invoke(DESKTOP_IPC.backendStatus)).toEqual({ phase: 'ready' })
   })
 
   it('starts the unpackaged Host from the application development directory', async () => {
     harness.app.isPackaged = false
+    vi.stubEnv('DSH_DESKTOP_DSH_DIR', undefined)
     await import('../src/main.ts')
-    await harness.hostStarted.promise
+    await harness.preparing.promise
     expect(process.env.DSH_HOME).toBe('upstream-dsh-home')
-    const project = join(harness.app.getAppPath(), '.desktop-build', 'development', 'project')
-    expect(harness.hosts[0]).toMatchObject({ node: 'test-node', runtime: project, profile: project })
-    expect(harness.applyRelease).not.toHaveBeenCalled()
-    expect(harness.assertProfileRuntime).not.toHaveBeenCalled()
+    harness.prepared.resolve()
+    await harness.hostStarted.promise
+    const project = join(harness.appRoot, '.desktop-build', 'development', 'project')
+    expect(harness.hosts[0]).toMatchObject({
+      node: process.execPath, runtime: project, profile: project, primaryRuntime: 'test-primary-runtime',
+    })
+    // The merged startup prepares the profile before spawning, packaged or not.
+    expect(harness.applyRelease).toHaveBeenCalledOnce()
     harness.hosts[0]!.ready.resolve()
-    await harness.navigated.promise
+    await harness.windows[0]!.shown.promise
     expect(harness.dialog.showErrorBox).not.toHaveBeenCalled()
   })
 
@@ -564,8 +734,10 @@ describe('desktop main startup', () => {
     first.ready.reject(new Error('plugin composition failed'))
     await harness.errorPublished.promise
     await failedRetry
-    expect(invoke(DESKTOP_IPC.backendStatus)).toEqual({ phase: 'error', message: 'plugin composition failed', profileRecovery: true })
-    expect(harness.windows[0]!.urls).toEqual(['dsh-app://shell/startup.html'])
+    expect(invoke(DESKTOP_IPC.backendStatus)).toMatchObject({
+      phase: 'error', message: 'plugin composition failed', profileRecovery: true,
+    })
+    expect(harness.windows[0]!.urls).toEqual(['dsh-app://app/'])
     const nextStarted = harness.nextHostStart()
     const retry = Promise.resolve(invoke(DESKTOP_IPC.backendRetry))
     await nextStarted
@@ -573,42 +745,72 @@ describe('desktop main startup', () => {
     harness.hosts[1]!.ready.resolve()
     await retry
     expect(harness.windows).toHaveLength(1)
-    expect(harness.windows[0]!.urls.at(-1)).toBe('dsh-app://app/index.html')
+    expect(harness.windows[0]!.urls).toEqual(['dsh-app://app/'])
     expect(harness.dialog.showErrorBox).not.toHaveBeenCalled()
   })
 
-  it('skips destroyed WebContents for update and backend publications while live windows still receive them', async () => {
+  it('skips destroyed windows for update and backend publications while live windows still receive them', async () => {
     await import('../src/main.ts')
-    await harness.preparing.promise
-    const { DesktopUpdateCoordinator } = await import('../src/update-coordinator.ts')
-    const publish = vi.mocked(DesktopUpdateCoordinator).mock.calls[0]![0]
+    await reachWorkspace()
+    const publish = harness.updatePublish
     const closing = harness.windows[0]!
-    closing.contentsDestroyed = true
+    closing.destroyed = true
     closing.webContents.send.mockClear()
     const live = new harness.FakeWindow({ show: true })
-    expect(() => publish({ phase: 'idle' })).not.toThrow()
+    expect(publish({ phase: 'idle' })).toEqual({ phase: 'idle' })
     expect(live.webContents.send).toHaveBeenCalledWith(DESKTOP_IPC.updatesState, { phase: 'idle' })
-    harness.prepared.resolve()
-    await harness.hostStarted.promise
-    const retry = Promise.resolve(invoke(DESKTOP_IPC.backendRetry))
-    harness.hosts[0]!.ready.resolve()
-    await retry
-    expect(closing.webContents.send).not.toHaveBeenCalled()
-    expect(live.webContents.send).toHaveBeenCalledWith(DESKTOP_IPC.backendState, { phase: 'ready' })
+    // A live window that cannot accept the state still surfaces its failure.
     live.webContents.send.mockImplementationOnce(() => { throw new Error('invalid update payload') })
     expect(() => publish({ phase: 'idle' })).toThrow('invalid update payload')
+    live.webContents.send.mockClear()
+    const stopped = harness.hosts.at(-1)!
+    const started = harness.nextHostStart()
+    const mutation = Promise.resolve(invoke(DESKTOP_IPC.pluginsToggle, 'safe-plugin', false))
+    await stopped.stopping.promise
+    stopped.exited.resolve()
+    await started
+    harness.hosts.at(-1)!.ready.resolve()
+    await mutation
+    expect(closing.webContents.send).not.toHaveBeenCalled()
+    expect(live.webContents.send).toHaveBeenCalledWith(DESKTOP_IPC.backendState, { phase: 'ready' })
+  })
+
+  it('skips a window whose WebContents is gone while other windows receive backend state', async () => {
+    await import('../src/main.ts')
+    await reachWorkspace()
+    // Let the startup publication finish before adding a window that is already being torn down.
+    await flushMicrotasks()
+    const closing = new harness.FakeWindow({ show: false })
+    closing.contentsDestroyed = true
+    const live = new harness.FakeWindow({ show: true })
+    const stopped = harness.hosts.at(-1)!
+    const started = harness.nextHostStart()
+    const mutation = Promise.resolve(invoke(DESKTOP_IPC.pluginsToggle, 'safe-plugin', false))
+    await stopped.stopping.promise
+    stopped.exited.resolve()
+    await started
+    harness.hosts.at(-1)!.ready.resolve()
+    await mutation
+    // The send would have thrown: the destroyed contents never receive the publication.
+    expect(closing.webContents.send).not.toHaveBeenCalled()
+    expect(live.webContents.send).toHaveBeenCalledWith(DESKTOP_IPC.backendState, { phase: 'ready' })
   })
 
   it('keeps update state without notifying renderer windows after quit begins', async () => {
     await import('../src/main.ts')
-    await harness.preparing.promise
-    const { DesktopUpdateCoordinator } = await import('../src/update-coordinator.ts')
-    const publish = vi.mocked(DesktopUpdateCoordinator).mock.calls[0]![0]
-    const window = harness.windows[0]!
+    const window = await reachWorkspace()
+    const publish = harness.updatePublish
+    const host = harness.hosts[0]!
+    const quitting = harness.quitCompleted.promise
     harness.app.quit()
+    await host.stopping.promise
+    host.exited.resolve()
+    await quitting
     window.webContents.send.mockClear()
     expect(publish({ phase: 'idle' })).toEqual({ phase: 'idle' })
-    expect(window.webContents.send).not.toHaveBeenCalled()
+    // The shell's own state publications stop with the quit; the presentation channel is sent outside them.
+    expect(window.webContents.send).not.toHaveBeenCalledWith(DESKTOP_IPC.updatesState, expect.anything())
+    expect(window.webContents.send).not.toHaveBeenCalledWith(DESKTOP_IPC.backendState, expect.anything())
   })
 
   it('waits for a pending child to exit on quit without late window navigation', async () => {
@@ -627,7 +829,7 @@ describe('desktop main startup', () => {
     host.exited.resolve()
     await harness.quitCompleted.promise
     expect(host.stop).toHaveBeenCalledTimes(1)
-    expect(window.urls).toEqual(['dsh-app://shell/startup.html'])
+    expect(window.urls).toEqual(['dsh-app://app/'])
     expect(harness.windows).toHaveLength(1)
   })
 })
