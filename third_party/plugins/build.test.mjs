@@ -74,8 +74,8 @@ test('builds every pinned plugin with its declared runtime entries and notices',
       assert.ok(original)
       assert.deepEqual(manifest.scripts, {})
       for (const [dependency, range] of Object.entries(original.peerDependencies ?? {})) {
-        const expected = dependency.startsWith('@deepseek-ai/dsh-') && !range.split(' || ').includes('0.1.6-alpha.2')
-          ? `${range} || 0.1.6-alpha.2` : range
+        const expected = dependency.startsWith('@deepseek-ai/dsh-') && !range.split(' || ').includes('0.1.6-alpha.3')
+          ? `${range} || 0.1.6-alpha.3` : range
         assert.equal(manifest.peerDependencies[dependency], expected)
       }
       const entries = value => typeof value === 'string' ? [value] : value && typeof value === 'object' ? Object.values(value).flatMap(entries) : []
@@ -90,13 +90,13 @@ test('builds every pinned plugin with its declared runtime entries and notices',
         assert.match(pinnedCodexRuntime, /SUBAGENT_RUNTIME_VERSION = '0\.1\.5-rc\.3'/)
         const runtime = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/lib/index.js'], { encoding: 'utf8' })
         assert.equal(runtime.status, 0)
-        assert.match(runtime.stdout, /0\.1\.6-alpha\.2/)
+        assert.match(runtime.stdout, /0\.1\.6-alpha\.3/)
         assert.doesNotMatch(runtime.stdout, /0\.1\.5-rc\.3/)
         assert.match(runtime.stdout, /codexFilesystemPath/)
         const metadata = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/SOURCE.json'], { encoding: 'utf8' })
         assert.equal(metadata.status, 0)
         assert.deepEqual(JSON.parse(metadata.stdout).compatibilityOverlay, {
-          subagentRuntimeVersion: '0.1.6-alpha.2', codexCliVersion: '0.153.4', codexAsarUnpack: true,
+          subagentRuntimeVersion: '0.1.6-alpha.3', codexCliVersion: '0.153.4', codexAsarUnpack: true,
         })
       }
     }
