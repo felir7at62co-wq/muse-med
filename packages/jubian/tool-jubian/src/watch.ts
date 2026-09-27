@@ -62,7 +62,8 @@ function currentOutput(row: VideoSubtask, raw: unknown, stage: WatchArgs['stage'
   const results = record(raw)?.resultList
   const current = Array.isArray(results) ? record(results[0]) : undefined
   if (row.last_stage === stage && current?.lastResultStatus !== undefined) {
-    return terminalOutcome(String(current.lastResultStatus)) === 'succeeded'
+    return typeof current.lastResultStatus === 'string'
+      && terminalOutcome(current.lastResultStatus) === 'succeeded'
       && current.lastTosVideoUrl === row.video_url
   }
   return Array.isArray(results) && results.some((value) => {
@@ -90,7 +91,9 @@ async function observe(client: JubianClient, args: WatchArgs, signal: AbortSigna
       path: `/admin/aigc/video/task/sub/list?pageNum=${pageNum}&pageSize=1000`,
       body: { aigcVideoTaskId: args.task_id }, signal })
     const raw = record(response.data)
-    if (!Number.isSafeInteger(raw?.total) || (raw!.total as number) < 1) return
+    const reportedTotal = raw?.total
+    if (typeof reportedTotal !== 'number' || !Number.isSafeInteger(reportedTotal) || reportedTotal < 1) return
+    const listed = Array.isArray(raw?.rows) ? raw.rows : []
     const page = readSubtaskPage(response.data)
     if (total !== undefined && page.total !== total) return
     total = page.total
@@ -102,12 +105,12 @@ async function observe(client: JubianClient, args: WatchArgs, signal: AbortSigna
         return { status: 'failed', detail: `provider child ${row.subtask_id} ${row.status}` }
       }
       if (terminalOutcome(row.status ?? '') !== 'succeeded'
-        || !currentOutput(row, (raw!.rows as unknown[])[index], args.stage)) return
+        || !currentOutput(row, listed[index], args.stage)) return
       rows.push(row)
     }
     if (rows.length === total) break
   }
-  return { status: 'completed', detail: `${args.stage} operation verified; review required`, output: JSON.stringify({
+  return { status: 'completed', detail: `${args.stage} operation verified; review required`, result: JSON.stringify({
     ...args, status: 'succeeded', outputs: rows.map(row => ({ subtask_id: row.subtask_id,
       video_url: row.video_url, first_result_id: row.first_result_id, parent_result_id: row.parent_result_id,
       resolution: row.resolution })),
@@ -125,7 +128,7 @@ async function observe(client: JubianClient, args: WatchArgs, signal: AbortSigna
 export function watchJob(client: JubianClient, args: WatchArgs, config: WatchConfig): JobHooks {
   const controller = new AbortController()
   const timeout = new Error('timeout: operation completion unverified')
-  const timer = setTimeout(() => controller.abort(timeout), config.watchTimeoutMs)
+  const timer = setTimeout(() => { controller.abort(timeout) }, config.watchTimeoutMs)
   const done = (async (): Promise<JobOutcome> => {
     try {
       for (;;) {

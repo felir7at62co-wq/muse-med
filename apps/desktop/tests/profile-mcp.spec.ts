@@ -47,9 +47,15 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
       cliDir: join(repositoryRoot, 'apps/cli'), hostDir: host,
       dependencyDir: join(repositoryRoot, 'node_modules/.pnpm/node_modules'),
       release: { schemaVersion: 1, version, hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION, nodeVersion: process.versions.node, pnpmVersion: '11.7.0' },
+      // The composed rows are this case's subject; nothing here compares the
+      // descriptor's platform or architecture.
+      target: 'mac-x64',
     })
     const installAnchor = join(project, 'package.json')
     const profile = loadProfileDirectory('muse-med', profileDir, installAnchor)
+    // The running Host applies its own overlay above the bundle and user layers
+    // (the product row set below lives there), so composing the profile without
+    // it tests a tree no Desktop launch ever mounts.
     const overlay = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
     const warnings: string[] = []
     const rows = composeEntries([
@@ -62,6 +68,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
       { id: 'mcp-resources', name: '@deepseek-ai/dsh-mcp-resources' },
     ])
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-mcp-client')).toEqual([])
+    expect(rows.find(row => row.id === 'webserver')).toMatchObject({ name: '@deepseek-ai/dsh-host-webserver' })
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-drama-settings')).toEqual([
       { id: 'drama-settings', name: '@deepseek-ai/dsh-drama-settings' },
     ])

@@ -1,6 +1,78 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
+<<<<<<< apps/desktop/README.i18n.yaml:current
 README.md: 56b0b508da2a23772a2865a00aaf13d9b9ddc414
 README.zh.md: 4ef6ca74a282d9354875f73d062a9cb87f3bc5fa
+=======
+/muse-med-desktop:
+  en: c2e13eabe76805a4
+  zh: 5bdfa384e5bf5e82
+/muse-med-desktop/closing-the-window-and-quitting:
+  en: 0cc27a5c5eab82e3
+  zh: 3d67e21d84de9414
+/muse-med-desktop/key-technical-decisions:
+  en: 069fdfd72d2ea26a
+  zh: 76ae549d43c99bb4
+/muse-med-desktop/key-technical-decisions/bundled-workspace-dependencies:
+  en: c31415adaf46726c
+  zh: 8cacda98cc5624b1
+/muse-med-desktop/installation-ownership:
+  en: 4f305d1c5849d7d7
+  zh: b31d718d27de3684
+/muse-med-desktop/installation-ownership/short-drama-resources-and-limits:
+  en: 0dc82b34924fc148
+  zh: e0a8cf7fb74d5432
+/muse-med-desktop/installation-ownership/runtime-and-plugin-activation:
+  en: b2c8690318a68548
+  zh: 7210f34a2a61be51
+/muse-med-desktop/develop:
+  en: d671eb5af7956ef1
+  zh: a64fa6dbb71df970
+/muse-med-desktop/develop/startup-onboarding:
+  en: 5e2d62207a603d81
+  zh: 5fb863d4906f4a67
+/muse-med-desktop/develop/welcome-window-appearance:
+  en: 7220801ccc3b2e6b
+  zh: 042dc97976aef979
+/muse-med-desktop/package:
+  en: 4cd8a8da6977928d
+  zh: 9f624855a2edac37
+/muse-med-desktop/package/release-versions:
+  en: f461b255133384cc
+  zh: 2b9db718f22fdd04
+/muse-med-desktop/package/runtime-file-selection:
+  en: e8a654359d16f4e5
+  zh: 3fe2424550bfcbfa
+/muse-med-desktop/package/upload-updates:
+  en: c64d7fe2fe2534b7
+  zh: 2188e1ae99ab4b33
+/muse-med-desktop/package/unsigned-windows-test-installer:
+  en: a7e26b75bc8d756e
+  zh: 2f6e5d52384bc188
+/muse-med-desktop/package/windows-installer-interface:
+  en: f176a8b1c7de3064
+  zh: 6ea2dbe6bb808c34
+/muse-med-desktop/package/windows-ev-signing:
+  en: 8efe3498dbe8686d
+  zh: a88c16f20a9430f3
+/muse-med-desktop/updates:
+  en: d0df867b69cbffa4
+  zh: eeb47b79b86fe5ee
+/muse-med-desktop/updates/mandatory-update-policy:
+  en: 2f789a4949fafb12
+  zh: d8b28c01cfee11b7
+/muse-med-desktop/updates/local-updater-qualification:
+  en: bc50fd8a4d96c227
+  zh: fb0a6ce80c31cda6
+/muse-med-desktop/low-level-development-overrides:
+  en: 0b225f914142ef0b
+  zh: 9ffd07768d37824e
+/muse-med-desktop/known-limitations:
+  en: cd6dab9c4630a8de
+  zh: eda6961a2135e525
+/muse-med-desktop/dev-note:
+  en: 8e26b460ba31f21b
+  zh: fbcd0307b3867125
+>>>>>>> apps/desktop/README.i18n.yaml:other

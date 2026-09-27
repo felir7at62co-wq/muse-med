@@ -1,0 +1,11 @@
+muse-med 无法启动
+应用无法启动或已意外停止。
+Desktop Host failed
+Plugin initialization failed
+
+如果应用文件缺失或损坏，请关闭应用并重新安装。任务数据存储在独立位置。
+重置 Desktop 会不经备份地删除全部 Desktop profile 配置与第三方插件，随后启动全新 profile。共享任务与设置保留。
+退出
+重启
+禁用第三方插件、备份 profile patch 并重启
+重置 Desktop 并重试

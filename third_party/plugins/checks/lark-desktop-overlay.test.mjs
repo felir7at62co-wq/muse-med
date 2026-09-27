@@ -19,8 +19,15 @@ test('staged Lark configuration gates registration and cross-instance effects wi
       assert.match(config, new RegExp(`${key}: z\\.boolean\\(\\)\\.default\\(true\\)`))
       assert.match(config, new RegExp(`${key}: config\\.${key} \\?\\? true`))
     }
-    assert.ok(runtime.indexOf('settings.register(') < runtime.indexOf('if (!resolved.enabled) return'))
-    assert.match(runtime, /settings\.register\(SETTINGS_NAMESPACE, Config, \{ base: config, applies: 'restart' \}\)/u)
+    // The scan record rides the same settings write as the credential pair, and the
+    // settings service persists live fields only.
+    assert.match(config, /registeredBy: z\.string\(\)\.volatile\(\)/u)
+    // Two overlay rules were retired with the host settings port: this plugin no longer
+    // registers a namespace of its own — it reads its row's Config and writes back by
+    // entry id — so the staged runtime must register nothing and must gate the whole
+    // boot stanza on the row's activation switch.
+    assert.doesNotMatch(runtime, /settings\.register\(/u)
+    assert.ok(runtime.indexOf('if (!resolved.enabled) return') < runtime.indexOf('// Cross-profile overlay (dual-end sync):'))
     assert.match(runtime, /if \(resolved\.crossInstanceSync\) \{[\s\S]*await readSettings\(\)[\s\S]*startSyncLayer\(resolved\)/u)
     assert.ok(runtime.indexOf('if (!resolved.autoRegistration) return') > runtime.indexOf('if (hasCredentials(resolved))'))
     assert.match(bridge, /if \(config\.crossInstanceSync && msg\.content\.trim\(\) !== '\/bot activate'\)/u)

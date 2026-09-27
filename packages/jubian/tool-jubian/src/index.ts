@@ -249,6 +249,7 @@ const OUTPUT = {
  * @param run - The domain method, given the argument bag its own signature declares.
  * @returns An execute function for `defineTool`.
  */
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- jubian_find passes FindArgs, not MethodArgs.
 function guarded<A = MethodArgs>(
   tool: string,
   run: (args: A) => Promise<Record<string, unknown>>,
@@ -565,17 +566,17 @@ export function apply(ctx: Context, config: Config = {}): void {
       } },
       render: OUTPUT.render,
     },
-    // `async` is required by the tool contract, which types `execute` as returning a
-    // promise; this body itself only starts a job and returns its id.
-    execute: async (args, exec) => {
+    // The tool contract types `execute` as returning a promise; this body itself
+    // only starts a job and returns its id.
+    execute: (args, exec) => {
       const input = watchArgs(args)
       const jobs = ctx.get('jobs')
       if (!jobs) throw new Error('jubian_watch requires a jobs provider and job controller; other Jubian tools remain available')
       if (!exec.agent) throw new Error('jubian_watch requires an owning Agent for completion delivery')
-      const job_id = jobs.start({ kind: 'jubian', owner: exec.agent,
+      const job_id = jobs.start({ kind: 'jubian', owner: exec.agent.id,
         label: `Jubian ${input.stage} operation ${input.task_id}`,
         run: () => watchJob(client, input, watchConfig) })
-      return { job_id, ...input, status: 'running' as const }
+      return Promise.resolve({ job_id, ...input, status: 'running' as const })
     },
   }))
 

@@ -42,6 +42,7 @@ async function writeFlatSkill(root: string, name: string, description: string, b
 }
 
 class TestFileSystem extends FileSystem {
+  override watch(): never { throw new Error('Fixture does not support watching') }
   listDirCalls = 0
   listDirPaths: string[] = []
   failResolvePaths = new Set<string>()
@@ -699,7 +700,7 @@ describe('FileSystemSkillProvider', () => {
       started.resolve(undefined)
       return await new Promise<string>((_resolve, reject) => {
         signal.addEventListener('abort', () => {
-          const abortReason = signal.reason as unknown
+          const abortReason: unknown = signal.reason
           reject(abortReason instanceof Error ? abortReason : new Error(String(abortReason)))
         }, { once: true })
       })

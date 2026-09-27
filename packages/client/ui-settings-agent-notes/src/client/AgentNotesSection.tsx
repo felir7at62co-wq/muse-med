@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { AgentNoteSummary, AgentNotesCatalog } from '@deepseek-ai/dsh-api-agent-notes/types'
-import { Button, IconSearchOutline16, MarkdownText, Tag, type MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconSearchOutlineRegular, MarkdownText, Tag, type MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import css from './AgentNotesSection.module.css'
 
@@ -326,7 +326,7 @@ export function AgentNotesSection(props: AgentNotesSectionProps): ReactNode {
         <>
           <div className={css.toolbar}>
             <label className={css.search}>
-              <IconSearchOutline16 aria-hidden="true" />
+              <IconSearchOutlineRegular aria-hidden="true" />
               <input
                 type="search"
                 value={query}

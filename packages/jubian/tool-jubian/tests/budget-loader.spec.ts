@@ -1,31 +1,31 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+/**
+ * The automatic ceiling in the real tool composition.
+ *
+ * The stack is booted from a real profile patch: the settings service, the drama
+ * row that publishes the section, the credentials row and the Jubian tool row.
+ * That composition is the point — the ceiling is read through the settings
+ * service's own describe pass, so a drama row that publishes no namespace takes
+ * the cap away without an error anywhere, and the paid call below is what shows
+ * whether the composition still carries it.
+ */
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { Context } from '@deepseek-ai/cordis'
-import Include from '@deepseek-ai/cordis-plugin-include'
-import Loader from '@deepseek-ai/cordis-plugin-loader'
 import * as DramaSettings from '@deepseek-ai/dsh-drama-settings'
 import { JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import { SettingsProvider, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
 import { expect, it, vi } from 'vitest'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
+import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
+import { seriesBudgetLimit } from '../src/budget-settings.ts'
+import { pinnedImageSelection } from '../src/image.ts'
 import * as Jubian from '../src/index.ts'
-
-class MemorySettings extends SettingsProvider {
-  readonly writable = true
-  protected load(): Promise<Record<string, unknown>> { return Promise.resolve({}) }
-  protected persist(_ns: SettingsNamespace, _section: Record<string, unknown>): Promise<void> {
-    return Promise.resolve()
-  }
-}
 
 it('mounts the drama default and enforces its current limit in the real tool composition', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jubian-budget-loader-'))
-  const ctx = new Context()
+  const ledgerRoot = join(root, 'ledger')
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
     const path = url instanceof Request ? url.url : url.toString()
     if (!path.includes('/model/charge/getSelectList?taskType=2')) {
@@ -37,38 +37,28 @@ it('mounts the drama default and enforces its current limit in the real tool com
     { status: 200 })
   })
   try {
-    const config = join(root, 'cordis.yml')
-    await writeFile(config, [
-      "- name: '@deepseek-ai/dsh-system-prompt'",
-      "- name: '@deepseek-ai/dsh-tools'",
-      '- name: test:settings',
-      "- name: '@deepseek-ai/dsh-drama-settings'",
-      '- name: test:credentials',
-      '  config:',
-      '    JUBIANAI_ADMIN_TOKEN: mocked-token',
-      "- name: '@deepseek-ai/dsh-tool-jubian'",
-      '  config:',
-      `    ledgerRoot: ${JSON.stringify(join(root, 'ledger'))}`,
-      '    workspaceSecrets: false',
-      '',
-    ].join('\n'))
-    ctx.baseUrl = pathToFileURL(root).href + '/'
-    await ctx.plugin(Loader)
-    ctx.loader.builtins.include = Include
-    const modules = new Map<string, unknown>([
-      ['@deepseek-ai/dsh-system-prompt', SystemPrompt], ['@deepseek-ai/dsh-tools', Tools],
-      ['test:settings', MemorySettings], ['@deepseek-ai/dsh-drama-settings', DramaSettings],
-      ['test:credentials', MemoryCredentials], ['@deepseek-ai/dsh-tool-jubian', Jubian],
-    ])
-    ctx.loader.internal = { version: 'v2', async import(specifier: string) {
-      if (!modules.has(specifier)) throw new Error(`Unexpected module ${specifier}`)
-      return modules.get(specifier)
-    } } as unknown as NonNullable<typeof ctx.loader.internal>
-    await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
-    await ctx.loader.await()
-    for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-    expect(ctx.settings.get('drama')).toMatchObject({ seriesBudgetCents: 400_000 })
-    await ctx.settings.update('drama', { seriesBudgetCents: 0 })
+    const { ctx } = await configurationFixture({
+      rows: [
+        { id: 'config-editor', name: 'cordis:editor' },
+        { id: 'settings', name: 'cordis:settings' },
+        { id: 'system-prompt', name: 'cordis:prompt' },
+        { id: 'tools', name: 'cordis:tools' },
+        { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mocked-token' } },
+        { id: 'drama-settings', name: 'cordis:drama' },
+        { id: 'tool-jubian', name: 'cordis:jubian', config: { ledgerRoot, workspaceSecrets: false } },
+      ],
+      builtins: {
+        prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials,
+        drama: DramaSettings, jubian: Jubian,
+      },
+    })
+    // The row is composed under the id every reader addresses, so its section is
+    // both served to the Settings page and readable as the automatic ceiling.
+    expect(ctx.settings.describe().map(row => row.ns)).toContain('drama-settings')
+    expect(seriesBudgetLimit(ctx)).toBe(400_000)
+
+    await ctx.settings.update('drama-settings', { seriesBudgetCents: 0 })
+    expect(seriesBudgetLimit(ctx)).toBe(0)
     const tool = ctx.tools.get('jubian_video')
     expect(tool).toBeDefined()
     if (!tool) throw new Error('Missing Jubian video tool')
@@ -80,13 +70,19 @@ it('mounts the drama default and enforces its current limit in the real tool com
     })
     expect(result).toMatchObject({ isError: true, error: { message: expect.stringContaining('授权上限 0.00 CNY') } })
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(await new JubianLedger({ root: join(root, 'ledger') }).records()).toEqual([])
-    const toolRow = [...ctx.loader.entries()].find(row => row.options.name === '@deepseek-ai/dsh-tool-jubian')
+    expect(await new JubianLedger({ root: ledgerRoot }).records()).toEqual([])
+
+    // The row the Settings page pinned is read per paid call, and it beats this
+    // row's own composition config rather than merging with it.
+    expect(pinnedImageSelection(ctx, { imageStandardId: 66 })).toEqual({ standardId: 66 })
+    await ctx.settings.update('drama-settings', { imageStandardId: 76 })
+    expect(pinnedImageSelection(ctx, { imageStandardId: 66 })).toEqual({ standardId: 76 })
+
+    const toolRow = [...ctx.loader.entries()].find(row => row.options.name === 'cordis:jubian')
     await toolRow?.fiber?.dispose()
     expect(ctx.tools.get('jubian_video')).toBeUndefined()
   } finally {
     fetch.mockRestore()
-    await ctx.fiber.dispose()
     await rm(root, { recursive: true, force: true })
   }
 })

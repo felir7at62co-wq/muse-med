@@ -20,26 +20,25 @@ export function applyLarkDesktopCompatibility(directory) {
   /** Allow first-boot QR app registration when credentials are absent; restart required. */
   autoRegistration?: boolean
   /** Allow shared settings, device arbitration and the cross-instance control service; restart required. */
-  crossInstanceSync?: boolean`],
+  crossInstanceSync?: boolean
+  /** Open id of the operator whose scan created the app; written when onboarding persists. */
+  registeredBy: Volatile<string | undefined>`],
       ['export interface ResolvedConfig {', `export interface ResolvedConfig {
   enabled: boolean
   autoRegistration: boolean
   crossInstanceSync: boolean`],
-      ['export const Config: z<Config> = z.object({', `export const Config: z<Config> = z.object({
+      ['export const Config = z.object({', `export const Config = z.object({
   enabled: z.boolean().default(true).description('Enable Feishu chat / 启用飞书聊天。Restart backend after changing settings / 修改后重启后端。'),
   autoRegistration: z.boolean().default(true).description('Allow automatic QR app registration / 允许自动扫码注册应用。Restart required / 重启生效。'),
-  crossInstanceSync: z.boolean().default(true).description('Enable cross-instance synchronization / 启用跨实例同步。Restart required / 重启生效。'),`],
+  crossInstanceSync: z.boolean().default(true).description('Enable cross-instance synchronization / 启用跨实例同步。Restart required / 重启生效。'),
+  registeredBy: z.string().volatile(),`],
       ['    ...config,\n    locale:', `    ...config,
     enabled: config.enabled ?? true,
     autoRegistration: config.autoRegistration ?? true,
     crossInstanceSync: config.crossInstanceSync ?? true,
     locale:`],
     ],
-    'host.ts': [
-      ['options?: { base?: unknown }): HostSettingsScope', "options?: { base?: unknown; applies?: 'live' | 'restart' }): HostSettingsScope"],
-    ],
     'runtime.ts': [
-      ['settings.register(SETTINGS_NAMESPACE, Config, { base: config })', "settings.register(SETTINGS_NAMESPACE, Config, { base: config, applies: 'restart' })"],
       ['    // Cross-profile overlay (dual-end sync):', `    if (!resolved.enabled) return
 
     if (resolved.crossInstanceSync) {

@@ -56,7 +56,7 @@ describe('jubian watcher', () => {
     await vi.advanceTimersByTimeAsync(10)
     const result = await hook.done
     expect(result.status).toBe('completed')
-    expect(JSON.parse(result.output!)).toMatchObject({ task_id: 42, stage: 'upscale', status: 'succeeded',
+    expect(JSON.parse(result.result!)).toMatchObject({ task_id: 42, stage: 'upscale', status: 'succeeded',
       outputs: [{ subtask_id: 51 }, { subtask_id: 52 }], next: expect.stringContaining('Review') })
     expect(calls.every(call => call.method === 'GET' || (call.method === 'POST' && call.path.includes('/sub/list')))).toBe(true)
     expect(vi.getTimerCount()).toBe(0)
@@ -91,7 +91,7 @@ describe('jubian watcher', () => {
     ])
   })
 
-  it.each([undefined, 2])('does not accept incomplete or unverified total %s', async total => {
+  it.each([undefined, 2])('does not accept incomplete or unverified total %s', async (total) => {
     vi.useFakeTimers()
     const { client } = provider(path => path.includes('/sub/list') ? { total, rows: [child()] } : task())
     const hook = start(client)
@@ -99,7 +99,7 @@ describe('jubian watcher', () => {
     expect((await hook.done).status).toBe('failed')
   })
 
-  it.each(['failed', 'no_all_failed', 'cancelled', 'expired'])('reports known provider failure %s without retries', async status => {
+  it.each(['failed', 'no_all_failed', 'cancelled', 'expired'])('reports known provider failure %s without retries', async (status) => {
     const { client, calls } = provider(() => task(status))
     expect(await start(client).done).toMatchObject({ status: 'failed', detail: `provider operation ${status}` })
     expect(calls).toHaveLength(1)
@@ -133,7 +133,7 @@ describe('jubian watcher', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it.each(['cancel', 'timeout'])('aborts an in-flight request on %s and settles after cleanup', async mode => {
+  it.each(['cancel', 'timeout'])('aborts an in-flight request on %s and settles after cleanup', async (mode) => {
     vi.useFakeTimers()
     let aborted = false
     const client = new JubianClient({ credential: async () => 'test-token', fetch: async (_url, init) =>
@@ -172,12 +172,12 @@ describe('jubian watcher', () => {
     expect((await hook.done).status).toBe('failed')
   })
 
-  it.each(['generate', 'erase_subtitle'] as const)('accepts exact %s operation output, not visual QA', async stage => {
+  it.each(['generate', 'erase_subtitle'] as const)('accepts exact %s operation output, not visual QA', async (stage) => {
     const type = stage === 'generate' ? 1 : 10
     const { client } = provider(path => path.includes('/sub/list')
       ? { total: 1, rows: [child(51, 'succeeded', type)] } : task('succeeded', type))
     const hook = watchJob(client, { task_id: 42, stage }, config)
     hooks.push(hook)
-    expect(JSON.parse((await hook.done).output!)).toMatchObject({ stage, next: expect.stringContaining('not visual QA') })
+    expect(JSON.parse((await hook.done).result!)).toMatchObject({ stage, next: expect.stringContaining('not visual QA') })
   })
 })

@@ -1,6 +1,6 @@
 /**
- * Short-drama settings, browser half: the Settings page over the `drama` settings
- * namespace the Host half registers.
+ * Short-drama settings, browser half: the Settings page over the namespace the
+ * Host half owns, which is the composition entry id it is mounted under.
  *
  * The page registers through `ctx.slots.inject`, which waits for the slot's own
  * declaration — this package does not own the Settings shell — and it leaves with
@@ -19,7 +19,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the SlotRegistry service merge (ctx.slots).
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: the settings shell's `settings.section` declaration and the
-// `ctx.settingsScope` service merge.
+// `ctx.configForms` service merge.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   DRAMA_SETTINGS_DEFAULTS, DRAMA_SETTINGS_NAMESPACE, type DramaSettings,
@@ -49,8 +49,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Dictionary namespace owned by this plugin. */
 export const NS = 'settings.drama'
 
-/** Required services: the slot and locale surfaces plus the settings scope service. */
-export const inject = ['slots', 'locale', 'settingsScope']
+/** Required services: the slot and locale surfaces plus the shared configuration forms. */
+export const inject = ['slots', 'locale', 'configForms']
 
 /**
  * One `pluginInventory.list` answer: the snapshot, or the namespace's refusal.
@@ -118,7 +118,7 @@ async function imageRouteState(ctx: ClientContext): Promise<DramaImageRoutes> {
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'drama-settings: dictionaries')
   const t = ctx.locale.bind(NS)
-  const scope = ctx.settingsScope.bind<DramaSettings>({ namespace: DRAMA_SETTINGS_NAMESPACE })
+  const scope = ctx.configForms.get<DramaSettings>(DRAMA_SETTINGS_NAMESPACE)
 
   /**
    * Write one section and answer whether it landed.

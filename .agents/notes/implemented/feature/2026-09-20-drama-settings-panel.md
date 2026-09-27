@@ -20,6 +20,8 @@ The Host half is `src/index.ts`, and it is only that registration: `ctx.inject([
 
 The browser half binds exactly one scope — `ctx.settingsScope.bind({ namespace: 'drama' })`. `src/client/section.ts` compiles the page's form into path operations: a field already stating the intended value is untouched, and a field whose intended value is the schema default is *cleared*, so the user layer never stores a copy of a default that says nothing. `src/client/DramaSettingsSection.tsx` is a pure props component: the scope and the write arrive through the inject face and the renderer binds the hook.
 
+**Superseded in part (2026-09-26).** The upstream rc.2 merge removed the fork's `settingsScope` service: the settings service now serves one form per owned composition entry, reachable as `ctx.configForms.get('<row id>')`, and this row exports its own `Config` and silences the automatic form with `settings.configure({ auto: false })`. The paragraph above records the implementation as it stood when this note was written; the current mechanism is the `configForms` path landed by this branch's sweep (see section 14j of the merge deviations addendum).
+
 The write verdict is read from the resolved section, not from the transport. The settings scope does not throw when a write is refused — it recovers the host's current state and settles — so the page compares the section it renders with the one the draft asked for and reports a failure when they differ. That keeps the package off a second wire contract while still refusing to show a refused write as saved.
 
 The page registers through `ctx.slots.inject`: this package does not own the Settings shell, the registration waits for the declaring entry, and it leaves with that declaration or with this row's fiber.

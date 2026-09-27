@@ -5,7 +5,7 @@
  */
 
 import { createRequire } from 'node:module'
-import { closeSync, createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { closeSync, createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { once } from 'node:events'
 import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
@@ -15,7 +15,7 @@ import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import {
   boot,
   composeEntries,
-  createProfileResolutionGeneration,
+  createRuntimeResolution,
   loadLayeredEnv,
   loadProfileDirectory,
   loadOverlayPatches,
@@ -44,6 +44,7 @@ import {
 import { bundledSkillDirectory } from './bundled-skills.ts'
 import { feishuGateLayer } from './feishu-gate.ts'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
+import { installOfficeEngineResolution } from './office-engine.ts'
 
 export { DESKTOP_HOST_PROTOCOL_VERSION } from './wire.ts'
 
@@ -179,16 +180,37 @@ function desktopComposition(
     loadOverlayPatches('muse-med', DESKTOP_PATCH),
   ]
   const rows = new Map(composeEntries(layers).flatMap(row => typeof row.id === 'string' ? [[row.id, row] as const] : []))
-  const agentPresets = rows.get('agent-presets')
-  if (agentPresets !== undefined) {
-    layers.push([{
-      id: 'agent-presets',
-      config: {
-        ...(agentPresets.config ?? {}) as Record<string, unknown>,
-        roots: [{ path: fileURLToPath(new URL('../presets', import.meta.url)), trust: 'system' }],
-      },
-    }])
+  if (rows.get('agent-preset-registry') === undefined) {
+    throw new Error('muse-med: profile has no agent-preset-registry row')
   }
+  // The product owns its roster as product data: every packaged `presets/<id>` directory becomes one
+  // preset row through the adapter that registers it with the upstream registry. An active
+  // `preset-<id>` the composed layers already declare wins, because re-declaring a row id is a
+  // duplicate-row failure. A disabled declaration answers for nothing, so it does not shadow: this
+  // product's patch disables the base bundle's shipped presets, which carry the same four ids.
+  const presetRoot = fileURLToPath(new URL('../presets', import.meta.url))
+  const shadowedPresets: string[] = []
+  const productPresetRows = readdirSync(presetRoot, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => entry.name)
+    .sort()
+    .flatMap((preset) => {
+      const declared = rows.get(`preset-${preset}`)
+      if (declared !== undefined && declared.disabled !== true) {
+        shadowedPresets.push(preset)
+        return []
+      }
+      return [{
+        id: `preset-${preset}`,
+        name: '@deepseek-ai/dsh-desktop-host/native-preset',
+        config: { id: preset, directory: join(presetRoot, preset) },
+      }]
+    })
+  if (productPresetRows.length === 0) throw new Error('muse-med: no product preset row could be declared')
+  if (shadowedPresets.length > 0) {
+    console.warn(`muse-med: shipped presets shadow the packaged product presets: ${shadowedPresets.join(', ')}`)
+  }
+  layers.push(productPresetRows)
   const skillFilesystem = rows.get('skill-filesystem')
   if (skillFilesystem === undefined) throw new Error('muse-med: profile has no skill-filesystem row')
   const bundledSkillDir = bundledSkillDirectory(runtimeDir)
@@ -276,7 +298,9 @@ function remoteStreamHandler(ctx: Context): ConnectionFetchHandler {
       const stream = new ReadableStream<Uint8Array>({
         async start(controller) {
           try {
-            const values = await gateway.wireStream.open(body.endpoint as string, body.payload, abort.signal)
+            // The HTTP bridge is downlink-only: an immediately-ended uplink keeps the signature explicit.
+            const values = await gateway.wireStream.open(body.endpoint as string, body.payload,
+              (async function* emptyUplink() {})(), undefined, abort.signal)
             for await (const value of values) {
               controller.enqueue(encoder.encode(`${JSON.stringify(value)}\n`))
             }
@@ -316,13 +340,14 @@ export async function runDesktopHost(
   options: { allowLinkedPackages?: boolean } = {},
 ): Promise<DesktopHostController> {
   const absoluteRuntime = resolve(runtimeDir)
+  installOfficeEngineResolution(absoluteRuntime)
   const absoluteProject = resolve(projectDir)
   mkdirSync(absoluteProject, { recursive: true })
   const rootConfig = join(absoluteProject, ROOT_CONFIG_FILENAME)
   writeFileSync(rootConfig, ROOT_CONFIG)
   const environment = loadLayeredEnv('muse-med')
   const composition = desktopComposition(absoluteRuntime, absoluteProject, options.allowLinkedPackages === true)
-  const resolution = await createProfileResolutionGeneration({
+  const resolution = await createRuntimeResolution({
     installAnchor: join(absoluteRuntime, 'package.json'),
     profile: composition.profile,
   })
@@ -330,7 +355,7 @@ export async function runDesktopHost(
   const ctx = await boot('muse-med', rootConfig, structuredClone(composition.patches), async (hostCtx) => {
     current = hostCtx
     hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment)
-    await hostCtx.plugin(PluginPackages, { generation: resolution })
+    await hostCtx.plugin(PluginPackages, { resolution })
     provideCmdline(hostCtx, { args: [], exit: () => {} })
   })
   current = ctx

@@ -10,7 +10,7 @@ import { createLarkChannel, registerApp } from '@larksuite/channel'
 import type { LarkChannelOptions, PolicyConfig } from '@larksuite/channel'
 import type { Context } from '@deepseek-ai/cordis'
 import { Config, resolveConfig } from './config.ts'
-import type { ResolvedConfig } from './config.ts'
+import type { PlainConfig, ResolvedConfig } from './config.ts'
 import { installBridge, type ChannelPort } from './bridge.ts'
 import type { CotEvent, CotHandle } from './cot.ts'
 import type { PanelCommand } from './slash-panel.ts'
@@ -22,7 +22,7 @@ import { readSettings } from './sync/settings-store.ts'
 import { startControlApi } from './sync/control-api.ts'
 import { heartbeat, selfEntry } from './sync/peers.ts'
 import type { Authorization } from './authorization.ts'
-import type { HostLoader, HostSettings } from './host.ts'
+import type { HostEntry, HostLoader, HostSettings } from './host.ts'
 
 /** Resolved configuration whose credentials are present; the transport can be built. */
 export type ChannelConfig = ResolvedConfig & LarkCredentials
@@ -35,9 +35,6 @@ const SLASH_COMMAND_API = '/open-apis/application/v7/app_slash_commands'
  * terminal `RUN_FINISHED` closes it without a further call.
  */
 const COT_API = '/open-apis/im/v1/message_cot'
-
-/** The user-settings namespace holding this plugin's section (onboarded credentials included). */
-const SETTINGS_NAMESPACE = 'dsh-lark-bridge'
 
 /**
  * Narrow a resolved configuration to one carrying live credentials.
@@ -190,10 +187,11 @@ export const internals: {
 }
 
 /**
- * Apply the plugin to its Cordis context. With credentials configured (entry
- * config or a stored settings section) the transport connects directly;
- * without them the official QR registration flow runs first and persists the
- * scanned credentials through the host `settings` service when one is composed.
+ * Apply the plugin to its Cordis context. The row's own Config carries the
+ * credentials the deployment stored for this entry (the user-settings section
+ * the host names after this row's id) and connects directly; without them the
+ * official QR registration flow runs first and persists what it scanned through
+ * the host `settings` service when one is composed.
  * @param ctx - Scoped plugin context; requires the `agents` service.
  * @param config - Configuration resolved by Cordis from the exported schema.
  */
@@ -301,23 +299,30 @@ export function apply(ctx: Context, config: Config): void {
     await (ctx.get('loader') as HostLoader | undefined)?.await()
     if (!active) return
 
+    // The settings service names one namespace per composition entry after that
+    // entry's id, and the Loader already resolved this row's Config from its
+    // schema, its inherited layers, and the values the profile document stores
+    // for that id — so the section IS `config` here (business plugins read their
+    // own Config references). Only a write goes back through the service.
     let resolved = resolveConfig(config)
     let persist = async (_app: OnboardedApp): Promise<boolean> => false
     const settings = ctx.get('settings') as HostSettings | undefined
-    if (settings !== undefined) {
-      try {
-        const scope = settings.register(SETTINGS_NAMESPACE, Config, { base: config })
-        resolved = resolveConfig(scope.get() as Config)
-        persist = async (credentials) => {
-          await scope.update(credentials)
+    const entry = (ctx.fiber as unknown as { entry?: HostEntry }).entry
+    if (settings !== undefined && entry !== undefined) {
+      persist = async (credentials) => {
+        try {
+          await settings.update(entry.options.id, credentials)
           return true
+        } catch (error) {
+          ctx.logger.error(
+            'settings write failed: %s',
+            error instanceof Error ? error.message : error,
+          )
+          return false
         }
-      } catch (error) {
-        ctx.logger.error(
-          'settings registration failed; continuing with entry config only: %s',
-          error instanceof Error ? error.message : error,
-        )
       }
+    } else if (settings !== undefined) {
+      ctx.logger.warn('settings is composed without a Loader entry; onboarding credentials cannot be persisted')
     }
 
     // Cross-profile overlay (dual-end sync): the shared settings file is what
@@ -330,7 +335,7 @@ export function apply(ctx: Context, config: Config): void {
       const shared = await readSettings()
       const touched = Object.keys(shared).length
       if (touched > 0) {
-        resolved = resolveConfig({ ...resolved, ...shared } as Config)
+        resolved = resolveConfig({ ...resolved, ...shared } as PlainConfig)
         ctx.logger.info('dual-end sync: %d shared key(s) overlaid onto the boot config', touched)
       }
     } catch (error) {

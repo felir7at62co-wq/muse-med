@@ -1,4 +1,4 @@
-/** Build one release target with matching Electron, Node.js, and dsh architecture. */
+/** Build one release target with matching Electron and dsh architecture. */
 
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -33,6 +33,8 @@ const WINDOWS_SIGNING_ENV_NAMES = [
   'DSH_DESKTOP_WINDOWS_KEY_CONTAINER',
   'DSH_DESKTOP_WINDOWS_SIGNTOOL',
   'DSH_DESKTOP_WINDOWS_TOKEN_PIN',
+  'DSH_DESKTOP_WINDOWS_SIGNATURE_CACHE_DIR',
+  'DSH_DESKTOP_WINDOWS_SIGNATURE_CACHE_CONCURRENCY',
 ] as const
 const DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES = new Set([
   'DOWNLOAD_TEST_COS_SECRET_ID',
@@ -40,6 +42,9 @@ const DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES = new Set([
   'DOWNLOAD_PROD_COS_SECRET_ID',
   'DOWNLOAD_PROD_COS_SECRET_KEY',
 ])
+
+/** `--build-version` value that numbers a build after the ones already taken. */
+const AUTOMATIC_BUILD_VERSION = 'auto'
 
 /** Fixed platform and architecture identifiers exposed by package scripts. */
 export type DesktopPackageTargetName = 'mac-arm64' | 'mac-x64' | 'win-x64'
@@ -138,15 +143,19 @@ function writeReleaseRecord(
   if (desktopVersion !== dshVersion) {
     throw new Error(`desktop package: desktop version ${desktopVersion} does not match dsh version ${dshVersion}`)
   }
+  const buildVersion = resolveDesktopBuildVersion(environment, dshVersion)
+  const packaged = resolveDesktopBuildCommit(environment)
   const update = resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
   const recordPath = join(artifactsRoot, desktopBuildRecordFilename(target.name))
   const temporaryPath = `${recordPath}.tmp`
   writeFileSync(temporaryPath, `${JSON.stringify({
     schemaVersion: 1,
     target: target.name,
-    version: dshVersion,
+    version: buildVersion,
     environment: update.environment,
     publicUrl: update.publicUrl,
+    // Upload reads this to tag the commit a production release was packaged from.
+    ...packaged === undefined ? {} : { commit: packaged.commit, dirty: packaged.dirty },
   }, null, 2)}\n`)
   renameSync(temporaryPath, recordPath)
 }
@@ -219,7 +228,9 @@ export function parseDesktopPackageInvocation(
   hostArch: string = process.arch,
 ): DesktopPackageInvocation {
   const { values, positionals } = parseArgs({
-    args: [...argv],
+    // `pnpm run <script> -- --build-version x` forwards the separator itself, and the script's own
+    // preset arguments come first, so it can land anywhere; parseArgs would read the rest as targets.
+    args: argv.filter(argument => argument !== '--'),
     allowPositionals: true,
     options: {
       dir: { type: 'boolean', default: false },
@@ -323,11 +334,13 @@ function runPnpm(
   args: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
   cwd: string = APP_ROOT,
+  run?: ReturnType<typeof createPackagingRun>,
 ): Promise<void> {
   const pnpmEntry = process.env.npm_execpath
   if (pnpmEntry === undefined || pnpmEntry === '') {
     throw new Error('desktop package: invoke this script through a pnpm package command')
   }
+  if (run !== undefined) return run.run(args.join(' '), process.execPath, [pnpmEntry, ...args], { cwd, env })
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, [pnpmEntry, ...args], {
       cwd,
@@ -371,6 +384,75 @@ function describeUsage(steps: readonly DesktopPackageStep[]): string {
 async function main(): Promise<void> {
   const invocation = parseDesktopPackageInvocation(process.argv.slice(2))
   const { target } = invocation
+  const environment = loadDesktopPackageEnvironment(target.platform)
+  const productVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
+  // Release settings come from the target dotenv file alone, so the version this run publishes is an
+  // argument; the environment variable below only carries it to the child processes that build.
+  const buildVersion = await resolveRequestedBuildVersion(invocation, productVersion, environment)
+  environment[DESKTOP_BUILD_VERSION_ENV] = buildVersion
+  if (invocation.check) {
+    validateDesktopPackageEnvironment(environment, target, invocation)
+    await requireDesktopToolchain(target.platform, environment)
+    process.stdout.write(`desktop package: ${target.name} would publish ${buildVersion}; local configuration and toolchain valid, signing and notarization were not attempted\n`)
+    return
+  }
+  process.stdout.write(`desktop package: ${target.name} publishes ${buildVersion}${buildVersion === productVersion ? '' : ` for product version ${productVersion}`}\n`)
+  const packaged = readDesktopBuildCommit(REPOSITORY_ROOT)
+  Object.assign(environment, desktopBuildCommitEnvironment(packaged))
+  const secrets = Object.entries(environment).filter(([name]) => /KEY|SECRET|TOKEN|PASSWORD|APPLE_ID/iu.test(name)).map(([, value]) => value ?? '')
+  const run = createPackagingRun(join(APP_ROOT, '.desktop-build', 'packaging-runs'), {
+    target: target.name, unsigned: invocation.unsigned, directory: invocation.directory, prepareOnly: invocation.prepareOnly,
+    version: buildVersion, productVersion, node: process.version,
+    commit: packaged.commit,
+    dirty: packaged.dirty,
+  }, { parallel: target.platform === 'darwin', secrets })
+  console.log(`DESKTOP_PACKAGING_RECORD ${run.directory}`)
+  const previousDirectory = process.env.DSH_DESKTOP_PACKAGING_RUN_DIR
+  process.env.DSH_DESKTOP_PACKAGING_RUN_DIR = run.directory
+  let success = false
+  try {
+    await packagingStep(run.directory, 'configuration', async () => { validateDesktopPackageEnvironment(environment, target, invocation) }, secrets)
+    await packagingStep(run.directory, 'toolchain', () => requireDesktopToolchain(target.platform, environment), secrets)
+    if (target.platform === 'darwin') {
+      const settings = resolveMacOSPackageSettings(environment)
+      recordPackagingEvent(run.directory, { type: 'macos-settings', packConcurrency: settings.packConcurrency,
+        downloadProxyConfigured: settings.downloadProxy !== undefined,
+        notarizationProxyConfigured: settings.notarizationProxy !== undefined })
+      await packagingStep(run.directory, 'macos-package', () => withMacOSSigningKeychain(environment,
+        signingEnvironment => packageTarget(invocation, signingEnvironment, run)), secrets)
+    } else {
+      await packagingStep(run.directory, 'windows-package', () => packageTarget(invocation, environment, run), secrets)
+    }
+    success = true
+  } catch (error) {
+    process.stderr.write(`${packagingErrorDetails(error, secrets)}\n`)
+    process.stderr.write(`desktop package: failed; see ${run.directory}/events.jsonl\n`)
+    process.exitCode = 1
+  } finally {
+    if (previousDirectory === undefined) delete process.env.DSH_DESKTOP_PACKAGING_RUN_DIR
+    else process.env.DSH_DESKTOP_PACKAGING_RUN_DIR = previousDirectory
+    run.finish(success)
+  }
+}
+
+/**
+ * Prepare one release only after its signing preflight, without publishing from the builder.
+ * @param invocation Validated host, target and packaging mode.
+ * @param environment File-owned release configuration.
+ * @param run Persistent stage supervisor; required for signed Windows packaging and enabled for all release commands.
+ * @returns Resolves after preparation or complete packaging; any failed stage prevents a release record.
+ */
+export async function packageTarget(
+  invocation: DesktopPackageInvocation,
+  environment: NodeJS.ProcessEnv,
+  run: ReturnType<typeof createPackagingRun> | undefined,
+): Promise<void> {
+  const { target } = invocation
+  const execute = (args: readonly string[], env: NodeJS.ProcessEnv, cwd: string = APP_ROOT) => runPnpm(args, env, cwd, run)
+  const journal = target.platform === 'darwin' ? process.env.DSH_DESKTOP_PACKAGING_RUN_DIR : undefined
+  const proxyEvent = (status: string) => { if (journal) recordPackagingEvent(journal, { type: 'notarization-proxy', status }) }
+  const mac = target.platform === 'darwin' ? resolveMacOSPackageSettings(environment) : undefined
+  const packArguments = mac === undefined ? [] : ['--concurrency', String(mac.packConcurrency)]
   const buildPaths = desktopTargetBuildPaths(target.name)
   const steps = desktopPackageSteps(REPOSITORY_ROOT, target.name, invocation.unsigned)
   if (invocation.help || invocation.listSteps) {
@@ -396,15 +478,36 @@ async function main(): Promise<void> {
     rmSync(releaseRecordPath, { force: true })
     rmSync(`${releaseRecordPath}.tmp`, { force: true })
   }
-  const buildEnv = withoutWindowsSigningEnvironment(withoutDesktopUploadCredentials(process.env))
+  const buildEnv = withoutWindowsSigningEnvironment(withoutDesktopUploadCredentials(environment))
   const targetEnv: NodeJS.ProcessEnv = {
     ...buildEnv,
     DSH_DESKTOP_TARGET_PLATFORM: target.platform,
     DSH_DESKTOP_TARGET_ARCH: target.arch,
   }
-  const electronBuilderEnv = desktopElectronBuilderEnvironment(targetEnv, invocation.unsigned)
+  const downloadEnv = macOSDownloadEnvironment(targetEnv, mac?.downloadProxy)
+  const electronBuilderEnv = desktopElectronBuilderEnvironment(downloadEnv, invocation.unsigned)
   for (const name of WINDOWS_SIGNING_ENV_NAMES) {
-    if (!invocation.unsigned && process.env[name] !== undefined) electronBuilderEnv[name] = process.env[name]
+    if (!invocation.unsigned && environment[name] !== undefined) electronBuilderEnv[name] = environment[name]
+  }
+  const signPrimaryRuntime = target.platform === 'win32' && !invocation.unsigned && !invocation.prepareOnly
+  const signedStage = async (stage: string, operation: () => Promise<void>): Promise<void> => {
+    if (!signPrimaryRuntime) return operation()
+    if (run === undefined) throw new Error('desktop package: signed Windows packaging requires a supervised run')
+    const controller = new AbortController()
+    const interrupted = (): void => controller.abort()
+    const detach = (): void => {
+      process.removeListener('SIGINT', interrupted)
+      process.removeListener('SIGTERM', interrupted)
+    }
+    process.once('SIGINT', interrupted)
+    process.once('SIGTERM', interrupted)
+    try {
+      const options = { stage, signal: controller.signal, record: (event: object): void => recordPackagingEvent(run.directory, event) }
+      await withWindowsSigningStage(options, async () => {
+        detach()
+        await operation()
+      })
+    } finally { detach() }
   }
   const baseline = readDesktopPackageBaseline(REPOSITORY_ROOT)
   assertCleanWorktree(baseline)

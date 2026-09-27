@@ -18,7 +18,8 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import * as yaml from 'js-yaml'
 import { expect, it, vi } from 'vitest'
 
-const presetPath = fileURLToPath(new URL('../../../packages/preset/agent-presets/presets/short-drama/agent.cordis.yml', import.meta.url))
+// The product's own composition, the one the desktop roster registers as `short-drama`.
+const presetPath = fileURLToPath(new URL('../../desktop-host/presets/short-drama/agent.cordis.yml', import.meta.url))
 const hostPatch = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
 const bundledSkillDir = fileURLToPath(new URL('../../../packages/drama/skills/skills', import.meta.url))
 
@@ -28,15 +29,18 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(() => { throw new Error('Unexpected Jubian request') })
   try {
     const presetRows = yaml.load(await readFile(presetPath, 'utf8'), { schema: entryListSchema }) as Array<{ id: string; name: string; config?: object }>
-    const hostRows = loadOverlayPatches('muse-med', hostPatch).flatMap(patch => patch.insert ?? [])
-    const jubian = hostRows.find(row => row.id === 'tool-jubian')
-    const filesystem = presetRows.find(row => row.id === 'skill-filesystem')
+    const hostPatches = loadOverlayPatches('muse-med', hostPatch)
+    const jubian = hostPatches.flatMap(patch => patch.insert ?? []).find(row => row.id === 'tool-jubian')
+    // The Host owns the only skill provider: the presets declare none, and the overlay is where
+    // that provider's row comes from (its runtime directories arrive from `src/index.ts`).
+    const provider = hostPatches.find(row => row.id === 'skill-filesystem')
     const skill = presetRows.find(row => row.id === 'tool-skill')
     expect(jubian?.name).toBe('@deepseek-ai/dsh-tool-jubian')
-    expect(filesystem?.name).toBe('@deepseek-ai/dsh-skill-filesystem')
+    expect(provider?.config).toMatchObject({ includeDefaultRoots: false })
     expect(skill?.name).toBe('@deepseek-ai/dsh-tool-skill')
     expect(presetRows.some(row => row.id === 'tool-jubian')).toBe(false)
-    if (!jubian || !filesystem || !skill) throw new Error('Missing short-drama or Desktop Host row')
+    expect(presetRows.some(row => row.id === 'skill-filesystem')).toBe(false)
+    if (!jubian || !provider || !skill) throw new Error('Missing short-drama or Desktop Host row')
     const jubianConfig = jubian.config as Record<string, unknown> | undefined
 
     const config = join(root, 'cordis.yml')
@@ -46,7 +50,8 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
       { id: 'agents', name: '@deepseek-ai/dsh-agent' },
       { id: 'skills', name: '@deepseek-ai/dsh-skill' },
       { id: 'credentials', name: 'test:credentials' },
-      { ...filesystem, config: { ...filesystem.config, includeDefaultRoots: false, bundledSkillDir, watch: false } },
+      { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem',
+        config: { ...provider.config, bundledSkillDir, watch: false } },
       skill,
       { ...jubian, config: { ...jubianConfig, workspaceSecrets: false, ledgerRoot: join(root, 'ledger') } },
     ]))

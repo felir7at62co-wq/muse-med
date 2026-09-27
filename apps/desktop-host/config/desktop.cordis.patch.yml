@@ -8,15 +8,31 @@
     personaPrefix: ''
     includeHarnessIdentity: false
 
-# The independent product owns its roster; it does not import DSH user modes.
-# The short-drama preset is the product's own composition, not the shipped preset
-# of the same id: `includeShippedRoot` stays false so a deployment upgrade cannot
-# shadow it, and the roster reads exactly the five directories under `presets/`.
-- id: agent-presets
+# The upstream preset registry is the engine, and the product declares every preset itself: the
+# five directories under `presets/` become five rows through the adapter in src/index.ts, which
+# knows the runtime directory holding them. The product therefore imports none of the base bundle's
+# DSH user modes, and those shipped rows are disabled below because a deployment upgrade must not
+# shadow a product preset of the same id.
+- id: agent-preset-registry
   config:
     default: short-drama
-    includeShippedRoot: false
-    includeUserRoot: false
+
+# The base bundle ships one row per native coding mode. The product replaces all four ids with its
+# own adapted compositions under `presets/`, so leaving these active would both shadow those rows
+# and mount a second filesystem skill provider — the shipped `cordis`, `standard`, and `ptc`
+# definitions carry their own row, and the last two select default roots, which only the Host
+# provider may do.
+- id: preset-cordis
+  disabled: true
+
+- id: preset-minimal
+  disabled: true
+
+- id: preset-ptc
+  disabled: true
+
+- id: preset-standard
+  disabled: true
 
 # All product agents inherit this Host provider. The runtime supplies its real bundled path.
 - id: skill-filesystem

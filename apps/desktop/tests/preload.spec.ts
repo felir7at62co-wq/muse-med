@@ -1,13 +1,13 @@
 import { expect, it, vi } from 'vitest'
-import type { DshDesktopApi } from '../src/ipc.ts'
+import type { DshDesktopPluginApi } from '../src/ipc.ts'
 import { DESKTOP_IPC } from '../src/ipc.ts'
 
 const bridge = vi.hoisted(() => ({
-  api: undefined as DshDesktopApi | undefined,
+  api: undefined as DshDesktopPluginApi | undefined,
   invoke: vi.fn(async (_channel: string, ..._args: unknown[]) => undefined),
 }))
 vi.mock('electron', () => ({
-  contextBridge: { exposeInMainWorld: (_name: string, api: DshDesktopApi) => { bridge.api = api } },
+  contextBridge: { exposeInMainWorld: (_name: string, api: DshDesktopPluginApi) => { bridge.api = api } },
   ipcRenderer: { invoke: bridge.invoke, on: vi.fn(), off: vi.fn() },
 }))
 

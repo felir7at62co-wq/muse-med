@@ -295,21 +295,23 @@ export interface HostLoader {
   await(): Promise<unknown>
 }
 
-/** One registered namespace's owner scope (subset of the host `SettingsScope`). */
-export interface HostSettingsScope {
-  /** The resolved value: schema defaults, then composition base, then the user document. */
-  get(): unknown
-  /** Deep-merge a patch into the user section and persist it through the provider. */
-  update(patch: object): Promise<unknown>
+/** The Loader entry that mounted this plugin (subset of Cordis's `Entry`). */
+export interface HostEntry {
+  /** Composition row id; the settings service names this plugin's section after it. */
+  readonly options: { readonly id: string }
 }
 
-/** The `settings` user-settings service (subset of `SettingsProvider`). */
+/**
+ * The `settings` user-settings service (subset this plugin uses).
+ *
+ * The service owns one namespace per active composition entry, named after that
+ * entry's id and built from the entry's own exported `Config`: the resolved
+ * section is the config the Loader hands to the plugin's `apply`, so a business
+ * plugin reads its Config and writes changes back through this service.
+ */
 export interface HostSettings {
-  /**
-   * Register a namespace schema; the registration is an effect on the calling
-   * fiber. Duplicate namespaces and stored sections the schema rejects fail loud.
-   */
-  register(ns: string, schema: unknown, options?: { base?: unknown }): HostSettingsScope
+  /** Deep-merge a patch into that entry's section and persist it in the profile document. */
+  update(ns: string, patch: object): Promise<unknown>
 }
 
 /** One immutable entry in the host session log; narrowed via the guards below. */

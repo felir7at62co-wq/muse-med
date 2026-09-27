@@ -11,6 +11,14 @@ import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import LlmRuntime, { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 
+// Each producer declares its own message source kind (`packages/llm/llm/src/message.ts`); there is no
+// shared catch-all `plugin` kind, so this fixture declares the one it sends.
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'image-input-requirement-fixture': { readonly kind: 'image-input-requirement-fixture' }
+  }
+}
+
 const SCRIPT: StreamChunk[] = [
   { type: 'block-start', index: 0, blockType: 'text' },
   { type: 'text-delta', index: 0, text: 'hi' },
@@ -82,7 +90,7 @@ async function finish(
     ...required ? { requireImageInput: true } : {},
     messages: [createUserMessage({
       content: visual ? [image()] : [{ type: 'text', text: 'plain' }],
-      source: { kind: 'plugin', plugin: 'test' },
+      source: { kind: 'image-input-requirement-fixture' },
     })],
   })) chunks.push(chunk)
   return chunks.at(-1)

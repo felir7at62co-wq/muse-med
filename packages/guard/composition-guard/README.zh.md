@@ -121,7 +121,7 @@ kind: "package-reference"
 
 #### What the model sees
 
-当一次 live 组合重载从一个预设未变的会话里撤走工具时，该 agent 的对话会收到一条 user 角色的消息，归属本插件（`{ kind: 'plugin', plugin: 'composition-guard', form: 'notice' }`）。缺失的工具名依赖数据，其余文字固定。折叠后的记录行显示有界摘要 `工具被热加载撤掉：缺少 <toolNames>`。
+当一次 live 组合重载从一个预设未变的会话里撤走工具时，该 agent 的对话会收到一条 user 角色的消息，归属本插件（`{ kind: 'composition-guard', form: 'notice' }`）。缺失的工具名依赖数据，其余文字固定。折叠后的记录行显示有界摘要 `工具被热加载撤掉：缺少 <toolNames>`。
 
 ##### Withdrawn-composition notice
 

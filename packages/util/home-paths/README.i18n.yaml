@@ -1,6 +1,57 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/util/home-paths/README.md
+<<<<<<< packages/util/home-paths/README.i18n.yaml:current
 README.md: 818025a81d5d58938f9b2c14286a7df474b1569f
 README.zh.md: 2b70353b4e749393b4edeafa997c38cca06480f5
+=======
+/:
+  en: 049f902daeb4f8fd
+  zh: c0688e7cb5d9c5a9
+/deepseek-ai-dsh-home-paths:
+  en: 6a18bcb84ce35987
+  zh: f26144b659925421
+/deepseek-ai-dsh-home-paths/summary:
+  en: 25f071210f39ae5b
+  zh: f6f59609706f75df
+/deepseek-ai-dsh-home-paths/table-of-contents:
+  en: 80b31a934611cb4a
+  zh: 05f3f7f9cb2fd881
+/deepseek-ai-dsh-home-paths/use-this-package:
+  en: 5322022224da2f27
+  zh: d5cba67f4ea3e429
+/deepseek-ai-dsh-home-paths/use-this-package/resolving-the-home:
+  en: 01597a061814cf0a
+  zh: b4cf63b47b1039d0
+/deepseek-ai-dsh-home-paths/use-this-package/displaying-a-home:
+  en: 4326f1ced538be5d
+  zh: bad6406a0362ee6e
+/deepseek-ai-dsh-home-paths/use-this-package/expanding-user-paths:
+  en: 80bf5dead177c1d8
+  zh: 6faf257afbb9c246
+/deepseek-ai-dsh-home-paths/use-this-package/canonicalizing-watch-paths:
+  en: 55c5d8179de704c5
+  zh: b86395e9605807cd
+/deepseek-ai-dsh-home-paths/understand-the-implementation:
+  en: a3896db883f77b47
+  zh: 45c71eccc31682b5
+/deepseek-ai-dsh-home-paths/understand-the-implementation/source-map:
+  en: ab001f10961a5a98
+  zh: 2209a79d2d5d9b68
+/deepseek-ai-dsh-home-paths/understand-the-implementation/resolution-rules:
+  en: 2096ecca16b31b14
+  zh: 3a6dbb217f69ec5e
+/deepseek-ai-dsh-home-paths/understand-the-implementation/canonicalization-mechanics:
+  en: a79aecd162317dc2
+  zh: 342f9bae0231c3de
+/deepseek-ai-dsh-home-paths/further-exploration:
+  en: 20c1a7aad2c891e7
+  zh: 66977a9714e6eff8
+/deepseek-ai-dsh-home-paths/known-limitations-and-deferred-work:
+  en: aa4aecf31a596da0
+  zh: 22dea997610fae2d
+/deepseek-ai-dsh-home-paths/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98
+>>>>>>> packages/util/home-paths/README.i18n.yaml:other

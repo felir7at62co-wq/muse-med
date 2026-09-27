@@ -28,6 +28,10 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   'presets/minimal/preset.yml',
   'presets/cordis/agent.cordis.yml',
   'presets/cordis/preset.yml',
+  // The cordis composition's own row serves exactly these authoring skills and its persona tells
+  // the agent to load them, so the packaged Host has to carry them beside the composition.
+  'presets/cordis/skills/cordis-plugin-development/SKILL.md',
+  'presets/cordis/skills/editing-cordis-compositions/SKILL.md',
 ] as const
 
 /** Community packages built from pinned source, never substituted from the npm registry. */

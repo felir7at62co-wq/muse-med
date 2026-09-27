@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveDesktopPaths } from '../src/paths.ts'
 import { createDevelopmentProjectMetadata, DesktopProjectManager, packageNameFromSpec, type DesktopProjectHooks } from '../src/project-manager.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
@@ -63,6 +63,21 @@ function calls(root: string): { args: string[]; registry: string }[] {
   const path = join(root, 'pnpm-log.jsonl')
   return existsSync(path) ? readFileSync(path, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { args: string[]; registry: string }) : []
 }
+function seedPlugin(manager: DesktopProjectManager): void {
+  const path = join(manager.paths.profile, 'package.json')
+  const manifest = JSON.parse(readFileSync(path, 'utf8')) as {
+    dependencies: Record<string, string>
+    dsh: { profile: { bundles: string[] } }
+  }
+  manifest.dependencies.plugin = '1.0.0'
+  manifest.dsh.profile.bundles.push('plugin')
+  writeFileSync(path, JSON.stringify(manifest))
+  const directory = join(manager.paths.profile, 'node_modules/plugin')
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(join(directory, 'package.json'), JSON.stringify({ name: 'plugin', version: '1.0.0', dsh: { bundle: { patch: 'bundle.yml' } } }))
+  writeFileSync(join(directory, 'bundle.yml'), '[]\n')
+}
+
 const BUILT_IN_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
   'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@moyu-good/dsh-lark-bridge',
@@ -580,5 +595,143 @@ describe('desktop external plugin profile', () => {
       await pending
     }
     expect(existsSync(manager.paths.lock)).toBe(false)
+  })
+})
+
+describe('desktop profile recovery without a runtime', () => {
+  it('preserves installed packages, profile state, and the lockfile when preparing a launch', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    seedPlugin(manager)
+    const profile = manager.paths.profile
+    const name = '@deepseek-ai/dsh-web-app'
+    const path = join(profile, 'node_modules', name)
+    mkdirSync(path, { recursive: true })
+    writeFileSync(join(path, 'package.json'), JSON.stringify({ name, version: '1.0.0', dsh: { bundle: { patch: 'bundle.yml' } } }))
+    writeFileSync(join(path, 'bundle.yml'), '[]\n')
+    const manifestPath = join(profile, 'package.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { dependencies: Record<string, string> }
+    manifest.dependencies[name] = '1.0.0'
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+    writeFileSync(join(profile, 'pnpm-lock.yaml'), 'lockfileVersion: 9.0\n')
+    // Settle the profile once so the recorded runtime state matches this lockfile and package set.
+    await manager.applyRelease()
+    const files = [
+      'package.json',
+      'pnpm-workspace.yaml',
+      'desktop-runtime-state.json',
+      'pnpm-lock.yaml',
+      `node_modules/${name}/package.json`,
+      `node_modules/${name}/bundle.yml`,
+      'node_modules/plugin/package.json',
+      'node_modules/plugin/bundle.yml',
+    ]
+    const before = files.map(file => readFileSync(join(profile, file), 'utf8'))
+
+    await manager.applyRelease()
+
+    expect(files.map(file => readFileSync(join(profile, file), 'utf8'))).toEqual(before)
+    expect(existsSync(path)).toBe(true)
+    expect(realpathSync(path)).toBe(realpathSync(join(manager.runtime.dsh, 'node_modules', name)))
+    expect(lstatSync(join(profile, 'node_modules/plugin')).isDirectory()).toBe(true)
+  })
+
+  it('disables plugins before runtime initialization and backs up the patch while preserving package files', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    seedPlugin(manager)
+    const patch = join(manager.paths.profile, 'cordis.patch.yml')
+    writeFileSync(patch, ': broken')
+    const uninitialized = new DesktopProjectManager(manager.paths, { ...manager.runtime, dsh: 'missing-runtime' })
+    const backupPath = await uninitialized.disableAllPlugins()
+    expect(existsSync(patch)).toBe(false)
+    const backups = readdirSync(manager.paths.profile).filter(name => name.startsWith('cordis.patch.yml.bak-'))
+    expect(backups).toHaveLength(1)
+    expect(backupPath).toBe(join(manager.paths.profile, backups[0]!))
+    expect(readFileSync(join(manager.paths.profile, backups[0]!), 'utf8')).toBe(': broken')
+    expect(existsSync(join(manager.paths.profile, 'node_modules/plugin/package.json'))).toBe(true)
+    const manifest = JSON.parse(readFileSync(join(manager.paths.profile, 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>
+      dsh: { profile: { bundles: string[] } }
+    }
+    expect(manifest.dependencies.plugin).toBe('1.0.0')
+    expect(manifest.dsh.profile.bundles).not.toContain('plugin')
+    expect(manifest.dsh.profile.bundles).toContain('@deepseek-ai/dsh-web-app')
+  })
+
+  it('needs no runtime or package manifest when no plugins have been installed', async () => {
+    const { manager } = setup()
+    await expect(manager.disableAllPlugins()).resolves.toBeUndefined()
+    expect(existsSync(join(manager.paths.profile, 'package.json'))).toBe(false)
+    expect(existsSync(manager.paths.lock)).toBe(false)
+  })
+
+  it('reports invalid profile JSON without replacing it', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    const path = join(manager.paths.profile, 'package.json')
+    writeFileSync(path, '{broken')
+    await expect(manager.disableAllPlugins()).rejects.toThrow()
+    expect(readFileSync(path, 'utf8')).toBe('{broken')
+    expect(existsSync(manager.paths.lock)).toBe(false)
+  })
+})
+
+describe.each(['applyRelease', 'disableAllPlugins'] as const)('desktop profile lock during %s', (operation) => {
+  it('preserves a live owner lock and leaves the profile untouched', async () => {
+    const { manager } = setup()
+    mkdirSync(manager.paths.profile, { recursive: true })
+    const owner = `${String(process.pid)}\n`
+    writeFileSync(manager.paths.lock, owner)
+    await expect(manager[operation]()).rejects.toThrow('another package transaction is active')
+    expect(readFileSync(manager.paths.lock, 'utf8')).toBe(owner)
+    expect(readdirSync(manager.paths.profile)).toEqual(['lock'])
+  })
+
+  it('reclaims a stale owner lock and releases it after the operation', async () => {
+    const { manager } = setup()
+    mkdirSync(manager.paths.profile, { recursive: true })
+    writeFileSync(manager.paths.lock, `${String(process.pid)}\n`)
+    const probe = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('process absent'), { code: 'ESRCH' })
+    })
+    try {
+      await manager[operation]()
+      expect(probe).toHaveBeenCalledExactlyOnceWith(process.pid, 0)
+      expect(existsSync(manager.paths.lock)).toBe(false)
+    } finally {
+      probe.mockRestore()
+    }
+  })
+
+  it.each(['invalid', '0', '-1', '9007199254740992'])('preserves a lock with invalid owner %s', async (owner) => {
+    const { manager } = setup()
+    mkdirSync(manager.paths.profile, { recursive: true })
+    writeFileSync(manager.paths.lock, owner)
+    await expect(manager[operation]()).rejects.toThrow('another package transaction is active')
+    expect(readFileSync(manager.paths.lock, 'utf8')).toBe(owner)
+  })
+
+  it('rejects a directory at the lock path', async () => {
+    const { manager } = setup()
+    mkdirSync(manager.paths.lock, { recursive: true })
+    await expect(manager[operation]()).rejects.toThrow('package transaction lock is not a regular file')
+    expect(lstatSync(manager.paths.lock).isDirectory()).toBe(true)
+  })
+
+  it('rejects a linked lock without touching its target', async () => {
+    const { root, manager } = setup()
+    mkdirSync(manager.paths.profile, { recursive: true })
+    const target = join(root, 'lock-target')
+    mkdirSync(target)
+    writeFileSync(join(target, 'sentinel'), 'retain')
+    symlinkSync(target, manager.paths.lock, process.platform === 'win32' ? 'junction' : 'dir')
+    try {
+      await expect(manager[operation]()).rejects.toThrow('package transaction lock is not a regular file')
+      expect(lstatSync(manager.paths.lock).isSymbolicLink()).toBe(true)
+      expect(readFileSync(join(target, 'sentinel'), 'utf8')).toBe('retain')
+    } finally {
+      unlinkSync(manager.paths.lock)
+    }
   })
 })

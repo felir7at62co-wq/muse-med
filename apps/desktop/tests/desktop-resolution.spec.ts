@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { expect, it } from 'vitest'
-import { createProfileResolutionGeneration, PluginPackages } from '@deepseek-ai/dsh-app-boot'
+import { createRuntimeResolution, PluginPackages } from '@deepseek-ai/dsh-app-boot'
 import { Context } from '@deepseek-ai/cordis'
 
 it('routes product preset packages from the complete runtime dependency closure, not a CLI or Host subgraph', async () => {
   const source = readFileSync(new URL('../../desktop-host/src/index.ts', import.meta.url), 'utf8')
-  expect(source).toMatch(/createProfileResolutionGeneration\(\{\s*installAnchor: join\(absoluteRuntime, 'package.json'\)/u)
+  expect(source).toMatch(/createRuntimeResolution\(\{\s*installAnchor: join\(absoluteRuntime, 'package.json'\)/u)
   const root = mkdtempSync(join(tmpdir(), 'desktop-resolution-'))
   try {
     const host = JSON.parse(readFileSync(new URL('../../desktop-host/package.json', import.meta.url), 'utf8')) as { name: string; dependencies: Record<string, string> }
@@ -21,10 +21,10 @@ it('routes product preset packages from the complete runtime dependency closure,
     }
     writeFileSync(join(root, 'runtime/package.json'), JSON.stringify({ name: 'desktop-runtime', dependencies: Object.fromEntries([host.name, ...community].map(name => [name, '1.0.0'])) }))
     const home = join(root, 'home')
-    const cli = await createProfileResolutionGeneration({ installAnchor: join(root, 'runtime/node_modules/@deepseek-ai/dsh/package.json'), home })
-    const generation = await createProfileResolutionGeneration({ installAnchor: join(root, 'runtime/package.json'), home })
+    const cli = await createRuntimeResolution({ installAnchor: join(root, 'runtime/node_modules/@deepseek-ai/dsh/package.json'), home })
+    const resolution = await createRuntimeResolution({ installAnchor: join(root, 'runtime/package.json'), home })
     const ctx = new Context()
-    await ctx.plugin(PluginPackages, { generation })
+    await ctx.plugin(PluginPackages, { resolution })
     try {
       const profileBase = pathToFileURL(join(home, 'profiles/desktop/')).href
       for (const name of [...community, ...['guard-drama', 'tool-drama-assets', 'tool-shot-script', 'tool-episode-render', 'perception-bgm'].map(suffix => `@deepseek-ai/dsh-${suffix}`)]) {

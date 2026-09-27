@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Include, { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
-import AgentPresets from '@deepseek-ai/dsh-agent-presets'
+import AgentPresetRegistry from '@deepseek-ai/dsh-agent-preset-registry'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -14,34 +14,41 @@ import * as DramaGate from '@deepseek-ai/dsh-guard-drama'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import * as yaml from 'js-yaml'
 import { expect, it } from 'vitest'
+import NativePreset from '../../desktop-host/src/native-preset.ts'
 
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
 
-it('loads exactly the five product modes without discovering other shipped or personal presets', async () => {
+it('loads exactly the product preset directories without discovering shipped or personal presets', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-product-preset-'))
   const ctx = new Context()
   try {
-    const patch = loadOverlayPatches('muse-med', patchPath).find(row => row.id === 'agent-presets')
+    const patch = loadOverlayPatches('muse-med', patchPath).find(row => row.id === 'agent-preset-registry')
     const presetConfig = patch?.config as Record<string, unknown> | undefined
-    expect(presetConfig).toMatchObject({ default: 'short-drama', includeShippedRoot: false, includeUserRoot: false })
+    expect(presetConfig).toMatchObject({ default: 'short-drama' })
     const productRows = yaml.load(await readFile(join(productRoot, 'short-drama', 'agent.cordis.yml'), 'utf8'),
       { schema: entryListSchema }) as Array<{ id: string; name: string }>
     const guard = productRows.find(row => row.id === 'drama-gate')
     expect(guard).toBeDefined()
+    // One registry row plus one adapter row per product composition directory: the
+    // Desktop Host assembles its roster exactly this way, and nothing else may add a
+    // preset — a shipped or personal preset is not discovered from any directory.
+    const presets = (await readdir(productRoot, { withFileTypes: true }))
+      .filter(entry => entry.isDirectory()).map(entry => entry.name).sort()
     const config = join(root, 'cordis.yml')
     await writeFile(config, yaml.dump([
       { id: 'system-prompt', name: 'test:prompt' },
       { id: 'tools', name: 'test:tools' },
       guard,
       { id: 'session-projections', name: 'test:projections' },
-      { id: 'agent-presets', name: 'test:presets', config: { ...presetConfig, roots: [{ path: productRoot, trust: 'system' }] } },
+      { id: 'agent-preset-registry', name: 'test:registry', config: presetConfig },
+      ...presets.map(id => ({ id: `preset-${id}`, name: 'test:native', config: { id, directory: join(productRoot, id) } })),
     ]))
     ctx.baseUrl = pathToFileURL(root).href + '/'
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
     const modules = new Map<string, unknown>([
-      ['test:projections', SessionProjections], ['test:presets', AgentPresets],
+      ['test:projections', SessionProjections], ['test:registry', AgentPresetRegistry], ['test:native', NativePreset],
       ['test:prompt', SystemPrompt], ['test:tools', Tools], ['@deepseek-ai/dsh-guard-drama', DramaGate],
     ])
     ctx.loader.internal = { version: 'v2', async import(specifier: string) {
@@ -53,8 +60,8 @@ it('loads exactly the five product modes without discovering other shipped or pe
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
     expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['cordis', 'minimal', 'ptc', 'short-drama', 'standard'])
     expect(ctx.agentPresets.defaultId).toBe('short-drama')
-    expect(ctx.agentPresets.authorable).toBe(false)
-    const source = await ctx.agentPresets.read('short-drama')
+    const document = await ctx.agentPresets.readDocument('short-drama')
+    const source = document.content
     const rows = yaml.load(source, { schema: entryListSchema }) as Array<{ id: string; config?: { prefix?: string } }>
     expect(rows.some(row => row.id === 'tool-jubian')).toBe(false)
     for (const id of ['drama-gate', 'tool-drama-assets', 'tool-shot-script', 'tool-bgm-compose', 'tool-episode-render', 'perception-bgm']) {

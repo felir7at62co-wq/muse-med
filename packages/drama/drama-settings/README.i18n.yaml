@@ -1,6 +1,46 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/drama-settings/README.md
-README.md: b4cc4b508776c3034fac16d4e596a42155246f78
-README.zh.md: 08badac4a2074e06c9c60552c6044446bd768ede
+/:
+  en: 42477ec177c5d806
+  zh: 665d2e3aaaedb210
+/deepseek-ai-dsh-drama-settings:
+  en: 00c38fd157cb173e
+  zh: bedf86b125ca1453
+/deepseek-ai-dsh-drama-settings/summary:
+  en: 7df5c0d7e5f424d2
+  zh: 5cee8f9de4416c3f
+/deepseek-ai-dsh-drama-settings/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-drama-settings/use-this-package:
+  en: d3e659152882ae63
+  zh: 97eaaef0bcab98ae
+/deepseek-ai-dsh-drama-settings/use-this-package/the-settings-page:
+  en: e36a2c6582e53f92
+  zh: ebe90f5b392b66c5
+/deepseek-ai-dsh-drama-settings/use-this-package/the-asset-image-route:
+  en: 1b219e5ee8ebc02d
+  zh: 0d0fbfb962b44195
+/deepseek-ai-dsh-drama-settings/use-this-package/the-component-list:
+  en: 863317d2f90a8d0e
+  zh: b8c7fb2758e05059
+/deepseek-ai-dsh-drama-settings/understand-the-implementation:
+  en: 661283668ab5741f
+  zh: fb8f14cdb232394a
+/deepseek-ai-dsh-drama-settings/further-exploration:
+  en: 4de152b88a1c23ba
+  zh: b81cda8fe6fd2dc1
+/deepseek-ai-dsh-drama-settings/model-experience:
+  en: 893c8e80f5396f6e
+  zh: 5683f19a9c2491c5
+/deepseek-ai-dsh-drama-settings/model-experience/kv-cache-effect:
+  en: e07e535c1af74015
+  zh: 3bcfc127179de754
+/deepseek-ai-dsh-drama-settings/known-limitations-and-deferred-work:
+  en: fc1c893804c23165
+  zh: 3ae8306d1f2d0491
+/deepseek-ai-dsh-drama-settings/known-limitations-and-deferred-work/dev-note:
+  en: a683847a091f1c06
+  zh: 5405ea80c3c049a6

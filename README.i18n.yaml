@@ -1,6 +1,42 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write README.md
+<<<<<<< README.i18n.yaml:current
 README.md: 74dd10bb06fb5178874ae6a99996fdbae8864267
 README.zh.md: 0ba4b24e074335e1043f2a618789c69928726b22
+=======
+/muse-med:
+  en: 85b193a171efb008
+  zh: 12406ee02bd28ebd
+/muse-med/developer-preview:
+  en: 81120da3bd868ca5
+  zh: d39c2829a0721924
+/muse-med/short-drama-workflow:
+  en: 20ff584b770d2900
+  zh: 751bac8225651334
+/muse-med/run:
+  en: 4e0248e4c6474fc6
+  zh: eb2fb8d78c7d6bc0
+/muse-med/run/upstream-dsh-cli-from-npm:
+  en: c8ea3ca15f2c8468
+  zh: b9b7ac75a87411ef
+/muse-med/run/run-from-source:
+  en: 819e3f7c144d0d64
+  zh: de815f040975dba7
+/muse-med/community-and-support:
+  en: bda7cc7867a2b20e
+  zh: 4dfef99122f1a2ca
+/muse-med/contributing:
+  en: cabc2d3e9f8898bd
+  zh: 83b6d238bae29ce3
+/muse-med/development:
+  en: 803ca2b11b497bed
+  zh: 8b4071eb0e7783ef
+/muse-med/upstream-citation:
+  en: 0352892c73883ed3
+  zh: 314ae99d7d91df60
+/muse-med/license:
+  en: 926995344fc1c72b
+  zh: c92fab5abf85932f
+>>>>>>> README.i18n.yaml:other

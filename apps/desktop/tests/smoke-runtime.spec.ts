@@ -9,8 +9,39 @@ import { runtimeFixture } from './runtime-fixture.ts'
 
 vi.mock('../src/profile-packages.ts', () => ({ linkDesktopHostPackages: vi.fn(), validateDesktopPluginGraph: vi.fn() }))
 
+// The Office-conversion fixture script and the Host startup are the two halves of
+// this smoke; only the Host startup is under test, so the interpreter call is
+// stubbed with the one thing the smoke reads back from it: the three sample
+// documents it writes into the smoke home named by its last argument.
+const { payload } = vi.hoisted(() => ({ payload: vi.fn(async (_file: string, args: string[]) => {
+  const home = args[args.length - 1]!
+  for (const extension of ['docx', 'xlsx', 'pptx']) writeFileSync(join(home, `input.${extension}`), Buffer.from('fixture'))
+  return { stdout: '' }
+}) }))
+vi.mock('node:child_process', async (importOriginal) => {
+  const { promisify } = await import('node:util')
+  return { ...await importOriginal<typeof import('node:child_process')>(),
+    execFile: Object.assign(vi.fn(), { [promisify.custom]: payload }) }
+})
+
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
+
+/**
+ * Write the primary-runtime payload the smoke reads before it starts the Host.
+ * @param root - Directory the resources directory is created under.
+ * @returns The resources directory holding `primary-runtime`.
+ */
+function primaryRuntimeFixture(root: string): string {
+  const resources = join(root, 'resources')
+  const runtime = join(resources, 'primary-runtime')
+  mkdirSync(runtime, { recursive: true })
+  writeFileSync(join(runtime, 'runtime.json'), JSON.stringify({
+    desktopVersion: '1.0.0', platform: process.platform, arch: process.arch,
+    python: '3.12.14', pythonPackages: { numpy: '2.3.5', pandas: '3.0.1' },
+  }))
+  return resources
+}
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'desktop-product-smoke-test-'))
@@ -54,7 +85,9 @@ function fixture() {
     agentPresets = {
       defaultId: 'short-drama',
       list: vi.fn(async () => ids.map(id => ({ id }))),
-      resolve: vi.fn(async (id: string) => ({ path: presetPath(id), trust: 'system' })), mount,
+      resolve: vi.fn(async (id: string) => ({ id })),
+      compositionInventory: vi.fn(async () => ids.map(id => ({ id, isDefault: id === 'short-drama', rows: [{ id: 'persona' }] }))),
+      mount,
     }
     agents = { create: vi.fn(async (options: { setup: (context: object) => Promise<void>; meta: { agentPreset: string } }) => {
       await options.setup(agentCtx)
@@ -91,13 +124,14 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
 })
 
 it('rejects Host readiness when the private preset smoke never completes', async () => {
-  const start = vi.spyOn(DesktopHostProcess.prototype, 'start').mockResolvedValue({ protocolVersion: 3, dshVersion: '1.0.0' })
-  const fetch = vi.spyOn(DesktopHostProcess.prototype, 'fetch').mockResolvedValue(new Response('<html></html>'))
+  const start = vi.spyOn(DesktopHostProcess.prototype, 'start').mockResolvedValue({ url: 'http://127.0.0.1:1/' })
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html></html>'))
   const stop = vi.spyOn(DesktopHostProcess.prototype, 'stop').mockResolvedValue()
   try {
     const root = fixture().home
     const runtime = runtimeFixture(root)
-    await expect(smokeDesktopRuntime(root, process.execPath, runtime)).rejects.toThrow('product preset smoke did not complete')
+    await expect(smokeDesktopRuntime(root, process.execPath, runtime, {}, primaryRuntimeFixture(root)))
+      .rejects.toThrow('product preset smoke did not complete')
     expect(stop).toHaveBeenCalledOnce()
   } finally {
     start.mockRestore()
@@ -113,8 +147,12 @@ it('bounds startup when an activation never settles', async () => {
   try {
     const root = fixture().home
     const runtime = runtimeFixture(root)
-    const result = expect(smokeDesktopRuntime(root, process.execPath, runtime)).rejects.toThrow('smoke startup timed out')
-    await vi.advanceTimersByTimeAsync(60_000)
+    const result = expect(smokeDesktopRuntime(root, process.execPath, runtime, {}, primaryRuntimeFixture(root)))
+      .rejects.toThrow('Host readiness exceeded')
+    // The smoke reads its fixtures before it reaches the Host; the readiness
+    // budget only starts once it does.
+    await vi.waitFor(() => { expect(start).toHaveBeenCalledOnce() })
+    await vi.advanceTimersByTimeAsync(120_000)
     await result
     expect(stop).toHaveBeenCalledOnce()
   } finally {
@@ -134,8 +172,8 @@ it('propagates a preset mount rejection without announcing a successful smoke', 
 
 it('rejects a missing native provider rather than reporting a partial roster success', async () => {
   const f = fixture()
-  f.mount.mockImplementation(async (_context, id) => { if (id === 'ptc') throw new Error('waiting for ptcRuntime') })
-  await expect(f.apply(f.ctx)).rejects.toThrow('waiting for ptcRuntime')
+  f.mount.mockImplementation(async (_context, id) => { if (id === 'short-drama') throw new Error('waiting for dramaRuntime') })
+  await expect(f.apply(f.ctx)).rejects.toThrow('waiting for dramaRuntime')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 

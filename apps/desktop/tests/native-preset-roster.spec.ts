@@ -1,244 +1,92 @@
 /**
- * The product roster: which presets it publishes, and that the compositions
- * beyond the original pair actually mount.
+ * The product roster over the upstream preset registry.
  *
- * A hand-built `ctx.plugin(...)` suite cannot answer either question. The roster
- * is discovered from the product's own preset directory, discovery refuses to
- * hand out a preset whose rows do not resolve, and a native composition resolves
- * its rows through the adapter's own `import`. These cases therefore boot a
- * Loader, point the real `agent-presets` row at the product root over a
- * `node_modules` that links the workspace packages the compositions name, and
- * mount through `AgentPresets.standingKeyFor`, which composes the preset and
- * rejects any composition whose rows did not become usable.
- *
- * The Host composition that supplies services such as `fs` and `subagents` is
- * out of this suite's scope, so a case supplies the real module for every row it
- * asserts on and loads the rest as plugins that contribute nothing. The
- * packaged-runtime smoke (`scripts/smoke-runtime.ts`) is the check that activates
- * all five presets against the real Host.
+ * The Desktop Host declares one row per packaged `presets/<id>` directory and nothing else, so the
+ * roster is exactly those five ids in the order their `preset.yml` gives, defaults to the product's
+ * own `short-drama`, and every definition carries the rows the packaged composition file declares.
+ * A composition file is product data: registering it must never rewrite it. The packaged-runtime
+ * smoke (`scripts/smoke-runtime.ts`) is the check that activates all five against the real Host.
  */
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { readFile, readdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
-import Include, { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
-import Loader, { Group } from '@deepseek-ai/cordis-plugin-loader'
-import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
-import AgentPresets, { SHIPPED_PRESET_ROOT } from '@deepseek-ai/dsh-agent-presets'
-import { createScope } from '@deepseek-ai/dsh-scope'
-import SessionProjections from '@deepseek-ai/dsh-session-projection'
-import Skills from '@deepseek-ai/dsh-skill'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import Tools from '@deepseek-ai/dsh-tools'
 import * as yaml from 'js-yaml'
-import { expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import AgentPresetRegistry from '@deepseek-ai/dsh-agent-preset-registry'
 import NativePreset from '../../desktop-host/src/native-preset.ts'
 
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
-const patchPath = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
-const repositoryRoot = fileURLToPath(new URL('../../..', import.meta.url))
 
-/** A row this case does not assert on, loaded as a plugin that contributes nothing. */
-const INERT = { apply() {} }
-
-/** Every workspace package directory, keyed by manifest name. */
-async function workspacePackages(): Promise<Map<string, string>> {
-  const directories: string[] = []
-  for (const group of await readdir(join(repositoryRoot, 'packages'))) {
-    for (const entry of await readdir(join(repositoryRoot, 'packages', group)).catch(() => [])) {
-      directories.push(join(repositoryRoot, 'packages', group, entry))
-    }
-  }
-  for (const app of await readdir(join(repositoryRoot, 'apps'))) {
-    directories.push(join(repositoryRoot, 'apps', app))
-  }
-  const found = new Map<string, string>()
-  for (const directory of directories) {
-    const manifest = await readFile(join(directory, 'package.json'), 'utf8').catch(() => undefined)
-    if (manifest === undefined) continue
-    const name = (JSON.parse(manifest) as { name?: string }).name
-    if (name !== undefined) found.set(name, directory)
-  }
-  return found
-}
-
-/** Every package specifier the five product compositions name, nested groups included. */
-async function productSpecifiers(): Promise<Set<string>> {
-  const specifiers = new Set<string>()
-  const collect = (rows: readonly unknown[]): void => {
-    for (const row of rows) {
-      if (typeof row !== 'object' || row === null) continue
-      const { name, config } = row as { name?: unknown; config?: unknown }
-      if (typeof name === 'string' && !name.startsWith('cordis:') && !name.startsWith('.') && !name.includes(':')) {
-        specifiers.add(name.split('/').slice(0, name.startsWith('@') ? 2 : 1).join('/'))
-      }
-      if (Array.isArray(config)) collect(config)
-    }
-  }
-  for (const id of await readdir(productRoot)) {
-    const source = await readFile(join(productRoot, id, 'agent.cordis.yml'), 'utf8')
-    collect(yaml.load(source, { schema: entryListSchema }) as readonly unknown[])
-  }
-  return specifiers
-}
-
-/** Link every named workspace package under one temporary root's `node_modules`. */
-async function linkWorkspacePackages(root: string, names: Iterable<string>): Promise<void> {
-  const packages = await workspacePackages()
-  for (const name of names) {
-    const target = packages.get(name)
-    if (target === undefined) continue
-    const link = join(root, 'node_modules', ...name.split('/'))
-    await mkdir(dirname(link), { recursive: true })
-    await symlink(target, link, process.platform === 'win32' ? 'junction' : 'dir')
-  }
-}
+/** The Loader's `!!js` scalar, which a composition declares and the Loader evaluates at activation. */
+const JS_SCHEMA = yaml.DEFAULT_SCHEMA.extend([new yaml.Type('tag:yaml.org,2002:js', {
+  kind: 'scalar',
+  construct: (value: string) => ({ __jsExpr: value }),
+})])
 
 /**
- * Boot a Loader over the real product roster.
- * @param modules - modules the composition rows resolve, keyed by specifier.
- * @param run - receives the booted context; the harness disposes it afterwards.
- * @param options - `fallback` is the module for rows this case does not assert
- * on, absent leaving an unmapped specifier a failure; `config` overrides the
- * real `agent-presets` row for a case that composes another root.
+ * Read one composition file as entry rows.
+ * @param path - Absolute composition path.
+ * @returns The declared rows, with `!!js` values kept as expressions.
  */
-async function withRoster(
-  modules: ReadonlyMap<string, unknown>,
-  run: (ctx: Context) => Promise<void>,
-  options: { fallback?: unknown; config?: Record<string, unknown> } = {},
-): Promise<void> {
-  const root = await mkdtemp(join(tmpdir(), 'muse-preset-roster-'))
-  const ctx = new Context()
-  try {
-    await linkWorkspacePackages(root, await productSpecifiers())
-    const presetConfig = loadOverlayPatches('muse-med', patchPath).find(row => row.id === 'agent-presets')?.config
-    const config = join(root, 'cordis.yml')
-    await writeFile(config, yaml.dump([
-      { id: 'system-prompt', name: 'test:prompt' },
-      { id: 'tools', name: 'test:tools' },
-      { id: 'session-projections', name: 'test:projections' },
-      { id: 'skills', name: 'test:skills' },
-      {
-        id: 'agent-presets',
-        name: 'test:presets',
-        config: {
-          ...presetConfig as object,
-          roots: [{ path: productRoot, trust: 'system' }],
-          ...options.config,
-        },
-      },
-    ]))
-    ctx.baseUrl = pathToFileURL(root).href + '/'
-    await ctx.plugin(Loader)
-    // Host-plane services the terminal stack's executors inject. This suite
-    // never runs a shell, so the slots only have to resolve for the row to
-    // activate; the executors themselves are out of scope here.
-    ctx.provide('sandboxPolicy', { mode: 'danger-full-access', workspaceRoot: root } as never)
-    ctx.provide('subprocess', { spawn() { throw new Error('the product roster suite never spawns a subprocess') } } as never)
-    ctx.loader.builtins.include = Include
-    // Every native composition nests rows in `cordis:group` rows, which only
-    // mount when the Loader carries this builtin.
-    ctx.loader.builtins.group = Group
-    const host = new Map<string, unknown>([
-      ['test:prompt', SystemPrompt], ['test:tools', Tools],
-      ['test:projections', SessionProjections], ['test:skills', Skills], ['test:presets', AgentPresets],
-      ['@deepseek-ai/dsh-desktop-host/native-preset', { default: NativePreset }],
-    ])
-    ctx.loader.internal = { version: 'v2', async import(specifier: string) {
-      const found = host.get(specifier) ?? modules.get(specifier) ?? options.fallback
-      if (found === undefined) throw new Error(`Unexpected module ${specifier}`)
-      return found
-    } } as unknown as NonNullable<typeof ctx.loader.internal>
-    await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
-    await ctx.loader.await()
-    for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-    await run(ctx)
-  } finally {
-    await ctx.fiber.dispose()
-    await rm(root, { recursive: true, force: true })
-  }
+async function readRows(path: string): Promise<{ id?: string; name?: string; config?: Record<string, unknown> }[]> {
+  return yaml.load(await readFile(path, 'utf8'), { schema: JS_SCHEMA }) as { id?: string; name?: string; config?: Record<string, unknown> }[]
 }
 
-it('publishes exactly the five product presets in declared order, including every native composition', async () => {
-  await withRoster(new Map(), async (ctx) => {
-    const roster = await ctx.agentPresets.list()
-    expect(roster.map(preset => preset.id)).toEqual(['standard', 'ptc', 'minimal', 'cordis', 'short-drama'])
-    expect(roster.map(preset => preset.trust)).toEqual(['system', 'system', 'system', 'system', 'system'])
-    // Discovery's health verdict: every row of every preset names a package the
-    // product tree resolves, which is what a mount would need first.
-    expect(roster.filter(preset => preset.broken !== undefined)).toEqual([])
-    expect(ctx.agentPresets.defaultId).toBe('short-drama')
-    expect(ctx.agentPresets.authorable).toBe(false)
-  })
-})
+describe('the product preset roster', () => {
+  it('declares exactly the packaged composition directories, in their own order', async () => {
+    const directories = (await readdir(productRoot, { withFileTypes: true }))
+      .filter(entry => entry.isDirectory()).map(entry => entry.name).sort()
+    const ctx = new Context()
+    try {
+      // The registry records a session projection it never reads here.
+      ctx.provide('sessionProjections', { register: () => () => {} })
+      await ctx.plugin(AgentPresetRegistry, { default: 'short-drama' })
+      for (const id of directories) await ctx.plugin(NativePreset, { id, directory: join(productRoot, id) })
 
-it('mounts the minimal composition with the persistent shell inside its group', async () => {
-  // Every row of this composition is the real plugin: its whole point is the
-  // shell published from inside a nested group.
-  const modules = new Map<string, unknown>([
-    ['@deepseek-ai/dsh-persona', await import('@deepseek-ai/dsh-persona')],
-    ['@deepseek-ai/dsh-terminal', await import('@deepseek-ai/dsh-terminal')],
-    ['@deepseek-ai/dsh-terminal-bash', await import('@deepseek-ai/dsh-terminal-bash')],
-    ['@deepseek-ai/dsh-tool-bash-persistent', await import('@deepseek-ai/dsh-tool-bash-persistent')],
-    ['@deepseek-ai/dsh-tool-pwsh-persistent', await import('@deepseek-ai/dsh-tool-pwsh-persistent')],
-  ])
-  await withRoster(modules, async (ctx) => {
-    const key = await ctx.agentPresets.standingKeyFor('minimal')
-    expect(ctx.tools.schemas(key).map(tool => tool.name))
-      .toContain(process.platform === 'win32' ? 'pwsh' : 'bash')
-  }, {})
-  // Composing a whole shipped composition takes longer than the default budget
-  // once the suite runs beside the rest of the repository's workers.
-}, 30_000)
+      const roster = await ctx.agentPresets.list()
 
-it('mounts the cordis composition with the authoring skills its persona names', async () => {
-  const modules = new Map<string, unknown>([
-    ['@deepseek-ai/dsh-persona', await import('@deepseek-ai/dsh-persona')],
-    ['@deepseek-ai/dsh-skill-filesystem', await import('@deepseek-ai/dsh-skill-filesystem')],
-  ])
-  await withRoster(modules, async (ctx) => {
-    const key = await ctx.agentPresets.standingKeyFor('cordis')
-    const names = (await ctx.skills.list({ scope: key })).map(skill => skill.name)
-    expect(names).toContain('editing-cordis-compositions')
-    expect(names).toContain('cordis-plugin-development')
-  }, { fallback: INERT })
-}, 30_000)
-
-it('leaves standard and ptc without a skill provider of their own', async () => {
-  // The Host owns the only provider that selects default roots. Both adapters
-  // disable the composition's nearer provider, so a real one here would register.
-  const modules = new Map<string, unknown>([
-    ['@deepseek-ai/dsh-skill-filesystem', await import('@deepseek-ai/dsh-skill-filesystem')],
-  ])
-  await withRoster(modules, async (ctx) => {
-    for (const id of ['standard', 'ptc']) {
-      const key = await ctx.agentPresets.standingKeyFor(id)
-      expect(await ctx.skills.list({ scope: key })).toEqual([])
+      expect(roster.map(row => row.id).sort()).toEqual(directories)
+      // `preset.yml` order decides the picker's sequence; the product's own composition is last.
+      expect(roster.map(row => row.id)).toEqual(['standard', 'ptc', 'minimal', 'cordis', 'short-drama'])
+      expect(ctx.agentPresets.defaultId).toBe('short-drama')
+    } finally {
+      await ctx.fiber.dispose()
     }
-  }, { fallback: INERT })
-}, 30_000)
+  })
 
-it('resumes a session recorded before the short-drama rename, without joining the roster', async () => {
-  // The reported failure: a session header and its `agent-preset/selected`
-  // events name `short-drama-local`, and composing it threw `not found`.
-  await withRoster(new Map(), async (ctx) => {
-    const scope = createScope(ctx, {})
-    const preset = await ctx.agentPresets.mount(scope.ctx, 'short-drama-local')
-    expect(preset.id).toBe('short-drama')
-    expect(preset.path).toBe(join(productRoot, 'short-drama', 'agent.cordis.yml'))
-    const ids = (await ctx.agentPresets.list()).map(row => row.id)
-    expect(ids).toEqual(['standard', 'ptc', 'minimal', 'cordis', 'short-drama'])
-  }, { fallback: INERT })
-}, 30_000)
+  it('registers the rows the packaged composition declares, without rewriting the file', async () => {
+    const ctx = new Context()
+    try {
+      ctx.provide('sessionProjections', { register: () => () => {} })
+      await ctx.plugin(AgentPresetRegistry, { default: 'short-drama' })
+      const path = join(productRoot, 'short-drama', 'agent.cordis.yml')
+      const before = await readFile(path, 'utf8')
+      await ctx.plugin(NativePreset, { id: 'short-drama', directory: join(productRoot, 'short-drama') })
 
-it('resolves the renamed id on the shipped root a Web profile composes', async () => {
-  // Both sides mount the same roster service; this case pins the other root.
-  await withRoster(new Map(), async (ctx) => {
-    const legacy = await ctx.agentPresets.resolve('short-drama-local')
-    expect(legacy.id).toBe('short-drama')
-    expect(legacy.path).toBe(join(SHIPPED_PRESET_ROOT, 'short-drama', 'agent.cordis.yml'))
-    expect((await ctx.agentPresets.list()).map(row => row.id))
-      .toEqual(['standard', 'ptc', 'minimal', 'cordis', 'short-drama'])
-  }, { config: { includeShippedRoot: true, roots: [] } })
+      const document = await ctx.agentPresets.readDocument('short-drama')
+      const declared = await readRows(path)
+      const rows = yaml.load(document.content, { schema: JS_SCHEMA }) as { id?: string; name?: string }[]
+
+      expect(rows.map(row => row.id)).toEqual(declared.map(row => row.id))
+      expect(rows.map(row => row.name)).toEqual(declared.map(row => row.name))
+      expect(await readFile(path, 'utf8')).toBe(before)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('carries the composition-authoring skills the cordis composition serves', async () => {
+    // That row points at this package's own directory, so the skills have to ship beside it.
+    const rows = await readRows(join(productRoot, 'cordis', 'agent.cordis.yml'))
+    const provider = rows.find(row => row.id === 'skill-filesystem')
+    const skills = (await readdir(join(productRoot, 'cordis', 'skills'), { withFileTypes: true }))
+      .filter(entry => entry.isDirectory()).map(entry => entry.name).sort()
+
+    expect(skills).toEqual(['cordis-plugin-development', 'editing-cordis-compositions'])
+    for (const name of skills) {
+      await expect(readFile(join(productRoot, 'cordis', 'skills', name, 'SKILL.md'), 'utf8')).resolves.toContain('name:')
+    }
+    expect(String((provider?.config?.customSkillDirs as unknown[] ?? [])[0])).toContain('presets')
+  })
 })
