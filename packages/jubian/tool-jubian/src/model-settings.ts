@@ -64,8 +64,20 @@ function selectorOf(args: { scope?: unknown; storyboard_ids?: unknown; episode_i
   }
   return { scope, storyboard_ids, episode_ids }
 }
+/**
+ * Read a board's saved model settings, reading what the provider did not return as none saved.
+ *
+ * A storyboard nobody has configured returns `modelConfig` as `null` — the state the paid
+ * storyboard paths refuse for want of a saved channel and length. Previewing such a board must
+ * therefore still work: `before` is empty, every setting comes from `changes`, and `apply` is
+ * the repair the refusals name. Only text the provider did send has to be JSON.
+ * @param board - One raw storyboard snapshot.
+ * @returns The saved settings, `{}` when the provider returned none.
+ */
 function configOf(board: Row): Row {
-  try { return object(typeof board.modelConfig === 'string' ? JSON.parse(board.modelConfig) : board.modelConfig) }
+  const raw = board.modelConfig
+  if (raw === undefined || raw === null || (typeof raw === 'string' && !raw.trim())) return {}
+  try { return object(typeof raw === 'string' ? JSON.parse(raw) : raw) }
   catch (error) { return fail(error instanceof JubianError ? error.message : 'Invalid modelConfig JSON') }
 }
 function settings(config: Row): Row {

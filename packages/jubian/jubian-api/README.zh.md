@@ -187,12 +187,14 @@ console.log(media.media_type, media.kind, media.sha256, media.bytes.byteLength)
 这些约束是当前的包行为，不是任务清单。
 
 - **项目名称不会修补分镜名称**——`readScript()` 把提供方的 `scriptName` 读成 `name`，旧载荷可回退读取 `name`；两者都不是文本时返回 `null`。`readStoryboard()` 在快照中原样保留分镜自己的 `scriptName`，即使它是 `null`；本库不会用项目数据写回分镜。
-- **载荷一旦不再匹配就使调用失败**——读取器宁可抛出 `CONTRACT_CHANGED` 也不降级，而该错误不携带字段名，所以调用方报告的是契约变化，运维者要读原始载荷才能找出是哪个字段动了。
+- **拒绝会点名它拒绝了什么**——读取器抛出的 `CONTRACT_CHANGED` 带上它读不了的字段名，以及它收到的载荷的脱敏结构，因此调用方无需读原始响应体，就能分清是远端字段动了还是端点错了。
 - **图片选择器由调用方决定**——只有当这个选择把候选收敛到恰好一行 `gpt-image-2` 时，`resolveImageModel()` 才接受该目录。多行而未给选择时调用失败，错误里列出每个候选的 `platformId`、`standardId`、单价与单位；给了选择却匹配不到任何候选时同样失败。本库没有任何偏好某个平台或更便宜那一行的规则。
 - **费用与价格字段是证据，不是结算**——`real_cost`、`estimated_cost`、`discount_cost` 与 `readImageDisplayPrice()` 承载提供方报告的内容，且 `readImageDisplayPrice()` 始终返回 `quote_verified: false`；这里没有任何东西授权花钱。
 - **默认擦除矩形不裁切到画面内**——`defaultSubtitleBox()` 复现提供方实测的比例（`zimuTop` 570/1280、高 720/1280、宽为画面内缩一个像素），因此在 720x1280 的源上这个框可以越过底边；该形状取自一次被接受的请求，而不是提供方的保证。
 - **`needsUpscale()` 在无法判断时回答 `null`**——交付目标无法识别，或来源无法识别且没有已记录的转高清证据时，会得到 `null` 而不是布尔值；调用方必须把它当作未回答，而不是可以交付的许可。
 - **媒体传输有界且只允许单一来源**——`downloadMedia()` 只接受 `MEDIA_ALLOWED_ORIGINS` 中的来源，把响应体限制在 `MEDIA_LIMITS`（图片 64 MiB，视频 512 MiB），拒绝重定向，且不写入磁盘。
+- **没有保存过模型设置的分镜照样能读，只有它的计费路径会拒绝**——`modelConfig` 是一项保存下来的选择，因此一个没人配置过的分镜（刚建出来的，或占位件）不会返回其中任何一项。`readStoryboard()` 用 `9:16`、`720p` 与 `genNum=1` 顶替，把每一处顶替都报在 `model_config_defaults` 里、也报成 `model_config_notes` 里的一句，并让 `content_duration_ms` 保持 null——因为没有已保存的时长可报。`duration` 与 `modelId` 永不顶替：`withGenerationEnabled()` 交给提供方的是它自己的快照，因此一份缺少"提供方据此行动"的字段的已保存配置会被拒绝，报文带出期望的线上字段、提供方没有返回的那些、实际收到载荷的脱敏结构，以及 `jubian_model preview → apply` 这条修法。提供方确实返回了的值仍然必须可用，因此空标签、读不了的 `storyboardMaterialList` 与缺失的身份都会被点名拒绝。
+- **提供方合法给 null 的字段永远不是拒绝理由**——本提供方把未设置的 `episodeCount`、`scriptName`、`remark`、`updateBy`、`updateTime` 与 `videoSubTaskList` 拼成 `null`，把未设置的 `storyboardMaterialList` 拼成 `null` 或 `[]`。这些字段一律原样带进快照，只由"为它而问"的那次读取检查，因此 `readStoryboard()` 只要求身份、生成标记与素材键，`readTaskPage()` 只要求任务身份。
 - **分镜请求体从不从零拼装**——读取与免费保存保留非空宽高比/分辨率标签、`genNum=1` 和可安全表示为毫秒的正整数时长。传统 `withGenerationEnabled()` 路径保留 9:16/720p 与 4–14 秒内容时长，要求保存时长等于内容加一秒，并校验精确模型的时长能力。它不解析目录选择器；其他比例/分辨率返回可操作的 `INVALID_ARGUMENT`，指引调用方保留已存设置并使用原生准备流程。已存储的 `isGenerate=1` 不能证明生成已发生。
 - **没有任何传输行为会被重试或续跑**——除媒体下载外，本包不自己发起任何请求，因此每一次重试、超时与轮询决定都属于调用方。
 

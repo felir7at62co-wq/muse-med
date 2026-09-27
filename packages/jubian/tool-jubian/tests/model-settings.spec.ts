@@ -101,6 +101,18 @@ describe('scoped model settings', () => {
     expect(puts()).toHaveLength(2)
   })
 
+  it('previews and applies onto boards the provider returned no modelConfig for', async () => {
+    boards = boards.map(board => ({ ...board, modelConfig: null }))
+    const plan = await preview({ changes: { platformId: 'YU_DIAN', modelId, ratio: '9:16',
+      resolution: '720p', genType: 3, duration: 8, genNum: 1 } })
+    expect(plan.targets).toEqual([1, 2].map(storyboard_id => expect.objectContaining({
+      storyboard_id, before: {} }) as unknown))
+    expect(await apply(plan)).toMatchObject({ status: 'applied', paid_requests: 0 })
+    expect(puts()).toHaveLength(2)
+    expect(puts()[0]?.body?.modelConfig).toEqual({ platformId: 'YU_DIAN', modelId, standardId: 11, genType: 3,
+      modelGenerationTypeId: 7, videoStandardId: 91, duration: 8, ratio: '9:16', resolution: '720p', genNum: 1 })
+  })
+
   it('applies exact Seedance 2.5 9:16/480p/30s selectors through the tool', async () => {
     const replacement = 'doubao-seedance-2-5-260628'
     models = [...catalogue, { id: 338, modelId: replacement, platformId: 'FANG_ZHOU',
