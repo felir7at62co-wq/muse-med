@@ -1,0 +1,31 @@
+# Bilingual-pair consistency record for 2026-09-28-merge-rc2-settings-row-and-preset-ports.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-28-merge-rc2-settings-row-and-preset-ports.md
+/agent-note-the-merge-s-silent-capability-losses-and-the-ports-that-closed-them:
+  en: f7e57f1571a264aa
+  zh: c235dacfd93b691d
+/agent-note-the-merge-s-silent-capability-losses-and-the-ports-that-closed-them/problem:
+  en: f053436e12455a6d
+  zh: 46418ed51ba511a4
+/agent-note-the-merge-s-silent-capability-losses-and-the-ports-that-closed-them/decision:
+  en: 086b236cca85dd54
+  zh: 44fba3ad6808ff61
+/agent-note-the-merge-s-silent-capability-losses-and-the-ports-that-closed-them/decision/the-schema-s-own-type-and-the-delivery-spec-s-identity:
+  en: 864c9c1c7013f442
+  zh: 7607836b7ec086a6
+/agent-note-the-merge-s-silent-capability-losses-and-the-ports-that-closed-them/decision/the-ceiling-fails-loud-when-it-cannot-be-read:
+  en: 2a1c7746b0e9bfd1
+  zh: 878a9c9cbae74c4f
+/agent-note-the-merge-s-silent-capability-losses-and-the-ports-that-closed-them/decision/preset-assertions-move-to-the-layer-that-owns-the-behavior:
+  en: 7e6f6aa140ecee68
+  zh: 7a1d5ec2d765d024
+/agent-note-the-merge-s-silent-capability-losses-and-the-ports-that-closed-them/verification:
+  en: c6b221d42476ce6a
+  zh: 6b3d18168d2e6bbb
+/agent-note-the-merge-s-silent-capability-losses-and-the-ports-that-closed-them/alternatives-considered:
+  en: e638b9afb47fb919
+  zh: 8aae87d79e64e6d9
+/agent-note-the-merge-s-silent-capability-losses-and-the-ports-that-closed-them/consequences:
+  en: 064cf7bb698317a0
+  zh: a6929f59dfb5e6ff
