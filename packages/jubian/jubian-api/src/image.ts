@@ -12,6 +12,7 @@
  * picking one.
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { readPayload } from './reading.ts'
 
 function invalid(detail?: string): never { throw new JubianError('CONTRACT_CHANGED', detail) }
 
@@ -99,12 +100,13 @@ export interface ImageModelCandidate {
  * @throws {JubianError} `CONTRACT_CHANGED` when a matching row lacks a usable id or platform.
  */
 export function imageCandidates(catalogue: unknown): ImageModelCandidate[] {
-  return rows(catalogue).filter(row => row.modelId === IMAGE_MODEL_ID).map(row => ({
-    standardId: positive(standardIdOf(row)),
-    platformId: text(row.platformId),
-    unitPrice: typeof row.unitPrice === 'number' && Number.isFinite(row.unitPrice) ? row.unitPrice : null,
-    unit: displayUnit(row.unit),
-  }))
+  return readPayload('imageCandidates', catalogue, () => rows(catalogue)
+    .filter(row => row.modelId === IMAGE_MODEL_ID).map(row => ({
+      standardId: positive(standardIdOf(row)),
+      platformId: text(row.platformId),
+      unitPrice: typeof row.unitPrice === 'number' && Number.isFinite(row.unitPrice) ? row.unitPrice : null,
+      unit: displayUnit(row.unit),
+    })))
 }
 
 /** One candidate row as a failure names it, so a caller can pin one explicitly. */
@@ -139,27 +141,29 @@ function imageModelRow(catalogue: unknown, selection: ImageModelSelection): Reco
  *   `gpt-image-2` candidate with its `platformId`, `standardId`, unit price and unit.
  */
 export function resolveImageModel(catalogue: unknown, selection: ImageModelSelection = {}): ImageModelSelectors {
-  const model = imageModelRow(catalogue, selection)
-  const standards = rows(model.videoStandards).filter(row => row.ratio === '16:9'
-    && typeof row.resolution === 'string' && ['1K', '2K', '4K'].includes(row.resolution.toUpperCase())
-    && typeof row.width === 'number' && Number.isSafeInteger(row.width) && row.width > 0 && row.width <= 8192
-    && row.width % 16 === 0
-    && typeof row.height === 'number' && Number.isSafeInteger(row.height) && row.height > 0 && row.height <= 8192
-    && row.height % 16 === 0 && row.width * 9 === row.height * 16)
-  const resolution = ['1K', '2K', '4K'].find(value => standards.some(row => (row.resolution as string).toUpperCase() === value))
-  const atResolution = standards.filter(row => (row.resolution as string).toUpperCase() === resolution)
-  const generationRows = model.genTypes === undefined || model.genTypes === null ? [] : rows(model.genTypes)
-  for (const row of generationRows) positive(row.type)
-  const generations = generationRows.filter(row => row.type === 3)
-  if (generations.length > 1) invalid()
-  const generation = generations.length === 1 ? generations[0] : undefined
-  const standard = atResolution.length === 1 ? atResolution[0] : undefined
-  if (standard === undefined) invalid()
-  return { standardId: positive(model.id ?? model.standardId), modelId: IMAGE_MODEL_ID,
-    platformId: text(model.platformId), genType: 3,
-    modelGenerationTypeId: generation === undefined || generation.id === undefined || generation.id === null
-      ? null : positive(generation.id),
-    videoStandardId: positive(standard.id), resolution: (standard.resolution as string).toUpperCase() }
+  return readPayload('resolveImageModel', catalogue, () => {
+    const model = imageModelRow(catalogue, selection)
+    const standards = rows(model.videoStandards).filter(row => row.ratio === '16:9'
+      && typeof row.resolution === 'string' && ['1K', '2K', '4K'].includes(row.resolution.toUpperCase())
+      && typeof row.width === 'number' && Number.isSafeInteger(row.width) && row.width > 0 && row.width <= 8192
+      && row.width % 16 === 0
+      && typeof row.height === 'number' && Number.isSafeInteger(row.height) && row.height > 0 && row.height <= 8192
+      && row.height % 16 === 0 && row.width * 9 === row.height * 16)
+    const resolution = ['1K', '2K', '4K'].find(value => standards.some(row => (row.resolution as string).toUpperCase() === value))
+    const atResolution = standards.filter(row => (row.resolution as string).toUpperCase() === resolution)
+    const generationRows = model.genTypes === undefined || model.genTypes === null ? [] : rows(model.genTypes)
+    for (const row of generationRows) positive(row.type)
+    const generations = generationRows.filter(row => row.type === 3)
+    if (generations.length > 1) invalid()
+    const generation = generations.length === 1 ? generations[0] : undefined
+    const standard = atResolution.length === 1 ? atResolution[0] : undefined
+    if (standard === undefined) invalid()
+    return { standardId: positive(model.id ?? model.standardId), modelId: IMAGE_MODEL_ID,
+      platformId: text(model.platformId), genType: 3,
+      modelGenerationTypeId: generation === undefined || generation.id === undefined || generation.id === null
+        ? null : positive(generation.id),
+      videoStandardId: positive(standard.id), resolution: (standard.resolution as string).toUpperCase() }
+  })
 }
 
 /** One image generation request as a caller states it. */
@@ -205,11 +209,13 @@ export function buildImageRequest(input: ImageRequestInput, catalogue: unknown,
  */
 export function readImageDisplayPrice(catalogue: unknown,
   selection: ImageModelSelection = {}): Record<string, unknown> {
-  const model = imageModelRow(catalogue, selection)
-  const { unitPrice } = model
-  const unit = displayUnit(model.unit)
-  if (typeof unitPrice !== 'number' || !Number.isFinite(unitPrice) || unitPrice < 0 || unit === null) {
-    return { status: 'unavailable', quote_verified: false }
-  }
-  return { status: 'available', unit_price: unitPrice, unit, quote_verified: false }
+  return readPayload('readImageDisplayPrice', catalogue, () => {
+    const model = imageModelRow(catalogue, selection)
+    const { unitPrice } = model
+    const unit = displayUnit(model.unit)
+    if (typeof unitPrice !== 'number' || !Number.isFinite(unitPrice) || unitPrice < 0 || unit === null) {
+      return { status: 'unavailable', quote_verified: false }
+    }
+    return { status: 'available', unit_price: unitPrice, unit, quote_verified: false }
+  })
 }

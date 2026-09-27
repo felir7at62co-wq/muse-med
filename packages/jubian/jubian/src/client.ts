@@ -18,7 +18,7 @@
 import { createHash } from 'node:crypto'
 import { isUsableBearerToken, trimBearerToken } from './credential.ts'
 import { JubianDebugDump } from './debug-dump.ts'
-import { describePayload, describeUnparsed, redactForDump } from './diagnostic.ts'
+import { describeBodyRejection, describeRejection, describeUnparsed, redactForDump } from './diagnostic.ts'
 import { JubianError, codeForHttpStatus, failureForEnvelopeCode } from './error.ts'
 
 /** Default provider origin; the path after it is the caller's. */
@@ -135,9 +135,9 @@ function readEnvelope(parsed: unknown, text: string | null, body: Uint8Array): E
     return { layout: 'array-payload', code: null, data: parsed, problem: null }
   }
   if (parsed === undefined) return { layout: 'unparsed', code: null, data: undefined,
-    problem: describeUnparsed(text, body) }
+    problem: describeBodyRejection(text, body) }
   return { layout: 'unparsed', code: null, data: undefined,
-    problem: `expected a JSON object envelope, ${describePayload(parsed)}` }
+    problem: `expected a JSON object envelope, ${describeRejection(parsed)}` }
 }
 
 /** Read one candidate envelope object, wrapped or not, as an envelope. */
@@ -151,7 +151,7 @@ function readEnvelopeObject(candidate: Record<string, unknown>, wrapper: 'object
       return { layout: 'array-single', code: null, data: candidate, problem: null }
     }
     return { layout: 'object-no-code', code: null, data: undefined,
-      problem: `envelope carries no integer code, ${describePayload(candidate)}` }
+      problem: `envelope carries no integer code, ${describeRejection(candidate)}` }
   }
   // Two envelope shapes are live on this provider: a single-object endpoint
   // nests its payload under `data`, while the list endpoints carry `total` and
@@ -292,7 +292,7 @@ export class JubianClient {
       const failure = failureForEnvelopeCode(reading.code)
       if (failure !== null) {
         throw new JubianError(failure, failure === 'CONTRACT_CHANGED'
-          ? `unmapped envelope code ${reading.code}, ${describePayload(parsed)}` : undefined)
+          ? `unmapped envelope code ${reading.code}, ${describeRejection(parsed)}` : undefined)
       }
     }
     return { transport: { http_status: response.status, application_code: reading.code },

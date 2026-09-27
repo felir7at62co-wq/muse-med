@@ -9,7 +9,14 @@
  * URL reduced to its origin, and long opaque runs replaced. The same description
  * is what the opt-in debug dump persists, so an operator can send back what the
  * remote actually returned without sending back a token.
+ *
+ * {@link describeRejection} is the one summary both layers reject through: the
+ * transport rejects a body it could not read as an envelope, and every reader in
+ * `@deepseek-ai/dsh-jubian-api` rejects a payload it could not read fields from.
+ * Neither writes its own, because two summaries would drift and one of them
+ * would then be the reason an operator could not tell what arrived.
  */
+import { DEBUG_DUMP_ENV } from './debug-dump.ts'
 
 /** One JSON value's top-level type, as a diagnostic names it. */
 type JsonType = 'object' | 'array' | 'string' | 'number' | 'boolean' | 'null'
@@ -172,4 +179,61 @@ export function describeUnparsed(text: string | null, body: Uint8Array): string 
  */
 export function redactForDump(value: unknown): unknown {
   return bounded(value, 0)
+}
+
+/** The envelope codes this client reads as a success, as a rejection names them. */
+const ACCEPTED_ENVELOPE_CODES = '0 / 200'
+
+/** One sentence naming the opt-in capture switch and how to use it. */
+const CAPTURE_HINT = `Capture the body: set ${DEBUG_DUMP_ENV}=<file path> and repeat the call once;`
+  + ' the redacted response structure is appended to that file.'
+
+/**
+ * Whether one detail already names the capture switch, and so has been summarised once.
+ * @param detail - A rejection detail a diagnostic may have produced.
+ * @returns True when the detail already carries the capture sentence.
+ */
+export function namesCaptureSwitch(detail: string): boolean {
+  return detail.includes(DEBUG_DUMP_ENV)
+}
+
+/** The integer `code` a candidate envelope states, whether or not an array wrapped it. */
+function statedCode(value: unknown): number | null | undefined {
+  const candidate = Array.isArray(value) && value.length === 1 ? value[0] : value
+  if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) return undefined
+  const code = (candidate as Record<string, unknown>).code
+  return typeof code === 'number' && Number.isSafeInteger(code) ? code : null
+}
+
+/**
+ * Describe one parsed payload that arrived where a readable one was required.
+ *
+ * This is the summary every rejected envelope carries, from either layer: the
+ * structure {@link describePayload} reports, the envelope `code` compared against
+ * the accepted set, and the switch that captures the body for a diagnosis. No
+ * credential and no provider message survives it — the excerpt is the redacted
+ * one {@link describePayload} already produces — and any value, a `null`, an
+ * array, a string or a number, is described rather than rejected, so a diagnostic
+ * never fails while reporting a failure.
+ * @param value - The parsed value that was rejected.
+ * @returns One line naming the structure, the envelope code against the accepted set, and the capture switch.
+ */
+export function describeRejection(value: unknown): string {
+  const structure = describePayload(value)
+  const code = statedCode(value)
+  const comparison = code === undefined
+    ? structure
+    : `${structure}, code=${code === null ? 'none, not an integer' : String(code)}`
+      + ` (accepted envelope codes: ${ACCEPTED_ENVELOPE_CODES})`
+  return `${comparison}. ${CAPTURE_HINT}`
+}
+
+/**
+ * Describe one response body that never became a JSON value.
+ * @param text - The strictly decoded body, or null when it was not valid UTF-8.
+ * @param body - The exact bytes received.
+ * @returns The decode or parse failure, the byte length, a bounded excerpt and the capture switch.
+ */
+export function describeBodyRejection(text: string | null, body: Uint8Array): string {
+  return `${describeUnparsed(text, body)}. ${CAPTURE_HINT}`
 }

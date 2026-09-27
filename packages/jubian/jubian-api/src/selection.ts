@@ -15,6 +15,7 @@
  * official URL and name. Those fields are not interchangeable.
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { readPayload } from './reading.ts'
 import { normalizedPrompt, stableJson, stableSha256, wireText } from './native.ts'
 
 function invalid(): never { throw new JubianError('CONTRACT_CHANGED') }
@@ -256,10 +257,12 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
  */
 export function verifySubjectSelection(storyboard: Record<string, unknown>, expected: SelectionState):
 { state: SelectionState; matches: boolean; is_generate: number } {
-  const materials = parseField(storyboard.storyboardMaterialList).value
-  if (!Array.isArray(materials)) invalid()
-  const config = object(parseField(storyboard.modelConfig).value)
-  if (typeof config.prompt !== 'string') invalid()
-  const state = selectionState(materials.map(object), normalizedPrompt(config.prompt))
-  return { state, matches: stableJson(state) === stableJson(expected), is_generate: Number(storyboard.isGenerate) }
+  return readPayload('verifySubjectSelection', storyboard, () => {
+    const materials = parseField(storyboard.storyboardMaterialList).value
+    if (!Array.isArray(materials)) invalid()
+    const config = object(parseField(storyboard.modelConfig).value)
+    if (typeof config.prompt !== 'string') invalid()
+    const state = selectionState(materials.map(object), normalizedPrompt(config.prompt))
+    return { state, matches: stableJson(state) === stableJson(expected), is_generate: Number(storyboard.isGenerate) }
+  })
 }

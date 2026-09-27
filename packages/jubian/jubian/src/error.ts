@@ -33,6 +33,9 @@ export class JubianError extends Error {
   /** Stable category for callers and tool output. */
   readonly code: JubianErrorCode
 
+  /** The package-authored detail this error carries, or undefined when it carries none. */
+  readonly detail: string | undefined
+
   /**
    * @param code - Stable failure category.
    * @param detail - Optional caller-facing detail this package authored, such as the name of a missing
@@ -43,6 +46,7 @@ export class JubianError extends Error {
     super(detail === undefined ? MESSAGES[code] : `${MESSAGES[code]}: ${detail}`)
     this.name = 'JubianError'
     this.code = code
+    this.detail = detail
   }
 }
 

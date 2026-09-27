@@ -13,6 +13,7 @@
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import { validateVideoDuration } from './native.ts'
+import { readPayload } from './reading.ts'
 
 function invalid(): never { throw new JubianError('CONTRACT_CHANGED') }
 
@@ -56,22 +57,24 @@ function configOf(source: Record<string, unknown>): Record<string, unknown> {
  * @returns The snapshot's identity, duration and material keys.
  */
 export function readStoryboard(data: unknown, expectedStoryboardId?: number): StoryboardView {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) invalid()
-  const snapshot = structuredClone(data) as Record<string, unknown>
-  const storyboard_id = idOf(snapshot.id), script_id = idOf(snapshot.scriptId)
-  if (expectedStoryboardId !== undefined && storyboard_id !== expectedStoryboardId) invalid()
-  const is_generate = snapshot.isGenerate
-  if (is_generate !== 0 && is_generate !== 1) invalid()
-  const config = configOf(snapshot)
-  const materials = Array.isArray(snapshot.storyboardMaterialList) ? snapshot.storyboardMaterialList : []
-  return { storyboard_id, script_id, name: typeof snapshot.storyboardName === 'string' ? snapshot.storyboardName : null,
-    is_generate, content_duration_ms: (config.duration as number) * 1000 - 1000,
-    material_keys: materials.map((row) => {
-      if (!row || typeof row !== 'object' || Array.isArray(row)) invalid()
-      const key = (row as Record<string, unknown>).materialKey
-      if (typeof key !== 'string' || !key) invalid()
-      return key
-    }), model_config: config, snapshot }
+  return readPayload('readStoryboard', data, () => {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) invalid()
+    const snapshot = structuredClone(data) as Record<string, unknown>
+    const storyboard_id = idOf(snapshot.id), script_id = idOf(snapshot.scriptId)
+    if (expectedStoryboardId !== undefined && storyboard_id !== expectedStoryboardId) invalid()
+    const is_generate = snapshot.isGenerate
+    if (is_generate !== 0 && is_generate !== 1) invalid()
+    const config = configOf(snapshot)
+    const materials = Array.isArray(snapshot.storyboardMaterialList) ? snapshot.storyboardMaterialList : []
+    return { storyboard_id, script_id, name: typeof snapshot.storyboardName === 'string' ? snapshot.storyboardName : null,
+      is_generate, content_duration_ms: (config.duration as number) * 1000 - 1000,
+      material_keys: materials.map((row) => {
+        if (!row || typeof row !== 'object' || Array.isArray(row)) invalid()
+        const key = (row as Record<string, unknown>).materialKey
+        if (typeof key !== 'string' || !key) invalid()
+        return key
+      }), model_config: config, snapshot }
+  })
 }
 
 /**
@@ -86,17 +89,19 @@ export function readStoryboard(data: unknown, expectedStoryboardId?: number): St
  * @returns A PUT body that differs from the snapshot only in `isGenerate`.
  */
 export function withGenerationEnabled(data: unknown, contentDurationMs: number): Record<string, unknown> {
-  if (!Number.isSafeInteger(contentDurationMs) || contentDurationMs < 4000 || contentDurationMs > 14000
-    || contentDurationMs % 1000 !== 0) invalid()
-  const view = readStoryboard(data)
-  const config = view.model_config
-  if (config.ratio !== '9:16' || config.resolution !== '720p') {
-    throw new JubianError('INVALID_ARGUMENT', '旧 generate 不支持该分镜规格；保留当前设置，改用 prepare_video → submit_video，不要为绕过此限制切换模型或分辨率。')
-  }
-  if (typeof config.modelId !== 'string') invalid()
-  validateVideoDuration(config.modelId, config.duration)
-  if (config.duration !== contentDurationMs / 1000 + 1) invalid()
-  return { ...view.snapshot, isGenerate: 1 }
+  return readPayload('withGenerationEnabled', data, () => {
+    if (!Number.isSafeInteger(contentDurationMs) || contentDurationMs < 4000 || contentDurationMs > 14000
+      || contentDurationMs % 1000 !== 0) invalid()
+    const view = readStoryboard(data)
+    const config = view.model_config
+    if (config.ratio !== '9:16' || config.resolution !== '720p') {
+      throw new JubianError('INVALID_ARGUMENT', '旧 generate 不支持该分镜规格；保留当前设置，改用 prepare_video → submit_video，不要为绕过此限制切换模型或分辨率。')
+    }
+    if (typeof config.modelId !== 'string') invalid()
+    validateVideoDuration(config.modelId, config.duration)
+    if (config.duration !== contentDurationMs / 1000 + 1) invalid()
+    return { ...view.snapshot, isGenerate: 1 }
+  })
 }
 
 /**
@@ -105,5 +110,5 @@ export function withGenerationEnabled(data: unknown, contentDurationMs: number):
  * @returns A PUT body that differs from the snapshot only in `isGenerate`.
  */
 export function withGenerationDisabled(data: unknown): Record<string, unknown> {
-  return { ...readStoryboard(data).snapshot, isGenerate: 0 }
+  return readPayload('withGenerationDisabled', data, () => ({ ...readStoryboard(data).snapshot, isGenerate: 0 }))
 }

@@ -8,6 +8,7 @@
  * flattened form would have to invent the parent it was given.
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { readPayload } from './reading.ts'
 
 function invalid(): never { throw new JubianError('CONTRACT_CHANGED') }
 
@@ -57,7 +58,7 @@ function level(value: unknown): FolderNode[] {
  * @throws {JubianError} `CONTRACT_CHANGED` when the payload is neither an array nor a `rows` object.
  */
 export function readFolderTree(data: unknown): FolderNode[] {
-  return level(Array.isArray(data) ? data : object(data).rows)
+  return readPayload('readFolderTree', data, () => level(Array.isArray(data) ? data : object(data).rows))
 }
 
 /**
