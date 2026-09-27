@@ -1,55 +1,87 @@
+/* Feishu settings page: stacked groups, one action row, one status line.
+ *
+ * The Settings shell already scrolls this content column, so nothing here
+ * declares overflow; every group is a plain stack that stays readable at the
+ * column's ~564px usable width. Controls come from ui-primitives — this sheet
+ * only places them and names their size, never their border, radius, or color. */
+
 .section {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 20px;
+  width: 100%;
+  color: var(--dsw-alias-label-primary);
 }
 
-.heading {
-  margin: 0.75rem 0 0;
-  font-size: 0.95rem;
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.status {
+.groupTitle {
   margin: 0;
-  font-weight: 500;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 600;
 }
 
-.hint {
+.groupDescription {
   margin: 0;
-  opacity: 0.75;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
-.notice {
-  margin: 0;
-  color: var(--dsh-color-accent, inherit);
-}
-
-.switch {
+.toggleRow {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 8px;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.fieldLabel {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* The primitive wraps its input in an inline-flex span; a form field spans the
+ * column the way the other settings pages' fields do. */
+.input {
+  width: 100%;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.notice {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
 }
 
 .qr {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 8px;
   align-items: flex-start;
 }
 
 .qrImage {
   width: 12rem;
   height: 12rem;
+  border-radius: 8px;
   image-rendering: pixelated;
-}
-
-.actions {
-  display: flex;
-  gap: 0.5rem;
 }

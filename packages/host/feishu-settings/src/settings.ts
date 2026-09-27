@@ -4,12 +4,12 @@
  * `feishu` is this product's own switch: the desktop composition reads it from
  * the same settings document to compute the `feishu-channel` row's entry-level
  * `disabled` (`apps/desktop-host/src/feishu-gate.ts`). `dsh-lark-bridge` is the
- * bundled bridge's own section, and this product registers it **only while the
- * bridge cannot run** — the settings service refuses to write an unregistered
- * namespace, so that pre-registration is what lets the page store the
- * credential pair before the bridge is ever started. The pair therefore lives in
- * the bridge's user layer, which the bridge resolves over its composed config,
- * and no composed entry or configuration dump can carry it.
+ * bundled bridge's own section, and this product registers it **only while this
+ * composition runs no bridge row** — the settings service refuses to write an
+ * unregistered namespace, so that registration is what lets the page store the
+ * credential pair in a deployment whose bridge row never mounts. The pair
+ * therefore lives in the bridge's user layer, which the bridge resolves over its
+ * composed config, and no composed entry or configuration dump can carry it.
  *
  * @module @deepseek-ai/dsh-feishu-settings/settings
  */

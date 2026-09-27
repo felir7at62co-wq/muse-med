@@ -3,9 +3,12 @@
  *
  * The service owns the durable `feishu` switch and the one pending QR scan, and
  * it writes the credential pair into the bridge's own section, where the bridge
- * resolves it over its composed config. It never answers with the stored secret:
- * {@link FeishuSetupStatus} has no field for it, and every failure travels as a
- * bounded code.
+ * resolves it over its composed config. That section is registered by whichever
+ * row runs the bridge, and by this product while none does — the switch only
+ * says whether the bridge should run, and a composition may run no bridge row
+ * at all. It never answers with the stored secret: {@link FeishuSetupStatus} has
+ * no field for it, and every failure travels as a bounded code whose details
+ * name the reason rather than quoting the settings service's own message.
  *
  * @module @deepseek-ai/dsh-feishu-settings/service
  */
@@ -13,20 +16,17 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type { SettingsProvider, SettingsScope } from '@deepseek-ai/dsh-settings'
-import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
   BRIDGE_SETTINGS_NAMESPACE, BridgeSettingsSchema, FEISHU_SETTINGS_NAMESPACE, FeishuSettingsSchema,
   type FeishuSettings,
 } from './settings.ts'
-import { FeishuLoginFlow, officialRegisterApp, type RegisterAppPort } from './login.ts'
+import { FeishuLoginError, FeishuLoginFlow, officialRegisterApp, type RegisterAppPort } from './login.ts'
 import { credentialSourceOf, rowStateOf, type FeishuRowProbe } from './status.ts'
 import type { FeishuLoginTicket, FeishuSetCredentialsRequest, FeishuSetEnabledRequest, FeishuSetupStatus } from './types.ts'
 
 /** Composition row id of the bundled Feishu bridge. */
 export const FEISHU_CHANNEL_ROW_ID = 'feishu-channel'
-
-/** Failure code reported when the bridge's own section cannot be written. */
-const BRIDGE_UNAVAILABLE = 'bridge-settings-unavailable'
 
 /** The slice of the Cordis Loader this service observes. */
 interface FeishuLoaderView {
@@ -85,12 +85,6 @@ export class FeishuSetupService extends TypertRemoteService {
     this.provider = options.settings
     this.loader = options.loader
     this.scope = options.settings.register(FEISHU_SETTINGS_NAMESPACE, FeishuSettingsSchema, { applies: 'restart' })
-    // The settings service refuses to write an unregistered namespace, so the
-    // bridge's section is pre-registered exactly while the bridge cannot run:
-    // with the switch off, the gate disables that row for this whole boot.
-    if (!this.scope.get().enabled) {
-      options.settings.register(BRIDGE_SETTINGS_NAMESPACE, BridgeSettingsSchema, { applies: 'restart' })
-    }
     this.login = new FeishuLoginFlow({
       register: options.register ?? officialRegisterApp,
       onRegistered: async (registration) => {
@@ -106,6 +100,7 @@ export class FeishuSetupService extends TypertRemoteService {
   @Remote('status')
   async status(): Promise<FeishuSetupStatus> {
     const stored = this.scope.get()
+    this.ensureBridgeSection()
     const credential = this.credentialView()
     const failure = this.login.failure
     return {
@@ -113,7 +108,7 @@ export class FeishuSetupService extends TypertRemoteService {
       row: rowStateOf(stored.enabled, this.probe(credential.override)),
       appId: credential.appId,
       credential: credentialSourceOf(credential.hasSecret, stored.registeredBy),
-      writable: true,
+      writable: this.provider.writable,
       login: this.login.ticket ?? null,
       ...(failure === undefined ? {} : { lastError: failure }),
     }
@@ -134,11 +129,13 @@ export class FeishuSetupService extends TypertRemoteService {
   }
 
   /**
-   * Store a hand-entered pair in the bridge's own section. An empty secret keeps
-   * the stored one, so the page never has to send back a value it was never
-   * shown. The pair takes effect at the next backend start.
-   * @param request - app id plus secret, an empty secret meaning unchanged.
+   * Store a hand-entered pair in the bridge's own section. An empty secret
+   * keeps a stored one, so the page never has to send back a value it was never
+   * shown; with nothing stored yet it is refused. The pair takes effect at the
+   * next backend start.
+   * @param request - app id plus secret, the secret required while none is stored.
    * @returns the status after the write.
+   * @throws RemoteError when no section can receive the pair, or the request carries no secret.
    */
   @Remote('setCredentials')
   async setCredentials(request: FeishuSetCredentialsRequest): Promise<FeishuSetupStatus> {
@@ -149,11 +146,25 @@ export class FeishuSetupService extends TypertRemoteService {
   /**
    * Start one QR scan and answer with the ticket to show.
    * @returns the URL, its Host-rendered QR image, and the platform's validity window.
-   * @throws FeishuLoginError whose message is the stable failure code.
+   * @throws RemoteError whose details carry the platform's bounded failure code.
    */
   @Remote('beginLogin')
   async beginLogin(): Promise<FeishuLoginTicket> {
-    return await this.login.begin(this.credentialView().appId)
+    this.ensureBridgeSection()
+    try {
+      return await this.login.begin(this.credentialView().appId)
+    } catch (error) {
+      if (!(error instanceof FeishuLoginError)) throw error
+      // The code is the platform's, already narrowed to `[A-Za-z0-9_.-]{1,64}`
+      // by the flow, so it can carry no request material.
+      this.ctx.logger.warn('feishu-settings: the platform registration failed (%s)', error.code)
+      throw new RemoteError(
+        'feishu/login-failed',
+        `the platform's app registration failed (${error.code})`,
+        { code: error.code },
+        { cause: error },
+      )
+    }
   }
 
   /**
@@ -186,25 +197,89 @@ export class FeishuSetupService extends TypertRemoteService {
 
   /**
    * Write the pair into the bridge's own section and record who scanned it.
+   *
+   * The section is whichever owner this composition gave it: the bridge row
+   * when it runs, this product otherwise. Every refusal is reported as a
+   * bounded reason, and the settings service's own exception — whose message
+   * quotes the section and path it wrote, and which a schema rejection can fill
+   * with the value it refused — goes to the host log instead of the page.
    * @param appId - app id to store.
-   * @param appSecret - secret to store; an empty value keeps the stored one.
+   * @param appSecret - secret to store; an empty value keeps a stored one.
    * @param registeredBy - scanner's open id, empty for a hand-entered pair.
-   * @throws Error with a bounded message when the bridge's section is absent.
+   * @throws RemoteError when no section can receive the pair, when nothing is
+   *   stored and the request carries no secret, or when the write is refused.
    */
   private async storeCredential(appId: string, appSecret: string, registeredBy: string): Promise<void> {
+    if (!this.ensureBridgeSection()) {
+      throw new RemoteError(
+        'feishu/credentials-unwritable',
+        `no row registered the "${BRIDGE_SETTINGS_NAMESPACE}" settings section in this composition`,
+        { reason: 'section-unregistered' },
+      )
+    }
+    if (!this.provider.writable) {
+      throw new RemoteError(
+        'feishu/credentials-unwritable',
+        `the settings provider refuses writes to "${BRIDGE_SETTINGS_NAMESPACE}" in this process`,
+        { reason: 'provider-read-only' },
+      )
+    }
+    if (appSecret.length === 0 && !this.credentialView().hasSecret) {
+      throw new RemoteError(
+        'feishu/secret-required',
+        'no app secret is stored, so this write has to carry one',
+        {},
+      )
+    }
     try {
       await this.provider.update(BRIDGE_SETTINGS_NAMESPACE, {
         appId,
         ...(appSecret.length === 0 ? {} : { appSecret }),
       })
     } catch (error) {
-      // The bridge's section is neither pre-registered (switch on) nor composed
-      // (bridge absent), so there is nowhere to store the pair; the reason never
-      // quotes the pair itself.
-      void error
-      throw new Error(BRIDGE_UNAVAILABLE)
+      this.ctx.logger.error('feishu-settings: storing the app credentials in "%s" was refused', BRIDGE_SETTINGS_NAMESPACE)
+      this.ctx.logger.error(error)
+      throw new RemoteError(
+        'feishu/credentials-unwritable',
+        `the settings service refused the write to "${BRIDGE_SETTINGS_NAMESPACE}"`,
+        { reason: 'write-rejected' },
+        { cause: error },
+      )
     }
     await this.scope.update({ registeredBy })
+  }
+
+  /**
+   * Give the bridge's own section an owner while no other row owns it.
+   *
+   * The section belongs to whichever row runs the bridge: that row registers
+   * the namespace with its own schema and resolves the stored pair over its
+   * entry config — taking the name from a running bridge would fail that
+   * bridge's own registration and leave it on entry config alone. The settings
+   * service refuses to write an unregistered namespace, and a composition whose
+   * bridge row never mounts (the Web profile's gate keeps it disabled until an
+   * operator turns it on) has no other registrant, so this product takes the
+   * name when it is free at the moment the page reads or writes. A composition
+   * that does run the bridge registers it while the Loader settles, which is
+   * before the Web server answers any page call.
+   * @returns whether the section has an owner once this call returns.
+   */
+  private ensureBridgeSection(): boolean {
+    if (this.hasBridgeSection()) return true
+    try {
+      this.provider.register(BRIDGE_SETTINGS_NAMESPACE, BridgeSettingsSchema, { applies: 'restart' })
+    } catch (error) {
+      // The name was taken between the check and the call: the section still
+      // has an owner, just not one that took this registration.
+      this.ctx.logger.error('feishu-settings: could not register the "%s" settings section', BRIDGE_SETTINGS_NAMESPACE)
+      this.ctx.logger.error(error)
+    }
+    return this.hasBridgeSection()
+  }
+
+  /** Whether any row currently owns the bridge's settings section. */
+  private hasBridgeSection(): boolean {
+    return this.provider.describe().some(entry => entry.ns === BRIDGE_SETTINGS_NAMESPACE)
   }
 
   /**

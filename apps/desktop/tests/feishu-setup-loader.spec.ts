@@ -187,8 +187,9 @@ it('never composes a stored credential pair into an entry or a diagnostic', asyn
   // entry and no configuration dump can carry.
   expect(composition.composed).not.toMatch(/hunter3-secret/u)
   expect(composition.diagnostics.join('\n')).not.toMatch(/hunter3-secret/u)
-  // This composition mounts no bridge, so the pair is not even readable here:
-  // the section belongs to the bridge plugin, which registers it when it runs.
-  expect(await composition.setup?.status()).toMatchObject({ enabled: true, credential: 'none' })
+  // This composition runs no bridge row, so the setup row owns that section —
+  // the pair it stored is what the page must report as stored, and never more
+  // than that: the secret itself has no field to travel in.
+  expect(await composition.setup?.status()).toMatchObject({ enabled: true, appId: 'cli_secret', credential: 'manual' })
   expect(JSON.stringify(await composition.setup?.status())).not.toMatch(/hunter3-secret/u)
 })
