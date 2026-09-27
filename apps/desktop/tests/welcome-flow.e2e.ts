@@ -17,6 +17,10 @@ import { prepareDevelopmentProject } from '../scripts/development-project.ts'
 
 const repository = fileURLToPath(new URL('../../../', import.meta.url))
 const builtHost = join(repository, 'apps/desktop-host/lib/index.js')
+// A development project also installs the pinned community plugins, so assembling
+// one needs the tarballs `pnpm run dev:desktop` leaves in the build root beside
+// the project it launches.
+const communityArtifacts = join(repository, 'apps/desktop/.desktop-build/development/community-plugins')
 afterEach(() => { vi.unstubAllEnvs() })
 
 function version(path: string): string {
@@ -82,7 +86,7 @@ async function mockPlatform() {
   }
 }
 
-describe.skipIf(!existsSync(builtHost))('built Desktop welcome flow', () => {
+describe.skipIf(!existsSync(builtHost) || !existsSync(communityArtifacts))('built Desktop welcome flow', () => {
   it('persists explicit API keys and browser account login independently across Host restarts', async () => {
     vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
     const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-welcome-'))
@@ -97,6 +101,8 @@ describe.skipIf(!existsSync(builtHost))('built Desktop welcome flow', () => {
       vi.stubEnv('DSH_HOME', home)
       vi.stubEnv('DSH_TELEMETRY_MODE', 'DISABLED')
       const project = prepareDevelopmentProject({
+        repositoryRoot: repository,
+        communityArtifactsDir: communityArtifacts,
         projectDir: join(root, 'project'),
         cliDir: join(repository, 'apps/cli'),
         hostDir: join(repository, 'apps/desktop-host'),
@@ -118,6 +124,9 @@ describe.skipIf(!existsSync(builtHost))('built Desktop welcome flow', () => {
       cpSync(process.execPath, join(nodeBin, process.platform === 'win32' ? 'node.exe' : 'node'))
       const paths = resolveDesktopPaths(home)
       const manager = new DesktopProjectManager(paths, {
+        node: join(nodeBin, process.platform === 'win32' ? 'node.exe' : 'node'),
+        // This flow installs no plugin, so the package manager never runs.
+        pnpm: join(root, 'runtime/primary-runtime/dependencies/pnpm/bin/pnpm.mjs'),
         dsh: project,
       })
       await manager.applyRelease()

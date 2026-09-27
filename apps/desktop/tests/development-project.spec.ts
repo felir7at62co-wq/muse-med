@@ -18,6 +18,16 @@ function temporaryRoot(): string {
   return root
 }
 
+/** The checkout and artifact directories a development project reads its community pins from. */
+function communityFixture(root: string): { repositoryRoot: string; communityArtifactsDir: string } {
+  const repositoryRoot = join(root, 'repository')
+  mkdirSync(join(repositoryRoot, 'third_party', 'plugins'), { recursive: true })
+  writeFileSync(join(repositoryRoot, 'third_party', 'plugins', 'sources.json'), '{}\n')
+  const communityArtifactsDir = join(root, 'community')
+  mkdirSync(communityArtifactsDir, { recursive: true })
+  return { repositoryRoot, communityArtifactsDir }
+}
+
 function release(version = '1.2.3'): DesktopRelease {
   return {
     schemaVersion: 1,
@@ -48,7 +58,8 @@ describe('desktop development project', () => {
     writeFileSync(join(host, 'lib/index.js'), '')
     writeFileSync(join(dependency, 'package.json'), JSON.stringify({ name: 'unhoisted', version: '1.2.3' }))
     symlinkSync(dependency, join(cli, 'node_modules/unhoisted'), process.platform === 'win32' ? 'junction' : 'dir')
-    const project = prepareDevelopmentProject({ projectDir: join(root, 'runtime'), cliDir: cli, hostDir: host, dependencyDir: hoisted, release: release(), target: 'mac-arm64' })
+    const project = prepareDevelopmentProject({ ...communityFixture(root),
+      projectDir: join(root, 'runtime'), cliDir: cli, hostDir: host, dependencyDir: hoisted, release: release(), target: 'mac-arm64' })
     expect(realpathSync(join(project, 'node_modules/unhoisted'))).toBe(realpathSync(dependency))
     const descriptor = JSON.parse(readFileSync(join(project, 'desktop-runtime.json'), 'utf8')) as { platform: string; arch: string; sharedPackages: unknown[] }
     expect(descriptor).toMatchObject({ platform: 'darwin', arch: 'arm64' })
@@ -110,7 +121,7 @@ describe('desktop development project', () => {
     rmSync(join(artifacts, 'dsh-codex-subscription-2.1.5.tgz'))
     expect(() => prepareDevelopmentProject({
       projectDir: project, cliDir: cli, hostDir: host, dependencyDir: dependencies,
-      release: release(), repositoryRoot: root, communityArtifactsDir: artifacts,
+      release: release(), repositoryRoot: root, communityArtifactsDir: artifacts, target: 'win-x64',
     })).toThrow(/community.*missing|missing.*community/u)
     expect(createRequire(join(project, 'package.json')).resolve('dsh-codex-subscription')).toContain('index.js')
     expect(manifest.dependencies['@deepseek-ai/dsh']).toBe('1.2.3')
@@ -120,8 +131,8 @@ describe('desktop development project', () => {
     c({ sync: true, gzip: true, cwd: root, file: join(artifacts, 'dsh-codex-subscription-2.1.5.tgz') }, ['package'])
     const options = {
       projectDir: project, cliDir: cli, hostDir: host, dependencyDir: dependencies,
-      release: release(), repositoryRoot: root, communityArtifactsDir: artifacts,
-    }
+      release: release(), repositoryRoot: root, communityArtifactsDir: artifacts, target: 'win-x64',
+    } as const
     expect(() => prepareDevelopmentProject(options)).toThrow(/incompatible community artifact/u)
     symlinkSync(dependencies, join(packageDir, 'escape'), process.platform === 'win32' ? 'junction' : 'dir')
     c({ sync: true, gzip: true, cwd: root, file: join(artifacts, 'dsh-codex-subscription-2.1.5.tgz') }, ['package'])
@@ -129,7 +140,8 @@ describe('desktop development project', () => {
     const descriptor = JSON.parse(readFileSync(join(project, 'desktop-runtime.json'), 'utf8')) as { platform: string; arch: string }
     expect(descriptor).toMatchObject({ platform: 'win32', arch: 'x64' })
     const manager = new DesktopProjectManager(resolveDesktopPaths(join(root, 'home')), {
-      dsh: project,
+      // This project carries no installed plugins, so neither executable runs.
+      node: process.execPath, pnpm: join(root, 'pnpm.cjs'), dsh: project,
     })
     await manager.applyRelease()
     await manager.disableAllPlugins()
