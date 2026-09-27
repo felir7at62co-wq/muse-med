@@ -10,6 +10,20 @@ import {
 } from './desktop-auto-update-environment.mjs'
 import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { packageMacOSArtifacts, type DesktopPrepackagedArtifact } from './package-macos.ts'
+import {
+  assertCleanWorktree,
+  assertReusableArtifacts,
+  collectReusedArtifacts,
+  describeReuse,
+  describeSteps,
+  desktopPackageSteps,
+  readDesktopPackageBaseline,
+  runDesktopPackageSteps,
+  selectPackageSteps,
+  type DesktopPackageRunStep,
+  type DesktopPackageStep,
+  type DesktopPackageStepId,
+} from './package-steps.ts'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
@@ -174,6 +188,16 @@ interface DesktopPackageInvocation {
   readonly prepareOnly: boolean
   readonly unsigned: boolean
   readonly withBgm: boolean
+  /** First step to run, or undefined to start at S1. */
+  readonly from: string | undefined
+  /** The only step to run, or undefined to run through to the end. */
+  readonly only: string | undefined
+  /** Whether to print the step table instead of packaging. */
+  readonly listSteps: boolean
+  /** Whether to name every reused artifact instead of a sample. */
+  readonly listReuse: boolean
+  /** Whether to print usage instead of packaging. */
+  readonly help: boolean
 }
 
 function hostTargetName(platform: NodeJS.Platform, arch: string): DesktopPackageTargetName {
@@ -202,6 +226,11 @@ export function parseDesktopPackageInvocation(
       'prepare-only': { type: 'boolean', default: false },
       unsigned: { type: 'boolean', default: false },
       'with-bgm': { type: 'boolean', default: false },
+      from: { type: 'string' },
+      only: { type: 'string' },
+      'list-steps': { type: 'boolean', default: false },
+      'list-reuse': { type: 'boolean', default: false },
+      help: { type: 'boolean', default: false },
     },
   })
   if (positionals.length > 1) throw new Error('desktop package: expected at most one target')
@@ -215,6 +244,11 @@ export function parseDesktopPackageInvocation(
     prepareOnly: values['prepare-only'],
     unsigned: values.unsigned,
     withBgm: values['with-bgm'],
+    from: values.from,
+    only: values.only,
+    listSteps: values['list-steps'],
+    listReuse: values['list-reuse'],
+    help: values.help,
   }
 }
 
@@ -308,10 +342,48 @@ function runPnpm(
   })
 }
 
+/**
+ * Render the packaging command's usage, including the step and artifact table.
+ * @param steps - the pipeline's steps for the selected target.
+ * @returns The usage text.
+ */
+function describeUsage(steps: readonly DesktopPackageStep[]): string {
+  return [
+    'usage: pnpm run package:desktop[:<target>] [<target>] [--dir] [--prepare-only] [--unsigned] [--with-bgm]',
+    '                                          [--from <S#>] [--only <S#>] [--list-reuse] [--list-steps]',
+    '',
+    'Packaging reads the working tree, so a run refuses to start unless the worktree is',
+    'clean apart from .pi-glla, re-checks HEAD before every step, and refuses to reuse an',
+    'artifact older than the commit it packages.',
+    '',
+    'steps, in execution order, with the paths each produces:',
+    ...describeSteps(steps),
+    '',
+    'resuming:',
+    '  --from <S#>   run that step through the end, reusing every earlier step\'s artifacts',
+    '                (each must exist and be newer than HEAD\'s commit)',
+    '  --only <S#>   run exactly that step',
+    '  --list-reuse  name every reused file instead of the first and last few',
+    '  --list-steps  print this table and exit without packaging',
+  ].join('\n')
+}
+
 async function main(): Promise<void> {
   const invocation = parseDesktopPackageInvocation(process.argv.slice(2))
   const { target } = invocation
   const buildPaths = desktopTargetBuildPaths(target.name)
+  const steps = desktopPackageSteps(REPOSITORY_ROOT, target.name, invocation.unsigned)
+  if (invocation.help || invocation.listSteps) {
+    console.log(describeUsage(steps))
+    return
+  }
+  const selection = selectPackageSteps(steps, invocation.from, invocation.only)
+  // S13 is the last step, so `--prepare-only` stops the run one step earlier.
+  const lastStepIndex = steps.length - 1
+  if (invocation.prepareOnly && selection.first >= lastStepIndex) {
+    throw new Error(`desktop package: --prepare-only stops before ${steps[lastStepIndex]?.id ?? 'the last step'}`)
+  }
+  const last = invocation.prepareOnly ? Math.min(selection.last, lastStepIndex) : selection.last
   if (invocation.withBgm) {
     const missing = missingBgmRuntimeInputs(
       join(APP_ROOT, 'scripts', 'bgm-runtime.lock.json'),
@@ -334,55 +406,84 @@ async function main(): Promise<void> {
   for (const name of WINDOWS_SIGNING_ENV_NAMES) {
     if (!invocation.unsigned && process.env[name] !== undefined) electronBuilderEnv[name] = process.env[name]
   }
-  await runPnpm(['run', 'build:official'], buildEnv, REPOSITORY_ROOT)
-  await runPnpm(['run', 'release:pack', '--family', 'dsh', '--out', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT)
-  await runPnpm([
-    '--dir',
-    'apps/desktop-host',
-    'pack',
-    '--pack-destination',
-    buildPaths.packedDsh,
-  ], buildEnv, REPOSITORY_ROOT)
-  for (const packageDir of ['packages/drama/skills', 'packages/perception/perception-bgm']) {
-    await runPnpm([
-      '--dir', packageDir, 'pack', '--pack-destination', buildPaths.packedDsh,
-    ], buildEnv, REPOSITORY_ROOT)
+  const baseline = readDesktopPackageBaseline(REPOSITORY_ROOT)
+  assertCleanWorktree(baseline)
+  if (selection.first > 0) {
+    const inventory = collectReusedArtifacts(REPOSITORY_ROOT, steps, selection.first, baseline)
+    for (const line of describeReuse(inventory, invocation.listReuse)) console.log(line)
+    assertReusableArtifacts(inventory, baseline)
   }
-  await runPnpm(['exec', 'node', 'third_party/plugins/build.mjs', '--out', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT)
-  await runPnpm(['run', 'release:pack', '--family', 'vendor', '--out', buildPaths.packedVendor], buildEnv, REPOSITORY_ROOT)
-  rmSync(buildPaths.packedLandlock, { recursive: true, force: true })
-  mkdirSync(buildPaths.packedLandlock, { recursive: true })
-  await runPnpm(['--dir', 'native/system', 'run', 'build:ts'], buildEnv, REPOSITORY_ROOT)
-  await runPnpm([
-    '--dir',
-    'native/system/packages/entry',
-    'pack',
-    '--pack-destination',
-    buildPaths.packedLandlock,
-  ], buildEnv, REPOSITORY_ROOT)
-  await runPnpm(['run', 'prepare:runtime'], targetEnv)
-  const mediaArguments = desktopPrepareMediaRuntimeArguments(target, buildPaths, invocation.withBgm)
-  if (mediaArguments !== undefined) {
-    await runPnpm(mediaArguments, buildEnv, REPOSITORY_ROOT)
+  const bodies: Record<DesktopPackageStepId, () => Promise<void>> = {
+    S1: async () => { await runPnpm(['run', 'build:official'], buildEnv, REPOSITORY_ROOT) },
+    S2: async () => { await runPnpm(['run', 'release:pack', '--family', 'dsh', '--out', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT) },
+    S3: async () => {
+      await runPnpm([
+        '--dir',
+        'apps/desktop-host',
+        'pack',
+        '--pack-destination',
+        buildPaths.packedDsh,
+      ], buildEnv, REPOSITORY_ROOT)
+    },
+    S4: async () => {
+      await runPnpm([
+        '--dir', 'packages/drama/skills', 'pack', '--pack-destination', buildPaths.packedDsh,
+      ], buildEnv, REPOSITORY_ROOT)
+    },
+    S5: async () => {
+      await runPnpm([
+        '--dir', 'packages/perception/perception-bgm', 'pack', '--pack-destination', buildPaths.packedDsh,
+      ], buildEnv, REPOSITORY_ROOT)
+    },
+    S6: async () => { await runPnpm(['exec', 'node', 'third_party/plugins/build.mjs', '--out', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT) },
+    S7: async () => { await runPnpm(['run', 'release:pack', '--family', 'vendor', '--out', buildPaths.packedVendor], buildEnv, REPOSITORY_ROOT) },
+    S8: async () => { await runPnpm(['--dir', 'native/system', 'run', 'build:ts'], buildEnv, REPOSITORY_ROOT) },
+    S9: async () => {
+      rmSync(buildPaths.packedLandlock, { recursive: true, force: true })
+      mkdirSync(buildPaths.packedLandlock, { recursive: true })
+      await runPnpm([
+        '--dir',
+        'native/system/packages/entry',
+        'pack',
+        '--pack-destination',
+        buildPaths.packedLandlock,
+      ], buildEnv, REPOSITORY_ROOT)
+    },
+    S10: async () => {
+      await runPnpm(['run', 'prepare:runtime'], targetEnv)
+      const mediaArguments = desktopPrepareMediaRuntimeArguments(target, buildPaths, invocation.withBgm)
+      if (mediaArguments !== undefined) {
+        await runPnpm(mediaArguments, buildEnv, REPOSITORY_ROOT)
+      }
+    },
+    S11: async () => { await runPnpm(['run', 'prepare:packages'], targetEnv) },
+    S12: async () => { await runPnpm(['run', 'prepare:dsh'], targetEnv) },
+    S13: async () => {
+      if (target.platform === 'darwin' && !invocation.directory) {
+        await runPnpm([
+          ...desktopElectronBuilderArguments(target, true),
+          '--config.mac.notarize=false',
+        ], electronBuilderEnv)
+        await packageMacOSArtifacts({
+          arch: target.arch,
+          version: packageVersion(join(APP_ROOT, 'package.json'), 'desktop package'),
+          artifactsRoot: buildPaths.artifacts,
+          environment: electronBuilderEnv,
+        }, artifact => runPnpm(desktopElectronBuilderArguments(target, false, artifact), electronBuilderEnv))
+      } else {
+        await runPnpm(desktopElectronBuilderArguments(target, invocation.directory), electronBuilderEnv)
+      }
+      if (!invocation.directory && !invocation.unsigned) writeReleaseRecord(target, electronBuilderEnv, buildPaths.artifacts)
+    },
   }
-  await runPnpm(['run', 'prepare:packages'], targetEnv)
-  await runPnpm(['run', 'prepare:dsh'], targetEnv)
-  if (invocation.prepareOnly) return
-  if (target.platform === 'darwin' && !invocation.directory) {
-    await runPnpm([
-      ...desktopElectronBuilderArguments(target, true),
-      '--config.mac.notarize=false',
-    ], electronBuilderEnv)
-    await packageMacOSArtifacts({
-      arch: target.arch,
-      version: packageVersion(join(APP_ROOT, 'package.json'), 'desktop package'),
-      artifactsRoot: buildPaths.artifacts,
-      environment: electronBuilderEnv,
-    }, artifact => runPnpm(desktopElectronBuilderArguments(target, false, artifact), electronBuilderEnv))
-  } else {
-    await runPnpm(desktopElectronBuilderArguments(target, invocation.directory), electronBuilderEnv)
-  }
-  if (!invocation.directory && !invocation.unsigned) writeReleaseRecord(target, electronBuilderEnv, buildPaths.artifacts)
+  const runSteps: readonly DesktopPackageRunStep[] = steps.map(step => ({ ...step, run: bodies[step.id] }))
+  await runDesktopPackageSteps({
+    root: REPOSITORY_ROOT,
+    steps: runSteps,
+    selection: { first: selection.first, last },
+    baseline,
+    log: line => console.log(line),
+  })
 }
 
 if (process.argv[1] !== undefined && import.meta.filename === resolve(process.argv[1])) await main()

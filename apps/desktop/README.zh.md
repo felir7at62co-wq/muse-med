@@ -112,6 +112,21 @@ macOS arm64 命令要求 Apple Silicon。macOS x64 命令可以在 Intel macOS �
 
 每个目标都在 `apps/desktop/.desktop-build/targets/<target>/` 下持有自己的打包输入、已准备运行时、包集合、dsh 依赖树、pnpm 准备状态、未打包应用、更新元数据和最终产物。Node.js 归档缓存继续由 `.desktop-build/downloads` 共享，因为每个归档文件名都包含版本、平台和架构，并且在解包前经过验证。目标构建绝不读取其他目标的可变准备状态。
 
+### 失败后从断点续跑
+
+打包读取工作树，所以打出的字节必须能归因到某一个提交。`pnpm --dir apps/desktop exec tsx scripts/package-target.ts --list-steps` 会打印流水线的十三个步骤（S1–S13）以及每一步产出哪些路径；一次运行在 `git status --porcelain` 除 `.pi-glla/` 之外不为空时拒绝启动，在每一步之前重新读取 HEAD 并在其变化时停下，还会打印它复用的每个产物及其时间与 SHA-256 摘要。
+
+被复用产物若早于 HEAD 的提交时间，会被拒绝而不是仅警告：在提交之前写出的 tarball 不可能包含该提交的修复，而把它打进安装包曾经发出过一个承诺了改动却并未携带该改动的安装器。拒绝信息会点名该产物、它的写入时间和提交时间。
+
+失败可以从出错的那一步续跑，不必从 S1 重建。失败步骤的消息会点名该步骤，`--from <S#>` 从该步跑到结尾并复用更早步骤的产物，`--only <S#>` 只跑单独一步。续跑要求被跳过步骤的每个产物都存在且晚于 HEAD 的提交时间，因此无法证明这一点的运行会在开始前停下：
+
+```sh
+pnpm run package:desktop:win:x64:unsigned -- --from S7
+pnpm run package:desktop:win:x64:unsigned -- --only S12
+```
+
+`release:pack` 步骤只重打发生变化的部分。每个成员的 tarball 都记录在它旁边的 `release-pack-<family>.json` 中，其中含有对 `pnpm pack` 读取的文件、包管理器，以及它依赖的每个同族包输入摘要一起算出的内容摘要，因此由新内容打出的依赖会使其消费方失效，即使消费方自己的文件没有移动。判定读取的是字节而不是时间戳；记录中的输入未覆盖其打包载荷的成员每次运行都会重打，而不会被复用。
+
 ### 运行时文件筛选
 
 生产包首先经过 npm 发布规则和依赖安装。[桌面文件规则](scripts/runtime-file-policy.ts)随后在签名和完整性封存之前过滤不可变的 `resources/dsh/node_modules` 副本。它排除 TypeScript 声明、明确属于 JavaScript/CSS/TypeScript 的 source map、TypeScript 构建缓存、Domino 测试目录、指定的原生编译产物，以及其他平台的 node-pty 预构建文件。它保留运行时 JavaScript、原生模块及其 DLL/EXE 辅助程序、WASM、未知资源、许可证和声明。规则不会修改 npm tarball、内置包管理器或用户安装的插件文件。

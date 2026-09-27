@@ -112,6 +112,21 @@ The macOS arm64 command requires Apple Silicon. The macOS x64 command runs on In
 
 Each target owns its packed package inputs, prepared runtime, package set, dsh tree, pnpm preparation state, unpacked application, update metadata, and final artifacts under `apps/desktop/.desktop-build/targets/<target>/`. The Node.js archive cache remains shared under `.desktop-build/downloads` because every archive name includes its version, platform, and architecture and is verified before extraction. A target build never consumes another target's mutable preparation state.
 
+### Resuming a failed run
+
+Packaging reads the working tree, so the packaged byte must be attributable to one commit. `pnpm --dir apps/desktop exec tsx scripts/package-target.ts --list-steps` prints the pipeline's thirteen steps (S1–S13) and the paths each one produces; a run refuses to start unless `git status --porcelain` lists nothing but `.pi-glla/`, re-reads HEAD before every step and stops when it moved, and prints every artifact it reuses with its time and SHA-256 digest.
+
+A reused artifact older than HEAD's commit time is refused, not warned about: a tarball written before the commit cannot contain that commit's fix, and packaging it once shipped an installer that promised a change it did not carry. The refusal names the artifact, its write time, and the commit time.
+
+Failures resume at the step that failed instead of rebuilding from S1. The failing step's message names the step, and `--from <S#>` runs that step through the end while reusing the earlier steps' artifacts; `--only <S#>` runs one step alone. Resuming requires every artifact of the skipped steps to exist and to postdate HEAD's commit, so a run that cannot prove that stops before it starts:
+
+```sh
+pnpm run package:desktop:win:x64:unsigned -- --from S7
+pnpm run package:desktop:win:x64:unsigned -- --only S12
+```
+
+The `release:pack` step repacks only what changed. Each member's tarball is recorded in `release-pack-<family>.json` beside it with a content digest over the files `pnpm pack` reads, the package manager, and the input digests of every family member it depends on, so a dependency packed from new content invalidates its consumers even though their own files did not move. The decision reads bytes, never timestamps, and a member whose recorded inputs do not cover its packed payload is repacked on every run rather than reused.
+
 ### Runtime file selection
 
 Production packages first pass through npm's publication rules and dependency installation. [Desktop's file policy](scripts/runtime-file-policy.ts) then filters the immutable `resources/dsh/node_modules` copy before signing and integrity sealing. It omits TypeScript declarations, recognized JavaScript/CSS/TypeScript source maps, TypeScript build caches, Domino's test directory, selected native compiler outputs, and node-pty prebuilds for other platforms. It preserves runtime JavaScript, native modules and their DLL/EXE helpers, WASM, unknown assets, licenses, and notices. The policy does not alter npm tarballs, the bundled package manager, or user-installed plugin files.

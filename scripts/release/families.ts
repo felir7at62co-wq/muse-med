@@ -249,6 +249,25 @@ export abstract class ReleaseFamily {
   }
 
   /**
+   * The family members one member declares in any dependency section.
+   *
+   * A consumer's packed bytes do not embed its dependencies, but a release
+   * packs one commit: a dependency packed from new content means the consumer
+   * was packed before that content existed, so a reuse decision treats these
+   * names as inputs ([rationale](../../.agents/notes/implemented/process/2026-09-27-packaging-resume-and-unchanged-package-skip.md)).
+   * @param member - the dependent member.
+   * @param byName - every family member by package name.
+   * @returns Declared family member names, sorted and deduplicated.
+   */
+  memberDependencies(member: ReleaseMember, byName: ReadonlyMap<string, ReleaseMember>): string[] {
+    const names = new Set<string>()
+    for (const section of [...INSTALL_SECTIONS, ...PEER_SECTIONS]) {
+      for (const dependency of this.orderEdges(member, byName, [section])) names.add(dependency.name)
+    }
+    return [...names].sort((left, right) => left.localeCompare(right))
+  }
+
+  /**
    * The family members one member declares in the given sections.
    * @param member - the dependent member.
    * @param byName - every family member by package name.
