@@ -37,9 +37,10 @@ export function apply(ctx) {
     return () => tag.remove()
   }, 'codex-subscription: style')
   const rpc = createSubscriptionRpcClient(ctx.get('connection').rpc)
-  const scope = ctx.get('settingsScope')?.bind({ namespace: SETTINGS_NAMESPACE }) ?? {
+  const scope = ctx.get('configForms')?.get(SETTINGS_NAMESPACE) ?? {
     getSnapshot: () => ({ status: 'unavailable' }),
     subscribe: () => () => {},
+    set: async () => false,
   }
   const preference = createPreferenceController(scope, rpc)
   ctx.effect(() => {
