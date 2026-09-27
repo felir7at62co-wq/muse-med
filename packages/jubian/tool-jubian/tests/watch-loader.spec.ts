@@ -104,7 +104,7 @@ it('returns immediately, reaches idle, then delivers the jobs notice in a second
     const args = { task_id: 42, stage: 'upscale' }
     const output = await tool.execute(args, { agent } as ToolRunContext) as JsonValue
     expect(tool.output.render(args, output)).toMatchSnapshot('watch admission output')
-    expect(ctx.jobs.list(agent)).toMatchObject([{ kind: 'jubian', ownerSession: agent.session.id, status: 'running' }])
+    expect(ctx.jobs.list(agent.session.id)).toMatchObject([{ kind: 'jubian', owner: agent.session.id, status: 'running' }])
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Continue independent work.' }], source: { kind: 'user' } }))
     await agent.whenIdle()
     expect(agent.status).toBe('idle')
@@ -117,9 +117,9 @@ it('returns immediately, reaches idle, then delivers the jobs notice in a second
     expect(messages.some(message => message.role === 'user' && message.content.some(block =>
       block.type === 'text' && block.text.includes('background job jubian-1')))).toBe(true)
     const notices = agent.session.snapshotEvents().filter(event => event.type === 'user/message')
-    expect(notices.some(event => JSON.stringify(event.data).includes('"plugin":"tool-jobs"'))).toBe(true)
-    const job = ctx.jobs.list(agent)[0]!
-    expect(JSON.parse(ctx.jobs.read(job.id, agent).text)).toMatchSnapshot('verified operation output')
+    expect(notices.some(event => JSON.stringify(event.data).includes('"kind":"tool-jobs"'))).toBe(true)
+    const job = ctx.jobs.list(agent.session.id)[0]!
+    expect(JSON.parse(ctx.jobs.read(job.id, agent.session.id).result!)).toMatchSnapshot('verified operation output')
     expect(calls).toHaveLength(2)
   } finally {
     release()

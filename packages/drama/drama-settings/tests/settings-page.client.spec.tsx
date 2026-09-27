@@ -5,11 +5,11 @@
  *
  * Props are fed directly (the documented component tier): `t` is built from the
  * package's own `en` dictionary so every assertion reads the copy a user sees,
- * and the injected face is a stub standing in for the namespace scope.
+ * and the injected face is a stub standing in for the `drama-settings` form.
  */
 import { cleanup, fireEvent, render, screen, waitFor, act } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   DEFAULT_BGM_DIR, DRAMA_SETTINGS_DEFAULTS, type DramaSettings,
 } from '../src/settings.ts'
@@ -46,8 +46,8 @@ function routeLabel(route: DramaImageRoute): string {
     .replace('{id}', String(route.standardId))
 }
 
-/** One snapshot of the bound namespace scope, ready unless a test says otherwise. */
-function snapshot(overrides: Partial<SettingsScopeSnapshot<DramaSettings>> = {}): SettingsScopeSnapshot<DramaSettings> {
+/** One snapshot of the bound configuration form, ready unless a test says otherwise. */
+function snapshot(overrides: Partial<ConfigFormSnapshot<DramaSettings>> = {}): ConfigFormSnapshot<DramaSettings> {
   return {
     status: 'ready',
     value: DRAMA_SETTINGS_DEFAULTS,
@@ -66,7 +66,7 @@ interface Bench {
   readonly components: ReturnType<typeof vi.fn<() => Promise<DramaComponentState[]>>>
   readonly imageRoutes: ReturnType<typeof vi.fn<() => Promise<DramaImageRoutes>>>
   /** Render the page again over one new snapshot, as a commit would. */
-  readonly commit: (next: Partial<SettingsScopeSnapshot<DramaSettings>>) => void
+  readonly commit: (next: Partial<ConfigFormSnapshot<DramaSettings>>) => void
   /** Let a pending read — the component list or the account catalogue — settle. */
   readonly settle: () => Promise<void>
 }
@@ -78,7 +78,7 @@ function states(status: DramaComponentState['status'] = 'loaded'): DramaComponen
 
 /** Render the page over a scripted namespace snapshot and a stubbed write face. */
 function mount(
-  initial: Partial<SettingsScopeSnapshot<DramaSettings>> = {},
+  initial: Partial<ConfigFormSnapshot<DramaSettings>> = {},
   answers: {
     write?: DramaWriteOutcome
     restoreDefaults?: DramaWriteOutcome
@@ -95,7 +95,7 @@ function mount(
   const props = (): DramaSettingsSectionProps => ({
     close: vi.fn(),
     t,
-    useDrama: ((selector: (value: SettingsScopeSnapshot<DramaSettings>) => unknown) => selector(current)),
+    useDrama: ((selector: (value: ConfigFormSnapshot<DramaSettings>) => unknown) => selector(current)),
     write,
     restoreDefaults,
     components,
@@ -400,7 +400,7 @@ describe('DramaSettingsSection — the component list', () => {
         {...({
           close: vi.fn(),
           t,
-          useDrama: ((selector: (value: SettingsScopeSnapshot<DramaSettings>) => unknown) =>
+          useDrama: ((selector: (value: ConfigFormSnapshot<DramaSettings>) => unknown) =>
             selector(snapshot())),
           write: vi.fn(),
           restoreDefaults: vi.fn(),
