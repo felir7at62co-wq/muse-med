@@ -17,6 +17,8 @@ description: Use when 仿真人镜头脚本需要编译、检查节奏、绑定�
 
 新制作必须使用当前 `drama_shot` 工具，并先读取其 schema：preview/compile 所需 `max_submit_seconds` 来自当前分镜及目录允许的总时长，包含收束；不可盲填 30。可选正整数 duration 表达慢节奏或长镜，`report.warnings` 供节奏复核。VO 使用已支持的 vo 表达并保留说话人及原文；未支持格式报告缺口，不静默降成 dialogue。
 
+`project` 给了就按它解析项目根，没给就向上找最近的 `project_config.json`；本项目声明的每镜有效字上限等要求见[字段表](references/project-config.md)，不要靠试错反推键名。
+
 当前环境缺少 `drama_shot` 或不能无损表达输入时，保留输入并报告依赖或格式缺口，不修改原文绕过，也不退回把创作建议当硬失败的旧编译器。
 
 ## 导演脚本

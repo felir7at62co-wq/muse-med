@@ -37,6 +37,18 @@ class CreationResourcesTests(unittest.TestCase):
         self.assertIn("drama_shot", text)
         self.assertNotIn("scripts/compile_director_shots.py", text)
 
+    def test_project_config_schema_is_documented_where_the_compiler_reads_it(self):
+        schema = (SKILLS / "tweet-drama-early-shot-script/references/project-config.md").read_text(encoding="utf-8")
+        skill = (SKILLS / "tweet-drama-early-shot-script/SKILL.md").read_text(encoding="utf-8")
+        pipeline = (SKILLS / "tweet-drama-pipeline/SKILL.md").read_text(encoding="utf-8")
+        for key in ("jubian_script_id", "delivery", "max_effective_chars_per_shot"):
+            self.assertIn(key, schema)
+        self.assertIn("远端项目 ID", pipeline)
+        self.assertIn("每镜有效字上限", pipeline)
+        self.assertIn("正整数", schema)
+        self.assertIn("references/project-config.md", skill)
+        self.assertIn("references/project-config.md", pipeline)
+
     def test_spatial_examples_follow_current_director_format(self):
         root = SKILLS / "shot-script-creator-9-16/references"
         car = (root / "another-spice.md").read_text(encoding="utf-8")
