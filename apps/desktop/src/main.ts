@@ -457,6 +457,9 @@ async function main(): Promise<void> {
   const platformView = new DesktopPlatformView(join(app.getAppPath(), 'lib', 'preload-platform-account.cjs'),
     () => locale.id === 'zh-CN' ? 'zh_CN' : 'en_US', process.platform === 'win32' ? 'win32' : 'darwin')
   const backend = new DesktopBackendController((onFailure) => {
+    // Profile preparation settled before this factory runs; a profile that still belongs to another
+    // runtime, or one whose package transaction is incomplete, must not reach a Host spawn.
+    if (development === undefined) manager.assertProfileRuntime(activeProject)
     const hostInspectPort = developmentHostInspectPort(development !== undefined)
     const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
       hostInspectPort, process.env, onFailure,

@@ -718,9 +718,43 @@ describe('desktop main startup', () => {
     })
     // The merged startup prepares the profile before spawning, packaged or not.
     expect(harness.applyRelease).toHaveBeenCalledOnce()
+    // The runtime assertion belongs to packaged profiles, whose state must match the bundled runtime.
+    expect(harness.assertProfileRuntime).not.toHaveBeenCalled()
     harness.hosts[0]!.ready.resolve()
     await harness.windows[0]!.shown.promise
     expect(harness.dialog.showErrorBox).not.toHaveBeenCalled()
+  })
+
+  it('asserts the prepared profile runtime after preparation and before the Host starts', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    // Profile preparation is still pending, so the assertion has nothing to read yet.
+    expect(harness.assertProfileRuntime).not.toHaveBeenCalled()
+    harness.prepared.resolve()
+    await harness.hostStarted.promise
+    expect(harness.assertProfileRuntime).toHaveBeenCalledWith('desktop-test-profile')
+    expect(harness.assertProfileRuntime).toHaveBeenCalledOnce()
+    const [release] = harness.applyRelease.mock.invocationCallOrder
+    const [asserted] = harness.assertProfileRuntime.mock.invocationCallOrder
+    const [started] = harness.hosts[0]!.start.mock.invocationCallOrder
+    expect(release).toBeLessThan(asserted!)
+    // The Host is spawned only after the prepared profile proved it belongs to this runtime.
+    expect(asserted).toBeLessThan(started!)
+  })
+
+  it('refuses the Host spawn when the prepared profile belongs to another runtime', async () => {
+    harness.assertProfileRuntime.mockImplementation(() => {
+      throw new Error('desktop project: profile does not match this application runtime')
+    })
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    harness.prepared.resolve()
+    await harness.errorPublished.promise
+    expect(harness.hosts).toHaveLength(0)
+    expect(invoke(DESKTOP_IPC.backendStatus)).toMatchObject({
+      phase: 'error', message: 'desktop project: profile does not match this application runtime',
+    })
+    harness.assertProfileRuntime.mockImplementation(() => {})
   })
 
   it('keeps startup errors and a successful retry in the same window', async () => {
