@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
-"""Check keys in DSH_PIPELINE_ENV or <DSH_HOME>/secrets/pipeline.env.
+"""Check the Jubian login token where the product actually keeps it.
 
-Prints only variable names, never key values.
-Exit code 0 if all required keys present, 1 if any missing.
+Resolution order, highest first — the same order the DSH credential provider and
+the Jubian tools use:
+
+  1. inherited environment: JUBIANAI_ADMIN_TOKEN, then the legacy JUBIAN_TOKEN
+  2. the harness credential store DSH_HOME/.credentials.yaml (refs:)
+  3. explicit DSH_PIPELINE_ENV, else the nearest .agents/secrets/pipeline.env
+     above the launch directory
+
+Prints only variable names and which source supplied them, never values.
+Exit code 0 if the required token is present, 1 if missing.
 """
 from __future__ import annotations
 
@@ -10,56 +18,149 @@ import os
 import sys
 from pathlib import Path
 
-
 REQUIRED = ["JUBIANAI_ADMIN_TOKEN"]
 
-OPTIONAL = [
-    "JUBIANAI_BASE_URL",
-    "剪映草稿地址",
-]
+# Accepted spellings of the login token, highest first. The legacy name is read
+# but never reported as the current one.
+TOKEN_ENV_KEYS = ("JUBIANAI_ADMIN_TOKEN", "JUBIAN_TOKEN")
+
+# Optional values are reported only when a file supplies them. A product
+# deployment keeps JUBIANAI_BASE_URL in the credential store; the draft editor
+# directory stays a pipeline.env field.
+OPTIONAL_ENV_KEYS = ("JUBIANAI_BASE_URL", "剪映草稿地址")
+
+CREDENTIAL_FILENAME = ".credentials.yaml"
+WORKSPACE_SECRET = Path(".agents") / "secrets" / "pipeline.env"
 
 
-def resolve_env_path() -> Path:
-    explicit = os.environ.get("DSH_PIPELINE_ENV")
-    if explicit:
-        return Path(explicit).expanduser().resolve()
-    home = Path(os.environ.get("DSH_HOME") or Path.home() / ".dsh").expanduser()
-    return home.resolve() / "secrets" / "pipeline.env"
+def harness_home() -> Path:
+    """The one home this check reads: DSH_HOME, else ~/.dsh."""
+    configured = os.environ.get("DSH_HOME")
+    home = Path(configured).expanduser() if configured else Path.home() / ".dsh"
+    return home.resolve()
 
 
-def load_env(env_path: Path) -> dict[str, str]:
+def strip_scalar(value: str) -> str:
+    """Drop a YAML inline comment and one layer of quoting; never the token's own tail semicolon."""
+    comment = value.find(" #")
+    if comment >= 0:
+        value = value[:comment]
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1]
+    return value.strip()
+
+
+def read_key_file(path: Path) -> dict[str, str]:
+    """Read `key: value` / `key=value` pairs, skipping comments and continuations.
+
+    A value that opens a quote without closing it on the same line is a folded
+    multi-line scalar; keep it out rather than returning a fragment.
+    """
     values: dict[str, str] = {}
-    if not env_path.is_file():
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
         return values
-    for line in env_path.read_text(encoding="utf-8-sig").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
             continue
-        key, _, value = line.partition("=")
-        values[key.strip()] = value.strip()
+        if ":" in stripped and ("=" not in stripped or stripped.index(":") < stripped.index("=")):
+            key, _, raw = stripped.partition(":")
+        elif "=" in stripped:
+            key, _, raw = stripped.partition("=")
+        else:
+            continue
+        key, raw = key.strip(), raw.strip()
+        if not key:
+            continue
+        if raw[:1] in ("\"", "'") and raw.count(raw[0]) < 2:
+            continue  # an unclosed quote opens a folded multi-line scalar; a fragment is worse than nothing
+        value = strip_scalar(raw)
+        if value:
+            values.setdefault(key, value)
     return values
 
 
-def main() -> int:
-    env_path = resolve_env_path()
-    values = load_env(env_path)
+def workspace_secret(start: Path | None = None) -> Path | None:
+    """The nearest workspace pipeline.env at or above `start`, or None."""
+    directory = (start or Path.cwd()).resolve()
+    while True:
+        candidate = directory / WORKSPACE_SECRET
+        if candidate.is_file():
+            return candidate
+        parent = directory.parent
+        if parent == directory:
+            return None
+        directory = parent
 
-    print(f"pipeline.env: {env_path}")
-    print(f"存在: {env_path.is_file()}")
+
+def secret_paths() -> list[Path]:
+    """Candidate files in resolution order; a missing file is reported as absent."""
+    explicit = os.environ.get("DSH_PIPELINE_ENV")
+    candidates = [harness_home() / CREDENTIAL_FILENAME]
+    if explicit:
+        candidates.append(Path(explicit).expanduser().resolve())
+    else:
+        found = workspace_secret()
+        if found is not None:
+            candidates.append(found)
+    return candidates
+
+
+def resolve() -> tuple[list[tuple[str, str, Path]], dict[str, str]]:
+    """Resolve the login token and optional values.
+
+    @returns the `(key, source label, file)` rows that supplied a value, and the
+      optional values found in the candidate files. No value is returned.
+    """
+    supplied: list[tuple[str, str, Path]] = []
+    optionals: dict[str, str] = {}
+    for key in TOKEN_ENV_KEYS:
+        if os.environ.get(key):
+            supplied.append((key, "环境变量", Path("<process environment>")))
+            break
+    for path in secret_paths():
+        values = read_key_file(path)
+        if not supplied:
+            for key in TOKEN_ENV_KEYS:
+                if values.get(key):
+                    supplied.append((key, "凭据文件", path))
+                    break
+        for key in OPTIONAL_ENV_KEYS:
+            if values.get(key):
+                optionals.setdefault(key, str(path))
+    return supplied, optionals
+
+
+def main() -> int:
+    supplied, optionals = resolve()
+    secret = supplied[0] if supplied else None
+
+    print("== 解析顺序（高到低）==")
+    print("  环境变量 JUBIANAI_ADMIN_TOKEN / JUBIAN_TOKEN")
+    print(f"  凭据库 {harness_home() / CREDENTIAL_FILENAME}")
+    print("  DSH_PIPELINE_ENV，否则最近的 .agents/secrets/pipeline.env")
     print()
-    print("== 必需 ==")
-    missing = [k for k in REQUIRED if not values.get(k)]
-    for k in REQUIRED:
-        print(f"  [{'OK' if values.get(k) else '缺失'}] {k}")
+    print("== 实际来源 ==")
+    if secret is None:
+        for path in secret_paths():
+            print(f"  [缺失] {path}")
+    else:
+        key, label, path = secret
+        print(f"  [OK] JUBIANAI_ADMIN_TOKEN 来自{label}：{path}")
+        if key != REQUIRED[0]:
+            print(f"  [提醒] 命中的是兼容变量名 {key}，建议迁移到 {REQUIRED[0]}")
     print()
     print("== 可选 ==")
-    for k in OPTIONAL:
-        print(f"  [{'OK' if values.get(k) else '-'}] {k}")
+    for key in OPTIONAL_ENV_KEYS:
+        print(f"  [{'OK' if key in optionals else '-'}] {key}")
     print()
 
-    if missing:
-        print(f"缺失必需变量: {', '.join(missing)}")
-        print("请询问用户提供后写入 pipeline.env 再继续。")
+    if secret is None:
+        print("缺失必需变量: " + ", ".join(REQUIRED))
+        print("请在产品设置里填写剧变登录凭证（或设置同名环境变量），不要手工散落明文；随后重跑本检查。")
         return 1
     print("必需变量齐全。")
     return 0

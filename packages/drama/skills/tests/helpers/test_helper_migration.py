@@ -37,32 +37,68 @@ class HelperMigrationTests(unittest.TestCase):
             self.assertIn("角色OS", (Path(root) / "episodes/02.txt").read_text(encoding="utf-8"))
             self.assertFalse((Path(root) / "project_state.json").exists())
 
-    def test_keys_resolve_dsh_home_without_repository_markers(self):
+    def test_keys_resolve_harness_credential_store_without_repository_markers(self):
         module = load("tweet-drama-key-manager", "check_keys.py")
         with tempfile.TemporaryDirectory(dir=PACKAGE / "tests") as root:
-            path = Path(root) / "secrets/pipeline.env"
-            path.parent.mkdir()
-            path.write_text("JUBIANAI_ADMIN_TOKEN=fixture-only-not-a-real-token\n", encoding="utf-8")
+            path = Path(root) / ".credentials.yaml"
+            path.write_text("version: 1\nrefs:\n  JUBIANAI_ADMIN_TOKEN: fixture-only-not-a-real-token\n", encoding="utf-8")
             output = io.StringIO()
-            with patch.dict(os.environ, {"DSH_HOME": root, "DSH_PIPELINE_ENV": ""}), contextlib.redirect_stdout(output):
-                try:
-                    result = module.main()
-                except SystemExit as exc:
-                    result = str(exc)
+            with patch.dict(os.environ, {"DSH_HOME": root, "DSH_PIPELINE_ENV": ""},
+                            clear=False), contextlib.redirect_stdout(output):
+                os.environ.pop("JUBIANAI_ADMIN_TOKEN", None)
+                os.environ.pop("JUBIAN_TOKEN", None)
+                result = module.main()
             self.assertEqual(result, 0)
             self.assertIn(str(path), output.getvalue())
             self.assertNotIn("fixture-only-not-a-real-token", output.getvalue())
 
-    def test_explicit_key_path_overrides_dsh_home(self):
+    def test_environment_token_outranks_the_credential_store(self):
+        module = load("tweet-drama-key-manager", "check_keys.py")
+        with tempfile.TemporaryDirectory(dir=PACKAGE / "tests") as root:
+            (Path(root) / ".credentials.yaml").write_text(
+                "version: 1\nrefs:\n  JUBIANAI_ADMIN_TOKEN: stored-fixture\n", encoding="utf-8")
+            output = io.StringIO()
+            with patch.dict(os.environ, {"DSH_HOME": root, "DSH_PIPELINE_ENV": "",
+                                         "JUBIANAI_ADMIN_TOKEN": "environment-fixture"},
+                            clear=False), contextlib.redirect_stdout(output):
+                result = module.main()
+            self.assertEqual(result, 0)
+            self.assertIn("环境变量", output.getvalue())
+            self.assertNotIn("stored-fixture", output.getvalue())
+
+    def test_workspace_pipeline_env_still_supplies_the_token(self):
+        module = load("tweet-drama-key-manager", "check_keys.py")
+        with tempfile.TemporaryDirectory(dir=PACKAGE / "tests") as root:
+            workspace = Path(root) / "workshop"
+            path = workspace / ".agents/secrets/pipeline.env"
+            path.parent.mkdir(parents=True)
+            path.write_text("JUBIANAI_ADMIN_TOKEN=fixture-only-not-a-real-token\n", encoding="utf-8")
+            output = io.StringIO()
+            previous = os.getcwd()
+            os.chdir(workspace)
+            self.addCleanup(os.chdir, previous)
+            try:
+                with patch.dict(os.environ, {"DSH_HOME": str(Path(root) / "home"), "DSH_PIPELINE_ENV": ""},
+                                clear=False), contextlib.redirect_stdout(output):
+                    os.environ.pop("JUBIANAI_ADMIN_TOKEN", None)
+                    os.environ.pop("JUBIAN_TOKEN", None)
+                    result = module.main()
+            finally:
+                os.chdir(previous)
+            self.assertEqual(result, 0)
+            self.assertIn(str(path), output.getvalue())
+            self.assertNotIn("fixture-only-not-a-real-token", output.getvalue())
+
+    def test_explicit_key_path_overrides_the_workspace_secret(self):
         module = load("tweet-drama-key-manager", "check_keys.py")
         with tempfile.TemporaryDirectory(dir=PACKAGE / "tests") as root:
             path = Path(root) / "custom.env"
             path.write_text("JUBIANAI_ADMIN_TOKEN=fixture-only\n", encoding="utf-8")
-            with patch.dict(os.environ, {"DSH_HOME": root, "DSH_PIPELINE_ENV": str(path)}), contextlib.redirect_stdout(io.StringIO()):
-                try:
+            with patch.dict(os.environ, {"DSH_HOME": root, "DSH_PIPELINE_ENV": str(path)}):
+                os.environ.pop("JUBIANAI_ADMIN_TOKEN", None)
+                os.environ.pop("JUBIANAI_TOKEN", None)
+                with contextlib.redirect_stdout(io.StringIO()):
                     result = module.main()
-                except SystemExit as exc:
-                    result = str(exc)
             self.assertEqual(result, 0)
 
     def test_xhs_runtime_is_user_owned_and_shared_with_installer(self):
