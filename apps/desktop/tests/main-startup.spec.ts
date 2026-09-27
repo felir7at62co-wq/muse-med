@@ -205,6 +205,20 @@ describe('desktop main startup', () => {
       .rejects.toThrow(/require a packaged application/u)
   })
 
+  it('offers the desktop plugin manager from the packaged application menu', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    expect(harness.menu.setApplicationMenu).toHaveBeenCalledTimes(1)
+    const template = harness.menu.buildFromTemplate.mock.calls[0]?.[0] as {
+      label: string
+      submenu: { label?: string; accelerator?: string; click?: () => void }[]
+    }[]
+    expect(template.map(item => item.label)).toEqual(['Application'])
+    expect(template[0]?.submenu[0]).toMatchObject({ label: 'Desktop Plugins…', accelerator: 'CmdOrCtrl+,' })
+    template[0]?.submenu[0]?.click?.()
+    expect(harness.windows.at(-1)?.urls.at(-1)).toBe('dsh-app://shell/plugin-manager.html')
+  })
+
   it('opens repository links only from the plugin popup and denies arbitrary protocols', async () => {
     await import('../src/main.ts')
     await harness.preparing.promise
