@@ -295,18 +295,22 @@ export interface HostLoader {
   await(): Promise<unknown>
 }
 
+/** The Loader entry that mounted this plugin (subset of Cordis's `Entry`). */
+export interface HostEntry {
+  /** Composition row id; the settings service names this plugin's section after it. */
+  readonly options: { readonly id: string }
+}
+
 /**
  * The `settings` user-settings service (subset this plugin uses).
  *
- * The service builds one namespace per owned composition entry from that
- * entry's own exported `Config`, and names it after the entry id — which is why
- * this plugin addresses its section by {@link SETTINGS_NAMESPACE} alone and
- * registers nothing itself.
+ * The service owns one namespace per active composition entry, named after that
+ * entry's id and built from the entry's own exported `Config`: the resolved
+ * section is the config the Loader hands to the plugin's `apply`, so a business
+ * plugin reads its Config and writes changes back through this service.
  */
 export interface HostSettings {
-  /** The resolved section: schema defaults, then the entry config, then the user document. */
-  get(ns: string): unknown
-  /** Deep-merge a patch into that section's user layer and persist it through the provider. */
+  /** Deep-merge a patch into that entry's section and persist it in the profile document. */
   update(ns: string, patch: object): Promise<unknown>
 }
 

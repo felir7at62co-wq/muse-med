@@ -18,6 +18,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { renderSkillContent } from '@deepseek-ai/dsh-skill'
 import { unwatchFile, watchFile } from 'node:fs'
 import { ponytailSkills } from './content.ts'
@@ -39,6 +40,15 @@ import {
 
 export const name = 'ponytail'
 export const inject = ['systemPrompt', 'skills']
+
+// The shared catch-all `plugin` message source is gone: each producer declares its own
+// `kind` in its own module (packages/llm/llm/src/message.ts). This is the persona's kind
+// for the status notices it steers into the session; the producing plugin is the kind.
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    ponytail: { kind: 'ponytail' } & ContextFormed
+  }
+}
 
 /**
  * Cordis profile-level configuration (set per profile via the bundle row's
@@ -146,13 +156,13 @@ function registerCommands(deps: CommandDeps, commandCtx: Context): void {
         if (reason !== null) {
           agent.steer(createUserMessage({
             content: [{ type: 'text', text: `PONYTAIL DEFAULT SET — saved ${written}, effective ${effective} (${reason}).` }],
-            source: { kind: 'plugin', plugin: name },
+            source: { kind: 'ponytail' },
           }))
           return { kind: 'success', text: `Saved default: ${written}. Effective default: ${effective}, overridden by ${reason}.` }
         }
         agent.steer(createUserMessage({
           content: [{ type: 'text', text: `PONYTAIL DEFAULT SET — new sessions start in ${written}.` }],
-          source: { kind: 'plugin', plugin: name },
+          source: { kind: 'ponytail' },
         }))
         return { kind: 'success', text: `Ponytail default set — new sessions start in ${written}.` }
       }
@@ -174,7 +184,7 @@ function registerCommands(deps: CommandDeps, commandCtx: Context): void {
         if (changed) {
           agent.steer(createUserMessage({
             content: [{ type: 'text', text: modeNotice(current) }],
-            source: { kind: 'plugin', plugin: name },
+            source: { kind: 'ponytail' },
           }))
         }
         return {
@@ -195,20 +205,20 @@ function registerCommands(deps: CommandDeps, commandCtx: Context): void {
             deps.store.set(sessionKey(agent), 'full')
             agent.steer(createUserMessage({
               content: [{ type: 'text', text: 'PONYTAIL MODE CHANGED — level: full' }],
-              source: { kind: 'plugin', plugin: name },
+              source: { kind: 'ponytail' },
             }))
             return { kind: 'success', text: 'Ponytail re-enabled at full (the effective default is off).' }
           }
           deps.store.clear(sessionKey(agent))
           agent.steer(createUserMessage({
             content: [{ type: 'text', text: `PONYTAIL MODE ACTIVE — level: ${effectiveDefault}` }],
-            source: { kind: 'plugin', plugin: name },
+            source: { kind: 'ponytail' },
           }))
           return { kind: 'success', text: `Ponytail re-enabled. Effective default: ${effectiveDefault}.` }
         }
         agent.steer(createUserMessage({
           content: [{ type: 'text', text: `PONYTAIL MODE ACTIVE — level: ${current}` }],
-          source: { kind: 'plugin', plugin: name },
+          source: { kind: 'ponytail' },
         }))
         return { kind: 'success', text: `Ponytail mode: ${current}. Use /ponytail reset|lite|full|ultra|off.` }
       }
@@ -220,7 +230,7 @@ function registerCommands(deps: CommandDeps, commandCtx: Context): void {
       deps.store.set(sessionKey(agent), mode)
       agent.steer(createUserMessage({
         content: [{ type: 'text', text: modeNotice(mode) }],
-        source: { kind: 'plugin', plugin: name },
+        source: { kind: 'ponytail' },
       }))
       return { kind: 'success', text: mode === 'off' ? 'Ponytail mode off.' : `Ponytail mode set to ${mode}.` }
     },
@@ -356,7 +366,7 @@ export function apply(ctx: Context, config: PonytailConfig = {}): void {
           ...decision.messages,
           createUserMessage({
             content: [{ type: 'text', text: 'PONYTAIL MODE OFF' }],
-            source: { kind: 'plugin', plugin: name },
+            source: { kind: 'ponytail' },
           }),
         ],
       }

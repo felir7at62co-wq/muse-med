@@ -4,6 +4,7 @@
  */
 
 import z from '@deepseek-ai/schemastery'
+import type { Volatile } from '@deepseek-ai/cordis'
 import type { SessionScope } from './session.ts'
 
 /**
@@ -19,12 +20,18 @@ import type { SessionScope } from './session.ts'
 // denyTools so the model asks in prose instead of blocking.
 const DEFAULT_DENY_TOOLS: readonly string[] = []
 
-/** Plugin configuration supplied by the profile composition. */
+/**
+ * Plugin configuration supplied by the profile composition, as the Loader
+ * mounts it: the two credential fields are live references because first-boot
+ * QR onboarding persists what it scanned through the host settings service,
+ * which accepts live fields only. {@link resolveConfig} is the one place that
+ * turns them into plain values.
+ */
 export interface Config {
   /** Lark/Feishu app id (`cli_…`); absent (with no stored credential) starts first-boot QR registration. */
-  appId?: string
+  appId: Volatile<string | undefined>
   /** Lark/Feishu app secret paired with {@link appId}. */
-  appSecret?: string
+  appSecret: Volatile<string | undefined>
   /** Open-platform domain: `https://open.feishu.cn` (default) or `https://open.larksuite.com`. */
   domain?: string
   /**
@@ -270,10 +277,18 @@ export interface ResolvedConfig {
   }
 }
 
-/** Loader-visible configuration schema and defaults. */
-export const Config: z<Config> = z.object({
-  appId: z.string(),
-  appSecret: z.string().role('secret'),
+/**
+ * Loader-visible configuration schema and defaults. The two credential fields
+ * are volatile: first-boot QR onboarding persists what it scanned through the
+ * host settings service, which accepts only live fields.
+ *
+ * Not annotated with the {@link Config} interface: a volatile field's output is
+ * a `Volatile` reference while its input stays the plain value, so no single
+ * object type can be both. The interface is the mounted contract.
+ */
+export const Config = z.object({
+  appId: z.string().volatile(),
+  appSecret: z.string().role('secret').volatile(),
   domain: z.string(),
   cwd: z.string(),
   provider: z.string(),
@@ -313,15 +328,34 @@ export const Config: z<Config> = z.object({
 })
 
 /**
+ * Plain configuration for callers that hold values rather than live references:
+ * the cross-profile overlay merges what the shared settings file carries onto
+ * an already resolved configuration and resolves the result again.
+ */
+export type PlainConfig = { [K in keyof Config]?: Config[K] extends Volatile<infer T> ? T : Config[K] }
+
+/**
  * Resolve the panel/help language. Explicit `zh`/`en` wins; `auto` (and
  * absent) follows the platform domain — the international Lark console lives
  * at `open.larksuite.com`, the domestic Feishu one at `open.feishu.cn`.
  * @param config - serialized configuration.
  * @returns the resolved language.
  */
-export function resolveLocale(config: Config): 'zh' | 'en' {
+export function resolveLocale(config: Config | PlainConfig): 'zh' | 'en' {
   if (config.locale === 'zh' || config.locale === 'en') return config.locale
   return config.domain?.includes('larksuite') === true ? 'en' : 'zh'
+}
+
+/**
+ * Read one configuration value the Loader may hand over as a live reference
+ * rather than a plain value (volatile fields), so every caller below this point
+ * sees data.
+ * @param value - a plain value or a live reference to one.
+ * @returns the current plain value.
+ */
+function live<T>(value: T | Volatile<T> | undefined): T | undefined {
+  const reference = value as Volatile<T> | undefined
+  return typeof reference?.get === 'function' ? reference.get() as T : value as T | undefined
 }
 
 /**
@@ -329,10 +363,14 @@ export function resolveLocale(config: Config): 'zh' | 'en' {
  * @param config - Serialized configuration with the required credentials.
  * @returns Configuration with all schema defaults applied.
  */
-export function resolveConfig(config: Config): ResolvedConfig {
+export function resolveConfig(config: Config | PlainConfig): ResolvedConfig {
   return {
     ...config,
     locale: resolveLocale(config),
+    // The Loader mounts the two credential fields as live references; this is
+    // the one funnel that turns them into the plain strings every caller reads.
+    appId: live(config.appId),
+    appSecret: live(config.appSecret),
     sessionScope: config.sessionScope ?? 'chat',
     output: config.output ?? 'cot',
     showProcess: config.showProcess ?? true,
