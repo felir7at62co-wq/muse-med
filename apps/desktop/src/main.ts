@@ -1052,6 +1052,9 @@ async function main(): Promise<void> {
         click: () => { void showAbout().catch((error: unknown) => { console.error(error) }) } }
       : { label: currentDesktopLocale().messages.aboutMenu, role: 'about' },
     { type: 'separator' },
+    // The plugin window is this product's own package surface; the one application menu is what
+    // makes it reachable on every platform, so it stays in the single menu source.
+    { label: currentDesktopLocale().messages.pluginsMenu, accelerator: 'CmdOrCtrl+,', click: () => { openPluginWindow() } },
     { label: currentDesktopLocale().messages.checkUpdatesMenu, click: () => { void openUpdatePrompt(true) } },
     ...(development !== undefined) ? [
       { type: 'separator' as const },
@@ -1188,20 +1191,6 @@ async function main(): Promise<void> {
     pluginWindow.once('closed', () => { pluginWindow = undefined })
     void pluginWindow.loadURL(`${SCHEME}://shell/plugin-manager.html`)
   }
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate([{
-    label: process.platform === 'darwin' ? locale.messages.productName : locale.messages.application,
-    submenu: [
-      {
-        label: locale.messages.pluginsMenu,
-        accelerator: 'CmdOrCtrl+,',
-        click: openPluginWindow,
-      },
-      { label: locale.messages.checkUpdatesMenu, click: () => { void openUpdatePrompt(true) } },
-      { type: 'separator' },
-      { role: 'quit' },
-    ],
-  }]))
 
   const createMainWindow = (): BrowserWindow => {
     const window = createWindow(appPreload, false, true)
