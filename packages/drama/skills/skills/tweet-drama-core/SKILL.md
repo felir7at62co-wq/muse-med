@@ -15,6 +15,8 @@ source、episodes、style、asset_prompts、asset_candidates、official_assets�
 
 从本技能实际目录执行下列命令；其他工作目录使用技能加载器给出的完整脚本路径，不假定个人安装副本的位置。
 
+技能资源只按**本次加载返回的技能目录**解析：脚本、参考文件和素材写相对路径，需要绝对路径时用加载结果里那个基目录拼出来。不要照搬任何写死的安装路径（安装根、`node_modules` 布局、别人的磁盘路径）：打包形态不同（`app.asar` 与 `app.asar.unpacked`、版本化运行时目录、npm 布局），升级或换机器后旧路径即失效，而加载器每次都会给出当前有效的目录。定位不到脚本时报告缺失并给出期望路径，不改从猜测的安装目录里枚举。
+
 - `python -B scripts/pipeline_state.py <项目目录> sync` —— **产物投影**：按磁盘上的产物重算每个阶段（completed / review / pending），写 `status_source: "projection"`。**开工第一件事就是跑它**，把「现在在哪一阶段、哪几集走到哪」报出来再动手，不要凭记忆推进。
 - `… set --stage <阶段> --status <状态>` —— **人工批注**：写 `status_source: "manual"`，此后 `sync` 只报告不覆盖，用来表达产物看不出来的事（预算、批准、已知缺口、阻塞）。
 - 状态 = 产物投影 + 人工批注；手写自述必然腐烂，所以不要手改 JSON，也不要指望谁记得回写。
