@@ -12,7 +12,15 @@ import Hmr from '@deepseek-ai/dsh-hmr'
 import DefaultModel from '@deepseek-ai/dsh-agent-default-model'
 import Settings from '../src/index.ts'
 
-export async function configurationFixture(options: { schema?: z; apply?: (ctx: Context, config: unknown) => void; hmr?: boolean } = {}) {
+export async function configurationFixture(options: {
+  schema?: z
+  apply?: (ctx: Context, config: unknown) => void
+  hmr?: boolean
+  /** Composition rows for the synthetic bundle; defaults to the two probe rows. */
+  rows?: readonly object[]
+  /** Loader builtins the rows resolve through, keyed by their `cordis:` name. */
+  builtins?: Record<string, unknown>
+} = {}) {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'settings-config-')))
   const dir = join(home, 'profiles', 'test')
   onTestFinished(() => { rmSync(home, { recursive: true, force: true }) })
@@ -21,7 +29,7 @@ export async function configurationFixture(options: { schema?: z; apply?: (ctx: 
   mkdirSync(bundle, { recursive: true })
   writeFileSync(join(home, 'package.json'), '{"name":"test-installation"}\n')
   writeFileSync(join(bundle, 'package.json'), JSON.stringify({ name: 'test-bundle', version: '1.0.0', dsh: { bundle: { patch: 'cordis.patch.yml' } } }))
-  writeFileSync(join(bundle, 'cordis.patch.yml'), JSON.stringify([{ insert: [
+  writeFileSync(join(bundle, 'cordis.patch.yml'), JSON.stringify([{ insert: options.rows ?? [
     { id: 'config-editor', name: 'cordis:editor' },
     { id: 'settings', name: 'cordis:settings' },
     { id: 'default-model', name: 'cordis:model', config: { provider: 'test', model: 'original' } },
@@ -43,7 +51,7 @@ export async function configurationFixture(options: { schema?: z; apply?: (ctx: 
       ctx.provide('appReady', { onReady: (listener: () => void) => { listener(); return () => {} } })
       Object.assign(ctx.loader.builtins, {
         editor: ConfigEditor, settings: Settings, model: DefaultModel, probe: Probe,
-      })
+      }, options.builtins)
     })
     onTestFinished(async () => { await ctx.fiber.dispose() })
     if (options.hmr !== false) {

@@ -64,7 +64,15 @@ export type DramaDeliverySpec = {
   minBitrateMbps: number
 }
 
-/** The durable short-drama section. */
+/**
+ * The durable short-drama section as a value view: what the settings service
+ * hands the Settings page, the paid-image pin and the per-series ceiling.
+ *
+ * A schema field marked volatile resolves to a live reference rather than this
+ * value, so this interface describes the section after those references are
+ * read, which is what {@link DramaSettingsSchema} publishes through the
+ * settings transport.
+ */
 export interface DramaSettings {
   /** Absolute directory finished episodes are delivered to; empty means `<project>/delivery`. */
   deliveryDir: string
@@ -123,18 +131,28 @@ export const DRAMA_SETTINGS_DEFAULTS: DramaSettings = {
  * its section against. A section absent from a layer resolves to
  * {@link DRAMA_SETTINGS_DEFAULTS}; the paths are plain strings because a blank
  * one leaves the schema default, including an unconfigured Jianying draft root.
+ *
+ * Every field is volatile. The settings service derives one live form per
+ * composed row and skips a row whose schema declares none
+ * (`volatileForm(schema) === undefined`), so a section without them serves no
+ * namespace at all: the Settings page would report the namespace as
+ * unavailable, a write would be refused, and the per-series ceiling and the
+ * pinned image route would silently read nothing. A volatile field's output is
+ * a live reference while its input stays the plain value, which is why this
+ * schema is not annotated `z<DramaSettings>`: {@link DramaSettings} is the
+ * value view, not the mounted row's own output type.
  */
-export const DramaSettingsSchema: z<DramaSettings> = z.object({
-  deliveryDir: z.string().default(DRAMA_SETTINGS_DEFAULTS.deliveryDir),
-  jianyingDraftDir: z.string().default(DEFAULT_JIANYING_DRAFT_DIR),
+export const DramaSettingsSchema = z.object({
+  deliveryDir: z.string().default(DRAMA_SETTINGS_DEFAULTS.deliveryDir).volatile(),
+  jianyingDraftDir: z.string().default(DEFAULT_JIANYING_DRAFT_DIR).volatile(),
   [DELIVERY_SPEC_FIELD]: z.object({
     width: z.number().step(1).min(1).default(DEFAULT_DELIVERY_SPEC.width),
     height: z.number().step(1).min(1).default(DEFAULT_DELIVERY_SPEC.height),
     fps: z.number().step(1).min(1).max(240).default(DEFAULT_DELIVERY_SPEC.fps),
     minBitrateMbps: z.number().min(0.1).default(DEFAULT_DELIVERY_SPEC.minBitrateMbps),
-  }),
-  bgmDir: z.string().default(DEFAULT_BGM_DIR),
-  imageStandardId: z.number().step(1).min(1),
+  }).volatile(),
+  bgmDir: z.string().default(DEFAULT_BGM_DIR).volatile(),
+  imageStandardId: z.number().step(1).min(1).volatile(),
   seriesBudgetCents: z.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER)
-    .default(DRAMA_SETTINGS_DEFAULTS.seriesBudgetCents),
+    .default(DRAMA_SETTINGS_DEFAULTS.seriesBudgetCents).volatile(),
 })

@@ -18,6 +18,7 @@ import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SettingsPathOpView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { DramaSettingsSchema, DRAMA_SETTINGS_DEFAULTS, DRAMA_SETTINGS_NAMESPACE, type DramaSettings } from '../src/settings.ts'
+import { plainConfig } from '../../../settings/settings/src/schema.ts'
 import { DramaSettingsSection } from '../src/client/DramaSettingsSection.tsx'
 import { DRAMA_COMPONENTS } from '../src/client/components.ts'
 import { apply, inject, NS } from '../src/client/index.ts'
@@ -27,8 +28,9 @@ const SECTION_SLOT = 'settings.section'
 
 /** Resolve the scripted user layer through the real schema, exactly as the Host does. */
 function resolve(user: Record<string, unknown>): DramaSettings {
-  // The scripted layer is a partial section; the schema fills the rest in.
-  return DramaSettingsSchema(user as unknown as DramaSettings)
+  // The scripted layer is a partial section; the schema fills the rest in, and the
+  // Host sends the wire plain values rather than the schema's live references.
+  return plainConfig(DramaSettingsSchema(user as unknown as DramaSettings)) as DramaSettings
 }
 
 /** One namespace view over the scripted user layer, resolved through the real schema. */
