@@ -74,7 +74,7 @@ it('loads exactly the five product modes without discovering other shipped or pe
       expect(prompt, requirement).toContain(requirement)
     }
     expect(source).not.toMatch(/[CE]:\\|EDY|默认授权|自动授权/)
-    for (const requirement of ['每集至少 2 首不同曲目', '按情绪分段', 'policy_findings', '1.5 秒三角交叉淡化', '24 小时', 'max_review_attempts=3', 'content_duration_ms', '离线、不外传', '不自动删除', '片尾 2 秒']) {
+    for (const requirement of ['每集至少 2 首不同曲目', '按情绪分段', 'policy_findings', '1.5 秒三角交叉淡化', '24 小时', 'max_review_attempts=3', 'content_duration_ms', '离线、不外传', '不自动删除', '片尾 2 秒', '被委派的子代理只返回分片结果', '返回通道是最终文本或 structured_output']) {
       expect(prompt, requirement).toContain(requirement)
     }
     let calls = 0
