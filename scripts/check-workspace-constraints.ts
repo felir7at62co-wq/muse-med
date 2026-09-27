@@ -186,11 +186,14 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
     'lib/protocol-*.js', 'lib/schemas-*.js', 'lib/stream-security-*.js',
   ],
   // Ordinary native containment ships a path-loaded runner and its shared
-  // runner chunk beside the existing node-pty permission repair.
+  // runner chunk beside the existing node-pty permission repair. The collector
+  // reaches the entry and the ./output subpath alike, so the code-page decoding
+  // it shares with them is a hashed chunk too.
   '@deepseek-ai/dsh-subprocess-local': [
     'lib/runner.js',
     'lib/runner-*.js',
     'lib/output.js',
+    'lib/output-*.js',
     'scripts/ensure-spawn-helper.mjs',
   ],
   // tsdown shares the repository/pack code between the lib entry and the bin
