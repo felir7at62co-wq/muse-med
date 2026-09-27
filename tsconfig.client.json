@@ -127,7 +127,6 @@
     { "path": "./packages/client/ui-settings-models" },
     { "path": "./packages/client/ui-plugin-manager/tsconfig.client.json" },
     { "path": "./packages/client/ui-settings-plugin-inventory" },
-    { "path": "./packages/client/ui-settings-unarchive-sessions" },
     { "path": "./packages/client/ui-settings-agent-notes" },
     { "path": "./packages/jubian/tool-jubian/tsconfig.client.json" },
     { "path": "./packages/drama/drama-settings/tsconfig.client.json" },
