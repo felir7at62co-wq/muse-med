@@ -89,6 +89,17 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 
 Tool calls use the snake_case parameter names above; the registered executor maps them to the renderer's internal camelCase arguments. A method missing one of its own arguments fails before any file is opened. Everything that makes a render impossible — a missing input, a failed command, an ending file whose bytes are not the shipped asset's, an ending effect longer than the ending window, a tail frame that cannot be proved — throws with a Chinese repair instruction. The delivered file's own properties do not throw: they come back as checks, so one call reports every defect while still handing back the measurement.
 
+### Delivery prerequisites: the two ending files and the 2-second window
+
+`render`'s two ending files are **delivery prerequisites**, not options: they are **shipped assets** the installed copy supplies, and the caller may neither substitute nor source them elsewhere. `render` judges both inputs byte by byte before any media command runs, so one file missing from the installation is one episode that cannot be produced; that absence is a **broken installation** rather than a wrong path, and the error names which of the two it is (a correct sibling shipped file beside it proves the directory arrived and only this file is gone).
+
+| Asset | Path inside the skill package (`packages/drama/skills/skills/`) | Bytes | SHA-256 |
+|---|---|---|---|
+| Ending effect | `tweet-drama-background-render/assets/ending_effect.mp4` | 904,502 | `49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010` |
+| Ending sound | `tweet-drama-background-render/assets/ending_audio.mp3` | 83,432 | `d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f` |
+
+**The two-second ending window is a hard requirement** (`ENDING_SECONDS = 2`): a delivery must reach body end plus 2 seconds; `ending_audio` contributes only its first 2 seconds, delayed to the body end; `ending_effect` plays once at its own speed over the opening of those 2 seconds, and an effect longer than the window **fails instead of being truncated**; both `ending_*` arguments are required, and a missing one fails before any file is opened.
+
 ### What subtitles does
 
 `subtitles` needs no recognition of its own, because both halves are already known: the line plan says what each shot says, and a recognition alignment of the same clips says when. It reads that alignment per shot, checks it against the plan, keeps the script's text, clamps each cue inside its own shot, and lays the cues on the episode clock as the shot's own start plus the offset inside the clip. Nothing here measures energy: a level can say that somebody spoke, but not which words fall where, and a split estimated inside one stretch is what puts a subtitle on the wrong line.

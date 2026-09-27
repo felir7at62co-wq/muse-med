@@ -132,6 +132,13 @@ export function createElectronBuilderConfig(
       target: ['AppImage'],
     },
     nsis: {
+      // electron-builder's default list keeps `*.mp4` (and eight other media
+      // extensions) out of `app-64.7z` and expects to re-add them as separate
+      // installer entries, but that second step prunes every `node_modules`
+      // directory, so a media asset inside a packaged runtime package reaches
+      // neither side and no installer installs it. Emptying the list archives
+      // the whole app.
+      preCompressedFileExtensions: [],
       include: fileURLToPath(new URL('./scripts/installer.nsh', import.meta.url)),
       oneClick: false,
       installerLanguages: ['en_US', 'zh_CN'],

@@ -29,6 +29,7 @@ export interface DesktopElectronBuilderConfig {
     readonly writeUpdateInfo: boolean
   }
   readonly nsis: {
+    readonly preCompressedFileExtensions: readonly string[]
     readonly include: string
     readonly installerLanguages: readonly string[]
   }

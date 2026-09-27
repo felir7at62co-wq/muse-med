@@ -17,6 +17,8 @@
  * @module @deepseek-ai/dsh-tool-episode-render/ending
  */
 
+import { stat } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import { fileSha256 } from './cache.ts'
 import { ENDING_SECONDS, endingEffectFilter, type ShippedEndingAsset } from './delivery.ts'
 import { probeMedia, runFfmpeg } from './ffmpeg.ts'
@@ -33,6 +35,45 @@ export const TAIL_SEEK_SECONDS = '-0.1'
 
 /** The pixel format both sides of the comparison are hashed in. */
 const COMPARISON_PIXEL_FORMAT = 'rgb24'
+
+/**
+ * Fail unless one supplied ending file is present, naming which cause it is.
+ *
+ * A missing ending file has two causes whose fixes differ, and the caller cannot
+ * tell them apart from the path alone: the installed product never received the
+ * file, or the caller named a path that is not the shipped assets directory. The
+ * two shipped ending files share that directory, so the sibling's shipped bytes
+ * are the witness: a directory holding the sibling but not this file is an
+ * installation that lost it, and a directory holding neither is not the shipped
+ * assets directory. The bytes of the file itself are judged separately, by
+ * {@link requireShippedEndingAsset}.
+ * @param path - Absolute path of the file the caller supplied.
+ * @param asset - The asset the delivery spec ships and accepts.
+ * @param sibling - The other shipped ending file, which shares this asset's directory.
+ * @throws {Error} When the file is absent, unreadable, or empty.
+ */
+export async function requireEndingAssetFile(
+  path: string,
+  asset: ShippedEndingAsset,
+  sibling: ShippedEndingAsset,
+): Promise<void> {
+  const directory = dirname(path)
+  const witness = join(directory, basename(sibling.file))
+  const siblingShipped = await pathExists(witness)
+    && await fileSha256(witness).then(measured => measured === sibling.sha256, () => false)
+  const hint = siblingShipped
+    ? `同一目录下的随包 ${basename(sibling.file)} 是随包字节，说明技能素材目录已随包安装，缺的就是 ${basename(asset.file)}：`
+      + `请用完整的安装包重装，或把随包的 ${asset.file}（SHA-256 ${asset.sha256}）放回 ${directory}，不要换成其它文件。`
+    : `请给出随包素材 ${asset.file} 的完整路径（SHA-256 ${asset.sha256}）；`
+      + `同一目录下也没有随包的 ${basename(sibling.file)}，说明这个路径不是随包 assets 目录，或者整个技能包没有随包安装。`
+  let size = 0
+  try {
+    size = (await stat(path)).size
+  } catch {
+    throw new Error(`${asset.label}不存在或不可读：${path}。${hint}`)
+  }
+  if (size === 0) throw new Error(`${asset.label}是空文件：${path}。${hint}`)
+}
 
 /**
  * Fail unless one supplied ending file is the shipped asset.

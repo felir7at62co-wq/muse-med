@@ -38,6 +38,7 @@ import { chooseEncoder } from './encoder.ts'
 import {
   buildEndingClip,
   extractTailFrame,
+  requireEndingAssetFile,
   requireEndingEffectFits,
   requireShippedEndingAsset,
 } from './ending.ts'
@@ -142,8 +143,8 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
 
   await requireFile(paths.masterAudio, '整集原声 master', '请先跑 prepare 生成 audio/<集>.wav。')
   await requireFile(input.bgm, 'BGM', '请给出这部剧实际使用的 BGM 文件路径。')
-  await requireFile(input.endingAudio, '片尾音', '请给出片尾音文件路径（技能 assets 目录下的 ending_audio.mp3）。')
-  await requireFile(input.endingEffect, '片尾特效', '请给出片尾特效文件路径（技能 assets 目录下的 ending_effect.mp4）。')
+  await requireEndingAssetFile(input.endingAudio, ENDING_AUDIO_ASSET, ENDING_EFFECT_ASSET)
+  await requireEndingAssetFile(input.endingEffect, ENDING_EFFECT_ASSET, ENDING_AUDIO_ASSET)
 
   const bgmPlan = await readBgmPlan(input.bgmPlan, input.episode, bodyEndSeconds, input.bgm, input.project)
   // Every input is judged before the first media command runs, so a substituted

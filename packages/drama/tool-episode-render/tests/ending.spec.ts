@@ -1,6 +1,6 @@
 /** Tail-frame extraction, its proof against a sequential decode, and the ending clip. */
 
-import { readdir } from 'node:fs/promises'
+import { copyFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ENDING_AUDIO_ASSET, ENDING_EFFECT_ASSET, ENDING_SECONDS } from '../src/delivery.ts'
@@ -9,6 +9,7 @@ import {
   extractTailFrame,
   lastFrameIndex,
   parseFramemd5,
+  requireEndingAssetFile,
   requireEndingEffectFits,
   requireShippedEndingAsset,
   TAIL_SEEK_SECONDS,
@@ -226,6 +227,47 @@ describe('extractTailFrame', () => {
     )).rejects.toThrow()
   })
 })
+describe('requireEndingAssetFile', () => {
+  it('accepts a readable file wherever the caller put it', async () => {
+    const project = await tempProject()
+    temporary.push(project)
+    const effect = join(project, 'ending_effect.mp4')
+    await copyFile(shippedEndingAsset('ending_effect.mp4'), effect)
+    await expect(requireEndingAssetFile(effect, ENDING_EFFECT_ASSET, ENDING_AUDIO_ASSET))
+      .resolves.toBeUndefined()
+  })
+
+  it('names the installed product when the shipped directory holds the sibling but not the file', async () => {
+    const project = await tempProject()
+    temporary.push(project)
+    // The shipped ending files share one directory: the sibling's shipped bytes
+    // prove the directory arrived, so only this file can be the missing one.
+    await copyFile(shippedEndingAsset('ending_audio.mp3'), join(project, 'ending_audio.mp3'))
+    const missing = join(project, 'ending_effect.mp4')
+    const failure = requireEndingAssetFile(missing, ENDING_EFFECT_ASSET, ENDING_AUDIO_ASSET)
+    await expect(failure).rejects.toThrow('片尾特效不存在或不可读')
+    await expect(failure).rejects.toThrow('技能素材目录已随包安装')
+    await expect(failure).rejects.toThrow(ENDING_EFFECT_ASSET.sha256)
+  })
+
+  it('names a wrong path when the directory holds neither shipped file', async () => {
+    const project = await tempProject()
+    temporary.push(project)
+    const failure = requireEndingAssetFile(join(project, 'exports', 'effect.mp4'), ENDING_EFFECT_ASSET, ENDING_AUDIO_ASSET)
+    await expect(failure).rejects.toThrow('不存在或不可读')
+    await expect(failure).rejects.toThrow('不是随包 assets 目录')
+  })
+
+  it('rejects an empty shipped file by name', async () => {
+    const project = await tempProject()
+    temporary.push(project)
+    const empty = join(project, 'ending_effect.mp4')
+    await writePlaceholder(empty, '')
+    await expect(requireEndingAssetFile(empty, ENDING_EFFECT_ASSET, ENDING_AUDIO_ASSET))
+      .rejects.toThrow('片尾特效是空文件')
+  })
+})
+
 describe('requireShippedEndingAsset', () => {
   it('accepts the shipped ending effect and the shipped ending sound', async () => {
     await expect(requireShippedEndingAsset(shippedEndingAsset('ending_effect.mp4'), ENDING_EFFECT_ASSET))
