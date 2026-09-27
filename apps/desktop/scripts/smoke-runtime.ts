@@ -28,10 +28,10 @@ export async function apply(ctx) {
   const root = ${JSON.stringify(root)}
   const home = ${JSON.stringify(home)}
   try {
-  const ids = ['short-drama-local', 'ptc', 'standard']
+  const ids = ['short-drama-local']
   const presets = await ctx.agentPresets.list()
   if (presets.length !== ids.length || ids.some(id => !presets.some(preset => preset.id === id))) {
-    throw new Error('desktop runtime: expected exactly the four product presets')
+    throw new Error('desktop runtime: expected exactly the product presets')
   }
   if (ctx.agentPresets.defaultId !== 'short-drama-local') throw new Error('desktop runtime: product default preset changed')
   for (const id of ids) {

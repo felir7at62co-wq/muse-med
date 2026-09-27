@@ -117,9 +117,6 @@ describe('desktop package-set selection', () => {
       'package/presets/short-drama-local/agent.cordis.yml',
       'package/presets/short-drama-local/preset.yml',
       'package/lib/native-preset.js',
-      ...['standard', 'ptc'].flatMap(id => [
-        `package/presets/${id}/agent.cordis.yml`, `package/presets/${id}/preset.yml`,
-      ]),
     ]
     for (const required of files.slice(4)) {
       expect(() => assertDesktopHostPackageFiles(files.filter(file => file !== required))).toThrow(required)

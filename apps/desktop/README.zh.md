@@ -80,7 +80,7 @@ Welcome 加载共享 Toast 的配色和阴影变量，挂载在 body 下的通�
 
 Electron 拥有 `$DSH_HOME/profiles/desktop`。其 `dependencies` 包含 pnpm 安装的包；`dsh.profile.bundles` 包含内置 bundle，后接已启用插件。签名应用从 `resources/app.asar/dsh` 提供 dsh、私有 Desktop Host 及其生产依赖。打包应用选择 runtime profile 解析，不创建包链接；开发 profile 使用文件系统链接。宿主与插件在同一个 Electron Node 模式进程中执行；Desktop 不启用 `--preserve-symlinks`。CLI 不能启动或修改此 profile。
 
-Desktop Host 为所有桌面会话只组合一次短剧设置和剧变工具；有报价的收费调用按剧变 `script_id` 自动使用人民币 4000 元默认上限，本机设置可调整额度。宿主加载维护的短剧技能包，只提供三个产品预设：默认的 `short-drama-local`、标准模式和 PTC 模式。两个原生编码预设通过只读薄适配器复用；其他自带及个人预设仍被排除。Windows 打包准备构建哈希锁定的 Python、媒体依赖、FFmpeg 和 Whisper 运行时；完整安装包及干净机器检查通过前，发布仍未验收。公开分发二进制还须完成媒体描述文件记录的对应源码审核。
+Desktop Host 为所有桌面会话只组合一次短剧设置和剧变工具；有报价的收费调用按剧变 `script_id` 自动使用人民币 4000 元默认上限，本机设置可调整额度。宿主加载维护的短剧技能包，只提供一个产品预设，即默认的 `short-drama-local`；其他自带及个人预设仍被排除。Windows 打包准备构建哈希锁定的 Python、媒体依赖、FFmpeg 和 Whisper 运行时；完整安装包及干净机器检查通过前，发布仍未验收。公开分发二进制还须完成媒体描述文件记录的对应源码审核。
 
 本地启动页提供启动状态和可用恢复操作；加载后的 dsh 渲染进程仅接收桌面协议标记。独立插件窗口接收结构化的列表、安装、删除、更新和更新检查操作；两个渲染进程都无法访问文件系统、原始 Electron IPC、shell 或任意 pnpm 参数。
 

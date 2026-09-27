@@ -58,7 +58,7 @@ it('loads exactly the product preset directories without discovering shipped or 
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['ptc', 'short-drama-local', 'standard'])
+    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['short-drama-local'])
     expect(ctx.agentPresets.defaultId).toBe('short-drama-local')
     const document = await ctx.agentPresets.readDocument('short-drama-local')
     const source = document.content

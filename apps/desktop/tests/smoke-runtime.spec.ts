@@ -48,7 +48,7 @@ function fixture() {
   roots.push(root)
   const home = join(root, 'home')
   mkdirSync(home)
-  const ids = ['short-drama-local', 'standard', 'ptc']
+  const ids = ['short-drama-local']
   const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
   for (const id of ids) {
     mkdirSync(dirname(presetPath(id)), { recursive: true })
@@ -109,8 +109,8 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'short-drama-local')
   expect(f.ctx.tools.schemas).toHaveBeenCalledWith(f.agent)
   expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.home })
-  expect(f.dispose).toHaveBeenCalledTimes(6)
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(6)
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
@@ -163,8 +163,8 @@ it('propagates a preset mount rejection without announcing a successful smoke', 
 
 it('rejects a missing native provider rather than reporting a partial roster success', async () => {
   const f = fixture()
-  f.mount.mockImplementation(async (_context, id) => { if (id === 'ptc') throw new Error('waiting for ptcRuntime') })
-  await expect(f.apply(f.ctx)).rejects.toThrow('waiting for ptcRuntime')
+  f.mount.mockImplementation(async (_context, id) => { if (id === 'short-drama-local') throw new Error('waiting for dramaRuntime') })
+  await expect(f.apply(f.ctx)).rejects.toThrow('waiting for dramaRuntime')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
@@ -186,7 +186,7 @@ it.each(['missing', 'legacy-only', 'shadow'])('rejects %s custom skill isolation
 it('refuses a roster with additional presets before creating an agent', async () => {
   const f = fixture()
   f.ctx.agentPresets.list.mockResolvedValue([{ id: 'short-drama-local' }, { id: 'personal' }])
-  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the four product presets')
+  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the product presets')
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
 })
 
