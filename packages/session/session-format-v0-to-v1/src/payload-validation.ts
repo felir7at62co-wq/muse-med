@@ -233,6 +233,9 @@ export function assertReleasedPayloadSemantics(event: SessionFormatEvent, versio
     case 'tool-workflow/agent-end':
       workflowIdentity(data, label)
       literalValue(data['outcome'], ['completed', 'failed', 'cancelled'], `${label} outcome`)
+      if (data['label'] !== undefined) stringValue(data['label'], `${label} label`)
+      if (data['childId'] !== undefined) nonEmptyString(data['childId'], `${label} childId`)
+      if (data['reason'] !== undefined) workflowFailureReason(data['reason'], `${label} reason`)
       return
     case 'tool-workflow/agent-start':
       workflowIdentity(data, label)
@@ -1035,6 +1038,20 @@ function teamMessageValue(value: SessionFormatJsonValue | undefined, label: stri
 function workflowIdentity(data: JsonRecord, label: string): void {
   nonEmptyString(data['runId'], `${label} runId`)
   positiveIntegerValue(data['seq'], `${label} seq`)
+}
+
+/** Validate one workflow member's tagged failure reason. */
+function workflowFailureReason(value: SessionFormatJsonValue | undefined, label: string): void {
+  const reason = exactRecord(value, label, ['kind'], ['detail'])
+  literalValue(reason['kind'], [
+    'child-failed',
+    'missing-structured-output',
+    'invalid-structured-output',
+    'infrastructure-fault',
+    'cancelled',
+  ], `${label} kind`)
+  if (reason['detail'] === undefined) return
+  nonEmptyString(reason['detail'], `${label} detail`)
 }
 
 function deepSeekSearchBodyValue(value: SessionFormatJsonValue | undefined, label: string): void {

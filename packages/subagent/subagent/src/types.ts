@@ -260,6 +260,14 @@ export interface SubagentStopReasonMap {
   'max-tokens': 'max-tokens'
   /** The child declined the task. */
   refusal: 'refusal'
+  /**
+   * The child finished its turn normally without satisfying the requested
+   * `outputSchema`, so its output exists but the requested structured value
+   * does not. Distinct from `error`, which reports a child that failed on its
+   * own terms; a consumer that asked for structured output reads this as the
+   * return contract being unmet, not as a broken run.
+   */
+  'structured-output-missing': 'structured-output-missing'
 }
 
 /** The union over {@link SubagentStopReasonMap} — widens automatically as backends merge in variants. */

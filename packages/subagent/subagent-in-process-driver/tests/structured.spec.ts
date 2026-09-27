@@ -247,14 +247,15 @@ describe('in-process structured output', () => {
     await run.dispose()
   })
 
-  it('a clean finish without a capture is an immediate error to the parent — deliberately NO re-prompt', async () => {
+  it('a clean finish without a capture reports the schema shortfall to the parent — deliberately NO re-prompt', async () => {
     const { ctx, parent, adapter } = await setup([
       textResponse('here is my answer in prose'),
       textResponse('MUST NOT BE CONSUMED'),
     ])
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
-    expect(result.stopReason).toBe('error')
+    expect(result.stopReason).toBe('structured-output-missing')
+    expect(result.diagnostic).toContain(STRUCTURED_OUTPUT_TOOL)
     expect(result.structured).toBeUndefined()
     // Exactly one model request and one caller-supplied user message: no nudge turn exists.
     expect(adapter.requests.length).toBe(1)
@@ -321,7 +322,7 @@ describe('in-process structured output', () => {
     const result = await run.result
     // No capture was committed: the run reports the schema shortfall...
     expect(result.structured).toBeUndefined()
-    expect(result.stopReason).toBe('error')
+    expect(result.stopReason).toBe('structured-output-missing')
     // ...the logged tool result is the blocked isError with the feedback...
     const child = ctx.agents.get(run.id)!
     const results = child.session.snapshotEvents().filter(e => e.type === 'tool/result')
@@ -367,7 +368,7 @@ describe('in-process structured output', () => {
 
     const result = await run.result
     expect(result.structured).toBeUndefined()
-    expect(result.stopReason).toBe('error')
+    expect(result.stopReason).toBe('structured-output-missing')
     const child = ctx.agents.get(run.id)
     const captureResult = child?.session.snapshotEvents().find(event =>
       event.type === 'tool/result' && event.data.message.source.callId === 'c1')
@@ -438,7 +439,7 @@ describe('in-process structured output', () => {
 
     const result = await run.result
     expect(result.structured).toBeUndefined()
-    expect(result.stopReason).toBe('error')
+    expect(result.stopReason).toBe('structured-output-missing')
     expect(adapter.requests).toHaveLength(2)
     const child = ctx.agents.get(run.id)!
     const outer = child.session.snapshotEvents().find(event =>
@@ -467,7 +468,7 @@ describe('in-process structured output', () => {
 
     const result = await run.result
     expect(result.structured).toBeUndefined()
-    expect(result.stopReason).toBe('error')
+    expect(result.stopReason).toBe('structured-output-missing')
     expect(adapter.requests).toHaveLength(2)
     await run.dispose()
   })

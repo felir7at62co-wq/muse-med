@@ -99,7 +99,10 @@ export const RELEASED_V0_EVENT_DISPOSITIONS: Readonly<Record<string, ReleasedV0P
   'team/message/queued': disposition(['version', 'teamId', 'message']),
   'team/task': disposition(['version', 'teamId', 'task']),
   'todo/write': disposition(['todos']),
-  'tool-workflow/agent-end': disposition(['runId', 'seq', 'outcome']),
+  'tool-workflow/agent-end': disposition(
+    ['runId', 'seq', 'outcome'],
+    ['label', 'childId', 'reason'],
+  ),
   'tool-workflow/agent-start': disposition(['runId', 'seq', 'label', 'childId'], ['phase']),
   'tool-workflow/run-end': disposition(['runId', 'stopReason']),
   'tool-workflow/run-start': disposition(['runId', 'name']),

@@ -201,15 +201,30 @@ export class WorkflowExecution {
           // lifecycle before propagating, and propagate FATAL: an ordinary
           // throw would dissolve to a per-item null inside the combinators,
           // and a broken provider must not read as a failed child.
-          this.observer.agentEnd({ ...info, outcome: 'failed' })
+          this.observer.agentEnd({ ...info, outcome: 'failed', reason: { kind: 'infrastructure-fault' } })
           throw new WorkflowError(`child agent run failed: ${renderThrown(error)}`, 'AGENT_RESULT', { cause: error })
+        }
+        // A provider that honors outputSchema reports a clean turn without a
+        // committed value as `structured-output-missing`, keeping "the child
+        // finished but skipped its return channel" distinct from "the child
+        // failed". Name it: the script's `null` and the observer's event must
+        // both say the promised structured result never arrived.
+        if (result.stopReason === 'structured-output-missing'
+          || (result.stopReason === 'completed' && opts.schema !== undefined && result.structured === undefined)) {
+          this.observer.agentEnd({ ...info, outcome: 'failed', reason: { kind: 'missing-structured-output' } })
+          return null
         }
         if (result.stopReason === 'completed') {
           if (opts.schema !== undefined) {
-            // The provider honored outputSchema (capability-gated at start), so
-            // a completed run without a structured value is a child failure.
-            if (result.structured === undefined) {
-              this.observer.agentEnd({ ...info, outcome: 'failed' })
+            // The provider captured a value, but a captured value is not yet a
+            // usable artifact: the host rejected any result that is not a JSON
+            // object or that omits a property the schema requires.
+            if (result.artifactFailure !== undefined) {
+              this.observer.agentEnd({
+                ...info,
+                outcome: 'failed',
+                reason: { kind: 'invalid-structured-output', detail: result.artifactFailure },
+              })
               return null
             }
             this.observer.agentEnd({ ...info, outcome: 'completed' })
@@ -218,7 +233,7 @@ export class WorkflowExecution {
           this.observer.agentEnd({ ...info, outcome: 'completed' })
           return outputText(result.output)
         }
-        this.observer.agentEnd({ ...info, outcome: 'failed' })
+        this.observer.agentEnd({ ...info, outcome: 'failed', reason: { kind: 'child-failed' } })
         return null
       } finally {
         await run.dispose()

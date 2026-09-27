@@ -9,6 +9,7 @@ import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import * as spawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
+import type { WorkflowAgentEndInfo } from '@deepseek-ai/dsh-workflow'
 import { STRUCTURED_OUTPUT_TOOL } from '@deepseek-ai/dsh-subagent-in-process-driver'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import PtcWorkflowEngine from '../src/index.ts'
@@ -74,11 +75,15 @@ return { prose, verdict: judged.verdict, confidence: judged.confidence }`,
     }
   })
 
-  it('a child that fails against its schema (nudges exhausted) reaches the script as null', async () => {
+  it('a child that fails against its schema reaches the script as null, and its settlement names the child and the cause', async () => {
     const { ctx, parent } = await setup([
       textResponse('prose only'),
       textResponse('still prose after the nudge'),
     ])
+    const ends: WorkflowAgentEndInfo[] = []
+    ctx.on('workflow/agent-end', (_info, agent) => { ends.push(agent) })
+    let startedChildId: string | undefined
+    ctx.on('workflow/agent-start', (_info, agent) => { startedChildId = agent.childId })
     const run = ctx.workflowEngine.start({
       meta: { name: 'null-path', description: 'schema failure maps to null' },
       script: `const judged = await agent('judge it', { schema: { type: 'object', properties: { v: { type: 'string' } } } })
@@ -88,6 +93,36 @@ return { got: judged === null ? 'null' : 'value' }`,
     const result = await run.result
     expect(result.stopReason, result.error?.split('\n')[0]).toBe('completed')
     expect(result.value).toEqual({ got: 'null' })
+    // The fan-out failure is attributable: exactly one settlement names the
+    // child it failed and the contract it failed, instead of a bare `null`.
+    expect(ends).toHaveLength(1)
+    expect(ends[0]).toMatchObject({
+      seq: 1,
+      outcome: 'failed',
+      reason: { kind: 'missing-structured-output' },
+    })
+    expect(ends[0]!.childId).toBe(startedChildId)
+    expect(ends[0]!.label.length).toBeGreaterThan(0)
+    await run.dispose()
+  })
+
+  it('a schema child that answers with prose fails its DECLARED contract, and the reason names the missing tool call', async () => {
+    const { ctx, parent } = await setup([
+      textResponse('{"v":"prose shaped like the answer"}'),
+      textResponse('still prose when asked again'),
+    ])
+    const ends: WorkflowAgentEndInfo[] = []
+    ctx.on('workflow/agent-end', (_info, agent) => { ends.push(agent) })
+    const run = ctx.workflowEngine.start({
+      meta: { name: 'prose-only', description: 'a plain-text answer never satisfies a declared schema' },
+      script: `const judged = await agent('answer in one line of JSON', { schema: { type: 'object', properties: { v: { type: 'string' } }, required: ['v'] } })
+return { got: judged === null ? 'null' : 'value' }`,
+      parent,
+    })
+    const result = await run.result
+    expect(result.stopReason, result.error?.split('\n')[0]).toBe('completed')
+    expect(result.value).toEqual({ got: 'null' })
+    expect(ends.at(-1)).toMatchObject({ outcome: 'failed', reason: { kind: 'missing-structured-output' } })
     await run.dispose()
   })
 

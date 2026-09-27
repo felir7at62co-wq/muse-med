@@ -165,6 +165,8 @@ function stopReasonError(result: SubagentResult): string | undefined {
       return 'subagent run hit its token limit before finishing'
     case 'refusal':
       return 'subagent declined the task'
+    case 'structured-output-missing':
+      return 'subagent finished without returning the requested structured result'
     // Merge-extensible union: a backend may add stop reasons. Treat an unknown
     // terminal reason as a failure rather than reporting partial output as success.
     default:

@@ -35,7 +35,14 @@ describe('durable workflow-record invariants', () => {
     session.append('tool-workflow/agent-start', {
       runId: third, seq: 1, label: 'failed', childId: SessionId('failed-child'),
     })
-    session.append('tool-workflow/agent-end', { runId: third, seq: 1, outcome: 'failed' })
+    session.append('tool-workflow/agent-end', {
+      runId: third,
+      seq: 1,
+      outcome: 'failed',
+      label: 'failed',
+      childId: SessionId('failed-child'),
+      reason: { kind: 'missing-structured-output' },
+    })
     session.append('tool-workflow/run-end', { runId: third, stopReason: 'error' })
     session.append('tool-workflow/run-start', { runId: WorkflowRunId('prefix'), name: 'prefix' })
     expect(() => session.append('tool-workflow/agent-start', {
@@ -161,6 +168,60 @@ describe('durable workflow-record invariants', () => {
         runId, seq: 1, label: 'late', childId: SessionId('child'),
       })
     }, /appears after/],
+    ['failure without a reason', (session, runId) => {
+      session.append('tool-workflow/agent-start', {
+        runId, seq: 1, label: 'one', childId: SessionId('child'),
+      })
+      session.append('tool-workflow/agent-end', { runId, seq: 1, outcome: 'failed' })
+    }, /carries no failure reason/],
+    ['unknown failure reason', (session, runId) => {
+      session.append('tool-workflow/agent-start', {
+        runId, seq: 1, label: 'one', childId: SessionId('child'),
+      })
+      session.append('tool-workflow/agent-end', {
+        runId, seq: 1, outcome: 'failed', reason: { kind: 'mystery' as never },
+      })
+    }, /failure reason mystery is invalid/],
+    ['empty structured-output failure detail', (session, runId) => {
+      session.append('tool-workflow/agent-start', {
+        runId, seq: 1, label: 'one', childId: SessionId('child'),
+      })
+      session.append('tool-workflow/agent-end', {
+        runId, seq: 1, outcome: 'failed', reason: { kind: 'invalid-structured-output', detail: '' },
+      })
+    }, /detail must be a non-empty string/],
+    ['reason on a completed member', (session, runId) => {
+      session.append('tool-workflow/agent-start', {
+        runId, seq: 1, label: 'one', childId: SessionId('child'),
+      })
+      session.append('tool-workflow/agent-end', {
+        runId, seq: 1, outcome: 'completed', reason: { kind: 'child-failed' },
+      })
+    }, /must not carry a failure reason/],
+    ['member label diverging from its start', (session, runId) => {
+      session.append('tool-workflow/agent-start', {
+        runId, seq: 1, label: 'one', childId: SessionId('child'),
+      })
+      session.append('tool-workflow/agent-end', {
+        runId, seq: 1, outcome: 'completed', label: 'two',
+      })
+    }, /label diverges from agent-start/],
+    ['member child diverging from its start', (session, runId) => {
+      session.append('tool-workflow/agent-start', {
+        runId, seq: 1, label: 'one', childId: SessionId('child'),
+      })
+      session.append('tool-workflow/agent-end', {
+        runId, seq: 1, outcome: 'completed', childId: SessionId('other-child'),
+      })
+    }, /childId diverges from agent-start/],
+    ['empty member child id', (session, runId) => {
+      session.append('tool-workflow/agent-start', {
+        runId, seq: 1, label: 'one', childId: SessionId('child'),
+      })
+      session.append('tool-workflow/agent-end', {
+        runId, seq: 1, outcome: 'completed', childId: SessionId(''),
+      })
+    }, /childId must be a non-empty string/],
     ['unknown workflow event', (session, runId) => {
       appendRaw(session, 'tool-workflow/unknown', { runId })
     }, /unknown tool-workflow event type/],

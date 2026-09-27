@@ -49,7 +49,8 @@ export interface ChildStartRequest {
 /**
  * The JSON projection of a child's `SubagentResult`. The
  * seam's `stopReason` union is merge-extensible, so it degrades to `string`
- * on the wire — the runtime only ever branches on `'completed'`.
+ * on the wire — the runtime branches on `'completed'` and on
+ * `'structured-output-missing'`, and reads every other value as a child failure.
  */
 export interface ChildResult {
   /** The child's final assistant output blocks. */
@@ -58,6 +59,16 @@ export interface ChildResult {
   structured?: unknown
   /** Why the child run ended (`'completed'` is the only value the runtime branches on). */
   stopReason: string
+  /**
+   * Provider-authored failure detail for a non-`completed` child, when the
+   * provider reported one. It refines the failure reason; it never replaces it.
+   */
+  diagnostic?: string
+  /**
+   * Present iff the call declared a schema and the structured result failed the
+   * host's artifact check — the reason text names what the result lacked.
+   */
+  artifactFailure?: string
 }
 
 /**

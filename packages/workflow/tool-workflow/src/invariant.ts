@@ -14,10 +14,26 @@ export const inject = ['invariants']
 
 interface RunTrace {
   ended: boolean
-  readonly members: Map<number, boolean>
+  readonly members: Map<number, MemberTrace>
+}
+
+/** One member's recorded start identity and settlement state. */
+interface MemberTrace {
+  readonly label: string
+  readonly childId: string
+  ended: boolean
 }
 
 type WorkflowTrace = Map<string, RunTrace>
+
+/** Failure reasons a durable record may carry, mirroring the workflow engine's closed union. */
+const FAILURE_REASONS: ReadonlySet<string> = new Set([
+  'child-failed',
+  'missing-structured-output',
+  'invalid-structured-output',
+  'infrastructure-fault',
+  'cancelled',
+])
 
 /** Whether this package owns the candidate Session event. */
 function isWorkflowRecordEvent(event: SessionEvent): boolean {
@@ -59,7 +75,10 @@ function cloneTraceForEvent(
   const runId = stringId(data.runId, `${event.type} runId`, fail)
   const run = source.get(runId)
   if (run !== undefined) {
-    trace.set(runId, { ended: run.ended, members: new Map(run.members) })
+    trace.set(runId, {
+      ended: run.ended,
+      members: new Map([...run.members].map(([seq, member]) => [seq, { ...member }])),
+    })
   }
   return trace
 }
@@ -93,9 +112,9 @@ function applyEvent(trace: WorkflowTrace, event: SessionEvent, fail: InvariantFa
       if (data.phase !== undefined && typeof data.phase !== 'string') {
         fail('tool-workflow/agent-start phase must be a string when present')
       }
-      stringId(data.childId, 'tool-workflow/agent-start childId', fail)
+      const childId = stringId(data.childId, 'tool-workflow/agent-start childId', fail)
       if (run.members.has(seq)) fail(`tool-workflow/agent-start repeats member seq ${seq} in run ${runId}`)
-      run.members.set(seq, false)
+      run.members.set(seq, { label: data.label, childId, ended: false })
       return
     }
     case 'tool-workflow/agent-end': {
@@ -104,10 +123,36 @@ function applyEvent(trace: WorkflowTrace, event: SessionEvent, fail: InvariantFa
       if (data.outcome !== 'completed' && data.outcome !== 'failed' && data.outcome !== 'cancelled') {
         fail(`tool-workflow/agent-end outcome ${String(data.outcome)} is invalid`)
       }
-      const ended = run.members.get(seq)
-      if (ended === undefined) fail(`tool-workflow/agent-end has no matching member seq ${seq} in run ${runId}`)
-      if (ended) fail(`tool-workflow/agent-end repeats member seq ${seq} in run ${runId}`)
-      run.members.set(seq, true)
+      const member = run.members.get(seq)
+      if (member === undefined) fail(`tool-workflow/agent-end has no matching member seq ${seq} in run ${runId}`)
+      if (member.ended) fail(`tool-workflow/agent-end repeats member seq ${seq} in run ${runId}`)
+      // The settlement repeats the member's recorded identity so a reader can
+      // attribute the failure from this record: a divergence would name the
+      // wrong child, and an absent reason would leave `failed` unexplained.
+      if (data.label !== undefined && data.label !== member.label) {
+        fail(`tool-workflow/agent-end label diverges from agent-start for seq ${seq} in run ${runId}`)
+      }
+      if (data.childId !== undefined
+        && stringId(data.childId, 'tool-workflow/agent-end childId', fail) !== member.childId) {
+        fail(`tool-workflow/agent-end childId diverges from agent-start for seq ${seq} in run ${runId}`)
+      }
+      const reason: unknown = data.reason
+      if (data.outcome === 'failed') {
+        if (reason === null || typeof reason !== 'object' || Array.isArray(reason)) {
+          fail(`tool-workflow/agent-end outcome failed carries no failure reason for seq ${seq} in run ${runId}`)
+        }
+        const kind = (reason as Record<string, unknown>)['kind']
+        if (typeof kind !== 'string' || !FAILURE_REASONS.has(kind)) {
+          fail(`tool-workflow/agent-end failure reason ${String(kind)} is invalid`)
+        }
+        const detail = (reason as Record<string, unknown>)['detail']
+        if (detail !== undefined && (typeof detail !== 'string' || detail.length === 0)) {
+          fail('tool-workflow/agent-end failure reason detail must be a non-empty string when present')
+        }
+      } else if (reason !== undefined) {
+        fail(`tool-workflow/agent-end outcome ${data.outcome} must not carry a failure reason`)
+      }
+      member.ended = true
       return
     }
     case 'tool-workflow/run-end': {
@@ -115,7 +160,7 @@ function applyEvent(trace: WorkflowTrace, event: SessionEvent, fail: InvariantFa
       if (data.stopReason !== 'completed' && data.stopReason !== 'cancelled' && data.stopReason !== 'error') {
         fail(`tool-workflow/run-end stopReason ${String(data.stopReason)} is invalid`)
       }
-      const openMembers = [...run.members].filter(([, ended]) => !ended).map(([seq]) => seq)
+      const openMembers = [...run.members].filter(([, member]) => !member.ended).map(([seq]) => seq)
       if (openMembers.length > 0) {
         fail(`tool-workflow/run-end leaves member seq ${openMembers.join(', ')} open in run ${runId}`)
       }

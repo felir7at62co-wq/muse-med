@@ -118,6 +118,10 @@ function settlementSummary(childId: SessionId, stopReason: SubagentResult['stopR
       return `${subject} declined the task.`
     case 'error':
       return `${subject} failed before it finished.`
+    // The child finished its turn but never returned the value the caller asked
+    // for, so the parent must not read the task as delivered.
+    case 'structured-output-missing':
+      return `${subject} finished without returning the requested structured result.`
     /* v8 ignore next 4 -- `SubagentResult['stopReason']` is merge-extensible, so this arm
      * needs a backend that adds a variant; an unnameable ending is reported as unfinished
      * rather than silently as success. */

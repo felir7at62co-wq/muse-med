@@ -49,7 +49,7 @@
 | `event:permission/preset` | event | `5c45bf4c544a7211dcd8ba6ba7e5f1bc39b49e7a9df9d5cbdc8e87c22771b37b` | [`event:permission/preset`](#persistence-type-eventpermissionpreset) |
 | `event:plan/mode` | event | `a7cf43ce7c2a4c038feed1885cd7a00d5c6ee2d90a7e0d56b46f78a3e1ca327f` | [`event:plan/mode`](#persistence-type-eventplanmode) |
 | `event:request/context` | event | `37cbc9cf06d494cfe5c67f078af1605eacb8e4c2c853e9e26455b73de0ee7ccf` | [`event:request/context`](#persistence-type-eventrequestcontext) |
-| `event:request/header` | event | `8ea13bcd983eab596dbfd41c5c2b62a0b318b71cd2a987a6fd752c6ced7e4489` | [`event:request/header`](#persistence-type-eventrequestheader) |
+| `event:request/header` | event | `86d346e960ae99afd17e93e196fd21ec4af124c9291e9a8dfdb120b21e2b2b61` | [`event:request/header`](#persistence-type-eventrequestheader) |
 | `event:sandbox/mode` | event | `516da4cdd6d2f1e5ce488e648578ca51f40e458f707b803e5b24de870e799415` | [`event:sandbox/mode`](#persistence-type-eventsandboxmode) |
 | `event:schedule/change` | event | `2a7f86849ae54b3398ee49661a757c4fcb59a6192b7036ee2ff514617e13fb42` | [`event:schedule/change`](#persistence-type-eventschedulechange) |
 | `event:session-log-deepseek/delivery-accepted` | event | `d63b8b8ffad9c02fd80c43a17df4f240c1fe8118ecca9de34f9d5871838ab5b9` | [`event:session-log-deepseek/delivery-accepted`](#persistence-type-eventsession-log-deepseekdelivery-accepted) |
@@ -67,7 +67,7 @@
 | `event:team/message/queued` | event | `443371ec07a03a82a0e93d93abca3e70b03bca55ba5b01d507030fcb66e8fbb4` | [`event:team/message/queued`](#persistence-type-eventteammessagequeued) |
 | `event:team/task` | event | `d595ec73b32b016a6055333c67a5d646032b22e672da1d4a09c5b1ae398a093a` | [`event:team/task`](#persistence-type-eventteamtask) |
 | `event:todo/write` | event | `b978cff734e62143eb56c9125423ec275405eda969802d42aaf73ecb987d3b26` | [`event:todo/write`](#persistence-type-eventtodowrite) |
-| `event:tool-workflow/agent-end` | event | `babf9ee4d1af62bf6c3a8103737f7a5e4e78ce179be835ce05a38803e15884b7` | [`event:tool-workflow/agent-end`](#persistence-type-eventtool-workflowagent-end) |
+| `event:tool-workflow/agent-end` | event | `97f28ee66b90659375a15144c1629b784d4f4a70978d0b414e6bdde2e20d5da0` | [`event:tool-workflow/agent-end`](#persistence-type-eventtool-workflowagent-end) |
 | `event:tool-workflow/agent-start` | event | `5f26a6c20b37632f8f57729d171c671def4683d994ac6257a8dffcd855101627` | [`event:tool-workflow/agent-start`](#persistence-type-eventtool-workflowagent-start) |
 | `event:tool-workflow/run-end` | event | `42e0916e0dda5f6d1e7bb05d8514717147c036a79c9f36085683469516c1fd3f` | [`event:tool-workflow/run-end`](#persistence-type-eventtool-workflowrun-end) |
 | `event:tool-workflow/run-start` | event | `c1f9e0405de6d18cabb9ee70782a027f9bbdc57e5abec9dcccdd56119e2e9058` | [`event:tool-workflow/run-start`](#persistence-type-eventtool-workflowrun-start) |
@@ -197,7 +197,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'agent-preset/selected': { agentPreset: string }
 ```
 
-来源：[`packages/preset/agent-presets/src/session.ts:28`](../packages/preset/agent-presets/src/session.ts)
+来源：[`packages/preset/agent-presets/src/session.ts:29`](../packages/preset/agent-presets/src/session.ts)
 
 ### `approval/*`
 
@@ -1123,12 +1123,12 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```ts persistence-catalog
 /**
  * Records one member settlement.
- * @param data - run identity, paired member sequence, and outcome.
+ * @param data - run identity, paired member sequence, outcome, settled member identity, and the failure reason when it failed.
  */
 'tool-workflow/agent-end': ToolWorkflowAgentEndData
 ```
 
-来源：[`packages/workflow/tool-workflow/src/types.ts:57`](../packages/workflow/tool-workflow/src/types.ts)
+来源：[`packages/workflow/tool-workflow/src/types.ts:70`](../packages/workflow/tool-workflow/src/types.ts)
 
 <a id="tool-workflowagent-start--log-only"></a>
 
@@ -1142,7 +1142,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'tool-workflow/agent-start': ToolWorkflowAgentStartData
 ```
 
-来源：[`packages/workflow/tool-workflow/src/types.ts:52`](../packages/workflow/tool-workflow/src/types.ts)
+来源：[`packages/workflow/tool-workflow/src/types.ts:65`](../packages/workflow/tool-workflow/src/types.ts)
 
 <a id="tool-workflowrun-end--log-only"></a>
 
@@ -1156,7 +1156,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'tool-workflow/run-end': ToolWorkflowRunEndData
 ```
 
-来源：[`packages/workflow/tool-workflow/src/types.ts:62`](../packages/workflow/tool-workflow/src/types.ts)
+来源：[`packages/workflow/tool-workflow/src/types.ts:75`](../packages/workflow/tool-workflow/src/types.ts)
 
 <a id="tool-workflowrun-start--log-only"></a>
 
@@ -1170,7 +1170,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'tool-workflow/run-start': ToolWorkflowRunStartData
 ```
 
-来源：[`packages/workflow/tool-workflow/src/types.ts:47`](../packages/workflow/tool-workflow/src/types.ts)
+来源：[`packages/workflow/tool-workflow/src/types.ts:60`](../packages/workflow/tool-workflow/src/types.ts)
 
 ### `turn/*`
 
@@ -1494,6 +1494,14 @@ SHA-256: `f789af5ab844827eb5a4f357c0afae1eeed108c6c22d8ca1a56e586b349a7c85`
 
 `"change"`
 
+<a id="persistence-type-child-failed"></a>
+
+### `"child-failed"`
+
+SHA-256: `99338c09f02190e9231deeed9470c649f1cad62e324b8fcd65d4512a84020f7b`
+
+`"child-failed"`
+
 <a id="persistence-type-chunk"></a>
 
 ### `"chunk"`
@@ -1698,7 +1706,7 @@ SHA-256: `a10c17474eaf2ddab7095a099e0fe3d046fc18e56c3e344fc8894c05ff9ef97b`
 
 SHA-256: `6e52dd55a1d48954ed5464ec46fe34d9eb65f709baabc9561e7a279910b0c406`
 
-来源：[`packages/preset/agent-presets/src/session.ts:28`](../packages/preset/agent-presets/src/session.ts)
+来源：[`packages/preset/agent-presets/src/session.ts:29`](../packages/preset/agent-presets/src/session.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -2981,7 +2989,7 @@ SHA-256: `37cbc9cf06d494cfe5c67f078af1605eacb8e4c2c853e9e26455b73de0ee7ccf`
 
 ### `event:request/header`
 
-SHA-256: `8ea13bcd983eab596dbfd41c5c2b62a0b318b71cd2a987a6fd752c6ced7e4489`
+SHA-256: `86d346e960ae99afd17e93e196fd21ec4af124c9291e9a8dfdb120b21e2b2b61`
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -2995,7 +3003,7 @@ SHA-256: `8ea13bcd983eab596dbfd41c5c2b62a0b318b71cd2a987a6fd752c6ced7e4489`
 
 ### `event:request/header.data`
 
-SHA-256: `2f0aefb72ab453c4bf21a6687f436775d359dc6f8f10410fd4c0615b20bd9d76`
+SHA-256: `3658cb76b092916596c9800c8a7a573ea2b7c3aa5d03afa0dc4fac4dc7042d2c`
 
 来源：[`packages/core/session/src/types.ts:370`](../packages/core/session/src/types.ts)
 
@@ -3004,6 +3012,18 @@ SHA-256: `2f0aefb72ab453c4bf21a6687f436775d359dc6f8f10410fd4c0615b20bd9d76`
 | `header` | 必需 | [`packages/core/session/src/types.ts#EpochHeader`](#persistence-type-packagescoresessionsrctypestsepochheader) |
 | `reason` | 必需 | [`packages/core/session/src/types.ts#RequestHeaderReason`](#persistence-type-packagescoresessionsrctypestsrequestheaderreason) |
 | `startsSeries` | 可选 | `true` |
+
+<a id="persistence-type-eventrequestheaderdataheaderconfigresponseformat"></a>
+
+### `event:request/header.data.header.config.responseFormat`
+
+SHA-256: `c8ec3017eb6ea678ea380c08909377f9ca34c70e4542a1fab4231378612eead2`
+
+来源：[`packages/llm/llm/src/call-config.ts:30`](../packages/llm/llm/src/call-config.ts)
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `type` | 必需 | `"json_object"` |
 
 <a id="persistence-type-eventrequestheaderdataheadertools"></a>
 
@@ -3543,7 +3563,7 @@ SHA-256: `fd0d91a1f9dd2efb8959bdf5e07f8f0a98b1cdfa38ce8d4732ebde0b44c3abd4`
 
 ### `event:tool-workflow/agent-end`
 
-SHA-256: `babf9ee4d1af62bf6c3a8103737f7a5e4e78ce179be835ce05a38803e15884b7`
+SHA-256: `97f28ee66b90659375a15144c1629b784d4f4a70978d0b414e6bdde2e20d5da0`
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -3552,6 +3572,81 @@ SHA-256: `babf9ee4d1af62bf6c3a8103737f7a5e4e78ce179be835ce05a38803e15884b7`
 | `seq` | 必需 | `number` |
 | `time` | 必需 | `number` |
 | `type` | 必需 | `"tool-workflow/agent-end"` |
+
+<a id="persistence-type-eventtool-workflowagent-enddatareason"></a>
+
+### `event:tool-workflow/agent-end.data.reason`
+
+SHA-256: `e6d96a7a706efbd9ae8ca8d7d4b05cde45cbfb4c50626f17b3ccda527303cbab`
+
+以下类型之一：
+
+- [`event:tool-workflow/agent-end.data.reason[2]`](#persistence-type-eventtool-workflowagent-enddatareason2)
+- [`event:tool-workflow/agent-end.data.reason[4]`](#persistence-type-eventtool-workflowagent-enddatareason4)
+- [`event:tool-workflow/agent-end.data.reason[0]`](#persistence-type-eventtool-workflowagent-enddatareason0)
+- [`event:tool-workflow/agent-end.data.reason[3]`](#persistence-type-eventtool-workflowagent-enddatareason3)
+- [`event:tool-workflow/agent-end.data.reason[1]`](#persistence-type-eventtool-workflowagent-enddatareason1)
+
+<a id="persistence-type-eventtool-workflowagent-enddatareason0"></a>
+
+### `event:tool-workflow/agent-end.data.reason[0]`
+
+SHA-256: `6525060d56d9eca12d150e3a173c3d0b6b53035d54b376f5d50d54919e78f896`
+
+来源：[`packages/workflow/workflow/src/types.ts:120`](../packages/workflow/workflow/src/types.ts)
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `kind` | 必需 | `"child-failed"` |
+
+<a id="persistence-type-eventtool-workflowagent-enddatareason1"></a>
+
+### `event:tool-workflow/agent-end.data.reason[1]`
+
+SHA-256: `f5acb9b787f8f0edd95f10689a0005b72460ead547b7962ed10ad27953e422ee`
+
+来源：[`packages/workflow/workflow/src/types.ts:125`](../packages/workflow/workflow/src/types.ts)
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `kind` | 必需 | `"missing-structured-output"` |
+
+<a id="persistence-type-eventtool-workflowagent-enddatareason2"></a>
+
+### `event:tool-workflow/agent-end.data.reason[2]`
+
+SHA-256: `bdeff92957b132da84f8b4a8c4a39336f12b0ad4f33f3d3ad6de5a06dab0eaff`
+
+来源：[`packages/workflow/workflow/src/types.ts:127`](../packages/workflow/workflow/src/types.ts)
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `detail` | 必需 | `string` |
+| `kind` | 必需 | `"invalid-structured-output"` |
+
+<a id="persistence-type-eventtool-workflowagent-enddatareason3"></a>
+
+### `event:tool-workflow/agent-end.data.reason[3]`
+
+SHA-256: `9496ad0d68a3a76ce1441eeab2be80a1e9fe5554ca4dd6ec302cbe1e858214d6`
+
+来源：[`packages/workflow/workflow/src/types.ts:129`](../packages/workflow/workflow/src/types.ts)
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `kind` | 必需 | `"infrastructure-fault"` |
+
+<a id="persistence-type-eventtool-workflowagent-enddatareason4"></a>
+
+### `event:tool-workflow/agent-end.data.reason[4]`
+
+SHA-256: `4cfaa13f7901827d6ec76ef67e23ea895de763bb41f0a0f89d6aec28b7d01899`
+
+来源：[`packages/workflow/workflow/src/types.ts:131`](../packages/workflow/workflow/src/types.ts)
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `kind` | 必需 | `"cancelled"` |
 
 <a id="persistence-type-eventtool-workflowagent-start"></a>
 
@@ -4219,6 +4314,14 @@ SHA-256: `94c56aeb1564ad735eb773d88636b40761d063efa1610f1308004d32923f5378`
 
 `"in_progress"`
 
+<a id="persistence-type-infrastructure-fault"></a>
+
+### `"infrastructure-fault"`
+
+SHA-256: `89618c15ca906b831853ec02dfb3b09e92acc033ebe8b68f91d754108b264f76`
+
+`"infrastructure-fault"`
+
 <a id="persistence-type-initial"></a>
 
 ### `"initial"`
@@ -4251,6 +4354,22 @@ SHA-256: `69d238a6e9b08d67f601b1825962963d8d3523cb69ebf6208c697dc5d058c199`
 
 `"interrupted"`
 
+<a id="persistence-type-invalid-structured-output"></a>
+
+### `"invalid-structured-output"`
+
+SHA-256: `9b40a083f7957b0ff4fc399ed51268ba62e5e07eeefc0b7e0eb4f8cd8974ad5f`
+
+`"invalid-structured-output"`
+
+<a id="persistence-type-json_object"></a>
+
+### `"json_object"`
+
+SHA-256: `9e17e1420f514226f4ce662e1a7cf40bf765d04b4f7dc3eec4f3eefc3ee55e6c`
+
+`"json_object"`
+
 <a id="persistence-type-legacy"></a>
 
 ### `"legacy"`
@@ -4282,6 +4401,14 @@ SHA-256: `4ae007ed190a72c92138b22d059b83208079c7551ca13fb59ae8cf5e23693964`
 SHA-256: `68141cbe3994a5ffcd064c07c75996538437fd9dbf77ce8a2927e89ec577fabe`
 
 `"max-tokens"`
+
+<a id="persistence-type-missing-structured-output"></a>
+
+### `"missing-structured-output"`
+
+SHA-256: `332d88268bf3c81c943661f2c3c7c5a07f1d18a063a7176d56155dc5dfe6bf42`
+
+`"missing-structured-output"`
 
 <a id="persistence-type-model"></a>
 
@@ -4518,7 +4645,7 @@ SHA-256: `96f4a9c81fc0f940ef71528a8cc66731ae4cf1f40d79680c5fe3c39f96d7723c`
 
 ### `packages/core/session/src/types.ts#EpochHeader`
 
-SHA-256: `c55a891c7aac496de6ee64c91c1fb65728c977314013033e42c863428aada854`
+SHA-256: `d422146979cadcb183502856733fd354f1620be00f15bfd085530dcdf24297f4`
 
 来源：[`packages/core/session/src/types.ts:232`](../packages/core/session/src/types.ts)
 
@@ -5061,7 +5188,7 @@ SHA-256: `86cf1e44038cb8b11659863dd0efafe682e41b9c782265c1d50e0a687debfc60`
 
 ### `packages/llm/llm/src/call-config.ts#LlmCallConfig`
 
-SHA-256: `67d5f73ceae82f5265258142ad6cf172de2c1fef93ba551b7f0454e0a93bffe0`
+SHA-256: `c36c97875983ee4ddd08eb8dc413ae62f748f0702afcbdbae872dbd46165a357`
 
 来源：[`packages/llm/llm/src/call-config.ts:23`](../packages/llm/llm/src/call-config.ts)
 
@@ -5071,6 +5198,7 @@ SHA-256: `67d5f73ceae82f5265258142ad6cf172de2c1fef93ba551b7f0454e0a93bffe0`
 | `model` | 必需 | `string` |
 | `provider` | 必需 | `string` |
 | `reasoningEffort` | 可选 | `string` |
+| `responseFormat` | 可选 | [`event:request/header.data.header.config.responseFormat`](#persistence-type-eventrequestheaderdataheaderconfigresponseformat) |
 | `stop` | 可选 | [`event:assistant/attempt.data.stream[0][0].texts`](#persistence-type-eventassistantattemptdatastream00texts) |
 | `temperature` | 可选 | `number` |
 
@@ -5080,7 +5208,7 @@ SHA-256: `67d5f73ceae82f5265258142ad6cf172de2c1fef93ba551b7f0454e0a93bffe0`
 
 SHA-256: `326a9bfda27dda5882fb3cbe6e715df41dae2298fdae3d66437457268a665693`
 
-来源：[`packages/llm/llm/src/call-config.ts:36`](../packages/llm/llm/src/call-config.ts)
+来源：[`packages/llm/llm/src/call-config.ts:37`](../packages/llm/llm/src/call-config.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -5809,13 +5937,16 @@ SHA-256: `2517ba143a271508d3ca35126d5aca8f7f1facf5aaddce4adf011832042fa2b9`
 
 ### `packages/workflow/tool-workflow/src/types.ts#ToolWorkflowAgentEndData`
 
-SHA-256: `c0ea97bc89dfc46fa94eab956f5c3ee6af2f964aa7db6327cb18b451f207bef7`
+SHA-256: `f8033aa0b2da01926fb3fb027afc7bd82c53d915e931d4bb30fbd06907ad37f4`
 
-来源：[`packages/workflow/tool-workflow/src/types.ts:29`](../packages/workflow/tool-workflow/src/types.ts)
+来源：[`packages/workflow/tool-workflow/src/types.ts:36`](../packages/workflow/tool-workflow/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
+| `childId` | 可选 | `string` |
+| `label` | 可选 | `string` |
 | `outcome` | 必需 | [`packages/workflow/workflow/src/types.ts#WorkflowAgentOutcome`](#persistence-type-packagesworkflowworkflowsrctypestsworkflowagentoutcome) |
+| `reason` | 可选 | [`event:tool-workflow/agent-end.data.reason`](#persistence-type-eventtool-workflowagent-enddatareason) |
 | `runId` | 必需 | `string` |
 | `seq` | 必需 | `number` |
 
@@ -5841,7 +5972,7 @@ SHA-256: `9a410ddf56792b2b7cd4a224a2e54dc4dee30a8e8e6b1c2b9a1d19992b217adc`
 
 SHA-256: `7f9365bae9fcb73e1e34061a1acfe0422c1a5fd351848cace9bebbe806f28462`
 
-来源：[`packages/workflow/tool-workflow/src/types.ts:36`](../packages/workflow/tool-workflow/src/types.ts)
+来源：[`packages/workflow/tool-workflow/src/types.ts:49`](../packages/workflow/tool-workflow/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|

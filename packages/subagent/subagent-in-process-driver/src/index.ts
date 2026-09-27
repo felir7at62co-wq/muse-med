@@ -38,6 +38,7 @@ import type {
 } from '@deepseek-ai/dsh-subagent'
 import {
   attachStructuredRuntime,
+  STRUCTURED_OUTPUT_TOOL,
   type StructuredAttachment,
 } from './structured.ts'
 
@@ -232,7 +233,13 @@ function readResult(
     if (structured.captured !== undefined) {
       return { output, structured: structured.captured.value, stopReason }
     }
-    if (stopReason === 'completed') return { output, stopReason: cancelled ? 'aborted' : 'error' }
+    if (stopReason === 'completed') {
+      return {
+        output,
+        stopReason: cancelled ? 'aborted' : 'structured-output-missing',
+        diagnostic: `the child finished without calling \`${STRUCTURED_OUTPUT_TOOL}\`, so the requested outputSchema was never satisfied`,
+      }
+    }
   }
   return { output, stopReason }
 }

@@ -36,6 +36,34 @@ function traceFor(
   return trace
 }
 
+/** Outcome variants that carry a failure reason, and only those. */
+const FAILURE_REASONS: ReadonlySet<string> = new Set([
+  'child-failed',
+  'missing-structured-output',
+  'invalid-structured-output',
+  'infrastructure-fault',
+  'cancelled',
+])
+
+/** Assert the failure reason is present exactly on `failed` and structurally valid. */
+function validateAgentReason(end: WorkflowAgentEndInfo, fail: InvariantFailure): void {
+  const reason = end.reason
+  if (end.outcome !== 'failed') {
+    if (reason !== undefined) fail(`workflow/agent-end carries a reason for outcome ${JSON.stringify(end.outcome)}`)
+    return
+  }
+  if (reason === undefined) {
+    fail(`workflow/agent-end outcome "failed" carries no failure reason for seq ${end.seq}`)
+    return
+  }
+  if (!FAILURE_REASONS.has(reason.kind)) {
+    fail(`workflow/agent-end carries unknown failure reason ${JSON.stringify(reason.kind)}`)
+  }
+  if (reason.kind === 'invalid-structured-output' && reason.detail.length === 0) {
+    fail('workflow/agent-end invalid-structured-output detail must be non-empty')
+  }
+}
+
 /** Assert the immutable identity fields shared by an agent pair. */
 function validateAgentEnd(start: WorkflowAgentInfo, end: WorkflowAgentEndInfo, fail: InvariantFailure): void {
   if (start.label !== end.label || start.phase !== end.phase || start.childId !== end.childId) {
@@ -45,6 +73,7 @@ function validateAgentEnd(start: WorkflowAgentInfo, end: WorkflowAgentEndInfo, f
   if (outcome !== 'completed' && outcome !== 'failed' && outcome !== 'cancelled') {
     fail(`workflow/agent-end carries unknown outcome ${JSON.stringify(outcome)}`)
   }
+  validateAgentReason(end, fail)
 }
 
 /** Validate a terminal result against the accumulated run trace. */

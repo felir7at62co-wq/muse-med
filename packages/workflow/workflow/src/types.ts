@@ -109,10 +109,33 @@ export interface WorkflowAgentInfo {
 /** How one `agent()` call settled: clean result, child failure (script sees `null`), or run cancellation. */
 export type WorkflowAgentOutcome = 'completed' | 'failed' | 'cancelled'
 
+/**
+ * Why one `agent()` call settled `failed`, as a tagged, closed union so an
+ * observer can attribute a fan-out failure without replaying child Sessions.
+ * Every variant except `cancelled` and `infrastructure-fault` means the child
+ * Session settled on its own terms and its result failed the return contract.
+ */
+export type WorkflowAgentFailureReason =
+  /** The child settled with a non-`completed` stop reason (its own model, transport, or refusal failure). */
+  | { readonly kind: 'child-failed' }
+  /**
+   * The call requested `schema` and the child settled `completed` without
+   * committing a structured result, so the script received `null`.
+   */
+  | { readonly kind: 'missing-structured-output' }
+  /** The structured result failed the artifact check: it is not a JSON object, or it omits a property the schema requires. */
+  | { readonly kind: 'invalid-structured-output'; readonly detail: string }
+  /** The child Session could not sustain the run: its result channel rejected. */
+  | { readonly kind: 'infrastructure-fault' }
+  /** The run was cancelled or disposed before the child settled. */
+  | { readonly kind: 'cancelled' }
+
 /** One `agent()` call's settlement (the `workflow/agent-end` payload). */
 export interface WorkflowAgentEndInfo extends WorkflowAgentInfo {
   /** How the call settled. */
   outcome: WorkflowAgentOutcome
+  /** Why the call failed; present iff `outcome` is `failed`. */
+  reason?: WorkflowAgentFailureReason
 }
 
 /**

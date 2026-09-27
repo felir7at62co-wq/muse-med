@@ -9,7 +9,8 @@ import type { SubagentRun } from '@deepseek-ai/dsh-subagent'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import { assertNever, snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
-import type { WorkflowAgentEndInfo, WorkflowAgentInfo, WorkflowMeta, WorkflowResult, WorkflowRun, WorkflowRunId } from '@deepseek-ai/dsh-workflow'
+import type { WorkflowAgentEndInfo, WorkflowAgentFailureReason, WorkflowAgentInfo, WorkflowMeta, WorkflowResult, WorkflowRun, WorkflowRunId } from '@deepseek-ai/dsh-workflow'
+import { checkArtifact, renderArtifactFailure } from './artifact.ts'
 import { WORKFLOW_GUEST_SOURCE } from './guest-source.ts'
 import type { WorkflowProgress } from './guest-types.ts'
 import { renderThrown } from './realm.ts'
@@ -19,8 +20,31 @@ import type { ChildStartRequest, WorkerInit } from './types.ts'
 interface ChildRecord {
   readonly callId: number
   readonly run: SubagentRun
+  /** The schema this child's `agent()` call declared, when it declared one. */
+  readonly schema?: ObjectJsonSchema
   disposal?: Promise<void>
 }
+
+/** Failure reasons a guest may report; a reason outside this set is a protocol violation. */
+const AGENT_FAILURE_REASONS: ReadonlySet<string> = new Set([
+  'child-failed',
+  'missing-structured-output',
+  'invalid-structured-output',
+  'infrastructure-fault',
+  'cancelled',
+])
+
+/**
+ * The return contract prepended to a schema child's prompt. A task body that
+ * describes its own return format — "return one line of JSON", "reply with
+ * JSON" — states the same payload as the schema, so the child must not read it
+ * as a competing instruction to answer in plain text and skip the tool call.
+ */
+export const STRUCTURED_RETURN_NOTICE = [
+  'Return contract for this task (it overrides any other return instruction in the text below):',
+  'finish by calling the `structured_output` tool once, with a JSON object matching the parameter schema it declares.',
+  'Only that tool call carries your result; a plain text answer is discarded and the task is recorded as failed.',
+].join(' ')
 
 const GUEST_URL = `data:text/javascript,${encodeURIComponent(WORKFLOW_GUEST_SOURCE)}`
 const PROGRAM = `const { runWorkflowGuest } = await import(${JSON.stringify(GUEST_URL)}); return await runWorkflowGuest(workflowHost);`
@@ -71,6 +95,15 @@ function agentInfo(value: unknown): WorkflowAgentInfo {
   }
 }
 
+function agentFailureReason(value: unknown): WorkflowAgentFailureReason | undefined {
+  if (value === undefined) return undefined
+  const reason = object(value)
+  const kind = reason.kind
+  if (typeof kind !== 'string' || !AGENT_FAILURE_REASONS.has(kind)) throw new Error('invalid workflow agent failure reason')
+  if (kind !== 'invalid-structured-output') return { kind } as WorkflowAgentFailureReason
+  return { kind, detail: text(reason.detail, 'agent failure reason detail') }
+}
+
 function progress(value: unknown): WorkflowProgress {
   const event = object(value)
   switch (event.type) {
@@ -80,7 +113,11 @@ function progress(value: unknown): WorkflowProgress {
     case 'agent-end': {
       const info = object(event.info)
       if (info.outcome !== 'completed' && info.outcome !== 'failed' && info.outcome !== 'cancelled') throw new Error('invalid workflow agent outcome')
-      return { type: 'agent-end', info: { ...agentInfo(info), outcome: info.outcome } }
+      const reason = agentFailureReason(info.reason)
+      return {
+        type: 'agent-end',
+        info: { ...agentInfo(info), outcome: info.outcome, ...reason === undefined ? {} : { reason } },
+      }
     }
     default: throw new Error('invalid workflow progress event')
   }
@@ -198,7 +235,12 @@ export class PtcWorkflowRun implements WorkflowRun {
     this.requireActive()
     const callId = ++this.started
     const run = await this.subagents.start(this.provider, {
-      prompt: [{ type: 'text', text: request.prompt }],
+      prompt: [{
+        type: 'text',
+        text: request.schema === undefined
+          ? request.prompt
+          : `${STRUCTURED_RETURN_NOTICE}\n\n${request.prompt}`,
+      }],
       parent: this.parent,
       signal: this.controller.signal,
       ...request.schema === undefined ? {} : { outputSchema: request.schema },
@@ -209,7 +251,11 @@ export class PtcWorkflowRun implements WorkflowRun {
         },
       },
     })
-    const record: ChildRecord = { callId, run }
+    const record: ChildRecord = {
+      callId,
+      run,
+      ...request.schema === undefined ? {} : { schema: request.schema },
+    }
     this.children.set(callId, record)
     // A provider can publish after the signal fired while startup was pending.
     if (this.controller.signal.aborted) {
@@ -227,10 +273,22 @@ export class PtcWorkflowRun implements WorkflowRun {
     signal.addEventListener('abort', onAbort, { once: true })
     try {
       const result = await Promise.race([record.run.result, aborted.promise])
+      // The artifact check reads the DECLARED return contract, so a value that
+      // is not a JSON object, or one that omits what the schema requires, is
+      // rejected here rather than read as a completed child. A value the JSON
+      // channel cannot carry at all fails the same check and never reaches the
+      // lossless-JSON guard below with a silent `undefined`.
+      const artifact = record.schema === undefined
+        ? undefined
+        : checkArtifact(record.schema, result.structured)
       return json({
         output: result.output,
         stopReason: result.stopReason,
         ...result.structured === undefined ? {} : { structured: result.structured },
+        ...result.diagnostic === undefined ? {} : { diagnostic: result.diagnostic },
+        ...artifact === undefined || artifact.ok
+          ? {}
+          : { artifactFailure: renderArtifactFailure(artifact.failure) },
       })
     } finally {
       signal.removeEventListener('abort', onAbort)

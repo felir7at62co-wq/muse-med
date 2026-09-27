@@ -6393,7 +6393,7 @@
       "kind": "event",
       "event": "request/header",
       "surface": false,
-      "digest": "8ea13bcd983eab596dbfd41c5c2b62a0b318b71cd2a987a6fd752c6ced7e4489",
+      "digest": "86d346e960ae99afd17e93e196fd21ec4af124c9291e9a8dfdb120b21e2b2b61",
       "schema": {
         "root": 0,
         "nodes": [
@@ -6422,7 +6422,7 @@
               },
               {
                 "name": "type",
-                "type": 18,
+                "type": 20,
                 "optional": false
               }
             ],
@@ -6438,7 +6438,7 @@
               },
               {
                 "name": "reason",
-                "type": 13,
+                "type": 15,
                 "optional": false
               },
               {
@@ -6464,7 +6464,7 @@
               },
               {
                 "name": "tools",
-                "type": 9,
+                "type": 11,
                 "optional": true
               }
             ],
@@ -6514,8 +6514,13 @@
                 "optional": true
               },
               {
-                "name": "stop",
+                "name": "responseFormat",
                 "type": 8,
+                "optional": true
+              },
+              {
+                "name": "stop",
+                "type": 10,
                 "optional": true
               },
               {
@@ -6535,12 +6540,27 @@
             "type": "string"
           },
           {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "type",
+                "type": 9,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "json_object"
+          },
+          {
             "kind": "array",
             "element": 7
           },
           {
             "kind": "array",
-            "element": 10
+            "element": 12
           },
           {
             "kind": "object",
@@ -6557,7 +6577,7 @@
               },
               {
                 "name": "parameters",
-                "type": 11,
+                "type": 13,
                 "optional": false
               }
             ],
@@ -6569,7 +6589,7 @@
             "indices": [
               {
                 "key": 7,
-                "value": 12
+                "value": 14
               }
             ]
           },
@@ -6580,10 +6600,10 @@
           {
             "kind": "union",
             "types": [
-              14,
-              15,
               16,
-              17
+              17,
+              18,
+              19
             ]
           },
           {
@@ -10559,7 +10579,7 @@
       "kind": "event",
       "event": "tool-workflow/agent-end",
       "surface": false,
-      "digest": "babf9ee4d1af62bf6c3a8103737f7a5e4e78ce179be835ce05a38803e15884b7",
+      "digest": "97f28ee66b90659375a15144c1629b784d4f4a70978d0b414e6bdde2e20d5da0",
       "schema": {
         "root": 0,
         "nodes": [
@@ -10573,22 +10593,22 @@
               },
               {
                 "name": "ignorable",
-                "type": 8,
+                "type": 18,
                 "optional": true
               },
               {
                 "name": "seq",
-                "type": 7,
+                "type": 17,
                 "optional": false
               },
               {
                 "name": "time",
-                "type": 7,
+                "type": 17,
                 "optional": false
               },
               {
                 "name": "type",
-                "type": 9,
+                "type": 19,
                 "optional": false
               }
             ],
@@ -10598,29 +10618,48 @@
             "kind": "object",
             "properties": [
               {
+                "name": "childId",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "label",
+                "type": 2,
+                "optional": true
+              },
+              {
                 "name": "outcome",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "reason",
+                "type": 7,
+                "optional": true
+              },
+              {
+                "name": "runId",
                 "type": 2,
                 "optional": false
               },
               {
-                "name": "runId",
-                "type": 6,
-                "optional": false
-              },
-              {
                 "name": "seq",
-                "type": 7,
+                "type": 17,
                 "optional": false
               }
             ],
             "indices": []
           },
           {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
             "kind": "union",
             "types": [
-              3,
               4,
-              5
+              5,
+              6
             ]
           },
           {
@@ -10636,8 +10675,90 @@
             "value": "failed"
           },
           {
-            "kind": "primitive",
-            "type": "string"
+            "kind": "union",
+            "types": [
+              8,
+              10,
+              11,
+              13,
+              15
+            ]
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "detail",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 9,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "invalid-structured-output"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 4,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 12,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "child-failed"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 14,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "infrastructure-fault"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 16,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "missing-structured-output"
           },
           {
             "kind": "primitive",
@@ -23702,194 +23823,6 @@
       "sources": []
     },
     {
-      "digest": "2f0aefb72ab453c4bf21a6687f436775d359dc6f8f10410fd4c0615b20bd9d76",
-      "schema": {
-        "root": 0,
-        "nodes": [
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "header",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "reason",
-                "type": 12,
-                "optional": false
-              },
-              {
-                "name": "startsSeries",
-                "type": 3,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "adapterDefaults",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "config",
-                "type": 4,
-                "optional": false
-              },
-              {
-                "name": "tools",
-                "type": 8,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "maxTokens",
-                "type": 3,
-                "optional": true
-              },
-              {
-                "name": "reasoningEffort",
-                "type": 3,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "literal",
-            "value": true
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "maxTokens",
-                "type": 5,
-                "optional": true
-              },
-              {
-                "name": "model",
-                "type": 6,
-                "optional": false
-              },
-              {
-                "name": "provider",
-                "type": 6,
-                "optional": false
-              },
-              {
-                "name": "reasoningEffort",
-                "type": 6,
-                "optional": true
-              },
-              {
-                "name": "stop",
-                "type": 7,
-                "optional": true
-              },
-              {
-                "name": "temperature",
-                "type": 5,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "primitive",
-            "type": "number"
-          },
-          {
-            "kind": "primitive",
-            "type": "string"
-          },
-          {
-            "kind": "array",
-            "element": 6
-          },
-          {
-            "kind": "array",
-            "element": 9
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "description",
-                "type": 6,
-                "optional": false
-              },
-              {
-                "name": "name",
-                "type": 6,
-                "optional": false
-              },
-              {
-                "name": "parameters",
-                "type": 10,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [],
-            "indices": [
-              {
-                "key": 6,
-                "value": 11
-              }
-            ]
-          },
-          {
-            "kind": "opaque",
-            "reason": "unknown"
-          },
-          {
-            "kind": "union",
-            "types": [
-              13,
-              14,
-              15,
-              16
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "resume"
-          },
-          {
-            "kind": "literal",
-            "value": "series"
-          },
-          {
-            "kind": "literal",
-            "value": "change"
-          },
-          {
-            "kind": "literal",
-            "value": "initial"
-          }
-        ]
-      },
-      "names": [
-        "event:request/header.data"
-      ],
-      "sources": [
-        "packages/core/session/src/types.ts:370"
-      ]
-    },
-    {
       "digest": "2f1e6a7ebace43d727ae138ddcd352eb3813960009e5805b8c5ac84300c97716",
       "schema": {
         "root": 0,
@@ -26909,7 +26842,7 @@
         "packages/llm/llm/src/call-config.ts#LlmCallConfigAdapterDefaults"
       ],
       "sources": [
-        "packages/llm/llm/src/call-config.ts:36"
+        "packages/llm/llm/src/call-config.ts:37"
       ]
     },
     {
@@ -26963,6 +26896,20 @@
         "event:feedback/message-put.data.item.category",
         "event:feedback/record.data.category"
       ],
+      "sources": []
+    },
+    {
+      "digest": "332d88268bf3c81c943661f2c3c7c5a07f1d18a063a7176d56155dc5dfe6bf42",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "literal",
+            "value": "missing-structured-output"
+          }
+        ]
+      },
+      "names": [],
       "sources": []
     },
     {
@@ -27545,6 +27492,214 @@
       ],
       "sources": [
         "packages/core/session/src/types.ts:355"
+      ]
+    },
+    {
+      "digest": "3658cb76b092916596c9800c8a7a573ea2b7c3aa5d03afa0dc4fac4dc7042d2c",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "header",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "reason",
+                "type": 14,
+                "optional": false
+              },
+              {
+                "name": "startsSeries",
+                "type": 3,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "adapterDefaults",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "config",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "tools",
+                "type": 10,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "maxTokens",
+                "type": 3,
+                "optional": true
+              },
+              {
+                "name": "reasoningEffort",
+                "type": 3,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "maxTokens",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "model",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "provider",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "reasoningEffort",
+                "type": 6,
+                "optional": true
+              },
+              {
+                "name": "responseFormat",
+                "type": 7,
+                "optional": true
+              },
+              {
+                "name": "stop",
+                "type": 9,
+                "optional": true
+              },
+              {
+                "name": "temperature",
+                "type": 5,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "type",
+                "type": 8,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "json_object"
+          },
+          {
+            "kind": "array",
+            "element": 6
+          },
+          {
+            "kind": "array",
+            "element": 11
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "description",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "name",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "parameters",
+                "type": 12,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [],
+            "indices": [
+              {
+                "key": 6,
+                "value": 13
+              }
+            ]
+          },
+          {
+            "kind": "opaque",
+            "reason": "unknown"
+          },
+          {
+            "kind": "union",
+            "types": [
+              15,
+              16,
+              17,
+              18
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "initial"
+          },
+          {
+            "kind": "literal",
+            "value": "resume"
+          },
+          {
+            "kind": "literal",
+            "value": "series"
+          },
+          {
+            "kind": "literal",
+            "value": "change"
+          }
+        ]
+      },
+      "names": [
+        "event:request/header.data"
+      ],
+      "sources": [
+        "packages/core/session/src/types.ts:370"
       ]
     },
     {
@@ -32070,6 +32225,35 @@
         "packages/webhook/webhook/src/brand.ts:6",
         "packages/webhook/webhook/src/brand.ts:9",
         "packages/workflow/workflow/src/types.ts:13"
+      ]
+    },
+    {
+      "digest": "4cfaa13f7901827d6ec76ef67e23ea895de763bb41f0a0f89d6aec28b7d01899",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 1,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "cancelled"
+          }
+        ]
+      },
+      "names": [
+        "event:tool-workflow/agent-end.data.reason[4]"
+      ],
+      "sources": [
+        "packages/workflow/workflow/src/types.ts:131"
       ]
     },
     {
@@ -36861,6 +37045,35 @@
       ]
     },
     {
+      "digest": "6525060d56d9eca12d150e3a173c3d0b6b53035d54b376f5d50d54919e78f896",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 1,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "child-failed"
+          }
+        ]
+      },
+      "names": [
+        "event:tool-workflow/agent-end.data.reason[0]"
+      ],
+      "sources": [
+        "packages/workflow/workflow/src/types.ts:120"
+      ]
+    },
+    {
       "digest": "658d895d187b26d83f3b53109a3bf77bbfba9f6f9a6d4bc4ee4315b4eb36239e",
       "schema": {
         "root": 0,
@@ -37104,68 +37317,6 @@
       ],
       "sources": [
         "packages/skill/skill/src/index.ts:146"
-      ]
-    },
-    {
-      "digest": "67d5f73ceae82f5265258142ad6cf172de2c1fef93ba551b7f0454e0a93bffe0",
-      "schema": {
-        "root": 0,
-        "nodes": [
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "maxTokens",
-                "type": 1,
-                "optional": true
-              },
-              {
-                "name": "model",
-                "type": 2,
-                "optional": false
-              },
-              {
-                "name": "provider",
-                "type": 2,
-                "optional": false
-              },
-              {
-                "name": "reasoningEffort",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "stop",
-                "type": 3,
-                "optional": true
-              },
-              {
-                "name": "temperature",
-                "type": 1,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "primitive",
-            "type": "number"
-          },
-          {
-            "kind": "primitive",
-            "type": "string"
-          },
-          {
-            "kind": "array",
-            "element": 2
-          }
-        ]
-      },
-      "names": [
-        "packages/llm/llm/src/call-config.ts#LlmCallConfig"
-      ],
-      "sources": [
-        "packages/llm/llm/src/call-config.ts:23"
       ]
     },
     {
@@ -38273,7 +38424,7 @@
         "event:agent-preset/selected.data"
       ],
       "sources": [
-        "packages/preset/agent-presets/src/session.ts:28"
+        "packages/preset/agent-presets/src/session.ts:29"
       ]
     },
     {
@@ -40806,7 +40957,7 @@
         "packages/workflow/tool-workflow/src/types.ts#ToolWorkflowRunEndData"
       ],
       "sources": [
-        "packages/workflow/tool-workflow/src/types.ts:36"
+        "packages/workflow/tool-workflow/src/types.ts:49"
       ]
     },
     {
@@ -42132,6 +42283,247 @@
       ]
     },
     {
+      "digest": "86d346e960ae99afd17e93e196fd21ec4af124c9291e9a8dfdb120b21e2b2b61",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 20,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "header",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "reason",
+                "type": 15,
+                "optional": false
+              },
+              {
+                "name": "startsSeries",
+                "type": 4,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "adapterDefaults",
+                "type": 3,
+                "optional": true
+              },
+              {
+                "name": "config",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "tools",
+                "type": 11,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "maxTokens",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "reasoningEffort",
+                "type": 4,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "maxTokens",
+                "type": 6,
+                "optional": true
+              },
+              {
+                "name": "model",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "provider",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "reasoningEffort",
+                "type": 7,
+                "optional": true
+              },
+              {
+                "name": "responseFormat",
+                "type": 8,
+                "optional": true
+              },
+              {
+                "name": "stop",
+                "type": 10,
+                "optional": true
+              },
+              {
+                "name": "temperature",
+                "type": 6,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "type",
+                "type": 9,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "json_object"
+          },
+          {
+            "kind": "array",
+            "element": 7
+          },
+          {
+            "kind": "array",
+            "element": 12
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "description",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "name",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "parameters",
+                "type": 13,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [],
+            "indices": [
+              {
+                "key": 7,
+                "value": 14
+              }
+            ]
+          },
+          {
+            "kind": "opaque",
+            "reason": "unknown"
+          },
+          {
+            "kind": "union",
+            "types": [
+              16,
+              17,
+              18,
+              19
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "initial"
+          },
+          {
+            "kind": "literal",
+            "value": "resume"
+          },
+          {
+            "kind": "literal",
+            "value": "series"
+          },
+          {
+            "kind": "literal",
+            "value": "change"
+          },
+          {
+            "kind": "literal",
+            "value": "request/header"
+          }
+        ]
+      },
+      "names": [
+        "event:request/header"
+      ],
+      "sources": []
+    },
+    {
       "digest": "86e1e384495ee09ac2d60c9db3610f1f1fddac2d248f6f1d6000e78054680219",
       "schema": {
         "root": 0,
@@ -42235,6 +42627,20 @@
       "sources": [
         "packages/llm/llm/src/types.ts:428"
       ]
+    },
+    {
+      "digest": "89618c15ca906b831853ec02dfb3b09e92acc033ebe8b68f91d754108b264f76",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "literal",
+            "value": "infrastructure-fault"
+          }
+        ]
+      },
+      "names": [],
+      "sources": []
     },
     {
       "digest": "8a6e1ec9e8db346b0e02f027db73c07a94f067a26d40c1aef1abd09c47ce7ba0",
@@ -43295,227 +43701,6 @@
       ]
     },
     {
-      "digest": "8ea13bcd983eab596dbfd41c5c2b62a0b318b71cd2a987a6fd752c6ced7e4489",
-      "schema": {
-        "root": 0,
-        "nodes": [
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "data",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "ignorable",
-                "type": 4,
-                "optional": true
-              },
-              {
-                "name": "seq",
-                "type": 6,
-                "optional": false
-              },
-              {
-                "name": "time",
-                "type": 6,
-                "optional": false
-              },
-              {
-                "name": "type",
-                "type": 18,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "header",
-                "type": 2,
-                "optional": false
-              },
-              {
-                "name": "reason",
-                "type": 13,
-                "optional": false
-              },
-              {
-                "name": "startsSeries",
-                "type": 4,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "adapterDefaults",
-                "type": 3,
-                "optional": true
-              },
-              {
-                "name": "config",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "tools",
-                "type": 9,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "maxTokens",
-                "type": 4,
-                "optional": true
-              },
-              {
-                "name": "reasoningEffort",
-                "type": 4,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "literal",
-            "value": true
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "maxTokens",
-                "type": 6,
-                "optional": true
-              },
-              {
-                "name": "model",
-                "type": 7,
-                "optional": false
-              },
-              {
-                "name": "provider",
-                "type": 7,
-                "optional": false
-              },
-              {
-                "name": "reasoningEffort",
-                "type": 7,
-                "optional": true
-              },
-              {
-                "name": "stop",
-                "type": 8,
-                "optional": true
-              },
-              {
-                "name": "temperature",
-                "type": 6,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "primitive",
-            "type": "number"
-          },
-          {
-            "kind": "primitive",
-            "type": "string"
-          },
-          {
-            "kind": "array",
-            "element": 7
-          },
-          {
-            "kind": "array",
-            "element": 10
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "description",
-                "type": 7,
-                "optional": false
-              },
-              {
-                "name": "name",
-                "type": 7,
-                "optional": false
-              },
-              {
-                "name": "parameters",
-                "type": 11,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [],
-            "indices": [
-              {
-                "key": 7,
-                "value": 12
-              }
-            ]
-          },
-          {
-            "kind": "opaque",
-            "reason": "unknown"
-          },
-          {
-            "kind": "union",
-            "types": [
-              14,
-              15,
-              16,
-              17
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "initial"
-          },
-          {
-            "kind": "literal",
-            "value": "resume"
-          },
-          {
-            "kind": "literal",
-            "value": "series"
-          },
-          {
-            "kind": "literal",
-            "value": "change"
-          },
-          {
-            "kind": "literal",
-            "value": "request/header"
-          }
-        ]
-      },
-      "names": [
-        "event:request/header"
-      ],
-      "sources": []
-    },
-    {
       "digest": "8f6d609794bf5afc01d7ccf3e03811d32f4b8047f58a2c9a98db0154c2ad7cb9",
       "schema": {
         "root": 0,
@@ -44226,6 +44411,35 @@
       "sources": []
     },
     {
+      "digest": "9496ad0d68a3a76ce1441eeab2be80a1e9fe5554ca4dd6ec302cbe1e858214d6",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 1,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "infrastructure-fault"
+          }
+        ]
+      },
+      "names": [
+        "event:tool-workflow/agent-end.data.reason[3]"
+      ],
+      "sources": [
+        "packages/workflow/workflow/src/types.ts:129"
+      ]
+    },
+    {
       "digest": "94c56aeb1564ad735eb773d88636b40761d063efa1610f1308004d32923f5378",
       "schema": {
         "root": 0,
@@ -44330,6 +44544,207 @@
       ]
     },
     {
+      "digest": "97f28ee66b90659375a15144c1629b784d4f4a70978d0b414e6bdde2e20d5da0",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 18,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 17,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 17,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 19,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "childId",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "label",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "outcome",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "reason",
+                "type": 7,
+                "optional": true
+              },
+              {
+                "name": "runId",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "seq",
+                "type": 17,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "union",
+            "types": [
+              4,
+              5,
+              6
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "cancelled"
+          },
+          {
+            "kind": "literal",
+            "value": "completed"
+          },
+          {
+            "kind": "literal",
+            "value": "failed"
+          },
+          {
+            "kind": "union",
+            "types": [
+              8,
+              10,
+              11,
+              13,
+              15
+            ]
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "detail",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 9,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "invalid-structured-output"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 4,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 12,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "child-failed"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 14,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "infrastructure-fault"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 16,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "missing-structured-output"
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "literal",
+            "value": "tool-workflow/agent-end"
+          }
+        ]
+      },
+      "names": [
+        "event:tool-workflow/agent-end"
+      ],
+      "sources": []
+    },
+    {
       "digest": "9890113e97dd3541787bfe6704f2b223d3a890b5325ca0acae2b0398909b413e",
       "schema": {
         "root": 0,
@@ -44382,6 +44797,20 @@
       "sources": [
         "packages/sandbox/sandbox-policy/src/session-mode.ts:33"
       ]
+    },
+    {
+      "digest": "99338c09f02190e9231deeed9470c649f1cad62e324b8fcd65d4512a84020f7b",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "literal",
+            "value": "child-failed"
+          }
+        ]
+      },
+      "names": [],
+      "sources": []
     },
     {
       "digest": "998f22585a5d73ec005365e203f07fc3b3a029e82323fdda3fd7f13b0a9639d0",
@@ -44621,6 +45050,20 @@
       "sources": []
     },
     {
+      "digest": "9b40a083f7957b0ff4fc399ed51268ba62e5e07eeefc0b7e0eb4f8cd8974ad5f",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "literal",
+            "value": "invalid-structured-output"
+          }
+        ]
+      },
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "9b4fd974c124c83743efe030ba4e1250e087505f3f74588716a521fb8d453267",
       "schema": {
         "root": 0,
@@ -44656,6 +45099,20 @@
           {
             "kind": "literal",
             "value": "ask"
+          }
+        ]
+      },
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "9e17e1420f514226f4ce662e1a7cf40bf765d04b4f7dc3eec4f3eefc3ee55e6c",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "literal",
+            "value": "json_object"
           }
         ]
       },
@@ -51547,106 +52004,6 @@
       "sources": []
     },
     {
-      "digest": "babf9ee4d1af62bf6c3a8103737f7a5e4e78ce179be835ce05a38803e15884b7",
-      "schema": {
-        "root": 0,
-        "nodes": [
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "data",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "ignorable",
-                "type": 8,
-                "optional": true
-              },
-              {
-                "name": "seq",
-                "type": 7,
-                "optional": false
-              },
-              {
-                "name": "time",
-                "type": 7,
-                "optional": false
-              },
-              {
-                "name": "type",
-                "type": 9,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "outcome",
-                "type": 2,
-                "optional": false
-              },
-              {
-                "name": "runId",
-                "type": 6,
-                "optional": false
-              },
-              {
-                "name": "seq",
-                "type": 7,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "union",
-            "types": [
-              3,
-              4,
-              5
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "cancelled"
-          },
-          {
-            "kind": "literal",
-            "value": "completed"
-          },
-          {
-            "kind": "literal",
-            "value": "failed"
-          },
-          {
-            "kind": "primitive",
-            "type": "string"
-          },
-          {
-            "kind": "primitive",
-            "type": "number"
-          },
-          {
-            "kind": "literal",
-            "value": true
-          },
-          {
-            "kind": "literal",
-            "value": "tool-workflow/agent-end"
-          }
-        ]
-      },
-      "names": [
-        "event:tool-workflow/agent-end"
-      ],
-      "sources": []
-    },
-    {
       "digest": "bb1ab3d08f49a9f3b265f844cd78d5c49813062a7b34b54904b426f85d0ff6e3",
       "schema": {
         "root": 0,
@@ -52126,6 +52483,44 @@
       "sources": []
     },
     {
+      "digest": "bdeff92957b132da84f8b4a8c4a39336f12b0ad4f33f3d3ad6de5a06dab0eaff",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "detail",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 2,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "literal",
+            "value": "invalid-structured-output"
+          }
+        ]
+      },
+      "names": [
+        "event:tool-workflow/agent-end.data.reason[2]"
+      ],
+      "sources": [
+        "packages/workflow/workflow/src/types.ts:127"
+      ]
+    },
+    {
       "digest": "bf16d2e98a7f13894ded2cffe5ce857bf473954a0e3c0ed9bc7739e2e1c7b78a",
       "schema": {
         "root": 0,
@@ -52138,69 +52533,6 @@
       },
       "names": [],
       "sources": []
-    },
-    {
-      "digest": "c0ea97bc89dfc46fa94eab956f5c3ee6af2f964aa7db6327cb18b451f207bef7",
-      "schema": {
-        "root": 0,
-        "nodes": [
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "outcome",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "runId",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "seq",
-                "type": 6,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "union",
-            "types": [
-              2,
-              3,
-              4
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "cancelled"
-          },
-          {
-            "kind": "literal",
-            "value": "completed"
-          },
-          {
-            "kind": "literal",
-            "value": "failed"
-          },
-          {
-            "kind": "primitive",
-            "type": "string"
-          },
-          {
-            "kind": "primitive",
-            "type": "number"
-          }
-        ]
-      },
-      "names": [
-        "packages/workflow/tool-workflow/src/types.ts#ToolWorkflowAgentEndData"
-      ],
-      "sources": [
-        "packages/workflow/tool-workflow/src/types.ts:29"
-      ]
     },
     {
       "digest": "c170da8ab7c37635b10867b2571811d9e317ac3ec394e8ff8efe53f902fc41c1",
@@ -52554,21 +52886,7 @@
       ]
     },
     {
-      "digest": "c43b119ce579b3e9983a0d3adc4ba402ebb9ba773d89738a2dab01ecf5813943",
-      "schema": {
-        "root": 0,
-        "nodes": [
-          {
-            "kind": "literal",
-            "value": "paused"
-          }
-        ]
-      },
-      "names": [],
-      "sources": []
-    },
-    {
-      "digest": "c55a891c7aac496de6ee64c91c1fb65728c977314013033e42c863428aada854",
+      "digest": "c36c97875983ee4ddd08eb8dc413ae62f748f0702afcbdbae872dbd46165a357",
       "schema": {
         "root": 0,
         "nodes": [
@@ -52576,74 +52894,38 @@
             "kind": "object",
             "properties": [
               {
-                "name": "adapterDefaults",
+                "name": "maxTokens",
                 "type": 1,
                 "optional": true
               },
               {
-                "name": "config",
-                "type": 3,
-                "optional": false
-              },
-              {
-                "name": "tools",
-                "type": 7,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "maxTokens",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "reasoningEffort",
-                "type": 2,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "literal",
-            "value": true
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "maxTokens",
-                "type": 4,
-                "optional": true
-              },
-              {
                 "name": "model",
-                "type": 5,
+                "type": 2,
                 "optional": false
               },
               {
                 "name": "provider",
-                "type": 5,
+                "type": 2,
                 "optional": false
               },
               {
                 "name": "reasoningEffort",
-                "type": 5,
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "responseFormat",
+                "type": 3,
                 "optional": true
               },
               {
                 "name": "stop",
-                "type": 6,
+                "type": 5,
                 "optional": true
               },
               {
                 "name": "temperature",
-                "type": 4,
+                "type": 1,
                 "optional": true
               }
             ],
@@ -52658,56 +52940,46 @@
             "type": "string"
           },
           {
-            "kind": "array",
-            "element": 5
-          },
-          {
-            "kind": "array",
-            "element": 8
-          },
-          {
             "kind": "object",
             "properties": [
               {
-                "name": "description",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "name",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "parameters",
-                "type": 9,
+                "name": "type",
+                "type": 4,
                 "optional": false
               }
             ],
             "indices": []
           },
           {
-            "kind": "object",
-            "properties": [],
-            "indices": [
-              {
-                "key": 5,
-                "value": 10
-              }
-            ]
+            "kind": "literal",
+            "value": "json_object"
           },
           {
-            "kind": "opaque",
-            "reason": "unknown"
+            "kind": "array",
+            "element": 2
           }
         ]
       },
       "names": [
-        "packages/core/session/src/types.ts#EpochHeader"
+        "packages/llm/llm/src/call-config.ts#LlmCallConfig"
       ],
       "sources": [
-        "packages/core/session/src/types.ts:232"
+        "packages/llm/llm/src/call-config.ts:23"
       ]
+    },
+    {
+      "digest": "c43b119ce579b3e9983a0d3adc4ba402ebb9ba773d89738a2dab01ecf5813943",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "literal",
+            "value": "paused"
+          }
+        ]
+      },
+      "names": [],
+      "sources": []
     },
     {
       "digest": "c589e938cc0e4989df8b82abef6339de621f0dc4fe62c230d145b94996af7f92",
@@ -54023,6 +54295,35 @@
       },
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "c8ec3017eb6ea678ea380c08909377f9ca34c70e4542a1fab4231378612eead2",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "type",
+                "type": 1,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "json_object"
+          }
+        ]
+      },
+      "names": [
+        "event:request/header.data.header.config.responseFormat"
+      ],
+      "sources": [
+        "packages/llm/llm/src/call-config.ts:30"
+      ]
     },
     {
       "digest": "c93b6f51b399607349b4bcc66b58e848a44250ffc1e2537207bd092dfff94192",
@@ -55729,6 +56030,168 @@
       ],
       "sources": [
         "packages/core/session/src/types.ts:285"
+      ]
+    },
+    {
+      "digest": "d422146979cadcb183502856733fd354f1620be00f15bfd085530dcdf24297f4",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "adapterDefaults",
+                "type": 1,
+                "optional": true
+              },
+              {
+                "name": "config",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "tools",
+                "type": 9,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "maxTokens",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "reasoningEffort",
+                "type": 2,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "maxTokens",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "model",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "provider",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "reasoningEffort",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "responseFormat",
+                "type": 6,
+                "optional": true
+              },
+              {
+                "name": "stop",
+                "type": 8,
+                "optional": true
+              },
+              {
+                "name": "temperature",
+                "type": 4,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "type",
+                "type": 7,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "json_object"
+          },
+          {
+            "kind": "array",
+            "element": 5
+          },
+          {
+            "kind": "array",
+            "element": 10
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "description",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "name",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "parameters",
+                "type": 11,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [],
+            "indices": [
+              {
+                "key": 5,
+                "value": 12
+              }
+            ]
+          },
+          {
+            "kind": "opaque",
+            "reason": "unknown"
+          }
+        ]
+      },
+      "names": [
+        "packages/core/session/src/types.ts#EpochHeader"
+      ],
+      "sources": [
+        "packages/core/session/src/types.ts:232"
       ]
     },
     {
@@ -59040,6 +59503,112 @@
       "sources": []
     },
     {
+      "digest": "e6d96a7a706efbd9ae8ca8d7d4b05cde45cbfb4c50626f17b3ccda527303cbab",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "union",
+            "types": [
+              1,
+              4,
+              6,
+              8,
+              10
+            ]
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "detail",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 3,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "literal",
+            "value": "invalid-structured-output"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "cancelled"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 7,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "child-failed"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 9,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "infrastructure-fault"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 11,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "missing-structured-output"
+          }
+        ]
+      },
+      "names": [
+        "event:tool-workflow/agent-end.data.reason"
+      ],
+      "sources": []
+    },
+    {
       "digest": "e72269f931559e901e5e8fe1cfcbd0669fb795f43cc038ff39fba62f60403c33",
       "schema": {
         "root": 0,
@@ -59952,6 +60521,35 @@
       ]
     },
     {
+      "digest": "f5acb9b787f8f0edd95f10689a0005b72460ead547b7962ed10ad27953e422ee",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 1,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "missing-structured-output"
+          }
+        ]
+      },
+      "names": [
+        "event:tool-workflow/agent-end.data.reason[1]"
+      ],
+      "sources": [
+        "packages/workflow/workflow/src/types.ts:125"
+      ]
+    },
+    {
       "digest": "f634871d1e18b1eb199497ac8ab72d3964f48d03fbf611dc7521a1970cf429d9",
       "schema": {
         "root": 0,
@@ -60508,6 +61106,170 @@
       },
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "f8033aa0b2da01926fb3fb027afc7bd82c53d915e931d4bb30fbd06907ad37f4",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "childId",
+                "type": 1,
+                "optional": true
+              },
+              {
+                "name": "label",
+                "type": 1,
+                "optional": true
+              },
+              {
+                "name": "outcome",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "reason",
+                "type": 6,
+                "optional": true
+              },
+              {
+                "name": "runId",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "seq",
+                "type": 16,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "union",
+            "types": [
+              3,
+              4,
+              5
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "cancelled"
+          },
+          {
+            "kind": "literal",
+            "value": "completed"
+          },
+          {
+            "kind": "literal",
+            "value": "failed"
+          },
+          {
+            "kind": "union",
+            "types": [
+              7,
+              9,
+              10,
+              12,
+              14
+            ]
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "detail",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 8,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "invalid-structured-output"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 3,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 11,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "child-failed"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 13,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "infrastructure-fault"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 15,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "missing-structured-output"
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          }
+        ]
+      },
+      "names": [
+        "packages/workflow/tool-workflow/src/types.ts#ToolWorkflowAgentEndData"
+      ],
+      "sources": [
+        "packages/workflow/tool-workflow/src/types.ts:36"
+      ]
     },
     {
       "digest": "f88f1b7b6bb733f685f5fb6a8744a5db9199fa53c90463ea1a33bad51153671d",

@@ -232,13 +232,40 @@ describe('workflow guest callbacks', () => {
 
 describe('workflow child results', () => {
   it.each([
-    ['failed child', { output: [], stopReason: 'error' }],
-    ['missing structured value', { output: [], stopReason: 'completed' }],
-  ] as const)('returns null for a %s and disposes its child', async (_name, result) => {
+    ['failed child', { output: [], stopReason: 'error' }, 'child-failed'],
+    ['missing structured value', { output: [], stopReason: 'completed' }, 'missing-structured-output'],
+  ] as const)('returns null for a %s and disposes its child', async (_name, result, kind) => {
     const test = fixture('return await agent("work", {schema: {type: "object"}})', { childResult: async () => ({ ...result, output: [] }) })
     await expect(runWorkflowGuest(test.host)).resolves.toMatchObject({ value: null, stopReason: 'completed', agentsStarted: 1 })
-    expect(test.events.at(-1)).toMatchObject({ type: 'agent-end', info: { outcome: 'failed' } })
+    expect(test.events.at(-1)).toMatchObject({ type: 'agent-end', info: { outcome: 'failed', reason: { kind } } })
     expect(test.disposed).toEqual([1])
+  })
+
+  it('rejects a captured structured value that fails the artifact check and names what it lacked', async () => {
+    const test = fixture(`return await agent("work", {schema: {
+      type: "object",
+      properties: { shots: { type: "number" } },
+      required: ["shots"],
+    }})`, {
+      childResult: async () => ({
+        output: [{ type: 'text', text: 'worked around the tool' }],
+        structured: { note: 'no shots field' },
+        stopReason: 'completed',
+        artifactFailure: 'the structured result is missing the required property "shots"',
+      }),
+    })
+
+    await expect(runWorkflowGuest(test.host)).resolves.toMatchObject({ value: null, stopReason: 'completed' })
+    expect(test.events.at(-1)).toMatchObject({
+      type: 'agent-end',
+      info: {
+        outcome: 'failed',
+        reason: {
+          kind: 'invalid-structured-output',
+          detail: 'the structured result is missing the required property "shots"',
+        },
+      },
+    })
   })
 
   it('returns text blocks and derives a short first-line label unless options override it', async () => {
@@ -290,7 +317,10 @@ describe('workflow child results', () => {
     })
     await expect(runWorkflowGuest(test.host)).resolves.toMatchObject({ value: 'kept result', stopReason: 'completed' })
     expect(test.events).toContainEqual({
-      type: 'agent-end', info: { seq: 1, label: 'dropped', childId: 'child-1', outcome: 'failed' },
+      type: 'agent-end',
+      info: {
+        seq: 1, label: 'dropped', childId: 'child-1', outcome: 'failed', reason: { kind: 'infrastructure-fault' },
+      },
     })
   })
 

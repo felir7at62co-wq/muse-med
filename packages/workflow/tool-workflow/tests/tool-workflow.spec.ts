@@ -152,7 +152,9 @@ describe('dsh-tool-workflow', () => {
       ['tool-workflow/agent-start', {
         runId: 'run-1', seq: 1, label: '', phase: '', childId: 'child-1',
       }],
-      ['tool-workflow/agent-end', { runId: 'run-1', seq: 1, outcome: 'completed' }],
+      ['tool-workflow/agent-end', {
+        runId: 'run-1', seq: 1, outcome: 'completed', label: '', childId: 'child-1',
+      }],
       ['tool-workflow/run-end', { runId: 'run-1', stopReason: 'completed' }],
     ])
   })
