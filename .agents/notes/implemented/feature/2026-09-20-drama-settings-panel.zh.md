@@ -20,6 +20,8 @@ Host 半是 `src/index.ts`，而且只有那次注册：`ctx.inject(['settings']
 
 Client 半只绑定一个作用域——`ctx.settingsScope.bind({ namespace: 'drama' })`。`src/client/section.ts` 把页面的表单编译成路径操作：已经等于目标值的字段不动，而目标值等于 schema 默认值的字段会被*清空*，这样用户层永远不会存下一份什么都不表示的默认值副本。`src/client/DramaSettingsSection.tsx` 是纯 props 组件：作用域与写入都从注入面到来，由渲染器绑定 hook。
 
+**部分被取代（2026-09-26）。** 上游 rc.2 合并移除了 fork 的 `settingsScope` 服务：settings 服务现在按每个自有组合条目提供一份表单，入口是 `ctx.configForms.get('<row id>')`，而本行导出自己的 `Config`，并用 `settings.configure({ auto: false })` 关掉自动表单。上面那段记录的是本笔记写作时的实现；现行机制是本分支这次清扫落地的 `configForms` 路径（见合并偏差附录 §14j）。
+
 写入结论从解析后的设置段读出，而不是从传输读出。写入被拒绝时设置作用域不抛异常——它恢复宿主的当前状态后正常返回——所以页面把它渲染的设置段与草稿要求的那一份比对，不一致就报告失败。这让本包不必再持有一份 wire 契约，同时仍然拒绝把被拒绝的写入显示成已保存。
 
 页面通过 `ctx.slots.inject` 注册：本包不拥有设置外壳，注册会等待声明方，并随该声明或随本行的 fiber 一起离开。

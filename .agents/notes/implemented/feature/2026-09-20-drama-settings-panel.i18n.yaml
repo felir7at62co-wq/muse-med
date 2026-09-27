@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-20-drama-settings-panel.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-20-drama-settings-panel.md
-2026-09-20-drama-settings-panel.md: 7c045e1e35640ec0e791834fea20040ad3e8c791
-2026-09-20-drama-settings-panel.zh.md: b94ffd05575e2a88e7be3ce6a08f9e189aa13d9f
+/agent-note-the-short-drama-settings-section-and-its-two-web-surfaces:
+  en: 49350413623ca127
+  zh: f16e2164bc5b0084
+/agent-note-the-short-drama-settings-section-and-its-two-web-surfaces/problem:
+  en: c7d9b79f9adb1d2f
+  zh: 7c7437ace8a5e36e
+/agent-note-the-short-drama-settings-section-and-its-two-web-surfaces/decision:
+  en: dd7fbdbfaad195e2
+  zh: 16becf5a01a4a509
+/agent-note-the-short-drama-settings-section-and-its-two-web-surfaces/alternatives-considered:
+  en: a4ed2ecb40d1a561
+  zh: 114e70dbe14f7953
+/agent-note-the-short-drama-settings-section-and-its-two-web-surfaces/consequences:
+  en: a1dae3f82615901b
+  zh: 080b8c0af62c45b6
+/agent-note-the-short-drama-settings-section-and-its-two-web-surfaces/testing:
+  en: 7d778d6d308bb72c
+  zh: 5749c51da7670dce

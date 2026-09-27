@@ -99,7 +99,7 @@ afterEach(() => { vi.restoreAllMocks() })
 
 describe('drama-settings browser plugin', () => {
   it('declares the slot registry, the locale, and the settings scope service', () => {
-    expect(inject).toEqual(['slots', 'locale', 'settingsScope'])
+    expect(inject).toEqual(['slots', 'locale', 'configForms'])
     expect(NS).toBe('settings.drama')
   })
 
