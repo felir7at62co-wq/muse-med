@@ -41,7 +41,7 @@ const harness = await vi.hoisted(async () => {
   let dialogShown = deferred()
   let quitCompleted = deferred()
   let welcomeState = { loggedIn: false, hasApiKey: true, writable: true, localePreference: null as string | null }
-  let updatePublish: ((state: { phase: string }) => unknown) | undefined
+  let updatePublish: ((state: { phase: string; percent?: number }) => unknown) | undefined
   class FakeWindow extends EventEmitter {
     destroyed = false
     contentsDestroyed = false
@@ -185,8 +185,8 @@ const harness = await vi.hoisted(async () => {
     set welcomeState(value: { loggedIn: boolean; hasApiKey: boolean; writable: boolean; localePreference: string | null }) {
       welcomeState = value
     },
-    set updatePublish(value: (state: { phase: string }) => unknown) { updatePublish = value },
-    get updatePublish(): (state: { phase: string }) => unknown {
+    set updatePublish(value: (state: { phase: string; percent?: number }) => unknown) { updatePublish = value },
+    get updatePublish(): (state: { phase: string; percent?: number }) => unknown {
       if (updatePublish === undefined) throw new Error('desktop update coordinator was not constructed')
       return updatePublish
     },
@@ -300,7 +300,7 @@ vi.mock('../src/web-document.ts', () => ({
 vi.mock('../src/update-coordinator.ts', () => ({
   DesktopUpdateCoordinator: class {
     state: { phase: string; version?: string } = { phase: 'idle' }
-    constructor(publish: (state: { phase: string }) => unknown) { harness.updatePublish = publish }
+    constructor(publish: (state: { phase: string; percent?: number }) => unknown) { harness.updatePublish = publish }
     readonly check = vi.fn(async () => this.state)
     readonly download = vi.fn(async (version: string) => ({ phase: 'ready', version }))
     readonly install = vi.fn(async (version: string) => {
