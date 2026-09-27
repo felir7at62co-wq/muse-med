@@ -2,6 +2,7 @@ import os
 import re
 import json
 import logging
+import shutil
 import sys
 from pathlib import Path
 
@@ -44,6 +45,27 @@ SUBTITLE_LETTER_SPACING = 0
 SUBTITLE_BORDER_UI_WIDTH = 20.0
 SUBTITLE_BORDER_COLOR = (0.0, 0.0, 0.0)
 SUBTITLE_TRANSFORM_Y = -0.465625
+
+# 时间线唯一形状：{"clips": [{"shot": 1, "start_us": 0, "duration_us": 10080000}]}，与
+# drama_render prepare 写出的 editing/<集>-timeline.json 同形（见其 timeline.ts 的
+# 校验与 body_end 推导）。draft_generator 按 <集>.timeline.json 把它复制进 05_timeline/。
+# 字段名不一致（例如上游写 shots + start/end）不是"缺时间线"，必须报错而不是退回默认时长。
+TIMELINE_CLIP_FIELDS = ("shot", "start_us", "duration_us")
+DEFAULT_SHOT_DURATION_US = 5_000_000
+"""没有时间线时每段视频的时长；这类草稿会被交付校验拒绝，只是让预览还能生成。"""
+TIMELINE_TOLERANCE_US = 200_000
+"""时间线、实测音频与容器自报时长之间的容差（微秒）：容器比时间线多报几帧是正常的。"""
+
+# 字幕文本规则：与成片（tweet-drama-background-render）同一条规则，草稿这里只是执行它。
+# 无标点、单行、按语义切分、单条不超过 14 个有效字（空格按半个字计）。两条路径唯一允许的
+# 差异是字体/字号/字间距/描边，文本内容不得分叉。
+SUBTITLE_MAX_EFFECTIVE_CHARS = 14
+SUBTITLE_PUNCTUATION = "，。！？；：、,.!?;:\"'“”‘’（）()《》【】〈〉「」『』…—-·~～"
+
+# 主音频增益：01_audio 的音轨已做 loudnorm（实测 25.wav 峰值 -0.6 dBFS），草稿只能单位增益，
+# 放大必然削波。BGM 轨保持 pyJianYingDraft 的 1.0，与主音频同时单位增益。
+VOICE_VOLUME = 1.0
+BGM_VOLUME = 1.0
 
 # 音频文件分析相关导入
 try:
@@ -539,32 +561,314 @@ def replace_material(script, old_name, new_material, material_type):
 
 
 def load_edit_timeline(timeline_path) -> dict:
+    """读取一集的时间线：{"clips": [{"shot": 1, "start_us": 0, "duration_us": 10080000}]}。
+
+    文件不存在表示这一集显式没有时间线，返回空字典（调用方按默认时长预览并 warn）。
+    文件存在但不是这个形状时抛 DraftInputError 并指出缺什么，绝不退回默认时长。
+
+    Args:
+        timeline_path: 05_timeline/<集>.timeline.json 的路径，可为 None。
+
+    Returns:
+        {镜头号: {"start_us": int, "duration_us": int}}，无时间线时为空字典。
+
+    Raises:
+        DraftInputError: 文件不可读、不是 JSON 对象、clips 缺失/为空，或某个 clip 的字段缺失、非整数。
+    """
     if not timeline_path or not Path(timeline_path).exists():
         return {}
     try:
         with open(timeline_path, "r", encoding="utf-8") as handle:
             payload = json.load(handle)
     except (OSError, json.JSONDecodeError) as exc:
-        logger.info(f"读取语义时间轴失败 {timeline_path}: {exc}")
-        return {}
+        raise DraftInputError(f"时间线 {timeline_path} 读取失败: {exc}；修好这一集的时间线再重跑。") from exc
+    if not isinstance(payload, dict):
+        raise DraftInputError(f"时间线 {timeline_path} 顶层是 {type(payload).__name__}，应为 JSON 对象。")
+    raw_clips = payload.get("clips")
+    if raw_clips is None:
+        found = sorted(payload.keys())
+        legacy = "shots" in payload or ("start" in payload and "end" in payload)
+        hint = ("这份时间线用的是 shots + start/end；唯一形状是 "
+                '{"clips":[{"shot":1,"start_us":0,"duration_us":10080000}]}，'
+                "请让上游按 clips 输出，不要在这里改字段名。") if legacy else (
+                "请确认上游写的是 clips（drama_render prepare 的 editing/<集>-timeline.json）。")
+        raise DraftInputError(f"时间线 {timeline_path} 没有 clips 字段，实际字段为 {found}。{hint}")
+    if not isinstance(raw_clips, list) or not raw_clips:
+        raise DraftInputError(
+            f"时间线 {timeline_path} 的 clips 为空，一集至少要有 1 个镜头；"
+            "拿不到镜头时长的草稿会按每段 5 秒铺，正是要避免的静默错误。")
     clips = {}
-    for item in payload.get("clips", []):
-        try:
-            shot = int(item.get("shot"))
-            duration = int(item.get("duration_us"))
-            start = int(item.get("start_us", 0))
-        except (TypeError, ValueError, AttributeError):
-            continue
-        if shot > 0 and duration > 0:
-            clips[shot] = {"start_us": start, "duration_us": duration}
-    if clips:
-        logger.info(f"读取语义时间轴 {timeline_path}: {len(clips)} 个镜头")
+    for index, item in enumerate(raw_clips):
+        if not isinstance(item, dict):
+            raise DraftInputError(f"时间线 {timeline_path} 的第 {index + 1} 个 clip 不是对象：{item!r}")
+        missing = [key for key in TIMELINE_CLIP_FIELDS if key not in item]
+        if missing:
+            raise DraftInputError(
+                f"时间线 {timeline_path} 的第 {index + 1} 个 clip 缺字段 {missing}，"
+                f"实际字段为 {sorted(item.keys())}；每个 clip 必须含整数 "
+                'shot/start_us/duration_us，例如 {"shot":1,"start_us":0,"duration_us":10080000}。')
+        values = {}
+        for key in TIMELINE_CLIP_FIELDS:
+            value = item[key]
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise DraftInputError(
+                    f"时间线 {timeline_path} 的第 {index + 1} 个 clip 的 {key}={value!r} 不是整数；"
+                    "时间线的时间是微秒整数，秒数（如 start/end）不是这个形状。")
+            values[key] = value
+        if values["shot"] <= 0 or values["start_us"] < 0 or values["duration_us"] <= 0:
+            raise DraftInputError(
+                f"时间线 {timeline_path} 的第 {index + 1} 个 clip 取值非法：{values}；"
+                "要求 shot > 0、start_us >= 0、duration_us > 0。")
+        shot = values["shot"]
+        if shot in clips:
+            raise DraftInputError(f"时间线 {timeline_path} 里镜头 {shot} 出现了多次。")
+        clips[shot] = {"start_us": values["start_us"], "duration_us": values["duration_us"]}
+    logger.info(f"读取时间线 {timeline_path}: {len(clips)} 个镜头, "
+                f"合计 {sum(clip['duration_us'] for clip in clips.values()) / 1e6:.3f} 秒")
     return clips
+
+
+def assert_timeline_matches_audio(clips: dict, audio_duration_us: int, timeline_path) -> None:
+    """校验时间线各段时长之和与音频时长一致（容差 TIMELINE_TOLERANCE_US）。
+
+    Args:
+        clips: load_edit_timeline 的返回值，必须非空。
+        audio_duration_us: 实测主音频时长（微秒）。
+        timeline_path: 报错时指出的时间线路径。
+
+    Raises:
+        DraftInputError: 两者相差超过容差，报文给出两个时长与差值。
+    """
+    total = sum(clip["duration_us"] for clip in clips.values())
+    delta = total - audio_duration_us
+    if abs(delta) > TIMELINE_TOLERANCE_US:
+        raise DraftInputError(
+            f"时间线 {timeline_path} 的各段时长之和 {total / 1e6:.3f} 秒与音频 "
+            f"{audio_duration_us / 1e6:.3f} 秒相差 {abs(delta) / 1e6:.3f} 秒"
+            f"（容差 {TIMELINE_TOLERANCE_US / 1e6:.1f} 秒）；"
+            "说明时间线与这一集的音频不是同一次产物，先重新生成时间线再出草稿。")
+
+
+def effective_character_count(text: str) -> float:
+    """按字幕排版口径计字：空格算半个字，其余字符各算一个字。"""
+    return sum(0.5 if char.isspace() else 1 for char in text)
+
+
+def _break_long_word(word: str) -> list:
+    """没有语义边界可切时，按字数上限硬切一个超长词。"""
+    pieces, current = [], ""
+    for char in word:
+        if current and effective_character_count(current + char) > SUBTITLE_MAX_EFFECTIVE_CHARS:
+            pieces.append(current)
+            current = ""
+        current += char
+    if current:
+        pieces.append(current)
+    return pieces
+
+
+def normalize_subtitle_text(text: str) -> list:
+    """把一句剧本原文规范成交付字幕行：去标点、单行、按语义切分、单条不超过 14 个有效字。
+
+    标点变成语义组之间的空格；空格分组后贪心装箱，超出上限就另起一条。
+    返回的每一行都是一条独立字幕（草稿与成片共用这条文本规则）。
+
+    Args:
+        text: SRT 里的原始台词。
+
+    Returns:
+        规范化后的字幕行列表，至少一行。
+    """
+    cleaned = re.sub(f"[{re.escape(SUBTITLE_PUNCTUATION)}]+", " ", text or "")
+    lines, current = [], ""
+    for word in cleaned.split():
+        for piece in _break_long_word(word):
+            if not current:
+                current = piece
+            elif effective_character_count(current + " " + piece) <= SUBTITLE_MAX_EFFECTIVE_CHARS:
+                current = f"{current} {piece}"
+            else:
+                lines.append(current)
+                current = piece
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
+def parse_srt_cues(srt_path) -> list:
+    """读 SRT 的 cue：返回 [{"start_us", "end_us", "text"}]，时间取整到微秒。"""
+    try:
+        raw = Path(srt_path).read_text(encoding="utf-8-sig")
+    except OSError as exc:
+        raise DraftInputError(f"字幕文件 {srt_path} 读取失败: {exc}") from exc
+    timing = re.compile(r"(\d+):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d+):(\d{2}):(\d{2})[,.](\d{1,3})")
+
+    def to_us(hours: int, minutes: int, seconds: int, millis: int) -> int:
+        return ((hours * 60 + minutes) * 60 + seconds) * 1_000_000 + millis * 1000
+
+    cues, current = [], None
+    for line in raw.splitlines():
+        if current is not None and line.strip():
+            current["text"] = f"{current['text']}\n{line.strip()}".strip()
+            continue
+        match = timing.search(line)
+        if match:
+            groups = [int(value) for value in match.groups()]
+            current = {"start_us": to_us(*groups[:4]), "end_us": to_us(*groups[4:]), "text": ""}
+            cues.append(current)
+        elif not line.strip():
+            current = None
+    for cue in cues:
+        if cue["end_us"] <= cue["start_us"]:
+            raise DraftInputError(f"字幕文件 {srt_path} 里有一条 cue 的结束时间不晚于开始时间：{cue}")
+    if not cues:
+        raise DraftInputError(f"字幕文件 {srt_path} 里没有可解析的 cue；交付草稿不接受空字幕。")
+    return cues
+
+
+def normalize_srt(srt_path, output_path) -> list:
+    """按文本规则重排一份 SRT 并写出规范化版本，返回写出的 cue 列表。"""
+    normalized = []
+    for cue in parse_srt_cues(srt_path):
+        lines = normalize_subtitle_text(cue["text"])
+        weights = [effective_character_count(line) for line in lines]
+        total_weight = sum(weights) or 1.0
+        cursor, consumed = cue["start_us"], 0.0
+        for index, line in enumerate(lines):
+            consumed += weights[index]
+            end = (cue["end_us"] if index == len(lines) - 1
+                   else cue["start_us"] + round((cue["end_us"] - cue["start_us"]) * consumed / total_weight))
+            end = min(max(end, cursor + 1000), cue["end_us"])
+            normalized.append({"start_us": cursor, "end_us": end, "text": line})
+            cursor = end
+    write_srt_cues(output_path, normalized)
+    return normalized
+
+
+def write_srt_cues(output_path, cues: list) -> None:
+    """写出 SRT；时间用 HH:MM:SS,mmm。"""
+    def stamp(us: int) -> str:
+        seconds, millis = divmod(max(us, 0), 1_000_000)
+        minutes, seconds = divmod(seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d},{millis // 1000:03d}"
+
+    blocks = [f"{index}\n{stamp(cue['start_us'])} --> {stamp(cue['end_us'])}\n{cue['text']}"
+              for index, cue in enumerate(cues, start=1)]
+    Path(output_path).write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
 
 
 def _media_shot_number(media_file: Path) -> int:
     match = re.search(r"(\d+)", media_file.stem)
     return int(match.group(1)) if match else 0
+
+
+def _segments_of(content: dict, track_type: str) -> list:
+    return [segment for track in content.get("tracks", []) if track.get("type") == track_type
+            for segment in track.get("segments", [])]
+
+
+def _duration_us(segment: dict) -> int:
+    return int((segment.get("target_timerange") or {}).get("duration", 0))
+
+
+def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normalized_cues) -> None:
+    """交付前校验一份草稿：对不上就拒绝交付并列出全部失败项。
+
+    校验的是将要写出的 draft_content.json：视频总时长 == 音频时长、视频段数 == 镜头数、
+    没有任何段使用默认时长、字幕条数 == 规范化后的字幕行数、字幕样式字段是草稿契约的值，
+    字幕文本已按共用文本规则规范化。
+
+    Args:
+        content: 即将写出的草稿内容（json.loads(script.dumps())）。
+        clips: 本集时间线的镜头表，空字典表示这一集没有时间线。
+        audio_duration_us: 实测主音频时长（微秒），None 表示音频没能加入。
+        normalized_cues: normalize_srt 返回的规范化字幕 cue 列表，None 表示没有导入字幕。
+
+    Raises:
+        DraftInputError: 有任何一项不成立，报文逐条列出失败项与实测值。
+    """
+    failures = []
+    video_segments = _segments_of(content, "video")
+    audio_segments = _segments_of(content, "audio")
+    video_total = sum(_duration_us(segment) for segment in video_segments)
+    audio_total = sum(_duration_us(segment) for segment in audio_segments)
+
+    if not audio_segments:
+        failures.append("主音频轨没有任何片段：音频没能加入草稿。")
+    elif audio_duration_us is not None and abs(audio_total - audio_duration_us) > TIMELINE_TOLERANCE_US:
+        failures.append(f"音频轨总时长 {audio_total / 1e6:.3f} 秒与实测音频 "
+                        f"{audio_duration_us / 1e6:.3f} 秒不一致。")
+    if not video_segments:
+        failures.append("视频轨没有任何片段。")
+    elif abs(video_total - audio_total) > TIMELINE_TOLERANCE_US:
+        failures.append(f"视频总时长 {video_total / 1e6:.3f} 秒 != 音频时长 {audio_total / 1e6:.3f} 秒"
+                        f"（容差 {TIMELINE_TOLERANCE_US / 1e6:.1f} 秒）。")
+    if clips:
+        if len(video_segments) != len(clips):
+            failures.append(f"视频段数 {len(video_segments)} != 镜头数 {len(clips)}。")
+    else:
+        failures.append("这一集没有时间线（05_timeline/<集>.timeline.json）：无法证明每段时长来自镜头，"
+                        "按每段 5 秒铺的草稿不能交付。")
+
+    video_paths = {material.get("id"): material.get("path")
+                   for material in content.get("materials", {}).get("videos", [])}
+    for segment in video_segments:
+        shot = _media_shot_number(Path(video_paths.get(segment.get("material_id")) or ""))
+        clip = clips.get(shot)
+        duration = _duration_us(segment)
+        if clip is None:
+            failures.append(f"镜头 {shot} 用的是默认时长 {duration / 1e6:.3f} 秒，时间线里没有这个镜头。")
+        elif duration == DEFAULT_SHOT_DURATION_US and clip["duration_us"] != DEFAULT_SHOT_DURATION_US:
+            failures.append(f"镜头 {shot} 的时长是默认的 {DEFAULT_SHOT_DURATION_US / 1e6:.1f} 秒，"
+                            f"时间线要求 {clip['duration_us'] / 1e6:.3f} 秒。")
+        elif abs(duration - clip["duration_us"]) > TIMELINE_TOLERANCE_US:
+            failures.append(f"镜头 {shot} 的时长 {duration / 1e6:.3f} 秒与时间线的 "
+                            f"{clip['duration_us'] / 1e6:.3f} 秒不一致。")
+
+    text_segments = _segments_of(content, "text")
+    if normalized_cues is None:
+        failures.append("草稿里没有字幕轨；交付草稿必须带规范化字幕。")
+    elif len(text_segments) != len(normalized_cues):
+        failures.append(f"字幕条数 {len(text_segments)} != 规范化后的字幕行数 {len(normalized_cues)}。")
+
+    texts = {material.get("id"): material for material in content.get("materials", {}).get("texts", [])}
+    for segment in text_segments:
+        material = texts.get(segment.get("material_id"))
+        if material is None:
+            failures.append(f"字幕片段 {segment.get('id')} 找不到对应文本素材。")
+            continue
+        style = (json.loads(material.get("content") or "{}").get("styles") or [{}])[0]
+        strokes = style.get("strokes") or [{}]
+        stroke = strokes[0]
+        if style.get("size") != SUBTITLE_FONT_SIZE:
+            failures.append(f"字幕字号 {style.get('size')!r} != {SUBTITLE_FONT_SIZE}。")
+        if material.get("letter_spacing") != SUBTITLE_LETTER_SPACING * 0.05:
+            failures.append(f"字幕字间距 {material.get('letter_spacing')!r} != "
+                            f"{SUBTITLE_LETTER_SPACING * 0.05}。")
+        if material.get("line_spacing") != 0.02:
+            failures.append(f"字幕行间距 {material.get('line_spacing')!r} != 0.02（基线）。")
+        if abs(float(stroke.get("width", 0)) - SUBTITLE_BORDER_UI_WIDTH / 100 * 0.2) > 1e-6:
+            failures.append(f"字幕描边 {stroke.get('width')!r} != "
+                            f"{SUBTITLE_BORDER_UI_WIDTH / 100 * 0.2}。")
+        if (stroke.get("content", {}).get("solid", {}).get("color")) != list(SUBTITLE_BORDER_COLOR):
+            failures.append(f"字幕描边颜色 {stroke.get('content')!r} != {list(SUBTITLE_BORDER_COLOR)}。")
+        if "font" in style:
+            failures.append("字幕写了 font 字段；草稿契约是剪映系统默认字体，不写该字段。")
+        if (segment.get("clip") or {}).get("transform", {}).get("y") != SUBTITLE_TRANSFORM_Y:
+            failures.append(f"字幕纵坐标 {(segment.get('clip') or {}).get('transform')!r} != "
+                            f"transform_y={SUBTITLE_TRANSFORM_Y}。")
+        text = json.loads(material.get("content") or "{}").get("text", "")
+        if any(char in SUBTITLE_PUNCTUATION for char in text):
+            failures.append(f"字幕仍带标点：{text!r}。")
+        if effective_character_count(text) > SUBTITLE_MAX_EFFECTIVE_CHARS:
+            failures.append(f"字幕 {text!r} 有 {effective_character_count(text):.1f} 个有效字，"
+                            f"超过 {SUBTITLE_MAX_EFFECTIVE_CHARS}。")
+        if "\n" in text:
+            failures.append(f"字幕 {text!r} 是两行；交付字幕必须单行。")
+
+    if failures:
+        raise DraftInputError("草稿未通过交付前校验，拒绝交付：\n  - " + "\n  - ".join(failures))
 
 
 def main_with_args(args):
@@ -715,6 +1019,12 @@ def main_with_args(args):
         if draft_path.exists():
             raise DraftInputError(f"{draft_path} 已存在，拒绝覆盖；请为新候选指定唯一 name_prefix。")
 
+        def refuse(message: str):
+            """报出输入契约违规，并删掉本次刚建的草稿目录，避免半成品挡住重跑。"""
+            logger.error(f"[{draft_name}] {message}")
+            shutil.rmtree(draft_path, ignore_errors=True)
+            raise DraftInputError(message)
+
         # 复制模板草稿为新草稿
         script = None
         for attempt in range(1, 10):
@@ -759,6 +1069,8 @@ def main_with_args(args):
         
         # 检查是否是新创建的草稿（没有模板素材）
         is_new_draft = True
+        audio_duration = None
+        normalized_cues = None
         logger.info(f"[{draft_name}] Forcing new draft mode - will add all materials to timeline")
         
         if is_new_draft:
@@ -812,10 +1124,11 @@ def main_with_args(args):
                 from pyJianYingDraft.time_util import Timerange, tim
                 audio_duration = voice_new.duration
                 audio_segment = draft.AudioSegment(voice_new, Timerange(0, audio_duration))
-                # 调整音量到15级（剪映标准）
-                audio_segment.volume = 15
+                # 输入已 loudnorm，只能单位增益：×15 会直接把满电平的原声削波。
+                audio_segment.volume = VOICE_VOLUME
                 script.add_segment(audio_segment, audio_track)
                 logger.info(f"[{draft_name}] Successfully added main audio to timeline")
+                logger.info(f"[{draft_name}] Main audio volume: {VOICE_VOLUME}（输入应已归一化，草稿不再放大）")
             except Exception as e:
                 logger.info(f"[{draft_name}] Failed to add main audio: {e}")
 
@@ -840,9 +1153,9 @@ def main_with_args(args):
                         bgm_segment = draft.AudioSegment(bgm_new, Timerange(0, bgm_duration))
                         logger.info(f"[{draft_name}] BGM shorter than main audio, using full BGM duration")
 
-                    bgm_segment.volume = 1
+                    bgm_segment.volume = BGM_VOLUME
                     script.add_segment(bgm_segment, bgm_track)
-                    logger.info(f"[{draft_name}] Successfully added BGM to timeline (volume: 1)")
+                    logger.info(f"[{draft_name}] Successfully added BGM to timeline (volume: {BGM_VOLUME})")
                 except Exception as e:
                     logger.info(f"[{draft_name}] Failed to add BGM: {e}")
 
@@ -882,10 +1195,20 @@ def main_with_args(args):
                 media_files = sort_media_files(media_files)
                 logger.info(f"[{draft_name}] Sorted media files: {[f.name for f in media_files]}")
 
-                # 有语义时间轴时按音频字幕铺镜头；否则保持旧版每个视频固定 5 秒
+                # 有时间线时按时间线铺镜头；没有时间线时按默认时长预览，但那种草稿不通过交付校验
                 from pyJianYingDraft.time_util import Timerange, tim
 
-                CLIP_DURATION = round(5 * 1000000)
+                if timeline_clips and audio_duration is not None:
+                    try:
+                        assert_timeline_matches_audio(timeline_clips, audio_duration, timeline_path)
+                    except DraftInputError as error:
+                        refuse(str(error))
+                elif not timeline_clips:
+                    logger.warning(
+                        f"[{draft_name}] 这一集没有时间线 {timeline_path}，按每段 "
+                        f"{DEFAULT_SHOT_DURATION_US / 1e6:.0f} 秒铺；这样的草稿会在交付前校验被拒绝，"
+                        "要交付先补 05_timeline/<集>.timeline.json。")
+
                 current_time = 0
 
                 for idx, media_file in enumerate(media_files, start=1):
@@ -894,36 +1217,52 @@ def main_with_args(args):
 
                         media_material = draft.VideoMaterial(str(media_file))
 
-                        clip = timeline_clips.get(_media_shot_number(media_file))
-                        if clip:
-                            start_time = int(clip.get("start_us", current_time))
-                            duration = max(int(clip.get("duration_us", CLIP_DURATION)), 500000)
+                        shot = _media_shot_number(media_file)
+                        clip = timeline_clips.get(shot)
+                        if clip is None:
+                            if timeline_clips:
+                                refuse(f"时间线 {timeline_path} 里没有镜头 {shot}"
+                                       f"（{media_file.name}）；媒体素材与时间线不是同一集，"
+                                       "修好时间线再重跑，不要按默认 5 秒铺。")
+                            start_time = current_time
+                            duration = DEFAULT_SHOT_DURATION_US
+                        else:
+                            start_time = int(clip["start_us"])
+                            duration = int(clip["duration_us"])
                             # Container-reported duration can be a few frames longer than
                             # Jianying's decoded media duration. Keep the whole source clip
                             # without requesting an invalid overrun.
                             if media_file.suffix.lower() in video_extensions:
                                 duration = min(duration, int(media_material.duration))
-                        else:
-                            start_time = current_time
-                            duration = CLIP_DURATION
 
                         video_segment = draft.VideoSegment(media_material, Timerange(start_time, duration))
                         script.add_segment(video_segment, video_track)
                         logger.info(f"[{draft_name}] Successfully added media {idx} to timeline")
                         media_added_count += 1
 
-                        current_time = max(current_time + CLIP_DURATION, start_time + duration)
+                        current_time = max(current_time + DEFAULT_SHOT_DURATION_US, start_time + duration)
 
+                    except DraftInputError:
+                        raise
                     except Exception as e:
                         logger.info(f"[{draft_name}] Failed to add media {idx}: {e}")
+            except DraftInputError:
+                raise
             except Exception as e:
                 logger.info(f"[{draft_name}] Failed to add media: {e}")
 
             logger.info(f"[{draft_name}] Added {media_added_count} out of {len(media_files)} media files to timeline")
 
-            # 4) 导入字幕
+            # 4) 导入字幕：先按共用文本规则规范化，再导入规范化后的那份
             if srt_path and srt_path.exists():
                 logger.info(f"[{draft_name}] Importing subtitle...")
+                normalized_srt = draft_path / f"{seq}.normalized.srt"
+                try:
+                    normalized_cues = normalize_srt(srt_path, normalized_srt)
+                except DraftInputError as error:
+                    refuse(str(error))
+                logger.info(f"[{draft_name}] 字幕 {len(normalized_cues)} 条（去标点/单行/≤"
+                            f"{SUBTITLE_MAX_EFFECTIVE_CHARS} 有效字），写出 {normalized_srt}")
                 try:
                     if hasattr(script, 'import_srt'):
                         # 导入字幕到文本轨道，设置样式
@@ -953,7 +1292,7 @@ def main_with_args(args):
                         
                         # 导入字幕
                         script.import_srt(
-                            str(srt_path), 
+                            str(normalized_srt),
                             "字幕轨道",
                             style_reference=style_reference,
                             clip_settings=clip_settings
@@ -1106,6 +1445,13 @@ def main_with_args(args):
             import traceback
             logger.info(f"[{draft_name}] Time range verification failed: {e}")
             logger.info(f"[{draft_name}] Detailed error: {traceback.format_exc()}")
+
+        # 交付前校验：校验的是马上要写出的那份内容，失败就不写、并清掉这次新建的草稿目录
+        try:
+            verify_draft_delivery(json.loads(script.dumps()), timeline_clips, audio_duration,
+                                  normalized_cues)
+        except DraftInputError as error:
+            refuse(str(error))
 
         try:
             script.save()
