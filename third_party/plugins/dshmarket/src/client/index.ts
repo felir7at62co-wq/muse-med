@@ -34,9 +34,9 @@ export function missingPrimitives(mod: Record<string, unknown>, required: readon
  * The host surface the settings card needs, present only on rc.7+.
  *
  * The card no longer reads or writes settings — it manages the market's own
- * package — but `settingsScope` stays as the INJECTION KEY, because its
- * presence is what distinguishes a host that has the plugin configuration
- * page from one that does not. The market's namespace (registered in
+ * package — but `configForms` stays as the INJECTION KEY, because its
+ * presence is what distinguishes a host that serves plugin configuration
+ * pages from one that does not. The market's namespace (registered in
  * settings.ts) is likewise still required: the page dispatches a card keyed
  * by a namespace it serves, so dropping it would take the card with it.
  */
@@ -144,14 +144,14 @@ export function apply(ctx: MarketClientContext): void {
   })
 
   // The settings card (dsh >= 0.1.0-rc.7). Registered through a NESTED
-  // inject on purpose: naming settingsScope in the module-level `inject`
+  // inject on purpose: naming configForms in the module-level `inject`
   // would keep this whole plugin unmounted on any host without that
   // service — the market's own page would vanish on rc.6 to gain a card
   // rc.6 cannot render. Nested, the card simply never appears there.
   const settingsCtx = ctx as unknown as {
     inject(services: string[], callback: (scoped: SettingsScopeHost) => void): void
   }
-  settingsCtx.inject(['settingsScope'], (scoped) => {
+  settingsCtx.inject(['configForms'], (scoped) => {
     scoped.slots.inject('settings.plugin.item', () => scoped.slots.register({
       name: 'settings.plugin.item',
       key: NS,
