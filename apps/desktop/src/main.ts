@@ -23,7 +23,7 @@ import {
   type MenuItemConstructorOptions,
 } from 'electron'
 import { resolveDesktopPaths } from './paths.ts'
-import { DesktopProjectManager } from './project-manager.ts'
+import { DesktopProjectManager, type DesktopProjectHooks } from './project-manager.ts'
 import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
 import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
 import { installDesktopDirectoryPicker } from './directory-picker.ts'
@@ -89,6 +89,12 @@ if (app.isPackaged) {
 
 let focusPrimaryWindow = (): void => {}
 let stopForRecovery = async (): Promise<void> => {}
+/**
+ * Profile reset reachable from the crash dialog. Assigned by `main()` to the same implementation the
+ * `DESKTOP_IPC.configurationReset` channel serves; the dialog reaches the reset through that channel's
+ * handler rather than a second private path.
+ */
+let resetForRecovery = async (): Promise<void> => {}
 /** Whether the packaged application can offer profile recovery actions; development builds cannot. */
 let profileRecoveryAvailable = (): boolean => false
 let shuttingDown = false
@@ -128,6 +134,7 @@ const recovery = new DesktopFatalRecovery({
     const backupPath = await manager.disableAllPlugins()
     console.info('Desktop profile recovery completed:', { profilePatchBackup: backupPath ?? null, homePatch: 'unchanged' })
   },
+  reset: () => resetForRecovery(),
   exit: () => { quitWithoutConfirmation() },
   restart: () => { app.relaunch(); quitWithoutConfirmation() },
   writeReport: (error, source) => persistCrashReport(error, source),
@@ -804,12 +811,24 @@ async function main(): Promise<void> {
     app.relaunch()
     quitWithoutConfirmation()
   })
-  ipcMain.handle(DESKTOP_IPC.configurationReset, async (event) => {
-    assertDesktopSender(event, ['shell'])
+  /**
+   * Rebuild the managed profile from the application's own resources.
+   * The channel keeps the application running by restarting the Host through its hooks; the crash
+   * dialog relaunches instead and its backend controller is already closed, so the reset it reaches
+   * through this same implementation passes hooks that only order the profile write.
+   * @param projectHooks - Profile-transaction hooks for the caller's backend lifecycle.
+   */
+  const resetConfiguration = async (projectHooks: DesktopProjectHooks): Promise<void> => {
     if (development !== undefined) throw new Error('Desktop configuration reset requires a packaged application')
     if (!profileRecoveryAvailable()) throw new Error(locale.messages.startupReinstallAdvice)
-    await manager.resetConfiguration(hooks)
+    await manager.resetConfiguration(projectHooks)
+  }
+  ipcMain.handle(DESKTOP_IPC.configurationReset, async (event) => {
+    assertDesktopSender(event, ['shell'])
+    await resetConfiguration(hooks)
   })
+  resetForRecovery = () => resetConfiguration({ beforeChange: async () => {}, afterChange: async () => {} })
+
   ipcMain.handle(DESKTOP_IPC.updatesCheck, async (event) => {
     assertDesktopSender(event, ['shell'])
     return updateSchedule.check(true)

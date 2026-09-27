@@ -29,6 +29,7 @@ const harness = await vi.hoisted(async () => {
   const handlers = new Map<string, (event: { senderFrame: { url: string } }, ...args: unknown[]) => unknown>()
   let pluginsEnabled = false
   let resets = 0
+  let managerConstructions = 0
   let preparing = deferred()
   let prepared = deferred()
   let hostStarted = deferred()
@@ -172,6 +173,8 @@ const harness = await vi.hoisted(async () => {
     nextHostStart() { hostStarted = deferred(); return hostStarted.promise },
     noteReset() { resets += 1 },
     get resets() { return resets },
+    countManager() { managerConstructions += 1 },
+    get managerConstructions() { return managerConstructions },
     get pluginsEnabled() { return pluginsEnabled },
     set pluginsEnabled(value: boolean) { pluginsEnabled = value },
     get welcomeState() { return welcomeState },
@@ -189,6 +192,7 @@ const harness = await vi.hoisted(async () => {
       app.isPackaged = true
       pluginsEnabled = false
       resets = 0
+      managerConstructions = 0
       welcomeState = { loggedIn: false, hasApiKey: true, writable: true, localePreference: null }
       updatePublish = undefined
       preparing = deferred(); prepared = deferred(); hostStarted = deferred()
@@ -259,6 +263,7 @@ vi.mock('../src/welcome-backend.ts', () => ({
 vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile' }) }))
 vi.mock('../src/project-manager.ts', () => ({
   DesktopProjectManager: class {
+    constructor() { harness.countManager() }
     readonly applyRelease = harness.applyRelease
     readonly assertProfileRuntime = harness.assertProfileRuntime
     readonly disableAllPlugins = harness.disableAllPlugins
@@ -570,13 +575,37 @@ describe('desktop main startup', () => {
     host.exited.resolve()
     await quitting
     const options = harness.dialog.showMessageBox.mock.calls[0]![0] as MessageBoxOptions
-    expect(options.buttons).toEqual([en.exitApplication, en.restartApplication, en.disableThirdPartyPlugins])
+    expect(options.buttons).toEqual([en.exitApplication, en.restartApplication, en.disableThirdPartyPlugins,
+      en.resetConfiguration])
     expect(options.detail).toContain('preload unavailable')
     expect(harness.disableAllPlugins).toHaveBeenCalledOnce()
     expect(harness.pluginsEnabled).toBe(false)
     expect(console.info).toHaveBeenCalledWith('Desktop profile recovery completed:', {
       profilePatchBackup: 'desktop-test-profile/cordis.patch.yml.bak-1', homePatch: 'unchanged',
     })
+    expect(harness.app.relaunch).toHaveBeenCalledOnce()
+    expect(harness.windows).toHaveLength(1)
+    expect(window.urls).toEqual(['dsh-app://app/'])
+  })
+
+  it('resets the profile from the native recovery dialog through the channel implementation', async () => {
+    answerRecovery(3)
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    const host = harness.hosts[0]!
+    const quitting = harness.quitCompleted.promise
+    window.webContents.emit('preload-error', {}, 'preload-app.cjs', new Error('preload unavailable'))
+    await host.stopping.promise
+    host.exited.resolve()
+    await quitting
+    const options = harness.dialog.showMessageBox.mock.calls[0]![0] as MessageBoxOptions
+    expect(options.buttons).toContain(en.resetConfiguration)
+    expect(options.detail).toContain(en.startupConfigurationAdvice)
+    expect(harness.resets).toBe(1)
+    // The dialog runs the application's own reset rather than the private manager the plugin action builds.
+    expect(harness.managerConstructions).toBe(1)
+    expect(harness.disableAllPlugins).not.toHaveBeenCalled()
+    // The profile write settled before the relaunch that retries startup.
     expect(harness.app.relaunch).toHaveBeenCalledOnce()
     expect(harness.windows).toHaveLength(1)
     expect(window.urls).toEqual(['dsh-app://app/'])

@@ -10,6 +10,8 @@ interface RecoveryOperations {
   show(options: MessageBoxOptions): Promise<MessageBoxReturnValue>
   stop(): Promise<void>
   disablePlugins(): Promise<void>
+  /** Rebuild the managed profile from the application's own resources, before the restart. */
+  reset(): Promise<void>
   exit(): void
   restart(): void
   /** Persist the complete diagnostic; resolves with the file path, or `undefined` when nothing was written. */
@@ -28,11 +30,11 @@ const DETAIL_TAIL_LINES = 8
 /**
  * Compose the dialog detail: the error's last lines (prefixed by the
  * shortening notice when they are not the whole error), then the report path
- * when one was written, then the reinstall advice. The report line does not
+ * when one was written, then the reinstall and reset advice. The report line does not
  * depend on shortening: a short error that was persisted names its file too.
  */
 function dialogDetail(error: string, messages: DesktopMessages, reportPath: string | undefined): string {
-  const advice = `\n\n${messages.startupReinstallAdvice}`
+  const advice = `\n\n${messages.startupReinstallAdvice}\n${messages.startupConfigurationAdvice}`
   const report = reportLine(messages, reportPath)
   const tail = error.split(/\r\n|[\n\r\u2028\u2029]/u).slice(-DETAIL_TAIL_LINES).join('\n')
   const budget = DETAIL_BUDGET - advice.length - report.length - messages.diagnosticTruncated.length - 1
@@ -80,7 +82,8 @@ export class DesktopFatalRecovery {
           : dialogDetail(detail, messages, reportPath),
         buttons: addressInUse
           ? [messages.exitApplication, messages.restartApplication]
-          : [messages.exitApplication, messages.restartApplication, messages.disableThirdPartyPlugins],
+          : [messages.exitApplication, messages.restartApplication, messages.disableThirdPartyPlugins,
+            messages.resetConfiguration],
         defaultId: 1,
         cancelId: 0,
         noLink: true,
@@ -93,6 +96,7 @@ export class DesktopFatalRecovery {
       try {
         await this.operations.stop()
         if (response === 2) await this.operations.disablePlugins()
+        if (response === 3) await this.operations.reset()
         this.operations.restart()
         return
       } catch (failure) {

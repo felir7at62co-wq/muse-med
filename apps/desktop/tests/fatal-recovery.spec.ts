@@ -15,6 +15,7 @@ function fixture(
     show: vi.fn((_options: MessageBoxOptions) => choice.promise),
     stop: vi.fn(() => stopped.promise),
     disablePlugins: vi.fn(async () => {}),
+    reset: vi.fn(async () => {}),
     exit: vi.fn(),
     restart: vi.fn(),
     writeReport: vi.fn(writeReport),
@@ -88,7 +89,7 @@ it('locks the first report before the dialog settles and never resets after an a
   expect(operations.show).toHaveBeenCalledOnce()
 })
 
-it.each([0, 1, 2])('waits for shutdown before executing choice %s', async (response) => {
+it.each([0, 1, 2, 3])('waits for shutdown before executing choice %s', async (response) => {
   const { operations, choice, stopped, recovery } = fixture()
   const stopping = Promise.withResolvers<undefined>()
   operations.stop.mockImplementation(() => { stopping.resolve(undefined); return stopped.promise })
@@ -98,11 +99,44 @@ it.each([0, 1, 2])('waits for shutdown before executing choice %s', async (respo
   expect(operations.exit).not.toHaveBeenCalled()
   expect(operations.restart).not.toHaveBeenCalled()
   expect(operations.disablePlugins).not.toHaveBeenCalled()
+  expect(operations.reset).not.toHaveBeenCalled()
   stopped.resolve(undefined)
   await pending
   expect(operations.exit).toHaveBeenCalledTimes(response === 0 ? 1 : 0)
   expect(operations.restart).toHaveBeenCalledTimes(response === 0 ? 0 : 1)
   expect(operations.disablePlugins).toHaveBeenCalledTimes(response === 2 ? 1 : 0)
+  expect(operations.reset).toHaveBeenCalledTimes(response === 3 ? 1 : 0)
+})
+
+it('resets the profile before restarting when the reset action is chosen', async () => {
+  const { operations, choice, stopped, recovery } = fixture()
+  const order: string[] = []
+  operations.reset.mockImplementation(async () => { order.push('reset') })
+  operations.restart.mockImplementation(() => { order.push('restart') })
+  const pending = recovery.report(new Error('fatal'), 'main')
+  await shown(operations)
+  expect(operations.show.mock.calls[0]![0].buttons).toContain(operations.messages().resetConfiguration)
+  expect(operations.show.mock.calls[0]![0].detail).toContain(operations.messages().startupConfigurationAdvice)
+  choice.resolve({ response: 3, checkboxChecked: false })
+  stopped.resolve(undefined)
+  await pending
+  expect(order).toEqual(['reset', 'restart'])
+  expect(operations.disablePlugins).not.toHaveBeenCalled()
+  expect(operations.exit).not.toHaveBeenCalled()
+})
+
+it('reports a user-requested reset failure and allows exit without restarting', async () => {
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  const { operations, stopped, recovery } = fixture()
+  operations.show.mockResolvedValueOnce({ response: 3, checkboxChecked: false })
+    .mockResolvedValueOnce({ response: 0, checkboxChecked: false })
+  operations.reset.mockRejectedValueOnce(new Error('profile directory is a link'))
+  stopped.resolve(undefined)
+  await recovery.report(new Error('fatal'), 'main')
+  expect(operations.show).toHaveBeenCalledTimes(2)
+  expect(operations.show.mock.calls[1]![0].detail).toContain('profile directory is a link')
+  expect(operations.restart).not.toHaveBeenCalled()
+  expect(operations.exit).toHaveBeenCalledOnce()
 })
 
 it('reports a user-requested disable failure and allows exit without restarting', async () => {
@@ -202,7 +236,9 @@ it('shows the dialog without a path when the report write fails or returns nothi
     const pending = recovery.report(new Error('fatal'), 'main')
     await shown(operations)
     await vi.waitFor(() => { expect(operations.show).toHaveBeenCalledOnce() })
-    expect(operations.show.mock.calls[0]![0].detail).toBe(`fatal\n\n${operations.messages().startupReinstallAdvice}`)
+    expect(operations.show.mock.calls[0]![0].detail).toBe(
+      `fatal\n\n${operations.messages().startupReinstallAdvice}\n${operations.messages().startupConfigurationAdvice}`,
+    )
     choice.resolve({ response: 0, checkboxChecked: false })
     stopped.resolve(undefined)
     await pending
