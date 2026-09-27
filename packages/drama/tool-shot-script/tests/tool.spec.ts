@@ -55,6 +55,12 @@ describe('registration', () => {
     }
   })
 
+  it('scopes the placeholder rules to the script so a checklist quoting them is not a violation', () => {
+    const description = dramaShot().description
+    expect(description).toContain('只在一个镜头块的字段里读到')
+    expect(description).toContain('本说明、技能正文与检查清单里出现这些字样不算脚本违规')
+  })
+
   it('exposes the method enum and the four path arguments', () => {
     const parameters = dramaShot().parameters as {
       properties: Record<string, { enum?: string[] }>

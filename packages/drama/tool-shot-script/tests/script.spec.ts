@@ -190,6 +190,20 @@ describe('the spoken track', () => {
 })
 
 describe('the character field', () => {
+  it('judges the placeholders only inside shot blocks, never in surrounding prose', () => {
+    const checklist = [
+      '# 检查清单',
+      '无声镜不写 台词：无，也不用 出镜人物：无 占位。',
+      '规则：不得出现 台词：无、空台词行、出镜人物：无。',
+      '',
+    ].join('\n')
+    const clean = parse(checklist + scriptOf(actionShot(1)))
+    expect(clean.issues).toEqual([])
+
+    const offending = parse(checklist + scriptOf(speakingShot(1, '苏晚：原文台词', ['出镜人物：无'])))
+    expect(codes(offending.issues)).toEqual(['characters_placeholder'])
+  })
+
   it('refuses the 无 placeholder in both spellings', () => {
     const plain = parse(scriptOf(speakingShot(1, '苏晚：原文台词', ['出镜人物：无'])))
     expect(codes(plain.issues)).toEqual(['characters_placeholder'])
