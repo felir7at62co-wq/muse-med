@@ -3,6 +3,7 @@
 import { valid } from 'semver'
 import { spawn } from 'node:child_process'
 import {
+  copyFileSync,
   existsSync,
   fsyncSync,
   ftruncateSync,
@@ -85,6 +86,7 @@ const DESKTOP_PROFILE_BUNDLES = [
   'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@moyu-good/dsh-lark-bridge',
   '@deepseek-ai/dsh-feishu-settings',
 ] as const
+const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\nstrictDepBuilds: true\n'
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/[a-z0-9][a-z0-9._~-]*|[a-z0-9][a-z0-9._~-]*)$/u
 const VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+_-]*$/u
@@ -170,16 +172,67 @@ function projectManifest(projectDir: string): DesktopProjectManifest {
   return manifest
 }
 
-function profilePluginNames(projectDir: string): readonly string[] {
-  const bundles = projectManifest(projectDir).dsh.profile.bundles
-  if (!DESKTOP_PROFILE_BUNDLES.every((bundle, index) => bundles[index] === bundle)) {
+/**
+ * Read the third-party bundles stored after a profile's built-in prefix.
+ *
+ * A profile stores the built-in bundle list of the release that wrote it, followed by its own
+ * third-party bundles, so a release that appends a built-in bundle leaves the built-in list as a
+ * true prefix of the stored list and the remainder is still that profile's third-party list. Any
+ * other mismatch — a missing middle bundle, a reordered list, or an unknown bundle ahead of the
+ * built-in list — leaves a built-in name in the remainder and is reported instead of repaired.
+ *
+ * @param stored - `dsh.profile.bundles` as an earlier release wrote it.
+ * @returns Bundles stored after an incomplete built-in prefix, or undefined when the prefix is complete.
+ */
+function pendingBuiltInBundles(stored: readonly string[]): readonly string[] | undefined {
+  const missingAt = DESKTOP_PROFILE_BUNDLES.findIndex((bundle, index) => stored[index] !== bundle)
+  if (missingAt === -1) return undefined
+  const tail = stored.slice(missingAt)
+  if (tail.some(bundle => BUILT_IN_BUNDLE_LIST.includes(bundle))) {
     throw new Error('desktop project: profile must begin with the built-in desktop bundle list')
   }
-  const plugins = bundles.slice(DESKTOP_PROFILE_BUNDLES.length)
+  return tail
+}
+
+/**
+ * Copy the profile manifest aside before an upgrade rewrites it.
+ * @param projectDir - Active desktop profile directory.
+ */
+function backupProfileManifest(projectDir: string): void {
+  const path = join(projectDir, 'package.json')
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/gu, '').replace('T', '-')
+  copyFileSync(path, `${path}.${stamp}.bak`)
+}
+
+/**
+ * Read the profile's third-party bundle names, completing a stored list that only lacks built-in
+ * bundles this release added.
+ *
+ * Every entry point that reads the list — startup reconciliation, the plugin inventory, and
+ * dependency mutations — reaches the stored list through this function, so an upgrade completes the
+ * list once instead of failing where it is read. The completed manifest is written only after the
+ * stored list, its third-party names, and its duplicate check all pass, and only after the manifest
+ * is copied aside.
+ *
+ * @param projectDir - Active desktop profile directory.
+ * @returns Third-party bundle names in stored order.
+ */
+function profilePluginNames(projectDir: string): readonly string[] {
+  const manifest = projectManifest(projectDir)
+  const pending = pendingBuiltInBundles(manifest.dsh.profile.bundles)
+  const bundles = pending === undefined ? manifest.dsh.profile.bundles : [...DESKTOP_PROFILE_BUNDLES, ...pending]
   if (new Set(bundles).size !== bundles.length) {
     throw new Error('desktop project: profile bundle list contains a duplicate package')
   }
+  const plugins = bundles.slice(DESKTOP_PROFILE_BUNDLES.length)
   for (const plugin of plugins) assertPackageName(plugin)
+  if (pending !== undefined) {
+    backupProfileManifest(projectDir)
+    writeJson(join(projectDir, 'package.json'), {
+      ...manifest,
+      dsh: { ...manifest.dsh, profile: { ...manifest.dsh.profile, bundles } },
+    } satisfies DesktopProjectManifest)
+  }
   return plugins
 }
 

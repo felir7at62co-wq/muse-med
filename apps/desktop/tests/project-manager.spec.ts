@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -62,6 +62,28 @@ function calls(root: string): { args: string[]; registry: string }[] {
   const path = join(root, 'pnpm-log.jsonl')
   return existsSync(path) ? readFileSync(path, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { args: string[]; registry: string }) : []
 }
+const BUILT_IN_BUNDLES = [
+  '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
+  'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@moyu-good/dsh-lark-bridge',
+  '@deepseek-ai/dsh-feishu-settings',
+] as const
+/** Bundle list stored in a profile manifest file. */
+function storedBundles(manifestPath: string): string[] {
+  return (JSON.parse(readFileSync(manifestPath, 'utf8')) as { dsh: { profile: { bundles: string[] } } }).dsh.profile.bundles
+}
+/** Rewrite a profile manifest's bundle list, keeping its other fields and its own JSON format. */
+function writeBundles(manifestPath: string, bundles: readonly string[]): void {
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { dsh: { profile: Record<string, unknown> } }
+  writeFileSync(manifestPath, `${JSON.stringify(
+    { ...manifest, dsh: { ...manifest.dsh, profile: { ...manifest.dsh.profile, bundles } } },
+    undefined,
+    2,
+  )}\n`)
+}
+/** Manifest copies an upgrade wrote beside the profile manifest. */
+function manifestBackups(profile: string): string[] {
+  return readdirSync(profile).filter(name => name.startsWith('package.json.') && name.endsWith('.bak'))
+}
 afterEach(async () => {
   const cleanups = releaseWorkers.splice(0)
   const directories = roots.splice(0)
@@ -78,10 +100,61 @@ describe('desktop external plugin profile', () => {
     const manifest = JSON.parse(readFileSync(join(manager.paths.profile, 'package.json'), 'utf8')) as {
       dsh: { profile: { bundles: string[] } }
     }
-    expect(manifest.dsh.profile.bundles).toEqual([
-      '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
-      'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@moyu-good/dsh-lark-bridge',
-    ])
+    expect(manifest.dsh.profile.bundles).toEqual([...BUILT_IN_BUNDLES])
+  })
+
+  it('completes a stored bundle list that lacks a built-in bundle instead of failing startup', async () => {
+    const { root, manager } = setup()
+    await manager.applyRelease()
+    await manager.mutate({ type: 'plugin-add', spec: 'plugin@1.0.0' }, hooks())
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    writeBundles(manifestPath, [...BUILT_IN_BUNDLES.slice(0, 6), 'plugin'])
+    const written = readFileSync(manifestPath, 'utf8')
+
+    const dsh = join(root, 'next-runtime', 'dsh')
+    runtimeFixture(dsh, '1.1.0')
+    const upgraded = new DesktopProjectManager(manager.paths, { ...manager.runtime, dsh })
+    await expect(upgraded.applyRelease()).resolves.toBe(true)
+
+    expect(storedBundles(manifestPath)).toEqual([...BUILT_IN_BUNDLES, 'plugin'])
+    expect(JSON.parse(readFileSync(manifestPath, 'utf8'))).toMatchObject({ dependencies: { plugin: '1.0.0' } })
+    expect(upgraded.listPlugins()).toEqual([{ name: 'plugin', version: '1.0.0', enabled: true }])
+    const backups = manifestBackups(manager.paths.profile)
+    expect(backups).toHaveLength(1)
+    expect(readFileSync(join(manager.paths.profile, backups[0]!), 'utf8')).toBe(written)
+  })
+
+  it('refuses a stored bundle list that is not a prefix of the built-in list', async () => {
+    const { root, manager } = setup()
+    await manager.applyRelease()
+    await manager.mutate({ type: 'plugin-add', spec: 'plugin@1.0.0' }, hooks())
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    writeBundles(manifestPath, [...BUILT_IN_BUNDLES.slice(0, 3), ...BUILT_IN_BUNDLES.slice(4), 'plugin'])
+    const written = readFileSync(manifestPath, 'utf8')
+
+    const dsh = join(root, 'next-runtime', 'dsh')
+    runtimeFixture(dsh, '1.1.0')
+    const upgraded = new DesktopProjectManager(manager.paths, { ...manager.runtime, dsh })
+    await expect(upgraded.applyRelease()).rejects.toThrow('desktop project: profile must begin with the built-in desktop bundle list')
+    expect(readFileSync(manifestPath, 'utf8')).toBe(written)
+    expect(manifestBackups(manager.paths.profile)).toEqual([])
+  })
+
+  it('leaves a complete bundle list and its manifest untouched across an upgrade', async () => {
+    const { root, manager } = setup()
+    await manager.applyRelease()
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    const written = readFileSync(manifestPath, 'utf8')
+    const writtenAt = statSync(manifestPath).mtimeMs
+
+    const dsh = join(root, 'next-runtime', 'dsh')
+    runtimeFixture(dsh, '1.1.0')
+    const upgraded = new DesktopProjectManager(manager.paths, { ...manager.runtime, dsh })
+    await expect(upgraded.applyRelease()).resolves.toBe(true)
+
+    expect(readFileSync(manifestPath, 'utf8')).toBe(written)
+    expect(statSync(manifestPath).mtimeMs).toBe(writtenAt)
+    expect(manifestBackups(manager.paths.profile)).toEqual([])
   })
 
   it('does not authorize native builds for dependencies absent from the Desktop runtime', () => {
