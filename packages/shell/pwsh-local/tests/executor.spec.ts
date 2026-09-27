@@ -62,6 +62,13 @@ function commandBarrier() {
 // Windows are found even when bare `pwsh` is not on PATH).
 const hasPwsh = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
 
+/**
+ * The CPython launcher a native-child encoding test can run, or undefined when
+ * this host has none (the pin only exists for such children, so the test skips).
+ */
+const pythonBin = ['python3', 'python']
+  .find(bin => spawnSync(bin, ['-c', 'pass'], { stdio: 'ignore' }).status === 0)
+
 /** Normalize PowerShell's platform line endings (CRLF on Windows, LF elsewhere). */
 const lf = (text: string): string => text.replace(/\r\n/g, '\n')
 
@@ -230,6 +237,25 @@ describe('spawn construction (pure, every platform)', () => {
     expect(argv[5]).toBe(`${ENCODING_PREAMBLE}Write-Output 你好`)
     expect(ENCODING_PREAMBLE).toContain('[Console]::OutputEncoding')
     expect(ENCODING_PREAMBLE).toContain('$OutputEncoding')
+  })
+
+  it('pins the child interpreter text streams to UTF-8, letting callers override', async () => {
+    const ctx = createContext()
+    const subprocess = new CapturingSubprocessRuntime(ctx)
+    await ctx.plugin(PwshLocalExecutor)
+    await ctx.shell.run(ctx.shell.resolve({ command: 'Write-Output 你好' }))
+    expect(subprocess.specs[0]!.env).toMatchObject({
+      NO_COLOR: '1',
+      PAGER: 'cat',
+      GIT_PAGER: 'cat',
+      PYTHONIOENCODING: 'utf-8',
+    })
+    // Environment layering: an explicit caller entry outranks the override.
+    await ctx.shell.run(ctx.shell.resolve({
+      command: 'Write-Output 你好',
+      env: { PYTHONIOENCODING: 'cp936' },
+    }))
+    expect(subprocess.specs[1]!.env).toMatchObject({ PYTHONIOENCODING: 'cp936' })
   })
 
   it('reports both unread stderr and an asynchronous provider rejection exactly once', async () => {
@@ -420,6 +446,36 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.run', () => {
     expect('stdin' in spec).toBe(false)
     expect('env' in spec).toBe(false)
     expect('dshEnv' in spec).toBe(false)
+  })
+
+  // A native child chooses its redirected stdout/stderr encoding itself, and one
+  // collected read is decoded as one text, so the executor declares CPython's.
+  // The child reports the encoding it resolved, which is the mechanism under
+  // test: asserting decoded characters instead would depend on the subprocess
+  // layer's decoding rules, and a read that mixes producers is exactly what the
+  // pin prevents (the producer that follows the host code page writes different
+  // bytes into the same read).
+  it.skipIf(pythonBin === undefined)('declares the native child text-stream encoding', { timeout: 15_000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-child-encoding-'))
+    tempDirs.push(dir)
+    const script = join(dir, 'emit.py')
+    writeFileSync(script, 'import sys\nprint("python 中文测试")\nprint("stdout=%s stderr=%s" % (sys.stdout.encoding, sys.stderr.encoding))\nprint("python 中文错误", file=sys.stderr)\n', 'utf8')
+    const { bash } = await setup()
+
+    const pinned = await bash.run(bash.resolve({ command: `& ${pythonBin} "${script}"` }))
+    expect(pinned.exitCode).toBe(0)
+    expect(lf(pinned.stdout.text)).toBe('python 中文测试\nstdout=utf-8 stderr=utf-8\n')
+    expect(lf(pinned.stderr.text)).toBe('python 中文错误\n')
+
+    // The documented environment layering still lets a caller select another
+    // encoding; the child then reports it (CPython reports the canonical name
+    // of the `cp936` alias) and writes those bytes.
+    const overridden = await bash.run(bash.resolve({
+      command: `& ${pythonBin} "${script}"`,
+      env: { PYTHONIOENCODING: 'cp936' },
+    }))
+    expect(overridden.exitCode).toBe(0)
+    expect(overridden.stdout.text).toContain('stdout=gbk stderr=gbk')
   })
 })
 

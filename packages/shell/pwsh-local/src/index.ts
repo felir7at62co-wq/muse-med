@@ -28,13 +28,30 @@ import { resolvePwshPath } from './resolve.ts'
 /* jscpd:ignore-start -- deliberate call-for-call mirror of dsh-bash-local (Agent Note: pwsh-tool-and-executor). */
 /**
  * Model-friendly environment overrides for PowerShell: disable colors and
- * pagers that would garble tool output. `TERM=dumb` is a POSIX concept and is
- * deliberately absent; `NO_COLOR` is honored by modern pwsh renderers.
+ * pagers that would garble tool output, and pin the text encoding of the one
+ * interpreter whose streams otherwise follow the Windows code page.
+ * `TERM=dumb` is a POSIX concept and is deliberately absent; `NO_COLOR` is
+ * honored by modern pwsh renderers.
+ *
+ * `PYTHONIOENCODING=utf-8` declares the encoding of CPython's three text
+ * streams, so every producer in a command writes text the collector decodes as
+ * UTF-8. A native child on Windows otherwise writes its redirected stdout/stderr
+ * in the ANSI/OEM code page — CPython takes it from
+ * `locale.getpreferredencoding()` — so on a CP936 host Chinese output reached
+ * the model as U+FFFD replacement characters and one read carried two
+ * encodings. Neither `[Console]::OutputEncoding` (`ENCODING_PREAMBLE`) nor
+ * `chcp 65001` reaches that choice: the first governs PowerShell's own writers,
+ * the second the console code page, which a redirected child does not consult.
+ * The variable covers the interpreter's three text streams only;
+ * `sys.stdout.buffer` and file I/O keep their own defaults, so binary output and
+ * `open()` semantics are unchanged. Explicit caller entries still win (see the
+ * environment layering in this package's README).
  */
 export const ENV_OVERRIDES = {
   NO_COLOR: '1',
   PAGER: 'cat',
   GIT_PAGER: 'cat',
+  PYTHONIOENCODING: 'utf-8',
 } as const
 
 /**

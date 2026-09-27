@@ -57,7 +57,7 @@ kind: "package-reference"
 
 ### 运行命令
 
-用 `run` 运行命令并从结果读取输出；非零退出、超时或取消都会返回描述性结果，只有基础设施失败才会导致调用被拒绝。命令字符串作为单个参数传给 `-Command`：由 PowerShell 自己解析文本，不存在中间 shell，因此没有需要转义的 shell 引号层，原生 Win32 路径也原样通过。每条命令都先固定 UTF-8 输出，因此即使在 Windows PowerShell 5.1 兜底上，非 ASCII 输出也不会乱码。环境默认面向模型：`NO_COLOR=1 PAGER=cat GIT_PAGER=cat`（没有 `TERM=dumb`——那是 POSIX 概念），调用方显式提供的条目仍然优先。
+用 `run` 运行命令并从结果读取输出；非零退出、超时或取消都会返回描述性结果，只有基础设施失败才会导致调用被拒绝。命令字符串作为单个参数传给 `-Command`：由 PowerShell 自己解析文本，不存在中间 shell，因此没有需要转义的 shell 引号层，原生 Win32 路径也原样通过。每条命令都先固定 UTF-8 输出，因此即使在 Windows PowerShell 5.1 兜底上，非 ASCII 输出也不会乱码。环境默认面向模型：`NO_COLOR=1 PAGER=cat GIT_PAGER=cat PYTHONIOENCODING=utf-8`（没有 `TERM=dumb`——那是 POSIX 概念），调用方显式提供的条目仍然优先。`PYTHONIOENCODING` 的存在是因为一次前景读取会被解码成单一文本：在 Windows 上，原生子进程否则会按主机代码页写它被重定向的 stdout/stderr，于是把 PowerShell 自身的 UTF-8 输出与该子进程混在同一条命令里时，同一次读取里就出现两种编码——一份复盘过的会话在这里看到数千个 U+FFFD 替换字符。PowerShell 自身的写入方由 preamble 固定，但 preamble 本身是命令行里的一条语句，因此无法在 PowerShell 解析该命令之前生效（见[已知限制](#known-limitations-and-deferred-work)）。
 
 ```text
 const result = await ctx.shell.run(ctx.shell.resolve({ command: 'Get-ChildItem' }))
@@ -149,6 +149,9 @@ if (result.timedOut) console.log('timed out after', result.timeoutMs)
 - **Windows 终止不报告信号**——被强制终止的进程以退出码 1、`signal: null` 结算，因此基于信号的状态分类在 Windows 上不适用；`kill()` 发起的停止仍会直接标记为 `killed`。
 - **编码 preamble 位于命令之前**——PowerShell 要求 `param(...)`、`#requires` 与 `using` 语句位于脚本最顶部，因此以其中一种开头的命令无法在 UTF-8 输出 preamble 下运行；`param(...)` 脚本请包进 `& { … }`，`using`/`#requires` 脚本请改从文件运行。
 - **Windows PowerShell 5.1 下的非 ASCII stdin 可能被错误解码**——preamble 只固定输出编码；`[Console]::InputEncoding` 保持主机默认，因为在重定向 stdin 下设置它会抛出异常；pwsh 7 默认 UTF-8，不受影响。
+- **原生子进程运行时保留自己的输出编码**——一次读取会被解码成单一文本，因此按主机代码页写入的子进程会把与 PowerShell 自身 UTF-8 输出不同的字节放进同一次读取。执行器固定 CPython（`PYTHONIOENCODING=utf-8`）；其他同类运行时的子进程需要各自的固定方式，调用方可通过 `env` 或命令内部提供。
+- **PowerShell 自身的解析错误文本绕过 preamble**——PowerShell 会先解析整段 `-Command` 文本再执行其中第一条语句，因此解析失败的命令在该固定生效之前就被写出，用的是主机编码而不是被固定的编码；本执行器不覆盖这段文本。运行时错误能覆盖，因为产生它的语句已经执行过。
+- **二进制输出会被按文本解码**——两个流都按 UTF-8 文本解码；二进制载荷请使用 spill 文件路径或保字节的通道。
 
 <a id="dev-note"></a>
 ### 开发备注
