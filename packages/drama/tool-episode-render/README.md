@@ -128,7 +128,7 @@ A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,s
 | Rate control | 24M target, 30M peak, 48M buffer, 120-frame GOP |
 | Overall bitrate floor | 4.6 Mbps over the delivered file |
 | Endings | 2.000 seconds frozen from the last body shot's real tail frame. The shipped effect plays once at its own speed over the opening 1.020 seconds, screen-blended over the freeze at 0.90; the remaining 0.980 seconds are the freeze frame |
-| Subtitles | Configured font family, size 68, spacing -2, 7px black outline, bottom-centred, plus the single bottom-right `内容由AI生成` mark |
+| Subtitles | Configured font family, size 68, spacing -2, 3px black outline in the 1080x1920 design coordinates (near 4px on the 1440x2560 delivery), bottom-centred, plus the single bottom-right `内容由AI生成` mark |
 | Audio | Episode master at 1.45, BGM at 0.24 to the body end, the ending sound's first 2 seconds delayed to the body end, `amix` normalised off, `alimiter=0.95` |
 | Container | AAC 192k at 48 kHz, `+faststart` |
 

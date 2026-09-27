@@ -5,7 +5,7 @@
  * The delivery style used to be encoded in a skill script the model launched
  * with a shell. The style itself is a fixed specification — 1440x2560 at 60 fps,
  * 24M target with a 30M ceiling and a 4.6 Mbps floor, 68px subtitles with -2 spacing
- * and a 7px outline, the bottom-right `内容由AI生成` mark, and a two-second ending
+ * and a 3px outline, the bottom-right `内容由AI生成` mark, and a two-second ending
  * frozen from the last body shot's real tail frame — so it lives here as
  * constants, and the operation that produces the delivery is the operation that
  * enforces it.
@@ -587,7 +587,8 @@ const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
   + '其余时间是纯定格帧（不变速、不拉伸、不补黑场），只有 ending_audio 的前 2 秒在正片结束处进入混音；'
   + '这两份素材按 SHA-256 校验，只接受随包字节，换成别的文件或送上长于 2 秒的特效都会直接报错。'
   + '拼接后烧录 ASS 字幕'
-  + '（默认 SimHei 68，字体服从部署配置；字间距 -2、7px 黑描边、底部居中，右下角唯一的「内容由AI生成」标记），'
+  + '（默认 SimHei 68，字体服从部署配置；字间距 -2、3px 黑描边、底部居中，'
+  + '右下角唯一的「内容由AI生成」标记——这条标记由写出的 ASS 携带一次，另加 drawtext 或 overlay 就会重复），'
   + '再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，'
   + 'AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。'
   + 'GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，'

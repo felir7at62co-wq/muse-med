@@ -144,8 +144,8 @@ describe('registration', () => {
     const tool = dramaRender()
     expect(tool.name).toBe('drama_render')
     expect(tool.description).toContain('默认 SimHei 68，字体服从部署配置')
-    for (const phrase of ['1440x2560@60', '24M', '30M', '48M', '4.6 Mbps', 'SimHei 68', '字间距 -2', '7px 黑描边',
-      '内容由AI生成', '-sseof -0.1', 'framemd5', 'h264_nvenc', 'libx264', 'alimiter=0.95', '定格 2 秒']) {
+    for (const phrase of ['1440x2560@60', '24M', '30M', '48M', '4.6 Mbps', 'SimHei 68', '字间距 -2', '3px 黑描边',
+      '内容由AI生成', 'drawtext', '-sseof -0.1', 'framemd5', 'h264_nvenc', 'libx264', 'alimiter=0.95', '定格 2 秒']) {
       expect(tool.description).toContain(phrase)
     }
   })

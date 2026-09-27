@@ -85,11 +85,12 @@ describe('buildAssDocument', () => {
     expect(document.startsWith(ASS_DOCUMENT_HEADER)).toBe(true)
     const header = ASS_DOCUMENT_HEADER.split('\n')
     expect(header).toContain('Style: Default,SimHei,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,'
-      + '0,0,0,0,100,100,-2,0,1,7,0,2,40,40,520,1')
+      + '0,0,0,0,100,100,-2,0,1,3,0,2,40,40,520,1')
     expect(document).toContain('Dialogue: 0,0:00:01.68,0:00:03.58,Default,,0,0,0,,京市户口 单身')
     expect(document).toContain('Dialogue: 0,0:00:60.00,0:01:00.50,Default,,0,0,0,,履历干净 嘴严')
     expect(document).toContain(`Dialogue: 1,0:00:00.00,9:59:59.00,Watermark,,0,0,0,,{\\an3\\pos(1025,1810)}${WATERMARK_TEXT}`)
     expect(document.match(/Watermark/g)).toHaveLength(2)
+    expect(document.match(new RegExp(WATERMARK_TEXT, 'g'))).toHaveLength(1)
     expect(document.endsWith('\n')).toBe(true)
   })
 
