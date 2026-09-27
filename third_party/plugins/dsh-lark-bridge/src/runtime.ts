@@ -36,8 +36,13 @@ const SLASH_COMMAND_API = '/open-apis/application/v7/app_slash_commands'
  */
 const COT_API = '/open-apis/im/v1/message_cot'
 
-/** The user-settings namespace holding this plugin's section (onboarded credentials included). */
-const SETTINGS_NAMESPACE = 'dsh-lark-bridge'
+/**
+ * The user-settings section holding this plugin's configuration (onboarded
+ * credentials included). It is the composition entry id this package's bundle
+ * patch inserts, because the settings service names one namespace per owned
+ * entry after that id: any other spelling would address a section nobody serves.
+ */
+const SETTINGS_NAMESPACE = 'feishu-channel'
 
 /**
  * Narrow a resolved configuration to one carrying live credentials.
@@ -306,15 +311,18 @@ export function apply(ctx: Context, config: Config): void {
     const settings = ctx.get('settings') as HostSettings | undefined
     if (settings !== undefined) {
       try {
-        const scope = settings.register(SETTINGS_NAMESPACE, Config, { base: config })
-        resolved = resolveConfig(scope.get() as Config)
+        // The settings service owns the namespace: it builds it from this
+        // entry's exported `Config` and the values the profile document stores
+        // for that entry, so this plugin reads and writes the section by id and
+        // registers nothing itself.
+        resolved = resolveConfig(settings.get(SETTINGS_NAMESPACE) as Config)
         persist = async (credentials) => {
-          await scope.update(credentials)
+          await settings.update(SETTINGS_NAMESPACE, credentials)
           return true
         }
       } catch (error) {
         ctx.logger.error(
-          'settings registration failed; continuing with entry config only: %s',
+          'settings read failed; continuing with entry config only: %s',
           error instanceof Error ? error.message : error,
         )
       }

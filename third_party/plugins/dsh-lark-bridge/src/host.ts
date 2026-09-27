@@ -295,21 +295,19 @@ export interface HostLoader {
   await(): Promise<unknown>
 }
 
-/** One registered namespace's owner scope (subset of the host `SettingsScope`). */
-export interface HostSettingsScope {
-  /** The resolved value: schema defaults, then composition base, then the user document. */
-  get(): unknown
-  /** Deep-merge a patch into the user section and persist it through the provider. */
-  update(patch: object): Promise<unknown>
-}
-
-/** The `settings` user-settings service (subset of `SettingsProvider`). */
+/**
+ * The `settings` user-settings service (subset this plugin uses).
+ *
+ * The service builds one namespace per owned composition entry from that
+ * entry's own exported `Config`, and names it after the entry id — which is why
+ * this plugin addresses its section by {@link SETTINGS_NAMESPACE} alone and
+ * registers nothing itself.
+ */
 export interface HostSettings {
-  /**
-   * Register a namespace schema; the registration is an effect on the calling
-   * fiber. Duplicate namespaces and stored sections the schema rejects fail loud.
-   */
-  register(ns: string, schema: unknown, options?: { base?: unknown }): HostSettingsScope
+  /** The resolved section: schema defaults, then the entry config, then the user document. */
+  get(ns: string): unknown
+  /** Deep-merge a patch into that section's user layer and persist it through the provider. */
+  update(ns: string, patch: object): Promise<unknown>
 }
 
 /** One immutable entry in the host session log; narrowed via the guards below. */

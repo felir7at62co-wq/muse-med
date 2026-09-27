@@ -35,11 +35,7 @@ export function applyLarkDesktopCompatibility(directory) {
     crossInstanceSync: config.crossInstanceSync ?? true,
     locale:`],
     ],
-    'host.ts': [
-      ['options?: { base?: unknown }): HostSettingsScope', "options?: { base?: unknown; applies?: 'live' | 'restart' }): HostSettingsScope"],
-    ],
     'runtime.ts': [
-      ['settings.register(SETTINGS_NAMESPACE, Config, { base: config })', "settings.register(SETTINGS_NAMESPACE, Config, { base: config, applies: 'restart' })"],
       ['    // Cross-profile overlay (dual-end sync):', `    if (!resolved.enabled) return
 
     if (resolved.crossInstanceSync) {
