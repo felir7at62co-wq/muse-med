@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-27-desktop-profile-bundle-list-completion-on-startup.md
-2026-09-27-desktop-profile-bundle-list-completion-on-startup.md: 336f57d663de7166cb688eaa01140e6f60dae16e
-2026-09-27-desktop-profile-bundle-list-completion-on-startup.zh.md: 1159b3fb8ea6f4bbc13ba62a9c0b5d237ef7e551
+2026-09-27-desktop-profile-bundle-list-completion-on-startup.md: e084082ca63c63b47215d0f4c1ca8dec8e263808
+2026-09-27-desktop-profile-bundle-list-completion-on-startup.zh.md: 75d16d2db36412e371df8fedfba2d3d4b0ddd807

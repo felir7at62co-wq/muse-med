@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { resolveDesktopPaths } from '../src/paths.ts'
 import { createDevelopmentProjectMetadata, DesktopProjectManager, packageNameFromSpec, type DesktopProjectHooks } from '../src/project-manager.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
-import { readDesktopProfileState } from '../src/profile-packages.ts'
+import { desktopPluginLockHash, readDesktopProfileState } from '../src/profile-packages.ts'
+import { desktopRuntimeId, readDesktopRuntime } from '../src/runtime-tree.ts'
 import { runtimeFixture } from './runtime-fixture.ts'
 
 const roots: string[] = []
@@ -160,6 +161,54 @@ describe('desktop external plugin profile', () => {
     const backups = manifestBackups(manager.paths.profile)
     expect(backups).toHaveLength(1)
     expect(readFileSync(join(manager.paths.profile, backups[0]!), 'utf8')).toBe(written)
+  })
+
+  it('refuses a stored list that is not a prefix on every startup that reuses the profile', async () => {
+    const { manager } = setup()
+    const runtime = new DesktopProjectManager(manager.paths, { ...manager.runtime, profileResolution: 'runtime' })
+    await runtime.applyRelease()
+    await runtime.mutate({ type: 'plugin-add', spec: 'plugin@1.0.0' }, hooks())
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    const statePath = join(manager.paths.profile, 'desktop-runtime-state.json')
+    writeBundles(manifestPath, [...BUILT_IN_BUNDLES.slice(0, 3), ...BUILT_IN_BUNDLES.slice(4), 'plugin'])
+    const written = readFileSync(manifestPath, 'utf8')
+    const recorded = readFileSync(statePath, 'utf8')
+    // The recorded state already matches this runtime and lockfile, so the early return is the path
+    // a silent reuse takes; the refusal may not depend on that state being stale.
+    expect(readDesktopProfileState(manager.paths.profile)).toMatchObject({
+      runtimeId: desktopRuntimeId(readDesktopRuntime(manager.runtime.dsh)),
+      lockHash: desktopPluginLockHash(manager.paths.profile),
+    })
+
+    await expect(runtime.applyRelease()).rejects.toThrow('desktop project: profile must begin with the built-in desktop bundle list')
+    await expect(runtime.applyRelease()).rejects.toThrow('desktop project: profile must begin with the built-in desktop bundle list')
+
+    expect(readFileSync(manifestPath, 'utf8')).toBe(written)
+    expect(readFileSync(statePath, 'utf8')).toBe(recorded)
+    expect(manifestBackups(manager.paths.profile)).toEqual([])
+  })
+
+  it('records the release that prepared the profile when an upgrade refuses the stored list', async () => {
+    const { root, manager } = setup()
+    await manager.applyRelease()
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    const statePath = join(manager.paths.profile, 'desktop-runtime-state.json')
+    writeBundles(manifestPath, [...BUILT_IN_BUNDLES.slice(0, 3), ...BUILT_IN_BUNDLES.slice(4)])
+    const written = readFileSync(manifestPath, 'utf8')
+    const recorded = readFileSync(statePath, 'utf8')
+    const dsh = join(root, 'next-runtime', 'dsh')
+    runtimeFixture(dsh, '1.1.0')
+    const upgraded = new DesktopProjectManager(manager.paths, { ...manager.runtime, dsh })
+
+    await expect(upgraded.applyRelease()).rejects.toThrow('desktop project: profile must begin with the built-in desktop bundle list')
+
+    // A refused list is refused before any state is recorded, so no later startup reads that state
+    // as the licence to reuse a list this release never accepted.
+    expect(readFileSync(statePath, 'utf8')).toBe(recorded)
+    expect(upgraded.releaseVersion()).toBe('1.0.0')
+    await expect(upgraded.applyRelease()).rejects.toThrow('desktop project: profile must begin with the built-in desktop bundle list')
+    expect(readFileSync(manifestPath, 'utf8')).toBe(written)
+    expect(manifestBackups(manager.paths.profile)).toEqual([])
   })
 
   it('leaves a complete bundle list and its manifest untouched across an upgrade', async () => {

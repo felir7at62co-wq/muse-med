@@ -12,7 +12,7 @@ Status: implemented
 
 ## Decision
 
-[`project-manager.ts`](../../../../apps/desktop/src/project-manager.ts) 的 `applyRelease` 在早退判断之前、profile 清单存在时，先经 `profilePluginNames` 读取已存储的清单。补齐、校验、清单副本与重写都留在该读取函数里；启动只是在守护其他 profile 写入的同一把事务锁下走到它，且不运行任何包管理命令。
+[`project-manager.ts`](../../../../apps/desktop/src/project-manager.ts) 的 `applyRelease` 在早退判断之前、profile 清单存在时，先经 `profilePluginNames` 读取已存储的清单。补齐、校验、清单副本与重写都留在该读取函数里；启动只是在守护其他 profile 写入的同一把事务锁下走到它，且不运行任何包管理命令。因此，记录下来的运行时状态绝不授权复用本版本尚未接受的列表：被拒绝的列表在 `prepareProfile` 记录本版本之前就被拒绝，早前版本留下的列表也在早退读取该状态之前被补齐或拒绝。
 
 ## Alternatives considered
 
@@ -32,6 +32,6 @@ Status: implemented
 
 ## Testing
 
-`apps/desktop/tests/project-manager.spec.ts` 新增一条用例：一个已准备、并装有一个插件的 profile，其清单被改写为前六个内置 bundle 加该插件，而记录下来的运行时状态仍是最新的；随后第二次 `applyRelease()` 解析为 `false`，存下七个内置 bundle 加该插件，保留依赖与插件清单，不运行任何 pnpm 命令，并只留下一个内容为改写前字节的副本。该用例在本次改动前失败，失败差异正是缺少被追加的那个 bundle。
+`apps/desktop/tests/project-manager.spec.ts` 覆盖这次读取所决定的各条路径。一个已准备、并装有一个插件的 profile，其存储列表被改写为前六个内置 bundle 加该插件，而记录下来的运行时状态仍是最新的；随后第二次 `applyRelease()` 解析为 `false`，存下七个内置 bundle 加该插件，保留依赖与插件清单，不运行任何 pnpm 命令，并只留下一个内容为改写前字节的副本。不是前缀的存储列表，在复用「最新记录状态」的那次启动以及其后一次启动上都被拒绝，清单与记录状态保持逐字节不变，且不产生副本。被拒绝的升级不把记录改成本次安装的版本，记录仍指向真正准备该 profile 的运行时，于是下一次启动重新准备，而不会复用那个版本从未接受的列表。重启用例与两条拒绝用例在「先记录运行时状态、后读取列表」的 shell 上失败；升级补齐用例在那里同样通过。
 
 [迁移决策](2026-09-27-desktop-profile-bundle-list-migration.zh.md) 继续负责哪些已存储清单可补齐、副本的用途与拒绝规则；本笔记只涉及哪些启动路径会走到那个读取函数。

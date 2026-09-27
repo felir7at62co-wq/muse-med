@@ -12,7 +12,7 @@ The failed startup had already recorded this release's runtime state. `preparePr
 
 ## Decision
 
-[`project-manager.ts`](../../../../apps/desktop/src/project-manager.ts) reads the stored list through `profilePluginNames` in `applyRelease` before the early return, whenever the profile manifest exists. Completion, validation, the manifest copy, and the rewrite stay in that reader; startup only reaches it under the same transaction lock that guards every other profile write, and no package command runs.
+[`project-manager.ts`](../../../../apps/desktop/src/project-manager.ts) reads the stored list through `profilePluginNames` in `applyRelease` before the early return, whenever the profile manifest exists. Completion, validation, the manifest copy, and the rewrite stay in that reader; startup only reaches it under the same transaction lock that guards every other profile write, and no package command runs. The recorded state therefore never licenses reusing a list this release has not accepted: a refused list is refused before `prepareProfile` records this release, and a list an earlier release left behind is completed or refused before the early return reads that state.
 
 ## Alternatives considered
 
@@ -32,6 +32,6 @@ The completion repairs profiles that a release containing it starts on. Installa
 
 ## Testing
 
-`apps/desktop/tests/project-manager.spec.ts` adds one case: a prepared profile carrying an installed plugin has its stored list rewritten to the six older built-in bundles followed by that plugin while the recorded runtime state stays current, and a second `applyRelease()` then resolves `false`, stores the seven built-in bundles followed by the plugin, keeps the dependency and the plugin inventory, runs no pnpm command, and leaves exactly one copy holding the bytes that were stored before. The case failed before this change with the appended bundle missing from the stored list.
+`apps/desktop/tests/project-manager.spec.ts` covers the paths this read decides. A prepared profile carrying an installed plugin has its stored list rewritten to the six older built-in bundles followed by that plugin while the recorded runtime state stays current, and a second `applyRelease()` then resolves `false`, stores the seven built-in bundles followed by the plugin, keeps the dependency and the plugin inventory, runs no pnpm command, and leaves exactly one copy holding the bytes that were stored before. A stored list that is not a prefix is refused on the startup that reuses a current recorded state and on the startup after it, leaving the manifest and the recorded state byte-identical with no copy. An upgrade whose list is refused leaves the recorded release at the runtime that prepared the profile, so the following startup prepares the profile again instead of reusing a list that release never accepted. The restart and refusal cases fail against the shell that read the list only after recording its runtime state; the upgrade completion case passes there as well.
 
 The [migration decision](2026-09-27-desktop-profile-bundle-list-migration.md) continues to own which stored lists are completable, what the copy is for, and the refusal rule; this note covers only which startup paths reach that reader.
