@@ -201,7 +201,7 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 <project_dir>/assets_manifest.json
 ```
 
-资产列表会分页读到最后一页；清单就是集数映射。
+资产列表会分页读到最后一页；清单就是集数映射。清单某行的 `type` 可以写成约定的两种语言词形（`character`/`角色`、`scene`/`场景`、`prop`/`道具`），也可以写成提供方自己的类别号（`1`、`2`、`3`），因为两者命名的是同样三个类别。读不懂的行会让整次调用失败并点名该条目与字段：`<path> 的第 3 条资产（酒店大堂）的 type="unknown" 不是 character/角色、scene/场景、prop/道具，或类别号 1/2/3`；字段确实缺失时则列出该行自身的键名。文档层的失败同样会说明实际读到的结构，因此资产放在意外键名下的清单会报出那个键，而不是声称某个资产缺少 name。
 
 结果带四样东西，同样的内容会写到 `<project_dir>/<assetIndexPath>`：
 
@@ -451,6 +451,8 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 - **工作区构建不会重新生成加载器实际导入的那个 bundle** —— `pnpm run build:lib:host` 只把本包的 TypeScript 产出到 `lib/types/`；若部署是从工作副本加载本包，宿主会一直运行旧的 `lib/index.js`，直到运行 `pnpm exec tsdown --config packages/jubian/tool-jubian/tsdown.config.ts` 重写它并重启宿主。只重启不会改变任何东西，而只改 TypeScript 会看起来已经生效、实际宿主仍在执行旧 bundle。
 - **`move` 与 `rename` 收的是材质 ID，不是父资产 ID** —— 控制台自己的改名与移动是 `PUT /aigc/material/reName` 与 `PUT /aigc/material/move`，它们的 `id`／`ids` 是材质行的标识，也就是 `jubian_asset` 的 `materials` 返回的 `material_id`。传父 `asset_id` 会以未知行的身份到达提供方，回来时是某个稳定失败码，而不是可区分的「没有这个材质」。
 - **组织视图只读个人资产库的文件夹** —— 读树用的是 `assetScopeType=2`，即控制台默认打开的那个范围。团队资产库里的文件夹不会出现在索引里；`create_folder` 与 `move` 仍然接受显式的 `asset_scope_type`，在两个库里都能用。
+- **清单里有一行 `type` 无法识别就会让整次索引失败** —— 清单是集数映射，所以读不懂的一行会让调用停下，而不是产出一个悄悄漏掉某个资产的索引。失败会点名条目、实际读到的字段与可接受的拼写，这也让一份干净的清单不会再被报成缺少 `name` 或 `type`。
+- **被拒绝的读取报的是信封，而不是字段** —— `@deepseek-ai/dsh-jubian-api` 的读取方读不懂的载荷，以及仍然装着不可读载荷的被容忍信封形态，都会以 `CONTRACT_CHANGED` 失败。传输层自己的拒绝会带一段脱敏的响应体描述；读取方的拒绝不带，因此要看远端真正发来了什么，正确手段是 `DSH_JUBIAN_DEBUG_DUMP` 文件：它为每个响应记录一行脱敏 JSONL，含该次调用的信封形态、状态、哈希与载荷。见[传输层自己的页面](../jubian/README.zh.md#dumping-responses-on-purpose)。
 - **计费生图只会从部署锁定的那一行购买** —— 账户目录可能把 `gpt-image-2` 按平台列成多行、各自定价，而本插件没有在它们之间选择的规则：多行且没有锁定行时，请求体构造阶段就会失败并列出全部候选。这是刻意的——给一个默认值意味着在没人选过的平台上花真钱——但代价是：新账户一旦多出第二行 `gpt-image-2`，`image_generate` 就得等有人去锁定：在短剧设置页上选一行，或（没有那个页面的部署）在本行的 `imagePlatformId`/`imageStandardId` 里写一行。
 - **选择器读的是实时账户状态，存下的锁定行不是** —— `jubianImage.routes()` 每次调用都重读目录，而 `drama` 设置段存的是当初选中的行 id。目录里消失的那一行仍会被存着，下一次计费调用会失败并列出幸存者，而不是退回到其中一行；这与锁定错行是同一种失败，也是唯一诚实的那种。
 - **生图回读超时是一个结论，不是一次失败** —— `image_generate` 报 `asset_status: timeout` 而不抛错，因为计费写已被受理、账本也已记账。调用方仍需自己回读；到底是提供方慢还是生成失败，本包无法从截止时间上看出来。

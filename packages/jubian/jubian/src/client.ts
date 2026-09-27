@@ -9,10 +9,16 @@
  *
  * This module knows nothing about business fields. It returns the envelope's
  * `data` untouched; parsing belongs to the reader that asked for it, so a field
- * the provider adds never becomes an error here.
+ * the provider adds never becomes an error here. What it does own is the
+ * envelope: which layouts it accepts, which one it actually saw, and a redacted
+ * description of the body when it could accept none — the description a tool
+ * result carries instead of the payload, so "did not match the expected
+ * envelope" says what arrived instead of only that something was wrong.
  */
 import { createHash } from 'node:crypto'
 import { isUsableBearerToken, trimBearerToken } from './credential.ts'
+import { JubianDebugDump } from './debug-dump.ts'
+import { describePayload, describeUnparsed, redactForDump } from './diagnostic.ts'
 import { JubianError, codeForHttpStatus, failureForEnvelopeCode } from './error.ts'
 
 /** Default provider origin; the path after it is the caller's. */
@@ -42,6 +48,8 @@ export interface JubianResponse {
   response_sha256: string | null
   /** The envelope's `data`, already proven to sit behind a success code. */
   data: unknown
+  /** Which envelope layout the body used, so a tolerated one stays visible. */
+  envelope_layout: JubianEnvelopeLayout
 }
 
 /** How one client resolves its credential, its origin and its byte budget. */
@@ -58,8 +66,127 @@ export interface JubianClientOptions {
   fetch?: typeof fetch
 }
 
+/**
+ * Which envelope layout one response body used.
+ *
+ * The first two are the provider's own documented layouts; the next four are
+ * tolerated, because a reader cannot recover a payload the transport rejected,
+ * and each is recorded on the response and in the debug dump so a layout
+ * observed only in the field can be tightened to its own acceptance rule later.
+ * The last two are the layouts this client refuses.
+ */
+export type JubianEnvelopeLayout =
+  /** `{ code, data }`: the single-object layout. */
+  | 'object-data'
+  /** `{ code, total, rows }`, or any other object without `data`: the list layout. */
+  | 'object-flat'
+  /** `{ code, data: { code, data } }`: the payload is itself a success envelope. */
+  | 'nested-envelope'
+  /** `[ { code, data } ]`: one envelope wrapped in a one-element array. */
+  | 'array-envelope'
+  /** `[ payload ]`: one payload object wrapped in a one-element array. */
+  | 'array-single'
+  /** `[ … ]`: a bare array payload, with no envelope code to read. */
+  | 'array-payload'
+  /** A JSON object that carries no integer `code`. */
+  | 'object-no-code'
+  /** The body never became a JSON value. */
+  | 'unparsed'
+
+/** What one response body turned out to be, before any caller sees it. */
+interface EnvelopeReading {
+  layout: JubianEnvelopeLayout
+  /** The application code, or null when the layout carried none. */
+  code: number | null
+  /** The payload a reader receives. */
+  data: unknown
+  /** Why this body is not an envelope this client accepts, or null when it is. */
+  problem: string | null
+}
+
+/** Whether one value is a JSON object, which is what every envelope layout starts from. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** The integer application code of one candidate envelope object, or null. */
+function envelopeCode(value: Record<string, unknown>): number | null {
+  const code = value.code
+  return typeof code === 'number' && Number.isSafeInteger(code) ? code : null
+}
+
+/**
+ * Read one parsed body as an envelope.
+ *
+ * A bare top-level array is accepted as a payload because a reader, not this
+ * transport, is what knows whether an array is readable; the response records
+ * `application_code: null` for it, so a caller that needs the provider's own
+ * success code still sees that none was there.
+ * @param parsed - The parsed body, or undefined when it never parsed.
+ * @param text - The strictly decoded body, or null when it was not valid UTF-8.
+ * @param body - The exact response bytes.
+ * @returns The layout, the application code when one was present, the payload and any reason it is unusable.
+ */
+function readEnvelope(parsed: unknown, text: string | null, body: Uint8Array): EnvelopeReading {
+  if (isRecord(parsed)) return readEnvelopeObject(parsed, 'object')
+  if (Array.isArray(parsed)) {
+    const only: unknown = parsed.length === 1 ? parsed[0] : undefined
+    if (isRecord(only)) return readEnvelopeObject(only, 'array')
+    return { layout: 'array-payload', code: null, data: parsed, problem: null }
+  }
+  if (parsed === undefined) return { layout: 'unparsed', code: null, data: undefined,
+    problem: describeUnparsed(text, body) }
+  return { layout: 'unparsed', code: null, data: undefined,
+    problem: `expected a JSON object envelope, ${describePayload(parsed)}` }
+}
+
+/** Read one candidate envelope object, wrapped or not, as an envelope. */
+function readEnvelopeObject(candidate: Record<string, unknown>, wrapper: 'object' | 'array'): EnvelopeReading {
+  const code = envelopeCode(candidate)
+  const hasData = Object.hasOwn(candidate, 'data')
+  if (code === null) {
+    if (wrapper === 'array') {
+      // A one-element array may be the payload itself rather than an envelope;
+      // only a candidate that states its own code is read as one.
+      return { layout: 'array-single', code: null, data: candidate, problem: null }
+    }
+    return { layout: 'object-no-code', code: null, data: undefined,
+      problem: `envelope carries no integer code, ${describePayload(candidate)}` }
+  }
+  // Two envelope shapes are live on this provider: a single-object endpoint
+  // nests its payload under `data`, while the list endpoints carry `total` and
+  // `rows` at the top level and have no `data` at all. Both are handed to the
+  // reader as one object, so a reader never has to know which shape it got.
+  if (!hasData) {
+    return { layout: wrapper === 'array' ? 'array-envelope' : 'object-flat', code,
+      data: Object.fromEntries(Object.entries(candidate).filter(([key]) => key !== 'msg')), problem: null }
+  }
+  // A payload that is itself a success envelope costs a reader every field it
+  // asked for, so the second wrapper is unwrapped too — but only when the inner
+  // object states a success code, which is what tells an envelope from a
+  // business payload that happens to carry `code` and `data` fields.
+  const inner = candidate.data
+  const innerCode = isRecord(inner) && Object.hasOwn(inner, 'data') ? envelopeCode(inner) : null
+  if (innerCode === 0 || innerCode === 200) {
+    return { layout: 'nested-envelope', code, data: (inner as Record<string, unknown>).data, problem: null }
+  }
+  return { layout: wrapper === 'array' ? 'array-envelope' : 'object-data', code, data: inner, problem: null }
+}
+
 function hash(bytes: Uint8Array): string {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+}
+
+/** Decode one body as strict UTF-8, or null when it is not valid UTF-8. */
+function decodeStrict(bytes: Uint8Array): string | null {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
+  catch { return null }
+}
+
+/** Parse one decoded body, or undefined when it is not JSON. */
+function parseJson(text: string): unknown {
+  try { return JSON.parse(text) as unknown }
+  catch { return undefined }
 }
 
 // Node fetch wraps transport errors in one cause. Never inspect messages or recurse into arbitrary causes.
@@ -123,9 +250,10 @@ export class JubianClient {
   /**
    * Send one request and return its envelope `data`.
    * @param request - Method, path, optional body and cancellation.
-   * @returns Transport evidence, the response hash and the envelope's data.
-   * @throws {JubianError} With a stable code and only numeric HTTP status or allowlisted local transport detail;
-   *   provider text, URLs, tokens and original causes are never attached. Failures are not retried.
+   * @returns Transport evidence, the response hash, the envelope layout and the envelope's data.
+   * @throws {JubianError} With a stable code and either a numeric HTTP status, an allowlisted local
+   *   transport detail, or a redacted description of the body's structure. Provider text, URLs,
+   *   tokens and original causes are never attached. Failures are not retried.
    */
   async request(request: JubianRequest): Promise<JubianResponse> {
     const token = await this.resolveToken()
@@ -149,23 +277,26 @@ export class JubianClient {
     }
     const bytes = await this.readBounded(response, signal, timeout)
     const response_sha256 = hash(bytes)
-    let parsed: unknown
-    try { parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) }
-    catch { throw new JubianError('CONTRACT_CHANGED') }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new JubianError('CONTRACT_CHANGED')
-    const envelope = parsed as Record<string, unknown>
-    const code = envelope.code
-    if (typeof code !== 'number' || !Number.isSafeInteger(code)) throw new JubianError('CONTRACT_CHANGED')
-    const failure = failureForEnvelopeCode(code)
-    if (failure !== null) throw new JubianError(failure)
-    // Two envelope shapes are live on this provider: a single-object endpoint
-    // nests its payload under `data`, while the list endpoints carry `total` and
-    // `rows` at the top level and have no `data` at all. Both are handed to the
-    // reader as one object, so a reader never has to know which shape it got.
-    const envelopeData = Object.hasOwn(envelope, 'data')
-      ? envelope.data
-      : Object.fromEntries(Object.entries(envelope).filter(([key]) => key !== 'msg'))
-    return { transport: { http_status: response.status, application_code: code }, response_sha256, data: envelopeData }
+    const text = decodeStrict(bytes)
+    const parsed = text === null ? undefined : parseJson(text)
+    const reading = readEnvelope(parsed, text, bytes)
+    const dump = JubianDebugDump.fromEnvironment()
+    if (dump !== null) {
+      await dump.record({ method: request.method, path: request.path, http_status: response.status,
+        application_code: reading.code, envelope_layout: reading.layout, response_sha256,
+        bytes: bytes.byteLength,
+        body: parsed === undefined ? describeUnparsed(text, bytes) : redactForDump(parsed) })
+    }
+    if (reading.problem !== null) throw new JubianError('CONTRACT_CHANGED', reading.problem)
+    if (reading.code !== null) {
+      const failure = failureForEnvelopeCode(reading.code)
+      if (failure !== null) {
+        throw new JubianError(failure, failure === 'CONTRACT_CHANGED'
+          ? `unmapped envelope code ${reading.code}, ${describePayload(parsed)}` : undefined)
+      }
+    }
+    return { transport: { http_status: response.status, application_code: reading.code },
+      response_sha256, envelope_layout: reading.layout, data: reading.data }
   }
 
   private async resolveToken(): Promise<string> {
@@ -178,7 +309,7 @@ export class JubianClient {
 
   private async readBounded(response: Response, signal: AbortSignal, timeout: AbortSignal): Promise<Uint8Array> {
     const reader = response.body?.getReader()
-    if (!reader) throw new JubianError('CONTRACT_CHANGED')
+    if (!reader) throw new JubianError('CONTRACT_CHANGED', 'response body is not readable')
     const chunks: Uint8Array[] = []
     let size = 0
     try {
@@ -186,7 +317,9 @@ export class JubianClient {
         const chunk = await reader.read()
         if (chunk.done) break
         size += chunk.value.byteLength
-        if (size > this.maximum) throw new JubianError('CONTRACT_CHANGED')
+        if (size > this.maximum) {
+          throw new JubianError('CONTRACT_CHANGED', `response body exceeded the ${this.maximum}-byte cap`)
+        }
         chunks.push(chunk.value)
       }
     } catch (error) {

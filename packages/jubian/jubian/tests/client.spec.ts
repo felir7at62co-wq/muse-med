@@ -201,11 +201,16 @@ describe('JubianClient.request', () => {
     expect(called).toBe(false)
   })
 
-  it('rejects a non-JSON or non-object body as a contract change', async () => {
+  it('rejects a body that is not JSON or not an object, and hands an array to the reader', async () => {
     await expect(client(async () => new Response('not json', { status: 200 })).request({ method: 'GET', path: '/x' }))
       .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
-    await expect(client(async () => jsonResponse([1, 2, 3])).request({ method: 'GET', path: '/x' }))
+    await expect(client(async () => jsonResponse('a string')).request({ method: 'GET', path: '/x' }))
       .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    // Whether an array is readable is the reader's question, not the transport's;
+    // the response records that no application code stood behind it.
+    await expect(client(async () => jsonResponse([1, 2, 3])).request({ method: 'GET', path: '/x' }))
+      .resolves.toMatchObject({ data: [1, 2, 3], envelope_layout: 'array-payload',
+        transport: { http_status: 200, application_code: null } })
   })
 
   it('bounds the response body by byte length', async () => {

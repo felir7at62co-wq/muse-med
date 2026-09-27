@@ -50,9 +50,9 @@ try {
 
 `path` carries its own query string, and `body` is serialized as JSON for the methods that accept one. Success returns `data` untouched, so a field the provider adds never becomes an error here. The constructor rejects a `timeoutMs` outside 1..60000 and a `maxResponseBytes` outside 1..32 MiB with a `TypeError`; the defaults are 30000 ms and 2 MiB, and `baseUrl` defaults to `https://web.jubianai.net/prod-api`.
 
-### Reading both envelope shapes
+### Reading every envelope layout this provider sends
 
-Two shapes are live on this provider, and the client hides the difference from you. A single-object endpoint nests its payload under `data`; the list endpoints carry `code`, `total` and `rows` at the top level and have no `data` at all. The client returns the nested `data` when that key exists, and otherwise the whole envelope minus its `msg` text — so `total` and `rows` arrive as one object, and a reader never has to know which shape the provider sent.
+Two layouts are documented, and the client hides the difference from you. A single-object endpoint nests its payload under `data`; the list endpoints carry `code`, `total` and `rows` at the top level and have no `data` at all. The client returns the nested `data` when that key exists, and otherwise the whole envelope minus its `msg` text — so `total` and `rows` arrive as one object, and a reader never has to know which layout the provider sent. Four further layouts are tolerated because a reader cannot recover a payload the transport rejected: a success envelope wrapped in a one-element array, a payload object wrapped in a one-element array, a bare top-level array, and a payload that is itself a success envelope. Every response names the layout it used in `envelope_layout`, and a tolerated layout that carries no envelope of its own reports `transport.application_code: null`, so no caller can mistake it for a verified success. A body that is valid JSON but none of these — a string, a number, `null`, or an object with no integer `code` — still fails as `CONTRACT_CHANGED`.
 
 ### Repairing a stored token
 
@@ -67,11 +67,13 @@ Two shapes are live on this provider, and the client hides the difference from y
 | `AUTHENTICATION_REQUIRED` | The credential resolver throws, the repaired token is unusable, HTTP is 401 or 403, or the envelope `code` is 401 |
 | `PERMISSION_DENIED` | The envelope `code` is 403 while HTTP is 2xx |
 | `RATE_LIMITED` | HTTP is 429, or the envelope `code` is 429 |
-| `CONTRACT_CHANGED` | The body is not JSON, is not valid UTF-8, is not an object, exceeds the byte cap, carries no integer `code`, or carries a code this package does not map |
+| `CONTRACT_CHANGED` | The body is not JSON, is not valid UTF-8, is not an object, exceeds the byte cap, carries no integer `code`, or carries a code this package does not map; the detail describes the body's structure |
 | `NETWORK_ERROR` | The connection failed, the call timed out, a redirect was refused, or HTTP is any other non-2xx status |
 | `BUDGET_EXCEEDED` | A paid call is not covered by the deployment's authorization; the detail names what is missing |
 
 HTTP 200 with an envelope `code` of 401 is the shape this provider returns for a token it will not accept, and it fails exactly like an HTTP 401. The two success codes are `0` and `200`.
+
+A rejected body is described by `describePayload()` or `describeUnparsed()` rather than reproduced: the top-level type, the own key names, the array length, the byte count and one bounded excerpt, with the values of credential-named fields removed, absolute URLs reduced to their origin, and long opaque runs replaced. `Jubian response did not match the expected envelope: top-level array of 7 elements, first element object with keys [id, scriptId, …]` is what such a failure now says.
 
 ### Capping what a project may spend
 
@@ -137,8 +139,10 @@ The package is five small modules over `fetch`: one boundary that owns the wire,
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | The public surface: the client, the credential helpers, the failure codes and the ledger |
-| [`src/client.ts`](src/client.ts) | The one HTTP path: fixed origin, single attempt, byte-bounded read, envelope validation and the response hash |
+| [`src/client.ts`](src/client.ts) | The one HTTP path: fixed origin, single attempt, byte-bounded read, envelope layout reading and the response hash |
 | [`src/credential.ts`](src/credential.ts) | The credential reference name and the paste-artifact repair applied before any header is built |
+| [`src/diagnostic.ts`](src/diagnostic.ts) | The redacted structure description every rejected body and every dump record is written from |
+| [`src/debug-dump.ts`](src/debug-dump.ts) | The opt-in JSONL response dump behind `DSH_JUBIAN_DEBUG_DUMP` |
 | [`src/error.ts`](src/error.ts) | The six stable codes, the HTTP-status mapping and the envelope-code mapping |
 | [src/budget.ts](src/budget.ts) | The spend cap: the operator's authorization file, and the verdict for one paid call |
 | [src/ledger.ts](src/ledger.ts) | The two-phase NDJSON write ledger: intent lines, settle lines and replay folding |
@@ -148,13 +152,18 @@ The package is five small modules over `fetch`: one boundary that owns the wire,
 
 `request()` builds the URL as `baseUrl + path`, sets `redirect: 'error'`, and combines the caller's `signal` with its own timeout through `AbortSignal.any()`. There is no retry, no backoff and no polling loop: repeating a call is the caller's decision, and the ledger's idempotency key is what makes that repeat safe for a write. The response body is read chunk by chunk and rejected as `CONTRACT_CHANGED` the moment it passes `maxResponseBytes`, so an oversized or endless body never accumulates in memory. Those exact bytes are then decoded as strict UTF-8 and hashed into `sha256:<hex>`, which is what lets a caller compare what it received against a ledger settle line.
 
-### Both envelope shapes in one return value
+### Every envelope layout in one return value
 
-The body is parsed once and checked for an integer `code`. `failureForEnvelopeCode()` classifies the non-success codes, and the payload is then chosen: `data` when that key is present, otherwise every top-level field except `msg`. That second branch is what keeps the provider's list endpoints — which report `total` and `rows` and carry no `data` — readable through the same return type as a single-object endpoint.
+The body is parsed once and read as one of the layouts above. `failureForEnvelopeCode()` classifies the non-success codes before any payload is chosen, and `envelope_layout` reports which layout was actually read. The flat branch — every top-level field except `msg` — is what keeps the provider's list endpoints, which report `total` and `rows` and carry no `data`, readable through the same return type as a single-object endpoint. A one-element array is read as the object it holds, a bare longer array is handed to the reader as that array, and a payload that is itself a success envelope is unwrapped once more. A layout that states no code of its own reports `transport.application_code: null` instead of inventing one.
 
 ### Safe failure diagnostics
 
-The client matches exact transport codes or timeout/abort names on the thrown object and its immediate cause, without traversing deeper causes. The combined signal identifies caller cancellation or the client's deadline, including during body reads. HTTP 401 and 403 remain `AUTHENTICATION_REQUIRED`; an envelope `code` of 403 behind HTTP 2xx remains `PERMISSION_DENIED`. The [diagnostic decision](../../../.agents/notes/implemented/bug-fix/2026-09-23-jubian-safe-transport-diagnostics.md) records the redaction trade-off and verification limits.
+The client matches exact transport codes or timeout/abort names on the thrown object and its immediate cause, without traversing deeper causes. The combined signal identifies caller cancellation or the client's deadline, including during body reads. HTTP 401 and 403 remain `AUTHENTICATION_REQUIRED`; an envelope `code` of 403 behind HTTP 2xx remains `PERMISSION_DENIED`. A body this client will not accept is reported with `describePayload()` or `describeUnparsed()`: top-level type, own key names, array length, byte count and one bounded excerpt, with credential-named fields redacted and absolute URLs reduced to their origin, so a tool result can say what arrived without reproducing it. The [diagnostic decision](../../../.agents/notes/implemented/bug-fix/2026-09-23-jubian-safe-transport-diagnostics.md) records the redaction trade-off and verification limits, and the [layout decision](../../../.agents/notes/implemented/bug-fix/2026-09-28-jubian-unreadable-response-diagnostics.md) records why the tolerated layouts exist.
+
+<a id="dumping-responses-on-purpose"></a>
+### Dumping responses on purpose
+
+Setting `DSH_JUBIAN_DEBUG_DUMP` to a file path makes `request()` append one JSONL record per response: the timestamp, method, path, HTTP status, application code, envelope layout, byte length, response hash and the redacted payload. It is off whenever the variable is unset or blank, nothing enables it automatically, and the file's directory is created on first write. Every call is recorded, not only `GET`s, because `subtasks` is a `POST` that only reads; request headers, including `Authorization`, are never read by the dump, and each body goes through the same redaction the error diagnostics use. The file is created with owner-only permissions where the platform honors them, and no dump failure ever changes the call it observes. Share the file, never a token: it is written so an operator can send back what the remote returned without sending back a credential.
 
 ### What the two-phase ledger buys
 
@@ -193,6 +202,10 @@ These constraints are current package behavior, not a task backlog.
 - **One attempt, never a retry** — a timeout, a refused redirect or an HTTP 429 leaves the call failed, and repeating it is the caller's decision. For a write, the ledger's idempotency key is what makes that repeat safe rather than a second charge.
 - **The byte cap fails the call instead of truncating it** — a body larger than `maxResponseBytes` is rejected as `CONTRACT_CHANGED` after at most that many bytes, so a large provider list must be re-read through the provider's own paging parameters rather than by raising the cap.
 - **An unrecognized envelope code reads as a contract change** — `failureForEnvelopeCode()` maps only 0, 200, 401, 403 and 429; any other application code becomes `CONTRACT_CHANGED`, so a newly introduced provider code arrives as a shape change rather than as its own failure category.
+- **A tolerated layout is recorded, not yet promoted to a rule** — the arrays and the nested envelope above are accepted because a transport cannot know what a reader can use, and `envelope_layout` names what was seen; tightening one to its own rule needs a real capture of an endpoint that sends it, so the accepted set is deliberately wider than the documented one.
+- **A tolerated layout carries no application code** — `array-payload` and `array-single` report `transport.application_code: null`, so a caller that needs the provider's own success code (the write ledger, for instance) records `unknown` rather than `accepted` for those bodies.
+- **A reader's own rejection carries no structure description** — the description above belongs to this client's envelope reading; a reader in `@deepseek-ai/dsh-jubian-api` that rejects a readable payload still reports `CONTRACT_CHANGED` with no field named, so that case is investigated through the debug dump rather than from the message.
+- **The debug dump is a file an operator has to remove** — it holds provider payloads with credentials redacted by key name, URL origin and opaque-run replacement; values that carry a credential under an unremarkable key name, and anything already redacted incorrectly upstream, are not detected, so the file stays local and is deleted after the diagnosis.
 - **A stored token is repaired, never verified** — `trimBearerToken()` removes one trailing separator and one quote pair, and the package never tests the value against the provider, so a revoked-but-well-formed token is discovered only by the first real call.
 - **The ledger detects a write, it does not lock one** — `begin()` reads the existing files before it appends, so two processes sharing one ledger root can both write a `begin` line for the same key; serializing writers is the caller's job.
 - **Nothing reconciles the ledger automatically** — an intent line without a settle line stays unresolved until a caller or an operator reads the NDJSON files, and no surface lists those open records.

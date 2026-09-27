@@ -29,8 +29,12 @@ const ASSETS = [
 ]
 
 /** A client stub answering the four reads the index performs. */
-function stubClient(overrides: { tasks?: unknown; materials?: unknown; folders?: unknown
-  assets?: Record<string, unknown>[] } = {}) {
+function stubClient(overrides: {
+  tasks?: unknown
+  materials?: unknown
+  folders?: unknown
+  assets?: Record<string, unknown>[]
+} = {}) {
   const calls: { method: string; path: string }[] = []
   const assets = overrides.assets ?? ASSETS
   const client = new JubianClient({ credential: async () => 'token',
@@ -83,8 +87,9 @@ describe('organizeMethod', () => {
     expect(episodes[1]).toMatchObject({ asset_count: 2 })
     expect(episodes[1]!.video_tasks).toHaveLength(1)
 
-    const ep05 = episodes[1] as unknown as { categories: Record<string, { name: string; material_id: number | null
-      remote_status: string | null }[]> }
+    const ep05 = episodes[1] as unknown as {
+      categories: Record<string, { name: string; material_id: number | null; remote_status: string | null }[]>
+    }
     expect(ep05.categories['角色']![0]).toMatchObject({ name: '陆沉舟', material_id: 124527,
       remote_status: 'Active', asset_id: 125204, official: true, manifest_status: 'approved' })
     expect(ep05.categories['道具']![0]).toMatchObject({ name: '红包', material_id: null, remote_status: null })
@@ -111,8 +116,13 @@ describe('organizeMethod', () => {
     await writeFile(join(project, 'assets_manifest.json'), JSON.stringify(manifest()), 'utf8')
     const { client } = stubClient()
     const index = await organizeMethod(client, { script_id: 2708, project_dir: project }, { naming: NAMING })
-    const mismatches = index.category_mismatches as { asset_id: number; expected: string; asset_type: number
-      manifest_category: string | null; declared_category: string | null }[]
+    const mismatches = index.category_mismatches as {
+      asset_id: number
+      expected: string
+      asset_type: number
+      manifest_category: string | null
+      declared_category: string | null
+    }[]
     // 125400 is the manifest's scene, and 125500's own name says scene, while both
     // sit in the provider's character library.
     expect(mismatches.map(item => item.asset_id)).toEqual([125400, 125500])
@@ -197,33 +207,62 @@ describe('organizeMethod', () => {
 
     await writeFile(join(project, 'assets_manifest.json'), JSON.stringify({ assets: [{}] }), 'utf8')
     await expect(organizeMethod(client, { script_id: 2708, project_dir: project }, { naming: NAMING }))
-      .rejects.toThrow(/有资产缺少 name 或 type/)
+      .rejects.toThrow(/第 1 条资产缺少 name（该条目的键 \[\]）/)
 
     await writeFile(join(project, 'assets_manifest.json'), JSON.stringify({ items: ['x'] }), 'utf8')
     await expect(organizeMethod(client, { script_id: 2708, project_dir: project }, { naming: NAMING }))
-      .rejects.toThrow(/有资产行不是对象/)
+      .rejects.toThrow(/第 1 条资产不是 JSON 对象/)
 
     await writeFile(join(project, 'assets_manifest.json'), JSON.stringify({ items: [
       { type: 'character', episodes: [] },
     ] }), 'utf8')
     await expect(organizeMethod(client, { script_id: 2708, project_dir: project }, { naming: NAMING }))
-      .rejects.toThrow(/缺少 name 或 type/)
+      .rejects.toThrow(/第 1 条资产缺少 name（该条目的键 \[type, episodes\]）/)
+
+    await writeFile(join(project, 'assets_manifest.json'), JSON.stringify({ items: [
+      { name: '酒店大堂', episodes: [] },
+    ] }), 'utf8')
+    await expect(organizeMethod(client, { script_id: 2708, project_dir: project }, { naming: NAMING }))
+      .rejects.toThrow(/第 1 条资产（酒店大堂）缺少 type（该条目的键 \[name, episodes\]）/)
 
     await writeFile(join(project, 'assets_manifest.json'), JSON.stringify({ items: [
       { type: 'scene', name: 'x', episodes: ['番外'] },
     ] }), 'utf8')
     await expect(organizeMethod(client, { script_id: 2708, project_dir: project }, { naming: NAMING }))
-      .rejects.toThrow(/集号 番外 不是数字/)
+      .rejects.toThrow(/第 1 条资产（x）的集号 番外 不是数字/)
 
     await writeFile(join(project, 'assets_manifest.json'), JSON.stringify({ items: [
       { type: 'unknown', name: 'x', episodes: [] },
     ] }), 'utf8')
     await expect(organizeMethod(client, { script_id: 2708, project_dir: project }, { naming: NAMING }))
-      .rejects.toThrow(/缺少 name 或 type/)
+      .rejects.toThrow(/第 1 条资产（x）的 type="unknown" 不是 character\/角色、scene\/场景、prop\/道具，或类别号 1\/2\/3/)
+
+    await writeFile(join(project, 'assets_manifest.json'), JSON.stringify({ version: 4, roster: [] }), 'utf8')
+    await expect(organizeMethod(client, { script_id: 2708, project_dir: project }, { naming: NAMING }))
+      .rejects.toThrow(/缺少 items 资产数组（top-level object with 2 keys \[version, roster\]/)
 
     await writeFile(join(project, 'assets_manifest.json'), JSON.stringify([{ type: 'scene' }]), 'utf8')
     await expect(organizeMethod(client, { script_id: 2708, project_dir: project }, { naming: NAMING }))
       .rejects.toThrow(/顶层不是 JSON 对象/)
+  })
+
+  it('reads the category number a manifest may carry instead of a type word', async () => {
+    // Both spellings are the same three categories: the convention's words and
+    // the provider's own numbering, which `asset_type` and the folder tree use.
+    await writeFile(join(project, 'assets_manifest.json'), JSON.stringify({ script_id: 2708, items: [
+      { name: '陆沉舟', type: 1, episodes: ['05'], jubian_asset_id: 125204, official: true },
+      { name: '酒店大堂', type: 2, episodes: [], official: false },
+      { name: '红包', type: '3', episodes: ['05'], official: true },
+    ] }), 'utf8')
+    const { client } = stubClient({ tasks: { total: 0, rows: [] }, materials: { total: 0, rows: [] },
+      assets: [{ id: 125204, name: 'EP05｜角色｜陆沉舟', assetType: 1 }], folders: [] })
+    const index = await organizeMethod(client, { script_id: 2708, project_dir: project }, { naming: NAMING })
+    const series = index.series as Record<string, unknown[]>
+    expect(series['场景']).toHaveLength(1)
+    const episodes = index.episodes as { label: string; categories: Record<string, unknown[]> }[]
+    const ep05 = episodes.find(episode => episode.label === 'EP05')
+    expect(ep05?.categories['角色']).toHaveLength(1)
+    expect(ep05?.categories['道具']).toHaveLength(1)
   })
 
   it('reads the assets array spelling some manifests carry', async () => {
@@ -295,8 +334,14 @@ describe('organizeMethod over a partly unreadable provider payload', () => {
     expect(episodes[2]!.video_tasks).toHaveLength(1)
 
     // The manifest row with no asset id keeps its own name and no remote status.
-    const ep05 = episodes[0] as unknown as { categories: Record<string, { name: string; asset_id: number | null
-      material_id: number | null; remote_status: string | null }[]> }
+    const ep05 = episodes[0] as unknown as {
+      categories: Record<string, {
+        name: string
+        asset_id: number | null
+        material_id: number | null
+        remote_status: string | null
+      }[]>
+    }
     expect(ep05.categories['道具']![0]).toMatchObject({ name: '红包', material_id: null, remote_status: null })
     expect(ep05.categories['角色']![0]).toMatchObject({ name: '程野', remote_status: 'Active' })
     const series = index.series as Record<string, { name: string; asset_id: number | null }[]>

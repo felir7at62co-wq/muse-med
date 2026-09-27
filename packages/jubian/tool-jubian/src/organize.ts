@@ -17,7 +17,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import type { JubianClient } from '@deepseek-ai/dsh-jubian'
-import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { JubianError, describePayload } from '@deepseek-ai/dsh-jubian'
 import { readAssetList, readFolderTree, readMaterialList, readTaskList } from '@deepseek-ai/dsh-jubian-api'
 import type { AssetRow, FolderNode, MaterialRow } from '@deepseek-ai/dsh-jubian-api'
 import { ASSET_CATEGORIES, ASSET_CATEGORY_TYPES, auditAssetName, carriedEpisode, categoryOfType,
@@ -32,12 +32,20 @@ const PAGE_SIZE = 1000
 /** Where the index lands inside the project directory unless configured otherwise. */
 const DEFAULT_INDEX_PATH = join('_probe', 'asset-index.md')
 
-/** Manifest `type` spellings that belong to one category, in either language the pipeline writes. */
+/**
+ * Manifest `type` spellings that belong to one category, in every spelling the
+ * pipeline and the provider write: the two language words, and the provider's
+ * own category number, which is the same three categories this convention names.
+ */
 const TYPE_ALIASES: Record<string, AssetCategory> = {
   character: '角色', 角色: '角色',
   scene: '场景', 场景: '场景',
   prop: '道具', 道具: '道具',
+  '1': '角色', '2': '场景', '3': '道具',
 }
+
+/** The accepted `type` spellings, as a failure that rejected one names them. */
+const TYPE_SPELLINGS = 'character/角色、scene/场景、prop/道具，或类别号 1/2/3'
 
 /** Everything the organization view takes from outside the transport. */
 export interface OrganizeOptions {
@@ -124,7 +132,10 @@ function object(value: unknown, detail: string): Record<string, unknown> {
  *
  * The manifest is a durable-file boundary, so its document, its asset array and
  * every row's name, type and episode numbers are validated here: an index built
- * over a half-readable manifest would silently report the wrong episodes.
+ * over a half-readable manifest would silently report the wrong episodes. Every
+ * failure names the entry it rejected, the field it read and what that field
+ * held, because "an asset is missing name or type" is indistinguishable from a
+ * check that read the wrong structure.
  * @param projectDir - Resolved project directory.
  * @returns Every declared asset, in manifest order.
  * @throws {JubianError} `CONTRACT_CHANGED` when the file, a row or an episode number cannot be read.
@@ -139,22 +150,35 @@ async function readManifest(projectDir: string): Promise<ManifestAsset[]> {
   try {
     parsed = JSON.parse(raw.replace(/^\uFEFF/, '')) as unknown
   } catch { throw new JubianError('CONTRACT_CHANGED', `${path} 不是 JSON`) }
-  const document = object(parsed, `${path} 顶层不是 JSON 对象`)
+  const document = object(parsed, `${path} 顶层不是 JSON 对象（${describePayload(parsed)}）`)
   const rows = Array.isArray(document.items) ? document.items : document.assets
-  if (!Array.isArray(rows)) throw new JubianError('CONTRACT_CHANGED', `${path} 缺少 items 资产数组`)
-  return rows.map((row) => {
-    const record = object(row, `${path} 有资产行不是对象`)
+  if (!Array.isArray(rows)) {
+    throw new JubianError('CONTRACT_CHANGED', `${path} 缺少 items 资产数组（${describePayload(document)}）`)
+  }
+  return rows.map((row, index) => {
+    const position = `第 ${String(index + 1)} 条资产`
+    const record = object(row, `${path} 的${position}不是 JSON 对象`)
     const name = text(record.name)
-    const category = TYPE_ALIASES[text(record.type).toLowerCase()] ?? null
-    if (!name || category === null) throw new JubianError('CONTRACT_CHANGED', `${path} 有资产缺少 name 或 type`)
+    if (!name) {
+      throw new JubianError('CONTRACT_CHANGED',
+        `${path} 的${position}缺少 name（该条目的键 [${Object.keys(record).join(', ')}]）`)
+    }
+    const declared = text(record.type)
+    const category = TYPE_ALIASES[declared.toLowerCase()] ?? null
+    if (category === null) {
+      throw new JubianError('CONTRACT_CHANGED', declared
+        ? `${path} 的${position}（${name}）的 type="${declared}" 不是 ${TYPE_SPELLINGS}`
+        : `${path} 的${position}（${name}）缺少 type（该条目的键 [${Object.keys(record).join(', ')}]）`)
+    }
     const episodes: string[] = []
     if (Array.isArray(record.episodes)) {
-      for (const declared of record.episodes) {
-        const episode = text(declared)
+      for (const entry of record.episodes) {
+        const episode = text(entry)
         if (!episode) continue
         const normalized = normalizedEpisode(episode)
         if (normalized === null) {
-          throw new JubianError('CONTRACT_CHANGED', `${path} 的 ${name} 集号 ${episode} 不是数字`)
+          throw new JubianError('CONTRACT_CHANGED',
+            `${path} 的${position}（${name}）的集号 ${episode} 不是数字`)
         }
         episodes.push(normalized)
       }

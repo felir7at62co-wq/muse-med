@@ -653,7 +653,8 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
         // second request is exactly what must never happen. The ledger settle
         // below records `unknown`, which is the honest verdict.
         state.putFailed = true
-        return { transport: { http_status: null, application_code: null }, response_sha256: null, data: null }
+        return { transport: { http_status: null, application_code: null }, response_sha256: null,
+          envelope_layout: 'unparsed', data: null }
       }
       state.sent = true
       try {

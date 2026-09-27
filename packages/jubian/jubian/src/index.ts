@@ -8,4 +8,7 @@ export type { BudgetAuthorization, BudgetDecision, ProjectAuthorization } from '
 export type { JubianLedgerBegin, JubianLedgerBeginResult, JubianLedgerMethod, JubianLedgerOptions,
   JubianLedgerRecord, JubianLedgerSettlement } from './ledger.ts'
 export { JUBIAN_DEFAULT_BASE_URL, JubianClient } from './client.ts'
-export type { JubianClientOptions, JubianRequest, JubianResponse } from './client.ts'
+export type { JubianClientOptions, JubianEnvelopeLayout, JubianRequest, JubianResponse } from './client.ts'
+export { describePayload, describeUnparsed, redactForDump } from './diagnostic.ts'
+export { DEBUG_DUMP_ENV, JubianDebugDump } from './debug-dump.ts'
+export type { JubianDebugRecord } from './debug-dump.ts'

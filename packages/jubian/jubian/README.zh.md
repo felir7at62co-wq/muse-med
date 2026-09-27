@@ -50,9 +50,9 @@ try {
 
 `path` 自带查询字符串，`body` 会在接受它的方法上序列化为 JSON。成功时 `data` 原样返回，因此提供方新增的字段在这里永远不会变成错误。构造函数会以 `TypeError` 拒绝 1..60000 之外的 `timeoutMs` 与 1..32 MiB 之外的 `maxResponseBytes`；默认值分别是 30000 毫秒与 2 MiB，`baseUrl` 默认为 `https://web.jubianai.net/prod-api`。
 
-### 读取两种信封形态
+### 读取该提供方发出的每一种信封形态
 
-该提供方同时存在两种形态，客户端为你隐藏了这一差异。单对象端点把载荷嵌套在 `data` 下；列表端点把 `code`、`total` 与 `rows` 放在顶层，完全没有 `data`。当 `data` 键存在时客户端返回嵌套的 `data`，否则返回去掉 `msg` 文本后的整个信封——因此 `total` 与 `rows` 会作为一个对象到达，读取方无需知道提供方发来的是哪种形态。
+有两种形态是有据可查的，客户端为你隐藏了这一差异。单对象端点把载荷嵌套在 `data` 下；列表端点把 `code`、`total` 与 `rows` 放在顶层，完全没有 `data`。当 `data` 键存在时客户端返回嵌套的 `data`，否则返回去掉 `msg` 文本后的整个信封——因此 `total` 与 `rows` 会作为一个对象到达，读取方无需知道提供方发来的是哪种形态。另有四种形态被容忍，因为传输层一旦拒绝，读取方就再也拿不回载荷：被包在单元素数组里的成功信封、被包在单元素数组里的载荷对象、顶层的裸数组、以及本身就是一个成功信封的载荷。每个响应都用 `envelope_layout` 说明它实际使用的形态；而本身不带信封的被容忍形态会报告 `transport.application_code: null`，因此任何调用方都不会把它误当成已验证的成功。一个合法 JSON 但不属于上述任何一种的响应体——字符串、数字、`null`，或不带整数 `code` 的对象——仍以 `CONTRACT_CHANGED` 失败。
 
 ### 修复已存储的令牌
 
@@ -67,11 +67,13 @@ try {
 | `AUTHENTICATION_REQUIRED` | 凭据解析器抛出异常、修复后的令牌不可用、HTTP 为 401 或 403，或信封 `code` 为 401 |
 | `PERMISSION_DENIED` | HTTP 为 2xx 而信封 `code` 为 403 |
 | `RATE_LIMITED` | HTTP 为 429，或信封 `code` 为 429 |
-| `CONTRACT_CHANGED` | 响应体不是 JSON、不是合法 UTF-8、不是对象、超出字节上限、不带整数 `code`，或带有本包不映射的错误码 |
+| `CONTRACT_CHANGED` | 响应体不是 JSON、不是合法 UTF-8、不是对象、超出字节上限、不带整数 `code`，或带有本包不映射的错误码；详情描述响应体的结构 |
 | `NETWORK_ERROR` | 连接失败、调用超时、重定向被拒绝，或 HTTP 为任何其他非 2xx 状态 |
 | `BUDGET_EXCEEDED` | 一次计费调用不被本部署的授权覆盖；详情说明缺的是哪一项 |
 
 HTTP 200 而信封 `code` 为 401，是该提供方对无法接受的令牌返回的形态，它的失败方式与 HTTP 401 完全一致。两个成功码是 `0` 与 `200`。
+
+被拒绝的响应体由 `describePayload()` 或 `describeUnparsed()` 描述，而不是被复述：顶层类型、自身键名、数组长度、字节数与一段有界摘录，其中凭据类字段的取值被移除、绝对 URL 被缩减为来源、长的不透明串被替换。`Jubian response did not match the expected envelope: top-level array of 7 elements, first element object with keys [id, scriptId, …]` 就是这类失败现在会说的话。
 
 ### 给一个项目的花费设上限
 
@@ -137,8 +139,10 @@ if (!begun.replayed) {
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 公开接口：客户端、凭据 helper、错误码与账本 |
-| [`src/client.ts`](src/client.ts) | 唯一的 HTTP 通道：固定源、单次尝试、有界读取、信封校验与响应哈希 |
+| [`src/client.ts`](src/client.ts) | 唯一的 HTTP 通道：固定源、单次尝试、有界读取、信封形态读取与响应哈希 |
 | [`src/credential.ts`](src/credential.ts) | 凭据引用名，以及构建任何请求头之前应用的粘贴残留修复 |
+| [`src/diagnostic.ts`](src/diagnostic.ts) | 每个被拒响应体与每条 dump 记录所依据的脱敏结构描述 |
+| [`src/debug-dump.ts`](src/debug-dump.ts) | `DSH_JUBIAN_DEBUG_DUMP` 背后那个可选的 JSONL 响应落盘 |
 | [`src/error.ts`](src/error.ts) | 六个稳定错误码、HTTP 状态映射与信封 code 映射 |
 | [src/budget.ts](src/budget.ts) | 花费上限：人的授权文件，以及一次计费调用的判定 |
 | [src/ledger.ts](src/ledger.ts) | 两阶段 NDJSON 写入账本：intent 行、settle 行与重放折叠 |
@@ -148,13 +152,18 @@ if (!begun.replayed) {
 
 `request()` 把 URL 组装为 `baseUrl + path`，设置 `redirect: 'error'`，并通过 `AbortSignal.any()` 把调用方的 `signal` 与自身超时合并。这里没有重试、没有退避、也没有轮询循环：是否重复一次调用由调用方决定，而对写入而言，账本的幂等 key 才让这种重复变得安全。响应体分块读取，一旦超过 `maxResponseBytes` 便立即以 `CONTRACT_CHANGED` 拒绝，因此超大或无尽的响应体永远不会在内存中累积。这些原始字节随后按严格 UTF-8 解码并哈希为 `sha256:<hex>`，调用方因此可以把收到的内容与账本的 settle 行对照。
 
-### 一个返回值承载两种信封形态
+### 一个返回值承载每一种信封形态
 
-响应体只解析一次，并检查 `code` 是否为整数。`failureForEnvelopeCode()` 对非成功码分类，随后选择载荷：存在 `data` 键时取 `data`，否则取除 `msg` 之外的每个顶层字段。正是这第二条分支，让提供方那些报告 `total` 与 `rows`、且不带 `data` 的列表端点，能通过与单对象端点相同的返回类型读取。
+响应体只解析一次，并按上面某一种形态读取。在任何载荷被选中之前，`failureForEnvelopeCode()` 先对非成功码分类，`envelope_layout` 报告实际读到的形态。那条扁平分支——除 `msg` 之外的每个顶层字段——让提供方那些报告 `total` 与 `rows`、且不带 `data` 的列表端点，能通过与单对象端点相同的返回类型读取。单元素数组按它持有的那个对象读取，更长的裸数组作为该数组交给读取方，而本身就是一个成功信封的载荷会再被解开一层。自身不带 code 的形态报告 `transport.application_code: null`，而不是编造一个。
 
 ### 安全的失败诊断
 
-客户端在抛出的对象及其直接 cause 上精确匹配传输错误码或超时／中止名称，不遍历更深的 cause。合并后的 signal 标识调用方取消或客户端截止时间，也覆盖响应体读取阶段。HTTP 401 与 403 仍为 `AUTHENTICATION_REQUIRED`；HTTP 2xx 背后的信封 `code` 为 403 时仍为 `PERMISSION_DENIED`。[诊断决策](../../../.agents/notes/implemented/bug-fix/2026-09-23-jubian-safe-transport-diagnostics.zh.md)记录脱敏的取舍与验证范围限制。
+客户端在抛出的对象及其直接 cause 上精确匹配传输错误码或超时／中止名称，不遍历更深的 cause。合并后的 signal 标识调用方取消或客户端截止时间，也覆盖响应体读取阶段。HTTP 401 与 403 仍为 `AUTHENTICATION_REQUIRED`；HTTP 2xx 背后的信封 `code` 为 403 时仍为 `PERMISSION_DENIED`。本客户端无法接受的响应体改由 `describePayload()` 或 `describeUnparsed()` 报告：顶层类型、自身键名、数组长度、字节数与一段有界摘录，凭据类字段被脱敏、绝对 URL 被缩减为来源，因此工具结果可以说清收到的是什么，而不必把它复述出来。[诊断决策](../../../.agents/notes/implemented/bug-fix/2026-09-23-jubian-safe-transport-diagnostics.zh.md)记录脱敏的取舍与验证范围限制，[形态决策](../../../.agents/notes/implemented/bug-fix/2026-09-28-jubian-unreadable-response-diagnostics.zh.md)记录被容忍形态的由来。
+
+<a id="dumping-responses-on-purpose"></a>
+### 按需把响应落盘
+
+把 `DSH_JUBIAN_DEBUG_DUMP` 设为一个文件路径，`request()` 就会为每个响应追加一条 JSONL 记录：时间戳、方法、路径、HTTP 状态、应用码、信封形态、字节数、响应哈希与脱敏后的载荷。变量未设置或为空白时它始终关闭，没有任何路径会自动打开它，文件所在目录会在首次写入时创建。记录的是每一次调用，而不只是 `GET`，因为 `subtasks` 正是一个只读的 `POST`；dump 从不读取请求头（包括 `Authorization`），每个响应体都走与错误诊断相同的脱敏。在平台支持的情况下，文件以仅属主可读写创建；dump 的任何失败都不会改变它所观察的那次调用。请分享这个文件，永远不要分享令牌：它存在的意义就是让运维者把远端真正返回的内容发回来，而无需附带任何凭据。
 
 ### 两阶段账本带来什么
 
@@ -193,6 +202,10 @@ if (!begun.replayed) {
 - **只尝试一次，绝不重试** — 超时、被拒绝的重定向或 HTTP 429 都会让这次调用以失败告终，是否重复由调用方决定。对于写入，账本的幂等 key 才让这种重复变得安全，而不会造成第二次扣费。
 - **字节上限让调用失败，而不是截断响应** — 大于 `maxResponseBytes` 的响应体在读到至多该字节数之后被以 `CONTRACT_CHANGED` 拒绝，因此大型提供方列表必须通过提供方自己的分页参数重新读取，而不是提高上限。
 - **无法识别的信封 code 会被读作契约变更** — `failureForEnvelopeCode()` 只映射 0、200、401、403 与 429；其他任何应用码都会变成 `CONTRACT_CHANGED`，因此新引入的提供方错误码以形态变更的形式到达，而不是成为独立的失败类别。
+- **被容忍的形态只被记录，尚未升级为规则** — 上面那些数组与嵌套信封之所以被接受，是因为传输层无从知道读取方能用什么，而 `envelope_layout` 说明了实际读到的是哪一种；要把某一种收紧成它自己的规则，需要真正抓到会发出它的端点，因此当前接受集刻意比有据可查的集合更宽。
+- **被容忍的形态不带应用码** — `array-payload` 与 `array-single` 报告 `transport.application_code: null`，因此需要提供方自身成功码的调用方（例如写入账本）对这些响应体记录的是 `unknown`，而不是 `accepted`。
+- **读取方自己的拒绝不带结构描述** — 上面的描述属于本客户端的信封读取；`@deepseek-ai/dsh-jubian-api` 里的读取方拒绝一个它能读的载荷时，仍只报 `CONTRACT_CHANGED` 而不点名字段，因此那种情况要靠 debug dump 排查，而不是靠错误文本。
+- **debug dump 是一个需要运维者自行删除的文件** — 它保存提供方载荷，凭据按字段名脱敏、URL 缩减为来源、不透明长串被替换；以不起眼字段名携带的凭据，以及上游已经错误脱敏的内容，都不会被识别，因此该文件只留在本地，并在诊断结束后删除。
 - **已存储的令牌只被修复，从不被校验** — `trimBearerToken()` 只去掉一个尾部分隔符与一对引号，本包从不用该值向提供方做校验，因此格式良好但已被吊销的令牌只能在第一次真实调用时被发现。
 - **账本检测写入，但不锁定写入** — `begin()` 在追加之前读取既有文件，因此共享同一个账本根目录的两个进程可能为同一个 key 各写一条 `begin` 行；串行化写入方是调用方的责任。
 - **没有任何东西自动对账账本** — 没有 settle 行的 intent 行会一直保持未决，直到调用方或运维人员读取 NDJSON 文件，而目前没有任何界面列出这些未决记录。
