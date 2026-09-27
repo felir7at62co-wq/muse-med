@@ -2,10 +2,11 @@
  * `verify`: the post-render check, and the delivery verdict `render` shares.
  *
  * The delivered file is judged on what it actually is — its duration, its
- * streams, its overall bitrate, its black stretches, its silent stretches, and
- * whether any subtitle cue would be burned outside the picture. `verify` reports
- * every check instead of stopping at the first failure, so one call is one
- * complete repair list; nothing here writes to the delivered file.
+ * streams, its overall bitrate, its decodable frames, its black stretches, its
+ * silent stretches, and whether any subtitle cue would be burned outside the
+ * picture. `verify` reports every check instead of stopping at the first
+ * failure, so one call is one complete repair list; nothing here writes to the
+ * delivered file.
  *
  * @module @deepseek-ai/dsh-tool-episode-render/verify
  */
@@ -58,6 +59,28 @@ const SILENCE_FAILURE_SECONDS = 3
 
 /** A silent stretch at least this long is worth reading, but does not block. */
 const SILENCE_WARNING_SECONDS = 1
+
+/** Where the decode probe samples the delivered file, in seconds from its start. */
+const DECODE_PROBE_HEAD_SECONDS = 0.05
+
+/** How far the decode probe stays from the end, in seconds, so the tail is still addressable. */
+const DECODE_PROBE_TAIL_MARGIN_SECONDS = 0.1
+
+/** One position the decode probe seeks to and decodes. */
+export interface DecodeProbePoint {
+  /** The label the check reports the position under. */
+  readonly label: string
+  /** Seconds from the file start. */
+  readonly seconds: number
+}
+
+/** What one seek-and-decode probe produced. */
+export interface DecodeProbe extends DecodeProbePoint {
+  /** Video frames the decoder actually produced; 0 means this position has no picture. */
+  readonly frames: number
+  /** Last line of the decoder's own diagnostic when the command failed; empty otherwise. */
+  readonly error: string
+}
 
 /** One detected stretch of black frames or of silence. */
 export interface DetectedSegment {
@@ -235,6 +258,79 @@ export async function detectSilenceSegments(
 }
 
 /**
+ * The positions a delivered file must still decode at.
+ *
+ * Head, middle, and near-tail: a file whose container describes the whole
+ * programme but whose picture stops early decodes at the head and nowhere else,
+ * and the tail is the position a seek past the real end returns empty for.
+ * @param durationSeconds - The delivered file's probed duration.
+ * @returns The three probe positions, closing on the tail.
+ */
+export function decodeProbePoints(durationSeconds: number): DecodeProbePoint[] {
+  const tail = Math.max(0, durationSeconds - DECODE_PROBE_TAIL_MARGIN_SECONDS)
+  return [
+    { label: '首', seconds: Math.min(DECODE_PROBE_HEAD_SECONDS, tail) },
+    { label: '中', seconds: Math.max(0, durationSeconds / 2) },
+    { label: '尾', seconds: tail },
+  ]
+}
+
+/**
+ * Seek to one position and count the video frames the decoder actually produced.
+ *
+ * `showinfo` logs one line per frame that reaches the filter graph, so the count
+ * is what was decoded rather than what the container claims. The exit code is
+ * not the verdict: a seek past a truncated file's real end exits 0 with no
+ * frames, which is exactly the failure metadata-only verification misses.
+ * @param toolkit - The binaries and channel to use.
+ * @param file - Absolute path of the delivered file.
+ * @param point - The position to seek to.
+ * @returns The decoded frame count and the decoder's own diagnostic when it failed.
+ */
+export async function decodeAt(toolkit: MediaToolkit, file: string, point: DecodeProbePoint): Promise<DecodeProbe> {
+  const outcome = await toolkit.channel.run(toolkit.ffmpeg, [
+    '-v', 'info', '-ss', point.seconds.toFixed(3), '-i', file,
+    '-frames:v', '1', '-vf', 'showinfo', '-an', '-f', 'null', '-',
+  ])
+  const frames = (outcome.stderr.match(/\]\s*n:\s*\d+/g) ?? []).length
+  const error = outcome.code === 0
+    ? ''
+    : (outcome.stderr.trim().split(/\r?\n/).at(-1) ?? '').slice(0, 200)
+  return { ...point, frames, error }
+}
+
+/**
+ * Judge whether the delivered file still decodes throughout its own duration.
+ *
+ * The container's duration, frame rate, and bitrate all survived the render that
+ * lost two thirds of its frames, so none of them is evidence that the picture is
+ * there. Decoding three positions is.
+ * @param toolkit - The binaries and channel to use.
+ * @param file - Absolute path of the delivered file.
+ * @param durationSeconds - The delivered file's probed duration.
+ * @returns The decode check, failed when any position yields no frame.
+ */
+export async function decodeChecks(
+  toolkit: MediaToolkit,
+  file: string,
+  durationSeconds: number,
+): Promise<RenderCheck[]> {
+  const probes: DecodeProbe[] = []
+  for (const point of decodeProbePoints(durationSeconds)) probes.push(await decodeAt(toolkit, file, point))
+  const missing = probes.filter(probe => probe.frames < 1)
+  const detail = probes
+    .map(probe => `${probe.label} ${probe.seconds.toFixed(3)}s 解出 ${String(probe.frames)} 帧`
+      + (probe.error === '' ? '' : `（${probe.error}）`))
+    .join('；')
+  return [
+    verdict('decode_probe', 'failure', missing.length === 0, detail,
+      '按时间抽帧解不出画面：成片在自己的时长范围内就断了（容器时长/帧率/码率此时仍然正常）。'
+      + '这通常来自手写滤镜链把 fps 放在 subtitles 之前，字幕滤镜会把时间基准锚回源帧率。'
+      + '请重跑 render（必要时加 force=true 清缓存），并确认烧录链最后是 fps=60,setpts=N/(60*TB)。'),
+  ]
+}
+
+/**
  * Judge whether every subtitle cue is burned inside the picture.
  * @param cues - The installed subtitles.
  * @param bodyEndSeconds - Where the body ends; the ending carries no dialogue.
@@ -360,6 +456,7 @@ export async function verifyEpisode(input: VerifyInput): Promise<DramaRenderRepo
   const cues = await readSubtitleCues(input.subtitleSrt)
   const checks: RenderCheck[] = [
     ...deliveryChecks(media, expectedDurationSeconds),
+    ...await decodeChecks(input.toolkit, input.output, media.durationSeconds),
     ...await videoBanChecks(input, timeline.clips.map(clip => clip.shot)),
     verdict('black_frames', 'failure', longestSeconds(black) < BLACK_FAILURE_SECONDS,
       describeSegments(black),

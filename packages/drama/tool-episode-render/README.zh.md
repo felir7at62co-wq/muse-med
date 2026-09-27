@@ -128,14 +128,15 @@ kind: "package-reference"
 | 码率控制 | 目标 24M、上限 30M、缓冲 48M、GOP 120 帧 |
 | 总码率下限 | 成片整体 4.6 Mbps |
 | 片尾 | 用最后一镜的真实尾帧定格 2.000 秒。随包特效按自身原速只播放一次，覆盖开头 1.020 秒，以 0.90 不透明度叠在定格帧上；剩下 0.980 秒是纯定格帧 |
-| 字幕 | 配置的字体族、字号 68、字间距 -2、1080x1920 设计坐标下 3px 黑描边（1440x2560 成片上约 4px）、底部居中，另有右下角唯一的 `内容由AI生成` 标记 |
+| 字幕 | 配置的字体族、字号 68、字间距 -2、成片上 7px 黑描边（ASS 字段由它推导，本几何写入 5，并带 `ScaledBorderAndShadow: yes` 让 libass 缩放到实际栅格）、底部居中，另有右下角唯一的 `内容由AI生成` 标记；烧录链以 `fps=60,setpts=N/(60*TB)` 结尾 |
 | 音频 | 整集原声 1.45、BGM 0.24 铺到正片结束、片尾音的前 2 秒延迟到正片结束，`amix` 关闭归一化，`alimiter=0.95` |
 | 容器 | AAC 192k / 48kHz，`+faststart` |
 
-### 两个已知的坑
+### 三个已知的坑
 
 - **抽尾帧。** `-sseof -0.05` 在部分片子上会不写文件却返回 0，于是定格帧静默取错。本包固定用 `-sseof -0.1`，并且不轻信结果：抽出帧的 `framemd5` 必须等于顺序解码的最后一帧；不相等就按帧号重抽，仍不相等就停止渲染，绝不定格一张没验证过的帧。证据在 `tail_frame` 里返回。
 - **GPU 编码。** 驱动过旧、缺 NVENC 构建、GPU 被占用，三种情况在探测上表现一致。探针编码一帧 256x256 的源（部分 NVIDIA 代次会拒绝更小的帧），失败就按设计回退 `libx264`，探测自身输出写进 `encoder_fallback_reason` 与渲染日志。
+- **烧录之后的帧率。** 字幕滤镜按源帧率锚定时间基准，`fps` 放在 `ass`/`subtitles` 之前不会进入成片：容器照样报交付帧率，实际只解得出少量帧。烧录链因此以 `fps=60,setpts=N/(60*TB)` 结尾，且没有任何检查只看元数据——`decode_probe` 会在首、中、尾各解一帧。
 
 ### 检查代码
 
@@ -148,6 +149,7 @@ kind: "package-reference"
 | `frame_rate` | failure | 帧率 60，误差 0.01 以内 |
 | `audio_stream` | failure | 存在 AAC 48kHz 音轨 |
 | `bitrate_floor` | failure | 总码率达到 4.6 Mbps |
+| `decode_probe` | failure | 首、中、尾（距结尾 0.1 秒）三处都能解出一帧 |
 | `black_frames` | failure | 没有达到 1.0 秒的黑场 |
 | `fade_to_black` | warning | 没有达到 0.3 秒的黑场 |
 | `silence` | failure | 没有达到 3.0 秒的静音 |
@@ -192,7 +194,7 @@ kind: "package-reference"
 | [`src/ending.ts`](src/ending.ts) | 带 framemd5 证明的尾帧抽取、片尾素材校验，以及片尾片段 |
 | [`src/prepare.ts`](src/prepare.ts) | `prepare`：成片清单、探测、复制出的布局与整集原声滤镜图 |
 | [`src/render.ts`](src/render.ts) | `render`：编码流水线、拼接、烧录、混音与渲染日志 |
-| [`src/verify.ts`](src/verify.ts) | `render` 共用的交付判定，以及 `verify` 的黑帧、静音与字幕越界检查 |
+| [`src/verify.ts`](src/verify.ts) | `render` 共用的交付判定，以及 `verify` 的抽帧解码、黑帧、静音与字幕越界检查 |
 | [`src/report.ts`](src/report.ts) | canonical 结果：四个方法填同一套字段，没测到的留空值 |
 | [`src/types.ts`](src/types.ts) | 只有类型：时间线、成片来源、实测事实与模型可见结果 |
 | — | 不发布运行时不变式伴随包：本包在调用之间不保留状态，每个答案都是它所读文件与所启进程的函数。 |
@@ -223,7 +225,7 @@ kind: "package-reference"
 
 #### Token 影响
 
-渲染结果每镜一行 `clips`，最多十二项检查（包括可选禁用检查）。`drama_video` 增加固定 schema；`list` 结果随记录版本数逐行增长，其他方法只返回选定决定。九镜一集的渲染无论编码花多久都只返回九行 clip；通过的交付让 `failures` 为空、每个 `fix` 为空串。
+渲染结果每镜一行 `clips`，最多十三项检查（包括可选禁用检查）。`drama_video` 增加固定 schema；`list` 结果随记录版本数逐行增长，其他方法只返回选定决定。九镜一集的渲染无论编码花多久都只返回九行 clip；通过的交付让 `failures` 为空、每个 `fix` 为空串。
 
 #### KV Cache 影响
 

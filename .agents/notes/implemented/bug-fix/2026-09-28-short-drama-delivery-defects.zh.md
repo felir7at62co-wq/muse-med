@@ -12,13 +12,13 @@ Status: implemented
 
 **表情。** 编译用的分镜脚本给沈知意在平淡的问句「干什么？」上写了 `【眉毛抬高，嘴唇张开，眉间收了一下】`，在「谁说怀孕就不能开车？」上写了 `【眉毛抬高，唇角平，肩线放松】`；成片车内那一段就是一张没有触发事件的、张着嘴的惊讶脸。本集唯一有剧本依据的惊讶是林晚的「捂住嘴，眼睛瞪圆」。原有规则禁止抽象情绪词、要求写可观察体征——正因为要求写可观察体征，凭空写出的「眉毛抬高」才会被渲染成真实表情。
 
-**字幕描边。** 每条交付路径都把 ASS 描边设成 1080x1920 设计坐标下的 7（`delivery.ts`、技能里的 `render_episode.py`，以及这次运行实际烧录的手写 ASS）。烧到 1440x2560 成片上，7 实测为 8–10px 的黑带，与 68 号汉字的笔画一样宽。
+**字幕描边。** 每条交付路径都把 ASS 描边设成 1080x1920 设计坐标下的 7（`delivery.ts`、技能里的 `render_episode.py`，以及这次运行实际烧录的手写 ASS）。烧到 1440x2560 成片上，7 实测为 8–10px 的黑带，与 68 号汉字的笔画一样宽。这次改用的取值在另一个方向上错了：[描边与解码校验那份 Note](2026-09-28-subtitle-outline-and-decode-verification.zh.md) 拥有修正后的约定，以及「随包表头只渲染出 1–2px」的那次实测。
 
 **水印。** 成片右下角有两条「内容由AI生成」。这次运行绕过了 `drama_render render`，自己拼 ffmpeg：它的 ASS 里带一条 `Mark` 事件（日志 L2131），滤镜链上又加了一条 `drawtext`（日志 L2143），会话在 L2522–L2530 确认「我写了两遍」。
 
 ## Decision
 
-描边在 1080x1920 设计坐标下取 3，两个渲染器一起改：[`buildAssHeader`](../../../../packages/drama/tool-episode-render/src/delivery.ts) 与 [`tweet-drama-background-render/scripts/render_episode.py`](../../../../packages/drama/skills/skills/tweet-drama-background-render/scripts/render_episode.py) 里的 `write_ass`。在成片尺寸上那是接近 4px 的黑带——汉字硬字幕常见的「字号 4–5%」档位，也是技能正文与工具描述现在同时写明的取值。工具描述另外说明这条标记的来源：渲染器写出的 ASS 只携带它一次，再叠 `drawtext` 或 `overlay` 就会重复；`subtitles.spec.ts` 钉住构建出的文档里这条标记恰好出现一次。
+描边当时在 1080x1920 设计坐标下取 3，两个渲染器一起改：[`buildAssHeader`](../../../../packages/drama/tool-episode-render/src/delivery.ts) 与 [`tweet-drama-background-render/scripts/render_episode.py`](../../../../packages/drama/skills/skills/tweet-drama-background-render/scripts/render_episode.py) 里的 `write_ass`。[描边与解码校验那份 Note](2026-09-28-subtitle-outline-and-decode-verification.zh.md) 反转了这个取值：同两个渲染器改为按成片 7px 推导字段并写出 `ScaledBorderAndShadow: yes`，描边约定由那份 Note 拥有。工具描述仍然说明这条标记的来源：渲染器写出的 ASS 只携带它一次，再叠 `drawtext` 或 `overlay` 就会重复；`subtitles.spec.ts` 钉住构建出的文档里这条标记恰好出现一次。
 
 水印、字幕样式与片尾字节都由 `drama_render` 执行，因此技能现在要求出片走 `subtitles` → `prepare` → `render`，并点名手写 ffmpeg 是不继承这些校验的那条路；只有工具确实缺能力时才允许手工出片，且同样适用固定样式与右下角目视复核。
 
@@ -42,10 +42,10 @@ Status: implemented
 
 ## Verification
 
-`pnpm vitest run packages/drama/tool-episode-render` 通过，其中包含新增的「标记恰好一次」断言与 ASS 表头里钉住的描边值。
+`pnpm vitest run packages/drama/tool-episode-render` 通过，其中包含新增的「标记恰好一次」断言。
 
 `pnpm run verify-tool-catalog` 与 `pnpm run verify-doc-budgets` 通过。`pnpm run verify-translation-pairing` 报出 `docs/superpowers/` 下三份未成对的文档，本次改动涉及的配对一个都没有；`pnpm run verify-md-links` 报出其它笔记里十处失效目标，本笔记一处都没有。
 
-描边取值是实测而不是断言：`ffmpeg -f lavfi -i color=white:s=1440x2560 -vf ass=<probe>.ass`，SimHei 68、PlayRes 1080x1920，然后量取整幅画面上的黑带宽度——Outline 7 配 `ScaledBorderAndShadow: yes` 为 10px（随包表头省略该键时为 8px），Outline 3 为 4px。
+描边取值是实测而不是断言：`ffmpeg -f lavfi -i color=white:s=1440x2560 -vf ass=<probe>.ass`，SimHei 68、PlayRes 1080x1920，然后量取整幅画面上的黑带宽度——原先的 Outline 7 配 `ScaledBorderAndShadow: yes` 为 10px。那次探测是把脚本直烧到成片尺寸，且它自己的表头省略了该键：这既解释了随包表头为何量到 8px，也解释了它支持的替换值在渲染器的超采样链上只有 1–2px；[描边与解码校验那份 Note](2026-09-28-subtitle-outline-and-decode-verification.zh.md) 记录了修正后的实测。
 
-`python -B -m unittest discover` 覆盖 `packages/drama/skills/tests`，含 Python 渲染器各自的字族与描边断言。
+`python -B -m unittest discover` 覆盖 `packages/drama/skills/tests`，含 Python 渲染器各自的字族断言。

@@ -30,6 +30,21 @@ logger = logging.getLogger(__name__)
 class DraftInputError(ValueError):
     """Invalid or incomplete material input for draft generation."""
 
+# 剪映草稿字幕样式：本文件的这些值是**剪映 UI 单位**，不是 draft_content.json 里
+# 写出的数字。pyJianYingDraft 按它自己的映射写出文件（见其 text_segment.py）：
+#   styles[0].size                      = 字号 UI 值          → 11 写成 11.0
+#   letter_spacing                      = 字间距 UI 值 * 0.05 → 0  写成 0.0
+#   line_spacing                        = 0.02 + 行间距 * 0.05→ 0  写成 0.02（基线，不是设置）
+#   styles[0].strokes[0].width          = 描边 UI 值 / 100 * 0.2 → 20 写成 0.04
+# 所以规范里的「字号 11、字间距 0、黑色描边 20」与草稿文件里的 11.0 / 0.0 / 0.04 是同一套
+# 参数的两个量纲，不是两个值。字体不传 font 就不写 styles[0].font，剪映按自己的系统
+# 默认黑体渲染：规范里的「系统默认黑体」在草稿文件里没有可核对的字段。
+SUBTITLE_FONT_SIZE = 11.0
+SUBTITLE_LETTER_SPACING = 0
+SUBTITLE_BORDER_UI_WIDTH = 20.0
+SUBTITLE_BORDER_COLOR = (0.0, 0.0, 0.0)
+SUBTITLE_TRANSFORM_Y = -0.465625
+
 # 音频文件分析相关导入
 try:
     from pydub import AudioSegment
@@ -914,25 +929,26 @@ def main_with_args(args):
                         # 导入字幕到文本轨道，设置样式
                         from pyJianYingDraft.text_segment import TextStyle, TextBorder, TextSegment
                         from pyJianYingDraft.segment import ClipSettings
-                        
-                        # 创建字幕样式：11号字体，黑色边框+白底字
+
+                        # 字幕样式：字幕预排与草稿量纲的约定见文件顶部常量注释，改这里就是改草稿。
                         text_style = TextStyle(
-                            size=11.0,
+                            size=SUBTITLE_FONT_SIZE,
                             bold=False,
-                            letter_spacing=0,
+                            letter_spacing=SUBTITLE_LETTER_SPACING,
                             color=(1.0, 1.0, 1.0),
                             align=1,
                             auto_wrapping=True,
                         )
                         
                         # Keep the verified relative subtitle position on the 2K canvas.
-                        clip_settings = ClipSettings(transform_y=-0.465625)
+                        clip_settings = ClipSettings(transform_y=SUBTITLE_TRANSFORM_Y)
                         style_reference = TextSegment(
                             "字幕样式",
                             Timerange(0, 500000),
                             style=text_style,
                             clip_settings=clip_settings,
-                            border=TextBorder(alpha=1.0, color=(0.0, 0.0, 0.0), width=20.0),
+                            border=TextBorder(alpha=1.0, color=SUBTITLE_BORDER_COLOR,
+                                              width=SUBTITLE_BORDER_UI_WIDTH),
                         )
                         
                         # 导入字幕

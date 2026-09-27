@@ -4,10 +4,10 @@
  *
  * The burned-in subtitle is part of the delivered picture, so its style is the
  * delivery specification rather than a tool parameter: size 68 with -2 spacing
- * and a 3px black outline, bottom-centred on a 1080x1920 canvas, plus the single
- * bottom-right `内容由AI生成` mark. The outline is set in the 1080x1920 design
- * coordinates and lands near 4px on the 1440x2560 delivery; 7px measured 8-10px
- * there, as thick as the glyph strokes themselves.
+ * and a black outline 7 delivered pixels wide, bottom-centred on a 1080x1920
+ * canvas, plus the single bottom-right `内容由AI生成` mark. The outline's ASS
+ * field is derived from that delivered width by `assOutline` — the field is in
+ * canvas units and libass scales it to the rasterized frame.
  *
  * @module @deepseek-ai/dsh-tool-episode-render/subtitles
  */

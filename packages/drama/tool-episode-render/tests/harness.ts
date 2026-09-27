@@ -122,6 +122,27 @@ export function isSeek(call: ChannelCall): boolean {
   return call.command === 'ffmpeg' && call.args.includes('-sseof')
 }
 
+/** Whether one call is a per-position decode probe (`-ss` plus `showinfo`). */
+export function isDecodeProbe(call: ChannelCall): boolean {
+  return call.command === 'ffmpeg' && call.args.includes('-ss') && call.args.includes('showinfo')
+}
+
+/**
+ * Build the handler that answers the per-position decode probe.
+ * @param frames - Frames each probe reports; 0 reproduces a file that seeks past its own picture.
+ * @param code - Exit code the probe reports; 0 is what a truncated file returns with no frames.
+ * @returns The handler.
+ */
+export function decodeHandler(frames = 1, code = 0): StubHandler {
+  return (call) => {
+    if (!isDecodeProbe(call)) return undefined
+    if (frames === 0) return { code, stderr: code === 0 ? '' : 'Invalid NAL unit size' }
+    const logged = Array.from({ length: frames }, (_, index) =>
+      `[Parsed_showinfo_0 @ 0x1] n:   ${String(index)} pts: ${String(index * 256)} pts_time:${(index / 60).toFixed(6)} fmt:yuv420p`).join('\n')
+    return { stderr: `${logged}\n` }
+  }
+}
+
 /** One fake media file's probed facts. */
 export interface ProbeSpec {
   /** Container duration in seconds; defaults to 1. */

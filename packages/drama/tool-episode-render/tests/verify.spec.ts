@@ -10,6 +10,9 @@ import { NO_MEDIA } from '../src/report.ts'
 import { resolveSettings } from '../src/index.ts'
 import type { MediaFacts, SubtitleCue } from '../src/types.ts'
 import {
+  decodeAt,
+  decodeChecks,
+  decodeProbePoints,
   deliveryChecks,
   detectBlackSegments,
   detectSilenceSegments,
@@ -18,7 +21,10 @@ import {
   subtitleChecks,
   verifyEpisode,
 } from '../src/verify.ts'
-import { cleanup, probeHandler, srtDocument, stubChannel, tempProject, timelineJson, writePlaceholder, type StubHandler } from './harness.ts'
+import {
+  cleanup, decodeHandler, probeHandler, srtDocument, stubChannel, tempProject, timelineJson, writePlaceholder,
+  type StubHandler,
+} from './harness.ts'
 
 const temporary: string[] = []
 
@@ -106,6 +112,64 @@ describe('deliveryChecks', () => {
     const [, , , , bitrate] = deliveryChecks(goodMedia({ bitrateBps: 4_000_000 }), 116.733332)
     expect(bitrate?.ok).toBe(false)
     expect(bitrate?.detail).toBe('实测 4.000 Mbps，下限 4.6 Mbps')
+  })
+})
+
+describe('decodeProbePoints', () => {
+  it('samples the head, the middle, and just inside the tail', () => {
+    const points = decodeProbePoints(116.733332)
+    expect(points.map(point => point.label)).toEqual(['首', '中', '尾'])
+    expect(points[0]?.seconds).toBeCloseTo(0.05, 6)
+    expect(points[1]?.seconds).toBeCloseTo(116.733332 / 2, 6)
+    expect(points[2]?.seconds).toBeCloseTo(116.633332, 6)
+  })
+
+  it('never seeks before the file start', () => {
+    expect(decodeProbePoints(0)).toEqual([
+      { label: '首', seconds: 0 },
+      { label: '中', seconds: 0 },
+      { label: '尾', seconds: 0 },
+    ])
+  })
+})
+
+describe('decodeAt', () => {
+  it('seeks, decodes one frame, and counts what the decoder produced', async () => {
+    const channel = stubChannel([decodeHandler(2)])
+    const probe = await decodeAt(
+      createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }),
+      'out.mp4', { label: '尾', seconds: 116.633332 })
+    expect(probe.frames).toBe(2)
+    expect(probe.error).toBe('')
+    expect(channel.calls[0]?.args).toEqual([
+      '-v', 'info', '-ss', '116.633', '-i', 'out.mp4', '-frames:v', '1', '-vf', 'showinfo', '-an', '-f', 'null', '-',
+    ])
+  })
+
+  it('reports the decoder diagnostic when the command itself fails', async () => {
+    const probe = await decodeAt(toolkit([decodeHandler(0, 1)]), 'out.mp4', { label: '尾', seconds: 10 })
+    expect(probe.frames).toBe(0)
+    expect(probe.error).toBe('Invalid NAL unit size')
+  })
+})
+
+describe('decodeChecks', () => {
+  it('passes a file that decodes at every sampled position', async () => {
+    const [check] = await decodeChecks(toolkit([decodeHandler(2)]), 'out.mp4', 116.733332)
+    expect(check?.id).toBe('decode_probe')
+    expect(check?.ok).toBe(true)
+    expect(check?.detail).toBe('首 0.050s 解出 2 帧；中 58.367s 解出 2 帧；尾 116.633s 解出 2 帧')
+    expect(check?.fix).toBe('')
+  })
+
+  it('fails a file whose container describes more picture than it decodes', async () => {
+    // The reported failure: duration, frame rate, and bitrate all read normal, and a
+    // seek past the real end exits 0 with nothing decoded.
+    const [check] = await decodeChecks(toolkit([decodeHandler(0)]), 'out.mp4', 116.733332)
+    expect(check?.ok).toBe(false)
+    expect(check?.severity).toBe('failure')
+    expect(check?.detail).toContain('尾 116.633s 解出 0 帧')
+    expect(check?.fix).toContain('setpts')
   })
 })
 
@@ -255,7 +319,11 @@ describe('verifyEpisode', () => {
     const files = await delivered()
     await rm(provenancePathFor(files.output))
     const report = await verifyEpisode({
-      toolkit: toolkit([probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }), () => ({})]),
+      toolkit: toolkit([
+        probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }),
+        decodeHandler(),
+        () => ({}),
+      ]),
       settings: resolveSettings({ fontsDir: '' }),
       project: files.project, episode: '02', output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
     })
@@ -271,7 +339,11 @@ describe('verifyEpisode', () => {
     // passes, so only the digest comparison can say that the review is stale.
     await writePlaceholder(files.output, 'replaced after the record')
     const report = await verifyEpisode({
-      toolkit: toolkit([probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }), () => ({})]),
+      toolkit: toolkit([
+        probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }),
+        decodeHandler(),
+        () => ({}),
+      ]),
       settings: resolveSettings({ fontsDir: '' }),
       project: files.project, episode: '02', output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
     })
@@ -288,7 +360,11 @@ describe('verifyEpisode', () => {
     await writePlaceholder(source, 'banned copy')
     await runDramaVideo({ method: 'ban', project: files.project, video: source, labels: ['人物对调'], reason: '用户明确禁用' })
     const report = await verifyEpisode({
-      toolkit: toolkit([probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }), () => ({})]),
+      toolkit: toolkit([
+        probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }),
+        decodeHandler(),
+        () => ({}),
+      ]),
       settings: resolveSettings({ fontsDir: '' }),
       project: files.project, episode: '02', output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
     })
@@ -311,6 +387,7 @@ describe('verifyEpisode', () => {
             durationSeconds: 116.733332, sizeBytes: 400_000_000, bitRateBps: 27_000_000, video: {}, audio: {},
           },
         }),
+        decodeHandler(2),
         () => ({ stderr: '' }),
       ]),
       settings: resolveSettings({}),
@@ -322,7 +399,7 @@ describe('verifyEpisode', () => {
     })
     expect(report.ok).toBe(true)
     expect(report.checks.map(check => check.id)).toEqual([
-      'duration', 'video_stream', 'frame_rate', 'audio_stream', 'bitrate_floor',
+      'duration', 'video_stream', 'frame_rate', 'audio_stream', 'bitrate_floor', 'decode_probe',
       'black_frames', 'fade_to_black', 'silence', 'long_pauses', 'subtitle_bounds', 'subtitle_present',
       'output_provenance',
     ])
@@ -344,7 +421,7 @@ describe('verifyEpisode', () => {
       audio_codec: 'aac',
       audio_sample_rate: 48000,
     })
-    expect(report.summary).toEqual({ shots: 2, encoded: 0, reused: 0, checks: 12, failed_checks: 0, warnings: 0 })
+    expect(report.summary).toEqual({ shots: 2, encoded: 0, reused: 0, checks: 13, failed_checks: 0, warnings: 0 })
     expect(report.written).toEqual([])
     expect(report.log_path).toBe('')
   })
@@ -355,6 +432,7 @@ describe('verifyEpisode', () => {
     const report = await verifyEpisode({
       toolkit: toolkit([
         probeHandler({ [files.output]: { durationSeconds: 100, sizeBytes: 1, bitRateBps: 1_000_000, video: { width: 1080, height: 1920, fps: 30 }, audio: { codec: 'mp3', sampleRate: 44100 } } }),
+        decodeHandler(),
         call => (call.args.some(argument => argument.startsWith('blackdetect'))
           ? { stderr: blackLog(10, 12, 2) }
           : { stderr: '[silencedetect @ 0x1] silence_start: 0\n[silencedetect @ 0x1] silence_end: 5 | silence_duration: 5\n' }),
@@ -405,5 +483,8 @@ describe('verifyEpisode', () => {
     })
     expect(report.ok).toBe(false)
     expect(report.failures.map(failure => failure.split(':')[0])).toContain('video_stream')
+    // A file with no picture cannot answer the decode probe either, and the check
+    // reports that rather than treating an empty stream list as "nothing to decode".
+    expect(report.checks.find(check => check.id === 'decode_probe')?.ok).toBe(false)
   })
 })

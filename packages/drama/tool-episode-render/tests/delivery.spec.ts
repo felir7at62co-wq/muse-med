@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  assOutline,
   buildAssHeader,
   audioMixFilter,
   BUFFER_SIZE,
@@ -20,6 +21,9 @@ import {
   formatAssTime,
   MAX_BITRATE,
   MIN_BITRATE_BPS,
+  PLAY_RES_HEIGHT,
+  PLAY_RES_WIDTH,
+  SUBTITLE_OUTLINE_TARGET_PX,
   subtitleBurnFilter,
   TARGET_BITRATE,
   WATERMARK_POSITION,
@@ -66,8 +70,38 @@ describe('the delivery constants', () => {
     expect(ASS_DOCUMENT_HEADER).toContain('PlayResX: 1080')
     expect(ASS_DOCUMENT_HEADER).toContain('PlayResY: 1920')
     expect(ASS_DOCUMENT_HEADER).toContain('WrapStyle: 2')
+    // Without this key libass draws the outline in unscaled raster pixels, so the
+    // derived field below would not render as the delivered width it targets.
+    expect(ASS_DOCUMENT_HEADER).toContain('ScaledBorderAndShadow: yes')
+    expect(ASS_DOCUMENT_HEADER).toContain('Style: Default,SimHei,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,'
+      + '0,0,0,0,100,100,-2,0,1,5,0,2,40,40,520,1')
+    expect(ASS_DOCUMENT_HEADER).toContain('Style: Watermark,Microsoft YaHei,44,')
     expect(ASS_DOCUMENT_HEADER.endsWith('[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n'))
       .toBe(true)
+  })
+})
+
+describe('assOutline', () => {
+  it('derives the ASS field from the delivered width the picture must show', () => {
+    expect(SUBTITLE_OUTLINE_TARGET_PX).toBe(7)
+    expect(PLAY_RES_WIDTH).toBe(1080)
+    expect(PLAY_RES_HEIGHT).toBe(1920)
+    expect(assOutline(SUBTITLE_OUTLINE_TARGET_PX, PLAY_RES_HEIGHT, DELIVERY_HEIGHT)).toBe(5)
+  })
+
+  it('re-derives instead of returning a fixed number when the geometry changes', () => {
+    // libass scales the outline by the frame height over the canvas height, so the
+    // same delivered width needs a different field on a different delivery size.
+    expect(assOutline(7, 1920, 1920)).toBe(7)
+    expect(assOutline(7, 1920, 3840)).toBe(4)
+    expect(assOutline(3, 1080, 1920)).toBe(2)
+  })
+
+  it('is what the header writes, so the style line cannot drift from the target', () => {
+    const header = buildAssHeader({ subtitleFontFamily: 'Noto Sans CJK SC', watermarkFontFamily: 'Noto Sans CJK SC' })
+    const style = header.split('\n').find(line => line.startsWith('Style: Default,Noto Sans CJK SC,68,'))
+    // Field 17 of the Format line, counted after the `Style: ` prefix.
+    expect(style?.split(',')[16]).toBe(String(assOutline(SUBTITLE_OUTLINE_TARGET_PX, PLAY_RES_HEIGHT, DELIVERY_HEIGHT)))
   })
 })
 
@@ -123,7 +157,20 @@ describe('endingEffectFilter', () => {
 describe('subtitleBurnFilter', () => {
   it('doubles the frame for libass and escapes both paths', () => {
     expect(subtitleBurnFilter('C:\\proj\\exports\\display.ass', 'C:\\Windows\\Fonts'))
-      .toBe("scale=2880:5120:flags=lanczos,ass='C\\:/proj/exports/display.ass':fontsdir='C\\:/Windows/Fonts',scale=1440:2560:flags=lanczos")
+      .toBe("scale=2880:5120:flags=lanczos,ass='C\\:/proj/exports/display.ass':fontsdir='C\\:/Windows/Fonts',"
+        + 'scale=1440:2560:flags=lanczos,fps=60,setpts=N/(60*TB)')
+  })
+
+  it('regularizes the frame rate after the burn, never before it', () => {
+    const filter = subtitleBurnFilter('/tmp/display.ass', '/tmp/fonts')
+    const burn = filter.indexOf('ass=')
+    // The burn works on the source's own time base: a rate change placed before it
+    // does not survive the encode, so both rate filters belong after the burn and
+    // the timestamp rewrite belongs after the rate filter.
+    expect(burn).toBeGreaterThan(-1)
+    expect(filter.indexOf(`fps=${String(DELIVERY_FPS)}`)).toBeGreaterThan(burn)
+    expect(filter.indexOf(`setpts=N/(${String(DELIVERY_FPS)}*TB)`)).toBeGreaterThan(filter.indexOf(`fps=${String(DELIVERY_FPS)}`))
+    expect(filter.endsWith(`fps=${String(DELIVERY_FPS)},setpts=N/(${String(DELIVERY_FPS)}*TB)`)).toBe(true)
   })
 })
 

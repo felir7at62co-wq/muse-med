@@ -12,13 +12,13 @@ An operator review of 《山海自有相逢处》第25集 on 2026-09-28 returned
 
 **Reactions.** The compiled shot script gave 沈知意 the state `【眉毛抬高，嘴唇张开，眉间收了一下】` for the flat question 「干什么？」 and `【眉毛抬高，唇角平，肩线放松】` for 「谁说怀孕就不能开车？」; the delivered car shot shows a startled open-mouthed face with no trigger in the script. The episode's only scripted surprise is 林晚's 「捂住嘴，眼睛瞪圆」. The existing rule forbade abstract emotion words and required observable signs; requiring observable signs is what makes an invented raised-eyebrow state render as a real expression.
 
-**Subtitle outline.** Every delivery path set the ASS outline to 7 in the 1080x1920 design coordinates (`delivery.ts`, the skill's `render_episode.py`, and the hand-written ASS the run actually burned). Burned at the 1440x2560 delivery, 7 measures an 8-10px black band, as thick as the strokes of a 68px CJK glyph.
+**Subtitle outline.** Every delivery path set the ASS outline to 7 in the 1080x1920 design coordinates (`delivery.ts`, the skill's `render_episode.py`, and the hand-written ASS the run actually burned). Burned at the 1440x2560 delivery, 7 measures an 8-10px black band, as thick as the strokes of a 68px CJK glyph. The replacement this review chose was wrong in the other direction: [the outline note](2026-09-28-subtitle-outline-and-decode-verification.md) owns the corrected contract and the measurement that showed the shipped header rendering 1-2px.
 
 **Watermark.** The delivered frame carries two 「内容由AI生成」 marks in the bottom-right corner. The run bypassed `drama_render render` and composed its own ffmpeg chain: its ASS carried a `Mark` event (log L2131) and the filter chain added `drawtext` as well (log L2143), which the session confirmed as 「我写了两遍」 at L2522-L2530.
 
 ## Decision
 
-The outline is 3 in the 1080x1920 design coordinates, in both renderers: [`buildAssHeader`](../../../../packages/drama/tool-episode-render/src/delivery.ts) and `write_ass` in [`tweet-drama-background-render/scripts/render_episode.py`](../../../../packages/drama/skills/skills/tweet-drama-background-render/scripts/render_episode.py). At the delivery size that is a near-4px band — the CJK hardsub norm of roughly 4-5% of the font size, and the value the skill text and the tool description now both state. The tool description also states where the mark comes from: the ASS the renderer writes carries it once, so an added `drawtext` or `overlay` duplicates it, and `subtitles.spec.ts` pins exactly one occurrence of the mark in the built document.
+The outline was set to 3 in the 1080x1920 design coordinates, in both renderers: [`buildAssHeader`](../../../../packages/drama/tool-episode-render/src/delivery.ts) and `write_ass` in [`tweet-drama-background-render/scripts/render_episode.py`](../../../../packages/drama/skills/skills/tweet-drama-background-render/scripts/render_episode.py), with the skill text and the tool description stating the same value. [The outline note](2026-09-28-subtitle-outline-and-decode-verification.md) reversed that value: the same two renderers now derive the field from a delivered width of 7px and write `ScaledBorderAndShadow: yes`, and that note owns the outline contract. The tool description still states where the mark comes from: the ASS the renderer writes carries it once, so an added `drawtext` or `overlay` duplicates it, and `subtitles.spec.ts` pins exactly one occurrence of the mark in the built document.
 
 The watermark, the subtitle style and the ending bytes are all enforced by `drama_render`, so the skill now sends renders through `subtitles` → `prepare` → `render` and names hand-written ffmpeg as the path that inherits none of those checks; a hand-built render remains allowed only where the tool lacks a capability, and then the fixed style and the bottom-right visual check apply the same way.
 
@@ -42,10 +42,10 @@ Regenerating `docs/tool-catalog.md` also brought two lines current that were sta
 
 ## Verification
 
-`pnpm vitest run packages/drama/tool-episode-render` passes, including the new exact-count assertion on the mark and the pinned outline in the ASS header.
+`pnpm vitest run packages/drama/tool-episode-render` passes, including the new exact-count assertion on the mark.
 
 `pnpm run verify-tool-catalog` and `pnpm run verify-doc-budgets` pass. `pnpm run verify-translation-pairing` reports three unpaired documents under `docs/superpowers/` and none of the pairs this change touches; `pnpm run verify-md-links` reports ten dead targets in other notes and none in this one.
 
-The outline value is measured rather than asserted: `ffmpeg -f lavfi -i color=white:s=1440x2560 -vf ass=<probe>.ass` with SimHei 68 at PlayRes 1080x1920, then the black band width across the raster — 10px at Outline 7 with `ScaledBorderAndShadow: yes` (8px in the shipped header, which omits the key), 4px at Outline 3.
+The outline value was measured rather than asserted: `ffmpeg -f lavfi -i color=white:s=1440x2560 -vf ass=<probe>.ass` with SimHei 68 at PlayRes 1080x1920, then the black band width across the raster — 10px at the original Outline 7 with `ScaledBorderAndShadow: yes`. That probe burned the script straight onto the delivery frame and its own header omitted the key, which is why it read 8px for the shipped header and why the replacement it justified rendered 1-2px through the renderer's supersampled chain; [the outline note](2026-09-28-subtitle-outline-and-decode-verification.md) records the corrected measurement.
 
-`python -B -m unittest discover` over `packages/drama/skills/tests` covers the Python renderer, whose ASS header keeps its own font and outline expectations.
+`python -B -m unittest discover` over `packages/drama/skills/tests` covers the Python renderer, whose ASS header keeps its own font expectations.

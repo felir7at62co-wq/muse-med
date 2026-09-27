@@ -128,14 +128,15 @@ A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,s
 | Rate control | 24M target, 30M peak, 48M buffer, 120-frame GOP |
 | Overall bitrate floor | 4.6 Mbps over the delivered file |
 | Endings | 2.000 seconds frozen from the last body shot's real tail frame. The shipped effect plays once at its own speed over the opening 1.020 seconds, screen-blended over the freeze at 0.90; the remaining 0.980 seconds are the freeze frame |
-| Subtitles | Configured font family, size 68, spacing -2, 3px black outline in the 1080x1920 design coordinates (near 4px on the 1440x2560 delivery), bottom-centred, plus the single bottom-right `内容由AI生成` mark |
+| Subtitles | Configured font family, size 68, spacing -2, a 7px black outline on the delivered picture (the ASS field is derived from it, 5 at this geometry, with `ScaledBorderAndShadow: yes` so libass scales it to the rasterized frame), bottom-centred, plus the single bottom-right `内容由AI生成` mark. The burn chain ends on `fps=60,setpts=N/(60*TB)` |
 | Audio | Episode master at 1.45, BGM at 0.24 to the body end, the ending sound's first 2 seconds delayed to the body end, `amix` normalised off, `alimiter=0.95` |
 | Container | AAC 192k at 48 kHz, `+faststart` |
 
-### The two known traps
+### The three known traps
 
 - **The tail frame.** `-sseof -0.05` returns exit code 0 without writing a file on some sources, so the frame was silently wrong. This package always seeks with `-sseof -0.1`, and it does not trust the result: the extracted frame's `framemd5` must equal the last frame of a full sequential decode. When it does not, the frame is re-extracted by index; when that still does not match, the render stops instead of freezing an unproved frame. The evidence is returned in `tail_frame`.
 - **The GPU encoder.** A driver too old for NVENC, a missing build, or a busy GPU session all fail the probe the same way. The probe encodes one frame of a 256x256 source — some NVIDIA generations reject smaller frames — and a failure falls back to `libx264` by design, with the probe's own output recorded in `encoder_fallback_reason` and in the render log.
+- **The frame rate after the burn.** The burn runs on the source's own time base, so an `fps` filter placed before `ass`/`subtitles` does not survive into the encode: the container still reports the delivery rate while a fraction of the frames decode. The burn chain therefore ends on `fps=60,setpts=N/(60*TB)`, and nothing trusts metadata alone — `decode_probe` decodes a frame at the head, the middle, and just inside the tail.
 
 ### Check codes
 
@@ -148,6 +149,7 @@ A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,s
 | `frame_rate` | failure | 60 fps within 0.01 |
 | `audio_stream` | failure | An AAC 48 kHz audio stream is present |
 | `bitrate_floor` | failure | The overall bitrate reaches 4.6 Mbps |
+| `decode_probe` | failure | A frame decodes at the head, the middle, and 0.1 s inside the tail |
 | `black_frames` | failure | No black stretch reaches 1.0 s |
 | `fade_to_black` | warning | No black stretch reaches 0.3 s |
 | `silence` | failure | No silent stretch reaches 3.0 s |
@@ -192,7 +194,7 @@ The package is built on four commitments:
 | [`src/ending.ts`](src/ending.ts) | Tail-frame extraction with its framemd5 proof, the shipped ending assets, and the ending clip |
 | [`src/prepare.ts`](src/prepare.ts) | `prepare`: the shot-sources manifest, the probes, the copied layout, and the master audio graph |
 | [`src/render.ts`](src/render.ts) | `render`: the encode pipeline, the concat, the burn-in, the mix, and the render log |
-| [`src/verify.ts`](src/verify.ts) | The delivery verdict `render` shares, plus `verify`'s black, silence, and subtitle-bound checks |
+| [`src/verify.ts`](src/verify.ts) | The delivery verdict `render` shares, plus `verify`'s decode probes, black, silence, and subtitle-bound checks |
 | [`src/report.ts`](src/report.ts) | The canonical result: one shape every method fills, empty where it measured nothing |
 | [`src/types.ts`](src/types.ts) | Types only: the timeline, the shot source, the measured facts, and the model-facing result |
 | — | No runtime invariant companion is published: the package holds no state between calls and every answer is a function of the files it reads and the processes it starts. |
@@ -223,7 +225,7 @@ The request includes `drama_render` and `drama_video`, with parameter and result
 
 #### Token effect
 
-The render result contains one `clips` row per shot and up to twelve checks, including the optional ban check. `drama_video` adds a fixed schema; its `list` result grows by one row per recorded version, while other methods return only the selected decision. A render of a nine-shot episode returns nine clip rows whatever the encode cost, and a passing delivery leaves `failures` empty and every `fix` an empty string.
+The render result contains one `clips` row per shot and up to thirteen checks, including the optional ban check. `drama_video` adds a fixed schema; its `list` result grows by one row per recorded version, while other methods return only the selected decision. A render of a nine-shot episode returns nine clip rows whatever the encode cost, and a passing delivery leaves `failures` empty and every `fix` an empty string.
 
 #### KV Cache effect
 

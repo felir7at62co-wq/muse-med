@@ -10,6 +10,7 @@ import { apply, Config, inject, name, resolveCall, resolveSettings, runDramaRend
 import type { DramaRenderReport, ProcessChannel, RenderSettings } from '../src/types.ts'
 import {
   cleanup,
+  decodeHandler,
   framemd5Line,
   probeHandler,
   runContext,
@@ -127,6 +128,7 @@ function callChannel(project: string): ReturnType<typeof stubChannel> {
     call => (call.args.includes('lavfi') ? {} : undefined),
     call => (call.args.includes('-sseof') ? { after: async () => { await writePlaceholder(call.args.at(-1) ?? '', 'png') } } : undefined),
     call => (call.args.includes('framemd5') ? { stdout: `${framemd5Line(0, 'tail')}\n` } : undefined),
+    decodeHandler(2),
     call => (call.command === 'ffmpeg'
       ? { after: async () => { await writePlaceholder(call.args.at(-1) ?? '', 'media') } }
       : undefined),
@@ -144,10 +146,15 @@ describe('registration', () => {
     const tool = dramaRender()
     expect(tool.name).toBe('drama_render')
     expect(tool.description).toContain('默认 SimHei 68，字体服从部署配置')
-    for (const phrase of ['1440x2560@60', '24M', '30M', '48M', '4.6 Mbps', 'SimHei 68', '字间距 -2', '3px 黑描边',
+    for (const phrase of ['1440x2560@60', '24M', '30M', '48M', '4.6 Mbps', 'SimHei 68', '字间距 -2',
+      '黑描边按成片像素推导（目标 7px，标准管线写入 5）', 'fps=60,setpts=N/(60*TB)',
       '内容由AI生成', 'drawtext', '-sseof -0.1', 'framemd5', 'h264_nvenc', 'libx264', 'alimiter=0.95', '定格 2 秒']) {
       expect(tool.description).toContain(phrase)
     }
+    // The delivery style states the outline as a delivered width, never as the raw
+    // ASS field: the field is derived, and a stale literal here is what let the
+    // value drift away from the 7px the picture must show.
+    expect(tool.description).not.toMatch(/\d+px 黑描边/u)
   })
 
   it('states the shipped ending bytes in the ending parameter descriptions', () => {
@@ -467,7 +474,7 @@ describe('runDramaRender', () => {
     expect(report.ok).toBe(true)
     expect(report.failures).toEqual([])
     expect(report.checks.map(check => check.id)).toEqual([
-      'duration', 'video_stream', 'frame_rate', 'audio_stream', 'bitrate_floor',
+      'duration', 'video_stream', 'frame_rate', 'audio_stream', 'bitrate_floor', 'decode_probe',
       'black_frames', 'fade_to_black', 'silence', 'long_pauses', 'subtitle_bounds', 'subtitle_present',
       'output_provenance',
     ])

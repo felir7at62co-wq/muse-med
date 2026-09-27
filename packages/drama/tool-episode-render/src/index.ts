@@ -4,11 +4,11 @@
  *
  * The delivery style used to be encoded in a skill script the model launched
  * with a shell. The style itself is a fixed specification — 1440x2560 at 60 fps,
- * 24M target with a 30M ceiling and a 4.6 Mbps floor, 68px subtitles with -2 spacing
- * and a 3px outline, the bottom-right `内容由AI生成` mark, and a two-second ending
- * frozen from the last body shot's real tail frame — so it lives here as
- * constants, and the operation that produces the delivery is the operation that
- * enforces it.
+ * 24M target with a 30M ceiling and a 4.6 Mbps floor, 68px subtitles with -2
+ * spacing and a 7px black outline on the delivered picture, the bottom-right
+ * `内容由AI生成` mark, and a two-second ending frozen from the last body shot's
+ * real tail frame — so it lives here as constants, and the operation that
+ * produces the delivery is the operation that enforces it.
  *
  * `subtitles`, `prepare`, and `render` write; `verify` only reads. Everything that makes a
  * render impossible throws with a Chinese repair instruction. The delivered
@@ -524,7 +524,7 @@ const RESULT_SCHEMA = {
         properties: {
           id: { type: 'string', required: true,
             description: '稳定的检查名：duration、video_stream、frame_rate、audio_stream、bitrate_floor、'
-              + 'black_frames、fade_to_black、silence、long_pauses、subtitle_bounds、subtitle_present。' },
+              + 'decode_probe、black_frames、fade_to_black、silence、long_pauses、subtitle_bounds、subtitle_present。' },
           severity: { type: 'string', required: true, enum: ['failure', 'warning'], description: CHECK_SHAPE },
           ok: { type: 'boolean', required: true, description: '该检查是否通过。' },
           detail: { type: 'string', required: true, description: '判定所依据的实测值。' },
@@ -587,13 +587,16 @@ const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
   + '其余时间是纯定格帧（不变速、不拉伸、不补黑场），只有 ending_audio 的前 2 秒在正片结束处进入混音；'
   + '这两份素材按 SHA-256 校验，只接受随包字节，换成别的文件或送上长于 2 秒的特效都会直接报错。'
   + '拼接后烧录 ASS 字幕'
-  + '（默认 SimHei 68，字体服从部署配置；字间距 -2、3px 黑描边、底部居中，'
+  + '（默认 SimHei 68，字体服从部署配置；字间距 -2、黑描边按成片像素推导（目标 7px，标准管线写入 5）、底部居中，'
+  + '烧录链最后是 fps=60,setpts=N/(60*TB)，把帧率与时间基准固定在字幕之后，手写链把 fps 放在 subtitles 之前会让成片只剩少量帧；'
   + '右下角唯一的「内容由AI生成」标记——这条标记由写出的 ASS 携带一次，另加 drawtext 或 overlay 就会重复），'
   + '再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，'
   + 'AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。'
   + 'GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，'
   + '回退原因写进 encoder_fallback_reason 与渲染日志。'
-  + 'verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。'
+  + 'verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、首/中/尾抽帧真实解码、黑帧、静音、字幕 cue 是否越界，'
+  + '逐项给实测值与中文修法。**不许只看元数据**：容器里的时长、帧率、码率在一份大量丢帧的成片上照样正常，'
+  + 'decode_probe 会在首、中、尾各解一帧，任何一处解不出画面就按 failure 报出。'
   + '抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，'
   + '所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。'
   + '只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；'

@@ -88,24 +88,75 @@ export const WATERMARK_POSITION = '{\\an3\\pos(1025,1810)}'
 /** The text the delivery spec requires in the bottom-right corner. */
 export const WATERMARK_TEXT = '内容由AI生成'
 
+/** ASS script canvas width; every subtitle value is authored in these units. */
+export const PLAY_RES_WIDTH = 1080
+
+/** ASS script canvas height; the outline is converted to it by {@link assOutline}. */
+export const PLAY_RES_HEIGHT = 1920
+
+/**
+ * Black outline the delivered picture must show around body subtitles, in
+ * delivered pixels.
+ *
+ * This is the operator's reading of the style — how wide the band looks on the
+ * delivered file — not an ASS field. `Outline` is in script-canvas units and
+ * libass scales it to the rasterized frame, so the field value is derived from
+ * this target rather than written beside it.
+ */
+export const SUBTITLE_OUTLINE_TARGET_PX = 7
+
+/**
+ * Derive the ASS `Outline` value that renders at a target width.
+ *
+ * With `ScaledBorderAndShadow: yes` — which {@link buildAssHeader} writes —
+ * libass scales a style's outline by the frame height it rasterizes over the
+ * script's own height, so the delivered band is
+ * `Outline x outputHeight / PlayResY`. The burn stage's 2x supersample cancels
+ * exactly (it doubles the raster and the shrink halves it back), so the same
+ * field renders the same band whether the script is burned at the delivery size
+ * or doubled. The field is written as an integer because that is the resolution
+ * the style line has always carried.
+ *
+ * Measured on the standard geometry (target 7, derived 5, SimHei 68 burned
+ * through {@link subtitleBurnFilter}): the band's thinnest run is 5px and its
+ * median run 7px, the same in the supersampled burn and in a direct burn at the
+ * delivery size. Omitting `ScaledBorderAndShadow` is what made the older fixed
+ * values unreadable: libass then draws the outline unscaled in raster pixels,
+ * and the supersample halves it again — the old `Outline 3` rendered a 1-2px
+ * band, and the note that set it measured its 4px on a direct burn instead.
+ * @param targetPx - The delivered band width the picture must show.
+ * @param playResY - The script canvas height the outline is authored against.
+ * @param outputHeight - The delivered picture height.
+ * @returns The ASS `Outline` value for the style line.
+ */
+export function assOutline(targetPx: number, playResY: number, outputHeight: number): number {
+  return Math.round(targetPx * playResY / outputHeight)
+}
+
 /** Keyframe interval in frames. */
 const KEYFRAME_INTERVAL = DELIVERY_FPS * 2
 
 /**
  * Compose the ASS styles and event format with deployment-selected fonts.
+ *
+ * `ScaledBorderAndShadow: yes` is what makes the style line's `Outline` a width
+ * in script-canvas units that {@link assOutline} can derive from the delivered
+ * pixels; without it libass treats the value as unscaled raster pixels.
  * @param settings - Font families validated by the plugin Config.
  * @returns The ASS header, including the event format line.
  */
 export function buildAssHeader(settings: Pick<RenderSettings, 'subtitleFontFamily' | 'watermarkFontFamily'>): string {
+  const outline = assOutline(SUBTITLE_OUTLINE_TARGET_PX, PLAY_RES_HEIGHT, DELIVERY_HEIGHT)
   return `[Script Info]
 ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
+PlayResX: ${String(PLAY_RES_WIDTH)}
+PlayResY: ${String(PLAY_RES_HEIGHT)}
 WrapStyle: 2
+ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Default,${settings.subtitleFontFamily},68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,3,0,2,40,40,520,1
+Style: Default,${settings.subtitleFontFamily},68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,${String(outline)},0,2,40,40,520,1
 Style: Watermark,${settings.watermarkFontFamily},44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,20,20,20,1
 
 [Events]
@@ -178,14 +229,22 @@ export function endingEffectFilter(): string {
  * The frame is doubled before libass runs and halved afterwards, so the 1080x1920
  * script canvas is rasterized at twice its declared size; the delivered picture
  * keeps the script's own geometry.
+ *
+ * `fps` and `setpts` come last, after the burn: the burn runs on the source's own
+ * time base, so a frame-rate change placed before it does not survive into the
+ * encode — a chain that regularized the rate first still produced a file whose
+ * container reported the delivery rate while only a third of its frames decoded.
+ * Ending the chain with `fps` plus a timestamp rewrite is what makes the burned
+ * stream constant-rate and anchored at zero before the encoder sees it.
  * @param assPath - Absolute path of the ASS script to burn.
  * @param fontsDir - Directory libass resolves the style's font from.
- * @returns The scale, subtitles, and scale chain.
+ * @returns The scale, subtitles, scale, and frame-rate chain.
  */
 export function subtitleBurnFilter(assPath: string, fontsDir: string): string {
   return `scale=${String(DELIVERY_WIDTH * 2)}:${String(DELIVERY_HEIGHT * 2)}:flags=lanczos,`
     + `ass='${escapeFilterPath(assPath)}':fontsdir='${escapeFilterPath(fontsDir)}',`
-    + `scale=${String(DELIVERY_WIDTH)}:${String(DELIVERY_HEIGHT)}:flags=lanczos`
+    + `scale=${String(DELIVERY_WIDTH)}:${String(DELIVERY_HEIGHT)}:flags=lanczos,`
+    + `fps=${String(DELIVERY_FPS)},setpts=N/(${String(DELIVERY_FPS)}*TB)`
 }
 
 /**

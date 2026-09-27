@@ -85,13 +85,29 @@ describe('buildAssDocument', () => {
     expect(document.startsWith(ASS_DOCUMENT_HEADER)).toBe(true)
     const header = ASS_DOCUMENT_HEADER.split('\n')
     expect(header).toContain('Style: Default,SimHei,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,'
-      + '0,0,0,0,100,100,-2,0,1,3,0,2,40,40,520,1')
+      + '0,0,0,0,100,100,-2,0,1,5,0,2,40,40,520,1')
     expect(document).toContain('Dialogue: 0,0:00:01.68,0:00:03.58,Default,,0,0,0,,京市户口 单身')
     expect(document).toContain('Dialogue: 0,0:00:60.00,0:01:00.50,Default,,0,0,0,,履历干净 嘴严')
     expect(document).toContain(`Dialogue: 1,0:00:00.00,9:59:59.00,Watermark,,0,0,0,,{\\an3\\pos(1025,1810)}${WATERMARK_TEXT}`)
     expect(document.match(/Watermark/g)).toHaveLength(2)
     expect(document.match(new RegExp(WATERMARK_TEXT, 'g'))).toHaveLength(1)
     expect(document.endsWith('\n')).toBe(true)
+  })
+
+  it('carries the AI-content mark exactly once, in the bottom-right corner, and no top-right notice', () => {
+    const document = buildAssDocument([cue(1, 1.68, 3.58, '京市户口 单身')], fonts)
+    const markEvents = document.split('\n').filter(line => line.startsWith('Dialogue:') && line.includes(WATERMARK_TEXT))
+    expect(markEvents).toHaveLength(1)
+    // \an3 anchors bottom-right, and the position sits in the lower-right quadrant of
+    // the 1080x1920 canvas (x > 540, y > 960). A second mark in the same corner, or the
+    // vertical top-right notice the operator removed, would fail these two lines.
+    expect(markEvents[0]).toContain('{\\an3\\pos(1025,1810)}')
+    const [x, y] = (/\{\\an3\\pos\((\d+),(\d+)\)\}/.exec(markEvents[0] ?? '') ?? []).slice(1).map(Number)
+    expect(x).toBeGreaterThan(540)
+    expect(y).toBeGreaterThan(960)
+    expect(document).not.toContain('内容纯属虚构')
+    expect(document).not.toContain('请勿带入现实')
+    expect(document).not.toContain('\\an9')
   })
 
   it('replaces braces so a cue cannot open an ASS override block', () => {

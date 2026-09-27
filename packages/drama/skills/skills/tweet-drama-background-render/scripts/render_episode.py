@@ -29,6 +29,14 @@ TARGET_BITRATE = "24M"
 MAX_BITRATE = "30M"
 BUFFER_SIZE = "48M"
 
+# ASS design canvas the subtitle style is authored in.
+DESIGN_WIDTH = 1080
+DESIGN_HEIGHT = 1920
+
+# The black outline the delivered picture must show around body subtitles, in
+# delivered pixels. The ASS field is derived from it, never written beside it.
+SUBTITLE_OUTLINE_TARGET_PX = 7
+
 # The ending accepts the shipped assets and nothing else, so a wrong file fails here
 # instead of rendering an ending the delivery spec never approved. Each token is
 # (what the diagnostic calls it, where it ships, SHA-256 of the shipped bytes).
@@ -142,16 +150,33 @@ def parse_srt(path: Path) -> list[tuple[str, str, str]]:
     return result
 
 
+def ass_outline(target_px: float = SUBTITLE_OUTLINE_TARGET_PX,
+                play_res_y: int = DESIGN_HEIGHT, output_height: int = HEIGHT) -> int:
+    """The ASS ``Outline`` value that renders ``target_px`` wide on the delivered picture.
+
+    ``ScaledBorderAndShadow: yes`` (written by write_ass) makes libass scale a style's
+    outline by the frame height it rasterizes over the script's own height, so the
+    delivered band is ``Outline * output_height / play_res_y``; the burn stage's 2x
+    supersample cancels exactly, because the shrink halves it back. Measured at this
+    geometry (derived 5, SimHei 68): thinnest run 5px, median run 7px, identical in the
+    supersampled burn and in a direct burn at the delivery size. Without the key libass
+    draws the outline as unscaled raster pixels and the supersample halves it again -
+    the old fixed ``Outline 3`` rendered a 1-2px band.
+    """
+    return round(target_px * play_res_y / output_height)
+
+
 def write_ass(srt: Path, ass: Path) -> None:
-    header = """[Script Info]
+    header = f"""[Script Info]
 ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
+PlayResX: {DESIGN_WIDTH}
+PlayResY: {DESIGN_HEIGHT}
 WrapStyle: 2
+ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Default,SimHei,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,3,0,2,40,40,520,1
+Style: Default,SimHei,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,{ass_outline()},0,2,40,40,520,1
 Style: Watermark,Microsoft YaHei,44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,20,20,20,1
 
 [Events]
@@ -174,6 +199,35 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
     # that remaining event uses it.
     events.append(r"Dialogue: 1,0:00:00.00,9:59:59.00,Watermark,,0,0,0,,{\an3\pos(1025,1810)}内容由AI生成")
     ass.write_text(header + "\n".join(events) + "\n", encoding="utf-8-sig")
+
+
+def decode_frames_at(path: Path, seconds: float) -> int:
+    """Decode one frame at ``seconds`` and report how many frames the decoder produced.
+
+    ``showinfo`` logs one line per frame that reaches the filter graph, so the count is
+    what was decoded rather than what the container claims. The exit code is not the
+    verdict: a seek past a truncated file's real end exits 0 with nothing decoded,
+    which is exactly what a metadata-only check reads as success.
+    """
+    proc = subprocess.run(
+        [FFMPEG, "-v", "info", "-ss", f"{max(0.0, seconds):.3f}", "-i", str(path),
+         "-frames:v", "1", "-vf", "showinfo", "-an", "-f", "null", "-"],
+        text=True, encoding="utf-8", errors="replace", capture_output=True, creationflags=NO_WINDOW)
+    return len(re.findall(r"\]\s*n:\s*\d+", proc.stderr or ""))
+
+
+def assert_decodes_throughout(path: Path, duration: float) -> None:
+    """Refuse a delivery whose container describes more picture than it decodes.
+
+    Duration, frame rate and bit rate all read normal on a file whose frames stop
+    early, so the render decodes three positions itself - head, middle, and just
+    inside the tail - before the file replaces the previous delivery.
+    """
+    for label, seconds in (("首", 0.05), ("中", duration / 2), ("尾", max(0.0, duration - 0.1))):
+        if decode_frames_at(path, seconds) < 1:
+            raise RuntimeError(
+                f"Render validation failed: {path} decoded no frame at {label} {seconds:.3f}s; "
+                "container metadata alone does not prove the picture is there")
 
 
 def find_audio(project: Path, episode: str) -> Path:
@@ -330,6 +384,7 @@ def render(args: argparse.Namespace) -> dict:
             or abs(actual_fps - FPS) > 0.01 or video.get("codec_name") != "h264"
             or not audio or abs(actual - total_duration) > 0.15):
         raise RuntimeError(f"Render validation failed: {video.get('width')}x{video.get('height')}, audio={bool(audio)}, duration={actual}")
+    assert_decodes_throughout(output, actual)
     if check_videos(project, sources) != source_hashes:
         raise ValueError('Video sources changed during render; rerun with current bytes')
     check_videos(project, [output])
@@ -346,12 +401,21 @@ def render(args: argparse.Namespace) -> dict:
 
 
 def subtitle_filter(ass: Path) -> str:
-    """Use system font discovery unless a licensed font directory is configured."""
+    """Burn the ASS into the picture, with the frame-rate filters last.
+
+    Use system font discovery unless a licensed font directory is configured.
+    ``fps`` and ``setpts`` follow the burn on purpose: the burn runs on the source's
+    own time base, so a frame-rate change placed before it does not survive into the
+    encode - the container still reports the delivery rate while far fewer frames
+    decode. Ending the chain with both makes the burned stream constant-rate and
+    anchored at zero before the encoder sees it.
+    """
     fonts = os.environ.get('MUSE_FONTS_DIR') or os.environ.get('DSH_FONTS_DIR', '')
     font_option = ":fontsdir='" + Path(fonts).as_posix().replace(":", "\\:") + "'" if fonts else ""
     return (f"scale={WIDTH * 2}:{HEIGHT * 2}:flags=lanczos,"
             + "ass='" + ass.as_posix().replace(":", "\\:") + "'" + font_option
-            + f",scale={WIDTH}:{HEIGHT}:flags=lanczos")
+            + f",scale={WIDTH}:{HEIGHT}:flags=lanczos"
+            + f",fps={FPS},setpts=N/({FPS}*TB)")
 
 
 def main() -> None:
