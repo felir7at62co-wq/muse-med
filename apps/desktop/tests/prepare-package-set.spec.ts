@@ -125,9 +125,13 @@ describe('desktop package-set selection', () => {
       'package/presets/cordis/skills/cordis-plugin-development/SKILL.md',
       'package/presets/cordis/skills/editing-cordis-compositions/SKILL.md',
       'package/skills/editing/SKILL.md',
+      'package/skills/audio-transcribe/SKILL.md',
+      'package/skills/audio-transcribe/scripts/transcribe.py',
+      'package/skills/transcript-to-novel/SKILL.md',
+      'package/skills/transcript-to-script/SKILL.md',
     ]
     for (const required of files.slice(4)) {
-      expect(() => assertDesktopHostPackageFiles(files.filter(file => file !== required))).toThrow(required)
+      expect(() => { assertDesktopHostPackageFiles(files.filter(file => file !== required)) }).toThrow(required)
     }
     expect(() => { assertDesktopHostPackageFiles(files.slice(0, 2)) }).toThrow(/short-drama/u)
     expect(() => {

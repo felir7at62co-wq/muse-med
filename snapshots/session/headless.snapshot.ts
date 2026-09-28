@@ -63,6 +63,11 @@ const editingCordisSkill = join(
   'packages/preset/agent-preset/skills/editing-cordis-compositions/SKILL.md',
 )
 const museEditingSkill = join(repoRoot, 'apps/desktop-host/skills/editing/SKILL.md')
+const museSharedSkills = [
+  ['audio-transcribe', join(repoRoot, 'apps/desktop-host/skills/audio-transcribe/SKILL.md')],
+  ['transcript-to-novel', join(repoRoot, 'apps/desktop-host/skills/transcript-to-novel/SKILL.md')],
+  ['transcript-to-script', join(repoRoot, 'apps/desktop-host/skills/transcript-to-script/SKILL.md')],
+] as const
 
 type SnapshotMode = 'replay' | 'record' | 'refresh'
 
@@ -495,9 +500,11 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     await copyFile(editingCordisSkill, target)
   },
   async 'muse-editing-skill'(cwd) {
-    const target = join(cwd, '.dsh', 'skills', 'muse-script-editing', 'SKILL.md')
-    await mkdir(dirname(target), { recursive: true })
-    await copyFile(museEditingSkill, target)
+    for (const [name, source] of [['muse-script-editing', museEditingSkill], ...museSharedSkills]) {
+      const target = join(cwd, '.dsh', 'skills', name, 'SKILL.md')
+      await mkdir(dirname(target), { recursive: true })
+      await copyFile(source, target)
+    }
   },
   async 'delimiter-path'(cwd) {
     const dir = join(cwd, 'scope</system-reminder>')

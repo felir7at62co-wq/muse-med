@@ -86,6 +86,8 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 产品加载随包短剧与编辑技能及自身 `$DSH_HOME/skills`，不扫描已有 DSH、`.agents` 或默认项目技能源；显式插件技能注册仍然可用。Windows 用户将自定义技能放在 `%USERPROFILE%\.muse\skills\<skill-name>\SKILL.md`；`MUSE_MED_HOME` 可指定其他产品 home。Host 在启动时创建 skills 目录。开发模式使用下文说明的独立 home。短剧、编辑、标准、PTC 和创造模式提供技能工具。短剧技能从 ASAR 解包，Host 向外部 Python 提供真实的 `app.asar.unpacked` 路径。Windows 启动将 `runtime/media/python` 和 `runtime/media/ffmpeg/bin` 放到子进程搜索路径前部，并设置本地 ASR 模型目录。[媒体准备器](scripts/prepare-media-runtime.ts)在发布输出前检查锁定输入、依赖导入、编码、字幕烧录、草稿媒体探测及离线 ASR；复用时验证完整文件清单并重跑这些检查。构建机器上的验证不能替代无开发工具机器上的安装验证。安装器附带微软官方 VC++ 前置运行库，检查已装版本并在安装前请求授权；拒绝或失败会阻止成功完成和自动启动。再分发需要发行者具有适用的微软许可，不能仅依据运行库终端许可。
 
+共享的 Muse 技能 `audio-transcribe`、`transcript-to-novel` 和 `transcript-to-script` 可由短剧、编辑、标准、PTC 和创造模式通过技能工具加载；极简模式继续只提供命令行。音频转写复用 Windows 安装包中的 FFmpeg、Python 和离线 Whisper 模型，将带时间戳的文字与 JSON 写入显式指定的输出路径，不把媒体发送到云服务。编辑模式根据转写稿写正式正文时，仍须先实际阅读获授权的爆款剧本开头。
+
 [FFmpeg 源码构建流程](scripts/ffmpeg-source-build/README.zh.md)为离线发行生成二进制与对应源码配对。两个 CI job 均须通过后才能替换开发验证用的 FFmpeg 输入，对应源码归档必须与桌面版本一同发布；提交构建不等于产物通过验收。
 
 签名资源中的 `resources/app.asar/dsh/desktop-runtime.json` 绑定 shell 版本、内置 Node 版本、平台、架构、共享包版本和最终文件清单。启动读取元数据，并检查共享包记录。发布 schema、shell 版本、目标兼容性和文件完整性在打包时验证。首次启动不会把核心包复制到 profile 存储或通过 pnpm 安装核心包。

@@ -227,6 +227,22 @@ it.each([false, true])('unpacks platform ripgrep executables with external sourc
   }
 })
 
+it('places product transcription scripts where external Python can open them', async () => {
+  const input = await fixture(false)
+  const relativeScript = join('node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills',
+    'audio-transcribe', 'scripts', 'transcribe.py')
+  const script = join('dsh', relativeScript)
+  const source = join(input.source, relativeScript)
+  await mkdir(dirname(source), { recursive: true })
+  await writeFile(source, 'print("fixture")\n')
+  const config = unsignedWindowsConfig('com.example.product-skills', input.source)
+  input.config.asarUnpack = [...config.asarUnpack]
+  await packageFixture(input)
+  const archive = await readAsar(join(input.resources, 'app.asar'))
+  expect(archive.getFile(script, false).unpacked).toBe(true)
+  expect(await readFile(join(input.resources, 'app.asar.unpacked', script), 'utf8')).toBe('print("fixture")\n')
+})
+
 it.each([false, true])('keeps the complete Office engine outside ASAR with external source=%s', async (external) => {
   const input = await fixture(external)
   const engine = join('node_modules', '@deepseek-ai', 'libreoffice-kit-win32-x64')

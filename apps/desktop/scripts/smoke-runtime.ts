@@ -94,6 +94,20 @@ export function apply(ctx) {
     }
     if (id === 'ptc' && (!names.has('run_code') || names.has('workflow'))) throw new Error('desktop runtime: PTC tool presentation is incomplete')
     const skills = await ctx.skills.list({ scope: handle.agent, cwd: home })
+    if (names.has('skill')) {
+      const productSkills = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills')
+      for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script']) {
+        const skill = skills.find(value => value.name === name)
+        const expected = join(productSkills, name, 'SKILL.md')
+        if (!skill?.invocation.modelInvocable || !existsSync(expected)
+          || realpathSync(skill.path) !== realpathSync(expected)) {
+          throw new Error('desktop runtime: missing shared Muse skill ' + name)
+        }
+      }
+      if (!existsSync(join(productSkills, 'audio-transcribe', 'scripts', 'transcribe.py'))) {
+        throw new Error('desktop runtime: missing shared Muse transcription script')
+      }
+    }
     if (id === 'cordis' && !skills.some(skill => skill.name === 'editing-cordis-compositions')) {
       throw new Error('desktop runtime: cordis authoring skill is not mounted')
     }

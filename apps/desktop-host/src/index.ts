@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { inspect } from 'node:util'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { composeEntries, loadLayeredEnv, loadOverlayPatches, loadProfileDirectory, reportSkippedBundles, type Profile } from '@deepseek-ai/dsh-app-boot'
-import { bundledSkillDirectory } from './bundled-skills.ts'
+import { bundledSkillDirectory, productSkillDirectory } from './bundled-skills.ts'
 import { feishuGateLayer } from './feishu-gate.ts'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
@@ -88,7 +88,7 @@ function desktopComposition(
   const skillFilesystem = rows.get('skill-filesystem')
   if (skillFilesystem === undefined) throw new Error('muse-med: profile has no skill-filesystem row')
   const bundledSkillDir = bundledSkillDirectory(runtimeDir)
-  const productSkillDir = fileURLToPath(new URL('../skills', import.meta.url))
+  const productSkillDir = productSkillDirectory(fileURLToPath(new URL('..', import.meta.url)))
   const userSkillDir = dshHomePath('skills')
   mkdirSync(userSkillDir, { recursive: true })
   layers.push([{
@@ -201,7 +201,7 @@ async function main(): Promise<void> {
     if (process.connected) process.send?.({ type: 'platform-session', session })
   })
   const url = ctx.connection.authenticatedUrl(`http://127.0.0.1:${String(ctx.webServer.port)}`)
-  if (process.connected) process.send?.({ type: 'ready', url, injections: ctx.webServer.collectIndexInjections() }, (error) => { if (error !== null) console.error(error) })
+  if (process.connected) process.send({ type: 'ready', url, injections: ctx.webServer.collectIndexInjections() }, (error) => { if (error !== null) console.error(error) })
 }
 
 /** Upper bound of the startup diagnostic carried over IPC; the head holds the message and stack. */

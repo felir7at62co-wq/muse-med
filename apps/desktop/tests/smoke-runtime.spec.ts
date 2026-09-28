@@ -87,6 +87,15 @@ function fixture() {
   mkdirSync(dirname(editingSkill.path), { recursive: true })
   writeFileSync(editingSkill.path, '# fixture')
   skills.push(editingSkill)
+  for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script']) {
+    const path = join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md')
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, '# fixture')
+    skills.push({ name, path, invocation: { modelInvocable: true } })
+  }
+  const transcribeScript = join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/audio-transcribe/scripts/transcribe.py')
+  mkdirSync(dirname(transcribeScript), { recursive: true })
+  writeFileSync(transcribeScript, '# fixture')
   const agent = { preset: 'short-drama' }
   const agentCtx = {}
   const dispose = vi.fn(async () => {})
@@ -173,6 +182,21 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(f.dispose).toHaveBeenCalledTimes(12)
   expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+})
+
+it('rejects a shared Muse skill missing from the packaged Host', async () => {
+  const f = fixture()
+  const index = f.skills.findIndex(skill => skill.name === 'audio-transcribe')
+  if (index >= 0) f.skills.splice(index, 1)
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing shared Muse skill audio-transcribe')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('rejects a shared transcription skill without its packaged script', async () => {
+  const f = fixture()
+  const script = join(dirname(f.skills.find(skill => skill.name === 'audio-transcribe')!.path), 'scripts', 'transcribe.py')
+  rmSync(script)
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing shared Muse transcription script')
 })
 
 it('rejects extra agent-local tools in the minimal preset', async () => {

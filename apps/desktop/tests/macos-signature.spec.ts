@@ -61,16 +61,17 @@ describe('desktop macOS release signature', () => {
       '**/*.{node,dylib,dll,so,exe}',
       '**/@vscode/ripgrep-*/bin/rg',
       '**/@deepseek-ai/dsh-drama-skills/**',
+      '**/@deepseek-ai/dsh-desktop-host/skills/**',
       '**/@openai/codex*/**',
     ]))
+    expect(config.icon).toMatch(/[/\\]renderer[/\\]icon\.png$/u)
+    expect(config).toHaveProperty('win.icon', expect.stringMatching(/[/\\]renderer[/\\]icon\.ico$/u))
     expect(config).toMatchObject({
       appId: RELEASE_ENVIRONMENT.DSH_DESKTOP_APP_ID,
       productName: 'muse-med',
       artifactName: 'muse-med-${version}-${os}-${arch}.${ext}',
-      icon: expect.stringMatching(/[/\\]renderer[/\\]icon\.png$/u),
       win: {
         executableName: 'muse-med',
-        icon: expect.stringMatching(/[/\\]renderer[/\\]icon\.ico$/u),
       },
       mac: {
         identity: RELEASE_ENVIRONMENT.DSH_DESKTOP_MACOS_SIGNING_IDENTITY,

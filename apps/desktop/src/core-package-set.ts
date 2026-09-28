@@ -36,6 +36,10 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   'presets/editing/agent.cordis.yml',
   'presets/editing/preset.yml',
   'skills/editing/SKILL.md',
+  'skills/audio-transcribe/SKILL.md',
+  'skills/audio-transcribe/scripts/transcribe.py',
+  'skills/transcript-to-novel/SKILL.md',
+  'skills/transcript-to-script/SKILL.md',
 ] as const
 
 /** Community packages built from pinned source, never substituted from the npm registry. */
