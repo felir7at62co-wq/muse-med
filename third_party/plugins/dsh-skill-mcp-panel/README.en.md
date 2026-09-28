@@ -1,0 +1,254 @@
+<div align="center">
+
+# dsh-skill-mcp-panel
+
+**Manage DSH skills and MCP servers right from the DSH web sidebar, plus the unified `dsh-panel` CLI**
+
+[![npm version](https://img.shields.io/npm/v/dsh-skill-mcp-panel?color=cb3837&logo=npm&label=npm)](https://www.npmjs.com/package/dsh-skill-mcp-panel)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-skill-mcp-panel?color=cb3837&label=downloads)](https://www.npmjs.com/package/dsh-skill-mcp-panel)
+[![GitHub release](https://img.shields.io/github/v/release/Fishquito7/dsh-skill-mcp-panel?color=2ea043&label=release)](https://github.com/Fishquito7/dsh-skill-mcp-panel/releases)
+[![DSH](https://img.shields.io/badge/DSH-0.1.6--alpha.2%20~%200.1.7--rc.1-4c6ef5)](https://github.com/Fishquito7/dsh-skill-mcp-panel)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+[English](README.en.md) · [简体中文](README.md)
+
+</div>
+
+---
+
+A DSH plugin that adds two management panels — **Skills** and **MCP** — to the web home sidebar, right below the built-in **Plugins** entry. Clicking either one swaps the center main area to that panel (a full panel, not a modal). The package also ships the unified `dsh-panel` terminal command, with `skill`, `mcp`, `update` and `profiles`.
+
+- 🗂️ **Skills panel** — list and preview installed skills, search, workspace split and group filters, expand a card to read the full content, hot enable/disable and delete, plus `.md` / `.zip` / skill-folder adding and batch migration
+- 🔌 **MCP panel** (v2.0.0) — visually maintain the MCP managed block in the profile's `cordis.patch.yml`, with Stdio / HTTP transports, connection tests, and hot reload through DSH HMR after saving
+- 🧩 **Home-sidebar panels** (v2.1.0) — the same slot mechanism as the host's built-in Plugins page; clicking the left column swaps the center main area, and each panel carries a “← Back to session” arrow
+- 🩹 **DSH 0.1.7 support** (v2.1.1) — tracks the host's renamed icon exports in `0.1.7-alpha.1` (the old names no longer exist there) so the Skills page renders again, plus a `test-host-icons.mjs` regression guard
+- 🧭 **Explicit profiles** (v2.1.2) — the `mcp` sub-commands require an explicit `--profile` (no more implicit `web`), a typo is rejected and **never creates a profile**; `dsh-panel update` without `--profile` updates **every** profile and compares against each profile's own installed version; new `dsh-panel profiles` overview
+- ⌨️ **Unified CLI** — `dsh-panel skill …` and `dsh-panel mcp …` expose everything the two panels can do
+- 📦 **No local build** — both the npm package and the Release tarball ship prebuilt artifacts
+
+> **Profile note**: the `mcp` sub-commands **require** an explicit `--profile <name>`, and the name must already exist — a typo is rejected rather than creating a profile. The `skill` sub-commands are not split per profile (skills live under the user root / workspace), so they need no `--profile`. `dsh-panel update` without `--profile` updates every profile that has the plugin installed (`desktop` is owned by the desktop app and is skipped automatically).
+
+**Contents**: [Screenshots](#screenshots) · [Install](#install) · [Features](#features) · [CLI](#cli) · [How it works](#how-it-works) · [Development](#development) · [Uninstall](#uninstall) · [Links](#links) · [License](#license)
+
+## Screenshots
+
+> The panels live in the home sidebar, right below Plugins (moved there from the Settings dialog in v2.1.0). Clicking Skills/MCP swaps the center main area to that panel, and each panel's top-left “← Back to session” arrow returns you to the session you were reading.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Fishquito7/dsh-skill-mcp-panel/main/docs/images/sidebar-entry.png" width="260" alt="DSH home sidebar: Plugins / Skills / MCP">
+  <br><sub>Entry · Skills and MCP in the home sidebar</sub>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Fishquito7/dsh-skill-mcp-panel/main/docs/images/skills-panel.png" width="1000" alt="Skills panel: search, workspace selector and an expanded skill card">
+  <br><sub>Skills panel · search / workspace selector (collapsed dropdown) / expand a card to read it</sub>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Fishquito7/dsh-skill-mcp-panel/main/docs/images/skill-groups.png" width="1000" alt="Group editor: create a group, pick a workspace, batch-select members">
+  <br><sub>Skill groups · create / rename / batch-select members</sub>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Fishquito7/dsh-skill-mcp-panel/main/docs/images/skill-migrate.png" width="1000" alt="Batch migration: source workspace, multi-select targets, copy or move">
+  <br><sub>Batch migration · source / multi-target / copy or move</sub>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Fishquito7/dsh-skill-mcp-panel/main/docs/images/mcp-panel.png" width="1000" alt="MCP panel: server card, tool count, enable switch, test and delete">
+  <br><sub>MCP panel · server card / tool count / enable / test connection</sub>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Fishquito7/dsh-skill-mcp-panel/main/docs/images/mcp-add-server.png" width="1000" alt="Add MCP server: STDIO and HTTP transports">
+  <br><sub>Add MCP server · STDIO / HTTP transports</sub>
+</p>
+
+## Install
+
+1. Install the package (its bundle layer auto-mounts it — no config editing). Pick either:
+
+   **Option 1: GitHub Release tarball**
+
+   ```bash
+   dsh plugin --profile web add https://github.com/Fishquito7/dsh-skill-mcp-panel/releases/download/v2.1.2/dsh-skill-mcp-panel-2.1.2.tgz
+   ```
+
+   **Option 2: npm (prebuilt, same channel as the plugin marketplace)**
+
+   ```bash
+   dsh plugin --profile web add dsh-skill-mcp-panel
+   ```
+
+   > Both install prebuilt artifacts — no local build needed. Installing from git also works
+   > (git-hosted dependencies are blocked from running their prepare build scripts by default; if you see
+   > `git-hosted plugins build on install...`, add the key pnpm printed under `allowBuilds` in the profile's
+   > `pnpm-workspace.yaml` and re-run):
+   >
+   > ```bash
+   > dsh plugin --profile web add github:Fishquito7/dsh-skill-mcp-panel
+   > ```
+
+2. Restart the gateway
+
+   ```bash
+   dsh-restart
+   ```
+
+   Then refresh the page: going down from Plugins, the left column lists Skills and then MCP. Clicking either one swaps the center main area to that panel.
+
+## Features
+
+> Both panels are **sidebar global panels**, exactly like the host's built-in Plugins page: clicking Skills/MCP in the left column swaps the center main area to that panel (no Settings-dialog modal). Each panel carries a “← Back to session” arrow at its top-left corner that returns you to the session you were reading; picking any session or Plugins from the sidebar also navigates away.
+
+### Skills panel
+
+- **Skill card list**: preview installed skills; click a card to expand the full content
+- **Status tags**: Enabled / Disabled, styled like the built-in plugin list
+- **Management**: hot enable/disable switch, delete, search by name; the page refreshes on entry
+- **Adding skills** (0.7.0 unified entry): click “+” to pick files (`.md` / `.zip`), or drag files, archives or skill folders straight onto the page — the structure is auto-detected (bundle / flat files / archive) and invalid content is rejected with a reason
+- **Workspace split** (0.3.0): a skill's files live directly where they belong — global skills in `~/.dsh/skills`, workspace skills in that workspace's `.dsh/skills`. A workspace selector below “Skill list” (a collapsed dropdown listing Global + each workspace, 11 rows max then scrolls) filters the list to one scope.
+- **Batch migration**: the button left of “+” opens a dialog where you pick the source workspace, one or more target workspaces, and the skills yourself, then batch-**copy** or batch-**move** them (nothing pre-selected; items migrate independently — one failure never aborts the rest; move mode allows a single target). When the source scope has groups, you can filter skills by group above the list (0.7.0).
+- **Skill groups** (0.5.0): a group bar below the workspace selector (All + group names, wrapping onto multiple lines) filters the list to one group. The “Groups” button (left of the migrate button) opens the group editor: create / rename / delete groups, pick a workspace, name the group and batch-check members. Groups live only in the plugin's own display config (`~/.dsh/skills/.system/skill-viewer/groups.json`) — skill directories are never touched.
+- **Scope-exact operations** (0.6.4): when the same skill name exists in both the global scope and a workspace, delete, enable/disable and content views act on exactly the (name + scope) row you clicked — each row expands and operates independently, other copies are never touched; a missing entry in the given scope fails loudly instead of silently falling back. The CLI likewise requires `--global` / `--project` / `--workspace` to disambiguate same-name skills.
+
+### MCP panel (v2.0.0)
+
+- A new MCP panel sits below Skills in the home sidebar and manages the MCP server managed block in the profile's `cordis.patch.yml`;
+- Supports **Stdio** (local command) and **HTTP** (streamable-http) transports;
+- Add, edit, enable/disable, delete and test connections; saving is hot-reloaded by DSH HMR — no gateway restart;
+- `env` / `headers` secrets are redacted in RPC and in the UI, and editing keeps the old value when a key is omitted;
+- User content outside the managed block in `cordis.patch.yml` is preserved byte for byte.
+
+### Home-sidebar panels and back-to-session (v2.1.0)
+
+- **The management panels moved from the Settings dialog to the home sidebar**, using the same slot mechanism as the host's built-in Plugins page (the `sidebar.panellist` list slot plus the `main` keyed slot): clicking Skills/MCP in the left column swaps the center main area, the Settings dialog no longer carries those two tabs, and each panel owns its own page shell (scroll container and padding). The host must provide those two slots — verified on DSH 0.1.6-alpha.2.
+- **“← Back to session” arrow**: one at the top-left of each panel; it returns to the session you were reading (host `ctx.layout.selectPanel(null)`, which never changes the selected session).
+
+### DSH version compatibility
+
+Three independent host-facing dependencies are version-sensitive; one build satisfies all three at once:
+
+| Host version | ① Plugin tree load (TypertCodec) | ② Skills-page icons (primitives exports) | ③ Sidebar panel slots |
+| --- | :---: | :---: | :---: |
+| `0.1.5-rc.x` | ✅ reads `schema` | ✅ legacy names | ⚠️ unverified |
+| `0.1.6-alpha.1` | ✅ reads `schema` | ✅ legacy names | ⚠️ unverified |
+| `0.1.6-alpha.2` – `0.1.7-alpha.0` | ✅ reads `create` | ✅ legacy names | ✅ |
+| `0.1.7-alpha.1` and later | ✅ reads `create` | ✅ new names | ✅ |
+
+- **① TypertCodec `create()` contract** — since `0.1.6-alpha.2` a strict codec holds a `schema` factory (`create()`); a plugin still declaring `schema:` throws during registration and **fails the whole plugin tree, so the gateway will not boot** (Issue #20). Every codec here carries both `schema` and `create`; both generations only run `typeof` checks and neither rejects extra properties, so one build works everywhere with no version probing. Guard: `test-codec.mjs`.
+- **② Skills-page icon export names** — `0.1.7-alpha.1` replaced the pixel suffix with a stroke tier (`IconSkillOutline16` → `IconSkillOutlineRegular`, with size moved to the `size` prop) and the **two generations share no names**. The six Skills-half references now go through `primitiveIcon(cur, legacy)` (prefer the new name, fall back to the legacy one); switching straight to the new names would break everyone on `0.1.6` and earlier. Guard: `test-host-icons.mjs`.
+- **③ Sidebar panel slots** — since v2.1.0 the panels mount on the host's `sidebar.panellist` (list slot) plus `main` (keyed slot), so the host must provide both. Verified on `0.1.6-alpha.2`, and the slot names are unchanged across the `0.1.7` line. `0.1.5-rc.x` / `0.1.6-alpha.1` are **unverified**; even without the slots the plugin tree and CLI still work — the left column just won't show the Skills/MCP rows.
+- **④ peerDependencies gate** (v2.1.2) — this package declares `"@deepseek-ai/dsh": ">=0.1.5-rc.0 <0.2.0-0"`. DSH's `evaluatePluginCompatibility` checks it **at install time** and **at profile startup**, refusing to load (and printing the exact-version exemption command) when it does not match — turning a silent breakage into a loud refusal. Without that field the check returns early and passes everything, which is exactly why the 0.1.7-rc.1 breakage could happen unnoticed.
+  - The upper bound is `<0.2.0-0` rather than `<0.2.0` because the check runs with `includePrerelease`: `<0.2.0` would let `0.2.0-rc.1` through.
+  - The lower bound `0.1.5-rc.0` is where the plugin tree still loads — wider than the "panels verified" range in the table above. Being inside the range does not mean the panels are verified.
+  - To use it on a host outside the range, grant an exemption for that exact host version:
+
+    ```bash
+    dsh plugin --profile web allow-version dsh-skill-mcp-panel@2.1.2 --dsh-version <host-version> --accept-risk
+    ```
+  - Guard: `test-cli-profiles.mjs` (calls the host's real `evaluatePluginCompatibility` to check both ends of the range).
+
+### Panel behaviour changes (v2.0.5)
+
+- The scope selector is always a collapsed dropdown (11 rows max, then scrolls); the group bar wraps onto multiple lines.
+- The skill list no longer depends on whether a session is open; without one the host falls back to the global registry.
+
+## CLI
+
+The unified parent command is `dsh-panel`.
+
+The `mcp` sub-commands **require** an explicit `--profile <name>`, and the name must already exist (a profile is a directory with a `package.json` under `$DSH_HOME/profiles/<name>`). A typo exits with code 2 — it will **not** silently create a profile the way `dsh plugin` does. The `skill` sub-commands do **not** need it: skills live under the user root / workspace and are not split per profile. `dsh-panel update` without `--profile` updates every profile that has the plugin installed.
+
+### Profile overview
+
+```bash
+dsh-panel profiles        # installed version / bundle mount / install spec for every profile
+```
+
+The first line is the **current dsh-panel entry point** and its version. That matters: `dsh-panel` is a single global shim, written by whichever profile booted last (`src/global-shim.ts`), so it has no necessary relationship to any row in that table.
+
+### Skill sub-commands
+
+```bash
+dsh-panel skill --help
+
+dsh-panel skill list                                  # list skills (with scope: global / workspace)
+dsh-panel skill add <path>                            # add to global (.md file, bundle dir, or .zip archive)
+dsh-panel skill add <path> --workspace D:\projA        # add directly into a workspace
+dsh-panel skill scope <name> --global                 # migrate one skill to global
+dsh-panel skill scope <name> --workspace D:\projA      # migrate one skill into a workspace (--copy to copy)
+dsh-panel skill migrate <name...|--all> --from <global|path> --to <global|path> [--copy] [--yes]
+dsh-panel skill disable <name>                        # disable
+dsh-panel skill enable <name>                         # enable
+dsh-panel skill delete <name>                         # delete (asks for confirmation)
+```
+
+Skill files are **shared globally** (`~/.dsh/skills` and `<workspace>/.dsh/skills`) and are not split per profile, so the `skill` sub-commands need no `--profile`. Passing it optionally confirms that profile exists and warns you when it has not mounted this plugin in `dsh.profile.bundles` (such a profile simply will not show the panels).
+
+### MCP sub-commands
+
+```bash
+dsh-panel mcp list --profile web
+dsh-panel mcp add --name <serverName> --stdio --command <cmd> [--args <arg> ...] [--env KEY=VALUE ...] [--cwd <path>] --profile web
+dsh-panel mcp add --name <serverName> --http --url <url> [--header KEY=VALUE ...] --profile web
+dsh-panel mcp enable|disable <serverName> --profile web
+dsh-panel mcp remove <serverName> [--yes] --profile web
+dsh-panel mcp test <serverName> --profile web
+```
+
+MCP configuration is written to the managed block in the target profile's `cordis.patch.yml` and hot-reloaded while the gateway is online. The block is delimited by `# >>> dsh-skill-mcp-panel:mcp:begin` / `# <<< ...end` — do not edit inside it.
+
+### Updating the plugin
+
+```bash
+dsh-panel update                          # update every profile that has the plugin installed
+dsh-panel update --yes                    # same, without prompting
+dsh-panel update --profile web            # update only web
+dsh-panel mcp update                      # same as dsh-panel update
+```
+
+- The comparison baseline is the version **each profile has installed in its own `node_modules`**, not the version of whichever CLI copy happens to be running.
+- Profiles already on the latest version are skipped, never reinstalled.
+- `desktop` is owned exclusively by the DSH desktop app — the host rejects `dsh plugin --profile desktop`; it is skipped with an explanation during an automatic sweep, and exits with code 2 when named explicitly.
+- After an update: client bundles hot-swap (just refresh the page); server-side changes need that profile's gateway restarted.
+
+The CLI only scans the cwd-anchored project roots and the user roots; add `--cwd <workspace-path>` to manage a different workspace's skills. If a skill name exists in several scopes, `enable`/`disable`/`delete` require `--global`/`--project`/`--workspace` to pick which copy to operate on.
+
+## How it works
+
+### Skills
+
+Every action in the page or via `dsh-panel skill` ends up as a change to the skill files on disk (`SKILL.md`), and DSH's own file watcher notices immediately — that is why enable/disable, add/delete and migration are all hot, with no gateway restart.
+
+- A skill's entity lives directly in its workspace's skill folder: global = `~/.dsh/skills`, workspace = `<workspace>/.dsh/skills` — no hidden store, no junctions: after uninstalling the plugin the skills are plain files DSH keeps discovering
+- Disable = rename `SKILL.md` to `SKILL.md.disabled`; enable = rename it back
+- Changing where a skill lives = physically copying/moving the files into the target folder (validated first, rolled back on failure)
+- Deployment-bundled skills are read-only: they cannot be disabled or deleted
+
+### MCP
+
+The plugin writes MCP server configuration into the managed block in the profile's `cordis.patch.yml`; the actual connection and tool registration are done by the official DSH plugin @deepseek-ai/dsh-mcp-client, loaded automatically through DSH HMR.
+
+## Development
+
+The source is TypeScript under `src/`; the compiled `lib/*.js` is committed with the repo (so git installs keep working).
+After editing the source, run `pnpm build`: `tsc` compiles to `lib/` and strips the extra module marker from the browser bundle.
+When publishing, `npm pack` rebuilds automatically through prepack — no manual compile step.
+
+## Uninstall
+
+```bash
+dsh plugin --profile web remove dsh-skill-mcp-panel
+```
+
+## Links
+
+- npm package: [dsh-skill-mcp-panel](https://www.npmjs.com/package/dsh-skill-mcp-panel)
+- Releases: [github.com/Fishquito7/dsh-skill-mcp-panel/releases](https://github.com/Fishquito7/dsh-skill-mcp-panel/releases)
+- Issues: [github.com/Fishquito7/dsh-skill-mcp-panel/issues](https://github.com/Fishquito7/dsh-skill-mcp-panel/issues)
+- Chinese docs: [README.md](README.md)
+
+## License
+
+MIT

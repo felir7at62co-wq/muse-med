@@ -39,6 +39,7 @@
     "@deepseek-ai/dsh-muse-account": "workspace:*",
     "@deepseek-ai/dsh-perception-bgm": "workspace:*",
     "@deepseek-ai/dsh-schedule": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-skill-office": "workspace:*",
     "@deepseek-ai/dsh-tool-bgm-compose": "workspace:*",
     "@deepseek-ai/dsh-tool-drama-assets": "workspace:*",

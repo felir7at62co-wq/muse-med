@@ -11,6 +11,9 @@
 # A unified diff needs one space to mark a blank context line.
 integrations/muse-kb/*.patch whitespace=-blank-at-eol
 
+# Preserve the pinned panel client's upstream whitespace in the source snapshot.
+third_party/plugins/dsh-skill-mcp-panel/src/client.ts whitespace=-blank-at-eol
+
 # The persistence catalog is the readable projection of these generated schemas.
 docs/persistence-schema.json linguist-generated=true
 docs/persistence-changes/*.schema.json linguist-generated=true

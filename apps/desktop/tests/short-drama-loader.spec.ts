@@ -28,19 +28,27 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
   const ctx = new Context()
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(() => { throw new Error('Unexpected Jubian request') })
   try {
-    const presetRows = yaml.load(await readFile(presetPath, 'utf8'), { schema: entryListSchema }) as Array<{ id: string; name: string; config?: object }>
+    const presetRows = yaml.load(await readFile(presetPath, 'utf8'), { schema: entryListSchema }) as Array<{ id: string; name: string; config?: Record<string, unknown> }>
     const hostPatches = loadOverlayPatches('muse-med', hostPatch)
     const jubian = hostPatches.flatMap(patch => patch.insert ?? []).find(row => row.id === 'tool-jubian')
     // The Host owns the only skill provider: the presets declare none, and the overlay is where
     // that provider's row comes from (its runtime directories arrive from `src/index.ts`).
     const provider = hostPatches.find(row => row.id === 'skill-filesystem')
     const skill = presetRows.find(row => row.id === 'tool-skill')
+    const persona = presetRows.find(row => row.id === 'persona')?.config
     expect(jubian?.name).toBe('@deepseek-ai/dsh-tool-jubian')
     expect(provider?.config).toMatchObject({ includeDefaultRoots: false })
     expect(skill?.name).toBe('@deepseek-ai/dsh-tool-skill')
+    expect(persona?.prefix).toContain('独立资产、分集脚本与镜头包')
+    expect(persona?.prefix).toContain('DUO_YUAN_TAN_SUO')
+    expect(persona?.prefix).toContain('成片 MP4 与可在剪映继续编辑的草稿工程')
     expect(presetRows.some(row => row.id === 'tool-jubian')).toBe(false)
     expect(presetRows.some(row => row.id === 'skill-filesystem')).toBe(false)
     if (!jubian || !provider || !skill) throw new Error('Missing short-drama or Desktop Host row')
+    const providerConfig: unknown = provider.config
+    if (typeof providerConfig !== 'object' || providerConfig === null || Array.isArray(providerConfig)) {
+      throw new Error('Missing skill provider config')
+    }
     const jubianConfig = jubian.config as Record<string, unknown> | undefined
 
     const config = join(root, 'cordis.yml')
@@ -51,7 +59,7 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
       { id: 'skills', name: '@deepseek-ai/dsh-skill' },
       { id: 'credentials', name: 'test:credentials' },
       { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem',
-        config: { ...provider.config, bundledSkillDir, watch: false } },
+        config: { ...providerConfig, bundledSkillDir, watch: false } },
       skill,
       { ...jubian, config: { ...jubianConfig, workspaceSecrets: false, ledgerRoot: join(root, 'ledger') } },
     ]))
@@ -82,6 +90,13 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     const block = loaded.content[0]
     if (block?.type !== 'text') throw new Error('Expected rendered skill content')
     expect(block.text).toContain('pipeline_state.json')
+    const pipeline = await ctx.tools.execute({ name: 'skill', arguments: { name: 'tweet-drama-pipeline' },
+      callId: ToolCallId('short-drama-pipeline'), signal: new AbortController().signal })
+    expect(pipeline.isError).toBe(false)
+    const pipelineBlock = pipeline.content[0]
+    if (pipelineBlock?.type !== 'text') throw new Error('Expected pipeline skill content')
+    expect(pipelineBlock.text).toContain('默认按独立项目实体开并行批次')
+    expect(pipelineBlock.text).toContain('最终回复同时交付成片、剪映草稿工程及其引用素材的路径')
     expect(fetch).not.toHaveBeenCalled()
 
     const entries = [...ctx.loader.entries()]

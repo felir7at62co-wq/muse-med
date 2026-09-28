@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-这五份源码快照保留了 Muse Med 使用的社区插件。[sources.json](sources.json) 固定各公开上游仓库、修订、版本及许可证。快照保留上游源码和清单；部分文本文件将 CRLF 规范为 LF。已安装的用户配置、凭据、用户媒体和生成的运行时均不作为构建输入。翻译检查仅排除这五个上游目录；本 README 与其他自有文档仍须成对维护。
+这六份源码快照保留了 Muse Med 使用的社区插件。[sources.json](sources.json) 固定各公开上游仓库、修订、版本及许可证。快照保留上游源码和清单；部分文本文件将 CRLF 规范为 LF。已安装的用户配置、凭据、用户媒体和生成的运行时均不作为构建输入。翻译检查仅排除这六个上游目录；本 README 与其他自有文档仍须成对维护。
 
 ## 构建
 
-使用已安装依赖、且已构建当前 Host 包的源码仓库。在仓库根目录运行：
+使用已安装依赖、且已构建当前 Host 与 Client 包的源码仓库。在仓库根目录运行：
 
 ```sh
 pnpm exec node third_party/plugins/build.mjs --out .artifacts/community-plugins
@@ -21,9 +21,11 @@ Codex 临时运行时补丁在 `SOURCE.json` 记录修改：子任务检查与�
 
 ## 兼容性与桌面集成
 
-构建脚本导入每个生成的 Host 入口。Codex 针对当前 DSH API 和 pi-ai 0.85.1 执行 26 项保留的上游检查，包括模型准备和已认证传输校验；上游注册上下文是测试替身，而非完整桌面 Loader。另有六项 Codex 检查加载真实 provider 和 CLI，通过本地模拟对端验证其认证传输，并拒绝运行时版本偏移及错误的归档路径。FFmpeg 执行 89 项保留的检查。构建测试检查全部导出产物文件，并验证同一平台下两个全新临时目录生成的五个插件压缩包均逐字节一致。这不代表跨平台或整个安装包逐字节一致。
+`dsh-skill-mcp-panel` 固定于上游 2.1.2。它通过 Web 侧栏管理当前 profile 的技能和 MCP 服务配置。随桌面应用打包的产物不暴露上游 `dsh-panel` 可执行入口：Desktop 只通过 `dsh` profile 启动受支持的 Node 应用。面板网关负责配置 MCP 连接，实际 MCP 客户端仍为 `@deepseek-ai/dsh-mcp-client`。隔离构建会运行保留的模型、网关、插槽与图标检查。
 
-[桌面打包入口](../../apps/desktop/scripts/package-target.ts)是将这些压缩包放在第一方打包输入旁的集成位置。[包集合准备](../../apps/desktop/scripts/prepare-package-set.ts)必须将五个插件包名选为显式根；源码工作区不得以注册表安装包替代这些压缩包。打包不等于启用：发布仍须通过真实桌面 Host/Client 烟测。账号登录、收费请求和真实媒体编码不在这些免密构建检查范围内。
+构建脚本导入每个生成的 Host 入口。Codex 针对当前 DSH API 和 pi-ai 0.85.1 执行 26 项保留的上游检查，包括模型准备和已认证传输校验；上游注册上下文是测试替身，而非完整桌面 Loader。另有六项 Codex 检查加载真实 provider 和 CLI，通过本地模拟对端验证其认证传输，并拒绝运行时版本偏移及错误的归档路径。FFmpeg 执行 89 项保留的检查。构建测试检查全部导出产物文件，并验证同一平台下两个全新临时目录生成的六个插件压缩包均逐字节一致。这不代表跨平台或整个安装包逐字节一致。
+
+[桌面打包入口](../../apps/desktop/scripts/package-target.ts)是将这些压缩包放在第一方打包输入旁的集成位置。[包集合准备](../../apps/desktop/scripts/prepare-package-set.ts)必须将六个插件包名选为显式根；源码工作区不得以注册表安装包替代这些压缩包。打包不等于启用：发布仍须通过真实桌面 Host/Client 烟测。账号登录、收费请求和真实媒体编码不在这些免密构建检查范围内。
 
 Market 的 HTTP 界面不适用于无端口的桌面传输。Lark 的上游代码会在无凭据时发起开户请求，并运行本地控制服务；明确配置前应保持禁用。Codex 使用可选的 connection fetch 传输，不要求 Web 服务器。FFmpeg 需要产品配置编码器路径。压缩包存在不代表功能已启用。
 

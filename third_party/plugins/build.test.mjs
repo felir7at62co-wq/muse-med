@@ -82,7 +82,7 @@ test('builds every pinned plugin with its declared runtime entries and notices',
     const repeated = spawnSync(process.execPath, [join(root, 'third_party/plugins/build.mjs'), '--out', second], { cwd: root, stdio: 'inherit' })
     assert.equal(repeated.status, 0)
     const tarballs = readdirSync(first).filter(file => file.endsWith('.tgz'))
-    assert.equal(tarballs.length, 5)
+    assert.equal(tarballs.length, Object.keys(pins).length)
     for (const tarball of tarballs) assertSameBytes(readFileSync(join(second, tarball)), readFileSync(join(first, tarball)), `${tarball} must reproduce from clean source`)
     for (const tarball of tarballs) {
       const list = spawnSync('tar', ['-tzf', join(first, tarball)], { encoding: 'utf8' })
@@ -96,6 +96,10 @@ test('builds every pinned plugin with its declared runtime entries and notices',
       const original = originals.get(manifest.name)
       assert.ok(original)
       assert.deepEqual(manifest.scripts, {})
+      if (manifest.name === 'dsh-skill-mcp-panel') {
+        assert.equal(manifest.bin, undefined)
+        assert.match(list.stdout, /package\/lib\/client.js/)
+      }
       for (const [dependency, range] of Object.entries(original.peerDependencies ?? {})) {
         const expected = dependency.startsWith('@deepseek-ai/dsh-') && !range.split(' || ').includes('0.1.7-rc.2')
           ? `${range} || 0.1.7-rc.2` : range

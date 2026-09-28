@@ -23,7 +23,12 @@ interface PlatformSessionEvent {
   readonly session: PlatformSession | null
 }
 
-type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | { readonly type: 'shutdown-complete' } | {
+interface AttentionSoundEvent {
+  readonly type: 'attention-sound'
+  readonly kind: 'complete' | 'question'
+}
+
+type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | AttentionSoundEvent | { readonly type: 'shutdown-complete' } | {
   readonly type: 'update-tasks'
   readonly requestId: number
   readonly active: boolean
@@ -58,6 +63,8 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
       return true
     case 'ready':
       return typeof candidate.url === 'string'
+    case 'attention-sound':
+      return candidate.kind === 'complete' || candidate.kind === 'question'
     case 'platform-session': {
       const session = candidate.session
       if (session === null) return true
@@ -165,6 +172,7 @@ export class DesktopHostProcess {
    *   `office-skills` resources fail Host startup.
    * @param packageManager - Bundled pnpm entry and Node launcher directory, scoped to package operations.
    * @param onPlatformSession - Private credential updates for embedded Platform views.
+   * @param onAttentionSound - A live user-owned turn or question needs an audible cue.
    */
   constructor(
     private readonly node: string,
@@ -177,6 +185,7 @@ export class DesktopHostProcess {
     private readonly packageManager?: { readonly pnpm: string; readonly nodeBin: string },
 
     private readonly onPlatformSession?: (session: PlatformSession | null) => void,
+    private readonly onAttentionSound?: (kind: 'complete' | 'question') => void,
   ) {}
 
   /**
@@ -213,6 +222,7 @@ export class DesktopHostProcess {
       }
       if (message.type === 'ready') this.readyResolve({ url: message.url, injections: message.injections })
       else if (message.type === 'platform-session') this.onPlatformSession?.(message.session)
+      else if (message.type === 'attention-sound') this.onAttentionSound?.(message.kind)
       else if (message.type === 'shutdown-complete') {
         if (this.stopping) this.shutdownCompleted = true
         else this.fail(new Error('muse-med host acknowledged an unrequested shutdown'))

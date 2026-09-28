@@ -151,6 +151,7 @@ const ARGS = {
       + '给了 asset_category 时可以不传（插件按类别推导）；两个都给时必须一致。'
       + '场景与道具必须传 2/3——一律传 1 会把它们建进控制台的角色库。' },
   prompt: { type: 'string', description: 'image_generate 必填：图片提示词。' },
+  image_platform_id: { type: 'string', description: 'image_generate 可选：仅本次使用实时目录中的指定 platformId；省略时使用设置或部署已选通道。切换前核对价格、授权和上一笔结果；超时或未知结果不能直接换通道重投。' },
   references: { type: 'array', items: { type: 'string' },
     description: 'image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。' },
   parent_asset_id: { type: 'number', description: 'image_generate 可选：给了就是重生成（PUT），不给是新建（POST）。' },
@@ -516,8 +517,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；'
       + '插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行'
       + '（platformId、standardId、单价）。锁定行由人在 Web 设置的「短剧 → 资产图生成通道」里选，'
-      + '或由部署在插件配置里给 imagePlatformId/imageStandardId；遇到这个报错时把候选念给用户，'
-      + '请他在设置里选一行，不要自己挑。'
+      + '或由部署在插件配置里给 imagePlatformId/imageStandardId；本次改道可显式给 image_platform_id。'
+      + '遇到未锁定的多候选时把候选念给用户，请他在设置里选一行，不要自己挑。'
       + '**upscale 会真实计费（SeedVR2 视频高清，1 元/条）**：把成片转成 1080p。'
       + 'SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。'
       + '仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。'
@@ -537,6 +538,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       task_id: ARGS.task_id, script_id: ARGS.script_id, page_num: ARGS.page_num,
       delivery_resolution: ARGS.delivery_resolution,
       asset_name: ARGS.asset_name, asset_type: ARGS.asset_type, prompt: ARGS.prompt,
+      image_platform_id: ARGS.image_platform_id,
       references: ARGS.references, parent_asset_id: ARGS.parent_asset_id,
       episode: ARGS.episode, asset_category: ARGS.asset_category, package_number: ARGS.package_number,
       task_name: ARGS.task_name,

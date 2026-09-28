@@ -77,8 +77,11 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-drama-settings')).toEqual([
       { id: 'drama-settings', name: '@deepseek-ai/dsh-drama-settings' },
     ])
+    expect(rows.filter(row => row.name === 'dsh-skill-mcp-panel')).toEqual([
+      { id: 'skill-mcp-panel', name: 'dsh-skill-mcp-panel' },
+    ])
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-tool-jubian')).toEqual([
-      { id: 'tool-jubian', name: '@deepseek-ai/dsh-tool-jubian' },
+      { id: 'tool-jubian', name: '@deepseek-ai/dsh-tool-jubian', config: { imagePlatformId: 'KU_AI' } },
     ])
     expect(rows.find(row => row.id === 'webserver')?.disabled).toBe(false)
     expect(warnings).toEqual([])

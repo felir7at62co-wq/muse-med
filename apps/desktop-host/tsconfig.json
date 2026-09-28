@@ -20,6 +20,7 @@
     { "path": "../../packages/core/tools" },
     { "path": "../../packages/preset/agent-preset-registry" },
     { "path": "../../packages/core/agent" },
+    { "path": "../../packages/core/session" },
     { "path": "../../packages/credentials/deepseek-account" },
     { "path": "../../packages/jobs/jobs" },
     { "path": "../../packages/schedule/schedule" },

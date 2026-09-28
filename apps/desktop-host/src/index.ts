@@ -18,6 +18,7 @@ import * as desktopOffice from './office.ts'
 import { installDesktopUpdateTaskControl } from './update-tasks.ts'
 import { installDesktopQuitInspection } from './quit-inspection.ts'
 import { installPlatformSessionPublisher } from './platform-session.ts'
+import { attentionSoundForEvent } from './attention-sound.ts'
 import { installOfficeEngineResolution } from './office-engine.ts'
 
 const DESKTOP_PATCH = fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url))
@@ -190,6 +191,10 @@ async function main(): Promise<void> {
   })
   process.once('disconnect', () => { void stop() })
   const { ctx } = await application
+  ctx.on('session/event', (session, event) => {
+    const kind = attentionSoundForEvent(session.header, event)
+    if (kind !== undefined && process.connected) process.send?.({ type: 'attention-sound', kind })
+  })
   control.updateTasks = installDesktopUpdateTaskControl(ctx)
   control.quitInspection = installDesktopQuitInspection(ctx)
   await ctx.plugin(desktopOffice, {

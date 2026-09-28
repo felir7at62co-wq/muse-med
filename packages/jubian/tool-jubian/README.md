@@ -73,6 +73,8 @@ An account catalogue can list one model id once per platform at different prices
 
 A row is pinned in one of two places, and the settings page wins: **Settings → 短剧 → 资产图生成通道** stores the choice in the `drama` settings section and lists the live candidates with their prices, while these two config fields remain what a deployment without that page states. The pin is resolved as each paid call is made, so a page edit reaches the next call without a restart, and a page-pinned row is the whole selection — a config platform beside it is dropped rather than merged into a pin the person did not choose.
 
+`jubian_video image_generate` may set `image_platform_id` for one call; it selects that platform's live catalogue row ahead of the saved or deployment pin. Muse's bundled deployment pins `KU_AI` when the user has not chosen a row. An authorized fallback can request `DUO_YUAN_TAN_SUO` explicitly. Check its live price and the previous paid task before switching: a timeout or unknown result is not a failed charge and must be reconciled before a new key or route is used.
+
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-jubian) is the exhaustive source for every accepted field and its JSDoc. The row injects `tools` and `credentials`, registers all nine tools at mount, and mounts two Remote namespaces: `jubianToken`, which the Settings page calls, and `jubianImage`, which only reads the account's `gpt-image-2` rows for the short-drama page's picker. There is no per-tool enable flag and no separate page row.
 
 ### Credential

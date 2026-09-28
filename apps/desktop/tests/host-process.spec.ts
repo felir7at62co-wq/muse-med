@@ -227,6 +227,29 @@ it.each([null, 'stable-account'])('carries Platform identity %s over private IPC
   expect(changed).toHaveBeenLastCalledWith(null)
 })
 
+it('delivers validated attention sounds from the Host', async () => {
+  const runtime = projectWithHost(HTTP_HOST.replace("process.send({ type: 'ready'",
+    "process.send({ type: 'attention-sound', kind: 'question' }); process.send({ type: 'attention-sound', kind: 'complete' }); process.send({ type: 'ready'"))
+  const heard = vi.fn()
+  const host = new DesktopHostProcess(process.execPath, runtime, runtime, undefined, process.env,
+    undefined, undefined, undefined, undefined, heard)
+  hosts.push(host)
+  await host.start()
+  expect(heard.mock.calls).toEqual([['question'], ['complete']])
+})
+
+it('rejects an unrecognized attention sound on private IPC', async () => {
+  const runtime = projectWithHost(HTTP_HOST.replace("process.send({ type: 'ready'",
+    "process.send({ type: 'attention-sound', kind: 'other' }); process.send({ type: 'ready'"))
+  const heard = vi.fn()
+  const host = new DesktopHostProcess(process.execPath, runtime, runtime, undefined, process.env,
+    undefined, undefined, undefined, undefined, heard)
+  hosts.push(host)
+  await expect(host.start()).rejects.toThrow('invalid IPC event')
+  expect(heard).not.toHaveBeenCalled()
+  await host.stop()
+})
+
 it.each([undefined, '', 7])('rejects malformed Platform account identity %s on private IPC', async (userId) => {
   const session = { origin: 'https://platform.deepseek.com', token: 'fixture-secret', userId }
   const runtime = projectWithHost(HTTP_HOST.replace("process.send({ type: 'ready'",

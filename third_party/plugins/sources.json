@@ -28,5 +28,11 @@
     "version": "0.4.3",
     "commit": "dac4f507abc10a787a7479a07617acb4c3f511a8",
     "license": "MIT"
+  },
+  "dsh-skill-mcp-panel": {
+    "repository": "https://github.com/Fishquito7/dsh-skill-mcp-panel",
+    "version": "2.1.2",
+    "commit": "f1ee2a9604122bcc3971e68f1b2ea67ddbec5f5b",
+    "license": "MIT"
   }
 }

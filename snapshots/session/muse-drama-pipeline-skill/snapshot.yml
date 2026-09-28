@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-drama-pipeline-skill
+profile: headless
+composition: muse-drama-pipeline-skill
+recording: authored
+header:
+  class: muse-drama-pipeline-skill
+  pin: true
+workspace:
+  setup: muse-drama-pipeline-skill

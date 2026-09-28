@@ -19,6 +19,12 @@ Agent 处理文本与质量决策，剧变插件（`jubian_*`）是唯一多媒�
 
 非本地生成候选必须具有生成 `material_id`；`jubian_asset confirm_casting` 成功且父资产回查一致后才写 asset_confirmation=verified、official=true。`isLocal=1` 正式主体可无生成 material_id，但须实时回读 materials/get：属于当前 scriptId、已在主体设定、isUsed=1、hsAssetStatus=Active、URL 和 hsAssetId 与父资产及 picker 一致。满足后跳过该资产生成链，在 writer 合法阶段记录 skipped 与 skipped_with_official_local_evidence 及门禁证据。本地 manifest 不能替代远端来源。
 
+## 资产图通道
+
+没有用户已选通道时，Muse 的默认生图平台是 `KU_AI`；先读实时 `gpt-image-2` 目录，核对平台、标准行、报价和本次预算。用户在设置中明确选择的通道优先，不覆盖既有选择。`DUO_YUAN_TAN_SUO` 只在目录仍提供且主通道已确认无法完成时作为备用；使用 `jubian_video image_generate` 的 `image_platform_id` 仅为本次指定备用平台。切换前核对较高报价是否在本次授权范围内，超出时询问用户。
+
+主通道或备用通道长时间无响应、返回 timeout/pending、连接中断或结果未知时，先按原 `idempotency_key` 和父资产 ID 用 `jubian_asset list/get/generated_image` 回读；已受理的任务继续查原任务，不换 key 或平台重投。备用通道确认终止失败、无有效生成图且费用和剩余授权已对账后，优先评估回到主通道（未设置时为 `KU_AI`），有修正原因才用新 key 发起一次新请求。两条通道都不能完成时停止受影响资产，继续独立工作，并在最终汇报中列出通道、任务 ID、已知费用、未决状态、阻塞的交付物和下一步。
+
 ## 提交与费用
 
 1. 主体视频只走 `jubian_storyboard` 的 `select_assets`（免费 isGenerate=0）→ `prepare_video`（只读 preview）→ `submit_video`（收费 isGenerate=1）。禁止 direct `POST /admin/aigc/video/task/create`。
@@ -29,6 +35,8 @@ Agent 处理文本与质量决策，剧变插件（`jubian_*`）是唯一多媒�
 ## 依赖调度
 
 source → episodes；已有正式资产直接复用，缺失资产才经提示词→生成→审核→确认出演。镜头创作可与独立资产准备并行；匹配、提交等待各自实际依赖就绪。同一分镜 select_assets→prepare_video→submit_video 保持有序；不同集/独立任务可并行，去字幕等待期间可做选曲、草稿及其他镜头，不强制整部剧串行。
+
+默认按独立项目实体开并行批次：不同角色、场景、道具的缺失资产可分别生成并审核；不同集的脚本和镜头包可同时编写、预览与制作；已具备正式资产和选源的包可打包或渲染，同时继续准备其他包。用可用的子代理或后台任务分配互不写同一文件的工作，限定在已授权预算内；某一批次等待远端时推进其他批次，不让整部剧排队。每批结果汇合时由总控串行回写共享 manifest 与 pipeline_state，逐项检查资产身份、原文、分镜顺序、包边界、遗漏、重复、费用和审核证据；未通过的批次只阻塞自身及其下游。依赖未就绪的匹配、收费提交、最终打包与交付仍等待对应输入，不把并行当作跳过检查。
 
 分层产物：source、episodes、style、asset_prompts、asset_candidates、official_assets、shots_and_matches、video_tasks、reviewed_videos、draft、export。唯一流程状态由 pipeline_state writer 写入；上游变化只使受影响下游 stale，成功且输入未变的收费结果复用，不手改完成标记。
 
@@ -46,4 +54,4 @@ pending 原片可供内部草稿/预览，必须明确标注“未完成，非�
 
 ## 完成定义
 
-所有使用资产为 official=true；原文/说话人/身份与真实供应商约束检查通过；所有最终选用视频经内容、实际分辨率和音画审核，字幕状态只能 clean 或 not_required；实际发声字幕完整且时间来自真实音频；BGM 选曲计划与试听复核可追溯；最终 MP4、SRT、来源映射和可编辑草稿齐全，并对实际最终导出文件做 QA。pending/unknown/failed 或仅有草稿不能标记最终完成。保留项目已确认交付规格。
+所有使用资产为 official=true；原文/说话人/身份与真实供应商约束检查通过；所有最终选用视频经内容、实际分辨率和音画审核，字幕状态只能 clean 或 not_required；实际发声字幕完整且时间来自真实音频；BGM 选曲计划与试听复核可追溯；逐集的最终成片 MP4、SRT、来源映射和剪映可编辑草稿齐全，并分别对实际成片和草稿工程做 QA。最终回复同时交付成片、剪映草稿工程及其引用素材的路径；预览 MP4、截图或仅有草稿都不能替代成片与工程。pending/unknown/failed 不能标记最终完成。保留项目已确认交付规格。

@@ -93,6 +93,8 @@
     # it belongs on the Host rather than inside one agent preset.
     - id: tool-jubian
       name: '@deepseek-ai/dsh-tool-jubian'
+      config:
+        imagePlatformId: KU_AI
 
     # Account credentials travel through the authenticated Settings Remote call;
     # the bundled MCP child exposes only read-only account and KB tools.

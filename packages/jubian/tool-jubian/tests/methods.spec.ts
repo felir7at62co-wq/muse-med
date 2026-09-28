@@ -313,6 +313,17 @@ describe('jubian_video', () => {
     expect((await ledger.find('k-pin'))?.quoted_amount).toBe('0.12')
   })
 
+  it('uses a requested backup platform for one paid image without changing the primary selection', async () => {
+    const { client, calls } = imageProvider(MULTI_IMAGE_CATALOGUE)
+    const result = await videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'k-backup',
+      script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p', image_platform_id: 'DUO_YUAN_TAN_SUO' },
+    imageDeps({ selection: { platformId: 'KU_AI' } }))
+    const config = JSON.parse(calls[1]!.body!.modelConfig as string) as Record<string, unknown>
+    expect(config).toMatchObject({ standardId: 76, platformId: 'DUO_YUAN_TAN_SUO', videoStandardId: 92 })
+    expect(result.model_selection).toEqual({ standard_id: 76, platform_id: 'DUO_YUAN_TAN_SUO' })
+    expect((await ledger.find('k-backup'))?.quoted_amount).toBe('1.05')
+  })
+
   it('never sends a second paid request for a key it already recorded', async () => {
     const first = imageProvider()
     const initial = await videoMethod(first.client, ledger, { method: 'image_generate', idempotency_key: 'k-2',

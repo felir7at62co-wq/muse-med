@@ -2,11 +2,11 @@
 
 English | [中文](README.zh.md)
 
-These five source snapshots retain the community plugins used by Muse Med. [sources.json](sources.json) pins each public upstream repository, revision, version, and license. The snapshots retain upstream source and manifests; some text files normalize CRLF to LF. No installed profile, credentials, user media, or generated runtime is a build input. The translation gate excludes only these five upstream directories; this README and other owned documentation remain paired.
+These six source snapshots retain the community plugins used by Muse Med. [sources.json](sources.json) pins each public upstream repository, revision, version, and license. The snapshots retain upstream source and manifests; some text files normalize CRLF to LF. No installed profile, credentials, user media, or generated runtime is a build input. The translation gate excludes only these six upstream directories; this README and other owned documentation remain paired.
 
 ## Build
 
-Use an installed checkout with the current Host packages already built. From the repository root:
+Use an installed checkout with the current Host and Client packages already built. From the repository root:
 
 ```sh
 pnpm exec node third_party/plugins/build.mjs --out .artifacts/community-plugins
@@ -21,9 +21,11 @@ The Codex staged-runtime overlay records its changes in `SOURCE.json`: subtask i
 
 ## Compatibility and Desktop integration
 
-The builder imports every built Host entry. Codex runs 26 retained upstream checks against the current DSH APIs and pi-ai 0.85.1, including model preparation and authenticated-carrier validation; the upstream registration context is a test double, not a full Desktop Loader. Six additional Codex checks load the real provider and CLI, exercise its authenticated transport with a local simulated peer, and reject runtime-version drift and incorrect archive paths. FFmpeg runs 89 retained checks. The build test checks all exported artifact files and byte-identical tarballs for all five plugins from two clean staging directories on the same platform. It does not establish cross-platform or whole-installer byte identity.
+`dsh-skill-mcp-panel` is pinned to upstream 2.1.2. Its Web sidebar manages Skills and MCP server configuration for the active profile. The bundled artifact does not expose the upstream `dsh-panel` executable: Desktop launches supported Node applications only through `dsh` profiles. The panel's gateway configures MCP connections; the actual MCP client remains `@deepseek-ai/dsh-mcp-client`. Its retained model, gateway, slot, and icon checks run during the isolated build.
 
-The [Desktop package target](../../apps/desktop/scripts/package-target.ts) is the integration point for placing these tarballs beside first-party packed inputs. [Package-set preparation](../../apps/desktop/scripts/prepare-package-set.ts) must select the five plugin names as explicit roots; the source workspace must not substitute registry packages for these tarballs. Packaging is not activation: the release still needs a real Desktop Host/Client smoke. Account login, paid requests, and real media encoding are outside these keyless build checks.
+The builder imports every built Host entry. Codex runs 26 retained upstream checks against the current DSH APIs and pi-ai 0.85.1, including model preparation and authenticated-carrier validation; the upstream registration context is a test double, not a full Desktop Loader. Six additional Codex checks load the real provider and CLI, exercise its authenticated transport with a local simulated peer, and reject runtime-version drift and incorrect archive paths. FFmpeg runs 89 retained checks. The build test checks all exported artifact files and byte-identical tarballs for all six plugins from two clean staging directories on the same platform. It does not establish cross-platform or whole-installer byte identity.
+
+The [Desktop package target](../../apps/desktop/scripts/package-target.ts) is the integration point for placing these tarballs beside first-party packed inputs. [Package-set preparation](../../apps/desktop/scripts/prepare-package-set.ts) must select the six plugin names as explicit roots; the source workspace must not substitute registry packages for these tarballs. Packaging is not activation: the release still needs a real Desktop Host/Client smoke. Account login, paid requests, and real media encoding are outside these keyless build checks.
 
 Market's HTTP UI is not suitable for the portless Desktop carrier. Lark's upstream activation starts an onboarding request without credentials and owns a local control server; keep it inactive until explicitly configured. Codex uses the optional connection fetch carrier rather than requiring a Web server. FFmpeg needs the product's configured encoder paths. Do not infer enabled features from a tarball's presence.
 

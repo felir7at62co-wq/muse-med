@@ -85,7 +85,7 @@ const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
 const DESKTOP_PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
   'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@moyu-good/dsh-lark-bridge',
-  '@deepseek-ai/dsh-feishu-settings',
+  '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel',
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\nstrictDepBuilds: true\n'

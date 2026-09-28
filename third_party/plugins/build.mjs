@@ -103,10 +103,11 @@ export function codexFilesystemPath(value) {
         }, include: ['src'] }))
       }
       run([tsc, '-p', 'tsconfig.json', '--types', 'node'], directory)
+      if (name === 'dsh-skill-mcp-panel') run(['scripts/strip-client-export.mjs'], directory)
       if (name === 'dsh-ponytail') {
         writeFileSync(join(directory, '.muse-tsdown.mjs'), `export default { entry: { index: 'src/index.ts', invariant: 'src/invariant.ts' }, outDir: 'lib', format: 'esm', platform: 'node', target: 'es2024', fixedExtension: false, dts: false, clean: false, deps: { neverBundle: Object.keys(${JSON.stringify(manifest.peerDependencies)}) } }\n`)
         run([tsdown, '--config', '.muse-tsdown.mjs'], directory)
-      } else if (name !== 'dsh-ffmpeg') {
+      } else if (name !== 'dsh-ffmpeg' && name !== 'dsh-skill-mcp-panel') {
         run([tsdown, '--config', 'tsdown.config.ts'], directory)
         if (name === 'dshmarket') run(['scripts/normalize-client-banner.mjs'], directory)
       }
@@ -122,7 +123,11 @@ export function codexFilesystemPath(value) {
       cpSync(join(sourceRoot, 'checks/lark-desktop-runtime.mjs'), join(directory, '.muse-lark.test.mjs'))
       run(['--test', '--test-concurrency=1', '.muse-lark.test.mjs'], directory)
     }
+    if (name === 'dsh-skill-mcp-panel') {
+      run(['--test', '--test-concurrency=1', 'test-panel-slots.mjs', 'test-mcp-model.mjs', 'test-mcp-gateway.mjs', 'test-host-icons.mjs'], directory)
+    }
     manifest.scripts = {}
+    if (name === 'dsh-skill-mcp-panel') delete manifest.bin
     manifest.packageManager = tools.packageManager
     for (const [dependency, range] of Object.entries(manifest.peerDependencies ?? {})) {
       if (dependency.startsWith('@deepseek-ai/dsh-') && !range.split(' || ').includes(hostVersion)) {

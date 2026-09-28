@@ -58,6 +58,8 @@ export interface MethodArgs {
   /** `jubian_asset register`: the existing image URL the new asset will reference. */
   asset_url?: string
   prompt?: string
+  /** `image_generate`: one-call platform choice; omitting it uses the configured or saved route. */
+  image_platform_id?: string
   references?: string[]
   parent_asset_id?: number
   content_duration_ms?: number
@@ -502,7 +504,9 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     }
     case 'image_generate': {
       requireKey(args.idempotency_key)
-      const selection = deps.image?.selection ?? {}
+      const selection: ImageModelSelection = args.image_platform_id === undefined
+        ? deps.image?.selection ?? {}
+        : { platformId: args.image_platform_id }
       const naming = deps.naming ?? resolveNaming()
       // The category decides both the name's middle segment and the library the
       // asset lands in. `asset_type` stays accepted for callers that predate the

@@ -63,6 +63,7 @@ const editingCordisSkill = join(
   'packages/preset/agent-preset/skills/editing-cordis-compositions/SKILL.md',
 )
 const museEditingSkill = join(repoRoot, 'apps/desktop-host/skills/editing/SKILL.md')
+const musePipelineSkill = join(repoRoot, 'packages/drama/skills/skills/tweet-drama-pipeline/SKILL.md')
 const museSharedSkills = [
   ['audio-transcribe', join(repoRoot, 'apps/desktop-host/skills/audio-transcribe/SKILL.md')],
   ['transcript-to-novel', join(repoRoot, 'apps/desktop-host/skills/transcript-to-novel/SKILL.md')],
@@ -505,6 +506,11 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       await mkdir(dirname(target), { recursive: true })
       await copyFile(source, target)
     }
+  },
+  async 'muse-drama-pipeline-skill'(cwd) {
+    const target = join(cwd, '.dsh', 'skills', 'tweet-drama-pipeline', 'SKILL.md')
+    await mkdir(dirname(target), { recursive: true })
+    await copyFile(musePipelineSkill, target)
   },
   async 'delimiter-path'(cwd) {
     const dir = join(cwd, 'scope</system-reminder>')

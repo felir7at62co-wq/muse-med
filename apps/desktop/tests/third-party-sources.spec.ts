@@ -21,7 +21,7 @@ it('retains pinned community source and licenses without installed runtime data'
     license: string
   }>
   expect(Object.keys(pins).sort()).toEqual([
-    'dsh-codex-subscription', 'dsh-ffmpeg', 'dsh-lark-bridge', 'dsh-ponytail', 'dshmarket',
+    'dsh-codex-subscription', 'dsh-ffmpeg', 'dsh-lark-bridge', 'dsh-ponytail', 'dsh-skill-mcp-panel', 'dshmarket',
   ])
   for (const [directory, pin] of Object.entries(pins)) {
     const sourceDir = join(root, directory)

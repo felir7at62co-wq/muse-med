@@ -45,7 +45,7 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
 /** Community packages built from pinned source, never substituted from the npm registry. */
 export const DESKTOP_SOURCE_PLUGINS = [
   'dshmarket', 'dsh-codex-subscription', 'dsh-ffmpeg',
-  '@mengyuly/dsh-ponytail', '@moyu-good/dsh-lark-bridge',
+  '@mengyuly/dsh-ponytail', '@moyu-good/dsh-lark-bridge', 'dsh-skill-mcp-panel',
 ] as const
 
 /** One immutable npm tarball in the Desktop core package set. */
