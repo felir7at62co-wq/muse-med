@@ -60,15 +60,15 @@ export function attemptEchoed(command: string, args: readonly string[], options:
  * Run a command, capture its standard output, and fail on a non-zero exit.
  * @param command - executable name.
  * @param args - command arguments.
- * @param options - working directory and environment.
- * @returns The trimmed standard output.
+ * @param options - working directory, environment, and whether to trim output (defaults to true).
+ * @returns Standard output, preserving whitespace when trim is false.
  */
-export function capture(command: string, args: readonly string[], options: RunOptions = {}): string {
+export function capture(command: string, args: readonly string[], options: RunOptions & { readonly trim?: boolean } = {}): string {
   const result = attempt(command, args, options)
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')} exited with ${String(result.status)}:\n${result.stdout}\n${result.stderr}`)
   }
-  return result.stdout.trim()
+  return options.trim === false ? result.stdout : result.stdout.trim()
 }
 
 /**

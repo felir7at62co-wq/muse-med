@@ -29,6 +29,13 @@ async function packedTarball(name: string, version: string): Promise<string> {
 }
 
 describe('release process helpers', () => {
+  it('preserves whitespace when requested without changing the default capture behavior', () => {
+    const output = ' M .pi-glla/active.jsonl\n M tracked.txt\n'
+    const args = ['-e', `process.stdout.write(${JSON.stringify(output)})`]
+    expect(capture(process.execPath, args, { trim: false })).toBe(output)
+    expect(capture(process.execPath, args)).toBe(output.trim())
+  })
+
   it('runs pnpm through a JavaScript entry, which spawnSync can start on Windows', () => {
     const [command, ...args] = pnpmCommand()
     expect(command === 'pnpm' || /node(?:\.exe)?$/iu.test(command)).toBe(true)

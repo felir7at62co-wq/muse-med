@@ -261,7 +261,7 @@ export interface DesktopPackageBaseline {
 export function readDesktopPackageBaseline(root: string): DesktopPackageBaseline {
   const head = capture('git', ['rev-parse', 'HEAD'], { cwd: root })
   const committedAtMs = Date.parse(capture('git', ['log', '-1', '--format=%cI'], { cwd: root }))
-  const status = capture('git', ['status', '--porcelain=v1', '--untracked-files=normal'], { cwd: root })
+  const status = capture('git', ['status', '--porcelain=v1', '--untracked-files=normal'], { cwd: root, trim: false })
   return { head, committedAtMs, treeChanges: dirtyWorktreeEntries(status) }
 }
 
@@ -300,7 +300,7 @@ export function assertUnchangedHead(root: string, baseline: DesktopPackageBaseli
  */
 export function assertPackagingInputs(root: string, baseline: DesktopPackageBaseline): void {
   assertUnchangedHead(root, baseline)
-  const status = capture('git', ['status', '--porcelain=v1', '--untracked-files=normal'], { cwd: root })
+  const status = capture('git', ['status', '--porcelain=v1', '--untracked-files=normal'], { cwd: root, trim: false })
   const changes = dirtyWorktreeEntries(status)
   if (changes.length === 0) return
   throw new Error(

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { attempt } from '../../../scripts/release/process.ts'
 import {
   assertCleanWorktree,
+  assertPackagingInputs,
   assertReusableArtifacts,
   collectReusedArtifacts,
   describeReuse,
@@ -85,7 +86,15 @@ describe('desktop package worktree guards', () => {
     writeFileSync(join(root, '.pi-glla', 'active.jsonl'), '{}\n')
     expect(() => { assertCleanWorktree(readDesktopPackageBaseline(root)) }).not.toThrow()
 
+    git(root, ['add', '.pi-glla/active.jsonl'])
+    git(root, ['-c', 'user.email=spec@example.com', '-c', 'user.name=spec', 'commit', '--quiet', '-m', 'track harness state'])
+    const baseline = readDesktopPackageBaseline(root)
+    writeFileSync(join(root, '.pi-glla', 'active.jsonl'), '{"changed":true}\n')
+    expect(() => { assertCleanWorktree(readDesktopPackageBaseline(root)) }).not.toThrow()
+    expect(() => { assertPackagingInputs(root, baseline) }).not.toThrow()
+
     writeFileSync(join(root, 'tracked.txt'), 'edited in the tree\n')
+    expect(() => { assertPackagingInputs(root, baseline) }).toThrow(/worktree changed[\s\S]*tracked\.txt/u)
     expect(() => { assertCleanWorktree(readDesktopPackageBaseline(root)) })
       .toThrow(/not clean[\s\S]*tracked\.txt/u)
   })
