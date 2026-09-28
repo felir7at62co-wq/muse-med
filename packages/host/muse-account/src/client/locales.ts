@@ -1,0 +1,66 @@
+/** Copy dictionaries for the MUSE account Settings section. */
+
+/** Simplified Chinese copy; no field can display a password or session cookie. */
+export const zh = {
+  nav: 'MUSE 账号',
+  title: 'MUSE 账号',
+  description: '登录失败时可选择尝试注册新账号；已有账号的错误密码不会更改该账号。密码只用于本次登录，不会发给 Agent。',
+  loading: '正在读取账号状态…',
+  retry: '重试',
+  username: '账号',
+  password: '密码',
+  registerIfMissing: '登录失败时尝试注册新账号',
+  signIn: '登录',
+  signingIn: '正在登录…',
+  signedIn: '登录成功。',
+  registered: '账号已注册并登录。',
+  signedOut: '已退出登录。',
+  accountNamed: '当前账号：{username}',
+  workspaceNamed: '工作空间：{workspace}',
+  verified: '账号已验证。',
+  verificationPending: '已保存登录状态，尚未向服务验证。',
+  verify: '验证登录状态',
+  signOut: '退出登录',
+  'error.invalidInput': '请填写有效的账号和密码。',
+  'error.invalidCredentials': '账号或密码不正确。',
+  'error.rateLimited': '尝试次数过多，请稍后重试。',
+  'error.registrationDisabled': '当前服务不允许注册新账号。',
+  'error.gatewayUnavailable': '暂时无法连接 MUSE 服务，请稍后重试。',
+  'error.gatewayRejected': 'MUSE 服务拒绝了这次请求，请稍后重试。',
+  'error.storageFailed': '无法在此设备保存登录状态。',
+  'error.generic': '操作未完成，请重试。',
+} satisfies Record<string, string>
+
+/** Locale key set owned by this section. */
+export type MuseAccountLocaleKey = keyof typeof zh
+
+/** English copy checked against the Chinese key set. */
+export const en = {
+  nav: 'MUSE account',
+  title: 'MUSE account',
+  description: 'If sign-in fails, you can choose to try creating an account. A wrong password cannot change an existing account. Your password is used only for this sign-in and is never sent to the agent.',
+  loading: 'Reading account status…',
+  retry: 'Retry',
+  username: 'Username',
+  password: 'Password',
+  registerIfMissing: 'Try creating an account if sign-in fails',
+  signIn: 'Sign in',
+  signingIn: 'Signing in…',
+  signedIn: 'Signed in.',
+  registered: 'Account created and signed in.',
+  signedOut: 'Signed out.',
+  accountNamed: 'Current account: {username}',
+  workspaceNamed: 'Workspace: {workspace}',
+  verified: 'Account verified.',
+  verificationPending: 'Sign-in saved locally; the service has not verified it yet.',
+  verify: 'Verify sign-in',
+  signOut: 'Sign out',
+  'error.invalidInput': 'Enter a valid username and password.',
+  'error.invalidCredentials': 'The username or password is incorrect.',
+  'error.rateLimited': 'Too many attempts. Try again later.',
+  'error.registrationDisabled': 'This service does not allow new account registration.',
+  'error.gatewayUnavailable': 'MUSE is unavailable. Try again later.',
+  'error.gatewayRejected': 'MUSE rejected the request. Try again later.',
+  'error.storageFailed': 'Could not save the sign-in on this device.',
+  'error.generic': 'The operation did not complete. Try again.',
+} satisfies Record<MuseAccountLocaleKey, string>

@@ -19,7 +19,7 @@ import NativePreset from '../../desktop-host/src/native-preset.ts'
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
 
-it('loads exactly the product preset directories without discovering shipped or personal presets', async () => {
+it('loads exactly the six product modes without discovering other shipped or personal presets', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-product-preset-'))
   const ctx = new Context()
   try {
@@ -58,7 +58,7 @@ it('loads exactly the product preset directories without discovering shipped or 
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['cordis', 'minimal', 'ptc', 'short-drama', 'standard'])
+    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['cordis', 'editing', 'minimal', 'ptc', 'short-drama', 'standard'])
     expect(ctx.agentPresets.defaultId).toBe('short-drama')
     const document = await ctx.agentPresets.readDocument('short-drama')
     const source = document.content
@@ -80,6 +80,22 @@ it('loads exactly the product preset directories without discovering shipped or 
     for (const requirement of ['用户提供的参考图', '逐图审核和用户确认', '不自动安装或启动小红书']) {
       expect(prompt, requirement).toContain(requirement)
     }
+    const editingSource = (await ctx.agentPresets.readDocument('editing')).content
+    const editingRows = yaml.load(editingSource, { schema: entryListSchema }) as Array<{ id: string; config?: { prefix?: string } }>
+    const editingPrompt = editingRows.find(row => row.id === 'persona')?.config?.prefix ?? ''
+    const editingModelInput = JSON.parse(await readFile(new URL('./expected/editing-model-input.json', import.meta.url), 'utf8')) as {
+      personaPrefix: string
+    }
+    expect(editingPrompt).toBe(editingModelInput.personaPrefix)
+    expect(editingPrompt).toContain('正式写作前')
+    expect(editingPrompt).toContain('爆款剧本')
+    expect(editingPrompt).toContain('实际阅读')
+    for (const id of ['agent-instructions', 'editing-tools', 'tool-fs', 'tool-skill', 'tool-goal', 'tool-web', 'present']) {
+      expect(editingRows.some(row => row.id === id), id).toBe(true)
+    }
+    const editingSkill = await readFile(join(productRoot, '..', 'skills', 'editing', 'SKILL.md'), 'utf8')
+    expect(editingSkill).toContain('分页资料须继续读取')
+    expect(editingSkill).toContain('不得起草或改写正式剧本正文')
     expect(source).not.toMatch(/[CE]:\\|EDY|默认授权|自动授权/)
     for (const requirement of ['每集至少 2 首不同曲目', '按情绪分段', 'policy_findings', '1.5 秒三角交叉淡化', '24 小时', 'max_review_attempts=3', 'content_duration_ms', '离线、不外传', '不自动删除', '片尾 2 秒', '被委派的子代理只返回调用方要的分片结果', '给了 schema 就用 structured_output 返回']) {
       expect(prompt, requirement).toContain(requirement)

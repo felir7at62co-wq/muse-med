@@ -346,6 +346,7 @@ describe('mode-aware wire contribution', () => {
     expect(() => ctx.tools.register(impostor)).toThrow(/reserved for the PTC mode presentation transport/)
     expect(() => scope.ctx.tools.restrict({ allow: [RUN_CODE_NAME] })).toThrow(/cannot name reserved PTC mode presentation transport/)
     expect(() => scope.ctx.tools.restrict({ deny: [RUN_CODE_NAME] })).toThrow(/cannot name reserved PTC mode presentation transport/)
+    expect(() => scope.ctx.tools.restrict({ futureDeny: [RUN_CODE_NAME] })).toThrow(/cannot name reserved PTC mode presentation transport/)
     scope.ctx.systemPrompt.section({
       name: 'scoped-note',
       order: scope.ctx.systemPrompt.getSectionOrder('TOOLS_SDK') - 10,

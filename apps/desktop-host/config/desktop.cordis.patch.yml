@@ -9,7 +9,7 @@
     includeHarnessIdentity: false
 
 # The upstream preset registry is the engine, and the product declares every preset itself: the
-# five directories under `presets/` become five rows through the adapter in src/index.ts, which
+# six directories under `presets/` become six rows through the adapter in src/index.ts, which
 # knows the runtime directory holding them. The product therefore imports none of the base bundle's
 # DSH user modes, and those shipped rows are disabled below because a deployment upgrade must not
 # shadow a product preset of the same id.
@@ -93,6 +93,13 @@
     # it belongs on the Host rather than inside one agent preset.
     - id: tool-jubian
       name: '@deepseek-ai/dsh-tool-jubian'
+
+    # Account credentials travel through the authenticated Settings Remote call;
+    # the bundled MCP child exposes only read-only account and KB tools.
+    - id: muse-account
+      name: '@deepseek-ai/dsh-muse-account'
+      config:
+        baseUrl: !!js process.env.MUSE_BASE_URL || 'https://dev.muse.aigc-pipeline.cn'
 
 # The bundled Feishu bridge is composed inert: the activation controls below are
 # real keys of the staged package, because the community build applies the

@@ -37,13 +37,14 @@ const productPresets = fileURLToPath(new URL('../../desktop-host/presets', impor
  *
  * The Host owns the only provider that selects default roots, so `standard` and
  * `ptc` declare their own row disabled, `cordis` keeps a row serving exactly its
- * own authoring skills with default discovery off, and `minimal` declares none.
+ * own authoring skills with default discovery off, and `minimal` and `editing` declare none.
  */
 const DECLARED_SKILL_PROVIDER: Readonly<Record<string, 'disabled' | 'own-skills' | 'none'>> = {
   'short-drama': 'none',
   standard: 'disabled',
   ptc: 'disabled',
   minimal: 'none',
+  editing: 'none',
   cordis: 'own-skills',
 }
 

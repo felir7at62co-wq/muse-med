@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join, dirname, relative, isAbsolute } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runInNewContext } from 'node:vm'
@@ -6,6 +6,11 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { desktopSmokePluginSource, smokeDesktopRuntime } from '../scripts/smoke-runtime.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
 import { runtimeFixture } from './runtime-fixture.ts'
+
+const editingModelInput = JSON.parse(readFileSync(new URL('./expected/editing-model-input.json', import.meta.url), 'utf8')) as {
+  personaPrefix: string
+  tools: Record<string, string>
+}
 
 vi.mock('../src/profile-packages.ts', () => ({ linkDesktopHostPackages: vi.fn(), validateDesktopPluginGraph: vi.fn() }))
 
@@ -48,7 +53,7 @@ function fixture() {
   roots.push(root)
   const home = join(root, 'home')
   mkdirSync(home)
-  const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis']
+  const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'editing']
   const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
   for (const id of ids) {
     mkdirSync(dirname(presetPath(id)), { recursive: true })
@@ -74,6 +79,14 @@ function fixture() {
     path: join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/editing-cordis-compositions/SKILL.md'),
     invocation: { modelInvocable: true },
   }
+  const editingSkill = {
+    name: 'muse-script-editing',
+    path: join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/editing/SKILL.md'),
+    invocation: { modelInvocable: true },
+  }
+  mkdirSync(dirname(editingSkill.path), { recursive: true })
+  writeFileSync(editingSkill.path, '# fixture')
+  skills.push(editingSkill)
   const agent = { preset: 'short-drama' }
   const agentCtx = {}
   const dispose = vi.fn(async () => {})
@@ -83,6 +96,8 @@ function fixture() {
     'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'read', 'present', process.platform === 'win32' ? 'pwsh' : 'bash']
   type SmokeResponse = { statusCode: number; end(text: string): void }
   let route: { path: string; handler(request: object, response: SmokeResponse): Promise<void> } | undefined
+  const accountMcpNames = ['mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
+    'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening']
   class TestContext {
     webServer = { register: vi.fn((value: NonNullable<typeof route>) => {
       route = value
@@ -105,8 +120,17 @@ function fixture() {
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
       return (key.preset === 'short-drama' ? names
         : key.preset === 'minimal' ? [shell]
-          : ['read', 'skill', shell, 'subagent', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
+          : key.preset === 'editing' ? ['read', 'skill', shell, 'present', ...accountMcpNames]
+            : ['read', 'skill', shell, 'subagent', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
     }) }
+    systemPrompt = { assemble: vi.fn(async (context: { agent: { preset: string }; scope: { preset: string } }) => ({
+      sections: context.scope.preset === 'editing'
+        ? [{ name: 'deployment:persona-prefix', text: editingModelInput.personaPrefix }]
+        : [],
+      tools: context.scope.preset === 'editing'
+        ? Object.entries(editingModelInput.tools).map(([name, description]) => ({ name, description }))
+        : [],
+    })) }
     skills = { list: vi.fn(async (options: { scope: { preset: string } }) =>
       options.scope.preset === 'cordis' ? [...skills, cordisSkill] : skills) }
   }
@@ -126,7 +150,8 @@ function fixture() {
     if (response.statusCode !== 200) throw new Error(text)
   }
   const apply = async (ctx: TestContext) => { register(ctx); await request() }
-  return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names, skills, skillRoot, home }
+  return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names,
+    accountMcpNames, skills, skillRoot, home }
 }
 
 it('defers preset checks until the Host-ready caller requests them', async () => {
@@ -135,7 +160,7 @@ it('defers preset checks until the Host-ready caller requests them', async () =>
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
   await f.request()
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(10)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
 })
 
 it('awaits full preset mounting and reads agent-scoped tools and bundled skills before disposal', async () => {
@@ -143,9 +168,10 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   await f.apply(f.ctx)
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'short-drama')
   expect(f.ctx.tools.schemas).toHaveBeenCalledWith(f.agent)
+  expect(f.ctx.systemPrompt.assemble).toHaveBeenCalledWith({ agent: { preset: 'editing' }, scope: { preset: 'editing' } })
   expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.home })
-  expect(f.dispose).toHaveBeenCalledTimes(10)
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(10)
+  expect(f.dispose).toHaveBeenCalledTimes(12)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
@@ -231,7 +257,7 @@ it.each(['missing', 'legacy-only', 'shadow'])('rejects %s custom skill isolation
 it('refuses a roster with additional presets before creating an agent', async () => {
   const f = fixture()
   f.ctx.agentPresets.list.mockResolvedValue([{ id: 'short-drama' }, { id: 'personal' }])
-  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the five product presets')
+  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the six product presets')
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
 })
 
@@ -240,6 +266,52 @@ it('fails missing tools and still disposes the created agent', async () => {
   f.names.splice(f.names.indexOf('bgm_match'), 1)
   await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool bgm_match')
   expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('rejects an editing mode without its account-scoped source reader', async () => {
+  const f = fixture()
+  f.accountMcpNames.splice(f.accountMcpNames.indexOf('mcp__muse-account__muse_kb_read_opening'), 1)
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool mcp__muse-account__muse_kb_read_opening')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('rejects an editing persona without the opening-before-drafting instruction', async () => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    if (context.scope.preset === 'editing') result.sections[0]!.text = '你是 muse-med 的小说与短剧剧本编辑。'
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing persona changed')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it.each(Object.keys(editingModelInput.tools))('rejects a changed model-visible description for %s', async (name) => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    if (context.scope.preset === 'editing') result.tools.find(tool => tool.name === name)!.description = 'Generic read.'
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing model tool description changed: ' + name)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('rejects an editing mode that exposes a video tool', async () => {
+  const f = fixture()
+  f.accountMcpNames.push('jubian_video')
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing mode inherited Jubian video tools')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('rejects an editing mode without its packaged writing skill', async () => {
+  const f = fixture()
+  const skill = f.skills.find(value => value.name === 'muse-script-editing')!
+  f.skills.splice(f.skills.indexOf(skill), 1)
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing skill is not mounted')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 

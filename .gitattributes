@@ -8,6 +8,9 @@
 
 *.pdf binary
 
+# A unified diff needs one space to mark a blank context line.
+integrations/muse-kb/*.patch whitespace=-blank-at-eol
+
 # The persistence catalog is the readable projection of these generated schemas.
 docs/persistence-schema.json linguist-generated=true
 docs/persistence-changes/*.schema.json linguist-generated=true

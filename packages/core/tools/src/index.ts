@@ -702,6 +702,8 @@ export interface ToolRestriction {
   readonly allow?: readonly string[]
   /** Global tool names removed from visibility. */
   readonly deny?: readonly string[]
+  /** Global tool names to hide even if their provider registers after this restriction. */
+  readonly futureDeny?: readonly string[]
 }
 
 /** One restriction compiled at registration for repeated live-global lookup. */
@@ -997,7 +999,6 @@ export class ToolRuntime extends Service {
         yield ctx.systemPrompt.section(this.sdkSection())
       }
     }.bind(this), 'tools.presentAs()')
-    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous composite teardown
     return dispose
   }
 
@@ -1089,9 +1090,11 @@ export class ToolRuntime extends Service {
 
   /**
    * Restrict global tools for the calling agent scope. Empty filters, unknown
-   * names, scope-local names, and reserved transport names fail. Restrictions
-   * intersect; scoped registrations remain visible.
-   * @param filter - global-tool mask: `allow` (keep only) and/or `deny` (remove).
+   * `allow`/`deny` names, scope-local names, and reserved transport names fail.
+   * `futureDeny` names are explicit exceptions for providers that register later.
+   * Restrictions intersect; scoped registrations remain visible.
+   * @param filter - global-tool mask: `allow` (keep only), `deny` (remove known names),
+   * and/or `futureDeny` (remove names even when registered later).
    * @returns the exact disposer that lifts this restriction.
    */
   restrict(filter: ToolRestriction): () => void {
@@ -1101,14 +1104,15 @@ export class ToolRuntime extends Service {
     }
     const allow = filter.allow
     const deny = filter.deny
-    if (allow === undefined && deny === undefined) {
-      throw new Error('tools.restrict({}) is a no-op: pass `allow` and/or `deny` (an empty filter is almost always a materialized-empty-config bug)')
+    const futureDeny = filter.futureDeny
+    if (allow === undefined && deny === undefined && futureDeny === undefined) {
+      throw new Error('tools.restrict({}) is a no-op: pass `allow`, `deny`, and/or `futureDeny` (an empty filter is almost always a materialized-empty-config bug)')
     }
     const compiled: CompiledToolRestriction = {
       ...allow !== undefined ? { allow: new Set(allow) } : {},
-      ...deny !== undefined ? { deny: new Set(deny) } : {},
+      ...deny !== undefined || futureDeny !== undefined ? { deny: new Set([...deny ?? [], ...futureDeny ?? []]) } : {},
     }
-    if ([...allow ?? [], ...deny ?? []].includes(RUN_CODE_NAME)) {
+    if ([...allow ?? [], ...deny ?? [], ...futureDeny ?? []].includes(RUN_CODE_NAME)) {
       throw new Error(`tools.restrict() cannot name reserved PTC mode presentation transport "${RUN_CODE_NAME}"; restrict end-capability tools instead`)
     }
     const known = this.view(scope).restrictableNames

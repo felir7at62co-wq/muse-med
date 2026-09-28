@@ -158,6 +158,21 @@ describe('restrict()', () => {
     expect(await run(ctx, 'allowed-local', allowed.key)).toBe('ran:allowed-local')
   })
 
+  it('hides a named global tool even when its provider registers after the scope', async () => {
+    const ctx = await mount()
+    const denied = await mintAgentScope(ctx, 'denied')
+    const other = await mintAgentScope(ctx, 'other')
+    denied.scope.ctx.tools.restrict({ futureDeny: ['late'] })
+
+    ctx.tools.register(tool('late'))
+
+    expect(ctx.tools.get('late', denied.key)).toBeUndefined()
+    expect(ctx.tools.schemas(denied.key).map(t => t.name)).not.toContain('late')
+    expect(await run(ctx, 'late', denied.key)).toBe('Error: unknown tool "late"')
+    expect(ctx.tools.get('late', other.key)).toBeDefined()
+    expect(await run(ctx, 'late', other.key)).toBe('ran:late')
+  })
+
   it('composes multiple restrictions by intersection and lifts each independently', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')

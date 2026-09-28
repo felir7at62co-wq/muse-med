@@ -12,27 +12,33 @@ import { createPluginProfile } from '../src/project-manager.ts'
 import { linkDesktopHostPackages, validateDesktopPluginGraph } from '../src/profile-packages.ts'
 import type { DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 
+const editingModelInput = JSON.parse(readFileSync(new URL('../tests/expected/editing-model-input.json', import.meta.url), 'utf8')) as {
+  personaPrefix: string
+  tools: Record<string, string>
+}
+
 /** Generate the private startup plugin that mounts the complete product preset through Host services.
  * @param root - Prepared product package root.
  * @param home - Disposable smoke home and workspace.
- * @returns ESM plugin source that records completion only after preset, tools, skills, and Agent disposal succeed.
+ * @returns ESM plugin source that records completion only after preset, model inputs, skills, and Agent disposal succeed.
  */
 export function desktopSmokePluginSource(root: string, home: string): string {
   return `
 import { Context } from '@deepseek-ai/cordis'
 import { existsSync, realpathSync, writeFileSync } from 'node:fs'
 import { join, relative, isAbsolute } from 'node:path'
-export const inject = ['agentPresets', 'agents', 'agentLoop', 'tools', 'skills', 'credentials', 'webServer']
+export const inject = ['agentPresets', 'agents', 'agentLoop', 'systemPrompt', 'tools', 'skills', 'credentials', 'webServer']
 export function apply(ctx) {
   ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-product-smoke', handler: async (_request, response) => {
   if (!(ctx instanceof Context)) throw new Error('desktop runtime: external plugin loaded another Cordis instance')
   const root = ${JSON.stringify(root)}
   const home = ${JSON.stringify(home)}
+  const editingModelInput = ${JSON.stringify(editingModelInput)}
   try {
-  const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis']
+  const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'editing']
   const presets = await ctx.agentPresets.list()
   if (presets.length !== ids.length || ids.some(id => !presets.some(preset => preset.id === id))) {
-    throw new Error('desktop runtime: expected exactly the five product presets; found ' + presets.map(preset => preset.id).join(', '))
+    throw new Error('desktop runtime: expected exactly the six product presets; found ' + presets.map(preset => preset.id).join(', '))
   }
   if (ctx.agentPresets.defaultId !== 'short-drama') throw new Error('desktop runtime: product default preset changed')
   const inventory = await ctx.agentPresets.compositionInventory()
@@ -57,15 +63,45 @@ export function apply(ctx) {
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
       'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'read', 'present',
-      process.platform === 'win32' ? 'pwsh' : 'bash'] : id === 'minimal' ? [shell] : ['read', 'skill', shell, 'subagent']
+      process.platform === 'win32' ? 'pwsh' : 'bash']
+      : id === 'minimal' ? [shell]
+        : id === 'editing' ? ['read', 'skill', shell, 'present',
+          'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
+          'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening']
+        : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
     if (id === 'minimal') {
       const inherited = new Set(ctx.tools.schemas().map(tool => tool.name))
       const local = [...names].filter(name => !inherited.has(name))
       if (local.length !== 1 || local[0] !== shell) throw new Error('desktop runtime: minimal must add only its persistent shell; found ' + local.join(', '))
     }
+    if (id === 'editing' && [...names].some(name => name.startsWith('jubian_'))) {
+      throw new Error('desktop runtime: editing mode inherited Jubian video tools')
+    }
+    if (id === 'editing') {
+      const assembly = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+      const persona = assembly.sections.find(section => section.name === 'deployment:persona-prefix')?.text
+      if (persona !== editingModelInput.personaPrefix
+        || !persona?.includes('当你决定正式写作前，必须实际阅读至少一份有来源的爆款剧本开头')) {
+        throw new Error('desktop runtime: editing persona changed')
+      }
+      for (const [name, description] of Object.entries(editingModelInput.tools)) {
+        if (assembly.tools.find(tool => tool.name === name)?.description !== description) {
+          throw new Error('desktop runtime: editing model tool description changed: ' + name)
+        }
+      }
+    }
     if (id === 'ptc' && (!names.has('run_code') || names.has('workflow'))) throw new Error('desktop runtime: PTC tool presentation is incomplete')
     const skills = await ctx.skills.list({ scope: handle.agent, cwd: home })
+    if (id === 'cordis' && !skills.some(skill => skill.name === 'editing-cordis-compositions')) {
+      throw new Error('desktop runtime: cordis authoring skill is not mounted')
+    }
+    const editingSkill = skills.find(skill => skill.name === 'muse-script-editing')
+    if (id === 'editing' && (!editingSkill
+      || realpathSync(editingSkill.path) !== realpathSync(join(root, 'node_modules', '@deepseek-ai',
+        'dsh-desktop-host', 'skills', 'editing', 'SKILL.md')))) {
+      throw new Error('desktop runtime: editing skill is not mounted')
+    }
     const custom = skills.find(skill => skill.name === 'desktop-user-skill')
     if (!custom || realpathSync(custom.path) !== realpathSync(join(home, 'skills/desktop-user-skill/SKILL.md'))
       || skills.some(skill => skill.name === 'desktop-legacy-only')) {

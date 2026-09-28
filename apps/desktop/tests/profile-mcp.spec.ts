@@ -69,13 +69,18 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     ])
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-mcp-client')).toEqual([])
     expect(rows.find(row => row.id === 'webserver')).toMatchObject({ name: '@deepseek-ai/dsh-host-webserver' })
+    expect(rows.filter(row => row.name === '@deepseek-ai/dsh-muse-account')).toEqual([
+      { id: 'muse-account', name: '@deepseek-ai/dsh-muse-account', config: {
+        baseUrl: { __jsExpr: "process.env.MUSE_BASE_URL || 'https://dev.muse.aigc-pipeline.cn'" },
+      } },
+    ])
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-drama-settings')).toEqual([
       { id: 'drama-settings', name: '@deepseek-ai/dsh-drama-settings' },
     ])
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-tool-jubian')).toEqual([
       { id: 'tool-jubian', name: '@deepseek-ai/dsh-tool-jubian' },
     ])
-    expect(rows.find(row => row.id === 'webserver')?.disabled).toBe(true)
+    expect(rows.find(row => row.id === 'webserver')?.disabled).toBe(false)
     expect(warnings).toEqual([])
   } finally {
     rmSync(home, { recursive: true, force: true })

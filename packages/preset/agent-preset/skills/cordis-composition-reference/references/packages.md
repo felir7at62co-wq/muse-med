@@ -15,6 +15,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-api-account-controller` | no | Expose safe account operations over authenticated Remote |
+| `@deepseek-ai/dsh-api-agent-notes` | yes | Agent Notes service: list, read, and save the markdown notes under one configured root over the agentNotes Remote namespace |
 | `@deepseek-ai/dsh-api-gateway` | yes | Typert Remote Host dispatcher and Client API endpoint |
 | `@deepseek-ai/dsh-api-job-controller` | yes | Job Remote observation stream and the reference-counted client job-output service |
 | `@deepseek-ai/dsh-api-remotes` | no | Remote BFF assembly for application-selected Host capabilities |
@@ -91,6 +92,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-settings` | no | Settings domain base plugin: shared configuration forms and the canonical settings slot-type contract |
 | `@deepseek-ai/dsh-client-ui-settings-account` | yes | Manage DeepSeek login and open Platform billing pages |
 | `@deepseek-ai/dsh-client-ui-settings-agent-loop` | no | Settings page of the agent loop on the dsh web client's Plugins page: the parallel tool-call cap of the agent-loop namespace |
+| `@deepseek-ai/dsh-client-ui-settings-agent-notes` | no | Agent Notes settings section: browse the repository's markdown engineering notes and edit them in place |
 | `@deepseek-ai/dsh-client-ui-settings-general` | no | Settings ownerless-copy and product onboarding plugin: the General section, shell trigger/header chrome content, settings dictionaries, and the versioned welcome notice |
 | `@deepseek-ai/dsh-client-ui-settings-models` | yes | Models settings and shared product-onboarding dialogs over existing settings and credential joins |
 | `@deepseek-ai/dsh-client-ui-settings-plugin-inventory` | no | Read-only Cordis Loader inventory tab in Web Plugins settings |
@@ -172,6 +174,16 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 |---|---|---|
 | `@deepseek-ai/dsh-office-to-pdf` | yes | Shared Office-to-PDF conversion with bounded queues and caching |
 
+## drama
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-drama-settings` | no | Short-drama settings and Web UI for delivery, media and the automatic per-drama paid-call budget |
+| `@deepseek-ai/dsh-tool-bgm-compose` | yes | Short-drama BGM composer: preview, deterministic source assembly, and fixed-format WAV verification |
+| `@deepseek-ai/dsh-tool-drama-assets` | yes | Short-drama pre-spend asset reconciliation: the model-facing drama_assets tool that compares the Jubian project's used assets with the manifest and writes the evidence the paid-call gate reads |
+| `@deepseek-ai/dsh-tool-episode-render` | yes | Short-drama episode renderer: the model-facing drama_render tool that lays out render inputs, encodes the delivery master, and checks the result |
+| `@deepseek-ai/dsh-tool-shot-script` | yes | Short-drama shot-script gate and episode compiler: the model-facing drama_shot tool |
+
 ## experimental
 
 | Package | Config | Description |
@@ -232,6 +244,8 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 
 | Package | Config | Description |
 |---|---|---|
+| `@deepseek-ai/dsh-composition-guard` | yes | Composition guard plugin: detects and reports a running session whose preset-provided tools were withdrawn by a live composition reload |
+| `@deepseek-ai/dsh-guard-drama` | yes | Drama-pipeline gate plugin: intercepts tool dispatch to enforce the short-drama pipeline's decidable hard rules |
 | `@deepseek-ai/dsh-repeat-tool-reminder` | yes | Repeat-tool-call guard plugin: advisory reminders when an agent loops on identical tool calls |
 | `@deepseek-ai/dsh-tool-call-timeout-policy` | no | Tool-call timeout policy: a tools/execute wrapper that arms a per-tool deadline on exec.signal and returns TOOL_TIMEOUT when it wins |
 
@@ -246,6 +260,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 
 | Package | Config | Description |
 |---|---|---|
+| `@deepseek-ai/dsh-feishu-settings` | yes | Feishu bridge setup for the product home: the feishu switch row, QR app registration, and the Web Settings page that drives the bridge row's activation key |
 | `@deepseek-ai/dsh-host-directory-picker-auto` | no | Adaptive chooser of the directory-picker seam: resolves the host situation at boot and mounts the native or browse backend for the DeepSeek Harness web GUI host |
 | `@deepseek-ai/dsh-host-directory-picker-browse` | yes | In-app browsing backend of the directory-picker seam (listing/creation primitives over the host filesystem) |
 | `@deepseek-ai/dsh-host-directory-picker-native` | no | Native-OS-chooser backend of the directory-picker seam for the DeepSeek Harness web GUI host |
@@ -254,6 +269,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-host-plugin-inventory` | no | Read-only Remote projection of current Cordis Loader plugin state |
 | `@deepseek-ai/dsh-host-product-telemetry-otel` | yes | Explicit product usage events exported through OpenTelemetry HTTP logs |
 | `@deepseek-ai/dsh-host-webserver` | yes | Web route-registration plugin: HTTP and upgrade routes, index transform taps, and static dist fallback; knows no harness concepts |
+| `@deepseek-ai/dsh-muse-account` | yes | Muse Desktop account sign-in and authorized read-only knowledge-base tools |
 
 ## interaction
 
@@ -271,6 +287,12 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 |---|---|---|
 | `@deepseek-ai/dsh-jobs-local` | yes | Process-local implementation of the DeepSeek Harness background job registry seam |
 | `@deepseek-ai/dsh-tool-jobs` | yes | Model-facing background job control tools (job_output, job_list, job_kill) over the ctx.jobs registry |
+
+## jubian
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-tool-jubian` | yes | Jubian tools for the DeepSeek Harness — catalogue, assets, storyboards, video tasks, media download — plus the Web Settings page for their admin token |
 
 ## llm
 
@@ -299,6 +321,12 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 |---|---|---|
 | `@deepseek-ai/dsh-mcp-client` | yes | MCP client bridge: connects to MCP servers and registers their tools on ctx.tools |
 | `@deepseek-ai/dsh-mcp-resources` | no | Scoped MCP resource discovery and reading through shared model tools |
+
+## perception
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-perception-bgm` | yes | Non-commercial BGM emotion analysis and valence/arousal matching for the DeepSeek Harness |
 
 ## plan
 

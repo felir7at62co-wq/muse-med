@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-editing-skill
+profile: headless
+composition: muse-editing-skill
+recording: authored
+header:
+  class: muse-editing-skill
+  pin: true
+workspace:
+  setup: muse-editing-skill

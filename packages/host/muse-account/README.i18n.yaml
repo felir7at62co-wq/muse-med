@@ -1,0 +1,49 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/host/muse-account/README.md
+/:
+  en: 0ac66c0b23c51bd4
+  zh: e3ad95e3f4d385d8
+/deepseek-ai-dsh-muse-account:
+  en: db5527a4bb7a543e
+  zh: 8af3bc11b56325b5
+/deepseek-ai-dsh-muse-account/summary:
+  en: 62bbb9c0005ce7a5
+  zh: f2988f817a84b53f
+/deepseek-ai-dsh-muse-account/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: d152484eb41ac6b4
+/deepseek-ai-dsh-muse-account/use-this-package:
+  en: edb9adfde787164c
+  zh: de3c0023fbf7c294
+/deepseek-ai-dsh-muse-account/use-this-package/minimal-configuration:
+  en: 469352ef957c9865
+  zh: dda65bb740598d99
+/deepseek-ai-dsh-muse-account/understand-the-implementation:
+  en: 080a9315b5491f8b
+  zh: 4f6aeec3833c59fd
+/deepseek-ai-dsh-muse-account/further-exploration:
+  en: faff5afdd2802119
+  zh: b07fdc3d0e9acb9a
+/deepseek-ai-dsh-muse-account/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition:
+  en: cd8530c72534ee6b
+  zh: cd8530c72534ee6b
+/deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition/what-the-model-sees:
+  en: 3eabf94a401120c8
+  zh: f7f2ce6aa0f3921d
+/deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition/token-effect:
+  en: b994dedee6efca8a
+  zh: c5d0d0b09937584b
+/deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition/kv-cache-effect:
+  en: 4a9756262e148303
+  zh: 80be931da34e852a
+/deepseek-ai-dsh-muse-account/known-limitations-and-deferred-work:
+  en: 1523f3271d8f6908
+  zh: 9f9ec622f9b8beea
+/deepseek-ai-dsh-muse-account/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 4545eda38a068f8d

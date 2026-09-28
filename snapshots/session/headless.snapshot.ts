@@ -62,6 +62,7 @@ const editingCordisSkill = join(
   repoRoot,
   'packages/preset/agent-preset/skills/editing-cordis-compositions/SKILL.md',
 )
+const museEditingSkill = join(repoRoot, 'apps/desktop-host/skills/editing/SKILL.md')
 
 type SnapshotMode = 'replay' | 'record' | 'refresh'
 
@@ -242,14 +243,22 @@ async function writeSessionFixtures(
     ? refreshFixtureReplacements(actualLogs.map(harvested), prior)
     : []
   const fresh = actualLogs.map((log, index) => {
-    const stable = tokenizeSessionFixtureCwd(mode === 'refresh'
+    const stable = tokenizeRefreshedFixtureCwd(mode === 'refresh'
       ? stabilizeRefreshLog(log.content, prior[index] as string, replacements, ctx)
-      : log.content)
+      : log.content, ctx.cwd)
     return scrubSessionSnapshot(prepareSessionSnapshotFixtureForComparison(stable))
   })
   const output = redactSessionSnapshotIds(stabilizeFixtureMessageIds(fresh, prior))
   await Promise.all(output.map((content, index) => writeFile(join(scenario.dir, names[index] as string), content)))
   return output
+}
+
+/** Refresh can retain a tokenized header while a new tool result contains the run's real cwd. */
+function tokenizeRefreshedFixtureCwd(log: string, cwd: string): string {
+  const lines = log.split('\n')
+  const header = JSON.parse(lines[0] as string) as JsonObject
+  if (header.cwd === '{{cwd}}') lines[0] = JSON.stringify({ ...header, cwd })
+  return tokenizeSessionFixtureCwd(lines.join('\n'))
 }
 
 /**
@@ -484,6 +493,11 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     const target = join(cwd, '.dsh', 'skills', 'editing-cordis-compositions', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })
     await copyFile(editingCordisSkill, target)
+  },
+  async 'muse-editing-skill'(cwd) {
+    const target = join(cwd, '.dsh', 'skills', 'muse-script-editing', 'SKILL.md')
+    await mkdir(dirname(target), { recursive: true })
+    await copyFile(museEditingSkill, target)
   },
   async 'delimiter-path'(cwd) {
     const dir = join(cwd, 'scope</system-reminder>')
@@ -802,6 +816,20 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('tokenizes a refreshed skill path after the session header retained cwd', () => {
+    const cwd = String.raw`C:\Users\runner\AppData\Local\Temp\dsh-log-snap-test`
+    const log = [
+      JSON.stringify({ type: 'session', id: 'test', cwd: '{{cwd}}' }),
+      JSON.stringify({ type: 'tool/result', data: { text: `Base directory: ${cwd}\\.dsh\\skills\\muse-script-editing` } }),
+      '',
+    ].join('\n')
+
+    const output = tokenizeRefreshedFixtureCwd(log, cwd)
+    const result = records(output)[1]?.data as { text: string }
+    expect(result.text).toContain('{{cwd}}')
+    expect(result.text).not.toContain(cwd)
+  })
+
   it('gives every composition and header class exactly one current-writer pin', () => {
     for (const scenario of scenarios) {
       expect(ownerOf(scenario), `${scenario.name}: composition owner`).toBeDefined()

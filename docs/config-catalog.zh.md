@@ -2212,6 +2212,27 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-message-feedback -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-muse-account -->
+<a id="deepseek-aidsh-muse-account"></a>
+
+## `@deepseek-ai/dsh-muse-account`
+
+- `inject`: `tools`
+- `source`: [`packages/host/muse-account/src/index.ts:26`](../packages/host/muse-account/src/index.ts)
+
+```ts config-catalog
+/** Product-configured gateway and optional account storage directory. */
+export interface Config {
+  /** MUSE website origin serving account and knowledge-base access endpoints. */
+  readonly baseUrl: string
+  /** Product-private account directory; omission selects the active DSH home. */
+  readonly accountHome?: string
+  /** Timeout for account and knowledge-base gateway requests in milliseconds. */
+  readonly requestTimeoutMs: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-muse-account -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-office-to-pdf -->
 <a id="deepseek-aidsh-office-to-pdf"></a>
 
@@ -4079,7 +4100,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-shot-script`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-shot-script/src/index.ts:51`](../packages/drama/tool-shot-script/src/index.ts)
+- `source`: [`packages/drama/tool-shot-script/src/index.ts:52`](../packages/drama/tool-shot-script/src/index.ts)
 
 ```ts config-catalog
 /**

@@ -48,21 +48,22 @@ describe('desktop package-set selection', () => {
     ])
   })
 
-  it('requires the private drama skills and BGM packages in Desktop release inputs', () => {
+  it('requires drama skills, BGM and Muse account packages in Desktop release inputs', () => {
     const manifest = JSON.parse(readFileSync(fileURLToPath(new URL('../../desktop-host/package.json', import.meta.url)), 'utf8')) as { dependencies: Record<string, string> }
     const names = Object.keys(manifest.dependencies)
     const available = new Map(names.map(name => [name, packed(name)]))
     available.set('@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host', manifest))
-    for (const name of ['@deepseek-ai/dsh-drama-skills', '@deepseek-ai/dsh-perception-bgm']) {
+    for (const name of ['@deepseek-ai/dsh-drama-skills', '@deepseek-ai/dsh-perception-bgm', '@deepseek-ai/dsh-muse-account']) {
       expect(names).toContain(name)
       const privatePackage = available.get(name)
       if (privatePackage === undefined) throw new Error(`Missing Desktop dependency ${name}`)
       available.delete(name)
-      expect(() => selectDesktopPackageClosure(available)).toThrow(`unpacked internal package ${name}`)
+      expect(() => selectDesktopPackageClosure(available)).toThrow(`requires unpacked package ${name}`)
       available.set(name, privatePackage)
     }
     expect(selectDesktopPackageClosure(available).map(entry => entry.manifest.name)).toEqual(expect.arrayContaining([
       '@deepseek-ai/dsh-tool-jubian', '@deepseek-ai/dsh-drama-skills', '@deepseek-ai/dsh-perception-bgm',
+      '@deepseek-ai/dsh-muse-account',
     ]))
   })
 
@@ -113,15 +114,17 @@ describe('desktop package-set selection', () => {
   it('requires the Desktop Host entry, overlay and product preset', () => {
     const files = [
       'package/lib/index.js',
+      'package/lib/editing-tools.js',
       'package/config/desktop.cordis.patch.yml',
       'package/presets/short-drama/agent.cordis.yml',
       'package/presets/short-drama/preset.yml',
       'package/lib/native-preset.js',
-      ...['standard', 'ptc', 'minimal', 'cordis'].flatMap(id => [
+      ...['standard', 'ptc', 'minimal', 'cordis', 'editing'].flatMap(id => [
         `package/presets/${id}/agent.cordis.yml`, `package/presets/${id}/preset.yml`,
       ]),
       'package/presets/cordis/skills/cordis-plugin-development/SKILL.md',
       'package/presets/cordis/skills/editing-cordis-compositions/SKILL.md',
+      'package/skills/editing/SKILL.md',
     ]
     for (const required of files.slice(4)) {
       expect(() => assertDesktopHostPackageFiles(files.filter(file => file !== required))).toThrow(required)

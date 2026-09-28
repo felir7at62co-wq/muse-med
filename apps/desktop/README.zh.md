@@ -52,7 +52,7 @@ Welcome 加载共享 Toast 的配色和阴影变量，挂载在 body 下的通�
 
 Electron 拥有 `$DSH_HOME/profiles/desktop`。其 `dependencies` 包含 pnpm 安装的包；`dsh.profile.bundles` 包含内置 bundle，后接已启用插件。签名应用从 `resources/app.asar/dsh` 提供 dsh、私有 Desktop Host 及其生产依赖。打包应用选择 runtime profile 解析，不创建包链接；开发 profile 使用文件系统链接。宿主与插件在同一个 Electron Node 模式进程中执行；Desktop 不启用 `--preserve-symlinks`。CLI 不能启动或修改此 profile。
 
-Desktop Host 为所有桌面会话只组合一次短剧设置和剧变工具；有报价的收费调用按剧变 `script_id` 自动使用人民币 4000 元默认上限，本机设置可调整额度。宿主加载维护的短剧技能包，只提供五个产品预设：默认的 `short-drama`、标准模式、PTC 模式、极简模式和创造模式。四个原生编码预设通过只读薄适配器复用；其他自带及个人预设仍被排除。Windows 打包准备构建哈希锁定的 Python、媒体依赖、FFmpeg 和 Whisper 运行时；完整安装包及干净机器检查通过前，发布仍未验收。公开分发二进制还须完成媒体描述文件记录的对应源码审核。
+Desktop Host 为所有桌面会话只组合一次短剧设置和剧变工具；有报价的收费调用按剧变 `script_id` 自动使用人民币 4000 元默认上限，本机设置可调整额度。宿主加载维护的短剧技能包，提供六个产品预设：默认的 `short-drama`、编辑模式、标准模式、PTC 模式、极简模式和创造模式。编辑模式在写正文前实际阅读有来源的爆款剧本开头并记录分析；没有可读原文时向用户索取获授权的来源。设置页内置 MUSE 账号登录；随包 MCP 让 agent 先检索该账号获授权的知识，再按 ID 阅读剧本原文与 Wiki 知识页。开头读取工具只接受网关明确标定为 `viral-script` 的来源包。四个原生编码预设通过只读薄适配器复用；其他自带及个人预设仍被排除。Windows 打包准备构建哈希锁定的 Python、媒体依赖、FFmpeg 和 Whisper 运行时；完整安装包及干净机器检查通过前，发布仍未验收。公开分发二进制还须完成媒体描述文件记录的对应源码审核。
 
 本地启动页提供启动状态和可用恢复操作；加载后的 dsh 渲染进程仅接收桌面协议标记。独立插件窗口接收结构化的列表、安装、删除、更新和更新检查操作；两个渲染进程都无法访问文件系统、原始 Electron IPC、shell 或任意 pnpm 参数。
 
@@ -84,7 +84,7 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 内置飞书桥接只在本产品自己的开关要求时才运行：`feishu` 组合行自身的 `enabled` 字段，它既是该行的 Config，也就是页面向其写入的 `feishu` 设置段。桌面组合在启动后端时从组合出的行里读取它，并重述进 `feishu-channel` 行自己的 `enabled` 键（[`src/feishu-gate.ts`](../desktop-host/src/feishu-gate.ts)），因此开关在下次启动时生效。仅靠开关并不充分：社区构建的兼容 overlay 给该行加入默认 `true` 的插件级激活开关，而 patch 与闸门层都把 `enabled`、`autoRegistration`、`crossInstanceSync` 保持 `false`，所以打开开关只是让桥接挂载，扫码注册与跨实例同步仍然关闭。开关为 off 时该行保持挂载而非 entry-disabled：在这个 harness 里插件的设置段就是它自己的 Config，扫码得到的凭证对必须在桥接首次运行之前就能存下，而 `enabled: false` 是那个让打包插件在同步层、控制服务、心跳与二维码应用注册之前返回的 fail-safe。因此默认桌面不发起扫码注册，不启动同步层与控制服务，也不读取其他实例的同步目录；凭证只来自该行自己存储的段，永不来自组合补丁；能否触达机器人仍取决于飞书应用自身的权限与可见范围。
 
-产品加载随包技能及自身 `$DSH_HOME/skills`，不扫描已有 DSH、`.agents` 或默认项目技能源；显式插件技能注册仍然可用。Windows 用户将自定义技能放在 `%USERPROFILE%\.muse\skills\<skill-name>\SKILL.md`；`MUSE_MED_HOME` 可指定其他产品 home。Host 在启动时创建 skills 目录。开发模式使用下文说明的独立 home。短剧、标准和 PTC 模式提供技能工具。短剧技能从 ASAR 解包，Host 向外部 Python 提供真实的 `app.asar.unpacked` 路径。Windows 启动将 `runtime/media/python` 和 `runtime/media/ffmpeg/bin` 放到子进程搜索路径前部，并设置本地 ASR 模型目录。[媒体准备器](scripts/prepare-media-runtime.ts)在发布输出前检查锁定输入、依赖导入、编码、字幕烧录、草稿媒体探测及离线 ASR；复用时验证完整文件清单并重跑这些检查。构建机器上的验证不能替代无开发工具机器上的安装验证。安装器附带微软官方 VC++ 前置运行库，检查已装版本并在安装前请求授权；拒绝或失败会阻止成功完成和自动启动。再分发需要发行者具有适用的微软许可，不能仅依据运行库终端许可。
+产品加载随包短剧与编辑技能及自身 `$DSH_HOME/skills`，不扫描已有 DSH、`.agents` 或默认项目技能源；显式插件技能注册仍然可用。Windows 用户将自定义技能放在 `%USERPROFILE%\.muse\skills\<skill-name>\SKILL.md`；`MUSE_MED_HOME` 可指定其他产品 home。Host 在启动时创建 skills 目录。开发模式使用下文说明的独立 home。短剧、编辑、标准、PTC 和创造模式提供技能工具。短剧技能从 ASAR 解包，Host 向外部 Python 提供真实的 `app.asar.unpacked` 路径。Windows 启动将 `runtime/media/python` 和 `runtime/media/ffmpeg/bin` 放到子进程搜索路径前部，并设置本地 ASR 模型目录。[媒体准备器](scripts/prepare-media-runtime.ts)在发布输出前检查锁定输入、依赖导入、编码、字幕烧录、草稿媒体探测及离线 ASR；复用时验证完整文件清单并重跑这些检查。构建机器上的验证不能替代无开发工具机器上的安装验证。安装器附带微软官方 VC++ 前置运行库，检查已装版本并在安装前请求授权；拒绝或失败会阻止成功完成和自动启动。再分发需要发行者具有适用的微软许可，不能仅依据运行库终端许可。
 
 [FFmpeg 源码构建流程](scripts/ffmpeg-source-build/README.zh.md)为离线发行生成二进制与对应源码配对。两个 CI job 均须通过后才能替换开发验证用的 FFmpeg 输入，对应源码归档必须与桌面版本一同发布；提交构建不等于产物通过验收。
 

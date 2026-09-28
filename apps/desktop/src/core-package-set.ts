@@ -16,6 +16,7 @@ export const DESKTOP_HOST_PACKAGE = '@deepseek-ai/dsh-desktop-host'
 /** Package-relative Desktop Host files required before a profile can boot. */
 export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
+  'lib/editing-tools.js',
   'config/desktop.cordis.patch.yml',
   'presets/short-drama/agent.cordis.yml',
   'presets/short-drama/preset.yml',
@@ -32,6 +33,9 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   // the agent to load them, so the packaged Host has to carry them beside the composition.
   'presets/cordis/skills/cordis-plugin-development/SKILL.md',
   'presets/cordis/skills/editing-cordis-compositions/SKILL.md',
+  'presets/editing/agent.cordis.yml',
+  'presets/editing/preset.yml',
+  'skills/editing/SKILL.md',
 ] as const
 
 /** Community packages built from pinned source, never substituted from the npm registry. */

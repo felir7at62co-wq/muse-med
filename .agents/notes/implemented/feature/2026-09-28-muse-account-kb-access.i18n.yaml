@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-28-muse-account-kb-access.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-28-muse-account-kb-access.md
+/agent-note-muse-account-access-and-authorized-knowledge-base-reading:
+  en: 408ba14b8d5ea68b
+  zh: 33b750d611bba86d
+/agent-note-muse-account-access-and-authorized-knowledge-base-reading/problem:
+  en: db302b1cd0bf6064
+  zh: 79ba24548595ac18
+/agent-note-muse-account-access-and-authorized-knowledge-base-reading/decision:
+  en: ca997f47cdf39ace
+  zh: 32c1597e32654331
+/agent-note-muse-account-access-and-authorized-knowledge-base-reading/alternatives-considered:
+  en: b05ac198554c767b
+  zh: 6cc6506259a4bc41
+/agent-note-muse-account-access-and-authorized-knowledge-base-reading/consequences:
+  en: e6ee8677bfb384b7
+  zh: 585b7c885c4be965

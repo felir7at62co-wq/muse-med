@@ -88,6 +88,7 @@ function desktopComposition(
   const skillFilesystem = rows.get('skill-filesystem')
   if (skillFilesystem === undefined) throw new Error('muse-med: profile has no skill-filesystem row')
   const bundledSkillDir = bundledSkillDirectory(runtimeDir)
+  const productSkillDir = fileURLToPath(new URL('../skills', import.meta.url))
   const userSkillDir = dshHomePath('skills')
   mkdirSync(userSkillDir, { recursive: true })
   layers.push([{
@@ -95,7 +96,7 @@ function desktopComposition(
     config: {
       ...(skillFilesystem.config ?? {}) as Record<string, unknown>,
       bundledSkillDir,
-      customSkillDirs: [userSkillDir],
+      customSkillDirs: [productSkillDir, userSkillDir],
     },
   }])
   // Last layer wins: the Feishu bridge row runs only when this product's own

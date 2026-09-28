@@ -1,0 +1,57 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  color: var(--dsw-alias-label-primary);
+}
+
+.title {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+.description,
+.status,
+.notice {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.description {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.group,
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field {
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.input {
+  width: 100%;
+}
+
+.checkbox,
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox {
+  font-size: 13px;
+}
+
+.actions {
+  margin-top: 4px;
+}

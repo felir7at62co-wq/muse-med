@@ -9,8 +9,10 @@
   "files": [
     "lib/index.js",
     "lib/native-preset.js",
+    "lib/editing-tools.js",
     "config/desktop.cordis.patch.yml",
-    "presets"
+    "presets",
+    "skills"
   ],
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -34,6 +36,7 @@
     "@deepseek-ai/dsh-host-webserver": "workspace:*",
     "@deepseek-ai/dsh-jobs": "workspace:*",
     "@deepseek-ai/dsh-launch-environment": "workspace:*",
+    "@deepseek-ai/dsh-muse-account": "workspace:*",
     "@deepseek-ai/dsh-perception-bgm": "workspace:*",
     "@deepseek-ai/dsh-schedule": "workspace:*",
     "@deepseek-ai/dsh-skill-office": "workspace:*",
@@ -52,6 +55,7 @@
   "exports": {
     ".": "./lib/index.js",
     "./native-preset": "./lib/native-preset.js",
+    "./editing-tools": "./lib/editing-tools.js",
     "./package.json": "./package.json"
   }
 }

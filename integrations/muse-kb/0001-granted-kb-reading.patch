@@ -1,0 +1,844 @@
+diff --git a/muse-accounts/gateway.mjs b/muse-accounts/gateway.mjs
+index 9fc2649..3949470 100644
+--- a/muse-accounts/gateway.mjs
++++ b/muse-accounts/gateway.mjs
+@@ -9,6 +9,7 @@ import {feedbackRoute} from './feedback-http.mjs';
+ import {openAdminAccess} from './admin-access.mjs';
+ import {openStore,validId} from './store.mjs';
+ import {createKbMcp} from './kb-mcp.mjs';
++import {loadDocumentGrants} from './kb-grants.mjs';
+ // Cloud knowledge base endpoint (bearer-token authenticated).
+ import {openModelConfig,createModelRelay} from './model-relay.mjs';
+ import {openGlobalModels,restrictModelSchema} from './global-models.mjs';
+@@ -20,13 +21,12 @@ function loginPage(register=false){return page(register?'注册':'登录',`<img
+ export function createAccountServer({store,runtime,modelConfig,globalModels,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,now=Date.now,sessionTtlMs=43200000,devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
+  if(!['development','production'].includes(environment))throw Error('Invalid environment');
+  if(!/^__Host-[A-Za-z0-9_-]+$/.test(cookieName))throw Error('Invalid secure session cookie name');
+-  // The knowledge base authenticates machines with bearer tokens, never browser
+-  // cookies, so it is built once here and served ahead of the browser session gate.
+-  const kbEndpoint=environment==='development'&&kb?.vaultRoot&&typeof kb.secret==='string'&&kb.secret.length>=32?createKbMcp({vaultRoot:kb.vaultRoot,accounts:store,secret:kb.secret,embedder:kb.embedder,vectors:kb.vectors,semanticWeight:kb.semanticWeight,semanticFloor:kb.semanticFloor,onWarn:message=>console.error('[muse-kb]',message)}):null;
+  async function maintenance(){if(!maintenanceFile)return false;try{await access(maintenanceFile);return true;}catch(e){if(e.code==='ENOENT')return false;throw e;}}
+  function workspaceMutation(path){return /^\/api\/workspace[./](create|delete|rename|update|change|insertBefore)(?:\/|$)/.test(decodeURIComponent(path));}
+- publicOrigin=new URL(publicOrigin).origin;const sessions=new Map(),rates=new Map(),connections=new Map(),cookies=new Map(),httpStreams=new Map();
+- function revoke(token){sessions.delete(token);adminAccess?.revoke(token);for(const socket of connections.get(token)||[])socket.destroy();connections.delete(token);for(const stream of httpStreams.get(token)||[])stream.destroy();httpStreams.delete(token);}
++ publicOrigin=new URL(publicOrigin).origin;const sessions=new Map(),rates=new Map(),connections=new Map(),cookies=new Map(),httpStreams=new Map(),kbAccessTokens=new Map();
++ function authorizeKbToken(token){const grant=kbAccessTokens.get(token);if(!grant)return null;const session=sessions.get(grant.sessionToken),account=session&&store.get(session.id);if(!session||!account||account.disabled||account.revision!==session.revision||session.id!==grant.accountId||session.expiry<=now()||grant.expiry<=now()){kbAccessTokens.delete(token);return null;}return {account,mode:'read'};}
++ const kbEndpoint=kb?.vaultRoot&&typeof kb.secret==='string'&&kb.secret.length>=32?createKbMcp({vaultRoot:kb.vaultRoot,accounts:store,secret:kb.secret,documentGrants:kb.documentGrants,authorize:authorizeKbToken,embedder:kb.embedder,vectors:kb.vectors,semanticWeight:kb.semanticWeight,semanticFloor:kb.semanticFloor,onWarn:message=>console.error('[muse-kb]',message)}):null;
++ function revoke(token){sessions.delete(token);for(const [key,grant] of kbAccessTokens)if(grant.sessionToken===token)kbAccessTokens.delete(key);adminAccess?.revoke(token);for(const socket of connections.get(token)||[])socket.destroy();connections.delete(token);for(const stream of httpStreams.get(token)||[])stream.destroy();httpStreams.delete(token);}
+  function touchAccount(id){try{Promise.resolve(runtime.touch?.(id)).catch(()=>{});}catch{}}
+  const changed=id=>{for(const [token,s]of sessions)if(s.id===id)revoke(token);cookies.delete(id);};store.on('change',changed);
+  function session(req){const token=req.headers.cookie?.split(';').map(x=>x.trim()).find(x=>x.startsWith(cookieName+'='))?.slice(cookieName.length+1);const s=sessions.get(token),a=s&&store.get(s.id);if(s&&s.expiry>now()&&a&&!a.disabled&&a.revision===s.revision&&(!devOnlyAdmin||a.admin))return {token,...s,account:a};if(token)revoke(token);return null;}
+@@ -65,6 +65,15 @@ export function createAccountServer({store,runtime,modelConfig,globalModels,feed
+    return;
+   }
+   const s=session(req);if(!s){reply(res,303,'',{location:'/login'});return;}if(!originOK(req,!['GET','HEAD','OPTIONS'].includes(req.method))){reply(res,403);return;}touchAccount(s.id);
++  if(path==='/api/kb/access'){
++   if(req.method!=='POST'){reply(res,405,'',{allow:'POST'});return;}
++   if(!kbEndpoint){reply(res,503,JSON.stringify({error:'云端知识库未配置'}),{'content-type':'application/json'});return;}
++   if(!rate(req,'kb-access',30)){reply(res,429,'请求过于频繁',{'retry-after':'60'});return;}
++   while(kbAccessTokens.size>=10000)kbAccessTokens.delete(kbAccessTokens.keys().next().value);
++   const token=randomBytes(32).toString('base64url'),expiresAt=Math.min(s.expiry,now()+15*60_000);
++   kbAccessTokens.set(token,{sessionToken:s.token,accountId:s.id,expiry:expiresAt});
++   reply(res,200,JSON.stringify({url:publicOrigin+'/api/kb/mcp',token,expiresAt}),{'content-type':'application/json; charset=utf-8'});return;
++  }
+   let context;try{context=scope(req,s);}catch(error){reply(res,error.status||403,'管理授权已失效，请返回管理员中心重新验证。');return;}
+   const targetId=context?.target.id||s.id;
+   // An administrator lands in their own workroom; machine and account contexts are
+@@ -183,7 +192,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
+  const adminAccess=process.env.MUSE_ADMIN_ROOT?await openAdminAccess(process.env.MUSE_ADMIN_ROOT):undefined;
+  const adminHosts=process.env.MUSE_ADMIN_HOSTS?JSON.parse(await readFile(process.env.MUSE_ADMIN_HOSTS,'utf8')):{};
+  let kb;
+- if(process.env.MUSE_ENVIRONMENT==='development'&&process.env.MUSE_KB_VAULT&&process.env.MUSE_KB_SECRET){
++ if(process.env.MUSE_KB_VAULT&&process.env.MUSE_KB_SECRET){
+   const secret=(await readFile(process.env.MUSE_KB_SECRET,'utf8').catch(()=>'')).trim();
+   if(secret.length<32)console.error('[muse-kb] 知识库密钥缺失或过短，云端知识库接口已停用');
+   else{
+@@ -195,7 +204,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
+    let vectors;
+    if(process.env.MUSE_KB_VECTORS)try{vectors=openVectorIndex({file:process.env.MUSE_KB_VECTORS,model:embedder.model});}
+    catch(error){console.error('[muse-kb] 向量索引不可读，已退回纯关键词检索：',error.code||error.message);}
+-   kb={vaultRoot:process.env.MUSE_KB_VAULT,secret,embedder,vectors,semanticWeight:Number(process.env.MUSE_KB_SEMANTIC_WEIGHT??0.5),semanticFloor:Number(process.env.MUSE_KB_SEMANTIC_FLOOR??0.5)};
++   const documentGrants=process.env.MUSE_KB_DOCUMENT_GRANTS?await loadDocumentGrants(process.env.MUSE_KB_DOCUMENT_GRANTS):new Map();
++   kb={vaultRoot:process.env.MUSE_KB_VAULT,secret,documentGrants,embedder,vectors,semanticWeight:Number(process.env.MUSE_KB_SEMANTIC_WEIGHT??0.5),semanticFloor:Number(process.env.MUSE_KB_SEMANTIC_FLOOR??0.5)};
+   }
+  }
+  createAccountServer({store,runtime,modelConfig,globalModels,feedback,adminAccess,adminHosts,kb,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH}).listen(Number(process.env.MUSE_PORT||19388),'127.0.0.1',()=>console.log('MUSE accounts gateway listening on loopback'));
+diff --git a/muse-accounts/kb-grants.mjs b/muse-accounts/kb-grants.mjs
+new file mode 100644
+index 0000000..ce3af10
+--- /dev/null
++++ b/muse-accounts/kb-grants.mjs
+@@ -0,0 +1,31 @@
++import {readFile} from 'node:fs/promises';
++import {validDocumentId} from './kb-vault.mjs';
++
++const ACCOUNT_ID = /^[a-f0-9]{16}$/;
++
++/** Load explicit, administrator-maintained permissions for source and wiki IDs. */
++export async function loadDocumentGrants(file) {
++  if (typeof file !== 'string' || !file) throw new Error('Document grants file is required');
++  const data = JSON.parse(await readFile(file, 'utf8'));
++  if (data?.version !== 1 || !Array.isArray(data.grants) || data.grants.length > 10_000 || Object.keys(data).some(key => key !== 'version' && key !== 'grants')) throw new Error('Invalid document grants file');
++  const grants = new Map();
++  for (const grant of data.grants) {
++    const keys = Object.keys(grant ?? {});
++    const base = keys.every(key => ['id', 'kind', 'level', 'access', 'accountIds', 'sha256', 'title'].includes(key))
++      && validDocumentId(grant?.id) && !grants.has(grant.id)
++      && typeof grant.sha256 === 'string' && /^[a-f0-9]{64}$/.test(grant.sha256)
++      && (!keys.includes('title') || (typeof grant.title === 'string' && grant.title.trim() === grant.title && grant.title.length > 0 && grant.title.length <= 200 && !/[\x00-\x1f]/.test(grant.title)))
++      && ['viral-script', 'knowledge'].includes(grant.kind)
++      && (grant.kind !== 'viral-script' || grant.id.startsWith('SRC-'))
++      && ['opening', 'read'].includes(grant.level)
++      && (grant.level !== 'opening' || grant.kind === 'viral-script')
++      && ['all-authenticated', 'accounts'].includes(grant.access);
++    const accountScope = grant?.access === 'accounts'
++      && Array.isArray(grant.accountIds) && grant.accountIds.length > 0 && grant.accountIds.length <= 1000
++      && grant.accountIds.every(id => typeof id === 'string' && ACCOUNT_ID.test(id))
++      && new Set(grant.accountIds).size === grant.accountIds.length;
++    if (!base || (grant.access === 'accounts' ? !accountScope : keys.includes('accountIds'))) throw new Error('Invalid document grant');
++    grants.set(grant.id, {kind: grant.kind, level: grant.level, accounts: new Set(grant.access === 'accounts' ? grant.accountIds : ['*']), sha256: grant.sha256, ...keys.includes('title') ? {title: grant.title} : {}});
++  }
++  return grants;
++}
+diff --git a/muse-accounts/kb-mcp.mjs b/muse-accounts/kb-mcp.mjs
+index 3c632e4..4011bba 100644
+--- a/muse-accounts/kb-mcp.mjs
++++ b/muse-accounts/kb-mcp.mjs
+@@ -9,7 +9,7 @@
+ //     and the client returns cleanly instead of erroring;
+ //   * initialize must carry `mcp-session-id` when the response is ok.
+ import {randomBytes} from 'node:crypto';
+-import {ingestSession, searchVault, collectDocuments, documentContent} from './kb-vault.mjs';
++import {ingestSession, searchVault, collectGrantedDocuments, documentContent, readOpening, readDocumentPage} from './kb-vault.mjs';
+ import {verifyKbToken} from './kb-token.mjs';
+ import {embeddingChunks} from './kb-embedding.mjs';
+ 
+@@ -58,6 +58,30 @@ const TOOLS = [
+     description: '查看云端知识库规模：来源包数量与知识页数量。',
+     inputSchema: {type: 'object', additionalProperties: false, properties: {}},
+   },
++  {
++    name: 'read_opening',
++    description: '分段读取管理员标定的爆款剧本来源包开头；每次最多 6000 字，总共最多 24000 字。',
++    inputSchema: {
++      type: 'object', additionalProperties: false,
++      properties: {
++        id: {type: 'string', pattern: '^SRC-\\d{4}-\\d{2}-\\d{2}-\\d{3}$', description: 'search 返回且标定为 viral-script 的来源包 ID'},
++        start: {type: 'integer', enum: [0, 6000, 12000, 18000], description: '已读字符范围的起点；首次省略，下一次使用结果中的下一段起点'},
++      },
++      required: ['id'],
++    },
++  },
++  {
++    name: 'read',
++    description: '按 search 返回的来源包或知识页 ID 分页读取已授权正文，每页最多 6000 字。',
++    inputSchema: {
++      type: 'object', additionalProperties: false,
++      properties: {
++        id: {type: 'string', description: 'search 返回的来源包或知识页 ID'},
++        start: {type: 'integer', minimum: 0, maximum: 4194000, multipleOf: 6000, description: '已读字符范围的起点；首次省略，续读使用上一页的下一段起点'},
++      },
++      required: ['id'],
++    },
++  },
+ ];
+ 
+ const text = value => ({content: [{type: 'text', text: value}]});
+@@ -66,9 +90,16 @@ const failure = value => ({content: [{type: 'text', text: value}], isError: true
+ function reply(id, result) { return {jsonrpc: '2.0', id, result}; }
+ function fault(id, code, message) { return {jsonrpc: '2.0', id, error: {code, message}}; }
+ 
+-export function createKbMcp({vaultRoot, accounts, secret, serverName = 'muse-kb', embedder, vectors, semanticWeight = 0.5, semanticFloor = 0.5, onWarn = () => {}} = {}) {
++export function createKbMcp({vaultRoot, accounts, secret, documentGrants = new Map(), authorize, serverName = 'muse-kb', embedder, vectors, semanticWeight = 0.5, semanticFloor = 0.5, onWarn = () => {}} = {}) {
+   if (!vaultRoot) throw new Error('vaultRoot is required');
+ 
++  const canAccess = (id, account, level) => {
++    const grant = documentGrants.get(id);
++    return !!grant && (grant.accounts.has('*') || grant.accounts.has(account.id))
++      && (level === 'opening' ? grant.kind === 'viral-script' && id.startsWith('SRC-') : grant.level === 'read');
++  };
++  const visibleGrants = account => new Map([...documentGrants].filter(([id, grant]) => (grant.accounts.has('*') || grant.accounts.has(account.id)) && (grant.level === 'read' || canAccess(id, account, 'opening'))));
++
+   /** Best-effort: a vector is an enhancement, never a reason to lose a session. */
+   async function remember(id, content) {
+     if (!embedder?.enabled || !vectors) return false;
+@@ -84,15 +115,36 @@ export function createKbMcp({vaultRoot, accounts, secret, serverName = 'muse-kb'
+     }
+   }
+ 
+-  async function callTool(name, args, account) {
++  async function callTool(name, args, account, mode) {
++    if (name === 'ingest' && mode === 'read') return failure('此登录会话没有知识库写入权限。');
++    if (name === 'read') {
++      if (!args || typeof args !== 'object' || Array.isArray(args) || !Object.hasOwn(args, 'id') || Object.keys(args).some(key => key !== 'id' && key !== 'start')) return failure('read 只接受文档 id 和起点 start。');
++      if (typeof args.id !== 'string' || !canAccess(args.id, account, 'read')) return failure('文档不存在或未授权。');
++      let result;
++      try { result = await readDocumentPage(vaultRoot, args.id, {start: args.start, ...documentGrants.get(args.id)}); }
++      catch (error) { onWarn(`document read failed for ${args.id}: ${error.message}`); return failure('文档读取失败。'); }
++      if (!result) return failure('文档不存在或未授权。');
++      return text(`id: ${result.id}\n类型: ${result.type}\n标定: ${documentGrants.get(result.id).kind}\n标题: ${result.title}\n来源总字节数: ${result.sourceBytes}\n正文页码: ${result.start / 6000 + 1}\n已读字符范围: [${result.start}, ${result.endExclusive})\n后续正文未读: ${result.truncated ? '是' : '否'}\n下一段起点: ${result.nextStart ?? '无'}\n正文:\n${result.body}`);
++    }
++    if (name === 'read_opening') {
++      if (!args || typeof args !== 'object' || Array.isArray(args) || !Object.hasOwn(args, 'id') || Object.keys(args).some(key => key !== 'id' && key !== 'start')) return failure('read_opening 只接受来源包 id 和起点 start。');
++      const id = args?.id;
++      const allowed = typeof id === 'string' && canAccess(id, account, 'opening');
++      if (!allowed) return failure('开头内容不存在或未授权。');
++      let result;
++      try { result = await readOpening(vaultRoot, id, {start: args.start, ...documentGrants.get(id)}); }
++      catch (error) { onWarn(`opening read failed for ${id}: ${error.message}`); return failure('开头内容读取失败。'); }
++      if (!result) return failure('开头内容不存在或未授权。');
++      return text(`id: ${result.id}\n类型: source\n标定: viral-script\n标题: ${result.title}\n来源总字节数: ${result.sourceBytes}\n开头页码: ${result.start / 6000 + 1}/4\n已读字符范围: [${result.start}, ${result.endExclusive})\n后续正文未读: ${result.truncated ? '是' : '否'}\n下一段起点: ${result.nextStart ?? '无'}\n达到开头上限: ${result.limitReached ? '是' : '否'}\n开头正文:\n${result.opening}`);
++    }
+     if (name === 'search') {
+       const query = args?.query;
+       if (typeof query !== 'string' || !query.trim() || query.length > MAX_QUERY) return failure(`query must be 1–${MAX_QUERY} characters`);
+-      const found = await searchVault(vaultRoot, {query, limit: args?.limit, embedder, vectors, semanticWeight, semanticFloor});
++      const found = await searchVault(vaultRoot, {query, limit: args?.limit, embedder, vectors, semanticWeight, semanticFloor, allowedGrants: visibleGrants(account)});
+       if (!found.results.length) return text(`没有检索到与「${query.trim()}」相关的内容（已扫描 ${found.scanned} 篇）。`);
+       const how = found.semantic ? '语义+关键词' : '关键词';
+       return text(`检索方式：${how}\n\n` + found.results.map((entry, index) =>
+-        `${index + 1}. ${entry.title}\n   id: ${entry.id}\n   摘要: ${entry.preview.replace(/\s+/g, ' ').trim().slice(0, 200)}`).join('\n\n'));
++        `${index + 1}. ${entry.title}\n   id: ${entry.id}\n   类型: ${entry.id.startsWith('wiki/') ? 'wiki' : 'source'}\n   标定: ${documentGrants.get(entry.id)?.kind ?? 'unclassified'}\n   摘要: ${entry.preview.replace(/\s+/g, ' ').trim().slice(0, 200)}`).join('\n\n'));
+     }
+     if (name === 'ingest') {
+       const title = typeof args?.title === 'string' && args.title.trim() ? args.title.trim() : String(args?.text ?? '').trim().split('\n')[0].slice(0, 80) || '未命名会话';
+@@ -106,16 +158,16 @@ export function createKbMcp({vaultRoot, accounts, secret, serverName = 'muse-kb'
+     }
+     if (name === 'status') {
+       vectors?.refresh?.();
+-      const documents = await collectDocuments(vaultRoot);
++      const documents = await collectGrantedDocuments(vaultRoot, visibleGrants(account));
+       const sources = documents.filter(document => !document.id.startsWith('wiki/')).length;
+       const pages = documents.length - sources;
+-      const semantic = embedder?.enabled && vectors ? `语义检索：开启（${embedder.model}，已建向量 ${vectors.size()} 条）` : '语义检索：未配置，当前为纯关键词检索';
++      const semantic = embedder?.enabled && vectors ? `语义检索：开启（${embedder.model}）` : '语义检索：未配置，当前为纯关键词检索';
+       return text(`云端知识库：来源包 ${sources} 个，知识页 ${pages} 页。\n${semantic}`);
+     }
+     throw Object.assign(new Error('Unknown tool'), {code: INVALID_PARAMS, message: `未知工具：${name}`});
+   }
+ 
+-  async function handleMessage(message, account) {
++  async function handleMessage(message, account, mode) {
+     const id = message.id;
+     const isNotification = id === undefined || id === null;
+     if (message.jsonrpc !== '2.0' || typeof message.method !== 'string') {
+@@ -127,15 +179,16 @@ export function createKbMcp({vaultRoot, accounts, secret, serverName = 'muse-kb'
+       const protocolVersion = SUPPORTED.includes(requested) ? requested : LATEST;
+       return {message: reply(id, {protocolVersion, capabilities: {tools: {}}, serverInfo: {name: serverName, version: '1.0.0'}}), session: true};
+     }
+-    if (message.method === 'tools/list') return {message: reply(id, {tools: TOOLS})};
++    if (message.method === 'tools/list') return {message: reply(id, {tools: mode === 'read' ? TOOLS.filter(tool => tool.name !== 'ingest') : TOOLS})};
+     if (message.method === 'tools/call') {
+       const name = message.params?.name;
+       if (typeof name !== 'string') return {message: fault(id, INVALID_PARAMS, 'params.name is required')};
+       try {
+-        return {message: reply(id, await callTool(name, message.params?.arguments ?? {}, account))};
++        return {message: reply(id, await callTool(name, message.params?.arguments ?? {}, account, mode))};
+       } catch (error) {
+         if (error.code === INVALID_PARAMS) return {message: fault(id, INVALID_PARAMS, error.message)};
+-        return {message: reply(id, {content: [{type: 'text', text: `工具执行失败：${error.message}`}], isError: true})};
++        onWarn(`knowledge-base tool ${name} failed: ${error.message}`);
++        return {message: reply(id, failure('知识库工具执行失败，请稍后重试。'))};
+       }
+     }
+     if (message.method === 'ping') return {message: reply(id, {})};
+@@ -145,9 +198,11 @@ export function createKbMcp({vaultRoot, accounts, secret, serverName = 'muse-kb'
+   return async function handle({method, headers = {}, body} = {}) {
+     const authorization = headers.authorization ?? headers.Authorization ?? '';
+     const token = String(authorization).replace(/^Bearer\s+/i, '').trim();
+-    const accountId = verifyKbToken(secret, token, accounts);
++    const delegated = authorize?.(token);
++    const accountId = delegated?.account?.id ?? verifyKbToken(secret, token, accounts);
+     if (!accountId) return {status: 401, headers: {'content-type': 'application/json', 'cache-control': 'no-store'}, body: null};
+     const account = accounts.get(accountId);
++    const mode = delegated?.mode ?? 'full';
+ 
+     if (method === 'GET' || method === 'DELETE') return {status: 405, headers: {allow: 'POST'}, body: null};
+     if (method !== 'POST') return {status: 405, headers: {allow: 'POST'}, body: null};
+@@ -164,7 +219,7 @@ export function createKbMcp({vaultRoot, accounts, secret, serverName = 'muse-kb'
+     let session = false;
+     for (const message of messages) {
+       if (!message || typeof message !== 'object') continue;
+-      const outcome = await handleMessage(message, account);
++      const outcome = await handleMessage(message, account, mode);
+       if (outcome.session) session = true;
+       if (outcome.message) responses.push(outcome.message);
+     }
+diff --git a/muse-accounts/kb-opening.test.mjs b/muse-accounts/kb-opening.test.mjs
+new file mode 100644
+index 0000000..b272c1c
+--- /dev/null
++++ b/muse-accounts/kb-opening.test.mjs
+@@ -0,0 +1,412 @@
++import {test} from 'node:test';
++import assert from 'node:assert/strict';
++import {mkdtemp, mkdir, readFile, rename, rm, symlink, writeFile} from 'node:fs/promises';
++import {createHash} from 'node:crypto';
++import {join} from 'node:path';
++import {tmpdir} from 'node:os';
++import {createKbMcp} from './kb-mcp.mjs';
++import {kbToken} from './kb-token.mjs';
++import {readOpening, readDocumentPage} from './kb-vault.mjs';
++import {openStore} from './store.mjs';
++import {createAccountServer} from './gateway.mjs';
++import {loadDocumentGrants} from './kb-grants.mjs';
++
++const secret = 'test-only-knowledge-base-secret-over-32-chars';
++const id = 'SRC-2026-09-28-001';
++const account = {id: '0123456789abcdef', username: 'editor', revision: 1, disabled: false};
++
++const documentPath = (root, documentId) => documentId.startsWith('wiki/')
++  ? join(root, 'wiki', ...documentId.slice(5).split('/')) + '.md'
++  : join(root, 'raw', 'sources', documentId, 'extracted.md');
++const sha256 = async path => createHash('sha256').update(await readFile(path)).digest('hex');
++const granted = async (root, documentId, {kind = 'knowledge', level = 'read', accounts = new Set([account.id]), title} = {}) => ({
++  kind, level, accounts, sha256: await sha256(documentPath(root, documentId)), ...(title === undefined ? {} : {title}),
++});
++const invoke = async (handle, name, args = {}) => {
++  const body = JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name, arguments: args}});
++  const response = await handle({method: 'POST', headers: {authorization: `Bearer ${kbToken(secret, account.id, account.revision)}`}, body});
++  assert.equal(response.status, 200);
++  return JSON.parse(response.body).result;
++};
++
++test('read_opening returns a bounded opening only for an explicitly granted account', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-opening-'));
++  t.after(() => rm(root, {recursive: true, force: true}));
++  const packet = join(root, 'raw', 'sources', id);
++  await mkdir(packet, {recursive: true});
++  const opening = '她在婚礼上发现请柬是伪造的。'.repeat(500);
++  await writeFile(join(packet, 'extracted.md'), opening + 'LATE-SECRET');
++  await writeFile(join(packet, 'manifest.json'), JSON.stringify({id, title: '爆款开头'}));
++  const accounts = {get: accountId => accountId === account.id ? account : null};
++  const handle = createKbMcp({vaultRoot: root, accounts, secret, documentGrants: new Map([[id, await granted(root, id, {kind: 'viral-script', level: 'opening'})]])});
++  const body = JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name: 'read_opening', arguments: {id}}});
++  const response = await handle({method: 'POST', headers: {authorization: `Bearer ${kbToken(secret, account.id, account.revision)}`}, body});
++  assert.equal(response.status, 200);
++  const result = JSON.parse(response.body).result;
++  assert.equal(result.isError, undefined);
++  assert.match(result.content[0].text, /SRC-2026-09-28-001/);
++  assert.match(result.content[0].text, /她在婚礼上发现请柬/);
++  assert.doesNotMatch(result.content[0].text, /LATE-SECRET/);
++  assert.ok(result.content[0].text.length < 7000);
++});
++
++test('read_opening refuses an ungranted account and a request for a later range', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-denied-'));
++  t.after(() => rm(root, {recursive: true, force: true}));
++  const packet = join(root, 'raw', 'sources', id);
++  await mkdir(packet, {recursive: true});
++  await writeFile(join(packet, 'extracted.md'), 'PRIVATE OPENING');
++  await writeFile(join(packet, 'manifest.json'), JSON.stringify({id, title: 'Private'}));
++  const other = {id: 'fedcba9876543210', username: 'other', revision: 1, disabled: false};
++  const accounts = {get: accountId => [account, other].find(item => item.id === accountId)};
++  const handle = createKbMcp({vaultRoot: root, accounts, secret, documentGrants: new Map([[id, await granted(root, id, {kind: 'viral-script', level: 'opening'})]])});
++  const invoke = async (actor, arguments_) => {
++    const body = JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name: 'read_opening', arguments: arguments_}});
++    const response = await handle({method: 'POST', headers: {authorization: `Bearer ${kbToken(secret, actor.id, actor.revision)}`}, body});
++    return JSON.parse(response.body).result;
++  };
++  const denied = await invoke(other, {id});
++  assert.equal(denied.isError, true);
++  assert.doesNotMatch(denied.content[0].text, /PRIVATE OPENING|Private/);
++  const range = await invoke(account, {id, offset: 6000});
++  assert.equal(range.isError, true);
++  assert.doesNotMatch(range.content[0].text, /PRIVATE OPENING/);
++});
++
++test('readOpening accepts a large script without exposing later content or traversing paths', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-large-'));
++  t.after(() => rm(root, {recursive: true, force: true}));
++  const packet = join(root, 'raw', 'sources', id);
++  await mkdir(packet, {recursive: true});
++  await writeFile(join(packet, 'extracted.md'), '开场'.repeat(3000) + '结尾秘密'.repeat(200_000));
++  await writeFile(join(packet, 'manifest.json'), JSON.stringify({id, title: '长剧本'}));
++  const fileHash = await sha256(documentPath(root, id));
++  const result = await readOpening(root, id, {sha256: fileHash});
++  assert.equal(Array.from(result.opening).length, 6000);
++  assert.equal(result.truncated, true);
++  assert.doesNotMatch(result.opening, /结尾秘密/);
++  assert.equal(await readOpening(root, '../../outside'), null);
++  const later = await readDocumentPage(root, id, {start: 600000, sha256: fileHash});
++  assert.equal(later.start, 600000);
++  assert.equal(Array.from(later.body).length, 6000);
++  assert.match(later.body, /结尾秘密/);
++  const beforeOldLimit = await readDocumentPage(root, id, {start: 396000, sha256: fileHash});
++  assert.equal(beforeOldLimit.nextStart, 402000);
++  const afterOldLimit = await readDocumentPage(root, id, {start: beforeOldLimit.nextStart, sha256: fileHash});
++  assert.equal(afterOldLimit.start, 402000);
++  assert.equal(Array.from(afterOldLimit.body).length, 6000);
++});
++
++test('a logged-in account receives a short-lived read token that stops working on logout', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-session-'));
++  const store = await openStore(join(root, 'accounts.json'));
++  const actor = await store.create('editor', 'password');
++  const packet = join(root, 'vault', 'raw', 'sources', id);
++  await mkdir(packet, {recursive: true});
++  await writeFile(join(packet, 'extracted.md'), '开头场景');
++  await writeFile(join(packet, 'manifest.json'), JSON.stringify({id, title: '授权样本'}));
++  const server = createAccountServer({
++    store, runtime: {ensure: async () => { throw Error('Unexpected workroom request'); }},
++    publicOrigin: 'https://muse.test', environment: 'production',
++    kb: {vaultRoot: join(root, 'vault'), secret, documentGrants: new Map([[id, await granted(join(root, 'vault'), id, {kind: 'viral-script', level: 'opening', accounts: new Set([actor.id])})]])},
++  });
++  const base = await new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`)));
++  t.after(async () => {server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(root, {recursive: true, force: true});});
++  const login = await fetch(base + '/login', {method: 'POST', headers: {origin: 'https://muse.test'}, body: new URLSearchParams({username: 'editor', password: 'password'}), redirect: 'manual'});
++  assert.equal(login.status, 303);
++  const cookie = login.headers.get('set-cookie').split(';')[0];
++  const badOrigin = await fetch(base + '/api/kb/access', {method: 'POST', headers: {origin: 'https://other.test', cookie}, redirect: 'manual'});
++  assert.equal(badOrigin.status, 403);
++  const issued = await fetch(base + '/api/kb/access', {method: 'POST', headers: {origin: 'https://muse.test', cookie}});
++  assert.equal(issued.status, 200);
++  const {token, url, expiresAt} = await issued.json();
++  assert.equal(url, 'https://muse.test/api/kb/mcp');
++  assert.ok(expiresAt > Date.now() && expiresAt <= Date.now() + 15 * 60_000);
++  assert.ok(token && !cookie.includes(token));
++  const call = async (name, args) => {
++    const response = await fetch(base + '/api/kb/mcp', {method: 'POST', headers: {authorization: `Bearer ${token}`}, body: JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name, arguments: args}})});
++    return {status: response.status, json: await response.json().catch(() => null)};
++  };
++  assert.match((await call('read_opening', {id})).json.result.content[0].text, /开头场景/);
++  assert.equal((await call('ingest', {text: 'Forbidden'})).json.result.isError, true);
++  const logout = await fetch(base + '/logout', {method: 'POST', headers: {origin: 'https://muse.test', cookie}, redirect: 'manual'});
++  assert.equal(logout.status, 303);
++  assert.equal((await call('read_opening', {id})).status, 401);
++});
++
++test('the last page of a maximum-size document does not advertise an unusable next start', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-max-page-'));
++  t.after(() => rm(root, {recursive: true, force: true}));
++  const packet = join(root, 'raw', 'sources', id);
++  await mkdir(packet, {recursive: true});
++  await writeFile(join(packet, 'extracted.md'), 'A'.repeat(4 * 1024 * 1024));
++  await writeFile(join(packet, 'manifest.json'), JSON.stringify({id, title: '最大文档'}));
++  const last = await readDocumentPage(root, id, {start: 4_194_000, sha256: await sha256(documentPath(root, id))});
++  assert.equal(last.body.length, 304);
++  assert.equal(last.sourceBytes, 4 * 1024 * 1024);
++  assert.equal(last.truncated, false);
++  assert.equal(last.nextStart, null);
++});
++
++test('read_opening exposes exact bounded ranges and a continuation before the opening limit', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-range-'));
++  t.after(() => rm(root, {recursive: true, force: true}));
++  const packet = join(root, 'raw', 'sources', id);
++  await mkdir(packet, {recursive: true});
++  const content = '起'.repeat(6000) + '首个悬念' + '转'.repeat(17_996) + '后文秘密';
++  await writeFile(join(packet, 'extracted.md'), content);
++  await writeFile(join(packet, 'manifest.json'), JSON.stringify({id, title: '参考剧本'}));
++  const handle = createKbMcp({vaultRoot: root, accounts: {get: () => account}, secret, documentGrants: new Map([[id, await granted(root, id, {kind: 'viral-script', level: 'opening', accounts: new Set(['*'])})]])});
++  const call = async args => {
++    const body = JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name: 'read_opening', arguments: args}});
++    const response = await handle({method: 'POST', headers: {authorization: `Bearer ${kbToken(secret, account.id, account.revision)}`}, body});
++    return JSON.parse(response.body).result;
++  };
++  const first = await call({id});
++  assert.match(first.content[0].text, /已读字符范围: \[0, 6000\)/);
++  assert.match(first.content[0].text, /下一段起点: 6000/);
++  assert.doesNotMatch(first.content[0].text, /首个悬念/);
++  const second = await call({id, start: 6000});
++  assert.match(second.content[0].text, /已读字符范围: \[6000, 12000\)/);
++  assert.match(second.content[0].text, /开头页码: 2\/4/);
++  assert.match(second.content[0].text, /首个悬念/);
++  const last = await call({id, start: 18000});
++  assert.match(last.content[0].text, /达到开头上限: 是/);
++  assert.doesNotMatch(last.content[0].text, /后文秘密/);
++  assert.equal((await call({id, start: 24000})).isError, true);
++  assert.equal((await call({id, start: 1})).isError, true);
++});
++
++test('a session read token searches only granted script sources', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-search-scope-'));
++  t.after(() => rm(root, {recursive: true, force: true}));
++  const privateId = 'SRC-2026-09-28-002';
++  for (const [sourceId, title] of [[id, '获授权样本'], [privateId, '私人剧本']]) {
++    const packet = join(root, 'raw', 'sources', sourceId);
++    await mkdir(packet, {recursive: true});
++    await writeFile(join(packet, 'extracted.md'), '共同关键词 ' + title);
++    await writeFile(join(packet, 'manifest.json'), JSON.stringify({id: sourceId, title}));
++  }
++  const handle = createKbMcp({
++    vaultRoot: root, accounts: {get: () => account}, secret,
++    documentGrants: new Map([[id, await granted(root, id, {kind: 'viral-script', level: 'opening'})]]),
++    authorize: token => token === 'read-session' ? {account, mode: 'read'} : null,
++  });
++  const body = JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name: 'search', arguments: {query: '共同关键词'}}});
++  const response = await handle({method: 'POST', headers: {authorization: 'Bearer read-session'}, body});
++  assert.equal(response.status, 200);
++  const result = JSON.parse(response.body).result.content[0].text;
++  assert.match(result, /SRC-2026-09-28-001/);
++  assert.match(result, /类型: source/);
++  assert.doesNotMatch(result, /私人剧本|SRC-2026-09-28-002/);
++  const none = createKbMcp({vaultRoot: root, accounts: {get: () => account}, secret, authorize: token => token === 'read-session' ? {account, mode: 'read'} : null});
++  const empty = await none({method: 'POST', headers: {authorization: 'Bearer read-session'}, body});
++  assert.match(JSON.parse(empty.body).result.content[0].text, /已扫描 0 篇/);
++  assert.doesNotMatch(JSON.parse(empty.body).result.content[0].text, /私人剧本|获授权样本/);
++});
++
++test('read pages through granted source and wiki IDs without exposing ungranted documents or paths', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-read-'));
++  t.after(() => rm(root, {recursive: true, force: true}));
++  const packet = join(root, 'raw', 'sources', id);
++  await mkdir(packet, {recursive: true});
++  await writeFile(join(packet, 'extracted.md'), '起'.repeat(6000) + '首个悬念' + '尾'.repeat(7000));
++  await writeFile(join(packet, 'manifest.json'), JSON.stringify({id, title: '来源剧本'}));
++  const ordinaryId = 'SRC-2026-09-28-003';
++  const ordinaryPacket = join(root, 'raw', 'sources', ordinaryId);
++  await mkdir(ordinaryPacket, {recursive: true});
++  await writeFile(join(ordinaryPacket, 'extracted.md'), '普通资料开头');
++  await writeFile(join(ordinaryPacket, 'manifest.json'), JSON.stringify({id: ordinaryId, title: '普通资料'}));
++  const wikiId = 'wiki/剧本/节奏复盘';
++  await mkdir(join(root, 'wiki', '剧本'), {recursive: true});
++  await writeFile(join(root, 'wiki', '剧本', '节奏复盘.md'), '# 节奏复盘\n开场冲突来自身份错位。');
++  const handle = createKbMcp({
++    vaultRoot: root, accounts: {get: () => account}, secret,
++    documentGrants: new Map([[id, await granted(root, id, {kind: 'viral-script'})], [wikiId, await granted(root, wikiId)], [ordinaryId, await granted(root, ordinaryId)]]),
++  });
++  const call = async (name, args) => {
++    const body = JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name, arguments: args}});
++    const response = await handle({method: 'POST', headers: {authorization: `Bearer ${kbToken(secret, account.id, account.revision)}`}, body});
++    return JSON.parse(response.body).result;
++  };
++  const source = await call('read', {id, start: 6000});
++  assert.match(source.content[0].text, /首个悬念/);
++  assert.match(source.content[0].text, /已读字符范围: \[6000, 12000\)/);
++  assert.match(source.content[0].text, /正文页码: 2/);
++  assert.match(source.content[0].text, /类型: source/);
++  const wiki = await call('read', {id: wikiId});
++  assert.match(wiki.content[0].text, /开场冲突来自身份错位/);
++  assert.match(wiki.content[0].text, /类型: wiki/);
++  assert.match((await call('read', {id: ordinaryId})).content[0].text, /普通资料开头/);
++  assert.equal((await call('read_opening', {id: wikiId})).isError, true);
++  assert.equal((await call('read_opening', {id: ordinaryId})).isError, true);
++  assert.match((await call('read_opening', {id})).content[0].text, /起/);
++  assert.equal((await call('read', {id: 'wiki/../secret'})).isError, true);
++  assert.equal((await call('read', {id: 'SRC-2026-09-28-099'})).isError, true);
++  assert.equal((await call('read', {id, start: 999999})).isError, true);
++});
++
++test('grant file explicitly binds source and wiki IDs to opening or full-read access', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-grants-'));
++  t.after(() => rm(root, {recursive: true, force: true}));
++  const file = join(root, 'grants.json');
++  const wikiId = 'wiki/剧本/节奏复盘';
++  const sourceHash = 'a'.repeat(64), wikiHash = 'b'.repeat(64);
++  await writeFile(file, JSON.stringify({version: 1, grants: [
++    {id, kind: 'viral-script', level: 'opening', access: 'all-authenticated', sha256: sourceHash, title: 'Admin title'},
++    {id: wikiId, kind: 'knowledge', level: 'read', access: 'accounts', accountIds: [account.id], sha256: wikiHash},
++  ]}));
++  const grants = await loadDocumentGrants(file);
++  assert.deepEqual(grants.get(id), {kind: 'viral-script', level: 'opening', accounts: new Set(['*']), sha256: sourceHash, title: 'Admin title'});
++  assert.deepEqual(grants.get(wikiId), {kind: 'knowledge', level: 'read', accounts: new Set([account.id]), sha256: wikiHash});
++  await writeFile(file, JSON.stringify({version: 1, grants: [{id, kind: 'viral-script', level: 'opening', access: 'all-authenticated'}]}));
++  await assert.rejects(loadDocumentGrants(file), /Invalid document grant/);
++  await writeFile(file, JSON.stringify({version: 1, grants: [{id, kind: 'viral-script', level: 'opening', access: 'all-authenticated', sha256: 'A'.repeat(64)}]}));
++  await assert.rejects(loadDocumentGrants(file), /Invalid document grant/);
++  await writeFile(file, JSON.stringify({version: 1, grants: [{id, kind: 'viral-script', level: 'opening', access: 'all-authenticated', sha256: sourceHash, title: ' '}]}));
++  await assert.rejects(loadDocumentGrants(file), /Invalid document grant/);
++  await writeFile(file, JSON.stringify({version: 1, grants: [{id: 'wiki/../outside', kind: 'knowledge', level: 'read', access: 'all-authenticated'}]}));
++  await assert.rejects(loadDocumentGrants(file), /Invalid document grant/);
++  await writeFile(file, JSON.stringify({version: 1, grants: [{id, kind: 'viral-script', level: 'read', access: 'accounts', accountIds: ['another-user']}]}));
++  await assert.rejects(loadDocumentGrants(file), /Invalid document grant/);
++  await writeFile(file, JSON.stringify({version: 1, grants: [{id, level: 'opening', access: 'all-authenticated'}]}));
++  await assert.rejects(loadDocumentGrants(file), /Invalid document grant/);
++  await writeFile(file, JSON.stringify({version: 1, grants: [{id: wikiId, kind: 'viral-script', level: 'read', access: 'all-authenticated'}]}));
++  await assert.rejects(loadDocumentGrants(file), /Invalid document grant/);
++});
++
++test('opening-only search cannot find a script by text after the opening limit', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-tail-'));
++  t.after(() => rm(root, {recursive: true, force: true}));
++  const packet = join(root, 'raw', 'sources', id);
++  await mkdir(packet, {recursive: true});
++  await writeFile(join(packet, 'extracted.md'), '开场'.repeat(12_000) + 'XYZUNSEENTAILMARKER');
++  await writeFile(join(packet, 'manifest.json'), JSON.stringify({id, title: '保密后文'}));
++  const handle = createKbMcp({
++    vaultRoot: root, accounts: {get: () => account}, secret,
++    documentGrants: new Map([[id, await granted(root, id, {kind: 'viral-script', level: 'opening'})]]), semanticFloor: 0,
++    authorize: token => token === 'read-session' ? {account, mode: 'read'} : null,
++  });
++  const query = async word => {
++    const body = JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name: 'search', arguments: {query: word}}});
++    const response = await handle({method: 'POST', headers: {authorization: 'Bearer read-session'}, body});
++    return JSON.parse(response.body).result.content[0].text;
++  };
++  assert.match(await query('开场'), /id: SRC-2026-09-28-001/);
++  const tail = await query('XYZUNSEENTAILMARKER');
++  assert.doesNotMatch(tail, /id:|保密后文|XYZUNSEENTAILMARKER.*摘要/);
++});
++
++test('opening grants hide later titles, vectors, and full text for session and legacy tokens', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-metadata-'));
++  t.after(() => rm(root, {recursive: true, force: true}));
++  const packet = join(root, 'raw', 'sources', id);
++  await mkdir(packet, {recursive: true});
++  await writeFile(join(packet, 'extracted.md'), 'OPENING '.repeat(3000) + '\n---\ntitle: TAIL_SECRET\nTAIL_SECRET');
++  await writeFile(join(packet, 'manifest.json'), JSON.stringify({id, title: 'MANIFEST_SECRET'}));
++  const handle = createKbMcp({
++    vaultRoot: root, accounts: {get: () => account}, secret,
++    documentGrants: new Map([[id, await granted(root, id, {kind: 'viral-script', level: 'opening'})]]),
++    authorize: token => token === 'read-session' ? {account, mode: 'read'} : null,
++    embedder: {enabled: true, model: 'test', embed: async () => [1]},
++    vectors: {refresh() {}, get() {return [1];}, size() {return 999;}},
++  });
++  const call = async (token, name, args = {}) => {
++    const body = JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name, arguments: args}});
++    const response = await handle({method: 'POST', headers: {authorization: `Bearer ${token}`}, body});
++    assert.equal(response.status, 200);
++    return JSON.parse(response.body).result;
++  };
++  for (const token of ['read-session', kbToken(secret, account.id, account.revision)]) {
++    const opening = (await call(token, 'search', {query: 'OPENING'})).content[0].text;
++    assert.match(opening, /id: SRC-2026-09-28-001/);
++    assert.doesNotMatch(opening, /MANIFEST_SECRET|TAIL_SECRET/);
++    for (const query of ['MANIFEST_SECRET', 'TAIL_SECRET']) {
++      assert.doesNotMatch((await call(token, 'search', {query})).content[0].text, /id: SRC-2026-09-28-001/);
++    }
++    const page = (await call(token, 'read_opening', {id})).content[0].text;
++    assert.doesNotMatch(page, /MANIFEST_SECRET|TAIL_SECRET/);
++    assert.equal((await call(token, 'read', {id})).isError, true);
++    assert.doesNotMatch((await call(token, 'status')).content[0].text, /999/);
++  }
++});
++
++test('changed source bytes invalidate read, opening, search, and status without leaking a manifest title', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-digest-'));
++  t.after(() => rm(root, {recursive: true, force: true}));
++  const packet = join(root, 'raw', 'sources', id);
++  await mkdir(packet, {recursive: true});
++  await writeFile(join(packet, 'extracted.md'), 'GRANTED_OPENING');
++  await writeFile(join(packet, 'manifest.json'), JSON.stringify({id, title: 'UNTRUSTED_MANIFEST_TITLE'}));
++  const sourceGrant = await granted(root, id, {kind: 'viral-script', title: 'ADMIN_TITLE'});
++  const handle = createKbMcp({vaultRoot: root, accounts: {get: () => account}, secret, documentGrants: new Map([[id, sourceGrant]])});
++  assert.match((await invoke(handle, 'read', {id})).content[0].text, /GRANTED_OPENING|ADMIN_TITLE/);
++  assert.match((await invoke(handle, 'read_opening', {id})).content[0].text, /GRANTED_OPENING/);
++  assert.match((await invoke(handle, 'search', {query: 'GRANTED_OPENING'})).content[0].text, /ADMIN_TITLE/);
++  assert.doesNotMatch((await invoke(handle, 'search', {query: 'GRANTED_OPENING'})).content[0].text, /UNTRUSTED_MANIFEST_TITLE/);
++  await writeFile(join(packet, 'extracted.md'), 'CHANGED_SECRET');
++  for (const name of ['read', 'read_opening']) {
++    const result = await invoke(handle, name, {id});
++    assert.equal(result.isError, true);
++    assert.doesNotMatch(result.content[0].text, /CHANGED_SECRET|UNTRUSTED_MANIFEST_TITLE|ADMIN_TITLE/);
++  }
++  const search = (await invoke(handle, 'search', {query: 'CHANGED_SECRET'})).content[0].text;
++  assert.doesNotMatch(search, /id:|UNTRUSTED_MANIFEST_TITLE|ADMIN_TITLE/);
++  assert.match(search, /0/);
++  const status = (await invoke(handle, 'status')).content[0].text;
++  assert.doesNotMatch(status, /\b1\b|CHANGED_SECRET|UNTRUSTED_MANIFEST_TITLE|ADMIN_TITLE/);
++});
++
++test('search and status do not return vector-index errors to the account', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-vector-error-'));
++  t.after(() => rm(root, {recursive: true, force: true}));
++  const hiddenPath = join(root, 'private', 'vectors.json');
++  const warnings = [];
++  const handle = createKbMcp({
++    vaultRoot: root, accounts: {get: () => account}, secret,
++    embedder: {enabled: true, model: 'test', embed: async () => [1]},
++    vectors: {refresh() {throw new Error(`Cannot read ${hiddenPath}`);}},
++    onWarn: message => warnings.push(message),
++  });
++  for (const name of ['search', 'status']) {
++    const result = await invoke(handle, name, name === 'search' ? {query: 'opening'} : {});
++    assert.equal(result.isError, true);
++    assert.doesNotMatch(result.content[0].text, /vectors\.json|private|Cannot read/);
++  }
++  assert.equal(warnings.length, 2);
++});
++
++test('search hashes all source bytes before indexing its first 400000 characters', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-full-hash-'));
++  t.after(() => rm(root, {recursive: true, force: true}));
++  const packet = join(root, 'raw', 'sources', id);
++  await mkdir(packet, {recursive: true});
++  const path = join(packet, 'extracted.md');
++  await writeFile(path, 'FIND_GRANTED ' + 'x'.repeat(400_000) + 'ORIGINAL_TAIL');
++  const sourceGrant = await granted(root, id, {kind: 'viral-script'});
++  const handle = createKbMcp({vaultRoot: root, accounts: {get: () => account}, secret, documentGrants: new Map([[id, sourceGrant]])});
++  assert.match((await invoke(handle, 'search', {query: 'FIND_GRANTED'})).content[0].text, /id: SRC-2026-09-28-001/);
++  await writeFile(path, 'FIND_GRANTED ' + 'x'.repeat(400_000) + 'MUTATED_TAIL');
++  assert.doesNotMatch((await invoke(handle, 'search', {query: 'FIND_GRANTED'})).content[0].text, /id: SRC-2026-09-28-001/);
++});
++
++test('a symlinked source parent only reads the granted bytes', async t => {
++  const root = await mkdtemp(join(tmpdir(), 'muse-kb-link-parent-'));
++  t.after(() => rm(root, {recursive: true, force: true}));
++  const parent = join(root, 'raw', 'sources', id);
++  const approved = join(root, 'approved');
++  await mkdir(parent, {recursive: true});
++  await mkdir(approved);
++  await writeFile(join(parent, 'extracted.md'), 'APPROVED_BODY');
++  await writeFile(join(approved, 'extracted.md'), 'APPROVED_BODY');
++  const sourceGrant = await granted(root, id, {kind: 'viral-script'});
++  await rename(parent, join(root, 'old-packet'));
++  await symlink(approved, parent, process.platform === 'win32' ? 'junction' : 'dir');
++  const handle = createKbMcp({vaultRoot: root, accounts: {get: () => account}, secret, documentGrants: new Map([[id, sourceGrant]])});
++  assert.match((await invoke(handle, 'read', {id})).content[0].text, /APPROVED_BODY/);
++  await writeFile(join(approved, 'extracted.md'), 'OTHER_SECRET');
++  const result = await invoke(handle, 'read', {id});
++  assert.equal(result.isError, true);
++  assert.doesNotMatch(result.content[0].text, /OTHER_SECRET/);
++  assert.doesNotMatch((await invoke(handle, 'search', {query: 'OTHER_SECRET'})).content[0].text, /id: SRC-2026-09-28-001|OTHER_SECRET.*摘要/);
++});
+diff --git a/muse-accounts/kb-vault.mjs b/muse-accounts/kb-vault.mjs
+index 5c4563a..2244545 100644
+--- a/muse-accounts/kb-vault.mjs
++++ b/muse-accounts/kb-vault.mjs
+@@ -15,6 +15,21 @@ const MAX_TITLE = 200;
+ const SOURCE_ID = /^SRC-\d{4}-\d{2}-\d{2}-\d{3}$/;
+ const SAFE_SOURCE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/;
+ const LOCK = '.kb.lock';
++const OPENING_CHARS = 6000;
++const OPENING_TOTAL_CHARS = 24_000;
++const MAX_DOCUMENT_BYTES = 4 * 1024 * 1024;
++const MAX_READ_START = 4_194_000;
++
++function wikiParts(id) {
++  if (typeof id !== 'string' || !id.startsWith('wiki/') || id.length > 400) return null;
++  const parts = id.slice(5).split('/');
++  return parts.some(part => !part || part === '.' || part === '..' || /[\\:\x00-\x1f<>"|?*]/.test(part) || part.length > 120) ? null : parts;
++}
++
++/** Accept the source IDs and wiki paths that the KB itself can resolve. */
++export function validDocumentId(id) {
++  return typeof id === 'string' && (SOURCE_ID.test(id) || wikiParts(id) !== null);
++}
+ 
+ /** Cross-process lock; a crashed writer leaves the lock for an administrator. */
+ async function withLock(path, fn, timeoutMs = 20000) {
+@@ -124,8 +139,8 @@ export async function ingestSession(vaultRoot, {title, text, source, author} = {
+   });
+ }
+ 
+-export function documentContent(body, fallbackTitle) {
+-  const title = body.match(/^---\s*$[\s\S]*?^title:\s*(.+)$/m)?.[1]?.trim() ?? fallbackTitle;
++export function documentContent(body, fallbackTitle, {forceTitle = false} = {}) {
++  const title = forceTitle ? fallbackTitle : body.match(/^---\s*$[\s\S]*?^title:\s*(.+)$/m)?.[1]?.trim() ?? fallbackTitle;
+   const text = body.replace(/^---[\s\S]*?---\s*/, '');
+   const canonical = `${title}\n${text}`;
+   return {title, text, hash: contentHash(needsChunks(title, text) ? `chunk-v1\0${canonical}` : canonical)};
+@@ -145,6 +160,87 @@ export async function readRegularPage(path) {
+   } finally { await handle.close(); }
+ }
+ 
++function documentPath(vaultRoot, id) {
++  if (SOURCE_ID.test(id)) return join(vaultRoot, 'raw', 'sources', id, 'extracted.md');
++  const parts = wikiParts(id);
++  return parts ? join(vaultRoot, 'wiki', ...parts.slice(0, -1), parts.at(-1) + '.md') : null;
++}
++
++// The hash authorizes the bytes returned by this handle, including bytes beyond
++// a search preview. Parent paths may change between lookup and open.
++async function readGrantedFile(path, sha256) {
++  if (!/^[a-f0-9]{64}$/.test(sha256 ?? '')) return null;
++  let handle;
++  try { handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)); }
++  catch (error) { if (['ENOENT', 'ELOOP', 'ENOTDIR', 'EACCES', 'EPERM'].includes(error.code)) return null; throw error; }
++  try {
++    const info = await handle.stat();
++    if (!info.isFile() || info.size > MAX_DOCUMENT_BYTES) return null;
++    const chunks = [];
++    const buffer = Buffer.alloc(64 * 1024);
++    let total = 0;
++    for (;;) {
++      const {bytesRead} = await handle.read(buffer, 0, Math.min(buffer.length, MAX_DOCUMENT_BYTES + 1 - total), null);
++      if (!bytesRead) break;
++      total += bytesRead;
++      if (total > MAX_DOCUMENT_BYTES) return null;
++      chunks.push(Buffer.from(buffer.subarray(0, bytesRead)));
++    }
++    const bytes = Buffer.concat(chunks, total);
++    if (digest(bytes) !== sha256) return null;
++    return {body: bytes.toString('utf8'), sourceBytes: total};
++  } finally { await handle.close(); }
++}
++
++async function readGrantedDocument(vaultRoot, id, grant) {
++  const path = documentPath(vaultRoot, id);
++  if (!path) return null;
++  const file = await readGrantedFile(path, grant?.sha256);
++  return file && {...file, path};
++}
++
++/** Read a bounded page from an exact source or wiki ID. Offsets count Unicode characters. */
++export async function readDocumentPage(vaultRoot, id, {start = 0, sha256, title: grantTitle} = {}) {
++  if (!Number.isInteger(start) || start < 0 || start > MAX_READ_START || start % OPENING_CHARS !== 0 || typeof id !== 'string') return null;
++  const file = await readGrantedDocument(vaultRoot, id, {sha256});
++  if (!file) return null;
++  const characters = Array.from(file.body);
++  if (start >= characters.length) return null;
++  const page = characters.slice(start, start + OPENING_CHARS);
++  const endExclusive = start + page.length;
++  const truncated = endExclusive < characters.length;
++  const type = SOURCE_ID.test(id) ? 'source' : 'wiki';
++  const title = grantTitle ?? (type === 'source' ? id : documentContent(file.body, wikiParts(id).at(-1)).title);
++  return {id, title, type, body: page.join(''), start, endExclusive, sourceBytes: file.sourceBytes, truncated, nextStart: truncated ? endExclusive : null};
++}
++
++/** Restrict script preparation to the first 24000 characters of a granted document. */
++export async function readOpening(vaultRoot, id, {start = 0, sha256, title} = {}) {
++  if (!SOURCE_ID.test(id) || !Number.isInteger(start) || start < 0 || start >= OPENING_TOTAL_CHARS || start % OPENING_CHARS !== 0) return null;
++  const page = await readDocumentPage(vaultRoot, id, {start, sha256, title});
++  if (!page) return null;
++  return {
++    ...page,
++    opening: page.body,
++    nextStart: page.truncated && page.endExclusive < OPENING_TOTAL_CHARS ? page.endExclusive : null,
++    limitReached: page.truncated && page.endExclusive >= OPENING_TOTAL_CHARS,
++  };
++}
++
++/** Load only grant-matched files for account-visible search and status. */
++export async function collectGrantedDocuments(vaultRoot, grants) {
++  const documents = [];
++  for (const [id, grant] of grants) {
++    const file = await readGrantedDocument(vaultRoot, id, grant);
++    if (!file) continue;
++    const source = SOURCE_ID.test(id);
++    const fallbackTitle = grant.title ?? (source ? id : wikiParts(id).at(-1));
++    const body = file.body.slice(0, MAX_TEXT);
++    documents.push({id, body, path: file.path, ...documentContent(body, fallbackTitle, {forceTitle: source || grant.title !== undefined})});
++  }
++  return documents;
++}
++
+ export async function collectDocuments(vaultRoot) {
+   const documents = [];
+   const readPage = async (path, id, fallbackTitle) => {
+@@ -194,11 +290,16 @@ export async function collectDocuments(vaultRoot) {
+  * failing the search. `semanticFloor` exists because cosine between unrelated
+  * Chinese texts is far from zero, so without a floor every document would match.
+  */
+-export async function searchVault(vaultRoot, {query, limit = 8, embedder, vectors, semanticWeight = 0.5, semanticFloor = 0.5} = {}) {
++export async function searchVault(vaultRoot, {query, limit = 8, embedder, vectors, semanticWeight = 0.5, semanticFloor = 0.5, allowedGrants} = {}) {
+   const raw = String(query ?? '').trim();
+   if (!raw) return {ok: true, results: [], semantic: false};
+   if (embedder?.enabled) vectors?.refresh?.();
+-  const documents = await collectDocuments(vaultRoot);
++  const documents = (allowedGrants ? await collectGrantedDocuments(vaultRoot, allowedGrants) : await collectDocuments(vaultRoot))
++    .map(document => {
++      if (allowedGrants?.get(document.id)?.level !== 'opening') return document;
++      const visible = Array.from(document.body).slice(0, OPENING_TOTAL_CHARS).join('');
++      return {...document, body: visible, ...documentContent(visible, document.title, {forceTitle: true})};
++    });
+   const lowered = raw.toLocaleLowerCase();
+   const words = [...new Intl.Segmenter('zh', {granularity: 'word'}).segment(lowered)]
+     .filter(part => part.isWordLike).map(part => part.segment);
+@@ -222,12 +323,12 @@ export async function searchVault(vaultRoot, {query, limit = 8, embedder, vector
+ 
+   const results = documents.map(document => {
+     const lexical = lexicalFor(document) / highest;
+-    const stored = queryVector ? vectors.get(document.id, document.hash) : null;
++    const stored = queryVector && allowedGrants?.get(document.id)?.level !== 'opening' ? vectors.get(document.id, document.hash) : null;
+     const similar = stored ? Math.max(...(Array.isArray(stored[0]) ? stored : [stored]).map(vector => cosine(queryVector, vector))) : 0;
+     // Without a stored vector a document can only be recalled lexically.
+     const score = weight > 0 ? blendScore(lexical, stored ? similar : 0, weight) : lexical;
+-    return {id: document.id, title: document.title, path: document.path, score, lexical, similar, preview: document.text.slice(0, 400)};
+-  }).filter(entry => entry.lexical > 0 || entry.similar >= floor)
++    return {id: document.id, title: document.title, path: document.path, score, lexical, similar, semanticMatched: !!stored && similar >= floor, preview: document.text.slice(0, 400)};
++  }).filter(entry => entry.lexical > 0 || entry.semanticMatched)
+     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+ 
+   return {ok: true, scanned: documents.length, semantic: !!queryVector, results: results.slice(0, size)};
