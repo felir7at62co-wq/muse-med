@@ -110,13 +110,12 @@ afterEach(async () => {
 })
 
 describe('desktop upload plan', () => {
-  it('publishes fixed feeds referencing versioned binaries without overriding CDN cache policy', async () => {
+  it('publishes the version-derived channel feed referencing versioned binaries without overriding CDN cache policy', async () => {
     const paths = await fixture('win-x64', '1.2.3', 'production')
     const plan = await createDesktopUploadPlan('win-x64', paths)
     expect(plan.artifacts.map(artifact => artifact.key)).toEqual([
       'dsh-desk/bin/win-x64/muse-med-1.2.3-win-x64.exe',
       'dsh-desk/bin/win-x64/muse-med-1.2.3-win-x64.exe.blockmap',
-      'dsh-desk/feeds/win-x64/nightly.yml',
       'dsh-desk/feeds/win-x64/latest.yml',
     ])
     expect(load(plan.artifacts[2]!.contents!)).toMatchObject({
@@ -126,7 +125,6 @@ describe('desktop upload plan', () => {
         sha512: digest('signed NSIS executable fixture'),
       }],
     })
-    expect(plan.artifacts[2]!.contents).toBe(plan.artifacts[3]!.contents)
     expect(plan.artifacts.every(artifact => !('cacheControl' in artifact))).toBe(true)
   })
 
@@ -143,7 +141,6 @@ describe('desktop upload plan', () => {
       'muse-med-1.2.3-mac-arm64.dmg',
       'muse-med-1.2.3-mac-arm64.zip',
       'muse-med-1.2.3-mac-arm64.zip.blockmap',
-      'nightly-mac.yml',
       'latest-mac.yml',
     ])
     expect(plan.artifacts.at(-1)).toMatchObject({
@@ -186,7 +183,7 @@ describe('desktop upload plan', () => {
       'muse-med-1.2.3-alpha.4-mac-arm64.dmg',
       'muse-med-1.2.3-alpha.4-mac-arm64.zip',
       'muse-med-1.2.3-alpha.4-mac-arm64.zip.blockmap',
-      'nightly-mac.yml',
+      'alpha-mac.yml',
     ])
   })
 
@@ -196,7 +193,6 @@ describe('desktop upload plan', () => {
     expect(plan.artifacts.map(artifact => artifact.filename)).toEqual([
       'muse-med-2.0.0-win-x64.exe',
       'muse-med-2.0.0-win-x64.exe.blockmap',
-      'nightly.yml',
       'latest.yml',
     ])
     expect(plan).toMatchObject({
@@ -233,7 +229,7 @@ describe('desktop upload plan', () => {
 
   it('rejects stale architecture metadata and modified updater bytes', async () => {
     const paths = await fixture('mac-arm64')
-    const metadataPath = join(paths.artifactsRoot, 'nightly-mac.yml')
+    const metadataPath = join(paths.artifactsRoot, desktopUpdateMetadataFilename('1.2.3', 'darwin'))
     const zipPath = join(paths.artifactsRoot, 'muse-med-1.2.3-mac-arm64.zip')
     await writeFile(zipPath, 'modified')
     await expect(createDesktopUploadPlan('mac-arm64', paths)).rejects.toThrow(/size.*metadata/u)

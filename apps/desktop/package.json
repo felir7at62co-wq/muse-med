@@ -22,6 +22,7 @@
     "prepare:dsh": "tsx scripts/prepare-dsh.ts",
     "prepare:package": "tsx scripts/package-target.ts --prepare-only",
     "verify:mac-signature": "node scripts/verify-macos-signature.mjs",
+    "verify:update-feed": "node scripts/verify-github-update-feed.mjs",
     "package": "tsx scripts/package-target.ts",
     "check:package": "tsx scripts/package-target.ts --check",
     "restore:mac-proxy": "tsx scripts/macos-notarization-proxy.ts",
