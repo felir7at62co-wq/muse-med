@@ -2,6 +2,7 @@
 export interface DesktopElectronBuilderConfig {
   readonly appId: string
   readonly productName: string
+  readonly extraMetadata: { readonly name: string }
   readonly icon: string
   readonly artifactName: string
   readonly win: { readonly executableName: string }

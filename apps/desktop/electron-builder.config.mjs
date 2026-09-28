@@ -67,6 +67,13 @@ export function createElectronBuilderConfig(
   return {
     appId,
     productName: 'muse-med',
+    // electron-builder derives the updater's cache directory from the packaged
+    // package.json `name` (`AppInfo.updaterCacheDirName` in `app-builder-lib` is
+    // `sanitizeFileName(name).toLowerCase() + '-updater'`) and no configuration
+    // field overrides it, so the workspace manifest's upstream name would keep
+    // sharing `%LOCALAPPDATA%\@deepseek-aidsh-desktop-updater` with the official
+    // DeepSeek Harness. The packaged manifest restates the product name.
+    extraMetadata: { name: 'muse-med' },
     icon: 'renderer/icon.png',
     artifactName: 'muse-med-${version}-${os}-${arch}.${ext}',
     directories: { output: unsigned ? join(buildPaths.root, 'unsigned-artifacts') : buildPaths.artifacts },
