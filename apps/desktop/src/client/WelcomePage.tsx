@@ -171,7 +171,13 @@ export function Welcome({ api }: { api: WelcomeApi }) {
     {expiryNotice && <Toast text={m.welcomeSessionExpired} onDone={() => { setExpiryNotice(false) }} />}
     <div className="titlebar" aria-hidden="true" />
     <main className="welcome" aria-labelledby={heading}>
-      <div className="brand"><img src="icon.png" alt="" width="40" height="40" /><span>{m.welcomeBrand}</span></div>
+      <span className="brand">
+        <picture>
+          <source srcSet="assets/welcome-mark-dark.png" media="(prefers-color-scheme: dark)" />
+          <img src="assets/welcome-mark.png" alt={m.welcomeBrand} width="33" height="33" />
+        </picture>
+        <span className="brand-name" aria-hidden="true">{m.welcomeBrand}</span>
+      </span>
       <div id="tagline" className="tagline" hidden={page !== 'entry'}>
         <h1 id="welcome-heading"><span>{m.welcomeTaglineBefore}</span><em>{m.welcomeTaglineBrand}</em><span>{m.welcomeTaglineAfter}</span></h1>
         <p id="welcome-description">{m.welcomeDescription}</p>

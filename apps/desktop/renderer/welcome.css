@@ -95,17 +95,30 @@ body {
 
 .brand {
   display: flex;
-  align-items: center;
-  gap: 12px;
   flex: none;
-  width: 100%;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
   height: 40px;
   color: var(--dsw-alias-label-primary);
-  font-family: var(--dsw-font-family-brand);
-  font-size: 28px;
-  font-weight: 500;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+.brand picture,
+.brand img {
+  display: block;
+  flex: none;
+  width: 33px;
+  height: 33px;
+}
+
+.brand-name {
+  font-family: var(--dsw-font-family-brand);
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 40px;
+  letter-spacing: 0.2px;
 }
 
 .tagline {
