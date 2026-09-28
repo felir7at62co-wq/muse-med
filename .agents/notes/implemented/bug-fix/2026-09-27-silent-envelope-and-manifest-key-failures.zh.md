@@ -28,6 +28,14 @@ Status: implemented
 
 **让缺失的 `items` 回退到 `assets`，与 `jubian_organize` 和分镜脚本 reader 保持一致。** 本次对账否决。把另一种拼法读成"没有行"正是被修掉的失败，而回退会让同一个事实在这个"只负责敲定该事实"的文件里保留两种拼法。让调用失败，在"有 assets"与"两者都缺"两种情况下都会用同一句话点名该键。
 
+## 后果
+
+reader 的拒绝现在会点名是哪个 reader 拒绝的、收到了什么结构、应用码与信封接受的码如何对比、以及捕获正文的开关，因此一句匿名报文不再同时代表五个工具与两种互不相干的成因。
+
+诊断一次拒绝只需在 `DSH_JUBIAN_DEBUG_DUMP` 下重跑一次调用；落盘的那一行只含键名、类型、长度与 code，绝不包含正文里的访问令牌或签名 URL。
+
+`drama_assets reconcile` 把缺失的资产数组报成结构化 issue 并给出 `ready: false`，调用照常返回，调用方仍能读到对账的其余部分；`jubian_organize index` 对同一份文件用同一句话拒绝，两种机制都写进了各自的 README。
+
 ## Verification
 
 - `packages/jubian/jubian-api/tests/reader-rejection-summary.spec.ts` 把同一份坏响应分别喂给传输层与一个 reader：两条报文都带结构、`code=500`、`accepted envelope codes: 0 / 200` 与 `DSH_JUBIAN_DEBUG_DUMP`；两条都不带响应体里的 access token 与其签名 URL；`null`、`undefined`、数组、字符串、数字与布尔值都是被描述、而不是被拒绝。

@@ -28,6 +28,13 @@ Both are the same defect shape: a check whose whole job is to stop a silent fail
 
 **Make a missing `items` fall back to `assets`, as `jubian_organize` and the shot-script reader do.** Rejected for this comparison. Reading the other spelling as "no rows" is the failure being fixed, and a fallback keeps two spellings of one fact alive in the file whose only job is to settle that fact. Failing the call names the key in the same sentence in both the assets-present and assets-absent cases.
 
+## Consequences
+
+A reader refusal now names the reader that refused, the structure it received, the application code against the codes the envelope accepts, and the switch that captures the body, so one anonymous sentence can no longer stand for five tools and two unrelated causes.
+
+Diagnosing a refusal costs one repeated call with `DSH_JUBIAN_DEBUG_DUMP` set; the captured line carries keys, types, lengths and codes, and never the body's access token or signed URL.
+
+`drama_assets reconcile` reports a missing asset array as a structured issue with `ready: false` and keeps running, so a caller still reads the rest of the reconciliation; `jubian_organize index` refuses the same file with the same sentence, and the two mechanisms are documented in both READMEs.
 ## Verification
 
 - `packages/jubian/jubian-api/tests/reader-rejection-summary.spec.ts` feeds one bad response to the transport and to a reader: both messages carry the structure, `code=500`, `accepted envelope codes: 0 / 200` and `DSH_JUBIAN_DEBUG_DUMP`; neither carries the body's access token or its signed URL; `null`, `undefined`, an array, a string, a number and a boolean are all described rather than rejected.

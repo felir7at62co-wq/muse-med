@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-27-silent-envelope-and-manifest-key-failures.md
-2026-09-27-silent-envelope-and-manifest-key-failures.md: 5e5d8a1cc3dd25d8f39a5bf3ca1aed93d75422af
-2026-09-27-silent-envelope-and-manifest-key-failures.zh.md: b2e3412dca9645550257eb27bc572172f9a8d9fb
+2026-09-27-silent-envelope-and-manifest-key-failures.md: 8275a0540de02ed2e236b777ed69fa2d6cccdc5a
+2026-09-27-silent-envelope-and-manifest-key-failures.zh.md: 19abd7b592bfa339303ded2bfc98880b630d9f5b
