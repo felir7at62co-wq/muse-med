@@ -20,10 +20,12 @@ import {
   buildVideoUpscaleRequest, downloadMedia, readAssetList, readAssetPage, readEpisodes, readGeneratedImage,
   readImageDisplayPrice, readMaterialList, readModels, readScript, readStoryboard, readSubtaskPage,
   readTaskList, readTaskPage, readSubtitleTaskId, readUpscaleTaskId, needsUpscale, resolveImageModel,
+  validateImageRequestInput,
   withGenerationDisabled, withGenerationEnabled,
 } from '@deepseek-ai/dsh-jubian-api'
 import type { ImageModelSelection, ImageModelSelectors, MediaKind, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
-import { positiveInteger, prepareVideoMethod, selectAssetsMethod, submitVideoMethod } from './native.ts'
+import { positiveInteger, prepareVideoMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
+import type { VideoBatchItem, VideoBatchOptions } from './native.ts'
 import { createFolderMethod, moveMethod, renameMethod } from './folders.ts'
 import { composedAssetName, resolveNaming, taskPrefix } from './naming.ts'
 import { ASSET_CATEGORY_TYPES } from './naming.ts'
@@ -58,6 +60,10 @@ export interface MethodArgs {
   /** `jubian_asset register`: the existing image URL the new asset will reference. */
   asset_url?: string
   prompt?: string
+  /** `image_generate_batch`: independently keyed image requests for one project. */
+  items?: ImageBatchItem[]
+  /** `submit_video_batch`: frozen video previews, each with its own fingerprint key. */
+  video_previews?: VideoBatchItem[]
   /** `image_generate`: one-call platform choice; omitting it uses the configured or saved route. */
   image_platform_id?: string
   references?: string[]
@@ -111,6 +117,43 @@ export interface MethodArgs {
   target_folder_id?: number
 }
 
+/** One paid image request within a batch; the project identity belongs to the batch. */
+export interface ImageBatchItem {
+  idempotency_key?: string
+  asset_name?: string
+  asset_type?: number
+  asset_category?: AssetCategory
+  episode?: string
+  prompt?: string
+  image_platform_id?: string
+  references?: string[]
+  parent_asset_id?: number
+}
+
+/** Resolved bounds for a batch of independent paid image requests. */
+export interface ImageBatchOptions {
+  readonly concurrency: number
+  readonly maxItems: number
+}
+
+/**
+ * Resolve and validate the deployment's batch limits before accepting calls.
+ * @param config - Optional concurrency and item-count limits from plugin configuration.
+ * @returns Validated limits for submission and readback workers.
+ */
+export function resolveImageBatchOptions(config: {
+  imageBatchConcurrency?: number
+  imageBatchMaxItems?: number
+} = {}): ImageBatchOptions {
+  const concurrency = config.imageBatchConcurrency ?? 3
+  const maxItems = config.imageBatchMaxItems ?? 12
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 8
+    || !Number.isSafeInteger(maxItems) || maxItems < 1 || maxItems > 100) {
+    throw new JubianError('INVALID_ARGUMENT', 'imageBatchConcurrency must be 1..8 and imageBatchMaxItems must be 1..100')
+  }
+  return { concurrency, maxItems }
+}
+
 /** One provider response, as the transport returns it. */
 type ClientResponse = JubianResponse
 
@@ -141,8 +184,16 @@ export interface MethodDeps {
   reference?: ReferenceUploadDeps
   /** Paid image generation: the pinned catalogue row and the post-write readback budget. */
   image?: ImageMethodOptions
+  /** One live image catalogue reused by all items after batch-wide row selection. */
+  imageCatalogue?: unknown
   /** Naming choices; defaults to the convention's own defaults when omitted. */
   naming?: Naming
+  /** Resolved image batch limits. */
+  imageBatch?: ImageBatchOptions
+  /** Bounded paid storyboard submission after a whole-batch preflight. */
+  videoBatch?: VideoBatchOptions
+  /** Batch submission returns before asset polling so every item can start promptly. */
+  deferImageReadback?: boolean
 }
 
 /** Provider statuses that mean a task is still moving and a retry would race it. */
@@ -182,9 +233,10 @@ function unread(status: 'replayed' | 'unverified', error: string): ImageReadback
 /**
  * The one instruction that matches what the readback actually established.
  * @param readback - The readback outcome.
+ * @param assetId - Accepted asset ID, when the provider returned one.
  * @returns Caller-facing guidance naming the only safe next action.
  */
-function imageNext(readback: ImageReadback): string {
+function imageNext(readback: ImageReadback, assetId: number | null): string {
   switch (readback.status) {
     case 'active':
       return '资产已 Active：material_id 是可用于 confirm_casting 的生成材质 ID，image_url 是这张生成图。'
@@ -198,7 +250,10 @@ function imageNext(readback: ImageReadback): string {
     case 'replayed':
       return '本次是重放：没有发送任何请求。资产身份请用 jubian_asset list/get 回读。'
     case 'unverified':
-      return '没有确认资产与生成图：先回读 jubian_asset list 核对，确认前不要落盘，也不要换 key 重投。'
+      return assetId === null
+        ? '没有确认资产与生成图：先回读 jubian_asset list 核对，确认前不要落盘，也不要换 key 重投。'
+        : `尚未确认生成图：先用 jubian_asset get 查询 parent_asset_id=${assetId}，Active 后用 generated_image 取图；`
+          + '确认前不要落盘，也不要换 key 重投。'
   }
 }
 
@@ -262,6 +317,16 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number | null,
   }
 }
 
+/** Preserve the accepted asset ID in the result when its free readback fails. */
+async function readbackAcceptedImage(client: JubianClient, assetId: number | null,
+  options: ImageMethodOptions): Promise<ImageReadback> {
+  try { return await awaitGeneratedImage(client, assetId, options) }
+  catch (error) {
+    return unread('unverified', `计费请求已受理，资产 ID 为 ${assetId ?? '未提供'}，但回读失败：`
+      + `${error instanceof Error ? error.message : String(error)}。不要换 key 重投。`)
+  }
+}
+
 /**
  * Compose the sortable prefix a processing stage puts in front of the source
  * task's own name.
@@ -272,6 +337,89 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number | null,
 function stagePrefix(args: MethodArgs, naming: Naming | undefined): string {
   if (args.episode === undefined) return ''
   return `${taskPrefix(args.episode, args.package_number, naming ?? resolveNaming())}-`
+}
+
+/** Resolve the provider's asset category and final name without reading the account catalogue. */
+function imageIdentity(args: Pick<MethodArgs, 'asset_category' | 'asset_type' | 'asset_name' | 'episode'>,
+  naming: Naming): { assetName: string; assetType: number } {
+  const category = args.asset_category
+  const derivedType = category === undefined ? undefined : ASSET_CATEGORY_TYPES[category]
+  if (category !== undefined && derivedType === undefined) {
+    throw new JubianError('INVALID_ARGUMENT', `asset_category=${category} is not supported`)
+  }
+  if (category !== undefined && args.asset_type !== undefined && args.asset_type !== derivedType) {
+    throw new JubianError('INVALID_ARGUMENT',
+      `asset_type=${args.asset_type} 与 asset_category=${category}（应为 ${derivedType}）不一致`)
+  }
+  const assetType = derivedType ?? need(args.asset_type, 'asset_type 或 asset_category')
+  if (!Number.isSafeInteger(assetType) || ![1, 2, 3].includes(assetType)) {
+    throw new JubianError('INVALID_ARGUMENT', 'asset_type 必须是 1、2 或 3')
+  }
+  const assetName = args.episode === undefined
+    ? need(args.asset_name)
+    : composedAssetName(args.episode, need(category, 'asset_category'), need(args.asset_name), naming)
+  if (typeof assetName !== 'string' || !assetName.trim()) throw new JubianError('INVALID_ARGUMENT', 'asset_name')
+  return { assetName, assetType }
+}
+
+/** Validate every local batch argument before any item reads the provider or writes the ledger. */
+function preparedImageBatch(args: MethodArgs, naming: Naming, maxItems: number): Array<{
+  item: ImageBatchItem
+  key: string
+  assetName: string
+  assetType: number
+}> {
+  if (!Number.isSafeInteger(args.script_id) || (args.script_id ?? 0) <= 0) {
+    throw new JubianError('INVALID_ARGUMENT', 'image_generate_batch requires a positive script_id')
+  }
+  if (!Array.isArray(args.items) || args.items.length < 1 || args.items.length > maxItems) {
+    throw new JubianError('INVALID_ARGUMENT', `image_generate_batch items must contain 1..${maxItems} requests`)
+  }
+  const keys = new Set<string>()
+  const targets = new Set<string>()
+  const parents = new Set<number>()
+  const items: readonly unknown[] = args.items
+  return items.map((rawItem, index) => {
+    if (typeof rawItem !== 'object' || rawItem === null || Array.isArray(rawItem)) {
+      throw new JubianError('INVALID_ARGUMENT', `items[${index}] must be an image request`)
+    }
+    const item = rawItem as ImageBatchItem
+    const key = requireKey(item.idempotency_key)
+    if (key !== key.trim() || !key.isWellFormed() || /[\u0000-\u001f\u007f]/u.test(key) || keys.has(key)) {
+      throw new JubianError('INVALID_ARGUMENT', `items[${index}].idempotency_key is blank, padded or duplicated`)
+    }
+    keys.add(key)
+    if (typeof item.prompt !== 'string' || !item.prompt.trim()) {
+      throw new JubianError('INVALID_ARGUMENT', `items[${index}].prompt is required`)
+    }
+    const { assetName, assetType } = imageIdentity(item, naming)
+    const target = `${assetType}:${assetName.trim()}`
+    if (targets.has(target)) {
+      throw new JubianError('INVALID_ARGUMENT', `items[${index}] duplicates asset target ${assetName}`)
+    }
+    targets.add(target)
+    if (item.parent_asset_id !== undefined) {
+      if (!Number.isSafeInteger(item.parent_asset_id) || item.parent_asset_id < 1
+        || parents.has(item.parent_asset_id)) {
+        throw new JubianError('INVALID_ARGUMENT', `items[${index}].parent_asset_id is invalid or duplicated`)
+      }
+      parents.add(item.parent_asset_id)
+    }
+    if (item.image_platform_id !== undefined
+      && (typeof item.image_platform_id !== 'string' || !item.image_platform_id.trim()
+        || item.image_platform_id !== item.image_platform_id.trim()
+        || !item.image_platform_id.isWellFormed() || /[\u0000-\u001f\u007f]/u.test(item.image_platform_id))) {
+      throw new JubianError('INVALID_ARGUMENT', `items[${index}].image_platform_id must name a platform`)
+    }
+    try {
+      validateImageRequestInput({ scriptId: need(args.script_id), assetName, assetType,
+        prompt: item.prompt, references: item.references === undefined ? [] : item.references,
+        ...(item.parent_asset_id === undefined ? {} : { parentAssetId: item.parent_asset_id }) })
+    } catch {
+      throw new JubianError('INVALID_ARGUMENT', `items[${index}] has an invalid image request`)
+    }
+    return { item, key, assetName, assetType }
+  })
 }
 
 function page(args: MethodArgs): string {
@@ -502,35 +650,89 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           + '已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。',
       }
     }
+    case 'image_generate_batch': {
+      const limits = deps.imageBatch ?? resolveImageBatchOptions()
+      const prepared = preparedImageBatch(args, deps.naming ?? resolveNaming(), limits.maxItems)
+      const catalogueRows = (await client.request({
+        method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })).data
+      for (const { item } of prepared) {
+        const selection: ImageModelSelection = item.image_platform_id === undefined
+          ? deps.image?.selection ?? {} : { platformId: item.image_platform_id }
+        resolveImageModel(catalogueRows, selection)
+      }
+      const results: Record<string, unknown>[] = Array.from({ length: prepared.length }, () => ({}))
+      let nextIndex = 0
+      const worker = async (): Promise<void> => {
+        for (;;) {
+          const index = nextIndex++
+          if (index >= prepared.length) return
+          const current = prepared[index]
+          if (current === undefined) return
+          const { item, key, assetName, assetType } = current
+          const identity = { index, idempotency_key: key, asset_name: assetName,
+            asset_type: assetType, requested_parent_asset_id: item.parent_asset_id ?? null }
+          try {
+            const result = await videoMethod(client, ledger, {
+              ...item, method: 'image_generate', script_id: need(args.script_id),
+            }, { ...deps, imageCatalogue: catalogueRows, deferImageReadback: true })
+            results[index] = { ...identity, status: 'returned', ...result }
+          } catch (error) {
+            let record: Awaited<ReturnType<JubianLedger['find']>>
+            let ledgerError: string | null = null
+            try { record = await ledger.find(key) } catch (readError) {
+              ledgerError = readError instanceof Error ? readError.message : String(readError)
+            }
+            const ownRecord = record?.method === 'image_generate' ? record : undefined
+            results[index] = { ...identity, status: 'error',
+              outcome: ledgerError === null && ownRecord === undefined ? 'not_sent' : ownRecord?.outcome ?? 'unknown',
+              response_sha256: ownRecord?.response_sha256 ?? null,
+              record_id: ownRecord?.record_id ?? null,
+              record_script_id: ownRecord?.script_id ?? null,
+              request_sha256: ownRecord?.request_sha256 ?? null,
+              error: error instanceof Error ? error.message : String(error),
+              next: ownRecord === undefined && ledgerError === null
+                ? '本项未发出计费请求；修正参数或授权后保留同一个 idempotency_key 再调用。'
+                : '这项可能已受理或计费；先用同一个 key 查账本并用 jubian_asset list/get 对账，不要换 key 重投。',
+              ...(ledgerError === null ? {} : { ledger_error: ledgerError }) }
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(limits.concurrency, prepared.length) }, () => worker()))
+      let nextReadback = 0
+      const readbackWorker = async (): Promise<void> => {
+        for (;;) {
+          const index = nextReadback++
+          if (index >= results.length) return
+          const result = results[index]
+          if (result === undefined) throw new JubianError('CONTRACT_CHANGED', 'Missing image batch result')
+          if (result['status'] !== 'returned' || result['outcome'] !== 'accepted'
+            || result['replayed'] !== false) continue
+          const assetId = typeof result['parent_asset_id'] === 'number' ? result['parent_asset_id'] : null
+          const readback = await readbackAcceptedImage(client, assetId, deps.image ?? {})
+          results[index] = { ...result, asset_status: readback.status, material_id: readback.material_id,
+            image_url: readback.image_url, observed_asset_status: readback.observed_status,
+            waited_ms: readback.waited_ms, readback_error: readback.error,
+            next: imageNext(readback, assetId) }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(limits.concurrency, prepared.length) }, () => readbackWorker()))
+      const errors = results.filter(result => result['status'] === 'error').length
+      return { script_id: args.script_id, total: results.length, returned: results.length - errors,
+        errors, results, next: errors === 0
+          ? '逐项审核 active 图像并确认出演；failed、timeout、unverified 与 replayed 项先按各项 next 处理。'
+          : '逐项读取 outcome 与 next；unknown 或 accepted 但未拿到图时先对账，不能换 key 重投。' }
+    }
     case 'image_generate': {
       requireKey(args.idempotency_key)
       const selection: ImageModelSelection = args.image_platform_id === undefined
         ? deps.image?.selection ?? {}
         : { platformId: args.image_platform_id }
-      const naming = deps.naming ?? resolveNaming()
-      // The category decides both the name's middle segment and the library the
-      // asset lands in. `asset_type` stays accepted for callers that predate the
-      // category, but the two must agree: an asset whose name says 场景 and whose
-      // type says 角色 is the exact defect this pairing removes.
-      const assetCategory = args.asset_category
-      const derivedType = assetCategory === undefined ? undefined : ASSET_CATEGORY_TYPES[assetCategory]
-      if (assetCategory !== undefined && args.asset_type !== undefined
-        && args.asset_type !== derivedType) {
-        throw new JubianError('INVALID_ARGUMENT',
-          `asset_type=${args.asset_type} 与 asset_category=${assetCategory}（应为 ${derivedType}）不一致`)
-      }
-      const assetType = derivedType ?? need(args.asset_type, 'asset_type 或 asset_category')
-      // A caller that names the episode gets the convention's own asset name;
-      // one that does not gets its `asset_name` byte for byte, so an existing
-      // call keeps meaning exactly what it meant.
-      const assetName = args.episode === undefined
-        ? need(args.asset_name)
-        : composedAssetName(args.episode, need(assetCategory, 'asset_category'), need(args.asset_name), naming)
-      // The catalogue read lives behind a thunk: a replayed key must not even
-      // read the provider, let alone write to it. It is fetched at most once and
-      // reused by the body, the selectors and the quote.
+      const { assetName, assetType } = imageIdentity(args, deps.naming ?? resolveNaming())
+      // Ordinary replays skip this catalogue read. A batch supplies its one
+      // preflight catalogue so every row is validated before any paid request.
       let cached: ClientResponse | undefined
       const catalogue = async (): Promise<unknown> => {
+        if (deps.imageCatalogue !== undefined) return deps.imageCatalogue
         cached ??= await client.request({
           method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })
         return cached.data
@@ -547,20 +749,23 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         body => client.request({ method: args.parent_asset_id === undefined ? 'POST' : 'PUT',
           path: '/aigc/asset', body: need(body) }),
         () => {
-          const price = readImageDisplayPrice(cached?.data, selection)
+          const price = readImageDisplayPrice(deps.imageCatalogue ?? cached?.data, selection)
           return { ...(price.status === 'available' ? { amount: String(price.unit_price) } : {}),
             observedAt: new Date().toISOString() }
-        }, { scriptId: need(args.script_id) })
+        }, { scriptId: need(args.script_id), verifyReplayBody: true })
       const assetId = result.data === null || result.data === undefined || !Number.isSafeInteger(Number(result.data))
         ? null : Number(result.data)
       const readback = result.replayed
         ? unread('replayed', '这个 idempotency_key 已有记录：本次没有发送请求，也没有回读资产。'
           + '用 jubian_asset get/list 读取该资产，再用 generated_image 确认生成图。')
         : result.outcome === 'accepted'
-          ? await awaitGeneratedImage(client, assetId, deps.image ?? {})
+          ? deps.deferImageReadback
+            ? unread('unverified', '批次已受理，正在逐项回读资产状态。')
+            : await readbackAcceptedImage(client, assetId, deps.image ?? {})
           : unread('unverified', '受理结果不是 accepted，无法确认资产是否真的创建；'
             + '先回读 jubian_asset list，不要换 key 重投。')
       return { replayed: result.replayed, outcome: result.outcome, response_sha256: result.response_sha256,
+        budget: result.budget ?? null,
         parent_asset_id: assetId,
         resolution: selectors?.resolution ?? '',
         // Which catalogue row was actually bought from, echoed so a price can never
@@ -570,7 +775,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         asset_status: readback.status, material_id: readback.material_id, image_url: readback.image_url,
         observed_asset_status: readback.observed_status, waited_ms: readback.waited_ms,
         readback_error: readback.error,
-        next: imageNext(readback) }
+        next: imageNext(readback, assetId) }
     }
     case 'upscale': {
       requireKey(args.idempotency_key)
@@ -722,6 +927,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         project_dir: args.project_dir, storyboard_id: args.storyboard_id,
         idempotency_key: args.idempotency_key })
     }
+    case 'submit_video_batch':
+      return await submitVideoBatchMethod(client, ledger, { items: args.video_previews }, deps.videoBatch)
     case 'erase_subtitle': {
       requireKey(args.idempotency_key)
       const taskId = need(args.task_id)

@@ -1,0 +1,43 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/drama/tool-audio-transcribe/README.md
+/:
+  en: 77d15ddb5e9b085e
+  zh: 20d5aaaf366de7f2
+/deepseek-ai-dsh-tool-audio-transcribe:
+  en: 607186bd0325179d
+  zh: 79e3271c689ea8a5
+/deepseek-ai-dsh-tool-audio-transcribe/summary:
+  en: 4badad058163fea0
+  zh: a7297c0afc9d90bd
+/deepseek-ai-dsh-tool-audio-transcribe/table-of-contents:
+  en: cbfb676bb9a7a2de
+  zh: eaf311136c6f889d
+/deepseek-ai-dsh-tool-audio-transcribe/use-this-package:
+  en: 35c7573130a2df5e
+  zh: 3bd4c80c74947a93
+/deepseek-ai-dsh-tool-audio-transcribe/understand-the-implementation:
+  en: a45641664cca210d
+  zh: 8d6b5d1938d4685b
+/deepseek-ai-dsh-tool-audio-transcribe/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-tool-audio-transcribe/model-experience/the-audio-transcribe-tool:
+  en: d7b8735d207d112f
+  zh: 6bd43630fb9e8a9f
+/deepseek-ai-dsh-tool-audio-transcribe/model-experience/the-audio-transcribe-tool/what-the-model-sees:
+  en: 206709bfa0c5fb96
+  zh: a8a325cfefdac051
+/deepseek-ai-dsh-tool-audio-transcribe/model-experience/the-audio-transcribe-tool/token-effect:
+  en: ea30f97f657464a8
+  zh: aab766e44f75f2c0
+/deepseek-ai-dsh-tool-audio-transcribe/model-experience/the-audio-transcribe-tool/kv-cache-effect:
+  en: a386cbbc3c7dc489
+  zh: 28162e809672f479
+/deepseek-ai-dsh-tool-audio-transcribe/known-limitations-and-deferred-work:
+  en: 3c414dded3828fd3
+  zh: 21d38d5202ee1f78
+/deepseek-ai-dsh-tool-audio-transcribe/known-limitations-and-deferred-work/dev-note:
+  en: b3136da48d04074c
+  zh: 9a632d8c73078bce

@@ -1,4 +1,4 @@
-"""Import user-provided images as project assets."""
+"""Import local images as project assets."""
 from __future__ import annotations
 
 import os
@@ -78,7 +78,7 @@ VISION_USER_PROMPTS = {
 def import_asset_image(
     project_dir: str, category: str, asset_name: str, source_path: str
 ) -> str:
-    """Validate and atomically install one user image for an asset."""
+    """Validate and atomically install one local image for an asset."""
     if category not in VALID_CATEGORIES:
         raise ValueError(f"不支持的资产类别: {category}")
     name = validate_asset_name(asset_name)

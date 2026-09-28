@@ -5,6 +5,8 @@ import { join } from 'node:path'
 
 /** Application name and userData directory the product owns. */
 export const DESKTOP_PRODUCT_NAME = 'muse-med'
+/** This desktop product uses its MUSE account for the first-run account entry. */
+export const DESKTOP_PRIMARY_ACCOUNT: string = 'muse'
 
 /** Minimal Electron application operations needed to claim product identity. */
 export interface DesktopProductIdentityApplication {

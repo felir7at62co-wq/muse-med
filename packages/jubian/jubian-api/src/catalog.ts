@@ -110,8 +110,12 @@ export interface ScriptRow {
   can_claim: boolean | null
   /** Name of the leader the pool says holds this screenplay, when it names one. */
   claim_leader_name: string | null
+  /** Account ID of the leader who currently holds it, when supplied. */
+  claim_leader_id: number | null
   /** Name of the member the pool says holds this screenplay, when it names one. */
   claim_member_name: string | null
+  /** Account ID of the member who currently holds it, when supplied. */
+  claim_member_id: number | null
 }
 
 /** The object holding `rows`: the payload itself, or the `data` it wraps. */
@@ -157,7 +161,9 @@ export function readScriptList(data: unknown): { total: number; rows: ScriptRow[
       status: optionalText(item.status),
       can_claim: optionalFlag(item.canClaim),
       claim_leader_name: optionalText(item.claimLeaderName),
+      claim_leader_id: optionalCount(item.claimLeaderId),
       claim_member_name: optionalText(item.claimMemberName),
+      claim_member_id: optionalCount(item.claimMemberId),
     })) }
   })
 }

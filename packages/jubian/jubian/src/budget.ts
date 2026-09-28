@@ -193,8 +193,12 @@ export async function checkBudget(input: {
   readonly method: JubianLedgerMethod
   readonly scriptId?: number | undefined
   readonly quote?: { amount?: string | undefined; unit?: string | undefined } | undefined
+  /** Identically priced requests reserved together before any is sent. */
+  readonly count?: number | undefined
   readonly authorizationPath?: string | undefined
 }): Promise<BudgetDecision> {
+  const count = input.count ?? 1
+  if (!Number.isSafeInteger(count) || count < 1) throw new TypeError('Jubian budget count must be a positive safe integer')
   const records = await input.ledger.records()
   const scriptId = input.scriptId ?? null
   const empty = { settledCents: 0, reservedCents: 0 }
@@ -261,11 +265,17 @@ export async function checkBudget(input: {
         + `请在授权文件里给这个项目写上 estimates.${input.method}（人给的每次估算金额），`
         + '或让调用点先读目录拿到报价再提交；没有报价的计费调用一律不放行。' }
   }
-  const total = summary.settled + summary.reserved + chargeCents
-  if (total > limitCents) {
+  if (chargeCents === 0) {
+    return { status: 'refused', ...base,
+      reason: `计费方法 ${input.method} 的每笔报价或估算必须至少为 0.01 ${entry.unit} 的正数；`
+        + '零价或不足一分的金额不能作为预算预留。' }
+  }
+  const aggregate = chargeCents * count
+  const total = summary.settled + summary.reserved + aggregate
+  if (!Number.isSafeInteger(aggregate) || !Number.isSafeInteger(total) || total > limitCents) {
     const from = quoteCents === null ? '按授权文件里的估算' : '按报价'
     return { status: 'refused', ...base,
-      reason: `本次${from} ${(chargeCents / 100).toFixed(2)} ${entry.unit}，`
+      reason: `本次${from}每笔 ${(chargeCents / 100).toFixed(2)} ${entry.unit}、共 ${count} 笔，`
         + `而已结算 ${(summary.settled / 100).toFixed(2)}、在途 ${(summary.reserved / 100).toFixed(2)}，`
         + `合计将超过项目 ${String(scriptId)} 的授权上限 ${(limitCents / 100).toFixed(2)} ${entry.unit}。`
         + '请先结算或取消在途任务，或由人提高该项目的授权额度。' }

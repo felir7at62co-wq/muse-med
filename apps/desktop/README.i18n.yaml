@@ -3,32 +3,29 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
 /muse-med-desktop:
-  en: f48a43685c0a7c03
-  zh: 8b486785a487a4a1
+  en: 38cd1786c3cd97f1
+  zh: 32ffe7be660faf72
 /muse-med-desktop/key-technical-decisions:
-  en: a8c0a73e91ce1c3b
-  zh: 7bc313a18bbf2bff
+  en: ee3994b09556c374
+  zh: 46b09747867d230e
 /muse-med-desktop/key-technical-decisions/bundled-workspace-dependencies:
-  en: f1e1920ff40d58d1
-  zh: 68e783d542a12610
+  en: d65805ab74742250
+  zh: 3223009b143bfc6e
 /muse-med-desktop/installation-ownership:
-  en: 67dcbc1cd429307e
-  zh: fe9b851e0b757131
+  en: ac22d004fd7d27f6
+  zh: 56f88723a9d17cd0
 /muse-med-desktop/installation-ownership/short-drama-resources-and-limits:
-  en: 0dc82b34924fc148
-  zh: e0a8cf7fb74d5432
+  en: 7a3e0c0ac1fd926c
+  zh: 288c7eac5f5f663d
 /muse-med-desktop/installation-ownership/runtime-and-plugin-activation:
-  en: 60bbb7147be30872
-  zh: cc2210018949c951
+  en: 26ec58f6ca57d6d0
+  zh: 02031d6590d41ae2
 /muse-med-desktop/develop:
   en: d671eb5af7956ef1
   zh: a64fa6dbb71df970
 /muse-med-desktop/develop/startup-onboarding:
-  en: 5e2d62207a603d81
-  zh: 5fb863d4906f4a67
-/muse-med-desktop/develop/welcome-window-appearance:
-  en: 7220801ccc3b2e6b
-  zh: 042dc97976aef979
+  en: c9055d24d00c7530
+  zh: 13fa8f664b141e05
 /muse-med-desktop/package:
   en: 4cd8a8da6977928d
   zh: 9f624855a2edac37
@@ -60,8 +57,8 @@
   en: 0b225f914142ef0b
   zh: 9ffd07768d37824e
 /muse-med-desktop/known-limitations:
-  en: cd6dab9c4630a8de
-  zh: eda6961a2135e525
+  en: 7a48d63a38496884
+  zh: de97ab4b6fd0df0f
 /muse-med-desktop/dev-note:
   en: 8e26b460ba31f21b
   zh: fbcd0307b3867125

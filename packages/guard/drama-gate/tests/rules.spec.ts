@@ -490,6 +490,25 @@ describe('a project reconcile before creating a paid asset', () => {
     }))
   }
 
+  function generateBatch(overrides: Partial<GateCall> = {}): GateDecision {
+    return generate({ arguments: {
+      method: 'image_generate_batch', script_id: SCRIPT_ID,
+      items: [{ idempotency_key: 'batch-a', asset_name: '甲', asset_category: '角色', prompt: '甲' }],
+    }, ...overrides })
+  }
+
+  it('requires every batch item key even when the top level has a key', () => {
+    const result = generateBatch({ arguments: { method: 'image_generate_batch', script_id: SCRIPT_ID,
+      idempotency_key: 'top-level', items: [{ asset_name: '甲', asset_category: '角色', prompt: '甲' }],
+    } })
+    expect(reason(result)).toContain('items[0].idempotency_key')
+  })
+
+  it('applies the same project reconcile rule to batch generation', () => {
+    expect(reason(generateBatch())).toContain('asset_reconcile.py')
+    expect(generateBatch({ reader: withEvidence(JSON.stringify(report())) })).toEqual({ kind: 'allow' })
+  })
+
   it('denies when no reconcile evidence exists', () => {
     const text = reason(generate())
     expect(text).toContain('jubian_video.image_generate 会新建资产并真实计费')

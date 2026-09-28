@@ -50,6 +50,7 @@ allowBuilds:
   electron-winstaller: false
   # Store-index rewriting only needs msgpackr's portable JavaScript codec.
   msgpackr-extract: false
+  # The TOS SDK's CRC package ships dist/crc.js; its postinstall only rebuilds that file.
 
 minimumReleaseAgeExclude:
   # Office engines and their API are qualified and released together by the kit repository.

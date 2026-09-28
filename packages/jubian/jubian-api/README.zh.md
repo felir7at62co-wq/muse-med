@@ -9,7 +9,9 @@ kind: "package-reference"
 
 ## 概述
 
-`@deepseek-ai/dsh-jubian-api` 把剧变（Jubian）的响应载荷变成经过校验的带类型值，并把调用方的输入变成剧变接受的精确请求体。一次导入即覆盖目录与分集读取、资产与材质读取、视频任务与子结果读取、分镜快照、图片生成、去字幕、转高清与有界媒体下载。它自己不发送任何剧变请求：传输与凭证属于 `@deepseek-ai/dsh-jubian`，而调用这些函数的是 `@deepseek-ai/dsh-tool-jubian`。读取器把信封的 `data` 字段当作 `unknown` 接收，任何不匹配的载荷都会抛出 `JubianError`、错误码为 `CONTRACT_CHANGED`，而不是返回一个只读了一半的值。
+`@deepseek-ai/dsh-jubian-api` 校验剧变响应数据，并为目录、资产、视频、分镜、图片、去字幕与转高清操作构造请求体；它也下载有大小上限的媒体文件。载荷不匹配时，读取器抛出错误码为 `CONTRACT_CHANGED` 的 `JubianError`，否则返回带类型的值。剧变请求的传输与凭据由 `@deepseek-ai/dsh-jubian` 负责；`@deepseek-ai/dsh-tool-jubian` 使用这些函数。
+
+剧本池行在有值时提供 `claim_leader_id` 与 `claim_member_id`。认领工具将这些账号 ID 与当前登录用户比较，因为仅凭认领人名字无法核实归属。
 
 ## 目录
 
@@ -40,7 +42,9 @@ kind: "package-reference"
 import { JubianClient, JubianError } from '@deepseek-ai/dsh-jubian'
 import { readTaskPage } from '@deepseek-ai/dsh-jubian-api'
 
-const client = new JubianClient({ credential: resolveToken })
+const token = process.env.JUBIANAI_ADMIN_TOKEN
+if (!token) throw new Error('Set JUBIANAI_ADMIN_TOKEN')
+const client = new JubianClient({ credential: async () => token })
 const response = await client.request({ method: 'GET', path: '/admin/aigc/video/task/428322' })
 
 try {
@@ -60,14 +64,17 @@ try {
 分页读取器返回 `{ total, rows }`。读取某个生成任务的全部子结果，并逐条判断它在目标分辨率下能否交付：
 
 ```ts
+import { JubianClient } from '@deepseek-ai/dsh-jubian'
 import { needsUpscale, readSubtaskPage } from '@deepseek-ai/dsh-jubian-api'
 
-const response = await client.request({ method: 'POST', path: '/admin/aigc/video/task/sub/list',
-  body: { aigcVideoTaskId: 428322 } })
-const page = readSubtaskPage(response.data)
+async function readResults(client: JubianClient) {
+  const response = await client.request({ method: 'POST', path: '/admin/aigc/video/task/sub/list',
+    body: { aigcVideoTaskId: 428322 } })
+  const page = readSubtaskPage(response.data)
 
-for (const row of page.rows) {
-  console.log(row.subtask_id, row.video_url, row.last_stage, needsUpscale(row, '1080p'))
+  for (const row of page.rows) {
+    console.log(row.subtask_id, row.video_url, row.last_stage, needsUpscale(row, '1080p'))
+  }
 }
 ```
 
@@ -91,6 +98,8 @@ const body = buildSubtitleEraseRequest('quzimuToB', {
 
 构造器返回一个普通对象，不发送任何东西。用 `client.request()` 提交它，再用 `readSubtitleTaskId()` 从响应里读回任务身份。`buildSubtitleEraseRequest` 按模型固定标准标识：`quzimuToB` 用 `26`，`ark-erase-video-subtitle-pro` 用 `67`；后者是自动路线，不接受矩形框。调用方省略 `subtitleBox` 时，区域路线改为从画面尺寸推导这个矩形。
 
+`validateImageRequestInput()` 无需读取实时模型目录，就能校验一次图片请求的项目 ID、资产名称和类别、提示词、参考图 URL，以及可选的父资产 ID。`buildImageRequest()` 在解析目录行前也使用同一套校验，因此批次调用方可以在任何计费提交前拒绝所有本地参数错误的项。
+
 ### 解析视频设置
 
 `resolveVideoModel(catalogue, intent)` 保留精确的 `modelId`、显式 `platformId`、生成类型和时长，宽高比与分辨率匹配不区分大小写。目录必须恰好匹配一项；缺失或歧义会失败，而不是改选其他模型或平台。返回的选择器刷新过期标准标识，并保留 `genNum=1`。原生准备流程使用实时分镜设置；按模型生成应使用 `prepare_video`/`submit_video`。
@@ -102,10 +111,13 @@ const body = buildSubtitleEraseRequest('quzimuToB', {
 `downloadMedia()` 是本包中唯一会打开套接字的函数。它从固定的媒体来源白名单取回一个有界的载荷，并连同摘要一起返回字节：
 
 ```ts
-import { downloadMedia } from '@deepseek-ai/dsh-jubian-api'
+import { downloadMedia, type VideoSubtask } from '@deepseek-ai/dsh-jubian-api'
 
-const media = await downloadMedia(row.video_url!, { kind: 'video', timeoutMs: 60000 })
-console.log(media.media_type, media.kind, media.sha256, media.bytes.byteLength)
+async function downloadVideo(row: VideoSubtask) {
+  if (row.video_url === null) throw new Error('No video URL')
+  const media = await downloadMedia(row.video_url, { kind: 'video', timeoutMs: 60000 })
+  console.log(media.media_type, media.kind, media.sha256, media.bytes.byteLength)
+}
 ```
 
 该调用会拒绝 `MEDIA_ALLOWED_ORIGINS` 之外的 URL、超过对应类型上限的响应、重定向，以及自身头字节与所请求 `kind` 不符的响应体。字节会交回给你；写文件是你的步骤。

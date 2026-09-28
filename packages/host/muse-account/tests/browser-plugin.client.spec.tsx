@@ -13,7 +13,7 @@ import type { MuseAccountInjected } from '../src/client/MuseAccountSection.tsx'
 import { inject, mountMuseAccountSettings, NS } from '../src/client/mount.ts'
 
 usePinnedBrowserLanguages('zh-CN')
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 const REMOTE: TypertRemoteContribution = { package: '@deepseek-ai/dsh-muse-account', descriptors: [] }
 
@@ -35,11 +35,24 @@ async function bench() {
   })
   ctx.provide('remote.museAccount', { status, login, logout })
   const slots = ctx.get('slots') as SlotRegistry
-  slots.register({ name: 'root', children: { 'settings.section': { kind: 'list', scope: 'root' } } } as never, () => null)
+  slots.register({ name: 'root', children: {
+    'settings.section': { kind: 'list', scope: 'root' },
+    'settings.launcher': { kind: 'single', scope: 'root' },
+    'settings.onboarding': { kind: 'list', scope: 'root' },
+  } } as never, () => null)
   return { ctx, slots, locale, mount, disposeMount, status, login, logout }
 }
 
 describe('MUSE account browser plugin', () => {
+  it('owns the Muse desktop launcher and first-run account step', async () => {
+    vi.stubGlobal('dshDesktop', { productName: 'muse-med' })
+    const b = await bench()
+    await mountMuseAccountSettings(b.ctx, REMOTE)
+    expect(b.slots.entries('settings.launcher')).toHaveLength(1)
+    expect(b.slots.entries('settings.onboarding')[0]?.options).toMatchObject({ id: 'muse-account', order: -50 })
+    await b.ctx.fiber.dispose()
+  })
+
   it('registers the account page in Settings and releases it on disposal', async () => {
     expect(inject).toEqual(['slots', 'locale', 'remote'])
     const b = await bench()

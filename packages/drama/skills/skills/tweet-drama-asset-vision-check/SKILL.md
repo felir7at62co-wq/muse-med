@@ -21,6 +21,6 @@ description: 对剧变生成的仿真人角色、场景、道具候选图做自�
 
 证件与文书类道具允许出现剧情必需的金额、日期、姓名，但出现国徽、真实机关名称或真实凭据编号规则时判 failed。
 
-每项记录 pass/fail、分项分数、可观察证据和失败原因。失败时针对原因改写提示词，review_attempts 加一并重生；max_review_attempts=3。三轮仍失败则阻断该资产下游并给诊断，不得自动降低标准。
+每项记录 pass/fail、分项分数、可观察证据和失败原因。失败时先核实原任务已终止并对账费用，再针对原因改写提示词；仅在当前项目付费授权及剩余预算覆盖新请求时重生，review_attempts 加一。max_review_attempts=3 限制同一候选及其定向修正，三轮仍失败就阻断下游并给诊断，不自动降低标准或清零计数重投。找到新的合格参考图或明确根因并修正后，保留旧候选及三次失败记录，用新的 generation_version 和 idempotency_key 建立可区分的新候选与新收费决定；仍 pending、unknown 或已受理的旧任务必须先按原 key 回读，不能借新候选重复收费。
 
 审核通过只写 asset_status=approved、official=false。随后必须用剧变插件的 `jubian_asset` `confirm_casting` 调用确认出演并回查；只有远端证据成功后才写 asset_confirmation=verified、official=true。镜头与视频只能使用正式资产。

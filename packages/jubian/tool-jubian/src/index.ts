@@ -24,10 +24,12 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { JUBIAN_TOKEN_REF, JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
-import { assetMethod, catalogMethod, mediaMethod, storyboardMethod, videoMethod } from './methods.ts'
+import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, storyboardMethod, videoMethod } from './methods.ts'
 import type { ImageMethodOptions, MethodArgs } from './methods.ts'
 import { findMethod } from './find.ts'
 import type { FindArgs } from './find.ts'
+import { claimMethod, claimWatchArgs, claimWatchJob, resolveClaimWatchConfig } from './claim.ts'
+import type { ClaimArgs, ClaimWatchArgs, ClaimWatchConfig } from './claim.ts'
 import { seriesBudgetLimit } from './budget-settings.ts'
 import { JubianImageRoutes, pinnedImageSelection } from './image.ts'
 import type { ImageRouteConfig } from './image.ts'
@@ -35,6 +37,7 @@ import { ASSET_CATEGORIES, resolveNaming } from './naming.ts'
 import type { Naming } from './naming.ts'
 import { organizeMethod } from './organize.ts'
 import { modelMethod } from './model-settings.ts'
+import { resolveVideoBatchOptions } from './native.ts'
 import { JubianToken } from './token.ts'
 import { requireArguments } from './write.ts'
 import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
@@ -58,6 +61,18 @@ export interface Config extends ImageRouteConfig {
   watchPollIntervalMs?: number
   /** Watch deadline in milliseconds; integer 1..86400000, default 1800000. */
   watchTimeoutMs?: number
+  /** Pool claim watcher interval in milliseconds; integer 1000..60000, default 5000. */
+  claimPollIntervalMs?: number
+  /** Maximum authorized claim window in milliseconds; integer 1000..86400000, default 7200000. */
+  claimMaxWindowMs?: number
+  /** Maximum lead time before a claim window starts, in milliseconds; default 86400000. */
+  claimMaxLeadMs?: number
+  /** Pool rows per scan request; integer 1..1000, default 300. */
+  claimScanPageSize?: number
+  /** Maximum pages per complete pool scan; integer 1..100, default 50. */
+  claimScanPageLimit?: number
+  /** Maximum distinct IDs one claim job may submit; integer 1..100, default 100. */
+  claimMaxItems?: number
   /**
    * Whether the workspace's own pipeline secret file may stand in for a missing
    * credential-store value; defaults to true.
@@ -71,6 +86,14 @@ export interface Config extends ImageRouteConfig {
   imageActiveTimeoutMs?: number
   /** Delay between the readback polls above, in milliseconds; defaults to 3000. */
   imageActivePollMs?: number
+  /** Maximum concurrent paid image requests in one batch; integer 1..8, default 3. */
+  imageBatchConcurrency?: number
+  /** Maximum image requests accepted in one batch; integer 1..100, default 12. */
+  imageBatchMaxItems?: number
+  /** Maximum concurrent storyboard PUTs after a whole-batch preflight; integer 1..8, default 3. */
+  videoBatchConcurrency?: number
+  /** Maximum distinct storyboard previews in one paid batch; integer 1..100, default 100. */
+  videoBatchMaxItems?: number
   /**
    * Separator between the segments of a composed asset name; defaults to `｜`.
    * Applies only to names this row composes from an `episode` argument — a caller
@@ -91,7 +114,7 @@ export interface Config extends ImageRouteConfig {
 }
 
 /** The one sentence every write method's description carries. */
-const WRITE_NOTE = '写方法必须提供 idempotency_key：同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）。'
+const WRITE_NOTE = '写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。'
   + '超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。'
 
 /** The workspace-relative secret file the pipeline skills already use. */
@@ -151,6 +174,18 @@ const ARGS = {
       + '给了 asset_category 时可以不传（插件按类别推导）；两个都给时必须一致。'
       + '场景与道具必须传 2/3——一律传 1 会把它们建进控制台的角色库。' },
   prompt: { type: 'string', description: 'image_generate 必填：图片提示词。' },
+  items: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+    idempotency_key: { type: 'string', required: true,
+      description: '本项独立的幂等键；批次顶层不使用 idempotency_key。未知结果必须用本项原 key 对账。' },
+    asset_name: { type: 'string', required: true, description: '本项资产名；episode 与 asset_category 可组成规范名称。' },
+    asset_type: { type: 'number', enum: [1, 2, 3], description: '1=角色，2=场景，3=道具；与 asset_category 二选一。' },
+    asset_category: { type: 'string', enum: [...ASSET_CATEGORIES], description: '资产类别；给 episode 时必填。' },
+    episode: { type: 'string', description: '集号或全剧；按规范组合资产名。' },
+    prompt: { type: 'string', required: true, description: '本项图片提示词。' },
+    image_platform_id: { type: 'string', description: '本项可选的实时通道 platformId；切换前核对授权、价格与旧任务。' },
+    references: { type: 'array', items: { type: 'string' }, description: '本项有序参考图 HTTPS URL。' },
+    parent_asset_id: { type: 'number', description: '可选：重生成的父资产 ID；省略则新建。' },
+  } }, description: 'image_generate_batch 必填：同一 script_id 下各不相同的资产请求；每项独立 key，整批先校验后并发执行。' },
   image_platform_id: { type: 'string', description: 'image_generate 可选：仅本次使用实时目录中的指定 platformId；省略时使用设置或部署已选通道。切换前核对价格、授权和上一笔结果；超时或未知结果不能直接换通道重投。' },
   references: { type: 'array', items: { type: 'string' },
     description: 'image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。' },
@@ -190,6 +225,10 @@ const ARGS = {
       + '且其 jubian_script_id 必须等于实时 scriptId。' },
   preview_path: { type: 'string',
     description: 'submit_video 必填：prepare_video 返回的 preview_path，不要猜测或手写文件名。' },
+  video_previews: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+    preview_path: { type: 'string', required: true, description: '本项 prepare_video 返回的预览文件。' },
+    idempotency_key: { type: 'string', required: true, description: '本项 preview 自带的 fingerprint；重放保持原 key。' },
+  } }, description: 'submit_video_batch 必填：本次提交清单中同项目不同分镜的预览；先逐项预检与总预算预约，再有界并行提交。' },
   selections: { type: 'array',
     items: { type: 'object', additionalProperties: false, properties: {
       material_key: { type: 'string', required: true,
@@ -268,6 +307,9 @@ function guarded<A = MethodArgs>(
  */
 export function apply(ctx: Context, config: Config = {}): void {
   const watchConfig = resolveWatchConfig(config)
+  const claimConfig: ClaimWatchConfig = resolveClaimWatchConfig(config)
+  const imageBatch = resolveImageBatchOptions(config)
+  const videoBatch = resolveVideoBatchOptions(config)
   ctx.plugin(JubianToken)
   const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
   // Resolved once, here, so a blank separator or series label fails the mount
@@ -364,6 +406,55 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     output: OUTPUT,
     execute: guarded<FindArgs>('jubian_find', args => findMethod(client, args)),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'jubian_claim',
+    description: '剧变剧本池单本操作：inspect 只读；claim 会真实认领，必须有用户对该 ID 的明确授权与当前账号 canClaim=1。'
+      + '按 viewRole 选择认领端点；写前记账。未知结果只读对账，不换 key 重投。',
+    parameters: {
+      method: { type: 'string', required: true, enum: ['inspect', 'claim'],
+        description: 'inspect=只读查看该 ID 对当前账号是否可领；claim=经用户明确授权后认领一次。' },
+      script_id: { type: 'integer', required: true, description: '用户明确授权查看或认领的剧本池 ID。' },
+      idempotency_key: { type: 'string', description: 'claim 必填；复核同一笔时保持原 key。inspect 不需要。' },
+      authorization_basis: { type: 'string',
+        description: 'claim 必填：简述用户原话中对这个 ID 的明确认领授权；不能由查询结果或代理自己推定。inspect 不需要。' },
+    },
+    output: OUTPUT,
+    execute: guarded<ClaimArgs>('jubian_claim', args => claimMethod(client, ledger, args, claimConfig)),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'jubian_snatch',
+    description: '剧变剧本池有界后台认领。只有用户明确授权目标范围和 UTC 时间窗口才启动；'
+      + '每本仅在当前账号 canClaim=1 时尝试一次。返回 job_id，用 job_output 查看；'
+      + 'job_kill 只停后续尝试，已提交认领不会撤销，进程重启不恢复。未知结果先只读对账，不换 key 重投。',
+    parameters: {
+      scope: { type: 'string', required: true, enum: ['ids', 'new_claimable'],
+        description: 'ids=仅指定 ID；new_claimable=与作业启动时完整池子基线比较，只取新增且 canClaim=1 的剧本。两种范围均需用户明确授权。' },
+      script_ids: { type: 'array', items: { type: 'integer' },
+        description: 'scope=ids 必填：用户授权的正整数 ID 列表，不能重复；new_claimable 时必须省略。' },
+      start_at: { type: 'string', required: true, description: '开始时间，UTC ISO 格式，例如 2026-09-28T12:00:00.000Z。' },
+      end_at: { type: 'string', required: true, description: '结束时间，UTC ISO 格式；必须晚于开始且在部署窗口上限内。' },
+      idempotency_prefix: { type: 'string', required: true,
+        description: '本次授权窗口唯一非空前缀；每本的 ledger key 是 <前缀>/<script_id>。恢复核对时复用原前缀。' },
+      authorization_basis: { type: 'string', required: true,
+        description: '简述用户原话中对本次目标范围和时间窗口的明确授权；不能把查询结果当成授权。' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true }, render: OUTPUT.render,
+    },
+    execute: (args: ClaimWatchArgs, exec) => {
+      const input = claimWatchArgs(args, claimConfig)
+      const jobs = ctx.get('jobs')
+      if (!jobs) throw new Error('jubian_snatch requires a jobs provider and job controller')
+      if (!exec.agent) throw new Error('jubian_snatch requires an owning Agent for completion delivery')
+      const job_id = jobs.start({ kind: 'jubianClaim', owner: exec.agent.id,
+        label: `Jubian pool claim ${input.scope} until ${input.end_at}`,
+        run: () => claimWatchJob(client, ledger, input, claimConfig) })
+      return Promise.resolve({ job_id, scope: input.scope, status: 'running' as const,
+        start_at: input.start_at, end_at: input.end_at })
+    },
   }))
 
   ctx.tools.register(defineTool({
@@ -476,6 +567,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       + 'PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），'
       + '随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；'
       + '身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。'
+      + 'submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；'
+      + '全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。'
       + '**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；'
       + 'storyboard PUT 创建的 335343 保留了全部七项身份。'
       + '**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：'
@@ -485,11 +578,13 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。' + WRITE_NOTE,
     parameters: {
       method: { type: 'string', required: true,
-        enum: ['get', 'create', 'save', 'generate', 'select_assets', 'prepare_video', 'submit_video', 'erase_subtitle'],
+        enum: ['get', 'create', 'save', 'generate', 'select_assets', 'prepare_video', 'submit_video',
+          'submit_video_batch', 'erase_subtitle'],
         description: 'get=读分镜（含 model_config 与素材键）；create=用调用方给定的请求体新建；'
           + 'save=存为不生成；generate=提交生成（计费）；'
           + 'select_assets=写入选定资产（免费，强制 isGenerate=0）；'
           + 'prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；'
+          + 'submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；'
           + 'erase_subtitle=去字幕（计费、异步）。' },
       storyboard_id: ARGS.storyboard_id, content_duration_ms: ARGS.content_duration_ms,
       task_id: ARGS.task_id, script_id: ARGS.script_id,
@@ -498,9 +593,10 @@ export function apply(ctx: Context, config: Config = {}): void {
       video_width: ARGS.video_width, video_height: ARGS.video_height, subtitle_box: ARGS.subtitle_box,
       body: ARGS.body, body_path: ARGS.body_path, idempotency_key: ARGS.idempotency_key,
       selections: ARGS.selections, project_dir: ARGS.project_dir, preview_path: ARGS.preview_path,
+      video_previews: ARGS.video_previews,
     },
     output: OUTPUT,
-    execute: guarded('jubian_storyboard', args => storyboardMethod(client, ledger, args, { naming })),
+    execute: guarded('jubian_storyboard', args => storyboardMethod(client, ledger, args, { naming, videoBatch })),
   }))
 
   ctx.tools.register(defineTool({
@@ -514,6 +610,12 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '返回里的 asset_status 说明回读结论：active 才是拿到图（此时才可落盘/审核）；'
       + 'timeout 表示受理已计费但资产尚未 Active，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；'
       + 'failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。'
+      + '**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。'
+      + '工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。'
+      + '随后按配置的并发上限逐项提交计费请求，'
+      + '全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；'
+      + '返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active。'
+      + '逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。'
       + '账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；'
       + '插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行'
       + '（platformId、standardId、单价）。锁定行由人在 Web 设置的「短剧 → 资产图生成通道」里选，'
@@ -530,14 +632,16 @@ export function apply(ctx: Context, config: Config = {}): void {
       + WRITE_NOTE,
     parameters: {
       method: { type: 'string', required: true,
-        enum: ['task', 'tasks', 'subtasks', 'unresolved', 'image_generate', 'upscale', 'retry'],
+        enum: ['task', 'tasks', 'subtasks', 'unresolved', 'image_generate', 'image_generate_batch', 'upscale', 'retry'],
         description: 'task=单个任务（含 cost 观测）；tasks=项目任务分页；'
           + 'subtasks=任务的子结果（成片 URL、字幕框、阶段、分辨率与 needs_upscale）；'
           + 'unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；'
-          + 'image_generate=生成图片（计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。' },
+          + 'image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；'
+          + 'upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。' },
       task_id: ARGS.task_id, script_id: ARGS.script_id, page_num: ARGS.page_num,
       delivery_resolution: ARGS.delivery_resolution,
       asset_name: ARGS.asset_name, asset_type: ARGS.asset_type, prompt: ARGS.prompt,
+      items: ARGS.items,
       image_platform_id: ARGS.image_platform_id,
       references: ARGS.references, parent_asset_id: ARGS.parent_asset_id,
       episode: ARGS.episode, asset_category: ARGS.asset_category, package_number: ARGS.package_number,
@@ -545,7 +649,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       idempotency_key: ARGS.idempotency_key,
     },
     output: OUTPUT,
-    execute: guarded('jubian_video', args => videoMethod(client, ledger, args, { image: image(), naming })),
+    execute: guarded('jubian_video', args => videoMethod(client, ledger, args, { image: image(), imageBatch, naming })),
   }))
 
   ctx.tools.register(defineTool({

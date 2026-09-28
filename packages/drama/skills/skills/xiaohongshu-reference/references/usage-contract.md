@@ -4,7 +4,7 @@
 
 ## 安装、登录与只读边界
 
-默认使用用户本地图片，不需要小红书。只有用户主动另选本渠道并自行配置合法 v2.2.6 运行时、明确提供且确认当前账号归属的独立 endpoint 后才可使用。缺 endpoint、未登录或账号不明就暂停；不能连接默认 18060 猜测身份，不运行旧安装/启动 helper，不代处理 Cookie。源代码保留不等于这些 helper 已通过产品账号隔离验收。
+短剧常规路径使用已有用户图片，缺图时自主检索并审核有来源与许可的公开网上素材，不需要小红书。只有用户主动另选本渠道并自行配置合法 v2.2.6 运行时、明确提供且确认当前账号归属的独立 endpoint 后才可使用。缺 endpoint、未登录或账号不明就暂停；不能连接默认 18060 猜测身份，不运行旧安装/启动 helper，不代处理 Cookie。源代码保留不等于这些 helper 已通过产品账号隔离验收。
 
 ```powershell
 python -B scripts/xhs_reference_search.py --endpoint <用户确认的端点> status
@@ -42,7 +42,7 @@ python -B scripts/xhs_reference_search.py --endpoint <用户确认的端点> sea
 - 完整人物参考图必须明确哪些图只参考服装、哪些只参考妆发或抽象五官，以及不得继承的元素。
 - 剧本中的年龄、职业、经济阶层、伤病、孕期、婚礼和服装连续性优先于平台潮流。
 
-调用方 Agent 在 `asset_style_references.json` 为候选填写采用/淘汰原因和视觉元素。逐图审核并取得用户确认后，按 [本地参考图流程](../../tweet-drama-core/references/style-references.md) 记录确认依据、检查证据，再把采用的本地参考图交给剧变 `gpt-image-2`。本 skill 输出时只能写 `pending_review`，检索成功不等于批准。
+调用方 Agent 在 `asset_style_references.json` 为候选填写采用/淘汰原因和视觉元素。逐图审核并取得用户确认后，按 [参考图流程](../../tweet-drama-core/references/style-references.md) 记录确认依据、检查证据，再把采用的本地参考图交给剧变 `gpt-image-2`。本 skill 输出时只能写 `pending_review`，检索成功不等于批准。
 
 ## 产物与安全
 

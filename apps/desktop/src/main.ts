@@ -58,7 +58,7 @@ import { DesktopUpdateOverlays } from './update-overlay.ts'
 import { DesktopQuitConfirmation } from './quit-confirmation.ts'
 import { DesktopTray } from './tray.ts'
 import { DesktopBackgroundNotice } from './background-notice.ts'
-import { applyDesktopProductIdentity } from './product-identity.ts'
+import { applyDesktopProductIdentity, DESKTOP_PRIMARY_ACCOUNT } from './product-identity.ts'
 
 // Identity precedes the product home, every path read, and the single-instance lock below.
 applyDesktopProductIdentity(app)
@@ -504,7 +504,7 @@ async function main(): Promise<void> {
           if (state.status === 'credential-stored' && attempt?.phase === 'succeeded' && welcomeWindow !== undefined) void enterWorkspace({ activate: false }).catch(() => undefined)
           if (previousAccountStatus === 'credential-stored' && state.status === 'signed-out') {
             void readWelcomeState().then(async (value) => {
-              if (needsWelcome(value) && !quitting) {
+              if (DESKTOP_PRIMARY_ACCOUNT !== 'muse' && needsWelcome(value) && !quitting) {
                 enteredWorkspace = false
                 await showWelcome()
                 if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) welcomeWindow.webContents.send(WELCOME_IPC.state, state)
@@ -517,7 +517,7 @@ async function main(): Promise<void> {
           // The stream reconnects; a transport failure does not change account state.
         }, () => {
           void readWelcomeState().then(async (value) => {
-            if (!needsWelcome(value) || quitting) return
+            if (DESKTOP_PRIMARY_ACCOUNT === 'muse' || !needsWelcome(value) || quitting) return
             pendingWelcomeNotice = 'session-expired'
             enteredWorkspace = false
             await showWelcome()
@@ -813,7 +813,7 @@ async function main(): Promise<void> {
     await reconcileBackend()
     focusPrimaryWindow()
   })
-  ipcMain.handle(DESKTOP_IPC.applicationRestart, async (event) => {
+  ipcMain.handle(DESKTOP_IPC.applicationRestart, (event) => {
     assertDesktopSender(event, ['shell'])
     app.relaunch()
     quitWithoutConfirmation()
@@ -1029,10 +1029,10 @@ async function main(): Promise<void> {
     updates.dispose()
   })
 
-  const applicationIconPath = development !== undefined ? join(app.getAppPath(), 'resources', 'icon-windows.png')
+  const applicationIconPath = development !== undefined ? join(app.getAppPath(), 'renderer', 'icon.png')
     : join(process.resourcesPath, 'icon.png')
   app.setAboutPanelOptions({
-    applicationName: 'DeepSeek Harness',
+    applicationName: 'muse-med',
     applicationVersion: app.getVersion(),
     // The release has no separate build number; omit Electron's bundle version.
     version: '',
@@ -1335,7 +1335,7 @@ async function main(): Promise<void> {
     locale = resolveDesktopStartupLocale(state.localePreference, systemLanguages)
     windowsLanguage = locale.id
     refreshApplicationMenu()
-    if (!enteredWorkspace && needsWelcome({ loggedIn: state.loggedIn, hasApiKey: state.hasApiKey })) {
+    if (!enteredWorkspace && DESKTOP_PRIMARY_ACCOUNT !== 'muse' && needsWelcome({ loggedIn: state.loggedIn, hasApiKey: state.hasApiKey })) {
       // A later login must retain its own activation policy instead of replaying startup focus.
       raiseAfterUpdate = false
       await showWelcome()
@@ -1410,7 +1410,7 @@ async function main(): Promise<void> {
       if (quitting || shellInstallerOwnsQuit) return
       if (approved) { finishQuit(); return }
       // A quit that started from closing the welcome window destroyed it; a cancelled quit needs it back.
-      if (!enteredWorkspace && !recovery.active) void showWelcome().catch((error: unknown) => { reportFatal(error, 'main') })
+      if (!enteredWorkspace && !recovery.active && DESKTOP_PRIMARY_ACCOUNT !== 'muse') void showWelcome().catch((error: unknown) => { reportFatal(error, 'main') })
     }).catch((error: unknown) => { console.error(error); if (!quitting && !shellInstallerOwnsQuit) finishQuit() })
   })
 

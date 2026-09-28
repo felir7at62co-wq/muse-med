@@ -83,7 +83,7 @@ export function apply(ctx) {
       const assembly = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
       const persona = assembly.sections.find(section => section.name === 'deployment:persona-prefix')?.text
       if (persona !== editingModelInput.personaPrefix
-        || !persona?.includes('当你决定正式写作前，必须实际阅读至少一份有来源的爆款剧本开头')) {
+        || !persona?.includes('正式写作前先检索并阅读获授权知识库的相关案例 Wiki 页，再实际阅读有来源的爆款剧本开头')) {
         throw new Error('desktop runtime: editing persona changed')
       }
       for (const [name, description] of Object.entries(editingModelInput.tools)) {
@@ -96,7 +96,7 @@ export function apply(ctx) {
     const skills = await ctx.skills.list({ scope: handle.agent, cwd: home })
     if (names.has('skill')) {
       const productSkills = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills')
-      for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script']) {
+      for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import']) {
         const skill = skills.find(value => value.name === name)
         const expected = join(productSkills, name, 'SKILL.md')
         if (!skill?.invocation.modelInvocable || !existsSync(expected)
@@ -106,6 +106,9 @@ export function apply(ctx) {
       }
       if (!existsSync(join(productSkills, 'audio-transcribe', 'scripts', 'transcribe.py'))) {
         throw new Error('desktop runtime: missing shared Muse transcription script')
+      }
+      if (!existsSync(join(productSkills, 'media-link-import', 'scripts', 'import_media.py'))) {
+        throw new Error('desktop runtime: missing shared Muse media import script')
       }
     }
     if (id === 'cordis' && !skills.some(skill => skill.name === 'editing-cordis-compositions')) {

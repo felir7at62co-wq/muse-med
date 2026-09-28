@@ -75,6 +75,15 @@ it('keeps account UI and account RPC inactive in a plain browser, including afte
   }
 }, 60_000)
 
+it('keeps DeepSeek sign-in in Models without making it the Muse desktop account entry', async ({ start }) => {
+  vi.stubGlobal('dshDesktop', { productName: 'muse-med' })
+  const c = await start()
+  expect(c.ctx.slots.entries('settings.launcher')).toHaveLength(0)
+  expect(c.ctx.slots.entries('shell.overlay').some(entry => entry.options.id === 'desktop-onboarding')).toBe(false)
+  expect(c.ctx.slots.entries('settings.section').some(entry => entry.options.id === 'account')).toBe(false)
+  expect(c.ctx.slots.entries('settings.models.sign-in')).toHaveLength(0)
+}, 60_000)
+
 it('claims account balance notices from the frame-wide quota chain and declines generic quota', async ({ start }) => {
   vi.stubGlobal('dshDesktop', {})
   const c = await start()

@@ -1,5 +1,5 @@
 ---
-description: "The nine Jubian (剧变) tools a DSH model calls to drive a production: catalogue reads and screenplay-name lookup, asset and storyboard writes, the category-aware naming convention, asset-library folders and renames, the read-only organization index, local reference upload, the storyboard-native video channel, paid image/video generation and erasure, and provider media download."
+description: "Eleven Jubian (剧变) tools for screenplay pool inspection and authorized claims, production catalogues, assets, storyboards, paid generation, media download and background jobs."
 kind: "package-bundle"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-tool-jubian` gives a DSH model nine tools that drive a Jubian production end to end: catalogue reads, screenplay-name lookup, asset and storyboard edits, asset-library folders and renames, a read-only episode-by-category organization index, a local reference-image upload, the storyboard-native subject-video channel, paid image and video generation, subtitle erasure, upscaling, and media download. Reads are free; every paid or state-changing call needs a caller-supplied `idempotency_key`, and the plugin records an intent line before the request leaves and a settle line after the response returns. A replayed key never repeats a write; reconciliation methods may perform fresh reads.
+`dsh-tool-jubian` gives a DSH model eleven tools for the screenplay pool and Jubian production: catalogue reads, screenplay lookup, authorized pool claims, asset and storyboard edits, a read-only organization index, reference upload, paid image and video generation, subtitle erasure, upscaling, media download and background jobs. Reads are free; paid or state-changing calls use caller-supplied idempotency keys, and the plugin records an intent before each request and a settlement after its response. A replayed key never repeats a write; reconciliation methods may perform fresh reads.
 
 ## Table of Contents
 
@@ -25,11 +25,11 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the row in any preset that needs to read or change a Jubian production, then give the model a task; the nine tools appear with their costs written into their descriptions.
+Mount the row in any preset that needs to read or change a Jubian production, then give the model a task; the eleven tools state their effects in their descriptions.
 
 ### When to choose it
 
-Choose this package when an agent must resolve a screenplay name to its project, inspect a project, organize its assets by episode and category, upload a local reference image, save a subject selection, prepare and submit subject-backed video, confirm casting, generate images, generate or erase video, upscale a finished clip to 1080p, or pull provider media down for its own vision tools. Mount it wherever the credential resolves, because the same row serves a read-only survey and a paid generation run. Skip it when nothing in the session talks to Jubian: the nine schemas and their descriptions stay visible to the model whether or not they are used.
+Choose this package when an agent must inspect or claim a screenplay from the account pool, resolve a screenplay name, organize assets, upload a reference image, save a subject selection, prepare and submit video, confirm casting, generate images, erase subtitles, upscale a clip, or download provider media. Mount it wherever the credential resolves. When the session does not use Jubian, omit the row because its eleven schemas remain model-visible while mounted.
 
 ### Minimal configuration
 
@@ -46,6 +46,10 @@ Choose this package when an agent must resolve a screenplay name to its project,
       # imageStandardId: 66                      # or the catalogue row's own id, instead of the platform
       # imageActiveTimeoutMs: 180000             # default 180000
       # imageActivePollMs: 3000                  # default 3000
+      # imageBatchConcurrency: 3                 # concurrent image requests, 1..8
+      # imageBatchMaxItems: 12                   # batch size limit, 1..100
+      # videoBatchConcurrency: 3                 # concurrent storyboard submissions, 1..8
+      # videoBatchMaxItems: 100                  # video batch size limit, 1..100
       # nameSeparator: '｜'                      # default '｜'
       # seriesLabel: 全剧                        # default 全剧
       # assetIndexPath: _probe/asset-index.md    # default _probe/asset-index.md
@@ -58,11 +62,21 @@ Choose this package when an agent must resolve a screenplay name to its project,
 | `timeoutMs` | the transport's own default | Per-call abort budget in milliseconds |
 | `watchPollIntervalMs` | `15000` | Watch polling interval in milliseconds; integer within 1..60000 |
 | `watchTimeoutMs` | `1800000` | Watch deadline in milliseconds; integer within 1..86400000 |
+| `claimPollIntervalMs` | `5000` | Pool claim polling interval in milliseconds; integer 1000..60000 |
+| `claimMaxWindowMs` | `7200000` | Maximum authorized claim window in milliseconds |
+| `claimMaxLeadMs` | `86400000` | Maximum lead time before a claim window starts, in milliseconds |
+| `claimScanPageSize` | `300` | Rows per account pool scan request; integer 1..1000 |
+| `claimScanPageLimit` | `50` | Pages per complete account pool scan; integer 1..100 |
+| `claimMaxItems` | `100` | Maximum distinct screenplay IDs one job may attempt; integer 1..100 |
 | `workspaceSecrets` | `true` | Whether the workspace pipeline secret file may stand in for a missing credential-store value |
 | `imagePlatformId` | none | Which `platformId` of the `taskType=2` catalogue `image_generate` buys from, such as `KU_AI`; the fallback pin, used only while the short-drama settings section pins no row |
 | `imageStandardId` | none | Which catalogue row (`standardId`, the row's own `id`) `image_generate` buys from; either this or `imagePlatformId` pins one row, under the same settings-page precedence |
 | `imageActiveTimeoutMs` | `180000` | How long `image_generate` waits for the new asset to reach `hsAssetStatus` `Active` before reporting a timeout |
 | `imageActivePollMs` | `3000` | Delay between the readback polls above |
+| `imageBatchConcurrency` | `3` | Maximum simultaneous image requests in one batch; integer 1..8 |
+| `imageBatchMaxItems` | `12` | Maximum requests in one image batch; integer 1..100 |
+| `videoBatchConcurrency` | `3` | Maximum simultaneous storyboard PUTs after batch preflight; integer 1..8 |
+| `videoBatchMaxItems` | `100` | Maximum distinct storyboard previews in one batch; integer 1..100 |
 | `nameSeparator` | `｜` | Separator between the segments of a name this row composes from an `episode` argument |
 | `seriesLabel` | `全剧` | Episode token of an asset that serves the whole series; a caller passes exactly this value as `episode` |
 | `assetIndexPath` | `_probe/asset-index.md` | Where `jubian_organize` writes its index, relative to the project directory |
@@ -75,7 +89,7 @@ A row is pinned in one of two places, and the settings page wins: **Settings →
 
 `jubian_video image_generate` may set `image_platform_id` for one call; it selects that platform's live catalogue row ahead of the saved or deployment pin. Muse's bundled deployment pins `KU_AI` when the user has not chosen a row. An authorized fallback can request `DUO_YUAN_TAN_SUO` explicitly. Check its live price and the previous paid task before switching: a timeout or unknown result is not a failed charge and must be reconciled before a new key or route is used.
 
-The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-jubian) is the exhaustive source for every accepted field and its JSDoc. The row injects `tools` and `credentials`, registers all nine tools at mount, and mounts two Remote namespaces: `jubianToken`, which the Settings page calls, and `jubianImage`, which only reads the account's `gpt-image-2` rows for the short-drama page's picker. There is no per-tool enable flag and no separate page row.
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-jubian) is the exhaustive source for every accepted field and its JSDoc. The row injects `tools` and `credentials`, registers all eleven tools at mount, and mounts two Remote namespaces: `jubianToken`, which the Settings page calls, and `jubianImage`, which only reads the account's `gpt-image-2` rows for the short-drama page's picker. There is no per-tool enable flag and no separate page row.
 
 ### Credential
 
@@ -114,14 +128,16 @@ The second namespace, `jubianImage`, exists for one read: `routes()` returns the
 
 A catalogue it cannot read is reported as `jubian-image/catalogue-unreadable` carrying the transport's own message, and the page shows that message verbatim. Nothing is cached: every call reads the account, because a row's price and existence are account state rather than plugin state.
 
-### The nine tools
+### The eleven tools
 
-The nine registered tools are the whole model-facing surface. This package publishes no system-prompt section, so every operational fact the model needs travels in a tool description or a schema description.
+The eleven registered tools are the whole model-facing surface. This package publishes no system-prompt section, so every operational fact the model needs travels in a tool description or a schema description.
 
 | Tool | Methods | Billing and effect |
 |---|---|---|
 | `jubian_catalog` | `models`, `rate`, `script`, `episodes` | Read-only, no charge |
 | `jubian_find` | `scope` (`mine`, `pool`), `mine` filters `production_type` / `share_target_type` | Read-only, no charge |
+| `jubian_claim` | `inspect`, `claim` | Inspect is read-only; claim requires explicit user authorization, `canClaim=1`, and an idempotency key |
+| `jubian_snatch` | `ids`, `new_claimable` | Bounded background claim job within an explicitly authorized UTC window |
 | `jubian_asset` | `get`, `list`, `materials`, `generated_image` | Read-only, no charge |
 | | `confirm_casting` | Changes provider state through a `GET`; needs `idempotency_key` |
 | | `remove` | Deletes one parent asset irrecoverably; needs `idempotency_key` |
@@ -133,8 +149,10 @@ The nine registered tools are the whole model-facing surface. This package publi
 | | `select_assets` | Free and forced to `isGenerate=0`; needs `idempotency_key` |
 | | `prepare_video` | Free and read-only remotely; writes one local preview file |
 | | `generate`, `submit_video`, `erase_subtitle` | Billable and irreversible; need `idempotency_key` |
+| | `submit_video_batch` | Billable per storyboard; each `video_previews` item needs its own fingerprint key |
 | `jubian_video` | `task`, `tasks`, `subtasks` | Read-only, no charge |
 | | `image_generate`, `upscale` | Billable and irreversible; need `idempotency_key` |
+| | `image_generate_batch` | Billable and irreversible for every item; each item needs its own `idempotency_key` |
 | | `retry` | Changes provider task state; needs `idempotency_key` |
 | `jubian_media` | `download` | Free and credential-free; writes one local file |
 | `jubian_watch` | `task_id`, `stage` | Read-only background observation; returns a process-local job ID |
@@ -146,6 +164,12 @@ The nine registered tools are the whole model-facing surface. This package publi
 - `jubian_storyboard` reads one storyboard, creates one from a complete request body the caller supplies, saves without generating, submits generation, or erases burned-in subtitles. `generate` reads the current storyboard snapshot, sets `isGenerate=1`, and writes it back, so it also requires `content_duration_ms` equal to the duration already saved on that storyboard; a mismatch fails before any request leaves. `erase_subtitle` needs the task id, the video frame size and an explicit `model_id`: `quzimuToB` (regional — the erase rectangle defaults to the provider's own proportion of the frame, so `subtitle_box` is optional and normally omitted) or `ark-erase-video-subtitle-pro` (automatic, rejects `subtitle_box`). It has no default model, so a caller that omits `model_id` is told which argument is missing instead of having a model chosen for it. The project, episode and source identities are read from the task and its child results, so `script_id` is not required. The three storyboard-native methods are described in the section below, "The storyboard-native video channel".
 - `jubian_video` reads one task (including its observed cost), a project's paged video tasks, or a task's sub-results, which carry the finished `video_url`, the subtitle pixel box, the stage history, the resolution of each result and the `needs_upscale` verdict. `subtasks` carries its query in a `POST` body and still only reads. `image_generate` builds a billable asset image: `asset_name`, the asset's category, `prompt` and optional ordered `references` are required, and a supplied `parent_asset_id` regenerates that asset through `PUT` instead of creating a new one through `POST`. The write is asynchronous, so the method then reads the new asset back until `hsAssetStatus` is `Active` and returns its `material_id` — the id `confirm_casting` takes — with its `image_url`; see "The paid image route" below. `upscale` submits one billable 1080p conversion (SeedVR2 video upscale, 1 CNY per clip) and takes `task_id` plus `idempotency_key`; every other identity is read from the parent task and its first child result. `retry` re-executes one terminal, uncharged failure; it reads the parent task and its children first and refuses to send anything unless the parent is terminally failed, no child holds a file or an active/succeeded state, and the task carries no real cost.
 - `jubian_media` downloads one provider medium to `output_path` and returns the path, detected media type, byte count and sha256. It never puts the bytes into the result: tens of megabytes of base64 would poison every later request.
+
+### Account pool claims
+
+`jubian_claim.inspect` reads one ID's account-specific `can_claim` without writing. `jubian_claim.claim` requires an explicit user authorization statement, the same screenplay ID and caller-supplied `idempotency_key`; it reads `viewRole`, scans the complete pool and sends one POST only while that ID carries `canClaim=1`. A leader uses `/script/center/pool/claim/{id}`, a member uses `/script/center/pool/memberClaim/{id}`, and an unknown role is refused. The ledger records a bodyless claim attempt before submission. A timeout or unclear receipt is read back against the authenticated claimant ID; no second key for that screenplay sends another request from this ledger.
+
+`jubian_snatch` starts a process-local job for an explicit UTC start/end window. `scope=ids` requires an authorized ID list; `scope=new_claimable` takes a complete pool baseline on start and considers only newly seen `canClaim=1` rows. It derives each claim key from the caller's `idempotency_prefix` and the ID, stops at the configured window or item limit, and reports individual results through `job_output`. These tools never infer authorization from a list result. The bundled [jubian-snatch skill](../../../apps/desktop-host/skills/jubian-snatch/SKILL.md) requires the agent to check the user's original instruction before any claim; a supplied summary is recorded in the tool call but is not independent proof of consent. Host restart ends the job without resuming it.
 
 ### Background operation watching
 
@@ -169,8 +193,8 @@ The first two are asset names; the third is a processing task's, sorted by episo
 
 | Argument | Where | Effect |
 |---|---|---|
-| `episode` | `image_generate`, `erase_subtitle`, `upscale`, `rename` | `5` and `05` both normalize to `EP05`; the configured `seriesLabel` marks a series-wide asset |
-| `asset_category` | `image_generate`, `rename` | `角色`, `场景` or `道具`; supplies the name's middle segment and the provider's `assetType` |
+| `episode` | `image_generate`, `image_generate_batch`, `erase_subtitle`, `upscale`, `rename` | `5` and `05` both normalize to `EP05`; the configured `seriesLabel` marks a series-wide asset |
+| `asset_category` | `image_generate`, `image_generate_batch`, `rename` | `角色`, `场景` or `道具`; supplies the name's middle segment and the provider's `assetType` |
 | `package_number` | `erase_subtitle`, `upscale` | `EP05-P3-` in front of the stage's own task name |
 
 `asset_category` is the root-cause fix for a real defect: the earlier schema offered only `asset_type` with evidence for `1`, so a pipeline that created a scene or a prop sent `1` and the console filed it under 角色. Scenes are `2` and props are `3`, the same numbers the library folders use. `image_generate` still accepts `asset_type` for callers that predate the category, and the two must agree — an asset whose name says 场景 and whose type says 角色 fails before any request.
@@ -233,6 +257,7 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 - `select_assets` saves an ordered subject selection. Each `material_key` must appear in the prompt's own `@[name](key)` order, every selection must resolve to exactly one active subject-setting row and one parent asset in the same project, and the row's trusted `hsAssetId` is what the provider will translate into the child task's identity. The body is always forced to `isGenerate=0`. After the single `PUT` the row re-reads the storyboard as well as the project's task list: a saved order that disagrees with the plan is an error, and a video task that appeared across a selection-only save is reported as `billing_safety_violation` so a caller stops rather than continues.
 - `prepare_video` is free and read-only on the provider. It checks `project_config.json` in `project_dir` against the live `scriptId`, hydrates every ordered material from the live storyboard, the subject picker and the parent assets, preserves the saved model, platform, ratio, resolution and duration, and resolves their exact current catalogue selectors with `genNum=1`. Seedance 2.0 (`doubao-seedance-2-0-260128`) accepts 2–15 total seconds; Seedance 2.5 (`doubao-seedance-2-5-260628`) accepts 2–30. Total duration includes one second of natural ending; unsupported or ambiguous selections fail without a default substitution. It writes one preview into `<project_dir>/video_tasks/storyboard-<id>-<key12>.storyboard-native.prepared.json` through a temporary file and a rename. It sends no `PUT`, creates no task, and charges nothing.
 - `submit_video` takes that `preview_path` and an `idempotency_key` that **must equal the preview's own fingerprint**. A mismatch, a stale preview (the live semantics changed since it was written) or a preview that is not this plugin's own fails before anything is sent. Otherwise it takes a complete, paged task snapshot, refuses to continue if a second read of that snapshot drifts, sends at most one `PUT /aigc/storyboard` with `isGenerate=1`, and takes a second snapshot to claim the one new task whose ordered `assetId`/`materialName`/`imageUrl` and model/prompt evidence match the preview exactly. A task row counts as a candidate for that claim — before or after the `PUT` — only when it is provably this storyboard's: the row states its `storyboardId`, its detail does, or one of its child results does. A project holds every storyboard's tasks and most rows state no `storyboardId` at all, so a row that proves none of the three belongs to another storyboard and is neither a match nor unsafe evidence.
+- `submit_video_batch` accepts `video_previews: [{preview_path, idempotency_key}]` for distinct storyboards in one project. The agent must prepare and review the requested range and include every intended preview in this submission list; the tool can verify the supplied list, not detect omitted storyboards. It validates every listed preview against its live storyboard, checks existing tasks and two complete project snapshots, then reserves the whole batch estimate under one same-process ledger claim before sending any PUT. A stale preview, duplicate storyboard/key, drifting or malformed task list, existing task conflict, or insufficient aggregate budget sends zero PUTs. Once all reservations exist, it sends up to `videoBatchConcurrency` independent storyboard PUTs at once and independently limits reconciliation reads to the same concurrency without occupying PUT slots. It reads each task as soon as its PUT returns, then uses a final project snapshot and each item's storyboard, ordered subject, model and prompt evidence to report ordered results. `submitted` requires intact final identity; an unknown PUT or stripped readback is `reconcile_required`, never permission to resend. A replay with all original keys performs read-only reconciliation. Mixed recorded and new keys are refused; reconcile each old key before making a new approved batch. The ledger queue is process-local, as for single paid writes.
 
 Before reading task details and children, submission and reconciliation exclude rows with an explicit valid episode id different from the preview's. Missing or malformed episode ids remain candidates. The 100-candidate hydration cap, full task snapshots, and one-PUT ledger protection remain in force.
 
@@ -243,6 +268,10 @@ Because the key is the preview's fingerprint, the same preview file can cause ex
 ### The paid image route
 
 `image_generate` is one paid write followed by a free readback, and which catalogue row it writes against is a deployment decision rather than a guess:
+
+`image_generate_batch` takes one `script_id` and 1–12 `items` by default. Each item supplies its own key, name, prompt, category or type, and optional episode, references, parent asset ID and platform. The method validates every local item before any network or ledger work, refuses duplicate keys, final asset targets and parent IDs, then submits up to three paid requests concurrently by default. After all submissions return, it reads the accepted assets back with the same concurrency bound; slow image polling does not hold a submission slot. Several new assets may share one confirmed identity image URL in `references`; `parent_asset_id` instead updates the same remote asset through `PUT`, so repeated parent IDs conflict. Each item uses the same budget reservation and ledger as `image_generate`; an item error does not hide the others. Replaying either a single image request or a batch item reads the current catalogue and compares the full request body and project with the prior ledger hash; a changed asset, prompt, reference or selected model row is refused without resending. The ordered `results` include each requested identity, `status`, `outcome`, `response_sha256`, and either the image readback or a per-item error with reconciliation guidance. `status: returned` and the aggregate `returned` count mean that the call returned; only `asset_status: active` means the image is ready. A readback failure retains the accepted `parent_asset_id` for later lookup. `not_sent` means no ledger intent exists; `accepted` with an incomplete image still needs a readback, and `unknown` must be reconciled before another paid request.
+
+One read of the live model catalogue resolves every item's selected row before a paid request starts. If a selected platform is missing or ambiguous, the batch refuses all submissions. An item error reports the prior `record_id`, `record_script_id` and `request_sha256` when that key already has a ledger record. The error's `outcome` belongs to that record and does not confirm the newly requested asset.
 
 ```text
 pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / imageStandardId)
@@ -265,9 +294,9 @@ A timed-out readback is reported, not thrown: the paid write was already accepte
 
 ### Writing safely: idempotency and the ledger
 
-Every write method requires a non-empty `idempotency_key`, and no method ever generates one; a generated key would let a retry after an ambiguous outcome bypass the record of the first attempt.
+Every write method requires a non-empty `idempotency_key`; `image_generate_batch` requires one on each item instead of at the top level. No method generates a key, because a generated key would let a retry after an ambiguous outcome bypass the record of the first attempt.
 
-Repeating a key never repeats a write and sets `replayed: true`. Ordinary writers return the recorded outcome without compiling a body or reading the provider. `submit_video` and `jubian_model apply` instead perform read-only reconciliation; model configuration plans never resume their remaining targets.
+Repeating a key never repeats a write. Ordinary writers return the recorded outcome with `replayed: true` without compiling a body or reading the provider. Batch images verify the current request against the recorded body hash before returning a replay; a mismatch is refused. `submit_video` and `jubian_model apply` instead perform read-only reconciliation; model configuration plans never resume their remaining targets.
 
 The ledger lives at `<ledgerRoot>/YYYY-MM-DD.ndjson` and appends in two phases:
 
@@ -327,9 +356,10 @@ The package is built on three decisions:
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: the `Config` interface, the ledger, client and naming construction, the credential fallback, the nine `ctx.tools.register` calls, and the shared argument and output contracts |
+| [`src/index.ts`](src/index.ts) | Plugin entry: the `Config` interface, the ledger, client and naming construction, the credential fallback, the eleven `ctx.tools.register` calls, and the shared argument and output contracts |
 | [`src/methods.ts`](src/methods.ts) | One async function per tool: method dispatch, request shaping, and the local media write |
 | [`src/find.ts`](src/find.ts) | The screenplay-name lookup: the two scope paths, the shared name normalization, and the bounded scan behind the `complete` verdict |
+| [`src/claim.ts`](src/claim.ts) | Account pool inspection, one-shot ledger-backed claim, and bounded background claim window |
 | [`src/naming.ts`](src/naming.ts) | The episode-and-category convention: name composition, the provider's category numbering, and the two audits |
 | [`src/folders.ts`](src/folders.ts) | The three asset-library writes: folder creation, the move, the rename, and the two locally decided refusals |
 | [`src/organize.ts`](src/organize.ts) | The read-only organization index: the paged reads, the manifest join, the markdown rendering and the atomic local write |
@@ -358,7 +388,7 @@ Read methods never touch the ledger. Each sends one request and passes the envel
 
 Read these pages when the package-level contract is not enough. They move from the generated catalogues to the two packages underneath this row and the credential rules it depends on.
 
-- [Generated tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-jubian) — the exact schema and description of all nine tools.
+- [Generated tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-jubian) — the exact schema and description of all eleven tools.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-jubian) — every accepted config field and its source declaration.
 - [dsh-jubian transport source](../jubian/src/index.ts) — the client, the five stable failure codes, credential repair, and the write ledger this row builds on.
 - [dsh-jubian-api](../jubian-api/README.md) — the readers and request builders behind every method.
@@ -374,11 +404,11 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-The model sees the schemas and descriptions of `jubian_catalog`, `jubian_find`, `jubian_asset`, `jubian_organize`, `jubian_model`, `jubian_storyboard`, `jubian_video`, `jubian_media` and `jubian_watch` as generated in the [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-jubian). Each schema is one open JSON object whose required selector is the `method` enum on the dispatching tools and the call's own required argument elsewhere — `scope` for `jubian_find`, `task_id` and `stage` for `jubian_watch` — followed by the arguments that call accepts; parameter and enum descriptions are plain Chinese text, because they address the model rather than a localized UI. Numeric codes appear where the provider defines them — `task_type` (`1` video, `2` image, `10` subtitle erasure), `asset_type` and `asset_category` (`1`/`2`/`3` for 角色/场景/道具), `asset_scope_type` (`1` team, `2` personal), and `subtasks` `hd_count` / `last_task_type` / `resolution`.
+The model sees `jubian_catalog`, `jubian_find`, `jubian_claim`, `jubian_snatch`, `jubian_asset`, `jubian_organize`, `jubian_model`, `jubian_storyboard`, `jubian_video`, `jubian_media` and `jubian_watch` as generated in the [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-jubian). Each schema is one open JSON object whose required selector is the `method` enum on dispatching tools and the call's own required argument elsewhere. The claim tools make the authorized ID or range, UTC window and user authorization basis explicit. Parameter and enum descriptions are plain Chinese text because they address the model rather than a localized UI. Numeric codes appear where the provider defines them — `task_type` (`1` video, `2` image, `10` subtitle erasure), `asset_type` and `asset_category` (`1`/`2`/`3` for 角色/场景/道具), `asset_scope_type` (`1` team, `2` personal), and `subtasks` `hd_count` / `last_task_type` / `resolution`.
 
 #### Token effect
 
-Fixed per request while the row is mounted: nine tool definitions with their enum and argument descriptions, and no prompt section. Enabling or removing the row is the only lever on this cost.
+Fixed per request while the row is mounted: eleven tool definitions with their enum and argument descriptions, and no prompt section. Enabling or removing the row is the only lever on this cost.
 
 #### KV Cache effect
 
@@ -388,7 +418,7 @@ Prefix-stable while the mounted tool set and the package version are unchanged; 
 
 #### What the model sees
 
-Every write method's description states that `idempotency_key` is required, that a repeated key sets `replayed: true` without repeating a write, and that a timeout or unknown result means re-calling with the same key rather than a new one. The read methods accept no key.
+Every write method's description states that `idempotency_key` is required (on each item of `image_generate_batch`), that repeating the same request and key sets `replayed: true` without repeating a write, and that a timeout or unknown result means re-calling with the same key rather than a new one. A different request cannot reuse that key. The read methods accept no key.
 
 #### Token effect
 
@@ -402,7 +432,7 @@ Prefix-stable while the description text is unchanged. Editing these sentences i
 
 #### What the model sees
 
-The descriptions name `jubian_video` `image_generate` and `upscale`, `jubian_storyboard` `generate`, `submit_video` and `erase_subtitle`, and `jubian_asset` `remove` as billable or irreversible, and state that `confirm_casting` changes provider state through a `GET` even though the verb suggests a read. `jubian_video` `subtasks` states that its `POST` only reads. `jubian_video` `image_generate` additionally states that it reads the asset back to `Active` before returning, what each `asset_status` value means, that a catalogue listing several `gpt-image-2` rows fails while no row is pinned, that the pin is a person's choice on the 短剧 settings page or an `imagePlatformId`/`imageStandardId` config value, and that the model must relay the candidate list to the user rather than pick one, and that the category decides `assetType` so scenes and props must not be sent as 角色. `jubian_asset` states that `create_folder`, `move` and `rename` really write, that a duplicate folder or a missing target folder is reported instead of sent, and that a batch rename or move needs the user's explicit consent first. `jubian_organize` states that it is read-only, renames and moves nothing, and still writes one local index file. `jubian_storyboard` states the whole storyboard-native order, that `select_assets` is forced to `isGenerate=0`, that `prepare_video` neither `PUT`s nor charges, and that the direct task `POST` is forbidden. The async methods state that they return on acceptance and that completion is read back later from `subtasks`.
+The descriptions name `jubian_video` `image_generate`, `image_generate_batch` and `upscale`, `jubian_storyboard` `generate`, `submit_video` and `erase_subtitle`, and `jubian_asset` `remove` as billable or irreversible, and state that `confirm_casting` changes provider state through a `GET` even though the verb suggests a read. `jubian_video` `subtasks` states that its `POST` only reads. `jubian_video` `image_generate` additionally states that it reads the asset back to `Active` before returning, what each `asset_status` value means, that a catalogue listing several `gpt-image-2` rows fails while no row is pinned, that the pin is a person's choice on the 短剧 settings page or an `imagePlatformId`/`imageStandardId` config value, and that the model must relay the candidate list to the user rather than pick one, and that the category decides `assetType` so scenes and props must not be sent as 角色. `image_generate_batch` states that each item is charged and recorded independently and that `status: returned` does not mean its image is ready. `jubian_asset` states that `create_folder`, `move` and `rename` really write, that a duplicate folder or a missing target folder is reported instead of sent, and that a batch rename or move needs the user's explicit consent first. `jubian_organize` states that it is read-only, renames and moves nothing, and still writes one local index file. `jubian_storyboard` states the whole storyboard-native order, that `select_assets` is forced to `isGenerate=0`, that `prepare_video` neither `PUT`s nor charges, and that the direct task `POST` is forbidden. The async methods state that they return on acceptance and that completion is read back later from `subtasks`.
 
 #### Token effect
 
@@ -416,7 +446,7 @@ Prefix-stable while the mounted set and these descriptions are unchanged; a pack
 
 #### What the model sees
 
-Every call returns one pretty-printed JSON object under a shared open-object output schema, keyed by the method that asked for it (`asset`, `assets`, `storyboard`, `subtasks`, `task`, and so on) plus the model's guidance fields; `jubian_find` alone keys its result by the scope it scanned. Write results carry `replayed`, `outcome`, `response_sha256` and the envelope data; `erase_subtitle` and `upscale` add `accepted_task_id` and a `next` line telling the model not to wait. `image_generate` returns `parent_asset_id`, `model_selection`, `asset_status`, `material_id`, `image_url`, `observed_asset_status`, `waited_ms`, `readback_error` and a `next` line, so a model reads the image's identity from the result instead of assuming acceptance produced one. `create_folder` returns `sent`, `status`, `folder_id`, `confirmed` and a `next` line; `move` and `rename` return `sent`, `status` and a `next` line, and either of the two refusals returns `status: folder_exists` or `status: target_folder_missing` with `sent: false` and the id it looked for. `jubian_organize` returns `episodes`, `series`, `unmatched_remote_assets`, `naming_checked`, `naming_violations`, `category_mismatches`, `folders` and `index_path`, which is the same content as the file it wrote. `jubian_find` returns the `scope` and `name` it searched, `total`, `scanned_pages`, `complete`, `returned`, `truncated` and `scan_page_limit` beside `matches`, whose rows carry `script_id`, `script_name`, `manuscript_name`, `episode_count`, `status` and `script_style` — the provider's own style code, which is what tells 真人 from 漫剧 — plus `can_claim`, `claim_leader_name` and `claim_member_name` under `scope: pool`, where `script_style` is omitted because the pool rows were not measured as carrying it. `prepare_video` returns the whole preview plus its `preview_path`, and `submit_video` returns the claim verdict (`submitted`, `subject_identity_lost`, `reconcile_conflict` or `reconcile_required`) with the claimed `task_id` and a `next` line naming the only safe action. `jubian_model` returns frozen before/after settings and a fingerprint for preview, or per-target `applied`, `stale`, `unknown`, `readback_mismatch` and `not_attempted` outcomes for apply/replay. Each tool result stays in the conversation once it is produced.
+Every call returns one pretty-printed JSON object under a shared open-object output schema, keyed by the method that asked for it (`asset`, `assets`, `storyboard`, `subtasks`, `task`, and so on) plus the model's guidance fields; `jubian_find` alone keys its result by the scope it scanned. Write results carry `replayed`, `outcome`, `response_sha256` and the envelope data; `erase_subtitle` and `upscale` add `accepted_task_id` and a `next` line telling the model not to wait. `image_generate` returns `parent_asset_id`, `model_selection`, `asset_status`, `material_id`, `image_url`, `observed_asset_status`, `waited_ms`, `readback_error` and a `next` line, so a model reads the image's identity from the result instead of assuming acceptance produced one. `create_folder` returns `sent`, `status`, `folder_id`, `confirmed` and a `next` line; `move` and `rename` return `sent`, `status` and a `next` line, and either of the two refusals returns `status: folder_exists` or `status: target_folder_missing` with `sent: false` and the id it looked for. `jubian_organize` returns `episodes`, `series`, `unmatched_remote_assets`, `naming_checked`, `naming_violations`, `category_mismatches`, `folders` and `index_path`, which is the same content as the file it wrote. `jubian_find` returns the `scope` and `name` it searched, `total`, `scanned_pages`, `complete`, `returned`, `truncated` and `scan_page_limit` beside `matches`, whose rows carry `script_id`, `script_name`, `manuscript_name`, `episode_count`, `status` and `script_style` — the provider's own style code, which is what tells 真人 from 漫剧 — plus `can_claim`, `claim_leader_name` and `claim_member_name` under `scope: pool`, where `script_style` is omitted because the pool rows were not measured as carrying it. `prepare_video` returns the whole preview plus its `preview_path`, and `submit_video` returns the claim verdict (`submitted`, `subject_identity_lost`, `reconcile_conflict` or `reconcile_required`) with the claimed `task_id` and a `next` line naming the only safe action. `jubian_model` returns frozen before/after settings and a fingerprint for preview, or per-target `applied`, `stale`, `unknown`, `readback_mismatch` and `not_attempted` outcomes for apply/replay. Each tool result stays in the conversation once it is produced. `image_generate_batch` returns `total`, `returned`, `errors` and ordered `results`. Each result has its own key, target identity and ledger outcome; `status: returned` means only that the request returned, while `asset_status: active` confirms the generated image is available.
 
 #### Token effect
 

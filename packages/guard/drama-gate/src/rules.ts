@@ -79,7 +79,7 @@ export interface GateCall {
 const WRITE_METHODS: Readonly<Record<string, readonly string[]>> = {
   jubian_model: ['apply'],
   jubian_storyboard: ['create', 'save', 'generate', 'erase_subtitle'],
-  jubian_video: ['image_generate', 'upscale'],
+  jubian_video: ['image_generate', 'image_generate_batch', 'upscale'],
   jubian_asset: ['confirm_casting', 'remove'],
 }
 
@@ -90,7 +90,7 @@ const PAID_SUBMISSIONS: Readonly<Record<string, readonly string[]>> = {
 
 /** Jubian methods that create a new billed asset, which may only follow a reconcile of the project. */
 const ASSET_CREATIONS: Readonly<Record<string, readonly string[]>> = {
-  jubian_video: ['image_generate'],
+  jubian_video: ['image_generate', 'image_generate_batch'],
 }
 
 /** The retired MUSE tool names the drama skills replaced; they resolve to nothing in this deployment. */
@@ -157,6 +157,20 @@ function idempotencyRefusal(call: GateCall): string | undefined {
   const methods = WRITE_METHODS[call.toolName]
   const method = calledMethod(call)
   if (methods === undefined || method === undefined || !methods.includes(method)) return undefined
+  if (call.toolName === 'jubian_video' && method === 'image_generate_batch') {
+    const items = record(call.arguments)?.['items']
+    if (!Array.isArray(items) || items.length === 0) {
+      return 'jubian_video.image_generate_batch 必须提供非空 items，且每项都有独立 idempotency_key。'
+    }
+    for (const [index, item] of items.entries()) {
+      const itemKey = record(item)?.['idempotency_key']
+      if (typeof itemKey !== 'string' || !itemKey.trim()) {
+        return `jubian_video.image_generate_batch 的 items[${index}].idempotency_key 缺失；`
+          + '为本项补独立 key，未知结果仍用本项原 key 对账，不要换 key 重投。'
+      }
+    }
+    return undefined
+  }
   const key = record(call.arguments)?.['idempotency_key']
   if (typeof key === 'string' && key.trim().length > 0) return undefined
   return `${call.toolName}.${method} 是写/计费方法，必须带 idempotency_key。`

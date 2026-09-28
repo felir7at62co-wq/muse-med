@@ -8,6 +8,7 @@ import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import { DeepSeekOnboardingDialog } from '../src/client/DeepSeekOnboardingDialog.tsx'
+import { MuseModelCheck } from '../src/client/MuseModelCheck.tsx'
 import type { DeepSeekOnboardingDialogProps } from '../src/client/DeepSeekOnboardingDialog.tsx'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { ModelsSettingsStore } from '../src/client/store.ts'
@@ -311,4 +312,21 @@ it('keeps explicit API key setup available when automatic onboarding is disabled
   render(<DeepSeekOnboardingDialog {...h.props} />)
   await waitFor(() => { expect(screen.getByRole('dialog')).toBeTruthy() })
   expect(h.complete).not.toHaveBeenCalled()
+})
+
+it('sends a Muse user without a usable model to Models settings', async () => {
+  const h = harness()
+  render(<MuseModelCheck {...h.props} />)
+  expect(await screen.findByRole('dialog', { name: en.museModelTitle })).toBeTruthy()
+  expect(screen.getByText(en.museModelDescription)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: en.museModelOpenSettings }))
+  expect(h.complete).toHaveBeenCalledOnce()
+  expect(h.openSection).toHaveBeenCalledExactlyOnceWith('models')
+})
+
+it('finishes the Muse model step when a provider is already usable', async () => {
+  const h = harness({ configured: () => true })
+  render(<MuseModelCheck {...h.props} />)
+  await waitFor(() => { expect(h.complete).toHaveBeenCalledOnce() })
+  expect(screen.queryByRole('dialog')).toBeNull()
 })

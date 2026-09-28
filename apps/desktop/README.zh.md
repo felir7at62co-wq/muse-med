@@ -4,11 +4,11 @@
 
 桌面应用是完整 dsh Web 应用外的一层 Electron 壳。Electron RunAsNode 子进程启动共享 profile runner，Electron 立即从 `dsh-app://app/` 加载打包内的 Web 入口。共享加载页等待 Host 启动注入，然后在同一文档中启动客户端。Electron 将应用 HTTP 请求转发给已认证的 Web Host，转发时丢弃描述 Node fetch 连接而非资源本身的响应头（`transfer-encoding`、`connection`、`keep-alive`），并把插件 bundle 响应标记为 `no-store`，因为其每次启动都变化的 revision 只会在 Chromium 磁盘缓存中累积；WebSocket 流连接到该 Host，仅为归属的应用窗口附加凭据。Node IPC 承载启动注入、就绪与关闭。muse-med 只绑定 `127.0.0.1`，由系统分配端口，避免占用官方 DSH 应用的端口。共享 profile runner 提供设置和插件管理服务；生成的产品覆盖层保留产品预设、内置技能及飞书开关。共享包通过运行时解析，不创建指向 ASAR 内部的目录链接。
 
-桌面壳显示 **muse-med**，使用 `renderer/icon.png`：由提供的黑底白蜘蛛原图转换的方形 PNG；electron-builder 将其转换为各平台安装包图标。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和 GitHub 更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
+桌面壳显示 **muse-med**，使用 `renderer/icon.png`：由提供的黑底白蜘蛛原图转换的方形 PNG。Windows 托盘和可执行文件图标由它生成；macOS 打包直接使用它。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和 GitHub 更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
 
 ## 关键技术决策
 
-设计师原稿位于 `resources/icon.png` 和 `resources/icon.svg`；平台适配保留鲸鱼与渐变，分别位于 `resources/icon-windows.*` 和 `resources/icon-macos.*`。将各平台 SVG 导出为透明的 1024×1024 PNG。electron-builder 为 Windows 应用、安装程序和卸载程序生成多尺寸 ICO（[Windows 图标要求](https://learn.microsoft.com/en-us/windows/apps/design/iconography/app-icon-construction)）。安装页面在两种主题下使用匹配的图案；卸载程序的欢迎和完成页共用 `installer/assets/uninstaller-sidebar.png`，准备阶段将其转换为 164×314 BMP。[render-installer-brand.ps1](scripts/render-installer-brand.ps1) 从 `renderer/icon.png` 渲染这五张明暗两套图案；产品图标变更后必须重新运行它，否则安装页面会继续绘制上一次渲染的图像。
+`renderer/icon.png` 是应用窗口、macOS 安装包和“关于”对话框使用的 Muse 图案。[render-tray-icon.ts](scripts/render-tray-icon.ts) 从它生成已提交的 Windows 托盘和安装程序图标；图案变更后运行 `pnpm run render:tray-icon`。安装页面在两种主题下使用匹配的图案；卸载程序的欢迎和完成页共用 `installer/assets/uninstaller-sidebar.png`，准备阶段将其转换为 164×314 BMP。[render-installer-brand.ps1](scripts/render-installer-brand.ps1) 从 `renderer/icon.png` 渲染这五张明暗两套图案；产品图案变更后重新运行。
 
 快捷键覆盖保存在 `app.getPath('userData')/keybindings.json`，与 `DSH_HOME` 分离。主进程校验并串行保存修改后才发布已接受键位。读取失败保留上次接受的键位并阻止编辑，包括全部恢复；不可读和未来版本的文件保持不变。开发时可通过 `DSH_DESKTOP_USER_DATA_DIR` 隔离这些偏好，启动器会输出解析后的路径。格式和冲突语义见[快捷键服务](../../packages/client/shortcuts/README.zh.md)。
 
@@ -46,15 +46,14 @@ Node 准备内置解释器和 Python 库，无需系统 Python 或 pip。[下载
 
 [薄壳决策](../../.agents/notes/implemented/architecture/2026-09-10-desktop-web-wrapper.zh.md)负责共享 Web 行为与 Desktop 适配。[Electron 打包与更新决策](../../.agents/notes/implemented/architecture/2026-08-25-electron-desktop-packaging-and-updates.zh.md)负责发布身份、签名及更新验收。
 
-Welcome 加载共享 Toast 的配色和阴影变量，挂载在 body 下的通知使用系统字体。
 
 ## 安装归属
 
 Electron 拥有 `$DSH_HOME/profiles/desktop`。其 `dependencies` 包含 pnpm 安装的包；`dsh.profile.bundles` 包含内置 bundle，后接已启用插件。签名应用从 `resources/app.asar/dsh` 提供 dsh、私有 Desktop Host 及其生产依赖。打包应用选择 runtime profile 解析，不创建包链接；开发 profile 使用文件系统链接。宿主与插件在同一个 Electron Node 模式进程中执行；Desktop 不启用 `--preserve-symlinks`。CLI 不能启动或修改此 profile。
 
-Desktop Host 为所有桌面会话只组合一次短剧设置和剧变工具；有报价的收费调用按剧变 `script_id` 自动使用人民币 4000 元默认上限，本机设置可调整额度。宿主加载维护的短剧技能包，提供六个产品预设：默认的 `short-drama`、编辑模式、标准模式、PTC 模式、极简模式和创造模式。编辑模式在写正文前实际阅读有来源的爆款剧本开头并记录分析；没有可读原文时向用户索取获授权的来源。设置页内置 MUSE 账号登录；随包 MCP 让 agent 先检索该账号获授权的知识，再按 ID 阅读剧本原文与 Wiki 知识页。开头读取工具只接受网关明确标定为 `viral-script` 的来源包。四个原生编码预设通过只读薄适配器复用；其他自带及个人预设仍被排除。Windows 打包准备构建哈希锁定的 Python、媒体依赖、FFmpeg 和 Whisper 运行时；完整安装包及干净机器检查通过前，发布仍未验收。公开分发二进制还须完成媒体描述文件记录的对应源码审核。
+Desktop Host 为所有桌面会话只组合一次短剧设置和剧变工具；有报价的收费调用按剧变 `script_id` 自动使用人民币 4000 元默认上限，本机设置可调整额度。宿主加载维护的短剧技能包，提供六个产品预设：默认的 `short-drama`、编辑模式、标准模式、PTC 模式、极简模式和创造模式。编辑模式写正文前阅读获授权的相关 Wiki 案例和有来源的爆款剧本开头，先为本次待改编素材形成可追溯的来源大纲，再修改本作大纲，完成并审校计划范围内的所有分集或小说章节。编辑反馈保存在项目版本记录中，账号 MCP 不会把它写入云知识库。MUSE 账号登录是知识库和云端语音服务的主账号入口；随包 MCP 让 agent 先检索该账号获授权的知识，再按 ID 阅读剧本原文与 Wiki 知识页。开头读取工具只接受网关明确标定为 `viral-script` 的来源包。账号绑定的 `audio_transcribe` 工具向所有桌面预设开放；模型提供方凭据仍须在模型设置中单独配置。四个原生编码预设通过只读薄适配器复用；其他自带及个人预设仍被排除。Windows 打包准备构建哈希锁定的 Python、媒体依赖、FFmpeg 和 Whisper 运行时；完整安装包及干净机器检查通过前，发布仍未验收。公开分发二进制还须完成媒体描述文件记录的对应源码审核。
 
-用户尚未保存其他通道时，Muse 的资产图默认使用 KU_AI。Agent 核对实时价格后，可在已授权范围内为单次调用选择 DUO_YUAN_TAN_SUO 作为备用通道；收费任务仍在处理或结果未知时，必须先对账，再换通道或 key。随包的技能与 MCP 面板出现在 Web 侧栏，管理当前 profile 的配置。根 Agent 完成一轮任务或调用 ask_user_question 时，桌面壳会播放系统提示音。短剧任务完成时逐集交付已核验的成片和对应的剪映可编辑草稿。
+用户尚未保存其他通道时，Muse 的资产图默认使用 KU_AI。Agent 先检查整批提示词、参考图、身份、对账证据及预计费用，再让剧变并行提交生图；每项保留独立幂等键、预算判定、回读及视觉审核。Agent 核对实时价格后，可在已授权范围内为单次调用选择 DUO_YUAN_TAN_SUO 作为备用通道；收费任务仍在处理或结果未知时，必须先对账，再换通道或 key。随包的技能与 MCP 面板出现在 Web 侧栏，管理当前 profile 的配置。根 Agent 完成一轮任务或调用 ask_user_question 时，桌面壳会播放系统提示音。短剧任务完成时逐集交付已核验的成片和对应的剪映可编辑草稿。
 
 本地启动页提供启动状态和可用恢复操作；加载后的 dsh 渲染进程仅接收桌面协议标记。独立插件窗口接收结构化的列表、安装、删除、更新和更新检查操作；两个渲染进程都无法访问文件系统、原始 Electron IPC、shell 或任意 pnpm 参数。
 
@@ -74,9 +73,9 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 ### 短剧资源与限制
 
-维护中的技能 tarball 包含 16 个技能、82 个文件，不含小红书技能。工作流通过 core 的 `style_references` 导入与检查操作接受用户提供的参考图，并保留继续制作前的审核和用户确认。这些是技能层面的要求，不是新增的收费工具授权机制。Python 与 TypeScript 渲染路径为字幕和水印选择锁定的 OFL 许可 Noto 字体。源码测试及开发用 FFmpeg 输入的字形渲染已通过；最终重建安装包与干净机器的字体路径仍待验收。
+维护中的短剧技能 tarball 不含小红书技能。工作流通过 core 的 `style_references` 导入与检查操作接受用户提供的参考图，并保留继续制作前的审核和用户确认。这些是技能层面的要求，不是新增的收费工具授权机制。Python 与 TypeScript 渲染路径为字幕和水印选择锁定的 OFL 许可 Noto 字体。源码测试及开发用 FFmpeg 输入的字形渲染已通过；最终重建安装包与干净机器的字体路径仍待验收。
 
-本地媒体准备覆盖 Python 依赖、FFmpeg 和 Whisper ASR。提供方生成与账号操作仍需要联网及用户自己的凭据。公开 BGM 匹配与下载需要联网；可选的 MERT 索引与单曲分析不属于默认离线媒体运行时，且仍受非商业许可限制。抢本脚本使用规范化环境与当前产品 home，但不读取 UI 凭据库；操作者仍须单独配置其支持的凭据来源，不能把 token 写进提示词、日志或源码。
+本地媒体准备覆盖 Python 依赖、FFmpeg 和仅在用户明确要求离线转写时使用的 Whisper。默认云端转写需要登录 MUSE、网关已启用服务且服务器有提供方额度；桌面版没有用户 ASR 或 TOS 凭据设置页。模型生成仍须单独配置提供方凭据。公开 BGM 匹配与下载需要联网；可选的 MERT 索引与单曲分析不属于默认离线媒体运行时，且仍受非商业许可限制。随包的剧变抢本技能使用产品内剧变凭据设置；认领前需要用户明确授权目标；定时抢本还需指定开始与结束时间，token 不得写入提示词、日志或源码。
 
 ### 运行时与插件激活
 
@@ -86,9 +85,9 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 内置飞书桥接只在本产品自己的开关要求时才运行：`feishu` 组合行自身的 `enabled` 字段，它既是该行的 Config，也就是页面向其写入的 `feishu` 设置段。桌面组合在启动后端时从组合出的行里读取它，并重述进 `feishu-channel` 行自己的 `enabled` 键（[`src/feishu-gate.ts`](../desktop-host/src/feishu-gate.ts)），因此开关在下次启动时生效。仅靠开关并不充分：社区构建的兼容 overlay 给该行加入默认 `true` 的插件级激活开关，而 patch 与闸门层都把 `enabled`、`autoRegistration`、`crossInstanceSync` 保持 `false`，所以打开开关只是让桥接挂载，扫码注册与跨实例同步仍然关闭。开关为 off 时该行保持挂载而非 entry-disabled：在这个 harness 里插件的设置段就是它自己的 Config，扫码得到的凭证对必须在桥接首次运行之前就能存下，而 `enabled: false` 是那个让打包插件在同步层、控制服务、心跳与二维码应用注册之前返回的 fail-safe。因此默认桌面不发起扫码注册，不启动同步层与控制服务，也不读取其他实例的同步目录；凭证只来自该行自己存储的段，永不来自组合补丁；能否触达机器人仍取决于飞书应用自身的权限与可见范围。
 
-产品加载随包短剧与编辑技能及自身 `$DSH_HOME/skills`，不扫描已有 DSH、`.agents` 或默认项目技能源；显式插件技能注册仍然可用。Windows 用户将自定义技能放在 `%USERPROFILE%\.muse\skills\<skill-name>\SKILL.md`；`MUSE_MED_HOME` 可指定其他产品 home。Host 在启动时创建 skills 目录。开发模式使用下文说明的独立 home。短剧、编辑、标准、PTC 和创造模式提供技能工具。短剧技能从 ASAR 解包，Host 向外部 Python 提供真实的 `app.asar.unpacked` 路径。Windows 启动将 `runtime/media/python` 和 `runtime/media/ffmpeg/bin` 放到子进程搜索路径前部，并设置本地 ASR 模型目录。[媒体准备器](scripts/prepare-media-runtime.ts)在发布输出前检查锁定输入、依赖导入、编码、字幕烧录、草稿媒体探测及离线 ASR；复用时验证完整文件清单并重跑这些检查。构建机器上的验证不能替代无开发工具机器上的安装验证。安装器附带微软官方 VC++ 前置运行库，检查已装版本并在安装前请求授权；拒绝或失败会阻止成功完成和自动启动。再分发需要发行者具有适用的微软许可，不能仅依据运行库终端许可。
+产品加载随包短剧与 Muse 技能及自身 `$DSH_HOME/skills`，不扫描已有 DSH、`.agents` 或默认项目技能源；显式插件技能注册仍然可用。Windows 用户将自定义技能放在 `%USERPROFILE%\.muse\skills\<skill-name>\SKILL.md`；`MUSE_MED_HOME` 可指定其他产品 home。Host 在启动时创建 skills 目录。开发模式使用下文说明的独立 home。短剧、编辑、标准、PTC 和创造模式提供技能工具。短剧技能从 ASAR 解包，Host 向外部 Python 提供真实的 `app.asar.unpacked` 路径。Windows 启动将 `runtime/media/python` 和 `runtime/media/ffmpeg/bin` 放到子进程搜索路径前部，并设置本地 ASR 模型目录。[媒体准备器](scripts/prepare-media-runtime.ts)在发布输出前检查锁定输入、依赖导入、编码、字幕烧录、草稿媒体探测及离线 ASR；复用时验证完整文件清单并重跑这些检查。构建机器上的验证不能替代无开发工具机器上的安装验证。安装器附带微软官方 VC++ 前置运行库，检查已装版本并在安装前请求授权；拒绝或失败会阻止成功完成和自动启动。再分发需要发行者具有适用的微软许可，不能仅依据运行库终端许可。
 
-共享的 Muse 技能 `audio-transcribe`、`transcript-to-novel` 和 `transcript-to-script` 可由短剧、编辑、标准、PTC 和创造模式通过技能工具加载；极简模式继续只提供命令行。音频转写复用 Windows 安装包中的 FFmpeg、Python 和离线 Whisper 模型，将带时间戳的文字与 JSON 写入显式指定的输出路径，不把媒体发送到云服务。编辑模式根据转写稿写正式正文时，仍须先实际阅读获授权的爆款剧本开头。
+共享的 Muse 技能 `audio-transcribe`、`transcript-to-novel`、`transcript-to-script`、`media-link-import` 和 `jubian-snatch` 可由短剧、编辑、标准、PTC 和创造模式通过技能工具加载；极简模式不提供技能加载器。Host 级 `audio_transcribe` 工具仍向包括极简模式在内的所有预设开放。语音技能默认使用当前 MUSE 账号进行云端转写：FFmpeg 从获授权的本地媒体提取音轨，工具先将任务收据保存在 `transcript/jobs/`，完成后把带时间戳的 TXT 和 JSON 写入 `transcript/raw/`。只有用户明确要求时才使用离线 Python 和 Whisper。转写改编项目将来源链接及获授权复制或下载的媒体放在 `source/`，校订转写放在 `transcript/reviewed/`，来源和改编大纲放在 `outline/`，版本化产物放在 `draft/`、`final/`、`qa/`；已有资源库只读引用。`media-link-import` 将获授权、无需登录的公开 HTTPS 音视频直链经体积、时长和文件头检查后保存到 `source/media/`，同时保存来源授权记录；记录仍为 pending 时须先复核再转写。每次 TLS 连接都固定到已验证的公网 IP，项目路径中已有的符号链接或 junction 会被拒绝；其他进程主动并发替换目录不在保证范围内。它不解析抖音或微信分享页、不使用登录态，也不解密媒体流，这类页面仍需另行取得可读的本地原件。Windows 随包提供媒体 Python；其他系统需可用的 Python 3.12+，macOS 安装包的该流程尚未实测。抢本技能检查可领剧本池，只对用户授权的单本或指定时段内的目标发起认领。编辑模式根据转写稿写正式正文时，仍须先阅读获授权的爆款剧本开头。
 
 [FFmpeg 源码构建流程](scripts/ffmpeg-source-build/README.zh.md)为离线发行生成二进制与对应源码配对。两个 CI job 均须通过后才能替换开发验证用的 FFmpeg 输入，对应源码归档必须与桌面版本一同发布；提交构建不等于产物通过验收。
 
@@ -106,7 +105,7 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 原生弹窗详情最多包含 1,200 个 UTF-16 代码单元和八行诊断，若已写入下述崩溃报告则附上其路径。Host 错误诊断仅保留 stderr 输出的最后 64 Ki 个字符。更早的输出会被丢弃，避免长期运行的 Host 使壳的诊断缓冲区无限增长。
 
-首个致命弹窗打开前，Electron 会向平台日志目录（`app.getPath('logs')`：macOS 为 `~/Library/Logs/DeepSeek Harness`，Windows 与 Linux 为应用 `userData` 目录下的 `logs`）写入一份崩溃报告，最多等待写入一秒；写入缓慢或失败时弹窗不带路径。文件 `crash-<UTC 时间>-<source>.log` 记录来源（`host` 为 Host 退出、`web-boot` 为渲染进程启动失败、`renderer` 为渲染进程或文档失败、`main` 为壳自身错误）、后端是否已就绪、应用与运行时版本、包含可枚举属性与 cause 链的错误（截至 256 KiB）、Host 在退出前通过 IPC 报告启动失败时自己的 inspect 错误（最多 64 KiB），以及主窗口最近的 error 级 console 输出（最多 64 KiB）。因此 Host 退出报告包含保留的 stderr 尾部，其中可能含有插件输出。关闭过程中的致命失败只写报告、不弹窗。平台支持时文件仅所有者可读；启动时保留最新十份报告并删除更早的，不触碰目录中的其他文件。
+首个致命弹窗打开前，Electron 会向平台日志目录（`app.getPath('logs')`）写入一份崩溃报告，最多等待写入一秒；写入缓慢或失败时弹窗不带路径。文件 `crash-<UTC 时间>-<source>.log` 记录来源（`host` 为 Host 退出、`web-boot` 为渲染进程启动失败、`renderer` 为渲染进程或文档失败、`main` 为壳自身错误）、后端是否已就绪、应用与运行时版本、包含可枚举属性与 cause 链的错误（截至 256 KiB）、Host 在退出前通过 IPC 报告启动失败时自己的 inspect 错误（最多 64 KiB），以及主窗口最近的 error 级 console 输出（最多 64 KiB）。因此 Host 退出报告包含保留的 stderr 尾部，其中可能含有插件输出。关闭过程中的致命失败只写报告、不弹窗。平台支持时文件仅所有者可读；启动时保留最新十份报告并删除更早的，不触碰目录中的其他文件。
 
 恢复操作等待 Host 关闭后才修改插件启用状态。原生恢复操作在 profile 事务锁内调用共享 app-boot 恢复函数。它禁用第三方 bundle，并将 profile 的 `cordis.patch.yml` 重命名为 `cordis.patch.yml.bak-<timestamp>`（重名时追加序号），无需解析；下次启动创建空 patch。已安装包和已有备份保留。home 级 patch 不变。Electron 控制台记录备份路径（或原文件不存在）以及 home 级 patch 未修改。profile 数据无效、重命名失败或写入失败会作为恢复操作错误报告；已完成的修改保留，Desktop 不会假装恢复成功后重启。Desktop 不提供 profile 重置操作或应急 HTML 文档。
 
@@ -134,19 +133,11 @@ Web 侧的对应命令是 `pnpm run dev:web` 与 `pnpm run start:web`，见[开�
 
 ### 启动引导
 
-API Key 输入框初始为空，并通过 `autocomplete="new-password"` 请求 Chromium 不要自动填入已保存的登录密码。
+Muse 在 Host 就绪后打开工作区。空白首启时，Web 客户端先提供 MUSE 账号登录，再检查是否有可用的模型提供方。该账号可访问 MUSE 知识库和云端语音服务；模型凭据须在模型设置中单独配置。选择“稍后登录”或“稍后配置”后，仍可从侧栏进入对应设置。没有可用模型时，提示弹窗可直接打开模型设置；已有可用凭据则自动完成检查。
 
-重复启动和 `dsh://open` 会保持工作区隐藏，直到启动凭据检查或欢迎页操作允许进入。从 Welcome 进入时，键盘焦点落在文档上，不选中侧边栏控件；Tab 导航仍可使用。
+侧栏主账号入口打开 MUSE 账号设置。Muse 不显示 DeepSeek Platform 的账号与余额入口、旧插画首启弹窗或原生 DeepSeek 凭据欢迎窗。DeepSeek 退出登录或会话失效不会隐藏工作区。模型设置仍保留包括 DeepSeek 官方服务在内的提供方 API Key 配置。
 
-Desktop 在 Host 启动后、打开工作区前检查模型 API Key 引用是否已配置。没有已配置的密钥时，欢迎窗口提供 [API Key 页面](https://www.figma.com/design/jRBBK7zBgcszdVWQ0Fh5J8/Harness?node-id=2138-44626)。“保存并继续”通过现有凭证服务写入 DeepSeek 官方提供方配置的引用，然后打开工作区。“稍后配置”打开工作区，但不保存草稿或完成标记；下次进程启动时会重新检查凭证。“返回登录”回到入口并清空未保存的密钥和校验提示。保存或打开工作区期间，按钮保持原文案并禁用竞争操作。Desktop preload 标记使 Web 凭证弹窗不再显示，同时保留模型设置页和欢迎须知。
-
-欢迎窗口在显示前读取共享的 `locale.preference`。用户明确选择的英文或中文优先；否则 Desktop 按系统语言顺序匹配支持的语言，并以英文兜底。主界面在挂载前通过隔离 preload 读取同一偏好和系统语言顺序。在设置中切换语言会更新桌面壳的当前词典和菜单；自动选择不会写入偏好。欢迎窗口不提供语言切换入口。
-
-等待浏览器登录时，欢迎页提供当前待授权请求的链接复制入口、加载指示和取消操作；剪贴板写入失败后可以重试复制，复制结果提示在两秒后恢复；已复制状态下链接禁用，恢复后可再次点击。Welcome 文字使用 Montserrat Light 并回退到系统字体，底部大按钮保留系统字体，文字按钮使用 Montserrat Light。英文欢迎正文及产品名均为 24px，中文欢迎正文为 24px、产品名为 26px。登录操作按钮宽 240px，文字为 14px。授权状态标题使用 20px Montserrat Regular 字重。API Key 页的标题为 20px，返回操作为 14px，次级按钮底边距窗口底部 84px。
-
-### 欢迎窗口外观
-
-欢迎窗口使用设计稿的 Platform light/dark 颜色跟随系统外观，展示 600 × 700 的[入口布局](https://www.figma.com/design/jRBBK7zBgcszdVWQ0Fh5J8/Harness?node-id=2121-39334)和 API Key 表单，包含原生窗口控件、可拖动标题区域、本地品牌 SVG、系统无衬线字体回退，以及非按钮文字使用的本地 Montserrat Light 字体。窗口使用 macOS menu vibrancy 或 Windows acrylic，叠加 onboarding 的窗口背景色：浅色模式为 40% 白色，深色模式为 50% rgb(24 25 28)。本地 React 欢迎入口将 React、公共 `StateDot` 加载指示器及其 CSS 一起打包；它通过隔离 preload 工作，不加载主 Web 应用。入口、登录状态和 API Key 页面共用固定的底部操作行；“返回登录”链接位于操作行下方。按钮共用平台的过渡时序，开启“减少动态效果”会禁用过渡。操作系统控制模糊强度和外部圆角。macOS 的“降低透明度”会抑制半透明效果，“增强对比度”会强制开启该设置。“保存并继续”写入开发环境的凭证存储；“稍后配置”打开真实工作区，不保存密钥或完成标记。生成的开发项目同时链接已声明的 workspace 依赖闭包和 pnpm 提升的包，因此未提升的配置插件仍能解析。[窗口记录](../../.agents/notes/implemented/architecture/2026-09-08-desktop-welcome-window-material.zh.md)负责材质与引导决策。
+主界面使用已保存的 `locale.preference`，否则取系统首个支持的语言，最后回退到英语；在设置中切换语言会更新桌面壳文案和菜单。`dsh://open` 仅将应用窗口置前，不传递凭据。
 
 ## 打包
 
@@ -395,26 +386,12 @@ macOS 打包在组装 App 时、代码签名前写入 `Contents/Resources/app-up
 
 ## 已知限制
 
-- 账号登录尚未接入；登录按钮禁用。Windows 材质效果仍需平台验证。
+- MUSE 知识库和云端语音依赖已启用的网关接口及服务器管理的 ASR 额度。服务不可用时会报错；桌面版没有用户 ASR 凭据设置页，也不会自动回退到离线识别。
 
 - 发布签名、公证、更新托管和跨上一版本的已安装产物验证需要生产发布环境。
 - 依赖包含 lifecycle script 的桌面插件，只有其包名进入桌面项目经过评审的 `allowBuilds` 策略后才能安装。
 - 独立产品不迁移现有 DSH 会话或凭据，用户在产品内配置自己的账号。显式把 `MUSE_MED_HOME` 指向已有 DSH home 会退出数据隔离，这不构成数据迁移。
 - 在 Electron win32-arm64 宿主上，未打包启动现在可以成功，但载荷仍为 x64：`packages/skill/tool-workspace-dependencies/src/index.ts` 的架构校验会把载荷记录的架构与宿主 `process.arch` 比较，因此 `load_workspace_dependencies` 工具仍可能拒绝 primary runtime。
-
-仅向应用提供的 `dshOnboarding.hasApiKey()` preload 方法返回欢迎后端当前的 API Key 存在状态布尔值；原生登录与引导共用凭证发现逻辑，且只有受管理的应用主 frame 可以调用。
-
-登录会在系统浏览器中打开配置的平台页面。Host 负责 PKCE 和临时本机回调，在进入工作区前保存凭证，再将浏览器跳转到平台完成页。打开和复制的授权链接通过 `theme=light` 或 `theme=dark` 携带当前生效的 Desktop 主题；`system` 在执行操作时解析。即使平台页面随后批准，取消仍会撤销本地尝试。设置中的账号页面提供退出；没有独立 API Key 时，退出后返回欢迎窗。浏览器登录成功后，Welcome 切换到工作区但不激活应用；完成页的 dsh://open 链接负责将客户端置前。打包应用注册 dsh://open，只显示窗口而不传递凭证。macOS 开发启动器在 `.desktop-build/development` 下准备经临时签名的 `Harness Dev.app`，在 Info.plist 中声明 `dsh` 并注册到 Launch Services。它加载当前工作区，并记录选定的开发 home、浏览器数据路径和调试设置，以供冷启动使用。启动此应用会将其设为 `dsh://` 默认处理程序；启动打包应用会重新注册打包版处理程序。生成的应用包不包含账号 token，依赖工作区和已准备的运行环境继续存在。
-
-账号失效并返回 Welcome 时，主进程保留一次性通知，直到渲染器通过所属窗口的 IPC 领取。重新加载 Welcome 不会重复提示；主动退登和冷启动不会生成该通知。
-
-登录超时后显示超时标题，并提供重新登录和添加 API Key 按钮。打开 API Key 表单会关闭授权视图；后续账号状态通知不会覆盖正在填写的密钥。
-
-内嵌 Platform 视图在文档加载完成前保持隐藏，让渲染层加载图标可见。关闭或替换待加载视图后，该视图不会再次出现。 所属应用文档刷新或替换、渲染进程终止以及窗口关闭也会销毁原生视图，不依赖 React 清理。
-
-私有 Platform 部署请求头由内嵌浏览器会话注入，仅用于配置来源的文档和 API 请求。Cookie 覆盖按名称合并。跨来源请求移除部署请求头；bootstrap 仅暴露 origin、token 和已解析的语言。
-
-账号提供者的 `embeddedPageDist` 配置为内嵌用量和充值页面 URL 添加 `dist` 查询参数。默认值为空；私有前端分支选择值应写在本地 profile patch 中。此配置不改变 API 地址或凭证传递方式。
 
 ## 开发备注
 

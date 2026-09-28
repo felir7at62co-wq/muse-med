@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
-import { assetMethod, catalogMethod, mediaMethod, storyboardMethod, videoMethod } from '../src/methods.ts'
+import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, storyboardMethod, videoMethod } from '../src/methods.ts'
 import type { MethodArgs } from '../src/methods.ts'
 import { requireArguments } from '../src/write.ts'
 
@@ -39,7 +39,7 @@ function stubClient(handler: (request: { method: string; path: string; body?: Re
       const request = { method: String(init?.method), path: (url as URL).toString(),
         ...(typeof init?.body === 'string' ? { body: JSON.parse(init.body) as Record<string, unknown> } : {}) }
       calls.push(request)
-      const data = handler(request)
+      const data = await handler(request)
       return new Response(JSON.stringify({ code: 200, data }), { status: 200 })
     } })
   return { calls, client }
@@ -250,6 +250,226 @@ describe('jubian_video', () => {
     expect(calls.length).toBe(0)
   })
 
+  it('rejects an unknown asset category even when asset_type is valid', async () => {
+    const { client, calls } = imageProvider()
+    await expect(videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      idempotency_key: 'invalid-category', asset_name: '陆沉舟', asset_category: '未知' as '角色',
+      asset_type: 1, prompt: '一位中年男性' }, imageDeps())).rejects.toThrow(/asset_category/u)
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  const batchItem = (key: string, name: string) => ({
+    idempotency_key: key, asset_name: name, asset_category: '角色' as const,
+    episode: '01', prompt: `角色 ${name}`,
+  })
+
+  it('prechecks every batch item and refuses duplicate keys or targets before any provider read', async () => {
+    const { client, calls } = imageProvider()
+    for (const items of [
+      [batchItem('a', '甲'), { ...batchItem('b', '乙'), prompt: '' }],
+      [batchItem('a', '甲'), batchItem('a', '乙')],
+      [batchItem('a', '甲'), batchItem('b', '甲')],
+      [batchItem('a', '甲'), { ...batchItem('b', '乙'), parent_asset_id: 9 },
+        { ...batchItem('c', '丙'), parent_asset_id: 9 }],
+    ]) {
+      await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+        items })).rejects.toThrow()
+    }
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each([
+    ['control character in the second prompt', { prompt: '镜头\u0000服装' }],
+    ['malformed Unicode in the second name', { asset_name: '\ud800' }],
+    ['padded platform in the second item', { image_platform_id: ' YU_DIAN ' }],
+  ])('refuses a %s before the first paid item starts', async (_reason, change) => {
+    const { client, calls } = imageProvider()
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [batchItem('local-a', '甲'), { ...batchItem('local-b', '乙'), ...change }] },
+    { ...imageDeps(), imageBatch: { concurrency: 1, maxItems: 3 } })).rejects.toThrow(/items\[1\]/u)
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('checks every selected image model row before submitting any paid batch item', async () => {
+    const { client, calls } = imageProvider()
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [batchItem('model-a', '甲'), { ...batchItem('model-b', '乙'), image_platform_id: 'OTHER' }] },
+    { ...imageDeps(), imageBatch: { concurrency: 1, maxItems: 3 } })).rejects.toThrow()
+    expect(calls.filter(call => call.method === 'POST')).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('keeps the batch concurrency bounded and returns each result in input order', async () => {
+    let inFlight = 0
+    let peak = 0
+    let accepted = 0
+    let release!: () => void
+    const firstWave = new Promise<void>((resolve) => { release = resolve })
+    const { client, calls } = stubClient(async (request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.method === 'POST' && request.path.endsWith('/aigc/asset')) {
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        const id = 83749 + accepted++
+        if (inFlight === 2) release()
+        await firstWave
+        inFlight -= 1
+        return id
+      }
+      if (request.path.includes('getGeneratedImageByAssetId')) {
+        const id = Number(new URL(request.path).searchParams.get('assetId'))
+        return [{ id: id + 1000, assetId: id, assetUrl: `https://x/${id}.png`, hsAssetStatus: 'Active' }]
+      }
+      if (request.method === 'GET' && request.path.includes('/aigc/asset/')) {
+        const id = Number(request.path.split('/').at(-1))
+        return { id, name: 'asset', assetType: 1, hsLocal: 0, hsAssetStatus: 'Active' }
+      }
+      return null
+    })
+    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [batchItem('batch-a', '甲'), batchItem('batch-b', '乙'), batchItem('batch-c', '丙')]
+        .map(item => ({ ...item, references: ['https://example.test/confirmed-identity.png'] })) },
+    { ...imageDeps(), imageBatch: { concurrency: 2, maxItems: 3 } })
+    expect(peak).toBe(2)
+    expect(calls.filter(request => request.path.includes('getSelectList'))).toHaveLength(1)
+    expect(calls.filter(request => request.method === 'POST')).toHaveLength(3)
+    expect(calls.filter(request => request.method === 'POST').map(request =>
+      (JSON.parse(String(request.body?.modelConfig)) as { materialList: unknown }).materialList))
+      .toEqual(Array.from({ length: 3 }, () => [{ materialUrl: 'https://example.test/confirmed-identity.png',
+        materialType: 'image', sortOrder: 1 }]))
+    expect(result.results).toMatchObject([
+      { idempotency_key: 'batch-a', status: 'returned', outcome: 'accepted' },
+      { idempotency_key: 'batch-b', status: 'returned', outcome: 'accepted' },
+      { idempotency_key: 'batch-c', status: 'returned', outcome: 'accepted' },
+    ])
+    expect(result).toMatchObject({ returned: 3, errors: 0 })
+    expect((await ledger.records()).filter(record => record.outcome === 'accepted')).toHaveLength(3)
+  })
+
+  it('uses the shared ledger to refuse an unapproved overlapping charge', async () => {
+    await writeFile(join(root, 'authorization.json'), JSON.stringify({ version: 1, projects: {
+      '2708': { limit: '0.5', unit: 'CNY', estimates: { image_generate: '0.5' } },
+    } }))
+    const { client, calls } = imageProvider()
+    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [batchItem('budget-a', '甲'), batchItem('budget-b', '乙')] },
+    { ...imageDeps(), imageBatch: { concurrency: 2, maxItems: 3 } })
+    expect(calls.filter(request => request.method === 'POST')).toHaveLength(1)
+    expect((result.results as Array<{ outcome: string }>).map(row => row.outcome).sort())
+      .toEqual(['accepted', 'not_sent'])
+    expect(await ledger.records()).toHaveLength(1)
+  })
+
+  it('submits every accepted item before long image readbacks occupy the concurrency slots', async () => {
+    let posted = 0
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.method === 'POST' && request.path.endsWith('/aigc/asset')) return 83749 + posted++
+      if (request.method === 'GET' && request.path.includes('/aigc/asset/')) {
+        const id = Number(request.path.split('/').at(-1))
+        return { id, name: 'asset', assetType: 1, hsLocal: 0,
+          hsAssetStatus: posted === 3 ? 'Active' : 'Submitted' }
+      }
+      if (request.path.includes('getGeneratedImageByAssetId')) {
+        const id = Number(new URL(request.path).searchParams.get('assetId'))
+        return [{ id: id + 1000, assetId: id, assetUrl: `https://x/${id}.png`, hsAssetStatus: 'Active' }]
+      }
+      return null
+    })
+    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [batchItem('submit-a', '甲'), batchItem('submit-b', '乙'), batchItem('submit-c', '丙')] },
+    { ...imageDeps({ timeoutMs: 300, pollMs: 100 }), imageBatch: { concurrency: 2, maxItems: 3 } })
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(3)
+    expect(result.results).toMatchObject([
+      { status: 'returned', asset_status: 'active' },
+      { status: 'returned', asset_status: 'active' },
+      { status: 'returned', asset_status: 'active' },
+    ])
+  })
+
+  it('records an ambiguous item and never resends it when the batch is replayed', async () => {
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.method === 'POST' && request.body?.assetName === 'EP01｜角色｜甲') {
+        throw new Error('connection ended after submit')
+      }
+      if (request.method === 'POST') return 83749
+      if (request.path.includes('getGeneratedImageByAssetId')) return GENERATED_IMAGE
+      return { id: 83749, name: '乙', assetType: 1, hsLocal: 0, hsAssetStatus: 'Active' }
+    })
+    const args = { method: 'image_generate_batch', script_id: 2708,
+      items: [batchItem('unknown-a', '甲'), batchItem('known-b', '乙')] }
+    const first = await videoMethod(client, ledger, args, { ...imageDeps(),
+      imageBatch: { concurrency: 2, maxItems: 3 } })
+    expect(first.results).toMatchObject([
+      { idempotency_key: 'unknown-a', status: 'error', outcome: 'unknown' },
+      { idempotency_key: 'known-b', status: 'returned', outcome: 'accepted' },
+    ])
+    expect((await ledger.find('unknown-a'))?.outcome).toBe('unknown')
+    const paidCalls = calls.filter(call => call.method === 'POST').length
+    const replayed = await videoMethod(client, ledger, args, { ...imageDeps(),
+      imageBatch: { concurrency: 2, maxItems: 3 } })
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(paidCalls)
+    expect(replayed.results).toMatchObject([
+      { idempotency_key: 'unknown-a', replayed: true, outcome: 'unknown', asset_status: 'replayed' },
+      { idempotency_key: 'known-b', replayed: true, outcome: 'accepted', asset_status: 'replayed' },
+    ])
+  })
+
+  it('keeps the accepted asset ID when readback fails after a paid request', async () => {
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.method === 'POST' && request.path.endsWith('/aigc/asset')) return 83749
+      if (request.method === 'GET' && request.path.includes('/aigc/asset/')) {
+        throw new Error('asset readback unavailable')
+      }
+      return null
+    })
+    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [batchItem('accepted-readback', '甲')] }, { ...imageDeps(),
+      imageBatch: { concurrency: 1, maxItems: 3 } })
+    expect(result.results).toMatchObject([{ idempotency_key: 'accepted-readback', status: 'returned',
+      outcome: 'accepted', parent_asset_id: 83749, asset_status: 'unverified' }])
+    expect((result.results as Array<{ readback_error: string }>)[0]?.readback_error)
+      .toContain('资产 ID 为 83749，但回读失败')
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+  })
+
+  it.each([
+    ['another project', 2709, batchItem('reuse-key', '甲')],
+    ['another asset', 2708, batchItem('reuse-key', '乙')],
+    ['another prompt', 2708, { ...batchItem('reuse-key', '甲'), prompt: '另一套提示词' }],
+  ])('refuses a prior image key used for %s instead of attributing it to this item', async (_reason, scriptId, item) => {
+    const { client, calls } = imageProvider()
+    await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      ...batchItem('reuse-key', '甲') }, imageDeps())
+    const paidCalls = calls.filter(call => call.method === 'POST').length
+    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: scriptId,
+      items: [item] }, { ...imageDeps(), imageBatch: { concurrency: 1, maxItems: 3 } })
+    expect(result.results).toMatchObject([{ status: 'error', idempotency_key: 'reuse-key',
+      record_script_id: 2708 }])
+    expect((result.results as Array<{ error: string }>)[0]?.error).toMatch(/different write|different image request/u)
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(paidCalls)
+  })
+
+  it('rejects a batch larger than the configured bound before any provider read', async () => {
+    const { client, calls } = imageProvider()
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [batchItem('a', '甲'), batchItem('b', '乙'), batchItem('c', '丙')] },
+    { imageBatch: { concurrency: 2, maxItems: 2 } })).rejects.toThrow(/1\.\.2/u)
+    expect(calls).toEqual([])
+  })
+
+  it('validates deployment batch limits', () => {
+    expect(resolveImageBatchOptions()).toEqual({ concurrency: 3, maxItems: 12 })
+    expect(() => resolveImageBatchOptions({ imageBatchConcurrency: 0 })).toThrow(/imageBatchConcurrency/u)
+    expect(() => resolveImageBatchOptions({ imageBatchConcurrency: 9 })).toThrow(/imageBatchConcurrency/u)
+    expect(() => resolveImageBatchOptions({ imageBatchMaxItems: 101 })).toThrow(/imageBatchMaxItems/u)
+  })
+
   it('quotes, records, settles, then reads the asset back until it is Active', async () => {
     const { client, calls } = imageProvider()
     const result = await videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'k-1',
@@ -332,10 +552,25 @@ describe('jubian_video', () => {
     const second = stubClient(() => IMAGE_CATALOGUE)
     const replayed = await videoMethod(second.client, ledger, { method: 'image_generate', idempotency_key: 'k-2',
       script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p' }, imageDeps())
-    expect(second.calls.length).toBe(0)
+    expect(second.calls.map(call => call.method)).toEqual(['GET'])
     expect(replayed.replayed).toBe(true)
     expect(replayed.asset_status).toBe('replayed')
     expect(replayed.material_id).toBeNull()
+  })
+
+  it.each([
+    ['another project', 2709, 'x', 'p'],
+    ['another asset', 2708, 'y', 'p'],
+    ['another prompt', 2708, 'x', 'different'],
+  ])('rejects a direct image key reused for %s without a second paid request', async (_reason, scriptId, name, prompt) => {
+    const { client, calls } = imageProvider()
+    await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      idempotency_key: 'direct-reuse', asset_name: 'x', asset_type: 1, prompt: 'p' }, imageDeps())
+    const paidCalls = calls.filter(call => call.method === 'POST').length
+    await expect(videoMethod(client, ledger, { method: 'image_generate', script_id: scriptId,
+      idempotency_key: 'direct-reuse', asset_name: name, asset_type: 1, prompt }, imageDeps()))
+      .rejects.toThrow(/different image request/u)
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(paidCalls)
   })
 })
 

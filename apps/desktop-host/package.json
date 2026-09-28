@@ -42,6 +42,7 @@
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-skill-office": "workspace:*",
     "@deepseek-ai/dsh-tool-bgm-compose": "workspace:*",
+    "@deepseek-ai/dsh-tool-audio-transcribe": "workspace:*",
     "@deepseek-ai/dsh-tool-drama-assets": "workspace:*",
     "@deepseek-ai/dsh-tool-episode-render": "workspace:*",
     "@deepseek-ai/dsh-tool-jubian": "workspace:*",

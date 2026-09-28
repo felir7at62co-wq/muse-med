@@ -70,7 +70,7 @@ kind: "package-bundle"
 短剧门禁拦下这次 write（…/short-drama/demo/prompts/01.txt）：时长「0秒」不合法：明确声明时长时必须是正整数秒，例如「时长：20秒」；也可省略，由 drama_shot 估算。
 ```
 
-以 `method: image_generate` 调用 `jubian_video` 时，只要本项目的对账证据缺失、无法解析、超过 24 小时、比时钟超前 5 分钟以上、仍带着未处置的未登记资产，或没有标记 `ready`，调用就会被拒绝；拒绝文案写明读到的是哪一种，并给出两条可照抄的修复命令——对账本身，以及给确实不需要的资产写下处置：
+以 `method: image_generate` 或 `method: image_generate_batch` 调用 `jubian_video` 时，只要本项目的对账证据缺失、无法解析、超过 24 小时、比时钟超前 5 分钟以上、仍带着未处置的未登记资产，或没有标记 `ready`，调用就会被拒绝；拒绝文案写明读到的是哪一种，并给出两条可照抄的修复命令——对账本身，以及给确实不需要的资产写下处置：
 
 ```text
 jubian_video.image_generate 会新建资产并真实计费，但先要有本项目的资产对账证据：对账已过期（2026-09-20T14:22:10+08:00，超过 24 小时）（已查：…\short-drama\demo-drama）。清单只记录我们生成过什么，不等于剧变项目里已经有什么；先在项目根跑一次对账：`python _tools/asset_reconcile.py`。对账列出的「远端已选用、清单里没有」的资产不要重新生成，登记进 assets_manifest.json 复用；确认不需要的写明原因：`python _tools/asset_reconcile.py --dispose <asset_id> --status ignored --note "为什么不需要"`。证据 24 小时内有效，ready=true 且 blocking 与 ignored_without_note 都为空才放行。
@@ -99,10 +99,10 @@ jubian_video.image_generate 会新建资产并真实计费，但先要有本项�
 
 ### 五条规则
 
-- **写与计费方法必须带幂等键。** 对 `jubian_model` 的 `apply`、`jubian_storyboard` 的 `create`/`save`/`generate`/`erase_subtitle`、`jubian_video` 的 `image_generate`/`upscale`、`jubian_asset` 的 `confirm_casting`/`remove`，缺失或空白的 `idempotency_key` 会拒绝该调用，并复述流水线规则：补上键；结果不明时用同一个键重复，而不是换一个新键。
+- **写与计费方法必须带幂等键。** 对 `jubian_model` 的 `apply`、`jubian_storyboard` 的 `create`/`save`/`generate`/`erase_subtitle`、`jubian_video` 的 `image_generate`/`image_generate_batch`/`upscale`、`jubian_asset` 的 `confirm_casting`/`remove`，缺失或空白的 `idempotency_key` 会拒绝该调用；`image_generate_batch` 检查每一项里的键，不使用顶层键，并复述流水线规则：补上键；结果不明时用同一个键重复，而不是换一个新键。
 - **镜头产物必须能按结构读取。** 在工作间的 `prompts/`、`matches/`、`episode_packages/` 中，明确的 `时长` 必须是安全正整数秒；允许省略时长供编译器估算。matched JSON 必须能解析、包含对象组成的 shots 数组，每镜 `script_duration` 或 `duration` 为正整数，给出的 `text` 为字符串。长镜头、慢台词、旁白与风格选择不拒绝。[`drama_shot`](../../drama/tool-shot-script/README.zh.md) 返回可操作的创作警告，并在编译时执行明确的分镜预算。
 - **付费分镜提交必须在它所指名的项目里有正式资产。** `jubian_storyboard` 的 `generate` 会先要求这次调用绑定到一个具体项目——用 `project_dir`，或用某个 `project_config.json` 声明的 `script_id`——然后要求那个项目记录 `official=true` 资产：`assets_manifest.json` 中的条目，或在没有 manifest 时 `pipeline_state.json` 里已完成的 `official_assets` 阶段。门禁放不到具体项目上的调用会被拒绝，并给出两种绑定方式，而不是拿「工作间里恰好有证据的某个项目」去判定。资产生成本身刻意不受本规则约束，因为它正是「还没有任何正式资产」时运行的那一步。
-- **新建计费资产前必须先对账它所指名的项目。** 除非调用按上面的方式绑定到的那个项目下有 `_probe/asset-reconcile.json` 满足：`ran_at` 不超过 24 小时且不比时钟超前 5 分钟以上、`blocking` 与 `ignored_without_note` 都为空、`ready` 为真，否则 `jubian_video` 的 `image_generate` 会被拒绝。不带时区的时间戳按中国标准时间读取，也就是流水线工具写出的那个时区。证据来自流水线自己的只读对账——它才是把 `assets_manifest.json` 与剧变项目里已选用的资产逐条比对的那一步：清单记录的是我们生成过什么，而不是项目里有什么，只看清单的模型会重新生成一张早就存在的图。本规则只约束这一个方法；`erase_subtitle`、`upscale`、`confirm_casting` 与各只读方法仍由它们各自的规则管。
+- **新建计费资产前必须先对账它所指名的项目。** 除非调用按上面的方式绑定到的那个项目下有 `_probe/asset-reconcile.json` 满足：`ran_at` 不超过 24 小时且不比时钟超前 5 分钟以上、`blocking` 与 `ignored_without_note` 都为空、`ready` 为真，否则 `jubian_video` 的 `image_generate` 与 `image_generate_batch` 都会被拒绝。门禁在整批调用开始时、任何一项提交前检查一次。不带时区的时间戳按中国标准时间读取，也就是流水线工具写出的那个时区。证据来自流水线自己的只读对账——它才是把 `assets_manifest.json` 与剧变项目里已选用的资产逐条比对的那一步：清单记录的是我们生成过什么，而不是项目里有什么，只看清单的模型会重新生成一张早就存在的图。本规则只约束这两个生图方法；`erase_subtitle`、`upscale`、`confirm_casting` 与各只读方法仍由它们各自的规则管。
 - **两条项目规则都按本次操作绑定，从不做搜索。** 上面两条规则只从调用本身解析出一个项目：注入的 `projectRoot`，其次是调用自己的 `project_dir`，再次是工作间里 `project_config.json` 声明了本次调用 `script_id` 的那个子项目。这里不会为了「让调用通过」去扫工作间——一个项目的证据不能给另一个项目的付费调用背书。
 - **已下线的 MUSE 工具名会得到回答，而不是被无视。** 调用注册表解析不到的 `drama`、`asset`、`shot`、`project`、`timeline` 或 `delivery` 时，会被拒绝并给出替代工具名，而不是让模型读到会被理解成「部署坏了」的裸 `UNKNOWN_TOOL`。
 

@@ -9,7 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`@deepseek-ai/dsh-jubian-api` turns Jubian response payloads into validated, typed values and turns caller input into the exact request bodies Jubian accepts. A single import covers catalog and episode reads, asset and material reads, video task and subtask reads, storyboard snapshots, image generation, subtitle erasure, upscaling, and bounded media downloads. It sends no Jubian request itself: `@deepseek-ai/dsh-jubian` owns transport and credentials, and `@deepseek-ai/dsh-tool-jubian` calls these functions. Readers accept the envelope `data` field as `unknown`, and any payload that does not match throws `JubianError` with code `CONTRACT_CHANGED` instead of returning a half-read value.
+`@deepseek-ai/dsh-jubian-api` validates Jubian response data and builds request bodies for catalog, asset, video, storyboard, image, subtitle, and upscale operations. It also downloads bounded media. Readers return typed values or throw `JubianError` with `CONTRACT_CHANGED` when a payload does not match. `@deepseek-ai/dsh-jubian` owns Jubian request transport and credentials; `@deepseek-ai/dsh-tool-jubian` uses these functions.
+
+Pool rows expose `claim_leader_id` and `claim_member_id` when available. The claim tool checks these account IDs against the authenticated user because claimant names cannot verify ownership.
 
 ## Table of Contents
 
@@ -40,7 +42,9 @@ Read one video generation task behind a transport call:
 import { JubianClient, JubianError } from '@deepseek-ai/dsh-jubian'
 import { readTaskPage } from '@deepseek-ai/dsh-jubian-api'
 
-const client = new JubianClient({ credential: resolveToken })
+const token = process.env.JUBIANAI_ADMIN_TOKEN
+if (!token) throw new Error('Set JUBIANAI_ADMIN_TOKEN')
+const client = new JubianClient({ credential: async () => token })
 const response = await client.request({ method: 'GET', path: '/admin/aigc/video/task/428322' })
 
 try {
@@ -60,14 +64,17 @@ Success is a fully typed value: `task.task_id` is a number, and `task.real_cost`
 Page readers return `{ total, rows }`. Read every child result of a generation task and ask whether each one is deliverable at the target resolution:
 
 ```ts
+import { JubianClient } from '@deepseek-ai/dsh-jubian'
 import { needsUpscale, readSubtaskPage } from '@deepseek-ai/dsh-jubian-api'
 
-const response = await client.request({ method: 'POST', path: '/admin/aigc/video/task/sub/list',
-  body: { aigcVideoTaskId: 428322 } })
-const page = readSubtaskPage(response.data)
+async function readResults(client: JubianClient) {
+  const response = await client.request({ method: 'POST', path: '/admin/aigc/video/task/sub/list',
+    body: { aigcVideoTaskId: 428322 } })
+  const page = readSubtaskPage(response.data)
 
-for (const row of page.rows) {
-  console.log(row.subtask_id, row.video_url, row.last_stage, needsUpscale(row, '1080p'))
+  for (const row of page.rows) {
+    console.log(row.subtask_id, row.video_url, row.last_stage, needsUpscale(row, '1080p'))
+  }
 }
 ```
 
@@ -91,6 +98,8 @@ const body = buildSubtitleEraseRequest('quzimuToB', {
 
 A builder returns a plain object and sends nothing. Submit it with `client.request()`, and read the task identity back out of the response with `readSubtitleTaskId()`. `buildSubtitleEraseRequest` pins the standard identifiers per model: `26` for `quzimuToB` and `67` for `ark-erase-video-subtitle-pro`, which is the automatic route and takes no rectangle. When a caller omits `subtitleBox`, the regional route derives the rectangle from the frame size instead.
 
+`validateImageRequestInput()` checks one image request's project ID, asset name and type, prompt, reference URLs and optional parent asset ID without reading the live model catalogue. `buildImageRequest()` applies the same checks before resolving its catalogue row, so a batch caller can reject every malformed local item before any paid submission.
+
 ### Resolving video settings
 
 `resolveVideoModel(catalogue, intent)` preserves the exact `modelId`, explicit `platformId`, generation type and duration, and matches ratio and resolution case-insensitively. Exactly one catalogue match must remain; missing or ambiguous choices fail rather than selecting another model or platform. The returned selectors refresh stale standard identifiers and retain `genNum=1`. Native preparation uses the live storyboard intent; use `prepare_video`/`submit_video` for model-driven generation.
@@ -102,10 +111,13 @@ A builder returns a plain object and sends nothing. Submit it with `client.reque
 `downloadMedia()` is the one function in this package that opens a socket. It fetches one bounded payload from a fixed allowlist of media origins and returns the bytes with their digest:
 
 ```ts
-import { downloadMedia } from '@deepseek-ai/dsh-jubian-api'
+import { downloadMedia, type VideoSubtask } from '@deepseek-ai/dsh-jubian-api'
 
-const media = await downloadMedia(row.video_url!, { kind: 'video', timeoutMs: 60000 })
-console.log(media.media_type, media.kind, media.sha256, media.bytes.byteLength)
+async function downloadVideo(row: VideoSubtask) {
+  if (row.video_url === null) throw new Error('No video URL')
+  const media = await downloadMedia(row.video_url, { kind: 'video', timeoutMs: 60000 })
+  console.log(media.media_type, media.kind, media.sha256, media.bytes.byteLength)
+}
 ```
 
 The call rejects a URL outside `MEDIA_ALLOWED_ORIGINS`, a response larger than the ceiling for its kind, a redirect, and a body whose own header bytes do not match the requested `kind`. The bytes come back to you; writing the file is your step.

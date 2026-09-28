@@ -63,7 +63,7 @@ export interface Config {
   /** Refuse a paid storyboard submission while no `official=true` asset record exists (default `true`). */
   officialAssets?: boolean
   /**
-   * Refuse creating a new billed asset — `jubian_video` `image_generate` — until
+   * Refuse creating billed assets — `jubian_video` `image_generate` or `image_generate_batch` — until
    * the project root holds a fresh `_probe/asset-reconcile.json` that is
    * `ready` and fully disposed (default `true`). The manifest records what this
    * pipeline generated, not what the Jubian project already has, so the evidence

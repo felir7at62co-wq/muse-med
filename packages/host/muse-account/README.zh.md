@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## Use this package
 
-在 Muse Desktop 中打开**设置 → MUSE 账号**。页面先显示本地保存的状态；点击**验证状态**可向网关确认。输入用户名和密码即可登录。注册选项初始未选中；如果希望登录失败后尝试创建该用户名，可主动勾选。请求成功后，页面会清空密码输入框。
+Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；选择**稍后登录**仍可从侧栏和**设置 → MUSE 账号**进入。页面先显示本地保存的状态；点击**验证状态**可向网关确认。输入用户名和密码即可登录。注册选项初始未选中；如果希望登录失败后尝试创建该用户名，可主动勾选。请求成功后，页面会清空密码输入框。此会话用于访问知识库和语音服务，模型提供方及其凭据须在模型设置中单独配置。
 
 ### Minimal configuration
 
@@ -34,7 +34,7 @@ kind: "package-reference"
 ```yaml
 - name: '@deepseek-ai/dsh-muse-account'
   config:
-    baseUrl: https://dev.muse.aigc-pipeline.cn
+    baseUrl: https://muse.aigc-pipeline.cn
 ```
 
 | 字段 | 默认值 | 含义 |
@@ -42,6 +42,7 @@ kind: "package-reference"
 | `baseUrl` | 必填 | HTTPS 网关源地址；本机回环网关可使用 HTTP。 |
 | `accountHome` | 当前 DSH 主目录 | 存放本产品账号会话文件的绝对目录。 |
 | `requestTimeoutMs` | 15,000 | 账号和知识库授权请求的超时毫秒数，可设为 1,000 至 120,000。 |
+| `asrRequestTimeoutMs` | 300,000 | 一次压缩音频上传与网关响应的超时毫秒数，可设为 10,000 至 1,800,000。 |
 
 [配置目录](../../../docs/config-catalog.zh.md)由插件 schema 生成。本包已包含在桌面 Host 配置中，不是独立应用启动入口。
 
@@ -56,6 +57,8 @@ kind: "package-reference"
 通过身份验证的 `museAccount` Remote 命名空间把设置页调用送至 Host 账号控制器。控制器向已配置的网关提交凭据、确认返回的身份，并把绑定网关源地址的 cookie 原子写入产品主目录。Remote 响应只包含固定错误类别和账号身份，不包含密码或 cookie。
 
 Host 启动内置的本地 MCP 子进程并等待工具发现。知识库工具执行时，子进程读取已保存的 cookie，通过 `/api/kb/access` 换取短时 bearer，然后调用同源的只读 MCP 接口。它不持久化或返回 bearer。检索返回获授权的 ID，以及 `类型` 和 `标定` 文本；`read` 分页阅读获授权的来源或 Wiki 文档；`read_opening` 只接受获授权且标为 `标定: viral-script` 的 `SRC-...` 来源，并分页阅读其前 24,000 字。MCP 客户端使用通用文本卡片呈现这些工具；每次阅读返回 6,000 字页面和续读元数据，本地失败只返回固定错误码，不传递上游响应文本。
+
+仅 Host 使用的 `MuseAsrClient` 为 `audio_transcribe` 工具读取同一账号会话，并通过网关上传压缩音频、查询按账号隔离的任务 ID。桌面端没有 ASR 或 TOS 凭据设置。未登录、网关不可用或服务器未配置 ASR 都明确报错。服务器部署与任务限额见 [`services/muse-accounts`](../../../services/muse-accounts/README.zh.md)。
 
 本包不提供 `./invariant`：账号状态和已注册 MCP 工具都能通过各自所属的服务或工具注册表观察，没有可能独立产生分歧的第二份状态。
 

@@ -9,7 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`@deepseek-ai/dsh-jubian` is the single HTTP path to Jubian: you build a `JubianClient` with a credential resolver, send one fixed-origin request, and read back the envelope data, the transport status and a sha256 of the exact response bytes. It repairs the shell separator and quote pair a pasted token usually carries, folds every failure into one of five stable codes that never echo provider text, and records each paid or state-changing call in a two-phase NDJSON ledger where a repeated `idempotency_key` returns the recorded outcome without sending anything. `@deepseek-ai/dsh-tool-jubian` and `@deepseek-ai/dsh-jubian-api` consume it.
+`@deepseek-ai/dsh-jubian` sends fixed-origin Jubian requests using a credential resolver and returns response data, status, and a digest of the response bytes. It repairs common pasted-token artifacts and reports six stable failure codes without exposing provider text. Its two-phase NDJSON ledger records paid or state-changing calls; a repeated `idempotency_key` yields the prior record so the caller avoids resending.
+
+`pool_claim` records screenplay-pool submissions. The claim tool checks prior records for the same script before another key can submit; uncertain outcomes remain `unknown` until read-only reconciliation.
 
 ## Table of Contents
 
@@ -38,7 +40,9 @@ Choose it when you own the call site — a tool package, a test with a stubbed `
 ```ts
 import { JubianClient, JubianError } from '@deepseek-ai/dsh-jubian'
 
-const client = new JubianClient({ credential: resolveJubianToken })
+const token = process.env.JUBIANAI_ADMIN_TOKEN
+if (!token) throw new Error('Set JUBIANAI_ADMIN_TOKEN')
+const client = new JubianClient({ credential: async () => token })
 
 try {
   const response = await client.request({ method: 'GET', path: '/aigc/asset/123' })
@@ -97,14 +101,19 @@ An unsettled or `unknown` paid call with a usable quote counts as reserved: it m
 
 Without an authorization file or a mounted drama series budget, paid calls are refused before recording an intent or sending a provider request. A mounted drama budget supplies an automatic CNY ceiling per `script_id`; any existing authorization file can only lower that ceiling, and its absent project entries still refuse. Calls without a quote or accepted per-method estimate remain refused. The shared writer uses `beginChecked` to check the cap and reserve the accepted quote or estimate in one same-process ledger claim; separate processes still have no mutual-exclusion lock. These local settings and files limit accidental spending, not hostile code: an agent with filesystem write access could edit them. A deployment needing human-owned authorization must enforce that separately.
 
+Storyboard video batches use `checkBudget(..., count)` inside `beginManyChecked` to compare the full batch estimate before any provider PUT and append each original key's priced intent together. Every paid method requires a per-call quote or estimate of at least 0.01 in its authorized currency; a positive fractional-cent amount that rounds to zero cannot authorize spending. A rejected budget or existing key appends no new intents. The same-process queue also serializes this reservation with single paid writes; separate processes remain outside that queue.
+
 ### Recording a write in two phases
 
 `JubianLedger` answers the one question a timeout leaves open: did that charge actually happen? Write an intent line before the request leaves, and a settle line after the response is read.
 
 ```ts
-import { JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 
-const ledger = new JubianLedger({ root: ledgerRoot })
+const token = process.env.JUBIANAI_ADMIN_TOKEN
+if (!token) throw new Error('Set JUBIANAI_ADMIN_TOKEN')
+const client = new JubianClient({ credential: async () => token })
+const ledger = new JubianLedger({ root: './jubian-ledger' })
 const begun = await ledger.begin({
   idempotencyKey: 'episode-1-upscale-428322',
   method: 'video_upscale',
@@ -117,7 +126,8 @@ if (!begun.replayed) {
     httpStatus: response.transport.http_status,
     applicationCode: response.transport.application_code,
     responseSha256: response.response_sha256,
-    outcome: 'accepted',
+    outcome: response.transport.application_code === 0 || response.transport.application_code === 200
+      ? 'accepted' : 'unknown',
   })
 }
 ```

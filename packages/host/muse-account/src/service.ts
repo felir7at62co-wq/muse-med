@@ -4,6 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { MuseAccountController, MuseAccountInputError } from './account.ts'
 import { MuseGatewayError } from './gateway.ts'
+import { MuseAsrClient, type MuseAsrJob } from './asr.ts'
 import type { MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
 
 /** Account operations implemented by the product-home controller. */
@@ -12,11 +13,13 @@ type AccountOperations = Pick<MuseAccountController, 'status' | 'login' | 'logou
 /** The controller passed by the mounted product plugin. */
 export interface MuseAccountServiceOptions {
   readonly controller: AccountOperations
+  readonly asr?: MuseAsrClient
 }
 
 /** MUSE account Remote namespace. The Connection carrier authenticates every call. */
 export class MuseAccountService extends TypertRemoteService {
   private readonly controller: AccountOperations
+  private readonly asr: MuseAsrClient | undefined
 
   /**
    * @param ctx - Host context owning the service.
@@ -25,6 +28,30 @@ export class MuseAccountService extends TypertRemoteService {
   constructor(ctx: Context, options: MuseAccountServiceOptions) {
     super(ctx, 'museAccount')
     this.controller = options.controller
+    this.asr = options.asr
+  }
+
+  /**
+   * Submit compressed audio through the current MUSE account; Host callers retain the job ID.
+   * @param file - Local MP3 created from the authorized media.
+   * @param id - Persisted idempotency UUID.
+   * @param sha256 - SHA-256 digest of the MP3.
+   * @param language - Recognition language.
+   * @returns Account-scoped task status without session or provider credentials.
+   */
+  async submitAudio(file: string, id: string, sha256: string, language: 'zh' | 'auto'): Promise<MuseAsrJob> {
+    if (!this.asr) throw new Error('MUSE cloud transcription is unavailable in this Host')
+    return await this.asr.submit(file, id, sha256, language)
+  }
+
+  /**
+   * Query a previously submitted transcription without making another paid submission.
+   * @param id - Persisted idempotency UUID.
+   * @returns Task state and timed segments when complete.
+   */
+  async audioStatus(id: string): Promise<MuseAsrJob> {
+    if (!this.asr) throw new Error('MUSE cloud transcription is unavailable in this Host')
+    return await this.asr.get(id)
   }
 
   /**

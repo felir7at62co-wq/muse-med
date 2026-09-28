@@ -150,6 +150,8 @@ export interface SettingsLauncherOwnerProps {
   settingsShortcut?: { readonly keys: readonly string[]; readonly aria?: string | undefined }
   /** Open the settings panel. */
   openSettings: () => void
+  /** Open a registered Settings section directly when the launcher supports it. */
+  openSection?: (id: string) => void
   /** @param id - registered onboarding editor to open explicitly. */
   openOnboarding: (id: string) => void
 }

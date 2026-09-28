@@ -103,6 +103,8 @@ export interface DshDesktopProductApi {
 /** Plugin-window bridge, exposed only to the shell-hosted plugin manager document. */
 export interface DshDesktopPluginApi {
   readonly protocolVersion: 1
+  /** Product identity for first-run and primary-account browser surfaces. */
+  readonly productName?: 'muse-med'
   locale(): Promise<DesktopLocale>
   readonly plugins: {
     list(): Promise<readonly DesktopPluginRecord[]>

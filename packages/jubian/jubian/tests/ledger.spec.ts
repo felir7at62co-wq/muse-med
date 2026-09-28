@@ -41,6 +41,23 @@ describe('JubianLedger', () => {
     expect(authorize).toHaveBeenCalledTimes(1)
   })
 
+  it('reserves a complete batch after one guard and refuses a partial replay', async () => {
+    const ledger = new JubianLedger({ root })
+    const inputs = ['a', 'b'].map(idempotencyKey => ({ idempotencyKey,
+      method: 'storyboard_native_submit' as const, scriptId: 2708, requestSha256: `sha256:${idempotencyKey}`,
+      quotedAmount: '1.00', quoteUnit: 'CNY' }))
+    await expect(ledger.beginManyChecked(inputs.map(input => input.idempotencyKey),
+      async () => { throw new Error('budget denied') })).rejects.toThrow('budget denied')
+    expect(await ledger.records()).toEqual([])
+    const records = await ledger.beginManyChecked(inputs.map(input => input.idempotencyKey),
+      async () => inputs)
+    expect(records.map(record => record.idempotency_key)).toEqual(['a', 'b'])
+    expect(await ledger.records()).toHaveLength(2)
+    await expect(ledger.beginManyChecked(['b', 'c'], async () => inputs))
+      .rejects.toThrow('already has a record')
+    expect(await ledger.find('c')).toBeUndefined()
+  })
+
   it('records the intent before the request leaves and settles it afterwards', async () => {
     const ledger = new JubianLedger({ root })
     const began = await ledger.begin({

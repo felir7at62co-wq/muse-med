@@ -47,3 +47,41 @@ it('discovers the scene-script transcript skill without assigning uncertain spee
     await ctx.fiber.dispose()
   }
 })
+
+it.each(['transcript-to-novel', 'transcript-to-script'])('%s keeps each source and writing stage in the authorized project', async (name) => {
+  const ctx = new Context()
+  try {
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, { includeDefaultRoots: false, bundledSkillDir, watch: false })
+    const skill = await ctx.skills.get(name)
+    const input = renderSkillContent(skill!)
+    for (const path of ['source/links.md', 'source/media/', 'transcript/raw/', 'transcript/reviewed/',
+      'outline/source-', 'outline/adaptation-', 'draft/', 'final/', 'qa/']) {
+      expect(input).toContain(path)
+    }
+    expect(input).toMatch(/链接.*本地.*转写/su)
+    expect(input).toMatch(/不覆盖原件/u)
+    expect(input).toMatch(/outline\/source-v1\.md.*用户素材.*爆款剧本.*不补入本项目故事事实/su)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+it('keeps cloud transcription receipts and versioned raw results in the project', async () => {
+  const ctx = new Context()
+  try {
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, { includeDefaultRoots: false, bundledSkillDir, watch: false })
+    const skill = await ctx.skills.get('audio-transcribe')
+    const input = renderSkillContent(skill!)
+    expect(input).toContain('source/media/')
+    expect(input).toContain('source/links.md')
+    expect(input).toContain('transcript/raw/')
+    expect(input).toContain('transcript/jobs/')
+    expect(input).toContain('transcript/reviewed/')
+    expect(input).toContain('人工修订另存新文件，保留原始版本')
+    expect(input).toContain('audio_transcribe')
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})

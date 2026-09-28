@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
 import { packIco, TRAY_ICON_PATHS, TRAY_ICON_SIZES, unpackIco, type IcoEntry } from '../scripts/render-tray-icon.ts'
 
@@ -39,5 +40,18 @@ describe('tray icon packaging', () => {
     const entries = unpackIco(readFileSync(TRAY_ICON_PATHS.output))
     expect(entries.map(entry => entry.size)).toEqual([...TRAY_ICON_SIZES])
     for (const entry of entries) expect(entry.png.length).toBeGreaterThan(100)
+  })
+
+  it('uses the Muse desktop artwork for the Windows tray and installed app icon', async () => {
+    const muse = readFileSync(new URL('../renderer/icon.png', import.meta.url))
+    const tray = unpackIco(readFileSync(TRAY_ICON_PATHS.output))
+    const tray64 = tray.find(entry => entry.size === 64)
+    const trayMuse64 = await sharp(muse).resize(64, 64).png().toBuffer()
+    expect(tray64?.png.equals(trayMuse64)).toBe(true)
+
+    const installed = unpackIco(readFileSync(new URL('../renderer/icon.ico', import.meta.url)))
+    const installed256 = installed.find(entry => entry.size === 256)
+    const installerMuse256 = await sharp(muse).resize(256, 256).png().toBuffer()
+    expect(installed256?.png.equals(installerMuse256)).toBe(true)
   })
 })

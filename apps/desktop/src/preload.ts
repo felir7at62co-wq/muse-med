@@ -6,6 +6,7 @@ import type { DesktopBackendState } from './backend-controller.ts'
 
 const api: DshDesktopPluginApi = {
   protocolVersion: 1,
+  productName: 'muse-med',
   locale: () => ipcRenderer.invoke(DESKTOP_IPC.localeGet) as Promise<ReturnType<DshDesktopPluginApi['locale']> extends Promise<infer T> ? T : never>,
   plugins: {
     catalog: discover => ipcRenderer.invoke(DESKTOP_IPC.pluginsCatalog, discover) as Promise<ReturnType<DshDesktopPluginApi['plugins']['catalog']> extends Promise<infer T> ? T : never>,

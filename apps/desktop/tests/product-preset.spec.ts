@@ -77,7 +77,10 @@ it('loads exactly the six product modes without discovering other shipped or per
     for (const requirement of ['pipeline_state.json', 'assets_manifest.json', '1440×2560', '4.6 Mbps', 'asr_aligned', 'idempotency_key', 'CC-BY-NC-4.0', 'scriptName', 'episodeCount', 'stale']) {
       expect(prompt, requirement).toContain(requirement)
     }
-    for (const requirement of ['用户提供的参考图', '逐图审核和用户确认', '不自动安装或启动小红书']) {
+    for (const requirement of ['自主检索', '来源页和许可', 'agent_review', '用户图仍需确认', '不自动安装或启动小红书']) {
+      expect(prompt, requirement).toContain(requirement)
+    }
+    for (const requirement of ['整批提示词', 'image_generate_batch', '逐项验收']) {
       expect(prompt, requirement).toContain(requirement)
     }
     const editingSource = (await ctx.agentPresets.readDocument('editing')).content
@@ -94,8 +97,8 @@ it('loads exactly the six product modes without discovering other shipped or per
       expect(editingRows.some(row => row.id === id), id).toBe(true)
     }
     const editingSkill = await readFile(join(productRoot, '..', 'skills', 'editing', 'SKILL.md'), 'utf8')
-    expect(editingSkill).toContain('分页资料须继续读取')
-    expect(editingSkill).toContain('不得起草或改写正式剧本正文')
+    expect(editingSkill).toContain('单页不够时继续分页')
+    expect(editingSkill).toContain('不得写正式正文')
     expect(source).not.toMatch(/[CE]:\\|EDY|默认授权|自动授权/)
     for (const requirement of ['每集至少 2 首不同曲目', '按情绪分段', 'policy_findings', '1.5 秒三角交叉淡化', '24 小时', 'max_review_attempts=3', 'content_duration_ms', '离线、不外传', '不自动删除', '片尾 2 秒', '被委派的子代理只返回调用方要的分片结果', '给了 schema 就用 structured_output 返回']) {
       expect(prompt, requirement).toContain(requirement)

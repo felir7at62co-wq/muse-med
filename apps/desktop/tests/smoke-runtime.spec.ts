@@ -87,7 +87,7 @@ function fixture() {
   mkdirSync(dirname(editingSkill.path), { recursive: true })
   writeFileSync(editingSkill.path, '# fixture')
   skills.push(editingSkill)
-  for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script']) {
+  for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import']) {
     const path = join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md')
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
@@ -96,6 +96,9 @@ function fixture() {
   const transcribeScript = join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/audio-transcribe/scripts/transcribe.py')
   mkdirSync(dirname(transcribeScript), { recursive: true })
   writeFileSync(transcribeScript, '# fixture')
+  const mediaImportScript = join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/media-link-import/scripts/import_media.py')
+  mkdirSync(dirname(mediaImportScript), { recursive: true })
+  writeFileSync(mediaImportScript, '# fixture')
   const agent = { preset: 'short-drama' }
   const agentCtx = {}
   const dispose = vi.fn(async () => {})
@@ -197,6 +200,13 @@ it('rejects a shared transcription skill without its packaged script', async () 
   const script = join(dirname(f.skills.find(skill => skill.name === 'audio-transcribe')!.path), 'scripts', 'transcribe.py')
   rmSync(script)
   await expect(f.apply(f.ctx)).rejects.toThrow('missing shared Muse transcription script')
+})
+
+it('rejects the media import skill without its packaged script', async () => {
+  const f = fixture()
+  const script = join(dirname(f.skills.find(skill => skill.name === 'media-link-import')!.path), 'scripts', 'import_media.py')
+  rmSync(script)
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing shared Muse media import script')
 })
 
 it('rejects extra agent-local tools in the minimal preset', async () => {

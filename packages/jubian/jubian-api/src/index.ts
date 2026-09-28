@@ -10,7 +10,8 @@ export { RESOLUTION_ORDER, VIDEO_TASK_TYPES, needsUpscale, readSubtaskPage, read
 export type { SubtitleBox, VideoSubtask, VideoTask, VideoVersionRecord } from './video.ts'
 export { readStoryboard, withGenerationDisabled, withGenerationEnabled } from './storyboard.ts'
 export type { StoryboardView } from './storyboard.ts'
-export { buildImageRequest, imageCandidates, readImageDisplayPrice, resolveImageModel } from './image.ts'
+export { buildImageRequest, imageCandidates, readImageDisplayPrice, resolveImageModel,
+  validateImageRequestInput } from './image.ts'
 export type { ImageModelCandidate, ImageModelSelection, ImageModelSelectors, ImageRequestInput } from './image.ts'
 export { AUTOMATIC_ERASE_MODEL, DEFAULT_SUBTITLE_REGION, SUBTITLE_ERASE_MODELS, SUBTITLE_ERASE_STANDARDS,
   buildSubtitleEraseRequest, defaultSubtitleBox, readSubtitleTaskId } from './subtitle.ts'

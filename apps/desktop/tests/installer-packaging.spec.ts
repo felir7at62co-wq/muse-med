@@ -1,5 +1,6 @@
 import { tmpdir } from 'node:os'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { Arch, Platform } from 'electron-builder'
 import { Packager } from 'app-builder-lib'
 import { describe, expect, it, vi } from 'vitest'
@@ -24,6 +25,28 @@ describe('installer preparation preserves application dependencies', () => {
     expect(config.publish).toEqual([expect.objectContaining({
       provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel: 'rc',
     })])
+  })
+
+  it('packages Muse artwork for the About dialog and macOS icon', async () => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const artwork = fileURLToPath(new URL('../renderer/icon.png', import.meta.url))
+    const windows = createElectronBuilderConfig({
+      DSH_DESKTOP_APP_ID: 'com.example.muse', DSH_DESKTOP_UNSIGNED: '1',
+      DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: 'false',
+    }, 'win32', 'x64')
+    const about = windows.extraResources.find(resource => resource.to === 'icon.png')
+    expect(about?.from).toBe(artwork)
+    const mac = createElectronBuilderConfig({
+      DSH_DESKTOP_APP_ID: 'com.example.muse',
+      DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: 'false',
+      DSH_DESKTOP_MACOS_SIGNING_IDENTITY: 'Example Company (TEAMID1234)',
+      DSH_DESKTOP_MACOS_TEAM_ID: 'TEAMID1234',
+      APPLE_KEYCHAIN_PROFILE: 'installer-test',
+      DOWNLOAD_TEST_ORIGIN: 'https://desktop-updates.example.com',
+      DOWNLOAD_TEST_RELEASE_ID: '0123456789abcdef0123456789abcdef',
+    }, 'darwin', 'arm64')
+    expect(mac.mac?.icon).toBe(artwork)
+    expect(mac.mac?.extendInfo.CFBundleLocalizations).toEqual(['en', 'zh_CN'])
   })
 
   it.each(['win32', 'darwin'] as const)('rejects a missing production policy before signing on %s', async (platform) => {
@@ -53,7 +76,7 @@ describe('installer preparation preserves application dependencies', () => {
       const config = createElectronBuilderConfig(env, platform, 'x64')
       const aboutIcon = config.extraResources.find(resource => resource.to === 'icon.png')
       expect(aboutIcon).toBeDefined()
-      expect(readFileSync(aboutIcon!.from)).toEqual(readFileSync(new URL('../resources/icon-windows.png', import.meta.url)))
+      expect(readFileSync(aboutIcon!.from)).toEqual(readFileSync(new URL('../renderer/icon.png', import.meta.url)))
       // Only the Windows package carries the tray bitmaps; macOS keeps the Dock.
       const trayIcon = config.extraResources.find(resource => resource.to === 'tray.ico')
       if (platform === 'win32') {

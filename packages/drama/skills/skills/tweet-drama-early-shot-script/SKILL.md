@@ -17,6 +17,8 @@ description: Use when 仿真人镜头脚本需要编译、检查节奏、绑定�
 
 新制作必须使用当前 `drama_shot` 工具，并先读取其 schema：preview/compile 所需 `max_submit_seconds` 来自当前分镜及目录允许的总时长，包含收束；不可盲填 30。可选正整数 duration 表达慢节奏或长镜，`report.warnings` 供节奏复核。VO 使用已支持的 vo 表达并保留说话人及原文；未支持格式报告缺口，不静默降成 dialogue。
 
+本轮授权生成范围的镜头包可分集并行编译；先汇总并检查全部包的原文、镜头顺序、时长、正式资产与模型约束，再为每个分镜完成免费 `select_assets` 与 `prepare_video`。把全部 preview 与本次授权分镜 ID 逐一对应并排除遗漏、重复，整批费用核对通过后，用 `jubian_storyboard submit_video_batch` 一次提交独立分镜；一包失败先修正整批，不提前生成已就绪包。每项结果按自身 preview fingerprint、分镜 ID 和任务 ID 对账。
+
 绑定前的角色状态是**硬门**：每个入画主体的 `主体状态追踪` 段落必须写 `身体状态：【阶段；服装；发型】；`，所挂资产的 `state_or_costume` 必须登记同一组维度、`episodes` 必须覆盖本集。`validate` 给了 `episode` 就能在提交前判到这一层；不一致会点名角色、期望值、资产实际值与资产 id。清单里没有所需阶段的版本时，`failures` 里是一条完整的补料需求（角色/阶段/服装/用于哪几集）与补料路径——先复用或补料登记，不要改状态文字绕过，也不要直接拿名字带阶段的旧版本顶上。
 
 `project` 给了就按它解析项目根，没给就向上找最近的 `project_config.json`；本项目声明的每镜有效字上限等要求见[字段表](references/project-config.md)，不要靠试错反推键名。

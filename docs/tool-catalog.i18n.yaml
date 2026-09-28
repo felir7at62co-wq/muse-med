@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 94503b6b13de09f7
 /tool-schema-catalog/tool-package-map:
-  en: dbe3cd971619151f
-  zh: fc66c84e87282ec7
+  en: d38a0a962da628fa
+  zh: 0f69376cb31af5eb
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -54,8 +54,14 @@
   en: e713a4a11a15d13c
   zh: e713a4a11a15d13c
 /tool-schema-catalog/deepseek-ai-dsh-tool-ask-user/ask-user-question:
-  en: f42b7f17ad59577a
-  zh: 7e1eee22ff35d4b1
+  en: 954af5b7e9fb05ba
+  zh: 1b13fb85f412ffdb
+/tool-schema-catalog/deepseek-ai-dsh-tool-audio-transcribe:
+  en: efdcf8538d0b69ac
+  zh: efdcf8538d0b69ac
+/tool-schema-catalog/deepseek-ai-dsh-tool-audio-transcribe/audio-transcribe:
+  en: 538fc8d94e799069
+  zh: 947e6d0d5cb29b7d
 /tool-schema-catalog/deepseek-ai-dsh-tools:
   en: 76fbbf0fe38aef10
   zh: 76fbbf0fe38aef10
@@ -315,32 +321,38 @@
   en: 0db5c1f1690ce921
   zh: 0db5c1f1690ce921
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-asset:
-  en: 142725e6db8ba34d
-  zh: 16d55e7bf4c50647
+  en: 9582b2bde410fcc5
+  zh: c51d5309e266329e
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-catalog:
   en: 3b9a24d0dc27c2c0
-  zh: 60c1e754639982c0
+  zh: bed91509e287235d
+/tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-claim:
+  en: 8d408b785e8151ed
+  zh: 7840cb418e91e2b0
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-find:
   en: d6972cf944b814bb
-  zh: 020b3dd0228707eb
+  zh: 6820256fa47180c5
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-media:
   en: c44600d0c58ddc4a
-  zh: 66ff01b55862f657
+  zh: b4a04db40293ce76
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-model:
   en: c4401d27430229ba
-  zh: ecedea7488091ae4
+  zh: d3cf59f992fc22a8
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-organize:
   en: 0c0aa0c004ff0890
-  zh: 1009a315f0f11f04
+  zh: 8498d1c9507acfdd
+/tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-snatch:
+  en: ef79792a93ef7942
+  zh: bce1b71863aea019
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-storyboard:
-  en: 617a71f3fc6f26e7
-  zh: 3d7f78bd9e15a937
+  en: 5c21faa4982ab763
+  zh: 44bba7673c59bfec
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-video:
-  en: 03def82426891559
-  zh: cda96d1961ea1607
+  en: 171a69d10acd7e1a
+  zh: d44d63283102a205
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-watch:
-  en: 91ffa4c7081ce262
-  zh: 8a3014d9d021a3f0
+  en: 6e45490c78c41bee
+  zh: 8fa79a528872f420
 /tool-schema-catalog/deepseek-ai-dsh-tool-shot-script:
   en: 6f86adf127829946
   zh: 6f86adf127829946

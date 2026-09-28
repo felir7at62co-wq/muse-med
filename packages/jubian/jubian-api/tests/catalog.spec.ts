@@ -65,7 +65,9 @@ const SCRIPT_READ = {
   status: 'pending_leader_claim',
   can_claim: true,
   claim_leader_name: '杨礼楷',
+  claim_leader_id: null,
   claim_member_name: null,
+  claim_member_id: null,
   script_style: null,
 }
 
@@ -90,7 +92,7 @@ describe('readScriptList', () => {
 
   it('projects only the promised fields', () => {
     expect(Object.keys(readScriptList({ code: 200, total: 1, rows: [SCRIPT_ROW] }).rows[0]!).sort())
-      .toEqual(['can_claim', 'claim_leader_name', 'claim_member_name', 'episode_count', 'manuscript_name',
+      .toEqual(['can_claim', 'claim_leader_id', 'claim_leader_name', 'claim_member_id', 'claim_member_name', 'episode_count', 'manuscript_name',
         'script_id', 'script_name', 'script_style', 'status'])
   })
 
@@ -126,7 +128,8 @@ describe('readScriptList', () => {
   it('leaves every field the provider did not send null', () => {
     expect(readScriptList({ code: 200, total: 1, rows: [{ id: '412' }] })).toEqual({ total: 1, rows: [
       { script_id: 412, script_name: null, manuscript_name: null, episode_count: null, status: null,
-        can_claim: null, claim_leader_name: null, claim_member_name: null, script_style: null },
+        can_claim: null, claim_leader_id: null, claim_leader_name: null,
+        claim_member_id: null, claim_member_name: null, script_style: null },
     ] })
   })
 
@@ -139,6 +142,13 @@ describe('readScriptList', () => {
     expect(flag(0)).toBe(false)
     expect(flag('1')).toBeNull()
     expect(flag(undefined)).toBeNull()
+  })
+
+  it('reads claimant IDs for an account-scoped claim readback', () => {
+    const found = readScriptList({ code: 200, total: 1, rows: [
+      { id: 41, canClaim: 0, claimLeaderId: 91, claimMemberId: '92' },
+    ] }).rows[0]
+    expect(found).toMatchObject({ script_id: 41, claim_leader_id: 91, claim_member_id: 92 })
   })
 
   it('reads an empty page as an empty list, not as an error', () => {

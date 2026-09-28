@@ -29,12 +29,25 @@ export interface WriteOutcome {
   budget?: { status: string; reason: string; settledCents: number; reservedCents: number } | undefined
 }
 
+/**
+ * Whether a write has the same transport and application success evidence used for ledger settlement.
+ * @param transport - Provider HTTP and application envelope codes.
+ * @returns True only for HTTP 2xx and application code 0 or 200.
+ */
+export function acceptedWriteResponse(transport: { http_status: number | null
+  application_code: number | null }): boolean {
+  return transport.http_status !== null && transport.http_status >= 200 && transport.http_status < 300
+    && (transport.application_code === 0 || transport.application_code === 200)
+}
+
 /** What one write call states about itself beyond its body. */
 export interface WriteOptions {
   /** Project the charge belongs to; the budget gate refuses a paid call without it. */
   readonly scriptId?: number | undefined
   /** Authorization file to read instead of the ledger's own; tests set this. */
   readonly authorizationPath?: string | undefined
+  /** Rebuild a recorded request and refuse replay when its body or project differs. */
+  readonly verifyReplayBody?: boolean | undefined
 }
 
 /**
@@ -87,6 +100,7 @@ export const REQUIRED_ARGUMENTS: Record<string, readonly string[]> = {
   'jubian_catalog.rate': ['standard_id'],
   'jubian_catalog.script': ['script_id'],
   'jubian_catalog.episodes': ['script_id'],
+  'jubian_claim.claim': ['script_id', 'idempotency_key', 'authorization_basis'],
   'jubian_asset.get': ['asset_id'],
   'jubian_asset.list': ['script_id'],
   'jubian_asset.materials': ['script_id'],
@@ -102,6 +116,7 @@ export const REQUIRED_ARGUMENTS: Record<string, readonly string[]> = {
   'jubian_video.tasks': ['script_id'],
   'jubian_video.subtasks': ['task_id'],
   'jubian_video.image_generate': ['script_id', 'asset_name', 'prompt'],
+  'jubian_video.image_generate_batch': ['script_id', 'items'],
   'jubian_video.upscale': ['task_id'],
   'jubian_video.retry': ['task_id'],
   'jubian_storyboard.get': ['storyboard_id'],
@@ -110,6 +125,7 @@ export const REQUIRED_ARGUMENTS: Record<string, readonly string[]> = {
   'jubian_storyboard.generate': ['storyboard_id', 'content_duration_ms'],
   'jubian_storyboard.select_assets': ['storyboard_id', 'selections'],
   'jubian_storyboard.prepare_video': ['storyboard_id', 'project_dir'],
+  'jubian_storyboard.submit_video_batch': ['video_previews'],
   'jubian_storyboard.erase_subtitle': ['task_id', 'model_id', 'video_width', 'video_height'],
   'jubian_media.download': ['media_url', 'media_kind', 'output_path'],
   'jubian_organize.index': ['script_id', 'project_dir'],
@@ -151,14 +167,16 @@ export function bodyHash(body: Record<string, unknown> | undefined): string {
  *
  * The intent line lands before the request leaves; the settle line lands after
  * the response is read. A replayed key for the same method returns the recorded
- * outcome and sends nothing; a key owned by another method is rejected.
+ * outcome and sends nothing; a key owned by another method is rejected. When
+ * `verifyReplayBody` is set, a replay rebuilds the body and checks the project
+ * and exact request hash before returning the prior outcome.
  *
  * `body` is an async thunk on purpose, and it is awaited. Some bodies can only be
  * compiled by reading the provider first — an image request needs its selectors
  * from the live catalogue — and that read must not happen for a key already
- * recorded. Building the body lazily is what makes "replayed" mean zero network
- * requests rather than one, and awaiting it is what lets the quote below observe
- * what that read returned.
+ * recorded. Ordinary replays skip that read; verified image-batch replays allow
+ * the read-only catalogue lookup needed to compare the current request. Awaiting
+ * the body also lets the quote below observe what the catalogue returned.
  * @param ledger - The write-path ledger.
  * @param idempotencyKey - Caller-supplied key; required, never generated here.
  * @param method - Ledger method name.
@@ -192,6 +210,12 @@ export async function writeUnderLedger(
   const existing = await ledger.find(key)
   if (existing !== undefined) {
     if (existing.method !== method) throw new JubianError('CONTRACT_CHANGED', 'Idempotency key belongs to a different write')
+    if (options?.verifyReplayBody) {
+      if ((options.scriptId ?? null) !== existing.script_id
+        || existing.request_sha256 !== bodyHash(await body())) {
+        throw new JubianError('CONTRACT_CHANGED', 'Idempotency key belongs to a different image request')
+      }
+    }
     return { replayed: true, outcome: existing.outcome ?? 'unknown', response_sha256: existing.response_sha256, data: null }
   }
   // Awaited on purpose: a body may be compiled from a provider read, and the
@@ -231,7 +255,7 @@ export async function writeUnderLedger(
     const response = await send(payload)
     const code = response.transport.application_code
     const http = response.transport.http_status
-    const outcome = http !== null && http >= 200 && http < 300 && (code === 0 || code === 200) ? 'accepted' : 'unknown'
+    const outcome = acceptedWriteResponse(response.transport) ? 'accepted' : 'unknown'
     await ledger.settle(key, { httpStatus: http, applicationCode: code,
       responseSha256: response.response_sha256, outcome })
     return { replayed: false, outcome, response_sha256: response.response_sha256, data: response.data,

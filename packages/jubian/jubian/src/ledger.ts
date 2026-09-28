@@ -12,12 +12,13 @@ import { appendFile, mkdir, readdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 /** Same-runtime claims share a queue even when separate tool instances own the ledger. */
-const claims = new Map<string, Promise<JubianLedgerBeginResult>>()
+const claims = new Map<string, Promise<unknown>>()
 /** Per-process suffix for record identities created in the same millisecond. */
 let recordCounter = 0
 
 /** The write methods this ledger can record. */
 export type JubianLedgerMethod =
+  | 'pool_claim'
   | 'image_generate'
   | 'asset_register'
   | 'storyboard_save'
@@ -199,16 +200,55 @@ export class JubianLedger {
     finally { if (claims.get(rootKey) === operation) claims.delete(rootKey) }
   }
 
-  private async appendIntent(input: JubianLedgerBegin): Promise<JubianLedgerBeginResult> {
-    const now = new Date()
+  /**
+   * Reserve a whole priced batch before any request leaves this process.
+   * The callback checks the aggregate budget inside the same root-wide queue.
+   * Existing keys or a rejected callback append no intents; cross-process claims remain unsupported.
+   * @param idempotencyKeys - Distinct keys in input order.
+   * @param prepare - Returns one priced intent per key after aggregate authorization.
+   * @returns Newly reserved records in input order.
+   */
+  async beginManyChecked(idempotencyKeys: readonly string[],
+    prepare: () => Promise<readonly JubianLedgerBegin[]>): Promise<JubianLedgerRecord[]> {
+    if (idempotencyKeys.length === 0 || new Set(idempotencyKeys).size !== idempotencyKeys.length) {
+      throw new Error('Jubian ledger: batch keys must be distinct and nonempty')
+    }
+    const rootKey = process.platform === 'win32' ? this.root.toLowerCase() : this.root
+    const previous = claims.get(rootKey) ?? Promise.resolve()
+    const operation = previous.catch(() => undefined).then(async () => {
+      const existing = new Set((await this.records()).map(record => record.idempotency_key))
+      if (idempotencyKeys.some(key => existing.has(key))) {
+        throw new Error('Jubian ledger: batch key already has a record; reconcile the batch without resending')
+      }
+      const inputs = await prepare()
+      if (inputs.length !== idempotencyKeys.length || inputs.some((input, index) =>
+        input.idempotencyKey !== idempotencyKeys[index])) {
+        throw new Error('Jubian ledger: prepared batch keys differ from the claim')
+      }
+      const now = new Date()
+      const records = inputs.map(input => this.intentRecord(input, now))
+      await mkdir(this.root, { recursive: true })
+      await appendFile(this.fileFor(now), records.map(record => `${JSON.stringify({ phase: 'begin', ...record })}\n`).join(''), 'utf8')
+      return records
+    })
+    claims.set(rootKey, operation)
+    try { return await operation }
+    finally { if (claims.get(rootKey) === operation) claims.delete(rootKey) }
+  }
+
+  private intentRecord(input: JubianLedgerBegin, now: Date): JubianLedgerRecord {
     recordCounter += 1
     const record_id = `jub_${now.getTime().toString(36)}_${recordCounter.toString(36)}`
-    const record: JubianLedgerRecord = { record_id, idempotency_key: input.idempotencyKey, method: input.method,
-      script_id: input.scriptId ?? null,
-      at: now.toISOString(), request_sha256: input.requestSha256, quoted_amount: input.quotedAmount ?? null,
-      quote_unit: input.quoteUnit ?? null,
+    return { record_id, idempotency_key: input.idempotencyKey, method: input.method,
+      script_id: input.scriptId ?? null, at: now.toISOString(), request_sha256: input.requestSha256,
+      quoted_amount: input.quotedAmount ?? null, quote_unit: input.quoteUnit ?? null,
       quote_standard_id: input.quoteStandardId ?? null, quote_observed_at: input.quoteObservedAt ?? null,
       http_status: null, application_code: null, response_sha256: null, outcome: null }
+  }
+
+  private async appendIntent(input: JubianLedgerBegin): Promise<JubianLedgerBeginResult> {
+    const now = new Date()
+    const record = this.intentRecord(input, now)
     await mkdir(this.root, { recursive: true })
     await appendFile(this.fileFor(now), `${JSON.stringify({ phase: 'begin', ...record })}\n`, 'utf8')
     return { replayed: false, record }

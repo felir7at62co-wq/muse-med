@@ -7,6 +7,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-muse-account/remote'
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import { MuseAccountSection, type MuseAccountInjected, type MuseAccountOutcome } from './MuseAccountSection.tsx'
+import { MuseAccountLauncher } from './MuseAccountLauncher.tsx'
+import { MuseAccountOnboarding } from './MuseAccountOnboarding.tsx'
 import { en, zh, type MuseAccountLocaleKey } from './locales.ts'
 
 export type { MuseAccountInjected, MuseAccountOutcome, MuseAccountSectionProps } from './MuseAccountSection.tsx'
@@ -38,11 +40,12 @@ function outcomeOf<T>(result: RemoteResult<T>): MuseAccountOutcome<T> {
 function registerSection(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'muse-account: dictionaries')
   const t = ctx.locale.bind(NS)
-  const injected = (): MuseAccountInjected => ({
+  const account: MuseAccountInjected = {
     status: async request => outcomeOf(await ctx.remote.museAccount.status(request)),
     login: async request => outcomeOf(await ctx.remote.museAccount.login(request)),
     logout: async () => outcomeOf(await ctx.remote.museAccount.logout()),
-  })
+  }
+  const injected = (): MuseAccountInjected => account
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'muse-account',
@@ -51,6 +54,14 @@ function registerSection(ctx: ClientContext): void {
     locale: NS,
     inject: injected,
   }, MuseAccountSection))
+  if ((globalThis as typeof globalThis & { dshDesktop?: { productName?: string } }).dshDesktop?.productName === 'muse-med') {
+    ctx.slots.inject('settings.launcher', () => ctx.slots.register({
+      name: 'settings.launcher', locale: NS,
+    }, MuseAccountLauncher))
+    ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
+      name: 'settings.onboarding', id: 'muse-account', order: -50, locale: NS, inject: injected,
+    }, MuseAccountOnboarding))
+  }
 }
 
 /**

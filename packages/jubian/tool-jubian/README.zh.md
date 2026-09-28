@@ -1,5 +1,5 @@
 ---
-description: "九个剧变（Jubian）工具：DSH 模型用它们驱动一次制作——目录读取与剧本名查找、资产与分镜写入、按类别的命名规范、资产库文件夹与改名、只读的组织视图、本地参考图上传、主体视频的分镜原生通道、计费的图片与视频生成与去字幕，以及提供方媒体下载。"
+description: "十一个剧变（Jubian）工具：剧本池查询和授权认领、制作目录、资产、分镜、计费生成、媒体下载与后台作业。"
 kind: "package-bundle"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-`dsh-tool-jubian` 给 DSH 模型九个工具，端到端驱动一次剧变制作：目录读取、剧本名查找、资产与分镜编辑、资产库文件夹与改名、按「集数 → 类别」的只读组织视图、本地参考图上传、主体视频的分镜原生通道、计费的图片与视频生成、去字幕、转高清，以及媒体下载。读取免费；每个计费或改变状态的调用都需要调用方给出的 `idempotency_key`，插件在请求离开前写一条 intent，在响应返回后写一条 settle。同一个 key 重放不会重复写入；支持对账的方法可以重新读取。
+`dsh-tool-jubian` 给 DSH 模型十一个剧本池和剧变制作工具：目录读取、剧本查找、授权认领、资产与分镜编辑、只读组织视图、参考图上传、计费的图片与视频生成、去字幕、转高清、媒体下载与后台作业。读取免费；计费或改变状态的调用使用调用方给出的幂等键，插件在请求离开前记录 intent，在响应返回后记录 settle。同一个 key 重放不会重复写入；支持对账的方法可以重新读取。
 
 ## 目录
 
@@ -25,11 +25,11 @@ kind: "package-bundle"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在需要读取或改变剧变制作的任意 preset 里挂载这一行，然后把任务交给模型；九个工具会把各自的费用写在描述里一起出现。
+在需要读取或改变剧变制作的任意 preset 里挂载这一行，然后把任务交给模型；十一个工具会在描述中说明各自的副作用。
 
 ### 何时选择
 
-当 agent 必须把一个剧本名解析成它的项目、查看项目、按集数与类别整理资产、上传本地参考图、保存主体设定选择、准备并提交主体视频、确认出演、生成图片、生成或擦除视频、把成片转成 1080p，或把提供方媒体取回给本地的看图工具时，选择本包。凭证能解析的地方都可以挂载它，因为同一行既服务只读勘察，也服务计费生成。会话完全不接触剧变时不要挂载：无论是否使用，九个 schema 与它们的描述都会一直对模型可见。
+当 agent 需要查询或认领当前账号剧本池里的本、按名字查剧本、整理资产、上传参考图、保存主体选择、准备和提交视频、确认出演、生成图片、擦除字幕、转高清或下载提供方媒体时，选择本包。凭证能解析的地方都可以挂载它；会话不接触剧变时不要挂载，因为十一个 schema 在挂载期间始终对模型可见。
 
 ### 最小配置
 
@@ -46,6 +46,10 @@ kind: "package-bundle"
       # imageStandardId: 66                      # or the catalogue row's own id, instead of the platform
       # imageActiveTimeoutMs: 180000             # default 180000
       # imageActivePollMs: 3000                  # default 3000
+      # imageBatchConcurrency: 3                 # concurrent image requests, 1..8
+      # imageBatchMaxItems: 12                   # batch size limit, 1..100
+      # videoBatchConcurrency: 3                 # concurrent storyboard submissions, 1..8
+      # videoBatchMaxItems: 100                  # video batch size limit, 1..100
       # nameSeparator: '｜'                      # default '｜'
       # seriesLabel: 全剧                        # default 全剧
       # assetIndexPath: _probe/asset-index.md    # default _probe/asset-index.md
@@ -58,11 +62,21 @@ kind: "package-bundle"
 | `timeoutMs` | 传输层自己的默认值 | 单次调用的中止预算，单位毫秒 |
 | `watchPollIntervalMs` | `15000` | 观察轮询间隔，毫秒；1..60000 范围内的整数 |
 | `watchTimeoutMs` | `1800000` | 观察期限，毫秒；1..86400000 范围内的整数 |
+| `claimPollIntervalMs` | `5000` | 剧本池认领轮询间隔，毫秒；整数 1000..60000 |
+| `claimMaxWindowMs` | `7200000` | 授权认领窗口的最长毫秒数 |
+| `claimMaxLeadMs` | `86400000` | 认领窗口开始前允许的最长等待毫秒数 |
+| `claimScanPageSize` | `300` | 一次剧本池扫描请求的行数；整数 1..1000 |
+| `claimScanPageLimit` | `50` | 一次完整剧本池扫描的最多页数；整数 1..100 |
+| `claimMaxItems` | `100` | 一项作业最多尝试的不同剧本 ID 数；整数 1..100 |
 | `workspaceSecrets` | `true` | 凭证库没有值时，是否允许用 workspace 的流水线密钥文件顶替 |
 | `imagePlatformId` | 无 | `taskType=2` 目录里 `image_generate` 从哪个 `platformId` 购买，如 `KU_AI`；这是兜底锁定，只在短剧设置段没有锁定行时生效 |
 | `imageStandardId` | 无 | `image_generate` 从哪一行（`standardId`，即该行自己的 `id`）购买；它与 `imagePlatformId` 给出其一即可锁定一行，同样受设置页优先级约束 |
 | `imageActiveTimeoutMs` | `180000` | `image_generate` 等待新资产变为 `hsAssetStatus` `Active` 的上限，超过即报回读超时 |
 | `imageActivePollMs` | `3000` | 上面这次回读的轮询间隔 |
+| `imageBatchConcurrency` | `3` | 一批同时执行的图片请求上限；整数 1..8 |
+| `imageBatchMaxItems` | `12` | 一批图片请求的项数上限；整数 1..100 |
+| `videoBatchConcurrency` | `3` | 整包预检后同时发送的分镜 PUT 上限；整数 1..8 |
+| `videoBatchMaxItems` | `100` | 一批不同分镜 preview 的项数上限；整数 1..100 |
 | `nameSeparator` | `｜` | 由 `episode` 参数组合出来的名字里，各段之间的分隔符 |
 | `seriesLabel` | `全剧` | 服务全剧的资产的集号 token；调用方把它当作 `episode` 原样传入 |
 | `assetIndexPath` | `_probe/asset-index.md` | `jubian_organize` 写索引的位置，相对于项目目录 |
@@ -75,7 +89,7 @@ kind: "package-bundle"
 
 `jubian_video image_generate` 可为单次调用设置 `image_platform_id`，优先从实时目录选择该平台的一行，覆盖已保存或部署锁定。Muse 随包部署在用户尚未选定通道时锁定 `KU_AI`；获授权的备用通道可显式指定 `DUO_YUAN_TAN_SUO`。切换前核对实时价格及上一笔收费任务：超时或结果未知不等于扣费失败，必须先对账，才能使用新 key 或新通道。
 
-生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)是每个受支持字段及其 JSDoc 的穷尽式真源。这一行注入 `tools` 与 `credentials`，在挂载时注册全部九个工具，并挂载两个 Remote 命名空间：设置页调用的 `jubianToken`，以及只为短剧页面的选择器读取账户 `gpt-image-2` 行的 `jubianImage`；既没有按工具启用的开关，也没有单独的一行页面配置。
+生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)是每个受支持字段及其 JSDoc 的穷尽式真源。这一行注入 `tools` 与 `credentials`，在挂载时注册全部十一个工具，并挂载两个 Remote 命名空间：设置页调用的 `jubianToken`，以及只为短剧页面的选择器读取账户 `gpt-image-2` 行的 `jubianImage`；既没有按工具启用的开关，也没有单独的一行页面配置。
 
 ### 凭证
 
@@ -114,14 +128,16 @@ inherited process environment (read-only, highest)
 
 读不动的目录报告为 `jubian-image/catalogue-unreadable`，消息就是传输层自己的原因，页面原样显示。这里不缓存：每次调用都重读账户，因为某一行的价格与是否存在属于账户状态，而不是插件状态。
 
-### 九个工具
+### 十一个工具
 
-九个注册工具就是全部面向模型的表面。本包不发布系统提示词区段，因此模型需要的每条操作事实都写在工具描述或 schema 描述里。
+十一个注册工具就是全部面向模型的表面。本包不发布系统提示词区段，因此模型需要的每条操作事实都写在工具描述或 schema 描述里。
 
 | 工具 | 方法 | 计费与副作用 |
 |---|---|---|
 | `jubian_catalog` | `models`、`rate`、`script`、`episodes` | 只读，不产生费用 |
 | `jubian_find` | `scope`（`mine`、`pool`）、`mine` 的 `production_type`／`share_target_type` 过滤 | 只读，不产生费用 |
+| `jubian_claim` | `inspect`、`claim` | inspect 只读；claim 需要用户明确授权、`canClaim=1` 与幂等键 |
+| `jubian_snatch` | `ids`、`new_claimable` | 在明确授权的 UTC 时间窗口内后台有限认领 |
 | `jubian_asset` | `get`、`list`、`materials`、`generated_image` | 只读，不产生费用 |
 | | `confirm_casting` | 用 `GET` 改变远端状态；需要 `idempotency_key` |
 | | `remove` | 不可恢复地删除一个父资产；需要 `idempotency_key` |
@@ -133,8 +149,10 @@ inherited process environment (read-only, highest)
 | | `select_assets` | 免费，强制 `isGenerate=0`；需要 `idempotency_key` |
 | | `prepare_video` | 远端只读、免费；只写一个本地 preview 文件 |
 | | `generate`、`submit_video`、`erase_subtitle` | 计费且不可撤销；需要 `idempotency_key` |
+| | `submit_video_batch` | 每个分镜可能计费；`video_previews` 各项需要自己的 fingerprint key |
 | `jubian_video` | `task`、`tasks`、`subtasks` | 只读，不产生费用 |
 | | `image_generate`、`upscale` | 计费且不可撤销；需要 `idempotency_key` |
+| | `image_generate_batch` | 每项都可能计费且不可撤销；每项各需独立的 `idempotency_key` |
 | | `retry` | 改变提供方任务状态；需要 `idempotency_key` |
 | `jubian_media` | `download` | 免费且不需要凭证；写入一个本地文件 |
 | `jubian_watch` | `task_id`, `stage` | 只读后台观察；返回当前进程内的 job ID |
@@ -146,6 +164,12 @@ inherited process environment (read-only, highest)
 - `jubian_storyboard` 读取单个分镜、用调用方给出的完整请求体新建分镜、保存而不生成、提交生成，或擦除烧录字幕。`generate` 先读当前分镜快照，把 `isGenerate=1` 写回，因此还必须给出与该分镜已保存时长一致的 `content_duration_ms`；不一致时在任何请求离开前就失败。`erase_subtitle` 需要任务 ID、视频画面尺寸和一个明确的 `model_id`：`quzimuToB`（区域性——擦除矩形按提供方对画面的默认比例推导，所以 `subtitle_box` 可选且通常省略）或 `ark-erase-video-subtitle-pro`（自动，不接受 `subtitle_box`）。它没有默认模型，所以省略 `model_id` 的调用方会被告知缺哪个参数，而不是被替它挑一个。项目、分集与源身份从任务及其子结果读取，因此不需要 `script_id`。三个分镜原生方法见下文「主体视频的分镜原生通道」一节。
 - `jubian_video` 读取单个任务（含观测到的费用）、项目视频任务分页，或某个任务的子结果——子结果带成片 `video_url`、字幕像素框、阶段历史、每个结果的分辨率与 `needs_upscale` 判定。`subtasks` 用 `POST` 请求体承载查询，但仍然只读。`image_generate` 生成一张计费的资产图：必填 `asset_name`、资产类别、`prompt`，可选有序的 `references`；给出 `parent_asset_id` 时用 `PUT` 重生成该资产，否则用 `POST` 新建。这次写是异步的，因此该方法随后会把新资产回读到 `hsAssetStatus` 为 `Active`，并返回它的 `material_id`（`confirm_casting` 要的就是它）与 `image_url`；见下文「计费生图路径」。`upscale` 提交一次计费的 1080p 转换（SeedVR2 视频高清，1 元/条），只需 `task_id` 与 `idempotency_key`；其他身份都从父任务与其首个子结果读取。`retry` 重新执行一次已终止且未计费的失败；它先读父任务与子结果，只有在父任务已终止失败、没有任何子结果持有文件或处于活动/成功状态、且任务没有真实费用时才发送请求。
 - `jubian_media` 把一个提供方媒体下载到 `output_path`，返回路径、探测出的媒体类型、字节数与 sha256。它绝不把字节放进结果：几十 MB 的 base64 会污染之后每一次请求。
+
+### 账号剧本池认领
+
+`jubian_claim.inspect` 只读检查一个 ID 的账号专属 `can_claim`。`jubian_claim.claim` 要求用户明确授权依据、同一个剧本 ID 和调用方给出的 `idempotency_key`；它读取 `viewRole`、完整扫描池子，只有该 ID 是 `canClaim=1` 才发送一次 POST。组长使用 `/script/center/pool/claim/{id}`，组员使用 `/script/center/pool/memberClaim/{id}`，未知角色直接拒绝。账本在提交前记录无请求体的认领尝试。超时或收据不清楚时按已登录账号 ID 回读；同一账本里给这本换一个 key 不会再发送请求。
+
+`jubian_snatch` 在明确的 UTC 开止窗口中启动当前进程内的作业。`scope=ids` 要求已授权的 ID 列表；`scope=new_claimable` 启动时先取得完整池子基线，只考虑后来新出现且 `canClaim=1` 的行。每本的 key 由调用方给出的 `idempotency_prefix` 与 ID 构成；作业到窗口或数量上限即停止，逐本结果由 `job_output` 返回。工具不会把列表结果当成授权。随包的 [jubian-snatch skill](../../../apps/desktop-host/skills/jubian-snatch/SKILL.md) 要求 agent 在认领前核对用户原话；工具调用里的授权摘要可供审计，但不是独立的同意证明。Host 重启会结束作业，不会自动恢复。
 
 ### 后台观察操作
 
@@ -233,6 +257,7 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 - `select_assets` 保存一次有序的主体设定选择。每个 `material_key` 必须按提示词里 `@[名称](key)` 的顺序出现，每个选择必须唯一对应同一项目里的一行有效主体设定与一个父资产，而该行的可信 `hsAssetId` 就是提供方会翻译成子任务身份的那个值。请求体永远强制 `isGenerate=0`。这一次 `PUT` 之后，该方法会回读分镜并重新拉取项目任务列表：保存下来的顺序与计划不符就报错；而一次"仅保存选择"却带来了新视频任务时，会返回 `billing_safety_violation`，让调用方停下来而不是继续往下走。
 - `prepare_video` 免费，且对提供方只读。它用实时 `scriptId` 校验 `project_dir` 里的 `project_config.json`，从实时分镜、主体设定与父资产补齐每个有序素材，保留已存的模型、平台、比例、分辨率与时长，从当前目录解析精确选择器，要求 `genNum=1`。Seedance 2.0（`doubao-seedance-2-0-260128`）接受 2–15 秒总时长；Seedance 2.5（`doubao-seedance-2-5-260628`）接受 2–30 秒。总时长包含一秒自然收束；不支持或不唯一的选择直接失败，不用默认值替换。它把一份 preview 通过临时文件加重命名写进 `<project_dir>/video_tasks/storyboard-<id>-<key12>.storyboard-native.prepared.json`。它不发 `PUT`、不创建任务、不收费。
 - `submit_video` 接受该 `preview_path` 与一个**必须等于 preview 自带 fingerprint** 的 `idempotency_key`。key 不符、preview 已过期（写入之后实时语义变了），或该 preview 不是本插件自己的产物，都会在任何请求发出之前失败。否则它先取一份完整的分页任务快照，若第二次读取同一快照发生漂移就拒绝继续，最多发送一次 `isGenerate=1` 的 `PUT /aigc/storyboard`，再取第二份快照，认领那个有序 `assetId`/`materialName`/`imageUrl` 与模型、提示词证据都与 preview 完全一致的新任务。`PUT` 前后都一样：一条任务行只有在能被证明属于当前分镜时才算认领的候选——行自带 `storyboardId`、任务详情自带，或它的某个子结果自带。一个项目装着它所有分镜的任务，而多数任务行根本不写 `storyboardId`，因此三者都证明不了的行属于别的分镜：它既不是匹配，也不是让判定不安全的证据。
+- `submit_video_batch` 接受同一项目不同分镜的 `video_previews: [{preview_path, idempotency_key}]`。agent 要先准备并审阅用户要求的范围，把拟提交的 preview 全部列入本次提交清单；工具能验证已提供的清单，无法发现漏传的分镜。工具逐项比对实时分镜、查已有任务和两次完整项目快照，再在同一进程的账本队列内一次检查整批估算金额，并在任何 PUT 前登记全部 intent。任一 preview 过期、分镜或 key 重复、任务列表漂移或缺 ID、已有任务冲突、整批预算不足，都会零 PUT。全部预约后，最多同时发送 `videoBatchConcurrency` 个独立分镜 PUT；对账读取也独立受同一并发数限制，不占收费 PUT 的提交槽。每笔返回后尽早读取该任务，再以最终项目快照和各项的分镜、有序主体、模型与提示词证据按输入顺序报告。只有最终身份完整才是 `submitted`；PUT 结果未知或回读身份被剥离时是 `reconcile_required`，不可重发。全部原 key 重放只读对账；新旧 key 混合时拒绝执行，先逐笔核对旧 key，再组织新的授权批次。与单项写入一样，账本队列只覆盖当前进程。
 
 读取任务详情和子结果前，提交与对账会排除明确带有有效集 ID、且该 ID 与 preview 不同的行。集 ID 缺失或格式无效的行仍保留为候选。补充读取最多 100 个候选、完整任务快照和账本最多一次 PUT 的保护保持不变。
 
@@ -243,6 +268,10 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 ### 计费生图路径
 
 `image_generate` 是「一次计费写 + 一次免费回读」，而它到底写在哪一行目录上，是部署决定而不是猜测：
+
+`image_generate_batch` 接受一个 `script_id` 和若干 `items`，默认 1–12 项。每项带独立的键、名称、提示词、类别或类型，并可带集号、参考图、父资产 ID 和通道。方法先在任何网络访问或账本操作前校验全部本地参数，拒绝重复键、最终资产目标和父资产 ID，再按默认上限同时提交三项计费请求。全部提交返回后，再以相同并发上限回读已受理资产；慢速图片轮询不会占用提交槽。多个新资产可在 `references` 中共用一张已确认的身份图 URL；`parent_asset_id` 则通过 `PUT` 更新同一个远端资产，因此重复父资产 ID 会发生写冲突。每项沿用 `image_generate` 的预算占用与账本；一项报错不会盖掉其他结果。无论重放单图请求还是批次项，都会读取当前目录，并对比完整请求体与项目和旧账本哈希；资产、提示词、参考图或所选模型行变化时拒绝重发。按输入顺序返回的 `results` 含每项请求身份、`status`、`outcome`、`response_sha256`，以及图片回读结果或错误和对账指引。`status: returned` 与总计 `returned` 只表示调用已返回；只有 `asset_status: active` 表示图已可用。回读失败时仍保留已受理的 `parent_asset_id` 供后续查询。`not_sent` 表示没有账本 intent；`accepted` 但未取得图片仍要回读，`unknown` 必须先对账再决定后续收费请求。
+
+计费请求开始前，方法只读一次实时模型目录并解析每项所选行。只要某项通道缺失或有歧义，整批就不会提交。如果该键已有账本记录，出错的项会报告旧记录的 `record_id`、`record_script_id` 与 `request_sha256`。错误行的 `outcome` 属于那笔旧记录，不能当作新请求资产已受理。
 
 ```text
 pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / imageStandardId)
@@ -265,9 +294,9 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 
 ### 安全写入：幂等与账本
 
-每个写方法都要求非空的 `idempotency_key`，且任何方法都不代生成 key；代生成的 key 会让一次结果未知后的重试绕过第一次尝试的记录。
+每个写方法都要求非空的 `idempotency_key`；`image_generate_batch` 要求每一项提供，不使用顶层键。任何方法都不代生成 key，因为代生成的 key 会让一次结果未知后的重试绕过第一次尝试的记录。
 
-同一个 key 再调一次不会重复写入，并带上 `replayed: true`。普通写方法直接返回已记录结果，不编译请求体，也不读取提供方。`submit_video` 与 `jubian_model apply` 则执行只读对账；模型配置计划不会续写剩余目标。
+同一个 key 再调一次不会重复写入。普通写方法不编译请求体、不读取提供方，直接返回已记录结果并带 `replayed: true`。批量图片会先把当前请求与旧账本的请求体哈希核对；不一致就拒绝重放。`submit_video` 与 `jubian_model apply` 则执行只读对账；模型配置计划不会续写剩余目标。
 
 账本位于 `<ledgerRoot>/YYYY-MM-DD.ndjson`，分两阶段追加：
 
@@ -327,9 +356,10 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：`Config` 接口、账本/客户端/命名规范的构造、凭证回落、九次 `ctx.tools.register`，以及共享的参数与输出约定 |
+| [`src/index.ts`](src/index.ts) | 插件入口：`Config` 接口、账本/客户端/命名规范的构造、凭证回落、十一次 `ctx.tools.register`，以及共享的参数与输出约定 |
 | [`src/methods.ts`](src/methods.ts) | 每个工具一个 async 函数：方法派发、请求塑形，以及本地媒体写入 |
 | [`src/find.ts`](src/find.ts) | 剧本名查找：两条范围路径、共用的名字归一，以及 `complete` 判定背后的有界扫描 |
+| [`src/claim.ts`](src/claim.ts) | 账号剧本池核对、记账的单本认领，以及有界后台认领窗口 |
 | [`src/naming.ts`](src/naming.ts) | 集数与类别的命名规范：名字组合、提供方的类别编号，以及两份审计 |
 | [`src/folders.ts`](src/folders.ts) | 三个资产库写方法：建文件夹、移动、改名，以及两种在本地判定的拒绝 |
 | [`src/organize.ts`](src/organize.ts) | 只读的组织视图：分页读取、清单连接、markdown 渲染与本地原子写入 |
@@ -358,7 +388,7 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 当包级约定不够用时阅读以下页面。它们从生成目录进入这一行之下的两个包，以及它所依赖的凭证规则。
 
-- [生成工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-jubian)——九个工具的精确 schema 与描述。
+- [生成工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-jubian)——十一个工具的精确 schema 与描述。
 - [生成配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)——每个受支持配置字段及其源声明。
 - [dsh-jubian 传输层源码](../jubian/src/index.ts)——这一行所依赖的客户端、五个稳定失败码、凭证修复与写账本。
 - [dsh-jubian-api](../jubian-api/README.zh.md)——每个方法背后的读取器与请求构造器。
@@ -374,7 +404,7 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 #### 模型看到的内容
 
-模型会看到 `jubian_catalog`、`jubian_find`、`jubian_asset`、`jubian_organize`、`jubian_model`、`jubian_storyboard`、`jubian_video`、`jubian_media` 与 `jubian_watch` 的 schema 与描述，即[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-jubian)中生成的那一份。每个 schema 都是一个开放 JSON 对象：派发型工具用必填的 `method` 枚举做选择器，其他工具用这次调用自己的必填参数——`jubian_find` 是 `scope`，`jubian_watch` 是 `task_id` 与 `stage`——其后是该调用接受的参数；参数与枚举描述是纯中文文本，因为它们面向模型而不是面向本地化 UI。提供方定义的数字码照原样出现——`task_type`（`1` 视频、`2` 图片、`10` 去字幕）、`asset_type` 与 `asset_category`（`1`／`2`／`3` 对应角色／场景／道具）、`asset_scope_type`（`1` 团队、`2` 个人），以及 `subtasks` 的 `hd_count`／`last_task_type`／`resolution`。
+模型会看到 `jubian_catalog`、`jubian_find`、`jubian_claim`、`jubian_snatch`、`jubian_asset`、`jubian_organize`、`jubian_model`、`jubian_storyboard`、`jubian_video`、`jubian_media` 与 `jubian_watch` 的 schema 与描述，即[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-jubian)中生成的那一份。每个 schema 都是一个开放 JSON 对象：派发型工具用必填的 `method` 枚举做选择器，其他工具用本次调用自己的必填参数。认领工具会明确写出已授权 ID 或范围、UTC 时间窗口与用户授权依据。参数与枚举描述是纯中文文本，因为它们面向模型而不是面向本地化 UI。提供方定义的数字码照原样出现——`task_type`（`1` 视频、`2` 图片、`10` 去字幕）、`asset_type` 与 `asset_category`（`1`／`2`／`3` 对应角色／场景／道具）、`asset_scope_type`（`1` 团队、`2` 个人），以及 `subtasks` 的 `hd_count`／`last_task_type`／`resolution`。
 
 #### Token 影响
 
@@ -388,7 +418,7 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 #### 模型看到的内容
 
-每个写方法的描述都写明 `idempotency_key` 必填、同一个 key 再调一次会带 `replayed: true` 而不重复写入，以及超时或结果未知时应改用同一个 key 而不是新 key 再调一次。读方法不接受 key。
+每个写方法的描述都写明 `idempotency_key` 必填（`image_generate_batch` 的每一项各有一个）、同一请求带同一个 key 再调一次会带 `replayed: true` 而不重复写入，以及超时或结果未知时应改用同一个 key 而不是新 key 再调一次。不同请求不能复用该 key。读方法不接受 key。
 
 #### Token 影响
 
@@ -402,7 +432,7 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 #### 模型看到的内容
 
-描述把 `jubian_video` 的 `image_generate` 与 `upscale`、`jubian_storyboard` 的 `generate`、`submit_video` 与 `erase_subtitle`、以及 `jubian_asset` 的 `remove` 标为计费或不可撤销，并写明 `confirm_casting` 虽然动词像读取，却用 `GET` 改变了远端状态。`jubian_video` 的 `subtasks` 写明它的 `POST` 只读。`jubian_video` 的 `image_generate` 另外写明它受理后会把资产回读到 `Active` 再返回、每个 `asset_status` 取值是什么含义、目录里有多行 `gpt-image-2` 而未锁定行时会失败、锁定行要么是人在短剧设置页上选的、要么是 `imagePlatformId`/`imageStandardId` 配置给的，以及模型应当把候选念给用户而不是自己挑，还有类别决定 `assetType`、场景与道具不能按角色发。`jubian_asset` 写明 `create_folder`、`move` 与 `rename` 会真实写入、同名文件夹或目标文件夹不存在时只报告不发送，以及批量改名或搬家必须先取得用户明确同意。`jubian_organize` 写明它只读、不重命名也不移动，但仍会写一个本地索引文件。`jubian_storyboard` 写明整条分镜原生顺序：`select_assets` 强制 `isGenerate=0`、`prepare_video` 既不 `PUT` 也不收费，以及 direct 建任务 `POST` 被禁止。异步方法写明它们受理即返回、完成与否要之后从 `subtasks` 回读。
+描述把 `jubian_video` 的 `image_generate`、`image_generate_batch` 与 `upscale`、`jubian_storyboard` 的 `generate`、`submit_video` 与 `erase_subtitle`、以及 `jubian_asset` 的 `remove` 标为计费或不可撤销，并写明 `confirm_casting` 虽然动词像读取，却用 `GET` 改变了远端状态。`jubian_video` 的 `subtasks` 写明它的 `POST` 只读。`jubian_video` 的 `image_generate` 另外写明它受理后会把资产回读到 `Active` 再返回、每个 `asset_status` 取值是什么含义、目录里有多行 `gpt-image-2` 而未锁定行时会失败、锁定行要么是人在短剧设置页上选的、要么是 `imagePlatformId`/`imageStandardId` 配置给的，以及模型应当把候选念给用户而不是自己挑，还有类别决定 `assetType`、场景与道具不能按角色发。`image_generate_batch` 写明批内逐项独立计费和记录、`status: returned` 不代表图已可用。`jubian_asset` 写明 `create_folder`、`move` 与 `rename` 会真实写入、同名文件夹或目标文件夹不存在时只报告不发送，以及批量改名或搬家必须先取得用户明确同意。`jubian_organize` 写明它只读、不重命名也不移动，但仍会写一个本地索引文件。`jubian_storyboard` 写明整条分镜原生顺序：`select_assets` 强制 `isGenerate=0`、`prepare_video` 既不 `PUT` 也不收费，以及 direct 建任务 `POST` 被禁止。异步方法写明它们受理即返回、完成与否要之后从 `subtasks` 回读。
 
 #### Token 影响
 
@@ -416,7 +446,7 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 #### 模型看到的内容
 
-每次调用都在共享的开放对象输出 schema 下返回一个美化打印的 JSON 对象，按发问的方法命名（`asset`、`assets`、`storyboard`、`subtasks`、`task` 等），并附模型用的指引字段；只有 `jubian_find` 按它扫描的范围命名自己的结果。写结果带 `replayed`、`outcome`、`response_sha256` 与信封数据；`erase_subtitle` 与 `upscale` 另加 `accepted_task_id` 和一句告诉模型不要等待的 `next`。`image_generate` 返回 `parent_asset_id`、`model_selection`、`asset_status`、`material_id`、`image_url`、`observed_asset_status`、`waited_ms`、`readback_error` 与一句 `next`，因此模型从结果里读到这张图的身份，而不是把「受理」当成「已有图」。`create_folder` 返回 `sent`、`status`、`folder_id`、`confirmed` 与一句 `next`；`move` 与 `rename` 返回 `sent`、`status` 与一句 `next`，两种本地拒绝则返回 `status: folder_exists` 或 `status: target_folder_missing` 并带 `sent: false` 与它查找过的 ID。`jubian_organize` 返回 `episodes`、`series`、`unmatched_remote_assets`、`naming_checked`、`naming_violations`、`category_mismatches`、`folders` 与 `index_path`，与它写出的文件内容一致。`jubian_find` 返回它扫描的 `scope` 与 `name`、`total`、`scanned_pages`、`complete`、`returned`、`truncated` 与 `scan_page_limit`，以及 `matches`——每行带 `script_id`、`script_name`、`manuscript_name`、`episode_count`、`status` 与 `script_style`（提供方自己的风格编码，用来区分真人与漫剧），`scope: pool` 时另有 `can_claim`、`claim_leader_name` 与 `claim_member_name`，而 `script_style` 在 pool 下不出现，因为池子的行没有被实测到带这个字段。`prepare_video` 返回整份 preview 及其 `preview_path`；`submit_video` 返回认领判定（`submitted`、`subject_identity_lost`、`reconcile_conflict` 或 `reconcile_required`）、认领到的 `task_id`，以及一句只指出唯一安全动作的 `next`。`jubian_model` 的 preview 返回冻结的 before/after 设置与 fingerprint；apply/重放则逐项目标报告 `applied`、`stale`、`unknown`、`readback_mismatch` 与 `not_attempted`。每个工具结果产生后都会留在会话里。
+每次调用都在共享的开放对象输出 schema 下返回一个美化打印的 JSON 对象，按发问的方法命名（`asset`、`assets`、`storyboard`、`subtasks`、`task` 等），并附模型用的指引字段；只有 `jubian_find` 按它扫描的范围命名自己的结果。写结果带 `replayed`、`outcome`、`response_sha256` 与信封数据；`erase_subtitle` 与 `upscale` 另加 `accepted_task_id` 和一句告诉模型不要等待的 `next`。`image_generate` 返回 `parent_asset_id`、`model_selection`、`asset_status`、`material_id`、`image_url`、`observed_asset_status`、`waited_ms`、`readback_error` 与一句 `next`，因此模型从结果里读到这张图的身份，而不是把「受理」当成「已有图」。`create_folder` 返回 `sent`、`status`、`folder_id`、`confirmed` 与一句 `next`；`move` 与 `rename` 返回 `sent`、`status` 与一句 `next`，两种本地拒绝则返回 `status: folder_exists` 或 `status: target_folder_missing` 并带 `sent: false` 与它查找过的 ID。`jubian_organize` 返回 `episodes`、`series`、`unmatched_remote_assets`、`naming_checked`、`naming_violations`、`category_mismatches`、`folders` 与 `index_path`，与它写出的文件内容一致。`jubian_find` 返回它扫描的 `scope` 与 `name`、`total`、`scanned_pages`、`complete`、`returned`、`truncated` 与 `scan_page_limit`，以及 `matches`——每行带 `script_id`、`script_name`、`manuscript_name`、`episode_count`、`status` 与 `script_style`（提供方自己的风格编码，用来区分真人与漫剧），`scope: pool` 时另有 `can_claim`、`claim_leader_name` 与 `claim_member_name`，而 `script_style` 在 pool 下不出现，因为池子的行没有被实测到带这个字段。`prepare_video` 返回整份 preview 及其 `preview_path`；`submit_video` 返回认领判定（`submitted`、`subject_identity_lost`、`reconcile_conflict` 或 `reconcile_required`）、认领到的 `task_id`，以及一句只指出唯一安全动作的 `next`。`jubian_model` 的 preview 返回冻结的 before/after 设置与 fingerprint；apply/重放则逐项目标报告 `applied`、`stale`、`unknown`、`readback_mismatch` 与 `not_attempted`。每个工具结果产生后都会留在会话里。 `image_generate_batch` 返回 `total`、`returned`、`errors` 与按输入顺序排列的 `results`。每项都有自己的键、目标身份与账本结论；`status: returned` 只表示请求已返回，`asset_status: active` 才确认生成图可用。
 
 #### Token 影响
 

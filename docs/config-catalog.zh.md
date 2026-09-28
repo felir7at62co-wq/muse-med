@@ -1373,7 +1373,7 @@ export interface Config {
   /** Refuse a paid storyboard submission while no `official=true` asset record exists (default `true`). */
   officialAssets?: boolean
   /**
-   * Refuse creating a new billed asset — `jubian_video` `image_generate` — until
+   * Refuse creating billed assets — `jubian_video` `image_generate` or `image_generate_batch` — until
    * the project root holds a fresh `_probe/asset-reconcile.json` that is
    * `ready` and fully disposed (default `true`). The manifest records what this
    * pipeline generated, not what the Jubian project already has, so the evidence
@@ -2218,7 +2218,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-muse-account`
 
 - `inject`: `tools`
-- `source`: [`packages/host/muse-account/src/index.ts:26`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:29`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -2229,6 +2229,8 @@ export interface Config {
   readonly accountHome?: string
   /** Timeout for account and knowledge-base gateway requests in milliseconds. */
   readonly requestTimeoutMs: number
+  /** Maximum time for one compressed-audio upload and gateway response. */
+  readonly asrRequestTimeoutMs: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-muse-account -->
@@ -3626,6 +3628,31 @@ export type TokenMeterConfig = Record<string, never>
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-token-meter -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-audio-transcribe -->
+<a id="deepseek-aidsh-tool-audio-transcribe"></a>
+
+## `@deepseek-ai/dsh-tool-audio-transcribe`
+
+- `inject`: `tools` · `museAccount`
+- `source`: [`packages/drama/tool-audio-transcribe/src/index.ts:16`](../packages/drama/tool-audio-transcribe/src/index.ts)
+
+```ts config-catalog
+/** Deployment media executables and bounded local staging. */
+export interface Config {
+  /** FFmpeg executable used to extract the compressed speech track. */
+  readonly ffmpegPath: string
+  /** FFprobe executable used to inspect the local input. */
+  readonly ffprobePath: string
+  /** Maximum time for one local probe or extraction command, in milliseconds. */
+  readonly commandTimeoutMs: number
+  /** Longest local media file accepted for a transcription job, in seconds. */
+  readonly maxDurationSeconds: number
+  /** Largest extracted MP3 accepted for staging, in bytes. */
+  readonly maxAudioBytes: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-audio-transcribe -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-bash -->
 <a id="deepseek-aidsh-tool-bash"></a>
 
@@ -3895,7 +3922,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:50`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:53`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
@@ -3910,6 +3937,18 @@ export interface Config extends ImageRouteConfig {
   watchPollIntervalMs?: number
   /** Watch deadline in milliseconds; integer 1..86400000, default 1800000. */
   watchTimeoutMs?: number
+  /** Pool claim watcher interval in milliseconds; integer 1000..60000, default 5000. */
+  claimPollIntervalMs?: number
+  /** Maximum authorized claim window in milliseconds; integer 1000..86400000, default 7200000. */
+  claimMaxWindowMs?: number
+  /** Maximum lead time before a claim window starts, in milliseconds; default 86400000. */
+  claimMaxLeadMs?: number
+  /** Pool rows per scan request; integer 1..1000, default 300. */
+  claimScanPageSize?: number
+  /** Maximum pages per complete pool scan; integer 1..100, default 50. */
+  claimScanPageLimit?: number
+  /** Maximum distinct IDs one claim job may submit; integer 1..100, default 100. */
+  claimMaxItems?: number
   /**
    * Whether the workspace's own pipeline secret file may stand in for a missing
    * credential-store value; defaults to true.
@@ -3923,6 +3962,14 @@ export interface Config extends ImageRouteConfig {
   imageActiveTimeoutMs?: number
   /** Delay between the readback polls above, in milliseconds; defaults to 3000. */
   imageActivePollMs?: number
+  /** Maximum concurrent paid image requests in one batch; integer 1..8, default 3. */
+  imageBatchConcurrency?: number
+  /** Maximum image requests accepted in one batch; integer 1..100, default 12. */
+  imageBatchMaxItems?: number
+  /** Maximum concurrent storyboard PUTs after a whole-batch preflight; integer 1..8, default 3. */
+  videoBatchConcurrency?: number
+  /** Maximum distinct storyboard previews in one paid batch; integer 1..100, default 100. */
+  videoBatchMaxItems?: number
   /**
    * Separator between the segments of a composed asset name; defaults to `｜`.
    * Applies only to names this row composes from an `episode` argument — a caller

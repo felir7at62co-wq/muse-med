@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
-import { prepareVideoMethod, selectAssetsMethod, submitVideoMethod } from '../src/native.ts'
+import { prepareVideoMethod, resolveVideoBatchOptions, selectAssetsMethod,
+  submitVideoBatchMethod, submitVideoMethod } from '../src/native.ts'
 
 const URL_LEAD = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/lead.jpg'
 const URL_GUEST = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/guest.jpg'
@@ -55,10 +56,14 @@ function savedChild(provider: { storyboard: Record<string, unknown> }): Record<s
 interface FakeProvider {
   calls: { method: string; path: string; body?: Record<string, unknown> }[]
   storyboard: Record<string, unknown>
+  storyboards?: Record<string, Record<string, unknown>>
   tasks: Record<string, unknown>[]
   subtasks: Record<string, Record<string, unknown>[]>
   /** What the single PUT does besides answering: create a task, fail, or nothing. */
-  onPut?: (payload: Record<string, unknown>) => void
+  onPut?: (payload: Record<string, unknown>) => void | Promise<void>
+  putResponse?: (payload: Record<string, unknown>) => Response
+  onTaskList?: () => void | Promise<void>
+  onTaskRead?: (path: string) => void | Promise<void>
 }
 
 /** A client whose transport serves one in-memory project and records every call. */
@@ -70,13 +75,18 @@ function clientFor(provider: FakeProvider): JubianClient {
       const method = String(init?.method)
       provider.calls.push({ method, path, ...(body === undefined ? {} : { body }) })
       const answer = (data: unknown): Response => new Response(JSON.stringify({ code: 200, data }), { status: 200 })
-      if (path.startsWith('/aigc/storyboard/') && method === 'GET') return answer(provider.storyboard)
+      if (path.startsWith('/aigc/storyboard/') && method === 'GET') {
+        return answer(provider.storyboards?.[path.split('/').pop() ?? ''] ?? provider.storyboard)
+      }
       if (path === '/aigc/storyboard' && method === 'PUT') {
         const payload = body ?? {}
         // The provider stores 1 on every storyboard it holds, whatever the PUT body carried.
-        provider.storyboard = { ...provider.storyboard, ...payload, isGenerate: 1 }
-        provider.onPut?.(payload)
-        return answer(null)
+        const saved = { ...(provider.storyboards?.[String(payload.id)] ?? provider.storyboard),
+          ...payload, isGenerate: 1 }
+        provider.storyboard = saved
+        if (provider.storyboards) provider.storyboards[String(payload.id)] = saved
+        await provider.onPut?.(payload)
+        return provider.putResponse?.(payload) ?? answer(null)
       }
       if (path.startsWith('/aigc/asset/') && method === 'GET') {
         return answer(ASSETS[path.split('/').pop() ?? ''] ?? null)
@@ -86,15 +96,19 @@ function clientFor(provider: FakeProvider): JubianClient {
       }
       if (path.startsWith('/model/charge/getSelectList')) return answer(CATALOGUE)
       if (path.startsWith('/admin/aigc/video/task/list')) {
+        await provider.onTaskList?.()
+        await provider.onTaskRead?.(path)
         const query = new URL(`https://example.test${path}`).searchParams
         const page = Number(query.get('pageNum') ?? 1)
         const size = Number(query.get('pageSize') ?? 100)
         return answer({ total: provider.tasks.length, rows: provider.tasks.slice((page - 1) * size, page * size) })
       }
       if (path.startsWith('/admin/aigc/video/task/sub/list')) {
+        await provider.onTaskRead?.(path)
         return answer({ total: 1, rows: provider.subtasks[String(body?.aigcVideoTaskId)] ?? [] })
       }
       if (path.startsWith('/admin/aigc/video/task/') && method === 'GET') {
+        await provider.onTaskRead?.(path)
         const id = path.split('/').pop()
         return answer(provider.tasks.find(task => String(task.id) === id) ?? null)
       }
@@ -128,6 +142,23 @@ async function project(scriptId = 2708, name = 'project'): Promise<string> {
 
 const putCalls = (provider: FakeProvider): typeof provider.calls =>
   provider.calls.filter(call => call.method === 'PUT')
+
+/** A manually released barrier for provider requests in concurrency tests. */
+function barrier(): { promise: Promise<void>; release: () => void } {
+  let release = () => {}
+  const promise = new Promise<void>((resolve) => { release = resolve })
+  return { promise, release }
+}
+
+/** Fail a missing readiness signal while leaving the test enough time to release its barriers. */
+async function ready(promise: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([promise, new Promise<void>((_, reject) => {
+      timer = setTimeout(() => { reject(new Error('provider barrier did not become ready')) }, 2000)
+    })])
+  } finally { if (timer !== undefined) clearTimeout(timer) }
+}
 
 describe('prepare_video', () => {
   it('writes one atomic preview under video_tasks and sends no PUT', async () => {
@@ -282,6 +313,16 @@ describe('submit_video', () => {
     expect(putCalls(second)).toHaveLength(0)
     expect(replayed).toMatchObject({ replayed: true, status: 'submitted', task_id: '335343' })
     expect(String(replayed.next)).toContain('不会再发送任何 PUT')
+  })
+
+  it('rejects a replay key recorded for a different method before any provider request', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    await ledger.begin({ idempotencyKey, method: 'image_generate', scriptId: 2708,
+      requestSha256: 'sha256:unrelated' })
+    await expect(submitVideoMethod(clientFor(provider), ledger, { preview_path: previewPath,
+      idempotency_key: idempotencyKey })).rejects.toThrow('different video submission')
+    expect(provider.calls).toEqual([])
   })
 
   it('treats a failed PUT as ambiguous, records unknown and still never resends', async () => {
@@ -486,6 +527,232 @@ describe('submit_video', () => {
       idempotency_key: idempotencyKey })
     expect(putCalls(provider)).toHaveLength(0)
     expect(result).toMatchObject({ status: 'reconcile_conflict', task_id: null })
+  })
+})
+
+describe('submit_video_batch', () => {
+  const second = { ...STORYBOARD, id: 916954, storyboardName: '第1集-分镜2' }
+
+  it('accepts up to 100 listed previews by default and bounds provider PUT concurrency', () => {
+    expect(resolveVideoBatchOptions()).toEqual({ concurrency: 3, maxItems: 100 })
+  })
+
+  async function batch(count = 2): Promise<{ provider: FakeProvider
+    items: { preview_path: string
+      idempotency_key: string }[] }> {
+    const ids = Array.from({ length: count }, (_, index) => 916953 + index)
+    const storyboards = Object.fromEntries(ids.map(id => [String(id),
+      { ...STORYBOARD, id, storyboardName: `第1集-分镜${id - 916952}` }]))
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD,
+      storyboards, tasks: [], subtasks: {} }
+    const directory = await project()
+    const previews = await Promise.all(ids.map(storyboard_id =>
+      prepareVideoMethod(clientFor(provider), { storyboard_id, project_dir: directory })))
+    provider.calls.length = 0
+    return { provider, items: previews.map(preview => ({ preview_path: String(preview.preview_path),
+      idempotency_key: String(preview.idempotencyKey) })) }
+  }
+
+  it('rejects a stale preview and duplicate storyboard before any PUT or reservation', async () => {
+    const { provider, items } = await batch()
+    provider.storyboards!['916954'] = { ...second, modelConfig: JSON.stringify({ ...MODEL_CONFIG,
+      prompt: `${PROMPT} changed` }) }
+    await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items })).rejects.toThrow()
+    expect(putCalls(provider)).toHaveLength(0)
+    expect(await ledger.records()).toEqual([])
+    provider.storyboards!['916954'] = second
+    await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items: [items[0]!, items[0]!] }))
+      .rejects.toThrow()
+    expect(putCalls(provider)).toHaveLength(0)
+    await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items: [items[0]!,
+      { ...items[1]!, idempotency_key: items[0]!.idempotency_key }] })).rejects.toThrow()
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('refuses the entire batch when its combined estimate exceeds the budget', async () => {
+    const { provider, items } = await batch()
+    await writeFile(join(ledger.root, 'authorization.json'), JSON.stringify({ version: 1, projects: {
+      '2708': { limit: '1', unit: 'CNY', estimates: { storyboard_native_submit: '1' } },
+    } }))
+    await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items }))
+      .rejects.toThrow()
+    expect(putCalls(provider)).toHaveLength(0)
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('refuses a drifting full task snapshot before the first PUT', async () => {
+    const { provider, items } = await batch()
+    let lists = 0
+    provider.onTaskList = () => {
+      lists += 1
+      if (lists === 2) provider.tasks.push({ id: 123456, scriptId: 2708, storyboardId: 999999 })
+    }
+    await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items })).rejects.toThrow()
+    expect(putCalls(provider)).toHaveLength(0)
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('refuses a task row without a stable ID before the first PUT', async () => {
+    const { provider, items } = await batch()
+    provider.tasks.push({ scriptId: 2708, storyboardId: 999999 })
+    await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items })).rejects.toThrow()
+    expect(putCalls(provider)).toHaveLength(0)
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('overlaps independent PUTs, returns input order and replays both keys read-only', async () => {
+    const { provider, items } = await batch()
+    let active = 0
+    let peak = 0
+    const twoPutCalls = barrier()
+    const releasePuts = barrier()
+    provider.onPut = async (payload) => {
+      active += 1
+      peak = Math.max(peak, active)
+      if (active === 2) twoPutCalls.release()
+      await releasePuts.promise
+      const id = Number(payload.id)
+      const taskId = id + 100000
+      provider.tasks.push({ id: taskId, scriptId: 2708, taskType: 1 })
+      provider.subtasks[String(taskId)] = [childOf(payload, { id: taskId + 200000,
+        aigcVideoTaskId: taskId, storyboardId: id })]
+      active -= 1
+    }
+    const pending = submitVideoBatchMethod(clientFor(provider), ledger, { items })
+    try {
+      await ready(twoPutCalls.promise)
+      expect(active).toBe(2)
+    } finally {
+      releasePuts.release()
+      await pending.catch(() => undefined)
+    }
+    const result = await pending
+    expect(peak).toBe(2)
+    expect(putCalls(provider)).toHaveLength(2)
+    expect(result.results.map(item => item.idempotency_key)).toEqual(items.map(item => item.idempotency_key))
+    expect(result.results.map(item => item.status)).toEqual(['submitted', 'submitted'])
+    expect((await ledger.records()).map(record => record.outcome)).toEqual(['accepted', 'accepted'])
+    provider.calls.length = 0
+    const replay = await submitVideoBatchMethod(clientFor(provider), ledger, { items })
+    expect(putCalls(provider)).toHaveLength(0)
+    expect(replay.results.map(item => item.replayed)).toEqual([true, true])
+  })
+
+  it('keeps one unknown result on its original key and never resends the batch', async () => {
+    const { provider, items } = await batch()
+    provider.onPut = (payload) => {
+      if (payload.id === 916954) throw new Error('lost connection')
+      provider.tasks.push({ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 })
+      provider.subtasks['335343'] = [childOf(payload)]
+    }
+    const result = await submitVideoBatchMethod(clientFor(provider), ledger, { items })
+    expect(putCalls(provider)).toHaveLength(2)
+    expect(result.results.map(item => item.status)).toEqual(['submitted', 'reconcile_required'])
+    expect((await ledger.find(items[1]!.idempotency_key))?.outcome).toBe('unknown')
+    provider.calls.length = 0
+    await submitVideoBatchMethod(clientFor(provider), ledger, { items })
+    expect(putCalls(provider)).toHaveLength(0)
+  })
+
+  it('records a parsed response without a success application code as unknown', async () => {
+    const { provider, items } = await batch()
+    provider.onPut = (payload) => {
+      const id = Number(payload.id)
+      const taskId = id + 100000
+      provider.tasks.push({ id: taskId, scriptId: 2708, storyboardId: id, taskType: 1 })
+      provider.subtasks[String(taskId)] = [childOf(payload, { aigcVideoTaskId: taskId, storyboardId: id })]
+    }
+    provider.putResponse = payload => payload.id === 916954
+      ? new Response(JSON.stringify([{ receipt: 1 }, { receipt: 2 }]), { status: 200 })
+      : new Response(JSON.stringify({ code: 200, data: null }), { status: 200 })
+    const result = await submitVideoBatchMethod(clientFor(provider), ledger, { items })
+    expect(result.results.map(item => item.status)).toEqual(['submitted', 'reconcile_required'])
+    expect(result.results[1]).toMatchObject({ outcome: 'unknown', put_ambiguous: true })
+    expect((await ledger.find(items[1]!.idempotency_key))?.outcome).toBe('unknown')
+  })
+
+  it('bounds task readback without holding the paid PUT submission slots', async () => {
+    const { provider, items } = await batch(4)
+    const twoEarlyReads = barrier()
+    const releaseEarly = barrier()
+    const fourPuts = barrier()
+    const twoFinalDetails = barrier()
+    const releaseFinal = barrier()
+    let lists = 0
+    let activeEarly = 0
+    let peakEarly = 0
+    let finalDetails = 0
+    let peakFinal = 0
+    let activeFinal = 0
+    let puts = 0
+    provider.onTaskList = async () => {
+      lists += 1
+      if (lists <= 2) return
+      activeEarly += 1
+      peakEarly = Math.max(peakEarly, activeEarly)
+      if (activeEarly === 2) twoEarlyReads.release()
+      if (lists <= 4) await releaseEarly.promise
+      activeEarly -= 1
+    }
+    provider.onTaskRead = async (path) => {
+      if (lists < 7 || !path.startsWith('/admin/aigc/video/task/')
+        || path.startsWith('/admin/aigc/video/task/list')
+        || path.startsWith('/admin/aigc/video/task/sub/list')) return
+      finalDetails += 1
+      activeFinal += 1
+      peakFinal = Math.max(peakFinal, activeFinal)
+      if (activeFinal === 2) twoFinalDetails.release()
+      if (finalDetails <= 2) await releaseFinal.promise
+      activeFinal -= 1
+    }
+    provider.onPut = (payload) => {
+      puts += 1
+      if (puts === 4) fourPuts.release()
+      const id = Number(payload.id)
+      const taskId = id + 100000
+      provider.tasks.push({ id: taskId, scriptId: 2708, storyboardId: id, taskType: 1 })
+      provider.subtasks[String(taskId)] = [childOf(payload, { aigcVideoTaskId: taskId, storyboardId: id })]
+    }
+    const pending = submitVideoBatchMethod(clientFor(provider), ledger, { items },
+      { concurrency: 2, maxItems: 4 })
+    try {
+      await ready(twoEarlyReads.promise)
+      await ready(fourPuts.promise)
+      expect(lists).toBe(4)
+      expect(activeEarly).toBe(2)
+      releaseEarly.release()
+      await ready(twoFinalDetails.promise)
+      expect(finalDetails).toBe(2)
+    } finally {
+      releaseEarly.release()
+      releaseFinal.release()
+      await pending.catch(() => undefined)
+    }
+    const result = await pending
+    expect(putCalls(provider)).toHaveLength(4)
+    expect(peakEarly).toBe(2)
+    expect(peakFinal).toBe(2)
+    expect(result.results.map(item => item.status)).toEqual(['submitted', 'submitted', 'submitted', 'submitted'])
+  })
+
+  it('leaves a batch task unresolved when later provider readback has stripped its identity', async () => {
+    const { provider, items } = await batch()
+    let lists = 0
+    provider.onTaskList = () => {
+      lists += 1
+      if (lists === 5) provider.subtasks['1016953'] = [{ id: 1216953,
+        aigcVideoTaskId: 1016953, storyboardId: 916953, taskStatus: 'submit' }]
+    }
+    provider.onPut = (payload) => {
+      const id = Number(payload.id)
+      const taskId = id + 100000
+      provider.tasks.push({ id: taskId, scriptId: 2708, taskType: 1 })
+      provider.subtasks[String(taskId)] = [childOf(payload, { aigcVideoTaskId: taskId, storyboardId: id })]
+    }
+    const result = await submitVideoBatchMethod(clientFor(provider), ledger, { items })
+    expect(putCalls(provider)).toHaveLength(2)
+    expect(result.results[0]).toMatchObject({ status: 'reconcile_required' })
+    expect(result.results[0]?.status).not.toBe('subject_identity_lost')
   })
 })
 

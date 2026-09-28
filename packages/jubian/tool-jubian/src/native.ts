@@ -23,7 +23,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/dsh-jubian'
-import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { checkBudget, JubianError } from '@deepseek-ai/dsh-jubian'
 import {
   buildNativeVideoPreview, buildSubjectSelection, childrenOf, classifyExistingNativeMatches,
   classifyNewNativeCandidates, isRelatedTaskCandidate, nativeResultUrls, readBackIdentity,
@@ -32,7 +32,7 @@ import {
 } from '@deepseek-ai/dsh-jubian-api'
 import type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeVideoPreview,
   SubjectIdentityItem, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
-import { need, requireKey, writeUnderLedger } from './write.ts'
+import { acceptedWriteResponse, bodyHash, need, requireKey, writeUnderLedger } from './write.ts'
 
 /** The provider's page cap for task and material listings. */
 const MAX_PAGES = 20
@@ -103,7 +103,7 @@ async function listAllVideoTasks(client: JubianClient, scriptId: number): Promis
     }
     for (const record of page.rows) {
       const taskId = taskIdOf(record)
-      if (taskId === null) continue
+      if (taskId === null) throw new JubianError('CONTRACT_CHANGED', 'Video task list contains a row without a stable ID')
       if (stable.has(taskId)) throw new JubianError('CONTRACT_CHANGED')
       stable.add(taskId)
       collected.push(record)
@@ -592,6 +592,10 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
   // still work after the operator has moved the storyboard on.
   const recorded = await ledger.find(key)
   if (recorded !== undefined) {
+    if (recorded.method !== 'storyboard_native_submit' || recorded.script_id !== preview.scriptId
+      || recorded.request_sha256 !== bodyHash(preview.payload)) {
+      throw new JubianError('CONTRACT_CHANGED', 'Recorded key belongs to a different video submission')
+    }
     const records = await listAllVideoTasks(client, preview.scriptId)
     const hydrated = await hydrateRelated(client, records, preview.scriptId, preview.storyboardId, preview.payload.episodeId)
     const claim = classifyExistingNativeMatches(hydrated, expectationOf(preview, []))
@@ -700,4 +704,221 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
         ? 'PUT 已被提供方受理（很可能已计费），但没有一条候选能被完整认领：不要重新提交这个 preview。'
           + '按 new_task_ids 回读那些新任务（jubian_video subtasks），或人工核对归属。'
         : report.next }
+}
+
+/** One independently keyed preview within an approved video batch. */
+export interface VideoBatchItem { preview_path: string; idempotency_key: string }
+
+/** Deployment limits for one batch of storyboard-native submissions. */
+export interface VideoBatchOptions { concurrency: number; maxItems: number }
+
+/**
+ * Resolve bounded video submission settings at plugin mount.
+ * @param config - Deployment limits.
+ * @returns Validated concurrency and item limit.
+ */
+export function resolveVideoBatchOptions(config: { videoBatchConcurrency?: number; videoBatchMaxItems?: number } = {}):
+VideoBatchOptions {
+  const concurrency = config.videoBatchConcurrency ?? 3
+  const maxItems = config.videoBatchMaxItems ?? 100
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 8
+    || !Number.isSafeInteger(maxItems) || maxItems < 1 || maxItems > 100) {
+    throw new JubianError('INVALID_ARGUMENT', 'videoBatchConcurrency must be 1..8 and videoBatchMaxItems must be 1..100')
+  }
+  return { concurrency, maxItems }
+}
+
+interface FrozenBatchItem extends VideoBatchItem { preview: NativeVideoPreview; beforeTaskIds: string[] }
+
+async function batchPreview(item: VideoBatchItem): Promise<FrozenBatchItem> {
+  const key = requireKey(item.idempotency_key)
+  const previewPath = resolve(item.preview_path)
+  let parsed: unknown
+  try { parsed = JSON.parse(await readFile(previewPath, 'utf8')) as unknown }
+  catch (error) { throw new JubianError('CONTRACT_CHANGED', `Unreadable video preview: ${error instanceof Error ? error.name : 'error'}`) }
+  const preview = validateNativeVideoPreview(parsed)
+  await validateProjectBinding(projectRootOfPreview(previewPath), preview.scriptId)
+  if (key !== preview.idempotencyKey) throw new JubianError('CONTRACT_CHANGED', 'Video preview key differs from its fingerprint')
+  return { preview_path: previewPath, idempotency_key: key, preview, beforeTaskIds: [] }
+}
+
+async function batchReadback(client: JubianClient, item: FrozenBatchItem): Promise<NativeClaim | null> {
+  try {
+    const records = await listAllVideoTasks(client, item.preview.scriptId)
+    const hydrated = await hydrateRelated(client, records, item.preview.scriptId,
+      item.preview.storyboardId, item.preview.payload.episodeId)
+    return classifyNewNativeCandidates(hydrated, expectationOf(item.preview, item.beforeTaskIds))
+  } catch (error) {
+    // An accepted write still needs reconciliation when a transient read fails.
+    void error
+    return null
+  }
+}
+
+/** Keep provider reconciliation reads bounded without occupying the paid PUT worker slots. */
+function readLimiter(concurrency: number): <T>(operation: () => Promise<T>) => Promise<T> {
+  let active = 0
+  const waiting: (() => void)[] = []
+  return async <T>(operation: () => Promise<T>): Promise<T> => {
+    if (active < concurrency) active += 1
+    else await new Promise<void>((resolve) => { waiting.push(resolve) })
+    try { return await operation() }
+    finally {
+      const next = waiting.shift()
+      if (next === undefined) active -= 1
+      else next()
+    }
+  }
+}
+
+async function submitReservedVideo(client: JubianClient, ledger: JubianLedger, item: FrozenBatchItem):
+Promise<{ response_sha256: string | null
+  outcome: 'accepted' | 'unknown'
+  put_ambiguous: boolean }> {
+  let response: JubianResponse | undefined
+  try { response = await client.request({ method: 'PUT', path: '/aigc/storyboard', body: item.preview.payload }) }
+  catch (error) { void error /* The intent remains a possible charge. */ }
+  const outcome = response !== undefined && acceptedWriteResponse(response.transport) ? 'accepted' : 'unknown'
+  try {
+    await ledger.settle(item.idempotency_key, { httpStatus: response?.transport.http_status ?? null,
+      applicationCode: response?.transport.application_code ?? null,
+      responseSha256: response?.response_sha256 ?? null, outcome })
+  } catch (error) {
+    // The persisted intent is enough to prohibit another send; report the failed settlement.
+    void error
+  }
+  return { response_sha256: response?.response_sha256 ?? null, outcome,
+    put_ambiguous: outcome === 'unknown' }
+}
+
+/**
+ * Preflight every approved preview and the aggregate project budget, then submit distinct storyboards concurrently.
+ * Any failed preflight or budget check sends zero PUTs. Every accepted item keeps its own original key;
+ * ambiguous writes require read-only reconciliation and never cause a batch resend.
+ * @param client - Authenticated provider transport.
+ * @param ledger - Persistent write and budget ledger.
+ * @param args - Ordered preview/key pairs for one project.
+ * @param options - Bounded deployment concurrency and batch size.
+ * @returns Ordered per-item claims and aggregate status.
+ */
+export async function submitVideoBatchMethod(client: JubianClient, ledger: JubianLedger,
+  args: { items?: VideoBatchItem[] | undefined }, options = resolveVideoBatchOptions()):
+Promise<{ total: number; submitted: number; reconcile_required: number; results: Record<string, unknown>[] }> {
+  const raw = args.items
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > options.maxItems) {
+    throw new JubianError('INVALID_ARGUMENT', 'video batch items must fit the configured item limit')
+  }
+  const items = await Promise.all(raw.map(batchPreview))
+  const keys = items.map(item => item.idempotency_key)
+  const boards = items.map(item => item.preview.storyboardId)
+  const first = items[0] ?? fail()
+  const root = projectRootOfPreview(first.preview_path)
+  if (new Set(keys).size !== items.length || new Set(boards).size !== items.length
+    || items.some(item => item.preview.scriptId !== first.preview.scriptId
+      || projectRootOfPreview(item.preview_path) !== root)) {
+    throw new JubianError('INVALID_ARGUMENT', 'video batch needs distinct keys and storyboards in one project')
+  }
+  const limitedRead = readLimiter(options.concurrency)
+  const recorded = await Promise.all(keys.map(key => ledger.find(key)))
+  recorded.forEach((entry, index) => {
+    if (entry === undefined) return
+    const item = items[index] ?? fail()
+    if (entry.method !== 'storyboard_native_submit' || entry.script_id !== item.preview.scriptId
+      || entry.request_sha256 !== bodyHash(item.preview.payload)) {
+      throw new JubianError('CONTRACT_CHANGED', 'Recorded key belongs to a different video submission')
+    }
+  })
+  if (recorded.some(entry => entry !== undefined)) {
+    if (recorded.some(entry => entry === undefined)) {
+      throw new JubianError('CONTRACT_CHANGED', 'A partially recorded batch needs read-only per-key reconciliation')
+    }
+    const results = await Promise.all(items.map(item => limitedRead(async () => {
+      const result = await submitVideoMethod(client, ledger, item)
+      return result.status === 'submitted' ? result : { ...result, status: 'reconcile_required',
+        next: '批量提交已有原 key 记录，但当前回读不能完整确认归属；只读核对，不要重发 PUT。' }
+    })))
+    return { total: results.length, submitted: results.filter(result => result.status === 'submitted').length,
+      reconcile_required: results.filter(result => result.status !== 'submitted').length, results }
+  }
+
+  await Promise.all(items.map(item => limitedRead(async () => {
+    const live = await livePreview(client, item.preview.storyboardId, item.preview.createdAt)
+    if (live.idempotencyKey !== item.preview.idempotencyKey) {
+      throw new JubianError('CONTRACT_CHANGED', 'A video preview is stale')
+    }
+  })))
+  const firstRecords = await listAllVideoTasks(client, first.preview.scriptId)
+  await Promise.all(items.map(item => limitedRead(async () => {
+    const related = await hydrateRelated(client, firstRecords, item.preview.scriptId,
+      item.preview.storyboardId, item.preview.payload.episodeId)
+    const existing = classifyExistingNativeMatches(related, expectationOf(item.preview, []))
+    if (existing.status !== 'none') {
+      throw new JubianError('CONTRACT_CHANGED', `Storyboard ${item.preview.storyboardId} has a prior or ambiguous task`)
+    }
+  })))
+  const secondRecords = await listAllVideoTasks(client, first.preview.scriptId)
+  const firstIds = firstRecords.map(taskIdOf).sort()
+  const secondIds = secondRecords.map(taskIdOf).sort()
+  if (stableJson(firstIds) !== stableJson(secondIds)) {
+    throw new JubianError('CONTRACT_CHANGED', 'Project video tasks changed during batch preflight')
+  }
+  const beforeAll = new Set(secondIds)
+  for (const item of items) {
+    item.beforeTaskIds = secondRecords.filter(record => isRelatedTaskCandidate(record, item.preview.scriptId,
+      item.preview.storyboardId)).map(taskIdOf).filter((id): id is string => id !== null)
+  }
+  await ledger.beginManyChecked(keys, async () => {
+    const budget = await checkBudget({ ledger, method: 'storyboard_native_submit',
+      scriptId: first.preview.scriptId, count: items.length })
+    if (budget.status === 'refused' || budget.chargedAmount === undefined || budget.chargedUnit === undefined) {
+      throw new JubianError('BUDGET_EXCEEDED', budget.reason)
+    }
+    const quotedAmount = budget.chargedAmount
+    const quoteUnit = budget.chargedUnit
+    return items.map(item => ({ idempotencyKey: item.idempotency_key,
+      method: 'storyboard_native_submit' as const, scriptId: item.preview.scriptId,
+      requestSha256: bodyHash(item.preview.payload), quotedAmount, quoteUnit }))
+  })
+  let nextIndex = 0
+  const sent: Awaited<ReturnType<typeof submitReservedVideo>>[] = []
+  const earlyReads: Promise<NativeClaim | null>[] = []
+  await Promise.all(Array.from({ length: Math.min(options.concurrency, items.length) }, async () => {
+    for (;;) {
+      const index = nextIndex++
+      const item = items[index]
+      if (item === undefined) break
+      sent[index] = await submitReservedVideo(client, ledger, item)
+      earlyReads[index] = limitedRead(() => batchReadback(client, item))
+    }
+  }))
+  const earlyClaims = await Promise.all(earlyReads)
+  let finalRecords: Record<string, unknown>[] | null = null
+  try { finalRecords = await listAllVideoTasks(client, first.preview.scriptId) }
+  catch (error) { void error /* Per-item results remain unresolved when the final snapshot fails. */ }
+  const appeared = finalRecords?.map(taskIdOf).filter((id): id is string => id !== null)
+    .filter(id => !beforeAll.has(id)) ?? []
+  const results = await Promise.all(items.map((item, index): Promise<Record<string, unknown>> => limitedRead(async () => {
+    const write = sent[index] ?? fail()
+    let claim: NativeClaim | null = null
+    if (finalRecords !== null) {
+      try {
+        const related = await hydrateRelated(client, finalRecords, item.preview.scriptId,
+          item.preview.storyboardId, item.preview.payload.episodeId)
+        claim = classifyNewNativeCandidates(related, expectationOf(item.preview, item.beforeTaskIds))
+      } catch (error) { void error /* Do not turn missing readback into an identity-loss verdict. */ }
+    }
+    const report = write.outcome === 'accepted' && claim !== null && claim.status === 'matched'
+      ? claimReport(claim, item.preview) : null
+    const submitted = report?.status === 'submitted'
+    return { preview_path: item.preview_path, idempotency_key: item.idempotency_key,
+      storyboard_id: item.preview.storyboardId, replayed: false, put_sent: true,
+      outcome: write.outcome, response_sha256: write.response_sha256,
+      status: submitted ? 'submitted' : 'reconcile_required',
+      task_id: submitted ? report.task_id : null, put_ambiguous: write.put_ambiguous,
+      early_task_id: earlyClaims[index]?.status === 'matched' ? earlyClaims[index].taskId : null,
+      project_new_task_ids: appeared,
+      next: submitted ? report.next : '该预览已有写入意图，但最终身份未完整确认；按原 key 只读对账，不要重发 PUT。' }
+  })))
+  return { total: items.length, submitted: results.filter(item => item.status === 'submitted').length,
+    reconcile_required: results.filter(item => item.status !== 'submitted').length, results }
 }

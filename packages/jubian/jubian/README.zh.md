@@ -9,7 +9,9 @@ kind: "package-reference"
 
 ## 概述
 
-`@deepseek-ai/dsh-jubian` 是通往剧变的唯一 HTTP 通道：你用凭据解析器构造一个 `JubianClient`，发送一次固定源请求，然后读回信封数据、传输状态以及响应原始字节的 sha256。它修复粘贴令牌通常携带的 shell 分隔符与成对引号，把每一次失败归入五个稳定错误码之一且从不回显提供方文本，并把每次付费或改变状态的调用记入两阶段 NDJSON 账本——重复的 `idempotency_key` 返回既有记录，且一个请求都不发。`@deepseek-ai/dsh-tool-jubian` 与 `@deepseek-ai/dsh-jubian-api` 消费本包。
+`@deepseek-ai/dsh-jubian` 用凭据解析器向固定来源发送剧变请求，并返回响应数据、状态与原始字节的摘要。它修复粘贴令牌时常见的残留字符，且以六个稳定错误码报告失败，不泄露提供方文本。两阶段 NDJSON 账本记录付费或改变状态的调用；重复的 `idempotency_key` 返回既有记录，供调用方避免再次发送。
+
+`pool_claim` 记录剧本池提交。认领工具会在另一个 key 提交前检查同一剧本的既有记录；结果不明确时保持 `unknown`，等待只读对账。
 
 ## 目录
 
@@ -38,7 +40,9 @@ kind: "package-reference"
 ```ts
 import { JubianClient, JubianError } from '@deepseek-ai/dsh-jubian'
 
-const client = new JubianClient({ credential: resolveJubianToken })
+const token = process.env.JUBIANAI_ADMIN_TOKEN
+if (!token) throw new Error('Set JUBIANAI_ADMIN_TOKEN')
+const client = new JubianClient({ credential: async () => token })
 
 try {
   const response = await client.request({ method: 'GET', path: '/aigc/asset/123' })
@@ -97,14 +101,19 @@ settled spend + in-flight reservations + this call's quote <= the project's limi
 
 既没有授权文件，也没有已挂载的短剧整剧预算时，计费调用在记录 intent 和请求提供方之前被拒绝。已挂载的短剧预算按 `script_id` 自动提供人民币上限；已有授权文件只可降低该上限，文件中缺少的项目仍被拒绝。没有报价、也没有认可的单方法估算时仍拒绝收费。共享写路径使用 `beginChecked`，在同一进程的账本认领中检查额度并预留已认可的报价或估算；不同进程之间仍没有互斥锁。这些本地设置与文件只能限制意外消费，不能抵御恶意代码：有文件写权限的 agent 可以修改它们。需要由人独立控制的授权时，部署方必须另行强制执行。
 
+分镜视频批次在 `beginManyChecked` 内调用 `checkBudget(..., count)`，先检查整批估算金额，再一次登记各个原 key 的计价 intent，随后才允许发送任何提供方 PUT。每种计费方法的单笔报价或估算至少须为授权币种的 0.01；舍入后为零的不足一分金额不能授权消费。预算拒绝或 key 已存在时不新增 intent。同进程的队列会把这次预约与单项计费写入串行处理；不同进程仍不受该队列保护。
+
 ### 以两个阶段记录一次写入
 
 `JubianLedger` 回答超时留下的唯一问题：那笔扣费究竟发生了吗？在请求离开前写入 intent 行，在响应读完后写入 settle 行。
 
 ```ts
-import { JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 
-const ledger = new JubianLedger({ root: ledgerRoot })
+const token = process.env.JUBIANAI_ADMIN_TOKEN
+if (!token) throw new Error('Set JUBIANAI_ADMIN_TOKEN')
+const client = new JubianClient({ credential: async () => token })
+const ledger = new JubianLedger({ root: './jubian-ledger' })
 const begun = await ledger.begin({
   idempotencyKey: 'episode-1-upscale-428322',
   method: 'video_upscale',
@@ -117,7 +126,8 @@ if (!begun.replayed) {
     httpStatus: response.transport.http_status,
     applicationCode: response.transport.application_code,
     responseSha256: response.response_sha256,
-    outcome: 'accepted',
+    outcome: response.transport.application_code === 0 || response.transport.application_code === 200
+      ? 'accepted' : 'unknown',
   })
 }
 ```

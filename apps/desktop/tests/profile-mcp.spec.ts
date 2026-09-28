@@ -71,7 +71,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     expect(rows.find(row => row.id === 'webserver')).toMatchObject({ name: '@deepseek-ai/dsh-host-webserver' })
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-muse-account')).toEqual([
       { id: 'muse-account', name: '@deepseek-ai/dsh-muse-account', config: {
-        baseUrl: { __jsExpr: "process.env.MUSE_BASE_URL || 'https://dev.muse.aigc-pipeline.cn'" },
+        baseUrl: { __jsExpr: "process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'" },
       } },
     ])
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-drama-settings')).toEqual([
@@ -82,6 +82,12 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     ])
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-tool-jubian')).toEqual([
       { id: 'tool-jubian', name: '@deepseek-ai/dsh-tool-jubian', config: { imagePlatformId: 'KU_AI' } },
+    ])
+    expect(rows.filter(row => row.name === '@deepseek-ai/dsh-tool-audio-transcribe')).toEqual([
+      { id: 'tool-audio-transcribe', name: '@deepseek-ai/dsh-tool-audio-transcribe', config: {
+        ffmpegPath: { __jsExpr: "process.env.DSH_FFMPEG_PATH || 'ffmpeg'" },
+        ffprobePath: { __jsExpr: "process.env.DSH_FFPROBE_PATH || 'ffprobe'" },
+      } },
     ])
     expect(rows.find(row => row.id === 'webserver')?.disabled).toBe(false)
     expect(warnings).toEqual([])

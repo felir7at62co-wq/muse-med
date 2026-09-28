@@ -148,6 +148,26 @@ describe('checkBudget', () => {
       limitCents: 1_000 })
   })
 
+  it('checks the whole count against one project limit before any reservation', async () => {
+    const { ledger, authorizationPath } = await fixture(AUTHORIZED)
+    const decision = await checkBudget({ ledger, method: 'image_generate', scriptId: 2708,
+      quote: { amount: '3.50', unit: 'CNY' }, count: 3, authorizationPath })
+    expect(decision.status).toBe('refused')
+    expect(decision.reason).toContain('授权上限')
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('refuses a paid batch whose fractional-cent estimate rounds to zero', async () => {
+    const { ledger, authorizationPath } = await fixture({ version: 1, projects: {
+      '2708': { limit: '0.00', unit: 'CNY', estimates: { storyboard_native_submit: '0.001' } },
+    } })
+    const decision = await checkBudget({ ledger, method: 'storyboard_native_submit',
+      scriptId: 2708, count: 100, authorizationPath })
+    expect(decision.status).toBe('refused')
+    expect(decision.reason).toContain('正数')
+    expect(await ledger.records()).toEqual([])
+  })
+
   it('counts a call that was sent and never settled as reserved', async () => {
     const { ledger, authorizationPath } = await fixture(AUTHORIZED)
     await record(ledger, { key: 'a', scriptId: 2708, amount: '8.00', unit: 'CNY', settle: 'none' })

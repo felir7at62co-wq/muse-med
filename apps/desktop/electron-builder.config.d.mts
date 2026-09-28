@@ -7,18 +7,11 @@ export interface DesktopElectronBuilderConfig {
   readonly extraMetadata: { readonly name: string }
   readonly icon: string
   readonly artifactName: string
-  readonly protocols: readonly [{ readonly name: 'DeepSeek Harness'; readonly schemes: readonly ['dsh'] }]
+  readonly protocols: readonly [{ readonly name: 'muse-med'; readonly schemes: readonly ['dsh'] }]
   readonly directories: {
     readonly output: string
   }
-  readonly files: readonly [
-    string,
-    string,
-    string,
-    string,
-    { readonly from: string, readonly to: 'dsh', readonly filter: readonly ['**/*'] },
-    { readonly from: string, readonly to: 'dsh/node_modules', readonly filter: readonly ['**/*'] },
-  ]
+  readonly files: readonly (string | { readonly from: string, readonly to: string, readonly filter: readonly string[] })[]
   readonly extraMetadata: { readonly dshDesktopAppId: string }
   readonly asarUnpack: readonly string[]
   readonly extraResources: readonly [
@@ -27,11 +20,18 @@ export interface DesktopElectronBuilderConfig {
     ...{ readonly from: string, readonly to: 'tray.ico' }[],
   ]
   readonly mac: {
-    readonly extendInfo: { readonly NSMicrophoneUsageDescription: string }
+    readonly icon: string
+    readonly category: string
+    readonly extendInfo: {
+      readonly CFBundleLocalizations: readonly string[]
+      readonly NSMicrophoneUsageDescription: string
+    }
     readonly identity: string | undefined
     readonly forceCodeSigning: boolean
+    readonly hardenedRuntime: boolean
     readonly notarize: boolean
     readonly signIgnore: readonly string[]
+    readonly target: readonly ['dmg', 'zip']
   }
   readonly dmg: {
     readonly sign: boolean

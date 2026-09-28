@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The `guard/` group keeps a session honest about what it is doing. `repeat-tool-reminder` notices when the model repeats the exact same tool call and asks it to change approach or finish, so a stuck loop stops burning time and tokens. `timeout-policy` puts a time limit on tool calls that declare one, so a hung call returns a clear timeout error. `composition-guard` watches the composition itself: when a live reload withdraws tools from a running session, it says so in the log and inside that conversation, naming the recovery. `drama-gate` is the domain guard a short-drama composition mounts: it refuses a workshop write that would put narration in the spoken track, overrun the shot length or character budget, or submit a paid generation before the official-asset gate passed, and every refusal names the exact fix. Both original guards ship in the `dsh` base bundle.
+The `guard/` packages surface repeated tool calls, end calls that exceed declared timeouts, and report tools withdrawn by live reload. The short-drama guard rejects workshop writes that break spoken-track or shot limits and paid generation before the official-asset check. `repeat-tool-reminder` and `timeout-policy` ship in the `dsh` base bundle; the package READMEs explain configuration and recovery.
 
 ## Table of Contents
 

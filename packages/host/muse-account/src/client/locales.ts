@@ -2,6 +2,9 @@
 
 /** Simplified Chinese copy; no field can display a password or session cookie. */
 export const zh = {
+  onboardingTitle: '欢迎使用 muse-med',
+  onboardingDescription: '登录 MUSE 账号以使用知识库和语音服务。模型服务需要单独配置，下一步会检查可用模型。',
+  onboardingLater: '稍后登录',
   nav: 'MUSE 账号',
   title: 'MUSE 账号',
   description: '登录失败时可选择尝试注册新账号；已有账号的错误密码不会更改该账号。密码只用于本次登录，不会发给 Agent。',
@@ -36,6 +39,9 @@ export type MuseAccountLocaleKey = keyof typeof zh
 
 /** English copy checked against the Chinese key set. */
 export const en = {
+  onboardingTitle: 'Welcome to muse-med',
+  onboardingDescription: 'Sign in to use the MUSE knowledge base and speech service. Model service is configured separately; the next step checks available models.',
+  onboardingLater: 'Sign in later',
   nav: 'MUSE account',
   title: 'MUSE account',
   description: 'If sign-in fails, you can choose to try creating an account. A wrong password cannot change an existing account. Your password is used only for this sign-in and is never sent to the agent.',

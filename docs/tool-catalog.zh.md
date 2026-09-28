@@ -19,6 +19,7 @@
 
 | 工具包 | 模型可见名称 | 依赖 | 写入／影响 | 随产品发布的别名 | 部署说明 |
 | --- | --- | --- | --- | --- | --- |
+| `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`、`ctx.museAccount`、PATH 中的 FFmpeg 与 FFprobe | `tool/call`、`tool/result`，`transcript/jobs` 中的任务收据，`transcript/raw` 中的 TXT 与 JSON | - | start 使用已登录的 Muse 账号上传压缩音轨并提交云转写；status 根据收据查询同一任务，完成后保存带时间戳的结果。需要可读取的本地音视频与服务端转写配置。 |
 | `@deepseek-ai/dsh-plugin-manager` | `plugin_manager` | `ctx.tools`, `ctx.pluginManager`, `ctx.sandboxPolicy` | `tool/call`, `tool/result`, `user/message` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | `stagehand_act`、`stagehand_extract`、`stagehand_navigate`、`stagehand_observe`、`stagehand_screenshot`、`stagehand_tabs` | `ctx.browserUse`、`ctx.agents`、`ctx.tools`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | - |
@@ -49,7 +50,7 @@
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-workspace-dependencies` | `load_workspace_dependencies` | `ctx.tools` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
-| `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`、`jubian_catalog`、`jubian_find`、`jubian_media`、`jubian_model`、`jubian_organize`、`jubian_storyboard`、`jubian_video`、`jubian_watch` | `ctx.tools`、`ctx.credentials` | `tool/call`、`tool/result`、`Jubian 两阶段写账本（位于其配置根目录下的 NDJSON 记录对）` | - | 每个计费的写入（`image_generate`、`generate`、`erase_subtitle`、`upscale`）都要求调用方给出 `idempotency_key`，并在请求离开前把 `intent` 记入账本；`erase_subtitle` 与 `upscale` 是异步的，提供方受理任务后立即返回，因此调用方应回读 `subtasks`，而不是在那次调用上等待。 |
+| `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`、`jubian_catalog`、`jubian_claim`、`jubian_find`、`jubian_media`、`jubian_model`、`jubian_organize`、`jubian_snatch`、`jubian_storyboard`、`jubian_video`、`jubian_watch` | `ctx.tools`、`ctx.credentials`、抢本任务所需的 `ctx.jobs` | `tool/call`、`tool/result`、按配置目录保存的剧变两阶段写入账本 | - | 计费写入均需调用方提供独立的 `idempotency_key`，批量方法逐项提供；`image_generate_batch` 先检查整批再有界并行提交；`submit_video_batch` 检查本次清单中的全部预览并预约总预算后有界并行提交；去字幕与转高清受理后通过 `subtasks` 回读。抢本仅认领已明确授权的目标或时段。 |
 | `@deepseek-ai/dsh-tool-shot-script` | `drama_shot` | `ctx.tools`, `the project layout it reads and writes (episodes/, prompts/, matches/, episode_packages/)` | `tool/call`, `tool/result`, `on compile: the compiled prompt, the matched JSON, and the episode package under the project root` | - | The three methods share one schema: `validate` and `preview` only read, and `compile` writes the matched JSON and the episode package, returning each package's `content_duration_ms`, its submitted whole-second length, and the prompt-ordered `material_keys` that `jubian_storyboard` `select_assets` must match. A script with any hard failure returns that failure list and writes nothing. |
 | `@deepseek-ai/dsh-perception-bgm` | `bgm_match` | `ctx.tools`、本地曲目索引或配置的公开目录；仅 index/inspect 需要 Python 和模型资源 | `tool/call`、`tool/result`、index 写本地情绪索引；download 在配置的缓存中写入经校验的音频 | - | `match` 排序候选，不代替选曲；公开库模式返回 ID 与 URL，不自动下载。`download` 接受选定的目录曲目 ID，返回经校验的本地文件。默认使用本地索引；公开库匹配需由部署配置。`index` 和 `inspect` 仅在执行时启动 Python，收集 schema 时不会启动。MERT 分析骨干仅限非商业用途（CC-BY-NC-4.0）；音频权利须另行确认。 |
 | `@deepseek-ai/dsh-tool-bgm-compose` | `drama_bgm` | `ctx.tools`、`ctx.subprocess`、`PATH` 上（或配置的）ffmpeg 与 ffprobe、单集时间线与明确 BGM 计划 | `tool/call`、`tool/result`、`compose` 时写项目内的 48 kHz 双声道 PCM WAV 及相邻生成报告 | - | `preview` 校验剧情完整覆盖并回报源哈希、偏移、实测平均音量与增益，不发布产物；`compose` 交叉淡化选定曲目，暂存 WAV 通过 ffprobe 后才发布；`verify` 测量已有 WAV，不重写它。工具不选曲，也不调用 `bgm_match`；剧情解读与最终选曲归 Agent。 |
@@ -526,6 +527,58 @@
 来源：[`packages/interaction/tool-ask-user/src/index.ts`](../packages/interaction/tool-ask-user/src/index.ts)
 
 ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类答案。
+
+<a id="deepseek-aidsh-tool-audio-transcribe"></a>
+
+## `@deepseek-ai/dsh-tool-audio-transcribe`
+
+### `audio_transcribe`
+
+使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；用 status 查询同一任务，完成后取得带时间戳的转写文件。需要先登录 Muse。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "description": "start=提取音轨并提交；status=按原收据查询及发布结果。",
+      "enum": [
+        "start",
+        "status"
+      ]
+    },
+    "project": {
+      "type": "string",
+      "description": "项目根目录，保存 transcript/jobs 收据及 transcript/raw 版本结果。"
+    },
+    "input": {
+      "type": "string",
+      "description": "start 必填：获授权的本地音频或视频文件路径。"
+    },
+    "receipt": {
+      "type": "string",
+      "description": "status 必填：start 返回的 transcript/jobs 收据路径。"
+    },
+    "language": {
+      "type": "string",
+      "description": "start 识别语种；默认 zh。",
+      "enum": [
+        "zh",
+        "auto"
+      ]
+    }
+  },
+  "required": [
+    "method",
+    "project"
+  ]
+}
+```
+
+??? [`packages/drama/tool-audio-transcribe/src/index.ts`](../packages/drama/tool-audio-transcribe/src/index.ts)
+
+start ???? Muse ?????????????????status ??????????????????? TXT ? JSON??? Muse ????????????????????
 
 <a id="deepseek-aidsh-tools"></a>
 
@@ -2742,7 +2795,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 
 ### `jubian_asset`
 
-剧变（Jubian）主体设定与资产的查询、确认出演与删除。get/list/materials/generated_image 只读。**confirm_casting 有副作用**：它用 GET 动词改变了远端状态，会使该材质被本次制作采用。它同样需要 idempotency_key，且不要重试。**remove 会不可恢复地删除一个父资产**（`DELETE /aigc/asset/removeAsset/{id}`，带 scriptId 与 isParent=1）：资产与其媒体版本会被移除，引用它的镜头匹配与已生成视频不会因此重建。**如果只是想取消"正式选用"，不要用 remove** —— 那是一个不同的动作。**create_folder / move / rename 会改变控制台里的组织方式**（都在 `/aigc/*` 上真实写入）：create_folder 建一个类别库里的文件夹，同名同级已存在时直接报告、不发请求；move 把材质行移进文件夹，目标文件夹不在该库里时同样只报告；rename 改资产的显示名称。三者都需要 idempotency_key，都不改图片、不改 id、不换类别。**批量改名或搬家前必须先取得用户明确同意**：这些是用户已经在控制台里看到的名字和位置。**upload_reference 免费**：把本地参考图（jpg/jpeg/png/webp）按剧变前端自身的上传配置送到它的对象存储，返回 HTTPS material_url —— gpt-image-2 的参考图只接受 URL。两条边必须是 16 的倍数：已合规的文件原样上传，不合规时调用本机 ffmpeg 重编码（可用 DSH_JUBIAN_FFMPEG/FFMPEG_PATH 指定二进制）；本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。写方法必须提供 idempotency_key：同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
+剧变（Jubian）主体设定与资产的查询、确认出演与删除。get/list/materials/generated_image 只读。**confirm_casting 有副作用**：它用 GET 动词改变了远端状态，会使该材质被本次制作采用。它同样需要 idempotency_key，且不要重试。**remove 会不可恢复地删除一个父资产**（`DELETE /aigc/asset/removeAsset/{id}`，带 scriptId 与 isParent=1）：资产与其媒体版本会被移除，引用它的镜头匹配与已生成视频不会因此重建。**如果只是想取消"正式选用"，不要用 remove** —— 那是一个不同的动作。**create_folder / move / rename 会改变控制台里的组织方式**（都在 `/aigc/*` 上真实写入）：create_folder 建一个类别库里的文件夹，同名同级已存在时直接报告、不发请求；move 把材质行移进文件夹，目标文件夹不在该库里时同样只报告；rename 改资产的显示名称。三者都需要 idempotency_key，都不改图片、不改 id、不换类别。**批量改名或搬家前必须先取得用户明确同意**：这些是用户已经在控制台里看到的名字和位置。**upload_reference 免费**：把本地参考图（jpg/jpeg/png/webp）按剧变前端自身的上传配置送到它的对象存储，返回 HTTPS material_url —— gpt-image-2 的参考图只接受 URL。两条边必须是 16 的倍数：已合规的文件原样上传，不合规时调用本机 ffmpeg 重编码（可用 DSH_JUBIAN_FFMPEG/FFMPEG_PATH 指定二进制）；本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
 
 ```json
 {
@@ -2787,7 +2840,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
     },
     "idempotency_key": {
       "type": "string",
-      "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key：同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。"
+      "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。"
     },
     "image_path": {
       "type": "string",
@@ -2866,7 +2919,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 }
 ```
 
-来源：[`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_catalog`
 
@@ -2913,7 +2966,45 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 }
 ```
 
-来源：[`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+
+### `jubian_claim`
+
+剧变剧本池单本操作：inspect 只读；claim 会真实认领，必须有用户对该 ID 的明确授权与当前账号 canClaim=1。按 viewRole 选择认领端点；写前记账。未知结果只读对账，不换 key 重投。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "description": "inspect=只读查看该 ID 对当前账号是否可领；claim=经用户明确授权后认领一次。",
+      "enum": [
+        "inspect",
+        "claim"
+      ]
+    },
+    "script_id": {
+      "type": "integer",
+      "description": "用户明确授权查看或认领的剧本池 ID。"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "claim 必填；复核同一笔时保持原 key。inspect 不需要。"
+    },
+    "authorization_basis": {
+      "type": "string",
+      "description": "claim 必填：简述用户原话中对这个 ID 的明确认领授权；不能由查询结果或代理自己推定。inspect 不需要。"
+    }
+  },
+  "required": [
+    "method",
+    "script_id"
+  ]
+}
+```
+
+来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_find`
 
@@ -2962,7 +3053,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 }
 ```
 
-来源：[`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_media`
 
@@ -3005,7 +3096,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 }
 ```
 
-来源：[`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_model`
 
@@ -3106,7 +3197,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 }
 ```
 
-来源：[`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_organize`
 
@@ -3140,11 +3231,63 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 }
 ```
 
-来源：[`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+
+### `jubian_snatch`
+
+剧变剧本池有界后台认领。只有用户明确授权目标范围和 UTC 时间窗口才启动；每本仅在当前账号 canClaim=1 时尝试一次。返回 job_id，用 job_output 查看；job_kill 只停后续尝试，已提交认领不会撤销，进程重启不恢复。未知结果先只读对账，不换 key 重投。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "scope": {
+      "type": "string",
+      "description": "ids=仅指定 ID；new_claimable=与作业启动时完整池子基线比较，只取新增且 canClaim=1 的剧本。两种范围均需用户明确授权。",
+      "enum": [
+        "ids",
+        "new_claimable"
+      ]
+    },
+    "script_ids": {
+      "type": "array",
+      "description": "scope=ids 必填：用户授权的正整数 ID 列表，不能重复；new_claimable 时必须省略。",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "start_at": {
+      "type": "string",
+      "description": "开始时间，UTC ISO 格式，例如 2026-09-28T12:00:00.000Z。"
+    },
+    "end_at": {
+      "type": "string",
+      "description": "结束时间，UTC ISO 格式；必须晚于开始且在部署窗口上限内。"
+    },
+    "idempotency_prefix": {
+      "type": "string",
+      "description": "本次授权窗口唯一非空前缀；每本的 ledger key 是 <前缀>/<script_id>。恢复核对时复用原前缀。"
+    },
+    "authorization_basis": {
+      "type": "string",
+      "description": "简述用户原话中对本次目标范围和时间窗口的明确授权；不能把查询结果当成授权。"
+    }
+  },
+  "required": [
+    "scope",
+    "start_at",
+    "end_at",
+    "idempotency_prefix",
+    "authorization_basis"
+  ]
+}
+```
+
+来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_storyboard`
 
-剧变（Jubian）分镜查询与提交。get/create/save 免费（create/save 强制 isGenerate=0）。**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，且它必须与该分镜已保存的时长一致，否则会在发请求前失败。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：select_assets 把选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key：同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
+剧变（Jubian）分镜查询与提交。get/create/save 免费（create/save 强制 isGenerate=0）。**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，且它必须与该分镜已保存的时长一致，否则会在发请求前失败。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：select_assets 把选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
 
 ```json
 {
@@ -3152,7 +3295,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
   "properties": {
     "method": {
       "type": "string",
-      "description": "get=读分镜（含 model_config 与素材键）；create=用调用方给定的请求体新建；save=存为不生成；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；erase_subtitle=去字幕（计费、异步）。",
+      "description": "get=读分镜（含 model_config 与素材键）；create=用调用方给定的请求体新建；save=存为不生成；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；erase_subtitle=去字幕（计费、异步）。",
       "enum": [
         "get",
         "create",
@@ -3161,6 +3304,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
         "select_assets",
         "prepare_video",
         "submit_video",
+        "submit_video_batch",
         "erase_subtitle"
       ]
     },
@@ -3220,7 +3364,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
     },
     "idempotency_key": {
       "type": "string",
-      "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key：同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。"
+      "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。"
     },
     "selections": {
       "type": "array",
@@ -3251,6 +3395,28 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
     "preview_path": {
       "type": "string",
       "description": "submit_video 必填：prepare_video 返回的 preview_path，不要猜测或手写文件名。"
+    },
+    "video_previews": {
+      "type": "array",
+      "description": "submit_video_batch 必填：本次提交清单中同项目不同分镜的预览；先逐项预检与总预算预约，再有界并行提交。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "preview_path": {
+            "type": "string",
+            "description": "本项 prepare_video 返回的预览文件。"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "本项 preview 自带的 fingerprint；重放保持原 key。"
+          }
+        },
+        "required": [
+          "preview_path",
+          "idempotency_key"
+        ]
+      }
     }
   },
   "required": [
@@ -3259,11 +3425,11 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 }
 ```
 
-来源：[`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_video`
 
-剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读（subtasks 用 POST 承载查询体，仍然只读；它返回成片 videoUrl 与字幕像素框）。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；给了 parent_asset_id 就是重生成（PUT），否则新建（POST）。它只在同一个 idempotency_key 下发送一次，并在受理后回读该资产直到 hsAssetStatus 变为 Active，然后返回 material_id（confirm_casting 需要它）与 image_url。返回里的 asset_status 说明回读结论：active 才是拿到图（此时才可落盘/审核）；timeout 表示受理已计费但资产尚未 Active，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。锁定行由人在 Web 设置的「短剧 → 资产图生成通道」里选，或由部署在插件配置里给 imagePlatformId/imageStandardId；本次改道可显式给 image_platform_id。遇到未锁定的多候选时把候选念给用户，请他在设置里选一行，不要自己挑。**upscale 会真实计费（SeedVR2 视频高清，1 元/条）**：把成片转成 1080p。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key：同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
+剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读（subtasks 用 POST 承载查询体，仍然只读；它返回成片 videoUrl 与字幕像素框）。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；给了 parent_asset_id 就是重生成（PUT），否则新建（POST）。它只在同一个 idempotency_key 下发送一次，并在受理后回读该资产直到 hsAssetStatus 变为 Active，然后返回 material_id（confirm_casting 需要它）与 image_url。返回里的 asset_status 说明回读结论：active 才是拿到图（此时才可落盘/审核）；timeout 表示受理已计费但资产尚未 Active，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。锁定行由人在 Web 设置的「短剧 → 资产图生成通道」里选，或由部署在插件配置里给 imagePlatformId/imageStandardId；本次改道可显式给 image_platform_id。遇到未锁定的多候选时把候选念给用户，请他在设置里选一行，不要自己挑。**upscale 会真实计费（SeedVR2 视频高清，1 元/条）**：把成片转成 1080p。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
 
 ```json
 {
@@ -3271,13 +3437,14 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
   "properties": {
     "method": {
       "type": "string",
-      "description": "task=单个任务（含 cost 观测）；tasks=项目任务分页；subtasks=任务的子结果（成片 URL、字幕框、阶段、分辨率与 needs_upscale）；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成图片（计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。",
+      "description": "task=单个任务（含 cost 观测）；tasks=项目任务分页；subtasks=任务的子结果（成片 URL、字幕框、阶段、分辨率与 needs_upscale）；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。",
       "enum": [
         "task",
         "tasks",
         "subtasks",
         "unresolved",
         "image_generate",
+        "image_generate_batch",
         "upscale",
         "retry"
       ]
@@ -3314,6 +3481,70 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
     "prompt": {
       "type": "string",
       "description": "image_generate 必填：图片提示词。"
+    },
+    "items": {
+      "type": "array",
+      "description": "image_generate_batch 必填：同一 script_id 下各不相同的资产请求；每项独立 key，整批先校验后并发执行。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "本项独立的幂等键；批次顶层不使用 idempotency_key。未知结果必须用本项原 key 对账。"
+          },
+          "asset_name": {
+            "type": "string",
+            "description": "本项资产名；episode 与 asset_category 可组成规范名称。"
+          },
+          "asset_type": {
+            "type": "number",
+            "description": "1=角色，2=场景，3=道具；与 asset_category 二选一。",
+            "enum": [
+              1,
+              2,
+              3
+            ]
+          },
+          "asset_category": {
+            "type": "string",
+            "description": "资产类别；给 episode 时必填。",
+            "enum": [
+              "角色",
+              "场景",
+              "道具"
+            ]
+          },
+          "episode": {
+            "type": "string",
+            "description": "集号或全剧；按规范组合资产名。"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "本项图片提示词。"
+          },
+          "image_platform_id": {
+            "type": "string",
+            "description": "本项可选的实时通道 platformId；切换前核对授权、价格与旧任务。"
+          },
+          "references": {
+            "type": "array",
+            "description": "本项有序参考图 HTTPS URL。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parent_asset_id": {
+            "type": "number",
+            "description": "可选：重生成的父资产 ID；省略则新建。"
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "asset_name",
+          "prompt"
+        ]
+      }
     },
     "image_platform_id": {
       "type": "string",
@@ -3353,7 +3584,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
     },
     "idempotency_key": {
       "type": "string",
-      "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key：同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。"
+      "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。"
     }
   },
   "required": [
@@ -3362,7 +3593,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 }
 ```
 
-来源：[`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_watch`
 
@@ -3393,9 +3624,9 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 }
 ```
 
-来源：[`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
-每个计费的写入（`image_generate`、`generate`、`erase_subtitle`、`upscale`）都要求调用方给出 `idempotency_key`，并在请求离开前把 `intent` 记入账本；`erase_subtitle` 与 `upscale` 是异步的，提供方受理任务后立即返回，因此调用方应回读 `subtasks`，而不是在那次调用上等待。
+Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job.
 
 <a id="deepseek-aidsh-tool-shot-script"></a>
 

@@ -129,6 +129,8 @@ describe('desktop package-set selection', () => {
       'package/skills/audio-transcribe/scripts/transcribe.py',
       'package/skills/transcript-to-novel/SKILL.md',
       'package/skills/transcript-to-script/SKILL.md',
+      'package/skills/media-link-import/SKILL.md',
+      'package/skills/media-link-import/scripts/import_media.py',
     ]
     for (const required of files.slice(4)) {
       expect(() => { assertDesktopHostPackageFiles(files.filter(file => file !== required)) }).toThrow(required)

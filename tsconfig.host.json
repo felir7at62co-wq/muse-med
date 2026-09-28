@@ -439,6 +439,7 @@
     { "path": "./packages/jubian/tool-jubian/tsconfig.host.json" },
     { "path": "./packages/drama/tool-shot-script" },
     { "path": "./packages/drama/tool-bgm-compose" },
+    { "path": "./packages/drama/tool-audio-transcribe" },
     { "path": "./packages/drama/tool-episode-render" },
     { "path": "./packages/drama/tool-drama-assets" },
     { "path": "./packages/drama/drama-settings/tsconfig.host.json" },

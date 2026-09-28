@@ -40,6 +40,8 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   'skills/audio-transcribe/scripts/transcribe.py',
   'skills/transcript-to-novel/SKILL.md',
   'skills/transcript-to-script/SKILL.md',
+  'skills/media-link-import/SKILL.md',
+  'skills/media-link-import/scripts/import_media.py',
 ] as const
 
 /** Community packages built from pinned source, never substituted from the npm registry. */

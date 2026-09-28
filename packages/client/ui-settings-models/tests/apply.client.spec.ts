@@ -115,6 +115,16 @@ describe('ui-settings-models apply', () => {
     ])
   })
 
+  it('registers a Muse model readiness step after Muse account sign-in on desktop', async () => {
+    vi.stubGlobal('dshDesktop', { productName: 'muse-med' })
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(b.slots.entries('settings.onboarding').map(entry => entry.options.id)).toEqual(['muse-model'])
+    expect(b.slots.entries('settings.onboarding')[0]?.options.order).toBe(0)
+    await b.ctx.fiber.dispose()
+  })
+
   it('registers the models nav entry for declarations before or after apply', async () => {
     const before = await bench()
     declare(before.slots)

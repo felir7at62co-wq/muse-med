@@ -1,0 +1,105 @@
+import { randomUUID } from 'node:crypto'
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, expect, it } from 'vitest'
+import { MuseAsrError, type MuseAsrJob } from '@deepseek-ai/dsh-muse-account'
+import { finishAudioTranscription, startAudioTranscription, type AudioAccount } from '../src/runner.ts'
+
+const directories: string[] = []
+afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))) })
+const config = { ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', commandTimeoutMs: 1000, maxDurationSeconds: 18_000, maxAudioBytes: 1024 }
+
+async function setup() {
+  const project = await mkdtemp(join(tmpdir(), 'muse-audio-tool-'))
+  directories.push(project)
+  const input = join(project, 'source', 'clip.mp4')
+  await import('node:fs/promises').then(fs => fs.mkdir(join(project, 'source')))
+  await writeFile(input, 'video fixture')
+  let submits = 0, queries = 0, job: MuseAsrJob = { id: randomUUID(), status: 'processing' }
+  const account: AudioAccount = {
+    status: async () => ({ state: 'signed-in', username: 'alice', verified: false }),
+    submitAudio: async (_file, id) => { submits++; expect(await stat(join(project, 'transcript', 'jobs', 'clip-v1.json'))).toBeDefined(); job = { id, status: 'processing' }; return job },
+    audioStatus: async (id) => { queries++; return { ...job, id } },
+  }
+  return { project, input, account, setJob: (next: MuseAsrJob) => { job = next }, counts: () => ({ submits, queries }) }
+}
+
+it('saves an account-bound receipt before submit and publishes versioned timed outputs once', async () => {
+  const fixture = await setup()
+  const media = { probe: async () => 45, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+  expect(first.status).toBe('processing')
+  expect((await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)).job_id).toBe(first.job_id)
+  expect(fixture.counts().submits).toBe(1)
+  fixture.setJob({ id: first.job_id, status: 'complete', segments: [{ start: 1.25, end: 2.5, text: '你好' }] })
+  const done = await finishAudioTranscription(fixture.project, first.receipt, fixture.account)
+  expect(done.output_txt).toContain('clip-v1.txt')
+  expect(await readFile(done.output_txt!, 'utf8')).toBe('[00:00:01.250 --> 00:00:02.500] 你好\n')
+  expect(JSON.parse(await readFile(done.output_json!, 'utf8'))).toEqual([{ start: 1.25, end: 2.5, text: '你好' }])
+  expect((await finishAudioTranscription(fixture.project, first.receipt, fixture.account)).status).toBe('complete')
+  expect(fixture.counts().queries).toBe(1)
+  expect(await readdir(join(fixture.project, 'transcript', 'raw'))).toEqual(['clip-v1.json', 'clip-v1.txt'])
+})
+
+it.skipIf(process.platform === 'win32')('keeps staged audio, receipts, and published transcripts private on Unix', async () => {
+  const fixture = await setup()
+  const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8'))
+  for (const path of [join(fixture.project, 'transcript'), join(fixture.project, 'transcript', 'jobs')]) {
+    expect((await stat(path)).mode & 0o777).toBe(0o700)
+  }
+  for (const path of [receipt.mp3, first.receipt]) expect((await stat(path)).mode & 0o777).toBe(0o600)
+  fixture.setJob({ id: first.job_id, status: 'complete', segments: [{ start: 0, end: 1, text: 'speech' }] })
+  const done = await finishAudioTranscription(fixture.project, first.receipt, fixture.account)
+  expect((await stat(join(fixture.project, 'transcript', 'raw'))).mode & 0o777).toBe(0o700)
+  for (const path of [done.output_txt!, done.output_json!, first.receipt]) expect((await stat(path)).mode & 0o777).toBe(0o600)
+})
+
+it('keeps silent recognition as a receipt without creating an empty raw transcript', async () => {
+  const fixture = await setup()
+  const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+  fixture.setJob({ id: first.job_id, status: 'silent' })
+  expect((await finishAudioTranscription(fixture.project, first.receipt, fixture.account)).status).toBe('silent')
+  expect(await stat(join(fixture.project, 'transcript', 'raw')).then(() => true, () => false)).toBe(false)
+})
+
+it('removes expired uncertain audio while retaining its receipt and original job ID', async () => {
+  const fixture = await setup()
+  const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8'))
+  fixture.setJob({ id: first.job_id, status: 'uncertain', retentionExpired: true })
+  const pending = await finishAudioTranscription(fixture.project, first.receipt, fixture.account)
+  expect(pending.status).toBe('uncertain')
+  expect(pending.job_id).toBe(first.job_id)
+  expect(await stat(receipt.mp3).then(() => true, () => false)).toBe(false)
+  expect((await readFile(first.receipt, 'utf8'))).toContain(first.job_id)
+  expect(fixture.counts().submits).toBe(1)
+})
+
+it('does not query or publish a receipt after a different Muse account signs in', async () => {
+  const fixture = await setup()
+  const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+  const other: AudioAccount = { ...fixture.account, status: async () => ({ state: 'signed-in', username: 'bob', verified: false }) }
+  await expect(finishAudioTranscription(fixture.project, first.receipt, other)).rejects.toThrow('account that created')
+  expect(fixture.counts().queries).toBe(0)
+})
+
+it('queries a prepared receipt before retrying the identical idempotency key', async () => {
+  const fixture = await setup()
+  const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8'))
+  await writeFile(first.receipt, JSON.stringify({ ...receipt, status: 'prepared' }))
+  let used: string | undefined
+  const retry: AudioAccount = { ...fixture.account,
+    audioStatus: async () => { throw new MuseAsrError('job-not-found') },
+    submitAudio: async (_file, id) => { used = id; return { id, status: 'processing' } },
+  }
+  expect((await finishAudioTranscription(fixture.project, first.receipt, retry)).status).toBe('processing')
+  expect(used).toBe(first.job_id)
+})

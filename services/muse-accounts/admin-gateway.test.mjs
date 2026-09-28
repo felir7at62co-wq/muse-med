@@ -1,0 +1,31 @@
+import test from 'node:test';import assert from 'node:assert/strict';import http from 'node:http';
+import {mkdtemp,writeFile,rm} from 'node:fs/promises';import {join} from 'node:path';import {tmpdir} from 'node:os';
+import {openStore} from './store.mjs';import {openAdminAccess} from './admin-access.mjs';import {createAccountServer} from './gateway.mjs';
+const listen=s=>new Promise(r=>s.listen(0,'127.0.0.1',()=>r('http://127.0.0.1:'+s.address().port)));
+test('full administrator contexts preserve native UI and isolate targets, editors, expiry and credentials',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'muse-admin-http-'));const servers=[];t.after(async()=>{for(const s of servers){s.closeAllConnections();await new Promise(r=>s.close(r));}await rm(dir,{recursive:true,force:true});});
+ const store=await openStore(join(dir,'accounts'));const admin=await store.create('admin','pw',{admin:true}),editor=await store.create('editor','pw');
+ let now=Date.now();const adminAccess=await openAdminAccess(join(dir,'privileged'),{now:()=>now,ttlMs:1000});await adminAccess.configure('test-admin-secret');
+ const targets=new Map();for(const id of [admin.id,editor.id,'server']){const s=http.createServer((q,r)=>{if(q.url==='/bootstrap'){r.setHeader('set-cookie','native=private');r.end();}else if(q.url==='/'){r.setHeader('content-type','text/html');r.end('<html><head><script src="/batch.js"></script></head><body>Native DSH</body></html>');}else{r.setHeader('content-type','application/json');r.end(JSON.stringify({owner:id,url:q.url}));}});servers.push(s);const upstream=await listen(s),bootstrapPath=join(dir,id);await writeFile(bootstrapPath,upstream+'/bootstrap');targets.set(id,{upstream,bootstrapPath});}
+ const origin='https://muse.test',server=createAccountServer({store,runtime:{ensure:async id=>targets.get(id)},adminAccess,adminHosts:{server:targets.get('server')},publicOrigin:origin,now:()=>now});servers.push(server);const base=await listen(server);
+ const login=async username=>(await fetch(base+'/login',{method:'POST',headers:{origin},body:new URLSearchParams({username,password:'pw'}),redirect:'manual'})).headers.get('set-cookie').split(';')[0];
+ const cookie=await login('admin'),ec=await login('editor');const request=(path,{method='GET',body,c=cookie}={})=>fetch(base+path,{method,headers:{cookie:c,origin},body:body&&new URLSearchParams(body),redirect:'manual'});
+ assert.equal((await request('/admin/control')).status,200);assert.equal((await request('/admin/control',{c:ec})).status,403);
+ assert.equal((await request('/admin/control/open',{method:'POST',body:{target:'server'}})).status,403);
+ assert.equal((await request('/admin/control/unlock',{method:'POST',body:{password:'test-admin-secret'}})).status,303);
+ const catalog=await request('/admin');assert.equal(catalog.status,200);const listing=await catalog.text();assert.match(listing,new RegExp(editor.id));assert.match(listing,/>editor</);
+ assert.equal((await request('/admin',{c:ec})).status,403);
+ const main=await request('/');assert.equal(main.status,200);assert.match(await main.text(),/Native DSH/);
+ const open=async target=>{const r=await request('/admin/control/open',{method:'POST',body:{target}});assert.equal(r.status,303);return new URL(r.headers.get('location'),base).searchParams.get('muse_admin');};
+ const host=await open('server'),other=await open(editor.id);
+ assert.equal((await (await request('/api/session/list?muse_admin='+host)).json()).owner,'server');assert.equal((await (await request('/api/session/list?muse_admin='+other)).json()).owner,editor.id);
+ assert.equal((await (await request('/api/session/list')).json()).owner,admin.id);
+ assert.equal((await request('/api/session/list?muse_admin='+host,{c:ec})).status,403);
+ assert.equal((await request('/api/workspace/create?muse_admin='+host,{method:'POST',body:{path:'/tmp'}})).status,200);assert.equal((await request('/api/workspace/create',{method:'POST',body:{path:'/tmp'}})).status,403);
+ const identity=await(await request('/api/muse.account?muse_admin='+host)).json();assert.equal(identity.fullAdmin,true);assert.equal(identity.targetLabel,'服务器');assert.equal(identity.accountId,admin.id,'the client needs its own account id to recognise its own entry');
+ const html=await(await request('/?muse_admin='+host)).text();assert.match(html,/admin\/context-client.js/);assert.match(html,/Native DSH/);assert.match(html,/src="\/batch.js\?muse_admin=/);
+ const nginx=await new Promise((resolve,reject)=>{http.get(base+'/?muse_admin='+host,{headers:{cookie,connection:'upgrade'}},r=>{r.resume();r.on('end',()=>resolve(r.statusCode));}).on('error',reject);});assert.equal(nginx,200,'nginx hop-by-hop headers must not reach fetch');
+ const batch='/plugins/??@deepseek-ai/dsh-client-modules/client.js&rev=abc';const proxied=await(await request(batch+'&muse_admin='+host)).json();assert.equal(proxied.url,batch,'native combo URL must retain exact bytes');
+ now+=1001;assert.equal((await request('/api/session/list?muse_admin='+host)).status,403);
+ assert.equal((await request('/admin/control/open',{method:'POST',body:{target:'server'}})).status,403);
+});

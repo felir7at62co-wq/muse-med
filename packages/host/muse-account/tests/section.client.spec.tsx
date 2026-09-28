@@ -3,6 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MuseAccountSection, type MuseAccountInjected, type MuseAccountSectionProps } from '../src/client/MuseAccountSection.tsx'
+import { MuseAccountOnboarding } from '../src/client/MuseAccountOnboarding.tsx'
 import type { MuseAccountStatus, MuseAccountStatusRequest } from '../src/types.ts'
 
 afterEach(() => {
@@ -137,4 +138,16 @@ describe('MuseAccountSection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'retry' }))
     expect(await screen.findByRole('button', { name: 'signIn' })).toBeDefined()
   })
+})
+
+it('uses Muse sign-in to advance the desktop first-run flow', async () => {
+  const complete = vi.fn()
+  const account = props()
+  render(<MuseAccountOnboarding {...account} stepId="muse-account" complete={complete} openSection={vi.fn()} />)
+  expect(await screen.findByRole('dialog', { name: 'onboardingTitle' })).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('username'), { target: { value: 'writer' } })
+  fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
+  fireEvent.click(screen.getByRole('button', { name: 'signIn' }))
+  await waitFor(() => { expect(complete).toHaveBeenCalledOnce() })
+  expect(screen.queryByDisplayValue('private-password')).toBeNull()
 })

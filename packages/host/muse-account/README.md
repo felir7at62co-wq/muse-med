@@ -25,7 +25,7 @@ Sign in to MUSE from Desktop Settings, check the saved account, and sign out wit
 <a id="use-this-package"></a>
 ## Use this package
 
-In Muse Desktop, open **Settings → MUSE Account**. The page first shows the locally saved status; use **Verify status** to ask the gateway to confirm it. Enter a username and password to sign in. The registration choice starts clear; select it if you want MUSE to try creating that username after a failed sign-in. A successful request clears the password field.
+Muse Desktop offers MUSE sign-in before model setup on a blank first run; **Sign in later** leaves the account available from the sidebar and **Settings → MUSE Account**. The page first shows the locally saved status; use **Verify status** to ask the gateway to confirm it. Enter a username and password to sign in. The registration choice starts clear; select it if you want MUSE to try creating that username after a failed sign-in. A successful request clears the password field. This session grants knowledge-base and speech access; model providers and their credentials remain separate in Models settings.
 
 ### Minimal configuration
 
@@ -34,7 +34,7 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 ```yaml
 - name: '@deepseek-ai/dsh-muse-account'
   config:
-    baseUrl: https://dev.muse.aigc-pipeline.cn
+    baseUrl: https://muse.aigc-pipeline.cn
 ```
 
 | Field | Default | Meaning |
@@ -42,6 +42,7 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `baseUrl` | Required | HTTPS gateway origin; loopback HTTP is allowed for a local gateway. |
 | `accountHome` | Active DSH home | Absolute directory containing this product's account session file. |
 | `requestTimeoutMs` | 15,000 | Account and KB access request timeout in milliseconds, from 1,000 to 120,000. |
+| `asrRequestTimeoutMs` | 300,000 | Timeout for one compressed-audio upload and gateway response, from 10,000 to 1,800,000 milliseconds. |
 
 The [configuration catalog](../../../docs/config-catalog.md) is generated from plugin schemas. This package is included in the Desktop Host profile and is not a standalone application launcher.
 
@@ -56,6 +57,8 @@ The [configuration catalog](../../../docs/config-catalog.md) is generated from p
 The authenticated `museAccount` Remote namespace carries Settings calls to the Host account controller. The controller sends credentials to the configured gateway, confirms the returned identity, and atomically saves an origin-bound cookie in the product home. Its Remote responses contain fixed error categories and account identity, never the password or cookie.
 
 The Host starts a bundled local MCP child and waits for its tool discovery. The child reads the saved cookie when a knowledge-base tool runs, exchanges it for a short-lived bearer through `/api/kb/access`, and calls the same-origin read-only MCP endpoint. It does not persist or return the bearer. Search returns authorized IDs with `类型` and `标定` text; `read` pages through a granted source or Wiki document; `read_opening` accepts only a granted `SRC-...` source marked `标定: viral-script` and pages through its first 24,000 characters. The MCP client presents these tools in its generic text card; each read returns a 6,000-character page plus continuation metadata, and local failures return fixed codes without upstream response text.
+
+The Host-only `MuseAsrClient` reads the same saved account session for the `audio_transcribe` tool. It sends compressed audio and queries account-scoped job IDs through the gateway; no ASR or TOS credential setting appears in Desktop. Missing account login, gateway, or server ASR configuration has an explicit failure. The server deployment and task limits are documented in [`services/muse-accounts`](../../../services/muse-accounts/README.md).
 
 This package has no `./invariant`: the account status and registered MCP tools are available through their owning service and tool registry, with no independent observation that could diverge.
 

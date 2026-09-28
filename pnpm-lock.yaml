@@ -768,6 +768,9 @@ importers:
       '@deepseek-ai/dsh-skill-office':
         specifier: workspace:*
         version: link:../../packages/skill/skill-office
+      '@deepseek-ai/dsh-tool-audio-transcribe':
+        specifier: workspace:*
+        version: link:../../packages/drama/tool-audio-transcribe
       '@deepseek-ai/dsh-tool-bgm-compose':
         specifier: workspace:*
         version: link:../../packages/drama/tool-bgm-compose
@@ -7283,6 +7286,25 @@ importers:
         version: 18.3.1(react@18.3.1)
 
   packages/drama/skills: {}
+
+  packages/drama/tool-audio-transcribe:
+    dependencies:
+      '@deepseek-ai/dsh-muse-account':
+        specifier: workspace:*
+        version: link:../../host/muse-account
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:*
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:*
+        version: link:../../core/tools
 
   packages/drama/tool-bgm-compose:
     dependencies:

@@ -178,6 +178,26 @@ export interface ImageRequestInput {
 }
 
 /**
+ * Validate the local fields of a paid image request without reading the account catalogue.
+ * @param input - Caller-supplied image identity, prompt and reference URLs.
+ */
+export function validateImageRequestInput(input: ImageRequestInput): void {
+  positive(input.scriptId)
+  text(input.assetName)
+  positive(input.assetType)
+  text(input.prompt, true)
+  if (input.parentAssetId !== undefined) positive(input.parentAssetId)
+  if (!Array.isArray(input.references)) invalid()
+  for (const materialUrl of input.references) {
+    if (typeof materialUrl !== 'string') invalid()
+    let url: URL
+    try { url = new URL(materialUrl) } catch { return invalid() }
+    if (!materialUrl.startsWith('https://') || /[\s\\]/.test(materialUrl) || materialUrl.includes('#')
+      || url.protocol !== 'https:' || !url.hostname || url.username || url.password) invalid()
+  }
+}
+
+/**
  * Build the exact `/aigc/asset` body.
  * @param input - Caller-supplied identity, prompt and ordered reference URLs.
  * @param catalogue - Live `taskType=2` catalogue.
@@ -186,19 +206,15 @@ export interface ImageRequestInput {
  */
 export function buildImageRequest(input: ImageRequestInput, catalogue: unknown,
   selection: ImageModelSelection = {}): Record<string, unknown> {
+  validateImageRequestInput(input)
   const { resolution, ...selectors } = resolveImageModel(catalogue, selection)
-  const references = input.references.map((materialUrl, index) => {
-    let url: URL
-    try { url = new URL(materialUrl) } catch { return invalid() }
-    if (!materialUrl.startsWith('https://') || /[\s\\]/.test(materialUrl) || materialUrl.includes('#')
-      || url.protocol !== 'https:' || !url.hostname || url.username || url.password) invalid()
-    return { materialUrl, materialType: 'image', sortOrder: index + 1 }
-  })
+  const references = input.references.map((materialUrl, index) =>
+    ({ materialUrl, materialType: 'image', sortOrder: index + 1 }))
   const config = { ...selectors, duration: 1, resolution, ratio: '16:9', genNum: 1, backupModelList: [],
-    prompt: text(input.prompt, true), style: 0, materialList: references, quality: '' }
-  return { scriptId: positive(input.scriptId), assetName: text(input.assetName), assetType: positive(input.assetType),
+    prompt: input.prompt, style: 0, materialList: references, quality: '' }
+  return { scriptId: input.scriptId, assetName: input.assetName, assetType: input.assetType,
     modelConfig: JSON.stringify(config), isLocal: 0, isGenerate: 1,
-    ...(input.parentAssetId === undefined ? {} : { id: positive(input.parentAssetId) }) }
+    ...(input.parentAssetId === undefined ? {} : { id: input.parentAssetId }) }
 }
 
 /**

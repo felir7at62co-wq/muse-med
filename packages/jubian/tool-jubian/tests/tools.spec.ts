@@ -47,7 +47,7 @@ describe('tool-jubian registration', () => {
   it('registers the domain tools and background watcher', async () => {
     const tools = (await mount()).registered
     expect(tools.map(tool => tool.name).sort()).toEqual(
-      ['jubian_asset', 'jubian_catalog', 'jubian_find', 'jubian_media', 'jubian_model', 'jubian_organize', 'jubian_storyboard', 'jubian_video', 'jubian_watch'])
+      ['jubian_asset', 'jubian_catalog', 'jubian_claim', 'jubian_find', 'jubian_media', 'jubian_model', 'jubian_organize', 'jubian_snatch', 'jubian_storyboard', 'jubian_video', 'jubian_watch'])
   })
 
   it('states the paid and side-effecting nature in the description itself', async () => {
@@ -66,6 +66,10 @@ describe('tool-jubian registration', () => {
     expect(byName.get('jubian_organize')).toContain('不重命名、不移动')
     // Reorganizing is the user's decision, so the rule travels with the schema.
     expect(byName.get('jubian_asset')).toContain('批量改名或搬家前必须先取得用户明确同意')
+    expect(byName.get('jubian_claim')).toContain('canClaim=1')
+    expect(byName.get('jubian_claim')).toContain('明确授权')
+    expect(byName.get('jubian_snatch')).toContain('明确授权')
+    expect(byName.get('jubian_snatch')).toContain('重启不恢复')
   })
 
   it('describes resolution hints without authorizing paid upscale', async () => {
@@ -95,7 +99,11 @@ describe('tool-jubian registration', () => {
 
     const video = byName.get('jubian_video')!
     expect((video.properties as Record<string, { enum?: string[] }>).method!.enum)
-      .toEqual(['task', 'tasks', 'subtasks', 'unresolved', 'image_generate', 'upscale', 'retry'])
+      .toEqual(['task', 'tasks', 'subtasks', 'unresolved', 'image_generate', 'image_generate_batch', 'upscale', 'retry'])
+    expect((video.properties as Record<string, Record<string, unknown>>).items).toMatchObject({
+      type: 'array', items: { type: 'object', additionalProperties: false,
+        required: ['idempotency_key', 'asset_name', 'prompt'] },
+    })
 
     const asset = byName.get('jubian_asset')!
     expect((asset.properties as Record<string, { enum?: string[] }>).method!.enum)
@@ -126,13 +134,14 @@ describe('tool-jubian registration', () => {
     // three methods and their arguments must be visible in the schema.
     expect((storyboard.properties as Record<string, { enum?: string[] }>).method!.enum)
       .toEqual(['get', 'create', 'save', 'generate', 'select_assets', 'prepare_video', 'submit_video',
-        'erase_subtitle'])
+        'submit_video_batch', 'erase_subtitle'])
     expect((storyboard.properties as Record<string, Record<string, unknown>>).selections!).toMatchObject(
       { type: 'array',
         items: { type: 'object', additionalProperties: false, required: ['material_key', 'asset_id'] } })
     const storyboardKeys = Object.keys(storyboard.properties as Record<string, unknown>).sort()
     expect(storyboardKeys).toContain('project_dir')
     expect(storyboardKeys).toContain('preview_path')
+    expect(storyboardKeys).toContain('video_previews')
     expect(storyboardKeys).toContain('package_number')
     expect(storyboardKeys).toContain('episode')
     // The category decides the name segment and the asset library, so the schema

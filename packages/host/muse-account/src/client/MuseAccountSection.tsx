@@ -24,6 +24,7 @@ export interface MuseAccountInjected {
 export type MuseAccountSectionProps = PropsRuntime<'settings.section'>
   & PropsLocale<'settings.museAccount'>
   & InjectFace<MuseAccountInjected>
+  & { onSignedIn?: () => void }
 
 const ERROR_COPY: Record<string, MuseAccountLocaleKey> = {
   'muse-account/invalid-input': 'error.invalidInput',
@@ -41,7 +42,7 @@ const ERROR_COPY: Record<string, MuseAccountLocaleKey> = {
  * @returns the page element tree.
  */
 export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
-  const { t, status, login, logout } = props
+  const { t, status, login, logout, onSignedIn } = props
   const [account, setAccount] = useState<MuseAccountStatus | undefined>(undefined)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -53,7 +54,10 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
     let current = true
     void status({ verify: false }).then((result) => {
       if (!current) return
-      if (result.ok) setAccount(result.value)
+      if (result.ok) {
+        setAccount(result.value)
+        if (result.value.state === 'signed-in') onSignedIn?.()
+      }
       else setNotice(ERROR_COPY[result.code] ?? 'error.generic')
     }).catch(() => { if (current) setNotice('error.generic') })
     return () => { current = false }
@@ -82,6 +86,7 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
       const result = await login({ username: username.trim(), password, registerIfMissing })
       if (result.ok) {
         setAccount(result.value.status)
+        onSignedIn?.()
         setRegisterIfMissing(false)
         setNotice(result.value.outcome === 'registered' ? 'registered' : 'signedIn')
       } else {

@@ -70,6 +70,8 @@ import type PluginManager from '@deepseek-ai/dsh-plugin-manager'
 import * as PluginManagerTools from '@deepseek-ai/dsh-plugin-manager/tools'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import * as ToolJubian from '@deepseek-ai/dsh-tool-jubian'
+import * as ToolAudioTranscribe from '@deepseek-ai/dsh-tool-audio-transcribe'
+import type { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
 import * as ToolShotScript from '@deepseek-ai/dsh-tool-shot-script'
 import * as ToolBgmCompose from '@deepseek-ai/dsh-tool-bgm-compose'
 import * as PerceptionBgm from '@deepseek-ai/dsh-perception-bgm'
@@ -263,6 +265,21 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'ask_user_question pauses the tool call until the active UI provider returns a human answer.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-audio-transcribe',
+    dir: 'tool-audio-transcribe',
+    source: 'packages/drama/tool-audio-transcribe/src/index.ts',
+    requires: ['ctx.tools', 'ctx.museAccount', 'FFmpeg and FFprobe on PATH (or configured)'],
+    writes: ['tool/call', 'tool/result', 'transcript/jobs task receipt', 'transcript/raw timed TXT and JSON when complete'],
+    async mount(ctx) {
+      ctx.provide('museAccount', {} as MuseAccountService)
+      await ctx.plugin(ToolAudioTranscribe)
+    },
+    note:
+      '`start` submits compressed speech under the signed-in Muse account and returns a project receipt; '
+      + '`status` checks that receipt and publishes timed TXT and JSON when recognition completes. '
+      + 'The same tool is available in every Muse mode, with provider credentials held by the account gateway.',
   },
   {
     pkg: '@deepseek-ai/dsh-tools',
@@ -683,7 +700,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-jubian',
     dir: 'tool-jubian',
     source: 'packages/jubian/tool-jubian/src/index.ts',
-    requires: ['ctx.tools', 'ctx.credentials'],
+    requires: ['ctx.tools', 'ctx.credentials', 'ctx.jobs for jubian_snatch'],
     writes: ['tool/call', 'tool/result', 'Jubian two-phase write ledger (NDJSON record pairs under its configured root)'],
     async mount(ctx) {
       // The row injects `credentials`: it resolves JUBIANAI_ADMIN_TOKEN on every
@@ -697,8 +714,11 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolJubian, { ledgerRoot: join(tmpdir(), 'dsh-tool-catalog', 'jubian-ledger') })
     },
     note:
-      'Every paid write (image_generate, generate, erase_subtitle, upscale) requires a caller-supplied idempotency_key and records its intent in the ledger before the request leaves; '
-      + 'erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call.',
+      'Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; '
+      + 'image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; '
+      + 'submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; '
+      + 'erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. '
+      + '`jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-shot-script',
