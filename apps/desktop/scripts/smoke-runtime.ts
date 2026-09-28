@@ -22,8 +22,9 @@ export function desktopSmokePluginSource(root: string, home: string): string {
 import { Context } from '@deepseek-ai/cordis'
 import { existsSync, realpathSync, writeFileSync } from 'node:fs'
 import { join, relative, isAbsolute } from 'node:path'
-export const inject = ['agentPresets', 'agents', 'agentLoop', 'tools', 'skills', 'credentials']
-export async function apply(ctx) {
+export const inject = ['agentPresets', 'agents', 'agentLoop', 'tools', 'skills', 'credentials', 'webServer']
+export function apply(ctx) {
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-product-smoke', handler: async (_request, response) => {
   if (!(ctx instanceof Context)) throw new Error('desktop runtime: external plugin loaded another Cordis instance')
   const root = ${JSON.stringify(root)}
   const home = ${JSON.stringify(home)}
@@ -31,7 +32,7 @@ export async function apply(ctx) {
   const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis']
   const presets = await ctx.agentPresets.list()
   if (presets.length !== ids.length || ids.some(id => !presets.some(preset => preset.id === id))) {
-    throw new Error('desktop runtime: expected exactly the five product presets')
+    throw new Error('desktop runtime: expected exactly the five product presets; found ' + presets.map(preset => preset.id).join(', '))
   }
   if (ctx.agentPresets.defaultId !== 'short-drama') throw new Error('desktop runtime: product default preset changed')
   const inventory = await ctx.agentPresets.compositionInventory()
@@ -40,7 +41,7 @@ export async function apply(ctx) {
   const expected = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'presets', id, 'agent.cordis.yml')
   const composition = inventory.find(row => row.id === id)
   if (preset.broken !== undefined || !existsSync(expected) || composition === undefined || composition.rows.length === 0) {
-    throw new Error('desktop runtime: preset is broken or missing from the product package: ' + id)
+    throw new Error('desktop runtime: preset is broken or missing from the product package: ' + id + '; ' + (preset.broken ?? 'composition absent'))
   }
   const handles = []
   try {
@@ -56,8 +57,13 @@ export async function apply(ctx) {
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
       'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'read', 'present',
-      process.platform === 'win32' ? 'pwsh' : 'bash'] : ['read', 'skill', shell, 'subagent']
+      process.platform === 'win32' ? 'pwsh' : 'bash'] : id === 'minimal' ? [shell] : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
+    if (id === 'minimal') {
+      const inherited = new Set(ctx.tools.schemas().map(tool => tool.name))
+      const local = [...names].filter(name => !inherited.has(name))
+      if (local.length !== 1 || local[0] !== shell) throw new Error('desktop runtime: minimal must add only its persistent shell; found ' + local.join(', '))
+    }
     if (id === 'ptc' && (!names.has('run_code') || names.has('workflow'))) throw new Error('desktop runtime: PTC tool presentation is incomplete')
     const skills = await ctx.skills.list({ scope: handle.agent, cwd: home })
     const custom = skills.find(skill => skill.name === 'desktop-user-skill')
@@ -88,10 +94,13 @@ export async function apply(ctx) {
   }
   }
   writeFileSync(join(home, '.desktop-product-smoke-complete'), 'ok\\n', { flag: 'wx' })
+  response.end('ok')
   } catch (error) {
     writeFileSync(join(home, '.desktop-product-smoke-error'), String(error && error.stack ? error.stack : error), { flag: 'wx' })
-    throw error
+    response.statusCode = 500
+    response.end(String(error && error.stack ? error.stack : error))
   }
+  } }))
 }
 `
 }
@@ -200,7 +209,8 @@ export function apply(ctx) {
       dsh: { profile: { bundles: string[] } }
     }
     manifest.dependencies[pluginName] = '1.0.0'
-    manifest.dsh.profile.bundles.push(pluginName)
+    manifest.dependencies[productPluginName] = '1.0.0'
+    manifest.dsh.profile.bundles.push(pluginName, productPluginName)
     writeFileSync(join(profile, 'package.json'), JSON.stringify(manifest))
     writeFileSync(join(profile, 'cordis.patch.yml'), '- id: webserver\n  config:\n    host: 127.0.0.1\n    port: 0\n')
     linkDesktopHostPackages(profile, root, runtime)
@@ -209,12 +219,22 @@ export function apply(ctx) {
       timer = setTimeout(() => { reject(new Error('desktop runtime: Host readiness exceeded 120 seconds')) }, 120_000)
     })])
     clearTimeout(timer)
-    if (!existsSync(join(home, '.desktop-product-smoke-complete'))) {
+    // Preset contributors have settled only after Host readiness, not during fixture activation.
+    const productSmoke = await fetch(new URL('/desktop-product-smoke', ready.url), { signal: AbortSignal.timeout(120_000) })
+    await productSmoke.text()
+    if (!productSmoke.ok || !existsSync(join(home, '.desktop-product-smoke-complete'))) {
       const failure = existsSync(join(home, '.desktop-product-smoke-error'))
         ? readFileSync(join(home, '.desktop-product-smoke-error'), 'utf8').trim()
         : 'no activation error was recorded'
       throw new Error(`desktop runtime: product preset smoke did not complete: ${failure}`)
     }
+    const hostUrl = new URL(ready.url)
+    if (hostUrl.protocol !== 'http:' || hostUrl.hostname !== '127.0.0.1' || Number(hostUrl.port) <= 0) {
+      throw new Error('desktop runtime: Host must report an assigned loopback HTTP port')
+    }
+    const unauthenticated = await fetch(new URL('/api/settings/describe', hostUrl))
+    await unauthenticated.body?.cancel()
+    if (![401, 403].includes(unauthenticated.status)) throw new Error('desktop runtime: unauthenticated API access was not rejected')
     const login = await fetch(ready.url, { redirect: 'manual' })
     const cookie = login.headers.getSetCookie().map(value => value.split(';')[0]).join('; ')
     const response = await fetch(new URL('/', ready.url), { headers: { cookie } })

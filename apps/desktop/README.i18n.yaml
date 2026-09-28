@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
 /muse-med-desktop:
-  en: 91c2272fc44c8598
-  zh: 8be8e0790a42f0e4
+  en: 441aa3f918bca6fe
+  zh: 3545f1fa87638c68
 /muse-med-desktop/key-technical-decisions:
   en: 069fdfd72d2ea26a
   zh: 76ae549d43c99bb4
 /muse-med-desktop/key-technical-decisions/bundled-workspace-dependencies:
-  en: c31415adaf46726c
-  zh: 8cacda98cc5624b1
+  en: f1e1920ff40d58d1
+  zh: 68e783d542a12610
 /muse-med-desktop/installation-ownership:
   en: a64ee2b07f03a54b
   zh: 4c9b6724452d909d
@@ -18,8 +18,8 @@
   en: 0dc82b34924fc148
   zh: e0a8cf7fb74d5432
 /muse-med-desktop/installation-ownership/runtime-and-plugin-activation:
-  en: 02e25b879a8f2a3f
-  zh: 758f02afca8288af
+  en: 36afc548e60433a7
+  zh: 9a80fc10e01c8c46
 /muse-med-desktop/develop:
   en: d671eb5af7956ef1
   zh: a64fa6dbb71df970

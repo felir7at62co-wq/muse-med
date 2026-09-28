@@ -81,7 +81,14 @@ function fixture() {
   const names = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video',
     'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
     'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'read', 'present', process.platform === 'win32' ? 'pwsh' : 'bash']
+  type SmokeResponse = { statusCode: number; end(text: string): void }
+  let route: { path: string; handler(request: object, response: SmokeResponse): Promise<void> } | undefined
   class TestContext {
+    webServer = { register: vi.fn((value: NonNullable<typeof route>) => {
+      route = value
+      return () => { route = undefined }
+    }) }
+    effect(acquire: () => () => void) { return acquire() }
     agentPresets = {
       defaultId: 'short-drama',
       list: vi.fn(async () => ids.map(id => ({ id }))),
@@ -93,7 +100,8 @@ function fixture() {
       await options.setup(agentCtx)
       return { agent: options.meta.agentPreset === 'short-drama' ? agent : { preset: options.meta.agentPreset }, dispose }
     }) }
-    tools = { schemas: vi.fn((key: { preset: string }) => {
+    tools = { schemas: vi.fn((key?: { preset: string }) => {
+      if (key === undefined) return []
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
       return (key.preset === 'short-drama' ? names
         : key.preset === 'minimal' ? [shell]
@@ -106,11 +114,29 @@ function fixture() {
   const source = desktopSmokePluginSource(root, home)
   expect(source).toMatch(/export const inject = \[[^\]]*'credentials'/u)
   const body = source.replace(/^import .*$/gmu, '').replace(/^export /gmu, '')
-  const apply = runInNewContext(`${body}\napply`, {
+  const register = runInNewContext(`${body}\napply`, {
     Context: TestContext, existsSync, realpathSync, writeFileSync, join, relative, isAbsolute, process: { platform: process.platform },
-  }) as (ctx: TestContext) => Promise<void>
-  return { ctx: new TestContext(), apply, agent, agentCtx, mount, dispose, names, skills, skillRoot, home }
+  }) as (ctx: TestContext) => void
+  const request = async () => {
+    if (route === undefined) throw new Error('smoke route was not registered')
+    expect(route.path).toBe('/desktop-product-smoke')
+    let text = ''
+    const response = { statusCode: 200, end(value: string) { text = value } }
+    await route.handler({}, response)
+    if (response.statusCode !== 200) throw new Error(text)
+  }
+  const apply = async (ctx: TestContext) => { register(ctx); await request() }
+  return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names, skills, skillRoot, home }
 }
+
+it('defers preset checks until the Host-ready caller requests them', async () => {
+  const f = fixture()
+  f.register(f.ctx)
+  expect(f.ctx.agents.create).not.toHaveBeenCalled()
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+  await f.request()
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(10)
+})
 
 it('awaits full preset mounting and reads agent-scoped tools and bundled skills before disposal', async () => {
   const f = fixture()
@@ -121,6 +147,16 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(f.dispose).toHaveBeenCalledTimes(10)
   expect(f.ctx.agents.create).toHaveBeenCalledTimes(10)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+})
+
+it('rejects extra agent-local tools in the minimal preset', async () => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'minimal'
+    ? [{ name: process.platform === 'win32' ? 'pwsh' : 'bash' }, { name: 'read' }]
+    : schemas(key))
+  await expect(f.apply(f.ctx)).rejects.toThrow('minimal must add only its persistent shell')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
 it('rejects Host readiness when the private preset smoke never completes', async () => {

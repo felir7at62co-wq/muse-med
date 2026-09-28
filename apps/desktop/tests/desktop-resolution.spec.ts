@@ -2,14 +2,21 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
 import { expect, it } from 'vitest'
 import { createRuntimeResolution, PluginPackages } from '@deepseek-ai/dsh-app-boot'
 import { Context } from '@deepseek-ai/cordis'
 
+it('exposes the Host manifest used by the Cordis preset skill directory', () => {
+  const manifest = new URL('../../desktop-host/package.json', import.meta.url)
+  expect(createRequire(manifest).resolve('@deepseek-ai/dsh-desktop-host/package.json')).toBe(fileURLToPath(manifest))
+})
+
 it('routes product preset packages from the complete runtime dependency closure, not a CLI or Host subgraph', async () => {
   const source = readFileSync(new URL('../../desktop-host/src/index.ts', import.meta.url), 'utf8')
-  expect(source).toMatch(/createRuntimeResolution\(\{\s*installAnchor: join\(absoluteRuntime, 'package.json'\)/u)
+  expect(source).toContain("const installAnchor = join(runtimeDir, 'package.json')")
+  expect(source).toContain('resolvedProfile: { profile, installAnchor }')
   const root = mkdtempSync(join(tmpdir(), 'desktop-resolution-'))
   try {
     const host = JSON.parse(readFileSync(new URL('../../desktop-host/package.json', import.meta.url), 'utf8')) as { name: string; dependencies: Record<string, string> }

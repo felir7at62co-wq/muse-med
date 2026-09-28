@@ -51,6 +51,7 @@
   },
   "exports": {
     ".": "./lib/index.js",
-    "./native-preset": "./lib/native-preset.js"
+    "./native-preset": "./lib/native-preset.js",
+    "./package.json": "./package.json"
   }
 }

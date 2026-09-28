@@ -1,4 +1,4 @@
-# Electron reuses the browser composition without its network and browser-launch rows.
+# Electron reuses the authenticated Web composition on an OS-assigned loopback port.
 
 # The product speaks for itself: the harness identity line would tell every agent it
 # is powered by the upstream harness, and a model repeats that to the team. The base
@@ -41,13 +41,24 @@
     includeDefaultRoots: false
 
 - id: web-startup
-  disabled: true
+  disabled: false
 
 - id: webserver
-  disabled: true
+  disabled: false
+  config:
+    host: 127.0.0.1
+    port: 0
+    compression: gzip
+    compressionLevel: 1
+    compressionThresholdBytes: 1024
 
 - id: web-runtime
-  disabled: true
+  disabled: false
+  config:
+    openBrowser: false
+    printUrl: false
+    surfaceContext: false
+    trustedHosts: []
 
 - id: client-hmr
   disabled: true
