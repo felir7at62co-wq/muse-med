@@ -416,6 +416,7 @@ beforeEach(() => {
   })
   vi.spyOn(console, 'error').mockImplementation(() => {})
   vi.spyOn(console, 'info').mockImplementation(() => {})
+  vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
   vi.stubEnv('DSH_DESKTOP_PNPM_ENTRY', 'test-pnpm')
   vi.stubEnv('DSH_DESKTOP_DSH_DIR', 'test-runtime')
   vi.stubEnv('DSH_DESKTOP_PRIMARY_RUNTIME_DIR', 'test-primary-runtime')
@@ -748,7 +749,8 @@ describe('desktop main startup', () => {
     expect((await handler(new Request('dsh-app://foreign/index.html'))).status).toBe(404)
   })
 
-  it('offers the desktop plugin manager from the packaged application menu', async () => {
+  it('offers the desktop plugin manager from the packaged Linux application menu', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
     await import('../src/main.ts')
     await harness.preparing.promise
     expect(harness.menu.setApplicationMenu).toHaveBeenCalledTimes(1)
@@ -756,13 +758,15 @@ describe('desktop main startup', () => {
       label: string
       submenu: { label?: string; accelerator?: string; click?: () => void }[]
     }[]
-    expect(template.map(item => item.label)).toEqual(['Application'])
-    expect(template[0]?.submenu[0]).toMatchObject({ label: 'Desktop Plugins…', accelerator: 'CmdOrCtrl+,' })
-    template[0]?.submenu[0]?.click?.()
+    expect(template[0]?.label).toBe('Application')
+    const plugins = template[0]?.submenu.find(item => item.label === en.pluginsMenu)
+    expect(plugins).toMatchObject({ label: 'Desktop Plugins…', accelerator: 'CmdOrCtrl+,' })
+    plugins?.click?.()
     expect(harness.windows.at(-1)?.urls.at(-1)).toBe('dsh-app://shell/plugin-manager.html')
   })
 
-  it('opens repository links only from the plugin popup and denies arbitrary protocols', async () => {
+  it('relays macOS fullscreen changes and resends the state after reload', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     await import('../src/main.ts')
     await harness.preparing.promise
     const window = harness.windows[0]!
@@ -813,8 +817,9 @@ describe('desktop main startup', () => {
     expect(window.setBackgroundColor).not.toHaveBeenCalled()
   })
 
-  it('follows the Windows primary document language and palette without trusting other frames', async () => {
+  it('uses the explicit product home on Windows', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    vi.stubEnv('MUSE_MED_HOME', 'muse test home')
     await import('../src/main.ts')
     await harness.preparing.promise
     expect(process.env.DSH_HOME).toBe(resolve('muse test home'))
