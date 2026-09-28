@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-feishu-settings",
   "description": "Feishu bridge setup for the product home: the feishu switch row, QR app registration, and the Web Settings page that drives the bridge row's activation key",
-  "version": "0.1.6-alpha.3",
+  "version": "0.1.7-rc.1",
   "publishConfig": {
     "access": "public"
   },
