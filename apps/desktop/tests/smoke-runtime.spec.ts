@@ -7,7 +7,7 @@ import { desktopSmokePluginSource, smokeDesktopRuntime } from '../scripts/smoke-
 import { DesktopHostProcess } from '../src/host-process.ts'
 import { runtimeFixture } from './runtime-fixture.ts'
 
-vi.mock('../src/profile-packages.ts', () => ({ linkDesktopHostPackages: vi.fn(), validateDesktopPluginGraph: vi.fn() }))
+vi.mock('../src/profile-packages.ts', () => ({ recordDesktopRuntimeProfile: vi.fn(), validateDesktopPluginGraph: vi.fn() }))
 
 // The Office-conversion fixture script and the Host startup are the two halves of
 // this smoke; only the Host startup is under test, so the interpreter call is

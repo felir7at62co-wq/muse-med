@@ -186,6 +186,7 @@ interface RuntimeResources {
   readonly node: string
   readonly pnpm: string
   readonly dsh: string
+  readonly profileResolution: 'runtime'
 }
 
 function runtimeResources(): RuntimeResources {
@@ -197,7 +198,7 @@ function runtimeResources(): RuntimeResources {
       : join(process.resourcesPath, 'runtime', 'pnpm', 'bin', 'pnpm.mjs'))
   const dsh = (development ? process.env.DSH_DESKTOP_DSH_DIR : undefined)
     ?? (development ? join(app.getAppPath(), '.desktop-build', 'development', 'project') : join(app.getAppPath(), 'dsh'))
-  return { node, nodeBin, pnpm, dsh }
+  return { node, nodeBin, pnpm, dsh, profileResolution: 'runtime' }
 }
 
 function developmentPrimaryRuntime(): string {

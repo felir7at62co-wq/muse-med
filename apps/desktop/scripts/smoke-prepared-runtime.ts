@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
+import { runConcurrent } from '../../../scripts/release/process.ts'
 import { runtimeArchivePath } from '../../desktop-host/src/office-engine.ts'
 import { desktopNodeEnvironment } from '../src/node-environment.ts'
 import type { DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
@@ -12,7 +13,8 @@ import { smokeDesktopRuntime } from './smoke-runtime.ts'
 import { verifyRuntimeArchive } from './verify-runtime-archive.ts'
 
 /**
- * Exercise real runtime files and Host composition, including an ASAR root when packaged.
+ * Exercise real runtime files and Host composition from plain Node.
+ * ASAR bytes are verified here; archived profile preparation runs under the target Electron filesystem.
  * @param root Prepared or archived dsh directory.
  * @param node Target Electron executable.
  * @param resourcesRuntime External runtime directory beside the archive.
@@ -33,7 +35,10 @@ export async function smokePreparedRuntime(
     ], { timeout: 120_000, windowsHide: true,
       env: desktopNodeEnvironment(node, join(resourcesRuntime, 'bin'), environment) })
     process.stdout.write(stdout)
-    await smokeDesktopRuntime(root, node, descriptor, environment, resourcesRuntime)
+    if (archive === undefined) await smokeDesktopRuntime(root, node, descriptor, environment, resourcesRuntime)
+    else await runConcurrent(node, [
+      '--import', import.meta.resolve('tsx/esm'), resolve(import.meta.dirname, 'smoke-runtime.ts'), root, node, resourcesRuntime,
+    ], { env: desktopNodeEnvironment(node, join(resourcesRuntime, 'bin'), environment) })
   } finally {
     await rm(cache, { recursive: true, force: true })
   }
