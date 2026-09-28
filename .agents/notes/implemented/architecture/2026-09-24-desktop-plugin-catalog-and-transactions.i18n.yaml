@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-24-desktop-plugin-catalog-and-transactions.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-24-desktop-plugin-catalog-and-transactions.md
-2026-09-24-desktop-plugin-catalog-and-transactions.md: 73904391bfae298164537b31a181462429f81146
-2026-09-24-desktop-plugin-catalog-and-transactions.zh.md: 3de6c291570bad98e2d5711835dd49fe58af920a
+/agent-note-separate-bundled-inventory-from-installable-plugins-in-the-desktop-shell:
+  en: a19a612785dc2575
+  zh: 54cd764d882c8b93
+/agent-note-separate-bundled-inventory-from-installable-plugins-in-the-desktop-shell/problem:
+  en: 8767629de3f65935
+  zh: c196edb00db6f628
+/agent-note-separate-bundled-inventory-from-installable-plugins-in-the-desktop-shell/decision:
+  en: 3bc3c91e9b817376
+  zh: 4e4aaa156a61fcc1
+/agent-note-separate-bundled-inventory-from-installable-plugins-in-the-desktop-shell/alternatives-considered:
+  en: 635b02cb443cec69
+  zh: a17b9aa2e727b542
+/agent-note-separate-bundled-inventory-from-installable-plugins-in-the-desktop-shell/consequences:
+  en: e623e508a7988c40
+  zh: 34910250e898cdf0

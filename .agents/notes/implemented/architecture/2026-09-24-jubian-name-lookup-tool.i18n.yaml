@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-24-jubian-name-lookup-tool.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-24-jubian-name-lookup-tool.md
-2026-09-24-jubian-name-lookup-tool.md: bb03557a111820cee804fcc7c3aaeec8597c871f
-2026-09-24-jubian-name-lookup-tool.zh.md: 736e14d35c950020e7ddb01aeb90797f0bfe2f6d
+/agent-note-look-up-a-jubian-screenplay-by-name-in-the-existing-tool-package:
+  en: 55eba38733ca8416
+  zh: a2b6ed4e32277115
+/agent-note-look-up-a-jubian-screenplay-by-name-in-the-existing-tool-package/problem:
+  en: 5dd9c7d1e874a132
+  zh: 375b412836b54cf7
+/agent-note-look-up-a-jubian-screenplay-by-name-in-the-existing-tool-package/decision:
+  en: d0dd190aac9a1fa1
+  zh: 34b00297deadfd9a
+/agent-note-look-up-a-jubian-screenplay-by-name-in-the-existing-tool-package/alternatives-considered:
+  en: 71eb5c900a2a3105
+  zh: 0d68c2c26e0bde26
+/agent-note-look-up-a-jubian-screenplay-by-name-in-the-existing-tool-package/consequences:
+  en: 1d34a66186274fbc
+  zh: 2fa46c96f7bdee5a
+/agent-note-look-up-a-jubian-screenplay-by-name-in-the-existing-tool-package/testing:
+  en: 8ed2d63829b1b92a
+  zh: 6315722122ff8503

@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-19-drama-shot-gate-tool.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-19-drama-shot-gate-tool.md
-2026-09-19-drama-shot-gate-tool.md: 0ca8082e77385742e9741ced200192460a0af77e
-2026-09-19-drama-shot-gate-tool.zh.md: f630add0ddfe4d257d64a8424e46c870b3db13c3
+/agent-note-short-drama-shot-script-gate-as-a-tool:
+  en: 4fd1eda5648921fb
+  zh: d9e4156ffd66f907
+/agent-note-short-drama-shot-script-gate-as-a-tool/problem:
+  en: 8588faa683fe5967
+  zh: b3b353ce1e47959d
+/agent-note-short-drama-shot-script-gate-as-a-tool/decision:
+  en: 56288c8a26ca5d2a
+  zh: ce0718ba4f2550eb
+/agent-note-short-drama-shot-script-gate-as-a-tool/alternatives-considered:
+  en: df9063cb688a34f7
+  zh: 0a7e920afb2868bc
+/agent-note-short-drama-shot-script-gate-as-a-tool/consequences:
+  en: 915665d03149032b
+  zh: 92179cc846439388
+/agent-note-short-drama-shot-script-gate-as-a-tool/testing:
+  en: eb010d03e26095d6
+  zh: 76d668197549f983

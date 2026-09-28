@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-28-subtitle-outline-and-decode-verification.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-28-subtitle-outline-and-decode-verification.md
-2026-09-28-subtitle-outline-and-decode-verification.md: befb7f4e75d59a37d195762829658a4b7dd10b22
-2026-09-28-subtitle-outline-and-decode-verification.zh.md: d135681f3fbfd142d2b7eaf7e5812e9da1bc3ffb
+/agent-note-the-burned-subtitle-outline-and-the-decode-check:
+  en: 08b8e24bd9583168
+  zh: 66c9d41ed5f54236
+/agent-note-the-burned-subtitle-outline-and-the-decode-check/problem:
+  en: f15bbede7239c445
+  zh: 19c89b0be49540c6
+/agent-note-the-burned-subtitle-outline-and-the-decode-check/decision:
+  en: 70f8db5afca0a6d8
+  zh: e21780cfff3214c4
+/agent-note-the-burned-subtitle-outline-and-the-decode-check/alternatives-considered:
+  en: b2117f278f3a16db
+  zh: 6f7b5f4a5295dc97
+/agent-note-the-burned-subtitle-outline-and-the-decode-check/consequences:
+  en: e3690e66e5caf96a
+  zh: c7e119a8ac623580
+/agent-note-the-burned-subtitle-outline-and-the-decode-check/verification:
+  en: b57d9f5bb8d8cfd4
+  zh: 3d7bb5c92e9abf2c

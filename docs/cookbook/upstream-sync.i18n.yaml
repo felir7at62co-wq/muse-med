@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for upstream-sync.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/cookbook/upstream-sync.md
-upstream-sync.md: 9f5bbabba689798a7b9aa8354dbba43f8e4850bd
-upstream-sync.zh.md: de94e31b6f30c65790bb58743d0b652f2c998d7c
+/cookbook-syncing-an-upstream-dsh-release-into-the-fork:
+  en: 175edf7f5499310f
+  zh: de60f1ddeb13bf0e
+/cookbook-syncing-an-upstream-dsh-release-into-the-fork/1-confirm-the-pin-before-reading-any-finding:
+  en: 994dba573cd2fff9
+  zh: 53dd6dfaf4f53fb6
+/cookbook-syncing-an-upstream-dsh-release-into-the-fork/2-triage-by-owner:
+  en: 86c89dee93325c89
+  zh: 4a606fc0827c119c
+/cookbook-syncing-an-upstream-dsh-release-into-the-fork/3-keep-generated-outputs-declared:
+  en: 374c194f9defaf6a
+  zh: a8569fca545d2ae7
+/cookbook-syncing-an-upstream-dsh-release-into-the-fork/4-never-edit-an-upstream-owned-generated-file-to-express-a-product-fact:
+  en: a7fcb26a547cddb1
+  zh: 6f32381d851ced6e
+/cookbook-syncing-an-upstream-dsh-release-into-the-fork/5-verify:
+  en: a86ae24da1358749
+  zh: 441470d7cf266bf8

@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-28-character-state-gate-at-binding.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-28-character-state-gate-at-binding.md
-2026-09-28-character-state-gate-at-binding.md: 4c30da9417b01c0534705a25dc62a37de100399d
-2026-09-28-character-state-gate-at-binding.zh.md: 27c744553bde4b7ba6473a4095c28a336df5d496
+/agent-note-the-character-state-gate-at-asset-binding:
+  en: 9527dfe7e3954fc7
+  zh: 3576a53e7ef57441
+/agent-note-the-character-state-gate-at-asset-binding/problem:
+  en: 62fdc22b8661ea21
+  zh: 8f163a91ec915ac3
+/agent-note-the-character-state-gate-at-asset-binding/decision:
+  en: 44e6e4cb5b08c927
+  zh: a15d2aca6edd1eff
+/agent-note-the-character-state-gate-at-asset-binding/alternatives-considered:
+  en: 847d00726ca3407c
+  zh: a4c38ccf982f6f99
+/agent-note-the-character-state-gate-at-asset-binding/consequences:
+  en: 15e59fd182bb5cc1
+  zh: 169fec13a279ee4b
+/agent-note-the-character-state-gate-at-asset-binding/verification:
+  en: 373799d9dd8d16bc
+  zh: d773ac9a2a8223fd

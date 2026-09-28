@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-27-workflow-agent-settlement-identity.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-09-27-workflow-agent-settlement-identity.md
-2026-09-27-workflow-agent-settlement-identity.md: 8edaceae8b57649860de9ec581da28d9f2b73593
-2026-09-27-workflow-agent-settlement-identity.zh.md: cdde49ce064ffba050e5d21f5e46b0ac624e4370
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-09-27-workflow-agent-settlement-identity:
+  en: a0b24adacbd5742c
+  zh: 8872a44d011c70e8
+/2026-09-27-workflow-agent-settlement-identity/summary:
+  en: 969c5814acd3dd75
+  zh: 3289db7963759769
+/2026-09-27-workflow-agent-settlement-identity/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-09-27-workflow-agent-settlement-identity/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-09-27-workflow-agent-settlement-identity/compatibility:
+  en: 62ff29f5d2aceaa1
+  zh: e28beb8032492a5d
+/2026-09-27-workflow-agent-settlement-identity/verification:
+  en: b4657a3c2b0679f1
+  zh: 3d3c7442e998d594
+/2026-09-27-workflow-agent-settlement-identity/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

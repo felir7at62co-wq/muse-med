@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-27-console-code-page-stream-decoding.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-27-console-code-page-stream-decoding.md
-2026-09-27-console-code-page-stream-decoding.md: e5cbaa31a1d81854847ccd4cd5fbff2247173e8d
-2026-09-27-console-code-page-stream-decoding.zh.md: c7937e5cb940ff00bc13526b063fb2230135f201
+/agent-note-console-code-page-decoding-for-collected-stream-bytes:
+  en: 5d3fb5f990a3e931
+  zh: 01cada1f22a833b4
+/agent-note-console-code-page-decoding-for-collected-stream-bytes/problem:
+  en: d275bbcd341a2e65
+  zh: 69eb37a12b47cbc6
+/agent-note-console-code-page-decoding-for-collected-stream-bytes/decision:
+  en: e9a7a78ca2ee7ad2
+  zh: f6ab937d1fb2622d
+/agent-note-console-code-page-decoding-for-collected-stream-bytes/why-a-window-edge-is-not-a-code-page-stream:
+  en: c05ef8eaa37151ab
+  zh: a7e6c1b4494f9358
+/agent-note-console-code-page-decoding-for-collected-stream-bytes/limits-of-the-producer-side-pin:
+  en: f6f87c4df6d864a9
+  zh: 050238bb3a489034
+/agent-note-console-code-page-decoding-for-collected-stream-bytes/testing:
+  en: 7d54b6cf3f1fb53e
+  zh: 78cf520bb3c95aee
+/agent-note-console-code-page-decoding-for-collected-stream-bytes/deferred:
+  en: db027ce55bf33179
+  zh: 10a31c139d17296f
+/agent-note-console-code-page-decoding-for-collected-stream-bytes/alternatives-considered:
+  en: 4870b8434f644ee1
+  zh: af7201035a26eb9e
+/agent-note-console-code-page-decoding-for-collected-stream-bytes/consequences:
+  en: b1a7fd4428967ec3
+  zh: 0e82ab91165cf720

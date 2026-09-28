@@ -1,6 +1,58 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-drama-assets/README.md
-README.md: 49ed82bbb444bca28bf9ff43d13dd095a3a80ed5
-README.zh.md: 91b2b7a946c979c080653f0290a9143dd48b5992
+/:
+  en: a477935e2953dac3
+  zh: c6d2c403084fb27c
+/deepseek-ai-dsh-tool-drama-assets:
+  en: 41490b4165fb2045
+  zh: 378eb1a51a0e8229
+/deepseek-ai-dsh-tool-drama-assets/summary:
+  en: b507f920afc75629
+  zh: 4dd88bdf97cf9533
+/deepseek-ai-dsh-tool-drama-assets/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: f0f7f88fe2f53b05
+/deepseek-ai-dsh-tool-drama-assets/use-this-package:
+  en: 66c56b8eff5589ec
+  zh: 9d036677bb007b20
+/deepseek-ai-dsh-tool-drama-assets/use-this-package/the-two-methods:
+  en: ef8947bd007cfbfd
+  zh: 8fa6328cd7b18f1d
+/deepseek-ai-dsh-tool-drama-assets/use-this-package/what-decides-the-verdict:
+  en: e85973e825f7c474
+  zh: cbfeab1a04e6634f
+/deepseek-ai-dsh-tool-drama-assets/understand-the-implementation:
+  en: 3bfdf70eb6549b75
+  zh: b31d0d1fd6e3f2fa
+/deepseek-ai-dsh-tool-drama-assets/understand-the-implementation/design-philosophy:
+  en: eda8b407841224ef
+  zh: 4c33f66ee490e9c0
+/deepseek-ai-dsh-tool-drama-assets/understand-the-implementation/source-map:
+  en: fb973a284a1f98a9
+  zh: 604b8928c22bde39
+/deepseek-ai-dsh-tool-drama-assets/further-exploration:
+  en: 2e27b1cb8164cbef
+  zh: 7a1bb480a6910b1d
+/deepseek-ai-dsh-tool-drama-assets/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-tool-drama-assets/model-experience/the-drama-assets-tool-schema:
+  en: f5f938ec2015a1b5
+  zh: 64d479b37b72ac22
+/deepseek-ai-dsh-tool-drama-assets/model-experience/the-drama-assets-tool-schema/what-the-model-sees:
+  en: 79f59c4a4647de90
+  zh: c24de0d2921ed5e8
+/deepseek-ai-dsh-tool-drama-assets/model-experience/the-drama-assets-tool-schema/token-effect:
+  en: 6f2578294b0c6173
+  zh: 7c1f302af00b7a93
+/deepseek-ai-dsh-tool-drama-assets/model-experience/the-drama-assets-tool-schema/kv-cache-effect:
+  en: 064f99a9c816466f
+  zh: 9a2f6d0a791202c7
+/deepseek-ai-dsh-tool-drama-assets/known-limitations-and-deferred-work:
+  en: 0aafe3a1e3811497
+  zh: 9a81d5b23626f0aa
+/deepseek-ai-dsh-tool-drama-assets/known-limitations-and-deferred-work/dev-note:
+  en: d12c9e6352f39f95
+  zh: 8ad11b9e8947b322

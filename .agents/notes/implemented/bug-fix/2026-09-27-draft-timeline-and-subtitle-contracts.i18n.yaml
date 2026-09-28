@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-27-draft-timeline-and-subtitle-contracts.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-27-draft-timeline-and-subtitle-contracts.md
-2026-09-27-draft-timeline-and-subtitle-contracts.md: cb214f4b63f9eb79355697deb49e97a11bc149af
-2026-09-27-draft-timeline-and-subtitle-contracts.zh.md: ce59c067852f657aeaeb23d36a13e781ce144cc2
+/agent-note-the-draft-build-s-timeline-gain-and-subtitle-text-contracts:
+  en: b1386174e667656f
+  zh: 102afe2d1146c450
+/agent-note-the-draft-build-s-timeline-gain-and-subtitle-text-contracts/problem:
+  en: 3bf2962b593b7524
+  zh: dec959851cd30bf2
+/agent-note-the-draft-build-s-timeline-gain-and-subtitle-text-contracts/decision:
+  en: 28f98240b3afbf5e
+  zh: d92da87b52dc98eb
+/agent-note-the-draft-build-s-timeline-gain-and-subtitle-text-contracts/alternatives-considered:
+  en: 7f31d05d30d3f31f
+  zh: 1505ba76561166b4
+/agent-note-the-draft-build-s-timeline-gain-and-subtitle-text-contracts/consequences:
+  en: 0c7687f7b1157cf9
+  zh: 1447eb66d8b852af
+/agent-note-the-draft-build-s-timeline-gain-and-subtitle-text-contracts/verification:
+  en: bd3f3a2a80079752
+  zh: b1eb1c35b1fa5eb9

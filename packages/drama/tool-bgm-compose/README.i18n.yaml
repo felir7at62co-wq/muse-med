@@ -1,6 +1,49 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-bgm-compose/README.md
-README.md: 0e51324dd1d4402febea30c3fc0305e197109c06
-README.zh.md: 7d1d6d635879c5cb705eba26f51d95567ff62ed3
+/:
+  en: a19690ebd8e293d8
+  zh: e264d8daae881e45
+/deepseek-ai-dsh-tool-bgm-compose:
+  en: 1272bfe6db406d63
+  zh: 7351411b6ecc26ab
+/deepseek-ai-dsh-tool-bgm-compose/summary:
+  en: 12f4cdcdd7fcf8ba
+  zh: 59ea7789ecce7b95
+/deepseek-ai-dsh-tool-bgm-compose/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: f0f7f88fe2f53b05
+/deepseek-ai-dsh-tool-bgm-compose/use-this-package:
+  en: d200f2f00bf3a6ad
+  zh: e487379924d4a5a3
+/deepseek-ai-dsh-tool-bgm-compose/use-this-package/plan-and-methods:
+  en: 9d4483d41972ac2f
+  zh: 46ad5da00268de7c
+/deepseek-ai-dsh-tool-bgm-compose/understand-the-implementation:
+  en: 6cf72f17d9972f24
+  zh: f377b9e72019d5ef
+/deepseek-ai-dsh-tool-bgm-compose/further-exploration:
+  en: c2d71b5f3773878f
+  zh: 7e33a921a136d0c5
+/deepseek-ai-dsh-tool-bgm-compose/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-tool-bgm-compose/model-experience/the-drama-bgm-tool-schema:
+  en: 8989627d3d313041
+  zh: c5ae629e3a63eddc
+/deepseek-ai-dsh-tool-bgm-compose/model-experience/the-drama-bgm-tool-schema/what-the-model-sees:
+  en: 558e2c8d334f4f7f
+  zh: b999d258b536ef86
+/deepseek-ai-dsh-tool-bgm-compose/model-experience/the-drama-bgm-tool-schema/token-effect:
+  en: 1106ee7d323947ed
+  zh: 4202b95ae731a18b
+/deepseek-ai-dsh-tool-bgm-compose/model-experience/the-drama-bgm-tool-schema/kv-cache-effect:
+  en: b33da4e40ab06e6e
+  zh: eed394854cd1840b
+/deepseek-ai-dsh-tool-bgm-compose/known-limitations-and-deferred-work:
+  en: 97de8b2401c0a83f
+  zh: 5343e09ceeb5f385
+/deepseek-ai-dsh-tool-bgm-compose/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 7d68f82eb754ed7d

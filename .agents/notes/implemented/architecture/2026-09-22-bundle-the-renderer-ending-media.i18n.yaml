@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-22-bundle-the-renderer-ending-media.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-22-bundle-the-renderer-ending-media.md
-2026-09-22-bundle-the-renderer-ending-media.md: bdca8481590e2ff205fbc98c9d8252d5ad4703e1
-2026-09-22-bundle-the-renderer-ending-media.zh.md: 74b38bd41d3f8f281f952fc75ea5f9e31feacad1
+/agent-note-bundle-the-renderer-s-ending-media-with-the-drama-skills-package:
+  en: 20d453ac0388b810
+  zh: 1d2a37162568d606
+/agent-note-bundle-the-renderer-s-ending-media-with-the-drama-skills-package/problem:
+  en: bf0b5678fd919b8a
+  zh: 71dde721cd614f31
+/agent-note-bundle-the-renderer-s-ending-media-with-the-drama-skills-package/decision:
+  en: d9d6e2ab5e63c8c9
+  zh: 35bfd3a923ee03d1
+/agent-note-bundle-the-renderer-s-ending-media-with-the-drama-skills-package/alternatives-considered:
+  en: 4a8166c128988248
+  zh: 8941cf909ba998ed
+/agent-note-bundle-the-renderer-s-ending-media-with-the-drama-skills-package/consequences:
+  en: 5af591cec568e2ce
+  zh: 5bdd1042346c985f

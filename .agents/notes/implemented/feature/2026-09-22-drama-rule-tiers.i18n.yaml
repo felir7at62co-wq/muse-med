@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-22-drama-rule-tiers.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-22-drama-rule-tiers.md
-2026-09-22-drama-rule-tiers.md: 3e6a8811f317fe385da9e004ce573c3cedf4518c
-2026-09-22-drama-rule-tiers.zh.md: 7b7aca331ae2e12d0e38740bcbb28e2c497667f0
+/agent-note-drama-rules-sit-in-one-of-three-tiers:
+  en: 21b8eed274535952
+  zh: aff58130f6121aec
+/agent-note-drama-rules-sit-in-one-of-three-tiers/problem:
+  en: 014da60b74eed19c
+  zh: 898127ca48914096
+/agent-note-drama-rules-sit-in-one-of-three-tiers/decision:
+  en: 3c1b98c9ad44134f
+  zh: 95dec6da20042850
+/agent-note-drama-rules-sit-in-one-of-three-tiers/alternatives-considered:
+  en: e11a0769997766f1
+  zh: e27d183e47cc4836
+/agent-note-drama-rules-sit-in-one-of-three-tiers/consequences:
+  en: bc51bb06a96fe325
+  zh: 08b345eb8dd31b54

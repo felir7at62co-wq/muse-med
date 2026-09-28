@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-27-community-plugin-host-version-review-alpha3.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-27-community-plugin-host-version-review-alpha3.md
-2026-09-27-community-plugin-host-version-review-alpha3.md: ec4e48e6b056f9b4a383121a278c50ab26b2c3dc
-2026-09-27-community-plugin-host-version-review-alpha3.zh.md: a0b921be4d3fb5b043a1625d9a58b40b8b61f7fa
+/agent-note-accept-0-1-6-alpha-3-for-the-pinned-community-plugins:
+  en: 995de5428dbffa8c
+  zh: 7ba33623ca8baf00
+/agent-note-accept-0-1-6-alpha-3-for-the-pinned-community-plugins/problem:
+  en: 52b4d70ac63002c3
+  zh: 643e2202d7ee49bc
+/agent-note-accept-0-1-6-alpha-3-for-the-pinned-community-plugins/decision:
+  en: 3bd709a9d438d619
+  zh: fc4a1eb2d4afaa55
+/agent-note-accept-0-1-6-alpha-3-for-the-pinned-community-plugins/the-review-that-accepted-0-1-6-alpha-3:
+  en: fdaa0e37552bf97b
+  zh: 3fa51ec78ac5ba3d
+/agent-note-accept-0-1-6-alpha-3-for-the-pinned-community-plugins/testing:
+  en: 0d0dc891ce962fc5
+  zh: 348129c600b7eb42
+/agent-note-accept-0-1-6-alpha-3-for-the-pinned-community-plugins/alternatives-considered:
+  en: e5b965e535e1418b
+  zh: b6a2c0c2f58a0c23
+/agent-note-accept-0-1-6-alpha-3-for-the-pinned-community-plugins/consequences:
+  en: 8920a322cf95b834
+  zh: 3f8f3ddbeb657454

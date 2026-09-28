@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-24-desktop-feishu-bridge-opt-in.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-24-desktop-feishu-bridge-opt-in.md
-2026-09-24-desktop-feishu-bridge-opt-in.md: 77a544dab3194cc90ea94937169a61141c18b9b7
-2026-09-24-desktop-feishu-bridge-opt-in.zh.md: 25670784375ab39c1d7b98bdf0dffd2e7a0059b7
+/agent-note-make-the-bundled-feishu-bridge-an-explicit-opt-in:
+  en: d02b6b24cda3e9f8
+  zh: ed6acafcf7530f0f
+/agent-note-make-the-bundled-feishu-bridge-an-explicit-opt-in/problem:
+  en: 482f68b6ba234753
+  zh: cfd790ebfd5c49bf
+/agent-note-make-the-bundled-feishu-bridge-an-explicit-opt-in/decision:
+  en: e46ae9d51c2825a6
+  zh: 091ede361d30029c
+/agent-note-make-the-bundled-feishu-bridge-an-explicit-opt-in/alternatives-considered:
+  en: 3c01d4b7c58470dc
+  zh: a124634534d64db8
+/agent-note-make-the-bundled-feishu-bridge-an-explicit-opt-in/consequences:
+  en: 16347aaf3c54f1f1
+  zh: 5feee773a3f2c87d

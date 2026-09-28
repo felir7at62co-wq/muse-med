@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/perception/README.md
-README.md: 90592de0651b77624bb0cc526777f0a78e7415d4
-README.zh.md: 25143c22784a7af385bd796a7dcb2463d9d76a6d
+/:
+  en: 33fb42a740c78cde
+  zh: c1f2a5066b883d27
+/perception-music-emotion-analysis-and-matching:
+  en: 094f8d958749c221
+  zh: e95d4259f4062b1f
+/perception-music-emotion-analysis-and-matching/summary:
+  en: ad27fb9e6b56e7d5
+  zh: b3ff1e1f267728fd
+/perception-music-emotion-analysis-and-matching/table-of-contents:
+  en: 1eb35b015a6c423f
+  zh: a8a3dceee2c9e943
+/perception-music-emotion-analysis-and-matching/packages:
+  en: c8ffe1ba2c11b3bd
+  zh: 2d0f2cad92a74ced
+/perception-music-emotion-analysis-and-matching/related-documentation:
+  en: bc732b4cc4ae3786
+  zh: ac8e9480cd1989a9
+/perception-music-emotion-analysis-and-matching/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

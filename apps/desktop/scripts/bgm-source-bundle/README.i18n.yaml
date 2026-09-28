@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/scripts/bgm-source-bundle/README.md
-README.md: e529024847205867a2e3ebe9e47bdbe4f76a0a62
-README.zh.md: 0559588da13636d5092e0f4bb5f28701346dda16
+/:
+  en: 31915d88af5c0a6f
+  zh: dbefad5666ba86f3
+/bgm-native-source-bundle:
+  en: b7403f3c0f4325c1
+  zh: ee41196bb0e85963
+/bgm-native-source-bundle/summary:
+  en: 832d813600470464
+  zh: 20511212fb05dd20
+/bgm-native-source-bundle/table-of-contents:
+  en: 21a42d99149693bb
+  zh: 36dcc66b788fbab1
+/bgm-native-source-bundle/collect-and-verify:
+  en: 4fb0a7eb7b1c5103
+  zh: 7a906f55a4d74747
+/bgm-native-source-bundle/distribution-requirements:
+  en: cc94d65a9c1a7901
+  zh: c742a80171d5e911
+/bgm-native-source-bundle/dev-note:
+  en: 2c2e0083e7b8905d
+  zh: 367d144866f83342

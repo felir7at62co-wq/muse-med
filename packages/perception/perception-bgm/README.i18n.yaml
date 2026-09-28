@@ -1,6 +1,46 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/perception/perception-bgm/README.md
-README.md: 4b01157c8d1b9894d8ce401eb5d04e1bf05360eb
-README.zh.md: c6df145348870add5e680f740b39c74499bab9f7
+/:
+  en: 3f5bf41fec183895
+  zh: d46bc99a083ef473
+/deepseek-ai-dsh-perception-bgm:
+  en: a266ff3de1daa78b
+  zh: a7253714c1b020f4
+/deepseek-ai-dsh-perception-bgm/summary:
+  en: 00117eb9c21b08d5
+  zh: 62d82468343c36fb
+/deepseek-ai-dsh-perception-bgm/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 405b30feaf48c087
+/deepseek-ai-dsh-perception-bgm/use-this-package:
+  en: 224a60c7d1df87aa
+  zh: 07b0b40e64903104
+/deepseek-ai-dsh-perception-bgm/understand-the-implementation:
+  en: f490607f7843b9b0
+  zh: 37c6a1a3dd4e7897
+/deepseek-ai-dsh-perception-bgm/further-exploration:
+  en: 9f1ef5513cde30cd
+  zh: 999d1b60d46858c8
+/deepseek-ai-dsh-perception-bgm/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-perception-bgm/model-experience/the-bgm-match-tool-schema:
+  en: be3838bf33f40933
+  zh: b9f8e0c805af8856
+/deepseek-ai-dsh-perception-bgm/model-experience/the-bgm-match-tool-schema/what-the-model-sees:
+  en: 1028f817f2abd873
+  zh: a15f8c4f68a00265
+/deepseek-ai-dsh-perception-bgm/model-experience/the-bgm-match-tool-schema/token-effect:
+  en: e821b2d1af53fc95
+  zh: 67394dc6b849445d
+/deepseek-ai-dsh-perception-bgm/model-experience/the-bgm-match-tool-schema/kv-cache-effect:
+  en: 5b2820c6e6218bb9
+  zh: 9b7a80ea087209c7
+/deepseek-ai-dsh-perception-bgm/known-limitations-and-deferred-work:
+  en: 5e063836a16de592
+  zh: 188031c24508272d
+/deepseek-ai-dsh-perception-bgm/known-limitations-and-deferred-work/dev-note:
+  en: dc60b14c32434175
+  zh: 0eea8f7410d4b20c

@@ -2,10 +2,6 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/util/home-paths/README.md
-<<<<<<< packages/util/home-paths/README.i18n.yaml:current
-README.md: 818025a81d5d58938f9b2c14286a7df474b1569f
-README.zh.md: 2b70353b4e749393b4edeafa997c38cca06480f5
-=======
 /:
   en: 049f902daeb4f8fd
   zh: c0688e7cb5d9c5a9
@@ -22,8 +18,8 @@ README.zh.md: 2b70353b4e749393b4edeafa997c38cca06480f5
   en: 5322022224da2f27
   zh: d5cba67f4ea3e429
 /deepseek-ai-dsh-home-paths/use-this-package/resolving-the-home:
-  en: 01597a061814cf0a
-  zh: b4cf63b47b1039d0
+  en: 8b70e532624510fd
+  zh: 2973e9a47c6739af
 /deepseek-ai-dsh-home-paths/use-this-package/displaying-a-home:
   en: 4326f1ced538be5d
   zh: bad6406a0362ee6e
@@ -40,8 +36,8 @@ README.zh.md: 2b70353b4e749393b4edeafa997c38cca06480f5
   en: ab001f10961a5a98
   zh: 2209a79d2d5d9b68
 /deepseek-ai-dsh-home-paths/understand-the-implementation/resolution-rules:
-  en: 2096ecca16b31b14
-  zh: 3a6dbb217f69ec5e
+  en: 4a59dd4a4a2bcac3
+  zh: 2cf1881588ce67f2
 /deepseek-ai-dsh-home-paths/understand-the-implementation/canonicalization-mechanics:
   en: a79aecd162317dc2
   zh: 342f9bae0231c3de
@@ -54,4 +50,3 @@ README.zh.md: 2b70353b4e749393b4edeafa997c38cca06480f5
 /deepseek-ai-dsh-home-paths/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98
->>>>>>> packages/util/home-paths/README.i18n.yaml:other

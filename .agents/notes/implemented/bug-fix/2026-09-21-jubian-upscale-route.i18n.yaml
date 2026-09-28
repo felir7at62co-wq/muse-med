@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-21-jubian-upscale-route.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-21-jubian-upscale-route.md
-2026-09-21-jubian-upscale-route.md: 23cb2fd47b45b8b23176472082dd70ce947f5da9
-2026-09-21-jubian-upscale-route.zh.md: b0ec4fe4032e810b01add2d37a6c6eb22c30d853
+/agent-note-jubian-upscale-route-and-unknown-writes:
+  en: 700af9ce765c75ba
+  zh: ed13325910a0fdb9
+/agent-note-jubian-upscale-route-and-unknown-writes/problem:
+  en: 68c6a1f7756e21d5
+  zh: 276da75dc6891ef9
+/agent-note-jubian-upscale-route-and-unknown-writes/decision:
+  en: cffc4974c059450b
+  zh: b45f271dbbd9acaa
+/agent-note-jubian-upscale-route-and-unknown-writes/alternatives-considered:
+  en: 32809bb4044a814f
+  zh: f5aa3308d22795b9
+/agent-note-jubian-upscale-route-and-unknown-writes/consequences:
+  en: 38b2591aff49fb0b
+  zh: 3b9fa59201856148

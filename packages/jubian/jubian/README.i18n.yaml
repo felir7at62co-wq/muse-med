@@ -1,6 +1,76 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/jubian/jubian/README.md
-README.md: aa557e254cd8847d50712f15eb77413e32f30532
-README.zh.md: 28df254060f4f5dad3f5469b587bf9b41347089b
+/:
+  en: be63514c5c9acb81
+  zh: cd04426fca84b8ab
+/deepseek-ai-dsh-jubian:
+  en: 6f6257920e815846
+  zh: 2eab397b3fee58f3
+/deepseek-ai-dsh-jubian/summary:
+  en: ac1fa90a7865ce72
+  zh: 5b164ed7038c56b4
+/deepseek-ai-dsh-jubian/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 725b47765ee8f30b
+/deepseek-ai-dsh-jubian/use-this-package:
+  en: 8559306c0190806e
+  zh: f4e20d42111bee37
+/deepseek-ai-dsh-jubian/use-this-package/when-to-choose-it:
+  en: 83c3f26167be89b3
+  zh: cf93d570f4750b37
+/deepseek-ai-dsh-jubian/use-this-package/sending-one-request:
+  en: a7db2d8baf3c80ba
+  zh: 86395f08e7c87b5e
+/deepseek-ai-dsh-jubian/use-this-package/reading-every-envelope-layout-this-provider-sends:
+  en: e33272efa0bb11e7
+  zh: 35c1f2f344ac945e
+/deepseek-ai-dsh-jubian/use-this-package/repairing-a-stored-token:
+  en: b2bfa1710aad6515
+  zh: 52842fe0b0d9d8d4
+/deepseek-ai-dsh-jubian/use-this-package/the-six-stable-failure-codes:
+  en: 3195232bd87557f5
+  zh: 9dde5a769179faf1
+/deepseek-ai-dsh-jubian/use-this-package/capping-what-a-project-may-spend:
+  en: e41a0e9d4114812e
+  zh: 55926119b1605fc7
+/deepseek-ai-dsh-jubian/use-this-package/recording-a-write-in-two-phases:
+  en: 88a28bb520d79347
+  zh: 6d091cad00f154a7
+/deepseek-ai-dsh-jubian/understand-the-implementation:
+  en: 21577aacda9008aa
+  zh: 62e3e64818d63e5b
+/deepseek-ai-dsh-jubian/understand-the-implementation/source-map:
+  en: a1970745ab6e4722
+  zh: 29e743e8ab724df5
+/deepseek-ai-dsh-jubian/understand-the-implementation/one-attempt-a-fixed-origin-and-a-byte-bound:
+  en: b88b5a66695c9738
+  zh: 0214fb9836179c46
+/deepseek-ai-dsh-jubian/understand-the-implementation/every-envelope-layout-in-one-return-value:
+  en: 81386e909ce22cbb
+  zh: 2cb226ddad9a930c
+/deepseek-ai-dsh-jubian/understand-the-implementation/safe-failure-diagnostics:
+  en: 0425f91d8ae7a7d6
+  zh: be6ddafe662c6ab1
+/deepseek-ai-dsh-jubian/understand-the-implementation/dumping-responses-on-purpose:
+  en: 3d00da827436a946
+  zh: 8231c1cefbc41b49
+/deepseek-ai-dsh-jubian/understand-the-implementation/what-the-two-phase-ledger-buys:
+  en: a07cf0e56f21fe35
+  zh: 48ca4a1bff855e26
+/deepseek-ai-dsh-jubian/further-exploration:
+  en: ef553a74997e845b
+  zh: aa64df5a9027e783
+/deepseek-ai-dsh-jubian/model-experience:
+  en: a140b8a447dfa3a3
+  zh: 06205e15b1b6f024
+/deepseek-ai-dsh-jubian/model-experience/kv-cache-effect:
+  en: 9d373f3085328ff7
+  zh: ac7c7c2e7fffb8c0
+/deepseek-ai-dsh-jubian/known-limitations-and-deferred-work:
+  en: dc28ed4778cf9d5b
+  zh: 2a5166922fe1a2d9
+/deepseek-ai-dsh-jubian/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

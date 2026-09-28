@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-20-release-payload-packing.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-20-release-payload-packing.md
-2026-09-20-release-payload-packing.md: 8b4da3c48796a0c3f54d33d72deed4b318f8ec88
-2026-09-20-release-payload-packing.zh.md: e73c0c8e9be2bdb61c74ce3328a1f037da641b6d
+/agent-note-packing-the-release-payload:
+  en: 44012efae2eeaf00
+  zh: 124a7e4aa71c8bc4
+/agent-note-packing-the-release-payload/problem:
+  en: 94eca691ffa9de4d
+  zh: 2ec8197bb4d91f08
+/agent-note-packing-the-release-payload/decision:
+  en: 53c7aa8bdda1e04f
+  zh: dd2e04a815d3e0bf
+/agent-note-packing-the-release-payload/alternatives-considered:
+  en: d1335e64fb7a4e76
+  zh: 5ccc3e70d55bf082
+/agent-note-packing-the-release-payload/consequences:
+  en: 354b78d23a56ee75
+  zh: ae2e128445d34c8e
+/agent-note-packing-the-release-payload/testing:
+  en: 24259e99c359ade1
+  zh: 2e5c918ff905c271

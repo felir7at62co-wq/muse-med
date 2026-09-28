@@ -2,10 +2,6 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write third_party/plugins/README.md
-<<<<<<< third_party/plugins/README.i18n.yaml:current
-README.md: 1fa8718b3824f0e1cccbd09965ef2a455b14e37c
-README.zh.md: 6017f83fe06da3d0fc1dd7f18a2fda9176de656f
-=======
 /community-plugin-source-and-builds:
   en: 0e7446a3eb8160f3
   zh: 550660a6de81e013
@@ -18,4 +14,3 @@ README.zh.md: 6017f83fe06da3d0fc1dd7f18a2fda9176de656f
 /community-plugin-source-and-builds/licenses:
   en: c3b3d30f0293f569
   zh: 4e82b1878b25ec0a
->>>>>>> third_party/plugins/README.i18n.yaml:other

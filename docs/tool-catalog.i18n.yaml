@@ -2,10 +2,6 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/tool-catalog.md
-<<<<<<< docs/tool-catalog.i18n.yaml:current
-tool-catalog.md: b9b20947ec89277d995f3497bf36be16beaf49a4
-tool-catalog.zh.md: 5d61a8fce14f3df54f337a4834a528f9bc5f22f8
-=======
 /:
   en: 0be8ffbf23193557
   zh: ce2c69aa86875171
@@ -298,8 +294,8 @@ tool-catalog.zh.md: 5d61a8fce14f3df54f337a4834a528f9bc5f22f8
   en: bb38a9d29f46563c
   zh: bb38a9d29f46563c
 /tool-schema-catalog/deepseek-ai-dsh-tool-workflow/workflow:
-  en: fdd667cfe21481e8
-  zh: 88864d3b958398a4
+  en: 9201770fdfdff796
+  zh: 330b631024773613
 /tool-schema-catalog/deepseek-ai-dsh-tool-workspace-dependencies:
   en: 96bffc40b80df4b8
   zh: 96bffc40b80df4b8
@@ -349,8 +345,8 @@ tool-catalog.zh.md: 5d61a8fce14f3df54f337a4834a528f9bc5f22f8
   en: 6f86adf127829946
   zh: 6f86adf127829946
 /tool-schema-catalog/deepseek-ai-dsh-tool-shot-script/drama-shot:
-  en: 5140212b99df1b00
-  zh: 942cfb9ec12b362b
+  en: 245e9e308a8a3f53
+  zh: 2de233df3a37c584
 /tool-schema-catalog/deepseek-ai-dsh-perception-bgm:
   en: 5fc5e012063d9e78
   zh: 5fc5e012063d9e78
@@ -367,8 +363,8 @@ tool-catalog.zh.md: 5d61a8fce14f3df54f337a4834a528f9bc5f22f8
   en: cd8c46a68524b061
   zh: cd8c46a68524b061
 /tool-schema-catalog/deepseek-ai-dsh-tool-episode-render/drama-render:
-  en: e58350dc52c6c3b6
-  zh: e58350dc52c6c3b6
+  en: 792e63bc963fc482
+  zh: f085fbea2fcb10c7
 /tool-schema-catalog/deepseek-ai-dsh-tool-episode-render/drama-video:
   en: a3ac896dcc8c9662
   zh: 896657e05122b496
@@ -378,4 +374,3 @@ tool-catalog.zh.md: 5d61a8fce14f3df54f337a4834a528f9bc5f22f8
 /tool-schema-catalog/deepseek-ai-dsh-tool-drama-assets/drama-assets:
   en: 188da73d041e3d9a
   zh: 188da73d041e3d9a
->>>>>>> docs/tool-catalog.i18n.yaml:other

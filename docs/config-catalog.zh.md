@@ -180,6 +180,41 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-agent-tool-presentation -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-api-agent-notes -->
+<a id="deepseek-aidsh-api-agent-notes"></a>
+
+## `@deepseek-ai/dsh-api-agent-notes`
+
+- `inject`: `fs`
+- `source`: [`packages/api/agent-notes/src/index.ts:59`](../packages/api/agent-notes/src/index.ts)
+
+```ts config-catalog
+/** Deployment configuration of the notes root and its listing cap. */
+export interface Config {
+  /**
+   * Directory holding the notes tree.
+   *
+   * No schema default: the constructor resolves it so the stored root is
+   * absolute whatever form it arrived in, and a deployment that omits the key
+   * fails at mount instead of silently reading a tree nobody named. That is the
+   * loud half of the rule; the quiet half is that this is the deployment's own
+   * choice, not the service's guess.
+   *
+   * Point it at the tree that actually holds the notes. A tree kept beside a
+   * repository's source is not the workspace a session runs in, so a deployment
+   * whose notes live there — the common case for Agent Notes written into the
+   * checkout — must set this to that absolute path.
+   */
+  readonly root: string
+  /**
+   * Cap on notes reported by one listing. A larger tree is cut and reported as
+   * `truncated` rather than silently shortened.
+   */
+  readonly maxNotes: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-agent-notes -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-api-gateway -->
 <a id="deepseek-aidsh-api-gateway"></a>
 
@@ -723,6 +758,38 @@ export interface ToolResultPruneConfig {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-compaction-tool-result-pruner -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-composition-guard -->
+<a id="deepseek-aidsh-composition-guard"></a>
+
+## `@deepseek-ai/dsh-composition-guard`
+
+- `inject`: `agents` · `tools`
+- `source`: [`packages/guard/composition-guard/src/index.ts:61`](../packages/guard/composition-guard/src/index.ts)
+
+```ts config-catalog
+/** Plugin config, validated by the same-named schemastery schema plus the load-time checks in `apply`. */
+export interface Config {
+  /**
+   * Whether the affected session also receives the notice in its own
+   * conversation (default `true`). The log line is always written; this governs
+   * only the model-visible message, for a deployment that wants the guard's
+   * record without writing into a conversation.
+   */
+  announceInSession?: boolean
+  /**
+   * Maximum live agents inspected per loader update (default `64`).
+   *
+   * One live frame is a full scope-layer traversal per agent, and a patch reload
+   * can update many rows at once, so the ceiling bounds a guard's cost in a
+   * deployment with very many concurrent sessions. Agents beyond the cap are
+   * inspected by the next update; the cap has no effect on ordinary deployments,
+   * which run far fewer agents at once.
+   */
+  maxAgentsPerUpdate?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-composition-guard -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-cordis-host-runner -->
 <a id="deepseek-aidsh-cordis-host-runner"></a>
 
@@ -1177,6 +1244,27 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-tool-agent-team -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-feishu-settings -->
+<a id="deepseek-aidsh-feishu-settings"></a>
+
+## `@deepseek-ai/dsh-feishu-settings`
+
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/host/feishu-settings/src/index.ts:37`](../packages/host/feishu-settings/src/index.ts)
+
+```ts config-catalog
+/** Runtime switch this product's own row publishes to the Settings page. */
+export interface Config {
+  /**
+   * Whether the bundled bridge channel may run. The Loader resolves this from
+   * the profile patch, so a write from the page reaches the next boot's
+   * composition, and the live reference also answers the page in this boot.
+   */
+  enabled: Volatile<boolean>
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-feishu-settings -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-file-reference-local -->
 <a id="deepseek-aidsh-file-reference-local"></a>
 
@@ -1255,6 +1343,48 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-goal -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-guard-drama -->
+<a id="deepseek-aidsh-guard-drama"></a>
+
+## `@deepseek-ai/dsh-guard-drama`
+
+- `inject`: `tools`
+- `source`: [`packages/guard/drama-gate/src/index.ts:47`](../packages/guard/drama-gate/src/index.ts)
+
+```ts config-catalog
+/** Plugin config, validated by the same-named schemastery schema plus the load-time checks in `apply`. */
+export interface Config {
+  /**
+   * Absolute workspace root used only when the session states no working
+   * directory of its own (default: none). The session's own cwd always wins,
+   * because treating a configured root as stronger would read one conversation's
+   * project while judging another's call.
+   */
+  workspaceRoot?: string
+  /** Directory name below the workspace root that holds the drama projects (default `short-drama`). */
+  workshopDir?: string
+  /** Absolute project root that overrides the workshop-root derivation (default: none). */
+  projectRoot?: string
+  /** Refuse a Jubian write/paid method that carries no `idempotency_key` (default `true`). */
+  idempotencyKey?: boolean
+  /** Refuse a write/edit that would land an invalid shot script or matched JSON (default `true`). */
+  shotScript?: boolean
+  /** Refuse a paid storyboard submission while no `official=true` asset record exists (default `true`). */
+  officialAssets?: boolean
+  /**
+   * Refuse creating a new billed asset — `jubian_video` `image_generate` — until
+   * the project root holds a fresh `_probe/asset-reconcile.json` that is
+   * `ready` and fully disposed (default `true`). The manifest records what this
+   * pipeline generated, not what the Jubian project already has, so the evidence
+   * is what keeps an existing asset from being regenerated.
+   */
+  reconcileFirst?: boolean
+  /** Explain a call to a retired MUSE tool name instead of a bare `UNKNOWN_TOOL` (default `true`). */
+  museToolNames?: boolean
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-guard-drama -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-headless -->
 <a id="deepseek-aidsh-headless"></a>
@@ -2134,6 +2264,53 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-office-to-pdf -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-perception-bgm -->
+<a id="deepseek-aidsh-perception-bgm"></a>
+
+## `@deepseek-ai/dsh-perception-bgm`
+
+- `inject`: `tools`
+- `source`: [`packages/perception/perception-bgm/src/config.ts:19`](../packages/perception/perception-bgm/src/config.ts)
+
+```ts config-catalog
+/** Deployment settings for track matching, downloads, and optional local emotion analysis. */
+export interface BgmConfig {
+  /** Absolute path to the Python interpreter that has the model's dependencies. */
+  pythonExecutable?: string
+  /** Directory holding `tag_list.npy`, `run_config.yaml` and the chord model. */
+  dataDir?: string
+  /** The Music2Emo emotion head checkpoint (`J_all.ckpt`). */
+  weightsPath?: string
+  /** Override for the analysed-track index location. */
+  indexPath?: string
+  /** Optional public HTTPS catalogue; omitted keeps local-index matching. */
+  catalogUrl?: string
+  /** Absolute download cache directory; defaults under DSH_HOME. */
+  cacheDir?: string
+  /** Deadline covering one catalogue/download operation, default 60000 ms. */
+  networkTimeoutMs?: number
+  /** Maximum decoded catalogue size, default 2 MiB. */
+  maxCatalogBytes?: number
+  /** Maximum track size accepted from the catalogue, default 128 MiB. */
+  maxTrackBytes?: number
+  /**
+   * Extra environment for the model process, most importantly `HF_HOME`.
+   *
+   * Stated here rather than inherited: a deployment that keeps the ~360 MB
+   * backbone cache outside the default location would otherwise re-download it on
+   * every fresh host, and the failure mode — a long silent download — looks like a
+   * hang. Only these entries plus a fixed ambient allowlist reach the child;
+   * do not put credentials in this explicit environment. Explicit values win;
+   * declaring any HF cache location or endpoint excludes all ambient HF cache
+   * aliases and endpoints. Put module and compilation caches outside read-only installs.
+   */
+  env?: Record<string, string>
+  /** Deadline for one Python analysis request; defaults to 300000 ms and kills the worker on expiry. */
+  callTimeoutMs?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-perception-bgm -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-permission-presets -->
 <a id="deepseek-aidsh-permission-presets"></a>
 
@@ -2317,7 +2494,7 @@ export interface LaunchConfig {
 
 - `inject`: `subprocess`
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/shell/pwsh-local/src/index.ts:58`](../packages/shell/pwsh-local/src/index.ts)
+- `source`: [`packages/shell/pwsh-local/src/index.ts:75`](../packages/shell/pwsh-local/src/index.ts)
 
 ```ts config-catalog
 /** Validated plugin configuration with live command budgets. */
@@ -2794,34 +2971,7 @@ export type Config = SessionTitleLlmConfig
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-title-first-prompt-llm -->
 
-<<<<<<< HEAD
-依赖：[`SessionTitleLlmConfig`](../packages/session/session-title-llm/src/index.ts)
-
-来源：[`packages/session/session-title-first-prompt-llm/src/index.ts:15`](../packages/session/session-title-first-prompt-llm/src/index.ts)
-
-<a id="deepseek-aidsh-settings-file"></a>
-
-## `@deepseek-ai/dsh-settings-file`
-
-```ts config-catalog
-/** Plugin config: file location and hot-reload behavior. */
-export interface Config {
-  /** Settings document path; defaults to `settings.yaml` under the harness home. */
-  path?: string
-  /** Harness home used when `path` is omitted; defaults to the resolved harness home: `$MUSE_HOME`, `$DSH_HOME`, or the default (`~/.dsh` while it exists, otherwise `~/.muse`). */
-  dshHome?: string
-  /** Watch the document and hot-publish external edits; defaults to true. */
-  watch?: boolean
-  /** Watcher write-settle window in milliseconds; defaults to 100. */
-  debounceMs?: number
-}
-```
-
-来源：[`packages/settings/settings-file/src/index.ts:22`](../packages/settings/settings-file/src/index.ts)
-
-=======
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-shell-env -->
->>>>>>> upstream-sync-0.1.7-rc.2
 <a id="deepseek-aidsh-shell-env"></a>
 
 ## `@deepseek-ai/dsh-shell-env`
@@ -2859,7 +3009,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-skill-filesystem`
 
 - `inject`: `skills`
-- `source`: [`packages/skill/skill-filesystem/src/index.ts:49`](../packages/skill/skill-filesystem/src/index.ts)
+- `source`: [`packages/skill/skill-filesystem/src/index.ts:55`](../packages/skill/skill-filesystem/src/index.ts)
 
 ```ts config-catalog
 /** Local filesystem skill provider configuration. */
@@ -2868,8 +3018,10 @@ export interface Config {
   providerName?: string
   /** Whether project and user roots are included around custom roots. */
   includeDefaultRoots?: boolean
-  /** DeepSeek Harness config root. Defaults to `$DSH_HOME` or `~/.dsh`. */
+  /** DeepSeek Harness config root. Defaults to the resolved harness home: `$MUSE_HOME`, `$DSH_HOME`, or the default home. */
   dshHome?: string
+  /** Muse home root. Defaults to `$MUSE_HOME` or `~/.muse`. */
+  museHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
   agentsHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
@@ -3506,6 +3658,103 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-bash-persistent -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-bgm-compose -->
+<a id="deepseek-aidsh-tool-bgm-compose"></a>
+
+## `@deepseek-ai/dsh-tool-bgm-compose`
+
+- `inject`: `tools` · `subprocess`
+- `source`: [`packages/drama/tool-bgm-compose/src/index.ts:22`](../packages/drama/tool-bgm-compose/src/index.ts)
+
+```ts config-catalog
+/** Deployment-varying executable, subprocess limits, and batch policy. */
+export interface Config {
+  /** FFmpeg executable or command name. */
+  readonly ffmpegPath?: string
+  /** ffprobe executable or command name. */
+  readonly ffprobePath?: string
+  /** Maximum duration of one media command. */
+  readonly commandTimeoutMs?: number
+  /** Provider termination grace. */
+  readonly terminationGraceMs?: number
+  /** Collected output cap for each process stream. */
+  readonly outputMaxBytes?: number
+  /** Distinct tracks every episode must use. */
+  readonly minTracksPerEpisode?: number
+  /** Episodes one track may appear in across a batch. */
+  readonly maxEpisodesPerTrack?: number
+  /** Tracks every episode must use that no other episode in the batch uses. */
+  readonly freshTracksPerEpisode?: number
+  /** Seconds a cut may sit away from a package boundary. */
+  readonly boundaryToleranceSeconds?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-bgm-compose -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-drama-assets -->
+<a id="deepseek-aidsh-tool-drama-assets"></a>
+
+## `@deepseek-ai/dsh-tool-drama-assets`
+
+- `inject`: `tools` · `credentials`
+- `source`: [`packages/drama/tool-drama-assets/src/index.ts:46`](../packages/drama/tool-drama-assets/src/index.ts)
+
+```ts config-catalog
+/**
+ * Plugin config. Every field is a deployment-varying choice: which origin the
+ * remote reads go to, how long one read may take, and whether the workspace's own
+ * pipeline secret file may stand in for a missing credential-store value. The
+ * comparison's own rules — `delFlag`, `isUsed`, `Active`, the policy numbers —
+ * are the pipeline's contract and are not configurable.
+ */
+export interface Config {
+  /** Origin override; defaults to the client's own default base URL. */
+  baseUrl?: string
+  /** Per-call abort budget in milliseconds. */
+  timeoutMs?: number
+  /** Whether the workspace's own pipeline secret file may stand in for a missing credential-store value; defaults to true. */
+  workspaceSecrets?: boolean
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-drama-assets -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-episode-render -->
+<a id="deepseek-aidsh-tool-episode-render"></a>
+
+## `@deepseek-ai/dsh-tool-episode-render`
+
+- `inject`: `tools`
+- `source`: [`packages/drama/tool-episode-render/src/index.ts:73`](../packages/drama/tool-episode-render/src/index.ts)
+
+```ts config-catalog
+/**
+ * Plugin config. Every field is a deployment-varying choice: where the media
+ * binaries are, the two audio gains the operator approved, whether the GPU
+ * encoder is probed, and the font directory and families. The delivery
+ * specification itself — geometry, frame rate, bitrates, subtitle layout, ending
+ * length — is not configurable.
+ */
+export interface Config {
+  /** ffmpeg executable; defaults to `ffmpeg` from `PATH`. */
+  ffmpegPath?: string
+  /** ffprobe executable; defaults to `ffprobe` from `PATH`. */
+  ffprobePath?: string
+  /** Gain applied to the episode's own master audio; defaults to 1.45. */
+  masterVolume?: number
+  /** Gain applied to the BGM bed; defaults to 0.24. */
+  bgmVolume?: number
+  /** Whether the GPU encoder is probed before each render; defaults to true. */
+  preferNvenc?: boolean
+  /** Directory libass resolves the subtitle font from; defaults to `C:/Windows/Fonts`. */
+  fontsDir?: string
+  /** ASS subtitle font family; nonblank, no commas or line breaks; defaults to SimHei. */
+  subtitleFontFamily?: string
+  /** ASS watermark font family; nonblank, no commas or line breaks; defaults to Microsoft YaHei. */
+  watermarkFontFamily?: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-episode-render -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-fs -->
 <a id="deepseek-aidsh-tool-fs"></a>
 
@@ -3618,6 +3867,78 @@ export interface Config {
 export type CompletionDelivery = 'quiet' | 'wakeup'
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-jobs -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-jubian -->
+<a id="deepseek-aidsh-tool-jubian"></a>
+
+## `@deepseek-ai/dsh-tool-jubian`
+
+- `inject`: `tools` · `credentials`
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:50`](../packages/jubian/tool-jubian/src/index.ts)
+
+```ts config-catalog
+/** Where the tool row keeps its ledger and which origin it calls. */
+export interface Config extends ImageRouteConfig {
+  /** Directory holding the write ledger; defaults to `<DSH_HOME>/jubian/ledger`. */
+  ledgerRoot?: string
+  /** Origin override; defaults to the client's own default base URL. */
+  baseUrl?: string
+  /** Per-call abort budget in milliseconds. */
+  timeoutMs?: number
+  /** Watch polling interval in milliseconds; integer 1..60000, default 15000. */
+  watchPollIntervalMs?: number
+  /** Watch deadline in milliseconds; integer 1..86400000, default 1800000. */
+  watchTimeoutMs?: number
+  /**
+   * Whether the workspace's own pipeline secret file may stand in for a missing
+   * credential-store value; defaults to true.
+   */
+  workspaceSecrets?: boolean
+  /**
+   * How long `image_generate` waits for the new asset to reach
+   * `hsAssetStatus === "Active"` before reporting a timeout, in milliseconds;
+   * defaults to 180000, because a measured asset took one to two minutes.
+   */
+  imageActiveTimeoutMs?: number
+  /** Delay between the readback polls above, in milliseconds; defaults to 3000. */
+  imageActivePollMs?: number
+  /**
+   * Separator between the segments of a composed asset name; defaults to `｜`.
+   * Applies only to names this row composes from an `episode` argument — a caller
+   * that passes no episode keeps its own `asset_name` and `task_name` verbatim.
+   */
+  nameSeparator?: string
+  /**
+   * Episode token of an asset that serves the whole series; defaults to `全剧`.
+   * A caller passes exactly this value as `episode` to place an asset outside any
+   * one episode.
+   */
+  seriesLabel?: string
+  /**
+   * Where `jubian_organize` writes its index, relative to the project directory;
+   * defaults to `_probe/asset-index.md`.
+   */
+  assetIndexPath?: string
+}
+
+/** The composition fields the paid image route reads. */
+export interface ImageRouteConfig {
+  /**
+   * Which `platformId` of the `taskType=2` catalogue `image_generate` buys from,
+   * such as `KU_AI`. The account catalogue can list one model id once per
+   * platform at different prices, and this plugin never picks one for you: with
+   * several rows and no configured platform or standard, the call fails and
+   * names every candidate.
+   */
+  imagePlatformId?: string
+  /**
+   * Which catalogue row (`standardId`, the row's own `id`) `image_generate` buys
+   * from, such as `66`. Either this or `imagePlatformId` is enough to pin one row.
+   */
+  imageStandardId?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-jubian -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-lsp -->
 <a id="deepseek-aidsh-tool-lsp"></a>
@@ -3751,6 +4072,27 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-session-query -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-shot-script -->
+<a id="deepseek-aidsh-tool-shot-script"></a>
+
+## `@deepseek-ai/dsh-tool-shot-script`
+
+- `inject`: `tools`
+- `source`: [`packages/drama/tool-shot-script/src/index.ts:51`](../packages/drama/tool-shot-script/src/index.ts)
+
+```ts config-catalog
+/**
+ * Plugin config. `actionShotSeconds` is the only deployment-varying choice: it is
+ * the packing budget for a silent shot that carries no `动作复杂度` label, matching
+ * the compiler flag the drama skills used to pass.
+ */
+export interface Config {
+  /** Seconds charged to a silent shot without a complexity label, 1–4; defaults to 2. */
+  actionShotSeconds?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-shot-script -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-skill -->
 <a id="deepseek-aidsh-tool-skill"></a>
@@ -4342,6 +4684,7 @@ export interface Config {
 | `@deepseek-ai/dsh-client-ui-session` | — | [`packages/client/ui-session/src/index.ts`](../packages/client/ui-session/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings` | — | [`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-agent-loop` | — | [`packages/client/ui-settings-agent-loop/src/index.ts`](../packages/client/ui-settings-agent-loop/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-settings-agent-notes` | — | [`packages/client/ui-settings-agent-notes/src/index.ts`](../packages/client/ui-settings-agent-notes/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-general` | — | [`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-plugin-inventory` | — | [`packages/client/ui-settings-plugin-inventory/src/index.ts`](../packages/client/ui-settings-plugin-inventory/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-plugins` | — | [`packages/client/ui-settings-plugins/src/index.ts`](../packages/client/ui-settings-plugins/src/index.ts) |
@@ -4370,6 +4713,7 @@ export interface Config {
 | `@deepseek-ai/dsh-config-editor` | `loader` · `profileContext` | [`packages/boot/config-editor/src/index.ts`](../packages/boot/config-editor/src/index.ts) |
 | `@deepseek-ai/dsh-cordis-client-runner` | — | [`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts) |
 | `@deepseek-ai/dsh-deepseek-llm-api-extensions` | — | [`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts) |
+| `@deepseek-ai/dsh-drama-settings` | — | [`packages/drama/drama-settings/src/index.ts`](../packages/drama/drama-settings/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-auto-review` | `approval` · `llm` · `permissionPresets` · `sessions` · `tools` | [`packages/experimental/auto-review/src/index.ts`](../packages/experimental/auto-review/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-client-ui-agent-team` | — | [`packages/experimental/client-ui-agent-team/src/index.ts`](../packages/experimental/client-ui-agent-team/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-client-ui-voice-input` | — | [`packages/experimental/client-ui-voice-input/src/index.ts`](../packages/experimental/client-ui-voice-input/src/index.ts) |
@@ -4459,6 +4803,8 @@ export interface Config {
 | `@deepseek-ai/dsh-home-paths` | — | [`packages/util/home-paths/src/index.ts`](../packages/util/home-paths/src/index.ts) |
 | `@deepseek-ai/dsh-hook-protocol` | — | [`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts) |
 | `@deepseek-ai/dsh-http-proxy` | — | [`packages/util/http-proxy/src/index.ts`](../packages/util/http-proxy/src/index.ts) |
+| `@deepseek-ai/dsh-jubian` | — | [`packages/jubian/jubian/src/index.ts`](../packages/jubian/jubian/src/index.ts) |
+| `@deepseek-ai/dsh-jubian-api` | — | [`packages/jubian/jubian-api/src/index.ts`](../packages/jubian/jubian-api/src/index.ts) |
 | `@deepseek-ai/dsh-launch-environment` | — | [`packages/util/launch-environment/src/index.ts`](../packages/util/launch-environment/src/index.ts) |
 | `@deepseek-ai/dsh-lazy-require` | — | [`packages/util/lazy-require/src/index.ts`](../packages/util/lazy-require/src/index.ts) |
 | `@deepseek-ai/dsh-llm-deepseek` | — | [`packages/llm/llm-deepseek/src/index.ts`](../packages/llm/llm-deepseek/src/index.ts) |
@@ -4482,6 +4828,7 @@ export interface Config {
 | `@deepseek-ai/dsh-session-snapshot` | — | [`packages/test-support/session-snapshot/src/index.ts`](../packages/test-support/session-snapshot/src/index.ts) |
 | `@deepseek-ai/dsh-session-telemetry` | — | [`packages/session/session-telemetry/src/index.ts`](../packages/session/session-telemetry/src/index.ts) |
 | `@deepseek-ai/dsh-session-title-llm` | — | [`packages/session/session-title-llm/src/index.ts`](../packages/session/session-title-llm/src/index.ts) |
+| `@deepseek-ai/dsh-session-workspace` | — | [`packages/util/session-workspace/src/index.ts`](../packages/util/session-workspace/src/index.ts) |
 | `@deepseek-ai/dsh-subagent-in-process-driver` | — | [`packages/subagent/subagent-in-process-driver/src/index.ts`](../packages/subagent/subagent-in-process-driver/src/index.ts) |
 | `@deepseek-ai/dsh-timeout` | — | [`packages/util/timeout/src/index.ts`](../packages/util/timeout/src/index.ts) |
 | `@deepseek-ai/dsh-typert-generator` | — | [`packages/typert/generator/src/index.ts`](../packages/typert/generator/src/index.ts) |

@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-19-jubian-storyboard-isgenerate-not-a-gate.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-19-jubian-storyboard-isgenerate-not-a-gate.md
-2026-09-19-jubian-storyboard-isgenerate-not-a-gate.md: 77537b28c562c624b1b6f93639fb14550d959ef7
-2026-09-19-jubian-storyboard-isgenerate-not-a-gate.zh.md: 7820dd24ce78c236a82ce79896c98f6723cce41d
+/agent-note-jubian-storyboard-isgenerate-is-not-a-gate:
+  en: a79ce2159a28a6a5
+  zh: 3aa0c5ad3345e6ad
+/agent-note-jubian-storyboard-isgenerate-is-not-a-gate/problem:
+  en: 91f2e60a69258b61
+  zh: 54bda1ad5dc0047d
+/agent-note-jubian-storyboard-isgenerate-is-not-a-gate/decision:
+  en: 7114a5c18b42d891
+  zh: bd50ae2e6cc1bc85
+/agent-note-jubian-storyboard-isgenerate-is-not-a-gate/alternatives-considered:
+  en: de41a27bc373fe97
+  zh: 0370cee6f2e19c05
+/agent-note-jubian-storyboard-isgenerate-is-not-a-gate/consequences:
+  en: c525fdd31db9fdf7
+  zh: 67fca3fd00eae35b

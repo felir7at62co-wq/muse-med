@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-23-pyav-wheel-source-bundle.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-23-pyav-wheel-source-bundle.md
-2026-09-23-pyav-wheel-source-bundle.md: aa9995ab8bd494c2adac5cf0494ec3143104e875
-2026-09-23-pyav-wheel-source-bundle.zh.md: fb366c2b244aa8725f5f7e807a8aa00a272575c9
+/agent-note-preserve-pyav-wheel-sources-independently-of-executable-ffmpeg:
+  en: 3d3c3f7464a83c79
+  zh: 3f36a9a73fd96552
+/agent-note-preserve-pyav-wheel-sources-independently-of-executable-ffmpeg/problem:
+  en: 25bf7b358455e87d
+  zh: a0c4d9b9ca9a0acf
+/agent-note-preserve-pyav-wheel-sources-independently-of-executable-ffmpeg/decision:
+  en: 071ccefb2bde3230
+  zh: 6603b87c33fc3497
+/agent-note-preserve-pyav-wheel-sources-independently-of-executable-ffmpeg/alternatives-considered:
+  en: d769d5684c4e5222
+  zh: 815c2ebb2d3aa81e
+/agent-note-preserve-pyav-wheel-sources-independently-of-executable-ffmpeg/verification:
+  en: 5dd042aada2957b2
+  zh: c37476df87a532bf
+/agent-note-preserve-pyav-wheel-sources-independently-of-executable-ffmpeg/consequences:
+  en: 7bae721c1098f9e1
+  zh: 5c43426f3d07ff95

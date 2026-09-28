@@ -10,6 +10,20 @@ import {
 } from './desktop-auto-update-environment.mjs'
 import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { packageMacOSArtifacts, type DesktopPrepackagedArtifact } from './package-macos.ts'
+import { loadDesktopPackageEnvironment, validateDesktopPackageEnvironment } from './desktop-package-environment.mjs'
+import { createPackagingRun, recordPackagingEvent } from './packaging-run.mjs'
+import { withWindowsSigningStage } from './windows-signing-stage.mjs'
+import { prepareWindowsSignatureCacheDirectory, resolveWindowsSignatureCacheDirectory } from './windows-signature-cache-directory.mjs'
+import { withMacOSSigningKeychain } from './macos-signing-keychain.mjs'
+import { macOSDownloadEnvironment, resolveMacOSPackageSettings } from './macos-package-settings.mjs'
+import { packagingErrorDetails, packagingStep } from './packaging-step.mjs'
+import { notarizeMacOS } from './notarize-macos.mjs'
+import { resolveMacOSNotarizationEnvironment } from './desktop-release-environment.mjs'
+import { DESKTOP_BUILD_VERSION_ENV, resolveDesktopBuildVersion, validateDesktopBuildVersion } from './desktop-build-version.mjs'
+import { suggestDesktopBuildVersion } from './desktop-build-version-discovery.ts'
+import { desktopBuildCommitEnvironment, readDesktopBuildCommit, resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
+import { requireDesktopToolchain } from './desktop-toolchain-preflight.ts'
+import { withMacOSNotarizationProxy } from './macos-notarization-proxy.ts'
 import {
   assertCleanWorktree,
   assertReusableArtifacts,
@@ -196,6 +210,10 @@ interface DesktopPackageInvocation {
   readonly directory: boolean
   readonly prepareOnly: boolean
   readonly unsigned: boolean
+  /** Whether to validate local configuration and toolchain instead of packaging. */
+  readonly check: boolean
+  /** Build identifier to publish under, when this build does not publish the product version. */
+  readonly requestedBuildVersion: string | undefined
   readonly withBgm: boolean
   /** First step to run, or undefined to start at S1. */
   readonly from: string | undefined
@@ -236,7 +254,9 @@ export function parseDesktopPackageInvocation(
       dir: { type: 'boolean', default: false },
       'prepare-only': { type: 'boolean', default: false },
       unsigned: { type: 'boolean', default: false },
+      check: { type: 'boolean', default: false },
       'with-bgm': { type: 'boolean', default: false },
+      'build-version': { type: 'string' },
       from: { type: 'string' },
       only: { type: 'string' },
       'list-steps': { type: 'boolean', default: false },
@@ -249,12 +269,18 @@ export function parseDesktopPackageInvocation(
   if (values.unsigned && name !== 'win-x64') throw new Error('desktop package: --unsigned requires win-x64')
   if (values.unsigned && values['prepare-only']) throw new Error('desktop package: --unsigned cannot use --prepare-only')
   if (values['with-bgm'] && name !== 'win-x64') throw new Error('desktop package: --with-bgm requires win-x64')
+  const requestedBuildVersion = values['build-version']?.trim()
+  if (values['build-version'] !== undefined && (requestedBuildVersion === undefined || requestedBuildVersion === '')) {
+    throw new Error('desktop package: --build-version requires a value')
+  }
   return {
     target: resolveDesktopPackageTarget(name, hostPlatform, hostArch),
     directory: values.dir,
     prepareOnly: values['prepare-only'],
     unsigned: values.unsigned,
+    check: values.check,
     withBgm: values['with-bgm'],
+    requestedBuildVersion,
     from: values.from,
     only: values.only,
     listSteps: values['list-steps'],
@@ -352,6 +378,29 @@ function runPnpm(
       if (code === 0) resolvePromise()
       else reject(new Error(`desktop package: pnpm ${args.join(' ')} exited with ${String(code ?? signal)}`))
     })
+  })
+}
+
+/**
+ * Resolve the version one run publishes from what its command line asked for.
+ * @param invocation - Validated packaging request.
+ * @param productVersion - Version the manifests declare.
+ * @param environment - Release settings, which name the bucket automatic numbering reads.
+ * @returns The product version, the requested version, or the next free index for today.
+ */
+async function resolveRequestedBuildVersion(
+  invocation: DesktopPackageInvocation,
+  productVersion: string,
+  environment: NodeJS.ProcessEnv,
+): Promise<string> {
+  const requested = invocation.requestedBuildVersion
+  if (requested === undefined) return productVersion
+  if (requested !== AUTOMATIC_BUILD_VERSION) return validateDesktopBuildVersion(requested, productVersion)
+  const paths = desktopTargetBuildPaths(invocation.target.name)
+  return suggestDesktopBuildVersion({
+    productVersion, target: invocation.target.name, environment,
+    // Unsigned builds land beside the signed output, so numbering has to read the directory this run writes.
+    artifactsRoot: invocation.unsigned ? paths.unsignedArtifacts : paths.artifacts,
   })
 }
 
@@ -516,11 +565,20 @@ export async function packageTarget(
     for (const line of describeReuse(inventory, invocation.listReuse)) console.log(line)
     assertReusableArtifacts(inventory, baseline)
   }
+  if (signPrimaryRuntime) {
+    if (run === undefined) throw new Error('desktop package: signed Windows packaging requires a supervised run')
+    await signedStage('preflight', async () => {
+      await prepareWindowsSignatureCacheDirectory(resolveWindowsSignatureCacheDirectory(environment))
+      await run.run('preflight:windows-signing', process.execPath,
+        ['--import', 'tsx/esm', join(APP_ROOT, 'scripts/windows-signing-preflight.ts')],
+        { cwd: APP_ROOT, env: electronBuilderEnv, timeoutMs: 60_000 })
+    })
+  }
   const bodies: Record<DesktopPackageStepId, () => Promise<void>> = {
-    S1: async () => { await runPnpm(['run', 'build:official'], buildEnv, REPOSITORY_ROOT) },
-    S2: async () => { await runPnpm(['run', 'release:pack', '--family', 'dsh', '--out', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT) },
+    S1: async () => { await execute(['run', 'build:official'], buildEnv, REPOSITORY_ROOT) },
+    S2: async () => { await execute(['run', 'release:pack', '--family', 'dsh', '--out', buildPaths.packedDsh, ...packArguments], buildEnv, REPOSITORY_ROOT) },
     S3: async () => {
-      await runPnpm([
+      await execute([
         '--dir',
         'apps/desktop-host',
         'pack',
@@ -529,22 +587,22 @@ export async function packageTarget(
       ], buildEnv, REPOSITORY_ROOT)
     },
     S4: async () => {
-      await runPnpm([
+      await execute([
         '--dir', 'packages/drama/skills', 'pack', '--pack-destination', buildPaths.packedDsh,
       ], buildEnv, REPOSITORY_ROOT)
     },
     S5: async () => {
-      await runPnpm([
+      await execute([
         '--dir', 'packages/perception/perception-bgm', 'pack', '--pack-destination', buildPaths.packedDsh,
       ], buildEnv, REPOSITORY_ROOT)
     },
-    S6: async () => { await runPnpm(['exec', 'node', 'third_party/plugins/build.mjs', '--out', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT) },
-    S7: async () => { await runPnpm(['run', 'release:pack', '--family', 'vendor', '--out', buildPaths.packedVendor], buildEnv, REPOSITORY_ROOT) },
-    S8: async () => { await runPnpm(['--dir', 'native/system', 'run', 'build:ts'], buildEnv, REPOSITORY_ROOT) },
+    S6: async () => { await execute(['exec', 'node', 'third_party/plugins/build.mjs', '--out', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT) },
+    S7: async () => { await execute(['run', 'release:pack', '--family', 'vendor', '--out', buildPaths.packedVendor, ...packArguments], buildEnv, REPOSITORY_ROOT) },
+    S8: async () => { await execute(['--dir', 'native/system', 'run', 'build:ts'], buildEnv, REPOSITORY_ROOT) },
     S9: async () => {
       rmSync(buildPaths.packedLandlock, { recursive: true, force: true })
       mkdirSync(buildPaths.packedLandlock, { recursive: true })
-      await runPnpm([
+      await execute([
         '--dir',
         'native/system/packages/entry',
         'pack',
@@ -553,30 +611,45 @@ export async function packageTarget(
       ], buildEnv, REPOSITORY_ROOT)
     },
     S10: async () => {
-      await runPnpm(['run', 'prepare:runtime'], targetEnv)
+      await execute(['run', 'prepare:runtime', ...(signPrimaryRuntime ? ['--defer-primary-runtime-smoke'] : [])], downloadEnv)
+      if (signPrimaryRuntime) await execute(['run', 'sign:primary-runtime'], electronBuilderEnv)
       const mediaArguments = desktopPrepareMediaRuntimeArguments(target, buildPaths, invocation.withBgm)
       if (mediaArguments !== undefined) {
-        await runPnpm(mediaArguments, buildEnv, REPOSITORY_ROOT)
+        await execute(mediaArguments, buildEnv, REPOSITORY_ROOT)
       }
     },
-    S11: async () => { await runPnpm(['run', 'prepare:packages'], targetEnv) },
-    S12: async () => { await runPnpm(['run', 'prepare:dsh'], targetEnv) },
+    S11: async () => { await execute(['run', 'prepare:packages'], targetEnv) },
+    S12: async () => {
+      await execute(['run', 'prepare:dsh', ...(signPrimaryRuntime ? ['--defer-runtime-smoke'] : [])], downloadEnv)
+      if (signPrimaryRuntime) await execute(['run', 'sign:primary-runtime', '--dsh'], electronBuilderEnv)
+    },
     S13: async () => {
       if (target.platform === 'darwin' && !invocation.directory) {
-        await runPnpm([
+        await execute([
           ...desktopElectronBuilderArguments(target, true),
           '--config.mac.notarize=false',
         ], electronBuilderEnv)
-        await packageMacOSArtifacts({
+        await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts'], targetEnv)
+        await withMacOSNotarizationProxy(mac?.notarizationProxy, () => packageMacOSArtifacts({
           arch: target.arch,
-          version: packageVersion(join(APP_ROOT, 'package.json'), 'desktop package'),
+          // electron-builder named these artifacts after the published version, so locating them uses the same identifier.
+          version: resolveDesktopBuildVersion(environment, packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')),
           artifactsRoot: buildPaths.artifacts,
           environment: electronBuilderEnv,
-        }, artifact => runPnpm(desktopElectronBuilderArguments(target, false, artifact), electronBuilderEnv))
+        }, artifact => execute(desktopElectronBuilderArguments(target, false, artifact), electronBuilderEnv)),
+        undefined, undefined, proxyEvent)
+      } else if (target.platform === 'darwin') {
+        await execute([...desktopElectronBuilderArguments(target, true), '--config.mac.notarize=false'], electronBuilderEnv)
+        await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts'], targetEnv)
+        const appPath = join(buildPaths.artifacts, target.arch === 'arm64' ? 'mac-arm64' : 'mac', 'muse-med.app')
+        await withMacOSNotarizationProxy(mac?.notarizationProxy,
+          () => notarizeMacOS({ appPath, ...resolveMacOSNotarizationEnvironment(environment) }), undefined, undefined, proxyEvent)
       } else {
-        await runPnpm(desktopElectronBuilderArguments(target, invocation.directory), electronBuilderEnv)
+        await signedStage('artifacts', () => execute(desktopElectronBuilderArguments(target, invocation.directory), electronBuilderEnv))
+        await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts', ...(invocation.unsigned ? ['--unsigned'] : [])], targetEnv)
       }
       if (!invocation.directory && !invocation.unsigned) writeReleaseRecord(target, electronBuilderEnv, buildPaths.artifacts)
+      if (journal) recordPackagingEvent(journal, { type: 'artifacts', directory: buildPaths.artifacts })
     },
   }
   const runSteps: readonly DesktopPackageRunStep[] = steps.map(step => ({ ...step, run: bodies[step.id] }))

@@ -1,6 +1,55 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/guard/drama-gate/README.md
-README.md: af3fe2f5359666646a6362d9a2940caa7ae2d21d
-README.zh.md: 779710427f932acb6b7e60131018fda7bcea40ac
+/:
+  en: e05d5dc617b78bb7
+  zh: 89c32fe682d9da3f
+/deepseek-ai-dsh-guard-drama:
+  en: 965ae710676c738c
+  zh: 3fb701038227d948
+/deepseek-ai-dsh-guard-drama/summary:
+  en: 93120b949eb2688e
+  zh: c315fbade9a90567
+/deepseek-ai-dsh-guard-drama/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-guard-drama/use-this-package:
+  en: c82575a0101bac47
+  zh: baf8df170fc6d170
+/deepseek-ai-dsh-guard-drama/use-this-package/when-to-choose-it:
+  en: c098ee65990e0a28
+  zh: 9a6fe5c6b2e013fc
+/deepseek-ai-dsh-guard-drama/use-this-package/mounting-it-in-a-preset:
+  en: 84d7e33f47c04bc3
+  zh: a9b88d632854f736
+/deepseek-ai-dsh-guard-drama/use-this-package/what-you-get:
+  en: 1aeccfe45741d704
+  zh: 07f87dedf36194ff
+/deepseek-ai-dsh-guard-drama/understand-the-implementation:
+  en: aaa5671b398f4ef2
+  zh: 1a9b10a8c24ae0f4
+/deepseek-ai-dsh-guard-drama/understand-the-implementation/design-philosophy:
+  en: b6ff9720a9550419
+  zh: 8af18051b2b5bb69
+/deepseek-ai-dsh-guard-drama/understand-the-implementation/the-five-rules:
+  en: 488489299eec0372
+  zh: 861cff6bc60324d0
+/deepseek-ai-dsh-guard-drama/understand-the-implementation/source-map:
+  en: 00d3174c9f7fd999
+  zh: 96059c80b90e7423
+/deepseek-ai-dsh-guard-drama/further-exploration:
+  en: 9b4580fa13d89f3f
+  zh: a45c8976dce56533
+/deepseek-ai-dsh-guard-drama/model-experience:
+  en: 498deed80fbe9080
+  zh: 904e4c01fcacf9ff
+/deepseek-ai-dsh-guard-drama/model-experience/kv-cache-effect:
+  en: b782784da997e707
+  zh: 688e81e5117a34e6
+/deepseek-ai-dsh-guard-drama/known-limitations-and-deferred-work:
+  en: 8b2d2a6596ddc52e
+  zh: 7d6ff01ef70e58c3
+/deepseek-ai-dsh-guard-drama/known-limitations-and-deferred-work/dev-note:
+  en: df4f57d34ce6da3e
+  zh: 1040880837ff7ca5

@@ -1,6 +1,160 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/jubian/tool-jubian/README.md
-README.md: 09448ef7fecd743be7548e12713ccd5bd111e961
-README.zh.md: 275227108ffb318681bec2dfcb1b6006d48913cb
+/:
+  en: 5a57d19e003e62d4
+  zh: 7bf5ab35f8349ba7
+/deepseek-ai-dsh-tool-jubian:
+  en: f91922a408926025
+  zh: 6683b101a1f127d9
+/deepseek-ai-dsh-tool-jubian/summary:
+  en: 41f24d9c9e019c2f
+  zh: 2314d8bb68a1c87a
+/deepseek-ai-dsh-tool-jubian/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-tool-jubian/use-this-package:
+  en: e021449458bdd9b0
+  zh: e65a6378e9d46eba
+/deepseek-ai-dsh-tool-jubian/use-this-package/when-to-choose-it:
+  en: 7cc025ed88d16e30
+  zh: c54c224b691cd23a
+/deepseek-ai-dsh-tool-jubian/use-this-package/minimal-configuration:
+  en: 20b2dabbc326f51e
+  zh: 33c4867d9bf46e7b
+/deepseek-ai-dsh-tool-jubian/use-this-package/credential:
+  en: 1359c5d03dd2daed
+  zh: ead0cc8313294ea1
+/deepseek-ai-dsh-tool-jubian/use-this-package/the-token-settings-page:
+  en: d5f382e6442c459d
+  zh: 3d1bc3ed43a1c390
+/deepseek-ai-dsh-tool-jubian/use-this-package/the-image-route-remote-namespace:
+  en: 28f565eb215075b3
+  zh: e4804ff157047a9d
+/deepseek-ai-dsh-tool-jubian/use-this-package/the-nine-tools:
+  en: 3cbe108c66ba530a
+  zh: 771a70bf3823a18d
+/deepseek-ai-dsh-tool-jubian/use-this-package/background-operation-watching:
+  en: c7310c33f643f37a
+  zh: 55fcbdbb8e349646
+/deepseek-ai-dsh-tool-jubian/use-this-package/the-naming-convention:
+  en: 478e794bb54f5591
+  zh: d4c9994038a450a7
+/deepseek-ai-dsh-tool-jubian/use-this-package/organizing-the-asset-library:
+  en: 75bf76274e3b1602
+  zh: 6d45a3dec2f07b4d
+/deepseek-ai-dsh-tool-jubian/use-this-package/the-organization-index:
+  en: 5722ea68a8a05af8
+  zh: b563d52af374c896
+/deepseek-ai-dsh-tool-jubian/use-this-package/scoped-model-settings:
+  en: 9fb6ee38cd3aa97a
+  zh: 0bd6e405b95a9ec7
+/deepseek-ai-dsh-tool-jubian/use-this-package/the-storyboard-native-video-channel:
+  en: eccf0497fd5ebdfd
+  zh: 1c5df991789d806d
+/deepseek-ai-dsh-tool-jubian/use-this-package/the-paid-image-route:
+  en: d993736ed0820399
+  zh: 79b4341785006a0c
+/deepseek-ai-dsh-tool-jubian/use-this-package/writing-safely-idempotency-and-the-ledger:
+  en: 05e1323dd1d5c655
+  zh: 71e2eb1ff33b89e8
+/deepseek-ai-dsh-tool-jubian/use-this-package/errors:
+  en: 0ff8ad095fa9bd1d
+  zh: 45659b6f36350f01
+/deepseek-ai-dsh-tool-jubian/use-this-package/submitting-an-asynchronous-stage:
+  en: c2ad33b1542d0d22
+  zh: 76adcabfb4031172
+/deepseek-ai-dsh-tool-jubian/understand-the-implementation:
+  en: aed5b93b2b163410
+  zh: ee339b2bd33c0373
+/deepseek-ai-dsh-tool-jubian/understand-the-implementation/design-philosophy:
+  en: 5a7e4097a1f2914e
+  zh: 608766ed812a23e1
+/deepseek-ai-dsh-tool-jubian/understand-the-implementation/source-map:
+  en: fa96d02f2e892906
+  zh: 6798af1af3445bd4
+/deepseek-ai-dsh-tool-jubian/understand-the-implementation/write-path:
+  en: 19be8d3453afbb62
+  zh: 33dc71aaa5bf5be0
+/deepseek-ai-dsh-tool-jubian/understand-the-implementation/read-path:
+  en: 95db0b6eeaac5855
+  zh: 1ed44bd3534258e2
+/deepseek-ai-dsh-tool-jubian/further-exploration:
+  en: 887118ceabc9b127
+  zh: 4caae7c2ed106f1e
+/deepseek-ai-dsh-tool-jubian/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-tool-jubian/model-experience/tool-schemas:
+  en: 3039bc5e7a796b21
+  zh: 6b7a9eaf69c9ea53
+/deepseek-ai-dsh-tool-jubian/model-experience/tool-schemas/what-the-model-sees:
+  en: 0ac75bd479cb35c6
+  zh: 441f4de79e364028
+/deepseek-ai-dsh-tool-jubian/model-experience/tool-schemas/token-effect:
+  en: cf03895b2c610063
+  zh: 731a14162038662d
+/deepseek-ai-dsh-tool-jubian/model-experience/tool-schemas/kv-cache-effect:
+  en: 7f37c107420608bd
+  zh: 37f8453f9f3d37ac
+/deepseek-ai-dsh-tool-jubian/model-experience/idempotency-contract-in-the-descriptions:
+  en: 229c20287d043ecc
+  zh: 9ee966cba6cfe083
+/deepseek-ai-dsh-tool-jubian/model-experience/idempotency-contract-in-the-descriptions/what-the-model-sees:
+  en: 6b8e712caba6b32c
+  zh: c90ff2231a5ef103
+/deepseek-ai-dsh-tool-jubian/model-experience/idempotency-contract-in-the-descriptions/token-effect:
+  en: 197b637f5d250a92
+  zh: 62685aad8634b1dd
+/deepseek-ai-dsh-tool-jubian/model-experience/idempotency-contract-in-the-descriptions/kv-cache-effect:
+  en: ca25e1f0662c6dde
+  zh: c761930a38761bb5
+/deepseek-ai-dsh-tool-jubian/model-experience/cost-and-side-effect-warnings-in-the-descriptions:
+  en: 1f599bf22ff37488
+  zh: ca204f52727dee3a
+/deepseek-ai-dsh-tool-jubian/model-experience/cost-and-side-effect-warnings-in-the-descriptions/what-the-model-sees:
+  en: 80655252b2967362
+  zh: 783e451ef336fbcc
+/deepseek-ai-dsh-tool-jubian/model-experience/cost-and-side-effect-warnings-in-the-descriptions/token-effect:
+  en: a113deabfa0a6cdf
+  zh: a5c6c3f348f0ab0d
+/deepseek-ai-dsh-tool-jubian/model-experience/cost-and-side-effect-warnings-in-the-descriptions/kv-cache-effect:
+  en: ec082afee1b69ec0
+  zh: 13a327a4b7f4ab3a
+/deepseek-ai-dsh-tool-jubian/model-experience/tool-results:
+  en: beaabb79f229692a
+  zh: 8573891441963be4
+/deepseek-ai-dsh-tool-jubian/model-experience/tool-results/what-the-model-sees:
+  en: 68b5e76c0320859e
+  zh: 3bea9f4df4e17674
+/deepseek-ai-dsh-tool-jubian/model-experience/tool-results/token-effect:
+  en: bda68a7c9f665e40
+  zh: c9568abb42576229
+/deepseek-ai-dsh-tool-jubian/model-experience/tool-results/kv-cache-effect:
+  en: 9e7698e0c09e15db
+  zh: e44c135924eb2d0b
+/deepseek-ai-dsh-tool-jubian/model-experience/failures:
+  en: 9399595c521b8895
+  zh: 903da9e5b06f051b
+/deepseek-ai-dsh-tool-jubian/model-experience/failures/what-the-model-sees:
+  en: 177f696f81ca15e2
+  zh: dbd2c3fff6de9a86
+/deepseek-ai-dsh-tool-jubian/model-experience/failures/token-effect:
+  en: c59fa0b454727695
+  zh: b8bc91e4998cb53c
+/deepseek-ai-dsh-tool-jubian/model-experience/failures/kv-cache-effect:
+  en: 4c29fa07e83d79f5
+  zh: 537e382d22728304
+/deepseek-ai-dsh-tool-jubian/known-limitations-and-deferred-work:
+  en: 407b301751ae3e1c
+  zh: cb3407950ab1348c
+/deepseek-ai-dsh-tool-jubian/known-limitations-and-deferred-work/dev-note:
+  en: 64ee46559b704be8
+  zh: 29e47b77c4e476e1
+/deepseek-ai-dsh-tool-jubian/known-limitations-and-deferred-work/dev-note/future-a-pre-flight-cost-estimate-for-paid-writes:
+  en: a6714448a8fc840c
+  zh: 04c9356833f60b36
+/deepseek-ai-dsh-tool-jubian/known-limitations-and-deferred-work/dev-note/future-a-reconciliation-read-over-the-ledger:
+  en: 56dc349795d8f454
+  zh: fbce93269f395c6e

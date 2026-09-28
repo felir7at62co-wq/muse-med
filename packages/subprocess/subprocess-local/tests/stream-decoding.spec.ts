@@ -218,7 +218,7 @@ describe('OutputCollector stream decoding', () => {
   it('keeps the replacement decode for the character its byte-exact tail cuts', () => {
     // The retained window is byte-exact, so it can begin inside a character.
     // Those bytes are not a code page stream and must not be re-read as one.
-    const collector = new OutputCollector(4, 100, 'cut-tail', spillDir)
+    const collector = new OutputCollector(4, 'cut-tail', { maxBytes: 100, dir: spillDir, onFailure: () => {} })
     collector.push(Buffer.from('中文', 'utf8'))
     const before = consoleCodePageFallbacks.total
 
@@ -232,7 +232,7 @@ describe('OutputCollector stream decoding', () => {
   })
 
   it.runIf(consoleCodePage()?.codePage === 936)('decodes a captured console code page stream on both read paths', () => {
-    const collector = new OutputCollector(64, 1_000, 'parse-error', spillDir)
+    const collector = new OutputCollector(64, 'parse-error', { maxBytes: 1_000, dir: spillDir, onFailure: () => {} })
     collector.push(CP936_PARSE_ERROR)
 
     const read = collector.readFrom(0)

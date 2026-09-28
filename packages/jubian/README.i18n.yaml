@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/jubian/README.md
-README.md: 164700edd8cd8cc7d294308b566f08b2717a9148
-README.zh.md: d8a3f32defa6b7981e038dfa9960281c3181bf77
+/:
+  en: fad303904b1c14bd
+  zh: 19cf82f782de0577
+/jubian-jubian-media-tasks-and-assets:
+  en: efded7333bd8d37a
+  zh: 60ea2a5387e9b053
+/jubian-jubian-media-tasks-and-assets/summary:
+  en: b50eb3ae7bb76a02
+  zh: 37e772b8c66838fb
+/jubian-jubian-media-tasks-and-assets/table-of-contents:
+  en: 1eb35b015a6c423f
+  zh: a8a3dceee2c9e943
+/jubian-jubian-media-tasks-and-assets/packages:
+  en: d7ab7d37e57d1c2e
+  zh: 6503e27020cf7275
+/jubian-jubian-media-tasks-and-assets/related-documentation:
+  en: be105971c02b8687
+  zh: 57daae99cf7bfce2
+/jubian-jubian-media-tasks-and-assets/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

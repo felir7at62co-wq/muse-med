@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-26-ending-plays-at-its-own-speed.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-26-ending-plays-at-its-own-speed.md
-2026-09-26-ending-plays-at-its-own-speed.md: 3bac3a48d74f868f386109ec5247fe990b3f8ebc
-2026-09-26-ending-plays-at-its-own-speed.zh.md: f81d06b735d3619fc4041b3151bf472ee3317d02
+/agent-note-the-ending-plays-its-effect-at-its-own-speed-and-accepts-only-the-shipped-bytes:
+  en: e828ee572185b33c
+  zh: 84e0bd522c4f2e8d
+/agent-note-the-ending-plays-its-effect-at-its-own-speed-and-accepts-only-the-shipped-bytes/problem:
+  en: 7db8f7010269230f
+  zh: 3df3c35889886a13
+/agent-note-the-ending-plays-its-effect-at-its-own-speed-and-accepts-only-the-shipped-bytes/decision:
+  en: 6df32ebc2084c0fa
+  zh: ba78978b8b391b95
+/agent-note-the-ending-plays-its-effect-at-its-own-speed-and-accepts-only-the-shipped-bytes/alternatives-considered:
+  en: 0dd5d887f290d853
+  zh: 3af8428c9abaeeeb
+/agent-note-the-ending-plays-its-effect-at-its-own-speed-and-accepts-only-the-shipped-bytes/consequences:
+  en: a42cd32e70d56eb1
+  zh: becf63a8334ffa01

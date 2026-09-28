@@ -2,10 +2,6 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/shell/pwsh-local/README.md
-<<<<<<< packages/shell/pwsh-local/README.i18n.yaml:current
-README.md: fa5777655fdf551bf49c8e30f6970fcd5738107f
-README.zh.md: ec0afd80856438a4ca1a1366de48394328bad85c
-=======
 /:
   en: 07482fe1f03de5e9
   zh: 8ec16b9f9ac73b38
@@ -28,8 +24,8 @@ README.zh.md: ec0afd80856438a4ca1a1366de48394328bad85c
   en: 47119e8b4e884a5d
   zh: f9dfb155f06c4b73
 /deepseek-ai-dsh-pwsh-local/use-this-package/running-commands:
-  en: d0efd217ca8ce07d
-  zh: 76eda93aa7300f87
+  en: 1dd4e0b5849f623c
+  zh: 0927cf5dce7ebc1c
 /deepseek-ai-dsh-pwsh-local/use-this-package/background-processes:
   en: 3c580842cc8452af
   zh: 5a156670a7cacc2a
@@ -61,9 +57,8 @@ README.zh.md: ec0afd80856438a4ca1a1366de48394328bad85c
   en: 40294c1c31b74824
   zh: 788a4799b1d65a8b
 /deepseek-ai-dsh-pwsh-local/known-limitations-and-deferred-work:
-  en: dbe004f26cb332f2
-  zh: 83dc82454ee6a92d
+  en: a0e6788b7fa460ee
+  zh: daddd610dbad2927
 /deepseek-ai-dsh-pwsh-local/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98
->>>>>>> packages/shell/pwsh-local/README.i18n.yaml:other

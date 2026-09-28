@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-20-drama-reconcile-gate.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-20-drama-reconcile-gate.md
-2026-09-20-drama-reconcile-gate.md: 248ff1c516afb7965ebd969378b00ecddefb23c7
-2026-09-20-drama-reconcile-gate.zh.md: 599beb6165b69e8f554e54294f58e864e3e69cc4
+/agent-note-refuse-paid-asset-creation-until-the-project-s-assets-are-reconciled:
+  en: 5d1dcc764694d45f
+  zh: e536c35a38322943
+/agent-note-refuse-paid-asset-creation-until-the-project-s-assets-are-reconciled/problem:
+  en: 659a304976b94944
+  zh: 1720269129b91045
+/agent-note-refuse-paid-asset-creation-until-the-project-s-assets-are-reconciled/decision:
+  en: 923e5e11bd47ebf5
+  zh: 0e6622c7e6eb5d23
+/agent-note-refuse-paid-asset-creation-until-the-project-s-assets-are-reconciled/alternatives-considered:
+  en: 1c4b60fcdd93da40
+  zh: d8706e33bc4db691
+/agent-note-refuse-paid-asset-creation-until-the-project-s-assets-are-reconciled/consequences:
+  en: ac867632289b67b2
+  zh: f4edaa5e2e774a71
+/agent-note-refuse-paid-asset-creation-until-the-project-s-assets-are-reconciled/testing:
+  en: 9003948917f5c15b
+  zh: 8cb120807f67996b

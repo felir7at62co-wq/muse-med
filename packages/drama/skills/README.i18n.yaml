@@ -1,6 +1,43 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/skills/README.md
-README.md: ff84d4287b6b2370870fdde4ddcc57b2801f0408
-README.zh.md: b4a493ea88ed78ae772639b73cab17085ab6b2c0
+/:
+  en: c4c011c2c3fbdf0d
+  zh: 606fb528674300ca
+/deepseek-ai-dsh-drama-skills:
+  en: ed56e24d752ddcb3
+  zh: 7d765e67bdf112a6
+/deepseek-ai-dsh-drama-skills/summary:
+  en: e7c935eef375fedd
+  zh: d73c3684d0c48d57
+/deepseek-ai-dsh-drama-skills/table-of-contents:
+  en: 76368b6b1da79c80
+  zh: 8c793959d1d9dd33
+/deepseek-ai-dsh-drama-skills/use-this-package:
+  en: ebb141d8c0bf989c
+  zh: 4f1297a52dab1a5b
+/deepseek-ai-dsh-drama-skills/understand-the-implementation:
+  en: 3be8d2a0c826a42e
+  zh: b6bf5a8a71747a25
+/deepseek-ai-dsh-drama-skills/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-drama-skills/model-experience/loaded-skill-instructions:
+  en: e15795c06c868344
+  zh: b077b70fbb3e2ad5
+/deepseek-ai-dsh-drama-skills/model-experience/loaded-skill-instructions/what-the-model-sees:
+  en: a720ca27a9eff3f2
+  zh: 10ecdaafbe9e868f
+/deepseek-ai-dsh-drama-skills/model-experience/loaded-skill-instructions/token-effect:
+  en: 2e6b6684fbe3ffca
+  zh: 230f194513dca9dc
+/deepseek-ai-dsh-drama-skills/model-experience/loaded-skill-instructions/kv-cache-effect:
+  en: 38eb5d92227e8ee2
+  zh: 74d332bd4a7742be
+/deepseek-ai-dsh-drama-skills/known-limitations-and-deferred-work:
+  en: ac3bfdb113e9f384
+  zh: 2a9fb1b944a1edb4
+/deepseek-ai-dsh-drama-skills/known-limitations-and-deferred-work/dev-note:
+  en: 0a1253c6f7b5e8b9
+  zh: 9f56528562c7c914

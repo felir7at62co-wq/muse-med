@@ -1,6 +1,55 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/api/agent-notes/README.md
-README.md: a56b226b50280b753df9523037d5b57074678dc0
-README.zh.md: 12ef06ec78cc2cde0889ff798e570bf5aa07a749
+/:
+  en: e1cfeb8f2aba2f1e
+  zh: 95f7337f9f876872
+/deepseek-ai-dsh-api-agent-notes:
+  en: ada4a1a7a7cba684
+  zh: da877f69e88fbe2b
+/deepseek-ai-dsh-api-agent-notes/summary:
+  en: 04d4bf48018924e9
+  zh: 95ac25f2096d1dad
+/deepseek-ai-dsh-api-agent-notes/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-api-agent-notes/use-this-package:
+  en: 335fd9692bdb9034
+  zh: 7c7e381f3a67c0f1
+/deepseek-ai-dsh-api-agent-notes/use-this-package/the-notes-catalog:
+  en: eec6ced12522c9e1
+  zh: bfe973d6e749dffc
+/deepseek-ai-dsh-api-agent-notes/use-this-package/note-ids-and-the-root-boundary:
+  en: 6ffc97395e5c0e0d
+  zh: 0ce67855b53b413c
+/deepseek-ai-dsh-api-agent-notes/use-this-package/saving-a-note:
+  en: 602d91e1ad154885
+  zh: 5f3da541e16e78b5
+/deepseek-ai-dsh-api-agent-notes/use-this-package/failures:
+  en: e0e760fb0f88e878
+  zh: 64993f49622a9b06
+/deepseek-ai-dsh-api-agent-notes/understand-the-implementation:
+  en: 42b15ac6321706aa
+  zh: ce1d25bffb6948cd
+/deepseek-ai-dsh-api-agent-notes/understand-the-implementation/design-concept:
+  en: 9d3039163c94de6e
+  zh: 0e9d06e46e06b977
+/deepseek-ai-dsh-api-agent-notes/understand-the-implementation/source-map:
+  en: 10f9f09740ae1ece
+  zh: 9c96bf2ab7ad99c7
+/deepseek-ai-dsh-api-agent-notes/further-exploration:
+  en: c96d0403541acd5d
+  zh: 8a31f422d7086914
+/deepseek-ai-dsh-api-agent-notes/model-experience:
+  en: 8b939397cba71c82
+  zh: bda61428dcdd07eb
+/deepseek-ai-dsh-api-agent-notes/model-experience/kv-cache-effect:
+  en: ca75c51c89c2c9b0
+  zh: 03126f3b1aac5859
+/deepseek-ai-dsh-api-agent-notes/known-limitations-and-deferred-work:
+  en: afb9a055706a43cc
+  zh: 9a4fd35816b48189
+/deepseek-ai-dsh-api-agent-notes/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

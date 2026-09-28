@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/scripts/ffmpeg-source-build/README.md
-README.md: 928bcbb073f7171cb01cd85952e7b729bcb5e2ee
-README.zh.md: eae2c7bbf00933ac9ff31f4f22497f1cdfac947f
+/:
+  en: fd1751ae88fd9a5b
+  zh: 54db77a7ce435931
+/self-built-ffmpeg-and-corresponding-sources:
+  en: 3122b9f7c63ea539
+  zh: 55a4d37f779dfe19
+/self-built-ffmpeg-and-corresponding-sources/summary:
+  en: 6b3416a37ef9b618
+  zh: 02e9ee73dd9ae975
+/self-built-ffmpeg-and-corresponding-sources/table-of-contents:
+  en: cd2c1fc30e7a41f9
+  zh: fa773b125f17112e
+/self-built-ffmpeg-and-corresponding-sources/inputs-and-tools:
+  en: c3e2935b2faa4df4
+  zh: a12607c9ccc251a8
+/self-built-ffmpeg-and-corresponding-sources/build-and-rebuild:
+  en: c91081c9e0507249
+  zh: bb9623af1feb2fac
+/self-built-ffmpeg-and-corresponding-sources/artifacts-and-release-handoff:
+  en: b85d728cea2df965
+  zh: 648f5b1ae073a80d
+/self-built-ffmpeg-and-corresponding-sources/verification-and-limitations:
+  en: b75e55625baa95db
+  zh: 6e9f16dfa7c98c22
+/self-built-ffmpeg-and-corresponding-sources/dev-note:
+  en: 39266253a441c8e9
+  zh: 59e55cbf11ac41d7

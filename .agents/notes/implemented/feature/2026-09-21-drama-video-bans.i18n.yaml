@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-21-drama-video-bans.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-21-drama-video-bans.md
-2026-09-21-drama-video-bans.md: a9600f704bb4c29c5c1a118dc90c61950cbc4ea3
-2026-09-21-drama-video-bans.zh.md: efd316db3d9d16d55c0f652d39b397fc3da6ef21
+/agent-note-reversible-bans-for-exact-video-versions:
+  en: 3db7b3b3d17cfe96
+  zh: 273ad82609db7979
+/agent-note-reversible-bans-for-exact-video-versions/problem:
+  en: eec8811dfc32edc0
+  zh: fa7e40d3c29a87d2
+/agent-note-reversible-bans-for-exact-video-versions/decision:
+  en: d1c7c558f825276c
+  zh: 3758acad8df1412d
+/agent-note-reversible-bans-for-exact-video-versions/alternatives-considered:
+  en: fc891dd1831b4ffe
+  zh: 2e2710350c1d0506
+/agent-note-reversible-bans-for-exact-video-versions/consequences:
+  en: d443e3d675d4b57c
+  zh: 81f1bbc11d308e53

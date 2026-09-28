@@ -1,6 +1,76 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-episode-render/README.md
-README.md: 2adccc755c9f9d40d57a73eed10e83c28dc39453
-README.zh.md: 4ed009861bedbc19f1ea1a4b6b57688434571538
+/:
+  en: 950ff72d7054a56b
+  zh: 6400cf4694743ed4
+/deepseek-ai-dsh-tool-episode-render:
+  en: 0a63906ce4d8bb83
+  zh: 86ede8a130dc7609
+/deepseek-ai-dsh-tool-episode-render/summary:
+  en: ee9ad954f64ba209
+  zh: e4b2694513db3763
+/deepseek-ai-dsh-tool-episode-render/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: f0f7f88fe2f53b05
+/deepseek-ai-dsh-tool-episode-render/use-this-package:
+  en: c0b3f796bd7a27bf
+  zh: c7ef3b531a0a41a1
+/deepseek-ai-dsh-tool-episode-render/use-this-package/reversible-video-bans:
+  en: bb04e98a08b2006c
+  zh: 6aa143d0ccea86f8
+/deepseek-ai-dsh-tool-episode-render/use-this-package/the-four-render-methods:
+  en: 5ccbf089ef307b8a
+  zh: 179f1fcb6c2517a2
+/deepseek-ai-dsh-tool-episode-render/use-this-package/delivery-prerequisites-the-two-ending-files-and-the-2-second-window:
+  en: f99392354b8aa155
+  zh: 83c23a5730480e7b
+/deepseek-ai-dsh-tool-episode-render/use-this-package/what-subtitles-does:
+  en: 710b91e64e2bf8be
+  zh: 23ca1001d57e97e7
+/deepseek-ai-dsh-tool-episode-render/use-this-package/what-prepare-writes:
+  en: b861706a970ea3c3
+  zh: 971c25955aea2448
+/deepseek-ai-dsh-tool-episode-render/use-this-package/the-fixed-delivery-style:
+  en: 2add4f9ff9f06398
+  zh: 756ebdf5df2fe10c
+/deepseek-ai-dsh-tool-episode-render/use-this-package/the-three-known-traps:
+  en: 2e8e274410dfa795
+  zh: d9dea57f1ff20a3a
+/deepseek-ai-dsh-tool-episode-render/use-this-package/check-codes:
+  en: 213145d5ca80f6c0
+  zh: a4690a5332acbfda
+/deepseek-ai-dsh-tool-episode-render/understand-the-implementation:
+  en: d035a09534004c59
+  zh: 3a43afce99eaa2b9
+/deepseek-ai-dsh-tool-episode-render/understand-the-implementation/design-philosophy:
+  en: afbec95393023818
+  zh: 70545fd2cd5d9072
+/deepseek-ai-dsh-tool-episode-render/understand-the-implementation/source-map:
+  en: 18287bc54ab3d7ee
+  zh: db2d4191281a7c4b
+/deepseek-ai-dsh-tool-episode-render/further-exploration:
+  en: 2647dcc45b64eb22
+  zh: c9b42a2dba999a25
+/deepseek-ai-dsh-tool-episode-render/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-tool-episode-render/model-experience/the-render-and-video-decision-tool-schemas:
+  en: 0e808f0da04b8954
+  zh: d107db675d1f8465
+/deepseek-ai-dsh-tool-episode-render/model-experience/the-render-and-video-decision-tool-schemas/what-the-model-sees:
+  en: a45fec94cf58f426
+  zh: 5308a05e459d5ee9
+/deepseek-ai-dsh-tool-episode-render/model-experience/the-render-and-video-decision-tool-schemas/token-effect:
+  en: a2d2a59a244b729d
+  zh: 4a1006c484f4afa8
+/deepseek-ai-dsh-tool-episode-render/model-experience/the-render-and-video-decision-tool-schemas/kv-cache-effect:
+  en: 064f99a9c816466f
+  zh: 656fd64286b15620
+/deepseek-ai-dsh-tool-episode-render/known-limitations-and-deferred-work:
+  en: b83182c0cf4a2d8f
+  zh: 953281ce6d0f44e6
+/deepseek-ai-dsh-tool-episode-render/known-limitations-and-deferred-work/dev-note:
+  en: 7592720dbb825107
+  zh: b45c7ac69e2f8d1a

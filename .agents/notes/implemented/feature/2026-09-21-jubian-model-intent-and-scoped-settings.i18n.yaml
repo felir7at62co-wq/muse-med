@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-21-jubian-model-intent-and-scoped-settings.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-21-jubian-model-intent-and-scoped-settings.md
-2026-09-21-jubian-model-intent-and-scoped-settings.md: c5a00bc9089084bce223ea997f72d66e61b1f501
-2026-09-21-jubian-model-intent-and-scoped-settings.zh.md: c3385a8905f41194bc3ec99da2a7a2b95df47350
+/agent-note-jubian-model-intent-and-free-scoped-settings:
+  en: 680f69f68e37e3d9
+  zh: 67350df3c6daedda
+/agent-note-jubian-model-intent-and-free-scoped-settings/problem:
+  en: 7317a669e87669be
+  zh: e444d4646013543a
+/agent-note-jubian-model-intent-and-free-scoped-settings/decision:
+  en: f6d71e7e08ed0943
+  zh: dc457cd1c572e415
+/agent-note-jubian-model-intent-and-free-scoped-settings/alternatives-considered:
+  en: 25a9f00dbc03c6fd
+  zh: ab334dc2afe5e5b2
+/agent-note-jubian-model-intent-and-free-scoped-settings/consequences:
+  en: f2b911719b500442
+  zh: f23bfc39087a37eb

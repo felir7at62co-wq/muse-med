@@ -7458,22 +7458,6 @@ importers:
         specifier: ^4.2.0
         version: 4.3.1
 
-  packages/experimental/agent-team-web-profile:
-    dependencies:
-      '@deepseek-ai/dsh-experimental-client-ui-agent-team':
-        specifier: workspace:^
-        version: link:../client-ui-agent-team
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/cordis-plugin-include':
-        specifier: workspace:^
-        version: link:../../../vendor/include
-      js-yaml:
-        specifier: ^4.2.0
-        version: 4.3.1
-
   packages/experimental/api-speech-to-text:
     dependencies:
       '@deepseek-ai/schemastery':
@@ -8775,49 +8759,6 @@ importers:
         version: link:../../util/timeout
       '@deepseek-ai/dsh-tools':
         specifier: workspace:*
-        version: link:../../core/tools
-
-  packages/fs/tool-present:
-    dependencies:
-      '@deepseek-ai/schemastery':
-        specifier: link:../../../vendor/schemastery
-        version: link:../../../vendor/schemastery
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-agent':
-        specifier: workspace:^
-        version: link:../../core/agent
-      '@deepseek-ai/dsh-agent-loop':
-        specifier: workspace:^
-        version: link:../../core/agent-loop
-      '@deepseek-ai/dsh-agent-loop-testkit':
-        specifier: workspace:^
-        version: link:../../test-support/agent-loop-testkit
-      '@deepseek-ai/dsh-fs':
-        specifier: workspace:^
-        version: link:../fs
-      '@deepseek-ai/dsh-fs-local':
-        specifier: workspace:^
-        version: link:../fs-local
-      '@deepseek-ai/dsh-llm':
-        specifier: workspace:^
-        version: link:../../llm/llm
-      '@deepseek-ai/dsh-scope':
-        specifier: workspace:^
-        version: link:../../core/scope
-      '@deepseek-ai/dsh-session':
-        specifier: workspace:^
-        version: link:../../core/session
-      '@deepseek-ai/dsh-session-projection':
-        specifier: workspace:^
-        version: link:../../session/session-projection
-      '@deepseek-ai/dsh-system-prompt':
-        specifier: workspace:^
-        version: link:../../core/system-prompt
-      '@deepseek-ai/dsh-tools':
-        specifier: workspace:^
         version: link:../../core/tools
 
   packages/fs/tool-str-replace-editor:

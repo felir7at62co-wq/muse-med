@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-19-jubian-image-row-pin-and-active-readback.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-19-jubian-image-row-pin-and-active-readback.md
-2026-09-19-jubian-image-row-pin-and-active-readback.md: e85edc599d68bff6eec83d8a6c3778d894be277f
-2026-09-19-jubian-image-row-pin-and-active-readback.zh.md: 913ceb0594fd534376c9130befcdd05bf4e73b08
+/agent-note-jubian-image-generation-pins-its-catalogue-row-and-reads-the-asset-back:
+  en: 00997eb57f4372fe
+  zh: bdc83a5b39c1ce30
+/agent-note-jubian-image-generation-pins-its-catalogue-row-and-reads-the-asset-back/problem:
+  en: 85a89a967e97deb8
+  zh: 027917c4e53dc983
+/agent-note-jubian-image-generation-pins-its-catalogue-row-and-reads-the-asset-back/decision:
+  en: b427139fa73cee7f
+  zh: a90d5cc70e2a855b
+/agent-note-jubian-image-generation-pins-its-catalogue-row-and-reads-the-asset-back/why-a-timed-out-readback-is-a-state-and-not-an-exception:
+  en: d197ac6ca271657b
+  zh: ce9e5cdd12ba19e0
+/agent-note-jubian-image-generation-pins-its-catalogue-row-and-reads-the-asset-back/alternatives-considered:
+  en: 37f207d741e427f9
+  zh: 5fe5811dd654496d
+/agent-note-jubian-image-generation-pins-its-catalogue-row-and-reads-the-asset-back/consequences:
+  en: a7584c4f0a6db411
+  zh: c6ebb49b9d00904b
+/agent-note-jubian-image-generation-pins-its-catalogue-row-and-reads-the-asset-back/related:
+  en: e9ac4fa2bab806f5
+  zh: 8d031318442e94f1

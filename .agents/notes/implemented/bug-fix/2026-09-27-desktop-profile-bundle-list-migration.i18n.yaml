@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-27-desktop-profile-bundle-list-migration.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-27-desktop-profile-bundle-list-migration.md
-2026-09-27-desktop-profile-bundle-list-migration.md: 11a17552e607f26d7884bc8cdf3f98021a6d02b1
-2026-09-27-desktop-profile-bundle-list-migration.zh.md: 71745395fbc7340f292094fb53beb801329c923d
+/agent-note-complete-the-desktop-profile-bundle-list-on-upgrade:
+  en: 1edf22061a185682
+  zh: 97a90e60880f52b3
+/agent-note-complete-the-desktop-profile-bundle-list-on-upgrade/problem:
+  en: 1dcf324e7d0e7fa8
+  zh: 7e3d7265644b779b
+/agent-note-complete-the-desktop-profile-bundle-list-on-upgrade/decision:
+  en: da2b976f925ebb16
+  zh: 68bad8e8e6f1b343
+/agent-note-complete-the-desktop-profile-bundle-list-on-upgrade/alternatives-considered:
+  en: 84faaba4cd194747
+  zh: 7787c7f08c1945d3
+/agent-note-complete-the-desktop-profile-bundle-list-on-upgrade/consequences:
+  en: 052beac24caee4a2
+  zh: f93b43ea44ca7802
+/agent-note-complete-the-desktop-profile-bundle-list-on-upgrade/testing:
+  en: cd81a7ce196d1bfb
+  zh: 92fe8dc19df7c288

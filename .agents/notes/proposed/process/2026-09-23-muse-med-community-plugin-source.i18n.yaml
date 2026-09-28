@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-23-muse-med-community-plugin-source.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/process/2026-09-23-muse-med-community-plugin-source.md
-2026-09-23-muse-med-community-plugin-source.md: 7654599f1ededc5e8954441c44273ce48a5e8275
-2026-09-23-muse-med-community-plugin-source.zh.md: a2e3e22876e18ad65b77bcc633a820bb26e2709b
+/agent-note-keep-community-plugin-source-in-the-muse-med-fork:
+  en: 602f7ddfc1c23edc
+  zh: ed4cce359174e18d
+/agent-note-keep-community-plugin-source-in-the-muse-med-fork/problem:
+  en: 7219a78d6f1a4f03
+  zh: 37f9b6623d246e0d
+/agent-note-keep-community-plugin-source-in-the-muse-med-fork/proposal:
+  en: 576ae7ed99748509
+  zh: d1272ed10940477f
+/agent-note-keep-community-plugin-source-in-the-muse-med-fork/build-implementation:
+  en: 77db4f15daae4c18
+  zh: 5ab0cd343b818fcc
+/agent-note-keep-community-plugin-source-in-the-muse-med-fork/alternatives-considered:
+  en: 52bd84086b45a2fb
+  zh: 0f07ef9ff4379203
+/agent-note-keep-community-plugin-source-in-the-muse-med-fork/acceptance-criteria:
+  en: efe2b114234dfdfd
+  zh: a7f435f984449248
+/agent-note-keep-community-plugin-source-in-the-muse-med-fork/risks:
+  en: 979a480268b41365
+  zh: ca4ec028373fefbe

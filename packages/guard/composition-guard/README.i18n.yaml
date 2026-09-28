@@ -1,6 +1,73 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/guard/composition-guard/README.md
-README.md: cc3180e48c0f3e5584bfc510c7ebbe0dd9f697cf
-README.zh.md: 02a94c05a4dcaf25560e1e8f4b5f7d77f2b4504c
+/:
+  en: f90f202832906677
+  zh: 43a68e5a135f8826
+/deepseek-ai-dsh-composition-guard:
+  en: 9edc4739c1bdb7f4
+  zh: 7cefd8083e02c672
+/deepseek-ai-dsh-composition-guard/summary:
+  en: 4366b12a05c25989
+  zh: e4a446bfd9bae736
+/deepseek-ai-dsh-composition-guard/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: dbb94479b1334720
+/deepseek-ai-dsh-composition-guard/use-this-package:
+  en: 3c4a374aef06afdf
+  zh: 5b7aba0fa2b74700
+/deepseek-ai-dsh-composition-guard/use-this-package/when-to-choose-it:
+  en: 8475ffca47ac3b60
+  zh: b50e202a0356b21f
+/deepseek-ai-dsh-composition-guard/use-this-package/setting-it-up:
+  en: dd9025c775e98333
+  zh: c413bc5108446d02
+/deepseek-ai-dsh-composition-guard/use-this-package/what-you-get:
+  en: 90a3a3566897be0a
+  zh: d3e7d210d4d33836
+/deepseek-ai-dsh-composition-guard/understand-the-implementation:
+  en: d8983b9fce9dc558
+  zh: 3a7bec2a319e87ca
+/deepseek-ai-dsh-composition-guard/understand-the-implementation/design-philosophy:
+  en: 02d5e870f9444c5c
+  zh: 8b536866fa7c9285
+/deepseek-ai-dsh-composition-guard/understand-the-implementation/how-a-scope-s-visible-tools-are-read:
+  en: 4cd126a1f7c12858
+  zh: e2723133c47fc886
+/deepseek-ai-dsh-composition-guard/understand-the-implementation/when-the-comparison-runs:
+  en: 1f064c9fc4f645e2
+  zh: 4be3894b72622255
+/deepseek-ai-dsh-composition-guard/understand-the-implementation/reporting-once-per-regression:
+  en: 140b79c7fb33e9de
+  zh: 1fb46b89e259d5e2
+/deepseek-ai-dsh-composition-guard/understand-the-implementation/source-map:
+  en: 13881e79030cffee
+  zh: 640e8916aa43215c
+/deepseek-ai-dsh-composition-guard/further-exploration:
+  en: fc31db9b5063b89d
+  zh: 78756035040db0ac
+/deepseek-ai-dsh-composition-guard/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-composition-guard/model-experience/withdrawn-composition-notice:
+  en: 403d75ffd3bc2ef9
+  zh: 403d75ffd3bc2ef9
+/deepseek-ai-dsh-composition-guard/model-experience/withdrawn-composition-notice/what-the-model-sees:
+  en: 8048d3e5dd854d7b
+  zh: 9fe4b53b0a25884e
+/deepseek-ai-dsh-composition-guard/model-experience/withdrawn-composition-notice/what-the-model-sees/withdrawn-composition-notice:
+  en: 4e26b5e411a79b95
+  zh: 4e26b5e411a79b95
+/deepseek-ai-dsh-composition-guard/model-experience/withdrawn-composition-notice/token-effect:
+  en: 18363ec56edda0c1
+  zh: b9e7f57532ee8423
+/deepseek-ai-dsh-composition-guard/model-experience/withdrawn-composition-notice/kv-cache-effect:
+  en: 012eaebb7eb8a55a
+  zh: 312a9be7b9ee1b89
+/deepseek-ai-dsh-composition-guard/known-limitations-and-deferred-work:
+  en: 39324bd3fb0c4582
+  zh: 0b9d36f438bd802d
+/deepseek-ai-dsh-composition-guard/known-limitations-and-deferred-work/dev-note:
+  en: b5ba4249d8cd7a82
+  zh: 10a5d71660fdb9b3

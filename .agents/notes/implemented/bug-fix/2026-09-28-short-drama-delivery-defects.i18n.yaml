@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-28-short-drama-delivery-defects.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-28-short-drama-delivery-defects.md
-2026-09-28-short-drama-delivery-defects.md: 3c61927c7fb9045cbb187b4ca35b08bfdb8e7bb3
-2026-09-28-short-drama-delivery-defects.zh.md: 493172adda6d850f4ded52e484d0f85cc0d23e36
+/agent-note-the-2026-09-28-delivery-review-s-four-short-drama-defects:
+  en: 86a4dbfbac412d7b
+  zh: 86a8a5ec71769347
+/agent-note-the-2026-09-28-delivery-review-s-four-short-drama-defects/problem:
+  en: 01e0d7fb9dba59f3
+  zh: 99308333bf362b8c
+/agent-note-the-2026-09-28-delivery-review-s-four-short-drama-defects/decision:
+  en: 016cb5b725aeef64
+  zh: 68c8b98aa798b42c
+/agent-note-the-2026-09-28-delivery-review-s-four-short-drama-defects/alternatives-considered:
+  en: 3c1a24a8b581173e
+  zh: f258540a0e290110
+/agent-note-the-2026-09-28-delivery-review-s-four-short-drama-defects/consequences:
+  en: ed263abbf8da67ab
+  zh: 4575e37f85e49f45
+/agent-note-the-2026-09-28-delivery-review-s-four-short-drama-defects/verification:
+  en: 9d311639e1053293
+  zh: 12f4406e2673219c

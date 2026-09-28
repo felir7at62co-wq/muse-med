@@ -1,6 +1,43 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-17-composition-guard-detects-live-tool-withdrawal.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-17-composition-guard-detects-live-tool-withdrawal.md
-2026-09-17-composition-guard-detects-live-tool-withdrawal.md: 2b15935a0e8a755a6e0bca44405e8adb1ad8c066
-2026-09-17-composition-guard-detects-live-tool-withdrawal.zh.md: b30afd54267986b997c0c5d662c3ee28b33d1919
+/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them:
+  en: 16fa7ecafc59b812
+  zh: f99bb877b92fbd9c
+/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/problem:
+  en: 3292811d5674c615
+  zh: 7fc61f7a20c635bb
+/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/decision:
+  en: 6925fd2368f84599
+  zh: a0393b7f242434ca
+/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/decision/a-row-inserted-into-a-profile-must-be-resolvable-from-that-profile-s-node-modules:
+  en: 948566d480b1b212
+  zh: 5efad95f8ba5fb98
+/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/decision/the-real-client-load-error-needs-a-wrapped-window-moduleloader-load:
+  en: e5f434fb14845985
+  zh: 1fd4934329572b75
+/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/decision/baselines-come-from-observation-and-a-running-host-is-observed-at-activation:
+  en: 439706ec5bfe8f24
+  zh: 5f401e63554a45f2
+/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/decision/the-comparison-runs-where-the-reload-is-reconciled-and-after-it:
+  en: 8d76dcffe45eb5ff
+  zh: 0eb6c0a7da0de717
+/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/decision/only-an-unexplained-loss-is-reported-and-only-once:
+  en: 0261a729666154f9
+  zh: 460da74ab64c5e41
+/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/decision/two-channels-because-the-affected-reader-is-a-person:
+  en: 9b313f9aa6f041ef
+  zh: 5e525503ac6682ef
+/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/decision/a-failing-guard-must-not-be-worse-than-the-defect:
+  en: 0e0f45bf10ab3da2
+  zh: c886d882ff36c7a3
+/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/decision/the-invariant-companion-checks-the-one-relation-that-makes-the-guard-useful:
+  en: ebf5b7fc71f20724
+  zh: 236ca3112e55bbff
+/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/alternatives-considered:
+  en: c2979dd06775d348
+  zh: 54902399cd6135d9
+/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/consequences:
+  en: 73351f09af40229c
+  zh: 2e66f79822e644b1

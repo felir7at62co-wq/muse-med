@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-27-desktop-profile-bundle-list-completion-on-startup.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-27-desktop-profile-bundle-list-completion-on-startup.md
-2026-09-27-desktop-profile-bundle-list-completion-on-startup.md: e084082ca63c63b47215d0f4c1ca8dec8e263808
-2026-09-27-desktop-profile-bundle-list-completion-on-startup.zh.md: 75d16d2db36412e371df8fedfba2d3d4b0ddd807
+/agent-note-complete-the-desktop-profile-bundle-list-on-every-startup:
+  en: 3afc800b78539170
+  zh: 701041d64d26df83
+/agent-note-complete-the-desktop-profile-bundle-list-on-every-startup/problem:
+  en: 23b8142ca0721ab7
+  zh: 51ef83c08820ee78
+/agent-note-complete-the-desktop-profile-bundle-list-on-every-startup/decision:
+  en: 0ad9faa5f95a03a6
+  zh: fedc065bb59cb969
+/agent-note-complete-the-desktop-profile-bundle-list-on-every-startup/alternatives-considered:
+  en: 5e50da1e793a472a
+  zh: 0c3fc84ea73a73cc
+/agent-note-complete-the-desktop-profile-bundle-list-on-every-startup/consequences:
+  en: 93d477676a9d6c00
+  zh: 73faf6a364596dfb
+/agent-note-complete-the-desktop-profile-bundle-list-on-every-startup/testing:
+  en: 447371fba858eb98
+  zh: 6faa52672b10516f

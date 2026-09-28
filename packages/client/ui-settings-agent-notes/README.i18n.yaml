@@ -1,6 +1,52 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-settings-agent-notes/README.md
-README.md: bf67725485d948fe4bf81b215c96d02d7a6095e1
-README.zh.md: 180df1c5a78e13847e1ca10c34fa0151e812c39d
+/:
+  en: b85a81a0a6e2df62
+  zh: c80da86717c1a72d
+/deepseek-ai-dsh-client-ui-settings-agent-notes:
+  en: ae2e4744b6a090fb
+  zh: 6fc9a7ced71e8c15
+/deepseek-ai-dsh-client-ui-settings-agent-notes/summary:
+  en: 3a9b3ab05036db9a
+  zh: 2d33b4b88fd2bfef
+/deepseek-ai-dsh-client-ui-settings-agent-notes/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-client-ui-settings-agent-notes/use-this-package:
+  en: e31a4865e923806a
+  zh: 574238c43bf8b28f
+/deepseek-ai-dsh-client-ui-settings-agent-notes/use-this-package/reading-the-catalog:
+  en: be887093f7c140c4
+  zh: a9e43b7957f24ba1
+/deepseek-ai-dsh-client-ui-settings-agent-notes/use-this-package/opening-and-editing-a-note:
+  en: a5b5defb9f0eeee6
+  zh: ec07bc7a417661c1
+/deepseek-ai-dsh-client-ui-settings-agent-notes/use-this-package/notes-that-changed-elsewhere:
+  en: b93076392fd8baf9
+  zh: 200e1fad2fd2d760
+/deepseek-ai-dsh-client-ui-settings-agent-notes/understand-the-implementation:
+  en: 24107333098ffec8
+  zh: 8a6eabd13a606443
+/deepseek-ai-dsh-client-ui-settings-agent-notes/understand-the-implementation/registration-and-data-flow:
+  en: f334a10c484a67ef
+  zh: 528edbe995fe5b21
+/deepseek-ai-dsh-client-ui-settings-agent-notes/understand-the-implementation/source-map:
+  en: 15b71e6d40783499
+  zh: eab4b3e425b11cb1
+/deepseek-ai-dsh-client-ui-settings-agent-notes/further-exploration:
+  en: 719a2471ba13ef64
+  zh: f68bc51cc510bab8
+/deepseek-ai-dsh-client-ui-settings-agent-notes/model-experience:
+  en: 64347430a5b0076f
+  zh: 03985ebe1f6604c3
+/deepseek-ai-dsh-client-ui-settings-agent-notes/model-experience/kv-cache-effect:
+  en: ca75c51c89c2c9b0
+  zh: f57cc48a1b5cbfa9
+/deepseek-ai-dsh-client-ui-settings-agent-notes/known-limitations-and-deferred-work:
+  en: a8b67a058d923d25
+  zh: f002153151c8bcaa
+/deepseek-ai-dsh-client-ui-settings-agent-notes/known-limitations-and-deferred-work/dev-note:
+  en: ccbcf14a65f5cbc3
+  zh: 3029d4f88bb63044

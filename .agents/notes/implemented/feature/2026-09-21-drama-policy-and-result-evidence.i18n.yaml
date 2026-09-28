@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-21-drama-policy-and-result-evidence.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-21-drama-policy-and-result-evidence.md
-2026-09-21-drama-policy-and-result-evidence.md: e23b8293f99ca0b99bdc249cc9538a67918cc5ca
-2026-09-21-drama-policy-and-result-evidence.zh.md: f82483f26d4a90fae8f6c590431165998e133d15
+/agent-note-drama-production-policy-and-result-evidence:
+  en: 95687f45160bf07e
+  zh: 7e0ae181e9c60c25
+/agent-note-drama-production-policy-and-result-evidence/problem:
+  en: 62c8ca6d981e7ceb
+  zh: 66a350d995919f49
+/agent-note-drama-production-policy-and-result-evidence/decision:
+  en: d748f020d7de01bd
+  zh: f0990a73fb249126
+/agent-note-drama-production-policy-and-result-evidence/alternatives-considered:
+  en: e7cae51070f1076b
+  zh: cb126bd801a2e9f9
+/agent-note-drama-production-policy-and-result-evidence/consequences:
+  en: de0329c637f31d1e
+  zh: 0c8b5dda511dd63c

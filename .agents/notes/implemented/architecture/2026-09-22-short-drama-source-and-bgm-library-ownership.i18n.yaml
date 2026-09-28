@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-22-short-drama-source-and-bgm-library-ownership.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-22-short-drama-source-and-bgm-library-ownership.md
-2026-09-22-short-drama-source-and-bgm-library-ownership.md: c926a7a5149d41cc60c3ab84dfd46a6149139263
-2026-09-22-short-drama-source-and-bgm-library-ownership.zh.md: 5b389941e3e0157da7589788d3971d313e853f48
+/agent-note-short-drama-runtime-source-and-bgm-audio-owned-by-maintained-packages:
+  en: aa4c49fc73ace437
+  zh: 7f75d40c4bed1120
+/agent-note-short-drama-runtime-source-and-bgm-audio-owned-by-maintained-packages/problem:
+  en: 96edffe208df3c2f
+  zh: d00d4227010628ac
+/agent-note-short-drama-runtime-source-and-bgm-audio-owned-by-maintained-packages/decision:
+  en: b96e10943b3df934
+  zh: 17b024766657d576
+/agent-note-short-drama-runtime-source-and-bgm-audio-owned-by-maintained-packages/alternatives-considered:
+  en: 0dfa759c00d3b3dd
+  zh: 209c776338e51bf7
+/agent-note-short-drama-runtime-source-and-bgm-audio-owned-by-maintained-packages/consequences:
+  en: 812abe57ef1a8157
+  zh: b8796d335d152ffd

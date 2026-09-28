@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-26-media-payload-bgm-opt-in.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-26-media-payload-bgm-opt-in.md
-2026-09-26-media-payload-bgm-opt-in.md: 5be637b2df2d8ad8fca82fd28d8cf7bed3f9cc04
-2026-09-26-media-payload-bgm-opt-in.zh.md: 6636133fe052e542fdeec04244924d6284d89aeb
+/agent-note-the-packaged-media-payload-carries-the-emotion-runtime-only-when-a-build-opts-in:
+  en: c3b41a57c31e0ec7
+  zh: 9517549dfcaaab53
+/agent-note-the-packaged-media-payload-carries-the-emotion-runtime-only-when-a-build-opts-in/problem:
+  en: c81bb30bc76996f7
+  zh: cf1fefdeba95800a
+/agent-note-the-packaged-media-payload-carries-the-emotion-runtime-only-when-a-build-opts-in/decision:
+  en: 871fc2dda84f70db
+  zh: 88e22da454a024af
+/agent-note-the-packaged-media-payload-carries-the-emotion-runtime-only-when-a-build-opts-in/alternatives-considered:
+  en: eacece917a65c6ec
+  zh: 0e6d576dc3cd81b6
+/agent-note-the-packaged-media-payload-carries-the-emotion-runtime-only-when-a-build-opts-in/consequences:
+  en: 7b6250ebaf03878b
+  zh: 8d6162c360050010

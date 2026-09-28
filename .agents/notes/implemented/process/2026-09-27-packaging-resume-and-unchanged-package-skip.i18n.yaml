@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-27-packaging-resume-and-unchanged-package-skip.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-27-packaging-resume-and-unchanged-package-skip.md
-2026-09-27-packaging-resume-and-unchanged-package-skip.md: d653216176c9b5aaf8a7f1a29b85e0cdf48857c8
-2026-09-27-packaging-resume-and-unchanged-package-skip.zh.md: 480382063b529a91bdfbdf3fa6c7c618f4d6b888
+/agent-note-resume-packaging-at-the-step-that-failed-and-repack-only-what-changed:
+  en: 29d7bbd273178c8b
+  zh: 382a13a3566b86c8
+/agent-note-resume-packaging-at-the-step-that-failed-and-repack-only-what-changed/problem:
+  en: 40ec7f2937613df5
+  zh: 1543c705e4df795b
+/agent-note-resume-packaging-at-the-step-that-failed-and-repack-only-what-changed/decision:
+  en: 87ad6403f2a5ae44
+  zh: eacce8e2c8200e12
+/agent-note-resume-packaging-at-the-step-that-failed-and-repack-only-what-changed/alternatives-considered:
+  en: 45c2c8e49768aeae
+  zh: 843e3a2f61da21a0
+/agent-note-resume-packaging-at-the-step-that-failed-and-repack-only-what-changed/consequences:
+  en: c43a40b121f61f77
+  zh: dd66336d79b853ff

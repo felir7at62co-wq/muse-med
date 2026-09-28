@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-20-drama-asset-reconcile-tool.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-20-drama-asset-reconcile-tool.md
-2026-09-20-drama-asset-reconcile-tool.md: 7a6486fb81eaf16d560f62d0bd405007244f587c
-2026-09-20-drama-asset-reconcile-tool.zh.md: 8570a8c64737851b07e98c88410c57a2e18878a5
+/agent-note-the-pre-spend-asset-reconciliation-as-a-tool:
+  en: 389037fb534b2780
+  zh: d0f296b3a8971540
+/agent-note-the-pre-spend-asset-reconciliation-as-a-tool/problem:
+  en: 8d978bcf269ed5d1
+  zh: e8c4d12ef880a76c
+/agent-note-the-pre-spend-asset-reconciliation-as-a-tool/decision:
+  en: 234b12a56bf756cc
+  zh: b9cb70f793a77ac6
+/agent-note-the-pre-spend-asset-reconciliation-as-a-tool/alternatives-considered:
+  en: aa27322b91983574
+  zh: 24c31a1dd0b3327a
+/agent-note-the-pre-spend-asset-reconciliation-as-a-tool/consequences:
+  en: 5a851035ae4c5e14
+  zh: 3bc2473febb83496
+/agent-note-the-pre-spend-asset-reconciliation-as-a-tool/testing:
+  en: e93f05062d74d555
+  zh: cb4c2728b9f8874f

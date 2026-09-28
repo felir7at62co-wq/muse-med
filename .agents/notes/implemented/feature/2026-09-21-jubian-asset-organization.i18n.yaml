@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-21-jubian-asset-organization.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-21-jubian-asset-organization.md
-2026-09-21-jubian-asset-organization.md: 6e70de0b1f103f40d9c220c20f43ce2ecef127c4
-2026-09-21-jubian-asset-organization.zh.md: c5fcdfefd832e13a8e019fa32f243da1548881cf
+/agent-note-episode-and-category-asset-organization-for-the-jubian-tools:
+  en: c451a8d917ebad21
+  zh: 29a77b1effbf4793
+/agent-note-episode-and-category-asset-organization-for-the-jubian-tools/problem:
+  en: 579c302f8ea3d5bb
+  zh: 845202880abbe84a
+/agent-note-episode-and-category-asset-organization-for-the-jubian-tools/decision:
+  en: f71547695604f0bc
+  zh: 2d542c9a979504e4
+/agent-note-episode-and-category-asset-organization-for-the-jubian-tools/alternatives-considered:
+  en: 837aeca82efa0a95
+  zh: f4457e7cdb31cc92
+/agent-note-episode-and-category-asset-organization-for-the-jubian-tools/consequences:
+  en: c15489e63520edf1
+  zh: 80cfcd1a4f2fc65e
+/agent-note-episode-and-category-asset-organization-for-the-jubian-tools/testing:
+  en: d109af44a5c0eedd
+  zh: ca694a87499a5e3c

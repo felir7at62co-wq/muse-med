@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-22-drama-gate-binds-evidence-to-the-operation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-22-drama-gate-binds-evidence-to-the-operation.md
-2026-09-22-drama-gate-binds-evidence-to-the-operation.md: 5b3be12294cc42a3c2646cd4e5b38ad359b33e12
-2026-09-22-drama-gate-binds-evidence-to-the-operation.zh.md: 138bdaf21113e7cc3e3c6b215a81edf0d9ea4ed0
+/agent-note-the-drama-gate-binds-evidence-to-the-operation-s-own-project:
+  en: 14ae439da4e9ec65
+  zh: b8411643419daef4
+/agent-note-the-drama-gate-binds-evidence-to-the-operation-s-own-project/problem:
+  en: 4bb206b1fc2ab141
+  zh: a2e9f773e01de870
+/agent-note-the-drama-gate-binds-evidence-to-the-operation-s-own-project/decision:
+  en: ba2cdfc5acf2c7a0
+  zh: 6f6aec5294b66ec1
+/agent-note-the-drama-gate-binds-evidence-to-the-operation-s-own-project/alternatives-considered:
+  en: e9dfa4ab6efeb949
+  zh: 0262166017639082
+/agent-note-the-drama-gate-binds-evidence-to-the-operation-s-own-project/consequences:
+  en: 3e6c93f1aa6f5d46
+  zh: ebd9c1f3e1776648

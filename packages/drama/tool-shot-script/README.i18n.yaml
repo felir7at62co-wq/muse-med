@@ -1,6 +1,55 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-shot-script/README.md
-README.md: 2b674698350688994f4820abdfc60a0a91c263be
-README.zh.md: 4cd96e82f104e66d98a0f55af8207f6f929ece9e
+/:
+  en: a85fa35781492ca6
+  zh: 77a2be517badcd84
+/deepseek-ai-dsh-tool-shot-script:
+  en: b6097b098f876aea
+  zh: b64e23903a2698f3
+/deepseek-ai-dsh-tool-shot-script/summary:
+  en: 3e05ecb643ad4a33
+  zh: a30c14707d35cac2
+/deepseek-ai-dsh-tool-shot-script/table-of-contents:
+  en: 76368b6b1da79c80
+  zh: c7d57a49ff713e9a
+/deepseek-ai-dsh-tool-shot-script/use-this-package:
+  en: 9459542aef4d26bc
+  zh: a5c19034b8f0ed21
+/deepseek-ai-dsh-tool-shot-script/use-this-package/character-state-and-the-asset-s-own-registration:
+  en: eb0f0161ddd3643d
+  zh: 395c5efadda3b220
+/deepseek-ai-dsh-tool-shot-script/use-this-package/project-requirements:
+  en: d2da67368023b073
+  zh: ad0d12107861cc74
+/deepseek-ai-dsh-tool-shot-script/use-this-package/script-and-timing:
+  en: 8a19550c309dbc80
+  zh: 53ae08f8390ce374
+/deepseek-ai-dsh-tool-shot-script/use-this-package/files:
+  en: 94bb67e6f2290c6b
+  zh: 89fcf63e07e31d01
+/deepseek-ai-dsh-tool-shot-script/understand-the-implementation:
+  en: 9aa483e3ec75839d
+  zh: bb22ead251680a05
+/deepseek-ai-dsh-tool-shot-script/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-tool-shot-script/model-experience/the-drama-shot-tool:
+  en: ec78493bbab82a22
+  zh: 306010d0ea406e8f
+/deepseek-ai-dsh-tool-shot-script/model-experience/the-drama-shot-tool/what-the-model-sees:
+  en: 3aa2e3b7be599f71
+  zh: ef3cc3aa53dfde7a
+/deepseek-ai-dsh-tool-shot-script/model-experience/the-drama-shot-tool/token-effect:
+  en: 58874fe7a3482458
+  zh: 9a11cdafe4fddd59
+/deepseek-ai-dsh-tool-shot-script/model-experience/the-drama-shot-tool/kv-cache-effect:
+  en: 2dc996280d267da4
+  zh: 1495671619a84c93
+/deepseek-ai-dsh-tool-shot-script/known-limitations-and-deferred-work:
+  en: 0e6459822cd77d6c
+  zh: 287a2688e07fcd96
+/deepseek-ai-dsh-tool-shot-script/known-limitations-and-deferred-work/dev-note:
+  en: 0a1253c6f7b5e8b9
+  zh: 9f56528562c7c914

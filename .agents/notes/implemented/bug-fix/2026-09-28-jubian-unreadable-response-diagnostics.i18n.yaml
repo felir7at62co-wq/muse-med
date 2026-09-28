@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-28-jubian-unreadable-response-diagnostics.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-28-jubian-unreadable-response-diagnostics.md
-2026-09-28-jubian-unreadable-response-diagnostics.md: e4aac46131ae9b706e0a66f1a7a9d0b6d5dac94c
-2026-09-28-jubian-unreadable-response-diagnostics.zh.md: a8b462e19bb165caac3824b0b420cf7f907bba03
+/agent-note-diagnosing-an-unreadable-jubian-response:
+  en: 0c46258c758e0ca6
+  zh: 3524f6dcc938e7e9
+/agent-note-diagnosing-an-unreadable-jubian-response/problem:
+  en: 5341462dc7c24e6e
+  zh: f12bb18274081ae3
+/agent-note-diagnosing-an-unreadable-jubian-response/decision:
+  en: d10a6e272d43e210
+  zh: 87e9de39d0e23b03
+/agent-note-diagnosing-an-unreadable-jubian-response/alternatives-considered:
+  en: f1ba1572fff69e32
+  zh: e1cd13151078df21
+/agent-note-diagnosing-an-unreadable-jubian-response/consequences:
+  en: e1ed2b1f5b579130
+  zh: 69ed3a81f05c4bcc

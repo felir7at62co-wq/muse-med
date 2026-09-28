@@ -1,6 +1,49 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-18-jubian-plugin-design.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/specs/2026-09-18-jubian-plugin-design.md
-2026-09-18-jubian-plugin-design.md: f66f81afa1c892683b6102a008add78a7dcf470b
-2026-09-18-jubian-plugin-design.zh.md: a0085e61958128d613593877f78d80e586ed7e6c
+/jubian-tool-plugin-design:
+  en: 7c2c11a17ffea10a
+  zh: 7ef2167167cde30d
+/jubian-tool-plugin-design/1-background-and-goals:
+  en: eb20d0a212acb07d
+  zh: 2b13bf5df7686700
+/jubian-tool-plugin-design/2-package-structure:
+  en: 419ff13669e3b484
+  zh: 05659f0d61db2afc
+/jubian-tool-plugin-design/3-endpoint-inventory-21:
+  en: 68743da96157a9fb
+  zh: 7da57b85bdcda3b9
+/jubian-tool-plugin-design/3-endpoint-inventory-21/3-1-reads-17:
+  en: 028bc86a0021abc9
+  zh: c21b6d577b9109ec
+/jubian-tool-plugin-design/3-endpoint-inventory-21/3-2-writes-4:
+  en: 536001bcce012a42
+  zh: 8002f45429acc9ce
+/jubian-tool-plugin-design/4-tool-surface-4-tools-21-methods:
+  en: ac500aedcbc3e481
+  zh: dbbd1a38706bb607
+/jubian-tool-plugin-design/4-tool-surface-4-tools-21-methods/4-1-pending-mapping-to-settle-first-in-implementation:
+  en: 5ad594b30f0bc044
+  zh: fc023084ff150688
+/jubian-tool-plugin-design/5-credential:
+  en: ec6febdcd139393d
+  zh: b4133ba510fb2237
+/jubian-tool-plugin-design/6-idempotency-ledger:
+  en: d15c0dd131f1b052
+  zh: e4c309356a3d196f
+/jubian-tool-plugin-design/7-error-handling:
+  en: 3a1636827b58ac7c
+  zh: e9b34e82ace5d014
+/jubian-tool-plugin-design/8-http-client-contract:
+  en: 4b5a65de29d79371
+  zh: a393c802796d2b75
+/jubian-tool-plugin-design/9-tests:
+  en: e12e41db21a6cece
+  zh: 6a65edbb65f6faa1
+/jubian-tool-plugin-design/10-implementation-order:
+  en: ed4ebb1cdd976282
+  zh: ca6ac442417e724d
+/jubian-tool-plugin-design/11-risks:
+  en: 7f3dbf08f52d127d
+  zh: 821f15f9f07af26c

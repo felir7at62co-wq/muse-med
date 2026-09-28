@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-28-installer-dropped-a-packaged-media-asset.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-28-installer-dropped-a-packaged-media-asset.md
-2026-09-28-installer-dropped-a-packaged-media-asset.md: 4feb7fd17ceb0309595b2282d9436e54c3e459ed
-2026-09-28-installer-dropped-a-packaged-media-asset.zh.md: 62ee43299db65c35f0bdd8930a3f59df19152053
+/agent-note-the-windows-installer-shipped-without-one-packaged-media-asset:
+  en: 247c99fc061fa410
+  zh: 14f971787bc1a501
+/agent-note-the-windows-installer-shipped-without-one-packaged-media-asset/problem:
+  en: d95424dbca0647ef
+  zh: be900c0dce611c07
+/agent-note-the-windows-installer-shipped-without-one-packaged-media-asset/decision:
+  en: ec65c8ebf2ce89e3
+  zh: 63998dfee23a0191
+/agent-note-the-windows-installer-shipped-without-one-packaged-media-asset/alternatives-considered:
+  en: 2748008b984844c9
+  zh: eb0c3eb098a8e0b3
+/agent-note-the-windows-installer-shipped-without-one-packaged-media-asset/consequences:
+  en: a73b12d68c7cdae3
+  zh: cbd553acaae1ea96
+/agent-note-the-windows-installer-shipped-without-one-packaged-media-asset/verification:
+  en: 54a07e0418aaead6
+  zh: 97a1abf666ba5327

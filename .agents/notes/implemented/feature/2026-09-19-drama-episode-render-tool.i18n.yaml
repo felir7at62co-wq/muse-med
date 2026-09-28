@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-19-drama-episode-render-tool.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-19-drama-episode-render-tool.md
-2026-09-19-drama-episode-render-tool.md: e272af5e8d0010cec53f386e4b437ad65187c26b
-2026-09-19-drama-episode-render-tool.zh.md: c3f87d2cad043521360e3ddce3f90f7d0325db64
+/agent-note-short-drama-episode-rendering-as-a-tool:
+  en: aa2e314725af6421
+  zh: 6f3885e7f8e91955
+/agent-note-short-drama-episode-rendering-as-a-tool/problem:
+  en: e6827d5ec7511249
+  zh: e835f99db73db9ef
+/agent-note-short-drama-episode-rendering-as-a-tool/decision:
+  en: 950cf81ad7665b02
+  zh: 6b874e4ba94991a1
+/agent-note-short-drama-episode-rendering-as-a-tool/the-two-traps:
+  en: 70dc53a3533494d3
+  zh: c968d91f86d487bf
+/agent-note-short-drama-episode-rendering-as-a-tool/alternatives-considered:
+  en: 43df5382b19c74fa
+  zh: 65e2392ce6f9e249
+/agent-note-short-drama-episode-rendering-as-a-tool/consequences:
+  en: 244b10a73795f908
+  zh: 3138471eb949ab63
+/agent-note-short-drama-episode-rendering-as-a-tool/testing:
+  en: f31e12ece2b14cef
+  zh: de03861f9c5d419a

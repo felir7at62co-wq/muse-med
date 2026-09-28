@@ -254,7 +254,7 @@ describe('spawn construction (pure, every platform)', () => {
     const ctx = createContext()
     const subprocess = new CapturingSubprocessRuntime(ctx)
     await ctx.plugin(PwshLocalExecutor)
-    await ctx.shell.run(ctx.shell.resolve({ command: 'Write-Output 你好' }))
+    await run(ctx.shell, ctx.shell.resolve({ command: 'Write-Output 你好' }))
     expect(subprocess.specs[0]!.env).toMatchObject({
       NO_COLOR: '1',
       PAGER: 'cat',
@@ -262,7 +262,7 @@ describe('spawn construction (pure, every platform)', () => {
       PYTHONIOENCODING: 'utf-8',
     })
     // Environment layering: an explicit caller entry outranks the override.
-    await ctx.shell.run(ctx.shell.resolve({
+    await run(ctx.shell, ctx.shell.resolve({
       command: 'Write-Output 你好',
       env: { PYTHONIOENCODING: 'cp936' },
     }))
@@ -603,7 +603,7 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.run', () => {
     writeFileSync(script, 'import sys\nprint("python 中文测试")\nprint("stdout=%s stderr=%s" % (sys.stdout.encoding, sys.stderr.encoding))\nprint("python 中文错误", file=sys.stderr)\n', 'utf8')
     const { bash } = await setup()
 
-    const pinned = await bash.run(bash.resolve({ command: `& ${pythonBin} "${script}"` }))
+    const pinned = await run(bash, bash.resolve({ command: `& ${pythonBin} "${script}"` }))
     expect(pinned.exitCode).toBe(0)
     expect(lf(pinned.stdout.text)).toBe('python 中文测试\nstdout=utf-8 stderr=utf-8\n')
     expect(lf(pinned.stderr.text)).toBe('python 中文错误\n')
@@ -611,7 +611,7 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.run', () => {
     // The documented environment layering still lets a caller select another
     // encoding; the child then reports it (CPython reports the canonical name
     // of the `cp936` alias) and writes those bytes.
-    const overridden = await bash.run(bash.resolve({
+    const overridden = await run(bash, bash.resolve({
       command: `& ${pythonBin} "${script}"`,
       env: { PYTHONIOENCODING: 'cp936' },
     }))

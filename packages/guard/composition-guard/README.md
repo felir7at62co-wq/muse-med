@@ -107,7 +107,7 @@ Each record carries the names already announced for the current regression. A co
 Read these pages when the package-level contract is not enough. They move from the scope model the guard reads through to the defect it exists for and the guard group map.
 
 - [Tools subsystem reference](../../../docs/subsystems/tools.md) — the registry views and scope layers `ctx.tools.schemas()` resolves.
-- [Agent presets package](../../preset/agent-presets/README.md) — the standing mount whose registrations a frozen agent can lose.
+- [Agent presets package](../../preset/agent-preset/README.md) — the standing mount whose registrations a frozen agent can lose.
 - [Live-reload port traps Agent Note](../../../.agents/notes/implemented/architecture/2026-09-17-product-capability-plane-and-port-traps.md) — the measured defect, its evidence, and why the recovery is a restart.
 - [Composition guard Agent Note](../../../.agents/notes/implemented/architecture/2026-09-17-composition-guard-detects-live-tool-withdrawal.md) — what this guard can and cannot do, and the alternatives it rejected.
 - [guard group map](../README.md) — the sibling guard packages and the loop-hygiene family.

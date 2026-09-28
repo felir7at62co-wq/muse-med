@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-23-muse-med-independent-desktop.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-23-muse-med-independent-desktop.md
-2026-09-23-muse-med-independent-desktop.md: 5b49431ff86a60176823b084cddfab4fa6e993e3
-2026-09-23-muse-med-independent-desktop.zh.md: ea1fc8688480b18ecf1de8b1efff374886430efb
+/agent-note-isolate-the-muse-med-desktop-product-and-its-production-preset:
+  en: b06af2f43c73cfc7
+  zh: 922f82407157d54a
+/agent-note-isolate-the-muse-med-desktop-product-and-its-production-preset/problem:
+  en: 29ec98fceea7738f
+  zh: 4536511a8febc3a6
+/agent-note-isolate-the-muse-med-desktop-product-and-its-production-preset/decision:
+  en: 27f8d6dd1f29937e
+  zh: ab1e460e7b26c5fd
+/agent-note-isolate-the-muse-med-desktop-product-and-its-production-preset/alternatives-considered:
+  en: 9ce2c359fbef0073
+  zh: ebae0efdd5832a07
+/agent-note-isolate-the-muse-med-desktop-product-and-its-production-preset/consequences:
+  en: 1240ca912c2b87f6
+  zh: 35a991de5160ff53

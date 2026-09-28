@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-21-drama-subtitle-timing-without-asr.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-21-drama-subtitle-timing-without-asr.md
-2026-09-21-drama-subtitle-timing-without-asr.md: 5e89d2326144aaf844334f143ee28232a9d819a5
-2026-09-21-drama-subtitle-timing-without-asr.zh.md: ec6f4c8e4ab49788f06e729c9380929ad0457a2b
+/agent-note-subtitle-timing-measured-from-each-shot-without-speech-recognition:
+  en: ebf4f675042b62bc
+  zh: 27af700193b930d2
+/agent-note-subtitle-timing-measured-from-each-shot-without-speech-recognition/problem:
+  en: 62ba0a5ae019b72d
+  zh: 321097c15d22c87d
+/agent-note-subtitle-timing-measured-from-each-shot-without-speech-recognition/decision:
+  en: a6bc43455dcc2fe9
+  zh: 8c9cc0a799b2b807
+/agent-note-subtitle-timing-measured-from-each-shot-without-speech-recognition/alternatives-considered:
+  en: 1634c1d3968b186e
+  zh: a8f91f4c611f590f
+/agent-note-subtitle-timing-measured-from-each-shot-without-speech-recognition/consequences:
+  en: 29a8adc81fb9d582
+  zh: 0f07d8e9fa038e3a

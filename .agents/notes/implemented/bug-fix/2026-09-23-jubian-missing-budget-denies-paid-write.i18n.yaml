@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-23-jubian-missing-budget-denies-paid-write.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-23-jubian-missing-budget-denies-paid-write.md
-2026-09-23-jubian-missing-budget-denies-paid-write.md: 3289b6f1a982499555c45233daf46425738831fc
-2026-09-23-jubian-missing-budget-denies-paid-write.zh.md: 13aee3c1b467974b85a39a725ceab790ade54047
+/agent-note-missing-jubian-budget-refuses-paid-writes:
+  en: e719044055569ae3
+  zh: 57b79bb264c939f8
+/agent-note-missing-jubian-budget-refuses-paid-writes/problem:
+  en: f9d96cb4781fb158
+  zh: 1e5c63dc783dfe53
+/agent-note-missing-jubian-budget-refuses-paid-writes/decision:
+  en: b5d07b24720318f5
+  zh: 969db711be81f057
+/agent-note-missing-jubian-budget-refuses-paid-writes/alternatives-considered:
+  en: befc9b372073efa7
+  zh: 14d0cef63ba5f53c
+/agent-note-missing-jubian-budget-refuses-paid-writes/consequences:
+  en: 7be5169f4fb25215
+  zh: 807583c63caffaf5

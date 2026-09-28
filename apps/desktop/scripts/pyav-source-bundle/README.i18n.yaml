@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/scripts/pyav-source-bundle/README.md
-README.md: e4721ff5992bd21773d81a1e063585a29fcc56bb
-README.zh.md: 8bbe9487ed174de87c3ec3f2dab3a07a88995880
+/:
+  en: 24f767808d628d02
+  zh: 5fee030dbd8f89c2
+/pyav-wheel-source-bundle:
+  en: 6a9ec90ec6a0710a
+  zh: 9dc2141e69c406b7
+/pyav-wheel-source-bundle/summary:
+  en: 37dbce63610bb8b2
+  zh: d05c1278147aff84
+/pyav-wheel-source-bundle/table-of-contents:
+  en: 21a42d99149693bb
+  zh: 36dcc66b788fbab1
+/pyav-wheel-source-bundle/collect-and-verify:
+  en: a85a791778297899
+  zh: e7de019b6fa9c33a
+/pyav-wheel-source-bundle/distribution-requirements:
+  en: ca032059592ba5c7
+  zh: 616f5b58f5b234e8
+/pyav-wheel-source-bundle/dev-note:
+  en: cf24d31f6e75c751
+  zh: 1caac8ad73c2d9e0

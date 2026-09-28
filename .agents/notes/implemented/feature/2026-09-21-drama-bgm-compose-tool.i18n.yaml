@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-21-drama-bgm-compose-tool.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-21-drama-bgm-compose-tool.md
-2026-09-21-drama-bgm-compose-tool.md: b6f45f58813de566be3fc31d6ee3fa812d40b1d8
-2026-09-21-drama-bgm-compose-tool.zh.md: 57afb0f26cc8282f8308ca7abbd023170fbac843
+/agent-note-deterministic-short-drama-bgm-composition-as-a-tool:
+  en: 113cdbac8c694f95
+  zh: b5026a3ecdb96e25
+/agent-note-deterministic-short-drama-bgm-composition-as-a-tool/problem:
+  en: b213864fdb5106d4
+  zh: 9706109053b2cd0b
+/agent-note-deterministic-short-drama-bgm-composition-as-a-tool/decision:
+  en: f370c813c9139c0e
+  zh: 00d877fd5ba44f20
+/agent-note-deterministic-short-drama-bgm-composition-as-a-tool/alternatives-considered:
+  en: 2b50f9f6e6046db7
+  zh: acb64fa6847aa376
+/agent-note-deterministic-short-drama-bgm-composition-as-a-tool/consequences:
+  en: fa770db581bbff91
+  zh: 10b38b7823b4b12f

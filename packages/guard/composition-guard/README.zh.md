@@ -107,7 +107,7 @@ kind: "package-reference"
 当包级契约不够用时读这些页面。它们从守卫所读的作用域模型，走到它存在的理由，再到守卫家族地图。
 
 - [Tools subsystem reference](../../../docs/subsystems/tools.zh.md) — `ctx.tools.schemas()` 所解析的注册表视图与作用域层。
-- [Agent presets package](../../preset/agent-presets/README.zh.md) — 被冻结的 agent 可能失去其注册的常驻挂载。
+- [Agent presets package](../../preset/agent-preset/README.zh.md) — 被冻结的 agent 可能失去其注册的常驻挂载。
 - [Live-reload port traps Agent Note](../../../.agents/notes/implemented/architecture/2026-09-17-product-capability-plane-and-port-traps.zh.md) — 实测到的缺陷、其证据，以及为什么恢复方式是重启。
 - [Composition guard Agent Note](../../../.agents/notes/implemented/architecture/2026-09-17-composition-guard-detects-live-tool-withdrawal.zh.md) — 本守卫能做与不能做什么，以及它否决的备选方案。
 - [guard group map](../README.zh.md) — 兄弟守卫包与 loop-hygiene 家族。
