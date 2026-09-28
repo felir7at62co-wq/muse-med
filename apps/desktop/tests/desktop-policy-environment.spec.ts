@@ -7,13 +7,23 @@ const origins = { DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: 'https://test.exampl
   DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN: 'https://prod.example.com' }
 const auth = { DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: JSON.stringify({ allowedAuthOrigins: ['https://login.example.com'] }) }
 
+it('explicitly disables policy queries without disabling unsigned package validation', () => {
+  const environment = { DSH_DESKTOP_APP_ID: 'com.example.muse', DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: 'false' }
+  expect(resolveDesktopPolicyEnvironment(environment)).toBeUndefined()
+  expect(resolveDesktopPolicyConfig(resolveDesktopPolicyEnvironment(environment))).toBeUndefined()
+  expect(() => validateDesktopPackageEnvironment(environment, { platform: 'win32', arch: 'x64' }, { unsigned: true })).not.toThrow()
+  expect(() => validateDesktopPackageEnvironment({ ...environment, DSH_DESKTOP_APP_ID: '' },
+    { platform: 'win32', arch: 'x64' }, { unsigned: true })).toThrow()
+})
+
 it.each(['test', 'production'] as const)('selects the %s policy and authentication together', (deployment) => {
   const policy = resolveDesktopPolicyEnvironment({ ...origins, ...(deployment === 'test' ? auth : {}), DSH_DESKTOP_AUTO_UPDATE_ENV: deployment })
   const origin = deployment === 'test' ? origins.DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN : origins.DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN
   expect(policy).toEqual({ origin, allowedPageOrigins: [origin],
     ...(deployment === 'test' ? { allowedAuthOrigins: ['https://login.example.com'] } : {}),
     authentication: deployment === 'test' ? 'feishu-test' : 'anonymous' })
-  expect(resolveDesktopPolicyConfig(policy)).toMatchObject(policy)
+  expect(policy).toBeDefined()
+  expect(resolveDesktopPolicyConfig(policy)).toMatchObject(policy!)
 })
 
 it('requires only the selected origin, defaults to test, and accepts explicit page restrictions', () => {

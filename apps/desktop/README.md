@@ -292,6 +292,8 @@ Apple tooling uses the active macOS network service's HTTP/HTTPS proxies. Config
 
 ### Unsigned Windows test installer
 
+muse-med uses its GitHub Releases feed, not DSH's mandatory-update service. Set `DSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false` in `.env.windows` to explicitly omit policy metadata and disable policy requests; updater checks, downloads and installation remain enabled. Missing or invalid policy settings without this explicit choice still fail packaging.
+
 The Windows installer supports English and Simplified Chinese. It defaults to a dedicated `muse-med` installation directory; do not install directly into a drive root. On Windows x64, use the complete unsigned packaging command for local installation testing:
 
 ```sh

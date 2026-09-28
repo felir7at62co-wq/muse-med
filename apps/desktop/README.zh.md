@@ -292,6 +292,8 @@ Apple 工具使用 macOS 当前活动网络服务的 HTTP/HTTPS 代理。配置�
 
 ### 未签名 Windows 测试安装包
 
+muse-med 使用自己的 GitHub Releases 更新源，不接入 DSH 的强制更新服务。在 `.env.windows` 设置 `DSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false`，明确省略策略元数据并关闭策略请求；更新检查、下载和安装仍然启用。未作此显式选择时，缺失或无效的策略配置仍会使打包失败。
+
 Windows 安装器支持英语和简体中文，默认使用专属的 `muse-med` 安装目录；不要直接安装到盘根目录。在 Windows x64 上，使用完整的未签名打包命令进行本地安装测试：
 
 ```sh

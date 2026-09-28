@@ -1,6 +1,6 @@
 /** Resolve the Desktop auto-update channel, its GitHub Releases source, and its Tencent COS upload destination. */
 
-import { valid } from 'semver'
+import { prerelease, valid } from 'semver'
 
 /** Environment variable that selects the Desktop update deployment. */
 export const DESKTOP_AUTO_UPDATE_ENV = 'DSH_DESKTOP_AUTO_UPDATE_ENV'

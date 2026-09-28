@@ -110,7 +110,7 @@ export function createElectronBuilderConfig(
     extraMetadata: {
       name: 'muse-med',
       dshDesktopAppId: appId,
-      dshMandatoryUpdatePolicy: policy,
+      ...policy === undefined ? {} : { dshMandatoryUpdatePolicy: policy },
       ...buildVersion === productVersion ? {} : { version: buildVersion },
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
     },

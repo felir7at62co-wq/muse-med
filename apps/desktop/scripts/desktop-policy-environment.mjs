@@ -13,17 +13,18 @@ function origin(value, name) {
 /**
  * Resolve mandatory policy metadata before preparing artifacts or accessing signing hardware.
  * @param {NodeJS.ProcessEnv} environment File-owned release settings; the unselected origin is not required.
- * @returns {{ origin: string, allowedPageOrigins: string[], authentication: 'anonymous' | 'feishu-test', [key: string]: unknown }} Selected policy.
+ * @returns {{ origin: string, allowedPageOrigins: string[], authentication: 'anonymous' | 'feishu-test', [key: string]: unknown } | undefined} Selected policy, or undefined when CONFIG explicitly contains JSON false.
  */
 export function resolveDesktopPolicyEnvironment(environment) {
   const deployment = resolveDesktopAutoUpdateEnvironment(environment)
   const name = deployment === 'test' ? 'DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN' : 'DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN'
-  const selected = origin(environment[name], name)
   let settings = {}
   if (environment.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG !== undefined) {
     try { settings = JSON.parse(environment.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG) }
     catch { throw new Error('desktop package: DSH_DESKTOP_MANDATORY_UPDATE_CONFIG must be valid JSON') }
   }
+  if (settings === false) return undefined
+  const selected = origin(environment[name], name)
   if (typeof settings !== 'object' || settings === null || Array.isArray(settings)
     || 'origin' in settings || 'authentication' in settings) {
     throw new Error('desktop package: policy options must be an object without origin or authentication; use the deployment origin settings')
