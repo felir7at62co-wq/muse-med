@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/host/feishu-settings/README.md
-README.md: a9222c59040e860423516cbfb56ea188c23916e7
-README.zh.md: 58e77971a16b1e80f6acabc1a255abc2f9403162
+/deepseek-ai-dsh-feishu-settings:
+  en: 2051da835283aa85
+  zh: bdd3e04f801f420a
+/deepseek-ai-dsh-feishu-settings/what-it-owns:
+  en: 333404e38dd55286
+  zh: eb4cfe4cb69ea720
+/deepseek-ai-dsh-feishu-settings/registration:
+  en: 0fa8b98c08bd881c
+  zh: 8bdcc7dfb991b33b
+/deepseek-ai-dsh-feishu-settings/storing-credentials:
+  en: 069620e7a1cd7ada
+  zh: 1e0e29b2ede9d571
+/deepseek-ai-dsh-feishu-settings/restart-sequence:
+  en: 4af573d1251f7a2f
+  zh: 1f040dc6a3316b97
+/deepseek-ai-dsh-feishu-settings/known-limitations-and-deferred-work:
+  en: 66a225e4e993052f
+  zh: a77f9e99d12ffa43

@@ -5,20 +5,25 @@
  * state the running composition actually reports, the scan ticket the Host
  * rendered, and a hand-entry fallback for an app that already exists. The page
  * never receives the stored secret — every answer carries the app id and
- * whether a secret is stored — and every failure is shown as its code.
+ * whether a secret is stored — and every refusal is shown as the reason the
+ * Host named, never as the settings service's own message.
+ *
+ * A refused save leaves both fields as typed, so the same page can be corrected
+ * and retried; only a landed write clears the secret.
  */
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { FeishuLoginTicket, FeishuRowState, FeishuSetupStatus } from '../types.ts'
+import type { RemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
+import type { FeishuCredentialFailure, FeishuLoginTicket, FeishuRowState, FeishuSetupStatus } from '../types.ts'
 import type { FeishuLocaleKey } from './locales.ts'
 import css from './FeishuSection.module.css'
 
-/** What one call resolved to, or the failure code it reported. */
+/** What one call resolved to, or the refusal it reported. */
 export type FeishuOutcome<T> =
   | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly code: string; readonly message: string }
+  | { readonly ok: false; readonly error: RemoteFailure }
 
 /** Registration-side face the page calls; every method reports failures as values. */
 export interface FeishuSetupInjected {
@@ -47,15 +52,43 @@ const ROW_COPY: Record<FeishuRowState, FeishuLocaleKey> = {
   'disabled': 'status.disabled',
   'restart-pending': 'status.restartPending',
   'active': 'status.active',
-  'overridden': 'status.overridden',
   'unavailable': 'status.unavailable',
 }
 
-/** Copy key of each failure code this Host answers with. */
-const CODE_COPY: Record<string, FeishuLocaleKey> = {
+/** Copy key of each reason a credential write can be refused with. */
+const REASON_COPY: Record<FeishuCredentialFailure, FeishuLocaleKey> = {
+  'section-unregistered': 'error.sectionUnregistered',
+  'write-rejected': 'error.writeRejected',
+}
+
+/** Copy key of each bounded code the platform's registration call reports. */
+const LOGIN_COPY: Record<string, FeishuLocaleKey> = {
   'registration-failed': 'error.registration-failed',
   'invalid_request': 'error.invalid_request',
   'no-qr': 'error.no-qr',
+}
+
+/**
+ * Render one refusal as copy this page owns.
+ * @param error - the typed failure the Host reported.
+ * @param t - the page's bound copy.
+ * @returns the sentence to show.
+ */
+function failureText(error: RemoteFailure, t: FeishuSectionProps['t']): string {
+  switch (error.code) {
+    case 'feishu/credentials-unwritable':
+      return t(REASON_COPY[error.details.reason])
+    case 'feishu/secret-required':
+      return t('error.secretRequired')
+    case 'feishu/login-failed': {
+      const known = LOGIN_COPY[error.details.code]
+      return known === undefined ? t('error.loginFailed', { code: error.details.code }) : t(known)
+    }
+    default:
+      // A carrier or infrastructure failure: its code is the whole fact this
+      // page can honestly show.
+      return t('error.generic', { code: error.code })
+  }
 }
 
 /** Seconds in the platform's validity window, ticked down locally. */
@@ -96,10 +129,7 @@ export function FeishuSection(props: FeishuSectionProps): ReactNode {
     void readStatus().then((outcome) => {
       if (!current) return
       if (outcome.ok) setStatus(outcome.value)
-      else {
-        const key = CODE_COPY[outcome.code]
-        setNotice(key === undefined ? t('error.generic', { code: outcome.code }) : t(key))
-      }
+      else setNotice(failureText(outcome.error, t))
     })
     return () => {
       current = false
@@ -107,23 +137,23 @@ export function FeishuSection(props: FeishuSectionProps): ReactNode {
   }, [readStatus, t])
 
   /**
-   * Run one call that answers with the post-write status.
+   * Run one call, report its refusal, and adopt the status it answers with.
    * @param call - the call to run.
-   * @param done - the notice a successful call shows; undefined shows none.
+   * @param done - the notice a landed call shows; undefined shows none.
+   * @returns whether the call landed; the page state is updated either way.
    */
-  const run = (call: () => Promise<FeishuOutcome<FeishuSetupStatus>>, done?: FeishuLocaleKey): void => {
+  const run = async (call: () => Promise<FeishuOutcome<FeishuSetupStatus>>, done?: FeishuLocaleKey): Promise<boolean> => {
     setBusy(true)
     setNotice(undefined)
-    void call().then((outcome) => {
-      setBusy(false)
-      if (!outcome.ok) {
-        const key = CODE_COPY[outcome.code]
-        setNotice(key === undefined ? t('error.generic', { code: outcome.code }) : t(key))
-        return
-      }
-      setStatus(outcome.value)
-      if (done !== undefined) setNotice(t(done))
-    })
+    const outcome = await call()
+    setBusy(false)
+    if (!outcome.ok) {
+      setNotice(failureText(outcome.error, t))
+      return false
+    }
+    setStatus(outcome.value)
+    if (done !== undefined) setNotice(t(done))
+    return true
   }
 
   /**
@@ -136,8 +166,7 @@ export function FeishuSection(props: FeishuSectionProps): ReactNode {
     const outcome = await beginLogin()
     if (!outcome.ok) {
       setBusy(false)
-      const key = CODE_COPY[outcome.code]
-      setNotice(key === undefined ? t('error.generic', { code: outcome.code }) : t(key))
+      setNotice(failureText(outcome.error, t))
       return
     }
     const refreshed = await readStatus()
@@ -145,73 +174,133 @@ export function FeishuSection(props: FeishuSectionProps): ReactNode {
     if (refreshed.ok) setStatus(refreshed.value)
   }
 
-  if (status === undefined) return <div className={css.section}><p aria-busy="true">{t('nav')}</p></div>
+  if (status === undefined) {
+    // A first read that was refused has no status to render; the reason it
+    // carries is the whole page until the Host answers one.
+    return (
+      <div className={css.section}>
+        <p className={css.notice} aria-busy="true">{t('nav')}</p>
+        {notice === undefined ? null : <p className={css.notice} role="status">{notice}</p>}
+      </div>
+    )
+  }
+
+  // A secret is required exactly while none is stored: the write keeps a stored
+  // one when the field is blank, so the field only looks optional after one.
+  const hasStoredSecret = status.credential !== 'none'
 
   return (
     <div className={css.section}>
-      <p className={css.status}>{`${t('statusLabel')}: ${t(ROW_COPY[status.row])}`}</p>
-      <p className={css.hint}>{t('credentialLabel')}: {t(status.credential === 'none' ? 'credential.none' : status.credential === 'manual' ? 'credential.manual' : 'credential.registered')}</p>
-      {status.appId.length === 0 ? null : <p className={css.hint}>{`${t('appIdLabel')}: ${status.appId}`}</p>}
-      {notice === undefined ? null : <p className={css.notice}>{notice}</p>}
+      <section className={css.group}>
+        <h3 className={css.groupTitle}>{t('statusLabel')}</h3>
+        <p className={css.groupDescription}>{t(ROW_COPY[status.row])}</p>
+        <p className={css.groupDescription}>
+          {`${t('credentialLabel')}: ${t(hasStoredSecret ? (status.credential === 'manual' ? 'credential.manual' : 'credential.registered') : 'credential.none')}`}
+        </p>
+        {status.appId.length === 0 ? null : <p className={css.groupDescription}>{`${t('appIdLabel')}: ${status.appId}`}</p>}
+      </section>
 
-      <label className={css.switch}>
-        <input
-          type="checkbox"
-          checked={status.enabled}
-          disabled={busy}
-          onChange={(event) => {
-            run(async () => await setEnabled(event.target.checked), 'switchNeedsRestart')
-          }}
-        />
-        {t('switchLabel')}
-      </label>
+      <section className={css.group}>
+        <h3 className={css.groupTitle}>{t('switchLabel')}</h3>
+        <div className={css.toggleRow}>
+          <Switch
+            checked={status.enabled}
+            disabled={busy || !status.writable}
+            label={t('switchLabel')}
+            onChange={(next) => { void run(async () => await setEnabled(next), 'switchNeedsRestart') }}
+          />
+          <span className={css.groupDescription}>{t('switchHint')}</span>
+        </div>
+      </section>
 
-      <h3 className={css.heading}>{t('qrTitle')}</h3>
-      <p className={css.hint}>{t('qrHint')}</p>
-      {status.login === null
-        ? <Button disabled={busy} onClick={() => { void startScan() }}>{busy ? t('qrStarting') : t('qrStart')}</Button>
-        : (
-          <div className={css.qr}>
-            <img className={css.qrImage} src={status.login.qrDataUrl} alt={t('qrWaiting')} />
-            <p className={css.hint}>
-              {secondsLeft === null || secondsLeft > 0 ? t('qrExpires', { seconds: String(secondsLeft ?? status.login.expiresInSeconds) }) : t('qrExpired')}
-            </p>
-            <div className={css.actions}>
-              <Button disabled={busy} onClick={() => { void startScan() }}>{t('qrRefresh')}</Button>
-              <Button disabled={busy} onClick={() => { run(async () => await cancelLogin()) }}>{t('qrCancel')}</Button>
+      <section className={css.group}>
+        <h3 className={css.groupTitle}>{t('qrTitle')}</h3>
+        <p className={css.groupDescription}>{t('qrHint')}</p>
+        {status.login === null
+          ? <div className={css.actions}><Button disabled={busy} onClick={() => { void startScan() }}>{busy ? t('qrStarting') : t('qrStart')}</Button></div>
+          : (
+            <div className={css.qr}>
+              <img className={css.qrImage} src={status.login.qrDataUrl} alt={t('qrWaiting')} />
+              <p className={css.groupDescription}>
+                {secondsLeft === null || secondsLeft > 0 ? t('qrExpires', { seconds: String(secondsLeft ?? status.login.expiresInSeconds) }) : t('qrExpired')}
+              </p>
+              <div className={css.actions}>
+                <Button disabled={busy} onClick={() => { void startScan() }}>{t('qrRefresh')}</Button>
+                <Button disabled={busy} onClick={() => { void run(async () => await cancelLogin()) }}>{t('qrCancel')}</Button>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+      </section>
 
-      <h3 className={css.heading}>{t('advancedTitle')}</h3>
-      <p className={css.hint}>{t('advancedHint')}</p>
-      <label className={css.field}>
-        {t('appIdLabel')}
-        <input value={appId} placeholder={t('appIdPlaceholder')} onChange={(event) => { setAppId(event.target.value) }} />
-      </label>
-      <label className={css.field}>
-        {t('secretLabel')}
-        <input
-          type="password"
-          value={appSecret}
-          placeholder={status.credential === 'none' ? t('secretPlaceholder') : t('secretStored')}
-          onChange={(event) => { setAppSecret(event.target.value) }}
-        />
-      </label>
-      <div className={css.actions}>
-        <Button
-          disabled={busy || appId.trim().length === 0}
-          onClick={() => {
-            run(async () => await setCredentials({ appId: appId.trim(), appSecret }), 'saved')
-            setAppSecret('')
-          }}
-        >
-          {busy ? t('saving') : t('save')}
-        </Button>
-        <Button disabled={busy} onClick={() => { run(async () => await forget(), 'forgotten'); setAppId(''); setAppSecret('') }}>
-          {busy ? t('forgetting') : t('forget')}
-        </Button>
-      </div>
+      <section className={css.group}>
+        <h3 className={css.groupTitle}>{t('advancedTitle')}</h3>
+        <p className={css.groupDescription}>{t('advancedHint')}</p>
+        <label className={css.field}>
+          <span className={css.fieldLabel}>{t('appIdLabel')}</span>
+          <Input
+            className={css.input}
+            value={appId}
+            placeholder={t('appIdPlaceholder')}
+            aria-label={t('appIdLabel')}
+            onChange={(event) => { setAppId(event.target.value) }}
+          />
+        </label>
+        <label className={css.field}>
+          <span className={css.fieldLabel}>{t('secretLabel')}</span>
+          <Input
+            className={css.input}
+            type="password"
+            value={appSecret}
+            placeholder={hasStoredSecret ? t('secretKeepStored') : t('secretPlaceholder')}
+            aria-label={t('secretLabel')}
+            onChange={(event) => { setAppSecret(event.target.value) }}
+          />
+        </label>
+        {hasStoredSecret ? null : <p className={css.groupDescription}>{t('secretRequiredHint')}</p>}
+        <div className={css.actions}>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={busy || !status.writable || appId.trim().length === 0 || (!hasStoredSecret && appSecret.length === 0)}
+            onClick={() => {
+              setBusy(true)
+              setNotice(undefined)
+              void setCredentials({ appId: appId.trim(), appSecret }).then((outcome) => {
+                setBusy(false)
+                // A refused write keeps the fields as typed: the secret is what
+                // the retry needs, and it is the one value the page cannot
+                // reconstruct.
+                if (!outcome.ok) {
+                  setNotice(failureText(outcome.error, t))
+                  return
+                }
+                setStatus(outcome.value)
+                setAppSecret('')
+                setNotice(t('saved'))
+              })
+            }}
+          >
+            {busy ? t('saving') : t('save')}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy || !status.writable}
+            onClick={() => {
+              void run(forget, 'forgotten').then((landed) => {
+                if (!landed) return
+                setAppId('')
+                setAppSecret('')
+              })
+            }}
+          >
+            {busy ? t('forgetting') : t('forget')}
+          </Button>
+        </div>
+      </section>
+
+      {notice === undefined ? null : <p className={css.notice} role="status">{notice}</p>}
+      {status.writable ? null : <p className={css.notice}>{t('readOnly')}</p>}
     </div>
   )
 }

@@ -203,6 +203,12 @@ const LEGACY_SECTION_ENTRIES: Record<string, string> = {
   'ui-onboarding': 'ui-settings-general',
   /* v8 ignore next -- the base bundle composes one shell executor per platform */
   shell: process.platform === 'win32' ? 'pwsh-sandbox' : 'bash-sandbox',
+  // Section names the product line wrote before its rows were renamed: the
+  // bridge's own section is its composition entry (`feishu-channel`), and the
+  // preset roster's is `agent-preset-registry`. Without these two the values
+  // would stay only in the renamed document, i.e. silently stop working.
+  'dsh-lark-bridge': 'feishu-channel',
+  'agent-presets': 'agent-preset-registry',
 }
 
 /** Resolve the inherited layers alone, or keep their raw values when required fields arrive only through the profile.

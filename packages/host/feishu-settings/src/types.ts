@@ -8,16 +8,18 @@
  * @module @deepseek-ai/dsh-feishu-settings/types
  */
 
+// Import the protocol module so the declaration at the end of this file
+// augments its error map rather than defining an unrelated ambient module.
+import type {} from '@deepseek-ai/dsh-typert-protocol'
+
 /** How the bundled bridge row stands right now. */
 export type FeishuRowState =
-  /** The product switch is off; the Loader never starts the row. */
+  /** The product switch is off; the row's own activation key is off with it. */
   | 'disabled'
   /** The switch is on, but this backend composed the row before that write. */
   | 'restart-pending'
-  /** The row is composed enabled and no plugin-level key overrides it. */
+  /** The row is composed with its activation key on. */
   | 'active'
-  /** The bridge's own settings section stores `enabled: false`, which wins. */
-  | 'overridden'
   /** This composition has no bridge row at all. */
   | 'unavailable'
 
@@ -68,6 +70,31 @@ export interface FeishuSetEnabledRequest {
 export interface FeishuSetCredentialsRequest {
   /** App id to store. */
   readonly appId: string
-  /** App secret to store; an empty value keeps the stored one. */
+  /** App secret to store; may be empty only while one is already stored. */
   readonly appSecret: string
+}
+
+/**
+ * Why one credential write could not reach the bridge's section.
+ *
+ * The reason is a closed vocabulary because the page has to name the failure:
+ * the settings service's own message quotes the entry and the path it wrote,
+ * and a schema rejection can quote the value it refused — which here is the
+ * secret — so no failure path forwards that message.
+ */
+export type FeishuCredentialFailure =
+  /** This composition mounts no bridge row, so no section can take the pair. */
+  | 'section-unregistered'
+  /** The settings service or that section's schema refused the pair. */
+  | 'write-rejected'
+
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface RemoteErrorDetailsMap {
+    /** The bridge's section could not receive the pair. */
+    'feishu/credentials-unwritable': { readonly reason: FeishuCredentialFailure }
+    /** Nothing stored yet and the request carried no secret. */
+    'feishu/secret-required': {}
+    /** The platform's app-registration call failed; `code` is its bounded reason. */
+    'feishu/login-failed': { readonly code: string }
+  }
 }

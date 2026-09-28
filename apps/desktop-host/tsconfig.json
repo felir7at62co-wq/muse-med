@@ -15,6 +15,7 @@
     { "path": "../../packages/boot/cmdline" },
     { "path": "../../packages/client/connection/tsconfig.host.json" },
     { "path": "../../packages/client/modules" },
+    { "path": "../../packages/host/feishu-settings/tsconfig.host.json" },
     { "path": "../../packages/host/webserver" },
     { "path": "../../packages/core/tools" },
     { "path": "../../packages/preset/agent-preset-registry" },

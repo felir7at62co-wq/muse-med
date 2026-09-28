@@ -2,47 +2,53 @@
  * The `feishuSetup` Remote namespace behind the Settings page.
  *
  * The service owns the durable `feishu` switch and the one pending QR scan, and
- * it writes the credential pair into the bridge's own section, where the bridge
- * resolves it over its composed config. It never answers with the stored secret:
- * {@link FeishuSetupStatus} has no field for it, and every failure travels as a
- * bounded code.
+ * it writes the credential pair into the bridge row's own Config section, where
+ * the Loader resolves it for that plugin. That section belongs to the
+ * composition entry, so it exists exactly while the composition mounts a bridge
+ * row — which is why the shipped patch keeps that row mounted and inert rather
+ * than entry-disabled: a disabled row has no Config to write, and the pair a
+ * scan produces is exactly what an operator stores before the bridge ever runs.
+ * It never answers with the stored secret: {@link FeishuSetupStatus} has no
+ * field for it, every failure travels as a bounded code whose details name the
+ * reason rather than quoting the settings service's own message, and the
+ * section is read through the service's redacted view, which reports only
+ * whether the secret is set.
  *
  * @module @deepseek-ai/dsh-feishu-settings/service
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
-import type { SettingsProvider, SettingsScope } from '@deepseek-ai/dsh-settings'
-import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import {
-  BRIDGE_SETTINGS_NAMESPACE, BridgeSettingsSchema, FEISHU_SETTINGS_NAMESPACE, FeishuSettingsSchema,
-  type FeishuSettings,
-} from './settings.ts'
-import { FeishuLoginFlow, officialRegisterApp, type RegisterAppPort } from './login.ts'
+import type { SettingsDescriptor, SettingsForms } from '@deepseek-ai/dsh-settings'
+import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { FEISHU_CHANNEL_ROW_ID, FEISHU_SETTINGS_NAMESPACE } from './settings.ts'
+import { FeishuLoginError, FeishuLoginFlow, officialRegisterApp, type RegisterAppPort } from './login.ts'
 import { credentialSourceOf, rowStateOf, type FeishuRowProbe } from './status.ts'
 import type { FeishuLoginTicket, FeishuSetCredentialsRequest, FeishuSetEnabledRequest, FeishuSetupStatus } from './types.ts'
 
-/** Composition row id of the bundled Feishu bridge. */
-export const FEISHU_CHANNEL_ROW_ID = 'feishu-channel'
-
-/** Failure code reported when the bridge's own section cannot be written. */
-const BRIDGE_UNAVAILABLE = 'bridge-settings-unavailable'
+/** Key of the secret inside the bridge row's section. */
+const APP_SECRET_KEY = 'appSecret'
 
 /** The slice of the Cordis Loader this service observes. */
 interface FeishuLoaderView {
   /**
    * Entries the Loader currently holds, in Loader order.
-   * @returns one iterable of entries.
+   * @returns one iterable of entries with their live Config, when mounted.
    */
-  entries(): Iterable<{ readonly options: { readonly id?: string; readonly disabled?: boolean | null } }>
+  entries(): Iterable<{
+    readonly options: { readonly id?: string }
+    readonly fiber?: { readonly config?: unknown } | undefined
+  }>
 }
 
 /** Injectable pieces; the row passes the services it was mounted under. */
 export interface FeishuSetupServiceOptions {
   /** Registration call; the official one unless a test substitutes a fake. */
   readonly register?: RegisterAppPort
-  /** Settings provider this row was gated on; the row always passes one. */
-  readonly settings: SettingsProvider
+  /** Live product switch this row's own Config carries. */
+  readonly enabled: () => boolean
+  /** The settings service every section write goes through. */
+  readonly settings: SettingsForms
   /** The composition's Loader, when one is mounted above this row. */
   readonly loader?: FeishuLoaderView
 }
@@ -51,10 +57,10 @@ export interface FeishuSetupServiceOptions {
 interface BridgeCredentialView {
   /** Stored app id, empty when absent. */
   readonly appId: string
-  /** Whether a secret is stored, never the secret itself. */
+  /** Stored scanner open id, empty when the pair was entered by hand. */
+  readonly registeredBy: string
+  /** Whether the section holds a secret right now, never the secret itself. */
   readonly hasSecret: boolean
-  /** `dsh-lark-bridge.enabled` from the user layer, `undefined` when absent. */
-  readonly override: boolean | undefined
 }
 
 /**
@@ -66,31 +72,40 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/** Read the value fields of one redacted section, and whether its secret is set.
+ * @param section - the bridge row's descriptor, or undefined when this composition has none.
+ * @returns the fields the page may see.
+ */
+function credentialViewOf(section: SettingsDescriptor | undefined): BridgeCredentialView {
+  const user = isRecord(section?.user) ? section.user : {}
+  const appId = user['appId']
+  const registeredBy = user['registeredBy']
+  return {
+    appId: typeof appId === 'string' ? appId : '',
+    registeredBy: typeof registeredBy === 'string' ? registeredBy : '',
+    hasSecret: section?.secrets?.some(secret => secret.path.join('.') === APP_SECRET_KEY && secret.set) === true,
+  }
+}
+
 /** Product-owned Feishu setup: one switch, one registration flow, one credential sink. */
 export class FeishuSetupService extends TypertRemoteService {
   static inject = ['settings']
 
-  private readonly provider: SettingsProvider
+  private readonly settings: SettingsForms
   private readonly loader: FeishuLoaderView | undefined
-  private readonly scope: SettingsScope<FeishuSettings>
+  private readonly switch: () => boolean
   private readonly login: FeishuLoginFlow
 
   /**
    * @param ctx - Host context owning this service.
-   * @param options - the settings provider and Loader the row resolved, plus an
-   *   injectable registration call.
+   * @param options - the live switch, the settings service, the Loader the row
+   *   resolved, plus an injectable registration call.
    */
   constructor(ctx: Context, options: FeishuSetupServiceOptions) {
     super(ctx, 'feishuSetup')
-    this.provider = options.settings
+    this.settings = options.settings
     this.loader = options.loader
-    this.scope = options.settings.register(FEISHU_SETTINGS_NAMESPACE, FeishuSettingsSchema, { applies: 'restart' })
-    // The settings service refuses to write an unregistered namespace, so the
-    // bridge's section is pre-registered exactly while the bridge cannot run:
-    // with the switch off, the gate disables that row for this whole boot.
-    if (!this.scope.get().enabled) {
-      options.settings.register(BRIDGE_SETTINGS_NAMESPACE, BridgeSettingsSchema, { applies: 'restart' })
-    }
+    this.switch = options.enabled
     this.login = new FeishuLoginFlow({
       register: options.register ?? officialRegisterApp,
       onRegistered: async (registration) => {
@@ -105,40 +120,44 @@ export class FeishuSetupService extends TypertRemoteService {
    */
   @Remote('status')
   async status(): Promise<FeishuSetupStatus> {
-    const stored = this.scope.get()
-    const credential = this.credentialView()
+    const enabled = this.switch()
+    const credential = credentialViewOf(this.section())
     const failure = this.login.failure
     return {
-      enabled: stored.enabled,
-      row: rowStateOf(stored.enabled, this.probe(credential.override)),
+      enabled,
+      row: rowStateOf(enabled, this.probe()),
       appId: credential.appId,
-      credential: credentialSourceOf(credential.hasSecret, stored.registeredBy),
-      writable: true,
+      credential: credentialSourceOf(credential.hasSecret, credential.registeredBy),
+      // The page can only store a pair while this composition holds the bridge
+      // row: a row this profile does not compose has no section to write.
+      writable: this.section() !== undefined,
       login: this.login.ticket ?? null,
       ...(failure === undefined ? {} : { lastError: failure }),
     }
   }
 
   /**
-   * Store the product switch. The row's entry-level `disabled` is recomputed by
-   * the desktop composition at the next backend start, and a write to `false`
+   * Store the product switch. The bridge row's own activation key is recomputed
+   * by the desktop composition at the next backend start, and a write to `false`
    * also withdraws a pending scan.
    * @param request - the requested switch value.
    * @returns the status after the write.
    */
   @Remote('setEnabled')
   async setEnabled(request: FeishuSetEnabledRequest): Promise<FeishuSetupStatus> {
-    await this.scope.update({ enabled: request.enabled === true })
+    await this.settings.update(FEISHU_SETTINGS_NAMESPACE, { enabled: request.enabled === true })
     if (request.enabled !== true) this.login.cancel()
     return await this.status()
   }
 
   /**
-   * Store a hand-entered pair in the bridge's own section. An empty secret keeps
-   * the stored one, so the page never has to send back a value it was never
-   * shown. The pair takes effect at the next backend start.
-   * @param request - app id plus secret, an empty secret meaning unchanged.
+   * Store a hand-entered pair in the bridge row's section. An empty secret
+   * keeps a stored one, so the page never has to send back a value it was never
+   * shown; with nothing stored yet it is refused. The pair takes effect at the
+   * next backend start.
+   * @param request - app id plus secret, the secret required while none is stored.
    * @returns the status after the write.
+   * @throws RemoteError when no section can receive the pair, or the request carries no secret.
    */
   @Remote('setCredentials')
   async setCredentials(request: FeishuSetCredentialsRequest): Promise<FeishuSetupStatus> {
@@ -149,11 +168,24 @@ export class FeishuSetupService extends TypertRemoteService {
   /**
    * Start one QR scan and answer with the ticket to show.
    * @returns the URL, its Host-rendered QR image, and the platform's validity window.
-   * @throws FeishuLoginError whose message is the stable failure code.
+   * @throws RemoteError whose details carry the platform's bounded failure code.
    */
   @Remote('beginLogin')
   async beginLogin(): Promise<FeishuLoginTicket> {
-    return await this.login.begin(this.credentialView().appId)
+    try {
+      return await this.login.begin(credentialViewOf(this.section()).appId)
+    } catch (error) {
+      if (!(error instanceof FeishuLoginError)) throw error
+      // The code is the platform's, already narrowed to `[A-Za-z0-9_.-]{1,64}`
+      // by the flow, so it can carry no request material.
+      this.ctx.logger.warn('feishu-settings: the platform registration failed (%s)', error.code)
+      throw new RemoteError(
+        'feishu/login-failed',
+        `the platform's app registration failed (${error.code})`,
+        { code: error.code },
+        { cause: error },
+      )
+    }
   }
 
   /**
@@ -174,62 +206,85 @@ export class FeishuSetupService extends TypertRemoteService {
   @Remote('forget')
   async forget(): Promise<FeishuSetupStatus> {
     this.login.cancel()
-    if (this.provider.describe().some(entry => entry.ns === BRIDGE_SETTINGS_NAMESPACE)) {
-      await this.provider.mutate(BRIDGE_SETTINGS_NAMESPACE, [
+    if (this.section() !== undefined) {
+      await this.settings.mutate(FEISHU_CHANNEL_ROW_ID, [
         { op: 'unset', path: ['appId'] },
-        { op: 'unset', path: ['appSecret'] },
+        { op: 'unset', path: [APP_SECRET_KEY] },
+        { op: 'unset', path: ['registeredBy'] },
       ])
     }
-    await this.scope.update({ enabled: false, registeredBy: '' })
+    await this.settings.update(FEISHU_SETTINGS_NAMESPACE, { enabled: false })
     return await this.status()
   }
 
   /**
-   * Write the pair into the bridge's own section and record who scanned it.
+   * Write the pair into the bridge row's section and record who scanned it.
+   *
+   * The section belongs to the composition entry, so a composition that mounts
+   * no bridge row has nowhere to put the pair and says so; every other refusal
+   * is the settings service's own exception — whose message quotes the entry and
+   * path it wrote, and which a schema rejection can fill with the value it
+   * refused — and goes to the host log instead of the page.
    * @param appId - app id to store.
-   * @param appSecret - secret to store; an empty value keeps the stored one.
+   * @param appSecret - secret to store; an empty value keeps a stored one.
    * @param registeredBy - scanner's open id, empty for a hand-entered pair.
-   * @throws Error with a bounded message when the bridge's section is absent.
+   * @throws RemoteError when no section can receive the pair, when nothing is
+   *   stored and the request carries no secret, or when the write is refused.
    */
   private async storeCredential(appId: string, appSecret: string, registeredBy: string): Promise<void> {
+    const section = this.section()
+    if (section === undefined) {
+      throw new RemoteError(
+        'feishu/credentials-unwritable',
+        `this composition mounts no "${FEISHU_CHANNEL_ROW_ID}" row to own the credential section`,
+        { reason: 'section-unregistered' },
+      )
+    }
+    if (appSecret.length === 0 && !credentialViewOf(section).hasSecret) {
+      throw new RemoteError(
+        'feishu/secret-required',
+        'no app secret is stored, so this write has to carry one',
+        {},
+      )
+    }
     try {
-      await this.provider.update(BRIDGE_SETTINGS_NAMESPACE, {
+      await this.settings.update(FEISHU_CHANNEL_ROW_ID, {
         appId,
-        ...(appSecret.length === 0 ? {} : { appSecret }),
+        ...(appSecret.length === 0 ? {} : { [APP_SECRET_KEY]: appSecret }),
+        registeredBy,
       })
     } catch (error) {
-      // The bridge's section is neither pre-registered (switch on) nor composed
-      // (bridge absent), so there is nowhere to store the pair; the reason never
-      // quotes the pair itself.
-      void error
-      throw new Error(BRIDGE_UNAVAILABLE)
+      this.ctx.logger.error('feishu-settings: storing the app credentials in "%s" was refused', FEISHU_CHANNEL_ROW_ID)
+      this.ctx.logger.error(error)
+      throw new RemoteError(
+        'feishu/credentials-unwritable',
+        `the settings service refused the write to "${FEISHU_CHANNEL_ROW_ID}"`,
+        { reason: 'write-rejected' },
+        { cause: error },
+      )
     }
-    await this.scope.update({ registeredBy })
   }
 
   /**
-   * Read the bridge's stored section without ever materializing its secret.
-   * @returns the app id, whether a secret is stored, and any `enabled` override.
+   * Read the bridge row's section through the settings service's redacted view,
+   * which never materializes its secret.
+   * @returns the descriptor, or undefined when this composition has no such row.
    */
-  private credentialView(): BridgeCredentialView {
-    const descriptor = this.provider.describe().find(entry => entry.ns === BRIDGE_SETTINGS_NAMESPACE)
-    const user = isRecord(descriptor?.user) ? descriptor.user : {}
-    const secret = user['appSecret']
-    const override = user['enabled']
-    return {
-      appId: typeof user['appId'] === 'string' ? user['appId'] : '',
-      hasSecret: typeof secret === 'string' && secret.length > 0,
-      override: typeof override === 'boolean' ? override : undefined,
-    }
+  private section(): SettingsDescriptor | undefined {
+    return this.settings.describe({ redactSecrets: true }).find(entry => entry.ns === FEISHU_CHANNEL_ROW_ID)
   }
 
   /**
    * Observe this composition's bridge row.
-   * @param override - `dsh-lark-bridge.enabled` read from the stored user layer.
    * @returns the probe {@link rowStateOf} reduces.
    */
-  private probe(override: boolean | undefined): FeishuRowProbe {
+  private probe(): FeishuRowProbe {
     const entry = [...this.loader?.entries() ?? []].find(candidate => candidate.options.id === FEISHU_CHANNEL_ROW_ID)
-    return { entryDisabled: entry?.options.disabled ?? undefined, bridgeOverride: override }
+    const config = entry?.fiber?.config
+    const enabled = isRecord(config) ? config['enabled'] : undefined
+    return {
+      composed: entry !== undefined,
+      bridgeEnabled: typeof enabled === 'boolean' ? enabled : undefined,
+    }
   }
 }

@@ -2,16 +2,9 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
-<<<<<<< apps/desktop/README.i18n.yaml:current
-README.md: 56b0b508da2a23772a2865a00aaf13d9b9ddc414
-README.zh.md: 4ef6ca74a282d9354875f73d062a9cb87f3bc5fa
-=======
 /muse-med-desktop:
-  en: c2e13eabe76805a4
-  zh: 5bdfa384e5bf5e82
-/muse-med-desktop/closing-the-window-and-quitting:
-  en: 0cc27a5c5eab82e3
-  zh: 3d67e21d84de9414
+  en: 91c2272fc44c8598
+  zh: 8be8e0790a42f0e4
 /muse-med-desktop/key-technical-decisions:
   en: 069fdfd72d2ea26a
   zh: 76ae549d43c99bb4
@@ -19,14 +12,14 @@ README.zh.md: 4ef6ca74a282d9354875f73d062a9cb87f3bc5fa
   en: c31415adaf46726c
   zh: 8cacda98cc5624b1
 /muse-med-desktop/installation-ownership:
-  en: 4f305d1c5849d7d7
-  zh: b31d718d27de3684
+  en: a64ee2b07f03a54b
+  zh: 4c9b6724452d909d
 /muse-med-desktop/installation-ownership/short-drama-resources-and-limits:
   en: 0dc82b34924fc148
   zh: e0a8cf7fb74d5432
 /muse-med-desktop/installation-ownership/runtime-and-plugin-activation:
-  en: b2c8690318a68548
-  zh: 7210f34a2a61be51
+  en: 02e25b879a8f2a3f
+  zh: 758f02afca8288af
 /muse-med-desktop/develop:
   en: d671eb5af7956ef1
   zh: a64fa6dbb71df970
@@ -42,15 +35,18 @@ README.zh.md: 4ef6ca74a282d9354875f73d062a9cb87f3bc5fa
 /muse-med-desktop/package/release-versions:
   en: f461b255133384cc
   zh: 2b9db718f22fdd04
+/muse-med-desktop/package/resuming-a-failed-run:
+  en: 0a20368ae8ad048e
+  zh: 09f45a0c214e7d6a
 /muse-med-desktop/package/runtime-file-selection:
   en: e8a654359d16f4e5
   zh: 3fe2424550bfcbfa
 /muse-med-desktop/package/upload-updates:
-  en: c64d7fe2fe2534b7
-  zh: 2188e1ae99ab4b33
+  en: 7ee8718aeac56a43
+  zh: 9b0086e869d5cbcd
 /muse-med-desktop/package/unsigned-windows-test-installer:
-  en: a7e26b75bc8d756e
-  zh: 2f6e5d52384bc188
+  en: c26a7d95b4bf8383
+  zh: 5ea28809728dc0ff
 /muse-med-desktop/package/windows-installer-interface:
   en: f176a8b1c7de3064
   zh: 6ea2dbe6bb808c34
@@ -58,14 +54,8 @@ README.zh.md: 4ef6ca74a282d9354875f73d062a9cb87f3bc5fa
   en: 8efe3498dbe8686d
   zh: a88c16f20a9430f3
 /muse-med-desktop/updates:
-  en: d0df867b69cbffa4
-  zh: eeb47b79b86fe5ee
-/muse-med-desktop/updates/mandatory-update-policy:
-  en: 2f789a4949fafb12
-  zh: d8b28c01cfee11b7
-/muse-med-desktop/updates/local-updater-qualification:
-  en: bc50fd8a4d96c227
-  zh: fb0a6ce80c31cda6
+  en: 6d3b38baede32d7d
+  zh: faa19e4a39d88ae8
 /muse-med-desktop/low-level-development-overrides:
   en: 0b225f914142ef0b
   zh: 9ffd07768d37824e
@@ -75,4 +65,3 @@ README.zh.md: 4ef6ca74a282d9354875f73d062a9cb87f3bc5fa
 /muse-med-desktop/dev-note:
   en: 8e26b460ba31f21b
   zh: fbcd0307b3867125
->>>>>>> apps/desktop/README.i18n.yaml:other

@@ -225,8 +225,8 @@ function desktopComposition(
     },
   }])
   // Last layer wins: the Feishu bridge row runs only when this product's own
-  // settings document says so, and that layer also restates the activation
-  // controls the patch composed, because a patch replaces the whole config.
+  // switch row says so, and that layer also restates the activation controls the
+  // patch composed, because a patch replaces the whole config.
   layers.push(feishuGateLayer([...rows.values()]))
   return { profile, patches: layers.flat() }
 }

@@ -2,30 +2,32 @@
 
 English | [中文](README.zh.md)
 
-The product's own Feishu setup: one settings section that opens the bundled bridge's gate, one QR registration flow, and the Web Settings page that drives both.
+The product's own Feishu setup: one composition row whose own Config opens the bundled bridge, one QR registration flow, and the Web Settings page that drives both.
 
 ## What it owns
 
-- **`feishu`** — this product's switch. `enabled` defaults to `false`, so an absent, empty, or unreadable settings document means off. The desktop composition reads the same key to compute the bundled `feishu-channel` row's **entry-level `disabled`** ([`apps/desktop-host/src/feishu-gate.ts`](../../../apps/desktop-host/src/feishu-gate.ts)); that entry switch is the only activation authority, and the page is the only way to open it.
-- **`dsh-lark-bridge`** — the bundled bridge's own section, which this row **pre-registers while the switch is off** (that is exactly when the gate disables the bridge row, so the bridge's own registration cannot exist). The settings service refuses to write an unregistered namespace, so this pre-registration is what lets the page store the credential pair before the bridge ever runs. The pair therefore lives in the bridge's user layer, which the bridge resolves over its composed config — no composed entry, and no configuration dump, can carry it.
+- **The `feishu` row** — this product's switch. The row is composed as id `feishu`, so the settings service serves it as the `feishu` section, and its own `enabled` field (`volatile`, default `false`) is what the page writes. The desktop composition reads that same field to set the bundled `feishu-channel` row's own `enabled` key ([`apps/desktop-host/src/feishu-gate.ts`](../../../apps/desktop-host/src/feishu-gate.ts)); the page is the only way to open it.
+- **The `feishu-channel` row's section** — the bundled bridge's credentials. In this harness a plugin's settings section IS its own resolved Config, so the pair is stored by writing that row's config (`appId`, `appSecret`, `registeredBy`, each `volatile`, the secret also `role('secret')`) and read back through the redacted `describe()`, which reports only whether the secret is set. The row stays mounted while the switch is off — a disabled row has no section to write — and carries `enabled: false` as its fail-safe.
 - **`feishuSetup`** — the Typert `@Remote` namespace the page calls: `status`, `setEnabled`, `setCredentials`, `beginLogin`, `cancelLogin`, `forget`.
-
-## Two-layer truth
-
-The product switch and the bridge's own section are separate layers, and the page reports both. Even with the switch on, a stored `dsh-lark-bridge.enabled: false` wins over the row's composed config, and the page says so (`overridden`) instead of claiming the bot runs.
 
 ## Registration
 
-`beginLogin` calls the official `registerApp` from `@larksuite/channel` (the same package the bundled bridge depends on), renders the returned URL into an SVG data URL **on the Host** — the browser bundle carries no QR encoder — and writes the credentials the scan yields into the bridge's section. Failures travel as bounded codes; platform messages never reach the page, a log line, or a Remote answer.
+`beginLogin` calls the official `registerApp` from `@larksuite/channel` (the same package the bundled bridge depends on), renders the returned URL into an SVG data URL **on the Host** — the browser bundle carries no QR encoder — and writes the credentials the scan yields into the bridge row's section through the same sink a hand-entered pair uses. Failures travel as bounded codes; platform messages never reach the page, a log line, or a Remote answer.
+
+## Storing credentials
+
+`setCredentials` writes `appId` plus, when the field carries one, `appSecret` into the bridge row's section. The secret is required exactly while none is stored: a blank field means "keep the stored one", which is only meaningful once there is one, so the page both disables the action and says why until a secret is typed. A refused write keeps what the operator typed — the secret is the one value the page cannot reconstruct — and clears the field only after a landed write.
+
+Every refusal reaches the page as a code with a typed reason, never as the settings service's own message: the service quotes the entry and path it wrote, and a schema rejection can quote the value it refused, which here is the secret. `feishu/credentials-unwritable` carries `section-unregistered` (this composition mounts no bridge row) or `write-rejected`; `feishu/secret-required` and `feishu/login-failed` cover the other two. The real exception goes to the host log.
 
 ## Restart sequence
 
-Saving credentials and turning the switch on both take effect at the next backend start, because a composed entry's `disabled` and a settings section's `config` are resolved at boot. The page states this in the switch notice and in the `restart-pending` state text.
+Saving credentials and turning the switch on both take effect at the next backend start, because a composed entry's Config is resolved at boot. The page states this in the switch notice and in the `restart-pending` state text.
 
 ## Known Limitations and Deferred Work
 
 - Group-message policy is read-only in this round: `approvers` and the sender/group allowlists outrank the sandbox, so the page neither edits nor displays them.
 - Nothing here performs a real Feishu round trip: the shipped tests fake the registration call, so QR scanning, the live long connection, and a tenant's own permission and visibility configuration remain unverified.
-- The page reports the bridge's own `enabled` override but does not clear it: clearing a key in a namespace owned by another plugin is that plugin's contract, and the page links the operator to the settings document instead.
-- **Deliberate cross-plugin coupling**: this row pre-registers the `dsh-lark-bridge` namespace while the switch is off, and writes that section read-merge-write — the `appId`/`appSecret` pair only, every other key preserved. The coupling follows the bridge's own Config schema: if upstream renames or reshapes those credential keys, this row's placeholder schema and written keys must move with it, or the pair lands in a key the bridge no longer reads.
+- **Deliberate cross-plugin coupling**: this row writes the bridge row's section read-merge-write — the credential pair and the scanner record only, every other key preserved. The coupling follows that row's Config schema: if upstream renames or reshapes those keys, this row's written keys must move with it, or the pair lands in a key the bridge no longer reads.
+- **The switch cannot make the bridge row entry-disabled.** A settings section exists only for a mounted entry, so an entry-disabled row could never receive the pair a scan produces before the bridge first runs. The shipped patch keeps the row mounted, states `enabled: false` as the fail-safe, and the staged package returns before its sync layer, control server, peer heartbeat, or QR app registration whenever that key is off.
 - This package publishes no `./invariant`: every fact it owns — the stored switch, the pending ticket, the credential's presence — is already observable through the `feishuSetup` Remote surface, so there is no second observation that could diverge from it.

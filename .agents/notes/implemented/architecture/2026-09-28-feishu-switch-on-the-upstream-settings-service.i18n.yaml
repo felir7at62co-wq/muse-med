@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-28-feishu-switch-on-the-upstream-settings-service.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-28-feishu-switch-on-the-upstream-settings-service.md
+/agent-note-the-feishu-switch-on-the-upstream-settings-service:
+  en: f75f3f11272a82c2
+  zh: 4bb68789b3a9fb62
+/agent-note-the-feishu-switch-on-the-upstream-settings-service/problem:
+  en: 2f01e78c6604c1c8
+  zh: aa2fe473618a3bd7
+/agent-note-the-feishu-switch-on-the-upstream-settings-service/decision:
+  en: bedac7234cb58aea
+  zh: ffbe7a330773d8ae
+/agent-note-the-feishu-switch-on-the-upstream-settings-service/alternatives-considered:
+  en: cbcbdbd3462e804d
+  zh: 6805dfba01456d74
+/agent-note-the-feishu-switch-on-the-upstream-settings-service/consequences:
+  en: 14a023626174a077
+  zh: f63f21bf591c4bc3

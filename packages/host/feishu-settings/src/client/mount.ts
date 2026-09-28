@@ -43,12 +43,10 @@ export const inject = ['slots', 'locale', 'remote']
 /**
  * Map one Remote answer onto the outcome the component reads.
  * @param result - the generated Client namespace's result.
- * @returns the same facts, or the failure's code and message.
+ * @returns the same value, or the typed refusal the Host reported.
  */
 function outcomeOf<T>(result: RemoteResult<T>): FeishuOutcome<T> {
-  return result.ok
-    ? { ok: true, value: result.value }
-    : { ok: false, code: result.error.code, message: result.error.message }
+  return result.ok ? { ok: true, value: result.value } : { ok: false, error: result.error }
 }
 
 /** Contribute the Feishu page to Settings. */
