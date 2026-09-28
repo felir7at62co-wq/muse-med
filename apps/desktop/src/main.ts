@@ -26,6 +26,10 @@ import { desktopErrorState } from './startup-error.ts'
 import { startupFailureDocument } from './startup-document.ts'
 import { desktopPluginCatalog, repositoryUrl } from './plugin-catalog.ts'
 import { productHomeFor } from './product-home.ts'
+import { applyDesktopProductIdentity } from './product-identity.ts'
+
+// Identity precedes the product home, every path read, and the single-instance lock below.
+applyDesktopProductIdentity(app)
 
 // The independent product never imports a parent DSH installation's credentials or sessions.
 const productHome = process.env.MUSE_MED_HOME

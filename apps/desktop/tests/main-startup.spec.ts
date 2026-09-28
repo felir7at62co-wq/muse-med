@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { existsSync, readFileSync } from 'node:fs'
 import { delimiter, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { DESKTOP_IPC } from '../src/ipc.ts'
@@ -6,6 +7,9 @@ import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 
 const harness = await vi.hoisted(async () => {
   const { EventEmitter } = await import('node:events')
+  const { mkdtempSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
   function deferred() {
     let resolve!: () => void
     let reject!: (error: Error) => void
@@ -64,6 +68,8 @@ const harness = await vi.hoisted(async () => {
     })
     constructor(readonly node: string, readonly runtime: string, readonly profile: string) { hosts.push(this) }
   }
+  const calls: string[] = []
+  const appData = mkdtempSync(join(tmpdir(), 'dsh-desktop-app-data-'))
   const app = Object.assign(new EventEmitter(), {
     isPackaged: true,
     name: 'Desktop test',
@@ -71,7 +77,11 @@ const harness = await vi.hoisted(async () => {
     getLocale: () => 'en-US',
     getVersion: () => '1.0.0',
     getAppPath: () => 'desktop-test-app',
-    requestSingleInstanceLock: () => true,
+    setName: (name: string) => { calls.push(`setName:${name}`) },
+    getPath: (name: string) => { calls.push(`getPath:${name}`); return appData },
+    setPath: (name: string, path: string) => { calls.push(`setPath:${name}:${path}`) },
+    commandLine: { hasSwitch: () => false },
+    requestSingleInstanceLock: () => { calls.push('requestSingleInstanceLock'); return true },
     exit: vi.fn(),
     relaunch: vi.fn(),
     quit: vi.fn(() => {
@@ -81,7 +91,7 @@ const harness = await vi.hoisted(async () => {
     }),
   })
   return {
-    windows, hosts, managerRuntimes, handlers, app, FakeWindow, FakeHost,
+    windows, hosts, managerRuntimes, handlers, app, FakeWindow, FakeHost, calls, appData,
     dialog: { showErrorBox: vi.fn(), showMessageBox: vi.fn() },
     menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
     openExternal: vi.fn(async () => {}),
@@ -98,6 +108,7 @@ const harness = await vi.hoisted(async () => {
     reset() {
       windows.length = 0; hosts.length = 0; managerRuntimes.length = 0; handlers.clear(); app.removeAllListeners()
       app.isPackaged = true
+      calls.length = 0
       pluginsEnabled = false
       preparing = deferred(); prepared = deferred(); hostStarted = deferred()
       navigated = deferred(); errorPublished = deferred(); quitCompleted = deferred()
@@ -180,6 +191,20 @@ afterEach(async () => {
 })
 
 describe('desktop main startup', () => {
+  it('claims the product userData directory before the single-instance lock', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    const userData = join(harness.appData, 'muse-med')
+    const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { name: string }
+    expect(harness.calls).toContain('setName:muse-med')
+    expect(harness.calls).toContain(`setPath:userData:${userData}`)
+    expect(harness.calls.indexOf(`setPath:userData:${userData}`))
+      .toBeLessThan(harness.calls.indexOf('requestSingleInstanceLock'))
+    // The upstream package name is what Electron would derive userData (and the lock) from.
+    expect(userData).not.toBe(join(harness.appData, manifest.name))
+    expect(existsSync(userData)).toBe(true)
+  })
+
   it('exposes catalog reads only to desktop-owned shell documents', async () => {
     await import('../src/main.ts')
     await harness.preparing.promise
