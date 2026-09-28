@@ -8,11 +8,14 @@ import css from './Input.module.css'
 /**
  * Render a text input with an optional leading icon.
  * @param props.icon - optional 16px leading icon node.
+ * @param props.className - extra class for layout placement.
  * @returns wrapper span containing the native input; input attributes pass through.
  */
 export function Input({ icon, className, ...rest }: {
   icon?: ReactNode
-  className?: string
+  // `| undefined` so a caller can forward an optional class straight through
+  // under exactOptionalPropertyTypes (a CSS-module lookup is string|undefined).
+  className?: string | undefined
 } & InputHTMLAttributes<HTMLInputElement>) {
   return (
     <span className={clsx(css.wrap, className)}>

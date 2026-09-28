@@ -101,7 +101,14 @@ export function createElectronBuilderConfig(
   return {
     appId,
     protocols: [{ name: 'DeepSeek Harness', schemes: ['dsh'] }],
+    // electron-builder derives the updater's cache directory from the packaged
+    // package.json `name` (`AppInfo.updaterCacheDirName` in `app-builder-lib` is
+    // `sanitizeFileName(name).toLowerCase() + '-updater'`) and no configuration
+    // field overrides it, so the workspace manifest's upstream name would keep
+    // sharing `%LOCALAPPDATA%\@deepseek-aidsh-desktop-updater` with the official
+    // DeepSeek Harness. The packaged manifest restates the product name.
     extraMetadata: {
+      name: 'muse-med',
       dshDesktopAppId: appId,
       dshMandatoryUpdatePolicy: policy,
       ...buildVersion === productVersion ? {} : { version: buildVersion },

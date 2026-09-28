@@ -20,6 +20,13 @@ function isBuildFaceClient(value: unknown): boolean {
  * `packages/drama/skills` is a workspace package that ships static skill
  * resources and has no JavaScript entry at all, so the workspace-wide entry
  * glob cannot resolve it; exclude it rather than give it an empty build.
+ *
+ * The workspace list is enumerated by directory, not by manifest, and each
+ * enumerated directory inherits the root `entry` below. A package directory
+ * without its own `package.json` therefore resolves that entry inside itself,
+ * finds nothing, and fails as `[@deepseek-ai/dsh-root]` — the nearest manifest
+ * above it rather than the directory at fault.
+ * `scripts/tsdown-workspace.spec.ts` keeps the enumeration manifest-backed.
  */
 export default defineConfig(({ env }) => {
   const client = isBuildFaceClient(env?.DSH_BUILD_FACE)

@@ -4,9 +4,12 @@
  * These readers parse business fields, which the transport deliberately does
  * not. Each one takes an already-validated envelope `data` and either returns
  * the fields it promises or throws `CONTRACT_CHANGED`, so a field the provider
- * adds never breaks a caller.
+ * adds never breaks a caller. Every one of them reads through
+ * {@link readPayload}, so a rejection carries the structure of the payload it
+ * refused rather than the bare code.
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { readPayload } from './reading.ts'
 
 function invalid(): never { throw new JubianError('CONTRACT_CHANGED') }
 
@@ -53,7 +56,7 @@ export const MODEL_TASK_TYPES = { video: 1, image: 2, subtitleErasure: 10 } as c
  * @returns The rows, unchanged: every selector a caller needs is account state read from here.
  */
 export function readModels(data: unknown): Record<string, unknown>[] {
-  return rows(data)
+  return readPayload('readModels', data, () => rows(data))
 }
 
 /**
@@ -62,12 +65,14 @@ export function readModels(data: unknown): Record<string, unknown>[] {
  * @returns The project identity, with the provider's `scriptName` projected as `name` and legacy `name` retained as fallback.
  */
 export function readScript(data: unknown): { script_id: number; name: string | null; production_type: number | null } {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) invalid()
-  const record = data as Record<string, unknown>
-  const id = record.id ?? record.scriptId
-  if (typeof id !== 'number' && typeof id !== 'string') invalid()
-  return { script_id: positiveInteger(id), name: optionalText(record.scriptName) ?? optionalText(record.name),
-    production_type: typeof record.productionType === 'number' ? record.productionType : null }
+  return readPayload('readScript', data, () => {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) invalid()
+    const record = data as Record<string, unknown>
+    const id = record.id ?? record.scriptId
+    if (typeof id !== 'number' && typeof id !== 'string') invalid()
+    return { script_id: positiveInteger(id), name: optionalText(record.scriptName) ?? optionalText(record.name),
+      production_type: typeof record.productionType === 'number' ? record.productionType : null }
+  })
 }
 
 /**
@@ -76,13 +81,15 @@ export function readScript(data: unknown): { script_id: number; name: string | n
  * @returns The page total and its episode rows.
  */
 export function readEpisodes(data: unknown): { total: number; rows: { episode_id: number; name: string | null }[] } {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) invalid()
-  const record = data as Record<string, unknown>
-  const list = record.rows
-  if (!Array.isArray(list)) invalid()
-  return { total: typeof record.total === 'number' && Number.isSafeInteger(record.total) ? record.total : list.length,
-    rows: rows(list).map(item => ({ episode_id: positiveInteger(item.id ?? item.episodeId),
-      name: optionalText(item.name) })) }
+  return readPayload('readEpisodes', data, () => {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) invalid()
+    const record = data as Record<string, unknown>
+    const list = record.rows
+    if (!Array.isArray(list)) invalid()
+    return { total: typeof record.total === 'number' && Number.isSafeInteger(record.total) ? record.total : list.length,
+      rows: rows(list).map(item => ({ episode_id: positiveInteger(item.id ?? item.episodeId),
+        name: optionalText(item.name) })) }
+  })
 }
 
 /** One screenplay row as `/aigc/script/list` and `/script/center/pool/list` return it. */
@@ -134,21 +141,23 @@ function pageCarrier(data: unknown): Record<string, unknown> {
  * @returns The page's own total and its rows projected onto the fields readers promise.
  */
 export function readScriptList(data: unknown): { total: number; rows: ScriptRow[] } {
-  const page = pageCarrier(data)
-  // Stricter than {@link optionalCount}: a scan's `complete` claim is measured
-  // against this number, so a value that is not the provider's own integer total
-  // stops the call here rather than reading as a complete single-page scan.
-  const total = page.total
-  if (typeof total !== 'number' || !Number.isSafeInteger(total) || total < 0) invalid()
-  return { total, rows: rows(page.rows).map(item => ({
-    script_id: positiveInteger(item.id ?? item.scriptId),
-    script_name: optionalText(item.scriptName),
-    manuscript_name: optionalText(item.manuscriptName),
-    episode_count: optionalCount(item.episodeCount),
-    script_style: optionalCount(item.scriptStyle),
-    status: optionalText(item.status),
-    can_claim: optionalFlag(item.canClaim),
-    claim_leader_name: optionalText(item.claimLeaderName),
-    claim_member_name: optionalText(item.claimMemberName),
-  })) }
+  return readPayload('readScriptList', data, () => {
+    const page = pageCarrier(data)
+    // Stricter than {@link optionalCount}: a scan's `complete` claim is measured
+    // against this number, so a value that is not the provider's own integer total
+    // stops the call here rather than reading as a complete single-page scan.
+    const total = page.total
+    if (typeof total !== 'number' || !Number.isSafeInteger(total) || total < 0) invalid()
+    return { total, rows: rows(page.rows).map(item => ({
+      script_id: positiveInteger(item.id ?? item.scriptId),
+      script_name: optionalText(item.scriptName),
+      manuscript_name: optionalText(item.manuscriptName),
+      episode_count: optionalCount(item.episodeCount),
+      script_style: optionalCount(item.scriptStyle),
+      status: optionalText(item.status),
+      can_claim: optionalFlag(item.canClaim),
+      claim_leader_name: optionalText(item.claimLeaderName),
+      claim_member_name: optionalText(item.claimMemberName),
+    })) }
+  })
 }

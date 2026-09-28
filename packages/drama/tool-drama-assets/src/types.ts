@@ -133,6 +133,16 @@ export interface ReconcileReport {
   unregistered: UnregisteredItem[]
   /** Manifest records whose asset id the remote project does not hold. */
   dangling: DanglingItem[]
+  /**
+   * Every defect in the manifest's own declarations.
+   *
+   * Non-empty means no verdict this report carries is trustworthy — an asset
+   * array that could not be read reports remote assets as unregistered — so
+   * `ready` is false while any of them stands. They are reported rather than
+   * thrown because the caller has to see them beside everything else this
+   * comparison found.
+   */
+  issues: ManifestIssue[]
   /** Every disposition this report carries, plus the ones inherited from the previous report. */
   disposition: Dispositions
   /** Unregistered asset ids with no `registered` or `ignored` disposition. */
@@ -155,6 +165,18 @@ export interface Manifest {
   items: Record<string, unknown>[]
   /** Lead-character rows kept outside `items`. */
   lead_readonly_records: Record<string, unknown>[]
+}
+
+/**
+ * One defect in the manifest's own declarations: what the comparison reports
+ * instead of refusing the call, because refusing would hide every other finding
+ * in a file a model still has to repair.
+ */
+export interface ManifestIssue {
+  /** Stable machine key naming the declaration that could not be read. */
+  code: 'manifest_items_missing' | 'manifest_items_spelling' | 'lead_records_missing' | 'manifest_record_unreadable'
+  /** Chinese instruction naming the key, the key names that are accepted, and the repair. */
+  message: string
 }
 
 /** The method one call dispatches. */

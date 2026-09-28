@@ -416,8 +416,6 @@ describe('reconcileProject', () => {
       ['{"items":[]}', '缺少整数 script_id'],
       ['{"script_id":"2708","items":[]}', '缺少整数 script_id'],
       ['{"script_id":2708.5,"items":[]}', '缺少整数 script_id'],
-      ['{"script_id":2708,"items":{}}', 'items / lead_readonly_records 必须是数组'],
-      ['{"script_id":2708,"items":[1],"lead_readonly_records":[]}', '清单里有记录不是 JSON 对象'],
     ] as const) {
       const projectDir = await projectWithoutManifest()
       await writeFile(join(projectDir, 'assets_manifest.json'), body, 'utf8')
@@ -426,15 +424,116 @@ describe('reconcileProject', () => {
     }
   })
 
-  it('accepts a manifest with a byte-order mark and with the record arrays omitted', async () => {
+  it('accepts a manifest with a byte-order mark and every record array declared', async () => {
     const projectDir = await projectWithoutManifest()
-    await writeFile(join(projectDir, 'assets_manifest.json'), `\uFEFF${JSON.stringify({ script_id: 2708 })}`, 'utf8')
+    await writeFile(join(projectDir, 'assets_manifest.json'),
+      `\uFEFF${JSON.stringify({ script_id: 2708, items: [], lead_readonly_records: [] })}`, 'utf8')
     const { client } = stubTransport([], [])
     const report = await reconcileProject(client, projectDir)
 
     expect(report.script_id).toBe(2708)
     expect(report.manifest).toEqual({ items: 0, lead_readonly_records: 0, asset_ids: 0 })
+    expect(report.issues).toEqual([])
     expect(report.ready).toBe(true)
+  })
+
+  it('reports a manifest that declares no asset array instead of refusing the call', async () => {
+    // Refusing the call was the other attempt at this: it left the caller with one
+    // sentence and none of the other findings in a file three tools share. The
+    // wording is `jubian_organize`'s for the same key, plus what this comparison
+    // accepts and what reading nothing costs.
+    const projectDir = await project({ version: 4, script_id: 2708 })
+    const { client } = stubTransport(ALIVE, USED)
+    const report = await reconcileProject(client, projectDir)
+
+    // Every declaration defect is reported, not just the first: the lead-record
+    // array is missing here too, and the caller has to repair both before the
+    // comparison it is reading can be trusted.
+    expect(report.issues.map(entry => entry.code)).toEqual(['manifest_items_missing', 'lead_records_missing'])
+    const issue = report.issues[0]
+    expect(issue?.code).toBe('manifest_items_missing')
+    expect(issue?.message).toContain('assets_manifest.json')
+    expect(issue?.message).toContain('缺少 items 资产数组')
+    // Both spellings are named, so the repair is unambiguous.
+    expect(issue?.message).toContain('items / assets')
+    expect(report.manifest.items).toBe(0)
+    // The remote side still ran: no asset array means every used remote asset is
+    // unregistered, which is exactly why this verdict is reported as unready.
+    expect(report.unregistered.map(item => item.asset_id)).toEqual([125204, 125300, 125400])
+    expect(report.blocking).toEqual([125204, 125300, 125400])
+    expect(report.ready).toBe(false)
+    // The evidence is written, so the host gate refuses on this run's verdict
+    // rather than on whatever an earlier run left behind.
+    const written = await evidence(projectDir)
+    expect(written.issues.map(entry => entry.code)).toEqual(['manifest_items_missing', 'lead_records_missing'])
+    expect(written.ready).toBe(false)
+  })
+
+  it('reads an asset array spelled assets, and reports the spelling that keeps it unready', async () => {
+    // The shot scripts' older manifests spell the array `assets`. Reading it keeps
+    // this comparison on the rows the file declares instead of reporting every
+    // asset the remote already holds as unregistered; the spelling is still
+    // reported, because the project's own key is `items`.
+    const rows = [{ stable_id: 'char_lu', type: 'character', name: '陆沉舟', jubian_asset_id: 125204 }]
+    const projectDir = await project({ version: 4, script_id: 2708, assets: rows, lead_readonly_records: [] })
+    const { client } = stubTransport(ALIVE, USED)
+    const report = await reconcileProject(client, projectDir)
+
+    expect(report.issues.map(issue => issue.code)).toEqual(['manifest_items_spelling'])
+    expect(report.issues[0]?.message).toContain('assets 键下')
+    expect(report.issues[0]?.message).toContain('规范键名是 items')
+    expect(report.manifest.items).toBe(1)
+    // The declared row counts as registered: only the two ids no row names are
+    // unregistered, so reading the tolerated spelling is not the silent empty side.
+    expect(report.matched).toBe(1)
+    expect(report.unregistered.map(item => item.asset_id)).toEqual([125300, 125400])
+    expect(report.ready).toBe(false)
+  })
+
+  it('reports a lead-record array that is missing or is not an array', async () => {
+    // Treating an absent array as "no rows" was silent: a manifest that lost its
+    // lead records reports those remote assets as unregistered, which is the one
+    // verdict this comparison exists to get right.
+    for (const document of [
+      { version: 4, script_id: 2708, items: [] },
+      { version: 4, script_id: 2708, items: [], lead_readonly_records: {} },
+    ]) {
+      const projectDir = await project(document)
+      const { client } = stubTransport([], [])
+      const report = await reconcileProject(client, projectDir)
+
+      expect(report.issues.map(issue => issue.code)).toEqual(['lead_records_missing'])
+      expect(report.issues[0]?.message).toContain('lead_readonly_records')
+      expect(report.manifest.lead_readonly_records).toBe(0)
+      expect(report.ready).toBe(false)
+    }
+  })
+
+  it('reports a record that is not a JSON object and keeps comparing the rest', async () => {
+    const projectDir = await project({ version: 4, script_id: 2708, items: [1], lead_readonly_records: [] })
+    const { client } = stubTransport(ALIVE, USED)
+    const report = await reconcileProject(client, projectDir)
+
+    expect(report.issues.map(issue => issue.code)).toEqual(['manifest_record_unreadable'])
+    expect(report.issues[0]?.message).toContain('items 第 1 条')
+    expect(report.manifest.items).toBe(0)
+    expect(report.ready).toBe(false)
+  })
+
+  it('reads the project array when a manifest carries items beside a stale assets key', async () => {
+    const rows = [{ stable_id: 'char_lu', type: 'character', name: '陆沉舟', jubian_asset_id: 125204 }]
+    const projectDir = await project({ version: 4, script_id: 2708, items: rows, assets: [],
+      lead_readonly_records: [] })
+    const { client } = stubTransport(ALIVE, USED)
+    const report = await reconcileProject(client, projectDir)
+
+    expect(report.manifest.items).toBe(1)
+    expect(report.matched).toBe(1)
+    // `items` is the project's own key, so reading it is not a spelling to report.
+    expect(report.issues).toEqual([])
+    // The stale `assets` key is ignored, so only the two ids no `items` row declares
+    // are unregistered — the declared one is read as registered.
+    expect(report.unregistered.map(item => item.asset_id)).toEqual([125300, 125400])
   })
 
   it('fails the call on existing evidence that is not a JSON object', async () => {
@@ -556,7 +655,7 @@ describe('disposeAsset', () => {
     expect(updated.ready).toBe(true)
     expect(await evidence(projectDir)).toEqual({
       disposition: { 83840: { status: 'ignored', note: '项目里没有这张资产' } },
-      blocking: [], ignored_without_note: [], ready: true,
+      blocking: [], ignored_without_note: [], issues: [], ready: true,
     })
   })
 

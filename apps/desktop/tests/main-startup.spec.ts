@@ -6,12 +6,13 @@
 //   merged: the crash dialog offers the profile reset action
 //   merged: an unpackaged launch uses one development project as runtime and profile
 //   merged: the shell channel surface includes backendRetry
+//   merged: the product claims its Electron identity and userData before the single-instance lock
 import type { AccountView } from '@deepseek-ai/dsh-deepseek-account/types'
 import { WINDOWS_TITLEBAR_HEIGHT } from '../src/windows-layout.ts'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { IpcMainInvokeEvent } from 'electron'
 import { join, resolve } from 'node:path'
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import type { MenuItemConstructorOptions, MessageBoxOptions } from 'electron'
 import { DESKTOP_IPC, type DesktopUpdateState } from '../src/ipc.ts'
@@ -35,6 +36,9 @@ vi.mock('../src/crash-report.ts', async importOriginal => ({
 
 const harness = await vi.hoisted(async () => {
   const { EventEmitter } = await import('node:events')
+  const { mkdtempSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
   function deferred() {
     let resolve!: () => void
     let reject!: (error: Error) => void
@@ -154,6 +158,8 @@ const harness = await vi.hoisted(async () => {
       readonly packageManager?: { pnpm: string; nodeBin: string },
     ) { hosts.push(this) }
   }
+  const calls: string[] = []
+  const appData = mkdtempSync(join(tmpdir(), 'dsh-desktop-app-data-'))
   const app = Object.assign(new EventEmitter(), {
     isPackaged: true,
     name: 'Desktop test',
@@ -165,7 +171,10 @@ const harness = await vi.hoisted(async () => {
     setAppLogsPath: vi.fn(),
     getPath: vi.fn<(name: string) => string>(),
     setAboutPanelOptions: vi.fn<(options: Electron.AboutPanelOptionsOptions) => void>(),
-    requestSingleInstanceLock: () => true,
+    setName: (name: string) => { calls.push(`setName:${name}`) },
+    setPath: (name: string, path: string) => { calls.push(`setPath:${name}:${path}`) },
+    commandLine: { hasSwitch: () => false },
+    requestSingleInstanceLock: () => { calls.push('requestSingleInstanceLock'); return true },
     setAsDefaultProtocolClient: vi.fn(),
     exit: vi.fn(),
     relaunch: vi.fn(),
@@ -192,7 +201,8 @@ const harness = await vi.hoisted(async () => {
   const shellDialog = { isOpen: false, focus: vi.fn() }
   return {
     failWindow(error: Error) { windowFailure = error },
-    windows, hosts, handlers, app, FakeWindow, FakeHost, powerMonitor, nativeTheme, trays, FakeTray, backgroundNotice, shellDialog,
+    windows, hosts, handlers, app, FakeWindow, FakeHost, powerMonitor, nativeTheme, trays, FakeTray, backgroundNotice,
+    shellDialog, calls, appData,
     menu, popup, socketHeaders: vi.fn(), updateCheck, updateDownload, updateInstall,
     platformDispose,
     platformCloseAndWait,
@@ -238,6 +248,7 @@ const harness = await vi.hoisted(async () => {
       shellDialog.isOpen = false
       powerMonitor.removeAllListeners()
       app.isPackaged = true
+      calls.length = 0
       windowFailure = undefined
       pluginsEnabled = false
       closeWindowsOnQuit = false
@@ -397,7 +408,7 @@ beforeEach(() => {
   harness.reset()
   const userData = mkdtempSync(join(tmpdir(), 'dsh-main-user-data-'))
   onTestFinished(() => { rmSync(userData, { recursive: true, force: true }) })
-  harness.app.getPath.mockImplementation(name => name === 'userData' ? userData : `desktop-test-${name}`)
+  harness.app.getPath.mockImplementation(name => name === 'userData' ? userData : name === 'appData' ? harness.appData : `desktop-test-${name}`)
   harness.dialog.showMessageBox.mockImplementation((options: { title?: string }) => {
     if (options.title !== en.startupFailed) return Promise.resolve({ response: 1 })
     harness.dialogShown.resolve()
@@ -434,6 +445,21 @@ afterEach(async () => {
 })
 
 describe('desktop main startup', () => {
+  // First in the file: the shell's own module body runs once, on this import.
+  it('claims the product userData directory before the single-instance lock', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    const userData = join(harness.appData, 'muse-med')
+    const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { name: string }
+    expect(harness.calls).toContain('setName:muse-med')
+    expect(harness.calls).toContain(`setPath:userData:${userData}`)
+    expect(harness.calls.indexOf(`setPath:userData:${userData}`))
+      .toBeLessThan(harness.calls.indexOf('requestSingleInstanceLock'))
+    // The upstream package name is what Electron would derive userData (and the lock) from.
+    expect(userData).not.toBe(join(harness.appData, manifest.name))
+    expect(existsSync(userData)).toBe(true)
+  })
+
   it('routes shell update documents and assets through the registered main protocol handler', async () => {
     const root = join(import.meta.dirname, '..')
     vi.spyOn(harness.app, 'getAppPath').mockReturnValue(root)

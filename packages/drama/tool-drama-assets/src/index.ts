@@ -126,6 +126,8 @@ interface DramaAssetsResult {
   readonly unregistered: readonly Record<string, unknown>[]
   /** Manifest records whose asset id the remote project does not hold. */
   readonly dangling: readonly Record<string, unknown>[]
+  /** Every defect in the manifest's own declarations; non-empty means nothing here is trustworthy. */
+  readonly issues: ReconcileReport['issues']
   /** Every disposition the evidence carries. */
   readonly disposition: ReconcileReport['disposition']
   /** Unregistered asset ids with no decision yet. */
@@ -158,6 +160,8 @@ interface DramaAssetsDispose {
   readonly blocking: number[]
   /** Ignored asset ids whose note is empty. */
   readonly ignored_without_note: number[]
+  /** Every manifest defect the evidence carries; a disposition never clears one. */
+  readonly issues: ReconcileReport['issues']
   /** What this call leaves the caller to do, in one Chinese sentence. */
   readonly next: string
 }
@@ -165,13 +169,17 @@ interface DramaAssetsDispose {
 /**
  * The reason text for the two verdicts, in the pipeline's own words.
  *
- * Only the two lists are read: a report reaching here with either of them non-empty
- * and `ready: true` is not a state this package produces, so there is no third
- * message for it.
- * @param report - The two verdict lists the evidence carries.
+ * A manifest defect is reported first and in full: while the local side of the
+ * comparison is unreadable, the two verdict lists below describe what that defect
+ * produced, so repairing them would be work on a wrong verdict.
+ * @param report - The manifest defects and the two verdict lists the evidence carries.
  * @returns The Chinese reason the host gate reports for the same state.
  */
-function readyReason(report: Pick<ReconcileReport, 'blocking' | 'ignored_without_note'>): string {
+function readyReason(report: Pick<ReconcileReport, 'blocking' | 'ignored_without_note' | 'issues'>): string {
+  const [first] = report.issues
+  if (first !== undefined) {
+    return `清单本身有 ${String(report.issues.length)} 处必须先修的问题：${first.message}`
+  }
   if (report.blocking.length > 0) {
     return `对账里还有 ${String(report.blocking.length)} 条未处置的未登记资产：${report.blocking.join('、')}`
   }
@@ -183,11 +191,15 @@ function readyReason(report: Pick<ReconcileReport, 'blocking' | 'ignored_without
 }
 
 /** The one sentence describing what a call leaves the caller to do. */
-function nextStep(report: Pick<ReconcileReport, 'ready' | 'blocking' | 'ignored_without_note' | 'dangling'>): string {
+function nextStep(report: Pick<ReconcileReport, 'ready' | 'blocking' | 'ignored_without_note' | 'dangling' | 'issues'>): string {
   if (report.ready) {
     return report.dangling.length === 0
       ? '证据 ready=true：可以发起付费生图。'
       : `证据 ready=true：可以发起付费生图；但清单里还有 ${String(report.dangling.length)} 条悬空记录需要修。`
+  }
+  if (report.issues.length > 0) {
+    return '证据 ready=false：清单读不全，上面每一条 issues 都要按 message 修好再重跑 reconcile，'
+      + '这一轮列出的 unregistered / dangling 都建立在那份读不全的清单上。'
   }
   return '证据 ready=false：付费生图会被宿主钩子拒绝，先按 ready_reason 把未登记的资产逐条处置。'
 }
@@ -254,7 +266,7 @@ function presentReconcile(report: ReconcileReport, projectDir: string): Presente
     evidence: evidencePath(projectDir), script_id: report.script_id, ran_at: report.ran_at,
     source: report.source, manifest: report.manifest, matched: report.matched,
     unregistered: report.unregistered.map(presentUnregistered), dangling: report.dangling.map(presentDangling),
-    disposition: report.disposition, blocking: report.blocking,
+    issues: report.issues, disposition: report.disposition, blocking: report.blocking,
     ignored_without_note: report.ignored_without_note, policy: report.policy,
     cross_project_note: report.cross_project_note, next: nextStep(report) }
 }
@@ -264,17 +276,19 @@ function presentReconcile(report: ReconcileReport, projectDir: string): Presente
  *
  * The comparison fields are absent rather than defaulted: this call never read the
  * remote project, and a count filled with zeros would read as a comparison that
- * found nothing. `reconcile` is what produces those fields.
+ * found nothing. `reconcile` is what produces those fields. The manifest defects
+ * the evidence carries are reported as they stand, because they are what keeps
+ * this call's `ready` false.
  * @param projectDir - Resolved project directory holding the evidence.
  * @param assetId - The asset this call disposed of.
  * @param evidence - The evidence document {@link disposeAsset} wrote.
  * @returns The dispositions, the recomputed verdicts, and the path written to.
  */
 function presentDispose(projectDir: string, assetId: number, evidence: DisposedEvidence): DramaAssetsDispose {
-  const { disposition, blocking, ignored_without_note: ignoredWithoutNote } = evidence
+  const { disposition, blocking, ignored_without_note: ignoredWithoutNote, issues } = evidence
   return { method: 'dispose', asset_id: assetId, ready: evidence.ready,
-    ready_reason: readyReason({ blocking, ignored_without_note: ignoredWithoutNote }),
-    evidence: evidencePath(projectDir), disposition, blocking, ignored_without_note: ignoredWithoutNote,
+    ready_reason: readyReason({ blocking, ignored_without_note: ignoredWithoutNote, issues }),
+    evidence: evidencePath(projectDir), disposition, blocking, ignored_without_note: ignoredWithoutNote, issues,
     next: '处置已写入证据：宿主付费钩子下次读到它就会按新的 blocking / ignored_without_note 判定；'
       + '要刷新远端比对结果与 ran_at，再跑一次 reconcile。' }
 }
@@ -344,6 +358,19 @@ const DANGLING_ITEM_SCHEMA = {
   },
 } as const
 
+/** One `issues` row: a defect in the manifest's own declarations. */
+const MANIFEST_ISSUE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    code: { type: 'string', required: true,
+      description: '稳定的清单问题代码：manifest_items_missing / manifest_items_spelling / '
+        + 'lead_records_missing / manifest_record_unreadable。' },
+    message: { type: 'string', required: true,
+      description: '中文说明：缺哪个键、接受哪些键名（items / assets / lead_readonly_records）、具体怎么修。' },
+  },
+} as const
+
 /** One `policy` object: the numbers the host gate and this file both read. */
 const POLICY_SCHEMA = {
   type: 'object', additionalProperties: false,
@@ -374,8 +401,12 @@ const RESULT_SCHEMA = {
     method: { type: 'string', required: true, enum: ['reconcile', 'dispose'],
       description: '产生本结果的操作；两个方法的字段不同，本 schema 只强制共有字段。' },
     ready: { type: 'boolean', required: true,
-      description: '证据是否已经可以让宿主钩子放行付费生图：blocking 与 ignored_without_note 都为空才为 true。' },
+      description: '证据是否已经可以让宿主钩子放行付费生图：issues 为空、blocking 与 ignored_without_note 都为空才为 true。' },
     ready_reason: { type: 'string', required: true, description: 'ready 的判定依据；放行时为 ok。' },
+    issues: { type: 'array', required: true,
+      description: '清单本身读不全的地方，先按每条 message 修好；非空时 ready 一定是 false，'
+        + '本轮列出的 unregistered / dangling 都建立在那份读不全的清单上。',
+      items: MANIFEST_ISSUE_SCHEMA },
     evidence: { type: 'string', required: true,
       description: '本次写入的证据文件绝对路径（<project_dir>/_probe/asset-reconcile.json）；宿主钩子读的就是它。' },
     disposition: { type: 'object', required: true, additionalProperties: true,
@@ -430,7 +461,9 @@ const DESCRIPTION = '短剧流水线的付费生成前资产对账（剧变）�
   + 'dangling = 清单里有但远端没有；matched = 两端都有的数量。'
   + 'dispose=给某条 unregistered 写处置：status=registered（已登记进清单）或 ignored（确认不需要，必须带非空 note）；'
   + '只更新证据里的 disposition 并重算 blocking / ignored_without_note / ready，不重新对账、不联网。'
-  + 'ready = blocking 与 ignored_without_note 都为空，宿主侧的付费前置钩子只认这一条，证据 24 小时内有效。'
+  + 'ready = issues 为空且 blocking 与 ignored_without_note 都为空，宿主侧的付费前置钩子只认这一条，证据 24 小时内有效。'
+  + '清单读不全不报错、也不拒绝运行：缺 items 资产数组（或只写在 assets 键下）、缺 lead_readonly_records、'
+  + '某条记录不是对象，都写进 issues 并让 ready=false，好让 agent 一次看全所有要修的地方。'
   + '为什么清单不够：清单只记录我们生成过什么，不等于剧变项目里已经有什么——'
   + '2026-09-20 就因为只看清单，给一张项目里早就存在的正式资产重新生成了两次（花掉 1.17 元）。'
   + '本工具绝不调用剧变的任何写方法、绝不计费：远端只读，本地只写 _probe/asset-reconcile.json 这一个文件。'

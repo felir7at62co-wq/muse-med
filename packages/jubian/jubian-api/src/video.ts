@@ -6,6 +6,7 @@
  * are evidence for a human, not authorization for a program.
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { readPayload } from './reading.ts'
 
 function invalid(): never { throw new JubianError('CONTRACT_CHANGED') }
 
@@ -229,7 +230,7 @@ function box(row: Record<string, unknown>): SubtitleBox | null {
  * @returns The task's identity, status and progress.
  */
 export function readTaskPage(data: unknown): VideoTask {
-  return task(object(data))
+  return readPayload('readTaskPage', data, () => task(object(data)))
 }
 
 /**
@@ -238,8 +239,10 @@ export function readTaskPage(data: unknown): VideoTask {
  * @returns The page total and its mapped tasks.
  */
 export function readTaskList(data: unknown): { total: number; rows: VideoTask[] } {
-  const rows = rowsOf(data)
-  return { total: totalOf(data, rows.length), rows: rows.map(task) }
+  return readPayload('readTaskList', data, () => {
+    const rows = rowsOf(data)
+    return { total: totalOf(data, rows.length), rows: rows.map(task) }
+  })
 }
 
 /**
@@ -249,49 +252,51 @@ export function readTaskList(data: unknown): { total: number; rows: VideoTask[] 
  * @returns The page total and its mapped child results.
  */
 export function readSubtaskPage(data: unknown): { total: number; rows: VideoSubtask[] } {
-  const rows = rowsOf(data)
-  return { total: totalOf(data, rows.length), rows: rows.map((row) => {
-    const materials = Array.isArray(row.videoMaterials) ? row.videoMaterials : []
-    const first = materials.length ? object(materials[0]) : undefined
-    const results = Array.isArray(row.resultList) ? row.resultList : []
-    const result = results.length ? object(results[0]) : undefined
-    const images = Array.isArray(row.imageMaterials) ? row.imageMaterials : []
-    const entries = results.map(object).map(versionRecord)
-    // Both shapes in one payload: the product's older nested material carries
-    // `videoUrl`, while the live payload puts the finished file on `resultList`.
-    const fromMaterial = first === undefined ? null : nullableText(first.videoUrl)
-    const base = result === undefined ? null
-      : nullableText(result.tosVideoUrl ?? result.originalVideoUrl)
-    const current = result === undefined ? null : resultVideoUrl(result)
-    const lastTaskType = result === undefined || typeof result.lastTaskType !== 'number'
-      ? null : result.lastTaskType
-    const hdCount = result !== undefined && typeof result.hdCount === 'number' ? result.hdCount : null
-    return { subtask_id: id(row.id ?? row.subTaskId),
-      parent_task_id: nullableId(row.aigcVideoTaskId), status: nullableText(row.taskStatus),
-      duration_seconds: typeof row.duration === 'number' && Number.isFinite(row.duration) ? row.duration : null,
-      gen_num: typeof row.genNum === 'number' ? row.genNum : null, subtitle_box: box(row),
-      video_url: current ?? fromMaterial,
-      base_video_url: base,
-      image_urls: images.map((entry) => {
-        const material = object(entry)
-        const url = nullableText(material.imageUrl ?? material.materialUrl)
-        return url
-      }).filter((url): url is string => url !== null),
-      model_id: nullableText(row.modelId),
-      standard_id: nullableId(row.standardId),
-      resolution: nullableText(row.resolution),
-      first_result_id: nullableId(row.firstResultId ?? result?.firstResultId),
-      parent_result_id: nullableId(row.parentResultId),
-      last_task_type: lastTaskType,
-      last_stage: lastTaskType === null ? null : VIDEO_TASK_TYPES[lastTaskType] ?? null,
-      hd_count: hdCount,
-      expiration_time: nullableText(row.videoExpirationTime ?? result?.expirationTime),
-      versions: entries,
-      subtitle_erased: current !== null && ((lastTaskType === 10
-        && result?.lastResultStatus === 'succeeded' && nullableText(result.lastTosVideoUrl) !== null)
-        || entries.some(entry => entry.task_type === 10 && entry.status === 'succeeded'
-          && entry.video_url === current)),
-      // Erasure also changes the URL; only an upscale-specific marker counts.
-      upscaled: (hdCount !== null && hdCount > 0) || lastTaskType === 20 }
-  }) }
+  return readPayload('readSubtaskPage', data, () => {
+    const rows = rowsOf(data)
+    return { total: totalOf(data, rows.length), rows: rows.map((row) => {
+      const materials = Array.isArray(row.videoMaterials) ? row.videoMaterials : []
+      const first = materials.length ? object(materials[0]) : undefined
+      const results = Array.isArray(row.resultList) ? row.resultList : []
+      const result = results.length ? object(results[0]) : undefined
+      const images = Array.isArray(row.imageMaterials) ? row.imageMaterials : []
+      const entries = results.map(object).map(versionRecord)
+      // Both shapes in one payload: the product's older nested material carries
+      // `videoUrl`, while the live payload puts the finished file on `resultList`.
+      const fromMaterial = first === undefined ? null : nullableText(first.videoUrl)
+      const base = result === undefined ? null
+        : nullableText(result.tosVideoUrl ?? result.originalVideoUrl)
+      const current = result === undefined ? null : resultVideoUrl(result)
+      const lastTaskType = result === undefined || typeof result.lastTaskType !== 'number'
+        ? null : result.lastTaskType
+      const hdCount = result !== undefined && typeof result.hdCount === 'number' ? result.hdCount : null
+      return { subtask_id: id(row.id ?? row.subTaskId),
+        parent_task_id: nullableId(row.aigcVideoTaskId), status: nullableText(row.taskStatus),
+        duration_seconds: typeof row.duration === 'number' && Number.isFinite(row.duration) ? row.duration : null,
+        gen_num: typeof row.genNum === 'number' ? row.genNum : null, subtitle_box: box(row),
+        video_url: current ?? fromMaterial,
+        base_video_url: base,
+        image_urls: images.map((entry) => {
+          const material = object(entry)
+          const url = nullableText(material.imageUrl ?? material.materialUrl)
+          return url
+        }).filter((url): url is string => url !== null),
+        model_id: nullableText(row.modelId),
+        standard_id: nullableId(row.standardId),
+        resolution: nullableText(row.resolution),
+        first_result_id: nullableId(row.firstResultId ?? result?.firstResultId),
+        parent_result_id: nullableId(row.parentResultId),
+        last_task_type: lastTaskType,
+        last_stage: lastTaskType === null ? null : VIDEO_TASK_TYPES[lastTaskType] ?? null,
+        hd_count: hdCount,
+        expiration_time: nullableText(row.videoExpirationTime ?? result?.expirationTime),
+        versions: entries,
+        subtitle_erased: current !== null && ((lastTaskType === 10
+          && result?.lastResultStatus === 'succeeded' && nullableText(result.lastTosVideoUrl) !== null)
+          || entries.some(entry => entry.task_type === 10 && entry.status === 'succeeded'
+            && entry.video_url === current)),
+        // Erasure also changes the URL; only an upscale-specific marker counts.
+        upscaled: (hdCount !== null && hdCount > 0) || lastTaskType === 20 }
+    }) }
+  })
 }

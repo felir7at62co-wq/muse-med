@@ -25,7 +25,7 @@ afterEach(async () => {
 /** Compile one script and its manifest into the shots the packer consumes. */
 function fixture(blocks: readonly string[], rows: readonly Record<string, unknown>[]): CompiledShot[] {
   const parsed = parseShotScript(scriptOf(...blocks), { actionShotSeconds: 2 })
-  const assets = parseAssetManifest(manifestDocument(...rows), 'manifest.json')
+  const assets = parseAssetManifest(manifestDocument(...rows), 'manifest.json').assets
   let cursor = 0
   return parsed.shots.map((shot) => {
     const binding = bindShot(shot, assets)

@@ -319,6 +319,52 @@ describe('compile', () => {
       .rejects.toThrow('缺少 assets 数组')
   })
 
+  it('cannot answer ok for a manifest whose asset type the binder cannot match', async () => {
+    // `role` is not a spelling the binder matches, and nothing downstream reports
+    // a character that was never bound: this manifest answered `ok: true, 0
+    // failures` with the shot bound to its scene alone. Refusing the whole read
+    // instead would hide every other finding, so the row is reported and the run
+    // reports `ok: false` with the repair.
+    const files = await project({ assets: [assetRow('苏晚', 'role'), assetRow('后厨', '场景')] })
+    const report = await run({ method: 'validate', script: files.scriptPath, assets: files.manifestPath })
+
+    // The character asset the type skipped is exactly what `ok` may not survive.
+    expect(report.shots[0]?.characters_field).toBe('苏晚')
+    expect(report.shots[0]?.bindings.map(binding => binding.name)).not.toContain('苏晚')
+    expect(report.ok).toBe(false)
+    expect(report.failures[0]?.code).toBe('asset_type_unusable')
+    expect(report.failures.map(issue => issue.code)).toContain('asset_type_unusable')
+    expect(report.failures[0]?.message).toContain('第 1 条资产（苏晚）的 type="role"')
+    expect(report.failures[0]?.message).toContain('只接受 角色、character、场景、scene、道具、prop')
+    // The skipped character also leaves the shot with no version of 苏晚 to bind,
+    // which is its own failure; both are counted, so the run cannot read as clean.
+    expect(report.summary.failures).toBe(report.failures.length)
+    expect(report.summary.failures).toBeGreaterThan(0)
+    // The readable rows still took part: the scene bound, and the script's own
+    // findings were still judged.
+    expect(report.shots[0]?.bindings.map(binding => binding.name)).toEqual(['后厨'])
+    expect(report.assets_checked).toBe(true)
+  })
+
+  it('writes nothing while a manifest type the binder cannot match stands', async () => {
+    const files = await project({ assets: [assetRow('苏晚', 'role'), assetRow('后厨', '场景')] })
+    const report = await run({ max_submit_seconds: 15, method: 'compile', script: files.scriptPath,
+      assets: files.manifestPath, project: files.root, episode: 1 })
+
+    expect(report.ok).toBe(false)
+    expect(report.written).toEqual([])
+    expect(report.packages).toEqual([])
+  })
+
+  it('validates the same script when the manifest spells that type legally', async () => {
+    const files = await project({ assets: [assetRow('苏晚', '角色'), assetRow('后厨', '场景')] })
+    const report = await run({ method: 'validate', script: files.scriptPath, assets: files.manifestPath })
+
+    expect(report.ok).toBe(true)
+    expect(report.shots[0]?.characters_field).toBe('苏晚')
+    expect(report.shots[0]?.bindings.map(binding => binding.name)).toContain('苏晚')
+  })
+
   it('takes the silent-shot budget from the plugin config', async () => {
     const files = await project({ script: scriptOf(actionShot(1, ['核心场景：后厨'])),
       assets: [assetRow('苏晚', '角色'), assetRow('后厨', '场景')] })

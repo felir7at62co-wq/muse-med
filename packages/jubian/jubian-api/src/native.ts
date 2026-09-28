@@ -20,7 +20,7 @@
 import { createHash } from 'node:crypto'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 
-function invalid(): never { throw new JubianError('CONTRACT_CHANGED') }
+function invalid(detail?: string): never { throw new JubianError('CONTRACT_CHANGED', detail) }
 
 /** Provider statuses that mean a task finished successfully. */
 export const SUCCESS_STATUSES = ['succeeded', 'completed'] as const
@@ -455,7 +455,7 @@ export function resolveVideoModel(catalogue: unknown, intent: unknown): Seedance
 export function storyboardMaterials(storyboard: Record<string, unknown>):
 { materials: Record<string, unknown>[]; serialized: boolean } {
   const parsed = storyboardObject(storyboard.storyboardMaterialList)
-  if (!Array.isArray(parsed)) invalid()
+  if (!Array.isArray(parsed)) invalid('the storyboard returned no readable storyboardMaterialList to prepare from')
   return { materials: parsed.map(object), serialized: typeof storyboard.storyboardMaterialList === 'string' }
 }
 
@@ -474,8 +474,11 @@ export function storyboardMaterials(storyboard: Record<string, unknown>):
 export function validatedVideoMaterials(storyboard: Record<string, unknown>, assets: Record<string, unknown>[]):
 { materials: Record<string, unknown>[]; prompt: string; config: Record<string, unknown> } {
   const { materials } = storyboardMaterials(storyboard)
-  const config = parseConfig(storyboard.modelConfig) ?? invalid()
-  if (typeof config.prompt !== 'string') invalid()
+  const config = parseConfig(storyboard.modelConfig)
+    ?? invalid('the storyboard has no saved modelConfig to prepare from')
+  if (typeof config.prompt !== 'string') {
+    invalid('modelConfig.prompt is absent, so the ordered materials cannot be matched to it')
+  }
   const prompt = normalizedPrompt(config.prompt)
   const scriptId = integer(storyboard.scriptId)
   if (assets.length !== materials.length) invalid()

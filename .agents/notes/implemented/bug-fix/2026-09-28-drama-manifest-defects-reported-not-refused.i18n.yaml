@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-28-drama-manifest-defects-reported-not-refused.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-28-drama-manifest-defects-reported-not-refused.md
+/agent-note-manifest-defects-are-reported-not-refused:
+  en: 78b7c37e7575e5a0
+  zh: c6d765d8fe670385
+/agent-note-manifest-defects-are-reported-not-refused/problem:
+  en: 83c1c3b618a49a4a
+  zh: 05e33ad6bd083bd4
+/agent-note-manifest-defects-are-reported-not-refused/decision:
+  en: 3220afb52a19b040
+  zh: 8d3bb6004107f72c
+/agent-note-manifest-defects-are-reported-not-refused/alternatives-considered:
+  en: ce3575fbb5d6977f
+  zh: 01d7bd03737ab07e
+/agent-note-manifest-defects-are-reported-not-refused/consequences:
+  en: fc10ecf6c27eda35
+  zh: bbd5cc7f0cfcd671
+/agent-note-manifest-defects-are-reported-not-refused/verification:
+  en: 67003c01fcf719fe
+  zh: 3245d36a0450c2cc

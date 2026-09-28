@@ -65,6 +65,7 @@ export type IssueCode =
   | 'unknown_action_complexity'
   | 'action_complexity_on_speaking_shot'
   | 'characters_placeholder'
+  | 'asset_type_unusable'
   | 'unregistered_scene'
   | 'no_scene_bound'
   | 'unconfirmed_asset'

@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-28-jubian-storyboard-without-saved-settings.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-28-jubian-storyboard-without-saved-settings.md
+/agent-note-reading-a-storyboard-that-has-no-saved-settings:
+  en: e4d6dcef0804ee3f
+  zh: d6e69fef7ffb8637
+/agent-note-reading-a-storyboard-that-has-no-saved-settings/problem:
+  en: 3f89ec25593732a7
+  zh: 595b90ce917d650e
+/agent-note-reading-a-storyboard-that-has-no-saved-settings/decision:
+  en: 59f4e1c6c1975e3e
+  zh: 4e9aebedd6705254
+/agent-note-reading-a-storyboard-that-has-no-saved-settings/alternatives-considered:
+  en: 5e01254c33bf864d
+  zh: c7f995bc11804842
+/agent-note-reading-a-storyboard-that-has-no-saved-settings/consequences:
+  en: de1f247083c005c8
+  zh: d2b755346f8adb92

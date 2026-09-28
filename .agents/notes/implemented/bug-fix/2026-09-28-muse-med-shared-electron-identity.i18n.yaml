@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-28-muse-med-shared-electron-identity.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-28-muse-med-shared-electron-identity.md
+/agent-note-give-muse-med-its-own-electron-identity:
+  en: 00fc0d5c9ebedb6a
+  zh: 6a7f5518dad69982
+/agent-note-give-muse-med-its-own-electron-identity/problem:
+  en: 821a8429848e397c
+  zh: 3f198de85e95c478
+/agent-note-give-muse-med-its-own-electron-identity/decision:
+  en: 5e29ea4f27386f9a
+  zh: 34253859ce5f0b08
+/agent-note-give-muse-med-its-own-electron-identity/testing:
+  en: 2b3479376d5091dc
+  zh: 04f2d025f0c9f07f
+/agent-note-give-muse-med-its-own-electron-identity/alternatives-considered:
+  en: 8a2e953d96fc6df1
+  zh: 596892cb6928d3d5
+/agent-note-give-muse-med-its-own-electron-identity/consequences:
+  en: f9312828182e5fc5
+  zh: 7a59a1872734f1d6

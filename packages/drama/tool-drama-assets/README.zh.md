@@ -69,17 +69,20 @@ token 本身就是凭据引用 `JUBIANAI_ADMIN_TOKEN`，每次读取都经 `ctx.
 | `matched` | 远端已选用且清单里也有的资产数 |
 | `unregistered` | 远端已选用但清单里没有的资产，带材质的 id、名字、类别、URL 与创建时间 |
 | `dangling` | 清单里有、但远端项目没有的资产 ID |
+| `issues` | 清单自身声明的每一处问题，各带稳定的 `code` 与修法：没有 `items`/`assets` 数组、资产数组写在 `assets` 键下、没有 `lead_readonly_records` 数组、某条记录不是对象。相对证据文件原有字段是增量的：两个外部读取方会忽略它们不认识的键 |
 | `disposition` | 每条未登记资产一个 `{status, note}`，跨次运行保留 |
 | `blocking` | 还没有 `registered` 或 `ignored` 决定的未登记资产 ID |
 | `ignored_without_note` | 判为 ignored 但 note 为空的资产 ID |
-| `ready` | `blocking` 与 `ignored_without_note` 是否都为空 |
+| `ready` | `issues`、`blocking` 与 `ignored_without_note` 是否都为空 |
 | `policy` | 钩子读到的付费策略：KU_AI 每张 0.12 元、最多 3 次、最坏 0.36 元 |
 
 两条规则闭环。某人登记进清单的资产会在下次 `reconcile` 被认出来，处置自动变成 `registered`，并保留它原来的 note。某条资产已被选用、材质仍是 `Active`，但资产行的 `delFlag` 不是 `"0"`，那它就不是资产：只有存活的行参与比对。
 
+清单读不全时本包**报告而不拒绝**。`jubian_organize` 读同一个文件，数组找不到就抛 `CONTRACT_CHANGED`；`reconcile` 改成返回 `ready: false` 加一条结构化 `issues`，因为这个文件由模型写、也由模型修——报错会结束这次调用、把其余发现全部藏起来，而报告出来的问题会连同完整的 `unregistered` 与 `dangling` 一起送到。读得出来的行仍然参与比对：老清单把资产数组写成 `assets` 时，比对的是它真正声明的那些行，而不是把远端已有的资产整批报成未登记。只有三件「根本没得比」的事仍然让调用失败：文件读不到、不是 JSON、缺整数 `script_id`。
+
 工具结果不是证据文件。文件按流水线自己的写法——提供方没给的字段是 JSON `null`——而工具结果把同一件事写成空串或 `0`，因为工具 schema 没有可空标量。`0` 不是提供方会发出的类别号，所以 `asset_type: 0` 读作「没有类别号」。
 
-`ready` 只看处置，与流水线自己的 Python 工具算法一致。宿主钩子还要求 `ran_at` 新鲜，而 `dispose` 不写它：一个项目如果只有一条裸 `dispose` 结果，工具会报 `ready: true`，钩子仍会以「证据不可用」拒绝它。
+`ready` 是 `issues`、`blocking` 与 `ignored_without_note` 三者一起判：本地一侧读不全的比对，会把远端已有的资产报成未登记，而付费生成正是拿这个结论去做决定。`dispose` 沿用证据里已有的 `issues` 而不重算，所以一次处置不可能把这个结论又翻回 ready。宿主钩子还要求 `ran_at` 新鲜，而 `dispose` 不写它：一个项目如果只有一条裸 `dispose` 结果，工具会报 `ready: true`，钩子仍会以「证据不可用」拒绝它。
 
 -----
 

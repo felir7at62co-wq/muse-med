@@ -130,6 +130,11 @@ const harness = await vi.hoisted(async () => {
     getAppPath: () => appRoot,
     getPath: (name: string) => `${tmpdir()}/dsh-desktop-test-logs/${name}`,
     setAppLogsPath: vi.fn(),
+    // The shell claims the product's Electron identity before it reads any path,
+    // so the double has to answer the calls that carries.
+    setName: vi.fn(),
+    setPath: vi.fn(),
+    commandLine: { hasSwitch: () => false },
     getPreferredSystemLanguages: () => ['en-US'],
     requestSingleInstanceLock: () => true,
     focus: vi.fn(),

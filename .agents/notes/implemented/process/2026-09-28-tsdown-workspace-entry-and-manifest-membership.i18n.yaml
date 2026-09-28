@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-28-tsdown-workspace-entry-and-manifest-membership.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-28-tsdown-workspace-entry-and-manifest-membership.md
+/agent-note-the-root-tsdown-entry-is-a-workspace-default-and-workspace-membership-is-manifest-backed:
+  en: e9513dd23091e34e
+  zh: 77b90a88eee622c3
+/agent-note-the-root-tsdown-entry-is-a-workspace-default-and-workspace-membership-is-manifest-backed/problem:
+  en: 2bb149dd7d885be9
+  zh: 5ece9f380ae27cef
+/agent-note-the-root-tsdown-entry-is-a-workspace-default-and-workspace-membership-is-manifest-backed/decision:
+  en: 646e9cc4093bd071
+  zh: a8b1d156ebd5aade
+/agent-note-the-root-tsdown-entry-is-a-workspace-default-and-workspace-membership-is-manifest-backed/membership-is-directory-based:
+  en: 79462d156a76946d
+  zh: 7a143d195816cad8
+/agent-note-the-root-tsdown-entry-is-a-workspace-default-and-workspace-membership-is-manifest-backed/alternatives-considered:
+  en: ad5bb41a61f41446
+  zh: c982939f14c121a5
+/agent-note-the-root-tsdown-entry-is-a-workspace-default-and-workspace-membership-is-manifest-backed/consequences:
+  en: d48f5ba68dc28c66
+  zh: 219f968e66c60b60

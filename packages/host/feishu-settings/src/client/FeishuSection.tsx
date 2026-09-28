@@ -31,7 +31,7 @@ export interface FeishuSetupInjected {
   status: () => Promise<FeishuOutcome<FeishuSetupStatus>>
   /** Store the product switch. */
   setEnabled: (enabled: boolean) => Promise<FeishuOutcome<FeishuSetupStatus>>
-  /** Store a hand-entered pair; an empty secret keeps the stored one. */
+  /** Store a hand-entered pair; an empty secret keeps a stored one. */
   setCredentials: (request: { readonly appId: string; readonly appSecret: string }) => Promise<FeishuOutcome<FeishuSetupStatus>>
   /** Start one scan. */
   beginLogin: () => Promise<FeishuOutcome<FeishuLoginTicket>>

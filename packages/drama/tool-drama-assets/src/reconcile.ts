@@ -24,7 +24,7 @@ import type { JubianClient } from '@deepseek-ai/dsh-jubian'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import { MANIFEST_FILE, manifestAssetIds, readManifest } from './manifest.ts'
 import { readRemoteAssets, readRemoteMaterials } from './remote.ts'
-import type { DanglingItem, Disposition, Dispositions, Manifest, ReconcileReport, RemoteAsset,
+import type { DanglingItem, Disposition, Dispositions, Manifest, ManifestIssue, ReconcileReport, RemoteAsset,
   RemoteMaterial, UnregisteredItem } from './types.ts'
 
 /** Why a dangling entry is reported, in the pipeline's own words. */
@@ -208,9 +208,20 @@ function unregisteredOf(used: Map<number, RemoteMaterial>, known: Set<number>,
   return ids.map(id => unregisteredItem(id, used.get(id) as RemoteMaterial, alive.get(id)))
 }
 
-/** Whether a report whose verdicts are known may release a paid asset creation. */
-function isReady(blocking: number[], ignoredWithoutNote: number[]): boolean {
-  return blocking.length === 0 && ignoredWithoutNote.length === 0
+/**
+ * Whether a report whose verdicts are known may release a paid asset creation.
+ *
+ * A manifest defect blocks it too: a comparison whose local side could not be
+ * read is exactly the one that reports an asset the remote already holds as
+ * unregistered, and that verdict is what a paid creation would act on.
+ * @param blocking - Unregistered asset ids with no decision yet.
+ * @param ignoredWithoutNote - Ignored asset ids whose note is empty.
+ * @param issues - Every defect found in the manifest's own declarations.
+ * @returns True only when nothing is left to repair or decide.
+ */
+function isReady(blocking: number[], ignoredWithoutNote: number[],
+  issues: readonly ManifestIssue[]): boolean {
+  return blocking.length === 0 && ignoredWithoutNote.length === 0 && issues.length === 0
 }
 
 /**
@@ -226,7 +237,7 @@ function isReady(blocking: number[], ignoredWithoutNote: number[]): boolean {
  */
 export async function buildReport(client: JubianClient, projectDir: string, previous: Partial<ReconcileReport>,
   now: Date = new Date()): Promise<ReconcileReport> {
-  const manifest = await readManifest(projectDir)
+  const { manifest, issues } = await readManifest(projectDir)
   const known = manifestAssetIds(manifest)
   const assets = await readRemoteAssets(client, manifest.script_id)
   const materials = await readRemoteMaterials(client, manifest.script_id)
@@ -249,10 +260,11 @@ export async function buildReport(client: JubianClient, projectDir: string, prev
     matched: used.size - unregistered.length,
     unregistered,
     dangling,
+    issues,
     disposition: dispositions,
     blocking,
     ignored_without_note: ignoredWithoutNote,
-    ready: isReady(blocking, ignoredWithoutNote),
+    ready: isReady(blocking, ignoredWithoutNote, issues),
     policy: POLICY,
     cross_project_note: previous.cross_project_note ?? '',
   }
@@ -321,6 +333,8 @@ export type DisposedEvidence = Partial<ReconcileReport> & {
   blocking: number[]
   /** Ignored asset ids whose note is empty. */
   ignored_without_note: number[]
+  /** Every manifest defect the evidence was written with, carried so this call cannot clear one. */
+  issues: ManifestIssue[]
   /** Whether the evidence now releases a paid asset creation. */
   ready: boolean
 }
@@ -353,9 +367,13 @@ export async function disposeAsset(projectDir: string, assetId: number, status: 
   const evidence = await readEvidence(projectDir)
   const dispositions: Dispositions = { ...(evidence.disposition ?? {}) }
   dispositions[String(assetId)] = { status, note }
+  // The manifest defects the comparison reported are carried, never recomputed:
+  // this call reads no manifest, and dropping them would let a disposition turn a
+  // report the comparison refused to trust back into a ready one.
+  const issues = evidence.issues ?? []
   const { blocking, ignored_without_note: ignoredWithoutNote } = deriveVerdicts(dispositions)
   const updated: DisposedEvidence = { ...evidence, disposition: dispositions, blocking,
-    ignored_without_note: ignoredWithoutNote, ready: isReady(blocking, ignoredWithoutNote) }
+    ignored_without_note: ignoredWithoutNote, issues, ready: isReady(blocking, ignoredWithoutNote, issues) }
   await writeAtomic(evidencePath(projectDir), evidenceText(updated as ReconcileReport))
   return updated
 }

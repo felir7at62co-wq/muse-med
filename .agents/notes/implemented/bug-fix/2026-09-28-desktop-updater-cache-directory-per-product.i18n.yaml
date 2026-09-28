@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-28-desktop-updater-cache-directory-per-product.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-28-desktop-updater-cache-directory-per-product.md
+/agent-note-the-desktop-updater-caches-installers-under-this-product-s-own-directory:
+  en: cdaf3af4b2009645
+  zh: 1bba24a63881ca9c
+/agent-note-the-desktop-updater-caches-installers-under-this-product-s-own-directory/problem:
+  en: 5c4d6fb17056b97f
+  zh: 4711a1d51babe533
+/agent-note-the-desktop-updater-caches-installers-under-this-product-s-own-directory/decision:
+  en: cbe001ff8b67c5f6
+  zh: e0838b4a162d73e4
+/agent-note-the-desktop-updater-caches-installers-under-this-product-s-own-directory/consequences:
+  en: ddfcb36908a61697
+  zh: 8cea6ba63256aef3
+/agent-note-the-desktop-updater-caches-installers-under-this-product-s-own-directory/alternatives-considered:
+  en: 9850ea4ede852220
+  zh: af91453c9e0d4eba
+/agent-note-the-desktop-updater-caches-installers-under-this-product-s-own-directory/verification:
+  en: 583145034dcff667
+  zh: c89a06a9e4ab5af0

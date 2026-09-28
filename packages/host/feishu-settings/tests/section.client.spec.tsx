@@ -2,7 +2,7 @@
 /** The Feishu Settings page: what each control renders, and the call it makes. */
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError, type RemoteErrorCode, type RemoteErrorDetailsMap } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FeishuSection, type FeishuSectionProps, type FeishuSetupInjected } from '../src/client/FeishuSection.tsx'
 import type { FeishuLoginTicket, FeishuSetupStatus } from '../src/types.ts'
@@ -28,9 +28,18 @@ const OFF: FeishuSetupStatus = {
   login: null,
 }
 
-/** One refusal as the Remote face reports it. */
-function refusal(code: string, details: object = {}): RemoteError {
-  return new RemoteError(code as never, 'host-side detail', details as never)
+/**
+ * One refusal as the Remote face reports it.
+ *
+ * The code stays generic so the returned instance is the union member the page
+ * receives on the error branch instead of the whole-code `RemoteError` default,
+ * which is assignable to no member of the protocol's `RemoteFailure` union.
+ * @param code - the declared failure code the Host would answer with.
+ * @param details - the payload that code declares.
+ * @returns the failure instance the page sees.
+ */
+function refusal<Code extends RemoteErrorCode>(code: Code, details: RemoteErrorDetailsMap[Code]): RemoteError<Code> {
+  return new RemoteError(code, 'host-side detail', details)
 }
 
 /**
@@ -136,7 +145,7 @@ describe('FeishuSection', () => {
     expect(setCredentials).toHaveBeenCalledWith({ appId: 'cli_manual', appSecret: 'sec_manual' })
     expect(await screen.findByText('saved')).toBeDefined()
     // A landed write is the only thing that clears the field.
-    expect(screen.getByPlaceholderText('secretKeepStored').value).toBe('')
+    expect(screen.getByPlaceholderText<HTMLInputElement>('secretKeepStored').value).toBe('')
 
     fireEvent.click(screen.getByText('forget'))
     expect(forget).toHaveBeenCalled()
@@ -160,7 +169,7 @@ describe('FeishuSection', () => {
     }))
     render(<FeishuSection {...props(OFF, { setCredentials })} />)
 
-    const secret = await screen.findByPlaceholderText('secretPlaceholder')
+    const secret = await screen.findByPlaceholderText<HTMLInputElement>('secretPlaceholder')
     fireEvent.change(screen.getByPlaceholderText('appIdPlaceholder'), { target: { value: 'cli_manual' } })
     fireEvent.change(secret, { target: { value: 'sec_manual' } })
     fireEvent.click(screen.getByText('save'))
@@ -168,12 +177,12 @@ describe('FeishuSection', () => {
     // The whole point of a retry: the one value the page cannot reconstruct is
     // still there, and the failure is the reason the Host named.
     expect(await screen.findByText('error.sectionUnregistered')).toBeDefined()
-    expect((secret as HTMLInputElement).value).toBe('sec_manual')
+    expect(secret.value).toBe('sec_manual')
     expect(screen.queryByText('error.generic')).toBeNull()
   })
 
   it('names the missing secret and the platform refusal instead of a bare code', async () => {
-    const setCredentials = vi.fn(async () => ({ ok: false as const, error: refusal('feishu/secret-required') }))
+    const setCredentials = vi.fn(async () => ({ ok: false as const, error: refusal('feishu/secret-required', {}) }))
     const first = render(<FeishuSection {...props(OFF, { setCredentials })} />)
     fireEvent.change(await screen.findByPlaceholderText('appIdPlaceholder'), { target: { value: 'cli_x' } })
     fireEvent.change(screen.getByPlaceholderText('secretPlaceholder'), { target: { value: 'sec_x' } })
@@ -211,7 +220,7 @@ describe('FeishuSection', () => {
     expect(await screen.findByText('error.loginFailed')).toBeDefined()
     first.unmount()
 
-    const carrier = vi.fn(async () => ({ ok: false as const, error: refusal('gateway/internal') }))
+    const carrier = vi.fn(async () => ({ ok: false as const, error: refusal('gateway/internal', {}) }))
     const forget = vi.fn(async () => ({ ok: false as const, error: refusal('feishu/credentials-unwritable', { reason: 'write-rejected' }) }))
     render(<FeishuSection {...props({ ...OFF, credential: 'manual' }, { beginLogin: carrier, forget })} />)
     fireEvent.change(await screen.findByPlaceholderText('appIdPlaceholder'), { target: { value: 'cli_manual' } })
@@ -220,7 +229,7 @@ describe('FeishuSection', () => {
     expect(await screen.findByText('error.writeRejected')).toBeDefined()
     expect(screen.queryByText('forgotten')).toBeNull()
     // A refused clear leaves the fields alone, like a refused save does.
-    expect(screen.getByPlaceholderText('appIdPlaceholder').value).toBe('cli_manual')
+    expect(screen.getByPlaceholderText<HTMLInputElement>('appIdPlaceholder').value).toBe('cli_manual')
 
     fireEvent.click(screen.getByText('qrStart'))
     expect(await screen.findByText('error.generic')).toBeDefined()

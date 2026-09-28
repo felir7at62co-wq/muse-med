@@ -10,6 +10,7 @@
  * earlier captures showed.
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { readPayload } from './reading.ts'
 
 function invalid(): never { throw new JubianError('CONTRACT_CHANGED') }
 
@@ -66,9 +67,11 @@ export interface MaterialRow {
  * @returns The page total and its mapped asset rows.
  */
 export function readAssetList(data: unknown): { total: number; rows: AssetRow[] } {
-  const rows = rowsOf(data)
-  return { total: totalOf(data, rows.length), rows: rows.map(row => ({ asset_id: id(row.id ?? row.assetId),
-    name: nullableText(row.assetName ?? row.name), asset_type: typeof row.assetType === 'number' ? row.assetType : null })) }
+  return readPayload('readAssetList', data, () => {
+    const rows = rowsOf(data)
+    return { total: totalOf(data, rows.length), rows: rows.map(row => ({ asset_id: id(row.id ?? row.assetId),
+      name: nullableText(row.assetName ?? row.name), asset_type: typeof row.assetType === 'number' ? row.assetType : null })) }
+  })
 }
 
 /**
@@ -77,10 +80,12 @@ export function readAssetList(data: unknown): { total: number; rows: AssetRow[] 
  * @returns The asset's identity plus its local and Hosting status flags.
  */
 export function readAssetPage(data: unknown): AssetDetail {
-  const row = object(data)
-  return { asset_id: id(row.id ?? row.assetId), name: nullableText(row.assetName ?? row.name),
-    asset_type: typeof row.assetType === 'number' ? row.assetType : null,
-    is_local: flag(row.isLocal), status: nullableText(row.hsAssetStatus) }
+  return readPayload('readAssetPage', data, () => {
+    const row = object(data)
+    return { asset_id: id(row.id ?? row.assetId), name: nullableText(row.assetName ?? row.name),
+      asset_type: typeof row.assetType === 'number' ? row.assetType : null,
+      is_local: flag(row.isLocal), status: nullableText(row.hsAssetStatus) }
+  })
 }
 
 /**
@@ -89,15 +94,17 @@ export function readAssetPage(data: unknown): AssetDetail {
  * @returns The page total and its mapped material rows.
  */
 export function readMaterialList(data: unknown): { total: number; rows: MaterialRow[] } {
-  const rows = rowsOf(data)
-  return { total: totalOf(data, rows.length), rows: rows.map(row => ({
-    material_id: id(row.id ?? row.materialId),
-    asset_id: row.assetId === undefined || row.assetId === null ? null : id(row.assetId),
-    name: nullableText(row.assetName ?? row.materialName ?? row.name),
-    url: nullableText(row.assetUrl ?? row.materialUrl ?? row.url),
-    material_type: typeof row.materialType === 'number' ? row.materialType
-      : typeof row.assetType === 'number' ? row.assetType : null,
-    is_used: flag(row.isUsed), status: nullableText(row.hsAssetStatus) })) }
+  return readPayload('readMaterialList', data, () => {
+    const rows = rowsOf(data)
+    return { total: totalOf(data, rows.length), rows: rows.map(row => ({
+      material_id: id(row.id ?? row.materialId),
+      asset_id: row.assetId === undefined || row.assetId === null ? null : id(row.assetId),
+      name: nullableText(row.assetName ?? row.materialName ?? row.name),
+      url: nullableText(row.assetUrl ?? row.materialUrl ?? row.url),
+      material_type: typeof row.materialType === 'number' ? row.materialType
+        : typeof row.assetType === 'number' ? row.assetType : null,
+      is_used: flag(row.isUsed), status: nullableText(row.hsAssetStatus) })) }
+  })
 }
 
 /**
@@ -115,9 +122,11 @@ export function readMaterialList(data: unknown): { total: number; rows: Material
  *   or when the row it reads carries no usable URL.
  */
 export function readGeneratedImage(data: unknown): { url: string; material_id: number | null } {
-  const row = Array.isArray(data) ? object(data[0]) : object(data)
-  const url = row.assetUrl ?? row.url ?? row.materialUrl
-  if (typeof url !== 'string' || !url.trim()) invalid()
-  const materialId = row.id ?? row.materialId
-  return { url, material_id: materialId === undefined || materialId === null ? null : id(materialId) }
+  return readPayload('readGeneratedImage', data, () => {
+    const row = Array.isArray(data) ? object(data[0]) : object(data)
+    const url = row.assetUrl ?? row.url ?? row.materialUrl
+    if (typeof url !== 'string' || !url.trim()) invalid()
+    const materialId = row.id ?? row.materialId
+    return { url, material_id: materialId === undefined || materialId === null ? null : id(materialId) }
+  })
 }

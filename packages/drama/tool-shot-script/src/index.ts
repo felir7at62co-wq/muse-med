@@ -21,6 +21,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
 import { bindShot, parseAssetManifest } from './assets.ts'
+import type { ManifestRead } from './assets.ts'
 import { readProjectDelivery } from './delivery.ts'
 import {
   buildMatchedPayload,
@@ -163,7 +164,7 @@ function resolveCall(args: DramaShotArguments): ResolvedCall {
 }
 
 /** Read and validate one project's asset manifest. */
-async function readManifest(path: string): Promise<ManifestAsset[]> {
+async function readManifest(path: string): Promise<ManifestRead> {
   const text = await readText(path)
   let document: unknown
   try {
@@ -243,9 +244,10 @@ async function runDramaShot(args: DramaShotArguments, config: ResolvedConfig): P
     actionShotSeconds: config.actionShotSeconds,
     maxEffectiveChars: delivery?.maxEffectiveChars,
   })
-  const manifest = call.assets === undefined ? undefined : await readManifest(call.assets)
+  const manifestRead = call.assets === undefined ? undefined : await readManifest(call.assets)
+  const manifest = manifestRead?.assets
   const { compiled, issues: bindingIssues } = compileShots(parsed.shots, manifest, call.episode)
-  const issues = [...parsed.issues, ...bindingIssues]
+  const issues = [...parsed.issues, ...(manifestRead?.issues ?? []), ...bindingIssues]
   let maxContentSeconds = 0
   let tasks: PackedTask[] = []
   if (args.method !== 'validate') {
