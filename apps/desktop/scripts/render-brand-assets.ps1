@@ -1,14 +1,18 @@
 <#
-Render the installer's brand images and uninstaller sidebar from the product icon.
+Render every product brand image from the product icon: the installer's brand images, the
+uninstaller sidebar, and the welcome page's mark.
 
-`prepare-windows-installer.ps1` converts these PNGs to the BMPs the NSIS window helper draws,
-so the installer presents the product's own mark instead of an upstream brand. Run this after
-`renderer/icon.png` changes:
+`prepare-windows-installer.ps1` converts the installer PNGs to the BMPs the NSIS window helper
+draws, so installation pages present the product's own mark instead of an upstream brand. Run
+this after `renderer/icon.png` changes:
 
-  pwsh -NoProfile -File apps/desktop/scripts/render-installer-brand.ps1
+  pwsh -NoProfile -File apps/desktop/scripts/render-brand-assets.ps1
 #>
 [CmdletBinding()]
-param([string]$OutputDirectory = (Join-Path $PSScriptRoot '../installer/assets'))
+param(
+  [string]$OutputDirectory = (Join-Path $PSScriptRoot '../installer/assets'),
+  [string]$WelcomeDirectory = (Join-Path $PSScriptRoot '../renderer/assets')
+)
 
 Add-Type -AssemblyName System.Drawing
 $ErrorActionPreference = 'Stop'
@@ -137,6 +141,19 @@ function New-SidebarImage {
   return $bitmap
 }
 
+function New-WelcomeMark([bool]$dark) {
+  # Rendered at 4x the 33px badge the welcome lockup displays, so a HiDPI window stays crisp.
+  $bitmap = [Drawing.Bitmap]::new(176, 176, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
+  $graphics = [Drawing.Graphics]::FromImage($bitmap)
+  try {
+    $graphics.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $graphics.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    Draw-Mark $graphics 4 88 86 136 $dark
+  }
+  finally { $graphics.Dispose() }
+  return $bitmap
+}
+
 $script:markRectangle = Get-MarkRectangle $icon
 $assets = @{
   'brand.png' = New-BrandImage 1 $false
@@ -149,6 +166,16 @@ foreach ($name in $assets.Keys) {
   $path = Join-Path $output $name
   $assets[$name].Save($path, [Drawing.Imaging.ImageFormat]::Png)
   $assets[$name].Dispose()
+  "rendered $name  $((Get-Item $path).Length) bytes"
+}
+
+$welcome = [IO.Path]::GetFullPath($WelcomeDirectory)
+New-Item -ItemType Directory -Force $welcome | Out-Null
+$marks = @{ 'welcome-mark.png' = New-WelcomeMark $false; 'welcome-mark-dark.png' = New-WelcomeMark $true }
+foreach ($name in $marks.Keys) {
+  $path = Join-Path $welcome $name
+  $marks[$name].Save($path, [Drawing.Imaging.ImageFormat]::Png)
+  $marks[$name].Dispose()
   "rendered $name  $((Get-Item $path).Length) bytes"
 }
 $icon.Dispose()
