@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
 /muse-med-desktop:
-  en: 441aa3f918bca6fe
-  zh: 3545f1fa87638c68
+  en: f48a43685c0a7c03
+  zh: 8b486785a487a4a1
 /muse-med-desktop/key-technical-decisions:
   en: 069fdfd72d2ea26a
   zh: 76ae549d43c99bb4
@@ -51,8 +51,8 @@
   en: f176a8b1c7de3064
   zh: 6ea2dbe6bb808c34
 /muse-med-desktop/package/windows-ev-signing:
-  en: 8efe3498dbe8686d
-  zh: a88c16f20a9430f3
+  en: ad3a7c6df22fe778
+  zh: 805d9f97a5233764
 /muse-med-desktop/updates:
   en: 6d3b38baede32d7d
   zh: faa19e4a39d88ae8

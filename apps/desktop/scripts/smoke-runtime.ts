@@ -9,8 +9,9 @@ import { fileURLToPath } from 'node:url'
 import { readPrimaryRuntime, workspaceDependencyPaths } from '../../../packages/skill/tool-workspace-dependencies/src/index.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
 import { createPluginProfile } from '../src/project-manager.ts'
-import { linkDesktopHostPackages, validateDesktopPluginGraph } from '../src/profile-packages.ts'
-import type { DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
+import { recordDesktopRuntimeProfile, validateDesktopPluginGraph } from '../src/profile-packages.ts'
+import { readDesktopRuntime, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
+import { isEntry } from '../../../scripts/release/process.ts'
 
 const editingModelInput = JSON.parse(readFileSync(new URL('../tests/expected/editing-model-input.json', import.meta.url), 'utf8')) as {
   personaPrefix: string
@@ -249,8 +250,8 @@ export function apply(ctx) {
     manifest.dsh.profile.bundles.push(pluginName, productPluginName)
     writeFileSync(join(profile, 'package.json'), JSON.stringify(manifest))
     writeFileSync(join(profile, 'cordis.patch.yml'), '- id: webserver\n  config:\n    host: 127.0.0.1\n    port: 0\n')
-    linkDesktopHostPackages(profile, root, runtime)
-    validateDesktopPluginGraph(profile, root, runtime, [pluginName, productPluginName])
+    recordDesktopRuntimeProfile(profile, runtime)
+    validateDesktopPluginGraph(profile, root, runtime, [pluginName, productPluginName], 'runtime')
     const ready = await Promise.race([host.start(), new Promise<never>((_, reject) => {
       timer = setTimeout(() => { reject(new Error('desktop runtime: Host readiness exceeded 120 seconds')) }, 120_000)
     })])
@@ -304,4 +305,13 @@ export function apply(ctx) {
     await host.stop()
     rmSync(home, { recursive: true, force: true })
   }
+}
+
+if (isEntry(import.meta.url)) {
+  const args = process.argv.slice(2)
+  const [root, node, resourcesRuntime] = args
+  if (args.length !== 3 || root === undefined || node === undefined || resourcesRuntime === undefined) {
+    throw new Error('desktop smoke: expected runtime root, Electron executable and external runtime directory')
+  }
+  await smokeDesktopRuntime(root, node, readDesktopRuntime(root), process.env, resourcesRuntime)
 }

@@ -6,6 +6,8 @@ import { smokePreparedRuntime } from '../scripts/smoke-prepared-runtime.ts'
 import { smokeDesktopRuntime } from '../scripts/smoke-runtime.ts'
 import { verifyDesktopRuntime, writeDesktopRuntime } from '../src/runtime-tree.ts'
 import { runtimeFixture } from './runtime-fixture.ts'
+import { verifyRuntimeArchive } from '../scripts/verify-runtime-archive.ts'
+import { runConcurrent } from '../../../scripts/release/process.ts'
 
 const { payload } = vi.hoisted(() => ({ payload: vi.fn(async (..._args: unknown[]) => ({ stdout: '' })) }))
 vi.mock('node:child_process', async (importOriginal) => {
@@ -14,6 +16,8 @@ vi.mock('node:child_process', async (importOriginal) => {
     execFile: Object.assign(vi.fn(), { [promisify.custom]: payload }) }
 })
 vi.mock('../scripts/smoke-runtime.ts', () => ({ smokeDesktopRuntime: vi.fn(async () => {}) }))
+vi.mock('../scripts/verify-runtime-archive.ts', () => ({ verifyRuntimeArchive: vi.fn(async () => {}) }))
+vi.mock('../../../scripts/release/process.ts', () => ({ runConcurrent: vi.fn(async () => {}) }))
 
 const roots: string[] = []
 const hostArch = Object.getOwnPropertyDescriptor(process, 'arch')!
@@ -41,4 +45,35 @@ it('smokes an x64 target verified on an arm64 build host without revalidating ag
   expect(smokeDesktopRuntime).toHaveBeenCalledWith(root, electron, descriptor, expect.any(Object), resources)
   const environment = vi.mocked(smokeDesktopRuntime).mock.calls[0]![3]
   expect(existsSync(environment.NARB_NATIVE_CACHE_DIR!)).toBe(false)
+})
+
+it.each([false, true])('verifies archive bytes before Electron Host smoke and cleans its cache (child fails: %s)', async (fail) => {
+  const root = mkdtempSync(join(tmpdir(), 'archived-runtime-target-'))
+  roots.push(root)
+  const descriptor = runtimeFixture(root)
+  const archived = join(root, 'app.asar', 'dsh')
+  const electron = join(root, 'muse-med.exe')
+  const resources = join(root, 'runtime')
+  if (fail) vi.mocked(runConcurrent).mockRejectedValueOnce(new Error('archived Host failed'))
+  const result = smokePreparedRuntime(archived, electron, resources, descriptor)
+  if (fail) await expect(result).rejects.toThrow('archived Host failed')
+  else await result
+  expect(verifyRuntimeArchive).toHaveBeenCalledWith(join(root, 'app.asar'), descriptor)
+  expect(vi.mocked(verifyRuntimeArchive).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(runConcurrent).mock.invocationCallOrder[0]!)
+  expect(runConcurrent).toHaveBeenCalledWith(electron, expect.arrayContaining([archived, electron, resources]), expect.any(Object))
+  expect(smokeDesktopRuntime).not.toHaveBeenCalled()
+  const environment = vi.mocked(runConcurrent).mock.calls[0]![2]!.env!
+  expect(environment.ELECTRON_RUN_AS_NODE).toBe('1')
+  expect(existsSync(environment.NARB_NATIVE_CACHE_DIR!)).toBe(false)
+})
+
+it('does not execute an archived runtime whose integrity check fails', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'rejected-runtime-target-'))
+  roots.push(root)
+  vi.mocked(verifyRuntimeArchive).mockRejectedValueOnce(new Error('archive changed'))
+  await expect(smokePreparedRuntime(join(root, 'app.asar', 'dsh'), process.execPath, root, runtimeFixture(root)))
+    .rejects.toThrow('archive changed')
+  expect(payload).not.toHaveBeenCalled()
+  expect(runConcurrent).not.toHaveBeenCalled()
+  expect(smokeDesktopRuntime).not.toHaveBeenCalled()
 })
