@@ -17,11 +17,14 @@ export interface DesktopProductIdentityApplication {
 /**
  * Point this process at the product's own Electron name and userData directory.
  *
- * The packaged manifest keeps upstream's `@deepseek-ai/dsh-desktop` package name, so Electron
- * otherwise derives `%APPDATA%\@deepseek-ai\dsh-desktop` for both products. They then share one
- * single-instance lock: while DeepSeek Harness runs, this product's later launch fails the lock
- * and quits with code 0 and no output. Both calls must precede the lock claim and every
- * `getPath('userData')` read.
+ * The packaged manifest carries the product's own package name (`extraMetadata` in
+ * `electron-builder.config.mjs`), so a built install also derives `muse-med-updater` for its
+ * updater cache instead of upstream's `@deepseek-aidsh-desktop-updater`. This function states the
+ * same identity at runtime, because a source launch and any build whose manifest name lags still
+ * carry upstream's `@deepseek-ai/dsh-desktop`: Electron would derive `%APPDATA%\@deepseek-ai\dsh-desktop`
+ * for both products, and they would share one single-instance lock, so while DeepSeek Harness runs
+ * a later launch of this product fails the lock and quits with code 0 and no output. Both calls
+ * must precede the lock claim and every `getPath('userData')` read.
  *
  * A launch that already received `--user-data-dir` keeps that directory: Chromium's switch
  * already isolates it, and the development launcher passes one.

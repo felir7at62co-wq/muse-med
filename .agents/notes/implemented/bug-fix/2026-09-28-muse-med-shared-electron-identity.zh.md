@@ -8,7 +8,7 @@ Status: implemented
 
 已安装的 `muse-med` 0.1.6-alpha.3 能报出版本号，却无法启动：双击或从命令行启动后，进程在八秒内自行消失，退出码 0、没有任何输出、也没有向任何 home 写入文件。同一台机器上还跑着八个 `DeepSeek Harness` 进程，而 `%APPDATA%\@deepseek-ai\dsh-desktop` —— 上游产品的 userData 目录 —— 仍在被写入。
 
-两个产品都从同一个打包包名 `@deepseek-ai/dsh-desktop` 推导出该目录。[`electron-builder.config.mjs`](../../../../apps/desktop/electron-builder.config.mjs) 里的 `productName` 和 `executableName` 改的是可执行文件与产物的名字，改不了 Electron 用于 `userData` 的应用身份。Electron 按应用名推导 `userData`，并把 `app.requestSingleInstanceLock()` 背后的 `SingletonLock`、`SingletonCookie`、`SingletonSocket` 文件放在同一个目录里，因此正在运行的 DeepSeek Harness 已经占住了唯一的实例锁：[`claimDesktopSingleInstance`](../../../../apps/desktop/src/single-instance.ts) 读到 `requestSingleInstanceLock() === false`，调用 `application.quit()`，桌面壳便自行退出。`apps/desktop/src/main.ts` 及任何随包模块都没有在该次抢占之前设置应用名或 userData 路径。共用该目录还意味着 Chromium 缓存、更新器状态以及此后每一个窗口状态文件都与上游产品共用。
+两个产品曾经都从同一个打包包名 `@deepseek-ai/dsh-desktop` 推导出该目录；现在包内清单通过同一个配置文件的 `extraMetadata` 写成 `muse-med`，而运行期身份无论清单如何都由上面的调用显式声明。[`electron-builder.config.mjs`](../../../../apps/desktop/electron-builder.config.mjs) 里的 `productName` 和 `executableName` 改的是可执行文件与产物的名字，改不了 Electron 用于 `userData` 的应用身份。Electron 按应用名推导 `userData`，并把 `app.requestSingleInstanceLock()` 背后的 `SingletonLock`、`SingletonCookie`、`SingletonSocket` 文件放在同一个目录里，因此正在运行的 DeepSeek Harness 已经占住了唯一的实例锁：[`claimDesktopSingleInstance`](../../../../apps/desktop/src/single-instance.ts) 读到 `requestSingleInstanceLock() === false`，调用 `application.quit()`，桌面壳便自行退出。`apps/desktop/src/main.ts` 及任何随包模块都没有在该次抢占之前设置应用名或 userData 路径。共用该目录还意味着 Chromium 缓存、更新器状态以及此后每一个窗口状态文件都与上游产品共用。
 
 ## Decision
 
