@@ -10,7 +10,7 @@
  * manifest-backed keeps that failure naming the directory at fault.
  */
 
-import { existsSync, globSync } from 'node:fs'
+import { existsSync, globSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -23,6 +23,15 @@ const WORKSPACE_IGNORE = ['**/node_modules/**', '**/dist/**', '**/test/**', '**/
 const repositoryRoot = resolve(import.meta.dirname, '..')
 
 describe('root tsdown workspace', () => {
+  it('bundles Desktop only after its workspace dependencies', () => {
+    const config = readFileSync(join(repositoryRoot, 'tsdown.config.ts'), 'utf8')
+    const workspace = config.match(/workspace: client\s*\?\s*\[([^\]]*)\]\s*:\s*\[([^\]]*)\]/u)
+    expect(workspace).not.toBeNull()
+    for (const face of workspace!.slice(1)) expect(face).not.toMatch(/['"]apps\/desktop['"]/u)
+    const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8'))
+    expect(manifest.scripts['build:lib:host']).toContain('tsdown --env.DSH_BUILD_FACE host && pnpm --filter @deepseek-ai/dsh-desktop run bundle')
+  })
+
   it('enumerates only directories that own a manifest', () => {
     const orphans = WORKSPACE_WILDCARDS.flatMap(pattern => globSync(pattern, {
       cwd: repositoryRoot,
