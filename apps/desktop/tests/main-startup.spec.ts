@@ -545,7 +545,7 @@ describe('desktop main startup', () => {
     await vi.advanceTimersByTimeAsync(0)
     const zh = locale === 'zh-CN'
     expect(harness.dialog.showMessageBox).toHaveBeenLastCalledWith(expect.objectContaining({
-      type: 'info', title: zh ? '关于 DeepSeek Harness' : 'About DeepSeek Harness', message: 'DeepSeek Harness',
+      type: 'info', title: zh ? '关于 muse-med' : 'About muse-med', message: 'muse-med',
       detail: zh ? '版本 V1.0.0' : 'Version V1.0.0', buttons: [zh ? '确定' : 'OK'], cancelId: 0,
     }))
     // A dialog that cannot open is logged, not surfaced as an unhandled rejection.
@@ -842,7 +842,7 @@ describe('desktop main startup', () => {
     const application = handler(event, 'application', 48, 34)
     // merged: the product's plugin-window entry lives in the same application menu.
     expect(harness.menu.buildFromTemplate.mock.lastCall![0].map(item => item.label ?? item.type)).toEqual([
-      '关于 DeepSeek Harness', 'separator', '桌面插件…', '检查更新…', 'separator', '退出',
+      '关于 muse-med', 'separator', '桌面插件…', '检查更新…', 'separator', '退出',
     ])
     expect(harness.popup.mock.lastCall![0]).toMatchObject({ window, x: 48, y: 34 })
     expect(harness.popup.mock.lastCall![0].callback).toBeTypeOf('function')

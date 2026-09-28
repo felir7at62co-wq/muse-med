@@ -49,7 +49,10 @@ describe('desktop welcome presentation', () => {
   it.each(['zh-CN', 'en'])('renders the %s entry and API-key step', async (language) => {
     const view = mount(language)
     expect(view.document.documentElement.lang).toBe(language)
-    expect(view.document.querySelector('img')!.getAttribute('src')).toBe('assets/welcome-brand.svg')
+    const brand = view.document.querySelector('.brand')!
+    expect(brand.querySelector('img')!.getAttribute('alt')).toBe('muse-med')
+    expect(brand.querySelector('.brand-name')!.textContent).toBe('muse-med')
+    expect(view.document.querySelector('img')!.getAttribute('src')).toBe('assets/welcome-mark.png')
     await expect(view.copy()).toMatchFileSnapshot(`./expected/welcome/${language}.expected.txt`)
     fireEvent.click(view.button('#api-key'))
     expect(view.document.activeElement).toBe(view.input)

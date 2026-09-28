@@ -100,7 +100,7 @@ export function createElectronBuilderConfig(
   const packaged = resolveDesktopBuildCommit(env)
   return {
     appId,
-    protocols: [{ name: 'DeepSeek Harness', schemes: ['dsh'] }],
+    protocols: [{ name: 'muse-med', schemes: ['dsh'] }],
     // electron-builder derives the updater's cache directory from the packaged
     // package.json `name` (`AppInfo.updaterCacheDirName` in `app-builder-lib` is
     // `sanitizeFileName(name).toLowerCase() + '-updater'`) and no configuration
@@ -163,7 +163,7 @@ export function createElectronBuilderConfig(
       identity: macOSSigning?.signingIdentity,
       forceCodeSigning: true,
       hardenedRuntime: true,
-      extendInfo: { NSMicrophoneUsageDescription: 'DeepSeek Harness uses your microphone to transcribe speech into message drafts.' },
+      extendInfo: { NSMicrophoneUsageDescription: 'muse-med uses your microphone to transcribe speech into message drafts.' },
       // ASAR-unpacked native runtime files are pre-signed; PAK resources are sealed by their enclosing bundle.
       signIgnore: ['/Contents/Resources/app\\.asar\\.unpacked/dsh(?:/|$)', '/Contents/Resources/runtime/primary-runtime(?:/|$)', '\\.pak$'],
       notarize: true,
