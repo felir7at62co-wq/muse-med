@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-drama-settings",
   "description": "Short-drama settings and Web UI for delivery, media and the automatic per-drama paid-call budget",
-  "version": "0.1.7-rc.2",
+  "version": "0.1.7-rc.3",
   "publishConfig": {
     "access": "public"
   },
