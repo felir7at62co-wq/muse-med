@@ -47,7 +47,7 @@ describe('desktop release metadata', () => {
 const coordinators: InstanceType<typeof DesktopUpdateCoordinator>[] = []
 afterEach(() => { for (const item of coordinators.splice(0)) item.dispose() })
 
-function fixture() {
+function fixture(channel?: string) {
   const events = new EventEmitter()
   const checkForUpdates = vi.fn(async () => ({
     isUpdateAvailable: true,
@@ -62,7 +62,7 @@ function fixture() {
   const quitAndInstall = vi.fn()
   const beforeRestart = vi.fn(async () => true)
   const states: DesktopUpdateState[] = []
-  const updater = Object.assign(events, { checkForUpdates, downloadUpdate, quitAndInstall }) as unknown as AppUpdater
+  const updater = Object.assign(events, { checkForUpdates, downloadUpdate, quitAndInstall, channel }) as unknown as AppUpdater
   const coordinator = new DesktopUpdateCoordinator(
     (state) => { states.push(state); return state },
     beforeRestart, updater, () => true, () => '1.1.0-alpha.1',
@@ -144,9 +144,14 @@ describe('desktop update coordinator', () => {
       'available', 'downloading', 'downloading', 'verifying', 'ready', 'installing',
     ])
     expect(f.updater).toMatchObject({
-      autoDownload: false, autoInstallOnAppQuit: false, channel: 'nightly',
+      autoDownload: false, autoInstallOnAppQuit: false,
       allowPrerelease: true, allowDowngrade: false,
     })
+  })
+
+  it('leaves the packaged update channel untouched', () => {
+    const f = fixture('rc')
+    expect(f.updater.channel).toBe('rc')
   })
 
   it('joins checks and downloads without retargeting a prepared release', async () => {

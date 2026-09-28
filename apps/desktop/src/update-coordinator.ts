@@ -64,7 +64,9 @@ export class DesktopUpdateCoordinator {
     }
     this.updater.autoDownload = false
     this.updater.autoInstallOnAppQuit = false
-    this.updater.channel = 'nightly'
+    // The channel is a packaging fact: `app-update.yml` records the one this build's version derives,
+    // and the provider reads it from there. Assigning a channel here overrides that record, so the
+    // GitHub provider resolves tags and a `<channel>.yml` filename no release publishes.
     this.updater.allowPrerelease = true
     // Selecting a channel can enable downgrade in electron-updater.
     this.updater.allowDowngrade = false

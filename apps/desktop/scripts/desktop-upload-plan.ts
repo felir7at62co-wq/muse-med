@@ -5,7 +5,6 @@ import { createReadStream } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { dump, load } from 'js-yaml'
-import { prerelease } from 'semver'
 import type { DesktopPackageTargetName } from './package-target.ts'
 import {
   desktopBuildRecordFilename,
@@ -268,10 +267,6 @@ export async function createDesktopUploadPlan(
     contents: dump(published),
   }
   artifacts.push(channelArtifact)
-  if (prerelease(buildVersion) === null) {
-    const stableFilename = metadataFilename.replace('nightly', 'latest')
-    artifacts.push({ ...channelArtifact, filename: stableFilename, key: `${update.keyPrefix}/${stableFilename}` })
-  }
   return {
     environment: update.environment,
     target: targetName,
