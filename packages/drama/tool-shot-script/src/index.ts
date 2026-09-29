@@ -456,7 +456,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           + '给了它就读该项目的 project_config.json（每镜有效字上限等交付要求）；'
           + 'validate/preview 省略时，从脚本所在目录向上找最近的 project_config.json。' },
       max_submit_seconds: { type: 'integer',
-        description: 'preview/compile 必填：目标分镜实际请求总秒数，含1秒收束且在已确认模型能力内。例如分镜请求8秒就填8，不默认取模型最大值；已配置15或30秒时才填15或30。' },
+        description: 'preview/compile 必填：本次打包的单包总时长上限，包含收束。项目模型 SD2.0 支持4–15秒，SD2.5 支持4–30秒；具体修订须已核实。按内容确定，不必取最大值；编译后将各包 submit_seconds 写入对应分镜。' },
       episode: { type: 'integer',
         description: '集号（正整数，如 3）；compile 必填，写入时补成两位，如 03。'
           + 'validate/preview 也接受：给了就同时判定所挂资产登记的 episodes 是否覆盖这一集。' },

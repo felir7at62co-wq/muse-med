@@ -561,7 +561,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           ratio: { type: 'string', description: '目录支持的比例，例如 9:16。' },
           resolution: { type: 'string', description: '目录支持的分辨率，例如 720p、1080p。' },
           genType: { type: 'number', description: '目录支持的生成类型。' },
-          duration: { type: 'number', description: '模型允许的整数秒数，包含末尾自然收束。未提供时保留各分镜已存时长；未保存时长的分镜必须按该包内容补齐，不能为探测随意填数。' },
+          duration: { type: 'number', description: '模型允许的整数秒数，包含末尾自然收束：SD2.0 为4–15秒，SD2.5 为4–30秒，具体修订须已核实。按每包内容确定，不必填满上限。未提供时保留各分镜已存时长；未保存时长的分镜必须按该包内容补齐，不能为探测随意填数。' },
           genNum: { type: 'number', description: '目录支持的生成数量。' },
         } },
       preview_path: { type: 'string', description: 'apply 必填：preview 返回的冻结计划路径。' },

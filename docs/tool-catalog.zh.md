@@ -3172,7 +3172,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
         },
         "duration": {
           "type": "number",
-          "description": "模型允许的整数秒数，包含末尾自然收束。未提供时保留各分镜已存时长；未保存时长的分镜必须按该包内容补齐，不能为探测随意填数。"
+          "description": "模型允许的整数秒数，包含末尾自然收束：SD2.0 为4–15秒，SD2.5 为4–30秒，具体修订须已核实。按每包内容确定，不必填满上限。未提供时保留各分镜已存时长；未保存时长的分镜必须按该包内容补齐，不能为探测随意填数。"
         },
         "genNum": {
           "type": "number",
@@ -3715,7 +3715,7 @@ Every paid write (image_generate, image_generate_batch, generate, submit_video, 
     },
     "max_submit_seconds": {
       "type": "integer",
-      "description": "preview/compile 必填：目标分镜实际请求总秒数，含1秒收束且在已确认模型能力内。例如分镜请求8秒就填8，不默认取模型最大值；已配置15或30秒时才填15或30。"
+      "description": "preview/compile 必填：本次打包的单包总时长上限，包含收束。项目模型 SD2.0 支持4–15秒，SD2.5 支持4–30秒；具体修订须已核实。按内容确定，不必取最大值；编译后将各包 submit_seconds 写入对应分镜。"
     },
     "episode": {
       "type": "integer",

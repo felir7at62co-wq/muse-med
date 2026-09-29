@@ -34,7 +34,7 @@ Mount this plugin beside the tool registry in the drama preset. `actionShotSecon
 
 An `episode` given to any method is kept, so `validate` alone can refuse an asset whose registration does not cover the episode being compiled.
 
-`max_submit_seconds` is the explicit per-package submission ceiling chosen within the project's selected model capability, including at least one second of natural hold. It is at least four seconds. Set each storyboard's actual duration to its package's returned `submit_seconds`; do not copy this ceiling to every storyboard. The compiler does not fetch provider capabilities.
+`max_submit_seconds` is the explicit per-package submission ceiling chosen within the project's selected model capability, including at least one second of natural hold. Seedance 2.0 permits 4–15 total seconds and Seedance 2.5 permits 4–30 for verified model revisions. Set each storyboard's actual duration to its package's returned `submit_seconds`; do not copy this ceiling to every storyboard. The compiler does not fetch provider capabilities.
 
 ### Character state and the asset's own registration
 
