@@ -6,6 +6,8 @@
   },
   "include": ["src"],
   "references": [
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../host/webserver" },
     { "path": "../../../vendor/cordis" },
     { "path": "../../api/remotes/tsconfig.client.json" },
     { "path": "../../client/locale/tsconfig.client.json" },

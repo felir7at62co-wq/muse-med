@@ -46,9 +46,11 @@ async function bench() {
 describe('MUSE account browser plugin', () => {
   it('owns the Muse desktop launcher and first-run account step', async () => {
     vi.stubGlobal('dshDesktop', { productName: 'muse-med' })
+    vi.stubGlobal('__MUSE_FEEDBACK_CONFIG__', { feedbackUrl: 'https://muse.example/feedback' })
     const b = await bench()
     await mountMuseAccountSettings(b.ctx, REMOTE)
     expect(b.slots.entries('settings.launcher')).toHaveLength(1)
+    expect(b.slots.entries('settings.launcher')[0]?.inject?.()).toEqual({ feedbackUrl: 'https://muse.example/feedback' })
     expect(b.slots.entries('settings.onboarding')[0]?.options).toMatchObject({ id: 'muse-account', order: -50 })
     await b.ctx.fiber.dispose()
   })

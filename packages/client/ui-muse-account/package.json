@@ -51,6 +51,9 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~"
   },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "workspace:~"
+  },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-api-remotes": "workspace:*",
@@ -61,6 +64,7 @@
     "@deepseek-ai/dsh-client-ui-settings": "workspace:*",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:*",
     "@deepseek-ai/dsh-muse-account": "workspace:*",
+    "@deepseek-ai/dsh-host-webserver": "workspace:*",
     "@deepseek-ai/dsh-typert-protocol": "workspace:*",
     "@testing-library/react": "^16.1.0",
     "@types/react": "~18.3.1",

@@ -10,6 +10,7 @@ import { MuseAccountSection, type MuseAccountInjected, type MuseAccountOutcome }
 import { MuseAccountLauncher } from './MuseAccountLauncher.tsx'
 import { MuseAccountOnboarding } from './MuseAccountOnboarding.tsx'
 import { en, zh, type MuseAccountLocaleKey } from './locales.ts'
+import { FeedbackConfig, FEEDBACK_CONFIG_GLOBAL } from '../feedback-config.ts'
 
 export type { MuseAccountInjected, MuseAccountOutcome, MuseAccountSectionProps } from './MuseAccountSection.tsx'
 export type { MuseAccountLocaleKey } from './locales.ts'
@@ -55,8 +56,11 @@ function registerSection(ctx: ClientContext): void {
     inject: injected,
   }, MuseAccountSection))
   if ((globalThis as typeof globalThis & { dshDesktop?: { productName?: string } }).dshDesktop?.productName === 'muse-med') {
+    const page = globalThis as Partial<Record<typeof FEEDBACK_CONFIG_GLOBAL, Partial<FeedbackConfig>>>
+    const { feedbackUrl } = FeedbackConfig(page[FEEDBACK_CONFIG_GLOBAL])
     ctx.slots.inject('settings.launcher', () => ctx.slots.register({
       name: 'settings.launcher', locale: NS,
+      inject: () => ({ feedbackUrl }),
     }, MuseAccountLauncher))
     ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
       name: 'settings.onboarding', id: 'muse-account', order: -50, locale: NS, inject: injected,

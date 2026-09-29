@@ -27,6 +27,8 @@ kind: "package-reference"
 
 桌面应用将本插件与 Host 的 `muse-account` 行一起加载。打开**设置 → MUSE 账号**或侧栏入口输入账号凭据。注册需要单独选择，默认不勾选；登录失败不会自动创建账号。
 
+必填的 `feedbackUrl` 指向产品的 HTTPS 反馈页。侧栏的**意见反馈**按钮打开该页面，不附加账号凭据。桌面配置使用 Muse 网关的 `/feedback`；浏览器登录状态与桌面保存的会话独立。
+
 -----
 
 <a id="understand-the-implementation"></a>
