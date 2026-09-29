@@ -36,10 +36,10 @@ export class MuseAccountService extends TypertRemoteService {
   }
 
   /**
-   * Submit compressed audio through the current MUSE account; Host callers retain the job ID.
-   * @param file - Local MP3 created from the authorized media.
+   * Submit audio through the current MUSE account; Host callers retain the job ID.
+   * @param file - Local audio created from the authorized media.
    * @param id - Persisted idempotency UUID.
-   * @param sha256 - SHA-256 digest of the MP3.
+   * @param sha256 - SHA-256 digest of the audio.
    * @param language - Recognition language.
    * @returns Account-scoped task status without session or provider credentials.
    */

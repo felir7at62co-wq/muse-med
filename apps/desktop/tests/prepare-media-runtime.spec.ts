@@ -20,7 +20,7 @@ it('rejects ZIP paths that can escape or alias Windows installation files', () =
 
 it('requires resource hashes and credentials-free HTTPS sources before download', () => {
   const resource = { filename: 'python.zip', url: 'https://www.python.org/python.zip', sha256: 'a'.repeat(64), bytes: 12 }
-  const valid = { version: 1, pythonVersion: '3.12.10', python: resource, ffmpeg: resource, model: resource, font: resource,
+  const valid = { version: 1, pythonVersion: '3.12.10', python: resource, ffmpeg: resource, font: resource,
     vcRedist: { ...resource, productVersion: '14.51.36247.0' }, peInspector: resource, wheels: [resource], notices: [resource] }
   expect(() => validateMediaLock(valid)).not.toThrow()
   for (const patch of [{ sha256: '' }, { bytes: 0 }, { url: 'https://secret@example.com/x' }, { filename: '../x' }]) {
@@ -33,6 +33,17 @@ const releaseLock = validateMediaLock({
   ...JSON.parse(await readFile(new URL('../scripts/media-runtime.lock.json', import.meta.url), 'utf8')),
   font: { filename: 'test.otf', url: 'https://example.com/test.otf', bytes: fontBytes.length, sha256: digest(fontBytes) },
 })
+it('ships document and media dependencies without a local ASR model or its exclusive wheels', () => {
+  expect(releaseLock).not.toHaveProperty('model')
+  const names = releaseLock.wheels.map(wheel => wheel.filename.split('-')[0])
+  expect(names).toEqual(expect.arrayContaining(['python_docx', 'pyjianyingdraft', 'numpy', 'scipy', 'opencv_python_headless', 'pydub']))
+  for (const name of ['faster_whisper', 'ctranslate2', 'av', 'onnxruntime', 'tokenizers', 'huggingface_hub',
+    'hf_xet', 'anyio', 'click', 'colorama', 'filelock', 'flatbuffers', 'fsspec', 'h11', 'httpcore', 'httpx', 'protobuf', 'pyyaml', 'tqdm']) {
+    expect(names).not.toContain(name)
+  }
+  expect(releaseLock.notices.some(notice => notice.filename.includes('Whisper'))).toBe(false)
+})
+
 const bgmReleaseLock = validateBgmRuntimeLock(JSON.parse(await readFile(new URL('../scripts/bgm-runtime.lock.json', import.meta.url), 'utf8')))
 
 /** Write the metadata a prepared emotion-runtime subtree carries, without its payload files. */
@@ -51,14 +62,10 @@ async function writeBgmFixture(root: string): Promise<Entry[]> {
 async function writeMediaFixture(root: string): Promise<void> {
   const lockText = JSON.stringify(releaseLock)
   await writeFile(join(root, 'resources.lock.json'), lockText)
-  const notice = await readFile(new URL('../scripts/pyav-source-bundle/SOURCE-NOTICES.txt', import.meta.url))
-  await mkdir(join(root, 'licenses'), { recursive: true })
-  await writeFile(join(root, 'licenses', 'PYAV-SOURCE-NOTICES.txt'), notice)
   await mkdir(join(root, 'fonts'), { recursive: true })
   await writeFile(join(root, 'fonts', releaseLock.font.filename), fontBytes)
   const files = [...await writeBgmFixture(root), entry('resources.lock.json', lockText),
-    entry(`fonts/${releaseLock.font.filename}`, fontBytes),
-    entry('licenses/PYAV-SOURCE-NOTICES.txt', notice)].sort((left, right) => left.path.localeCompare(right.path))
+    entry(`fonts/${releaseLock.font.filename}`, fontBytes)].sort((left, right) => left.path.localeCompare(right.path))
   await writeFile(join(root, 'media-runtime.json'),
     JSON.stringify({ version: 1, bgm: bgmDescriptorSection(bgmReleaseLock), files }))
 }
@@ -117,22 +124,6 @@ it('states the bundled emotion runtime noncommercial limit in the redistribution
   expect(REDISTRIBUTION_NOTICE).toContain('NONCOMMERCIAL use only')
   expect(REDISTRIBUTION_NOTICE).toContain('no personal Python environment or user cache is copied')
   expect(REDISTRIBUTION_NOTICE).not.toContain('No MERT inference model')
-})
-
-it.each([undefined, 'outdated notice'])('refuses absent or modified PyAV notices despite a matching inventory: %s', async (notice) => {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-media-notice-'))
-  try {
-    const lockText = JSON.stringify(releaseLock)
-    await writeFile(join(root, 'resources.lock.json'), lockText)
-    const files = [entry('resources.lock.json', lockText)]
-    if (notice !== undefined) {
-      await mkdir(join(root, 'licenses'))
-      await writeFile(join(root, 'licenses', 'PYAV-SOURCE-NOTICES.txt'), notice)
-      files.unshift(entry('licenses/PYAV-SOURCE-NOTICES.txt', notice))
-    }
-    await writeFile(join(root, 'media-runtime.json'), JSON.stringify({ version: 1, files }))
-    await expect(verifyPreparedMediaRuntime(root, releaseLock, bgmReleaseLock)).rejects.toThrow(/PyAV source notice.*fresh output/)
-  } finally { await rm(root, { recursive: true, force: true }) }
 })
 
 it('refuses incomplete existing media instead of deleting or silently rebuilding it', async () => {

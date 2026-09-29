@@ -16,7 +16,7 @@ import type {} from '@deepseek-ai/dsh-tools'
 export { MuseAccountService } from './service.ts'
 export { MuseAccountController } from './account.ts'
 export { MuseAsrClient, MuseAsrError } from './asr.ts'
-export type { MuseAsrJob } from './asr.ts'
+export type { MuseAsrJob, MuseAsrSegment } from './asr.ts'
 export { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
 export type * from './types.ts'
 

@@ -115,6 +115,8 @@ test('gateway ASR endpoint uses the Muse cookie, origin, and account isolation',
  const path='/api/asr/jobs';const headers={cookie:alice,origin,'content-type':'audio/mpeg','idempotency-key':id,'x-audio-sha256':hash,'x-audio-language':'zh'};
  assert.equal((await fetch(base+path,{method:'POST',headers:{...headers,origin:'https://evil.test'},body:audio,redirect:'manual'})).status,403);
  const created=await fetch(base+path,{method:'POST',headers,body:audio});assert.equal(created.status,202);
+ const wav=await fetch(base+path,{method:'POST',headers:{...headers,cookie:bob,'content-type':'audio/wav','idempotency-key':randomUUID()},body:audio});assert.equal(wav.status,202);
+ const unsupported=await fetch(base+path,{method:'POST',headers:{...headers,'content-type':'video/mp4','idempotency-key':randomUUID()},body:audio});assert.equal(unsupported.status,415);
  assert.equal((await fetch(base+path+'/'+id,{headers:{cookie:bob}})).status,404);
  const result=await (await fetch(base+path+'/'+id,{headers:{cookie:alice}})).json();assert.equal(result.status,'complete');
  assert.doesNotMatch(JSON.stringify(result),/signed.invalid|temporary\/|token/);

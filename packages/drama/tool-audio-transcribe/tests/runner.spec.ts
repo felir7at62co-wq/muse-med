@@ -32,14 +32,14 @@ it('saves an account-bound receipt before submit and publishes versioned timed o
   expect(first.status).toBe('processing')
   expect((await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)).job_id).toBe(first.job_id)
   expect(fixture.counts().submits).toBe(1)
-  fixture.setJob({ id: first.job_id, status: 'complete', segments: [{ start: 1.25, end: 2.5, text: '你好' }] })
+  fixture.setJob({ id: first.job_id, status: 'complete', segments: [{ start: 1.25, end: 2.5, text: '浣犲ソ' }] })
   const done = await finishAudioTranscription(fixture.project, first.receipt, fixture.account)
   expect(done.output_txt).toContain('clip-v1.txt')
-  expect(await readFile(done.output_txt!, 'utf8')).toBe('[00:00:01.250 --> 00:00:02.500] 你好\n')
-  expect(JSON.parse(await readFile(done.output_json!, 'utf8'))).toEqual([{ start: 1.25, end: 2.5, text: '你好' }])
+  expect(await readFile(done.output_txt!, 'utf8')).toBe('[00:00:01.250 --> 00:00:02.500] 浣犲ソ\n')
+  expect(JSON.parse(await readFile(done.output_json!, 'utf8'))).toEqual([{ start: 1.25, end: 2.5, text: '浣犲ソ' }])
   expect((await finishAudioTranscription(fixture.project, first.receipt, fixture.account)).status).toBe('complete')
   expect(fixture.counts().queries).toBe(1)
-  expect(await readdir(join(fixture.project, 'transcript', 'raw'))).toEqual(['clip-v1.json', 'clip-v1.txt'])
+  expect(await readdir(join(fixture.project, 'transcript', 'raw'))).toEqual(['clip-v1.json', 'clip-v1.srt', 'clip-v1.txt'])
 })
 
 it.skipIf(process.platform === 'win32')('keeps staged audio, receipts, and published transcripts private on Unix', async () => {
@@ -102,4 +102,84 @@ it('queries a prepared receipt before retrying the identical idempotency key', a
   }
   expect((await finishAudioTranscription(fixture.project, first.receipt, retry)).status).toBe('processing')
   expect(used).toBe(first.job_id)
+})
+
+
+it('splits long media into durable jobs and merges word timestamps onto the source clock', async () => {
+  const fixture = await setup()
+  const calls: Array<{ offset: number; duration: number }> = []
+  const states = new Map<string, MuseAsrJob>()
+  let submits = 0
+  const account: AudioAccount = { ...fixture.account,
+    submitAudio: async (_file, id) => { submits++; states.set(id, { id, status: 'processing' }); return states.get(id)! },
+    audioStatus: async id => states.get(id)!,
+  }
+  const media = { probe: async () => 25, encode: async (_source: string, target: string, range?: { offset: number; duration: number }) => {
+    calls.push(range!); await writeFile(target, 'audio')
+  } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', account, { ...config, chunkSeconds: 10 }, media)
+  expect(calls).toEqual([{ offset: 0, duration: 10 }, { offset: 10, duration: 10 }, { offset: 20, duration: 5 }])
+  expect(submits).toBe(3)
+  for (const id of states.keys()) states.set(id, { id, status: 'complete', segments: [{ start: 1, end: 2, text: 'hi', words: [{ start: 1, end: 2, text: 'hi' }] }] })
+  const done = await finishAudioTranscription(fixture.project, first.receipt, account)
+  expect(JSON.parse(await readFile(done.output_json!, 'utf8')).map((row: { words: { start: number }[] }) => row.words[0]!.start)).toEqual([1, 11, 21])
+  expect(await readFile(done.output_srt!, 'utf8')).toContain('00:00:21,000 --> 00:00:22,000')
+  expect((await finishAudioTranscription(fixture.project, first.receipt, account)).status).toBe('complete')
+  expect(submits).toBe(3)
+  expect(JSON.parse(await readFile(first.receipt, 'utf8')).sourceSha256).toMatch(/^[a-f0-9]{64}$/)
+})
+
+it('preserves a pending part without re-submission and rejects out-of-part timing', async () => {
+  const fixture = await setup()
+  const ids: string[] = []
+  const account: AudioAccount = { ...fixture.account,
+    submitAudio: async (_file, id) => { ids.push(id); return { id, status: 'processing' } },
+    audioStatus: async id => ({ id, status: 'uncertain' }),
+  }
+  const media = { probe: async () => 12, encode: async (_source: string, target: string) => { await writeFile(target, 'audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', account, { ...config, chunkSeconds: 10 }, media)
+  expect((await finishAudioTranscription(fixture.project, first.receipt, account)).status).toBe('uncertain')
+  expect(ids).toHaveLength(2)
+  account.audioStatus = async id => ({ id, status: 'complete', segments: [{ start: 0, end: 100, text: 'bad' }] })
+  await expect(finishAudioTranscription(fixture.project, first.receipt, account)).rejects.toThrow('exceeds its audio part')
+})
+
+
+it('reconciles published output after an interrupted receipt save without overwriting changed text', async () => {
+  const fixture = await setup()
+  const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+  const before = await readFile(first.receipt, 'utf8')
+  fixture.setJob({ id: first.job_id, status: 'complete', segments: [{ start: 1, end: 2, text: 'hello' }] })
+  const done = await finishAudioTranscription(fixture.project, first.receipt, fixture.account)
+  await writeFile(first.receipt, before)
+  expect((await finishAudioTranscription(fixture.project, first.receipt, fixture.account)).output_srt).toBe(done.output_srt)
+  await writeFile(first.receipt, before)
+  await writeFile(done.output_txt!, 'user correction')
+  await expect(finishAudioTranscription(fixture.project, first.receipt, fixture.account)).rejects.toThrow()
+  expect(await readFile(done.output_txt!, 'utf8')).toBe('user correction')
+})
+
+it('resumes pre-charge split preparation and expires unresolved audio without losing IDs', async () => {
+  const fixture = await setup()
+  const submissions: string[] = []
+  let expire = false
+  const account: AudioAccount = { ...fixture.account,
+    submitAudio: async (_file, id) => { submissions.push(id); return { id, status: 'processing' } },
+    audioStatus: async id => expire ? { id, status: 'uncertain', retentionExpired: true } : { id, status: 'preparing' },
+  }
+  const media = { probe: async () => 12, encode: async (_source: string, target: string) => { await writeFile(target, 'audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', account, { ...config, chunkSeconds: 10 }, media)
+  await finishAudioTranscription(fixture.project, first.receipt, account)
+  expect(submissions.slice(2)).toEqual(submissions.slice(0, 2))
+  expire = true
+  expect((await finishAudioTranscription(fixture.project, first.receipt, account)).status).toBe('uncertain')
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8'))
+  for (const part of receipt.parts) {
+    expect(part.retentionExpired).toBe(true)
+    expect(await stat(part.mp3).then(() => true, () => false)).toBe(false)
+  }
+  account.audioStatus = async () => { throw new MuseAsrError('job-not-found') }
+  await expect(finishAudioTranscription(fixture.project, first.receipt, account)).rejects.toMatchObject({ code: 'job-not-found' })
+  expect(submissions).toHaveLength(4)
 })

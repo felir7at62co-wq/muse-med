@@ -46,6 +46,8 @@ There is no config. A default is the schema's own, and a deployment that wants a
 
 ### The Settings page
 
+Before draft creation, the Agent calls `drama_draft_dir` without arguments. A ready result provides the existing absolute, readable and writable editor root as `path`; an empty setting returns `unconfigured`. Missing or invalid roots require `ask_user_question` for the installed editor's actual draft root. Passing that answer as `path` validates it, saves only `jianyingDraftDir` with revision protection, and confirms the saved value. Draft generation consumes the returned path and refuses existing draft names; valid saved roots require no repeated question. Earlier writing and production steps do not depend on this setting.
+
 **Settings → 短剧** holds one group per field: the two directories, the four delivery-spec numbers, the BGM library, the asset-image route, and the prominent per-drama budget. A fresh page shows ¥4000 without a stored override. The budget box edits yuan to at most two decimal places; blank, negative, fractional cents, or values above safe integer cents cannot be saved. Every group shows the resolved value. A blank path box uses the schema default; for JianyingPro, that is an unconfigured root, and its placeholder asks for the editor's real directory instead of showing another person's path.
 
 **保存** compiles the form into one atomic namespace write and reports what happened: `已保存。`, the failure line when the host kept a different section, or a validation line when a numeric field or the budget is invalid (nothing is sent in that case). **恢复默认** clears every field in one write, which is what returns the section to the schema defaults. A field that already holds its default stays cleared rather than storing a copy of it, so the user layer never says something it does not mean. A read-only settings document disables both buttons and says why.
@@ -107,11 +109,11 @@ Read these pages when the surfaces above are not enough. They move from this pac
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through the durable `drama` settings section: this package stores and renders values that a consuming row resolves, and that row owns every model-visible effect of the value it reads.
+`drama_draft_dir` returns `{status, path}` through logged tool results. Its only writable field is the Settings page's `jianyingDraftDir`; it never creates a directory or modifies drafts. Without both settings and tools services, the tool is unavailable. The standard tool-result presentation displays its returned status and path.
 
 #### KV Cache effect
 
-No direct invalidation: the section reaches no prompt, tool schema, or session event, so writing it cannot move a request prefix.
+The tool adds one stable definition to the model's tool list. Directory values enter the transcript only through tool results; saving a root does not change the tool definition.
 
 ## Known Limitations and Deferred Work
 
@@ -120,7 +122,7 @@ No direct invalidation: the section reaches no prompt, tool schema, or session e
 
 These limits mark where the package is deliberately incomplete or needs the operator's cooperation. They are current constraints, not a task backlog.
 
-- **The two directories are opaque strings** — the page validates nothing about a path: no existence check, no normalization, no environment-variable expansion. A path that does not exist on the host is stored as typed. The episode renderer does not consume `jianyingDraftDir` or create a native draft.
+- **The Settings page accepts path strings** — it does not check existence or expand environment variables. `drama_draft_dir` validates the draft root on the host before returning it for generation; this cannot prove which directory an editor is configured to use, so the user supplies that location. The episode renderer does not create native drafts.
 - **The delivery spec is stored, not applied** — `dsh-tool-episode-render` still renders its own fixed 1440x2560 style; this section is where that contract will be read from, and until then a change here does not move the delivered file.
 - **The defaults are the package's** — a deployment that wants different defaults edits the schema; the composition declares no `base` layer for this namespace, so there is exactly one home for each default. The flip side is that an upgrade may change a default a deployment was relying on, which is why the page shows every resolved value.
 - **A blank path box clears its override** — the resolved `deliveryDir` then means `<project>/delivery`; the resolved `jianyingDraftDir` stays empty and does not identify any installed editor directory. Neither path is validated against the host by this page.

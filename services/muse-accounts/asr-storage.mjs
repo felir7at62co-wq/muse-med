@@ -3,9 +3,9 @@ export function createTosAudioStore(settings,{TosClient,CancelToken},fetcher=fet
  const {bucket,region,endpoint,prefix,accessKeyId,secretAccessKey}=settings;
  if(!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucket)||!/^cn-[a-z0-9-]+$/.test(region)||endpoint!==`tos-${region}.volces.com`||!/^[a-zA-Z0-9/_-]+\/$/.test(prefix)||prefix.includes('..')||prefix.includes('//'))throw Error('Invalid private ASR TOS location');
  const client=new TosClient({accessKeyId,accessKeySecret:secretAccessKey,region,endpoint,enableCRC:true});
- const owns=key=>{if(!key.startsWith(prefix)||!/^[a-z0-9/_-]+\.mp3$/i.test(key))throw Error('ASR object is outside its temporary prefix');};
+ const owns=key=>{if(!key.startsWith(prefix)||!/^[a-z0-9/_-]+\.(?:mp3|wav)$/i.test(key))throw Error('ASR object is outside its temporary prefix');};
  return {
-  key(id){return prefix+id+'.mp3';},
+  key(id,format='mp3'){if(!['mp3','wav'].includes(format))throw Error('Invalid ASR audio format');return prefix+id+'.'+format;},
   async assertPrivateBeforeUpload(){
    const [{data:acl},{data:policy}]=await Promise.all([client.getBucketAcl(bucket),client.getBucketPolicy(bucket)]);
    const owner=acl?.Owner?.ID;

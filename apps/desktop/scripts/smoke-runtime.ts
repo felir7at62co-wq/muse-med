@@ -75,6 +75,7 @@ export function apply(ctx) {
           'mcp__muse-account__muse_kb_ingest_script']
         : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
+    if (names.has('audio_transcribe') !== (id !== 'minimal')) throw new Error('desktop runtime: transcription availability differs in ' + id)
     if (id === 'minimal') {
       const inherited = new Set(ctx.tools.schemas().map(tool => tool.name))
       const local = [...names].filter(name => !inherited.has(name))

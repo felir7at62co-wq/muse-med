@@ -1,0 +1,165 @@
+[
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "tool-call"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "tool-call",
+          "id": "get-empty",
+          "name": "drama_draft_dir",
+          "arguments": "{}"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 3,
+          "outputTokens": 3
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "tool-calls"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "tool-call"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "tool-call",
+          "id": "ask-root",
+          "name": "ask_user_question",
+          "arguments": "{\"questions\": [{\"id\": \"draft-root\", \"question\": \"What is the actual draft root configured in your installed Jianying editor?\"}]}"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 3,
+          "outputTokens": 3
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "tool-calls"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "tool-call"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "tool-call",
+          "id": "save-root",
+          "name": "drama_draft_dir",
+          "arguments": "{\"path\": \"{{fromRequest:\\\"custom\\\":\\\"([^\\\"]+)\\\"}}\"}"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 3,
+          "outputTokens": 3
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "tool-calls"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "tool-call"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "tool-call",
+          "id": "get-saved",
+          "name": "drama_draft_dir",
+          "arguments": "{}"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 3,
+          "outputTokens": 3
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "tool-calls"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "text"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "DONE"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 3,
+          "outputTokens": 3
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  }
+]

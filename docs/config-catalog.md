@@ -3657,7 +3657,7 @@ export type TokenMeterConfig = Record<string, never>
 ```ts config-catalog
 /** Deployment media executables and bounded local staging. */
 export interface Config {
-  /** FFmpeg executable used to extract the compressed speech track. */
+  /** FFmpeg executable used to extract the speech track. */
   readonly ffmpegPath: string
   /** FFprobe executable used to inspect the local input. */
   readonly ffprobePath: string
@@ -3665,7 +3665,9 @@ export interface Config {
   readonly commandTimeoutMs: number
   /** Longest local media file accepted for a transcription job, in seconds. */
   readonly maxDurationSeconds: number
-  /** Largest extracted MP3 accepted for staging, in bytes. */
+  /** Maximum duration of one cloud upload; longer input is split with preserved offsets. */
+  readonly chunkSeconds: number
+  /** Largest extracted audio chunk accepted for staging, in bytes. */
   readonly maxAudioBytes: number
 }
 ```

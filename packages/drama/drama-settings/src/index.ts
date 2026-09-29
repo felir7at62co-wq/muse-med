@@ -1,25 +1,10 @@
-/**
- * Short-drama settings: one plugin row that owns the `drama` settings namespace
- * for both halves of the GUI.
- *
- * The Host half is this module. It registers {@link DramaSettingsSchema} with
- * the settings service and nothing else: the durable values of the short-drama
- * pipeline — the delivery and draft directories, the delivery spec and the BGM
- * library — live in the DSH settings document, so the Settings page and every
- * future reader (the renderer, the delivery step) resolve the same section
- * through one seam.
- *
- * The row publishes no service and reads none: `settings` is acquired through
- * `ctx.inject`, so a composition without a settings provider simply mounts
- * nothing, and the browser half reports the namespace as unavailable instead of
- * inventing a value.
- *
- * @module @deepseek-ai/dsh-drama-settings
- */
+/** Short-drama Settings page configuration and validated draft-root tool. */
 
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: resolves the `settings` service and its Context merge.
 import type {} from '@deepseek-ai/dsh-settings'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import { draftDirectory } from './draft-directory.ts'
 import { DramaSettingsSchema } from './settings.ts'
 
 export {
@@ -54,6 +39,23 @@ export const Config = DramaSettingsSchema
  * @param ctx - Host context that may acquire the settings service.
  */
 export function apply(ctx: Context): void {
+  ctx.inject(['settings', 'tools'], (toolCtx) => {
+    toolCtx.effect(() => toolCtx.tools.register(defineTool({
+      name: 'drama_draft_dir',
+      description: 'Read and validate the Jianying draft root from Settings, or save and reread the user-provided editor root. Read before creating drafts; when unconfigured use ask_user_question to ask for the installed editor draft root. Reuse a valid saved path without asking again.',
+      parameters: {
+        path: { type: 'string', description: 'To save: the user-provided existing absolute editor draft directory, readable and writable on this host. Omit to read.' },
+      },
+      output: {
+        schema: { type: 'object', additionalProperties: false, properties: {
+          status: { type: 'string', required: true, enum: ['ready', 'unconfigured'] },
+          path: { type: 'string', required: true, description: 'When ready, pass this path as drafts_dir to draft generation.' },
+        } },
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+      },
+      execute: async args => await draftDirectory(toolCtx.settings, args.path),
+    })))
+  })
   ctx.inject(['settings'], (settingsCtx) => {
     settingsCtx.effect(() => settingsCtx.settings.configure({ auto: false }, ctx.fiber))
   })

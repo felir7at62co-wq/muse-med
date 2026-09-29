@@ -1,4 +1,5 @@
 /** Mount the product editing preset on the headless snapshot agent. */
+import { Service } from '@deepseek-ai/cordis'
 import { fileURLToPath } from 'node:url'
 import { PERSONA_SUFFIX_SECTION } from '@deepseek-ai/dsh-system-prompt'
 import NativePreset from '../../../apps/desktop-host/src/native-preset.ts'
@@ -8,6 +9,8 @@ export const inject = ['agentPresets', 'tools', 'systemPrompt']
 
 /** @param {import('@deepseek-ai/cordis').Context} ctx - snapshot composition. */
 export async function apply(ctx, config) {
+  class SnapshotAccount extends Service { constructor(ctx) { super(ctx, 'museAccount') } }
+  await ctx.plugin(SnapshotAccount)
   await ctx.plugin(NativePreset, {
     id: 'editing',
     directory: fileURLToPath(new URL('../../../apps/desktop-host/presets/editing/', import.meta.url)),

@@ -81,7 +81,6 @@ if (app.isPackaged) {
     process.env.PATH = [join(media, 'python'), join(media, 'ffmpeg', 'bin'), ...(inheritedPath ? [inheritedPath] : [])].join(delimiter)
     process.env.DSH_FFMPEG_PATH = process.env.FFMPEG_PATH = join(media, 'ffmpeg', 'bin', 'ffmpeg.exe')
     process.env.DSH_FFPROBE_PATH = process.env.FFPROBE_PATH = join(media, 'ffmpeg', 'bin', 'ffprobe.exe')
-    process.env.MUSE_WHISPER_MODEL_DIR = join(media, 'models', 'faster-whisper-small')
     // The BGM emotion runtime is a separate 3.11 interpreter with its own model
     // cache; the product preset binds these paths to the perception plugin.
     process.env.MUSE_BGM_RUNTIME_DIR = join(media, 'bgm')

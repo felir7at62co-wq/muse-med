@@ -875,6 +875,8 @@ def main_with_args(args):
     if not isinstance(args.name_prefix, str) or re.search(r'[<>:"/\\|?*\x00-\x1f]', args.name_prefix):
         raise DraftInputError('name_prefix 只能包含合法的草稿名称字符，不能包含路径或 Windows 保留字符。')
     drafts_dir = Path(args.drafts)
+    if not drafts_dir.is_absolute() or not drafts_dir.is_dir():
+        raise DraftInputError('drafts_dir must be the existing absolute editor root returned by drama_draft_dir')
     # 如果template-dir为None，使用与drafts相同的目录
     if args.template_dir is None:
         template_dir = drafts_dir
@@ -1512,7 +1514,7 @@ def generate_draft(
         template_dir=template_dir,
         template=None,
         seq=seq,
-        overwrite=True,
+        overwrite=False,
         new_template=None,
     )
     try:

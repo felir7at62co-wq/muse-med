@@ -189,9 +189,11 @@ function headerOf(log: string): JsonObject {
 
 function contextOf(logs: readonly string[]): NormalizeContext {
   const headers = logs.map(headerOf)
+  const cwd = typeof headers[0]?.cwd === 'string' ? headers[0].cwd : '\0missing-cwd\0'
   return {
     sessionIds: headers.flatMap(header => typeof header.id === 'string' ? [header.id] : []),
-    cwd: typeof headers[0]?.cwd === 'string' ? headers[0].cwd : '\0missing-cwd\0',
+    cwd,
+    cwdAliases: [cwd.replaceAll('\\', '/'), JSON.stringify(cwd).slice(1, -1)],
   }
 }
 

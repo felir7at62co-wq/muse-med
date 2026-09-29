@@ -1,0 +1,3 @@
+- insert:
+    - id: drama-settings
+      name: '@deepseek-ai/dsh-drama-settings'

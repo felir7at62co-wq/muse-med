@@ -274,3 +274,9 @@
 
 - id: present
   name: '@deepseek-ai/dsh-tool-present'
+
+- id: tool-audio-transcribe
+  name: '@deepseek-ai/dsh-tool-audio-transcribe'
+  config:
+    ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+    ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'

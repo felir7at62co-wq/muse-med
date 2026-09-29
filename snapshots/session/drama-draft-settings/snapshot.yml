@@ -1,0 +1,10 @@
+version: 1
+scenario: drama-draft-settings
+profile: headless
+composition: drama-draft-settings
+recording: authored
+header:
+  class: drama-draft-settings
+  pin: true
+replay:
+  override: true

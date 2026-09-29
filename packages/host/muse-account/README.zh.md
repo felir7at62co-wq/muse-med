@@ -60,7 +60,7 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 
 Host 启动内置的本地 MCP 子进程并等待工具发现。每次知识库调用时，子进程通过 `/api/kb/access` 将已保存的 cookie 换成短时 bearer，再调用同源 MCP 接口；它不持久化或返回 bearer。`muse_kb_ingest_script` 一次提交最多 12 集或章经复核的 Markdown 剧本，请求总量不超过 2 MiB，并逐项报告已写入、已存在或失败。检索返回本账号私有 `private/SRC-...` ID 和管理员授权的共享 ID；阅读工具按页读取两种来源，开头阅读最多 24,000 字符。每次阅读返回 6,000 字符页面与续读信息；本地失败只返回固定错误码，不传递上游响应文本。
 
-仅 Host 使用的 `MuseAsrClient` 为 `audio_transcribe` 工具读取同一账号会话，并通过网关上传压缩音频、查询按账号隔离的任务 ID。桌面端没有 ASR 或 TOS 凭据设置。未登录、网关不可用或服务器未配置 ASR 都明确报错。服务器部署与任务限额见 [`services/muse-accounts`](../../../services/muse-accounts/README.zh.md)。
+仅 Host 使用的 `MuseAsrClient` 为 `audio_transcribe` 工具读取同一账号会话，并通过网关上传音频、查询按账号隔离的任务 ID。客户端校验并保留分句与字词的秒级时间戳，拒绝无效时间范围。桌面端没有 ASR 或 TOS 凭据设置。未登录、网关不可用或服务器未配置 ASR 都明确报错。服务器部署与任务限额见 [`services/muse-accounts`](../../../services/muse-accounts/README.zh.md)。
 
 本包不发布运行时不变量伴随插件，因为账号状态和已注册 MCP 工具都能通过各自所属的服务或工具注册表观察，没有可能独立产生分歧的第二份状态。
 

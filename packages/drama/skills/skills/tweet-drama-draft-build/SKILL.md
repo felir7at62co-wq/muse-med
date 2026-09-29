@@ -5,6 +5,12 @@ description: Use when 仿真人短剧需要可编辑草稿、实际发声字幕�
 
 # 仿真人剪辑与字幕
 
+## 剪映草稿目录
+
+仅在准备生成剪映草稿时调用 `drama_draft_dir {}`，读取 Settings 的 `jianyingDraftDir`。返回 `ready` 就使用返回的 `path`，不再询问用户；返回 `unconfigured` 或路径失效时，用 `ask_user_question` 询问“请提供本机剪映专业版设置里的草稿保存根目录”。不要猜测其他机器的路径，也不要替用户创建一个假定的编辑器根目录。把用户回答传给 `drama_draft_dir {path: ...}`；工具验证已有绝对目录可读写、保存同一 Settings 字段并回读，成功后才能生成草稿。工具或保存失败时说明原因并修正，不改写其他设置，不用另一份配置文件绕过。这个步骤不阻塞写作、分镜或视频生成。
+
+将成功结果的 `path` 原样传给 `DraftGenerator.process(..., drafts_dir=path)` 或 `generate_draft(drafts_dir=path, ...)`，不能继续使用脚本里另写的目录。保留已有草稿；名称冲突时为新候选选择唯一 `name_prefix`，不得删除或覆盖旧草稿。
+
 运行前检查 [外部依赖与授权](references/dependencies.md) 和 [输入输出](references/io-contract.md)；此源码包不附带第三方 Python 库、可执行文件或媒体。每集草稿采用与成片一致的已审核 BGM 混合音轨（至少两首，按情绪分段），不把生成器的单文件输入误解为允许一首循环。生成时长和分辨率取当前所选模型与分镜，不以历史固定镜头秒数或字数限制替代。
 
 输入按任务和镜头排序并通过内容审核。clean/not_required 可进入时间线；pending 仅用于明确标注“未完成，非最终交付”的草稿/预览，由模型安排后续回读并替换来源，不把等待交给用户。未知或 failed 需核查恢复，不得假称完成。最终选用文件必须 clean/not_required 且通过实际文件内容、字幕清理、分辨率和音画 QA。
@@ -17,12 +23,14 @@ description: Use when 仿真人短剧需要可编辑草稿、实际发声字幕�
 
 先用 `drama_video` list/inspect 查项目 `video-bans.json`。labels 至少一个自由可读标签（如“人物对调”），reason 可选，ban 不要证据。标错用 unban；查询无标签或 unban 不等于审核通过。禁用版本不得进入草稿或预览，禁止通用 FFmpeg、手写脚本和直接复制绕过。门禁按本项目实际 SHA256 检查，同字节副本也命中，同路径新字节不继承旧禁用。
 
-`DraftGenerator.prepare_materials` 在删除旧素材目录前检查实际选源；`jianying_draft.main_with_args` 在删除旧草稿前检查视频。`prepare_materials`、`process`、`generate_draft` 可传 `project`；`main_with_args` 可传 `args.project`。未传时只从素材或视频目录祖先的 `project_config.json` 定位项目；外置素材无法定位时明确补 project，不能当作无禁用继续。纯图片流程不要求该映射。这是官方路径检查，不拦截外部命令。
+`DraftGenerator.prepare_materials` 在删除旧素材目录前检查实际选源；`jianying_draft.main_with_args` 在创建新草稿前检查视频，已有草稿拒绝覆盖。`prepare_materials`、`process`、`generate_draft` 可传 `project`；`main_with_args` 可传 `args.project`。未传时只从素材或视频目录祖先的 `project_config.json` 定位项目；外置素材无法定位时明确补 project，不能当作无禁用继续。纯图片流程不要求该映射。这是官方路径检查，不拦截外部命令。
 
 ## 字幕交付样式（固定，不得自行发挥）
 
 - **时间必须来自语音识别对齐，用 `drama_render subtitles` 落位**：先对该镜**自己的**成片（此时还没有任何 BGM 混进来）跑一次语音识别，把每一句的起止时间写成逐镜、镜内相对的对齐文档 `{"shots":[{"shot":1,"cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}`，再连同 `lines` 一起传给 `drama_render subtitles`。**本工具不做识别、不测能量、不估算时间**：能量门限只能说明有人在说话，说不出具体哪句在哪里，估算出来的时间正是字幕压错句的原因。cue 时间 = 该镜在时间线上的起点 + 镜内偏移；字幕文字始终取剧本原文，识别文本只用于核对是不是同一段表演。缺某一镜的对齐、段数与台词条数不符、识别文本与剧本对不上、或该镜的策略不是 `asr_aligned`，都会按 failure 报出并提示该对哪一镜重跑识别；有识别结果却没声明台词同样报 failure。写出的 cue 还会检查时长、重叠、越界与阅读速度（>20 有效字/秒失败，>12 警告）。识别本身的准确度由调用方负责，`speech_alignment` 永远留在 `not_checked`。9 个有效字/秒只作为**草稿预估**，不得用于最终交付。
-- **对齐文档由本技能的 `scripts/align_subtitles.py` 产出**（不要再用 `_probe` 里那份）：`python -B <技能目录>/scripts/align_subtitles.py --project <项目根> --episode <集号> [--strict]`。它逐镜本地转写、把剧本原文对齐到识别到的时间，识别文本不进字幕；每镜写出策略 `asr_aligned`（整镜锚定）/ `anchored`（部分锚定）/ `estimated_total`（一条都没锚定），**只有 `asr_aligned` 会被 `drama_render subtitles` 接受**，所以看到后两种就说明台词与成片不是同一版，必须先查清楚再重跑，不要拿估算时间交付。模型选择以显式 `--model-dir` 或 `--model-url` + `--model-sha256` 为先；未显式选择时读取 `MUSE_WHISPER_MODEL_DIR`（Desktop 随包离线模型），再查缓存。默认缓存为 `${DSH_HOME:-~/.dsh}/cache/models/faster-whisper`，`--cache-dir` 可覆盖；不往安装技能源目录写模型。已有随包模型无需下载，只有显式模型 URL 才下载并校验固定摘要；脚本不会自行去模型仓库拉取，否则同一集在不同机器上会跑出不同的对齐。项目固定用的模型包是 `https://muse.tos-cn-beijing.volces.com/asr/faster-whisper-small-536b0662.zip`（`--model-sha256 b5f1095b98f6583fb91252d1bbd68a1422cfd3d661449bcfc19d752f234a6f5f`，486,212,794 字节，四个文件，Whisper/CTranslate2 均为 MIT）。**识别固定为单线程 + temperature 0**：多线程 int8 解码不可重现（同一镜两次跑出 34 字与 30 字），会让同一句这次锚定、下次锚不上；固定后同一镜同一模型每次结果一致，但**换模型版本仍会变**，所以模型包必须锁定摘要。依赖 `faster-whisper` 与 `ffmpeg`（路径走 `paths.py` 的 `DSH_FFMPEG_PATH`/`FFMPEG_PATH`）。
+- **默认使用 Muse 云端字词时间戳**：对每个有实际发声的镜头原视频调用 `audio_transcribe start`，再对返回的同一收据调用 `status`，直到完成。独立镜头可并行提交，服务端按账号共享额度排队；未知结果沿用原收据查询，不换 ID 重投。输入必须是该镜头尚未混入 BGM 的真实选定视频，不用整集混音代替。原始收据与 JSON 保持不修改。
+- **用云端收据生成对齐**：写 `<项目>/_probe/epNN-cloud-transcripts.json`，格式为 `{"shots":[{"shot":1,"receipt":"<audio_transcribe 返回的绝对收据路径>"}]}`，每个有台词的镜头各一项。运行 `python -B <技能目录>/scripts/align_subtitles.py --project <项目根> --episode <集号> --cloud-transcripts <映射文件> --strict`。脚本核对视频 SHA-256 与收据、读取每个字词的实际时间，把当前剧本台词匹配到该镜头音轨；只有 `asr_aligned` 可进正式字幕。缺字词时间、源视频变化或台词未匹配时报告具体镜头，先核查，不用整句均分或预估时间替代。
+- **离线只作显式选择**：用户确需离线且自行准备好依赖和模型时，可传 `--model-dir`，或 `--model-url` 与固定 `--model-sha256`。默认安装包不含 Whisper 模型与推理依赖；不自动下载安装。独立脚本仍支持 `MUSE_WHISPER_MODEL_DIR` 的模型解析，以及 `${DSH_HOME:-~/.dsh}/cache/models/faster-whisper` 和 `--cache-dir` 缓存配置。离线识别保持单线程、temperature 0。
 - **单行、无标点、按语义切分**。用空格分隔语义组代替逗号句号；1080×1920 设计帧在 40px 边距内可用 1000px，成片正文字号 68 时每字约 68px（字体族由部署配置决定，见 `tweet-drama-background-render`），**单条不超过 14 个字**（空格按半字计）。超长必须按语义拆成连续两条，不许压成两行。
 - 字幕文字用剧本原文，不改写、不省略、不合并不同说话人的句子。
 - **一集内不得漏句**：交付前逐镜核对 `drama_render subtitles` 的结果——`subtitle_line_coverage` 必须为空，既不能有「声明了台词却没有这一镜的对齐」，也不能有「有识别结果却没声明台词」。具体字词有没有读对（漏读、串词、同音字）只能靠试听判定；`align_subtitles.py` 的识别结果留给对齐用，不参与校核台词对错。

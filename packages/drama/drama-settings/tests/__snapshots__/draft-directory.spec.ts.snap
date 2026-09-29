@@ -1,0 +1,17 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`exposes the draft-root tool through the Loader and removes it on unload 1`] = `
+{
+  "description": "Read and validate the Jianying draft root from Settings, or save and reread the user-provided editor root. Read before creating drafts; when unconfigured use ask_user_question to ask for the installed editor draft root. Reuse a valid saved path without asking again.",
+  "name": "drama_draft_dir",
+  "parameters": {
+    "properties": {
+      "path": {
+        "description": "To save: the user-provided existing absolute editor draft directory, readable and writable on this host. Omit to read.",
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+}
+`;

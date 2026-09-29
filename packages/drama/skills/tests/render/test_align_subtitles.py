@@ -5,6 +5,8 @@ span out of difflib is proven here rather than on an episode.
 """
 import importlib.util
 import os
+import json
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -174,6 +176,30 @@ class ModelSourceTests(unittest.TestCase):
         self.assertIn('--model-dir', message)
         self.assertIn('--model-url', message)
         self.assertIn('模型仓库', message)
+
+
+class CloudReceiptTests(unittest.TestCase):
+    def test_matches_words_to_current_source_and_rejects_replaced_video(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = root / 'shot.mp4'
+            video.write_bytes(b'source')
+            jobs, raw = root / 'transcript/jobs', root / 'transcript/raw'
+            jobs.mkdir(parents=True)
+            raw.mkdir()
+            receipt = jobs / 'shot-v1.json'
+            receipt.write_text(json.dumps({'status': 'complete', 'source': str(video), 'stem': 'shot', 'version': 1,
+                'sourceSha256': hashlib.sha256(b'source').hexdigest()}), encoding='utf-8')
+            output = raw / 'shot-v1.json'
+            output.write_text(json.dumps([{'start': 0, 'end': 2, 'text': '你好', 'words': [
+                {'start': 0.2, 'end': 0.5, 'text': '你'}, {'start': 0.8, 'end': 1.2, 'text': '好'}]}]), encoding='utf-8')
+            self.assertEqual(ALIGN.cloud_characters(video, receipt), [('你', 0.2, 0.5), ('好', 0.8, 1.2)])
+            output.write_text(json.dumps([{'start': 0, 'end': 2, 'text': '你好'}]), encoding='utf-8')
+            with self.assertRaisesRegex(SystemExit, '字词时间戳'):
+                ALIGN.cloud_characters(video, receipt)
+            video.write_bytes(b'changed')
+            with self.assertRaisesRegex(SystemExit, '内容已变化'):
+                ALIGN.cloud_characters(video, receipt)
 
 
 if __name__ == '__main__':

@@ -40,3 +40,16 @@ it('reports an unconfigured server and a missing old task as distinct failures',
   const unavailable = await fixture(async () => new Response('{}', { status: 503 }))
   await expect(unavailable.client.get(id)).rejects.toMatchObject({ code: 'server-not-configured' })
 })
+
+
+it('retains word times and rejects invalid nested timing from the gateway', async () => {
+  const id = randomUUID()
+  let words = [{ start: 1, end: 2, text: 'hello' }]
+  const setup = await fixtureForWords()
+  async function fixtureForWords() {
+    return await fixture(async () => new Response(JSON.stringify({ id, status: 'complete', segments: [{ start: 0, end: 3, text: 'hello', words }] })))
+  }
+  expect((await setup.client.get(id)).segments?.[0]?.words).toEqual(words)
+  words = [{ start: -1, end: 2, text: 'hello' }]
+  await expect(setup.client.get(id)).rejects.toMatchObject({ code: 'response-invalid' })
+})

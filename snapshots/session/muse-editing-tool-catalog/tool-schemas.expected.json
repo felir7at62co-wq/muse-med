@@ -64,6 +64,47 @@
       }
     },
     {
+      "name": "audio_transcribe",
+      "description": "使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；用 status 查询同一任务，完成后取得文字、字词时间戳 JSON 和 SRT。长音频自动分段并合并时间轴；可用于素材转写与字幕校时。需要先登录 Muse。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "description": "start=提取音轨并提交；status=按原收据查询及发布结果。",
+            "enum": [
+              "start",
+              "status"
+            ]
+          },
+          "project": {
+            "type": "string",
+            "description": "项目根目录，保存 transcript/jobs 收据及 transcript/raw 版本结果。"
+          },
+          "input": {
+            "type": "string",
+            "description": "start 必填：获授权的本地音频或视频文件路径。"
+          },
+          "receipt": {
+            "type": "string",
+            "description": "status 必填：start 返回的 transcript/jobs 收据路径。"
+          },
+          "language": {
+            "type": "string",
+            "description": "start 识别语种；默认 zh。",
+            "enum": [
+              "zh",
+              "auto"
+            ]
+          }
+        },
+        "required": [
+          "method",
+          "project"
+        ]
+      }
+    },
+    {
       "name": "create_goal",
       "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
       "parameters": {

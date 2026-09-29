@@ -1,20 +1,9 @@
 """Place one episode's script lines onto their real positions in each shot.
 
-The shot script already states every word, so only the timing is missing. A local
-speech model transcribes each shot with word-level times, and the script's own
-text is matched against those times: the model contributes timestamps only, so a
-misheard word can never reach a subtitle, and a line the model did not match is
-reported rather than silently given a guessed time.
-
-Every shot carries the strategy it was placed with, and `drama_render subtitles`
-refuses any shot whose strategy is not `asr_aligned`; the alignment's honesty
-label is therefore enforced by the tool instead of by a reader's attention.
-
-The audio is loudness-normalised before transcription, because a quiet shot makes
-the model's own no-speech filter discard real dialogue. Everything runs locally
-on the CPU; nothing is uploaded and nothing is charged. The model itself comes
-from an explicit directory or a pinned archive — the script never reaches for a
-model registry on its own.
+The script retains the declared dialogue and aligns it to word timestamps from
+Muse cloud transcription receipts. Source SHA-256 must match the current shot.
+Explicit local model arguments remain available for an offline installation;
+the default path never downloads or loads a local recognition model.
 
     python -B align_subtitles.py --project <项目根> --episode 4 \\
         [--shots _probe/ep04-render-shots.json] [--lines _probe/ep04-lines.json] \\
@@ -26,6 +15,7 @@ import argparse
 import difflib
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -391,6 +381,48 @@ def load_document(path: Path, key: str) -> list:
     return rows
 
 
+def cloud_characters(video: Path, receipt_path: Path) -> list:
+    """Read timed words from a completed Muse receipt bound to this exact video."""
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if receipt.get("status") != "complete" or Path(receipt.get("source", "")).resolve() != video.resolve():
+        raise SystemExit("云转写收据未完成或不属于当前镜头。")
+    digest = hashlib.sha256()
+    with video.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if receipt.get("sourceSha256") != digest.hexdigest():
+        raise SystemExit("镜头内容已变化或旧收据缺少源文件摘要，请对当前视频重新转写。")
+    stem, version = receipt.get("stem"), receipt.get("version")
+    if not isinstance(stem, str) or not re.fullmatch(r"[\w.-]+", stem) or not isinstance(version, int) or version < 1:
+        raise SystemExit("云转写收据的文件标识无效。")
+    if receipt_path.parent.name != "jobs" or receipt_path.name != f"{stem}-v{version}.json":
+        raise SystemExit("请使用 audio_transcribe 返回的原始收据路径。")
+    transcript = receipt_path.parent.parent / "raw" / f"{stem}-v{version}.json"
+    segments = json.loads(transcript.read_text(encoding="utf-8"))
+    if not isinstance(segments, list) or not segments:
+        raise SystemExit("云转写缺少语音片段。")
+    chars = []
+    previous = 0.0
+    for segment in segments:
+        words = segment.get("words") if isinstance(segment, dict) else None
+        if not isinstance(words, list) or not words:
+            raise SystemExit("云转写缺少字词时间戳，不能用整句均分代替字幕校时。")
+        for word in words:
+            start, end, text = word.get("start"), word.get("end"), word.get("text")
+            if not isinstance(start, (int, float)) or not isinstance(end, (int, float)) or not isinstance(text, str):
+                raise SystemExit("云转写字词字段无效。")
+            if not math.isfinite(start) or not math.isfinite(end) or start < previous or end <= start:
+                raise SystemExit("云转写字词时间无效。")
+            previous = start
+            piece = normalise(text)
+            for index, char in enumerate(piece):
+                span = (end - start) / len(piece)
+                chars.append((char, start + index * span, start + (index + 1) * span))
+    if not chars:
+        raise SystemExit("云转写没有可对齐的文字。")
+    return chars
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", required=True, help="短剧项目根目录")
@@ -398,6 +430,7 @@ def main() -> None:
     parser.add_argument("--shots", help="逐镜成片清单，默认 <项目>/_probe/epNN-render-shots.json")
     parser.add_argument("--lines", help="逐镜台词计划，默认 <项目>/_probe/epNN-lines.json")
     parser.add_argument("--out", help="输出的对齐文档，默认 <项目>/_probe/epNN-aligned.json")
+    parser.add_argument("--cloud-transcripts", help="逐镜 Muse 收据映射 JSON：shots 数组含 shot 与 receipt")
     parser.add_argument("--model-dir", help="本地模型目录")
     parser.add_argument("--model-url", help="模型包（zip）的下载地址")
     parser.add_argument("--model-sha256", default="", help="模型包的 SHA-256，与 --model-url 一起用")
@@ -420,10 +453,25 @@ def main() -> None:
     if missing:
         raise SystemExit(f"台词计划里没有这些镜头：{missing}。请先用同一版台词重跑计划。")
 
-    model_dir = resolve_model(args)
-    from faster_whisper import WhisperModel
-    model = WhisperModel(str(model_dir), device="cpu", compute_type="int8", cpu_threads=1)
-    print(f"模型 {model_dir}")
+    cloud_receipts = None
+    model = None
+    model_label = "muse-cloud"
+    if args.cloud_transcripts:
+        mapping = Path(args.cloud_transcripts).resolve()
+        rows = load_document(mapping, "shots")
+        cloud_receipts = {}
+        for row in rows:
+            shot = int(row["shot"])
+            if shot in cloud_receipts:
+                raise SystemExit(f"云转写映射重复镜头：{shot}")
+            cloud_receipts[shot] = (mapping.parent / row["receipt"]).resolve()
+    elif args.model_dir or args.model_url:
+        model_dir = resolve_model(args)
+        from faster_whisper import WhisperModel
+        model = WhisperModel(str(model_dir), device="cpu", compute_type="int8", cpu_threads=1)
+        model_label = str(model_dir)
+    else:
+        raise SystemExit("请先用 audio_transcribe 转写各镜头，传入 --cloud-transcripts 收据映射；离线识别须显式指定 --model-dir 或 --model-url。")
 
     placed, strategies = [], []
     for entry in manifest:
@@ -432,9 +480,18 @@ def main() -> None:
         if not video.is_file():
             raise SystemExit(f"缺少该镜成片：{video}")
         lines = by_shot[shot]
-        with tempfile.TemporaryDirectory(prefix="align-") as work:
-            chars = transcribe(video, Path(work), model)
+        if not lines:
+            chars = []
+        elif cloud_receipts is not None:
+            if shot not in cloud_receipts:
+                raise SystemExit(f"镜头 {shot} 缺少云转写收据。")
+            chars = cloud_characters(video, cloud_receipts[shot])
+        else:
+            with tempfile.TemporaryDirectory(prefix="align-") as work:
+                chars = transcribe(video, Path(work), model)
         duration = probe_seconds(video)
+        if any(end > duration + 0.25 for _, _, end in chars):
+            raise SystemExit(f"镜头 {shot} 的字词时间超过视频时长。")
         anchors = anchor(lines, chars)
         cues, strategy = place(lines, anchors, duration)
         strategies.append(strategy)
@@ -448,7 +505,7 @@ def main() -> None:
                                 for (start, end), line in zip(cues, lines)]})
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps({"model": str(model_dir), "shots": placed},
+    out_path.write_text(json.dumps({"model": model_label, "shots": placed},
                                    ensure_ascii=False, indent=1), encoding="utf-8")
     counts = dict(Counter(strategies))
     print(f"EP{args.episode:02d} 策略统计: {counts} -> {out_path}")

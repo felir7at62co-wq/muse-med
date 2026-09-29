@@ -530,7 +530,7 @@ ask_user_question pauses the tool call until the active UI provider returns a hu
 
 ### `audio_transcribe`
 
-使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；用 status 查询同一任务，完成后取得带时间戳的转写文件。需要先登录 Muse。
+使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；用 status 查询同一任务，完成后取得文字、字词时间戳 JSON 和 SRT。长音频自动分段并合并时间轴；可用于素材转写与字幕校时。需要先登录 Muse。
 
 ```json
 {

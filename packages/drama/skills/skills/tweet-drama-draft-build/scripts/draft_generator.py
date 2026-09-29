@@ -157,7 +157,8 @@ class DraftGenerator:
         seq: Optional[str] = None,
         project: Optional[str] = None,
     ) -> Dict[str, Any]:
-        os.makedirs(drafts_dir, exist_ok=True)
+        if not Path(drafts_dir).is_absolute() or not Path(drafts_dir).is_dir():
+            raise ValueError('drafts_dir must be the existing absolute editor root returned by drama_draft_dir')
 
         # 配置 ffmpeg
         self._setup_ffmpeg()

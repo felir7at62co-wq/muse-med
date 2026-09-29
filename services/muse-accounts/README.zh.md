@@ -19,17 +19,23 @@ kind: "package-reference"
 
 | 字段 | 用途 |
 |---|---|
-| `appId`、`accessToken` | 仅服务器使用的火山录音文件标准版 1.0 凭据。 |
-| `accessKeyId`、`secretAccessKey` | 仅服务器使用的 TOS 凭据。 |
-| `bucket`、`region`、`endpoint`、`prefix` | 私有 TOS 桶、匹配区域的官方端点，以及以 `/` 结尾的专用临时前缀。 |
-| `root` | 发布树外的私有绝对路径，保存按账号隔离的任务收据和短期暂存 MP3。 |
+| `appId`、`accessToken` | 仅服务器使用的火山凭据，须已开通所选 ASR 资源。 |
+| `providerKind` | `standard`（默认）或 `flash`；每份任务收据保留原提供方。 |
+| `maxConcurrentJobs`、`maxQueuedJobs` | 所有账号共享的极速版并发上限（默认 5，最高 5）和等待容量（默认 20，正整数）。容量预留包含上传中的任务；队列满时返回 429。 |
+| `accessKeyId`、`secretAccessKey` | 仅服务器使用的 TOS 凭据，标准版必需；极速版直接上传时省略。 |
+| `bucket`、`region`、`endpoint`、`prefix` | 仅标准版使用：私有 TOS 桶、匹配区域的官方端点，以及以 `/` 结尾的专用临时前缀。 |
+| `root` | 发布树外的私有绝对路径，保存按账号隔离的任务收据和短期暂存音频。 |
 | `ffprobePath` | 服务器 `ffprobe`，核验真实编码和时长以执行限额。 |
-| `timeoutMs`、`signedUrlTtlSeconds` | 提供方/访问验证超时和仅 GET 签名 URL 有效期；后者至少比 `maxDurationSeconds` 多一小时，且不超过七天。 |
-| `maxAudioBytes`、`maxDurationSeconds` | 上传 MP3 最大字节数与识别时长；时长不得超过 18,000 秒。 |
+| `timeoutMs`、`signedUrlTtlSeconds` | 提供方/访问验证超时；标准版还要求仅 GET 签名 URL 有效期至少比 `maxDurationSeconds` 多一小时，且不超过七天。 |
+| `maxAudioBytes`、`maxDurationSeconds` | 上传音频最大字节数与识别时长。极速版拒绝超过 100,000,000 字节或 7,200 秒的配置；标准版时长须保持在 18,000 秒以内。 |
 | `maxDailySeconds`、`maxDailyJobs`、`maxActiveJobs` | 每账号计费上限；`maxActiveJobs` 必须是 1，使单进程网关的限额预留串行化。 |
-| `retentionSeconds`、`sweepIntervalSeconds` | TOS 临时对象留存时间和后台清理间隔。留存至少覆盖媒体时长加一小时，且不超过签名 URL 有效期；清理间隔至少 60 秒，且不超过留存时间。 |
+| `retentionSeconds`、`sweepIntervalSeconds` | 临时音频留存时间和后台清理间隔。留存至少覆盖媒体时长加一小时；使用 TOS 时不得超过签名 URL 有效期。清理间隔至少 60 秒，且不超过留存时间。 |
 
-上传前，网关读取桶 ACL 和策略；只接受桶所有者授权及没有 Allow 语句的策略。读取权限不足或返回结果无法核实时停止上传。对象上传显式设置 private ACL，之后匿名 GET 必须返回 403，签名分段 GET 必须成功，才提交提供方任务。检查失败会保留私有任务账本记录，但不会产生提供方计费提交。后台清理到期对象，包括状态仍不明的任务；任务 ID 保留，仍可只读查询提供方。账号查询状态时也会清理，网关报告留存到期后，桌面端删除对应的本地 MP3。
+标准版需要 TOS。上传前，网关读取桶 ACL 和策略；只接受桶所有者授权及没有 Allow 语句的策略。读取权限不足或返回结果无法核实时停止上传。对象上传显式设置 private ACL，之后匿名 GET 必须返回 403，签名分段 GET 必须成功，才提交提供方任务。检查失败会保留私有任务账本记录，但不会产生提供方计费提交。后台清理到期对象，包括状态仍不明的任务，同时保留收据；标准版任务 ID 仍可查询。账号查询状态时也会清理，网关报告留存到期后，桌面端删除对应的本地 MP3。
+
+极速版沿用账号鉴权的启动与状态 API：排队任务对外显示 `processing`；完成后的每段包含以秒计的 `start`、`end`、`text`，以及可选的同字段 `words`。空白词和零时长标点被省略。网关将私有音频文件持久排队，通过 base64 `audio.data` 直接发送给火山，处理过程独立于上传连接，无须 TOS。上传接受 `audio/mpeg` 和 `audio/wav`；网关在计费前核验 MP3 或 16 kHz 单声道 PCM16 WAV。完成、静音或留存到期后删除网关文件。启动时恢复排队任务；已持久写入 `submitting` 后中断的极速版请求转为 `uncertain`，不查询也不自动重提。提供方错误或无效响应同样保留为不确定状态。只有提交提供方之前的失败允许重试上传。没有提供方字段的收据沿用标准版提交与查询语义；仍有标准版对象待清理时须保留 TOS 配置。每份账本只运行一个网关；共享提供方并发额度的部署须在各自工作线程配置间分配额度。模拟生命周期测试覆盖这些规则；真实极速版 API 检查由发布操作人员执行。
+
+极速版对客户端允许的 `zh` 和 `auto` 都使用提供方默认语言检测，不发送显式语言选项。标准版适配器保留其语言参数。
 
 凭据值不得进入 Git、systemd `Environment=`、桌面设置、日志或模型工具结果。开发环境和正式环境都通过 `MUSE_KB_VAULT` 与私有 `MUSE_KB_SECRET` 文件启用知识库机器端点。`MUSE_KB_DOCUMENT_GRANTS` 指向由管理员维护、位于可写共享 vault 和编辑器可写目录外的普通 JSON 文件；在 POSIX 上，用户组和其他用户不能写入该文件。未设置文件路径时，不授权任何共享文档。网关在检索或阅读前核对每份共享文档的完整 SHA-256。不能仅凭开发 vault 的文件数量或标题把它复制到正式环境。未配置知识库时机器端点不存在；启用后，未鉴权的 `/api/kb/mcp` 请求返回 401。
 
@@ -45,4 +51,4 @@ rc3 前实际服务单元路径为 `/opt/muse/dev/releases/dev-0.3.0-rc35/muse-a
 
 ## Provider basis
 
-ASR 适配器实现用户 Pi 会话验证过的火山 v3 大模型录音文件**标准版 1.0**接口与 `volc.bigasr.auc` 资源。[火山产品说明](https://www.volcengine.com/docs/6561/1354871?lang=zh)的时长限制为五小时；[TOS 签名 URL](https://docs.volcengine.com/docs/TorchObjectStorage/URLcontainsasignature?lang=en)最长七天。[TOS 桶策略](https://docs.volcengine.com/docs/TorchObjectStorage/ManagingBucketPoliciesNodejsSDK?lang=en)和[桶 ACL](https://docs.volcengine.com/docs/TorchObjectStorage/ManagingBucketACLsNodejsSDK?lang=zh)都会影响访问权限，因此上传前同时读取两者。旧小模型 `/api/v1/auc` 文档不描述此 v3 适配器。提交/查询状态处理来自用户 Pi 会话，仍需获授权的真实 API 检查。
+ASR 适配器支持用户 Pi 会话验证过的火山 v3 大模型录音文件**标准版 1.0**接口与 `volc.bigasr.auc` 资源，也支持使用 `volc.bigasr.auc_turbo` 的[极速版接口](https://www.volcengine.com/docs/6561/1631584) `/api/v3/auc/bigmodel/recognize/flash`。[标准版产品说明](https://www.volcengine.com/docs/6561/1354871?lang=zh)的时长限制为五小时；[TOS 签名 URL](https://docs.volcengine.com/docs/TorchObjectStorage/URLcontainsasignature?lang=en)最长七天。[TOS 桶策略](https://docs.volcengine.com/docs/TorchObjectStorage/ManagingBucketPoliciesNodejsSDK?lang=en)和[桶 ACL](https://docs.volcengine.com/docs/TorchObjectStorage/ManagingBucketACLsNodejsSDK?lang=zh)都会影响访问权限，因此上传前同时读取两者。旧小模型 `/api/v1/auc` 文档不描述此 v3 适配器。真实提供方验证仍属于发布操作。

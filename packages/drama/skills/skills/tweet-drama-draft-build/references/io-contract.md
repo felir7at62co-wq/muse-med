@@ -2,6 +2,7 @@
 
 Input:
 
+- The validated `path` returned by `drama_draft_dir`, passed as `drafts_dir`. Read Settings before draft creation; ask for the installed editor root only when missing or invalid, save through the tool, and use its readback. Existing draft names refuse replacement; choose a unique prefix for a new candidate.
 - Ordered reviewed Jubian videos with subtitle_cleanup=clean or not_required; pending requires explicit draft=True and an unfinished-preview label.
 - Shot/task source mapping, original spoken text, speech_type and speaker identity: dialogue, vo, os, 心声, 旁白 and 解说 are retained when actually voiced. Actions and unvoiced descriptions are not subtitles.
 - Complete actual_speech_start/end audio evidence for every final spoken cue. Only explicit drafts may use marked 9-effective-characters-per-second estimates.

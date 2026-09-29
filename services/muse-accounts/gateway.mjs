@@ -84,7 +84,7 @@ export function createAccountServer({store,runtime,modelConfig,globalModels,mode
    if(!rate(req,'asr:'+s.id,60)){answer(429,{error:'Cloud transcription request rate exceeded'});return;}
    try{
     if(path==='/api/asr/jobs'&&req.method==='POST'){
-     if(req.headers['content-type']!=='audio/mpeg'){answer(415,{error:'Expected compressed MP3 audio'});return;}
+     if(!['audio/mpeg','audio/wav'].includes(req.headers['content-type'])){answer(415,{error:'Expected MP3 or PCM WAV audio'});return;}
      const job=await asr.submit(s.id,req.headers['idempotency-key'],req.headers['x-audio-sha256'],req.headers['x-audio-language'],req);
      answer(202,job);return;
     }
@@ -232,14 +232,17 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
  if(process.env.MUSE_ASR_CONFIG){
   const metadata=await stat(process.env.MUSE_ASR_CONFIG);
   if(!metadata.isFile()||(process.platform!=='win32'&&(metadata.mode&0o077)!==0))throw Error('MUSE ASR configuration file must be private');
-  const config=JSON.parse(await readFile(process.env.MUSE_ASR_CONFIG,'utf8'));
-  const {createAsrService}=await import('./asr-service.mjs');const {createTosAudioStore}=await import('./asr-storage.mjs');
-  const {submitAsr,queryAsr}=await import('./asr-provider.mjs');
-  const sdk=await import('@volcengine/tos-sdk');
-  if(!['appId','accessToken','accessKeyId','secretAccessKey'].every(key=>typeof config[key]==='string'&&config[key].trim())||!isAbsolute(config.root)||typeof config.ffprobePath!=='string'||!config.ffprobePath||!Number.isSafeInteger(config.timeoutMs)||config.timeoutMs<1000||!Number.isSafeInteger(config.signedUrlTtlSeconds)||config.signedUrlTtlSeconds<config.maxDurationSeconds+3600||config.signedUrlTtlSeconds>604800||!Number.isSafeInteger(config.retentionSeconds)||config.retentionSeconds<config.maxDurationSeconds+3600||config.retentionSeconds>config.signedUrlTtlSeconds||!Number.isSafeInteger(config.sweepIntervalSeconds)||config.sweepIntervalSeconds<60||config.sweepIntervalSeconds>config.retentionSeconds||config.maxActiveJobs!==1)throw Error('Invalid MUSE ASR server configuration');
-  const storage=createTosAudioStore(config,sdk.default??sdk);
-  const provider={submit:input=>submitAsr(config,input),query:id=>queryAsr(config,id)};
-  asr=createAsrService({root:config.root,storage,provider,probe:file=>import('./asr-service.mjs').then(module=>module.probeMp3(file,config.ffprobePath)),maxAudioBytes:config.maxAudioBytes,maxDurationSeconds:config.maxDurationSeconds,maxDailySeconds:config.maxDailySeconds,maxDailyJobs:config.maxDailyJobs,maxActiveJobs:config.maxActiveJobs,retentionSeconds:config.retentionSeconds});
+  const {createAsrService,resolveAsrConfig}=await import('./asr-service.mjs');
+  const config=resolveAsrConfig(JSON.parse(await readFile(process.env.MUSE_ASR_CONFIG,'utf8')));
+  const {submitAsr,queryAsr,recognizeFlashAsr}=await import('./asr-provider.mjs');
+  let storage;
+  if(config.providerKind==='standard'||config.accessKeyId){
+   const {createTosAudioStore}=await import('./asr-storage.mjs');const sdk=await import('@volcengine/tos-sdk');
+   storage=createTosAudioStore(config,sdk.default??sdk);
+  }
+  const provider={submit:input=>submitAsr(config,input),query:id=>queryAsr(config,id),recognize:input=>recognizeFlashAsr(config,input)};
+  asr=createAsrService({root:config.root,storage,provider,providerKind:config.providerKind,maxConcurrentJobs:config.maxConcurrentJobs,maxQueuedJobs:config.maxQueuedJobs,probe:file=>import('./asr-service.mjs').then(module=>module.probeAudio(file,config.ffprobePath)),maxAudioBytes:config.maxAudioBytes,maxDurationSeconds:config.maxDurationSeconds,maxDailySeconds:config.maxDailySeconds,maxDailyJobs:config.maxDailyJobs,maxActiveJobs:config.maxActiveJobs,retentionSeconds:config.retentionSeconds});
+  await asr.ready();
   asrSweepIntervalSeconds=config.sweepIntervalSeconds;
  }
  createAccountServer({store,runtime,modelConfig,globalModels,feedback,adminAccess,adminHosts,kb,asr,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH}).listen(Number(process.env.MUSE_PORT||19388),'127.0.0.1',()=>console.log('MUSE accounts gateway listening on loopback'));

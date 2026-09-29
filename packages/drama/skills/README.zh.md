@@ -30,6 +30,8 @@ kind: "package-reference"
 
 从[总控](skills/tweet-drama-pipeline/SKILL.md)开始，调用脚本前读取相关技能。保留技能目录相邻：草稿、渲染和交付共用 core 的视频禁用检查。使用 Python 3.11 或更新版本。图片辅助模块需要 Pillow，文档辅助模块需要 python-docx，草稿生成需要 pyJianYingDraft；其他可选依赖由各技能说明。同名草稿已存在时拒绝生成，不删除旧目录；每个候选版本须使用不同的 `name_prefix`，且不能包含路径分隔符或 Windows 保留字符。包内不附带 Python 解释器、依赖环境或 FFmpeg 二进制。
 
+草稿生成通过 `drama_draft_dir` 读取本机设置；编辑器根目录缺失或无效时询问用户，再通过同一工具保存用户提供的路径。字幕对齐默认使用已完成的 Muse 云端收据，核对字词时间戳与源文件 SHA-256；显式离线识别需要另行准备依赖和模型。
+
 资产脚本优先使用 `JUBIAN_ASSET_LIBRARY_ROOT`，否则使用 `$DSH_HOME/data/jubian-asset-library`，其中 home 默认是 `~/.dsh`。已有 `tags.local_path` 不改写。检索只读。视觉标注维护需要显式注入 `DEEPSEEK_API_KEY`，可能产生费用；不读取 env 文件或 Jubian token。凭据提供方与子进程环境的接线由消费应用负责。
 
 交付使用自带 `assets/template.json`。显式 `TWEET_DRAMA_TEMPLATE` 必须是已有目录；它不替换九目录名，也不导入第三方文件。组装会删除受管输出分区中的过期文件。项目内输出必须留在 `delivery` 下；项目祖先、上游重叠及已有输出内的链接会被拒绝。报告输出到 stdout，不写报告文件；复制不等于 SHA256 核对或完整媒体 QA。

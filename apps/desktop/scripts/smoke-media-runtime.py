@@ -1,5 +1,6 @@
-"""Exercise packaged Python, native media libraries and CPU ASR without network or user media."""
+"""Exercise packaged Python, native media libraries and document output without network or user media."""
 import importlib
+import importlib.util
 import importlib.metadata
 import json
 import os
@@ -11,7 +12,7 @@ import tempfile
 
 
 def main():
-    """Check relocatable imports, dependency declarations, encode/subtitles, draft probing and local ASR."""
+    """Check relocatable imports, dependency declarations, encode/subtitles, draft probing and Word round trips."""
     root = Path(sys.argv[1]).resolve()
     expected = root / 'python'
     assert Path(sys.prefix).resolve() == expected
@@ -25,6 +26,9 @@ def main():
     socket.create_connection = deny_network
     os.environ['HF_HUB_OFFLINE'] = '1'
     os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
+    assert not (root / 'models').exists()
+    for name in ['faster_whisper', 'ctranslate2', 'av', 'onnxruntime', 'tokenizers', 'huggingface_hub']:
+        assert importlib.util.find_spec(name) is None, name
     from packaging.requirements import Requirement
     for dist in importlib.metadata.distributions():
         for declared in dist.requires or []:
@@ -33,7 +37,7 @@ def main():
                 continue
             actual = importlib.metadata.version(req.name)
             assert actual in req.specifier, (dist.metadata['Name'], declared, actual)
-    for name in ['faster_whisper', 'ctranslate2', 'av', 'onnxruntime', 'docx', 'pydub', 'pymediainfo', 'pyJianYingDraft', 'requests', 'PIL', 'zhconv', 'cv2', 'scipy']:
+    for name in ['docx', 'pydub', 'pymediainfo', 'pyJianYingDraft', 'requests', 'PIL', 'zhconv', 'cv2', 'scipy']:
         module = importlib.import_module(name)
         assert Path(module.__file__).resolve().is_relative_to(expected), name
     from zhconv import convert
@@ -63,11 +67,12 @@ def main():
         import pyJianYingDraft as draft
         material = draft.VideoMaterial(str(work / 'smoke.mp4'))
         assert material.duration > 0
-        from faster_whisper import WhisperModel
-        model = WhisperModel(str(root / 'models' / 'faster-whisper-small'), device='cpu', compute_type='int8', cpu_threads=1, num_workers=1, local_files_only=True)
-        segments, _ = model.transcribe(str(work / 'smoke.mp4'), language='zh', beam_size=5, word_timestamps=True, vad_filter=False, temperature=0.0, condition_on_previous_text=False)
-        list(segments)
-    print('media smoke: isolated imports, locked dependencies, FFmpeg/AAC/H264/subtitles/loudnorm, MediaInfo/draft and offline CPU ASR passed')
+        from docx import Document
+        document = Document()
+        document.add_paragraph('Media smoke')
+        document.save(work / 'smoke.docx')
+        assert Document(work / 'smoke.docx').paragraphs[0].text == 'Media smoke'
+    print('media smoke: isolated imports, locked dependencies, FFmpeg/AAC/H264/subtitles/loudnorm, MediaInfo/draft and Word round trip passed')
 
 
 if __name__ == '__main__':

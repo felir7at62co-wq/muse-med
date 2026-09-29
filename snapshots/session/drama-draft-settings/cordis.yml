@@ -1,0 +1,5 @@
+- insert:
+    - id: tool-ask-user
+      name: '@deepseek-ai/dsh-tool-ask-user'
+    - id: draft-root-answer
+      name: './draft-root-fixture.mjs'

@@ -3,7 +3,41 @@ import { openAsBlob } from 'node:fs'
 import { readMuseSession } from './session.ts'
 
 /** Bounded status returned by the account gateway. */
-export type MuseAsrJob = { readonly id: string; readonly status: 'preparing' | 'processing' | 'submitting' | 'uncertain' | 'complete' | 'silent' | 'failed'; readonly retentionExpired?: boolean; readonly segments?: readonly { readonly start: number; readonly end: number; readonly text: string }[] }
+export type MuseAsrJob = { readonly id: string; readonly status: 'preparing' | 'processing' | 'submitting' | 'uncertain' | 'complete' | 'silent' | 'failed'; readonly retentionExpired?: boolean; readonly segments?: readonly MuseAsrSegment[] }
+
+/** A sentence with optional recognized words, timed in seconds from the submitted audio start. */
+export interface MuseAsrSegment {
+  readonly start: number
+  readonly end: number
+  readonly text: string
+  readonly words?: readonly { readonly start: number; readonly end: number; readonly text: string }[]
+}
+
+function validSpan(value: unknown): value is { start: number; end: number; text: string } {
+  if (typeof value !== 'object' || value === null) return false
+  const span = value as Record<string, unknown>
+  return typeof span.start === 'number' && Number.isFinite(span.start) && span.start >= 0
+    && typeof span.end === 'number' && Number.isFinite(span.end) && span.end > span.start
+    && typeof span.text === 'string'
+}
+
+function validSegments(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0) return false
+  let previous = 0
+  return value.every((row: unknown) => {
+    if (!validSpan(row) || row.start < previous) return false
+    previous = row.start
+    const words = (row as Record<string, unknown>).words
+    if (words === undefined) return true
+    if (!Array.isArray(words)) return false
+    let cursor = row.start
+    return words.every((word: unknown) => {
+      if (!validSpan(word) || word.start < cursor || word.end > row.end) return false
+      cursor = word.start
+      return true
+    })
+  })
+}
 
 /** Fixed failure classes without upstream response bodies or signed object URLs. */
 export class MuseAsrError extends Error {
@@ -49,17 +83,13 @@ export class MuseAsrClient {
       || (job.retentionExpired !== undefined && typeof job.retentionExpired !== 'boolean')) {
       throw new MuseAsrError('response-invalid')
     }
-    if (job.status === 'complete' && (!Array.isArray(job.segments) || job.segments.length === 0
-      || !job.segments.every((row: unknown) => typeof row === 'object' && row !== null
-        && Number.isFinite((row as Record<string, unknown>).start)
-        && Number.isFinite((row as Record<string, unknown>).end)
-        && typeof (row as Record<string, unknown>).text === 'string'))) throw new MuseAsrError('response-invalid')
+    if (job.status === 'complete' && !validSegments(job.segments)) throw new MuseAsrError('response-invalid')
     return job as MuseAsrJob
   }
 
   /**
    * Make one billable attempt under a caller-persisted key.
-   * @param file - Staged local MP3.
+   * @param file - Staged local audio.
    * @param id - Durable idempotency UUID.
    * @param sha256 - Digest verified by the gateway.
    * @param language - Recognition language.
@@ -67,7 +97,7 @@ export class MuseAsrClient {
    */
   async submit(file: string, id: string, sha256: string, language: 'zh' | 'auto'): Promise<MuseAsrJob> {
     const init: RequestInit & { duplex: 'half' } = {
-      method: 'POST', headers: { origin: this.options.baseUrl, 'content-type': 'audio/mpeg',
+      method: 'POST', headers: { origin: this.options.baseUrl, 'content-type': file.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg',
         'idempotency-key': id, 'x-audio-sha256': sha256, 'x-audio-language': language },
       body: await openAsBlob(file), duplex: 'half',
     }

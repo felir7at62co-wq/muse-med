@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-Host 工具 `audio_transcribe` 通过已登录的 Muse 账号，把本地音频或视频转成带时间戳的文字。`start` 先保存幂等任务收据，再请网关提交计费云端任务；`status` 查询同一任务，并把非空 TXT 和 JSON 无覆盖地写入 `transcript/raw/`。
+Host 工具 `audio_transcribe` 通过已登录的 Muse 账号，把本地音频或视频转成带时间戳的文字。`start` 先保存幂等任务收据，再请网关提交计费云端任务；`status` 查询同一任务，并把非空 TXT、JSON 和 SRT 无覆盖地写入 `transcript/raw/`。
 
 ## 目录
 
@@ -22,28 +22,29 @@ Host 工具 `audio_transcribe` 通过已登录的 Muse 账号，把本地音频�
 <a id="use-this-package"></a>
 ## 使用本包
 
-桌面 Host 在 `@deepseek-ai/dsh-muse-account` 之后装载此行，产品各模式均可调用。开始前须登录 Muse 账号；云端网关还须单独启用转写。模型不能提供火山或 TOS 凭据。
+桌面在标准、PTC、创造、编辑与短剧模式中装载此工具，极简模式除外。开始前须登录 Muse 账号，云端网关还须单独启用转写。模型不能提供服务商凭据。
 
 ```json
 {"method":"start","project":"<project root>","input":"<authorized local audio or video>","language":"zh"}
 {"method":"status","project":"<same project root>","receipt":"<start receipt path>"}
 ```
 
-`start` 探测素材，用 FFmpeg 提取 16 kHz 单声道 MP3，在 `transcript/jobs/` 记录任务 ID 和音频摘要。Unix 上工具创建的转写目录权限为 0700，暂存 MP3、收据和转写产物权限为 0600。提交结果不明时保留收据；再次请求前先查询该收据。服务器确认任务不存在时，才能用原密钥和暂存 MP3 重试。完成后写 `transcript/raw/<素材名>-vN.txt` 与 `.json`；无语音时只保留收据。离线 Python 技能仅在用户明确要求离线时使用。
+`start` 探测素材，用 FFmpeg 提取 16 kHz 单声道 PCM WAV，在 `transcript/jobs/` 记录任务 ID 和音频摘要。Unix 上工具创建的转写目录权限为 0700，暂存音频、收据和转写产物权限为 0600。提交结果不明时保留收据；再次请求前先查询该收据。服务器确认任务不存在时，才能用原密钥和暂存音频 重试。完成后写 `transcript/raw/<素材名>-vN.txt` 、`.json` 与 `.srt`；无语音时只保留收据。离线 Python 技能仅在用户明确要求离线时使用。
 
 | 配置 | 默认值 | 含义 |
 |---|---|---|
 | `ffmpegPath`、`ffprobePath` | `ffmpeg`、`ffprobe` | 桌面安装包通过 `DSH_FFMPEG_PATH` 和 `DSH_FFPROBE_PATH` 提供随包路径。 |
 | `commandTimeoutMs` | 600,000 | 本地探测或提取的超时毫秒数。 |
 | `maxDurationSeconds` | 18,000 | 本地接受的素材最长秒数。 |
-| `maxAudioBytes` | 209,715,200 | 提取后 MP3 的最大字节数；服务器另有独立上限。 |
+| `chunkSeconds` | 600 | 每个云端任务的最长秒数；原素材仍受 `maxDurationSeconds` 限制。 |
+| `maxAudioBytes` | 100,000,000 | 单段提取音频的最大字节数；服务器另有独立上限。 |
 
 <a id="understand-the-implementation"></a>
 ## 实现说明
 
-Host 账号服务读取绑定网关源地址的已保存会话，把压缩音频发送到 `POST /api/asr/jobs`，再以同一账号查询 `GET /api/asr/jobs/:id`。cookie、TOS 签名 URL 和提供方密钥均不返回给模型。网关负责私有临时 TOS 对象、账号隔离、限额、提供方提交与查询，以及清理。提交状态不明时只查询原提供方任务 ID，不换 ID 重新提交。服务器配置和发布步骤见 [`services/muse-accounts`](../../../services/muse-accounts/README.zh.md)。
+Host 账号服务读取绑定网关源地址的已保存会话，把音频发送到 `POST /api/asr/jobs`，再以同一账号查询 `GET /api/asr/jobs/:id`。cookie、TOS 签名 URL 和提供方密钥均不返回给模型。网关负责账号隔离、限额、提供方执行与临时音频清理。标准版使用私有 TOS 对象；极速版直接发送私有暂存音频。提交状态不明时保留原 ID，不自动再次计费。服务器配置和发布步骤见 [`services/muse-accounts`](../../../services/muse-accounts/README.zh.md)。
 
-实现依据是用户 Pi 会话验证过的火山大模型录音文件识别**标准版 1.0**，v3 `/api/v3/auc/bigmodel/submit` 和 `/query`，资源 `volc.bigasr.auc`。火山[大模型录音文件产品说明](https://www.volcengine.com/docs/6561/1354871?lang=zh)给出五小时时长限制；[TOS 签名 GET URL](https://docs.volcengine.com/docs/TorchObjectStorage/URLcontainsasignature?lang=en)是凭 URL 持有的访问凭据，最长七天。旧小模型 `/api/v1/auc` 文档属于另一接口，不作为此实现的依据。状态码和 512 MiB 观察来自用户 Pi 实测；正式计费前仍须在获授权的真实集成检查中确认。
+网关选择标准版或极速版识别。极速版使用[录音文件极速识别接口](https://www.volcengine.com/docs/6561/1631584?lang=zh)，每次最多两小时、100 MB。工具自动切分长媒体，将源文件 SHA-256 和分段任务 ID 保存在收据中，再把句子与字词时间戳合并到原媒体时间轴。默认十分钟 PCM 分段约 19.2 MB。产物原子发布，不覆盖不同内容；重复查询会核对已存在的相同产物。极速请求结果未知时保持未解决状态，不自动再次计费。
 
 不发布运行时 invariant 伴随模块，因为任务收据和已注册工具各由一处存储或注册表持有，没有可能独立产生分歧的第二份状态。
 
@@ -69,7 +70,7 @@ schema 产生固定请求开销；每次结果只增加简短状态和本地路�
 
 - 云端识别要求已登录 Muse 账号，且服务器已部署并配置 ASR。工具不抓取网页链接；原始媒体必须在本地可读。
 - 无语音时不生成原始转写。提供方时间戳与识别内容仍须人工核对，离线模型不会自动回退启用。
-- 远端任务超过留存时间仍未解决时，网关删除临时 TOS 对象；下一次 `status` 删除本地暂存 MP3，但保留收据和原任务 ID 供只读对账。
+- 远端任务超过留存时间仍未解决时，网关删除临时音频；下一次 `status` 删除本地暂存音频，但保留收据和原任务 ID 供只读对账。
 
 <a id="dev-note"></a>
 ### 开发备注

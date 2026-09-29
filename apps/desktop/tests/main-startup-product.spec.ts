@@ -485,7 +485,7 @@ describe('desktop main startup', () => {
     expect(process.env.MUSE_HOME).toBe(join(homedir(), '.muse'))
   })
 
-  it('makes packaged Windows media tools and model available without system dependencies', async () => {
+  it('makes packaged Windows media tools available without a local ASR model', async () => {
     vi.stubGlobal('process', { ...process, platform: 'win32', resourcesPath: 'desktop-test-resources' })
     vi.stubEnv('PATH', 'system-tools')
     vi.stubEnv('PYTHONHOME', 'external-python')
@@ -499,7 +499,7 @@ describe('desktop main startup', () => {
     expect(process.env.DSH_FFPROBE_PATH).toBe(join(media, 'ffmpeg', 'bin', 'ffprobe.exe'))
     expect(process.env.FFMPEG_PATH).toBe(process.env.DSH_FFMPEG_PATH)
     expect(process.env.FFPROBE_PATH).toBe(process.env.DSH_FFPROBE_PATH)
-    expect(process.env.MUSE_WHISPER_MODEL_DIR).toBe(join(media, 'models', 'faster-whisper-small'))
+    expect(process.env.MUSE_WHISPER_MODEL_DIR).toBeUndefined()
     expect(process.env.MUSE_BGM_RUNTIME_DIR).toBe(join(media, 'bgm'))
     expect(process.env.PYTHONHOME).toBeUndefined()
     expect(process.env.PYTHONPATH).toBeUndefined()

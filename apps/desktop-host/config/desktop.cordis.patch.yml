@@ -105,11 +105,6 @@
       config:
         feedbackUrl: !!js new URL('/feedback', process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn').href
 
-    - id: tool-audio-transcribe
-      name: '@deepseek-ai/dsh-tool-audio-transcribe'
-      config:
-        ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
-        ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
 
 # The bundled Feishu bridge is composed inert: the activation controls below are
 # real keys of the staged package, because the community build applies the
