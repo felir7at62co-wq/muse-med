@@ -19,6 +19,8 @@ pnpm exec node --test third_party/plugins/build.test.mjs
 
 Codex 临时运行时补丁在 `SOURCE.json` 记录修改：子任务检查与准备仅接受 provider `0.1.7-rc.4`，CLI 仍固定为 `0.153.4`。打包后从 `app.asar.unpacked` 解析 CLI 清单和启动文件。保留的上游文件不变；源码文本不符合预期时，补丁失败，而非静默跳过。
 
+桌面面板还会把运行时已注册的 MCP 工具列为只读连接。内置 `muse-account` 显示为 Muse 知识库，并展示已注册工具数量。兼容覆盖不会把凭据、环境变量值或私有启动参数复制到列表中。
+
 ## 兼容性与桌面集成
 
 `dsh-skill-mcp-panel` 固定于上游 2.1.2。它通过 Web 侧栏管理当前 profile 的技能和 MCP 服务配置。随桌面应用打包的产物不暴露上游 `dsh-panel` 可执行入口：Desktop 只通过 `dsh` profile 启动受支持的 Node 应用。面板网关负责配置 MCP 连接，实际 MCP 客户端仍为 `@deepseek-ai/dsh-mcp-client`。隔离构建会运行保留的模型、网关、插槽与图标检查。

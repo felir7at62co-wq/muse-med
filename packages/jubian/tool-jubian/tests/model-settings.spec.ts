@@ -57,6 +57,19 @@ const apply = (plan: Record<string, unknown>) => modelMethod(client, ledger, { m
 const puts = () => calls.filter(call => call.method === 'PUT')
 
 describe('scoped model settings', () => {
+  it('names the unconfigured storyboard and missing settings without requiring an arbitrary duration', async () => {
+    boards = boards.map(board => ({ ...board, modelConfig: null }))
+    await expect(preview({ changes: { modelId, ratio: '9:16', resolution: '720p' } }))
+      .rejects.toThrow(/storyboard 1.*genType.*duration.*genNum.*changes/)
+    expect(puts()).toEqual([])
+  })
+
+  it('names a missing episode binding before planning model changes', async () => {
+    boards[0]!.episodeId = null
+    await expect(preview()).rejects.toThrow(/storyboard 1.*episodeId.*jubian_catalog episodes/)
+    expect(puts()).toEqual([])
+  })
+
   it('rejects an idempotency key owned by another method before preparing a body', async () => {
     await ledger.begin({ idempotencyKey: 'foreign-key', method: 'storyboard_save', requestSha256: 'sha256:foreign' })
     let prepared = false

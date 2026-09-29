@@ -1,9 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { readEpisodes, readModels, readScript, readScriptList } from '../src/catalog.ts'
+import { readEpisodes, readModels, readScript, readScriptList, readStoryboardPage } from '../src/catalog.ts'
 
 const IMAGE_MODEL = { id: 42, standardId: 42, modelId: 'gpt-image-2', platformId: 'YU_DIAN', unitPrice: 0.5, unit: '张',
   genTypes: [{ id: 7, type: 3 }],
   videoStandards: [{ id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 }] }
+
+describe('readStoryboardPage', () => {
+  it('lists unconfigured and unbound records without inventing episode IDs or model defaults', () => {
+    const row = { id: '21', scriptId: '2708', episodeId: null, storyboardName: 'EP01-P1', modelConfig: null }
+    expect(readStoryboardPage({ rows: [row], total: 2 }, 2708)).toEqual({ total: 2,
+      rows: [{ storyboard_id: 21, script_id: 2708, episode_id: null, name: 'EP01-P1' }] })
+    expect(readStoryboardPage([row], 2708).total).toBeNull()
+    expect(readStoryboardPage({ list: [{ ...row, episodeId: '8' }] }, 2708).rows[0]!.episode_id).toBe(8)
+    expect(readStoryboardPage({ rows: [], total: 0 }, 2708)).toEqual({ total: 0, rows: [] })
+  })
+
+  it.each([null, {}, { rows: [], total: -1 }, { rows: [null] },
+    { rows: [{ id: 1, scriptId: 99 }] }, { rows: [{ id: 0, scriptId: 2708 }] },
+    { rows: [{ id: 1, scriptId: 2708, episodeId: 0 }] },
+    { rows: [{ id: 1, scriptId: 2708 }], total: 0 }])('rejects malformed or foreign project pages: %j', (data) => {
+    expect(() => readStoryboardPage(data, 2708)).toThrow()
+  })
+})
 
 describe('readModels', () => {
   it('passes catalogue rows through and rejects a non-array', () => {

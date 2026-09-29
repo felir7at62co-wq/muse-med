@@ -24,7 +24,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { JUBIAN_TOKEN_REF, JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
-import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, storyboardMethod, videoMethod } from './methods.ts'
+import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from './methods.ts'
 import type { ImageMethodOptions, MethodArgs } from './methods.ts'
 import { findMethod } from './find.ts'
 import type { FindArgs } from './find.ts'
@@ -94,6 +94,10 @@ export interface Config extends ImageRouteConfig {
   videoBatchConcurrency?: number
   /** Maximum distinct storyboard previews in one paid batch; integer 1..100, default 100. */
   videoBatchMaxItems?: number
+  /** Maximum concurrent free storyboard POSTs; integer 1..8, default 4. */
+  storyboardBatchConcurrency?: number
+  /** Maximum prepared storyboard bodies per call; integer 1..1000, default 1000. */
+  storyboardBatchMaxItems?: number
   /**
    * Separator between the segments of a composed asset name; defaults to `｜`.
    * Applies only to names this row composes from an `episode` argument — a caller
@@ -208,9 +212,16 @@ const ARGS = {
     description: 'erase_subtitle 可选：{zimuLeft,zimuTop,zimuWidth,zimuHeight}。'
       + '省略时按画面尺寸推导提供方默认比例——通常不要传，工作台的预览坐标无法由调用方复现。' },
   body: { type: 'object', additionalProperties: true,
-    description: 'create 二选一：完整的远端请求体（本插件不做体编译）。' },
+    description: 'create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；'
+      + 'episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。'
+      + '视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。'
+      + 'modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、'
+      + 'standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。'
+      + '提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；在提示词开头按素材顺序各写一次 @[素材名](material_key)，后续 selections 使用相同 key 和顺序。'
+      + 'get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。'
+      + '主体素材后续用 select_assets 写入；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。' },
   body_path: { type: 'string',
-    description: 'create 二选一：包含完整冻结请求体的本地 UTF-8 JSON 文件路径。' },
+    description: 'create 与 body 二选一：按 body 的字段说明生成并检查的本地 UTF-8 JSON 文件路径；一包一份请求体。' },
   media_url: { type: 'string', description: 'media 必填：剧变 CDN 上的媒体 URL（来自其他方法的返回值）。' },
   media_kind: { type: 'string', enum: ['image', 'video'], description: 'media 必填：要下载的是图片还是视频。' },
   output_path: { type: 'string', description: 'media 必填：落盘的本地绝对路径。' },
@@ -310,6 +321,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const claimConfig: ClaimWatchConfig = resolveClaimWatchConfig(config)
   const imageBatch = resolveImageBatchOptions(config)
   const videoBatch = resolveVideoBatchOptions(config)
+  const storyboardBatch = resolveStoryboardBatchOptions(config)
   ctx.plugin(JubianToken)
   const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
   // Resolved once, here, so a blank separator or series label fails the mount
@@ -522,6 +534,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     description: '免费配置现有分镜的视频模型与分辨率。preview 只读实时目录和分镜，按明确范围写本地冻结计划，'
       + '返回每项 before/after 与 fingerprint；不 PUT、不生成。scope=storyboards 使用远端 storyboard_ids，'
       + 'episodes 使用远端 episode_ids（不是集号），project 仅包含当前项目已有分镜。'
+      + '仅查询分镜用 jubian_storyboard list/get；preview 用于修改设置预览，不用它探测空项目，也不更换项目绑定来排错。'
       + 'apply 必须先取得用户对范围和配置的同意，使用 preview_path 与 idempotency_key=fingerprint。'
       + '写前校验全部目标、成员和目录，每项再即时回读；只改 modelConfig 模型字段，所有 PUT 强制 isGenerate=0，'
       + '保留提示词、资产身份和顺序、非模型设置，回读核验。未提供的设置保留，不会默认切换模型；'
@@ -542,7 +555,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           ratio: { type: 'string', description: '目录支持的比例，例如 9:16。' },
           resolution: { type: 'string', description: '目录支持的分辨率，例如 720p、1080p。' },
           genType: { type: 'number', description: '目录支持的生成类型。' },
-          duration: { type: 'number', description: '模型允许的整数秒数，包含末尾自然收束。' },
+          duration: { type: 'number', description: '模型允许的整数秒数，包含末尾自然收束。未提供时保留各分镜已存时长；未保存时长的分镜必须按该包内容补齐，不能为探测随意填数。' },
           genNum: { type: 'number', description: '目录支持的生成数量。' },
         } },
       preview_path: { type: 'string', description: 'apply 必填：preview 返回的冻结计划路径。' },
@@ -554,7 +567,8 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.tools.register(defineTool({
     name: 'jubian_storyboard',
-    description: '剧变（Jubian）分镜查询与提交。get/create/save 免费（create/save 强制 isGenerate=0）。'
+    description: '剧变（Jubian）分镜查询与提交。list/get/create/save 免费（create/save 强制 isGenerate=0）。'
+      + 'list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。'
       + '**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。'
       + 'generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，'
       + '且它必须与该分镜已保存的时长一致，否则会在发请求前失败。'
@@ -578,25 +592,31 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。' + WRITE_NOTE,
     parameters: {
       method: { type: 'string', required: true,
-        enum: ['get', 'create', 'save', 'generate', 'select_assets', 'prepare_video', 'submit_video',
+        enum: ['list', 'get', 'create', 'create_batch', 'save', 'generate', 'select_assets', 'prepare_video', 'submit_video',
           'submit_video_batch', 'erase_subtitle'],
-        description: 'get=读分镜（含 model_config 与素材键）；create=用调用方给定的请求体新建；'
+        description: 'list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；'
           + 'save=存为不生成；generate=提交生成（计费）；'
           + 'select_assets=写入选定资产（免费，强制 isGenerate=0）；'
           + 'prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；'
           + 'submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；'
           + 'erase_subtitle=去字幕（计费、异步）。' },
       storyboard_id: ARGS.storyboard_id, content_duration_ms: ARGS.content_duration_ms,
+      page_num: ARGS.page_num, page_size: ARGS.page_size,
       task_id: ARGS.task_id, script_id: ARGS.script_id,
       model_id: ARGS.model_id, task_name: ARGS.task_name,
       episode: ARGS.episode, package_number: ARGS.package_number,
       video_width: ARGS.video_width, video_height: ARGS.video_height, subtitle_box: ARGS.subtitle_box,
+      storyboards: { type: 'array', description: 'create_batch 必填：先写好并检查全部包的提示词与 body，再一次传入整批。每项独立 key、body 或 body_path；默认最多 1000 项，并发 4 项提交，无需等待逐项完成。字段见 body。',
+        items: { type: 'object', additionalProperties: false, properties: {
+          idempotency_key: { type: 'string', required: true, description: '本项固定重放键；不得重复。' },
+          body: ARGS.body, body_path: ARGS.body_path,
+        } } },
       body: ARGS.body, body_path: ARGS.body_path, idempotency_key: ARGS.idempotency_key,
       selections: ARGS.selections, project_dir: ARGS.project_dir, preview_path: ARGS.preview_path,
       video_previews: ARGS.video_previews,
     },
     output: OUTPUT,
-    execute: guarded('jubian_storyboard', args => storyboardMethod(client, ledger, args, { naming, videoBatch })),
+    execute: guarded('jubian_storyboard', args => storyboardMethod(client, ledger, args, { naming, videoBatch, storyboardBatch })),
   }))
 
   ctx.tools.register(defineTool({

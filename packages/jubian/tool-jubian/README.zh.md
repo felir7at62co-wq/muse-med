@@ -145,7 +145,7 @@ inherited process environment (read-only, highest)
 | | `create_folder`、`move`、`rename` | 改变控制台里资产库的组织方式；各自需要 `idempotency_key` |
 | `jubian_organize` | `index` | 只读、免费；写一个本地索引文件 |
 | `jubian_model` | `preview`、`apply` | Preview 对远端只读；apply 以 `isGenerate=0` 保存用户批准的已有分镜设置 |
-| `jubian_storyboard` | `get`、`create`、`save` | Get 只读；create/save 是免费写入，强制 `isGenerate=0`，包括调用方提供的创建请求体 |
+| `jubian_storyboard` | `list`、`get`、`create`、`save` | List/get 只读；create/save 是免费写入，强制 `isGenerate=0`，包括调用方提供的创建请求体 |
 | | `select_assets` | 免费，强制 `isGenerate=0`；需要 `idempotency_key` |
 | | `prepare_video` | 远端只读、免费；只写一个本地 preview 文件 |
 | | `generate`、`submit_video`、`erase_subtitle` | 计费且不可撤销；需要 `idempotency_key` |
@@ -161,7 +161,15 @@ inherited process environment (read-only, highest)
 - `jubian_find` 在不知道 `script_id` 的情况下按名字定位一个剧本，范围二选一：`mine`——调用方自己名下的画布项目（`GET /aigc/script/list`）；`pool`——可认领的剧本池（`GET /script/center/pool/list`）。`name` 可选，先去掉首尾空白、把内部连续空白并成一个空格、忽略大小写，再匹配 `script_name` 或 `manuscript_name` 的子串；没有拼音、别名或模糊匹配，所以差一个字就是没找到，而不是给出一个看着像的错项目。省略 `name` 就是列出该范围的第一页，而不是报错。`page_size` 只限制单次请求，不限制扫描：工具会一直翻页，直到读完 `total`、某一页为空，或达到 `scan_page_limit`；`complete: false` 表示这次没有覆盖 `total`，不要读成"就这些"，而 `scanned_pages`、`returned` 与 `truncated` 说明实际发生了什么。`status` 原样转发，且只对 `pool` 有效。`production_type` 与 `share_target_type` 原样转发为 `productionType` 与 `shareTargetType`，且只对 `mine` 有效：控制台打开「漫剧视频」时自己发的那次请求，就是在同一个 `/aigc/script/list` 上带 `productionType=0` 与 `shareTargetType=1`，所以这一对参数正是列出漫剧项目的方式。两个取值都是提供方自己的编码——本工具既不解释、也不校验、也不给默认值，因此省略的那个根本不会出现在查询串里。它不写账本、不需要 `idempotency_key`、不改动任何远端，也不会从池子里认领剧本；读不懂的响应直接报 `CONTRACT_CHANGED`，而不是当成"没找到"，因此漏本和没本仍然能区分。
 - `jubian_asset` 读取单个资产、项目资产分页、已确认的主体设定材质，或某个资产的生成图 URL。`confirm_casting` 接受的是生成材质 ID——不是父资产，也不是任务 ID——并让该材质被本次制作采用。`remove` 发出 `DELETE /aigc/asset/removeAsset/{assetId}?scriptId=<id>&isParent=1`：父资产与其媒体版本被移除，引用它的镜头匹配不会因此重建，已生成的视频也不会重新生成。取消一次选用决定是另一个动作；`remove` 不是它。`upload_reference` 接受本地 `image_path`，检查两条边是否都是 16 的倍数（提供方图片流水线要求的那条规则），上传到实时前端 bundle 配置的目的地，并返回资产请求或 `image_generate` 的 `references` 所需的 `materialUrl`/`materialType`/`sortOrder` 条目。它不收费、不创建任务，但确实会向提供方对象存储写入一个对象。三个资产库写方法见下文「组织资产库」。
 - `jubian_organize` 为一个项目建立一份只读视图：每一集用到哪些角色、场景与道具，各自远端的标识与状态；命名审计；类别审计；以及个人资产库每个类别的文件夹树。它不改动任何远端，只写一个本地索引文件。详见下文「组织视图」。
-- `jubian_storyboard` 读取单个分镜、用调用方给出的完整请求体新建分镜、保存而不生成、提交生成，或擦除烧录字幕。`generate` 先读当前分镜快照，把 `isGenerate=1` 写回，因此还必须给出与该分镜已保存时长一致的 `content_duration_ms`；不一致时在任何请求离开前就失败。`erase_subtitle` 需要任务 ID、视频画面尺寸和一个明确的 `model_id`：`quzimuToB`（区域性——擦除矩形按提供方对画面的默认比例推导，所以 `subtitle_box` 可选且通常省略）或 `ark-erase-video-subtitle-pro`（自动，不接受 `subtitle_box`）。它没有默认模型，所以省略 `model_id` 的调用方会被告知缺哪个参数，而不是被替它挑一个。项目、分集与源身份从任务及其子结果读取，因此不需要 `script_id`。三个分镜原生方法见下文「主体视频的分镜原生通道」一节。
+- `jubian_storyboard` 无需模型设置或本地项目文件即可列出项目分镜身份、读取单个分镜、用调用方给出的完整请求体新建分镜、保存而不生成、提交生成，或擦除烧录字幕。`generate` 先读当前分镜快照，把 `isGenerate=1` 写回，因此还必须给出与该分镜已保存时长一致的 `content_duration_ms`；不一致时在任何请求离开前就失败。`erase_subtitle` 需要任务 ID、视频画面尺寸和一个明确的 `model_id`：`quzimuToB`（区域性——擦除矩形按提供方对画面的默认比例推导，所以 `subtitle_box` 可选且通常省略）或 `ark-erase-video-subtitle-pro`（自动，不接受 `subtitle_box`）。它没有默认模型，所以省略 `model_id` 的调用方会被告知缺哪个参数，而不是被替它挑一个。项目、分集与源身份从任务及其子结果读取，因此不需要 `script_id`。三个分镜原生方法见下文「主体视频的分镜原生通道」一节。
+
+`create_batch` 接收一个项目的 `script_id` 和 `storyboards` 数组，每项独立 key，并提供 `body` 或 `body_path`。工具先读取并检查所有项，再以 `isGenerate=0` 并发 POST；`storyboardBatchConcurrency` 默认 4，范围 1–8；`storyboardBatchMaxItems` 默认 1000，范围 1–1000。结果逐项保留序号、名称、key 与账本结果。部分失败或结果不明时沿用原 key 对账，已成功项不重建。每条创建后回读，再选材和准备整批视频。
+
+提示词保存于 `modelConfig.prompt`，不是顶层 `prompt`。按选材顺序在提示词映射中各写一次 `@[名称](material_key)` 引用。`get.material_keys` 表示已经绑定的素材行；新分镜该字段为空不能证明提示词不存在。
+
+`jubian_storyboard list` 接收 `script_id` 和可选的 `page_num`/`page_size`，返回 `storyboards.rows`、`total`（未提供时为 null）和请求页号。空项目返回空列表。未绑定的分集表示为 `episode_id: null`；来自其他项目的行会被拒绝。按总数分页读取；没有总数时继续到空页。详情用 `get`。模型 `preview` 需要已存设置或明确的 `changes`；缺字段或缺分集归属时会点名受影响分镜。它不是查询入口。
+
+`create` 使用 `scriptId`、从 `jubian_catalog episodes` 获取的真实 `episodeId`、显示集号 `episodeCount`、`scriptName`、`storyboardName`、从零开始的 `sortOrder` 和 `isGenerate: 0`。`modelConfig` 编码为 JSON 字符串，包含完整包提示词和当前目录选择器（`modelId`、`platformId`、`standardId`、`genType`、`modelGenerationTypeId`、`videoStandardId`、`ratio`、`resolution`、`genNum`），以及含收束的整数秒 `duration`。不要复制旧记录 ID、账号字段或任务列表。创建后读取返回 ID，先用 `select_assets` 绑定素材再准备视频。每份请求体可冻结在项目 `video_tasks/`，通过 `body_path` 提交。
 - `jubian_video` 读取单个任务（含观测到的费用）、项目视频任务分页，或某个任务的子结果——子结果带成片 `video_url`、字幕像素框、阶段历史、每个结果的分辨率与 `needs_upscale` 判定。`subtasks` 用 `POST` 请求体承载查询，但仍然只读。`image_generate` 生成一张计费的资产图：必填 `asset_name`、资产类别、`prompt`，可选有序的 `references`；给出 `parent_asset_id` 时用 `PUT` 重生成该资产，否则用 `POST` 新建。这次写是异步的，因此该方法随后会把新资产回读到 `hsAssetStatus` 为 `Active`，并返回它的 `material_id`（`confirm_casting` 要的就是它）与 `image_url`；见下文「计费生图路径」。`upscale` 提交一次计费的 1080p 转换（SeedVR2 视频高清，1 元/条），只需 `task_id` 与 `idempotency_key`；其他身份都从父任务与其首个子结果读取。`retry` 重新执行一次已终止且未计费的失败；它先读父任务与子结果，只有在父任务已终止失败、没有任何子结果持有文件或处于活动/成功状态、且任务没有真实费用时才发送请求。
 - `jubian_media` 把一个提供方媒体下载到 `output_path`，返回路径、探测出的媒体类型、字节数与 sha256。它绝不把字节放进结果：几十 MB 的 base64 会污染之后每一次请求。
 

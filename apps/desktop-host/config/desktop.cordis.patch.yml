@@ -13,10 +13,6 @@
 # knows the runtime directory holding them. The product therefore imports none of the base bundle's
 # DSH user modes, and those shipped rows are disabled below because a deployment upgrade must not
 # shadow a product preset of the same id.
-- id: agent-preset-registry
-  config:
-    default: short-drama
-
 # The base bundle ships one row per native coding mode. The product replaces all four ids with its
 # own adapted compositions under `presets/`, so leaving these active would both shadow those rows
 # and mount a second filesystem skill provider — the shipped `cordis`, `standard`, and `ptc`
@@ -102,6 +98,7 @@
       name: '@deepseek-ai/dsh-muse-account'
       config:
         baseUrl: !!js process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'
+        excludedModelPrefixes: [gpt-, chatgpt-, o1, o3, o4]
 
     - id: ui-muse-account
       name: '@deepseek-ai/dsh-client-ui-muse-account'

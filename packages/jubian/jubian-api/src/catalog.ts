@@ -92,6 +92,33 @@ export function readEpisodes(data: unknown): { total: number; rows: { episode_id
   })
 }
 
+/**
+ * Read storyboard identities without requiring saved generation settings.
+ * @param data - Envelope data from `/aigc/storyboard/list`.
+ * @param scriptId - Requested project; a row from another project is rejected.
+ * @returns One page; an absent total remains unknown and an unbound episode remains null.
+ */
+export function readStoryboardPage(data: unknown, scriptId: number): {
+  total: number | null
+  rows: { storyboard_id: number; script_id: number; episode_id: number | null; name: string | null }[]
+} {
+  return readPayload('readStoryboardPage', data, () => {
+    if (!data || typeof data !== 'object') invalid()
+    const record = Array.isArray(data) ? { rows: data } : data as Record<string, unknown>
+    const total = record.total === undefined ? null : optionalCount(record.total)
+    if (record.total !== undefined && total === null) invalid()
+    const items = rows(record.rows ?? record.list).map((item) => {
+      const project = positiveInteger(item.scriptId)
+      if (project !== scriptId) invalid()
+      return { storyboard_id: positiveInteger(item.id), script_id: project,
+        episode_id: item.episodeId == null ? null : positiveInteger(item.episodeId),
+        name: optionalText(item.storyboardName) }
+    })
+    if (total !== null && total < items.length) invalid()
+    return { total, rows: items }
+  })
+}
+
 /** One screenplay row as `/aigc/script/list` and `/script/center/pool/list` return it. */
 export interface ScriptRow {
   /** Provider identity of the screenplay, which every later call addresses it by. */

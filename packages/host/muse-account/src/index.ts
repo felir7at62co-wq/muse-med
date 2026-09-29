@@ -32,6 +32,8 @@ export interface Config {
   readonly baseUrl: string
   /** Interval for refreshing the account model catalog, in milliseconds. */
   readonly modelRefreshMs: number
+  /** Model ID prefixes excluded from the account-supplied catalog. */
+  readonly excludedModelPrefixes: string[]
   /** Product-private account directory; omission selects the active DSH home. */
   readonly accountHome?: string
   /** Timeout for account and knowledge-base gateway requests in milliseconds. */
@@ -44,6 +46,7 @@ export interface Config {
 export const Config: Schema<Config> = Schema.object({
   baseUrl: Schema.string().required(),
   modelRefreshMs: Schema.number().step(1).min(10_000).max(3_600_000).default(60_000),
+  excludedModelPrefixes: Schema.array(Schema.string()).default([]),
   accountHome: Schema.string(),
   requestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(15_000),
   asrRequestTimeoutMs: Schema.number().step(1).min(10_000).max(1_800_000).default(300_000),
@@ -65,7 +68,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     gateway: createMuseAccountGateway(baseUrl, config.requestTimeoutMs),
   })
   const asr = new MuseAsrClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.asrRequestTimeoutMs })
-  const models = new MuseModels(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs })
+  const models = new MuseModels(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs,
+    excludedModelPrefixes: config.excludedModelPrefixes })
   ctx.effect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
     let closed = false

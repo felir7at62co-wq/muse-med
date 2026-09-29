@@ -133,7 +133,7 @@ describe('tool-jubian registration', () => {
     // The storyboard-native channel is the only normal subject-video path, so its
     // three methods and their arguments must be visible in the schema.
     expect((storyboard.properties as Record<string, { enum?: string[] }>).method!.enum)
-      .toEqual(['get', 'create', 'save', 'generate', 'select_assets', 'prepare_video', 'submit_video',
+      .toEqual(['list', 'get', 'create', 'create_batch', 'save', 'generate', 'select_assets', 'prepare_video', 'submit_video',
         'submit_video_batch', 'erase_subtitle'])
     expect((storyboard.properties as Record<string, Record<string, unknown>>).selections!).toMatchObject(
       { type: 'array',

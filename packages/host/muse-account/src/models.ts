@@ -25,6 +25,7 @@ export interface MuseModelsOptions {
   readonly sessionFile: string
   readonly requestTimeoutMs: number
   readonly fetcher?: typeof fetch
+  readonly excludedModelPrefixes?: readonly string[]
 }
 
 /** Own only Muse registrations; custom provider settings and credentials are never rewritten. */
@@ -116,12 +117,14 @@ export class MuseModels {
     for (const provider of data.providers) {
       const id = `muse-cloud-${provider.id}`
       if (Object.hasOwn(providers, id)) throw new MuseGatewayError('gateway-rejected')
-      if (!provider.models.length) continue
+      const allowedModels = provider.models.filter(model => !(this.options.excludedModelPrefixes ?? [])
+        .some(prefix => model.id.toLowerCase().split('/').at(-1)?.startsWith(prefix.toLowerCase())))
+      if (!allowedModels.length) continue
       providers[id] = {
         displayName: `Muse · ${provider.name}`, api: 'openai-completions',
         baseURL: `${this.options.baseUrl}/api/desktop-models/${provider.id}`,
         headers: { origin: this.options.baseUrl },
-        models: provider.models.map(model => ({ ...model,
+        models: allowedModels.map(model => ({ ...model,
           compat: { supportsReasoningEffort: model.reasoningEfforts !== false } })),
         compat: { supportsStore: false, supportsDeveloperRole: false, maxTokensField: 'max_tokens',
           ...(provider.id === 'deepseek-official' ? { thinkingFormat: 'deepseek' as const } : {}) },

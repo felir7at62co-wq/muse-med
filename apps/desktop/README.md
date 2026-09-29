@@ -131,7 +131,7 @@ The [native/renderer keyboard tests](tests/keyboard.spec.ts) compile in [their o
 
 ### Startup onboarding
 
-Muse opens the workspace after Host readiness. On a blank first run, the Web client offers MUSE account sign-in, then checks for a usable model provider. The account grants access to the MUSE knowledge base and cloud speech service; model credentials are configured separately in Models settings. Sign in later and Configure later leave those settings available from the sidebar. A missing model opens a prompt with a direct Models settings action. Existing provider credentials complete the check without another prompt.
+Muse opens the workspace after Host readiness. On a blank first run, the Web client offers MUSE account sign-in, then checks for a usable model provider. The account loads the website model catalog and authorizes model requests, knowledge-base access, and cloud speech. Muse-supplied GPT models are excluded on Desktop; custom providers and Codex remain available. Product preset defaults are a bundle layer below user settings, so changing the default preset persists across restart. Sign in later and Configure later leave those settings available from the sidebar. A missing model opens a prompt with a direct Models settings action. Existing provider credentials complete the check without another prompt.
 
 The primary sidebar account entry opens MUSE account settings. The DeepSeek Platform account and balance launcher, its illustrated first-run dialog, and the native DeepSeek credential welcome window are not shown in Muse. DeepSeek sign-out or session expiry does not hide the workspace. Models settings retains provider API-key configuration, including DeepSeek Official.
 

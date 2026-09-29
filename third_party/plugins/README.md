@@ -19,6 +19,8 @@ Each tarball retains its upstream license and Codex notices, adds the bundled He
 
 The Codex staged-runtime overlay records its changes in `SOURCE.json`: subtask inspection and preparation accept only provider `0.1.7-rc.4`, and the CLI remains pinned to `0.153.4`. It resolves the CLI manifest and wrapper under `app.asar.unpacked` when packaged. Retained upstream files remain unchanged; unexpected source text fails the overlay rather than silently skipping it.
 
+The Desktop panel also lists runtime-registered MCP tools as read-only connections. The built-in `muse-account` connection is labeled Muse knowledge base and reports its registered tool count. The compatibility overlay never copies credentials, environment values, or private launch arguments into the listing.
+
 ## Compatibility and Desktop integration
 
 `dsh-skill-mcp-panel` is pinned to upstream 2.1.2. Its Web sidebar manages Skills and MCP server configuration for the active profile. The bundled artifact does not expose the upstream `dsh-panel` executable: Desktop launches supported Node applications only through `dsh` profiles. The panel's gateway configures MCP connections; the actual MCP client remains `@deepseek-ai/dsh-mcp-client`. Its retained model, gateway, slot, and icon checks run during the isolated build.

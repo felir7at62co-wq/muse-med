@@ -81,7 +81,7 @@ function seedPlugin(manager: DesktopProjectManager): void {
 const BUILT_IN_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
   'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@moyu-good/dsh-lark-bridge',
-  '@deepseek-ai/dsh-feishu-settings',
+  '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host',
 ] as const
 /** Bundle list stored in a profile manifest file. */
 function storedBundles(manifestPath: string): string[] {

@@ -111,3 +111,15 @@ it('selects the first Muse model through real Loader settings and preserves a cu
   expect(fixture.ctx.agentDefaultModel.currentSelection()).toMatchObject({ provider: 'personal', model: 'private-model' })
   models.dispose()
 })
+
+it('excludes supplied GPT models while leaving custom adapters available', async () => {
+  await login()
+  const provider = catalog.providers[0]!
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    excludedModelPrefixes: ['gpt-', 'chatgpt-', 'o1', 'o3', 'o4'],
+    fetcher: async () => Response.json({ providers: [{ ...provider, models: [provider.models[0],
+      { ...provider.models[0], id: 'openai/GPT-5' }, { ...provider.models[0], id: 'o3' }] }] }) })
+  await models.refresh()
+  expect((await ctx.llm.listModels('muse-cloud-studio')).map(model => model.id)).toEqual(['writer'])
+  expect(ctx.llm.listProviders().map(provider => provider.id)).toContain('personal')
+})

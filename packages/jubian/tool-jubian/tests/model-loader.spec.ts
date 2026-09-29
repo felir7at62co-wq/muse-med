@@ -31,6 +31,7 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
         { id: 91, ratio: '9:16', resolution: '720p', genNum: 1 },
         { id: 92, ratio: '9:16', resolution: '1080p', genNum: 1 },
       ] }]
+    else if (path.includes('/aigc/storyboard/list?')) data = { rows: [board], total: 1 }
     else if (init?.method === 'PUT') {
       if (typeof init.body !== 'string') throw new Error('Expected JSON request body')
       board = JSON.parse(init.body) as typeof board; data = null
@@ -74,6 +75,13 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
     expect(validateJsonSchemaValue(tool.parameters, args, '')).toEqual([])
     expect(validateJsonSchemaValue(tool.parameters, { ...args, changes: { prompt: 'replace' } }, '')).not.toEqual([])
     const runContext = { signal: new AbortController().signal } as ToolRunContext
+    const storyboard = ctx.tools.get('jubian_storyboard')
+    if (!storyboard) throw new Error('Missing jubian_storyboard')
+    const listArgs = { method: 'list', script_id: 2708 }
+    expect(validateJsonSchemaValue(storyboard.parameters, listArgs, '')).toEqual([])
+    const listed = await storyboard.execute(listArgs, runContext) as JsonValue
+    expect(storyboard.output.render(listArgs, listed)).toMatchSnapshot('read-only storyboard page')
+    expect(storyboard.parameters).toMatchSnapshot('storyboard creation and discovery schema')
     const plan = await tool.execute(args, runContext) as Record<string, unknown>
     expect(calls.every(method => method === 'GET')).toBe(true)
     const applyArgs = { method: 'apply', script_id: 2708, project_dir: root,

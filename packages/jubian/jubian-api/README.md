@@ -32,7 +32,7 @@ Import the library from any package that already holds a Jubian response envelop
 
 Choose this library when you read or submit Jubian business data and you do not want to re-derive the provider's wire shape. It is a dependency, not a composition row: it registers no Cordis service, tool, prompt section, or session event, so nothing mounts it and no `cordis.yml` entry exists for it. Reach for it from a plugin or a test that owns the transport itself. Reach for `@deepseek-ai/dsh-tool-jubian` instead when a model should call Jubian through tools.
 
-Every reader takes one argument: the `data` field of a Jubian response envelope, through `JubianResponse.data`. The transport returns that field untouched, and this library is what gives it a type.
+Readers take the `data` field of a Jubian response envelope, through `JubianResponse.data`; `readStoryboardPage(data, scriptId)` additionally checks each row against the requested project. It returns bounded identity rows without requiring generation settings, preserves missing totals and episode bindings as null, and accepts empty pages. The transport returns that field untouched, and this library is what gives it a type.
 
 ### Smallest working call
 

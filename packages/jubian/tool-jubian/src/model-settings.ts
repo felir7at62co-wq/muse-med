@@ -173,10 +173,19 @@ async function readBoard(client: JubianClient, scriptId: number, storyboardId: n
   return board
 }
 function targetOf(board: Row, catalogue: unknown, changes: Row): Target {
+  const storyboardId = id(board.id)
+  if (board.episodeId === null || board.episodeId === undefined) {
+    fail(`storyboard ${storyboardId} 缺少 episodeId；用 jubian_catalog episodes 查询当前项目的真实分集 ID，修复该分镜归属后重新 preview。不要更换项目配置来排查。`)
+  }
   const before = configOf(board)
   const intent = { ...before, ...changes }
   if (changes.modelId !== undefined && changes.modelId !== before.modelId && changes.platformId === undefined) {
     delete intent.platformId
+  }
+  const missing = ['modelId', 'ratio', 'resolution', 'genType', 'duration', 'genNum']
+    .filter(key => intent[key] === undefined || intent[key] === null)
+  if (missing.length) {
+    fail(`storyboard ${storyboardId} 未保存 ${missing.join('/')}；请在 changes 补齐。duration 按该包实际内容与收束时长确定；不同包可分别 preview。仅查询分镜请用 jubian_storyboard list/get。`)
   }
   const after = resolveVideoModel(catalogue, intent)
   return { storyboard_id: id(board.id), episode_id: id(board.episodeId), before_hash: hash(snapshot(board)),

@@ -2243,6 +2243,8 @@ export interface Config {
   readonly baseUrl: string
   /** Interval for refreshing the account model catalog, in milliseconds. */
   readonly modelRefreshMs: number
+  /** Model ID prefixes excluded from the account-supplied catalog. */
+  readonly excludedModelPrefixes: string[]
   /** Product-private account directory; omission selects the active DSH home. */
   readonly accountHome?: string
   /** Timeout for account and knowledge-base gateway requests in milliseconds. */
@@ -3988,6 +3990,10 @@ export interface Config extends ImageRouteConfig {
   videoBatchConcurrency?: number
   /** Maximum distinct storyboard previews in one paid batch; integer 1..100, default 100. */
   videoBatchMaxItems?: number
+  /** Maximum concurrent free storyboard POSTs; integer 1..8, default 4. */
+  storyboardBatchConcurrency?: number
+  /** Maximum prepared storyboard bodies per call; integer 1..1000, default 1000. */
+  storyboardBatchMaxItems?: number
   /**
    * Separator between the segments of a composed asset name; defaults to `｜`.
    * Applies only to names this row composes from an `episode` argument — a caller

@@ -85,7 +85,7 @@ const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
 const DESKTOP_PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
   'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@moyu-good/dsh-lark-bridge',
-  '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel',
+  '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host',
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\nstrictDepBuilds: true\n'
@@ -396,7 +396,7 @@ export class DesktopProjectManager {
    * @returns the backup path after the locked profile write, or undefined when no patch existed.
    */
   async disableAllPlugins(): Promise<string | undefined> {
-    return this.withLock(async () => sanitizeProfile('dsh', this.paths.profile, DESKTOP_PROFILE_BUNDLES))
+    return this.withLock(() => sanitizeProfile('dsh', this.paths.profile, DESKTOP_PROFILE_BUNDLES))
   }
 
   /** Modify the current profile while its backend is stopped; failures retain partial changes. */

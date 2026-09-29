@@ -40,6 +40,7 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | Field | Default | Meaning |
 |---|---|---|
 | `baseUrl` | Required | HTTPS gateway origin; loopback HTTP is allowed for a local gateway. |
+| `excludedModelPrefixes` | `[]` | Case-insensitive model ID prefixes omitted from account-supplied models; custom providers are unaffected. |
 | `modelRefreshMs` | 60,000 | Model catalog refresh interval in milliseconds, from 10,000 to 3,600,000. |
 | `accountHome` | Active DSH home | Absolute directory containing this product's account session file. |
 | `requestTimeoutMs` | 15,000 | Account and KB access request timeout in milliseconds, from 1,000 to 120,000. |

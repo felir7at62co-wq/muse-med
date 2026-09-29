@@ -575,6 +575,52 @@ describe('jubian_video', () => {
 })
 
 describe('jubian_storyboard', () => {
+  it('submits prepared storyboard bodies concurrently and keeps replay keys per item', async () => {
+    let active = 0
+    let peak = 0
+    let posted = 0
+    let release: (() => void) | undefined
+    const { client, calls } = stubClient(async () => {
+      active++; peak = Math.max(peak, active)
+      if (active === 2) { release?.(); release = undefined }
+      else await new Promise<void>((resolve) => { release = resolve })
+      active--; return 100 + posted++
+    })
+    const args: MethodArgs = { method: 'create_batch', script_id: 2708,
+      storyboards: Array.from({ length: 4 }, (_, i) => ({ idempotency_key: `board-${i}`,
+        body: { scriptId: 2708, episodeId: 9, storyboardName: `EP01-P${i + 1}`, sortOrder: i,
+          modelConfig: JSON.stringify({ prompt: '@[主角](lead) 走进房间', duration: 8 }) } })) }
+    const deps = { storyboardBatch: { concurrency: 2, maxItems: 10 } }
+    const result = await storyboardMethod(client, ledger, args, deps)
+    expect(peak).toBe(2)
+    expect(result).toMatchObject({ total: 4, returned: 4, errors: 0 })
+    expect(calls).toHaveLength(4)
+    expect(calls.every(call => call.body?.isGenerate === 0)).toBe(true)
+    await storyboardMethod(client, ledger, args, deps)
+    expect(calls).toHaveLength(4)
+  })
+
+  it('checks every create body before writing any storyboard', async () => {
+    const { client, calls } = stubClient(() => 1)
+    await expect(storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708,
+      storyboards: [0, 1].map(i => ({ idempotency_key: `bad-${i}`, body: {
+        scriptId: 2708, episodeId: 9, storyboardName: `P${i}`, sortOrder: i,
+        modelConfig: JSON.stringify(i ? {} : { prompt: 'ready' }) } })) }))
+      .rejects.toThrow('modelConfig.prompt')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('lists an empty project without model settings, local project files or writes', async () => {
+    const { client, calls } = stubClient(() => ({ rows: [], total: 0 }))
+    expect(await storyboardMethod(client, ledger, { method: 'list', script_id: 2708 }))
+      .toMatchObject({ storyboards: { rows: [], total: 0 }, page_num: 1 })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({ method: 'GET' })
+    expect(calls[0]!.path).toContain('/aigc/storyboard/list?scriptId=2708&pageNum=1&pageSize=20')
+    expect(await ledger.records()).toEqual([])
+  })
+
   it('reads the snapshot with the requested identity', async () => {
     const { client, calls } = stubClient(() => STORYBOARD)
     const result = await storyboardMethod(client, ledger, { method: 'get', storyboard_id: 916953 })

@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
+import { applyMcpDesktopCompatibility, mcpDesktopCompatibility } from './compatibility/mcp-desktop.mjs'
 import { applyLarkDesktopCompatibility, larkDesktopCompatibility } from './compatibility/lark-desktop.mjs'
 
 const sourceRoot = import.meta.dirname
@@ -70,6 +71,7 @@ for (const name of values.only ? [values.only] : Object.keys(pins)) {
     const modules = join(directory, 'node_modules')
     linkDependencies(modules, links)
     if (name === 'dsh-lark-bridge') applyLarkDesktopCompatibility(directory)
+    if (name === 'dsh-skill-mcp-panel') applyMcpDesktopCompatibility(directory)
     const tsc = join(toolchain, 'node_modules/typescript/bin/tsc')
     const tsdown = join(toolchain, 'node_modules/tsdown/dist/run.mjs')
     if (name === 'dsh-codex-subscription') {
@@ -124,6 +126,8 @@ export function codexFilesystemPath(value) {
       run(['--test', '--test-concurrency=1', '.muse-lark.test.mjs'], directory)
     }
     if (name === 'dsh-skill-mcp-panel') {
+      cpSync(join(sourceRoot, 'checks/mcp-desktop-runtime.mjs'), join(directory, '.muse-mcp.test.mjs'))
+      run(['--test', '.muse-mcp.test.mjs'], directory)
       run(['--test', '--test-concurrency=1', 'test-panel-slots.mjs', 'test-mcp-model.mjs', 'test-mcp-gateway.mjs', 'test-host-icons.mjs'], directory)
     }
     manifest.scripts = {}
@@ -147,7 +151,8 @@ export function codexFilesystemPath(value) {
       compatibilityOverlay: name === 'dsh-codex-subscription'
         ? { subagentRuntimeVersion: hostVersion, codexCliVersion: '0.153.4', codexAsarUnpack: true }
         : name === 'dshmarket' ? { catalogExport: './catalog' }
-          : name === 'dsh-lark-bridge' ? larkDesktopCompatibility : undefined,
+          : name === 'dsh-lark-bridge' ? larkDesktopCompatibility
+            : name === 'dsh-skill-mcp-panel' ? mcpDesktopCompatibility : undefined,
       toolchainLockSha256: createHash('sha256').update(readFileSync(join(toolchain, 'pnpm-lock.yaml'))).digest('hex'),
     }, null, 2)}\n`)
     manifest.files = [...new Set([...(manifest.files ?? []), 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'BUNDLED_LICENSES.md', 'SOURCE.json'])]

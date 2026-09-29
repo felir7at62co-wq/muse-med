@@ -18,6 +18,7 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
   'lib/editing-tools.js',
   'config/desktop.cordis.patch.yml',
+  'config/defaults.cordis.patch.yml',
   'presets/short-drama/agent.cordis.yml',
   'presets/short-drama/preset.yml',
   'lib/native-preset.js',

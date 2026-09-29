@@ -18,7 +18,7 @@ import { JubianError } from '@deepseek-ai/dsh-jubian'
 import {
   MODEL_TASK_TYPES as TASKS, FAILED_STATUSES, SUCCESS_STATUSES, buildImageRequest, buildSubtitleEraseRequest,
   buildVideoUpscaleRequest, downloadMedia, readAssetList, readAssetPage, readEpisodes, readGeneratedImage,
-  readImageDisplayPrice, readMaterialList, readModels, readScript, readStoryboard, readSubtaskPage,
+  readImageDisplayPrice, readMaterialList, readModels, readScript, readStoryboard, readStoryboardPage, readSubtaskPage,
   readTaskList, readTaskPage, readSubtitleTaskId, readUpscaleTaskId, needsUpscale, resolveImageModel,
   validateImageRequestInput,
   withGenerationDisabled, withGenerationEnabled,
@@ -40,6 +40,8 @@ export type { WriteOutcome } from './write.ts'
 /** Arguments as the tool layer receives them, already schema-validated. */
 export interface MethodArgs {
   method: string
+  /** Independently keyed, fully prepared free storyboard creations for one project. */
+  storyboards?: { idempotency_key: string; body?: Record<string, unknown>; body_path?: string }[]
   /** `jubian_model preview`: exact remote scope and partial model intent. */
   scope?: 'storyboards' | 'episodes' | 'project'
   storyboard_ids?: number[]
@@ -154,6 +156,24 @@ export function resolveImageBatchOptions(config: {
   return { concurrency, maxItems }
 }
 
+/**
+ * Resolve free storyboard batch limits before registering the tool.
+ * @param config - Deployment concurrency and request-count limits.
+ * @returns Validated bounds; all items are prepared before any remote write.
+ */
+export function resolveStoryboardBatchOptions(config: {
+  storyboardBatchConcurrency?: number
+  storyboardBatchMaxItems?: number
+} = {}): ImageBatchOptions {
+  const concurrency = config.storyboardBatchConcurrency ?? 4
+  const maxItems = config.storyboardBatchMaxItems ?? 1000
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 8
+    || !Number.isSafeInteger(maxItems) || maxItems < 1 || maxItems > 1000) {
+    throw new JubianError('INVALID_ARGUMENT', 'storyboardBatchConcurrency must be 1..8 and storyboardBatchMaxItems must be 1..1000')
+  }
+  return { concurrency, maxItems }
+}
+
 /** One provider response, as the transport returns it. */
 type ClientResponse = JubianResponse
 
@@ -192,6 +212,8 @@ export interface MethodDeps {
   imageBatch?: ImageBatchOptions
   /** Bounded paid storyboard submission after a whole-batch preflight. */
   videoBatch?: VideoBatchOptions
+  /** Resolved concurrency and size limits for free storyboard creation. */
+  storyboardBatch?: ImageBatchOptions
   /** Batch submission returns before asset polling so every item can start promptly. */
   deferImageReadback?: boolean
 }
@@ -867,6 +889,77 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
   args: MethodArgs, deps: MethodDeps = {}): Promise<Record<string, unknown>> {
   const storyboardId = (): number => need(args.storyboard_id)
   switch (args.method) {
+    case 'create_batch': {
+      const limits = deps.storyboardBatch ?? resolveStoryboardBatchOptions()
+      const scriptId = positiveInteger(need(args.script_id, 'script_id'))
+      const items = need(args.storyboards, 'storyboards')
+      if (!items.length || items.length > limits.maxItems) {
+        throw new JubianError('INVALID_ARGUMENT', `storyboards must contain 1..${limits.maxItems} items`)
+      }
+      const prepared: { key: string; body: Record<string, unknown> }[] = []
+      const keys = new Set<string>()
+      const targets = new Set<string>()
+      for (const [index, item] of items.entries()) {
+        const key = requireKey(item.idempotency_key)
+        if (keys.has(key)) throw new JubianError('INVALID_ARGUMENT', 'Duplicate storyboard idempotency_key')
+        keys.add(key)
+        if ((item.body === undefined) === (item.body_path === undefined)) {
+          throw new JubianError('INVALID_ARGUMENT', `storyboards[${index}] requires exactly one body or body_path`)
+        }
+        const raw: unknown = item.body_path === undefined ? structuredClone(item.body)
+          : JSON.parse(await readFile(resolve(item.body_path), 'utf8'))
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new JubianError('INVALID_ARGUMENT', 'Invalid storyboard body')
+        const body = raw as Record<string, unknown>
+        if (positiveInteger(body.scriptId) !== scriptId) throw new JubianError('INVALID_ARGUMENT', 'Storyboard belongs to another project')
+        const episode = positiveInteger(body.episodeId)
+        if (typeof body.storyboardName !== 'string' || !body.storyboardName.trim()
+          || typeof body.sortOrder !== 'number' || !Number.isSafeInteger(body.sortOrder) || body.sortOrder < 0) {
+          throw new JubianError('INVALID_ARGUMENT', 'Storyboard requires storyboardName and nonnegative integer sortOrder')
+        }
+        const target = `${episode}:${body.storyboardName}`
+        if (targets.has(target)) throw new JubianError('INVALID_ARGUMENT', 'Duplicate storyboard name within episode')
+        targets.add(target)
+        const model: unknown = typeof body.modelConfig === 'string' ? JSON.parse(body.modelConfig) : body.modelConfig
+        if (!model || typeof model !== 'object' || Array.isArray(model)
+          || typeof (model as Record<string, unknown>).prompt !== 'string'
+          || !String((model as Record<string, unknown>).prompt).trim()) {
+          throw new JubianError('INVALID_ARGUMENT', `storyboards[${index}] requires modelConfig.prompt; a top-level prompt is not saved`)
+        }
+        prepared.push({ key, body: { ...body, isGenerate: 0 } })
+      }
+      const results: Record<string, unknown>[] = Array.from({ length: prepared.length }, () => ({}))
+      let cursor = 0
+      const worker = async (): Promise<void> => {
+        for (;;) {
+          const index = cursor++
+          const item = prepared[index]
+          if (item === undefined) return
+          const identity = { index, idempotency_key: item.key, storyboard_name: item.body.storyboardName }
+          try {
+            const result = await writeUnderLedger(ledger, item.key, 'storyboard_create', () => item.body,
+              body => client.request({ method: 'POST', path: '/aigc/storyboard', body: need(body) }),
+              undefined, { scriptId, verifyReplayBody: true })
+            results[index] = { ...identity, status: 'returned', ...result }
+          } catch (error) {
+            results[index] = { ...identity, status: 'error', outcome: 'reconcile_required',
+              error: error instanceof Error ? error.message : 'Storyboard creation failed' }
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(limits.concurrency, prepared.length) }, () => worker()))
+      const errors = results.filter(row => row.status === 'error').length
+      return { script_id: scriptId, total: results.length, returned: results.length - errors, errors, results,
+        next: '整批创建免费，不生成。逐项按返回 ID get 回读 model_config.prompt 与分集归属，再选材；returned 不代表校验完成。未知结果先 list/get 对账，保留原 key，不能换 key 重建。' }
+    }
+
+    case 'list': {
+      const scriptId = positiveInteger(need(args.script_id, 'script_id'))
+      const result = await client.request({ method: 'GET',
+        path: `/aigc/storyboard/list?scriptId=${scriptId}&${page(args)}` })
+      return { storyboards: readStoryboardPage(result.data, scriptId), page_num: args.page_num ?? 1,
+        page_size: args.page_size ?? 20,
+        next: '按 total 与分页读取当前项目；total 未返回时继续到空页。get 读取指定分镜详情；空项目可直接 create，无需模型配置或手工样本。' }
+    }
     case 'get': {
       const result = await client.request({ method: 'GET', path: `/aigc/storyboard/${storyboardId()}` })
       return { storyboard: readStoryboard(result.data, storyboardId()) }

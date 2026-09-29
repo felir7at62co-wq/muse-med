@@ -1,0 +1,197 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`loads model preview/apply, renders free outcomes, and disposes registration > read-only storyboard page 1`] = `
+[
+  {
+    "text": "{
+  "storyboards": {
+    "total": 1,
+    "rows": [
+      {
+        "storyboard_id": 1,
+        "script_id": 2708,
+        "episode_id": 9,
+        "name": null
+      }
+    ]
+  },
+  "page_num": 1,
+  "page_size": 20,
+  "next": "按 total 与分页读取当前项目；total 未返回时继续到空页。get 读取指定分镜详情；空项目可直接 create，无需模型配置或手工样本。"
+}",
+    "type": "text",
+  },
+]
+`;
+
+exports[`loads model preview/apply, renders free outcomes, and disposes registration > storyboard creation and discovery schema 1`] = `
+{
+  "properties": {
+    "body": {
+      "additionalProperties": true,
+      "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；在提示词开头按素材顺序各写一次 @[素材名](material_key)，后续 selections 使用相同 key 和顺序。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。主体素材后续用 select_assets 写入；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
+      "type": "object",
+    },
+    "body_path": {
+      "description": "create 与 body 二选一：按 body 的字段说明生成并检查的本地 UTF-8 JSON 文件路径；一包一份请求体。",
+      "type": "string",
+    },
+    "content_duration_ms": {
+      "description": "generate 必填：本包内容时长，4000–14000 的整千毫秒。",
+      "type": "number",
+    },
+    "episode": {
+      "description": "可选：集号（\`5\` 与 \`05\` 都规范成 \`EP05\`）或配置的跨集母版标记（默认「全剧」）。给了它，资产名会按规范组合成 \`EP05｜角色｜陆沉舟\`，处理任务名会加上 \`EP05-P3-\` 这样的可排序前缀；不给就完全按调用方原样使用 asset_name / task_name。",
+      "type": "string",
+    },
+    "idempotency_key": {
+      "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。",
+      "type": "string",
+    },
+    "method": {
+      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=存为不生成；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；erase_subtitle=去字幕（计费、异步）。",
+      "enum": [
+        "list",
+        "get",
+        "create",
+        "create_batch",
+        "save",
+        "generate",
+        "select_assets",
+        "prepare_video",
+        "submit_video",
+        "submit_video_batch",
+        "erase_subtitle",
+      ],
+      "type": "string",
+    },
+    "model_id": {
+      "description": "erase_subtitle 必填：quzimuToB（羽点，区域性）或 ark-erase-video-subtitle-pro（自动）。插件不设默认值——省略即在发请求前报错，不会替你挑一个模型。",
+      "type": "string",
+    },
+    "package_number": {
+      "description": "erase_subtitle / upscale 可选：本集内的包号，配合 episode 生成 \`EP05-P3\` 前缀。",
+      "type": "string",
+    },
+    "page_num": {
+      "description": "页码，默认 1。",
+      "type": "number",
+    },
+    "page_size": {
+      "description": "每页条数，默认 20，上限 1000。",
+      "type": "number",
+    },
+    "preview_path": {
+      "description": "submit_video 必填：prepare_video 返回的 preview_path，不要猜测或手写文件名。",
+      "type": "string",
+    },
+    "project_dir": {
+      "description": "prepare_video 必填、submit_video 可选：项目目录，必须含 project_config.json，且其 jubian_script_id 必须等于实时 scriptId。",
+      "type": "string",
+    },
+    "script_id": {
+      "description": "剧变项目 ID（scriptId）。erase_subtitle 与 upscale 从任务行读取它，不必单独提供；其余方法按上面的必填说明传入。",
+      "type": "number",
+    },
+    "selections": {
+      "description": "select_assets 必填：有序的 (material_key, 父 asset_id) 列表，顺序必须与提示词里的 key 顺序完全一致。",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": {
+            "description": "主体设定行的父资产 ID（materials 返回的 asset_id）。",
+            "type": "number",
+          },
+          "material_key": {
+            "description": "提示词里 @[名称](key) 的 key。",
+            "type": "string",
+          },
+        },
+        "required": [
+          "material_key",
+          "asset_id",
+        ],
+        "type": "object",
+      },
+      "type": "array",
+    },
+    "storyboard_id": {
+      "description": "分镜 ID。",
+      "type": "number",
+    },
+    "storyboards": {
+      "description": "create_batch 必填：先写好并检查全部包的提示词与 body，再一次传入整批。每项独立 key、body 或 body_path；默认最多 1000 项，并发 4 项提交，无需等待逐项完成。字段见 body。",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": true,
+            "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；在提示词开头按素材顺序各写一次 @[素材名](material_key)，后续 selections 使用相同 key 和顺序。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。主体素材后续用 select_assets 写入；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
+            "type": "object",
+          },
+          "body_path": {
+            "description": "create 与 body 二选一：按 body 的字段说明生成并检查的本地 UTF-8 JSON 文件路径；一包一份请求体。",
+            "type": "string",
+          },
+          "idempotency_key": {
+            "description": "本项固定重放键；不得重复。",
+            "type": "string",
+          },
+        },
+        "required": [
+          "idempotency_key",
+        ],
+        "type": "object",
+      },
+      "type": "array",
+    },
+    "subtitle_box": {
+      "additionalProperties": true,
+      "description": "erase_subtitle 可选：{zimuLeft,zimuTop,zimuWidth,zimuHeight}。省略时按画面尺寸推导提供方默认比例——通常不要传，工作台的预览坐标无法由调用方复现。",
+      "type": "object",
+    },
+    "task_id": {
+      "description": "task / subtasks 必填：视频任务 ID。",
+      "type": "number",
+    },
+    "task_name": {
+      "description": "erase_subtitle 可选：任务名，省略时按「<源任务名>-去字幕」生成。",
+      "type": "string",
+    },
+    "video_height": {
+      "description": "erase_subtitle 必填：画面高度。",
+      "type": "number",
+    },
+    "video_previews": {
+      "description": "submit_video_batch 必填：本次提交清单中同项目不同分镜的预览；先逐项预检与总预算预约，再有界并行提交。",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "description": "本项 preview 自带的 fingerprint；重放保持原 key。",
+            "type": "string",
+          },
+          "preview_path": {
+            "description": "本项 prepare_video 返回的预览文件。",
+            "type": "string",
+          },
+        },
+        "required": [
+          "preview_path",
+          "idempotency_key",
+        ],
+        "type": "object",
+      },
+      "type": "array",
+    },
+    "video_width": {
+      "description": "erase_subtitle 必填：画面宽度。",
+      "type": "number",
+    },
+  },
+  "required": [
+    "method",
+  ],
+  "type": "object",
+}
+`;

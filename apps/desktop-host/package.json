@@ -12,7 +12,8 @@
     "lib/editing-tools.js",
     "config/desktop.cordis.patch.yml",
     "presets",
-    "skills"
+    "skills",
+    "config/defaults.cordis.patch.yml"
   ],
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -60,5 +61,10 @@
     "./native-preset": "./lib/native-preset.js",
     "./editing-tools": "./lib/editing-tools.js",
     "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "config/defaults.cordis.patch.yml"
+    }
   }
 }

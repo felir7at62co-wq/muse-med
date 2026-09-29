@@ -1,0 +1,4 @@
+# Product defaults remain below user profile settings.
+- id: agent-preset-registry
+  config:
+    default: short-drama

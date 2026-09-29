@@ -14,7 +14,7 @@ afterEach(async () => {
 it('rejects a relative account directory before mounting either account component', async () => {
   const ctx = new Context()
   await expect(apply(ctx, { baseUrl: 'https://muse.example', accountHome: 'relative/account',
-    requestTimeoutMs: 15_000, asrRequestTimeoutMs: 300_000, modelRefreshMs: 60_000 }))
+    requestTimeoutMs: 15_000, asrRequestTimeoutMs: 300_000, modelRefreshMs: 60_000, excludedModelPrefixes: [] }))
     .rejects.toThrow(/accountHome must be absolute/)
   await ctx.fiber.dispose()
 })
