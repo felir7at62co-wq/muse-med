@@ -9,6 +9,7 @@ import {
 import { workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
 import type { ConversationContentProps } from '../contract/slots.ts'
 import css from './HeroShell.module.css'
+import { MusePoetry } from './MusePoetry.tsx'
 
 /** The owner's locale seat type, passed to hero chrome as a plain prop. */
 type HeroTranslate = ConversationContentProps['t']
@@ -131,10 +132,13 @@ function HeroFish({ hovering }: { hovering: boolean }) {
  */
 export function HeroShell({ t, renderSlot, children }: HeroShellProps) {
   const [hovering, setHovering] = useState(false)
+  const museDesktop = (globalThis as typeof globalThis & { dshDesktop?: { productName?: string } }).dshDesktop?.productName === 'muse-med'
   return (
     <div className={css.root}>
       <div className={css.stack}>
-        <div className={css.headline}>
+        {museDesktop ? <MusePoetry text={t('hero.poetry')} mark={renderSlot('conversation.hero.brand.mark', { size: 28, className: css.fish }, {
+          fallback: <HeroFish hovering={false} />,
+        })} /> : <div className={css.headline}>
           {/* figma 34:10412: fish 34×25 leading the headline, gap 10. */}
           <span
             className={css.fishHitbox}
@@ -154,7 +158,7 @@ export function HeroShell({ t, renderSlot, children }: HeroShellProps) {
             <span>{t('hero.headline')}</span>
             <span className={css.previewBadge}>{t('hero.preview')}</span>
           </span>
-        </div>
+        </div>}
         <div className={css.body}>
           {/* The composer remains mounted outside this component. */}
         </div>

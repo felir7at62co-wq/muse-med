@@ -1,0 +1,40 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`shows a complete static verse and responds to reduced-motion changes 1`] = `
+<div
+  class="_root_0aaf6f"
+>
+  <div
+    class="_stack_0aaf6f"
+  >
+    <span
+      class="_root_400265"
+      data-muse-poetry=""
+    >
+      <span
+        aria-hidden="true"
+        class="_row_400265"
+      >
+        <span
+          class="_line_400265"
+        >
+          <span
+            data-muse-poetry-line=""
+          >
+            你站在桥上看风景，
+          </span>
+        </span>
+      </span>
+      <span
+        aria-live="off"
+        class="_accessible_400265"
+      >
+        你站在桥上看风景，
+      </span>
+    </span>
+    <div
+      class="_body_0aaf6f"
+    />
+  </div>
+</div>
+`;
