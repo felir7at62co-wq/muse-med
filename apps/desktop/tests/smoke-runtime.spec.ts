@@ -92,7 +92,7 @@ function fixture(packaged = false) {
   writeFileSync(editingSkill.path, '# fixture')
   skills.push(editingSkill)
   for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import',
-    'novel-to-script', 'trope-adaptation', 'jubian-snatch']) {
+    'novel-to-script', 'trope-adaptation', 'jubian-snatch', 'wechat-shortdrama-harvest']) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
@@ -104,6 +104,11 @@ function fixture(packaged = false) {
   const mediaImportScript = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/media-link-import/scripts/import_media.py'))
   mkdirSync(dirname(mediaImportScript), { recursive: true })
   writeFileSync(mediaImportScript, '# fixture')
+  for (const script of ['doctor.py', 'discover.py', 'harvest.py', 'drive.py', 'finalize.py', 'win_bridge.ps1', 'ocr_bridge.ps1']) {
+    const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/wechat-shortdrama-harvest/scripts', script))
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, '# fixture')
+  }
   const agent = { preset: 'short-drama' }
   const agentCtx = {}
   const dispose = vi.fn(async () => {})
@@ -236,6 +241,14 @@ it('rejects the media import skill without its packaged script', async () => {
   const script = join(dirname(f.skills.find(skill => skill.name === 'media-link-import')!.path), 'scripts', 'import_media.py')
   rmSync(script)
   await expect(f.apply(f.ctx)).rejects.toThrow('missing shared Muse media import script')
+})
+
+it('rejects WeChat acquisition without its packaged Windows bridge', async () => {
+  const f = fixture()
+  const skill = f.skills.find(value => value.name === 'wechat-shortdrama-harvest')
+  if (!skill) throw new Error('Missing WeChat fixture')
+  rmSync(join(dirname(skill.path), 'scripts', 'win_bridge.ps1'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing WeChat helper win_bridge.ps1')
 })
 
 it('rejects extra agent-local tools in the minimal preset', async () => {
