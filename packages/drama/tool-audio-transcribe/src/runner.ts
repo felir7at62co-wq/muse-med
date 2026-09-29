@@ -314,7 +314,7 @@ async function finishParts(
     if (![join(project, 'transcript', 'jobs', `.${part.id}.mp3`), join(project, 'transcript', 'jobs', `.${part.id}.wav`)].includes(part.mp3) || part.offset !== offset || ids.has(part.id)) throw new Error('Invalid transcription part sequence')
     ids.add(part.id); offset += part.duration
   }
-  const results: MuseAsrJob[] = []
+  const results: { job: MuseAsrJob; part: AudioPart }[] = []
   for (const part of parts) {
     let job: MuseAsrJob
     try { job = await account.audioStatus(part.id) }
@@ -328,15 +328,14 @@ async function finishParts(
       job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language)
     }
     if (job.id !== part.id) throw new Error('Cloud transcription returned a different part ID')
-    results.push(job)
+    results.push({ job, part })
   }
-  const unresolved = results.some(job => ['uncertain', 'submitting'].includes(job.status))
-  const pending = results.some(job => ['processing', 'preparing'].includes(job.status))
-  const status = unresolved ? 'uncertain' : pending ? 'processing' : results.some(job => job.status === 'failed') ? 'failed'
-    : results.every(job => job.status === 'silent') ? 'silent' : 'complete'
+  const unresolved = results.some(({ job }) => ['uncertain', 'submitting'].includes(job.status))
+  const pending = results.some(({ job }) => ['processing', 'preparing'].includes(job.status))
+  const status = unresolved ? 'uncertain' : pending ? 'processing' : results.some(({ job }) => job.status === 'failed') ? 'failed'
+    : results.every(({ job }) => job.status === 'silent') ? 'silent' : 'complete'
   if (status === 'complete') {
-    const segments = results.flatMap((job, index) => {
-      const part = parts[index]
+    const segments = results.flatMap(({ job, part }) => {
       return (job.segments ?? []).map((row) => {
         if (row.end > part.duration + 0.25) throw new Error('Recognition timestamp exceeds its audio part')
         return { ...row, start: row.start + part.offset, end: row.end + part.offset,
@@ -347,7 +346,7 @@ async function finishParts(
     })
     await publish(project, receipt, segments)
   }
-  const updatedParts = parts.map((part, index) => results[index]?.retentionExpired ? { ...part, retentionExpired: true } : part)
+  const updatedParts = parts.map((part, index) => results[index]?.job.retentionExpired ? { ...part, retentionExpired: true } : part)
   await save(receiptFile, { ...receipt, status, parts: updatedParts })
   await Promise.all(updatedParts.filter(part => part.retentionExpired).map(part => rm(part.mp3, { force: true })))
   if (['complete', 'silent', 'failed'].includes(status)) await Promise.all(parts.map(part => rm(part.mp3, { force: true })))
