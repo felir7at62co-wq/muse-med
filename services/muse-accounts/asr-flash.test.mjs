@@ -132,3 +132,15 @@ test('flash uses provider language detection without unsupported request languag
  assert.equal('language' in body.request,false);assert.equal('enable_auto_lang' in body.request,false);
  }
 });
+
+test('one account can queue the next audio part while its first part is running',async t=>{
+ const entered=deferred(),release=deferred();let calls=0;
+ const env=await fixture(t,async()=>{calls++;entered.resolve();await release.promise;return {status:'silent'};});
+ try{
+  const first=await env.submit('alice');await entered.promise;
+  const second=await env.submit('alice');assert.equal(second.status,'processing');assert.equal(calls,1);
+  release.resolve();await env.service.idle();assert.equal(calls,2);
+  assert.equal((await env.service.get('alice',first.id)).status,'silent');
+  assert.equal((await env.service.get('alice',second.id)).status,'silent');
+ }finally{release.resolve();}
+});

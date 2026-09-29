@@ -28,7 +28,7 @@ kind: "package-reference"
 | `ffprobePath` | 服务器 `ffprobe`，核验真实编码和时长以执行限额。 |
 | `timeoutMs`、`signedUrlTtlSeconds` | 提供方/访问验证超时；标准版还要求仅 GET 签名 URL 有效期至少比 `maxDurationSeconds` 多一小时，且不超过七天。 |
 | `maxAudioBytes`、`maxDurationSeconds` | 上传音频最大字节数与识别时长。极速版拒绝超过 100,000,000 字节或 7,200 秒的配置；标准版时长须保持在 18,000 秒以内。 |
-| `maxDailySeconds`、`maxDailyJobs`、`maxActiveJobs` | 每账号计费上限；`maxActiveJobs` 必须是 1，使单进程网关的限额预留串行化。 |
+| `maxDailySeconds`、`maxDailyJobs`、`maxActiveJobs` | 每账号计费上限；`maxActiveJobs` 必须是 1，使单进程网关的限额预留串行化。同一账号已受理的极速版任务可以排队，并受共享并发上限约束。 |
 | `retentionSeconds`、`sweepIntervalSeconds` | 临时音频留存时间和后台清理间隔。留存至少覆盖媒体时长加一小时；使用 TOS 时不得超过签名 URL 有效期。清理间隔至少 60 秒，且不超过留存时间。 |
 
 标准版需要 TOS。上传前，网关读取桶 ACL 和策略；只接受桶所有者授权及没有 Allow 语句的策略。读取权限不足或返回结果无法核实时停止上传。对象上传显式设置 private ACL，之后匿名 GET 必须返回 403，签名分段 GET 必须成功，才提交提供方任务。检查失败会保留私有任务账本记录，但不会产生提供方计费提交。后台清理到期对象，包括状态仍不明的任务，同时保留收据；标准版任务 ID 仍可查询。账号查询状态时也会清理，网关报告留存到期后，桌面端删除对应的本地 MP3。

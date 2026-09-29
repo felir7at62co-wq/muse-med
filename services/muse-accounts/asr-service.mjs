@@ -147,7 +147,7 @@ export function createAsrService({root,storage,provider,providerKind='standard',
     if(existing&&!['preparing','failed'].includes(existing.status)){
      req.resume();if(existing.hash!==expectedHash||existing.language!==language)throw fail(409,'Idempotency key already belongs to different audio');return publicJob(existing);
     }
-    if(busy(activeKey)||waiting.some(job=>job.account===account)||[...workers.keys()].some(key=>key.startsWith(account+'\0'))) {req.resume();throw fail(429,'Too many active cloud transcription jobs');}
+    if(busy(activeKey)) {req.resume();throw fail(429,'Too many active cloud transcription jobs');}
     const occupied=new Set([...active.keys(),...workers.keys(),...waiting.map(jobKey)]).size;
     if(occupied>=maxConcurrentJobs+maxQueuedJobs){req.resume();throw fail(429,'Cloud transcription queue is full');}
    }
