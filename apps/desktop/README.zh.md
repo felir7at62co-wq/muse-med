@@ -396,3 +396,5 @@ macOS 打包在组装 App 时、代码签名前写入 `Contents/Resources/app-up
 ## 开发备注
 
 上线前 CDN 与容量决策见[桌面更新提案](../../.agents/notes/proposed/feature/2026-09-08-desktop-update-policy-and-installation.zh.md#cdn-and-capacity-qualification)。
+
+共享技能 `wechat-shortdrama-harvest` 通过用户已登录的 Windows 微信获取小程序及受支持的视频号资源，随包提供 Python 辅助脚本、OpenCV 和 SciPy。配置与私有采集状态保存在项目内本次任务的 `SHORTDRAMA_WORK` 目录，转写前核对判集结果，不覆盖内容不同的已有视频。平台兼容性和可访问集数可能不同，须报告缺集。自动采集会先归档候选文件，再进行最终核对，文件数量不能单独证明全集完整。

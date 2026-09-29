@@ -104,12 +104,17 @@ export function apply(ctx) {
       const productSkills = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills')
         .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
       for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import',
-        'novel-to-script', 'trope-adaptation', 'jubian-snatch']) {
+        'novel-to-script', 'trope-adaptation', 'jubian-snatch', 'wechat-shortdrama-harvest']) {
         const skill = skills.find(value => value.name === name)
         const expected = join(productSkills, name, 'SKILL.md')
         if (!skill?.invocation.modelInvocable || !existsSync(expected)
           || realpathSync(skill.path) !== realpathSync(expected)) {
           throw new Error('desktop runtime: missing shared Muse skill ' + name)
+        }
+      }
+      for (const script of ['doctor.py', 'discover.py', 'harvest.py', 'drive.py', 'finalize.py', 'win_bridge.ps1', 'ocr_bridge.ps1']) {
+        if (!existsSync(join(productSkills, 'wechat-shortdrama-harvest', 'scripts', script))) {
+          throw new Error('desktop runtime: missing WeChat helper ' + script)
         }
       }
       if (!existsSync(join(productSkills, 'audio-transcribe', 'scripts', 'transcribe.py'))) {

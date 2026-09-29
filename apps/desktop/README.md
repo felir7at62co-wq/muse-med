@@ -394,3 +394,5 @@ An unpackaged Electron process uses `.desktop-build/development/project` under i
 ## Dev Note
 
 Pre-launch CDN and capacity decisions are tracked in the [Desktop update proposal](../../.agents/notes/proposed/feature/2026-09-08-desktop-update-policy-and-installation.md#cdn-and-capacity-qualification).
+
+The shared `wechat-shortdrama-harvest` skill adds Windows WeChat mini-program and supported Channels acquisition through the user’s existing login. It bundles Python helpers, OpenCV, and SciPy, stores configuration and private capture state in a task-specific `SHORTDRAMA_WORK` directory under the project, and verifies episode assignments before transcription. Existing different media files are never replaced. Platform compatibility and accessible episode counts vary; report missing episodes. Automated collection can archive candidates before the final review, so file count alone does not establish completeness.

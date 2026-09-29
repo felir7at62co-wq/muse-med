@@ -33,7 +33,7 @@ def main():
                 continue
             actual = importlib.metadata.version(req.name)
             assert actual in req.specifier, (dist.metadata['Name'], declared, actual)
-    for name in ['faster_whisper', 'ctranslate2', 'av', 'onnxruntime', 'docx', 'pydub', 'pymediainfo', 'pyJianYingDraft', 'requests', 'PIL', 'zhconv']:
+    for name in ['faster_whisper', 'ctranslate2', 'av', 'onnxruntime', 'docx', 'pydub', 'pymediainfo', 'pyJianYingDraft', 'requests', 'PIL', 'zhconv', 'cv2', 'scipy']:
         module = importlib.import_module(name)
         assert Path(module.__file__).resolve().is_relative_to(expected), name
     from zhconv import convert
@@ -48,6 +48,16 @@ def main():
         assert {s['codec_type'] for s in json.loads(probe.stdout)['streams']} == {'video', 'audio'}
         subprocess.run([sys.executable, '-B', str(Path(__file__).with_name('smoke-cjk-font.py')),
                         '--ffmpeg', ffmpeg, '--fonts', str(root / 'fonts'), '--output', str(work / 'cjk')], check=True)
+        import cv2
+        from scipy.optimize import linear_sum_assignment
+        video = cv2.VideoCapture(str(work / 'smoke.mp4'))
+        try:
+            ok, frame = video.read()
+            assert ok and frame.shape[:2] == (240, 320)
+        finally:
+            video.release()
+        rows, columns = linear_sum_assignment([[5, 1], [1, 5]])
+        assert columns.tolist() == [1, 0]
         from pymediainfo import MediaInfo
         assert any(t.track_type == 'Video' for t in MediaInfo.parse(str(work / 'smoke.mp4')).tracks)
         import pyJianYingDraft as draft
