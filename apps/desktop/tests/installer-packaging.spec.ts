@@ -27,6 +27,16 @@ describe('installer preparation preserves application dependencies', () => {
     })])
   })
 
+  it('keeps nested video assets in the main Windows installer payload', async () => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const config = createElectronBuilderConfig({
+      DSH_DESKTOP_APP_ID: 'com.example.muse', DSH_DESKTOP_UNSIGNED: '1',
+      DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: 'false',
+    }, 'win32', 'x64')
+    // NSIS excludes these extensions recursively but its separate collector skips node_modules.
+    expect(config.nsis.preCompressedFileExtensions).toEqual([])
+  })
+
   it('packages Muse artwork for the About dialog and macOS icon', async () => {
     const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
     const artwork = fileURLToPath(new URL('../renderer/icon.png', import.meta.url))

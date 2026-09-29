@@ -17,7 +17,7 @@ pnpm exec node --test third_party/plugins/build.test.mjs
 
 每个压缩包保留上游许可证和 Codex 声明，按需添加所内嵌 Heroicons 的许可证，并在 `SOURCE.json` 记录上游固定版本、Host 版本及工具链锁文件摘要。产物清单禁用生命周期脚本、固定构建所用的运行时依赖版本，并仅向 DSH peer 候选增加经测试的精确 Host 版本。上游清单保持不变。Host 版本变化时，脚本拒绝构建，直到完成新的兼容性审核。
 
-Codex 临时运行时补丁在 `SOURCE.json` 记录修改：子任务检查与准备仅接受 provider `0.1.7-rc.4`，CLI 仍固定为 `0.153.4`。打包后从 `app.asar.unpacked` 解析 CLI 清单和启动文件。保留的上游文件不变；源码文本不符合预期时，补丁失败，而非静默跳过。
+Codex 临时运行时补丁在 `SOURCE.json` 记录修改：子任务检查与准备仅接受 provider `0.1.7-rc.5`，CLI 仍固定为 `0.153.4`。打包后从 `app.asar.unpacked` 解析 CLI 清单和启动文件。保留的上游文件不变；源码文本不符合预期时，补丁失败，而非静默跳过。
 
 桌面面板还会把运行时已注册的 MCP 工具列为只读连接。内置 `muse-account` 显示为 Muse 知识库，并展示已注册工具数量。兼容覆盖不会把凭据、环境变量值或私有启动参数复制到列表中。
 

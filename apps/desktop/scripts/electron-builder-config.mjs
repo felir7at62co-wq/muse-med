@@ -245,6 +245,8 @@ export function createElectronBuilderConfig(
       target: ['AppImage'],
     },
     nsis: {
+      // The separate precompressed-file collector skips node_modules, which owns bundled skill videos.
+      preCompressedFileExtensions: [],
       installerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
       uninstallerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
       include: fileURLToPath(new URL('./installer.nsh', import.meta.url)),
