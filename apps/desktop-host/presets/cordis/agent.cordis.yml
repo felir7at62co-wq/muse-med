@@ -267,7 +267,7 @@
   config:
     includeDefaultRoots: false
     customSkillDirs:
-      - !!js "process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-desktop-host/package.json')), 'presets', 'cordis', 'skills')"
+      - !!js "process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-desktop-host/package.json')), 'presets', 'cordis', 'skills').replace('app.asar' + process.getBuiltinModule('node:path').sep, 'app.asar.unpacked' + process.getBuiltinModule('node:path').sep)"
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'

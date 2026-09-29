@@ -48,10 +48,12 @@ function primaryRuntimeFixture(root: string): string {
   return resources
 }
 
-function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'desktop-product-smoke-test-'))
-  roots.push(root)
-  const home = join(root, 'home')
+function fixture(packaged = false) {
+  const temporaryRoot = mkdtempSync(join(tmpdir(), 'desktop-product-smoke-test-'))
+  roots.push(temporaryRoot)
+  const root = packaged ? join(temporaryRoot, 'resources', 'app.asar', 'dsh') : temporaryRoot
+  const unpacked = (path: string) => path.replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
+  const home = join(temporaryRoot, 'home')
   mkdirSync(home)
   const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'editing']
   const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
@@ -59,7 +61,7 @@ function fixture() {
     mkdirSync(dirname(presetPath(id)), { recursive: true })
     writeFileSync(presetPath(id), '[]')
   }
-  const skillRoot = join(root, 'node_modules/@deepseek-ai/dsh-drama-skills/skills')
+  const skillRoot = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-drama-skills/skills'))
   const skillNames = ['tweet-drama-pipeline', 'tweet-drama-core', 'tweet-drama-script-convert',
     'tweet-drama-script-split', 'tweet-drama-asset-extract', 'tweet-drama-asset-vision-check',
     'shot-script-creator-9-16', 'tweet-drama-shot-asset-match', 'tweet-drama-early-shot-script',
@@ -76,12 +78,14 @@ function fixture() {
   skills.push({ name: 'desktop-user-skill', path: customPath, invocation: { modelInvocable: true } })
   const cordisSkill = {
     name: 'editing-cordis-compositions',
-    path: join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/editing-cordis-compositions/SKILL.md'),
+    path: unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/editing-cordis-compositions/SKILL.md')),
     invocation: { modelInvocable: true },
   }
+  mkdirSync(dirname(cordisSkill.path), { recursive: true })
+  writeFileSync(cordisSkill.path, '# fixture')
   const editingSkill = {
     name: 'muse-script-editing',
-    path: join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/editing/SKILL.md'),
+    path: unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/editing/SKILL.md')),
     invocation: { modelInvocable: true },
   }
   mkdirSync(dirname(editingSkill.path), { recursive: true })
@@ -89,15 +93,15 @@ function fixture() {
   skills.push(editingSkill)
   for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import',
     'novel-to-script', 'trope-adaptation', 'jubian-snatch']) {
-    const path = join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md')
+    const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
     skills.push({ name, path, invocation: { modelInvocable: true } })
   }
-  const transcribeScript = join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/audio-transcribe/scripts/transcribe.py')
+  const transcribeScript = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/audio-transcribe/scripts/transcribe.py'))
   mkdirSync(dirname(transcribeScript), { recursive: true })
   writeFileSync(transcribeScript, '# fixture')
-  const mediaImportScript = join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/media-link-import/scripts/import_media.py')
+  const mediaImportScript = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/media-link-import/scripts/import_media.py'))
   mkdirSync(dirname(mediaImportScript), { recursive: true })
   writeFileSync(mediaImportScript, '# fixture')
   const agent = { preset: 'short-drama' }
@@ -166,7 +170,7 @@ function fixture() {
   }
   const apply = async (ctx: TestContext) => { register(ctx); await request() }
   return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names,
-    accountMcpNames, skills, skillRoot, home }
+    accountMcpNames, skills, cordisSkill, skillRoot, home }
 }
 
 it('defers preset checks until the Host-ready caller requests them', async () => {
@@ -188,6 +192,21 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(f.dispose).toHaveBeenCalledTimes(12)
   expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+})
+
+it('accepts product skills loaded from the installed ASAR unpack directory', async () => {
+  const f = fixture(true)
+  await f.apply(f.ctx)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+})
+
+it('rejects a Cordis authoring skill served from the virtual ASAR path', async () => {
+  const f = fixture(true)
+  const virtualPath = f.cordisSkill.path.replace('app.asar.unpacked', 'app.asar')
+  mkdirSync(dirname(virtualPath), { recursive: true })
+  writeFileSync(virtualPath, '# fixture')
+  f.cordisSkill.path = virtualPath
+  await expect(f.apply(f.ctx)).rejects.toThrow('cordis authoring skill is not mounted')
 })
 
 it('rejects a shared Muse skill missing from the packaged Host', async () => {

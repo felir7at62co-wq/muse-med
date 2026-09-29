@@ -102,6 +102,7 @@ export function apply(ctx) {
     const skills = await ctx.skills.list({ scope: handle.agent, cwd: home })
     if (names.has('skill')) {
       const productSkills = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills')
+        .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
       for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import',
         'novel-to-script', 'trope-adaptation', 'jubian-snatch']) {
         const skill = skills.find(value => value.name === name)
@@ -118,13 +119,21 @@ export function apply(ctx) {
         throw new Error('desktop runtime: missing shared Muse media import script')
       }
     }
-    if (id === 'cordis' && !skills.some(skill => skill.name === 'editing-cordis-compositions')) {
-      throw new Error('desktop runtime: cordis authoring skill is not mounted')
+    if (id === 'cordis') {
+      const cordisSkill = skills.find(skill => skill.name === 'editing-cordis-compositions')
+      const expected = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host',
+        'presets', 'cordis', 'skills', 'editing-cordis-compositions', 'SKILL.md')
+        .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
+      if (!cordisSkill?.invocation.modelInvocable || !existsSync(expected)
+        || realpathSync(cordisSkill.path) !== realpathSync(expected)) {
+        throw new Error('desktop runtime: cordis authoring skill is not mounted')
+      }
     }
     const editingSkill = skills.find(skill => skill.name === 'muse-script-editing')
     if (id === 'editing' && (!editingSkill
       || realpathSync(editingSkill.path) !== realpathSync(join(root, 'node_modules', '@deepseek-ai',
-        'dsh-desktop-host', 'skills', 'editing', 'SKILL.md')))) {
+        'dsh-desktop-host', 'skills', 'editing', 'SKILL.md')
+        .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')))) {
       throw new Error('desktop runtime: editing skill is not mounted')
     }
     const custom = skills.find(skill => skill.name === 'desktop-user-skill')

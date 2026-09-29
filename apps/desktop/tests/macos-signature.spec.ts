@@ -62,6 +62,7 @@ describe('desktop macOS release signature', () => {
       '**/@vscode/ripgrep-*/bin/rg',
       '**/@deepseek-ai/dsh-drama-skills/**',
       '**/@deepseek-ai/dsh-desktop-host/skills/**',
+      '**/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/**',
       '**/@openai/codex*/**',
     ]))
     expect(config.icon).toMatch(/[/\\]renderer[/\\]icon\.png$/u)

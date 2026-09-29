@@ -60,8 +60,9 @@ it.each(Object.keys(DECLARED_SKILL_PROVIDER))('declares the adapted skill provid
     expect(provider?.config?.includeDefaultRoots).toBe(false)
     expect(provider?.config?.customSkillDirs).toHaveLength(1)
     // The entry stays an unevaluated !!js expression; it names the package directory to resolve.
-    expect(String(((provider?.config?.customSkillDirs as { __jsExpr?: string }[])[0] ?? {}).__jsExpr))
-      .toContain('\'presets\', \'cordis\', \'skills\'')
+    const skillRoot = String(((provider?.config?.customSkillDirs as { __jsExpr?: string }[])[0] ?? {}).__jsExpr)
+    expect(skillRoot).toContain('\'presets\', \'cordis\', \'skills\'')
+    expect(skillRoot).toContain('app.asar.unpacked')
   }
 })
 
