@@ -29,6 +29,8 @@ Desktop mounts this plugin beside the Host `muse-account` row. Open **Settings â
 
 Set the required `feedbackUrl` to the product's HTTPS feedback page. The sidebar **Feedback** button opens that page without appending credentials. Desktop configures `/feedback` on the Muse gateway; browser sign-in is separate from the saved desktop session.
 
+Account and Feedback rows fill the expanded sidebar's available width with equal side insets. The collapsed sidebar uses compact icon buttons.
+
 -----
 
 <a id="understand-the-implementation"></a>

@@ -29,6 +29,8 @@ kind: "package-reference"
 
 必填的 `feedbackUrl` 指向产品的 HTTPS 反馈页。侧栏的**意见反馈**按钮打开该页面，不附加账号凭据。桌面配置使用 Muse 网关的 `/feedback`；浏览器登录状态与桌面保存的会话独立。
 
+账号和意见反馈两行铺满展开侧栏的可用宽度，左右留白一致。侧栏收起时使用紧凑的图标按钮。
+
 -----
 
 <a id="understand-the-implementation"></a>

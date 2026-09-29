@@ -1,6 +1,11 @@
+.root {
+  flex: 1;
+  min-width: 0;
+}
+
 .trigger {
   display: flex;
-  flex: 1;
+  box-sizing: border-box;
   align-items: center;
   gap: 10px;
   width: 100%;
@@ -22,7 +27,6 @@
 }
 
 .trigger[data-collapsed='true'] {
-  box-sizing: border-box;
   width: 36px;
   height: 36px;
   justify-content: center;
