@@ -41,7 +41,6 @@
             retryPolicy:
               mode: normal
               maxRetries: 2
-              retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT]
               backoff:
                 initialDelayMs: 1
                 maxDelayMs: 1
@@ -49,3 +48,10 @@
             models:
               - id: deepseek-v4-flash
               - id: deepseek-v4-pro
+
+- id: tool-bash
+  name: "@deepseek-ai/dsh-tool-bash"
+  disabled: true
+- id: tool-pwsh
+  name: "@deepseek-ai/dsh-tool-pwsh"
+  disabled: true

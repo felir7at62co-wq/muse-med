@@ -13,7 +13,6 @@
     retryPolicy:
       mode: normal
       maxRetries: 2
-      retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT]
       backoff:
         initialDelayMs: 1
         maxDelayMs: 1
@@ -46,3 +45,10 @@
       You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
 
       Verify your work by running the code or tests. Keep answers brief and factual.
+
+- id: tool-bash
+  name: "@deepseek-ai/dsh-tool-bash"
+  disabled: true
+- id: tool-pwsh
+  name: "@deepseek-ai/dsh-tool-pwsh"
+  disabled: true

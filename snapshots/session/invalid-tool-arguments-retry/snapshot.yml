@@ -1,0 +1,8 @@
+version: 1
+scenario: invalid-tool-arguments-retry
+profile: headless
+composition: invalid-tool-arguments-retry
+recording: authored
+header:
+  class: invalid-tool-arguments-retry
+  pin: true

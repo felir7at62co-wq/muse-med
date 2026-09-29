@@ -152,8 +152,10 @@ export async function* translate(events: AsyncIterable<Record<string, unknown>>,
         for (const { content } of blocks.values()) {
           if (content.type !== 'tool-call') continue
           let parsed: unknown
-          try { parsed = JSON.parse(content.arguments) } catch (_invalidProviderToolJson) { return malformed('tool input is invalid JSON') }
-          object(parsed)
+          try { parsed = JSON.parse(content.arguments) } catch (_invalidProviderToolJson) {
+            throw new LlmError('DeepSeek returned invalid JSON for tool input; regenerate the model response', 'INVALID_TOOL_ARGUMENTS')
+          }
+          object(parsed, 'INVALID_TOOL_ARGUMENTS')
         }
       }
       usage.totalTokens = usage.inputTokens + usage.outputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)

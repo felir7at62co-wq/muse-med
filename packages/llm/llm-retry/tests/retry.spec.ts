@@ -260,10 +260,10 @@ describe('provider-routed retry policy', () => {
     })
   })
 
-  it('leaves partial failed chunks on their step without committing a message or tool side effect', async () => {
+  it.each(['TRANSPORT', 'INVALID_TOOL_ARGUMENTS'])('retries %s without committing partial chunks as a message or executing tools', async (code) => {
     vi.useFakeTimers()
     const adapter = new ScriptedAdapter([
-      partialToolFailure(new LlmError('stream interrupted', 'TRANSPORT')),
+      partialToolFailure(new LlmError('stream interrupted', code)),
       textResponse('recovered'),
     ])
     ;({ ctx: context } = await harness(adapter))
