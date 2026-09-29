@@ -161,7 +161,7 @@ it.each(['same-model', 'changed-model', 'changed-provider', 'missing-replay'] as
     expect((await assemble(ctx, { ...request,
       ...(history === 'changed-model' ? { model: 'previous' } : {}),
       ...(history === 'changed-provider' ? { provider: 'muse-cloud-studio' } : {}),
-      messages: [message, createToolResultMessage({ callId: ToolCallId('call-1'), content: [{ type: 'text', text: 'found' }] })] })).finish).toEqual({ kind: 'stop' })
+      messages: [message, createToolResultMessage({ callId: ToolCallId('call-1'), isError: false, content: [{ type: 'text', text: 'found' }] })] })).finish).toEqual({ kind: 'stop' })
     const payload = server.requests[1] as { messages: { role: string; content: string; reasoning_content?: string }[] }
     const assistant = payload.messages.find(message => message.role === 'assistant')
     expect(assistant?.content).toBe('hello')
