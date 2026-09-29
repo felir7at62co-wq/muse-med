@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createToolResultMessage, LlmAdapter, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { MuseModels } from '../src/models.ts'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
@@ -129,7 +129,11 @@ it.each(['same-model', 'changed-model', 'changed-provider', 'missing-replay'] as
   'keeps reasoning separate from answer text during %s Muse history replay', async (history) => {
     const events = [
       JSON.stringify({ choices: [{ index: 0, delta: { reasoning_content: 'private scratchpad' }, finish_reason: null }] }),
-      ...textEvents,
+      ...textEvents.slice(0, 2),
+      JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call-1',
+        type: 'function', function: { name: 'lookup', arguments: '{"query":"note"}' } }] }, finish_reason: null }] }),
+      JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }),
+      '[DONE]',
     ]
     const server = await mockServer([{ events }, { events: textEvents }])
     await writeMuseSession(sessionFile(), { baseUrl: server.url, username: 'alice', cookie: '__Host-muse=alice-session' })
@@ -143,9 +147,10 @@ it.each(['same-model', 'changed-model', 'changed-provider', 'missing-replay'] as
     await models.refresh()
     const request = { provider: 'muse-cloud-deepseek-official', model: 'deepseek-v4-flash' }
     const first = await assemble(ctx, { ...request, messages: [] })
-    expect(first.finish).toEqual({ kind: 'stop' })
+    expect(first.finish).toEqual({ kind: 'tool-calls' })
     expect(first.message.content).toEqual([
       { type: 'reasoning', text: 'private scratchpad' }, { type: 'text', text: 'hello' },
+      { type: 'tool-call', id: 'call-1', name: 'lookup', arguments: '{"query":"note"}' },
     ])
     if (first.message.role !== 'assistant') throw new Error('Expected assistant history')
     const source = first.message.source
@@ -156,10 +161,10 @@ it.each(['same-model', 'changed-model', 'changed-provider', 'missing-replay'] as
     expect((await assemble(ctx, { ...request,
       ...(history === 'changed-model' ? { model: 'previous' } : {}),
       ...(history === 'changed-provider' ? { provider: 'muse-cloud-studio' } : {}),
-      messages: [message] })).finish).toEqual({ kind: 'stop' })
+      messages: [message, createToolResultMessage({ callId: ToolCallId('call-1'), content: [{ type: 'text', text: 'found' }] })] })).finish).toEqual({ kind: 'stop' })
     const payload = server.requests[1] as { messages: { role: string; content: string; reasoning_content?: string }[] }
     const assistant = payload.messages.find(message => message.role === 'assistant')
     expect(assistant?.content).toBe('hello')
-    expect(assistant?.reasoning_content).toBe(history === 'same-model' ? 'private scratchpad' : undefined)
+    expect(assistant?.reasoning_content).toBe(history === 'same-model' ? 'private scratchpad' : history === 'changed-provider' ? undefined : '')
   },
 )

@@ -127,7 +127,7 @@ export class MuseModels {
         models: allowedModels.map(model => ({ ...model,
           compat: { supportsReasoningEffort: model.reasoningEfforts !== false } })),
         compat: { supportsStore: false, supportsDeveloperRole: false, maxTokensField: 'max_tokens',
-          ...(provider.id === 'deepseek-official' ? { thinkingFormat: 'deepseek' as const } : {}) },
+          ...(provider.id === 'deepseek-official' ? { thinkingFormat: 'deepseek' as const, requiresReasoningContentOnAssistantMessages: true } : {}) },
       }
     }
     const candidate = resolveProfiles(providers)
