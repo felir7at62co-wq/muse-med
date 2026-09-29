@@ -21,6 +21,8 @@
   name: '@deepseek-ai/dsh-tool-fs'
 - id: tool-fs-search
   name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
 - id: tool-goal

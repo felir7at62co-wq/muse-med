@@ -98,6 +98,7 @@ it('loads exactly the six product modes without discovering other shipped or per
     for (const id of ['agent-instructions', 'editing-tools', 'tool-fs', 'tool-skill', 'tool-goal', 'tool-web', 'present']) {
       expect(editingRows.some(row => row.id === id), id).toBe(true)
     }
+    expect(editingRows.find(row => row.id === 'tool-fs-search')?.config).toMatchObject({ sampleOverCapGlobResults: false })
     const editingSkill = await readFile(join(productRoot, '..', 'skills', 'editing', 'SKILL.md'), 'utf8')
     expect(editingSkill).toContain('检索摘要不等于读过全文')
     expect(editingSkill).not.toContain('不得写正式正文')
