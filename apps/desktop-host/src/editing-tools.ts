@@ -2,10 +2,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-tools'
 
-/** The Host's Jubian tool names; Host rows may register them after this preset mounts. */
-const JUBIAN_TOOLS = [
+/** Host video tools may register after this preset mounts; script-pool tools remain available for snatching. */
+const JUBIAN_VIDEO_TOOLS = [
   'jubian_catalog',
-  'jubian_find',
   'jubian_asset',
   'jubian_organize',
   'jubian_model',
@@ -26,5 +25,5 @@ export const inject = ['tools']
  * @param ctx - The selected editing preset's scoped context.
  */
 export function apply(ctx: Context): void {
-  ctx.tools.restrict({ futureDeny: JUBIAN_TOOLS })
+  ctx.tools.restrict({ futureDeny: JUBIAN_VIDEO_TOOLS })
 }

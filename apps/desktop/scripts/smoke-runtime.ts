@@ -67,6 +67,7 @@ export function apply(ctx) {
       process.platform === 'win32' ? 'pwsh' : 'bash']
       : id === 'minimal' ? [shell]
         : id === 'editing' ? ['read', 'skill', shell, 'present',
+          'jubian_find', 'jubian_claim', 'jubian_snatch',
           'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
           'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
           'mcp__muse-account__muse_kb_ingest_script']
@@ -77,8 +78,11 @@ export function apply(ctx) {
       const local = [...names].filter(name => !inherited.has(name))
       if (local.length !== 1 || local[0] !== shell) throw new Error('desktop runtime: minimal must add only its persistent shell; found ' + local.join(', '))
     }
-    if (id === 'editing' && [...names].some(name => name.startsWith('jubian_'))) {
-      throw new Error('desktop runtime: editing mode inherited Jubian video tools')
+    const editingVideoTools = ['jubian_catalog', 'jubian_asset', 'jubian_organize', 'jubian_model',
+      'jubian_storyboard', 'jubian_video', 'jubian_watch', 'jubian_media']
+    const exposedVideoTools = id === 'editing' ? editingVideoTools.filter(name => names.has(name)) : []
+    if (exposedVideoTools.length > 0) {
+      throw new Error('desktop runtime: editing mode inherited Jubian video tools: ' + exposedVideoTools.join(', '))
     }
     if (id === 'editing') {
       const assembly = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
@@ -99,7 +103,7 @@ export function apply(ctx) {
     if (names.has('skill')) {
       const productSkills = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills')
       for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import',
-        'novel-to-script', 'trope-adaptation']) {
+        'novel-to-script', 'trope-adaptation', 'jubian-snatch']) {
         const skill = skills.find(value => value.name === name)
         const expected = join(productSkills, name, 'SKILL.md')
         if (!skill?.invocation.modelInvocable || !existsSync(expected)
