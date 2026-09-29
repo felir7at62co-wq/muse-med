@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-composition-guard",
   "description": "Composition guard plugin: detects and reports a running session whose preset-provided tools were withdrawn by a live composition reload",
-  "version": "0.1.7-rc.6",
+  "version": "0.1.7-rc.7",
   "publishConfig": {
     "access": "public"
   },
