@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-shot-script",
   "description": "Short-drama shot-script gate and episode compiler: the model-facing drama_shot tool",
-  "version": "0.1.7-rc.4",
+  "version": "0.1.7-rc.5",
   "publishConfig": {
     "access": "public"
   },
