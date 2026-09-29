@@ -14,14 +14,36 @@
     "src/mcp-server.ts",
     "src/service.ts",
     "src/session.ts",
-    "src/types.ts"
+    "src/types.ts",
+    "src/models.ts"
   ],
   "references": [
-    { "path": "../../../vendor/cordis" },
-    { "path": "../../../vendor/schemastery" },
-    { "path": "../../util/atomic-write" },
-    { "path": "../../util/home-paths" },
-    { "path": "../../mcp/mcp-client" },
-    { "path": "../../typert/protocol" }
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../util/atomic-write"
+    },
+    {
+      "path": "../../util/home-paths"
+    },
+    {
+      "path": "../../mcp/mcp-client"
+    },
+    {
+      "path": "../../typert/protocol"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../llm/llm-pi-ai"
+    },
+    {
+      "path": "../../settings/settings"
+    }
   ]
 }

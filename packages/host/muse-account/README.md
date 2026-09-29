@@ -25,7 +25,7 @@ Sign in to MUSE from Desktop Settings without entering a password in a model con
 <a id="use-this-package"></a>
 ## Use this package
 
-Muse Desktop offers MUSE sign-in before model setup on a blank first run; **Sign in later** leaves the account available from the sidebar and **Settings → MUSE Account**. The page first shows the locally saved status; use **Verify status** to ask the gateway to confirm it. Enter a username and password to sign in. The registration choice starts clear; select it if you want MUSE to try creating that username after a failed sign-in. A successful request clears the password field. This session grants knowledge-base and speech access; model providers and their credentials remain separate in Models settings.
+Muse Desktop offers MUSE sign-in before model setup on a blank first run; **Sign in later** leaves the account available from the sidebar and **Settings → MUSE Account**. Opening the page refreshes the model catalog; use **Verify status** to ask the gateway to confirm the account identity. Enter a username and password to sign in. The registration choice starts clear; select it if you want MUSE to try creating that username after a failed sign-in. A successful request clears the password field. The same session loads the website model catalog and authorizes model requests, knowledge-base access, and speech transcription. A fresh profile selects the first Muse model automatically. Models settings still accepts custom providers and credentials; an explicit custom default is preserved. Signing out removes only Muse routes.
 
 ### Minimal configuration
 
@@ -40,6 +40,7 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | Field | Default | Meaning |
 |---|---|---|
 | `baseUrl` | Required | HTTPS gateway origin; loopback HTTP is allowed for a local gateway. |
+| `modelRefreshMs` | 60,000 | Model catalog refresh interval in milliseconds, from 10,000 to 3,600,000. |
 | `accountHome` | Active DSH home | Absolute directory containing this product's account session file. |
 | `requestTimeoutMs` | 15,000 | Account and KB access request timeout in milliseconds, from 1,000 to 120,000. |
 | `asrRequestTimeoutMs` | 300,000 | Timeout for one compressed-audio upload and gateway response, from 10,000 to 1,800,000 milliseconds. |

@@ -52,7 +52,7 @@ export function publicLookup(host,options,callback){
   if(options?.all)callback(null,[records[0]]);else callback(null,records[0].address,4);
  });
 }
-async function forwardModel({config,body,res,signal}){
+export async function forwardModel({config,body,res,signal}){
  const target=completionEndpoint(config.baseURL);
  await new Promise((resolve,reject)=>{
   const upstream=https.request(target,{method:'POST',lookup:publicLookup,signal,headers:{'content-type':'application/json',authorization:'Bearer '+config.apiKey,accept:body.stream?'text/event-stream':'application/json'}},response=>{

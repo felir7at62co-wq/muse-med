@@ -544,6 +544,22 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-shortcuts -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-muse-account -->
+<a id="deepseek-aidsh-client-ui-muse-account"></a>
+
+## `@deepseek-ai/dsh-client-ui-muse-account`
+
+- `source`: [`packages/client/ui-muse-account/src/feedback-config.ts:5`](../packages/client/ui-muse-account/src/feedback-config.ts)
+
+```ts config-catalog
+/** Product-owned feedback destination. */
+export interface FeedbackConfig {
+  /** HTTPS page opened in the browser; no account credentials are appended. */
+  feedbackUrl: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-muse-account -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-plugin-manager -->
 <a id="deepseek-aidsh-client-ui-plugin-manager"></a>
 
@@ -2215,14 +2231,16 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-muse-account`
 
-- `inject`: `tools`
-- `source`: [`packages/host/muse-account/src/index.ts:29`](../packages/host/muse-account/src/index.ts)
+- `inject`: `tools` · `llm`
+- `source`: [`packages/host/muse-account/src/index.ts:30`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
 export interface Config {
   /** MUSE website origin serving account and knowledge-base access endpoints. */
   readonly baseUrl: string
+  /** Interval for refreshing the account model catalog, in milliseconds. */
+  readonly modelRefreshMs: number
   /** Product-private account directory; omission selects the active DSH home. */
   readonly accountHome?: string
   /** Timeout for account and knowledge-base gateway requests in milliseconds. */
