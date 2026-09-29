@@ -123,7 +123,7 @@ test('builds every pinned plugin with its declared runtime entries and notices',
         const metadata = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/SOURCE.json'], { encoding: 'utf8' })
         assert.equal(metadata.status, 0)
         assert.deepEqual(JSON.parse(metadata.stdout).compatibilityOverlay, {
-          subagentRuntimeVersion: '0.1.7-rc.5', codexCliVersion: '0.153.4', codexAsarUnpack: true,
+          subagentRuntimeVersion: '0.1.7-rc.5', codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true,
         })
       }
     }

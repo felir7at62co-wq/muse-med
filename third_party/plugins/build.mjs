@@ -7,6 +7,8 @@ import { parseArgs } from 'node:util'
 import { applyMcpDesktopCompatibility, mcpDesktopCompatibility } from './compatibility/mcp-desktop.mjs'
 import { applyLarkDesktopCompatibility, larkDesktopCompatibility } from './compatibility/lark-desktop.mjs'
 
+import { applyCodexModelVisibility } from './compatibility/codex-model-visibility.mjs'
+
 const sourceRoot = import.meta.dirname
 const repository = resolve(sourceRoot, '../..')
 const toolchain = join(sourceRoot, 'toolchain')
@@ -75,6 +77,7 @@ for (const name of values.only ? [values.only] : Object.keys(pins)) {
     const tsc = join(toolchain, 'node_modules/typescript/bin/tsc')
     const tsdown = join(toolchain, 'node_modules/tsdown/dist/run.mjs')
     if (name === 'dsh-codex-subscription') {
+      applyCodexModelVisibility(directory)
       const runtimePath = join(directory, 'src/subagent-runtime.js')
       let runtime = readFileSync(runtimePath, 'utf8')
       for (const [before, after] of [
@@ -149,7 +152,7 @@ export function codexFilesystemPath(value) {
     writeFileSync(join(directory, 'SOURCE.json'), `${JSON.stringify({
       upstream: pins[name], hostVersion,
       compatibilityOverlay: name === 'dsh-codex-subscription'
-        ? { subagentRuntimeVersion: hostVersion, codexCliVersion: '0.153.4', codexAsarUnpack: true }
+        ? { subagentRuntimeVersion: hostVersion, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true }
         : name === 'dshmarket' ? { catalogExport: './catalog' }
           : name === 'dsh-lark-bridge' ? larkDesktopCompatibility
             : name === 'dsh-skill-mcp-panel' ? mcpDesktopCompatibility : undefined,

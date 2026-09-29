@@ -19,6 +19,8 @@ pnpm exec node --test third_party/plugins/build.test.mjs
 
 Codex 临时运行时补丁在 `SOURCE.json` 记录修改：子任务检查与准备仅接受 provider `0.1.7-rc.5`，CLI 仍固定为 `0.153.4`。打包后从 `app.asar.unpacked` 解析 CLI 清单和启动文件。保留的上游文件不变；源码文本不符合预期时，补丁失败，而非静默跳过。
 
+Codex 订阅模型仅在连接了 Codex OAuth 账号时出现在模型选择器中。Muse 登录不授予订阅供应商的访问权限；断开 Codex 后，下次查询列表会隐藏其模型。
+
 桌面面板还会把运行时已注册的 MCP 工具列为只读连接。内置 `muse-account` 显示为 Muse 知识库，并展示已注册工具数量。兼容覆盖不会把凭据、环境变量值或私有启动参数复制到列表中。
 
 ## 兼容性与桌面集成
