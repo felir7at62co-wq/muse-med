@@ -396,7 +396,7 @@ export class DesktopProjectManager {
    * @returns the backup path after the locked profile write, or undefined when no patch existed.
    */
   async disableAllPlugins(): Promise<string | undefined> {
-    return this.withLock(() => sanitizeProfile('dsh', this.paths.profile, DESKTOP_PROFILE_BUNDLES))
+    return this.withLock(() => Promise.resolve(sanitizeProfile('dsh', this.paths.profile, DESKTOP_PROFILE_BUNDLES)))
   }
 
   /** Modify the current profile while its backend is stopped; failures retain partial changes. */

@@ -16,7 +16,7 @@ Agent 处理文本与质量决策，剧变插件（`jubian_*`）是唯一多媒�
 
 ## 正式资产
 
-先读取主体设定，再处理真正缺少的资产。重要角色缺参考图时先按 `tweet-drama-core` 参考图流程自主检索有来源、许可及适用性证据的网上服化道素材；用户已提供合适图片则沿用用户确认路径。逐图实看并记录相应审核，收费生图前运行 `style_references.py <项目目录> <role_id> check`；没有合格来源或证据不全才暂停受影响角色并索取用户图片，不自动安装、启动或调用小红书。网上参考图只用于生成，不能直接登记或绑定为正式资产。资产图按项目确认的版式；角色、场景、道具不可混用。生成资产仍须自动审核（实际视觉检查）与确认出演，max_review_attempts=3 是同一候选的定向审核上限，不是自动花满次数的许可。
+先读取主体设定，再处理真正缺少的资产。重要角色缺参考图时先按 `tweet-drama-core` 参考图流程自主检索有来源、许可及适用性证据的网上服化道素材；用户已提供合适图片则沿用用户确认路径。逐图实看并记录相应审核，收费生图前运行 `style_references.py <项目目录> <role_id> check`；没有合格来源或证据不全才暂停受影响角色并索取用户图片，不自动安装、启动或调用小红书。网上参考图只用于生成，不能直接登记或绑定为正式资产。资产图以项目确认的版式为生成目标，按 `tweet-drama-asset-vision-check` 审核实际可用性；干净浅灰背景、清晰3/4侧脸等轻微偏差不单独触发付费重生，用户明确要求严格验收的版式除外。角色、场景、道具不可混用。生成资产仍须自动审核（实际视觉检查）与确认出演，max_review_attempts=3 是同一候选的定向审核上限，不是自动花满次数的许可。
 
 非本地生成候选必须具有生成 `material_id`；`jubian_asset confirm_casting` 成功且父资产回查一致后才写 asset_confirmation=verified、official=true。`isLocal=1` 正式主体可无生成 material_id，但须实时回读 materials/get：属于当前 scriptId、已在主体设定、isUsed=1、hsAssetStatus=Active、URL 和 hsAssetId 与父资产及 picker 一致。满足后跳过该资产生成链，在 writer 合法阶段记录 skipped 与 skipped_with_official_local_evidence 及门禁证据。本地 manifest 不能替代远端来源。
 
