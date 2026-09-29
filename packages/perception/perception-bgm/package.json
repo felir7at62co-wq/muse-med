@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-perception-bgm",
   "description": "Non-commercial BGM emotion analysis and valence/arousal matching for the DeepSeek Harness",
-  "version": "0.1.7-rc.3",
+  "version": "0.1.7-rc.4",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
