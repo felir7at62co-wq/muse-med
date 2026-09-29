@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-audio-transcribe",
   "description": "Muse account cloud speech transcription with versioned local project output",
-  "version": "0.1.7-rc.5",
+  "version": "0.1.7-rc.6",
   "publishConfig": {
     "access": "public"
   },
