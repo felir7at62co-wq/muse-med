@@ -20,7 +20,7 @@ it('discovers the first-person transcript skill as bundled model input', async (
     expect(input).toMatch(/第一人称/u)
     expect(input).toMatch(/只有音视频.*audio-transcribe/su)
     expect(input).toMatch(/来源.*版本/su)
-    expect(input).toMatch(/爆款剧本.*开头/su)
+    expect(input).toMatch(/阅读.*爆款剧本.*不设开写门禁/su)
     expect(skill?.content).not.toMatch(/[A-Z]:[\\/]|等待用户确认/u)
   } finally {
     await ctx.fiber.dispose()
@@ -41,7 +41,8 @@ it('discovers the scene-script transcript skill without assigning uncertain spee
     expect(input).toMatch(/归属未核实/u)
     expect(input).toMatch(/不.*补.*台词/su)
     expect(input).toMatch(/来源.*版本/su)
-    expect(input).toMatch(/爆款剧本.*开头/su)
+    expect(input).toMatch(/仿真人分场剧本.*参考文章.*不设开写门禁/su)
+    expect(input).toMatch(/先将转写.*分场剧本.*再从该稿写.*outline\/source-v1\.md.*outline\/adaptation-v1\.md.*用户选定换梗方向后成稿/su)
     expect(skill?.content).not.toMatch(/[A-Z]:[\\/]|等待用户确认/u)
   } finally {
     await ctx.fiber.dispose()
@@ -61,7 +62,7 @@ it.each(['transcript-to-novel', 'transcript-to-script'])('%s keeps each source a
     }
     expect(input).toMatch(/链接.*本地.*转写/su)
     expect(input).toMatch(/不覆盖原件/u)
-    expect(input).toMatch(/outline\/source-v1\.md.*用户素材.*爆款剧本.*不补入本项目故事事实/su)
+    expect(input).toMatch(/outline\/source-v1\.md.*用户素材.*案例.*不补入本项目故事事实/su)
   } finally {
     await ctx.fiber.dispose()
   }

@@ -43,7 +43,7 @@ The Host account service reads its origin-bound saved session and sends the comp
 
 The implemented provider path is the Volcengine large-model recording-file **standard 1.0** v3 `/api/v3/auc/bigmodel/submit` and `/query`, resource `volc.bigasr.auc`, selected by the user's verified Pi session. Volcengine's [large-model recording-file product limit](https://www.volcengine.com/docs/6561/1354871?lang=zh) is five hours; [TOS signed GET URLs](https://docs.volcengine.com/docs/TorchObjectStorage/URLcontainsasignature?lang=en) are bearer URLs and may live at most seven days. The older small-model `/api/v1/auc` documentation is a different API and does not define this implementation. Provider status codes and the 512 MiB observation came from the user's Pi run and still need a real authorized integration check before production billing.
 
-This package has no `./invariant`: task receipts and registered tools have one owning storage or registry each, with no independently observed state to reconcile.
+No runtime invariant companion is published because task receipts and registered tools each have one owning storage or registry, with no independently observed state to reconcile.
 
 ## Model Experience
 

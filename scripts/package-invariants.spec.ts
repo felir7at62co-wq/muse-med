@@ -121,6 +121,25 @@ describe('package invariant gate', () => {
     expect(packageInvariantOwners(root)).toEqual([])
   })
 
+  it('checks the resource package without requiring a TypeScript project', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-drama-skills-invariants-'))
+    roots.push(root)
+    const dir = join(root, 'packages/drama/skills')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-drama-skills', exports: { './package.json': './package.json' },
+    }))
+    writeFileSync(join(dir, 'README.md'), 'No runtime invariant companion is published because this package contains static skill files.\n')
+    expect(collectPackageInvariantViolations(root)).toEqual([])
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-drama-skills', exports: { './invariant': './lib/invariant.js' },
+    }))
+    expect(collectPackageInvariantViolations(root)).toContainEqual({
+      path: 'packages/drama/skills/package.json',
+      message: 'exports["./invariant"] must be omitted when src/invariant.ts is absent',
+    })
+  })
+
   it('requires an omitted companion to have a README reason sentence', () => {
     const violations = collectPackageInvariantViolations(fixture({
       companion: false,

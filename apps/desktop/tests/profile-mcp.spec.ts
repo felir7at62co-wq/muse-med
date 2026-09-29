@@ -74,6 +74,9 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
         baseUrl: { __jsExpr: "process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'" },
       } },
     ])
+    expect(rows.filter(row => row.name === '@deepseek-ai/dsh-client-ui-muse-account')).toEqual([
+      { id: 'ui-muse-account', name: '@deepseek-ai/dsh-client-ui-muse-account' },
+    ])
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-drama-settings')).toEqual([
       { id: 'drama-settings', name: '@deepseek-ai/dsh-drama-settings' },
     ])

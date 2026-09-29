@@ -45,7 +45,7 @@ Host 账号服务读取绑定网关源地址的已保存会话，把压缩音频
 
 实现依据是用户 Pi 会话验证过的火山大模型录音文件识别**标准版 1.0**，v3 `/api/v3/auc/bigmodel/submit` 和 `/query`，资源 `volc.bigasr.auc`。火山[大模型录音文件产品说明](https://www.volcengine.com/docs/6561/1354871?lang=zh)给出五小时时长限制；[TOS 签名 GET URL](https://docs.volcengine.com/docs/TorchObjectStorage/URLcontainsasignature?lang=en)是凭 URL 持有的访问凭据，最长七天。旧小模型 `/api/v1/auc` 文档属于另一接口，不作为此实现的依据。状态码和 512 MiB 观察来自用户 Pi 实测；正式计费前仍须在获授权的真实集成检查中确认。
 
-本包没有 `./invariant`：任务收据和已注册工具各由一处存储或注册表持有，没有可能独立产生分歧的第二份状态。
+不发布运行时 invariant 伴随模块，因为任务收据和已注册工具各由一处存储或注册表持有，没有可能独立产生分歧的第二份状态。
 
 <a id="model-experience"></a>
 ## 模型体验

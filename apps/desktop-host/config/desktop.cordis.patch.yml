@@ -103,6 +103,9 @@
       config:
         baseUrl: !!js process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'
 
+    - id: ui-muse-account
+      name: '@deepseek-ai/dsh-client-ui-muse-account'
+
     - id: tool-audio-transcribe
       name: '@deepseek-ai/dsh-tool-audio-transcribe'
       config:

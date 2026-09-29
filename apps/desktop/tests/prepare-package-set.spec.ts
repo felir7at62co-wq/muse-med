@@ -48,22 +48,22 @@ describe('desktop package-set selection', () => {
     ])
   })
 
-  it('requires drama skills, BGM and Muse account packages in Desktop release inputs', () => {
+  it('requires drama skills, BGM and Muse account Host and UI packages in Desktop release inputs', () => {
     const manifest = JSON.parse(readFileSync(fileURLToPath(new URL('../../desktop-host/package.json', import.meta.url)), 'utf8')) as { dependencies: Record<string, string> }
     const names = Object.keys(manifest.dependencies)
     const available = new Map(names.map(name => [name, packed(name)]))
     available.set('@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host', manifest))
-    for (const name of ['@deepseek-ai/dsh-drama-skills', '@deepseek-ai/dsh-perception-bgm', '@deepseek-ai/dsh-muse-account']) {
+    for (const name of ['@deepseek-ai/dsh-drama-skills', '@deepseek-ai/dsh-perception-bgm', '@deepseek-ai/dsh-muse-account', '@deepseek-ai/dsh-client-ui-muse-account']) {
       expect(names).toContain(name)
-      const privatePackage = available.get(name)
-      if (privatePackage === undefined) throw new Error(`Missing Desktop dependency ${name}`)
+      const requiredPackage = available.get(name)
+      if (requiredPackage === undefined) throw new Error(`Missing Desktop dependency ${name}`)
       available.delete(name)
       expect(() => selectDesktopPackageClosure(available)).toThrow(`requires unpacked package ${name}`)
-      available.set(name, privatePackage)
+      available.set(name, requiredPackage)
     }
     expect(selectDesktopPackageClosure(available).map(entry => entry.manifest.name)).toEqual(expect.arrayContaining([
       '@deepseek-ai/dsh-tool-jubian', '@deepseek-ai/dsh-drama-skills', '@deepseek-ai/dsh-perception-bgm',
-      '@deepseek-ai/dsh-muse-account',
+      '@deepseek-ai/dsh-muse-account', '@deepseek-ai/dsh-client-ui-muse-account',
     ]))
   })
 

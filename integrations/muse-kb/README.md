@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-This directory contains the [cloud service patch](0001-granted-kb-reading.patch) for `E:\工作间\muse-local-dev\source\muse-accounts`. The patch adds account-scoped document grants and a cookie-to-KB access exchange. The Desktop account service uses the exchange after sign-in; it keeps the returned bearer token inside the Host and does not persist it.
+This directory contains a [read-access patch](0001-granted-kb-reading.patch) for the separate `E:\工作间\muse-local-dev\source\muse-accounts` tree. It adds account-scoped shared-document grants and a cookie-to-KB access exchange. The release service in [`services/muse-accounts`](../../services/muse-accounts/README.md) also provides account-private script ingestion. Applying this patch alone does not add `ingest_script`; deploy the release service for that operation.
 
 ## Apply and verify
 
@@ -36,7 +36,7 @@ Replace the example IDs with source packet IDs from vault manifests, Wiki paths,
 
 ## Account and MCP access
 
-The signed-in account service sends an empty `POST /api/kb/access` with its session cookie and the gateway origin. The gateway returns `{url, token, expiresAt}`. The opaque token expires after at most 15 minutes and stops working when the login session ends, the account is disabled, or its password changes. It lists `search`, `status`, `read`, and `read_opening`; `ingest` is unavailable to this token.
+The signed-in account service sends an empty `POST /api/kb/access` with its session cookie and the gateway origin. The gateway returns `{url, token, expiresAt}`. The opaque token expires after at most 15 minutes and stops working when the login session ends, the account is disabled, or its password changes. This standalone patch's account token lists `search`, `status`, `read`, and `read_opening`; it cannot use the shared-vault `ingest` operation. The release service adds account-private `ingest_script` while retaining that shared-vault restriction.
 
 `search` returns only granted IDs to either token type, along with each document's source/Wiki type and administrator-designated kind. The gateway reads each granted file once, verifies its complete bytes against `sha256`, then derives titles, matches, previews, and vector lookups from those bytes. A changed or unreadable file is omitted from `search` and `status`; both read tools reject it. For an `opening` grant, matching and previews use only the first 24,000 characters; vectors built from later text are withheld. `status` counts verified documents and omits the global vector count. `read` accepts a fully granted source or Wiki ID and returns up to 6,000 characters per page. `read_opening` accepts a granted `viral-script` source ID and limits reading to four such pages; it displays the source ID or administrator title. Both read tools return the source's total byte count, exact zero-based character range, current page number, unread-content flag, and next start. The agent follows `nextStart` until the required scene and first hook have actually been read; when the opening limit arrives first, the tool reports that limit and the agent must not claim the reference was complete.
 

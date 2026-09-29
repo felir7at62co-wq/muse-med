@@ -1,5 +1,5 @@
 ---
-description: "Sign in to MUSE from Desktop Settings and let the agent search and page through account-authorized script and Wiki sources."
+description: "Sign in to MUSE and let the agent save reviewed scripts privately, then search and read account-authorized sources."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Sign in to MUSE from Desktop Settings, check the saved account, and sign out without entering a password in a model conversation. The agent can search the knowledge base and read authorized script or Wiki pages by ID. Editing mode can read a script opening before drafting. Account access requires the configured MUSE gateway and a server-side source grant.
+Sign in to MUSE from Desktop Settings without entering a password in a model conversation. The agent can save reviewed scripts from authorized video or novel material to this account's private knowledge base, then search and read them by ID. It can also read administrator-granted script and Wiki references. These operations require a configured Muse gateway.
 
 ## Table of Contents
 
@@ -54,13 +54,13 @@ The [configuration catalog](../../../docs/config-catalog.md) is generated from p
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The authenticated `museAccount` Remote namespace carries Settings calls to the Host account controller. The controller sends credentials to the configured gateway, confirms the returned identity, and atomically saves an origin-bound cookie in the product home. Its Remote responses contain fixed error categories and account identity, never the password or cookie.
+The authenticated `museAccount` Remote namespace carries [Settings UI](../../client/ui-muse-account/README.md) calls to the Host account controller. The controller sends credentials to the configured gateway, confirms the returned identity, and atomically saves an origin-bound cookie in the product home. Its Remote responses contain fixed error categories and account identity, never the password or cookie.
 
-The Host starts a bundled local MCP child and waits for its tool discovery. The child reads the saved cookie when a knowledge-base tool runs, exchanges it for a short-lived bearer through `/api/kb/access`, and calls the same-origin read-only MCP endpoint. It does not persist or return the bearer. Search returns authorized IDs with `类型` and `标定` text; `read` pages through a granted source or Wiki document; `read_opening` accepts only a granted `SRC-...` source marked `标定: viral-script` and pages through its first 24,000 characters. The MCP client presents these tools in its generic text card; each read returns a 6,000-character page plus continuation metadata, and local failures return fixed codes without upstream response text.
+The Host starts a bundled local MCP child and waits for tool discovery. For each KB call, the child exchanges the saved cookie through `/api/kb/access` for a short-lived bearer and calls the same-origin MCP endpoint; it never persists or returns the bearer. `muse_kb_ingest_script` submits up to 12 reviewed Markdown episodes or chapters, with a 2 MiB total request limit, and reports each saved, duplicate, or failed section. Search returns the account's private `private/SRC-...` IDs and administrator-granted shared IDs; read pages either source, while opening reads stop after 24,000 characters. Each read returns a 6,000-character page and continuation data; local failures return fixed codes without upstream response text.
 
 The Host-only `MuseAsrClient` reads the same saved account session for the `audio_transcribe` tool. It sends compressed audio and queries account-scoped job IDs through the gateway; no ASR or TOS credential setting appears in Desktop. Missing account login, gateway, or server ASR configuration has an explicit failure. The server deployment and task limits are documented in [`services/muse-accounts`](../../../services/muse-accounts/README.md).
 
-This package has no `./invariant`: the account status and registered MCP tools are available through their owning service and tool registry, with no independent observation that could diverge.
+No runtime invariant companion is published because account status and registered MCP tools are available through their owning service and tool registry, with no independent observation that could diverge.
 
 </details>
 
@@ -82,11 +82,11 @@ This package has no `./invariant`: the account status and registered MCP tools a
 
 #### What the model sees
 
-After the bundled MCP server connects, the model receives the schemas for `mcp__muse-account__muse_account_status`, `mcp__muse-account__muse_kb_search`, `mcp__muse-account__muse_kb_read`, and `mcp__muse-account__muse_kb_read_opening`. A status call returns local or gateway-confirmed identity. Search returns excerpts and IDs; each read call returns one 6,000-character page with source and continuation information. The password, cookie, and bearer have no model tool argument or result field. Tool call arguments and results that do reach the model remain Session data.
+After the bundled MCP server connects, the model receives the schemas for `mcp__muse-account__muse_account_status`, `mcp__muse-account__muse_kb_ingest_script`, `mcp__muse-account__muse_kb_search`, `mcp__muse-account__muse_kb_read`, and `mcp__muse-account__muse_kb_read_opening`. The write tool accepts reviewed script text and source identifiers, then returns an outcome and private ID per section. Search returns excerpts and IDs; each read returns one 6,000-character page and continuation information. Password, cookie, and bearer are absent from tool arguments and results. Model-visible arguments and results remain Session data.
 
 #### Token effect
 
-The four tool schemas add a stable request cost while the server is mounted. Calls append the returned text to the conversation; each local KB result is capped at 128 KiB and the gateway provides 6,000-character pages. This package adds no system-prompt text.
+The five tool schemas add a stable request cost while the server is mounted. Calls append returned text to the conversation; each local KB result is capped at 128 KiB and the gateway provides 6,000-character pages. This package adds no system-prompt text.
 
 #### KV Cache effect
 
@@ -99,8 +99,8 @@ Stable tool schemas preserve an already reusable request prefix. A new tool resu
 These limits apply to the bundled Desktop account flow.
 
 - **Same-user file access** — the saved cookie is outside the model conversation, but an agent process running as the same OS user may be able to read the session file through file tools. UI and Remote routing do not provide complete isolation; stronger separation requires OS credential storage, a separate account, or narrower sandbox read permissions.
-- **Gateway dependency** — login and knowledge-base reads require the configured gateway. The integration tests use local substitutes; live account login, source grants, and a remote MCP round trip remain unverified here.
-- **Agent instruction** — editing mode asks the agent to read relevant opening pages before drafting; the Host does not enforce a prewriting gate.
+- **Gateway dependency** — account-private writes and KB reads require the deployed gateway with a private user root and explicit shared-document grants. Source packaging alone does not activate them; live login, grants, and a remote MCP round trip remain unverified here.
+- **Agent instruction** — editing mode prompts the agent to read useful script and case material before drafting; the Host does not enforce a prewriting gate.
 
 <a id="dev-note"></a>
 ### Dev Note

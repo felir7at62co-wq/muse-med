@@ -1,6 +1,7 @@
 # Agent Note: Read a sourced script opening before editorial drafting
 
 Status: implemented
+Archived: 2026-09-29
 
 English | [中文](2026-09-28-muse-editor-sourced-opening.zh.md)
 

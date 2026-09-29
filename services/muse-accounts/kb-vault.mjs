@@ -15,6 +15,21 @@ const MAX_TITLE = 200;
 const SOURCE_ID = /^SRC-\d{4}-\d{2}-\d{2}-\d{3}$/;
 const SAFE_SOURCE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/;
 const LOCK = '.kb.lock';
+const OPENING_CHARS = 6000;
+const OPENING_TOTAL_CHARS = 24_000;
+const MAX_DOCUMENT_BYTES = 4 * 1024 * 1024;
+const MAX_READ_START = 4_194_000;
+
+function wikiParts(id) {
+  if (typeof id !== 'string' || !id.startsWith('wiki/') || id.length > 400) return null;
+  const parts = id.slice(5).split('/');
+  return parts.some(part => !part || part === '.' || part === '..' || /[\\:\x00-\x1f<>"|?*]/.test(part) || part.length > 120) ? null : parts;
+}
+
+/** Accept the source IDs and wiki paths that the KB itself can resolve. */
+export function validDocumentId(id) {
+  return typeof id === 'string' && (SOURCE_ID.test(id) || wikiParts(id) !== null);
+}
 
 /** Cross-process lock; a crashed writer leaves the lock for an administrator. */
 async function withLock(path, fn, timeoutMs = 20000) {
@@ -124,8 +139,8 @@ export async function ingestSession(vaultRoot, {title, text, source, author} = {
   });
 }
 
-export function documentContent(body, fallbackTitle) {
-  const title = body.match(/^---\s*$[\s\S]*?^title:\s*(.+)$/m)?.[1]?.trim() ?? fallbackTitle;
+export function documentContent(body, fallbackTitle, {forceTitle = false} = {}) {
+  const title = forceTitle ? fallbackTitle : body.match(/^---\s*$[\s\S]*?^title:\s*(.+)$/m)?.[1]?.trim() ?? fallbackTitle;
   const text = body.replace(/^---[\s\S]*?---\s*/, '');
   const canonical = `${title}\n${text}`;
   return {title, text, hash: contentHash(needsChunks(title, text) ? `chunk-v1\0${canonical}` : canonical)};
@@ -143,6 +158,87 @@ export async function readRegularPage(path) {
     const body = await handle.readFile('utf8');
     return body.length <= MAX_TEXT ? body : null;
   } finally { await handle.close(); }
+}
+
+function documentPath(vaultRoot, id) {
+  if (SOURCE_ID.test(id)) return join(vaultRoot, 'raw', 'sources', id, 'extracted.md');
+  const parts = wikiParts(id);
+  return parts ? join(vaultRoot, 'wiki', ...parts.slice(0, -1), parts.at(-1) + '.md') : null;
+}
+
+// The hash authorizes the bytes returned by this handle, including bytes beyond
+// a search preview. Parent paths may change between lookup and open.
+async function readGrantedFile(path, sha256) {
+  if (!/^[a-f0-9]{64}$/.test(sha256 ?? '')) return null;
+  let handle;
+  try { handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)); }
+  catch (error) { if (['ENOENT', 'ELOOP', 'ENOTDIR', 'EACCES', 'EPERM'].includes(error.code)) return null; throw error; }
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || info.size > MAX_DOCUMENT_BYTES) return null;
+    const chunks = [];
+    const buffer = Buffer.alloc(64 * 1024);
+    let total = 0;
+    for (;;) {
+      const {bytesRead} = await handle.read(buffer, 0, Math.min(buffer.length, MAX_DOCUMENT_BYTES + 1 - total), null);
+      if (!bytesRead) break;
+      total += bytesRead;
+      if (total > MAX_DOCUMENT_BYTES) return null;
+      chunks.push(Buffer.from(buffer.subarray(0, bytesRead)));
+    }
+    const bytes = Buffer.concat(chunks, total);
+    if (digest(bytes) !== sha256) return null;
+    return {body: bytes.toString('utf8'), sourceBytes: total};
+  } finally { await handle.close(); }
+}
+
+async function readGrantedDocument(vaultRoot, id, grant) {
+  const path = documentPath(vaultRoot, id);
+  if (!path) return null;
+  const file = await readGrantedFile(path, grant?.sha256);
+  return file && {...file, path};
+}
+
+/** Read a bounded page from an exact source or wiki ID. Offsets count Unicode characters. */
+export async function readDocumentPage(vaultRoot, id, {start = 0, sha256, title: grantTitle} = {}) {
+  if (!Number.isInteger(start) || start < 0 || start > MAX_READ_START || start % OPENING_CHARS !== 0 || typeof id !== 'string') return null;
+  const file = await readGrantedDocument(vaultRoot, id, {sha256});
+  if (!file) return null;
+  const characters = Array.from(file.body);
+  if (start >= characters.length) return null;
+  const page = characters.slice(start, start + OPENING_CHARS);
+  const endExclusive = start + page.length;
+  const truncated = endExclusive < characters.length;
+  const type = SOURCE_ID.test(id) ? 'source' : 'wiki';
+  const title = grantTitle ?? (type === 'source' ? id : documentContent(file.body, wikiParts(id).at(-1)).title);
+  return {id, title, type, body: page.join(''), start, endExclusive, sourceBytes: file.sourceBytes, truncated, nextStart: truncated ? endExclusive : null};
+}
+
+/** Restrict script preparation to the first 24000 characters of a granted document. */
+export async function readOpening(vaultRoot, id, {start = 0, sha256, title} = {}) {
+  if (!SOURCE_ID.test(id) || !Number.isInteger(start) || start < 0 || start >= OPENING_TOTAL_CHARS || start % OPENING_CHARS !== 0) return null;
+  const page = await readDocumentPage(vaultRoot, id, {start, sha256, title});
+  if (!page) return null;
+  return {
+    ...page,
+    opening: page.body,
+    nextStart: page.truncated && page.endExclusive < OPENING_TOTAL_CHARS ? page.endExclusive : null,
+    limitReached: page.truncated && page.endExclusive >= OPENING_TOTAL_CHARS,
+  };
+}
+
+/** Load only grant-matched files for account-visible search and status. */
+export async function collectGrantedDocuments(vaultRoot, grants) {
+  const documents = [];
+  for (const [id, grant] of grants) {
+    const file = await readGrantedDocument(vaultRoot, id, grant);
+    if (!file) continue;
+    const source = SOURCE_ID.test(id);
+    const fallbackTitle = grant.title ?? (source ? id : wikiParts(id).at(-1));
+    const body = file.body.slice(0, MAX_TEXT);
+    documents.push({id, body, path: file.path, ...documentContent(body, fallbackTitle, {forceTitle: source || grant.title !== undefined})});
+  }
+  return documents;
 }
 
 export async function collectDocuments(vaultRoot) {
@@ -194,11 +290,16 @@ export async function collectDocuments(vaultRoot) {
  * failing the search. `semanticFloor` exists because cosine between unrelated
  * Chinese texts is far from zero, so without a floor every document would match.
  */
-export async function searchVault(vaultRoot, {query, limit = 8, embedder, vectors, semanticWeight = 0.5, semanticFloor = 0.5} = {}) {
+export async function searchVault(vaultRoot, {query, limit = 8, embedder, vectors, semanticWeight = 0.5, semanticFloor = 0.5, allowedGrants} = {}) {
   const raw = String(query ?? '').trim();
   if (!raw) return {ok: true, results: [], semantic: false};
   if (embedder?.enabled) vectors?.refresh?.();
-  const documents = await collectDocuments(vaultRoot);
+  const documents = (allowedGrants ? await collectGrantedDocuments(vaultRoot, allowedGrants) : await collectDocuments(vaultRoot))
+    .map(document => {
+      if (allowedGrants?.get(document.id)?.level !== 'opening') return document;
+      const visible = Array.from(document.body).slice(0, OPENING_TOTAL_CHARS).join('');
+      return {...document, body: visible, ...documentContent(visible, document.title, {forceTitle: true})};
+    });
   const lowered = raw.toLocaleLowerCase();
   const words = [...new Intl.Segmenter('zh', {granularity: 'word'}).segment(lowered)]
     .filter(part => part.isWordLike).map(part => part.segment);
@@ -222,12 +323,12 @@ export async function searchVault(vaultRoot, {query, limit = 8, embedder, vector
 
   const results = documents.map(document => {
     const lexical = lexicalFor(document) / highest;
-    const stored = queryVector ? vectors.get(document.id, document.hash) : null;
+    const stored = queryVector && allowedGrants?.get(document.id)?.level !== 'opening' ? vectors.get(document.id, document.hash) : null;
     const similar = stored ? Math.max(...(Array.isArray(stored[0]) ? stored : [stored]).map(vector => cosine(queryVector, vector))) : 0;
     // Without a stored vector a document can only be recalled lexically.
     const score = weight > 0 ? blendScore(lexical, stored ? similar : 0, weight) : lexical;
-    return {id: document.id, title: document.title, path: document.path, score, lexical, similar, preview: document.text.slice(0, 400)};
-  }).filter(entry => entry.lexical > 0 || entry.similar >= floor)
+    return {id: document.id, title: document.title, path: document.path, score, lexical, similar, semanticMatched: !!stored && similar >= floor, preview: document.text.slice(0, 400)};
+  }).filter(entry => entry.lexical > 0 || entry.semanticMatched)
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
 
   return {ok: true, scanned: documents.length, semantic: !!queryVector, results: results.slice(0, size)};

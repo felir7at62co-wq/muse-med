@@ -5,7 +5,7 @@
  * Run: `tsx scripts/check-workspace-constraints.ts`.
  */
 
-import { existsSync, globSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, globSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { load as loadYaml } from 'js-yaml'
@@ -17,6 +17,7 @@ import { hasTypertRemoteNavigation, isForbiddenPublicationFile } from './publica
 import type { DshBundleManifest } from '../packages/util/package-manifest/src/types.ts'
 import { OPTIONAL_BUNDLES, bundlePatchFiles } from '../packages/boot/app-boot/src/profile.ts'
 import { collectProjectReferenceFaceViolations } from './project-reference-faces.ts'
+import { isDramaSkillsResourcePackage } from './drama-skills-resource-package.ts'
 
 const root = resolve(import.meta.dirname, '..')
 // Publication rules cover these package trees; dependency rules read all pnpm members.
@@ -91,6 +92,7 @@ export interface PackageManifest {
     | undefined
   >
   files?: string[]
+  license?: string
   icon?: string
   publishConfig?: { access?: string }
   repository?: { type?: string; url?: string; directory?: string }
@@ -390,6 +392,10 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
   const label = manifest.name ?? dir
   const familyVersionError = checkDshFamilyVersion(manifest, repositoryVersion)
   if (familyVersionError !== undefined) errors.push(familyVersionError)
+  if (isDramaSkillsResourcePackage(dir, manifest.name)) {
+    errors.push(...checkDramaSkillsResourceManifest(manifest))
+    return errors.map(error => `${relative(root, join(root, dir, 'package.json'))}: ${error}`)
+  }
   const isNativePackageDir = dir.startsWith('native/system/packages/')
   const isPublicNativePackage = isNativePackageDir
     && manifest.name !== undefined
@@ -508,6 +514,57 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
   }
 
   return errors.map(error => `${relative(root, join(root, dir, 'package.json'))}: ${error}`)
+}
+
+/** Validate the only file-only package installed into the Desktop's skill search path. */
+function checkDramaSkillsResourceManifest(manifest: PackageManifest): string[] {
+  const label = manifest.name ?? 'packages/drama/skills'
+  const errors: string[] = []
+  if (manifest.private !== true) errors.push(`${label}: resource package must set "private": true`)
+  if (manifest.license !== 'UNLICENSED') errors.push(`${label}: resource package must declare "license": "UNLICENSED"`)
+  if (manifest.publishConfig !== undefined) errors.push(`${label}: resource package must omit publishConfig`)
+  if (manifest.type !== 'module') errors.push(`${label}: resource package must set "type": "module"`)
+  if (manifest.main !== undefined || manifest.types !== undefined || manifest.bin !== undefined || manifest.dsh !== undefined
+    || manifest.dependencies !== undefined || manifest.peerDependencies !== undefined || manifest.devDependencies !== undefined) {
+    errors.push(`${label}: resource package must not declare runtime entries or dependencies`)
+  }
+  if (Object.keys(manifest.exports ?? {}).length !== 1 || manifest.exports?.['./package.json'] !== './package.json') {
+    errors.push(`${label}: resource package must export only ./package.json`)
+  }
+
+  const files = manifest.files ?? []
+  const required = ['README.md', 'README.zh.md', 'README.i18n.yaml']
+  for (const file of required) {
+    if (!files.includes(file)) errors.push(`${label}: resource package must include ${file}`)
+  }
+  if (files.length !== new Set(files).size) errors.push(`${label}: resource package files must be unique`)
+  const skillNames = new Set<string>()
+  for (const file of files) {
+    if (required.includes(file)) continue
+    const match = /^skills\/([a-z0-9-]+)\/(.+)$/u.exec(file)
+    const resource = match?.[2]
+    const nestedResource = resource !== undefined
+      && /^(?:agents|assets|references|scripts)\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.(?:md|yaml|py|json|mp3|mp4|txt)$/u.test(resource)
+    if (match?.[1] === undefined || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource)) {
+      errors.push(`${label}: resource package file must be a declared skill resource: ${file}`)
+      continue
+    }
+    skillNames.add(match[1])
+  }
+  if (skillNames.size === 0) errors.push(`${label}: resource package must include at least one skill`)
+  for (const name of skillNames) {
+    if (!files.includes(`skills/${name}/SKILL.md`)) {
+      errors.push(`${label}: resource package must include each skill's SKILL.md: ${name}`)
+    }
+  }
+  for (const file of files) {
+    if (!(required.includes(file) || /^skills\/[a-z0-9-]+\//u.test(file))) continue
+    const path = join(root, 'packages/drama/skills', file)
+    if (!existsSync(path) || !lstatSync(path).isFile()) {
+      errors.push(`${label}: resource package file does not exist or is not a regular file: ${file}`)
+    }
+  }
+  return errors
 }
 
 /**

@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/host/muse-account/README.md
 /:
-  en: 0ac66c0b23c51bd4
-  zh: e3ad95e3f4d385d8
+  en: 5c8d78fcc475576a
+  zh: a8769bceed306b19
 /deepseek-ai-dsh-muse-account:
   en: db5527a4bb7a543e
   zh: 8af3bc11b56325b5
 /deepseek-ai-dsh-muse-account/summary:
-  en: 62bbb9c0005ce7a5
-  zh: f2988f817a84b53f
+  en: b081c9de122822a4
+  zh: 8fec7bda61a672c2
 /deepseek-ai-dsh-muse-account/table-of-contents:
   en: d152484eb41ac6b4
   zh: d152484eb41ac6b4
@@ -21,8 +21,8 @@
   en: 3c6d7fb9a67707e3
   zh: 7806d93b1f5c9f10
 /deepseek-ai-dsh-muse-account/understand-the-implementation:
-  en: 3e69eaebdd08a1bc
-  zh: 92d4cf21ca57c20e
+  en: 3069e884b7ba117c
+  zh: a067af9080dd6655
 /deepseek-ai-dsh-muse-account/further-exploration:
   en: faff5afdd2802119
   zh: b07fdc3d0e9acb9a
@@ -33,17 +33,17 @@
   en: cd8530c72534ee6b
   zh: cd8530c72534ee6b
 /deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition/what-the-model-sees:
-  en: 3eabf94a401120c8
-  zh: f7f2ce6aa0f3921d
+  en: 6c5cedb751de9dd4
+  zh: 060e62bc744d3ae4
 /deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition/token-effect:
-  en: b994dedee6efca8a
-  zh: c5d0d0b09937584b
+  en: 1b079dcaf9557964
+  zh: 9b790841a0a0820b
 /deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition/kv-cache-effect:
   en: 4a9756262e148303
   zh: 80be931da34e852a
 /deepseek-ai-dsh-muse-account/known-limitations-and-deferred-work:
-  en: 1523f3271d8f6908
-  zh: 9f9ec622f9b8beea
+  en: 2bbb7f8ab2845141
+  zh: ae0b1e814df7a579
 /deepseek-ai-dsh-muse-account/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 4545eda38a068f8d

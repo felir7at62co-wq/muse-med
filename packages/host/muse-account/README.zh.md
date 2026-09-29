@@ -1,5 +1,5 @@
 ---
-description: "在桌面版设置中登录 MUSE，让智能体检索并分页阅读账号获授权的剧本与 Wiki 来源。"
+description: "登录 MUSE，让智能体私有保存经复核的剧本，再检索和阅读账号获授权的来源。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## Summary
 
-用户可以在桌面版设置中登录 MUSE、查看已保存的账号并退出，无需在模型会话中输入密码。智能体可以检索知识库，并按 ID 阅读获授权的剧本或 Wiki 页面。编辑模式可以在起草前阅读剧本开头。账号访问需要已配置的 MUSE 网关，以及服务端授予的来源阅读权限。
+用户可以在桌面版设置中登录 MUSE，无需在模型会话中输入密码。智能体可将获授权视频或小说整理并复核后的剧本保存到本账号的私有知识库，再按 ID 检索和阅读。它也可阅读管理员授权的剧本和 Wiki 参考资料。这些操作需要已配置的 Muse 网关。
 
 ## Table of Contents
 
@@ -54,13 +54,13 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 <details>
 <summary>实现细节 — 点击展开</summary>
 
-通过身份验证的 `museAccount` Remote 命名空间把设置页调用送至 Host 账号控制器。控制器向已配置的网关提交凭据、确认返回的身份，并把绑定网关源地址的 cookie 原子写入产品主目录。Remote 响应只包含固定错误类别和账号身份，不包含密码或 cookie。
+通过身份验证的 `museAccount` Remote 命名空间把[设置界面](../../client/ui-muse-account/README.zh.md)调用送至 Host 账号控制器。控制器向已配置的网关提交凭据、确认返回的身份，并把绑定网关源地址的 cookie 原子写入产品主目录。Remote 响应只包含固定错误类别和账号身份，不包含密码或 cookie。
 
-Host 启动内置的本地 MCP 子进程并等待工具发现。知识库工具执行时，子进程读取已保存的 cookie，通过 `/api/kb/access` 换取短时 bearer，然后调用同源的只读 MCP 接口。它不持久化或返回 bearer。检索返回获授权的 ID，以及 `类型` 和 `标定` 文本；`read` 分页阅读获授权的来源或 Wiki 文档；`read_opening` 只接受获授权且标为 `标定: viral-script` 的 `SRC-...` 来源，并分页阅读其前 24,000 字。MCP 客户端使用通用文本卡片呈现这些工具；每次阅读返回 6,000 字页面和续读元数据，本地失败只返回固定错误码，不传递上游响应文本。
+Host 启动内置的本地 MCP 子进程并等待工具发现。每次知识库调用时，子进程通过 `/api/kb/access` 将已保存的 cookie 换成短时 bearer，再调用同源 MCP 接口；它不持久化或返回 bearer。`muse_kb_ingest_script` 一次提交最多 12 集或章经复核的 Markdown 剧本，请求总量不超过 2 MiB，并逐项报告已写入、已存在或失败。检索返回本账号私有 `private/SRC-...` ID 和管理员授权的共享 ID；阅读工具按页读取两种来源，开头阅读最多 24,000 字符。每次阅读返回 6,000 字符页面与续读信息；本地失败只返回固定错误码，不传递上游响应文本。
 
 仅 Host 使用的 `MuseAsrClient` 为 `audio_transcribe` 工具读取同一账号会话，并通过网关上传压缩音频、查询按账号隔离的任务 ID。桌面端没有 ASR 或 TOS 凭据设置。未登录、网关不可用或服务器未配置 ASR 都明确报错。服务器部署与任务限额见 [`services/muse-accounts`](../../../services/muse-accounts/README.zh.md)。
 
-本包不提供 `./invariant`：账号状态和已注册 MCP 工具都能通过各自所属的服务或工具注册表观察，没有可能独立产生分歧的第二份状态。
+本包不发布运行时不变量伴随插件，因为账号状态和已注册 MCP 工具都能通过各自所属的服务或工具注册表观察，没有可能独立产生分歧的第二份状态。
 
 </details>
 
@@ -82,11 +82,11 @@ Host 启动内置的本地 MCP 子进程并等待工具发现。知识库工具�
 
 #### What the model sees
 
-内置 MCP 服务连接后，模型会收到 `mcp__muse-account__muse_account_status`、`mcp__muse-account__muse_kb_search`、`mcp__muse-account__muse_kb_read` 和 `mcp__muse-account__muse_kb_read_opening` 的工具 schema。状态调用返回本地保存或经网关确认的身份。检索返回摘要和 ID；每次阅读返回一个 6,000 字页面，以及来源和续读信息。密码、cookie 和 bearer 均不作为模型工具参数或结果字段。到达模型的工具调用参数和结果仍属于 Session 数据。
+内置 MCP 服务连接后，模型会收到 `mcp__muse-account__muse_account_status`、`mcp__muse-account__muse_kb_ingest_script`、`mcp__muse-account__muse_kb_search`、`mcp__muse-account__muse_kb_read` 和 `mcp__muse-account__muse_kb_read_opening` 的工具 schema。写入工具接收复核后的剧本文字和来源标识，逐段返回结果与私有 ID。检索返回摘要和 ID；每次阅读返回一个 6,000 字符页面及续读信息。密码、cookie 和 bearer 不出现在工具参数或结果中。模型可见的参数与结果仍属于 Session 数据。
 
 #### Token effect
 
-服务装载期间，四个工具 schema 构成稳定的请求开销。调用将返回文本追加到对话；每个本地知识库结果最多 128 KiB，网关以每页 6,000 字返回。本包不增加系统提示词文本。
+服务装载期间，五个工具 schema 构成稳定的请求开销。调用将返回文本追加到对话；每个本地知识库结果最多 128 KiB，网关以每页 6,000 字符返回。本包不增加系统提示词文本。
 
 #### KV Cache effect
 
@@ -99,8 +99,8 @@ Host 启动内置的本地 MCP 子进程并等待工具发现。知识库工具�
 以下限制适用于内置桌面账号流程。
 
 - **同一系统用户的文件访问** — 保存的 cookie 不在模型会话中，但以同一系统用户身份运行的智能体进程，仍可能通过文件工具读取会话文件。设置页和 Remote 路由不提供完整隔离；更强的隔离需要系统凭据库、独立账号或更严格的沙箱读取权限。
-- **依赖网关** — 登录和知识库阅读需要已配置的网关。集成测试使用本地替身；此处尚未验证真实账号登录、来源授权及远程 MCP 往返。
-- **智能体指令** — 编辑模式要求智能体在起草前阅读相关开头页面；Host 不强制执行写作前检查。
+- **依赖网关** — 账号私有写入与知识库阅读需要已部署的网关、私有用户目录和明确的共享文档授权。只发布源码不会启用这些能力；此处尚未验证真实登录、授权及远程 MCP 往返。
+- **智能体指令** — 编辑模式提示智能体在起草前阅读有用的剧本和案例材料；Host 不强制执行写作前检查。
 
 <a id="dev-note"></a>
 ### Dev Note

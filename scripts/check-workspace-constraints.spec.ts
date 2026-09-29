@@ -255,6 +255,22 @@ describe('dsh family version coherence', () => {
 })
 
 describe('package payload constraints', () => {
+  it('accepts only the private drama skill resource package and its declared files', () => {
+    const dir = 'packages/drama/skills'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, private: false } }))
+      .toContainEqual(expect.stringContaining('resource package must set "private": true'))
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, '../secret.txt'] } }))
+      .toContainEqual(expect.stringContaining('resource package file must be a declared skill resource'))
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: manifest.files!.filter(file => file !== 'skills/jubian-snatch/SKILL.md') } }))
+      .toContainEqual(expect.stringContaining('resource package must include each skill\'s SKILL.md'))
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, 'skills/jubian-snatch/scripts/missing.py'] } }))
+      .toContainEqual(expect.stringContaining('resource package file does not exist'))
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, name: '@deepseek-ai/dsh-other' } }))
+      .toContainEqual(expect.stringContaining('release member must not set "private": true'))
+  })
+
   it.each(['./art/icon.svg', 'art/icon.svg'])('includes declared icon %s in the canonical payload', (icon) => {
     expect(expectedDshPackageFiles({ icon, exports: { './locale/*.json': './locale/*.json' } })).toEqual([
       'art/icon.svg', 'locale/*.json', 'lib/index.js', 'lib/types/**/*.d.ts',

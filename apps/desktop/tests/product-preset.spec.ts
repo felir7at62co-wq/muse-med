@@ -90,15 +90,17 @@ it('loads exactly the six product modes without discovering other shipped or per
       personaPrefix: string
     }
     expect(editingPrompt).toBe(editingModelInput.personaPrefix)
-    expect(editingPrompt).toContain('正式写作前')
-    expect(editingPrompt).toContain('爆款剧本')
-    expect(editingPrompt).toContain('实际阅读')
+    for (const requirement of ['小说转剧本', '视频转剧本', '剧名', '换梗方案', '集数', '篇幅', '用户选择',
+      '优先阅读本次转出的剧本', '知识库', '全部正文']) {
+      expect(editingPrompt, requirement).toContain(requirement)
+    }
+    expect(editingPrompt).not.toContain('无法读取原文时不写正式正文')
     for (const id of ['agent-instructions', 'editing-tools', 'tool-fs', 'tool-skill', 'tool-goal', 'tool-web', 'present']) {
       expect(editingRows.some(row => row.id === id), id).toBe(true)
     }
     const editingSkill = await readFile(join(productRoot, '..', 'skills', 'editing', 'SKILL.md'), 'utf8')
-    expect(editingSkill).toContain('单页不够时继续分页')
-    expect(editingSkill).toContain('不得写正式正文')
+    expect(editingSkill).toContain('检索摘要不等于读过全文')
+    expect(editingSkill).not.toContain('不得写正式正文')
     expect(source).not.toMatch(/[CE]:\\|EDY|默认授权|自动授权/)
     for (const requirement of ['每集至少 2 首不同曲目', '按情绪分段', 'policy_findings', '1.5 秒三角交叉淡化', '24 小时', 'max_review_attempts=3', 'content_duration_ms', '离线、不外传', '不自动删除', '片尾 2 秒', '被委派的子代理只返回调用方要的分片结果', '给了 schema 就用 structured_output 返回']) {
       expect(prompt, requirement).toContain(requirement)

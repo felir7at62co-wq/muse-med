@@ -14,7 +14,7 @@ Status: implemented
 
 Desktop Host 只发现产品根目录，其中有六个预设、默认 `short-drama`：短剧与编辑两个产品组合加四个只读原生适配器 `standard`、`ptc`、`minimal` 和 `cordis`。适配器复用上游组合，不维护副本，也不改变名册发现 API，并各自改写组合自带的文件系统技能提供方，不让它去选择部署根目录。嵌套 `cordis:group` 会通过适配器挂载其中的行，因此 `minimal` 组合保留它唯一的工具——持久 shell。短剧预设合并维护中的短剧工具与生产流程规则，共享剧变服务留在 Host，并使用公开配乐索引。产品既不修改部署自带预设，也不修改任何用户预设目录；Web profile 选择随发行版交付的名册而非用户根目录。persona 要求当前用户明确授权制作；已有的自动单项目预算上限仍是独立执行策略，不是新增的授权机制。
 
-[编辑模式决策](../feature/2026-09-28-muse-editor-sourced-opening.zh.md)规定编辑在阅读获授权剧本开头后何时可以开始写作。
+[编辑模式决策](../feature/2026-09-29-muse-editor-outline-led-drafting.zh.md)规定从来源到大纲的流程，以及编辑正式写作前优先阅读参考资料的做法。
 
 产品自有的短剧预设从 `short-drama-local` 改名为 `short-drama`。改名之前创建的会话会在创建头部以及此后每个 `agent-preset/selected` 事件里写明旧 id；这些会话恢复时报 `agent-preset/not-found`，而某个根已经在回应新 id——本版没有别名机制。因此名册携带一张**只用于解析**的废弃 id 表，把旧 id 映射到 `short-drama`：它绝不进入 `list()`，选择器仍然只显示各根提供的预设；`resolve` 优先选择真实存在的预设，因此用旧 id 归档后又被恢复的目录仍由它自己作答。当改名之前创建的会话都不再可恢复、且没有设置文档仍把旧 id 存为默认值时，删除该条目。
 

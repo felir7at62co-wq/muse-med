@@ -1,3 +1,12 @@
-import { clientBundle } from '../../client/tsdown.client.ts'
+import { defineConfig } from 'tsdown'
 
-export default clientBundle('@deepseek-ai/dsh-muse-account', ['lib/types/index.js', 'lib/types/mcp-server.js'], { hostPhase: true })
+export default defineConfig([{
+  entry: ['lib/types/index.js'],
+  outDir: 'lib',
+  format: ['esm'],
+  platform: 'node',
+  target: 'es2024',
+  fixedExtension: false,
+  dts: false,
+  clean: false,
+}])

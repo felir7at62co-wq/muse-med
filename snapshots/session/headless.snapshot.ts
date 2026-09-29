@@ -68,6 +68,8 @@ const museSharedSkills = [
   ['audio-transcribe', join(repoRoot, 'apps/desktop-host/skills/audio-transcribe/SKILL.md')],
   ['transcript-to-novel', join(repoRoot, 'apps/desktop-host/skills/transcript-to-novel/SKILL.md')],
   ['transcript-to-script', join(repoRoot, 'apps/desktop-host/skills/transcript-to-script/SKILL.md')],
+  ['novel-to-script', join(repoRoot, 'apps/desktop-host/skills/novel-to-script/SKILL.md')],
+  ['trope-adaptation', join(repoRoot, 'apps/desktop-host/skills/trope-adaptation/SKILL.md')],
 ] as const
 
 type SnapshotMode = 'replay' | 'record' | 'refresh'

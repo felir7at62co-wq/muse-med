@@ -1,6 +1,7 @@
 # Agent Note: 编辑模式在写作前阅读有来源的剧本开头
 
 Status: implemented
+Archived: 2026-09-29
 
 [English](2026-09-28-muse-editor-sourced-opening.md) | 中文
 

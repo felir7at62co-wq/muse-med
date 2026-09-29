@@ -64,7 +64,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const service = ctx.plugin(MuseAccountService, { controller, asr })
   await service.await()
 
-  const server = fileURLToPath(new URL('./mcp-server.js', import.meta.url))
+  const server = fileURLToPath(new URL('./types/mcp-server.js', import.meta.url))
   const child = ctx.plugin(McpClient, McpClient.Config({
     serverName: 'muse-account',
     transport: 'stdio',

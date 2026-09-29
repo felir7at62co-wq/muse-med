@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-29-muse-account-private-script-vault.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-29-muse-account-private-script-vault.md
+/agent-note-account-private-script-ingestion-beside-granted-reference-reading:
+  en: 207ff1d23fe3527a
+  zh: 7b1065f055020e22
+/agent-note-account-private-script-ingestion-beside-granted-reference-reading/problem:
+  en: ebad02144e81241b
+  zh: 4ae5fb996c953ffd
+/agent-note-account-private-script-ingestion-beside-granted-reference-reading/decision:
+  en: 6adfe7b59b7b0395
+  zh: 4b637bb7cfb4de12
+/agent-note-account-private-script-ingestion-beside-granted-reference-reading/alternatives-considered:
+  en: 7ef0d9451027c8ef
+  zh: 9d3b3933423dab22
+/agent-note-account-private-script-ingestion-beside-granted-reference-reading/consequences:
+  en: c9f3f480bb8a3b65
+  zh: ef5eb94dcbf65aa0

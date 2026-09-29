@@ -67,7 +67,6 @@
     "skills/tweet-drama-draft-build/scripts/draft_generator.py",
     "skills/tweet-drama-draft-build/scripts/jianying_draft.py",
     "skills/tweet-drama-draft-build/scripts/paths.py",
-    "skills/tweet-drama-draft-build/tests/test_spoken_subtitles.py",
     "skills/tweet-drama-early-shot-script/SKILL.md",
     "skills/tweet-drama-early-shot-script/references/project-config.md",
     "skills/tweet-drama-key-manager/SKILL.md",

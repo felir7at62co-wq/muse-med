@@ -2,19 +2,9 @@
   "extends": "../../../tsconfig.base.client.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib/types",
-    "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
+    "outDir": "lib/types"
   },
-  "files": [
-    "src/css-modules.d.ts",
-    "src/client/MuseAccountSection.tsx",
-    "src/client/MuseAccountLauncher.tsx",
-    "src/client/MuseAccountOnboarding.tsx",
-    "src/client/index.ts",
-    "src/client/locales.ts",
-    "src/client/mount.ts",
-    "src/types.ts"
-  ],
+  "include": ["src"],
   "references": [
     { "path": "../../../vendor/cordis" },
     { "path": "../../api/remotes/tsconfig.client.json" },
@@ -22,6 +12,7 @@
     { "path": "../../client/ui-primitives" },
     { "path": "../../client/ui-renderer" },
     { "path": "../../client/ui-settings/tsconfig.client.json" },
-    { "path": "../../client/ui-slots" }
+    { "path": "../../client/ui-slots" },
+    { "path": "../../host/muse-account/tsconfig.host.json" }
   ]
 }

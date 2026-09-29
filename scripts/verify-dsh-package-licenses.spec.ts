@@ -56,4 +56,22 @@ describe('DSH package license gate', () => {
       'packages/core/agent/package.json: @deepseek-ai/dsh-agent must declare "license": "MIT"; found undefined.',
     ])
   })
+
+  it('accepts UNLICENSED only for the private drama skill resource package', () => {
+    const root = createWorkspace()
+    writeManifest(root, 'packages/drama/skills/package.json', {
+      name: '@deepseek-ai/dsh-drama-skills', private: true, license: 'UNLICENSED',
+    })
+    expect(inspectDshPackageLicenses(root)).toEqual({ packageCount: 2, failures: [] })
+    writeManifest(root, 'packages/drama/skills/package.json', {
+      name: '@deepseek-ai/dsh-drama-skills', private: false, license: 'UNLICENSED',
+    })
+    expect(inspectDshPackageLicenses(root).failures)
+      .toContainEqual(expect.stringContaining('must declare "license": "MIT"'))
+    writeManifest(root, 'packages/drama/other/package.json', {
+      name: '@deepseek-ai/dsh-drama-skills', private: true, license: 'UNLICENSED',
+    })
+    expect(inspectDshPackageLicenses(root).failures)
+      .toContainEqual(expect.stringContaining('packages/drama/other/package.json'))
+  })
 })

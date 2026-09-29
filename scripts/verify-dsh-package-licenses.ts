@@ -4,7 +4,8 @@
  */
 
 import { globSync, readFileSync } from 'node:fs'
-import { resolve, sep } from 'node:path'
+import { dirname, resolve, sep } from 'node:path'
+import { isDramaSkillsResourcePackage } from './drama-skills-resource-package.ts'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const DSH_PACKAGE_NAME = /^@deepseek-ai\/dsh(?:-|$)/
@@ -52,7 +53,7 @@ function printable(value: unknown): string {
 /**
  * Check every DSH npm package declared by the repository workspace.
  * @param root - absolute repository root containing the workspace package.json.
- * @returns the checked package count and every non-MIT declaration.
+ * @returns the checked package count and every license declaration that violates this policy.
  */
 export function inspectDshPackageLicenses(root: string): DshPackageLicenseReport {
   let packageCount = 0
@@ -64,7 +65,9 @@ export function inspectDshPackageLicenses(root: string): DshPackageLicenseReport
     if (typeof name !== 'string' || !DSH_PACKAGE_NAME.test(name)) continue
 
     packageCount++
-    if (manifest.license !== 'MIT') {
+    const privateResource = isDramaSkillsResourcePackage(dirname(file).split(sep).join('/'), name)
+      && manifest.private === true && manifest.license === 'UNLICENSED'
+    if (manifest.license !== 'MIT' && !privateResource) {
       const normalizedFile = file.split(sep).join('/')
       failures.push(
         `${normalizedFile}: ${name} must declare "license": "MIT"; found ${printable(manifest.license)}.`,
@@ -78,12 +81,12 @@ export function inspectDshPackageLicenses(root: string): DshPackageLicenseReport
 if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
   const report = inspectDshPackageLicenses(ROOT)
   if (report.failures.length > 0) {
-    process.stderr.write('verify-dsh-package-licenses: non-MIT DSH package declarations found:\n')
+    process.stderr.write('verify-dsh-package-licenses: disallowed DSH package license declarations found:\n')
     for (const failure of report.failures) process.stderr.write(`  ${failure}\n`)
     process.exitCode = 1
   } else {
     process.stdout.write(
-      `verify-dsh-package-licenses: ${String(report.packageCount)} DSH package(s) checked; all declare MIT.\n`,
+      `verify-dsh-package-licenses: ${String(report.packageCount)} DSH package(s) checked; all satisfy the license policy.\n`,
     )
   }
 }

@@ -9,6 +9,8 @@ import {feedbackRoute} from './feedback-http.mjs';
 import {openAdminAccess} from './admin-access.mjs';
 import {openStore,validId} from './store.mjs';
 import {createKbMcp} from './kb-mcp.mjs';
+import {loadDocumentGrants} from './kb-grants.mjs';
+import {verifyPersonalRoot} from './kb-personal.mjs';
 // Cloud knowledge base endpoint (bearer-token authenticated).
 import {openModelConfig,createModelRelay} from './model-relay.mjs';
 import {openGlobalModels,restrictModelSchema} from './global-models.mjs';
@@ -20,13 +22,12 @@ function loginPage(register=false){return page(register?'注册':'登录',`<img 
 export function createAccountServer({store,runtime,modelConfig,globalModels,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,now=Date.now,sessionTtlMs=43200000,devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
  if(!['development','production'].includes(environment))throw Error('Invalid environment');
  if(!/^__Host-[A-Za-z0-9_-]+$/.test(cookieName))throw Error('Invalid secure session cookie name');
-  // The knowledge base authenticates machines with bearer tokens, never browser
-  // cookies, so it is built once here and served ahead of the browser session gate.
-  const kbEndpoint=kb?.vaultRoot&&typeof kb.secret==='string'&&kb.secret.length>=32?createKbMcp({vaultRoot:kb.vaultRoot,accounts:store,secret:kb.secret,embedder:kb.embedder,vectors:kb.vectors,semanticWeight:kb.semanticWeight,semanticFloor:kb.semanticFloor,onWarn:message=>console.error('[muse-kb]',message)}):null;
+  function authorizeKbToken(token){const grant=kbAccessTokens.get(token);if(!grant)return null;const active=sessions.get(grant.sessionToken),account=active&&store.get(active.id);if(!active||!account||account.disabled||account.revision!==active.revision||active.id!==grant.accountId||active.expiry<=now()||grant.expiry<=now()){kbAccessTokens.delete(token);return null;}return {account,mode:'account'};}
+  const kbEndpoint=kb?.vaultRoot&&typeof kb.secret==='string'&&kb.secret.length>=32?createKbMcp({vaultRoot:kb.vaultRoot,personalRoot:kb.personalRoot,accounts:store,secret:kb.secret,documentGrants:kb.documentGrants,authorize:authorizeKbToken,embedder:kb.embedder,vectors:kb.vectors,semanticWeight:kb.semanticWeight,semanticFloor:kb.semanticFloor,onWarn:message=>console.error('[muse-kb]',message)}):null;
  async function maintenance(){if(!maintenanceFile)return false;try{await access(maintenanceFile);return true;}catch(e){if(e.code==='ENOENT')return false;throw e;}}
  function workspaceMutation(path){return /^\/api\/workspace[./](create|delete|rename|update|change|insertBefore)(?:\/|$)/.test(decodeURIComponent(path));}
- publicOrigin=new URL(publicOrigin).origin;const sessions=new Map(),rates=new Map(),connections=new Map(),cookies=new Map(),httpStreams=new Map();
- function revoke(token){sessions.delete(token);adminAccess?.revoke(token);for(const socket of connections.get(token)||[])socket.destroy();connections.delete(token);for(const stream of httpStreams.get(token)||[])stream.destroy();httpStreams.delete(token);}
+ publicOrigin=new URL(publicOrigin).origin;const sessions=new Map(),rates=new Map(),connections=new Map(),cookies=new Map(),httpStreams=new Map(),kbAccessTokens=new Map();
+ function revoke(token){sessions.delete(token);for(const [key,grant] of kbAccessTokens)if(grant.sessionToken===token)kbAccessTokens.delete(key);adminAccess?.revoke(token);for(const socket of connections.get(token)||[])socket.destroy();connections.delete(token);for(const stream of httpStreams.get(token)||[])stream.destroy();httpStreams.delete(token);}
  function touchAccount(id){try{Promise.resolve(runtime.touch?.(id)).catch(()=>{});}catch{}}
  const changed=id=>{for(const [token,s]of sessions)if(s.id===id)revoke(token);cookies.delete(id);};store.on('change',changed);
  function session(req){const token=req.headers.cookie?.split(';').map(x=>x.trim()).find(x=>x.startsWith(cookieName+'='))?.slice(cookieName.length+1);const s=sessions.get(token),a=s&&store.get(s.id);if(s&&s.expiry>now()&&a&&!a.disabled&&a.revision===s.revision&&(!devOnlyAdmin||a.admin))return {token,...s,account:a};if(token)revoke(token);return null;}
@@ -65,6 +66,15 @@ export function createAccountServer({store,runtime,modelConfig,globalModels,feed
    return;
   }
   const s=session(req);if(!s){reply(res,303,'',{location:'/login'});return;}if(!originOK(req,!['GET','HEAD','OPTIONS'].includes(req.method))){reply(res,403);return;}touchAccount(s.id);
+  if(path==='/api/kb/access'){
+   if(req.method!=='POST'){reply(res,405,'',{allow:'POST'});return;}
+   if(!kbEndpoint){reply(res,503,JSON.stringify({error:'云端知识库未配置'}),{'content-type':'application/json'});return;}
+   if(!rate(req,'kb-access:'+s.id,30)){reply(res,429,'请求过于频繁',{'retry-after':'60'});return;}
+   while(kbAccessTokens.size>=10000)kbAccessTokens.delete(kbAccessTokens.keys().next().value);
+   const token=randomBytes(32).toString('base64url'),expiresAt=Math.min(s.expiry,now()+15*60_000);
+   kbAccessTokens.set(token,{sessionToken:s.token,accountId:s.id,expiry:expiresAt});
+   reply(res,200,JSON.stringify({url:publicOrigin+'/api/kb/mcp',token,expiresAt}),{'content-type':'application/json; charset=utf-8'});return;
+  }
   if(path==='/api/asr/jobs'||path.startsWith('/api/asr/jobs/')){
    const answer=(status,value)=>reply(res,status,JSON.stringify(value),{'content-type':'application/json; charset=utf-8'});
    if(!asr){answer(503,{error:'Muse cloud transcription is not configured on this server'});return;}
@@ -210,7 +220,9 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
    let vectors;
    if(process.env.MUSE_KB_VECTORS)try{vectors=openVectorIndex({file:process.env.MUSE_KB_VECTORS,model:embedder.model});}
    catch(error){console.error('[muse-kb] 向量索引不可读，已退回纯关键词检索：',error.code||error.message);}
-   kb={vaultRoot:process.env.MUSE_KB_VAULT,secret,embedder,vectors,semanticWeight:Number(process.env.MUSE_KB_SEMANTIC_WEIGHT??0.5),semanticFloor:Number(process.env.MUSE_KB_SEMANTIC_FLOOR??0.5)};
+   const documentGrants=process.env.MUSE_KB_DOCUMENT_GRANTS?await loadDocumentGrants(process.env.MUSE_KB_DOCUMENT_GRANTS,{vaultRoot:process.env.MUSE_KB_VAULT}):new Map();
+   await verifyPersonalRoot(process.env.MUSE_KB_USER_ROOT,process.env.MUSE_KB_VAULT);
+   kb={vaultRoot:process.env.MUSE_KB_VAULT,personalRoot:process.env.MUSE_KB_USER_ROOT,secret,documentGrants,embedder,vectors,semanticWeight:Number(process.env.MUSE_KB_SEMANTIC_WEIGHT??0.5),semanticFloor:Number(process.env.MUSE_KB_SEMANTIC_FLOOR??0.5)};
   }
  }
  let asr,asrSweepIntervalSeconds;

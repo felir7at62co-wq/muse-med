@@ -35,7 +35,7 @@ it('exchanges the current cookie for a short-lived token without saving or retur
   await writeMuseSession(sessionFile, { baseUrl: 'https://muse.example', cookie: '__Host-muse=secret-cookie', username: 'writer' })
   const requests: Array<{ url: string; options: RequestInit }> = []
   const fetcher = async (input: string | URL | Request, options?: RequestInit): Promise<Response> => {
-    requests.push({ url: String(input), options: options ?? {} })
+    requests.push({ url: typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, options: options ?? {} })
     return Response.json({ url: 'https://muse.example/api/kb/mcp', token: 'secret-bearer', expiresAt: Date.now() + 60_000 })
   }
   const calls: Array<{ url: string; token: string; name: string; args: Record<string, unknown> }> = []
@@ -43,7 +43,7 @@ it('exchanges the current cookie for a short-lived token without saving or retur
     baseUrl: 'https://muse.example',
     requestTimeoutMs: 15_000,
     sessionFile,
-    fetcher: fetcher as typeof fetch,
+    fetcher,
     callTool: async (url, token, name, args) => {
       calls.push({ url, token, name, args })
       return { content: [{ type: 'text', text: '开篇正文' }] }
@@ -73,6 +73,31 @@ it('refuses knowledge-base tools without a signed-in account', async () => {
   })
 
   await expect(reader.search('宫斗')).rejects.toMatchObject({ code: 'sign-in-required' })
+  await expect(reader.ingestScript([{ title: '第一集', text: '正文', source: 'project/episode-01', reviewed: true }]))
+    .rejects.toMatchObject({ code: 'sign-in-required' })
+})
+
+it('exchanges the current account session before saving reviewed script sections', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-muse-kb-ingest-'))
+  homes.push(home)
+  const sessionFile = join(home, 'session.json')
+  await writeMuseSession(sessionFile, { baseUrl: 'https://muse.example', cookie: '__Host-muse=cookie', username: 'writer' })
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = []
+  const reader = createMuseKbReader({
+    baseUrl: 'https://muse.example', requestTimeoutMs: 15_000, sessionFile,
+    fetcher: async () => Response.json({ url: 'https://muse.example/api/kb/mcp', token: 'temporary-bearer', expiresAt: Date.now() + 60_000 }),
+    callTool: async (_url, _token, name, args) => {
+      calls.push({ name, args })
+      return { content: [{ type: 'text', text: '第 1 项：已写入；id: private/SRC-2026-09-28-001' }] }
+    },
+  })
+  const items = [{ title: '第一集', text: '# 第一集\n场景一', source: 'project/episode-01', reviewed: true as const }]
+  const result = await reader.ingestScript(items)
+  expect(calls).toEqual([{ name: 'ingest_script', args: { items } }])
+  expect(result.content[0]?.text).toContain('private/SRC-')
+  expect(JSON.stringify(result)).not.toContain('temporary-bearer')
+  await expect(reader.ingestScript([{ ...items[0]!, text: '汉'.repeat(700_000) }])).rejects.toMatchObject({ code: 'kb-rejected' })
+  expect(calls).toHaveLength(1)
 })
 
 it('reads a granted source or wiki page at the requested character offset', async () => {

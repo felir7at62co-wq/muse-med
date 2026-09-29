@@ -87,7 +87,8 @@ function fixture() {
   mkdirSync(dirname(editingSkill.path), { recursive: true })
   writeFileSync(editingSkill.path, '# fixture')
   skills.push(editingSkill)
-  for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import']) {
+  for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import',
+    'novel-to-script', 'trope-adaptation']) {
     const path = join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md')
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
@@ -109,7 +110,8 @@ function fixture() {
   type SmokeResponse = { statusCode: number; end(text: string): void }
   let route: { path: string; handler(request: object, response: SmokeResponse): Promise<void> } | undefined
   const accountMcpNames = ['mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
-    'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening']
+    'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
+    'mcp__muse-account__muse_kb_ingest_script']
   class TestContext {
     webServer = { register: vi.fn((value: NonNullable<typeof route>) => {
       route = value
@@ -310,7 +312,14 @@ it('rejects an editing mode without its account-scoped source reader', async () 
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it('rejects an editing persona without the opening-before-drafting instruction', async () => {
+it('rejects an editing mode without private script ingestion', async () => {
+  const f = fixture()
+  f.accountMcpNames.splice(f.accountMcpNames.indexOf('mcp__muse-account__muse_kb_ingest_script'), 1)
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool mcp__muse-account__muse_kb_ingest_script')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('rejects an editing persona without the chosen-outline workflow', async () => {
   const f = fixture()
   const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
   f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {

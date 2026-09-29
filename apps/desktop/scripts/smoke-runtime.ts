@@ -68,7 +68,8 @@ export function apply(ctx) {
       : id === 'minimal' ? [shell]
         : id === 'editing' ? ['read', 'skill', shell, 'present',
           'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
-          'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening']
+          'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
+          'mcp__muse-account__muse_kb_ingest_script']
         : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
     if (id === 'minimal') {
@@ -83,7 +84,8 @@ export function apply(ctx) {
       const assembly = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
       const persona = assembly.sections.find(section => section.name === 'deployment:persona-prefix')?.text
       if (persona !== editingModelInput.personaPrefix
-        || !persona?.includes('正式写作前先检索并阅读获授权知识库的相关案例 Wiki 页，再实际阅读有来源的爆款剧本开头')) {
+        || !persona?.includes('在大纲阶段建议集数、篇幅和字数范围，交用户选择或修改')
+        || !persona.includes('不把参考阅读设为开写门禁')) {
         throw new Error('desktop runtime: editing persona changed')
       }
       for (const [name, description] of Object.entries(editingModelInput.tools)) {
@@ -96,7 +98,8 @@ export function apply(ctx) {
     const skills = await ctx.skills.list({ scope: handle.agent, cwd: home })
     if (names.has('skill')) {
       const productSkills = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills')
-      for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import']) {
+      for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import',
+        'novel-to-script', 'trope-adaptation']) {
         const skill = skills.find(value => value.name === name)
         const expected = join(productSkills, name, 'SKILL.md')
         if (!skill?.invocation.modelInvocable || !existsSync(expected)

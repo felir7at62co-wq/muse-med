@@ -1,4 +1,4 @@
-/** Read-only MUSE knowledge-base bridge using a fresh account-derived bearer per call. */
+/** MUSE knowledge-base bridge using a fresh account-derived bearer per call. */
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { readMuseSession } from './session.ts'
@@ -24,7 +24,7 @@ export interface MuseKbResult {
 export type MuseKbToolCaller = (
   url: string,
   token: string,
-  name: 'search' | 'read' | 'read_opening',
+  name: 'search' | 'read' | 'read_opening' | 'ingest_script',
   args: Record<string, unknown>,
   requestTimeoutMs: number,
 ) => Promise<MuseKbResult>
@@ -42,8 +42,16 @@ export interface MuseKbReaderOptions {
 const OPENING_STARTS = new Set([0, 6_000, 12_000, 18_000])
 const MAX_TEXT_BYTES = 131_072
 
+/** One reviewed episode or chapter of a transcription-derived Markdown script. */
+export interface MuseKbScriptSection {
+  readonly title: string
+  readonly text: string
+  readonly source: string
+  readonly reviewed: true
+}
+
 /**
- * Call one read-only remote MCP tool, closing the connection after the result.
+ * Call one remote MCP tool, closing the connection after the result.
  * @param url - Access endpoint's validated MCP URL.
  * @param token - Short-lived bearer issued for the current account session.
  * @param name - Allowed remote tool.
@@ -103,17 +111,18 @@ function kbMcpUrl(raw: string, gatewayOrigin: string): string {
  * Create account-scoped knowledge-base reads. Every call exchanges the current
  * cookie for a short-lived bearer and discards it after the remote MCP call.
  * @param options - Gateway, session and network adapters.
- * @returns Search, authorized full-text pages, and opening-page operations.
+ * @returns Search, authorized reading, and account-private script ingestion.
  */
 export function createMuseKbReader(options: MuseKbReaderOptions): {
   search(query: string, limit?: number): Promise<MuseKbResult>
   read(id: string, start?: number): Promise<MuseKbResult>
   readOpening(id: string, start?: number): Promise<MuseKbResult>
+  ingestScript(items: readonly MuseKbScriptSection[]): Promise<MuseKbResult>
 } {
   const fetcher = options.fetcher ?? fetch
   const callTool = options.callTool ?? callMuseKbTool
 
-  async function invoke(name: 'search' | 'read' | 'read_opening', args: Record<string, unknown>): Promise<MuseKbResult> {
+  async function invoke(name: 'search' | 'read' | 'read_opening' | 'ingest_script', args: Record<string, unknown>): Promise<MuseKbResult> {
     const session = await readMuseSession(options.sessionFile, options.baseUrl)
     if (session === null) throw new MuseKbError('sign-in-required')
     let response: Response
@@ -146,7 +155,7 @@ export function createMuseKbReader(options: MuseKbReaderOptions): {
     }
     const url = kbMcpUrl(fields.url, options.baseUrl)
     const result = await callTool(url, fields.token, name, args, options.requestTimeoutMs)
-    if (result.isError === true || result.content.some(block => block.type !== 'text')) throw new MuseKbError('kb-rejected')
+    if (result.isError === true) throw new MuseKbError('kb-rejected')
     const text = result.content.map(block => block.text).join('')
     if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES || text.includes(fields.token)) throw new MuseKbError('kb-rejected')
     return { content: result.content.map(block => ({ type: 'text', text: block.text })) }
@@ -171,6 +180,11 @@ export function createMuseKbReader(options: MuseKbReaderOptions): {
       if (typeof id !== 'string' || id.length === 0 || id.length > 256
         || (start !== undefined && !OPENING_STARTS.has(start))) throw new MuseKbError('kb-rejected')
       return await invoke('read_opening', { id, ...(start === undefined ? {} : { start }) })
+    },
+    async ingestScript(items) {
+      if (items.length < 1 || items.length > 12
+        || Buffer.byteLength(JSON.stringify({ items }), 'utf8') > 2_000_000) throw new MuseKbError('kb-rejected')
+      return await invoke('ingest_script', { items })
     },
   }
 }

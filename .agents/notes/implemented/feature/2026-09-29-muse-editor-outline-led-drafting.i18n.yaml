@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-29-muse-editor-outline-led-drafting.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-29-muse-editor-outline-led-drafting.md
+/agent-note-outline-led-muse-editorial-drafting-from-verified-sources:
+  en: 1e8e50552d4487bf
+  zh: 9d46d979184a4f73
+/agent-note-outline-led-muse-editorial-drafting-from-verified-sources/problem:
+  en: 2bbe44168f52c977
+  zh: 6a5f846fff2388e1
+/agent-note-outline-led-muse-editorial-drafting-from-verified-sources/decision:
+  en: a6dc027404dc9ef6
+  zh: bb575a0645512752
+/agent-note-outline-led-muse-editorial-drafting-from-verified-sources/alternatives-considered:
+  en: a47ede289b1383da
+  zh: 7f329d3a71fbcfec
+/agent-note-outline-led-muse-editorial-drafting-from-verified-sources/consequences:
+  en: 3a77685d8b1e0e41
+  zh: cbe016ca64af4e3a

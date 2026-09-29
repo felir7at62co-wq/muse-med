@@ -1,4 +1,4 @@
-/** Bundled stdio MCP process for account status and authorized KB reading. */
+/** Bundled stdio MCP process for account status and authorized KB operations. */
 
 import { McpServer } from '@modelcontextprotocol/server'
 import { serveStdio } from '@modelcontextprotocol/server/stdio'
@@ -47,7 +47,7 @@ export function parseMuseAccountLaunch(raw: string | undefined): LaunchConfig {
 }
 
 /** Only operations safe to expose to a model. */
-export type MuseKbOperations = Pick<ReturnType<typeof createMuseKbReader>, 'search' | 'read' | 'readOpening'>
+export type MuseKbOperations = Pick<ReturnType<typeof createMuseKbReader>, 'search' | 'read' | 'readOpening' | 'ingestScript'>
 
 /** Keep tool failures independent of upstream response bodies and bearer values. */
 async function kbResult(operation: () => Promise<MuseKbResult>): Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean }> {
@@ -61,7 +61,7 @@ async function kbResult(operation: () => Promise<MuseKbResult>): Promise<{ conte
 }
 
 /**
- * Register account status and authorized knowledge-base reads.
+ * Register account status, authorized reading, and account-private script ingestion.
  * @param controller - Account identity reader shared with the Host service.
  * @param kb - Account-scoped KB operations that exchange a fresh bearer per call.
  * @returns A server with no credential-taking tool.
@@ -85,7 +85,7 @@ export function createMuseAccountMcpServer(controller: Pick<MuseAccountControlle
   })
   server.registerTool('muse_kb_search', {
     title: 'Search MUSE knowledge base',
-    description: 'Search account-authorized script sources and Wiki pages. Results show 类型 and 标定 plus an ID; use muse_kb_read for granted full text or muse_kb_read_opening for a 标定: viral-script opening. Search excerpts are not complete documents.',
+    description: 'Search this account’s private scripts and administrator-granted sources or Wiki pages. Results include 类型, 标定, and an ID. Use muse_kb_read for full pages, or muse_kb_read_opening for a viral-script or user-script opening; excerpts are incomplete.',
     inputSchema: z.object({ query: z.string().min(1).max(200), limit: z.number().int().min(1).max(20).optional() }),
   }, async ({ query, limit }) => await kbResult(() => kb.search(query, limit)))
   server.registerTool('muse_kb_read', {
@@ -94,13 +94,23 @@ export function createMuseAccountMcpServer(controller: Pick<MuseAccountControlle
     inputSchema: z.object({ id: z.string().min(1).max(512), start: z.number().int().min(0).max(4194000).multipleOf(6000).optional() }),
   }, async ({ id, start }) => await kbResult(() => kb.read(id, start)))
   server.registerTool('muse_kb_read_opening', {
-    title: 'Read an authorized blockbuster script opening',
-    description: 'Read a 6000-character opening page of an account-authorized SRC source marked 标定: viral-script. Start may be 0, 6000, 12000, or 18000; read these pages before drafting in editing mode.',
+    title: 'Read an authorized script opening',
+    description: 'Read a 6000-character opening page of an authorized viral-script source or this account’s private user-script. Start may be 0, 6000, 12000, or 18000. Continue when the story opening requires another page.',
     inputSchema: z.object({
       id: z.string().min(1).max(256),
       start: z.union([z.literal(0), z.literal(6000), z.literal(12000), z.literal(18000)]).optional(),
     }),
   }, async ({ id, start }) => await kbResult(() => kb.readOpening(id, start)))
+  server.registerTool('muse_kb_ingest_script', {
+    title: 'Save reviewed script sections to private MUSE knowledge base',
+    description: 'Save reviewed, human-readable Markdown script sections from an authorized video or novel source into the signed-in account’s private knowledge base. Submit one item per episode or chapter. Results name each saved, duplicate, or failed item and its private ID. Verify the full set and read back saved IDs before reporting completion; a partial result is not a complete archive.',
+    inputSchema: z.object({ items: z.array(z.object({
+      title: z.string().min(1).max(200).describe('Work title and episode or chapter'),
+      text: z.string().min(1).max(400_000).describe('Reviewed script Markdown, not raw speech-recognition fragments'),
+      source: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/u).refine(value => !value.includes('..')).describe('Project-relative provenance ID; keep original URL and timecodes in the project source record'),
+      reviewed: z.literal(true).describe('The script text has been checked against the source'),
+    })).min(1).max(12).describe('One section per episode or chapter; split long scripts into batches below 2 MiB total') }),
+  }, async ({ items }) => await kbResult(() => kb.ingestScript(items)))
   return server
 }
 
@@ -114,6 +124,6 @@ if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(
   })
   const kb = createMuseKbReader({ baseUrl: config.baseUrl, sessionFile, requestTimeoutMs: config.requestTimeoutMs })
   serveStdio(() => createMuseAccountMcpServer(controller, kb), {
-    onerror: () => console.error('[muse-account] MCP request failed'),
+    onerror: () => { console.error('[muse-account] MCP request failed') },
   })
 }

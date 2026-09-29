@@ -1,0 +1,5 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# archived Agent Notes are frozen after sealing.
+2026-09-28-muse-editor-sourced-opening.md: d9bf1907387b3d3d009de6afd168cce86ff11989
+2026-09-28-muse-editor-sourced-opening.zh.md: ac4959a15d09f87e4b7c43babf0aa3ec9125eb47

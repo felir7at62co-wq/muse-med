@@ -8,6 +8,7 @@ import { existsSync, globSync, readFileSync } from 'node:fs'
 import { dirname, relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { usesFlattenedPackageDependencies } from './package-dependency-policy.ts'
+import { isDramaSkillsResourcePackage } from './drama-skills-resource-package.ts'
 
 /** Package README sentence that records why an invariant companion is omitted. */
 const OMITTED_COMPANION_REASON = /No (?:(?:runtime )?invariant )?companion is published(?: because|[.:;—])\s+\S/i
@@ -68,6 +69,14 @@ export function collectPackageInvariantViolations(root: string): PackageInvarian
     const manifest = readManifest(resolve(root, owner.manifestPath))
     const hasCompanion = existsSync(resolve(root, owner.sourcePath))
     checkManifest(owner, manifest, hasCompanion, violations)
+    if (isDramaSkillsResourcePackage(owner.dir, owner.packageName)) {
+      if (hasCompanion) {
+        addViolation(violations, owner.sourcePath, 'file-only resource package must not publish a runtime invariant companion')
+      } else {
+        checkOmissionReason(owner, root, violations)
+      }
+      continue
+    }
     checkBuild(owner, root, hasCompanion, violations)
     if (hasCompanion) {
       checkSource(owner, root, violations)

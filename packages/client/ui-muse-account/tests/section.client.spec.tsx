@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MuseAccountSection, type MuseAccountInjected, type MuseAccountSectionProps } from '../src/client/MuseAccountSection.tsx'
 import { MuseAccountOnboarding } from '../src/client/MuseAccountOnboarding.tsx'
-import type { MuseAccountStatus, MuseAccountStatusRequest } from '../src/types.ts'
+import type { MuseAccountStatus, MuseAccountStatusRequest } from '@deepseek-ai/dsh-muse-account/types'
 
 afterEach(() => {
   cleanup()

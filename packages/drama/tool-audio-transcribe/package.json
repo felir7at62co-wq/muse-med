@@ -2,7 +2,9 @@
   "name": "@deepseek-ai/dsh-tool-audio-transcribe",
   "description": "Muse account cloud speech transcription with versioned local project output",
   "version": "0.1.7-rc.3",
-  "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
