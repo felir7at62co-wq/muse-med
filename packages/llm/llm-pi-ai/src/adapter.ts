@@ -377,6 +377,13 @@ export class PiAiAdapter extends LlmAdapter {
             maxBytes: profile.requestImageMaxBytes,
           },
         }, onReplayDegrade)
+      // Foreign thinking would otherwise be converted to answer text by pi-ai.
+      // Native replay retains the reasoning fields required for tool continuation.
+      context.messages = context.messages.map((message) => {
+        if (message.role !== 'assistant' || (message.api === model.api
+          && message.provider === model.provider && message.model === model.id)) return message
+        return { ...message, content: message.content.filter(block => block.type !== 'thinking') }
+      })
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },

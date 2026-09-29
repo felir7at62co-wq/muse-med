@@ -123,3 +123,43 @@ it('excludes supplied GPT models while leaving custom adapters available', async
   expect((await ctx.llm.listModels('muse-cloud-studio')).map(model => model.id)).toEqual(['writer'])
   expect(ctx.llm.listProviders().map(provider => provider.id)).toContain('personal')
 })
+
+
+it.each(['same-model', 'changed-model', 'changed-provider', 'missing-replay'] as const)(
+  'keeps reasoning separate from answer text during %s Muse history replay', async (history) => {
+    const events = [
+      JSON.stringify({ choices: [{ index: 0, delta: { reasoning_content: 'private scratchpad' }, finish_reason: null }] }),
+      ...textEvents,
+    ]
+    const server = await mockServer([{ events }, { events: textEvents }])
+    await writeMuseSession(sessionFile(), { baseUrl: server.url, username: 'alice', cookie: '__Host-muse=alice-session' })
+    models = new MuseModels(ctx, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+      fetcher: async () => Response.json({ providers: ['deepseek-official', 'studio'].map(id => ({
+        id, name: id, models: ['deepseek-v4-flash', 'previous'].map(id => ({
+          id, name: id, contextWindow: 128000, maxTokens: 8192,
+          input: ['text'], reasoningEfforts: { low: 'low', high: 'high' },
+        })),
+      })) }) })
+    await models.refresh()
+    const request = { provider: 'muse-cloud-deepseek-official', model: 'deepseek-v4-flash' }
+    const first = await assemble(ctx, { ...request, messages: [] })
+    expect(first.finish).toEqual({ kind: 'stop' })
+    expect(first.message.content).toEqual([
+      { type: 'reasoning', text: 'private scratchpad' }, { type: 'text', text: 'hello' },
+    ])
+    if (first.message.role !== 'assistant') throw new Error('Expected assistant history')
+    const source = first.message.source
+    const message = { ...first.message, source: {
+      ...source,
+      ...(history === 'missing-replay' ? { replayState: undefined } : {}),
+    } }
+    expect((await assemble(ctx, { ...request,
+      ...(history === 'changed-model' ? { model: 'previous' } : {}),
+      ...(history === 'changed-provider' ? { provider: 'muse-cloud-studio' } : {}),
+      messages: [message] })).finish).toEqual({ kind: 'stop' })
+    const payload = server.requests[1] as { messages: { role: string; content: string; reasoning_content?: string }[] }
+    const assistant = payload.messages.find(message => message.role === 'assistant')
+    expect(assistant?.content).toBe('hello')
+    expect(assistant?.reasoning_content).toBe(history === 'same-model' ? 'private scratchpad' : undefined)
+  },
+)
