@@ -9,7 +9,6 @@
   "files": [
     "lib/index.js",
     "lib/native-preset.js",
-    "lib/editing-tools.js",
     "config/desktop.cordis.patch.yml",
     "presets",
     "skills",
@@ -59,7 +58,6 @@
   "exports": {
     ".": "./lib/index.js",
     "./native-preset": "./lib/native-preset.js",
-    "./editing-tools": "./lib/editing-tools.js",
     "./package.json": "./package.json"
   },
   "dsh": {

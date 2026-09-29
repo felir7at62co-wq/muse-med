@@ -43,6 +43,7 @@ export function apply(ctx) {
   }
   if (ctx.agentPresets.defaultId !== 'short-drama') throw new Error('desktop runtime: product default preset changed')
   const inventory = await ctx.agentPresets.compositionInventory()
+  let standardTools
   for (const id of ids) {
   const preset = await ctx.agentPresets.resolve(id)
   const expected = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'presets', id, 'agent.cordis.yml')
@@ -60,6 +61,7 @@ export function apply(ctx) {
     }
     for (const handle of handles) {
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
+    if (id === 'standard') standardTools = names
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
@@ -78,13 +80,12 @@ export function apply(ctx) {
       const local = [...names].filter(name => !inherited.has(name))
       if (local.length !== 1 || local[0] !== shell) throw new Error('desktop runtime: minimal must add only its persistent shell; found ' + local.join(', '))
     }
-    const editingVideoTools = ['jubian_catalog', 'jubian_asset', 'jubian_organize', 'jubian_model',
-      'jubian_storyboard', 'jubian_video', 'jubian_watch', 'jubian_media']
-    const exposedVideoTools = id === 'editing' ? editingVideoTools.filter(name => names.has(name)) : []
-    if (exposedVideoTools.length > 0) {
-      throw new Error('desktop runtime: editing mode inherited Jubian video tools: ' + exposedVideoTools.join(', '))
-    }
     if (id === 'editing') {
+      if (standardTools === undefined) throw new Error('desktop runtime: standard tool catalog was not checked')
+      const missingStandardTools = [...standardTools].filter(name => !names.has(name))
+      if (missingStandardTools.length > 0) {
+        throw new Error('desktop runtime: editing mode missing standard tool ' + missingStandardTools.join(', '))
+      }
       const assembly = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
       const persona = assembly.sections.find(section => section.name === 'deployment:persona-prefix')?.text
       if (persona !== editingModelInput.personaPrefix

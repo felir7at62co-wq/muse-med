@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-editing-tool-catalog
+profile: headless
+composition: muse-editing-tool-catalog
+recording: authored
+header:
+  class: muse-editing-tool-catalog
+  pin: true
+workspace:
+  setup: muse-editing-skill

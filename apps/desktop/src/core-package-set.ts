@@ -16,7 +16,6 @@ export const DESKTOP_HOST_PACKAGE = '@deepseek-ai/dsh-desktop-host'
 /** Package-relative Desktop Host files required before a profile can boot. */
 export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
-  'lib/editing-tools.js',
   'config/desktop.cordis.patch.yml',
   'config/defaults.cordis.patch.yml',
   'presets/short-drama/agent.cordis.yml',

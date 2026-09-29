@@ -122,6 +122,8 @@ function fixture(packaged = false) {
     'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
     'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
     'mcp__muse-account__muse_kb_ingest_script']
+  const standardCapabilityNames = ['subagent', 'workflow', 'ask_user_question', 'todo_write', 'jubian_video']
+  const editingCapabilityNames = [...standardCapabilityNames]
   class TestContext {
     webServer = { register: vi.fn((value: NonNullable<typeof route>) => {
       route = value
@@ -144,8 +146,9 @@ function fixture(packaged = false) {
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
       return (key.preset === 'short-drama' ? names
         : key.preset === 'minimal' ? [shell]
-          : key.preset === 'editing' ? ['read', 'skill', shell, 'present', ...accountMcpNames]
-            : ['read', 'skill', shell, 'subagent', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
+          : key.preset === 'editing' ? ['read', 'skill', shell, 'present', ...editingCapabilityNames, ...accountMcpNames]
+            : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...accountMcpNames]
+              : ['read', 'skill', shell, 'subagent', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
     }) }
     systemPrompt = { assemble: vi.fn(async (context: { agent: { preset: string }; scope: { preset: string } }) => ({
       sections: context.scope.preset === 'editing'
@@ -175,7 +178,7 @@ function fixture(packaged = false) {
   }
   const apply = async (ctx: TestContext) => { register(ctx); await request() }
   return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names,
-    accountMcpNames, skills, cordisSkill, skillRoot, home }
+    accountMcpNames, editingCapabilityNames, skills, cordisSkill, skillRoot, home }
 }
 
 it('defers preset checks until the Host-ready caller requests them', async () => {
@@ -365,6 +368,12 @@ it('rejects an editing mode without its script-pool reader', async () => {
   await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool jubian_find')
 })
 
+it('rejects an editing mode missing a standard tool', async () => {
+  const f = fixture()
+  f.editingCapabilityNames.splice(f.editingCapabilityNames.indexOf('ask_user_question'), 1)
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing mode missing standard tool ask_user_question')
+})
+
 it('rejects an editing persona without the chosen-outline workflow', async () => {
   const f = fixture()
   const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
@@ -389,10 +398,10 @@ it.each(Object.keys(editingModelInput.tools))('rejects a changed model-visible d
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it('rejects an editing mode that exposes a video tool', async () => {
+it('rejects an editing mode that loses a standard video tool', async () => {
   const f = fixture()
-  f.accountMcpNames.push('jubian_video')
-  await expect(f.apply(f.ctx)).rejects.toThrow('editing mode inherited Jubian video tools')
+  f.editingCapabilityNames.splice(f.editingCapabilityNames.indexOf('jubian_video'), 1)
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing mode missing standard tool jubian_video')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 

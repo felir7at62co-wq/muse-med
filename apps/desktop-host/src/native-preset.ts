@@ -12,10 +12,9 @@
  * Registration is an effect of the owning fiber: the disposer `register()` returns is yielded from
  * the initializer, so stopping the row retires the preset with it.
  *
- * A definition carries no patch concept, so the filesystem skill provider adaptation this product
- * used to apply as patches lives in the compositions themselves: `standard` and `ptc` declare that
- * row disabled, and `cordis` declares it serving only its own authoring skills with default-root
- * selection off. The Host owns the only provider that selects default roots.
+ * The compositions select filesystem skill providers: `standard`, `editing`, and `ptc`
+ * disable that row, while `cordis` serves only its authoring skills with default-root
+ * selection off. The Host owns the provider that selects default roots.
  */
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'

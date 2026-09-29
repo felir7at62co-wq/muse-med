@@ -114,8 +114,8 @@ describe('desktop package-set selection', () => {
   it('requires the Desktop Host entry, overlay and product preset', () => {
     const files = [
       'package/lib/index.js',
-      'package/lib/editing-tools.js',
       'package/config/desktop.cordis.patch.yml',
+      'package/config/defaults.cordis.patch.yml',
       'package/presets/short-drama/agent.cordis.yml',
       'package/presets/short-drama/preset.yml',
       'package/lib/native-preset.js',
@@ -132,10 +132,10 @@ describe('desktop package-set selection', () => {
       'package/skills/media-link-import/SKILL.md',
       'package/skills/media-link-import/scripts/import_media.py',
     ]
-    for (const required of files.slice(4)) {
+    for (const required of files.slice(1)) {
       expect(() => { assertDesktopHostPackageFiles(files.filter(file => file !== required)) }).toThrow(required)
     }
-    expect(() => { assertDesktopHostPackageFiles(files.slice(0, 2)) }).toThrow(/short-drama/u)
+    expect(() => { assertDesktopHostPackageFiles(files.slice(0, 3)) }).toThrow(/short-drama/u)
     expect(() => {
       assertDesktopHostPackageFiles(files)
     }).not.toThrow()

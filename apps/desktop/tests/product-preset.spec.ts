@@ -17,7 +17,7 @@ import { expect, it } from 'vitest'
 import NativePreset from '../../desktop-host/src/native-preset.ts'
 
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
-const patchPath = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
+const patchPath = fileURLToPath(new URL('../../desktop-host/config/defaults.cordis.patch.yml', import.meta.url))
 
 it('loads exactly the six product modes without discovering other shipped or personal presets', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-product-preset-'))
@@ -95,7 +95,7 @@ it('loads exactly the six product modes without discovering other shipped or per
       expect(editingPrompt, requirement).toContain(requirement)
     }
     expect(editingPrompt).not.toContain('无法读取原文时不写正式正文')
-    for (const id of ['agent-instructions', 'editing-tools', 'tool-fs', 'tool-skill', 'tool-goal', 'tool-web', 'present']) {
+    for (const id of ['agent-instructions', 'tool-fs', 'tool-skill', 'tool-goal', 'tool-web', 'present']) {
       expect(editingRows.some(row => row.id === id), id).toBe(true)
     }
     expect(editingRows.find(row => row.id === 'tool-fs-search')?.config).toMatchObject({ sampleOverCapGlobResults: false })

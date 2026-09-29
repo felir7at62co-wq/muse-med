@@ -1,0 +1,19 @@
+# Mount the current product editing preset. The snapshot masks both platform
+# shell tools so one recorded model catalog replays on Windows and POSIX.
+- id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true
+
+- insert:
+    - id: subagent-model-selection-settings
+      name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: editing
+    - id: snapshot-editing-preset
+      name: './editing-preset-fixture.mjs'
+      config:
+        hidePlatformShellTools: true
