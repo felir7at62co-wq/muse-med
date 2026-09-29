@@ -140,6 +140,7 @@ describe('desktop macOS release signature', () => {
     })
     const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
     expect(config.publish[0].channel).toBe(desktopUpdateChannel(manifest.version))
+    expect(config.win.signtoolOptions.publisherName).toBeUndefined()
   })
 
   it('rejects unsigned macOS builds and malformed signing modes', async () => {

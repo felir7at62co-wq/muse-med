@@ -26,6 +26,7 @@ class NodeHttpExecutor extends HttpExecutor {
 
 const { values } = parseArgs({ options: {
   version: { type: 'string' },
+  'expected-version': { type: 'string' },
   config: { type: 'string' },
   'negative-control': { type: 'boolean', default: true },
 }, allowPositionals: false })
@@ -65,6 +66,10 @@ try {
   console.log(`provider resolved tag ${resolved.tag} version ${resolved.version}`)
   check(semver.valid(resolved.version) !== null, 'published channel file carries a semantic version', resolved.version)
   check(semver.gte(resolved.version, version), 'published version is not below the packaged version', `${resolved.version} >= ${version}`)
+  if (values['expected-version'] !== undefined) {
+    check(resolved.version === values['expected-version'], 'installed client discovers the intended release',
+      `${resolved.version} === ${values['expected-version']}`)
+  }
 
   if (values['negative-control']) {
     let rejected = false
