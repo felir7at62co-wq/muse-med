@@ -607,8 +607,8 @@ export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoP
 
 /**
  * Validate whole-second duration against an exact model's recorded capability.
- * The catalogue does not expose duration bounds. Seedance 2.0 retains its 2–15-second
- * limit; the user-confirmed 2.5 capability permits 2–30 seconds for this exact id.
+ * The catalogue does not expose duration bounds. Seedance 2.0 retains its 4–15-second
+ * limit; the user-confirmed 2.5 capability permits 4–30 seconds for this exact id.
  * Unknown model revisions fail closed rather than inheriting another model's limit.
  * @param modelId - Exact catalogue model id.
  * @param duration - Requested numeric duration in seconds.
@@ -619,8 +619,8 @@ export function validateVideoDuration(modelId: string, duration: unknown): numbe
   const maximum = modelId === 'doubao-seedance-2-0-260128' ? 15
     : modelId === 'doubao-seedance-2-5-260628' ? 30 : null
   if (maximum === null) throw new JubianError('CONTRACT_CHANGED', 'No verified duration capability for the exact model id')
-  if (typeof duration !== 'number' || !Number.isSafeInteger(duration) || duration < 2 || duration > maximum) {
-    throw new JubianError('CONTRACT_CHANGED', `Duration must be an integer from 2 to ${maximum} seconds`)
+  if (typeof duration !== 'number' || !Number.isSafeInteger(duration) || duration < 4 || duration > maximum) {
+    throw new JubianError('CONTRACT_CHANGED', `Duration must be an integer from 4 to ${maximum} seconds`)
   }
   return duration
 }

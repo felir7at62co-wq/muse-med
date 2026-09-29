@@ -3287,7 +3287,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 
 ### `jubian_storyboard`
 
-剧变（Jubian）分镜查询与提交。list/get/create/save 免费（create/save 强制 isGenerate=0）。list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，且它必须与该分镜已保存的时长一致，否则会在发请求前失败。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：select_assets 把选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
+剧变（Jubian）分镜查询与提交。list/get/create/save 免费（create/save 强制 isGenerate=0）。list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，且它必须与该分镜已保存的时长一致，否则会在发请求前失败。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：select_assets 的素材按提示词 key 首次出现的顺序选一次，提示词后文可重复引用同一 key。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。模型和平台沿用 jubian_catalog script 返回的 project_settings；未核实时长能力时报告缺项，不能换模型绕过。Agent 按 models 当前价格与用量提供每包 estimated_cost_cny 和 estimate_basis，在项目默认预算内分配，不让用户手填单次估价。submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
 
 ```json
 {
@@ -3439,6 +3439,14 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "estimated_cost_cny": {
+            "type": "string",
+            "description": "本包预计费用（人民币十进制字符串）。由 Agent 按项目所选模型的实时目录价格、包时长/用量或同规格已结算费用估算；不是让用户填写，也不改变每项目默认4000元额度。"
+          },
+          "estimate_basis": {
+            "type": "string",
+            "description": "本包估价依据：模型/平台、价格单位、时长/用量假设或同规格实际费用。提供估价时必填；估算不是实际结算金额。"
+          },
           "preview_path": {
             "type": "string",
             "description": "本项 prepare_video 返回的预览文件。"
@@ -3453,6 +3461,14 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
           "idempotency_key"
         ]
       }
+    },
+    "estimated_cost_cny": {
+      "type": "string",
+      "description": "本包预计费用（人民币十进制字符串）。由 Agent 按项目所选模型的实时目录价格、包时长/用量或同规格已结算费用估算；不是让用户填写，也不改变每项目默认4000元额度。"
+    },
+    "estimate_basis": {
+      "type": "string",
+      "description": "本包估价依据：模型/平台、价格单位、时长/用量假设或同规格实际费用。提供估价时必填；估算不是实际结算金额。"
     }
   },
   "required": [
@@ -3670,7 +3686,7 @@ Every paid write (image_generate, image_generate_batch, generate, submit_video, 
 
 ### `drama_shot`
 
-短剧镜头脚本的判定与编译（剧变流水线）。validate=只读校验：逐镜给出推导时长（9 有效字/秒）、有效字、发声类型、画外音合法性、资产绑定，硬失败与警告分开列出；preview=只读预算：在 validate 之上算出每包内容时长与打包方案，不落盘，用于提交前看预算；compile=判定通过后写入 matched JSON（matches/<集号>.matched.json）与单集 package（prompts/<集号>.txt、episode_packages/<集号>/），并回报每包的 content_duration_ms、提交给剧变的整秒时长与素材键顺序。时长：N秒的正整数声明优先；省略时按 9 有效字/秒估算。超过 15 或 36 有效字、偏离估算仅警告，可保留长慢镜头；无发声镜必须写 发声类型：action，时长由 动作复杂度（简单/一般/较复杂/复杂 = 1/2/3/4 秒）决定，没写就按默认 2 秒计；只在一个镜头块的字段里读到 台词：无、空台词行 或 出镜人物：无 时判失败：无声镜整行省略台词行与出镜人物，不要用占位值占位；本说明、技能正文与检查清单里出现这些字样不算脚本违规，校验只看脚本里写了什么；旁白/解说/心声/画外声/OS 作为 vo 画外发声保留原文与说话人，提醒核对项目配音；风格/负面词缺失和正文秒数仅警告；只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产；角色状态在绑定前强制核对：每个入画角色都要在自己的 主体状态追踪 段落里写 身体状态：【阶段（孕周/年龄段）；服装；发型】；（孕八周记孕早期，没有体型变化写 非孕期），所挂资产的 state_or_costume（连同资产名）必须登记同一组维度，资产还必须登记 episodes（本集号数组，或 ["all"] 全剧母版）；任一侧没写、写了别的阶段、或本集不在登记集数里都判失败并点名资产 id，清单里根本没有该状态的资产时给出补料需求（角色/阶段/服装/用于哪几集）与补料路径，不静默绑定。preview/compile 必填 max_submit_seconds：目标分镜实际请求总秒数（在已确认模型能力内），不是自动取模型最大值。只合并同场连续完整镜头，内容加1秒收束不得超过该值，超长单镜拒绝，禁止截断。硬失败时不会写任何文件，也不给打包方案。
+短剧镜头脚本的判定与编译（剧变流水线）。validate=只读校验：逐镜给出推导时长（9 有效字/秒）、有效字、发声类型、画外音合法性、资产绑定，硬失败与警告分开列出；preview=只读预算：在 validate 之上算出每包内容时长与打包方案，不落盘，用于提交前看预算；compile=判定通过后写入 matched JSON（matches/<集号>.matched.json）与单集 package（prompts/<集号>.txt、episode_packages/<集号>/），并回报每包的 content_duration_ms、提交给剧变的整秒时长与素材键顺序。时长：N秒的正整数声明优先；省略时按 9 有效字/秒估算。超过 15 字写作阈值或内建 36 字建议、偏离估算仅警告，可保留长慢镜头；但项目在 project_config.json 的 delivery.max_effective_chars_per_shot 里声明了每镜上限时，超过该上限判失败（按原文语义拆镜，或改掉该项目的这条要求），不删字、不改顺序、不换说话人；无发声镜必须写 发声类型：action，时长由 动作复杂度（简单/一般/较复杂/复杂 = 1/2/3/4 秒）决定，没写就按默认 2 秒计；只在一个镜头块的字段里读到 台词：无、空台词行 或 出镜人物：无 时判失败：无声镜整行省略台词行与出镜人物，不要用占位值占位；本说明、技能正文与检查清单里出现这些字样不算脚本违规，校验只看脚本里写了什么。旁白/解说/心声/画外声/OS 作为 vo 画外发声保留原文与说话人，提醒核对项目配音；风格/负面词缺失和正文秒数仅警告；只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产；角色状态在绑定前强制核对：每个入画角色都要在自己的 主体状态追踪 段落里写 身体状态：【阶段（孕周/年龄段）；服装；发型】；（孕八周记孕早期，没有体型变化写 非孕期），所挂资产的 state_or_costume（连同资产名）必须登记同一组维度，资产还必须登记 episodes（本集号数组，或 ["all"] 全剧母版）；任一侧没写、写了别的阶段、或本集不在登记集数里都判失败并点名资产 id，清单里根本没有该状态的资产时给出补料需求（角色/阶段/服装/用于哪几集）与补料路径，不静默绑定。preview/compile 必填 max_submit_seconds：单包提交时长上限（至少4秒，在项目模型确认能力内），不是自动取模型最大值。只合并同场连续完整镜头，内容加1秒收束不得超过该值，超长单镜拒绝，禁止截断。硬失败时不会写任何文件，也不给打包方案。
 
 ```json
 {
@@ -3715,7 +3731,7 @@ Every paid write (image_generate, image_generate_batch, generate, submit_video, 
 
 Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-shot-script/src/index.ts)
 
-三个方法共用一份 schema：`validate` 与 `preview` 只读，`compile` 写入 matched JSON 与单集 package，并回传每包的 `content_duration_ms`、提交的整秒时长，以及 `jubian_storyboard` `select_assets` 必须对齐的提示词顺序 `material_keys`。存在任何硬失败的脚本会返回这份失败清单，不写任何文件。
+The three methods share one schema: `validate` and `preview` only read, and `compile` writes the matched JSON and the episode package, returning each package's `content_duration_ms`, its submitted whole-second length, and the prompt-ordered `material_keys` that `jubian_storyboard` `select_assets` must match. A script with any hard failure returns that failure list and writes nothing.
 
 <a id="deepseek-aidsh-perception-bgm"></a>
 

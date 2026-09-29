@@ -398,3 +398,7 @@ macOS 打包在组装 App 时、代码签名前写入 `Contents/Resources/app-up
 上线前 CDN 与容量决策见[桌面更新提案](../../.agents/notes/proposed/feature/2026-09-08-desktop-update-policy-and-installation.zh.md#cdn-and-capacity-qualification)。
 
 共享技能 `wechat-shortdrama-harvest` 通过用户已登录的 Windows 微信获取小程序及受支持的视频号资源，随包提供 Python 辅助脚本、OpenCV 和 SciPy。配置与私有采集状态保存在项目内本次任务的 `SHORTDRAMA_WORK` 目录，转写前核对判集结果，不覆盖内容不同的已有视频。平台兼容性和可访问集数可能不同，须报告缺集。自动采集会先归档候选文件，再进行最终核对，文件数量不能单独证明全集完整。
+
+小说与视频转剧本在起草前共用 `screenplay-format` 技能：集号与场次、人物表、▲动作段、对白、OS/VO，以及有来源依据的集尾钩子。剧本正文不带来源时间码；集数与篇幅沿用大纲阶段可修改的约定。
+
+桌面 Office 组合提供 `screenplay_export_docx`：按给定顺序用内置 python-docx 将 Markdown 合成新的 Word 文件，设置分集分页、中文字体并核对段落正文。支持标题与加粗，其他 Markdown 语法原样保留，不覆盖已有文件。编辑模式保留 Markdown，按 `office-docx` 检查 Word 排版后交付 DOCX。

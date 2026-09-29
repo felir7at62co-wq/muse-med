@@ -168,7 +168,7 @@ describe('jubian_catalog reads', () => {
     const { client, calls } = stubClient(() => ({ id: 2708, scriptName: '山海自有相逢处',
       privateToken: 'must-not-leak' }))
     const result = await catalogMethod(client, { method: 'script', script_id: 2708 })
-    expect(result).toEqual({ script: { script_id: 2708, name: '山海自有相逢处', production_type: null } })
+    expect(result).toEqual({ script: { script_id: 2708, name: '山海自有相逢处', production_type: null, project_settings: {} } })
     expect(JSON.stringify(result)).not.toContain('must-not-leak')
     expect(calls).toHaveLength(1)
     expect(calls[0]!.method).toBe('GET')

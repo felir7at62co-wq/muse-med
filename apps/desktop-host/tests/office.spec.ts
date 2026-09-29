@@ -51,7 +51,7 @@ it('loads Desktop Office CLI paths and removes them on disposal', async () => {
     expect((await ctx.skills.get('office-pptx'))?.resourceBase).toEqual({ kind: 'directory', path: join(assets, 'office-pptx') })
     expect((await ctx.skills.get('office-pptx'))?.content).toContain('libreofficeKit')
     expect((await ctx.skills.get('office-pptx'))?.content).toContain(JSON.stringify(nodeDirectory).slice(1, -1))
-    expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['load_workspace_dependencies'])
+    expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['load_workspace_dependencies', 'screenplay_export_docx'])
     const entry = [...ctx.loader.entries()].find(entry => entry.options.name === 'office')
     expect(entry).toBeDefined()
     await entry?.fiber?.dispose()

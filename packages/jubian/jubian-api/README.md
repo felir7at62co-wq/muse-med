@@ -104,7 +104,7 @@ A builder returns a plain object and sends nothing. Submit it with `client.reque
 
 `resolveVideoModel(catalogue, intent)` preserves the exact `modelId`, explicit `platformId`, generation type and duration, and matches ratio and resolution case-insensitively. Exactly one catalogue match must remain; missing or ambiguous choices fail rather than selecting another model or platform. The returned selectors refresh stale standard identifiers and retain `genNum=1`. Native preparation uses the live storyboard intent; use `prepare_video`/`submit_video` for model-driven generation.
 
-`validateVideoDuration()` accepts integer seconds only. The catalogue has no duration bounds: the exact `doubao-seedance-2-0-260128` id retains 2–15 seconds, and `doubao-seedance-2-5-260628` uses a user-confirmed 30-second maximum with the existing 2-second minimum. This fallback is not provider-verified duration evidence. Unknown ids fail closed. Preview validation applies the same bounds without weakening project, fingerprint or ordered-identity checks.
+`validateVideoDuration()` accepts integer seconds only. The catalogue has no duration bounds: the exact `doubao-seedance-2-0-260128` id uses 4–15 seconds, and `doubao-seedance-2-5-260628` uses a user-confirmed 30-second maximum with the user-confirmed 4-second minimum. This fallback is not provider-verified duration evidence. Unknown ids fail closed. Preview validation applies the same bounds without weakening project, fingerprint or ordered-identity checks.
 
 ### Downloading media
 
@@ -209,6 +209,8 @@ These constraints are current package behavior, not a task backlog.
 - **A field the provider legally leaves null is never a refusal reason** — this provider spells an unset `episodeCount`, `scriptName`, `remark`, `updateBy`, `updateTime` and `videoSubTaskList` as `null`, and an unset `storyboardMaterialList` as `null` or `[]`. Each one is carried through the snapshot and checked only by the read that answers for it, so `readStoryboard()` requires an identity, a generation flag and the material keys, and `readTaskPage()` requires only the task identity.
 - **A storyboard body is never composed from scratch** — reads and free saves preserve nonempty ratio/resolution labels, `genNum=1` and a positive integer duration representable safely in milliseconds. The legacy `withGenerationEnabled()` path retains 9:16/720p and 4–14 seconds of content, requires saved duration to equal content plus one second, and validates the exact model's duration capability. It does not resolve catalogue selectors; other ratios/resolutions return an actionable `INVALID_ARGUMENT` directing callers to native preparation without changing the saved settings. Stored `isGenerate=1` is not evidence that generation occurred.
 - **No transport behavior is retried or resumed** — this package performs no request of its own except the media download, so every retry, timeout, and polling decision belongs to the caller.
+
+Project reads expose saved video settings in `project_settings` without choosing a replacement model. Subject selection uses material keys in first-occurrence order, permits repeated prompt references, and compares saved identity, name, URL, type, order, and prompt independently of provider metadata. Media downloads also accept HTTPS origin `101.aigc.jubianai.net` with the same size, header, and redirect checks.
 
 <a id="dev-note"></a>
 ### Dev Note

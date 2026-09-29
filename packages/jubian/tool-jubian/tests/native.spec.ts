@@ -580,6 +580,28 @@ describe('submit_video_batch', () => {
     expect(await ledger.records()).toEqual([])
   })
 
+  it('reserves different agent estimates and rejects an over-budget batch before any PUT', async () => {
+    const { provider, items } = await batch()
+    const auto = new JubianLedger({ root: join(root, 'automatic-batch'), defaultLimitCents: () => 400000 })
+    const estimates = items.map((item, index) => ({ ...item,
+      estimated_cost_cny: index === 0 ? '2000.00' : '2000.01', estimate_basis: 'Catalogue rate and package usage' }))
+    await expect(submitVideoBatchMethod(clientFor(provider), auto, { items: estimates })).rejects.toThrow()
+    expect(putCalls(provider)).toHaveLength(0)
+    expect(await auto.records()).toEqual([])
+    estimates[0]!.estimated_cost_cny = '8.00'
+    estimates[1]!.estimated_cost_cny = '9.00'
+    provider.onPut = (payload) => {
+      const id = Number(payload.id)
+      const taskId = id + 100000
+      provider.tasks.push({ id: taskId, scriptId: 2708, taskType: 1 })
+      provider.subtasks[String(taskId)] = [childOf(payload, { aigcVideoTaskId: taskId, storyboardId: id })]
+    }
+    await submitVideoBatchMethod(clientFor(provider), auto, { items: estimates })
+    expect(putCalls(provider)).toHaveLength(2)
+    expect((await auto.find(items[0]!.idempotency_key))?.quoted_amount).toBe('8.00')
+    expect((await auto.find(items[1]!.idempotency_key))?.quoted_amount).toBe('9.00')
+  })
+
   it('refuses a drifting full task snapshot before the first PUT', async () => {
     const { provider, items } = await batch()
     let lists = 0
@@ -766,7 +788,8 @@ describe('select_assets', () => {
       selections, idempotency_key: 'select-1' })
     expect(putCalls(provider)).toHaveLength(1)
     expect(putCalls(provider)[0]?.body?.isGenerate).toBe(0)
-    expect(result).toMatchObject({ status: 'applied', applied: true, paid_requests: 0 })
+    expect(result).toMatchObject({ status: 'applied', applied: true, paid_requests: 0,
+      verified_readback: [{ materialKey: 'lead', materialAssetId: '81285' }, { materialKey: 'guest', materialAssetId: '83670' }] })
     expect((await ledger.find('select-1'))?.method).toBe('storyboard_select_assets')
   })
 
@@ -808,4 +831,38 @@ describe('select_assets', () => {
       selections, idempotency_key: 'select-4' })).rejects.toThrow()
     expect((await ledger.find('select-4'))?.outcome).toBe('accepted')
   })
+})
+
+
+it('submits with an agent estimate under the default project budget without an authorization file', async () => {
+  const auto = new JubianLedger({ root: join(root, 'automatic-ledger'), defaultLimitCents: () => 400000 })
+  const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+  const preview = await prepareVideoMethod(clientFor(provider), { storyboard_id: 916953, project_dir: await project() })
+  const previewPath = String(preview.preview_path)
+  const idempotencyKey = String(preview.idempotencyKey)
+  provider.onPut = (payload) => {
+    provider.tasks = [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 }]
+    provider.subtasks['335343'] = [childOf(payload)]
+  }
+  const args = { preview_path: previewPath, idempotency_key: idempotencyKey,
+    estimated_cost_cny: '8.00', estimate_basis: 'Current catalogue rate and this package duration' }
+  expect(await submitVideoMethod(clientFor(provider), auto, args)).toMatchObject({ status: 'submitted' })
+  expect((await auto.find(idempotencyKey))?.quoted_amount).toBe('8.00')
+  expect(provider.calls.filter(call => call.method === 'PUT')).toHaveLength(1)
+})
+
+
+it.each([
+  { estimated_cost_cny: '0', estimate_basis: 'rate' },
+  { estimated_cost_cny: '-1', estimate_basis: 'rate' },
+  { estimated_cost_cny: '8.00' },
+  { estimate_basis: 'rate' },
+])('rejects an unusable agent estimate before a paid PUT: %j', async (estimate) => {
+  const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+  const preview = await prepareVideoMethod(clientFor(provider), { storyboard_id: 916953, project_dir: await project() })
+  await expect(submitVideoMethod(clientFor(provider), ledger, { ...estimate,
+    preview_path: String(preview.preview_path), idempotency_key: String(preview.idempotencyKey),
+  })).rejects.toThrow('estimated_cost_cny')
+  expect(putCalls(provider)).toHaveLength(0)
+  expect(await ledger.records()).toEqual([])
 })

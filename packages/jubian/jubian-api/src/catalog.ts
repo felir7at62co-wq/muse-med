@@ -62,16 +62,35 @@ export function readModels(data: unknown): Record<string, unknown>[] {
 /**
  * Read the identity fields of one remote screenplay.
  * @param data - Envelope `data` from `/aigc/script/{scriptId}`.
- * @returns The project identity, with the provider's `scriptName` projected as `name` and legacy `name` retained as fallback.
+ * @returns The project identity and saved video settings; JSON model settings are decoded without substituting a model.
  */
-export function readScript(data: unknown): { script_id: number; name: string | null; production_type: number | null } {
+export function readScript(data: unknown): {
+  script_id: number
+  name: string | null
+  production_type: number | null
+  project_settings: Record<string, unknown>
+} {
   return readPayload('readScript', data, () => {
     if (!data || typeof data !== 'object' || Array.isArray(data)) invalid()
     const record = data as Record<string, unknown>
     const id = record.id ?? record.scriptId
     if (typeof id !== 'number' && typeof id !== 'string') invalid()
+    const projectSettings: Record<string, unknown> = {}
+    for (const key of ['modelConfig', 'videoModelConfig', 'defaultModelConfig', 'modelId', 'platformId',
+      'ratio', 'resolution', 'scriptStyle', 'style', 'styleName', 'videoModel', 'videoPlatform']) {
+      const value = record[key]
+      if (value === undefined) continue
+      if (key.endsWith('ModelConfig') || key === 'modelConfig') {
+        if (typeof value === 'string' && value.trim()) {
+          try { projectSettings[key] = JSON.parse(value) } catch { projectSettings[key] = value }
+          continue
+        }
+      }
+      projectSettings[key] = value
+    }
     return { script_id: positiveInteger(id), name: optionalText(record.scriptName) ?? optionalText(record.name),
-      production_type: typeof record.productionType === 'number' ? record.productionType : null }
+      production_type: typeof record.productionType === 'number' ? record.productionType : null,
+      project_settings: projectSettings }
   })
 }
 

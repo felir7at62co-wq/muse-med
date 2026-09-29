@@ -54,3 +54,24 @@ it('discovers separate novel conversion and trope-change guidance', async () => 
     await ctx.fiber.dispose()
   }
 })
+
+
+it('makes the shared screenplay format available from both adaptation routes', async () => {
+  const ctx = new Context()
+  try {
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, { includeDefaultRoots: false, bundledSkillDir, watch: false })
+    const summary = (await ctx.skills.list()).find(skill => skill.name === 'screenplay-format')
+    expect(summary).toMatchObject({ source: 'bundled', invocation: { modelInvocable: true } })
+    const format = renderSkillContent((await ctx.skills.get('screenplay-format'))!)
+    for (const phrase of ['第1集', '1-1', '人物：', '▲', 'OS', 'VO', '【下集钩子】', '时间轴']) {
+      expect(format).toContain(phrase)
+    }
+    for (const name of ['novel-to-script', 'transcript-to-script', 'muse-script-editing']) {
+      expect(renderSkillContent((await ctx.skills.get(name))!)).toContain('screenplay-format')
+    }
+    expect((await ctx.skills.get('screenplay-format'))!.content).not.toMatch(/[A-Z]:[\\/]/u)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})

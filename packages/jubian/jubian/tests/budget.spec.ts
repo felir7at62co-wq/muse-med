@@ -328,3 +328,13 @@ describe('operator estimates', () => {
     expect(decision.reason).toContain('没有报价')
   })
 })
+
+
+it('uses the deployment budget for a project absent from an existing authorization file', async () => {
+  const { authorizationPath } = await fixture(AUTHORIZED)
+  const ledger = new JubianLedger({ root: join(authorizationPath, '..'), defaultLimitCents: () => 400000 })
+  expect(await checkBudget({ ledger, method: 'storyboard_native_submit', scriptId: 9999,
+    quote: { amount: '8.00', unit: 'CNY' }, authorizationPath })).toMatchObject({ status: 'authorized', limitCents: 400000 })
+  expect(await checkBudget({ ledger, method: 'storyboard_native_submit', scriptId: 2708,
+    quote: { amount: '11.00', unit: 'CNY' }, authorizationPath })).toMatchObject({ status: 'refused', limitCents: 1000 })
+})

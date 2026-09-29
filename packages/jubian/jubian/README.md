@@ -220,6 +220,8 @@ These constraints are current package behavior, not a task backlog.
 - **The ledger detects a write, it does not lock one** — `begin()` reads the existing files before it appends, so two processes sharing one ledger root can both write a `begin` line for the same key; serializing writers is the caller's job.
 - **Nothing reconciles the ledger automatically** — an intent line without a settle line stays unresolved until a caller or an operator reads the NDJSON files, and no surface lists those open records.
 
+A configured default project limit also applies to projects absent from an existing authorization file. Explicit lower project limits remain effective; a missing price remains unknown rather than zero.
+
 <a id="dev-note"></a>
 ### Dev Note
 

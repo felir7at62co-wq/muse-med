@@ -141,3 +141,23 @@ describe('trusted subject identity helpers', () => {
     expect(selectionState(materials, PROMPT)).toEqual(selectionState([...materials], PROMPT))
   })
 })
+
+
+describe('selection readback normalization', () => {
+  it('accepts repeated references in the prompt without adding materials twice', () => {
+    const storyboard = { ...STORYBOARD, modelConfig: JSON.stringify({ prompt: `${PROMPT}\n素材：@[陆沉舟](lead)` }) }
+    const plan = buildSubjectSelection({ storyboard, selections: SELECTIONS, subjectRows: ROWS, parentAssets: PARENTS })
+    expect(plan.after.orderedMaterials).toHaveLength(2)
+  })
+
+  it('compares saved identities and URLs rather than added server metadata or numeric wire spelling', () => {
+    const plan = buildSubjectSelection({ storyboard: STORYBOARD, selections: SELECTIONS, subjectRows: ROWS, parentAssets: PARENTS })
+    const saved: Record<string, unknown>[] = (plan.payload.storyboardMaterialList as Record<string, unknown>[]).map((m, i) => ({
+      ...m, id: i + 100, createTime: '2026-09-29', providerLabel: 'saved',
+      assetName: m.fileName, materialAssetId: String(m.materialAssetId), sortOrder: String(m.sortOrder),
+    }))
+    expect(verifySubjectSelection({ ...STORYBOARD, storyboardMaterialList: saved }, plan.after).matches).toBe(true)
+    saved[0]!.materialUrl = 'https://example.test/wrong.jpg'
+    expect(verifySubjectSelection({ ...STORYBOARD, storyboardMaterialList: saved }, plan.after).matches).toBe(false)
+  })
+})

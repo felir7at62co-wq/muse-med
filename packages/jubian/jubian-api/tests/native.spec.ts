@@ -126,7 +126,7 @@ describe('model and identity readers', () => {
     expect(validateVideoDuration(MODEL_CONFIG.modelId, 15)).toBe(15)
     expect(() => validateVideoDuration(MODEL_CONFIG.modelId, 16)).toThrow()
     expect(validateVideoDuration('doubao-seedance-2-5-260628', 30)).toBe(30)
-    for (const duration of [1, 31, 2.5, NaN, Infinity, '30', null]) {
+    for (const duration of [1, 2, 3, 31, 2.5, NaN, Infinity, '30', null]) {
       expect(() => validateVideoDuration('doubao-seedance-2-5-260628', duration)).toThrow('Duration must be an integer')
     }
     expect(() => validateVideoDuration('doubao-seedance-2-5-unknown', 8)).toThrow('No verified duration capability')

@@ -80,3 +80,13 @@ describe('downloadMedia', () => {
       .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
   })
 })
+
+
+it('downloads the observed Jubian media host without accepting lookalike hosts', async () => {
+  expect((await downloadMedia('https://101.aigc.jubianai.net/a.mp4', {
+    kind: 'video', fetch: transport(mp4()),
+  })).kind).toBe('video')
+  await expect(downloadMedia('https://101.aigc.jubianai.net.evil.example/a.mp4', {
+    kind: 'video', fetch: transport(mp4()),
+  })).rejects.toThrow()
+})

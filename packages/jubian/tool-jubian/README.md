@@ -505,6 +505,8 @@ These limits mark where the package is deliberately incomplete or needs the call
 - **The provider's `taskExecute` and `terminate` endpoints are not implemented** — the pipeline's own client never calls them, so adding them here would be transcription without evidence. `terminate` remains the obvious gap if a runaway task ever needs stopping.
 - **No system-prompt section is registered** — a deployment cannot adjust the model's guidance for these tools without changing the package, and a provider that renames a method leaves the descriptions stale until the package is edited.
 
+Video submission accepts an agent-calculated `estimated_cost_cny` and `estimate_basis` per preview, based on the project model’s current catalogue price and usage or comparable settled costs. Estimates reserve budget and are not settled bills. Batch submission reserves the sum before any PUT. Missing duration capability does not authorize replacing the project model.
+
 <a id="dev-note"></a>
 ### Dev Note
 

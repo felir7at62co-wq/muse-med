@@ -33,12 +33,12 @@ describe('readModels', () => {
 describe('readScript', () => {
   it('keeps the identity and name fields a project read needs', () => {
     expect(readScript({ id: 2708, name: '山海自有相逢处', productionType: 2, extra: 'ignored' }))
-      .toEqual({ script_id: 2708, name: '山海自有相逢处', production_type: 2 })
+      .toEqual({ script_id: 2708, name: '山海自有相逢处', production_type: 2, project_settings: {} })
   })
 
   it('reads the observed scriptName and keeps legacy name as a fallback', () => {
     expect(readScript({ id: 2708, scriptName: '山海自有相逢处' }))
-      .toEqual({ script_id: 2708, name: '山海自有相逢处', production_type: null })
+      .toEqual({ script_id: 2708, name: '山海自有相逢处', production_type: null, project_settings: {} })
     expect(readScript({ id: 2708, name: 'legacy', scriptName: null }).name).toBe('legacy')
     expect(readScript({ id: 2708, name: 'legacy', scriptName: 'current' }).name).toBe('current')
   })
@@ -171,5 +171,14 @@ describe('readScriptList', () => {
 
   it('reads an empty page as an empty list, not as an error', () => {
     expect(readScriptList({ code: 200, total: 0, rows: [] })).toEqual({ total: 0, rows: [] })
+  })
+})
+
+
+it('exposes saved project generation settings instead of discarding them', () => {
+  expect(readScript({ id: 2708, scriptName: 'project', modelConfig: '{"modelId":"project-model"}',
+    scriptStyle: 1, videoModelConfig: { platformId: 'FANG_ZHOU' } })).toMatchObject({
+    project_settings: { modelConfig: { modelId: 'project-model' }, scriptStyle: 1,
+      videoModelConfig: { platformId: 'FANG_ZHOU' } },
   })
 })

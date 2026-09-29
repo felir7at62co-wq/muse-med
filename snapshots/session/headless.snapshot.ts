@@ -65,6 +65,7 @@ const editingCordisSkill = join(
 const museEditingSkill = join(repoRoot, 'apps/desktop-host/skills/editing/SKILL.md')
 const musePipelineSkill = join(repoRoot, 'packages/drama/skills/skills/tweet-drama-pipeline/SKILL.md')
 const museSharedSkills = [
+  ['screenplay-format', join(repoRoot, 'apps/desktop-host/skills/screenplay-format/SKILL.md')],
   ['wechat-shortdrama-harvest', join(repoRoot, 'apps/desktop-host/skills/wechat-shortdrama-harvest/SKILL.md')],
   ['audio-transcribe', join(repoRoot, 'apps/desktop-host/skills/audio-transcribe/SKILL.md')],
   ['transcript-to-novel', join(repoRoot, 'apps/desktop-host/skills/transcript-to-novel/SKILL.md')],

@@ -44,6 +44,14 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "description": "可选：集号（\`5\` 与 \`05\` 都规范成 \`EP05\`）或配置的跨集母版标记（默认「全剧」）。给了它，资产名会按规范组合成 \`EP05｜角色｜陆沉舟\`，处理任务名会加上 \`EP05-P3-\` 这样的可排序前缀；不给就完全按调用方原样使用 asset_name / task_name。",
       "type": "string",
     },
+    "estimate_basis": {
+      "description": "本包估价依据：模型/平台、价格单位、时长/用量假设或同规格实际费用。提供估价时必填；估算不是实际结算金额。",
+      "type": "string",
+    },
+    "estimated_cost_cny": {
+      "description": "本包预计费用（人民币十进制字符串）。由 Agent 按项目所选模型的实时目录价格、包时长/用量或同规格已结算费用估算；不是让用户填写，也不改变每项目默认4000元额度。",
+      "type": "string",
+    },
     "idempotency_key": {
       "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。",
       "type": "string",
@@ -167,6 +175,14 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "items": {
         "additionalProperties": false,
         "properties": {
+          "estimate_basis": {
+            "description": "本包估价依据：模型/平台、价格单位、时长/用量假设或同规格实际费用。提供估价时必填；估算不是实际结算金额。",
+            "type": "string",
+          },
+          "estimated_cost_cny": {
+            "description": "本包预计费用（人民币十进制字符串）。由 Agent 按项目所选模型的实时目录价格、包时长/用量或同规格已结算费用估算；不是让用户填写，也不改变每项目默认4000元额度。",
+            "type": "string",
+          },
           "idempotency_key": {
             "description": "本项 preview 自带的 fingerprint；重放保持原 key。",
             "type": "string",

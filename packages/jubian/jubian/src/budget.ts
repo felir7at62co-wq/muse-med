@@ -221,7 +221,7 @@ export async function checkBudget(input: {
       reason: '这次计费调用没有带项目 ID，或项目 ID 无效，无法对上整部剧的授权额度。请先确认剧变 script_id。' }
   }
   const savedEntry = authorization?.projects[String(scriptId)]
-  if (authorization !== undefined && savedEntry === undefined) {
+  if (authorization !== undefined && savedEntry === undefined && autoLimitCents === undefined) {
     return { status: 'refused', ...empty,
       reason: `项目 ${String(scriptId)} 没有授权记录（${path} 里没有这一项）。`
         + '请由人在该文件里写上这个项目的 limit 与 unit，模型不能自己授权消费。' }
@@ -262,8 +262,10 @@ export async function checkBudget(input: {
   if (chargeCents === null) {
     return { status: 'refused', ...base,
       reason: `这次 ${input.method} 没有报价，无法证明它落在 ${(limitCents / 100).toFixed(2)} ${entry.unit} 之内。`
-        + `请在授权文件里给这个项目写上 estimates.${input.method}（人给的每次估算金额），`
-        + '或让调用点先读目录拿到报价再提交；没有报价的计费调用一律不放行。' }
+        + (input.method === 'storyboard_native_submit'
+          ? '请由 Agent 先从当前项目模型目录取得计价信息，按本包内容提供 estimated_cost_cny 与 estimate_basis；'
+          : '请先从当前目录取得本次操作的计价信息；')
+        + '无需让用户填写单次估价；无法估价时明确报告缺失的计价依据，不把未知费用当作零。' }
   }
   if (chargeCents === 0) {
     return { status: 'refused', ...base,

@@ -49,10 +49,6 @@ export interface SubjectSelectionPlan {
   paidRequests: 0
 }
 
-/** Server-managed fields that never take part in the selection's own identity. */
-const SERVER_MANAGED_FIELDS = ['id', 'storyboardId', 'createBy', 'createTime', 'updateBy', 'updateTime',
-  'remark', 'userId', 'companyId', 'mainDeptId', 'secondDeptId', 'assetIdList']
-
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) invalid()
   return value as Record<string, unknown>
@@ -115,11 +111,17 @@ export function trustedSubjectId(value: unknown): string | number | null {
  * @returns The ordered identity, a hash of the server-independent material content, and the prompt hash.
  */
 export function selectionState(materials: Record<string, unknown>[], prompt: string): SelectionState {
-  const canonical = materials.map(material => Object.fromEntries(
-    Object.entries(material).filter(([field]) => !SERVER_MANAGED_FIELDS.includes(field))))
+  const canonical = materials.map(material => ({
+    assetId: wireText(material.assetId), materialKey: wireText(material.materialKey),
+    assetName: material.assetName ?? material.fileName ?? material.materialName ?? null,
+    materialAssetId: wireText(material.materialAssetId),
+    materialUrl: material.materialUrl ?? material.imageUrl ?? null,
+    materialType: material.materialType ?? null,
+    sortOrder: material.sortOrder === undefined || material.sortOrder === null ? null : Number(material.sortOrder),
+  }))
   return {
-    orderedMaterials: materials.map(material => ({ assetId: material.assetId, materialKey: material.materialKey,
-      assetName: material.assetName ?? material.fileName ?? null, sortOrder: material.sortOrder ?? null })),
+    orderedMaterials: canonical.map(material => ({ assetId: material.assetId, materialKey: material.materialKey,
+      assetName: material.assetName, sortOrder: material.sortOrder })),
     orderedMaterialsSha256: stableSha256(canonical),
     promptSha256: stableSha256(prompt),
   }
@@ -165,8 +167,10 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
   const config = object(configField.value)
   if (typeof config.prompt !== 'string') invalid()
   const prompt = normalizedPrompt(config.prompt)
-  const promptKeys = [...prompt.matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)].map(match => match[2] ?? '')
-  if (promptKeys.join('\u0000') !== keys.join('\u0000')) invalid()
+  const promptKeys = [...new Set([...prompt.matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)].map(match => match[2] ?? ''))]
+  if (promptKeys.join('\u0000') !== keys.join('\u0000')) {
+    throw new JubianError('INVALID_ARGUMENT', `PRE_PUT_MARKER_MISMATCH: prompt keys=${JSON.stringify(promptKeys)}, selection keys=${JSON.stringify(keys)}; no PUT sent`)
+  }
 
   const rowsByParent = new Map<string, Record<string, unknown>[]>()
   for (const row of input.subjectRows) {
@@ -256,13 +260,23 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
  * @throws {JubianError} `CONTRACT_CHANGED` when the snapshot cannot be read at all.
  */
 export function verifySubjectSelection(storyboard: Record<string, unknown>, expected: SelectionState):
-{ state: SelectionState; matches: boolean; is_generate: number } {
+{
+  state: SelectionState
+  matches: boolean
+  is_generate: number
+  verified_readback: { materialKey: string | null; materialAssetId: string | null; assetId: string | null; sortOrder: number }[]
+} {
   return readPayload('verifySubjectSelection', storyboard, () => {
     const materials = parseField(storyboard.storyboardMaterialList).value
     if (!Array.isArray(materials)) invalid()
     const config = object(parseField(storyboard.modelConfig).value)
     if (typeof config.prompt !== 'string') invalid()
     const state = selectionState(materials.map(object), normalizedPrompt(config.prompt))
-    return { state, matches: stableJson(state) === stableJson(expected), is_generate: Number(storyboard.isGenerate) }
+    return { state, matches: stableJson(state) === stableJson(expected), is_generate: Number(storyboard.isGenerate),
+      verified_readback: materials.map((item) => {
+        const material = object(item)
+        return { materialKey: wireText(material.materialKey), materialAssetId: wireText(material.materialAssetId),
+          assetId: wireText(material.assetId), sortOrder: Number(material.sortOrder) }
+      }) }
   })
 }

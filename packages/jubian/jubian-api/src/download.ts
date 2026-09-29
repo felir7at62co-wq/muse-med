@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 
 /** The origins this plugin accepts media from; never read from the URL being fetched. */
-export const MEDIA_ALLOWED_ORIGINS = ['https://jubian-aigc.tos-cn-beijing.volces.com'] as const
+export const MEDIA_ALLOWED_ORIGINS = ['https://jubian-aigc.tos-cn-beijing.volces.com', 'https://101.aigc.jubianai.net'] as const
 
 /** Byte ceilings per media kind, matching the product's own hard limits. */
 export const MEDIA_LIMITS = { image: 64 * 1024 * 1024, video: 512 * 1024 * 1024 } as const

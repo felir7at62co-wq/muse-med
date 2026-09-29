@@ -5,6 +5,7 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runtimeArchivePath } from './office-engine.ts'
 import type { Context } from '@deepseek-ai/cordis'
+import * as screenplayDocx from './screenplay-docx.ts'
 import * as officeSkills from '@deepseek-ai/dsh-skill-office'
 import * as workspaceDependencies from '@deepseek-ai/dsh-tool-workspace-dependencies'
 
@@ -18,6 +19,10 @@ export interface Config {
   readonly root: string
   /** Prepared or ASAR-contained application dependency directory. */
   readonly runtimeDir: string
+  /** Total Markdown byte limit for one Word export. */
+  readonly docxMaxInputBytes?: number
+  /** Word conversion process deadline in milliseconds. */
+  readonly docxTimeoutMs?: number
 }
 
 /**
@@ -27,6 +32,8 @@ export interface Config {
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
   await ctx.plugin(workspaceDependencies, config)
+  await ctx.plugin(screenplayDocx, { source: config.source,
+    maxInputBytes: config.docxMaxInputBytes ?? 16 * 1024 * 1024, timeoutMs: config.docxTimeoutMs ?? 120_000 })
   const archive = runtimeArchivePath(config.runtimeDir) === undefined ? undefined : dirname(realpathSync(config.runtimeDir))
   const manifest = fileURLToPath(import.meta.resolve('@deepseek-ai/libreoffice-kit/package.json'))
   const packageRoot = dirname(archive === undefined ? manifest : join(`${archive}.unpacked`, relative(archive, manifest)))

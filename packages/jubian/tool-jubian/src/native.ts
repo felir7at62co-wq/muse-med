@@ -23,7 +23,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/dsh-jubian'
-import { checkBudget, JubianError } from '@deepseek-ai/dsh-jubian'
+import { centsOf, checkBudget, JubianError } from '@deepseek-ai/dsh-jubian'
 import {
   buildNativeVideoPreview, buildSubjectSelection, childrenOf, classifyExistingNativeMatches,
   classifyNewNativeCandidates, isRelatedTaskCandidate, nativeResultUrls, readBackIdentity,
@@ -462,6 +462,7 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
   if (plan.status === 'already_applied') {
     return { operation: plan.operation, status: 'already_applied', applied: false,
       scriptId: plan.scriptId, storyboardId: plan.storyboardId, before: plan.before, after: plan.after,
+      verified_readback: verifySubjectSelection(storyboard, plan.after).verified_readback,
       next: '分镜已经保存的就是这个选择：没有发送 PUT，也没有收费。' }
   }
   const beforeRecords = await listAllVideoTasks(client, scriptId)
@@ -487,9 +488,10 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
   // No `is_generate` check here: the provider stores 1 on every storyboard, so it proves nothing. The
   // billing-safe signal is `newRelated` above — a selection-only save must not create a task.
   const verification = verifySubjectSelection(verified, plan.after)
-  if (!verification.matches) throw new JubianError('CONTRACT_CHANGED')
+  if (!verification.matches) throw new JubianError('CONTRACT_CHANGED',
+    `POST_PUT_VERIFY_MISMATCH: selection PUT accepted; expected=${JSON.stringify(plan.after.orderedMaterials)}, actual=${JSON.stringify(verification.verified_readback)}; materialHashChanged=${plan.after.orderedMaterialsSha256 !== verification.state.orderedMaterialsSha256}; promptChanged=${plan.after.promptSha256 !== verification.state.promptSha256}. Read the storyboard to reconcile; do not submit video or assume the write failed.`)
   return { ...result, operation: plan.operation, scriptId, storyboardId,
-    before: plan.before, after: plan.after, verification,
+    before: plan.before, after: plan.after, verification, verified_readback: verification.verified_readback,
     status: newRelated.length > 0 ? 'billing_safety_violation' : 'applied',
     applied: true, paid_requests: 0,
     next: newRelated.length > 0
@@ -562,6 +564,24 @@ Record<string, unknown>[] {
     })
 }
 
+/** Agent-calculated reservation for one package, independent of the project spending limit. */
+interface VideoEstimate {
+  /** CNY amount calculated from current pricing and this package's content. */
+  estimated_cost_cny?: string | undefined
+  /** Rate, usage assumptions, or comparable completed task used for the estimate. */
+  estimate_basis?: string | undefined
+}
+
+/** Validate an optional model-supplied estimate before reserving money. */
+function estimatedVideoQuote(input: VideoEstimate): { amount: string; unit: string } | undefined {
+  if (input.estimated_cost_cny === undefined && input.estimate_basis === undefined) return undefined
+  const amount = centsOf(input.estimated_cost_cny)
+  if (amount === null || amount <= 0 || !input.estimate_basis?.trim()) {
+    throw new JubianError('INVALID_ARGUMENT', 'estimated_cost_cny requires a positive CNY amount and estimate_basis from current pricing or comparable actual cost')
+  }
+  return { amount: (amount / 100).toFixed(2), unit: 'CNY' }
+}
+
 /**
  * Reconcile a frozen native-video preview and submit at most one charged storyboard PUT for its key.
  * @param client - Authenticated transport for live reads and the optional submission.
@@ -569,7 +589,7 @@ Record<string, unknown>[] {
  * @param args - Preview locator, optional project/storyboard identity, and matching idempotency key.
  * @returns Submission or reconciliation evidence, including unresolved outcomes without automatic resubmission.
  */
-export async function submitVideoMethod(client: JubianClient, ledger: JubianLedger, args: {
+export async function submitVideoMethod(client: JubianClient, ledger: JubianLedger, args: VideoEstimate & {
   preview_path?: string | undefined
   project_dir?: string | undefined
   storyboard_id?: number | undefined
@@ -677,7 +697,7 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
         state.reconciliationFailed = true
       }
       return response
-    }, undefined, { scriptId: preview.scriptId })
+    }, () => estimatedVideoQuote(args), { scriptId: preview.scriptId })
   const putSent = state.sent || result.replayed
   const putOutcome = result.outcome
   // An accepted PUT whose task no candidate could claim is not "nothing happened": the
@@ -707,7 +727,7 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
 }
 
 /** One independently keyed preview within an approved video batch. */
-export interface VideoBatchItem { preview_path: string; idempotency_key: string }
+export interface VideoBatchItem extends VideoEstimate { preview_path: string; idempotency_key: string }
 
 /** Deployment limits for one batch of storyboard-native submissions. */
 export interface VideoBatchOptions { concurrency: number; maxItems: number }
@@ -739,7 +759,7 @@ async function batchPreview(item: VideoBatchItem): Promise<FrozenBatchItem> {
   const preview = validateNativeVideoPreview(parsed)
   await validateProjectBinding(projectRootOfPreview(previewPath), preview.scriptId)
   if (key !== preview.idempotencyKey) throw new JubianError('CONTRACT_CHANGED', 'Video preview key differs from its fingerprint')
-  return { preview_path: previewPath, idempotency_key: key, preview, beforeTaskIds: [] }
+  return { ...item, preview_path: previewPath, idempotency_key: key, preview, beforeTaskIds: [] }
 }
 
 async function batchReadback(client: JubianClient, item: FrozenBatchItem): Promise<NativeClaim | null> {
@@ -868,16 +888,25 @@ Promise<{ total: number; submitted: number; reconcile_required: number; results:
       item.preview.storyboardId)).map(taskIdOf).filter((id): id is string => id !== null)
   }
   await ledger.beginManyChecked(keys, async () => {
-    const budget = await checkBudget({ ledger, method: 'storyboard_native_submit',
-      scriptId: first.preview.scriptId, count: items.length })
-    if (budget.status === 'refused' || budget.chargedAmount === undefined || budget.chargedUnit === undefined) {
-      throw new JubianError('BUDGET_EXCEEDED', budget.reason)
-    }
-    const quotedAmount = budget.chargedAmount
-    const quoteUnit = budget.chargedUnit
-    return items.map(item => ({ idempotencyKey: item.idempotency_key,
-      method: 'storyboard_native_submit' as const, scriptId: item.preview.scriptId,
-      requestSha256: bodyHash(item.preview.payload), quotedAmount, quoteUnit }))
+    const decisions = await Promise.all(items.map(item => checkBudget({ ledger,
+      method: 'storyboard_native_submit', scriptId: item.preview.scriptId, quote: estimatedVideoQuote(item) })))
+    const budgets = decisions.map((budget) => {
+      if (budget.status === 'refused' || budget.chargedAmount === undefined || budget.chargedUnit === undefined) {
+        throw new JubianError('BUDGET_EXCEEDED', budget.reason)
+      }
+      return { amount: budget.chargedAmount, unit: budget.chargedUnit }
+    })
+    const total = budgets.reduce((sum, budget) => sum + (centsOf(budget.amount) ?? 0), 0)
+    if (!Number.isSafeInteger(total)) throw new JubianError('INVALID_ARGUMENT', 'Batch cost exceeds numeric range')
+    const aggregate = await checkBudget({ ledger, method: 'storyboard_native_submit',
+      scriptId: first.preview.scriptId, quote: { amount: (total / 100).toFixed(2), unit: budgets[0]?.unit ?? fail() } })
+    if (aggregate.status === 'refused') throw new JubianError('BUDGET_EXCEEDED', aggregate.reason)
+    return items.map((item, index) => {
+      const budget = budgets[index] ?? fail()
+      return { idempotencyKey: item.idempotency_key,
+        method: 'storyboard_native_submit' as const, scriptId: item.preview.scriptId,
+        requestSha256: bodyHash(item.preview.payload), quotedAmount: budget.amount, quoteUnit: budget.unit }
+    })
   })
   let nextIndex = 0
   const sent: Awaited<ReturnType<typeof submitReservedVideo>>[] = []

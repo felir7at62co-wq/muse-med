@@ -252,8 +252,8 @@ async function runDramaShot(args: DramaShotArguments, config: ResolvedConfig): P
   let tasks: PackedTask[] = []
   if (args.method !== 'validate') {
     const maximum = args.max_submit_seconds
-    if (maximum === undefined || !Number.isSafeInteger(maximum) || maximum <= NATURAL_HOLD_SECONDS) {
-      throw new Error('preview/compile 需要 max_submit_seconds：目标分镜实际请求的整数总秒数（含收束秒），且在已确认模型能力内；不要默认取模型最大值。')
+    if (maximum === undefined || !Number.isSafeInteger(maximum) || maximum < MIN_SUBMIT_SECONDS) {
+      throw new Error('preview/compile 需要 max_submit_seconds：单包提交时长上限（至少4秒，含收束秒），且在已确认模型能力内；不要默认取模型最大值。')
     }
     maxContentSeconds = maximum - NATURAL_HOLD_SECONDS
     for (const { shot } of compiled) {
@@ -264,10 +264,6 @@ async function runDramaShot(args: DramaShotArguments, config: ResolvedConfig): P
     }
     if (!issues.some(issue => issue.severity === 'failure')) {
       tasks = packEpisode(compiled, maxContentSeconds)
-      // A scene too short to fill one package produces a request below the
-      // provider's four-second floor, which that provider rejects uncharged. Report
-      // it as a hint rather than refusing the run: the operator decides whether to
-      // re-cut the scene.
       for (const task of tasks) {
         if (task.contentSeconds >= MIN_CONTENT_SECONDS) continue
         const first = compiled.find(item => item.shot.shot === task.shots[0])
@@ -275,7 +271,7 @@ async function runDramaShot(args: DramaShotArguments, config: ResolvedConfig): P
         if (first === undefined) continue
         issues.push({ severity: 'warning', code: 'package_below_minimum', shot: first.shot.shot, line: first.shot.line,
           message: `第${task.index}包只有${task.contentSeconds}秒内容（请求${task.submitSeconds}秒，镜头${task.shots.join('、')}），`
-            + `低于供应商${MIN_SUBMIT_SECONDS}秒请求下限，提交会被平台拒且不计费；建议把这几镜并进同场相邻包，或按原文语义把这一场写足。` })
+            + `已增加自然停留至${MIN_SUBMIT_SECONDS}秒请求下限，不新增台词；可优先并入同场连续的相邻包。` })
       }
     }
   }
@@ -359,7 +355,7 @@ const RESULT_SCHEMA = {
             description: '提交 jubian_storyboard generate 的 content_duration_ms（整千毫秒）。' },
           submit_seconds: { type: 'integer', required: true,
             description: '提交给剧变的整秒时长：内容时长 + 1 秒自然收束。' },
-          natural_hold_seconds: { type: 'integer', required: true, description: '自然收束秒数，固定 1。' },
+          natural_hold_seconds: { type: 'integer', required: true, description: '自然收束秒数，至少 1；短包增加停留以达到 4 秒最低提交时长。' },
           hold_instruction: { type: 'string', required: true, description: '写进提示词的收束要求，不新增台词。' },
           material_keys: { type: 'array', required: true, items: { type: 'string' },
             description: '本包提示词里 @[名称](key) 的 key，按出现顺序去重；select_assets 必须按这个顺序提交。' },
@@ -431,7 +427,7 @@ const DESCRIPTION = '短剧镜头脚本的判定与编译（剧变流水线）�
   + '资产还必须登记 episodes（本集号数组，或 ["all"] 全剧母版）；'
   + '任一侧没写、写了别的阶段、或本集不在登记集数里都判失败并点名资产 id，'
   + '清单里根本没有该状态的资产时给出补料需求（角色/阶段/服装/用于哪几集）与补料路径，不静默绑定。'
-  + 'preview/compile 必填 max_submit_seconds：目标分镜实际请求总秒数（在已确认模型能力内），不是自动取模型最大值。'
+  + 'preview/compile 必填 max_submit_seconds：单包提交时长上限（至少4秒，在项目模型确认能力内），不是自动取模型最大值。'
   + '只合并同场连续完整镜头，内容加1秒收束不得超过该值，超长单镜拒绝，禁止截断。'
   + '硬失败时不会写任何文件，也不给打包方案。'
 

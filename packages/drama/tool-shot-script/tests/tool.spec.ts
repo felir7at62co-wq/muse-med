@@ -204,7 +204,7 @@ describe('preview', () => {
     expect(report.warnings.map(issue => issue.code)).toEqual(['package_below_minimum'])
     expect(report.warnings[0]?.message).toContain('镜头1')
     expect(report.warnings[0]?.message).toContain('4秒请求下限')
-    expect(report.packages[0]).toMatchObject({ content_seconds: 1, submit_seconds: 2 })
+    expect(report.packages[0]).toMatchObject({ content_seconds: 1, submit_seconds: 4, natural_hold_seconds: 3 })
     expect(report.summary).toMatchObject({ packages: 1, warnings: 1, failures: 0 })
   })
 

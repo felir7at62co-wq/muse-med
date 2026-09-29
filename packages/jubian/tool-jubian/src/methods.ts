@@ -66,6 +66,10 @@ export interface MethodArgs {
   items?: ImageBatchItem[]
   /** `submit_video_batch`: frozen video previews, each with its own fingerprint key. */
   video_previews?: VideoBatchItem[]
+  /** Agent-computed CNY reservation for a single storyboard submission. */
+  estimated_cost_cny?: string
+  /** Current price and usage assumptions supporting the reservation. */
+  estimate_basis?: string
   /** `image_generate`: one-call platform choice; omitting it uses the configured or saved route. */
   image_platform_id?: string
   references?: string[]
@@ -1018,7 +1022,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
       requireKey(args.idempotency_key)
       return await submitVideoMethod(client, ledger, { preview_path: args.preview_path,
         project_dir: args.project_dir, storyboard_id: args.storyboard_id,
-        idempotency_key: args.idempotency_key })
+        idempotency_key: args.idempotency_key, estimated_cost_cny: args.estimated_cost_cny, estimate_basis: args.estimate_basis })
     }
     case 'submit_video_batch':
       return await submitVideoBatchMethod(client, ledger, { items: args.video_previews }, deps.videoBatch)

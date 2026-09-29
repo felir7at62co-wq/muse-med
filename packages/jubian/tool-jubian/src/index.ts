@@ -157,6 +157,11 @@ export async function workspacePipelineToken(start: string): Promise<string> {
 }
 
 /** Arguments shared by more than one tool; each tool lists only what it accepts. */
+const VIDEO_ESTIMATE_ARGS = {
+  estimated_cost_cny: { type: 'string', description: '本包预计费用（人民币十进制字符串）。由 Agent 按项目所选模型的实时目录价格、包时长/用量或同规格已结算费用估算；不是让用户填写，也不改变每项目默认4000元额度。' },
+  estimate_basis: { type: 'string', description: '本包估价依据：模型/平台、价格单位、时长/用量假设或同规格实际费用。提供估价时必填；估算不是实际结算金额。' },
+} as const
+
 const ARGS = {
   idempotency_key: { type: 'string', description: `写方法必填；读方法忽略。${WRITE_NOTE}` },
   task_type: { type: 'number', description: 'models 必填：1=视频，2=图片，10=去字幕。' },
@@ -237,6 +242,7 @@ const ARGS = {
   preview_path: { type: 'string',
     description: 'submit_video 必填：prepare_video 返回的 preview_path，不要猜测或手写文件名。' },
   video_previews: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+    ...VIDEO_ESTIMATE_ARGS,
     preview_path: { type: 'string', required: true, description: '本项 prepare_video 返回的预览文件。' },
     idempotency_key: { type: 'string', required: true, description: '本项 preview 自带的 fingerprint；重放保持原 key。' },
   } }, description: 'submit_video_batch 必填：本次提交清单中同项目不同分镜的预览；先逐项预检与总预算预约，再有界并行提交。' },
@@ -573,7 +579,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       + 'generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，'
       + '且它必须与该分镜已保存的时长一致，否则会在发请求前失败。'
       + '**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：'
-      + 'select_assets 把选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；'
+      + 'select_assets 的素材按提示词 key 首次出现的顺序选一次，提示词后文可重复引用同一 key。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；'
       + 'prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，'
       + '按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，'
       + '在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；'
@@ -581,6 +587,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       + 'PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），'
       + '随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；'
       + '身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。'
+      + '模型和平台沿用 jubian_catalog script 返回的 project_settings；未核实时长能力时报告缺项，不能换模型绕过。'
+      + 'Agent 按 models 当前价格与用量提供每包 estimated_cost_cny 和 estimate_basis，在项目默认预算内分配，不让用户手填单次估价。'
       + 'submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；'
       + '全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。'
       + '**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；'
@@ -614,6 +622,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       body: ARGS.body, body_path: ARGS.body_path, idempotency_key: ARGS.idempotency_key,
       selections: ARGS.selections, project_dir: ARGS.project_dir, preview_path: ARGS.preview_path,
       video_previews: ARGS.video_previews,
+      ...VIDEO_ESTIMATE_ARGS,
     },
     output: OUTPUT,
     execute: guarded('jubian_storyboard', args => storyboardMethod(client, ledger, args, { naming, videoBatch, storyboardBatch })),

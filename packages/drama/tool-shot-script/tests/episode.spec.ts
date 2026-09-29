@@ -8,7 +8,6 @@ import {
   materialKeys,
   MATCHED_VERSION,
   MIN_CONTENT_SECONDS,
-  NATURAL_HOLD_SECONDS,
   packEpisode,
   writeEpisode,
 } from '../src/episode.ts'
@@ -67,6 +66,14 @@ describe('material keys', () => {
 })
 
 describe('packing an episode', () => {
+  it('adds packages when whole-shot boundaries prevent the arithmetic minimum', () => {
+    const shots = fixture([actionShot(1, ['时长：9秒']), actionShot(2, ['时长：9秒']),
+      actionShot(3, ['时长：9秒'])], DEFAULT_ASSETS)
+    const tasks = packEpisode(shots, 14)
+    expect(tasks.map(task => task.shots)).toEqual([[1], [2], [3]])
+    expect(tasks.every(task => task.submitSeconds <= 15)).toBe(true)
+  })
+
   it('never emits an indivisible shot above the explicit content bound', () => {
     const shots = fixture([actionShot(1, ['时长：20秒'])], DEFAULT_ASSETS)
     expect(() => packEpisode(shots, 14)).toThrow('20')
@@ -83,7 +90,7 @@ describe('packing an episode', () => {
       index: 1,
       shots: [1, 2],
       contentSeconds: 2,
-      submitSeconds: 2 + NATURAL_HOLD_SECONDS,
+      submitSeconds: 4,
       materialKeys: [],
       materialNames: ['苏晚', '后厨'],
     })

@@ -505,6 +505,8 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 - **提供方的 `taskExecute` 与 `terminate` 没有实现** —— 流水线自己的客户端从不调用它们，在这里加上就只是没有证据的转写。如果哪天需要中止一个失控任务，`terminate` 就是最明显的缺口。
 - **不注册系统提示词区段** —— 部署方无法在不改包的情况下调整这些工具的模型指引，提供方一旦重命名某个方法，描述会一直过时到包被改动为止。
 
+视频提交接受每个 preview 的 Agent 估算 `estimated_cost_cny` 与 `estimate_basis`，依据项目模型的当前目录价格和用量或同规格已结算费用。估算用于预留额度，不等于实际账单。批量提交在任何 PUT 前预留总额。缺少时长能力不代表允许替换项目模型。
+
 <a id="dev-note"></a>
 ### 开发备注
 

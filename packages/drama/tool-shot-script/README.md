@@ -34,7 +34,7 @@ Mount this plugin beside the tool registry in the drama preset. `actionShotSecon
 
 An `episode` given to any method is kept, so `validate` alone can refuse an asset whose registration does not cover the episode being compiled.
 
-`max_submit_seconds` is the target storyboard's actual requested total duration, including the one-second natural hold. It must already be within the selected model's verified capability. A board configured for 8 seconds requires 8, even if its model supports 30. Existing 15-second boards pass 15 explicitly; a configured 30-second board may pass 30. The compiler does not fetch provider capabilities or silently assume a 14-second content ceiling.
+`max_submit_seconds` is the explicit per-package submission ceiling chosen within the project's selected model capability, including at least one second of natural hold. It is at least four seconds. Set each storyboard's actual duration to its package's returned `submit_seconds`; do not copy this ceiling to every storyboard. The compiler does not fetch provider capabilities.
 
 ### Character state and the asset's own registration
 
@@ -76,7 +76,7 @@ The result separates `failures` from `warnings`; only failures prevent a packagi
 | No scene binding | Warning |
 | One indivisible shot longer than `max_submit_seconds - 1` | Failure (`shot_exceeds_package_budget`), never truncate a shot |
 
-Packing preserves complete continuous shots, splits on scene changes or `子任务边界：是`, and ensures content plus one-second hold fits the explicit budget. Review `submit_seconds` against the actual storyboard before submission; compilation does not change its stored duration.
+Packing preserves complete continuous shots, splits on scene changes or `子任务边界：是`, and ensures content plus at least one second of hold fits the explicit budget. Short packages extend natural hold to the four-second request floor without adding dialogue. Review `submit_seconds` against the actual storyboard before submission; compilation does not change its stored duration.
 
 ### Files
 
@@ -123,6 +123,10 @@ Tool results append without rewriting previous messages. Changes to the tool des
 - The state gate compares the declared dimensions and the costume text a shot names. It does not compare the asset's own board image: an asset whose registered text is right and whose picture is not stays the model's review, which the drama skills require before submission.
 - Scene is the continuity key; time/costume changes require an explicit package break.
 - Writes are prechecked but not transactional across concurrent processes.
+
+Asset manifest aliases accept a delimited string or an array of names; both feed the same character-name matching rules.
+
+Packing respects whole-shot boundaries even when they require more packages than the arithmetic minimum. Every emitted package is checked against the content ceiling; one indivisible overlong shot fails with its shot number.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -4,7 +4,7 @@
  *
  * A package is a run of complete, continuous shots of one scene. The packer
  * never truncates a shot to fill a budget: it closes the current package instead,
- * and every package carries one extra second of natural hold that adds no
+ * and every package carries at least one second of natural hold that adds no
  * dialogue.
  *
  * @module @deepseek-ai/dsh-tool-shot-script/episode
@@ -118,9 +118,9 @@ function splitContinuityUnits(
  * Cut one run into the fewest packages that each fit the ceiling, as evenly as the
  * shots allow.
  *
- * A greedy fill leaves a short tail (14+14+6), and a tail below the provider floor
- * is an illegal request. Balancing keeps the package count identical while removing
- * that tail; cuts stay between whole shots.
+ * Balancing targets the arithmetic minimum package count. Whole-shot boundaries
+ * can require more packages; a greedy partition then retains the ceiling and
+ * source order. Short tails remain visible for the caller to report.
  * @param unit - One run of continuous shots.
  * @param ceiling - Content-second ceiling of one package.
  * @returns Consecutive packs covering the run in order.
@@ -156,8 +156,22 @@ function splitUnitEvenly(unit: readonly CompiledShot[], ceiling: number): readon
     return winner
   }
 
-  /* v8 ignore next -- `count` is `ceil(total/ceiling)`, which always admits a split. */
-  return solve(count, unit)?.packs ?? [unit]
+  const balanced = solve(count, unit)
+  if (balanced !== undefined) return balanced.packs
+  const packs: CompiledShot[][] = []
+  let current: CompiledShot[] = []
+  let seconds = 0
+  for (const item of unit) {
+    if (seconds + item.shot.durationSeconds > ceiling && current.length > 0) {
+      packs.push(current)
+      current = []
+      seconds = 0
+    }
+    current.push(item)
+    seconds += item.shot.durationSeconds
+  }
+  if (current.length > 0) packs.push(current)
+  return packs
 }
 
 /**
@@ -165,22 +179,28 @@ function splitUnitEvenly(unit: readonly CompiledShot[], ceiling: number): readon
  *
  * A package holds a run of complete, continuous shots of one scene, never exceeds
  * the content budget, and is split as evenly as the run allows. A package below
- * {@link MIN_CONTENT_SECONDS} is still returned, and the caller reports it as a
- * hint: refusing the run would block a legal edit the operator may still want.
+ * {@link MIN_CONTENT_SECONDS} receives enough natural hold to meet the four-second
+ * request floor, without adding dialogue or crossing a scene boundary.
  * @param shots - Compiled shots in script order.
  * @param maxContentSeconds - Content-second ceiling of one package.
  * @returns Packages in submission order.
  */
 export function packEpisode(shots: readonly CompiledShot[], maxContentSeconds: number): PackedTask[] {
+  if (!Number.isSafeInteger(maxContentSeconds) || maxContentSeconds < MIN_CONTENT_SECONDS) {
+    throw new Error(`内容预算至少为${MIN_CONTENT_SECONDS}秒，提交总时长至少为${MIN_SUBMIT_SECONDS}秒。`)
+  }
   const tasks: PackedTask[] = []
   for (const unit of splitContinuityUnits(shots, maxContentSeconds)) {
     for (const pack of splitUnitEvenly(unit, maxContentSeconds)) {
       const contentSeconds = pack.reduce((sum, item) => sum + item.shot.durationSeconds, 0)
+      if (contentSeconds > maxContentSeconds) {
+        throw new Error(`镜头${pack.map(item => item.shot.shot).join('、')}合包时长${contentSeconds}秒超过内容预算${maxContentSeconds}秒。`)
+      }
       tasks.push({
         index: tasks.length + 1,
         shots: pack.map(item => item.shot.shot),
         contentSeconds,
-        submitSeconds: contentSeconds + NATURAL_HOLD_SECONDS,
+        submitSeconds: Math.max(MIN_SUBMIT_SECONDS, contentSeconds + NATURAL_HOLD_SECONDS),
         materialKeys: materialKeys(pack.map(item => item.shot.visual).join('\n')),
         materialNames: [...new Set(pack.flatMap(item => item.assets.map(asset => asset.name)))],
       })
@@ -254,7 +274,7 @@ export function buildMatchedPayload(input: MatchedInput): MatchedPayload {
     video_tasks: input.tasks.map((task): MatchedVideoTask => ({
       shots: task.shots,
       content_duration: task.contentSeconds,
-      natural_hold_duration: NATURAL_HOLD_SECONDS,
+      natural_hold_duration: task.submitSeconds - task.contentSeconds,
       requested_duration: task.submitSeconds,
       hold_instruction: HOLD_INSTRUCTION,
     })),

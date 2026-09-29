@@ -141,7 +141,7 @@ export function parseAssetManifest(document: unknown, source: string): ManifestR
       materialId: text(record.jubian_material_id) || text(record.material_id),
       url: text(record.url) || text(record.image_url),
       localPath: text(record.image_path),
-      aliases: text(record.aliases) || text(record.alias),
+      aliases: (Array.isArray(record.aliases) ? record.aliases.map(text).filter(Boolean).join('、') : text(record.aliases)) || text(record.alias),
       episodes: readEpisodes(record.episodes),
       stateOrCostume: text(record.state_or_costume) || text(record.state),
     }

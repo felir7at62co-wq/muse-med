@@ -190,3 +190,9 @@ describe('binding one shot', () => {
     expect(names(binding.assets)).toEqual(['苏晚', '后厨'])
   })
 })
+
+
+it('keeps array aliases available to the existing name matcher', () => {
+  const result = parseAssetManifest({ assets: [{ name: '张三', type: '角色', aliases: ['小张', ' 张先生 '] }] }, 'manifest.json')
+  expect(result.assets[0]?.aliases).toBe('小张、张先生')
+})

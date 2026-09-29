@@ -104,7 +104,7 @@ const body = buildSubtitleEraseRequest('quzimuToB', {
 
 `resolveVideoModel(catalogue, intent)` 保留精确的 `modelId`、显式 `platformId`、生成类型和时长，宽高比与分辨率匹配不区分大小写。目录必须恰好匹配一项；缺失或歧义会失败，而不是改选其他模型或平台。返回的选择器刷新过期标准标识，并保留 `genNum=1`。原生准备流程使用实时分镜设置；按模型生成应使用 `prepare_video`/`submit_video`。
 
-`validateVideoDuration()` 只接受整数秒。目录没有时长上下限：精确 id `doubao-seedance-2-0-260128` 保留 2–15 秒，`doubao-seedance-2-5-260628` 使用用户确认的 30 秒上限并保留现有 2 秒下限。此回退不是提供方验证的时长证据。未知 id 拒绝放行。预览校验应用相同范围，且不削弱项目、指纹或有序身份校验。
+`validateVideoDuration()` 只接受整数秒。目录没有时长上下限：精确 id `doubao-seedance-2-0-260128` 使用 4–15 秒，`doubao-seedance-2-5-260628` 使用用户确认的 30 秒上限及用户确认的 4 秒下限。此回退不是提供方验证的时长证据。未知 id 拒绝放行。预览校验应用相同范围，且不削弱项目、指纹或有序身份校验。
 
 ### 下载媒体
 
@@ -209,6 +209,8 @@ async function downloadVideo(row: VideoSubtask) {
 - **提供方合法给 null 的字段永远不是拒绝理由**——本提供方把未设置的 `episodeCount`、`scriptName`、`remark`、`updateBy`、`updateTime` 与 `videoSubTaskList` 拼成 `null`，把未设置的 `storyboardMaterialList` 拼成 `null` 或 `[]`。这些字段一律原样带进快照，只由"为它而问"的那次读取检查，因此 `readStoryboard()` 只要求身份、生成标记与素材键，`readTaskPage()` 只要求任务身份。
 - **分镜请求体从不从零拼装**——读取与免费保存保留非空宽高比/分辨率标签、`genNum=1` 和可安全表示为毫秒的正整数时长。传统 `withGenerationEnabled()` 路径保留 9:16/720p 与 4–14 秒内容时长，要求保存时长等于内容加一秒，并校验精确模型的时长能力。它不解析目录选择器；其他比例/分辨率返回可操作的 `INVALID_ARGUMENT`，指引调用方保留已存设置并使用原生准备流程。已存储的 `isGenerate=1` 不能证明生成已发生。
 - **没有任何传输行为会被重试或续跑**——除媒体下载外，本包不自己发起任何请求，因此每一次重试、超时与轮询决定都属于调用方。
+
+项目读取通过 `project_settings` 返回已保存的视频配置，不代选模型。素材选源按 key 首次出现的顺序处理，允许提示词重复引用；回读比较身份、名称、URL、类型、顺序与提示词，不比较服务端附加元数据。媒体下载也接受 HTTPS 域名 `101.aigc.jubianai.net`，沿用大小、文件头与重定向检查。
 
 <a id="dev-note"></a>
 ### 开发备注

@@ -8,7 +8,7 @@
  * @module @deepseek-ai/dsh-tool-shot-script/report
  */
 
-import { HOLD_INSTRUCTION, NATURAL_HOLD_SECONDS } from './episode.ts'
+import { HOLD_INSTRUCTION } from './episode.ts'
 import type {
   CompiledShot,
   DramaShotMethod,
@@ -85,7 +85,7 @@ function packageReport(task: PackedTask): PackageReport {
     content_seconds: task.contentSeconds,
     content_duration_ms: task.contentSeconds * 1000,
     submit_seconds: task.submitSeconds,
-    natural_hold_seconds: NATURAL_HOLD_SECONDS,
+    natural_hold_seconds: task.submitSeconds - task.contentSeconds,
     hold_instruction: HOLD_INSTRUCTION,
     material_keys: task.materialKeys,
     material_names: task.materialNames,
