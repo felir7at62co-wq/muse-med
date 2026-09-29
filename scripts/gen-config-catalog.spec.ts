@@ -110,6 +110,19 @@ describe('resource-only package classification', () => {
 })
 
 describe('shared config schema catalog', () => {
+  it('collects a schema imported from a sibling TypeScript module', () => {
+    const { root, write } = fixture()
+    write('packages/test/provider/src/shared.ts', sharedSchema)
+    write('packages/test/provider/src/index.ts', `
+import { Shared, type BrowserConfig } from './shared.ts'
+export type Config = BrowserConfig
+export const Config = Shared
+export function apply(ctx: unknown, config: Config): void {}
+`)
+    const provider = collectConfigCatalog(root).find(entry => entry.pkg === '@test/provider')
+    expect(new Set(provider?.schemaKeys)).toEqual(new Set(['mode', 'headless', 'endpoint']))
+  })
+
   it('collects every branch through a renamed named import from a public source subpath', () => {
     const { root } = fixture()
     const provider = collectConfigCatalog(root).find(entry => entry.pkg === '@test/provider')
