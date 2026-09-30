@@ -1,6 +1,6 @@
 ---
 name: transcript-to-script
-description: Use when 用户提供或授权音频、视频、字幕及其转写稿，要求整理成可拍摄的分场剧本。
+description: 当前工作需要将已授权的音频、视频、字幕或转写稿整理为可核对的分场剧本时使用。
 ---
 
 # 音视频转写稿转分场剧本

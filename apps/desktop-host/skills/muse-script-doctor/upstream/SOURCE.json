@@ -1,0 +1,22 @@
+{
+    "repository":  "https://github.com/lixiaoxiao9888-create/short-drama-factory",
+    "revision":  "0949e02b48cfee757e06edd4750a01ad4f56fa9a",
+    "license":  "MIT",
+    "files":  [
+                  {
+                      "source":  "references/script-doctor-protocol.md",
+                      "local":  "script-doctor-protocol.md",
+                      "sha256":  "c79436902c55e8beebf59f227a5e3689d1ad7ee35953e2c192c9d3db8ffd35c2"
+                  },
+                  {
+                      "source":  "references/craft-quality-layer.md",
+                      "local":  "craft-quality-layer.md",
+                      "sha256":  "2830062788f0afc59d691f6a649b613b39b00ec6fe2471bfb322063552fdddb2"
+                  },
+                  {
+                      "source":  "LICENSE",
+                      "local":  "LICENSE",
+                      "sha256":  "d7d8a34a23e119bc5ccf6eab451ade58a379a8a217a8b25525ad11599e84c938"
+                  }
+              ]
+}

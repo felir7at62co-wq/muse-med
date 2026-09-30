@@ -1,0 +1,27 @@
+{
+    "repository":  "https://github.com/lixiaoxiao9888-create/short-drama-factory",
+    "revision":  "0949e02b48cfee757e06edd4750a01ad4f56fa9a",
+    "license":  "MIT",
+    "files":  [
+                  {
+                      "source":  "references/webnovel-adaptation.md",
+                      "local":  "webnovel-adaptation.md",
+                      "sha256":  "8ea3951007be7a50308e25919d5e9e598cc48333bebecd0e20636e16ed4d57aa"
+                  },
+                  {
+                      "source":  "references/continuity-ledger.md",
+                      "local":  "continuity-ledger.md",
+                      "sha256":  "1c59a3c3b55a5f6367561ab9f28760d9815607fe6001ebc7b7101f4d948efb63"
+                  },
+                  {
+                      "source":  "references/emotion-flow-roundtrip.md",
+                      "local":  "emotion-flow-roundtrip.md",
+                      "sha256":  "e09ad6ae82ffde293f658abbf3d34ccee5b6a659be9b5b936af0d3f0dd216caa"
+                  },
+                  {
+                      "source":  "LICENSE",
+                      "local":  "LICENSE",
+                      "sha256":  "d7d8a34a23e119bc5ccf6eab451ade58a379a8a217a8b25525ad11599e84c938"
+                  }
+              ]
+}

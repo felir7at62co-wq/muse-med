@@ -115,6 +115,21 @@ export function apply(ctx) {
           throw new Error('desktop runtime: missing shared Muse skill ' + name)
         }
       }
+      for (const [name, guide] of [
+        ['muse-episode-design', 'episode-workflow.md'],
+        ['muse-script-doctor', 'doctor-workflow.md'],
+        ['muse-dialogue-polish', 'dialogue-workflow.md'],
+      ]) {
+        const skill = skills.find(value => value.name === name)
+        const expected = join(productSkills, name, 'SKILL.md')
+        if (!skill?.invocation.modelInvocable || !existsSync(expected)
+          || realpathSync(skill.path) !== realpathSync(expected)) {
+          throw new Error('desktop runtime: missing shared Muse skill ' + name)
+        }
+        if (!existsSync(join(productSkills, name, 'references', guide))) {
+          throw new Error('desktop runtime: missing editing method guide ' + name)
+        }
+      }
       for (const script of ['doctor.py', 'discover.py', 'harvest.py', 'drive.py', 'finalize.py', 'win_bridge.ps1', 'ocr_bridge.ps1']) {
         if (!existsSync(join(productSkills, 'wechat-shortdrama-harvest', 'scripts', script))) {
           throw new Error('desktop runtime: missing WeChat helper ' + script)

@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-dialogue-polish-skill
+profile: headless
+composition: muse-editing-skill
+recording: authored
+header:
+  class: muse-editing-skill
+workspace:
+  setup: muse-editing-trial-skills
