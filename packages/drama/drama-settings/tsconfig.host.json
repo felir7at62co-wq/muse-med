@@ -12,6 +12,7 @@
     "src/project-bible.ts"
   ],
   "references": [
+    { "path": "../../jubian/jubian" },
     {
       "path": "../../../vendor/cordis"
     },

@@ -18,11 +18,41 @@ function bench(result: () => Promise<MessageFeedbackActionResult> = () => Promis
 }
 
 describe('FeedbackDialogController', () => {
+  it('keeps a disposed dialog closed when an in-flight submission succeeds', async () => {
+    let release = (): void => {}
+    const pendingResult = new Promise<MessageFeedbackActionResult>((resolve) => { release = () => { resolve({ ok: true }) } })
+    const { controller } = bench(() => pendingResult)
+    controller.open(MESSAGE_TARGET)
+    const pending = controller.submitDraft()
+    controller.dispose()
+    release()
+    await pending
+    controller.open(MESSAGE_TARGET)
+    expect(controller.state.getSnapshot()).toMatchObject({ target: null, toast: 0 })
+  })
+  it('sends diagnostics only when selected and clears the choice on a new draft', async () => {
+    const { controller, submit } = bench()
+    controller.open(MESSAGE_TARGET)
+    expect(controller.state.getSnapshot().includeDiagnostics).toBe(false)
+    controller.edit({ includeDiagnostics: true })
+    await controller.submitDraft()
+    expect(submit).toHaveBeenCalledWith(MESSAGE_TARGET, {}, true)
+    controller.open({ kind: 'session' })
+    expect(controller.state.getSnapshot().includeDiagnostics).toBe(false)
+  })
+
+  it('releases the form and retains the draft when an adapter throws', async () => {
+    const { controller } = bench(() => Promise.reject(new Error('adapter failure')))
+    controller.open(MESSAGE_TARGET)
+    controller.edit({ text: 'keep this' })
+    await controller.submitDraft()
+    expect(controller.state.getSnapshot()).toMatchObject({ target: MESSAGE_TARGET, text: 'keep this', submitting: false, failure: 'submission-failed', toast: 0 })
+  })
   it('starts closed with no toast', () => {
     const { controller } = bench()
 
     expect(controller.state.getSnapshot()).toEqual({
-      target: null, category: null, text: '', submitting: false, failure: null, toast: 0,
+      target: null, category: null, text: '', includeDiagnostics: false, submitting: false, failure: null, toast: 0,
     })
   })
 
@@ -62,7 +92,7 @@ describe('FeedbackDialogController', () => {
 
     await controller.submitDraft()
 
-    expect(submit).toHaveBeenCalledWith({ kind: 'session' }, { text: 'timed out twice', category: 'service-stability' })
+    expect(submit).toHaveBeenCalledWith({ kind: 'session' }, { text: 'timed out twice', category: 'service-stability' }, false)
     expect(controller.state.getSnapshot()).toMatchObject({ target: null, toast: 1 })
   })
 
@@ -73,7 +103,7 @@ describe('FeedbackDialogController', () => {
 
     await controller.submitDraft()
 
-    expect(submit).toHaveBeenCalledWith({ kind: 'session' }, {})
+    expect(submit).toHaveBeenCalledWith({ kind: 'session' }, {}, false)
   })
 
   it('submits the message target with the entry', async () => {
@@ -84,7 +114,7 @@ describe('FeedbackDialogController', () => {
 
     await controller.submitDraft()
 
-    expect(submit).toHaveBeenCalledWith(MESSAGE_TARGET, { text: 'wrong file', category: 'task-result' })
+    expect(submit).toHaveBeenCalledWith(MESSAGE_TARGET, { text: 'wrong file', category: 'task-result' }, false)
     expect(controller.state.getSnapshot()).toMatchObject({ target: null, toast: 1 })
   })
 
@@ -190,7 +220,7 @@ describe('FeedbackDialogController', () => {
     controller.open({ kind: 'session' })
     controller.dispose()
     expect(controller.state.getSnapshot()).toEqual({
-      target: null, category: null, text: '', submitting: false, failure: null, toast: 0,
+      target: null, category: null, text: '', includeDiagnostics: false, submitting: false, failure: null, toast: 0,
     })
   })
 })

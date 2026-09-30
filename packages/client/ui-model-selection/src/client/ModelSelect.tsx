@@ -392,6 +392,7 @@ export function ModelSelect(
           bubble through this React subtree, keeping onKeyDown/onBlur live. */}
       {open && createPortal(
         <MenuSurface
+          opaque
           ref={menuRef}
           id={`${id}-menu`}
           className={css.menu}

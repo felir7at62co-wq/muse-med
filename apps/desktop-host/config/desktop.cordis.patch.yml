@@ -39,6 +39,10 @@
 - id: web-startup
   disabled: false
 
+# Muse feedback is delivered explicitly to its account inbox.
+- id: session-log-deepseek
+  disabled: true
+
 - id: webserver
   disabled: false
   config:

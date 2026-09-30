@@ -91,8 +91,8 @@ export interface DramaSettings {
    */
   imageStandardId?: number
   /**
-   * Automatic paid-call ceiling per drama/Jubian script_id, in nonnegative
-   * safe integer CNY cents; zero disables paid calls.
+   * Default paid-call ceiling for drama/Jubian script_ids without an explicit
+   * project authorization, in nonnegative safe integer CNY cents; zero disables those calls.
    */
   seriesBudgetCents: number
 }

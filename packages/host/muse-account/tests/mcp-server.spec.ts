@@ -18,7 +18,8 @@ afterEach(async () => {
 it('rejects a relative account directory before mounting either account component', async () => {
   const ctx = new Context()
   await expect(apply(ctx, { baseUrl: 'https://muse.example', accountHome: 'relative/account',
-    requestTimeoutMs: 15_000, asrRequestTimeoutMs: 300_000, modelRefreshMs: 60_000, excludedModelPrefixes: [] }))
+    requestTimeoutMs: 15_000, asrRequestTimeoutMs: 300_000, modelRefreshMs: 60_000,
+    excludedModelPrefixes: [], feedbackExcerptChars: 1000 }))
     .rejects.toThrow(/accountHome must be absolute/)
   await ctx.fiber.dispose()
 })
@@ -49,6 +50,8 @@ it('publishes account status, KB reads, and private script ingestion without cre
       wikiLinks: async () => content,
       wikiStatus: async () => content,
       wikiMigrationPreview: async () => content,
+      wikiRecordProject: async () => content,
+      wikiProjectPortfolio: async () => content,
     },
   )
   const client = new Client({ name: 'muse-account-test', version: '1' })
@@ -61,7 +64,8 @@ it('publishes account status, KB reads, and private script ingestion without cre
   expect(listed.tools.map(tool => tool.name).toSorted()).toEqual([
     'muse_account_status', 'muse_kb_ingest_script', 'muse_kb_read', 'muse_kb_read_opening', 'muse_kb_search',
     'muse_kb_wiki_capture_source', 'muse_kb_wiki_directory', 'muse_kb_wiki_history', 'muse_kb_wiki_links',
-    'muse_kb_wiki_migration_preview', 'muse_kb_wiki_read', 'muse_kb_wiki_search', 'muse_kb_wiki_status', 'muse_kb_wiki_write_page',
+    'muse_kb_wiki_migration_preview', 'muse_kb_wiki_project_portfolio', 'muse_kb_wiki_read', 'muse_kb_wiki_record_project',
+    'muse_kb_wiki_search', 'muse_kb_wiki_status', 'muse_kb_wiki_write_page',
   ])
   expect(await client.callTool({ name: 'muse_kb_read', arguments: { id: 'source:s1', start: 6000 } }))
     .toMatchObject(content)
@@ -73,7 +77,7 @@ it('publishes account status, KB reads, and private script ingestion without cre
   expect(ingested).toEqual([{ title: '第一集', source: 'project/episode-01' }])
 })
 
-it('routes all nine Wiki tools through the current account session and refuses calls after sign-out', async () => {
+it('routes Wiki tools and participation records through the current account session and refuses calls after sign-out', async () => {
   const home = await mkdtemp(join(tmpdir(), 'dsh-muse-wiki-mcp-'))
   const sessionFile = join(home, 'session.json')
   closers.push(() => rm(home, { recursive: true, force: true }))
@@ -111,6 +115,9 @@ it('routes all nine Wiki tools through the current account session and refuses c
     { name: 'wiki_links', args: { ...scope, id: 'project/script-42/wiki/concepts/hook' } },
     { name: 'wiki_status', args: scope },
     { name: 'wiki_migration_preview', args: { scope: 'shared' } },
+    { name: 'wiki_record_project', args: { project_key: 'jubian-42', project_title: '山河闻凤鸣', contribution_id: 'episode-01',
+      stage: '分镜', status: 'in_progress', content: '分镜已检查，视频任务仍待完成。', artifacts: ['deliverables/EP01.md', 'jubian:499887'] } },
+    { name: 'wiki_project_portfolio', args: { account_id: '0123456789abcdef', project_key: 'jubian-42', start: 2, limit: 3 } },
   ]
   for (const [index, operation] of operations.entries()) {
     if (index === 1) await writeMuseSession(sessionFile, {
@@ -121,19 +128,24 @@ it('routes all nine Wiki tools through the current account session and refuses c
     expect(JSON.stringify(result)).not.toMatch(/wiki-bearer-|first-cookie|refreshed-cookie/u)
   }
   expect(calls).toEqual(operations.map((operation, index) => ({ ...operation, token: 'wiki-bearer-' + String(index + 1) })))
-  expect(exchanges).toEqual(['__Host-muse=first-cookie', ...Array<string>(8).fill('__Host-muse=refreshed-cookie')])
+  expect(exchanges).toEqual(['__Host-muse=first-cookie', ...Array<string>(operations.length - 1).fill('__Host-muse=refreshed-cookie')])
   expect(await readFile(sessionFile, 'utf8')).not.toContain('wiki-bearer-')
 
   const invalid = await client.callTool({ name: 'muse_kb_wiki_read', arguments: { ...scope, id: 'page', start: 6001 } })
   expect(invalid.isError).toBe(true)
-  expect(calls).toHaveLength(9)
+  for (const name of ['muse_kb_wiki_record_project', 'muse_kb_wiki_project_portfolio']) {
+    const operation = operations.find(operation => 'muse_kb_' + operation.name === name)!
+    expect((await client.callTool({ name, arguments: { ...operation.args, scope: 'shared' } })).isError).toBe(true)
+  }
+  expect((await client.callTool({ name: 'muse_kb_wiki_project_portfolio', arguments: { account_id: '../other-account' } })).isError).toBe(true)
+  expect(calls).toHaveLength(operations.length)
   await rm(sessionFile)
   for (const operation of operations) {
     const result = await client.callTool({ name: 'muse_kb_' + operation.name, arguments: operation.args })
     expect(result).toMatchObject({ isError: true, content: [{ type: 'text', text: 'MUSE knowledge base: sign-in-required' }] })
   }
-  expect(calls).toHaveLength(9)
-  expect(exchanges).toHaveLength(9)
+  expect(calls).toHaveLength(operations.length)
+  expect(exchanges).toHaveLength(operations.length)
 })
 
 it('returns fixed Wiki revision recovery guidance separately from access refusal', async () => {

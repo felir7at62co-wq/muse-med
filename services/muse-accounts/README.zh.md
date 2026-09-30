@@ -41,7 +41,7 @@ kind: "package-reference"
 
 启用知识库的网关启动前，须把 `MUSE_KB_USER_ROOT` 指向共享 vault 外已存在、仅所有者可访问的绝对目录。目录缺失、权限过宽或与共享 vault 重叠会阻止启动。已登录账号每次可用 `ingest_script` 提交 1–12 段复核后的 Markdown 剧本；请求上限为 2 MiB，单段上限为 400,000 字符。每段的标题、项目相对来源标识与不可变正文按稳定账号 ID 分开保存；结果逐项报告已写入、已存在或失败。账号可通过 `search`、`read` 和 `read_opening` 阅读自己的 `private/SRC-...` ID；其他账号和机器令牌不能读取这些私有 ID。Muse 召回使用目录、全文关键词和页面链接；MCP 端点不调用语义向量。此工具不上传视频二进制。桌面端使用前，服务器须完成部署和配置；只发布源码不会启用此功能。
 
-桌面模型调用复用网页版的账号会话和全局模型目录。`GET /api/desktop-models/providers` 返回公开元数据；`POST /api/desktop-models/:provider/chat/completions` 接受会话令牌作为 Bearer 凭据，并要求已配置的公开 Origin。上游密钥保留在服务器。每个账号最多同时运行四个流式请求，输出受模型配置上限限制。退出登录、撤销账号和会话到期都会中止桌面端正在进行的请求。
+桌面模型调用复用网页版的账号会话和全局模型目录。`GET /api/desktop-models/providers` 返回公开元数据；`POST /api/desktop-models/:provider/chat/completions` 接受会话令牌作为 Bearer 凭据，并要求已配置的公开 Origin。上游密钥保留在服务器。活动流默认每账号四条、每个网关进程三十二条；同一账号的不同登录共享账号上限。启动前可将 `MUSE_DESKTOP_MODEL_MAX_ACTIVE` 设为 1–32 的整数，将 `MUSE_DESKTOP_MODEL_MAX_TOTAL` 设为 1–1,024 的整数；无效值阻止启动。额度已满时，在转发前返回 429 与 `Retry-After: 1`，目录读取仍然可用。完成、取消、输入拒绝或上游失败会释放名额；退出登录、撤销账号和会话到期会中止活动流。输出仍受各模型的配置上限约束。并发应保持在上游承载能力之内；增加密钥本身不能证明提供方额度扩大，多个网关进程须分配共享额度。
 
 ## Muse LLM Wiki
 
@@ -66,6 +66,10 @@ Muse LLM Wiki 通过既有 `/api/kb/access` 接口复用当前 Muse 登录，不
 `wiki_migration_preview` 报告旧页面、已有原件和缺少提纲的来源，不重写原件、不移动数据、不建立授权，也不宣称已完成综合。既有来源 ID 和管理员授权继续有效。链接索引、解析、Unicode 标题归一化和来源页提纲改编自 `@zosmaai/pi-llm-wiki` 0.6.3；[锁定记录](wiki-upstream.json) 保存来源文件的精确摘要，[MIT 许可](wiki-upstream.LICENSE) 保留其版权声明。系统不加载 Pi 宿主钩子、QMD 或上游模型执行流程。
 
 保存原始资料前拒绝链接指向的存储目录；判断重复资料时核验原文字节。
+
+`wiki_record_project` 在当前账号私有 Wiki 登记计划或实际参与内容。稳定 `project_key`（最多 75 个 ASCII 字符）与 `contribution_id` 用于更新和重试；不同账号可以使用相同标识，记录仍相互隔离。工具保存不可变依据，写入带引用的参与详情并读回，再更新可浏览的项目概览。`synced` 确认两页都已同步；`partial` 表示详情已保存，须用同一记录重试概览。状态来自 Agent 汇报（`completion_basis: "agent-report"`），不独立核验产物。被外部修改的参与页保留，须先解决冲突。
+
+`wiki_project_portfolio` 分页返回参与项目和阶段状态统计，或某项目的工作摘要、状态与产物引用。普通账号会话仅查看本人记录。将 `MUSE_KB_PORTFOLIO_READERS` 指向管理员维护的外部 JSON 文件，内容为 `{ "version": 1, "accountIds": ["<16 字符账号 ID>"] }`，可授权指定、已启用的账号读取其他启用账号的参与记录。文件须为常规文件，位于两个 Wiki 根目录之外；POSIX 上不得允许组或其他用户写入。未设置时不授予跨账号权限；无效配置会停止启动。一般管理员和机器令牌不会自动获得组合权限。结果不返回原始资料、会话或其他私人 Wiki 页面；此授权不会把私有项目变成共享知识。
 
 ## Verification and release
 

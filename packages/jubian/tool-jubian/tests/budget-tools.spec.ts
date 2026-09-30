@@ -1,16 +1,19 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Context } from '@deepseek-ai/cordis'
+import * as DramaSettings from '@deepseek-ai/dsh-drama-settings'
 import { JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import Tools from '@deepseek-ai/dsh-tools'
 import { expect, it, vi } from 'vitest'
+import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
+import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
 import { DRAMA_SETTINGS_NAMESPACE } from '../src/budget-settings.ts'
-import { apply } from '../src/index.ts'
+import * as Jubian from '../src/index.ts'
 
 it('applies the live drama budget before a paid image request without an authorization file', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jubian-settings-budget-'))
-  const registered: { name: string; execute: (args: unknown) => Promise<unknown> }[] = []
-  const section = { seriesBudgetCents: 0 }
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
     const path = url instanceof Request ? url.url : url.toString()
     if (!path.includes('/model/charge/getSelectList?taskType=2')) {
@@ -22,15 +25,20 @@ it('applies the live drama budget before a paid image request without an authori
     { status: 200 })
   })
   try {
-    const ctx = { plugin: () => {}, get: (name: string) => name === 'settings'
-      ? { describe: () => [{ ns: DRAMA_SETTINGS_NAMESPACE, value: section }] } : undefined,
-    tools: { register: (tool: { name: string; execute: (args: unknown) => Promise<unknown> }) => {
-      registered.push(tool); return () => {}
-    } }, credentials: { resolve: async () => ({ value: 'token' }) } } as unknown as Context
-    apply(ctx, { ledgerRoot: root, workspaceSecrets: false, baseUrl: 'https://jubian.example.test' })
-    const video = registered.find(tool => tool.name === 'jubian_video')!
-    await expect(video.execute({ method: 'image_generate', script_id: 2708, asset_name: 'x', asset_type: 1,
-      prompt: 'p', idempotency_key: 'new-paid-image' })).rejects.toThrow('授权上限 0.00 CNY')
+    const { ctx } = await configurationFixture({ rows: [
+      { id: 'config-editor', name: 'cordis:editor' }, { id: 'settings', name: 'cordis:settings' },
+      { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
+      { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'token' } },
+      { id: 'drama-settings', name: 'cordis:drama' },
+      { id: 'jubian', name: 'cordis:jubian', config: { ledgerRoot: root, workspaceSecrets: false,
+        baseUrl: 'https://jubian.example.test' } },
+    ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, drama: DramaSettings, jubian: Jubian } })
+    await ctx.settings.update(DRAMA_SETTINGS_NAMESPACE, { seriesBudgetCents: 0 })
+    const result = await ctx.tools.execute({ callId: ToolCallId('budget-zero'), name: 'jubian_video',
+      arguments: { method: 'image_generate', script_id: 2708, asset_name: 'x', asset_type: 1,
+        prompt: 'p', idempotency_key: 'new-paid-image' }, signal: new AbortController().signal })
+    expect(result.isError).toBe(true)
+    if (result.isError) expect(result.error.message).toContain('授权上限 0.00 CNY')
     expect(fetch).toHaveBeenCalledTimes(1)
     expect(await new JubianLedger({ root }).records()).toEqual([])
   } finally {

@@ -1,0 +1,10 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`prepares the original mixed-audio card and rejects invalid audio before any upload > invalid PCM audio diagnostic 1`] = `
+[
+  {
+    "text": "Error: Jubian tool call is missing an argument it cannot run without: Use a complete PCM WAV reference of at most 15 seconds; extract a 2-second voice sample first",
+    "type": "text",
+  },
+]
+`;

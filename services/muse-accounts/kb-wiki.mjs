@@ -3,8 +3,10 @@ import {lstat, mkdir, readdir, writeFile, rename, rm, rmdir, link} from 'node:fs
 import {createHash, randomBytes} from 'node:crypto';
 import {join} from 'node:path';
 import {validId} from './store.mjs';
-import {ingestSession, collectDocuments, collectGrantedDocuments, readRegularPage} from './kb-vault.mjs';
+import {ingestSession, collectDocuments, collectGrantedDocuments, readRegularPage, validDocumentId} from './kb-vault.mjs';
 import {buildWikilinkIndex, resolveWikilink, extractWikilinks, sourcePageSkeleton} from './kb-wiki-links.mjs';
+import {recordProjectParticipation} from './kb-participation.mjs';
+import {readProjectPortfolio} from './kb-portfolio.mjs';
 
 const MAX_TEXT = 100_000, MAX_QUERY = 1000, PAGE_SIZE = 6000;
 // JSON can expand each byte of a 4 MiB legacy document into a six-byte escape.
@@ -19,11 +21,27 @@ const scopeFields = {
 };
 const idFields = {id: {type: 'string', maxLength: 500, description: '目录或检索结果中的来源/页面 ID。'}};
 const tool = (name, description, properties = {}, required = []) => ({
-  name, description, inputSchema: {type: 'object', additionalProperties: false, properties: {...scopeFields, ...properties}, required},
+  name, description, inputSchema: {type: 'object', additionalProperties: false,
+    properties: ['wiki_record_project', 'wiki_project_portfolio'].includes(name) ? properties : {...scopeFields, ...properties}, required},
 });
 
 /** The discoverable MCP operations for capture, synthesis, and bounded navigation. */
 export const WIKI_TOOLS = [
+  tool('wiki_project_portfolio', '浏览 Muse 项目参与组合。普通登录仅查看本人；经部署授权的组合管理员可查看全部启用账号，并按 account_id 筛选。省略 project_key 分页列出项目及阶段状态统计；指定 project_key 分页读取计划和实际工作摘要、状态及产物引用。仅返回记录器维护的参与记录，不返回原始资料或其他私人 Wiki。', {
+    account_id: {type: 'string', pattern: '^[a-f0-9]{16}$', description: '账户不可变 ID；普通用户只能选择本人，组合管理员可选择其他启用账户。'},
+    project_key: {type: 'string', maxLength: 75, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,74}$', description: '稳定项目标识；填写后分页读取该项目的参与记录，省略时列出项目。'},
+    start: {type: 'integer', minimum: 0, maximum: 1000000, description: '项目或参与记录列表的续读起点，默认 0。'},
+    limit: {type: 'integer', minimum: 1, maximum: 50, description: '每页条数，默认 30。'},
+  }),
+  tool('wiki_record_project', '主动登记 Muse 参与的项目、计划与实际工作、阶段状态和产物引用，保存账号记录并读回；本人和经部署授权的组合管理员可用 wiki_project_portfolio 查看。完成状态来自阶段汇报，不能把待生成任务记作已完成。', {
+    project_key: {type: 'string', maxLength: 75, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,74}$', description: '稳定项目标识，已有剧变绑定用 jubian-<script_id>；否则使用持久化项目 UUID，同名不同项目不能复用。'},
+    project_title: {type: 'string', maxLength: 160, description: '面向用户的项目名称。'},
+    contribution_id: {type: 'string', maxLength: 80, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$', description: '稳定阶段标识；同一阶段进度更新复用，重试不换 ID。'},
+    stage: {type: 'string', maxLength: 100, description: '本次参与的具体阶段，例如改编、大纲、分镜或剪辑。'},
+    status: {type: 'string', enum: ['planned', 'in_progress', 'completed', 'blocked', 'cancelled'], description: '如实区分计划、进行中、完成、受阻和取消。'},
+    content: {type: 'string', maxLength: 5000, description: '计划或实际参与内容、检查结果与未完成项，不含凭证、推理文本或无关会话。'},
+    artifacts: {type: 'array', maxItems: 20, items: {type: 'string', maxLength: 240}, description: '项目相对文件路径或稳定任务引用，例如 deliverables/EP01.md、jubian:499887；不传绝对磁盘路径或带密钥的 URL。'},
+  }, ['project_key', 'project_title', 'contribution_id', 'stage', 'status', 'content', 'artifacts']),
   tool('wiki_capture_source', '保存不可变原始资料并建立待合成的来源页；继续读取来源，用 wiki_write_page 写带引用的总结、实体和概念页。', {
     title: {type: 'string', maxLength: 200, description: '资料标题。'},
     text: {type: 'string', maxLength: 400000, description: '原始 Markdown 正文，重复正文不重复保存。'},
@@ -126,10 +144,10 @@ async function lock(root, action) {
 }
 
 /** Create an account-authenticated Wiki store over the existing raw-source vaults.
- * @param {object} options Shared/personal roots and administrator-owned document grants.
+ * @param {object} options Shared/personal roots, current accounts and administrator-owned document and portfolio permissions.
  * @returns {object} MCP dispatcher, source anchor writer, and lexical search adapter.
  */
-export function createWikiService({vaultRoot, personalRoot, documentGrants = new Map()} = {}) {
+export function createWikiService({vaultRoot, personalRoot, documentGrants = new Map(), accounts, portfolioReaders = new Set()} = {}) {
   const visibleGrants = account => new Map([...documentGrants].filter(([, grant]) =>
     grant.accounts.has('*') || grant.accounts.has(account.id)));
   const descriptor = async (args, account, mode, create = false) => {
@@ -155,7 +173,7 @@ export function createWikiService({vaultRoot, personalRoot, documentGrants = new
   const localId = (d, id) => {
     if (typeof id !== 'string' || !id.startsWith(d.prefix)) fail('Document does not exist or is not authorized.');
     const local = id.slice(d.prefix.length);
-    if (!SOURCE_ID.test(local) && !(local.startsWith('wiki/') && pagePath(local.slice(5)))) fail('Invalid document ID');
+    if (!validDocumentId(local)) fail('Invalid document ID');
     return local;
   };
   const historyRoot = (d, pageId, create = false) => descend(d.root, ['meta', 'wiki-history', digest(pageId)], create);
@@ -298,6 +316,9 @@ export function createWikiService({vaultRoot, personalRoot, documentGrants = new
     if (!args || typeof args !== 'object' || Array.isArray(args)
       || Object.keys(args).some(key => !Object.hasOwn(definition.inputSchema.properties, key))
       || definition.inputSchema.required.some(key => !Object.hasOwn(args, key))) fail('Invalid Wiki arguments');
+    if (name === 'wiki_record_project') return recordProjectParticipation(args, (operation, values) => call(operation, values, account, mode));
+    if (name === 'wiki_project_portfolio') return readProjectPortfolio(args, {account, mode, accounts, portfolioReaders,
+      call: (operation, values, owner) => call(operation, values, owner, mode)});
     const writes = name === 'wiki_capture_source' || name === 'wiki_write_page';
     const d = await descriptor(args, account, mode, writes);
     if (name === 'wiki_capture_source') {

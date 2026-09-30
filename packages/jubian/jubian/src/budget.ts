@@ -2,9 +2,9 @@
  * The spend cap: what this deployment is authorized to spend, and whether one more
  * paid call fits inside it.
  *
- * The limit is a file the operator writes beside the ledger — `<ledger>/authorization.json`
- * — and never an argument a model passes, so a model cannot authorize its own
- * spending. Each paid call is checked against the ledger before it sends anything:
+ * Explicit project limits live beside the ledger in `<ledger>/authorization.json`;
+ * otherwise the live Settings default applies. Budget tools verify actual user
+ * authorization before saving an amount. Every paid call checks existing accounting:
  *
  *     settled spend + in-flight reservations + this quote <= the project's limit
  *
@@ -21,9 +21,12 @@
  * @module @deepseek-ai/dsh-jubian/budget
  */
 
-import { readFile } from 'node:fs/promises'
+import { createHash, randomBytes } from 'node:crypto'
+import { lstat, mkdir, open, readFile, rename, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { JubianLedger, JubianLedgerMethod, JubianLedgerRecord } from './ledger.ts'
+import type { ProjectBudget } from './types.ts'
+import { withLedgerQueue } from './claim-queue.ts'
 
 /** Methods that spend money when they succeed. */
 export const SPENDING_METHODS: ReadonlySet<JubianLedgerMethod> = new Set([
@@ -120,27 +123,37 @@ export async function readAuthorization(path: string): Promise<BudgetAuthorizati
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw error
   }
+  return parseAuthorization(text, path)
+}
+
+/** Parse one complete authorization snapshot; revision and effective limits use identical bytes. */
+function parseAuthorization(text: string, path: string): BudgetAuthorization {
   let parsed: unknown
   try {
-    parsed = JSON.parse(text) as unknown
+    parsed = JSON.parse(text)
   } catch (error) {
     throw new Error(`${path} 不是合法 JSON：预算文件写坏了不能当成没有上限。`, { cause: error })
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${path} must contain a JSON authorization object.`)
   const document = parsed as { version?: unknown; projects?: unknown }
-  if (document.version !== 1 || typeof document.projects !== 'object' || document.projects === null) {
+  if (document.version !== 1 || typeof document.projects !== 'object' || document.projects === null || Array.isArray(document.projects)) {
     throw new Error(`${path} 必须是 {"version":1,"projects":{"<项目ID>":{"limit":"200","unit":"CNY"}}}。`)
   }
   const projects: Record<string, ProjectAuthorization> = {}
   for (const [id, value] of Object.entries(document.projects as Record<string, unknown>)) {
+    if (!/^\d+$/.test(id) || !Number.isSafeInteger(Number(id)) || Number(id) <= 0
+      || !value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${path} contains an invalid project authorization: ${id}`)
     const entry = value as { limit?: unknown; unit?: unknown; note?: unknown; estimates?: unknown }
     if (typeof entry.limit !== 'string' || typeof entry.unit !== 'string'
-      || centsOf(entry.limit) === null || entry.unit.trim() === '') {
+      || centsOf(entry.limit) === null || !Number.isSafeInteger(centsOf(entry.limit)) || entry.unit.trim() === '') {
       throw new Error(`${path} 里项目 ${id} 的 limit 与 unit 必须是非空字符串（limit 为十进制金额）。`)
     }
     const estimates: Record<string, string> = {}
-    for (const [method, amount] of Object.entries(
-      typeof entry.estimates === 'object' && entry.estimates !== null ? entry.estimates : {})) {
-      if (typeof amount !== 'string' || centsOf(amount) === null) {
+    if (entry.estimates !== undefined && (!entry.estimates || typeof entry.estimates !== 'object' || Array.isArray(entry.estimates))) {
+      throw new Error(`${path} project ${id} estimates must be a JSON object`)
+    }
+    for (const [method, amount] of Object.entries(entry.estimates ?? {})) {
+      if (typeof amount !== 'string' || centsOf(amount) === null || !Number.isSafeInteger(centsOf(amount))) {
         throw new Error(`${path} 里项目 ${id} 的 estimates.${method} 必须是十进制金额字符串。`)
       }
       estimates[method] = amount
@@ -235,7 +248,7 @@ export async function checkBudget(input: {
     return { status: 'refused', ...empty,
       reason: `本次计费报价单位 ${input.quote.unit} 与项目授权单位 ${entry.unit} 不一致。` }
   }
-  const limitCents = Math.min(centsOf(entry.limit) ?? 0, autoLimitCents ?? Number.MAX_SAFE_INTEGER)
+  const limitCents = centsOf(entry.limit) ?? 0
   const summary = summarise(records, scriptId)
   const base = { limitCents, settledCents: summary.settled, reservedCents: summary.reserved }
   if (summary.unattributed.length > 0) {
@@ -280,10 +293,126 @@ export async function checkBudget(input: {
       reason: `本次${from}每笔 ${(chargeCents / 100).toFixed(2)} ${entry.unit}、共 ${count} 笔，`
         + `而已结算 ${(summary.settled / 100).toFixed(2)}、在途 ${(summary.reserved / 100).toFixed(2)}，`
         + `合计将超过项目 ${String(scriptId)} 的授权上限 ${(limitCents / 100).toFixed(2)} ${entry.unit}。`
-        + '请先结算或取消在途任务，或由人提高该项目的授权额度。' }
+        + '额度不足时用 ask_user_question 确认新的项目总额度；用户已明确金额时，使用 jubian_budget 更新并回读，不修改配置文件或重复询问。' }
   }
   return { status: 'authorized', ...base, reason: '',
     chargedAmount: quoteCents === null ? (chargeCents / 100).toFixed(2) : input.quote?.amount,
     chargedUnit: entry.unit,
     ...(quoteCents === null ? { estimated: true } : {}) }
+}
+
+/** User evidence recorded with a project ceiling; callers verify the actual user source. */
+export interface BudgetApproval {
+  kind: 'user-message' | 'user-answer' | 'settings'
+  reference: string
+  text: string
+}
+
+/** Reviewed project ceiling and exact authorization-file revision to replace. */
+export interface ProjectBudgetUpdate {
+  script_id: number
+  limit_cents: number
+  expected_revision: string
+  authorization: BudgetApproval
+}
+
+function projectId(value: number): void {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error('Budget script_id must be a positive safe integer')
+}
+
+function checksum(value: string): string { return createHash('sha256').update(value).digest('hex') }
+
+async function contentsOf(path: string): Promise<string | undefined> {
+  try { return await readFile(path, 'utf8') } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+}
+
+/**
+ * Read the same effective ceiling that the next paid claim uses, with real ledger totals.
+ * @param ledger - Current ledger and live default-budget reader.
+ * @param scriptId - Exact remote project identity.
+ * @returns Authorization-file revision, effective limit and accounted spend/reservations.
+ */
+export async function readProjectBudget(ledger: JubianLedger, scriptId: number): Promise<ProjectBudget> {
+  projectId(scriptId)
+  const path = authorizationPathFor(ledger.root)
+  const contents = await contentsOf(path)
+  const authorization = contents === undefined ? undefined : parseAuthorization(contents, path)
+  const entry = authorization?.projects[String(scriptId)]
+  const fallback = ledger.defaultLimitCents?.()
+  if (fallback !== undefined && (!Number.isSafeInteger(fallback) || fallback < 0)) throw new Error('Invalid default project budget')
+  const limit = entry === undefined ? fallback ?? null : centsOf(entry.limit)
+  const summary = summarise(await ledger.records(), scriptId)
+  const unit = entry?.unit ?? 'CNY'
+  const complete = summary.unquoted.length === 0 && summary.unattributed.length === 0
+    && [...summary.units].every(currency => currency === unit)
+  return { script_id: scriptId, limit_cents: limit, unit,
+    source: entry === undefined ? fallback === undefined ? 'unconfigured' : 'default' : 'project',
+    settled_cents: summary.settled, reserved_cents: summary.reserved,
+    remaining_cents: limit === null || !complete ? null : Math.max(0, limit - summary.settled - summary.reserved),
+    revision: checksum(JSON.stringify([contents ?? null, fallback ?? null])), authorization_path: path,
+    note: entry?.note ?? '', accounting_complete: complete }
+}
+
+async function regularFile(path: string): Promise<void> {
+  try {
+    const entry = await lstat(path)
+    if (entry.isSymbolicLink() || !entry.isFile()) throw new Error('Budget authorization output must be a regular file')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+}
+
+/**
+ * Commit an explicitly approved project ceiling without changing spend or reservations.
+ * Shares the ledger reservation queue, uses an exclusive writer file and atomically replaces JSON.
+ * @param ledger - Current ledger and live default-budget reader.
+ * @param input - Exact project, integer CNY ceiling, read revision and verified user evidence.
+ * @returns Real readback of the saved ceiling and existing accounting.
+ */
+export async function updateProjectBudget(ledger: JubianLedger, input: ProjectBudgetUpdate): Promise<ProjectBudget> {
+  projectId(input.script_id)
+  if (!Number.isSafeInteger(input.limit_cents) || input.limit_cents < 0) throw new Error('Budget must be nonnegative safe integer CNY cents')
+  if (!['user-message', 'user-answer', 'settings'].includes(input.authorization.kind)
+    || !input.authorization.reference.trim() || !input.authorization.text.trim()) throw new Error('Verified user authorization is required')
+  return await withLedgerQueue(ledger.root, async () => {
+    await mkdir(ledger.root, { recursive: true })
+    const path = authorizationPathFor(ledger.root), lockPath = join(ledger.root, '.authorization.lock')
+    await regularFile(path)
+    await regularFile(lockPath)
+    const lock = await open(lockPath, 'wx', 0o600)
+    const temporary = `${path}.${randomBytes(12).toString('hex')}.tmp`
+    try {
+      const before = await readProjectBudget(ledger, input.script_id)
+      if (before.revision !== input.expected_revision) throw new Error('Budget revision changed; read the current budget and retry the same approved amount')
+      if (before.unit !== 'CNY' || !before.accounting_complete) throw new Error('Budget accounting or currency is unresolved; reconcile before changing the ceiling')
+      if (input.limit_cents < before.settled_cents + before.reserved_cents) throw new Error('Budget cannot be lower than settled and reserved spend')
+      const contents = await contentsOf(path)
+      const document = contents === undefined ? { version: 1, projects: {} } : JSON.parse(contents) as Record<string, unknown>
+      const projects = document.projects as Record<string, Record<string, unknown>>
+      const previous = projects[String(input.script_id)] ?? {}
+      if (previous.authorization_history !== undefined && !Array.isArray(previous.authorization_history)) {
+        throw new Error('Budget authorization_history must be an array')
+      }
+      const history: unknown[] = previous.authorization_history ?? []
+      const limit = (input.limit_cents / 100).toFixed(2)
+      projects[String(input.script_id)] = { ...previous, limit, unit: 'CNY', note: input.authorization.text,
+        authorization_history: [...history, { limit, ...input.authorization, at: new Date().toISOString() }] }
+      const handle = await open(temporary, 'wx', 0o600)
+      try { await handle.writeFile(`${JSON.stringify(document, null, 2)}\n`, 'utf8') } finally { await handle.close() }
+      await regularFile(path)
+      await rename(temporary, path)
+      const after = await readProjectBudget(ledger, input.script_id)
+      if (after.limit_cents !== input.limit_cents || after.source !== 'project') throw new Error('Budget readback did not match the approved ceiling')
+      return after
+    } finally {
+      try {
+        try { await unlink(temporary) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+      } finally {
+        try { await lock.close() } finally { await unlink(lockPath) }
+      }
+    }
+  })
 }

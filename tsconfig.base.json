@@ -412,6 +412,7 @@
       "@deepseek-ai/dsh-jobs/invariant": ["./packages/jobs/jobs/src/invariant.ts"],
       "@deepseek-ai/dsh-jobs-local": ["./packages/jobs/jobs-local/src"],
       "@deepseek-ai/dsh-jubian": ["./packages/jubian/jubian/src"],
+      "@deepseek-ai/dsh-jubian/types": ["./packages/jubian/jubian/src/types.ts"],
       "@deepseek-ai/dsh-jubian-api": ["./packages/jubian/jubian-api/src"],
       "@deepseek-ai/dsh-launch-environment": ["./packages/util/launch-environment/src"],
       "@deepseek-ai/dsh-lazy-require": ["./packages/util/lazy-require/src"],

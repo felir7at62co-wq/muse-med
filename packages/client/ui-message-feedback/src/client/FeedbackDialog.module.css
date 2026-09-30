@@ -89,6 +89,18 @@
   font-weight: 500;
 }
 
+.diagnostics {
+  align-items: flex-start;
+  margin-top: 16px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.diagnostics input {
+  margin-top: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chip,
   .detail {

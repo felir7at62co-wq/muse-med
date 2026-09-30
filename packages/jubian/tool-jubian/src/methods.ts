@@ -30,7 +30,7 @@ import { createFolderMethod, moveMethod, renameMethod } from './folders.ts'
 import { composedAssetName, resolveNaming, taskPrefix } from './naming.ts'
 import { ASSET_CATEGORY_TYPES } from './naming.ts'
 import type { AssetCategory, Naming } from './naming.ts'
-import { uploadReferenceMethod } from './reference.ts'
+import { uploadAudioReferenceMethod, uploadReferenceMethod } from './reference.ts'
 import type { ReferenceUploadDeps } from './reference.ts'
 import { need, requireKey, writeUnderLedger } from './write.ts'
 import { storyboardEditMethod } from './storyboard-edit.ts'
@@ -107,6 +107,8 @@ export interface MethodArgs {
   delivery_resolution?: string
   /** `upload_reference`: the local image file to normalize and upload. */
   image_path?: string
+  /** `upload_audio`: a measured short PCM WAV voice sample. */
+  audio_path?: string
   /** `prepare_video` / `submit_video`: the project directory holding `project_config.json`. */
   project_dir?: string
   /** `submit_video`: the prepared preview file the submission must be bound to. */
@@ -611,6 +613,8 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
       // Free and task-free, but it does write one object into the provider's
       // bucket: the URL it returns is the only shape `gpt-image-2` accepts.
       return await uploadReferenceMethod({ image_path: args.image_path }, deps.reference)
+    case 'upload_audio':
+      return await uploadAudioReferenceMethod({ audio_path: args.audio_path }, deps.reference)
     case 'create_folder':
       return await createFolderMethod(client, ledger, args)
     case 'move':

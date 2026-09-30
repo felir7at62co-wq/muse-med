@@ -5,6 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-muse-account/remote'
+import type { FeedbackDelivery } from '@deepseek-ai/dsh-client-ui-message-feedback/client'
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import { MuseAccountSection, type MuseAccountInjected, type MuseAccountOutcome } from './MuseAccountSection.tsx'
 import { MuseAccountLauncher } from './MuseAccountLauncher.tsx'
@@ -56,6 +57,14 @@ function registerSection(ctx: ClientContext): void {
     inject: injected,
   }, MuseAccountSection))
   if ((globalThis as typeof globalThis & { dshDesktop?: { productName?: string } }).dshDesktop?.productName === 'muse-med') {
+    const feedbackDelivery: FeedbackDelivery = {
+      submit: async (sessionId, target, entry, includeDiagnostics) => {
+        const result = await ctx.remote.museAccount.feedback({ sessionId, target, ...entry, includeDiagnostics })
+        return result.ok ? { ok: true, receiptId: result.value.id }
+          : { ok: false, error: { code: result.error.code, message: 'MUSE feedback was not confirmed' } }
+      },
+    }
+    ctx.provide('feedbackDelivery', feedbackDelivery)
     const page = globalThis as Partial<Record<typeof FEEDBACK_CONFIG_GLOBAL, Partial<FeedbackConfig>>>
     const { feedbackUrl } = FeedbackConfig(page[FEEDBACK_CONFIG_GLOBAL])
     ctx.slots.inject('settings.launcher', () => ctx.slots.register({

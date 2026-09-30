@@ -82,6 +82,8 @@ GUI model selection requires the exact provider/model pair in the available cata
 
 A successful `selectModel` response acknowledges the Session-local selection without waiting for the default profile setting to save. Default saves run in the background in submission order; a failure logs a warning and leaves the Session selection intact. New Sessions read the last successfully saved default.
 
+Host consumers can use `selectModelIfCurrent(request, expected)` to replace an observed selection without overwriting a newer choice. The comparison covers provider, model, and reasoning effort inside the Session's model-selection queue. A mismatch returns `undefined` without a write; a match validates and logs the replacement through the same path as `selectModel`. This Host method is not exposed as a Remote method. The Agent loop records the provider and model actually used in the next request header.
+
 -----
 
 <a id="configuration"></a>

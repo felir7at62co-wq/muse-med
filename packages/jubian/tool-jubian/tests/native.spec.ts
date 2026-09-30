@@ -144,6 +144,21 @@ async function project(scriptId = 2708, name = 'project'): Promise<string> {
 const putCalls = (provider: FakeProvider): typeof provider.calls =>
   provider.calls.filter(call => call.method === 'PUT')
 
+describe('uploaded voice references', () => {
+  it('prepares existing audio without a numeric parent lookup or a remote write', async () => {
+    const audio = { materialType: 'audio', materialUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/voice.wav',
+      materialKey: 'voice-lead', fileName: '陆沉舟声线', sortOrder: 1, audioDuration: 2 }
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      storyboardMaterialList: [...MATERIALS, audio], modelConfig: JSON.stringify({ ...MODEL_CONFIG,
+        prompt: `${PROMPT} 声音 @[陆沉舟声线](voice-lead)` }) } }
+    const result = await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953,
+      project_dir: await project() })
+    expect(result.status).toBe('prepared')
+    expect(putCalls(provider)).toHaveLength(0)
+    expect(provider.calls.filter(call => call.path.startsWith('/aigc/asset/'))).toHaveLength(2)
+  })
+})
+
 /** A manually released barrier for provider requests in concurrency tests. */
 function barrier(): { promise: Promise<void>; release: () => void } {
   let release = () => {}
@@ -316,6 +331,30 @@ describe('submit_video', () => {
     expect(putCalls(provider)[0]?.body?.isGenerate).toBe(1)
     expect(result).toMatchObject({ replayed: false, outcome: 'accepted', status: 'submitted', task_id: '335343' })
     expect((await ledger.find(idempotencyKey))?.method).toBe('storyboard_native_submit')
+  })
+
+  it('submits preserved audio once and reconciles when the child loses its voice reference', async () => {
+    const audio = { materialType: 'audio', materialUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/voice.wav',
+      materialKey: 'voice-lead', fileName: '陆沉舟声线', sortOrder: 1, audioDuration: 2 }
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      storyboardMaterialList: [...MATERIALS, audio], modelConfig: JSON.stringify({ ...MODEL_CONFIG,
+        prompt: `${PROMPT} 陆沉舟声音 @[陆沉舟声线](voice-lead)` }) } }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    provider.onPut = (payload) => {
+      provider.tasks = [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1, taskStatus: 'submit' }]
+      provider.subtasks['335343'] = [childOf(payload, { imageMaterials: MATERIALS,
+        audioMaterials: [{ audioUrl: audio.materialUrl }] })]
+    }
+    const args = { preview_path: previewPath, idempotency_key: idempotencyKey }
+    expect(await submitVideoMethod(clientFor(provider), ledger, args)).toMatchObject({ status: 'submitted' })
+    expect(putCalls(provider)[0]?.body?.storyboardMaterialList).toEqual(expect.arrayContaining([audio]))
+    const child = provider.subtasks['335343']?.[0]
+    if (!child) throw new Error('Missing generated child')
+    child.audioMaterials = []
+    expect(await submitVideoMethod(clientFor(provider), ledger, args)).toMatchObject({
+      replayed: true, status: 'reconcile_conflict',
+    })
+    expect(putCalls(provider)).toHaveLength(1)
   })
 
   it('never sends a second PUT for a key it already recorded, and reconciles instead', async () => {

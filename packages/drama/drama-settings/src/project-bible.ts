@@ -4,10 +4,17 @@ import { lstat, open, readFile, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 import type SettingsForms from '@deepseek-ai/dsh-settings'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import type { ProjectBudget } from '@deepseek-ai/dsh-jubian/types'
 import { DRAMA_SETTINGS_NAMESPACE, type DramaSettings } from './settings.ts'
 
 type JsonObject = { [key: string]: JsonValue }
 type ProjectDefaults = JsonObject & { initial_budget_cents: number }
+
+/** Live budget data owned by the same authorization reader as Jubian paid calls. */
+export interface ProjectBudgetReader {
+  /** @param scriptId - Bound remote project ID. @returns Effective authorization and actual ledger totals. */
+  read(scriptId: number): Promise<ProjectBudget>
+}
 
 /** Changes accepted by the project tool; omitted fields preserve their current value. */
 export const PROJECT_BIBLE_CHANGES = {
@@ -62,7 +69,7 @@ export type ProjectBibleResult = JsonObject & {
   config: JsonObject
   proposed: JsonObject
   affected_stages: string[]
-  /** Current Settings ceiling; ledger authorization can reduce the allowed paid-call limit. */
+  /** Current default for projects without an explicit authorization. */
   current_settings_budget_cents: number
 }
 
@@ -338,13 +345,24 @@ function markdown(config: JsonObject): string {
     rows.push(`视频模型：${display(video.model_id)}；平台：${display(video.platform_id)}；生成分辨率：${display(video.resolution)}`, '')
   }
   rows.push(`成片：${display(delivery.width)} × ${display(delivery.height)}；${display(delivery.fps)} fps；最低 ${display(delivery.min_bitrate_mbps)} Mbps`, '',
-    `预算初始记录：¥${(Number(bible.initial_budget_cents) / 100).toFixed(2)} CNY；实际消费上限由当前 Settings 与账本授权文件决定。`, '', '## 分集计划', '')
+    `预算初始记录：¥${(Number(bible.initial_budget_cents) / 100).toFixed(2)} CNY；当前项目总额度和已花/在途费用通过 drama_project read 或 jubian_budget read 从实际授权账本读取，初始记录不作为收费上限。`, '', '## 分集计划', '')
   if (bible.episode_plan !== undefined) rows.push('```json', JSON.stringify(bible.episode_plan, null, 2), '```', '')
   else rows.push('按剧情灵活确定集数、提纲和每集长度。', '')
   for (const [title, key] of [['角色与声音', 'characters'], ['稳定视频包绑定', 'package_bindings'], ['已完成任务', 'completed_tasks'], ['版本与影响记录', 'history']] as const) {
     rows.push(`## ${title}`, '', '```json', JSON.stringify(bible[key] ?? [], null, 2), '```', '')
   }
   return rows.join('\n')
+}
+
+/** Add live authorization data to the model-facing projection without duplicating its editable amount. */
+async function withBudget(value: ProjectBibleResult, reader?: ProjectBudgetReader): Promise<ProjectBibleResult> {
+  const selected = value.status === 'preview' ? value.proposed : value.config
+  if (selected.jubian_script_id === undefined) return { ...value, budget: { status: 'unbound' } }
+  if (!reader) return { ...value, budget: { status: 'unavailable' } }
+  const budget = await reader.read(positive(selected.jubian_script_id, 'jubian_script_id'))
+  const live = `当前总额度：${budget.limit_cents === null ? '未授权' : `¥${(budget.limit_cents / 100).toFixed(2)} ${budget.unit}`}；已花 ¥${(budget.settled_cents / 100).toFixed(2)}；在途 ¥${(budget.reserved_cents / 100).toFixed(2)}。\n`
+  return { ...value, budget: { status: 'ready', ...budget },
+    ...(selected.project_bible === undefined ? {} : { markdown: `${markdown(selected)}\n${live}` }) }
 }
 
 /** Shared bounded result fields; full JSON is returned only on an explicit read or preview. */
@@ -359,11 +377,13 @@ function result(root: string, snapshot: { config: JsonObject; revision: string }
  * Read authoritative project settings and current Settings defaults without creating files.
  * @param settings - Provider owning the drama namespace.
  * @param directory - Existing absolute project directory with no link ancestors.
+ * @param budget - Optional live reader shared with the actual Jubian authorization.
  * @returns Current config, file revision and defaults; missing bible returns unconfigured.
  */
-export async function readProjectBible(settings: SettingsForms, directory: string): Promise<ProjectBibleResult> {
+export async function readProjectBible(settings: SettingsForms, directory: string,
+  budget?: ProjectBudgetReader): Promise<ProjectBibleResult> {
   const root = await projectRoot(directory)
-  return result(root, await state(root), defaults(settings))
+  return await withBudget(result(root, await state(root), defaults(settings)), budget)
 }
 
 /**
@@ -373,16 +393,17 @@ export async function readProjectBible(settings: SettingsForms, directory: strin
  * @param directory - Existing absolute project directory.
  * @param changes - Confirmed fields to merge; optional mappings and completed tasks append.
  * @param reason - User-visible reason preserved in revision history.
+ * @param budget - Optional live reader shared with the actual Jubian authorization.
  * @returns Candidate config, expected revision, preview fingerprint and affected stages.
  */
 export async function previewProjectBible(settings: SettingsForms, directory: string,
-  changes: JsonObject, reason: string): Promise<ProjectBibleResult> {
+  changes: JsonObject, reason: string, budget?: ProjectBudgetReader): Promise<ProjectBibleResult> {
   const root = await projectRoot(directory), snapshot = await state(root), initial = defaults(settings)
   const proposed = candidate(snapshot.config, initial, changes, reason)
   const fingerprint = digest(JSON.stringify({ root, revision: snapshot.revision, config: proposed.config }))
-  return { ...result(root, snapshot, initial), status: 'preview', proposed: proposed.config,
+  return await withBudget({ ...result(root, snapshot, initial), status: 'preview', proposed: proposed.config,
     preview_fingerprint: fingerprint, changed_fields: proposed.fields, affected_stages: proposed.stages,
-    markdown: markdown(proposed.config) }
+    markdown: markdown(proposed.config) }, budget)
 }
 
 /** Exclusive temporary file in the destination directory, replaced by one atomic rename. */
@@ -410,10 +431,11 @@ async function atomic(path: string, content: string): Promise<void> {
  * @param expectedRevision - Exact revision returned by read or preview; missing creates a new config.
  * @param previewFingerprint - Fingerprint of the unchanged reviewed preview.
  * @param signal - Optional caller cancellation; observed before the commit starts.
+ * @param budget - Optional live reader shared with the actual Jubian authorization.
  * @returns Saved config and new revision, preserving completed records and prior versions.
  */
 export async function updateProjectBible(settings: SettingsForms, directory: string, changes: JsonObject, reason: string,
-  expectedRevision: string, previewFingerprint: string, signal?: AbortSignal): Promise<ProjectBibleResult> {
+  expectedRevision: string, previewFingerprint: string, signal?: AbortSignal, budget?: ProjectBudgetReader): Promise<ProjectBibleResult> {
   const root = await projectRoot(directory), lockPath = join(root, '.project-bible.lock')
   signal?.throwIfAborted()
   await plainFile(lockPath)
@@ -435,8 +457,8 @@ export async function updateProjectBible(settings: SettingsForms, directory: str
     try { await atomic(biblePath, markdown(preview.proposed)) } catch (error) {
       throw new Error(`Project JSON committed at revision ${digest(contents)}, but rendering project-bible.md failed. Read current config before retrying.`, { cause: error })
     }
-    return { ...result(root, { config: preview.proposed, revision: digest(contents) }, defaults(settings)),
-      status: 'ready', affected_stages: preview.affected_stages, changed_fields: preview.changed_fields ?? [] }
+    return await withBudget({ ...result(root, { config: preview.proposed, revision: digest(contents) }, defaults(settings)),
+      status: 'ready', affected_stages: preview.affected_stages, changed_fields: preview.changed_fields ?? [] }, budget)
   } finally {
     await lock.close()
     await unlink(lockPath)

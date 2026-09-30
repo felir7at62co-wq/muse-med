@@ -1,4 +1,6 @@
 /** Typed Jubian endpoint readers over the shared Jubian transport. */
+export { REFERENCE_AUDIO_MAX_SECONDS, childAudioUrls, readReferenceAudio, referenceAudioUrls, validateAudioMaterial } from './audio.ts'
+export type { ReferenceAudio } from './audio.ts'
 export { MODEL_TASK_TYPES, readEpisodes, readModels, readScript, readScriptList, readStoryboardPage } from './catalog.ts'
 export type { ScriptRow } from './catalog.ts'
 export { readAssetList, readAssetPage, readGeneratedImage, readMaterialList } from './asset.ts'

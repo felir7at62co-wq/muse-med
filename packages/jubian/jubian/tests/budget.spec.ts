@@ -107,14 +107,14 @@ describe('checkBudget', () => {
     expect(b).toMatchObject({ status: 'authorized', limitCents: 400_000, settledCents: 0 })
   })
 
-  it('never lets a legacy file raise the automatic project cap', async () => {
+  it('uses an explicitly authorized project ceiling instead of the automatic default', async () => {
     const { ledger, authorizationPath } = await fixture({ version: 1, projects: {
       '2708': { limit: '10000.00', unit: 'CNY' },
     } })
     const auto = new JubianLedger({ root: ledger.root, defaultLimitCents: () => 400_000 })
     const decision = await checkBudget({ ledger: auto, method: 'image_generate', scriptId: 2708,
       quote: { amount: '5000.00', unit: 'CNY' }, authorizationPath })
-    expect(decision).toMatchObject({ status: 'refused', limitCents: 400_000 })
+    expect(decision).toMatchObject({ status: 'authorized', limitCents: 1_000_000 })
   })
 
   it('never asks for an authorization on a call that cannot spend', async () => {

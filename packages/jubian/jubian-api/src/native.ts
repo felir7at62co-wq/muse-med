@@ -19,6 +19,7 @@
  */
 import { createHash } from 'node:crypto'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { childAudioUrls, referenceAudioUrls, validateAudioMaterial } from './audio.ts'
 
 function invalid(detail?: string): never { throw new JubianError('CONTRACT_CHANGED', detail) }
 
@@ -301,14 +302,15 @@ export function isRelatedTaskCandidate(record: Record<string, unknown>, scriptId
  * the storyboard PUT was supposed to translate, which is a terminal condition
  * rather than a partial match.
  * @param materials - The child's `imageMaterials` or `storyboardMaterialList`.
- * @returns One identity item per ordered material.
+ * @returns One identity item per ordered image; uploaded audio is excluded.
  * @throws {JubianError} `CONTRACT_CHANGED` when any item is missing a field or the list is empty.
  */
 export function subjectIdentitySignature(materials: unknown): SubjectIdentityItem[] {
   const list = storyboardObject(materials)
   if (!Array.isArray(list) || list.length === 0) invalid()
-  return list.map((entry) => {
-    const material = object(entry)
+  const images = list.map(object).filter(material => material.materialType !== 'audio')
+  if (images.length === 0) invalid()
+  return images.map((material) => {
     const assetId = wireText(material.assetId)
     const name = wireText(material.materialName ?? material.fileName ?? material.assetName)
     const imageUrl = httpUrl(material.imageUrl ?? material.materialUrl)
@@ -462,12 +464,12 @@ export function storyboardMaterials(storyboard: Record<string, unknown>):
 /**
  * Read and check the ordered materials one live storyboard already carries.
  *
- * This is the read-only half of preparation: every material must already name a
- * trusted identity, an ordered parent and an official URL, because the submit
- * that follows re-reads exactly these fields and a missing one would be
- * discovered only after the paid PUT.
+ * Image materials must already name a trusted identity, an ordered parent and
+ * an official URL. Uploaded audio uses its own URL, marker and group order;
+ * available duration metadata must be within 15 seconds, while absent metadata
+ * remains unverified. Submit re-reads the same saved fields before its paid PUT.
  * @param storyboard - The live storyboard snapshot.
- * @param assets - The parent assets in storyboard material order, one per material.
+ * @param assets - One parent asset per image, in storyboard image order.
  * @returns The enriched ordered materials, the normalized prompt and the model config.
  * @throws {JubianError} `CONTRACT_CHANGED` when any identity, order or prompt reference disagrees.
  */
@@ -481,10 +483,11 @@ export function validatedVideoMaterials(storyboard: Record<string, unknown>, ass
   }
   const prompt = normalizedPrompt(config.prompt)
   const scriptId = integer(storyboard.scriptId)
-  if (assets.length !== materials.length) invalid()
+  const imageMaterials = materials.filter(material => material.materialType !== 'audio')
+  if (assets.length !== imageMaterials.length) invalid()
 
   const keys: string[] = []
-  const enriched = materials.map((material, index) => {
+  const enriched = imageMaterials.map((material, index) => {
     if (index >= assets.length) invalid()
     const asset = assets[index] ?? invalid()
     const assetId = asset.id ?? asset.assetId
@@ -528,9 +531,18 @@ export function validatedVideoMaterials(storyboard: Record<string, unknown>, ass
     return verified
   })
 
-  if (new Set(keys).size !== keys.length) invalid()
-  if (promptKeys(prompt).join('\u0000') !== keys.join('\u0000')) invalid()
-  return { materials: enriched, prompt, config }
+  const audioMaterials = materials.filter(material => material.materialType === 'audio')
+    .map(material => ({ ...validateAudioMaterial(material) }))
+  referenceAudioUrls(audioMaterials)
+  const audioKeys = audioMaterials.map(material => String(material.materialKey))
+  const allKeys = [...keys, ...audioKeys]
+  if (new Set(allKeys).size !== allKeys.length) invalid()
+  const references = promptKeys(prompt)
+  if (references.filter(key => !audioKeys.includes(key)).join('\u0000') !== keys.join('\u0000')) invalid()
+  if (references.filter(key => audioKeys.includes(key)).join('\u0000') !== audioKeys.join('\u0000')) invalid()
+  const maximumAudio = config.modelId === 'doubao-seedance-2-0-260128' ? 3 : 10
+  if (audioMaterials.length > maximumAudio) invalid(`The selected SD model accepts at most ${maximumAudio} audio references`)
+  return { materials: [...enriched, ...audioMaterials], prompt, config }
 }
 
 /** Read the prompt's ordered `@[name](key)` placeholder keys. */
@@ -542,7 +554,7 @@ function promptKeys(prompt: string): string[] {
 export interface NativePreviewInput {
   /** The live storyboard snapshot the PUT will echo. */
   storyboard: Record<string, unknown>
-  /** The parent assets in storyboard material order. */
+  /** The image parent assets in storyboard image order; uploaded audio has no parent. */
   assets: Record<string, unknown>[]
   /** The live `taskType=1` catalogue. */
   models: unknown
@@ -577,7 +589,7 @@ export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoP
   payload.modelConfig = JSON.stringify(modelConfig)
 
   const storyboardId = integer(payload.id ?? payload.storyboardId)
-  const orderedAssets: NativeOrderedAsset[] = materials.map((material) => {
+  const orderedAssets: NativeOrderedAsset[] = materials.filter(material => material.materialType !== 'audio').map((material) => {
     const assetId = wireText(material.assetId)
     const materialAssetId = material.materialAssetId
     const materialName = wireText(material.fileName ?? material.assetName)
@@ -659,6 +671,7 @@ export function validateNativeVideoPreview(value: unknown): NativeVideoPreview {
   const expected = subjectIdentitySignature(ordered)
   if (Number(summary.count) !== expected.length) invalid()
   const { materials } = storyboardMaterials(payload)
+  referenceAudioUrls(materials)
   const actual = subjectIdentitySignature(materials)
   if (stableJson(actual) !== stableJson(expected)) invalid()
   return preview as unknown as NativeVideoPreview
@@ -683,6 +696,8 @@ export interface NativeClaimExpectation {
   episodeId: number
   /** Ordered trusted identity the submission claimed. */
   expectedIdentity: SubjectIdentityItem[]
+  /** Ordered uploaded audio URLs, separate from character image identities. */
+  expectedAudioUrls?: string[]
   /** Model evidence the child must repeat. */
   expectedModel: [string, string][]
   /** Prompt the child must repeat, already normalized. */
@@ -759,6 +774,14 @@ function childPrompt(child: Record<string, unknown>): string | null {
   try { return nativeObservablePrompt(child.modelConfig) } catch { return null }
 }
 
+/** A child must repeat every frozen audio URL before its submission can be claimed. */
+function audioMatches(child: Record<string, unknown>, expectation: NativeClaimExpectation): boolean {
+  const expected = expectation.expectedAudioUrls ?? []
+  if (expected.length === 0) return true
+  const actual = childAudioUrls(child)
+  return actual !== null && stableJson(actual) === stableJson(expected)
+}
+
 /** Whether one hydrated candidate names this storyboard, using the detail's own fields first. */
 function candidateBelongsTo(candidate: HydratedTask, expectation: NativeClaimExpectation): boolean {
   if (!isRelatedTaskCandidate(candidate.task, expectation.scriptId, expectation.storyboardId)) return false
@@ -809,7 +832,8 @@ export function classifyNewNativeCandidates(candidates: HydratedTask[],
     const model = childModel(child)
     const prompt = childPrompt(child)
     if (model === null || prompt === null) { mismatched.push(candidate); continue }
-    if (stableJson(model) === stableJson(expectation.expectedModel) && prompt === expectation.expectedPrompt) {
+    if (stableJson(model) === stableJson(expectation.expectedModel) && prompt === expectation.expectedPrompt
+      && audioMatches(child, expectation)) {
       exact.push({ ...candidate, children: [child] })
     } else {
       mismatched.push(candidate)
@@ -868,6 +892,7 @@ export function classifyExistingNativeMatches(candidates: HydratedTask[],
     const prompt = childPrompt(child)
     if (model === null || prompt === null) { unsafe = true; continue }
     if (stableJson(model) !== stableJson(expectation.expectedModel) || prompt !== expectation.expectedPrompt) continue
+    if (!audioMatches(child, expectation)) { unsafe = true; continue }
     matches.push({ ...candidate, children: [child] })
   }
   if (matches.length > 1 || unsafe) return { status: 'reconcile_conflict' }

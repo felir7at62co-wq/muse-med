@@ -68,7 +68,8 @@ export async function apply(ctx, config) {
     failOnStartupError: true,
     reconnect: { enabled: false },
   })).await()
-  await ctx.plugin(NativePreset, {
+  const productCtx = ctx.extend({baseUrl: new URL('../../../apps/desktop-host/package.json', import.meta.url).href})
+  await productCtx.plugin(NativePreset, {
     id: 'editing',
     directory: fileURLToPath(new URL('../../../apps/desktop-host/presets/editing/', import.meta.url)),
   })

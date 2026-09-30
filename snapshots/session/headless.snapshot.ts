@@ -65,6 +65,8 @@ const editingCordisSkill = join(
 const museEditingSkill = join(repoRoot, 'apps/desktop-host/skills/editing/SKILL.md')
 const musePipelineSkill = join(repoRoot, 'packages/drama/skills/skills/tweet-drama-pipeline/SKILL.md')
 const museSharedSkills = [
+  ['tweet-drama-voice-continuity', join(repoRoot, 'packages/drama/skills/skills/tweet-drama-voice-continuity/SKILL.md')],
+  ['muse-project-participation', join(repoRoot, 'apps/desktop-host/skills/muse-project-participation/SKILL.md')],
   ['muse-llm-wiki', join(repoRoot, 'apps/desktop-host/skills/muse-llm-wiki/SKILL.md')],
   ['douyin-download', join(repoRoot, 'apps/desktop-host/skills/douyin-download/SKILL.md')],
   ['screenplay-format', join(repoRoot, 'apps/desktop-host/skills/screenplay-format/SKILL.md')],
@@ -514,6 +516,9 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       await mkdir(dirname(target), { recursive: true })
       await copyFile(source, target)
     }
+    const episodeGuide = join(cwd, '.dsh/skills/trope-adaptation/references/episode-design.md')
+    await mkdir(dirname(episodeGuide), { recursive: true })
+    await copyFile(join(repoRoot, 'apps/desktop-host/skills/trope-adaptation/references/episode-design.md'), episodeGuide)
   },
   async 'muse-drama-pipeline-skill'(cwd) {
     const target = join(cwd, '.dsh', 'skills', 'tweet-drama-pipeline', 'SKILL.md')

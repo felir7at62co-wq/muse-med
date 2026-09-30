@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { uploadReferenceMethod } from '../src/reference.ts'
+import { uploadAudioReferenceMethod, uploadReferenceMethod } from '../src/reference.ts'
 
 const FRONTEND_HTML = '<html><script src="/static/js/app.abc123.js"></script></html>'
 const APP_JS = 'var modules={{"6c3d":function(e,t,n){var o=(t.default,"AKIDEXAMPLE");'
@@ -78,6 +78,21 @@ async function file(name: string, bytes: Uint8Array): Promise<string> {
 }
 
 describe('upload_reference', () => {
+  it('uploads a measured short PCM voice file without an image asset or a generation task', async () => {
+    const wave = Buffer.alloc(44 + 32000)
+    wave.write('RIFF', 0); wave.writeUInt32LE(wave.length - 8, 4); wave.write('WAVEfmt ', 8)
+    wave.writeUInt32LE(16, 16); wave.writeUInt16LE(1, 20); wave.writeUInt16LE(1, 22)
+    wave.writeUInt32LE(8000, 24); wave.writeUInt32LE(16000, 28)
+    wave.writeUInt16LE(2, 32); wave.writeUInt16LE(16, 34); wave.write('data', 36)
+    wave.writeUInt32LE(32000, 40)
+    const stub = transport()
+    const result = await uploadAudioReferenceMethod({ audio_path: await file('voice.wav', wave) }, { fetch: stub.fetch })
+    expect(stub.uploads).toHaveLength(1)
+    expect(stub.uploads[0]?.url).toContain('/prod/sys-material-video/')
+    expect(result).toMatchObject({ materialType: 'audio', audioDuration: 2, duration_verified: true, paidRequests: 0 })
+    expect(JSON.stringify(result)).not.toContain('SECRETEXAMPLE')
+  })
+
   it('uploads an already aligned image byte for byte and returns the material item', async () => {
     const png = pngHeader(1680, 944)
     const path = await file('aligned.png', png)

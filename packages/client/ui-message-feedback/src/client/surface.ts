@@ -11,6 +11,8 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { FeedbackRecord } from '@deepseek-ai/dsh-command-feedback/types'
 import { MessageFeedbackController, describe, type MessageFeedbackActionResult } from './controller.ts'
 import { FeedbackDialogController } from './dialog.ts'
+import type { FeedbackDialogTarget } from './dialog.ts'
+import type { FeedbackDeliveryResult } from './feedback-delivery.ts'
 
 /** The per-session pair behind every entry of one Session. */
 export class FeedbackSurface {
@@ -25,9 +27,42 @@ export class FeedbackSurface {
    */
   constructor(private readonly ctx: ClientContext, private readonly sessionId: SessionId) {
     this.feedback = new MessageFeedbackController(ctx.remote.messageFeedback, sessionId)
-    this.dialog = new FeedbackDialogController((target, entry) => target.kind === 'message'
-      ? this.feedback.rate(target.messageId, target.rating, entry)
-      : this.recordSession(entry))
+    this.dialog = new FeedbackDialogController((target, entry, includeDiagnostics) =>
+      this.submit(target, entry, includeDiagnostics))
+  }
+
+  /** Whether this surface requires delivery to the Muse inbox. */
+  get museInbox(): boolean {
+    return (globalThis as typeof globalThis & { dshDesktop?: { productName?: string } }).dshDesktop?.productName === 'muse-med'
+      || this.ctx.get('feedbackDelivery') !== undefined
+  }
+
+  /** Submit to the active inbox provider before recording a local receipt marker. */
+  private async submit(target: FeedbackDialogTarget, entry: FeedbackRecord,
+    includeDiagnostics: boolean): Promise<MessageFeedbackActionResult> {
+    const delivery = this.ctx.get('feedbackDelivery')
+    if (!this.museInbox) return this.record(target, entry)
+    if (!delivery) return { ok: false, error: { code: 'muse-feedback/unavailable', message: 'Muse inbox is unavailable' } }
+    let result: FeedbackDeliveryResult
+    try {
+      result = await delivery.submit(this.sessionId, target, entry, includeDiagnostics)
+    } catch (error) {
+      // A thrown send may already have reached the server; it cannot be retried automatically.
+      return { ok: false, error: { code: 'muse-feedback/unconfirmed', message: error instanceof Error ? error.name : 'Delivery unconfirmed' } }
+    }
+    if (!result.ok) return result
+    try {
+      await this.record(target, { text: `Muse receipt: ${result.receiptId}`, ...(entry.category ? { category: entry.category } : {}) })
+    } catch (error) {
+      // The server receipt confirms delivery even if the local marker cannot be saved.
+      void error
+    }
+    return { ok: true }
+  }
+
+  /** Record the local judgment or task remark. */
+  private record(target: FeedbackDialogTarget, entry: FeedbackRecord): Promise<MessageFeedbackActionResult> {
+    return target.kind === 'message' ? this.feedback.rate(target.messageId, target.rating, entry) : this.recordSession(entry)
   }
 
   /** Record one Session-level remark through the sessionFeedback Remote. */

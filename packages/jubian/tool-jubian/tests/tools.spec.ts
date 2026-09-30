@@ -20,6 +20,7 @@ async function mount(): Promise<{ registered: Registered[]; mounted: unknown[] }
   const mounted: unknown[] = []
   const ctx = {
     plugin: (plugin: unknown) => { mounted.push(plugin) },
+    on: () => () => {},
     get: () => undefined,
     tools: {
       register: (definition: Registered) => {
@@ -107,10 +108,11 @@ describe('tool-jubian registration', () => {
 
     const asset = byName.get('jubian_asset')!
     expect((asset.properties as Record<string, { enum?: string[] }>).method!.enum)
-      .toEqual(['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'register', 'remove', 'upload_reference',
+      .toEqual(['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'register', 'remove', 'upload_reference', 'upload_audio',
         'create_folder', 'move', 'rename'])
     const assetKeys = Object.keys(asset.properties as Record<string, unknown>).sort()
     expect(assetKeys).toContain('image_path')
+    expect(assetKeys).toContain('audio_path')
     // The three organization writes need their own arguments in the same schema.
     for (const key of ['folder_name', 'parent_id', 'asset_scope_type', 'root_category_type', 'material_ids',
       'target_folder_id']) {
@@ -133,8 +135,9 @@ describe('tool-jubian registration', () => {
     // The storyboard-native channel is the only normal subject-video path, so its
     // three methods and their arguments must be visible in the schema.
     expect((storyboard.properties as Record<string, { enum?: string[] }>).method!.enum)
-      .toEqual(['list', 'get', 'create', 'create_batch', 'save', 'generate', 'select_assets', 'prepare_video', 'submit_video',
-        'submit_video_batch', 'erase_subtitle'])
+      .toEqual(['list', 'get', 'create', 'create_batch', 'save', 'edit_preview', 'edit_batch_preview', 'edit_apply',
+        'generate', 'select_assets', 'prepare_video', 'submit_video', 'submit_video_batch', 'erase_subtitle',
+        'delete_preview', 'delete_apply'])
     expect((storyboard.properties as Record<string, Record<string, unknown>>).selections!).toMatchObject(
       { type: 'array',
         items: { type: 'object', additionalProperties: false, required: ['material_key', 'asset_id'] } })
@@ -186,6 +189,7 @@ describe('tool-jubian registration', () => {
     const registered: Registered[] = []
     const ctx = {
       plugin: () => {},
+      on: () => () => {},
       tools: { register: (definition: Registered) => { registered.push(definition); return () => {} } },
       credentials: { resolve: async () => undefined },
     } as unknown as Context

@@ -10,7 +10,7 @@
  * The node half stays inert.
  */
 import { Context, Service } from '@deepseek-ai/cordis'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -21,8 +21,12 @@ import type { CommandDecoration } from '@deepseek-ai/dsh-client-ui-commands/clie
 import type { FeedbackDialogInjected, MessageFeedbackInjected } from '../src/client/slots.ts'
 import { apply, inject } from '../src/client/index.ts'
 import { apply as nodeApply } from '../src/index.ts'
+import type { FeedbackDelivery } from '../src/client/feedback-delivery.ts'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 const sid = (k: string): SessionId => k as SessionId
 const MSG = 'm-1' as MessageId
@@ -36,7 +40,7 @@ const seeded: MessageFeedbackItem = {
 }
 
 /** Boot the plugin over fake faces; the Remote namespaces record every call. */
-async function bench(options: { recordResult?: unknown; recordCarrier?: unknown } = {}) {
+async function bench(options: { recordResult?: unknown; recordCarrier?: unknown; delivery?: FeedbackDelivery } = {}) {
   const ctx = new Context()
   const calls: { method: string; request: unknown }[] = []
   // The generated face wraps every business result in the carrier envelope.
@@ -70,6 +74,7 @@ async function bench(options: { recordResult?: unknown; recordCarrier?: unknown 
   new RemoteService(ctx)
   ctx.provide('remote.messageFeedback', messageFeedback)
   ctx.provide('remote.sessionFeedback', sessionFeedback)
+  if (options.delivery) ctx.provide('feedbackDelivery', options.delivery)
   await ctx.plugin(SlotRegistry).await()
   ctx.slots.register({
     name: 'root',
@@ -114,6 +119,69 @@ async function bench(options: { recordResult?: unknown; recordCarrier?: unknown 
 }
 
 describe('ui-message-feedback browser plugin', () => {
+  it('routes message and task drafts to the inbox before storing only the receipt locally', async () => {
+    const submit = vi.fn<FeedbackDelivery['submit']>().mockResolvedValue({ ok: true, receiptId: 'feedback-123' })
+    const b = await bench({ delivery: { submit } })
+    await b.fiber.await()
+    const message = b.entry()!.inject!(sid('s1'))
+    const dialog = b.dialogEntry()!.inject!(sid('s1'))
+    expect(dialog.museInbox).toBe(true)
+    message.openDialog(MSG, 'negative')
+    dialog.edit({ category: 'task-result', text: '漏台词', includeDiagnostics: true })
+    await dialog.submit()
+    expect(submit).toHaveBeenNthCalledWith(1, sid('s1'), { kind: 'message', messageId: MSG, rating: 'negative' },
+      { category: 'task-result', text: '漏台词' }, true)
+    expect(b.calls.find(call => call.method === 'put')?.request).toMatchObject({ note: 'Muse receipt: feedback-123', category: 'task-result' })
+    b.ctx.feedbackUi.openSession(sid('s1'))
+    dialog.edit({ text: '运行太慢' })
+    await dialog.submit()
+    expect(submit).toHaveBeenNthCalledWith(2, sid('s1'), { kind: 'session' }, { text: '运行太慢' }, false)
+    expect(b.calls.find(call => call.method === 'record')?.request).toEqual({ sessionId: 's1', text: 'Muse receipt: feedback-123' })
+    expect(dialog.hooks.dialog.getSnapshot()).toMatchObject({ target: null, toast: 2 })
+  })
+
+  it('keeps the draft and sends no local marker when the inbox rejects it', async () => {
+    const submit = vi.fn<FeedbackDelivery['submit']>().mockResolvedValue({ ok: false, error: { code: 'muse-feedback/sign-in-required', message: 'sign in' } })
+    const b = await bench({ delivery: { submit } })
+    await b.fiber.await()
+    b.ctx.feedbackUi.openSession(sid('s1'))
+    const dialog = b.dialogEntry()!.inject!(sid('s1'))
+    dialog.edit({ text: '保留草稿', includeDiagnostics: true })
+    await dialog.submit()
+    expect(dialog.hooks.dialog.getSnapshot()).toMatchObject({ text: '保留草稿', includeDiagnostics: true, failure: 'muse-feedback/sign-in-required', toast: 0, submitting: false })
+    expect(b.calls).toEqual([])
+    expect(submit).toHaveBeenCalledTimes(1)
+  })
+
+  it('requires a Muse sender and keeps the draft after an unknown send outcome', async () => {
+    vi.stubGlobal('dshDesktop', { productName: 'muse-med' })
+    const b = await bench()
+    await b.fiber.await()
+    b.ctx.feedbackUi.openSession(sid('s1'))
+    const dialog = b.dialogEntry()!.inject!(sid('s1'))
+    expect(dialog.museInbox).toBe(true)
+    dialog.edit({ text: 'draft' })
+    await dialog.submit()
+    expect(dialog.hooks.dialog.getSnapshot()).toMatchObject({ failure: 'muse-feedback/unavailable', text: 'draft', toast: 0 })
+    expect(b.calls).toEqual([])
+    const submit = vi.fn<FeedbackDelivery['submit']>().mockRejectedValue(new Error('socket closed'))
+    b.ctx.provide('feedbackDelivery', { submit })
+    await dialog.submit()
+    expect(dialog.hooks.dialog.getSnapshot()).toMatchObject({ failure: 'muse-feedback/unconfirmed', text: 'draft', submitting: false })
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(b.calls).toEqual([])
+  })
+
+  it('acknowledges the confirmed inbox receipt even when the local record fails', async () => {
+    const submit = vi.fn<FeedbackDelivery['submit']>().mockResolvedValue({ ok: true, receiptId: 'feedback-123' })
+    const b = await bench({ delivery: { submit }, recordCarrier: { ok: false, error: { code: 'gateway/internal', message: 'offline', details: {} } } })
+    await b.fiber.await()
+    b.ctx.feedbackUi.openSession(sid('s1'))
+    const dialog = b.dialogEntry()!.inject!(sid('s1'))
+    await dialog.submit()
+    expect(dialog.hooks.dialog.getSnapshot()).toMatchObject({ target: null, failure: null, toast: 1 })
+    expect(submit).toHaveBeenCalledTimes(1)
+  })
   it('registers the feedback entry with the documented id, order, and locale', async () => {
     const b = await bench()
     await b.fiber.await()

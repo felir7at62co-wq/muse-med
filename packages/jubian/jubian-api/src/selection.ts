@@ -16,6 +16,7 @@
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import { readPayload } from './reading.ts'
+import { referenceAudioUrls } from './audio.ts'
 import { normalizedPrompt, stableJson, stableSha256, wireText } from './native.ts'
 
 function invalid(): never { throw new JubianError('CONTRACT_CHANGED') }
@@ -167,7 +168,12 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
   const config = object(configField.value)
   if (typeof config.prompt !== 'string') invalid()
   const prompt = normalizedPrompt(config.prompt)
+  const preserved = materials.filter(material => material.materialType === 'audio')
+  referenceAudioUrls(preserved)
+  const preservedKeys = preserved.map(material => wireText(material.materialKey))
+  if (preservedKeys.some(key => key === null) || preservedKeys.some(key => keys.includes(key ?? ''))) invalid()
   const promptKeys = [...new Set([...prompt.matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)].map(match => match[2] ?? ''))]
+    .filter(key => !preservedKeys.includes(key))
   if (promptKeys.join('\u0000') !== keys.join('\u0000')) {
     throw new JubianError('INVALID_ARGUMENT', `PRE_PUT_MARKER_MISMATCH: prompt keys=${JSON.stringify(promptKeys)}, selection keys=${JSON.stringify(keys)}; no PUT sent`)
   }
@@ -229,6 +235,7 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
     material.sortOrder = index + 1
     selected.push(material)
   })
+  selected.push(...preserved.map(material => ({ ...material })))
 
   const before = selectionState(materials, prompt)
   const after = selectionState(selected, prompt)

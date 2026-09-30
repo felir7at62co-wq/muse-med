@@ -10,9 +10,7 @@
  */
 import { appendFile, mkdir, readdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-
-/** Same-runtime claims share a queue even when separate tool instances own the ledger. */
-const claims = new Map<string, Promise<unknown>>()
+import { withLedgerQueue } from './claim-queue.ts'
 /** Per-process suffix for record identities created in the same millisecond. */
 let recordCounter = 0
 
@@ -187,18 +185,13 @@ export class JubianLedger {
    * @returns A fresh or replayed intent; a rejected preparation writes nothing.
    */
   async beginChecked(idempotencyKey: string, prepare: () => Promise<JubianLedgerBegin>): Promise<JubianLedgerBeginResult> {
-    const rootKey = process.platform === 'win32' ? this.root.toLowerCase() : this.root
-    const previous = claims.get(rootKey) ?? Promise.resolve()
-    const operation = previous.catch(() => undefined).then(async () => {
+    return await withLedgerQueue(this.root, async () => {
       const existing = await this.find(idempotencyKey)
       if (existing !== undefined) return { replayed: true, record: existing }
       const input = await prepare()
       if (input.idempotencyKey !== idempotencyKey) throw new Error('Jubian ledger: prepared key differs from claim')
       return this.appendIntent(input)
     })
-    claims.set(rootKey, operation)
-    try { return await operation }
-    finally { if (claims.get(rootKey) === operation) claims.delete(rootKey) }
   }
 
   /**
@@ -214,9 +207,7 @@ export class JubianLedger {
     if (idempotencyKeys.length === 0 || new Set(idempotencyKeys).size !== idempotencyKeys.length) {
       throw new Error('Jubian ledger: batch keys must be distinct and nonempty')
     }
-    const rootKey = process.platform === 'win32' ? this.root.toLowerCase() : this.root
-    const previous = claims.get(rootKey) ?? Promise.resolve()
-    const operation = previous.catch(() => undefined).then(async () => {
+    return await withLedgerQueue(this.root, async () => {
       const existing = new Set((await this.records()).map(record => record.idempotency_key))
       if (idempotencyKeys.some(key => existing.has(key))) {
         throw new Error('Jubian ledger: batch key already has a record; reconcile the batch without resending')
@@ -232,9 +223,6 @@ export class JubianLedger {
       await appendFile(this.fileFor(now), records.map(record => `${JSON.stringify({ phase: 'begin', ...record })}\n`).join(''), 'utf8')
       return records
     })
-    claims.set(rootKey, operation)
-    try { return await operation }
-    finally { if (claims.get(rootKey) === operation) claims.delete(rootKey) }
   }
 
   private intentRecord(input: JubianLedgerBegin, now: Date): JubianLedgerRecord {

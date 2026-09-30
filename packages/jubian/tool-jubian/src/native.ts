@@ -28,6 +28,7 @@ import {
   classifyNewNativeCandidates, isRelatedTaskCandidate, nativeResultUrls, readBackIdentity,
   responseRecords, stableJson, storyboardMaterials, taskIdOf, taskSemanticFields, taskStatusOf,
   validateNativeVideoPreview, verifySubjectSelection, wireText,
+  referenceAudioUrls,
 } from '@deepseek-ai/dsh-jubian-api'
 import type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeVideoPreview,
   SubjectIdentityItem, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
@@ -180,10 +181,11 @@ async function storyboardSnapshot(client: JubianClient, storyboardId: number): P
 /**
  * Load the trusted inputs a native preview is built from.
  *
- * Every ordered material is resolved to exactly one active subject-setting row
+ * Every ordered image is resolved to exactly one active subject-setting row
  * and one parent asset in the same project, and the asset's official URL must
  * equal the row's: these are the identities the paid PUT will translate, so a
- * field that disagrees is refused while the call is still free.
+ * field that disagrees is refused while the call is still free. Uploaded audio
+ * remains a file reference and has no character-image parent to resolve.
  * @param client - Jubian transport.
  * @param storyboardId - The storyboard to prepare.
  * @returns The live storyboard and its ordered, enriched parent assets.
@@ -196,6 +198,7 @@ Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[]
   const byId = new Map<string, Record<string, unknown>>()
   const ordered: Record<string, unknown>[] = []
   for (const material of materials) {
+    if (material.materialType === 'audio') continue
     const parentId = wireText(material.materialAssetId ?? material.assetId)
     if (parentId === null || parentId === '') throw new JubianError('CONTRACT_CHANGED')
     const key = parentId
@@ -332,6 +335,7 @@ function expectationOf(preview: NativeVideoPreview, beforeTaskIds: string[]): Na
   return { scriptId: preview.scriptId, storyboardId: preview.storyboardId,
     episodeId: Number(preview.payload.episodeId),
     expectedIdentity: expectedIdentity(preview), expectedModel, expectedPrompt: prompt,
+    expectedAudioUrls: referenceAudioUrls(storyboardMaterials(preview.payload).materials),
     beforeTaskIds }
 }
 
@@ -420,8 +424,13 @@ export async function prepareVideoMethod(client: JubianClient, ledger: JubianLed
     + '.storyboard-native.prepared.json')
   if (!destination.startsWith(`${root}${sep}`)) throw new JubianError('CONTRACT_CHANGED')
   await atomicWriteJson(destination, preview)
+  const audio = storyboardMaterials(preview.payload).materials.filter(material => material.materialType === 'audio')
   return { ...preview, preview_path: destination, content_duration_ms: contentDurationMs,
     storyboard_duration_seconds: duration,
+    audio_references: audio.map(material => ({ material_key: material.materialKey, material_url: material.materialUrl,
+      duration_seconds: material.audioDuration ?? null,
+      duration_basis: material.audioDuration === undefined || material.audioDuration === null
+        ? 'unavailable' : 'saved_metadata', duration_verified: false })),
     next: 'prepare 只写 preview：不 PUT、不创建任务、不收费。逐字段审阅后调用 submit_video，'
       + `并把它自己的 idempotency_key（${preview.idempotencyKey}）原样传入。` }
 }

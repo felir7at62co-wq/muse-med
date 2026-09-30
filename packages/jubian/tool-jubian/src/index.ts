@@ -24,7 +24,9 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { JUBIAN_TOKEN_REF, JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { JUBIAN_TOKEN_REF, JubianClient, JubianLedger, readProjectBudget, updateProjectBudget } from '@deepseek-ai/dsh-jubian'
+import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
+import { validateProjectBinding } from './native.ts'
 import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from './methods.ts'
 import type { ImageMethodOptions, MethodArgs } from './methods.ts'
 import { findMethod } from './find.ts'
@@ -255,7 +257,7 @@ const ARGS = {
         description: '主体设定行的父资产 ID（materials 返回的 asset_id）。' },
     } },
     description: 'select_assets 必填：有序的 (material_key, 父 asset_id) 列表，'
-      + '顺序必须与提示词里的 key 顺序完全一致。' },
+      + '顺序必须与提示词里的图片 key 顺序完全一致；已有音频参考自动保留，不传作图片 selections。' },
   episode: { type: 'string',
     description: '可选：集号（`5` 与 `05` 都规范成 `EP05`）或配置的跨集母版标记（默认「全剧」）。'
       + '给了它，资产名会按规范组合成 `EP05｜角色｜陆沉舟`，处理任务名会加上 `EP05-P3-` 这样的可排序前缀；'
@@ -319,7 +321,7 @@ function guarded<A = MethodArgs>(
 }
 
 /**
- * Install the Jubian tools and the two Remote namespaces they expose.
+ * Install the Jubian tools and their token, image-route and project-budget Remote namespaces.
  * @param ctx - Host context carrying `tools` and `credentials`.
  * @param config - Optional ledger location, origin, timeout and image-route values.
  */
@@ -338,6 +340,36 @@ export function apply(ctx: Context, config: Config = {}): void {
       ...(config.seriesLabel === undefined ? {} : { seriesLabel: config.seriesLabel }) })
   const ledger = new JubianLedger({ root: config.ledgerRoot ?? join(home, 'jubian', 'ledger'),
     defaultLimitCents: () => seriesBudgetLimit(ctx) })
+  ctx.plugin(JubianBudgets, { ledger })
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'jubian_budget',
+    description: 'Read a project total budget, spent/reserved amounts and exact revision; save a new total only after explicit user amount authorization. When insufficient ask_user_question with id jubian-budget-<script_id>, then reuse that answer. Writes and Settings share the actual authorization, effective immediately. No provider requests or charges.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['read', 'update'] },
+      script_id: { type: 'integer', required: true, description: 'Exact Jubian project ID.' },
+      project_dir: { type: 'string', description: 'Update requires the existing absolute project directory bound to this script_id.' },
+      limit_cny: { type: 'string', description: 'Update only: user-approved total budget in yuan, at most two decimal places; this is not an increment.' },
+      expected_revision: { type: 'string', description: 'Update only: exact revision returned by read. Stale writes do not change the authorization.' },
+    },
+    output: { schema: { type: 'object', additionalProperties: true },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+    execute: async (args, exec) => {
+      if (args.action === 'read') return { ...await readProjectBudget(ledger, args.script_id) }
+      if (!exec.agent || !args.project_dir || !args.limit_cny || !args.expected_revision) {
+        throw new Error('Budget update requires a live agent, project_dir, approved limit_cny and expected_revision.')
+      }
+      const binding = await validateProjectBinding(args.project_dir, args.script_id)
+      const cents = budgetCents(args.limit_cny)
+      const cwd = exec.agent.session.header.cwd
+      const sessionProject = cwd !== undefined && (process.platform === 'win32'
+        ? resolve(cwd).toLowerCase() === binding.project_root.toLowerCase() : resolve(cwd) === binding.project_root)
+      const authorization = budgetApproval(exec.agent.session.deriveMessages(), exec.agent.session.id,
+        args.script_id, cents, sessionProject)
+      exec.signal.throwIfAborted()
+      return { ...await updateProjectBudget(ledger, { script_id: args.script_id, limit_cents: cents,
+        expected_revision: args.expected_revision, authorization }) }
+    },
+  })))
   const client = new JubianClient({
     credential: async () => {
       const stored = (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? ''
@@ -499,19 +531,22 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '**upload_reference 免费**：把本地参考图（jpg/jpeg/png/webp）按剧变前端自身的上传配置送到它的对象存储，'
       + '返回 HTTPS material_url —— gpt-image-2 的参考图只接受 URL。两条边必须是 16 的倍数：已合规的文件原样上传，'
       + '不合规时调用本机 ffmpeg 重编码（可用 DSH_JUBIAN_FFMPEG/FFMPEG_PATH 指定二进制）；'
-      + '本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。' + WRITE_NOTE,
+      + '本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。'
+      + 'upload_audio 上传已裁好的 PCM WAV 声音参考，按真实样本验证不超过15秒；通常保留同角色2秒清晰独白。'
+      + '返回 audio materialUrl 和实测时长，不创建父资产或生成任务；加载 tweet-drama-voice-continuity 技能制作和复用声线样本。' + WRITE_NOTE,
     parameters: {
       method: { type: 'string', required: true,
-        enum: ['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'register', 'remove', 'upload_reference',
+        enum: ['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'register', 'remove', 'upload_reference', 'upload_audio',
           'create_folder', 'move', 'rename'],
         description: 'get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；'
           + 'generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；'
           + 'register=按指定类别新建一条资产，只引用已有图片、不生成新图（有副作用）；'
-          + 'remove=删除一个父资产（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；'
+          + 'remove=删除一个父资产（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；upload_audio=上传短 PCM WAV 声音参考（免费）；'
           + 'create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名。' },
       script_id: ARGS.script_id, asset_id: ARGS.asset_id, material_id: ARGS.material_id,
       page_num: ARGS.page_num, page_size: ARGS.page_size, idempotency_key: ARGS.idempotency_key,
       image_path: ARGS.image_path,
+      audio_path: { type: 'string', description: 'upload_audio 必填：已裁剪的 PCM WAV 文件，最长15秒；默认用角色首次清晰独白的2秒样本。' },
       folder_name: ARGS.folder_name, parent_id: ARGS.parent_id,
       asset_scope_type: ARGS.asset_scope_type, root_category_type: ARGS.root_category_type,
       material_ids: ARGS.material_ids, target_folder_id: ARGS.target_folder_id,

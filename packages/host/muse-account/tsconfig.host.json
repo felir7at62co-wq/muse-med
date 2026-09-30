@@ -15,9 +15,22 @@
     "src/service.ts",
     "src/session.ts",
     "src/types.ts",
-    "src/models.ts"
+    "src/models.ts",
+    "src/feedback.ts"
   ],
   "references": [
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/agent-default-model"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
     {
       "path": "../../../vendor/cordis"
     },
@@ -44,6 +57,15 @@
     },
     {
       "path": "../../settings/settings"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../feedback/command-feedback"
+    },
+    {
+      "path": "../../util/brand"
     }
   ]
 }

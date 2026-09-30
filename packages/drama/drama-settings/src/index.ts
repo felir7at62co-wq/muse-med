@@ -7,6 +7,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { draftDirectory } from './draft-directory.ts'
 import { DramaSettingsSchema } from './settings.ts'
 import { PROJECT_BIBLE_CHANGES, readProjectBible, previewProjectBible, updateProjectBible } from './project-bible.ts'
+import type { ProjectBudgetReader } from './project-bible.ts'
 
 export {
   DEFAULT_BGM_DIR, DEFAULT_DELIVERY_SPEC, DEFAULT_JIANYING_DRAFT_DIR, DELIVERY_SPEC_FIELD,
@@ -72,12 +73,13 @@ export function apply(ctx: Context): void {
         render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
       },
       execute: async (args, exec) => {
-        if (args.action === 'read') return await readProjectBible(toolCtx.settings, args.project_dir)
+        const budget = toolCtx.get('jubianBudget') as ProjectBudgetReader | undefined
+        if (args.action === 'read') return await readProjectBible(toolCtx.settings, args.project_dir, budget)
         if (!args.changes || !args.reason) throw new Error('Preview/update requires changes and reason.')
-        if (args.action === 'preview') return await previewProjectBible(toolCtx.settings, args.project_dir, args.changes, args.reason)
+        if (args.action === 'preview') return await previewProjectBible(toolCtx.settings, args.project_dir, args.changes, args.reason, budget)
         if (!args.expected_revision || !args.preview_fingerprint) throw new Error('Update requires the expected_revision and preview_fingerprint from preview.')
         return await updateProjectBible(toolCtx.settings, args.project_dir, args.changes, args.reason,
-          args.expected_revision, args.preview_fingerprint, exec.signal)
+          args.expected_revision, args.preview_fingerprint, exec.signal, budget)
       },
     })))
   })

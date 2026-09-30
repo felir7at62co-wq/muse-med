@@ -27,6 +27,8 @@ import {
   draftOf, draftSection, sameSettings, type DramaSettingsDraft, type DramaWriteOutcome,
 } from './section.ts'
 import css from './DramaSettingsSection.module.css'
+import { ProjectBudgetGroup } from './ProjectBudgetGroup.tsx'
+import type { ProjectBudgetFace } from './ProjectBudgetGroup.tsx'
 
 /** Registration-side face the page calls; the write reports failures as values. */
 export interface DramaSettingsSectionInjected {
@@ -48,6 +50,10 @@ export interface DramaSettingsSectionInjected {
    * Jubian image-route namespace answers `unavailable`, never an empty catalogue.
    */
   imageRoutes: () => Promise<DramaImageRoutes>
+  /** Read an actual project ceiling and spend/reservations from the paid-call ledger. */
+  budgetRead?: ProjectBudgetFace['read']
+  /** Commit the project total ceiling the user entered, preserving its accounting. */
+  budgetUpdate?: ProjectBudgetFace['update']
 }
 
 /** Full component props assembled by the Settings slot renderer. */
@@ -260,6 +266,10 @@ export function DramaSettingsSection(props: DramaSettingsSectionProps): ReactNod
           onChange={(event) => { setDraft({ ...draft, seriesBudgetYuan: event.currentTarget.value }) }}
         />
       </section>
+
+      <ProjectBudgetGroup t={t}
+        {...(props.budgetRead ? { read: props.budgetRead } : {})}
+        {...(props.budgetUpdate ? { update: props.budgetUpdate } : {})} />
 
       <section className={css.group}>
         <h3 className={css.groupTitle}>{t('deliveryDirTitle')}</h3>

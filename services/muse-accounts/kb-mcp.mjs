@@ -109,9 +109,9 @@ const failure = value => ({content: [{type: 'text', text: value}], isError: true
 function reply(id, result) { return {jsonrpc: '2.0', id, result}; }
 function fault(id, code, message) { return {jsonrpc: '2.0', id, error: {code, message}}; }
 
-export function createKbMcp({vaultRoot, personalRoot, accounts, secret, documentGrants = new Map(), authorize, serverName = 'muse-llm-wiki', onWarn = () => {}} = {}) {
+export function createKbMcp({vaultRoot, personalRoot, accounts, secret, documentGrants = new Map(), portfolioReaders = new Set(), authorize, serverName = 'muse-llm-wiki', onWarn = () => {}} = {}) {
   if (!vaultRoot) throw new Error('vaultRoot is required');
-  const wiki = createWikiService({vaultRoot, personalRoot, documentGrants});
+  const wiki = createWikiService({vaultRoot, personalRoot, documentGrants, accounts, portfolioReaders});
 
   const canAccess = (id, account, level) => {
     const grant = documentGrants.get(id);

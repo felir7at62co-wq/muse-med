@@ -65,7 +65,7 @@ function fixture(packaged = false) {
   const skillNames = ['tweet-drama-pipeline', 'tweet-drama-core', 'tweet-drama-script-convert',
     'tweet-drama-script-split', 'tweet-drama-asset-extract', 'tweet-drama-asset-vision-check',
     'shot-script-creator-9-16', 'tweet-drama-shot-asset-match', 'tweet-drama-early-shot-script',
-    'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect', 'tweet-drama-project-bible', 'tweet-drama-delivery']
+    'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect', 'tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'tweet-drama-delivery']
   const skills = skillNames.map((name) => {
     const path = join(skillRoot, name, 'SKILL.md')
     mkdirSync(dirname(path), { recursive: true })
@@ -92,7 +92,7 @@ function fixture(packaged = false) {
   writeFileSync(editingSkill.path, '# fixture')
   skills.push(editingSkill)
   for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import',
-    'novel-to-script', 'trope-adaptation', 'muse-llm-wiki', 'jubian-snatch', 'wechat-shortdrama-harvest']) {
+    'novel-to-script', 'trope-adaptation', 'muse-llm-wiki', 'muse-project-participation', 'jubian-snatch', 'wechat-shortdrama-harvest']) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
@@ -113,7 +113,7 @@ function fixture(packaged = false) {
   const agentCtx = {}
   const dispose = vi.fn(async () => {})
   const mount = vi.fn(async (_context: object, _id: string) => {})
-  const names = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video',
+  const names = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
     'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
     'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present', 'audio_transcribe',
     process.platform === 'win32' ? 'pwsh' : 'bash']
@@ -123,6 +123,7 @@ function fixture(packaged = false) {
   const standardCapabilityNames = ['subagent', 'workflow', 'ask_user_question', 'todo_write', 'jubian_video', 'audio_transcribe']
   const editingCapabilityNames = [...standardCapabilityNames]
   class TestContext {
+    museAccount: { feedback?: () => void } = { feedback: () => {} }
     webServer = { register: vi.fn((value: NonNullable<typeof route>) => {
       route = value
       return () => { route = undefined }
@@ -188,6 +189,12 @@ it('defers preset checks until the Host-ready caller requests them', async () =>
   expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
 })
 
+it('rejects a product runtime without the Muse inbox feedback entry', async () => {
+  const f = fixture()
+  delete f.ctx.museAccount.feedback
+  await expect(f.apply(f.ctx)).rejects.toThrow('Muse inbox feedback method is missing')
+})
+
 it('awaits full preset mounting and reads agent-scoped tools and bundled skills before disposal', async () => {
   const f = fixture()
   await f.apply(f.ctx)
@@ -223,7 +230,7 @@ it('rejects a shared Muse skill missing from the packaged Host', async () => {
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['drama_project', 'drama_draft_dir'])('rejects a missing project tool %s', async (name) => {
+it.each(['drama_project', 'drama_draft_dir', 'jubian_budget'])('rejects a missing project tool %s', async (name) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'short-drama'
@@ -233,7 +240,7 @@ it.each(['drama_project', 'drama_draft_dir'])('rejects a missing project tool %s
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['muse-llm-wiki', 'tweet-drama-project-bible'])('rejects a missing rc8 skill %s', async (name) => {
+it.each(['muse-llm-wiki', 'muse-project-participation', 'tweet-drama-project-bible', 'tweet-drama-voice-continuity'])('rejects a missing rc8 skill %s', async (name) => {
   const f = fixture()
   const index = f.skills.findIndex(skill => skill.name === name)
   f.skills.splice(index, 1)

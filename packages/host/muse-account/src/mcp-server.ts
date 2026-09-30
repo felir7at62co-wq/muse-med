@@ -80,13 +80,36 @@ async function kbResult(operation: () => Promise<MuseKbResult>): Promise<{ conte
 }
 
 /**
- * Register account status, legacy source tools, and all nine scoped Wiki tools.
+ * Register account status, legacy sources, scoped Wiki tools and authorized participation reports.
  * @param controller - Account identity reader shared with the Host service.
  * @param kb - Account-scoped KB operations that exchange a fresh bearer per call.
  * @returns A server with no credential-taking tool.
  */
 export function createMuseAccountMcpServer(controller: Pick<MuseAccountController, 'status'>, kb: MuseKbOperations): McpServer {
   const server = new McpServer({ name: 'muse-account', version: '0.1.0' }, { capabilities: { tools: {} } })
+  server.registerTool('muse_kb_wiki_project_portfolio', {
+    title: 'Browse MUSE project participation',
+    description: '浏览 Muse 项目参与组合。普通登录仅查看本人；经部署授权的组合管理员可查看全部启用账号，并按 account_id 筛选。省略 project_key 分页列出项目及阶段状态统计；指定 project_key 分页读取计划和实际工作摘要、状态及产物引用。仅返回记录器维护的参与记录，不返回原始资料或其他私人 Wiki。',
+    inputSchema: z.object({
+      account_id: z.string().regex(/^[a-f0-9]{16}$/u).optional().describe('账号 ID；普通用户只能选本人，授权管理员可筛选其他启用账号。'),
+      project_key: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,74}$/u).optional().describe('项目列表返回的稳定标识；提供时读取该项目的参与内容。'),
+      start: z.number().int().min(0).max(1_000_000).optional().describe('列表续读起点，默认 0。'),
+      limit: z.number().int().min(1).max(50).optional().describe('每次条数，默认 30。'),
+    }).strict(),
+  }, async args => await kbResult(() => kb.wikiProjectPortfolio(args)))
+  server.registerTool('muse_kb_wiki_record_project', {
+    title: 'Record MUSE project participation',
+    description: '主动登记 Muse 参与的项目、计划与实际工作、阶段状态和产物引用，保存账号记录并读回；本人和经部署授权的组合管理员可用 muse_kb_wiki_project_portfolio 查看。完成状态来自阶段汇报，不能把待生成任务记作已完成。',
+    inputSchema: z.object({
+      project_key: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,74}$/u).describe('稳定项目标识，已有剧变绑定用 jubian-<script_id>；否则使用持久化项目 UUID，同名不同项目不能复用。'),
+      project_title: z.string().max(160).describe('面向用户的项目名称。'),
+      contribution_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/u).describe('稳定阶段标识；同一阶段进度更新复用，重试不换 ID。'),
+      stage: z.string().max(100).describe('本次参与的具体阶段，例如改编、大纲、分镜或剪辑。'),
+      status: z.enum(['planned', 'in_progress', 'completed', 'blocked', 'cancelled']).describe('如实区分计划、进行中、完成、受阻和取消。'),
+      content: z.string().max(5000).describe('计划或实际参与内容、检查结果与未完成项，不含凭证、推理文本或无关会话。'),
+      artifacts: z.array(z.string().max(240)).max(20).describe('项目相对文件路径或稳定任务引用，例如 deliverables/EP01.md、jubian:499887；不传绝对磁盘路径或带密钥的 URL。'),
+    }).strict(),
+  }, async args => await kbResult(() => kb.wikiRecordProject(args)))
   server.registerTool('muse_account_status', {
     title: 'MUSE account status',
     description: 'Read the current MUSE account identity. Set verify=true to confirm the saved session with the gateway. No password or cookie is returned.',

@@ -1,0 +1,26 @@
+[
+  {
+    "tool_call_id": "budget-read",
+    "limit_cents": 400000,
+    "script_id": 2708,
+    "source": "default",
+    "settled_cents": 0,
+    "reserved_cents": 0
+  },
+  {
+    "tool_call_id": "budget-update",
+    "limit_cents": 500000,
+    "script_id": 2708,
+    "source": "project",
+    "settled_cents": 0,
+    "reserved_cents": 0
+  },
+  {
+    "tool_call_id": "project-read",
+    "limit_cents": 500000,
+    "script_id": 2708,
+    "source": "project",
+    "settled_cents": 0,
+    "reserved_cents": 0
+  }
+]

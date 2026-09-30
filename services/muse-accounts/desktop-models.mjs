@@ -1,6 +1,18 @@
 /** Account-authenticated Desktop access to the website's current model catalog. */
 import {forwardModel} from './model-relay.mjs';
 
+/** Resolve validated per-account and shared Desktop stream limits.
+ * @param {object} environment Gateway environment settings.
+ * @returns {object} Per-account and per-process limits, defaulting to four and thirty-two active streams.
+ */
+export function resolveDesktopModelLimits(environment){
+ const read=(name,fallback,max)=>{const raw=environment[name];if(raw===undefined)return fallback;
+  if(typeof raw!=='string'||!/^\d+$/.test(raw)||!Number.isSafeInteger(Number(raw))||Number(raw)<1||Number(raw)>max)throw Error('Invalid '+name);
+  return Number(raw);
+ };
+ return {desktopModelMaxActive:read('MUSE_DESKTOP_MODEL_MAX_ACTIVE',4,32),desktopModelMaxTotal:read('MUSE_DESKTOP_MODEL_MAX_TOTAL',32,1024)};
+}
+
 /** Project only public model metadata; upstream endpoints and keys stay on the server. */
 export function desktopModelCatalog(globalModels,modelConfig){
  const meta=globalModels?.metadata();const providers=[];
@@ -20,20 +32,24 @@ export function desktopModelCatalog(globalModels,modelConfig){
  return {providers};
 }
 
-/** Own active streams by login session so logout, account revocation and expiry cancel them. */
-export function createDesktopModels({globalModels,modelConfig,forward=forwardModel,maxActive=4,now=Date.now}){
+/** Own bounded streams by login session so logout, account revocation and expiry cancel them.
+ * @param {object} options Relay dependencies and per-account maxActive/per-process maxTotal limits.
+ * @returns {object} Request handling and stream cancellation operations.
+ */
+export function createDesktopModels({globalModels,modelConfig,forward=forwardModel,maxActive=4,maxTotal=32,now=Date.now}){
  if(!Number.isSafeInteger(maxActive)||maxActive<1||maxActive>32)throw Error('Invalid desktop model concurrency');
+ if(!Number.isSafeInteger(maxTotal)||maxTotal<1||maxTotal>1024)throw Error('Invalid desktop model concurrency');
  const active=new Map();
  const revoke=token=>{for(const item of active.get(token)??[])item.controller.abort();};
  return {revoke,close(){for(const token of active.keys())revoke(token);},async handle(req,res,session,path){
-  const fail=(status,message)=>{if(res.headersSent){res.destroy();return;}res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify({error:{message}}));};
+  const fail=(status,message,headers={})=>{if(res.headersSent){res.destroy();return;}res.writeHead(status,{'content-type':'application/json','cache-control':'no-store',...headers});res.end(JSON.stringify({error:{message}}));};
   if(path==='/api/desktop-models/providers'&&req.method==='GET'){
    res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(desktopModelCatalog(globalModels,modelConfig)));return;
   }
   const route=/^\/api\/desktop-models\/([a-z][a-z0-9-]{0,63})\/chat\/completions$/.exec(path)?.[1];
   if(!route||req.method!=='POST'){fail(404,'模型接口不存在');return;}
-  let count=0;for(const items of active.values())for(const item of items)if(item.accountId===session.id)count++;
-  if(count>=maxActive){fail(429,'模型请求过多，请稍后重试');return;}
+  let count=0,total=0;for(const items of active.values()){total+=items.size;for(const item of items)if(item.accountId===session.id)count++;}
+  if(count>=maxActive||total>=maxTotal){fail(429,'模型请求过多，请稍后重试',{'retry-after':'1'});return;}
   const controller=new AbortController(),item={accountId:session.id,controller};
   const items=active.get(session.token)??new Set();active.set(session.token,items);items.add(item);
   const abort=()=>controller.abort();req.on('aborted',abort);res.on('close',abort);

@@ -11,7 +11,7 @@ afterEach(async () => {
   await Promise.all(contexts.splice(0).map(async context => context.fiber.dispose()))
 })
 
-it('publishes only status, login and logout over the authenticated Remote namespace', async () => {
+it('publishes account setup and explicit inbox submission over the authenticated Remote namespace', async () => {
   const context = new Context()
   contexts.push(context)
   const controller = {
@@ -22,7 +22,9 @@ it('publishes only status, login and logout over the authenticated Remote namesp
   await context.plugin(MuseAccountService, { controller })
   const service = context.get('museAccount') as MuseAccountService
 
-  expect(remoteMethods(service).map(entry => entry.method)).toEqual(['status', 'login', 'logout'])
+  expect(remoteMethods(service).map(entry => entry.method)).toEqual(['feedback', 'status', 'login', 'logout'])
+  await expect(service.feedback({ sessionId: 'session' as never, target: { kind: 'session' }, includeDiagnostics: false }))
+    .rejects.toMatchObject({ code: 'muse-feedback/unavailable', details: {} })
   await expect(service.login({ username: 'writer', password: 'secret-value', registerIfMissing: false }))
     .rejects.toMatchObject({ code: 'muse-account/invalid-credentials', details: {} })
 })

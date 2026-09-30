@@ -23,6 +23,8 @@ export interface FeedbackDialogState {
   readonly target: FeedbackDialogTarget | null
   readonly category: FeedbackCategory | null
   readonly text: string
+  /** The user selected bounded excerpts of the related request and answer. */
+  readonly includeDiagnostics: boolean
   /** A submission is in flight; the form ignores edits and submits until it settles. */
   readonly submitting: boolean
   /** Failure code of the last submission from this open; null when none. */
@@ -35,19 +37,21 @@ export interface FeedbackDialogState {
  * Record one submission against its target.
  * @param target - the open target.
  * @param entry - the trimmed text and the category, each present only when given.
+ * @param includeDiagnostics - whether the user selected bounded conversation diagnostics.
  */
-export type FeedbackSubmit = (target: FeedbackDialogTarget, entry: FeedbackRecord) => Promise<MessageFeedbackActionResult>
+export type FeedbackSubmit = (target: FeedbackDialogTarget, entry: FeedbackRecord,
+  includeDiagnostics: boolean) => Promise<MessageFeedbackActionResult>
 
 const CLOSED: Omit<FeedbackDialogState, 'toast'> = {
-  target: null, category: null, text: '', submitting: false, failure: null,
+  target: null, category: null, text: '', includeDiagnostics: false, submitting: false, failure: null,
 }
 
 /** Per-session dialog controller; one instance backs the overlay entry and every message control. */
 export class FeedbackDialogController {
   /** Dialog state store (the overlay entry subscribes here). */
   readonly state: SnapshotStore<FeedbackDialogState> = createSnapshotStore<FeedbackDialogState>({ ...CLOSED, toast: 0 })
-  /** Bumped by every open, dismiss, and dispose so a late settlement can tell its draft is gone. */
-  private generation = 0
+  /** Draft generation; null retires the controller and any in-flight acknowledgement. */
+  private generation: number | null = 0
   private toastSeq = 0
 
   /**
@@ -60,12 +64,14 @@ export class FeedbackDialogController {
    * @param target - what the submission records against.
    */
   open(target: FeedbackDialogTarget): void {
+    if (this.generation === null) return
     this.generation += 1
     this.state.set({ ...CLOSED, target, toast: this.state.getSnapshot().toast })
   }
 
   /** Close the dialog and discard the draft; a toast on screen stays. */
   dismiss(): void {
+    if (this.generation === null) return
     this.generation += 1
     this.state.set({ ...CLOSED, toast: this.state.getSnapshot().toast })
   }
@@ -74,7 +80,7 @@ export class FeedbackDialogController {
    * Replace part of the draft while it is editable.
    * @param draft - the category (null clears it) or the text as typed.
    */
-  edit(draft: Partial<Pick<FeedbackDialogState, 'category' | 'text'>>): void {
+  edit(draft: Partial<Pick<FeedbackDialogState, 'category' | 'text' | 'includeDiagnostics'>>): void {
     const s = this.state.getSnapshot()
     if (s.target === null || s.submitting) return
     this.state.set({ ...s, ...draft })
@@ -92,10 +98,17 @@ export class FeedbackDialogController {
     const generation = this.generation
     this.state.set({ ...s, submitting: true, failure: null })
     const text = s.text.trim()
-    const result = await this.submit(s.target, {
-      ...(text.length === 0 ? {} : { text }),
-      ...(s.category === null ? {} : { category: s.category }),
-    })
+    let result: MessageFeedbackActionResult
+    try {
+      result = await this.submit(s.target, {
+        ...(text.length === 0 ? {} : { text }),
+        ...(s.category === null ? {} : { category: s.category }),
+      }, s.includeDiagnostics)
+    } catch (error) {
+      // An adapter exception must release the form without discarding its draft.
+      result = { ok: false, error: { code: 'submission-failed', message: error instanceof Error ? error.name : 'Submission failed' } }
+    }
+    if (this.generation === null) return
     if (result.ok) {
       // The remark is recorded whichever draft is on screen now, so the toast
       // always shows; only the draft that produced it closes.
@@ -130,7 +143,7 @@ export class FeedbackDialogController {
 
   /** Scope-teardown disposer: drop the draft and the toast, orphan in-flight work. */
   dispose(): void {
-    this.generation += 1
+    this.generation = null
     this.state.set({ ...CLOSED, toast: 0 })
   }
 }

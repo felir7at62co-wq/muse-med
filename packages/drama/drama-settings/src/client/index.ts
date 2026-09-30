@@ -11,6 +11,7 @@
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 // Type-only: the settings write-operation contract and the browser-safe
 // plugin-inventory snapshot types, both re-exported by the Remote assembly.
 import type { PluginInventorySnapshot, SettingsPathOpView } from '@deepseek-ai/dsh-api-remotes/client'
@@ -30,6 +31,7 @@ import type { DramaSettingsSectionInjected } from './DramaSettingsSection.tsx'
 import { en, zh, type DramaLocaleKey } from './locales.ts'
 import { imageRoutesOf, type DramaImageRoutes, type JubianImageFace } from './routes.ts'
 import { defaultOps, draftSection, landed, sectionOps, type DramaWriteOutcome } from './section.ts'
+import type { ProjectBudgetFace } from './ProjectBudgetGroup.tsx'
 
 export type { DramaComponent, DramaComponentState, DramaComponentStatus } from './components.ts'
 export type { DramaSettingsSectionInjected, DramaSettingsSectionProps } from './DramaSettingsSection.tsx'
@@ -148,6 +150,16 @@ export function apply(ctx: ClientContext): void {
     restoreDefaults: async () => await commit(defaultOps(), DRAMA_SETTINGS_DEFAULTS),
     components: async () => await componentState(ctx),
     imageRoutes: async () => await imageRouteState(ctx),
+    budgetRead: async (scriptId) => {
+      const face = ctx.get('remote.jubianBudget') as ProjectBudgetFace | undefined
+      if (!face) return { ok: false, error: new RemoteError('gateway/internal', t('projectBudgetUnavailable'), {}) }
+      return await face.read(scriptId)
+    },
+    budgetUpdate: async (scriptId, cents, revision) => {
+      const face = ctx.get('remote.jubianBudget') as ProjectBudgetFace | undefined
+      if (!face) return { ok: false, error: new RemoteError('gateway/internal', t('projectBudgetUnavailable'), {}) }
+      return await face.update(scriptId, cents, revision)
+    },
   })
 
   ctx.slots.inject('settings.section', () => ctx.slots.register({

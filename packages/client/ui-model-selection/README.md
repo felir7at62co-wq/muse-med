@@ -52,7 +52,7 @@ When another writer owns the Session, model-selection failures tell the user to 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-Menus use the shared `MenuSurface` material, including the macOS backing for background blur; custom content follows the [menu rules](../../../docs/web-styling.md#component-rules).
+The composer model and effort menus use the shared `MenuSurface` opaque mode, with a solid theme background and no background blur. Custom content follows the [menu rules](../../../docs/web-styling.md#component-rules).
 
 <details>
 <summary>Implementation internals — click to expand</summary>

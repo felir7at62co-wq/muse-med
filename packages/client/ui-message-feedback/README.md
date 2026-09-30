@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package is the Web GUI's feedback surface: the Like/Dislike pair in the finalized assistant message's action strip, the feedback dialog with its acknowledgement and failure toasts in the composer overlay, and a decoration that opens the dialog from a bare `/feedback`. Like and Dislike both open the dialog, which collects a category and an optional description before recording the selected rating. One surface per Session backs every entry, so a single list read seeds the whole transcript and one dialog serves the Session and its messages. Ratings, categories, and notes are log-only Session events that never enter model context.
+Collect feedback on a completed answer or the current task through one dialog. Users can choose a category and add a description; failed submissions keep their draft. Muse Desktop sends both targets to the signed-in account's Muse inbox and offers optional, bounded conversation diagnostics. Other deployments use local Session feedback and their configured log delivery. Ratings and notes never enter model context.
 
 ## Table of Contents
 
@@ -25,11 +25,13 @@ This package is the Web GUI's feedback surface: the Like/Dislike pair in the fin
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount this plugin alongside `ui-conversation` and `ui-commands`; the Like/Dislike pair then appears in the action row of each turn's closing assistant message, between copy and branch, and Feedback in the composer menu opens the same dialog. Mounting `session-log-export` also adds Feedback to the Session Header's more-actions menu. A recorded rating shows the filled glyph and stays visible without hover. Like and Dislike both open the dialog: seven category chips and a detail box are optional, and Submit records the selected judgment with whatever was filled in before the toast thanks the user; the conversation log travels with every feedback event. Clicking the recorded rating retracts it without opening the dialog. A bare `/feedback`, picked from the menu or typed and sent without text, opens the same dialog for the Session; `/feedback <text>` keeps the Host command path and its acknowledgement row.
+Mount this plugin alongside `ui-conversation` and `ui-commands`; the Like/Dislike pair appears between copy and branch in each completed answer's action row. The composer Feedback action and, with `session-log-export`, the Session Header's Feedback action open the same dialog. Seven categories and a description are optional. A recorded rating stays visible without hover; clicking it retracts the local rating. A bare `/feedback` opens the Session dialog; `/feedback <text>` retains the separate Host command path.
+
+On Muse Desktop, Submit sends the draft, category, and task or message identifiers to the Muse inbox. Diagnostics are unchecked by default; selecting the option adds bounded excerpts of the recent request and related answer. They exclude full logs, tool arguments and results, thinking, and attachments. A server-confirmed receipt raises “Submitted to the Muse inbox”; the local log keeps only that receipt marker and category. Retracting a local rating does not delete a submitted inbox record.
 
 ### Failures
 
-A rating or list-load failure shows inline in the row; a submission failure shows in a warning toast while the dialog stays open so the draft can be corrected. Only finalized messages reach the message entry — an interruption-frozen partial carries no `messageId` and therefore no feedback controls.
+A rating or list-load failure shows inline in the row; a submission failure shows a warning toast and keeps the draft. Muse requires its delivery provider and current account; it does not acknowledge a local record as inbox delivery. An uncertain send or account change directs the user to inspect the original account's inbox before deciding to retry. A confirmed cloud receipt stays successful if saving the local marker fails. Only finalized messages reach the message entry; an interrupted partial has no `messageId` or feedback controls.
 
 -----
 
@@ -41,7 +43,9 @@ A rating or list-load failure shows inline in the row; a submission failure show
 
 The package contributes the `feedback` entry (order 10) of `conversation.chat.assistant-actions`, declared by ui-conversation and rendered inside the finalized assistant message's IconActions row, and the `feedback-dialog` entry (order 2) of `conversation.input.overlay`, which renders the Modal and Toast primitives through body portals and centers the toast over the composer card it mounts inside. The `feedbackUi.openSession(sessionId)` Client service opens that same Session-scoped dialog without recording feedback; the Header menu and command decoration both use it. The `/feedback` decoration is an `action` registered through `ctx.commandUi.decorate`, so a menu pick or a bare Enter consumes the trigger token and opens the dialog while an argued line still reaches the Host command.
 
-Per Session, one `MessageFeedbackController` backs every message control and one `FeedbackDialogController` owns the dialog draft, the submission, and the toast sequence. The message controller reads `messageFeedback.list` once, deferred to the first hover or focus rather than fired on mount, and serializes mutations so each carries the version last observed; a `version-conflict` reply carries the authoritative item and reconciles the view without refetching. Before either rating action proceeds, the row checks the committed item: the matching rating calls `retract`, which rechecks the rating in the serialized queue and becomes a no-op after a concurrent change, while any other state opens the dialog with the requested rating. The dialog controller submits by target: a message target puts that rating with the dialog's note and category through the message controller, and the Session target records through `ctx.remote.sessionFeedback`. Success closes the draft and raises the acknowledgement toast; a late success from a superseded draft raises that toast without closing the new draft; a failure keeps the draft open and raises a longer-lived warning toast.
+Per Session, one message controller loads ratings lazily and serializes local changes against observed versions. One dialog controller owns the draft and acknowledgement; a new draft resets diagnostic consent, a late completion leaves a newer draft intact, and disposal retires in-flight acknowledgements. The optional `feedbackDelivery` provider submits the selected target to the account inbox before a local receipt marker is recorded. Without that provider, other products use `messageFeedback.put` or `sessionFeedback.record`; Muse reports unavailable. The [Muse account provider](../../host/muse-account/README.md) owns authenticated delivery and diagnostic filtering.
+
+The delivery service exposes Client-owned target and entry types. Its category keys share the dialog's presentation list and are checked against the durable feedback taxonomy.
 
 </details>
 

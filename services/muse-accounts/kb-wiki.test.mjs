@@ -54,6 +54,93 @@ const page = (source, extra = {}) => ({
   citations: [{id: source.id, start: 0, end: 40}], expected_revision: 0, ...extra,
 });
 
+const participation = extra => ({project_key: 'jubian-4402', project_title: '山河闻凤鸣',
+  contribution_id: 'episode-02-script', stage: '第二集剧本', status: 'planned',
+  content: '计划根据原稿完成第二集改编。', artifacts: [], ...extra});
+
+test('project participation records plans, actual work, and private browsable projects without duplicate revisions', async t => {
+  const {data} = await fixture(t);
+  const planned = await data('wiki_record_project', participation());
+  assert.equal(planned.status, 'synced');
+  const duplicate = await data('wiki_record_project', participation());
+  assert.equal(duplicate.contribution.revision, planned.contribution.revision);
+  const done = await data('wiki_record_project', participation({status: 'completed',
+    content: '已逐场核对原稿，完成第二集剧本。', artifacts: ['deliverables/EP02.md']}));
+  assert.equal(done.contribution.revision, planned.contribution.revision + 1);
+  assert.equal(done.recorded_status, 'completed');
+  const detail = await data('wiki_read', {scope: 'private', id: done.contribution.id});
+  assert.match(detail.body, /逐场核对原稿/);
+  assert.match(detail.body, /deliverables\/EP02.md/);
+  const list = await data('wiki_directory', {scope: 'private', folder: 'projects'});
+  assert.equal(list.total, 1);
+  assert.equal(list.items[0].title, '山河闻凤鸣');
+  assert.equal((await data('wiki_directory', {scope: 'private', folder: 'projects'}, 'other')).total, 0);
+  const isolated = await data('wiki_record_project', participation({content: '另一账号的同名项目'}), 'other');
+  assert.notEqual(isolated.source.sha256, done.source.sha256);
+  assert.match((await data('wiki_read', {scope: 'private', id: done.contribution.id})).body, /逐场核对原稿/);
+});
+
+test('project participation preserves independent milestones and keeps pending work distinct from completion', async t => {
+  const {data} = await fixture(t);
+  await data('wiki_record_project', participation());
+  const pending = await data('wiki_record_project', participation({contribution_id: 'episode-02-video',
+    stage: '第二集视频', status: 'in_progress', content: '视频任务已提交，仍在等待远端生成。', artifacts: ['jubian:499887']}));
+  assert.equal(pending.recorded_status, 'in_progress');
+  const overview = await data('wiki_read', {scope: 'private', id: pending.project.id});
+  assert.match(overview.body, /第二集剧本/);
+  assert.match(overview.body, /第二集视频/);
+  assert.match(overview.body, /进行中/);
+});
+
+test('project participation rejects shared scope, unstable keys, and credential-bearing artifact URLs before capture', async t => {
+  const {call, data} = await fixture(t);
+  for (const invalid of [{scope: 'shared'}, {project_key: '../escape'}, {artifacts: ['https://host/file?token=secret']}]) {
+    const result = await call('wiki_record_project', participation(invalid));
+    assert.equal(result.isError, true);
+  }
+  assert.equal((await data('wiki_status')).private.sources, 0);
+});
+
+test('project participation reports a saved contribution separately from an unsynchronized human overview', async t => {
+  const {personal, data} = await fixture(t);
+  const overview = join(personal, owner.id, 'wiki', 'projects', 'muse-jubian-4402.md');
+  await mkdir(join(personal, owner.id, 'wiki', 'projects'), {recursive: true});
+  const human = '# Human project notes\n\nPreserve this page.\n';
+  await writeFile(overview, human);
+  const result = await data('wiki_record_project', participation());
+  assert.equal(result.status, 'partial');
+  assert.equal(result.verified_readback, undefined);
+  assert.equal(result.project.sync, 'retry-required');
+  assert.equal(await readFile(overview, 'utf8'), human);
+  assert.match((await data('wiki_read', {id: result.contribution.id})).body, /计划根据原稿完成第二集改编/);
+  const duplicate = await data('wiki_record_project', participation());
+  assert.equal(duplicate.contribution.revision, result.contribution.revision);
+});
+
+test('project participation preserves contribution pages edited outside the recorder', async t => {
+  const {data, call} = await fixture(t);
+  const initial = await data('wiki_record_project', participation());
+  const current = await data('wiki_read', {id: initial.contribution.id});
+  const edited = current.body + '\nHuman amendment.\n';
+  await data('wiki_write_page', {page_id: 'project-contributions/muse-jubian-4402/episode-02-script',
+    title: current.title, text: edited, expected_revision: current.revision,
+    citations: current.citations.map(({id, start, end}) => ({id, start, end}))});
+  const result = await call('wiki_record_project', participation({status: 'completed'}));
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /edited outside the recorder/);
+  assert.equal((await data('wiki_read', {id: initial.contribution.id})).body, edited);
+  assert.equal(initial.recorded_status, 'planned');
+});
+
+test('project participation accepts the longest project segment and refuses longer keys before capturing', async t => {
+  const {data, call} = await fixture(t);
+  const result = await data('wiki_record_project', participation({project_key: 'p'.repeat(75), contribution_id: 's'.repeat(80)}));
+  assert.equal(result.status, 'synced');
+  const before = (await data('wiki_status')).private.sources;
+  assert.equal((await call('wiki_record_project', participation({project_key: 'p'.repeat(76)}))).isError, true);
+  assert.equal((await data('wiki_status')).private.sources, before);
+});
+
 test('MCP lists Wiki navigation and synthesis with no embedding requirement', async t => {
   const {rpc} = await fixture(t);
   const tools = (await rpc('tools/list', {})).result.tools;

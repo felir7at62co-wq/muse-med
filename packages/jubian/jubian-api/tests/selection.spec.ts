@@ -31,6 +31,17 @@ const PARENTS = [
 const SELECTIONS = [{ material_key: 'lead', asset_id: 81285 }, { material_key: 'guest', asset_id: 83670 }]
 
 describe('subject selection planning', () => {
+  it('preserves uploaded audio while replacing the ordered character image selections', () => {
+    const audio = { materialType: 'audio', materialKey: 'voice-lead', materialUrl: 'https://x/voice.wav',
+      fileName: '陆沉舟声线', sortOrder: 1 }
+    const plan = buildSubjectSelection({ storyboard: { ...STORYBOARD, storyboardMaterialList: [audio],
+      modelConfig: JSON.stringify({ prompt: `${PROMPT} 声音 @[陆沉舟声线](voice-lead)` }) },
+    selections: SELECTIONS, subjectRows: ROWS, parentAssets: PARENTS })
+    expect((plan.payload.storyboardMaterialList as Record<string, unknown>[]).at(-1)).toEqual(audio)
+    expect(plan.after.orderedMaterials.map(material => material.materialKey)).toEqual(['lead', 'guest', 'voice-lead'])
+    expect(verifySubjectSelection({ ...plan.payload }, plan.after).matches).toBe(true)
+  })
+
   it('binds the trusted hsAssetId, the official URL and one-based order', () => {
     const plan = buildSubjectSelection({ storyboard: STORYBOARD, selections: SELECTIONS,
       subjectRows: ROWS, parentAssets: PARENTS })

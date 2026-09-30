@@ -1,15 +1,75 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { createToolResultMessage, LlmAdapter, ToolCallId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createToolResultMessage, createUserMessage, LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { MuseModels } from '../src/models.ts'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
 import { mockServer, closeMockServers, textEvents } from '../../../llm/llm-pi-ai/tests/mock-server.ts'
 import { assemble } from '../../../llm/llm-pi-ai/tests/assemble.ts'
 import { writeMuseSession, readMuseSession, clearMuseSessionIfUnchanged } from '../src/session.ts'
+import * as DeepSeekApiKey from '../../../llm/llm-deepseek-api-key/src/index.ts'
+import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
+import { buildModelCatalog } from '../../../api/session-controller/src/catalog.ts'
+import { createSessionTestController } from '../../../api/session-controller/tests/test-remote.ts'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
+
+const suppliedCatalog = { providers: [
+  { id: 'aa', name: 'aa', models: [{ id: 'gemini-3.8-flash', name: 'gemini-3.8-flash',
+    contextWindow: 128000, maxTokens: 8192, input: ['text', 'image'], reasoningEfforts: false }] },
+  { id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-flash', name: 'DeepSeek-Flash',
+    contextWindow: 1000000, maxTokens: 256000, input: ['text', 'image'],
+    reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } }] },
+] }
+
+async function directProviderFixture(configured: boolean) {
+  return await configurationFixture({ hmr: false, rows: [
+    { id: 'config-editor', name: 'cordis:editor' },
+    { id: 'settings', name: 'cordis:settings' },
+    { id: 'credentials', name: 'cordis:credentials', config: {
+      OTHER_PROVIDER_KEY: 'other-provider-test-value',
+      ...(configured ? { OWN_DEEPSEEK_KEY: 'own-provider-test-value' } : {}),
+    } },
+    { id: 'agent-default-model', name: 'cordis:model', config: { provider: 'deepseek-official', model: 'previous-default' } },
+    { id: 'llm', name: 'cordis:llm' },
+    { id: 'direct-deepseek', name: 'cordis:deepseek', config: { apiKeyEnv: 'OWN_DEEPSEEK_KEY',
+      models: [{ id: 'deepseek-flash', name: 'DeepSeek-Flash' }] } },
+  ], builtins: { llm: LlmRuntime, credentials: MemoryCredentials, deepseek: DeepSeekApiKey } })
+}
+
+async function oldSessionFixture(configured: boolean) {
+  const fixture = await directProviderFixture(configured)
+  await fixture.ctx.plugin(SessionStore)
+  await fixture.ctx.plugin(SessionProjectionRegistry)
+  await fixture.ctx.plugin(SystemPrompt, { personaPrefix: 'You use {{model}}.' })
+  await fixture.ctx.plugin(ToolRuntime)
+  await fixture.ctx.plugin(AgentRegistry)
+  const controller = createSessionTestController(fixture.ctx, {
+    cwd: root, defaultModelSelection: () => fixture.ctx.agentDefaultModel.currentSelection(),
+  })
+  const driver = await mountAgentLoopTestHarness(fixture.ctx)
+  const agent = await driver.create(SessionId('old-direct-model-session'), {
+    provider: 'deepseek-official', model: 'deepseek-flash',
+  }, { cwd: root })
+  const initialSelection = (await controller.selectModel({ sessionId: agent.id, provider: 'deepseek-official', model: 'deepseek-flash' })).selected
+  return { ...fixture, controller, agent, initialSelection }
+}
+
+function waitForIdle(context: Context, agent: Agent): Promise<void> {
+  return new Promise((resolve) => {
+    const dispose = context.on('agent/status', ({ agent: subject, status }) => {
+      if (subject === agent && status === 'idle') { dispose(); resolve() }
+    })
+  })
+}
 
 class PersonalAdapter extends LlmAdapter {
   async *stream(): AsyncGenerator<StreamChunk> { yield { type: 'finish', reason: { kind: 'stop' } } }
@@ -110,6 +170,132 @@ it('selects the first Muse model through real Loader settings and preserves a cu
   await login('bob'); await models.refresh()
   expect(fixture.ctx.agentDefaultModel.currentSelection()).toMatchObject({ provider: 'personal', model: 'private-model' })
   models.dispose()
+})
+
+it.each([false, true])('repairs a saved direct default only when its own credential is unconfigured (%s)', async (configured) => {
+  const fixture = await directProviderFixture(configured)
+  await fixture.ctx.settings.replace('agent-default-model', { provider: 'deepseek-official', model: 'deepseek-flash' })
+  await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  await models.refresh()
+  expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual({
+    provider: configured ? 'deepseek-official' : 'muse-cloud-deepseek-official', model: 'deepseek-flash',
+  })
+})
+
+it('publishes the supplied Gemini and DeepSeek metadata through the browser catalog', async () => {
+  await login()
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    excludedModelPrefixes: ['gpt-', 'chatgpt-', 'o1', 'o3', 'o4'],
+    fetcher: async () => Response.json(suppliedCatalog) })
+  await models.refresh()
+  const browser = await buildModelCatalog(ctx, { provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' })
+  expect(browser.groups.filter(group => group.id.startsWith('muse-cloud-'))).toEqual([
+    { id: 'muse-cloud-aa', name: 'Muse · aa', models: [{ id: 'gemini-3.8-flash', name: 'gemini-3.8-flash' }] },
+    { id: 'muse-cloud-deepseek-official', name: 'Muse · DeepSeek', models: [{ id: 'deepseek-flash', name: 'DeepSeek-Flash',
+      reasoning: { efforts: [{ id: 'off', name: 'Off' }, { id: 'low', name: 'Low' },
+        { id: 'high', name: 'High' }, { id: 'max', name: 'Max' }] } }] },
+  ])
+  expect(browser.failures.filter(group => group.id.startsWith('muse-cloud-'))).toEqual([])
+})
+
+it('routes an existing unconfigured direct session through Muse and records the actual selection and request', async () => {
+  const fixture = await oldSessionFixture(false)
+  const server = await mockServer([{ events: textEvents }])
+  await writeMuseSession(sessionFile(), { baseUrl: server.url, username: 'alice', cookie: '__Host-muse=alice-session' })
+  models = new MuseModels(fixture.ctx, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  await models.refresh()
+  const idle = waitForIdle(fixture.ctx, fixture.agent)
+  fixture.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Continue the script.' }], source: { kind: 'user' } }))
+  await idle
+  expect(server.paths).toEqual(['/api/desktop-models/deepseek-official/chat/completions'])
+  expect(server.headers[0]?.authorization).toBe('Bearer alice-session')
+  expect(fixture.agent.session.snapshotEvents().filter(event => event.type === 'model/selection').at(-1)?.data)
+    .toMatchObject({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
+  expect(fixture.agent.session.requestHeader()?.config)
+    .toMatchObject({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
+  expect(fixture.ctx.sessionProjections.snapshot(fixture.agent.session).values.modelSelection?.next)
+    .toMatchObject({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
+  const routingEvents = fixture.agent.session.snapshotEvents()
+    .filter(event => event.type === 'model/selection' || event.type === 'request/header')
+    .map(event => ({ type: event.type, data: event.data }))
+  await expect(`${JSON.stringify(routingEvents, null, 2)}\n`).toMatchFileSnapshot(fileURLToPath(
+    new URL('./expected/muse-direct-model-login-repair.json', import.meta.url),
+  ))
+})
+
+it('preserves an existing direct session with its own configured key', async () => {
+  const fixture = await oldSessionFixture(true)
+  await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  await models.refresh()
+  const count = fixture.agent.session.snapshotEvents().length
+  const config = await agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request', {
+    turn: 1, step: 1, signal: new AbortController().signal,
+  }, () => Promise.resolve({ provider: 'deepseek-official', model: 'deepseek-flash' }))
+  expect(config).toEqual({ provider: 'deepseek-official', model: 'deepseek-flash' })
+  expect(fixture.agent.session.snapshotEvents()).toHaveLength(count)
+})
+
+it('does not replace an existing session with a different supplied model', async () => {
+  const fixture = await oldSessionFixture(false)
+  await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json({ providers: [{ ...suppliedCatalog.providers[1],
+      models: [{ ...suppliedCatalog.providers[1]!.models[0], id: 'other-model' }] }] }) })
+  await models.refresh()
+  const count = fixture.agent.session.snapshotEvents().length
+  await expect(agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request', {
+    turn: 1, step: 1, signal: new AbortController().signal,
+  }, () => Promise.resolve({ provider: 'deepseek-official', model: 'deepseek-flash',
+    ...(fixture.initialSelection.reasoningEffort === undefined ? {}
+      : { reasoningEffort: ReasoningEffortId(fixture.initialSelection.reasoningEffort) }) }))).rejects.toMatchObject({
+    code: 'UNKNOWN_MODEL', message: 'The saved direct model is not in the Muse catalog. Select an available Muse model in the conversation model picker.',
+  })
+  expect(fixture.agent.session.snapshotEvents()).toHaveLength(count)
+})
+
+it.each(['provider', 'reasoning'] as const)('retains a newer explicit %s selection when an account-route repair reaches the Session queue', async (change) => {
+  const fixture = await oldSessionFixture(false)
+  await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  await models.refresh()
+  const wanted = change === 'provider' ? { provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' }
+    : { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'off' }
+  const userChange = fixture.controller.selectModel({ sessionId: fixture.agent.id, ...wanted })
+  const repair = fixture.controller.selectModelIfCurrent({ sessionId: fixture.agent.id,
+    provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }, fixture.initialSelection)
+  await userChange
+  expect(await repair).toBeUndefined()
+  expect(fixture.ctx.sessionProjections.snapshot(fixture.agent.session).values.modelSelection?.next)
+    .toMatchObject(wanted)
+})
+
+it.each(['provider', 'reasoning'] as const)('does not replace a newer %s choice when the Muse request router resumes an older request', async (change) => {
+  const fixture = await oldSessionFixture(false)
+  await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  await models.refresh()
+  const wanted = change === 'provider' ? { provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' }
+    : { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'off' }
+  const assembled = { provider: fixture.initialSelection.provider, model: fixture.initialSelection.model,
+    ...(fixture.initialSelection.reasoningEffort === undefined ? {}
+      : { reasoningEffort: ReasoningEffortId(fixture.initialSelection.reasoningEffort) }) }
+  const config = await agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request', {
+    turn: 1, step: 1, signal: new AbortController().signal,
+  }, async () => {
+    await fixture.controller.selectModel({ sessionId: fixture.agent.id, ...wanted })
+    return assembled
+  })
+  expect(config).toEqual(assembled)
+  expect(fixture.agent.session.snapshotEvents().filter(event => event.type === 'model/selection').at(-1)?.data)
+    .toEqual(wanted)
+  expect(fixture.ctx.sessionProjections.snapshot(fixture.agent.session).values.modelSelection?.next).toEqual(wanted)
 })
 
 it('excludes supplied GPT models while leaving custom adapters available', async () => {

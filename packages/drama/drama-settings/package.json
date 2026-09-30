@@ -53,6 +53,7 @@
     "watch": "tsdown --watch"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-jubian": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:*"
   },

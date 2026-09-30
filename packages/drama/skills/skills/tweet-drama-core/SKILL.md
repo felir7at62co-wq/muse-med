@@ -26,9 +26,9 @@ source、episodes、style、asset_prompts、asset_candidates、official_assets�
 
 stable_id、type、name、aliases、episodes、prompt、review、review_attempts、max_review_attempts、jubian_asset_id、jubian_material_id、url、asset_confirmation、official。正式资产必须 official=true；非本地生成候选确认响应可追溯，本地正式主体使用总控规定的实时独立门禁证据，不伪造 material_id 或确认响应。
 
-## 角色服化道参考图
+## 资产参考搜索
 
-缺失重要角色资产的生图前置见[参考图流程](references/style-references.md)：先用合适的用户图片并记录逐图审核与用户确认；缺图时自主检索有可核实来源、许可和视觉适用性的网上素材，下载实看后用 `scripts/style_references.py <项目目录> <role_id> import-online` 归档并记录 Agent 审核。收费生图前运行 `check`；没有合格素材才暂停受影响角色并询问。不自动启动小红书；网上图只用于服化道生成参考，不是身份或最终入镜资产。此流程不替代付费授权、生成资产视觉审核或确认出演。
+缺角色（含主角）、场景、道具或全剧视觉参考时，Agent 主动用 `web_search` 搜索，再用 `web_fetch` 阅读来源，依据剧本事实和项目风格提炼参考元素；不用等待用户先提供图片。已有合格正式资产直接复用，已有用户指定参考优先沿用，不重复搜索或收费重生。角色服化道按[参考图流程](references/style-references.md)实看、归档和审核，收费生图前运行 `style_references.py <项目目录> <role_id> check`；场景和道具在项目参考记录中保存来源、采用元素与使用判断，不伪装成角色传给此脚本。没有可用结果才报告具体缺项并向用户索取；不自动启动小红书。网上参考只辅助生成，不能直接作为正式资产或真人身份；生成后仍按正式资产流程审核与确认。
 
 ## 视频禁用标签
 

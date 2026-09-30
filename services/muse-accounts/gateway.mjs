@@ -11,15 +11,16 @@ import {openStore,validId} from './store.mjs';
 import {createKbMcp} from './kb-mcp.mjs';
 import {loadDocumentGrants} from './kb-grants.mjs';
 import {verifyPersonalRoot} from './kb-personal.mjs';
+import {loadPortfolioReaders} from './kb-portfolio-config.mjs';
 // Cloud knowledge base endpoint (bearer-token authenticated).
 import {openModelConfig,createModelRelay} from './model-relay.mjs';
 import {openGlobalModels,restrictModelSchema} from './global-models.mjs';
-import {createDesktopModels} from './desktop-models.mjs';
+import {createDesktopModels,resolveDesktopModelLimits} from './desktop-models.mjs';
 
 /** Load account Wiki storage and administrator grants without opening legacy vector files.
  * @param {object} environment Gateway environment containing the KB directory and credential-file paths.
  * @returns {Promise<object|undefined>} Wiki configuration, or undefined when disabled or its secret is invalid.
- * @throws {Error} Invalid document grants or an unavailable, overlapping, or permissive private root.
+ * @throws {Error} Invalid document grants or portfolio readers, or an unavailable, overlapping, or permissive private root.
  */
 export async function loadKnowledgeBase(environment = process.env) {
  if(!environment.MUSE_KB_VAULT||!environment.MUSE_KB_SECRET)return;
@@ -27,7 +28,8 @@ export async function loadKnowledgeBase(environment = process.env) {
  if(secret.length<32){console.error('[muse-kb] 知识库密钥缺失或过短，云端知识库接口已停用');return;}
  const documentGrants=environment.MUSE_KB_DOCUMENT_GRANTS?await loadDocumentGrants(environment.MUSE_KB_DOCUMENT_GRANTS,{vaultRoot:environment.MUSE_KB_VAULT}):new Map();
  await verifyPersonalRoot(environment.MUSE_KB_USER_ROOT,environment.MUSE_KB_VAULT);
- return {vaultRoot:environment.MUSE_KB_VAULT,personalRoot:environment.MUSE_KB_USER_ROOT,secret,documentGrants};
+ const portfolioReaders=environment.MUSE_KB_PORTFOLIO_READERS?await loadPortfolioReaders(environment.MUSE_KB_PORTFOLIO_READERS,{vaultRoot:environment.MUSE_KB_VAULT,personalRoot:environment.MUSE_KB_USER_ROOT}):new Set();
+ return {vaultRoot:environment.MUSE_KB_VAULT,personalRoot:environment.MUSE_KB_USER_ROOT,secret,documentGrants,portfolioReaders};
 }
 
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -35,14 +37,14 @@ const style='*{box-sizing:border-box}body{margin:0;background:#f7f6f2;color:#191
 const polish='body{background:#f5f5f3;-webkit-font-smoothing:antialiased}main{box-shadow:0 16px 70px #00000005}h1{font-size:30px;letter-spacing:-.04em;margin:16px 0}h2{font-size:20px;margin-top:32px}nav{flex-wrap:wrap;margin:24px 0}nav a{font-size:14px;text-decoration:none;border:1px solid #e3e3df;padding:9px 14px;border-radius:10px}a:hover{color:#000}input{background:#fafafa;transition:border-color .15s}input:focus{outline:2px solid #222;outline-offset:2px}button:hover{background:#404040}button:focus-visible,a:focus-visible{outline:2px solid #222;outline-offset:3px}.eyebrow{font-size:11px;letter-spacing:.2em;color:#888}.model-form{max-width:680px;margin:30px 0}.model-form input{display:block;width:100%;margin-top:8px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.notice{padding:14px 18px;border:1px solid #d5dfd6;background:#f4f8f4;border-radius:12px;font-size:14px}small{display:block;line-height:1.8}th{color:#777;font-size:12px;font-weight:500}td{font-size:14px}.auth h1{letter-spacing:.14em}.auth>img{display:block;margin-bottom:22px}.auth form{margin:24px 0}.auth input{margin-top:8px}.auth small{font-size:12px}.auth>p{line-height:1.7}main:not(.auth)>form:not(.model-form){max-width:520px}main:not(.auth)>form>label input{display:block;width:100%;margin-top:8px}@media(max-width:600px){.form-grid{grid-template-columns:1fr;gap:0}h1{font-size:26px}main{border-radius:18px}}';
 function page(title,body,auth=false){return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.ico"><title>${escape(title)} · MUSE</title><style>${style}${polish}</style><main class="${auth?'auth':''}">${body}</main></html>`;}
 function loginPage(register=false){return page(register?'注册':'登录',`<img src="/spider.png" alt="MUSE"><h1>MUSE</h1><p>让灵感成形，让故事发生。</p><form action="/${register?'register':'login'}" method="post"><label>用户名<input name="username" autocomplete="username" minlength="2" maxlength="32" required autofocus></label><label>密码<input name="password" type="password" autocomplete="${register?'new-password':'current-password'}" maxlength="128" required></label><button>${register?'注册并进入工作间':'进入工作间 →'}</button></form><p>${register?'已有账号？<a href="/login">登录</a>':'<a href="/register">免费注册个人工作间</a>'}</p><small>每个账号拥有独立的文档与会话。</small>`,true);}
-export function createAccountServer({store,runtime,modelConfig,globalModels,modelForward,desktopModelMaxActive=4,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,now=Date.now,sessionTtlMs=43200000,devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
+export function createAccountServer({store,runtime,modelConfig,globalModels,modelForward,desktopModelMaxActive=4,desktopModelMaxTotal=32,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,now=Date.now,sessionTtlMs=43200000,devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
  if(!['development','production'].includes(environment))throw Error('Invalid environment');
  if(!/^__Host-[A-Za-z0-9_-]+$/.test(cookieName))throw Error('Invalid secure session cookie name');
   function authorizeKbToken(token){const grant=kbAccessTokens.get(token);if(!grant)return null;const active=sessions.get(grant.sessionToken),account=active&&store.get(active.id);if(!active||!account||account.disabled||account.revision!==active.revision||active.id!==grant.accountId||active.expiry<=now()||grant.expiry<=now()){kbAccessTokens.delete(token);return null;}return {account,mode:'account'};}
-  const kbEndpoint=kb?.vaultRoot&&typeof kb.secret==='string'&&kb.secret.length>=32?createKbMcp({vaultRoot:kb.vaultRoot,personalRoot:kb.personalRoot,accounts:store,secret:kb.secret,documentGrants:kb.documentGrants,authorize:authorizeKbToken,embedder:kb.embedder,vectors:kb.vectors,semanticWeight:kb.semanticWeight,semanticFloor:kb.semanticFloor,onWarn:message=>console.error('[muse-kb]',message)}):null;
+  const kbEndpoint=kb?.vaultRoot&&typeof kb.secret==='string'&&kb.secret.length>=32?createKbMcp({vaultRoot:kb.vaultRoot,personalRoot:kb.personalRoot,accounts:store,secret:kb.secret,documentGrants:kb.documentGrants,portfolioReaders:kb.portfolioReaders,authorize:authorizeKbToken,embedder:kb.embedder,vectors:kb.vectors,semanticWeight:kb.semanticWeight,semanticFloor:kb.semanticFloor,onWarn:message=>console.error('[muse-kb]',message)}):null;
  async function maintenance(){if(!maintenanceFile)return false;try{await access(maintenanceFile);return true;}catch(e){if(e.code==='ENOENT')return false;throw e;}}
  function workspaceMutation(path){return /^\/api\/workspace[./](create|delete|rename|update|change|insertBefore)(?:\/|$)/.test(decodeURIComponent(path));}
- const desktopModels=createDesktopModels({globalModels,modelConfig,forward:modelForward,maxActive:desktopModelMaxActive,now});
+ const desktopModels=createDesktopModels({globalModels,modelConfig,forward:modelForward,maxActive:desktopModelMaxActive,maxTotal:desktopModelMaxTotal,now});
  publicOrigin=new URL(publicOrigin).origin;const sessions=new Map(),rates=new Map(),connections=new Map(),cookies=new Map(),httpStreams=new Map(),kbAccessTokens=new Map();
  function revoke(token){desktopModels.revoke(token);sessions.delete(token);for(const [key,grant] of kbAccessTokens)if(grant.sessionToken===token)kbAccessTokens.delete(key);adminAccess?.revoke(token);for(const socket of connections.get(token)||[])socket.destroy();connections.delete(token);for(const stream of httpStreams.get(token)||[])stream.destroy();httpStreams.delete(token);}
  function touchAccount(id){try{Promise.resolve(runtime.touch?.(id)).catch(()=>{});}catch{}}
@@ -218,6 +220,7 @@ export function createAccountServer({store,runtime,modelConfig,globalModels,mode
  });server.on('close',()=>{desktopModels.close();store.off('change',changed);for(const token of sessions.keys())revoke(token);});return server;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1])).href){
+ const desktopModelLimits=resolveDesktopModelLimits(process.env);
  const {createRuntime}=await import('./runtime.mjs');const store=await openStore(process.env.MUSE_ACCOUNTS_FILE||'/var/lib/muse/accounts.json');const runtime=await createRuntime();
  const modelConfig=process.env.MUSE_MODEL_CONFIG?await openModelConfig(process.env.MUSE_MODEL_CONFIG):undefined;
  let globalModels;
@@ -243,7 +246,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
   await asr.ready();
   asrSweepIntervalSeconds=config.sweepIntervalSeconds;
  }
- createAccountServer({store,runtime,modelConfig,globalModels,feedback,adminAccess,adminHosts,kb,asr,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH}).listen(Number(process.env.MUSE_PORT||19388),'127.0.0.1',()=>console.log('MUSE accounts gateway listening on loopback'));
+ createAccountServer({store,runtime,modelConfig,globalModels,feedback,adminAccess,adminHosts,kb,asr,...desktopModelLimits,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH}).listen(Number(process.env.MUSE_PORT||19388),'127.0.0.1',()=>console.log('MUSE accounts gateway listening on loopback'));
  if(asr){
   const sweep=()=>void asr.sweep().catch(()=>console.error('MUSE ASR retention cleanup failed'));
   sweep();setInterval(sweep,asrSweepIntervalSeconds*1000).unref();

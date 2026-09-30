@@ -50,6 +50,49 @@ const EXPECTATION = { scriptId: 2708, storyboardId: 916953, episodeId: 46737,
   expectedPrompt: normalizedPrompt(PROMPT), beforeTaskIds: [] as string[] }
 
 describe('canonical hashing and wire reading', () => {
+  it('freezes uploaded voice references without treating them as character image assets', () => {
+    const audio = { materialType: 'audio', materialUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/voice.wav',
+      materialKey: 'voice-lead', fileName: '陆沉舟声线', sortOrder: 1, audioDuration: 2 }
+    const storyboard = { ...STORYBOARD, storyboardMaterialList: [...MATERIALS, audio],
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT} 陆沉舟声音参照 @[陆沉舟声线](voice-lead)` }) }
+    const preview = buildNativeVideoPreview({ storyboard, assets: ASSETS, models: CATALOGUE, createdAt: 'now' })
+    expect(preview.assetSummary.count).toBe(2)
+    expect((preview.payload.storyboardMaterialList as Record<string, unknown>[]).at(-1)).toEqual(audio)
+    expect(validateNativeVideoPreview(preview)).toEqual(preview)
+    const changed = buildNativeVideoPreview({ storyboard: { ...storyboard,
+      storyboardMaterialList: [...MATERIALS, { ...audio, materialUrl: `${audio.materialUrl}?version=2` }] },
+    assets: ASSETS, models: CATALOGUE, createdAt: 'now' })
+    expect(changed.idempotencyKey).not.toBe(preview.idempotencyKey)
+    expect(() => buildNativeVideoPreview({ storyboard: { ...storyboard,
+      storyboardMaterialList: [...MATERIALS, { ...audio, audioDuration: 16 }] },
+    assets: ASSETS, models: CATALOGUE, createdAt: 'now' })).toThrow('15')
+  })
+
+  it('requires audio source readback to claim a video submitted with voice references', () => {
+    const url = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/voice.wav'
+    const expectation = { ...EXPECTATION, expectedAudioUrls: [url] }
+    const candidate = { taskId: '335343', task: { id: 335343, scriptId: 2708, storyboardId: 916953 },
+      children: [{ ...CHILD, audioMaterials: [{ audioUrl: url }] }] }
+    expect(classifyNewNativeCandidates([candidate], expectation).status).toBe('matched')
+    expect(classifyExistingNativeMatches([candidate], expectation).status).toBe('matched')
+    expect(classifyExistingNativeMatches([{ ...candidate, children: [CHILD] }], expectation).status)
+      .toBe('reconcile_conflict')
+    expect(classifyNewNativeCandidates([{ ...candidate,
+      children: [{ ...CHILD, audioMaterials: [{ audioUrl: `${url}?different=1` }] }] }], expectation).status)
+      .toBe('reconcile_conflict')
+  })
+
+  it.each([['doubao-seedance-2-0-260128', 3], ['doubao-seedance-2-5-260628', 10]])
+  ('refuses excess audio references for %s before producing a preview', (modelId, limit) => {
+    const audio = Array.from({ length: limit + 1 }, (_, index) => ({ materialType: 'audio',
+      materialUrl: `https://jubian-aigc.tos-cn-beijing.volces.com/prod/voice-${index}.wav`,
+      materialKey: `voice-${index}`, fileName: `voice-${index}`, sortOrder: index + 1, audioDuration: 2 }))
+    const storyboard = { ...STORYBOARD, storyboardMaterialList: [...MATERIALS, ...audio],
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, modelId,
+        prompt: `${PROMPT} ${audio.map(item => `@[${item.fileName}](${item.materialKey})`).join(' ')}` }) }
+    expect(() => validatedVideoMaterials(storyboard, ASSETS)).toThrow(`at most ${limit}`)
+  })
+
   it('hashes key order independently', () => {
     expect(stableJson({ b: 1, a: [{ y: 2, x: 1 }] })).toBe('{"a":[{"x":1,"y":2}],"b":1}')
     expect(stableSha256({ a: 1, b: 2 })).toBe(stableSha256({ b: 2, a: 1 }))

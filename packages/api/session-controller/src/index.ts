@@ -30,6 +30,7 @@ import { SessionMediaReferences } from './media-references.ts'
 import { ArchivedSessionGate } from './archived-session-gate.ts'
 import type {
   ModelCatalog,
+  ModelSelection,
   SessionWorkspacePathApplication,
   SessionAttachmentRequest,
   SessionAttachmentValue,
@@ -282,6 +283,16 @@ export class SessionController extends TypertRemoteService {
   @Remote('selectModel')
   selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     return this.commands.selectModel(request)
+  }
+
+  /**
+   * Replace a Session model only when its complete current selection matches the observed value.
+   * @param request - Session identity and proposed replacement.
+   * @param expected - provider, model, and optional reasoning choice observed by the Host caller.
+   * @returns the normalized replacement, or undefined when a newer selection must be retained.
+   */
+  selectModelIfCurrent(request: SessionSelectModelRequest, expected: ModelSelection): Promise<SessionSelectModelValue | undefined> {
+    return this.commands.selectModelIfCurrent(request, expected)
   }
 
   /**

@@ -1,5 +1,5 @@
 ---
-description: "十一个剧变（Jubian）工具：剧本池查询和授权认领、制作目录、资产、分镜、计费生成、媒体下载与后台作业。"
+description: "十二个剧变（Jubian）工具：剧本池查询和授权认领、制作目录、资产、分镜、计费生成、媒体下载与后台作业。"
 kind: "package-bundle"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-`dsh-tool-jubian` 给 DSH 模型十一个剧本池和剧变制作工具：目录读取、剧本查找、授权认领、资产与分镜编辑、只读组织视图、参考图上传、计费的图片与视频生成、去字幕、转高清、媒体下载与后台作业。读取免费；计费或改变状态的调用使用调用方给出的幂等键，插件在请求离开前记录 intent，在响应返回后记录 settle。同一个 key 重放不会重复写入；支持对账的方法可以重新读取。
+`dsh-tool-jubian` 给 DSH 模型十二个剧本池和剧变制作工具：目录读取、剧本查找、授权认领、资产与分镜编辑、只读组织视图、参考图上传、计费的图片与视频生成、去字幕、转高清、媒体下载与后台作业。读取免费；计费或改变状态的调用使用调用方给出的幂等键，插件在请求离开前记录 intent，在响应返回后记录 settle。同一个 key 重放不会重复写入；支持对账的方法可以重新读取。
 
 ## 目录
 
@@ -25,11 +25,11 @@ kind: "package-bundle"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在需要读取或改变剧变制作的任意 preset 里挂载这一行，然后把任务交给模型；十一个工具会在描述中说明各自的副作用。
+在需要读取或改变剧变制作的任意 preset 里挂载这一行，然后把任务交给模型；十二个工具会在描述中说明各自的副作用。
 
 ### 何时选择
 
-当 agent 需要查询或认领当前账号剧本池里的本、按名字查剧本、整理资产、上传参考图、保存主体选择、准备和提交视频、确认出演、生成图片、擦除字幕、转高清或下载提供方媒体时，选择本包。凭证能解析的地方都可以挂载它；会话不接触剧变时不要挂载，因为十一个 schema 在挂载期间始终对模型可见。
+当 agent 需要查询或认领当前账号剧本池里的本、按名字查剧本、整理资产、上传参考图、保存主体选择、准备和提交视频、确认出演、生成图片、擦除字幕、转高清或下载提供方媒体时，选择本包。凭证能解析的地方都可以挂载它；会话不接触剧变时不要挂载，因为十二个 schema 在挂载期间始终对模型可见。
 
 ### 最小配置
 
@@ -89,7 +89,7 @@ kind: "package-bundle"
 
 `jubian_video image_generate` 可为单次调用设置 `image_platform_id`，优先从实时目录选择该平台的一行，覆盖已保存或部署锁定。Muse 随包部署在用户尚未选定通道时锁定 `KU_AI`；获授权的备用通道可显式指定 `DUO_YUAN_TAN_SUO`。切换前核对实时价格及上一笔收费任务：超时或结果未知不等于扣费失败，必须先对账，才能使用新 key 或新通道。
 
-生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)是每个受支持字段及其 JSDoc 的穷尽式真源。这一行注入 `tools` 与 `credentials`，在挂载时注册全部十一个工具，并挂载两个 Remote 命名空间：设置页调用的 `jubianToken`，以及只为短剧页面的选择器读取账户 `gpt-image-2` 行的 `jubianImage`；既没有按工具启用的开关，也没有单独的一行页面配置。
+生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)是每个受支持字段及其 JSDoc 的穷尽式真源。这一行注入 `tools` 与 `credentials`，在挂载时注册全部十二个工具，并挂载三个 Remote 命名空间：账户凭证使用的 `jubianToken`、账户 `gpt-image-2` 行使用的 `jubianImage`，以及设置页读取和修改实际项目额度与账务使用的 `jubianBudget`；既没有按工具启用的开关，也没有单独的一行页面配置。
 
 ### 凭证
 
@@ -128,12 +128,15 @@ inherited process environment (read-only, highest)
 
 读不动的目录报告为 `jubian-image/catalogue-unreadable`，消息就是传输层自己的原因，页面原样显示。这里不缓存：每次调用都重读账户，因为某一行的价格与是否存在属于账户状态，而不是插件状态。
 
-### 十一个工具
+### 十二个工具
 
-十一个注册工具就是全部面向模型的表面。本包不发布系统提示词区段，因此模型需要的每条操作事实都写在工具描述或 schema 描述里。
+`jubian_budget` 和 `jubianBudget` 设置命名空间共享 `<账本目录>/authorization.json` 及计费调用账务读取方。未单独授权的项目沿用当前短剧默认值，初始为 ¥4000；单独授权金额覆盖默认值。聊天更新要求真实用户预算文字明确对应项目或 Session 的绑定项目，或真实 `ask_user_question` 回答明确询问该项目总预算。Assistant 自述、无关答案、已撤回授权或金额不符均不能授权更新。读取返回精确修订；更新保留已花、预留及估算，立即返回实际保存数据，无需重启。[项目圣经技能](../../drama/skills/skills/tweet-drama-project-bible/SKILL.md) 描述缺少授权时的询问。设置写入方将用户提交项目总额度视为授权；这一本地流程不对拥有直接文件访问权限的用户隔离文件。
+
+十二个注册工具就是全部面向模型的表面。本包不发布系统提示词区段，因此模型需要的每条操作事实都写在工具描述或 schema 描述里。
 
 | 工具 | 方法 | 计费与副作用 |
 |---|---|---|
+| `jubian_budget` | `read`、`update` | 免费；读取真实账务，或核实用户授权后保存项目总额度 |
 | `jubian_catalog` | `models`、`rate`、`script`、`episodes` | 只读，不产生费用 |
 | `jubian_find` | `scope`（`mine`、`pool`）、`mine` 的 `production_type`／`share_target_type` 过滤 | 只读，不产生费用 |
 | `jubian_claim` | `inspect`、`claim` | inspect 只读；claim 需要用户明确授权、`canClaim=1` 与幂等键 |
@@ -142,6 +145,7 @@ inherited process environment (read-only, highest)
 | | `confirm_casting` | 用 `GET` 改变远端状态；需要 `idempotency_key` |
 | | `remove` | 不可恢复地删除一个父资产；需要 `idempotency_key` |
 | | `upload_reference` | 免费且不创建任务；向提供方对象存储写入一个对象 |
+| | `upload_audio` | 免费且不创建任务；测量最长 15 秒的本地 PCM WAV 参考，再上传一个对象 |
 | | `create_folder`、`move`、`rename` | 改变控制台里资产库的组织方式；各自需要 `idempotency_key` |
 | `jubian_organize` | `index` | 只读、免费；写一个本地索引文件 |
 | `jubian_model` | `preview`、`apply` | Preview 对远端只读；apply 以 `isGenerate=0` 保存用户批准的已有分镜设置 |
@@ -262,6 +266,8 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 ### 主体视频的分镜原生通道
 
+统一角色声音时，加载[声线参考技能](../../drama/skills/skills/tweet-drama-voice-continuity/SKILL.md)。`jubian_asset upload_audio` 接受 `audio_path`，测量实际 16 位 PCM WAV 样本，在上传前拒绝超过 15 秒的文件，返回 `materialUrl`、`audioDuration`、SHA-256 和 `duration_verified: true`。它不创建资产或生成任务。`select_assets` 更新图片选源时保留已有上传音频；音频有独立组内顺序，无需图片父资产 ID。原生准备冻结这些参考，分别报告已保存时长与字节验证状态；未知远端时长保持未核实。提交的音频必须在子结果有序 `audioMaterials[].audioUrl` 中回读一致，才能认领任务。参考错误时修复并保存原分镜。
+
 主体视频由提供方从一次 `isGenerate=1` 的分镜 `PUT` 创建；直接的建任务 `POST` 不会保留主体身份。生产证据把这条差异钉死了：任务 `335343` 来自分镜 `PUT`，七项身份全部保留并成功；`335470` 来自 direct `POST /admin/aigc/video/task/create`，丢失 `assetId`/`materialName` 并失败。因此本包不支持那条路径，也没有任何方法调用它。
 
 唯一正常的顺序是三次调用：
@@ -271,7 +277,7 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 ```
 
 - `select_assets` 保存一次有序的主体设定选择。每个 `material_key` 必须按提示词里 `@[名称](key)` 的顺序出现，每个选择必须唯一对应同一项目里的一行有效主体设定与一个父资产，而该行的可信 `hsAssetId` 就是提供方会翻译成子任务身份的那个值。请求体永远强制 `isGenerate=0`。这一次 `PUT` 之后，该方法会回读分镜并重新拉取项目任务列表：保存下来的顺序与计划不符就报错；而一次"仅保存选择"却带来了新视频任务时，会返回 `billing_safety_violation`，让调用方停下来而不是继续往下走。
-- `prepare_video` 免费，且对提供方只读。它用实时 `scriptId` 校验 `project_dir` 里的 `project_config.json`，从实时分镜、主体设定与父资产补齐每个有序素材，保留已存的模型、平台、比例、分辨率与时长，从当前目录解析精确选择器，要求 `genNum=1`。Seedance 2.0（`doubao-seedance-2-0-260128`）接受 4–15 秒总时长；Seedance 2.5（`doubao-seedance-2-5-260628`）接受 4–30 秒。总时长包含至少一秒自然收束；不支持或不唯一的选择直接失败，不用默认值替换。它把一份 preview 通过临时文件加重命名写进 `<project_dir>/video_tasks/storyboard-<id>-<key12>.storyboard-native.prepared.json`。它不发 `PUT`、不创建任务、不收费。
+- `prepare_video` 免费，且对提供方只读。它用实时 `scriptId` 校验 `project_dir` 里的 `project_config.json`，从实时分镜、主体设定与父资产补齐有序图片，保留上传的音频、已存的模型、平台、比例、分辨率与时长，从当前目录解析精确选择器，要求 `genNum=1`。Seedance 2.0（`doubao-seedance-2-0-260128`）接受 4–15 秒总时长；Seedance 2.5（`doubao-seedance-2-5-260628`）接受 4–30 秒。总时长包含至少一秒自然收束；不支持或不唯一的选择直接失败，不用默认值替换。它把一份 preview 通过临时文件加重命名写进 `<project_dir>/video_tasks/storyboard-<id>-<key12>.storyboard-native.prepared.json`。它不发 `PUT`、不创建任务、不收费。
 - `submit_video` 接受该 `preview_path` 与一个**必须等于 preview 自带 fingerprint** 的 `idempotency_key`。key 不符、preview 已过期（写入之后实时语义变了），或该 preview 不是本插件自己的产物，都会在任何请求发出之前失败。否则它先取一份完整的分页任务快照，若第二次读取同一快照发生漂移就拒绝继续，最多发送一次 `isGenerate=1` 的 `PUT /aigc/storyboard`，再取第二份快照，认领那个有序 `assetId`/`materialName`/`imageUrl` 与模型、提示词证据都与 preview 完全一致的新任务。`PUT` 前后都一样：一条任务行只有在能被证明属于当前分镜时才算认领的候选——行自带 `storyboardId`、任务详情自带，或它的某个子结果自带。一个项目装着它所有分镜的任务，而多数任务行根本不写 `storyboardId`，因此三者都证明不了的行属于别的分镜：它既不是匹配，也不是让判定不安全的证据。
 - `submit_video_batch` 接受同一项目不同分镜的 `video_previews: [{preview_path, idempotency_key}]`。agent 要先准备并审阅用户要求的范围，把拟提交的 preview 全部列入本次提交清单；工具能验证已提供的清单，无法发现漏传的分镜。工具逐项比对实时分镜、查已有任务和两次完整项目快照，再在同一进程的账本队列内一次检查整批估算金额，并在任何 PUT 前登记全部 intent。任一 preview 过期、分镜或 key 重复、任务列表漂移或缺 ID、已有任务冲突、整批预算不足，都会零 PUT。全部预约后，最多同时发送 `videoBatchConcurrency` 个独立分镜 PUT；对账读取也独立受同一并发数限制，不占收费 PUT 的提交槽。每笔返回后尽早读取该任务，再以最终项目快照和各项的分镜、有序主体、模型与提示词证据按输入顺序报告。只有最终身份完整才是 `submitted`；PUT 结果未知或回读身份被剥离时是 `reconcile_required`，不可重发。全部原 key 重放只读对账；新旧 key 混合时拒绝执行，先逐笔核对旧 key，再组织新的授权批次。与单项写入一样，账本队列只覆盖当前进程。
 
@@ -405,7 +411,7 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 当包级约定不够用时阅读以下页面。它们从生成目录进入这一行之下的两个包，以及它所依赖的凭证规则。
 
-- [生成工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-jubian)——十一个工具的精确 schema 与描述。
+- [生成工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-jubian)——十二个工具的精确 schema 与描述。
 - [生成配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)——每个受支持配置字段及其源声明。
 - [dsh-jubian 传输层源码](../jubian/src/index.ts)——这一行所依赖的客户端、五个稳定失败码、凭证修复与写账本。
 - [dsh-jubian-api](../jubian-api/README.zh.md)——每个方法背后的读取器与请求构造器。

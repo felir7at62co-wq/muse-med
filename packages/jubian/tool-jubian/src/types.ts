@@ -32,6 +32,8 @@ export interface ImageRouteRow {
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
+    /** Project-budget read/write was refused; the message identifies the required correction. */
+    'jubian-budget/rejected': {}
     /**
      * The credential provider refused a write of the Jubian admin token — for
      * example because a read-only source shadows the reference. The details

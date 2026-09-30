@@ -9,32 +9,27 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
-  Button, IconWarningOutlineRegular, Modal, Toast,
+  Button, Checkbox, IconWarningOutlineRegular, Modal, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { FeedbackCategory } from '@deepseek-ai/dsh-command-feedback/types'
 import type { FeedbackDialogProps } from './slots.ts'
+import type { MessageFeedbackKey } from './locales.ts'
+import { FEEDBACK_CATEGORY_CHIPS } from './feedback-delivery.ts'
 import css from './FeedbackDialog.module.css'
 
-/**
- * The chips in presentation order. A client bundle may not import a Host
- * package's values, so the taxonomy is restated as a complete record of the
- * `FeedbackCategory` union: a missing or foreign id is a compile error.
- */
-const CATEGORY_CHIPS = {
-  'task-result': true,
-  'instruction-following': true,
-  'product-interaction': true,
-  'service-stability': true,
-  'resource-cost': true,
-  'security-privacy-permission': true,
-  'other': true,
-} satisfies Record<FeedbackCategory, true>
-const CATEGORIES = Object.keys(CATEGORY_CHIPS) as FeedbackCategory[]
+const CATEGORIES = Object.keys(FEEDBACK_CATEGORY_CHIPS) as FeedbackCategory[]
 
 /** Failure codes with their own copy; every other code reads the generic line. */
-const FAILURE_COPY: Partial<Record<string, 'error.conflict' | 'error.noteTooLarge'>> = {
+const FAILURE_COPY: Partial<Record<string, MessageFeedbackKey>> = {
   'version-conflict': 'error.conflict',
   'note-too-large': 'error.noteTooLarge',
+  'muse-feedback/sign-in-required': 'error.museSignIn',
+  'muse-feedback/account-changed': 'error.museAccountChanged',
+  'muse-feedback/unconfirmed': 'error.museUnconfirmed',
+  'muse-feedback/rejected': 'error.museRejected',
+  'muse-feedback/rate-limited': 'error.museRateLimited',
+  'muse-feedback/unavailable': 'error.museUnavailable',
+  'muse-feedback/invalid-input': 'error.museInvalidInput',
 }
 
 /**
@@ -43,7 +38,7 @@ const FAILURE_COPY: Partial<Record<string, 'error.conflict' | 'error.noteTooLarg
  * @returns the modal while a target is open and either toast while it is showing.
  */
 export function FeedbackDialog({
-  useDialog, edit, submit, dismiss, dismissFailure, dismissToast, t,
+  useDialog, edit, submit, dismiss, dismissFailure, dismissToast, museInbox = false, t,
 }: FeedbackDialogProps) {
   const state = useDialog(s => s)
   // The toast centers over the composer card this entry renders inside of.
@@ -67,7 +62,7 @@ export function FeedbackDialog({
       {toast > 0 && failure === null && (
         <Toast
           key={toast}
-          text={t('toast.recorded')}
+          text={t(museInbox ? 'toast.museSubmitted' : 'toast.recorded')}
           tone="success"
           anchor={card}
           onDone={onToastDone}
@@ -117,11 +112,20 @@ export function FeedbackDialog({
         <textarea
           className={css.detail}
           aria-label={t('dialog.detail')}
-          placeholder={t('dialog.hint')}
+          placeholder={t(museInbox ? 'dialog.museHint' : 'dialog.hint')}
           value={state.text}
           readOnly={state.submitting}
           onChange={(event) => { edit({ text: event.target.value }) }}
         />
+        {museInbox && (
+          <Checkbox
+            checked={state.includeDiagnostics}
+            disabled={state.submitting}
+            onChange={(includeDiagnostics) => { edit({ includeDiagnostics }) }}
+            label={t('dialog.museDiagnostics')}
+            className={css.diagnostics}
+          />
+        )}
       </Modal>
     </>
   )

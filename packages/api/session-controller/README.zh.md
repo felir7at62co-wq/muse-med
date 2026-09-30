@@ -82,6 +82,8 @@ GUI 模型选择要求确切提供方／模型对出现在可用目录中；不�
 
 `selectModel` 成功返回表示会话级模型选择已生效，不等待默认 profile 设置保存。默认设置在后台按提交顺序保存；保存失败会记录警告，并保留会话选择。新会话读取最近一次成功保存的默认值。
 
+Host 消费方可用 `selectModelIfCurrent(request, expected)` 替换已观察到的选择，同时保留用户较新的选择。它在 Session 的模型选择队列内比较提供方、模型与推理等级。不匹配时返回 `undefined`，不写入；匹配时沿用 `selectModel` 的校验与记录路径。该 Host 方法不作为 Remote 方法暴露。Agent loop 会在下一次请求的 header 中记录实际使用的提供方与模型。
+
 -----
 
 <a id="configuration"></a>

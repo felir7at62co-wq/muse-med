@@ -34,6 +34,8 @@ kind: "package-reference"
 
 草稿生成通过 `drama_draft_dir` 读取本机设置；编辑器根目录缺失或无效时询问用户，再通过同一工具保存用户提供的路径。字幕对齐默认使用已完成的 Muse 云端收据，核对字词时间戳与源文件 SHA-256；显式离线识别需要另行准备依赖和模型。
 
+[声线参考技能](skills/tweet-drama-voice-continuity/SKILL.md) 让同角色不同服装版本复用认可的声音样本。没有样本时，从该角色首次生成的视频中提取已试听、清晰的单说话人区间；默认 2 秒，参考上限 15 秒。脚本保留源文件，拒绝已有输出，报告实测时长与哈希；确认说话人需要实际听音，Agent 不能检查音频时由用户确认。上传和绑定保留原分镜 ID。音频参考用于引导生成，不能保证 SD 各次输出的音色完全一致。
+
 资产脚本优先使用 `JUBIAN_ASSET_LIBRARY_ROOT`，否则使用 `$DSH_HOME/data/jubian-asset-library`，其中 home 默认是 `~/.dsh`。已有 `tags.local_path` 不改写。检索只读。视觉标注维护需要显式注入 `DEEPSEEK_API_KEY`，可能产生费用；不读取 env 文件或 Jubian token。凭据提供方与子进程环境的接线由消费应用负责。
 
 交付使用自带 `assets/template.json`。显式 `TWEET_DRAMA_TEMPLATE` 必须是已有目录；它不替换九目录名，也不导入第三方文件。组装会删除受管输出分区中的过期文件。项目内输出必须留在 `delivery` 下；项目祖先、上游重叠及已有输出内的链接会被拒绝。报告输出到 stdout，不写报告文件；复制不等于 SHA256 核对或完整媒体 QA。

@@ -11,7 +11,9 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    prefix: You are a helpful software engineer assistant.
+    prefix: >-
+      You are a helpful software engineer assistant.
+      Keep a brief project-local record of planned work, actual milestones and artifacts. This preset has no Muse Wiki tools; report cloud synchronization as pending and retain records for a Wiki-enabled preset to synchronize under the originating account.
     complete: true
     includeRuntimeContext: false
 

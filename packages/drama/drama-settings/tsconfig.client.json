@@ -9,6 +9,7 @@
     "src/css-modules.d.ts",
     "src/settings.ts",
     "src/client/DramaSettingsSection.tsx",
+    "src/client/ProjectBudgetGroup.tsx",
     "src/client/components.ts",
     "src/client/index.ts",
     "src/client/locales.ts",
@@ -16,6 +17,7 @@
     "src/client/section.ts"
   ],
   "references": [
+    { "path": "../../jubian/jubian" },
     {
       "path": "../../../vendor/cordis"
     },

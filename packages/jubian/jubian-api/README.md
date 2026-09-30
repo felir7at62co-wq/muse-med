@@ -155,6 +155,8 @@ Where a field is optional in the provider's own data, the reader carries that op
 
 ### The video stage vocabulary
 
+Uploaded audio references use `materialType=audio`, `materialUrl`, `materialKey`, and a separate audio-group `sortOrder`; they do not require an image parent asset or a casting approval. Native preparation preserves those rows after the confirmed images and fingerprints their saved fields. Subject selection preserves existing audio. Video claims require the ordered child `audioMaterials[].audioUrl` to match the submitted references; absent or changed evidence requires reconciliation, never another paid submission. `readReferenceAudio()` measures complete 16-bit PCM WAV bytes and rejects references longer than 15 seconds. Saved remote `audioDuration` is checked when present, but its absence remains unverified.
+
 `VIDEO_TASK_TYPES` maps `1` to `generate`, `10` to `erase_subtitle`, and `20` to `upscale`; `versions` carries the result history. `subtitle_erased` requires a current URL and either a successful latest type-10 result with an explicit output URL or a successful type-10 history entry whose URL equals the current URL. Stage 10 alone is insufficient, and this flag does not imply visual subtitle review. `upscaled` requires a positive upscale count or latest stage 20, not merely a changed URL.
 
 `RESOLUTION_ORDER` lists this provider's ladder from `480p` to `4K`. `resolutionRank()` returns a label's index or `-1` when the label is unrecognised. `needsUpscale()` returns `null` for an unrecognised target, or for an unrecognised source without a recorded upscale; a recorded upscale establishes a 1080p current file. A delivery target is a comparison, not a constant, because a generation model can top out below it.

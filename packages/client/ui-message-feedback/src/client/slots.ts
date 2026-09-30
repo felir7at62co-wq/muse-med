@@ -56,6 +56,8 @@ export type MessageFeedbackActionProps =
 
 /** Injected business face of the Session's feedback dialog entry. */
 export interface FeedbackDialogInjected {
+  /** This dialog delivers to the Muse account inbox rather than only to the local log. */
+  museInbox?: boolean
   hooks: {
     /** The Session's dialog and toast state. */
     dialog: HostObservable<FeedbackDialogState>
@@ -64,7 +66,7 @@ export interface FeedbackDialogInjected {
    * Replace part of the draft: the category (null clears it) or the text.
    * @param draft - the members to replace.
    */
-  edit: (draft: Partial<Pick<FeedbackDialogState, 'category' | 'text'>>) => void
+  edit: (draft: Partial<Pick<FeedbackDialogState, 'category' | 'text' | 'includeDiagnostics'>>) => void
   /** Submit the draft to the open target. */
   submit: () => Promise<void>
   /** Close the dialog and discard the draft. */

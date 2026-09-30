@@ -35,6 +35,7 @@ import {
   inspectApiSession,
 } from './agent.ts'
 import type {
+  ModelSelection,
   SessionAttachmentRequest,
   SessionAttachmentValue,
   SessionCancelRequest,
@@ -150,39 +151,57 @@ export class SessionCommandController {
    */
   async selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     const agent = await this.resolveAgent(request.sessionId)
+    return this.agents.serializeImageAdmission(agent, () => this.applyModelSelection(agent, request))
+  }
+
+  /**
+   * Change a Session selection only while the previously observed selection still applies.
+   * @param request - requested replacement model and owning Session.
+   * @param expected - complete current provider, model, and reasoning choice.
+   * @returns the normalized replacement, or undefined when another selection won the queue.
+   */
+  async selectModelIfCurrent(request: SessionSelectModelRequest, expected: ModelSelection): Promise<SessionSelectModelValue | undefined> {
+    const agent = await this.resolveAgent(request.sessionId)
     return this.agents.serializeImageAdmission(agent, async () => {
-      try {
-        await this.requireModel(request)
-        const resolved = await this.ctx.llm.resolveCallConfig({
-          provider: request.provider,
-          model: request.model,
-          ...(request.reasoningEffort === undefined
-            ? {}
-            : { reasoningEffort: ReasoningEffortId(request.reasoningEffort) }),
-        })
-        const selected: AgentModelSelection = {
-          provider: resolved.provider,
-          model: resolved.model,
-          ...(resolved.reasoningEffort === undefined
-            ? {}
-            : { reasoningEffort: resolved.reasoningEffort }),
-        }
-        this.agents.selectForNextRequest(agent, selected)
-        void this.ctx.agentDefaultModel.saveSelection(selected).catch((error: unknown) => {
-          this.ctx.logger.warn(
-            `session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`,
-          )
-        })
-        return { selected: { ...selected } }
-      } catch (error) {
-        if (remoteErrorOf(error) !== undefined) throw error
-        throw new RemoteError(
-          'session/model-unavailable',
-          error instanceof Error ? error.message : String(error),
-          { provider: request.provider, model: request.model },
-        )
-      }
+      const current = this.agents.selectionFor(agent).current
+      if (current.provider !== expected.provider || current.model !== expected.model
+        || current.reasoningEffort !== expected.reasoningEffort) return undefined
+      return this.applyModelSelection(agent, request)
     })
+  }
+
+  private async applyModelSelection(agent: Agent, request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
+    try {
+      await this.requireModel(request)
+      const resolved = await this.ctx.llm.resolveCallConfig({
+        provider: request.provider,
+        model: request.model,
+        ...(request.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: ReasoningEffortId(request.reasoningEffort) }),
+      })
+      const selected: AgentModelSelection = {
+        provider: resolved.provider,
+        model: resolved.model,
+        ...(resolved.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: resolved.reasoningEffort }),
+      }
+      this.agents.selectForNextRequest(agent, selected)
+      void this.ctx.agentDefaultModel.saveSelection(selected).catch((error: unknown) => {
+        this.ctx.logger.warn(
+          `session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`,
+        )
+      })
+      return { selected: { ...selected } }
+    } catch (error) {
+      if (remoteErrorOf(error) !== undefined) throw error
+      throw new RemoteError(
+        'session/model-unavailable',
+        error instanceof Error ? error.message : String(error),
+        { provider: request.provider, model: request.model },
+      )
+    }
   }
 
   /**

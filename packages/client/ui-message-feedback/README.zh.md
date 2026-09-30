@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-本包是 Web GUI 的反馈界面：已定稿助手消息动作条中的 Like/Dislike 对、输入框浮层中的反馈弹窗及其确认与失败 toast，以及让不带文本的 `/feedback` 打开弹窗的装饰。点赞和点踩都会打开弹窗，先收集分类与可选描述，再记录所选评分。每个 Session 一个 surface 支撑所有条目，因此一次列表读取即可填充整段对话，一个弹窗同时服务 Session 与其消息。评分、分类与备注是仅写日志的 Session 事件，绝不进入模型上下文。
+通过同一个弹窗反馈已完成的回答或当前任务。用户可以选择分类并填写描述；提交失败会保留草稿。Muse 桌面端将两类反馈提交到登录账号的 Muse 意见箱，并提供可选的有限对话诊断信息。其他部署使用本地 Session 反馈及所配置的日志投递。评分和备注不进入模型上下文。
 
 ## 目录
 
@@ -25,11 +25,13 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-与 `ui-conversation`、`ui-commands` 一起挂载本插件；Like/Dislike 对随即出现在每个轮次收尾助手消息的动作行中，位于复制与分支之间，输入框菜单里的「反馈」会打开同一个弹窗。挂载 `session-log-export` 后，会话标题栏的更多操作菜单也会增加「反馈」。已记录的评分显示实心图标，不需要悬停也一直可见。点赞和点踩都会打开弹窗：七个分类标签和一个详情框都可不填；提交后才会记录带所填内容的对应评分并弹出感谢 toast，对话日志随每个反馈事件一起投递。再次点击已记录的评分会直接撤回，不打开弹窗。不带文本的 `/feedback`，无论是从菜单选中还是直接输入后发送，都会为 Session 打开同一个弹窗；`/feedback <text>` 仍走宿主命令路径并显示确认行。
+与 `ui-conversation`、`ui-commands` 一起挂载本插件；Like/Dislike 对出现在每个已完成回答的动作行中，位于复制与分支之间。输入框的「反馈」动作，以及挂载 `session-log-export` 后的会话标题栏「反馈」动作，都打开同一个弹窗。七个分类与描述均可不填。已记录的评分不需要悬停也一直可见；再次点击会撤回本地评分。不带文本的 `/feedback` 打开 Session 弹窗；`/feedback <text>` 保留独立的宿主命令路径。
+
+在 Muse 桌面端，提交会将草稿、分类和任务或消息标识发送到 Muse 意见箱。诊断选项默认不勾选，只有勾选后才附带最近请求与相关回答的有限摘录，不附完整日志、工具参数与结果、思考内容或附件。服务端确认回执后才显示「已提交到 Muse 意见箱」；本地日志仅保留回执标记和分类。撤回本地评分不会删除已经提交的意见箱记录。
 
 ### 失败
 
-评分或列表加载失败在行内展示；提交失败通过警告 toast 展示，弹窗保持打开以便修正草稿。只有已定稿的消息能到达消息条目——被中断冻结的部分输出不带 `messageId`，因此没有反馈控件。
+评分或列表加载失败在行内展示；提交失败显示警告 toast 并保留草稿。Muse 需要投递提供方及当前账号，不会把本地记录当作入箱成功。发送结果不明或账号切换时，会提示用户先检查原账号意见箱，再决定是否重试。云端回执已确认后，本地标记保存失败不改变提交成功。只有已定稿的消息进入消息条目；被中断的部分输出没有 `messageId` 或反馈控件。
 
 -----
 
@@ -41,7 +43,9 @@ kind: "package-reference"
 
 本包贡献 `conversation.chat.assistant-actions` 的 `feedback` 条目（order 10），由 ui-conversation 声明并渲染在已定稿助手消息的 IconActions 行内；同时贡献 `conversation.input.overlay` 的 `feedback-dialog` 条目（order 2），它通过 body portal 渲染 Modal 与 Toast 基元，并让 toast 以其所在的输入框卡片为中心。`feedbackUi.openSession(sessionId)` Client 服务打开同一个 Session 级弹窗，不记录反馈；标题栏菜单和命令装饰共用此方法。`/feedback` 装饰是经 `ctx.commandUi.decorate` 注册的 `action`，因此菜单选中或不带参数的回车会消费触发 token 并打开弹窗，而带参数的命令行仍到达宿主命令。
 
-每个 Session 有一个 `MessageFeedbackController` 支撑所有消息控件，以及一个 `FeedbackDialogController` 拥有弹窗草稿、提交与 toast 序号。消息控制器只读取一次 `messageFeedback.list`，且延迟到首次 hover 或 focus 才发起，而非挂载时触发；变更串行执行，每次都携带最后观察到的版本，`version-conflict` 响应带回权威条目，据此对账视图而不重新拉取。任一评分操作执行前，该行都会检查已提交条目：评分相同则调用 `retract`，它会在串行队列内重新检查评分并在并发变更后变为无操作；其他状态则携带所选评分打开弹窗。弹窗控制器按目标提交：消息目标通过消息控制器 put 一条带弹窗备注与分类的对应评分，Session 目标通过 `ctx.remote.sessionFeedback` 记录。成功会关闭草稿并弹出确认 toast；被替换的旧草稿迟到的成功只弹确认 toast、不关闭新草稿；失败会保留弹窗并弹出停留时间更长的警告 toast。
+每个 Session 的消息控制器按需加载评分，并根据观察到的版本串行修改本地记录。一个弹窗控制器拥有草稿和确认提示；新草稿重置诊断选项，迟到的结果不会关闭更新的草稿，释放时停止在途确认提示。可选的 `feedbackDelivery` 提供方先将所选目标提交到账号意见箱，再记录本地回执标记。没有该提供方时，其他产品使用 `messageFeedback.put` 或 `sessionFeedback.record`，Muse 则报告暂不可用。[Muse 账号提供方](../../host/muse-account/README.zh.md)负责鉴权投递与诊断过滤。
+
+投递服务公开 Client 自有的目标与内容类型。分类键共用弹窗的展示列表，并按持久化反馈分类表进行编译检查。
 
 </details>
 

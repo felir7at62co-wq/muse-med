@@ -11,6 +11,8 @@ Agent 处理文本与质量决策，剧变插件（`jubian_*`）是唯一多媒�
 
 新建、续跑或修改先加载 [项目圣经技能](../tweet-drama-project-bible/SKILL.md)，用 drama_project 读取唯一 project_config.json。新剧一次集中确认用户尚未给出的风格、比例、SD 视频模型/平台及生成分辨率；delivery 四项独立保存，episode_plan 灵活确定。Wiki 和模板提供指导，不作为写作或项目启动的前置门禁；参数够用即可推进写作。已有角色身份和 voice_profile 用于提示词及说话人核对，生成后仍实际听音检查，固定提示词不能保证 SD 跨镜音色一致。后续修改在原项目、原 storyboard_id 上通过 edit_preview/edit_apply 完成，保留 package_id、已完成任务与版本记录。
 
+涉及声音统一或音频参考先加载 [声音连续性技能](../tweet-drama-voice-continuity/SKILL.md)：优先复用同角色声音，没有样本从首次真实生成的清晰独白提取默认 2 秒，上传后固定角色与参考 URL；单条音频参考最长 15 秒。建立首个声线作为独立初始生产范围，检查该范围全部包和预算后提交；其余包等参考齐备再整批检查并行生成。音频参考绑定原卡，不默认删除音频或新建重复分镜。
+
 ## 设置与创作
 
 - 查现有分镜用 `jubian_storyboard list(script_id)` 分页，再用 `get` 回读；`jubian_model preview` 只做已有分镜的配置变更预览。空项目按 `create` 的 body 字段说明建分镜，`episodeId` 从当前项目 `jubian_catalog episodes` 取得，不是显示集号；无需让用户手工造样本，也不用读取安装包源码。创建体和完整包提示词先写到项目 `video_tasks/` 检查，用 `create_batch` 一次提交整批，由工具有界并发免费写入，再逐项回读。`modelConfig.prompt` 保存完整提示词，顶层 prompt 不能代替它；提示词中的 `@[素材名](key)` 顺序与后续 selections 一致，未选材时 material_keys 为空正常。缺已存模型字段时按实际包内容补齐 `changes`，各包时长可分别设置；`Invalid remote ID` 应定位当前分镜缺失的字段，不能借用其他项目或改写项目绑定来试错。
@@ -20,7 +22,7 @@ Agent 处理文本与质量决策，剧变插件（`jubian_*`）是唯一多媒�
 
 ## 正式资产
 
-先读取主体设定，再处理真正缺少的资产。重要角色缺参考图时先按 `tweet-drama-core` 参考图流程自主检索有来源、许可及适用性证据的网上服化道素材；用户已提供合适图片则沿用用户确认路径。逐图实看并记录相应审核，收费生图前运行 `style_references.py <项目目录> <role_id> check`；没有合格来源或证据不全才暂停受影响角色并索取用户图片，不自动安装、启动或调用小红书。网上参考图只用于生成，不能直接登记或绑定为正式资产。资产图以项目确认的版式为生成目标，按 `tweet-drama-asset-vision-check` 审核实际可用性；干净浅灰背景、清晰3/4侧脸等轻微偏差不单独触发付费重生，用户明确要求严格验收的版式除外。角色、场景、道具不可混用。生成资产仍须自动审核（实际视觉检查）与确认出演，max_review_attempts=3 是同一候选的定向审核上限，不是自动花满次数的许可。
+先读取主体设定，再处理真正缺少的资产。角色（含主角）、场景、道具或风格缺参考时主动用 web_search 与 web_fetch 搜索来源并提炼可用元素；角色参考按 `tweet-drama-core` 参考图流程自主检索有来源、许可及适用性证据的网上服化道素材；用户已提供合适图片则沿用用户确认路径。逐图实看并记录相应审核，收费生图前运行 `style_references.py <项目目录> <role_id> check`；没有合格来源或证据不全才暂停受影响角色并索取用户图片，不自动安装、启动或调用小红书。网上参考图只用于生成，不能直接登记或绑定为正式资产。资产图以项目确认的版式为生成目标，按 `tweet-drama-asset-vision-check` 审核实际可用性；干净浅灰背景、清晰3/4侧脸等轻微偏差不单独触发付费重生，用户明确要求严格验收的版式除外。角色、场景、道具不可混用。生成资产仍须自动审核（实际视觉检查）与确认出演，max_review_attempts=3 是同一候选的定向审核上限，不是自动花满次数的许可。
 
 非本地生成候选必须具有生成 `material_id`；`jubian_asset confirm_casting` 成功且父资产回查一致后才写 asset_confirmation=verified、official=true。`isLocal=1` 正式主体可无生成 material_id，但须实时回读 materials/get：属于当前 scriptId、已在主体设定、isUsed=1、hsAssetStatus=Active、URL 和 hsAssetId 与父资产及 picker 一致。满足后跳过该资产生成链，在 writer 合法阶段记录 skipped 与 skipped_with_official_local_evidence 及门禁证据。本地 manifest 不能替代远端来源。
 

@@ -1,0 +1,35 @@
+[
+  {
+    "type": "model/selection",
+    "data": {
+      "provider": "deepseek-official",
+      "model": "deepseek-flash",
+      "reasoningEffort": "high"
+    }
+  },
+  {
+    "type": "model/selection",
+    "data": {
+      "provider": "muse-cloud-deepseek-official",
+      "model": "deepseek-flash",
+      "reasoningEffort": "high"
+    }
+  },
+  {
+    "type": "request/header",
+    "data": {
+      "header": {
+        "config": {
+          "provider": "muse-cloud-deepseek-official",
+          "model": "deepseek-flash",
+          "reasoningEffort": "high",
+          "maxTokens": 256000
+        },
+        "adapterDefaults": {
+          "maxTokens": true
+        }
+      },
+      "reason": "initial"
+    }
+  }
+]

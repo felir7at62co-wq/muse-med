@@ -34,6 +34,9 @@ export type {
 } from './controller.ts'
 export type { FeedbackDialogState, FeedbackDialogTarget, FeedbackSubmit } from './dialog.ts'
 export type {
+  FeedbackDelivery, FeedbackDeliveryEntry, FeedbackDeliveryResult, FeedbackDeliveryTarget,
+} from './feedback-delivery.ts'
+export type {
   FeedbackDialogInjected, FeedbackDialogProps, MessageFeedbackActionProps, MessageFeedbackInjected,
 } from './slots.ts'
 export type { MessageFeedbackKey } from './locales.ts'
@@ -118,8 +121,10 @@ export function apply(ctx: ClientContext): void {
     order: 2,
     locale: NS,
     inject: (sessionId): FeedbackDialogInjected => {
-      const { dialog } = surfaceFor(sessionId)
+      const surface = surfaceFor(sessionId)
+      const { dialog } = surface
       return {
+        museInbox: surface.museInbox,
         hooks: { dialog: dialog.state },
         edit: (draft) => { dialog.edit(draft) },
         submit: () => dialog.submitDraft(),

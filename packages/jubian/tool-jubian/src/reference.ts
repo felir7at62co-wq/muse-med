@@ -24,7 +24,7 @@ import { promisify } from 'node:util'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import {
   alignedReferenceSize, buildReferenceObjectKey, extractAppScriptUrl, extractTosUploadConfig,
-  readReferenceImage, referenceMaterialItem, signTosObjectPut,
+  readReferenceAudio, readReferenceImage, referenceMaterialItem, signTosObjectPut,
 } from '@deepseek-ai/dsh-jubian-api'
 import type { ReferenceFormat, ReferenceImage, TosUploadConfig } from '@deepseek-ai/dsh-jubian-api'
 
@@ -219,4 +219,28 @@ export async function uploadReferenceMethod(args: { image_path?: string | undefi
     sha256: `sha256:${createHash('sha256').update(payload).digest('hex')}`,
     next: '把这个 material_url 作为 gpt-image-2 的参考图 URL 使用（image_generate 的 references），'
       + '或放进资产的 materialList。上传本身免费、不创建任务。' }
+}
+
+/**
+ * Upload one measured PCM voice reference using the workbench's media-object directory.
+ * @param args - Local audio_path of a complete PCM WAV no longer than 15 seconds.
+ * @param deps - Optional workbench/object transport and clock.
+ * @returns The HTTPS audio item, measured duration and digest; no character asset or task is created.
+ */
+export async function uploadAudioReferenceMethod(args: { audio_path?: string | undefined },
+  deps: ReferenceUploadDeps = {}): Promise<Record<string, unknown>> {
+  if (!args.audio_path?.trim()) throw new JubianError('INVALID_ARGUMENT', 'upload_audio requires audio_path')
+  const bytes = await readFile(resolve(args.audio_path))
+  const audio = readReferenceAudio(bytes)
+  const transport = deps.fetch ?? fetch
+  const now = deps.now?.() ?? new Date()
+  const key = buildReferenceObjectKey(now, randomBytes(16).toString('hex'), audio.extension)
+    .replace('prod/sys-material-image/', 'prod/sys-material-video/')
+  const config = await loadTosConfig(transport)
+  const signed = signTosObjectPut({ config, key, payload: bytes, content_type: audio.content_type, now })
+  await putObject(transport, signed.url, signed.headers, bytes)
+  return { materialType: 'audio', materialUrl: signed.url, sortOrder: 1, audioDuration: audio.duration_seconds,
+    duration_verified: true, bytes: bytes.byteLength, paidRequests: 0,
+    sha256: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+    next: '保存 URL 和 SHA-256 到对应角色 voice_profile；在原 storyboard_id 的素材列表加入 audio 行并显式写角色声音标记，再 save/get/prepare_video。不要改成图片父资产，不要重建卡。' }
 }

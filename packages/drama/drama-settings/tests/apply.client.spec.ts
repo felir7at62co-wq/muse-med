@@ -20,6 +20,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { DramaSettingsSchema, DRAMA_SETTINGS_DEFAULTS, DRAMA_SETTINGS_NAMESPACE, type DramaSettings } from '../src/settings.ts'
 import { plainConfig } from '../../../settings/settings/src/schema.ts'
 import { DramaSettingsSection } from '../src/client/DramaSettingsSection.tsx'
+import type { DramaSettingsSectionInjected } from '../src/client/DramaSettingsSection.tsx'
 import { DRAMA_COMPONENTS } from '../src/client/components.ts'
 import { apply, inject, NS } from '../src/client/index.ts'
 import { draftOf } from '../src/client/section.ts'
@@ -30,7 +31,7 @@ const SECTION_SLOT = 'settings.section'
 function resolve(user: Record<string, unknown>): DramaSettings {
   // The scripted layer is a partial section; the schema fills the rest in, and the
   // Host sends the wire plain values rather than the schema's live references.
-  return plainConfig(DramaSettingsSchema(user as unknown as DramaSettings)) as DramaSettings
+  return plainConfig(DramaSettingsSchema(user)) as DramaSettings
 }
 
 /** One namespace view over the scripted user layer, resolved through the real schema. */
@@ -100,6 +101,18 @@ function sectionEntry(slots: SlotRegistry) {
 afterEach(() => { vi.restoreAllMocks() })
 
 describe('drama-settings browser plugin', () => {
+  it('returns a maintained carrier failure when project budget operations are not mounted', async () => {
+    const b = await bench()
+    try {
+      declareSlots(b.slots)
+      await b.ctx.plugin({ inject: [...inject], apply }).await()
+      const face = sectionEntry(b.slots)?.inject?.() as DramaSettingsSectionInjected | undefined
+      if (!face?.budgetRead || !face.budgetUpdate) throw new Error('Missing budget UI actions')
+      for (const result of [await face.budgetRead(2708), await face.budgetUpdate(2708, 500000, 'revision')]) {
+        expect(result).toMatchObject({ ok: false, error: { code: 'gateway/internal', isDSHRemoteError: true, name: 'RemoteError' } })
+      }
+    } finally { await b.ctx.fiber.dispose() }
+  })
   it('declares the slot registry, the locale, and the settings scope service', () => {
     expect(inject).toEqual(['slots', 'locale', 'configForms'])
     expect(NS).toBe('settings.drama')

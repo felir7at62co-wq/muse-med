@@ -1,5 +1,5 @@
 ---
-description: "Eleven Jubian (剧变) tools for screenplay pool inspection and authorized claims, production catalogues, assets, storyboards, paid generation, media download and background jobs."
+description: "Twelve Jubian (剧变) tools for screenplay pool inspection and authorized claims, production catalogues, assets, storyboards, paid generation, media download and background jobs."
 kind: "package-bundle"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-tool-jubian` gives a DSH model eleven tools for the screenplay pool and Jubian production: catalogue reads, screenplay lookup, authorized pool claims, asset and storyboard edits, a read-only organization index, reference upload, paid image and video generation, subtitle erasure, upscaling, media download and background jobs. Reads are free; paid or state-changing calls use caller-supplied idempotency keys, and the plugin records an intent before each request and a settlement after its response. A replayed key never repeats a write; reconciliation methods may perform fresh reads.
+`dsh-tool-jubian` gives a DSH model twelve tools for the screenplay pool and Jubian production: catalogue reads, screenplay lookup, authorized pool claims, asset and storyboard edits, a read-only organization index, reference upload, paid image and video generation, subtitle erasure, upscaling, media download and background jobs. Reads are free; paid or state-changing calls use caller-supplied idempotency keys, and the plugin records an intent before each request and a settlement after its response. A replayed key never repeats a write; reconciliation methods may perform fresh reads.
 
 ## Table of Contents
 
@@ -25,11 +25,11 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the row in any preset that needs to read or change a Jubian production, then give the model a task; the eleven tools state their effects in their descriptions.
+Mount the row in any preset that needs to read or change a Jubian production, then give the model a task; the twelve tools state their effects in their descriptions.
 
 ### When to choose it
 
-Choose this package when an agent must inspect or claim a screenplay from the account pool, resolve a screenplay name, organize assets, upload a reference image, save a subject selection, prepare and submit video, confirm casting, generate images, erase subtitles, upscale a clip, or download provider media. Mount it wherever the credential resolves. When the session does not use Jubian, omit the row because its eleven schemas remain model-visible while mounted.
+Choose this package when an agent must inspect or claim a screenplay from the account pool, resolve a screenplay name, organize assets, upload a reference image, save a subject selection, prepare and submit video, confirm casting, generate images, erase subtitles, upscale a clip, or download provider media. Mount it wherever the credential resolves. When the session does not use Jubian, omit the row because its twelve schemas remain model-visible while mounted.
 
 ### Minimal configuration
 
@@ -89,7 +89,7 @@ A row is pinned in one of two places, and the settings page wins: **Settings →
 
 `jubian_video image_generate` may set `image_platform_id` for one call; it selects that platform's live catalogue row ahead of the saved or deployment pin. Muse's bundled deployment pins `KU_AI` when the user has not chosen a row. An authorized fallback can request `DUO_YUAN_TAN_SUO` explicitly. Check its live price and the previous paid task before switching: a timeout or unknown result is not a failed charge and must be reconciled before a new key or route is used.
 
-The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-jubian) is the exhaustive source for every accepted field and its JSDoc. The row injects `tools` and `credentials`, registers all eleven tools at mount, and mounts two Remote namespaces: `jubianToken`, which the Settings page calls, and `jubianImage`, which only reads the account's `gpt-image-2` rows for the short-drama page's picker. There is no per-tool enable flag and no separate page row.
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-jubian) is the exhaustive source for every accepted field and its JSDoc. The row injects `tools` and `credentials`, registers all twelve tools at mount, and mounts three Remote namespaces: `jubianToken` for account credentials, `jubianImage` for the account's `gpt-image-2` rows, and `jubianBudget` for the Settings page's live project ceiling and accounting. There is no per-tool enable flag and no separate page row.
 
 ### Credential
 
@@ -128,12 +128,15 @@ The second namespace, `jubianImage`, exists for one read: `routes()` returns the
 
 A catalogue it cannot read is reported as `jubian-image/catalogue-unreadable` carrying the transport's own message, and the page shows that message verbatim. Nothing is cached: every call reads the account, because a row's price and existence are account state rather than plugin state.
 
-### The eleven tools
+### The twelve tools
 
-The eleven registered tools are the whole model-facing surface. This package publishes no system-prompt section, so every operational fact the model needs travels in a tool description or a schema description.
+`jubian_budget` and the `jubianBudget` Settings namespace share `<ledger>/authorization.json` and the paid-call accounting reader. Projects without a separate authorization inherit the live drama default, initially ¥4000; a separately authorized amount replaces that default. Chat updates require actual user budget text for the exact project or the Session's bound project, or a genuine answer to an `ask_user_question` explicitly naming that project's total budget. Assistant statements, unrelated answers, withdrawn approval and mismatched amounts cannot authorize an update. A read supplies the exact revision; updates preserve spend, reservations and estimates, and return actual saved data immediately without restarting. The [project bible skill](../../drama/skills/skills/tweet-drama-project-bible/SKILL.md) describes the missing-authorization question. The Settings writer treats the user's project-ceiling submission as authorization; this local workflow does not isolate files from a user with direct filesystem access.
+
+The twelve registered tools are the whole model-facing surface. This package publishes no system-prompt section, so every operational fact the model needs travels in a tool description or a schema description.
 
 | Tool | Methods | Billing and effect |
 |---|---|---|
+| `jubian_budget` | `read`, `update` | Free; reads actual accounting or saves a verified user-approved project ceiling |
 | `jubian_catalog` | `models`, `rate`, `script`, `episodes` | Read-only, no charge |
 | `jubian_find` | `scope` (`mine`, `pool`), `mine` filters `production_type` / `share_target_type` | Read-only, no charge |
 | `jubian_claim` | `inspect`, `claim` | Inspect is read-only; claim requires explicit user authorization, `canClaim=1`, and an idempotency key |
@@ -142,6 +145,7 @@ The eleven registered tools are the whole model-facing surface. This package pub
 | | `confirm_casting` | Changes provider state through a `GET`; needs `idempotency_key` |
 | | `remove` | Deletes one parent asset irrecoverably; needs `idempotency_key` |
 | | `upload_reference` | Free and task-free; writes one object into the provider's bucket |
+| | `upload_audio` | Free and task-free; measures a local PCM WAV reference of at most 15 seconds, then uploads one object |
 | | `create_folder`, `move`, `rename` | Reorganize the console's asset library; each needs `idempotency_key` |
 | `jubian_organize` | `index` | Read-only and free; writes one local index file |
 | `jubian_model` | `preview`, `apply` | Preview is read-only remotely; apply saves approved existing storyboard settings with `isGenerate=0` |
@@ -262,6 +266,8 @@ Project and episode previews report malformed cards in `excluded_invalid` and pl
 
 ### The storyboard-native video channel
 
+For voice continuity, load [the voice reference skill](../../drama/skills/skills/tweet-drama-voice-continuity/SKILL.md). `jubian_asset upload_audio` accepts `audio_path`, measures the actual 16-bit PCM WAV samples, refuses files longer than 15 seconds before uploading, and returns `materialUrl`, `audioDuration`, SHA-256 and `duration_verified: true`. It creates no asset or generation task. Existing uploaded audio remains bound when `select_assets` updates image selections; audio has its own group order and no image parent ID. Native preparation freezes those references and reports saved duration separately from byte verification; unknown remote duration stays unverified. Submitted audio must reappear in ordered child `audioMaterials[].audioUrl` before a task is claimed. Repair and save the original storyboard when a reference is wrong.
+
 A subject-backed video is created by the provider from a storyboard `PUT` with `isGenerate=1`; a direct task `POST` does not preserve subject identity. Production evidence isolates that difference: task `335343` came from the storyboard `PUT`, retained all seven identities, and succeeded, while `335470` came from direct `POST /admin/aigc/video/task/create`, lost `assetId`/`materialName`, and failed. That route is therefore unsupported here, and there is no method that calls it.
 
 The only normal order is three calls:
@@ -271,7 +277,7 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 ```
 
 - `select_assets` saves an ordered subject selection. Each `material_key` must appear in the prompt's own `@[name](key)` order, every selection must resolve to exactly one active subject-setting row and one parent asset in the same project, and the row's trusted `hsAssetId` is what the provider will translate into the child task's identity. The body is always forced to `isGenerate=0`. After the single `PUT` the row re-reads the storyboard as well as the project's task list: a saved order that disagrees with the plan is an error, and a video task that appeared across a selection-only save is reported as `billing_safety_violation` so a caller stops rather than continues.
-- `prepare_video` is free and read-only on the provider. It checks `project_config.json` in `project_dir` against the live `scriptId`, hydrates every ordered material from the live storyboard, the subject picker and the parent assets, preserves the saved model, platform, ratio, resolution and duration, and resolves their exact current catalogue selectors with `genNum=1`. Seedance 2.0 (`doubao-seedance-2-0-260128`) accepts 4–15 total seconds; Seedance 2.5 (`doubao-seedance-2-5-260628`) accepts 4–30. Total duration includes at least one second of natural ending; unsupported or ambiguous selections fail without a default substitution. It writes one preview into `<project_dir>/video_tasks/storyboard-<id>-<key12>.storyboard-native.prepared.json` through a temporary file and a rename. It sends no `PUT`, creates no task, and charges nothing.
+- `prepare_video` is free and read-only on the provider. It checks `project_config.json` in `project_dir` against the live `scriptId`, hydrates ordered images from the live storyboard, the subject picker and the parent assets, preserves uploaded audio, the saved model, platform, ratio, resolution and duration, and resolves their exact current catalogue selectors with `genNum=1`. Seedance 2.0 (`doubao-seedance-2-0-260128`) accepts 4–15 total seconds; Seedance 2.5 (`doubao-seedance-2-5-260628`) accepts 4–30. Total duration includes at least one second of natural ending; unsupported or ambiguous selections fail without a default substitution. It writes one preview into `<project_dir>/video_tasks/storyboard-<id>-<key12>.storyboard-native.prepared.json` through a temporary file and a rename. It sends no `PUT`, creates no task, and charges nothing.
 - `submit_video` takes that `preview_path` and an `idempotency_key` that **must equal the preview's own fingerprint**. A mismatch, a stale preview (the live semantics changed since it was written) or a preview that is not this plugin's own fails before anything is sent. Otherwise it takes a complete, paged task snapshot, refuses to continue if a second read of that snapshot drifts, sends at most one `PUT /aigc/storyboard` with `isGenerate=1`, and takes a second snapshot to claim the one new task whose ordered `assetId`/`materialName`/`imageUrl` and model/prompt evidence match the preview exactly. A task row counts as a candidate for that claim — before or after the `PUT` — only when it is provably this storyboard's: the row states its `storyboardId`, its detail does, or one of its child results does. A project holds every storyboard's tasks and most rows state no `storyboardId` at all, so a row that proves none of the three belongs to another storyboard and is neither a match nor unsafe evidence.
 - `submit_video_batch` accepts `video_previews: [{preview_path, idempotency_key}]` for distinct storyboards in one project. The agent must prepare and review the requested range and include every intended preview in this submission list; the tool can verify the supplied list, not detect omitted storyboards. It validates every listed preview against its live storyboard, checks existing tasks and two complete project snapshots, then reserves the whole batch estimate under one same-process ledger claim before sending any PUT. A stale preview, duplicate storyboard/key, drifting or malformed task list, existing task conflict, or insufficient aggregate budget sends zero PUTs. Once all reservations exist, it sends up to `videoBatchConcurrency` independent storyboard PUTs at once and independently limits reconciliation reads to the same concurrency without occupying PUT slots. It reads each task as soon as its PUT returns, then uses a final project snapshot and each item's storyboard, ordered subject, model and prompt evidence to report ordered results. `submitted` requires intact final identity; an unknown PUT or stripped readback is `reconcile_required`, never permission to resend. A replay with all original keys performs read-only reconciliation. Mixed recorded and new keys are refused; reconcile each old key before making a new approved batch. The ledger queue is process-local, as for single paid writes.
 
@@ -372,7 +378,7 @@ The package is built on three decisions:
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: the `Config` interface, the ledger, client and naming construction, the credential fallback, the eleven `ctx.tools.register` calls, and the shared argument and output contracts |
+| [`src/index.ts`](src/index.ts) | Plugin entry: the `Config` interface, the ledger, client and naming construction, the credential fallback, the twelve `ctx.tools.register` calls, and the shared argument and output contracts |
 | [`src/methods.ts`](src/methods.ts) | One async function per tool: method dispatch, request shaping, and the local media write |
 | [`src/find.ts`](src/find.ts) | The screenplay-name lookup: the two scope paths, the shared name normalization, and the bounded scan behind the `complete` verdict |
 | [`src/claim.ts`](src/claim.ts) | Account pool inspection, one-shot ledger-backed claim, and bounded background claim window |
@@ -405,7 +411,7 @@ Read methods never touch the ledger. Each sends one request and passes the envel
 
 Read these pages when the package-level contract is not enough. They move from the generated catalogues to the two packages underneath this row and the credential rules it depends on.
 
-- [Generated tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-jubian) — the exact schema and description of all eleven tools.
+- [Generated tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-jubian) — the exact schema and description of all twelve tools.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-jubian) — every accepted config field and its source declaration.
 - [dsh-jubian transport source](../jubian/src/index.ts) — the client, the five stable failure codes, credential repair, and the write ledger this row builds on.
 - [dsh-jubian-api](../jubian-api/README.md) — the readers and request builders behind every method.
@@ -425,7 +431,7 @@ The model sees `jubian_catalog`, `jubian_find`, `jubian_claim`, `jubian_snatch`,
 
 #### Token effect
 
-Fixed per request while the row is mounted: eleven tool definitions with their enum and argument descriptions, and no prompt section. Enabling or removing the row is the only lever on this cost.
+Fixed per request while the row is mounted: twelve tool definitions with their enum and argument descriptions, and no prompt section. Enabling or removing the row is the only lever on this cost.
 
 #### KV Cache effect
 

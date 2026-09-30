@@ -155,6 +155,8 @@ async function downloadVideo(row: VideoSubtask) {
 
 ### 视频阶段词表
 
+上传的音频参考使用 `materialType=audio`、`materialUrl`、`materialKey` 和音频组独立的 `sortOrder`；无需图片父资产或确认出演。原生准备保留这些行，排在已确认图片之后，并将其保存字段纳入指纹。主体选源保留已有音频。视频认领要求子结果的有序 `audioMaterials[].audioUrl` 与提交参考一致；证据缺失或变化时只允许对账，不再次付费提交。`readReferenceAudio()` 测量完整 16 位 PCM WAV 字节，拒绝超过 15 秒的参考。已保存远端 `audioDuration` 存在时会校验，缺失时保留未核实状态。
+
 `VIDEO_TASK_TYPES` 把 `1` 映射为 `generate`、`10` 映射为 `erase_subtitle`、`20` 映射为 `upscale`；`versions` 携带结果历史。`subtitle_erased` 要求存在当前 URL，且最新类型 10 结果成功并有显式输出 URL，或存在成功的类型 10 历史条目且其 URL 等于当前 URL。只有阶段 10 不足以成立，该标记也不代表字幕视觉审核通过。`upscaled` 要求转高清次数为正或最新阶段为 20，不能仅凭 URL 变化判断。
 
 `RESOLUTION_ORDER` 列出该提供方从 `480p` 到 `4K` 的阶梯。`resolutionRank()` 返回标签的下标，标签无法识别时返回 `-1`。交付目标无法识别时，或来源无法识别且没有已记录的转高清时，`needsUpscale()` 返回 `null`；已记录的转高清会确立一个 1080p 当前文件。交付目标是比较，不是常量，因为生成模型可能封顶在目标之下。

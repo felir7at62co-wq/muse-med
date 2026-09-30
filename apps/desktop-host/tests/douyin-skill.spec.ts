@@ -19,6 +19,11 @@ it('discovers Douyin video acquisition with authenticated fallback and transcrip
     expect(input).toContain('audio-transcribe')
     expect(input).toContain('source/media/douyin/')
     expect(input).toContain('--cookie-file')
+    expect(input).toContain('ask_user')
+    expect(input).toContain('--browser-profile')
+    expect(input).toContain('--remember-browser')
+    expect(input).toContain('--forget-browser')
+    expect(input).toContain('AppBound/DPAPI')
   } finally {
     await ctx.fiber.dispose()
   }

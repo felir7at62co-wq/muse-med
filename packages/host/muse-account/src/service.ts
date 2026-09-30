@@ -6,6 +6,8 @@ import { MuseAccountController, MuseAccountInputError } from './account.ts'
 import { MuseGatewayError } from './gateway.ts'
 import { MuseAsrClient, type MuseAsrJob } from './asr.ts'
 import type { MuseModels } from './models.ts'
+import { MuseFeedbackError, type MuseFeedbackClient } from './feedback.ts'
+import type { MuseFeedbackRequest, MuseFeedbackReceipt } from './types.ts'
 import type { MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
 
 /** Account operations implemented by the product-home controller. */
@@ -16,6 +18,7 @@ export interface MuseAccountServiceOptions {
   readonly controller: AccountOperations
   readonly asr?: MuseAsrClient
   readonly models?: Pick<MuseModels, 'refresh'>
+  readonly feedback?: Pick<MuseFeedbackClient, 'submit'>
 }
 
 /** MUSE account Remote namespace. The Connection carrier authenticates every call. */
@@ -23,6 +26,7 @@ export class MuseAccountService extends TypertRemoteService {
   private readonly controller: AccountOperations
   private readonly asr: MuseAsrClient | undefined
   private readonly models: Pick<MuseModels, 'refresh'> | undefined
+  private readonly feedbackClient: Pick<MuseFeedbackClient, 'submit'> | undefined
 
   /**
    * @param ctx - Host context owning the service.
@@ -33,6 +37,23 @@ export class MuseAccountService extends TypertRemoteService {
     this.controller = options.controller
     this.asr = options.asr
     this.models = options.models
+    this.feedbackClient = options.feedback
+  }
+
+  /**
+   * Submit one explicitly authored remark to the signed-in Muse account's inbox.
+   * @param request - Target, category, note and optional related-excerpt choice.
+   * @returns A confirmed durable inbox receipt, without a cookie or transcript.
+   */
+  @Remote('feedback')
+  async feedback(request: MuseFeedbackRequest): Promise<MuseFeedbackReceipt> {
+    try {
+      if (!this.feedbackClient) throw new MuseFeedbackError('unavailable')
+      return await this.feedbackClient.submit(request)
+    } catch (error) {
+      const code = error instanceof MuseFeedbackError ? error.code : 'unavailable'
+      throw new RemoteError(`muse-feedback/${code}`, `MUSE feedback: ${code}`, {})
+    }
   }
 
   /**

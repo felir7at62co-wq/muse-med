@@ -19,13 +19,17 @@ description: Use when 创建短剧、确认项目参数、维护项目圣经或�
 
 用 `drama_project action=preview` 提交已确认的 changes 和 reason，查看 proposed、changed_fields 与 affected_stages；核对生成规格与 delivery、项目归属、预算和提纲。随后 `action=update` 使用同一 changes/reason，并原样传回 preview 的 expected_revision 与 preview_fingerprint。版本过期或预览不一致时重新 read/preview，不能绕过版本检查。初建无需远端任务、镜头包映射或已完成记录，得到真实身份后再补入。
 
-project_bible 的 style、aspect_ratio、video（model_id/platform_id/resolution）、delivery 与 episode_plan 分别保存。initial_budget_cents 只记录初建时的 Settings 预算；current_settings_budget_cents 给出当前 Settings 值。实际计费上限由当前 Settings 与账本 authorization.json 决定，项目 changes 不接受预算覆盖。video 只记录当前目录验证的精确选择；工具不代替供应商能力检查，也不自动收费生成。不同生成分辨率和导出尺寸可以并存，不因导出较大就强制购买转高清；普通缩放须如实区分源分辨率与输出尺寸。
+project_bible 的 style、aspect_ratio、video（model_id/platform_id/resolution）、delivery 与 episode_plan 分别保存。initial_budget_cents 只记录初建时的预算，current_settings_budget_cents 是未单独授权项目的默认值；实际项目额度和已花/预留从 drama_project 结果的 budget 或 jubian_budget action=read 读取。单独明确授权的项目额度覆盖默认值，不被默认4000再次压低；不要改 cordis.patch.yml 或 project_config.json 来提高额度。video 只记录当前目录验证的精确选择；工具不代替供应商能力检查，也不自动收费生成。不同生成分辨率和导出尺寸可以并存，不因导出较大就强制购买转高清；普通缩放须如实区分源分辨率与输出尺寸。
+
+额度不够时先核对已花、在途预留及所需总额度。用户已明确该项目与新总金额就直接用 jubian_budget update 保存并真实回读，不重复询问；没有明确额度授权时用 ask_user_question，id 固定为 jubian-budget-<script_id>，正文说明“项目<真实ID>的总预算调整为多少元”，选项或用户填写答案必须包含新总金额。普通聊天金额应明确项目ID，或使用当前真实项目根目录的会话；较宽工作区内未指明项目的“预算5000”不能套给任意项目。update 的 project_dir 必须绑定同一 script_id，limit_cny 是新总额度而非追加金额，expected_revision 原样取 read 结果。版本冲突先重读，再用同一仍有效授权金额提交；撤回、拒绝或金额不符不能写入。设置页的“项目实际预算”与工具读写同一 authorization.json，保存后下一次计费立即生效，无需重启。保留已有花费、在途预留及历史估算；不能通过清账或新建项目规避额度。
 
 ## 角色与声音一致性
 
 characters 用稳定 character_id 记录角色姓名、aliases 和实际 asset_id。用当前项目主体设定核对角色，别名不当成另一个角色，姓名相似不自动绑定；画面身份、服装状态、说话人与台词分别检查。voice_profile.description 保存用户确认的年龄、性别、音色、口音和语气，每个涉及该角色的镜头包复用同一声音档案，并按原文核对谁说哪句话、dialogue/vo 与对白顺序。speaker_id 仅在当前服务实际提供且支持选择时记录；reference_audio 仅记录用户认可的路径或真实远端 ID，提交前核实精确模型/平台是否支持参考音频和字段。
 
 固定声音提示词不能保证 SD 原生生成的跨镜音色一致。生成后实际听音核对同角色声音与说话人，发现串角色、错台词或音色漂移就标记受影响包并复核，不凭提示词宣称已解决，也不自动建立独立 TTS 通道。修改别名或其他角色字段时保留既有声音档案；新版本按受影响角色和镜头包复核。
+
+涉及声线样本、跨镜音色或音频参考时加载 [声音连续性技能](../tweet-drama-voice-continuity/SKILL.md)。没有样本先从角色首次已生成且试听通过的真实发声提取默认 2 秒，用 upload_audio 上传并固定复用；单条参考音频最长 15 秒。音频材料和图片父资产分别处理，修改原卡并保留音频，不重建卡或为了冻结删除声音。
 
 ## 在原项目里修改
 

@@ -3,26 +3,26 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/jubian/tool-jubian/README.md
 /:
-  en: 3ab1c8c5e35fa39a
-  zh: bbfd0a8201d03419
+  en: 40ed4dd5980ed547
+  zh: 82c994d37e6c3347
 /deepseek-ai-dsh-tool-jubian:
   en: f91922a408926025
   zh: 6683b101a1f127d9
 /deepseek-ai-dsh-tool-jubian/summary:
-  en: 2c1965e00b77fc09
-  zh: c142a5a093116ecf
+  en: 53a690d5305ac824
+  zh: 1919af5897fc29fd
 /deepseek-ai-dsh-tool-jubian/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
 /deepseek-ai-dsh-tool-jubian/use-this-package:
-  en: b4d57ccb49b105b4
-  zh: da28a2d951813ef3
+  en: f6056f488d6a763b
+  zh: ff51ef515a385c69
 /deepseek-ai-dsh-tool-jubian/use-this-package/when-to-choose-it:
-  en: 69bb184413d5caf8
-  zh: 7e930560b12c992d
+  en: ddc31d611dc21013
+  zh: 4abd2fb7bfdbc0c4
 /deepseek-ai-dsh-tool-jubian/use-this-package/minimal-configuration:
-  en: 0b4e24e269431c8c
-  zh: b9616ee8dcb8112d
+  en: 73b5848f2dca7363
+  zh: d9d887732d7b229b
 /deepseek-ai-dsh-tool-jubian/use-this-package/credential:
   en: 1359c5d03dd2daed
   zh: ead0cc8313294ea1
@@ -32,9 +32,9 @@
 /deepseek-ai-dsh-tool-jubian/use-this-package/the-image-route-remote-namespace:
   en: 28f565eb215075b3
   zh: e4804ff157047a9d
-/deepseek-ai-dsh-tool-jubian/use-this-package/the-eleven-tools:
-  en: 73b85d0fd4addcb2
-  zh: e0bd3d11a352774b
+/deepseek-ai-dsh-tool-jubian/use-this-package/the-twelve-tools:
+  en: 5e400864ca1a2779
+  zh: eac6ccee9af223c1
 /deepseek-ai-dsh-tool-jubian/use-this-package/account-pool-claims:
   en: bf7175b84e708648
   zh: d5bab86e567a90e7
@@ -54,8 +54,8 @@
   en: 3cac131188c71dc0
   zh: 04d79e621852c664
 /deepseek-ai-dsh-tool-jubian/use-this-package/the-storyboard-native-video-channel:
-  en: 7cebcbb1ae91e68c
-  zh: bc5a8608d48f76d0
+  en: f279e99b45c124f9
+  zh: 7534564a26050041
 /deepseek-ai-dsh-tool-jubian/use-this-package/the-paid-image-route:
   en: afd08dc7312985fc
   zh: 3490b533a26e0d33
@@ -75,7 +75,7 @@
   en: 5a7e4097a1f2914e
   zh: 608766ed812a23e1
 /deepseek-ai-dsh-tool-jubian/understand-the-implementation/source-map:
-  en: 34f6696400b50e7c
+  en: 5696d3b0bf2900f7
   zh: 930ac08305d2fc59
 /deepseek-ai-dsh-tool-jubian/understand-the-implementation/write-path:
   en: 19be8d3453afbb62
@@ -84,8 +84,8 @@
   en: 95db0b6eeaac5855
   zh: 1ed44bd3534258e2
 /deepseek-ai-dsh-tool-jubian/further-exploration:
-  en: 823a646bebbf52f5
-  zh: ffaf03ebadba846a
+  en: 9149d63258136fea
+  zh: 905d17e1e1a17d29
 /deepseek-ai-dsh-tool-jubian/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
@@ -96,7 +96,7 @@
   en: df55723f4f24ba09
   zh: 677631e4c0e88cb4
 /deepseek-ai-dsh-tool-jubian/model-experience/tool-schemas/token-effect:
-  en: bc33bb87e6e722ab
+  en: 970d4013ce339db5
   zh: 731a14162038662d
 /deepseek-ai-dsh-tool-jubian/model-experience/tool-schemas/kv-cache-effect:
   en: 7f37c107420608bd

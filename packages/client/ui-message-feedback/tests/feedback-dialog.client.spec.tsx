@@ -16,15 +16,16 @@ import { FEEDBACK_CATEGORIES } from '@deepseek-ai/dsh-command-feedback'
 import { FeedbackDialog } from '../src/client/FeedbackDialog.tsx'
 import type { FeedbackDialogState } from '../src/client/dialog.ts'
 import { en, zh } from '../src/client/locales.ts'
+import type { FeedbackDialogProps } from '../src/client/slots.ts'
 
 afterEach(cleanup)
 
 const t = makeTranslate(zh, commonZh)
 
 /** Render the entry over a fixed state and recording verbs. */
-function mount(overrides: Partial<FeedbackDialogState> = {}) {
+function mount(overrides: Partial<FeedbackDialogState> = {}, museInbox = false) {
   const state: FeedbackDialogState = {
-    target: { kind: 'session' }, category: null, text: '', submitting: false, failure: null, toast: 0,
+    target: { kind: 'session' }, category: null, text: '', includeDiagnostics: false, submitting: false, failure: null, toast: 0,
     ...overrides,
   }
   const verbs = {
@@ -36,11 +37,29 @@ function mount(overrides: Partial<FeedbackDialogState> = {}) {
   }
   const useDialog = (<T,>(select: (v: FeedbackDialogState) => T): T =>
     useSyncExternalStore(() => () => {}, () => select(state))) as never
-  const props = { useDialog, ...verbs, t } as Parameters<typeof FeedbackDialog>[0]
+  const props = { useDialog, ...verbs, t, museInbox } as FeedbackDialogProps
   return { ...render(<FeedbackDialog {...props} />), ...verbs }
 }
 
 describe('FeedbackDialog', () => {
+  it('explains Muse delivery and makes related diagnostics an unchecked option', () => {
+    const ui = mount({}, true)
+    expect(ui.getByRole('textbox').getAttribute('placeholder')).toBe(zh['dialog.museHint'])
+    const checkbox = ui.getByRole('checkbox', { name: zh['dialog.museDiagnostics'] })
+    expect(checkbox.hasAttribute('checked')).toBe(false)
+    fireEvent.click(checkbox)
+    expect(ui.edit).toHaveBeenCalledWith({ includeDiagnostics: true })
+  })
+
+  it('uses the actual Muse inbox acknowledgement and preserves unknown-result recovery copy', () => {
+    const ui = mount({ target: null, toast: 1 }, true)
+    expect(ui.getByRole('alert').textContent).toBe(zh['toast.museSubmitted'])
+    cleanup()
+    const failure = mount({ text: 'draft', failure: 'muse-feedback/account-changed', includeDiagnostics: true }, true)
+    expect(failure.getByRole('alert').textContent).toBe(zh['error.museAccountChanged'])
+    expect(failure.getByRole('textbox').textContent).toBe('draft')
+    expect(failure.getByRole('checkbox').hasAttribute('checked')).toBe(true)
+  })
   it('owns the conversation-log disclosure and stability category in both supported locales', () => {
     expect(zh['dialog.hint']).toBe('填写详情以帮助我们改进体验，提交内容会包括当前对话的日志')
     expect(en['dialog.hint']).toBe('Add details to help us improve. Your submission will include the current conversation log.')

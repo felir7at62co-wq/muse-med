@@ -11,6 +11,7 @@ import { MuseAsrClient } from './asr.ts'
 import { MuseModels } from './models.ts'
 import { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
 import { MuseAccountService } from './service.ts'
+import { MuseFeedbackClient, feedbackSecrets } from './feedback.ts'
 import type {} from '@deepseek-ai/dsh-tools'
 
 export { MuseAccountService } from './service.ts'
@@ -40,6 +41,8 @@ export interface Config {
   readonly requestTimeoutMs: number
   /** Maximum time for one compressed-audio upload and gateway response. */
   readonly asrRequestTimeoutMs: number
+  /** Maximum visible characters in each optional related request and answer excerpt. */
+  readonly feedbackExcerptChars: number
 }
 
 /** Validate account endpoint configuration at plugin load. */
@@ -50,6 +53,7 @@ export const Config: Schema<Config> = Schema.object({
   accountHome: Schema.string(),
   requestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(15_000),
   asrRequestTimeoutMs: Schema.number().step(1).min(10_000).max(1_800_000).default(300_000),
+  feedbackExcerptChars: Schema.number().step(1).min(100).max(1_200).default(1_000),
 })
 
 /**
@@ -80,7 +84,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     void refresh()
     return () => { closed = true; clearTimeout(timer); models.dispose() }
   })
-  const service = ctx.plugin(MuseAccountService, { controller, asr, models })
+  const feedback = new MuseFeedbackClient({ baseUrl, sessionFile: join(accountHome, 'session.json'),
+    requestTimeoutMs: config.requestTimeoutMs, excerptChars: config.feedbackExcerptChars,
+    readMessages: request => ctx.get('sessions')?.get(request.sessionId)?.deriveMessages(),
+    secrets: () => feedbackSecrets(ctx) })
+  const service = ctx.plugin(MuseAccountService, { controller, asr, models, feedback })
   await service.await()
 
   const server = fileURLToPath(new URL('./types/mcp-server.js', import.meta.url))

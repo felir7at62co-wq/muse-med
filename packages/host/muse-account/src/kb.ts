@@ -24,7 +24,26 @@ export interface MuseKbResult {
 /** Remote knowledge-base operations available to the signed-in desktop account. */
 export type MuseKbToolName = 'search' | 'read' | 'read_opening' | 'ingest_script'
   | 'wiki_capture_source' | 'wiki_directory' | 'wiki_search' | 'wiki_read' | 'wiki_write_page'
-  | 'wiki_history' | 'wiki_links' | 'wiki_status' | 'wiki_migration_preview'
+  | 'wiki_history' | 'wiki_links' | 'wiki_status' | 'wiki_migration_preview' | 'wiki_record_project' | 'wiki_project_portfolio'
+
+/** Account-private report of one stable project's planned or actual contribution. */
+export interface MuseProjectRecordRequest {
+  readonly project_key: string
+  readonly project_title: string
+  readonly contribution_id: string
+  readonly stage: string
+  readonly status: 'planned' | 'in_progress' | 'completed' | 'blocked' | 'cancelled'
+  readonly content: string
+  readonly artifacts: readonly string[]
+}
+
+/** Project summaries visible to the owner or a deployment-authorized portfolio reader. */
+export interface MuseProjectPortfolioRequest {
+  readonly account_id?: string | undefined
+  readonly project_key?: string | undefined
+  readonly start?: number | undefined
+  readonly limit?: number | undefined
+}
 
 /** Wiki selection; project scope requires an account-local project_id. */
 export interface MuseWikiScopeRequest {
@@ -87,6 +106,18 @@ export interface MuseWikiHistoryRequest extends MuseWikiIdRequest {
 
 /** Account-authorized Wiki capture, synthesis, and navigation. */
 export interface MuseWikiOperations {
+  /**
+   * Browse recorded projects or one project's reported contributions.
+   * @param args - Optional account/project selection and pagination; cross-account reads require portfolio authorization.
+   * @returns Project/status summaries or contribution contents, without original sources or unrelated private Wiki pages.
+   */
+  wikiProjectPortfolio(args?: MuseProjectPortfolioRequest): Promise<MuseKbResult>
+  /**
+   * Save a private contribution and refresh its browsable project overview.
+   * @param args - Stable identities, reported status, work summary and relative artifact references.
+   * @returns Read-back record IDs and whether the project overview also synchronized.
+   */
+  wikiRecordProject(args: MuseProjectRecordRequest): Promise<MuseKbResult>
   /**
    * Capture an immutable original and create its pending source page.
    * @param args - Scope, title, original Markdown, and relative source ID.
@@ -264,7 +295,7 @@ function kbMcpUrl(raw: string, gatewayOrigin: string): string {
  * Create account-scoped knowledge-base reads. Every call exchanges the current
  * cookie for a short-lived bearer and discards it after the remote MCP call.
  * @param options - Gateway, session and network adapters.
- * @returns Legacy source operations and all nine scoped Wiki operations.
+ * @returns Legacy source operations, scoped Wiki operations and project participation tools.
  */
 export function createMuseKbReader(options: MuseKbReaderOptions): {
   search(query: string, limit?: number): Promise<MuseKbResult>
@@ -340,6 +371,8 @@ export function createMuseKbReader(options: MuseKbReaderOptions): {
         || Buffer.byteLength(JSON.stringify({ items }), 'utf8') > 2_000_000) throw new MuseKbError('kb-rejected')
       return await invoke('ingest_script', { items })
     },
+    async wikiRecordProject(args) { return await invoke('wiki_record_project', { ...args }) },
+    async wikiProjectPortfolio(args = {}) { return await invoke('wiki_project_portfolio', { ...args }) },
     async wikiCaptureSource(args) { return await invoke('wiki_capture_source', { ...args }) },
     async wikiDirectory(args = {}) { return await invoke('wiki_directory', { ...args }) },
     async wikiSearch(args) { return await invoke('wiki_search', { ...args }) },
