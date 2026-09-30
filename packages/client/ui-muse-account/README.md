@@ -31,7 +31,7 @@ Set the required `feedbackUrl` to the product's HTTPS feedback page. The sidebar
 
 In Muse Desktop this plugin also provides delivery for the existing message and task feedback dialogs through `museAccount.feedback`. Their submissions use the saved Desktop login, while the sidebar page uses browser sign-in. Both arrive in the same account opinion inbox. The [dialog package](../ui-message-feedback/README.md) owns the optional excerpt choice, retained drafts, and receipt acknowledgement. Missing Muse delivery never becomes a local-only success; other profiles retain their local feedback behavior.
 
-Account and Feedback rows fill the expanded sidebar's available width with equal side insets. The collapsed sidebar uses compact icon buttons.
+The Account row fills the expanded sidebar's available width with equal side insets. Feedback and the blue update control share the row below it; Feedback fills that row when no status is shown. The collapsed sidebar uses compact icon buttons.
 
 -----
 

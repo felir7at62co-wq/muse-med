@@ -231,17 +231,19 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
             {renderSlot('settings.trigger', { wide })}
           </button>
         </Tooltip> })}
-        <ConnectionIndicator
-          state={wide && desktopUpdate.presentation?.phase !== 'installing' ? connectionIndicator : undefined}
-          disconnectedLabel={t('connection.error')}
-          connectingLabel={t('connection.connecting')}
-          recoveredLabel={t('connection.connected')}
-          reconnectActionLabel={t('connection.reconnect')}
-          restartActionLabel={t('connection.restart')}
-          onReconnect={reconnect}
-        />
-        <DesktopUpdateIndicator wide={wide} hidden={connectionIndicator !== undefined && desktopUpdate.presentation?.phase !== 'installing'}
-          t={t} view={desktopUpdate} onOpen={openDesktopUpdate} />
+        <div className={css.status}>
+          <ConnectionIndicator
+            state={wide && desktopUpdate.presentation?.phase !== 'installing' ? connectionIndicator : undefined}
+            disconnectedLabel={t('connection.error')}
+            connectingLabel={t('connection.connecting')}
+            recoveredLabel={t('connection.connected')}
+            reconnectActionLabel={t('connection.reconnect')}
+            restartActionLabel={t('connection.restart')}
+            onReconnect={reconnect}
+          />
+          <DesktopUpdateIndicator wide={wide} hidden={connectionIndicator !== undefined && desktopUpdate.presentation?.phase !== 'installing'}
+            t={t} view={desktopUpdate} onOpen={openDesktopUpdate} />
+        </div>
       </div>
       {open && (
         <SettingsPanel

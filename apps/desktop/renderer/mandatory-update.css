@@ -1,4 +1,29 @@
-#status, #version { margin-top: 12px; color: #555962; }
+:root {
+  --update-surface: rgb(255, 255, 255);
+  --update-surface-soft: rgb(249, 250, 251);
+  --update-border: rgb(235, 238, 242);
+  --update-brand: rgb(65, 118, 230);
+  --update-brand-highlight: rgb(122, 170, 255);
+  --update-label-secondary: rgb(97, 102, 107);
+}
+main {
+  width: min(420px, calc(100vw - 32px));
+  padding: 24px;
+  border: 1px solid var(--update-border);
+  background: var(--update-surface);
+}
+header { margin-bottom: 16px; }
+h1 { font-size: 18px; line-height: 28px; }
+#version { margin-top: 12px; font-size: 13px; color: var(--update-label-secondary); }
+#update-progress {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--update-border);
+  border-radius: 16px;
+  background: var(--update-surface-soft);
+}
+#update-progress:has(#status:empty) { display: none; }
+#status { color: var(--update-brand); font-size: 13px; font-weight: 500; line-height: 20px; }
 #status:empty, #version:empty { display: none; }
 #error { margin-top: 12px; color: #d93025; }
 #address { display: block; width: 100%; margin-top: 4px; padding: 8px; border: 1px solid #e6e7eb; border-radius: 8px; background: #f5f5f5; font: 12px/20px monospace; color: #555962; overflow-wrap: anywhere; resize: vertical; }
@@ -9,4 +34,23 @@
 #copy { min-height: 32px; padding: 3px 0; background: transparent; color: #4d6bfe; font-size: 12px; }
 #copy-message { color: #d93025 !important; }
 #manual-copy { display: block; margin-top: 8px; }
-#progress { display: block; width: 100%; height: 4px; margin-top: 12px; border: 0; accent-color: #4d6bfe; }
+#progress {
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin-top: 12px;
+  overflow: hidden;
+  appearance: none;
+  border: 0;
+  border-radius: 8px;
+  background: var(--update-border);
+  accent-color: var(--update-brand);
+}
+#progress::-webkit-progress-bar { border-radius: inherit; background: var(--update-border); }
+#progress::-webkit-progress-value {
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--update-brand), var(--update-brand-highlight));
+  transition: width 200ms ease;
+}
+#progress::-moz-progress-bar { border-radius: inherit; background: var(--update-brand); }
+@media (prefers-reduced-motion: reduce) { #progress::-webkit-progress-value { transition: none; } }

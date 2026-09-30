@@ -3,6 +3,18 @@
   min-width: 0;
 }
 
+.root[data-settings-launcher-layout='stacked'] {
+  display: contents;
+}
+
+.root[data-settings-launcher-layout='stacked'] > .trigger:first-child {
+  grid-column: 1 / -1;
+}
+
+.root[data-settings-launcher-layout='stacked'] > .trigger:last-child {
+  grid-column: 1;
+}
+
 .trigger {
   display: flex;
   box-sizing: border-box;

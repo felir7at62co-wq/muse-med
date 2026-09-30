@@ -11,7 +11,7 @@ import css from './MuseAccountLauncher.module.css'
  * @returns the account and feedback buttons.
  */
 export function MuseAccountLauncher({ wide, openSection, openSettings, t, feedbackUrl }: PropsRuntime<'settings.launcher'> & PropsLocale<'settings.museAccount'> & { feedbackUrl: string }): ReactNode {
-  return <div className={css.root}>
+  return <div className={css.root} data-settings-launcher-layout={wide ? 'stacked' : undefined}>
     <button type="button" className={css.trigger} data-collapsed={!wide} aria-label={t('nav')}
       onClick={() => { if (openSection) openSection('muse-account'); else openSettings() }}>
       <IconUserOutlineMedium size={16} />

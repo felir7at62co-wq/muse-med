@@ -378,7 +378,7 @@ macOS 打包在组装 App 时、代码签名前写入 `Contents/Resources/app-up
 
 ## 更新
 
-打包应用会在主窗口打开十秒后检查目标专用的发布流；本地化的 **检查更新…** 菜单项会手动触发同一检查。发现可用版本时，应用打开一个原生确认弹窗。用户确认后，应用等待正在进行的检查完成，下载 Desktop 安装包，在包内记录了 publisher name 时校验其 Authenticode 签名，停止 dsh 子进程，并把安装与重启交给 electron-updater。下次启动在显示本地加载页的同时校准版本绑定的运行时。
+打包应用会在主窗口打开十秒后检查目标专用的发布流；本地化的 **检查更新…** 菜单项会手动触发同一检查。发现可用版本时，应用打开一个原生确认弹窗。用户确认后，应用等待正在进行的检查完成，下载 Desktop 安装包，在包内记录了 publisher name 时校验其 Authenticode 签名，停止 dsh 子进程，并把安装与重启交给 electron-updater。更新页使用冷白色卡片与圆角蓝色下载进度条；校验和安装阶段显示状态，不补造百分比。下次启动在显示本地加载页的同时校准版本绑定的运行时。
 
 打包会把 GitHub Releases 更新源写入包内的 `app-update.yml`：`provider: github` 加本产品的 owner、仓库与更新频道。只有该文件存在时更新器才会检查更新，因此现在所有目标都会检查，未签名的 Windows 构建也一样。未签名的包不记录 `publisherName`，electron-updater 随后会接受下载到的安装包而不校验 Authenticode 签名；频道元数据里的 SHA-512 仍能拒绝损坏的下载，但没有任何环节确认发布者是谁。`upload:*` 命令仍为 `DSH_DESKTOP_AUTO_UPDATE_ENV` 选择的部署写入频道元数据。当频道元数据带有 `blockMapSize` 时，NSIS 差分包与 macOS ZIP 目标让 electron-updater 可以复用未变化的数据块；这里构建的 NSIS 辅助安装包把 block map 写到 `.exe.blockmap` 侧车文件，该模式不返回 `blockMapSize`，因此客户端会完整下载安装包而不用差分补丁。供手动安装的 DMG 经过公证，但不生成 blockmap，因为它不是 macOS updater 的载荷。运行时与桌面壳仍属于同一个签名 Desktop 发布。macOS 签名与公证凭据使用 electron-builder 的标准环境变量；Windows EV 签名使用上文所述的公开证书、已验证 SignTool、SafeNet 容器和 runner PIN。必填 Desktop 发布环境选择构建所验证的应用身份与平台签名身份。
 
