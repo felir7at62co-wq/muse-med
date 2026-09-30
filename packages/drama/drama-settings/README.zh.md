@@ -96,6 +96,8 @@ kind: "package-bundle"
 
 页面通过 `ctx.slots.inject` 注册：它会等待设置外壳声明该槽位，并在声明崩塌时移除贡献。
 
+Client 构建从已声明的 `@deepseek-ai/dsh-typert-protocol` 构建依赖内联 `RemoteError`。构建产物冒烟测试 `tests/built-client.e2e.ts` 使用随包平台模块，通过生产模块表激活生成的 `lib/client.js`；Client 构建后，在仓库根目录运行 `node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts packages/drama/drama-settings/tests/built-client.e2e.ts`。缺少 Client 产物时此测试跳过。
+
 写入结论是读出来的，不是假设的。写入被拒绝时设置作用域不抛异常——它恢复宿主的当前状态后正常返回——所以 [`section.ts`](src/client/section.ts) 把解析后的设置段与目标设置段比对，用的正是页面渲染的那份快照：没写进去就报告失败，写进去了就报告宿主实际存下的值。
 
 </details>

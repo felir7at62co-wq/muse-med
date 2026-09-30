@@ -18,6 +18,7 @@
   ],
   "references": [
     { "path": "../../jubian/jubian" },
+    { "path": "../../typert/protocol" },
     {
       "path": "../../../vendor/cordis"
     },

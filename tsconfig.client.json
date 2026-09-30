@@ -14,6 +14,7 @@
     "types": ["node"]
   },
   "include": [
+    "packages/drama/drama-settings/tests/built-client.e2e.ts",
     "apps/desktop/tests/**/*.client.spec.tsx",
     // Source-subpath test imports can arrive through workspace links whose
     // realpath semantics vary by host. Load package CSS declarations directly.

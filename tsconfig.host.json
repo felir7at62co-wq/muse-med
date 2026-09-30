@@ -183,6 +183,7 @@
   // suffixes are mutually exclusive, so each aggregate excludes the other's
   // and the package test glob above needs no per-file entry.
   "exclude": [
+    "packages/drama/drama-settings/tests/built-client.e2e.ts",
     "apps/desktop/tests/keyboard.spec.ts",
     "packages/client/*/src/**",
     "benchmarks/**/*.client.ts",

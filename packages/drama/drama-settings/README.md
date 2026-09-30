@@ -97,6 +97,8 @@ Each row carries one status: 已加载, 启动中, 加载失败, 按条件加载
 
 The page registers through `ctx.slots.inject`, which waits for the Settings shell to declare its slot and removes the contribution when that declaration collapses.
 
+The Client build inlines `RemoteError` from its declared `@deepseek-ai/dsh-typert-protocol` build dependency. The built-artifact smoke `tests/built-client.e2e.ts` activates the generated `lib/client.js` through the production module table with the shipped platform modules; run it after the Client build with `node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts packages/drama/drama-settings/tests/built-client.e2e.ts` from the repository root. It skips when the Client artifact is absent.
+
 The write verdict is read, not assumed. The settings scope does not throw when a write is refused — it recovers the host's current state and settles — so [`section.ts`](src/client/section.ts) compares the resolved section with the intended one, which is the same snapshot the page renders: a write that did not land reports a failure, and one that did reports the values the host stored.
 
 </details>
