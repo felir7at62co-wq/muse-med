@@ -43,6 +43,7 @@ describe.skipIf(!existsSync(artifact))('built settings Client closure', () => {
       loadBundle: () => { throw new Error('The generated factory must already be registered') },
     })
     const exports = await modules.import(`${ID}/client`)
+    if (exports === null || typeof exports !== 'object') throw new Error('Settings Client exports are not an object')
     expect(exports).toMatchObject({ inject: ['slots', 'locale', 'configForms'] })
     expect(Reflect.get(exports, 'apply')).toBeTypeOf('function')
     expect(modules.loadCache.get(ID)?.edges).not.toContain('@deepseek-ai/dsh-typert-protocol')
