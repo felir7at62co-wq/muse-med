@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { readDesktopProductVersion } from '../scripts/desktop-build-version.mjs'
 
 const { verifyDesktopRuntime } = vi.hoisted(() => ({
   verifyDesktopRuntime: vi.fn<(root: string, expected: string) => Promise<void>>(async () => undefined),
@@ -36,7 +37,7 @@ async function requiredRuntimeVersion(preparedRuntime?: string, preparedRuntimeV
 }
 
 describe('packaged runtime verification', () => {
-  it('requires the product version when the target tree supplies the runtime', async () => {
+  it('requires the harness version when the target tree supplies the runtime', async () => {
     const productVersion = (JSON.parse(
       await import('node:fs/promises').then(async fs => fs.readFile(new URL('../package.json', import.meta.url), 'utf8')),
     ) as { version: string }).version
@@ -49,15 +50,16 @@ describe('packaged runtime verification', () => {
   })
 
   it('does not let a build version change what the bundled runtime must declare', async () => {
-    const productVersion = (JSON.parse(
+    const harnessVersion = (JSON.parse(
       await import('node:fs/promises').then(async fs => fs.readFile(new URL('../package.json', import.meta.url), 'utf8')),
     ) as { version: string }).version
+    const productVersion = readDesktopProductVersion()
     const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
     verifyDesktopRuntime.mockClear()
     const config = createElectronBuilderConfig(
       { ...ENVIRONMENT, DSH_DESKTOP_BUILD_VERSION: `${productVersion}.20260921.1` }, 'win32', 'x64')
     expect(config.extraMetadata).toMatchObject({ version: `${productVersion}.20260921.1` })
     await config.afterPack(CONTEXT as never)
-    expect(verifyDesktopRuntime.mock.calls[0]?.[1]).toBe(productVersion)
+    expect(verifyDesktopRuntime.mock.calls[0]?.[1]).toBe(harnessVersion)
   })
 })

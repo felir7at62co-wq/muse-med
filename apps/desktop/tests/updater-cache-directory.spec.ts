@@ -1,27 +1,18 @@
 /** The packaged updater must keep downloaded installers in a directory this product alone owns. */
 
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 const RELEASE_ENVIRONMENT = {
   DSH_DESKTOP_APP_ID: 'com.example.desktop',
   DSH_DESKTOP_TARGET_PLATFORM: 'win32',
   DSH_DESKTOP_TARGET_ARCH: 'x64',
   DSH_DESKTOP_UNSIGNED: '1',
+  DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: 'false',
 }
 
 describe('desktop updater cache directory', () => {
-  // Importing the configuration also evaluates its default export for one release
-  // environment, so the environment has to be in place first.
-  beforeAll(() => {
-    for (const [name, value] of Object.entries(RELEASE_ENVIRONMENT)) vi.stubEnv(name, value)
-  })
-
-  afterAll(() => {
-    vi.unstubAllEnvs()
-  })
-
   it('derives the updater cache directory from this product alone', async () => {
-    const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
     const config = createElectronBuilderConfig(RELEASE_ENVIRONMENT, 'win32', 'x64')
     // electron-builder 26 exposes no field for `updaterCacheDirName`: the packaged
     // `resources/app-update.yml` records `AppInfo.updaterCacheDirName`, which is

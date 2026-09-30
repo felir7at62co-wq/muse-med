@@ -98,11 +98,16 @@
 
     # Account credentials travel through the authenticated Settings Remote call;
     # the bundled MCP child exposes account-scoped Wiki writes and authorized reads.
+    - id: muse-desktop-bridge
+      name: '@wenbin_wb/dsh-bridge/remote'
+
     - id: muse-account
       name: '@deepseek-ai/dsh-muse-account'
+      inject: [tools, llm, museDesktopBridge, connection, webServer]
       config:
         baseUrl: !!js process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'
         excludedModelPrefixes: [gpt-, chatgpt-, o1, o3, o4]
+        remoteAccess: true
 
     - id: ui-muse-account
       name: '@deepseek-ai/dsh-client-ui-muse-account'
@@ -110,31 +115,11 @@
         feedbackUrl: !!js new URL('/feedback', process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn').href
 
 
-# The bundled Feishu bridge is composed inert: the activation controls below are
-# real keys of the staged package, because the community build applies the
-# compatibility overlay at third_party/plugins/compatibility/lark-desktop.mjs,
-# which adds them to the bridge's Config with `true` defaults. `enabled: false`
-# is the fail-safe — a composition that skips the gate layer mounts the bridge
-# and returns before its sync layer, control server, peer heartbeat, or QR app
-# registration — and the other two keep closed the paths this product never
-# opted into. `desktopComposition` appends the effective value from the product
-# switch (`feishu.enabled`, an absent row or section meaning off), so an
-# untouched Desktop runs none of the bridge. The switch takes effect at the next
-# backend start.
-#
-# The row stays mounted rather than entry-disabled: in this harness a plugin's
-# settings section IS its own Config, so a disabled row has no section to write,
-# and the Settings page must be able to store the credential pair a scan
-# produces before the bridge is ever asked to run. The gate layer replaces this
-# config wholesale with these controls and the product's switch, so activation
-# is the switch alone: a value stored under the bridge's own section cannot
-# activate a row the switch left off. A patch replaces the whole config, so
-# credentials are deliberately absent here and come from the bridge row's own
-# stored section alone.
+# The pinned bridge's optional Feishu adapter retains the existing credential section.
+# Desktop composition reads the product switch; an absent switch keeps it inactive.
+# Remote Muse access uses the separate account-authenticated provider above.
 - id: feishu-channel
   config:
     enabled: false
-    autoRegistration: false
-    crossInstanceSync: false
     requireMention: true
     denyTools: [ask_user_question, exit_plan_mode]

@@ -1,0 +1,552 @@
+// DSH Bridge - RPC Interface (server side)
+// Loopback-only RPC methods for browser UI
+
+import QRCode from 'qrcode';
+import { BRIDGE_RPC_CHANNEL, BRIDGE_ENDPOINTS } from './bridge-rpc-constants.js';
+import { registerRpcChannel } from './connection-compat.js';
+import { RateLimiter } from './security/rate-limiter.js';
+
+export { BRIDGE_RPC_CHANNEL, BRIDGE_ENDPOINTS };
+
+const rpcRateLimiter = new RateLimiter({ maxRequests: 30, windowMs: 60000 });
+
+function ok(value) {
+  return { ok: true, value };
+}
+
+function fail(code, message, details = {}) {
+  const allowedCodes = new Set([
+    'bad-request', 'cancelled', 'internal', 'settings-rejected', 'command-error',
+    // 'busy'：重启等操作因「有任务在跑」被拦下，需与普通 bad-request 区分，
+    // 面板据此弹二次确认（而不是报错）。
+    'busy'
+  ]);
+  const safeCode = allowedCodes.has(code) ? code : 'bad-request';
+  return {
+    ok: false,
+    error: {
+      code: safeCode,
+      message,
+      details: { issues: [{ message }], ...details },
+    },
+  };
+}
+
+// 把登录态里的二维码载荷渲染成浏览器可展示的 dataURL（带缓存，避免重复生成）
+async function renderQr(loginState) {
+  if (!loginState?.qrPayload) return null;
+  const cacheKey = `${loginState.qrKind}:${loginState.qrPayload.slice(0, 80)}`;
+  if (renderQr.cache && renderQr.cache.key === cacheKey) return renderQr.cache.url;
+  let url;
+  const payload = loginState.qrPayload;
+  if (loginState.qrKind === 'img') {
+    url = /^data:/i.test(payload) ? payload : `data:image/png;base64,${payload}`;
+  } else {
+    try {
+      url = await QRCode.toDataURL(payload, {
+        width: 300, margin: 2, color: { dark: '#1F2421', light: '#FFFFFF' },
+      });
+    } catch { url = null; }
+  }
+  renderQr.cache = { key: cacheKey, url };
+  return url;
+}
+
+function checkAdminAuth(authManager, payload, { requireConfigured = false } = {}) {
+  if (!authManager) return null;
+  // local_only 最严格：即使关闭管理保护，也绝不远程放行（本机经 loopback-token 天然持有 adminToken）
+  // 注意：RPC 层无法区分本机/远程（代理以回环转发），local_only 的防线是 unlockAdmin 拒绝
+  // 远程解锁——因此这里管理保护关闭时也不放行 local_only，保持"仅本机可管理"的语义。
+  if (authManager.adminPolicy === 'local_only') {
+    // local_only 下必须持有有效 adminToken（只有本机 loopback-token / 本机解锁能拿到）
+    if (payload?.adminToken && authManager.validateAdminSession(payload.adminToken)) {
+      return null;
+    }
+    return fail('bad-request', '操作已被拦截：当前策略为仅限电脑本机管理');
+  }
+  // 管理保护独立开关：用户明确关闭后，管理操作免 adminToken（与访问认证 enabled 解耦）
+  if (authManager.adminProtection === false) return null;
+  if (authManager.adminPolicy === 'open') return null;
+  // 若系统尚未设置任何管理密码或访客密码，允许免密管理
+  const hasAnyPassword = authManager.hasAdminPassword || authManager.hasPassword;
+  // T2.9：高危操作（备份导出/导入、隧道配置与启动、目录浏览、添加工作区、升级、重启）
+  // 在系统从未设置任何密码时不再静默放行，强制先完成一次密码设置，
+  // 杜绝"未设密码 = 局域网/隧道内任何人都可导出全部凭证"的裸奔状态被直接利用
+  if (requireConfigured && !hasAnyPassword) {
+    return fail('bad-request', '该操作涉及敏感配置：请先在「安全认证」中设置访问密码或管理密码后再执行');
+  }
+  if (!hasAnyPassword) {
+    return null;
+  }
+  // 已设置密码时，必须提供经服务端校验有效的 adminToken（绝不依赖客户端自称的 isLocalhost）
+  if (payload?.adminToken && authManager.validateAdminSession(payload.adminToken)) {
+    return null;
+  }
+  return fail('bad-request', '操作已被拦截：需要管理员权限，请先在控制台输入管理密码解锁');
+}
+
+export function installBridgeRpc(ctx, { service, authManager, platformManager, logger, saveCustomTunnelConfig, exportBackup, importBackup, runtime }) {
+  if (!ctx?.connection?.rpc?.handle) {
+    logger.warn('dsh-bridge: Connection RPC unavailable — UI will not work');
+    return () => {};
+  }
+
+  // 运行中任务探测所需的引用（由 apply 注入）。缺失时探测退化为「无任务」，不阻断重启。
+  if (runtime) {
+    service.runtimeCtx = runtime.ctx ?? null;
+    service.platformManager = runtime.platformManager ?? null;
+  }
+
+  // 经 connection-compat 注册：兼容 DSH ≥ 0.1.5-alpha.1 的 webServer 注入回归
+  // （上游 register() 里对 connection 自身 ctx 取 webServer 而未加 inject 作用域）
+  return registerRpcChannel(
+    ctx,
+    BRIDGE_RPC_CHANNEL,
+    async (endpoint, payload = {}, signal) => {
+      if (signal?.aborted) return fail('cancelled', 'Request was cancelled');
+
+      try {
+        if (endpoint === BRIDGE_ENDPOINTS.getStatus) {
+          const isAdmin = checkAdminAuth(authManager, payload) === null;
+          const status = await service.getStatus({ adminAuthValid: isAdmin });
+          return ok(status);
+        }
+
+        // ---- 访问安全认证 ----
+
+        if (endpoint === BRIDGE_ENDPOINTS.authGetStatus) {
+          if (!authManager) return fail('bad-request', 'AuthManager 未初始化');
+          const isAdmin = checkAdminAuth(authManager, payload) === null;
+          return ok(authManager.getStatus({ masked: !isAdmin }));
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.authUpdateConfig) {
+          if (!authManager) return fail('bad-request', 'AuthManager 未初始化');
+          const { enabled, mode, scope, adminPolicy, adminProtection, password, adminPassword } = payload;
+          // 仅切换 enabled（访问认证开关）不需要管理权限：用户应能自由决定是否开放访问，
+          // 否则"关闭访问认证"这个动作本身会被管理保护锁死（死锁：关闭要先解锁，解锁要过认证）。
+          // 其余字段（模式/范围/策略/密码/管理保护）均涉及安全配置，仍需管理权限。
+          const sensitive = mode !== undefined || scope !== undefined || adminPolicy !== undefined
+            || adminProtection !== undefined || password !== undefined || adminPassword !== undefined;
+          if (sensitive) {
+            const adminErr = checkAdminAuth(authManager, payload);
+            if (adminErr) return adminErr;
+          }
+
+          // 防自我锁死守卫（v2.10.5）：
+          // password_only（仅密码）模式下若从未设置任何密码，开启防护或维持该模式会把
+          // 管理员锁在登录墙外（无哈希可校验、密码登录被拒 → 进不去面板设密码 → 死锁）。
+          // 因此：无任何密码时禁止单独开启 enabled（除非本次同请求携带 password），
+          // 也禁止单独切换到 password_only（除非已设密码或本次带 password）。
+          const willHaveNoPassword = !authManager.hasPassword && !authManager.hasAdminPassword
+            && (password === undefined || !password);
+          const nextMode = mode ?? authManager.mode;
+          const nextEnabled = enabled ?? authManager.enabled;
+          if (willHaveNoPassword && nextMode === 'password_only') {
+            if (nextEnabled) {
+              return fail('bad-request', '仅密码模式需要先设置访问密码：请先在下方「设置外部访客访问密码」处设置密码，再开启安全防护');
+            }
+            if (mode !== undefined) {
+              return fail('bad-request', '仅密码模式需要先设置访问密码：请先在下方「设置外部访客访问密码」处设置密码后再切换');
+            }
+          }
+
+          if (enabled != null) await authManager.setEnabled(enabled);
+          if (mode != null) await authManager.setMode(mode);
+          if (scope != null) await authManager.setScope(scope);
+          if (adminPolicy != null) await authManager.setAdminPolicy(adminPolicy);
+          if (adminProtection != null) await authManager.setAdminProtection(adminProtection);
+          if (password !== undefined) await authManager.setPassword(password);
+          if (adminPassword !== undefined) await authManager.setAdminPassword(adminPassword);
+          return ok(authManager.getStatus({ masked: false }));
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.dismissFirstRunGuide) {
+          // 无管理权限要求：这是纯本地提示状态，不涉及安全配置变更。
+          // 与 authUpdateConfig 中「切换 enabled 不需管理权限」同理，避免提示无法关闭。
+          return ok(await service.dismissFirstRunGuide());
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.authRegenerateToken) {
+          if (!authManager) return fail('bad-request', 'AuthManager 未初始化');
+          const adminErr = checkAdminAuth(authManager, payload);
+          if (adminErr) return adminErr;
+
+          await authManager.regenerateSecretToken();
+          return ok(authManager.getStatus({ masked: false }));
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.authAdminUnlock) {
+          if (!authManager) return fail('bad-request', 'AuthManager 未初始化');
+          const { password } = payload;
+          const res = await authManager.unlockAdmin(password);
+          if (res.ok) return ok({ adminToken: res.adminToken });
+          return fail('bad-request', res.error || '管理员密码错误');
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.authAdminLock) {
+          if (!authManager) return fail('bad-request', 'AuthManager 未初始化');
+          if (payload?.adminToken) authManager.revokeAdminSession(payload.adminToken);
+          return ok({ locked: true });
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.saveCustomTunnelConfig) {
+          const adminErr = checkAdminAuth(authManager, payload, { requireConfigured: true });
+          if (adminErr) return adminErr;
+
+          // 未提供的字段保持 undefined 透传：服务端视为"保留现值"
+          const { serverUrl, accessToken, sseStreaming } = payload;
+          await saveCustomTunnelConfig(serverUrl, accessToken, sseStreaming);
+          const status = await service.getStatus();
+          return ok(status);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.saveCloudflaredConfig) {
+          const adminErr = checkAdminAuth(authManager, payload, { requireConfigured: true });
+          if (adminErr) return adminErr;
+
+          const { token, hostname } = payload;
+          await service.saveCloudflaredConfig({ token, hostname });
+          const status = await service.getStatus();
+          return ok(status);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.saveExternalTunnel) {
+          const adminErr = checkAdminAuth(authManager, payload, { requireConfigured: true });
+          if (adminErr) return adminErr;
+
+          const { url } = payload;
+          await service.saveExternalTunnel({ url });
+          const status = await service.getStatus();
+          return ok(status);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.setTunnelAutoStart) {
+          const adminErr = checkAdminAuth(authManager, payload, { requireConfigured: true });
+          if (adminErr) return adminErr;
+
+          const { tunnel, autoStart } = payload;
+          await service.setTunnelAutoStart({ tunnel, autoStart });
+          const status = await service.getStatus();
+          return ok(status);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.setLanIp) {
+          const adminErr = checkAdminAuth(authManager, payload);
+          if (adminErr) return adminErr;
+
+          const { ip } = payload;
+          const status = await service.setLanIp({ ip });
+          return ok(status);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.startCustomTunnel) {
+          const adminErr = checkAdminAuth(authManager, payload, { requireConfigured: true });
+          if (adminErr) return adminErr;
+
+          try {
+            await service.startCustomTunnel();
+            const status = await service.getStatus();
+            return ok(status);
+          } catch (err) {
+            logger.error('Failed to start custom tunnel: %s', err.message);
+            return fail('bad-request', err.message);
+          }
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.stopCustomTunnel) {
+          const adminErr = checkAdminAuth(authManager, payload);
+          if (adminErr) return adminErr;
+
+          service.stopCustomTunnel();
+          const status = await service.getStatus();
+          return ok(status);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.startCloudflared) {
+          const adminErr = checkAdminAuth(authManager, payload, { requireConfigured: true });
+          if (adminErr) return adminErr;
+
+          try {
+            await service.startCloudflared();
+            const status = await service.getStatus();
+            return ok(status);
+          } catch (err) {
+            logger.error('Failed to start cloudflared: %s', err.message);
+            return fail('bad-request', err.message);
+          }
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.stopCloudflared) {
+          const adminErr = checkAdminAuth(authManager, payload);
+          if (adminErr) return adminErr;
+
+          service.stopCloudflared();
+          const status = await service.getStatus();
+          return ok(status);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.resetCloudflared) {
+          const adminErr = checkAdminAuth(authManager, payload);
+          if (adminErr) return adminErr;
+
+          await service.resetCloudflared();
+          const status = await service.getStatus();
+          return ok(status);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.checkVersion) {
+          const result = await service.checkVersion();
+          return ok(result);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.upgradePlugin) {
+          const adminErr = checkAdminAuth(authManager, payload, { requireConfigured: true });
+          if (adminErr) return adminErr;
+
+          const result = await service.upgradePlugin(payload);
+          return ok(result);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.upgradeDsh) {
+          const adminErr = checkAdminAuth(authManager, payload, { requireConfigured: true });
+          if (adminErr) return adminErr;
+
+          const result = await service.upgradeDsh(payload);
+          return ok(result);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.restartDsh) {
+          const adminErr = checkAdminAuth(authManager, payload, { requireConfigured: true });
+          if (adminErr) return adminErr;
+
+          // 打断保护：有任务在跑且调用方未显式确认时，**不重启**，改为把现场回给面板，
+          // 由面板弹二次确认。已确认（payload.confirm === true）则照常重启。
+          // 探测本身失败会降级为「无任务」，绝不会把重启锁死。
+          if (payload?.confirm !== true) {
+            let work;
+            try {
+              work = service.getActiveWork?.() ?? { total: 0, sessions: [], subagentSessions: [], pendingApprovals: [] };
+            } catch (err) {
+              logger?.debug?.('dsh-bridge: 重启前探测任务失败（按无任务处理）：%s', err?.message ?? err);
+              work = { total: 0, sessions: [], subagentSessions: [], pendingApprovals: [] };
+            }
+            if (work.total > 0) {
+              return fail('busy', '当前有任务正在运行，重启会打断它们', { activeWork: work });
+            }
+          }
+
+          const result = await service.restartDsh();
+          return ok(result);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.exportBackup) {
+          const adminErr = checkAdminAuth(authManager, payload, { requireConfigured: true });
+          if (adminErr) return adminErr;
+
+          if (!exportBackup) return fail('bad-request', '备份导出服务不可用');
+          const backup = await exportBackup();
+          return ok(backup);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.importBackup) {
+          const adminErr = checkAdminAuth(authManager, payload, { requireConfigured: true });
+          if (adminErr) return adminErr;
+
+          if (!importBackup) return fail('bad-request', '备份导入服务不可用');
+          const result = await importBackup(payload?.backup);
+          const status = await service.getStatus({ adminAuthValid: true });
+          return ok({ result, status });
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.diagnoseNetwork) {
+          const result = await service.diagnoseNetwork();
+          return ok(result);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.getSystemMetrics) {
+          const metrics = service.getSystemMetrics();
+          return ok(metrics);
+        }
+
+        // ---- 远程工作区管理与目录浏览 ----
+
+        if (endpoint === BRIDGE_ENDPOINTS.listRemoteDirectories) {
+          const adminErr = checkAdminAuth(authManager, payload, { requireConfigured: true });
+          if (adminErr) return adminErr;
+
+          const clientKey = payload?.clientIp || payload?.adminToken || 'default';
+          const rateCheck = rpcRateLimiter.check(clientKey, 30);
+          if (!rateCheck.allowed) {
+            return fail('bad-request', `请求过于频繁，请等待 ${rateCheck.retryAfterSec} 秒后再试`);
+          }
+
+          const result = await service.listRemoteDirectories(payload?.path);
+          return ok(result);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.addRemoteWorkspace) {
+          const adminErr = checkAdminAuth(authManager, payload, { requireConfigured: true });
+          if (adminErr) return adminErr;
+
+          const clientKey = payload?.clientIp || payload?.adminToken || 'default';
+          const rateCheck = rpcRateLimiter.check(clientKey, 20);
+          if (!rateCheck.allowed) {
+            return fail('bad-request', `添加工作区请求过于频繁，请等待 ${rateCheck.retryAfterSec} 秒后再试`);
+          }
+
+          const result = await service.addWorkspace(payload?.path);
+          return ok(result);
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.listWorkspaces) {
+          const adminErr = checkAdminAuth(authManager, payload);
+          if (adminErr) return adminErr;
+
+          const result = await service.getWorkspaces();
+          return ok(result);
+        }
+
+        // ---- 平台管理器（多 IM 平台）----
+
+        // 本机可用的 DSH agent preset（设置页下拉用）。
+        // 只读、不含敏感信息：DSH 未提供 agentPresets 服务（旧版本）或名册读取失败时
+        // 返回 available:false，前端退化为手填，不影响会话创建。
+        if (endpoint === BRIDGE_ENDPOINTS.listAgentPresets) {
+          try {
+            const presets = ctx.get?.('agentPresets');
+            if (!presets?.list) return ok({ available: false, default: null, presets: [] });
+            const rows = await presets.list();
+            return ok({
+              available: true,
+              default: typeof presets.defaultId === 'string' ? presets.defaultId : null,
+              presets: (Array.isArray(rows) ? rows : [])
+                // 坏掉的预设不列出来（DSH 自己也会在挂载前拒绝）
+                .filter((p) => p && typeof p.id === 'string' && p.broken === undefined)
+                .map((p) => ({ id: p.id, name: typeof p.name === 'string' ? p.name : p.id })),
+            });
+          } catch (err) {
+            // 服务被卸载 / 名册不可读：这是设置页的辅助信息，不该让整个请求失败
+            logger?.warn?.('dsh-bridge: listAgentPresets failed: %s', err?.message ?? err);
+            return ok({ available: false, default: null, presets: [] });
+          }
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.listPlatforms) {
+          if (!platformManager) return ok({});
+          // 每个平台的 login.qrPayload 渲染为 dataURL 后返回
+          const raw = platformManager.getStatus();
+          const out = {};
+          for (const [id, status] of Object.entries(raw)) {
+            let qr = null;
+            try { qr = await renderQr(status.login).catch(() => null); } catch { /* ignore */ }
+            out[id] = { ...status, login: { ...(status.login ?? {}), qr, qrPayload: undefined, qrKind: undefined } };
+          }
+          return ok(out);
+        }
+
+        // ---- 平台操作（统一接口）----
+
+        if (endpoint === BRIDGE_ENDPOINTS.platformLogin) {
+          if (!platformManager) return fail('bad-request', 'PlatformManager 未初始化');
+          const adminErr = checkAdminAuth(authManager, payload);
+          if (adminErr) return adminErr;
+
+          const { platformId, qrType } = payload;
+          if (!platformId) return fail('bad-request', '缺少 platformId 参数');
+          const platform = platformManager.get(platformId);
+          if (!platform) return fail('bad-request', `平台未注册: ${platformId}`);
+          const result = await platform.login({ qrType });
+          if (!result.ok) return fail('bad-request', result.error ?? '登录启动失败');
+          const status = platform.getStatus();
+          const qr = await renderQr(status.login).catch(() => null);
+          return ok({ ...status, login: { ...status.login, qr, qrPayload: undefined, qrKind: undefined } });
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.platformSetAllowFrom) {
+          if (!platformManager) return fail('bad-request', 'PlatformManager 未初始化');
+          const adminErr = checkAdminAuth(authManager, payload);
+          if (adminErr) return adminErr;
+
+          const { platformId, allowFrom } = payload;
+          if (!platformId) return fail('bad-request', '缺少 platformId 参数');
+          const platform = platformManager.get(platformId);
+          if (!platform) return fail('bad-request', `平台未注册: ${platformId}`);
+          await platform.setAllowFrom(allowFrom);
+          const status = platform.getStatus();
+          const qr = await renderQr(status.login).catch(() => null);
+          return ok({ ...status, login: { ...status.login, qr, qrPayload: undefined, qrKind: undefined } });
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.platformSetConfig) {
+          if (!platformManager) return fail('bad-request', 'PlatformManager 未初始化');
+          const adminErr = checkAdminAuth(authManager, payload);
+          if (adminErr) return adminErr;
+
+          const { platformId, ...config } = payload;
+          if (!platformId) return fail('bad-request', '缺少 platformId 参数');
+          const platform = platformManager.get(platformId);
+          if (!platform) return fail('bad-request', `平台未注册: ${platformId}`);
+          await platform.setConfig(config);
+          const status = platform.getStatus();
+          const qr = await renderQr(status.login).catch(() => null);
+          return ok({ ...status, login: { ...status.login, qr, qrPayload: undefined, qrKind: undefined } });
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.platformStop) {
+          if (!platformManager) return fail('bad-request', 'PlatformManager 未初始化');
+          const adminErr = checkAdminAuth(authManager, payload);
+          if (adminErr) return adminErr;
+
+          const { platformId } = payload;
+          if (!platformId) return fail('bad-request', '缺少 platformId 参数');
+          const platform = platformManager.get(platformId);
+          if (!platform) return fail('bad-request', `平台未注册: ${platformId}`);
+          await platform.stop();
+          const status = platform.getStatus();
+          const qr = await renderQr(status.login).catch(() => null);
+          return ok({ ...status, login: { ...status.login, qr, qrPayload: undefined, qrKind: undefined } });
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.platformStart) {
+          if (!platformManager) return fail('bad-request', 'PlatformManager 未初始化');
+          const adminErr = checkAdminAuth(authManager, payload);
+          if (adminErr) return adminErr;
+
+          const { platformId } = payload;
+          if (!platformId) return fail('bad-request', '缺少 platformId 参数');
+          const platform = platformManager.get(platformId);
+          if (!platform) return fail('bad-request', `平台未注册: ${platformId}`);
+          await platform.start();
+          const status = platform.getStatus();
+          const qr = await renderQr(status.login).catch(() => null);
+          return ok({ ...status, login: { ...status.login, qr, qrPayload: undefined, qrKind: undefined } });
+        }
+
+        if (endpoint === BRIDGE_ENDPOINTS.platformUnbind) {
+          if (!platformManager) return fail('bad-request', 'PlatformManager 未初始化');
+          const adminErr = checkAdminAuth(authManager, payload);
+          if (adminErr) return adminErr;
+
+          const { platformId } = payload;
+          if (!platformId) return fail('bad-request', '缺少 platformId 参数');
+          const platform = platformManager.get(platformId);
+          if (!platform) return fail('bad-request', `平台未注册: ${platformId}`);
+          await platform.unbind();
+          const status = platform.getStatus();
+          const qr = await renderQr(status.login).catch(() => null);
+          return ok({ ...status, login: { ...status.login, qr, qrPayload: undefined, qrKind: undefined } });
+        }
+
+        return fail('bad-request', `Unknown endpoint: ${endpoint}`);
+      } catch (err) {
+        logger.error('RPC endpoint %s failed: %s', endpoint, err.message);
+        return fail('bad-request', err.message);
+      }
+    },
+    // DSH 0.1.0/0.1.1 支持 authority 选项（仅回环可达）；0.1.2+ 忽略之，透传无副作用。
+    // 见 lib/connection-compat.js 的 registerRpcChannel 说明。
+    { authority: 'loopback' },
+    logger
+  );
+}

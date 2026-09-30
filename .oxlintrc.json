@@ -25,7 +25,8 @@
     "vendor/**", // Vendored source keeps upstream style and idioms.
     "third_party/plugins/dsh-codex-subscription/**", // Pinned source snapshots keep upstream bytes; owned sibling build/check scripts remain covered.
     "third_party/plugins/dsh-ffmpeg/**",
-    "third_party/plugins/dsh-lark-bridge/**",
+    "third_party/plugins/dsh-bridge/**",
+    "third_party/plugins/dsh-skill-mcp-panel/**",
     "third_party/plugins/dsh-ponytail/**",
     "third_party/plugins/dshmarket/**",
     "native/**", // The imported landlock-run subtree has its own gates; see native/README.md.

@@ -5,7 +5,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { applyMcpDesktopCompatibility, mcpDesktopCompatibility } from './compatibility/mcp-desktop.mjs'
-import { applyLarkDesktopCompatibility, larkDesktopCompatibility } from './compatibility/lark-desktop.mjs'
+import { applyBridgeDesktopCompatibility, bridgeDesktopCompatibility } from './compatibility/bridge-desktop.mjs'
 
 import { applyCodexModelVisibility } from './compatibility/codex-model-visibility.mjs'
 
@@ -65,14 +65,17 @@ for (const name of values.only ? [values.only] : Object.keys(pins)) {
   const links = []
   try {
     const directory = join(staging, 'package')
-    cpSync(join(sourceRoot, name), directory, { recursive: true, filter: path => !/(?:^|[\\/])(?:node_modules|lib|\.git)(?:[\\/]|$)/u.test(path) })
+    cpSync(join(sourceRoot, name), directory, { recursive: true, filter: path => !(name === 'dsh-bridge' ? /(?:^|[\\/])(?:node_modules|\.git)(?:[\\/]|$)/u : /(?:^|[\\/])(?:node_modules|lib|\.git)(?:[\\/]|$)/u).test(path) })
     const manifestPath = join(directory, 'package.json')
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    let manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     if (manifest.version !== pins[name].version || manifest.license !== pins[name].license) throw new Error(`community plugins: ${name} disagrees with sources.json`)
     if (!readFileSync(join(directory, 'LICENSE'), 'utf8').trim()) throw new Error(`community plugins: ${name} has no license`)
     const modules = join(directory, 'node_modules')
     linkDependencies(modules, links)
-    if (name === 'dsh-lark-bridge') applyLarkDesktopCompatibility(directory)
+    if (name === 'dsh-bridge') {
+      applyBridgeDesktopCompatibility(directory)
+      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    }
     if (name === 'dsh-skill-mcp-panel') applyMcpDesktopCompatibility(directory)
     const tsc = join(toolchain, 'node_modules/typescript/bin/tsc')
     const tsdown = join(toolchain, 'node_modules/tsdown/dist/run.mjs')
@@ -100,7 +103,7 @@ export function codexFilesystemPath(value) {
       }
       cpSync(join(sourceRoot, 'checks/codex-subagent.mjs'), join(directory, '.muse-subagent.test.mjs'))
       run(['--test', '--test-concurrency=1', '.muse-subagent.test.mjs', 'tests/pi-ai-runtime.test.mjs', 'tests/plugin-integration.test.mjs', 'tests/subscription-transport.test.mjs'], directory)
-    } else {
+    } else if (name !== 'dsh-bridge') {
       if (name === 'dsh-ponytail') {
         writeFileSync(join(directory, 'tsconfig.json'), JSON.stringify({ compilerOptions: {
           target: 'ES2024', module: 'NodeNext', moduleResolution: 'NodeNext', rootDir: 'src', outDir: 'lib/types',
@@ -124,9 +127,9 @@ export function codexFilesystemPath(value) {
     if (name === 'dshmarket') {
       manifest.exports['./catalog'] = { types: './lib/types/registry.d.ts', default: './lib/registry.js' }
     }
-    if (name === 'dsh-lark-bridge') {
-      cpSync(join(sourceRoot, 'checks/lark-desktop-runtime.mjs'), join(directory, '.muse-lark.test.mjs'))
-      run(['--test', '--test-concurrency=1', '.muse-lark.test.mjs'], directory)
+    if (name === 'dsh-bridge') {
+      cpSync(join(sourceRoot, 'checks/bridge-desktop-runtime.mjs'), join(directory, '.muse-bridge.test.mjs'))
+      run(['--test', '--test-concurrency=1', '.muse-bridge.test.mjs'], directory)
     }
     if (name === 'dsh-skill-mcp-panel') {
       cpSync(join(sourceRoot, 'checks/mcp-desktop-runtime.mjs'), join(directory, '.muse-mcp.test.mjs'))
@@ -154,7 +157,7 @@ export function codexFilesystemPath(value) {
       compatibilityOverlay: name === 'dsh-codex-subscription'
         ? { subagentRuntimeVersion: hostVersion, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true }
         : name === 'dshmarket' ? { catalogExport: './catalog' }
-          : name === 'dsh-lark-bridge' ? larkDesktopCompatibility
+          : name === 'dsh-bridge' ? bridgeDesktopCompatibility
             : name === 'dsh-skill-mcp-panel' ? mcpDesktopCompatibility : undefined,
       toolchainLockSha256: createHash('sha256').update(readFileSync(join(toolchain, 'pnpm-lock.yaml'))).digest('hex'),
     }, null, 2)}\n`)

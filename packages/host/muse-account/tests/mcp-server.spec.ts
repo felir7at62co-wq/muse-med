@@ -4,7 +4,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { apply } from '../src/index.ts'
+import { apply, Config } from '../src/index.ts'
 import { createMuseAccountMcpServer } from '../src/mcp-server.ts'
 import { createMuseKbReader, MuseKbError, type MuseKbFailure, type MuseKbResult } from '../src/kb.ts'
 import { writeMuseSession } from '../src/session.ts'
@@ -17,9 +17,9 @@ afterEach(async () => {
 
 it('rejects a relative account directory before mounting either account component', async () => {
   const ctx = new Context()
-  await expect(apply(ctx, { baseUrl: 'https://muse.example', accountHome: 'relative/account',
+  await expect(apply(ctx, Config({ baseUrl: 'https://muse.example', accountHome: 'relative/account',
     requestTimeoutMs: 15_000, asrRequestTimeoutMs: 300_000, modelRefreshMs: 60_000,
-    excludedModelPrefixes: [], feedbackExcerptChars: 1000 }))
+    excludedModelPrefixes: [], feedbackExcerptChars: 1000 })))
     .rejects.toThrow(/accountHome must be absolute/)
   await ctx.fiber.dispose()
 })

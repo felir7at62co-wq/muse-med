@@ -1,10 +1,14 @@
-# muse-med 桌面端
+# Muse 桌面端
 
 [English](README.md) | 中文
 
 桌面应用是完整 dsh Web 应用外的一层 Electron 壳。Electron RunAsNode 子进程启动共享 profile runner，Electron 立即从 `dsh-app://app/` 加载打包内的 Web 入口。共享加载页等待 Host 启动注入，然后在同一文档中启动客户端。Electron 将应用 HTTP 请求转发给已认证的 Web Host，转发时丢弃描述 Node fetch 连接而非资源本身的响应头（`transfer-encoding`、`connection`、`keep-alive`），并把插件 bundle 响应标记为 `no-store`，因为其每次启动都变化的 revision 只会在 Chromium 磁盘缓存中累积；WebSocket 流连接到该 Host，仅为归属的应用窗口附加凭据。Node IPC 承载启动注入、就绪与关闭。muse-med 只绑定 `127.0.0.1`，由系统分配端口，避免占用官方 DSH 应用的端口。共享 profile runner 提供设置和插件管理服务；生成的产品覆盖层保留产品预设、内置技能及飞书开关。共享包通过运行时解析，不创建指向 ASAR 内部的目录链接。
 
-桌面壳显示 **muse-med**，使用 `renderer/icon.png`：由提供的黑底白蜘蛛原图转换的方形 PNG。Windows 托盘和可执行文件图标由它生成；macOS 打包直接使用它。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和 GitHub 更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
+桌面壳显示 **Muse**，使用 `renderer/icon.png`：由提供的黑底白蜘蛛原图转换的方形 PNG。Windows 托盘和可执行文件图标由它生成；macOS 打包直接使用它。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和 GitHub 更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
+
+Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明，当前为 `1.0.0-beta.1`。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.1.7-rc.8` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
+
+视频预览使用鉴权 `/api/video` 流。Electron 转发字节范围与响应流，不复制完整视频。未经内容编码且状态为 200 或 206 的 GET/HEAD 响应保留合法的 `Content-Length`，供原生媒体跳转使用；编码响应与其他路由沿用普通解码响应头策略。关闭预览会取消其流，不停止 Agent 工作。
 
 ## 关键技术决策
 
@@ -36,7 +40,7 @@ Node 准备内置解释器和 Python 库，无需系统 Python 或 pip。[下载
 
 | 决策 | 原因 | 直接结果 |
 |---|---|---|
-| 发布身份 | 桌面壳 API、Web 客户端、后端与插件依赖图作为一个组合完成验证；独立版本会产生未经验证的组合，并让更新可用性含糊不清。 | Electron 与 `@deepseek-ai/dsh` 始终使用同一精确版本。即使桌面壳代码不变，升级 dsh 也必须发布新 Desktop 版本。 |
+| 发布身份 | 桌面壳 API、Web 客户端、后端与插件依赖图作为一个组合完成验证。 | Muse 拥有独立产品版本；打包校验内置 DSH 的精确版本，并记录两者。DSH 升级随重新验收的产品版本一同发布。 |
 | 运行时 | Electron 的 Node.js 带有 Electron 补丁、fuse、ABI 与生命周期约束，而系统运行时和包管理器状态不可控。 | dsh 通过内置的上游 Node.js 运行，所有包操作都使用内置 pnpm。Electron 的 Node.js、系统 Node.js、系统 pnpm 与用户的包管理器配置都不进入执行路径。Node.js 官方许可证按原始字节随包保存在 `runtime/node/LICENSE`。 |
 | 包来源 | 即使离线，启动时安装核心依赖也会增加开销。 | `app.asar/dsh` 携带完整生产依赖树；profile 只安装外部插件。 |
 | 状态归属 | 共享可执行依赖图会让 CLI（命令行界面）与 Desktop 相互改变 dsh、Cordis、插件或原生模块版本，而两个桌面进程还可能争用同一个 profile。 | Electron 在访问任何 profile 前获取进程生命周期单实例锁，并独占 `$DSH_HOME/profiles/desktop` 及其包管理器状态。已打包产品在访问 profile 前设定自己的 `$DSH_HOME`，不导入 CLI 数据。可执行包、插件激活、锁文件和 `node_modules` 仍由 Desktop 独占管理。 |
@@ -79,11 +83,13 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 ### 运行时与插件激活
 
-[社区源码构建器](../../third_party/plugins/README.zh.md)提供五个必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。Codex 订阅、FFmpeg 工具、Ponytail 与飞书是内置 profile bundle。插件市场不挂载；原生产品目录消费产品构建为该包新增的 `./catalog` 导出。
+[社区源码构建器](../../third_party/plugins/README.zh.md)提供六个必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。Codex 订阅、FFmpeg 工具、Ponytail、技能/MCP 面板和 `@wenbin_wb/dsh-bridge` 是内置 profile bundle。插件市场不挂载；原生产品目录消费产品构建为该包新增的 `./catalog` 导出。
 
-应用 → 桌面插件把五个内置社区包与用户自装插件分开显示，仅在你主动加载在线目录后联网，本地过滤，并把确认过的 npm 来源条目交给既有桌面包事务安装。仅 GitHub 或 tarball 来源的条目仍可浏览并给出仓库链接，但不能由该管理器安装。开发模式下包变更是只读的；目录网络失败既不会下载任何内容，也不会隐藏内置清单。
+应用 → 桌面插件把六个内置社区包与用户自装插件分开显示，仅在你主动加载在线目录后联网，本地过滤，并把确认过的 npm 来源条目交给既有桌面包事务安装。仅 GitHub 或 tarball 来源的条目仍可浏览并给出仓库链接，但不能由该管理器安装。开发模式下包变更是只读的；目录网络失败既不会下载任何内容，也不会隐藏内置清单。
 
-内置飞书桥接只在本产品自己的开关要求时才运行：`feishu` 组合行自身的 `enabled` 字段，它既是该行的 Config，也就是页面向其写入的 `feishu` 设置段。桌面组合在启动后端时从组合出的行里读取它，并重述进 `feishu-channel` 行自己的 `enabled` 键（[`src/feishu-gate.ts`](../desktop-host/src/feishu-gate.ts)），因此开关在下次启动时生效。仅靠开关并不充分：社区构建的兼容 overlay 给该行加入默认 `true` 的插件级激活开关，而 patch 与闸门层都把 `enabled`、`autoRegistration`、`crossInstanceSync` 保持 `false`，所以打开开关只是让桥接挂载，扫码注册与跨实例同步仍然关闭。开关为 off 时该行保持挂载而非 entry-disabled：在这个 harness 里插件的设置段就是它自己的 Config，扫码得到的凭证对必须在桥接首次运行之前就能存下，而 `enabled: false` 是那个让打包插件在同步层、控制服务、心跳与二维码应用注册之前返回的 fail-safe。因此默认桌面不发起扫码注册，不启动同步层与控制服务，也不读取其他实例的同步目录；凭证保存在当前 profile 补丁中，并保留在组合出的桥接配置里；能否触达机器人仍取决于飞书应用自身的权限与可见范围。
+可选飞书通道仅在后端启动时产品的 `feishu.enabled` 开关为 on 才运行。[启用层](../desktop-host/src/feishu-gate.ts)将开关传入 `feishu-channel.enabled`，并保留已组合的凭证。关闭时该行仍保持挂载，使 Settings 能在启用前保存凭证；审核后的 provider 仅在启用后创建网关与会话节点。从旧内置桥接迁移时保留凭证值和备份，并关闭开关。保存或确认凭证、显式启用飞书，再重启后端。真实扫码注册、消息收发及租户权限仍未验证。
+
+桥接的独立 `./remote` provider 为 Muse 账号访问提供私有出站桌面连接。账号认证与设备绑定选择该账号自己的 Host；本地 HTTP 转发与原生 `/api/remote.mux` WebSocket 帧保留应用既有路由。审核后的产物不启动局域网代理、公共 Cloudflare 隧道或上游独立服务端。复用模块与已测传输行为见[源码与兼容性审核](../../third_party/plugins/README.zh.md)。
 
 产品加载随包短剧与 Muse 技能及自身 `$DSH_HOME/skills`，不扫描已有 DSH、`.agents` 或默认项目技能源；显式插件技能注册仍然可用。Windows 用户将自定义技能放在 `%USERPROFILE%\.muse\skills\<skill-name>\SKILL.md`；`MUSE_MED_HOME` 可指定其他产品 home。Host 在启动时创建 skills 目录。开发模式使用下文说明的独立 home。短剧、编辑、标准、PTC 和创造模式提供技能工具。短剧技能从 ASAR 解包，Host 向外部 Python 提供真实的 `app.asar.unpacked` 路径。 创造模式专属的组合编写技能也从 ASAR 解包，供该模式的文件系统技能提供方读取。Windows 启动将 `runtime/media/python` 和 `runtime/media/ffmpeg/bin` 放到子进程搜索路径前部。[媒体准备器](scripts/prepare-media-runtime.ts)在发布输出前检查锁定输入、依赖导入、编码、字幕烧录、草稿媒体探测及 Word 读写验证；复用时验证完整文件清单并重跑这些检查。构建机器上的验证不能替代无开发工具机器上的安装验证。安装器附带微软官方 VC++ 前置运行库，检查已装版本并在安装前请求授权；拒绝或失败会阻止成功完成和自动启动。再分发需要发行者具有适用的微软许可，不能仅依据运行库终端许可。
 
@@ -91,7 +97,7 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 [FFmpeg 源码构建流程](scripts/ffmpeg-source-build/README.zh.md)为离线发行生成二进制与对应源码配对。两个 CI job 均须通过后才能替换开发验证用的 FFmpeg 输入，对应源码归档必须与桌面版本一同发布；提交构建不等于产物通过验收。
 
-签名资源中的 `resources/app.asar/dsh/desktop-runtime.json` 绑定 shell 版本、内置 Node 版本、平台、架构、共享包版本和最终文件清单。启动读取元数据，并检查共享包记录。发布 schema、shell 版本、目标兼容性和文件完整性在打包时验证。首次启动不会把核心包复制到 profile 存储或通过 pnpm 安装核心包。
+签名资源中的 `resources/app.asar/dsh/desktop-runtime.json` 绑定内置 DSH 版本、内置 Node 版本、平台、架构、共享包版本和最终文件清单。启动读取元数据，并检查共享包记录。发布 schema、内置 DSH 版本、目标兼容性和文件完整性在打包时验证。首次启动不会把核心包复制到 profile 存储或通过 pnpm 安装核心包。
 
 1. 主窗口在 profile 准备或后端启动前显示本地加载页。新 profile 创建清单和共享包链接，保留无关文件，然后启动一次实际后端。未变化的启动复用 profile，不扫描已安装插件的清单，但会先按第 2 条规则读取已存储的 bundle 列表。
 2. 兼容的应用升级在当前 profile 中刷新共享链接，并检查已启用插件的 peer 要求。仅缺少本版本新增内置 bundle 的 `dsh.profile.bundles`，会在把 manifest 复制到同目录之后就地补齐；其他列表一律响亮失败且不被改动。每次启动都按此规则读取该列表，包括复用 profile 的那次：准备在记录运行时状态之后失败时，那份状态仍是最新的。插件文件、配置、版本和锁文件留在原处；不运行 pnpm。
@@ -145,30 +151,30 @@ Muse 在 Host 就绪后打开工作区。空白首启时，Web 客户端先提�
 
 ### 发布版本
 
-每次 Desktop 打包前，第一步都要与当前用户确认完整版本号。检查所选部署环境、dsh 基础版本、保留的发布记录和已发布对象，再提出准确版本供用户确认。用户确认前不得启动打包；仅选择部署环境不代表用户已认可版本号。
+每次 Desktop 打包前，第一步都要与当前用户确认完整版本号。检查所选部署环境、Muse 产品版本、内置 DSH 版本、保留的发布记录和已发布对象，再提出准确版本供用户确认。用户确认前不得启动打包；仅选择部署环境不代表用户已认可版本号。
 
-记录当前 dsh 版本作为基础版本。production Desktop 使用完全相同的版本，包括其中的 `alpha`、`beta` 或 `rc` 标识。test 发布保留完整的预发布基础版本并追加 `.YYYYMMDD.index`；稳定基础版本则追加 `-test.YYYYMMDD.index`。
+从 `muse-product.json` 读取产品基础版本，单独记录内置 DSH 版本。production Desktop 使用产品的精确版本，包括其中的 `alpha`、`beta` 或 `rc` 标识。test 发布保留完整的预发布基础版本并追加 `.YYYYMMDD.index`；稳定基础版本则追加 `-test.YYYYMMDD.index`。上传校验要求完成记录中的产品构建和内置 DSH 版本都与当前来源相符。
 
-| dsh 基础版本 | production Desktop | test Desktop 示例 |
+| Muse 产品基础版本 | production Desktop | test Desktop 示例 |
 |---|---|---|
-| `0.1.6-alpha.1` | `0.1.6-alpha.1` | `0.1.6-alpha.1.20260916.1` |
-| `0.1.6-beta.2` | `0.1.6-beta.2` | `0.1.6-beta.2.20260916.1` |
-| `0.1.6-rc.3` | `0.1.6-rc.3` | `0.1.6-rc.3.20260916.1` |
-| `0.1.6` | `0.1.6` | `0.1.6-test.20260916.1` |
+| `1.0.0-alpha.1` | `1.0.0-alpha.1` | `1.0.0-alpha.1.20260930.1` |
+| `1.0.0-beta.1` | `1.0.0-beta.1` | `1.0.0-beta.1.20260930.1` |
+| `1.0.0-rc.1` | `1.0.0-rc.1` | `1.0.0-rc.1.20260930.1` |
+| `1.0.0` | `1.0.0` | `1.0.0-test.20260930.1` |
 
 日期使用实际创建时的 Asia/Shanghai 日期。每个基础版本、每天的序号从 1 开始，检查保留的发布记录与已发布对象后递增；绝不复用已发布版本。test 分发不发布对应的无后缀基础版本。
 
-把确认后的版本通过 `--build-version` 传给打包命令，该值同时决定产物文件名、更新 feed 与上传校验。清单保留产品版本，因此 test 打包不再改写发布家族，也不留下需要还原的改动：
+把确认后的版本通过 `--build-version` 传给打包命令，该值同时决定产物文件名、更新 feed 与上传校验。`muse-product.json` 保留产品基础版本，包清单保留 DSH 版本：
 
 ```sh
-pnpm --dir apps/desktop run package:win:x64 --build-version 0.1.6-alpha.1.20260916.1
+pnpm --dir apps/desktop run package:win:x64 --build-version 1.0.0-beta.1.20260930.1
 ```
 
 `--build-version auto` 会给出当天的下一个序号：读取目标 bucket 中已发布的对象，未配置 bucket 或列举未能在期限内完成时回退到本目标的本地输出目录。上传前请确认它打印的版本号；run script 会自行透传 `--`，打包入口两种写法都接受。
 
 production 发布使用产品版本本身，不传 `--build-version`。其上传成功后会把打包所用 commit 打成 `desktop-v<版本>` 标签；来自有改动工作区的构建不打标签，打标签失败也只打印手工命令，不会让已完成的上传变成失败。test 与本地构建有意不留标签，而所有产物的清单都记录 `dshBuildCommit` 与 `dshBuildDirty`，直接分发的构建同样可溯源。
 
-GitHub 发布的产品把通道记录在打包后的 `app-update.yml` 中，由版本的预发布标识派生，客户端只请求该通道文件：`0.1.7-rc.1` 读取 `rc.yml`，稳定版读取 `latest.yml`。客户端不得自行指定通道，因为 provider 同时从该记录解析发布标签和通道文件名；被强制的通道匹配不到任何已发布标签，检查在下载前即失败。保留的 COS 上传链仍使用固定的 `nightly.yml` / `nightly-mac.yml` 文件名。SemVer 排序为 `0.1.6-alpha.1 < 0.1.6-alpha.1.20260916.1 < 0.1.6-alpha.2`，稳定基础版本的测试版低于该稳定版。客户端只接受更高版本：替换 feed 无法让已安装的较高版本更新到较低的纠正版。这类客户端需要手动安装；保持自动降级关闭。[版本决策](../../.agents/notes/implemented/process/2026-09-16-desktop-release-version-derivation.zh.md)解释为什么不能用通道名替换预发布标识。
+打包后的 `app-update.yml` 记录产品版本派生的通道：Muse `1.0.0-beta.1` 使用 `beta.yml`，稳定版使用 `latest.yml`。COS 上传元数据使用相同的版本派生文件名，macOS 增加 `-mac`。SemVer 排序为 `1.0.0-beta.1 < 1.0.0-beta.1.20260930.1 < 1.0.0-beta.2`；主版本增加也让 Muse beta 高于 DSH `0.1.7-rc.8`。客户端保持自动降级关闭，只接受更高的元数据版本。纠正为较低版本时需要手动安装。
 
 打包、上传以及手动 macOS 签名检查使用 `apps/desktop/.env.windows` 或 `.env.macos`，由目标平台选择。复制对应的 [Windows 模板](.env.windows.example) 或 [macOS 模板](.env.macos.example)，填写本机配置；Git 忽略这两个本地文件，安装产物也不包含它们。发布字段只从目标文件读取，不回退到系统或 shell 中的同名变量；`PATH`、代理和构建工具环境仍保留。发布版本是命令参数而非发布字段，上传从打包写下的完成记录中读取它。文件使用 UTF-8，支持 BOM；相对证书、SignTool、Apple API Key 和钥匙串路径以 `apps/desktop` 为基准，变量值不做 shell 展开，包含 `#` 或空格的密码需要引号。CI 同样在运行前生成目标文件。
 
@@ -263,7 +269,9 @@ pnpm run upload:mac:arm64
 
 早期内测包使用 `test` 部署。仅为生产发布显式选择 `production`；更换上传凭据不会改变已有包的目标部署。打包不需要 COS 凭据，禁用 electron-builder 发布，并从子进程环境中剔除 COS 凭据；只有签名和公证成功后才写入完成记录。上传在读取凭据前校验该记录、部署、目标、共享版本、文件名、大小与 SHA-512。安装包与 blockmap 先于 YAML 上传；历史对象保留。每个 release 只发布一个通道文件，即其版本派生出的那个：nightly 版本为 `nightly.yml` 或 `nightly-mac.yml`，稳定版为 `latest.yml` 或 `latest-mac.yml`。发布的 YAML 使用绝对二进制 URL。上传器不设置 Cache-Control，包括 COS SDK 本会添加的空头：缓存策略归部署基础设施所有，feed 不缓存，二进制缓存可单独配置。按目标串行发布，并在发布资格确认前验证公开产物与 feed 内容。
 
-本产品把自己的发布放在 GitHub Releases：`https://github.com/felir7at62co-wq/muse-med`，它也是写入 `app-update.yml` 的更新源。安装包必须挂在 tag 为语义化版本的 release 上，例如 `v0.1.6-alpha.2`：electron-updater 的 GitHub provider 会跳过所有 tag 不是语义化版本的 release。预发布版本以其第一个预发布标识作为频道，打包会把这个频道显式写进 `github` publish 条目：electron-builder 只依据该条目给产出的元数据文件命名（缺省为 `latest`），且只对 `generic`、`s3`、`spaces` 三种 provider 套用版本推导出的频道。没有这个显式频道时，预发布版本会产出 `latest.yml`，而每个已装客户端都在请求 `alpha.yml`，于是每次检查先吃一次 404 再回退。因此已安装的 `0.1.6-alpha.2` 客户端会从最新的语义化版本 release 读取 `alpha.yml`，该频道元数据必须与安装包位于同一个 release。先建 draft、在资产验证通过后再发布：provider 读取的 feed 只列出已发布的 release。对已发布的 release 运行 `pnpm --dir apps/desktop run verify:update-feed`：它用真实 GitHub provider 按本构建打包的通道解析更新，要求负向对照成立（被强制的通道必须失败），并拒绝缺少通道文件、缺少安装包 blockmap，或发布了版本未派生的通道文件的 release。未签名的 Windows 发布使用同一 GitHub 更新源：以 `v0.1.7-rc.4` 等语义化版本 tag 发布，并同时附上生成的 `rc.yml`、安装包、`.exe.blockmap` 和 SHA-256 校验文件。已安装的 RC 客户端无法发现带 `preview-` 前缀的 tag。验证 rc3 升级时，运行 `pnpm --dir apps/desktop run verify:update-feed --version 0.1.7-rc.3 --expected-version 0.1.7-rc.4 --config <saved-rc3-app-update.yml>`。上面的 `upload:*` 命令仍面向签名发布流的腾讯 COS。
+打包后的更新器使用 `https://github.com/felir7at62co-wq/muse-med` 上的 GitHub Releases。每个已发布 release 都需要语义化版本 tag、安装包、blockmap 和通道 YAML；provider 的 feed 不包含 draft release。`verify:update-feed` 使用真实 provider 校验安装包哈希和元数据资产。COS 上传器记录另一份必需的 GitHub 发布计划，但不会发布 GitHub release。
+
+`muse-product.json` 为 Muse beta 发布显式启用 `legacyRcDiscovery`。已安装的 `0.1.7-rc.7` 和 `0.1.7-rc.8` GitHub 客户端只选择 rc tag，因此发布计划要求两个入口：`v1.0.0-beta.1` 和仅用于发现的 `v1.0.0-rc.muse-beta.1`。两者包含完全相同的真实 Muse beta 二进制，以及版本仍为 `1.0.0-beta.1` 的 `beta.yml`、`rc.yml` 和 `latest.yml` 元数据；macOS 使用相应的 `-mac` 名称。COS 计划包含相同的 feed 别名。Provider 回放已验证发现和版本接受；实际发布两个 release、检查线上资产以及升级已安装的签名应用，仍需要发布验证。单独发布 beta 无法让旧 rc 客户端更新。
 
 macOS 配置使用必填发布环境，不会接受钥匙串中最先发现的证书。空值、格式错误的 Team ID、包含 electron-builder 不支持的 `Developer ID Application:` 前缀的签名身份，以及不完整的公证凭据都会被拒绝。macOS 打包要求已配置的身份及其私钥可用。运行时准备会把该身份、安全时间戳与 hardened runtime 应用到每个内嵌 Mach-O 文件；应用签名完成后，深度严格检查会拒绝其他叶证书 Authority 或 Team ID，验证通过才生成发布产物。macOS 固定目标安装包命令为已签名应用创建独立副本，并发执行两条产物流。一路先公证 App 并钉票，再生成 ZIP 及其更新元数据。另一路把已签名 App 副本封装进签名 DMG，再公证 DMG、钉票并验证；其中的 App 不单独附加票据。只有两路均成功结束，产物才会移入最终目录并写入发布完成记录。仅生成目录的命令同样需要公证凭据，并等待 Apple 公证和 App 钉票完成。[并行公证决策](../../.agents/notes/implemented/process/2026-09-09-parallel-macos-notarization.zh.md)负责副本隔离与容器票据语义。私钥可以来自登录钥匙串或 electron-builder 的标准 `CSC_LINK` 输入；环境中的 `CSC_NAME` 与证书发现顺序都不能选择发布所有者。公证凭据也可以使用 electron-builder 支持的完整 Apple ID 或钥匙串 profile 方式。手动执行 `pnpm --dir apps/desktop run verify:mac-signature -- <path-to-app>` 重复应用检查时，也必须提供两个 macOS 身份变量。
 

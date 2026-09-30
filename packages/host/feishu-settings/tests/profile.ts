@@ -34,11 +34,13 @@ export const ProbeConfig = z.object({
 export const BridgeConfig = z.object({
   ordinary: z.string().required(),
   enabled: z.boolean().default(false),
-  autoRegistration: z.boolean().default(false),
+  requireMention: z.boolean().default(true),
   // The platform spells an app id `cli_…`, and a section write that fails this
   // pattern is the schema refusal the Remote surface reports as a bounded reason.
   appId: z.string().default('').pattern(/^(?:cli_[A-Za-z0-9]*)?$/u).volatile(),
   registeredBy: z.string().default('').volatile(),
+  allowFrom: z.array(z.string()).default([]).volatile(),
+  activeSessionId: z.string().default('').volatile(),
   appSecret: z.string().role('secret').volatile(),
 })
 

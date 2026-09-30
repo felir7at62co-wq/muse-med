@@ -67,6 +67,16 @@
   padding: 0;
 }
 
+.fileRow {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.fileRow .row {
+  flex: 1;
+}
+
 .row {
   display: flex;
   gap: 6px;

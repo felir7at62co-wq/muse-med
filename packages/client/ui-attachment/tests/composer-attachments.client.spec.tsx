@@ -88,6 +88,36 @@ function props(overrides: Partial<ComposerAttachmentsOwnerProps> = {}): Composer
 }
 
 describe('ComposerAttachments', () => {
+  it('captures workspace drops before an editable target can stop their propagation', () => {
+    const onDrop = vi.fn()
+    const targetDrop = vi.fn((event: React.DragEvent) => { event.stopPropagation() })
+    const view = render(<>
+      <ComposerAttachments {...props({ workspaceDrop: { type: 'application/x-dsh-workspace-file', canAccept: true, onDrop } })} />
+      <div data-testid="editor" contentEditable suppressContentEditableWarning onDrop={targetDrop} />
+    </>)
+    const transfer = { types: ['application/x-dsh-workspace-file'], files: [], items: [], getData: () => 'drag-ticket' }
+    fireEvent.drop(view.getByTestId('editor'), { dataTransfer: transfer })
+    expect(onDrop).toHaveBeenCalledWith('drag-ticket')
+    expect(targetDrop).not.toHaveBeenCalled()
+  })
+
+  it('routes an internal workspace drag ticket without adding browser file attachments', () => {
+    const onAddFiles = vi.fn()
+    const onDrop = vi.fn()
+    const view = render(<ComposerAttachments {...props({ onAddFiles, workspaceDrop: {
+      type: 'application/x-dsh-workspace-file', canAccept: true, onDrop,
+    } })} />)
+    const transfer = { types: ['application/x-dsh-workspace-file', 'Files'], files: [], items: [], dropEffect: 'none', getData: vi.fn(() => 'drag-ticket') }
+    fireEvent.dragEnter(document.body, { dataTransfer: transfer })
+    expect(view.getByRole('status').textContent).toBe('attachment.workspaceDropTitle')
+    fireEvent.dragOver(document.body, { dataTransfer: transfer })
+    expect(transfer.dropEffect).toBe('copy')
+    fireEvent.drop(document.body, { dataTransfer: transfer })
+    expect(onDrop).toHaveBeenCalledWith('drag-ticket')
+    expect(onAddFiles).not.toHaveBeenCalled()
+    expect(view.queryByRole('status')).toBeNull()
+  })
+
   it('accepts file drops anywhere on the document and keeps non-file drags native', () => {
     const onAddFiles = vi.fn()
     const view = render(<ComposerAttachments {...props({

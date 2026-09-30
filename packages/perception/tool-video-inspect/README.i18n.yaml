@@ -1,0 +1,43 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/perception/tool-video-inspect/README.md
+/:
+  en: 72e4156f07839ed2
+  zh: 2edfb4050cd8b8b2
+/deepseek-ai-dsh-tool-video-inspect:
+  en: 38f2d3aa2b875353
+  zh: fbf02e9565317673
+/deepseek-ai-dsh-tool-video-inspect/summary:
+  en: 672e094aeb57d4ab
+  zh: 350fe9d5c212c4ab
+/deepseek-ai-dsh-tool-video-inspect/table-of-contents:
+  en: a440c3eca6422a79
+  zh: b1dbab00189814be
+/deepseek-ai-dsh-tool-video-inspect/use-this-package:
+  en: a8b14945b707166b
+  zh: 3363cd3237226944
+/deepseek-ai-dsh-tool-video-inspect/execution-and-storage:
+  en: 58191662efa5c9d0
+  zh: 4e9e11cff246ca52
+/deepseek-ai-dsh-tool-video-inspect/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-tool-video-inspect/model-experience/the-video-inspect-tool:
+  en: 167e93c1788aca02
+  zh: 0c726724bca89a00
+/deepseek-ai-dsh-tool-video-inspect/model-experience/the-video-inspect-tool/what-the-model-sees:
+  en: 9180aed2e8271dab
+  zh: d42f6fe6c2221e2a
+/deepseek-ai-dsh-tool-video-inspect/model-experience/the-video-inspect-tool/token-effect:
+  en: 3710afc389611db5
+  zh: 938ae62848b5e225
+/deepseek-ai-dsh-tool-video-inspect/model-experience/the-video-inspect-tool/kv-cache-effect:
+  en: 14be05d66d30f892
+  zh: 73ba01f42f694912
+/deepseek-ai-dsh-tool-video-inspect/known-limitations-and-deferred-work:
+  en: eef87332162b0395
+  zh: 2a94000811bbfd81
+/deepseek-ai-dsh-tool-video-inspect/known-limitations-and-deferred-work/dev-note:
+  en: 3c463edfa5e9aa37
+  zh: 3261a55f713219d9

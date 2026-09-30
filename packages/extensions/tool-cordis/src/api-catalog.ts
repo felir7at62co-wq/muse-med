@@ -131,6 +131,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'agentNotes',
+    summary: 'Host Remote file reads and writes for one notes root over the composed filesystem.',
+    description: 'Host Remote file reads and writes for one notes root over the composed filesystem.',
+    methods: [
+      {
+        signature: '@Remote async list(): Promise<AgentNotesCatalog>',
+        description: 'List every note under the notes root, grouped facts only and never content.',
+        parameters: [],
+        returns: 'the catalog, its root, and whether the cap cut it. A root that does not exist reports `absent` with no notes; that is an empty state, not a failure.',
+      },
+      {
+        signature: '@Remote async read(id: string): Promise<AgentNoteText>',
+        description: 'Read one complete note.',
+        parameters: [{ name: 'id', description: 'note id: a root-relative `/`-separated path ending in `.md`.' }],
+        returns: 'the note\'s text, its resolved headline facts, and the version a following save must present.',
+      },
+      {
+        signature: '@Remote async save(id: string, text: string, expectedVersion: string): Promise<AgentNoteWriteResult>',
+        description: 'Replace one note\'s complete text.\n\nThe write is guarded by expectedVersion, so it replaces only the bytes the caller read. It never creates a file: a note id with no note behind it is refused, because authoring notes is the agent\'s and the person\'s job, not this service\'s.',
+        parameters: [{ name: 'id', description: 'note id: a root-relative `/`-separated path ending in `.md`.' }, { name: 'text', description: 'the complete new note text.' }, { name: 'expectedVersion', description: 'the version returned by the read this edit is based on.' }],
+        returns: 'the note\'s version and size after the write.',
+      },
+    ],
+  },
+  {
     key: 'agentPresets',
     summary: 'Registry of YAML-declared presets and the revisions live Agents retain.',
     description: 'Registry of YAML-declared presets and the revisions live Agents retain.',
@@ -1356,6 +1381,47 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'jubianImage',
+    summary: 'Host service backing the generated `ctx.remote.jubianImage` namespace: the rows the paid image route may buy from.',
+    description: 'Host service backing the generated `ctx.remote.jubianImage` namespace: the rows the paid image route may buy from.\n\nThe namespace reads and never writes, and it carries rows only — the token that authorizes the read never crosses to the browser.',
+    methods: [
+      {
+        signature: '@Remote async routes(): Promise<{ candidates: ImageRouteRow[] }>',
+        description: 'List the `gpt-image-2` catalogue rows this account may buy from.\n\nFree and read-only: the very catalogue read the paid call makes, spending nothing. A Settings page offers these rows so a person picks a platform by its own price instead of reading that price out of a failure message.',
+        parameters: [],
+        returns: 'one entry per `gpt-image-2` row, in catalogue order.',
+        throws: ['RemoteError when the catalogue cannot be read; its message is what the page shows.'],
+      },
+    ],
+  },
+  {
+    key: 'jubianToken',
+    summary: 'Host service backing the generated `ctx.remote.jubianToken` namespace: the Jubian admin token as the Web Settings page reads, writes, and clears it.',
+    description: 'Host service backing the generated `ctx.remote.jubianToken` namespace: the Jubian admin token as the Web Settings page reads, writes, and clears it.',
+    methods: [
+      {
+        signature: '@Remote async describe(): Promise<CredentialInfo>',
+        description: 'Describe the stored token without reading it.',
+        parameters: [],
+        returns: 'whether a value is configured, which source supplies it, and whether this deployment can write it.',
+      },
+      {
+        signature: '@Remote async set(value: string): Promise<CredentialInfo>',
+        description: 'Store one value under the fixed reference.',
+        parameters: [{ name: 'value', description: 'the token; an empty or whitespace-only value is refused.' }],
+        returns: 'the same facts {@link describe} reports after the write.',
+        throws: ['RemoteError when the value is empty, or when the provider refuses the write.'],
+      },
+      {
+        signature: '@Remote async unset(): Promise<CredentialInfo>',
+        description: 'Remove the stored value. Removing an absent reference is a no-op.',
+        parameters: [],
+        returns: 'the same facts {@link describe} reports after the removal.',
+        throws: ['RemoteError when the provider refuses the write.'],
+      },
+    ],
+  },
+  {
     key: 'llm',
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.',
     description: 'The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.',
@@ -1507,6 +1573,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Delete one item after checking its version; absence succeeds without an event.',
         parameters: [{ name: 'request', description: 'Session, message, and observed item version.' }],
         returns: 'the stable absent postcondition or an explicit failure.',
+      },
+    ],
+  },
+  {
+    key: 'museDesktopBridge',
+    summary: 'Provider factory for an account-bound desktop, using the existing Host authority.',
+    description: 'Provider factory for an account-bound desktop, using the existing Host authority.',
+    methods: [
+      {
+        signature: 'abstract createTunnel(options: MuseDesktopTunnelOptions): MuseDesktopTunnel',
+        description: 'Create a stopped tunnel. Neither account cookies nor loopback cookies appear in URLs.',
+        parameters: [{ name: 'options', description: 'Verified account and local Host connection settings.' }],
+        returns: 'Tunnel whose owner must await stop during account changes and disposal.',
       },
     ],
   },
@@ -3230,8 +3309,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'restrict(filter: ToolRestriction): () => void',
-        description: 'Restrict global tools for the calling agent scope. Empty filters, unknown names, scope-local names, and reserved transport names fail. Restrictions intersect; scoped registrations remain visible.',
-        parameters: [{ name: 'filter', description: 'global-tool mask: `allow` (keep only) and/or `deny` (remove).' }],
+        description: 'Restrict global tools for the calling agent scope. Empty filters, unknown `allow`/`deny` names, scope-local names, and reserved transport names fail. `futureDeny` names are explicit exceptions for providers that register later. Restrictions intersect; scoped registrations remain visible.',
+        parameters: [{ name: 'filter', description: 'global-tool mask: `allow` (keep only), `deny` (remove known names), and/or `futureDeny` (remove names even when registered later).' }],
         returns: 'the exact disposer that lifts this restriction.',
       },
       {
@@ -3588,6 +3667,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Report one regular file\'s identity, version, and size without its content.',
         parameters: [{ name: 'workspaceFileScope', description: 'header-derived workspace root for the Session identity on the wire.' }, { name: 'path', description: 'absolute path or path relative to the workspace root; files outside it are allowed.' }, { name: 'signal', description: 'caller cancellation.' }],
         returns: 'the file\'s absolute path, current version, and byte size.',
+      },
+      {
+        signature: '@Remote async references( workspaceFileScope: WorkspaceFileScope, expectedWorkspaceRoot: string, paths: readonly string[], signal: AbortSignal, ): Promise<string[]>',
+        description: 'Validate an ordered file-reference batch against the selected Session\'s workspace.',
+        parameters: [{ name: 'workspaceFileScope', description: 'header-derived workspace root for the target Session.' }, { name: 'expectedWorkspaceRoot', description: 'workspace root displayed by the source file tree.' }, { name: 'paths', description: 'regular files to reference, absolute or workspace-relative.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'canonical workspace-relative paths in source order; rejects the batch on a changed root, missing file, or outside path.',
       },
       {
         signature: '@Remote async list(workspaceFileScope: WorkspaceFileScope, path: string, signal: AbortSignal): Promise<WorkspaceDirectoryListing>',
@@ -4402,6 +4487,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AgentHandle {\n    agent: Agent;\n    dispose(): Promise<void>;\n}',
   },
   {
+    name: 'AgentNotesCatalog',
+    declaration: 'export interface AgentNotesCatalog {\n    readonly state: \'ready\' | \'absent\';\n    readonly root: string;\n    readonly notes: readonly AgentNoteSummary[];\n    readonly truncated: boolean;\n}',
+  },
+  {
+    name: 'AgentNoteSummary',
+    declaration: 'export interface AgentNoteSummary {\n    readonly id: string;\n    readonly category: string;\n    readonly title: string;\n    readonly status?: string;\n    readonly summary?: string;\n    readonly modifiedMs?: number;\n}',
+  },
+  {
+    name: 'AgentNoteText',
+    declaration: 'export interface AgentNoteText {\n    readonly id: string;\n    readonly title: string;\n    readonly status?: string;\n    readonly text: string;\n    readonly version: string;\n    readonly bytes: number;\n}',
+  },
+  {
+    name: 'AgentNoteWriteResult',
+    declaration: 'export interface AgentNoteWriteResult {\n    readonly id: string;\n    readonly version: string;\n    readonly bytes: number;\n}',
+  },
+  {
     name: 'AgentOptions',
     declaration: 'export interface AgentOptions {\n    provider?: string;\n    model?: string;\n    reasoningEffort?: ReasoningEffortId;\n    maxTokens?: number;\n}',
   },
@@ -4943,11 +5044,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'DeepSeekLlmApiExtensionRequest',
-    declaration: 'export interface DeepSeekLlmApiExtensionRequest {\n    readonly body: Readonly<Record<string, DeepSeekLlmApiJson>>;\n    readonly sessionId?: string;\n    readonly purpose?: \'compaction\' | \'session-title\';\n    readonly signal: AbortSignal;\n}',
+    declaration: 'export interface DeepSeekLlmApiExtensionRequest {\n    readonly body: Readonly<Record<string, DeepSeekLlmApiJson>>;\n    readonly images?: readonly DeepSeekRequestImageEvidence[];\n    readonly sessionId?: string;\n    readonly purpose?: \'compaction\' | \'session-title\';\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'DeepSeekLlmApiJson',
     declaration: 'export type DeepSeekLlmApiJson = null | boolean | number | string | DeepSeekLlmApiJson[] | {\n    [key: string]: DeepSeekLlmApiJson;\n};',
+  },
+  {
+    name: 'DeepSeekRequestImageEvidence',
+    declaration: 'export interface DeepSeekRequestImageEvidence {\n    readonly attachmentId: string;\n    readonly variantId: string;\n    readonly sha256: string;\n    readonly bytes: number;\n    readonly width: number;\n    readonly height: number;\n    readonly representation: \'file\' | \'base64\';\n    readonly messageIndex: number;\n    readonly partIndex: number;\n}',
   },
   {
     name: 'DeliveryRetentionBounds',
@@ -5179,7 +5284,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GenerateOptions',
-    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    messages: RequestMessage[];\n    system?: string;\n    tools?: ToolSchema[];\n    toolHistory?: ToolHistory;\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\' | \'session-title\';\n}',
+    declaration: 'export interface GenerateOptions {\n    onPayload?: (payload: unknown, route: {\n        provider: string;\n        model: string;\n    }, images?: readonly {\n        attachmentId: string;\n        variantId: string;\n        sha256: string;\n        bytes: number;\n        width: number;\n        height: number;\n        representation: \'base64\';\n    }[]) => unknown;\n    requireImageInput?: boolean;\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    messages: RequestMessage[];\n    system?: string;\n    tools?: ToolSchema[];\n    toolHistory?: ToolHistory;\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\' | \'session-title\';\n    responseFormat?: {\n        readonly type: \'json_object\';\n    };\n}',
   },
   {
     name: 'GenericCallView',
@@ -5260,6 +5365,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ImageRequestTarget',
     declaration: 'export interface ImageRequestTarget {\n    width: number;\n    height: number;\n    maxBytes: number;\n}',
+  },
+  {
+    name: 'ImageRouteRow',
+    declaration: 'export interface ImageRouteRow {\n    readonly standardId: number;\n    readonly platformId: string;\n    readonly unitPrice: number | null;\n    readonly unit: string | null;\n}',
   },
   {
     name: 'ImageVariantId',
@@ -5491,7 +5600,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmAdapter',
-    declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined;\n    imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<PreparedAdapterCall>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+    declaration: 'export abstract class LlmAdapter {\n    readonly supportsRequiredImageInput: boolean;\n    providerInfo(provider: string): LlmProviderInfo;\n    providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined;\n    imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<PreparedAdapterCall>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
     name: 'LlmAttemptId',
@@ -5499,7 +5608,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmCallConfig',
-    declaration: 'export interface LlmCallConfig {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n}',
+    declaration: 'export interface LlmCallConfig {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    responseFormat?: {\n        readonly type: \'json_object\';\n    };\n}',
   },
   {
     name: 'LlmCallConfigAdapterDefaults',
@@ -5748,6 +5857,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ModelReasoningEffort',
     declaration: 'export interface ModelReasoningEffort {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n}',
+  },
+  {
+    name: 'MuseDesktopConnectionState',
+    declaration: 'export type MuseDesktopConnectionState = \'connecting\' | \'online\' | \'offline\' | \'rejected\';',
+  },
+  {
+    name: 'MuseDesktopDeviceId',
+    declaration: 'export type MuseDesktopDeviceId = Branded<\'muse-desktop-device-id\'>;',
+  },
+  {
+    name: 'MuseDesktopTunnel',
+    declaration: 'export interface MuseDesktopTunnel {\n    start(): Promise<void>;\n    stop(): Promise<void>;\n}',
+  },
+  {
+    name: 'MuseDesktopTunnelOptions',
+    declaration: 'export interface MuseDesktopTunnelOptions {\n    readonly serverUrl: string;\n    readonly headers: Readonly<Record<string, string>>;\n    readonly localPort: number;\n    readonly loopbackCookie: string;\n    readonly deviceId: MuseDesktopDeviceId;\n    readonly chunkBytes: number;\n    readonly ackTimeoutMs: number;\n    readonly reconnectMaxIntervalMs: number;\n    readonly onState: (state: MuseDesktopConnectionState) => void;\n}',
   },
   {
     name: 'NativeFileApplication',
@@ -6534,10 +6659,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SessionHistoryRecord = SessionEventEntry;',
   },
   {
-    name: 'SessionId',
-    declaration: 'export type SessionId = Branded<\'SessionId\'>;',
-  },
-  {
     name: 'SessionInspection',
     declaration: 'export interface SessionInspection extends SessionStorageMetadata {\n    readonly events: readonly SessionEvent[];\n}',
   },
@@ -7195,7 +7316,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentStopReasonMap',
-    declaration: 'export interface SubagentStopReasonMap {\n    completed: \'completed\';\n    aborted: \'aborted\';\n    error: \'error\';\n    \'max-tokens\': \'max-tokens\';\n    refusal: \'refusal\';\n}',
+    declaration: 'export interface SubagentStopReasonMap {\n    completed: \'completed\';\n    aborted: \'aborted\';\n    error: \'error\';\n    \'max-tokens\': \'max-tokens\';\n    refusal: \'refusal\';\n    \'structured-output-missing\': \'structured-output-missing\';\n}',
   },
   {
     name: 'SubprocessCollect',
@@ -7555,7 +7676,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolRestriction',
-    declaration: 'export interface ToolRestriction {\n    readonly allow?: readonly string[];\n    readonly deny?: readonly string[];\n}',
+    declaration: 'export interface ToolRestriction {\n    readonly allow?: readonly string[];\n    readonly deny?: readonly string[];\n    readonly futureDeny?: readonly string[];\n}',
   },
   {
     name: 'ToolResult',
@@ -7851,7 +7972,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WorkflowAgentEndInfo',
-    declaration: 'export interface WorkflowAgentEndInfo extends WorkflowAgentInfo {\n    outcome: WorkflowAgentOutcome;\n}',
+    declaration: 'export interface WorkflowAgentEndInfo extends WorkflowAgentInfo {\n    outcome: WorkflowAgentOutcome;\n    reason?: WorkflowAgentFailureReason;\n}',
+  },
+  {
+    name: 'WorkflowAgentFailureReason',
+    declaration: 'export type WorkflowAgentFailureReason = {\n    readonly kind: \'child-failed\';\n} | {\n    readonly kind: \'missing-structured-output\';\n} | {\n    readonly kind: \'invalid-structured-output\';\n    readonly detail: string;\n} | {\n    readonly kind: \'infrastructure-fault\';\n} | {\n    readonly kind: \'cancelled\';\n};',
   },
   {
     name: 'WorkflowAgentInfo',

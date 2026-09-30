@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, resolve } from 'node:path'
+import { readDesktopProductVersion, resolveDesktopBuildVersion } from '../apps/desktop/scripts/desktop-build-version.mjs'
 
 /** Prefix reserved for build-time values that may be embedded in browser artifacts. */
 const CLIENT_BUILD_ENV_PREFIX = 'DSH_CLIENT_'
@@ -19,7 +20,7 @@ export const CLIENT_BUILD_PROFILE_SELECTOR = 'DSH_BUILD_CLIENT_PROFILE'
 /** Public client environment required by official DSH artifacts. */
 const OFFICIAL_CLIENT_BUILD_ENVIRONMENT = {
   DSH_CLIENT_BUILD_PROFILE: 'official',
-  DSH_CLIENT_TITLE: 'muse-med',
+  DSH_CLIENT_TITLE: 'Muse',
 } as const
 
 /** Public variable carrying the source commit embedded in client artifacts. */
@@ -27,6 +28,12 @@ const CLIENT_COMMIT_HASH_VARIABLE = 'DSH_CLIENT_COMMIT_HASH'
 
 /** Public variable carrying the repository package version embedded in client artifacts. */
 const CLIENT_VERSION_VARIABLE = 'DSH_CLIENT_VERSION'
+
+/** Resolve the application release independently from the harness version. */
+function repositoryProductVersion(root: string, environment: NodeJS.ProcessEnv): string {
+  return resolveDesktopBuildVersion({ DSH_DESKTOP_BUILD_VERSION: environment.DSH_CLIENT_PRODUCT_VERSION },
+    readDesktopProductVersion(resolve(root, 'apps/desktop')))
+}
 
 /** Repository-relative path of the complete client build record. */
 export const CLIENT_BUILD_RECORD_PATH = '.dsh-build/client-build-environment.json'
@@ -129,6 +136,8 @@ export function repositoryClientBuildEnvironment(
     DSH_CLIENT_COMMIT_HASH: repositoryCommitHash(root, environment),
     ...(dirty === true ? { DSH_CLIENT_GIT_DIRTY: 'true' } : {}),
     DSH_CLIENT_VERSION: repositoryVersion(root),
+    DSH_CLIENT_PRODUCT_VERSION: repositoryProductVersion(root, environment),
+    DSH_CLIENT_TITLE: inherited.DSH_CLIENT_TITLE ?? OFFICIAL_CLIENT_BUILD_ENVIRONMENT.DSH_CLIENT_TITLE,
   }
 }
 
@@ -145,6 +154,7 @@ export function officialClientBuildEnvironment(
   return {
     DSH_CLIENT_COMMIT_HASH: repositoryCommitHash(root, environment),
     DSH_CLIENT_VERSION: repositoryVersion(root),
+    DSH_CLIENT_PRODUCT_VERSION: repositoryProductVersion(root, environment),
     ...OFFICIAL_CLIENT_BUILD_ENVIRONMENT,
   }
 }
@@ -192,15 +202,18 @@ export function resolveClientBuildEnvironment(
   if (profile === 'official') {
     const commitHash = environment[CLIENT_COMMIT_HASH_VARIABLE]
     const version = environment[CLIENT_VERSION_VARIABLE]
+    const productVersion = environment.DSH_CLIENT_PRODUCT_VERSION
     if (commitHash === undefined) {
       throw new Error(`${CLIENT_COMMIT_HASH_VARIABLE} is required for the official client build profile`)
     }
     if (version === undefined) {
       throw new Error(`${CLIENT_VERSION_VARIABLE} is required for the official client build profile`)
     }
+    if (productVersion === undefined) throw new Error('DSH_CLIENT_PRODUCT_VERSION is required for the official client build profile')
     return {
       DSH_CLIENT_COMMIT_HASH: commitHash,
       DSH_CLIENT_VERSION: version,
+      DSH_CLIENT_PRODUCT_VERSION: productVersion,
       ...OFFICIAL_CLIENT_BUILD_ENVIRONMENT,
     }
   }

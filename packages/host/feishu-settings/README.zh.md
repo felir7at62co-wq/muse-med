@@ -48,7 +48,7 @@ kind: "package-bundle"
 
 [组合包补丁](cordis.patch.yml)添加 `feishu` 设置行。其 `enabled` 字段默认为 `false`，并持久化到配置补丁。桌面的[启用层](../../../apps/desktop-host/src/feishu-gate.ts)在启动时读取该字段，保留桥接已组合的凭证与其他设置，并设置 `feishu-channel` 的启用键。
 
-凭证属于桥接行的设置段。[设置服务](src/service.ts)通过 settings 服务写入 `appId`、`appSecret` 与 `registeredBy`，再通过 `describe()` 读取脱敏状态，只报告密钥是否已设置。开关关闭时该行仍保持挂载，使其设置段可写。设置写入会与该行的其他值合并。
+凭证属于 `@wenbin_wb/dsh-bridge` 行的 `feishu-channel` 设置段。[设置服务](src/service.ts)通过 settings 服务写入 `appId`、`appSecret` 与 `registeredBy`，再通过 `describe()` 读取脱敏状态，只报告密钥是否已设置。开关关闭时该行仍保持挂载，使其设置段可写。更换应用或扫码者会清除先前发送者和活动会话绑定；其他设置继续合并保留。
 
 注册调用 `@larksuite/channel` 的官方 `registerApp`，在 Host 侧将返回的 URL 渲染为 SVG data URL，并通过与手工填写相同的设置操作保存凭证。浏览器 bundle 不带二维码编码器。平台注册消息不会进入页面、日志或任何 Remote 应答。
 
@@ -73,10 +73,10 @@ kind: "package-bundle"
 
 凭证持久化已独立于实时消息收发进行验证。设置与桥接集成有以下限制。
 
-- 页面既不编辑也不显示群消息策略：`approvers` 与发送者/群白名单的权限大于沙箱。
+- 页面既不编辑也不显示群消息策略：桥接的发送者/群白名单与提及要求控制入站访问。
 - 包测试替换了注册调用，并通过 Loader 验证设置持久化。扫码、实时长连接以及租户的权限与可见范围配置仍未验证。
-- **刻意的跨插件耦合**：本行对桥接行的段做**读-合并-写**——只动凭证对与扫码者记录，其它键原样保留。这一耦合依赖那一行的 Config schema；上游若改名或改语义，必须同步本行写入的键，否则凭证会写进一个桥接不再读取的键里。
-- **开关无法把桥接行变成 entry-disabled。** 设置段只对已挂载的 entry 存在，被禁用的行永远无法接收"桥接首次运行之前扫到的那对凭证"。出厂补丁因此让该行保持挂载，以 `enabled: false` 作为 fail-safe；只要该键为 off，打包插件就会在同步层、控制服务、心跳与二维码应用注册之前返回。
+- 本行通过 settings 写入桥接凭证段；键名必须与[审核后的 provider schema](../../../third_party/plugins/compatibility/muse-feishu-channel.mjs)保持一致。
+- 桥接行保持挂载且 `enabled: false`，使启用前即可保存凭证。开关关闭时，打包后的 provider 会在创建网关或会话节点之前返回。桌面迁移保留旧凭证及备份，关闭产品开关，并要求显式启用。
 - 本包不发布 `./invariant`：它拥有的事实——存储的开关、待扫码的票据、凭证是否存在——都已经通过 `feishuSetup` Remote 面可观测，不存在第二个可能与它分叉的观察源。
 
 <a id="dev-note"></a>

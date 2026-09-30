@@ -1,0 +1,80 @@
+# Dependencies
+node_modules/
+yarn.lock
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Testing
+.jest/
+# 探针测试在 Windows 上运行时生成的 .cmd 包装（见 cloudflared-health-probe.test.mjs）
+test/fixtures/fake-cloudflared.cmd
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+
+# DSH Bridge specific
+.dsh-bridge/
+bin/cloudflared*
+
+# Temporary files
+*.tmp
+.cache/
+
+# Scratch / 复现与验收产物（含 Chrome for Testing 缓存，体积可达数百 MB）
+scratch/
+
+# Debug
+debug.log
+
+# AI agent local skills and workspace data
+.agents/
+
+# Credentials (never commit)
+.credentials
+
+# Temporary project files (not for public repo)
+PROJECT_SUMMARY.md
+DELIVERY_*.md
+PUSH_READY.md
+push-to-github.ps1
+market-submission.md
+
+# Internal design/planning docs (kept locally, not published)
+docs/wechat-bot-plan.md
+docs/fix-plan-*.md
+
+# Note: CODE_STANDARDS.md, CODE_REVIEW.md, and other docs are kept in repo
+# They are part of the project documentation

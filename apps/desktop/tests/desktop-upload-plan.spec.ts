@@ -3,6 +3,9 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
+import type { RequestOptions } from 'node:http'
+import { NsisUpdater } from 'electron-updater/out/NsisUpdater.js'
+import { ElectronHttpExecutor } from 'electron-updater/out/electronHttpExecutor.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { load } from 'js-yaml'
 import { createDesktopUploadPlan } from '../scripts/desktop-upload-plan.ts'
@@ -27,6 +30,24 @@ interface Fixture {
   readonly environment: NodeJS.ProcessEnv
 }
 
+/** Only HTTP bytes are scripted; provider tag selection and updater version acceptance execute unchanged. */
+class ReleaseExecutor extends ElectronHttpExecutor {
+  readonly requests: string[] = []
+  constructor(private readonly responses: ReadonlyMap<string, string>) { super() }
+  override async request(options: RequestOptions): Promise<string> {
+    const path = new URL(options.path ?? '/', 'https://release-fixture.invalid').pathname
+    this.requests.push(path)
+    const response = this.responses.get(path)
+    if (response === undefined) throw new Error(`unconfigured release request ${path}`)
+    return response
+  }
+}
+
+function releaseFeed(tags: readonly string[]): string {
+  return `<feed xmlns="http://www.w3.org/2005/Atom">${tags.map(tag => `<entry><title>${tag}</title>`
+    + `<link href="https://github.com/felir7at62co-wq/muse-med/releases/tag/${tag}"/><content>Release</content></entry>`).join('')}</feed>`
+}
+
 function digest(contents: string): string {
   return createHash('sha512').update(contents).digest('base64')
 }
@@ -42,8 +63,9 @@ async function fixture(
   const appRoot = join(repositoryRoot, 'apps', 'desktop')
   const artifactsRoot = join(appRoot, '.desktop-build', 'artifacts')
   await mkdir(artifactsRoot, { recursive: true })
-  await writeFile(join(repositoryRoot, 'package.json'), `${JSON.stringify({ version })}\n`)
-  await writeFile(join(appRoot, 'package.json'), `${JSON.stringify({ version })}\n`)
+  await writeFile(join(repositoryRoot, 'package.json'), '{"version":"0.1.7-rc.8"}\n')
+  await writeFile(join(appRoot, 'package.json'), '{"version":"0.1.7-rc.8"}\n')
+  await writeFile(join(appRoot, 'muse-product.json'), `${JSON.stringify({ version })}\n`)
 
   const [os, arch] = target.split('-') as ['mac' | 'win', 'arm64' | 'x64']
   const base = `muse-med-${version}-${os}-${arch}`
@@ -54,6 +76,7 @@ async function fixture(
     schemaVersion: 1,
     target,
     version,
+    dshVersion: '0.1.7-rc.8',
     environment,
     publicUrl: `${origin}/dsh-desk/${environment === 'test' ? `${RELEASE_ID}/` : ''}feeds/${target}/`,
   })}\n`)
@@ -110,6 +133,77 @@ afterEach(async () => {
 })
 
 describe('desktop upload plan', () => {
+  it.each([
+    ['0.1.7-rc.7', 'rc'], ['0.1.7-rc.7', 'latest'], ['0.1.7-rc.8', 'rc'], ['0.1.7-rc.8', 'latest'],
+  ])('lets installed %s with %s configuration discover the genuine Muse beta through its required rc release', async (current, channel) => {
+    const paths = await fixture('win-x64', '1.0.0-beta.1')
+    await writeFile(join(paths.appRoot, 'muse-product.json'), '{"version":"1.0.0-beta.1","legacyRcDiscovery":true}\n')
+    const plan = await createDesktopUploadPlan('win-x64', paths)
+    const entries = plan.githubReleases!
+    const base = '/felir7at62co-wq/muse-med/releases'
+    const responses = new Map([[`${base}.atom`, releaseFeed(entries.map(entry => entry.tag))]])
+    for (const entry of entries) for (const metadata of entry.metadataFiles) {
+      responses.set(`${base}/download/${entry.tag}/${metadata.filename}`, metadata.contents)
+    }
+    const executor = new ReleaseExecutor(responses)
+    const updater = Object.assign(new NsisUpdater(undefined, {
+      version: current, name: 'muse-med', isPackaged: true, appUpdateConfigPath: '/unused',
+      userDataPath: paths.repositoryRoot, baseCachePath: paths.repositoryRoot,
+      whenReady: async () => {}, relaunch: () => {}, quit: () => {}, onQuit: () => {},
+    }), { httpExecutor: executor, _testOnlyOptions: { platform: 'win32' } })
+    updater.autoDownload = false
+    updater.allowPrerelease = true
+    updater.allowDowngrade = false
+    updater.logger = null
+    updater.setFeedURL({ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel })
+    const result = await updater.checkForUpdates()
+    expect(result?.isUpdateAvailable).toBe(true)
+    expect(result?.updateInfo.version).toBe('1.0.0-beta.1')
+    expect(result?.updateInfo.files[0]?.url).toBe('muse-med-1.0.0-beta.1-win-x64.exe')
+    expect(executor.requests).toContain(`${base}/download/v1.0.0-rc.muse-beta.1/rc.yml`)
+    expect(executor.requests).not.toContain(`${base}/download/v1.0.0-beta.1/beta.yml`)
+    responses.set(`${base}.atom`, releaseFeed([entries[0]!.tag]))
+    await expect(updater.checkForUpdates()).rejects.toThrow(/No published versions on GitHub/u)
+  })
+
+  it.each(['rc', 'latest'])('keeps the %s COS feed usable by an installed rc client', async (channel) => {
+    const paths = await fixture('win-x64', '1.0.0-beta.1')
+    await writeFile(join(paths.appRoot, 'muse-product.json'), '{"version":"1.0.0-beta.1","legacyRcDiscovery":true}\n')
+    const plan = await createDesktopUploadPlan('win-x64', paths)
+    const responses = new Map(plan.artifacts.filter(artifact => artifact.channelMetadata)
+      .map(artifact => [`${new URL(plan.publicUrl).pathname}${artifact.filename}`, artifact.contents!]))
+    const updater = Object.assign(new NsisUpdater(undefined, {
+      version: '0.1.7-rc.8', name: 'muse-med', isPackaged: true, appUpdateConfigPath: '/unused',
+      userDataPath: paths.repositoryRoot, baseCachePath: paths.repositoryRoot,
+      whenReady: async () => {}, relaunch: () => {}, quit: () => {}, onQuit: () => {},
+    }), { httpExecutor: new ReleaseExecutor(responses), _testOnlyOptions: { platform: 'win32' } })
+    updater.autoDownload = false
+    updater.allowPrerelease = true
+    updater.allowDowngrade = false
+    updater.logger = null
+    updater.setFeedURL({ provider: 'generic', url: plan.publicUrl, channel })
+    const result = await updater.checkForUpdates()
+    expect(result?.isUpdateAvailable).toBe(true)
+    expect(result?.updateInfo.version).toBe('1.0.0-beta.1')
+    expect(result?.updateInfo.files[0]?.url).toContain('/bin/win-x64/muse-med-1.0.0-beta.1-win-x64.exe')
+  })
+
+  it.each(['win-x64', 'mac-arm64'] as const)('plans %s beta and legacy rc discovery with identical metadata and binaries', async (target) => {
+    const paths = await fixture(target, '1.0.0-beta.1')
+    await writeFile(join(paths.appRoot, 'muse-product.json'), '{"version":"1.0.0-beta.1","legacyRcDiscovery":true}\n')
+    const plan = await createDesktopUploadPlan(target, paths)
+    const suffix = target === 'win-x64' ? '' : '-mac'
+    const metadata = plan.artifacts.filter(artifact => artifact.channelMetadata)
+    expect(metadata.map(artifact => artifact.filename)).toEqual([`beta${suffix}.yml`, `rc${suffix}.yml`, `latest${suffix}.yml`])
+    expect(new Set(metadata.map(artifact => artifact.contents)).size).toBe(1)
+    expect(load(metadata[0]!.contents!)).toMatchObject({ version: '1.0.0-beta.1' })
+    expect(plan.githubReleases?.map(release => ({ tag: release.tag, version: release.version }))).toEqual([
+      { tag: 'v1.0.0-beta.1', version: '1.0.0-beta.1' },
+      { tag: 'v1.0.0-rc.muse-beta.1', version: '1.0.0-beta.1' },
+    ])
+    expect(plan.githubReleases?.[0]?.binaryFilenames).toEqual(plan.githubReleases?.[1]?.binaryFilenames)
+  })
+
   it('publishes the version-derived channel feed referencing versioned binaries without overriding CDN cache policy', async () => {
     const paths = await fixture('win-x64', '1.2.3', 'production')
     const plan = await createDesktopUploadPlan('win-x64', paths)
@@ -225,6 +319,12 @@ describe('desktop upload plan', () => {
         DOWNLOAD_TEST_COS_BUCKET: TEST_BUCKET,
       },
     })).rejects.toThrow(/completion record.*test/u)
+  })
+
+  it('rejects a completion record from a different Muse release even when the harness version matches', async () => {
+    const paths = await fixture('mac-arm64', '1.0.0-beta.1')
+    await writeFile(join(paths.appRoot, 'muse-product.json'), '{"version":"1.0.0-beta.2"}\n')
+    await expect(createDesktopUploadPlan('mac-arm64', paths)).rejects.toThrow(/not a build of Muse 1\.0\.0-beta\.2/u)
   })
 
   it('rejects stale architecture metadata and modified updater bytes', async () => {

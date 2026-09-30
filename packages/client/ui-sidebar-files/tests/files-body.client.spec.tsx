@@ -28,6 +28,41 @@ function names(root: HTMLElement): string[] {
 }
 
 describe('FilesBody', () => {
+  it('reveals the conversation before adding from a fullscreen file menu', async () => {
+    const order: string[] = []
+    const references = {
+      type: 'application/x-dsh-workspace-file', start: vi.fn(() => 'ticket'), end: vi.fn(),
+      revealConversation: () => { order.push('reveal') }, add: async () => { order.push('add'); return true },
+    }
+    const { view, script } = mountBody(ROOT, undefined, references, true)
+    await act(() => script.watches.ready(ROOT))
+    await act(() => script.settle({ ok: true, value: ROOT_LEVEL }))
+    fireEvent.click(view.getByRole('button', { name: 'README.md 的操作' }))
+    fireEvent.click(view.getByRole('menuitem', { name: '添加到对话' }))
+    expect(order).toEqual(['reveal', 'add'])
+  })
+
+  it('drags one file with an opaque ticket and adds it from its file menu', async () => {
+    const references = { type: 'application/x-dsh-workspace-file', start: vi.fn(() => 'drag-ticket'), end: vi.fn(), add: vi.fn(async () => true) }
+    const { view, script } = mountBody(ROOT, undefined, references)
+    await act(() => script.watches.ready(ROOT))
+    await act(() => script.settle({ ok: true, value: ROOT_LEVEL }))
+    const file = view.getByRole('button', { name: 'README.md' })
+    expect(file.getAttribute('draggable')).toBe('true')
+    const transfer = { setData: vi.fn(), effectAllowed: 'none' }
+    fireEvent.dragStart(file, { dataTransfer: transfer })
+    expect(references.start).toHaveBeenCalledWith(ROOT, [`${ROOT}/README.md`])
+    expect(transfer.setData).toHaveBeenCalledWith(references.type, 'drag-ticket')
+    expect(transfer.effectAllowed).toBe('copy')
+    fireEvent.dragEnd(file)
+    expect(references.end).toHaveBeenCalledWith('drag-ticket')
+    expect(view.getByRole('button', { name: 'src' }).getAttribute('draggable')).not.toBe('true')
+    fireEvent.click(view.getByRole('button', { name: 'README.md 的操作' }))
+    fireEvent.click(view.getByRole('menuitem', { name: '添加到对话' }))
+    expect(references.add).toHaveBeenCalledWith(ROOT, [`${ROOT}/README.md`])
+    expect(view.queryByRole('menu')).toBeNull()
+  })
+
   it('displays the effective file-tree refresh accelerator', async () => {
     const { view, script } = mountBody(ROOT, { id: 'page.refresh' as never, label: 'Refresh', aliases: [],
       binding: null, keys: ['Ctrl', 'R'], aria: 'Control+R', modified: true, conflicts: [], issue: null })
@@ -149,7 +184,7 @@ describe('FilesBody', () => {
     const { view, script, tabActions } = mountBody()
     await act(() => script.watches.ready(ROOT))
     await act(() => script.settle({ ok: true, value: ROOT_LEVEL }))
-    fireEvent.click(view.container.querySelector(`[data-files-path="${ROOT}/README.md"] > button`)!)
+    fireEvent.click(view.getByRole('button', { name: 'README.md' }))
     // Every row sits under the tree's root, so the address is the path relative to it.
     expect(tabActions.openResource).toHaveBeenCalledWith(fileAddressFor(SESSION, ROOT, `${ROOT}/README.md`))
     expect(tabActions.openResource).toHaveBeenCalledWith('dsh-resource://file/session/s-test/README.md')

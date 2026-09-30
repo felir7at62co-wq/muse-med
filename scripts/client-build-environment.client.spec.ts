@@ -67,23 +67,41 @@ function repositoryFixture(version = '1.2.3-rc.4'): string {
   const fixtureRoot = mkdtempSync(join(tmpdir(), 'dsh-client-build-repository-'))
   roots.push(fixtureRoot)
   write(join(fixtureRoot, 'package.json'), `${JSON.stringify({ version })}\n`)
+  write(join(fixtureRoot, 'apps/desktop/muse-product.json'), '{"version":"1.0.0-beta.1"}\n')
   write(join(fixtureRoot, 'tracked.txt'), 'committed\n')
   git(fixtureRoot, ['init'])
   git(fixtureRoot, ['config', 'user.name', 'DSH test'])
   git(fixtureRoot, ['config', 'user.email', 'dsh-test@example.invalid'])
   git(fixtureRoot, ['config', 'commit.gpgsign', 'false'])
-  git(fixtureRoot, ['add', 'package.json', 'tracked.txt'])
+  git(fixtureRoot, ['add', 'package.json', 'tracked.txt', 'apps/desktop/muse-product.json'])
   git(fixtureRoot, ['commit', '-m', 'fixture'])
   return fixtureRoot
 }
 
 describe('client build environment', () => {
+  it('embeds the independent Muse product version alongside the harness and rejects an unrelated product override', () => {
+    const fixtureRoot = repositoryFixture('0.1.7-rc.8')
+    const environment = repositoryClientBuildEnvironment(fixtureRoot, {
+      DSH_CLIENT_COMMIT_HASH: COMMIT_HASH, DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1.20260930.2',
+    })
+    expect(environment).toMatchObject({
+      DSH_CLIENT_TITLE: 'Muse', DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1.20260930.2', DSH_CLIENT_VERSION: '0.1.7-rc.8',
+    })
+    expect(resolveClientBuildEnvironment(environment, 'official')).toEqual(officialClientBuildEnvironment(fixtureRoot, {
+      DSH_CLIENT_COMMIT_HASH: COMMIT_HASH, DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1.20260930.2',
+    }))
+    expect(() => repositoryClientBuildEnvironment(fixtureRoot, {
+      DSH_CLIENT_COMMIT_HASH: COMMIT_HASH, DSH_CLIENT_PRODUCT_VERSION: '9.0.0',
+    })).toThrow(/must extend product version/u)
+  })
+
   it('requires an exact public environment for a named artifact profile', () => {
     const expected = {
       DSH_CLIENT_BUILD_PROFILE: 'official',
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
-      DSH_CLIENT_TITLE: 'muse-med',
+      DSH_CLIENT_TITLE: 'Muse',
       DSH_CLIENT_VERSION: '1.2.3',
+      DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1',
     } as const
 
     expect(() => { assertClientBuildEnvironment({ PATH: '/bin', ...expected }, expected) }).not.toThrow()
@@ -103,6 +121,7 @@ describe('client build environment', () => {
       DSH_CLIENT_GIT_DIRTY: 'true',
       DSH_CLIENT_TITLE: 'Local title',
       DSH_CLIENT_VERSION: '1.2.3',
+      DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1',
       DSH_CLIENT_EXTRA: 'local-extra',
     }
 
@@ -112,8 +131,9 @@ describe('client build environment', () => {
     expect(resolveClientBuildEnvironment(parent)).toEqual({
       DSH_CLIENT_BUILD_PROFILE: 'official',
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
-      DSH_CLIENT_TITLE: 'muse-med',
+      DSH_CLIENT_TITLE: 'Muse',
       DSH_CLIENT_VERSION: '1.2.3',
+      DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1',
     })
     expect(() => {
       resolveClientBuildEnvironment({ DSH_BUILD_CLIENT_PROFILE: 'official' })
@@ -128,14 +148,16 @@ describe('client build environment', () => {
     expect(clientBuildProcessEnvironment(parent, {
       DSH_CLIENT_BUILD_PROFILE: 'official',
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
-      DSH_CLIENT_TITLE: 'muse-med',
+      DSH_CLIENT_TITLE: 'Muse',
       DSH_CLIENT_VERSION: '1.2.3',
+      DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1',
     })).toEqual({
       PATH: '/bin',
       DSH_CLIENT_BUILD_PROFILE: 'official',
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
-      DSH_CLIENT_TITLE: 'muse-med',
+      DSH_CLIENT_TITLE: 'Muse',
       DSH_CLIENT_VERSION: '1.2.3',
+      DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1',
     })
     expect(repositoryCommitHash('/unused', { DSH_CLIENT_COMMIT_HASH: COMMIT_HASH })).toBe(COMMIT_HASH.slice(0, 7))
   })
@@ -154,13 +176,16 @@ describe('client build environment', () => {
     })).toEqual({
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
       DSH_CLIENT_EXTRA: 'preserved',
+      DSH_CLIENT_TITLE: 'Muse',
       DSH_CLIENT_VERSION: '1.2.3-rc.4',
+      DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1',
     })
     expect(officialClientBuildEnvironment(fixtureRoot)).toEqual({
       DSH_CLIENT_BUILD_PROFILE: 'official',
       DSH_CLIENT_COMMIT_HASH: commit,
-      DSH_CLIENT_TITLE: 'muse-med',
+      DSH_CLIENT_TITLE: 'Muse',
       DSH_CLIENT_VERSION: '1.2.3-rc.4',
+      DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1',
     })
 
     write(join(fixtureRoot, '.gitignore'), 'ignored.txt\n')
@@ -188,7 +213,9 @@ describe('client build environment', () => {
     })).toEqual({
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
       DSH_CLIENT_GIT_DIRTY: 'true',
+      DSH_CLIENT_TITLE: 'Muse',
       DSH_CLIENT_VERSION: '1.2.3-rc.4',
+      DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1',
     })
 
     rmSync(join(fixtureRoot, 'untracked.txt'))
@@ -204,6 +231,7 @@ describe('client build environment', () => {
     const fixtureRoot = mkdtempSync(join(tmpdir(), 'dsh-client-build-no-git-'))
     roots.push(fixtureRoot)
     write(join(fixtureRoot, 'package.json'), '{"version":"2.0.0"}\n')
+    write(join(fixtureRoot, 'apps/desktop/muse-product.json'), '{"version":"1.0.0-beta.1"}\n')
 
     expect(repositoryGitDirty(fixtureRoot)).toBeUndefined()
     expect(repositoryClientBuildEnvironment(fixtureRoot, {
@@ -212,6 +240,8 @@ describe('client build environment', () => {
     })).toEqual({
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
       DSH_CLIENT_VERSION: '2.0.0',
+      DSH_CLIENT_TITLE: 'Muse',
+      DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1',
     })
   })
 
@@ -263,8 +293,9 @@ describe('client build environment', () => {
     const officialEnvironment = {
       DSH_CLIENT_BUILD_PROFILE: 'official',
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
-      DSH_CLIENT_TITLE: 'muse-med',
+      DSH_CLIENT_TITLE: 'Muse',
       DSH_CLIENT_VERSION: '1.2.3',
+      DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1',
     }
     const official = buildFixture(officialEnvironment)
     const defaultBuild = buildFixture({})

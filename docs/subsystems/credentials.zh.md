@@ -360,6 +360,37 @@ abstract getPlatformSession(): Promise<PlatformSession | null>
 
 Source: [`packages/credentials/deepseek-account/src/index.ts`](../../packages/credentials/deepseek-account/src/index.ts)
 
+<a id="ctxjubiantoken--jubiantoken"></a>
+
+### `ctx.jubianToken` — `JubianToken`
+
+Host service backing the generated `ctx.remote.jubianToken` namespace: the Jubian admin token as the Web Settings page reads, writes, and clears it.
+
+```ts cordis-catalog
+/**
+ * Describe the stored token without reading it.
+ * @returns whether a value is configured, which source supplies it, and whether this deployment can write it.
+ */
+@Remote async describe(): Promise<CredentialInfo>
+
+/**
+ * Store one value under the fixed reference.
+ * @param value - the token; an empty or whitespace-only value is refused.
+ * @returns the same facts {@link describe} reports after the write.
+ * @throws RemoteError when the value is empty, or when the provider refuses the write.
+ */
+@Remote async set(value: string): Promise<CredentialInfo>
+
+/**
+ * Remove the stored value. Removing an absent reference is a no-op.
+ * @returns the same facts {@link describe} reports after the removal.
+ * @throws RemoteError when the provider refuses the write.
+ */
+@Remote async unset(): Promise<CredentialInfo>
+```
+
+Source: [`packages/jubian/tool-jubian/src/token.ts`](../../packages/jubian/tool-jubian/src/token.ts)
+
 <a id="authorization-events"></a>
 
 ### `authorization/*` events

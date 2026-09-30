@@ -15,6 +15,17 @@ export function desktopClientVersion(): string {
 }
 
 /**
+ * Read the source commit embedded in the Desktop build.
+ * @returns The commit included in About and crash reports.
+ * @throws Error when build metadata omits the commit.
+ */
+export function desktopClientCommitHash(): string {
+  const commit = process.env.DSH_CLIENT_COMMIT_HASH
+  if (commit === undefined || commit === '') throw new Error('desktop build carries no DSH_CLIENT_COMMIT_HASH')
+  return commit
+}
+
+/**
  * Sample the Desktop client identity for one Platform request.
  * @param locale - current resolved Desktop language.
  * @returns this call's build version, the raw active language, and the UTC offset in whole seconds east.

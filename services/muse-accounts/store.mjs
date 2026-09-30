@@ -23,6 +23,8 @@ export async function openStore(file){
  resetPassword:async(id,secret)=>{const a=await transaction(async rows=>{const a=find(rows,id);Object.assign(a,await hash(secret));a.revision++;return publicRecord(a);});events.emit('change',id);return a;},
  // Verification and replacement share the serialized transaction, so a stale
  // original password cannot win a race against another password change.
- changePassword:async(id,original,secret)=>{const a=await transaction(async rows=>{const a=find(rows,id);password(original);password(secret);const candidate=await scrypt(original,a.salt,64);if(a.disabled||!timingSafeEqual(candidate,Buffer.from(a.hash,'hex')))throw Error('原密码不正确');Object.assign(a,await hash(secret));a.revision++;return publicRecord(a);});events.emit('change',id);return a;}
+ changePassword:async(id,original,secret)=>{const a=await transaction(async rows=>{const a=find(rows,id);password(original);password(secret);const candidate=await scrypt(original,a.salt,64);if(a.disabled||!timingSafeEqual(candidate,Buffer.from(a.hash,'hex')))throw Error('原密码不正确');Object.assign(a,await hash(secret));a.revision++;return publicRecord(a);});events.emit('change',id);return a;},
+ // The relay admits one connected installation before persisting its binding.
+ bindDesktop:(id,deviceId)=>transaction(rows=>{if(typeof deviceId!=='string'||!/^[a-f0-9-]{36}$/.test(deviceId))throw Error('Invalid desktop device id');const a=find(rows,id);if(a.disabled)throw Error('Account disabled');a.desktopDeviceId=deviceId;})
  });
 }

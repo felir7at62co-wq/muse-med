@@ -2,11 +2,25 @@
 
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { readDesktopProductVersion } from '../scripts/desktop-build-version.mjs'
 
 /** Application name and userData directory the product owns. */
 export const DESKTOP_PRODUCT_NAME = 'muse-med'
 /** This desktop product uses its MUSE account for the first-run account entry. */
 export const DESKTOP_PRIMARY_ACCOUNT: string = 'muse'
+
+/**
+ * Resolve the displayed Muse release or the installed numbered build.
+ * @param application - Electron version and application-directory access.
+ * @returns Installed product version; development reads muse-product.json.
+ */
+export function desktopProductVersion(application: {
+  readonly isPackaged: boolean
+  getVersion(): string
+  getAppPath(): string
+}): string {
+  return application.isPackaged ? application.getVersion() : readDesktopProductVersion(application.getAppPath())
+}
 
 /** Minimal Electron application operations needed to claim product identity. */
 export interface DesktopProductIdentityApplication {

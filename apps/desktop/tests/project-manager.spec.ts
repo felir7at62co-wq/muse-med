@@ -80,7 +80,7 @@ function seedPlugin(manager: DesktopProjectManager): void {
 
 const BUILT_IN_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
-  'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@moyu-good/dsh-lark-bridge',
+  'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@wenbin_wb/dsh-bridge',
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host',
 ] as const
 /** Bundle list stored in a profile manifest file. */
@@ -110,6 +110,27 @@ afterEach(async () => {
 })
 
 describe('desktop external plugin profile', () => {
+  it('retires the Lark bundle and preserves credentials with Feishu off after replacement', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    const legacyBundles = storedBundles(manifestPath).map(name => name === '@wenbin_wb/dsh-bridge' ? '@moyu-good/dsh-lark-bridge' : name)
+    if (!legacyBundles.includes('@moyu-good/dsh-lark-bridge')) legacyBundles[5] = '@moyu-good/dsh-lark-bridge'
+    writeBundles(manifestPath, legacyBundles)
+    const patchPath = join(manager.paths.profile, 'cordis.patch.yml')
+    const credentialPatch = '- id: feishu\n  config:\n    enabled: true\n- id: feishu-channel\n  config:\n    appId: cli_legacy\n    appSecret: synthetic-retained-secret\n    registeredBy: ou_legacy\n'
+    writeFileSync(patchPath, credentialPatch)
+    await manager.applyRelease()
+    expect(storedBundles(manifestPath)).toContain('@wenbin_wb/dsh-bridge')
+    expect(storedBundles(manifestPath)).not.toContain('@moyu-good/dsh-lark-bridge')
+    const migrated = readFileSync(patchPath, 'utf8')
+    expect(migrated).toContain(credentialPatch)
+    expect(migrated).toMatch(/- id: feishu\n  config:\n    enabled: false/u)
+    expect(migrated).toContain("name: '@wenbin_wb/dsh-bridge'")
+    expect(readdirSync(manager.paths.profile).some(name => name.startsWith('cordis.patch.yml.') && name.endsWith('.bak'))).toBe(true)
+    await manager.applyRelease()
+    expect(readFileSync(patchPath, 'utf8')).toBe(migrated)
+  })
   it('activates source-built production tools without starting marketplace routes or Lark onboarding', async () => {
     const { manager } = setup()
     await manager.applyRelease()

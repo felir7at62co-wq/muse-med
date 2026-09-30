@@ -264,6 +264,18 @@ export interface Config {
 export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /** Video file, read-window and concurrent-stream bounds. */
+  readonly video?: VideoPlaybackConfig
+}
+
+/** Deployment bounds for one file, buffered window, and concurrent streams. */
+export interface VideoPlaybackConfig {
+  /** Largest source file served, in bytes. */
+  readonly maxFileBytes: number
+  /** Largest filesystem window buffered by one stream, in bytes. */
+  readonly chunkBytes: number
+  /** Largest number of simultaneously open response streams. */
+  readonly maxStreams: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-session-controller -->
@@ -2251,6 +2263,14 @@ export interface Config {
   readonly asrRequestTimeoutMs: number
   /** Maximum visible characters in each optional related request and answer excerpt. */
   readonly feedbackExcerptChars: number
+  /** Enable the product's account-bound desktop connector; requires its three Host providers. */
+  readonly remoteAccess: boolean
+  /** Largest acknowledged chunk forwarded over the desktop connection, in bytes. */
+  readonly remoteChunkBytes: number
+  /** Deadline for a handshake or chunk acknowledgement, in milliseconds. */
+  readonly remoteAckTimeoutMs: number
+  /** Maximum interval between automatic network reconnection attempts, in milliseconds. */
+  readonly remoteReconnectMaxIntervalMs: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-muse-account -->
@@ -4340,6 +4360,47 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-todo -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-video-inspect -->
+<a id="deepseek-aidsh-tool-video-inspect"></a>
+
+## `@deepseek-ai/dsh-tool-video-inspect`
+
+- `inject`: `tools` · `fs` · `subprocess` · `attachments` · `sandboxPolicy`
+- `source`: [`packages/perception/tool-video-inspect/src/index.ts:22`](../packages/perception/tool-video-inspect/src/index.ts)
+
+```ts config-catalog
+/** Deployment-resolved media executables and inspection bounds. */
+export interface Config {
+  /** Same-world FFmpeg executable. */
+  ffmpegPath: string
+  /** Same-world FFprobe executable. */
+  ffprobePath: string
+  /** Largest source file accepted, in bytes. */
+  maxSourceBytes: number
+  /** Largest encoded source image area accepted before decoding, in pixels. */
+  maxSourcePixels: number
+  /** Largest probed source duration, in seconds. */
+  maxDurationSeconds: number
+  /** Largest interval sampled by one call, in seconds. */
+  maxRangeSeconds: number
+  /** Largest number of returned image observations per call. */
+  maxFrames: number
+  /** Number of uniform observations used when the caller omits frame_count. */
+  defaultFrames: number
+  /** Largest dimension of an extracted frame, in pixels. */
+  frameMaxDimension: number
+  /** Largest complete PNG output from one extraction command, in bytes. */
+  maxFrameBytes: number
+  /** Largest simultaneous inspection count. */
+  maxConcurrent: number
+  /** Deadline of one probe or extraction command, in milliseconds. */
+  commandTimeoutMs: number
+  /** Process termination grace, in milliseconds. */
+  graceMs: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-video-inspect -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-web -->
 <a id="deepseek-aidsh-tool-web"></a>

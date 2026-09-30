@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, cleanup } from '@testing-library/react'
-import { $getRoot, $isTextNode, PASTE_COMMAND } from 'lexical'
+import { Service } from '@deepseek-ai/cordis'
+import { $getRoot, $isElementNode, $isTextNode, PASTE_COMMAND, UNDO_COMMAND } from 'lexical'
 import { projectUserText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { registerComposerKeymap } from '../src/client/input/editor/keymap.ts'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -144,6 +145,136 @@ async function bench() {
 }
 
 describe('Conversation inject API', () => {
+  it('keeps workspace drop intake available when its Host namespace arrives after composer injection', async () => {
+    const b = await bench()
+    onTestFinished(() => b.runtime.dispose())
+    // Cordis traces production Remote namespaces; this double otherwise exposes plain properties.
+    Object.defineProperty(b.runtime.remote, Service.tracker, { value: { associate: 'remote', property: 'ctx' } })
+    const composer = b.composerApi(ROOT)
+    expect(composer.workspaceFileDrop).toBeDefined()
+    const intake = b.feature.fiber.ctx.get('workspaceFileReferences')!
+    b.inputApi(ROOT).actions.setDraft('Review ')
+    const ticket = intake.startDrag(ROOT, '/proj', ['/proj/notes.txt'])
+    const provider = await b.runtime.mount({
+      apply(ctx) { ctx.provide('remote.workspaceFiles', { references: async () => ({ ok: true, value: ['notes.txt'] }) }) },
+    })
+    await b.runtime.flush()
+    expect(() => b.feature.fiber.ctx.get('remote')!.workspaceFiles).toThrow(/remote\.workspaceFiles.*without inject/u)
+    expect(await intake.drop(ROOT, ticket)).toBe(true)
+    expect(b.inputApi(ROOT).state.getSnapshot().draft).toBe('Review @notes.txt ')
+    await provider.dispose()
+    await b.runtime.flush()
+    expect(await intake.add(ROOT, '/proj', ['/proj/notes.txt'])).toBe(false)
+    expect(b.inputApi(ROOT).state.getSnapshot().draft).toBe('Review @notes.txt ')
+  })
+
+  it('refuses workspace references while the composer has an owner block', async () => {
+    const b = await bench()
+    onTestFinished(() => b.runtime.dispose())
+    const references = vi.fn(async () => ({ ok: true as const, value: ['notes.txt'] }))
+    b.runtime.remote.provideNamespaces({ workspaceFiles: { references } })
+    await b.runtime.flush()
+    const intake = b.runtime.ctx.get('workspaceFileReferences')!
+    b.inputApi(ROOT).actions.setDraft('Keep this draft')
+    b.runtime.ctx.conversation.blocks.set(ROOT, { reason: 'Select a model' })
+    expect(await intake.add(ROOT, '/proj', ['/proj/notes.txt'])).toBe(false)
+    expect(references).not.toHaveBeenCalled()
+    expect(b.inputApi(ROOT).state.getSnapshot().draft).toBe('Keep this draft')
+  })
+
+  it('keeps later draft edits while workspace validation is pending and undoes only the reference', async () => {
+    const b = await bench()
+    onTestFinished(() => b.runtime.dispose())
+    let settle!: (result: { ok: true; value: string[] }) => void
+    b.runtime.remote.provideNamespaces({ workspaceFiles: { references: () => new Promise((resolve) => { settle = resolve }) } })
+    await b.runtime.flush()
+    const intake = b.runtime.ctx.get('workspaceFileReferences')!
+    const input = b.inputApi(ROOT)
+    input.actions.setDraft('Review ')
+    const added = intake.add(ROOT, '/proj', ['/proj/notes.txt'])
+    b.composerApi(ROOT).keyboard!.paste('newer ')
+    settle({ ok: true, value: ['notes.txt'] })
+    expect(await added).toBe(true)
+    expect(input.state.getSnapshot().draft).toBe('Review newer @notes.txt ')
+    b.composerApi(ROOT).keyboard!.editor.dispatchCommand(UNDO_COMMAND, undefined)
+    await vi.waitFor(() => { expect(input.state.getSnapshot().draft).toBe('Review newer ') })
+  })
+
+  it('retains the draft on Host rejection and refuses another connection\'s drag ticket', async () => {
+    const b = await bench()
+    const other = await bench()
+    onTestFinished(async () => { await other.runtime.dispose(); await b.runtime.dispose() })
+    const references = vi.fn(async () => ({ ok: false as const, error: new RemoteError('workspace-file/outside-workspace', 'outside', { path: '/private' }) }))
+    b.runtime.remote.provideNamespaces({ workspaceFiles: { references } })
+    other.runtime.remote.provideNamespaces({ workspaceFiles: { references } })
+    await b.runtime.flush()
+    await other.runtime.flush()
+    const intake = b.runtime.ctx.get('workspaceFileReferences')!
+    const otherIntake = other.runtime.ctx.get('workspaceFileReferences')!
+    const input = b.inputApi(ROOT)
+    input.actions.setDraft('Keep this draft')
+    const foreignTicket = otherIntake.startDrag(ROOT, '/proj', ['/proj/notes.txt'])
+    expect(await intake.drop(ROOT, foreignTicket)).toBe(false)
+    expect(references).not.toHaveBeenCalled()
+    expect(await intake.add(ROOT, '/proj', ['/private'])).toBe(false)
+    expect(input.state.getSnapshot().draft).toBe('Keep this draft')
+    expect(input.state.getSnapshot().occurrences).toEqual([])
+    expect(b.composerApi(ROOT).hooks.notices.getSnapshot()?.text).toBe('无法添加工作区文件，请刷新文件列表后重试')
+  })
+
+  it('aborts workspace validation when its retained Session scope ends', async () => {
+    const b = await bench()
+    onTestFinished(() => b.runtime.dispose())
+    let settle!: (result: { ok: true; value: string[] }) => void
+    let signal: AbortSignal | undefined
+    b.runtime.remote.provideNamespaces({ workspaceFiles: {
+      references: (_session: SessionId, _root: string, _paths: string[], received: AbortSignal) => {
+        signal = received
+        return new Promise((resolve) => { settle = resolve })
+      },
+    } })
+    await b.runtime.flush()
+    const intake = b.runtime.ctx.get('workspaceFileReferences')!
+    const input = b.inputApi(ROOT)
+    input.actions.setDraft('Keep this draft')
+    const added = intake.add(ROOT, '/proj', ['/proj/notes.txt'])
+    b.rootReference.release()
+    await b.runtime.flush()
+    expect(signal?.aborted).toBe(true)
+    settle({ ok: true, value: ['notes.txt'] })
+    expect(await added).toBe(false)
+    expect(input.state.getSnapshot().draft).toBe('Keep this draft')
+  })
+
+  it('adds a validated workspace drop beside the selection without sending or uploading it', async () => {
+    const b = await bench()
+    onTestFinished(() => b.runtime.dispose())
+    const references = vi.fn(async () => ({ ok: true as const, value: ['notes 中文.txt', 'clip.mp4'] }))
+    b.runtime.remote.provideNamespaces({ workspaceFiles: { references } })
+    await b.runtime.flush()
+    const intake = b.runtime.ctx.get('workspaceFileReferences')
+    expect(intake).toBeDefined()
+    const composer = b.composerApi(ROOT)
+    const input = b.inputApi(ROOT)
+    input.actions.setDraft('Please review this text')
+    composer.keyboard!.editor.update(() => {
+      const paragraph = $getRoot().getFirstChild()
+      if (!$isElementNode(paragraph)) throw new Error('expected draft paragraph')
+      const text = paragraph.getFirstChild()
+      if (!$isTextNode(text)) throw new Error('expected draft text')
+      text.select(7, 13)
+    }, { discrete: true })
+    const ticket = intake!.startDrag(ROOT, '/proj', ['/proj/notes 中文.txt', '/proj/clip.mp4'])
+    expect(await intake!.drop(ROOT, ticket)).toBe(true)
+    expect(input.state.getSnapshot().draft).toBe('Please review @"notes 中文.txt" @clip.mp4  this text')
+    expect(input.state.getSnapshot().occurrences.map(ref => ref.ref)).toEqual(['@"notes 中文.txt"', '@clip.mp4'])
+    expect(b.sessionFake.prompt).not.toHaveBeenCalled()
+    expect(b.rootUpload).not.toHaveBeenCalled()
+    expect(references).toHaveBeenCalledWith(ROOT, '/proj', ['/proj/notes 中文.txt', '/proj/clip.mp4'], expect.any(AbortSignal))
+    expect(await intake!.drop(ROOT, ticket)).toBe(false)
+    expect(await intake!.drop(ROOT, '/proj/arbitrary.txt')).toBe(false)
+  })
+
   it('owns the File action, reads its mounted composer availability, and unregisters on disposal', async () => {
     const b = await bench()
     onTestFinished(() => b.runtime.dispose())

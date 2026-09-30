@@ -19,7 +19,7 @@ import { macOSDownloadEnvironment, resolveMacOSPackageSettings } from './macos-p
 import { packagingErrorDetails, packagingStep } from './packaging-step.mjs'
 import { notarizeMacOS } from './notarize-macos.mjs'
 import { resolveMacOSNotarizationEnvironment } from './desktop-release-environment.mjs'
-import { DESKTOP_BUILD_VERSION_ENV, resolveDesktopBuildVersion, validateDesktopBuildVersion } from './desktop-build-version.mjs'
+import { DESKTOP_BUILD_VERSION_ENV, readDesktopProductVersion, resolveDesktopBuildVersion, validateDesktopBuildVersion } from './desktop-build-version.mjs'
 import { suggestDesktopBuildVersion } from './desktop-build-version-discovery.ts'
 import { desktopBuildCommitEnvironment, readDesktopBuildCommit, resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
 import { requireDesktopToolchain } from './desktop-toolchain-preflight.ts'
@@ -157,7 +157,7 @@ function writeReleaseRecord(
   if (desktopVersion !== dshVersion) {
     throw new Error(`desktop package: desktop version ${desktopVersion} does not match dsh version ${dshVersion}`)
   }
-  const buildVersion = resolveDesktopBuildVersion(environment, dshVersion)
+  const buildVersion = resolveDesktopBuildVersion(environment, readDesktopProductVersion(APP_ROOT))
   const packaged = resolveDesktopBuildCommit(environment)
   const update = resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
   const recordPath = join(artifactsRoot, desktopBuildRecordFilename(target.name))
@@ -166,6 +166,7 @@ function writeReleaseRecord(
     schemaVersion: 1,
     target: target.name,
     version: buildVersion,
+    dshVersion,
     environment: update.environment,
     publicUrl: update.publicUrl,
     // Upload reads this to tag the commit a production release was packaged from.
@@ -384,7 +385,7 @@ function runPnpm(
 /**
  * Resolve the version one run publishes from what its command line asked for.
  * @param invocation - Validated packaging request.
- * @param productVersion - Version the manifests declare.
+ * @param productVersion - Version muse-product.json declares.
  * @param environment - Release settings, which name the bucket automatic numbering reads.
  * @returns The product version, the requested version, or the next free index for today.
  */
@@ -434,7 +435,7 @@ async function main(): Promise<void> {
   const invocation = parseDesktopPackageInvocation(process.argv.slice(2))
   const { target } = invocation
   const environment = loadDesktopPackageEnvironment(target.platform)
-  const productVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
+  const productVersion = readDesktopProductVersion(APP_ROOT)
   // Release settings come from the target dotenv file alone, so the version this run publishes is an
   // argument; the environment variable below only carries it to the child processes that build.
   const buildVersion = await resolveRequestedBuildVersion(invocation, productVersion, environment)
@@ -527,7 +528,11 @@ export async function packageTarget(
     rmSync(releaseRecordPath, { force: true })
     rmSync(`${releaseRecordPath}.tmp`, { force: true })
   }
-  const buildEnv = withoutWindowsSigningEnvironment(withoutDesktopUploadCredentials(environment))
+  const buildEnv = {
+    ...withoutWindowsSigningEnvironment(withoutDesktopUploadCredentials(environment)),
+    DSH_CLIENT_TITLE: 'Muse',
+    DSH_CLIENT_PRODUCT_VERSION: resolveDesktopBuildVersion(environment, readDesktopProductVersion(APP_ROOT)),
+  }
   const targetEnv: NodeJS.ProcessEnv = {
     ...buildEnv,
     DSH_DESKTOP_TARGET_PLATFORM: target.platform,
@@ -633,7 +638,7 @@ export async function packageTarget(
         await withMacOSNotarizationProxy(mac?.notarizationProxy, () => packageMacOSArtifacts({
           arch: target.arch,
           // electron-builder named these artifacts after the published version, so locating them uses the same identifier.
-          version: resolveDesktopBuildVersion(environment, packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')),
+          version: resolveDesktopBuildVersion(environment, readDesktopProductVersion(APP_ROOT)),
           artifactsRoot: buildPaths.artifacts,
           environment: electronBuilderEnv,
         }, artifact => execute(desktopElectronBuilderArguments(target, false, artifact), electronBuilderEnv)),

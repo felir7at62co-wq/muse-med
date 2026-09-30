@@ -8,6 +8,12 @@ import { request as httpsRequest } from 'node:https'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { desktopUpdateChannel, resolveDesktopGitHubUpdateConfig } from './desktop-auto-update-environment.mjs'
+import { readDesktopProductConfig } from './desktop-build-version.mjs'
+import {
+  desktopGitHubReleaseRequirements,
+  isDesktopGitHubPackagedChannel,
+  validateDesktopGitHubRelease,
+} from './github-update-feed-readback.mjs'
 
 const APP_ROOT = join(import.meta.dirname, '..')
 const require = createRequire(import.meta.url)
@@ -31,7 +37,8 @@ const { values } = parseArgs({ options: {
   'negative-control': { type: 'boolean', default: true },
 }, allowPositionals: false })
 
-const version = values.version ?? JSON.parse(readFileSync(join(APP_ROOT, 'package.json'), 'utf8')).version
+const product = readDesktopProductConfig(APP_ROOT)
+const version = values.version ?? product.version
 const configPath = values.config ?? join(import.meta.dirname, '../.desktop-build/targets/win-x64/unsigned-artifacts/win-unpacked/resources/app-update.yml')
 
 const failures = []
@@ -56,7 +63,7 @@ try {
   config = load(readFileSync(configPath, 'utf8'))
   console.log(`version ${version}  channel ${desktopUpdateChannel(version)}  provider ${config.provider} ${config.owner}/${config.repo}  config ${configPath}`)
   check(config.provider === 'github', 'packaged update source is the GitHub provider')
-  check(config.channel === desktopUpdateChannel(version),
+  check(isDesktopGitHubPackagedChannel(version, config.channel),
     'packaged channel matches this version', `recorded ${config.channel}, derived ${desktopUpdateChannel(version)}`)
   const expected = resolveDesktopGitHubUpdateConfig(version)
   check(config.owner === expected.owner && config.repo === expected.repo,
@@ -83,17 +90,30 @@ try {
     check(rejected, 'negative control: a hardcoded channel fails against this release', reason)
   }
 
-  const release = await (await fetch(`https://api.github.com/repos/${config.owner}/${config.repo}/releases/tags/${resolved.tag}`,
-    { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'muse-med-update-feed-check' } })).json()
-  if (!Array.isArray(release.assets)) throw new Error(`release ${resolved.tag} is not published: ${JSON.stringify(release.message ?? release)}`)
-  const names = release.assets.map(asset => asset.name)
-  const installer = resolved.files?.[0]?.url ?? resolved.path
-  console.log(`release assets: ${names.join(', ')}`)
-  check(names.includes(installer), 'release publishes the installer named by the channel file', String(installer))
-  check(names.includes(`${installer}.blockmap`), 'release publishes the installer blockmap for differential updates')
-  check(names.includes(`${config.channel}.yml`), 'release publishes the channel file this build requests', `${config.channel}.yml`)
-  check(names.filter(name => name.endsWith('.yml')).length === 1,
-    'release publishes no channel file that misrepresents a prerelease', names.filter(name => name.endsWith('.yml')).join(', ') || 'none')
+  const requirements = desktopGitHubReleaseRequirements(resolved.version, product.legacyRcDiscovery)
+  check(requirements.tags.includes(resolved.tag), 'provider selects a required discovery release', resolved.tag)
+  let installer
+  for (const tag of requirements.tags) {
+    const release = await (await fetch(`https://api.github.com/repos/${config.owner}/${config.repo}/releases/tags/${tag}`,
+      { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'muse-med-update-feed-check' } })).json()
+    if (!Array.isArray(release.assets)) throw new Error(`release ${tag} is not published: ${JSON.stringify(release.message ?? release)}`)
+    const names = release.assets.map(asset => asset.name)
+    console.log(`release ${tag} assets: ${names.join(', ')}`)
+    const metadata = {}
+    for (const filename of requirements.metadataFilenames) {
+      const asset = release.assets.find(entry => entry.name === filename)
+      if (asset === undefined) continue
+      const response = await fetch(asset.browser_download_url)
+      if (!response.ok) throw new Error(`cannot read ${tag}/${filename}: HTTP ${response.status}`)
+      metadata[filename] = load(await response.text())
+    }
+    installer = validateDesktopGitHubRelease({
+      version: resolved.version, legacyRcDiscovery: product.legacyRcDiscovery,
+      assetNames: names, metadata, updaterInfo: resolved,
+    })
+    check(true, `release ${tag} publishes identical genuine version metadata and required update assets`,
+      requirements.metadataFilenames.join(', '))
+  }
 
   const local = join(import.meta.dirname, `../.desktop-build/targets/win-x64/unsigned-artifacts/${installer}`)
   if (existsSync(local)) {

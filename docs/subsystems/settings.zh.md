@@ -22,6 +22,70 @@
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxagentnotes--agentnotes"></a>
+
+### `ctx.agentNotes` — `AgentNotes`
+
+Host Remote file reads and writes for one notes root over the composed filesystem.
+
+```ts cordis-catalog
+/**
+ * List every note under the notes root, grouped facts only and never content.
+ * @returns the catalog, its root, and whether the cap cut it. A root that
+ *   does not exist reports `absent` with no notes; that is an empty state,
+ *   not a failure.
+ */
+@Remote async list(): Promise<AgentNotesCatalog>
+
+/**
+ * Read one complete note.
+ * @param id - note id: a root-relative `/`-separated path ending in `.md`.
+ * @returns the note's text, its resolved headline facts, and the version a
+ *   following save must present.
+ */
+@Remote async read(id: string): Promise<AgentNoteText>
+
+/**
+ * Replace one note's complete text.
+ *
+ * The write is guarded by {@link expectedVersion}, so it replaces only the
+ * bytes the caller read. It never creates a file: a note id with no note
+ * behind it is refused, because authoring notes is the agent's and the
+ * person's job, not this service's.
+ *
+ * @param id - note id: a root-relative `/`-separated path ending in `.md`.
+ * @param text - the complete new note text.
+ * @param expectedVersion - the version returned by the read this edit is based on.
+ * @returns the note's version and size after the write.
+ */
+@Remote async save(id: string, text: string, expectedVersion: string): Promise<AgentNoteWriteResult>
+```
+
+Source: [`packages/api/agent-notes/src/index.ts`](../../packages/api/agent-notes/src/index.ts)
+
+<a id="ctxjubianimage--jubianimageroutes"></a>
+
+### `ctx.jubianImage` — `JubianImageRoutes`
+
+Host service backing the generated `ctx.remote.jubianImage` namespace: the rows the paid image route may buy from.
+
+The namespace reads and never writes, and it carries rows only — the token that authorizes the read never crosses to the browser.
+
+```ts cordis-catalog
+/**
+ * List the `gpt-image-2` catalogue rows this account may buy from.
+ *
+ * Free and read-only: the very catalogue read the paid call makes, spending
+ * nothing. A Settings page offers these rows so a person picks a platform by its
+ * own price instead of reading that price out of a failure message.
+ * @returns one entry per `gpt-image-2` row, in catalogue order.
+ * @throws RemoteError when the catalogue cannot be read; its message is what the page shows.
+ */
+@Remote async routes(): Promise<{ candidates: ImageRouteRow[] }>
+```
+
+Source: [`packages/jubian/tool-jubian/src/image.ts`](../../packages/jubian/tool-jubian/src/image.ts)
+
 <a id="ctxsettings--settingsforms"></a>
 
 ### `ctx.settings` — `SettingsForms`

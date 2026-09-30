@@ -38,12 +38,24 @@ async function harness(
 }
 
 describe('FeishuSetupService', () => {
+  it('withdraws conversation bindings when the app or scanner changes', async () => {
+    const composition = await feishuProfile([
+      { id: 'config-editor', name: 'cordis:editor' },
+      { id: 'settings', name: 'cordis:settings' },
+      { id: 'feishu', name: 'cordis:probe', config: { ordinary: 'switch' } },
+      { id: 'feishu-channel', name: 'cordis:bridge', config: { ordinary: 'bridge', appId: 'cli_old', appSecret: 'synthetic-old', registeredBy: 'ou_old', allowFrom: ['ou_old'], activeSessionId: 'session-old' } },
+    ])
+    const service = await harness(composition)
+    await service.setCredentials({ appId: 'cli_new', appSecret: 'synthetic-new' })
+    expect(storedRows(composition.patchPath).get(FEISHU_CHANNEL_ROW_ID)).toMatchObject({ allowFrom: [], activeSessionId: '' })
+    expect(await service.status()).toMatchObject({ appId: 'cli_new', credential: 'manual' })
+  })
   it('writes the bridge section read-merge-write, leaving every other key intact', async () => {
     const composition = await feishuProfile([
       { id: 'config-editor', name: 'cordis:editor' },
       { id: 'settings', name: 'cordis:settings' },
       { id: 'feishu', name: 'cordis:probe', config: { ordinary: 'switch' } },
-      { id: 'feishu-channel', name: 'cordis:bridge', config: { ordinary: 'bridge', appId: 'cli_old', autoRegistration: true } },
+      { id: 'feishu-channel', name: 'cordis:bridge', config: { ordinary: 'bridge', appId: 'cli_old', requireMention: false } },
     ])
     const service = await harness(composition)
     await service.setCredentials({ appId: 'cli_new', appSecret: 'sec_new' })
@@ -51,7 +63,7 @@ describe('FeishuSetupService', () => {
     // Only the target keys move; every key the bridge owns stays as the
     // operator left it, because the write merges into the stored section.
     expect(storedRows(composition.patchPath).get(FEISHU_CHANNEL_ROW_ID)).toMatchObject({
-      ordinary: 'bridge', appId: 'cli_new', appSecret: 'sec_new', autoRegistration: true,
+      ordinary: 'bridge', appId: 'cli_new', appSecret: 'sec_new', requireMention: false,
     })
     // The write reached the running entry, so the next read sees it live.
     expect(rowConfig(composition.ctx, FEISHU_CHANNEL_ROW_ID)).toMatchObject({ appId: 'cli_new' })

@@ -72,6 +72,7 @@ import * as PluginManagerTools from '@deepseek-ai/dsh-plugin-manager/tools'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import * as ToolJubian from '@deepseek-ai/dsh-tool-jubian'
 import * as ToolAudioTranscribe from '@deepseek-ai/dsh-tool-audio-transcribe'
+import * as ToolVideoInspect from '@deepseek-ai/dsh-tool-video-inspect'
 import type { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
 import * as ToolShotScript from '@deepseek-ai/dsh-tool-shot-script'
 import * as DramaSettings from '@deepseek-ai/dsh-drama-settings'
@@ -292,6 +293,22 @@ const TOOL_PACKAGES: ToolPackage[] = [
       '`start` submits compressed speech under the signed-in Muse account and returns a project receipt; '
       + '`status` checks that receipt and publishes timed TXT and JSON when recognition completes. '
       + 'The same tool is available in every Muse mode, with provider credentials held by the account gateway.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-video-inspect',
+    dir: 'tool-video-inspect',
+    source: 'packages/perception/tool-video-inspect/src/index.ts',
+    requires: ['ctx.tools', 'ctx.fs', 'ctx.subprocess', 'ctx.attachments', 'ctx.sandboxPolicy', 'FFmpeg and FFprobe'],
+    writes: ['tool/call', 'tool/result with timestamped image attachments', 'optional project-relative JSON manifest'],
+    async mount(ctx) {
+      await ctx.plugin(LocalFileSystem)
+      await ctx.plugin(LocalSubprocessRuntime)
+      await ctx.plugin(CatalogAttachmentStore)
+      await ctx.plugin(SandboxPolicy)
+      await ctx.plugin(ToolVideoInspect, ToolVideoInspect.Config({}))
+    },
+    note: 'Video observations cover only the reported sampled frames and time ranges. '
+      + 'Use audio_transcribe separately for timed speech; sampling never submits a paid transcription.',
   },
   {
     pkg: '@deepseek-ai/dsh-tools',

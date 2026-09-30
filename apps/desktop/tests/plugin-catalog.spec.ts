@@ -25,10 +25,10 @@ it('lists all bundled packages offline without fetching the catalog', async () =
   const result = await desktopPluginCatalog(root, root, false)
   expect(result.bundled.map(row => row.name)).toEqual([...DESKTOP_SOURCE_PLUGINS])
   expect(result.bundled.find(row => row.name === 'dsh-ffmpeg')).toMatchObject({ version: '1.0.0', mounted: true })
-  expect(result.bundled.find(row => row.name === '@moyu-good/dsh-lark-bridge')).toMatchObject({ mounted: false })
+  expect(result.bundled.find(row => row.name === '@wenbin_wb/dsh-bridge')).toMatchObject({ mounted: false })
   expect(result.plugins).toEqual([])
   await expect(desktopPluginCatalog(root, root, true)).rejects.toThrow('fixture catalog offline')
-  expect((await desktopPluginCatalog(root, root, false)).bundled).toHaveLength(5)
+  expect((await desktopPluginCatalog(root, root, false)).bundled).toHaveLength(DESKTOP_SOURCE_PLUGINS.length)
 })
 
 it('returns only validated catalog leaves, preserving unsupported and bundled entries', () => {

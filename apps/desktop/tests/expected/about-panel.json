@@ -1,52 +1,52 @@
 {
   "darwin:en-US": {
     "menu": [
-      { "label": "About muse-med", "role": "about" },
-      { "type": "separator" }
+      {"label": "About Muse", "role": "about"},
+      {"type": "separator"}
     ],
     "options": {
-      "applicationName": "muse-med",
+      "applicationName": "Muse",
       "applicationVersion": "1.0.0",
-      "version": "",
+      "version": "DSH 1.2.3 (abcdef0)",
       "copyright": "",
       "iconPath": "<app icon>"
     }
   },
   "darwin:zh-CN": {
     "menu": [
-      { "label": "关于 muse-med", "role": "about" },
-      { "type": "separator" }
+      {"label": "关于 Muse", "role": "about"},
+      {"type": "separator"}
     ],
     "options": {
-      "applicationName": "muse-med",
-      "applicationVersion": "1.0.0",
-      "version": "",
+      "applicationName": "Muse",
+      "applicationVersion": "1.0.0-beta.1",
+      "version": "DSH 1.2.3 (abcdef0)",
       "copyright": "",
       "iconPath": "<app icon>"
     }
   },
   "win32:zh-CN": {
     "menu": [
-      { "label": "关于 muse-med" },
-      { "type": "separator" }
+      {"label": "关于 Muse"},
+      {"type": "separator"}
     ],
     "options": {
-      "applicationName": "muse-med",
+      "applicationName": "Muse",
       "applicationVersion": "1.0.0",
-      "version": "",
+      "version": "DSH 1.2.3 (abcdef0)",
       "copyright": "",
       "iconPath": "<app icon>"
     }
   },
   "win32:en-US": {
     "menu": [
-      { "label": "About muse-med" },
-      { "type": "separator" }
+      {"label": "About Muse"},
+      {"type": "separator"}
     ],
     "options": {
-      "applicationName": "muse-med",
-      "applicationVersion": "1.0.0",
-      "version": "",
+      "applicationName": "Muse",
+      "applicationVersion": "1.0.0-beta.1",
+      "version": "DSH 1.2.3 (abcdef0)",
       "copyright": "",
       "iconPath": "<app icon>"
     }

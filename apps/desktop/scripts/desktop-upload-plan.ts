@@ -12,7 +12,7 @@ import {
   resolveDesktopUploadConfig,
 } from './desktop-auto-update-environment.mjs'
 import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
-import { validateDesktopBuildVersion } from './desktop-build-version.mjs'
+import { readDesktopProductConfig, validateDesktopBuildVersion } from './desktop-build-version.mjs'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
@@ -37,6 +37,16 @@ export interface DesktopUploadArtifact {
   readonly contents?: string
 }
 
+/** GitHub Release assets required in addition to the COS upload. Tags select discovery, while YAML declares the product version. */
+export interface DesktopGitHubReleasePlan {
+  readonly tag: string
+  readonly version: string
+  readonly prerelease: true
+  readonly discovery: 'product' | 'legacy-rc'
+  readonly binaryFilenames: readonly string[]
+  readonly metadataFiles: readonly { readonly filename: string; readonly contents: string }[]
+}
+
 /** A fully validated upload operation with channel metadata ordered last. */
 export interface DesktopUploadPlan {
   readonly environment: 'test' | 'production'
@@ -47,6 +57,8 @@ export interface DesktopUploadPlan {
   readonly secretIdEnvName: string
   readonly secretKeyEnvName: string
   readonly artifacts: readonly DesktopUploadArtifact[]
+  /** Separate GitHub publications required by this release; the COS uploader records these without publishing them. */
+  readonly githubReleases?: readonly DesktopGitHubReleasePlan[]
   /** Commit the artifacts were packaged from, absent for a package built before builds recorded it. */
   readonly commit?: string
   /** Whether that checkout carried uncommitted changes. */
@@ -189,6 +201,8 @@ export async function createDesktopUploadPlan(
   if (dshVersion !== desktopVersion) {
     throw new Error(`desktop upload: desktop version ${desktopVersion} does not match current dsh version ${dshVersion}`)
   }
+  const product = readDesktopProductConfig(appRoot)
+  const productVersion = product.version
 
   const update = resolveDesktopUploadConfig(environment, target.platform, target.arch)
   const buildRecord = await jsonFile(
@@ -199,11 +213,14 @@ export async function createDesktopUploadPlan(
   const recordedVersion = stringField(buildRecord.version, `${targetName} package completion record.version`)
   let buildVersion: string
   try {
-    buildVersion = validateDesktopBuildVersion(recordedVersion, dshVersion)
+    buildVersion = validateDesktopBuildVersion(recordedVersion, productVersion)
   }
   catch (error) {
-    throw new Error(`desktop upload: ${targetName} package completion record holds ${recordedVersion}, which is not a build of dsh ${dshVersion}: ${
+    throw new Error(`desktop upload: ${targetName} package completion record holds ${recordedVersion}, which is not a build of Muse ${productVersion}: ${
       error instanceof Error ? error.message : String(error)}`)
+  }
+  if (buildRecord.dshVersion !== dshVersion) {
+    throw new Error(`desktop upload: ${targetName} package completion record does not match current dsh version ${dshVersion}`)
   }
   if (buildRecord.schemaVersion !== 1
     || buildRecord.target !== targetName
@@ -267,6 +284,24 @@ export async function createDesktopUploadPlan(
     contents: dump(published),
   }
   artifacts.push(channelArtifact)
+  let githubReleases: readonly DesktopGitHubReleasePlan[] | undefined
+  if (product.legacyRcDiscovery) {
+    const suffix = target.platform === 'darwin' ? '-mac' : ''
+    const metadataFilenames = [metadataFilename, `rc${suffix}.yml`, `latest${suffix}.yml`]
+    for (const filename of metadataFilenames.slice(1)) {
+      artifacts.push({ ...channelArtifact, filename, key: `${update.keyPrefix}/${filename}` })
+    }
+    const [release, ...prerelease] = buildVersion.split('-')
+    const shared = {
+      version: buildVersion, prerelease: true as const,
+      binaryFilenames: artifacts.filter(artifact => !artifact.channelMetadata).map(artifact => artifact.filename),
+      metadataFiles: metadataFilenames.map(filename => ({ filename, contents: dump(metadata) })),
+    }
+    githubReleases = [
+      { ...shared, tag: `v${buildVersion}`, discovery: 'product' },
+      { ...shared, tag: `v${release}-rc.muse-${prerelease.join('-')}`, discovery: 'legacy-rc' },
+    ]
+  }
   return {
     environment: update.environment,
     target: targetName,
@@ -276,6 +311,7 @@ export async function createDesktopUploadPlan(
     secretIdEnvName: update.secretIdEnvName,
     secretKeyEnvName: update.secretKeyEnvName,
     artifacts,
+    ...(githubReleases === undefined ? {} : { githubReleases }),
     ...typeof buildRecord.commit === 'string' ? { commit: buildRecord.commit } : {},
     ...typeof buildRecord.dirty === 'boolean' ? { dirty: buildRecord.dirty } : {},
   }

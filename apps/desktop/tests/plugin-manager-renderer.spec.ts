@@ -9,7 +9,7 @@ function manager(locale = 'en', canInstall = true) {
   const dom = new JSDOM(readFileSync(new URL('../renderer/plugin-manager.html', import.meta.url), 'utf8'), { runScripts: 'outside-only' })
   onTestFinished(() => { dom.window.close() })
   const bundled = [{ name: 'dsh-ffmpeg', version: '0.4.3', mounted: true },
-    { name: '@moyu-good/dsh-lark-bridge', version: '0.6.1', mounted: false }]
+    { name: '@wenbin_wb/dsh-bridge', version: '2.12.1', mounted: false }]
   const plugins = [
     { name: 'example plugin', npm: 'safe-plugin@1.2.3', repository: 'https://github.com/a/b',
       description: { en: '<script>not executable</script>', zh: '示例插件' }, bundled: false },
@@ -61,7 +61,7 @@ it('keeps built-ins visible on discovery failure and allows retry', async () => 
   page.catalog.mockRejectedValueOnce(new Error('catalog offline'))
   page.element<HTMLButtonElement>('#discover').click()
   await expect.poll(() => page.element('#status').textContent).toContain('catalog offline')
-  expect(page.element('#bundled-plugins').textContent).toContain('@moyu-good/dsh-lark-bridge')
+  expect(page.element('#bundled-plugins').textContent).toContain('@wenbin_wb/dsh-bridge')
   page.element<HTMLButtonElement>('#discover').click()
   await expect.poll(() => page.element('#catalog-plugins').textContent).toContain('示例插件')
   expect(page.add).not.toHaveBeenCalled()

@@ -86,3 +86,35 @@ it('refuses another page origin without forwarding its request', async () => {
   expect(response.status).toBe(403)
   expect(fetch).not.toHaveBeenCalled()
 })
+
+it.each(['GET', 'HEAD'])('retains video length and range metadata for %s without copying its stream', async (method) => {
+  const upstream = new Response(method === 'HEAD' ? null : 'four', { status: 206, headers: {
+    'content-type': 'video/mp4', 'content-length': '4', 'content-range': 'bytes 2-5/10', 'accept-ranges': 'bytes',
+  } })
+  const fetch = vi.fn().mockResolvedValue(upstream)
+  vi.stubGlobal('fetch', fetch)
+  const response = await forwardWebRequest(new Request('dsh-app://app/api/video?sessionId=owner&path=clip.mp4', {
+    method, headers: { range: 'bytes=2-5' },
+  }), 'http://127.0.0.1:1234/', 'session=owned')
+  const init = fetch.mock.calls[0]![1] as RequestInit
+  expect(new Headers(init.headers).get('range')).toBe('bytes=2-5')
+  expect(response.status).toBe(206)
+  expect(response.headers.get('content-length')).toBe('4')
+  expect(response.headers.get('content-range')).toBe('bytes 2-5/10')
+  expect(response.headers.get('accept-ranges')).toBe('bytes')
+  expect(response.body).toBe(upstream.body)
+})
+
+it.each([
+  ['/api/file', undefined, '4'],
+  ['/api/video', 'gzip', '4'],
+  ['/api/video', undefined, 'bad'],
+])('drops transport lengths on %s with encoding %s or invalid length %s', async (path, encoding, length) => {
+  const fetch = vi.fn().mockResolvedValue(new Response('body', { headers: {
+    'content-length': length, ...encoding === undefined ? {} : { 'content-encoding': encoding },
+  } }))
+  vi.stubGlobal('fetch', fetch)
+  const response = await forwardWebRequest(new Request(`dsh-app://app${path}`), 'http://127.0.0.1:1234/', 'session=owned')
+  expect(response.headers.get('content-length')).toBeNull()
+  expect(response.headers.get('content-encoding')).toBeNull()
+})

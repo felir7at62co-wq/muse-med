@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 Browse a Session's workspace tree and open files in Sidebar previews. The root and expanded directories refresh automatically from direct-entry watches; manual reload remains available. The tab is reached from the guide and claims no resource address.
 
+Drag a file onto the conversation to insert a reference chip, or choose **Add to conversation** from its menu. The menu closes a fullscreen file panel. Both actions preserve the draft and selection, focus the composer, and leave sending to the user. Files remain in the workspace; missing files, changed workspaces, and outside paths are refused.
+
 ## Table of Contents
 
 - [What it registers](#what-it-registers)
@@ -52,7 +54,7 @@ Each open `DirectoryNode` owns its target watch for the Tab lifetime; collapse c
 <a id="model-experience"></a>
 ## Model Experience
 
-None, as this package draws a workspace file tree in the browser and registers nothing model-facing.
+None, as [ui-reference](../ui-reference/README.md) owns model-visible reference serialization when the user sends the draft.
 
 #### KV Cache effect
 
@@ -61,7 +63,7 @@ None; directory listings travel over the Remote and assemble no model request.
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
-- **Listing only.** No search, artifact filter, drag-and-drop, rename, context menu, or current-file highlight.
+- **One file per gesture.** The tree has no multi-selection. Each drag or menu action inserts one file; repeated additions remain ordinary removable chips. Search, artifact filtering, rename, and current-file highlighting are unavailable.
 - **One root.** The tree is rooted at the session's working directory; there is no way to browse above it, and the Host refuses paths outside the workspace root anyway.
 
 <a id="dev-note"></a>

@@ -12,6 +12,8 @@ import type {} from '@deepseek-ai/dsh-attachment'
 import { FsError, type FileSystem } from '@deepseek-ai/dsh-fs'
 import mime from 'mime-types'
 
+export { SessionVideoReferences, VideoPlaybackConfig } from './video-references.ts'
+
 const BASE_HEADERS = {
   'Cache-Control': 'private, no-store',
   'X-Content-Type-Options': 'nosniff',

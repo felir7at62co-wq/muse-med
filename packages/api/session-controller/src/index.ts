@@ -27,6 +27,7 @@ import { buildModelCatalog, hasProviderApiKey } from './catalog.ts'
 import { installModelSelectionProjection } from './model-selection-projection.ts'
 import { SessionSkillCatalog } from './skill-catalog.ts'
 import { SessionMediaReferences } from './media-references.ts'
+import { SessionVideoReferences, VideoPlaybackConfig } from './video-references.ts'
 import { ArchivedSessionGate } from './archived-session-gate.ts'
 import type {
   ModelCatalog,
@@ -80,6 +81,8 @@ declare module '@deepseek-ai/cordis' {
 export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /** Video file, read-window and concurrent-stream bounds. */
+  readonly video?: VideoPlaybackConfig
 }
 
 /** Host integrations replaceable by direct unit tests. */
@@ -114,6 +117,7 @@ export class SessionController extends TypertRemoteService {
 
   static Config: z<Config> = z.object({
     nativeOpen: z.boolean(),
+    video: VideoPlaybackConfig,
   })
 
   private readonly agents: ApiSessionAgentController
@@ -159,6 +163,7 @@ export class SessionController extends TypertRemoteService {
       ?? (() => config.nativeOpen ?? (internals.openPath !== undefined || canOpenNativePath()))
     ctx.plugin(SessionFileReferences)
     ctx.plugin(SessionMediaReferences)
+    ctx.plugin(SessionVideoReferences, config.video)
     ctx.plugin(SessionSkillCatalog)
     // An archived Session, or a subagent descendant of one, runs no model step
     // until it is restored; what it still runs is stopped by the owners that

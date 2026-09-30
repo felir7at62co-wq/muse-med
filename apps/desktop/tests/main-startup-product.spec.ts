@@ -2,7 +2,8 @@
 // plugin window's IPC surface including the profile reset channel, the prepared-profile invariant,
 // guarded shell publications, and the native recovery actions. The Electron shell lifecycle suite
 // kept from upstream lives in `main-startup.spec.ts`.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { rmSync } from 'node:fs'
 import { delimiter, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import type { MessageBoxOptions } from 'electron'
@@ -13,13 +14,13 @@ import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 const harness = await vi.hoisted(async () => {
   const { EventEmitter } = await import('node:events')
   const { tmpdir } = await import('node:os')
-  const { mkdirSync, writeFileSync } = await import('node:fs')
-  const { join } = await import('node:path')
+  const { mkdtempSync, writeFileSync } = await import('node:fs')
+  const paths = await import('node:path')
   // The shell reads its own package.json from the application path; keep it in the OS temp directory
   // so a test run never writes into the repository.
-  const appRoot = join(tmpdir(), 'dsh-desktop-test-app')
-  mkdirSync(appRoot, { recursive: true })
-  writeFileSync(join(appRoot, 'package.json'), '{"name":"dsh-desktop-test","version":"1.0.0"}\n')
+  const appRoot = mkdtempSync(paths.join(tmpdir(), 'dsh-desktop-test-app-'))
+  writeFileSync(paths.join(appRoot, 'package.json'), '{"name":"dsh-desktop-test","version":"1.0.0"}\n')
+  writeFileSync(paths.join(appRoot, 'muse-product.json'), '{"version":"1.0.0-beta.1"}\n')
   function deferred() {
     let resolve!: () => void
     let reject!: (error: Error) => void
@@ -365,6 +366,8 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {})
   vi.spyOn(console, 'info').mockImplementation(() => {})
   vi.stubEnv('DSH_DESKTOP_PNPM_ENTRY', 'test-pnpm')
+  vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
+  vi.stubEnv('DSH_CLIENT_COMMIT_HASH', 'abcdef0')
   vi.stubEnv('DSH_DESKTOP_DSH_DIR', 'test-runtime')
   vi.stubEnv('DSH_DESKTOP_PRIMARY_RUNTIME_DIR', 'test-primary-runtime')
   vi.stubGlobal('process', { ...process, resourcesPath: 'desktop-test-resources' })
@@ -376,6 +379,8 @@ beforeEach(() => {
     vi.stubEnv(name, process.env[name])
   }
 })
+
+afterAll(() => { rmSync(harness.appRoot, { recursive: true, force: true }) })
 
 afterEach(async () => {
   harness.prepared.resolve()
@@ -517,11 +522,11 @@ describe('desktop main startup', () => {
     expect(process.env.MUSE_HOME).toBe(resolve('muse test home'))
   })
 
-  it('uses the muse-med window name and packaged spider icon without changing renderer security', async () => {
+  it('uses the Muse window name and packaged spider icon without changing renderer security', async () => {
     await import('../src/main.ts')
     await harness.preparing.promise
     expect(harness.windows[0]?.options).toMatchObject({
-      title: 'muse-med',
+      title: 'Muse',
       icon: join(harness.appRoot, 'renderer', 'icon.png'),
       webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true },
     })

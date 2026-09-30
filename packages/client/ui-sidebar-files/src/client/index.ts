@@ -15,6 +15,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type { WorkspaceFileDragTicket } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import { FILES_ID, filesDefinition } from './definition.tsx'
 import { createList, createWatch, filesFace } from './face.ts'
@@ -68,7 +69,21 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-sidebar-files: dictionaries')
 
   const store = createFilesStore()
-  const inject = filesFace(createList(ctx.remote), createWatch(ctx.remote))
+  const fileTree = filesFace(createList(ctx.remote), createWatch(ctx.remote))
+  const inject: typeof fileTree = (sessionId, actions) => {
+    const face = fileTree(sessionId, actions)
+    const references = ctx.get('workspaceFileReferences')
+    if (references === undefined) return face
+    return { ...face, workspaceReferences: {
+      type: references.dragType,
+      revealConversation: () => {
+        if (ctx.sidebarRight.mounted.getSnapshot() === sessionId && ctx.sidebarRight.isExpanded()) ctx.sidebarRight.toggleExpanded()
+      },
+      start: (root, paths) => references.startDrag(sessionId, root, paths),
+      end: (ticket) => { references.endDrag(ticket as WorkspaceFileDragTicket) },
+      add: (root, paths) => references.add(sessionId, root, paths),
+    } }
+  }
   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register(
     { name: 'sidebar.right.pane.tab', key: FILES_ID, locale: NS, store, inject },
     FilesBody,

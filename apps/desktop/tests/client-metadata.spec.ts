@@ -1,7 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { desktopClientMetadata, desktopClientVersion } from '../src/client-metadata.ts'
+import { desktopClientCommitHash, desktopClientMetadata, desktopClientVersion } from '../src/client-metadata.ts'
 
 afterEach(() => { vi.unstubAllEnvs() })
+
+it('reports the embedded source commit and refuses missing commit metadata', () => {
+  vi.stubEnv('DSH_CLIENT_COMMIT_HASH', '0123456')
+  expect(desktopClientCommitHash()).toBe('0123456')
+  vi.stubEnv('DSH_CLIENT_COMMIT_HASH', undefined)
+  expect(() => desktopClientCommitHash()).toThrow(/DSH_CLIENT_COMMIT_HASH/u)
+})
 
 it('reports the inlined client build version and the requested language', () => {
   vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')

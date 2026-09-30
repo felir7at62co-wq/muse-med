@@ -6,11 +6,14 @@
   en: 9bacddf5b971e916
   zh: 0fab64d27bb21882
 /community-plugin-source-and-builds/build:
-  en: af538948006eea9c
-  zh: 226a1eec72ae4177
+  en: afe2b9bbaa610db7
+  zh: c448bd3f522b7a72
 /community-plugin-source-and-builds/compatibility-and-desktop-integration:
-  en: aa55f7eb318d6b0a
-  zh: 6b97ecee2c371844
+  en: 5262b36d2129283e
+  zh: 208dcbb426ac6d32
+/community-plugin-source-and-builds/compatibility-and-desktop-integration/muse-remote-desktop-and-feishu:
+  en: 583679ef50f810a1
+  zh: 05dc1660c38e8508
 /community-plugin-source-and-builds/licenses:
   en: c3b3d30f0293f569
   zh: 4e82b1878b25ec0a

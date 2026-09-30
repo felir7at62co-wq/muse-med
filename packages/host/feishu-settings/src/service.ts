@@ -219,6 +219,7 @@ export class FeishuSetupService extends TypertRemoteService {
 
   /**
    * Write the pair into the bridge row's section and record who scanned it.
+   * A different app or scanner withdraws prior sender and session bindings.
    *
    * The section belongs to the composition entry, so a composition that mounts
    * no bridge row has nowhere to put the pair and says so; every other refusal
@@ -252,6 +253,8 @@ export class FeishuSetupService extends TypertRemoteService {
         appId,
         ...(appSecret.length === 0 ? {} : { [APP_SECRET_KEY]: appSecret }),
         registeredBy,
+        ...(credentialViewOf(section).appId !== appId || credentialViewOf(section).registeredBy !== registeredBy
+          ? { allowFrom: [], activeSessionId: '' } : {}),
       })
     } catch (error) {
       this.ctx.logger.error('feishu-settings: storing the app credentials in "%s" was refused', FEISHU_CHANNEL_ROW_ID)

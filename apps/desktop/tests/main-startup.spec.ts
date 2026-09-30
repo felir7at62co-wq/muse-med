@@ -9,7 +9,7 @@
 //   merged: the product claims its Electron identity and userData before the single-instance lock
 import type { AccountView } from '@deepseek-ai/dsh-deepseek-account/types'
 import { WINDOWS_TITLEBAR_HEIGHT } from '../src/windows-layout.ts'
-import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { IpcMainInvokeEvent } from 'electron'
 import { join, resolve } from 'node:path'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
@@ -36,9 +36,9 @@ vi.mock('../src/crash-report.ts', async importOriginal => ({
 
 const harness = await vi.hoisted(async () => {
   const { EventEmitter } = await import('node:events')
-  const { mkdtempSync } = await import('node:fs')
+  const { mkdtempSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
-  const { join } = await import('node:path')
+  const paths = await import('node:path')
   function deferred() {
     let resolve!: () => void
     let reject!: (error: Error) => void
@@ -159,7 +159,9 @@ const harness = await vi.hoisted(async () => {
     ) { hosts.push(this) }
   }
   const calls: string[] = []
-  const appData = mkdtempSync(join(tmpdir(), 'dsh-desktop-app-data-'))
+  const appData = mkdtempSync(paths.join(tmpdir(), 'dsh-desktop-app-data-'))
+  const appRoot = mkdtempSync(paths.join(tmpdir(), 'dsh-main-app-'))
+  writeFileSync(paths.join(appRoot, 'muse-product.json'), '{"version":"1.0.0-beta.1"}\n')
   const app = Object.assign(new EventEmitter(), {
     isPackaged: true,
     name: 'Desktop test',
@@ -167,7 +169,7 @@ const harness = await vi.hoisted(async () => {
     getLocale: (): string => 'en-US',
     getPreferredSystemLanguages: () => ['en-US'],
     getVersion: () => '1.0.0',
-    getAppPath: (): string => 'desktop-test-app',
+    getAppPath: (): string => appRoot,
     setAppLogsPath: vi.fn(),
     getPath: vi.fn<(name: string) => string>(),
     setAboutPanelOptions: vi.fn<(options: Electron.AboutPanelOptionsOptions) => void>(),
@@ -202,7 +204,7 @@ const harness = await vi.hoisted(async () => {
   return {
     failWindow(error: Error) { windowFailure = error },
     windows, hosts, handlers, app, FakeWindow, FakeHost, powerMonitor, nativeTheme, trays, FakeTray, backgroundNotice,
-    shellDialog, calls, appData,
+    shellDialog, calls, appData, appRoot,
     menu, popup, socketHeaders: vi.fn(), updateCheck, updateDownload, updateInstall,
     platformDispose,
     platformCloseAndWait,
@@ -310,7 +312,7 @@ vi.mock('../src/background-notice.ts', () => ({ DesktopBackgroundNotice: class {
 vi.mock('node:fs/promises', async (importOriginal) => {
   const original = await importOriginal<typeof import('node:fs/promises')>()
   return { ...original, readFile: vi.fn((path: Parameters<typeof original.readFile>[0], encoding?: 'utf8') => {
-    if (path === join('desktop-test-app', 'package.json')) {
+    if (path === join(harness.appRoot, 'package.json')) {
       return Promise.resolve(JSON.stringify({ dshDesktopAppId: 'com.deepseek.dsh', dshMandatoryUpdatePolicy: harness.embeddedPolicy }))
     }
     return encoding === undefined ? original.readFile(path) : original.readFile(path, encoding)
@@ -417,6 +419,7 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {})
   vi.spyOn(console, 'info').mockImplementation(() => {})
   vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
+  vi.stubEnv('DSH_CLIENT_COMMIT_HASH', 'abcdef0')
   vi.stubEnv('DSH_DESKTOP_PNPM_ENTRY', 'test-pnpm')
   vi.stubEnv('DSH_DESKTOP_DSH_DIR', 'test-runtime')
   vi.stubEnv('DSH_DESKTOP_PRIMARY_RUNTIME_DIR', 'test-primary-runtime')
@@ -428,6 +431,11 @@ beforeEach(() => {
     'DSH_FFMPEG_PATH', 'DSH_FFPROBE_PATH', 'FFMPEG_PATH', 'FFPROBE_PATH', 'MUSE_WHISPER_MODEL_DIR', 'MUSE_BGM_RUNTIME_DIR', 'MUSE_FONTS_DIR', 'MUSE_FONT_FAMILY']) {
     vi.stubEnv(name, process.env[name])
   }
+})
+
+afterAll(() => {
+  rmSync(harness.appRoot, { recursive: true, force: true })
+  rmSync(harness.appData, { recursive: true, force: true })
 })
 
 afterEach(async () => {
@@ -502,7 +510,7 @@ describe('desktop main startup', () => {
     for (const file of ['update-dialog.html', 'update-dialog.js', 'update-dialog.css', 'update-close.svg', 'mandatory-update.html']) {
       const request = new Request(`dsh-app://shell/${file}`)
       await handler(request)
-      expect(serveWebDocument).toHaveBeenLastCalledWith(request, join('desktop-test-app', 'renderer'))
+      expect(serveWebDocument).toHaveBeenLastCalledWith(request, join(harness.appRoot, 'renderer'))
     }
     expect(forwardWebRequest).not.toHaveBeenCalled()
     expect((await handler(new Request('dsh-app://unknown/update-dialog.html'))).status).toBe(404)
@@ -537,7 +545,7 @@ describe('desktop main startup', () => {
     expect({ menu: [{ label: about!.label, role: about!.role }, separator], options: { ...options, iconPath: '<app icon>' } })
       .toEqual(expected[`${platform}:${locale}`])
     expect(options.iconPath).toBe(packaged ? join('desktop-test-resources', 'icon.png')
-      : join('desktop-test-app', 'renderer', 'icon.png'))
+      : join(harness.appRoot, 'renderer', 'icon.png'))
     if (platform !== 'win32') { expect(about!.click).toBeUndefined(); return }
     // Windows reuses the dimmed update dialog because Electron's fallback is a bare message box.
     harness.dialog.showMessageBox.mockResolvedValueOnce({ response: 0 })
@@ -545,8 +553,8 @@ describe('desktop main startup', () => {
     await vi.advanceTimersByTimeAsync(0)
     const zh = locale === 'zh-CN'
     expect(harness.dialog.showMessageBox).toHaveBeenLastCalledWith(expect.objectContaining({
-      type: 'info', title: zh ? '关于 muse-med' : 'About muse-med', message: 'muse-med',
-      detail: zh ? '版本 V1.0.0' : 'Version V1.0.0', buttons: [zh ? '确定' : 'OK'], cancelId: 0,
+      type: 'info', title: zh ? '关于 Muse' : 'About Muse', message: 'Muse',
+      detail: `${zh ? '版本' : 'Version'} V${packaged ? '1.0.0' : '1.0.0-beta.1'}\nDSH 1.2.3\n${zh ? '提交' : 'Commit'} abcdef0`, buttons: [zh ? '确定' : 'OK'], cancelId: 0,
     }))
     // A dialog that cannot open is logged, not surfaced as an unhandled rejection.
     harness.dialog.showMessageBox.mockRejectedValueOnce(new Error('overlay unavailable'))
@@ -745,7 +753,7 @@ describe('desktop main startup', () => {
     const handler = harness.protocolHandle.mock.calls[0]![1]
     const request = new Request('dsh-app://shell/update-dialog.html')
     expect(await (await handler(request)).text()).toBe('shell document')
-    expect(serveWebDocument).toHaveBeenCalledWith(request, join('desktop-test-app', 'renderer'))
+    expect(serveWebDocument).toHaveBeenCalledWith(request, join(harness.appRoot, 'renderer'))
     expect((await handler(new Request('dsh-app://foreign/index.html'))).status).toBe(404)
   })
 
@@ -842,7 +850,7 @@ describe('desktop main startup', () => {
     const application = handler(event, 'application', 48, 34)
     // merged: the product's plugin-window entry lives in the same application menu.
     expect(harness.menu.buildFromTemplate.mock.lastCall![0].map(item => item.label ?? item.type)).toEqual([
-      '关于 muse-med', 'separator', '桌面插件…', '检查更新…', 'separator', '退出',
+      '关于 Muse', 'separator', '桌面插件…', '检查更新…', 'separator', '退出',
     ])
     expect(harness.popup.mock.lastCall![0]).toMatchObject({ window, x: 48, y: 34 })
     expect(harness.popup.mock.lastCall![0].callback).toBeTypeOf('function')

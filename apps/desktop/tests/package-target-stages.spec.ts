@@ -20,6 +20,18 @@ vi.mock('../scripts/windows-signature-cache-directory.mjs', () => ({
   resolveWindowsSignatureCacheDirectory: vi.fn(() => 'C:\\fixture-cache'),
 }))
 
+// These orchestration fixtures create no artifacts and own a fixed clean checkout for every step's Git guards.
+vi.mock('../../../scripts/release/process.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../scripts/release/process.ts')>(),
+  capture: (executable: string, args: readonly string[]): string => {
+    if (executable !== 'git') throw new Error(`unexpected fixture command: ${executable}`)
+    if (args[0] === 'rev-parse') return '0123456789abcdef0123456789abcdef01234567'
+    if (args[0] === 'log') return '2026-09-30T00:00:00Z'
+    if (args[0] === 'status') return ''
+    throw new Error(`unexpected fixture Git command: ${args.join(' ')}`)
+  },
+}))
+
 // Keep the real orchestration and manifest reads; this suite owns no release directories or subprocesses.
 vi.mock('node:fs', async importOriginal => ({
   ...await importOriginal<typeof import('node:fs')>(),
@@ -52,6 +64,7 @@ it('requires one signing preflight before building, then records only the comple
     .toEqual(['preflight', 'artifacts'])
   expect(run.run.mock.calls[0]![3]).toMatchObject({ env: { DSH_DESKTOP_WINDOWS_TOKEN_PIN: 'fixture-pin' }, timeoutMs: 60_000 })
   expect(run.run.mock.calls[1]![3].env).not.toHaveProperty('DSH_DESKTOP_WINDOWS_TOKEN_PIN')
+  expect(run.run.mock.calls[1]![3].env).toMatchObject({ DSH_CLIENT_TITLE: 'Muse', DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1' })
   expect(stages.indexOf('run sign:primary-runtime --dsh')).toBeGreaterThan(stages.indexOf('run prepare:dsh --defer-runtime-smoke'))
   expect(stages.at(-1)).toBe('exec tsx scripts/smoke-packaged-runtime.ts')
   for (const call of run.run.mock.calls) {
@@ -66,6 +79,7 @@ it('requires one signing preflight before building, then records only the comple
   expect(writeFileSync).toHaveBeenCalledOnce()
   const record = JSON.parse(vi.mocked(writeFileSync).mock.calls[0]![1] as string) as { publicUrl: string }
   expect(record.publicUrl).toBe('https://updates.example.com/dsh-desk/0123456789abcdef0123456789abcdef/feeds/win-x64/')
+  expect(record).toMatchObject({ version: '1.0.0-beta.1', dshVersion: '0.1.7-rc.8' })
 })
 
 it('initializes shared storage only after acquiring the preflight stage lock', async () => {
@@ -76,6 +90,16 @@ it('initializes shared storage only after acquiring the preflight stage lock', a
     expect(prepareWindowsSignatureCacheDirectory).toHaveBeenCalledOnce()
   })
   await packageTarget(parseDesktopPackageInvocation(['win-x64'], 'win32', 'x64'), environment, run)
+})
+
+it('passes the numbered product version to the frontend build and packing stages', async () => {
+  const { run } = supervisor()
+  await packageTarget(parseDesktopPackageInvocation(['win-x64', '--prepare-only'], 'win32', 'x64'), {
+    ...environment, DSH_DESKTOP_BUILD_VERSION: '1.0.0-beta.1.20260930.2',
+  }, run)
+  for (const call of run.run.mock.calls) {
+    expect(call[3].env).toMatchObject({ DSH_CLIENT_TITLE: 'Muse', DSH_CLIENT_PRODUCT_VERSION: '1.0.0-beta.1.20260930.2' })
+  }
 })
 
 it.each(['preflight:windows-signing', 'run build:official', 'run sign:primary-runtime', 'run prepare:dsh --defer-runtime-smoke', 'run sign:primary-runtime --dsh',
