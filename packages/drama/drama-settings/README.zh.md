@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-持有持久 `drama` 设置段、编辑它的 **设置 → 短剧**页，以及页面上那份只读的组件清单。设置段承载交付与剪映草稿目录、交付规格、本地 BGM 库、计费生图通道的 `gpt-image-2` 目录行，以及每部剧自动收费预算。Host 半把 schema 注册进设置服务；Client 半编辑解析后的值，并把被拒绝的写入报告出来，而不是显示成已保存。预算内的收费调用不需要逐笔或首次确认。
+持有持久 `drama` 设置段、编辑它的 **设置 → 短剧**页，以及页面上那份只读的组件清单。设置段承载交付与剪映草稿目录、交付规格、本地 BGM 库、计费生图通道的 `gpt-image-2` 目录行，以及每部剧自动收费预算。Host 半把 schema 注册进设置服务；Client 半编辑解析后的值，并把被拒绝的写入报告出来，而不是显示成已保存。预算内的收费调用不需要逐笔或首次确认。项目工具保留已确认规格、已完成任务与版本历史。
 
 ## 目录
 
@@ -44,6 +44,14 @@ kind: "package-bundle"
 | `imageStandardId` | 缺省 | 计费资产图通道从哪一行 `gpt-image-2` 购买，写该行自己的 `id`；缺省表示交给通道自己判断，而那只在账户目录里恰好一行时成立 |
 | `seriesBudgetCents` | `400000`（人民币 ¥4000） | 每部剧/剧变 `script_id` 独立累计、非负安全整数分；有报价的预算内调用无需逐笔或首次确认；没有报价及认可估算的调用仍被拒绝；`0` 禁止收费调用 |
 
+### 项目圣经
+
+`drama_project` 在已有绝对项目目录中读取、预览和更新项目。没有结构化圣经时，`read` 返回 `unconfigured`，保留旧配置并给出当前 Settings 默认值，不创建文件。新项目复制交付默认值，并将 Settings 预算记为 `initial_budget_cents`；这份初始记录不随之后的 Settings 修改而改变。结果给出 `current_settings_budget_cents`。计费调用采用当前 Settings 上限，并受账本 `authorization.json` 中项目条目的更低上限约束；项目工具不接受预算覆盖。`preview` 合并已确认的修改、渲染可读 Markdown，并列出受影响的制作阶段。`update` 要求相同 changes/reason、精确文件版本 `expected_revision` 和匹配的 `preview_fingerprint`。
+
+`project_config.json` 是权威数据。`project_bible` 保存风格、比例、精确视频模型/平台/生成分辨率、独立的交付宽高/帧率/码率、灵活分集计划、可选角色身份与已确认声音描述、稳定视频包与分镜映射、已完成任务引用和版本历史。顶层 `jubian_script_id` 与 `delivery.max_effective_chars_per_shot` 继续供现有读取方使用。其他旧字段在更新后保留。已有项目和视频包绑定不能被静默替换；已完成任务引用只追加，不抹掉旧记录。
+
+工具在项目独占写入锁下原子替换 JSON，再原子替换派生的 `project-bible.md`。含符号链接或 junction 的路径被拒绝。文件版本过期、预览被改、字段无效或锁被占用时，两份输出都不改变。JSON 提交后 Markdown 渲染失败时，错误给出已提交版本；重试前先读配置。遗留 `.project-bible.lock` 需检查后才能手工删除。视频选择仍须由实时剧变目录及准备工具验证；存储的声音指导不保证提供方能强制相同生成音色。
+
 ### 设置页
 
 生成草稿前，Agent 无参数调用 `drama_draft_dir`。ready 结果以 `path` 返回本机已有、可读写的编辑器绝对根目录；空设置返回 `unconfigured`。路径缺失或失效时，用 `ask_user_question` 询问本机编辑器实际草稿根目录。把回答作为 `path` 传入后，工具验证目录、以修订号保护只保存 `jianyingDraftDir`，并回读确认。生成器使用返回路径且拒绝覆盖已有草稿；有效设置不重复询问。此前的写作和制作步骤不依赖此设置。
@@ -77,6 +85,7 @@ kind: "package-bundle"
 | 文件 | 作用 |
 |---|---|
 | [`src/settings.ts`](src/settings.ts) | 两个编译面共用：命名空间、字段名、默认值，以及 Host 注册、浏览器校验所用的 schemastery schema |
+| [`src/project-bible.ts`](src/project-bible.ts) | 权威项目数据、版本保护的变更预览及可读 Markdown 渲染 |
 | [`src/index.ts`](src/index.ts) | Host 半：导出该行自己的 `Config`，并在 `ctx.inject(['settings'])` 下调用 `settings.configure({ auto: false })`——命名空间 `drama-settings` 由 settings 服务拥有 |
 | [`src/client/index.ts`](src/client/index.ts) | Client 半：一次 `ctx.configForms.get('drama-settings')`、字典、设置页注册，以及可选的清单与生图通道探针 |
 | [`src/client/section.ts`](src/client/section.ts) | 页面的草稿编译器：表单值到设置段、设置段加当前值到路径操作，以及「写进去了没有」的判定 |
@@ -108,11 +117,47 @@ kind: "package-bundle"
 <a id="model-experience"></a>
 ## 模型体验
 
-`drama_draft_dir` 通过已记录的工具结果返回 `{status, path}`。唯一可写字段是设置页的 `jianyingDraftDir`；工具不创建目录，也不修改草稿。缺少 settings 或 tools 服务时不提供该工具。标准工具结果展示返回的状态和路径。
+### settings 与 tools 可用时的工具 schema
+
+#### 模型看到什么
+
+两个服务都已组合时，本包提供 `drama_draft_dir` 和 `drama_project`。说明与参数见[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-drama-settings)。本包不添加系统提示词。
+
+#### Token 影响
+
+两个工具注册期间增加固定的 schema 开销。Settings 值与项目数据不进入工具定义。
 
 #### KV Cache effect
 
-该工具在模型工具列表中增加一个固定定义。目录值仅通过工具结果进入对话；保存根目录不会改变工具定义。
+已注册定义形成稳定的重复前缀。挂载、卸载或改变工具定义可能改变该前缀；编辑 Settings 或项目文件不会改变这些 schema。
+
+### 草稿目录工具结果
+
+#### 模型看到什么
+
+`drama_draft_dir` 通过已记录的工具结果返回含 `status` 和 `path` 的 JSON。空设置返回 `unconfigured` 与空路径；有效且已存在的编辑器根目录返回 `ready` 与规范化后的绝对路径。保存只改变 `jianyingDraftDir`；工具不创建目录或草稿。
+
+#### Token 影响
+
+每次调用追加简短的状态和路径结果。结果长度取决于宿主路径；设置页编辑的值只有被工具读取后才直接影响 token。
+
+#### KV Cache effect
+
+工具结果追加到 transcript 并保留已有前缀。目录编辑改变后续结果的 token；它不替换已记录结果，也不发起单独的模型请求。
+
+### 项目圣经工具结果
+
+#### 模型看到什么
+
+`drama_project` 返回当前配置、项目路径、精确文件修订与当前 Settings 默认值。预览增加拟议配置、审阅指纹、变更字段、受影响阶段和可读 Markdown；更新返回已提交配置与新修订。结果使用标准 JSON 文本展示。[项目圣经技能](../skills/skills/tweet-drama-project-bible/SKILL.md) 持有集中启动询问与现有剧变流程。
+
+#### Token 影响
+
+调用追加随数据变化的 JSON。配置长度随角色声音档案、稳定包映射、已完成任务和修订历史增长；预览还包含拟议配置及其 Markdown 投影。
+
+#### KV Cache effect
+
+读取、预览和更新结果追加到 transcript，不替换此前结果。项目或 Settings 改变影响后续结果的 token；本包不发起独立模型请求。
 
 ## 已知限制与延期工作
 
@@ -121,6 +166,7 @@ kind: "package-bundle"
 
 这些限制标出本包有意不完整、或需要运营者配合的地方。它们是当前约束，不是任务清单。
 
+- **项目预览报告影响但不改变制作状态**——流程持有 stale 阶段对账和真实媒体 QA。项目工具记录目录选择与已确认声音指导，不发送远端请求，无法保证原生生成音色固定或支持参考音频。
 - **设置页接受路径字符串** —— 不检查存在性，也不展开环境变量。`drama_draft_dir` 在返回路径供生成使用前验证宿主上的草稿根目录；这不能证明编辑器实际配置使用了哪个目录，因此该位置由用户提供。单集渲染器不创建原生草稿。
 - **交付规格只被存下，尚未被应用** —— `dsh-tool-episode-render` 目前仍按自己固定的 1440x2560 样式出片；这个设置段是那份契约将来被读取的地方，在那之前改这里不会改变成片。
 - **默认值属于本包** —— 想要不同默认值的部署要改 schema；这个命名空间的组合没有声明 `base` 层，所以每个默认值只有一处出处。反面是升级可能改掉某个部署正在依赖的默认值，这也是页面把每个解析后的值都显示出来的原因。

@@ -47,6 +47,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-workspace-dependencies` | `load_workspace_dependencies` | `ctx.tools` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
 | `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`, `jubian_catalog`, `jubian_claim`, `jubian_find`, `jubian_media`, `jubian_model`, `jubian_organize`, `jubian_snatch`, `jubian_storyboard`, `jubian_video`, `jubian_watch` | `ctx.tools`, `ctx.credentials`, `ctx.jobs for jubian_snatch` | `tool/call`, `tool/result`, `Jubian two-phase write ledger (NDJSON record pairs under its configured root)` | - | Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job. |
+| `@deepseek-ai/dsh-drama-settings` | `drama_draft_dir`, `drama_project` | `ctx.tools`, `ctx.settings`, `an existing absolute project directory` | `tool/call`, `tool/result`, `project_config.json and project-bible.md`, `the Jianying draft-root Settings value` | - | drama_project keeps authoritative JSON, guarded revisions, package identities and completed-task history. Generation dimensions and delivery dimensions are separate; the initial budget is a Settings snapshot, while paid requests enforce current Settings and the account ledger authorization. drama_draft_dir reads or validates and saves the configured Jianying draft root. |
 | `@deepseek-ai/dsh-tool-shot-script` | `drama_shot` | `ctx.tools`, `the project layout it reads and writes (episodes/, prompts/, matches/, episode_packages/)` | `tool/call`, `tool/result`, `on compile: the compiled prompt, the matched JSON, and the episode package under the project root` | - | The three methods share one schema: `validate` and `preview` only read, and `compile` writes the matched JSON and the episode package, returning each package's `content_duration_ms`, its submitted whole-second length, and the prompt-ordered `material_keys` that `jubian_storyboard` `select_assets` must match. A script with any hard failure returns that failure list and writes nothing. |
 | `@deepseek-ai/dsh-perception-bgm` | `bgm_match` | `ctx.tools`, `a local track index or configured public catalogue; Python and model resources only for index/inspect` | `tool/call`, `tool/result`, `on index: the local emotion index; on download: verified audio in the configured cache` | - | `match` ranks candidates without choosing a track; public mode returns IDs and URLs without downloading. `download` accepts a selected catalogue track ID and returns a verified local file. The default is local-index mode; public matching requires deployment configuration. `index` and `inspect` start Python only when executed, never during schema collection. The MERT analysis backbone is non-commercial (CC-BY-NC-4.0); audio rights remain separate. |
 | `@deepseek-ai/dsh-tool-bgm-compose` | `drama_bgm` | `ctx.tools`, `ctx.subprocess`, `ffmpeg and ffprobe on PATH (or configured)`, `an episode timeline and explicit BGM plan` | `tool/call`, `tool/result`, `on compose: a 48 kHz stereo PCM WAV and adjacent generation report under the project root` | - | `preview` validates complete story coverage and reports source hashes, offsets, measured mean volume, and gains without publishing; `compose` crossfades the selected tracks and publishes only after the staged WAV passes ffprobe; `verify` measures an existing WAV without rewriting it. The tool does not choose music or call `bgm_match`; the agent owns plot interpretation and final track selection. |
@@ -3275,7 +3276,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 
 ### `jubian_storyboard`
 
-剧变（Jubian）分镜查询与提交。list/get/create/save 免费（create/save 强制 isGenerate=0）。list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，且它必须与该分镜已保存的时长一致，否则会在发请求前失败。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：select_assets 的素材按提示词 key 首次出现的顺序选一次，提示词后文可重复引用同一 key。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。模型和平台沿用 jubian_catalog script 返回的 project_settings；未核实时长能力时报告缺项，不能换模型绕过。Agent 按 models 当前价格与用量提供每包 estimated_cost_cny 和 estimate_basis，在项目默认预算内分配，不让用户手填单次估价。submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
+剧变（Jubian）分镜查询、原位修改与提交。list/get/create/save/edit 免费（写入强制 isGenerate=0）。修改已有任务卡用 edit_preview 或 edit_batch_preview 检查 before/after，再 edit_apply；保持分镜 ID，不因秒数或提示词变化新建卡。支持修复 episode_id、duration 与提示词；修改素材标记后 needs_reselect，重新 select_assets 再准备视频。delete_preview 只读检查精确目标，delete_apply 不可恢复地删除已检查的卡；删除 Hook 要求核对项目、内容与生成记录是否在用户授权范围。list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，且它必须与该分镜已保存的时长一致，否则会在发请求前失败。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：select_assets 的素材按提示词 key 首次出现的顺序选一次，提示词后文可重复引用同一 key。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。模型和平台沿用 jubian_catalog script 返回的 project_settings；未核实时长能力时报告缺项，不能换模型绕过。Agent 按 models 当前价格与用量提供每包 estimated_cost_cny 和 estimate_basis，在项目默认预算内分配，不让用户手填单次估价。submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
 
 ```json
 {
@@ -3283,19 +3284,24 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
   "properties": {
     "method": {
       "type": "string",
-      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=存为不生成；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；erase_subtitle=去字幕（计费、异步）。",
+      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=存为不生成；edit_preview/edit_batch_preview=原位修改单卡/多卡预览；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）。",
       "enum": [
         "list",
         "get",
         "create",
         "create_batch",
         "save",
+        "edit_preview",
+        "edit_batch_preview",
+        "edit_apply",
         "generate",
         "select_assets",
         "prepare_video",
         "submit_video",
         "submit_video_batch",
-        "erase_subtitle"
+        "erase_subtitle",
+        "delete_preview",
+        "delete_apply"
       ]
     },
     "storyboard_id": {
@@ -3389,6 +3395,96 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
     "idempotency_key": {
       "type": "string",
       "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。"
+    },
+    "changes": {
+      "type": "object",
+      "description": "edit_preview 必填：仅修改提供的字段，其余原样保留；duration 是实际请求的整数秒，按精确 SD 模型范围验证。",
+      "additionalProperties": false,
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "新的完整包提示词；素材标记改变后须重新选源。"
+        },
+        "duration": {
+          "type": "integer",
+          "description": "SD2.0：4–15 秒；SD2.5：4–30 秒；按镜头内容计算。"
+        },
+        "modelId": {
+          "type": "string"
+        },
+        "platformId": {
+          "type": "string"
+        },
+        "ratio": {
+          "type": "string"
+        },
+        "resolution": {
+          "type": "string"
+        },
+        "genType": {
+          "type": "integer"
+        },
+        "genNum": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "episode_id": {
+          "type": "integer",
+          "description": "项目内的远端分集 ID；先读 episodes，不是集号。"
+        },
+        "sort_order": {
+          "type": "integer"
+        }
+      }
+    },
+    "edits": {
+      "type": "array",
+      "description": "edit_batch_preview 必填：全部改动检查后一次传入；每项 storyboard_id 与 changes，分镜 ID 不重复。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "storyboard_id": {
+            "type": "integer"
+          },
+          "changes": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "storyboard_id",
+          "changes"
+        ]
+      }
+    },
+    "storyboard_ids": {
+      "type": "array",
+      "description": "delete_preview 必填：精确远端分镜 ID，不能重复；只能是用户授权清理的范围。",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "checked_storyboard_ids": {
+      "type": "array",
+      "description": "delete_apply 必填：逐张核对 preview 内容后的完整目标 ID 列表；idempotency_key 使用 fingerprint。",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "delete_reason": {
+      "type": "string",
+      "description": "delete_preview 必填：具体删除原因，如这些 ID 是已被正式包替代的测试卡。"
+    },
+    "authorization_basis": {
+      "type": "string",
+      "description": "delete_preview 必填：用户对本次精确范围的删除授权；不明确时 ask_user。"
+    },
+    "include_generated_media": {
+      "type": "boolean",
+      "description": "delete_preview 可选，默认 false；只有用户明确授权删除关联生成媒体时为 true，运行中的任务仍不能删除。"
     },
     "selections": {
       "type": "array",
@@ -3668,13 +3764,271 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 
 Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job.
 
+<a id="deepseek-aidsh-drama-settings"></a>
+
+## `@deepseek-ai/dsh-drama-settings`
+
+### `drama_draft_dir`
+
+Read and validate the Jianying draft root from Settings, or save and reread the user-provided editor root. Read before creating drafts; when unconfigured use ask_user_question to ask for the installed editor draft root. Reuse a valid saved path without asking again.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "description": "To save: the user-provided existing absolute editor draft directory, readable and writable on this host. Omit to read."
+    }
+  }
+}
+```
+
+Source: [`packages/drama/drama-settings/src/index.ts`](../packages/drama/drama-settings/src/index.ts)
+
+### `drama_project`
+
+Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. Preserves legacy project bindings, stable package/storyboard IDs, completed tasks and version history. Validate exact model/platform/ratio/resolution through Jubian catalogue tools before selecting video settings.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "read",
+        "preview",
+        "update"
+      ]
+    },
+    "project_dir": {
+      "type": "string",
+      "description": "Existing absolute project directory."
+    },
+    "changes": {
+      "type": "object",
+      "description": "Fields to merge for preview/update; omit for read.",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Project title."
+        },
+        "style": {
+          "type": "string",
+          "description": "Confirmed visual style and creative guidance."
+        },
+        "aspect_ratio": {
+          "type": "string",
+          "description": "Confirmed generation aspect ratio, checked against the live catalogue."
+        },
+        "jubian_script_id": {
+          "type": "integer",
+          "description": "Actual remote project ID. An existing binding cannot be replaced."
+        },
+        "video": {
+          "type": "object",
+          "description": "Exact catalogue selection; model, platform and resolution are required together.",
+          "additionalProperties": false,
+          "properties": {
+            "model_id": {
+              "type": "string"
+            },
+            "platform_id": {
+              "type": "string",
+              "description": "Exact catalogue platformId value."
+            },
+            "resolution": {
+              "type": "string",
+              "description": "Generation resolution, separate from delivery pixels."
+            },
+            "generation_type": {
+              "type": "integer",
+              "description": "Optional actual catalogue genType."
+            }
+          },
+          "required": [
+            "model_id",
+            "platform_id",
+            "resolution"
+          ]
+        },
+        "delivery": {
+          "type": "object",
+          "description": "Delivery target; omitted numeric fields inherit the current project or Settings.",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "integer"
+            },
+            "height": {
+              "type": "integer"
+            },
+            "fps": {
+              "type": "integer"
+            },
+            "min_bitrate_mbps": {
+              "type": "number"
+            },
+            "max_effective_chars_per_shot": {
+              "type": "integer"
+            }
+          }
+        },
+        "episode_plan": {
+          "type": "object",
+          "description": "Flexible outline and episode length; fixed counts are optional.",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "flexible",
+                "fixed"
+              ]
+            },
+            "outline": {
+              "type": "string"
+            },
+            "episode_count": {
+              "type": "integer"
+            },
+            "target_seconds": {
+              "type": "number"
+            }
+          }
+        },
+        "package_bindings": {
+          "type": "array",
+          "description": "Append stable package IDs mapped to remote storyboards. Keep the same package ID through content edits.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "package_id": {
+                "type": "string"
+              },
+              "storyboard_id": {
+                "type": "integer"
+              },
+              "episode_id": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "package_id",
+              "storyboard_id"
+            ]
+          }
+        },
+        "characters": {
+          "type": "array",
+          "description": "Stable character identities and approved voice guidance. Provider reference-audio support must be checked separately.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "character_id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "aliases": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "asset_id": {
+                "type": "integer"
+              },
+              "voice_profile": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "speaker_id": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Approved gender/age, timbre, speaking style and accent to reuse in each package."
+                  },
+                  "reference_audio": {
+                    "type": "string",
+                    "description": "Optional user-approved reference path or remote ID; records intent without claiming provider support."
+                  }
+                },
+                "required": [
+                  "description"
+                ]
+              }
+            },
+            "required": [
+              "character_id"
+            ]
+          }
+        },
+        "completed_tasks": {
+          "type": "array",
+          "description": "Append completed task references. Existing records are preserved.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "task_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "package_id": {
+                "type": "string"
+              },
+              "result_ref": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "task_id",
+              "kind"
+            ]
+          }
+        }
+      }
+    },
+    "reason": {
+      "type": "string",
+      "description": "Preview/update reason recorded in version history."
+    },
+    "expected_revision": {
+      "type": "string",
+      "description": "Update only: exact current-file revision from preview, including missing for first creation."
+    },
+    "preview_fingerprint": {
+      "type": "string",
+      "description": "Update only: fingerprint from the same reviewed preview."
+    }
+  },
+  "required": [
+    "action",
+    "project_dir"
+  ]
+}
+```
+
+Source: [`packages/drama/drama-settings/src/index.ts`](../packages/drama/drama-settings/src/index.ts)
+
+drama_project keeps authoritative JSON, guarded revisions, package identities and completed-task history. Generation dimensions and delivery dimensions are separate; the initial budget is a Settings snapshot, while paid requests enforce current Settings and the account ledger authorization. drama_draft_dir reads or validates and saves the configured Jianying draft root.
+
 <a id="deepseek-aidsh-tool-shot-script"></a>
 
 ## `@deepseek-ai/dsh-tool-shot-script`
 
 ### `drama_shot`
 
-短剧镜头脚本的判定与编译（剧变流水线）。validate=只读校验：逐镜给出推导时长（9 有效字/秒）、有效字、发声类型、画外音合法性、资产绑定，硬失败与警告分开列出；preview=只读预算：在 validate 之上算出每包内容时长与打包方案，不落盘，用于提交前看预算；compile=判定通过后写入 matched JSON（matches/<集号>.matched.json）与单集 package（prompts/<集号>.txt、episode_packages/<集号>/），并回报每包的 content_duration_ms、提交给剧变的整秒时长与素材键顺序。时长：N秒的正整数声明优先；省略时按 9 有效字/秒估算。超过 15 字写作阈值或内建 36 字建议、偏离估算仅警告，可保留长慢镜头；但项目在 project_config.json 的 delivery.max_effective_chars_per_shot 里声明了每镜上限时，超过该上限判失败（按原文语义拆镜，或改掉该项目的这条要求），不删字、不改顺序、不换说话人；无发声镜必须写 发声类型：action，时长由 动作复杂度（简单/一般/较复杂/复杂 = 1/2/3/4 秒）决定，没写就按默认 2 秒计；只在一个镜头块的字段里读到 台词：无、空台词行 或 出镜人物：无 时判失败：无声镜整行省略台词行与出镜人物，不要用占位值占位；本说明、技能正文与检查清单里出现这些字样不算脚本违规，校验只看脚本里写了什么。旁白/解说/心声/画外声/OS 作为 vo 画外发声保留原文与说话人，提醒核对项目配音；风格/负面词缺失和正文秒数仅警告；只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产；角色状态在绑定前强制核对：每个入画角色都要在自己的 主体状态追踪 段落里写 身体状态：【阶段（孕周/年龄段）；服装；发型】；（孕八周记孕早期，没有体型变化写 非孕期），所挂资产的 state_or_costume（连同资产名）必须登记同一组维度，资产还必须登记 episodes（本集号数组，或 ["all"] 全剧母版）；任一侧没写、写了别的阶段、或本集不在登记集数里都判失败并点名资产 id，清单里根本没有该状态的资产时给出补料需求（角色/阶段/服装/用于哪几集）与补料路径，不静默绑定。preview/compile 必填 max_submit_seconds：单包提交时长上限（至少4秒，在项目模型确认能力内），不是自动取模型最大值。只合并同场连续完整镜头，内容加1秒收束不得超过该值，超长单镜拒绝，禁止截断。硬失败时不会写任何文件，也不给打包方案。
+短剧镜头脚本的判定与编译（剧变流水线）。validate=只读校验：逐镜给出推导时长（9 有效字/秒）、有效字、发声类型、画外音合法性、资产绑定，硬失败与警告分开列出；preview=只读预算：在 validate 之上算出每包内容时长与打包方案，不落盘，用于提交前看预算；compile=判定通过后写入 matched JSON（matches/<集号>.matched.json）与单集 package（prompts/<集号>.txt、episode_packages/<集号>/），并回报每包的 content_duration_ms、提交给剧变的整秒时长与素材键顺序。时长：N秒的正整数声明优先；省略时按 9 有效字/秒估算。超过 15 字写作阈值或内建 36 字建议、偏离估算仅警告，可保留长慢镜头；但项目在 project_config.json 的 delivery.max_effective_chars_per_shot 里声明了每镜上限时，超过该上限判失败（按原文语义拆镜，或改掉该项目的这条要求），不删字、不改顺序、不换说话人；无发声镜必须写 发声类型：action，时长由 动作复杂度（简单/一般/较复杂/复杂 = 1/2/3/4 秒）决定，没写就按默认 2 秒计；只在一个镜头块的字段里读到 台词：无、空台词行 或 出镜人物：无 时判失败：无声镜整行省略台词行与出镜人物，不要用占位值占位；本说明、技能正文与检查清单里出现这些字样不算脚本违规，校验只看脚本里写了什么。导演格式对白必须有说话人；说话人字段与台词角色前缀冲突时失败，不能静默换角色。旁白/解说/心声/画外声/OS 作为 vo 画外发声保留原文与说话人，提醒核对项目配音；风格/负面词缺失和正文秒数仅警告；只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产；角色状态在绑定前强制核对：每个入画角色都要在自己的 主体状态追踪 段落里写 身体状态：【阶段（孕周/年龄段）；服装；发型】；（孕八周记孕早期，没有体型变化写 非孕期），所挂资产的 state_or_costume（连同资产名）必须登记同一组维度，资产还必须登记 episodes（本集号数组，或 ["all"] 全剧母版）；任一侧没写、写了别的阶段、或本集不在登记集数里都判失败并点名资产 id，清单里根本没有该状态的资产时给出补料需求（角色/阶段/服装/用于哪几集）与补料路径，不静默绑定。preview/compile 必填 max_submit_seconds：单包提交时长上限（至少4秒，在项目模型确认能力内），不是自动取模型最大值。只合并同场连续完整镜头，内容加1秒收束不得超过该值，超长单镜拒绝，禁止截断。硬失败时不会写任何文件，也不给打包方案。
 
 ```json
 {

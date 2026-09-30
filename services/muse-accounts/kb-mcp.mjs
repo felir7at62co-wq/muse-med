@@ -9,9 +9,9 @@
 //     and the client returns cleanly instead of erroring;
 //   * initialize must carry `mcp-session-id` when the response is ok.
 import {randomBytes} from 'node:crypto';
-import {ingestSession, searchVault, collectGrantedDocuments, documentContent, readOpening, readDocumentPage} from './kb-vault.mjs';
+import {ingestSession, collectGrantedDocuments, readOpening, readDocumentPage} from './kb-vault.mjs';
 import {verifyKbToken} from './kb-token.mjs';
-import {embeddingChunks} from './kb-embedding.mjs';
+import {createWikiService, WIKI_TOOLS} from './kb-wiki.mjs';
 import {ingestPersonalScripts, searchPersonalScripts, readPersonalScript, readPersonalOpening} from './kb-personal.mjs';
 
 const LATEST = '2025-11-25';
@@ -109,8 +109,9 @@ const failure = value => ({content: [{type: 'text', text: value}], isError: true
 function reply(id, result) { return {jsonrpc: '2.0', id, result}; }
 function fault(id, code, message) { return {jsonrpc: '2.0', id, error: {code, message}}; }
 
-export function createKbMcp({vaultRoot, personalRoot, accounts, secret, documentGrants = new Map(), authorize, serverName = 'muse-kb', embedder, vectors, semanticWeight = 0.5, semanticFloor = 0.5, onWarn = () => {}} = {}) {
+export function createKbMcp({vaultRoot, personalRoot, accounts, secret, documentGrants = new Map(), authorize, serverName = 'muse-llm-wiki', onWarn = () => {}} = {}) {
   if (!vaultRoot) throw new Error('vaultRoot is required');
+  const wiki = createWikiService({vaultRoot, personalRoot, documentGrants});
 
   const canAccess = (id, account, level) => {
     const grant = documentGrants.get(id);
@@ -119,34 +120,31 @@ export function createKbMcp({vaultRoot, personalRoot, accounts, secret, document
   };
   const visibleGrants = account => new Map([...documentGrants].filter(([id, grant]) => (grant.accounts.has('*') || grant.accounts.has(account.id)) && (grant.level === 'read' || canAccess(id, account, 'opening'))));
 
-  /** Best-effort: a vector is an enhancement, never a reason to lose a session. */
-  async function remember(id, content) {
-    if (!embedder?.enabled || !vectors) return false;
-    try {
-      const chunks = [];
-      for (const part of embeddingChunks(content.title, content.text)) chunks.push(await embedder.embed(part));
-      vectors.put(id, {hash: content.hash, vector: chunks.length === 1 ? chunks[0] : chunks});
-      await vectors.save();
-      return true;
-    } catch (error) {
-      onWarn(`embedding failed for ${id}: ${error.message}`);
-      return false;
-    }
-  }
-
   async function callTool(name, args, account, mode) {
-    if (name === 'ingest' && mode !== 'full') return failure('此登录会话没有共享知识库写入权限。');
+    if (name.startsWith('wiki_')) {
+      const value = await wiki.call(name, args, account, mode);
+      return {...text(JSON.stringify(value)), structuredContent: value};
+    }
+    if (name === 'ingest' && (mode !== 'full' || !account.admin)) return failure('此登录会话没有共享知识库写入权限。');
     if (name === 'ingest_script') {
       if (mode !== 'account') return failure('此令牌没有用户私有知识库写入权限。');
       if (!personalRoot) return failure('用户私有知识库尚未配置。');
       const outcomes = await ingestPersonalScripts(personalRoot, account, args?.items);
+      for (const item of outcomes) if (item.state !== 'failed') {
+        try { item.wikiPage = await wiki.anchor(account, item.id, mode); }
+        catch (error) { onWarn(`source anchor failed: ${error.message}`); item.wikiPending = true; }
+      }
       return text(outcomes.map(item => item.state === 'failed'
         ? `第 ${item.index + 1} 项：失败；${item.reason}`
         : `第 ${item.index + 1} 项：${item.state === 'saved' ? '已写入' : '已存在'}；id: ${item.id}；sha256: ${item.sha256}`).join('\n')
-        + '\n逐项核对全部结果；失败项未入库。');
+        + '\n逐项核对全部结果；失败项未入库。原文已保存；来源页待合成。读取原文后使用 wiki_write_page 写带引用的来源、实体和概念页。');
     }
     if (name === 'read') {
       if (!args || typeof args !== 'object' || Array.isArray(args) || !Object.hasOwn(args, 'id') || Object.keys(args).some(key => key !== 'id' && key !== 'start')) return failure('read 只接受文档 id 和起点 start。');
+      if (typeof args.id === 'string' && args.id.startsWith('private/wiki/')) {
+        const result = await wiki.call('wiki_read', {id: args.id, ...(args.start === undefined ? {} : {start: args.start})}, account, mode);
+        return {...text(`id: ${result.id}\n类型: wiki\n标题: ${result.title}\n修订: ${result.revision}\n已读字符范围: [${result.start}, ${result.end})\n下一段起点: ${result.next_start ?? '无'}\n正文:\n${result.body}`), structuredContent: result};
+      }
       if (typeof args.id === 'string' && args.id.startsWith('private/')) {
         if (mode !== 'account' || !personalRoot) return failure('文档不存在或未授权。');
         const personal = await readPersonalScript(personalRoot, account.id, args.id, args.start);
@@ -180,31 +178,30 @@ export function createKbMcp({vaultRoot, personalRoot, accounts, secret, document
     if (name === 'search') {
       const query = args?.query;
       if (typeof query !== 'string' || !query.trim() || query.length > MAX_QUERY) return failure(`query must be 1–${MAX_QUERY} characters`);
-      const found = await searchVault(vaultRoot, {query, limit: args?.limit, embedder, vectors, semanticWeight, semanticFloor, allowedGrants: visibleGrants(account)});
+      const found = await wiki.call('wiki_search', {scope: 'shared', query, limit: args?.limit}, account, mode);
       const own = mode === 'account' && personalRoot ? await searchPersonalScripts(personalRoot, account.id, query, args?.limit) : {results: [], scanned: 0};
-      const entries = [...own.results, ...found.results].slice(0, Math.min(20, Math.max(1, Number(args?.limit) || 8)));
+      const pages = mode === 'account' && personalRoot ? await wiki.call('wiki_search', {query, limit: args?.limit}, account, mode) : {results: []};
+      const entries = [...new Map([...own.results, ...pages.results, ...found.results].map(entry => [entry.id, entry])).values()].slice(0, Math.min(20, Math.max(1, Number(args?.limit) || 8)));
       if (!entries.length) return text(`没有检索到与「${query.trim()}」相关的内容（已扫描 ${found.scanned + own.scanned} 篇）。`);
-      const how = found.semantic ? '已授权资料：语义+关键词；个人剧本：关键词' : '关键词';
+      const how = '关键词';
       return text(`检索方式：${how}\n\n` + entries.map((entry, index) =>
-        `${index + 1}. ${entry.title}\n   id: ${entry.id}\n   类型: ${entry.id.startsWith('wiki/') ? 'wiki' : 'source'}\n   标定: ${entry.id.startsWith('private/') ? 'user-script' : documentGrants.get(entry.id)?.kind ?? 'unclassified'}\n   摘要: ${entry.preview.replace(/\s+/g, ' ').trim().slice(0, 200)}`).join('\n\n'));
+        `${index + 1}. ${entry.title}\n   id: ${entry.id}\n   类型: ${entry.type ?? (entry.id.includes('wiki/') ? 'wiki' : 'source')}\n   标定: ${entry.id.startsWith('private/') ? 'user-script' : documentGrants.get(entry.id)?.kind ?? 'unclassified'}\n   摘要: ${entry.preview.replace(/\s+/g, ' ').trim().slice(0, 200)}`).join('\n\n'));
     }
     if (name === 'ingest') {
       const title = typeof args?.title === 'string' && args.title.trim() ? args.title.trim() : String(args?.text ?? '').trim().split('\n')[0].slice(0, 80) || '未命名会话';
       const source = typeof args?.source === 'string' && args.source.trim() ? args.source.trim() : `cloud-kb/${account.username}`;
       const result = await ingestSession(vaultRoot, {title, text: args?.text, source, author: account.username});
       if (result.duplicate) return text(`该内容已存在，未重复入库。来源包：${result.id}`);
-      const content = documentContent(args.text, result.title);
-      const vectorised = await remember(result.id, content);
-      return text(`已写入云端知识库。来源包：${result.id}\n路径：${result.path}\n内容校验：${result.sha256.slice(0, 16)}`
-        + (embedder?.enabled ? (vectorised ? '\n已生成语义向量。' : '\n语义向量生成失败，稍后可重建；正文已安全保存。') : ''));
+
+      return text(`已写入云端知识库。来源包：${result.id}\n内容校验：${result.sha256.slice(0, 16)}`);
     }
     if (name === 'status') {
-      vectors?.refresh?.();
+
       const documents = await collectGrantedDocuments(vaultRoot, visibleGrants(account));
       const own = mode === 'account' && personalRoot ? await searchPersonalScripts(personalRoot, account.id, '', 1) : {scanned: 0};
       const sources = documents.filter(document => !document.id.startsWith('wiki/')).length;
       const pages = documents.length - sources;
-      const semantic = embedder?.enabled && vectors ? `语义检索：开启（${embedder.model}）` : '语义检索：未配置，当前为纯关键词检索';
+      const semantic = 'Wiki 检索：目录、全文关键词与页面链接';
       return text(`云端知识库：已授权来源包 ${sources} 个，知识页 ${pages} 页，本账号私有剧本 ${own.scanned} 个。\n${semantic}`);
     }
     throw Object.assign(new Error('Unknown tool'), {code: INVALID_PARAMS, message: `未知工具：${name}`});
@@ -222,7 +219,7 @@ export function createKbMcp({vaultRoot, personalRoot, accounts, secret, document
       const protocolVersion = SUPPORTED.includes(requested) ? requested : LATEST;
       return {message: reply(id, {protocolVersion, capabilities: {tools: {}}, serverInfo: {name: serverName, version: '1.0.0'}}), session: true};
     }
-    if (message.method === 'tools/list') return {message: reply(id, {tools: TOOLS.filter(tool => tool.name === 'ingest' ? mode === 'full' : tool.name === 'ingest_script' ? mode === 'account' : true)})};
+    if (message.method === 'tools/list') return {message: reply(id, {tools: [...TOOLS, ...WIKI_TOOLS].filter(tool => tool.name === 'ingest' ? mode === 'full' && account.admin : tool.name === 'ingest_script' ? mode === 'account' : true)})};
     if (message.method === 'tools/call') {
       const name = message.params?.name;
       if (typeof name !== 'string') return {message: fault(id, INVALID_PARAMS, 'params.name is required')};
@@ -230,6 +227,7 @@ export function createKbMcp({vaultRoot, personalRoot, accounts, secret, document
         return {message: reply(id, await callTool(name, message.params?.arguments ?? {}, account, mode))};
       } catch (error) {
         if (error.code === INVALID_PARAMS) return {message: fault(id, INVALID_PARAMS, error.message)};
+        if (error.wikiError) return {message: reply(id, failure(error.message))};
         onWarn(`knowledge-base tool ${name} failed: ${error.message}`);
         return {message: reply(id, failure('知识库工具执行失败，请稍后重试。'))};
       }

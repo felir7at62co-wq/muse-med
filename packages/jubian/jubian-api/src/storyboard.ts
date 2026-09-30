@@ -88,14 +88,15 @@ function idOf(value: unknown, field: string): number {
  * so the read continues and reports every substitution instead of refusing a
  * payload the workbench itself displays.
  *
- * A value the provider does return must still be usable: `null`, a blank string and
+ * A label the provider does return must still be usable: `null`, a blank string and
  * an absent key are its own spellings of "unset", and anything else that cannot be
  * read is a contract change that names the field it refused.
  *
  * `duration` is never defaulted. The view reports it as `content_duration_ms` and
  * the paid path compares it against the requested package, so a substituted value
  * would be an invented length rather than a default: its absence leaves
- * `content_duration_ms` null and refuses `withGenerationEnabled`.
+ * `content_duration_ms` null and refuses `withGenerationEnabled`. A malformed saved
+ * duration is preserved and reported in notes so the same card can be repaired.
  * @param source - One raw storyboard snapshot.
  * @returns The saved configuration, every substituted field named as a map entry and a sentence.
  */
@@ -131,12 +132,17 @@ function configOf(source: Record<string, unknown>): {
     if (!usable) invalid(`modelConfig.${field} is not ${field === 'genNum' ? '1' : 'a nonempty label'}`)
   }
   const duration = config.duration
-  if (duration !== undefined && duration !== null
-    && (typeof duration !== 'number' || !Number.isSafeInteger(duration) || duration < 1
-      || !Number.isSafeInteger(duration * 1000))) {
-    invalid('modelConfig.duration is not a positive whole number of seconds')
+  if (duration !== undefined && duration !== null && !usableDuration(duration)) {
+    notes.push('modelConfig.duration 不是可安全表示为毫秒的正整数秒；原值已保留。'
+      + '请用 jubian_storyboard edit_preview → edit_apply 修复该卡的 duration 后再准备生成。')
   }
   return { config, defaults, notes }
+}
+
+/** Whether a saved duration can be used as whole milliseconds. */
+function usableDuration(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    && Number.isSafeInteger(value * 1000)
 }
 
 /**
@@ -191,7 +197,7 @@ export function readStoryboard(data: unknown, expectedStoryboardId?: number): St
     const materials = materialRowsOf(snapshot)
     return { storyboard_id, script_id, name: typeof snapshot.storyboardName === 'string' ? snapshot.storyboardName : null,
       is_generate,
-      content_duration_ms: typeof config.duration === 'number' ? config.duration * 1000 - 1000 : null,
+      content_duration_ms: usableDuration(config.duration) ? config.duration * 1000 - 1000 : null,
       material_keys: materials.map((row, index) => {
         if (!row || typeof row !== 'object' || Array.isArray(row)) {
           invalid(`storyboardMaterialList[${index}] is not an object`)

@@ -102,6 +102,22 @@ describe('script-level rules', () => {
 })
 
 describe('the spoken track', () => {
+  it('rejects conflicting declared and prefixed speakers without silently reassigning dialogue', () => {
+    const result = parse(scriptOf(speakingShot(1, '陆沉：你终于来了', ['说话人：苏晚'])))
+    expect(result.issues.filter(issue => issue.severity === 'failure')).toMatchObject([{ code: 'speaker_mismatch', shot: 1 }])
+    expect(result.shots[0]).toMatchObject({ speaker: '苏晚', text: '你终于来了' })
+  })
+
+  it('requires a named speaker for director-format dialogue with actual spoken text', () => {
+    const result = parse(scriptOf(speakingShot(1, '你终于来了')))
+    expect(result.issues.filter(issue => issue.severity === 'failure')).toMatchObject([{ code: 'missing_speaker', shot: 1 }])
+  })
+
+  it('keeps an explicit speaker for unprefixed dialogue and off-screen identity suffixes', () => {
+    const result = parse(scriptOf(speakingShot(1, '你终于来了', ['说话人：苏晚（画外音）'])))
+    expect(result.shots[0]).toMatchObject({ speaker: '苏晚', text: '你终于来了', voiceType: 'vo' })
+    expect(result.issues.filter(issue => issue.severity === 'failure')).toEqual([])
+  })
   it.each(['', '说话人：苏晚\n'])('preserves narration punctuation and explicit speaker: %s', (speaker) => {
     const result = parse(`【镜头1】\n主体状态追踪：\n发声类型：心声\n${speaker}旁白：他说：明天再来。`)
     expect(result.shots[0]).toMatchObject({ text: '他说：明天再来。', speaker: speaker ? '苏晚' : '', voiceType: 'vo' })

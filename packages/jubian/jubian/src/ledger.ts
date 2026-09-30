@@ -22,6 +22,7 @@ export type JubianLedgerMethod =
   | 'image_generate'
   | 'asset_register'
   | 'storyboard_save'
+  | 'storyboard_remove'
   | 'storyboard_model_settings'
   | 'storyboard_create'
   | 'storyboard_generate'

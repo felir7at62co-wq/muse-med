@@ -7,7 +7,7 @@ import { isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MuseAccountController } from './account.ts'
 import { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
-import { createMuseKbReader, MuseKbError, type MuseKbResult } from './kb.ts'
+import { createMuseKbReader, MuseKbError, type MuseKbFailure, type MuseKbResult } from './kb.ts'
 
 /** Startup data injected by the Host; no password, cookie, or bearer belongs here. */
 interface LaunchConfig {
@@ -47,7 +47,26 @@ export function parseMuseAccountLaunch(raw: string | undefined): LaunchConfig {
 }
 
 /** Only operations safe to expose to a model. */
-export type MuseKbOperations = Pick<ReturnType<typeof createMuseKbReader>, 'search' | 'read' | 'readOpening' | 'ingestScript'>
+export type MuseKbOperations = ReturnType<typeof createMuseKbReader>
+
+/** Cloud Wiki scope fields; project ownership and shared grants remain server-enforced. */
+const wikiScopeFields = {
+  scope: z.enum(['private', 'project', 'shared']).optional().describe('知识范围，默认 private；shared 仅管理员可写。'),
+  project_id: z.string().max(80).optional().describe('scope 为 project 时必填的账号内项目 ID，不接受路径或磁盘根目录。'),
+}
+const wikiIdFields = { id: z.string().max(500).describe('目录或检索结果中的来源/页面 ID。') }
+
+/** Fixed model-facing failure text; no upstream message participates. */
+const kbFailureText: Readonly<Record<MuseKbFailure, string>> = {
+  'sign-in-required': 'MUSE knowledge base: sign-in-required',
+  'access-denied': 'MUSE knowledge base: access-denied',
+  'kb-unavailable': 'MUSE knowledge base: kb-unavailable',
+  'kb-rejected': 'MUSE knowledge base: kb-rejected',
+  'wiki-revision-conflict': 'MUSE knowledge base: wiki-revision-conflict. Read the current page, merge the changes, then retry with its current expected_revision.',
+  'wiki-write-busy': 'MUSE knowledge base: wiki-write-busy. Reload the page before retrying; if the lock persists, ask the administrator to inspect it.',
+  'wiki-invalid-citation': 'MUSE knowledge base: wiki-invalid-citation. Read the original source and use a valid Unicode character range of at most 6000 characters.',
+  'wiki-unresolved-link': 'MUSE knowledge base: wiki-unresolved-link. Browse the directory and use an existing directory-qualified page ID before retrying.',
+}
 
 /** Keep tool failures independent of upstream response bodies and bearer values. */
 async function kbResult(operation: () => Promise<MuseKbResult>): Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean }> {
@@ -56,12 +75,12 @@ async function kbResult(operation: () => Promise<MuseKbResult>): Promise<{ conte
     return { content: result.content.map(block => ({ type: 'text', text: block.text })) }
   } catch (error) {
     const code = error instanceof MuseKbError ? error.code : 'kb-unavailable'
-    return { content: [{ type: 'text', text: 'MUSE knowledge base: ' + code }], isError: true }
+    return { content: [{ type: 'text', text: kbFailureText[code] }], isError: true }
   }
 }
 
 /**
- * Register account status, authorized reading, and account-private script ingestion.
+ * Register account status, legacy source tools, and all nine scoped Wiki tools.
  * @param controller - Account identity reader shared with the Host service.
  * @param kb - Account-scoped KB operations that exchange a fresh bearer per call.
  * @returns A server with no credential-taking tool.
@@ -107,10 +126,82 @@ export function createMuseAccountMcpServer(controller: Pick<MuseAccountControlle
     inputSchema: z.object({ items: z.array(z.object({
       title: z.string().min(1).max(200).describe('Work title and episode or chapter'),
       text: z.string().min(1).max(400_000).describe('Reviewed script Markdown, not raw speech-recognition fragments'),
-      source: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/u).refine(value => !value.includes('..')).describe('Project-relative provenance ID; keep original URL and timecodes in the project source record'),
+      source: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/u).refine(value => !value.includes('..')).describe('Project-relative source ID; keep original URL and timecodes in the project source record'),
       reviewed: z.literal(true).describe('The script text has been checked against the source'),
     })).min(1).max(12).describe('One section per episode or chapter; split long scripts into batches below 2 MiB total') }),
   }, async ({ items }) => await kbResult(() => kb.ingestScript(items)))
+  server.registerTool('muse_kb_wiki_capture_source', {
+    title: 'Capture an immutable MUSE Wiki source',
+    description: '保存不可变原始资料并建立待合成的来源页；继续读取来源，用 muse_kb_wiki_write_page 写带引用的总结、实体和概念页。',
+    inputSchema: z.object({ ...wikiScopeFields,
+      title: z.string().max(200).describe('资料标题。'),
+      text: z.string().max(400_000).describe('原始 Markdown 正文，重复正文不重复保存。'),
+      source: z.string().max(200).describe('项目相对来源标识，例如 project/episode-01。'),
+    }).strict(),
+  }, async args => await kbResult(() => kb.wikiCaptureSource(args)))
+  server.registerTool('muse_kb_wiki_directory', {
+    title: 'Browse the MUSE Wiki directory',
+    description: '列出知识目录中的来源页、概念页和实体页，返回页面 ID 与修订号。',
+    inputSchema: z.object({ ...wikiScopeFields,
+      folder: z.string().max(400).optional().describe('页面目录前缀，例如 concepts；省略列出全部。'),
+      start: z.number().int().min(0).optional().describe('列表续读起点，默认 0。'),
+      limit: z.number().int().min(1).max(50).optional().describe('每次条数，默认 30。'),
+    }).strict(),
+  }, async args => await kbResult(() => kb.wikiDirectory(args)))
+  server.registerTool('muse_kb_wiki_search', {
+    title: 'Search the MUSE Wiki full text',
+    description: '对当前知识范围做全文关键词检索，返回匹配摘录与可读取的来源/页面 ID。',
+    inputSchema: z.object({ ...wikiScopeFields,
+      query: z.string().max(1000).describe('全文关键词。'),
+      limit: z.number().int().min(1).max(20).optional().describe('返回条数，默认 8。'),
+    }).strict(),
+  }, async args => await kbResult(() => kb.wikiSearch(args)))
+  server.registerTool('muse_kb_wiki_read', {
+    title: 'Read a MUSE Wiki source or page revision',
+    description: '按 ID 分页读原文或知识页，返回修订号、引用和下一段起点；可读取指定历史修订。',
+    inputSchema: z.object({ ...wikiScopeFields, ...wikiIdFields,
+      start: z.number().int().min(0).multipleOf(6000).optional().describe('字符起点，默认 0，续读使用 next_start。'),
+      revision: z.number().int().min(0).optional().describe('历史页面修订号，省略读当前版；旧页面导入前的原文为 0。'),
+    }).strict(),
+  }, async args => await kbResult(() => kb.wikiRead(args)))
+  server.registerTool('muse_kb_wiki_write_page', {
+    title: 'Write a cited MUSE Wiki page',
+    description: '写入经过综合整理的知识页。必须带可核对的原文引用和当前修订号；新页 expected_revision 为 0，修订冲突时先重读。',
+    inputSchema: z.object({ ...wikiScopeFields,
+      page_id: z.string().max(400).describe('范围内的页面路径，例如 concepts/opening-hook，不带 wiki/ 或 .md。'),
+      title: z.string().max(200).describe('页面标题。'),
+      text: z.string().max(100_000).describe('综合后的 Markdown；用 [[concepts/name]]、[[entities/name]]、[[sources/SRC-...]] 链接现有页。'),
+      expected_revision: z.number().int().min(0).describe('muse_kb_wiki_read/muse_kb_wiki_directory 返回的当前修订；新页为 0。'),
+      citations: z.array(z.object({
+        id: z.string().describe('可读取的不可变来源 ID。'),
+        start: z.number().int().min(0).describe('Unicode 字符范围起点。'),
+        end: z.number().int().min(1).describe('Unicode 字符范围终点，不含该字符；每条最多 6000 字。'),
+      }).strict()).min(1).max(64).describe('支撑结论的原文字符范围，不接受页面 ID 代替原始资料。'),
+    }).strict(),
+  }, async args => await kbResult(() => kb.wikiWritePage(args)))
+  server.registerTool('muse_kb_wiki_history', {
+    title: 'Browse MUSE Wiki page history',
+    description: '列出页面的不可变历史修订，可用 muse_kb_wiki_read 的 revision 读取。',
+    inputSchema: z.object({ ...wikiScopeFields, ...wikiIdFields,
+      start: z.number().int().min(0).optional().describe('历史列表续读起点，默认 0。'),
+      limit: z.number().int().min(1).max(50).optional().describe('每次条数，默认 30。'),
+    }).strict(),
+  }, async args => await kbResult(() => kb.wikiHistory(args)))
+  server.registerTool('muse_kb_wiki_links', {
+    title: 'Inspect MUSE Wiki links and citations',
+    description: '查看页面的向外链接、引用来源、反向链接与尚未解析的链接。',
+    inputSchema: z.object({ ...wikiScopeFields, ...wikiIdFields }).strict(),
+  }, async args => await kbResult(() => kb.wikiLinks(args)))
+  server.registerTool('muse_kb_wiki_status', {
+    title: 'Read the MUSE Wiki inventory status',
+    description: '查看当前登录账号的私有、项目和已授权共享 Wiki 数量与检索方式。',
+    inputSchema: z.object(wikiScopeFields).strict(),
+  }, async args => await kbResult(() => kb.wikiStatus(args)))
+  server.registerTool('muse_kb_wiki_migration_preview', {
+    title: 'Preview MUSE Wiki migration coverage',
+    description: '预览现有来源包和旧知识页的接入情况，列出缺少来源页的 ID；不改动原件或授权。',
+    inputSchema: z.object(wikiScopeFields).strict(),
+  }, async args => await kbResult(() => kb.wikiMigrationPreview(args)))
   return server
 }
 

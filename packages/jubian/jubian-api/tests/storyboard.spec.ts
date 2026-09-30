@@ -99,11 +99,21 @@ describe('readStoryboard', () => {
     }
   })
 
-  it('rejects malformed duration and empty specification labels', () => {
+  it('reads malformed duration for repair while refusing paid generation', () => {
     for (const duration of [0, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER, '8']) {
-      expect(() => readStoryboard(snapshot({ modelConfig: {
-        ratio: '9:16', resolution: '720p', genNum: 1, duration } }))).toThrow()
+      const data = snapshot({ episodeId: null, episodeCount: 2, modelConfig: {
+        ...JSON.parse(snapshot().modelConfig), duration } })
+      const result = readStoryboard(data)
+      expect(result.storyboard_id).toBe(916953)
+      expect(result.content_duration_ms).toBeNull()
+      expect(result.model_config.duration).toBe(duration)
+      expect(result.model_config_notes.join(' ')).toContain('duration')
+      expect(result.snapshot.episodeId).toBeNull()
+      expect(() => withGenerationEnabled(data, 7000)).toThrow()
     }
+  })
+
+  it('rejects empty specification labels', () => {
     expect(() => readStoryboard(snapshot({ modelConfig: {
       ratio: '', resolution: '720p', genNum: 1, duration: 8 } }))).toThrow()
   })

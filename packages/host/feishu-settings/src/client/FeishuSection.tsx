@@ -8,8 +8,8 @@
  * whether a secret is stored — and every refusal is shown as the reason the
  * Host named, never as the settings service's own message.
  *
- * A refused save leaves both fields as typed, so the same page can be corrected
- * and retried; only a landed write clears the secret.
+ * A save leaves both fields as typed until its returned status reports the
+ * requested app id and a stored secret; only that confirmation clears the secret.
  */
 
 import { useEffect, useState, type ReactNode } from 'react'
@@ -139,10 +139,13 @@ export function FeishuSection(props: FeishuSectionProps): ReactNode {
   /**
    * Run one call, report its refusal, and adopt the status it answers with.
    * @param call - the call to run.
-   * @param done - the notice a landed call shows; undefined shows none.
+   * @param done - the notice key or status-dependent key a landed call shows; undefined shows none.
    * @returns whether the call landed; the page state is updated either way.
    */
-  const run = async (call: () => Promise<FeishuOutcome<FeishuSetupStatus>>, done?: FeishuLocaleKey): Promise<boolean> => {
+  const run = async (
+    call: () => Promise<FeishuOutcome<FeishuSetupStatus>>,
+    done?: FeishuLocaleKey | ((value: FeishuSetupStatus) => FeishuLocaleKey),
+  ): Promise<boolean> => {
     setBusy(true)
     setNotice(undefined)
     const outcome = await call()
@@ -152,7 +155,7 @@ export function FeishuSection(props: FeishuSectionProps): ReactNode {
       return false
     }
     setStatus(outcome.value)
-    if (done !== undefined) setNotice(t(done))
+    if (done !== undefined) setNotice(t(typeof done === 'function' ? done(outcome.value) : done))
     return true
   }
 
@@ -207,7 +210,10 @@ export function FeishuSection(props: FeishuSectionProps): ReactNode {
             checked={status.enabled}
             disabled={busy || !status.writable}
             label={t('switchLabel')}
-            onChange={(next) => { void run(async () => await setEnabled(next), 'switchNeedsRestart') }}
+            onChange={(next) => {
+              void run(async () => await setEnabled(next), value => value.enabled && value.credential === 'none'
+                ? 'switchNeedsCredentials' : 'switchNeedsRestart')
+            }}
           />
           <span className={css.groupDescription}>{t('switchHint')}</span>
         </div>
@@ -275,6 +281,10 @@ export function FeishuSection(props: FeishuSectionProps): ReactNode {
                   return
                 }
                 setStatus(outcome.value)
+                if (outcome.value.credential === 'none' || outcome.value.appId !== appId.trim()) {
+                  setNotice(t('error.credentialsUnconfirmed'))
+                  return
+                }
                 setAppSecret('')
                 setNotice(t('saved'))
               })

@@ -1,0 +1,197 @@
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { expect, it } from 'vitest'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import Tools from '../../../core/tools/src/index.ts'
+import SystemPrompt from '../../../core/system-prompt/src/index.ts'
+import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
+import { DramaSettingsSchema, apply } from '../src/index.ts'
+import { readProjectBible, previewProjectBible, updateProjectBible } from '../src/project-bible.ts'
+
+async function bench() {
+  return configurationFixture({ rows: [
+    { id: 'config-editor', name: 'cordis:editor' },
+    { id: 'settings', name: 'cordis:settings' },
+    { id: 'prompt', name: 'cordis:prompt' },
+    { id: 'tools', name: 'cordis:tools' },
+    { id: 'drama-settings', name: 'cordis:drama' },
+  ], builtins: { prompt: SystemPrompt, tools: Tools, drama: { Config: DramaSettingsSchema, apply } } })
+}
+
+it('exposes project bible reads, previews and guarded updates through the real Loader', async () => {
+  const { ctx, home } = await bench()
+  const tool = ctx.tools.get('drama_project')
+  expect(tool).toBeDefined()
+  const execute = async (args: object) => {
+    const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('bible'),
+      arguments: { project_dir: home, ...args }, signal: new AbortController().signal })
+    expect(outcome.isError).toBe(false)
+    const rendered = outcome.content[0]
+    if (rendered?.type !== 'text') throw new Error('Expected project bible JSON')
+    return JSON.parse(rendered.text) as { expected_revision: string; preview_fingerprint: string; status: string }
+  }
+  expect((await execute({ action: 'read' })).status).toBe('unconfigured')
+  const changes = { title: 'Loader project' }
+  const preview = await execute({ action: 'preview', changes, reason: 'creation' })
+  expect((await execute({ action: 'update', changes, reason: 'creation',
+    expected_revision: preview.expected_revision, preview_fingerprint: preview.preview_fingerprint })).status).toBe('ready')
+  expect(JSON.parse(await readFile(join(home, 'project_config.json'), 'utf8'))).toMatchObject({
+    project_bible: { title: 'Loader project', revision: 1 },
+  })
+  const entry = ctx.configEditor.entries().find(row => row.options.id === 'drama-settings')
+  await entry?.fiber?.dispose()
+  expect(ctx.tools.get('drama_project')).toBeUndefined()
+})
+
+it('returns Settings defaults for an unconfigured project without creating files', async () => {
+  const { ctx, home } = await bench()
+  const result = await readProjectBible(ctx.settings, home)
+  expect(result).toMatchObject({ status: 'unconfigured', expected_revision: 'missing', defaults: {
+    initial_budget_cents: 400000, delivery: { width: 1440, height: 2560, fps: 60, min_bitrate_mbps: 4.6 },
+  } })
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('previews and persists one authoritative bible with a readable derived document', async () => {
+  const { ctx, home } = await bench()
+  const changes = { title: '山海', style: '写实古装', aspect_ratio: '9:16', jubian_script_id: 2708,
+    video: { model_id: 'doubao-seedance-2-5-260628', platform_id: 'FANG_ZHOU', resolution: '720p', generation_type: 3 },
+    episode_plan: { mode: 'flexible', outline: '重逢后解决误会', target_seconds: 90 } }
+  const preview = await previewProjectBible(ctx.settings, home, changes, '创建项目')
+  expect(preview).toMatchObject({ status: 'preview', expected_revision: 'missing', proposed: {
+    jubian_script_id: 2708, project_bible: { schema_version: 1, revision: 1, title: '山海', initial_budget_cents: 400000 },
+  } })
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  const updated = await updateProjectBible(ctx.settings, home, changes, '创建项目', 'missing', preview.preview_fingerprint)
+  expect(updated.status).toBe('ready')
+  const stored = JSON.parse(await readFile(join(home, 'project_config.json'), 'utf8')) as {
+    project_bible: { video: { resolution: string }; delivery: { width: number }; episode_plan: { mode: string } }
+  }
+  expect(stored.project_bible.video.resolution).toBe('720p')
+  expect(stored.project_bible.delivery.width).toBe(1440)
+  expect(stored.project_bible.episode_plan.mode).toBe('flexible')
+  const markdown = await readFile(join(home, 'project-bible.md'), 'utf8')
+  expect(markdown).toContain('山海')
+  expect(markdown).toContain('720p')
+  expect(markdown).toContain('1440 × 2560')
+  expect(markdown).toContain('重逢后解决误会')
+})
+
+it('preserves legacy requirements, stable package bindings, completed tasks and prior revisions', async () => {
+  const { ctx, home } = await bench()
+  await writeFile(join(home, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708,
+    delivery: { max_effective_chars_per_shot: 18 }, custom: { keep: true } }))
+  const firstChanges = { title: '山海', package_bindings: [{ package_id: 'ep1-pkg1', storyboard_id: 7 }],
+    completed_tasks: [{ task_id: 'task-1', kind: 'video', package_id: 'ep1-pkg1' }] }
+  const first = await previewProjectBible(ctx.settings, home, firstChanges, '建立圣经')
+  await updateProjectBible(ctx.settings, home, firstChanges, '建立圣经', first.expected_revision, first.preview_fingerprint)
+  const changes = { style: '新的服装要求' }
+  const preview = await previewProjectBible(ctx.settings, home, changes, '修改风格')
+  expect(preview.affected_stages).toContain('asset_prompts')
+  const result = await updateProjectBible(ctx.settings, home, changes, '修改风格', preview.expected_revision, preview.preview_fingerprint)
+  expect(result.config).toMatchObject({ jubian_script_id: 2708, delivery: { max_effective_chars_per_shot: 18 },
+    custom: { keep: true }, project_bible: { revision: 2,
+      package_bindings: [{ package_id: 'ep1-pkg1', storyboard_id: 7 }],
+      completed_tasks: [{ task_id: 'task-1', kind: 'video', package_id: 'ep1-pkg1' }],
+      history: [{ revision: 1 }, { revision: 2 }],
+    } })
+  const conflict = { package_bindings: [{ package_id: 'ep1-pkg1', storyboard_id: 99 }] }
+  await expect(previewProjectBible(ctx.settings, home, conflict, '修改绑定')).rejects.toThrow('already bound')
+  await expect(previewProjectBible(ctx.settings, home, { jubian_script_id: 99 }, '修改项目')).rejects.toThrow('already bound')
+})
+
+it('rejects stale file revisions and altered previews before changing either output', async () => {
+  const { ctx, home } = await bench()
+  const changes = { title: '山海' }
+  const preview = await previewProjectBible(ctx.settings, home, changes, '创建')
+  await expect(updateProjectBible(ctx.settings, home, { title: '别的标题' }, '创建', 'missing', preview.preview_fingerprint))
+    .rejects.toThrow('Preview changed')
+  await writeFile(join(home, 'project_config.json'), '{"jubian_script_id":2708}\n')
+  await expect(updateProjectBible(ctx.settings, home, changes, '创建', 'missing', preview.preview_fingerprint))
+    .rejects.toThrow('revision changed')
+  expect(await readFile(join(home, 'project_config.json'), 'utf8')).toBe('{"jubian_script_id":2708}\n')
+  await expect(readFile(join(home, 'project-bible.md'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('allows only one writer to commit a shared expected revision', async () => {
+  const { ctx, home } = await bench()
+  const changes = { title: '山海' }
+  const preview = await previewProjectBible(ctx.settings, home, changes, '创建')
+  const outcomes = await Promise.allSettled([1, 2].map(() => updateProjectBible(ctx.settings, home,
+    changes, '创建', preview.expected_revision, preview.preview_fingerprint)))
+  expect(outcomes.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+  const result = await readProjectBible(ctx.settings, home)
+  expect(result.config).toMatchObject({ project_bible: { revision: 1, history: [{ revision: 1 }] } })
+})
+
+it('rejects invalid persisted data, incomplete video selections and unsafe numeric settings', async () => {
+  const { ctx, home } = await bench()
+  for (const changes of [{ video: { model_id: 'SD2.5' } }, { budget_cents: -1 },
+    { delivery: { width: 0 } }, { episode_plan: { mode: 'fixed', episode_count: 0 } }]) {
+    await expect(previewProjectBible(ctx.settings, home, changes, '无效')).rejects.toThrow()
+  }
+  await writeFile(join(home, 'project_config.json'), '[]')
+  await expect(readProjectBible(ctx.settings, home)).rejects.toThrow('JSON object')
+  await writeFile(join(home, 'project_config.json'), '{"project_bible":{"schema_version":2}}')
+  await expect(readProjectBible(ctx.settings, home)).rejects.toThrow('schema_version')
+})
+
+it.each(['constructor', 'toString', '__proto__'])('rejects an inherited object key as a project change: %s', async (key) => {
+  const { ctx, home } = await bench()
+  const changes = Object.fromEntries([[key, { ignored: true }]])
+  await expect(previewProjectBible(ctx.settings, home, changes, '无效字段')).rejects.toThrow(`Unsupported project change: ${key}`)
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('refuses a project budget override because paid calls use Settings and ledger authorization', async () => {
+  const { ctx, home } = await bench()
+  await expect(previewProjectBible(ctx.settings, home, { budget_cents: 1 }, '修改预算')).rejects.toThrow('Unsupported project change: budget_cents')
+  await expect(previewProjectBible(ctx.settings, home, { initial_budget_cents: 1 }, '修改初始记录')).rejects.toThrow('Unsupported project change: initial_budget_cents')
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('preserves the initial budget snapshot while reporting the current Settings default', async () => {
+  const { ctx, home } = await bench()
+  const changes = { title: '山海' }
+  const first = await previewProjectBible(ctx.settings, home, changes, '创建')
+  await updateProjectBible(ctx.settings, home, changes, '创建', first.expected_revision, first.preview_fingerprint)
+  await ctx.settings.update('drama-settings', { seriesBudgetCents: 100000 })
+  const edit = { style: '古装' }
+  const preview = await previewProjectBible(ctx.settings, home, edit, '修改风格')
+  const updated = await updateProjectBible(ctx.settings, home, edit, '修改风格', preview.expected_revision, preview.preview_fingerprint)
+  expect(updated).toMatchObject({ current_settings_budget_cents: 100000,
+    config: { project_bible: { initial_budget_cents: 400000 } } })
+  expect(await readFile(join(home, 'project-bible.md'), 'utf8')).toContain('预算初始记录：¥4000.00')
+})
+
+it('refuses held writer locks and non-directory project paths', async () => {
+  const { ctx, home } = await bench()
+  const changes = { title: '山海' }
+  const preview = await previewProjectBible(ctx.settings, home, changes, '创建')
+  await writeFile(join(home, '.project-bible.lock'), 'held')
+  await expect(updateProjectBible(ctx.settings, home, changes, '创建', 'missing', preview.preview_fingerprint))
+    .rejects.toThrow('Another project bible update')
+  const file = join(home, 'file')
+  await writeFile(file, '')
+  await expect(readProjectBible(ctx.settings, file)).rejects.toThrow('directory')
+  await expect(readProjectBible(ctx.settings, 'relative')).rejects.toThrow('absolute')
+  const missing = join(home, 'missing')
+  await expect(readProjectBible(ctx.settings, missing)).rejects.toThrow()
+  await mkdir(missing)
+  expect((await readProjectBible(ctx.settings, missing)).status).toBe('unconfigured')
+})
+it('preserves character identity and approved voice guidance through later package edits', async () => {
+  const { ctx, home } = await bench()
+  const changes = { characters: [{ character_id: 'lead-1', name: '苏晚', aliases: ['阿晚'], asset_id: 12,
+    voice_profile: { speaker_id: 'su-wan', description: '青年女性，清亮温柔，普通话', reference_audio: 'audio/su-wan.wav' } }] }
+  const first = await previewProjectBible(ctx.settings, home, changes, '固定角色和声音')
+  await updateProjectBible(ctx.settings, home, changes, '固定角色和声音', first.expected_revision, first.preview_fingerprint)
+  const edit = { characters: [{ character_id: 'lead-1', name: '苏晚', aliases: ['阿晚', '晚晚'] }] }
+  const preview = await previewProjectBible(ctx.settings, home, edit, '补充称呼')
+  const updated = await updateProjectBible(ctx.settings, home, edit, '补充称呼', preview.expected_revision, preview.preview_fingerprint)
+  expect(updated.config).toMatchObject({ project_bible: { characters: [{ character_id: 'lead-1', asset_id: 12,
+    aliases: ['阿晚', '晚晚'], voice_profile: { speaker_id: 'su-wan', description: '青年女性，清亮温柔，普通话', reference_audio: 'audio/su-wan.wav' } }] } })
+  expect(preview.affected_stages).toContain('shots_and_matches')
+  await expect(previewProjectBible(ctx.settings, home, { characters: [{ character_id: 'lead-2', name: '阿晚' }] }, '歧义称呼'))
+    .rejects.toThrow('ambiguous')
+})

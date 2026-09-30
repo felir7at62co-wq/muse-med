@@ -93,7 +93,7 @@
         imagePlatformId: KU_AI
 
     # Account credentials travel through the authenticated Settings Remote call;
-    # the bundled MCP child exposes only read-only account and KB tools.
+    # the bundled MCP child exposes account-scoped Wiki writes and authorized reads.
     - id: muse-account
       name: '@deepseek-ai/dsh-muse-account'
       config:

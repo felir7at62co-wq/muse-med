@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -52,11 +52,31 @@ beforeEach(async () => {
 afterEach(async () => { await rm(root, { recursive: true, force: true }) })
 const preview = (extra = {}) => modelMethod(client, ledger, { method: 'preview', project_dir: root,
   script_id: 2708, scope: 'project', changes: { resolution: '1080p' }, ...extra })
-const apply = (plan: Record<string, unknown>) => modelMethod(client, ledger, { method: 'apply', project_dir: root,
-  script_id: 2708, preview_path: String(plan.preview_path), idempotency_key: String(plan.fingerprint) })
+const apply = (plan: Record<string, unknown>, extra = {}) => modelMethod(client, ledger, { method: 'apply', project_dir: root,
+  script_id: 2708, preview_path: String(plan.preview_path), idempotency_key: String(plan.fingerprint), ...extra })
 const puts = () => calls.filter(call => call.method === 'PUT')
 
 describe('scoped model settings', () => {
+  it('rejects an outside preview path before reading or parsing it', async () => {
+    const plan = await preview()
+    const outside = join(root, 'outside-preview.json')
+    await writeFile(outside, 'private-data-is-not-a-model-preview')
+    await expect(apply(plan, { preview_path: outside })).rejects.toThrow(/path\/key mismatch/)
+    expect(puts()).toEqual([])
+  })
+
+  it('refuses a model preview reached through a directory junction', async () => {
+    const plan = await preview()
+    const directory = join(root, 'video_tasks')
+    const archive = join(root, 'preview-archive')
+    await rename(directory, archive)
+    await symlink(archive, directory, 'junction')
+    try {
+      await expect(apply(plan)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+      expect(puts()).toEqual([])
+    } finally { await unlink(directory) }
+  })
+
   it('names the unconfigured storyboard and missing settings without requiring an arbitrary duration', async () => {
     boards = boards.map(board => ({ ...board, modelConfig: null }))
     await expect(preview({ changes: { modelId, ratio: '9:16', resolution: '720p' } }))
@@ -66,10 +86,31 @@ describe('scoped model settings', () => {
 
   it('names a missing episode binding before planning model changes', async () => {
     boards[0]!.episodeId = null
-    await expect(preview()).rejects.toThrow(/storyboard 1.*episodeId.*jubian_catalog episodes/)
+    await expect(preview({ scope: 'storyboards', storyboard_ids: [1] })).rejects.toThrow(/storyboard 1.*episodeId.*jubian_catalog episodes/)
     expect(puts()).toEqual([])
   })
 
+  it('excludes an unrelated orphan from episode scope with its repair diagnostics', async () => {
+    boards[0] = { ...boards[0], episodeId: null, episodeCount: 2,
+      modelConfig: JSON.stringify({ ...config, duration: 8.7 }) }
+    const plan = await preview({ scope: 'episodes', episode_ids: [12] })
+    expect(plan.targets).toEqual([expect.objectContaining({ storyboard_id: 2, episode_id: 12 })])
+    expect(plan.excluded_invalid).toEqual([expect.objectContaining({
+      storyboard_id: 1, episode_id: null, reason: 'missing_episode_id',
+    })])
+    expect(await apply(plan)).toMatchObject({ status: 'applied' })
+    expect(puts()).toHaveLength(1)
+    expect(puts()[0]?.body?.id).toBe(2)
+  })
+
+  it('excludes malformed cards from project preview while preserving explicit-target failure', async () => {
+    boards[0] = { ...boards[0], modelConfig: JSON.stringify({ ...config, duration: 8.7 }) }
+    const plan = await preview()
+    expect(plan.targets).toEqual([expect.objectContaining({ storyboard_id: 2 })])
+    expect(plan.excluded_invalid).toEqual([expect.objectContaining({ storyboard_id: 1, reason: 'invalid_settings' })])
+    await expect(preview({ scope: 'storyboards', storyboard_ids: [1] })).rejects.toThrow()
+    expect(puts()).toEqual([])
+  })
   it('rejects an idempotency key owned by another method before preparing a body', async () => {
     await ledger.begin({ idempotencyKey: 'foreign-key', method: 'storyboard_save', requestSha256: 'sha256:foreign' })
     let prepared = false

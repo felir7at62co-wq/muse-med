@@ -1,6 +1,6 @@
 # project_config.json 字段表
 
-`project_config.json` 是**项目根标记**：`video_bans.py` 用它认定项目边界，`drama_shot` 与剧变工具用它读取本项目的交付要求。它只放**产品实际读取**的键；其余键被忽略，不报错也不生效。文件必须是 JSON（允许 UTF-8 BOM），位置就在项目根，例如 `short-drama/山海自有相逢处/project_config.json`。
+`project_config.json` 是**项目根标记**：`video_bans.py` 用它认定项目边界，`drama_shot` 与剧变工具用它读取本项目的交付要求。完整项目圣经由 `drama_project` 保存在 `project_bible`，其设定、角色与声音档案、版本及影响记录见 [项目圣经技能](../../tweet-drama-project-bible/SKILL.md)；本表列出镜头编译器和剧变绑定读取的兼容字段。文件必须是 JSON（允许 UTF-8 BOM），位置就在项目根，例如 `short-drama/山海自有相逢处/project_config.json`。
 
 ## 字段
 

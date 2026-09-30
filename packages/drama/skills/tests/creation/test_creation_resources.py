@@ -24,6 +24,15 @@ FIXED_INSTALL_ROOT = re.compile(
 
 
 class CreationResourcesTests(unittest.TestCase):
+    def test_project_bible_startup_reuses_answers_and_live_catalogue_choices(self):
+        path = SKILLS / "tweet-drama-project-bible/SKILL.md"
+        self.assertTrue(path.is_file())
+        text = path.read_text(encoding="utf-8")
+        for requirement in ("drama_project", "ask_user_question", "一次", "jubian_catalog", "SD2.0", "SD2.5",
+                            "generation", "delivery", "episode_plan", "preview", "expected_revision", "edit_preview", "edit_apply",
+                            "character_id", "voice_profile", "不能保证", "不作为写作"):
+            self.assertIn(requirement, text)
+
     def test_six_current_skills_are_packaged(self):
         for name in NAMES:
             with self.subTest(skill=name):

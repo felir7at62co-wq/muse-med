@@ -7,11 +7,11 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
-用户可以在桌面版设置中登录 MUSE，无需在模型会话中输入密码。智能体可将获授权视频或小说整理并复核后的剧本保存到本账号的私有知识库，再按 ID 检索和阅读。它也可阅读管理员授权的剧本和 Wiki 参考资料。这些操作需要已配置的 Muse 网关。
+用户可以在桌面版设置中登录 MUSE，无需在模型会话中输入密码。智能体可私有保存复核后的剧本和不可变原件，再在账号或项目范围内综合成带引用的 Wiki 页面。它可浏览目录、全文检索、沿链接阅读、查阅历史修订，并阅读管理员授权的参考资料。这些操作需要已配置的 Muse 网关。
 
-## Table of Contents
+## 目录
 
 - [Use this package](#use-this-package)
 - [Understand the implementation](#understand-the-implementation)
@@ -58,7 +58,9 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 
 通过身份验证的 `museAccount` Remote 命名空间把[设置界面](../../client/ui-muse-account/README.zh.md)调用送至 Host 账号控制器。控制器向已配置的网关提交凭据、确认返回的身份，并把绑定网关源地址的 cookie 原子写入产品主目录。Remote 响应只包含固定错误类别和账号身份，不包含密码或 cookie。
 
-Host 启动内置的本地 MCP 子进程并等待工具发现。每次知识库调用时，子进程通过 `/api/kb/access` 将已保存的 cookie 换成短时 bearer，再调用同源 MCP 接口；它不持久化或返回 bearer。`muse_kb_ingest_script` 一次提交最多 12 集或章经复核的 Markdown 剧本，请求总量不超过 2 MiB，并逐项报告已写入、已存在或失败。检索返回本账号私有 `private/SRC-...` ID 和管理员授权的共享 ID；阅读工具按页读取两种来源，开头阅读最多 24,000 字符。每次阅读返回 6,000 字符页面与续读信息；本地失败只返回固定错误码，不传递上游响应文本。
+Host 启动内置的本地 MCP 子进程并等待工具发现。每次知识库调用时，子进程通过 `/api/kb/access` 将当前保存的 cookie 换成新的短时 bearer，再调用同源 MCP 接口；它不持久化或返回 bearer。`muse_kb_ingest_script` 一次提交最多 12 集或章经复核的 Markdown 剧本，请求总量不超过 2 MiB，并逐项报告已写入、已存在或失败。九个 `muse_kb_wiki_*` 工具提供不可变来源采集、目录浏览、全文检索、原文或页面阅读、带引用的页面写入、历史、链接、状态和迁移预览。范围默认为 `private`；`project` 需要账号内的 `project_id`，`shared` 使用明确授权且仅管理员可写。页面写入携带原始来源字符引用和 `expected_revision`；冲突后必须读取并合并当前页再重试。来源采集建立待综合的来源页，迁移预览既不修改原件也不改变授权。旧阅读工具保留每页 6,000 字符与开头最多 24,000 字符的限制。
+
+本地失败只返回固定错误码，不传递上游响应文本。经过限长与识别的 Wiki 错误区分修订冲突、写入占用、无效引用、未解析链接和访问拒绝。模型会收到 Wiki 编辑重试所需的固定指引；未知错误和包含 bearer 的结果仍会被拒绝。每次调用都会重读账号会话，因此登录刷新与退出无需重启 MCP 子进程即可生效。
 
 仅 Host 使用的 `MuseAsrClient` 为 `audio_transcribe` 工具读取同一账号会话，并通过网关上传音频、查询按账号隔离的任务 ID。客户端校验并保留分句与字词的秒级时间戳，拒绝无效时间范围。桌面端没有 ASR 或 TOS 凭据设置。未登录、网关不可用或服务器未配置 ASR 都明确报错。服务器部署与任务限额见 [`services/muse-accounts`](../../../services/muse-accounts/README.zh.md)。
 
@@ -84,11 +86,11 @@ Host 启动内置的本地 MCP 子进程并等待工具发现。每次知识库�
 
 #### What the model sees
 
-内置 MCP 服务连接后，模型会收到 `mcp__muse-account__muse_account_status`、`mcp__muse-account__muse_kb_ingest_script`、`mcp__muse-account__muse_kb_search`、`mcp__muse-account__muse_kb_read` 和 `mcp__muse-account__muse_kb_read_opening` 的工具 schema。写入工具接收复核后的剧本文字和来源标识，逐段返回结果与私有 ID。检索返回摘要和 ID；每次阅读返回一个 6,000 字符页面及续读信息。密码、cookie 和 bearer 不出现在工具参数或结果中。模型可见的参数与结果仍属于 Session 数据。
+内置 MCP 服务连接后，模型会收到十四个 schema：账号状态、四个旧来源操作和九个 `mcp__muse-account__muse_kb_wiki_*` 操作。Wiki 结果包含来源或页面 ID、摘要哈希、修订号、引用、链接、限长摘录和续读起点。写入工具区分不可变原件、综合知识页与经复核的剧本段落。密码、cookie 和 bearer 不出现在工具参数或结果中。模型可见的参数与结果仍属于 Session 数据。
 
 #### Token effect
 
-服务装载期间，五个工具 schema 构成稳定的请求开销。调用将返回文本追加到对话；每个本地知识库结果最多 128 KiB，网关以每页 6,000 字符返回。本包不增加系统提示词文本。
+服务装载期间，十四个工具 schema 构成稳定的请求开销。调用将返回文本追加到对话；旧结果最多 128 KiB，Wiki 结果为链接图和引用提供最多 4 MiB。阅读按每页 6,000 字符返回。超过相应上限的结果会被拒绝，包括异常庞大的歧义链接候选列表。本包不增加系统提示词文本。
 
 #### KV Cache effect
 
@@ -105,7 +107,7 @@ Host 启动内置的本地 MCP 子进程并等待工具发现。每次知识库�
 - **智能体指令** — 编辑模式提示智能体在起草前阅读有用的剧本和案例材料；Host 不强制执行写作前检查。
 
 <a id="dev-note"></a>
-### Dev Note
+### 开发备注
 
 <details>
 <summary>维护者工作上下文 — 点击展开</summary>

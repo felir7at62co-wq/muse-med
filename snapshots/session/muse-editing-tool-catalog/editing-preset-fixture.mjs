@@ -1,16 +1,73 @@
-/** Mount the product editing preset on the headless snapshot agent. */
+/** Mount the editing preset and discover the source Muse MCP catalog over loopback. */
 import { Service } from '@deepseek-ai/cordis'
-import { fileURLToPath } from 'node:url'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { PERSONA_SUFFIX_SECTION } from '@deepseek-ai/dsh-system-prompt'
 import NativePreset from '../../../apps/desktop-host/src/native-preset.ts'
+import * as McpClient from '../../../packages/mcp/mcp-client/src/index.ts'
+import { createMuseAccountMcpServer } from '../../../packages/host/muse-account/src/mcp-server.ts'
+import { createMuseKbReader } from '../../../packages/host/muse-account/src/kb.ts'
+import { applyLoopbackServerEffect } from '../loopback-fixture-server.mjs'
 
 export const name = 'snapshot-editing-preset'
 export const inject = ['agentPresets', 'tools', 'systemPrompt']
 
-/** @param {import('@deepseek-ai/cordis').Context} ctx - snapshot composition. */
+/**
+ * @param {import('@deepseek-ai/cordis').Context} ctx - Snapshot composition.
+ * @param config - Platform-shell visibility for the recorded catalog.
+ */
 export async function apply(ctx, config) {
   class SnapshotAccount extends Service { constructor(ctx) { super(ctx, 'museAccount') } }
   await ctx.plugin(SnapshotAccount)
+  const requireSdk = createRequire(new URL('../../../packages/mcp/mcp-client/package.json', import.meta.url))
+  const importSdk = async name => {
+    const manifestUrl = new URL('../package.json', pathToFileURL(requireSdk.resolve(name)))
+    const manifest = JSON.parse(await readFile(manifestUrl, 'utf8'))
+    return import(new URL(manifest.exports['.'].import.default, manifestUrl).href)
+  }
+  const [{ createMcpHandler }, { toNodeHandler }] = await Promise.all([
+    importSdk('@modelcontextprotocol/server'),
+    importSdk('@modelcontextprotocol/node'),
+  ])
+  let kb
+  await ctx.effect(async () => {
+    const accountHome = await mkdtemp(join(tmpdir(), 'dsh-snapshot-muse-account-'))
+    kb = createMuseKbReader({
+      baseUrl: 'https://snapshot-muse.invalid',
+      sessionFile: join(accountHome, 'session.json'),
+      requestTimeoutMs: 15_000,
+      fetcher: async () => { throw new Error('Snapshot Muse gateway requests are unavailable') },
+    })
+    return () => rm(accountHome, { recursive: true, force: true })
+  }, 'snapshot-muse-account-home')
+  const handler = createMcpHandler(() => createMuseAccountMcpServer({ status: async () => ({ state: 'signed-out' }) }, kb), {
+    onerror: error => console.error('Snapshot Muse MCP handler failed:', error),
+  })
+  ctx.effect(() => () => handler.close(), 'snapshot-muse-mcp-handler')
+  const handle = toNodeHandler(handler)
+  let mcpUrl
+  await applyLoopbackServerEffect(ctx, {
+    label: 'snapshot-muse-mcp-server',
+    requestListener: (req, res) => {
+      handle(req, res).catch(error => {
+        console.error('Snapshot Muse MCP request failed:', error)
+        if (!res.headersSent) res.writeHead(500)
+        res.end()
+      })
+    },
+    onListening: address => { mcpUrl = `http://127.0.0.1:${address.port}/mcp` },
+    onCleanup: () => {},
+  })
+  await ctx.plugin(McpClient, McpClient.Config({
+    serverName: 'muse-account',
+    transport: 'streamable-http',
+    url: mcpUrl,
+    failOnStartupError: true,
+    reconnect: { enabled: false },
+  })).await()
   await ctx.plugin(NativePreset, {
     id: 'editing',
     directory: fileURLToPath(new URL('../../../apps/desktop-host/presets/editing/', import.meta.url)),

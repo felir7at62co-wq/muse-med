@@ -357,7 +357,7 @@ test('changed source bytes invalidate read, opening, search, and status without 
   assert.doesNotMatch(status, /\b1\b|CHANGED_SECRET|UNTRUSTED_MANIFEST_TITLE|ADMIN_TITLE/);
 });
 
-test('search and status do not return vector-index errors to the account', async t => {
+test('search and status ignore configured vectors and remain available offline', async t => {
   const root = await mkdtemp(join(tmpdir(), 'muse-kb-vector-error-'));
   t.after(() => rm(root, {recursive: true, force: true}));
   const hiddenPath = join(root, 'private', 'vectors.json');
@@ -370,10 +370,10 @@ test('search and status do not return vector-index errors to the account', async
   });
   for (const name of ['search', 'status']) {
     const result = await invoke(handle, name, name === 'search' ? {query: 'opening'} : {});
-    assert.equal(result.isError, true);
+    assert.equal(result.isError, undefined);
     assert.doesNotMatch(result.content[0].text, /vectors\.json|private|Cannot read/);
   }
-  assert.equal(warnings.length, 2);
+  assert.equal(warnings.length, 0);
 });
 
 test('search hashes all source bytes before indexing its first 400000 characters', async t => {

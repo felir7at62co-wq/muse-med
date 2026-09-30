@@ -25,7 +25,9 @@ Promise<{ root: string; scriptPath: string; manifestPath: string }> {
     actionShot(2, ['核心场景：后厨']),
   ), 'utf8')
   await writeFile(manifestPath, JSON.stringify(options.assets === undefined
-    ? manifestDocument(assetRow('苏晚', '角色'), assetRow('后厨', '场景'), assetRow('奶瓶', '道具'))
+    ? manifestDocument(assetRow('苏晚', '角色', { jubian_asset_id: '70001' }),
+      assetRow('后厨', '场景', { jubian_asset_id: '70002' }),
+      assetRow('奶瓶', '道具', { jubian_asset_id: '70003' }))
     : { assets: options.assets }), 'utf8')
   await writeFile(join(root, 'episodes', '01.txt'), options.episodeText ?? '第一集正文', 'utf8')
   return { root, scriptPath, manifestPath }
@@ -174,7 +176,7 @@ describe('preview', () => {
       content_duration_ms: 5000,
       submit_seconds: 6,
       natural_hold_seconds: 1,
-      material_keys: ['lead'],
+      material_keys: ['lead', 'asset_70002', 'asset_70003'],
       material_names: ['苏晚', '后厨', '奶瓶'],
     })
     expect(report.packages[0]?.hold_instruction).toContain('不新增台词')
@@ -255,6 +257,36 @@ describe('creative guidance and explicit provider budget', () => {
 })
 
 describe('compile', () => {
+  it('includes visually bound animals and props without authored material markers', async () => {
+    const script = actionShot(1, ['出镜人物：赵大刚', '核心场景：后厨', '关键道具：奶瓶',
+      '四层朝向链：【目光落在小鸡身上，小鸡啄米】；', '动作复杂度：较复杂',
+      '素材映射：@[赵大刚](human) @[后厨](scene)']).replaceAll('苏晚', '赵大刚')
+    expect(script).not.toContain('@[黄色雏鸡]')
+    const files = await project({ script, assets: [
+      assetRow('赵大刚', '角色', { jubian_asset_id: '71001' }),
+      assetRow('黄色雏鸡', '角色', { jubian_asset_id: '71002', subject_kind: 'animal',
+        aliases: ['小鸡'], state_or_costume: '黄色绒毛' }),
+      assetRow('后厨', '场景', { jubian_asset_id: '71003' }),
+      assetRow('奶瓶', '道具', { jubian_asset_id: '71004' }),
+    ] })
+    const report = await run({ max_submit_seconds: 15, method: 'compile', script: files.scriptPath,
+      assets: files.manifestPath, project: files.root, episode: 1 })
+    expect(report.ok).toBe(true)
+    expect(report.packages[0]).toMatchObject({
+      material_keys: ['human', 'scene', 'asset_71002', 'asset_71004'],
+      material_names: ['赵大刚', '黄色雏鸡', '后厨', '奶瓶'],
+    })
+    expect(report.packages[0]?.prompt).toContain('@[黄色雏鸡](asset_71002)')
+    const matched = JSON.parse(await readFile(join(files.root, 'matches', '01.matched.json'), 'utf8')) as MatchedPayload
+    expect(matched.shots[0]?.visual).toContain(script)
+    expect(matched.shots[0]?.visual).toContain('@[奶瓶](asset_71004)')
+    expect(matched.video_tasks[0]).toMatchObject({
+      material_keys: ['human', 'scene', 'asset_71002', 'asset_71004'],
+    })
+    expect(matched.video_tasks[0]?.prompt).toContain(script)
+    expect(await readFile(join(files.root, 'prompts', '01.txt'), 'utf8')).toBe(script)
+  })
+
   it('writes the matched JSON and the episode package', async () => {
     // Same five-second fixture as the preview test: a package below the floor
     // fails the run, so nothing is written.
@@ -335,7 +367,7 @@ describe('compile', () => {
     expect(report.failures[0]?.code).toBe('asset_type_unusable')
     expect(report.failures.map(issue => issue.code)).toContain('asset_type_unusable')
     expect(report.failures[0]?.message).toContain('第 1 条资产（苏晚）的 type="role"')
-    expect(report.failures[0]?.message).toContain('只接受 角色、character、场景、scene、道具、prop')
+    expect(report.failures[0]?.message).toContain('只接受 角色、character、动物、animal、场景、scene、道具、prop')
     // The skipped character also leaves the shot with no version of 苏晚 to bind,
     // which is its own failure; both are counted, so the run cannot read as clean.
     expect(report.summary.failures).toBe(report.failures.length)

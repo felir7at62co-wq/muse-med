@@ -19,9 +19,8 @@
  * detection: a partial list would make "no task appeared" an unsafe conclusion,
  * and that conclusion is what authorizes a paid PUT.
  */
-import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve, sep } from 'node:path'
+import { readFile, readdir } from 'node:fs/promises'
+import { join, resolve, sep } from 'node:path'
 import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { centsOf, checkBudget, JubianError } from '@deepseek-ai/dsh-jubian'
 import {
@@ -33,6 +32,9 @@ import {
 import type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeVideoPreview,
   SubjectIdentityItem, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
 import { acceptedWriteResponse, bodyHash, need, requireKey, writeUnderLedger } from './write.ts'
+import { atomicWriteJson } from './json-file.ts'
+import { assertSelectionReady, clearReselection } from './reselection.ts'
+export { atomicWriteJson } from './json-file.ts'
 
 /** The provider's page cap for task and material listings. */
 const MAX_PAGES = 20
@@ -362,18 +364,6 @@ Record<string, unknown> {
 }
 
 /**
- * Write one JSON file atomically inside its destination directory.
- * @param path - Destination path.
- * @param value - Owned JSON value to persist.
- */
-export async function atomicWriteJson(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const temporary = `${path}.${randomBytes(6).toString('hex')}.tmp`
-  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
-  await rename(temporary, path)
-}
-
-/**
  * Read `project_config.json` and bind it to the live project id.
  * @param projectDir - The project directory the preview will be written into.
  * @param scriptId - The live storyboard's project id.
@@ -405,11 +395,12 @@ function projectRootOfPreview(previewPath: string): string {
 /**
  * Prepare one storyboard-native video package without any remote write.
  * @param client - Jubian transport.
+ * @param ledger - Account-local selection requirements from in-place edits.
  * @param args - `storyboard_id`, `project_dir` and an optional `content_duration_ms` cross-check.
  * @returns The persisted preview, its path and the exact next step.
  * @throws {JubianError} `CONTRACT_CHANGED` when any live identity or setting fails.
  */
-export async function prepareVideoMethod(client: JubianClient, args: {
+export async function prepareVideoMethod(client: JubianClient, ledger: JubianLedger, args: {
   storyboard_id?: number | undefined
   project_dir?: string | undefined
   content_duration_ms?: number | undefined
@@ -418,6 +409,7 @@ export async function prepareVideoMethod(client: JubianClient, args: {
   const preview = await livePreview(client, storyboardId, new Date().toISOString())
   const binding = await validateProjectBinding(need(args.project_dir), preview.scriptId)
   const modelConfig = JSON.parse(String(preview.payload.modelConfig)) as Record<string, unknown>
+  await assertSelectionReady(ledger, preview.scriptId, storyboardId, modelConfig.prompt)
   const duration = positiveInteger(modelConfig.duration)
   const contentDurationMs = (duration - 1) * 1000
   if (args.content_duration_ms !== undefined && args.content_duration_ms !== contentDurationMs) {
@@ -460,6 +452,8 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
   }
   const plan = buildSubjectSelection({ storyboard, selections, subjectRows, parentAssets: parents })
   if (plan.status === 'already_applied') {
+    await clearReselection(ledger, scriptId, storyboardId, (typeof storyboard.modelConfig === 'string'
+      ? JSON.parse(storyboard.modelConfig) as Record<string, unknown> : object(storyboard.modelConfig)).prompt)
     return { operation: plan.operation, status: 'already_applied', applied: false,
       scriptId: plan.scriptId, storyboardId: plan.storyboardId, before: plan.before, after: plan.after,
       verified_readback: verifySubjectSelection(storyboard, plan.after).verified_readback,
@@ -490,6 +484,8 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
   const verification = verifySubjectSelection(verified, plan.after)
   if (!verification.matches) throw new JubianError('CONTRACT_CHANGED',
     `POST_PUT_VERIFY_MISMATCH: selection PUT accepted; expected=${JSON.stringify(plan.after.orderedMaterials)}, actual=${JSON.stringify(verification.verified_readback)}; materialHashChanged=${plan.after.orderedMaterialsSha256 !== verification.state.orderedMaterialsSha256}; promptChanged=${plan.after.promptSha256 !== verification.state.promptSha256}. Read the storyboard to reconcile; do not submit video or assume the write failed.`)
+  if (newRelated.length === 0) await clearReselection(ledger, scriptId, storyboardId, (typeof verified.modelConfig === 'string'
+    ? JSON.parse(verified.modelConfig) as Record<string, unknown> : object(verified.modelConfig)).prompt)
   return { ...result, operation: plan.operation, scriptId, storyboardId,
     before: plan.before, after: plan.after, verification, verified_readback: verification.verified_readback,
     status: newRelated.length > 0 ? 'billing_safety_violation' : 'applied',
@@ -627,6 +623,7 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
   }
 
   const live = await livePreview(client, preview.storyboardId, preview.createdAt)
+  await assertSelectionReady(ledger, live.scriptId, live.storyboardId, object(JSON.parse(String(live.payload.modelConfig))).prompt)
   if (live.idempotencyKey !== preview.idempotencyKey) throw new JubianError('CONTRACT_CHANGED')
 
   const preflightRecords = await listAllVideoTasks(client, preview.scriptId)
@@ -863,6 +860,7 @@ Promise<{ total: number; submitted: number; reconcile_required: number; results:
 
   await Promise.all(items.map(item => limitedRead(async () => {
     const live = await livePreview(client, item.preview.storyboardId, item.preview.createdAt)
+    await assertSelectionReady(ledger, live.scriptId, live.storyboardId, object(JSON.parse(String(live.payload.modelConfig))).prompt)
     if (live.idempotencyKey !== item.preview.idempotencyKey) {
       throw new JubianError('CONTRACT_CHANGED', 'A video preview is stale')
     }

@@ -19,7 +19,7 @@ it('loads both source routes, the outline decision, and complete script delivery
     expect(input).toMatch(/剧名.*搜索.*资源.*转写/su)
     expect(input).toMatch(/transcript-to-script.*muse_kb_ingest_script/su)
     expect(input).toMatch(/来源大纲.*换梗.*集数.*字数.*用户.*本作大纲/su)
-    expect(input).toMatch(/爆款转写.*剧本.*优先.*muse_kb_search.*muse_kb_read/su)
+    expect(input).toMatch(/爆款转写.*剧本.*优先.*muse_kb_wiki_directory.*muse_kb_wiki_read/su)
     expect(input).toMatch(/剧本按计划集数.*全稿.*交付/su)
     expect(input).not.toMatch(/不写正式正文|不得写正式正文/u)
   } finally {
@@ -42,7 +42,7 @@ it('discovers separate novel conversion and trope-change guidance', async () => 
   try {
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(SkillFileSystem, { includeDefaultRoots: false, bundledSkillDir, watch: false })
-    for (const name of ['novel-to-script', 'trope-adaptation']) {
+    for (const name of ['novel-to-script', 'trope-adaptation', 'muse-llm-wiki']) {
       const summary = (await ctx.skills.list()).find(skill => skill.name === name)
       expect(summary).toMatchObject({ source: 'bundled', invocation: { modelInvocable: true } })
       expect(await ctx.skills.get(name)).toBeDefined()

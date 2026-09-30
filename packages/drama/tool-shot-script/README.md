@@ -38,13 +38,19 @@ An `episode` given to any method is kept, so `validate` alone can refuse an asse
 
 ### Character state and the asset's own registration
 
-Every on-screen subject of a `主体状态追踪` block declares its body state as one more per-subject field: `身体状态：【孕早期（孕八周）；孕期职场装；长发】；`, written bare inside that subject's section or with the subject's name in front of it. Two items carry a dimension each — the pregnancy stage and the age band, the two that decide the silhouette — and everything else is state text the registration must contain, costume and hair and an injury or illness alike. A character with no body change writes `非孕期`. `孕八周`, `怀孕8周` and `怀孕十三周` all read as `孕早期`; `十四周` starts `孕中期` and `二十八周` starts `孕晚期`; a bare `孕期` with no week or stage reads as `孕期待定`; two different stages in one declaration read as a contradiction.
+Every on-screen human subject of a `主体状态追踪` block declares its body state as one more per-subject field: `身体状态：【孕早期（孕八周）；孕期职场装；长发】；`, written bare inside that subject's section or with the subject's name in front of it. Two items carry a dimension each — the pregnancy stage and the age band, the two that decide the silhouette — and everything else is state text the registration must contain, costume and hair and an injury or illness alike. A character with no body change writes `非孕期`. `孕八周`, `怀孕8周` and `怀孕十三周` all read as `孕早期`; `十四周` starts `孕中期` and `二十八周` starts `孕晚期`; a bare `孕期` with no week or stage reads as `孕期待定`; two different stages in one declaration read as a contradiction.
 
 The asset that character binds must register the same thing in `state_or_costume`, together with its own name: each dimension must match value for value, and every other item the shot names must appear in the registration. A dimension stated on one side and not the other is `未标阶段`, which fails binding, because nothing then proves which version the shot renders. The registration must also declare `episodes` — a list of episode numbers, or the all-episodes marker `all`/`全剧` — and a call that names an episode refuses an asset whose list does not cover it. This is the gate that the 2026-09-28 《山海自有相逢处》第25集 run lacked: the script read 孕八周 and the bound board was a late-pregnancy body.
 
 When no registered version of a named character states the required dimensions, the failure is a restock request rather than a binding: it names the character, the stage, the costume, the episodes the new asset serves, the versions already registered, and the path that produces it (reuse from the asset library, or generate and register, then `drama_assets reconcile`, then re-validate).
 
 Read the manifest's asset array under `assets` or under `items`: the project's own manifest spells it `items` and the older shot-script copies spell it `assets`.
+
+An explicit `出镜人物` list determines which humans bind. Without it, the binder reads visual directions and excludes dialogue and speaker metadata. Canonical names and declared aliases (a delimited string or name array) resolve to registered assets; longer names suppress contained short names. An unqualified character name can select one costume version only when episode coverage and declared body state make it unique. Multiple eligible versions return `asset_binding_ambiguous` with candidate identities and a repair; name the intended full asset or correct its registration. Unknown names in an explicit on-screen list return `unregistered_character`. Body-part and pose descriptions remain usable with the same subject's registered state. `关键道具：无` suppresses prop inference.
+
+Register recurring animal subjects as `type: "动物"` / `"animal"`, or keep `type: "角色"` / `"character"` with `subject_kind: "animal"`. Their canonical names and aliases also bind from visual directions when a human roster is present; dialogue-only mentions do not. Animals appear in the package's material names and keys and retain official confirmation, IDs, URL and episode checks. They do not require a human pregnancy, age or costume declaration. A role row with no `subject_kind` keeps human state checks; the binder does not guess species from a name. Distinguish multiple animal versions with full names or non-overlapping episode coverage.
+
+Every previewed or compiled package returns `prompt`: complete shot visuals, references for all confirmed bound humans, animals, scenes and props, and the natural hold instruction. The compiler retains the original visual text and appends missing `@[正式名](key)` references. It reuses an existing key for the same asset, including registered alias labels; otherwise it uses `asset_<jubian_asset_id>`. `material_keys` follows the completed prompt's first-appearance order and removes repeated keys. Save this complete prompt in the storyboard's `modelConfig.prompt`, then select the matching parent assets in that key order. A separate `validate` call is optional; `preview` and `compile` perform the same checks.
 
 ### Project requirements
 
@@ -65,6 +71,7 @@ The result separates `failures` from `warnings`; only failures prevent a packagi
 | Seconds expressions in shot prose or dialogue | Warning; preserve text, and do not infer duration from prose |
 | Missing shot blocks, nonconsecutive numbering, malformed explicit duration | Failure |
 | Empty/placeholder dialogue, multiple speech lines, action plus dialogue | Failure; ambiguous speech is not silently discarded |
+| Director-format dialogue without a named speaker; explicit speaker conflicts with the dialogue prefix | Failure (`missing_speaker` / `speaker_mismatch`); keep the declared identity and resolve the conflict against the source before compilation |
 | Unknown silent-shot complexity or character placeholder | Failure |
 | Action complexity alongside speech | Warning: explicit timing wins; otherwise review speech-based timing |
 | Unregistered explicit scene, unconfirmed or incomplete bound asset | Failure |
@@ -73,6 +80,7 @@ The result separates `failures` from `warnings`; only failures prevent a packagi
 | A registration whose dimensions disagree, whose state carries none, or that omits costume or hair the shot requires | Failure (`asset_state_mismatch`, `asset_state_unregistered`): fix the registration or bind the version that states it |
 | A registration that declares no episode, an unreadable one, or one not covering the episode being compiled | Failure (`asset_episodes_unregistered`, `asset_episode_mismatch`) |
 | No registered version of a named character states the required dimensions | Failure (`asset_state_missing`) carrying the restock request |
+| Several eligible character versions, or an unknown character in an explicit on-screen list | Failure (`asset_binding_ambiguous`, `unregistered_character`); resolve the version or register the character before compilation |
 | No scene binding | Warning |
 | One indivisible shot longer than `max_submit_seconds - 1` | Failure (`shot_exceeds_package_budget`), never truncate a shot |
 
@@ -80,7 +88,7 @@ Packing preserves complete continuous shots, splits on scene changes or `子任�
 
 ### Files
 
-Compilation writes `prompts/<episode>.txt`, `matches/<episode>.matched.json`, and `episode_packages/<episode>/` containing `package.json`, `shot_script.txt`, `matched.json`, `episode.txt`, and local bound assets. Episode numbers are padded to two digits. The prompt file is a source copy; matched shot visuals omit duration fields. Missing episode text or local asset files fails before writes begin. Results include every written path, per-shot timing, package durations and ordered material keys.
+Compilation writes `prompts/<episode>.txt`, `matches/<episode>.matched.json`, and `episode_packages/<episode>/` containing `package.json`, `shot_script.txt`, `matched.json`, `episode.txt`, and local bound assets. Episode numbers are padded to two digits. The prompt file is an unchanged source copy; matched shot visuals omit duration fields and include completed material references. Each `video_tasks` row stores the complete package `prompt` and its ordered `material_keys`. Missing episode text or local asset files fails before writes begin. Results include every written path, per-shot timing, package durations and ordered material keys.
 
 -----
 
@@ -103,15 +111,16 @@ The parser collects structural failures and creative warnings; asset binding che
 
 #### What the model sees
 
-The [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-shot-script) records the method schema. Results expose `shots`, `packages`, `failures`, `warnings`, `written` and summary counts. Warnings carry an actionable message and never require deleting or rewriting spoken text. `duration_source: declared` identifies explicit timing.
+The [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-shot-script) records the method schema. Results expose `shots`, `packages`, `failures`, `warnings`, `written` and summary counts. Warnings carry an actionable message and never require deleting or rewriting spoken text. `duration_source: declared` identifies explicit timing. Same-named character, scene and prop registrations retain the selected remote IDs. Scene and prop versions require unique episode coverage; multiple eligible registrations report `asset_binding_ambiguous`.
 
 #### Token effect
 
-The schema is fixed; results grow with shots, packages and issues. Failures suppress packaging and writes but retain diagnostic rows.
+The schema is fixed; results grow with shots, complete package prompts and issues. Failures suppress packaging and writes but retain diagnostic rows.
 
 #### KV Cache effect
 
 Tool results append without rewriting previous messages. Changes to the tool description or schema change the reusable request prefix.
+
 
 ## Known Limitations and Deferred Work
 
@@ -119,12 +128,10 @@ Tool results append without rewriting previous messages. Changes to the tool des
 
 - Compilation is local. The caller supplies the verified storyboard budget; paid submission must independently validate actual model settings and subject identity.
 - Estimates are not measured audio timing. Review recorded speech before final editing and delivery.
-- Asset matching uses manifest names in fields and prose. A character named on screen whose state nobody declares, and that matches no manifest row at all, is still not rejected; this tool does not verify remote project ownership.
+- Asset matching uses local manifest names, aliases, episode coverage and declared state. It does not verify remote project ownership or infer an unregistered character from free visual prose.
 - The state gate compares the declared dimensions and the costume text a shot names. It does not compare the asset's own board image: an asset whose registered text is right and whose picture is not stays the model's review, which the drama skills require before submission.
 - Scene is the continuity key; time/costume changes require an explicit package break.
 - Writes are prechecked but not transactional across concurrent processes.
-
-Asset manifest aliases accept a delimited string or an array of names; both feed the same character-name matching rules.
 
 Packing respects whole-shot boundaries even when they require more packages than the arithmetic minimum. Every emitted package is checked against the content ceiling; one indivisible overlong shot fails with its shot number.
 

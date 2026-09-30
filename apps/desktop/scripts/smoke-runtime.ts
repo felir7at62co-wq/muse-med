@@ -65,7 +65,7 @@ export function apply(ctx) {
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
-      'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'read', 'present',
+      'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present',
       process.platform === 'win32' ? 'pwsh' : 'bash']
       : id === 'minimal' ? [shell]
         : id === 'editing' ? ['read', 'skill', shell, 'present',
@@ -106,7 +106,7 @@ export function apply(ctx) {
       const productSkills = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills')
         .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
       for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import',
-        'novel-to-script', 'trope-adaptation', 'jubian-snatch', 'wechat-shortdrama-harvest']) {
+        'novel-to-script', 'trope-adaptation', 'muse-llm-wiki', 'jubian-snatch', 'wechat-shortdrama-harvest']) {
         const skill = skills.find(value => value.name === name)
         const expected = join(productSkills, name, 'SKILL.md')
         if (!skill?.invocation.modelInvocable || !existsSync(expected)
@@ -156,7 +156,7 @@ export function apply(ctx) {
     const requiredSkills = ['tweet-drama-pipeline', 'tweet-drama-core', 'tweet-drama-script-convert',
       'tweet-drama-script-split', 'tweet-drama-asset-extract', 'tweet-drama-asset-vision-check',
       'shot-script-creator-9-16', 'tweet-drama-shot-asset-match', 'tweet-drama-early-shot-script',
-      'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect', 'tweet-drama-delivery']
+      'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect', 'tweet-drama-project-bible', 'tweet-drama-delivery']
     for (const name of requiredSkills) {
       const skill = skills.find(value => value.name === name)
       if (!skill || !skill.path || !skill.invocation.modelInvocable) throw new Error('desktop runtime: missing product skill ' + name)

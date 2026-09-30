@@ -53,6 +53,8 @@ export type IssueCode =
   | 'missing_negative_prompt'
   | 'narration_marker'
   | 'multiple_speech_lines'
+  | 'speaker_mismatch'
+  | 'missing_speaker'
   | 'empty_dialogue_line'
   | 'placeholder_dialogue'
   | 'missing_voice_type'
@@ -66,6 +68,8 @@ export type IssueCode =
   | 'action_complexity_on_speaking_shot'
   | 'characters_placeholder'
   | 'asset_type_unusable'
+  | 'asset_binding_ambiguous'
+  | 'unregistered_character'
   | 'unregistered_scene'
   | 'no_scene_bound'
   | 'unconfirmed_asset'
@@ -134,8 +138,10 @@ export interface ManifestAsset {
   name: string
   /** Manifest id, falling back to the asset name. */
   id: string
-  /** Declared type, such as `角色`, `场景`, or `道具`. */
+  /** Declared type, such as `角色`, `动物`, `场景`, or `道具`. */
   type: string
+  /** Explicit animal classification for role rows; animals skip human body-state requirements. */
+  subjectKind?: 'animal' | 'human'
   /** Whether the asset passed the official-asset gate. */
   official: boolean
   /** Jubian parent asset id, or an empty string when the manifest omits it. */
@@ -202,6 +208,8 @@ export interface PackedTask {
   contentSeconds: number
   /** Clip seconds the submission requests: content plus the natural hold. */
   submitSeconds: number
+  /** Complete shot prompts with material references and the natural hold instruction. */
+  prompt: string
   /** Ordered `@[name](key)` placeholder keys of this package's prompt. */
   materialKeys: string[]
   /** Ordered bound asset names of this package's shots. */
@@ -284,6 +292,8 @@ export interface PackageReport {
   natural_hold_seconds: number
   /** The hold instruction the submitted prompt carries. */
   hold_instruction: string
+  /** Complete shot prompts with material references and the natural hold instruction. */
+  prompt: string
   /** Ordered `@[name](key)` placeholder keys; `select_assets` must match this order. */
   material_keys: string[]
   /** Ordered bound asset names of this package's shots. */
@@ -395,6 +405,10 @@ export interface MatchedVideoTask {
   requested_duration: number
   /** The hold instruction the submitted prompt carries. */
   hold_instruction: string
+  /** Complete shot prompts with material references and the natural hold instruction. */
+  prompt: string
+  /** Placeholder keys in first-appearance order, matching `select_assets` selections. */
+  material_keys: string[]
 }
 
 /** The matched JSON one episode compiles to. */

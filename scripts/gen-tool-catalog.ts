@@ -6,10 +6,11 @@
  * `.agents/notes/archived/process/2026-07-02-tool-schema-catalog.md`.
  */
 
-import { globSync, readFileSync, writeFileSync } from 'node:fs'
+import { globSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, type Fiber } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
@@ -73,6 +74,8 @@ import * as ToolJubian from '@deepseek-ai/dsh-tool-jubian'
 import * as ToolAudioTranscribe from '@deepseek-ai/dsh-tool-audio-transcribe'
 import type { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
 import * as ToolShotScript from '@deepseek-ai/dsh-tool-shot-script'
+import * as DramaSettings from '@deepseek-ai/dsh-drama-settings'
+import SettingsForms from '@deepseek-ai/dsh-settings'
 import * as ToolBgmCompose from '@deepseek-ai/dsh-tool-bgm-compose'
 import * as PerceptionBgm from '@deepseek-ai/dsh-perception-bgm'
 import * as ToolEpisodeRender from '@deepseek-ai/dsh-tool-episode-render'
@@ -119,6 +122,15 @@ const OUT = 'docs/tool-catalog.md'
 class CatalogWorkflowEngine extends WorkflowEngine {
   start(_request: WorkflowStartRequest): WorkflowRun {
     throw new Error('gen-tool-catalog: workflow execution is unavailable during schema harvest')
+  }
+}
+
+/** Settings tools expose schemas without accessing a profile document during collection. */
+class CatalogSettingsForms extends SettingsForms {
+  static override inject: string[] = []
+
+  override configure(_presentation: { auto?: boolean }, _owner?: Fiber): () => void {
+    return () => {}
   }
 }
 
@@ -719,6 +731,28 @@ const TOOL_PACKAGES: ToolPackage[] = [
       + 'submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; '
       + 'erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. '
       + '`jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-drama-settings',
+    dir: 'drama-settings',
+    source: 'packages/drama/drama-settings/src/index.ts',
+    requires: ['ctx.tools', 'ctx.settings', 'an existing absolute project directory'],
+    writes: ['tool/call', 'tool/result', 'project_config.json and project-bible.md', 'the Jianying draft-root Settings value'],
+    async mount(ctx) {
+      const home = mkdtempSync(join(tmpdir(), 'dsh-tool-catalog-settings-'))
+      ctx.effect(() => () => { rmSync(home, { recursive: true, force: true }) })
+      await ctx.plugin(Loader)
+      ctx.provide('profileContext', {
+        name: 'catalog', startedBundles: [], dir: home, patchPath: join(home, 'cordis.patch.yml'),
+        installAnchor: join(home, 'package.json'), cwd: home, home, overlays: [], telemetryDisabledEnv: undefined,
+      })
+      await ctx.plugin(CatalogSettingsForms)
+      await ctx.plugin(DramaSettings)
+    },
+    note: 'drama_project keeps authoritative JSON, guarded revisions, package identities and completed-task history. '
+      + 'Generation dimensions and delivery dimensions are separate; the initial budget is a Settings snapshot, '
+      + 'while paid requests enforce current Settings and the account ledger authorization. '
+      + 'drama_draft_dir reads or validates and saves the configured Jianying draft root.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-shot-script',

@@ -17,7 +17,7 @@ EXPECTED = {
     "tweet-drama-asset-extract", "tweet-drama-asset-vision-check",
     "tweet-drama-background-render", "tweet-drama-core", "tweet-drama-delivery",
     "tweet-drama-draft-build", "tweet-drama-early-shot-script", "tweet-drama-key-manager",
-    "tweet-drama-pipeline", "tweet-drama-project-inspect", "tweet-drama-script-convert",
+    "tweet-drama-pipeline", "tweet-drama-project-bible", "tweet-drama-project-inspect", "tweet-drama-script-convert",
     "tweet-drama-script-split", "tweet-drama-shot-asset-match",
 }
 

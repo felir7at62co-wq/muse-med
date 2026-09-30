@@ -207,7 +207,7 @@ async function downloadVideo(row: VideoSubtask) {
 - **媒体传输有界且只允许单一来源**——`downloadMedia()` 只接受 `MEDIA_ALLOWED_ORIGINS` 中的来源，把响应体限制在 `MEDIA_LIMITS`（图片 64 MiB，视频 512 MiB），拒绝重定向，且不写入磁盘。
 - **没有保存过模型设置的分镜照样能读，只有它的计费路径会拒绝**——`modelConfig` 是一项保存下来的选择，因此一个没人配置过的分镜（刚建出来的，或占位件）不会返回其中任何一项。`readStoryboard()` 用 `9:16`、`720p` 与 `genNum=1` 顶替，把每一处顶替都报在 `model_config_defaults` 里、也报成 `model_config_notes` 里的一句，并让 `content_duration_ms` 保持 null——因为没有已保存的时长可报。`duration` 与 `modelId` 永不顶替：`withGenerationEnabled()` 交给提供方的是它自己的快照，因此一份缺少"提供方据此行动"的字段的已保存配置会被拒绝，报文带出期望的线上字段、提供方没有返回的那些、实际收到载荷的脱敏结构，以及 `jubian_model preview → apply` 这条修法。提供方确实返回了的值仍然必须可用，因此空标签、读不了的 `storyboardMaterialList` 与缺失的身份都会被点名拒绝。
 - **提供方合法给 null 的字段永远不是拒绝理由**——本提供方把未设置的 `episodeCount`、`scriptName`、`remark`、`updateBy`、`updateTime` 与 `videoSubTaskList` 拼成 `null`，把未设置的 `storyboardMaterialList` 拼成 `null` 或 `[]`。这些字段一律原样带进快照，只由"为它而问"的那次读取检查，因此 `readStoryboard()` 只要求身份、生成标记与素材键，`readTaskPage()` 只要求任务身份。
-- **分镜请求体从不从零拼装**——读取与免费保存保留非空宽高比/分辨率标签、`genNum=1` 和可安全表示为毫秒的正整数时长。传统 `withGenerationEnabled()` 路径保留 9:16/720p 与 4–14 秒内容时长，要求保存时长等于内容加一秒，并校验精确模型的时长能力。它不解析目录选择器；其他比例/分辨率返回可操作的 `INVALID_ARGUMENT`，指引调用方保留已存设置并使用原生准备流程。已存储的 `isGenerate=1` 不能证明生成已发生。
+- **分镜请求体从不从零拼装**——读取与免费保存保留非空宽高比/分辨率标签与 `genNum=1`。非法的已存时长保留在 `model_config` 中，附带修复说明，`content_duration_ms` 为 null；计费生成仍要求可安全表示为毫秒的正整数时长。传统 `withGenerationEnabled()` 路径保留 9:16/720p 与 4–14 秒内容时长，要求保存时长等于内容加一秒，并校验精确模型的时长能力。它不解析目录选择器；其他比例/分辨率返回可操作的 `INVALID_ARGUMENT`，指引调用方保留已存设置并使用原生准备流程。已存储的 `isGenerate=1` 不能证明生成已发生。
 - **没有任何传输行为会被重试或续跑**——除媒体下载外，本包不自己发起任何请求，因此每一次重试、超时与轮询决定都属于调用方。
 
 项目读取通过 `project_settings` 返回已保存的视频配置，不代选模型。素材选源按 key 首次出现的顺序处理，允许提示词重复引用；回读比较身份、名称、URL、类型、顺序与提示词，不比较服务端附加元数据。媒体下载也接受 HTTPS 域名 `101.aigc.jubianai.net`，沿用大小、文件头与重定向检查。

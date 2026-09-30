@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Owns the durable `drama` settings section, the **Settings → 短剧** page that edits it, and that page's read-only component list. The section carries the delivery and JianyingPro draft directories, delivery spec, BGM library, paid image route's `gpt-image-2` catalogue row, and the automatic per-drama paid-call budget. The Host registers its schema with the settings service; the browser edits resolved values and reports refused writes rather than showing them as saved. Paid calls within the budget require no per-call or first-use confirmation.
+Owns the durable `drama` settings section, the **Settings → 短剧** page that edits it, and that page's read-only component list. The section carries the delivery and JianyingPro draft directories, delivery spec, BGM library, paid image route's `gpt-image-2` catalogue row, and the automatic per-drama paid-call budget. The Host registers its schema with the settings service; the browser edits resolved values and reports refused writes rather than showing them as saved. Paid calls within the budget require no per-call or first-use confirmation. The project tool preserves confirmed specifications, completed tasks and revision history.
 
 ## Table of Contents
 
@@ -44,6 +44,14 @@ There is no config. A default is the schema's own, and a deployment that wants a
 | `imageStandardId` | absent | The `gpt-image-2` catalogue row the paid asset-image route buys from, named by that row's own `id`; absent means the route decides for itself, which works only while the account lists exactly one such row |
 | `seriesBudgetCents` | `400000` (¥4000 CNY) | Nonnegative safe integer cents per drama/Jubian `script_id`; priced paid calls automatically use that drama's cumulative limit, with no per-call or first-use confirmation; unquoted calls without an accepted estimate still refuse; `0` disables paid calls |
 
+### The project bible
+
+`drama_project` reads, previews and updates a project in an existing absolute directory. `read` returns `unconfigured` when no structured bible exists, preserves any legacy config, and exposes current Settings defaults without creating files. New projects copy delivery defaults and record the Settings budget in `initial_budget_cents`; this snapshot survives later Settings changes. Results report `current_settings_budget_cents`. Paid calls use the current Settings ceiling, tightened by any project entry in the ledger's `authorization.json`; the project tool accepts no budget override. `preview` merges confirmed changes, renders readable Markdown and identifies affected production stages. `update` requires the same changes/reason, exact file `expected_revision` and matching `preview_fingerprint`.
+
+`project_config.json` is authoritative. Its `project_bible` stores style, aspect ratio, exact video model/platform/generation resolution, independent delivery pixels/fps/bitrate, flexible episode plans, optional character identities and approved voice descriptions, stable package-to-storyboard mappings, completed task references and revision history. The top-level `jubian_script_id` and `delivery.max_effective_chars_per_shot` remain available to existing consumers. Other legacy fields survive updates. Existing project and package bindings cannot be silently replaced; completed task references append without erasing earlier records.
+
+The tool atomically replaces JSON under an exclusive project writer lock and then atomically replaces its derived `project-bible.md`. Paths containing symbolic links or junctions are refused. A stale file, altered preview, invalid field or held lock fails before either output changes. If Markdown rendering fails after the JSON commit, the error names the committed revision; read the config before retrying. An abandoned `.project-bible.lock` requires inspection before manual removal. Video choices need live Jubian catalogue and preparation validation; stored voice guidance does not guarantee a provider can force the same generated voice.
+
 ### The Settings page
 
 Before draft creation, the Agent calls `drama_draft_dir` without arguments. A ready result provides the existing absolute, readable and writable editor root as `path`; an empty setting returns `unconfigured`. Missing or invalid roots require `ask_user_question` for the installed editor's actual draft root. Passing that answer as `path` validates it, saves only `jianyingDraftDir` with revision protection, and confirms the saved value. Draft generation consumes the returned path and refuses existing draft names; valid saved roots require no repeated question. Earlier writing and production steps do not depend on this setting.
@@ -77,6 +85,7 @@ Each row carries one status: 已加载, 启动中, 加载失败, 按条件加载
 | File | Role |
 |---|---|
 | [`src/settings.ts`](src/settings.ts) | Shared by both faces: the namespace, the field names, the defaults, and the schemastery schema the Host registers and the browser validates against |
+| [`src/project-bible.ts`](src/project-bible.ts) | Authoritative project data, guarded change previews and readable Markdown rendering |
 | [`src/index.ts`](src/index.ts) | Host half: exports the row's own `Config` and, under `ctx.inject(['settings'])`, `settings.configure({ auto: false })` — the settings service owns the `drama-settings` namespace |
 | [`src/client/index.ts`](src/client/index.ts) | Browser half: one `ctx.configForms.get('drama-settings')`, the dictionaries, the page registration, and the optional inventory and image-route probes |
 | [`src/client/section.ts`](src/client/section.ts) | The page's draft compiler: form values to a section, a section plus the current one to path operations, and the "did it land" verdict |
@@ -109,11 +118,47 @@ Read these pages when the surfaces above are not enough. They move from this pac
 <a id="model-experience"></a>
 ## Model Experience
 
-`drama_draft_dir` returns `{status, path}` through logged tool results. Its only writable field is the Settings page's `jianyingDraftDir`; it never creates a directory or modifies drafts. Without both settings and tools services, the tool is unavailable. The standard tool-result presentation displays its returned status and path.
+### Tool schemas when settings and tools are available
+
+#### What the model sees
+
+The package contributes `drama_draft_dir` and `drama_project` when both services are composed. Their descriptions and parameters are in the [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-drama-settings). The package adds no system-prompt text.
+
+#### Token effect
+
+The two tool definitions add a fixed schema cost while registered. Settings values and project data do not enter those definitions.
 
 #### KV Cache effect
 
-The tool adds one stable definition to the model's tool list. Directory values enter the transcript only through tool results; saving a root does not change the tool definition.
+The registered definitions form a stable repeated prefix. Mounting, unloading or changing a tool definition can change that prefix; editing Settings or project files does not change these schemas.
+
+### Draft directory tool results
+
+#### What the model sees
+
+`drama_draft_dir` returns JSON with `status` and `path` through logged tool results. An empty setting returns `unconfigured` with an empty path; a valid existing editor root returns `ready` with its normalized absolute path. Saving changes only `jianyingDraftDir`; the tool creates no directory or draft.
+
+#### Token effect
+
+Each call appends a compact status and path result. Its size depends on the host path; a Settings-page edit has no direct token effect until a tool reads the value.
+
+#### KV Cache effect
+
+Tool results append to the transcript and preserve its existing prefix. A directory edit changes subsequent result tokens; it does not replace earlier logged results or issue a separate model request.
+
+### Project bible tool results
+
+#### What the model sees
+
+`drama_project` returns the current config, project paths, exact file revision and current Settings defaults. A preview adds the proposed config, review fingerprint, changed fields, affected stages and readable Markdown; an update returns the committed config and its new revision. Results use the standard JSON text presentation. The [project bible skill](../skills/skills/tweet-drama-project-bible/SKILL.md) owns grouped startup questions and the existing Jubian workflow.
+
+#### Token effect
+
+Calls append data-dependent JSON. Config size grows with character profiles, stable package mappings, completed tasks and revision history; previews also include the proposed config and its Markdown projection.
+
+#### KV Cache effect
+
+Read, preview and update results append to the transcript without replacing prior results. Project or Settings changes affect later result tokens; the package issues no independent model request.
 
 ## Known Limitations and Deferred Work
 
@@ -122,6 +167,7 @@ The tool adds one stable definition to the model's tool list. Directory values e
 
 These limits mark where the package is deliberately incomplete or needs the operator's cooperation. They are current constraints, not a task backlog.
 
+- **Project previews report impact without changing production state** — the workflow owns stale-stage reconciliation and real media QA. The project tool records catalogue selections and approved voice guidance; it makes no remote requests and cannot guarantee fixed native generated voices or reference-audio support.
 - **The Settings page accepts path strings** — it does not check existence or expand environment variables. `drama_draft_dir` validates the draft root on the host before returning it for generation; this cannot prove which directory an editor is configured to use, so the user supplies that location. The episode renderer does not create native drafts.
 - **The delivery spec is stored, not applied** — `dsh-tool-episode-render` still renders its own fixed 1440x2560 style; this section is where that contract will be read from, and until then a change here does not move the delivered file.
 - **The defaults are the package's** — a deployment that wants different defaults edits the schema; the composition declares no `base` layer for this namespace, so there is exactly one home for each default. The flip side is that an upgrade may change a default a deployment was relying on, which is why the page shows every resolved value.

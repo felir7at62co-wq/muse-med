@@ -1,11 +1,12 @@
 /**
  * Asset-manifest reading and the shot-to-asset binding rules.
  *
- * Binding follows the compiler's substring semantics: a shot binds every
- * manifest character whose name appears in its `出镜人物` field or in its prompt
- * text, every prop named by `关键道具` (falling back to the prompt text), and the
- * scene named by `核心场景` (falling back to the first manifest scene named in
- * the prompt text). Every bound asset must be official and must carry a Jubian
+ * An explicit `出镜人物` list owns human selection; without it, visual
+ * directions supply the names while spoken lines are excluded. Registered
+ * animals also bind from visual directions independently of the human list.
+ * aliases resolve to canonical assets, longer mentions suppress contained
+ * short names, and episode coverage plus declared state must identify one
+ * character version. Ambiguity is a repairable failure. Every bound asset must be official and must carry a Jubian
  * parent asset id, a Jubian material id, and a URL — a shot that would submit
  * work for an unconfirmed asset fails instead of compiling.
  *
@@ -34,6 +35,9 @@ import type { BoundAsset, IssueSeverity, ManifestAsset, ParsedShot, ShotIssue } 
 /** Manifest types that bind as an on-screen character. */
 const CHARACTER_TYPES = new Set(['角色', 'character'])
 
+/** Manifest types for animal subjects, which retain asset and episode checks. */
+const ANIMAL_TYPES = new Set(['动物', 'animal'])
+
 /** Manifest types that bind as a scene. */
 const SCENE_TYPES = new Set(['场景', 'scene'])
 
@@ -52,7 +56,7 @@ const NO_PROPS = new Set(['', '无'])
  * skipped at binding, which is the silent green `validate` this list exists to
  * prevent.
  */
-const TYPE_SPELLINGS = [...CHARACTER_TYPES, ...SCENE_TYPES, ...PROP_TYPES]
+const TYPE_SPELLINGS = [...CHARACTER_TYPES, ...ANIMAL_TYPES, ...SCENE_TYPES, ...PROP_TYPES]
 
 /** Read one manifest field as a trimmed string, or an empty string when absent. */
 function text(value: unknown): string {
@@ -122,7 +126,7 @@ export function parseAssetManifest(document: unknown, source: string): ManifestR
     throw new Error(`${source}: 资产清单缺少 assets 数组`)
   }
   const issues: ShotIssue[] = []
-  const assets = rows.map((row, index) => {
+  const assets = rows.map((row, index): ManifestAsset => {
     if (typeof row !== 'object' || row === null || Array.isArray(row)) {
       throw new Error(`${source}: assets[${index}] 不是对象`)
     }
@@ -131,11 +135,16 @@ export function parseAssetManifest(document: unknown, source: string): ManifestR
     const type = text(record.type)
     if (name === '') throw new Error(`${source}: assets[${index}] 缺少 name`)
     if (type === '') throw new Error(`${source}: assets[${index}]（${name}）缺少 type`)
+    const subjectKind = record.subject_kind
+    if (subjectKind !== undefined && subjectKind !== 'animal' && subjectKind !== 'human') {
+      throw new Error(`${source}: assets[${index}]（${name}）subject_kind 只接受 animal 或 human`)
+    }
     if (!TYPE_SPELLINGS.includes(type)) issues.push(assetTypeIssue(source, index, name, type))
     return {
       name,
       id: text(record.id) || name,
       type,
+      ...(subjectKind === undefined ? {} : { subjectKind }),
       official: record.official === true,
       assetId: text(record.jubian_asset_id) || text(record.asset_id),
       materialId: text(record.jubian_material_id) || text(record.material_id),
@@ -168,13 +177,18 @@ function isType(asset: ManifestAsset, types: ReadonlySet<string>): boolean {
   return types.has(asset.type)
 }
 
+/** Whether a registered subject is an animal rather than a human body-state target. */
+function isAnimal(asset: ManifestAsset): boolean {
+  return isType(asset, ANIMAL_TYPES) || (isType(asset, CHARACTER_TYPES) && asset.subjectKind === 'animal')
+}
+
 /** Build one binding issue. */
 function bindingIssue(
   severity: IssueSeverity,
   code: 'unregistered_scene' | 'no_scene_bound' | 'unconfirmed_asset' | 'incomplete_asset'
     | 'shot_body_state_missing' | 'shot_body_state_unusable' | 'asset_state_unregistered'
     | 'asset_state_mismatch' | 'asset_episodes_unregistered' | 'asset_episode_mismatch'
-    | 'asset_state_missing',
+    | 'asset_state_missing' | 'asset_binding_ambiguous' | 'unregistered_character',
   shot: ParsedShot,
   message: string,
 ): ShotIssue {
@@ -200,9 +214,122 @@ function aliasNames(asset: ManifestAsset): string[] {
   return asset.aliases.split(/[、,，;；/|｜\s]+/).filter(name => name.trim() !== '')
 }
 
+/** One registered name or alias at a location in the shot's declared or visual text. */
+interface Mention { label: string; start: number; end: number; candidates: ManifestAsset[] }
+
+/** A character's canonical name, aliases and unqualified name before its version suffix. */
+function characterNames(asset: ManifestAsset): string[] {
+  return [...new Set([asset.name, ...aliasNames(asset), asset.name.replace(/[（(].*$/, '').trim()])].filter(Boolean)
+}
+
+/** Match the longest registered names at each text location, retaining alias collisions. */
+function characterMentions(source: string, assets: readonly ManifestAsset[]): Mention[] {
+  const byLabel = new Map<string, ManifestAsset[]>()
+  for (const asset of assets) {
+    if (!isType(asset, CHARACTER_TYPES) && !isType(asset, ANIMAL_TYPES)) continue
+    for (const label of characterNames(asset)) byLabel.set(label, [...(byLabel.get(label) ?? []), asset])
+  }
+  const mentions: Mention[] = []
+  for (const [label, candidates] of byLabel) {
+    let start = source.indexOf(label)
+    while (start >= 0) {
+      mentions.push({ label, start, end: start + label.length, candidates })
+      start = source.indexOf(label, start + label.length)
+    }
+  }
+  const longest = mentions.filter(mention => !mentions.some(other => other.start <= mention.start
+    && other.end >= mention.end && other.label.length > mention.label.length))
+  const seen = new Set<string>()
+  return longest.sort((a, b) => a.start - b.start).filter((mention) => {
+    if (seen.has(mention.label)) return false
+    seen.add(mention.label)
+    return true
+  })
+}
+
+/** Visual inference excludes the speech track and its speaker metadata. */
+function visualDirections(shot: ParsedShot): string {
+  return shot.visual.split('\n').filter(line => !/^\s*(?:台词|说话人|发声类型|旁白|心声|画外音)\s*[：:]/.test(line)).join('\n')
+}
+
+/** Split an on-screen list without splitting costume annotations in parentheses. */
+function declaredCharacters(source: string): string[] {
+  const result: string[] = []
+  let depth = 0; let current = ''
+  for (const character of source) {
+    if ('（('.includes(character)) depth++
+    if ('）)'.includes(character)) depth = Math.max(0, depth - 1)
+    if (depth === 0 && /[、,，;；/|｜\n]/.test(character)) {
+      if (current.trim()) result.push(current.trim())
+      current = ''
+    } else current += character
+  }
+  if (current.trim()) result.push(current.trim())
+  return result
+}
+
+/** Select one version per on-screen mention without defaulting to the manifest's first row. */
+function selectCharacters(shot: ParsedShot, assets: readonly ManifestAsset[], episode: number | undefined,
+  issues: ShotIssue[]): ManifestAsset[] {
+  const source = shot.charactersField || visualDirections(shot)
+  const animals = assets.filter(isAnimal)
+  const declared = characterMentions(source, assets)
+  const mentions = [...declared, ...characterMentions(visualDirections(shot), animals).filter(mention =>
+    !declared.some(named => named.candidates.some(asset => mention.candidates.includes(asset))))]
+  const selected = new Set<ManifestAsset>()
+  for (const mention of mentions) {
+    let candidates = [...new Map(mention.candidates.map(asset => [JSON.stringify(asset), asset])).values()]
+    if (candidates.length > 1) {
+      const covered = candidates.filter(asset => coversEpisode(asset.episodes, episode))
+      if (covered.length === 0) {
+        issues.push(bindingIssue('failure', 'asset_episode_mismatch', shot,
+          `镜头${shot.shot}的 ${mention.label} 没有覆盖第${String(episode)}集的版本：`
+          + `${candidates.map(describeRegistration).join('；')}。登记实际适用集数或选本集资产。`))
+        continue
+      }
+      candidates = covered
+    }
+    if (candidates.length > 1) {
+      const compatible = candidates.filter((asset) => {
+        if (isAnimal(asset)) return false
+        const declared = declaredStateFor(asset, shot.bodyStates)
+        if (declared === undefined) return false
+        const required = readStateFacts(declared)
+        return hasBodyDimension(required) && registrationAgrees(required, registeredFacts(asset))
+      })
+      if (compatible.length > 0) candidates = compatible
+    }
+    if (candidates.length !== 1) {
+      issues.push(bindingIssue('failure', 'asset_binding_ambiguous', shot,
+        `镜头${shot.shot}的 ${mention.label} 无法唯一绑定角色版本：`
+        + `${candidates.map(describeAsset).join('；')}。用完整资产名明确本镜版本，或补清 episodes 与身体状态；不按清单顺序猜。`))
+      continue
+    }
+    const chosen = candidates[0]
+    if (chosen !== undefined) {
+      const qualified = chosen.name === mention.label || aliasNames(chosen).includes(mention.label)
+      const declared = declaredStateFor(chosen, shot.bodyStates)
+      if (!isAnimal(chosen) && !qualified && declared !== undefined) {
+        const required = readStateFacts(declared)
+        if (hasBodyDimension(required) && !registrationAgrees(required, registeredFacts(chosen))) continue
+      }
+      selected.add(chosen)
+    }
+  }
+  if (shot.charactersField) {
+    for (const name of declaredCharacters(shot.charactersField)) {
+      if (characterMentions(name, assets).length || [...shot.bodyStates].some(([character, state]) =>
+        name.includes(character) && hasBodyDimension(readStateFacts(state)))) continue
+      issues.push(bindingIssue('failure', 'unregistered_character', shot,
+        `镜头${shot.shot}的出镜人物 ${name} 未登记正式角色或 aliases：补登记对应资产与版本，或更正本镜出镜名单。`))
+    }
+  }
+  return assets.filter(asset => selected.has(asset))
+}
+
 /** Whether one manifest row is a version of the character a state declaration names. */
 function isVersionOf(asset: ManifestAsset, character: string): boolean {
-  if (!isType(asset, CHARACTER_TYPES)) return false
+  if (!isType(asset, CHARACTER_TYPES) || isAnimal(asset)) return false
   return [asset.name, ...aliasNames(asset)].some(name => name === character
     || name.includes(character) || (name.length >= 2 && character.includes(name)))
 }
@@ -329,7 +456,7 @@ function bodyStateIssues(
   const states = shot.bodyStates
   const matched = new Set<string>()
   for (const asset of bound) {
-    if (!isType(asset, CHARACTER_TYPES)) continue
+    if (!isType(asset, CHARACTER_TYPES) || isAnimal(asset)) continue
     const declared = declaredStateFor(asset, states)
     if (declared === undefined) {
       issues.push(bindingIssue('failure', 'shot_body_state_missing', shot,
@@ -375,6 +502,7 @@ function bodyStateIssues(
   }
 
   for (const [character, declared] of states) {
+    if (assets.some(asset => isAnimal(asset) && characterNames(asset).includes(character))) continue
     const required = readStateFacts(declared)
     if (!hasBodyDimension(required) || matched.has(character)) continue
     // A declaration that contradicts itself names no state an asset could carry, so
@@ -406,6 +534,37 @@ function bodyStateIssues(
   return issues
 }
 
+/** Same-named assets require one eligible registration; local copy paths do not define another remote version. */
+function selectNamedAssets(candidates: readonly ManifestAsset[], shot: ParsedShot, episode: number | undefined,
+  issues: ShotIssue[]): ManifestAsset[] {
+  const byName = new Map<string, ManifestAsset[]>()
+  for (const asset of candidates) byName.set(asset.name, [...(byName.get(asset.name) ?? []), asset])
+  const selected: ManifestAsset[] = []
+  for (const [name, rows] of byName) {
+    let versions = [...new Map(rows.map(asset => [JSON.stringify({ ...asset, localPath: '' }), asset])).values()]
+    if (versions.length > 1) {
+      const covered = versions.filter(asset => coversEpisode(asset.episodes, episode))
+      if (covered.length === 0) {
+        issues.push(bindingIssue('failure', 'asset_episode_mismatch', shot,
+          `镜头${shot.shot}的 ${name} 没有覆盖第${String(episode)}集的资产版本：`
+          + `${versions.map(asset => `${describeAsset(asset)}，${describeEpisodes(asset.episodes)}`).join('；')}。`
+          + '登记实际适用集数或选择本集资产。'))
+        continue
+      }
+      versions = covered
+    }
+    if (versions.length !== 1) {
+      issues.push(bindingIssue('failure', 'asset_binding_ambiguous', shot,
+        `镜头${shot.shot}的 ${name} 无法唯一绑定资产版本：${versions.map(describeAsset).join('；')}。`
+        + '用不同的完整资产名明确本镜版本，或补清 episodes；不按清单顺序猜。'))
+      continue
+    }
+    const asset = versions[0]
+    if (asset !== undefined) selected.push(asset)
+  }
+  return selected
+}
+
 /**
  * Bind one parsed shot to the manifest's official assets.
  *
@@ -421,41 +580,35 @@ function bodyStateIssues(
 export function bindShot(shot: ParsedShot, assets: readonly ManifestAsset[],
   episode?: number): ShotBinding {
   const issues: ShotIssue[] = []
-  const byName = new Map<string, ManifestAsset>()
-  for (const asset of assets) byName.set(asset.name, asset)
-
-  const characters = assets.filter(asset => isType(asset, CHARACTER_TYPES)
-    && (shot.charactersField.includes(asset.name) || shot.visual.includes(asset.name)))
+  const characters = selectCharacters(shot, assets, episode, issues)
   const fromField = NO_PROPS.has(shot.propsField)
     ? []
     : assets.filter(asset => isType(asset, PROP_TYPES) && shot.propsField.includes(asset.name))
-  const props = fromField.length > 0
+  const propCandidates = shot.propsField === '无' ? [] : fromField.length > 0
     ? fromField
     : assets.filter(asset => isType(asset, PROP_TYPES) && shot.visual.includes(asset.name))
+  const props = selectNamedAssets(propCandidates, shot, episode, issues)
 
   let scene = shot.sceneField
   if (scene === '') {
     const fromVisual = assets.find(asset => isType(asset, SCENE_TYPES) && shot.visual.includes(asset.name))
     scene = fromVisual?.name ?? ''
   }
-  if (scene !== '' && !byName.has(scene)) {
+  const sceneCandidates = assets.filter(asset => isType(asset, SCENE_TYPES) && asset.name === scene)
+  if (scene !== '' && sceneCandidates.length === 0) {
     issues.push(bindingIssue('failure', 'unregistered_scene', shot,
       `镜头${shot.shot}的 核心场景：${scene} 未登记在资产清单：`
       + '先把它提取成正式场景资产并确认出演，或改写成本集已登记的正式场景名。'))
   }
+  const scenes = selectNamedAssets(sceneCandidates, shot, episode, issues)
   if (scene === '') {
     issues.push(bindingIssue('warning', 'no_scene_bound', shot,
       `镜头${shot.shot}没有绑定任何场景资产（核心场景 空缺，画面文字里也没有已登记的场景名）：`
       + '成片会缺少场景一致性锚点，补一行 核心场景：<正式场景名> 更安全。'))
   }
 
-  const names = [...new Set([...characters.map(asset => asset.name), ...(scene === '' ? [] : [scene]),
-    ...props.map(asset => asset.name)])]
-  const bound: ManifestAsset[] = []
-  for (const name of names) {
-    const asset = byName.get(name)
-    if (asset === undefined) continue
-    bound.push(asset)
+  const bound = selectNamedAssets([...characters, ...scenes, ...props], shot, episode, issues)
+  for (const asset of bound) {
     if (!asset.official) {
       issues.push(bindingIssue('failure', 'unconfirmed_asset', shot,
         `镜头${shot.shot}引用未确认出演资产：${asset.name}（official 不是 true）。`

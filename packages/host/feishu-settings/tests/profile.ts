@@ -90,6 +90,26 @@ export async function feishuProfile(
     name: 'test', startedBundles: ['test-bundle'], dir, patchPath: join(dir, 'cordis.patch.yml'),
     installAnchor: join(home, 'package.json'), cwd: home, home, overlays: [], telemetryDisabledEnv: undefined,
   }
+  return await bootFeishuProfile(profile)
+}
+
+/**
+ * Dispose the running Loader and boot the same profile from its persisted files.
+ * @param composition - running composition whose profile will be reopened.
+ * @returns a new context using the same profile and patch file.
+ */
+export async function restartFeishuProfile(composition: FeishuComposition): Promise<FeishuComposition> {
+  await composition.ctx.fiber.dispose()
+  return await bootFeishuProfile(composition.profile)
+}
+
+/**
+ * Boot the stored profile without rewriting its bundle or user patch.
+ * @param profile - profile whose files are already initialized.
+ * @returns the booted context and its profile.
+ */
+async function bootFeishuProfile(profile: ProfileContext): Promise<FeishuComposition> {
+  const { dir } = profile
   const ctx = await boot('test', join(dir, 'cordis.yml'), readProfilePatches('test', profile), (host) => {
     host.provide('profileContext', profile)
     host.provide('appReady', { onReady: (listener: () => void) => { listener(); return () => {} } })
@@ -112,7 +132,7 @@ export async function feishuProfile(
  */
 export function rowConfig(ctx: Context, id: string): Record<string, unknown> | undefined {
   const entry = [...ctx.loader.entries()].find(candidate => candidate.options.id === id)
-  const config = entry?.fiber?.config
+  const config: unknown = entry?.fiber?.config
   if (typeof config !== 'object' || config === null) return undefined
   return Object.fromEntries(Object.entries(config).map(([key, value]) => {
     const reference = value as { get?: () => unknown }

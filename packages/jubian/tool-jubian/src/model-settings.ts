@@ -1,13 +1,13 @@
 /** Free, frozen, scoped changes to existing storyboard model settings. */
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import type { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { resolveVideoModel, stableJson } from '@deepseek-ai/dsh-jubian-api'
 import { atomicWriteJson, validateProjectBinding } from './native.ts'
 import type { MethodArgs } from './methods.ts'
 import { need, requireKey, writeUnderLedger } from './write.ts'
+import { readPreparedJson } from './prepared-file.ts'
 
 const INTENT_KEYS = ['modelId', 'platformId', 'ratio', 'resolution', 'genType', 'duration', 'genNum'] as const
 const MODEL_KEYS = [...INTENT_KEYS, 'standardId', 'modelGenerationTypeId', 'videoStandardId'] as const
@@ -15,6 +15,7 @@ const PROVIDER_AUDIT_KEYS = ['updateTime', 'updateBy', 'createTime', 'createBy']
 type Row = Record<string, unknown>
 interface Selector { scope: 'storyboards' | 'episodes' | 'project'; storyboard_ids: number[]; episode_ids: number[] }
 interface Target { storyboard_id: number; episode_id: number; before_hash: string; preserved_hash: string; before: Row; after: Row }
+interface Excluded { storyboard_id: number; episode_id: number | null; reason: string; detail: string }
 interface Plan {
   /** 2 since the preserved hash stopped counting the provider's per-save material churn. */
   version: 2
@@ -23,6 +24,7 @@ interface Plan {
   selector: Selector
   changes: Row
   targets: Target[]
+  excluded_invalid?: Excluded[]
   fingerprint: string
 }
 
@@ -132,8 +134,9 @@ function matches(board: Row, target: Target): boolean {
 }
 function fingerprint(plan: Omit<Plan, 'fingerprint'>): string { return hash(plan) }
 
-async function targets(client: JubianClient, scriptId: number, selector: Selector): Promise<number[]> {
-  if (selector.scope === 'storyboards') return selector.storyboard_ids
+async function targets(client: JubianClient, scriptId: number, selector: Selector):
+Promise<{ keys: number[]; excluded: Excluded[] }> {
+  if (selector.scope === 'storyboards') return { keys: selector.storyboard_ids, excluded: [] }
   const collected: Row[] = []
   const seen = new Set<number>()
   let total: number | undefined
@@ -156,12 +159,23 @@ async function targets(client: JubianClient, scriptId: number, selector: Selecto
     }
     if (total !== undefined && collected.length > total) fail('Storyboard list total mismatch')
     if (total === collected.length || (total === undefined && rows.length < 100)) {
-      const selected = collected.filter(row => selector.scope === 'project' || selector.episode_ids.includes(id(row.episodeId)))
+      const excluded: Excluded[] = []
+      const selected = collected.filter((row) => {
+        let episodeId: number
+        try { episodeId = id(row.episodeId) }
+        catch (error) {
+          excluded.push({ storyboard_id: id(row.id), episode_id: null,
+            reason: row.episodeId === null || row.episodeId === undefined ? 'missing_episode_id' : 'invalid_episode_id',
+            detail: error instanceof JubianError ? 'episodeId 无效；用 jubian_catalog episodes 查真实分集 ID，再 edit_preview 修复。' : 'Unreadable episodeId' })
+          return false
+        }
+        return selector.scope === 'project' || selector.episode_ids.includes(episodeId)
+      })
       if (!selected.length || (selector.scope === 'episodes'
         && selector.episode_ids.some(episode => !selected.some(row => id(row.episodeId) === episode)))) {
         fail('Scope has no storyboards for one or more requested episodes')
       }
-      return selected.map(row => id(row.id)).sort((a, b) => a - b)
+      return { keys: selected.map(row => id(row.id)).sort((a, b) => a - b), excluded }
     }
     if (rows.length < 100) fail('Incomplete storyboard list')
   }
@@ -194,13 +208,26 @@ function targetOf(board: Row, catalogue: unknown, changes: Row): Target {
 async function build(client: JubianClient, scriptId: number, selector: Selector, changes: Row): Promise<Plan> {
   const catalogue = (await client.request({ method: 'GET', path: '/model/charge/getSelectList?taskType=1' })).data
   const items: Target[] = []
-  for (const key of await targets(client, scriptId, selector)) {
-    const target = targetOf(await readBoard(client, scriptId, key), catalogue, changes)
+  const selected = await targets(client, scriptId, selector)
+  const excluded = selected.excluded
+  for (const key of selected.keys) {
+    const board = await readBoard(client, scriptId, key)
+    let target: Target
+    try { target = targetOf(board, catalogue, changes) }
+    catch (error) {
+      if (selector.scope === 'storyboards' || !(error instanceof JubianError)) throw error
+      excluded.push({ storyboard_id: key, episode_id: id(board.episodeId), reason: 'invalid_settings', detail: error.message.slice(0, 240) })
+      continue
+    }
     if (selector.scope === 'episodes' && !selector.episode_ids.includes(target.episode_id)) fail('Episode membership drift')
     items.push(target)
   }
+  if (!items.length || (selector.scope === 'episodes'
+    && selector.episode_ids.some(episode => !items.some(target => target.episode_id === episode)))) {
+    fail(`Scope has no valid storyboards for one or more requested episodes; excluded_invalid=${stableJson(excluded)}`)
+  }
   const plan = { version: 2, operation: 'storyboard_model_settings', script_id: scriptId,
-    selector, changes, targets: items } as const
+    selector, changes, targets: items, ...(excluded.length ? { excluded_invalid: excluded } : {}) } as const
   return { ...plan, fingerprint: fingerprint(plan) }
 }
 function parsePlan(value: unknown): Plan {
@@ -216,8 +243,19 @@ function parsePlan(value: unknown): Plan {
       preserved_hash: target.preserved_hash, before: object(target.before), after: object(target.after) }
   })
   ids(parsedTargets.map(target => target.storyboard_id))
+  let excluded: Excluded[] | undefined
+  if (row.excluded_invalid !== undefined) {
+    if (!Array.isArray(row.excluded_invalid) || !row.excluded_invalid.length) fail('Invalid excluded storyboard list')
+    excluded = row.excluded_invalid.map((raw) => {
+      const item = object(raw)
+      if (typeof item.reason !== 'string' || typeof item.detail !== 'string') fail('Invalid excluded storyboard diagnostics')
+      return { storyboard_id: id(item.storyboard_id), episode_id: item.episode_id === null ? null : id(item.episode_id),
+        reason: item.reason, detail: item.detail }
+    })
+  }
   const plan = { version: 2, operation: 'storyboard_model_settings', script_id: id(row.script_id),
-    selector: selectorOf(object(row.selector)), changes: changesOf(row.changes), targets: parsedTargets } as const
+    selector: selectorOf(object(row.selector)), changes: changesOf(row.changes), targets: parsedTargets,
+    ...(excluded === undefined ? {} : { excluded_invalid: excluded }) } as const
   const result = { ...plan, fingerprint: fingerprint(plan) }
   if (row.fingerprint !== result.fingerprint || stableJson(row) !== stableJson(result)) fail('Plan fingerprint mismatch')
   return result
@@ -235,12 +273,9 @@ async function applyPlan(client: JubianClient, ledger: JubianLedger, args: Metho
   const key = requireKey(args.idempotency_key)
   const scriptId = id(need(args.script_id, 'script_id'))
   const binding = await validateProjectBinding(need(args.project_dir, 'project_dir'), scriptId)
-  const path = resolve(need(args.preview_path, 'preview_path'))
-  let raw: unknown
-  try { raw = JSON.parse(await readFile(path, 'utf8')) }
-  catch (error) { return fail(error instanceof Error ? 'Cannot read model settings plan' : 'Invalid plan') }
+  const raw = await readPreparedJson(binding.project_root, key, need(args.preview_path, 'preview_path'), 'model-settings')
   const plan = parsePlan(raw)
-  if (key !== plan.fingerprint || scriptId !== plan.script_id || path !== destination(binding.project_root, key)) {
+  if (key !== plan.fingerprint || scriptId !== plan.script_id) {
     fail('Plan project/path/key mismatch')
   }
   const previous = await ledger.find(key)
@@ -259,6 +294,7 @@ async function applyPlan(client: JubianClient, ledger: JubianLedger, args: Metho
       items.push({ storyboard_id: target.storyboard_id, status })
     }
     return { status: 'replayed', replayed: true, paid_requests: 0, items,
+      ...(plan.excluded_invalid === undefined ? {} : { excluded_invalid: plan.excluded_invalid }),
       next: 'No requests resent. Read current storyboards to reconcile; this plan will not resume remaining targets.' }
   }
   const live = await build(client, scriptId, plan.selector, plan.changes)
@@ -296,6 +332,7 @@ async function applyPlan(client: JubianClient, ledger: JubianLedger, args: Metho
   }
   return { status: items.every(item => item.status === 'applied') ? 'applied' : 'partial',
     replayed: false, paid_requests: 0, items,
+    ...(plan.excluded_invalid === undefined ? {} : { excluded_invalid: plan.excluded_invalid }),
     next: 'Existing storyboards only; defaults and produced media are unchanged. On partial outcome, reconcile before a new preview; never change keys to retry.' }
 }
 

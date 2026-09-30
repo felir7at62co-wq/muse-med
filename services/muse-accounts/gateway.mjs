@@ -15,6 +15,21 @@ import {verifyPersonalRoot} from './kb-personal.mjs';
 import {openModelConfig,createModelRelay} from './model-relay.mjs';
 import {openGlobalModels,restrictModelSchema} from './global-models.mjs';
 import {createDesktopModels} from './desktop-models.mjs';
+
+/** Load account Wiki storage and administrator grants without opening legacy vector files.
+ * @param {object} environment Gateway environment containing the KB directory and credential-file paths.
+ * @returns {Promise<object|undefined>} Wiki configuration, or undefined when disabled or its secret is invalid.
+ * @throws {Error} Invalid document grants or an unavailable, overlapping, or permissive private root.
+ */
+export async function loadKnowledgeBase(environment = process.env) {
+ if(!environment.MUSE_KB_VAULT||!environment.MUSE_KB_SECRET)return;
+ const secret=(await readFile(environment.MUSE_KB_SECRET,'utf8').catch(()=>'')).trim();
+ if(secret.length<32){console.error('[muse-kb] 知识库密钥缺失或过短，云端知识库接口已停用');return;}
+ const documentGrants=environment.MUSE_KB_DOCUMENT_GRANTS?await loadDocumentGrants(environment.MUSE_KB_DOCUMENT_GRANTS,{vaultRoot:environment.MUSE_KB_VAULT}):new Map();
+ await verifyPersonalRoot(environment.MUSE_KB_USER_ROOT,environment.MUSE_KB_VAULT);
+ return {vaultRoot:environment.MUSE_KB_VAULT,personalRoot:environment.MUSE_KB_USER_ROOT,secret,documentGrants};
+}
+
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const style='*{box-sizing:border-box}body{margin:0;background:#f7f6f2;color:#191919;font:16px system-ui,sans-serif}main{max-width:960px;margin:8vh auto;padding:36px;background:white;border:1px solid #e8e7e1;border-radius:24px}.auth{max-width:430px}img{width:72px;height:72px}h1{letter-spacing:5px}p,small{color:#777}label{display:block;margin-top:18px;font-size:14px}input,button{padding:12px;border-radius:8px;font:inherit;border:1px solid #ddd}.auth input,.auth button{width:100%}button{background:#202020;color:white;cursor:pointer;margin:12px 0}a{color:#444}nav{display:flex;gap:24px;align-items:center}td,th{text-align:left;padding:12px;border-bottom:1px solid #eee}table{width:100%;border-collapse:collapse}.row{display:flex;gap:8px;align-items:center}.row input{width:140px}@media(max-width:700px){main{margin:20px 12px;padding:22px}.scroll{overflow-x:auto}}';
 const polish='body{background:#f5f5f3;-webkit-font-smoothing:antialiased}main{box-shadow:0 16px 70px #00000005}h1{font-size:30px;letter-spacing:-.04em;margin:16px 0}h2{font-size:20px;margin-top:32px}nav{flex-wrap:wrap;margin:24px 0}nav a{font-size:14px;text-decoration:none;border:1px solid #e3e3df;padding:9px 14px;border-radius:10px}a:hover{color:#000}input{background:#fafafa;transition:border-color .15s}input:focus{outline:2px solid #222;outline-offset:2px}button:hover{background:#404040}button:focus-visible,a:focus-visible{outline:2px solid #222;outline-offset:3px}.eyebrow{font-size:11px;letter-spacing:.2em;color:#888}.model-form{max-width:680px;margin:30px 0}.model-form input{display:block;width:100%;margin-top:8px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.notice{padding:14px 18px;border:1px solid #d5dfd6;background:#f4f8f4;border-radius:12px;font-size:14px}small{display:block;line-height:1.8}th{color:#777;font-size:12px;font-weight:500}td{font-size:14px}.auth h1{letter-spacing:.14em}.auth>img{display:block;margin-bottom:22px}.auth form{margin:24px 0}.auth input{margin-top:8px}.auth small{font-size:12px}.auth>p{line-height:1.7}main:not(.auth)>form:not(.model-form){max-width:520px}main:not(.auth)>form>label input{display:block;width:100%;margin-top:8px}@media(max-width:600px){.form-grid{grid-template-columns:1fr;gap:0}h1{font-size:26px}main{border-radius:18px}}';
@@ -210,24 +225,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
  const feedback=await openFeedback(join(dirname(process.env.MUSE_ACCOUNTS_FILE||'/var/lib/muse/accounts.json'),'feedback'));
  const adminAccess=process.env.MUSE_ADMIN_ROOT?await openAdminAccess(process.env.MUSE_ADMIN_ROOT):undefined;
  const adminHosts=process.env.MUSE_ADMIN_HOSTS?JSON.parse(await readFile(process.env.MUSE_ADMIN_HOSTS,'utf8')):{};
- let kb;
- if(process.env.MUSE_KB_VAULT&&process.env.MUSE_KB_SECRET){
-  const secret=(await readFile(process.env.MUSE_KB_SECRET,'utf8').catch(()=>'')).trim();
-  if(secret.length<32)console.error('[muse-kb] 知识库密钥缺失或过短，云端知识库接口已停用');
-  else{
-   // Embeddings are optional: without a key the endpoint stays lexical-only.
-   const {createEmbedder,openVectorIndex}=await import('./kb-embedding.mjs');
-   const embeddingKey=process.env.MUSE_KB_EMBEDDING_KEY?(await readFile(process.env.MUSE_KB_EMBEDDING_KEY,'utf8').catch(()=>'')).trim():'';
-   const embedder=createEmbedder({apiKey:embeddingKey,...process.env.MUSE_KB_EMBEDDING_MODEL?{model:process.env.MUSE_KB_EMBEDDING_MODEL}:{},...process.env.MUSE_KB_EMBEDDING_ENDPOINT?{endpoint:process.env.MUSE_KB_EMBEDDING_ENDPOINT}:{}});
-   if(!embedder.enabled)console.error('[muse-kb] 未配置向量模型凭据，语义检索关闭，退回关键词检索');
-   let vectors;
-   if(process.env.MUSE_KB_VECTORS)try{vectors=openVectorIndex({file:process.env.MUSE_KB_VECTORS,model:embedder.model});}
-   catch(error){console.error('[muse-kb] 向量索引不可读，已退回纯关键词检索：',error.code||error.message);}
-   const documentGrants=process.env.MUSE_KB_DOCUMENT_GRANTS?await loadDocumentGrants(process.env.MUSE_KB_DOCUMENT_GRANTS,{vaultRoot:process.env.MUSE_KB_VAULT}):new Map();
-   await verifyPersonalRoot(process.env.MUSE_KB_USER_ROOT,process.env.MUSE_KB_VAULT);
-   kb={vaultRoot:process.env.MUSE_KB_VAULT,personalRoot:process.env.MUSE_KB_USER_ROOT,secret,documentGrants,embedder,vectors,semanticWeight:Number(process.env.MUSE_KB_SEMANTIC_WEIGHT??0.5),semanticFloor:Number(process.env.MUSE_KB_SEMANTIC_FLOOR??0.5)};
-  }
- }
+ const kb=await loadKnowledgeBase();
  let asr,asrSweepIntervalSeconds;
  if(process.env.MUSE_ASR_CONFIG){
   const metadata=await stat(process.env.MUSE_ASR_CONFIG);

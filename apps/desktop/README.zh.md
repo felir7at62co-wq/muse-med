@@ -83,7 +83,7 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 应用 → 桌面插件把五个内置社区包与用户自装插件分开显示，仅在你主动加载在线目录后联网，本地过滤，并把确认过的 npm 来源条目交给既有桌面包事务安装。仅 GitHub 或 tarball 来源的条目仍可浏览并给出仓库链接，但不能由该管理器安装。开发模式下包变更是只读的；目录网络失败既不会下载任何内容，也不会隐藏内置清单。
 
-内置飞书桥接只在本产品自己的开关要求时才运行：`feishu` 组合行自身的 `enabled` 字段，它既是该行的 Config，也就是页面向其写入的 `feishu` 设置段。桌面组合在启动后端时从组合出的行里读取它，并重述进 `feishu-channel` 行自己的 `enabled` 键（[`src/feishu-gate.ts`](../desktop-host/src/feishu-gate.ts)），因此开关在下次启动时生效。仅靠开关并不充分：社区构建的兼容 overlay 给该行加入默认 `true` 的插件级激活开关，而 patch 与闸门层都把 `enabled`、`autoRegistration`、`crossInstanceSync` 保持 `false`，所以打开开关只是让桥接挂载，扫码注册与跨实例同步仍然关闭。开关为 off 时该行保持挂载而非 entry-disabled：在这个 harness 里插件的设置段就是它自己的 Config，扫码得到的凭证对必须在桥接首次运行之前就能存下，而 `enabled: false` 是那个让打包插件在同步层、控制服务、心跳与二维码应用注册之前返回的 fail-safe。因此默认桌面不发起扫码注册，不启动同步层与控制服务，也不读取其他实例的同步目录；凭证只来自该行自己存储的段，永不来自组合补丁；能否触达机器人仍取决于飞书应用自身的权限与可见范围。
+内置飞书桥接只在本产品自己的开关要求时才运行：`feishu` 组合行自身的 `enabled` 字段，它既是该行的 Config，也就是页面向其写入的 `feishu` 设置段。桌面组合在启动后端时从组合出的行里读取它，并重述进 `feishu-channel` 行自己的 `enabled` 键（[`src/feishu-gate.ts`](../desktop-host/src/feishu-gate.ts)），因此开关在下次启动时生效。仅靠开关并不充分：社区构建的兼容 overlay 给该行加入默认 `true` 的插件级激活开关，而 patch 与闸门层都把 `enabled`、`autoRegistration`、`crossInstanceSync` 保持 `false`，所以打开开关只是让桥接挂载，扫码注册与跨实例同步仍然关闭。开关为 off 时该行保持挂载而非 entry-disabled：在这个 harness 里插件的设置段就是它自己的 Config，扫码得到的凭证对必须在桥接首次运行之前就能存下，而 `enabled: false` 是那个让打包插件在同步层、控制服务、心跳与二维码应用注册之前返回的 fail-safe。因此默认桌面不发起扫码注册，不启动同步层与控制服务，也不读取其他实例的同步目录；凭证保存在当前 profile 补丁中，并保留在组合出的桥接配置里；能否触达机器人仍取决于飞书应用自身的权限与可见范围。
 
 产品加载随包短剧与 Muse 技能及自身 `$DSH_HOME/skills`，不扫描已有 DSH、`.agents` 或默认项目技能源；显式插件技能注册仍然可用。Windows 用户将自定义技能放在 `%USERPROFILE%\.muse\skills\<skill-name>\SKILL.md`；`MUSE_MED_HOME` 可指定其他产品 home。Host 在启动时创建 skills 目录。开发模式使用下文说明的独立 home。短剧、编辑、标准、PTC 和创造模式提供技能工具。短剧技能从 ASAR 解包，Host 向外部 Python 提供真实的 `app.asar.unpacked` 路径。 创造模式专属的组合编写技能也从 ASAR 解包，供该模式的文件系统技能提供方读取。Windows 启动将 `runtime/media/python` 和 `runtime/media/ffmpeg/bin` 放到子进程搜索路径前部。[媒体准备器](scripts/prepare-media-runtime.ts)在发布输出前检查锁定输入、依赖导入、编码、字幕烧录、草稿媒体探测及 Word 读写验证；复用时验证完整文件清单并重跑这些检查。构建机器上的验证不能替代无开发工具机器上的安装验证。安装器附带微软官方 VC++ 前置运行库，检查已装版本并在安装前请求授权；拒绝或失败会阻止成功完成和自动启动。再分发需要发行者具有适用的微软许可，不能仅依据运行库终端许可。
 
@@ -402,6 +402,8 @@ macOS 打包在组装 App 时、代码签名前写入 `Contents/Resources/app-up
 共享技能 `wechat-shortdrama-harvest` 通过用户已登录的 Windows 微信获取小程序及受支持的视频号资源，随包提供 Python 辅助脚本、OpenCV 和 SciPy。配置与私有采集状态保存在项目内本次任务的 `SHORTDRAMA_WORK` 目录，转写前核对判集结果，不覆盖内容不同的已有视频。平台兼容性和可访问集数可能不同，须报告缺集。自动采集会先归档候选文件，再进行最终核对，文件数量不能单独证明全集完整。
 
 小说与视频转剧本在起草前共用 `screenplay-format` 技能：集号与场次、人物表、▲动作段、对白、OS/VO，以及有来源依据的集尾钩子。剧本正文不带来源时间码；集数与篇幅沿用大纲阶段可修改的约定。
+
+内置 `muse-llm-wiki` 技能沿用当前 Muse 登录，支持浏览目录、全文检索、读取原始资料，以及沿链接页和引用查找依据。经审核的笔记和剧本在私人或明确绑定的项目范围内保留不可变原文；Muse 主模型使用原文区间引用和版本检查写入派生页。共享资料需要管理员授权。工具与访问规则见 [Muse LLM Wiki](../../services/muse-accounts/README.zh.md#muse-llm-wiki)。
 
 桌面 Office 组合提供 `screenplay_export_docx`：按给定顺序用内置 python-docx 将 Markdown 合成新的 Word 文件，设置分集分页、中文字体并核对段落正文。支持标题与加粗，其他 Markdown 语法原样保留，不覆盖已有文件。编辑模式保留 Markdown，按 `office-docx` 检查 Word 排版后交付 DOCX。
 

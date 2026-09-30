@@ -575,6 +575,17 @@ describe('jubian_video', () => {
 })
 
 describe('jubian_storyboard', () => {
+  it('directs changes to existing identities to editing instead of creating another card', async () => {
+    const { calls, client } = stubClient(() => null)
+    const body = { id: 916953, scriptId: 2708, episodeId: 9, storyboardName: 'EP01-P1', sortOrder: 1,
+      modelConfig: { prompt: '已有镜头的改动', duration: 9 } }
+    await expect(storyboardMethod(client, ledger, { method: 'create', body, idempotency_key: 'not-new' }))
+      .rejects.toThrow('edit_preview')
+    await expect(storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708,
+      storyboards: [{ body, idempotency_key: 'not-new-batch' }] })).rejects.toThrow('edit_preview')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
   it('submits prepared storyboard bodies concurrently and keeps replay keys per item', async () => {
     let active = 0
     let peak = 0

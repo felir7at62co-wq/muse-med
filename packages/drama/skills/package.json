@@ -74,6 +74,7 @@
     "skills/tweet-drama-pipeline/SKILL.md",
     "skills/tweet-drama-pipeline/agents/openai.yaml",
     "skills/tweet-drama-pipeline/references/workflow.md",
+    "skills/tweet-drama-project-bible/SKILL.md",
     "skills/tweet-drama-project-inspect/SKILL.md",
     "skills/tweet-drama-project-inspect/agents/openai.yaml",
     "skills/tweet-drama-project-inspect/references/io-contract.md",

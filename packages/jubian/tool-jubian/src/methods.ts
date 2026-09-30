@@ -33,17 +33,30 @@ import type { AssetCategory, Naming } from './naming.ts'
 import { uploadReferenceMethod } from './reference.ts'
 import type { ReferenceUploadDeps } from './reference.ts'
 import { need, requireKey, writeUnderLedger } from './write.ts'
+import { storyboardEditMethod } from './storyboard-edit.ts'
+import { storyboardDeleteMethod } from './storyboard-delete.ts'
 
 export { bodyHash, writeUnderLedger } from './write.ts'
 export type { WriteOutcome } from './write.ts'
 
 /** Arguments as the tool layer receives them, already schema-validated. */
 export interface MethodArgs {
+  /** IDs the agent reviewed in the frozen deletion preview. */
+  checked_storyboard_ids?: number[]
+  /** Why these exact cards are within the user's authorized cleanup. */
+  delete_reason?: string
+  /** Explicit authorization that also covers associated generated media. */
+  include_generated_media?: boolean
+  /** User's authorization for the target scope. */
+  authorization_basis?: string
   method: string
   /** Independently keyed, fully prepared free storyboard creations for one project. */
   storyboards?: { idempotency_key: string; body?: Record<string, unknown>; body_path?: string }[]
+  /** Explicit existing-card changes for one frozen free edit batch. */
+  edits?: { storyboard_id: number; changes: Record<string, unknown> }[]
   /** `jubian_model preview`: exact remote scope and partial model intent. */
   scope?: 'storyboards' | 'episodes' | 'project'
+  /** Exact remote card IDs for model changes or inspected deletion. */
   storyboard_ids?: number[]
   episode_ids?: number[]
   changes?: Record<string, unknown>
@@ -876,6 +889,15 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
   }
 }
 
+/** Reject reuse of an existing card identity in a creation request. */
+function assertNewStoryboard(body: Record<string, unknown>): void {
+  for (const field of ['id', 'storyboardId']) {
+    if (body[field] !== undefined && body[field] !== null && body[field] !== '' && body[field] !== 0) {
+      throw new JubianError('INVALID_ARGUMENT', 'Existing card IDs cannot be created again; use edit_preview → edit_apply')
+    }
+  }
+}
+
 /**
  * `jubian_storyboard` — storyboard reads, the free saves, the paid generation,
  * the erasure and the storyboard-native video channel.
@@ -893,6 +915,13 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
   args: MethodArgs, deps: MethodDeps = {}): Promise<Record<string, unknown>> {
   const storyboardId = (): number => need(args.storyboard_id)
   switch (args.method) {
+    case 'delete_preview':
+    case 'delete_apply':
+      return storyboardDeleteMethod(client, ledger, args, deps.storyboardBatch ?? resolveStoryboardBatchOptions())
+    case 'edit_preview':
+    case 'edit_batch_preview':
+    case 'edit_apply':
+      return storyboardEditMethod(client, ledger, args, deps.storyboardBatch ?? resolveStoryboardBatchOptions())
     case 'create_batch': {
       const limits = deps.storyboardBatch ?? resolveStoryboardBatchOptions()
       const scriptId = positiveInteger(need(args.script_id, 'script_id'))
@@ -914,6 +943,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
           : JSON.parse(await readFile(resolve(item.body_path), 'utf8'))
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new JubianError('INVALID_ARGUMENT', 'Invalid storyboard body')
         const body = raw as Record<string, unknown>
+        assertNewStoryboard(body)
         if (positiveInteger(body.scriptId) !== scriptId) throw new JubianError('INVALID_ARGUMENT', 'Storyboard belongs to another project')
         const episode = positiveInteger(body.episodeId)
         if (typeof body.storyboardName !== 'string' || !body.storyboardName.trim()
@@ -979,6 +1009,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new JubianError('INVALID_ARGUMENT')
         body = parsed as Record<string, unknown>
       }
+      assertNewStoryboard(need(body))
       const result = await writeUnderLedger(ledger, args.idempotency_key, 'storyboard_create', () => ({ ...need(body), isGenerate: 0 }),
         sent => client.request({ method: 'POST', path: '/aigc/storyboard', body: need(sent) }))
       return { ...result }
@@ -1016,7 +1047,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
     }
     case 'prepare_video':
       // Free and read-only on the provider: the only write is the local preview.
-      return await prepareVideoMethod(client, { storyboard_id: args.storyboard_id,
+      return await prepareVideoMethod(client, ledger, { storyboard_id: args.storyboard_id,
         project_dir: args.project_dir, content_duration_ms: args.content_duration_ms })
     case 'submit_video': {
       requireKey(args.idempotency_key)

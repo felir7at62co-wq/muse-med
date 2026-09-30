@@ -1,5 +1,41 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`loads model preview/apply, renders free outcomes, and disposes registration > deletion inspection hook 1`] = `
+{
+  "content": [
+    {
+      "text": "Error: 删除检查：先调用 delete_preview，核对每张卡的项目、分集、内容、素材和关联生成记录。确认它们都在用户授权范围后，把完整 ID 列表传入 checked_storyboard_ids，再 delete_apply。",
+      "type": "text",
+    },
+  ],
+  "error": {
+    "message": "删除检查：先调用 delete_preview，核对每张卡的项目、分集、内容、素材和关联生成记录。确认它们都在用户授权范围后，把完整 ID 列表传入 checked_storyboard_ids，再 delete_apply。",
+  },
+  "isError": true,
+}
+`;
+
+exports[`loads model preview/apply, renders free outcomes, and disposes registration > in-place edit outcome 1`] = `
+[
+  {
+    "text": "{
+  "status": "applied",
+  "replayed": false,
+  "paid_requests": 0,
+  "items": [
+    {
+      "storyboard_id": 1,
+      "status": "applied",
+      "verified_readback": true
+    }
+  ],
+  "next": "卡片原地保存，不生成。needs_reselect 表示保留的素材与新提示词标记不匹配，先 select_assets 再 prepare_video。unknown 先 get 对账，保留原 key。"
+}",
+    "type": "text",
+  },
+]
+`;
+
 exports[`loads model preview/apply, renders free outcomes, and disposes registration > read-only storyboard page 1`] = `
 [
   {
@@ -27,6 +63,10 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
 exports[`loads model preview/apply, renders free outcomes, and disposes registration > storyboard creation and discovery schema 1`] = `
 {
   "properties": {
+    "authorization_basis": {
+      "description": "delete_preview 必填：用户对本次精确范围的删除授权；不明确时 ask_user。",
+      "type": "string",
+    },
     "body": {
       "additionalProperties": true,
       "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；在提示词开头按素材顺序各写一次 @[素材名](material_key)，后续 selections 使用相同 key 和顺序。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。主体素材后续用 select_assets 写入；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
@@ -36,9 +76,84 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "description": "create 与 body 二选一：按 body 的字段说明生成并检查的本地 UTF-8 JSON 文件路径；一包一份请求体。",
       "type": "string",
     },
+    "changes": {
+      "additionalProperties": false,
+      "description": "edit_preview 必填：仅修改提供的字段，其余原样保留；duration 是实际请求的整数秒，按精确 SD 模型范围验证。",
+      "properties": {
+        "duration": {
+          "description": "SD2.0：4–15 秒；SD2.5：4–30 秒；按镜头内容计算。",
+          "type": "integer",
+        },
+        "episode_id": {
+          "description": "项目内的远端分集 ID；先读 episodes，不是集号。",
+          "type": "integer",
+        },
+        "genNum": {
+          "type": "integer",
+        },
+        "genType": {
+          "type": "integer",
+        },
+        "modelId": {
+          "type": "string",
+        },
+        "name": {
+          "type": "string",
+        },
+        "platformId": {
+          "type": "string",
+        },
+        "prompt": {
+          "description": "新的完整包提示词；素材标记改变后须重新选源。",
+          "type": "string",
+        },
+        "ratio": {
+          "type": "string",
+        },
+        "resolution": {
+          "type": "string",
+        },
+        "sort_order": {
+          "type": "integer",
+        },
+      },
+      "type": "object",
+    },
+    "checked_storyboard_ids": {
+      "description": "delete_apply 必填：逐张核对 preview 内容后的完整目标 ID 列表；idempotency_key 使用 fingerprint。",
+      "items": {
+        "type": "integer",
+      },
+      "type": "array",
+    },
     "content_duration_ms": {
       "description": "generate 必填：本包内容时长，4000–14000 的整千毫秒。",
       "type": "number",
+    },
+    "delete_reason": {
+      "description": "delete_preview 必填：具体删除原因，如这些 ID 是已被正式包替代的测试卡。",
+      "type": "string",
+    },
+    "edits": {
+      "description": "edit_batch_preview 必填：全部改动检查后一次传入；每项 storyboard_id 与 changes，分镜 ID 不重复。",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "changes": {
+            "additionalProperties": true,
+            "type": "object",
+          },
+          "storyboard_id": {
+            "type": "integer",
+          },
+        },
+        "required": [
+          "storyboard_id",
+          "changes",
+        ],
+        "type": "object",
+      },
+      "type": "array",
     },
     "episode": {
       "description": "可选：集号（\`5\` 与 \`05\` 都规范成 \`EP05\`）或配置的跨集母版标记（默认「全剧」）。给了它，资产名会按规范组合成 \`EP05｜角色｜陆沉舟\`，处理任务名会加上 \`EP05-P3-\` 这样的可排序前缀；不给就完全按调用方原样使用 asset_name / task_name。",
@@ -56,20 +171,29 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。",
       "type": "string",
     },
+    "include_generated_media": {
+      "description": "delete_preview 可选，默认 false；只有用户明确授权删除关联生成媒体时为 true，运行中的任务仍不能删除。",
+      "type": "boolean",
+    },
     "method": {
-      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=存为不生成；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；erase_subtitle=去字幕（计费、异步）。",
+      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=存为不生成；edit_preview/edit_batch_preview=原位修改单卡/多卡预览；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）。",
       "enum": [
         "list",
         "get",
         "create",
         "create_batch",
         "save",
+        "edit_preview",
+        "edit_batch_preview",
+        "edit_apply",
         "generate",
         "select_assets",
         "prepare_video",
         "submit_video",
         "submit_video_batch",
         "erase_subtitle",
+        "delete_preview",
+        "delete_apply",
       ],
       "type": "string",
     },
@@ -126,6 +250,13 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
     "storyboard_id": {
       "description": "分镜 ID。",
       "type": "number",
+    },
+    "storyboard_ids": {
+      "description": "delete_preview 必填：精确远端分镜 ID，不能重复；只能是用户授权清理的范围。",
+      "items": {
+        "type": "integer",
+      },
+      "type": "array",
     },
     "storyboards": {
       "description": "create_batch 必填：先写好并检查全部包的提示词与 body，再一次传入整批。每项独立 key、body 或 body_path；默认最多 1000 项，并发 4 项提交，无需等待逐项完成。字段见 body。",
@@ -210,4 +341,26 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
   ],
   "type": "object",
 }
+`;
+
+exports[`loads model preview/apply, renders free outcomes, and disposes registration > verified deletion outcome 1`] = `
+[
+  {
+    "text": "{
+  "status": "deleted",
+  "replayed": false,
+  "paid_requests": 0,
+  "items": [
+    {
+      "storyboard_id": 1,
+      "status": "deleted",
+      "verified_readback": true,
+      "response_status": "accepted"
+    }
+  ],
+  "next": "删除以回读为准。unknown 保留原 key 回读对账，不能换 key 重删；未尝试的卡重新检查后另建计划。"
+}",
+    "type": "text",
+  },
+]
 `;

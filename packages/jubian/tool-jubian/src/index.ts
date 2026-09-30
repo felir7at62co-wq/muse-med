@@ -16,6 +16,7 @@
  * configuration surface that can write any reference.
  */
 import { homedir } from 'node:os'
+import { deletionInspectionReason } from './storyboard-delete.ts'
 import { readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -349,6 +350,13 @@ export function apply(ctx: Context, config: Config = {}): void {
   // The rows a Settings page may pick between. It shares the transport above, so
   // the token that authorizes the read stays in this process.
   ctx.plugin(JubianImageRoutes, { client })
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    if (exec.name === 'jubian_storyboard') {
+      const reason = deletionInspectionReason(exec.arguments)
+      if (reason) return { kind: 'deny' as const, reason }
+    }
+    return await next()
+  })
   // Which row the paid image route buys from, and how long its readback may take:
   // deployment-varying values, so they live in config and in the settings document
   // rather than in a constant. Both are read per call, because the settings page
@@ -573,7 +581,10 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.tools.register(defineTool({
     name: 'jubian_storyboard',
-    description: '剧变（Jubian）分镜查询与提交。list/get/create/save 免费（create/save 强制 isGenerate=0）。'
+    description: '剧变（Jubian）分镜查询、原位修改与提交。list/get/create/save/edit 免费（写入强制 isGenerate=0）。'
+      + '修改已有任务卡用 edit_preview 或 edit_batch_preview 检查 before/after，再 edit_apply；保持分镜 ID，不因秒数或提示词变化新建卡。'
+      + '支持修复 episode_id、duration 与提示词；修改素材标记后 needs_reselect，重新 select_assets 再准备视频。'
+      + 'delete_preview 只读检查精确目标，delete_apply 不可恢复地删除已检查的卡；删除 Hook 要求核对项目、内容与生成记录是否在用户授权范围。'
       + 'list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。'
       + '**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。'
       + 'generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，'
@@ -600,13 +611,14 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。' + WRITE_NOTE,
     parameters: {
       method: { type: 'string', required: true,
-        enum: ['list', 'get', 'create', 'create_batch', 'save', 'generate', 'select_assets', 'prepare_video', 'submit_video',
-          'submit_video_batch', 'erase_subtitle'],
+        enum: ['list', 'get', 'create', 'create_batch', 'save', 'edit_preview', 'edit_batch_preview', 'edit_apply', 'generate', 'select_assets', 'prepare_video', 'submit_video',
+          'submit_video_batch', 'erase_subtitle', 'delete_preview', 'delete_apply'],
         description: 'list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；'
-          + 'save=存为不生成；generate=提交生成（计费）；'
+          + 'save=存为不生成；edit_preview/edit_batch_preview=原位修改单卡/多卡预览；edit_apply=应用预览（免费）；generate=提交生成（计费）；'
           + 'select_assets=写入选定资产（免费，强制 isGenerate=0）；'
           + 'prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；'
           + 'submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；'
+          + 'delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；'
           + 'erase_subtitle=去字幕（计费、异步）。' },
       storyboard_id: ARGS.storyboard_id, content_duration_ms: ARGS.content_duration_ms,
       page_num: ARGS.page_num, page_size: ARGS.page_size,
@@ -620,6 +632,23 @@ export function apply(ctx: Context, config: Config = {}): void {
           body: ARGS.body, body_path: ARGS.body_path,
         } } },
       body: ARGS.body, body_path: ARGS.body_path, idempotency_key: ARGS.idempotency_key,
+      changes: { type: 'object', additionalProperties: false, description: 'edit_preview 必填：仅修改提供的字段，其余原样保留；duration 是实际请求的整数秒，按精确 SD 模型范围验证。', properties: {
+        prompt: { type: 'string', description: '新的完整包提示词；素材标记改变后须重新选源。' },
+        duration: { type: 'integer', description: 'SD2.0：4–15 秒；SD2.5：4–30 秒；按镜头内容计算。' },
+        modelId: { type: 'string' }, platformId: { type: 'string' }, ratio: { type: 'string' }, resolution: { type: 'string' },
+        genType: { type: 'integer' }, genNum: { type: 'integer' }, name: { type: 'string' },
+        episode_id: { type: 'integer', description: '项目内的远端分集 ID；先读 episodes，不是集号。' },
+        sort_order: { type: 'integer' },
+      } },
+      edits: { type: 'array', description: 'edit_batch_preview 必填：全部改动检查后一次传入；每项 storyboard_id 与 changes，分镜 ID 不重复。',
+        items: { type: 'object', additionalProperties: false, properties: {
+          storyboard_id: { type: 'integer', required: true }, changes: { type: 'object', required: true, additionalProperties: true },
+        } } },
+      storyboard_ids: { type: 'array', items: { type: 'integer' }, description: 'delete_preview 必填：精确远端分镜 ID，不能重复；只能是用户授权清理的范围。' },
+      checked_storyboard_ids: { type: 'array', items: { type: 'integer' }, description: 'delete_apply 必填：逐张核对 preview 内容后的完整目标 ID 列表；idempotency_key 使用 fingerprint。' },
+      delete_reason: { type: 'string', description: 'delete_preview 必填：具体删除原因，如这些 ID 是已被正式包替代的测试卡。' },
+      authorization_basis: { type: 'string', description: 'delete_preview 必填：用户对本次精确范围的删除授权；不明确时 ask_user。' },
+      include_generated_media: { type: 'boolean', description: 'delete_preview 可选，默认 false；只有用户明确授权删除关联生成媒体时为 true，运行中的任务仍不能删除。' },
       selections: ARGS.selections, project_dir: ARGS.project_dir, preview_path: ARGS.preview_path,
       video_previews: ARGS.video_previews,
       ...VIDEO_ESTIMATE_ARGS,

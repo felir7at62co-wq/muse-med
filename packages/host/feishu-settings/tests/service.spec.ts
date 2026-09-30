@@ -8,7 +8,7 @@ import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import type { RegisterAppPort } from '../src/login.ts'
 import { FeishuSetupService } from '../src/service.ts'
 import { FEISHU_CHANNEL_ROW_ID, FEISHU_SETTINGS_NAMESPACE } from '../src/settings.ts'
-import { feishuProfile, rowConfig, storedRows, type FeishuComposition } from './profile.ts'
+import { feishuProfile, restartFeishuProfile, rowConfig, storedRows, type FeishuComposition } from './profile.ts'
 
 /** A registration call that answers like the platform, without any request. */
 const scannedPort: RegisterAppPort = async (request) => {
@@ -112,6 +112,59 @@ describe('FeishuSetupService', () => {
       .toMatchObject({ enabled: true, row: 'restart-pending' })
     expect(storedRows(composition.patchPath).get(FEISHU_SETTINGS_NAMESPACE)).toMatchObject({ enabled: true })
     expect(rowConfig(composition.ctx, FEISHU_SETTINGS_NAMESPACE)?.['enabled']).toBe(true)
+  })
+
+  it('reopens a switch-only save with no stored credentials', async () => {
+    const composition = await feishuProfile()
+    const service = await harness(composition)
+
+    expect(await service.setEnabled({ enabled: true }))
+      .toMatchObject({ enabled: true, appId: '', credential: 'none' })
+    expect(storedRows(composition.patchPath).get(FEISHU_SETTINGS_NAMESPACE)).toMatchObject({ enabled: true })
+    expect(storedRows(composition.patchPath).get(FEISHU_CHANNEL_ROW_ID)).toBeUndefined()
+
+    const reopened = await restartFeishuProfile(composition)
+    const reopenedService = await harness(reopened)
+    expect(reopened.ctx).not.toBe(composition.ctx)
+    expect(await reopenedService.status())
+      .toMatchObject({ enabled: true, appId: '', credential: 'none', writable: true })
+    expect(rowConfig(reopened.ctx, FEISHU_CHANNEL_ROW_ID)).toMatchObject({ appId: '' })
+    expect(rowConfig(reopened.ctx, FEISHU_CHANNEL_ROW_ID)?.['appSecret']).toBeUndefined()
+  })
+
+  it('restores saved credentials through the Loader while reporting only secret presence', async () => {
+    const composition = await feishuProfile()
+    const service = await harness(composition)
+    const credentials = { appId: 'cli_restart', appSecret: 'synthetic-restart-secret' }
+
+    expect(await service.setCredentials(credentials)).toMatchObject({ appId: credentials.appId, credential: 'manual' })
+    await service.setEnabled({ enabled: true })
+    expect(storedRows(composition.patchPath).get(FEISHU_CHANNEL_ROW_ID)).toMatchObject(credentials)
+    const storedPatch = readFileSync(composition.patchPath, 'utf8')
+
+    const reopened = await restartFeishuProfile(composition)
+    const reopenedService = await harness(reopened)
+    expect(reopened.ctx).not.toBe(composition.ctx)
+    expect(readFileSync(reopened.patchPath, 'utf8')).toBe(storedPatch)
+    expect(rowConfig(reopened.ctx, FEISHU_CHANNEL_ROW_ID)).toMatchObject(credentials)
+    const status = await reopenedService.status()
+    expect(status).toMatchObject({ enabled: true, appId: credentials.appId, credential: 'manual' })
+    expect(status).not.toHaveProperty('appSecret')
+    expect(JSON.stringify(status)).not.toContain(credentials.appSecret)
+    const section = reopened.ctx.get('settings')!.describe({ redactSecrets: true })
+      .find(candidate => candidate.ns === FEISHU_CHANNEL_ROW_ID)
+    expect(section?.secrets).toContainEqual({ path: ['appSecret'], set: true })
+    expect(section?.value).not.toHaveProperty('appSecret')
+    expect(section?.user).not.toHaveProperty('appSecret')
+    expect(JSON.stringify(section)).not.toContain(credentials.appSecret)
+
+    await reopenedService.setCredentials({ appId: 'cli_replaced', appSecret: '' })
+    const updated = await restartFeishuProfile(reopened)
+    expect(rowConfig(updated.ctx, FEISHU_CHANNEL_ROW_ID))
+      .toMatchObject({ appId: 'cli_replaced', appSecret: credentials.appSecret })
+    const updatedService = await harness(updated)
+    expect(await updatedService.status())
+      .toMatchObject({ appId: 'cli_replaced', credential: 'manual' })
   })
 
   it('reports the row active once the composition carried the switch into it', async () => {

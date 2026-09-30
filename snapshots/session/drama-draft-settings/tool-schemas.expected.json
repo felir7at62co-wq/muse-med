@@ -97,6 +97,235 @@
       }
     },
     {
+      "name": "drama_project",
+      "description": "Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. Preserves legacy project bindings, stable package/storyboard IDs, completed tasks and version history. Validate exact model/platform/ratio/resolution through Jubian catalogue tools before selecting video settings.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "read",
+              "preview",
+              "update"
+            ]
+          },
+          "project_dir": {
+            "type": "string",
+            "description": "Existing absolute project directory."
+          },
+          "changes": {
+            "type": "object",
+            "description": "Fields to merge for preview/update; omit for read.",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "Project title."
+              },
+              "style": {
+                "type": "string",
+                "description": "Confirmed visual style and creative guidance."
+              },
+              "aspect_ratio": {
+                "type": "string",
+                "description": "Confirmed generation aspect ratio, checked against the live catalogue."
+              },
+              "jubian_script_id": {
+                "type": "integer",
+                "description": "Actual remote project ID. An existing binding cannot be replaced."
+              },
+              "video": {
+                "type": "object",
+                "description": "Exact catalogue selection; model, platform and resolution are required together.",
+                "additionalProperties": false,
+                "properties": {
+                  "model_id": {
+                    "type": "string"
+                  },
+                  "platform_id": {
+                    "type": "string",
+                    "description": "Exact catalogue platformId value."
+                  },
+                  "resolution": {
+                    "type": "string",
+                    "description": "Generation resolution, separate from delivery pixels."
+                  },
+                  "generation_type": {
+                    "type": "integer",
+                    "description": "Optional actual catalogue genType."
+                  }
+                },
+                "required": [
+                  "model_id",
+                  "platform_id",
+                  "resolution"
+                ]
+              },
+              "delivery": {
+                "type": "object",
+                "description": "Delivery target; omitted numeric fields inherit the current project or Settings.",
+                "additionalProperties": false,
+                "properties": {
+                  "width": {
+                    "type": "integer"
+                  },
+                  "height": {
+                    "type": "integer"
+                  },
+                  "fps": {
+                    "type": "integer"
+                  },
+                  "min_bitrate_mbps": {
+                    "type": "number"
+                  },
+                  "max_effective_chars_per_shot": {
+                    "type": "integer"
+                  }
+                }
+              },
+              "episode_plan": {
+                "type": "object",
+                "description": "Flexible outline and episode length; fixed counts are optional.",
+                "additionalProperties": false,
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "flexible",
+                      "fixed"
+                    ]
+                  },
+                  "outline": {
+                    "type": "string"
+                  },
+                  "episode_count": {
+                    "type": "integer"
+                  },
+                  "target_seconds": {
+                    "type": "number"
+                  }
+                }
+              },
+              "package_bindings": {
+                "type": "array",
+                "description": "Append stable package IDs mapped to remote storyboards. Keep the same package ID through content edits.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "package_id": {
+                      "type": "string"
+                    },
+                    "storyboard_id": {
+                      "type": "integer"
+                    },
+                    "episode_id": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "package_id",
+                    "storyboard_id"
+                  ]
+                }
+              },
+              "characters": {
+                "type": "array",
+                "description": "Stable character identities and approved voice guidance. Provider reference-audio support must be checked separately.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "character_id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "aliases": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "asset_id": {
+                      "type": "integer"
+                    },
+                    "voice_profile": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "speaker_id": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string",
+                          "description": "Approved gender/age, timbre, speaking style and accent to reuse in each package."
+                        },
+                        "reference_audio": {
+                          "type": "string",
+                          "description": "Optional user-approved reference path or remote ID; records intent without claiming provider support."
+                        }
+                      },
+                      "required": [
+                        "description"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "character_id"
+                  ]
+                }
+              },
+              "completed_tasks": {
+                "type": "array",
+                "description": "Append completed task references. Existing records are preserved.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "task_id": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "package_id": {
+                      "type": "string"
+                    },
+                    "result_ref": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "task_id",
+                    "kind"
+                  ]
+                }
+              }
+            }
+          },
+          "reason": {
+            "type": "string",
+            "description": "Preview/update reason recorded in version history."
+          },
+          "expected_revision": {
+            "type": "string",
+            "description": "Update only: exact current-file revision from preview, including missing for first creation."
+          },
+          "preview_fingerprint": {
+            "type": "string",
+            "description": "Update only: fingerprint from the same reviewed preview."
+          }
+        },
+        "required": [
+          "action",
+          "project_dir"
+        ]
+      }
+    },
+    {
       "name": "edit",
       "description": "Edit an existing UTF-8 text file by replacing literal text.",
       "parameters": {

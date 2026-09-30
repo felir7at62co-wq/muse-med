@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write integrations/muse-kb/README.md
 /muse-cloud-knowledge-base-patch:
-  en: 7f2e3f938763bed4
-  zh: 31c65b547c6854c0
+  en: 6162a48e792c52ce
+  zh: dee717dedd33aef6
 /muse-cloud-knowledge-base-patch/apply-and-verify:
   en: 9786d988b1ce7fb8
   zh: 36e0ecb68c9a2253
@@ -12,5 +12,5 @@
   en: 05bf3eead8a788ac
   zh: 78b2b9e8cfc41efd
 /muse-cloud-knowledge-base-patch/account-and-mcp-access:
-  en: dd32137892154cdb
-  zh: e5b1e8d20efb2300
+  en: 184ffbbf8dbe54e1
+  zh: 8708da3aa77f16c9

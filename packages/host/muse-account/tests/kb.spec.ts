@@ -9,6 +9,7 @@ const { mockConnect, mockCallTool, mockClose } = vi.hoisted(() => ({
   mockConnect: vi.fn<(_transport: unknown, _options?: { signal?: AbortSignal }) => Promise<void>>(),
   mockCallTool: vi.fn<(_params: unknown, _options?: { signal?: AbortSignal }) => Promise<{
     content: { type: 'text'; text: string }[]
+    isError?: boolean
   }>>(),
   mockClose: vi.fn<() => Promise<void>>(),
 }))
@@ -162,4 +163,20 @@ it('passes one configured deadline signal to MCP connection and tool requests', 
   } finally {
     timeout.mockRestore()
   }
+})
+
+it.each([
+  ['Revision conflict: expected 1, current 2; read the page and merge before retrying.', 'wiki-revision-conflict'],
+  ['Wiki is busy; reload the page before retrying. An abandoned lock requires administrator inspection.', 'wiki-write-busy'],
+  ['Citation must reference a readable original and valid character range.', 'wiki-invalid-citation'],
+  ['Wiki link is missing: concepts/missing; use a directory-qualified existing page ID.', 'wiki-unresolved-link'],
+  ['Shared Wiki writes require an administrator account.', 'access-denied'],
+  ['unknown error with private upstream detail', 'kb-rejected'],
+  ['Revision conflict: expected 1, current 2; read the page and merge before retrying. bearer', 'kb-rejected'],
+])('maps bounded Wiki failure %s to a fixed recovery category', async (text, code) => {
+  mockConnect.mockResolvedValue(undefined)
+  mockCallTool.mockResolvedValue({ isError: true, content: [{ type: 'text', text }] })
+  mockClose.mockResolvedValue(undefined)
+  await expect(callMuseKbTool('https://muse.example/api/kb/mcp', 'bearer', 'wiki_write_page', {}, 15_000))
+    .rejects.toMatchObject({ code })
 })

@@ -274,7 +274,9 @@ function readSpeech(text: string, block: Block, blockText: string, directorForma
 
   let offscreen = OFFSCREEN_LABEL.test(voice.value.trim()) || NARRATION_MARKERS.test(voice.value)
     || OFFSCREEN_LABEL.test(capture(first, 1)) || NARRATION_MARKERS.test(capture(first, 1))
-  let speaker = field(blockText, '说话人')
+  const declaredSpeaker = field(blockText, '说话人')
+  offscreen = offscreen || OFFSCREEN_SUFFIX.test(declaredSpeaker)
+  let speaker = declaredSpeaker.replace(OFFSCREEN_SUFFIX, '').trim()
   let spoken = capture(first, 2).trim()
   if (directorFormat && !NARRATION_MARKERS.test(capture(first, 1))) {
     const prefix = SPEAKER_PREFIX.exec(spoken)
@@ -286,7 +288,12 @@ function readSpeech(text: string, block: Block, blockText: string, directorForma
           `镜头${block.number}（脚本第${line}行）出现旁白/心声标记「${marker[0]}」：${NARRATION_FIX_HINT}`))
       }
       offscreen = offscreen || marker !== null || OFFSCREEN_SUFFIX.test(possibleSpeaker)
-      speaker = possibleSpeaker.replace(OFFSCREEN_SUFFIX, '').trim()
+      const prefixedSpeaker = possibleSpeaker.replace(OFFSCREEN_SUFFIX, '').trim()
+      if (speaker !== '' && speaker !== prefixedSpeaker && marker === null) {
+        issues.push(issue('failure', 'speaker_mismatch', block.number, line,
+          `镜头${block.number}说话人「${speaker}」与台词前缀「${prefixedSpeaker}」不一致：`
+          + '按原文核对并统一身份，不把台词静默分配给另一角色。'))
+      } else if (speaker === '') speaker = prefixedSpeaker
       spoken = capture(prefix, 2).trim()
     } else if (SPEAKER_PREFIX_ONLY.test(spoken)) {
       spoken = ''
@@ -305,6 +312,11 @@ function readSpeech(text: string, block: Block, blockText: string, directorForma
       + '无声镜只写 发声类型：action，并整行省略台词行。'))
   }
 
+  if (directorFormat && !offscreen && speaker === '' && spoken !== '' && effectiveChars(spoken) > 0 && !CHARACTERS_PLACEHOLDER.test(spoken)) {
+    issues.push(issue('failure', 'missing_speaker', block.number, line,
+      `镜头${block.number}对白缺少说话人：填写「说话人：角色名」或「台词：角色名：原文」，`
+      + '不能根据出镜人物猜测谁在说话。'))
+  }
   return { voiceType: offscreen ? 'vo' : 'dialogue', speaker, text: spoken, line, issues }
 }
 

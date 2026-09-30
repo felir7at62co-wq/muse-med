@@ -1,0 +1,26 @@
+{
+  "package": "@zosmaai/pi-llm-wiki",
+  "version": "0.6.3",
+  "repository": "https://github.com/zosmaai/pi-llm-wiki",
+  "license": "MIT",
+  "license_file": "wiki-upstream.LICENSE",
+  "distribution": "User-provided source archive; no Git metadata was present.",
+  "adapted_into": "kb-wiki-links.mjs",
+  "inputs": [
+    {
+      "file": "extensions/llm-wiki/lib/knowledge-links.ts",
+      "sha256": "ae005fb48e2910970f0ff7d3113a6f909b11338891800a4361514061d64a9e09",
+      "reused": "Folder-qualified wikilink index and exact/normalized/unambiguous resolution."
+    },
+    {
+      "file": "extensions/llm-wiki/lib/source-packet.ts",
+      "sha256": "0f174873c4c4703240da10481af4f49af2d4752a971dcca36e535f5c85bc49f2",
+      "reused": "Source page outline with summary, takeaways, entities, concepts, quotes, and immutable source reference."
+    },
+    {
+      "file": "extensions/llm-wiki/lib/utils.ts",
+      "sha256": "b28372c95979f6b5a6cfe53fb4a785eecf83d337beb0f6550312490fe67cf8d3",
+      "reused": "Unicode-aware title normalization for wikilink lookup."
+    }
+  ]
+}

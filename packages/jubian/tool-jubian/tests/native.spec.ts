@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { storyboardEditMethod } from '../src/storyboard-edit.ts'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { prepareVideoMethod, resolveVideoBatchOptions, selectAssetsMethod,
   submitVideoBatchMethod, submitVideoMethod } from '../src/native.ts'
@@ -161,10 +162,31 @@ async function ready(promise: Promise<void>): Promise<void> {
 }
 
 describe('prepare_video', () => {
+  it('requires explicit reselection after marker labels change even when their keys stay the same', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: structuredClone(STORYBOARD), tasks: [], subtasks: {} }
+    const directory = await project()
+    const oldConfig = JSON.parse(String(provider.storyboard.modelConfig)) as Record<string, unknown>
+    const prompt = String(oldConfig.prompt).replace(/@\[([^\]]+)\]\(lead\)/, '@[另一称呼](lead)')
+    const plan = await storyboardEditMethod(clientFor(provider), ledger, { method: 'edit_preview',
+      project_dir: directory, script_id: 2708, storyboard_id: 916953, changes: { prompt } }, { concurrency: 2, maxItems: 10 })
+    expect(await storyboardEditMethod(clientFor(provider), ledger, { method: 'edit_apply',
+      project_dir: directory, script_id: 2708, preview_path: String(plan.preview_path),
+      idempotency_key: String(plan.fingerprint) }, { concurrency: 2, maxItems: 10 })).toMatchObject({ status: 'needs_reselect' })
+    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: directory }))
+      .rejects.toThrow('select_assets')
+    provider.storyboard = { ...provider.storyboard, modelConfig: JSON.stringify({ ...oldConfig,
+      prompt: `${prompt}；改动动作但保留标记` }) }
+    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: directory }))
+      .rejects.toThrow('select_assets')
+    await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, idempotency_key: 'reselect-label',
+      selections: [{ material_key: 'lead', asset_id: 81285 }, { material_key: 'guest', asset_id: 83670 }] })
+    expect(typeof (await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: directory })).preview_path)
+      .toBe('string')
+  })
   it('writes one atomic preview under video_tasks and sends no PUT', async () => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const directory = await project()
-    const result = await prepareVideoMethod(clientFor(provider), { storyboard_id: 916953,
+    const result = await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953,
       project_dir: directory })
     expect(putCalls(provider)).toHaveLength(0)
     expect(result.preview_path).toBe(join(directory, 'video_tasks',
@@ -179,7 +201,7 @@ describe('prepare_video', () => {
   it('refuses a project bound to another scriptId and writes nothing', async () => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const directory = await project(1, 'foreign')
-    await expect(prepareVideoMethod(clientFor(provider), { storyboard_id: 916953,
+    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953,
       project_dir: directory })).rejects.toThrow()
     await expect(readFile(join(directory, 'video_tasks', 'x'), 'utf8')).rejects.toThrow()
   })
@@ -188,14 +210,14 @@ describe('prepare_video', () => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const directory = join(root, 'bare')
     await mkdir(directory, { recursive: true })
-    await expect(prepareVideoMethod(clientFor(provider), { storyboard_id: 916953,
+    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953,
       project_dir: directory })).rejects.toThrow()
   })
 
   it('refuses a caller-supplied duration that disagrees with the live snapshot', async () => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const directory = await project()
-    await expect(prepareVideoMethod(clientFor(provider), { storyboard_id: 916953, project_dir: directory,
+    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: directory,
       content_duration_ms: 12000 })).rejects.toThrow()
   })
 })
@@ -211,7 +233,7 @@ describe('submit_video', () => {
   /** Prepare a project and then submit against it, recording what the provider saw. */
   async function prepared(provider: FakeProvider): Promise<Prepared> {
     const directory = await project()
-    const preview = await prepareVideoMethod(clientFor(provider), { storyboard_id: 916953,
+    const preview = await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953,
       project_dir: directory })
     provider.calls.length = 0
     return { directory, previewPath: String(preview.preview_path),
@@ -547,7 +569,7 @@ describe('submit_video_batch', () => {
       storyboards, tasks: [], subtasks: {} }
     const directory = await project()
     const previews = await Promise.all(ids.map(storyboard_id =>
-      prepareVideoMethod(clientFor(provider), { storyboard_id, project_dir: directory })))
+      prepareVideoMethod(clientFor(provider), ledger, { storyboard_id, project_dir: directory })))
     provider.calls.length = 0
     return { provider, items: previews.map(preview => ({ preview_path: String(preview.preview_path),
       idempotency_key: String(preview.idempotencyKey) })) }
@@ -837,7 +859,7 @@ describe('select_assets', () => {
 it('submits with an agent estimate under the default project budget without an authorization file', async () => {
   const auto = new JubianLedger({ root: join(root, 'automatic-ledger'), defaultLimitCents: () => 400000 })
   const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
-  const preview = await prepareVideoMethod(clientFor(provider), { storyboard_id: 916953, project_dir: await project() })
+  const preview = await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: await project() })
   const previewPath = String(preview.preview_path)
   const idempotencyKey = String(preview.idempotencyKey)
   provider.onPut = (payload) => {
@@ -859,7 +881,7 @@ it.each([
   { estimate_basis: 'rate' },
 ])('rejects an unusable agent estimate before a paid PUT: %j', async (estimate) => {
   const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
-  const preview = await prepareVideoMethod(clientFor(provider), { storyboard_id: 916953, project_dir: await project() })
+  const preview = await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: await project() })
   await expect(submitVideoMethod(clientFor(provider), ledger, { ...estimate,
     preview_path: String(preview.preview_path), idempotency_key: String(preview.idempotencyKey),
   })).rejects.toThrow('estimated_cost_cny')

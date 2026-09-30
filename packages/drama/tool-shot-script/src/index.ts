@@ -29,6 +29,7 @@ import {
   MIN_SUBMIT_SECONDS,
   NATURAL_HOLD_SECONDS,
   packEpisode,
+  prepareShotPrompts,
   writeEpisode,
 } from './episode.ts'
 import { buildReport } from './report.ts'
@@ -202,7 +203,7 @@ function compileShots(
     })
     cursor += shot.durationSeconds
   }
-  return { compiled, issues }
+  return { compiled: prepareShotPrompts(compiled, manifest), issues }
 }
 
 /**
@@ -357,6 +358,8 @@ const RESULT_SCHEMA = {
             description: '提交给剧变的整秒时长：内容时长 + 1 秒自然收束。' },
           natural_hold_seconds: { type: 'integer', required: true, description: '自然收束秒数，至少 1；短包增加停留以达到 4 秒最低提交时长。' },
           hold_instruction: { type: 'string', required: true, description: '写进提示词的收束要求，不新增台词。' },
+          prompt: { type: 'string', required: true,
+            description: '可直接保存到分镜 modelConfig.prompt 的完整镜头正文、已绑定素材映射与自然收束要求。' },
           material_keys: { type: 'array', required: true, items: { type: 'string' },
             description: '本包提示词里 @[名称](key) 的 key，按出现顺序去重；select_assets 必须按这个顺序提交。' },
           material_names: { type: 'array', required: true, items: { type: 'string' },
@@ -419,6 +422,7 @@ const DESCRIPTION = '短剧镜头脚本的判定与编译（剧变流水线）�
   + '没写就按默认 2 秒计；'
   + '只在一个镜头块的字段里读到 台词：无、空台词行 或 出镜人物：无 时判失败：无声镜整行省略台词行与出镜人物，'
   + '不要用占位值占位；本说明、技能正文与检查清单里出现这些字样不算脚本违规，校验只看脚本里写了什么。'
+  + '导演格式对白必须有说话人；说话人字段与台词角色前缀冲突时失败，不能静默换角色。'
   + '旁白/解说/心声/画外声/OS 作为 vo 画外发声保留原文与说话人，提醒核对项目配音；'
   + '风格/负面词缺失和正文秒数仅警告；只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产；'
   + '角色状态在绑定前强制核对：每个入画角色都要在自己的 主体状态追踪 段落里写 '

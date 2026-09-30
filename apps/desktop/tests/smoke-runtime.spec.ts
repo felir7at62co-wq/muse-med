@@ -65,7 +65,7 @@ function fixture(packaged = false) {
   const skillNames = ['tweet-drama-pipeline', 'tweet-drama-core', 'tweet-drama-script-convert',
     'tweet-drama-script-split', 'tweet-drama-asset-extract', 'tweet-drama-asset-vision-check',
     'shot-script-creator-9-16', 'tweet-drama-shot-asset-match', 'tweet-drama-early-shot-script',
-    'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect', 'tweet-drama-delivery']
+    'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect', 'tweet-drama-project-bible', 'tweet-drama-delivery']
   const skills = skillNames.map((name) => {
     const path = join(skillRoot, name, 'SKILL.md')
     mkdirSync(dirname(path), { recursive: true })
@@ -92,7 +92,7 @@ function fixture(packaged = false) {
   writeFileSync(editingSkill.path, '# fixture')
   skills.push(editingSkill)
   for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import',
-    'novel-to-script', 'trope-adaptation', 'jubian-snatch', 'wechat-shortdrama-harvest']) {
+    'novel-to-script', 'trope-adaptation', 'muse-llm-wiki', 'jubian-snatch', 'wechat-shortdrama-harvest']) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
@@ -115,14 +115,12 @@ function fixture(packaged = false) {
   const mount = vi.fn(async (_context: object, _id: string) => {})
   const names = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video',
     'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
-    'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'read', 'present', process.platform === 'win32' ? 'pwsh' : 'bash']
+    'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present', 'audio_transcribe',
+    process.platform === 'win32' ? 'pwsh' : 'bash']
   type SmokeResponse = { statusCode: number; end(text: string): void }
   let route: { path: string; handler(request: object, response: SmokeResponse): Promise<void> } | undefined
-  const accountMcpNames = ['jubian_find', 'jubian_claim', 'jubian_snatch',
-    'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
-    'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
-    'mcp__muse-account__muse_kb_ingest_script']
-  const standardCapabilityNames = ['subagent', 'workflow', 'ask_user_question', 'todo_write', 'jubian_video']
+  const accountMcpNames = ['jubian_find', 'jubian_claim', 'jubian_snatch', ...Object.keys(editingModelInput.tools)]
+  const standardCapabilityNames = ['subagent', 'workflow', 'ask_user_question', 'todo_write', 'jubian_video', 'audio_transcribe']
   const editingCapabilityNames = [...standardCapabilityNames]
   class TestContext {
     webServer = { register: vi.fn((value: NonNullable<typeof route>) => {
@@ -148,7 +146,7 @@ function fixture(packaged = false) {
         : key.preset === 'minimal' ? [shell]
           : key.preset === 'editing' ? ['read', 'skill', shell, 'present', ...editingCapabilityNames, ...accountMcpNames]
             : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...accountMcpNames]
-              : ['read', 'skill', shell, 'subagent', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
+              : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
     }) }
     systemPrompt = { assemble: vi.fn(async (context: { agent: { preset: string }; scope: { preset: string } }) => ({
       sections: context.scope.preset === 'editing'
@@ -225,6 +223,24 @@ it('rejects a shared Muse skill missing from the packaged Host', async () => {
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
+it.each(['drama_project', 'drama_draft_dir'])('rejects a missing project tool %s', async (name) => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'short-drama'
+    ? schemas(key).filter(tool => tool.name !== name)
+    : schemas(key))
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool ' + name)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it.each(['muse-llm-wiki', 'tweet-drama-project-bible'])('rejects a missing rc8 skill %s', async (name) => {
+  const f = fixture()
+  const index = f.skills.findIndex(skill => skill.name === name)
+  f.skills.splice(index, 1)
+  await expect(f.apply(f.ctx)).rejects.toThrow(name)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
 it('rejects a missing shared snatch skill', async () => {
   const f = fixture()
   const index = f.skills.findIndex(skill => skill.name === 'jubian-snatch')
@@ -261,6 +277,26 @@ it('rejects extra agent-local tools in the minimal preset', async () => {
     ? [{ name: process.platform === 'win32' ? 'pwsh' : 'bash' }, { name: 'read' }]
     : schemas(key))
   await expect(f.apply(f.ctx)).rejects.toThrow('minimal must add only its persistent shell')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it.each(['short-drama', 'ptc', 'standard', 'cordis', 'editing'])('rejects missing transcription in %s', async (preset) => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === preset
+    ? schemas(key).filter(tool => tool.name !== 'audio_transcribe')
+    : schemas(key))
+  await expect(f.apply(f.ctx)).rejects.toThrow('transcription availability differs in ' + preset)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('rejects transcription in the minimal preset', async () => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'minimal'
+    ? [...schemas(key), { name: 'audio_transcribe' }]
+    : schemas(key))
+  await expect(f.apply(f.ctx)).rejects.toThrow('transcription availability differs in minimal')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 

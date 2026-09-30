@@ -2,6 +2,7 @@
 
 | stage | skill / 工具 | 核心检查 |
 |---|---|---|
+| project | tweet-drama-project-bible / drama_project | 一次确认缺项、实时 SD 模型组合、分离生成与交付规格；版本与影响预览 |
 | source / episodes | tweet-drama-script-convert / tweet-drama-script-split | 原件归档、分集边界、缺漏字 |
 | style / assets | tweet-drama-asset-extract | 先读实时主体设定，仅缺失资产需提示词和生成 |
 | asset_candidates | jubian_video image_generate_batch / image_generate | 整批提示词检查、逐项成功 ID 与审核证据；本地正式主体可按门禁跳过 |

@@ -1,4 +1,6 @@
 version: 1
+# The editing fixture discovers the source Muse MCP server through the real
+# client on an OS-assigned loopback port, with an empty signed-out account home.
 scenario: muse-editing-tool-catalog
 profile: headless
 composition: muse-editing-tool-catalog

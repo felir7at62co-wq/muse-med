@@ -146,6 +146,8 @@ inherited process environment (read-only, highest)
 | `jubian_organize` | `index` | 只读、免费；写一个本地索引文件 |
 | `jubian_model` | `preview`、`apply` | Preview 对远端只读；apply 以 `isGenerate=0` 保存用户批准的已有分镜设置 |
 | `jubian_storyboard` | `list`、`get`、`create`、`save` | List/get 只读；create/save 是免费写入，强制 `isGenerate=0`，包括调用方提供的创建请求体 |
+| | `edit_preview`、`edit_batch_preview`、`edit_apply` | 检查并原位保存已有卡片，保留 ID；不生成 |
+| | `delete_preview`、`delete_apply` | 检查精确授权目标后删除一次；执行前检查 Hook、过期拒绝与回读 |
 | | `select_assets` | 免费，强制 `isGenerate=0`；需要 `idempotency_key` |
 | | `prepare_video` | 远端只读、免费；只写一个本地 preview 文件 |
 | | `generate`、`submit_video`、`erase_subtitle` | 计费且不可撤销；需要 `idempotency_key` |
@@ -163,7 +165,11 @@ inherited process environment (read-only, highest)
 - `jubian_organize` 为一个项目建立一份只读视图：每一集用到哪些角色、场景与道具，各自远端的标识与状态；命名审计；类别审计；以及个人资产库每个类别的文件夹树。它不改动任何远端，只写一个本地索引文件。详见下文「组织视图」。
 - `jubian_storyboard` 无需模型设置或本地项目文件即可列出项目分镜身份、读取单个分镜、用调用方给出的完整请求体新建分镜、保存而不生成、提交生成，或擦除烧录字幕。`generate` 先读当前分镜快照，把 `isGenerate=1` 写回，因此还必须给出与该分镜已保存时长一致的 `content_duration_ms`；不一致时在任何请求离开前就失败。`erase_subtitle` 需要任务 ID、视频画面尺寸和一个明确的 `model_id`：`quzimuToB`（区域性——擦除矩形按提供方对画面的默认比例推导，所以 `subtitle_box` 可选且通常省略）或 `ark-erase-video-subtitle-pro`（自动，不接受 `subtitle_box`）。它没有默认模型，所以省略 `model_id` 的调用方会被告知缺哪个参数，而不是被替它挑一个。项目、分集与源身份从任务及其子结果读取，因此不需要 `script_id`。三个分镜原生方法见下文「主体视频的分镜原生通道」一节。
 
+`delete_preview` 要求精确的 `storyboard_ids`、用户的 `authorization_basis` 与具体 `delete_reason`。它读取卡片内容和关联任务，冻结项目绑定的预览。执行前 Hook 要求 Agent 检查这些目标，并在 `delete_apply` 中给出全部 `checked_storyboard_ids`。应用拒绝任何已变化的卡片或任务、运行中的生成任务，以及预览没有明确包含授权删除的关联生成媒体。提供方公开分镜页（`chunk-7652bf40.2c84d891.js`，模块 `917c`，2026 年 9 月 30 日）确认了 `DELETE /aigc/storyboard/{id}` 端点。每次写入记录为 `storyboard_remove`；响应丢失时停止剩余批次并回读。重放同一计划只读取，尚未尝试的目标需要重新检查。每项结果将已存的提供方响应 `response_status` 与当前删除回读核验 `verified_readback` 分开；重放核验逐卡账本的方法、项目与请求哈希。关联任务读取必须覆盖所报告的完整总数，部分分页结果不能用于删除。Apply 只读取当前项目内指纹对应的预览文件，在读取前拒绝符号链接。远端删除不可恢复。
+
 `create_batch` 接收一个项目的 `script_id` 和 `storyboards` 数组，每项独立 key，并提供 `body` 或 `body_path`。工具先读取并检查所有项，再以 `isGenerate=0` 并发 POST；`storyboardBatchConcurrency` 默认 4，范围 1–8；`storyboardBatchMaxItems` 默认 1000，范围 1–1000。结果逐项保留序号、名称、key 与账本结果。部分失败或结果不明时沿用原 key 对账，已成功项不重建。每条创建后回读，再选材和准备整批视频。
+
+已有卡片用 `edit_preview` 提供一个 `storyboard_id`，或用 `edit_batch_preview` 提供含明确 ID 与 `changes` 的 `edits` 数组；两者都要求绑定的 `script_id` 与 `project_dir`。Changes 接受提示词、已存模型设置、`name`、`episode_id` 与 `sort_order`。提示词写入 `modelConfig`；显式修复分集归属时，ID 必须属于当前项目的实时分集目录。核对 before/after 后，用返回的 `preview_path` 与 `idempotency_key=fingerprint` 调用 `edit_apply`。编辑拒绝过期卡片，保留身份、有序素材和其他服务端字段，并按创建批次上限只发免费 `isGenerate=0` PUT。回读核验已存值与保留素材。提示词标记变化返回 `needs_reselect`：保存批准的文本并保留素材。当前账号的本地账本会阻止准备和新提交，直到 `select_assets` 核验映射；同一 key 改名称也需要重新选源。这项记录只作用于当前账本，不跨设备同步。结果不明时用原 preview 和 key 对账；重放不发送请求。编辑应用先校验预览文件的固定路径并拒绝符号链接，再读取预览。真正的新包才用创建。
 
 提示词保存于 `modelConfig.prompt`，不是顶层 `prompt`。按选材顺序在提示词映射中各写一次 `@[名称](material_key)` 引用。`get.material_keys` 表示已经绑定的素材行；新分镜该字段为空不能证明提示词不存在。
 
@@ -251,6 +257,8 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 调用 `jubian_model preview`，提供 `project_dir`、与之绑定的 `script_id`、明确的 `scope` 与非空 `changes`。`storyboards` 接受精确远端 `storyboard_ids`；`episodes` 接受远端 `episode_ids`，不是显示集号；`project` 表示全部已有分镜，不涉及未来默认值。未指定的设置保留，选择器 ID 从实时目录重新解析。更换 `modelId` 而未给 `platformId` 时，要求唯一兼容平台，不沿用旧平台。Preview 返回每项 before/after，写入 `<project_dir>/video_tasks/<fingerprint>.model-settings.prepared.json`，不产生任何远端写入。
 
 用户批准范围与设置后，调用 `apply`，提供同一项目绑定、`preview_path` 及等于 `fingerprint` 的 `idempotency_key`。它在第一次写入前拒绝被改动的计划、变化的成员、过期的目标或变化的目录选择器，并在每项 `PUT` 前即时回读目标。请求体从实时目标构造，只改模型设置，并强制 `isGenerate=0`。回读核验设置、提示词、资产身份/顺序与非模型值。错误会停止剩余目标并逐项报告；重放只对已尝试目标进行回读对账，不重发也不续写该计划。已生成媒体与项目未来默认值保持不变。
+
+项目和分集预览在 `excluded_invalid` 中报告异常卡片，只规划有效成员。缺少可用 `episodeId` 的孤立卡片不会阻塞其他分集。精确 `storyboards` 范围仍报告该卡片的错误；用 `edit_preview` 显式修复分集绑定或时长，再重新预览目标模型范围。工具不会把显示用 `episodeCount` 推断为远端分集 ID。
 
 ### 主体视频的分镜原生通道
 
@@ -373,6 +381,7 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 | [`src/organize.ts`](src/organize.ts) | 只读的组织视图：分页读取、清单连接、markdown 渲染与本地原子写入 |
 | [`src/write.ts`](src/write.ts) | 两阶段 `writeUnderLedger` 助手、请求体哈希，以及所有写路径共用的"必须有 key"检查 |
 | [`src/native.ts`](src/native.ts) | 分镜原生流程：分页双快照、唯一一次 `PUT`、任务认领，以及 preview 的原子写入 |
+| [`src/storyboard-edit.ts`](src/storyboard-edit.ts) | 已有卡片的冻结编辑、选材诊断与免费保存回读核验 |
 | [`src/reference.ts`](src/reference.ts) | 本地参考图上传：读文件、可选的 `ffmpeg` 重编码、读取前端 bundle，以及带签名的对象 `PUT` |
 | [`src/token.ts`](src/token.ts) | `jubianToken` Remote 命名空间：只围绕那一个凭据引用，由 `apply` 与工具一起挂载 |
 | [`src/image.ts`](src/image.ts) | 计费生图通道的锁定——`drama` 设置段压过本行 config，逐次调用解析——以及只读的 `jubianImage` Remote 命名空间，用来列出人可以锁定的那些行 |

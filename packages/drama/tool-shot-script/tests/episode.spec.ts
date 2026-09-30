@@ -9,6 +9,7 @@ import {
   MATCHED_VERSION,
   MIN_CONTENT_SECONDS,
   packEpisode,
+  prepareShotPrompts,
   writeEpisode,
 } from '../src/episode.ts'
 import { parseShotScript } from '../src/script.ts'
@@ -43,7 +44,12 @@ function fixture(blocks: readonly string[], rows: readonly Record<string, unknow
 }
 
 /** The default manifest: one character, one scene, one prop, all official. */
-const DEFAULT_ASSETS = [assetRow('苏晚', '角色'), assetRow('后厨', '场景'), assetRow('客厅', '场景'), assetRow('奶瓶', '道具')]
+const DEFAULT_ASSETS = [
+  assetRow('苏晚', '角色', { jubian_asset_id: '70001' }),
+  assetRow('后厨', '场景', { jubian_asset_id: '70002' }),
+  assetRow('客厅', '场景', { jubian_asset_id: '70003' }),
+  assetRow('奶瓶', '道具', { jubian_asset_id: '70004' }),
+]
 
 /** Create one temporary project with its episode text already split. */
 async function project(episode = '01'): Promise<string> {
@@ -62,6 +68,19 @@ describe('material keys', () => {
 
   it('returns nothing when the prompt carries no placeholder', () => {
     expect(materialKeys('真人短剧写实风格\n【镜头1】')).toEqual([])
+  })
+
+  it('reuses an alias marker across shots and keeps completion stable on a repeated compile', () => {
+    const rows = [assetRow('苏晚', '角色', { aliases: ['晚晚'] })]
+    const shots = fixture([
+      speakingShot(1, '苏晚：别走', ['素材映射：@[晚晚](existing)']),
+      speakingShot(2, '苏晚：等等'),
+    ], rows)
+    const assets = parseAssetManifest(manifestDocument(...rows), 'manifest.json').assets
+    const completed = prepareShotPrompts(shots, assets)
+    expect(completed.map(item => materialKeys(item.shot.visual))).toEqual([['existing'], ['existing']])
+    expect(completed[0]?.shot.visual).toContain(shots[0]?.shot.visual)
+    expect(prepareShotPrompts(completed)).toEqual(completed)
   })
 })
 
@@ -91,7 +110,7 @@ describe('packing an episode', () => {
       shots: [1, 2],
       contentSeconds: 2,
       submitSeconds: 4,
-      materialKeys: [],
+      materialKeys: ['asset_70001', 'asset_70002'],
       materialNames: ['苏晚', '后厨'],
     })
   })
@@ -199,7 +218,7 @@ describe('packing an episode', () => {
         speakingShot(2, '苏晚：@[苏晚](lead) 又是 @[奶瓶](prop)', ['核心场景：后厨'])],
       DEFAULT_ASSETS,
     )
-    expect(packEpisode(shots, 14)[0]?.materialKeys).toEqual(['lead', 'prop'])
+    expect(packEpisode(shots, 14)[0]?.materialKeys).toEqual(['lead', 'asset_70002', 'prop'])
   })
 
   it('plans no package for an episode with no shots', () => {
@@ -212,7 +231,7 @@ describe('the matched payload', () => {
     const shots = fixture([
       speakingShot(1, '苏晚：@[苏晚](lead) 站住', ['核心场景：后厨', '关键道具：奶瓶', '出镜人物：苏晚']),
       actionShot(2, ['核心场景：后厨', '动作复杂度：复杂']),
-    ], [...DEFAULT_ASSETS, assetRow('奶瓶', '道具', { image_path: 'assets/props/bottle.png' })])
+    ], [...DEFAULT_ASSETS, assetRow('奶瓶', '道具', { jubian_asset_id: '70004', image_path: 'assets/props/bottle.png' })])
     const tasks = packEpisode(shots, 14)
     const payload = buildMatchedPayload({ episode: '03', promptFile: 'C:/p/03.txt', shots, tasks })
     expect(payload.version).toBe(MATCHED_VERSION)
@@ -245,7 +264,8 @@ describe('the matched payload', () => {
       .toBe('https://cdn.example.test/asset.png')
     expect(payload.video_tasks).toEqual([
       { shots: [1, 2], content_duration: 5, natural_hold_duration: 1, requested_duration: 6,
-        hold_instruction: HOLD_INSTRUCTION },
+        hold_instruction: HOLD_INSTRUCTION, prompt: tasks[0]?.prompt,
+        material_keys: ['lead', 'asset_70002', 'asset_70004'] },
     ])
   })
 })

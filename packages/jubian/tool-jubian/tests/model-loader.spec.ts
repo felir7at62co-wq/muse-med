@@ -11,6 +11,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 import * as Jubian from '../src/index.ts'
 
@@ -22,6 +23,7 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
     prompt: 'keep', materialList: [] }
   let board = { id: 1, scriptId: 2708, episodeId: 9, isGenerate: 1, modelConfig: JSON.stringify(modelConfig) }
   const calls: string[] = []
+  let deleted = false
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
     calls.push(String(init?.method))
     const path = url instanceof Request ? url.url : url.toString()
@@ -31,11 +33,13 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
         { id: 91, ratio: '9:16', resolution: '720p', genNum: 1 },
         { id: 92, ratio: '9:16', resolution: '1080p', genNum: 1 },
       ] }]
+    else if (path.includes('/aigc/storyboard/byStoryboard/')) data = []
     else if (path.includes('/aigc/storyboard/list?')) data = { rows: [board], total: 1 }
+    else if (init?.method === 'DELETE') { deleted = true; data = null }
     else if (init?.method === 'PUT') {
       if (typeof init.body !== 'string') throw new Error('Expected JSON request body')
       board = JSON.parse(init.body) as typeof board; data = null
-    } else data = board
+    } else data = deleted ? null : board
     return new Response(JSON.stringify({ code: 200, data }))
   })
   try {
@@ -108,6 +112,30 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
       ]
     `)
     expect(calls.filter(method => method === 'PUT')).toHaveLength(1)
+    const editArgs = { method: 'edit_preview', script_id: 2708, project_dir: root, storyboard_id: 1,
+      changes: { prompt: '改动后的正式镜头', duration: 9 } }
+    expect(validateJsonSchemaValue(storyboard.parameters, editArgs, '')).toEqual([])
+    const editPlan = await storyboard.execute(editArgs, runContext) as Record<string, unknown>
+    const editApply = { method: 'edit_apply', script_id: 2708, project_dir: root,
+      preview_path: editPlan.preview_path, idempotency_key: editPlan.fingerprint }
+    const edited = await storyboard.execute(editApply, runContext) as JsonValue
+    expect(storyboard.output.render(editApply, edited)).toMatchSnapshot('in-place edit outcome')
+    expect(calls.filter(method => method === 'PUT')).toHaveLength(2)
+    const beforeDenied = calls.length
+    const denied = await ctx.tools.execute({ callId: ToolCallId('unreviewed-delete'), name: 'jubian_storyboard',
+      arguments: { method: 'delete_apply', script_id: 2708, project_dir: root, preview_path: 'unreviewed' },
+      signal: new AbortController().signal })
+    expect(denied).toMatchObject({ isError: true })
+    expect(calls).toHaveLength(beforeDenied)
+    expect(denied).toMatchSnapshot('deletion inspection hook')
+    const deleteArgs = { method: 'delete_preview', script_id: 2708, project_dir: root, storyboard_ids: [1],
+      delete_reason: '删除这张已核对的测试卡', authorization_basis: '用户授权删除测试卡 1' }
+    const deletePlan = await storyboard.execute(deleteArgs, runContext) as Record<string, unknown>
+    const deleteApply = { method: 'delete_apply', script_id: 2708, project_dir: root,
+      preview_path: deletePlan.preview_path, idempotency_key: deletePlan.fingerprint, checked_storyboard_ids: [1] }
+    const removed = await storyboard.execute(deleteApply, runContext) as JsonValue
+    expect(storyboard.output.render(deleteApply, removed)).toMatchSnapshot('verified deletion outcome')
+    expect(calls.filter(method => method === 'DELETE')).toHaveLength(1)
     const entry = [...ctx.loader.entries()].find(row => row.options.name === '@deepseek-ai/dsh-tool-jubian')
     await entry?.fiber?.dispose()
     expect(ctx.tools.get('jubian_model')).toBeUndefined()

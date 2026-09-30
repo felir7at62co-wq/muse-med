@@ -9,14 +9,17 @@
   en: 00c38fd157cb173e
   zh: bedf86b125ca1453
 /deepseek-ai-dsh-drama-settings/summary:
-  en: 7df5c0d7e5f424d2
-  zh: 5cee8f9de4416c3f
+  en: ad821be15b65f639
+  zh: 772c69f6f9f267a9
 /deepseek-ai-dsh-drama-settings/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
 /deepseek-ai-dsh-drama-settings/use-this-package:
   en: d3e659152882ae63
   zh: 97eaaef0bcab98ae
+/deepseek-ai-dsh-drama-settings/use-this-package/the-project-bible:
+  en: 94cbc9d1889d688e
+  zh: 3d40bd9c7fc5daab
 /deepseek-ai-dsh-drama-settings/use-this-package/the-settings-page:
   en: 944182efe8c90343
   zh: 60c5fed04b08263c
@@ -27,20 +30,53 @@
   en: 863317d2f90a8d0e
   zh: b8c7fb2758e05059
 /deepseek-ai-dsh-drama-settings/understand-the-implementation:
-  en: 661283668ab5741f
-  zh: fb8f14cdb232394a
+  en: d3ce321826087afd
+  zh: d2db2379f1313f79
 /deepseek-ai-dsh-drama-settings/further-exploration:
   en: 4de152b88a1c23ba
   zh: b81cda8fe6fd2dc1
 /deepseek-ai-dsh-drama-settings/model-experience:
-  en: e1cb484032868ddd
-  zh: 4f6960c801b1072e
-/deepseek-ai-dsh-drama-settings/model-experience/kv-cache-effect:
-  en: 27e1e7dee05140c5
-  zh: a38d2d7d0cd8bd66
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-drama-settings/model-experience/tool-schemas-when-settings-and-tools-are-available:
+  en: ed5491929894b8fb
+  zh: 6aed450783cef594
+/deepseek-ai-dsh-drama-settings/model-experience/tool-schemas-when-settings-and-tools-are-available/what-the-model-sees:
+  en: c4f4fa435f35debf
+  zh: c6281988b89d426c
+/deepseek-ai-dsh-drama-settings/model-experience/tool-schemas-when-settings-and-tools-are-available/token-effect:
+  en: d6d5fa5c99d6ee97
+  zh: 9f95f496ff872091
+/deepseek-ai-dsh-drama-settings/model-experience/tool-schemas-when-settings-and-tools-are-available/kv-cache-effect:
+  en: c6a94500ba866dd5
+  zh: 5357aea4e4c418b8
+/deepseek-ai-dsh-drama-settings/model-experience/draft-directory-tool-results:
+  en: 81746a840a2ea7a7
+  zh: 655147eed95cd209
+/deepseek-ai-dsh-drama-settings/model-experience/draft-directory-tool-results/what-the-model-sees:
+  en: 3d65ca8ba0fa4a3d
+  zh: b68773a31dae3c7a
+/deepseek-ai-dsh-drama-settings/model-experience/draft-directory-tool-results/token-effect:
+  en: 41c05b3bd1af00dd
+  zh: 467266a009098aae
+/deepseek-ai-dsh-drama-settings/model-experience/draft-directory-tool-results/kv-cache-effect:
+  en: c1854da073069f5d
+  zh: 6380299add9bbc68
+/deepseek-ai-dsh-drama-settings/model-experience/project-bible-tool-results:
+  en: 591cbe184a8532bd
+  zh: 409e84310831b71f
+/deepseek-ai-dsh-drama-settings/model-experience/project-bible-tool-results/what-the-model-sees:
+  en: 15eec407be27c0d2
+  zh: 9cc1c2790376f3e9
+/deepseek-ai-dsh-drama-settings/model-experience/project-bible-tool-results/token-effect:
+  en: 37301eb43078fce1
+  zh: 8dba6ebf980277be
+/deepseek-ai-dsh-drama-settings/model-experience/project-bible-tool-results/kv-cache-effect:
+  en: c9877a74140a9faf
+  zh: dafaa9d8d19a6007
 /deepseek-ai-dsh-drama-settings/known-limitations-and-deferred-work:
-  en: d21d6ed836bc700f
-  zh: c2b3488cffb3cbf2
+  en: 4b004ab137b322d7
+  zh: 3a3e87b37bb735e5
 /deepseek-ai-dsh-drama-settings/known-limitations-and-deferred-work/dev-note:
   en: a683847a091f1c06
   zh: 5405ea80c3c049a6

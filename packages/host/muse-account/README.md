@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Sign in to MUSE from Desktop Settings without entering a password in a model conversation. The agent can save reviewed scripts from authorized video or novel material to this account's private knowledge base, then search and read them by ID. It can also read administrator-granted script and Wiki references. These operations require a configured Muse gateway.
+Sign in to MUSE from Desktop Settings without entering a password in a model conversation. The agent can save reviewed scripts and immutable originals privately, then synthesize cited Wiki pages in account or project scope. It can browse directories, search full text, follow links, and read historical revisions alongside administrator-granted references. These operations require a configured Muse gateway.
 
 ## Table of Contents
 
@@ -58,7 +58,9 @@ The [configuration catalog](../../../docs/config-catalog.md) is generated from p
 
 The authenticated `museAccount` Remote namespace carries [Settings UI](../../client/ui-muse-account/README.md) calls to the Host account controller. The controller sends credentials to the configured gateway, confirms the returned identity, and atomically saves an origin-bound cookie in the product home. Its Remote responses contain fixed error categories and account identity, never the password or cookie.
 
-The Host starts a bundled local MCP child and waits for tool discovery. For each KB call, the child exchanges the saved cookie through `/api/kb/access` for a short-lived bearer and calls the same-origin MCP endpoint; it never persists or returns the bearer. `muse_kb_ingest_script` submits up to 12 reviewed Markdown episodes or chapters, with a 2 MiB total request limit, and reports each saved, duplicate, or failed section. Search returns the account's private `private/SRC-...` IDs and administrator-granted shared IDs; read pages either source, while opening reads stop after 24,000 characters. Each read returns a 6,000-character page and continuation data; local failures return fixed codes without upstream response text.
+The Host starts a bundled local MCP child and waits for tool discovery. For each KB call, the child exchanges the current saved cookie through `/api/kb/access` for a fresh short-lived bearer and calls the same-origin MCP endpoint; it never persists or returns the bearer. `muse_kb_ingest_script` submits up to 12 reviewed Markdown episodes or chapters, with a 2 MiB total request limit, and reports each saved, duplicate, or failed section. The nine `muse_kb_wiki_*` tools expose immutable source capture, directory browsing, full-text search, source/page reading, cited page writes, history, links, status, and migration preview. Scope defaults to `private`; `project` requires an account-local `project_id`, and `shared` uses explicit grants and administrator-only writes. Page writes carry original-source character citations and `expected_revision`; conflicts require reading and merging the current page before retrying. Capture creates a pending source page, while migration preview changes neither originals nor grants. Legacy reads retain their 6,000-character pages and 24,000-character opening limit.
+
+Local failures return fixed codes without upstream response text. Bounded recognized Wiki errors distinguish revision conflicts, busy writes, invalid citations, unresolved links, and access refusal. The model receives fixed recovery guidance for retryable Wiki edits; unknown errors and bearer-containing results remain rejected. Each call rereads the account session, so refreshed login and sign-out apply without restarting the MCP child.
 
 The Host-only `MuseAsrClient` reads the same saved account session for the `audio_transcribe` tool. It sends audio and queries account-scoped job IDs through the gateway; the client validates and retains sentence and word timestamps in seconds, refusing invalid spans. No ASR or TOS credential setting appears in Desktop. Missing account login, gateway, or server ASR configuration has an explicit failure. The server deployment and task limits are documented in [`services/muse-accounts`](../../../services/muse-accounts/README.md).
 
@@ -84,11 +86,11 @@ No runtime invariant companion is published because account status and registere
 
 #### What the model sees
 
-After the bundled MCP server connects, the model receives the schemas for `mcp__muse-account__muse_account_status`, `mcp__muse-account__muse_kb_ingest_script`, `mcp__muse-account__muse_kb_search`, `mcp__muse-account__muse_kb_read`, and `mcp__muse-account__muse_kb_read_opening`. The write tool accepts reviewed script text and source identifiers, then returns an outcome and private ID per section. Search returns excerpts and IDs; each read returns one 6,000-character page and continuation information. Password, cookie, and bearer are absent from tool arguments and results. Model-visible arguments and results remain Session data.
+After the bundled MCP server connects, the model receives fourteen schemas: account status, the four legacy source operations, and the nine `mcp__muse-account__muse_kb_wiki_*` operations. Wiki results contain source/page IDs, digests, revisions, citations, links, bounded excerpts, and continuation offsets. The write tools distinguish immutable captures from synthesized pages and reviewed script sections. Password, cookie, and bearer are absent from tool arguments and results. Model-visible arguments and results remain Session data.
 
 #### Token effect
 
-The five tool schemas add a stable request cost while the server is mounted. Calls append returned text to the conversation; each local KB result is capped at 128 KiB and the gateway provides 6,000-character pages. This package adds no system-prompt text.
+The fourteen tool schemas add a stable request cost while the server is mounted. Calls append returned text to the conversation; legacy results are capped at 128 KiB, while Wiki results allow up to 4 MiB for link graphs and citations. Reads provide 6,000-character pages. Results above the relevant limit are rejected, including unusually large ambiguous-link candidate lists. This package adds no system-prompt text.
 
 #### KV Cache effect
 

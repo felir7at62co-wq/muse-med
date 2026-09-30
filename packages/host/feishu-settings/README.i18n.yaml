@@ -2,21 +2,39 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/host/feishu-settings/README.md
+/:
+  en: 87cd955b46d15bda
+  zh: 4bb26d75356e4815
 /deepseek-ai-dsh-feishu-settings:
-  en: 2051da835283aa85
-  zh: bdd3e04f801f420a
-/deepseek-ai-dsh-feishu-settings/what-it-owns:
-  en: 333404e38dd55286
-  zh: eb4cfe4cb69ea720
-/deepseek-ai-dsh-feishu-settings/registration:
-  en: 0fa8b98c08bd881c
-  zh: 8bdcc7dfb991b33b
+  en: 21d82010b67eceb4
+  zh: f75679c00e671933
+/deepseek-ai-dsh-feishu-settings/summary:
+  en: af1be025d425bc80
+  zh: c534ab72397055c4
+/deepseek-ai-dsh-feishu-settings/table-of-contents:
+  en: f8b6c34bbcbdf7a6
+  zh: c5cad1415ab68e5a
 /deepseek-ai-dsh-feishu-settings/storing-credentials:
-  en: 069620e7a1cd7ada
-  zh: 1e0e29b2ede9d571
+  en: 4e67d220bfc43a8a
+  zh: d9fef3547bf344d2
+/deepseek-ai-dsh-feishu-settings/registration:
+  en: 59edbc3aeb7e24bc
+  zh: 565810476fa67b66
 /deepseek-ai-dsh-feishu-settings/restart-sequence:
-  en: 4af573d1251f7a2f
-  zh: 1f040dc6a3316b97
+  en: c5db342e66a22e96
+  zh: 47ba19aa3d3371ea
+/deepseek-ai-dsh-feishu-settings/understand-the-implementation:
+  en: e823662244479286
+  zh: e44cbd3d23f8deeb
+/deepseek-ai-dsh-feishu-settings/model-experience:
+  en: 3b37efe6fdca44a8
+  zh: 25d717fd8a680af7
+/deepseek-ai-dsh-feishu-settings/model-experience/kv-cache-effect:
+  en: 779fade3fd3492c4
+  zh: 2e81aa527b4c1f7b
 /deepseek-ai-dsh-feishu-settings/known-limitations-and-deferred-work:
-  en: 66a225e4e993052f
-  zh: a77f9e99d12ffa43
+  en: a29b95096ada3bdb
+  zh: 44d73efc80d3880d
+/deepseek-ai-dsh-feishu-settings/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 8ec3e73528ddb1a6

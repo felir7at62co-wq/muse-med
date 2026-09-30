@@ -70,18 +70,35 @@ describe('FeishuSection', () => {
     expect(screen.getByText('appIdLabel: cli_x')).toBeDefined()
   })
 
-  it('writes the switch and says the change waits for a restart', async () => {
+  it('saves the switch separately while typed credentials remain unsaved', async () => {
     const setEnabled = vi.fn(async () => ({ ok: true as const, value: { ...OFF, enabled: true, row: 'restart-pending' as const } }))
-    render(<FeishuSection {...props(OFF, { setEnabled })} />)
+    const setCredentials = vi.fn(async () => ({ ok: true as const, value: OFF }))
+    render(<FeishuSection {...props(OFF, { setEnabled, setCredentials })} />)
 
     // The toggle is the shared Switch primitive, not a native checkbox.
     const toggle = await screen.findByRole('switch')
+    fireEvent.change(screen.getByPlaceholderText('appIdPlaceholder'), { target: { value: 'cli_unsaved' } })
+    fireEvent.change(screen.getByPlaceholderText('secretPlaceholder'), { target: { value: 'sec_unsaved' } })
     expect(toggle.getAttribute('aria-checked')).toBe('false')
     fireEvent.click(toggle)
 
     expect(setEnabled).toHaveBeenCalledWith(true)
-    expect(await screen.findByText('switchNeedsRestart')).toBeDefined()
+    expect(await screen.findByText('switchNeedsCredentials')).toBeDefined()
     expect(screen.getByText('status.restartPending')).toBeDefined()
+    expect(screen.getByText('credentialLabel: credential.none')).toBeDefined()
+    expect(setCredentials).not.toHaveBeenCalled()
+    expect(screen.getByPlaceholderText<HTMLInputElement>('appIdPlaceholder').value).toBe('cli_unsaved')
+    expect(screen.getByPlaceholderText<HTMLInputElement>('secretPlaceholder').value).toBe('sec_unsaved')
+    expect(screen.queryByText('saved')).toBeNull()
+  })
+
+  it('reports the switch restart independently once credentials are stored', async () => {
+    const stored: FeishuSetupStatus = { ...OFF, appId: 'cli_stored', credential: 'manual' }
+    const setEnabled = vi.fn(async () => ({ ok: true as const, value: { ...stored, enabled: true, row: 'restart-pending' as const } }))
+    render(<FeishuSection {...props(stored, { setEnabled })} />)
+    fireEvent.click(await screen.findByRole('switch'))
+    expect(await screen.findByText('switchNeedsRestart')).toBeDefined()
+    expect(screen.queryByText('switchNeedsCredentials')).toBeNull()
   })
 
   it('shows the Host-rendered ticket with its countdown, and cancels it', async () => {
@@ -144,12 +161,29 @@ describe('FeishuSection', () => {
 
     expect(setCredentials).toHaveBeenCalledWith({ appId: 'cli_manual', appSecret: 'sec_manual' })
     expect(await screen.findByText('saved')).toBeDefined()
+    expect(screen.getByText('credentialLabel: credential.manual')).toBeDefined()
     // A landed write is the only thing that clears the field.
     expect(screen.getByPlaceholderText<HTMLInputElement>('secretKeepStored').value).toBe('')
 
     fireEvent.click(screen.getByText('forget'))
     expect(forget).toHaveBeenCalled()
     expect(await screen.findByText('forgotten')).toBeDefined()
+  })
+
+  it.each<FeishuSetupStatus>([
+    { ...OFF, appId: 'cli_manual' },
+    { ...OFF, appId: 'cli_other', credential: 'manual' },
+  ])('keeps the typed pair when a save cannot confirm its stored credentials ($credential, $appId)', async (reported) => {
+    const setCredentials = vi.fn(async () => ({ ok: true as const, value: reported }))
+    render(<FeishuSection {...props(OFF, { setCredentials })} />)
+    fireEvent.change(await screen.findByPlaceholderText('appIdPlaceholder'), { target: { value: 'cli_manual' } })
+    fireEvent.change(screen.getByPlaceholderText('secretPlaceholder'), { target: { value: 'sec_manual' } })
+    fireEvent.click(screen.getByText('save'))
+
+    expect(await screen.findByText('error.credentialsUnconfirmed')).toBeDefined()
+    expect(screen.getByLabelText<HTMLInputElement>('secretLabel').value).toBe('sec_manual')
+    expect(screen.getByLabelText<HTMLInputElement>('appIdLabel').value).toBe('cli_manual')
+    expect(screen.queryByText('saved')).toBeNull()
   })
 
   it('names the reason a refused first read carries instead of waiting forever', async () => {

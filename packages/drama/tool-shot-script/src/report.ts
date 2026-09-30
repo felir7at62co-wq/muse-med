@@ -87,6 +87,7 @@ function packageReport(task: PackedTask): PackageReport {
     submit_seconds: task.submitSeconds,
     natural_hold_seconds: task.submitSeconds - task.contentSeconds,
     hold_instruction: HOLD_INSTRUCTION,
+    prompt: task.prompt,
     material_keys: task.materialKeys,
     material_names: task.materialNames,
   }

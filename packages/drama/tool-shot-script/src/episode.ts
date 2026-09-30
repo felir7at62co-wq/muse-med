@@ -14,6 +14,7 @@ import { access, copyFile, mkdir, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import type {
   CompiledShot,
+  ManifestAsset,
   MatchedAsset,
   MatchedPayload,
   MatchedShot,
@@ -68,6 +69,45 @@ export function materialKeys(prompt: string): string[] {
   const keys = new Set<string>()
   for (const match of prompt.matchAll(MATERIAL_PLACEHOLDER)) keys.add(placeholderKey(match))
   return [...keys]
+}
+
+/**
+ * Complete shot prompts with the confirmed assets their visual directions bind.
+ * Existing keys are reused across the episode, including registered alias labels;
+ * otherwise the parent asset id supplies the stable `asset_<id>` key. The full
+ * original visual text is retained before any added material references.
+ * @param shots - Compiled shots in script order.
+ * @param manifest - Registrations supplying alternate names for existing markers.
+ * @returns New shot rows with complete material references in their visual prompts.
+ */
+export function prepareShotPrompts(shots: readonly CompiledShot[], manifest: readonly ManifestAsset[] = []): CompiledShot[] {
+  const keysByAsset = new Map<string, string>()
+  for (const item of shots) {
+    for (const match of item.shot.visual.matchAll(MATERIAL_PLACEHOLDER)) {
+      const label = match[1]
+      const asset = item.assets.find((bound) => {
+        if (bound.name === label) return true
+        const registration = manifest.find(row => row.name === bound.name && row.assetId === bound.assetId)
+        return registration?.aliases.split(/[、,，;；/|｜\s]+/).includes(label ?? '') === true
+      })
+      if (asset !== undefined && !keysByAsset.has(asset.assetId)) {
+        keysByAsset.set(asset.assetId, placeholderKey(match))
+      }
+    }
+  }
+  return shots.map((item) => {
+    const present = new Set([...item.shot.visual.matchAll(MATERIAL_PLACEHOLDER)].map(match => match[1]))
+    const added: string[] = []
+    for (const asset of item.assets) {
+      if (!asset.official || asset.assetId === '' || asset.materialId === '' || asset.url === '') continue
+      const key = keysByAsset.get(asset.assetId) ?? `asset_${asset.assetId}`
+      if (present.has(asset.name)) continue
+      present.add(asset.name)
+      added.push(`@[${asset.name}](${key})`)
+    }
+    const visual = added.length === 0 ? item.shot.visual : `${item.shot.visual}\n素材映射：${added.join(' ')}`
+    return { ...item, shot: { ...item.shot, visual } }
+  })
 }
 
 /**
@@ -190,18 +230,20 @@ export function packEpisode(shots: readonly CompiledShot[], maxContentSeconds: n
     throw new Error(`内容预算至少为${MIN_CONTENT_SECONDS}秒，提交总时长至少为${MIN_SUBMIT_SECONDS}秒。`)
   }
   const tasks: PackedTask[] = []
-  for (const unit of splitContinuityUnits(shots, maxContentSeconds)) {
+  for (const unit of splitContinuityUnits(prepareShotPrompts(shots), maxContentSeconds)) {
     for (const pack of splitUnitEvenly(unit, maxContentSeconds)) {
       const contentSeconds = pack.reduce((sum, item) => sum + item.shot.durationSeconds, 0)
       if (contentSeconds > maxContentSeconds) {
         throw new Error(`镜头${pack.map(item => item.shot.shot).join('、')}合包时长${contentSeconds}秒超过内容预算${maxContentSeconds}秒。`)
       }
+      const prompt = `${pack.map(item => item.shot.visual).join('\n\n')}\n${HOLD_INSTRUCTION}`
       tasks.push({
         index: tasks.length + 1,
         shots: pack.map(item => item.shot.shot),
         contentSeconds,
         submitSeconds: Math.max(MIN_SUBMIT_SECONDS, contentSeconds + NATURAL_HOLD_SECONDS),
-        materialKeys: materialKeys(pack.map(item => item.shot.visual).join('\n')),
+        prompt,
+        materialKeys: materialKeys(prompt),
         materialNames: [...new Set(pack.flatMap(item => item.assets.map(asset => asset.name)))],
       })
     }
@@ -270,13 +312,15 @@ export function buildMatchedPayload(input: MatchedInput): MatchedPayload {
     prompt_file: input.promptFile,
     timeline_file: null,
     timing_source: 'integer_shot_script',
-    shots: input.shots.map(matchedShot),
+    shots: prepareShotPrompts(input.shots).map(matchedShot),
     video_tasks: input.tasks.map((task): MatchedVideoTask => ({
       shots: task.shots,
       content_duration: task.contentSeconds,
       natural_hold_duration: task.submitSeconds - task.contentSeconds,
       requested_duration: task.submitSeconds,
       hold_instruction: HOLD_INSTRUCTION,
+      prompt: task.prompt,
+      material_keys: task.materialKeys,
     })),
   }
 }

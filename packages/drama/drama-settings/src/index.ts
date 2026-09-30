@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-settings'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { draftDirectory } from './draft-directory.ts'
 import { DramaSettingsSchema } from './settings.ts'
+import { PROJECT_BIBLE_CHANGES, readProjectBible, previewProjectBible, updateProjectBible } from './project-bible.ts'
 
 export {
   DEFAULT_BGM_DIR, DEFAULT_DELIVERY_SPEC, DEFAULT_JIANYING_DRAFT_DIR, DELIVERY_SPEC_FIELD,
@@ -54,6 +55,30 @@ export function apply(ctx: Context): void {
         render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
       },
       execute: async args => await draftDirectory(toolCtx.settings, args.path),
+    })))
+    toolCtx.effect(() => toolCtx.tools.register(defineTool({
+      name: 'drama_project',
+      description: 'Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. Preserves legacy project bindings, stable package/storyboard IDs, completed tasks and version history. Validate exact model/platform/ratio/resolution through Jubian catalogue tools before selecting video settings.',
+      parameters: {
+        action: { type: 'string', required: true, enum: ['read', 'preview', 'update'] },
+        project_dir: { type: 'string', required: true, description: 'Existing absolute project directory.' },
+        changes: { type: 'object', additionalProperties: false, properties: PROJECT_BIBLE_CHANGES, description: 'Fields to merge for preview/update; omit for read.' },
+        reason: { type: 'string', description: 'Preview/update reason recorded in version history.' },
+        expected_revision: { type: 'string', description: 'Update only: exact current-file revision from preview, including missing for first creation.' },
+        preview_fingerprint: { type: 'string', description: 'Update only: fingerprint from the same reviewed preview.' },
+      },
+      output: {
+        schema: { type: 'object', additionalProperties: true },
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+      },
+      execute: async (args, exec) => {
+        if (args.action === 'read') return await readProjectBible(toolCtx.settings, args.project_dir)
+        if (!args.changes || !args.reason) throw new Error('Preview/update requires changes and reason.')
+        if (args.action === 'preview') return await previewProjectBible(toolCtx.settings, args.project_dir, args.changes, args.reason)
+        if (!args.expected_revision || !args.preview_fingerprint) throw new Error('Update requires the expected_revision and preview_fingerprint from preview.')
+        return await updateProjectBible(toolCtx.settings, args.project_dir, args.changes, args.reason,
+          args.expected_revision, args.preview_fingerprint, exec.signal)
+      },
     })))
   })
   ctx.inject(['settings'], (settingsCtx) => {

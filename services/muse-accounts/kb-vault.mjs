@@ -5,7 +5,7 @@
 // and the distilled wiki/ pages so an ingested session is searchable at once.
 import {chmod, lstat, mkdir, open, readdir, readFile, rename, rm, rmdir, writeFile} from 'node:fs/promises';
 import {constants} from 'node:fs';
-import {createHash} from 'node:crypto';
+import {createHash, randomBytes} from 'node:crypto';
 import {join, relative, sep} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {cosine, blendScore, contentHash, needsChunks} from './kb-embedding.mjs';
@@ -58,16 +58,63 @@ async function existingIds(sources) {
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
 }
 
+/** Existing capture directories must not redirect writes through symlinks or junctions. */
+async function sourceDirectory(path, create = false) {
+  if (create) {
+    try { await mkdir(path, {mode: 0o700}); }
+    catch (error) { if (error.code !== 'EEXIST') throw error; }
+  }
+  const info = await lstat(path).catch(error => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (!info) return false;
+  if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Source storage must be a regular directory');
+  return true;
+}
+
+/** Raw source packets and serial metadata remain below regular directory ancestors. */
+async function sourceStorage(root, create = false) {
+  if (!await sourceDirectory(root)) throw new Error('Source root must be an existing regular directory');
+  if (await sourceDirectory(join(root, 'raw'), create)) await sourceDirectory(join(root, 'raw', 'sources'), create);
+  await sourceDirectory(join(root, 'meta'), create);
+}
+
+/** Existing packet files and serial counters must not redirect reads outside their vault. */
+async function sourceFile(path) {
+  const info = await lstat(path).catch(error => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (!info) return false;
+  if (!info.isFile() || info.isSymbolicLink()) throw new Error('Source storage must be a regular file');
+  return true;
+}
+
 async function findDuplicate(sources, hash) {
   for (const id of await existingIds(sources)) {
+    const packet = join(sources, id), manifestPath = join(packet, 'manifest.json'), originalPath = join(packet, 'extracted.md');
+    if (!await sourceDirectory(packet)) continue;
+    if (!await sourceFile(manifestPath) || !await sourceFile(originalPath)) continue;
+    let manifest;
     try {
-      const manifest = JSON.parse(await readFile(join(sources, id, 'manifest.json'), 'utf8'));
-      if (manifest.content_sha256 === hash) return id;
-    } catch { /* An unreadable packet is not a duplicate match. */ }
+      manifest = JSON.parse(await readRegularPage(manifestPath));
+    } catch (error) { continue; /* Unreadable legacy metadata supplies no duplicate match. */ }
+    if (manifest?.content_sha256 !== hash) continue;
+    const original = await readRegularPage(originalPath);
+    if (original === null || digest(original) !== hash) throw new Error('Immutable source hash changed; inspect the packet before capturing again');
+    return id;
   }
   return null;
 }
 
+/** Capture immutable Markdown only in regular storage directories; duplicates verify original bytes.
+ * @param {string} vaultRoot Existing regular shared, private, or project vault directory.
+ * @param {object} capture Title, Markdown, relative source identifier, and optional author.
+ * @param {object} options Capture date for source ID allocation.
+ * @returns {Promise<object>} Immutable packet ID, path, title, digest, and duplicate status.
+ * @throws {Error} Invalid input, redirected storage, or changed duplicate source bytes.
+ */
 export async function ingestSession(vaultRoot, {title, text, source, author} = {}, {now = new Date()} = {}) {
   requireText(text, 'text', MAX_TEXT);
   requireText(title, 'title', MAX_TITLE);
@@ -77,8 +124,9 @@ export async function ingestSession(vaultRoot, {title, text, source, author} = {
   const sources = join(vaultRoot, 'raw', 'sources');
   const hash = digest(text);
 
+  await sourceStorage(vaultRoot);
   return withLock(join(vaultRoot, LOCK), async () => {
-    await mkdir(sources, {recursive: true});
+    await sourceStorage(vaultRoot, true);
     const duplicate = await findDuplicate(sources, hash);
     if (duplicate) return {id: duplicate, path: join(sources, duplicate), duplicate: true, sha256: hash, title};
 
@@ -88,6 +136,7 @@ export async function ingestSession(vaultRoot, {title, text, source, author} = {
     // [[sources/SRC-...]] by id, so a recycled id would silently repoint a citation.
     const counter = join(vaultRoot, 'meta', `kb-source-serial-${captured}`);
     let previous = 0;
+    await sourceFile(counter);
     try {
       const recorded = (await readFile(counter, 'utf8')).trim();
       if (!/^(0|[1-9]\d{0,2})$/.test(recorded)) throw new Error('Invalid source counter; inspect before writing');
@@ -101,7 +150,6 @@ export async function ingestSession(vaultRoot, {title, text, source, author} = {
     // Reserve before exposing the packet: a failed write may leave a gap, but
     // deleting even the newest packet must never recycle a referenced id.
     const temporaryCounter = `${counter}.${process.pid}.tmp`;
-    await mkdir(join(vaultRoot, 'meta'), {recursive: true});
     try {
       await writeFile(temporaryCounter, String(serial), {flag: 'wx', mode: 0o600});
       await rename(temporaryCounter, counter);
@@ -120,8 +168,8 @@ export async function ingestSession(vaultRoot, {title, text, source, author} = {
       content_sha256: hash,
     };
     // Build beside the target and rename once, so a reader never sees a partial packet.
-    const staging = join(sources, `.${id}.staging`);
-    await mkdir(staging, {recursive: true});
+    const staging = join(sources, `.${id}.${randomBytes(8).toString('hex')}.staging`);
+    await mkdir(staging, {mode: 0o700});
     try {
       await writeFile(join(staging, 'extracted.md'), text, {encoding: 'utf8', flag: 'wx'});
       await writeFile(join(staging, 'manifest.json'), JSON.stringify(manifest, null, 2), {encoding: 'utf8', flag: 'wx'});
@@ -148,15 +196,15 @@ export function documentContent(body, fallbackTitle, {forceTitle = false} = {}) 
 
 // The editor-writable vault is a trust boundary: open and stat the SAME fd,
 // rather than lstat(path) followed by a symlink-following readFile(path).
-export async function readRegularPage(path) {
+export async function readRegularPage(path, {maxChars = MAX_TEXT, maxBytes = MAX_TEXT * 3} = {}) {
   let handle;
   try { handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); }
   catch (error) { if (['ENOENT', 'ELOOP', 'ENOTDIR'].includes(error.code)) return null; throw error; }
   try {
     const info = await handle.stat();
-    if (!info.isFile() || info.size > MAX_TEXT * 3) return null;
+    if (!info.isFile() || info.size > maxBytes) return null;
     const body = await handle.readFile('utf8');
-    return body.length <= MAX_TEXT ? body : null;
+    return body.length <= maxChars && Buffer.byteLength(body) <= maxBytes ? body : null;
   } finally { await handle.close(); }
 }
 
@@ -227,15 +275,20 @@ export async function readOpening(vaultRoot, id, {start = 0, sha256, title} = {}
   };
 }
 
-/** Load only grant-matched files for account-visible search and status. */
-export async function collectGrantedDocuments(vaultRoot, grants) {
+/** Load grant-verified documents, retaining complete text for Wiki search, reads, and archival.
+ * @param {string} vaultRoot Shared vault directory.
+ * @param {Map} grants Account-visible exact-byte permissions.
+ * @param {object} options Whether complete text is needed instead of the search preview.
+ * @returns {Promise<object[]>} Documents whose complete bytes match their granted hashes.
+ */
+export async function collectGrantedDocuments(vaultRoot, grants, {fullText = false} = {}) {
   const documents = [];
   for (const [id, grant] of grants) {
     const file = await readGrantedDocument(vaultRoot, id, grant);
     if (!file) continue;
     const source = SOURCE_ID.test(id);
     const fallbackTitle = grant.title ?? (source ? id : wikiParts(id).at(-1));
-    const body = file.body.slice(0, MAX_TEXT);
+    const body = fullText ? file.body : file.body.slice(0, MAX_TEXT);
     documents.push({id, body, path: file.path, ...documentContent(body, fallbackTitle, {forceTitle: source || grant.title !== undefined})});
   }
   return documents;

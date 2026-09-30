@@ -12,10 +12,9 @@
  *
  * The layer is appended after every layer that configures that row, so it wins
  * over any value stored for the bridge's own section: a stored `enabled: true`
- * cannot activate a row the product switch left off. Credentials are
- * deliberately absent from the composed config: they live in the bridge row's
- * own stored section, where no dump can reach them, and this layer never names
- * them.
+ * cannot activate a row the product switch left off. The layer preserves the
+ * bridge row's other composed fields, including stored credentials, for the
+ * Loader to resolve at startup.
  *
  * @module @deepseek-ai/dsh-desktop-host/feishu-gate
  */
@@ -64,9 +63,8 @@ export function readFeishuEnabled(rows: readonly FeishuGateRow[]): boolean {
 /**
  * Compose the activation layer for the bundled Feishu bridge row.
  * @param rows - entries composed from the layers this one is appended to.
- * @returns one patch layer holding the row's activation key and the resolved
- *   activation controls, or no layer at all when the composition has no Feishu
- *   bridge row to gate.
+ * @returns one patch layer preserving the bridge config and setting its
+ *   activation key, or no layer when the composition has no Feishu bridge row.
  */
 export function feishuGateLayer(rows: readonly FeishuGateRow[]): PatchOptions[] {
   const row = rows.find(candidate => candidate.id === FEISHU_CHANNEL_ROW_ID)

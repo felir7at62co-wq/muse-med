@@ -320,6 +320,582 @@
       }
     },
     {
+      "name": "list_mcp_resource_templates",
+      "description": "List parameterized resource URI templates from an MCP server.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "server": {
+            "type": "string",
+            "description": "Configured MCP server name."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Continuation cursor returned by this server."
+          }
+        },
+        "required": [
+          "server"
+        ]
+      }
+    },
+    {
+      "name": "list_mcp_resources",
+      "description": "List resources available from an MCP server.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "server": {
+            "type": "string",
+            "description": "Configured MCP server name."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Continuation cursor returned by this server."
+          }
+        },
+        "required": [
+          "server"
+        ]
+      }
+    },
+    {
+      "name": "mcp__muse-account__muse_account_status",
+      "description": "Read the current MUSE account identity. Set verify=true to confirm the saved session with the gateway. No password or cookie is returned.",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "verify": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "mcp__muse-account__muse_kb_ingest_script",
+      "description": "Save reviewed, human-readable Markdown script sections from an authorized video or novel source into the signed-in account’s private knowledge base. Submit one item per episode or chapter. Results name each saved, duplicate, or failed item and its private ID. Verify the full set and read back saved IDs before reporting completion; a partial result is not a complete archive.",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "minItems": 1,
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "description": "Work title and episode or chapter"
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 400000,
+                  "description": "Reviewed script Markdown, not raw speech-recognition fragments"
+                },
+                "source": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$",
+                  "description": "Project-relative source ID; keep original URL and timecodes in the project source record"
+                },
+                "reviewed": {
+                  "type": "boolean",
+                  "const": true,
+                  "description": "The script text has been checked against the source"
+                }
+              },
+              "required": [
+                "title",
+                "text",
+                "source",
+                "reviewed"
+              ]
+            },
+            "description": "One section per episode or chapter; split long scripts into batches below 2 MiB total"
+          }
+        },
+        "required": [
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "mcp__muse-account__muse_kb_read",
+      "description": "Read a 6000-character page of an account-authorized source or Wiki page by search result ID. Continue with the numeric 下一段起点 offset reported in the previous page until 后续正文未读 is 否.",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "start": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4194000,
+            "multipleOf": 6000
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "mcp__muse-account__muse_kb_read_opening",
+      "description": "Read a 6000-character opening page of an authorized viral-script source or this account’s private user-script. Start may be 0, 6000, 12000, or 18000. Continue when the story opening requires another page.",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "number",
+                "const": 0
+              },
+              {
+                "type": "number",
+                "const": 6000
+              },
+              {
+                "type": "number",
+                "const": 12000
+              },
+              {
+                "type": "number",
+                "const": 18000
+              }
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "mcp__muse-account__muse_kb_search",
+      "description": "Search this account’s private scripts and administrator-granted sources or Wiki pages. Results include 类型, 标定, and an ID. Use muse_kb_read for full pages, or muse_kb_read_opening for a viral-script or user-script opening; excerpts are incomplete.",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "mcp__muse-account__muse_kb_wiki_capture_source",
+      "description": "保存不可变原始资料并建立待合成的来源页；继续读取来源，用 muse_kb_wiki_write_page 写带引用的总结、实体和概念页。",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scope": {
+            "description": "知识范围，默认 private；shared 仅管理员可写。",
+            "type": "string",
+            "enum": [
+              "private",
+              "project",
+              "shared"
+            ]
+          },
+          "project_id": {
+            "description": "scope 为 project 时必填的账号内项目 ID，不接受路径或磁盘根目录。",
+            "type": "string",
+            "maxLength": 80
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "资料标题。"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 400000,
+            "description": "原始 Markdown 正文，重复正文不重复保存。"
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "项目相对来源标识，例如 project/episode-01。"
+          }
+        },
+        "required": [
+          "title",
+          "text",
+          "source"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp__muse-account__muse_kb_wiki_directory",
+      "description": "列出知识目录中的来源页、概念页和实体页，返回页面 ID 与修订号。",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scope": {
+            "description": "知识范围，默认 private；shared 仅管理员可写。",
+            "type": "string",
+            "enum": [
+              "private",
+              "project",
+              "shared"
+            ]
+          },
+          "project_id": {
+            "description": "scope 为 project 时必填的账号内项目 ID，不接受路径或磁盘根目录。",
+            "type": "string",
+            "maxLength": 80
+          },
+          "folder": {
+            "description": "页面目录前缀，例如 concepts；省略列出全部。",
+            "type": "string",
+            "maxLength": 400
+          },
+          "start": {
+            "description": "列表续读起点，默认 0。",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "description": "每次条数，默认 30。",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp__muse-account__muse_kb_wiki_history",
+      "description": "列出页面的不可变历史修订，可用 muse_kb_wiki_read 的 revision 读取。",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scope": {
+            "description": "知识范围，默认 private；shared 仅管理员可写。",
+            "type": "string",
+            "enum": [
+              "private",
+              "project",
+              "shared"
+            ]
+          },
+          "project_id": {
+            "description": "scope 为 project 时必填的账号内项目 ID，不接受路径或磁盘根目录。",
+            "type": "string",
+            "maxLength": 80
+          },
+          "id": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "目录或检索结果中的来源/页面 ID。"
+          },
+          "start": {
+            "description": "历史列表续读起点，默认 0。",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "description": "每次条数，默认 30。",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp__muse-account__muse_kb_wiki_links",
+      "description": "查看页面的向外链接、引用来源、反向链接与尚未解析的链接。",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scope": {
+            "description": "知识范围，默认 private；shared 仅管理员可写。",
+            "type": "string",
+            "enum": [
+              "private",
+              "project",
+              "shared"
+            ]
+          },
+          "project_id": {
+            "description": "scope 为 project 时必填的账号内项目 ID，不接受路径或磁盘根目录。",
+            "type": "string",
+            "maxLength": 80
+          },
+          "id": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "目录或检索结果中的来源/页面 ID。"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp__muse-account__muse_kb_wiki_migration_preview",
+      "description": "预览现有来源包和旧知识页的接入情况，列出缺少来源页的 ID；不改动原件或授权。",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scope": {
+            "description": "知识范围，默认 private；shared 仅管理员可写。",
+            "type": "string",
+            "enum": [
+              "private",
+              "project",
+              "shared"
+            ]
+          },
+          "project_id": {
+            "description": "scope 为 project 时必填的账号内项目 ID，不接受路径或磁盘根目录。",
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp__muse-account__muse_kb_wiki_read",
+      "description": "按 ID 分页读原文或知识页，返回修订号、引用和下一段起点；可读取指定历史修订。",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scope": {
+            "description": "知识范围，默认 private；shared 仅管理员可写。",
+            "type": "string",
+            "enum": [
+              "private",
+              "project",
+              "shared"
+            ]
+          },
+          "project_id": {
+            "description": "scope 为 project 时必填的账号内项目 ID，不接受路径或磁盘根目录。",
+            "type": "string",
+            "maxLength": 80
+          },
+          "id": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "目录或检索结果中的来源/页面 ID。"
+          },
+          "start": {
+            "description": "字符起点，默认 0，续读使用 next_start。",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "multipleOf": 6000
+          },
+          "revision": {
+            "description": "历史页面修订号，省略读当前版；旧页面导入前的原文为 0。",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp__muse-account__muse_kb_wiki_search",
+      "description": "对当前知识范围做全文关键词检索，返回匹配摘录与可读取的来源/页面 ID。",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scope": {
+            "description": "知识范围，默认 private；shared 仅管理员可写。",
+            "type": "string",
+            "enum": [
+              "private",
+              "project",
+              "shared"
+            ]
+          },
+          "project_id": {
+            "description": "scope 为 project 时必填的账号内项目 ID，不接受路径或磁盘根目录。",
+            "type": "string",
+            "maxLength": 80
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "全文关键词。"
+          },
+          "limit": {
+            "description": "返回条数，默认 8。",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp__muse-account__muse_kb_wiki_status",
+      "description": "查看当前登录账号的私有、项目和已授权共享 Wiki 数量与检索方式。",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scope": {
+            "description": "知识范围，默认 private；shared 仅管理员可写。",
+            "type": "string",
+            "enum": [
+              "private",
+              "project",
+              "shared"
+            ]
+          },
+          "project_id": {
+            "description": "scope 为 project 时必填的账号内项目 ID，不接受路径或磁盘根目录。",
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp__muse-account__muse_kb_wiki_write_page",
+      "description": "写入经过综合整理的知识页。必须带可核对的原文引用和当前修订号；新页 expected_revision 为 0，修订冲突时先重读。",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scope": {
+            "description": "知识范围，默认 private；shared 仅管理员可写。",
+            "type": "string",
+            "enum": [
+              "private",
+              "project",
+              "shared"
+            ]
+          },
+          "project_id": {
+            "description": "scope 为 project 时必填的账号内项目 ID，不接受路径或磁盘根目录。",
+            "type": "string",
+            "maxLength": 80
+          },
+          "page_id": {
+            "type": "string",
+            "maxLength": 400,
+            "description": "范围内的页面路径，例如 concepts/opening-hook，不带 wiki/ 或 .md。"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "页面标题。"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 100000,
+            "description": "综合后的 Markdown；用 [[concepts/name]]、[[entities/name]]、[[sources/SRC-...]] 链接现有页。"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "muse_kb_wiki_read/muse_kb_wiki_directory 返回的当前修订；新页为 0。"
+          },
+          "citations": {
+            "minItems": 1,
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "可读取的不可变来源 ID。"
+                },
+                "start": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "Unicode 字符范围起点。"
+                },
+                "end": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991,
+                  "description": "Unicode 字符范围终点，不含该字符；每条最多 6000 字。"
+                }
+              },
+              "required": [
+                "id",
+                "start",
+                "end"
+              ],
+              "additionalProperties": false
+            },
+            "description": "支撑结论的原文字符范围，不接受页面 ID 代替原始资料。"
+          }
+        },
+        "required": [
+          "page_id",
+          "title",
+          "text",
+          "expected_revision",
+          "citations"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "present",
       "description": "Declare existing files as final deliverables for the user. Use it when the user needs a separate file, especially Office documents, spreadsheets, and slide decks; prefer your final response when that suffices. The user opens the current files; their contents are not copied.",
       "parameters": {
@@ -389,6 +965,27 @@
         },
         "required": [
           "file_path"
+        ]
+      }
+    },
+    {
+      "name": "read_mcp_resource",
+      "description": "Read an MCP resource by URI from the named server. Use a listed URI or an expanded resource template.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "server": {
+            "type": "string",
+            "description": "Configured MCP server name."
+          },
+          "uri": {
+            "type": "string",
+            "description": "Resource URI to read."
+          }
+        },
+        "required": [
+          "server",
+          "uri"
         ]
       }
     },

@@ -51,6 +51,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/experimental/client-ui-voice-input': { kind: 'none', reason: 'Inserts reviewable text into the unsent draft without submitting to the Agent.' },
   'packages/experimental/voice-input-bundle': { kind: 'none', reason: 'Composes dictation and preparation plugins without adding any model-facing contribution.' },
   'packages/host/product-telemetry-otel': { kind: 'none', reason: 'The plugin exports explicit analytics records without contributing model context.' },
+  'packages/host/feishu-settings': { kind: 'none', reason: 'The bundle adds Feishu Settings and credential registration without adding model tools, prompt text, or request tokens.' },
   'packages/api/terminal-controller': { kind: 'none', reason: 'User-owned terminal processes and screen streams never enter model requests or Session events.' },
   'packages/client/ui-sidebar-terminal': { kind: 'none', reason: 'The browser renders user terminal screens without exposing them to the model.' },
   'packages/ssh/ssh': { kind: 'none', reason: 'The connection owner transports private provider operations; consumers own all model-facing content.' },
@@ -232,7 +233,6 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/web/web-search-exa': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },
   'packages/workflow/workflow': { kind: 'indirect', reason: 'The service delegates parent and child model rendering to its consumer and engine.' },
   'packages/guard/drama-gate': { kind: 'none', reason: 'The gate only intercepts tools/pre-execute and refuses a pending call; it registers no tool, prompt section, or session event, so the model reads nothing but the ordinary tool result a denied call already produces.' },
-  'packages/drama/drama-settings': { kind: 'indirect', reason: 'Browser-side settings page over one durable Host settings namespace, plus its read-only plugin-inventory list; the package registers no tool, prompt section, or session event, and the row that reads a value owns every model-visible effect of it.' },
 }
 
 interface Failure {
