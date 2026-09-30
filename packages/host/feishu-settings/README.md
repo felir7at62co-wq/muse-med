@@ -48,7 +48,7 @@ Save the credentials, enable the switch, then restart the backend to apply both.
 
 The [bundle patch](cordis.patch.yml) adds the `feishu` Settings row. Its `enabled` field defaults to `false` and persists in the profile patch. The desktop [activation layer](../../../apps/desktop-host/src/feishu-gate.ts) reads that field at startup, preserves the bridge's composed credentials and other settings, and sets the `feishu-channel` activation key.
 
-Credentials belong to the bridge row's settings section. The [setup service](src/service.ts) writes `appId`, `appSecret`, and `registeredBy` through the settings service and reads redacted status through `describe()`, which reports only whether the secret is set. The row stays mounted while the switch is off so its section remains writable. Settings writes merge with the row's other values.
+Credentials belong to the `@wenbin_wb/dsh-bridge` row's `feishu-channel` settings section. The [setup service](src/service.ts) writes `appId`, `appSecret`, and `registeredBy` through the settings service and reads redacted status through `describe()`, which reports only whether the secret is set. The row stays mounted while the switch is off so its section remains writable. Replacing the app or scanner clears its previous sender and active-session bindings; other settings remain merged.
 
 Registration calls the official `registerApp` from `@larksuite/channel`, renders the returned URL into an SVG data URL on the Host, and saves credentials through the same settings operation as manual entry. The browser bundle carries no QR encoder. Platform registration messages never reach the page, a log line, or a Remote answer.
 
@@ -73,10 +73,10 @@ Saving credentials or changing the enabled state does not alter model requests o
 
 Credential persistence is verified independently of live message delivery. The following limits apply to setup and bridge integration.
 
-- The page neither edits nor displays group-message policy: `approvers` and the sender/group allowlists outrank the sandbox.
+- The page neither edits nor displays group-message policy: the bridge's sender/group allowlist and mention requirement control inbound access.
 - Package tests replace the registration call and verify settings persistence through the Loader. QR scanning, the live long connection, and a tenant's permission and visibility configuration remain unverified.
-- **Deliberate cross-plugin coupling**: this row writes the bridge row's section read-merge-write — the credential pair and the scanner record only, every other key preserved. The coupling follows that row's Config schema: if upstream renames or reshapes those keys, this row's written keys must move with it, or the pair lands in a key the bridge no longer reads.
-- **The switch cannot make the bridge row entry-disabled.** A settings section exists only for a mounted entry, so an entry-disabled row could never receive the pair a scan produces before the bridge first runs. The shipped patch keeps the row mounted, states `enabled: false` as the fail-safe, and the staged package returns before its sync layer, control server, peer heartbeat, or QR app registration whenever that key is off.
+- This row writes the bridge's credential section through settings; its keys must remain aligned with the [reviewed provider schema](../../../third_party/plugins/compatibility/muse-feishu-channel.mjs).
+- The bridge row remains mounted with `enabled: false` so credentials can be saved before activation. Its staged provider returns before creating a gateway or conversation node whenever the switch is off. Desktop migration preserves legacy credentials and backups, turns the product switch off, and requires explicit activation.
 - This package publishes no `./invariant`: every fact it owns — the stored switch, the pending ticket, the credential's presence — is already observable through the `feishuSetup` Remote surface, so there is no second observation that could diverge from it.
 
 <a id="dev-note"></a>

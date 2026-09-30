@@ -8,14 +8,14 @@
  * anything else is shown but refuses to open. The header uses the shared
  * PathLabel for the root, followed by reload for the expanded directories.
  */
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import type { RemoteFailure } from '@deepseek-ai/dsh-api-remotes/client'
 import type { PropsLocale, PropsRuntime, PropsStore, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, IconRefreshOutlineRegular, Tooltip, classifyFileType,
-  IconPauseOutlineRegular, IconPlayOutlineRegular, PathLabel,
+  IconPauseOutlineRegular, IconPlayOutlineRegular, IconEllipsisOutlineRegular, Menu, PathLabel,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceDirectoryEntry } from '@deepseek-ai/dsh-api-workspace-files/types'
@@ -72,6 +72,50 @@ interface TreeContext {
   readonly onToggle: (parent: string, path: string) => void
   readonly onOpen: (path: string) => void
   readonly t: TranslateNS<'sidebarFiles'>
+  readonly workspaceReferences: FilesInjected['workspaceReferences']
+  readonly fullscreen: boolean
+}
+
+/** One file's preview action, reference drag, and touch-accessible menu. */
+function FileEntry({ path, name, tree }: { path: string; name: string; tree: TreeContext }): ReactNode {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const ticket = useRef<string | undefined>()
+  const references = tree.workspaceReferences
+  return (
+    <li className={css.item} data-files-entry="file" data-files-path={path}>
+      <div className={css.fileRow}>
+        <button type="button" className={css.row} onClick={() => { tree.onOpen(path) }}
+          draggable={references !== undefined}
+          onDragStart={(event) => {
+            if (references === undefined) return
+            ticket.current = references.start(tree.state.root, [path])
+            event.dataTransfer.setData(references.type, ticket.current)
+            event.dataTransfer.effectAllowed = 'copy'
+          }}
+          onDragEnd={() => {
+            if (ticket.current !== undefined) references?.end(ticket.current)
+            ticket.current = undefined
+          }}>
+          <FileTypeIcon kind={classifyFileType(name)} size={16} className={css.fileIcon} />
+          <span className={css.name}>{name}</span>
+        </button>
+        {references !== undefined && <Menu open={menuOpen} portal align="end" dense
+          anchor={<Tooltip label={tree.t('entry.actions', { name })}>
+            <button type="button" className={css.tool} aria-label={tree.t('entry.actions', { name })}
+              aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => { setMenuOpen(!menuOpen) }}>
+              <IconEllipsisOutlineRegular />
+            </button>
+          </Tooltip>}
+          items={[{ id: 'add', label: tree.t('entry.addToConversation') }]}
+          onClose={() => { setMenuOpen(false) }}
+          onSelect={() => {
+            setMenuOpen(false)
+            if (tree.fullscreen) references.revealConversation?.()
+            void references.add(tree.state.root, [path])
+          }} />}
+      </div>
+    </li>
+  )
 }
 
 /** One entry's row, and its children when it is an expanded directory. */
@@ -90,14 +134,7 @@ function Entry({ parent, entry, tree }: { parent: string; entry: WorkspaceDirect
     )
   }
   if (entry.type === 'file') {
-    return (
-      <li className={css.item} data-files-entry="file" data-files-path={path}>
-        <button type="button" className={css.row} onClick={() => { tree.onOpen(path) }}>
-          <FileTypeIcon kind={classifyFileType(entry.name)} size={16} className={css.fileIcon} />
-          <span className={css.name}>{entry.name}</span>
-        </button>
-      </li>
-    )
+    return <FileEntry path={path} name={entry.name} tree={tree} />
   }
   return (
     <li className={css.item} data-files-entry="other" data-files-path={path}>
@@ -135,9 +172,9 @@ function Level({ path, tree }: { path: string; tree: TreeContext }): ReactNode {
 
 /** The file tree's body: the workspace root and whatever the reader has opened under it. */
 export function FilesBody({
-  useTabInfo, sessionId, useSessions, useStore, actions, start, refresh, setAutoRefresh, toggle, t,
+  useTabInfo, sessionId, useSessions, useStore, actions, start, refresh, setAutoRefresh, toggle, workspaceReferences, t,
 }: FilesBodyProps): ReactNode {
-  const { tab } = useTabInfo()
+  const { tab, sidebar } = useTabInfo()
   useEffect(() => tab.actions.bindCommands({ refresh: () => { refresh(tab.id) } }), [tab.actions, tab.id, refresh])
   const { signal, actions: tabActions } = tab
   const cwd = useSessions(sessions => sessions.byId[sessionId]?.cwd)
@@ -181,6 +218,8 @@ export function FilesBody({
     onToggle: (parent, path) => { toggle(tab.id, parent, path, state.expanded, signal) },
     // Every row is under the tree's root, so its address is session-relative.
     onOpen: (path) => { tabActions.openResource(fileAddressFor(sessionId, state.root, path)) },
+    workspaceReferences,
+    fullscreen: sidebar.fullscreen,
     t,
   }
   const reload = (): void => {

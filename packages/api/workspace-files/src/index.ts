@@ -293,6 +293,37 @@ export class WorkspaceFiles extends TypertRemoteService {
   }
 
   /**
+   * Validate an ordered file-reference batch against the selected Session's workspace.
+   * @param workspaceFileScope - header-derived workspace root for the target Session.
+   * @param expectedWorkspaceRoot - workspace root displayed by the source file tree.
+   * @param paths - regular files to reference, absolute or workspace-relative.
+   * @param signal - caller cancellation.
+   * @returns canonical workspace-relative paths in source order; rejects the batch on a changed root, missing file, or outside path.
+   */
+  @Remote
+  async references(
+    workspaceFileScope: WorkspaceFileScope,
+    expectedWorkspaceRoot: string,
+    paths: readonly string[],
+    signal: AbortSignal,
+  ): Promise<string[]> {
+    const root = await this.ctx.fs.resolve(workspaceFileScope.workspaceRoot, { signal })
+    const expected = await this.ctx.fs.resolve(expectedWorkspaceRoot, { signal })
+    if (this.ctx.fs.fileUrl(root) !== this.ctx.fs.fileUrl(expected)) {
+      throw new RemoteError('workspace-file/outside-workspace', 'The file tree belongs to a different workspace', { path: expectedWorkspaceRoot })
+    }
+    const references: string[] = []
+    for (const path of paths) {
+      const { target } = await this.locateFile(workspaceFileScope, path, signal)
+      if (!this.ctx.fs.contains(root, target)) {
+        throw new RemoteError('workspace-file/outside-workspace', `"${path}" is outside the workspace`, { path })
+      }
+      references.push(workspacePathOf(this.ctx.fs.fileUrl(root), this.ctx.fs.fileUrl(target)))
+    }
+    return references
+  }
+
+  /**
    * List the direct children of one directory inside the Session's workspace.
    * @param workspaceFileScope - header-derived workspace root for the Session identity on the wire.
    * @param path - workspace path, absolute or relative to the workspace root.

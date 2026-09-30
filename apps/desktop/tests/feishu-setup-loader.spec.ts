@@ -4,9 +4,8 @@
  * The shipped patch files decide the row's composition, and the product switch
  * is the `feishu` row's own Config field: the desktop gate carries it into the
  * bridge row's activation key, and the staged package reads that key before it
- * opens a control server, writes peer heartbeats, or asks the platform for a
- * device code. The row stays mounted while the switch is off — a plugin's
- * settings section IS its Config here, so a disabled row would have nowhere to
+ * creates a gateway or conversation node. The row stays mounted while off:
+ * its settings section is its Config, so a disabled row would have nowhere to
  * store the pair a scan produces.
  */
 
@@ -24,17 +23,15 @@ import * as yaml from 'js-yaml'
 import { expect, it, vi } from 'vitest'
 import { feishuGateLayer, readFeishuEnabled } from '../../desktop-host/src/feishu-gate.ts'
 
-const bridgePatch = fileURLToPath(new URL('../../../third_party/plugins/dsh-lark-bridge/cordis.patch.yml', import.meta.url))
+const bridgePatch = fileURLToPath(new URL('../../../third_party/plugins/compatibility/bridge.cordis.patch.yml', import.meta.url))
 const desktopPatch = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
 const setupPatch = fileURLToPath(new URL('../../../packages/host/feishu-settings/cordis.patch.yml', import.meta.url))
-const BRIDGE_MODULE = '@moyu-good/dsh-lark-bridge'
+const BRIDGE_MODULE = '@wenbin_wb/dsh-bridge'
 const SETUP_MODULE = '@deepseek-ai/dsh-feishu-settings'
 
 /** The activation controls the shipped row composes, in the order the staged bridge's Config declares them. */
 const ACTIVATION_CONTROLS = {
   enabled: false,
-  autoRegistration: false,
-  crossInstanceSync: false,
   requireMention: true,
   denyTools: ['ask_user_question', 'exit_plan_mode'],
 }
@@ -89,7 +86,7 @@ async function bootComposition(enabled?: boolean): Promise<Composition> {
     const inert = { name: 'inert', inject: [], apply: () => {} }
     const modules = new Map<string, unknown>([
       [BRIDGE_MODULE, {
-        name: 'dsh-lark-bridge',
+        name: 'muse-feishu-channel',
         inject: [],
         apply: (_ctx: Context, rowConfig: unknown) => {
           bridgeApplied.push(rowConfig)

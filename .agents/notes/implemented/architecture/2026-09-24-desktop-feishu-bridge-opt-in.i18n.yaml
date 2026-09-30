@@ -4,16 +4,16 @@
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-24-desktop-feishu-bridge-opt-in.md
 /agent-note-make-the-bundled-feishu-bridge-an-explicit-opt-in:
   en: d02b6b24cda3e9f8
-  zh: ed6acafcf7530f0f
+  zh: 7041df0e589a6754
 /agent-note-make-the-bundled-feishu-bridge-an-explicit-opt-in/problem:
-  en: 482f68b6ba234753
-  zh: cfd790ebfd5c49bf
+  en: 945a0a6d871dca4a
+  zh: 83a40976602aa121
 /agent-note-make-the-bundled-feishu-bridge-an-explicit-opt-in/decision:
-  en: f2744b50947b08c1
-  zh: 195ca81c7fd189ed
+  en: 61ac0c557a29e481
+  zh: f2651e5ded639cf4
 /agent-note-make-the-bundled-feishu-bridge-an-explicit-opt-in/alternatives-considered:
-  en: 3c01d4b7c58470dc
-  zh: a124634534d64db8
+  en: d8744559d0af4b03
+  zh: 1e73d4d42b79f243
 /agent-note-make-the-bundled-feishu-bridge-an-explicit-opt-in/consequences:
-  en: 16347aaf3c54f1f1
-  zh: 5feee773a3f2c87d
+  en: ce3c6bc77db9c1aa
+  zh: d121a8de74a6edc6

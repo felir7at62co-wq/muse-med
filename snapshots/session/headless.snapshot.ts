@@ -498,6 +498,9 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<v
 }
 
 const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
+  async 'muse-video-inspect'(cwd) {
+    await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
+  },
   async 'office-skills'(cwd) {
     await cp(join(repoRoot, 'packages/skill/skill-office/assets'), join(cwd, 'office-skills'), { recursive: true })
     await symlink(process.execPath, join(cwd, 'office-node'))

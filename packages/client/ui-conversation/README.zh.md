@@ -9,9 +9,9 @@ kind: "package-reference"
 
 ## 概述
 
-`ui-conversation` 拥有与 target 无关的 Conversation 组装和共享浏览器 shell。它消费 Session Controller 的 `SessionEventLikeEntry` feed，通过 `ctx.uiConversation` 暴露不依赖 React 的注册表与逐 Session binding，并通过 `ctx.uiSession` 提供 `useConversation`、`useInput` 和 `inputActions` 标准 props。它还拥有按会话的持久化图片 URL 缓存：`ctx.uiConversation.imageUrl(sessionId, attachment)` 为每个附件解析一个经会话授权的浏览器 URL，并随 Session binding 释放而撤销，因此所有 Conversation target 共享一次 `session.attachment` 读取。Chat 等具体 target 位于独立包，由各自包注册 Definition、快照 builder、View 和 renderer。
+`ui-conversation` 拥有 Conversation 组装、浏览器 shell、逐 Session binding、共享图片 URL 和输入框状态。它消费 Session Controller 事件，通过 `ctx.uiConversation` 暴露注册表，并通过 `ctx.uiSession` 提供标准 props。Chat 等具体 target 注册各自的 Definition、快照 builder、View 和 renderer。
 
-Muse 桌面版的新会话页使用工作间原有的中文诗句动画，替换静态标题和预览版标签。每字显示间隔为 105 毫秒，完整诗句停留 3.2 秒，每字擦除间隔为 45 毫秒，下一句开始前停留 550 毫秒。减少动态效果时显示完整静态诗句；组件卸载时释放定时器和偏好监听。
+Muse 桌面版使用工作间原有的中文诗句迎接空白会话。
 
 ## 目录
 
@@ -43,6 +43,10 @@ target package 通过 declaration merge 扩展 snapshot 与 Location data map，
 
 <a id="shell-and-standard-props"></a>
 ## Shell 与标准 props
+
+Muse 桌面版的空白会话问候每字显示间隔为 105 毫秒，完整诗句停留 3.2 秒，每字擦除间隔为 45 毫秒，下一句开始前停留 550 毫秒。减少动态效果时显示完整静态诗句；组件卸载时释放定时器和偏好监听。
+
+`ctx.uiConversation.imageUrl(sessionId, attachment)` 为每个附件缓存一个经 Session 授权的浏览器 URL，并随 Session binding 释放而撤销，所有 Conversation target 共享一次 `session.attachment` 读取。
 
 共享图片插槽属性将展示选择与持久化引用分开：`thumbnail` 请求完整缩放的附件列表缩略图，`compact` 请求裁剪的图片方块。每张图片可通过可选的 `label` 提供无障碍展示名称；加载和缓存标识仍使用原始附件引用。[ui-attachment](../ui-attachment/README.zh.md) 负责渲染与灯箱。
 
@@ -83,6 +87,8 @@ Session 首次绑定或缓存的 Session 成为 current 时，shell 会在渲染
 Send 和 Stop 按钮禁用时不显示提示气泡，轮次结束后由 Stop 切换成禁用 Send 的按钮也遵循此规则。普通 composer 运行时，如果草稿为空或输入不可用，主指针操作保持为 Stop。可提交的文字或附件会把同一位置切换为 Send；清空或成功提交草稿后恢复 Stop。繁忙态 Enter 设置为普通 Session 与可继续 child 选择 Queue 或 Steer 投递，运行中的 Send 按钮按 plain Enter 解析出的同一模式投递；当它在普通消息草稿上可用（没有待上传文件）时，其标签以该模式命名（排队发送或插话发送），因此该设置同时约束 Enter 与按钮，而 Cmd/Ctrl+Enter 仍使用另一模式；空闲会话、空草稿与 `/` 命令行保留普通的 Send 标签（[决策](../../../.agents/notes/implemented/bug-fix/2026-09-04-busy-send-button-follows-enter-setting.zh.md)）。它们的 QueueDock 行共享 Edit、Remove 与 Steer，空草稿也共享 steer-all 组合键。One-shot child 继续只读。Plan Mode 与 active goal 不改变附件入口。可继续 child 保留独立的 Send 与 Stop 操作，但不提供「文件」菜单项、粘贴或拖放入口；parent 离线时，Send 与 composer 手势锁定，但在线 inbox 的 QueueDock 控制仍可使用（[决策](../../../.agents/notes/archived/bug-fix/2026-08-20-running-draft-primary-send.md)、[inbox 控制](../../../.agents/notes/implemented/feature/2026-08-27-continuable-subagent-human-inbox-control.zh.md)）。
 
 文件标签和可编辑的 skill 引用共用覆盖整个引用的悬停背景，并跟随输入框的行高与文字基线。首次点击立即由已注册的引用来源负责打开预览，包括双击序列的第一次点击。后续点击保留原生文本选择行为；已有非折叠选区时，指针点击不打开预览。预览不改变草稿、剪贴板文本或提交内容。
+
+工作区文件树的拖动和**添加到对话**操作，通过当前连接持有的入口插入引用。拖动只携带不透明凭证，其他连接不能兑换。Host 将树上显示的根目录与目标 Session 的工作区比较，仅返回根目录内现存的普通文件。校验保留其间发生的草稿编辑；有序标签在当前选区后插入，可一次撤销，不删除选中文字、不上传字节，也不发送消息。移除或撤销标签使用普通编辑器操作。Session 销毁会取消待完成的校验；输入框阻塞或处于子代理时拒绝接收。
 
 当会话被其他写句柄占用时，发送失败的 toast 提示用户退出其他正在运行的 DSH 后重试。
 

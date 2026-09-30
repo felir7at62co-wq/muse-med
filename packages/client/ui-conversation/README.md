@@ -9,9 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`ui-conversation` owns target-neutral Conversation assembly and the shared browser shell. It consumes Session Controller `SessionEventLikeEntry` feeds, exposes React-free registries and per-Session bindings through `ctx.uiConversation`, and contributes the `useConversation`, `useInput`, and `inputActions` standard props through `ctx.uiSession`. It also owns the per-session durable image URL cache: `ctx.uiConversation.imageUrl(sessionId, attachment)` resolves one session-authorized browser URL per attachment and revokes it with the Session binding, so every Conversation target shares one `session.attachment` read. Concrete targets such as Chat are separate packages that register their own Definitions, snapshot builders, Views, and renderers.
+`ui-conversation` owns Conversation assembly, the browser shell, per-Session bindings, shared image URLs, and composer input. It consumes Session Controller events and exposes registries through `ctx.uiConversation` and standard props through `ctx.uiSession`. Concrete targets such as Chat register their own Definitions, snapshot builders, Views, and renderers.
 
-Muse Desktop shows the workroom’s original Chinese poetry in its blank-session hero instead of the static headline and preview badge. The greeting types each line at 105 ms per character, holds it for 3.2 seconds, erases at 45 ms per character, and pauses 550 ms before the next line. Reduced motion displays a complete static verse; unmounting releases the timer and preference listener.
+Muse Desktop greets blank Sessions with the workroom’s original Chinese poetry.
 
 ## Table of Contents
 
@@ -43,6 +43,10 @@ Target packages declaration-merge their snapshot and Location data maps, then re
 
 <a id="shell-and-standard-props"></a>
 ## Shell and standard props
+
+Muse Desktop’s blank-session greeting types each verse at 105 ms per character, holds it for 3.2 seconds, erases at 45 ms per character, and pauses 550 ms before the next verse. Reduced motion displays a complete static verse; unmounting releases the timer and preference listener.
+
+`ctx.uiConversation.imageUrl(sessionId, attachment)` caches one Session-authorized browser URL per attachment and revokes it with the Session binding, sharing one `session.attachment` read across Conversation targets.
 
 The shared image slot props keep display choices separate from durable references: `thumbnail` requests a contained attachment-list thumbnail, while `compact` requests a cropped gallery tile. An optional per-image `label` supplies the accessible display name; loading and cache identity still use the original attachment reference. [ui-attachment](../ui-attachment/README.md) owns rendering and the lightbox.
 
@@ -83,6 +87,8 @@ Queued submission echoes show “Sending…” beside disabled edit, remove, and
 Disabled Send and Stop buttons suppress their tooltips, including a Stop button that becomes a disabled Send button when the turn ends. While a normal composer is running, its primary pointer action remains Stop when the draft is empty or input is unavailable. Actionable text or attachments switch the same seat to Send; clearing or successfully submitting the draft restores Stop. The busy-Enter setting selects the Queue or Steer delivery for ordinary Sessions and continuable children, and the running Send button delivers through the same mode plain Enter resolves to; while it is enabled (no upload pending) over a plain message draft its label names that mode (Queue message or Steer message), so the setting governs Enter and the button together while Cmd/Ctrl+Enter still uses the other mode, and idle sessions, empty drafts, and `/` command lines keep the plain Send label ([decision](../../../.agents/notes/implemented/bug-fix/2026-09-04-busy-send-button-follows-enter-setting.md)). Their QueueDock rows share Edit, Remove, and Steer, and an empty draft shares the steer-all chord. One-shot children remain read-only. Plan mode and active goals do not change attachment intake. Continuable children keep separate Send and Stop actions but expose no File row, paste, or drop intake; if their parent is offline, Send and the composer gestures lock while QueueDock controls for the live inbox remain available ([decisions](../../../.agents/notes/archived/bug-fix/2026-08-20-running-draft-primary-send.md), [inbox controls](../../../.agents/notes/implemented/feature/2026-08-27-continuable-subagent-human-inbox-control.md)).
 
 File chips and editable skill references share a whole-reference hover background and follow the composer's line height and text baseline. The first click delegates preview opening to the registered reference source immediately, including the first click of a double-click sequence. Subsequent clicks retain native text selection; an existing noncollapsed selection suppresses pointer preview activation. Previewing does not change the draft, its clipboard projection, or submission.
+
+The workspace file tree's drag and **Add to conversation** actions insert references through a connection-owned intake. A drag carries an opaque ticket; another connection cannot redeem it. The Host verifies the displayed root against the target Session's workspace and returns only existing regular files inside that root. Validation preserves later draft edits; the ordered chips land after the live selection in one undo step, without deleting selected text, uploading bytes, or sending a message. Removing or undoing a chip uses ordinary editor behavior. Session disposal cancels pending validation; composer blocks and subagents refuse intake.
 
 When another writer owns the Session, the send-error toast asks the user to quit other running DSH instances and retry.
 

@@ -15,7 +15,9 @@
     "src/service.ts",
     "src/session.ts",
     "src/types.ts",
-    "src/models.ts"
+    "src/models.ts",
+    "src/desktop-bridge.ts",
+    "src/desktop-remote.ts"
   ],
   "references": [
     {
@@ -44,6 +46,15 @@
     },
     {
       "path": "../../settings/settings"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../../client/connection/tsconfig.host.json"
+    },
+    {
+      "path": "../webserver"
     }
   ]
 }

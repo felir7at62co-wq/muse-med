@@ -451,6 +451,16 @@ Host Remote file reads and workspace directory observations over the composed fi
 @Remote async stat(workspaceFileScope: WorkspaceFileScope, path: string, signal: AbortSignal): Promise<WorkspaceFileStat>
 
 /**
+ * Validate an ordered file-reference batch against the selected Session's workspace.
+ * @param workspaceFileScope - header-derived workspace root for the target Session.
+ * @param expectedWorkspaceRoot - workspace root displayed by the source file tree.
+ * @param paths - regular files to reference, absolute or workspace-relative.
+ * @param signal - caller cancellation.
+ * @returns canonical workspace-relative paths in source order; rejects the batch on a changed root, missing file, or outside path.
+ */
+@Remote async references( workspaceFileScope: WorkspaceFileScope, expectedWorkspaceRoot: string, paths: readonly string[], signal: AbortSignal, ): Promise<string[]>
+
+/**
  * List the direct children of one directory inside the Session's workspace.
  * @param workspaceFileScope - header-derived workspace root for the Session identity on the wire.
  * @param path - workspace path, absolute or relative to the workspace root.

@@ -1,7 +1,7 @@
 [
   {
     "role": "hide",
-    "label": "Hide muse-med"
+    "label": "Hide Muse"
   },
   {
     "role": "hideOthers",
@@ -13,6 +13,6 @@
   },
   {
     "role": "quit",
-    "label": "Quit muse-med"
+    "label": "Quit Muse"
   }
 ]

@@ -2,6 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { ISessions, SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import { IconPaperclipOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createSnapshotStore, type BoundActions } from '@deepseek-ai/dsh-client-store'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
@@ -28,6 +29,7 @@ import type { IConversation } from './service.ts'
 import { ComposerBlockRegistry } from './input/blocks.ts'
 import type { ComposerBlock } from './contract/composer-blocks.ts'
 import { InputHub } from './input/hub.ts'
+import { WorkspaceFileReferences } from './workspace-file-references.ts'
 import { ComposerSubmissionPolicy } from './input/submission-policy.ts'
 import { queueDockEntry } from './queue/QueueDock.tsx'
 import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
@@ -267,6 +269,16 @@ export function apply(ctx: Context, config: Config = Config({})): void {
   const inputHub = new InputHub(ctx, t)
   const composerBlocks = new ComposerBlockRegistry()
 
+  let workspaceRemote: Pick<ClientRemote, 'workspaceFiles'> | undefined
+  ctx.inject(['remote', 'remote.workspaceFiles'], (scope) => {
+    const remote = { workspaceFiles: scope.remote.workspaceFiles }
+    scope.effect(() => {
+      workspaceRemote = remote
+      return () => { if (workspaceRemote === remote) workspaceRemote = undefined }
+    }, 'ui-conversation: workspace file namespace')
+  })
+  new WorkspaceFileReferences(ctx, sessions, inputHub, composerBlocks, () => workspaceRemote, t)
+
   ctx.inject(['commandUi'], (scope) => {
     const commands = scope.get('commandUi') as FileCommandRegistry
     scope.effect(() => commands.register({
@@ -454,8 +466,15 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       const shell = inputHub.shell(sessionId)
       const inputTriggers = inputHub.inputTriggers(sessionId)
       const bridge = hostPathBridge()
+      const workspaceReferences = ctx.get('workspaceFileReferences')
       return {
         keyboard: shell,
+        ...workspaceReferences === undefined ? {} : {
+          workspaceFileDrop: {
+            type: workspaceReferences.dragType,
+            onDrop: (ticket: string) => workspaceReferences.drop(sessionId, ticket),
+          },
+        },
         addFiles: (files, directories = new Set()) => {
           if (sessions.binding(sessionId) === undefined) return t('file.sessionUnavailable')
           if (shell.snapshot.phase === 'adjudicating' || shell.snapshot.phase === 'submitting') {

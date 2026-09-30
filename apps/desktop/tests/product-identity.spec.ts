@@ -1,10 +1,12 @@
 import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import {
   applyDesktopProductIdentity,
   DESKTOP_PRODUCT_NAME,
+  desktopProductVersion,
   type DesktopProductIdentityApplication,
 } from '../src/product-identity.ts'
 import { claimDesktopSingleInstance, type DesktopSingleInstanceApplication } from '../src/single-instance.ts'
@@ -32,6 +34,16 @@ function scratchAppData(): string {
 }
 
 describe('desktop product identity', () => {
+  it('displays the independent product version in development and the installed build version in packaged applications', () => {
+    const application = {
+      isPackaged: false,
+      getVersion: () => '0.1.7-rc.8',
+      getAppPath: () => fileURLToPath(new URL('..', import.meta.url)),
+    }
+    expect(desktopProductVersion(application)).toBe('1.0.0-beta.1')
+    expect(desktopProductVersion({ ...application, isPackaged: true, getVersion: () => '1.0.0-beta.1.20260930.2' }))
+      .toBe('1.0.0-beta.1.20260930.2')
+  })
   it('gives the process its own userData directory instead of the upstream package directory', () => {
     const appData = scratchAppData()
     const application = recordedApplication(appData)

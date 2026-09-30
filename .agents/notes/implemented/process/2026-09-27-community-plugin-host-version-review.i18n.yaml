@@ -2,30 +2,30 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-27-community-plugin-host-version-review.md
-/agent-note-community-plugin-review-against-host-0-1-7-rc-2:
-  en: 755ddfb2445f0dba
-  zh: f86c8beee6bd2b9b
-/agent-note-community-plugin-review-against-host-0-1-7-rc-2/problem:
-  en: 981e023ee18b26d5
-  zh: 430175665b706c73
-/agent-note-community-plugin-review-against-host-0-1-7-rc-2/decision:
-  en: f0cc47614b8c2467
-  zh: 2f99a19b9052e714
-/agent-note-community-plugin-review-against-host-0-1-7-rc-2/decision/the-deleted-shared-message-source-kind-dsh-ponytail:
-  en: 84913b84a6c571fc
-  zh: 0185b967c33a59a2
-/agent-note-community-plugin-review-against-host-0-1-7-rc-2/decision/the-deleted-settings-provider-dsh-lark-bridge:
-  en: af62487ac2e0146e
-  zh: 157087acdcf72c6a
-/agent-note-community-plugin-review-against-host-0-1-7-rc-2/decision/retired-overlay-rules:
-  en: 1b64e67babcae3c4
-  zh: e3a354c02365659c
-/agent-note-community-plugin-review-against-host-0-1-7-rc-2/verification:
-  en: e71b33fd2e14cc3b
-  zh: 7a98d46f4ca1e6fb
-/agent-note-community-plugin-review-against-host-0-1-7-rc-2/alternatives-considered:
-  en: dee3b1096262e8fd
-  zh: 7b33f42d134f6c38
-/agent-note-community-plugin-review-against-host-0-1-7-rc-2/consequences:
-  en: c3c94b526ff7f4f6
-  zh: cde3588ffbff1c08
+/agent-note-review-community-plugins-against-the-pinned-host:
+  en: d31af6ee7cb5d036
+  zh: 2345df1f5ba38b3d
+/agent-note-review-community-plugins-against-the-pinned-host/problem:
+  en: a9e6faae639a6d48
+  zh: b8cd895245b3eea1
+/agent-note-review-community-plugins-against-the-pinned-host/decision:
+  en: 3a0592169e24a942
+  zh: f9e185e112c9ac79
+/agent-note-review-community-plugins-against-the-pinned-host/decision/message-source-ownership:
+  en: 7e4b6f7ad5cb39ad
+  zh: 1c40a21bbd011499
+/agent-note-review-community-plugins-against-the-pinned-host/decision/config-derived-credential-settings:
+  en: 2792f4283e1ce47d
+  zh: 9495542a7484b51a
+/agent-note-review-community-plugins-against-the-pinned-host/decision/source-review:
+  en: 42b833254fd0f5bc
+  zh: a650253b0d96cc07
+/agent-note-review-community-plugins-against-the-pinned-host/verification:
+  en: 0161c6a0aaa018c3
+  zh: 67e27d03183dfa28
+/agent-note-review-community-plugins-against-the-pinned-host/alternatives-considered:
+  en: 27a867255dcb4220
+  zh: 138293988f648d9c
+/agent-note-review-community-plugins-against-the-pinned-host/consequences:
+  en: 0405f2cbe3d7284d
+  zh: e6426d7b3a7480d1

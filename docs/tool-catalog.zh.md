@@ -20,6 +20,7 @@
 | 工具包 | 模型可见名称 | 依赖 | 写入／影响 | 随产品发布的别名 | 部署说明 |
 | --- | --- | --- | --- | --- | --- |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`、`ctx.museAccount`、PATH 中的 FFmpeg 与 FFprobe | `tool/call`、`tool/result`，`transcript/jobs` 中的任务收据，`transcript/raw` 中的 TXT 与 JSON | - | start 使用已登录的 Muse 账号上传压缩音轨并提交云转写；status 根据收据查询同一任务，完成后保存带时间戳的结果。需要可读取的本地音视频与服务端转写配置。 |
+| `@deepseek-ai/dsh-tool-video-inspect` | `video_inspect` | `ctx.tools`、`ctx.fs`、`ctx.subprocess`、`ctx.attachments`、`ctx.sandboxPolicy`、FFmpeg 与 FFprobe | `tool/call`、包含带时间码图片附件的 `tool/result`、可选的项目相对 JSON 清单 | - | 视频观察仅覆盖结果报告的采样画面与时间区间。语音时间码需单独使用 audio_transcribe；采样不会提交付费转写。 |
 | `@deepseek-ai/dsh-plugin-manager` | `plugin_manager` | `ctx.tools`, `ctx.pluginManager`, `ctx.sandboxPolicy` | `tool/call`, `tool/result`, `user/message` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | `stagehand_act`、`stagehand_extract`、`stagehand_navigate`、`stagehand_observe`、`stagehand_screenshot`、`stagehand_tabs` | `ctx.browserUse`、`ctx.agents`、`ctx.tools`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | - |
@@ -580,6 +581,64 @@ ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类�
 来源： [`packages/drama/tool-audio-transcribe/src/index.ts`](../packages/drama/tool-audio-transcribe/src/index.ts)
 
 `start` 使用已登录的 Muse 账号提交压缩语音，并返回项目任务收据；`status` 检查该收据，在识别完成后保存带时间信息的 TXT 与 JSON。各 Muse 模式都提供同一工具，提供方凭据由账号网关保存。
+
+<a id="deepseek-aidsh-tool-video-inspect"></a>
+
+## `@deepseek-ai/dsh-tool-video-inspect`
+
+### `video_inspect`
+
+读取本地视频元数据，或查看带源时间码的采样画面。返回真实图片与保存的核对清单。采样不覆盖每个瞬间；动作不明确时，补看其他区间或指定时间码。对白与字幕使用 audio_transcribe。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "file_path": {
+      "type": "string",
+      "description": "Local video path in the current Session filesystem."
+    },
+    "method": {
+      "type": "string",
+      "description": "Default sample returns frames; metadata only probes source facts without image input.",
+      "enum": [
+        "metadata",
+        "sample"
+      ]
+    },
+    "start_seconds": {
+      "type": "number",
+      "description": "Interval start, default 0; source timecode in seconds."
+    },
+    "end_seconds": {
+      "type": "number",
+      "description": "Exclusive interval end; default video end or start + 60 seconds, whichever is earlier. Maximum sampled interval: 120 seconds."
+    },
+    "frame_count": {
+      "type": "integer",
+      "description": "Uniform samples, default 6; maximum 12."
+    },
+    "timestamps_seconds": {
+      "type": "array",
+      "description": "Optional explicit seek times inside the interval instead of uniform samples; maximum 12.",
+      "items": {
+        "type": "number"
+      }
+    },
+    "manifest_path": {
+      "type": "string",
+      "description": "Optional new JSON output path inside the current workspace; default .muse/video-inspections/<unique-id>.json. An existing file is never replaced."
+    }
+  },
+  "required": [
+    "file_path"
+  ]
+}
+```
+
+源代码：[`packages/perception/tool-video-inspect/src/index.ts`](../packages/perception/tool-video-inspect/src/index.ts)
+
+视频观察仅覆盖结果报告的采样画面与时间区间。带时间码的语音需单独使用 audio_transcribe；采样不会提交付费转写。
 
 <a id="deepseek-aidsh-tools"></a>
 

@@ -85,6 +85,9 @@ async function main(): Promise<void> {
     secretKey: requiredEnvironmentValue(environment, plan.secretKeyEnvName),
   })
   process.stdout.write(`desktop upload: ${plan.target} ${plan.version} -> ${plan.publicUrl}\n`)
+  for (const release of plan.githubReleases ?? []) {
+    process.stdout.write(`desktop upload: separate GitHub ${release.discovery} release required at ${release.tag}; actual product version ${release.version}\n`)
+  }
   await uploadDesktopRelease(plan, cos, resolve(import.meta.dirname, '../.desktop-build/upload-records'))
   if (plan.environment === 'production') recordProductionRelease(plan)
 }

@@ -53,7 +53,8 @@ export async function authenticateWebHost(url: string): Promise<string> {
  * Response headers not relayed to the renderer. `set-cookie` would hand the
  * Host's authentication cookie to the page's cookie jar, which the shell owns
  * instead; the rest describe the Node `fetch` connection (its encoding, length,
- * and hop-by-hop transport), which Chromium never sees.
+ * and hop-by-hop transport), which Chromium never sees. Unencoded video
+ * representations retain their validated resource length for native seeking.
  */
 const WITHHELD_RESPONSE_HEADERS = [
   'set-cookie',
@@ -87,7 +88,13 @@ export async function forwardWebRequest(request: Request, host: string, cookie: 
   const init = { method: request.method, headers, body: request.body, signal: request.signal, duplex: 'half', redirect: 'manual' as const }
   const response = await fetch(target, init)
   const outgoing = new Headers(response.headers)
-  for (const name of WITHHELD_RESPONSE_HEADERS) outgoing.delete(name)
+  const length = response.headers.get('content-length')
+  const retainVideoLength = source.pathname === '/api/video' && ['GET', 'HEAD'].includes(request.method)
+    && [200, 206].includes(response.status) && !response.headers.has('content-encoding')
+    && length !== null && /^\d+$/u.test(length) && Number.isSafeInteger(Number(length))
+  for (const name of WITHHELD_RESPONSE_HEADERS) {
+    if (name !== 'content-length' || !retainVideoLength) outgoing.delete(name)
+  }
   if (PLUGIN_BUNDLE_PATH.test(source.pathname)) outgoing.set('cache-control', 'no-store')
   return new Response(response.body, { status: response.status, headers: outgoing })
 }

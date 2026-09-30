@@ -225,6 +225,15 @@ it('reports a failed developer-tool write and allows retry', async () => {
 })
 
 describe('current version', () => {
+  it('shows the product release while the harness version remains available to diagnostics', () => {
+    vi.stubEnv('DSH_CLIENT_VERSION', '0.1.7-rc.8')
+    vi.stubEnv('DSH_CLIENT_PRODUCT_VERSION', '1.0.0-beta.1')
+    render(<CurrentVersionRow {...kit} t={(key, params) => ((en as Record<string, string>)[key] ?? key)
+      .replace('{version}', String(params?.version))} />)
+    expect(screen.getByText('Current version: 1.0.0-beta.1')).toBeTruthy()
+    expect(screen.queryByText('Current version: 0.1.7-rc.8')).toBeNull()
+  })
+
   it.each([
     ['Current version: 1.2.3-rc.4', en],
     ['当前版本：1.2.3-rc.4', zh],

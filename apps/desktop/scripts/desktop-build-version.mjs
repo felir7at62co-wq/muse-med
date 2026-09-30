@@ -1,26 +1,40 @@
-/**
- * Resolve the version one build publishes, which is not always the version the
- * repository declares.
- *
- * A production release publishes the version in the manifests, aligned with the
- * `dsh` npm package. A test build publishes a version that appends a date and a
- * sequence number, so one test feed can carry several builds of a single
- * product version: `0.1.6-alpha.1.20260916.1` from a prerelease base and
- * `0.1.6-test.20260916.1` from a stable one, as the release versions table in
- * `apps/desktop/README.md` gives them. Passing that version here keeps it out
- * of the manifests, so the tracked version stays the product's while the build
- * version reaches electron-builder, the update feed, and the upload validation
- * as one input.
- *
- * `electron-updater` compares feed versions with `semver.gt` against the
- * installed `app.getVersion()`, so validation uses the same library. Sequence
- * numbers order builds within a feed under either form. The forms differ only
- * against the base itself: builds extending a prerelease outrank it, while
- * `0.1.6-test.1` ranks below `0.1.6`, which is why the stable form belongs to a
- * test feed that never serves the production release.
- */
+/** Muse product versions and numbered test builds used by packaging and updates. */
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parse } from 'semver'
+
+/**
+ * Read the product release independently from the harness package manifests.
+ * @param {string} appRoot - Desktop application directory containing muse-product.json.
+ * @returns {string} Exact semver product version without build metadata.
+ */
+export function readDesktopProductVersion(appRoot = fileURLToPath(new URL('..', import.meta.url))) {
+  return readDesktopProductConfig(appRoot).version
+}
+
+/**
+ * Read the Muse release and its explicit legacy updater discovery requirement.
+ * @param {string} appRoot - Desktop directory containing muse-product.json.
+ * @returns {{ version: string, legacyRcDiscovery: boolean }} Product release settings.
+ */
+export function readDesktopProductConfig(appRoot = fileURLToPath(new URL('..', import.meta.url))) {
+  const path = join(appRoot, 'muse-product.json')
+  const config = JSON.parse(readFileSync(path, 'utf8'))
+  if (typeof config !== 'object' || config === null || Array.isArray(config) || typeof config.version !== 'string') {
+    throw new Error(`desktop product version: ${path} must declare a version string`)
+  }
+  const product = parseVersion(config.version, 'product version')
+  if (product.version !== config.version) throw new Error(`desktop product version: ${path} must declare an exact version`)
+  if (config.legacyRcDiscovery !== undefined && typeof config.legacyRcDiscovery !== 'boolean') {
+    throw new Error(`desktop product version: ${path} legacyRcDiscovery must be a boolean`)
+  }
+  if (config.legacyRcDiscovery === true && product.prerelease[0] !== 'beta') {
+    throw new Error(`desktop product version: ${path} legacyRcDiscovery requires a beta release`)
+  }
+  return { version: product.version, legacyRcDiscovery: config.legacyRcDiscovery === true }
+}
 
 /** Environment variable that carries the build version through one packaging and upload run. */
 export const DESKTOP_BUILD_VERSION_ENV = 'DSH_DESKTOP_BUILD_VERSION'
@@ -56,7 +70,7 @@ function requiredFields(product) {
 /**
  * Validate a build version against the product version it extends.
  * @param {string} buildVersion - Version this build publishes.
- * @param {string} productVersion - Version the manifests declare.
+ * @param {string} productVersion - Version muse-product.json declares.
  * @returns {string} The version as semver normalizes it, which is what the artifacts will carry.
  */
 export function validateDesktopBuildVersion(buildVersion, productVersion) {
@@ -79,7 +93,7 @@ export function validateDesktopBuildVersion(buildVersion, productVersion) {
 /**
  * Resolve the version a build publishes.
  * @param {NodeJS.ProcessEnv} env - Packaging or upload environment.
- * @param {string} productVersion - Version the manifests declare.
+ * @param {string} productVersion - Version muse-product.json declares.
  * @returns {string} The build version when one is present, otherwise the product version.
  */
 export function resolveDesktopBuildVersion(env, productVersion) {
@@ -90,7 +104,7 @@ export function resolveDesktopBuildVersion(env, productVersion) {
 
 /**
  * Everything a build version carries before its date, including the trailing separator.
- * @param {string} productVersion - Version the manifests declare.
+ * @param {string} productVersion - Version muse-product.json declares.
  * @returns {string} The prefix shared by every build version of that product version.
  */
 export function desktopBuildVersionPrefix(productVersion) {

@@ -1,0 +1,91 @@
+{
+  "upstreamCommit": "27a600d15e0be74ac152eaa64e82d19a07c612e5",
+  "upstreamArchiveSha256": "d320a262f8a483dcf0fdc93fc3a789bd1c38b22bd5360722066b1e32d740da0d",
+  "localRevision": "Text whitespace normalization only: LF line endings, no trailing spaces or tabs, exactly one final newline.",
+  "files": {
+    ".dsh/skills/README.md": {
+      "upstreamSha256": "3f3298094d30d265d63251bdf0ef169bbe4126c4a3eaa1b7be4f902a59e2d200",
+      "normalizedSha256": "254bf5477ac7b8f04192d307b64d32d1712394508abc41bc596b1db6c719d296"
+    },
+    ".dsh/skills/dsh-bridge-coding-standards.md": {
+      "upstreamSha256": "5f542ad18ffd8f42ba29b2c980d47eabaeded0145d4b808e742bd177e661882f",
+      "normalizedSha256": "4c8477a3d1eb3b3e0dd5f7b112278dedd3a442798c1746e77dce2a99770b261a"
+    },
+    "README.en.md": {
+      "upstreamSha256": "92298b29e271f74afbfac6f28c5dacd1f89a35e1f82ea417cc72afd9aece5efc",
+      "normalizedSha256": "1b765ca4ef14e3ea239b18afec6607b499e48c93cb3f2201362b34d7e224ddcb"
+    },
+    "README.md": {
+      "upstreamSha256": "592e45f14760915ae31606fa472c5c601104ad63016d86bf820670776846d0af",
+      "normalizedSha256": "db7c34b58c0672e5413b1916c1ddf4c6197f12bf03af22275b251e69254278f7"
+    },
+    "client/index.js": {
+      "upstreamSha256": "9b9289baf6cb81cb76cb1fbd976b83f5a57db6bdde17d98b1270ddc8b11c278a",
+      "normalizedSha256": "87a609213b2f4efbfa410dee50f219a9303632e21895120b9b29005332c7e363"
+    },
+    "client/locales.mjs": {
+      "upstreamSha256": "205213a8bd651ce95db05284a5391ca52c47c4b3a19594256b2cb35ef05f2fdd",
+      "normalizedSha256": "2a931599270149ee20fefb6f3a828795c61f9325b6ebb03128489583a4c29fd7"
+    },
+    "docs/feishu-usage.md": {
+      "upstreamSha256": "b06a43867d05aaf5ea5a222a7a4905c56b40a341e13750f692d82a727ca46211",
+      "normalizedSha256": "673ef9ad4883168d1fd0368588c710e0204226278a64027ee0de8cb72a5e12f2"
+    },
+    "lib/auth/login-template.js": {
+      "upstreamSha256": "53d9f8feb4d7fb95451deb089b96d63c99900cad467a2254c4b593f38a201a4e",
+      "normalizedSha256": "865d26a5b0efaa2fb642e2a20637b3ef5e2b638b183b4ba3ff602b69aad316e6"
+    },
+    "lib/bridge-rpc.js": {
+      "upstreamSha256": "838bf3cf5a2183bfab3b18edc2cc5999f9ef23f869cc2522bd2a85a69fdb0c02",
+      "normalizedSha256": "13da4dd968fbb802ffbc3130711db0782ce7557039dd4be9787c7b4208625044"
+    },
+    "lib/index.js": {
+      "upstreamSha256": "14adaf854db56559e9fb117f84e5b2609eb7efca76a55de04395368906ad4715",
+      "normalizedSha256": "600d477bad46b97d75ca419eb1671f01f9de9506e7f1dc0471510023910ff6e3"
+    },
+    "lib/platform/conversation-bridge.js": {
+      "upstreamSha256": "dbf9f973b99b473da9a58683d7a8ba15d222e9a5021185931285f72991da4318",
+      "normalizedSha256": "482ca1ddfcbdefc7c601656f14fc84b1291ffe50f5806584a3509d18a4278045"
+    },
+    "lib/platform/session-catalog.js": {
+      "upstreamSha256": "390c3e3842575e0b08c775395abcdb6db954e740e224d465dfaf0df8c4c8bb76",
+      "normalizedSha256": "1feb179d69fa8a97ec3909982d4844d189c29ddd240ec0c8dfd3b3e8f9e715e3"
+    },
+    "lib/wechat/gateway.js": {
+      "upstreamSha256": "5bffc740c2a7876d5fabb1126c5d0e614ef70a12ba5d396dacaa3fd4c585816c",
+      "normalizedSha256": "005650afcabb5f452a69c425fd0743e5d635553eee4a3f2049841bbf68d4affd"
+    },
+    "lib/wechat/media.js": {
+      "upstreamSha256": "11268520c65b0cc8a9e3abac8642bbdd4a26584a0c33d71215fa1c48b276038f",
+      "normalizedSha256": "a04eb2054ad80838bfde2c1a1821b50ec9192e52189090c5b3f14e4791e791c4"
+    },
+    "locale/en.json": {
+      "upstreamSha256": "0263fd50a0dc2b52c4907034eb0a0c89b6a782a4f551c2d612c0a896c154e9d1",
+      "normalizedSha256": "e220c7fe647281e61dffc40d1b913e98103998b65c8ea7075dc2604d15e6ea27"
+    },
+    "locale/zh.json": {
+      "upstreamSha256": "d345bfc79fcdec825926fe1e5c582bfb55d3acd7ad3be597af6778281ae91d97",
+      "normalizedSha256": "60e8f240b493ed68b421a2321f3d0fc76f09723c246d806f5620b7bfcf162bc5"
+    },
+    "scripts/generate-banner.mjs": {
+      "upstreamSha256": "6b729dfa6f37aa7c012108d3d7c7219a7501fb63ca199c98b16cdeeee4fdf15b",
+      "normalizedSha256": "9012f2e6aafedb38e8e9ca1d74a18b3732f59c6839e4ec21a1782ebe3ac00620"
+    },
+    "test/browser/mobile-sidebar-drawer.mjs": {
+      "upstreamSha256": "8b9aa35635239eef4cab9d8e74240159abf88d9a81e820336502b49e83e050ae",
+      "normalizedSha256": "38260d5ed43ea3c4b00a0c280d927b5cf1907b498110765f629a158158faa0bb"
+    },
+    "test/enhanced-features.test.mjs": {
+      "upstreamSha256": "fac4b18a971c7394a6ebfd83ca21fe502b8549fea8f95ac534328d0735b8fdfe",
+      "normalizedSha256": "a2676b9017fbf0c3c9e15fa88745c749e070eb9f4bb9fc2f2d72047c07167089"
+    },
+    "test/media-and-heartbeat.test.mjs": {
+      "upstreamSha256": "af0d2664a785e6dc2bb193d2c4456346b9be0e59da11e8e0f7e503d2ed1a4998",
+      "normalizedSha256": "752ca0d7eff45bfecddd17e497f4b4bebcd60adcce2116c50aaafd53d980b9d3"
+    },
+    "test/telegram-service.test.mjs": {
+      "upstreamSha256": "68ae1186cf40554accdcacf80936d49d0f207dcec103b7cce7f1dc87990db2a3",
+      "normalizedSha256": "48c27a9e3fe71c0ccca0e06f2ad3ada9cd35f92d597e7ed340382f4e06418f33"
+    }
+  }
+}

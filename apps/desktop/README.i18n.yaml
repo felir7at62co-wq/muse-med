@@ -2,63 +2,63 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
-/muse-med-desktop:
-  en: 38cd1786c3cd97f1
-  zh: 32ffe7be660faf72
-/muse-med-desktop/key-technical-decisions:
+/muse-desktop:
+  en: 37d75ed8d2d89ad4
+  zh: f1de0cf3c492b11f
+/muse-desktop/key-technical-decisions:
   en: 0cd23a46f0d847c6
   zh: 0a9ab4b1b00b59d7
-/muse-med-desktop/key-technical-decisions/bundled-workspace-dependencies:
-  en: d65805ab74742250
-  zh: 3223009b143bfc6e
-/muse-med-desktop/installation-ownership:
+/muse-desktop/key-technical-decisions/bundled-workspace-dependencies:
+  en: 5eaf8f421f98f1f1
+  zh: d4229ff1226a5de7
+/muse-desktop/installation-ownership:
   en: edcc188be7ebc1ce
   zh: 931ecb727c61d6cc
-/muse-med-desktop/installation-ownership/short-drama-resources-and-limits:
+/muse-desktop/installation-ownership/short-drama-resources-and-limits:
   en: a4cbef994b8d338c
   zh: a17bf10d94d9d71c
-/muse-med-desktop/installation-ownership/runtime-and-plugin-activation:
-  en: 7445830da41afc8d
-  zh: c97cd7d2ae187461
-/muse-med-desktop/develop:
+/muse-desktop/installation-ownership/runtime-and-plugin-activation:
+  en: 5d0296fe6aac249c
+  zh: e41893f6b460e051
+/muse-desktop/develop:
   en: d671eb5af7956ef1
   zh: a64fa6dbb71df970
-/muse-med-desktop/develop/startup-onboarding:
+/muse-desktop/develop/startup-onboarding:
   en: 8d77694098c9e172
   zh: d5e5396c171575bb
-/muse-med-desktop/package:
+/muse-desktop/package:
   en: 4cd8a8da6977928d
   zh: 9f624855a2edac37
-/muse-med-desktop/package/release-versions:
-  en: e89e53a782bc12f6
-  zh: 1eccb4eea17472a8
-/muse-med-desktop/package/resuming-a-failed-run:
+/muse-desktop/package/release-versions:
+  en: c354450c9375cc1f
+  zh: 781d6b38564c4e43
+/muse-desktop/package/resuming-a-failed-run:
   en: 0a20368ae8ad048e
   zh: 09f45a0c214e7d6a
-/muse-med-desktop/package/runtime-file-selection:
+/muse-desktop/package/runtime-file-selection:
   en: 93744cf863c9e689
   zh: c46b4d563ae54fab
-/muse-med-desktop/package/upload-updates:
-  en: 9ba9042ca58c9dbb
-  zh: ef97df678b391ac0
-/muse-med-desktop/package/unsigned-windows-test-installer:
+/muse-desktop/package/upload-updates:
+  en: fec453bc31fb643f
+  zh: 6f0b31a15be666cb
+/muse-desktop/package/unsigned-windows-test-installer:
   en: f7b8790912269e39
   zh: 86cc93942730c5d4
-/muse-med-desktop/package/windows-installer-interface:
+/muse-desktop/package/windows-installer-interface:
   en: 3f4b15531e8c5468
   zh: 94ae3fb043961e47
-/muse-med-desktop/package/windows-ev-signing:
+/muse-desktop/package/windows-ev-signing:
   en: ad3a7c6df22fe778
   zh: 805d9f97a5233764
-/muse-med-desktop/updates:
+/muse-desktop/updates:
   en: 6d3b38baede32d7d
   zh: faa19e4a39d88ae8
-/muse-med-desktop/low-level-development-overrides:
+/muse-desktop/low-level-development-overrides:
   en: 0b225f914142ef0b
   zh: 9ffd07768d37824e
-/muse-med-desktop/known-limitations:
+/muse-desktop/known-limitations:
   en: 7a48d63a38496884
   zh: de97ab4b6fd0df0f
-/muse-med-desktop/dev-note:
+/muse-desktop/dev-note:
   en: 56b54012ab2a3447
   zh: 81de75afe0ce48d1

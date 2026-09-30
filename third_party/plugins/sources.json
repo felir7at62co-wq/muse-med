@@ -17,11 +17,11 @@
     "commit": "9b03d3ffcff96b7e8e4ff749802b04cca23e1b51",
     "license": "MIT"
   },
-  "dsh-lark-bridge": {
-    "repository": "https://github.com/moyu-good/dsh-lark-bridge",
-    "version": "0.6.1",
-    "commit": "1c555fd1cda026e1d0ac4f1f8643d46478d562f9",
-    "license": "BSD-3-Clause"
+  "dsh-bridge": {
+    "repository": "https://github.com/wenbin-wb/dsh-bridge",
+    "version": "2.12.1",
+    "commit": "27a600d15e0be74ac152eaa64e82d19a07c612e5",
+    "license": "MIT"
   },
   "dsh-ffmpeg": {
     "repository": "https://github.com/STARDUSTLC666/dsh-ffmpeg",

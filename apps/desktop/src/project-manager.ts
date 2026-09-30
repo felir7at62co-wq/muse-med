@@ -84,7 +84,7 @@ const DSH_PACKAGE = '@deepseek-ai/dsh'
 const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
 const DESKTOP_PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
-  'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@moyu-good/dsh-lark-bridge',
+  'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@wenbin_wb/dsh-bridge',
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host',
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
@@ -221,15 +221,23 @@ function backupProfileManifest(projectDir: string): void {
  */
 function profilePluginNames(projectDir: string): readonly string[] {
   const manifest = projectManifest(projectDir)
-  const pending = pendingBuiltInBundles(manifest.dsh.profile.bundles)
-  const bundles = pending === undefined ? manifest.dsh.profile.bundles : [...DESKTOP_PROFILE_BUNDLES, ...pending]
+  const retired = manifest.dsh.profile.bundles.includes('@moyu-good/dsh-lark-bridge')
+  const normalized = manifest.dsh.profile.bundles.map(bundle => bundle === '@moyu-good/dsh-lark-bridge' ? '@wenbin_wb/dsh-bridge' : bundle)
+  const pending = pendingBuiltInBundles(normalized)
+  const bundles = pending === undefined ? normalized : [...DESKTOP_PROFILE_BUNDLES, ...pending]
   if (new Set(bundles).size !== bundles.length) {
     throw new Error('desktop project: profile bundle list contains a duplicate package')
   }
   const plugins = bundles.slice(DESKTOP_PROFILE_BUNDLES.length)
   for (const plugin of plugins) assertPackageName(plugin)
-  if (pending !== undefined) {
+  if (pending !== undefined || retired) {
     backupProfileManifest(projectDir)
+    if (retired) {
+      const patchPath = join(projectDir, 'cordis.patch.yml')
+      const oldPatch = existsSync(patchPath) ? readFileSync(patchPath, 'utf8') : ''
+      if (existsSync(patchPath)) copyFileSync(patchPath, `${patchPath}.${String(Date.now())}.bak`)
+      writeFileSync(patchPath, `${oldPatch.trimEnd()}\n\n- id: feishu\n  config:\n    enabled: false\n- id: feishu-channel\n  name: '@wenbin_wb/dsh-bridge'\n  disabled: false\n`, { mode: 0o600 })
+    }
     writeJson(join(projectDir, 'package.json'), {
       ...manifest,
       dsh: { ...manifest.dsh, profile: { ...manifest.dsh.profile, bundles } },

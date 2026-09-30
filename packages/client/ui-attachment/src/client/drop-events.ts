@@ -25,34 +25,40 @@ function droppedDirectories(dataTransfer: DataTransfer, files: readonly File[]):
  * @param onAddFiles - attachment intake callback.
  * @param dragDepth - the view's retained nested-drag counter.
  * @param setDragActive - publish whether a file drag is active.
+ * @param workspaceDrop - optional same-connection workspace drag intake.
  * @returns cleanup for exactly these listeners.
  */
 export function installDocumentDropEvents(
   canAcceptDrop: ComposerAttachmentsProps['canAcceptDrop'],
   onAddFiles: ComposerAttachmentsProps['onAddFiles'],
   dragDepth: { current: number },
-  setDragActive: (active: boolean) => void,
+  setDragActive: (active: boolean, workspace?: boolean) => void,
+  workspaceDrop?: ComposerAttachmentsProps['workspaceDrop'],
 ): () => void {
   const fileTransfer = (event: globalThis.DragEvent): DataTransfer | null => {
     const dataTransfer = event.dataTransfer
-    if (dataTransfer === null || !dataTransfer.types.includes('Files')) return null
+    if (dataTransfer === null || !(dataTransfer.types.includes('Files')
+      || (workspaceDrop !== undefined && dataTransfer.types.includes(workspaceDrop.type)))) return null
     return dataTransfer
   }
+  const isWorkspace = (transfer: DataTransfer): boolean => workspaceDrop !== undefined && transfer.types.includes(workspaceDrop.type)
+  const accepts = (transfer: DataTransfer): boolean => isWorkspace(transfer) ? workspaceDrop?.canAccept === true : canAcceptDrop
   const reset = (): void => {
     dragDepth.current = 0
     setDragActive(false)
   }
   const onDragEnter = (event: globalThis.DragEvent): void => {
-    if (fileTransfer(event) === null) return
+    const transfer = fileTransfer(event)
+    if (transfer === null) return
     event.preventDefault()
     dragDepth.current += 1
-    setDragActive(true)
+    setDragActive(true, isWorkspace(transfer))
   }
   const onDragOver = (event: globalThis.DragEvent): void => {
     const dataTransfer = fileTransfer(event)
     if (dataTransfer === null) return
     event.preventDefault()
-    dataTransfer.dropEffect = canAcceptDrop ? 'copy' : 'none'
+    dataTransfer.dropEffect = accepts(dataTransfer) ? 'copy' : 'none'
   }
   const onDragLeave = (event: globalThis.DragEvent): void => {
     if (fileTransfer(event) === null) return
@@ -67,21 +73,31 @@ export function installDocumentDropEvents(
     if (dataTransfer === null) return
     event.preventDefault()
     reset()
-    if (canAcceptDrop) {
+    if (isWorkspace(dataTransfer)) {
+      if (workspaceDrop?.canAccept === true) workspaceDrop.onDrop(dataTransfer.getData(workspaceDrop.type))
+    } else if (canAcceptDrop) {
       const files = [...dataTransfer.files]
       onAddFiles(files, droppedDirectories(dataTransfer, files))
     }
+  }
+  const onWorkspaceDrop = (event: globalThis.DragEvent): void => {
+    const transfer = fileTransfer(event)
+    if (transfer === null || !isWorkspace(transfer)) return
+    event.stopPropagation()
+    onDrop(event)
   }
   document.addEventListener('dragenter', onDragEnter)
   document.addEventListener('dragover', onDragOver)
   document.addEventListener('dragleave', onDragLeave)
   document.addEventListener('drop', onDrop)
+  document.addEventListener('drop', onWorkspaceDrop, true)
   window.addEventListener('dragend', reset)
   return () => {
     document.removeEventListener('dragenter', onDragEnter)
     document.removeEventListener('dragover', onDragOver)
     document.removeEventListener('dragleave', onDragLeave)
     document.removeEventListener('drop', onDrop)
+    document.removeEventListener('drop', onWorkspaceDrop, true)
     window.removeEventListener('dragend', reset)
   }
 }

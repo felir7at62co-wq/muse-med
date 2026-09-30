@@ -21,6 +21,14 @@ Registry and cross-page router behind the two model-facing inspect tools.
 ```ts cordis-catalog
 /**
  * Register one Host provider.
+ *
+ * A later registration takes over an id an earlier one still holds. The only
+ * producer is the `cordis` preset's toolset, and one process can hold the
+ * previous standing mount while the next one is built, so refusing the second
+ * registration failed the WHOLE preset mount and left every later session on
+ * that preset reporting `resume failed`. A displaced registration keeps its
+ * own disposer a no-op, so the older mount unloading cannot delete its
+ * successor.
  * @param registration - manifest and local query handler.
  * @returns idempotent disposer.
  */

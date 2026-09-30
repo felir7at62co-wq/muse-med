@@ -88,7 +88,9 @@ export async function uploadDesktopRelease(plan: DesktopUploadPlan, cos: COS, re
     }
     await writeFile(join(directory, 'plan.json'), `${JSON.stringify({ schemaVersion: 1,
       environment: plan.environment, target: plan.target, version: plan.version, bucket: plan.bucket,
-      publicUrl: plan.publicUrl, maxAttempts: 1, sourceSha256, artifacts }, null, 2)}\n`, { flag: 'wx', mode: 0o600, flush: true })
+      publicUrl: plan.publicUrl, maxAttempts: 1, sourceSha256, artifacts,
+      ...(plan.githubReleases === undefined ? {} : { requiredGitHubReleases: plan.githubReleases }),
+    }, null, 2)}\n`, { flag: 'wx', mode: 0o600, flush: true })
     for (const artifact of artifacts) {
       key = artifact.key
       stage = 'verify-input'

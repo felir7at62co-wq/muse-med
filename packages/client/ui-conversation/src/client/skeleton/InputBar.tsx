@@ -44,7 +44,7 @@ export type InputBarProps = ComposerBarProps
 
 export const InputBar = memo(function InputBar({
   useSession, useInput, inputActions, keyboard, addFiles, removeAttachment, resolveDraftAttachments,
-  retryFileUpload,
+  retryFileUpload, workspaceFileDrop,
   toggleCommandMenu, stop, t,
   renderSlot, useBusyEnter, useFileUploads, useNotices, useLexicon, useMenuLauncher, useStopShortcut,
   useProjection, sessionId, variant, disabled: inert = false, blocked,
@@ -387,6 +387,13 @@ export const InputBar = memo(function InputBar({
           attachments,
           canAcceptDrop,
           onAddFiles: intakeFiles,
+          ...workspaceFileDrop === undefined ? {} : {
+            workspaceDrop: {
+              type: workspaceFileDrop.type,
+              canAccept: subagent === null && !locked && !machineBusy,
+              onDrop: (ticket: string) => { void workspaceFileDrop.onDrop(ticket) },
+            },
+          },
           onRemoveAttachment: (id) => { removeAttachment?.(id) },
           uploads,
           onRetryFile: (id) => { retryFileUpload?.(id) },

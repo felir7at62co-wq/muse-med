@@ -45,8 +45,18 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `accountHome` | Active DSH home | Absolute directory containing this product's account session file. |
 | `requestTimeoutMs` | 15,000 | Account and KB access request timeout in milliseconds, from 1,000 to 120,000. |
 | `asrRequestTimeoutMs` | 300,000 | Timeout for one compressed-audio upload and gateway response, from 10,000 to 1,800,000 milliseconds. |
+| `remoteAccess` | `false` | Enable the account-bound desktop connector; Muse Desktop enables it. Requires bridge, Connection and Web server providers. |
+| `remoteChunkBytes` | 32,768 | Acknowledged chunk size, from 1,024 to 32,768 bytes. |
+| `remoteAckTimeoutMs` | 15,000 | Handshake and acknowledgement deadline, from 1,000 to 120,000 milliseconds. |
+| `remoteReconnectMaxIntervalMs` | 60,000 | Maximum network reconnection interval, from 1,000 to 300,000 milliseconds. |
 
 The [configuration catalog](../../../docs/config-catalog.md) is generated from plugin schemas. This package is included in the Desktop Host profile and is not a standalone application launcher.
+
+### Desktop access from the website
+
+When remote access is enabled, signing in or restoring the saved account starts an outbound connection. Sign in to the same account on the website to use the desktop's sessions, files and progress. The website displays **您的电脑上的 Muse 未启动** while offline and checks for reconnection. It starts no substitute cloud agent. A second installation cannot replace an online desktop; after it disconnects, a newly authenticated installation can take over.
+
+The connector exchanges the existing Host bootstrap URL for a private loopback cookie. Both that cookie and the Muse session stay in HTTP headers. Switching accounts awaits closure of the old transport. Logout detaches before contacting the gateway; a failed logout keeps that saved revision paused until a new login. Closing a browser stream removes its observer without cancelling agent work or retrying a submitted request. Revocation and expiry close access.
 
 -----
 

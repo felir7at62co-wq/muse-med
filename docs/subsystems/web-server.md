@@ -108,6 +108,23 @@ authenticatedUrl(baseUrl: string): string
 
 Source: [`packages/client/connection/src/rpc.ts`](../../packages/client/connection/src/rpc.ts)
 
+<a id="ctxmusedesktopbridge--musedesktopbridge-abstract-seam"></a>
+
+### `ctx.museDesktopBridge` — `MuseDesktopBridge` (abstract seam)
+
+Provider factory for an account-bound desktop, using the existing Host authority.
+
+```ts cordis-catalog
+/**
+ * Create a stopped tunnel. Neither account cookies nor loopback cookies appear in URLs.
+ * @param options - Verified account and local Host connection settings.
+ * @returns Tunnel whose owner must await stop during account changes and disposal.
+ */
+abstract createTunnel(options: MuseDesktopTunnelOptions): MuseDesktopTunnel
+```
+
+Source: [`packages/host/muse-account/src/desktop-bridge.ts`](../../packages/host/muse-account/src/desktop-bridge.ts)
+
 <a id="ctxwebserver--webserver"></a>
 
 ### `ctx.webServer` — `WebServer`

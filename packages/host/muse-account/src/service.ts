@@ -6,6 +6,7 @@ import { MuseAccountController, MuseAccountInputError } from './account.ts'
 import { MuseGatewayError } from './gateway.ts'
 import { MuseAsrClient, type MuseAsrJob } from './asr.ts'
 import type { MuseModels } from './models.ts'
+import type { MuseDesktopRemote } from './desktop-remote.ts'
 import type { MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
 
 /** Account operations implemented by the product-home controller. */
@@ -16,6 +17,7 @@ export interface MuseAccountServiceOptions {
   readonly controller: AccountOperations
   readonly asr?: MuseAsrClient
   readonly models?: Pick<MuseModels, 'refresh'>
+  readonly remote?: Pick<MuseDesktopRemote, 'refresh' | 'pause'>
 }
 
 /** MUSE account Remote namespace. The Connection carrier authenticates every call. */
@@ -23,6 +25,7 @@ export class MuseAccountService extends TypertRemoteService {
   private readonly controller: AccountOperations
   private readonly asr: MuseAsrClient | undefined
   private readonly models: Pick<MuseModels, 'refresh'> | undefined
+  private readonly remote: Pick<MuseDesktopRemote, 'refresh' | 'pause'> | undefined
 
   /**
    * @param ctx - Host context owning the service.
@@ -33,6 +36,7 @@ export class MuseAccountService extends TypertRemoteService {
     this.controller = options.controller
     this.asr = options.asr
     this.models = options.models
+    this.remote = options.remote
   }
 
   /**
@@ -67,6 +71,7 @@ export class MuseAccountService extends TypertRemoteService {
   async status(request: MuseAccountStatusRequest): Promise<MuseAccountStatus> {
     try {
       await this.models?.refresh()
+      await this.remote?.refresh()
       return await this.controller.status(request)
     } catch (error) {
       throw remoteFailure(error)
@@ -82,6 +87,7 @@ export class MuseAccountService extends TypertRemoteService {
   async login(request: MuseAccountLoginRequest): Promise<MuseAccountLoginResult> {
     try {
       const result = await this.controller.login(request)
+      await this.remote?.refresh()
       await this.models?.refresh()
       return result
     } catch (error) {
@@ -96,6 +102,7 @@ export class MuseAccountService extends TypertRemoteService {
   @Remote('logout')
   async logout(): Promise<MuseAccountStatus> {
     try {
+      await this.remote?.pause()
       const status = await this.controller.logout()
       await this.models?.refresh()
       return status

@@ -30,6 +30,7 @@ function buildFixture(environment: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), 'dsh-release-build-'))
   roots.push(root)
   write(join(root, 'package.json'), `${JSON.stringify({ version: environment.DSH_CLIENT_VERSION ?? '0.0.1' })}\n`)
+  write(join(root, 'apps/desktop/muse-product.json'), JSON.stringify({ version: environment.DSH_CLIENT_PRODUCT_VERSION ?? '1.0.0-beta.1' }) + '\n')
   write(join(root, 'apps/web/dist/index.html'), '<main></main>')
   write(join(root, 'packages/client/example/lib/client.js'), 'module.exports = {}\n')
   writeClientBuildRecord(root, environment)
@@ -189,6 +190,7 @@ describe('release families', () => {
     const defaultBuild = buildFixture({})
     const missing = join(defaultBuild, 'missing')
     write(join(missing, 'package.json'), `${JSON.stringify({ version: officialEnvironment.DSH_CLIENT_VERSION })}\n`)
+    write(join(missing, 'apps/desktop/muse-product.json'), JSON.stringify({ version: officialEnvironment.DSH_CLIENT_PRODUCT_VERSION }) + '\n')
 
     expect(() => { dsh.verifyBuildArtifacts(official) }).not.toThrow()
     expect(() => { dsh.verifyBuildArtifacts(defaultBuild) }).toThrow(/DSH_CLIENT_TITLE/)

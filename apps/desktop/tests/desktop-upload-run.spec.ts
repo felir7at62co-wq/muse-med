@@ -78,6 +78,19 @@ function expectExactObject(request: CosLoopbackRequest, expected: string, conten
 }
 
 describe('release upload audit with the real COS SDK and an isolated loopback origin', () => {
+  it('records required GitHub discovery releases while uploading only the COS artifacts', async () => {
+    const f = await fixture()
+    const githubReleases: NonNullable<DesktopUploadPlan['githubReleases']> = [{
+      tag: 'v1.0.0-rc.muse-beta.1', version: '1.0.0-beta.1', prerelease: true, discovery: 'legacy-rc',
+      binaryFilenames: ['package.exe'], metadataFiles: [{ filename: 'rc.yml', contents: 'version: 1.0.0-beta.1\n' }],
+    }]
+    const { cos, loopback } = await transport()
+    const directory = await uploadDesktopRelease({ ...f.plan, githubReleases }, cos, f.records)
+    const recorded = await json<{ requiredGitHubReleases: typeof githubReleases }>(join(directory, 'plan.json'))
+    expect(recorded.requiredGitHubReleases).toEqual(githubReleases)
+    expect(loopback.requests.map(request => request.path)).toEqual(['/bin/package.exe', '/feeds/nightly.yml'])
+  })
+
   it.each(['test', 'production'] as const)('retains %s plan, feed bytes, intent, receipt and hashes before advancing', async (environment) => {
     const f = await fixture(environment)
     const { cos, loopback } = await transport(async (request, response) => {

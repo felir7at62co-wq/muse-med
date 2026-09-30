@@ -114,6 +114,22 @@ export function childPath(parent: string, name: string): string {
 
 /** The tree's injected business face, as the body receives it. */
 export interface FilesInjected {
+  /** File references bound to this Session and the displayed workspace root. */
+  readonly workspaceReferences?: {
+    readonly type: string
+    /** Reveal this Session's conversation when a fullscreen file panel covers it. */
+    readonly revealConversation?: () => void
+    /** @param root - displayed workspace root. @param paths - ordered file paths. @returns a connection-local drag ticket. */
+    readonly start: (root: string, paths: readonly string[]) => string
+    /** @param ticket - ticket to retire when the drag ends. */
+    readonly end: (ticket: string) => void
+    /**
+     * @param root - displayed workspace root.
+     * @param paths - files to validate and insert without submitting.
+     * @returns whether insertion succeeded.
+     */
+    readonly add: (root: string, paths: readonly string[]) => Promise<boolean>
+  }
   /** Refresh the open directory tree. @param tabId - owning tab. */
   readonly refresh: (tabId: TabId) => void
   /** Control automatic rereads without closing watches. @param tabId - owning tab. @param enabled - automatic-refresh setting. */

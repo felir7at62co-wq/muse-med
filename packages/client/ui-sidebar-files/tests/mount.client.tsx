@@ -59,7 +59,8 @@ export interface Mounted {
 }
 
 /** One store instance, one face, one owner share. */
-function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut']) {
+function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut'],
+  workspaceReferences?: FilesInjected['workspaceReferences'], fullscreen = false) {
   const instance = createFilesStore().create()
   const script = scriptedList()
   const face = filesFace(script.list, script.watch)(SESSION, instance.actions)
@@ -78,7 +79,7 @@ function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps
   const shared = {
     // A page tab's address is the shell's to mint; the body never reads it.
     useTabInfo: () => ({
-      sidebar: { expanded: true, fullscreen: false },
+      sidebar: { expanded: true, fullscreen },
       panel: { id: 'pane-1' },
       tab: {
         id: TAB, kind: 'files', contentId: 'files', title: zh['type.label'], visible: true,
@@ -92,6 +93,7 @@ function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps
     useStore: hookOf(instance),
     actions: instance.actions,
     ...face,
+    workspaceReferences,
     t: makeTranslate(zh),
   }
   return { instance, script, face, controller, tabActions, shared }
@@ -102,8 +104,9 @@ function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps
  * @param cwd - the session's working directory as `useSessions` reports it; `null` for a session without one.
  * @param refreshShortcut - effective binding advertised by the tab owner.
  */
-export function mountBody(cwd: string | null = ROOT, refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut']): Mounted {
-  const { shared, ...hands } = harness(cwd, refreshShortcut)
+export function mountBody(cwd: string | null = ROOT, refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut'],
+  workspaceReferences?: Parameters<typeof harness>[2], fullscreen = false): Mounted {
+  const { shared, ...hands } = harness(cwd, refreshShortcut, workspaceReferences, fullscreen)
   const view = render(<FilesBody {...shared as unknown as FilesBodyProps} />)
   return { ...hands, view, remount: () => render(<FilesBody {...shared as unknown as FilesBodyProps} />) }
 }

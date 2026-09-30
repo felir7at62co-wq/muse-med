@@ -1,0 +1,314 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { BridgeService, selectLanIPv4 } from '../lib/index.js';
+import { ConversationBridge } from '../lib/platform/conversation-bridge.js';
+import { AuthManager } from '../lib/auth/manager.js';
+import { makeSessionsFile } from './helpers.mjs'
+
+test('ConversationBridge /rename command renames active session', async () => {
+  const sentTexts = [];
+  const renameCalls = [];
+
+  const mockSession = {
+    id: 'session-12345678',
+    title: '旧标题',
+  };
+
+  const mockCtx = {
+    on: () => () => {},
+    effect: () => () => {},
+    sessions: new Map([['session-12345678', mockSession]]),
+    // 真实 DSH 的会话标题服务：rename() 会追加 session/title 事件并落盘。
+    // 旧实现调用的是并不存在的 sessionPersistence.update()，被可选链静默跳过。
+    get: (name) => (name === 'sessionTitle'
+      ? { rename: (session, title) => { renameCalls.push({ id: session.id, title }) } }
+      : undefined),
+  };
+
+  const mockPlatform = {
+    id: 'test-platform',
+    capabilities: { maxMessageChars: 2000, supportsGroup: true },
+    sendText: async (peer, text) => {
+      sentTexts.push(text);
+      return { success: true };
+    },
+    sendTyping: async () => {},
+  };
+
+  const bridge = new ConversationBridge({
+    ctx: mockCtx,
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    platform: mockPlatform,
+    config: { allowFrom: ['user1'] },
+  });
+
+  bridge.activeSessionId = 'session-12345678';
+
+  // 1. 发送缺少参数的 /rename
+  await bridge.handleInbound({ senderId: 'user1', text: '/rename' });
+  assert.match(sentTexts[0], /缺少新标题参数/);
+
+  // 2. 发送有效 /rename → 必须经 DSH 原生会话标题服务落盘
+  await bridge.handleInbound({ senderId: 'user1', text: '/rename 优化登录交互' });
+  assert.equal(renameCalls.length, 1);
+  assert.equal(renameCalls[0].id, 'session-12345678');
+  assert.equal(renameCalls[0].title, '优化登录交互');
+  assert.match(sentTexts[1], /会话重命名成功/);
+
+  // 3. 无活动会话时
+  bridge.activeSessionId = null;
+  await bridge.handleInbound({ senderId: 'user1', text: '/rename 另一个标题' });
+  assert.match(sentTexts[2], /当前没有活动会话/);
+});
+
+// 回归：会话尚未恢复（宿主刚重启）时不得假报重命名成功
+test('ConversationBridge /rename 在会话未恢复时明确报错', async () => {
+  const sentTexts = [];
+  const mockCtx = {
+    on: () => () => {},
+    effect: () => () => {},
+    sessions: new Map(),
+    get: () => undefined,
+  };
+  const mockPlatform = {
+    id: 'test-platform',
+    capabilities: { maxMessageChars: 2000, supportsGroup: true },
+    sendText: async (peer, text) => { sentTexts.push(text); return { success: true }; },
+    sendTyping: async () => {},
+  };
+  const bridge = new ConversationBridge({
+    ctx: mockCtx,
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    platform: mockPlatform,
+    config: { allowFrom: ['user1'] },
+  });
+  bridge.activeSessionId = 'session-cold';
+
+  await bridge.handleInbound({ senderId: 'user1', text: '/rename 冷会话标题' });
+
+  assert.match(sentTexts[0], /无法重命名/);
+  assert.doesNotMatch(sentTexts[0], /重命名成功/);
+});
+
+// 旧版 DSH（无 sessionTitle 服务）回退到内存标题 + 历史持久化接口
+test('ConversationBridge /rename 在旧版 DSH 上回退到内存标题', async () => {
+  const sentTexts = [];
+  const mockSession = { id: 'session-old', title: '旧标题' };
+  const mockCtx = {
+    on: () => () => {},
+    effect: () => () => {},
+    sessions: new Map([['session-old', mockSession]]),
+    sessionPersistence: { update: async () => {} },
+    get: () => undefined,
+  };
+  const mockPlatform = {
+    id: 'test-platform',
+    capabilities: { maxMessageChars: 2000, supportsGroup: true },
+    sendText: async (peer, text) => { sentTexts.push(text); return { success: true }; },
+    sendTyping: async () => {},
+  };
+  const bridge = new ConversationBridge({
+    ctx: mockCtx,
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    platform: mockPlatform,
+    config: { allowFrom: ['user1'] },
+  });
+  bridge.activeSessionId = 'session-old';
+
+  await bridge.handleInbound({ senderId: 'user1', text: '/rename 回退标题' });
+
+  assert.equal(mockSession.title, '回退标题');
+  assert.match(sentTexts[0], /会话重命名成功/);
+});
+
+test('BridgeService getSystemMetrics returns valid metrics', async () => {
+  const service = new BridgeService({
+    dshPort: 3080,
+    proxyPort: 3082,
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+  });
+
+  const metrics = service.getSystemMetrics();
+  assert.ok(metrics);
+  assert.ok(metrics.os);
+  assert.ok(metrics.cpu);
+  assert.ok(metrics.memory);
+  assert.ok(metrics.uptime);
+  assert.ok(typeof metrics.cpu.cores === 'number');
+  assert.ok(typeof metrics.memory.usedPercent === 'number');
+  assert.ok(typeof metrics.uptime.processSec === 'number');
+});
+
+test('BridgeService diagnoseNetwork runs diagnostics', async () => {
+  const service = new BridgeService({
+    dshPort: 3080,
+    proxyPort: 3082,
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+  });
+
+  const res = await service.diagnoseNetwork();
+  assert.equal(res.ok, true);
+  assert.ok(Array.isArray(res.results));
+  assert.ok(res.results.some(r => r.item === 'local_proxy'));
+  assert.ok(res.results.some(r => r.item === 'lan_interface'));
+  assert.ok(res.results.some(r => r.item === 'custom_tunnel_server'));
+
+  // 测试配置了自建隧道地址 + 客户端在线：起一个真实本地 HTTP 服务作为探测目标，
+  // 使断言不依赖外部网络/端口（CI 沙箱无出网时也能稳定通过）。
+  const http = await import('node:http')
+  const probeServer = http.createServer((req, res) => { res.end('ok') })
+  await new Promise((r) => probeServer.listen(0, '127.0.0.1', r))
+  try {
+    const probePort = probeServer.address().port
+    service.customTunnelConfig = { serverUrl: `ws://127.0.0.1:${probePort}/connect` }
+    service.customTunnel = { connected: true } // 与诊断实现字段一致（旧测试用 customTunnelClient 是重构前残留）
+    const res2 = await service.diagnoseNetwork()
+    const ctItem = res2.results.find(r => r.item === 'custom_tunnel_server')
+    assert.ok(ctItem)
+    assert.equal(ctItem.status, 'pass')
+  } finally {
+    await new Promise((r) => probeServer.close(r))
+  }
+});
+
+test('AuthManager and backup integration', async () => {
+  const auth = new AuthManager({ sessionsFile: makeSessionsFile(),
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+  });
+
+  await auth.setEnabled(true);
+  await auth.setPassword('access123');
+  await auth.setAdminPassword('admin456');
+
+  const status = auth.getStatus({ masked: false });
+  assert.equal(status.enabled, true);
+  assert.equal(status.hasPassword, true);
+  assert.equal(status.hasAdminPassword, true);
+});
+
+test('BridgeService listRemoteDirectories & addWorkspace', async () => {
+  const registered = [];
+  const mockCtx = {
+    workspaceRegistry: {
+      list: async () => registered,
+      add: async (entry) => { registered.push(entry); },
+    },
+  };
+
+  const service = new BridgeService({
+    dshPort: 3080,
+    proxyPort: 3082,
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+  });
+  service.ctx = mockCtx;
+
+  // 1. 测试列出目录
+  const dirRes = await service.listRemoteDirectories();
+  assert.equal(dirRes.ok, true);
+  assert.ok(dirRes.currentPath);
+  assert.ok(Array.isArray(dirRes.roots));
+  assert.ok(Array.isArray(dirRes.drives));
+  assert.ok(Array.isArray(dirRes.entries));
+
+  // 2. 测试添加当前项目作为工作区
+  const currentDir = process.cwd();
+  const addRes = await service.addWorkspace(currentDir);
+  assert.equal(addRes.ok, true);
+  assert.equal(addRes.path, currentDir);
+  assert.equal(addRes.registered, true);
+
+  // 3. 测试获取工作区列表
+  const wsList = await service.getWorkspaces();
+  assert.ok(Array.isArray(wsList));
+  assert.ok(wsList.some(w => w.path === currentDir));
+
+  // 4. 测试添加不存在路径报错
+  const failRes = await service.addWorkspace('C:\\non_existent_folder_xyz_12345');
+  assert.equal(failRes.ok, false);
+  assert.ok(failRes.error);
+});
+
+test('ConversationBridge /addworkspace and /workspaces commands', async () => {
+  const registered = [];
+  const mockCtx = {
+    on: () => () => {},
+    effect: () => () => {},
+    workspaceRegistry: {
+      archivedSessionIds: [], // 内存优先，避免 dsh-storage 磁盘兜底读到真实 ~/.dsh
+      list: async () => registered,
+      add: async (entry) => { registered.push(entry); },
+    },
+    sessionProjCache: {},
+    sessions: new Map(),
+    agents: new Map(),
+  };
+
+  const sentTexts = [];
+  const mockPlatform = {
+    id: 'test-platform',
+    capabilities: { maxMessageChars: 2000, supportsGroup: true },
+    sendText: async (peer, text) => {
+      sentTexts.push(text);
+      return { success: true };
+    },
+    sendTyping: async () => {},
+  };
+
+  const bridge = new ConversationBridge({
+    ctx: mockCtx,
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    platform: mockPlatform,
+    config: { allowFrom: ['user1'] },
+  });
+
+  const currentDir = process.cwd();
+
+  // 1. 发送缺少参数的 /addworkspace
+  await bridge.handleInbound({ senderId: 'user1', text: '/addworkspace' });
+  assert.match(sentTexts[0], /缺少工作区路径/);
+
+  // 2. 发送有效 /addworkspace <当前路径>
+  await bridge.handleInbound({ senderId: 'user1', text: `/addworkspace ${currentDir}` });
+  assert.equal(registered.length, 1);
+  assert.equal(registered[0].path, currentDir);
+  assert.match(sentTexts[1], /工作区添加成功/);
+
+  // 3. 发送 /workspaces 列出
+  await bridge.handleInbound({ senderId: 'user1', text: '/workspaces' });
+  assert.match(sentTexts[2], /可用工作区/);
+  assert.ok(sentTexts[2].includes(currentDir));
+});
+
+test('selectLanIPv4 优先选择物理局域网网卡并过滤虚拟网卡 (WSL/VMware/Docker)', () => {
+  const ip = selectLanIPv4();
+  if (ip) {
+    assert.match(ip, /^\d+\.\d+\.\d+\.\d+$/);
+    assert.ok(!ip.startsWith('127.'));
+  }
+});
+
+test('listAllLanIPv4 & BridgeService 多网卡 IP 选择与持久化 (Issue #5)', async () => {
+  const persisted = [];
+  const service = new BridgeService({
+    dshPort: 3080,
+    proxyPort: 3082,
+    lanConfig: { selectedIp: '192.168.1.100' },
+    onPersist: async (patch) => {
+      persisted.push(patch);
+    },
+  });
+
+  const status = await service.getStatus();
+  assert.ok(status.lan);
+  assert.ok(Array.isArray(status.lan.interfaces));
+
+  // 1. 设置有效自定义 IP
+  await service.setLanIp({ ip: '10.0.0.5' });
+  assert.equal(service.selectedLanIp, '10.0.0.5');
+  assert.deepEqual(persisted[persisted.length - 1], { lan: { selectedIp: '10.0.0.5' } });
+
+  // 2. 清除自定义 IP 恢复自动推荐
+  await service.setLanIp({ ip: '' });
+  assert.equal(service.selectedLanIp, null);
+  assert.deepEqual(persisted[persisted.length - 1], { lan: { selectedIp: null } });
+});

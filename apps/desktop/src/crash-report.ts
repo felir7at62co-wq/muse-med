@@ -20,6 +20,8 @@ export type CrashReportPhase = 'startup' | 'running'
 export interface CrashReportApp {
   readonly name: string
   readonly version: string
+  readonly harnessVersion: string
+  readonly commitHash: string
   readonly platform: string
   readonly arch: string
   readonly electron: string
@@ -107,6 +109,8 @@ export function renderCrashReport(input: CrashReportInput): string {
     `source: ${input.source}`,
     `phase: ${input.phase}`,
     `app: ${input.app.name} ${input.app.version}`,
+    `harness: DSH ${input.app.harnessVersion}`,
+    `commit: ${input.app.commitHash}`,
     `platform: ${input.app.platform} ${input.app.arch}`,
     `electron: ${input.app.electron}`,
     `node: ${input.app.node}`,

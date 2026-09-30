@@ -50,7 +50,7 @@ describe('Oxlint executable contract', () => {
     const sources: unknown = JSON.parse(await readFile(join(repositoryRoot, 'third_party/plugins/sources.json'), 'utf8'))
     if (!isRecord(sources)) throw new Error('Community source manifest must be an object')
     const names = Object.keys(sources).sort()
-    expect(names).toEqual(['dsh-codex-subscription', 'dsh-ffmpeg', 'dsh-lark-bridge', 'dsh-ponytail', 'dshmarket'])
+    expect(names).toEqual(['dsh-bridge', 'dsh-codex-subscription', 'dsh-ffmpeg', 'dsh-ponytail', 'dsh-skill-mcp-panel', 'dshmarket'])
     const result = parseConfigFileTextToJson(config, await readFile(join(repositoryRoot, config), 'utf8'))
     if (result.error !== undefined) throw new Error(flattenDiagnosticMessageText(result.error.messageText, '\n'))
     const parsed: unknown = result.config

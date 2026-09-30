@@ -1,0 +1,74 @@
+// @vitest-environment jsdom
+/** Native controls load metadata, report unsupported encodings and stop requests on unmount. */
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
+import { VideoBody, type VideoBodyProps } from '../src/client/video/VideoBody.tsx'
+import { en } from '../src/client/video/locales.ts'
+import { videoUrl } from '../src/client/video/index.ts'
+
+beforeEach(() => {
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+})
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
+
+function props(resolveSource = vi.fn().mockResolvedValue({ url: 'http://localhost/api/video?sessionId=owner&path=clip.mp4', version: 'v1' })): VideoBodyProps {
+  const signal = new AbortController().signal
+  return {
+    sessionId: 'owner' as SessionId,
+    resourceAddress: 'dsh-resource://file/session/owner/clip.mp4',
+    content: { kind: 'renderer', revision: 1, loaded: vi.fn(), failed: vi.fn(), reload: vi.fn() },
+    wrap: false, scrollportRef: vi.fn(), addResource: vi.fn(), setResources: vi.fn(), resolveSource,
+    useTabInfo: () => ({ tab: { id: 'video-tab' as TabId, signal } }),
+    useResource: () => ({ value: undefined }), t: (key: keyof typeof en) => en[key],
+  } as VideoBodyProps
+}
+
+it('shows inline native playback controls and reports the loaded source version', async () => {
+  const p = props()
+  const view = render(<VideoBody {...p} />)
+  const player = await screen.findByLabelText(en.player)
+  expect(player.tagName).toBe('VIDEO')
+  expect(player.hasAttribute('controls')).toBe(true)
+  expect(player.hasAttribute('playsinline')).toBe(true)
+  expect(player.getAttribute('preload')).toBe('metadata')
+  expect(player.hasAttribute('autoplay')).toBe(false)
+  fireEvent.loadedMetadata(player)
+  expect(p.content.kind === 'renderer' && p.content.loaded).toHaveBeenCalledWith('v1')
+  view.unmount()
+  expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled()
+  expect(HTMLMediaElement.prototype.load).toHaveBeenCalled()
+  expect(player.hasAttribute('src')).toBe(false)
+})
+
+it('keeps unsupported encoding and connection failure visible with localized copy', async () => {
+  const p = props()
+  render(<VideoBody {...p} />)
+  fireEvent.error(await screen.findByLabelText(en.player))
+  expect((await screen.findByRole('alert')).textContent).toBe(en.failed)
+  expect(p.content.kind === 'renderer' && p.content.failed).toHaveBeenCalledOnce()
+})
+
+it('cancels pending metadata reads when the addressed video changes', async () => {
+  const resolve = vi.fn((_file, _signal) => new Promise<never>(() => {}))
+  const p = props(resolve)
+  const view = render(<VideoBody {...p} />)
+  expect(resolve).toHaveBeenCalledOnce()
+  const signal = resolve.mock.calls[0]![1] as AbortSignal
+  view.unmount()
+  expect(signal.aborted).toBe(true)
+})
+
+it('builds same-origin authenticated URLs for browser and Desktop without credentials', () => {
+  const file = { sessionId: 'owner' as SessionId, path: 'final/镜头 1.mp4' }
+  for (const base of ['https://muse.example/chat', 'dsh-app://app/']) {
+    const url = new URL(videoUrl(file, base))
+    expect(url.origin).toBe(new URL(base).origin)
+    expect(url.pathname).toBe('/api/video')
+    expect(url.searchParams.get('path')).toBe(file.path)
+    expect(url.searchParams.get('sessionId')).toBe('owner')
+    expect(url.username).toBe('')
+  }
+})

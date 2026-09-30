@@ -2,13 +2,9 @@
  * Entry-level activation of the bundled Feishu bridge row.
  *
  * The product switch is the `feishu` row's own `enabled` field, and this layer
- * carries it into the `feishu-channel` row's config — the key the staged bridge
- * reads before it starts its sync layer, its control server, its peer
- * heartbeat, or a QR app registration. A patch replaces the whole config of the
- * row it targets, so the layer restates every control the earlier layers
- * composed: dropping `enabled` would leave an activated bridge inert, and
- * dropping the others would let an activation this product deliberately did not
- * ask for — cross-instance sync and QR app registration — follow the switch on.
+ * carries it into the `feishu-channel` row's config before the reviewed provider
+ * creates its gateway and conversation node. The layer preserves composed
+ * credentials and policy fields when replacing the row's config.
  *
  * The layer is appended after every layer that configures that row, so it wins
  * over any value stored for the bridge's own section: a stored `enabled: true`

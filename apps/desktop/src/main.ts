@@ -47,7 +47,7 @@ import { desktopErrorState } from './startup-error.ts'
 import { desktopPluginCatalog, repositoryUrl } from './plugin-catalog.ts'
 import { productHomeFor } from './product-home.ts'
 import { DesktopMandatoryUpdatePolicy, resolveDesktopPolicyConfig, type DesktopPolicyState } from './mandatory-update-policy.ts'
-import { desktopClientMetadata } from './client-metadata.ts'
+import { desktopClientCommitHash, desktopClientMetadata, desktopClientVersion } from './client-metadata.ts'
 import { DesktopMandatoryUpdateWindow } from './mandatory-update-window.ts'
 import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
 import { DesktopUpdateDialog, type UpdateDialogOptions } from './update-dialog.ts'
@@ -58,7 +58,7 @@ import { DesktopUpdateOverlays } from './update-overlay.ts'
 import { DesktopQuitConfirmation } from './quit-confirmation.ts'
 import { DesktopTray } from './tray.ts'
 import { DesktopBackgroundNotice } from './background-notice.ts'
-import { applyDesktopProductIdentity, DESKTOP_PRIMARY_ACCOUNT } from './product-identity.ts'
+import { applyDesktopProductIdentity, DESKTOP_PRIMARY_ACCOUNT, desktopProductVersion } from './product-identity.ts'
 
 // Identity precedes the product home, every path read, and the single-instance lock below.
 applyDesktopProductIdentity(app)
@@ -151,7 +151,8 @@ function persistCrashReport(error: unknown, source: CrashReportSource): Promise<
     ...(error instanceof DesktopHostFatalError && error.diagnostic !== undefined ? { hostDiagnostic: error.diagnostic } : {}),
     rendererConsole: rendererConsole.snapshot(),
     app: {
-      name: app.name, version: app.getVersion(), platform: process.platform, arch: process.arch,
+      name: app.name, version: desktopProductVersion(app), platform: process.platform, arch: process.arch,
+      harnessVersion: desktopClientVersion(), commitHash: desktopClientCommitHash(),
       electron: process.versions.electron, node: process.versions.node, locale: currentDesktopLocale().id,
     },
     time: new Date(),
@@ -415,7 +416,8 @@ async function main(): Promise<void> {
   // chrome and its content never mix languages.
   const showAbout = async (): Promise<void> => {
     await ordinaryMessageBox({ type: 'info', title: locale.messages.aboutMenu, message: locale.messages.aboutProduct,
-      detail: formatDesktopMessage(locale.messages.aboutVersion, { version: app.getVersion() }),
+      detail: formatDesktopMessage(locale.messages.aboutVersion, { version: desktopProductVersion(app),
+        harnessVersion: desktopClientVersion(), commitHash: desktopClientCommitHash() }),
       buttons: [locale.messages.updateAcknowledge], cancelId: 0 })
   }
   const appPreload = fileURLToPath(new URL('./preload-app.cjs', import.meta.url))
@@ -935,7 +937,7 @@ async function main(): Promise<void> {
         if (state.phase === 'error' && state.failedOperation === 'check') { await showUpdateFailure(state); return }
         if (state.phase === 'idle') {
           await ordinaryMessageBox({ type: 'info', title: locale.messages.updateCheckTitle,
-            message: formatDesktopMessage(locale.messages.updateCurrent, { version: app.getVersion() }) })
+            message: formatDesktopMessage(locale.messages.updateCurrent, { version: desktopProductVersion(app) }) })
           return
         }
         if (state.phase === 'ready' || (state.phase === 'error' && state.failedOperation === 'install')) {
@@ -1031,10 +1033,9 @@ async function main(): Promise<void> {
   const applicationIconPath = development !== undefined ? join(app.getAppPath(), 'renderer', 'icon.png')
     : join(process.resourcesPath, 'icon.png')
   app.setAboutPanelOptions({
-    applicationName: 'muse-med',
-    applicationVersion: app.getVersion(),
-    // The release has no separate build number; omit Electron's bundle version.
-    version: '',
+    applicationName: locale.messages.productName,
+    applicationVersion: desktopProductVersion(app),
+    version: `DSH ${desktopClientVersion()} (${desktopClientCommitHash()})`,
     copyright: '',
     iconPath: applicationIconPath,
   })

@@ -19,10 +19,11 @@ interface ComposerRailItem extends AttachmentRailItem {
 
 /** Draft image previews, pending-file cards, drop target, and original-image preview. */
 export function ComposerAttachments({
-  attachments, canAcceptDrop, onAddFiles, onRemoveAttachment, uploads, onRetryFile, dropLimits, t,
+  attachments, canAcceptDrop, onAddFiles, workspaceDrop, onRemoveAttachment, uploads, onRetryFile, dropLimits, t,
 }: ComposerAttachmentsProps) {
   const [preview, setPreview] = useState<ComposerImageAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
+  const [workspaceDrag, setWorkspaceDrag] = useState(false)
   const dragDepth = useRef(0)
   const closePreview = useCallback(() => { setPreview(null) }, [])
   useEffect(() => {
@@ -30,8 +31,11 @@ export function ComposerAttachments({
   }, [attachments, preview])
 
   useEffect(() => {
-    return installDocumentDropEvents(canAcceptDrop, onAddFiles, dragDepth, setDragActive)
-  }, [canAcceptDrop, onAddFiles])
+    return installDocumentDropEvents(canAcceptDrop, onAddFiles, dragDepth, (active, workspace = false) => {
+      setDragActive(active)
+      setWorkspaceDrag(workspace)
+    }, workspaceDrop)
+  }, [canAcceptDrop, onAddFiles, workspaceDrop])
 
   const railItems = useMemo<ComposerRailItem[]>(() => attachments.map(attachment => ({
     id: attachment.id,
@@ -42,8 +46,10 @@ export function ComposerAttachments({
     <>
       {dragActive && (
         <DropOverlay
-          disabled={!canAcceptDrop}
-          labels={dropOverlayLabels(t, canAcceptDrop, dropLimits)}
+          disabled={!(workspaceDrag ? workspaceDrop?.canAccept === true : canAcceptDrop)}
+          labels={workspaceDrag
+            ? { title: t(workspaceDrop?.canAccept === true ? 'attachment.workspaceDropTitle' : 'attachment.dropBlocked') }
+            : dropOverlayLabels(t, canAcceptDrop, dropLimits)}
         />
       )}
       {railItems.length > 0 && (

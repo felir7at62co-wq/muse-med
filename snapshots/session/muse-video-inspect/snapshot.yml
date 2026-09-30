@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-video-inspect
+profile: headless
+composition: muse-video-inspect
+recording: authored
+header:
+  class: muse-video-inspect
+  pin: true
+workspace:
+  setup: muse-video-inspect

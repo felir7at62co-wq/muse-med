@@ -13,7 +13,7 @@ kind: "package-reference"
 
 ## Release inputs
 
-网关需要 Node 22 或更新版本、对应版本的 `muse-runtime` 和 `global` 发布目录，以及既有账号、模型、知识库路由使用的发布根目录 DSH 依赖。复制进每个新的不可变发布目录后，在本目录运行 `npm ci --omit=dev`；`package-lock.json` 锁定 TOS SDK。服务器必须具备 `ffprobe`。账号数据库、知识库文件、凭据和 ASR 任务账本不得复制进发布树。
+网关需要 Node 22 或更新版本，以及账号、模型、知识库路由使用的发布根目录 DSH 依赖。云端工作区模式和管理员运行时上下文还需要对应版本的 `muse-runtime` 与 `global` 发布目录；桌面工作区模式不启动云端 Agent。复制进每个新的不可变发布目录后，在本目录运行 `npm ci --omit=dev`；`package-lock.json` 锁定 TOS SDK 和 WebSocket 传输依赖。启用 ASR 时，服务器必须具备 `ffprobe`。账号数据库、知识库文件、凭据和 ASR 任务账本不得复制进发布树。
 
 服务从 `MUSE_ASR_CONFIG` 指向的私有 JSON 文件读取配置。省略此变量即关闭 ASR，已登录的 ASR 请求返回 503。Linux 上该文件须为权限 0600 的普通文件，包含以下字段：
 
@@ -42,6 +42,18 @@ kind: "package-reference"
 启用知识库的网关启动前，须把 `MUSE_KB_USER_ROOT` 指向共享 vault 外已存在、仅所有者可访问的绝对目录。目录缺失、权限过宽或与共享 vault 重叠会阻止启动。已登录账号每次可用 `ingest_script` 提交 1–12 段复核后的 Markdown 剧本；请求上限为 2 MiB，单段上限为 400,000 字符。每段的标题、项目相对来源标识与不可变正文按稳定账号 ID 分开保存；结果逐项报告已写入、已存在或失败。账号可通过 `search`、`read` 和 `read_opening` 阅读自己的 `private/SRC-...` ID；其他账号和机器令牌不能读取这些私有 ID。Muse 召回使用目录、全文关键词和页面链接；MCP 端点不调用语义向量。此工具不上传视频二进制。桌面端使用前，服务器须完成部署和配置；只发布源码不会启用此功能。
 
 桌面模型调用复用网页版的账号会话和全局模型目录。`GET /api/desktop-models/providers` 返回公开元数据；`POST /api/desktop-models/:provider/chat/completions` 接受会话令牌作为 Bearer 凭据，并要求已配置的公开 Origin。上游密钥保留在服务器。每个账号最多同时运行四个流式请求，输出受模型配置上限限制。退出登录、撤销账号和会话到期都会中止桌面端正在进行的请求。
+
+## Desktop website access
+
+网关入口默认使用 `MUSE_WORKSPACE_MODE=desktop`。登录后的浏览器通过 `/api/desktop/connect` 进入账号已连接的桌面；离线时显示 **您的电脑上的 Muse 未启动**。此模式没有电脑选择器，也不会启动云端运行时。显式设置 `MUSE_WORKSPACE_MODE=cloud` 可保留云端工作间；`createAccountServer` 库工厂为兼容现有调用者，仍保留该默认值。
+
+桌面用 Muse cookie 和安装 UUID 认证。网关从会话确定归属，每个账号仅允许一台安装在线，并在账号存储中保留绑定。原安装离线后，新登录的安装可替换绑定；另一台安装同时连接会收到 `device-conflict`。重设密码、停用、退出与过期会撤销对应连接。浏览器退出仅关闭自己的观察，不会让单独登录的桌面退出。
+
+HTTP 上传、事件流、Range 响应和原生 `/api/remote.mux` 数据帧按段确认。浏览器取消仅移除本地代理，桥接不会重放请求或取消 Agent 轮次。桌面注入自己的私有 Host cookie 和回环 Origin，保留 Host 信任校验。账号、模型、ASR、Wiki 和反馈接口仍由网关处理；设置与自定义模型提供者属于桌面。`desktopRelayOptions` 工厂参数配置段大小、超时、准入和字节限额。
+
+桥接每隔 `heartbeatIntervalMs`（15 秒）向在线桌面发送 Ping；`heartbeatTimeoutMs`（30 秒）内没有 Pong 时，将桌面标为离线并关闭浏览器的观察连接。入口页面可见时每五秒查询状态。断线与登录过期提示会保留当前工作区和未发送内容；重连移除提示，不刷新页面。只有完整、未压缩的入口 GET 页面会加入观察脚本；HEAD、部分响应、压缩内容和事件流保留原始字节。本地 Host 响应或 WebSocket 升级失败只结束对应浏览器请求，桌面控制连接保持可用。
+
+桌面模式需要 TLS 反向代理把 WebSocket 转发到此进程。仅安装客户端不会切换已部署的网关。本地集成测试验证了隔离、Range 播放、取消与撤权；生产手机登录和反向代理仍需要部署验证。
 
 ## Muse LLM Wiki
 

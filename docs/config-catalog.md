@@ -257,13 +257,25 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-session-controller`
 
 - `inject`: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `fs` · `llm` · `sessions` · `sessionProjections` · `sessionQuery` · `typert` · `workspaceRegistry`
-- `source`: [`packages/api/session-controller/src/index.ts:79`](../packages/api/session-controller/src/index.ts)
+- `source`: [`packages/api/session-controller/src/index.ts:80`](../packages/api/session-controller/src/index.ts)
 
 ```ts config-catalog
 /** Session Controller deployment policy. */
 export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /** Video file, read-window and concurrent-stream bounds. */
+  readonly video?: VideoPlaybackConfig
+}
+
+/** Deployment bounds for one file, buffered window, and concurrent streams. */
+export interface VideoPlaybackConfig {
+  /** Largest source file served, in bytes. */
+  readonly maxFileBytes: number
+  /** Largest filesystem window buffered by one stream, in bytes. */
+  readonly chunkBytes: number
+  /** Largest number of simultaneously open response streams. */
+  readonly maxStreams: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-session-controller -->
@@ -2232,7 +2244,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-muse-account`
 
 - `inject`: `tools` · `llm`
-- `source`: [`packages/host/muse-account/src/index.ts:30`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:33`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -2249,6 +2261,14 @@ export interface Config {
   readonly requestTimeoutMs: number
   /** Maximum time for one compressed-audio upload and gateway response. */
   readonly asrRequestTimeoutMs: number
+  /** Enable the product's account-bound desktop connector; requires its three Host providers. */
+  readonly remoteAccess: boolean
+  /** Largest acknowledged chunk forwarded over the desktop connection, in bytes. */
+  readonly remoteChunkBytes: number
+  /** Deadline for a handshake or chunk acknowledgement, in milliseconds. */
+  readonly remoteAckTimeoutMs: number
+  /** Maximum interval between automatic network reconnection attempts, in milliseconds. */
+  readonly remoteReconnectMaxIntervalMs: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-muse-account -->
@@ -3942,7 +3962,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:53`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:54`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
@@ -4171,7 +4191,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-shot-script`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-shot-script/src/index.ts:52`](../packages/drama/tool-shot-script/src/index.ts)
+- `source`: [`packages/drama/tool-shot-script/src/index.ts:53`](../packages/drama/tool-shot-script/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -4334,6 +4354,47 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-todo -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-video-inspect -->
+<a id="deepseek-aidsh-tool-video-inspect"></a>
+
+## `@deepseek-ai/dsh-tool-video-inspect`
+
+- `inject`: `tools` · `fs` · `subprocess` · `attachments` · `sandboxPolicy`
+- `source`: [`packages/perception/tool-video-inspect/src/index.ts:22`](../packages/perception/tool-video-inspect/src/index.ts)
+
+```ts config-catalog
+/** Deployment-resolved media executables and inspection bounds. */
+export interface Config {
+  /** Same-world FFmpeg executable. */
+  ffmpegPath: string
+  /** Same-world FFprobe executable. */
+  ffprobePath: string
+  /** Largest source file accepted, in bytes. */
+  maxSourceBytes: number
+  /** Largest encoded source image area accepted before decoding, in pixels. */
+  maxSourcePixels: number
+  /** Largest probed source duration, in seconds. */
+  maxDurationSeconds: number
+  /** Largest interval sampled by one call, in seconds. */
+  maxRangeSeconds: number
+  /** Largest number of returned image observations per call. */
+  maxFrames: number
+  /** Number of uniform observations used when the caller omits frame_count. */
+  defaultFrames: number
+  /** Largest dimension of an extracted frame, in pixels. */
+  frameMaxDimension: number
+  /** Largest complete PNG output from one extraction command, in bytes. */
+  maxFrameBytes: number
+  /** Largest simultaneous inspection count. */
+  maxConcurrent: number
+  /** Deadline of one probe or extraction command, in milliseconds. */
+  commandTimeoutMs: number
+  /** Process termination grace, in milliseconds. */
+  graceMs: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-video-inspect -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-web -->
 <a id="deepseek-aidsh-tool-web"></a>
