@@ -366,6 +366,8 @@ After an authorized submission, do other work and read `subtasks` later; use the
 
 This section explains how the row is built; the observable behavior is fully covered in [Use this package](#use-this-package).
 
+The Client TypeScript project references `dsh-jubian`, which owns the shared project-budget types used by the generated Remote declarations. That project emits these types under its own `lib/types` directory.
+
 ### Design philosophy
 
 The package is built on three decisions:
