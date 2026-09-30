@@ -6,6 +6,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { apply, inject, name, workspacePipelineToken } from '../src/index.ts'
 import { JubianImageRoutes } from '../src/image.ts'
 import { JubianToken } from '../src/token.ts'
+import { JubianBudgets } from '../src/budget.ts'
 
 interface Registered {
   name: string
@@ -20,6 +21,7 @@ async function mount(): Promise<{ registered: Registered[]; mounted: unknown[] }
   const mounted: unknown[] = []
   const ctx = {
     plugin: (plugin: unknown) => { mounted.push(plugin) },
+    effect: (callback: () => unknown) => callback(),
     on: () => () => {},
     get: () => undefined,
     tools: {
@@ -42,13 +44,13 @@ describe('tool-jubian registration', () => {
 
   it('mounts both Remote namespaces beside the tools', async () => {
     const { mounted } = await mount()
-    expect(mounted).toEqual([JubianToken, JubianImageRoutes])
+    expect(mounted).toEqual([JubianToken, JubianBudgets, JubianImageRoutes])
   })
 
   it('registers the domain tools and background watcher', async () => {
     const tools = (await mount()).registered
     expect(tools.map(tool => tool.name).sort()).toEqual(
-      ['jubian_asset', 'jubian_catalog', 'jubian_claim', 'jubian_find', 'jubian_media', 'jubian_model', 'jubian_organize', 'jubian_snatch', 'jubian_storyboard', 'jubian_video', 'jubian_watch'])
+      ['jubian_asset', 'jubian_budget', 'jubian_catalog', 'jubian_claim', 'jubian_find', 'jubian_media', 'jubian_model', 'jubian_organize', 'jubian_snatch', 'jubian_storyboard', 'jubian_video', 'jubian_watch'])
   })
 
   it('states the paid and side-effecting nature in the description itself', async () => {
@@ -109,7 +111,7 @@ describe('tool-jubian registration', () => {
     const asset = byName.get('jubian_asset')!
     expect((asset.properties as Record<string, { enum?: string[] }>).method!.enum)
       .toEqual(['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'register', 'remove', 'upload_reference', 'upload_audio',
-        'create_folder', 'move', 'rename'])
+        'create_folder', 'move', 'rename', 'audio_list', 'audio_get', 'audio_delete_preview', 'audio_delete_apply'])
     const assetKeys = Object.keys(asset.properties as Record<string, unknown>).sort()
     expect(assetKeys).toContain('image_path')
     expect(assetKeys).toContain('audio_path')
@@ -137,7 +139,7 @@ describe('tool-jubian registration', () => {
     expect((storyboard.properties as Record<string, { enum?: string[] }>).method!.enum)
       .toEqual(['list', 'get', 'create', 'create_batch', 'save', 'edit_preview', 'edit_batch_preview', 'edit_apply',
         'generate', 'select_assets', 'prepare_video', 'submit_video', 'submit_video_batch', 'erase_subtitle',
-        'delete_preview', 'delete_apply'])
+        'delete_preview', 'delete_apply', 'audio_preview', 'audio_apply'])
     expect((storyboard.properties as Record<string, Record<string, unknown>>).selections!).toMatchObject(
       { type: 'array',
         items: { type: 'object', additionalProperties: false, required: ['material_key', 'asset_id'] } })
@@ -189,6 +191,7 @@ describe('tool-jubian registration', () => {
     const registered: Registered[] = []
     const ctx = {
       plugin: () => {},
+      effect: (callback: () => unknown) => callback(),
       on: () => () => {},
       tools: { register: (definition: Registered) => { registered.push(definition); return () => {} } },
       credentials: { resolve: async () => undefined },

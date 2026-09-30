@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-project-bible-skill
+profile: headless
+composition: muse-project-bible-skill
+recording: authored
+header:
+  class: muse-project-bible-skill
+  pin: true
+workspace:
+  setup: muse-audio-skills

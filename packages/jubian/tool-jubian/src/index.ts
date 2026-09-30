@@ -17,6 +17,7 @@
  */
 import { homedir } from 'node:os'
 import { deletionInspectionReason } from './storyboard-delete.ts'
+import { audioDeletionInspectionReason, resolveAudioReferenceScanOptions } from './audio-asset-delete.ts'
 import { readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -101,6 +102,10 @@ export interface Config extends ImageRouteConfig {
   storyboardBatchConcurrency?: number
   /** Maximum prepared storyboard bodies per call; integer 1..1000, default 1000. */
   storyboardBatchMaxItems?: number
+  /** Rows per page during audio registration and card-reference inspection; integer 1..1000, default 1000. */
+  audioReferencePageSize?: number
+  /** Maximum pages in complete audio inventory/reference scans; integer 1..100, default 100. */
+  audioReferencePageLimit?: number
   /**
    * Separator between the segments of a composed asset name; defaults to `｜`.
    * Applies only to names this row composes from an `episode` argument — a caller
@@ -331,6 +336,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const imageBatch = resolveImageBatchOptions(config)
   const videoBatch = resolveVideoBatchOptions(config)
   const storyboardBatch = resolveStoryboardBatchOptions(config)
+  const audioReferenceScan = resolveAudioReferenceScanOptions(config)
   ctx.plugin(JubianToken)
   const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
   // Resolved once, here, so a blank separator or series label fails the mount
@@ -385,6 +391,10 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (exec.name === 'jubian_storyboard') {
       const reason = deletionInspectionReason(exec.arguments)
+      if (reason) return { kind: 'deny' as const, reason }
+    }
+    if (exec.name === 'jubian_asset') {
+      const reason = audioDeletionInspectionReason(exec.arguments)
       if (reason) return { kind: 'deny' as const, reason }
     }
     return await next()
@@ -533,16 +543,20 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '不合规时调用本机 ffmpeg 重编码（可用 DSH_JUBIAN_FFMPEG/FFMPEG_PATH 指定二进制）；'
       + '本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。'
       + 'upload_audio 上传已裁好的 PCM WAV 声音参考，按真实样本验证不超过15秒；通常保留同角色2秒清晰独白。'
-      + '返回 audio materialUrl 和实测时长，不创建父资产或生成任务；加载 tweet-drama-voice-continuity 技能制作和复用声线样本。' + WRITE_NOTE,
+      + '返回 audio materialUrl 和实测时长，不创建父资产或生成任务。'
+      + 'register 支持 asset_type=4，把已上传音频登记到当前剧本音频类别；audio_list/audio_get 核对真实身份和地址，缺失时长不冒充实测。'
+      + '音频删除用 audio_delete_preview 核对身份和全部当前角色/分镜引用；audio_delete_apply 需要 checked_audio_asset_id 和 fingerprint，仍被引用时拒绝。'
+      + '删除音频不可恢复，不取消生成任务或退费。加载 tweet-drama-voice-continuity 技能制作和复用声线样本。' + WRITE_NOTE,
     parameters: {
       method: { type: 'string', required: true,
         enum: ['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'register', 'remove', 'upload_reference', 'upload_audio',
-          'create_folder', 'move', 'rename'],
+          'create_folder', 'move', 'rename', 'audio_list', 'audio_get', 'audio_delete_preview', 'audio_delete_apply'],
         description: 'get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；'
           + 'generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；'
-          + 'register=按指定类别新建一条资产，只引用已有图片、不生成新图（有副作用）；'
-          + 'remove=删除一个父资产（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；upload_audio=上传短 PCM WAV 声音参考（免费）；'
-          + 'create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名。' },
+          + 'register=按指定类别登记已有图片或音频（有副作用、不生成）；'
+          + 'remove=删除已检查的图片父资产，拒绝音频（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；upload_audio=上传短 PCM WAV 声音参考（免费）；'
+          + 'create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名；'
+          + 'audio_list/audio_get=只读当前剧本音频资产；audio_delete_preview=检查音频删除目标与引用；audio_delete_apply=删除已检查且无当前引用的音频资产（不可恢复）。' },
       script_id: ARGS.script_id, asset_id: ARGS.asset_id, material_id: ARGS.material_id,
       page_num: ARGS.page_num, page_size: ARGS.page_size, idempotency_key: ARGS.idempotency_key,
       image_path: ARGS.image_path,
@@ -551,10 +565,15 @@ export function apply(ctx: Context, config: Config = {}): void {
       asset_scope_type: ARGS.asset_scope_type, root_category_type: ARGS.root_category_type,
       material_ids: ARGS.material_ids, target_folder_id: ARGS.target_folder_id,
       asset_name: ARGS.asset_name, episode: ARGS.episode, asset_category: ARGS.asset_category,
-      asset_type: ARGS.asset_type, asset_url: ARGS.asset_url,
+      asset_type: { type: 'number', enum: [1, 2, 3, 4], description: 'register 必填：1=角色，2=场景，3=道具，4=音频；音频使用 upload_audio 返回的地址。' },
+      asset_url: { type: 'string', description: 'register 必填：已有图片或音频 HTTPS 地址；只登记，不生成新媒体。' },
+      project_dir: ARGS.project_dir, preview_path: ARGS.preview_path,
+      checked_audio_asset_id: { type: 'integer', description: 'audio_delete_apply 必填：已核对预览名称、URL、引用和用户删除范围的精确音频资产 ID。' },
+      delete_reason: { type: 'string', description: 'audio_delete_preview 必填：删除该音频的具体原因。' },
+      authorization_basis: { type: 'string', description: 'audio_delete_preview 必填：用户对该音频删除范围的授权。' },
     },
     output: OUTPUT,
-    execute: guarded('jubian_asset', args => assetMethod(client, ledger, args, { naming })),
+    execute: guarded('jubian_asset', args => assetMethod(client, ledger, args, { naming, audioReferenceScan })),
   }))
 
   ctx.tools.register(defineTool({
@@ -647,14 +666,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     parameters: {
       method: { type: 'string', required: true,
         enum: ['list', 'get', 'create', 'create_batch', 'save', 'edit_preview', 'edit_batch_preview', 'edit_apply', 'generate', 'select_assets', 'prepare_video', 'submit_video',
-          'submit_video_batch', 'erase_subtitle', 'delete_preview', 'delete_apply'],
+          'submit_video_batch', 'erase_subtitle', 'delete_preview', 'delete_apply', 'audio_preview', 'audio_apply'],
         description: 'list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；'
           + 'save=存为不生成；edit_preview/edit_batch_preview=原位修改单卡/多卡预览；edit_apply=应用预览（免费）；generate=提交生成（计费）；'
           + 'select_assets=写入选定资产（免费，强制 isGenerate=0）；'
           + 'prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；'
           + 'submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；'
           + 'delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；'
-          + 'erase_subtitle=去字幕（计费、异步）。' },
+          + 'erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。' },
       storyboard_id: ARGS.storyboard_id, content_duration_ms: ARGS.content_duration_ms,
       page_num: ARGS.page_num, page_size: ARGS.page_size,
       task_id: ARGS.task_id, script_id: ARGS.script_id,
@@ -667,6 +686,18 @@ export function apply(ctx: Context, config: Config = {}): void {
           body: ARGS.body, body_path: ARGS.body_path,
         } } },
       body: ARGS.body, body_path: ARGS.body_path, idempotency_key: ARGS.idempotency_key,
+      prompt: { type: 'string', description: 'audio_preview 必填：完整新提示词，原图片素材标记及其顺序必须保留，声音标记与 audio_references 一一对应。' },
+      audio_references: { type: 'array', description: 'audio_preview 必填：最终完整、有序的音频引用列表；[] 明确移除全部声音引用，保留原图片。', items: {
+        type: 'object', additionalProperties: false, properties: {
+          materialType: { type: 'string', enum: ['audio'], required: true },
+          materialKey: { type: 'string', required: true }, materialUrl: { type: 'string', required: true },
+          fileName: { type: 'string' }, materialName: { type: 'string' },
+          sortOrder: { type: 'integer', required: true, description: '从 1 开始的音频组内连续顺序。' },
+          audioDuration: { type: 'number', description: '实测秒数，大于0且不超过15；未知时省略，不按文件名猜测。' },
+          audio_asset_id: { type: 'integer', description: '已登记的真实音频资产 ID；工具复验同项目、类别4与URL，字段不伪造图片父资产 ID。' },
+        },
+      } },
+      expected_fingerprint: { type: 'string', description: 'audio_apply 必填：已检查的 audio_preview fingerprint；idempotency_key 必须相同。' },
       changes: { type: 'object', additionalProperties: false, description: 'edit_preview 必填：仅修改提供的字段，其余原样保留；duration 是实际请求的整数秒，按精确 SD 模型范围验证。', properties: {
         prompt: { type: 'string', description: '新的完整包提示词；素材标记改变后须重新选源。' },
         duration: { type: 'integer', description: 'SD2.0：4–15 秒；SD2.5：4–30 秒；按镜头内容计算。' },

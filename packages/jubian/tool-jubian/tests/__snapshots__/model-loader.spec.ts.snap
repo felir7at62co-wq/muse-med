@@ -63,6 +63,52 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
 exports[`loads model preview/apply, renders free outcomes, and disposes registration > storyboard creation and discovery schema 1`] = `
 {
   "properties": {
+    "audio_references": {
+      "description": "audio_preview 必填：最终完整、有序的音频引用列表；[] 明确移除全部声音引用，保留原图片。",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "audioDuration": {
+            "description": "实测秒数，大于0且不超过15；未知时省略，不按文件名猜测。",
+            "type": "number",
+          },
+          "audio_asset_id": {
+            "description": "已登记的真实音频资产 ID；工具复验同项目、类别4与URL，字段不伪造图片父资产 ID。",
+            "type": "integer",
+          },
+          "fileName": {
+            "type": "string",
+          },
+          "materialKey": {
+            "type": "string",
+          },
+          "materialName": {
+            "type": "string",
+          },
+          "materialType": {
+            "enum": [
+              "audio",
+            ],
+            "type": "string",
+          },
+          "materialUrl": {
+            "type": "string",
+          },
+          "sortOrder": {
+            "description": "从 1 开始的音频组内连续顺序。",
+            "type": "integer",
+          },
+        },
+        "required": [
+          "materialType",
+          "materialKey",
+          "materialUrl",
+          "sortOrder",
+        ],
+        "type": "object",
+      },
+      "type": "array",
+    },
     "authorization_basis": {
       "description": "delete_preview 必填：用户对本次精确范围的删除授权；不明确时 ask_user。",
       "type": "string",
@@ -167,6 +213,10 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "description": "本包预计费用（人民币十进制字符串）。由 Agent 按项目所选模型的实时目录价格、包时长/用量或同规格已结算费用估算；不是让用户填写，也不改变每项目默认4000元额度。",
       "type": "string",
     },
+    "expected_fingerprint": {
+      "description": "audio_apply 必填：已检查的 audio_preview fingerprint；idempotency_key 必须相同。",
+      "type": "string",
+    },
     "idempotency_key": {
       "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。",
       "type": "string",
@@ -176,7 +226,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "type": "boolean",
     },
     "method": {
-      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=存为不生成；edit_preview/edit_batch_preview=原位修改单卡/多卡预览；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）。",
+      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=存为不生成；edit_preview/edit_batch_preview=原位修改单卡/多卡预览；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
       "enum": [
         "list",
         "get",
@@ -194,6 +244,8 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
         "erase_subtitle",
         "delete_preview",
         "delete_apply",
+        "audio_preview",
+        "audio_apply",
       ],
       "type": "string",
     },
@@ -221,12 +273,16 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "description": "prepare_video 必填、submit_video 可选：项目目录，必须含 project_config.json，且其 jubian_script_id 必须等于实时 scriptId。",
       "type": "string",
     },
+    "prompt": {
+      "description": "audio_preview 必填：完整新提示词，原图片素材标记及其顺序必须保留，声音标记与 audio_references 一一对应。",
+      "type": "string",
+    },
     "script_id": {
       "description": "剧变项目 ID（scriptId）。erase_subtitle 与 upscale 从任务行读取它，不必单独提供；其余方法按上面的必填说明传入。",
       "type": "number",
     },
     "selections": {
-      "description": "select_assets 必填：有序的 (material_key, 父 asset_id) 列表，顺序必须与提示词里的 key 顺序完全一致。",
+      "description": "select_assets 必填：有序的 (material_key, 父 asset_id) 列表，顺序必须与提示词里的图片 key 顺序完全一致；已有音频参考自动保留，不传作图片 selections。",
       "items": {
         "additionalProperties": false,
         "properties": {

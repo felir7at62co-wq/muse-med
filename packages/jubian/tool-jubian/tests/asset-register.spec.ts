@@ -1,4 +1,4 @@
-/** `jubian_asset register`: registering an existing image under an explicit category. */
+/** Existing media registration uses explicit categories and reconciles audio identity by name and URL. */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -33,7 +33,8 @@ async function fixture(created: Record<string, unknown> | null = { id: 900100, n
     fetch: async (url: string | URL | Request, init?: RequestInit) => {
       const path = (url as URL).toString()
       if (path.includes('/aigc/asset/list')) {
-        return new Response(JSON.stringify({ code: 200, data: { total: assets.length, rows: assets } }), { status: 200 })
+        const selected = path.includes('assetType=4') ? assets.filter(row => row.assetType === 4) : assets
+        return new Response(JSON.stringify({ code: 200, data: { total: selected.length, rows: selected } }), { status: 200 })
       }
       calls.push({ method: String(init?.method), path,
         body: typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined })
@@ -70,9 +71,40 @@ it('identifies the new asset by list diff, not by the create response body', asy
   expect(String(result.next)).toContain('无法唯一确定')
 })
 
-it('refuses a category outside 1/2/3 before sending anything', async () => {
+it('registers an uploaded voice in the audio category without generating media', async () => {
+  const name = '周海生声线｜v1'
+  const url = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/voice.wav'
+  const f = await fixture({ id: 900101, scriptId: 2708, name, assetType: 4, assetUrl: url })
+  const result = await assetMethod(f.client, f.ledger, {
+    ...ARGS, asset_name: name, asset_type: 4, asset_url: url, idempotency_key: 'audio-register',
+  })
+  expect(result.created_asset_id).toBe(900101)
+  expect(f.calls[0]?.body).toEqual({ scriptId: 2708, assetName: name, assetType: 4, isLocal: 1, url })
+  expect(f.calls).toHaveLength(1)
+  expect(String(result.next)).toContain('音频')
+})
+
+it('does not claim an unrelated audio registered concurrently as the requested voice', async () => {
+  const f = await fixture({ id: 900101, scriptId: 2708, name: '另一角色', assetType: 4,
+    assetUrl: 'https://media.example/unrelated.wav' })
+  const result = await assetMethod(f.client, f.ledger, { ...ARGS, asset_type: 4,
+    asset_name: '周海生声线', asset_url: 'https://media.example/zhou.wav', idempotency_key: 'concurrent-voice' })
+  expect(result.created_asset_id).toBeNull()
+})
+
+it('refuses a changed audio URL under an already claimed registration key', async () => {
+  const url = 'https://media.example/zhou.wav'
+  const f = await fixture({ id: 900101, scriptId: 2708, name: '周海生声线', assetType: 4, assetUrl: url })
+  const args = { ...ARGS, asset_type: 4, asset_name: '周海生声线', asset_url: url, idempotency_key: 'voice-retry' }
+  await assetMethod(f.client, f.ledger, args)
+  await expect(assetMethod(f.client, f.ledger, { ...args, asset_url: url.replace('zhou', 'new') }))
+    .rejects.toThrow(/key|request|请求/)
+  expect(f.calls).toHaveLength(1)
+})
+
+it('refuses a category outside 1/2/3/4 before sending anything', async () => {
   const f = await fixture()
-  await expect(assetMethod(f.client, f.ledger, { ...ARGS, asset_type: 4, idempotency_key: 'k3' }))
+  await expect(assetMethod(f.client, f.ledger, { ...ARGS, asset_type: 5, idempotency_key: 'k3' }))
     .rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
   expect(f.calls).toHaveLength(0)
 })

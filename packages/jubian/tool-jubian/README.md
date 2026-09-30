@@ -143,14 +143,17 @@ The twelve registered tools are the whole model-facing surface. This package pub
 | `jubian_snatch` | `ids`, `new_claimable` | Bounded background claim job within an explicitly authorized UTC window |
 | `jubian_asset` | `get`, `list`, `materials`, `generated_image` | Read-only, no charge |
 | | `confirm_casting` | Changes provider state through a `GET`; needs `idempotency_key` |
-| | `remove` | Deletes one parent asset irrecoverably; needs `idempotency_key` |
+| | `remove` | Deletes an inspected image parent irrecoverably; audio requires dedicated deletion methods |
 | | `upload_reference` | Free and task-free; writes one object into the provider's bucket |
 | | `upload_audio` | Free and task-free; measures a local PCM WAV reference of at most 15 seconds, then uploads one object |
+| | `register`, `audio_list`, `audio_get` | Registers uploaded media with an explicit category; audio category is 4, with project-scoped reads |
+| | `audio_delete_preview`, `audio_delete_apply` | Inspects authorized audio and references, then deletes once with verified readback |
 | | `create_folder`, `move`, `rename` | Reorganize the console's asset library; each needs `idempotency_key` |
 | `jubian_organize` | `index` | Read-only and free; writes one local index file |
 | `jubian_model` | `preview`, `apply` | Preview is read-only remotely; apply saves approved existing storyboard settings with `isGenerate=0` |
 | `jubian_storyboard` | `list`, `get`, `create`, `save` | List/get are read-only; create/save are free writes that force `isGenerate=0`, including caller-supplied create bodies |
 | | `edit_preview`, `edit_batch_preview`, `edit_apply` | Inspect and save existing cards in place, retaining IDs; no generation |
+| | `audio_preview`, `audio_apply` | Replaces the final audio list on one original card, retaining images and generation settings |
 | | `delete_preview`, `delete_apply` | Inspect exact authorized targets then delete once; pre-execute inspection hook, stale refusal and readback |
 | | `select_assets` | Free and forced to `isGenerate=0`; needs `idempotency_key` |
 | | `prepare_video` | Free and read-only remotely; writes one local preview file |
@@ -265,6 +268,10 @@ After the user approves the scope and settings, call `apply` with the same proje
 Project and episode previews report malformed cards in `excluded_invalid` and plan only valid members. An orphan with no usable `episodeId` does not block unrelated episodes. Exact `storyboards` scope still reports that card's error; repair its explicit episode binding or duration with `edit_preview` and preview the intended model scope again. Displayed `episodeCount` is never inferred as a remote episode ID.
 
 ### The storyboard-native video channel
+
+Register uploaded voices with `jubian_asset register asset_type=4`. `audio_list` and `audio_get` read project audio identities and URLs without guessing duration. Registration matches project, name and URL across complete inventories; ambiguous results cannot supply a guessed ID. Same-key reconciliation never registers again. `jubian_storyboard audio_preview` accepts the original card ID, project binding, complete prompt and final ordered `audio_references`; `[]` removes all audio. Optional `audio_asset_id` verifies project/category/URL without inventing provider material IDs. `audio_apply` requires the same original ID, reviewed fingerprint and key; it sends one `isGenerate=0` PUT, preserves images, model, duration and episode, then checks actual readback. Unknown writes only reconcile under the original key. Refresh `prepare_video` after changes.
+
+Audio deletion requires `audio_delete_preview`, an exact authorized ID and reason. It enumerates the asset's media versions and checks current project-bible voices and all project cards; incomplete or unreadable inspection refuses deletion. Remove or replace references, then preview again. `audio_delete_apply` requires `checked_audio_asset_id` and the preview fingerprint as key; it rechecks the target and references, deletes once, then independently verifies absence. Generic `remove` refuses audio. Deletion excludes local audio_apply and project-bible writers through readback. Other write tools and external console edits do not participate in those locks; avoid concurrent reference changes during deletion. Deletion does not cancel or refund historical jobs. `audioReferencePageSize` (default 1000, range 1–1000) and `audioReferencePageLimit` (default 100, range 1–100) bound complete scans.
 
 For voice continuity, load [the voice reference skill](../../drama/skills/skills/tweet-drama-voice-continuity/SKILL.md). `jubian_asset upload_audio` accepts `audio_path`, measures the actual 16-bit PCM WAV samples, refuses files longer than 15 seconds before uploading, and returns `materialUrl`, `audioDuration`, SHA-256 and `duration_verified: true`. It creates no asset or generation task. Existing uploaded audio remains bound when `select_assets` updates image selections; audio has its own group order and no image parent ID. Native preparation freezes those references and reports saved duration separately from byte verification; unknown remote duration stays unverified. Submitted audio must reappear in ordered child `audioMaterials[].audioUrl` before a task is claimed. Repair and save the original storyboard when a reference is wrong.
 

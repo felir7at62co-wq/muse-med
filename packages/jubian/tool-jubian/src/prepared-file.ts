@@ -13,7 +13,7 @@ import { JubianError } from '@deepseek-ai/dsh-jubian'
  * @throws {JubianError} `CONTRACT_CHANGED` for a mismatched path/key, linked source or unreadable JSON.
  */
 export async function readPreparedJson(root: string, key: string, source: string,
-  operation: 'storyboard-edit' | 'storyboard-delete' | 'model-settings'): Promise<unknown> {
+  operation: 'storyboard-edit' | 'storyboard-delete' | 'storyboard-audio' | 'audio-asset-delete' | 'model-settings'): Promise<unknown> {
   if (!/^[a-f0-9]{64}$/.test(key)) throw new JubianError('CONTRACT_CHANGED', 'Prepared preview path/key mismatch')
   const directory = join(root, 'video_tasks')
   const path = join(directory, `${key}.${operation}.prepared.json`)

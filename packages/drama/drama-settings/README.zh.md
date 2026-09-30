@@ -50,6 +50,8 @@ kind: "package-bundle"
 
 `project_config.json` 是权威数据。`project_bible` 保存风格、比例、精确视频模型/平台/生成分辨率、独立的交付宽高/帧率/码率、灵活分集计划、可选角色身份与已确认声音描述、稳定视频包与分镜映射、已完成任务引用和版本历史。顶层 `jubian_script_id` 与 `delivery.max_effective_chars_per_shot` 继续供现有读取方使用。其他旧字段在更新后保留。已有项目和视频包绑定不能被静默替换；已完成任务引用只追加，不抹掉旧记录。
 
+每个角色的 `voice_profile` 可用 `reference_audio`（HTTPS URL）、`reference_audio_asset_id`、`reference_audio_sha256`（64 位十六进制）和 `reference_audio_duration_seconds`（实测，大于 0 且不超过 15）绑定已认可音频资产。替换已绑定参考须同时提供四项；更换服装或省略声音字段会保留当前声线。在已预览的更新中设 `reference_audio: null` 会删除这四项引用，保留描述和说话人 ID，落盘不存 null。旧的未绑定路径或 ID 参考仍有效。[声音连续性技能](../skills/skills/tweet-drama-voice-continuity/SKILL.md) 负责音频库回读、样本认可和原卡绑定；存储这些字段不验证远端媒体，也不能替代实际听音。
+
 工具在项目独占写入锁下原子替换 JSON，再原子替换派生的 `project-bible.md`。含符号链接或 junction 的路径被拒绝。文件版本过期、预览被改、字段无效或锁被占用时，两份输出都不改变。JSON 提交后 Markdown 渲染失败时，错误给出已提交版本；重试前先读配置。遗留 `.project-bible.lock` 需检查后才能手工删除。视频选择仍须由实时剧变目录及准备工具验证；存储的声音指导不保证提供方能强制相同生成音色。
 
 ### 设置页

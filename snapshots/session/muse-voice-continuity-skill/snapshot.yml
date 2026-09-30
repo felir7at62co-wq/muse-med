@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-voice-continuity-skill
+profile: headless
+composition: muse-voice-continuity-skill
+recording: authored
+header:
+  class: muse-voice-continuity-skill
+  pin: true
+workspace:
+  setup: muse-audio-skills
