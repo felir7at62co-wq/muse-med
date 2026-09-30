@@ -32,6 +32,12 @@ vi.mock('node:child_process', async (importOriginal) => {
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 
+const editingTrialGuides = [
+  ['muse-episode-design', 'episode-workflow.md'],
+  ['muse-script-doctor', 'doctor-workflow.md'],
+  ['muse-dialogue-polish', 'dialogue-workflow.md'],
+] as const
+
 /**
  * Write the primary-runtime payload the smoke reads before it starts the Host.
  * @param root - Directory the resources directory is created under.
@@ -96,6 +102,13 @@ function fixture(packaged = false) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
+    skills.push({ name, path, invocation: { modelInvocable: true } })
+  }
+  for (const [name, guide] of editingTrialGuides) {
+    const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
+    mkdirSync(join(dirname(path), 'references'), { recursive: true })
+    writeFileSync(path, '# fixture')
+    writeFileSync(join(dirname(path), 'references', guide), '# fixture guide')
     skills.push({ name, path, invocation: { modelInvocable: true } })
   }
   const transcribeScript = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/audio-transcribe/scripts/transcribe.py'))
@@ -253,6 +266,19 @@ it('rejects a missing shared snatch skill', async () => {
   const index = f.skills.findIndex(skill => skill.name === 'jubian-snatch')
   f.skills.splice(index, 1)
   await expect(f.apply(f.ctx)).rejects.toThrow('missing shared Muse skill jubian-snatch')
+})
+
+it.each(editingTrialGuides)('rejects an installed product without %s', async (name) => {
+  const f = fixture(true)
+  f.skills.splice(f.skills.findIndex(skill => skill.name === name), 1)
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing shared Muse skill ' + name)
+})
+
+it.each(editingTrialGuides)('rejects %s without its installed method guide', async (name, guide) => {
+  const f = fixture(true)
+  const skill = f.skills.find(value => value.name === name)!
+  rmSync(join(dirname(skill.path), 'references', guide))
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing editing method guide ' + name)
 })
 
 it('rejects a shared transcription skill without its packaged script', async () => {

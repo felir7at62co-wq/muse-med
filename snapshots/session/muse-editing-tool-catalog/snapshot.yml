@@ -9,4 +9,4 @@ header:
   class: muse-editing-tool-catalog
   pin: true
 workspace:
-  setup: muse-editing-skill
+  setup: muse-editing-trial-skills
