@@ -1,0 +1,6 @@
+# Exclude platform-specific shell tools from this skill-loading transcript.
+- id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true

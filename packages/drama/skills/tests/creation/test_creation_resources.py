@@ -24,6 +24,17 @@ FIXED_INSTALL_ROOT = re.compile(
 
 
 class CreationResourcesTests(unittest.TestCase):
+    def test_voice_references_use_library_assets_and_reviewed_original_card_changes(self):
+        text = (SKILLS / "tweet-drama-voice-continuity/SKILL.md").read_text(encoding="utf-8")
+        for requirement in ("音频类别", "reference_audio_asset_id", "reference_audio_sha256",
+                            "reference_audio_duration_seconds", "reference_audio=null",
+                            "不自动替换", "audio_preview", "audio_apply", "最终有序",
+                            "仍被引用", "删除预览", "expected_fingerprint",
+                            "audio/voice-references/manifest.json", "ask_user_question",
+                            "同一 fingerprint/key"):
+            self.assertIn(requirement, text)
+        self.assertNotIn("原卡 `save`", text)
+
     def test_project_bible_startup_reuses_answers_and_live_catalogue_choices(self):
         path = SKILLS / "tweet-drama-project-bible/SKILL.md"
         self.assertTrue(path.is_file())

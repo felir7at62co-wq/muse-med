@@ -2784,7 +2784,7 @@ web_search and web_fetch keep provider selection behind ctx.web so model-visible
 
 ### `jubian_asset`
 
-剧变（Jubian）主体设定与资产的查询、确认出演与删除。get/list/materials/generated_image 只读。**confirm_casting 有副作用**：它用 GET 动词改变了远端状态，会使该材质被本次制作采用。它同样需要 idempotency_key，且不要重试。**remove 会不可恢复地删除一个父资产**（`DELETE /aigc/asset/removeAsset/{id}`，带 scriptId 与 isParent=1）：资产与其媒体版本会被移除，引用它的镜头匹配与已生成视频不会因此重建。**如果只是想取消"正式选用"，不要用 remove** —— 那是一个不同的动作。**create_folder / move / rename 会改变控制台里的组织方式**（都在 `/aigc/*` 上真实写入）：create_folder 建一个类别库里的文件夹，同名同级已存在时直接报告、不发请求；move 把材质行移进文件夹，目标文件夹不在该库里时同样只报告；rename 改资产的显示名称。三者都需要 idempotency_key，都不改图片、不改 id、不换类别。**批量改名或搬家前必须先取得用户明确同意**：这些是用户已经在控制台里看到的名字和位置。**upload_reference 免费**：把本地参考图（jpg/jpeg/png/webp）按剧变前端自身的上传配置送到它的对象存储，返回 HTTPS material_url —— gpt-image-2 的参考图只接受 URL。两条边必须是 16 的倍数：已合规的文件原样上传，不合规时调用本机 ffmpeg 重编码（可用 DSH_JUBIAN_FFMPEG/FFMPEG_PATH 指定二进制）；本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。upload_audio 上传已裁好的 PCM WAV 声音参考，按真实样本验证不超过15秒；通常保留同角色2秒清晰独白。返回 audio materialUrl 和实测时长，不创建父资产或生成任务；加载 tweet-drama-voice-continuity 技能制作和复用声线样本。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
+剧变（Jubian）主体设定与资产的查询、确认出演与删除。get/list/materials/generated_image 只读。**confirm_casting 有副作用**：它用 GET 动词改变了远端状态，会使该材质被本次制作采用。它同样需要 idempotency_key，且不要重试。**remove 会不可恢复地删除一个父资产**（`DELETE /aigc/asset/removeAsset/{id}`，带 scriptId 与 isParent=1）：资产与其媒体版本会被移除，引用它的镜头匹配与已生成视频不会因此重建。**如果只是想取消"正式选用"，不要用 remove** —— 那是一个不同的动作。**create_folder / move / rename 会改变控制台里的组织方式**（都在 `/aigc/*` 上真实写入）：create_folder 建一个类别库里的文件夹，同名同级已存在时直接报告、不发请求；move 把材质行移进文件夹，目标文件夹不在该库里时同样只报告；rename 改资产的显示名称。三者都需要 idempotency_key，都不改图片、不改 id、不换类别。**批量改名或搬家前必须先取得用户明确同意**：这些是用户已经在控制台里看到的名字和位置。**upload_reference 免费**：把本地参考图（jpg/jpeg/png/webp）按剧变前端自身的上传配置送到它的对象存储，返回 HTTPS material_url —— gpt-image-2 的参考图只接受 URL。两条边必须是 16 的倍数：已合规的文件原样上传，不合规时调用本机 ffmpeg 重编码（可用 DSH_JUBIAN_FFMPEG/FFMPEG_PATH 指定二进制）；本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。upload_audio 上传已裁好的 PCM WAV 声音参考，按真实样本验证不超过15秒；通常保留同角色2秒清晰独白。返回 audio materialUrl 和实测时长，不创建父资产或生成任务。register 支持 asset_type=4，把已上传音频登记到当前剧本音频类别；audio_list/audio_get 核对真实身份和地址，缺失时长不冒充实测。音频删除用 audio_delete_preview 核对身份和全部当前角色/分镜引用；audio_delete_apply 需要 checked_audio_asset_id 和 fingerprint，仍被引用时拒绝。删除音频不可恢复，不取消生成任务或退费。加载 tweet-drama-voice-continuity 技能制作和复用声线样本。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
 
 ```json
 {
@@ -2792,7 +2792,7 @@ web_search and web_fetch keep provider selection behind ctx.web so model-visible
   "properties": {
     "method": {
       "type": "string",
-      "description": "get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；register=按指定类别新建一条资产，只引用已有图片、不生成新图（有副作用）；remove=删除一个父资产（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；upload_audio=上传短 PCM WAV 声音参考（免费）；create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名。",
+      "description": "get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；register=按指定类别登记已有图片或音频（有副作用、不生成）；remove=删除已检查的图片父资产，拒绝音频（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；upload_audio=上传短 PCM WAV 声音参考（免费）；create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名；audio_list/audio_get=只读当前剧本音频资产；audio_delete_preview=检查音频删除目标与引用；audio_delete_apply=删除已检查且无当前引用的音频资产（不可恢复）。",
       "enum": [
         "get",
         "list",
@@ -2805,7 +2805,11 @@ web_search and web_fetch keep provider selection behind ctx.web so model-visible
         "upload_audio",
         "create_folder",
         "move",
-        "rename"
+        "rename",
+        "audio_list",
+        "audio_get",
+        "audio_delete_preview",
+        "audio_delete_apply"
       ]
     },
     "script_id": {
@@ -2895,16 +2899,37 @@ web_search and web_fetch keep provider selection behind ctx.web so model-visible
     },
     "asset_type": {
       "type": "number",
-      "description": "image_generate 的资产类别号：1=角色，2=场景，3=道具。给了 asset_category 时可以不传（插件按类别推导）；两个都给时必须一致。场景与道具必须传 2/3——一律传 1 会把它们建进控制台的角色库。",
+      "description": "register 必填：1=角色，2=场景，3=道具，4=音频；音频使用 upload_audio 返回的地址。",
       "enum": [
         1,
         2,
-        3
+        3,
+        4
       ]
     },
     "asset_url": {
       "type": "string",
-      "description": "register 必填：这条新资产要引用的图片 HTTPS 地址（通常是原资产的 materialUrl）。register 按它新建资产，不生成新图。"
+      "description": "register 必填：已有图片或音频 HTTPS 地址；只登记，不生成新媒体。"
+    },
+    "project_dir": {
+      "type": "string",
+      "description": "prepare_video 必填、submit_video 可选：项目目录，必须含 project_config.json，且其 jubian_script_id 必须等于实时 scriptId。"
+    },
+    "preview_path": {
+      "type": "string",
+      "description": "submit_video 必填：prepare_video 返回的 preview_path，不要猜测或手写文件名。"
+    },
+    "checked_audio_asset_id": {
+      "type": "integer",
+      "description": "audio_delete_apply 必填：已核对预览名称、URL、引用和用户删除范围的精确音频资产 ID。"
+    },
+    "delete_reason": {
+      "type": "string",
+      "description": "audio_delete_preview 必填：删除该音频的具体原因。"
+    },
+    "authorization_basis": {
+      "type": "string",
+      "description": "audio_delete_preview 必填：用户对该音频删除范围的授权。"
     }
   },
   "required": [
@@ -3330,7 +3355,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
   "properties": {
     "method": {
       "type": "string",
-      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=存为不生成；edit_preview/edit_batch_preview=原位修改单卡/多卡预览；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）。",
+      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=存为不生成；edit_preview/edit_batch_preview=原位修改单卡/多卡预览；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
       "enum": [
         "list",
         "get",
@@ -3347,7 +3372,9 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
         "submit_video_batch",
         "erase_subtitle",
         "delete_preview",
-        "delete_apply"
+        "delete_apply",
+        "audio_preview",
+        "audio_apply"
       ]
     },
     "storyboard_id": {
@@ -3441,6 +3468,60 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
     "idempotency_key": {
       "type": "string",
       "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。"
+    },
+    "prompt": {
+      "type": "string",
+      "description": "audio_preview 必填：完整新提示词，原图片素材标记及其顺序必须保留，声音标记与 audio_references 一一对应。"
+    },
+    "audio_references": {
+      "type": "array",
+      "description": "audio_preview 必填：最终完整、有序的音频引用列表；[] 明确移除全部声音引用，保留原图片。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "materialType": {
+            "type": "string",
+            "enum": [
+              "audio"
+            ]
+          },
+          "materialKey": {
+            "type": "string"
+          },
+          "materialUrl": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "materialName": {
+            "type": "string"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "description": "从 1 开始的音频组内连续顺序。"
+          },
+          "audioDuration": {
+            "type": "number",
+            "description": "实测秒数，大于0且不超过15；未知时省略，不按文件名猜测。"
+          },
+          "audio_asset_id": {
+            "type": "integer",
+            "description": "已登记的真实音频资产 ID；工具复验同项目、类别4与URL，字段不伪造图片父资产 ID。"
+          }
+        },
+        "required": [
+          "materialType",
+          "materialKey",
+          "materialUrl",
+          "sortOrder"
+        ]
+      }
+    },
+    "expected_fingerprint": {
+      "type": "string",
+      "description": "audio_apply 必填：已检查的 audio_preview fingerprint；idempotency_key 必须相同。"
     },
     "changes": {
       "type": "object",
@@ -3992,6 +4073,7 @@ Read the authoritative project bible, preview a confirmed change and its downstr
               },
               "voice_profile": {
                 "type": "object",
+                "description": "Partial updates preserve approved guidance. Supply description when first creating a voice profile.",
                 "additionalProperties": false,
                 "properties": {
                   "speaker_id": {
@@ -4002,13 +4084,29 @@ Read the authoritative project bible, preview a confirmed change and its downstr
                     "description": "Approved gender/age, timbre, speaking style and accent to reuse in each package."
                   },
                   "reference_audio": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Approved reference path, ID or URL. Set null to remove the current reference and its asset ID, hash and duration; voice guidance remains."
+                  },
+                  "reference_audio_asset_id": {
+                    "type": "integer",
+                    "description": "Actual approved audio-category asset ID. Set together with its HTTPS reference_audio URL, measured SHA-256 and duration."
+                  },
+                  "reference_audio_sha256": {
                     "type": "string",
-                    "description": "Optional user-approved reference path or remote ID; records intent without claiming provider support."
+                    "description": "64 hexadecimal SHA-256 characters of the approved audio bytes."
+                  },
+                  "reference_audio_duration_seconds": {
+                    "type": "number",
+                    "description": "Measured reference duration in seconds, greater than zero and at most 15; the usual sample is 2 seconds."
                   }
-                },
-                "required": [
-                  "description"
-                ]
+                }
               }
             },
             "required": [

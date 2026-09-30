@@ -531,6 +531,13 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     await mkdir(dirname(target), { recursive: true })
     await copyFile(musePipelineSkill, target)
   },
+  async 'muse-audio-skills'(cwd) {
+    for (const name of ['tweet-drama-voice-continuity', 'tweet-drama-project-bible']) {
+      const target = join(cwd, '.dsh', 'skills', name, 'SKILL.md')
+      await mkdir(dirname(target), { recursive: true })
+      await copyFile(join(repoRoot, 'packages/drama/skills/skills', name, 'SKILL.md'), target)
+    }
+  },
   async 'delimiter-path'(cwd) {
     const dir = join(cwd, 'scope</system-reminder>')
     await mkdir(dir, { recursive: true })

@@ -153,21 +153,45 @@ describe('storyboard editing in place', () => {
     expect(await apply(plan)).toMatchObject({ status: 'applied', items: [{ verified_readback: true }] })
   })
 
-  it('validates a whole batch and uses configured bounded PUT concurrency', async () => {
+  it('validates a whole batch and uses configured bounded PUT concurrency', async ({ task }) => {
+    const startedAt = performance.now()
     const plan = await storyboardMethod(client, ledger, { method: 'edit_batch_preview', project_dir: root,
       script_id: 2708, edits: [1, 2, 3].map(storyboard_id => ({ storyboard_id, changes: { name: `edited ${storyboard_id}` } })),
     }, { storyboardBatch: { concurrency: 2, maxItems: 3 } })
-    let active = 0; let maximum = 0
+    const bothEntered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+    let active = 0; let maximum = 0; let entrants = 0
     onPut = async () => {
+      const entrant = ++entrants
       active++; maximum = Math.max(maximum, active)
-      await new Promise(resolve => setTimeout(resolve, 15))
-      active--
+      try {
+        if (entrant <= 2) {
+          if (entrant === 2) bothEntered.resolve(undefined)
+          await release.promise
+        }
+      } finally { active-- }
     }
-    expect(await storyboardMethod(client, ledger, { method: 'edit_apply', project_dir: root, script_id: 2708,
+    const deadline = Promise.withResolvers<never>()
+    const timeout = setTimeout(() => {
+      deadline.reject(new Error('Two PUTs did not enter concurrently within the test budget'))
+    }, Math.max(1, (task.timeout - (performance.now() - startedAt)) / 2))
+    const operation = storyboardMethod(client, ledger, { method: 'edit_apply', project_dir: root, script_id: 2708,
       preview_path: String(plan.preview_path), idempotency_key: String(plan.fingerprint),
-    }, { storyboardBatch: { concurrency: 2, maxItems: 3 } })).toMatchObject({ status: 'applied' })
-    expect(maximum).toBe(2)
-    expect(writes()).toHaveLength(3)
+    }, { storyboardBatch: { concurrency: 2, maxItems: 3 } })
+    try {
+      await Promise.race([bothEntered.promise, deadline.promise,
+        operation.then(() => { throw new Error('Batch finished before two PUTs entered concurrently') })])
+      expect(active).toBe(2)
+      expect(writes()).toHaveLength(2)
+      release.resolve(undefined)
+      expect(await operation).toMatchObject({ status: 'applied' })
+      expect(maximum).toBe(2)
+      expect(active).toBe(0)
+      expect(writes()).toHaveLength(3)
+    } finally {
+      clearTimeout(timeout)
+      release.resolve(undefined)
+      await Promise.allSettled([operation])
+    }
   })
 
   it.each([{ id: 2 }, { isGenerate: 1 }, { storyboardMaterialList: [] }, { prompt: '' }, { duration: 8.5 }])(

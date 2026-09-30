@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 94503b6b13de09f7
 /tool-schema-catalog/tool-package-map:
-  en: 51ea349de1f24715
-  zh: e250fd83c3bb5dbd
+  en: 7aaa853c2b292536
+  zh: 371fe3642f7c070c
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -321,8 +321,11 @@
   en: 0db5c1f1690ce921
   zh: 0db5c1f1690ce921
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-asset:
-  en: 9582b2bde410fcc5
-  zh: c51d5309e266329e
+  en: cd12297acc614afc
+  zh: f3c5056b1e078c2a
+/tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-budget:
+  en: 15875a2041f74ab2
+  zh: 550d1f093a85dd32
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-catalog:
   en: 3b9a24d0dc27c2c0
   zh: bed91509e287235d

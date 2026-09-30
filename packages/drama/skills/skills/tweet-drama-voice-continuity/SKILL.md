@@ -1,6 +1,6 @@
 ---
 name: tweet-drama-voice-continuity
-description: 角色跨镜头音色变化、串台词、没有声线样本，或剧变分镜添加音频参考后准备失败时使用。
+description: Use when 角色跨镜头音色变化、串台词、缺少声线样本，或需要复用、绑定、替换、删除剧变音频资产与原卡参考。
 ---
 
 # 角色声线参考与复用
@@ -9,7 +9,9 @@ description: 角色跨镜头音色变化、串台词、没有声线样本，或�
 
 ## 建立第一个样本
 
-先复用该角色已有认可的声音参考。缺少时，从第一版已生成视频里挑该角色清晰、无其他人抢话、无 BGM 干扰的真实独白，默认保存 **2 秒**，不是保存时间只留两秒钟。没有已生成版本时，把建立首个声线作为独立初始生产范围：用项目选定 SD 模型制作真实镜头包，核查该范围的内容、全部 preview 和费用后提交，再从成片提取；不额外开独立 TTS 服务，不为了试音新建重复分镜。所有参考最长 **15 秒**，不能把全包视频时长当作音频参考时长。
+先读项目圣经的当前声线，再用 `jubian_asset audio_list(script_id)` 分页查询同项目的音频类别（asset_type=4），用 `audio_get(script_id,asset_id)` 回读真实归属和 URL。同名不证明是同一说话人；核对声线清单、来源与实际听音后复用认可版本，不能把其他角色或动物的声音套给这个角色。已有服装版本继续使用同一 character_id 的当前声线；新音频先记为候选，**不自动替换**已认可的默认版本。
+
+缺少认可样本时，从第一版已生成视频里挑该角色清晰、无其他人抢话、无 BGM 干扰的真实独白，默认保存 **2 秒**，不是保存时间只留两秒钟。没有已生成版本时，把建立首个声线作为独立初始生产范围：用项目选定 SD 模型制作真实镜头包，核查该范围的内容、全部 preview 和费用，在用户已授权的范围内提交，再从成片提取；不额外开独立 TTS 服务，不为了试音新建重复分镜。其余包等声线参考齐备后按总流程整批检查并行提交。所有参考最长 **15 秒**，不能把全包视频时长当作音频参考时长。
 
 运行随技能脚本，start 必须来自已听过的单角色发声区间：
 
@@ -17,14 +19,34 @@ description: 角色跨镜头音色变化、串台词、没有声线样本，或�
 python -B <本技能目录>/scripts/extract_voice_reference.py --source <首次清晰发声的原视频或音频> --output <项目>/audio/voice-references/<character_id>-v1.wav --start-seconds <实测开始秒>
 ```
 
-非 WAV 输入使用 Muse 随包 FFmpeg；WAV 输入直接提取 PCM。脚本默认裁 2 秒、拒绝超出真实音轨或超过 15 秒，不补静音，不覆盖既有声线。返回 source_sha256、sha256、实测 duration_seconds；speaker_verified=false 表示说话人仍需实际听音核对，不能仅凭文件名认定角色。运行环境不能听音时，用 ask_user 让用户/组员确认这个样本。试听不合格时选其他真实区间、保存新版本，保留旧版本和来源。
+非 WAV 输入使用 Muse 随包 FFmpeg；WAV 输入直接提取 PCM。脚本默认裁 2 秒、拒绝超出真实音轨或超过 15 秒，不补静音，不覆盖既有声线。返回 source_sha256、sha256、实测 duration_seconds；speaker_verified=false 表示说话人仍需实际听音核对，不能仅凭文件名认定角色。运行环境不能听音时，用 ask_user_question 让用户或其授权组员确认这个样本。试听不合格时选其他真实区间、保存新版本，保留旧版本和来源。
 
-## 上传与绑定原卡
+## 登记音频资产与认可版本
 
-用 `jubian_asset method=upload_audio audio_path=<已核对的短 WAV>`。上传免费，返回 materialUrl、SHA-256 和实测 audioDuration；复用已有 URL 时不重复上传。将角色、来源镜头/任务 ID、截取区间、文件哈希及远端 URL 记入项目声线清单，`drama_project` 的 characters[].voice_profile.reference_audio 保存该角色当前选定 URL，description 保持同一年龄、音色、口音与语气。
+用 `jubian_asset method=upload_audio audio_path=<已核对的短 WAV>`，读取返回的 materialUrl、SHA-256 和实测 audioDuration；已有 URL 则先检查已登记资产，避免重复上传、登记。用 `jubian_asset method=register script_id=<本项目ID> asset_type=4 asset_name=<角色声线版本名> asset_url=<上传返回URL> idempotency_key=<本次稳定登记key>` 入音频类别。登记和上传不提交视频生成；结果未知时沿用原 key 查账及 audio_list/audio_get，不换 key 重发。登记结果无法唯一定位时继续核对新资产，不猜 ID。
 
-读原 storyboard_id 的最新完整 body，在原卡素材列表保留全部已有图像，添加或更新同角色 `materialType="audio"` 的行：materialUrl 是上传 URL，materialKey 是稳定声线 key，fileName/materialName 是角色声线名，sortOrder 为音频组内顺序，audioDuration 来自实测。音频上传行没有图片父资产，不编造 materialAssetId、hsAssetId 或确认出演步骤。提示词明确写“周海生声音参照 @[周海生声线](voice-zhouhaisheng)”等角色与音频一一对应关系；一个 key 首次标记一次，后文复用名称。
+用 audio_get 回读实际 asset_id、项目、类别和 URL，将角色、版本、候选/认可状态、来源镜头/任务 ID、截取区间、实测时长、文件哈希及远端 ID/URL 记入 `<项目>/audio/voice-references/manifest.json` 的 samples 数组，字段为 character_id、version、status（candidate/approved/superseded/deleted）、asset_id、url、sha256、duration_seconds、source_task_id、source_path、start_seconds、source_sha256；缺少真实来源 ID 时省略，不能编造。总控读取旧清单后按角色与版本合并保存，子代理返回记录，不并发覆盖。清单保存候选和历史，当前默认仍以项目圣经为准，旧版本不因更换被删。
 
-在同一原卡 `save`，回读核对完整图像与音频清单、声音标记、模型和时长，再 `select_assets` 校正图像选源，最后 `prepare_video`。图片在前、音频在后，两组各自按 sortOrder 排列；SD2.0 最多 3 条音频参考，SD2.5 最多 10 条。工具保留已存音频，并在 fingerprint 中冻结 URL、key、名称和顺序。没有 audioDuration 的旧上传素材只能说时长未核实，先实际下载/试听/探测后决定，不能从远端文件名猜时长。
+父资产未提供实测时长时下载原音频并探测，不能猜测或套用视频包时长。首个样本试听确认后才通过 `drama_project preview/update` 更新当前角色的 voice_profile，保持原 description；四项 reference_audio、reference_audio_asset_id、reference_audio_sha256、reference_audio_duration_seconds 一起提交。新候选不得覆盖既有默认；替换须由用户或其授权组员明确认可从旧版换为指定新版，授权不明确时用 ask_user_question 确认，独立工作继续。写入 reason 并保留旧版本及来源；update 结果未知先 read 核对当前版本与四项引用，已落地就沿用，未落地再按真实修订重预览，不能盲重写。字段与版本规则见 [项目圣经技能](../tweet-drama-project-bible/SKILL.md)。
+
+## 预览并绑定原任务卡
+
+上传工具的 SHA-256 带 `sha256:` 前缀；先与提取脚本的摘要核对一致，写入项目圣经时保存去掉前缀的裸 64 位十六进制。
+
+用 `jubian_storyboard get` 读原 storyboard_id 的最新完整内容。若图像选源需要修正，先 select_assets 再读卡；随后用 `jubian_storyboard audio_preview` 提交 script_id、project_dir、storyboard_id、audio_references 与需要同步修改的完整 prompt。audio_references 是**最终有序**的全部音频行；添加或替换单个角色时保留其他已选音频，不只传新增那一行。每行使用 materialType="audio"、materialKey、materialUrl、fileName、音频组内从 1 递增的 sortOrder 与实测 audioDuration，并附已登记的 audio_asset_id。工具核对同项目音频资产和 URL，把自有 audio_asset_id 留在预览绑定记录中；不编造图片 materialAssetId、hsAssetId 或音频生成材质 ID。
+
+prompt 保留全部镜头正文和图片标记，明确写“周海生声音参照 @[周海生声线](voice-zhouhaisheng)”等说话人与音频对应关系。同一 key 首次标记一次，后文复用名称；图片标记在前、音频标记在后，各自顺序与素材对应。SD2.0 最多 3 条音频参考，SD2.5 最多 10 条。
+
+检查预览的 before/after、fingerprint、保留的图片、模型、时长与分集身份，再用 `audio_apply` 传同一项目/原卡、preview_path、expected_fingerprint=fingerprint、idempotency_key=fingerprint。工具在原卡写入并回读；发送前旧预览过期则重读重预览。发送结果未知时用同一 fingerprint/key 再调 audio_apply，工具只回读原卡；不能新预览换 key 再 PUT。回读核对音频及声音标记后重新 prepare_video，旧视频预览指纹不用于新内容。不要调用 save 猜测写入修改，也不重建卡。
 
 冻结失败先查具体字段和真实回读：不得默认摘掉声音、重建同名卡或提前付费生成部分包。修复原卡后重新 prepare；旧 fingerprint 不用于新内容。提交后必须回读 audioMaterials 的真实 audioUrl 与顺序；缺失或不符只能进入对账，不重投，不宣称已使用参考或音色已统一。参考齐备后，其余镜头包按原整批检查与并行提交流程继续。
+
+## 替换、解除引用与删除
+
+删除检查包括该音频资产全部媒体版本的 URL，不只看当前版本。删除期间不要并行修改相关引用；本地音频绑定与项目圣经写入会受删除锁阻止，其他写工具和剧变控制台不参与这些锁。
+
+替换当前声线先核对新版本并更新项目圣经，再对受影响的待生成原卡做 audio_preview/audio_apply；重新冻结受影响包。已生成结果保留原任务与费用记录，不能把改参考说成历史成片已经换声。
+
+删除只处理用户明确授权的本项目精确音频资产。先用 `audio_delete_preview` 提交 script_id、project_dir、asset_id、delete_reason、authorization_basis，核对实际 ID、名字、URL、项目和 references。工具会检查项目圣经当前角色声线与远端任务卡；**仍被引用**时拒绝删除。需要更换则先按上述步骤替换；仅解除当前声线时用 `drama_project` 的 reference_audio=null，经 preview/update 清除 URL、资产 ID、哈希、时长，保留声音描述。原卡移除音频用最终音频列表做 audio_preview/audio_apply，同时去掉相应声音标记；只有明确要移除全部音频时传 audio_references=[]。
+
+解除引用后重新做删除预览，逐项检查正确目标，再用 `audio_delete_apply` 传同一项目/asset_id、preview_path、checked_audio_asset_id=<已检查的精确ID>、idempotency_key=fingerprint。删除不可恢复，不用通用 remove 绕过检查；成功需真实回读确认资产已不存在。结果未知只查原操作及原 ID，不重新登记、改 ID 或换 key 重删。保留本地版本、来源与删除记录；删音频不会取消既有视频任务或退费。

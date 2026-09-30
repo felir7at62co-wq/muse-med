@@ -143,14 +143,17 @@ inherited process environment (read-only, highest)
 | `jubian_snatch` | `ids`、`new_claimable` | 在明确授权的 UTC 时间窗口内后台有限认领 |
 | `jubian_asset` | `get`、`list`、`materials`、`generated_image` | 只读，不产生费用 |
 | | `confirm_casting` | 用 `GET` 改变远端状态；需要 `idempotency_key` |
-| | `remove` | 不可恢复地删除一个父资产；需要 `idempotency_key` |
+| | `remove` | 不可恢复地删除已检查的图片父资产；音频必须使用专门的删除方法 |
 | | `upload_reference` | 免费且不创建任务；向提供方对象存储写入一个对象 |
 | | `upload_audio` | 免费且不创建任务；测量最长 15 秒的本地 PCM WAV 参考，再上传一个对象 |
+| | `register`, `audio_list`, `audio_get` | 按明确类别登记已上传媒体；音频类别为 4，读取限定项目的真实身份 |
+| | `audio_delete_preview`, `audio_delete_apply` | 检查授权音频及引用，再删除一次并回读验证 |
 | | `create_folder`、`move`、`rename` | 改变控制台里资产库的组织方式；各自需要 `idempotency_key` |
 | `jubian_organize` | `index` | 只读、免费；写一个本地索引文件 |
 | `jubian_model` | `preview`、`apply` | Preview 对远端只读；apply 以 `isGenerate=0` 保存用户批准的已有分镜设置 |
 | `jubian_storyboard` | `list`、`get`、`create`、`save` | List/get 只读；create/save 是免费写入，强制 `isGenerate=0`，包括调用方提供的创建请求体 |
 | | `edit_preview`、`edit_batch_preview`、`edit_apply` | 检查并原位保存已有卡片，保留 ID；不生成 |
+| | `audio_preview`, `audio_apply` | 在一张原卡上替换最终音频列表，保留图片与生成配置 |
 | | `delete_preview`、`delete_apply` | 检查精确授权目标后删除一次；执行前检查 Hook、过期拒绝与回读 |
 | | `select_assets` | 免费，强制 `isGenerate=0`；需要 `idempotency_key` |
 | | `prepare_video` | 远端只读、免费；只写一个本地 preview 文件 |
@@ -265,6 +268,10 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 项目和分集预览在 `excluded_invalid` 中报告异常卡片，只规划有效成员。缺少可用 `episodeId` 的孤立卡片不会阻塞其他分集。精确 `storyboards` 范围仍报告该卡片的错误；用 `edit_preview` 显式修复分集绑定或时长，再重新预览目标模型范围。工具不会把显示用 `episodeCount` 推断为远端分集 ID。
 
 ### 主体视频的分镜原生通道
+
+`jubian_asset register asset_type=4` 登记已上传声线。`audio_list`、`audio_get` 读取真实项目音频身份与 URL，不猜时长。登记通过完整列表对照项目、名称、URL；结果不唯一时不猜 ID。同 key 对账不再次登记。`jubian_storyboard audio_preview` 接受原卡 ID、项目绑定、完整提示词与最终有序 `audio_references`；`[]` 移除全部音频。可选 `audio_asset_id` 核对项目、类别与 URL，不编造提供方材质 ID。`audio_apply` 要求同一原卡 ID、已检查指纹与 key；发送一次 `isGenerate=0` PUT，保留图片、模型、时长、集数，再核对真实回读。未知写入只沿用原 key 对账。改动后重新 `prepare_video`。
+
+删除音频先做 `audio_delete_preview`，明确授权 ID 与原因。工具枚举资产媒体版本，检查当前项目圣经声线与全部项目分镜；检查不完整或不可读时拒绝删除。先移除或替换引用，再重新预览。`audio_delete_apply` 要求 `checked_audio_asset_id`，以预览指纹为 key；再次核对目标与引用，删除一次，再独立回读确认不存在。通用 `remove` 拒绝音频。删除至回读期间排除本地 audio_apply 与项目圣经写入。其他写工具和外部控制台不参与这些锁；删除期间避免并发修改引用。删除不取消历史任务或退费。`audioReferencePageSize`（默认 1000，范围 1–1000）、`audioReferencePageLimit`（默认 100，范围 1–100）限定完整扫描。
 
 统一角色声音时，加载[声线参考技能](../../drama/skills/skills/tweet-drama-voice-continuity/SKILL.md)。`jubian_asset upload_audio` 接受 `audio_path`，测量实际 16 位 PCM WAV 样本，在上传前拒绝超过 15 秒的文件，返回 `materialUrl`、`audioDuration`、SHA-256 和 `duration_verified: true`。它不创建资产或生成任务。`select_assets` 更新图片选源时保留已有上传音频；音频有独立组内顺序，无需图片父资产 ID。原生准备冻结这些参考，分别报告已保存时长与字节验证状态；未知远端时长保持未核实。提交的音频必须在子结果有序 `audioMaterials[].audioUrl` 中回读一致，才能认领任务。参考错误时修复并保存原分镜。
 

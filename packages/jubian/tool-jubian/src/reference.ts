@@ -242,5 +242,7 @@ export async function uploadAudioReferenceMethod(args: { audio_path?: string | u
   return { materialType: 'audio', materialUrl: signed.url, sortOrder: 1, audioDuration: audio.duration_seconds,
     duration_verified: true, bytes: bytes.byteLength, paidRequests: 0,
     sha256: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
-    next: '保存 URL 和 SHA-256 到对应角色 voice_profile；在原 storyboard_id 的素材列表加入 audio 行并显式写角色声音标记，再 save/get/prepare_video。不要改成图片父资产，不要重建卡。' }
+    next: '先按项目 audio_list/audio_get 核对已有声线，未登记时 register asset_type=4，再回读真实音频资产 ID。'
+      + '试听认可后把 URL、资产 ID、裸64位 SHA-256（去 sha256: 前缀）与实测时长一起写入角色 voice_profile。'
+      + '用原 storyboard_id 的 audio_preview/audio_apply 更新最终完整音频列表与声音标记，回读后重新 prepare_video。不要重建卡。' }
 }

@@ -215,13 +215,14 @@ describe('jubian_asset reads and the side-effecting GET', () => {
     // Captured from the workbench: a DELETE with no body, and `scriptId` plus
     // `isParent=1` in the query. The archived contract names neither parameter,
     // so a request built from the contract alone would be refused.
-    const { client, calls } = stubClient(() => null)
+    const { client, calls } = stubClient(() => ({ id: 113076, scriptId: 2708, assetType: 1 }))
     const result = await assetMethod(client, ledger, { method: 'remove', idempotency_key: 'k-rm',
       asset_id: 113076, script_id: 2708 })
-    expect(calls.length).toBe(1)
-    expect(calls[0]!.method).toBe('DELETE')
-    expect(calls[0]!.path.endsWith('/aigc/asset/removeAsset/113076?scriptId=2708&isParent=1')).toBe(true)
-    expect(calls[0]!.body).toBeUndefined()
+    expect(calls.length).toBe(2)
+    expect(calls[0]!.method).toBe('GET')
+    expect(calls[1]!.method).toBe('DELETE')
+    expect(calls[1]!.path.endsWith('/aigc/asset/removeAsset/113076?scriptId=2708&isParent=1')).toBe(true)
+    expect(calls[1]!.body).toBeUndefined()
     expect(result.outcome).toBe('accepted')
     expect((await ledger.find('k-rm'))?.method).toBe('asset_remove')
     expect(String(result.next)).toContain('不可恢复')

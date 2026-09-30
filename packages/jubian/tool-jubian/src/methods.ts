@@ -35,12 +35,23 @@ import type { ReferenceUploadDeps } from './reference.ts'
 import { need, requireKey, writeUnderLedger } from './write.ts'
 import { storyboardEditMethod } from './storyboard-edit.ts'
 import { storyboardDeleteMethod } from './storyboard-delete.ts'
+import { storyboardAudioMethod } from './storyboard-audio.ts'
+import { getAudioAsset, listAudioAssets } from './audio-asset-read.ts'
+import { audioAssetDeleteMethod, resolveAudioReferenceScanOptions } from './audio-asset-delete.ts'
+import type { AudioReferenceScanOptions } from './audio-asset-delete.ts'
+import { registerAudioAsset } from './audio-asset-register.ts'
 
 export { bodyHash, writeUnderLedger } from './write.ts'
 export type { WriteOutcome } from './write.ts'
 
 /** Arguments as the tool layer receives them, already schema-validated. */
 export interface MethodArgs {
+  /** Exact audio-library asset reviewed in the deletion preview. */
+  checked_audio_asset_id?: number
+  /** Final ordered native audio references on an existing storyboard, with optional verified audio_asset_id. */
+  audio_references?: Record<string, unknown>[]
+  /** Exact audio-edit preview fingerprint reviewed before applying. */
+  expected_fingerprint?: string
   /** IDs the agent reviewed in the frozen deletion preview. */
   checked_storyboard_ids?: number[]
   /** Why these exact cards are within the user's authorized cleanup. */
@@ -72,7 +83,7 @@ export interface MethodArgs {
   task_id?: number
   asset_name?: string
   asset_type?: number
-  /** `jubian_asset register`: the existing image URL the new asset will reference. */
+  /** `jubian_asset register`: the existing image or audio URL the new asset will reference. */
   asset_url?: string
   prompt?: string
   /** `image_generate_batch`: independently keyed image requests for one project. */
@@ -219,6 +230,8 @@ export interface ImageMethodOptions {
 
 /** The seams a method needs besides the provider transport, injectable for tests. */
 export interface MethodDeps {
+  /** Resolved complete-reference inspection limits before deleting audio assets. */
+  audioReferenceScan?: AudioReferenceScanOptions
   /** Local reference upload: transport, re-encode, clock and `ffmpeg` path. */
   reference?: ReferenceUploadDeps
   /** Paid image generation: the pinned catalogue row and the post-write readback budget. */
@@ -463,12 +476,16 @@ function preparedImageBatch(args: MethodArgs, naming: Naming, maxItems: number):
   })
 }
 
-function page(args: MethodArgs): string {
+function pageSelection(args: MethodArgs): { num: number; size: number } {
   const num = args.page_num ?? 1
   const size = args.page_size ?? 20
   if (!Number.isSafeInteger(num) || num < 1 || !Number.isSafeInteger(size) || size < 1 || size > 1000) {
-    throw new JubianError('CONTRACT_CHANGED')
+    throw new JubianError('INVALID_ARGUMENT', 'page_num must be a positive integer and page_size must be 1..1000')
   }
+  return { num, size }
+}
+function page(args: MethodArgs): string {
+  const { num, size } = pageSelection(args)
   return `pageNum=${num}&pageSize=${size}`
 }
 
@@ -534,6 +551,16 @@ Promise<{ asset_id: number; asset_type: number | null }[]> {
 export async function assetMethod(client: JubianClient, ledger: JubianLedger,
   args: MethodArgs, deps: MethodDeps = {}): Promise<Record<string, unknown>> {
   switch (args.method) {
+    case 'audio_get':
+      return { asset: await getAudioAsset(client, positiveInteger(need(args.script_id)), positiveInteger(need(args.asset_id))) }
+    case 'audio_list': {
+      const { num, size } = pageSelection(args)
+      return { ...await listAudioAssets(client, { script_id: positiveInteger(need(args.script_id)),
+        page_num: num, page_size: size,
+        ...(args.asset_name === undefined ? {} : { asset_name: args.asset_name }) }) }
+    }
+    case 'audio_delete_preview': case 'audio_delete_apply':
+      return audioAssetDeleteMethod(client, ledger, args, deps.audioReferenceScan ?? resolveAudioReferenceScanOptions())
     case 'get': {
       const result = await client.request({ method: 'GET', path: `/aigc/asset/${need(args.asset_id)}` })
       return { asset: readAssetPage(result.data) }
@@ -563,9 +590,21 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
       return { ...result }
     }
     case 'remove': {
-      requireKey(args.idempotency_key)
-      const assetId = need(args.asset_id)
-      const scriptId = need(args.script_id)
+      const key = requireKey(args.idempotency_key)
+      const assetId = positiveInteger(need(args.asset_id))
+      const scriptId = positiveInteger(need(args.script_id))
+      if (await ledger.find(key) === undefined) {
+        const { data } = await client.request({ method: 'GET', path: `/aigc/asset/${assetId}` })
+        const inspected = readAssetPage(data)
+        if (inspected.asset_type === 4) {
+          throw new JubianError('INVALID_ARGUMENT', '音频删除必须先 audio_delete_preview，再 audio_delete_apply 核对身份与引用')
+        }
+        if (!data || typeof data !== 'object' || Array.isArray(data)
+          || inspected.asset_id !== assetId || positiveInteger((data as Record<string, unknown>).scriptId) !== scriptId
+          || ![1, 2, 3].includes(inspected.asset_type ?? 0)) {
+          throw new JubianError('CONTRACT_CHANGED', 'Asset removal identity, project or category mismatch')
+        }
+      }
       // Captured from the workbench: a DELETE with no body, and two query
       // parameters the contract does not mention. `isParent=1` scopes the removal
       // to the parent asset, which is what removing a subject-setting entry is.
@@ -582,10 +621,13 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
       const assetName = need(args.asset_name)
       const assetType = need(args.asset_type)
       const assetUrl = need(args.asset_url)
-      if (assetType !== 1 && assetType !== 2 && assetType !== 3) {
-        throw new JubianError('INVALID_ARGUMENT', 'asset_type 必须是 1（角色）、2（场景）或 3（道具）')
+      if (![1, 2, 3, 4].includes(assetType)) {
+        throw new JubianError('INVALID_ARGUMENT', 'asset_type 必须是 1（角色）、2（场景）、3（道具）或 4（音频）')
       }
-      // The provider's own upload-register branch: an existing image URL plus
+      if (assetType === 4) return registerAudioAsset(client, ledger, {
+        script_id: positiveInteger(scriptId), asset_name: assetName, asset_url: assetUrl, idempotency_key: args.idempotency_key,
+      }, deps.audioReferenceScan ?? resolveAudioReferenceScanOptions())
+      // The provider's own upload-register branch: an existing media URL plus
       // `isLocal`, and deliberately no modelConfig and no isGenerate, which is
       // what keeps this off the paid generation path. The captured request and
       // its reasoning are in the project's `_probe/asset-category-fix-plan.md`.
@@ -919,6 +961,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
   args: MethodArgs, deps: MethodDeps = {}): Promise<Record<string, unknown>> {
   const storyboardId = (): number => need(args.storyboard_id)
   switch (args.method) {
+    case 'audio_preview': case 'audio_apply':
+      return storyboardAudioMethod(client, ledger, args)
     case 'delete_preview':
     case 'delete_apply':
       return storyboardDeleteMethod(client, ledger, args, deps.storyboardBatch ?? resolveStoryboardBatchOptions())

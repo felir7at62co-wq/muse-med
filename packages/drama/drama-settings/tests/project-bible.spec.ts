@@ -195,3 +195,108 @@ it('preserves character identity and approved voice guidance through later packa
   await expect(previewProjectBible(ctx.settings, home, { characters: [{ character_id: 'lead-2', name: '阿晚' }] }, '歧义称呼'))
     .rejects.toThrow('ambiguous')
 })
+
+it('stores a measured remote voice asset on the stable character through costume changes', async () => {
+  const { ctx, home } = await bench()
+  const voice = { description: '青年女性，清亮温柔，普通话',
+    reference_audio: 'https://assets.example/su-wan-v1.wav', reference_audio_asset_id: 142686,
+    reference_audio_sha256: 'a'.repeat(64), reference_audio_duration_seconds: 2.01 }
+  const changes = { characters: [{ character_id: 'lead-1', name: '苏晚', asset_id: 12, voice_profile: voice }] }
+  const initial = await previewProjectBible(ctx.settings, home, changes, '认可第一版声线')
+  await updateProjectBible(ctx.settings, home, changes, '认可第一版声线', initial.expected_revision, initial.preview_fingerprint)
+  const edit = { characters: [{ character_id: 'lead-1', asset_id: 18 }] }
+  const preview = await previewProjectBible(ctx.settings, home, edit, '更换服装资产')
+  const updated = await updateProjectBible(ctx.settings, home, edit, '更换服装资产', preview.expected_revision, preview.preview_fingerprint)
+  expect(updated.config).toMatchObject({ project_bible: { characters: [{ character_id: 'lead-1', asset_id: 18,
+    voice_profile: voice }] } })
+  expect(await readFile(join(home, 'project-bible.md'), 'utf8')).toContain('reference_audio_asset_id')
+})
+
+it('clears a current voice asset explicitly while preserving character and voice guidance', async () => {
+  const { ctx, home } = await bench()
+  const changes = { characters: [{ character_id: 'lead-1', name: '苏晚', asset_id: 12,
+    voice_profile: { description: '清亮温柔', speaker_id: 'su-wan', reference_audio: 'https://assets.example/voice.wav',
+      reference_audio_asset_id: 142686, reference_audio_sha256: 'a'.repeat(64), reference_audio_duration_seconds: 2 } }] }
+  const initial = await previewProjectBible(ctx.settings, home, changes, '认可声线')
+  await updateProjectBible(ctx.settings, home, changes, '认可声线', initial.expected_revision, initial.preview_fingerprint)
+  const clear = { characters: [{ character_id: 'lead-1', voice_profile: { reference_audio: null } }] }
+  const preview = await previewProjectBible(ctx.settings, home, clear, '删除前解除角色声线引用')
+  expect(preview.affected_stages).toContain('video_tasks')
+  const updated = await updateProjectBible(ctx.settings, home, clear, '删除前解除角色声线引用',
+    preview.expected_revision, preview.preview_fingerprint)
+  expect(updated.config).toMatchObject({ project_bible: { characters: [{ character_id: 'lead-1', name: '苏晚', asset_id: 12,
+    voice_profile: { description: '清亮温柔', speaker_id: 'su-wan' } }] } })
+  const contents = await readFile(join(home, 'project_config.json'), 'utf8')
+  for (const key of ['reference_audio', 'reference_audio_asset_id', 'reference_audio_sha256', 'reference_audio_duration_seconds']) {
+    expect(contents).not.toContain(`"${key}"`)
+  }
+})
+
+it('rejects malformed voice asset identifiers, hashes and reference durations before persistence', async () => {
+  const { ctx, home } = await bench()
+  for (const field of [{ reference_audio_asset_id: 0 }, { reference_audio_asset_id: '142686' },
+    { reference_audio_sha256: 'not-a-sha256' }, { reference_audio_duration_seconds: 0 },
+    { reference_audio_duration_seconds: 15.01 }]) {
+    await expect(previewProjectBible(ctx.settings, home, { characters: [{ character_id: 'lead-1', name: '苏晚',
+      voice_profile: { description: '清亮温柔', ...field } }] }, '绑定声线')).rejects.toThrow('voice_profile.reference_audio')
+  }
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('requires a measured HTTPS reference when binding a remote audio asset', async () => {
+  const { ctx, home } = await bench()
+  for (const field of [{ reference_audio: 'audio/su-wan.wav' }, { reference_audio: 'https://assets.example/voice.wav' },
+    { reference_audio: 'https://assets.example/voice.wav', reference_audio_sha256: 'a'.repeat(64) }]) {
+    await expect(previewProjectBible(ctx.settings, home, { characters: [{ character_id: 'lead-1', name: '苏晚',
+      voice_profile: { description: '清亮温柔', reference_audio_asset_id: 142686, ...field } }] }, '绑定声线'))
+      .rejects.toThrow('voice_profile.reference_audio')
+  }
+})
+
+it('refuses to reuse old measurements when a bound voice URL changes', async () => {
+  const { ctx, home } = await bench()
+  const changes = { characters: [{ character_id: 'lead-1', name: '苏晚', voice_profile: { description: '清亮温柔',
+    reference_audio: 'https://assets.example/v1.wav', reference_audio_asset_id: 142686,
+    reference_audio_sha256: 'a'.repeat(64), reference_audio_duration_seconds: 2 } }] }
+  const initial = await previewProjectBible(ctx.settings, home, changes, '认可声线')
+  await updateProjectBible(ctx.settings, home, changes, '认可声线', initial.expected_revision, initial.preview_fingerprint)
+  await expect(previewProjectBible(ctx.settings, home, { characters: [{ character_id: 'lead-1',
+    voice_profile: { reference_audio: 'https://assets.example/v2.wav' } }] }, '换参考'))
+    .rejects.toThrow('reference_audio_asset_id')
+})
+
+it('accepts a remote voice binding and explicit reference removal through the loaded project tool', async () => {
+  const { ctx, home } = await bench()
+  const execute = async (args: object) => {
+    const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('voice-bible'),
+      arguments: { project_dir: home, ...args }, signal: new AbortController().signal })
+    expect(outcome.isError).toBe(false)
+    const rendered = outcome.content[0]
+    if (rendered?.type !== 'text') throw new Error('Expected project bible JSON')
+    return JSON.parse(rendered.text) as { expected_revision: string; preview_fingerprint: string; config: object }
+  }
+  const changes = { characters: [{ character_id: 'lead-1', name: '苏晚', voice_profile: { description: '清亮温柔',
+    reference_audio: 'https://assets.example/voice.wav', reference_audio_asset_id: 142686,
+    reference_audio_sha256: 'a'.repeat(64), reference_audio_duration_seconds: 15 } }] }
+  const bind = await execute({ action: 'preview', changes, reason: '认可声线' })
+  await execute({ action: 'update', changes, reason: '认可声线', expected_revision: bind.expected_revision,
+    preview_fingerprint: bind.preview_fingerprint })
+  const clear = { characters: [{ character_id: 'lead-1', voice_profile: { reference_audio: null } }] }
+  const preview = await execute({ action: 'preview', changes: clear, reason: '解除音频引用' })
+  const updated = await execute({ action: 'update', changes: clear, reason: '解除音频引用',
+    expected_revision: preview.expected_revision, preview_fingerprint: preview.preview_fingerprint })
+  expect(updated.config).toMatchObject({ project_bible: { characters: [{ voice_profile: { description: '清亮温柔' } }] } })
+  expect(JSON.stringify(updated.config)).not.toContain('reference_audio')
+})
+
+it('refuses malformed persisted voice metadata on read', async () => {
+  const { ctx, home } = await bench()
+  const changes = { characters: [{ character_id: 'lead-1', name: '苏晚', voice_profile: { description: '清亮温柔' } }] }
+  const initial = await previewProjectBible(ctx.settings, home, changes, '认可声线')
+  const saved = await updateProjectBible(ctx.settings, home, changes, '认可声线', initial.expected_revision, initial.preview_fingerprint)
+  const invalid = { ...saved.config, project_bible: { ...saved.config.project_bible as object,
+    characters: [{ character_id: 'lead-1', name: '苏晚', voice_profile: { description: '清亮温柔',
+      reference_audio_duration_seconds: 16 } }] } }
+  await writeFile(join(home, 'project_config.json'), JSON.stringify(invalid))
+  await expect(readProjectBible(ctx.settings, home)).rejects.toThrow('reference_audio_duration_seconds')
+})

@@ -46,10 +46,13 @@ export const PROJECT_BIBLE_CHANGES = {
     type: 'object', additionalProperties: false, properties: {
       character_id: { type: 'string', required: true }, name: { type: 'string' },
       aliases: { type: 'array', items: { type: 'string' } }, asset_id: { type: 'integer' },
-      voice_profile: { type: 'object', additionalProperties: false, properties: {
-        speaker_id: { type: 'string' }, description: { type: 'string', required: true,
+      voice_profile: { type: 'object', additionalProperties: false, description: 'Partial updates preserve approved guidance. Supply description when first creating a voice profile.', properties: {
+        speaker_id: { type: 'string' }, description: { type: 'string',
           description: 'Approved gender/age, timbre, speaking style and accent to reuse in each package.' },
-        reference_audio: { type: 'string', description: 'Optional user-approved reference path or remote ID; records intent without claiming provider support.' },
+        reference_audio: { oneOf: [{ type: 'string' }, { type: 'null' }], description: 'Approved reference path, ID or URL. Set null to remove the current reference and its asset ID, hash and duration; voice guidance remains.' },
+        reference_audio_asset_id: { type: 'integer', description: 'Actual approved audio-category asset ID. Set together with its HTTPS reference_audio URL, measured SHA-256 and duration.' },
+        reference_audio_sha256: { type: 'string', description: '64 hexadecimal SHA-256 characters of the approved audio bytes.' },
+        reference_audio_duration_seconds: { type: 'number', description: 'Measured reference duration in seconds, greater than zero and at most 15; the usual sample is 2 seconds.' },
       } },
     },
   } },
@@ -118,6 +121,56 @@ function positive(value: JsonValue | undefined, label: string): number {
 function text(value: JsonValue | undefined, label: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} must be nonempty text.`)
   return value
+}
+
+/** Reference fields are replaced or removed together for an approved remote voice asset. */
+const VOICE_REFERENCE_FIELDS = ['reference_audio', 'reference_audio_asset_id', 'reference_audio_sha256', 'reference_audio_duration_seconds'] as const
+
+/** Reject malformed audio metadata while preserving older unbound path/ID references. */
+function validateVoice(voice: JsonObject): void {
+  text(voice.description, 'voice_profile.description')
+  for (const key of ['speaker_id', 'reference_audio']) if (voice[key] !== undefined) text(voice[key], `voice_profile.${key}`)
+  if (voice.reference_audio_sha256 !== undefined &&
+    (typeof voice.reference_audio_sha256 !== 'string' || !/^[a-fA-F0-9]{64}$/.test(voice.reference_audio_sha256))) {
+    throw new Error('voice_profile.reference_audio_sha256 must contain 64 hexadecimal characters.')
+  }
+  if (voice.reference_audio_duration_seconds !== undefined &&
+    (typeof voice.reference_audio_duration_seconds !== 'number' || !Number.isFinite(voice.reference_audio_duration_seconds) ||
+      voice.reference_audio_duration_seconds <= 0 || voice.reference_audio_duration_seconds > 15)) {
+    throw new Error('voice_profile.reference_audio_duration_seconds must be greater than zero and at most 15.')
+  }
+  if (voice.reference_audio_asset_id !== undefined) {
+    positive(voice.reference_audio_asset_id, 'voice_profile.reference_audio_asset_id')
+    let url: URL
+    try { url = new URL(text(voice.reference_audio, 'voice_profile.reference_audio')) } catch (error) {
+      throw new Error('voice_profile.reference_audio must be the approved audio asset HTTPS URL.', { cause: error })
+    }
+    if (url.protocol !== 'https:' || url.username || url.password) throw new Error('voice_profile.reference_audio must be the approved audio asset HTTPS URL.')
+    if (voice.reference_audio_sha256 === undefined || voice.reference_audio_duration_seconds === undefined) {
+      throw new Error('voice_profile.reference_audio_asset_id requires measured reference_audio_sha256 and reference_audio_duration_seconds.')
+    }
+  }
+}
+
+/** Merge reviewed voice changes without associating a new URL with an old asset measurement. */
+function mergeVoice(previous: JsonValue | undefined, value: JsonValue): JsonObject {
+  const existing = previous === undefined ? {} : object(previous, 'voice_profile')
+  const added = object(value, 'voice_profile'), voice = { ...existing, ...added }
+  if (added.reference_audio === null) {
+    if (VOICE_REFERENCE_FIELDS.slice(1).some(key => added[key] !== undefined)) {
+      throw new Error('voice_profile.reference_audio=null cannot be combined with an audio asset binding.')
+    }
+    delete voice.reference_audio
+    delete voice.reference_audio_asset_id
+    delete voice.reference_audio_sha256
+    delete voice.reference_audio_duration_seconds
+  } else if (voice.reference_audio_asset_id !== undefined && VOICE_REFERENCE_FIELDS.some(key =>
+    added[key] !== undefined && added[key] !== existing[key])) {
+    for (const key of VOICE_REFERENCE_FIELDS) {
+      if (added[key] === undefined) throw new Error(`Replacing voice_profile.reference_audio requires ${VOICE_REFERENCE_FIELDS.join(', ')} together; missing ${key}.`)
+    }
+  }
+  return voice
 }
 
 /** Printable JSON value with a label for an omitted optional field. */
@@ -215,9 +268,7 @@ function validateBible(bible: JsonObject): void {
       names.set(label, id)
     }
     if (row.voice_profile !== undefined) {
-      const voice = object(row.voice_profile, 'voice_profile')
-      text(voice.description, 'voice_profile.description')
-      for (const key of ['speaker_id', 'reference_audio']) if (voice[key] !== undefined) text(voice[key], `voice_profile.${key}`)
+      validateVoice(object(row.voice_profile, 'voice_profile'))
     }
   }
   const tasks = new Set<string>()
@@ -296,13 +347,14 @@ function candidate(config: JsonObject, initial: JsonObject, changes: JsonObject,
       const characters = records(previous.characters, 'characters')
       for (const row of records(value, 'characters')) {
         const index = characters.findIndex(existing => existing.character_id === row.character_id)
-        if (index < 0) characters.push(row)
+        if (index < 0) characters.push({ ...row, ...(row.voice_profile === undefined ? {} : {
+          voice_profile: mergeVoice(undefined, row.voice_profile),
+        }) })
         else {
           const existing = characters[index]
           if (!existing) throw new Error('Character record is unavailable.')
           characters[index] = { ...existing, ...row, ...(row.voice_profile === undefined ? {} : {
-            voice_profile: { ...(existing.voice_profile === undefined ? {} : object(existing.voice_profile, 'voice_profile')),
-              ...object(row.voice_profile, 'voice_profile') },
+            voice_profile: mergeVoice(existing.voice_profile, row.voice_profile),
           }) }
         }
       }

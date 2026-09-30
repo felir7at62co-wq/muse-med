@@ -1,0 +1,10 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`registers, binds, detaches and deletes audio through the original card and inspected tools > unreviewed audio deletion 1`] = `
+[
+  {
+    "text": "Error: 删除音频检查：先 audio_delete_preview，核对项目、资产 ID、名称、音频地址与角色及分镜引用；确认是用户要求删除的素材，再传 checked_audio_asset_id 和原预览 fingerprint。",
+    "type": "text",
+  },
+]
+`;
