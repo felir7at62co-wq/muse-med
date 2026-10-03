@@ -40,7 +40,7 @@ describe('desktop product identity', () => {
       getVersion: () => '0.1.7-rc.8',
       getAppPath: () => fileURLToPath(new URL('..', import.meta.url)),
     }
-    expect(desktopProductVersion(application)).toBe('1.0.0')
+    expect(desktopProductVersion(application)).toBe('1.0.1')
     expect(desktopProductVersion({ ...application, isPackaged: true, getVersion: () => '1.0.0-beta.1.20260930.2' }))
       .toBe('1.0.0-beta.1.20260930.2')
   })
