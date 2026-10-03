@@ -11,9 +11,13 @@ it('explicitly disables policy queries without disabling unsigned package valida
   const environment = { DSH_DESKTOP_APP_ID: 'com.example.muse', DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: 'false' }
   expect(resolveDesktopPolicyEnvironment(environment)).toBeUndefined()
   expect(resolveDesktopPolicyConfig(resolveDesktopPolicyEnvironment(environment))).toBeUndefined()
-  expect(() => validateDesktopPackageEnvironment(environment, { platform: 'win32', arch: 'x64' }, { unsigned: true })).not.toThrow()
-  expect(() => validateDesktopPackageEnvironment({ ...environment, DSH_DESKTOP_APP_ID: '' },
-    { platform: 'win32', arch: 'x64' }, { unsigned: true })).toThrow()
+  expect(() => {
+    validateDesktopPackageEnvironment(environment, { platform: 'win32', arch: 'x64' }, { unsigned: true })
+  }).not.toThrow()
+  expect(() => {
+    validateDesktopPackageEnvironment({ ...environment, DSH_DESKTOP_APP_ID: '' },
+      { platform: 'win32', arch: 'x64' }, { unsigned: true })
+  }).toThrow()
 })
 
 it.each(['test', 'production'] as const)('selects the %s policy and authentication together', (deployment) => {

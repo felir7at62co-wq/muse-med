@@ -1,5 +1,6 @@
 """Offline creation-skill migration checks; no project or remote API access."""
 from pathlib import Path
+import json
 import re
 import unittest
 
@@ -43,6 +44,19 @@ class CreationResourcesTests(unittest.TestCase):
                             "generation", "delivery", "episode_plan", "preview", "expected_revision", "edit_preview", "edit_apply",
                             "character_id", "voice_profile", "不能保证", "不作为写作"):
             self.assertIn(requirement, text)
+
+    def test_project_bible_offers_visual_styles_and_preserves_custom_answers(self):
+        text = (SKILLS / "tweet-drama-project-bible/SKILL.md").read_text(encoding="utf-8")
+        example = re.search(r"```json\n(.*?)\n```", text, re.DOTALL)
+        self.assertIsNotNone(example, "Startup needs a runnable ask_user_question example")
+        question = json.loads(example.group(1))["questions"][0]
+        self.assertEqual(question["id"], "project-style")
+        self.assertEqual([item["label"] for item in question["options"]],
+                         ["仿真人", "3D", "其他（自行输入）"])
+        self.assertIn("自定义答案", question["question"])
+        self.assertIn("custom", text)
+        self.assertIn("project_bible.style", text)
+        self.assertIn("不能把“其他（自行输入）”", text)
 
     def test_six_current_skills_are_packaged(self):
         for name in NAMES:

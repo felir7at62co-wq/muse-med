@@ -147,6 +147,7 @@
     - id: terminal-bash
       name: '@deepseek-ai/dsh-terminal-bash'
       config:
+        shellPath: !!js process.env.DSH_SNAPSHOT_BASH ?? '/bin/bash'
         timeoutMs: 300000
 
     - id: persistent-bash

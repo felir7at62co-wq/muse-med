@@ -15,7 +15,7 @@ const child = (id = 51, status = 'succeeded', stage = 20) => ({
 function provider(read: (path: string) => unknown) {
   const calls: { path: string; method: string }[] = []
   const client = new JubianClient({ credential: async () => 'test-token', fetch: async (url, init) => {
-    const path = String(url).replace('https://web.jubianai.net/prod-api', '')
+    const path = (typeof url === 'string' ? url : url instanceof URL ? url.href : url.url).replace('https://web.jubianai.net/prod-api', '')
     calls.push({ path, method: init!.method! })
     return new Response(JSON.stringify({ code: 200, data: read(path) }))
   } })
@@ -56,8 +56,10 @@ describe('jubian watcher', () => {
     await vi.advanceTimersByTimeAsync(10)
     const result = await hook.done
     expect(result.status).toBe('completed')
-    expect(JSON.parse(result.result!)).toMatchObject({ task_id: 42, stage: 'upscale', status: 'succeeded',
-      outputs: [{ subtask_id: 51 }, { subtask_id: 52 }], next: expect.stringContaining('Review') })
+    const parsed: unknown = JSON.parse(result.result!)
+    const reviewGuidance: unknown = expect.stringContaining('Review')
+    expect(parsed).toMatchObject({ task_id: 42, stage: 'upscale', status: 'succeeded',
+      outputs: [{ subtask_id: 51 }, { subtask_id: 52 }], next: reviewGuidance })
     expect(calls.every(call => call.method === 'GET' || (call.method === 'POST' && call.path.includes('/sub/list')))).toBe(true)
     expect(vi.getTimerCount()).toBe(0)
   })
@@ -178,6 +180,8 @@ describe('jubian watcher', () => {
       ? { total: 1, rows: [child(51, 'succeeded', type)] } : task('succeeded', type))
     const hook = watchJob(client, { task_id: 42, stage }, config)
     hooks.push(hook)
-    expect(JSON.parse((await hook.done).result!)).toMatchObject({ stage, next: expect.stringContaining('not visual QA') })
+    const parsed: unknown = JSON.parse((await hook.done).result!)
+    const reviewGuidance: unknown = expect.stringContaining('not visual QA')
+    expect(parsed).toMatchObject({ stage, next: reviewGuidance })
   })
 })

@@ -77,6 +77,20 @@ it('previews and persists one authoritative bible with a readable derived docume
   expect(markdown).toContain('重逢后解决误会')
 })
 
+it.each(['仿真人', '3D', '二维水墨动画，低饱和色彩'])('persists the confirmed visual style verbatim: %s', async (style) => {
+  const { ctx, home } = await bench()
+  const changes = { style, aspect_ratio: '9:16',
+    video: { model_id: 'doubao-seedance-2-5-260628', platform_id: 'FANG_ZHOU', resolution: '720p' },
+    delivery: { width: 1440, height: 2560 } }
+  const preview = await previewProjectBible(ctx.settings, home, changes, '确认项目风格')
+  await updateProjectBible(ctx.settings, home, changes, '确认项目风格', preview.expected_revision, preview.preview_fingerprint)
+  const result = await readProjectBible(ctx.settings, home)
+  expect(result.config).toMatchObject({ project_bible: { style, aspect_ratio: '9:16',
+    video: { model_id: 'doubao-seedance-2-5-260628', resolution: '720p' }, delivery: { width: 1440, height: 2560 } } })
+  expect(JSON.parse(await readFile(join(home, 'project_config.json'), 'utf8'))).toMatchObject({ project_bible: { style } })
+  expect(await readFile(join(home, 'project-bible.md'), 'utf8')).toContain(`风格：${style}`)
+})
+
 it('preserves legacy requirements, stable package bindings, completed tasks and prior revisions', async () => {
   const { ctx, home } = await bench()
   await writeFile(join(home, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708,

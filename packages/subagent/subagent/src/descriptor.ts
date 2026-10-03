@@ -47,6 +47,9 @@ declare module '@deepseek-ai/dsh-session/types' {
  */
 export const SUBAGENT_DESCRIPTOR_VERSION = 3
 
+/** Child tool filters admitted by descriptor readers and reapplied during cold resume. */
+export type SubagentToolRestriction = Pick<ToolRestriction, 'allow' | 'deny'>
+
 /** Fields shared by every supported `subagent/descriptor` payload. */
 interface SubagentDescriptorBase {
   /** Descriptor format version ({@link SUBAGENT_DESCRIPTOR_VERSION}). */
@@ -82,7 +85,7 @@ export interface ContinuableSubagentDescriptorData extends SubagentDescriptorBas
   /** Per-child persona that shadows the deployment persona on resume. */
   readonly persona?: string
   /** Child tool scoping reapplied on resume. */
-  readonly toolFilter?: ToolRestriction
+  readonly toolFilter?: SubagentToolRestriction
 }
 
 /** The supported durable subagent identity and optional continuation composition. */
@@ -119,7 +122,7 @@ export interface ContinuableSubagentDescriptorInput extends SubagentDescriptorIn
   /** Requested per-child persona. */
   readonly persona?: string
   /** Requested child tool scoping. */
-  readonly toolFilter?: ToolRestriction
+  readonly toolFilter?: SubagentToolRestriction
 }
 
 /** Inputs {@link snapshotSubagentDescriptor} validates and detaches. */
@@ -182,7 +185,7 @@ function optionalStringArray(value: Record<string, unknown>, key: string): strin
 }
 
 /** Validate and reconstruct a persisted tool restriction. */
-function parseToolFilter(value: unknown): ToolRestriction {
+function parseToolFilter(value: unknown): SubagentToolRestriction {
   if (!isRecord(value)) {
     throw new Error('persisted subagent descriptor toolFilter must be an object')
   }

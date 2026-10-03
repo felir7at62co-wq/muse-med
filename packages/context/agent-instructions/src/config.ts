@@ -16,7 +16,10 @@ const RESERVED_PATH_SEGMENTS = new Set(['', '.', '..'])
 
 /** User-facing workspace instruction loader configuration. */
 export interface Config {
-  /** Harness home containing the fixed user-global `AGENTS.md`; defaults to the resolved harness home: `$MUSE_HOME`, `$DSH_HOME`, or the default (`~/.dsh` while it exists, otherwise `~/.muse`). */
+  /**
+   * Harness home containing the fixed user-global `AGENTS.md`; defaults to the resolved harness home:
+   * `$MUSE_HOME`, `$DSH_HOME`, or the default (`~/.dsh` while it exists, otherwise `~/.muse`).
+   */
   dshHome?: string
   /** Directory entries that identify the project root while walking upward from the session cwd. */
   projectRootMarkers?: string[]

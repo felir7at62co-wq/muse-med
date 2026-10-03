@@ -42,8 +42,8 @@ export async function exportScreenplayDocx(input: ScreenplayDocxInput, config: C
     size += stat.size
   }
   if (size > config.maxInputBytes) throw new Error('Markdown inputs exceed the export size limit')
-  const exists = await lstat(input.output).then(() => true, (error: NodeJS.ErrnoException) => {
-    if (error.code === 'ENOENT') return false
+  const exists = await lstat(input.output).then(() => true, (error: unknown) => {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false
     throw error
   })
   if (exists) throw new Error('Word output already exists; choose a new versioned path')

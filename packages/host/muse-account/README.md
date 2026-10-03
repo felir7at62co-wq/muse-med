@@ -55,7 +55,7 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `remoteAckTimeoutMs` | 15,000 | Handshake and acknowledgement deadline, from 1,000 to 120,000 milliseconds. |
 | `remoteReconnectMaxIntervalMs` | 60,000 | Maximum network reconnection interval, from 1,000 to 300,000 milliseconds. |
 
-The [configuration catalog](../../../docs/config-catalog.md) is generated from plugin schemas. This package is included in the Desktop Host profile and is not a standalone application launcher.
+The [configuration catalog](../../../docs/config-catalog.md) is generated from plugin schemas. Mount `tools`, `llm`, `sessionProjections` and `agentDefaultModel` before this plugin; the Desktop Host composition supplies these required services. This package is included in the Desktop Host profile and is not a standalone application launcher.
 
 ### Desktop access from the website
 

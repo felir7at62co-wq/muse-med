@@ -1,5 +1,7 @@
 # Jubian Live Video Model Settings Implementation Plan
 
+English | [中文](2026-09-21-jubian-live-video-model-settings.zh.md)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make storyboard-native generation validate and preserve the live Jubian storyboard's exact Seedance model settings, including Seedance 2.5 at 9:16/480p with up to 30 seconds of content, then produce and deliver episode 11.
@@ -68,9 +70,9 @@ git commit -m "test(jubian): cover live storyboard video settings"
 
 - [ ] **Step 1: Replace the hard-coded selector contract**
 
-Change the selector to accept the live config:
+This design signature omits the implementation and the project-local `SeedanceVideoModel` declaration:
 
-```ts
+```ts ignore-check
 export function selectSeedanceVideoModel(
   catalogue: unknown,
   requested: Record<string, unknown>,
@@ -81,7 +83,9 @@ Require exact normalized equality for `platformId`, `modelId`, `genType`, `ratio
 
 - [ ] **Step 2: Add one shared duration capability function**
 
-```ts
+This design sketch omits the project-local `integer`, `text`, and `invalid` helpers:
+
+```ts ignore-check
 export function nativeContentDurationLimit(modelId: string): number {
   return modelId.toLowerCase() === 'doubao-seedance-2-5-260628' ? 30 : 14
 }

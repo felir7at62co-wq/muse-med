@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-root",
-  "version": "0.1.7-rc.8",
+  "version": "0.2.0-rc.2",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -183,8 +183,8 @@
     "gen-third-party-notices": "tsx scripts/gen-third-party-notices.ts",
     "verify-third-party-notices": "tsx scripts/gen-third-party-notices.ts --check",
     "gen-module-graph": "tsx scripts/gen-module-graph.ts",
-    "gen-scoped-events": "tsx scripts/gen-scoped-events.ts",
-    "verify-scoped-events": "tsx scripts/gen-scoped-events.ts --check",
+    "gen-scoped-events": "node --max-old-space-size=4096 --import tsx/esm scripts/gen-scoped-events.ts",
+    "verify-scoped-events": "node --max-old-space-size=4096 --import tsx/esm scripts/gen-scoped-events.ts --check",
     "verify-module-graph": "tsx scripts/gen-module-graph.ts --check",
     "constraints": "tsx scripts/check-workspace-constraints.ts",
     "doc-sync": "tsx scripts/run-gates.ts doc-sync",
@@ -206,7 +206,12 @@
     "postinstall": "node scripts/install-lefthook.mjs",
     "check:ci:windows-observational": "tsx scripts/run-gates.ts ci-windows-observational",
     "resolve-translation-pairing-conflicts": "tsx scripts/merge-translation-pairing.ts --resolve",
-    "verify-running-build": "tsx scripts/verify-running-build.ts"
+    "verify-running-build": "tsx scripts/verify-running-build.ts",
+    "upload:latest:mac:arm64": "pnpm --filter @deepseek-ai/dsh-desktop run upload:latest:mac:arm64",
+    "upload:latest:mac:x64": "pnpm --filter @deepseek-ai/dsh-desktop run upload:latest:mac:x64",
+    "upload:latest:win:x64": "pnpm --filter @deepseek-ai/dsh-desktop run upload:latest:win:x64",
+    "check:ci:unit": "tsx scripts/run-gates.ts ci-unit",
+    "verify-upgrade-guides": "tsx scripts/verify-upgrade-guides.ts"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:*",

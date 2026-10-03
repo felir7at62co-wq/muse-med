@@ -57,10 +57,32 @@ const SAFE_HOST_DEPENDENCY_EXPORTS = {
 /** Runtime exports that require every consumer to resolve the provider's shared peer instance. */
 const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/dsh-client-connection': ['OperatorPeer'],
+  '@deepseek-ai/dsh-credentials': ['credentialRef'],
+  '@deepseek-ai/dsh-jubian': [
+    'JUBIAN_TOKEN_REF', 'JubianClient', 'JubianError', 'JubianLedger', 'centsOf', 'checkBudget',
+    'describePayload', 'readProjectBudget', 'updateProjectBudget',
+  ],
+  '@deepseek-ai/dsh-jubian-api': [
+    'FAILED_STATUSES', 'MODEL_TASK_TYPES', 'SUCCESS_STATUSES', 'VIDEO_TASK_TYPES',
+    'alignedReferenceSize', 'buildImageRequest', 'buildNativeVideoPreview', 'buildReferenceObjectKey',
+    'buildSubjectSelection', 'buildSubtitleEraseRequest', 'buildVideoUpscaleRequest', 'childrenOf',
+    'classifyExistingNativeMatches', 'classifyNewNativeCandidates', 'downloadMedia', 'extractAppScriptUrl',
+    'extractTosUploadConfig', 'findFolder', 'findFolderById', 'imageCandidates', 'isRelatedTaskCandidate',
+    'nativeResultUrls', 'needsUpscale', 'normalizedPrompt', 'readAssetList', 'readAssetPage',
+    'readBackIdentity', 'readEpisodes', 'readFolderTree', 'readGeneratedImage', 'readImageDisplayPrice',
+    'readMaterialList', 'readModels', 'readReferenceAudio', 'readReferenceImage', 'readScript',
+    'readScriptList', 'readStoryboard', 'readStoryboardPage', 'readSubtaskPage', 'readSubtitleTaskId',
+    'readTaskList', 'readTaskPage', 'readUpscaleTaskId', 'referenceAudioUrls', 'referenceMaterialItem',
+    'resolveImageModel', 'resolveVideoModel', 'responseRecords', 'signTosObjectPut', 'stableJson',
+    'stableSha256', 'storyboardMaterials', 'taskIdOf', 'taskSemanticFields', 'taskStatusOf',
+    'terminalOutcome', 'validateAudioMaterial', 'validateImageRequestInput', 'validateNativeVideoPreview',
+    'verifySubjectSelection', 'wireText', 'withGenerationDisabled', 'withGenerationEnabled',
+  ],
   '@deepseek-ai/dsh-subprocess': ['SubprocessExecutableNotFoundError'],
   '@deepseek-ai/dsh-scope': ['carrierKeyOf', 'createScope', 'scopeOf', 'scopeTarget'],
   '@deepseek-ai/dsh-session': ['SESSION_FORMAT_VERSION'],
   '@deepseek-ai/dsh-session-persistence': ['SessionPersistenceNotFoundError'],
+  '@deepseek-ai/dsh-tools': ['defineTool'],
 } as const satisfies HostDependencyExports
 
 /** Exact import specifier to reviewed runtime exports. */

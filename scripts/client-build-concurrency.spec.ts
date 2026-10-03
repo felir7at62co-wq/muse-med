@@ -42,8 +42,8 @@ it('builds both same-package faces exactly once at limit one without a completio
   const prepare = hooks['build:prepare']!, before = hooks['build:before']!
   const observed: Partial<TsdownHooks> = {
     async 'build:prepare'(context) { await prepare(context); active++; peak = Math.max(peak, active); started.push(context.options.name!) },
-    'build:before'(context) {
-      before(context)
+    async 'build:before'(context) {
+      await before(context)
       context.buildOptions.plugins = [context.buildOptions.plugins, { name: 'observe-release', closeBundle() { active-- } }]
     },
     'build:done'(context) { finished.push(context.options.name!) },

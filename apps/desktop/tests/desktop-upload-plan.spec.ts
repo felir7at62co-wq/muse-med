@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
@@ -11,12 +11,15 @@ import { load } from 'js-yaml'
 import { createDesktopUploadPlan } from '../scripts/desktop-upload-plan.ts'
 import { desktopUpdateMetadataFilename } from '../scripts/desktop-auto-update-environment.mjs'
 import type { DesktopPackageTargetName } from '../scripts/package-target.ts'
+import { createDesktopCos } from '../scripts/desktop-cos.ts'
+import { uploadDesktopRelease } from '../scripts/desktop-upload-run.ts'
+import { startCosLoopback } from './cos-loopback.ts'
 
 const temporaryDirectories: string[] = []
 const TEST_ORIGIN = 'https://desktop-updates.example.com'
-const TEST_BUCKET = 'test-download-bucket'
+const TEST_BUCKET = 'test-download-bucket-1250000000'
 const RELEASE_ID = '0123456789abcdef0123456789abcdef'
-const PRODUCTION_BUCKET = 'production-download-bucket'
+const PRODUCTION_BUCKET = 'production-download-bucket-1250000000'
 const require = createRequire(import.meta.url)
 const { createBlockmap } = require('app-builder-lib/out/targets/differentialUpdateInfoBuilder.js') as {
   createBlockmap: (file: string, target: object, packager: { info: { emitArtifactBuildCompleted(event: object): Promise<void> } },
@@ -134,6 +137,40 @@ afterEach(async () => {
 
 describe('desktop upload plan', () => {
   it.each([
+    ['0.1.7-rc.7', 'rc'], ['0.1.7-rc.8', 'latest'], ['0.1.7-rc.8.20260930.1', 'rc'],
+  ])('upgrades installed %s through %s to the genuine Muse stable release', async (current, channel) => {
+    const paths = await fixture('win-x64', '1.0.0')
+    await writeFile(join(paths.appRoot, 'muse-product.json'), '{"version":"1.0.0","legacyRcDiscovery":true}\n')
+    const plan = await createDesktopUploadPlan('win-x64', paths)
+    const entries = plan.githubReleases!
+    expect(entries.map(({ tag, version, prerelease }) => ({ tag, version, prerelease }))).toEqual([
+      { tag: 'v1.0.0', version: '1.0.0', prerelease: false },
+      { tag: 'v1.0.0-rc.muse-stable', version: '1.0.0', prerelease: true },
+    ])
+    const base = '/felir7at62co-wq/muse-med/releases'
+    const responses = new Map([[`${base}.atom`, releaseFeed(entries.map(entry => entry.tag))]])
+    for (const entry of entries) for (const metadata of entry.metadataFiles) {
+      responses.set(`${base}/download/${entry.tag}/${metadata.filename}`, metadata.contents)
+    }
+    const executor = new ReleaseExecutor(responses)
+    const updater = Object.assign(new NsisUpdater(undefined, {
+      version: current, name: 'muse-med', isPackaged: true, appUpdateConfigPath: '/unused',
+      userDataPath: paths.repositoryRoot, baseCachePath: paths.repositoryRoot,
+      whenReady: async () => {}, relaunch: () => {}, quit: () => {}, onQuit: () => {},
+    }), { httpExecutor: executor, _testOnlyOptions: { platform: 'win32' } })
+    updater.autoDownload = false
+    updater.allowPrerelease = true
+    updater.allowDowngrade = false
+    updater.logger = null
+    updater.setFeedURL({ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel })
+    const result = await updater.checkForUpdates()
+    expect(result?.isUpdateAvailable).toBe(true)
+    expect(result?.updateInfo.version).toBe('1.0.0')
+    expect(result?.updateInfo.files[0]?.url).toBe('muse-med-1.0.0-win-x64.exe')
+    expect(executor.requests).toContain(`${base}/download/v1.0.0-rc.muse-stable/rc.yml`)
+  })
+
+  it.each([
     ['0.1.7-rc.7', 'rc'], ['0.1.7-rc.7', 'latest'], ['0.1.7-rc.8', 'rc'], ['0.1.7-rc.8', 'latest'],
   ])('lets installed %s with %s configuration discover the genuine Muse beta through its required rc release', async (current, channel) => {
     const paths = await fixture('win-x64', '1.0.0-beta.1')
@@ -202,6 +239,64 @@ describe('desktop upload plan', () => {
       { tag: 'v1.0.0-rc.muse-beta.1', version: '1.0.0-beta.1' },
     ])
     expect(plan.githubReleases?.[0]?.binaryFilenames).toEqual(plan.githubReleases?.[1]?.binaryFilenames)
+  })
+
+  it('uploads only the selected latest installer to each deployment using the existing COS transport', async () => {
+    const published = []
+    for (const environment of ['production', 'test'] as const) {
+      for (const target of ['mac-arm64', 'mac-x64', 'win-x64'] as const) {
+        const paths = await fixture(target, '1.2.3', environment)
+        const plan = await createDesktopUploadPlan(target, { ...paths, latest: true })
+        const loopback = await startCosLoopback()
+        try {
+          const cos = createDesktopCos({ secretId: 'fixture-id', secretKey: 'fixture-secret' })
+          loopback.redirect(cos)
+          const directory = await uploadDesktopRelease(plan, cos, join(paths.appRoot, 'records'))
+          expect(plan.artifacts).toHaveLength(1)
+          const artifact = plan.artifacts[0]!
+          expect(loopback.requests).toHaveLength(1)
+          const request = loopback.requests[0]!
+          expect(request.method).toBe('PUT')
+          expect(request.path).toBe(`/${artifact.key}`)
+          expect(request.body).toEqual(await readFile(artifact.path))
+          expect(JSON.parse(await readFile(join(directory, 'result.json'), 'utf8'))).toMatchObject({
+            success: true, confirmedPuts: 1, publicReadback: 'not-performed',
+          })
+          published.push({ environment, target, bucket: plan.bucket, publicUrl: plan.publicUrl,
+            filename: artifact.filename, key: artifact.key, contentType: artifact.contentType,
+            channelMetadata: artifact.channelMetadata })
+        } finally {
+          await loopback.close()
+        }
+      }
+    }
+    await expect(`${JSON.stringify(published, null, 2)}\n`).toMatchFileSnapshot('./expected/latest-installer-uploads.json')
+  })
+
+  it('allows an explicitly selected production prerelease at the fixed installer URL', async () => {
+    const paths = await fixture('win-x64', '1.2.3-alpha.4', 'production')
+    const plan = await createDesktopUploadPlan('win-x64', { ...paths, latest: true })
+    expect(plan.version).toBe('1.2.3-alpha.4')
+    expect(plan.artifacts).toHaveLength(1)
+    expect(plan.artifacts[0]).toMatchObject({
+      path: join(paths.artifactsRoot, 'muse-med-1.2.3-alpha.4-win-x64.exe'),
+      key: 'desktop/dsh-latest-windows-x64.exe', channelMetadata: false,
+    })
+  })
+
+  it.each(['completion', 'deployment', 'checksum'] as const)('rejects invalid %s before planning a latest upload', async (failure) => {
+    const paths = await fixture('win-x64', '1.2.3', 'production')
+    if (failure === 'completion') await rm(join(paths.artifactsRoot, 'win-x64-release.json'))
+    if (failure === 'deployment') Object.assign(paths.environment, {
+      DSH_DESKTOP_AUTO_UPDATE_ENV: 'test', DOWNLOAD_TEST_ORIGIN: TEST_ORIGIN,
+      DOWNLOAD_TEST_RELEASE_ID: RELEASE_ID, DOWNLOAD_TEST_COS_BUCKET: TEST_BUCKET,
+    })
+    if (failure === 'checksum') {
+      const path = join(paths.artifactsRoot, 'muse-med-1.2.3-win-x64.exe')
+      await writeFile(path, Buffer.alloc((await readFile(path)).length))
+    }
+    await expect(createDesktopUploadPlan('win-x64', { ...paths, latest: true }))
+      .rejects.toThrow(failure === 'checksum' ? /SHA-512/u : /completion record/u)
   })
 
   it('publishes the version-derived channel feed referencing versioned binaries without overriding CDN cache policy', async () => {

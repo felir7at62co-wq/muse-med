@@ -56,7 +56,10 @@ async function bench(agentNotes: Record<string, unknown> = {}) {
   // `ctx.remote` is a store whose namespace properties are its child services,
   // so this delegate reaches the same face the plugin declares.
   ctx.provide('remote', {
-    get agentNotes() { return ctx.get('remote.agentNotes') },
+    get agentNotes(): unknown {
+      const namespace: unknown = ctx.get('remote.agentNotes')
+      return namespace
+    },
   })
   return { ctx, slots: ctx.get('slots') as SlotRegistry, locale }
 }

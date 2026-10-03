@@ -10,7 +10,7 @@ Status: proposed
 
 有两个事实使当前格局不稳定。其一，发布身份是单值的：`package.json` 持有 `0.1.6-alpha.1`，而有 23 处断言或推导同一个值，既把它当作产品版本又当作 DSH 版本，其中包括 `apps/desktop/src/runtime-tree.ts:173`，它要求共享的 `@deepseek-ai/dsh` 包恰好携带该发布版本。因此产品无法在不宣称一个 DSH 版本的情况下发布。其二，依赖解析走 workspace 协议：产品包持有 130 处 `workspace:` 引用，其中 68 处指向上游拥有的包，所以产品只能在整棵 harness 树内构建。
 
-代价在下一次上游变动时支付。一次只读演练（`git merge-tree --write-tree --name-only HEAD origin/master`）报告 77 个冲突文件——63 个内容冲突与 14 个修改/删除冲突，其中 38 个位于 `apps/desktop` 之下——因为上游删除了 fork 曾修改过的若干文件，包括 `apps/desktop/renderer/plugin-manager.{js,css,html}`、`apps/desktop/src/preload.ts`，以及 `packages/llm/llm-deepseek/src/protocols/chat-completions/*.ts` 这三个模块。产品依赖着任何发布都不提供的接口：`apps/desktop/scripts/prepare-package-set.ts:25-26` 导入了 `scripts/release/process.ts` 与 `scripts/release/tarball.ts`，它们只存在于仓库内部。
+代价在下一次上游变动时支付。一次只读演练（`git merge-tree --write-tree --name-only HEAD origin/master`）报告 77 个冲突文件——63 个内容冲突与 14 个修改/删除冲突，其中 38 个位于 `apps/desktop` 之下——因为上游删除了 fork 曾修改过的若干文件，包括 `apps/desktop/renderer/plugin-manager.{js,css,html}`、`apps/desktop/src/preload.ts`，以及 `@deepseek-ai/dsh-llm-deepseek` 中三个已移除的 Chat Completions 协议模块。产品依赖着任何发布都不提供的接口：`apps/desktop/scripts/prepare-package-set.ts:25-26` 导入了 `scripts/release/process.ts` 与 `scripts/release/tarball.ts`，它们只存在于仓库内部。
 
 ## Proposal
 

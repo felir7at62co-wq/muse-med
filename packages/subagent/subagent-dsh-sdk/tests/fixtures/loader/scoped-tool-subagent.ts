@@ -14,8 +14,8 @@ export const inject = ['agents', 'subagentModelSelection']
  * @param config - delegation-tool configuration forwarded into each Agent scope.
  */
 export function apply(ctx: Context, config: Config): void {
-  const install = (agent: Agent): void => {
-    agent.ctx.inject(ToolSubagent.inject, (runtimeCtx) => {
+  const install = (agent: Agent): ReturnType<Context['inject']> => {
+    return agent.ctx.inject(ToolSubagent.inject, (runtimeCtx) => {
       ToolSubagent.apply(runtimeCtx, {
         provider: config.provider,
         modelSelectionSettings: true,
@@ -31,6 +31,6 @@ export function apply(ctx: Context, config: Config): void {
       }, agent.session)
     })
   }
-  ctx.on('agent/created', ({ agent }) => { install(agent) })
+  ctx.on('agent/created', async ({ agent }) => { await install(agent) })
   for (const agent of ctx.agents.list()) install(agent)
 }

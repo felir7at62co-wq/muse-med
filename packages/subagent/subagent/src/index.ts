@@ -112,6 +112,7 @@ export type {
   OneShotSubagentDescriptorInput,
   SubagentDescriptorData,
   SubagentDescriptorInput,
+  SubagentToolRestriction,
 } from './descriptor.ts'
 export type { SubagentCatalogEntry } from './projection-types.ts'
 export { SubagentError } from './error.ts'

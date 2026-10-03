@@ -8,7 +8,7 @@ Status: implemented
 
 在运行中的宿主之下改动 Host 平面组装，可能撤走一个已发布 agent 通过其作用域链解析到的工具。框架不会在进程内重新组装一个常驻挂载，因此对那个会话而言这次撤走是永久的：之后重启宿主也治不好它，因为该 agent 的工具视图通过那个已发布 agent 已经持有的作用域链解析。会话一旦跑过回合，重新选择它的预设就会被拒绝（`agent-preset/locked`，`session "<id>" has already started; its agent preset is fixed`）。
 
-该缺陷及其实测证据记录在[移植陷阱 Agent Note](2026-09-17-product-capability-plane-and-port-traps.zh.md)中，那里也写明了如今可用的恢复方式：冷重启，或新建会话。那篇以这样一句收尾：持久修复——为已经物化的 agent 重新注册被撤走的 Host 平面配置行——属于 harness 核心，且没有承诺的负责人。
+已归档的[移植陷阱英文历史记录](../../archived/architecture/2026-09-17-product-capability-plane-and-port-traps.md)记录原始工具撤走缺陷、实测证据，以及当次移植评估的冷重启或新建会话恢复方式。
 
 它留下未答的，是从撤走发生到有人察觉之间的那段空白。从受影响会话自身看，这个失败是静默的：模型只是不再拥有那些工具，而第一份证据通常是会话做不了某个请求。一个正在任务中途的用户既没有任何信号表明发生了什么变化，也无从把它与自己的失误区分开，更得不到一句"该怎么办"。
 

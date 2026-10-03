@@ -19,7 +19,7 @@ export interface ProjectBudgetReader {
 /** Changes accepted by the project tool; omitted fields preserve their current value. */
 export const PROJECT_BIBLE_CHANGES = {
   title: { type: 'string', description: 'Project title.' },
-  style: { type: 'string', description: 'Confirmed visual style and creative guidance.' },
+  style: { type: 'string', description: 'Confirmed visual style as free text, including the user\'s custom answer and creative guidance.' },
   aspect_ratio: { type: 'string', description: 'Confirmed generation aspect ratio, checked against the live catalogue.' },
   jubian_script_id: { type: 'integer', description: 'Actual remote project ID. An existing binding cannot be replaced.' },
   video: { type: 'object', additionalProperties: false, description: 'Exact catalogue selection; model, platform and resolution are required together.', properties: {

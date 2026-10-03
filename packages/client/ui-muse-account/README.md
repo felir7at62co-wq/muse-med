@@ -57,7 +57,7 @@ The browser bundle mounts the generated `museAccount` Remote contribution, then 
 
 #### What the model sees
 
-This UI plugin adds no model-facing tools or prompt text. The Host package owns the account and knowledge-base tool schemas.
+The `museAccount` Remote namespace serves browser requests. This UI plugin adds no model-facing tools or prompt text; the Host package owns account and knowledge-base tool schemas.
 
 #### Token effect
 
@@ -71,7 +71,7 @@ The UI does not change the model request prefix.
 
 <a id="known-limitations-and-deferred-work"></a>
 
-Account operations require the configured Muse gateway. The Host package documents the deployment and same-user file-access limits.
+- Account operations require the configured Muse gateway. The Host package documents the deployment and same-user file-access limits.
 
 <a id="dev-note"></a>
 ### Dev Note

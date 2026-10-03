@@ -143,7 +143,7 @@ export function mountContext(credential = 'stored-token'):
   const ctx = {
     tools: { register: (definition: ToolDefinition) => { registered.push(definition); return () => {} } },
     credentials: { resolve: (ref: string) => {
-      resolvedRefs.push(String(ref))
+      resolvedRefs.push(ref)
       return Promise.resolve(credential === '' ? undefined : { value: credential })
     } },
   } as unknown as Context

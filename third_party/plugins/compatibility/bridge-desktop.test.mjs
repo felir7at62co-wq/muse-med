@@ -21,6 +21,7 @@ test('packs only the authenticated Muse transport and optional Feishu entry', as
     assert.deepEqual(manifest.scripts, {})
     assert.equal(manifest.exports['./remote'], './lib/remote.mjs')
     assert.equal(manifest.exports['./client'], undefined)
+    assert.equal(manifest.dependencies['@deepseek-ai/dsh-muse-account'], '0.2.0-rc.2')
     assert.match(readFileSync(join(root, 'LICENSE'), 'utf8'), /MIT License/)
     for (const path of ['lib/index.js', 'lib/remote.mjs', 'lib/upstream/tunnel-client.mjs']) {
       assert.ok(existsSync(join(root, path)), `${path} must ship`)

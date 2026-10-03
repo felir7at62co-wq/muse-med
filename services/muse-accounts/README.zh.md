@@ -13,6 +13,8 @@ kind: "package-reference"
 
 ## Release inputs
 
+网关开始监听后，启动日志报告实际回环端口。隔离部署检查可设置 `MUSE_PORT=0`，由操作系统分配可用端口。
+
 网关需要 Node 22 或更新版本，以及账号、模型、知识库路由使用的发布根目录 DSH 依赖。云端工作区模式和管理员运行时上下文还需要对应版本的 `muse-runtime` 与 `global` 发布目录；桌面工作区模式不启动云端 Agent。复制进每个新的不可变发布目录后，在本目录运行 `npm ci --omit=dev`；`package-lock.json` 锁定 TOS SDK 和 WebSocket 传输依赖。启用 ASR 时，服务器必须具备 `ffprobe`。账号数据库、知识库文件、凭据和 ASR 任务账本不得复制进发布树。
 
 服务从 `MUSE_ASR_CONFIG` 指向的私有 JSON 文件读取配置。省略此变量即关闭 ASR，已登录的 ASR 请求返回 503。Linux 上该文件须为权限 0600 的普通文件，包含以下字段：
@@ -43,9 +45,13 @@ kind: "package-reference"
 
 桌面模型调用复用网页版的账号会话和全局模型目录。`GET /api/desktop-models/providers` 返回公开元数据；`POST /api/desktop-models/:provider/chat/completions` 接受会话令牌作为 Bearer 凭据，并要求已配置的公开 Origin。上游密钥保留在服务器。活动流默认每账号四条、每个网关进程三十二条；同一账号的不同登录共享账号上限。启动前可将 `MUSE_DESKTOP_MODEL_MAX_ACTIVE` 设为 1–32 的整数，将 `MUSE_DESKTOP_MODEL_MAX_TOTAL` 设为 1–1,024 的整数；无效值阻止启动。额度已满时，在转发前返回 429 与 `Retry-After: 1`，目录读取仍然可用。完成、取消、输入拒绝或上游失败会释放名额；退出登录、撤销账号和会话到期会中止活动流。输出仍受各模型的配置上限约束。并发应保持在上游承载能力之内；增加密钥本身不能证明提供方额度扩大，多个网关进程须分配共享额度。
 
+部署的内置目录供应云映模型，包括 Gemini 与 Cloud models 两个分组。网关启动仅公开已配置的供应商目录，不再附加独立的原生 DeepSeek 供应。上游密钥保留为服务器私密凭据。桌面端的自定义供应商与独立 Codex 订阅各自保留其凭据与目录。
+
 ## Desktop website access
 
-网关入口默认使用 `MUSE_WORKSPACE_MODE=desktop`。登录后的浏览器通过 `/api/desktop/connect` 进入账号已连接的桌面；离线时显示 **您的电脑上的 Muse 未启动**。此模式没有电脑选择器，也不会启动云端运行时。显式设置 `MUSE_WORKSPACE_MODE=cloud` 可保留云端工作间；`createAccountServer` 库工厂为兼容现有调用者，仍保留该默认值。
+网关入口默认使用 `MUSE_WORKSPACE_MODE=desktop`。登录后的浏览器通过 `/api/desktop/connect` 进入账号已连接的桌面；离线时显示 **您的电脑上的 Muse 未启动**。此模式没有电脑选择器；普通浏览器访问不会启动云端 agent。显式设置 `MUSE_WORKSPACE_MODE=cloud` 可保留云端工作间；`createAccountServer` 库工厂为兼容现有调用者，仍保留该默认值。
+
+显式管理员账号上下文在独立口令提升权限后，使用 `MUSE_RUNTIME_SOCKET` 指定的既有运行时 broker（默认 `/run/muse-runtime/broker.sock`）。普通桌面接口既不启动云端工作间，也不延长其活动时间。每个管理员上下文仍绑定其登录、目标与到期时间；其他账号或后续登录不能复用该授权。这些上下文不会改变用户的桌面绑定。
 
 桌面用 Muse cookie 和安装 UUID 认证。网关从会话确定归属，每个账号仅允许一台安装在线，并在账号存储中保留绑定。原安装离线后，新登录的安装可替换绑定；另一台安装同时连接会收到 `device-conflict`。重设密码、停用、退出与过期会撤销对应连接。浏览器退出仅关闭自己的观察，不会让单独登录的桌面退出。
 

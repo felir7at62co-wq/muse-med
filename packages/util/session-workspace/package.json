@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-session-workspace",
   "description": "Session-scoped workspace resolution: one read-only answer to \"which directory is this session working in\" for every plugin in a deployment",
-  "version": "0.1.7-rc.8",
+  "version": "0.2.0-rc.2",
   "publishConfig": {
     "access": "public"
   },

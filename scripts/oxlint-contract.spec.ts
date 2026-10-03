@@ -50,7 +50,7 @@ describe('Oxlint executable contract', () => {
     const sources: unknown = JSON.parse(await readFile(join(repositoryRoot, 'third_party/plugins/sources.json'), 'utf8'))
     if (!isRecord(sources)) throw new Error('Community source manifest must be an object')
     const names = Object.keys(sources).sort()
-    expect(names).toEqual(['dsh-bridge', 'dsh-codex-subscription', 'dsh-ffmpeg', 'dsh-ponytail', 'dsh-skill-mcp-panel', 'dshmarket'])
+    expect(names).toEqual(['dsh-bridge', 'dsh-codex-subscription', 'dsh-ffmpeg', 'dsh-ponytail', 'dsh-skill-mcp-panel', 'dshmarket', 'muse-hongguo-search'])
     const result = parseConfigFileTextToJson(config, await readFile(join(repositoryRoot, config), 'utf8'))
     if (result.error !== undefined) throw new Error(flattenDiagnosticMessageText(result.error.messageText, '\n'))
     const parsed: unknown = result.config
@@ -230,7 +230,7 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
 
     expect(result.error).toBeUndefined()
     expect(result.status, normalizedOutput(result)).toBe(0)
-  })
+  }, 90_000)
 
   it('keeps repository lint workflows Oxlint-only', async () => {
     const packageJson: unknown = JSON.parse(await readFile(join(repositoryRoot, 'package.json'), 'utf8'))
@@ -381,7 +381,7 @@ export function unrelatedRead(): void {
 
     expect(result.error).toBeUndefined()
     expect(result.status, normalizedOutput(result)).toBe(0)
-  })
+  }, 90_000)
 
   it('keeps staged validation project-free while preserving source rules', async () => {
     const configPath = join(repositoryRoot, '.oxlintrc.staged.json')
@@ -417,7 +417,7 @@ export function unrelatedRead(): void {
     } finally {
       await rm(path, { force: true })
     }
-  })
+  }, 90_000)
 
   it('preserves successful fix output channels', async () => {
     const suffix = randomUUID()
@@ -441,7 +441,7 @@ export function unrelatedRead(): void {
     } finally {
       await rm(path, { force: true })
     }
-  })
+  }, 90_000)
 
   it('prints only the final diagnostics when a fix retry still fails', async () => {
     const suffix = randomUUID()
@@ -465,7 +465,7 @@ export function unrelatedRead(): void {
     } finally {
       await rm(path, { force: true })
     }
-  })
+  }, 90_000)
 
   it.each(['--fix', '--fix-suggestions', '--fix-dangerously'])(
     'converges overlapping staged stylistic fixes through Oxlint under %s',

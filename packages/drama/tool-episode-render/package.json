@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-episode-render",
   "description": "Short-drama episode renderer: the model-facing drama_render tool that lays out render inputs, encodes the delivery master, and checks the result",
-  "version": "0.1.7-rc.8",
+  "version": "0.2.0-rc.2",
   "publishConfig": {
     "access": "public"
   },

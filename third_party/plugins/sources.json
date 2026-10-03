@@ -34,5 +34,16 @@
     "version": "2.1.2",
     "commit": "f1ee2a9604122bcc3971e68f1b2ea67ddbec5f5b",
     "license": "MIT"
+  },
+  "muse-hongguo-search": {
+    "repository": "https://github.com/felir7at62co-wq/muse-hongguo-serch",
+    "version": "0.1.0",
+    "archiveSha256": "9133f9aa523ef86d7abbf0d9ec8fcdf644c93f2c8f1c70bb3ad0f4a8d7f31dda",
+    "source": "recovered-v0.1.0-source",
+    "sourceNotes": [
+      "RECOVERY.md",
+      "SOURCES.md"
+    ],
+    "license": "MIT"
   }
 }

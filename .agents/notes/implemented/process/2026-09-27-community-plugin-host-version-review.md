@@ -10,7 +10,7 @@ Community source imports Host APIs directly. A removed export fails compilation;
 
 ## Decision
 
-The [community builder](../../../../third_party/plugins/build.mjs) requires the reviewed Host version, currently `0.1.7-rc.8`, and records it in artifact peer alternatives and `SOURCE.json`. A Host upgrade requires review before that guard moves. [upstream.json](../../../../upstream.json) independently records the fork's upstream source pin.
+The [community builder](../../../../third_party/plugins/build.mjs) requires the reviewed Host version, currently `0.2.0-rc.2`, and records it in artifact peer alternatives and `SOURCE.json`. A Host upgrade requires review before that guard moves. [upstream.json](../../../../upstream.json) independently records the fork's upstream source pin.
 
 ### Message-source ownership
 
@@ -26,9 +26,11 @@ The [reviewed bridge provider](../../../../third_party/plugins/compatibility/mus
 
 The [bridge overlay](../../../../third_party/plugins/compatibility/bridge-desktop.mjs) checks retained upstream module hashes before staging adaptation. Runtime API imports must exist in built ESM exports; an erased TypeScript enum cannot be imported by a JavaScript plugin. The artifact retains the upstream source pin and license while exposing only reviewed product providers.
 
+The [Codex pi-ai overlay](../../../../third_party/plugins/compatibility/codex-pi-ai.mjs) requires the retained runtime module and catalog fixture hashes and binds its copied admission guard and artifact peer to `0.87.1`. Copied catalog assertions exercise currently advertised models, preserving custom-context checks without inventing offline aliases for removed models. The staged provider shares the Host adapter's installed dependency, so their model preparation and streaming APIs use the same release. The independent toolchain lock and retained source manifests remain unchanged.
+
 ## Verification
 
-Build each selected source against the checkout's built Host packages and run its artifact checks before accepting a Host pin. The [build test](../../../../third_party/plugins/build.test.mjs) rebuilds from clean staging and compares exported files and tarball bytes. [Bridge checks](../../../../third_party/plugins/compatibility/bridge-desktop.test.mjs) reject unreviewed source and exercise current Host metadata services; [transport checks](../../../../third_party/plugins/compatibility/bridge-remote.test.mjs) cover streaming, native WebSocket frames, cancellation, rejection, and reconnects. Live Feishu delivery and packaged activation remain separate unverified checks.
+Build each selected source against the checkout's built Host packages and run its artifact checks before accepting a Host pin. The [build test](../../../../third_party/plugins/build.test.mjs) rebuilds from clean staging and compares exported files and tarball bytes. [Codex streaming checks](../../../../third_party/plugins/checks/codex-pi-ai.mjs) exercise pi-ai's actual OAuth request-token resolution, preference payloads, and SSE output through the provider and Host adapter without a paid API request. [Bridge checks](../../../../third_party/plugins/compatibility/bridge-desktop.test.mjs) reject unreviewed source and exercise current Host metadata services; [transport checks](../../../../third_party/plugins/compatibility/bridge-remote.test.mjs) cover streaming, native WebSocket frames, cancellation, rejection, and reconnects. Live Feishu delivery and packaged activation remain separate unverified checks.
 
 ## Alternatives considered
 

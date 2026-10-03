@@ -1,5 +1,7 @@
 # Jubian Live Video Model Settings Design
 
+English | [中文](2026-09-21-jubian-live-video-model-settings-design.zh.md)
+
 ## Goal
 
 Make storyboard-native video preparation follow the model, ratio, resolution, generation type, generation count, and duration already saved on the live Jubian storyboard, while validating that exact combination against the current account model catalogue before any paid submission.

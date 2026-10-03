@@ -540,6 +540,13 @@ describe('subagent descriptors', () => {
       label: 'l',
       toolFilter: { except: ['bash'] },
     }, 'toolFilter has unknown field "except"'],
+    ['registry-only future tool filter', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
+      provider: 'spawn',
+      label: 'l',
+      toolFilter: { allow: ['read'], futureDeny: ['late'] },
+    }, 'toolFilter has unknown field "futureDeny"'],
     ['empty tool filter', {
       version: SUBAGENT_DESCRIPTOR_VERSION,
       mode: 'continuable',

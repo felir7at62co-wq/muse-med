@@ -7,18 +7,18 @@ import { desktopUpdateChannel } from './desktop-auto-update-environment.mjs'
 /**
  * List the release tags and Windows metadata files required by a published version.
  * @param {string} version - Genuine product version from update metadata.
- * @param {boolean} legacyRcDiscovery - Whether beta releases must support the released rc clients.
+ * @param {boolean} legacyRcDiscovery - Whether the release must support the released rc clients.
  * @returns {{ tags: string[], metadataFilenames: string[] }} Required discovery tags and channel assets.
  */
 export function desktopGitHubReleaseRequirements(version, legacyRcDiscovery) {
   const channel = desktopUpdateChannel(version)
-  if (!legacyRcDiscovery || channel !== 'beta') {
+  if (!legacyRcDiscovery || !['beta', 'latest'].includes(channel)) {
     return { tags: [`v${version}`], metadataFilenames: [`${channel}.yml`] }
   }
   const [release, ...prerelease] = version.split('-')
   return {
-    tags: [`v${version}`, `v${release}-rc.muse-${prerelease.join('-')}`],
-    metadataFilenames: [`${channel}.yml`, 'rc.yml', 'latest.yml'],
+    tags: [`v${version}`, `v${release}-rc.muse-${prerelease.join('-') || 'stable'}`],
+    metadataFilenames: [...new Set([`${channel}.yml`, 'rc.yml', 'latest.yml'])],
   }
 }
 

@@ -2,7 +2,7 @@
 
 import { contextBridge, ipcRenderer } from 'electron'
 import { DESKTOP_IPC, type DshDesktopPluginApi, type DesktopUpdateState } from './ipc.ts'
-import type { DesktopBackendState } from './backend-controller.ts'
+import type { DesktopBackendState } from './ipc-types.ts'
 
 const api: DshDesktopPluginApi = {
   protocolVersion: 1,

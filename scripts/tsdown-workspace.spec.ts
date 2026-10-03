@@ -28,7 +28,7 @@ describe('root tsdown workspace', () => {
     const workspace = config.match(/workspace: client\s*\?\s*\[([^\]]*)\]\s*:\s*\[([^\]]*)\]/u)
     expect(workspace).not.toBeNull()
     for (const face of workspace!.slice(1)) expect(face).not.toMatch(/['"]apps\/desktop['"]/u)
-    const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8'))
+    const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
     expect(manifest.scripts['build:lib:host']).toContain('tsdown --env.DSH_BUILD_FACE host && pnpm --filter @deepseek-ai/dsh-desktop run bundle')
   })
 

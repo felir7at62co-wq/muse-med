@@ -15,7 +15,7 @@ const STABLE = '0.1.6'
 
 describe('desktop build version', () => {
   it('reads the Muse product version independently from the harness manifests', () => {
-    expect(readDesktopProductVersion()).toBe('1.0.0-beta.1')
+    expect(readDesktopProductVersion()).toBe('1.0.0')
     const root = mkdtempSync(join(tmpdir(), 'muse-version-'))
     try {
       writeFileSync(join(root, 'package.json'), '{"version":"0.1.7-rc.8"}\n')
@@ -25,7 +25,7 @@ describe('desktop build version', () => {
   })
 
   it.each([null, [], {}, { version: 3 }, { version: 'nightly' }, { version: 'v1.0.0' }, { version: '1.0.0+build' },
-    { version: '1.0.0-beta.1', legacyRcDiscovery: 'yes' }, { version: '1.0.0', legacyRcDiscovery: true }])(
+    { version: '1.0.0-beta.1', legacyRcDiscovery: 'yes' }, { version: '1.0.0-alpha.1', legacyRcDiscovery: true }])(
     'rejects invalid product configuration %j', (value) => {
       const root = mkdtempSync(join(tmpdir(), 'muse-version-'))
       try {

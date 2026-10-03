@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+const p = JSON.parse(readFileSync('package.json', 'utf8'));
+assert.equal(p.name, 'muse-hongguo-search');
+assert.equal(p.dsh.bundle.patch, './cordis.patch.yml');
+assert.equal(Object.keys(p.dependencies ?? {}).length, 0);
+for (const key of ['preinstall','install','postinstall','prepare']) assert.equal(p.scripts[key], undefined);
+const [packed] = JSON.parse(execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['pack','--dry-run','--json','--ignore-scripts'], { encoding:'utf8' }));
+for (const f of packed.files) assert.match(f.path, /^(?:src\/[\w./-]+|package\.json|cordis\.patch\.yml|README\.md|LICENSE|SOURCES\.md|CHANGELOG\.md|VALIDATION\.md)$/);
+assert.equal(packed.files.length, 13);
+const hash = createHash('sha256').update(readFileSync('releases/muse-hongguo-search-0.1.0.tgz')).digest('hex');
+assert.equal(hash, '9133f9aa523ef86d7abbf0d9ec8fcdf644c93f2c8f1c70bb3ad0f4a8d7f31dda');
+console.log('13 package files verified; original release SHA256 matches');

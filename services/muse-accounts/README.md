@@ -13,6 +13,8 @@ This directory contains the separately deployed Muse account gateway. It serves 
 
 ## Release inputs
 
+Startup reports the actual loopback port after the gateway begins listening. `MUSE_PORT=0` lets the operating system allocate an available port for isolated deployment checks.
+
 The gateway requires Node 22 or newer and the release-root DSH dependencies used by its account, model, and KB routes. Cloud workspace mode and administrator runtime contexts additionally require the matching `muse-runtime` and `global` release directories; desktop workspace mode does not start a cloud agent. Run `npm ci --omit=dev` in this directory after copying it into each new immutable release; `package-lock.json` pins the TOS SDK and WebSocket transport. `ffprobe` must exist on the server when ASR is enabled. Never copy account databases, KB vaults, credentials, or ASR job ledgers into the release tree.
 
 The service reads a private JSON file named by `MUSE_ASR_CONFIG`. Omit the variable to disable ASR; authenticated ASR calls then return 503. The file must be a regular file, mode 0600 on Linux, and contain these fields:
@@ -43,9 +45,13 @@ Set `MUSE_KB_USER_ROOT` to an existing, owner-only absolute directory outside th
 
 Desktop model access uses the same account session and global model directory as the website. `GET /api/desktop-models/providers` returns public metadata; `POST /api/desktop-models/:provider/chat/completions` accepts the session token as Bearer authentication and requires the configured public Origin. Upstream credentials remain on the server. Active streams default to four per account and thirty-two per gateway process; separate logins to one account share its limit. Set `MUSE_DESKTOP_MODEL_MAX_ACTIVE` to an integer from 1 to 32 and `MUSE_DESKTOP_MODEL_MAX_TOTAL` from 1 to 1,024 before startup; invalid values stop startup. A full limit returns 429 with `Retry-After: 1` before forwarding, while catalog reads remain available. Completion, cancellation, input rejection, or upstream failure releases the slot; logout, account revocation, and session expiry abort active streams. Output remains subject to each model's configured cap. Keep these limits within upstream capacity; extra keys alone do not establish a larger provider allowance, and multiple gateway processes must divide any shared allowance.
 
+The deployed built-in directory supplies Yunying models, including its Gemini and Cloud models groups. Gateway startup exposes only the configured provider directory and adds no separate native DeepSeek supply. Upstream keys remain private server credentials. Desktop custom providers and the separate Codex subscription retain their own credentials and catalogs.
+
 ## Desktop website access
 
-The gateway entry defaults to `MUSE_WORKSPACE_MODE=desktop`. An authenticated browser enters its account's connected desktop through `/api/desktop/connect` and sees **您的电脑上的 Muse 未启动** while offline. There is no computer picker or cloud runtime in this mode. Explicit `MUSE_WORKSPACE_MODE=cloud` retains hosted workrooms; the `createAccountServer` library factory retains that default for existing callers.
+The gateway entry defaults to `MUSE_WORKSPACE_MODE=desktop`. An authenticated browser enters its account's connected desktop through `/api/desktop/connect` and sees **您的电脑上的 Muse 未启动** while offline. There is no computer picker; ordinary browser access starts no cloud agent. Explicit `MUSE_WORKSPACE_MODE=cloud` retains hosted workrooms; the `createAccountServer` library factory retains that default for existing callers.
+
+Explicit administrator account contexts use the existing runtime broker, named by `MUSE_RUNTIME_SOCKET` (default `/run/muse-runtime/broker.sock`), after independent-password elevation. Ordinary desktop routes neither start nor keep alive a cloud workroom. Each administrator context remains bound to its login, target and expiry; another account or later login cannot reuse its grant. These contexts do not change the user's desktop binding.
 
 The desktop authenticates with its Muse cookie and installation UUID. The gateway derives ownership from the session, permits one online installation per account, and persists the binding in the account store. A newly authenticated installation can replace an offline binding; concurrent different installations receive `device-conflict`. Password reset, account disable, logout and expiry revoke the corresponding transport. Browser logout closes its observations without signing out a separately authenticated desktop.
 

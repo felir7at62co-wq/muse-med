@@ -42,6 +42,6 @@ Status: implemented
 
 `packages/drama/skills` 下的 `npm test` 通过（91 + 24 + 55 个测试，exit 0），其中包含新增的 `tests/render/test_draft_delivery_contract.py`（8 个测试，exit 0）：`shots`/`start`/`end` 的时间线被拒绝且不留草稿目录、每镜从正确的时间线取自己的时长、音频段写出 `volume: 1.0`、带标点的输入变成单行无标点且条数与草稿一致的字幕、校验拒绝错误的视频总时长、缺失的时间线与缺失的样式字段。
 
-用第25集的真实素材（audio/25.wav、media/25/p{1,2,3}.mp4、editing/25.srt、editing/25-timeline.json）跑生成器，写出的是 10.042/20.042/20.042 秒的视频段对上 50.208 秒、`volume 1.0` 的音频轨，23 条规范化字幕，并通过自身校验。同一集把时间线字段名换成 `shots`/`start`/`end` 再跑，修复前的生成器（`ec71e65e87`）写出的是三个 5.000 秒段（`target` 0/5/10 秒，共 15.000 秒画面）与 `volume 15` 的音频段，并直接导入 21 条原始 SRT；修复后的生成器按名字拒绝这份文件，且不留草稿。
+用第25集的真实素材（audio/25.wav、media/25/p{1,2,3}.mp4、editing/25.srt、editing/25-timeline.json）跑生成器，写出的是 10.042/20.042/20.042 秒的视频段对上 50.208 秒、`volume 1.0` 的音频轨，23 条规范化字幕，并通过自身校验。同一集把时间线字段名换成 `shots`/`start`/`end` 再跑，修复前的生成器写出的是三个 5.000 秒段（`target` 0/5/10 秒，共 15.000 秒画面）与 `volume 15` 的音频段，并直接导入 21 条原始 SRT；修复后的生成器按名字拒绝这份文件，且不留草稿。
 
 [2026-09-28 交付评审](2026-09-28-short-drama-delivery-defects.zh.md)负责同一次评审里的描边、水印与角色状态决定；本记录负责草稿侧的输入。

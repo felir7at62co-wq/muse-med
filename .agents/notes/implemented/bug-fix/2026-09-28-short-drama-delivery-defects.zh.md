@@ -38,7 +38,7 @@ Status: implemented
 
 四项修复里有两项是提示词与默认值，不是强制。资产身份、所绑版本登记的状态、以及该登记的集数覆盖现在由 `drama_shot` 强制（见[状态门禁](2026-09-28-character-state-gate-at-binding.zh.md)）；资产设定板图片本身、以及没人声明状态的角色，仍依赖技能与工具本就要求的评审。
 
-重新生成 `docs/tool-catalog.md` 同时带正了两行在 HEAD 就已过期的文字：`drama_shot` 的占位值规则（`ff5437838d`）与 workflow `agent()` 的上报契约（`95c98cc31b`）改了工具描述却没有重新生成目录，因此本次改动之前 `verify-tool-catalog` 就是失败的。
+重新生成 `docs/tool-catalog.md` 同时带正了两行在 HEAD 就已过期的文字：`drama_shot` 的占位值规则与 workflow `agent()` 的上报契约改了工具描述却没有重新生成目录，因此本次改动之前 `verify-tool-catalog` 就是失败的。
 
 ## Verification
 

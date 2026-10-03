@@ -129,7 +129,7 @@ describe('JubianTokenSection — writes', () => {
     await screen.findByText(en.saved)
     // The value is sent as typed; the Host is what repairs a paste's padding.
     expect(set).toHaveBeenCalledWith('  eyJhbGci.payload.sig  ')
-    expect((screen.getByLabelText(en.fieldLabel) as HTMLInputElement).value).toBe('')
+    expect(screen.getByLabelText<HTMLInputElement>(en.fieldLabel).value).toBe('')
     expect(screen.getByText(`${en.statusLabel}: ${en.statusConfigured}`)).toBeDefined()
   })
 
@@ -160,7 +160,7 @@ describe('JubianTokenSection — writes', () => {
 
     await screen.findByText(en.cleared)
     expect(unset).toHaveBeenCalledOnce()
-    expect((screen.getByLabelText(en.fieldLabel) as HTMLInputElement).value).toBe('')
+    expect(screen.getByLabelText<HTMLInputElement>(en.fieldLabel).value).toBe('')
     expect(screen.getByText(`${en.statusLabel}: ${en.statusMissing}`)).toBeDefined()
   })
 
@@ -176,7 +176,7 @@ describe('JubianTokenSection — writes', () => {
 
     await screen.findByText(en.failed.replace('{reason}', 'refusing to write a shadowed reference'))
     expect(screen.getByText(`${en.statusLabel}: ${en.statusMissing}`)).toBeDefined()
-    expect((screen.getByLabelText(en.fieldLabel) as HTMLInputElement).value).toBe('a-token')
+    expect(screen.getByLabelText<HTMLInputElement>(en.fieldLabel).value).toBe('a-token')
     await waitFor(() => {
       expect(screen.getByRole('button', { name: en.save }).hasAttribute('disabled')).toBe(false)
     })

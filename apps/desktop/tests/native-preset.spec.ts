@@ -36,15 +36,15 @@ const productPresets = fileURLToPath(new URL('../../desktop-host/presets', impor
  * The filesystem skill provider each packaged composition declares.
  *
  * The Host owns the only provider that selects default roots, so `standard` and
- * `ptc` declare their own row disabled, `cordis` keeps a row serving exactly its
- * own authoring skills with default discovery off, and `minimal` and `editing` declare none.
+ * `ptc` and `editing` declare their own row disabled, `cordis` keeps a row serving
+ * exactly its own authoring skills with default discovery off, and `minimal` declares none.
  */
 const DECLARED_SKILL_PROVIDER: Readonly<Record<string, 'disabled' | 'own-skills' | 'none'>> = {
   'short-drama': 'none',
   standard: 'disabled',
   ptc: 'disabled',
   minimal: 'none',
-  editing: 'none',
+  editing: 'disabled',
   cordis: 'own-skills',
 }
 
@@ -77,9 +77,13 @@ it.each(['short-drama', 'standard'])('includes the product composition %s withou
   await writeFile(wrapper, JSON.stringify([{ name: 'test:native', config: { id: preset, directory: join(productPresets, preset) } }]))
   // Bound to the receiving tree: a `cordis:` builtin resolves through
   // `this.ctx.loader`, so a prototype-bound copy would fail every group row.
-  const originalImport = EntryTree.prototype.import
+  const originalImport: unknown = Reflect.get(EntryTree.prototype, 'import')
+  if (typeof originalImport !== 'function') throw new Error('EntryTree.import must be callable')
   const nativeImport = vi.spyOn(EntryTree.prototype, 'import').mockImplementation(function (this: EntryTree, name, stack) {
-    if (name.startsWith('cordis:')) return originalImport.call(this, name, stack)
+    if (name.startsWith('cordis:')) {
+      const loaded: unknown = Reflect.apply(originalImport, this, [name, stack])
+      return loaded
+    }
     if (name === 'test:native') return NativePreset
     fromNativeTree.push(this instanceof NativePreset)
     imported.push(name)

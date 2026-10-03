@@ -101,6 +101,7 @@ kind: "package-reference"
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：config schema、提供方注册 |
 | [`src/run.ts`](src/run.ts) | SDK 运行生命周期、答案提取与停止原因映射 |
+| [`tests/fixtures/loader/scoped-tool-subagent.ts`](tests/fixtures/loader/scoped-tool-subagent.ts) | Agent 作用域内的委派 fixture；Agent 发布前等待依赖注入完成，随后才开始首轮 |
 
 ### 运行流程
 

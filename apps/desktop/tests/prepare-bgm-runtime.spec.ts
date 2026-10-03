@@ -54,9 +54,8 @@ it('drops bytecode a locked wheel ships while keeping the module source it belon
     await writeFile(join(root, 'numpy/distutils/__pycache__/conv_template.cpython-311.pyc'), 'bytecode')
     await writeFile(join(root, 'numpy/distutils/legacy.pyc'), 'bytecode')
     await pruneUpstreamBytecode(root)
-    expect(await inventory(root)).toEqual([
-      { path: 'numpy/distutils/conv_template.py', bytes: 6, sha256: expect.stringMatching(/^[a-f0-9]{64}$/u) },
-    ])
+    const sha256: unknown = expect.stringMatching(/^[a-f0-9]{64}$/u)
+    expect(await inventory(root)).toEqual([{ path: 'numpy/distutils/conv_template.py', bytes: 6, sha256 }])
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 

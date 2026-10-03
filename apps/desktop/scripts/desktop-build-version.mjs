@@ -30,8 +30,8 @@ export function readDesktopProductConfig(appRoot = fileURLToPath(new URL('..', i
   if (config.legacyRcDiscovery !== undefined && typeof config.legacyRcDiscovery !== 'boolean') {
     throw new Error(`desktop product version: ${path} legacyRcDiscovery must be a boolean`)
   }
-  if (config.legacyRcDiscovery === true && product.prerelease[0] !== 'beta') {
-    throw new Error(`desktop product version: ${path} legacyRcDiscovery requires a beta release`)
+  if (config.legacyRcDiscovery === true && product.prerelease.length > 0 && product.prerelease[0] !== 'beta') {
+    throw new Error(`desktop product version: ${path} legacyRcDiscovery requires a stable or beta release`)
   }
   return { version: product.version, legacyRcDiscovery: config.legacyRcDiscovery === true }
 }

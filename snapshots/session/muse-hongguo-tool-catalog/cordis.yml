@@ -1,0 +1,8 @@
+# Read-only metadata registration; the recorded response makes no website requests.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: muse-hongguo-search
+      name: '../../../third_party/plugins/muse-hongguo-search/src/index.js'

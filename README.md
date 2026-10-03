@@ -62,7 +62,7 @@ pnpm muse:desktop:start
 ## Community and support
 
 - Report muse-med issues in the [muse-med repository](https://github.com/felir7at62co-wq/muse-med/issues).
-- For upstream dsh questions, use [DeepSeek Harness Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) or its [Discord community](https://discord.gg/Ycq5dCaS4).
+- For upstream dsh questions, use [DeepSeek Harness Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) or its [Discord community](https://discord.gg/4MrtZUhpxg).
 - Add the [`dsh-plugin`](https://github.com/topics/dsh-plugin) topic to interoperable plugin repositories.
 
 ## Contributing

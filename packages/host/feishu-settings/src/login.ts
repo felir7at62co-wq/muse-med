@@ -139,7 +139,7 @@ export class FeishuLoginFlow {
       },
     })
     void this.#settle(call, entry, fail)
-    const timer = setTimeout(() => fail(new FeishuLoginError('no-qr')), this.options.qrTimeoutMs ?? DEFAULT_QR_TIMEOUT_MS)
+    const timer = setTimeout(() => { fail(new FeishuLoginError('no-qr')) }, this.options.qrTimeoutMs ?? DEFAULT_QR_TIMEOUT_MS)
     try {
       return await ready
     } catch (error) {

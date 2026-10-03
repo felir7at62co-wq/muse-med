@@ -89,6 +89,8 @@ kind: "package-reference"
 
 每条记录带着"当前这次回归已经播报过的名字"。一次没发现缺失的比对会重新武装该记录，因此之后再发生回归还会播报；一次发现同一回归已播报过的比对则静默返回。只有在某个渠道接受之后才会标记为已报告，因此一条谁也没收到的播报会在下一次更新时重试，而不是被当作已送达。
 
+持久化的 `composition-guard` source 为注入的 user 消息记录归属。未安装此生产者的读取器保留其 `kind`、`form`、`summary` 及其他 JSON 元数据，并从记录的正文重建警告。notice 形式与摘要描述会话记录展示；它们不授予权限，也不控制工具可用性、基线校验或重复抑制。这些决策使用运行时记录集。
+
 ### Source map
 
 | File | Role |
@@ -108,7 +110,7 @@ kind: "package-reference"
 
 - [Tools subsystem reference](../../../docs/subsystems/tools.zh.md) — `ctx.tools.schemas()` 所解析的注册表视图与作用域层。
 - [Agent presets package](../../preset/agent-preset/README.zh.md) — 被冻结的 agent 可能失去其注册的常驻挂载。
-- [Live-reload port traps Agent Note](../../../.agents/notes/implemented/architecture/2026-09-17-product-capability-plane-and-port-traps.zh.md) — 实测到的缺陷、其证据，以及为什么恢复方式是重启。
+- [已归档的热加载移植事故英文记录](../../../.agents/notes/archived/architecture/2026-09-17-product-capability-plane-and-port-traps.md) — 工具撤回缺陷及重启恢复的历史测量记录。
 - [Composition guard Agent Note](../../../.agents/notes/implemented/architecture/2026-09-17-composition-guard-detects-live-tool-withdrawal.zh.md) — 本守卫能做与不能做什么，以及它否决的备选方案。
 - [guard group map](../README.zh.md) — 兄弟守卫包与 loop-hygiene 家族。
 

@@ -43,7 +43,7 @@ const same = (left: string, right: string): boolean => left.toLowerCase() === ri
  */
 export async function verifiedDirectory(path: string, label: string): Promise<string> {
   if (typeof path !== 'string' || !path.trim() || !isAbsolute(path)) {
-    throw new DomainRecordError('INVALID_ARGUMENT', `${label} must be an absolute path, received '${String(path)}'`)
+    throw new DomainRecordError('INVALID_ARGUMENT', `${label} must be an absolute path, received '${path}'`)
   }
   if (!existsSync(path)) throw new DomainRecordError('NOT_FOUND', `${label} '${path}' does not exist`)
   const info = await lstat(path)

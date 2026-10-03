@@ -192,7 +192,9 @@ The tool layer turns an error code into readable text for the model and **never 
 
 ## 8. HTTP client contract
 
-```ts
+This design sketch omits method implementations and the project-local `JubianLedger` and `JsonObject` declarations.
+
+```ts ignore-check
 class JubianClient {
   constructor(options: {
     credential: () => Promise<string>   // 注入式；tool-jubian 注 credentials，测试注固定值

@@ -45,6 +45,10 @@ it('an actual Agent inherits bundled skills without legacy environment roots sha
     vi.stubEnv('DSH_BUNDLED_SKILL_DIR', inherited)
     const hostProvider = loadOverlayPatches('muse-med', patch).find(row => row.id === 'skill-filesystem')
     expect(hostProvider).toMatchObject({ disabled: false, config: { includeDefaultRoots: false } })
+    const hostConfig: unknown = hostProvider?.config
+    if (hostConfig === null || typeof hostConfig !== 'object' || Array.isArray(hostConfig)) {
+      throw new Error('The product filesystem skill provider must declare an object config')
+    }
     const rows = yaml.load(await readFile(preset, 'utf8'), { schema: entryListSchema }) as Array<{ name: string }>
     // This fixture mounts the actual product's entire skill contribution, not its shell/model/media rows.
     const skillRows = rows.filter(row => ['@deepseek-ai/dsh-skill-filesystem', '@deepseek-ai/dsh-tool-skill'].includes(row.name))
@@ -59,7 +63,7 @@ it('an actual Agent inherits bundled skills without legacy environment roots sha
       ...['llm', 'sessions', 'projections', 'prompt', 'tools', 'agents', 'loop', 'skills'].map(id => ({
         id, name: `test:${id}`, ...(id === 'loop' ? { config: { agents: [] } } : {}),
       })),
-      { ...hostProvider, name: '@deepseek-ai/dsh-skill-filesystem', config: { ...hostProvider?.config, bundledSkillDir: bundled, watch: false } },
+      { ...hostProvider, name: '@deepseek-ai/dsh-skill-filesystem', config: { ...hostConfig, bundledSkillDir: bundled, watch: false } },
       { id: 'presets', name: 'test:presets', config: { default: 'product-skills' } },
       { id: 'preset-product-skills', name: 'test:native', config: { id: 'product-skills', directory: join(presetRoot, 'product-skills') } },
     ]))
@@ -84,7 +88,8 @@ it('an actual Agent inherits bundled skills without legacy environment roots sha
       setup: async (agentCtx) => { await ctx.agentPresets.mount(agentCtx) } })
     const options = { scope: scopeOf(handle.agent.ctx) }
     expect((await ctx.skills.list(options)).map(skill => skill.name)).toEqual(['shared-skill'])
-    expect(await ctx.skills.get('shared-skill', options)).toMatchObject({ source: 'bundled', content: expect.stringContaining('product body') })
+    const content: unknown = expect.stringContaining('product body')
+    expect(await ctx.skills.get('shared-skill', options)).toMatchObject({ source: 'bundled', content })
   } finally {
     vi.unstubAllEnvs()
     try {

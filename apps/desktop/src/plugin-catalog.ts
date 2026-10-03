@@ -6,30 +6,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { DESKTOP_SOURCE_PLUGINS } from './core-package-set.ts'
 import { packageNameFromSpec } from './project-manager.ts'
-
-/** One immutable community package shipped with the application. */
-export interface DesktopBundledPlugin {
-  readonly name: string
-  readonly version: string
-  /** Whether the profile mounts its bundle; settings may still leave its feature disabled. */
-  readonly mounted: boolean
-}
-
-/** Validated public metadata, never an executable catalog installation command. */
-export interface DesktopCatalogPlugin {
-  readonly name: string
-  readonly description: Readonly<Partial<Record<'en' | 'zh', string>>>
-  readonly repository: string
-  readonly npm?: string
-  readonly bundled: boolean
-}
-
-/** Shell-owned discovery response; local inventory remains available without a network request. */
-export interface DesktopPluginCatalog {
-  readonly canInstall: boolean
-  readonly bundled: readonly DesktopBundledPlugin[]
-  readonly plugins: readonly DesktopCatalogPlugin[]
-}
+import type { DesktopBundledPlugin, DesktopCatalogPlugin, DesktopPluginCatalog } from './ipc-types.ts'
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -107,6 +84,6 @@ export async function desktopPluginCatalog(runtimeDir: string, projectDir: strin
   const require = createRequire(join(runtimeDir, 'package.json'))
   const module: unknown = await import(pathToFileURL(require.resolve('dshmarket/catalog')).href)
   if (!record(module) || typeof module.loadRegistry !== 'function') throw new Error('desktop catalog: bundled loader unavailable')
-  const registry: unknown = await module.loadRegistry()
+  const registry: unknown = await Reflect.apply(module.loadRegistry, module, [])
   return { bundled, plugins: parseCatalog(registry) }
 }

@@ -41,7 +41,7 @@ kind: "package-group"
 - [工具子系统参考](../../docs/subsystems/tools.zh.md)——各 guard 所依赖的工具调用流水线与作用域视图。
 - [生成配置目录](../../docs/config-catalog.zh.md#deepseek-aidsh-repeat-tool-reminder)——重复调用提醒的每个受支持字段。
 - [超时截止时间库 Agent Note](../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.zh.md)——`timeout-policy` 所执行的时序／终止拆分。
-- [热加载移植陷阱 Agent Note](../../.agents/notes/implemented/architecture/2026-09-17-product-capability-plane-and-port-traps.zh.md)——`composition-guard` 所检测的缺陷，以及为什么只有重启才能恢复。
+- [已归档的热加载移植事故英文记录](../../.agents/notes/archived/architecture/2026-09-17-product-capability-plane-and-port-traps.md)——`composition-guard` 所检测的工具撤回缺陷的历史证据。
 
 <a id="dev-note"></a>
 ## 开发备注

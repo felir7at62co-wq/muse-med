@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for 2026-09-21-drama-render-file-capture-design.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/superpowers/specs/2026-09-21-drama-render-file-capture-design.md
+/drama-render-file-capture-design:
+  en: 3cd14f5468ea735a
+  zh: 324253bca1781aed
+/drama-render-file-capture-design/problem:
+  en: 7137ff086d86965a
+  zh: f85e247156d45ba3
+/drama-render-file-capture-design/approved-approach:
+  en: d76584f68a5dfc67
+  zh: 4f270deec92e6ce7
+/drama-render-file-capture-design/acceptance-criteria:
+  en: 00f8fbaad0c3b263
+  zh: cd507aeed17790ef

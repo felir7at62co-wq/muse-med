@@ -27,8 +27,8 @@ export type * from './types.ts'
 /** Cordis plugin name used by Loader diagnostics. */
 export const name = 'muse-account'
 
-/** Registries for account-authorized models and bundled MCP tools. */
-export const inject = ['tools', 'llm']
+/** Registries, Session model state and default selection used by account-authorized requests. */
+export const inject = ['tools', 'llm', 'sessionProjections', 'agentDefaultModel']
 
 /** Product-configured gateway and optional account storage directory. */
 export interface Config {

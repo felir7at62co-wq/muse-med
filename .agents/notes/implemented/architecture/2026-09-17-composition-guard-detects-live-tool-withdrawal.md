@@ -8,7 +8,7 @@ English | [中文](2026-09-17-composition-guard-detects-live-tool-withdrawal.zh.
 
 A host-plane composition change under a running host can withdraw the tools an already-published agent resolves through its scope chain. The framework does not re-compose a standing mount in process, so the withdrawal is permanent for that session: a later host restart does not heal it either, because the agent's tool view resolves through the scope chain the published agent already holds. Re-selecting the session's preset is refused once it has taken a turn (`agent-preset/locked`, `session "<id>" has already started; its agent preset is fixed`).
 
-The defect and its measured evidence are recorded in [the port-traps Agent Note](2026-09-17-product-capability-plane-and-port-traps.md), which also states the recovery available today: a cold restart, or a new session. That note closes by saying the durable fix — re-registering withdrawn host-plane rows for already-materialized agents — belongs in the harness core and has no committed owner.
+The archived [port-traps Agent Note](../../archived/architecture/2026-09-17-product-capability-plane-and-port-traps.md) records the original withdrawal defect, its measured evidence, and the cold restart or new-session recovery assessed during that port.
 
 What it left open is the interval between the withdrawal and the person noticing. The failure is silent from the affected session's side: the model simply stops having the tools, and the first evidence is usually a request the session cannot carry out. A user who is mid-task has no signal that anything changed, no way to tell this apart from their own mistake, and no statement of what to do.
 

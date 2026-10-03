@@ -16,6 +16,7 @@ export const DESKTOP_HOST_PACKAGE = '@deepseek-ai/dsh-desktop-host'
 /** Package-relative Desktop Host files required before a profile can boot. */
 export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
+  'lib/cli.js',
   'config/desktop.cordis.patch.yml',
   'config/defaults.cordis.patch.yml',
   'presets/short-drama/agent.cordis.yml',
@@ -48,6 +49,7 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
 export const DESKTOP_SOURCE_PLUGINS = [
   'dshmarket', 'dsh-codex-subscription', 'dsh-ffmpeg',
   '@mengyuly/dsh-ponytail', '@wenbin_wb/dsh-bridge', 'dsh-skill-mcp-panel',
+  'muse-hongguo-search',
 ] as const
 
 /** One immutable npm tarball in the Desktop core package set. */

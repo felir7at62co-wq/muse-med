@@ -37,7 +37,7 @@ function stubClient(respond: (path: string) => Response) {
   const calls: { method: string; path: string }[] = []
   const client = new JubianClient({ credential: async () => 'token',
     fetch: async (url: string | URL | Request, init?: RequestInit) => {
-      const path = String(url)
+      const path = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url
       calls.push({ method: String(init?.method), path })
       return respond(path)
     } })

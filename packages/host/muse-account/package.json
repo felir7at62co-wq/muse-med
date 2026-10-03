@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-muse-account",
   "description": "Muse Desktop account sign-in, authorized knowledge-base tools, and Host cloud speech access",
-  "version": "0.1.7-rc.8",
+  "version": "0.2.0-rc.2",
   "publishConfig": {
     "access": "public"
   },

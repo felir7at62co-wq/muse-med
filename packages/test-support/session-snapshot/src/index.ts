@@ -74,6 +74,7 @@ export {
 export {
   assertPersistedSessionVersion,
   assertSessionFixtureVersion,
+  hydrateSessionFixtureCwd,
   latestPersistedSessionPaths,
   parsePersistedSessionFilename,
   parseSessionFixtureName,

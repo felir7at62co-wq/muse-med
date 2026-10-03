@@ -41,7 +41,7 @@ export interface DesktopUploadArtifact {
 export interface DesktopGitHubReleasePlan {
   readonly tag: string
   readonly version: string
-  readonly prerelease: true
+  readonly prerelease: boolean
   readonly discovery: 'product' | 'legacy-rc'
   readonly binaryFilenames: readonly string[]
   readonly metadataFiles: readonly { readonly filename: string; readonly contents: string }[]
@@ -52,6 +52,7 @@ export interface DesktopUploadPlan {
   readonly environment: 'test' | 'production'
   readonly target: DesktopPackageTargetName
   readonly version: string
+  /** Update feed directory URL, or the single installer URL for a fixed download. */
   readonly publicUrl: string
   readonly bucket: string
   readonly secretIdEnvName: string
@@ -67,6 +68,8 @@ export interface DesktopUploadPlan {
 
 /** Filesystem and environment inputs used to validate one upload. */
 export interface DesktopUploadPlanOptions {
+  /** Publish only the installer at its fixed download URL, replacing the previous object. */
+  readonly latest?: boolean
   readonly environment?: NodeJS.ProcessEnv
   readonly repositoryRoot?: string
   readonly appRoot?: string
@@ -182,7 +185,7 @@ function uploadArtifact(
  * Validate the completed package record, dsh version, update metadata, hashes, and target files.
  * @param targetName - Fixed platform and architecture selected by the upload command.
  * @param options - Optional filesystem roots and environment for tests or release automation.
- * @returns An upload plan whose mutable channel metadata is the final entry.
+ * @returns A fixed installer upload or an update plan with channel metadata ordered last.
  */
 export async function createDesktopUploadPlan(
   targetName: DesktopPackageTargetName,
@@ -253,23 +256,26 @@ export async function createDesktopUploadPlan(
   const updaterPath = await verifyChecksummedArtifact(artifactsRoot, updaterInfo)
   const artifacts: DesktopUploadArtifact[] = []
   const binaryPrefix = update.binaryKeyPrefix
+  let installerArtifact: DesktopUploadArtifact
 
   if (target.platform === 'darwin') {
     const dmgPath = await requireArtifact(artifactsRoot, `${base}.dmg`)
     const blockmapPath = await requireArtifact(artifactsRoot, `${base}.zip.blockmap`)
+    installerArtifact = uploadArtifact(dmgPath, binaryPrefix, 'application/x-apple-diskimage')
     artifacts.push(
-      uploadArtifact(dmgPath, binaryPrefix, 'application/x-apple-diskimage'),
+      installerArtifact,
       uploadArtifact(updaterPath, binaryPrefix, 'application/zip'),
       uploadArtifact(blockmapPath, binaryPrefix, 'application/octet-stream'),
     )
   }
   else {
     const blockmapPath = await requireArtifact(artifactsRoot, `${base}.exe.blockmap`)
-    artifacts.push(uploadArtifact(
+    installerArtifact = uploadArtifact(
       updaterPath,
       binaryPrefix,
       'application/vnd.microsoft.portable-executable',
-    ))
+    )
+    artifacts.push(installerArtifact)
     artifacts.push(uploadArtifact(blockmapPath, binaryPrefix, 'application/octet-stream'))
   }
 
@@ -287,31 +293,33 @@ export async function createDesktopUploadPlan(
   let githubReleases: readonly DesktopGitHubReleasePlan[] | undefined
   if (product.legacyRcDiscovery) {
     const suffix = target.platform === 'darwin' ? '-mac' : ''
-    const metadataFilenames = [metadataFilename, `rc${suffix}.yml`, `latest${suffix}.yml`]
+    const metadataFilenames = [...new Set([metadataFilename, `rc${suffix}.yml`, `latest${suffix}.yml`])]
     for (const filename of metadataFilenames.slice(1)) {
       artifacts.push({ ...channelArtifact, filename, key: `${update.keyPrefix}/${filename}` })
     }
     const [release, ...prerelease] = buildVersion.split('-')
     const shared = {
-      version: buildVersion, prerelease: true as const,
+      version: buildVersion,
       binaryFilenames: artifacts.filter(artifact => !artifact.channelMetadata).map(artifact => artifact.filename),
       metadataFiles: metadataFilenames.map(filename => ({ filename, contents: dump(metadata) })),
     }
     githubReleases = [
-      { ...shared, tag: `v${buildVersion}`, discovery: 'product' },
-      { ...shared, tag: `v${release}-rc.muse-${prerelease.join('-')}`, discovery: 'legacy-rc' },
+      { ...shared, prerelease: prerelease.length > 0, tag: `v${buildVersion}`, discovery: 'product' },
+      { ...shared, prerelease: true, tag: `v${release}-rc.muse-${prerelease.join('-') || 'stable'}`, discovery: 'legacy-rc' },
     ]
   }
+  const latestFilename = `dsh-latest-${target.platform === 'darwin' ? 'macos' : 'windows'}-${target.arch}.${target.platform === 'darwin' ? 'dmg' : 'exe'}`
+  const latestKey = `desktop/${latestFilename}`
   return {
     environment: update.environment,
     target: targetName,
     version: buildVersion,
-    publicUrl: update.publicUrl,
+    publicUrl: options.latest ? `${update.origin}/${latestKey}` : update.publicUrl,
     bucket: update.bucket,
     secretIdEnvName: update.secretIdEnvName,
     secretKeyEnvName: update.secretKeyEnvName,
-    artifacts,
-    ...(githubReleases === undefined ? {} : { githubReleases }),
+    artifacts: options.latest ? [{ ...installerArtifact, filename: latestFilename, key: latestKey }] : artifacts,
+    ...(githubReleases === undefined || options.latest ? {} : { githubReleases }),
     ...typeof buildRecord.commit === 'string' ? { commit: buildRecord.commit } : {},
     ...typeof buildRecord.dirty === 'boolean' ? { dirty: buildRecord.dirty } : {},
   }

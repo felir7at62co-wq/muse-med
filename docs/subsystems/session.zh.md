@@ -831,6 +831,14 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
 @Remote('selectModel') selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue>
 
 /**
+ * Replace a Session model only when its complete current selection matches the observed value.
+ * @param request - Session identity and proposed replacement.
+ * @param expected - provider, model, and optional reasoning choice observed by the Host caller.
+ * @returns the normalized replacement, or undefined when a newer selection must be retained.
+ */
+selectModelIfCurrent(request: SessionSelectModelRequest, expected: ModelSelection): Promise<SessionSelectModelValue | undefined>
+
+/**
  * Select the first available account model after login when no provider API key is configured.
  * @returns after saving the first available model or retaining the existing default.
  */
@@ -950,7 +958,7 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 @Remote({ mode: 'stream' }) control(signal: AbortSignal): AsyncIterable<SessionControlFrame>
 ```
 
-Types: [SessionId](core.zh.md) · [SessionInspection](persistence.zh.md) · [SessionSearchRequest](session-query.zh.md)
+Types: [ModelSelection](core.zh.md) · [SessionId](core.zh.md) · [SessionInspection](persistence.zh.md) · [SessionSearchRequest](session-query.zh.md)
 
 Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
 

@@ -33,13 +33,7 @@ import {
   unlinkDesktopHostPackages, validateDesktopPluginGraph, type DesktopProfileState,
 } from './profile-packages.ts'
 import { sanitizeProfile } from '@deepseek-ai/dsh-app-boot'
-
-/** Desktop plugin record derived from the installed profile. */
-export interface DesktopPluginRecord {
-  readonly name: string
-  readonly version: string
-  readonly enabled: boolean
-}
+import type { DesktopPluginRecord } from './ipc-types.ts'
 
 /** Installed desktop project manifest slice. */
 interface DesktopProjectManifest {
@@ -85,7 +79,7 @@ const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
 const DESKTOP_PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
   'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@wenbin_wb/dsh-bridge',
-  '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host',
+  '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\nstrictDepBuilds: true\n'

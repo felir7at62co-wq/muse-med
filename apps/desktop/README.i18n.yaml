@@ -3,35 +3,47 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
 /muse-desktop:
-  en: 37d75ed8d2d89ad4
-  zh: f1de0cf3c492b11f
+  en: da11dafafc9eabb8
+  zh: 8b6700e3acdf2ced
+/muse-desktop/terminal-command:
+  en: bef92953c237363f
+  zh: d21d6effd21b8c00
+/muse-desktop/closing-the-window-and-quitting:
+  en: 20c16ecb7a9ce740
+  zh: 1848813018d62046
 /muse-desktop/key-technical-decisions:
   en: 0cd23a46f0d847c6
   zh: 0a9ab4b1b00b59d7
 /muse-desktop/key-technical-decisions/bundled-workspace-dependencies:
-  en: 5eaf8f421f98f1f1
-  zh: d4229ff1226a5de7
+  en: ac001052562b1766
+  zh: 94b013b5dd84433b
+/muse-desktop/bundled-command-runtime:
+  en: 7b47665bc6b068bb
+  zh: 977d0aae5ced092e
 /muse-desktop/installation-ownership:
-  en: 4fbe0561b1354088
-  zh: 6a460d1ef4d33564
+  en: 712bda39b1183755
+  zh: b73181927a66c282
 /muse-desktop/installation-ownership/short-drama-resources-and-limits:
   en: a07c1344f1b76837
   zh: 378a84a367ecec6c
 /muse-desktop/installation-ownership/runtime-and-plugin-activation:
-  en: 5d0296fe6aac249c
-  zh: e41893f6b460e051
+  en: 5c07a831c36c8aab
+  zh: 21ae02d6dfa7b00e
+/muse-desktop/installation-ownership/host-environment:
+  en: cb3c06f2fcc235c2
+  zh: c2a5c9a46ded324f
 /muse-desktop/develop:
-  en: d671eb5af7956ef1
-  zh: a64fa6dbb71df970
+  en: 7216700b8cd7dc62
+  zh: 6429306daba5853c
 /muse-desktop/develop/startup-onboarding:
-  en: 8d77694098c9e172
-  zh: d5e5396c171575bb
+  en: f73943085beb2bf8
+  zh: 8c875090674fdc7d
 /muse-desktop/package:
   en: 4cd8a8da6977928d
   zh: 9f624855a2edac37
 /muse-desktop/package/release-versions:
-  en: c354450c9375cc1f
-  zh: 781d6b38564c4e43
+  en: 6cea324d3880b5d7
+  zh: 0ee79a7ab65ac196
 /muse-desktop/package/resuming-a-failed-run:
   en: 0a20368ae8ad048e
   zh: 09f45a0c214e7d6a
@@ -39,8 +51,8 @@
   en: 93744cf863c9e689
   zh: c46b4d563ae54fab
 /muse-desktop/package/upload-updates:
-  en: fec453bc31fb643f
-  zh: 6f0b31a15be666cb
+  en: d261e6900017f972
+  zh: 7a0ee75714675ce1
 /muse-desktop/package/unsigned-windows-test-installer:
   en: f7b8790912269e39
   zh: 86cc93942730c5d4

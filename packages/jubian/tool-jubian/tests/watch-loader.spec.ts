@@ -59,7 +59,7 @@ it('returns immediately, reaches idle, then delivers the jobs notice in a second
   const pending = new Promise<void>((resolve) => { release = resolve })
   const calls: string[] = []
   const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
-    const path = String(url)
+    const path = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url
     if (!path.startsWith('https://watch.invalid/')) throw new Error(`Unexpected URL ${path}`)
     calls.push(`${init!.method} ${path}`)
     await pending

@@ -375,6 +375,8 @@ This section explains how the row is built; the observable behavior is fully cov
 
 The Client TypeScript project references `dsh-jubian`, which owns the shared project-budget types used by the generated Remote declarations. That project emits these types under its own `lib/types` directory.
 
+Host calls to `dsh-tools`, `dsh-credentials`, `dsh-jubian`, and `dsh-jubian-api` resolve through peer dependencies. The deployment supplies shared transport and error constructors and one ledger queue per resolved root; installing independent package copies must not split those same-runtime reservations.
+
 ### Design philosophy
 
 The package is built on three decisions:

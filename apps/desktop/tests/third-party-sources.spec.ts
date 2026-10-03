@@ -1,4 +1,5 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
@@ -17,11 +18,12 @@ it('retains pinned community source and licenses without installed runtime data'
   const pins = JSON.parse(await readFile(join(root, 'sources.json'), 'utf8')) as Record<string, {
     repository: string
     version: string
-    commit: string
+    commit?: string
+    archiveSha256?: string
     license: string
   }>
   expect(Object.keys(pins).sort()).toEqual([
-    'dsh-bridge', 'dsh-codex-subscription', 'dsh-ffmpeg', 'dsh-ponytail', 'dsh-skill-mcp-panel', 'dshmarket',
+    'dsh-bridge', 'dsh-codex-subscription', 'dsh-ffmpeg', 'dsh-ponytail', 'dsh-skill-mcp-panel', 'dshmarket', 'muse-hongguo-search',
   ])
   for (const [directory, pin] of Object.entries(pins)) {
     const sourceDir = join(root, directory)
@@ -31,7 +33,12 @@ it('retains pinned community source and licenses without installed runtime data'
     }
     expect(manifest.version, directory).toBe(pin.version)
     expect(manifest.license, directory).toBe(pin.license)
-    expect(pin.commit, directory).toMatch(/^[a-f0-9]{40}$/)
+    if (directory === 'muse-hongguo-search') {
+      expect(pin.commit).toBeUndefined()
+      expect(pin.archiveSha256).toMatch(/^[a-f0-9]{64}$/)
+      const archive = await readFile(join(sourceDir, 'releases/muse-hongguo-search-0.1.0.tgz'))
+      expect(createHash('sha256').update(archive).digest('hex')).toBe(pin.archiveSha256)
+    } else expect(pin.commit, directory).toMatch(/^[a-f0-9]{40}$/)
     expect(pin.repository, directory).toMatch(/^https:\/\/github\.com\//)
     expect((await stat(join(sourceDir, directory === 'dsh-bridge' ? 'lib' : 'src'))).isDirectory(), directory).toBe(true)
     expect((await readFile(join(sourceDir, 'LICENSE'), 'utf8')).length, directory).toBeGreaterThan(0)

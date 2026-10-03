@@ -1,0 +1,8 @@
+version: 1
+scenario: muse-hongguo-tool-catalog
+profile: headless
+composition: muse-hongguo-tool-catalog
+recording: authored
+header:
+  class: muse-hongguo-tool-catalog
+  pin: true

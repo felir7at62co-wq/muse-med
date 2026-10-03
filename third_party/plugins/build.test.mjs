@@ -89,20 +89,26 @@ test('builds every pinned plugin with its declared runtime entries and notices',
       assert.equal(list.status, 0)
       assert.match(list.stdout, /package\/LICENSE/)
       assert.match(list.stdout, /package\/SOURCE.json/)
-      assert.match(list.stdout, /package\/lib\/index.js/)
       const packedManifest = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/package.json'], { encoding: 'utf8' })
       assert.equal(packedManifest.status, 0)
       const manifest = JSON.parse(packedManifest.stdout)
+      assert.ok(list.stdout.split(/\r?\n/).includes(`package/${manifest.main.replace(/^\.\//u, '')}`))
       const original = originals.get(manifest.name)
       assert.ok(original)
       assert.deepEqual(manifest.scripts, {})
+      if (manifest.name === 'muse-hongguo-search') {
+        assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-tools'], '0.2.0-rc.2')
+        assert.match(list.stdout, /package\/src\/index.js/)
+        assert.doesNotMatch(list.stdout, /node_modules|\.env|\.git\//)
+      }
       if (manifest.name === 'dsh-skill-mcp-panel') {
         assert.equal(manifest.bin, undefined)
         assert.match(list.stdout, /package\/lib\/client.js/)
       }
       for (const [dependency, range] of Object.entries(original.peerDependencies ?? {})) {
-        const expected = dependency.startsWith('@deepseek-ai/dsh-') && !range.split(' || ').includes('0.1.7-rc.8')
-          ? `${range} || 0.1.7-rc.8` : range
+        const expected = dependency === '@earendil-works/pi-ai' ? '0.87.1'
+          : (dependency === '@deepseek-ai/dsh' || dependency.startsWith('@deepseek-ai/dsh-')) && !range.split(' || ').includes('0.2.0-rc.2')
+            ? `${range} || 0.2.0-rc.2` : range
         assert.equal(manifest.peerDependencies[dependency], expected)
       }
       const entries = value => typeof value === 'string' ? [value] : value && typeof value === 'object' ? Object.values(value).flatMap(entries) : []
@@ -117,13 +123,13 @@ test('builds every pinned plugin with its declared runtime entries and notices',
         assert.match(pinnedCodexRuntime, /SUBAGENT_RUNTIME_VERSION = '0\.1\.5-rc\.3'/)
         const runtime = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/lib/index.js'], { encoding: 'utf8' })
         assert.equal(runtime.status, 0)
-        assert.match(runtime.stdout, /0\.1\.7-rc\.8/)
+        assert.match(runtime.stdout, /0\.2\.0-rc\.2/)
         assert.doesNotMatch(runtime.stdout, /0\.1\.5-rc\.3/)
         assert.match(runtime.stdout, /codexFilesystemPath/)
         const metadata = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/SOURCE.json'], { encoding: 'utf8' })
         assert.equal(metadata.status, 0)
         assert.deepEqual(JSON.parse(metadata.stdout).compatibilityOverlay, {
-          subagentRuntimeVersion: '0.1.7-rc.8', codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true,
+          subagentRuntimeVersion: '0.2.0-rc.2', piAiVersion: '0.87.1', piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true,
         })
       }
     }

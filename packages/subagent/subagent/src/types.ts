@@ -13,8 +13,8 @@ import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import type { ObjectJsonSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
-import type { SubagentDescriptorData } from './descriptor.ts'
+import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
+import type { SubagentDescriptorData, SubagentToolRestriction } from './descriptor.ts'
 
 /** Identifies one accepted subagent run across its lifecycle event pair. */
 export type SubagentRunId = Branded<'SubagentRunId'>
@@ -189,7 +189,7 @@ export interface SubagentStartRequest {
    * from the child's prompt AND refuse to execute (one visibility), with loud
    * unknown-name validation.
    */
-  readonly toolFilter?: ToolRestriction
+  readonly toolFilter?: SubagentToolRestriction
   /**
    * Optional per-child persona. Requires {@link SubagentCapabilities.persona};
    * rejected at start otherwise. In-process backends register it as a scoped

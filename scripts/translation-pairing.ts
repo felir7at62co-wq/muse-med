@@ -133,6 +133,7 @@ const UPSTREAM_PLUGIN_DIRECTORIES = [
   'third_party/plugins/dsh-bridge/',
   'third_party/plugins/dsh-ffmpeg/',
   'third_party/plugins/dsh-skill-mcp-panel/',
+  'third_party/plugins/muse-hongguo-search/',
 ]
 
 /** Glob traversal exclusions corresponding to the non-source path predicate. */

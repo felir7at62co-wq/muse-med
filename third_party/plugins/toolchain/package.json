@@ -3,6 +3,11 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "build": "node ../build.mjs",
+    "test:build": "node --test ../build.test.mjs ../hongguo-build.test.mjs",
+    "test:hongguo": "node --test ../hongguo-build.test.mjs"
+  },
   "dependencies": {
     "@earendil-works/pi-ai": "0.85.1",
     "@heroicons/react": "2.2.0",

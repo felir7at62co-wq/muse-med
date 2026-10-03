@@ -1,0 +1,4 @@
+# 由 dsh plugin add 自动加入目标 profile；无需修改 Muse 主仓库。
+- insert:
+    - id: muse-hongguo-search
+      name: './src/index.js'

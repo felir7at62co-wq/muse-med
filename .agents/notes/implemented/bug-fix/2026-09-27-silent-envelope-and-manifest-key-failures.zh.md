@@ -8,7 +8,7 @@ Status: implemented
 
 组员在 alpha.3 构建上撞到的两个失败，都是"给出了结论、却扣下了能定位它的事实"。
 
-**读取层抛的是裸错误码。** `Jubian response did not match the expected envelope` 在组员会话里出现 36 次，从 `13:41:10` 一直到 `17:30:42`——整整一个工作日，而且就发生在下文那个修复已经ship的构建上——横跨 `jubian_storyboard`、`jubian_video`、`jubian_media`、`jubian_catalog` 与 `jubian_model`。这 36 条报文一模一样，而该会话里 `DSH_JUBIAN_DEBUG_DUMP` 出现 0 次，因为没有任何一句话提到过它。[324eadaa34](2026-09-28-jubian-unreadable-response-diagnostics.zh.md) 已经给传输层加了脱敏结构摘要，但传输层只管信封：它把 `data` 交给 reader，而 `@deepseek-ai/dsh-jubian-api` 里每个 reader 抛的都是不带 detail 的 `new JubianError('CONTRACT_CHANGED')`。十一个 reader 模块各自声明了一个无参数的 `invalid()`，于是"传输层接受了、reader 用不了"的载荷只会产出那一句既不点名端点、也不点名字段的话。
+**读取层抛的是裸错误码。** `Jubian response did not match the expected envelope` 在组员会话里出现 36 次，从 `13:41:10` 一直到 `17:30:42`——整整一个工作日，而且就发生在下文那个修复已经ship的构建上——横跨 `jubian_storyboard`、`jubian_video`、`jubian_media`、`jubian_catalog` 与 `jubian_model`。这 36 条报文一模一样，而该会话里 `DSH_JUBIAN_DEBUG_DUMP` 出现 0 次，因为没有任何一句话提到过它。[传输诊断](2026-09-28-jubian-unreadable-response-diagnostics.zh.md) 已经给传输层加了脱敏结构摘要，但传输层只管信封：它把 `data` 交给 reader，而 `@deepseek-ai/dsh-jubian-api` 里每个 reader 抛的都是不带 detail 的 `new JubianError('CONTRACT_CHANGED')`。十一个 reader 模块各自声明了一个无参数的 `invalid()`，于是"传输层接受了、reader 用不了"的载荷只会产出那一句既不点名端点、也不点名字段的话。
 
 **对账侧把缺失的数组键读成了空数组。** `drama_assets reconcile` 三次把 `"对账里还有 222 条未处置的未登记资产"` 与 `"manifest":{"items":0}` 摆在一起（L963、L2814、L3340），而清单其实是把这些资产声明在另一个键下；组员随后写下"清单用的是 assets 不是 items"（L3462），改名后 L3470 立刻 `ready:true`。`manifest.ts` 的 `rowsAt()` 对 `undefined` 返回 `[]`，于是资产数组拼成 `assets` 的清单被读成"一条资产都没有"，远端本来已经持有的资产全部被判成未登记。`jubian_organize` 早就改成了缺 `items` 就报错（[organize.ts:160](../../../../packages/jubian/tool-jubian/src/organize.ts)），但对账侧自 09-22 起没有再动过。
 

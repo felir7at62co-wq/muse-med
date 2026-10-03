@@ -192,7 +192,9 @@ packages/jubian/
 
 ## 8. HTTP 客户端契约
 
-```ts
+此设计草图省略方法实现以及项目内的 `JubianLedger` 和 `JsonObject` 声明。
+
+```ts ignore-check
 class JubianClient {
   constructor(options: {
     credential: () => Promise<string>   // 注入式；tool-jubian 注 credentials，测试注固定值

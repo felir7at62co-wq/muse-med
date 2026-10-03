@@ -27,6 +27,12 @@ import { scopeOf } from '@deepseek-ai/dsh-scope'
 // (docs in packages/llm/llm/src/message.ts). This notice is the guard's own producer kind.
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /**
+     * Attribution for a logged tool-withdrawal notice; its text carries the warning.
+     * Readers preserve this source without the guard. Runtime baseline checks and
+     * duplicate suppression use the guard's own records, never this source.
+     * @persistenceAttribution
+     */
     'composition-guard': { readonly kind: 'composition-guard'; readonly form: 'notice'; readonly summary: string }
   }
 }

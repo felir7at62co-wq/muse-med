@@ -119,14 +119,14 @@ describe('registration', () => {
     const paths: string[] = []
     // The executor is the path the model's call takes, so one spec drives it: the
     // transport is the only seam substituted, and the tool's own value comes back.
-    globalThis.fetch = (async (url: string | URL | Request) => {
-      const address = (url as URL).toString()
+    globalThis.fetch = async (url: string | URL | Request) => {
+      const address = url instanceof Request ? url.url : url.toString()
       paths.push(address)
       const body = address.includes('/aigc/material/list')
         ? { total: USED.length, rows: USED }
         : { total: ALIVE.length, rows: ALIVE }
       return new Response(JSON.stringify({ code: 200, data: body }), { status: 200 })
-    }) as typeof fetch
+    }
     try {
       const { ctx, registered } = mountContext('stored-token')
       apply(ctx, { timeoutMs: 5000 })
@@ -219,13 +219,14 @@ describe('runDramaAssets', () => {
     const { client } = stubTransport(ALIVE, USED)
     const result = await runDramaAssets(client, { method: 'reconcile', project_dir: projectDir })
 
+    const ranAt: unknown = expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:00$/)
     expect(result).toEqual({
       method: 'reconcile',
       ready: false,
       ready_reason: '对账里还有 1 条未处置的未登记资产：83840',
       evidence: evidencePath(projectDir),
       script_id: 2708,
-      ran_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:00$/),
+      ran_at: ranAt,
       source: { asset_list_rows: 4, material_list_rows: 4, remote_alive: 4, remote_used: 4 },
       manifest: { items: 2, lead_readonly_records: 1, asset_ids: 3 },
       matched: 3,

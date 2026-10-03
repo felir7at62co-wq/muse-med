@@ -8,6 +8,7 @@ import {
   assertPersistedSessionVersion,
   assertSessionFixtureVersion,
   defineAcpSnapshotSuite,
+  hydrateSessionFixtureCwd,
   latestPersistedSessionPaths,
   parsePersistedSessionFilename,
   parseSessionFixtureName,
@@ -499,6 +500,36 @@ describe('writerSnapshotName', () => {
 
   it.each([-1, -0, 0.5, Number.MAX_SAFE_INTEGER + 1])('rejects invalid role %s', (index) => {
     expect(() => writerSnapshotName(index)).toThrow('writer snapshot index must be a non-negative safe integer')
+  })
+})
+
+describe('hydrateSessionFixtureCwd', () => {
+  it.each([
+    'E:\\工作\\sdk\\quote"path',
+    'E:/工作/sdk/quote"path',
+    '/tmp/中文/sdk/path',
+  ])('preserves the decoded cwd and embedded text for %s', (cwd) => {
+    const fixture = '{"type":"session","cwd":"{{cwd}}"}\n'
+      + '{"type":"user/message","data":{"text":"cwd={{cwd}}","unrelated":"original"}}\n'
+    const hydrated = hydrateSessionFixtureCwd(fixture, cwd)
+    expect(hydrated.trimEnd().split('\n').map((line): unknown => JSON.parse(line))).toEqual([
+      { type: 'session', cwd },
+      { type: 'user/message', data: { text: `cwd=${cwd}`, unrelated: 'original' } },
+    ])
+    expect(hydrated.endsWith('\n')).toBe(true)
+    expect(fixture).toContain('"cwd":"{{cwd}}"')
+  })
+
+  it('preserves cwd in serialized tool arguments and complete stream chunks', () => {
+    const cwd = 'E:\\工作\\sdk\\quote"path'
+    const argumentsText = JSON.stringify({ command: 'view', path: '{{cwd}}/note.txt' })
+    const fixture = JSON.stringify({ arguments: argumentsText, args: [argumentsText] }) + '\n'
+    const parsed: unknown = JSON.parse(hydrateSessionFixtureCwd(fixture, cwd))
+    if (typeof parsed !== 'object' || parsed === null || !('arguments' in parsed) || !('args' in parsed)
+      || typeof parsed.arguments !== 'string') throw new Error('fixture tool arguments are missing')
+    const hydrated = parsed
+    expect(JSON.parse(hydrated.arguments)).toEqual({ command: 'view', path: `${cwd}/note.txt` })
+    expect(hydrated.args).toEqual([hydrated.arguments])
   })
 })
 

@@ -1,6 +1,6 @@
 /** Mount the editing preset and discover the source Muse MCP catalog over loopback. */
 import { Service } from '@deepseek-ai/cordis'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,6 +20,21 @@ export const inject = ['agentPresets', 'tools', 'systemPrompt']
  * @param config - Platform-shell visibility for the recorded catalog.
  */
 export async function apply(ctx, config) {
+  let productBaseUrl
+  await ctx.effect(async () => {
+    // Native package lookup and inventory both read the retained source manifest.
+    const anchor = await mkdtemp(fileURLToPath(new URL('../../../apps/desktop-host/.snapshot-hongguo-', import.meta.url)))
+    try {
+      await mkdir(join(anchor, 'node_modules'))
+      await symlink(fileURLToPath(new URL('../../../third_party/plugins/muse-hongguo-search/', import.meta.url)), join(anchor, 'node_modules/muse-hongguo-search'), process.platform === 'win32' ? 'junction' : 'dir')
+      await writeFile(join(anchor, 'package.json'), '{"name":"snapshot-editing-resolution","version":"0.0.0","type":"module"}\n')
+      productBaseUrl = pathToFileURL(join(anchor, 'package.json')).href
+    } catch (error) {
+      await rm(anchor, { recursive: true, force: true })
+      throw error
+    }
+    return () => rm(anchor, { recursive: true, force: true })
+  }, 'snapshot-hongguo-source-resolver')
   class SnapshotAccount extends Service { constructor(ctx) { super(ctx, 'museAccount') } }
   await ctx.plugin(SnapshotAccount)
   const requireSdk = createRequire(new URL('../../../packages/mcp/mcp-client/package.json', import.meta.url))
@@ -68,7 +83,7 @@ export async function apply(ctx, config) {
     failOnStartupError: true,
     reconnect: { enabled: false },
   })).await()
-  const productCtx = ctx.extend({baseUrl: new URL('../../../apps/desktop-host/package.json', import.meta.url).href})
+  const productCtx = ctx.extend({baseUrl: productBaseUrl})
   await productCtx.plugin(NativePreset, {
     id: 'editing',
     directory: fileURLToPath(new URL('../../../apps/desktop-host/presets/editing/', import.meta.url)),

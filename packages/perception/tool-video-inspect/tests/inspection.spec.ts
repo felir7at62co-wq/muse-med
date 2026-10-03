@@ -61,13 +61,14 @@ it('returns decoded source frames with original timestamps, durable image refere
     const stored = await h.ctx.attachments.readImage(image.attachment)
     expect(stored.data.byteLength).toBe(image.attachment.bytes)
   }
-  const manifest = JSON.parse(await readFile(join(h.root, 'qa/inspection.json'), 'utf8'))
+  const manifest: unknown = JSON.parse(await readFile(join(h.root, 'qa/inspection.json'), 'utf8'))
   expect(manifest).toMatchObject({ duration_seconds: 4, has_audio: false, inspection: 'sampled_frames', verified_readback: true,
     frames: [{ requested_seconds: 0.5, timestamp_seconds: 0.5 }, { requested_seconds: 2.5, timestamp_seconds: 2.5 }] })
   expect(result.content.some(block => block.type === 'text' && block.text.includes('not continuous viewing'))).toBe(true)
   const repeated = await h.call({ timestamps_seconds: [1], end_seconds: 4, manifest_path: 'qa/inspection.json' })
   expect(repeated.isError).toBe(true)
-  expect(JSON.parse(await readFile(join(h.root, 'qa/inspection.json'), 'utf8')).frames).toHaveLength(2)
+  const retained = JSON.parse(await readFile(join(h.root, 'qa/inspection.json'), 'utf8')) as { frames: unknown[] }
+  expect(retained.frames).toHaveLength(2)
 }, 30_000)
 
 it('rejects a text-only model before filesystem or media work while permitting metadata-only reads', async () => {
@@ -124,7 +125,10 @@ it('bounds concurrent inspections and waits for owned cancellation when the plug
   vi.spyOn(h.ctx.llm, 'resolveModelInfo').mockImplementationOnce(async (_provider, _model, signal) => {
     if (!signal) throw new Error('inspection cancellation signal missing')
     return new Promise<never>((_resolve, reject) => {
-      signal.addEventListener('abort', () => { reject(signal.reason) }, { once: true })
+      signal.addEventListener('abort', () => {
+        const reason: unknown = signal.reason
+        reject(reason instanceof Error ? reason : new Error(String(reason)))
+      }, { once: true })
       entered.resolve(undefined)
     })
   })

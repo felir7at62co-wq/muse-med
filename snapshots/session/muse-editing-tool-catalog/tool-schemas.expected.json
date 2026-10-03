@@ -235,6 +235,128 @@
       }
     },
     {
+      "name": "hongguo_collections",
+      "description": "在官方公开热播榜覆盖范围内筛选收藏数，默认阈值1000000。遍历分页后去重，按最小观察收藏值降序。万/亿展示值是近似数，阈值附近和冲突跨阈值列为uncertain；默认不混入结果。不是全红果片库筛选。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "minCollections": {
+            "type": "integer",
+            "description": "收藏阈值，默认1000000，非负安全整数"
+          },
+          "includeUncertain": {
+            "type": "boolean",
+            "description": "默认false；true把待核实条目包含在items，同时保留thresholdStatus"
+          },
+          "boards": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "hot-drama",
+                "hot-real-drama",
+                "hot-ai-drama",
+                "hot-comic-drama"
+              ]
+            },
+            "description": "榜单范围，默认全部四榜；综合/真人/AI/漫剧"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "返回条数，默认20，范围1–400；搜索工具默认10且最大10"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "结果数组偏移，默认0；搜索中仅切分首屏窗口，不触发官网翻页"
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "默认false；true跳过短期内存缓存重新读取公开网页"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "hongguo_detail",
+      "description": "当用户想查某部红果剧的数据时，按搜索或榜单给出的seriesId读取官方公开详情：简介、演员、集数、收藏与点赞源字段。仅返回请求的ID；url是官网详情页；watchPageUrl如有则为网页实际链接的官方播放页，并非视频文件或保证可播放的直链。不返回用户评论或下载视频。source整数可能经过平台处理，不承诺后台精度。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "seriesId": {
+            "type": "string",
+            "description": "搜索或榜单返回的十进制字符串ID，不能转成JS数字"
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "默认false；true跳过短期内存缓存重新读取公开网页"
+          }
+        },
+        "required": [
+          "seriesId"
+        ]
+      }
+    },
+    {
+      "name": "hongguo_rankings",
+      "description": "遍历所选红果官方热播榜公开分页（默认四榜各最多5页），按seriesId去重。收藏/点赞/热度分开；保留每页来源、更新文案、采集时间和冲突。coverage.complete只代表榜单分页，不代表全片库。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "boards": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "hot-drama",
+                "hot-real-drama",
+                "hot-ai-drama",
+                "hot-comic-drama"
+              ]
+            },
+            "description": "榜单范围，默认全部四榜；综合/真人/AI/漫剧"
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "默认false；true跳过短期内存缓存重新读取公开网页"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "hongguo_search",
+      "description": "当用户说找红果短剧、按剧名找剧时，先在红果官方公开关键词网页搜索，拿到seriesId后可调用hongguo_detail查更多数据，超出热播榜范围。当前只获得首屏最多10条，可能含语义推荐；sourceReportedTotal不代表已获取数量。不登录、不下载视频。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "关键词，1–100字符"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "返回条数，默认20，范围1–400；搜索工具默认10且最大10"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "结果数组偏移，默认0；搜索中仅切分首屏窗口，不触发官网翻页"
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "默认false；true跳过短期内存缓存重新读取公开网页"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
       "name": "interrupt_agent",
       "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a direct child's conversation later with send_message. Subagents it started will keep running.",
       "parameters": {
@@ -1255,6 +1377,53 @@
           "goal_id",
           "revision",
           "action"
+        ]
+      }
+    },
+    {
+      "name": "video_inspect",
+      "description": "Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. For dialogue and subtitles, discover audio_transcribe.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Local video path in the current Session filesystem."
+          },
+          "method": {
+            "type": "string",
+            "description": "Default sample returns frames; metadata only probes source facts without image input.",
+            "enum": [
+              "metadata",
+              "sample"
+            ]
+          },
+          "start_seconds": {
+            "type": "number",
+            "description": "Interval start, default 0; source timecode in seconds."
+          },
+          "end_seconds": {
+            "type": "number",
+            "description": "Exclusive interval end; default video end or start + 60 seconds, whichever is earlier. Maximum sampled interval: 120 seconds."
+          },
+          "frame_count": {
+            "type": "integer",
+            "description": "Uniform samples, default 6; maximum 12."
+          },
+          "timestamps_seconds": {
+            "type": "array",
+            "description": "Optional explicit seek times inside the interval instead of uniform samples; maximum 12.",
+            "items": {
+              "type": "number"
+            }
+          },
+          "manifest_path": {
+            "type": "string",
+            "description": "Optional new JSON output path inside the current workspace; default .muse/video-inspections/<unique-id>.json. An existing file is never replaced."
+          }
+        },
+        "required": [
+          "file_path"
         ]
       }
     },

@@ -30,6 +30,11 @@ function release() {
 }
 
 describe('GitHub update feed readback', () => {
+  it('requires the genuine stable release and an rc discovery alias with identical channel metadata', () => {
+    expect(desktopGitHubReleaseRequirements('1.0.0', true)).toEqual({
+      tags: ['v1.0.0', 'v1.0.0-rc.muse-stable'], metadataFilenames: ['latest.yml', 'rc.yml'],
+    })
+  })
   it('requires product and legacy discovery releases with genuine beta metadata', () => {
     expect(desktopGitHubReleaseRequirements(VERSION, true)).toEqual({
       tags: ['v1.0.0-beta.1', 'v1.0.0-rc.muse-beta.1'],

@@ -301,12 +301,12 @@ export async function readEvidence(projectDir: string): Promise<Partial<Reconcil
   } catch { return {} }
   let document: unknown
   try {
-    document = JSON.parse(text.replace(/^\uFEFF/, '')) as unknown
+    document = JSON.parse(text.replace(/^\uFEFF/, ''))
   } catch { throw new JubianError('CONTRACT_CHANGED', `${path} 不是合法 JSON`) }
   if (typeof document !== 'object' || document === null || Array.isArray(document)) {
     throw new JubianError('CONTRACT_CHANGED', `${path} 顶层不是 JSON 对象`)
   }
-  return document as Partial<ReconcileReport> & Partial<DisposedEvidence>
+  return document
 }
 
 /**
@@ -359,7 +359,7 @@ export async function disposeAsset(projectDir: string, assetId: number, status: 
     throw new JubianError('INVALID_ARGUMENT', `asset_id 必须是正整数，收到 ${String(assetId)}`)
   }
   if (status !== 'registered' && status !== 'ignored') {
-    throw new JubianError('INVALID_ARGUMENT', `status 必须是 registered 或 ignored，收到 ${String(status)}`)
+    throw new JubianError('INVALID_ARGUMENT', `status 必须是 registered 或 ignored，收到 ${status}`)
   }
   if (status === 'ignored' && !note.trim()) {
     throw new JubianError('INVALID_ARGUMENT', 'status=ignored 必须带非空 note：写清为什么这个资产不需要')

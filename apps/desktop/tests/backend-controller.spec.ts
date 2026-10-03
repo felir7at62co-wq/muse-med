@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DesktopBackendController, type DesktopBackendState } from '../src/backend-controller.ts'
+import { DesktopBackendController } from '../src/backend-controller.ts'
+import type { DesktopBackendState } from '../src/ipc-types.ts'
 
 function deferred() {
   let resolve!: () => void

@@ -89,6 +89,8 @@ Two details keep the check honest. The comparison is per agent against that agen
 
 Each record carries the names already announced for the current regression. A comparison that finds nothing missing re-arms the record, so a later regression is announced again; a comparison that finds the same regression already announced returns silently. A report is marked only after a channel accepted it, so an announcement that reached nobody is retried on the next update rather than declared delivered.
 
+The durable `composition-guard` source is attribution for the injected user message. Readers without this producer preserve its `kind`, `form`, `summary` and other JSON metadata, and reconstruct the warning from the recorded content. The notice form and summary describe transcript presentation; they grant no authority and do not control tool availability, baseline validation or duplicate suppression. Those decisions use the runtime record set.
+
 ### Source map
 
 | File | Role |
@@ -108,7 +110,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 - [Tools subsystem reference](../../../docs/subsystems/tools.md) — the registry views and scope layers `ctx.tools.schemas()` resolves.
 - [Agent presets package](../../preset/agent-preset/README.md) — the standing mount whose registrations a frozen agent can lose.
-- [Live-reload port traps Agent Note](../../../.agents/notes/implemented/architecture/2026-09-17-product-capability-plane-and-port-traps.md) — the measured defect, its evidence, and why the recovery is a restart.
+- [Archived live-reload port incident](../../../.agents/notes/archived/architecture/2026-09-17-product-capability-plane-and-port-traps.md) — historical measurements of the tool-withdrawal defect and restart recovery.
 - [Composition guard Agent Note](../../../.agents/notes/implemented/architecture/2026-09-17-composition-guard-detects-live-tool-withdrawal.md) — what this guard can and cannot do, and the alternatives it rejected.
 - [guard group map](../README.md) — the sibling guard packages and the loop-hygiene family.
 

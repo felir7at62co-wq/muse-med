@@ -288,3 +288,7 @@
   config:
     ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
     ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
+
+# Public Hongguo metadata tools register only inside this creative preset.
+- id: muse-hongguo-search
+  name: muse-hongguo-search

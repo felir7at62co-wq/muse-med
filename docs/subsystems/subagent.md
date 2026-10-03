@@ -94,7 +94,7 @@ interface SubagentStartRequest {
    * from the child's prompt AND refuse to execute (one visibility), with loud
    * unknown-name validation.
    */
-  readonly toolFilter?: ToolRestriction
+  readonly toolFilter?: SubagentToolRestriction
   /**
    * Optional per-child persona. Requires {@link SubagentCapabilities.persona};
    * rejected at start otherwise. In-process backends register it as a scoped
@@ -262,6 +262,11 @@ interface ContinuableCreateSpec {
 
 The descriptor (`SubagentDescriptorData` in [descriptor.ts](../../packages/subagent/subagent/src/descriptor.ts)) is a mode-discriminated durable identity for every session-backed subagent. Both modes carry the provider name. A `one-shot` descriptor optionally carries a caller-owned display `label`; a `continuable` descriptor requires the delegation `description` as its durable creation label and additionally snapshots resolved child `agentOptions.provider`/`model`/`reasoningEffort` and optional `persona`/`toolFilter` for cold resume. It never snapshots the merge-extensible `AgentOptions` object, so an unrelated extension value cannot break continuation and a later composition input is a deliberate version change. It omits `subagentDepth` (cold resume trusts the persisted header's `delegationDepth` as the monotone floor) and `outputSchema` (one run or Activation's result contract, not durable identity).
 
+```ts type-equiv
+/** Child tool filters admitted by descriptor readers and reapplied during cold resume. */
+type SubagentToolRestriction = Pick<ToolRestriction, 'allow' | 'deny'>
+```
+
 A local one-shot provider appends the descriptor inside the child's initial turn before its first request. The continuation manager appends the descriptor after any provider-supplied lineage and before the initial prompt is admitted; `Session.inheritedEventCount` remains the fork-lineage boundary: resume-time descriptor authority reads the child's own suffix, while the identity projection folds `subagent/descriptor` last-wins so the child's own descriptor overrides a fork-seeded ancestor's. The event is log-only: no `surfaceOp`, never in model history, and retained across compaction by the append-only log. Malformed current-version descriptors are corrupt; unsupported versions cannot be classified by this runtime.
 
 ## Durable enumeration: `listChildren()`, `listDescendants()`, and their entries
@@ -340,6 +345,14 @@ interface SubagentStopReasonMap {
   'max-tokens': 'max-tokens'
   /** The child declined the task. */
   refusal: 'refusal'
+  /**
+   * The child finished its turn normally without satisfying the requested
+   * `outputSchema`, so its output exists but the requested structured value
+   * does not. Distinct from `error`, which reports a child that failed on its
+   * own terms; a consumer that asked for structured output reads this as the
+   * return contract being unmet, not as a broken run.
+   */
+  'structured-output-missing': 'structured-output-missing'
 }
 ```
 

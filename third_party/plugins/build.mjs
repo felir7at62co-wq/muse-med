@@ -1,13 +1,15 @@
 /** Build pinned community source in private staging; never read a live Harness profile. */
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { applyMcpDesktopCompatibility, mcpDesktopCompatibility } from './compatibility/mcp-desktop.mjs'
 import { applyBridgeDesktopCompatibility, bridgeDesktopCompatibility } from './compatibility/bridge-desktop.mjs'
 
 import { applyCodexModelVisibility } from './compatibility/codex-model-visibility.mjs'
+import { applyCodexPiAiCompatibility, codexPiAiVersion } from './compatibility/codex-pi-ai.mjs'
+import { applyHongguoHostCompatibility, hongguoHostCompatibility } from './compatibility/hongguo-host.mjs'
 
 const sourceRoot = import.meta.dirname
 const repository = resolve(sourceRoot, '../..')
@@ -18,12 +20,13 @@ const { values } = parseArgs({ options: { out: { type: 'string' }, only: { type:
 if (!values.out) throw new Error('community plugins: --out is required')
 if (values.only && !Object.hasOwn(pins, values.only)) throw new Error(`community plugins: unknown source ${values.only}`)
 const pnpm = process.env.npm_execpath
-if (!pnpm) throw new Error('community plugins: invoke through pnpm exec node third_party/plugins/build.mjs')
+if (!pnpm) throw new Error('community plugins: invoke through pnpm --dir third_party/plugins/toolchain run build')
 const output = resolve(values.out)
 mkdirSync(output, { recursive: true })
 
-function run(args, cwd) {
+function run(args, cwd, environment = {}) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD|^NODE_TEST_/iu.test(key)))
+  Object.assign(env, environment)
   if (cwd !== toolchain) {
     env.DSH_HOME = join(dirname(cwd), 'test-home')
     env.CODEX_HOME = join(env.DSH_HOME, 'codex')
@@ -41,7 +44,9 @@ function linkPackage(modules, name, directory, links) {
 }
 
 function linkDependencies(modules, links) {
-  for (const name of Object.keys(tools.dependencies)) linkPackage(modules, name, join(toolchain, 'node_modules', name), links)
+  for (const name of Object.keys(tools.dependencies)) {
+    linkPackage(modules, name, name === '@earendil-works/pi-ai' ? hostPiAi : join(toolchain, 'node_modules', name), links)
+  }
   for (const group of readdirSync(join(repository, 'packages'), { withFileTypes: true }).filter(entry => entry.isDirectory())) {
     for (const entry of readdirSync(join(repository, 'packages', group.name), { withFileTypes: true }).filter(entry => entry.isDirectory())) {
       const directory = join(repository, 'packages', group.name, entry.name)
@@ -57,7 +62,10 @@ function linkDependencies(modules, links) {
 }
 
 const hostVersion = JSON.parse(readFileSync(join(repository, 'package.json'), 'utf8')).version
-if (hostVersion !== '0.1.7-rc.8') throw new Error(`community plugins: host ${hostVersion} needs a new compatibility review`)
+if (hostVersion !== '0.2.0-rc.2') throw new Error(`community plugins: host ${hostVersion} needs a new compatibility review`)
+const hostPiAi = realpathSync(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai'))
+const hostPiAiVersion = JSON.parse(readFileSync(join(hostPiAi, 'package.json'), 'utf8')).version
+if (hostPiAiVersion !== codexPiAiVersion) throw new Error(`community plugins: pi-ai ${hostPiAiVersion} needs a new compatibility review`)
 run([pnpm, 'install', '--ignore-workspace', '--frozen-lockfile', '--ignore-scripts'], toolchain)
 
 for (const name of values.only ? [values.only] : Object.keys(pins)) {
@@ -77,9 +85,15 @@ for (const name of values.only ? [values.only] : Object.keys(pins)) {
       manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     }
     if (name === 'dsh-skill-mcp-panel') applyMcpDesktopCompatibility(directory)
+    if (name === 'muse-hongguo-search') {
+      applyHongguoHostCompatibility(directory)
+      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    }
     const tsc = join(toolchain, 'node_modules/typescript/bin/tsc')
     const tsdown = join(toolchain, 'node_modules/tsdown/dist/run.mjs')
     if (name === 'dsh-codex-subscription') {
+      applyCodexPiAiCompatibility(directory)
+      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
       applyCodexModelVisibility(directory)
       const runtimePath = join(directory, 'src/subagent-runtime.js')
       let runtime = readFileSync(runtimePath, 'utf8')
@@ -102,8 +116,9 @@ export function codexFilesystemPath(value) {
         run([tsdown, '--config', '.muse-tsdown.mjs'], directory)
       }
       cpSync(join(sourceRoot, 'checks/codex-subagent.mjs'), join(directory, '.muse-subagent.test.mjs'))
-      run(['--test', '--test-concurrency=1', '.muse-subagent.test.mjs', 'tests/pi-ai-runtime.test.mjs', 'tests/plugin-integration.test.mjs', 'tests/subscription-transport.test.mjs'], directory)
-    } else if (name !== 'dsh-bridge') {
+      cpSync(join(sourceRoot, 'checks/codex-pi-ai.mjs'), join(directory, '.muse-pi-ai.test.mjs'))
+      run(['--test', '--test-concurrency=1', '.muse-pi-ai.test.mjs', '.muse-subagent.test.mjs', 'tests/pi-ai-runtime.test.mjs', 'tests/plugin-integration.test.mjs', 'tests/subscription-transport.test.mjs'], directory)
+    } else if (name !== 'dsh-bridge' && name !== 'muse-hongguo-search') {
       if (name === 'dsh-ponytail') {
         writeFileSync(join(directory, 'tsconfig.json'), JSON.stringify({ compilerOptions: {
           target: 'ES2024', module: 'NodeNext', moduleResolution: 'NodeNext', rootDir: 'src', outDir: 'lib/types',
@@ -121,6 +136,10 @@ export function codexFilesystemPath(value) {
       }
     }
     run(['--input-type=module', '-e', `await import(${JSON.stringify(`./${manifest.main.replace(/^\.\//u, '')}`)})`], directory)
+    if (name === 'muse-hongguo-search') {
+      cpSync(join(sourceRoot, 'checks/hongguo-host-runtime.mjs'), join(directory, '.muse-hongguo.test.mjs'))
+      run(['--test', '--test-concurrency=1', 'tests/recovery.test.js', '.muse-hongguo.test.mjs'], directory)
+    }
     if (name === 'dsh-ffmpeg') {
       run(['--test', '--test-concurrency=1', ...['args', 'config', 'exec', 'ffprobe', 'paths', 'register', 'subprocess-context', 'tools', 'frames-probe', 'adjust', 'health'].map(test => `test/${test}.test.mjs`)], directory)
     }
@@ -134,13 +153,15 @@ export function codexFilesystemPath(value) {
     if (name === 'dsh-skill-mcp-panel') {
       cpSync(join(sourceRoot, 'checks/mcp-desktop-runtime.mjs'), join(directory, '.muse-mcp.test.mjs'))
       run(['--test', '.muse-mcp.test.mjs'], directory)
-      run(['--test', '--test-concurrency=1', 'test-panel-slots.mjs', 'test-mcp-model.mjs', 'test-mcp-gateway.mjs', 'test-host-icons.mjs'], directory)
+      cpSync(join(sourceRoot, 'checks/mcp-host-icons.mjs'), join(directory, '.muse-host-icons.test.mjs'))
+      run(['--test', '--test-concurrency=1', 'test-panel-slots.mjs', 'test-mcp-model.mjs', 'test-mcp-gateway.mjs', '.muse-host-icons.test.mjs'], directory,
+        { DSH_UI_PRIMITIVES: join(repository, 'packages/client/ui-primitives') })
     }
     manifest.scripts = {}
     if (name === 'dsh-skill-mcp-panel') delete manifest.bin
     manifest.packageManager = tools.packageManager
     for (const [dependency, range] of Object.entries(manifest.peerDependencies ?? {})) {
-      if (dependency.startsWith('@deepseek-ai/dsh-') && !range.split(' || ').includes(hostVersion)) {
+      if ((dependency === '@deepseek-ai/dsh' || dependency.startsWith('@deepseek-ai/dsh-')) && !range.split(' || ').includes(hostVersion)) {
         manifest.peerDependencies[dependency] = `${range} || ${hostVersion}`
       }
     }
@@ -155,10 +176,11 @@ export function codexFilesystemPath(value) {
     writeFileSync(join(directory, 'SOURCE.json'), `${JSON.stringify({
       upstream: pins[name], hostVersion,
       compatibilityOverlay: name === 'dsh-codex-subscription'
-        ? { subagentRuntimeVersion: hostVersion, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true }
+        ? { subagentRuntimeVersion: hostVersion, piAiVersion: codexPiAiVersion, piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true }
         : name === 'dshmarket' ? { catalogExport: './catalog' }
           : name === 'dsh-bridge' ? bridgeDesktopCompatibility
-            : name === 'dsh-skill-mcp-panel' ? mcpDesktopCompatibility : undefined,
+            : name === 'dsh-skill-mcp-panel' ? mcpDesktopCompatibility
+              : name === 'muse-hongguo-search' ? hongguoHostCompatibility : undefined,
       toolchainLockSha256: createHash('sha256').update(readFileSync(join(toolchain, 'pnpm-lock.yaml'))).digest('hex'),
     }, null, 2)}\n`)
     manifest.files = [...new Set([...(manifest.files ?? []), 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'BUNDLED_LICENSES.md', 'SOURCE.json'])]

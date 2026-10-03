@@ -65,6 +65,7 @@ const editingCordisSkill = join(
 const museEditingSkill = join(repoRoot, 'apps/desktop-host/skills/editing/SKILL.md')
 const musePipelineSkill = join(repoRoot, 'packages/drama/skills/skills/tweet-drama-pipeline/SKILL.md')
 const museSharedSkills = [
+  ['tweet-drama-project-bible', join(repoRoot, 'packages/drama/skills/skills/tweet-drama-project-bible/SKILL.md')],
   ['tweet-drama-voice-continuity', join(repoRoot, 'packages/drama/skills/skills/tweet-drama-voice-continuity/SKILL.md')],
   ['muse-project-participation', join(repoRoot, 'apps/desktop-host/skills/muse-project-participation/SKILL.md')],
   ['muse-llm-wiki', join(repoRoot, 'apps/desktop-host/skills/muse-llm-wiki/SKILL.md')],
@@ -502,6 +503,11 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<v
 const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
   async 'muse-video-inspect'(cwd) {
     await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
+  },
+  async 'windows-acl-skill'(cwd) {
+    const target = join(cwd, '.dsh', 'skills', 'diagnose-windows-sandbox-acl', 'SKILL.md')
+    await mkdir(dirname(target), { recursive: true })
+    await copyFile(join(repoRoot, 'packages/sandbox/sandbox-windows-acl/assets/diagnose-windows-sandbox-acl/SKILL.md'), target)
   },
   async 'office-skills'(cwd) {
     await cp(join(repoRoot, 'packages/skill/skill-office/assets'), join(cwd, 'office-skills'), { recursive: true })

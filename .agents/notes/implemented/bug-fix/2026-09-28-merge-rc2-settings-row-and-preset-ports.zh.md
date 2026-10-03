@@ -48,10 +48,7 @@ volatile 字段的输出是实时 `Volatile` 引用，而输入仍是普通值�
 | `pnpm exec vitest run apps/desktop/tests/{development-project,preload}.spec.ts` | 类型错误 | 4 passed |
 | `pnpm exec vitest run packages/drama packages/jubian packages/settings` | — | 73 个文件通过、4 个跳过；1096 条用例通过、0 失败 |
 
-另有两条 tool-jubian spec 出于与上面两条相同的原因变红，并按同样方式移植：`image.spec.ts`（6 条里 3 条）与
-`budget-tools.spec.ts`（1 条）的文件内假服务仍在回答已删除的 `settings.get(ns)`，于是 `dramaSection()` 抛
-`settings.describe is not a function`。两者现在都按 `DRAMA_SETTINGS_NAMESPACE` 返回一条描述符并全部通过（合计 7 条用例）。
-上面的整包运行正是发现它们的方式。
+另有两条 tool-jubian spec 出于与上面两条相同的原因变红，并按同样方式移植：`image.spec.ts`（6 条里 3 条）与 `budget-tools.spec.ts`（1 条）的文件内假服务仍在回答已删除的 `settings.get(ns)`，于是 `dramaSection()` 抛 `settings.describe is not a function`。两者现在都按 `DRAMA_SETTINGS_NAMESPACE` 返回一条描述符并全部通过（合计 7 条用例）。 上面的整包运行正是发现它们的方式。
 
 设置修复是被证伪过的、而不只是被断言过：去掉六处 `.volatile()` 会让 drama-settings 的 10 条里 7 条变红、并让真实组合的上限用例变红，因为那时 `describe()` 不再提供这一行。preset 修复同样被证伪：没有 `!!js` 标签时，适配器注册的是字面表达式文本，重新表达的 content 断言会在 `fontsDir` 上失败——这正是发现该缺陷的方式。
 

@@ -19,34 +19,34 @@ function mount(reduced = false) {
   return { ...view, media }
 }
 
-it('types, pauses, erases, and advances through the web poetry without the preview badge', () => {
+it('types, pauses, erases, and advances through the web poetry without the preview badge', async () => {
   const view = mount()
   expect(view.queryByText('探索未至之境')).toBeNull()
   expect(view.queryByText('预览版')).toBeNull()
   const line = view.container.querySelector('[data-muse-poetry-line]')!
   expect(line.textContent).toBe('')
-  act(() => vi.advanceTimersByTime(550))
+  await act(async () => { await vi.advanceTimersByTimeAsync(550) })
   expect(line.textContent).toBe('你')
   const verse = '你站在桥上看风景，'
-  act(() => vi.advanceTimersByTime((Array.from(verse).length - 1) * 105))
+  await act(async () => { await vi.advanceTimersByTimeAsync((Array.from(verse).length - 1) * 105) })
   expect(line.textContent).toBe(verse)
-  act(() => vi.advanceTimersByTime(3200))
+  await act(async () => { await vi.advanceTimersByTimeAsync(3200) })
   expect(line.textContent).toBe('你站在桥上看风景')
-  act(() => vi.advanceTimersByTime(Array.from(verse).length * 45 + 550))
+  await act(async () => { await vi.advanceTimersByTimeAsync(Array.from(verse).length * 45 + 550) })
   expect(line.textContent).toBe('看')
   view.unmount()
   expect(vi.getTimerCount()).toBe(0)
 })
 
-it('shows a complete static verse and responds to reduced-motion changes', () => {
+it('shows a complete static verse and responds to reduced-motion changes', async () => {
   const view = mount(true)
   const line = view.container.querySelector('[data-muse-poetry-line]')!
   expect(line.textContent).toBe('你站在桥上看风景，')
   expect(vi.getTimerCount()).toBe(0)
   expect(view.container.querySelector('[data-muse-caret]')).toBeNull()
   expect(view.container.firstChild).toMatchSnapshot()
-  act(() => { Object.assign(view.media, { matches: false }); view.media.dispatchEvent(new Event('change')) })
-  act(() => vi.advanceTimersByTime(550))
+  await act(async () => { Object.assign(view.media, { matches: false }); view.media.dispatchEvent(new Event('change')) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(550) })
   expect(line.textContent).toBe('你')
   view.unmount()
   expect(vi.getTimerCount()).toBe(0)

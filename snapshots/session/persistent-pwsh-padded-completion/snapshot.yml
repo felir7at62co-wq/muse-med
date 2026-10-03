@@ -7,3 +7,4 @@ header:
   class: persistent-pwsh-padded-completion
   pin: true
   systemPromptSource: persistent-pwsh-tool-turn
+  toolSchemasSource: persistent-pwsh-tool-turn

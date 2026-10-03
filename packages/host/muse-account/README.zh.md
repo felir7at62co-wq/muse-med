@@ -55,7 +55,7 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 | `remoteAckTimeoutMs` | 15,000 | 握手和数据确认超时，可设为 1,000 至 120,000 毫秒。 |
 | `remoteReconnectMaxIntervalMs` | 60,000 | 网络断开后的最大重连间隔，可设为 1,000 至 300,000 毫秒。 |
 
-[配置目录](../../../docs/config-catalog.zh.md)由插件 schema 生成。本包已包含在桌面 Host 配置中，不是独立应用启动入口。
+[配置目录](../../../docs/config-catalog.zh.md)由插件 schema 生成。装载本插件前需挂载 `tools`、`llm`、`sessionProjections` 和 `agentDefaultModel`；桌面 Host 组合已提供这些必需服务。本包已包含在桌面 Host 配置中，不是独立应用启动入口。
 
 ### Desktop access from the website
 

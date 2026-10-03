@@ -120,7 +120,7 @@ async function readReceipt(file: string): Promise<Receipt> {
       || typeof item.offset !== 'number' || !Number.isFinite(item.offset) || item.offset < 0
       || typeof item.duration !== 'number' || !Number.isFinite(item.duration) || item.duration <= 0
   }))) throw new Error('Invalid transcription parts')
-  return { id: row.id, source: row.source, ...(row.sourceSha256 === undefined ? {} : { sourceSha256: row.sourceSha256 as string }),
+  return { id: row.id, source: row.source, ...(row.sourceSha256 === undefined ? {} : { sourceSha256: row.sourceSha256 }),
     ...(row.parts === undefined ? {} : { parts: row.parts as AudioPart[] }),
     accountUsername: row.accountUsername, stem: row.stem, version: row.version,
     language: row.language as 'zh' | 'auto', sha256: row.sha256, mp3: row.mp3,

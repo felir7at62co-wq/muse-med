@@ -3,17 +3,20 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write third_party/plugins/README.md
 /community-plugin-source-and-builds:
-  en: 9bacddf5b971e916
-  zh: 0fab64d27bb21882
+  en: 034625591b8728f8
+  zh: 39425eb5de95b0c7
 /community-plugin-source-and-builds/build:
-  en: afe2b9bbaa610db7
-  zh: c448bd3f522b7a72
+  en: 84215fc47d305e85
+  zh: 40f8c1cab7c19195
 /community-plugin-source-and-builds/compatibility-and-desktop-integration:
-  en: 5262b36d2129283e
-  zh: 208dcbb426ac6d32
+  en: 3eee64b7c70146d3
+  zh: d13642e137fe33e5
 /community-plugin-source-and-builds/compatibility-and-desktop-integration/muse-remote-desktop-and-feishu:
   en: 583679ef50f810a1
   zh: 05dc1660c38e8508
+/community-plugin-source-and-builds/compatibility-and-desktop-integration/hongguo-public-metadata:
+  en: bb23ebad1ebbcb86
+  zh: bfe5b1ed488fbf5b
 /community-plugin-source-and-builds/licenses:
   en: c3b3d30f0293f569
   zh: 4e82b1878b25ec0a

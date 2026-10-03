@@ -64,7 +64,7 @@ export class MuseAccountController {
    * @returns Confirmed identity and which action succeeded.
    */
   async login(request: MuseAccountLoginRequest): Promise<MuseAccountLoginResult> {
-    if (typeof request?.username !== 'string' || typeof request.password !== 'string'
+    if (typeof request.username !== 'string' || typeof request.password !== 'string'
       || typeof request.registerIfMissing !== 'boolean'
       || request.username.length < 2 || request.username.length > 32
       || request.password.length < 1 || request.password.length > 128) {

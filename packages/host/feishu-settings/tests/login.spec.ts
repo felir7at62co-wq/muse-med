@@ -48,7 +48,7 @@ describe('FeishuLoginFlow', () => {
       onRegistered: async () => {},
     })
 
-    await expect(flow.begin()).rejects.toThrowError(FeishuLoginError)
+    await expect(flow.begin()).rejects.toThrow(FeishuLoginError)
     expect(flow.failure).toBe('registration-failed')
   })
 

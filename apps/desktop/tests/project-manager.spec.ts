@@ -81,7 +81,7 @@ function seedPlugin(manager: DesktopProjectManager): void {
 const BUILT_IN_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
   'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@wenbin_wb/dsh-bridge',
-  '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host',
+  '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
 ] as const
 /** Bundle list stored in a profile manifest file. */
 function storedBundles(manifestPath: string): string[] {
@@ -159,6 +159,32 @@ describe('desktop external plugin profile', () => {
     const backups = manifestBackups(manager.paths.profile)
     expect(backups).toHaveLength(1)
     expect(readFileSync(join(manager.paths.profile, backups[0]!), 'utf8')).toBe(written)
+  })
+
+  it('completes the rc8 bundle prefix with Hongguo while preserving external plugins', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    await manager.mutate({ type: 'plugin-add', spec: 'plugin@1.0.0' }, hooks())
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    writeBundles(manifestPath, [
+      '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
+      'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@wenbin_wb/dsh-bridge',
+      '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host',
+      'plugin',
+    ])
+    const written = readFileSync(manifestPath, 'utf8')
+    const patchPath = join(manager.paths.profile, 'cordis.patch.yml')
+    writeFileSync(patchPath, '# retained user preferences\n')
+
+    await expect(manager.applyRelease()).resolves.toBe(false)
+    expect(storedBundles(manifestPath)).toEqual([...BUILT_IN_BUNDLES, 'plugin'])
+    expect(manager.listPlugins()).toEqual([{ name: 'plugin', version: '1.0.0', enabled: true }])
+    expect(readFileSync(patchPath, 'utf8')).toBe('# retained user preferences\n')
+    const backups = manifestBackups(manager.paths.profile)
+    expect(backups).toHaveLength(1)
+    expect(readFileSync(join(manager.paths.profile, backups[0]!), 'utf8')).toBe(written)
+    await expect(manager.applyRelease()).resolves.toBe(false)
+    expect(manifestBackups(manager.paths.profile)).toEqual(backups)
   })
 
   it('refuses a stored bundle list that is not a prefix of the built-in list', async () => {

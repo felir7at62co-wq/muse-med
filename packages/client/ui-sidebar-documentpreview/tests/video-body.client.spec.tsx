@@ -4,13 +4,16 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
+import type { MockInstance } from 'vitest'
 import { VideoBody, type VideoBodyProps } from '../src/client/video/VideoBody.tsx'
 import { en } from '../src/client/video/locales.ts'
 import { videoUrl } from '../src/client/video/index.ts'
 
+let pause: MockInstance<HTMLMediaElement['pause']>
+let load: MockInstance<HTMLMediaElement['load']>
 beforeEach(() => {
-  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
-  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+  pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+  load = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
@@ -38,8 +41,8 @@ it('shows inline native playback controls and reports the loaded source version'
   fireEvent.loadedMetadata(player)
   expect(p.content.kind === 'renderer' && p.content.loaded).toHaveBeenCalledWith('v1')
   view.unmount()
-  expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled()
-  expect(HTMLMediaElement.prototype.load).toHaveBeenCalled()
+  expect(pause).toHaveBeenCalled()
+  expect(load).toHaveBeenCalled()
   expect(player.hasAttribute('src')).toBe(false)
 })
 

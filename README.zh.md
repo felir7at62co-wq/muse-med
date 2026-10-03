@@ -66,20 +66,18 @@ pnpm muse:desktop:start
 ## 社区与支持
 
 - muse-med 的问题请提交到 [muse-med 仓库](https://github.com/felir7at62co-wq/muse-med/issues)。
-- 上游 dsh 的问题请到 [DeepSeek Harness Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 或 [Discord 社区](https://discord.gg/Ycq5dCaS4)。
+- 上游 dsh 的问题请到 [DeepSeek Harness Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 或 [Discord 社区](https://discord.gg/4MrtZUhpxg)。
 - 兼容插件可使用 [`dsh-plugin`](https://github.com/topics/dsh-plugin) 话题；下方企微群是 DeepSeek Harness 上游社区，并非 muse-med 的官方支持渠道。
 
 <table>
   <thead>
     <tr>
-      <th align="center">企微小助手</th>
       <th align="center">入群问卷</th>
       <th align="center">微信公众号</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td align="center"><img src="https://cdn.deepseek.com/harness/readme/community-wecom-assistant.png" alt="DeepSeek Harness 企微小助手二维码" width="180" height="180"></td>
       <td align="center"><a href="https://trtgsjkv6r.feishu.cn/share/base/form/shrcnIt5twSVdLGD52KJBckGCgg"><img src="https://cdn.deepseek.com/harness/readme/community-wecom-survey.png" alt="DeepSeek Harness 入群问卷二维码" width="180" height="180"></a></td>
       <td align="center"><img src="https://cdn.deepseek.com/harness/readme/community-wechat-official-account.png" alt="DeepSeek Harness 团队微信公众号二维码" width="180" height="180"></td>
     </tr>

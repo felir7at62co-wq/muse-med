@@ -303,7 +303,7 @@ describe('translation pairing records', () => {
 })
 
 describe('translation scope discovery', () => {
-  const upstreamDirectories = ['dshmarket', 'dsh-codex-subscription', 'dsh-ponytail', 'dsh-bridge', 'dsh-ffmpeg', 'dsh-skill-mcp-panel']
+  const upstreamDirectories = ['dshmarket', 'dsh-codex-subscription', 'dsh-ponytail', 'dsh-bridge', 'dsh-ffmpeg', 'dsh-skill-mcp-panel', 'muse-hongguo-search']
 
   it.each(upstreamDirectories)('preserves original upstream documentation in %s', (directory) => {
     for (const file of ['README.md', 'README.zh.md', 'README.i18n.yaml', 'docs/README.md']) {

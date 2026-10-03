@@ -9,10 +9,13 @@ import { releasedV4SessionFormatCodec as codec, restoreReleasedV4Artifact } from
 const header = { version: 4, id: 'unknown-attribution', createdAt: 1, isSeeded: false, delegationDepth: 0 }
 
 describe('uninstalled producer attribution', () => {
-  it.each(['user', 'developer'] as const)('preserves %s source metadata through decoding, adoption and derivation', (role) => {
+  it.each((['user', 'developer'] as const).flatMap(role => [
+    { role, source: { kind: 'external-attribution', location: { file: 'notes.txt', lines: [2, 5] }, enabled: false } },
+    { role, source: { kind: 'composition-guard', form: 'notice', summary: '工具被热加载撤掉：缺少 echo', extra: { retained: true } } },
+  ]))('preserves $role $source.kind metadata through decoding, adoption and derivation', ({ role, source }) => {
     const message = {
       id: 'attributed-message', role,
-      source: { kind: 'external-attribution', location: { file: 'notes.txt', lines: [2, 5] }, enabled: false },
+      source,
       content: [{ type: 'text', text: 'Retain this context.' }],
     }
     const input: SessionFormatEvent[] = [

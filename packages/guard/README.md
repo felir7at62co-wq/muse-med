@@ -41,7 +41,7 @@ Start with the tools subsystem reference for the tool-call pipeline and scope vi
 - [Tools subsystem reference](../../docs/subsystems/tools.md) — the tool-call pipeline and the scope views the guards build on.
 - [Generated configuration catalog](../../docs/config-catalog.md#deepseek-aidsh-repeat-tool-reminder) — every accepted field of the repeat-call reminder.
 - [Timeout deadline library Agent Note](../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md) — the timing/termination split `timeout-policy` enforces.
-- [Live-reload port traps Agent Note](../../.agents/notes/implemented/architecture/2026-09-17-product-capability-plane-and-port-traps.md) — the defect `composition-guard` detects, and why only a restart recovers it.
+- [Archived live-reload port incident](../../.agents/notes/archived/architecture/2026-09-17-product-capability-plane-and-port-traps.md) — historical evidence for the tool-withdrawal defect that `composition-guard` detects.
 
 <a id="dev-note"></a>
 ## Dev Note

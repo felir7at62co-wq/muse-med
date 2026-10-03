@@ -48,7 +48,7 @@ kind: "package-bundle"
 
 `drama_project` 在已有绝对项目目录中读取、预览和更新项目。没有结构化圣经时，`read` 返回 `unconfigured`，保留旧配置并给出当前 Settings 默认值，不创建文件。新项目记录交付默认值与不可变的 `initial_budget_cents` 初始快照。`current_settings_budget_cents` 返回默认值；已绑定项目还返回来自计费调用同一授权来源的实时 `budget` 账务。明确项目额度覆盖默认值。可编辑项目 JSON 不复制当前金额；工具返回的 Markdown 包含实时回读，磁盘圣经指向实际授权。通过 `jubian_budget` 或项目预算编辑器调整额度。`preview` 合并已确认的修改并列出受影响阶段；`update` 要求相同 changes/reason、精确 `expected_revision` 和匹配的 `preview_fingerprint`。
 
-`project_config.json` 是权威数据。`project_bible` 保存风格、比例、精确视频模型/平台/生成分辨率、独立的交付宽高/帧率/码率、灵活分集计划、可选角色身份与已确认声音描述、稳定视频包与分镜映射、已完成任务引用和版本历史。顶层 `jubian_script_id` 与 `delivery.max_effective_chars_per_shot` 继续供现有读取方使用。其他旧字段在更新后保留。已有项目和视频包绑定不能被静默替换；已完成任务引用只追加，不抹掉旧记录。
+`project_config.json` 是权威数据。`project_bible` 保存风格、比例、精确视频模型/平台/生成分辨率、独立的交付宽高/帧率/码率、灵活分集计划、可选角色身份与已确认声音描述、稳定视频包与分镜映射、已完成任务引用和版本历史。风格接受自由文本，保留已确认的自填答案。顶层 `jubian_script_id` 与 `delivery.max_effective_chars_per_shot` 继续供现有读取方使用。其他旧字段在更新后保留。已有项目和视频包绑定不能被静默替换；已完成任务引用只追加，不抹掉旧记录。
 
 每个角色的 `voice_profile` 可用 `reference_audio`（HTTPS URL）、`reference_audio_asset_id`、`reference_audio_sha256`（64 位十六进制）和 `reference_audio_duration_seconds`（实测，大于 0 且不超过 15）绑定已认可音频资产。替换已绑定参考须同时提供四项；更换服装或省略声音字段会保留当前声线。在已预览的更新中设 `reference_audio: null` 会删除这四项引用，保留描述和说话人 ID，落盘不存 null。旧的未绑定路径或 ID 参考仍有效。[声音连续性技能](../skills/skills/tweet-drama-voice-continuity/SKILL.md) 负责音频库回读、样本认可和原卡绑定；存储这些字段不验证远端媒体，也不能替代实际听音。
 
@@ -83,6 +83,8 @@ kind: "package-bundle"
 
 <details>
 <summary>实现内幕——点击展开</summary>
+
+Host 通过 `dsh-tools` 的 peer 依赖导入 `defineTool`，由部署提供工具注册表使用的同一实例。Client 与纯类型导入仍属于开发依赖。
 
 | 文件 | 作用 |
 |---|---|

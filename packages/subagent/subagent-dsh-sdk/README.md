@@ -101,6 +101,7 @@ This section explains how the backend drives a child Harness runtime and where t
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: config schema, provider registration |
 | [`src/run.ts`](src/run.ts) | The SDK run lifecycle, answer extraction, and stop-reason mapping |
+| [`tests/fixtures/loader/scoped-tool-subagent.ts`](tests/fixtures/loader/scoped-tool-subagent.ts) | Agent-scoped delegation fixture; Agent publication awaits dependency injection before the first turn |
 
 ### Run flow
 

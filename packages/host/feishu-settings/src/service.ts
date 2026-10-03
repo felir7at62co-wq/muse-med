@@ -119,21 +119,23 @@ export class FeishuSetupService extends TypertRemoteService {
    * @returns the status the page renders.
    */
   @Remote('status')
-  async status(): Promise<FeishuSetupStatus> {
-    const enabled = this.switch()
-    const credential = credentialViewOf(this.section())
-    const failure = this.login.failure
-    return {
-      enabled,
-      row: rowStateOf(enabled, this.probe()),
-      appId: credential.appId,
-      credential: credentialSourceOf(credential.hasSecret, credential.registeredBy),
-      // The page can only store a pair while this composition holds the bridge
-      // row: a row this profile does not compose has no section to write.
-      writable: this.section() !== undefined,
-      login: this.login.ticket ?? null,
-      ...(failure === undefined ? {} : { lastError: failure }),
-    }
+  status(): Promise<FeishuSetupStatus> {
+    return Promise.resolve().then(() => {
+      const enabled = this.switch()
+      const credential = credentialViewOf(this.section())
+      const failure = this.login.failure
+      return {
+        enabled,
+        row: rowStateOf(enabled, this.probe()),
+        appId: credential.appId,
+        credential: credentialSourceOf(credential.hasSecret, credential.registeredBy),
+        // The page can only store a pair while this composition holds the bridge
+        // row: a row this profile does not compose has no section to write.
+        writable: this.section() !== undefined,
+        login: this.login.ticket ?? null,
+        ...(failure === undefined ? {} : { lastError: failure }),
+      }
+    })
   }
 
   /**
@@ -145,8 +147,8 @@ export class FeishuSetupService extends TypertRemoteService {
    */
   @Remote('setEnabled')
   async setEnabled(request: FeishuSetEnabledRequest): Promise<FeishuSetupStatus> {
-    await this.settings.update(FEISHU_SETTINGS_NAMESPACE, { enabled: request.enabled === true })
-    if (request.enabled !== true) this.login.cancel()
+    await this.settings.update(FEISHU_SETTINGS_NAMESPACE, { enabled: request.enabled })
+    if (!request.enabled) this.login.cancel()
     return await this.status()
   }
 

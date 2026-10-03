@@ -199,7 +199,7 @@ export function namesCaptureSwitch(detail: string): boolean {
 
 /** The integer `code` a candidate envelope states, whether or not an array wrapped it. */
 function statedCode(value: unknown): number | null | undefined {
-  const candidate = Array.isArray(value) && value.length === 1 ? value[0] : value
+  const candidate: unknown = Array.isArray(value) && value.length === 1 ? value[0] : value
   if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) return undefined
   const code = (candidate as Record<string, unknown>).code
   return typeof code === 'number' && Number.isSafeInteger(code) ? code : null

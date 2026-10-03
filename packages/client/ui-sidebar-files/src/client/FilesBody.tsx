@@ -6,13 +6,15 @@
  * draw for each absolute path and what a click means: a directory toggles, a
  * file opens through the owner's `tabActions` for a `file:` viewer to claim, and
  * anything else is shown but refuses to open. The header uses the shared
- * PathLabel for the root, followed by reload for the expanded directories.
+ * PathLabel for the root, followed by reload and workspace directory actions.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import type { RemoteFailure } from '@deepseek-ai/dsh-api-remotes/client'
-import type { PropsLocale, PropsRuntime, PropsStore, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type {
+  PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, TranslateNS,
+} from '@deepseek-ai/dsh-client-ui-slots'
 import {
   FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, IconRefreshOutlineRegular, Tooltip, classifyFileType,
   IconPauseOutlineRegular, IconPlayOutlineRegular, IconEllipsisOutlineRegular, Menu, PathLabel,
@@ -28,6 +30,7 @@ import css from './FilesBody.module.css'
 /** The body's composed props: the tab it draws, its store, its face, and its copy. */
 export type FilesBodyProps =
   & PropsRuntime<'sidebar.right.pane.tab'>
+  & PropsRenderSlots<'sidebar.right.tab.files.actions'>
   & PropsStore<ReturnType<typeof createFilesStore>>
   & FilesInjected
   & PropsLocale<'sidebarFiles'>
@@ -172,7 +175,8 @@ function Level({ path, tree }: { path: string; tree: TreeContext }): ReactNode {
 
 /** The file tree's body: the workspace root and whatever the reader has opened under it. */
 export function FilesBody({
-  useTabInfo, sessionId, useSessions, useStore, actions, start, refresh, setAutoRefresh, toggle, workspaceReferences, t,
+  useTabInfo, sessionId, useSessions, useStore, actions,
+  start, refresh, setAutoRefresh, toggle, workspaceReferences, t, renderSlot,
 }: FilesBodyProps): ReactNode {
   const { tab, sidebar } = useTabInfo()
   useEffect(() => tab.actions.bindCommands({ refresh: () => { refresh(tab.id) } }), [tab.actions, tab.id, refresh])
@@ -249,6 +253,9 @@ export function FilesBody({
             <IconRefreshOutlineRegular />
           </button>
         </Tooltip>
+        {renderSlot('sidebar.right.tab.files.actions', {
+          absolutePath: state.root,
+        })}
       </div>
       <div
         ref={bodyRef}

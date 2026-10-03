@@ -1,0 +1,46 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/util/session-workspace/README.md
+/:
+  en: d8287bd212e60801
+  zh: 5a0cd8b28c24f699
+/deepseek-ai-dsh-session-workspace:
+  en: 690b1a8fa6f1deef
+  zh: 91132abdd4446b60
+/deepseek-ai-dsh-session-workspace/summary:
+  en: fbb96a57aa06b6ab
+  zh: 3413d14234f76dd3
+/deepseek-ai-dsh-session-workspace/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: dcf32144ec30a7bd
+/deepseek-ai-dsh-session-workspace/use-this-package:
+  en: 10076a224efd3b6b
+  zh: 806f5d98edff36e5
+/deepseek-ai-dsh-session-workspace/understand-the-implementation:
+  en: 070b6fa73e6fec73
+  zh: 598ea5edc5273e5a
+/deepseek-ai-dsh-session-workspace/further-exploration:
+  en: e4f56d1c28056e0b
+  zh: f1398413e36f2031
+/deepseek-ai-dsh-session-workspace/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-session-workspace/model-experience/request-context-and-condition:
+  en: cd8530c72534ee6b
+  zh: 1534f1e2f2d1a6e5
+/deepseek-ai-dsh-session-workspace/model-experience/request-context-and-condition/what-the-model-sees:
+  en: 376e31ced06f6141
+  zh: c9282989d3ba8556
+/deepseek-ai-dsh-session-workspace/model-experience/request-context-and-condition/token-effect:
+  en: f27cd340df539d82
+  zh: d14bbcc8de94598a
+/deepseek-ai-dsh-session-workspace/model-experience/request-context-and-condition/kv-cache-effect:
+  en: 72c85530b79a7e76
+  zh: 0904ed8bacd3533c
+/deepseek-ai-dsh-session-workspace/known-limitations-and-deferred-work:
+  en: be04f1009d5938b4
+  zh: 5420801ab90e789c
+/deepseek-ai-dsh-session-workspace/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 8ec3e73528ddb1a6

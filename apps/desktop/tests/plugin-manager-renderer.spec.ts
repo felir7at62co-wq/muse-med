@@ -28,9 +28,10 @@ function manager(locale = 'en', canInstall = true) {
   Object.defineProperty(dom.window, 'dshDesktop', { value: api })
   const confirm = vi.spyOn(dom.window, 'confirm').mockReturnValue(true)
   runInContext(readFileSync(new URL('../renderer/plugin-manager.js', import.meta.url), 'utf8'), dom.getInternalVMContext())
-  const element = <T extends HTMLElement>(selector: string): T => {
+  const element = <T extends HTMLElement = HTMLElement>(selector: string, constructor?: { new(): T }): T => {
     const value = dom.window.document.querySelector<T>(selector)
     if (value === null) throw new Error(`missing plugin manager element ${selector}`)
+    if (constructor !== undefined && !(value instanceof constructor)) throw new Error(`unexpected plugin manager element ${selector}`)
     return value
   }
   return { dom, element, catalog, add, confirm }

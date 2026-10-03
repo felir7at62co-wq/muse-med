@@ -19,6 +19,7 @@
     "third_party/plugins/dsh-skill-mcp-panel/**",
     "third_party/plugins/dsh-ponytail/**",
     "third_party/plugins/dshmarket/**",
+    "third_party/plugins/muse-hongguo-search/**",
     "native/**",
     "**/*.js",
     "**/*.mjs",

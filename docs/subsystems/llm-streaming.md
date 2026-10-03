@@ -597,6 +597,18 @@ type RequestMessage = Message | RequestUserInput
 ```ts type-equiv
 /** A single model request, fully assembled. */
 interface GenerateOptions {
+  /** Host-only awaited hook over the exact provider payload immediately before SDK dispatch. */
+  onPayload?: (payload: unknown, route: { provider: string; model: string }, images?: readonly {
+    attachmentId: string
+    variantId: string
+    sha256: string
+    bytes: number
+    width: number
+    height: number
+    representation: 'base64'
+  }[]) => unknown
+  /** Require every input image to survive provider serialization; unsupported adapters and text-only projection must reject. */
+  requireImageInput?: boolean
   /** Registered provider route selecting the adapter instance. */
   provider: string
   model: string
@@ -638,6 +650,8 @@ interface GenerateOptions {
    * generation policy. Ordinary conversation requests leave it unset.
    */
   purpose?: 'compaction' | 'session-title'
+  /** Provider response format requested for strict JSON model calls. */
+  responseFormat?: { readonly type: 'json_object' }
 }
 ```
 
@@ -758,6 +772,7 @@ interface LlmCallConfig {
   temperature?: number
   maxTokens?: number
   stop?: string[]
+  responseFormat?: { readonly type: 'json_object' }
 }
 ```
 
@@ -818,6 +833,8 @@ interface PreparedLlmCall {
  * DeepSeek and library-backed pi-ai adapters meet this contract through different internals.
  */
 declare abstract class LlmAdapter {
+  /** Whether this adapter verifies required images remain in its final provider request, including fallback paths. */
+  readonly supportsRequiredImageInput: boolean;
   /**
    * Describe one provider route owned by this adapter.
    * @param provider - a route passed to `registerAdapter()` for this instance.

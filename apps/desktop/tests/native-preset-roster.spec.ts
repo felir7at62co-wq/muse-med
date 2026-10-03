@@ -90,8 +90,7 @@ describe('the product preset roster', () => {
     for (const name of skills) {
       await expect(readFile(join(productRoot, 'cordis', 'skills', name, 'SKILL.md'), 'utf8')).resolves.toContain('name:')
     }
-    expect(provider?.config?.customSkillDirs).toEqual([
-      { __jsExpr: expect.stringContaining("'presets', 'cordis', 'skills'") },
-    ])
+    const expression: unknown = expect.stringContaining("'presets', 'cordis', 'skills'")
+    expect(provider?.config?.customSkillDirs).toEqual([{ __jsExpr: expression }])
   })
 })

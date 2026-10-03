@@ -85,7 +85,7 @@ describe('desktop package-set selection', () => {
   })
 
   it('refuses registry fallback when a source-owned plugin tarball is missing', () => {
-    for (const name of ['dshmarket', 'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@wenbin_wb/dsh-bridge', 'dsh-skill-mcp-panel']) {
+    for (const name of ['dshmarket', 'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@wenbin_wb/dsh-bridge', 'dsh-skill-mcp-panel', 'muse-hongguo-search']) {
       const available = new Map([
         ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
         ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host', { dependencies: { [name]: '1.0.0' } })],
@@ -114,6 +114,7 @@ describe('desktop package-set selection', () => {
   it('requires the Desktop Host entry, overlay and product preset', () => {
     const files = [
       'package/lib/index.js',
+      'package/lib/cli.js',
       'package/config/desktop.cordis.patch.yml',
       'package/config/defaults.cordis.patch.yml',
       'package/presets/short-drama/agent.cordis.yml',
@@ -142,5 +143,6 @@ describe('desktop package-set selection', () => {
     expect(() => {
       assertDesktopHostPackageFiles(files.slice(1))
     }).toThrow(/lib\/index\.js/u)
+    expect(() => { assertDesktopHostPackageFiles(files.slice(0, 1)) }).toThrow(/lib\/cli\.js/u)
   })
 })

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { JSON_SCHEMA, load } from 'js-yaml'
-import type { PersistenceHistory, PersistenceHistoryEntry } from './persistence-changes.ts'
+import { persistenceChangePredecessors, type PersistenceHistory, type PersistenceHistoryEntry } from './persistence-changes.ts'
 import type { PersistenceRoot, PersistenceSchemaInventory } from './persistence-schema-model.ts'
 
 const DIRECTORY = 'docs/persistence-changes/finalized'
@@ -142,9 +142,9 @@ export function loadPersistenceFinalization(root: string, history: Pick<Persiste
     if (selected.length === 0 || !selected.some(entry => entry.record.baseline)) throw new Error(`${file}: accepted records must include the persistence baseline`)
     const predecessors = new Set<string>()
     for (const entry of selected) for (const change of entry.record.changes) {
-      if (change.previous !== null) {
-        if (!Object.hasOwn(locked, change.previous)) throw new Error(`${file}: accepted history omits predecessor ${change.previous}`)
-        predecessors.add(JSON.stringify([change.previous, change.root]))
+      for (const previous of persistenceChangePredecessors(change)) {
+        if (!Object.hasOwn(locked, previous)) throw new Error(`${file}: accepted history omits predecessor ${previous}`)
+        predecessors.add(JSON.stringify([previous, change.root]))
       }
     }
     const tips = new Map<string, PersistenceRoot>()

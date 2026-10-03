@@ -88,7 +88,7 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
    reply(res,result.status,result.body??'',result.headers);
    return;
   }
-  const s=session(req);if(!s){if(path.startsWith('/api/desktop-models/'))reply(res,401,JSON.stringify({error:{message:'请先登录 Muse'}}),{'content-type':'application/json'});else reply(res,303,'',{location:'/login'});return;}if(!originOK(req,!['GET','HEAD','OPTIONS'].includes(req.method))){reply(res,403);return;}touchAccount(s.id);
+  const s=session(req);if(!s){if(path.startsWith('/api/desktop-models/'))reply(res,401,JSON.stringify({error:{message:'请先登录 Muse'}}),{'content-type':'application/json'});else reply(res,303,'',{location:'/login'});return;}if(!originOK(req,!['GET','HEAD','OPTIONS'].includes(req.method))){reply(res,403);return;}if(workspaceMode==='cloud')touchAccount(s.id);
   if(path==='/api/desktop/status'&&workspaceMode==='desktop'){if(req.method!=='GET'){reply(res,405,'',{allow:'GET'});return;}reply(res,200,JSON.stringify(desktopRelay.status(s)),{'content-type':'application/json; charset=utf-8'});return;}
   if(['/desktop-offline.js','/desktop-presence.js'].includes(path)&&workspaceMode==='desktop'&&req.method==='GET'){reply(res,200,await readFile(new URL('.'+path,import.meta.url)),{'content-type':'text/javascript; charset=utf-8'});return;}
   if(path.startsWith('/api/desktop-models/')){if(!rate(req,'desktop-model:'+s.id,120)){reply(res,429,'请求过于频繁');return;}await desktopModels.handle(req,res,s,path);return;}
@@ -239,10 +239,10 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
 if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1])).href){
  const desktopModelLimits=resolveDesktopModelLimits(process.env);
  const workspaceMode=process.env.MUSE_WORKSPACE_MODE||'desktop';
- const {createRuntime}=await import('./runtime.mjs');const store=await openStore(process.env.MUSE_ACCOUNTS_FILE||'/var/lib/muse/accounts.json');const runtime=workspaceMode==='cloud'?await createRuntime():{};
+ const {createRuntime}=await import('./runtime.mjs');const store=await openStore(process.env.MUSE_ACCOUNTS_FILE||'/var/lib/muse/accounts.json');const runtime=await createRuntime();
  const modelConfig=process.env.MUSE_MODEL_CONFIG?await openModelConfig(process.env.MUSE_MODEL_CONFIG):undefined;
  let globalModels;
- if(modelConfig){const {Config}=await import('../node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js');const deepseek=await import('../node_modules/@deepseek-ai/dsh-llm-deepseek/lib/index.js');const defaults=deepseek.Config({protocol:'chat-completions',baseURL:deepseek.PUBLIC_BASE_URL});globalModels=await openGlobalModels(process.env.MUSE_MODEL_CONFIG+'.native',{legacyConfig:modelConfig,schema:restrictModelSchema(Config.toJSON()),official:{schema:deepseek.Config.toJSON(),defaults,validate:value=>deepseek.resolveAdapterOptions(deepseek.Config(value))}});const secret=(await readFile(process.env.MUSE_MODEL_SECRET,'utf8')).trim();if(secret.length<32)throw Error('Invalid model relay secret');createModelRelay({config:modelConfig,globalModels,secret,accounts:store}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);}
+ if(modelConfig){const {Config}=await import('../node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js');globalModels=await openGlobalModels(process.env.MUSE_MODEL_CONFIG+'.native',{legacyConfig:modelConfig,schema:restrictModelSchema(Config.toJSON())});const secret=(await readFile(process.env.MUSE_MODEL_SECRET,'utf8')).trim();if(secret.length<32)throw Error('Invalid model relay secret');createModelRelay({config:modelConfig,globalModels,secret,accounts:store}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);}
  const feedback=await openFeedback(join(dirname(process.env.MUSE_ACCOUNTS_FILE||'/var/lib/muse/accounts.json'),'feedback'));
  const adminAccess=process.env.MUSE_ADMIN_ROOT?await openAdminAccess(process.env.MUSE_ADMIN_ROOT):undefined;
  const adminHosts=process.env.MUSE_ADMIN_HOSTS?JSON.parse(await readFile(process.env.MUSE_ADMIN_HOSTS,'utf8')):{};
@@ -264,7 +264,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
   await asr.ready();
   asrSweepIntervalSeconds=config.sweepIntervalSeconds;
  }
- createAccountServer({store,runtime,workspaceMode,modelConfig,globalModels,feedback,adminAccess,adminHosts,kb,asr,...desktopModelLimits,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH}).listen(Number(process.env.MUSE_PORT||19388),'127.0.0.1',()=>console.log('MUSE accounts gateway listening on loopback'));
+ const accountServer=createAccountServer({store,runtime,workspaceMode,modelConfig,globalModels,feedback,adminAccess,adminHosts,kb,asr,...desktopModelLimits,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
+ accountServer.listen(Number(process.env.MUSE_PORT||19388),'127.0.0.1',()=>console.log('MUSE accounts gateway listening on loopback:'+accountServer.address().port));
  if(asr){
   const sweep=()=>void asr.sweep().catch(()=>console.error('MUSE ASR retention cleanup failed'));
   sweep();setInterval(sweep,asrSweepIntervalSeconds*1000).unref();

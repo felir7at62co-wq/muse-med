@@ -375,6 +375,8 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 Client TypeScript 项目引用 `dsh-jubian`，由后者拥有生成的 Remote 声明使用的共享项目预算类型。该项目将这些类型编译到自己的 `lib/types` 目录。
 
+Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的调用通过 peer 依赖解析。部署提供共享的传输构造函数和错误构造函数，以及每个已解析账本根目录唯一的队列；安装独立包副本不得拆分同一运行时内的额度预留。
+
 ### 设计理念
 
 本包建立在三个决定之上：

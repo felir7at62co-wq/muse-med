@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-[社区构建器](../../../../third_party/plugins/build.mjs)要求已审核的 Host 版本，当前为 `0.1.7-rc.8`，并在产物 peer 候选与 `SOURCE.json` 中记录。Host 升级必须先审核，再移动该检查。[upstream.json](../../../../upstream.json)独立记录 fork 的上游源码固定版本。
+[社区构建器](../../../../third_party/plugins/build.mjs)要求已审核的 Host 版本，当前为 `0.2.0-rc.2`，并在产物 peer 候选与 `SOURCE.json` 中记录。Host 升级必须先审核，再移动该检查。[upstream.json](../../../../upstream.json)独立记录 fork 的上游源码固定版本。
 
 ### 消息来源归属
 
@@ -26,9 +26,11 @@ Ponytail 在 `MessageSourceMap` 中声明自身的 `ponytail` 成员，并发送
 
 [桥接覆盖](../../../../third_party/plugins/compatibility/bridge-desktop.mjs)在暂存适配前检查保留的上游模块摘要。运行时 API 导入必须存在于已构建 ESM 导出中；被擦除的 TypeScript enum 无法由 JavaScript 插件导入。产物保留上游源码固定版本和许可证，仅暴露审核后的产品 provider。
 
+[Codex pi-ai 覆盖](../../../../third_party/plugins/compatibility/codex-pi-ai.mjs)要求保留的运行时模块与目录测试摘要一致，并把复制后的准入检查及产物 peer 绑定到 `0.87.1`。复制后的目录断言使用当前发布的模型，保留自定义上下文检查，不为已移除的模型虚构离线别名。暂存 provider 与 Host adapter 共用已安装的依赖，因此模型准备和流式 API 使用同一版本。独立工具链锁和保留的源码清单保持不变。
+
 ## Verification
 
-接受 Host 固定版本前，对各选定源码使用当前仓库已构建 Host 包打包并执行产物检查。[构建测试](../../../../third_party/plugins/build.test.mjs)从全新暂存重新构建，并比较导出文件和 tarball 字节。[桥接检查](../../../../third_party/plugins/compatibility/bridge-desktop.test.mjs)拒绝未经审核的源码，并运行当前 Host 元数据服务；[传输检查](../../../../third_party/plugins/compatibility/bridge-remote.test.mjs)覆盖流式传输、原生 WebSocket 帧、取消、拒绝及重连。真实飞书收发与打包后的启用仍是独立、未验证的检查。
+接受 Host 固定版本前，对各选定源码使用当前仓库已构建 Host 包打包并执行产物检查。[构建测试](../../../../third_party/plugins/build.test.mjs)从全新暂存重新构建，并比较导出文件和 tarball 字节。[Codex 流式检查](../../../../third_party/plugins/checks/codex-pi-ai.mjs)通过 provider 与 Host adapter 验证 pi-ai 真实 OAuth 请求令牌解析、偏好 payload 和 SSE 输出，无需收费 API 请求。[桥接检查](../../../../third_party/plugins/compatibility/bridge-desktop.test.mjs)拒绝未经审核的源码，并运行当前 Host 元数据服务；[传输检查](../../../../third_party/plugins/compatibility/bridge-remote.test.mjs)覆盖流式传输、原生 WebSocket 帧、取消、拒绝及重连。真实飞书收发与打包后的启用仍是独立、未验证的检查。
 
 ## Alternatives considered
 

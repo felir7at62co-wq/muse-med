@@ -39,8 +39,24 @@ const clientVersionDefine = {
 
 export default defineConfig([
   {
+    entry: ['lib/types/command-manager-entry.js'],
+    plugins: [packagedImportsPlugin({ packages: new Set(), nodeBuiltins: true })],
+    outDir: 'lib',
+    format: ['esm'],
+    platform: 'node',
+    target: 'es2024',
+    fixedExtension: false,
+    dts: false,
+    clean: false,
+    codeSplitting: false,
+    deps: { alwaysBundle: ['@deepseek-ai/dsh-atomic-write'] },
+  },
+  {
     entry: ['lib/types/main.js'],
     plugins: [packagedImportsPlugin(mainProcessImports)],
+    alias: {
+      '../scripts/desktop-build-version.mjs': fileURLToPath(new URL('./scripts/desktop-build-version.mjs', import.meta.url)),
+    },
     define: clientVersionDefine,
     onSuccess: async () => {
       await build({

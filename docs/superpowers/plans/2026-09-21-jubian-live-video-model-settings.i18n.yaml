@@ -1,0 +1,34 @@
+# Bilingual-pair consistency record for 2026-09-21-jubian-live-video-model-settings.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-09-21-jubian-live-video-model-settings.md
+/jubian-live-video-model-settings-implementation-plan:
+  en: 648f1ac447e0e24a
+  zh: 9738a146c22d1d46
+/jubian-live-video-model-settings-implementation-plan/file-map:
+  en: 244baac798275f1d
+  zh: cc2e080880504eae
+/jubian-live-video-model-settings-implementation-plan/file-map/task-1-add-failing-api-tests-for-live-seedance-settings:
+  en: 7b21fc5cde3fca27
+  zh: ed6728444610efda
+/jubian-live-video-model-settings-implementation-plan/file-map/task-2-implement-exact-catalogue-resolution-and-duration-capability:
+  en: 3a81503a6d801fef
+  zh: 7600fb694fd8ea22
+/jubian-live-video-model-settings-implementation-plan/file-map/task-3-update-the-tool-layer-and-descriptions:
+  en: e065c8a3f11fb017
+  zh: 93d9b380700f9a3a
+/jubian-live-video-model-settings-implementation-plan/file-map/task-4-verify-integration-and-rebuild-the-active-tool-package:
+  en: 980e6ad1f895a654
+  zh: f33b5d4706f7c1b1
+/jubian-live-video-model-settings-implementation-plan/file-map/task-5-create-and-configure-episode-11-storyboards:
+  en: b7ea93abca801668
+  zh: d2bbb1ecc3f682ef
+/jubian-live-video-model-settings-implementation-plan/file-map/task-6-prepare-submit-and-account-for-generation:
+  en: 168003a4dd5602c4
+  zh: f5be8d988d6d5e43
+/jubian-live-video-model-settings-implementation-plan/file-map/task-7-review-clean-and-assemble-episode-11:
+  en: b7936a6d3a0de1ae
+  zh: 960d6cd91010296e
+/jubian-live-video-model-settings-implementation-plan/file-map/task-8-render-verify-and-deliver:
+  en: 882cfd0867d9df87
+  zh: 44ee4ef9d5212838

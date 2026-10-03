@@ -1,13 +1,7 @@
 /** Owns one backend startup and its quiescent teardown independently of windows. */
 
 import { desktopErrorState } from './startup-error.ts'
-
-/** Backend availability presented by the desktop window. */
-export type DesktopBackendState =
-  | { readonly phase: 'starting' }
-  | { readonly phase: 'ready' }
-  /** Rendered message, the original error, and whether the packaged application can still rebuild the profile. */
-  | { readonly phase: 'error'; readonly message: string; readonly failure: unknown; readonly profileRecovery?: boolean }
+import type { DesktopBackendState } from './ipc-types.ts'
 
 /** The error state for one failure: rendered message plus the failure itself. */
 function errorState(failure: unknown): DesktopBackendState {

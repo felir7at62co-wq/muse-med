@@ -48,10 +48,7 @@ Every command ran from the repository root with `TEMP`/`TMP` on `E:`.
 | `pnpm exec vitest run apps/desktop/tests/{development-project,preload}.spec.ts` | type errors | 4 passed |
 | `pnpm exec vitest run packages/drama packages/jubian packages/settings` | — | 73 files passed, 4 skipped; 1096 tests passed, 0 failed |
 
-Two more tool-jubian specs were red for the same reason as the two ported above and are ported the same way:
-`image.spec.ts` (3 of 6 cases) and `budget-tools.spec.ts` (1 case) answered the removed `settings.get(ns)` from a
-file-local fake, so `dramaSection()` threw `settings.describe is not a function`. Both now answer one descriptor keyed
-by `DRAMA_SETTINGS_NAMESPACE`, and both pass (7 cases together). The package-wide run above is what found them.
+Two more tool-jubian specs were red for the same reason as the two ported above and are ported the same way: `image.spec.ts` (3 of 6 cases) and `budget-tools.spec.ts` (1 case) answered the removed `settings.get(ns)` from a file-local fake, so `dramaSection()` threw `settings.describe is not a function`. Both now answer one descriptor keyed by `DRAMA_SETTINGS_NAMESPACE`, and both pass (7 cases together). The package-wide run above is what found them.
 
 The settings fix is falsified rather than asserted: removing the six `.volatile()` calls turns 7 of the 10 drama-settings cases red and the real-composition ceiling case red, because `describe()` then serves no such row. The preset fix is falsified the same way: without the `!!js` tag the adapter registers literal expression text and the re-expressed content assertion fails on `fontsDir`, which is how the defect was found.
 

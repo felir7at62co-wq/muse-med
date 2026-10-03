@@ -46,7 +46,7 @@ it.skipIf(process.platform === 'win32')('keeps staged audio, receipts, and publi
   const fixture = await setup()
   const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
   const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
-  const receipt = JSON.parse(await readFile(first.receipt, 'utf8'))
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as { mp3: string }
   for (const path of [join(fixture.project, 'transcript'), join(fixture.project, 'transcript', 'jobs')]) {
     expect((await stat(path)).mode & 0o777).toBe(0o700)
   }
@@ -70,7 +70,7 @@ it('removes expired uncertain audio while retaining its receipt and original job
   const fixture = await setup()
   const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
   const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
-  const receipt = JSON.parse(await readFile(first.receipt, 'utf8'))
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as { mp3: string }
   fixture.setJob({ id: first.job_id, status: 'uncertain', retentionExpired: true })
   const pending = await finishAudioTranscription(fixture.project, first.receipt, fixture.account)
   expect(pending.status).toBe('uncertain')
@@ -93,7 +93,7 @@ it('queries a prepared receipt before retrying the identical idempotency key', a
   const fixture = await setup()
   const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
   const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
-  const receipt = JSON.parse(await readFile(first.receipt, 'utf8'))
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as Record<string, unknown>
   await writeFile(first.receipt, JSON.stringify({ ...receipt, status: 'prepared' }))
   let used: string | undefined
   const retry: AudioAccount = { ...fixture.account,
@@ -122,11 +122,13 @@ it('splits long media into durable jobs and merges word timestamps onto the sour
   expect(submits).toBe(3)
   for (const id of states.keys()) states.set(id, { id, status: 'complete', segments: [{ start: 1, end: 2, text: 'hi', words: [{ start: 1, end: 2, text: 'hi' }] }] })
   const done = await finishAudioTranscription(fixture.project, first.receipt, account)
-  expect(JSON.parse(await readFile(done.output_json!, 'utf8')).map((row: { words: { start: number }[] }) => row.words[0]!.start)).toEqual([1, 11, 21])
+  const segments = JSON.parse(await readFile(done.output_json!, 'utf8')) as NonNullable<MuseAsrJob['segments']>
+  expect(segments.map(row => row.words?.[0]?.start)).toEqual([1, 11, 21])
   expect(await readFile(done.output_srt!, 'utf8')).toContain('00:00:21,000 --> 00:00:22,000')
   expect((await finishAudioTranscription(fixture.project, first.receipt, account)).status).toBe('complete')
   expect(submits).toBe(3)
-  expect(JSON.parse(await readFile(first.receipt, 'utf8')).sourceSha256).toMatch(/^[a-f0-9]{64}$/)
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as { sourceSha256: string }
+  expect(receipt.sourceSha256).toMatch(/^[a-f0-9]{64}$/)
 })
 
 it('preserves a pending part without re-submission and rejects out-of-part timing', async () => {
@@ -174,7 +176,9 @@ it('resumes pre-charge split preparation and expires unresolved audio without lo
   expect(submissions.slice(2)).toEqual(submissions.slice(0, 2))
   expire = true
   expect((await finishAudioTranscription(fixture.project, first.receipt, account)).status).toBe('uncertain')
-  const receipt = JSON.parse(await readFile(first.receipt, 'utf8'))
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as {
+    parts: readonly { mp3: string; retentionExpired: boolean }[]
+  }
   for (const part of receipt.parts) {
     expect(part.retentionExpired).toBe(true)
     expect(await stat(part.mp3).then(() => true, () => false)).toBe(false)

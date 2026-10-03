@@ -38,7 +38,7 @@ The watermark, the subtitle style and the ending bytes are all enforced by `dram
 
 Two of the four fixes are prompt and default values, not enforcement. Asset identity, the bound version's registered state, and that registration's episode coverage are now enforced by `drama_shot` ([state gate](2026-09-28-character-state-gate-at-binding.md)); the asset's board image itself, and the state of a character whose state nobody declares, still rest on the skills and on the review the tool requires.
 
-Regenerating `docs/tool-catalog.md` also brought two lines current that were stale at HEAD — the `drama_shot` placeholder rules (`ff5437838d`) and the workflow `agent()` reporting contract (`95c98cc31b`) changed their tool descriptions without the catalog being regenerated, so `verify-tool-catalog` was failing before this change.
+Regenerating `docs/tool-catalog.md` also brought two lines current that were stale at HEAD — the `drama_shot` placeholder rules and the workflow `agent()` reporting contract changed their tool descriptions without the catalog being regenerated, so `verify-tool-catalog` was failing before this change.
 
 ## Verification
 

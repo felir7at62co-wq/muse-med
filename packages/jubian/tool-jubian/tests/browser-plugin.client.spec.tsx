@@ -47,7 +47,10 @@ async function bench(face: {
   const mount = vi.fn((_contribution: unknown) => Promise.resolve(disposeMount))
   ctx.provide('remote', {
     $mount: mount,
-    get jubianToken() { return ctx.get('remote.jubianToken') },
+    get jubianToken(): unknown {
+      const namespace: unknown = ctx.get('remote.jubianToken')
+      return namespace
+    },
   })
   ctx.provide('remote.jubianToken', {
     describe: face.describe ?? (async () => ({ ok: true, value: { configured: false, writable: true } })),

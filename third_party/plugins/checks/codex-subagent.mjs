@@ -10,7 +10,7 @@ import { inspectSubagentRuntime, loadSubagentRuntime, SUBAGENT_RUNTIME_VERSION }
 import { authenticatedSubagentChild } from './src/subagent-auth.js'
 import { createRuntimeManagement } from './src/runtime-management.js'
 
-const approvedVersion = '0.1.7-rc.8'
+const approvedVersion = '0.2.0-rc.2'
 
 test('runs the real current provider and authenticated transport against a local protocol peer', async () => {
   const official = await import('@deepseek-ai/dsh-subagent-codex')

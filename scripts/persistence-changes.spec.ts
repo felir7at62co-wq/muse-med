@@ -575,6 +575,53 @@ describe('persistence change classification', () => {
 })
 
 describe('persistence history verification', () => {
+  it('joins compatible terminal histories while retaining both parent declarations and schemas', () => {
+    const base = entry(BASE_ID, inventory(), null, true)
+    const left = entry(NEXT_ID, onlyEvent(inventory({ value: 'string', 'label?': 'string' })), BASE_ID)
+    const right = entry('2026-09-11-right', onlyEvent(inventory({ value: 'string', 'count?': 'number' })), BASE_ID)
+    const joined = entry('2026-09-11-joined', onlyEvent(inventory({ value: 'string', 'label?': 'string', 'count?': 'number' })), NEXT_ID)
+    const merged = { ...joined, record: { ...joined.record, schemaVersion: 2 as const,
+      changes: joined.record.changes.map(change => ({ ...change, previous: [left.record.id, right.record.id] })) } }
+    const retained = JSON.stringify([base, left, right])
+    const history = validatePersistenceHistory([base, left, right, merged])
+    expect(history.tips.get('event:example/value')?.id).toBe(merged.record.id)
+    expect(JSON.stringify([base, left, right])).toBe(retained)
+    const checkpoint = createPersistenceFinalizationCheckpoint(history, inventory({ value: 'string', 'label?': 'string', 'count?': 'number' }))
+    expect(Object.keys(checkpoint.acceptedRecords)).toEqual([BASE_ID, NEXT_ID, merged.record.id, right.record.id].sort())
+  })
+
+  it('rejects a join that removes or changes either parent addition', () => {
+    const base = entry(BASE_ID, inventory(), null, true)
+    const left = entry(NEXT_ID, onlyEvent(inventory({ value: 'string', 'label?': 'string' })), BASE_ID)
+    const right = entry('2026-09-11-right', onlyEvent(inventory({ value: 'string', 'count?': 'number' })), BASE_ID)
+    for (const shape of [{ value: 'string', 'label?': 'string' }, { value: 'string', 'label?': 'string', 'count?': 'string' }] as const) {
+      const joined = entry('2026-09-11-joined', onlyEvent(inventory(shape)), NEXT_ID)
+      const merged = { ...joined, record: { ...joined.record, schemaVersion: 2 as const,
+        changes: joined.record.changes.map(change => ({ ...change, previous: [left.record.id, right.record.id] })) } }
+      expect(() => validatePersistenceHistory([base, left, right, merged])).toThrow('requires a format version bump')
+    }
+  })
+
+  it('rejects missing, repeated, single, and unjoined terminal parents', () => {
+    const base = entry(BASE_ID, inventory(), null, true)
+    const left = entry(NEXT_ID, onlyEvent(inventory({ value: 'string', 'label?': 'string' })), BASE_ID)
+    const right = entry('2026-09-11-right', onlyEvent(inventory({ value: 'string', 'count?': 'number' })), BASE_ID)
+    const joined = entry('2026-09-11-joined', onlyEvent(inventory({ value: 'string', 'label?': 'string', 'count?': 'number' })), NEXT_ID)
+    for (const [parents, expected] of [
+      [[left.record.id, '2026-09-11-missing'], 'missing predecessor'],
+      [[left.record.id, left.record.id], 'distinct predecessors'],
+      [[left.record.id], 'distinct predecessors'],
+    ] as const) {
+      const merged = { ...joined, record: { ...joined.record, schemaVersion: 2 as const,
+        changes: joined.record.changes.map(change => ({ ...change, previous: parents })) } }
+      expect(() => validatePersistenceHistory([base, left, right, merged])).toThrow(expected)
+    }
+    const third = entry('2026-09-11-third', onlyEvent(inventory({ value: 'string', 'extra?': 'boolean' })), BASE_ID)
+    const merged = { ...joined, record: { ...joined.record, schemaVersion: 2 as const,
+      changes: joined.record.changes.map(change => ({ ...change, previous: [left.record.id, right.record.id] })) } }
+    expect(() => validatePersistenceHistory([base, left, right, third, merged])).toThrow('forked')
+  })
+
   it('accepts a baseline and a successive optional addition without comparing the historical schema to current', () => {
     const before = inventory()
     const after = inventory({ value: 'string', 'label?': 'string' })
@@ -637,6 +684,38 @@ describe('persistence history verification', () => {
 })
 
 describe('persistence changes current-tree commands', () => {
+  it('creates an explicit paired join and locks all parents in a finalization checkpoint', () => {
+    const root = fixture()
+    const before = inventory()
+    runPersistenceChanges(['--baseline', BASE_ID, '--prose', proseFile(root)], root, () => before)
+    const left = entry(NEXT_ID, onlyEvent(inventory({ value: 'string', 'label?': 'string' })), BASE_ID)
+    const right = entry('2026-09-11-right', onlyEvent(inventory({ value: 'string', 'count?': 'number' })), BASE_ID)
+    for (const branch of [left, right]) {
+      const document = `---\nkind: persistence-change\n---\n\n\`\`\`yaml persistence-change\n${JSON.stringify(branch.record, null, 2)}\n\`\`\`\n`
+      for (const suffix of ['.md', '.zh.md']) writeFileSync(join(root, 'docs/persistence-changes', branch.record.id + suffix), document)
+      writeFileSync(join(root, 'docs/persistence-changes', branch.record.id + '.schema.json'), JSON.stringify(branch.snapshot))
+    }
+    const retained = [left, right].map(branch => readFileSync(join(root, 'docs/persistence-changes', branch.record.id + '.md'), 'utf8'))
+    const current = inventory({ value: 'string', 'label?': 'string', 'count?': 'number' })
+    const id = '2026-09-11-joined'
+    expect(runPersistenceChanges(['--record', id, '--join', NEXT_ID, '--join', right.record.id, '--prose', proseFile(root)], root, () => current)).toContain('Created')
+    const history = verifyPersistenceChanges(root, current)
+    expect(history.entries.find(item => item.record.id === id)?.record).toMatchObject({ schemaVersion: 2,
+      changes: [{ previous: [NEXT_ID, right.record.id], decision: 'same-version' }] })
+    expect([left, right].map(branch => readFileSync(join(root, 'docs/persistence-changes', branch.record.id + '.md'), 'utf8'))).toEqual(retained)
+    const joinedDocument = join(root, 'docs/persistence-changes', id + '.md')
+    const validDocument = readFileSync(joinedDocument, 'utf8')
+    writeFileSync(joinedDocument, validDocument.replace('schemaVersion: 2', 'schemaVersion: 1'))
+    expect(() => loadPersistenceHistory(root)).toThrow('multiple predecessors require acknowledgement schema version 2')
+    writeFileSync(joinedDocument, validDocument)
+    const checkpoint = createPersistenceFinalizationCheckpoint(history, current)
+    mkdirSync(join(root, 'docs/persistence-changes/finalized'))
+    writeFileSync(join(root, 'docs/persistence-changes/finalized/v3.json'), JSON.stringify(checkpoint))
+    for (const suffix of ['.md', '.zh.md']) writeFileSync(join(root, 'docs/session-format-status' + suffix), '```yaml session-format-finalization\nlatestFinalizedVersion: 3\n```\n')
+    expect(loadPersistenceFinalization(root, history)?.acceptedRecords.has(id)).toBe(true)
+    expect(() => runPersistenceChanges(['--update', id, '--prose', proseFile(root)], root, () => current)).toThrow('finalized acknowledgement')
+  })
+
   it('requires completed record prose, rejects stale generated output, and reports unacknowledged paths', () => {
     const root = fixture()
     const before = inventory()

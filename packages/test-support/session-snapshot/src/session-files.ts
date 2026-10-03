@@ -25,6 +25,38 @@ export interface PersistedSessionFile {
 
 const FIXTURE_FILE = /^session(?:\.([1-9]\d*))?(?:\.v([1-9]\d*))?\.jsonl$/u
 
+/**
+ * Replace recorded cwd tokens inside JSONL string values for one isolated replay.
+ * @param content - Canonical JSONL with `{{cwd}}` tokens only inside strings.
+ * @param cwd - Runtime working directory, preserved after JSON decoding.
+ * @returns A temporary replay copy; committed fixture bytes remain unchanged.
+ */
+export function hydrateSessionFixtureCwd(content: string, cwd: string): string {
+  const replace = (value: unknown): unknown => {
+    if (typeof value === 'string') {
+      if (!value.includes('{{cwd}}')) return value
+      let encoded: unknown
+      try {
+        encoded = JSON.parse(value)
+      } catch (error) {
+        // User prose and partial stream chunks need no nested JSON decoding.
+        if (!(error instanceof SyntaxError)) throw error
+      }
+      return encoded !== null && typeof encoded === 'object'
+        ? JSON.stringify(replace(encoded))
+        : value.replaceAll('{{cwd}}', cwd)
+    }
+    if (Array.isArray(value)) return value.map(replace)
+    if (value !== null && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, item]: [string, unknown]) => [key, replace(item)]))
+    }
+    return value
+  }
+  return content.split('\n').map(line => line.trim().length === 0
+    ? line
+    : JSON.stringify(replace(JSON.parse(line)))).join('\n')
+}
+
 function nonNegativeSafeInteger(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value < 0 || Object.is(value, -0)) {
     throw new Error(`${label} must be a non-negative safe integer`)
