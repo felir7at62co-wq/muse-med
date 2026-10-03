@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { applyHongguoHostCompatibility } from './compatibility/hongguo-host.mjs'
+import { hostRuntimeCompatibility, reviewedHostVersion } from './compatibility/host-runtime.mjs'
 
 const repository = resolve(import.meta.dirname, '../..')
 test('packs recovered Hongguo source deterministically with current Host qualification', () => {
@@ -29,11 +30,12 @@ test('packs recovered Hongguo source deterministically with current Host qualifi
     const manifest = JSON.parse(entry('package.json'))
     assert.equal(manifest.main, './src/index.js')
     assert.deepEqual(manifest.scripts, {})
-    assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-tools'], '0.2.0-rc.2')
+    assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-tools'], reviewedHostVersion)
     const source = JSON.parse(entry('SOURCE.json'))
     assert.equal(source.upstream.archiveSha256, '9133f9aa523ef86d7abbf0d9ec8fcdf644c93f2c8f1c70bb3ad0f4a8d7f31dda')
     assert.equal(source.upstream.commit, undefined)
-    assert.equal(source.hostVersion, '0.2.0-rc.2')
+    assert.equal(source.hostVersion, reviewedHostVersion)
+    assert.deepEqual(source.hostRuntimeCompatibility, hostRuntimeCompatibility)
     assert.match(entry('cordis.patch.yml'), /disabled: true/u)
     assert.match(entry('LICENSE'), /MIT License/u)
     assert.match(entry('RECOVERY.md'), /20/u)

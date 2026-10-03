@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-drama-assets",
   "description": "Short-drama pre-spend asset reconciliation: the model-facing drama_assets tool that compares the Jubian project's used assets with the manifest and writes the evidence the paid-call gate reads",
-  "version": "0.2.0-rc.2",
+  "version": "0.2.1-alpha.1",
   "publishConfig": {
     "access": "public"
   },
@@ -27,19 +27,19 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@deepseek-ai/dsh-jubian": "workspace:^",
-    "@deepseek-ai/dsh-jubian-api": "workspace:^"
+    "@deepseek-ai/dsh-jubian": "workspace:*",
+    "@deepseek-ai/dsh-jubian-api": "workspace:*"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-credentials": "workspace:^",
-    "@deepseek-ai/dsh-llm": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-credentials": "workspace:*",
+    "@deepseek-ai/dsh-llm": "workspace:*",
+    "@deepseek-ai/dsh-tools": "workspace:*"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-credentials": "workspace:^",
-    "@deepseek-ai/dsh-llm": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-credentials": "workspace:*",
+    "@deepseek-ai/dsh-llm": "workspace:*",
+    "@deepseek-ai/dsh-tools": "workspace:*"
   }
 }

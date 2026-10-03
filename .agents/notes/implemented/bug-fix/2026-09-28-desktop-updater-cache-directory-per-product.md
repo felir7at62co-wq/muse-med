@@ -46,4 +46,4 @@ Installer identity does not move with the name. The uninstall registry key and t
 
 Not verified here: the `updaterCacheDirName` line in a packaged `resources/app-update.yml`. The derivation, the fixed installer file name, and the write site were read from the installed `0.1.6-alpha.3` bundle and app-builder-lib 26.15.3, but only a package run emits the file; this change was not packaged.
 
-The [Desktop packaging and update record](../architecture/2026-08-25-electron-desktop-packaging-and-updates.md) owns the release stream this directory serves, and the [uninstall cleanup proposal](../feature/2026-09-08-desktop-uninstall-preserve-dsh-home.md) owns what a future uninstaller removes from either directory.
+The [Desktop packaging and update record](../architecture/2026-08-25-electron-desktop-packaging-and-updates.md) owns the release stream this directory serves.

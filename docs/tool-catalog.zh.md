@@ -38,7 +38,7 @@
 | `@deepseek-ai/dsh-tool-fs-search` | `glob`、`grep` | `ctx.tools`、`ctx.subprocess`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn 随包提供的 ripgrep 二进制文件（`@vscode/ripgrep`），并作为普通前台调用运行，绝不作为后台任务；无需在宿主机安装 `rg`，也不经过 shell 层。本目录使用 `sampleOverCapGlobResults: true`；部署必须显式选择该行为。结果超过上限时，会通过可选的 ctx.spillStore 后端保存完整的格式化列表；在共置部署中，如果后端公开本地路径，返回的定位信息可供后续读取／搜索。 |
 | `@deepseek-ai/dsh-tool-terminal` | `terminal_close`、`terminal_list`、`terminal_open`、`terminal_read`、`terminal_send`、`terminal_signal` | `ctx.tools`、`ctx.terminals`、`ctx.systemPrompt`、`ctx.jobs at call time for run_in_background` | `tool/call`、`tool/result` | - | 这 6 个终端工具需要选择启用，用于补充一次性 bash／文件系统工具。`terminal_send(run_in_background: true)` 会注册到 `ctx.jobs`；schema 不包含 TUI、具名按键序列、BEL、调整尺寸、自动启动和跨 agent 共享。 |
 | `@deepseek-ai/dsh-tool-goal` | `create_goal`、`get_goal`、`update_goal` | `ctx.tools`、`ctx.agents`、`ctx.goals`、`ctx.systemPrompt`、`a calling Agent in an authorized open turn` | `tool/call`、`goal/change for mutations`、`tool/result` | - | create、edit、pause 和 resume 要求直接来自人类的根权限；complete 和 blocked 也接受确切的当前 Goal Round。blocked 的默认下限是 3 个获准的 Round。 |
-| `@deepseek-ai/dsh-schedule` | `schedule_create`、`schedule_delete`、`schedule_list`、`schedule_update` | `ctx.tools`、`ctx.schedule`、live 根 Agent | `tool/call`、Schedule storage domain 创建、更新或删除、`tool/result` | - | Schedule 服务加载期间，在 live 根 Agent scope 内注册。接受 after_seconds、显式绝对 at、有界固定速率 every_seconds、带显式 IANA 时区的每日与每周本地时间，以及作为五字段表达式的 cron。管理使用宿主 storage domain；到期消息会恢复原 Session。 |
+| `@deepseek-ai/dsh-tool-schedule` | `schedule_create`, `schedule_delete`, `schedule_list`, `schedule_update` | `ctx.tools`, `ctx.schedule` | `tool/call`, `Schedule storage domain create, update, or delete`, `tool/result` | - | 由预设或 Agent 作用域装载；预设决定哪些 Agent 可使用四个管理工具。每次调用操作调用方 Agent 的会话。支持 after_seconds、明确的绝对时间 at、有界的固定间隔 every_seconds、明确 IANA 时区中的每日与每周时间，以及五字段 cron 表达式。任务由 Host 存储，到期消息恢复原会话。 |
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`、`ctx.lsp`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，因此其模型可见 schema 在更换提供方时保持稳定。运行时要求已注册提供方，例如 `@deepseek-ai/dsh-lsp-stdio`；如果没有提供方，查询会返回结构化 `LSP_UNAVAILABLE` 错误，而不会改变 schema。 |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`、`ctx.workflowEngine`、`ctx.subagents`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents every fresh round)` | `tool/call`、`tool/result`、`workflow and child session events during execution` | - | 固定的前台工作流会在每个 Round 启动一个全新的结构化子级；模型只能选择不可变目标和可选的 Round 上限。 |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`、`ctx.agents`、`ctx.skills` | `tool/call`、`tool/result`、`user/message replacement catalogs via agent.inject()` | - | - |
@@ -646,19 +646,19 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
 
 ### `run_code`
 
-针对可用工具执行 TypeScript 程序。接受两个必填参数：`code`，即异步函数的**函数体**（仅使用可擦除语法；支持顶层 `await` 和 `return`）；以及 `description`，简要说明该程序做什么。请根据系统提示词中的声明，以 `await tools.name(args)` 形式调用工具。只有打印或返回的内容属于程序输出，请谨慎筛选。含图片的子工具结果会在运行结束后附加。
+针对可用工具执行 TypeScript 程序。接受两个必填参数：`description`，简要说明该程序做什么；以及 `code`，即异步函数的**函数体**（仅使用可擦除语法；支持顶层 `await` 和 `return`）。请根据系统提示词中的声明，以 `await tools.name(args)` 形式调用工具。只有打印或返回的内容属于程序输出，请谨慎筛选。含图片的子工具结果会在运行结束后附加。
 
 ```json
 {
   "type": "object",
   "properties": {
+    "description": {
+      "type": "string",
+      "description": "Clear, concise description of what this program does in active voice, 5-10 words (shown in the UI). Provide `description` before `code` in the arguments. Examples: \"Count TODO markers across packages\"; \"Read failing test and its fixture\"; \"Rename config key in every cordis.yml\"."
+    },
     "code": {
       "type": "string",
       "description": "The program: the body of an async TypeScript function."
-    },
-    "description": {
-      "type": "string",
-      "description": "Clear, concise description of what this program does in active voice, 5-10 words (shown in the UI). Examples: \"Count TODO markers across packages\"; \"Read failing test and its fixture\"; \"Rename config key in every cordis.yml\"."
     },
     "timeoutMs": {
       "type": "number",
@@ -678,8 +678,8 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
     }
   },
   "required": [
-    "code",
-    "description"
+    "description",
+    "code"
   ]
 }
 ```
@@ -721,19 +721,19 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
 
 ### `bash`
 
-执行 bash 命令（`bash -c`）并返回 stdout/stderr。每次调用都在新 shell 中运行；请传入 `workdir`，不要使用 `cd`。托管的 `$DSH_*` 变量公开当前 harness 环境信息。较长的输出会截断，只保留尾部；如可用，完整输出会保存到文件并报告其路径。在任何删除或移动之前，请确认解析后的绝对目标路径正是预期路径；绝不要对未经检查的计算路径执行此类操作。未设置的变量会展开为空字符串，因此请用 `${VAR:?}` 保护此类路径中的变量。命令可能在文件沙箱中运行；被阻止的文件操作报告为 `[sandbox: file access denied under <mode> mode]`，这是策略拒绝：请勿换一种方式重试。
+执行 bash 命令（`bash -c`）并返回 stdout/stderr。每次调用都在新 shell 中运行；请传入 `workdir`，不要使用 `cd`。托管的 `$DSH_*` 变量公开当前 harness 环境信息。较长的输出会截断，只保留尾部；如可用，完整输出会保存到文件并报告其路径。请在参数中先提供 `description`，再提供 `command`。在任何删除或移动之前，请确认解析后的绝对目标路径正是预期路径；绝不要对未经检查的计算路径执行此类操作。未设置的变量会展开为空字符串，因此请用 `${VAR:?}` 保护此类路径中的变量。命令可能在文件沙箱中运行；被阻止的文件操作报告为 `[sandbox: file access denied under <mode> mode]`，这是策略拒绝：请勿换一种方式重试。
 
 ```json
 {
   "type": "object",
   "properties": {
-    "command": {
-      "type": "string",
-      "description": "The bash command to execute."
-    },
     "description": {
       "type": "string",
       "description": "Clear, concise description of what this command does in active voice, 5-10 words (shown in the UI). Examples: \"ls\" → \"List files in current directory\"; \"git status\" → \"Show working tree status\"; \"npm install\" → \"Install package dependencies\"."
+    },
+    "command": {
+      "type": "string",
+      "description": "The bash command to execute."
     },
     "timeoutMs": {
       "type": "number",
@@ -749,8 +749,8 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
     }
   },
   "required": [
-    "command",
-    "description"
+    "description",
+    "command"
   ]
 }
 ```
@@ -809,19 +809,19 @@ bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job �
 
 ### `pwsh`
 
-执行 PowerShell 命令（`pwsh -Command`）并返回 stdout/stderr。每次调用都在新的 pwsh 进程中运行；请传入 `workdir`，不要使用 `cd`。路径采用 Windows 原生形式（`C:\...`）；使用 `$env:NAME` 读取环境变量。托管的 `$env:DSH_*` 变量公开当前 harness 环境信息。较长的输出会截断，只保留尾部；如可用，完整输出会保存到文件并报告其路径。在 Windows 上，被强制终止的命令会以 `[exit code: 1]` 结算且不带信号标记，请将其视为中断，而不是命令失败。在任何删除或移动之前，请确认解析后的绝对目标路径正是预期路径；绝不要对未经检查的计算路径执行此类操作。不要给 `$HOME` 等自动变量赋值；变量名不区分大小写，因此 `$home` 就是同一个只读变量。命令可能在文件沙箱中运行；被阻止的文件操作报告为 `[sandbox: file access denied under <mode> mode]`，这是策略拒绝：请勿换一种方式重试。
+执行 PowerShell 命令（`pwsh -Command`）并返回 stdout/stderr。每次调用都在新的 pwsh 进程中运行；请传入 `workdir`，不要使用 `cd`。路径采用 Windows 原生形式（`C:\...`）；使用 `$env:NAME` 读取环境变量。托管的 `$env:DSH_*` 变量公开当前 harness 环境信息。较长的输出会截断，只保留尾部；如可用，完整输出会保存到文件并报告其路径。在 Windows 上，被强制终止的命令会以 `[exit code: 1]` 结算且不带信号标记，请将其视为中断，而不是命令失败。请在参数中先提供 `description`，再提供 `command`。在任何删除或移动之前，请确认解析后的绝对目标路径正是预期路径；绝不要对未经检查的计算路径执行此类操作。不要给 `$HOME` 等自动变量赋值；变量名不区分大小写，因此 `$home` 就是同一个只读变量。命令可能在文件沙箱中运行；被阻止的文件操作报告为 `[sandbox: file access denied under <mode> mode]`，这是策略拒绝：请勿换一种方式重试。
 
 ```json
 {
   "type": "object",
   "properties": {
-    "command": {
-      "type": "string",
-      "description": "The PowerShell command to execute."
-    },
     "description": {
       "type": "string",
       "description": "Clear, concise description of what this command does in active voice, 5-10 words (shown in the UI). Examples: \"ls\" → \"List files in current directory\"; \"git status\" → \"Show working tree status\"; \"Get-Process\" → \"List running processes\"."
+    },
+    "command": {
+      "type": "string",
+      "description": "The PowerShell command to execute."
     },
     "timeoutMs": {
       "type": "number",
@@ -837,8 +837,8 @@ bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job �
     }
   },
   "required": [
-    "command",
-    "description"
+    "description",
+    "command"
   ]
 }
 ```
@@ -1080,7 +1080,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
   "properties": {
     "file_path": {
       "type": "string",
-      "description": "Path to edit, resolved by the filesystem backend."
+      "description": "Path to edit, resolved by the filesystem backend. Provide `file_path` before `old_string` and `new_string` in the arguments."
     },
     "old_string": {
       "type": "string",
@@ -1165,7 +1165,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
   "properties": {
     "file_path": {
       "type": "string",
-      "description": "Path to write, resolved by the filesystem backend."
+      "description": "Path to write, resolved by the filesystem backend. Provide `file_path` before `content` in the arguments."
     },
     "content": {
       "type": "string",
@@ -1502,9 +1502,9 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 
 create、edit、pause 和 resume 要求直接来自人类的根权限；complete 和 blocked 也接受确切的当前 Goal Round。blocked 的默认下限是 3 个获准的 Round。
 
-<a id="deepseek-aidsh-schedule"></a>
+<a id="deepseek-aidsh-tool-schedule"></a>
 
-## `@deepseek-ai/dsh-schedule`
+## `@deepseek-ai/dsh-tool-schedule`
 
 ### `schedule_create`
 
@@ -1631,7 +1631,7 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 }
 ```
 
-来源：[`packages/schedule/schedule/src/tools.ts`](../packages/schedule/schedule/src/tools.ts)
+来源：[`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts)
 
 ### `schedule_delete`
 
@@ -1643,7 +1643,7 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
   "properties": {
     "id": {
       "type": "string",
-      "description": "Schedule id returned by schedule_list."
+      "description": "Exact schedule id."
     }
   },
   "required": [
@@ -1652,7 +1652,7 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 }
 ```
 
-来源：[`packages/schedule/schedule/src/tools.ts`](../packages/schedule/schedule/src/tools.ts)
+来源：[`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts)
 
 ### `schedule_list`
 
@@ -1665,9 +1665,7 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 }
 ```
 
-来源：[`packages/schedule/schedule/src/tools.ts`](../packages/schedule/schedule/src/tools.ts)
-
-选择启用的 Schedule 服务加载期间，在 live 根 Agent scope 内注册。接受 after_seconds、显式绝对 at、有界固定速率 every_seconds、带显式 IANA 时区的每日与每周本地时间，以及作为五字段表达式的 cron。管理使用宿主 storage domain；到期消息会恢复原 Session。
+来源：[`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts)
 
 ### `schedule_update`
 
@@ -1793,9 +1791,9 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 }
 ```
 
-Source: [`packages/schedule/schedule/src/tools.ts`](../packages/schedule/schedule/src/tools.ts)
+Source: [`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts)
 
-Schedule 服务加载期间，在 live 根 Agent scope 内注册。接受 after_seconds、显式绝对 at、有界固定速率 every_seconds、带显式 IANA 时区的每日与每周本地时间，以及作为五字段表达式的 cron。管理使用宿主 storage domain；到期消息会恢复原 Session。
+preset 或 Agent scope 挂载本包；由 preset 决定哪些 agent 获得这四个管理工具。每次调用都作用于调用方 Agent 的 Session。接受 after_seconds、显式绝对 at、有界固定速率 every_seconds、带显式 IANA 时区的每日与每周本地时间，以及作为五字段表达式的 cron。管理使用宿主 storage domain；到期消息会恢复原 Session。
 
 <a id="deepseek-aidsh-tool-lsp"></a>
 
@@ -2632,7 +2630,6 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 这 10 个工具限定于隐式 Team Lead 与持久 teammate 作用域。随产品发布的 dsh-base bundle 默认禁用该包；文档中的 Agent Teams profile patch 会启用它，并禁用旧 continuable child 的同名控制工具。
 
-
 <a id="deepseek-aidsh-tool-todo"></a>
 
 ## `@deepseek-ai/dsh-tool-todo`
@@ -2693,8 +2690,8 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
 
 脚本函数体提供以下钩子：
 
-- `agent(prompt, opts?): Promise<any>`：运行一个 subagent 直至完成。不提供 `opts.schema` 时，解析为子级最终文本；提供 `opts.schema` 时，它必须是以对象为根、且**只能**使用 type/properties/required/additionalProperties/items/enum/const/oneOf 的 JSON Schema，不支持 pattern/format/数值边界，此时解析为通过校验的对象，而且子级必须调用它的 `structured_output` 工具上报：子级用纯文本作答的 `schema` 调用会解析为 `null`。提示词里如果自己写了返回格式，那段文字描述的是载荷，永远不是上报通道。子级失败时解析为 `null`，可使用 `.filter(Boolean)` 过滤。其他选项包括 `label`（显示名称）、`phase`（进度组），以及相互独立的 `provider`／`model` LLM（大语言模型）目标覆盖项，两者可单独提供。其他任何选项（`effort`／`isolation`／`agentType`）都会明确报错。
-- `pipeline(items, ...stages): Promise<any[]>`：让每个条目分别经过各阶段，阶段之间**没有**屏障；多阶段工作优先使用它。每个阶段接收 `(prev, item, index)`。普通的阶段异常会将该**条目**变为 `null`，并跳过它的剩余阶段。
+- `agent(prompt, opts?): Promise<any>`：运行一个 subagent 直至完成。不提供 `opts.schema` 时，解析为子级最终文本；提供 `opts.schema` 时，它必须是以对象为根、且**只能**使用 type/properties/required/additionalProperties/items/enum/const/oneOf 的 JSON Schema，此时解析为通过校验的对象。子级失败时解析为 `null`，可使用 `.filter(Boolean)` 过滤。其他选项包括 `label`（显示名称）、`phase`（进度组），以及相互独立的 `provider`／`model` LLM（大语言模型）目标覆盖项。
+- `pipeline(items, ...stages): Promise<any[]>`：让每个条目分别经过各阶段，阶段之间**没有**屏障；多阶段工作优先使用它。每个阶段接收 `(prev, item, index)`。阶段异常会将该**条目**变为 `null`，并跳过它的剩余阶段。
 - `parallel(thunks): Promise<any[]>`：并发运行零参数函数并等待**全部**完成。它会形成屏障，仅当某个阶段确实需要汇总全部先前结果时使用。抛出异常的 thunk 解析为 `null`。
 - `phase(title)`：开始一个进度阶段；`log(message)`：说明进度；`args`：工具调用的 `args` 输入，原样提供。
 

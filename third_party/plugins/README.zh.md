@@ -10,12 +10,13 @@
 
 ```sh
 pnpm --dir third_party/plugins/toolchain run build --out ../../../.artifacts/community-plugins
+pnpm --dir third_party/plugins/toolchain run test:host
 pnpm --dir third_party/plugins/toolchain run test:build
 ```
 
 [build.mjs](build.mjs) 按独立的[工具链锁文件](toolchain/pnpm-lock.yaml)执行冻结安装并禁用安装脚本，再在临时目录中逐个编译和打包插件。`--only dsh-ffmpeg` 可选择单个源码目录。临时目录链接当前仓库已构建的 Host 包，不使用在线用户配置。子进程检查使用临时 Harness 主目录，并排除含凭据的环境变量。脚本先移除链接，再删除临时目录；源码目录不会产生构建输出或 `node_modules`。桥接的上游 JavaScript 源码本就位于 `lib`。
 
-每个压缩包保留上游许可证和 Codex 声明，按需添加所内嵌 Heroicons 的许可证，并在 `SOURCE.json` 记录上游固定版本、Host 版本及工具链锁文件摘要。产物清单禁用生命周期脚本、固定构建所用的运行时依赖版本，并仅向 DSH peer 候选增加经测试的精确 Host 版本。上游清单保持不变。Host 版本变化时，脚本拒绝构建，直到完成新的兼容性审核。
+每个压缩包保留上游许可证和 Codex 声明，按需添加所内嵌 Heroicons 的许可证，并在 `SOURCE.json` 记录上游固定版本、已审核的 Host/vendor 版本及工具链锁文件摘要。[Host 版本审核](compatibility/host-runtime.mjs)拒绝未审核的 Host 或 vendor 版本。产物清单禁用生命周期脚本、固定运行时依赖，并在 peer 候选中显式允许已审核的 Host 和 vendor 预发行版本。产物移除已退役的 `dsh-invariants` 依赖；Ponytail 仅导出和编译主 provider。上游清单与源码文件保持不变。
 
 Codex 临时运行时补丁在 `SOURCE.json` 记录修改：子任务检查与准备仅接受已审核的 Host provider 版本，CLI 仍固定为 `0.153.4`。provider 与 Host adapter 共用 Host 安装的 pi-ai `0.87.1`；复制后的运行时与产物 peer 仅接受该精确版本。覆盖检查保留的 provider 模块和目录测试的 SHA-256。复制后的检查使用当前模型目录，并通过 GPT-5.6 Luna 验证自定义上下文；不会给已移除的离线模型虚构别名。打包后从 `app.asar.unpacked` 解析 CLI 清单和启动文件。保留的上游文件不变；源码文本不符合预期时，补丁失败，而非静默跳过。
 

@@ -2,6 +2,7 @@
 
 import { globSync } from 'node:fs'
 import { PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES } from './experimental-package-policy.ts'
+import { PRIVATE_MUSIC_ANALYSIS_DIRECTORY } from './perception-bgm-private-package.ts'
 
 const PACKAGE_PATTERNS = [
   'vendor/*/package.json',
@@ -10,7 +11,7 @@ const PACKAGE_PATTERNS = [
 ] as const
 
 /**
- * Discover baseline manifests while excluding the configured private experimental directories.
+ * Discover baseline manifests without the noncommercial music analysis provider or configured private experimental directories.
  * @param root - repository root to scan.
  * @param privateDirectories - repository-relative experimental directories excluded from publication.
  * @returns Sorted repository-relative manifest paths with forward slashes.
@@ -21,6 +22,6 @@ export function discoverNpmBaselineManifests(
 ): string[] {
   return globSync(PACKAGE_PATTERNS, {
     cwd: root,
-    exclude: privateDirectories.map(directory => `${directory}/package.json`),
+    exclude: [...privateDirectories, PRIVATE_MUSIC_ANALYSIS_DIRECTORY].map(directory => `${directory}/package.json`),
   }).map(path => path.replaceAll('\\', '/')).sort()
 }

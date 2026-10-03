@@ -96,8 +96,7 @@ The durable `composition-guard` source is attribution for the injected user mess
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config` schema, baseline recording, adoption, the `internal/update` sweep, and both announcement channels |
-| [`src/baseline.ts`](src/baseline.ts) | The per-runtime record set and its state transitions; bundled into the package entry, so the companion shares it rather than a second copy |
-| [`src/invariant.ts`](src/invariant.ts) | The invariant companion: every agent that addresses a model must be one the composed guard holds a baseline for |
+| [`src/baseline.ts`](src/baseline.ts) | The per-runtime record set, state transitions, and detached snapshots exposed through `guardState(ctx.root.fiber)` |
 
 </details>
 
@@ -146,7 +145,7 @@ These limits define what this guard is and is not. They are current package cons
 - **It detects; it does not repair** — the framework does not re-compose an existing standing mount, so a withdrawn session stays withdrawn until the host restarts. The guard's contribution is the report and the stated recovery.
 - **A composition already incomplete at activation is not announced** — baselines come from observation, and an agent the guard adopts has no earlier observation to compare against. Reconstructing a durable expectation from the session log's recorded request headers is the deferred alternative; the guard deliberately does not guess, because a notice on every start is worse than silence.
 - **Only tool names are compared** — a reload that withdraws a prompt section, a skill, or a projection from a frozen agent is not reported, and a reload that swaps one tool for another of the same name is invisible.
-- **One guard row per runtime** — a second instance's baselines are a second answer to the same question, so the newest record replaces the previous one and the companion reads only that.
+- **One guard row per runtime** — a second instance's baselines are a second answer to the same question, so the newest record replaces the previous one and `guardState` reads only that.
 - **In-memory only** — baselines live and die with the host process, so a restart starts every agent from a fresh observation.
 - **The notice text is Chinese** — it is written for the person whose session lost its tools, and the repository's client copy is locale-owned while this is a host-side message to the conversation.
 

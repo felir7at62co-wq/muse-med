@@ -47,12 +47,12 @@ changes:
 <a id="compatibility"></a>
 ## 兼容性
 
-所有变更前 schema 已带有消息源归属保留策略。新的 composition-guard kind 不存在于这些快照中，并符合既有策略。它的 notice 形式和摘要描述会话记录展示；记录的正文承载模型可见警告。守卫及其不变式均不读取此消息源来决定工具可用性、基线有效性或重复抑制：这些决策使用运行时记录集与当前注册表。原生及 detached 读取器保留消息源自身的 JSON 字段，并在没有生产者时派生消息。新标记保留完整的 form 与 summary 声明，不引入新的校验或权限要求，也不改变已有 kind 分组。已有 V4 记录以及所有历史声明、快照和代际文件保持不变；无需迁移或递增写入器版本。
+所有变更前 schema 已带有消息源归属保留策略。新的 composition-guard kind 不存在于这些快照中，并符合既有策略。它的 notice 形式和摘要描述会话记录展示；记录的正文承载模型可见警告。守卫不读取此消息源来决定工具可用性、基线有效性或重复抑制：这些决策使用运行时记录集与当前注册表。原生及 detached 读取器保留消息源自身的 JSON 字段，并在没有生产者时派生消息。新标记保留完整的 form 与 summary 声明，不引入新的校验或权限要求，也不改变已有 kind 分组。已有 V4 记录以及所有历史声明、快照和代际文件保持不变；无需迁移或递增写入器版本。
 
 <a id="verification"></a>
 ## 验证
 
-node node_modules/vitest/vitest.mjs run scripts/persistence-changes.spec.ts scripts/persistence-formats.spec.ts packages/guard/composition-guard/tests/composition-guard.spec.ts packages/guard/composition-guard/tests/invariant.spec.ts packages/session/session-format-v3-to-v4/tests/attribution.spec.ts --maxWorkers=2 通过五个文件中的 202 项测试。原生归属用例对 user 和 developer 角色的 composition-guard 通知执行编码和解码，在没有生产者时通过 detached Session 接纳恢复，派生完整记录正文与消息源元数据，并复现相同物理行。守卫测试覆盖注册表工具撤回、基线检查与报告抑制。源码审查未发现守卫或其不变式消费通知消息源。
+聚焦运行 `scripts/persistence-changes.spec.ts`、`scripts/persistence-formats.spec.ts`、`packages/guard/composition-guard/tests/composition-guard.spec.ts` 和 `packages/session/session-format-v3-to-v4/tests/attribution.spec.ts`，通过了四个文件中的 196 项测试。原生归属用例对 user 和 developer 角色的 composition-guard 通知执行编码和解码，在没有生产者时通过 detached Session 接纳恢复，派生完整记录正文与消息源元数据，并复现相同物理行。守卫测试覆盖注册表工具撤回、基线检查与报告抑制。源码审查未发现守卫消费通知消息源。
 
 <a id="dev-note"></a>
 ## 开发备注

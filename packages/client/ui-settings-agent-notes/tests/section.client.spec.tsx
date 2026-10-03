@@ -181,7 +181,7 @@ describe('AgentNotesSection — editing', () => {
     const save = screen.getByRole('button', { name: en.save }) as HTMLButtonElement
     expect(save.disabled).toBe(true)
     fireEvent.change(screen.getByRole('textbox', { name: en.editorLabel }), { target: { value: 'changed' } })
-    await waitFor(() => { expect(screen.getByRole('button', { name: en.save }).disabled).toBe(false) })
+    await waitFor(() => { expect(screen.getByRole<HTMLButtonElement>('button', { name: en.save }).disabled).toBe(false) })
   })
 
   it('cancels back to the saved text', async () => {
@@ -231,6 +231,6 @@ describe('AgentNotesSection — editing', () => {
     await screen.findByText(en.saveStale)
     // The reloaded version is now the editor's baseline, and nothing typed was lost.
     await waitFor(() => { expect(read).toHaveBeenCalledTimes(2) })
-    expect(screen.getByRole('textbox', { name: en.editorLabel }).value).toBe('mine')
+    expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: en.editorLabel }).value).toBe('mine')
   })
 })

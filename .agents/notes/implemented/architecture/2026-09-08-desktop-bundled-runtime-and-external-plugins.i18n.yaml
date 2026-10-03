@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-08-desktop-bundled-runtime-and-external-plugins.md
 /agent-note-bundle-the-desktop-runtime-and-retain-external-plugins:
-  en: 700c31ed47ed1d89
-  zh: 90ee2d392df32c03
+  en: 38c2130846ce450e
+  zh: f61690fa3debaeb7
 /agent-note-bundle-the-desktop-runtime-and-retain-external-plugins/problem:
   en: fe97fe6ba33cb23a
   zh: c83a1f023c4e352d
@@ -15,11 +15,11 @@
   en: 37cae6b28fd359ef
   zh: 63118e361fa8f84c
 /agent-note-bundle-the-desktop-runtime-and-retain-external-plugins/transactions-and-upgrades:
-  en: 5bdc450be55832fb
-  zh: 3312fc9e5497e139
+  en: 53d48f71fcc1c52e
+  zh: 7d61923484dbec1c
 /agent-note-bundle-the-desktop-runtime-and-retain-external-plugins/alternatives-considered:
-  en: 1558bba473382cbb
-  zh: b6a6467866ee254d
+  en: ead5bbd94044c3de
+  zh: 057cf069413d2a49
 /agent-note-bundle-the-desktop-runtime-and-retain-external-plugins/consequences:
   en: 6dfa581ec6879c5b
   zh: f6c735ad6a00b2b3

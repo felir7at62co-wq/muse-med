@@ -74,7 +74,7 @@ python -B packages/perception/perception-bgm/tests/test_runtime_resources.py
 npm pack --dry-run --json --ignore-scripts --cache .test-npm-cache | node tests/check-pack.mjs
 ```
 
-manifest 包含全部 `lib/*.js` 产物、类型声明、worker 脚本、第三方 Python、静态数据及来源/许可记录。显式允许列表排除权重与缓存。Python 回归测试替代重型库，不分析音频也不访问网络。
+manifest 包含 `lib/index.js`、`lib/config.js`、`lib/worker.js`、类型声明、worker 脚本、第三方 Python、静态数据及来源/许可记录。显式允许列表排除 TypeScript 源文件、权重与缓存。Python 回归测试替代重型库，不分析音频也不访问网络。
 
 </details>
 
@@ -114,7 +114,7 @@ manifest 包含全部 `lib/*.js` 产物、类型声明、worker 脚本、第三�
 - worker 直接拥有本地子进程；接入 subprocess 服务和等待进程完全退出属于独立生命周期工作。强制终止可能绕过 Python 临时目录清理。
 - 即使复用已下载缓存，公开曲库也必须可访问。缓存不自动淘汰；不接收也不需要上传凭证。
 - 同一索引的并发写入未协调。一次仅允许一个建库写入者；当前损坏或不可读的索引被视为空。
-- 本包仍为 private，依赖使用 workspace 范围。发布打包器必须解析这些范围、包含运行时依赖闭包，并接入 Host TypeScript 聚合与包发现。
+- 工作区检查要求本包保持 private 并省略 `publishConfig`。桌面打包器必须解析 workspace 依赖范围并包含运行时依赖闭包；本包禁止公开发布到 npm。
 
 <a id="dev-note"></a>
 ### 开发备注

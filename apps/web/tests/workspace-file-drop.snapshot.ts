@@ -1,7 +1,12 @@
 /** Workspace-tree gestures preserve the draft and send ordinary file references through the shipped Web profile. */
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
+import { composeEntries, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { entryListProblem, type PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
+import yaml from 'js-yaml'
 import { chromium, type Browser } from 'playwright'
 import { expect, it } from 'vitest'
 import {
@@ -14,11 +19,48 @@ const DIR = fileURLToPath(new URL('../../../snapshots/web/workspace-file-drop', 
 const FIXTURE = join(DIR, 'session.v4.jsonl')
 const MODE = webSnapshotMode()
 
+/** Preserve the recorded catalog while composing the current shipped standard plugins. */
+async function fixtureOverlay(): Promise<{ root: string; path: string }> {
+  const presetPath = fileURLToPath(new URL('../../../packages/bundle/web-app/presets/standard.patch.yml', import.meta.url))
+  const row = composeEntries([loadOverlayPatches('workspace file drop fixture', presetPath)])
+    .find(entry => entry.id === 'preset-standard')
+  const definition = row?.config as PresetDefinition | undefined
+  if (definition?.id !== 'standard' || entryListProblem(definition.plugins) !== undefined) {
+    throw new Error('Workspace file drop fixture has no valid shipped standard preset')
+  }
+  const root = await mkdtemp(join(tmpdir(), 'dsh-file-drop-overlay-'))
+  const path = join(root, 'cordis.patch.yml')
+  try {
+    await writeFile(path, yaml.dump([{
+      id: 'preset-standard',
+      config: {
+        ...definition,
+        plugins: [
+          ...definition.plugins.map(plugin => plugin.id === 'time-context' ? { ...plugin, disabled: true } : plugin),
+          {
+            name: pathToFileURL(fileURLToPath(new URL('./fixtures/workspace-file-drop/skill-policy.mjs', import.meta.url))).href,
+            config: { names: ['cordis-plugin-development', 'editing-cordis-compositions'] },
+          },
+        ],
+      },
+    }], { schema: entryListSchema }))
+    return { root, path }
+  } catch (error) {
+    await rm(root, { recursive: true, force: true })
+    throw error
+  }
+}
+
 it('replays workspace file drag and touch menu references without uploading or sending the draft', async () => {
   const prompt = fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))[0]!
+  const overlay = await fixtureOverlay()
   const scaffold = await launchWebScaffold({
     ...(MODE === 'record' ? {} : { replayFixture: FIXTURE }),
     compareReplaySession: true,
+    extraOverlayPath: overlay.path,
+  }).catch(async (error: unknown) => {
+    await rm(overlay.root, { recursive: true, force: true })
+    throw error
   })
   let browser: Browser | undefined
   let tripwire: ReturnType<typeof watchConsole> | undefined
@@ -86,9 +128,13 @@ it('replays workspace file drag and touch menu references without uploading or s
     try {
       await browser?.close()
     } finally {
-      try { await scaffold.close() } catch (error) {
-        if (failure !== undefined) throw new AggregateError([failure, error], 'Workspace file drop failed before scaffold cleanup')
-        throw error
+      try {
+        try { await scaffold.close() } catch (error) {
+          if (failure !== undefined) throw new AggregateError([failure, error], 'Workspace file drop failed before scaffold cleanup')
+          throw error
+        }
+      } finally {
+        await rm(overlay.root, { recursive: true, force: true })
       }
     }
   }

@@ -56,7 +56,7 @@ These pages describe the slots and shell that render the artwork.
 
 - [ui-sidebar](../ui-sidebar/README.md) — declares `sidebar.brand.mark` and `sidebar.brand.name` and renders their fallbacks.
 - [ui-conversation](../ui-conversation/README.md) — declares `conversation.hero.brand.mark` in the hero.
-- [Web client architecture](../../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) — how browser plugin rows load and register slots.
+- [Web client architecture](../../../docs/subsystems/web-client.md) — how browser plugin rows load and register slots.
 
 -----
 
@@ -88,5 +88,3 @@ Brand presentation depends on the host application's assets and slot declaration
 None.
 
 </details>
-
-**Runtime invariant:** No companion is published. The package retains no mutable state; its two slot occupants are owned by independent plugin-fiber effects.

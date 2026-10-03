@@ -74,7 +74,7 @@ From this package directory, check the standard npm file list after building:
 npm pack --dry-run --json --ignore-scripts --cache .test-npm-cache | node tests/check-pack.mjs
 ```
 
-The manifest includes every `lib/*.js` chunk, declarations, worker scripts, vendored Python, static data, and source/license records. It excludes checkpoints and caches by an explicit allowlist. Python regression tests stub heavy libraries and do not analyze audio or access the network.
+The manifest includes `lib/index.js`, `lib/config.js`, `lib/worker.js`, declarations, worker scripts, vendored Python, static data, and source/license records. Its explicit allowlist excludes TypeScript sources, checkpoints, and caches. Python regression tests stub heavy libraries and do not analyze audio or access the network.
 
 </details>
 
@@ -114,7 +114,7 @@ Append-only. Stable schema text preserves the request prefix; calls add tool res
 - The worker directly owns a local subprocess; subprocess-service integration and awaited process teardown remain separate lifecycle work. Forced termination can bypass Python temporary-directory cleanup.
 - The public catalogue must remain reachable even for cached downloads. The cache has no automatic eviction; no upload credential is accepted or needed.
 - Concurrent writers to one index are not coordinated. Use one index writer at a time; malformed or unreadable indexes are currently treated as empty.
-- The package remains private and uses workspace dependency ranges. A release packer must resolve those ranges, include its runtime dependency closure, and wire the Host TypeScript aggregate and package discovery.
+- Workspace gates require this package to remain private and omit `publishConfig`. A Desktop packer must resolve workspace dependency ranges and include its runtime dependency closure; public npm publication is disabled.
 
 <a id="dev-note"></a>
 ### Dev Note

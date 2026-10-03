@@ -24,7 +24,7 @@ Status: implemented
 
 **`completed` 现在要求该调用所声明的产物。** PTC 宿主保存每个子 agent 请求声明的 schema，并在运行时读到该值之前检查捕获值：值必须是 JSON 对象，且 schema 顶层 `required` 列表中的每个属性都必须存在。只有通过检查才产生 `completed`；未通过则报告 `invalid-structured-output`，并指明缺失的属性。该检查按设计只做结构判断——schema 可以要求存在 `dialogue` 数组，但无法要求它非空——语义验收仍归调用方。
 
-**持久化的成员结算重复成员身份。** `tool-workflow/agent-end` 写入其开始记录已确立的 `label` 与 `childId`，并在成员失败时写入原因，因此单条结算记录即可归因 fan-out 失败并定位失败的子会话，无需按序号回连开始记录。包 invariant 会在实时追加与冷加载两条路径上，拒绝重复身份与其开始记录不一致的结算，以及没有可识别原因的 `failed` 结算。两个身份成员在载荷中都是可选的：此前写下的日志仍可读取并保持原意。
+**持久化的成员结算重复成员身份。** `tool-workflow/agent-end` 写入其开始记录已确立的 `label` 与 `childId`，并在成员失败时写入原因，因此单条结算记录即可归因 fan-out 失败并定位失败的子会话，无需按序号回连开始记录。两个身份成员在载荷中都是可选的：此前写下的日志仍可读取并保持原意。
 
 **schema 调用会把返回约定加到任务正文之前。** 对每次 `agent(prompt, { schema })` 调用，`STRUCTURED_RETURN_NOTICE` 都位于脚本提示词之前，说明子 agent 以调用 `structured_output` 收尾、只有该调用携带结果、纯文本作答会被丢弃。任务正文自述的返回格式描述的是 schema 已经声明的载荷，而不是与之竞争的指令。`workflow` 工具描述在脚本作者阅读的位置陈述同一条规则。
 
@@ -36,7 +36,7 @@ Status: implemented
 
 **把扇出成功的门禁放进 workflow 脚本。** 脚本可以对返回值做任意校验，被记录的父脚本也确实记录了自己的逐集失败。脚本自有的门禁无法让 `completed` 对任何其他消费方意味着可用产物——UI、阅读会话日志的操作者，或之后的回放。
 
-**把重复身份改为必需。** 必需成员会让本次变更之前写下的每条日志，被折叠它的 invariant 判为不可读，其中就包括促成这次变更的那次复盘会话。
+**把重复身份改为必需。** 必需成员会让本次变更之前写下的每条日志，被要求该成员存在的载荷校验器判为不可读，其中就包括促成这次变更的那次复盘会话。
 
 ## 后果
 
@@ -50,6 +50,6 @@ Status: implemented
 
 ## 测试
 
-`packages/workflow/workflow-ptc/tests/integration.spec.ts` 驱动真实进程内栈：一个用散文作答的 schema 子 agent 让脚本的 `agent()` 解析为 `null`，并恰好发出一个 `workflow/agent-end`，其 `childId` 等于 `workflow/agent-start` 记录的那个，其 `label` 非空，其原因为 `missing-structured-output`。`packages/workflow/workflow-ptc/tests/guest.spec.ts` 固定了失败子 agent、结构化值缺失、以及被产物检查拒绝并带详情文本的捕获值这三种原因。`packages/workflow/tool-workflow/tests/tool-workflow.spec.ts` 固定已完成后成员的记录载荷，`packages/workflow/tool-workflow/tests/invariant.spec.ts` 覆盖新增的持久检查，以及省略重复身份但仍可读的连续前缀。`packages/subagent/subagent-in-process-driver/tests/structured.spec.ts` 固定新的结束原因及其诊断。
+`packages/workflow/workflow-ptc/tests/integration.spec.ts` 驱动真实进程内栈：一个用散文作答的 schema 子 agent 让脚本的 `agent()` 解析为 `null`，并恰好发出一个 `workflow/agent-end`，其 `childId` 等于 `workflow/agent-start` 记录的那个，其 `label` 非空，其原因为 `missing-structured-output`。`packages/workflow/workflow-ptc/tests/guest.spec.ts` 固定了失败子 agent、结构化值缺失、以及被产物检查拒绝并带详情文本的捕获值这三种原因。`packages/workflow/tool-workflow/tests/tool-workflow.spec.ts` 固定已完成后成员的记录载荷。`packages/subagent/subagent-in-process-driver/tests/structured.spec.ts` 固定新的结束原因及其诊断。这些测试与 `packages/session/session-format-v0-to-v1/tests/` 一起通过了九个文件中的 217 项测试。
 
 [会话日志版本机制决定](../architecture/2026-08-10-session-log-version-mechanism.zh.md) 说明了为什么三个可选载荷成员不需要版本提升；[其持久化记录](../../../../docs/persistence-changes/2026-09-27-workflow-agent-settlement-identity.zh.md) 是这次确认。两者均未被取代。

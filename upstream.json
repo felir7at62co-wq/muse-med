@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/deepseek-ai/deepseek-harness.git",
-  "pinnedCommit": "639ed015397290b3745d163aafe02ffee4aa3f84",
-  "pinnedVersion": "0.2.0-rc.2",
+  "pinnedCommit": "5badb15009ae1756c3afe0ae0cef1faafc290ccc",
+  "pinnedVersion": "0.2.1-alpha.1",
   "derivedFrom": "git merge-base HEAD origin/master, read from Git rather than transcribed; re-derive with `pnpm exec tsx scripts/upstream-sync-rehearsal.ts`, which fails when this record and Git disagree"
 }

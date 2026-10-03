@@ -62,7 +62,7 @@ A name that disappeared is a finding only when the agent's composed preset did n
 
 ### Two channels, because the affected reader is a person
 
-A regression writes one log line naming the session, its preset, and the missing tool names, and it injects one plugin-sourced notice into the affected conversation, naming the missing tools and the recovery in the language the person reads. The notice is authored by this package (`{ kind: 'plugin', plugin: 'composition-guard', form: 'notice' }`) so it renders as a labeled plugin message rather than an unexplained user prompt.
+A regression writes one log line naming the session, its preset, and the missing tool names, and it injects one package-authored notice into the affected conversation, naming the missing tools and the recovery in the language the person reads. The source records `kind: 'composition-guard'`, `form: 'notice'`, and a bounded summary so transcript readers recognize the guard's announcement.
 
 The notice text is Chinese, deliberately, and the package README records why: the repository's client copy is locale-owned, but this is a host-side message addressed to one person inside their own conversation.
 
@@ -70,9 +70,9 @@ The notice text is Chinese, deliberately, and the package README records why: th
 
 Every check is contained, and a contained failure is logged at most once per agent rather than once per update. A logger that throws is one failed channel, not a failed announcement. The whole record set is owned by the guard's own context effect, so unloading the row — including a whole-tree teardown — drops it.
 
-### The invariant companion checks the one relation that makes the guard useful
+### Runtime state inspection stays with the guard
 
-A guard that is blind is worse than no guard, and its blind spot is coverage. The package's [`./invariant`](../../../../packages/guard/composition-guard/src/invariant.ts) companion therefore asserts, on `system-prompt/assemble` — the same trigger the preset roster's companion uses, and for the same ordering reason, since an assembling agent has been published and its creation dispatch has settled — that an agent addressing a model is one the composed guard holds a baseline for. It reports nothing when no guard is composed in that runtime: the relation belongs to the guard, and a deployment that mounts the companion without the guard owes it nothing.
+The guard exposes `guardState(ctx.root.fiber)` from its package entry for runtime-scoped inspection of tracked agents and their observed baselines. The record set belongs to the guard's effect, so an unloaded or uncomposed guard reports no tracked agents. Keeping inspection with the guard avoids a second copy of the module's record map; runtime state inspection does not reject model assembly.
 
 ## Alternatives considered
 
@@ -97,5 +97,3 @@ A withdrawal that used to be discovered late is now stated where it happens: one
 The cost is a standing host-plane row and a small amount of per-agent state: one baseline per live agent, refreshed on re-composition and dropped on disposal, plus one map lookup per agent per loader update. The cap (`maxAgentsPerUpdate`, default 64) bounds that work in a deployment with very many concurrent sessions. Installing it also costs one step beyond mounting a row: the profile's `node_modules` must resolve the package, per the installation rule above.
 
 Two limits are recorded rather than solved. Only tool names are compared, so a reload that withdraws a prompt section, a skill, or a projection from a frozen agent is still silent; and a composition that was already incomplete when the guard activated is not announced, because the guard will not guess at history it did not observe. Both are stated in the package README's limitations, and the second names the durable reconstruction it deferred.
-
-The guard's own coverage is now an enforced contract rather than a hope: the invariant companion fails an assembly by an agent the composed guard has no baseline for, so a broken creation listener or a missed adoption is a loud gate failure instead of a guard that quietly watches nothing.

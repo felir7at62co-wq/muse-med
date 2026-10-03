@@ -46,4 +46,4 @@ electron-builder 26 没有为这个值提供配置字段。`updaterCacheDirName`
 
 此处未验证：打包后 `resources/app-update.yml` 里的 `updaterCacheDirName` 行。派生式、固定的安装器文件名与写入位置均读自已安装的 `0.1.6-alpha.3` 包与 app-builder-lib 26.15.3，但只有一次打包才会产出该文件；本次改动未做打包。
 
-[Desktop 打包与更新记录](../architecture/2026-08-25-electron-desktop-packaging-and-updates.zh.md) 拥有该目录所服务的发布流，[卸载清理提案](../feature/2026-09-08-desktop-uninstall-preserve-dsh-home.zh.md) 拥有未来卸载器对两个目录的清理决定。
+[Desktop 打包与更新记录](../architecture/2026-08-25-electron-desktop-packaging-and-updates.zh.md) 拥有该目录所服务的发布流。

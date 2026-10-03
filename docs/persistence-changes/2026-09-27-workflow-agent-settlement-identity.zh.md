@@ -44,7 +44,7 @@ changes:
 <a id="verification"></a>
 ## 验证
 
-`packages/workflow/tool-workflow/tests/invariant.spec.ts` 覆盖了实时追加与冷历史两条路径上的新增检查：`failed` 结算缺少原因、无法识别的原因种类、空的 structured-output 详情、完成成员携带原因、成员身份与其开始记录不一致、以及空的 child id 都会让持久记录 invariant 失败，而省略重复身份的结算仍可读取。`packages/workflow/tool-workflow/tests/tool-workflow.spec.ts` 固定了完成成员的记录载荷。`packages/session/session-format-v0-to-v1/tests/` 覆盖了接纳这三个可选成员的已发布载荷校验器。两次聚焦运行均通过。
+`packages/workflow/tool-workflow/tests/tool-workflow.spec.ts` 检查成员记录载荷，`packages/workflow/workflow-ptc/tests/integration.spec.ts` 通过真实进程内栈检查失败成员身份与原因。`packages/session/session-format-v0-to-v1/tests/` 检查已发布载荷读取器，包括省略重复身份的结算。将这些测试与 `packages/workflow/workflow-ptc/tests/guest.spec.ts` 和 `packages/subagent/subagent-in-process-driver/tests/structured.spec.ts` 一起运行，通过了九个文件中的 217 项测试。
 
 <a id="dev-note"></a>
 ## 开发备注

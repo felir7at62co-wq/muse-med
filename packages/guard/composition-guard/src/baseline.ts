@@ -1,7 +1,5 @@
 /**
- * Per-agent composition baselines, held in module state so the package's
- * invariant companion — a separate build entry point — reads the same records
- * instead of a second copy of the registry.
+ * Per-agent composition baselines and runtime-scoped state inspection.
  *
  * The record set is module state and therefore spans every Cordis runtime in the
  * process, so every read and write is scoped to one runtime root
@@ -9,7 +7,7 @@
  * that opened its runtime, so unloading the guard row — including a whole-tree
  * teardown — drops its baselines with it.
  *
- * This module is imported only by the package's own entry points, and its state
+ * This module is imported only by the package's own entry point, and its state
  * transition functions are the record's API rather than published surface:
  * `lib/index.js` bundles it, so importing it from `./baseline.ts` inside the
  * package creates no extra published chunk.
@@ -50,7 +48,7 @@ export interface GuardedAgent {
   readonly adopted: boolean
 }
 
-/** The guard's live state in one runtime; the invariant companion's read surface. */
+/** The guard's live state in one runtime. */
 export interface GuardState {
   /** Whether the guard plugin is composed in this runtime and therefore owes coverage. */
   readonly composed: boolean
@@ -85,7 +83,7 @@ const runtimes = new Map<Fiber, TrackedAgents>()
  * Reserve one runtime's record, replacing any record already open for the same
  * root. One guard row per runtime is the supported composition; a second
  * instance's baselines would be a second, independent answer to the same
- * question, so the companion reads only the newest.
+ * question, so state inspection reads only the newest.
  * @param root - the runtime root fiber (`ctx.root.fiber` of the guard's context).
  * @returns the runtime's track table and its exact disposer.
  */
@@ -103,11 +101,8 @@ export function openRuntime(root: Fiber): RuntimeRecord {
 /**
  * Read the guard's live state in one runtime.
  *
- * The reader is the package's invariant companion, which is a separate build
- * entry point and therefore shares this module state instead of a second copy
- * of the registry. A runtime with no record is one where the guard is not
- * composed — the relation the companion checks is the guard's, so it owes
- * nothing there.
+ * Returns a detached snapshot; a runtime without the guard has no tracked
+ * agents and reports `composed: false`.
  * @param within - the runtime root fiber to read.
  * @returns whether the guard is composed there and every agent it tracks.
  */

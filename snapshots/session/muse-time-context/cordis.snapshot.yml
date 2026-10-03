@@ -1,0 +1,29 @@
+# Retain the preset clock and replay the normal recording's model frames.
+- id: llm-deepseek
+  disabled: true
+- insert:
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: snapshot-muse-clock
+            name: Snapshot Muse clock
+            models:
+              - id: clock
+    - id: subagent-model-selection-settings
+      name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: editing
+    - id: snapshot-editing-preset
+      name: '../muse-editing-tool-catalog/editing-preset-fixture.mjs'
+      config:
+        hidePlatformShellTools: true
+        keepClock: true
+    - id: snapshot-muse-clock
+      name: './clock-fixture.ts'
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true

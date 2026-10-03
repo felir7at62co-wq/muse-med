@@ -27,17 +27,17 @@
   en: 0261a729666154f9
   zh: 460da74ab64c5e41
 /agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/decision/two-channels-because-the-affected-reader-is-a-person:
-  en: 9b313f9aa6f041ef
-  zh: 5e525503ac6682ef
+  en: 37d53a68e428149f
+  zh: fcdcca8c2834200c
 /agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/decision/a-failing-guard-must-not-be-worse-than-the-defect:
   en: 0e0f45bf10ab3da2
   zh: c886d882ff36c7a3
-/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/decision/the-invariant-companion-checks-the-one-relation-that-makes-the-guard-useful:
-  en: ebf5b7fc71f20724
-  zh: 236ca3112e55bbff
+/agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/decision/runtime-state-inspection-stays-with-the-guard:
+  en: 604a7d1ee66752f9
+  zh: d575eed7fde5737f
 /agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/alternatives-considered:
   en: c2979dd06775d348
   zh: 54902399cd6135d9
 /agent-note-detecting-the-tools-a-live-reload-withdraws-instead-of-re-composing-them/consequences:
-  en: 73351f09af40229c
-  zh: 2e66f79822e644b1
+  en: 5559516b2761734d
+  zh: 562718fefd2d3c27

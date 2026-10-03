@@ -10,12 +10,13 @@ Use an installed checkout with the current Host and Client packages already buil
 
 ```sh
 pnpm --dir third_party/plugins/toolchain run build --out ../../../.artifacts/community-plugins
+pnpm --dir third_party/plugins/toolchain run test:host
 pnpm --dir third_party/plugins/toolchain run test:build
 ```
 
 [build.mjs](build.mjs) installs the separate [toolchain lock](toolchain/pnpm-lock.yaml) with frozen resolution and install scripts disabled, then compiles and packs each plugin serially in temporary staging. `--only dsh-ffmpeg` selects one source directory. Staging links to this checkout's built Host packages, never a live profile. Child checks use a temporary Harness home and omit credential-bearing environment variables. The helper removes its links before deleting staging; source directories receive no generated output or `node_modules`. The bridge's upstream JavaScript source already lives in `lib`.
 
-Each tarball retains its upstream license and Codex notices, adds the bundled Heroicons license where needed, and records the upstream pin, Host version, and toolchain-lock digest in `SOURCE.json`. Artifact manifests disable lifecycle scripts, pin runtime dependencies used by the build, and add only the exact tested Host version to DSH peer alternatives. Upstream manifests remain unchanged. A different Host version fails pending a new compatibility review.
+Each tarball retains its upstream license and Codex notices, adds the bundled Heroicons license where needed, and records the upstream pin, reviewed Host/vendor versions, and toolchain-lock digest in `SOURCE.json`. The [Host qualification](compatibility/host-runtime.mjs) rejects unreviewed Host or vendor releases. Artifact manifests disable lifecycle scripts, pin runtime dependencies, and explicitly admit the reviewed Host and vendor prereleases in peer alternatives. They omit the retired `dsh-invariants` dependency; Ponytail exports and compiles only its main provider. Upstream manifests and source files remain unchanged.
 
 The Codex staged-runtime overlay records its changes in `SOURCE.json`: subtask inspection and preparation accept only the reviewed Host provider version, and the CLI remains pinned to `0.153.4`. The provider and Host adapter share the Host's installed pi-ai `0.87.1`; the copied runtime and artifact peer admit that exact version. The overlay checks the retained provider module and catalog fixture SHA-256 values. Copied checks use the current model catalog and exercise custom context with GPT-5.6 Luna; removed offline models receive no invented aliases. It resolves the CLI manifest and wrapper under `app.asar.unpacked` when packaged. Retained upstream files remain unchanged; unexpected source text fails the overlay rather than silently skipping it.
 

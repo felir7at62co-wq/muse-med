@@ -1,6 +1,8 @@
 version: 1
 # The editing fixture discovers the source Muse MCP server through the real
 # client on an OS-assigned loopback port, with an empty signed-out account home.
+# Its private copy of the current editing preset excludes clock messages absent
+# from this retained Session; the time-context owner tests cover their persistence.
 scenario: muse-editing-tool-catalog
 profile: headless
 composition: muse-editing-tool-catalog

@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-jubian",
   "description": "Jubian tools for the DeepSeek Harness — catalogue, assets, storyboards, video tasks, media download — plus the Web Settings page for their admin token",
-  "version": "0.2.0-rc.2",
+  "version": "0.2.1-alpha.1",
   "publishConfig": {
     "access": "public"
   },
@@ -41,13 +41,13 @@
   "files": [
     "lib/index.js",
     "lib/client.js",
+    "cordis.patch.yml",
     "lib/types/**/*.js",
     "lib/types/**/*.d.ts",
     "lib/typert.host.js",
     "lib/typert.host.d.ts",
     "lib/typert.remote-client.js",
-    "lib/typert.remote-client.d.ts",
-    "cordis.patch.yml"
+    "lib/typert.remote-client.d.ts"
   ],
   "license": "MIT",
   "dsh": {

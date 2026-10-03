@@ -11,6 +11,9 @@
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
     maxBytes: 65536
+
+- id: time-context
+  name: '@deepseek-ai/dsh-time-context'
 - id: tool-pwsh
   name: '@deepseek-ai/dsh-tool-pwsh'
   disabled: !!js process.platform !== 'win32'
@@ -25,6 +28,9 @@
     sampleOverCapGlobResults: false
 - id: tool-jobs
   name: '@deepseek-ai/dsh-tool-jobs'
+
+- id: tool-schedule
+  name: '@deepseek-ai/dsh-tool-schedule'
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
 - id: drama-gate
@@ -130,12 +136,24 @@
         toolName: subagent
         modelSelectionSettings: true
         backgroundMode: continuable
+        toolFilter:
+          deny:
+            - schedule_create
+            - schedule_delete
+            - schedule_list
+            - schedule_update
     - id: tool-subagent-fork
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
         provider: fork
         toolName: subagent_fork
         backgroundMode: continuable
+        toolFilter:
+          deny:
+            - schedule_create
+            - schedule_delete
+            - schedule_list
+            - schedule_update
     - id: workflow-ptc
       name: '@deepseek-ai/dsh-workflow-ptc'
       config:

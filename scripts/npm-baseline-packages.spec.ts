@@ -67,6 +67,15 @@ describe('npm baseline package discovery', () => {
     expect(discoverNpmBaselineManifests(fixture(manifests), [])).toEqual(manifests)
   })
 
+  it('excludes the noncommercial music analysis provider without excluding nearby packages', () => {
+    const allowed = [
+      'packages/perception/perception-bgm-tools/package.json',
+      'packages/perception/other/package.json',
+    ].sort()
+    const root = fixture([...allowed, 'packages/perception/perception-bgm/package.json'])
+    expect(discoverNpmBaselineManifests(root, [])).toEqual(allowed)
+  })
+
   it('leaves an empty package set for the baseline caller to reject', () => {
     expect(discoverNpmBaselineManifests(fixture([]))).toEqual([])
   })

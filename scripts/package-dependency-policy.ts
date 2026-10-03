@@ -15,6 +15,11 @@ const HOST_DEPENDENCY_PACKAGES: readonly string[] = [
   '@deepseek-ai/dsh-session',
 ]
 
+/** Required Cordis services whose Host imports are type-only. */
+const REQUIRED_SERVICE_PEERS = {
+  '@deepseek-ai/dsh-api-terminal-controller': ['@deepseek-ai/dsh-subprocess'],
+} as const satisfies Readonly<Record<string, readonly string[]>>
+
 /** Development-only package relationships not represented by source imports. */
 const CONFIGURATION_ONLY_DEV_DEPENDENCIES = {
   '@deepseek-ai/dsh-client-locale': ['@deepseek-ai/dsh-api-remotes'],
@@ -78,7 +83,6 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'terminalOutcome', 'validateAudioMaterial', 'validateImageRequestInput', 'validateNativeVideoPreview',
     'verifySubjectSelection', 'wireText', 'withGenerationDisabled', 'withGenerationEnabled',
   ],
-  '@deepseek-ai/dsh-subprocess': ['SubprocessExecutableNotFoundError'],
   '@deepseek-ai/dsh-scope': ['carrierKeyOf', 'createScope', 'scopeOf', 'scopeTarget'],
   '@deepseek-ai/dsh-session': ['SESSION_FORMAT_VERSION'],
   '@deepseek-ai/dsh-session-persistence': ['SessionPersistenceNotFoundError'],
@@ -93,6 +97,7 @@ export interface PackageDependencyPolicy {
   readonly clientFaceInclude: readonly string[]
   readonly clientFaceExclude: readonly string[]
   readonly hostPackages: readonly string[]
+  readonly requiredServicePeers?: Readonly<Record<string, readonly string[]>>
   readonly configurationOnlyDevDependencies: Readonly<Record<string, readonly string[]>>
   readonly duplicateSafePackages?: readonly string[]
   readonly safeHostDependencyExports: HostDependencyExports
@@ -104,6 +109,7 @@ export const PACKAGE_DEPENDENCY_POLICY: PackageDependencyPolicy = {
   clientFaceInclude: CLIENT_FACE_INCLUDE,
   clientFaceExclude: CLIENT_FACE_EXCLUDE,
   hostPackages: HOST_DEPENDENCY_PACKAGES,
+  requiredServicePeers: REQUIRED_SERVICE_PEERS,
   configurationOnlyDevDependencies: CONFIGURATION_ONLY_DEV_DEPENDENCIES,
   duplicateSafePackages: DUPLICATE_SAFE_PACKAGES,
   safeHostDependencyExports: SAFE_HOST_DEPENDENCY_EXPORTS,

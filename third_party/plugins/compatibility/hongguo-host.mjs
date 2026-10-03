@@ -10,7 +10,7 @@ const sourceFiles = JSON.parse(sourceBytes.toString('utf8'))
 
 /** Metadata included in the artifact's SOURCE.json. */
 export const hongguoHostCompatibility = {
-  hostToolApiVersion: '0.2.0-rc.2', sourceFilesSha256,
+  hostToolApiVersion: '0.2.1-alpha.1', sourceFilesSha256,
   activation: 'scoped creative presets; disabled global entry',
   tools: ['hongguo_search', 'hongguo_detail', 'hongguo_rankings', 'hongguo_collections'],
   credentialsRequired: false,

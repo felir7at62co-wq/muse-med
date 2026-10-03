@@ -271,9 +271,21 @@ describe('package payload constraints', () => {
       .toContainEqual(expect.stringContaining('release member must not set "private": true'))
   })
 
-  it.each(['./art/icon.svg', 'art/icon.svg'])('includes declared icon %s in the canonical payload', (icon) => {
-    expect(expectedDshPackageFiles({ icon, exports: { './locale/*.json': './locale/*.json' } })).toEqual([
-      'art/icon.svg', 'locale/*.json', 'lib/index.js', 'lib/types/**/*.d.ts',
+  it.each([
+    ['./art/icon.svg', ['art/icon.svg']],
+    [{ import: './art/icon.svg', default: './art/fallback.svg' }, ['art/icon.svg', 'art/fallback.svg']],
+    [['./art/icon.svg', './art/icon.svg'], ['art/icon.svg']],
+  ] as const)('includes exported icon targets in the canonical payload: %j', (icon, expected) => {
+    expect(expectedDshPackageFiles({ exports: { './icon': icon } })).toEqual([...expected, 'lib/index.js', 'lib/types/**/*.d.ts'])
+  })
+
+  it.each(['icon.svg', './icon.svg'])('includes and deduplicates manifest icon %s', (icon) => {
+    expect(expectedDshPackageFiles({ icon, exports: { './icon': './icon.svg' } })).toEqual(['icon.svg', 'lib/index.js', 'lib/types/**/*.d.ts'])
+  })
+
+  it('includes manifest, root, and subpath icon targets', () => {
+    expect(expectedDshPackageFiles({ icon: './legacy.svg', exports: { './icon': './fallback.svg', './search/icon': './search.svg' } })).toEqual([
+      'legacy.svg', 'fallback.svg', 'search.svg', 'lib/index.js', 'lib/types/**/*.d.ts',
     ])
   })
 
@@ -366,6 +378,55 @@ it('publishes CLI runtime declarations and rejects a payload that omits them', (
     .toEqual([expect.stringContaining('@deepseek-ai/dsh: package.json files must be ["lib/*.js","lib/types/*.d.ts"]')])
 })
 
+it.each([
+  'packages/drama/drama-settings',
+  'packages/host/feishu-settings',
+  'packages/jubian/jubian',
+  'packages/jubian/tool-jubian',
+])('requires canonical runtime, patch, and emitted declarations for %s', (dir) => {
+  const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+  expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+  for (const omitted of manifest.files!) {
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: manifest.files!.filter(file => file !== omitted) } }))
+      .toEqual([expect.stringContaining('package.json files must be')])
+  }
+})
+
+it('requires the Desktop Host entry, presets, skills, and configuration in its payload', () => {
+  const dir = 'apps/desktop-host'
+  const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+  expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+  for (const omitted of manifest.files!) {
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: manifest.files!.filter(file => file !== omitted) } }))
+      .toEqual([expect.stringContaining('package.json files must be')])
+  }
+  expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, 'lib/extra.js'] } }))
+    .toEqual([expect.stringContaining('package.json files must be')])
+})
+
+it('keeps the noncommercial music analysis package private with its complete runtime payload', () => {
+  const dir = 'packages/perception/perception-bgm'
+  const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+  expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+  expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, private: false } }))
+    .toEqual([expect.stringContaining('noncommercial music analysis package must set "private": true')])
+  expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, publishConfig: { access: 'public' } } }))
+    .toEqual([expect.stringContaining('noncommercial music analysis package must omit publishConfig')])
+  for (const omitted of ['lib/config.js', 'lib/worker.js', 'python/*.py', 'python/LICENSE-Music2Emo', 'SOURCES.md']) {
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: manifest.files!.filter(file => file !== omitted) } }))
+      .toEqual([expect.stringContaining('package.json files must be')])
+  }
+  expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, 'src/*.ts'] } }))
+    .toEqual(expect.arrayContaining([expect.stringContaining('package.json files must not publish "src/*.ts"')]))
+  for (const entry of [
+    { dir: 'packages/perception/other', manifest },
+    { dir, manifest: { ...manifest, name: '@deepseek-ai/dsh-other' } },
+  ]) {
+    expect(checkWorkspaceManifest(entry))
+      .toEqual(expect.arrayContaining([expect.stringContaining('release member must not set "private": true')]))
+  }
+})
+
 it('requires the shared Web injection entry in the published payload', () => {
   const manifest = JSON.parse(readFileSync(new URL('../packages/client/web/package.json', import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
   expect(checkWorkspaceManifest({ dir: 'packages/client/web', manifest })).toEqual([])
@@ -387,6 +448,16 @@ it('requires the local speech worker and locked runtime in the published payload
   const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
   expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
   for (const omitted of ['lib/worker.js', 'runtime/assets.json']) {
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: manifest.files!.filter(file => file !== omitted) } }))
+      .toEqual([expect.stringContaining('package.json files must be')])
+  }
+})
+
+it('requires the Inspector Worker, Client chunks, and mirrored DevTools resources in the published payload', () => {
+  const dir = 'packages/experimental/inspector'
+  const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+  expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+  for (const omitted of ['lib/client.*.js', 'lib/worker.js', 'lib/devtools/**']) {
     expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: manifest.files!.filter(file => file !== omitted) } }))
       .toEqual([expect.stringContaining('package.json files must be')])
   }

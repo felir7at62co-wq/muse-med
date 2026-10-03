@@ -17,10 +17,11 @@ export const inject = ['agentPresets', 'tools', 'systemPrompt']
 
 /**
  * @param {import('@deepseek-ai/cordis').Context} ctx - Snapshot composition.
- * @param config - Platform-shell visibility for the recorded catalog.
+ * @param config - Platform-shell visibility and whether the recording includes clock messages.
  */
 export async function apply(ctx, config) {
   let productBaseUrl
+  let productPresetDirectory
   await ctx.effect(async () => {
     // Native package lookup and inventory both read the retained source manifest.
     const anchor = await mkdtemp(fileURLToPath(new URL('../../../apps/desktop-host/.snapshot-hongguo-', import.meta.url)))
@@ -29,6 +30,19 @@ export async function apply(ctx, config) {
       await symlink(fileURLToPath(new URL('../../../third_party/plugins/muse-hongguo-search/', import.meta.url)), join(anchor, 'node_modules/muse-hongguo-search'), process.platform === 'win32' ? 'junction' : 'dir')
       await writeFile(join(anchor, 'package.json'), '{"name":"snapshot-editing-resolution","version":"0.0.0","type":"module"}\n')
       productBaseUrl = pathToFileURL(join(anchor, 'package.json')).href
+      productPresetDirectory = join(anchor, 'editing')
+      await mkdir(productPresetDirectory)
+      const sourceDirectory = new URL('../../../apps/desktop-host/presets/editing/', import.meta.url)
+      const source = (await readFile(new URL('agent.cordis.yml', sourceDirectory), 'utf8')).replaceAll('\r\n', '\n')
+      const clockRow = "- id: time-context\n  name: '@deepseek-ai/dsh-time-context'\n"
+      if (!source.includes(clockRow) || source.indexOf(clockRow) !== source.lastIndexOf(clockRow)) {
+        throw new Error('The source editing preset must declare one request clock')
+      }
+      // This catalog recording predates clock messages; the clock recording keeps the current preset contribution.
+      await writeFile(join(productPresetDirectory, 'agent.cordis.yml'), config.keepClock === true
+        ? source.replace(clockRow, `${clockRow}  config:\n    timeZone: UTC\n`)
+        : source.replace(clockRow, `${clockRow}  disabled: true\n`))
+      await writeFile(join(productPresetDirectory, 'preset.yml'), await readFile(new URL('preset.yml', sourceDirectory)))
     } catch (error) {
       await rm(anchor, { recursive: true, force: true })
       throw error
@@ -86,7 +100,7 @@ export async function apply(ctx, config) {
   const productCtx = ctx.extend({baseUrl: productBaseUrl})
   await productCtx.plugin(NativePreset, {
     id: 'editing',
-    directory: fileURLToPath(new URL('../../../apps/desktop-host/presets/editing/', import.meta.url)),
+    directory: productPresetDirectory,
   })
   ctx.on('agent/created', async ({ agent }) => {
     await ctx.agentPresets.mount(agent.ctx, 'editing')

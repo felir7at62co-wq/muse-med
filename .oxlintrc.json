@@ -30,6 +30,7 @@
     "third_party/plugins/dsh-ponytail/**",
     "third_party/plugins/dshmarket/**",
     "third_party/plugins/muse-hongguo-search/**",
+    "packages/experimental/claude-code-mods/examples/*/{hooks,tests,types}/**", // Claude Code's published example mods and their tests keep the upstream style; see the headers.
     "native/**", // The imported landlock-run subtree has its own gates; see native/README.md.
     "**/*.js",
     "**/*.mjs",

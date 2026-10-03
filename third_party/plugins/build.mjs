@@ -10,6 +10,7 @@ import { applyBridgeDesktopCompatibility, bridgeDesktopCompatibility } from './c
 import { applyCodexModelVisibility } from './compatibility/codex-model-visibility.mjs'
 import { applyCodexPiAiCompatibility, codexPiAiVersion } from './compatibility/codex-pi-ai.mjs'
 import { applyHongguoHostCompatibility, hongguoHostCompatibility } from './compatibility/hongguo-host.mjs'
+import { hostRuntimeCompatibility, qualifyCommunityManifest, reviewedHostVersion, reviewedVendorVersions } from './compatibility/host-runtime.mjs'
 
 const sourceRoot = import.meta.dirname
 const repository = resolve(sourceRoot, '../..')
@@ -62,7 +63,13 @@ function linkDependencies(modules, links) {
 }
 
 const hostVersion = JSON.parse(readFileSync(join(repository, 'package.json'), 'utf8')).version
-if (hostVersion !== '0.2.0-rc.2') throw new Error(`community plugins: host ${hostVersion} needs a new compatibility review`)
+if (hostVersion !== reviewedHostVersion) throw new Error(`community plugins: host ${hostVersion} needs a new compatibility review`)
+for (const entry of readdirSync(join(repository, 'vendor'), { withFileTypes: true }).filter(entry => entry.isDirectory())) {
+  const manifestPath = join(repository, 'vendor', entry.name, 'package.json')
+  if (!existsSync(manifestPath)) continue
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  if (reviewedVendorVersions[manifest.name] !== manifest.version) throw new Error(`community plugins: vendor ${manifest.name} ${manifest.version} needs a new compatibility review`)
+}
 const hostPiAi = realpathSync(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai'))
 const hostPiAiVersion = JSON.parse(readFileSync(join(hostPiAi, 'package.json'), 'utf8')).version
 if (hostPiAiVersion !== codexPiAiVersion) throw new Error(`community plugins: pi-ai ${hostPiAiVersion} needs a new compatibility review`)
@@ -113,7 +120,7 @@ export function codexFilesystemPath(value) {
 `)
       for (const index of [1, 2, 0]) {
         writeFileSync(join(directory, '.muse-tsdown.mjs'), `import configs from './tsdown.config.mjs'\nexport default { ...configs[${index}], clean: false, sourcemap: false, tsconfig: false }\n`)
-        run([tsdown, '--config', '.muse-tsdown.mjs'], directory)
+        run([tsdown, '--config-loader', 'native', '--config', '.muse-tsdown.mjs'], directory)
       }
       cpSync(join(sourceRoot, 'checks/codex-subagent.mjs'), join(directory, '.muse-subagent.test.mjs'))
       cpSync(join(sourceRoot, 'checks/codex-pi-ai.mjs'), join(directory, '.muse-pi-ai.test.mjs'))
@@ -123,15 +130,15 @@ export function codexFilesystemPath(value) {
         writeFileSync(join(directory, 'tsconfig.json'), JSON.stringify({ compilerOptions: {
           target: 'ES2024', module: 'NodeNext', moduleResolution: 'NodeNext', rootDir: 'src', outDir: 'lib/types',
           declaration: true, rewriteRelativeImportExtensions: true, strict: true, skipLibCheck: true,
-        }, include: ['src'] }))
+        }, include: ['src/index.ts'] }))
       }
       run([tsc, '-p', 'tsconfig.json', '--types', 'node'], directory)
       if (name === 'dsh-skill-mcp-panel') run(['scripts/strip-client-export.mjs'], directory)
       if (name === 'dsh-ponytail') {
-        writeFileSync(join(directory, '.muse-tsdown.mjs'), `export default { entry: { index: 'src/index.ts', invariant: 'src/invariant.ts' }, outDir: 'lib', format: 'esm', platform: 'node', target: 'es2024', fixedExtension: false, dts: false, clean: false, deps: { neverBundle: Object.keys(${JSON.stringify(manifest.peerDependencies)}) } }\n`)
-        run([tsdown, '--config', '.muse-tsdown.mjs'], directory)
+        writeFileSync(join(directory, '.muse-tsdown.mjs'), `export default { entry: { index: 'src/index.ts' }, outDir: 'lib', format: 'esm', platform: 'node', target: 'es2024', fixedExtension: false, dts: false, clean: false, deps: { neverBundle: Object.keys(${JSON.stringify(manifest.peerDependencies)}) } }\n`)
+        run([tsdown, '--config-loader', 'native', '--config', '.muse-tsdown.mjs'], directory)
       } else if (name !== 'dsh-ffmpeg' && name !== 'dsh-skill-mcp-panel') {
-        run([tsdown, '--config', 'tsdown.config.ts'], directory)
+        run([tsdown, '--config-loader', 'native', '--config', 'tsdown.config.ts'], directory)
         if (name === 'dshmarket') run(['scripts/normalize-client-banner.mjs'], directory)
       }
     }
@@ -157,24 +164,19 @@ export function codexFilesystemPath(value) {
       run(['--test', '--test-concurrency=1', 'test-panel-slots.mjs', 'test-mcp-model.mjs', 'test-mcp-gateway.mjs', '.muse-host-icons.test.mjs'], directory,
         { DSH_UI_PRIMITIVES: join(repository, 'packages/client/ui-primitives') })
     }
+    manifest = qualifyCommunityManifest(manifest)
     manifest.scripts = {}
     if (name === 'dsh-skill-mcp-panel') delete manifest.bin
     manifest.packageManager = tools.packageManager
-    for (const [dependency, range] of Object.entries(manifest.peerDependencies ?? {})) {
-      if ((dependency === '@deepseek-ai/dsh' || dependency.startsWith('@deepseek-ai/dsh-')) && !range.split(' || ').includes(hostVersion)) {
-        manifest.peerDependencies[dependency] = `${range} || ${hostVersion}`
-      }
-    }
     for (const dependency of Object.keys(manifest.dependencies ?? {})) {
       if (tools.dependencies[dependency]) manifest.dependencies[dependency] = tools.dependencies[dependency]
-      else if (dependency.startsWith('@deepseek-ai/dsh-')) manifest.dependencies[dependency] = hostVersion
     }
     if (name === 'dsh-codex-subscription') {
       writeFileSync(join(directory, 'BUNDLED_LICENSES.md'), `# Bundled dependency licenses\n\n## @heroicons/react ${tools.dependencies['@heroicons/react']}\n\n${readFileSync(join(toolchain, 'node_modules/@heroicons/react/LICENSE'), 'utf8')}`)
     }
     rmSync(join(directory, 'lib/tsconfig.tsbuildinfo'), { force: true })
     writeFileSync(join(directory, 'SOURCE.json'), `${JSON.stringify({
-      upstream: pins[name], hostVersion,
+      upstream: pins[name], hostVersion, hostRuntimeCompatibility,
       compatibilityOverlay: name === 'dsh-codex-subscription'
         ? { subagentRuntimeVersion: hostVersion, piAiVersion: codexPiAiVersion, piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true }
         : name === 'dshmarket' ? { catalogExport: './catalog' }

@@ -527,9 +527,8 @@ describe('hydrateSessionFixtureCwd', () => {
     const parsed: unknown = JSON.parse(hydrateSessionFixtureCwd(fixture, cwd))
     if (typeof parsed !== 'object' || parsed === null || !('arguments' in parsed) || !('args' in parsed)
       || typeof parsed.arguments !== 'string') throw new Error('fixture tool arguments are missing')
-    const hydrated = parsed
-    expect(JSON.parse(hydrated.arguments)).toEqual({ command: 'view', path: `${cwd}/note.txt` })
-    expect(hydrated.args).toEqual([hydrated.arguments])
+    expect(JSON.parse(parsed.arguments)).toEqual({ command: 'view', path: `${cwd}/note.txt` })
+    expect(parsed.args).toEqual([parsed.arguments])
   })
 })
 

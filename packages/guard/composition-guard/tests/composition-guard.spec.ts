@@ -373,8 +373,9 @@ describe('detection', () => {
     expect(guardWarnings(h)).toHaveLength(1)
   })
 
-  it('publishes the tracked baseline the invariant companion reads', async () => {
+  it('publishes the tracked baseline and delivered withdrawal through runtime state inspection', async () => {
     const h = await harness()
+    expect(guardState(h.ctx.root.fiber)).toEqual({ composed: false, tracked: [] })
     await h.mountGuard()
     const session = await h.spawn('a1', 'drama')
 

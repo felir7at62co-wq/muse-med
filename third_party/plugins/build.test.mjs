@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import test from 'node:test'
+import { hostRuntimeCompatibility, reviewedHostPackageVersion, reviewedHostVersion } from './compatibility/host-runtime.mjs'
 
 const sha256 = buffer => createHash('sha256').update(buffer).digest('hex')
 
@@ -97,7 +98,7 @@ test('builds every pinned plugin with its declared runtime entries and notices',
       assert.ok(original)
       assert.deepEqual(manifest.scripts, {})
       if (manifest.name === 'muse-hongguo-search') {
-        assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-tools'], '0.2.0-rc.2')
+        assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-tools'], reviewedHostVersion)
         assert.match(list.stdout, /package\/src\/index.js/)
         assert.doesNotMatch(list.stdout, /node_modules|\.env|\.git\//)
       }
@@ -106,11 +107,25 @@ test('builds every pinned plugin with its declared runtime entries and notices',
         assert.match(list.stdout, /package\/lib\/client.js/)
       }
       for (const [dependency, range] of Object.entries(original.peerDependencies ?? {})) {
+        if (dependency === '@deepseek-ai/dsh-invariants') {
+          assert.equal(manifest.peerDependencies[dependency], undefined)
+          continue
+        }
+        const version = reviewedHostPackageVersion(dependency)
         const expected = dependency === '@earendil-works/pi-ai' ? '0.87.1'
-          : (dependency === '@deepseek-ai/dsh' || dependency.startsWith('@deepseek-ai/dsh-')) && !range.split(' || ').includes('0.2.0-rc.2')
-            ? `${range} || 0.2.0-rc.2` : range
+          : version && !range.split(' || ').includes(version) ? `${range} || ${version}` : range
         assert.equal(manifest.peerDependencies[dependency], expected)
       }
+      for (const section of ['dependencies', 'peerDependencies', 'devDependencies', 'optionalDependencies']) {
+        assert.equal(manifest[section]?.['@deepseek-ai/dsh-invariants'], undefined)
+      }
+      if (manifest.name === '@mengyuly/dsh-ponytail') {
+        assert.equal(manifest.exports['./invariant'], undefined)
+        assert.doesNotMatch(list.stdout, /package\/lib\/(?:types\/)?invariant\.(?:js|d\.ts)/u)
+      }
+      const sourceMetadata = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/SOURCE.json'], { encoding: 'utf8' })
+      assert.equal(sourceMetadata.status, 0)
+      assert.deepEqual(JSON.parse(sourceMetadata.stdout).hostRuntimeCompatibility, hostRuntimeCompatibility)
       const entries = value => typeof value === 'string' ? [value] : value && typeof value === 'object' ? Object.values(value).flatMap(entries) : []
       for (const entry of entries(manifest.exports).filter(entry => !entry.includes('*'))) {
         assert.ok(list.stdout.split(/\r?\n/).includes(`package/${entry.replace(/^\.\//, '')}`), `${tarball} omits ${entry}`)
@@ -123,13 +138,13 @@ test('builds every pinned plugin with its declared runtime entries and notices',
         assert.match(pinnedCodexRuntime, /SUBAGENT_RUNTIME_VERSION = '0\.1\.5-rc\.3'/)
         const runtime = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/lib/index.js'], { encoding: 'utf8' })
         assert.equal(runtime.status, 0)
-        assert.match(runtime.stdout, /0\.2\.0-rc\.2/)
+        assert.ok(runtime.stdout.includes(reviewedHostVersion))
         assert.doesNotMatch(runtime.stdout, /0\.1\.5-rc\.3/)
         assert.match(runtime.stdout, /codexFilesystemPath/)
         const metadata = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/SOURCE.json'], { encoding: 'utf8' })
         assert.equal(metadata.status, 0)
         assert.deepEqual(JSON.parse(metadata.stdout).compatibilityOverlay, {
-          subagentRuntimeVersion: '0.2.0-rc.2', piAiVersion: '0.87.1', piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true,
+          subagentRuntimeVersion: reviewedHostVersion, piAiVersion: '0.87.1', piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true,
         })
       }
     }

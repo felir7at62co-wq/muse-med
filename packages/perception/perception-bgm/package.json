@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-perception-bgm",
   "description": "Non-commercial BGM emotion analysis and valence/arousal matching for the DeepSeek Harness",
-  "version": "0.2.0-rc.2",
+  "version": "0.2.1-alpha.1",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
@@ -16,17 +16,18 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "lib/*.js",
-    "lib/types/**/*.d.ts",
-    "src/*.ts",
+    "lib/index.js",
     "cordis.patch.yml",
+    "lib/config.js",
+    "lib/worker.js",
     "python/*.py",
     "python/vendored/*.py",
     "python/data/*.json",
     "python/data/*.yaml",
     "python/data/tag_list.npy",
     "python/LICENSE-Music2Emo",
-    "SOURCES.md"
+    "SOURCES.md",
+    "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
   "dsh": {
@@ -35,16 +36,16 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-tools": "workspace:*"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-home-paths": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^",
-    "@deepseek-ai/dsh-util-values": "workspace:^"
+    "@deepseek-ai/dsh-home-paths": "workspace:*",
+    "@deepseek-ai/dsh-tools": "workspace:*",
+    "@deepseek-ai/dsh-util-values": "workspace:*"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-tools": "workspace:*"
   }
 }
