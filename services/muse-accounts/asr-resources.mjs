@@ -4,6 +4,7 @@ const identifier=value=>typeof value==='string'&&/^[a-z][a-z0-9-]{0,63}$/.test(v
 const text=value=>typeof value==='string'&&value.trim().length>0;
 const application=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(value);
 const invalid=()=>{throw Error('Invalid MUSE ASR resource configuration');};
+const serviceIds={flash:'volc.bigasr.auc_turbo','standard-v1':'volc.bigasr.auc','standard-v2':'volc.seedasr.auc'};
 
 /**
  * Resolve a single legacy application or a declared pool without multiplying shared grants.
@@ -20,29 +21,40 @@ export function resolveAsrResources(input,privateCredentials=false){
  const groups=new Map(),pools=new Map(),applications=new Map();
  for(const group of quotaGroups){
   if(!group||!identifier(group.id)||groups.has(group.id)||!positive(group.maxConcurrentJobs)||['maxDailyJobs','maxDailySeconds'].some(key=>group[key]!==undefined&&!positive(group[key])))invalid();
+  if((group.rollingAudioWindowSeconds===undefined)!==(group.maxRollingAudioSeconds===undefined)||group.rollingAudioWindowSeconds!==undefined&&(!positive(group.rollingAudioWindowSeconds)||!positive(group.maxRollingAudioSeconds)))invalid();
   groups.set(group.id,{...group});
  }
  for(const resource of resources){
   if(!resource||!identifier(resource.poolId)||pools.has(resource.poolId)||!application(resource.appId)||!groups.has(resource.quotaGroup)||!positive(resource.maxConcurrentJobs)||privateCredentials&&!text(resource.accessToken))invalid();
-  const prior=applications.get(resource.appId);
+  const serviceVersion=resource.serviceVersion??(input.providerKind==='flash'?'flash':'standard-v1'),resourceId=resource.resourceId??serviceIds[serviceVersion];
+  if(!Object.hasOwn(serviceIds,serviceVersion)||resourceId!==serviceIds[serviceVersion])invalid();
+  const applicationService=resource.appId+'\0'+resourceId,prior=applications.get(applicationService);
   // Different keys for one application retain the same capacity and billing group.
   if(prior&&(prior.quotaGroup!==resource.quotaGroup||prior.maxConcurrentJobs!==resource.maxConcurrentJobs))invalid();
-  applications.set(resource.appId,resource);pools.set(resource.poolId,{...resource});
+  applications.set(applicationService,resource);pools.set(resource.poolId,{...resource,serviceVersion,resourceId});
  }
  if(!pools.has(defaultPoolId)||legacy&&(input.maxConcurrentJobs??5)>5)invalid();
  if(!legacy&&input.appId!==undefined&&input.appId!==pools.get(defaultPoolId).appId)invalid();
  let capacity=0;
  for(const group of groups.values()){
   const apps=new Map();
-  for(const resource of pools.values())if(resource.quotaGroup===group.id)apps.set(resource.appId,Math.max(apps.get(resource.appId)??0,resource.maxConcurrentJobs));
+  for(const resource of pools.values())if(resource.quotaGroup===group.id)apps.set(resource.appId+'\0'+resource.resourceId,Math.max(apps.get(resource.appId+'\0'+resource.resourceId)??0,resource.maxConcurrentJobs));
   if(!apps.size)invalid();
+  if([...pools.values()].some(resource=>resource.quotaGroup===group.id&&resource.serviceVersion!=='flash')){
+   group.submitQps??=10;group.queryQps??=10;
+   if(!positive(group.submitQps)||!positive(group.queryQps)||group.submitQps+group.queryQps>20)invalid();
+  }else if(group.submitQps!==undefined||group.queryQps!==undefined)invalid();
   capacity+=Math.min(group.maxConcurrentJobs,[...apps.values()].reduce((sum,value)=>sum+value,0));
  }
  const maxConcurrentJobs=input.maxConcurrentJobs??capacity;
  if(!positive(capacity)||!positive(maxConcurrentJobs)||maxConcurrentJobs>capacity)invalid();
  const legacyAppId=input.legacyAppId??input.appId??(legacy?pools.get(defaultPoolId).appId:undefined);
  if(legacyAppId!==undefined&&!application(legacyAppId))invalid();
- return {resources:[...pools.values()],quotaGroups:[...groups.values()],defaultPoolId,maxConcurrentJobs,legacyAppId};
+ const mixed=[...pools.values()].some(resource=>resource.serviceVersion!==pools.get(defaultPoolId).serviceVersion);
+ const routes=input.routes??(mixed?{subtitles:'flash',screenplay:'standard-v2'}:{subtitles:pools.get(defaultPoolId).serviceVersion,screenplay:pools.get(defaultPoolId).serviceVersion});
+ if(!routes||Object.keys(routes).some(key=>!['subtitles','screenplay'].includes(key))||['subtitles','screenplay'].some(key=>!Object.hasOwn(serviceIds,routes[key])||![...pools.values()].some(resource=>resource.serviceVersion===routes[key])))invalid();
+ if(mixed&&(routes.subtitles!=='flash'||!['standard-v1','standard-v2'].includes(routes.screenplay)))invalid();
+ return {resources:[...pools.values()],quotaGroups:[...groups.values()],defaultPoolId,maxConcurrentJobs,legacyAppId,routes};
 }
 
 /**
@@ -58,5 +70,9 @@ export function resourceForJob(job,resources,defaultPoolId){
  if(!resource)throw Error('ASR receipt resource is missing from configuration');
  if(!legacy&&job.appId!==resource.appId)throw Error('ASR receipt application has changed');
  if(!legacy&&job.quotaGroup!==resource.quotaGroup)throw Error('ASR receipt quota group has changed');
+ const serviceVersion=job.serviceVersion??(job.providerKind==='flash'?'flash':'standard-v1');
+ if(job.serviceVersion!==undefined&&(job.providerKind==='flash')!==(serviceVersion==='flash'))throw Error('ASR receipt provider kind conflicts with its service version');
+ if(job.purpose!==undefined&&!['subtitles','screenplay'].includes(job.purpose))throw Error('Invalid ASR receipt purpose');
+ if(resource.serviceVersion!==serviceVersion||job.resourceId!==undefined&&job.resourceId!==resource.resourceId)throw Error('ASR receipt service version has changed');
  return resource;
 }

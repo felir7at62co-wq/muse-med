@@ -13,70 +13,79 @@ import {createTosAudioStore} from './asr-storage.mjs';
 
 const audio=Buffer.from('mock mp3 bytes');
 const hash=createHash('sha256').update(audio).digest('hex');
+const deferred=()=>Promise.withResolvers();
 const makeStorage=()=>({key:id=>`temporary/${id}.mp3`,assertPrivateBeforeUpload:async()=>{},upload:async()=>{},signedReadUrl:async()=> 'https://signed.invalid/audio',assertPrivateAndReadable:async()=>{},remove:async()=>{}});
 async function setup(options={}){const root=await mkdtemp(join(tmpdir(),'muse-asr-'));let submits=0,queries=0;
- const provider={submit:async()=>{submits++;if(options.submitUnknown)throw Error('network outcome unknown');},query:async()=>{queries++;return options.queryResult??{status:'complete',segments:[{start:0,end:1,text:'你好'}]};}};
- const service=createAsrService({root,storage:makeStorage(),provider,probe:async()=>options.duration??60,maxAudioBytes:1024,maxDurationSeconds:18000,maxDailySeconds:120,maxDailyJobs:2,maxActiveJobs:1,retentionSeconds:86400});
- return {root,service,counts:()=>({submits,queries}),close:()=>rm(root,{recursive:true,force:true})};}
+ const provider={submit:async()=>{submits++;if(options.submitUnknown)throw Error('network outcome unknown');},query:async()=>{queries++;if(options.query)return await options.query();return options.queryResult??{status:'complete',segments:[{start:0,end:1,text:'你好'}]};}};
+ const service=createAsrService({root,storage:makeStorage(),provider,probe:async()=>options.duration??60,maxAudioBytes:1024,maxDurationSeconds:18000,maxDailySeconds:120,maxDailyJobs:2,maxActiveJobs:1,maxPendingUploadsPerAccount:options.maxPendingUploadsPerAccount??4,retentionSeconds:86400});
+ return {root,service,counts:()=>({submits,queries}),close:async()=>{await service.close();await rm(root,{recursive:true,force:true});}};}
 
 test('one account/key submits once, survives service restart, and returns timed results',async t=>{
  const env=await setup();t.after(env.close);const id=randomUUID();
  const first=await env.service.submit('alice',id,hash,'zh',Readable.from(audio));assert.equal(first.status,'processing');
- const replay=await env.service.submit('alice',id,hash,'zh',Readable.from(audio));assert.deepEqual(replay,first);assert.equal(env.counts().submits,1);
+ await env.service.idle();const replay=await env.service.submit('alice',id,hash,'zh',Readable.from(audio));assert.equal(replay.status,'complete');assert.equal(env.counts().submits,1);
  const result=await env.service.get('alice',id);assert.deepEqual(result.segments,[{start:0,end:1,text:'你好'}]);
  assert.equal((await env.service.get('alice',id)).status,'complete');assert.equal(env.counts().queries,1);
  await assert.rejects(env.service.get('bob',id),{status:404});
  await assert.rejects(env.service.submit('alice',id,'f'.repeat(64),'zh',Readable.from(audio)),{status:409});
 });
 test('uncertain submit is queried and never submitted twice',async t=>{
- const env=await setup({submitUnknown:true});t.after(env.close);const id=randomUUID();
- assert.equal((await env.service.submit('alice',id,hash,'zh',Readable.from(audio))).status,'uncertain');
- assert.equal((await env.service.get('alice',id)).status,'complete');
- assert.equal(env.counts().submits,1);
+ const entered=deferred(),release=deferred();const env=await setup({submitUnknown:true,query:async()=>{entered.resolve();await release.promise;return {status:'complete',segments:[{start:0,end:1,text:'你好'}]};}});t.after(env.close);const id=randomUUID();
+ try{
+  assert.equal((await env.service.submit('alice',id,hash,'zh',Readable.from(audio))).status,'processing');await entered.promise;
+  assert.equal((await env.service.get('alice',id)).status,'uncertain');
+  assert.equal((await env.service.submit('alice',id,hash,'zh',Readable.from(audio))).status,'uncertain');
+ }finally{release.resolve();}
+ await env.service.idle();assert.equal((await env.service.get('alice',id)).status,'complete');assert.equal(env.counts().submits,1);
 });
 test('duration and daily quota stop new paid submissions',async t=>{
  const env=await setup({duration:100});t.after(env.close);
  await env.service.submit('alice',randomUUID(),hash,'zh',Readable.from(audio));
+ await env.service.idle();
  await assert.rejects(env.service.submit('alice',randomUUID(),hash,'zh',Readable.from(audio)),{status:429});
  assert.equal(env.counts().submits,1);
 });
-test('one account reserves its active slot before asynchronous job lookup',async t=>{
- const env=await setup();t.after(env.close);
+test('one account reserves its configured upload slot before asynchronous job lookup',async t=>{
+ const env=await setup({maxPendingUploadsPerAccount:1});t.after(env.close);
  const first=env.service.submit('alice',randomUUID(),hash,'zh',Readable.from(audio));
  const second=env.service.submit('alice',randomUUID(),hash,'zh',Readable.from(audio));
  await assert.rejects(second,{status:429});
  assert.equal((await first).status,'processing');
+ await env.service.idle();
  assert.equal(env.counts().submits,1);
 });
 test('a pre-submit storage failure can resume under the same account/key',async t=>{
- const root=await mkdtemp(join(tmpdir(),'muse-asr-retry-'));t.after(()=>rm(root,{recursive:true,force:true}));let uploads=0,submits=0;
+ const root=await mkdtemp(join(tmpdir(),'muse-asr-retry-'));let uploads=0,submits=0;
  const storage={...makeStorage(),upload:async()=>{if(++uploads===1)throw Error('storage offline');}};
- const service=createAsrService({root,storage,provider:{submit:async()=>{submits++;},query:async()=>({status:'processing'})},probe:async()=>30,maxAudioBytes:1024,maxDurationSeconds:18000,maxDailySeconds:120,maxDailyJobs:2,maxActiveJobs:1,retentionSeconds:86400});
- const id=randomUUID();await assert.rejects(service.submit('alice',id,hash,'zh',Readable.from(audio)));
+ const service=createAsrService({root,storage,provider:{submit:async()=>{submits++;},query:async()=>({status:'silent'})},probe:async()=>30,maxAudioBytes:1024,maxDurationSeconds:18000,maxDailySeconds:120,maxDailyJobs:2,maxActiveJobs:1,retentionSeconds:86400});t.after(async()=>{await service.close();await rm(root,{recursive:true,force:true});});
+ const id=randomUUID();await service.submit('alice',id,hash,'zh',Readable.from(audio));await service.idle();
  assert.equal((await service.get('alice',id)).status,'failed');
  assert.equal((await service.submit('alice',id,hash,'zh',Readable.from(audio))).status,'processing');
+ await service.idle();
  assert.equal(submits,1);
 });
 test('a private-storage preflight failure never uploads audio and leaves a job audit',async t=>{
- const root=await mkdtemp(join(tmpdir(),'muse-asr-private-'));t.after(()=>rm(root,{recursive:true,force:true}));let uploads=0,submits=0;
+ const root=await mkdtemp(join(tmpdir(),'muse-asr-private-'));let uploads=0,submits=0;
  const storage={...makeStorage(),assertPrivateBeforeUpload:async()=>{throw Error('private storage not proven');},upload:async()=>{uploads++;}};
  const service=createAsrService({root,storage,provider:{submit:async()=>{submits++;},query:async()=>({status:'processing'})},probe:async()=>30,maxAudioBytes:1024,maxDurationSeconds:18000,maxDailySeconds:120,maxDailyJobs:2,maxActiveJobs:1,retentionSeconds:86400});
- const id=randomUUID();await assert.rejects(service.submit('alice',id,hash,'zh',Readable.from(audio)),/private storage not proven/);
+ t.after(async()=>{await service.close();await rm(root,{recursive:true,force:true});});
+ const id=randomUUID();await service.submit('alice',id,hash,'zh',Readable.from(audio));await service.idle();
  assert.equal(uploads,0);assert.equal(submits,0);
  const names=await readdir(join(root,'jobs'));assert.equal(names.length,1);
  const receipt=JSON.parse(await readFile(join(root,'jobs',names[0]),'utf8'));
  assert.equal(receipt.status,'failed');assert.equal(receipt.failureStage,'storage-preflight');
 });
-test('expired uncertain audio is deleted while the original task remains queryable',async t=>{
- const root=await mkdtemp(join(tmpdir(),'muse-asr-retention-'));t.after(()=>rm(root,{recursive:true,force:true}));
+test('expired standard audio is deleted while its original in-flight task keeps its slot and query ID',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'muse-asr-retention-'));
  let clock=1000,removes=0,submits=0,queries=0;
- const storage={...makeStorage(),remove:async()=>{removes++;}};
- const provider={submit:async()=>{submits++;throw Error('submit outcome unknown');},query:async()=>{queries++;return {status:'processing'};}};
- const service=createAsrService({root,storage,provider,probe:async()=>30,now:()=>clock,maxAudioBytes:1024,maxDurationSeconds:18000,maxDailySeconds:120,maxDailyJobs:2,maxActiveJobs:1,retentionSeconds:86400});
- const id=randomUUID();assert.equal((await service.submit('alice',id,hash,'zh',Readable.from(audio))).status,'uncertain');
- clock+=86401*1000;await service.sweep();assert.equal(removes,1);
+ const entered=deferred(),removed=deferred(),ids=[];
+ const storage={...makeStorage(),remove:async()=>{removes++;removed.resolve();}};
+ const provider={submit:async()=>{submits++;throw Error('submit outcome unknown');},query:async id=>{queries++;ids.push(id);entered.resolve();return {status:'processing'};}};
+ const service=createAsrService({root,storage,provider,pollIntervalMs:10,probe:async()=>30,now:()=>clock,maxAudioBytes:1024,maxDurationSeconds:18000,maxDailySeconds:120,maxDailyJobs:2,maxActiveJobs:1,retentionSeconds:86400});t.after(async()=>{await service.close();await rm(root,{recursive:true,force:true});});
+ const id=randomUUID();assert.equal((await service.submit('alice',id,hash,'zh',Readable.from(audio))).status,'processing');await entered.promise;
+ clock+=86401*1000;await removed.promise;await service.close();assert.equal(removes,1);
  const status=await service.get('alice',id);assert.equal(status.status,'processing');assert.equal(status.retentionExpired,true);
- assert.equal(submits,1);assert.equal(queries,1);
+ assert.equal(submits,1);assert.ok(queries>=1);assert.equal(new Set(ids).size,1);
  await service.sweep();assert.equal(removes,1);
 });
 test('TOS upload requires owner-only bucket ACL and no granting policy before any object bytes',async()=>{
@@ -118,6 +127,7 @@ test('gateway ASR endpoint uses the Muse cookie, origin, and account isolation',
  const wav=await fetch(base+path,{method:'POST',headers:{...headers,cookie:bob,'content-type':'audio/wav','idempotency-key':randomUUID()},body:audio});assert.equal(wav.status,202);
  const unsupported=await fetch(base+path,{method:'POST',headers:{...headers,'content-type':'video/mp4','idempotency-key':randomUUID()},body:audio});assert.equal(unsupported.status,415);
  assert.equal((await fetch(base+path+'/'+id,{headers:{cookie:bob}})).status,404);
+ await env.service.idle();
  const result=await (await fetch(base+path+'/'+id,{headers:{cookie:alice}})).json();assert.equal(result.status,'complete');
  assert.doesNotMatch(JSON.stringify(result),/signed.invalid|temporary\/|token/);
 });

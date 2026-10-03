@@ -50,8 +50,8 @@ test('restart resumes unsubmitted flash queue, quarantines submitting flash, and
  const resumed=createAsrService(env.options);await resumed.ready();await resumed.idle();assert.equal(calls,2);
  receipt.status='submitting';await writeFile(path,JSON.stringify(receipt));
  const uncertain=createAsrService(env.options);await uncertain.ready();await uncertain.idle();assert.equal((await uncertain.get('alice',first.id)).status,'uncertain');assert.equal(calls,2);
- delete receipt.providerKind;receipt.status='processing';await writeFile(path,JSON.stringify(receipt));
- const legacy=createAsrService(env.options);await legacy.ready();assert.equal((await legacy.get('alice',first.id)).status,'silent');assert.equal(env.queries(),1);
+ delete receipt.providerKind;delete receipt.serviceVersion;delete receipt.resourceId;receipt.status='processing';await writeFile(path,JSON.stringify(receipt));
+ const legacy=createAsrService({...env.options,providerKind:'standard',provider:{...env.options.provider,submit:async()=>{}}});await legacy.ready();await legacy.idle();assert.equal((await legacy.get('alice',first.id)).status,'silent');assert.equal(env.queries(),1);
 });
 test('flash malformed, HTTP failure, timeout, and provider rejection remain unknown; silence is terminal',async()=>{
  const config={appId:'app',accessToken:'token',timeoutMs:1000},input={id:'task',url:'https://signed.invalid/audio',language:'auto'};
@@ -122,7 +122,7 @@ test('switching new jobs to standard keeps the audio of a recovered flash job',a
  const env=await fixture(t,async()=>{if(block){entered.resolve();await gate.promise;}return {status:'silent'};});
  const first=await env.submit('alice');await env.service.idle();const [name]=await readdir(join(env.root,'jobs'));const path=join(env.root,'jobs',name),receipt=JSON.parse(await readFile(path,'utf8'));
  receipt.status='queued';await writeFile(path,JSON.stringify(receipt));const file=join(env.root,'audio',createHash('sha256').update('alice\0'+first.id).digest('hex')+'.mp3');await writeFile(file,bytes);block=true;
- const resumed=createAsrService({...env.options,providerKind:'standard'});
+ const resumed=createAsrService({...env.options,providerKind:'standard',defaultPoolId:'new-standard',legacyAppId:'legacy-default',resources:[{poolId:'default',appId:'legacy-default',quotaGroup:'default',maxConcurrentJobs:1,serviceVersion:'flash',provider:env.options.provider},{poolId:'new-standard',appId:'legacy-default',quotaGroup:'standard',maxConcurrentJobs:1,serviceVersion:'standard-v2',provider:{submit:async()=>{},query:async()=>({status:'silent'})}}],quotaGroups:[{id:'default',maxConcurrentJobs:1},{id:'standard',maxConcurrentJobs:1}],routes:{subtitles:'flash',screenplay:'standard-v2'}});
  try{await resumed.ready();await entered.promise;await resumed.submit('alice',first.id,hash,'zh',Readable.from(bytes));assert.deepEqual(await readFile(file),bytes);}
  finally{gate.resolve();await resumed.idle();}
 });

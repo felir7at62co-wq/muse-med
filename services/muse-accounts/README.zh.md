@@ -22,35 +22,45 @@ kind: "package-reference"
 | 字段 | 用途 |
 |---|---|
 | `appId`、`accessToken` | 旧单应用的服务器专用凭据。使用资源池时，以 `defaultPoolId` 保留原应用；若同时提供顶层 `appId`，它必须与该资源一致。 |
-| `providerKind` | `standard`（默认）或 `flash`；每份任务收据保留原提供方。 |
-| `resources`、`quotaGroups`、`defaultPoolId` | 可选的显式资源池。资源声明 `poolId`、`appId`、私密 `accessToken`、`quotaGroup` 和实际获批的 `maxConcurrentJobs`；组声明 `id` 和共享的 `maxConcurrentJobs`，可选 `maxDailyJobs`、`maxDailySeconds`。默认资源保留旧收据归属。 |
+| `providerKind` | 旧单资源默认值：`standard`（1.0）或 `flash`；显式资源分别声明版本。 |
+| `resources`、`quotaGroups`、`defaultPoolId` | 资源声明 `poolId`、`appId`、私密 `accessToken`、`quotaGroup`、`maxConcurrentJobs` 及对应 `serviceVersion`／`resourceId`。组声明 `id`、共享 `maxConcurrentJobs` 及可选日额度；默认资源处理未提供用途的请求并保留旧归属。 |
+| `routes` | 用途映射：`{ "subtitles": "flash", "screenplay": "standard-v2" }`；兼容时显式选择 `standard-v1`。混合池须使用这些服务类型并提供对应资源。 |
+| 组 `submitQps`、`queryQps` | 标准版提交与查询的独立频率，各默认 10；合计不超过 20 QPS，不表示在途任务数。 |
+| 组 `rollingAudioWindowSeconds`、`maxRollingAudioSeconds` | 可选且成对配置的组时长上限，覆盖所有账号与版本。标准版部署使用 1,800 秒／1,800,000 音频秒，对应官方半小时提交 500 小时限制。 |
 | `legacyAppId` | 用于迁移无资源字段收据的原应用 ID，默认取保留的顶层 `appId`。显式资源池存在旧收据时必须提供此归属，并与默认应用一致。 |
-| `maxConcurrentJobs`、`maxQueuedJobs` | 极速版全局执行上限与等待容量（默认 20）。旧单应用默认 5 路且不超过 5；资源池按独立组及应用的实际授权推导总容量，显式全局上限不能超过该容量。上传计入受理容量；队列满返回 429。 |
-| `maxPendingUploadsPerAccount` | 每账号尚未完成受理的极速版上传上限（默认 4）。受理请求等待同账号上一个上传及额度预约完成后再落盘；超过上限返回 429。标准版仍只允许一个请求进入上传流程。 |
-| `accessKeyId`、`secretAccessKey` | 仅服务器使用的 TOS 凭据，标准版必需；极速版直接上传时省略。 |
-| `bucket`、`region`、`endpoint`、`prefix` | 仅标准版使用：私有 TOS 桶、匹配区域的官方端点，以及以 `/` 结尾的专用临时前缀。 |
+| `maxConcurrentJobs`、`maxQueuedJobs` | 全局工作线程上限与真实等待容量（默认 20）。旧线程默认 5 且不能超过 5；资源池按组与应用／服务组合计算容量，显式全局上限不得更大。标准版名额保留到完成，包括未知结果；等待队列满时返回 429。 |
+| `maxPendingUploadsPerAccount` | 每账号未完成上传上限（默认 4）；请求等待前次账号上传与额度预约后才暂存，超过上限返回 429。 |
+| `storageKind`、`gatewayStorage` | 标准版存储：`tos`（旧默认）或显式 `gateway`。网关需要独立的绝对私有 `root`、路径严格为 `/api/asr/audio/` 的 HTTPS `baseURL` 及至少 32 UTF-8 字节的服务器私密 `secret`；极速版均不需要。 |
+| `accessKeyId`、`secretAccessKey` | 服务器私密 TOS 凭据，仅标准版 `storageKind: tos` 需要。 |
+| `bucket`、`region`、`endpoint`、`prefix` | 使用 TOS 时的私有桶、匹配区域的官方端点及以 `/` 结尾的临时前缀。 |
 | `root` | 发布树外的私有绝对路径，保存按账号隔离的任务收据和短期暂存音频。 |
 | `ffprobePath` | 服务器 `ffprobe`，核验真实编码和时长以执行限额。 |
-| `timeoutMs`、`signedUrlTtlSeconds` | 提供方/访问验证超时；标准版还要求仅 GET 签名 URL 有效期至少比 `maxDurationSeconds` 多一小时，且不超过七天。 |
-| `maxAudioBytes`、`maxDurationSeconds` | 上传音频最大字节数与识别时长。极速版拒绝超过 100,000,000 字节或 7,200 秒的配置；标准版时长须保持在 18,000 秒以内。 |
-| `maxDailySeconds`、`maxDailyJobs`、`maxActiveJobs` | 每账号计费上限；`maxActiveJobs` 必须是 1，使单进程网关的限额预留串行化。同一账号已受理的极速版任务可以排队，并受共享并发上限约束。 |
-| `retentionSeconds`、`sweepIntervalSeconds` | 临时音频留存时间和后台清理间隔。留存至少覆盖媒体时长加一小时；使用 TOS 时不得超过签名 URL 有效期。清理间隔至少 60 秒，且不超过留存时间。 |
+| `timeoutMs`、`signedUrlTtlSeconds`、`pollIntervalMs` | 提供方／验证超时；覆盖媒体时长加一小时且不超过七天的签名期限；标准版查询间隔默认 5,000 毫秒，允许 1,000–60,000 毫秒。 |
+| `maxAudioBytes`、`maxDurationSeconds` | 上传大小与时长上限；极速版逐请求另限 100,000,000 字节／7,200 秒，标准版时长不超过 18,000 秒。混合池可使用较长的标准版时长，同时保留极速版限制。 |
+| `maxDailySeconds`、`maxDailyJobs`、`maxActiveJobs` | 每账号计费上限；兼容字段 `maxActiveJobs` 保持 1，预约串行执行。已受理任务可按共享工作线程限制排队。 |
+| `retentionSeconds`、`sweepIntervalSeconds` | 音频留存覆盖媒体时长加一小时；标准版留存不得超过下载签名有效期。清理间隔至少 60 秒且不超过留存时间。 |
 
-标准版需要 TOS。上传前，网关读取桶 ACL 和策略；只接受桶所有者授权及没有 Allow 语句的策略。读取权限不足或返回结果无法核实时停止上传。对象上传显式设置 private ACL，之后匿名 GET 必须返回 403，签名分段 GET 必须成功，才提交提供方任务。检查失败会保留私有任务账本记录，但不会产生提供方计费提交。后台清理到期对象，包括状态仍不明的任务，同时保留收据；标准版任务 ID 仍可查询。账号查询状态时也会清理，网关报告留存到期后，桌面端删除对应的本地 MP3。
+标准版音频使用私有 TOS 或网关存储。TOS 上传前核验桶 ACL 与策略，只接受所有者授权及没有 Allow 语句的策略。对象使用私有 ACL，匿名 GET 必须返回 403，签名分段 GET 必须成功后才计费。预检失败留下失败收据，不提交提供方任务。网关存储在启动时检查私有目录，监听就绪后才恢复排队任务。
 
-极速版沿用账号鉴权的启动与状态 API：排队任务对外显示 `processing`；完成后的每段包含以秒计的 `start`、`end`、`text`，以及可选的同字段 `words`。空白词和零时长标点被省略。网关将私有音频文件持久排队，通过 base64 `audio.data` 直接发送给火山，处理过程独立于上传连接，无须 TOS。上传接受 `audio/mpeg` 和 `audio/wav`；网关在计费前核验 MP3 或 16 kHz 单声道 PCM16 WAV。完成、静音或留存到期后删除网关文件。启动时恢复排队任务；已持久写入 `submitting` 后中断的极速版请求转为 `uncertain`，不查询也不自动重提。提供方错误或无效响应同样保留为不确定状态。只有提交提供方之前的失败允许重试上传。没有提供方字段的收据沿用标准版提交与查询语义；仍有标准版对象待清理时须保留 TOS 配置。每份账本只运行一个网关；共享提供方并发额度的部署须在各自工作线程配置间分配额度。模拟生命周期测试覆盖这些规则；真实极速版 API 检查由发布操作人员执行。
+网关存储在账号鉴权前处理 `/api/asr/audio/` 的签名 GET／HEAD，禁止无签名读取。HMAC 绑定对象 UUID、期限与内容摘要，有效签名支持单段 HTTP Range，替换内容使旧签名失效。完成、静音或留存到期删除暂存文件并保留收据；反向代理转发该路由时不得记录查询参数（`access_log off` 或只记录 URI）。签名 URL 是临时下载凭据，无须 TOS 账号或客户端上传凭据。
+
+账号鉴权 API 接受 `audio/mpeg` 与 `audio/wav`，计费前核验 MP3 或 16 kHz 单声道 PCM16 WAV。两个服务类型均持久排队，独立于提供方完成时间返回 202；排队显示为 `processing`。结果含以秒计的 `start`、`end`、`text` 及可选 `words`，省略空白词与零时长标点。极速版直接发送 base64 `audio.data`，不使用 URL 存储。启动恢复未提交的极速版工作；持久写入 `submitting` 后中断则转为 `uncertain`，不查询也不自动重提。无效响应仍保留未知，只有提交前失败允许重试上传。
+
+标准版工作线程只提交一次，随后查询原任务直到完成或静音。处理中与未知结果持续占用应用／服务／组名额，重启后亦然；状态读取不额外查询提供方。留存到期删除音频，但未知计费不可重试，也不释放名额；修改容量前核查未解决的提供方任务。缺 `providerKind` 的旧收据保持标准 1.0 语义，须保留原存储与服务定义。每份账本只运行一个网关，多个部署须分配共享额度；`close()` 停止受理与轮询并等待自身操作完成，不取消提供方任务。
 
 极速版对客户端允许的 `zh` 和 `auto` 都使用提供方默认语言检测，不发送显式语言选项。标准版适配器保留其语言参数。
 
 ### ASR 应用资源池
 
-每个资源及额度组 ID 都是稳定的小写 ASCII 标识。应用 ID 接受 ASCII 字母、数字、下划线和连字符，不允许前后空白。共享并发或计费额度的应用使用同一 `quotaGroup`；同一 `appId` 的两个 key 必须声明相同额度组和应用并发。组容量不会随 key 数量倍增。三个分别获批 5 路的独立应用可声明三个 5 路组及全局上限 15。既有等待容量与每账号日额度仍独立配置，新增资源不会扩大这些额度。可选组日上限按 UTC 日期统一预约所有账号已受理的时长与任务数，包括计费结果未知的任务。
+资源／组 ID 为稳定的小写 ASCII 标识；应用 ID 接受 ASCII 字母、数字、下划线与连字符，不允许前后空白。服务为 `flash`（`volc.bigasr.auc_turbo`）、`standard-v1`（`volc.bigasr.auc`）及 `standard-v2`（`volc.seedasr.auc`）。容量按 `(appId, resourceId)` 识别，同一组合的两个 key 须声明同组及同并发，key 不扩大组容量。三个独立 5 路极速版额度提供 15 个工作线程；两个标准版本在三个应用间共享保守配置的 5 路组，总本地容量 20。这是调度策略，不表示提供方授权 20 个在途任务；九条服务资源不表示九份独立额度。
 
-网关在持久额度预约时选择应用，优先分配已获批容量中占用较少的应用。极速版调度轮流处理等待账号，保持各账号提交顺序，同时执行应用、组与全局并发限制。私有收据在计费请求前记录 `poolId`、`appId`、`quotaGroup`；查询与重放保留该绑定，结果未知不会转投其他应用。三个字段全部缺失的旧收据要求 `legacyAppId` 与 `defaultPoolId` 一致；启动先校验全部归属，再补齐所有旧收据的固定绑定，包括已完成与未知任务，之后才恢复工作。资源缺失或应用／组被替换都会拒绝启动。收据仍存在时保留原资源定义；产生非默认资源收据后，不支持回滚到旧单应用服务。已发布 Session 格式不变。
+可选 `X-Muse-Asr-Purpose: subtitles|screenplay` 选择服务器路由：字幕用极速版，混合池剧本转写默认标准 2.0，可显式配置标准 1.0。未提供用途时保留旧客户端默认路由；每个幂等键永久保留原用途，包括未提供用途，改变则返回 409。路由变更只影响新键；等待容量与日额度独立，部署保留等待 30、每账号每天 1,000 任务／180,000 秒。组日额度按 UTC 日统一预约所有账号；滚动时长额度跨午夜计入未知计费及排队预约，在接受新计费收据前返回 `provider_rate`。
 
-响应保留旧任务字段与状态值，排队任务仍为 `processing`，可追加 `queued: true`。提供方失败仍为 `uncertain`，可包含 `error_code: provider_rejected` 或 `provider_unavailable`；这些字段区分诊断原因，不代表已知计费结果。私有诊断只保留操作、固定错误码、校验过的 HTTP 状态及纯数字提供方状态。凭据、响应正文、原始异常与资源身份都不进入任务响应。现有桌面版本可接受额外字段，但不会显示新的队列或错误元数据。
+预约优先使用有空位的应用／服务；调度轮流处理账号，保留各账号顺序并执行资源／组／全局限制。计费前收据持久记录 `poolId`、`appId`、`quotaGroup`、`serviceVersion`、`resourceId` 及新预约时间戳；未知结果不转投其他应用或版本。启动先核验全部归属，再给已完成或未解决的旧收据补缺失绑定，原字段、`providerKind` 与未提供用途不变。缺应用字段时要求 `legacyAppId` 与保留默认资源一致；资源缺失或应用／组／服务／存储变更会拒绝启动。存在收据时保留定义，旧单应用代码不能恢复新绑定；私有账本字段不改变已发布 Session 数据。
 
-ASR HTTP 失败保留旧 `error` 文本，并追加 `error_code`：`queue_full`、`upload_busy`、`daily_quota` 或 `request_rate`。前两种提供 `Retry-After: 2`；提交与查询合计限制每账号／IP 每分钟 60 次，超出提供 `Retry-After: 60`。日额度不提示立即重试。明确未受理的工作在容量恢复后沿用原 ID 继续；已受理或未知的收据保持原样对账，不新建 ID 重投。现有桌面版本把这些 HTTP 错误统一为 `request-rejected`，详细呈现需要兼容客户端更新。
+响应保留旧状态值与可选 `queued: true`，带用途请求增加 `purpose` 与 `service_version`。失败可报告 `provider_rejected`、`provider_unavailable` 或提交前的 `storage_unavailable`，诊断不表示计费确定性。私有诊断仅含操作、固定错误码、校验过的 HTTP 状态与纯数字提供方状态；凭据、签名 URL、响应正文、原始异常与应用身份不进入响应。旧桌面版本接受额外字段，但不显示队列／错误元数据。
+
+HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`、`daily_quota`、`provider_rate`、`request_rate`、`invalid_request` 或 `idempotency_conflict`。队列／上传上限带 `Retry-After: 2`，滚动额度给出最早重试间隔；提交与查询共享每账号／IP 每分钟 60 次限制，超出带 `Retry-After: 60`，日额度不提示立即重试。未受理上传在容量恢复后沿用原 ID；已受理或未知收据须对账，不以新 ID 重提；旧桌面客户端将这些错误统一为 `request-rejected`。
 
 凭据值不得进入 Git、systemd `Environment=`、桌面设置、日志或模型工具结果。开发环境和正式环境都通过 `MUSE_KB_VAULT` 与私有 `MUSE_KB_SECRET` 文件启用知识库机器端点。`MUSE_KB_DOCUMENT_GRANTS` 指向由管理员维护、位于可写共享 vault 和编辑器可写目录外的普通 JSON 文件；在 POSIX 上，用户组和其他用户不能写入该文件。未设置文件路径时，不授权任何共享文档。网关在检索或阅读前核对每份共享文档的完整 SHA-256。不能仅凭开发 vault 的文件数量或标题把它复制到正式环境。未配置知识库时机器端点不存在；启用后，未鉴权的 `/api/kb/mcp` 请求返回 401。
 
@@ -110,4 +120,4 @@ Muse LLM Wiki 通过既有 `/api/kb/access` 接口复用当前 Muse 登录，不
 
 ## Provider basis
 
-ASR 适配器支持用户 Pi 会话验证过的火山 v3 大模型录音文件**标准版 1.0**接口与 `volc.bigasr.auc` 资源，也支持使用 `volc.bigasr.auc_turbo` 的[极速版接口](https://www.volcengine.com/docs/6561/1631584) `/api/v3/auc/bigmodel/recognize/flash`。[标准版产品说明](https://www.volcengine.com/docs/6561/1354871?lang=zh)的时长限制为五小时；[TOS 签名 URL](https://docs.volcengine.com/docs/TorchObjectStorage/URLcontainsasignature?lang=en)最长七天。[TOS 桶策略](https://docs.volcengine.com/docs/TorchObjectStorage/ManagingBucketPoliciesNodejsSDK?lang=en)和[桶 ACL](https://docs.volcengine.com/docs/TorchObjectStorage/ManagingBucketACLsNodejsSDK?lang=zh)都会影响访问权限，因此上传前同时读取两者。旧小模型 `/api/v1/auc` 文档不描述此 v3 适配器。真实提供方验证仍属于发布操作。
+[模型列表](https://docs.volcengine.com/docs/DoubaoVoice/model-list?lang=en) 标明标准 2.0 和极速版资源；[旧控制台鉴权](https://docs.volcengine.com/docs/DoubaoVoice/old-version-console-authentication-reference-example?lang=zh) 支持其应用／Access Token 鉴权。[说话人分离](https://docs.volcengine.com/docs/DoubaoVoice/speaker-separation?lang=zh) 文档确认标准 1.0／2.0 共用 v3 `/auc/bigmodel/submit` 与 `/query` 链路。[标准版限制](https://docs.volcengine.com/docs/DoubaoVoice/ProductOverview-6?lang=zh) 区分 20 QPS 与半小时提交 500 小时音频上限。[TOS 签名](https://docs.volcengine.com/docs/TorchObjectStorage/URLcontainsasignature?lang=en) 最长七天，[桶策略](https://docs.volcengine.com/docs/TorchObjectStorage/ManagingBucketPoliciesNodejsSDK?lang=en) 与 [ACL](https://docs.volcengine.com/docs/TorchObjectStorage/ManagingBucketACLsNodejsSDK?lang=zh) 均影响隐私；旧 `/api/v1/auc` 小模型接口不适用。测试模拟提供方调用，真实版本验收为另行授权的发布操作。
