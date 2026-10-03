@@ -180,11 +180,13 @@ test('three independently declared five-slot grants run fifteen requests and kee
 });
 
 test('standard unknown jobs query their original application after pool ordering changes',async t=>{
- const root=await mkdtemp(join(tmpdir(),'muse-asr-standard-pin-'));t.after(()=>rm(root,{recursive:true,force:true}));const queries=[];let submissions=0;
- const resources=['old','new'].map(poolId=>({poolId,appId:'app-'+poolId,quotaGroup:poolId,maxConcurrentJobs:1,provider:{submit:async()=>{submissions++;throw Error('lost response');},query:async()=>{queries.push(poolId);return {status:'silent'};}}}));
+ const root=await mkdtemp(join(tmpdir(),'muse-asr-standard-pin-'));const queries=[],entered=deferred(),release=deferred();let submissions=0,service,restarted;
+ t.after(async()=>{release.resolve();await service?.close();await restarted?.close();await rm(root,{recursive:true,force:true});});
+ const resources=['old','new'].map(poolId=>({poolId,appId:'app-'+poolId,quotaGroup:poolId,maxConcurrentJobs:1,provider:{submit:async()=>{submissions++;throw Error('lost response');},query:async()=>{queries.push(poolId);entered.resolve();await release.promise;return {status:'silent'};}}}));
  const settings={root,...limits,providerKind:'standard',resources,quotaGroups:resources.map(row=>({id:row.quotaGroup,maxConcurrentJobs:1})),defaultPoolId:'old',probe:async()=>10,storage:{key:id=>id,assertPrivateBeforeUpload:async()=>{},upload:async()=>{},signedReadUrl:async()=>'https://signed.invalid/audio',assertPrivateAndReadable:async()=>{},remove:async()=>{}}};
- const service=createAsrService(settings),id=randomUUID();assert.equal((await service.submit('alice',id,hash,'zh',Readable.from(bytes))).status,'uncertain');
- const restarted=createAsrService({...settings,resources:[...resources].reverse()});await restarted.ready();assert.equal((await restarted.get('alice',id)).status,'silent');assert.deepEqual(queries,['old']);assert.equal(submissions,1);
+ service=createAsrService(settings);const id=randomUUID();assert.equal((await service.submit('alice',id,hash,'zh',Readable.from(bytes))).status,'processing');await entered.promise;assert.equal((await service.get('alice',id)).status,'uncertain');
+ release.resolve();await service.idle();await service.close();const [saved]=await receipts(root);saved.job.status='uncertain';await writeFile(join(root,'jobs',saved.name),JSON.stringify(saved.job));
+ restarted=createAsrService({...settings,resources:[...resources].reverse()});await restarted.ready();await restarted.idle();assert.equal((await restarted.get('alice',id)).status,'silent');assert.deepEqual(queries,['old','old']);assert.equal(submissions,1);
 });
 
 test('legacy migration requires the original application and leaves mismatched receipts unchanged',async t=>{
@@ -199,12 +201,12 @@ test('legacy migration requires the original application and leaves mismatched r
 test('migration pins complete and uncertain legacy receipts before the default can change',async t=>{
  const env=await fixture(t,async()=>({status:'silent'}));await env.submit('alice');await env.submit('bob');await env.service.idle();
  const jobs=await receipts(env.root);
- for(const [index,row] of jobs.entries()){delete row.job.poolId;delete row.job.appId;delete row.job.quotaGroup;delete row.job.providerKind;row.job.status=index===0?'complete':'uncertain';await writeFile(join(env.root,'jobs',row.name),JSON.stringify(row.job));}
+ for(const [index,row] of jobs.entries()){delete row.job.poolId;delete row.job.appId;delete row.job.quotaGroup;delete row.job.serviceVersion;delete row.job.resourceId;row.job.status=index===0?'complete':'uncertain';await writeFile(join(env.root,'jobs',row.name),JSON.stringify(row.job));}
  const migrated=createAsrService({...env.settings,legacyAppId:'fixture-app-0'});await migrated.ready();
  for(const {job} of await receipts(env.root)){assert.equal(job.poolId,'old');assert.equal(job.appId,'fixture-app-0');}
  const calls=[];
  const restarted=createAsrService({...env.settings,defaultPoolId:'new',legacyAppId:undefined,resources:env.settings.resources.map(resource=>({...resource,provider:{...resource.provider,query:async()=>{calls.push(resource.poolId);return {status:'silent'};}}}))});
- await restarted.ready();assert.equal((await restarted.get(jobs[1].job.account,jobs[1].job.id)).status,'silent');assert.deepEqual(calls,['old']);
+ await restarted.ready();assert.equal((await restarted.get(jobs[1].job.account,jobs[1].job.id)).status,'uncertain');assert.deepEqual(calls,[]);
 });
 
 test('a free application in a saturated shared group cannot hide an available independent group',async t=>{

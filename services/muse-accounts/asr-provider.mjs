@@ -1,4 +1,4 @@
-/** Volcengine recording-file 1.0 adapter. Credentials remain on the gateway. */
+/** Volcengine recording-file v3 adapter. Credentials remain on the gateway. */
 import {readFile} from 'node:fs/promises';
 const endpoint='https://openspeech.bytedance.com/api/v3/auc/bigmodel';
 const resource='volc.bigasr.auc';
@@ -30,7 +30,7 @@ export class AsrProviderError extends Error{
  }
 }
 
-function headers(config,id){return {'content-type':'application/json','X-Api-App-Key':config.appId,'X-Api-Access-Key':config.accessToken,'X-Api-Resource-Id':resource,'X-Api-Request-Id':id};}
+function headers(config,id){return {'content-type':'application/json','X-Api-App-Key':config.appId,'X-Api-Access-Key':config.accessToken,'X-Api-Resource-Id':config.resourceId??resource,'X-Api-Request-Id':id};}
 
 /** Submit one paid request. Every failure retains an unknown charge outcome and must be reconciled by query. */
 export async function submitAsr(config,{id,url,language,format='mp3'},fetcher=fetch){
