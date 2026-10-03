@@ -118,7 +118,7 @@ export class MuseAsrClient {
     return {
       id: job.id, status: job.status as MuseAsrJob['status'],
       ...(job.purpose === undefined ? {} : { purpose: job.purpose }),
-      ...(job.service_version === undefined ? {} : { service_version: job.service_version as MuseAsrJob['service_version'] }),
+      ...(job.service_version === undefined ? {} : { service_version: job.service_version }),
       ...(job.retentionExpired === undefined ? {} : { retentionExpired: job.retentionExpired }),
       ...(job.status === 'complete' ? { segments: job.segments as readonly MuseAsrSegment[] } : {}),
     }
