@@ -1,6 +1,7 @@
 /** Isolated, process-lifetime Feishu cookies for explicitly configured test policy requests. */
 import { randomUUID } from 'node:crypto'
-import { BrowserWindow, session } from 'electron'
+import { join } from 'node:path'
+import { app, BrowserWindow, session } from 'electron'
 import type { DesktopLocale } from './locale.ts'
 
 /** Packaged placeholder document; it is the window's first document and needs no network. */
@@ -72,6 +73,7 @@ export class DesktopPolicyTestAuth {
     const parent = this.parent()
     const window = new BrowserWindow({ width: 720, height: 760, ...(parent === undefined ? {} : { parent }),
       title: this.locale.messages.policyLoginTitle, autoHideMenuBar: true,
+      icon: join(app.getAppPath(), 'renderer', process.platform === 'win32' ? 'window-icon.png' : 'icon.png'),
       webPreferences: { session: this.browserSession, nodeIntegration: false, contextIsolation: true,
         sandbox: true, webSecurity: true, webviewTag: false, devTools: true, spellcheck: false } })
     this.pending = result.promise

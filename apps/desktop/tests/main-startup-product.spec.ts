@@ -261,6 +261,7 @@ vi.mock('../src/welcome-backend.ts', () => ({
   connectDesktopWelcome: async () => ({
     read: async () => harness.welcomeState,
     readLocalePreference: async () => null,
+    analyticsEnabled: async () => false,
     save: async () => ({ ok: true }),
     account: {
       watch: () => () => {},
@@ -522,12 +523,13 @@ describe('desktop main startup', () => {
     expect(process.env.MUSE_HOME).toBe(resolve('muse test home'))
   })
 
-  it('uses the Muse window name and packaged spider icon without changing renderer security', async () => {
+  it.each(['win32', 'darwin'] as const)('uses the %s Muse window artwork without changing renderer security', async (platform) => {
+    vi.stubGlobal('process', { ...process, platform })
     await import('../src/main.ts')
     await harness.preparing.promise
     expect(harness.windows[0]?.options).toMatchObject({
       title: 'Muse',
-      icon: join(harness.appRoot, 'renderer', 'icon.png'),
+      icon: join(harness.appRoot, 'renderer', platform === 'win32' ? 'window-icon.png' : 'icon.png'),
       webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true },
     })
   })

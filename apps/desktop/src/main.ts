@@ -257,7 +257,7 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
     minHeight: 600,
     show,
     title: resolveDesktopLocale(app.getLocale()).messages.productName,
-    icon: join(app.getAppPath(), 'renderer', 'icon.png'),
+    icon: join(app.getAppPath(), 'renderer', process.platform === 'win32' ? 'window-icon.png' : 'icon.png'),
     ...(process.platform === 'win32' && primary ? {
       titleBarStyle: 'hidden' as const,
       titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: chromeFallbackFill(),

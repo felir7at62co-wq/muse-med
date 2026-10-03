@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
-import { packIco, TRAY_ICON_PATHS, TRAY_ICON_SIZES, unpackIco, type IcoEntry } from '../scripts/render-tray-icon.ts'
+import { APP_ICON_PATHS, WINDOW_ICON_PATHS, packIco, renderAppIcon, renderWindowIcon, TRAY_ICON_PATHS, TRAY_ICON_SIZES, unpackIco, type IcoEntry } from '../scripts/render-tray-icon.ts'
 
 /** Smallest valid-looking PNG stream: signature plus an IHDR chunk declaring the given edge. */
 function pngStub(width: number, height = width): Buffer {
@@ -42,11 +42,42 @@ describe('tray icon packaging', () => {
     for (const entry of entries) expect(entry.png.length).toBeGreaterThan(100)
   })
 
-  it('uses the Muse desktop artwork for the Windows tray and installed app icon', async () => {
+  it('keeps the large app icon corners transparent around its rounded black tile', async () => {
+    const { data, info } = await sharp(readFileSync(new URL('../renderer/icon.png', import.meta.url))).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+    const pixel = (x: number, y: number): number[] => [...data.subarray((y * info.width + x) * 4, (y * info.width + x) * 4 + 4)]
+    expect(pixel(0, 0)[3]).toBe(0)
+    expect(pixel(info.width - 1, info.height - 1)[3]).toBe(0)
+    const original = await sharp(readFileSync(APP_ICON_PATHS.source)).ensureAlpha().raw().toBuffer()
+    const center = (Math.floor(info.height / 2) * info.width + Math.floor(info.width / 2)) * 4
+    expect(pixel(Math.floor(info.width / 2), Math.floor(info.height / 2))).toEqual([...original.subarray(center, center + 4)])
+    expect(original[center]).toBeGreaterThan(240)
+    expect(pixel(Math.floor(info.width / 2), Math.floor(info.height / 8))[3]).toBe(255)
+  })
+
+  it('ships transparent black spiders at every tray size without a filled background', async () => {
+    const images = [readFileSync(WINDOW_ICON_PATHS.output), ...unpackIco(readFileSync(TRAY_ICON_PATHS.output)).map(entry => entry.png)]
+    for (const image of images) {
+      const { data } = await sharp(image).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+      const alpha: number[] = []
+      for (let offset = 0; offset < data.length; offset += 4) {
+        expect([...data.subarray(offset, offset + 3)]).toEqual([0, 0, 0])
+        alpha.push(data[offset + 3]!)
+      }
+      expect(alpha[0]).toBe(0)
+      expect(Math.max(...alpha)).toBe(255)
+    }
+  })
+
+  it('reproduces committed rounded application and transparent window assets from their originals', async () => {
+    expect(await renderAppIcon(readFileSync(APP_ICON_PATHS.source))).toEqual(readFileSync(APP_ICON_PATHS.output))
+    expect(await renderWindowIcon(readFileSync(WINDOW_ICON_PATHS.source))).toEqual(readFileSync(WINDOW_ICON_PATHS.output))
+  })
+
+  it('uses transparent window artwork for the Windows tray and rounded artwork for the installed app', async () => {
     const muse = readFileSync(new URL('../renderer/icon.png', import.meta.url))
     const tray = unpackIco(readFileSync(TRAY_ICON_PATHS.output))
     const tray64 = tray.find(entry => entry.size === 64)
-    const trayMuse64 = await sharp(muse).resize(64, 64).png().toBuffer()
+    const trayMuse64 = await sharp(readFileSync(WINDOW_ICON_PATHS.output)).resize(64, 64).png().toBuffer()
     expect(tray64?.png.equals(trayMuse64)).toBe(true)
 
     const installed = unpackIco(readFileSync(new URL('../renderer/icon.ico', import.meta.url)))

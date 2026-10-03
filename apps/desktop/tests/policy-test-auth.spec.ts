@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { DesktopPolicyTestAuth } from '../src/policy-test-auth.ts'
 import { resolveDesktopLocale } from '../src/locale.ts'
@@ -6,6 +7,7 @@ import type { BrowserWindowConstructorOptions } from 'electron'
 
 const native = vi.hoisted(() => ({ create: vi.fn<(options: BrowserWindowConstructorOptions) => object>(), partition: vi.fn() }))
 vi.mock('electron', () => ({ BrowserWindow: function (options: BrowserWindowConstructorOptions) { return native.create(options) },
+  app: { getAppPath: () => '/desktop-app' },
   session: { fromPartition: native.partition } }))
 
 let auth: DesktopPolicyTestAuth
@@ -58,6 +60,7 @@ it('opens a sandboxed window on explicit action and coalesces logins without aut
   expect(native.create.mock.calls[0]![0]).toMatchObject({ title: '登录测试环境', webPreferences: {
     session: browserSession, nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
     webviewTag: false, devTools: true } })
+  expect(native.create.mock.calls[0]![0].icon).toBe(join('/desktop-app', 'renderer', process.platform === 'win32' ? 'window-icon.png' : 'icon.png'))
   expect(native.create.mock.calls[0]![0].webPreferences?.preload).toBeUndefined()
   expect(window.loadFile).toHaveBeenCalledWith('renderer/policy-login-loading.html', { query: { label: '正在加载登录页面…' } })
   // The placeholder is the first document: the remote page waits for it.

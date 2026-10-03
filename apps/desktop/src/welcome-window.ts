@@ -24,6 +24,7 @@ export function welcomeWindowOptions(platform: NodeJS.Platform, locale: DesktopL
     fullscreenable: false,
     show: false,
     title: locale.messages.welcomeTitle,
+    icon: join(app.getAppPath(), 'renderer', platform === 'win32' ? 'window-icon.png' : 'icon.png'),
     backgroundColor: platform === 'darwin' || platform === 'win32' ? '#00000000' : '#FFFFFF',
     ...(platform === 'darwin' ? {
       titleBarStyle: 'hidden',

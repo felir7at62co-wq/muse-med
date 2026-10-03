@@ -54,6 +54,7 @@ describe('desktop welcome window', () => {
     const options = welcomeWindowOptions(platform, resolveDesktopLocale('zh-CN'))
     expect(options).toMatchObject({
       width: 600, height: 700, useContentSize: true, center: true, show: false,
+      icon: join(electron.root, 'renderer', platform === 'win32' ? 'window-icon.png' : 'icon.png'),
       resizable: false, maximizable: false, fullscreenable: false,
       webPreferences: {
         nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,

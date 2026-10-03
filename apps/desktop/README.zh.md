@@ -6,7 +6,7 @@
 
 桌面应用是完整 dsh Web 应用外的一层 Electron 壳。Electron RunAsNode 子进程启动共享 profile runner，Electron 立即从 `dsh-app://app/` 加载打包内的 Web 入口。共享加载页等待 Host 启动注入，然后在同一文档中启动客户端。Electron 将应用 HTTP 请求转发给已认证的 Web Host，转发时丢弃描述 Node fetch 连接而非资源本身的响应头（`transfer-encoding`、`connection`、`keep-alive`），并把插件 bundle 响应标记为 `no-store`，因为其每次启动都变化的 revision 只会在 Chromium 磁盘缓存中累积；WebSocket 流连接到该 Host，仅为归属的应用窗口附加凭据。Node IPC 承载启动注入、就绪与关闭。muse-med 只绑定 `127.0.0.1`，由系统分配端口，避免占用官方 DSH 应用的端口。共享 profile runner 提供设置和插件管理服务；生成的产品覆盖层保留产品预设、内置技能及飞书开关。共享包通过运行时解析，不创建指向 ASAR 内部的目录链接。
 
-桌面壳显示 **Muse**，使用 `renderer/icon.png`：由提供的黑底白蜘蛛原图转换的方形 PNG。Windows 托盘和可执行文件图标由它生成；macOS 打包直接使用它。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和 GitHub 更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
+桌面壳显示 **Muse**。Windows 快捷方式和可执行文件图标、macOS 安装包与“关于”使用保留原白蜘蛛的圆角黑底图标；Windows 应用窗口和托盘使用独立的透明底黑蜘蛛。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和 GitHub 更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
 
 Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明，当前为 `1.0.0`。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.0-rc.2` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
 
@@ -36,7 +36,7 @@ macOS 安装会创建 `/usr/local/bin/dsh`；目录权限需要时，系统会�
 
 关闭主窗口（macOS 的关闭按钮和 ⌘W；Windows 的 ×、Alt+F4 和任务栏"关闭窗口"）会隐藏窗口；Windows 首次隐藏前需要确认。页面和 Host 继续运行，任务不受影响，下次显示时仍是原来的文档，会话、草稿和滚动位置都保留；macOS 全屏窗口先退出全屏再隐藏。macOS 通过 Dock 图标、再次启动或 `dsh://open` 找回窗口，Windows 通过托盘找回。最小化行为不变。进入工作区前关闭欢迎窗口，Windows 上走退出流程，macOS 上应用留在 Dock 中且没有窗口。
 
-Windows 在整个运行期间常驻托盘图标。悬停提示为产品名，单击显示并聚焦窗口，右键菜单提供壳语言下的"打开 Muse"和"退出 Muse"。首次隐藏前复用更新弹窗，显示“正在运行的任务不会中断，可在系统托盘中重新打开窗口”和“确认”按钮。确认后隐藏窗口，并在 Electron userData 下写入 `background-close-confirmed`；Esc、关闭弹窗或加载失败均保持主窗口可见，不记录确认。重复关闭请求会聚焦已有壳弹窗。覆盖更新保留标记，卸载删除标记。旧的 `background-notice-shown` 标记不会跳过此确认。关闭窗口不发送系统通知。托盘位图是 `resources/tray-windows.ico`，由 `pnpm run render:tray-icon` 从 `resources/icon-windows.svg` 按 16、20、24、32、40、48、64 像素分别渲染，打包为 `resources/tray.ico`。macOS 不提供菜单栏图标。
+Windows 在整个运行期间常驻托盘图标。悬停提示为产品名，单击显示并聚焦窗口，右键菜单提供壳语言下的"打开 Muse"和"退出 Muse"。首次隐藏前复用更新弹窗，显示“正在运行的任务不会中断，可在系统托盘中重新打开窗口”和“确认”按钮。确认后隐藏窗口，并在 Electron userData 下写入 `background-close-confirmed`；Esc、关闭弹窗或加载失败均保持主窗口可见，不记录确认。重复关闭请求会聚焦已有壳弹窗。覆盖更新保留标记，卸载删除标记。旧的 `background-notice-shown` 标记不会跳过此确认。关闭窗口不发送系统通知。托盘位图是 `resources/tray-windows.ico`，由 `pnpm run render:tray-icon` 从 `renderer/window-icon.png` 按 16、20、24、32、40、48、64 像素分别渲染，打包为 `resources/tray.ico`。macOS 不提供菜单栏图标。
 
 所有普通退出入口——⌘Q、应用菜单、Dock 菜单、Windows 托盘和标题栏"应用程序"菜单，以及关闭强制更新窗口或欢迎窗口引起的退出——都先向 Host 查询退出会中断什么。Host 通过私有 IPC 通道回答两项事实：与更新重启检查同一口径的运行中任务（运行中的 agent，包括子代理和等待审批的回合、排队消息、运行中或停止中的后台任务），以及本次运行中已加载会话里由 `workspace/session-activity` 的 `schedule` family 报告的已挂定时器的提醒。两项都没有时直接退出，不弹框。否则弹出一个没有父窗口的原生消息框——隐藏的窗口保持隐藏——标题为**退出 Muse？**，正文为三种本地化说明之一：正在运行的任务将会中断、应用关闭期间定时任务不会运行，或两者兼有。"退出"是默认按钮，Esc 等同"取消"；macOS 上"取消"在"退出"左侧，Windows 上"退出"在"取消"左侧，Windows 任务对话框显示应用图标且不跟随应用主题、始终为浅色。Host 尚未就绪或已失败时不可能有任务在跑，直接退出。查询失败或 Host 超过两秒截止时间未答复，按运行中任务处理。弹框打开期间，再次请求退出只会并入同一弹框而不叠加新弹框（macOS 上还会把它提到前面；Electron 不暴露 Windows 任务对话框的句柄）；任务开始或结束不会改变文案；点"退出"不再重新查询即停止应用；点"取消"不发生任何变化。取消由关闭欢迎窗口引起的退出时，欢迎窗口会重新显示。
 
@@ -45,13 +45,13 @@ Windows 在整个运行期间常驻托盘图标。悬停提示为产品名，单
 以下情况跳过确认：安装更新的重启已确认过任务中断、致命错误恢复对话框中的退出或重启、开发版"重启应用与 Host"命令，以及操作系统关机、重启或注销：Windows 在确定性的会话结束消息上设置该状态；macOS 在关机通知上设置，而其他应用仍可能取消这次关机，因此主窗口下一次获得焦点或显示时会清除它。安装器接管退出时会取消尚未结束的普通退出决策；晚到的查询结果和弹框答复不会再次打开确认框或重复清理。窗口隐藏期间完成的用户主动发起的更新下载，把"安装并重启"确认推迟到窗口再次显示时；强制更新流程沿用其任务栏和 Dock 提醒。Windows 安装程序和卸载程序在应用仍在运行时提示用户先在系统托盘中退出。Desktop 默认未开启定时任务，定时任务的说明只在该功能开启后出现；提醒只在已加载的会话中触发，未加载的会话既不计入，也要等到打开后才会继续。
 ## 关键技术决策
 
-`renderer/icon.png` 是应用窗口、macOS 安装包和“关于”对话框使用的 Muse 图案。[render-tray-icon.ts](scripts/render-tray-icon.ts) 由它生成已提交的 Windows 托盘与可执行文件图标；图案变化后运行 `pnpm run render:tray-icon`。[render-brand-assets.ps1](scripts/render-brand-assets.ps1) 从同一图标渲染安装页面的明暗主题图像，以及欢迎页的 `renderer/assets/welcome-mark*.png`；图标变化后重新运行它，使这些界面使用当前图案。卸载程序的欢迎和完成页共用 `installer/assets/uninstaller-sidebar.png`，准备阶段将其转换为 164×314 BMP。
+[render-tray-icon.ts](scripts/render-tray-icon.ts) 为 `resources/muse-app-source.png` 添加圆角遮罩，生成 `renderer/icon.png` 与 Windows 可执行文件使用的 `renderer/icon.ico`，保留原图案。它还将高分辨率的[透明 Muse 蜘蛛](../web/public/muse-med-logo-white.webp)转为 `renderer/window-icon.png` 与 Windows 托盘 ICO，使用黑色轮廓且无底板。Windows 主窗口、插件窗口、欢迎窗口和策略登录窗口明确选用该透明 PNG 作为任务栏图标，独立于可执行文件和快捷方式图标。任一源图变化后运行 `pnpm run render:tray-icon`。[render-brand-assets.ps1](scripts/render-brand-assets.ps1) 从同一图标渲染安装页面的明暗主题图像，以及欢迎页的 `renderer/assets/welcome-mark*.png`；图标变化后重新运行它，使这些界面使用当前图案。卸载程序的欢迎和完成页共用 `installer/assets/uninstaller-sidebar.png`，准备阶段将其转换为 164×314 BMP。
 
 快捷键覆盖保存在 `app.getPath('userData')/keybindings.json`，与 `DSH_HOME` 分离。主进程校验并串行保存修改后才发布已接受键位。读取失败保留上次接受的键位并阻止编辑，包括全部恢复；不可读和未来版本的文件保持不变。开发时可通过 `DSH_DESKTOP_USER_DATA_DIR` 隔离这些偏好，启动器会输出解析后的路径。格式和冲突语义见[快捷键服务](../../packages/client/shortcuts/README.zh.md)。
 
 macOS“文件”菜单显示已接受的单键绑定（包括方向键），并通过 Client 页面 owner 路由“关闭页面或窗口”。Windows 和 macOS 在主文档、内嵌 frame 和浏览器 guest 输入之前拦截所有已接受的完整绑定，包括编辑和终端输入。录制和输入法组合状态仍受保护。更新蒙层从创建到最后一个蒙层关闭期间阻挡父窗口及其浏览器 guest 的产品快捷键和编辑按键递送。每次打开或关闭蒙层都会作废待完成的组合键状态。主进程通过显式的创建能力和输入状态读取能力，让更新对话框与快捷键输入共享同一个蒙层管理实例。双键组合会将首键的初次按下事件交给页面，且不拦截其松开事件；完整组合及其重复事件会被消费。渲染进程将可配置绑定的分发交给原生适配器。双键组合不注册原生菜单快捷键。已接受的命令通过可信 preload 转发一次。Linux 通过 DOM 分发主文档快捷键，并将已接受的内嵌 frame 绑定转发给 Client 解析器。关闭最后一个窗口后 macOS 保留应用生命周期；Windows 退出桌面实例并停止其任务。[关窗决策](../../.agents/notes/implemented/architecture/2026-09-21-desktop-page-close-shortcuts.zh.md)记录了这一生命周期选择。
 
-macOS PNG 使用带留白的圆角底板，供传统 ICNS 打包使用，包含最高 1024 像素的表示。它是扁平图标，并非 Icon Composer 文档。Apple 的[应用图标指南](https://developer.apple.com/design/human-interface-guidelines/app-icons)要求向 Icon Composer 提供未遮罩的图层；这些输入需要在 macOS 上单独导出，不能复用已做圆角的 ICNS 图案。发布前须在支持的 macOS 版本中验收 Finder 和 Dock 的显示效果。
+macOS PNG 使用圆角底板，供传统 ICNS 打包使用，包含最高 1024 像素的表示。它是扁平图标，并非 Icon Composer 文档。Apple 的[应用图标指南](https://developer.apple.com/design/human-interface-guidelines/app-icons)要求向 Icon Composer 提供未遮罩的图层；这些输入需要在 macOS 上单独导出，不能复用已做圆角的 ICNS 图案。发布前须在支持的 macOS 版本中验收 Finder 和 Dock 的显示效果。
 
 <a id="bundled-workspace-dependencies"></a>
 
