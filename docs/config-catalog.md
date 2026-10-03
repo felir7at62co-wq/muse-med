@@ -1335,15 +1335,15 @@ export interface Config {
 ## `@deepseek-ai/dsh-feishu-settings`
 
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/host/feishu-settings/src/index.ts:37`](../packages/host/feishu-settings/src/index.ts)
+- `source`: [`packages/host/feishu-settings/src/index.ts:38`](../packages/host/feishu-settings/src/index.ts)
 
 ```ts config-catalog
 /** Runtime switch this product's own row publishes to the Settings page. */
 export interface Config {
   /**
    * Whether the bundled bridge channel may run. The Loader resolves this from
-   * the profile patch, so a write from the page reaches the next boot's
-   * composition, and the live reference also answers the page in this boot.
+   * the profile patch. Activation uses the startup value; the live reference
+   * also answers the Settings page in this boot.
    */
   enabled: Volatile<boolean>
 }
