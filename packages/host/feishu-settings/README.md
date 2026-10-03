@@ -36,7 +36,7 @@ Scan the QR code to register an app instead of entering an existing credential p
 <a id="restart-sequence"></a>
 ## Restart sequence
 
-Save the credentials, enable the switch, then restart the backend to apply both. The page reports credential saving and switch saving separately. An enabled bridge entry describes its configuration; message delivery also requires Feishu permissions and platform configuration. This page does not report a verified live connection.
+Save the credentials, enable the switch, then restart the backend to apply both. The page reports credential saving and switch saving separately. An enabled switch without credentials leaves the bridge mounted and writable; save the missing pair and restart again. An enabled bridge entry describes its configuration; message delivery also requires Feishu permissions and platform configuration. This page does not report a verified live connection.
 
 -----
 
@@ -46,9 +46,9 @@ Save the credentials, enable the switch, then restart the backend to apply both.
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The [bundle patch](cordis.patch.yml) adds the `feishu` Settings row. Its `enabled` field defaults to `false` and persists in the profile patch. The desktop [activation layer](../../../apps/desktop-host/src/feishu-gate.ts) reads that field at startup, preserves the bridge's composed credentials and other settings, and sets the `feishu-channel` activation key.
+The [bundle patch](cordis.patch.yml) adds the `feishu` Settings row. Its `enabled` field defaults to `false` and persists in the profile patch. The desktop [dependency layer](../../../apps/desktop-host/src/feishu-gate.ts) requires `feishuSetup` before the bridge resolves Config and retains its other dependencies. The [Host plugin](src/index.ts) installs a config waterfall listener before publishing that service. It captures the product switch and the bridge's complete credential pair at startup, projects only runtime activation, and delegates interpolation before reading credential expressions. Subsequent credential or switch edits leave activation fixed until the next backend start; the user profile remains editable.
 
-Credentials belong to the `@wenbin_wb/dsh-bridge` row's `feishu-channel` settings section. The [setup service](src/service.ts) writes `appId`, `appSecret`, and `registeredBy` through the settings service and reads redacted status through `describe()`, which reports only whether the secret is set. The row stays mounted while the switch is off so its section remains writable. Replacing the app or scanner clears its previous sender and active-session bindings; other settings remain merged.
+Credentials belong to the `@wenbin_wb/dsh-bridge` row's `feishu-channel` settings section. The [setup service](src/service.ts) writes `appId`, `appSecret`, and `registeredBy` through the settings service and reads public fields through redacted `describe()`. The Host checks the bridge's volatile secret for a nonempty value and returns only its presence; an empty schema default is not a stored credential. The row stays mounted while off or missing credentials so its section remains writable. Replacing the app or scanner clears its previous sender and active-session bindings; other settings remain merged.
 
 Registration calls the official `registerApp` from `@larksuite/channel`, renders the returned URL into an SVG data URL on the Host, and saves credentials through the same settings operation as manual entry. The browser bundle carries no QR encoder. Platform registration messages never reach the page, a log line, or a Remote answer.
 

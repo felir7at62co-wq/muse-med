@@ -7,3 +7,10 @@
 - id: llm-deepseek
   config:
     models: []
+
+# Feishu credentials and policy remain editable in the user profile.
+- id: feishu-channel
+  config:
+    enabled: false
+    requireMention: true
+    denyTools: [ask_user_question, exit_plan_mode]

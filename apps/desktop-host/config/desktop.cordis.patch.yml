@@ -113,13 +113,3 @@
       name: '@deepseek-ai/dsh-client-ui-muse-account'
       config:
         feedbackUrl: !!js new URL('/feedback', process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn').href
-
-
-# The pinned bridge's optional Feishu adapter retains the existing credential section.
-# Desktop composition reads the product switch; an absent switch keeps it inactive.
-# Remote Muse access uses the separate account-authenticated provider above.
-- id: feishu-channel
-  config:
-    enabled: false
-    requireMention: true
-    denyTools: [ask_user_question, exit_plan_mode]

@@ -1,9 +1,10 @@
 /**
  * The two composition rows this product's Feishu page reads and writes.
  *
- * `feishu` is this product's own switch row: the desktop composition reads its
- * `enabled` field from the composed rows and turns it into the bundled
- * `feishu-channel` row's activation key (`apps/desktop-host/src/feishu-gate.ts`).
+ * `feishu` is this product's own switch row: its plugin captures `enabled` at
+ * startup and projects the bridge's runtime activation through the config
+ * waterfall. The bridge depends on its published service before resolving Config
+ * (`apps/desktop-host/src/feishu-gate.ts`).
  * `feishu-channel` is the bundled bridge's own row, and in this harness a
  * plugin's settings section IS its own resolved Config: the Loader resolves the
  * row's stored values from the profile patch into the bridge's Config, so the

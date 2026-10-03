@@ -100,9 +100,7 @@ function desktopComposition(
       customSkillDirs: [productSkillDir, userSkillDir],
     },
   }])
-  // Last layer wins: the Feishu bridge row runs only when this product's own
-  // switch row says so, and that layer also restates the activation controls the
-  // patch composed, because a patch replaces the whole config.
+  // Resolve bridge Config only after the setup service installs its startup hook.
   layers.push(feishuGateLayer([...rows.values()]))
   return { profile, patches: layers.slice(profile.layers.length + 1).flat() }
 }

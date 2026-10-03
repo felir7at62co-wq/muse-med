@@ -1,22 +1,16 @@
 /**
- * Entry-level activation of the bundled Feishu bridge row.
+ * Desktop dependency order for the optional Feishu bridge.
  *
- * The product switch is the `feishu` row's own `enabled` field, and this layer
- * carries it into the `feishu-channel` row's config before the reviewed provider
- * creates its gateway and conversation node. The layer preserves composed
- * credentials and policy fields when replacing the row's config.
- *
- * The layer is appended after every layer that configures that row, so it wins
- * over any value stored for the bridge's own section: a stored `enabled: true`
- * cannot activate a row the product switch left off. The layer preserves the
- * bridge row's other composed fields, including stored credentials, for the
- * Loader to resolve at startup.
+ * The setup service installs its startup activation hook before this entry
+ * resolves Config. Only dependency metadata is composed here; the bridge's
+ * editable credentials and policy remain in the bundle and user profile.
  *
  * @module @deepseek-ai/dsh-desktop-host/feishu-gate
  */
 
+import type { Inject } from '@deepseek-ai/cordis'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
-import { FEISHU_CHANNEL_ROW_ID, FEISHU_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-feishu-settings'
+import { FEISHU_CHANNEL_ROW_ID } from '@deepseek-ai/dsh-feishu-settings'
 
 /** Entry id of the row holding the product switch. */
 export { FEISHU_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-feishu-settings'
@@ -24,49 +18,24 @@ export { FEISHU_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-feishu-settings'
 /** Entry id of the bundled Feishu bridge. */
 export { FEISHU_CHANNEL_ROW_ID } from '@deepseek-ai/dsh-feishu-settings'
 
-/** Key holding the activation switch inside the product row. */
-export const FEISHU_ENABLED_KEY = 'enabled'
-
-/** The parts of a composed entry this gate reads. */
+/** Entry metadata needed to order the bridge after its setup service. */
 export interface FeishuGateRow {
   /** Entry id the composition patches by. */
   readonly id: string
-  /** Config the earlier layers composed for that entry. */
-  readonly config?: unknown
-}
-
-/** Whether a parsed value is a mapping for key lookup. */
-function isMap(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  /** Existing dependencies and their service intercept configs. */
+  readonly inject?: Inject<Record<string, unknown>> | null
 }
 
 /**
- * Read this product's stored Feishu switch out of the composed rows.
- *
- * The switch is the product row's own Config field, so the value the Loader
- * composed — the profile's stored patch over the shipped defaults — is the same
- * value the settings service resolves for that section. An absent row, an
- * absent section, and a value that is not exactly `true` all mean off: only an
- * explicit `true` is consent to run the bridge.
- * @param rows - entries composed from the layers this one is appended to.
- * @returns whether the stored switch is exactly `true`.
- */
-export function readFeishuEnabled(rows: readonly FeishuGateRow[]): boolean {
-  const row = rows.find(candidate => candidate.id === FEISHU_SETTINGS_NAMESPACE)
-  return isMap(row?.config) && row.config[FEISHU_ENABLED_KEY] === true
-}
-
-/**
- * Compose the activation layer for the bundled Feishu bridge row.
- * @param rows - entries composed from the layers this one is appended to.
- * @returns one patch layer preserving the bridge config and setting its
- *   activation key, or no layer when the composition has no Feishu bridge row.
+ * Require the setup service before the bundled bridge resolves its config.
+ * @param rows - entries composed from preceding layers.
+ * @returns the bridge dependency patch, or no patch when its entry is absent.
  */
 export function feishuGateLayer(rows: readonly FeishuGateRow[]): PatchOptions[] {
   const row = rows.find(candidate => candidate.id === FEISHU_CHANNEL_ROW_ID)
   if (row === undefined) return []
-  return [{
-    id: FEISHU_CHANNEL_ROW_ID,
-    config: { ...(isMap(row.config) ? row.config : {}), [FEISHU_ENABLED_KEY]: readFeishuEnabled(rows) },
-  }]
+  const inject: Inject<Record<string, unknown>> = Array.isArray(row.inject)
+    ? [...new Set([...row.inject, 'feishuSetup'])]
+    : { ...row.inject, feishuSetup: row.inject?.['feishuSetup'] ?? {} }
+  return [{ id: FEISHU_CHANNEL_ROW_ID, inject }]
 }

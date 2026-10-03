@@ -141,7 +141,7 @@ describe('FeishuSetupService', () => {
     expect(await reopenedService.status())
       .toMatchObject({ enabled: true, appId: '', credential: 'none', writable: true })
     expect(rowConfig(reopened.ctx, FEISHU_CHANNEL_ROW_ID)).toMatchObject({ appId: '' })
-    expect(rowConfig(reopened.ctx, FEISHU_CHANNEL_ROW_ID)?.['appSecret']).toBeUndefined()
+    expect(rowConfig(reopened.ctx, FEISHU_CHANNEL_ROW_ID)?.['appSecret']).toBe('')
   })
 
   it('restores saved credentials through the Loader while reporting only secret presence', async () => {

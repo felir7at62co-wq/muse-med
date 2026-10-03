@@ -2,8 +2,8 @@
  * The effective state of the bundled bridge row.
  *
  * Two facts decide whether the bridge runs, and the page shows both: the stored
- * product switch, and whether this boot's composition already carried it into
- * the bridge row's own activation key.
+ * product switch, and whether this boot resolved bridge activation with a
+ * complete credential pair. Activation does not verify a live connection.
  *
  * @module @deepseek-ai/dsh-feishu-settings/status
  */

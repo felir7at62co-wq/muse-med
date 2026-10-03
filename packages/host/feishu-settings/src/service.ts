@@ -11,13 +11,13 @@
  * It never answers with the stored secret: {@link FeishuSetupStatus} has no
  * field for it, every failure travels as a bounded code whose details name the
  * reason rather than quoting the settings service's own message, and the
- * section is read through the service's redacted view, which reports only
- * whether the secret is set.
+ * section is read through the service's redacted view. The Host reads the
+ * bridge's volatile secret only to report whether it is nonempty.
  *
  * @module @deepseek-ai/dsh-feishu-settings/service
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type { SettingsDescriptor, SettingsForms } from '@deepseek-ai/dsh-settings'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -49,8 +49,8 @@ export interface FeishuSetupServiceOptions {
   readonly enabled: () => boolean
   /** The settings service every section write goes through. */
   readonly settings: SettingsForms
-  /** The composition's Loader, when one is mounted above this row. */
-  readonly loader?: FeishuLoaderView
+  /** The composition's Loader exposing the bridge's live Config. */
+  readonly loader: FeishuLoaderView
 }
 
 /** The bridge's stored section read back without its secret. */
@@ -72,18 +72,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** Read the value fields of one redacted section, and whether its secret is set.
+/** Whether a foreign plugin Config field exposes the readonly volatile API. */
+function isConfigReference(value: unknown): value is Volatile<unknown> {
+  return isRecord(value) && typeof value['get'] === 'function'
+}
+
+/** Read public fields and a Boolean secret presence from the bridge's resolved Config.
  * @param section - the bridge row's descriptor, or undefined when this composition has none.
+ * @param config - the bridge's live Config, including its volatile secret reference.
  * @returns the fields the page may see.
  */
-function credentialViewOf(section: SettingsDescriptor | undefined): BridgeCredentialView {
-  const user = isRecord(section?.user) ? section.user : {}
-  const appId = user['appId']
-  const registeredBy = user['registeredBy']
+function credentialViewOf(section: SettingsDescriptor | undefined, config: unknown): BridgeCredentialView {
+  const value = isRecord(section?.value) ? section.value : {}
+  const appId = value['appId']
+  const registeredBy = value['registeredBy']
+  const reference = isRecord(config) ? config[APP_SECRET_KEY] : undefined
+  const secret = isConfigReference(reference) ? reference.get() : undefined
   return {
     appId: typeof appId === 'string' ? appId : '',
     registeredBy: typeof registeredBy === 'string' ? registeredBy : '',
-    hasSecret: section?.secrets?.some(secret => secret.path.join('.') === APP_SECRET_KEY && secret.set) === true,
+    hasSecret: typeof secret === 'string' && secret.length > 0,
   }
 }
 
@@ -92,7 +100,7 @@ export class FeishuSetupService extends TypertRemoteService {
   static inject = ['settings']
 
   private readonly settings: SettingsForms
-  private readonly loader: FeishuLoaderView | undefined
+  private readonly loader: FeishuLoaderView
   private readonly switch: () => boolean
   private readonly login: FeishuLoginFlow
 
@@ -122,7 +130,7 @@ export class FeishuSetupService extends TypertRemoteService {
   status(): Promise<FeishuSetupStatus> {
     return Promise.resolve().then(() => {
       const enabled = this.switch()
-      const credential = credentialViewOf(this.section())
+      const credential = this.credentialView(this.section())
       const failure = this.login.failure
       return {
         enabled,
@@ -139,9 +147,8 @@ export class FeishuSetupService extends TypertRemoteService {
   }
 
   /**
-   * Store the product switch. The bridge row's own activation key is recomputed
-   * by the desktop composition at the next backend start, and a write to `false`
-   * also withdraws a pending scan.
+   * Store the product switch. Bridge activation uses the next backend start's
+   * switch and credential pair; a write to `false` also withdraws a pending scan.
    * @param request - the requested switch value.
    * @returns the status after the write.
    */
@@ -175,7 +182,7 @@ export class FeishuSetupService extends TypertRemoteService {
   @Remote('beginLogin')
   async beginLogin(): Promise<FeishuLoginTicket> {
     try {
-      return await this.login.begin(credentialViewOf(this.section()).appId)
+      return await this.login.begin(this.credentialView(this.section()).appId)
     } catch (error) {
       if (!(error instanceof FeishuLoginError)) throw error
       // The code is the platform's, already narrowed to `[A-Za-z0-9_.-]{1,64}`
@@ -243,7 +250,8 @@ export class FeishuSetupService extends TypertRemoteService {
         { reason: 'section-unregistered' },
       )
     }
-    if (appSecret.length === 0 && !credentialViewOf(section).hasSecret) {
+    const credential = this.credentialView(section)
+    if (appSecret.length === 0 && !credential.hasSecret) {
       throw new RemoteError(
         'feishu/secret-required',
         'no app secret is stored, so this write has to carry one',
@@ -255,7 +263,7 @@ export class FeishuSetupService extends TypertRemoteService {
         appId,
         ...(appSecret.length === 0 ? {} : { [APP_SECRET_KEY]: appSecret }),
         registeredBy,
-        ...(credentialViewOf(section).appId !== appId || credentialViewOf(section).registeredBy !== registeredBy
+        ...(credential.appId !== appId || credential.registeredBy !== registeredBy
           ? { allowFrom: [], activeSessionId: '' } : {}),
       })
     } catch (error) {
@@ -268,6 +276,16 @@ export class FeishuSetupService extends TypertRemoteService {
         { cause: error },
       )
     }
+  }
+
+  /**
+   * Read public credential fields and whether the live bridge secret is nonempty.
+   * @param section - redacted descriptor of the bridge's settings section.
+   * @returns credential status without its secret value.
+   */
+  private credentialView(section: SettingsDescriptor | undefined): BridgeCredentialView {
+    const entry = [...this.loader.entries()].find(candidate => candidate.options.id === FEISHU_CHANNEL_ROW_ID)
+    return credentialViewOf(section, entry?.fiber?.config)
   }
 
   /**
@@ -284,7 +302,7 @@ export class FeishuSetupService extends TypertRemoteService {
    * @returns the probe {@link rowStateOf} reduces.
    */
   private probe(): FeishuRowProbe {
-    const entry = [...this.loader?.entries() ?? []].find(candidate => candidate.options.id === FEISHU_CHANNEL_ROW_ID)
+    const entry = [...this.loader.entries()].find(candidate => candidate.options.id === FEISHU_CHANNEL_ROW_ID)
     const config = entry?.fiber?.config
     const enabled = isRecord(config) ? config['enabled'] : undefined
     return {

@@ -136,7 +136,7 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 除极简模式外，各预设提供 `hongguo_search`、`hongguo_detail`、`hongguo_rankings` 和 `hongguo_collections`，无需登录、key 或初始配置。工具检索红果公开数据，分别保留收藏、点赞、热度、来源链接及未完整覆盖的情况。搜索覆盖首屏窗口，榜单覆盖所选公开榜单；工具不下载视频。源码构建器保留恢复的原发行包，在各预设自己的工具作用域启用 provider 前核对源码清单。
 
-可选飞书通道仅在后端启动时产品的 `feishu.enabled` 开关为 on 才运行。[启用层](../desktop-host/src/feishu-gate.ts)将开关传入 `feishu-channel.enabled`，并保留已组合的凭证。关闭时该行仍保持挂载，使 Settings 能在启用前保存凭证；审核后的 provider 仅在启用后创建网关与会话节点。从旧内置桥接迁移时保留凭证值和备份，并关闭开关。保存或确认凭证、显式启用飞书，再重启后端。真实扫码注册、消息收发及租户权限仍未验证。
+可选飞书通道要求后端启动时产品的 `feishu.enabled` 开关已开启，且凭证完整。[依赖层](../desktop-host/src/feishu-gate.ts)让桥接在[设置插件](../../packages/host/feishu-settings/README.zh.md)之后解析配置；设置插件通过运行时配置钩子保留可编辑的 profile 值。关闭或缺少凭证时该行仍保持挂载，使 Settings 能保存凭证；启用需再重启一次后端才生效。从旧内置桥接迁移时保留凭证值和备份，并关闭开关。保存或确认凭证、显式启用飞书，再重启后端。真实扫码注册、消息收发及租户权限仍未验证。
 
 桥接的独立 `./remote` provider 为 Muse 账号访问提供私有出站桌面连接。账号认证与设备绑定选择该账号自己的 Host；本地 HTTP 转发与原生 `/api/remote.mux` WebSocket 帧保留应用既有路由。审核后的产物不启动局域网代理、公共 Cloudflare 隧道或上游独立服务端。复用模块与已测传输行为见[源码与兼容性审核](../../third_party/plugins/README.zh.md)。
 

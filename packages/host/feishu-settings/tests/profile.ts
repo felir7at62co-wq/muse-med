@@ -41,7 +41,7 @@ export const BridgeConfig = z.object({
   registeredBy: z.string().default('').volatile(),
   allowFrom: z.array(z.string()).default([]).volatile(),
   activeSessionId: z.string().default('').volatile(),
-  appSecret: z.string().role('secret').volatile(),
+  appSecret: z.string().role('secret').default('').volatile(),
 })
 
 /** The row both the product switch and the bridge stand in for. */

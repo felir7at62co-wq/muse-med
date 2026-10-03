@@ -36,7 +36,7 @@ kind: "package-bundle"
 <a id="restart-sequence"></a>
 ## 重启顺序
 
-先保存凭证，再打开开关，然后重启后端使两者生效。页面分别报告凭证保存与开关保存。桥接入口已启用描述的是配置状态；消息收发还需要飞书权限与平台配置。本页不报告已经验证的实时连接。
+先保存凭证，再打开开关，然后重启后端使两者生效。页面分别报告凭证保存与开关保存。开关已开启但缺少凭证时，桥接行仍保持挂载和可写；补存凭证后再次重启。桥接入口已启用描述的是配置状态；消息收发还需要飞书权限与平台配置。本页不报告已经验证的实时连接。
 
 -----
 
@@ -46,9 +46,9 @@ kind: "package-bundle"
 <details>
 <summary>实现细节 — 点击展开</summary>
 
-[组合包补丁](cordis.patch.yml)添加 `feishu` 设置行。其 `enabled` 字段默认为 `false`，并持久化到配置补丁。桌面的[启用层](../../../apps/desktop-host/src/feishu-gate.ts)在启动时读取该字段，保留桥接已组合的凭证与其他设置，并设置 `feishu-channel` 的启用键。
+[组合包补丁](cordis.patch.yml)添加 `feishu` 设置行。其 `enabled` 字段默认为 `false`，并持久化到配置补丁。桌面的[依赖层](../../../apps/desktop-host/src/feishu-gate.ts)要求桥接在 `feishuSetup` 可用后才解析 Config，并保留其其他依赖。[Host 插件](src/index.ts)在发布该服务前安装配置瀑布流监听器，启动时捕获产品开关和桥接的完整凭证，只投影运行时启用状态，并先委托插值再读取凭证表达式。之后编辑凭证或开关均不会改变本次启用状态，需下次后端启动才生效；用户 profile 始终可编辑。
 
-凭证属于 `@wenbin_wb/dsh-bridge` 行的 `feishu-channel` 设置段。[设置服务](src/service.ts)通过 settings 服务写入 `appId`、`appSecret` 与 `registeredBy`，再通过 `describe()` 读取脱敏状态，只报告密钥是否已设置。开关关闭时该行仍保持挂载，使其设置段可写。更换应用或扫码者会清除先前发送者和活动会话绑定；其他设置继续合并保留。
+凭证属于 `@wenbin_wb/dsh-bridge` 行的 `feishu-channel` 设置段。[设置服务](src/service.ts)通过 settings 服务写入 `appId`、`appSecret` 与 `registeredBy`，并通过脱敏的 `describe()` 读取公开字段。Host 检查桥接的 volatile 密钥是否为非空值，只返回存在状态；schema 的空默认值不算已保存凭证。关闭或缺少凭证时该行仍保持挂载，使其设置段可写。更换应用或扫码者会清除先前发送者和活动会话绑定；其他设置继续合并保留。
 
 注册调用 `@larksuite/channel` 的官方 `registerApp`，在 Host 侧将返回的 URL 渲染为 SVG data URL，并通过与手工填写相同的设置操作保存凭证。浏览器 bundle 不带二维码编码器。平台注册消息不会进入页面、日志或任何 Remote 应答。
 
