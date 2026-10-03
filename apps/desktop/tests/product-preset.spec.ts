@@ -91,7 +91,7 @@ it('loads exactly the six product modes without discovering other shipped or per
     }
     expect(editingPrompt).toBe(editingModelInput.personaPrefix)
     for (const requirement of ['小说转剧本', '视频转剧本', '剧名', '换梗方案', '集数', '篇幅', '用户选择',
-      '优先阅读本次转出的剧本', '知识库', '全部正文']) {
+      '优先阅读本次转出的剧本', '知识库', '全部正文', 'purpose=screenplay']) {
       expect(editingPrompt, requirement).toContain(requirement)
     }
     expect(editingPrompt).not.toContain('无法读取原文时不写正式正文')
@@ -103,7 +103,7 @@ it('loads exactly the six product modes without discovering other shipped or per
     expect(editingSkill).toContain('检索摘要不等于读过全文')
     expect(editingSkill).not.toContain('不得写正式正文')
     expect(source).not.toMatch(/[CE]:\\|EDY|默认授权|自动授权/)
-    for (const requirement of ['每集至少 2 首不同曲目', '按情绪分段', 'policy_findings', '1.5 秒三角交叉淡化', '24 小时', 'max_review_attempts=3', 'content_duration_ms', '离线、不外传', '不自动删除', '片尾 2 秒', '被委派的子代理只返回调用方要的分片结果', '给了 schema 就用 structured_output 返回']) {
+    for (const requirement of ['每集至少 2 首不同曲目', '按情绪分段', 'policy_findings', '1.5 秒三角交叉淡化', '24 小时', 'max_review_attempts=3', 'content_duration_ms', '计费云端语音服务', 'purpose=screenplay', 'purpose=subtitles', '不自动删除', '片尾 2 秒', '被委派的子代理只返回调用方要的分片结果', '给了 schema 就用 structured_output 返回']) {
       expect(prompt, requirement).toContain(requirement)
     }
     let calls = 0
