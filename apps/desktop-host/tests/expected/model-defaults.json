@@ -1,0 +1,13 @@
+{
+  "defaultModels": [],
+  "customModels": [
+    {
+      "provider": "deepseek-official",
+      "id": "user-deepseek-model",
+      "name": "Personal DeepSeek",
+      "inputModalities": [
+        "text"
+      ]
+    }
+  ]
+}

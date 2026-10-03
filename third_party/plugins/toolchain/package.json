@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node ../build.mjs",
     "test:build": "node --test ../compatibility/host-runtime.test.mjs ../build.test.mjs ../hongguo-build.test.mjs",
-    "test:host": "node --test ../compatibility/host-runtime.test.mjs ../compatibility/bridge-desktop.test.mjs",
+    "test:host": "node --test ../compatibility/host-runtime.test.mjs ../compatibility/bridge-desktop.test.mjs ../compatibility/codex-model-visibility.test.mjs",
     "test:hongguo": "node --test ../hongguo-build.test.mjs"
   },
   "dependencies": {

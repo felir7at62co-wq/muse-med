@@ -2,3 +2,8 @@
 - id: agent-preset-registry
   config:
     default: short-drama
+
+# Muse supplies its signed-in cloud catalog; users may configure their own native models.
+- id: llm-deepseek
+  config:
+    models: []

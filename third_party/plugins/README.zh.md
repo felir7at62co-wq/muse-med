@@ -20,7 +20,7 @@ pnpm --dir third_party/plugins/toolchain run test:build
 
 Codex 临时运行时补丁在 `SOURCE.json` 记录修改：子任务检查与准备仅接受已审核的 Host provider 版本，CLI 仍固定为 `0.153.4`。provider 与 Host adapter 共用 Host 安装的 pi-ai `0.87.1`；复制后的运行时与产物 peer 仅接受该精确版本。覆盖检查保留的 provider 模块和目录测试的 SHA-256。复制后的检查使用当前模型目录，并通过 GPT-5.6 Luna 验证自定义上下文；不会给已移除的离线模型虚构别名。打包后从 `app.asar.unpacked` 解析 CLI 清单和启动文件。保留的上游文件不变；源码文本不符合预期时，补丁失败，而非静默跳过。
 
-Codex 订阅模型仅在连接了 Codex OAuth 账号时出现在模型选择器中。Muse 登录不授予订阅供应商的访问权限；断开 Codex 后，下次查询列表会隐藏其模型。
+Codex 订阅模型仅在连接了 Codex OAuth 账号时出现在模型选择器中。Muse 登录不授予订阅供应商的访问权限；断开 Codex 后，下次查询列表会隐藏其模型。其模型菜单与固定分组标题在浅色和深色模式下均使用主题的不透明底色。私有构建补丁使用共享的 portal 和视口定位，每次显示一个面板，保留模型、推理等级、速度与输出详略操作，并在 `SOURCE.json` 中记录这些配置。
 
 桌面面板还会把运行时已注册的 MCP 工具列为只读连接。内置 `muse-account` 显示为 Muse 知识库，并展示已注册工具数量。兼容覆盖不会把凭据、环境变量值或私有启动参数复制到列表中。
 

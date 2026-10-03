@@ -178,7 +178,7 @@ export function codexFilesystemPath(value) {
     writeFileSync(join(directory, 'SOURCE.json'), `${JSON.stringify({
       upstream: pins[name], hostVersion, hostRuntimeCompatibility,
       compatibilityOverlay: name === 'dsh-codex-subscription'
-        ? { subagentRuntimeVersion: hostVersion, piAiVersion: codexPiAiVersion, piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true }
+        ? { subagentRuntimeVersion: hostVersion, piAiVersion: codexPiAiVersion, piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true, opaqueModelMenus: true, viewportAnchoredModelMenus: true }
         : name === 'dshmarket' ? { catalogExport: './catalog' }
           : name === 'dsh-bridge' ? bridgeDesktopCompatibility
             : name === 'dsh-skill-mcp-panel' ? mcpDesktopCompatibility

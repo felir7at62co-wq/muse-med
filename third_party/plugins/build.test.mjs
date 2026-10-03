@@ -144,7 +144,7 @@ test('builds every pinned plugin with its declared runtime entries and notices',
         const metadata = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/SOURCE.json'], { encoding: 'utf8' })
         assert.equal(metadata.status, 0)
         assert.deepEqual(JSON.parse(metadata.stdout).compatibilityOverlay, {
-          subagentRuntimeVersion: reviewedHostVersion, piAiVersion: '0.87.1', piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true,
+          subagentRuntimeVersion: reviewedHostVersion, piAiVersion: '0.87.1', piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true, opaqueModelMenus: true, viewportAnchoredModelMenus: true,
         })
       }
     }
@@ -172,5 +172,40 @@ test('builds ffmpeg twice from source into identical licensed tarballs', () => {
   } finally {
     rmSync(first, { recursive: true, force: true })
     rmSync(second, { recursive: true, force: true })
+  }
+})
+
+test('builds opaque Codex picker surfaces and records their reviewed overlay in the tarball', () => {
+  const output = mkdtempSync(join(tmpdir(), 'muse-codex-menu-build-'))
+  const retainedStylesPath = join(import.meta.dirname, 'dsh-codex-subscription/src/client-styles.js')
+  const retainedStyles = readFileSync(retainedStylesPath, 'utf8')
+  try {
+    const result = spawnSync(process.execPath,
+      [join(import.meta.dirname, 'build.mjs'), '--only', 'dsh-codex-subscription', '--out', output],
+      { cwd: root, stdio: 'inherit' })
+    assert.equal(result.signal, null, 'Codex staging build finishes without a signal')
+    assert.equal(result.status, 0, 'Codex staging build succeeds')
+    const tarball = join(output, readdirSync(output).find(file => file.endsWith('.tgz')))
+    const client = spawnSync('tar', ['-xOzf', tarball, 'package/lib/client.js'], { encoding: 'utf8' })
+    assert.equal(client.signal, null)
+    assert.equal(client.status, 0)
+    for (const selector of ['.codexModelSelectMenu,.codexModelSelectSubmenu', '.codexModelSelectGroupTitle']) {
+      const start = client.stdout.indexOf(`${selector}{`)
+      assert.ok(start >= 0, 'built picker selector exists: ' + selector)
+      const rule = client.stdout.slice(start).split('}')[0]
+      assert.match(rule, /background:var\(--dsw-alias-bg-base\);/)
+      assert.doesNotMatch(rule, /--dsw-specific-menu|backdrop-filter/)
+    }
+    const metadata = spawnSync('tar', ['-xOzf', tarball, 'package/SOURCE.json'], { encoding: 'utf8' })
+    assert.equal(metadata.signal, null)
+    assert.equal(metadata.status, 0)
+    assert.equal(JSON.parse(metadata.stdout).compatibilityOverlay.opaqueModelMenus, true)
+    assert.equal(JSON.parse(metadata.stdout).compatibilityOverlay.viewportAnchoredModelMenus, true)
+    assert.match(client.stdout, /\.codexModelSelectSubmenu\{position:static;/)
+    assert.match(client.stdout, /useAnchoredPosition/)
+    assert.match(client.stdout, /modelBack/)
+    assert.equal(readFileSync(retainedStylesPath, 'utf8'), retainedStyles)
+  } finally {
+    rmSync(output, { recursive: true, force: true })
   }
 })
