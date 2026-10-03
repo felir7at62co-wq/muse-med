@@ -39,6 +39,7 @@ it('discovers the scene-script transcript skill without assigning uncertain spee
     expect(skill).toBeDefined()
     const input = renderSkillContent(skill!)
     expect(input).toMatch(/归属未核实/u)
+    expect(input).toContain('purpose: "screenplay"')
     expect(input).toMatch(/不.*补.*台词/su)
     expect(input).toMatch(/来源.*版本/su)
     expect(input).toMatch(/仿真人分场剧本.*参考文章.*不设开写门禁/su)
@@ -82,6 +83,9 @@ it('keeps cloud transcription receipts and versioned raw results in the project'
     expect(input).toContain('transcript/reviewed/')
     expect(input).toContain('人工修订另存新文件，保留原始版本')
     expect(input).toContain('audio_transcribe')
+    expect(input).toContain('`subtitles`（极速识别）')
+    expect(input).toContain('`screenplay`（标准识别）')
+    expect(input).toContain('查询与重试保持原用途')
   } finally {
     await ctx.fiber.dispose()
   }

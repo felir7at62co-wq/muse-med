@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-asr-purpose
+profile: headless
+composition: muse-asr-purpose
+recording: authored
+header:
+  class: muse-asr-purpose
+  pin: true
+workspace:
+  setup: muse-asr-purpose

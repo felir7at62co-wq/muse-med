@@ -1,8 +1,14 @@
 import { Context } from '@deepseek-ai/cordis'
+import { randomUUID } from 'node:crypto'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, expect, it } from 'vitest'
 import { MuseGatewayError } from '../src/gateway.ts'
 import { MuseAccountService } from '../src/service.ts'
+import { MuseAsrClient } from '../src/asr.ts'
+import { writeMuseSession } from '../src/session.ts'
 import type { MuseAccountStatus } from '../src/types.ts'
 
 const contexts: Context[] = []
@@ -44,4 +50,27 @@ it('never forwards an unexpected storage error message across Remote', async () 
     code: 'muse-account/storage-failed',
     message: 'MUSE account session could not be read or updated',
   })
+})
+
+it('forwards the receipt purpose through the Host service without adding transcription to Remote', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'muse-asr-service-'))
+  const context = new Context(), id = randomUUID(), headers: Headers[] = []
+  try {
+    const sessionFile = join(dir, 'session.json'), file = join(dir, 'clip.wav')
+    await writeMuseSession(sessionFile, { baseUrl: 'https://muse.test', cookie: '__Host-muse=fixture-session', username: 'alice' })
+    await writeFile(file, 'fixture audio')
+    const status = async (): Promise<MuseAccountStatus> => ({ state: 'signed-in', username: 'alice', verified: false })
+    const asr = new MuseAsrClient({ baseUrl: 'https://muse.test', sessionFile, requestTimeoutMs: 1000,
+      fetcher: async (_url, init) => { headers.push(new Headers(init?.headers)); return new Response(JSON.stringify({ id, status: 'processing', purpose: 'screenplay', service_version: 'standard-v2', app_key: 'private-provider-value' })) },
+    })
+    await context.plugin(MuseAccountService, { controller: { status, login: async () => { throw new Error('Unused fixture login') }, logout: status }, asr })
+    const service = context.get('museAccount') as MuseAccountService
+    expect(await service.submitAudio(file, id, 'a'.repeat(64), 'zh', 'screenplay')).toEqual({ id, status: 'processing', purpose: 'screenplay', service_version: 'standard-v2' })
+    await service.audioStatus(id)
+    expect(headers.map(row => row.get('x-muse-asr-purpose'))).toEqual(['screenplay', null])
+    expect(remoteMethods(service).map(entry => entry.method)).toEqual(['feedback', 'status', 'login', 'logout'])
+  } finally {
+    await context.fiber.dispose()
+    await rm(dir, { recursive: true, force: true })
+  }
 })
