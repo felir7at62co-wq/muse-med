@@ -1,0 +1,9 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: snapshot-asr-purpose-account
+      name: './account-fixture.mjs'
+    - id: tool-audio-transcribe
+      name: '../../../packages/drama/tool-audio-transcribe/src/index.ts'

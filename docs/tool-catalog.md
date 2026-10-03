@@ -540,7 +540,7 @@ ask_user_question keeps the original blocking behavior by default; set `mode: ti
   "properties": {
     "method": {
       "type": "string",
-      "description": "start=提取音轨并提交；status=按原收据查询及发布结果。",
+      "description": "start=提取音轨并提交；status=按原收据查询、补传确认未受理的音轨并发布结果，补传可能计费。限流按 retry_after_seconds 等待后用原收据恢复；日额度、登录或任务冲突先处理，不直接重投。",
       "enum": [
         "start",
         "status"
@@ -564,6 +564,14 @@ ask_user_question keeps the original blocking behavior by default; set `mode: ti
       "enum": [
         "zh",
         "auto"
+      ]
+    },
+    "purpose": {
+      "type": "string",
+      "description": "start 用途：字幕校时用 subtitles（默认，极速）；音视频转剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。",
+      "enum": [
+        "subtitles",
+        "screenplay"
       ]
     }
   },

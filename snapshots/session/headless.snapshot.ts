@@ -535,6 +535,25 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       await cp(join(repoRoot, 'apps/desktop-host/skills', name), join(cwd, '.dsh', 'skills', name), { recursive: true })
     }
   },
+  async 'muse-audio-transcribe-skill-legacy'(cwd) {
+    await workspaceSetups['muse-editing-skill']!(cwd)
+    await copyFile(join(repoRoot, 'snapshots/session/muse-audio-transcribe-skill/audio-transcribe.skill.txt'), join(cwd, '.dsh/skills/audio-transcribe/SKILL.md'))
+  },
+  async 'muse-transcript-to-script-skill-legacy'(cwd) {
+    await workspaceSetups['muse-editing-skill']!(cwd)
+    await copyFile(join(repoRoot, 'snapshots/session/muse-transcript-to-script-skill/transcript-to-script.skill.txt'), join(cwd, '.dsh/skills/transcript-to-script/SKILL.md'))
+  },
+  async 'muse-asr-purpose'(cwd) {
+    await workspaceSetups['muse-editing-skill']!(cwd)
+    await mkdir(join(cwd, 'source'), { recursive: true })
+    await mkdir(join(cwd, 'transcript/jobs'), { recursive: true })
+    const id = '71000000-0000-4000-8000-000000000001'
+    await writeFile(join(cwd, 'source/fixture.mp4'), 'The source of an already submitted screenplay transcription.\n')
+    await writeFile(join(cwd, 'transcript/jobs/fixture-v1.json'), JSON.stringify({
+      id, source: join(cwd, 'source/fixture.mp4'), accountUsername: 'fixture', stem: 'fixture', version: 1,
+      language: 'zh', purpose: 'screenplay', sha256: 'a'.repeat(64), mp3: join(cwd, `transcript/jobs/.${id}.wav`), status: 'processing',
+    }) + '\n')
+  },
   async 'muse-drama-pipeline-skill'(cwd) {
     const target = join(cwd, '.dsh', 'skills', 'tweet-drama-pipeline', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })

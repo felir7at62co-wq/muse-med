@@ -4,7 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { MuseAccountController, MuseAccountInputError } from './account.ts'
 import { MuseGatewayError } from './gateway.ts'
-import { MuseAsrClient, type MuseAsrJob } from './asr.ts'
+import { MuseAsrClient, type MuseAsrJob, type MuseAsrPurpose } from './asr.ts'
 import type { MuseModels } from './models.ts'
 import { MuseFeedbackError, type MuseFeedbackClient } from './feedback.ts'
 import type { MuseFeedbackRequest, MuseFeedbackReceipt } from './types.ts'
@@ -66,11 +66,12 @@ export class MuseAccountService extends TypertRemoteService {
    * @param id - Persisted idempotency UUID.
    * @param sha256 - SHA-256 digest of the audio.
    * @param language - Recognition language.
+   * @param purpose - Receipt-bound use; omit only for a legacy receipt without a purpose.
    * @returns Account-scoped task status without session or provider credentials.
    */
-  async submitAudio(file: string, id: string, sha256: string, language: 'zh' | 'auto'): Promise<MuseAsrJob> {
+  async submitAudio(file: string, id: string, sha256: string, language: 'zh' | 'auto', purpose?: MuseAsrPurpose): Promise<MuseAsrJob> {
     if (!this.asr) throw new Error('MUSE cloud transcription is unavailable in this Host')
-    return await this.asr.submit(file, id, sha256, language)
+    return await this.asr.submit(file, id, sha256, language, purpose)
   }
 
   /**

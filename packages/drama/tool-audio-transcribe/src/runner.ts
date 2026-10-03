@@ -4,12 +4,12 @@ import { spawn } from 'node:child_process'
 import { createReadStream } from 'node:fs'
 import { chmod, link, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
-import { MuseAsrError, type MuseAsrJob, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
+import { MuseAsrError, type MuseAsrJob, type MuseAsrPurpose, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
 
 /** Host-only account service methods consumed by the model tool. */
 export interface AudioAccount {
   status(request: { verify?: boolean }): Promise<MuseAccountStatus>
-  submitAudio(file: string, id: string, sha256: string, language: 'zh' | 'auto'): Promise<MuseAsrJob>
+  submitAudio(file: string, id: string, sha256: string, language: 'zh' | 'auto', purpose?: MuseAsrPurpose): Promise<MuseAsrJob>
   audioStatus(id: string): Promise<MuseAsrJob>
 }
 
@@ -34,6 +34,10 @@ export interface AudioRunResult {
   readonly status: MuseAsrJob['status']
   readonly receipt: string
   readonly job_id: string
+  readonly purpose?: MuseAsrPurpose
+  readonly error_code?: MuseAsrError['code']
+  readonly retry_after_seconds?: number
+  readonly resume_status?: { readonly method: 'status'; readonly project: string; readonly receipt: string }
   readonly output_txt?: string
   readonly output_json?: string
   readonly output_srt?: string
@@ -46,6 +50,7 @@ interface AudioPart {
   readonly offset: number
   readonly retentionExpired?: boolean
   readonly duration: number
+  readonly purpose?: MuseAsrPurpose
 }
 
 interface Receipt {
@@ -57,6 +62,7 @@ interface Receipt {
   readonly stem: string
   readonly version: number
   readonly language: 'zh' | 'auto'
+  readonly purpose?: MuseAsrPurpose
   readonly sha256: string
   readonly mp3: string
   readonly status: MuseAsrJob['status'] | 'prepared'
@@ -112,6 +118,7 @@ async function readReceipt(file: string): Promise<Receipt> {
     || !['zh', 'auto'].includes(String(row.language)) || typeof row.sha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(row.sha256)
     || typeof row.mp3 !== 'string' || !['prepared', 'preparing', 'processing', 'submitting', 'uncertain', 'complete', 'silent', 'failed'].includes(String(row.status))) throw new Error('Invalid transcription receipt')
   if (row.sourceSha256 !== undefined && (typeof row.sourceSha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(row.sourceSha256))) throw new Error('Invalid source digest')
+  if (row.purpose !== undefined && row.purpose !== 'subtitles' && row.purpose !== 'screenplay') throw new Error('Invalid transcription purpose')
   if (row.parts !== undefined && (!Array.isArray(row.parts) || row.parts.length === 0 || row.parts.some((part: unknown) => {
     if (typeof part !== 'object' || part === null) return true
     const item = part as Record<string, unknown>
@@ -120,11 +127,49 @@ async function readReceipt(file: string): Promise<Receipt> {
       || typeof item.offset !== 'number' || !Number.isFinite(item.offset) || item.offset < 0
       || typeof item.duration !== 'number' || !Number.isFinite(item.duration) || item.duration <= 0
   }))) throw new Error('Invalid transcription parts')
+  if (Array.isArray(row.parts) && row.parts.some((part: Record<string, unknown>) => part.purpose !== row.purpose)) throw new Error('Transcription part purpose does not match its receipt')
   return { id: row.id, source: row.source, ...(row.sourceSha256 === undefined ? {} : { sourceSha256: row.sourceSha256 }),
     ...(row.parts === undefined ? {} : { parts: row.parts as AudioPart[] }),
     accountUsername: row.accountUsername, stem: row.stem, version: row.version,
-    language: row.language as 'zh' | 'auto', sha256: row.sha256, mp3: row.mp3,
+    language: row.language as 'zh' | 'auto', ...purposeField(row.purpose), sha256: row.sha256, mp3: row.mp3,
     status: row.status as Receipt['status'] }
+}
+
+function purposeField(purpose: MuseAsrPurpose | undefined): { purpose?: MuseAsrPurpose } {
+  return purpose === undefined ? {} : { purpose }
+}
+
+function assertJobPurpose(job: MuseAsrJob, purpose: MuseAsrPurpose | undefined): void {
+  if (job.purpose !== undefined && job.purpose !== purpose) throw new Error('Cloud transcription purpose does not match its receipt')
+}
+
+function resolvePurpose(purpose: MuseAsrPurpose | undefined): MuseAsrPurpose {
+  return purpose ?? 'subtitles'
+}
+
+function rejectedResult(project: string, file: string, receipt: Receipt, error: MuseAsrError): AudioRunResult {
+  const resumable = error.code === 'queue_full' || error.code === 'upload_busy' || error.code === 'request_rate'
+    || error.code === 'provider_rate'
+    || error.code === 'server-unavailable' || error.code === 'response-invalid'
+  return {
+    status: error.code === 'server-unavailable' || error.code === 'response-invalid' ? 'uncertain'
+      : receipt.status === 'prepared' ? 'preparing' : receipt.status,
+    receipt: file, job_id: receipt.id, ...purposeField(receipt.purpose), error_code: error.code,
+    ...(error.retryAfterSeconds === undefined ? {} : { retry_after_seconds: error.retryAfterSeconds }),
+    ...(resumable ? { resume_status: { method: 'status', project, receipt: file } as const } : {}),
+  }
+}
+
+function portableResult(result: AudioRunResult): AudioRunResult {
+  const path = (value: string): string => value.replaceAll('\\', '/')
+  return { ...result, receipt: path(result.receipt),
+    ...(result.output_txt === undefined ? {} : { output_txt: path(result.output_txt) }),
+    ...(result.output_json === undefined ? {} : { output_json: path(result.output_json) }),
+    ...(result.output_srt === undefined ? {} : { output_srt: path(result.output_srt) }),
+    ...(result.resume_status === undefined ? {} : { resume_status: {
+      ...result.resume_status, project: path(result.resume_status.project), receipt: path(result.resume_status.receipt),
+    } }),
+  }
 }
 
 function paths(project: string, receipt: Receipt): { txt: string; json: string; srt: string } {
@@ -159,9 +204,15 @@ async function publish(project: string, receipt: Receipt, segments: NonNullable<
  * @param account - Current Host account operations.
  * @param config - Local media limits and executable paths.
  * @param media - Optional deterministic media adapter for tests.
+ * @param purpose - Transcription use, resolved to subtitles for a new task when omitted.
  * @returns Durable job receipt and current gateway status.
  */
-export async function startAudioTranscription(projectPath: string, inputPath: string, language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig, media?: AudioMediaOperations): Promise<AudioRunResult> {
+export async function startAudioTranscription(projectPath: string, inputPath: string, language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig, media?: AudioMediaOperations, purpose?: MuseAsrPurpose): Promise<AudioRunResult> {
+  return portableResult(await startReceipt(projectPath, inputPath, language, account, config, media, purpose))
+}
+
+async function startReceipt(projectPath: string, inputPath: string, language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig, media?: AudioMediaOperations, purpose?: MuseAsrPurpose): Promise<AudioRunResult> {
+  const resolvedPurpose = resolvePurpose(purpose)
   const project = resolve(projectPath), source = resolve(inputPath)
   const identity = await account.status({})
   if (identity.state !== 'signed-in') throw new Error('Sign in to Muse Account before cloud transcription')
@@ -178,7 +229,8 @@ export async function startAudioTranscription(projectPath: string, inputPath: st
     const prior = await readReceipt(file)
     if (prior.source === source && !['complete', 'silent', 'failed'].includes(prior.status)) {
       if (prior.accountUsername !== identity.username) throw new Error('Existing transcription receipt belongs to another Muse account')
-      return { status: prior.status === 'prepared' ? 'uncertain' : prior.status, receipt: file, job_id: prior.id }
+      if ((prior.purpose ?? 'subtitles') !== resolvedPurpose) throw new Error(`Existing transcription receipt has a different purpose; query status with receipt ${file}`)
+      return { status: prior.status === 'prepared' ? 'uncertain' : prior.status, receipt: file, job_id: prior.id, ...purposeField(prior.purpose) }
     }
   }
   const stem = basename(source).replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_').slice(0, 80) || 'media'
@@ -197,7 +249,7 @@ export async function startAudioTranscription(projectPath: string, inputPath: st
   if (!Number.isSafeInteger(chunkSeconds) || chunkSeconds < 1 || chunkSeconds > 7200) throw new Error('Invalid cloud audio chunk duration')
   if (duration > chunkSeconds) {
     return await startParts(project, source, sourceSha256, duration, chunkSeconds,
-      stem, version, language, identity.username, account, config, media)
+      stem, version, language, resolvedPurpose, identity.username, account, config, media)
   }
   const id = randomUUID(), mp3 = join(jobs, `.${id}.wav`), receiptPath = join(jobs, `${stem}-v${version}.json`)
   try {
@@ -209,14 +261,17 @@ export async function startAudioTranscription(projectPath: string, inputPath: st
     const size = (await stat(mp3)).size
     if (!size || size > config.maxAudioBytes) throw new Error('Compressed audio exceeds the cloud transcription size limit')
     if (await digest(source) !== sourceSha256) throw new Error('Media changed during audio extraction')
-    const receipt: Receipt = { id, source, sourceSha256, accountUsername: identity.username, stem, version, language, sha256: await digest(mp3), mp3, status: 'prepared' }
+    const receipt: Receipt = { id, source, sourceSha256, accountUsername: identity.username, stem, version, language, purpose: resolvedPurpose, sha256: await digest(mp3), mp3, status: 'prepared' }
     await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
-    const job = await account.submitAudio(mp3, id, receipt.sha256, language)
+    const job = await account.submitAudio(mp3, id, receipt.sha256, language, receipt.purpose)
     if (job.id !== id) throw new Error('Cloud transcription returned a different task ID')
+    assertJobPurpose(job, receipt.purpose)
     await save(receiptPath, { ...receipt, status: job.status })
-    return { status: job.status, receipt: receiptPath, job_id: id }
+    return { status: job.status, receipt: receiptPath, job_id: id, ...purposeField(receipt.purpose) }
   } catch (error) {
-    if (!(await stat(receiptPath).then(() => true, () => false))) await rm(mp3, { force: true })
+    const persisted = await stat(receiptPath).then(() => true, () => false)
+    if (!persisted) await rm(mp3, { force: true })
+    else if (error instanceof MuseAsrError) return rejectedResult(project, receiptPath, await readReceipt(receiptPath), error)
     throw error
   }
 }
@@ -229,6 +284,15 @@ export async function startAudioTranscription(projectPath: string, inputPath: st
  * @returns Current status and completed output paths when available.
  */
 export async function finishAudioTranscription(projectPath: string, receiptPath: string, account: AudioAccount): Promise<AudioRunResult> {
+  try { return portableResult(await finishReceipt(projectPath, receiptPath, account)) }
+  catch (error) {
+    if (!(error instanceof MuseAsrError) || error.code === 'job-not-found') throw error
+    const file = resolve(receiptPath)
+    return portableResult(rejectedResult(resolve(projectPath), file, await readReceipt(file), error))
+  }
+}
+
+async function finishReceipt(projectPath: string, receiptPath: string, account: AudioAccount): Promise<AudioRunResult> {
   const project = resolve(projectPath), receiptFile = resolve(receiptPath), jobs = join(project, 'transcript', 'jobs')
   if (dirname(receiptFile) !== jobs || !/^[\w.-]+-v\d+\.json$/.test(basename(receiptFile))) throw new Error('Receipt must be inside this project transcript/jobs directory')
   const receipt = await readReceipt(receiptFile)
@@ -239,35 +303,40 @@ export async function finishAudioTranscription(projectPath: string, receiptPath:
   if (receipt.parts !== undefined) return await finishParts(project, receiptFile, receipt, receipt.parts, account)
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.txt).then(() => true, () => false)
-    && await stat(target.json).then(() => true, () => false)) return { status: 'complete', receipt: receiptFile, job_id: receipt.id, output_txt: target.txt, output_json: target.json, ...(await stat(target.srt).then(() => true, () => false) ? { output_srt: target.srt } : {}) }
+    && await stat(target.json).then(() => true, () => false)) return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), output_txt: target.txt, output_json: target.json, ...(await stat(target.srt).then(() => true, () => false) ? { output_srt: target.srt } : {}) }
   let job: MuseAsrJob
+  let submitted = false
   try { job = await account.audioStatus(receipt.id) }
   catch (error) {
     if (!(error instanceof MuseAsrError) || error.code !== 'job-not-found'
       || !['prepared', 'uncertain'].includes(receipt.status)
       || !(await stat(receipt.mp3).then(() => true, () => false))) throw error
-    job = await account.submitAudio(receipt.mp3, receipt.id, receipt.sha256, receipt.language)
-  }
-  if (['preparing', 'failed'].includes(job.status)
-    && await stat(receipt.mp3).then(() => true, () => false)) {
-    job = await account.submitAudio(receipt.mp3, receipt.id, receipt.sha256, receipt.language)
+    job = await account.submitAudio(receipt.mp3, receipt.id, receipt.sha256, receipt.language, receipt.purpose)
+    submitted = true
   }
   if (job.id !== receipt.id) throw new Error('Cloud transcription returned a different task ID')
+  assertJobPurpose(job, receipt.purpose)
+  if (!submitted && ['preparing', 'failed'].includes(job.status)
+    && await stat(receipt.mp3).then(() => true, () => false)) {
+    job = await account.submitAudio(receipt.mp3, receipt.id, receipt.sha256, receipt.language, receipt.purpose)
+  }
+  if (job.id !== receipt.id) throw new Error('Cloud transcription returned a different task ID')
+  assertJobPurpose(job, receipt.purpose)
   if (job.status === 'complete') {
     if (!job.segments?.length) throw new Error('Cloud transcription has no timed speech segments')
     await publish(project, receipt, job.segments)
     await save(receiptFile, { ...receipt, status: 'complete' })
     await rm(receipt.mp3, { force: true })
-    return { status: 'complete', receipt: receiptFile, job_id: receipt.id, output_txt: target.txt, output_json: target.json, ...(await stat(target.srt).then(() => true, () => false) ? { output_srt: target.srt } : {}) }
+    return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), output_txt: target.txt, output_json: target.json, ...(await stat(target.srt).then(() => true, () => false) ? { output_srt: target.srt } : {}) }
   }
   await save(receiptFile, { ...receipt, status: job.status })
   if (job.status === 'silent' || job.status === 'failed' || job.retentionExpired) await rm(receipt.mp3, { force: true })
-  return { status: job.status, receipt: receiptFile, job_id: receipt.id }
+  return { status: job.status, receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose) }
 }
 
 
 async function startParts(project: string, source: string, sourceSha256: string, duration: number, chunkSeconds: number,
-  stem: string, version: number, language: 'zh' | 'auto', username: string, account: AudioAccount,
+  stem: string, version: number, language: 'zh' | 'auto', purpose: MuseAsrPurpose, username: string, account: AudioAccount,
   config: AudioRunnerConfig, media?: AudioMediaOperations): Promise<AudioRunResult> {
   const id = randomUUID(), jobs = join(project, 'transcript', 'jobs'), receiptFile = join(jobs, `${stem}-v${version}.json`)
   const parts: AudioPart[] = []
@@ -282,19 +351,23 @@ async function startParts(project: string, source: string, sourceSha256: string,
         '-i', source, '-t', String(seconds), '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', '-f', 'wav', mp3], config.commandTimeoutMs)
       const size = (await stat(mp3)).size
       if (!size || size > config.maxAudioBytes) throw new Error('Compressed audio part exceeds cloud limit')
-      parts.push({ id: partId, mp3, sha256: await digest(mp3), offset, duration: seconds })
+      parts.push({ id: partId, mp3, sha256: await digest(mp3), offset, duration: seconds, purpose })
     }
     if (await digest(source) !== sourceSha256) throw new Error('Media changed during audio extraction')
-    const receipt: Receipt = { id, source, sourceSha256, stem, version, language, accountUsername: username,
+    const receipt: Receipt = { id, source, sourceSha256, stem, version, language, purpose, accountUsername: username,
       mp3: join(jobs, `.${id}.wav`), sha256: sourceSha256, parts, status: 'prepared' }
     await writeFile(receiptFile, JSON.stringify(receipt, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
     persisted = true
     for (const part of parts) {
-      const job = await account.submitAudio(part.mp3, part.id, part.sha256, language)
+      const job = await account.submitAudio(part.mp3, part.id, part.sha256, language, part.purpose)
       if (job.id !== part.id) throw new Error('Cloud transcription returned a different part ID')
+      assertJobPurpose(job, part.purpose)
     }
     await save(receiptFile, { ...receipt, status: 'processing' })
-    return { status: 'processing', receipt: receiptFile, job_id: id }
+    return { status: 'processing', receipt: receiptFile, job_id: id, purpose }
+  } catch (error) {
+    if (persisted && error instanceof MuseAsrError) return rejectedResult(project, receiptFile, await readReceipt(receiptFile), error)
+    throw error
   } finally {
     if (!persisted) await Promise.all(staged.map(file => rm(file, { force: true })))
   }
@@ -306,7 +379,7 @@ async function finishParts(
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.json).then(() => true, () => false)
     && await stat(target.txt).then(() => true, () => false) && await stat(target.srt).then(() => true, () => false)) {
-    return { status: 'complete', receipt: receiptFile, job_id: receipt.id, output_txt: target.txt, output_json: target.json, output_srt: target.srt }
+    return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), output_txt: target.txt, output_json: target.json, output_srt: target.srt }
   }
   let offset = 0
   const ids = new Set<string>()
@@ -317,17 +390,22 @@ async function finishParts(
   const results: { job: MuseAsrJob; part: AudioPart }[] = []
   for (const part of parts) {
     let job: MuseAsrJob
+    let submitted = false
     try { job = await account.audioStatus(part.id) }
     catch (error) {
       if (!(error instanceof MuseAsrError) || error.code !== 'job-not-found' || part.retentionExpired) throw error
       if (await digest(part.mp3) !== part.sha256) throw new Error('Staged audio part changed')
-      job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language)
-    }
-    if (job.status === 'preparing' && !part.retentionExpired) {
-      if (await digest(part.mp3) !== part.sha256) throw new Error('Staged audio part changed')
-      job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language)
+      job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language, part.purpose)
+      submitted = true
     }
     if (job.id !== part.id) throw new Error('Cloud transcription returned a different part ID')
+    assertJobPurpose(job, part.purpose)
+    if (!submitted && job.status === 'preparing' && !part.retentionExpired) {
+      if (await digest(part.mp3) !== part.sha256) throw new Error('Staged audio part changed')
+      job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language, part.purpose)
+    }
+    if (job.id !== part.id) throw new Error('Cloud transcription returned a different part ID')
+    assertJobPurpose(job, part.purpose)
     results.push({ job, part })
   }
   const unresolved = results.some(({ job }) => ['uncertain', 'submitting'].includes(job.status))
@@ -350,5 +428,5 @@ async function finishParts(
   await save(receiptFile, { ...receipt, status, parts: updatedParts })
   await Promise.all(updatedParts.filter(part => part.retentionExpired).map(part => rm(part.mp3, { force: true })))
   if (['complete', 'silent', 'failed'].includes(status)) await Promise.all(parts.map(part => rm(part.mp3, { force: true })))
-  return { status, receipt: receiptFile, job_id: receipt.id, ...(status === 'complete' ? { output_txt: target.txt, output_json: target.json, output_srt: target.srt } : {}) }
+  return { status, receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), ...(status === 'complete' ? { output_txt: target.txt, output_json: target.json, output_srt: target.srt } : {}) }
 }

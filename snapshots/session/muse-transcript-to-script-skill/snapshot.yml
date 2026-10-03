@@ -6,4 +6,5 @@ recording: authored
 header:
   class: muse-editing-skill
 workspace:
-  setup: muse-editing-skill
+  # Preserve the exact skill body returned by this retained V4 recording.
+  setup: muse-transcript-to-script-skill-legacy

@@ -25,9 +25,13 @@ Host 工具 `audio_transcribe` 通过已登录的 Muse 账号，把本地音频�
 桌面在标准、PTC、创造、编辑与短剧模式中装载此工具，极简模式除外。开始前须登录 Muse 账号，云端网关还须单独启用转写。模型不能提供服务商凭据。
 
 ```json
-{"method":"start","project":"<project root>","input":"<authorized local audio or video>","language":"zh"}
+{"method":"start","project":"<project root>","input":"<authorized local audio or video>","language":"zh","purpose":"screenplay"}
 {"method":"status","project":"<same project root>","receipt":"<start receipt path>"}
 ```
+
+字幕校时使用 `purpose: "subtitles"`，走极速识别；音视频转剧本使用 `"screenplay"`，走标准识别。新任务默认 `subtitles`。收据和每个音轨分段保存解析后的用途，查询与恢复使用该值。未完成任务不能改用途。无用途字段的旧收据在恢复时仍保留旧路由。网关选择标准版本与私有资源。
+
+限流拒绝返回安全的 `error_code`、原收据，以及可选的 `retry_after_seconds` 和 `resume_status`。按建议等待后恢复原收据。`status` 先查询；网关确认任务尚未受理后，可能用原 ID 补传一次暂存音轨，产生识别费用。账号额度、登录过期和幂等冲突不提供立即恢复调用：先处理具体障碍，再明确恢复。单次工具调用不等待、不循环重试。所有平台返回的绝对路径均使用 `/`。
 
 `start` 探测素材，用 FFmpeg 提取 16 kHz 单声道 PCM WAV，在 `transcript/jobs/` 记录任务 ID 和音频摘要。Unix 上工具创建的转写目录权限为 0700，暂存音频、收据和转写产物权限为 0600。提交结果不明时保留收据；再次请求前先查询该收据。服务器确认任务不存在时，才能用原密钥和暂存音频 重试。完成后写 `transcript/raw/<素材名>-vN.txt` 、`.json` 与 `.srt`；无语音时只保留收据。离线 Python 技能仅在用户明确要求离线时使用。
 
@@ -42,7 +46,7 @@ Host 工具 `audio_transcribe` 通过已登录的 Muse 账号，把本地音频�
 <a id="understand-the-implementation"></a>
 ## 实现说明
 
-Host 账号服务读取绑定网关源地址的已保存会话，把音频发送到 `POST /api/asr/jobs`，再以同一账号查询 `GET /api/asr/jobs/:id`。cookie、TOS 签名 URL 和提供方密钥均不返回给模型。网关负责账号隔离、限额、提供方执行与临时音频清理。标准版使用私有 TOS 对象；极速版直接发送私有暂存音频。提交状态不明时保留原 ID，不自动再次计费。服务器配置和发布步骤见 [`services/muse-accounts`](../../../services/muse-accounts/README.zh.md)。
+Host 账号服务读取绑定网关源地址的已保存会话，把音频发送到 `POST /api/asr/jobs`，再以同一账号查询 `GET /api/asr/jobs/:id`。cookie、TOS 签名 URL 和提供方密钥均不返回给模型。网关负责账号隔离、限额、提供方执行与临时音频清理。标准版使用私有 TOS 对象；极速版直接发送私有暂存音频。提交状态不明时保留原 ID 供回读核对。服务器配置和发布步骤见 [`services/muse-accounts`](../../../services/muse-accounts/README.zh.md)。
 
 网关选择标准版或极速版识别。极速版使用[录音文件极速识别接口](https://www.volcengine.com/docs/6561/1631584?lang=zh)，每次最多两小时、100 MB。工具自动切分长媒体，将源文件 SHA-256 和分段任务 ID 保存在收据中，再把句子与字词时间戳合并到原媒体时间轴。默认十分钟 PCM 分段约 19.2 MB。产物原子发布，不覆盖不同内容；重复查询会核对已存在的相同产物。极速请求结果未知时保持未解决状态，不自动再次计费。
 
@@ -59,7 +63,7 @@ Host 账号服务读取绑定网关源地址的已保存会话，把音频发送
 
 #### Token 影响
 
-schema 产生固定请求开销；每次结果只增加简短状态和本地路径。
+可选用途枚举增加有限的请求开销；每次结果增加简短状态、收据已有的用途和本地路径。
 
 #### KV Cache 影响
 

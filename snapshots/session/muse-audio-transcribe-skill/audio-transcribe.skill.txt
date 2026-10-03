@@ -15,10 +15,8 @@ description: Use when 用户要把本地音频或视频里的语音转成文字�
 
 先确认本地媒体和项目目录。Muse 账号必须已登录，服务器必须配置云端转写。`audio_transcribe` 的 `start` 会先检查时长，使用随包 FFmpeg 从音频或视频中提取 16 kHz 单声道 PCM WAV，保存包含任务 ID 的本地收据，再通过当前账号提交。只上传提取的音轨，不上传整段视频。云端转写会使用计费语音服务；仅在用户要求转写、项目已有相应授权时提交。
 
-按实际用途设置 `purpose`：字幕生成或校时用 `subtitles`（极速识别）；音视频转剧本用 `screenplay`（标准识别）。一般转写未指定用途时默认 `subtitles`。具体服务版本与资源由 Muse 服务器分配，不向用户索要提供方密钥或让用户选择资源。用途写入收据和所有音轨分段，查询与重试保持原用途；已有未完成任务不能改用途，先用原收据查清结果。
-
 ```json
-{"method":"start","project":"<项目根目录>","input":"<获授权的本地音频或视频>","language":"zh","purpose":"screenplay"}
+{"method":"start","project":"<项目根目录>","input":"<获授权的本地音频或视频>","language":"zh"}
 ```
 
 `language` 可为 `zh` 或 `auto`，省略时为 `zh`。保存 `start` 返回的 `receipt`，然后对同一收据调用：
@@ -26,8 +24,6 @@ description: Use when 用户要把本地音频或视频里的语音转成文字�
 ```json
 {"method":"status","project":"<同一项目根目录>","receipt":"<start 返回的收据路径>"}
 ```
-
-限流的 `error_code` 区分 `queue_full`（队列满）、`upload_busy`（上传繁忙）、`request_rate`（账号请求频率）和 `provider_rate`（服务额度或提交频率）。有 `retry_after_seconds` 时按该秒数等待，再使用返回的 `resume_status`。`status` 先回读，确认原任务尚未受理后可能补传同 ID 音轨并计费；不更换 ID、用途或收据。`daily_quota` 先处理账号日额度，`sign-in-required` 先登录，`idempotency_conflict` 先核对原任务，不能直接重投。一次调用没有自动等待或无限重试。
 
 `processing` 或 `uncertain` 表示任务仍需查询；继续用同一收据调用 `status`。网络超时不能说明提交未被受理，不要换素材版本或任务 ID 直接再提交。服务器确认原任务不存在且本地音轨仍在时，工具才用原 ID 重试。留存到期仍未解决时，网关删除临时音频；下一次 `status` 删除本地暂存音轨，但保留收据和原任务 ID 供只读对账，不重新提交。`complete` 才有 `output_txt`、`output_json` 和 `output_srt`；`silent` 表示未识别到语音，只保留收据，不生成空转写。未登录、服务器未部署或未配置、限额或音轨提取失败时，报告具体障碍，不假称云服务成功，也不自动切换到离线识别。
 
