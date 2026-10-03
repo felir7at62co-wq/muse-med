@@ -12,8 +12,11 @@
   en: 2a25ab611c404ce7
   zh: 2afdad2b7e85393a
 /muse-accounts-gateway/release-inputs:
-  en: a42cb5f9757a6b7f
-  zh: 484542e64622c10f
+  en: 97f54f911d5e30d8
+  zh: 7ca3492c96ab3f52
+/muse-accounts-gateway/release-inputs/asr-application-pools:
+  en: 4a1437414854edec
+  zh: b282e223b5e0c555
 /muse-accounts-gateway/desktop-website-access:
   en: c30bebb75bc61d46
   zh: e4f25239f56fda7b

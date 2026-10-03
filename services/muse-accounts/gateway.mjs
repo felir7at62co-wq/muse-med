@@ -102,9 +102,9 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
    reply(res,200,JSON.stringify({url:publicOrigin+'/api/kb/mcp',token,expiresAt}),{'content-type':'application/json; charset=utf-8'});return;
   }
   if(path==='/api/asr/jobs'||path.startsWith('/api/asr/jobs/')){
-   const answer=(status,value)=>reply(res,status,JSON.stringify(value),{'content-type':'application/json; charset=utf-8'});
+   const answer=(status,value,retryAfter)=>reply(res,status,JSON.stringify(value),{'content-type':'application/json; charset=utf-8',...retryAfter?{'retry-after':String(retryAfter)}:{}});
    if(!asr){answer(503,{error:'Muse cloud transcription is not configured on this server'});return;}
-   if(!rate(req,'asr:'+s.id,60)){answer(429,{error:'Cloud transcription request rate exceeded'});return;}
+   if(!rate(req,'asr:'+s.id,60)){answer(429,{error:'Cloud transcription request rate exceeded',error_code:'request_rate',retry_after:60},60);return;}
    try{
     if(path==='/api/asr/jobs'&&req.method==='POST'){
      if(!['audio/mpeg','audio/wav'].includes(req.headers['content-type'])){answer(415,{error:'Expected MP3 or PCM WAV audio'});return;}
@@ -114,7 +114,11 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
     const match=/^\/api\/asr\/jobs\/([0-9a-f-]{36})$/i.exec(path);
     if(match&&req.method==='GET'){answer(200,await asr.get(s.id,match[1]));return;}
     answer(405,{error:'Unsupported ASR method or path'});return;
-   }catch(error){answer(error.status||503,{error:error.status?error.message:'Cloud transcription is temporarily unavailable; retry the same job ID'});return;}
+   }catch(error){
+    const code=['queue_full','upload_busy','daily_quota'].includes(error.code)?error.code:undefined;
+    const retryAfter=Number.isSafeInteger(error.retryAfter)&&error.retryAfter>0?error.retryAfter:undefined;
+    answer(error.status||503,{error:error.status?error.message:'Cloud transcription is temporarily unavailable; retry the same job ID',...code?{error_code:code}:{},...retryAfter?{retry_after:retryAfter}:{}},retryAfter);return;
+   }
   }
   let context;try{context=scope(req,s);}catch(error){reply(res,error.status||403,'管理授权已失效，请返回管理员中心重新验证。');return;}
   const targetId=context?.target.id||s.id;
@@ -259,8 +263,11 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
    const {createTosAudioStore}=await import('./asr-storage.mjs');const sdk=await import('@volcengine/tos-sdk');
    storage=createTosAudioStore(config,sdk.default??sdk);
   }
-  const provider={submit:input=>submitAsr(config,input),query:id=>queryAsr(config,id),recognize:input=>recognizeFlashAsr(config,input)};
-  asr=createAsrService({root:config.root,storage,provider,providerKind:config.providerKind,maxConcurrentJobs:config.maxConcurrentJobs,maxQueuedJobs:config.maxQueuedJobs,probe:file=>import('./asr-service.mjs').then(module=>module.probeAudio(file,config.ffprobePath)),maxAudioBytes:config.maxAudioBytes,maxDurationSeconds:config.maxDurationSeconds,maxDailySeconds:config.maxDailySeconds,maxDailyJobs:config.maxDailyJobs,maxActiveJobs:config.maxActiveJobs,retentionSeconds:config.retentionSeconds});
+  const resources=config.resources.map(resource=>{
+   const credentials={appId:resource.appId,accessToken:resource.accessToken,timeoutMs:config.timeoutMs};
+   return {...resource,provider:{submit:input=>submitAsr(credentials,input),query:id=>queryAsr(credentials,id),recognize:input=>recognizeFlashAsr(credentials,input)}};
+  });
+  asr=createAsrService({root:config.root,storage,resources,quotaGroups:config.quotaGroups,defaultPoolId:config.defaultPoolId,legacyAppId:config.legacyAppId,providerKind:config.providerKind,maxConcurrentJobs:config.maxConcurrentJobs,maxQueuedJobs:config.maxQueuedJobs,maxPendingUploadsPerAccount:config.maxPendingUploadsPerAccount,probe:file=>import('./asr-service.mjs').then(module=>module.probeAudio(file,config.ffprobePath)),maxAudioBytes:config.maxAudioBytes,maxDurationSeconds:config.maxDurationSeconds,maxDailySeconds:config.maxDailySeconds,maxDailyJobs:config.maxDailyJobs,maxActiveJobs:config.maxActiveJobs,retentionSeconds:config.retentionSeconds});
   await asr.ready();
   asrSweepIntervalSeconds=config.sweepIntervalSeconds;
  }
