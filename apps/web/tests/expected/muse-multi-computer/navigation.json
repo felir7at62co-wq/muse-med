@@ -1,0 +1,12 @@
+{
+  "heading": "选择电脑",
+  "computers": [
+    "剪辑电脑",
+    "外出 Mac"
+  ],
+  "switchLabel": "切换电脑",
+  "navigation": [
+    "- navigation \"当前电脑\":\n  - text: 电脑：剪辑电脑\n  - link \"切换电脑\":\n    - /url: /computers",
+    "- navigation \"当前电脑\":\n  - text: 电脑：外出 Mac\n  - link \"切换电脑\":\n    - /url: /computers"
+  ]
+}

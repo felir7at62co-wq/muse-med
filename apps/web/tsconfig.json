@@ -109,6 +109,7 @@
     "tests/onboarding-usable-provider.e2e.ts",
     "tests/remote-welcome.e2e.ts",
     "tests/public-mount.e2e.ts",
+    "tests/muse-multi-computer.e2e.ts",
     "tests/workspace-new-session-folding.e2e.ts",
     "tests/workspace-management.e2e.ts",
     "tests/workspace-recency.e2e.ts",

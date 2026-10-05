@@ -96,6 +96,7 @@
     "apps/web/tests/onboarding-usable-provider.e2e.ts",
     "apps/web/tests/remote-welcome.e2e.ts",
     "apps/web/tests/public-mount.e2e.ts",
+    "apps/web/tests/muse-multi-computer.e2e.ts",
     "apps/web/tests/workspace-new-session-folding.e2e.ts",
     "apps/web/tests/workspace-management.e2e.ts",
     "apps/web/tests/default-workspace.e2e.ts",

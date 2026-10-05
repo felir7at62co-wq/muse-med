@@ -1,8 +1,10 @@
 /** Account-scoped transport for the pinned outbound Muse desktop bridge. */
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
+import {desktopRoute,validDeviceId} from './desktop-route.mjs';
 
 const hiddenHeaders = new Set(['cookie','authorization','host','origin','connection','upgrade','keep-alive','proxy-authenticate','proxy-authorization','te','trailer','transfer-encoding','set-cookie']);
+const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function publicHeaders(headers) {
  const result={};
  for(const [name,value] of Object.entries(headers??{})) {
@@ -27,10 +29,12 @@ function decodeChunk(message,maximum) {
  * @param {object} options Account store, session validity and bounded transfer settings.
  * @returns {object} Upgrade, forwarding and revocation operations owned by the gateway lifetime.
  */
-export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now,chunkBytes=32768,ackTimeoutMs=15000,maxRequests=64,maxControlBytes=262144,maxUploadBytes=1073741824,heartbeatIntervalMs=15000,heartbeatTimeoutMs=30000}) {
+export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now,chunkBytes=32768,ackTimeoutMs=15000,maxRequests=64,maxControlBytes=262144,maxUploadBytes=1073741824,heartbeatIntervalMs=15000,heartbeatTimeoutMs=30000,maxDevices=20}) {
  for(const [name,value,min,max]of [['chunkBytes',chunkBytes,1024,32768],['ackTimeoutMs',ackTimeoutMs,100,120000],['maxRequests',maxRequests,1,1024],['maxControlBytes',maxControlBytes,65536,1048576],['maxUploadBytes',maxUploadBytes,1,1099511627776],['heartbeatIntervalMs',heartbeatIntervalMs,100,120000],['heartbeatTimeoutMs',heartbeatTimeoutMs,100,120000]])if(!Number.isSafeInteger(value)||value<min||value>max)throw Error('Invalid desktop '+name);
  const wss=new WebSocketServer({noServer:true,maxPayload:maxControlBytes,perMessageDeflate:false});
  const desktops=new Map();
+ if(!Number.isSafeInteger(maxDevices)||maxDevices<1||maxDevices>1000)throw Error('Invalid desktop maxDevices');
+ const accountDesktops=id=>desktops.get(id);
  let closed=false;
  function fail(state,code=503) {
   if(state.done)return;state.done=true;
@@ -43,9 +47,11 @@ export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now
   if(state.desktop.ws.readyState===WebSocket.OPEN)void send(state.desktop.ws,{type:state.kind==='http'?'request-cancel':'ws-close',...(state.kind==='http'?{id:state.id}:{wsId:state.id})}).catch(()=>{});
  }
  function disconnect(desktop) {
+  if(desktop.disconnected)return;desktop.disconnected=true;
   for(const state of [...desktop.requests.values()])fail(state);
   clearTimeout(desktop.expiry);clearTimeout(desktop.handshake);clearInterval(desktop.heartbeat);clearTimeout(desktop.pongDeadline);
-  if(desktops.get(desktop.accountId)===desktop)desktops.delete(desktop.accountId);
+  const account=accountDesktops(desktop.accountId);
+  if(account?.get(desktop.deviceId)===desktop){account.delete(desktop.deviceId);if(!account.size)desktops.delete(desktop.accountId);}
   desktop.ws.terminate();
  }
  function ack(state,seq) {
@@ -66,13 +72,16 @@ export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now
  async function message(desktop,msg) {
   if(!validSession(desktop.session)){disconnect(desktop);return;}
   if(!desktop.ready) {
-   if(msg?.type!=='connect'||msg.version!==1||typeof msg.deviceId!=='string'||!/^[a-f0-9-]{36}$/.test(msg.deviceId))throw Error('Invalid desktop handshake');
-   const existing=desktops.get(desktop.accountId);
-   if(existing&&existing!==desktop&&existing.deviceId!==msg.deviceId){await send(desktop.ws,{type:'rejected',reason:'device-conflict'});desktop.ws.close(1008,'Another desktop is connected');return;}
-   if(existing&&existing!==desktop)disconnect(existing);
-   desktop.deviceId=msg.deviceId;desktops.set(desktop.accountId,desktop);
-   try{await store.bindDesktop(desktop.accountId,msg.deviceId);}catch(error){disconnect(desktop);throw error;}
-   if(closed||desktop.ws.readyState!==WebSocket.OPEN||desktops.get(desktop.accountId)!==desktop||!validSession(desktop.session)){disconnect(desktop);return;}
+   if(desktop.registering)throw Error('Desktop handshake already pending');desktop.registering=true;
+   if(msg?.type!=='connect'||msg.version!==1||!validDeviceId(msg.deviceId))throw Error('Invalid desktop handshake');
+   const name=msg.deviceName??`电脑 · ${msg.deviceId.slice(0,8)}`,platform=msg.platform??'unknown';
+   if(typeof name!=='string'||!name.trim()||name.length>80||/[\x00-\x1f\x7f]/.test(name)||!['win32','darwin','linux','unknown'].includes(platform))throw Error('Invalid desktop metadata');
+   const account=accountDesktops(desktop.accountId)??new Map(),existing=account.get(msg.deviceId);
+   if(existing&&existing!==desktop){await send(existing.ws,{type:'rejected',reason:'device-replaced'}).catch(()=>{});disconnect(existing);}
+   desktop.deviceId=msg.deviceId;desktop.name=name;desktop.platform=platform;
+   account.set(msg.deviceId,desktop);desktops.set(desktop.accountId,account);
+   try{await store.bindDesktop(desktop.accountId,{id:msg.deviceId,name,platform,lastSeenAt:now()},{maxDevices});}catch(error){await send(desktop.ws,{type:'rejected',reason:'device-registration-failed'}).catch(()=>{});disconnect(desktop);return;}
+   if(closed||desktop.ws.readyState!==WebSocket.OPEN||accountDesktops(desktop.accountId)?.get(msg.deviceId)!==desktop||!validSession(desktop.session)){disconnect(desktop);return;}
    desktop.ready=true;clearTimeout(desktop.handshake);
    desktop.heartbeat=setInterval(()=>{
     if(desktop.pongDeadline)return;
@@ -99,7 +108,7 @@ export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now
      for(const name of ['content-length','etag','content-md5','digest','content-digest','repr-digest','last-modified'])delete headers[name];
      headers['cache-control']='private, no-store';
     }
-    if(headers.location) {const location=new URL(headers.location,'http://127.0.0.1');if(['127.0.0.1','localhost'].includes(location.hostname))headers.location=location.pathname+location.search+location.hash;}
+    if(headers.location) {const location=new URL(headers.location,new URL(state.target,'http://127.0.0.1'));if(['127.0.0.1','localhost'].includes(location.hostname))headers.location=(state.route?.prefix.slice(0,-1)??'')+location.pathname+location.search+location.hash;}
     state.res.writeHead(msg.status,headers);break;
    }
    case 'response-chunk':
@@ -113,7 +122,7 @@ export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now
    }
    case 'response-end':
     if(state.kind!=='http'||!state.res.headersSent||state.incoming)throw Error('Invalid desktop response end');
-    state.done=true;clearTimeout(state.expiry);desktop.requests.delete(id);state.res.end(state.observePresence?'<script src="/desktop-presence.js"></script>':undefined);break;
+    state.done=true;clearTimeout(state.expiry);desktop.requests.delete(id);state.res.end(state.observePresence?`<script src="${state.route?.prefix??'/'}desktop-presence.js" data-name="${escape(desktop.name)}"></script>`:undefined);break;
    case 'ws-accept': {
     if(state.kind!=='ws'||state.accepted||!Number.isInteger(msg.statusCode)||(msg.statusCode!==101&&(msg.statusCode<200||msg.statusCode>599))||!msg.replyHeaders||typeof msg.replyHeaders!=='object'||Array.isArray(msg.replyHeaders))throw Error('Invalid desktop WebSocket upgrade');
     const accepted=msg.statusCode===101;
@@ -146,7 +155,13 @@ export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now
    ws.on('pong',()=>{clearTimeout(desktop.pongDeadline);desktop.pongDeadline=undefined;});
   });
  }
- function active(session) {const desktop=desktops.get(session.id);return desktop?.ready&&validSession(desktop.session)&&desktop.ws.readyState===WebSocket.OPEN?desktop:null;}
+ function online(desktop){return desktop?.ready&&validSession(desktop.session)&&desktop.ws.readyState===WebSocket.OPEN;}
+ function active(session,deviceId) {
+  const account=accountDesktops(session.id);
+  if(deviceId){const desktop=account?.get(deviceId);return online(desktop)?desktop:null;}
+  const available=[...account?.values()??[]].filter(online);return available.length===1?available[0]:null;
+ }
+ function devices(session){return store.desktopDevices(session.id).map(device=>({...device,state:active(session,device.id)?'online':'offline'}));}
  function createState(desktop,session,kind,target) {
   if(desktop.requests.size>=maxRequests)return null;
   const id=randomUUID(),state={id,desktop,session,kind,...target,nextResponse:0,done:false,incoming:false};
@@ -170,23 +185,23 @@ export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now
   if(!state.done&&state.kind==='http')await send(state.desktop.ws,{type:'request-end',id:state.id});
  }
  async function forward(req,res,session) {
-  const desktop=active(session);if(!desktop)return false;
-  const path=new URL(req.url,publicOrigin).pathname;
+  const route=desktopRoute(req.url),desktop=active(session,route?.deviceId);if(!desktop)return false;
+  const target=route?.path??req.url,path=new URL(target,publicOrigin).pathname;
   const entryPage=(req.method==='GET'||req.method==='HEAD')&&(path==='/'||path==='/index.html');
-  const state=createState(desktop,session,'http',{req,res,entryPage:entryPage&&req.method==='GET'});
+  const state=createState(desktop,session,'http',{req,res,route,target,entryPage:entryPage&&req.method==='GET'});
   if(!state){res.writeHead(429,{'retry-after':'5'}).end();return true;}
   req.once('aborted',()=>fail(state));res.once('close',()=>{if(!state.done)fail(state);});
-  try{await send(desktop.ws,{type:'request-start',id:state.id,method:req.method,url:req.url,headers:{...publicHeaders(req.headers),...(entryPage?{'accept-encoding':'identity'}:{})}});await upload(state,req);}catch(error){fail(state);}
+  try{await send(desktop.ws,{type:'request-start',id:state.id,method:req.method,url:target,headers:{...publicHeaders(req.headers),...(entryPage?{'accept-encoding':'identity'}:{})}});await upload(state,req);}catch(error){fail(state);}
   return true;
  }
  function upgrade(req,socket,head,session) {
-  const desktop=active(session);if(!desktop)return false;
+  const route=desktopRoute(req.url),desktop=active(session,route?.deviceId);if(!desktop)return false;
   const state=createState(desktop,session,'ws',{socket,accepted:false});
   if(!state){socket.end('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');return true;}
   socket.pause();socket.once('close',()=>fail(state));socket.once('error',()=>fail(state));
   void (async()=>{
    const headers={...publicHeaders(req.headers),connection:'Upgrade',upgrade:'websocket'};
-   await send(desktop.ws,{type:'ws-open',wsId:state.id,path:req.url,headers});
+   await send(desktop.ws,{type:'ws-open',wsId:state.id,path:route?.path??req.url,headers});
    if(head.length) {
     const source=(async function*(){yield head;})();await upload(state,source,'ws-frame');
    }
@@ -195,8 +210,9 @@ export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now
  }
  return {
   control,forward,upgrade,
-  status:session=>({state:active(session)?'online':'offline'}),
-  revoke:token=>{for(const desktop of [...desktops.values()]){if(desktop.session.token===token)disconnect(desktop);else for(const state of [...desktop.requests.values()])if(state.session.token===token)fail(state,401);}},
-  close:()=>{closed=true;for(const desktop of [...desktops.values()])disconnect(desktop);for(const ws of wss.clients)ws.terminate();wss.close();},
+  devices,
+  status:(session,deviceId)=>({state:active(session,deviceId)?'online':!deviceId&&devices(session).filter(d=>d.state==='online').length>1?'selection-required':'offline'}),
+  revoke:token=>{for(const account of [...desktops.values()])for(const desktop of [...account.values()]){if(desktop.session.token===token)disconnect(desktop);else for(const state of [...desktop.requests.values()])if(state.session.token===token)fail(state,401);}},
+  close:()=>{closed=true;for(const account of [...desktops.values()])for(const desktop of [...account.values()])disconnect(desktop);for(const ws of wss.clients)ws.terminate();wss.close();},
  };
 }

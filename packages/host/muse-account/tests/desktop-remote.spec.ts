@@ -1,5 +1,5 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import type { MuseDesktopTunnelOptions } from '../src/desktop-bridge.ts'
@@ -44,6 +44,8 @@ it('connects a restored account once and keeps its installation identity across 
   expect(f.calls[0]).toMatchObject({ serverUrl: 'wss://muse.example/api/desktop/connect',
     headers: { cookie: '__Host-muse=alice', origin: 'https://muse.example' }, localPort: 32145, loopbackCookie: 'host=private-local' })
   expect(f.calls[0]?.serverUrl).not.toContain('alice')
+  expect(f.calls[0]?.deviceName).toBe(hostname().replace(/[\x00-\x1f\x7f]/gu, '').trim().slice(0, 80))
+  expect(f.calls[0]?.platform).toBe(process.platform)
   const disk = await readFile(f.options.deviceFile, 'utf8')
   expect(disk).not.toContain('private-local')
   await f.owner.dispose()

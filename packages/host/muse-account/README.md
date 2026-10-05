@@ -59,7 +59,7 @@ The [configuration catalog](../../../docs/config-catalog.md) is generated from p
 
 ### Desktop access from the website
 
-When remote access is enabled, signing in or restoring the saved account starts an outbound connection. Sign in to the same account on the website to use the desktop's sessions, files and progress. The website displays **您的电脑上的 Muse 未启动** while offline and checks for reconnection. It starts no substitute cloud agent. A second installation cannot replace an online desktop; after it disconnects, a newly authenticated installation can take over.
+When remote access is enabled, signing in or restoring the saved account starts an outbound connection. Sign in to the same account on the website to use the desktop's sessions, files and progress. The website displays **您的电脑上的 Muse 未启动** while offline and checks for reconnection. It starts no substitute cloud agent. Each installation sends its persistent UUID, hostname and operating system. Several computers can stay connected to the same account; the website selects one and keeps every tab bound to that computer. Its switch link opens the computer list in a new tab. Sessions and files remain local to each installation.
 
 The connector exchanges the existing Host bootstrap URL for a private loopback cookie. Both that cookie and the Muse session stay in HTTP headers. Switching accounts awaits closure of the old transport. Logout detaches before contacting the gateway; a failed logout keeps that saved revision paused until a new login. Closing a browser stream removes its observer without cancelling agent work or retrying a submitted request. Revocation and expiry close access.
 

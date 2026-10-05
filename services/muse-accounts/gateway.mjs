@@ -17,6 +17,8 @@ import {openModelConfig,createModelRelay} from './model-relay.mjs';
 import {openGlobalModels,restrictModelSchema} from './global-models.mjs';
 import {createDesktopModels,resolveDesktopModelLimits} from './desktop-models.mjs';
 import {createDesktopRelay} from './desktop-relay.mjs';
+import {desktopRoute,desktopPrefix} from './desktop-route.mjs';
+import {desktopPicker} from './desktop-picker.mjs';
 
 /** Load account Wiki storage and administrator grants without opening legacy vector files.
  * @param {object} environment Gateway environment containing the KB directory and credential-file paths.
@@ -56,7 +58,8 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
  function originOK(req,required=false){return req.headers.origin?req.headers.origin===publicOrigin:!required&&req.headers['sec-fetch-site']!=='cross-site';}
  desktopRelay=createDesktopRelay({...desktopRelayOptions,store,publicOrigin,now,validSession:s=>{const current=sessions.get(s.token),account=store.get(s.id);return !!current&&current.id===s.id&&current.expiry>now()&&!!account&&!account.disabled&&account.revision===current.revision;}});
  function reply(res,status,text='',extra={}){res.writeHead(status,{'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer',...extra});res.end(text);}
- function html(res,status,text){reply(res,status,text,{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});}
+ // Same-origin form navigation retains Origin for the CSRF check.
+ function html(res,status,text){reply(res,status,text,{'referrer-policy':'same-origin','content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});}
  function rate(req,type,limit){const time=now();for(const[k,v]of rates)if(time-v.start>=60000)rates.delete(k);const key=type+':'+(req.headers['x-real-ip']||req.socket.remoteAddress);if(!rates.has(key)&&rates.size>=10000)return false;const entry=rates.get(key)||{start:time,count:0};rates.set(key,entry);return ++entry.count<=limit;}
  async function form(req){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>8192){const e=Error('请求内容过大');e.status=413;throw e;}chunks.push(chunk);}return new URLSearchParams(Buffer.concat(chunks).toString('utf8'));}
  function newSession(res,a){for(const[t,s]of sessions)if(s.expiry<=now())revoke(t);while(sessions.size>=10000)revoke(sessions.keys().next().value);const token=randomBytes(32).toString('base64url');sessions.set(token,{id:a.id,revision:a.revision,expiry:now()+sessionTtlMs});reply(res,303,'',{location:'/','set-cookie':`${cookieName}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(sessionTtlMs/1000)}`});}
@@ -68,7 +71,8 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
  function fetchHeaders(req,b){const h=headers(req,b);for(const k of ['connection','upgrade','keep-alive','transfer-encoding','te','trailer','proxy-authorization','proxy-authenticate','content-length'])delete h[k];return h;}
  function responseHeaders(h,target){const result={...h};delete result['set-cookie'];if(result.location){const u=new URL(result.location,target);if(u.origin===target.origin)result.location=u.pathname+u.search+u.hash;}return result;}
  const server=http.createServer(async(req,res)=>{try{
-  if(!req.url.startsWith('/')||req.url.startsWith('//')){reply(res,400);return;}const path=new URL(req.url,'http://localhost').pathname;
+  if(!req.url.startsWith('/')||req.url.startsWith('//')){reply(res,400);return;}
+  const mount=workspaceMode==='desktop'?desktopRoute(req.url):null,path=new URL(mount?.path??req.url,'http://localhost').pathname;
   if(asrStorage&&await asrStorage.handle(req,res))return;
   if(path==='/register'&&devOnlyAdmin){reply(res,403,'开发环境仅供管理员使用');return;}
   if(['/login','/register'].includes(path)&&req.method==='GET'){let content=devOnlyAdmin?loginPage(false).replace('<a href="/register">免费注册个人工作间</a>','开发验证环境 · 管理员登录'):loginPage(path==='/register');if(environment==='development')content=content.replace('<h1>MUSE</h1>','<h1>MUSE</h1><div class="eyebrow">开发验证环境</div>');html(res,200,content);return;}
@@ -90,8 +94,13 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
    return;
   }
   const s=session(req);if(!s){if(path.startsWith('/api/desktop-models/'))reply(res,401,JSON.stringify({error:{message:'请先登录 Muse'}}),{'content-type':'application/json'});else reply(res,303,'',{location:'/login'});return;}if(!originOK(req,!['GET','HEAD','OPTIONS'].includes(req.method))){reply(res,403);return;}if(workspaceMode==='cloud')touchAccount(s.id);
-  if(path==='/api/desktop/status'&&workspaceMode==='desktop'){if(req.method!=='GET'){reply(res,405,'',{allow:'GET'});return;}reply(res,200,JSON.stringify(desktopRelay.status(s)),{'content-type':'application/json; charset=utf-8'});return;}
-  if(['/desktop-offline.js','/desktop-presence.js'].includes(path)&&workspaceMode==='desktop'&&req.method==='GET'){reply(res,200,await readFile(new URL('.'+path,import.meta.url)),{'content-type':'text/javascript; charset=utf-8'});return;}
+  if(mount){
+   if(!store.desktopDevices(s.id).some(device=>device.id===mount.deviceId)){reply(res,404,'电脑不存在');return;}
+   if(new URL(req.url,publicOrigin).searchParams.has('muse_admin')){reply(res,400,'请从管理员中心打开管理目标');return;}
+   if(new URL(req.url,publicOrigin).pathname===mount.prefix.slice(0,-1)){if(req.method==='GET'||req.method==='HEAD')reply(res,303,'',{location:mount.prefix+new URL(req.url,publicOrigin).search});else reply(res,400);return;}
+  }
+  if(['/api/desktop/status','/api/desktop/devices'].includes(path)&&workspaceMode==='desktop'){if(req.method!=='GET'){reply(res,405,'',{allow:'GET'});return;}reply(res,200,JSON.stringify(path.endsWith('/devices')?{devices:desktopRelay.devices(s)}:desktopRelay.status(s,mount?.deviceId)),{'content-type':'application/json; charset=utf-8'});return;}
+  if(['/desktop-offline.js','/desktop-presence.js','/desktop-picker.js'].includes(path)&&workspaceMode==='desktop'&&req.method==='GET'){reply(res,200,await readFile(new URL('.'+path,import.meta.url)),{'content-type':'text/javascript; charset=utf-8'});return;}
   if(path.startsWith('/api/desktop-models/')){if(!rate(req,'desktop-model:'+s.id,120)){reply(res,429,'请求过于频繁');return;}await desktopModels.handle(req,res,s,path);return;}
   if(path==='/api/kb/access'){
    if(req.method!=='POST'){reply(res,405,'',{allow:'POST'});return;}
@@ -208,11 +217,15 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
   }
   if(workspaceMode==='desktop'&&!context){
    if(await maintenance()){reply(res,503,'Muse 正在维护，请稍后重试。',{'retry-after':'30'});return;}
+   const devices=desktopRelay.devices(s),available=devices.filter(device=>device.state==='online');
+   if(!mount&&path==='/'&&req.method==='GET'&&available.length===1){reply(res,303,'',{location:desktopPrefix(available[0].id)+new URL(req.url,publicOrigin).search});return;}
+   if(!mount&&path==='/computers'&&req.method==='GET'){
+    reply(res,200,page('选择电脑',desktopPicker(devices)),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});return;
+   }
    if(await desktopRelay.forward(req,res,s))return;
    if(path==='/'&&req.method==='GET'){
-    const content=page('桌面未启动','<div class="eyebrow">MUSE</div><h1>您的电脑上的 Muse 未启动</h1><p>请在电脑上打开 Muse，并登录同一个账号。连接后这里会自动显示您的会话和进度。</p><button id="retry-desktop" type="button">重新连接</button><p id="desktop-status" role="status">正在等待您的电脑上线…</p><nav><a href="/account">Muse 账号</a></nav>');
-    reply(res,200,content.replace('</main>','</main><script src="/desktop-offline.js" defer></script>'),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});
-   }else reply(res,503,JSON.stringify({error:'desktop-offline',message:'您的电脑上的 Muse 未启动'}),{'content-type':'application/json; charset=utf-8','retry-after':'5'});
+    reply(res,200,page('选择电脑',desktopPicker(devices,mount?.deviceId)),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});
+   }else reply(res,503,JSON.stringify({error:!mount&&available.length>1?'desktop-selection-required':'desktop-offline',message:!mount&&available.length>1?'请先选择要操作的电脑':'您的电脑上的 Muse 未启动'}),{'content-type':'application/json; charset=utf-8','retry-after':'5'});
    return;
   }
   if(workspaceMutation(path)&&!context){reply(res,403,'每个账户仅使用自己的工作间');return;}
@@ -235,7 +248,11 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
  server.on('upgrade',async(req,socket,head)=>{
   const reject=code=>socket.end(`HTTP/1.1 ${code} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);const s=session(req);if(!s){reject(401);return;}if(!originOK(req,true)){reject(403);return;}if(!req.url.startsWith('/')||req.url.startsWith('//')){reject(400);return;}
   if(workspaceMode==='desktop'&&new URL(req.url,publicOrigin).pathname==='/api/desktop/connect'){desktopRelay.control(req,socket,head,s);return;}
-  if(workspaceMode==='desktop'&&!new URL(req.url,publicOrigin).searchParams.has('muse_admin')){if(!desktopRelay.upgrade(req,socket,head,s))reject(503);return;}
+  if(workspaceMode==='desktop'&&!new URL(req.url,publicOrigin).searchParams.has('muse_admin')){
+   let mount;try{mount=desktopRoute(req.url);}catch(error){reject(400);return;}
+   if(mount&&!store.desktopDevices(s.id).some(device=>device.id===mount.deviceId)){reject(404);return;}
+   if(!desktopRelay.upgrade(req,socket,head,s))reject(503);return;
+  }
   try{const context=scope(req,s),targetId=context?.target.id||s.id;if(workspaceMutation(new URL(req.url,'http://localhost').pathname)&&!context){reject(403);return;}if(await maintenance()){reject(503);return;}const b=await backend(targetId);if(!scopeValid(req,s)){reject(401);return;}touchAccount(targetId);const proxy=http.request({hostname:b.target.hostname,port:b.target.port,path:cleanUrl(req),headers:headers(req,b)});
    proxy.on('upgrade',(response,upstream,backendHead)=>{if(!scopeValid(req,s)){upstream.destroy();reject(401);return;}if(!connections.has(s.token))connections.set(s.token,new Set());connections.get(s.token).add(socket);const timer=setTimeout(()=>context?socket.destroy():revoke(s.token),Math.max(1,Math.min(s.expiry,context?.expiry??Infinity)-now()));timer.unref();const touch=setInterval(()=>touchAccount(targetId),30000);touch.unref();socket.on('close',()=>{clearTimeout(timer);clearInterval(touch);connections.get(s.token)?.delete(socket);upstream.destroy();});socket.on('error',()=>upstream.destroy());upstream.on('error',()=>socket.destroy());upstream.on('close',()=>socket.destroy());socket.write(`HTTP/1.1 101 Switching Protocols\r\n${Object.entries(responseHeaders(response.headers,b.target)).map(([k,v])=>`${k}: ${v}\r\n`).join('')}\r\n`);if(head.length)upstream.write(head);if(backendHead.length)socket.write(backendHead);upstream.pipe(socket);socket.pipe(upstream);});proxy.on('response',r=>{r.resume();reject(502);});proxy.on('error',()=>reject(503));proxy.end();
   }catch{reject(503);}

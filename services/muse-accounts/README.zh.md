@@ -72,17 +72,19 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 
 ## Desktop website access
 
-网关入口默认使用 `MUSE_WORKSPACE_MODE=desktop`。登录后的浏览器通过 `/api/desktop/connect` 进入账号已连接的桌面；离线时显示 **您的电脑上的 Muse 未启动**。此模式没有电脑选择器；普通浏览器访问不会启动云端 agent。显式设置 `MUSE_WORKSPACE_MODE=cloud` 可保留云端工作间；`createAccountServer` 库工厂为兼容现有调用者，仍保留该默认值。
+网关入口默认使用 `MUSE_WORKSPACE_MODE=desktop`。桌面安装通过 `/api/desktop/connect` 连接。浏览器登录后，`/` 在仅一台电脑在线时自动进入；多台或没有电脑在线时显示电脑选择页。`/computers` 始终打开选择页，显示账号所属电脑的名称、操作系统、在线状态和最近连接时间。普通浏览器访问不会启动云端 agent。显式设置 `MUSE_WORKSPACE_MODE=cloud` 可保留云端工作间；`createAccountServer` 库工厂为兼容现有调用者，仍保留该默认值。
 
 显式管理员账号上下文在独立口令提升权限后，使用 `MUSE_RUNTIME_SOCKET` 指定的既有运行时 broker（默认 `/run/muse-runtime/broker.sock`）。普通桌面接口既不启动云端工作间，也不延长其活动时间。每个管理员上下文仍绑定其登录、目标与到期时间；其他账号或后续登录不能复用该授权。这些上下文不会改变用户的桌面绑定。
 
-桌面用 Muse cookie 和安装 UUID 认证。网关从会话确定归属，每个账号仅允许一台安装在线，并在账号存储中保留绑定。原安装离线后，新登录的安装可替换绑定；另一台安装同时连接会收到 `device-conflict`。重设密码、停用、退出与过期会撤销对应连接。浏览器退出仅关闭自己的观察，不会让单独登录的桌面退出。
+桌面用 Muse cookie 和安装 UUID 认证，并发送电脑名称和操作系统。不同安装可以同时连接。同一 UUID 重连时，仅替换该安装的旧连接。账号存储保留离线电脑，并兼容旧 `desktopDeviceId` 记录；旧客户端使用基于 UUID 的名称。重设密码、停用、退出与过期会撤销对应连接。浏览器退出仅关闭自己的观察，不会让单独登录的桌面退出。
 
-HTTP 上传、事件流、Range 响应和原生 `/api/remote.mux` 数据帧按段确认。浏览器取消仅移除本地代理，桥接不会重放请求或取消 Agent 轮次。桌面注入自己的私有 Host cookie 和回环 Origin，保留 Host 信任校验。账号、模型、ASR、Wiki 和反馈接口仍由网关处理；设置与自定义模型提供者属于桌面。`desktopRelayOptions` 工厂参数配置段大小、超时、准入和字节限额。
+HTTP 上传、事件流、Range 响应和原生 `/api/remote.mux` 数据帧按段确认。浏览器取消仅移除本地代理，桥接不会重放请求或取消 Agent 轮次。桌面注入自己的私有 Host cookie 和回环 Origin，保留 Host 信任校验。账号、模型、ASR、Wiki 和反馈接口仍由网关处理；设置与自定义模型提供者属于桌面。每个浏览器标签页通过 `/desktop/<installation-UUID>/` 请求资源、HTTP 接口和原生 WebSocket。网关检查账号归属，并在转发前去掉前缀。多台电脑在线时，未选择目标的请求以 `desktop-selection-required` 失败。工作区、文件和会话仍属于各自电脑。`desktopRelayOptions` 工厂参数配置传输限额与 `maxDevices`（默认每账号保留 20 台安装）。
 
-桥接每隔 `heartbeatIntervalMs`（15 秒）向在线桌面发送 Ping；`heartbeatTimeoutMs`（30 秒）内没有 Pong 时，将桌面标为离线并关闭浏览器的观察连接。入口页面可见时每五秒查询状态。断线与登录过期提示会保留当前工作区和未发送内容；重连移除提示，不刷新页面。只有完整、未压缩的入口 GET 页面会加入观察脚本；HEAD、部分响应、压缩内容和事件流保留原始字节。本地 Host 响应或 WebSocket 升级失败只结束对应浏览器请求，桌面控制连接保持可用。
+桥接每隔 `heartbeatIntervalMs`（15 秒）向在线桌面发送 Ping；`heartbeatTimeoutMs`（30 秒）内没有 Pong 时，将桌面标为离线并关闭浏览器的观察连接。选择页与入口页面可见时每五秒查询状态。聊天页显示当前电脑；**切换电脑** 在新标签页打开选择页，保留当前标签页。另一台电脑在线时，断线标签页仍等待原来的 UUID。断线与登录过期提示会保留当前工作区和未发送内容；重连移除提示，不刷新页面。只有完整、未压缩的入口 GET 页面会加入观察脚本；HEAD、部分响应、压缩内容和事件流保留原始字节。本地 Host 响应或 WebSocket 升级失败只结束对应浏览器请求，桌面控制连接保持可用。
 
-桌面模式需要 TLS 反向代理把 WebSocket 转发到此进程。仅安装客户端不会切换已部署的网关。本地集成测试验证了隔离、Range 播放、取消与撤权；生产手机登录和反向代理仍需要部署验证。
+桌面模式需要 TLS 反向代理把 WebSocket 转发到此进程。仅安装客户端不会切换已部署的网关。本地集成与 Chromium 测试验证了电脑选择、独立标签页、隔离、Range 播放、取消与撤权；生产手机登录和反向代理仍需要部署验证。
+
+浏览器表单页使用 `Referrer-Policy: same-origin`，使同源导航 POST 保留 Origin 供 CSRF 校验。跨源与 null 源写入仍被拒绝。从仓库根目录运行 `node --test services/muse-accounts/desktop-{devices,remote,tunnel}.test.mjs` 验证传输和存储；构建 Host、Client 与 Web 后，运行 `pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/muse-multi-computer.e2e.ts` 检查登录、标签页、草稿和响应式页面。
 
 ## Muse LLM Wiki
 

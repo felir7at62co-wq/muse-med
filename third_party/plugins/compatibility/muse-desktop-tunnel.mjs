@@ -75,7 +75,7 @@ class MuseTunnelClient extends CustomTunnelClient {
       this.signal.addEventListener('abort', abort, { once: true })
       const close = new Promise(done => ws.once('close', done))
       this.controlClose = close
-      ws.on('open', () => this._sendMessage({ type: 'connect', version: 1, deviceId: this.options.deviceId }))
+      ws.on('open', () => this._sendMessage({ type: 'connect', version: 1, deviceId: this.options.deviceId, deviceName: this.options.deviceName, platform: this.options.platform }))
       ws.on('message', data => {
         let message
         try { message = JSON.parse(data.toString()) } catch (error) { ws.close(1008, 'Invalid control JSON'); return }

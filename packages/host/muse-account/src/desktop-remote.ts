@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { hostname } from 'node:os'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type { MuseDesktopBridge, MuseDesktopConnectionState, MuseDesktopDeviceId, MuseDesktopTunnel } from './desktop-bridge.ts'
 import { readMuseSession } from './session.ts'
@@ -50,6 +51,8 @@ export class MuseDesktopRemote {
         localPort: authorization.port,
         loopbackCookie: authorization.cookie,
         deviceId,
+        deviceName: hostname().replace(/[\x00-\x1f\x7f]/gu, '').trim().slice(0, 80) || `Muse · ${deviceId.slice(0, 8)}`,
+        platform: process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux' ? process.platform : 'unknown',
         chunkBytes: this.options.chunkBytes,
         ackTimeoutMs: this.options.ackTimeoutMs,
         reconnectMaxIntervalMs: this.options.reconnectMaxIntervalMs,

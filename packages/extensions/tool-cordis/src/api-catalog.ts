@@ -6065,7 +6065,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MuseDesktopTunnelOptions',
-    declaration: 'export interface MuseDesktopTunnelOptions {\n    readonly serverUrl: string;\n    readonly headers: Readonly<Record<string, string>>;\n    readonly localPort: number;\n    readonly loopbackCookie: string;\n    readonly deviceId: MuseDesktopDeviceId;\n    readonly chunkBytes: number;\n    readonly ackTimeoutMs: number;\n    readonly reconnectMaxIntervalMs: number;\n    readonly onState: (state: MuseDesktopConnectionState) => void;\n}',
+    declaration: 'export interface MuseDesktopTunnelOptions {\n    readonly serverUrl: string;\n    readonly headers: Readonly<Record<string, string>>;\n    readonly localPort: number;\n    readonly loopbackCookie: string;\n    readonly deviceId: MuseDesktopDeviceId;\n    readonly deviceName: string;\n    readonly platform: \'win32\' | \'darwin\' | \'linux\' | \'unknown\';\n    readonly chunkBytes: number;\n    readonly ackTimeoutMs: number;\n    readonly reconnectMaxIntervalMs: number;\n    readonly onState: (state: MuseDesktopConnectionState) => void;\n}',
   },
   {
     name: 'NativeFileApplication',

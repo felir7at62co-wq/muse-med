@@ -1,38 +1,12 @@
 /** Real pinned desktop client paired with the account gateway over local HTTP and WebSocket. */
 import assert from 'node:assert/strict';
 import {once} from 'node:events';
-import http from 'node:http';
-import {cp,mkdtemp,rm,symlink,unlink} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
-import {fileURLToPath,pathToFileURL} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {gzipSync} from 'node:zlib';
 import {test} from 'node:test';
 import {WebSocket,WebSocketServer} from 'ws';
-import {openStore} from './store.mjs';
-import {createAccountServer} from './gateway.mjs';
-import {applyBridgeDesktopCompatibility} from '../../third_party/plugins/compatibility/bridge-desktop.mjs';
 
-const repository=fileURLToPath(new URL('../../',import.meta.url));
-
-async function listen(server){server.listen(0,'127.0.0.1');await once(server,'listening');return `http://127.0.0.1:${server.address().port}`;}
-async function fixture(t,desktopRelayOptions={}){
- const root=await mkdtemp(join(tmpdir(),'muse-real-desktop-')),tunnels=[],servers=[],wsServers=[];
- t.after(async()=>{await Promise.allSettled(tunnels.map(x=>x.stop()));for(const wss of wsServers){for(const ws of wss.clients)ws.terminate();await new Promise(r=>wss.close(r));}for(const server of servers){server.closeAllConnections();await new Promise(r=>server.close(r));}await unlink(join(root,'plugin/node_modules'));await rm(root,{recursive:true,force:true});});
- const plugin=join(root,'plugin');await cp(join(repository,'third_party/plugins/dsh-bridge'),plugin,{recursive:true});applyBridgeDesktopCompatibility(plugin);
- await symlink(join(repository,'third_party/plugins/toolchain/node_modules'),join(plugin,'node_modules'),process.platform==='win32'?'junction':'dir');
- const {createMuseDesktopTunnel}=await import(pathToFileURL(join(plugin,'lib/muse-desktop-tunnel.mjs')).href);
- const store=await openStore(join(root,'accounts.json'));await store.create('alice','password');await store.create('bob','password');
- const origin='https://muse.test',gateway=createAccountServer({store,workspaceMode:'desktop',publicOrigin:origin,desktopRelayOptions});servers.push(gateway);const base=await listen(gateway);
- async function login(username){const r=await fetch(base+'/login',{method:'POST',headers:{origin},body:new URLSearchParams({username,password:'password'}),redirect:'manual'});assert.equal(r.status,303);return r.headers.get('set-cookie').split(';')[0];}
- const alice=await login('alice'),bob=await login('bob');
- async function desktop(cookie,handler,deviceId=randomUUID()){
-  const host=http.createServer(handler);servers.push(host);await listen(host);
-  const tunnel=createMuseDesktopTunnel({serverUrl:base.replace('http:','ws:')+'/api/desktop/connect',headers:{cookie,origin},localPort:host.address().port,loopbackCookie:'host=local-private',deviceId,chunkBytes:32768,ackTimeoutMs:5000,reconnectMaxIntervalMs:1000});tunnels.push(tunnel);await tunnel.start();return {tunnel,host,deviceId};
- }
- return {base,origin,alice,bob,store,desktop,wsServers,login};
-}
+import {fixture} from './desktop-test-fixture.mjs';
 
 test('website forwards the same desktop, private settings, binary uploads and video ranges',async t=>{
  const f=await fixture(t),upload=Buffer.alloc(190000,72),video=Buffer.alloc(155000,91);let mutations=0;
@@ -62,10 +36,11 @@ test('remote mux retains its desktop Host authority and streams real WebSocket f
  socket.close();await once(socket,'close');
 });
 
-test('a second computer cannot replace a connected desktop and account revocation closes access',async t=>{
- const f=await fixture(t);await f.desktop(f.alice,(_req,res)=>res.end('original desktop'));
- await assert.rejects(f.desktop(f.alice,(_req,res)=>res.end('unwanted replacement')));
- assert.equal(await(await fetch(f.base+'/',{headers:{cookie:f.alice}})).text(),'original desktop');
+test('two computers remain connected independently and password reset revokes both',async t=>{
+ const f=await fixture(t),first=await f.desktop(f.alice,(_req,res)=>res.end('first desktop'));
+ const second=await f.desktop(f.alice,(_req,res)=>res.end('second desktop'));
+ assert.match(await(await fetch(f.base+'/',{headers:{cookie:f.alice}})).text(),/选择电脑/);
+ for(const [device,text] of [[first,'first desktop'],[second,'second desktop']])assert.equal(await(await fetch(`${f.base}/desktop/${device.deviceId}/`,{headers:{cookie:f.alice}})).text(),text);
  const id=f.store.list().find(a=>a.username==='alice').id;await f.store.resetPassword(id,'new-password');
  const response=await fetch(f.base+'/api/desktop/status',{headers:{cookie:f.alice},redirect:'manual'});assert.equal(response.status,303);
  assert.deepEqual(await(await fetch(f.base+'/api/desktop/status',{headers:{cookie:f.bob}})).json(),{state:'offline'});
@@ -85,7 +60,7 @@ test('a silent desktop loses online status after its server heartbeat deadline',
 
 test('only a complete unencoded entry page gains the private desktop presence observer',async t=>{
  const f=await fixture(t),body='<html><body><input value="draft"></body></html>';
- await f.desktop(f.alice,(req,res)=>{
+ const desktop=await f.desktop(f.alice,(req,res)=>{
   assert.equal(req.headers['accept-encoding'],'identity');
   if(req.url==='/?compressed=1') {
    const encoded=gzipSync(body);res.writeHead(200,{'content-type':'text/html','content-encoding':'gzip','content-length':encoded.length,etag:'encoded'});res.end(encoded);return;
@@ -94,7 +69,7 @@ test('only a complete unencoded entry page gains the private desktop presence ob
  });
  const response=await fetch(f.base+'/',{headers:{cookie:f.alice}});
  assert.equal(response.headers.get('content-length'),null);assert.equal(response.headers.get('etag'),null);
- assert.equal(await response.text(),body+'<script src="/desktop-presence.js"></script>');
+ assert.equal(await response.text(),body+`<script src="/desktop/${desktop.deviceId}/desktop-presence.js" data-name="电脑 · ${desktop.deviceId.slice(0,8)}"></script>`);
  const head=await fetch(f.base+'/',{method:'HEAD',headers:{cookie:f.alice}});assert.equal(head.headers.get('content-length'),String(Buffer.byteLength(body)));
  const range=await fetch(f.base+'/',{headers:{cookie:f.alice,range:'bytes=0-99'}});assert.equal(range.status,206);assert.equal(await range.text(),body);
  const encoded=await fetch(f.base+'/?compressed=1',{headers:{cookie:f.alice}});assert.equal(encoded.headers.get('etag'),'encoded');assert.equal(encoded.headers.get('content-length'),String(gzipSync(body).length));assert.equal(await encoded.text(),body);
@@ -132,4 +107,109 @@ test('a refused native WebSocket upgrade leaves other desktop requests connected
  const [,response]=await once(browser,'unexpected-response');assert.equal(response.statusCode,503);response.destroy();
  assert.deepEqual(await(await fetch(f.base+'/api/desktop/status',{headers:{cookie:f.alice}})).json(),{state:'online'});
  assert.equal(await(await fetch(f.base+'/',{headers:{cookie:f.alice}})).text(),'desktop still available');
+});
+
+test('two tabs route mutations and streams to their selected computer and reject another account device',async t=>{
+ const f=await fixture(t),seen=[[],[]],streams=[];
+ function handler(index){return async(req,res)=>{
+  seen[index].push(req.url);assert.equal(req.headers.cookie,'host=local-private');
+  if(req.url==='/api/live'){res.writeHead(200,{'content-type':'text/event-stream'});res.write(`data: computer-${index}\n\n`);streams[index]=res;return;}
+  const chunks=[];for await(const chunk of req)chunks.push(chunk);
+  res.end(JSON.stringify({computer:index,path:req.url,body:Buffer.concat(chunks).toString()}));
+ };}
+ const one=await f.desktop(f.alice,handler(0),randomUUID(),{deviceName:'剪辑电脑',platform:'win32'});
+ const two=await f.desktop(f.alice,handler(1),randomUUID(),{deviceName:'外出 Mac',platform:'darwin'});
+ const other=await f.desktop(f.bob,(_req,res)=>res.end('PRIVATE BOB'));
+ const devices=await(await fetch(f.base+'/api/desktop/devices',{headers:{cookie:f.alice}})).json();
+ assert.deepEqual(devices.devices.map(d=>[d.name,d.platform,d.state]),[['剪辑电脑','win32','online'],['外出 Mac','darwin','online']]);
+ assert.doesNotMatch(JSON.stringify(devices),new RegExp(other.deviceId+'|local-private|__Host-muse'));
+ const picker=await(await fetch(f.base+'/',{headers:{cookie:f.alice}})).text();
+ assert.match(picker,/剪辑电脑/);assert.match(picker,/外出 Mac/);assert.doesNotMatch(picker,new RegExp(other.deviceId));
+ const controllers=[new AbortController(),new AbortController()];t.after(()=>controllers.forEach(c=>c.abort()));
+ const mounts=[one,two].map(d=>`${f.base}/desktop/${d.deviceId}/`);
+ const live=await Promise.all(mounts.map((mount,index)=>fetch(mount+'api/live',{headers:{cookie:f.alice},signal:controllers[index].signal})));
+ for(let index=0;index<2;index++)assert.equal(Buffer.from((await live[index].body.getReader().read()).value).toString(),`data: computer-${index}\n\n`);
+ const mutations=await Promise.all(mounts.map((mount,index)=>fetch(mount+'api/write?file=script.md',{method:'POST',headers:{cookie:f.alice,origin:f.origin},body:`tab-${index}`})));
+ assert.deepEqual(await Promise.all(mutations.map(r=>r.json())),[{computer:0,path:'/api/write?file=script.md',body:'tab-0'},{computer:1,path:'/api/write?file=script.md',body:'tab-1'}]);
+ assert.deepEqual(seen,[['/api/live','/api/write?file=script.md'],['/api/live','/api/write?file=script.md']]);
+ assert.equal((await fetch(f.base+'/api/write',{method:'POST',headers:{cookie:f.alice,origin:f.origin},body:'ambiguous'})).status,503);
+ assert.equal((await fetch(`${f.base}/desktop/${other.deviceId}/api/write`,{method:'POST',headers:{cookie:f.alice,origin:f.origin}})).status,404);
+ streams.forEach(s=>s.end());
+});
+
+test('each computer has its own mounted WebSocket even with the same browser login',async t=>{
+ const f=await fixture(t),devices=[];
+ for(const label of ['first','second']){
+  const device=await f.desktop(f.alice,(_req,res)=>res.end(label));devices.push(device);
+  const native=new WebSocketServer({noServer:true});f.wsServers.push(native);
+  device.host.on('upgrade',(req,socket,head)=>{assert.equal(req.url,'/api/remote.mux');native.handleUpgrade(req,socket,head,ws=>ws.on('message',bytes=>ws.send(label+':'+bytes.toString())));});
+ }
+ const browsers=devices.map(d=>new WebSocket(`${f.base.replace('http:','ws:')}/desktop/${d.deviceId}/api/remote.mux`,{headers:{cookie:f.alice,origin:f.origin}}));
+ t.after(()=>browsers.forEach(s=>s.terminate()));await Promise.all(browsers.map(s=>once(s,'open')));
+ const replies=browsers.map(s=>once(s,'message'));browsers.forEach(s=>s.send('my-tab'));
+ assert.deepEqual((await Promise.all(replies)).map(x=>x[0].toString()),['first:my-tab','second:my-tab']);
+ await Promise.all(browsers.map(async s=>{const closed=once(s,'close');s.close();await closed;}));
+});
+
+test('an offline tab waits for its original installation while another computer remains online',async t=>{
+ const f=await fixture(t),one=await f.desktop(f.alice,(_req,res)=>res.end('FIRST'));
+ const two=await f.desktop(f.alice,(_req,res)=>res.end('SECOND'));
+ const mounted=`${f.base}/desktop/${one.deviceId}/`;
+ await one.tunnel.stop();
+ const offline=await fetch(mounted+'api/read',{headers:{cookie:f.alice}});assert.equal(offline.status,503);
+ assert.equal((await(await fetch(mounted+'api/desktop/status',{headers:{cookie:f.alice}})).json()).state,'offline');
+ assert.match(await(await fetch(mounted,{headers:{cookie:f.alice}})).text(),/连接恢复后会返回这台电脑/);
+ assert.equal(await(await fetch(`${f.base}/desktop/${two.deviceId}/`,{headers:{cookie:f.alice}})).text(),'SECOND');
+ const restored=await f.desktop(f.alice,(_req,res)=>res.end('FIRST RESTORED'),one.deviceId);
+ assert.equal(restored.deviceId,one.deviceId);
+ assert.equal(await(await fetch(mounted+'api/read',{headers:{cookie:f.alice}})).text(),'FIRST RESTORED');
+ assert.equal((await(await fetch(f.base+'/api/desktop/devices',{headers:{cookie:f.alice}})).json()).devices.length,2);
+});
+
+test('browser logout leaves independently authenticated computers connected and revokes its own observations',async t=>{
+ const f=await fixture(t),desktopCookie=await f.login('alice');
+ const one=await f.desktop(desktopCookie,(_req,res)=>res.end('ONE')),two=await f.desktop(desktopCookie,(_req,res)=>res.end('TWO'));
+ const logout=await fetch(f.base+'/logout',{method:'POST',headers:{cookie:f.alice,origin:f.origin},redirect:'manual'});assert.equal(logout.status,303);
+ assert.equal((await fetch(`${f.base}/desktop/${one.deviceId}/`,{headers:{cookie:f.alice},redirect:'manual'})).status,303);
+ for(const d of [one,two])assert.equal((await(await fetch(`${f.base}/desktop/${d.deviceId}/api/desktop/status`,{headers:{cookie:desktopCookie}})).json()).state,'online');
+});
+
+
+test('reconnecting the same installation replaces only its previous tunnel',async t=>{
+ const f=await fixture(t),states=[];
+ const first=await f.desktop(f.alice,(_req,res)=>res.end('OLD'),randomUUID(),{onState:state=>states.push(state)});
+ const other=await f.desktop(f.alice,(_req,res)=>res.end('OTHER'));
+ await f.desktop(f.alice,(_req,res)=>res.end('NEW'),first.deviceId);
+ assert.equal(await(await fetch(`${f.base}/desktop/${first.deviceId}/`,{headers:{cookie:f.alice}})).text(),'NEW');
+ assert.equal(await(await fetch(`${f.base}/desktop/${other.deviceId}/`,{headers:{cookie:f.alice}})).text(),'OTHER');
+ assert.equal((await(await fetch(f.base+'/api/desktop/devices',{headers:{cookie:f.alice}})).json()).devices.length,2);
+ assert.ok(states.includes('rejected'));
+});
+
+
+test('desktop redirects retain the selected mount and resolve relative paths from the request',async t=>{
+ const f=await fixture(t),device=await f.desktop(f.alice,(req,res)=>{res.writeHead(302,{location:req.url==='/section/start'?'next?file=%2Fa.md#result':'/login-local'});res.end();});
+ const mount=`/desktop/${device.deviceId}/`;
+ const relative=await fetch(f.base+mount+'section/start',{headers:{cookie:f.alice},redirect:'manual'});
+ assert.equal(relative.headers.get('location'),mount+'section/next?file=%2Fa.md#result');
+ const absolute=await fetch(f.base+mount+'anything',{headers:{cookie:f.alice},redirect:'manual'});
+ assert.equal(absolute.headers.get('location'),mount+'login-local');
+ const canonical=await fetch(f.base+mount.slice(0,-1)+'?lang=zh',{headers:{cookie:f.alice},redirect:'manual'});
+ assert.equal(canonical.status,303);assert.equal(canonical.headers.get('location'),mount+'?lang=zh');
+});
+
+test('another account cannot open a computer WebSocket',async t=>{
+ const f=await fixture(t),device=await f.desktop(f.bob,(_req,res)=>res.end());
+ const socket=new WebSocket(`${f.base.replace('http:','ws:')}/desktop/${device.deviceId}/api/remote.mux`,{headers:{cookie:f.alice,origin:f.origin}});
+ socket.on('error',()=>{});t.after(()=>socket.terminate());
+ const [,response]=await once(socket,'unexpected-response');assert.equal(response.statusCode,404);response.destroy();
+});
+
+
+test('a rejected additional installation leaves the admitted computer usable',async t=>{
+ const f=await fixture(t,{maxDevices:1}),first=await f.desktop(f.alice,(_req,res)=>res.end('ADMITTED'));
+ const states=[];await assert.rejects(f.desktop(f.alice,(_req,res)=>res.end('OVER LIMIT'),randomUUID(),{onState:state=>states.push(state)}));assert.ok(states.includes('rejected'));
+ assert.equal(await(await fetch(`${f.base}/desktop/${first.deviceId}/`,{headers:{cookie:f.alice}})).text(),'ADMITTED');
+ const devices=(await(await fetch(f.base+'/api/desktop/devices',{headers:{cookie:f.alice}})).json()).devices;
+ assert.equal(devices.length,1);assert.equal(devices[0].state,'online');
 });

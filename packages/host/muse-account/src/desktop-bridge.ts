@@ -16,6 +16,10 @@ export interface MuseDesktopTunnelOptions {
   readonly localPort: number
   readonly loopbackCookie: string
   readonly deviceId: MuseDesktopDeviceId
+  /** Computer name shown only to browsers signed into its account. */
+  readonly deviceName: string
+  /** Operating system used to distinguish installations in the computer picker. */
+  readonly platform: 'win32' | 'darwin' | 'linux' | 'unknown'
   readonly chunkBytes: number
   readonly ackTimeoutMs: number
   readonly reconnectMaxIntervalMs: number

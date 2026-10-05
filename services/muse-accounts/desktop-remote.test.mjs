@@ -25,10 +25,13 @@ test('desktop website login opens an offline Muse page without starting a cloud 
  assert.equal(response.status,200);assert.match(await response.text(),/您的电脑上的 Muse 未启动/);assert.equal(f.cloudStarts(),0);
 });
 
-test('desktop status is private and reports no connected computer without a device picker',async t=>{
+test('desktop status and computer list require login and start no cloud agent',async t=>{
  const f=await fixture(t);assert.equal((await fetch(f.base+'/api/desktop/status',{redirect:'manual'})).status,303);
  const response=await fetch(f.base+'/api/desktop/status',{headers:{cookie:f.cookie}});assert.equal(response.status,200);
  assert.deepEqual(await response.json(),{state:'offline'});assert.equal(f.cloudStarts(),0);
+ assert.equal((await fetch(f.base+'/api/desktop/devices',{redirect:'manual'})).status,303);
+ assert.deepEqual(await(await fetch(f.base+'/api/desktop/devices',{headers:{cookie:f.cookie}})).json(),{devices:[]});
+ assert.match(await(await fetch(f.base+'/computers',{headers:{cookie:f.cookie}})).text(),/选择电脑/);
 });
 
 test('invalid workspace mode fails before listening rather than silently launching another runtime',async t=>{
