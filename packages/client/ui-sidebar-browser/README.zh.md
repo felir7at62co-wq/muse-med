@@ -87,6 +87,9 @@ Desktop 主进程批准 guest 租约，并执行挂载、导航和权限策略�
 -----
 
 <a id="model-experience"></a>
+
+官方抖音视频页按工作区保留登录，应用重启后可继续使用；主文档仅导航到抖音官方 HTTPS 页面。下载工具会自动打开这些页面。其他浏览器页面继续使用进程内临时存储。Host 管理每项下载，核对确切作品和完整媒体文件。
+
 ## 模型体验
 
 无。Browser tab 是用户侧呈现状态，不注册工具、prompt section 或 Session event。

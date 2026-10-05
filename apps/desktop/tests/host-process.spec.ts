@@ -73,6 +73,27 @@ afterEach(async () => {
 })
 
 describe('desktop host process', () => {
+  it('waits for one native download cleanup after both child disconnect and exit', async () => {
+    const runtime = projectWithHost()
+    const completion = Promise.withResolvers<undefined>()
+    const cleanup = vi.fn(() => completion.promise)
+    const host = new DesktopHostProcess(process.execPath, runtime, runtime, undefined, process.env,
+      undefined, undefined, undefined, undefined, undefined, undefined, cleanup)
+    hosts.push(host)
+    await host.start()
+    let stopped = false
+    const stopping = host.stop(true).then(() => { stopped = true })
+    try {
+      await vi.waitFor(() => { expect(cleanup).toHaveBeenCalledOnce() })
+      expect(stopped).toBe(false)
+    } finally {
+      completion.resolve(undefined)
+      await stopping
+    }
+    expect(stopped).toBe(true)
+    expect(cleanup).toHaveBeenCalledOnce()
+  })
+
   it('correlates task inspections and admission changes over private IPC', async () => {
     const host = hostProcess(projectWithHost())
     await expect(host.updateTasks('inspect')).rejects.toThrow('Host is unavailable')

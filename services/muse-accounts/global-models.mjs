@@ -8,13 +8,16 @@ const own=(o,k)=>Object.hasOwn(o,k),plain=o=>o!==null&&typeof o==='object'&&!Arr
 const banned=new Set(['__proto__','prototype','constructor']);
 const refOK=r=>typeof r==='string'&&/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(r)&&!banned.has(r);
 const text=(v,max=200)=>typeof v==='string'&&v.trim().length>0&&v.length<=max&&!/[\x00-\x1f]/.test(v);
-const providerFields=['displayName','baseURL','api','apiKeyEnv','models'],modelFields=['id','name','contextWindow','maxTokens','input','reasoningEfforts'];
+const effortIds=['off','minimal','low','medium','high','xhigh','max'];
+const providerFields=['displayName','baseURL','api','apiKeyEnv','models'],modelFields=['id','name','contextWindow','maxTokens','input','reasoningEfforts','defaultReasoningEffort'];
 export function restrictModelSchema(source){
  const schema=structuredClone(source),node=value=>schema.refs?schema.refs[value]:value,root=schema.refs?node(schema.uid):schema,profile=node(node(root.dict?.providers)?.inner);
  if(!profile?.dict)throw Error('Unsupported native model schema');
  profile.dict=Object.fromEntries(Object.entries(profile.dict).filter(([key])=>providerFields.includes(key)));
  const api=node(profile.dict.api);if(api?.type!=='union'||!Array.isArray(api.list))throw Error('Unsupported native API schema');api.list=api.list.filter(ref=>node(ref).type==='const'&&node(ref).value==='openai-completions');if(api.list.length!==1)throw Error('Native schema does not support Chat Completions');
- const model=node(node(profile.dict.models)?.inner);if(!model?.dict)throw Error('Unsupported native model list schema');model.dict=Object.fromEntries(Object.entries(model.dict).filter(([key])=>modelFields.includes(key)));return schema;
+ const model=node(node(profile.dict.models)?.inner);if(!model?.dict)throw Error('Unsupported native model list schema');model.dict=Object.fromEntries(Object.entries(model.dict).filter(([key])=>modelFields.includes(key)));
+ const add=value=>{if(!schema.refs)return value;const id=Math.max(...Object.keys(schema.refs).map(Number))+1;schema.refs[id]=value;return id;};
+ model.dict.defaultReasoningEffort=add({type:'union',list:effortIds.filter(id=>id!=='off').map(value=>add({type:'const',value}))});return schema;
 }
 function reject(message,code='settings/rejected'){throw Object.assign(Error(message),{code});}
 function validate(providers){
@@ -27,12 +30,13 @@ function validate(providers){
   baseAddress(p.baseURL);if(p.apiKeyEnv!==undefined&&!refOK(p.apiKeyEnv))reject('请填写有效的凭据引用');
   if(!Array.isArray(p.models)||p.models.length>256)reject('请手动填写模型列表');const ids=new Set();
   for(const m of p.models){
-   if(!plain(m)||Object.keys(m).some(k=>!['id','name','contextWindow','maxTokens','input','reasoningEfforts'].includes(k))||!text(m.id)||ids.has(m.id))reject('模型 ID 或字段无效');ids.add(m.id);
+   if(!plain(m)||Object.keys(m).some(k=>!modelFields.includes(k))||!text(m.id)||ids.has(m.id))reject('模型 ID 或字段无效');ids.add(m.id);
    if(m.name!==undefined&&!text(m.name))reject('模型名称无效');
    for(const key of ['contextWindow','maxTokens'])if(m[key]!==undefined&&(!Number.isSafeInteger(m[key])||m[key]<1||m[key]>2000000))reject('模型容量无效');
    if((m.maxTokens??8192)>(m.contextWindow??128000))reject('输出上限超过上下文容量');
    if(m.input!==undefined&&(!Array.isArray(m.input)||!m.input.length||m.input.some(x=>!['text','image'].includes(x))))reject('模型输入类型无效');
-   const e=m.reasoningEfforts;if(e!==undefined&&e!==false&&(!plain(e)||!Object.keys(e).some(k=>k!=='off')||Object.entries(e).some(([k,v])=>!['off','minimal','low','medium','high','xhigh','max'].includes(k)||!(k==='off'&&v===null||text(v,64)))))reject('思考档位无效');
+   const e=m.reasoningEfforts;if(e!==undefined&&e!==false&&(!plain(e)||!Object.keys(e).some(k=>k!=='off')||Object.entries(e).some(([k,v])=>!effortIds.includes(k)||!(k==='off'&&v===null||text(v,64)))))reject('思考档位无效');
+   if(m.defaultReasoningEffort!==undefined&&(!effortIds.includes(m.defaultReasoningEffort)||m.defaultReasoningEffort==='off'||!plain(e)||!own(e,m.defaultReasoningEffort)||!text(e[m.defaultReasoningEffort],64)))reject('默认思考档位必须是模型已声明的启用档位');
   }
  }
 }
@@ -49,7 +53,7 @@ export async function openGlobalModels(file,{legacyConfig,schema={type:'object'}
   listProviders:()=>[...official?[{id:'deepseek-official',name:'DeepSeek'}]:[],...Object.entries(current.providers).map(([id,p])=>({id,name:p.displayName||id}))],
   listConfigurableProviders:()=>[...official?[{provider:'deepseek-official',displayName:'DeepSeek',settingsNs:'llm-deepseek',settingsPath:[]}]:[],...Object.entries(current.providers).map(([provider,p])=>({provider,displayName:p.displayName||provider,settingsNs:'llm-pi-ai',settingsPath:['providers',provider],declared:true}))],
   metadata:()=>({revision:current.metadataRevision,...official?{deepseek:officialMetadata(official,current.deepseek)}:{},providers:Object.fromEntries(Object.entries(current.providers).map(([route,p])=>[route,{displayName:p.displayName||route,models:p.models.map(m=>({...structuredClone(m),name:m.name||m.id,contextWindow:m.contextWindow??128000,maxTokens:m.maxTokens??8192,input:m.input??['text'],reasoningEfforts:m.reasoningEfforts??false}))}]))}),
-  resolve:(route,id)=>{if(official&&route==='deepseek-official'){const p=officialValue(official,current.deepseek),m=p.models.find(m=>m.id===id);return m?{baseURL:p.baseURL,apiKey:current.credentials[p.apiKeyEnv],model:m.id,maxTokens:m.maxTokens??p.maxTokens,thinking:p.thinking,reasoningEfforts:p.thinking==='disabled'?false:{low:'low',high:'high',max:'max'}}:undefined;}const p=own(current.providers,route)?current.providers[route]:undefined,m=p?.models.find(m=>m.id===id);return m?{baseURL:p.baseURL,apiKey:current.credentials[p.apiKeyEnv],model:m.id,maxTokens:m.maxTokens??8192,reasoningEfforts:structuredClone(m.reasoningEfforts??false)}:undefined;},
+  resolve:(route,id)=>{if(official&&route==='deepseek-official'){const p=officialValue(official,current.deepseek),m=p.models.find(m=>m.id===id);return m?{baseURL:p.baseURL,apiKey:current.credentials[p.apiKeyEnv],model:m.id,maxTokens:m.maxTokens??p.maxTokens,thinking:p.thinking,reasoningEfforts:p.thinking==='disabled'?false:{low:'low',high:'high',max:'max'}}:undefined;}const p=own(current.providers,route)?current.providers[route]:undefined,m=p?.models.find(m=>m.id===id);return m?{baseURL:p.baseURL,apiKey:current.credentials[p.apiKeyEnv],model:m.id,maxTokens:m.maxTokens??8192,reasoningEfforts:structuredClone(m.reasoningEfforts??false),...m.defaultReasoningEffort===undefined?{}:{defaultReasoningEffort:m.defaultReasoningEffort}}:undefined;},
   mutate:args=>serial(async()=>{
    if(args.expectedRevision!==current.revision)reject('配置已变化，请刷新后重试','settings/conflict');
    if(args.ns==='llm-deepseek'&&official){

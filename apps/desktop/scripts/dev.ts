@@ -96,6 +96,7 @@ async function main(): Promise<void> {
     await runPackageScript('build', REPOSITORY_ROOT)
     await runPackageScript('build', APP_ROOT)
     await run(process.execPath, [join(REPOSITORY_ROOT, 'third_party', 'plugins', 'build.mjs'), '--out', join(DEVELOPMENT_ROOT, 'community-plugins')], REPOSITORY_ROOT)
+    await run(process.execPath, [join(REPOSITORY_ROOT, 'third_party', 'plugins', 'build-downloads.mjs'), '--out', join(DEVELOPMENT_ROOT, 'community-plugins')], REPOSITORY_ROOT)
   }
   for (const path of [
     join(APP_ROOT, 'lib', 'main.js'),

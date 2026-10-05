@@ -79,7 +79,7 @@ export interface ReportInput {
   readonly encodedShots: readonly number[]
   /** Shots this call reused from the cache. */
   readonly reusedShots: readonly number[]
-  /** The ending frame's provenance. */
+  /** The ending frame's source record. */
   readonly tailFrame: TailFrameEvidence
   /** The delivered file's measured facts. */
   readonly media: MediaFacts

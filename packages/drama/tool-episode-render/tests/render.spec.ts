@@ -263,7 +263,7 @@ describe('renderEpisode', () => {
       { shot: 1, source: join(prepared.paths.videoDir, 'shot_001.mp4'), start_us: 0, duration_us: 5_050_000 },
       { shot: 2, source: join(prepared.paths.videoDir, 'shot_002.mp4'), start_us: 5_050_000, duration_us: 109_683_332 },
     ])
-    expect(report.written).toEqual([prepared.output, `${prepared.output}.provenance.json`,
+    expect(report.written).toEqual([prepared.output, `${prepared.output}.source-record.json`,
       prepared.paths.renderLog])
     expect(report.log_path).toBe(prepared.paths.renderLog)
     expect(report.failures).toEqual([])

@@ -1,0 +1,4 @@
+# The profile supplies agent scope, tools, and managed subprocess execution.
+- insert:
+    - id: muse-douyin-download
+      name: muse-douyin-download

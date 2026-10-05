@@ -12,7 +12,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
 import { resolveDesktopPaths } from '../src/paths.ts'
 import { DesktopProjectManager } from '../src/project-manager.ts'
@@ -72,8 +71,8 @@ describe('owned desktop child processes', () => {
     const started = host.start()
     expect(spawnCalls).toHaveLength(1)
     expect(spawnCalls[0]?.windowsHide).toBe(true)
-    child?.emit('message', { type: 'ready', protocolVersion: DESKTOP_HOST_PROTOCOL_VERSION, dshVersion: '0.0.0-test' })
-    await expect(started).resolves.toMatchObject({ dshVersion: '0.0.0-test' })
+    child?.emit('message', { type: 'ready', url: 'http://127.0.0.1:3131/?token=fixture', injections: [] })
+    await expect(started).resolves.toMatchObject({ url: 'http://127.0.0.1:3131/?token=fixture' })
   })
 
   it('runs the package manager with a hidden console', async () => {

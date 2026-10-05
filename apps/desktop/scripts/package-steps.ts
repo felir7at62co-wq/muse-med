@@ -125,6 +125,9 @@ export function desktopPackageSteps(
   }
   const pinnedTarballs = Object.keys(sources)
     .map(source => packedTarball(join('third_party', 'plugins', source), `community plugin ${source}`))
+  const downloads = JSON.parse(readFileSync(join(root, 'third_party', 'plugins', 'owned-downloads.json'), 'utf8')) as Record<string, { version: string }>
+  const downloadTarballs = Object.keys(downloads)
+    .map(source => packedTarball(join('third_party', 'plugins', source), `Muse download tool ${source}`))
 
   return [
     {
@@ -161,8 +164,8 @@ export function desktopPackageSteps(
     },
     {
       id: 'S6',
-      title: 'build and pack the pinned community plugins',
-      artifacts: pinnedTarballs,
+      title: 'build and pack source plugins and Muse download tools',
+      artifacts: [...pinnedTarballs, ...downloadTarballs],
     },
     {
       id: 'S7',

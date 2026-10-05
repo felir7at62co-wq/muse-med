@@ -42,7 +42,7 @@ kind: "package-reference"
 
 ### 笔记清单
 
-`list` 只报告普通 `.md` 文件，行的类别取自其自身 id 的首个片段，因此直接位于根下的笔记没有类别。遍历最多下降八层目录，更深的目录会被跳过且不予报告。尚未创建的根是正常的空状态 `state: 'absent'`，没有任何行；而存在但不是目录的根会让该调用以 `agent-note/not-regular-file` 失败。`maxNotes` 会中止遍历并置 `truncated`。标题、`status` 与 `summary` 来自每篇笔记自身的文本，`modifiedMs` 仅在 Host 能观察到该文件修改时间时出现。
+`list` 只报告规范根目录内的普通 `.md` 文件，跳过符号链接文件和目录，行的类别取自其自身 id 的首个片段，因此直接位于根下的笔记没有类别。遍历最多下降八层目录，更深的目录会被跳过且不予报告。尚未创建的根是正常的空状态 `state: 'absent'`，没有任何行；而存在但不是目录的根会让该调用以 `agent-note/not-regular-file` 失败。`maxNotes` 会中止遍历并置 `truncated`。标题、`status` 与 `summary` 来自每篇笔记自身的文本，`modifiedMs` 仅在 Host 能观察到该文件修改时间时出现。
 
 ### 笔记 id 与根边界
 

@@ -167,7 +167,7 @@ function manifest(path: string): PackageManifest {
 
 function packageFrom(anchor: string, name: string): string | undefined {
   if (!PACKAGE_NAME.test(name)) throw new Error(`desktop profile: invalid package name ${name}`)
-  for (const modules of createRequire(join(anchor, 'package.json')).resolve.paths(name) ?? []) {
+  for (const modules of createRequire(join(anchor, 'package.json')).resolve.paths(`${name}/package.json`) ?? []) {
     const path = join(modules, name)
     if (existsSync(join(path, 'package.json'))) return realpathSync.native(path)
   }

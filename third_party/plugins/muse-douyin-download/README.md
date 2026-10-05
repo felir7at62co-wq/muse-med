@@ -1,0 +1,23 @@
+# Muse Douyin download tool
+
+English | [中文](README.zh.md)
+
+`douyin_download` accepts a selected official HTTPS video/share `url`, or a checked `urls` list, and writes verified media into the initiating session's `source/media/douyin/` directory. Public requests always ignore saved browser settings. `publicOnly:true` disables the internal-browser fallback. No browser profile, Cookie file, remembered account or arbitrary output directory is accepted by the tool.
+
+## Runtime and configuration
+
+This package requires Desktop Host protocol 5 and `douyinBrowser.version === 1` for internal-browser acquisition. Installing the plugin alone does not add the browser transport. Desktop selects its validated bundled Python automatically, preserves explicit media executables, and discovers existing ffmpeg/ffprobe from the bundled media directory or ordinary PATH without installing packages or changing PATH. Mac installers include architecture-matched media executables; runtime discovery does not install dependencies.
+
+The public runner requires `agents`, `tools` and `subprocess`; browser fallback additionally uses the Host-owned transport. Deployment settings remain `pythonExecutable`, `ffprobeExecutable`, `ffmpegExecutable`, `settingsHome`, `requestTimeoutMs`, `timeoutMs`, `maxDownloadBytes`, `graceMs`, and `maxVideos`. Runner defaults are 120 seconds, 100 MiB and 20 links; configured public-runner limits may differ. Internal-browser transfers are fixed at one active task, 100 MiB and 120 seconds including preparation. Missing verification executables return a blocked result.
+
+## Internal playback and results
+
+After a public access failure, MUSE opens the official page in the existing isolated Browser panel for the currently selected Session. The user performs ordinary login, verification and playback. The initiating tool call starts the exact video download automatically. Official Douyin video tabs retain login per workspace across application restarts; unrelated browser tabs use process-local storage. The downloader does not access external browser databases, export session credentials, manufacture signatures or bypass access controls, CAPTCHA or DRM.
+
+The transport identifies media by either `player-exact` (target-specific public `_ROUTER_DATA` and the exact visible player's successful MP4 source), or `provider-detail-verified` (a page-generated official target detail JSON response, exact work ID, bounded plain MP4 addresses and matching visible-player duration). The latter observes only the main document's successful target response and reports `currentSrcMatched:false`; it never rewrites signed URLs or makes an API request. CDN requests and redirects require public DNS results. Missing metadata, recommendations, protected media, blob URLs, media fragments and ambiguous associations are unsupported. Observation of 200/206 does not indicate a complete download. A one-use Host/owner/Session/task/lease/target authorization enables only the exact native attempt; generic browser downloads remain rejected. Session switching, document replacement, page closure, expiry, cancellation and Host disconnect revoke it and cancel verification.
+
+Success requires actual nonzero bytes within the bound, ffprobe video/duration/dimension checks, complete ffmpeg decoding and SHA-256. Provider-selected files must also match the detail response's duration (within 0.25 seconds) and aspect ratio (within 1%). A source receipt includes the public video page, task/target IDs, bytes, duration, dimensions, identification method, a media hostname and hashed transient URL; it never includes Cookie, Authorization or signed media URLs. Files are published without overwriting existing output. `STAGED` is transport completion only, not the tool's downloaded result. Batches return `complete`, `partial` or `blocked` per verified item.
+
+## Validation and packaging
+
+Run `node --test tests/*.test.js` and `node scripts/pack.mjs --out /absolute/output/directory`. The tarball includes the canonical locked public Python extractor, but depends on the matching Host patch for internal-browser acquisition. Offline and synthetic media tests do not establish that the live acceptance URL can download. Live acceptance requires normal playback and a file-backed verified receipt for that URL.

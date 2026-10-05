@@ -7,6 +7,10 @@ const RELEASE_ENVIRONMENT = {
   DSH_DESKTOP_TARGET_PLATFORM: 'win32',
   DSH_DESKTOP_TARGET_ARCH: 'x64',
   DSH_DESKTOP_UNSIGNED: '1',
+  DSH_DESKTOP_AUTO_UPDATE_ENV: 'test',
+  DOWNLOAD_TEST_ORIGIN: 'https://updates.example.com',
+  DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: 'https://policy.example.com',
+  DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: 'false',
 }
 
 describe('desktop Windows NSIS payload', () => {

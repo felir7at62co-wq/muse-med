@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write third_party/plugins/muse-douyin-download/README.md
+/muse-douyin-download-tool:
+  en: 06cee12274157875
+  zh: ca5ae9fef83bdce1
+/muse-douyin-download-tool/runtime-and-configuration:
+  en: b11b9bb071748d1b
+  zh: 13955d17a04cf34b
+/muse-douyin-download-tool/internal-playback-and-results:
+  en: cfa55ec4a39d24a1
+  zh: 6ca3ee05e49a63da
+/muse-douyin-download-tool/validation-and-packaging:
+  en: ea7e322f8e472377
+  zh: 506ba6b3998649ea

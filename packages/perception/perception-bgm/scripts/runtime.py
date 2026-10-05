@@ -30,7 +30,7 @@ REPOSITORY = 'models--m-a-p--MERT-v1-95M'
 HEAD_SHA = 'deaceb291f7974deb688167d3639b7f6eb66eb0715824668618393777d1e07a5'
 BTC_SHA = '1673d23f8f9a55ae7f9e8b80a51da616debb22675b8d8b67ea6ce0ef37b0ab51'
 DISTUTILS_SHIM = "import os; var = 'SETUPTOOLS_USE_DISTUTILS'; enabled = os.environ.get(var, 'local') == 'local'; enabled and __import__('_distutils_hack').add_shim();"
-# Recorded once per distribution in the manifest; see the manifest-level `provenance`.
+# Recorded once per distribution in the manifest; see the manifest-level `packageSource`.
 LOCAL_SOURCE = 'local validated environment'
 PINS = {'torch': '2.3.1+cpu', 'torchaudio': '2.3.1+cpu', 'transformers': '4.44.0'}
 IMPORTS = ['torch', 'torchaudio', 'transformers', 'librosa', 'music21', 'mir_eval',
@@ -278,7 +278,7 @@ def prepare(args: argparse.Namespace) -> None:
                 'source': 'existing uv-managed standalone CPython; upstream archive URL not recorded'},
                 'models': {'mert_repository': 'm-a-p/MERT-v1-95M', 'revision': REVISION, 'license': 'CC-BY-NC-4.0'},
                 'distributions': distributions, 'supplementary_assets': assets(), 'omitted': omitted,
-                'provenance': f'Distributions marked "{LOCAL_SOURCE}" were copied byte-for-byte from the locally '
+                'packageSource': f'Distributions marked "{LOCAL_SOURCE}" were copied byte-for-byte from the locally '
                               'validated CPython 3.11.16 environment; nothing was downloaded, resolved or upgraded '
                               'during preparation. Each metadata_sha256 identifies the recorded name and version, and '
                               'files[] identifies the installed bytes. Upstream wheel hashes are not recorded, so this '

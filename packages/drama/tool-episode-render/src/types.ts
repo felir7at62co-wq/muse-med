@@ -179,7 +179,7 @@ export interface RenderCheck {
   readonly fix: string
 }
 
-/** The tail frame's provenance as the model reads it. */
+/** The tail frame's source record as the model reads it. */
 export interface TailFrameReport {
   /** Absolute path of the extracted PNG; empty when no ending was built. */
   readonly path: string
@@ -284,7 +284,7 @@ export interface DramaRenderReport {
   readonly encoded_shots: number[]
   /** Shots this call reused from the render cache, in shot order. */
   readonly reused_shots: number[]
-  /** The ending frame's provenance. */
+  /** The ending frame's source record. */
   readonly tail_frame: TailFrameReport
   /** The delivered file's measured facts. */
   readonly media: MediaFactsReport

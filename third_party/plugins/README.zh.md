@@ -4,6 +4,8 @@
 
 这七份源码快照保留了 Muse Med 使用的社区插件。[sources.json](sources.json) 记录各公开上游仓库、版本、许可证，以及修订或恢复发行包的 SHA-256。快照保留上游源码和清单；部分文本文件将 CRLF 规范为 LF。已安装的用户配置、凭据、用户媒体和生成的运行时均不作为构建输入。翻译检查仅排除这七个上游目录；本 README 与其他自有文档仍须成对维护。
 
+[owned-downloads.json](owned-downloads.json) 单独固定 Muse 红果和抖音下载 bundle 的版本。其源码、配置及验证限制分别由[红果](muse-hongguo-download/README.zh.md)和[抖音](muse-douyin-download/README.zh.md) README 说明；它们不改变保留的上游清单。
+
 ## 构建
 
 使用已安装依赖、且已构建当前 Host 与 Client 包的源码仓库。在仓库根目录运行：
@@ -30,7 +32,7 @@ Codex 订阅模型仅在连接了 Codex OAuth 账号时出现在模型选择器�
 
 构建脚本导入每个生成的 Host 入口。Codex 针对当前 DSH API 和 pi-ai 0.87.1 执行 26 项保留的上游检查，包括模型准备和已认证传输校验；上游注册上下文是测试替身，而非完整桌面 Loader。另有八项 Codex 检查加载真实 provider、Host adapter 和 CLI，通过模拟对端验证订阅 SSE 与子任务认证传输，并拒绝运行时版本偏移及错误的归档路径。FFmpeg 执行 89 项保留的检查。构建测试检查导出产物文件，并验证同一平台下两个全新临时目录生成的所有固定插件压缩包均逐字节一致。这不代表跨平台或整个安装包逐字节一致。
 
-[桌面打包入口](../../apps/desktop/scripts/package-target.ts)是将这些压缩包放在第一方打包输入旁的集成位置。[包集合准备](../../apps/desktop/scripts/prepare-package-set.ts)必须将七个插件包名选为显式根；源码工作区不得以注册表安装包替代这些压缩包。打包不等于启用：发布仍须通过真实桌面 Host/Client 烟测。账号登录、收费请求和真实媒体编码不在这些免密构建检查范围内。
+[桌面打包入口](../../apps/desktop/scripts/package-target.ts)在 S6 步骤构建两份清单中的插件，并将压缩包放在第一方打包输入旁。[包集合准备](../../apps/desktop/scripts/prepare-package-set.ts)将[源码插件包名](../../apps/desktop/src/core-package-set.ts)选为显式根，并拒绝注册表替代。桌面开发启动同样构建并暂存两份清单中的插件。打包不等于启用：发布仍须通过真实桌面 Host/Client 烟测。账号登录、收费请求和真实媒体编码不在这些免密构建检查范围内。
 
 Market 的 HTTP 界面不适用于无端口的桌面传输。Codex 使用可选的 connection fetch 传输，不要求 Web 服务器。FFmpeg 需要产品配置编码器路径。压缩包存在不代表功能已启用。
 
@@ -47,6 +49,18 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。Codex 使用可选�
 `muse-hongguo-search` 保留恢复的 0.1.0 JavaScript 源码、MIT 许可证、[恢复记录](muse-hongguo-search/RECOVERY.md)及原发行包。原开发提交未恢复；`sources.json` 固定已核实的原包 SHA-256。[Host 覆盖](compatibility/hongguo-host.mjs)依据固定清单检查全部 22 份保留文件，增加经过测试的精确 tools peer，并关闭全局启用。标准、PTC、创造、短剧和编辑预设各自在自己的作用域启用四个工具；极简模式不提供红果工具。
 
 搜索、详情、榜单与收藏筛选读取官方公开数据页，不需要 key 或 Cookie，也无需用户初始配置。结果区分收藏、点赞、热度、近似数及未完整覆盖的数据。搜索覆盖首屏窗口，榜单覆盖所选公开榜单，不能冒充全平台片库。网站请求保持串行、限速、缓存并支持取消；访问限制明确报错。插件不下载视频。恢复后的 20 项离线测试及真实 Host 注册、规范结果、提示词发现、输入拒绝、取消和卸载检查随打包运行。`test:hongguo` 检查两个全新目录生成的压缩包一致；实站可用性另行只读检查。
+
+### Muse 下载工具
+
+在仓库根目录通过独立[构建脚本](build-downloads.mjs)打包自有下载 bundle：
+
+```sh
+node third_party/plugins/build-downloads.mjs --out .artifacts/download-plugins
+```
+
+标准、PTC、创造、短剧和编辑预设在各自的智能体作用域内启用 `hongguo_download_info`、`hongguo_download` 和 `douyin_download`；极简预设不提供这些工具。工具以发起调用的会话工作区为输出位置。通过 `dsh plugin --profile headless add <tarball>` 安装压缩包会在该 profile 启用对应 bundle 补丁；构建新的桌面发行版则通过预设组合内置它们。
+
+红果默认使用用户提供源码的原接口，并接受多部系列 ID。操作者必须按包内文档配置原始 `config.json`、`devices.json` 和可用的签名服务。缺少原源配置会明确失败，公开试看集不代表全集可用。抖音接受用户指定的视频链接列表，对每个下载运行 FFmpeg 验证，并报告被拦截或部分完成的批次。视频列表本身不代表已覆盖整部剧；平台登录或验证可能需要用户明确选择的浏览器/profile，或用户提供的 Cookie 文件。
 
 ## 许可证
 

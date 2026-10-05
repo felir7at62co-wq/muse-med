@@ -45,11 +45,12 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   'skills/media-link-import/scripts/import_media.py',
 ] as const
 
-/** Community packages built from pinned source, never substituted from the npm registry. */
+/** Source-built community plugins and Muse download tools, with no registry substitution. */
 export const DESKTOP_SOURCE_PLUGINS = [
   'dshmarket', 'dsh-codex-subscription', 'dsh-ffmpeg',
   '@mengyuly/dsh-ponytail', '@wenbin_wb/dsh-bridge', 'dsh-skill-mcp-panel',
   'muse-hongguo-search',
+  'muse-hongguo-download', 'muse-douyin-download',
 ] as const
 
 /** One immutable npm tarball in the Desktop core package set. */

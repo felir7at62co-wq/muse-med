@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 vi.mock('../src/web-document.ts', () => ({ authenticateWebHost: async () => 'test-cookie', serveWebDocument: vi.fn(), forwardWebRequest: vi.fn() }))
 /** Muse startup opens the workspace without the legacy welcome flow. */
 
@@ -60,7 +61,7 @@ vi.mock('electron', () => ({
     setPath: vi.fn(),
     commandLine: { hasSwitch: () => true },
     setAboutPanelOptions: vi.fn(),
-    getAppPath: () => '/development-app',
+    getAppPath: () => fileURLToPath(new URL('../', import.meta.url)),
     getPath: (name: string) => name === 'userData' ? '/desktop-user-data' : `/development-${name}`,
     setAppLogsPath: vi.fn(),
     getPreferredSystemLanguages: () => ['en-US'],
@@ -184,6 +185,7 @@ it.each([false, true])('opens the Muse workspace after Host startup without show
   if (updated) vi.stubGlobal('process', { ...process, platform: 'win32', argv: ['desktop', '--updated'] })
   vi.useFakeTimers()
   vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
+  vi.stubEnv('DSH_CLIENT_COMMIT_HASH', 'a'.repeat(40))
   vi.stubEnv('DSH_DESKTOP_DEV_PROJECT_DIR', '/development-profile')
   vi.stubEnv('DSH_DESKTOP_NODE_BINARY', '/runtime/node')
   vi.stubEnv('DSH_DESKTOP_PNPM_ENTRY', '/runtime/pnpm')

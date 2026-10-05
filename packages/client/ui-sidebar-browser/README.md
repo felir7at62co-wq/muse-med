@@ -87,6 +87,9 @@ The page refresh shortcut calls the same reload operation as the toolbar. Its to
 -----
 
 <a id="model-experience"></a>
+
+Official Douyin video tabs retain login in a workspace-scoped persistent partition across application restarts; their main document stays on official Douyin HTTPS pages. Download tool calls open those tabs automatically. Other browser tabs keep process-local storage. The Host owns each download and verifies its exact target and complete media file.
+
 ## Model Experience
 
 None, as Browser tabs are user-facing presentation state and register no tool, prompt section, or Session event.

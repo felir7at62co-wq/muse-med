@@ -601,7 +601,10 @@ export async function packageTarget(
         '--dir', 'packages/perception/perception-bgm', 'pack', '--pack-destination', buildPaths.packedDsh,
       ], buildEnv, REPOSITORY_ROOT)
     },
-    S6: async () => { await execute(['exec', 'node', 'third_party/plugins/build.mjs', '--out', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT) },
+    S6: async () => {
+      await execute(['exec', 'node', 'third_party/plugins/build.mjs', '--out', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT)
+      await execute(['exec', 'node', 'third_party/plugins/build-downloads.mjs', '--out', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT)
+    },
     S7: async () => { await execute(['run', 'release:pack', '--family', 'vendor', '--out', buildPaths.packedVendor, ...packArguments], buildEnv, REPOSITORY_ROOT) },
     S8: async () => { await execute(['--dir', 'native/system', 'run', 'build:ts'], buildEnv, REPOSITORY_ROOT) },
     S9: async () => {

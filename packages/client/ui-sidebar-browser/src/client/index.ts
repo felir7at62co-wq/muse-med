@@ -96,8 +96,20 @@ export function apply(ctx: Context): void {
   }
   if (desktop === undefined) installFrames(ctx, () => createIframePage)
   else ctx.inject(['workspaces'], (scope) => {
-    installFrames(scope, sessionId => options => createElectronPage(options, desktop,
-      signal => browserWorkspace(scope.workspaces.list, sessionId, signal)))
+    scope.effect(() => {
+      const active = (): void => { desktop.activeSession?.(ctx.sidebarRight.mounted.getSnapshot()) }
+      active()
+      return ctx.sidebarRight.mounted.subscribe(active)
+    }, 'ui-sidebar-browser.download-session')
+    const pageRequested = desktop.onDownloadPageRequested?.bind(desktop)
+    if (pageRequested !== undefined) scope.effect(() => pageRequested((request) => {
+      if (ctx.sidebarRight.mounted.getSnapshot() === request.sessionId) ctx.sidebarRight.openTab('browser', { params: { url: request.url } })
+    }), 'ui-sidebar-browser.download-page')
+    installFrames(scope, sessionId => options => createElectronPage(options, {
+      ...desktop,
+      acquire: (workspace, _sessionId, initialUrl) => desktop.acquire(workspace, sessionId, initialUrl),
+    },
+    signal => browserWorkspace(scope.workspaces.list, sessionId, signal)))
   })
   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
     name: 'sidebar.right.pane.tab.title', key: BROWSER_ID, store,

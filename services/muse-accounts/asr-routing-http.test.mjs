@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,randomUUID} from 'node:crypto';
-import {mkdtemp,readdir,rm} from 'node:fs/promises';
+import {mkdtemp,readdir,realpath,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createAccountServer} from './gateway.mjs';
@@ -11,7 +11,7 @@ import {openStore} from './store.mjs';
 
 const bytes=Buffer.from('synthetic private audio'),hash=createHash('sha256').update(bytes).digest('hex'),origin='https://muse.test';
 async function fixture(t){
- const root=await mkdtemp(join(tmpdir(),'muse-asr-routing-http-'));let base,server,service;const submits=[],queries=[];
+ const root=await realpath(await mkdtemp(join(tmpdir(),'muse-asr-routing-http-')));let base,server,service;const submits=[],queries=[];
  t.after(async()=>{await service?.close();if(server?.listening)await new Promise(resolve=>server.close(resolve));await rm(root,{recursive:true,force:true});});
  const fetcher=async(url,options)=>{const target=new URL(url);assert.equal(target.origin,origin);return await fetch(base+target.pathname+target.search,options);};
  const storage=createGatewayAudioStore({root:join(root,'private-audio'),baseURL:origin+'/api/asr/audio/',secret:'synthetic-private'.repeat(4),signedUrlTtlSeconds:86400,timeoutMs:5000,fetcher});await storage.ready();

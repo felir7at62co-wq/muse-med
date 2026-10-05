@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -15,7 +15,7 @@ const STABLE = '0.1.6'
 
 describe('desktop build version', () => {
   it('reads the Muse product version independently from the harness manifests', () => {
-    expect(readDesktopProductVersion()).toBe('1.0.0')
+    expect(readDesktopProductVersion()).toBe((JSON.parse(readFileSync(new URL('../muse-product.json', import.meta.url), 'utf8')) as { version: string }).version)
     const root = mkdtempSync(join(tmpdir(), 'muse-version-'))
     try {
       writeFileSync(join(root, 'package.json'), '{"version":"0.1.7-rc.8"}\n')

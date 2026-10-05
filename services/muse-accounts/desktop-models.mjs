@@ -1,5 +1,5 @@
 /** Account-authenticated Desktop access to the website's current model catalog. */
-import {forwardModel} from './model-relay.mjs';
+import {forwardModel,resolveModelReasoning} from './model-relay.mjs';
 
 /** Resolve validated per-account and shared Desktop stream limits.
  * @param {object} environment Gateway environment settings.
@@ -20,6 +20,7 @@ export function desktopModelCatalog(globalModels,modelConfig){
   providers.push({id,name:provider.displayName||id,models:provider.models.map(model=>({
    id:model.id,name:model.name||model.id,contextWindow:model.contextWindow,maxTokens:model.maxTokens,
    input:model.input??['text'],reasoningEfforts:model.reasoningEfforts??false,
+   ...model.defaultReasoningEffort===undefined?{}:{defaultReasoningEffort:model.defaultReasoningEffort},
   }))});
  }
  if(meta?.deepseek){const p=meta.deepseek;providers.push({id:'deepseek-official',name:'DeepSeek',models:p.models.map(m=>({
@@ -62,9 +63,8 @@ export function createDesktopModels({globalModels,modelConfig,forward=forwardMod
    if(!globalModels&&route==='muse-shared'&&body.model==='muse-shared')config=modelConfig?.private();
    if(!config){fail(400,'模型已撤回或不属于此供应商，请刷新模型列表');return;}
    if(!config.apiKey){fail(503,'管理员尚未配置该模型凭据');return;}
-   if(body.reasoning_effort!==undefined&&(!config.reasoningEfforts||typeof body.reasoning_effort!=='string'||!Object.values(config.reasoningEfforts).includes(body.reasoning_effort))){fail(400,'模型不支持所选思考档位');return;}
+   try{resolveModelReasoning(config,body);}catch(error){fail(400,error.message);return;}
    body.model=config.model;
-   if(config.thinking==='disabled'){body.thinking={type:'disabled'};delete body.reasoning_effort;}
    for(const key of ['max_tokens','max_completion_tokens'])if(body[key]!==undefined){if(!Number.isSafeInteger(body[key])||body[key]<1){fail(400,'输出上限无效');return;}body[key]=Math.min(body[key],config.maxTokens);}
    if(body.max_tokens===undefined&&body.max_completion_tokens===undefined)body.max_tokens=config.maxTokens;
    if(controller.signal.aborted){fail(401,'Muse 登录已失效');return;}

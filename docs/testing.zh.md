@@ -2,7 +2,7 @@
 
 [English](testing.md) | 中文
 
-本文说明本仓库的分层测试方式，以及保持绿色测试套件有意义的规则。命令见根目录 [AGENTS.md](../AGENTS.md)；相关 Agent Note 承载设计动机。
+测试层级与保证结果有意义的规则。命令见根目录 [AGENTS.md](../AGENTS.md)；链接的 Agent Notes 解释决策。
 
 ## 层级
 
@@ -15,6 +15,8 @@
 - **Web 浏览器快照**（`pnpm run test:web`；必需的 Linux PR（Pull Request）门禁）：命令先构建插件 CSS，再用 Chromium 比较 `snapshots/web/` 下全部会话驱动输出和 `apps/web/tests/expected/` 下全部纯 UI 输出；模型与推理强度选择场景还在 WebKit 中运行。CI 强制只读的 `DSH_SNAPSHOT=replay`；record/refresh 留在本地，每处 diff 都须评审（[web 车道](../.agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.zh.md)、[CI 说明](../scripts/run-web-snapshots.ts)）。
 
 Session fixture 保留 header 与 payload，但省略正文 seq/time envelope；replay 会合成这些 envelope。Replay、record 与 refresh 会选择每个 parent/child 角色的最高 generation。当前 fixture 在文件名与 header 中使用[写入格式](session-format-status.zh.md)，每个事件一行，并嵌入紧凑 Assistant stream。历史 fixture 保留其已发布表示；显式 `sessionFormat` 所有者保留迁移覆盖。按照[格式版本实操手册](cookbook/adding-a-session-format-version.zh.md#snapshot-successors)添加后继代际，不改动前代。
+
+`check:ci:windows-observational` 是 `check:ci:windows-observational-ready` 的别名，用于已有的 Windows 构建。
 
 ## spec 如何被执行
 

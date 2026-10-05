@@ -11,7 +11,7 @@ it('allows large tarball bodies to finish beyond pnpm default sixty-second deadl
 
 it('passes the explicit native pnpm setting while retaining environment isolation', () => {
   const source = readFileSync(new URL('../scripts/prepare-dsh.ts', import.meta.url), 'utf8')
-  expect(source).toContain("await runPnpm(['install', '--lockfile-only'])")
+  expect(source).toContain("runPnpm(['install', '--lockfile-only'])")
   expect(source).not.toContain('--config.fetch-timeout')
   expect(source.slice(source.indexOf('function runPnpm'), source.indexOf('async function main'))).not.toContain('--fetch-timeout')
   expect(source).toContain("'install', '--prod', '--frozen-lockfile', '--trust-lockfile',\n      `--fetch-timeout=${desktopFetchTimeout(process.env)}`,")

@@ -508,7 +508,7 @@ describe('gate graph validation', () => {
     }
 
     expect(scripts['check:ci:windows-observational-ready']).toBe('tsx scripts/run-gates.ts ci-windows-observational-ready')
-    expect(scripts).not.toHaveProperty('check:ci:windows-observational')
+    expect(scripts['check:ci:windows-observational']).toBe(scripts['check:ci:windows-observational-ready'])
     const completeOnly = new Set(['build', 'windows-site', 'native-system', 'coverage', 'coverage-exempt-heavy'])
     const shared = complete.filter(gate => !completeOnly.has(gate.id))
     expect(ready.map(gate => gate.id).sort()).toEqual([...shared.map(gate => gate.id), 'docs-site-build'].sort())

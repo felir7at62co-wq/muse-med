@@ -23,6 +23,7 @@ function communityFixture(root: string): { repositoryRoot: string; communityArti
   const repositoryRoot = join(root, 'repository')
   mkdirSync(join(repositoryRoot, 'third_party', 'plugins'), { recursive: true })
   writeFileSync(join(repositoryRoot, 'third_party', 'plugins', 'sources.json'), '{}\n')
+  writeFileSync(join(repositoryRoot, 'third_party', 'plugins', 'owned-downloads.json'), '{}\n')
   const communityArtifactsDir = join(root, 'community')
   mkdirSync(communityArtifactsDir, { recursive: true })
   return { repositoryRoot, communityArtifactsDir }
@@ -66,7 +67,11 @@ describe('desktop development project', () => {
     expect(descriptor.sharedPackages).toContainEqual({ name: 'unhoisted', version: '1.2.3', path: 'node_modules/unhoisted' })
   })
 
-  it('manages development plugins without modifying the linked workspace packages', async () => {
+  it.each([
+    ['dsh-codex-subscription', 'sources.json'],
+    ['muse-hongguo-download', 'owned-downloads.json'],
+    ['muse-douyin-download', 'owned-downloads.json'],
+  ])('manages %s without modifying the linked workspace packages', async (pluginName, pinFile) => {
     const root = temporaryRoot()
     const cli = join(root, 'apps', 'cli')
     const host = join(root, 'apps', 'desktop-host')
@@ -86,17 +91,20 @@ describe('desktop development project', () => {
 
     const source = join(root, 'third_party', 'plugins')
     const artifacts = join(root, 'community')
-    mkdirSync(join(source, 'dsh-codex-subscription'), { recursive: true })
+    mkdirSync(join(source, pluginName), { recursive: true })
     mkdirSync(artifacts)
     const packageDir = join(root, 'package')
     mkdirSync(join(packageDir, 'lib'), { recursive: true })
-    const pluginManifest = { name: 'dsh-codex-subscription', version: '2.1.5', main: 'lib/index.js', dependencies: { 'plain-dependency': '1.0.0' } }
-    writeFileSync(join(source, 'sources.json'), JSON.stringify({ 'dsh-codex-subscription': { version: '2.1.5' } }))
-    writeFileSync(join(source, 'dsh-codex-subscription', 'package.json'), JSON.stringify(pluginManifest))
+    const pluginManifest = { name: pluginName, version: '2.1.5', main: 'lib/index.js', dependencies: { 'plain-dependency': '1.0.0' } }
+    writeFileSync(join(source, 'sources.json'), '{}\n')
+    writeFileSync(join(source, 'owned-downloads.json'), '{}\n')
+    writeFileSync(join(source, pinFile), JSON.stringify({ [pluginName]: { version: '2.1.5' } }))
+    writeFileSync(join(source, pluginName, 'package.json'), JSON.stringify(pluginManifest))
     writeFileSync(join(packageDir, 'package.json'), JSON.stringify(pluginManifest))
     writeFileSync(join(packageDir, 'SOURCE.json'), JSON.stringify({ hostVersion: '1.2.3' }))
     writeFileSync(join(packageDir, 'lib/index.js'), 'module.exports = 42')
-    c({ sync: true, gzip: true, cwd: root, file: join(artifacts, 'dsh-codex-subscription-2.1.5.tgz') }, ['package'])
+    const artifact = join(artifacts, `${pluginName}-2.1.5.tgz`)
+    c({ sync: true, gzip: true, cwd: root, file: artifact }, ['package'])
     const project = prepareDevelopmentProject({
       repositoryRoot: root,
       communityArtifactsDir: artifacts,
@@ -116,26 +124,26 @@ describe('desktop development project', () => {
     const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')) as {
       dependencies: Record<string, string>
     }
-    expect(createRequire(join(project, 'package.json'))('dsh-codex-subscription')).toBe(42)
-    expect(realpathSync(join(project, 'node_modules/dsh-codex-subscription/node_modules/plain-dependency'))).toBe(realpathSync(join(dependencies, 'plain-dependency')))
-    rmSync(join(artifacts, 'dsh-codex-subscription-2.1.5.tgz'))
+    expect(createRequire(join(project, 'package.json'))(pluginName)).toBe(42)
+    expect(realpathSync(join(project, 'node_modules', pluginName, 'node_modules/plain-dependency'))).toBe(realpathSync(join(dependencies, 'plain-dependency')))
+    rmSync(artifact)
     expect(() => prepareDevelopmentProject({
       projectDir: project, cliDir: cli, hostDir: host, dependencyDir: dependencies,
       release: release(), repositoryRoot: root, communityArtifactsDir: artifacts, target: 'win-x64',
     })).toThrow(/community.*missing|missing.*community/u)
-    expect(createRequire(join(project, 'package.json')).resolve('dsh-codex-subscription')).toContain('index.js')
+    expect(createRequire(join(project, 'package.json')).resolve(pluginName)).toContain('index.js')
     expect(manifest.dependencies['@deepseek-ai/dsh']).toBe('1.2.3')
     expect(manifest.dependencies['@deepseek-ai/dsh-desktop-host']).toBe('1.2.3')
-    expect(manifest.dependencies['dsh-codex-subscription']).toBe('2.1.5')
+    expect(manifest.dependencies[pluginName]).toBe('2.1.5')
     writeFileSync(join(packageDir, 'SOURCE.json'), JSON.stringify({ hostVersion: '0.0.1' }))
-    c({ sync: true, gzip: true, cwd: root, file: join(artifacts, 'dsh-codex-subscription-2.1.5.tgz') }, ['package'])
+    c({ sync: true, gzip: true, cwd: root, file: artifact }, ['package'])
     const options = {
       projectDir: project, cliDir: cli, hostDir: host, dependencyDir: dependencies,
       release: release(), repositoryRoot: root, communityArtifactsDir: artifacts, target: 'win-x64',
     } as const
     expect(() => prepareDevelopmentProject(options)).toThrow(/incompatible community artifact/u)
     symlinkSync(dependencies, join(packageDir, 'escape'), process.platform === 'win32' ? 'junction' : 'dir')
-    c({ sync: true, gzip: true, cwd: root, file: join(artifacts, 'dsh-codex-subscription-2.1.5.tgz') }, ['package'])
+    c({ sync: true, gzip: true, cwd: root, file: artifact }, ['package'])
     expect(() => prepareDevelopmentProject(options)).toThrow(/unsafe community archive/u)
     const descriptor = JSON.parse(readFileSync(join(project, 'desktop-runtime.json'), 'utf8')) as { platform: string; arch: string }
     expect(descriptor).toMatchObject({ platform: 'win32', arch: 'x64' })

@@ -1,0 +1,51 @@
+{
+  "hostVersion": "0.2.1-alpha.1",
+  "sourcePackage": "Hongguo Downloader",
+  "sourceFiles": [
+    {
+      "path": "source-changes.patch",
+      "sha256": "b4cff0edf5a7b82bd255e70a74892bda254370c9dbddf8b59f8d354b72f13bbd"
+    },
+    {
+      "path": "runtime/app/remote.py",
+      "sha256": "30f6191911eabacd18dccc847904d6cbf9c05436d0bd11859432af6e42bd48bc"
+    },
+    {
+      "path": "runtime/app/tasks.py",
+      "sha256": "36ba2d34b6c939f09d4534e086724cb46587fa96a9ce8ae1b5a5c3e78fd25bf5"
+    }
+  ],
+  "legacyInterface": "Original hongguo.pyc full episode and multi_video_model API; FqTrace loopback signer; original offline_decrypt.pyc modules",
+  "credentialFilesIncluded": false,
+  "originalRuntimeIncluded": false,
+  "originalSourceFiles": [
+    {
+      "path": "app/hongguo.pyc",
+      "sha256": "42d0c2bcfffc346afe5b3b75d259261b787daf8f144298ceaa1bfa4897ad1312"
+    },
+    {
+      "path": "app/offline_dl.pyc",
+      "sha256": "5baef36f42386837def6afb6de7f66730538294e6d27995cb5deb6317151bbd2"
+    },
+    {
+      "path": "app/devicepool.pyc",
+      "sha256": "85299d65916515c032b8e5c4b7920e4f52149099b23d74042aaa878a43c245ba"
+    },
+    {
+      "path": "app/sign/unidbg-sign.jar",
+      "sha256": "bcbfb6fae0952435bddf286457d785c1a3f9ba67c83503cf3f87cb34cedb252b"
+    }
+  ],
+  "requiredOriginalRuntime": [
+    "config.json",
+    "devices.json",
+    "sign/unidbg-sign.jar",
+    "capture/fq_oversea/libmetasec_ml.so",
+    "capture/fq_oversea/ms_16777218.bin",
+    "frida/offline_decrypt.pyc",
+    "frida/unwrap_spade.pyc",
+    "frida/decutil.pyc",
+    "frida/oracle.pyc",
+    "frida/extract_keybox_pairs.pyc"
+  ]
+}

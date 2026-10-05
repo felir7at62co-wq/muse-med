@@ -5,6 +5,7 @@ import { lstatSync, readFileSync, readlinkSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { canonicalReferenceText } from './verify-public-repository-links.ts'
+import { retainedPluginSourcePrefixes } from './retained-plugin-sources.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const organization = ['deepseek', 'harness'].join('-')
@@ -16,16 +17,9 @@ const excludedPrefixes = ['vendor/', '.agents/notes/archived/']
 const gitOutputLimit = 64 * 1024 * 1024
 
 /**
- * The one maintained file allowed to contain a commit identifier.
- *
- * `upstream.json` is the pin record for the upstream base this fork was taken from, so the pinned
- * commit identifier is that file's subject rather than a reference to one: re-deriving it needs
- * `git merge-base`, and the recorded value is what a rehearsal compares Git against. Everywhere
- * else this gate's rule stands, and it stands inside this file too for the organization URL and for
- * a pin record that is not the repository-root path.
- *
- * Matched as one exact repository-root-relative path, never as a prefix or glob, so a pin record
- * nested under a package directory cannot inherit the exemption.
+ * The repository-root upstream pin may contain its commit identifier.
+ * Retained community copies declared in `third_party/plugins/sources.json` also preserve upstream
+ * commit references. Other maintained files use release tags; organization URL checks apply to all pins.
  */
 export const UPSTREAM_PIN_RECORD = 'upstream.json'
 
@@ -49,7 +43,7 @@ function isMaintained(file: string): boolean {
  * @param source - File text or a symlink's stored target.
  * @param commits - Lowercase, unambiguous full or abbreviated commit identifiers.
  * @returns One finding per line and reference kind; digests and other Git object types are accepted,
- * and the pin record alone is accepted for commit identifiers.
+ * and declared source pins retain commit identifiers.
  */
 export function findRepositoryReferences(
   file: string,
@@ -57,7 +51,7 @@ export function findRepositoryReferences(
   commits: ReadonlySet<string>,
 ): RepositoryReference[] {
   if (!isMaintained(file)) return []
-  const isPinRecord = file === UPSTREAM_PIN_RECORD
+  const isPinRecord = file === UPSTREAM_PIN_RECORD || retainedPluginSourcePrefixes.some(prefix => file.startsWith(prefix))
   const references: RepositoryReference[] = []
   for (const [index, line] of source.split('\n').entries()) {
     if (organizationUrl.test(canonicalReferenceText(line).replace(kitRepositoryUrl, ''))) {

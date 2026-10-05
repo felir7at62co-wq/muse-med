@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/bgm-runtime-source-field/guide.md
+/:
+  en: b01f1240774b9a3b
+  zh: b1793336d1b1ae3f
+/bgm-runtime-package-source:
+  en: 919fd116b26fc589
+  zh: ffbea270acbbcf08
+/bgm-runtime-package-source/change:
+  en: e0346822efa24f69
+  zh: 91bb67a00a81f338
+/bgm-runtime-package-source/migration:
+  en: 5ddc9ea94c9c1f76
+  zh: 4e9d79862640a9c2

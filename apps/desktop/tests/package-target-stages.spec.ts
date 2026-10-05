@@ -33,6 +33,11 @@ vi.mock('../../../scripts/release/process.ts', async importOriginal => ({
 }))
 
 // Keep the real orchestration and manifest reads; this suite owns no release directories or subprocesses.
+vi.mock('../scripts/desktop-build-version.mjs', async importOriginal => ({
+  ...await importOriginal<typeof import('../scripts/desktop-build-version.mjs')>(),
+  readDesktopProductVersion: () => '1.0.0-beta.1',
+}))
+
 vi.mock('node:fs', async importOriginal => ({
   ...await importOriginal<typeof import('node:fs')>(),
   rmSync: vi.fn(), mkdirSync: vi.fn(), writeFileSync: vi.fn(), renameSync: vi.fn(),
@@ -79,7 +84,7 @@ it('requires one signing preflight before building, then records only the comple
   expect(writeFileSync).toHaveBeenCalledOnce()
   const record = JSON.parse(vi.mocked(writeFileSync).mock.calls[0]![1] as string) as { publicUrl: string }
   expect(record.publicUrl).toBe('https://updates.example.com/dsh-desk/0123456789abcdef0123456789abcdef/feeds/win-x64/')
-  expect(record).toMatchObject({ version: '1.0.0-beta.1', dshVersion: '0.1.7-rc.8' })
+  expect(record).toMatchObject({ version: '1.0.0-beta.1', dshVersion: '0.2.1-alpha.1' })
 })
 
 it('initializes shared storage only after acquiring the preflight stage lock', async () => {

@@ -21,11 +21,13 @@ describe('installer preparation preserves application dependencies', () => {
       DSH_DESKTOP_UNSIGNED: '1',
     }, 'win32', 'x64')
     expect(config.extraMetadata.name).toBe('muse-med')
-    expect(config.extraMetadata).toMatchObject({ version: '1.0.0-beta.1', dshHarnessVersion: '0.1.7-rc.8' })
+    const product = JSON.parse(readFileSync(new URL('../muse-product.json', import.meta.url), 'utf8')) as { version: string }
+    const harness = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
+    expect(config.extraMetadata).toMatchObject({ version: product.version, dshHarnessVersion: harness.version })
     expect(config.files).toContain('muse-product.json')
     expect(config.extraMetadata).not.toHaveProperty('dshMandatoryUpdatePolicy')
     expect(config.publish).toEqual([expect.objectContaining({
-      provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel: 'beta',
+      provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel: 'latest',
     })])
   })
 

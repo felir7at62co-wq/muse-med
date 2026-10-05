@@ -68,6 +68,10 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 
 桌面模型调用复用网页版的账号会话和全局模型目录。`GET /api/desktop-models/providers` 返回公开元数据；`POST /api/desktop-models/:provider/chat/completions` 接受会话令牌作为 Bearer 凭据，并要求已配置的公开 Origin。上游密钥保留在服务器。活动流默认每账号四条、每个网关进程三十二条；同一账号的不同登录共享账号上限。启动前可将 `MUSE_DESKTOP_MODEL_MAX_ACTIVE` 设为 1–32 的整数，将 `MUSE_DESKTOP_MODEL_MAX_TOTAL` 设为 1–1,024 的整数；无效值阻止启动。额度已满时，在转发前返回 429 与 `Retry-After: 1`，目录读取仍然可用。完成、取消、输入拒绝或上游失败会释放名额；退出登录、撤销账号和会话到期会中止活动流。输出仍受各模型的配置上限约束。并发应保持在上游承载能力之内；增加密钥本身不能证明提供方额度扩大，多个网关进程须分配共享额度。
 
+全局目录中的各模型可将 `defaultReasoningEffort` 声明为其 `reasoningEfforts` 映射中已启用的键。两条转发路径只在请求未提供 `reasoning_effort` 时将默认档位映射成上游值；请求显式选择的受支持档位优先。未配置默认档位时保留提供方默认行为。GLM-5.3 请求通过 `clear_thinking: false` 在工具续接时保留思考，关闭该模型思考的请求会被拒绝。配置中的 `maxTokens` 为省略输出上限的请求提供默认值并限制更大的请求，显式更小的上限保持原值。直接编辑私有目录文件后须重启网关；管理员设置更新实时生效。
+
+上游拒绝通过固定的 `error.code` 与 `error.message` 区分认证、额度、限流、上下文、输出上限和无效参数。分类最多读取 64 KiB，提供方控制的诊断和凭据不会返回。仅提及额度而未说明耗尽，不会归为额度耗尽。上游 429 拒绝会保留经验证的整数 `Retry-After`。未知服务器失败返回通用错误；结束原因 `finish_reason: length` 仍报告输出截断。
+
 部署的内置目录供应云映模型，包括 Gemini 与 Cloud models 两个分组。网关启动仅公开已配置的供应商目录，不再附加独立的原生 DeepSeek 供应。上游密钥保留为服务器私密凭据。桌面端的自定义供应商与独立 Codex 订阅各自保留其凭据与目录。
 
 ## Desktop website access
@@ -117,6 +121,8 @@ Muse LLM Wiki 通过既有 `/api/kb/access` 接口复用当前 Muse 登录，不
 ## Verification and release
 
 在本目录运行 `node --test *.test.mjs`；测试中的提供方和 TOS 操作均由替身实现。真实提供方请求须另行获得付费集成检查授权。切流前保存现行服务单元和发布指针，保留上一不可变版本，并备份任务账本及账号状态，且不输出其内容。先发布开发版，再发布正式版。检查 `/login` 返回 200；配置好知识库后，未鉴权 `/api/kb/mcp` 返回 401；配置好 ASR 后，已登录账号 GET 一个随机 `/api/asr/jobs/:id` 返回 404，503 表示未启用。使用两个测试账号保存一段经复核的短剧本：所有者须能检索并阅读其 `private/SRC-...` ID，另一账号不能。再核验获授权的共享资料检索，并对一段另行批准的短音频执行真实 ASR，方可判定服务可用。检查失败时把服务单元切回上一版本；保留持久任务账本，以便继续查询已提交的任务 ID。回滚时不删除旧发布目录或临时 TOS 对象。
+
+`node verify-models-live.mjs <私有目录文件>` 只列出已配置的路由，不调用提供方。授权计费检查后，添加 `--run`，通过 Muse 安装的 pi-ai 序列化器验证工具调用及其续接，同时处理两个模型，每个请求限时 45 秒。探测请求 `max_tokens: 32768`；参数被接受和短续接成功不能说明模型可以输出这么多 token。工具选择默认使用 Muse 的自动选择；`--tool-choice=forced` 改为检查显式指定的函数。`--model=<id>` 选择 ID，`--exclude-model=<id>` 排除 ID。结果只包含固定的失败代码和 token 数；用量缺失时为 `null`，pi-ai 的全零默认用量也按缺失处理。探测不修改目录，不输出提供方诊断、思考文本、凭据、余额或费用。
 
 服务单元名分别是 `muse-dev-accounts.service` 与 `muse-accounts.service`。发布工具仅在源码和配置检查通过后，将各单元的工作目录设为新的不可变发布目录。持久账号、ASR 和 Wiki 数据保留在发布目录之外。本目录本身不会部署。
 

@@ -12,7 +12,7 @@
  * there, and `verify` reports exactly that instead of letting an older review stand
  * in for the current file.
  *
- * @module @deepseek-ai/dsh-tool-episode-render/provenance
+ * @module @deepseek-ai/dsh-tool-episode-render/source-record
  */
 
 import { readFile } from 'node:fs/promises'
@@ -20,10 +20,10 @@ import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type { RenderCheck } from './types.ts'
 
 /** Format version; only 1 is read. */
-export const PROVENANCE_VERSION = 1
+export const SOURCE_RECORD_VERSION = 1
 
 /** The delivered file, as the record states it. */
-export interface ProvenanceOutput {
+export interface SourceRecordOutput {
   /** Absolute path the delivery was written to. */
   readonly path: string
   /** Digest of the delivered bytes. */
@@ -35,7 +35,7 @@ export interface ProvenanceOutput {
 }
 
 /** One check's verdict, as run against this delivery. */
-export interface ProvenanceCheck {
+export interface SourceRecordCheck {
   /** Stable check id. */
   readonly id: string
   /** Whether it passed. */
@@ -45,7 +45,7 @@ export interface ProvenanceCheck {
 }
 
 /** What one delivery was made from, and what was checked on it. */
-export interface DeliveryProvenance {
+export interface DeliverySourceRecord {
   /** Format version. */
   readonly version: number
   /** Two-digit episode number. */
@@ -53,13 +53,13 @@ export interface DeliveryProvenance {
   /** When the render finished, ISO. */
   readonly rendered_at: string
   /** The delivered file. */
-  readonly output: ProvenanceOutput
+  readonly output: SourceRecordOutput
   /** Digest of every source byte this render consumed, in consumption order. */
   readonly inputs: readonly string[]
   /** Encoder that produced the file. */
   readonly encoder: string
   /** The verdicts this delivery was given. */
-  readonly checks: readonly ProvenanceCheck[]
+  readonly checks: readonly SourceRecordCheck[]
 }
 
 /**
@@ -67,8 +67,8 @@ export interface DeliveryProvenance {
  * @param output - Absolute path of the delivered file.
  * @returns The sidecar path beside it.
  */
-export function provenancePathFor(output: string): string {
-  return `${output}.provenance.json`
+export function sourceRecordPathFor(output: string): string {
+  return `${output}.source-record.json`
 }
 
 /**
@@ -76,7 +76,7 @@ export function provenancePathFor(output: string): string {
  * @param input - The delivered file's facts, the digests consumed, and the verdicts run.
  * @returns The record, ready to write.
  */
-export function buildProvenance(input: {
+export function buildSourceRecord(input: {
   readonly episode: string
   readonly output: string
   readonly outputSha256: string
@@ -86,9 +86,9 @@ export function buildProvenance(input: {
   readonly encoder: string
   readonly checks: readonly RenderCheck[]
   readonly now: Date
-}): DeliveryProvenance {
+}): DeliverySourceRecord {
   return {
-    version: PROVENANCE_VERSION,
+    version: SOURCE_RECORD_VERSION,
     episode: input.episode,
     rendered_at: input.now.toISOString(),
     output: { path: input.output, sha256: input.outputSha256, size_bytes: input.sizeBytes,
@@ -104,7 +104,7 @@ export function buildProvenance(input: {
  * @param path - Sidecar path.
  * @param value - The record.
  */
-export async function writeProvenance(path: string, value: DeliveryProvenance): Promise<void> {
+export async function writeSourceRecord(path: string, value: DeliverySourceRecord): Promise<void> {
   await writeFileAtomic(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
 }
 
@@ -114,7 +114,7 @@ export async function writeProvenance(path: string, value: DeliveryProvenance): 
  * @returns The record, or undefined when the delivery has none.
  * @throws {Error} When the sidecar exists but is not a version 1 record.
  */
-export async function readProvenance(path: string): Promise<DeliveryProvenance | undefined> {
+export async function readSourceRecord(path: string): Promise<DeliverySourceRecord | undefined> {
   let text: string
   try {
     text = await readFile(path, 'utf8')
@@ -128,9 +128,9 @@ export async function readProvenance(path: string): Promise<DeliveryProvenance |
   } catch (error) {
     throw new Error(`${path} 不是合法 JSON：来源清单损坏，不能当作没有清单。`, { cause: error })
   }
-  const document = parsed as Partial<DeliveryProvenance>
-  if (document.version !== PROVENANCE_VERSION || typeof document.output?.sha256 !== 'string') {
-    throw new Error(`${path} 不是 version ${String(PROVENANCE_VERSION)} 的来源清单。`)
+  const document = parsed as Partial<DeliverySourceRecord>
+  if (document.version !== SOURCE_RECORD_VERSION || typeof document.output?.sha256 !== 'string') {
+    throw new Error(`${path} 不是 version ${String(SOURCE_RECORD_VERSION)} 的来源清单。`)
   }
-  return document as DeliveryProvenance
+  return document as DeliverySourceRecord
 }

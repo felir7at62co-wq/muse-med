@@ -138,17 +138,18 @@ export class AgentNotes extends TypertRemoteService {
           truncated = true
           return
         }
+        const entry = await this.ctx.fs.lstat(join(this.ctx.fs.processPath(directory), child.name))
+        if (entry?.type === 'symlink' || !this.ctx.fs.contains(root, child.target)) continue
         if (child.type === 'directory') {
           if (depth >= MAX_DEPTH) continue
           // A nested directory is inspected before it is entered: notes are
           // grouped by the tree's own shape, and a link out of the root is not
           // part of that shape.
-          const entry = await this.ctx.fs.lstat(this.ctx.fs.processPath(child.target))
           if (entry?.type !== 'directory') continue
           await walk(child.target, depth + 1)
           continue
         }
-        if (child.type !== 'file' || !child.name.toLowerCase().endsWith('.md')) continue
+        if (entry?.type !== 'file' || child.type !== 'file' || !child.name.toLowerCase().endsWith('.md')) continue
         found.push(await this.summarize(directory, child))
       }
     }

@@ -52,8 +52,8 @@ describe('desktop welcome presentation', () => {
     const view = mount(language)
     expect(view.document.documentElement.lang).toBe(language)
     const brand = view.document.querySelector('.brand')!
-    expect(brand.querySelector('img')!.getAttribute('alt')).toBe('muse-med')
-    expect(brand.querySelector('.brand-name')!.textContent).toBe('muse-med')
+    expect(brand.querySelector('img')!.getAttribute('alt')).toBe('Muse')
+    expect(brand.querySelector('.brand-name')!.textContent).toBe('Muse')
     expect(view.document.querySelector('img')!.getAttribute('src')).toBe('assets/welcome-mark.png')
     await expect(view.copy()).toMatchFileSnapshot(`./expected/welcome/${language}.expected.txt`)
     fireEvent.click(view.button('#api-key'))

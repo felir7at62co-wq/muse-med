@@ -1,7 +1,7 @@
 /** Built Desktop Host lifecycle with Electron disconnecting before profile startup settles. */
 
 import { fork } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,7 +9,7 @@ import { finished } from 'node:stream/promises'
 import { expect, it, onTestFinished } from 'vitest'
 
 it.each([false, true])('settles startup after parent IPC disconnect (boot failure: %s)', async (fail) => {
-  const root = mkdtempSync(join(tmpdir(), 'desktop-disconnect-'))
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'desktop-disconnect-')))
   const modules = join(root, 'node_modules', '@deepseek-ai')
   const hostDirectory = fileURLToPath(new URL('../../desktop-host/', import.meta.url))
   const manifest = JSON.parse(readFileSync(join(hostDirectory, 'package.json'), 'utf8')) as { dependencies: Record<string, string> }
@@ -21,7 +21,9 @@ it.each([false, true])('settles startup after parent IPC disconnect (boot failur
     else symlinkSync(realpathSync(join(hostDirectory, 'node_modules', name)), destination, 'junction')
   }
   for (const [name, source] of [
-    ['dsh-home-paths', `export const resolveDshHome = () => ${JSON.stringify(root)}`],
+    ['dsh-home-paths', `import { join } from 'node:path';
+      export const resolveDshHome = () => ${JSON.stringify(root)};
+      export const dshHomePath = (...parts) => join(resolveDshHome(), ...parts);`],
   ] as const) {
     writeFileSync(join(modules, name, 'package.json'), '{"type":"module","exports":"./index.js"}')
     writeFileSync(join(modules, name, 'index.js'), source)
@@ -29,9 +31,11 @@ it.each([false, true])('settles startup after parent IPC disconnect (boot failur
   writeFileSync(join(root, 'package.json'), '{"type":"module"}')
   writeFileSync(join(modules, 'dsh-app-boot', 'package.json'), '{"type":"module","exports":"./index.js"}')
   writeFileSync(join(modules, 'dsh-app-boot', 'index.js'), `
-    export const loadProfileDirectory = () => ({ skippedBundles: [] });
+    export const loadProfileDirectory = () => ({ layers: [], patches: [], skippedBundles: [] });
     export const reportSkippedBundles = () => {};
     export const loadLayeredEnv = () => ({});
+    export const loadOverlayPatches = () => [];
+    export const composeEntries = () => [{ id: 'agent-preset-registry' }, { id: 'skill-filesystem' }];
   `)
   writeFileSync(join(modules, 'dsh', 'package.json'), '{"type":"module","exports":{"./profile-boot":"./profile-boot.js"}}')
   writeFileSync(join(modules, 'dsh', 'profile-boot.js'), `
@@ -41,13 +45,25 @@ it.each([false, true])('settles startup after parent IPC disconnect (boot failur
       return new Promise((resolve, reject) => process.once('disconnect', () => {
         if (${String(fail)}) { reject(new Error('fixture boot failure')); return; }
         resolve({ ctx: { plugin: async () => {}, effect: () => {}, on: () => {}, inject: () => {},
-          connection: { authenticatedUrl: value => value }, webServer: { port: 19387 } },
+          connection: { authenticatedUrl: value => value }, webServer: { port: 19387, collectIndexInjections: () => [] } },
           shutdown: { shutdown: async () => writeFileSync(${JSON.stringify(join(root, 'stopped'))}, 'stopped') } });
       }));
     }
   `)
-  const entry = join(root, 'index.js')
-  copyFileSync(join(hostDirectory, 'lib', 'index.js'), entry)
+  const fixtureHost = join(root, 'host')
+  for (const directory of ['lib', 'config', 'presets', 'skills']) {
+    cpSync(join(hostDirectory, directory), join(fixtureHost, directory), { recursive: true })
+  }
+  const entry = join(fixtureHost, 'lib', 'index.js')
+  const pythonRoot = join(root, 'dependencies', 'python')
+  const pythonBin = process.platform === 'win32' ? pythonRoot : join(pythonRoot, 'bin')
+  mkdirSync(pythonBin, { recursive: true })
+  mkdirSync(join(pythonRoot, ...(process.platform === 'win32' ? ['Lib'] : ['lib', 'python3.12']), 'site-packages'), { recursive: true })
+  // Lifecycle acceptance resolves the payload but never invokes Python tools.
+  writeFileSync(join(pythonBin, process.platform === 'win32' ? 'python.exe' : 'python3'), '')
+  writeFileSync(join(root, 'runtime.json'), JSON.stringify({
+    desktopVersion: '1.0.1', platform: process.platform, arch: process.arch, python: '3.12.14', pythonPackages: {},
+  }))
   const pnpm = join(root, 'bundled-pnpm.mjs')
   const nodeBin = join(root, 'bin')
   const child = fork(entry, [root, root, root, pnpm, nodeBin], { execArgv: [], stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })

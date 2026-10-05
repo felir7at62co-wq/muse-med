@@ -4,6 +4,8 @@ English | [中文](README.zh.md)
 
 These seven source snapshots retain the community plugins used by Muse Med. [sources.json](sources.json) records each public upstream repository, version, license, and either its revision or recovered release archive SHA-256. The snapshots retain upstream source and manifests; some text files normalize CRLF to LF. No installed profile, credentials, user media, or generated runtime is a build input. The translation gate excludes only these seven upstream directories; this README and other owned documentation remain paired.
 
+[owned-downloads.json](owned-downloads.json) separately pins the Muse Hongguo and Douyin download bundles. Their source, configuration, and verification limits belong to their [Hongguo](muse-hongguo-download/README.md) and [Douyin](muse-douyin-download/README.md) READMEs; they do not change the retained upstream inventory.
+
 ## Build
 
 Use an installed checkout with the current Host and Client packages already built. From the repository root:
@@ -30,7 +32,7 @@ The Desktop panel also lists runtime-registered MCP tools as read-only connectio
 
 The builder imports every built Host entry. Codex runs 26 retained upstream checks against the current DSH APIs and pi-ai 0.87.1, including model preparation and authenticated-carrier validation; the upstream registration context is a test double, not a full Desktop Loader. Eight additional Codex checks load the real provider, Host adapter, and CLI, exercise authenticated subscription SSE and subagent transport with simulated peers, and reject runtime-version drift and incorrect archive paths. FFmpeg runs 89 retained checks. The build tests check exported artifact files and byte-identical tarballs for every pinned plugin from two clean staging directories on the same platform. They do not establish cross-platform or whole-installer byte identity.
 
-The [Desktop package target](../../apps/desktop/scripts/package-target.ts) is the integration point for placing these tarballs beside first-party packed inputs. [Package-set preparation](../../apps/desktop/scripts/prepare-package-set.ts) must select the seven plugin names as explicit roots; the source workspace must not substitute registry packages for these tarballs. Packaging is not activation: the release still needs a real Desktop Host/Client smoke. Account login, paid requests, and real media encoding are outside these keyless build checks.
+The [Desktop package target](../../apps/desktop/scripts/package-target.ts) builds both inventories in step S6 and places their tarballs beside first-party packed inputs. [Package-set preparation](../../apps/desktop/scripts/prepare-package-set.ts) selects the [source plugin names](../../apps/desktop/src/core-package-set.ts) as explicit roots and rejects registry substitution. Desktop development also builds and stages both inventories. Packaging is not activation: the release still needs a real Desktop Host/Client smoke. Account login, paid requests, and real media encoding are outside these keyless build checks.
 
 Market's HTTP UI is not suitable for the portless Desktop carrier. Codex uses the optional connection fetch carrier rather than requiring a Web server. FFmpeg needs the product's configured encoder paths. Do not infer enabled features from a tarball's presence.
 
@@ -47,6 +49,18 @@ The Feishu provider reuses the upstream gateway, conversation node, commands, ca
 `muse-hongguo-search` retains the recovered 0.1.0 JavaScript source, MIT license, [recovery record](muse-hongguo-search/RECOVERY.md), and original release archive. Its original development commit was not recovered; `sources.json` pins the verified archive SHA-256. The [Host overlay](compatibility/hongguo-host.mjs) verifies all 22 retained files against a fixed inventory, adds the exact tested tools peer, and disables global activation. Standard, PTC, Cordis, Short Drama, and Editing activate the four tools in their own scopes; Minimal retains no Hongguo tools.
 
 Search, detail, rankings, and collection filtering use public official metadata pages without a key or Cookie; no initial user configuration is required. Results distinguish collections, likes, heat, approximate counts, and incomplete coverage. Search covers the initial window, and rankings cover the requested public boards rather than the entire platform. Website requests remain serial, rate limited, cached, and cancellable; access restrictions fail explicitly. The plugin does not download videos. Its 20 recovered offline tests and real Host registration, canonical results, prompt discovery, input rejection, cancellation, and unload checks run during packaging. `test:hongguo` checks two clean, identical tarballs; live site availability is a separate read-only check.
+
+### Muse download tools
+
+Build the owned download bundles from the repository root with the separate [builder](build-downloads.mjs):
+
+```sh
+node third_party/plugins/build-downloads.mjs --out .artifacts/download-plugins
+```
+
+Standard, PTC, Cordis, Short Drama, and Editing activate `hongguo_download_info`, `hongguo_download`, and `douyin_download` inside their agent scopes; Minimal contributes none. The tools use the initiating conversation's workspace for output. Installing the tarballs with `dsh plugin --profile headless add <tarball>` activates their bundle patches in that profile; building a new Desktop release includes them through the preset compositions.
+
+Hongguo defaults to the supplied source's legacy interfaces and accepts several series IDs. The operator must supply the original `config.json`, `devices.json`, and a working signing service through the package's documented configuration. Missing source configuration fails explicitly, and public preview episodes do not establish full-series availability. Douyin accepts a list of user-selected video links, verifies each download with FFmpeg, and reports blocked or partial batches. A list of videos alone does not establish complete coverage of a drama; platform login or verification can require an explicitly selected browser/profile or a user-supplied cookie file.
 
 ## Licenses
 

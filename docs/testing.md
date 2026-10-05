@@ -2,7 +2,7 @@
 
 English | [中文](testing.zh.md)
 
-How this repo tests, tier by tier, and the rules that keep a green suite meaningful. Commands live in root [AGENTS.md](../AGENTS.md); linked Agent Notes carry the rationale.
+Testing tiers and rules for meaningful results. Commands live in root [AGENTS.md](../AGENTS.md); linked Agent Notes explain decisions.
 
 ## Tiers
 
@@ -15,6 +15,8 @@ How this repo tests, tier by tier, and the rules that keep a green suite meaning
 - **Web browser snapshot** (`pnpm run test:web`; required Linux PR gate): The command builds plugin CSS, then compares all session-driven `snapshots/web/` and UI-only `apps/web/tests/expected/` output in Chromium; the model/reasoning picker also runs in WebKit. CI enforces read-only `DSH_SNAPSHOT=replay`; record/refresh stay local, with every diff reviewed ([web lane](../.agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md), [CI reference](../scripts/run-web-snapshots.ts)).
 
 Session fixtures retain headers and payloads but omit body sequence/time envelopes; replay synthesizes them. Replay, record, and refresh select each parent/child role's highest generation. Current fixtures use the [writer format](session-format-status.md) in their filenames and headers, one row per event, and embedded compact Assistant streams. Historical fixtures retain their released representation; explicit `sessionFormat` owners preserve migration coverage. Follow the [format-version cookbook](cookbook/adding-a-session-format-version.md#snapshot-successors) to add successors without changing predecessors.
+
+`check:ci:windows-observational` aliases `check:ci:windows-observational-ready` for existing Windows builds.
 
 ## How specs execute
 

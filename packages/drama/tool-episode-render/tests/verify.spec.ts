@@ -4,7 +4,7 @@ import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fileSha256 } from '../src/cache.ts'
-import { provenancePathFor } from '../src/provenance.ts'
+import { sourceRecordPathFor } from '../src/source-record.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { NO_MEDIA } from '../src/report.ts'
 import { resolveSettings } from '../src/index.ts'
@@ -306,7 +306,7 @@ describe('verifyEpisode', () => {
     await writePlaceholder(subtitle, srtDocument([{ start: '00:00:01,680', end: '00:00:03,580', text: '台词' }]))
     // A delivery normally carries the record its render wrote; without it every check
     // below is answering about a file nobody can prove was the one reviewed.
-    await writePlaceholder(provenancePathFor(output), JSON.stringify({
+    await writePlaceholder(sourceRecordPathFor(output), JSON.stringify({
       version: 1, episode: '02', rendered_at: new Date().toISOString(),
       output: { path: output, sha256: await fileSha256(output), size_bytes: 9,
         duration_seconds: 116.733332 },
@@ -317,7 +317,7 @@ describe('verifyEpisode', () => {
 
   it('warns when the delivery carries no record of what was rendered and checked', async () => {
     const files = await delivered()
-    await rm(provenancePathFor(files.output))
+    await rm(sourceRecordPathFor(files.output))
     const report = await verifyEpisode({
       toolkit: toolkit([
         probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }),
@@ -327,7 +327,7 @@ describe('verifyEpisode', () => {
       settings: resolveSettings({ fontsDir: '' }),
       project: files.project, episode: '02', output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
     })
-    const check = report.checks.find(item => item.id === 'output_provenance')
+    const check = report.checks.find(item => item.id === 'output_source_record')
     expect(check?.ok).toBe(false)
     expect(check?.detail).toContain('没有来源清单')
     expect(report.warnings.join(' ')).toContain('无法证明当前文件就是当初检查过的那个')
@@ -347,9 +347,9 @@ describe('verifyEpisode', () => {
       settings: resolveSettings({ fontsDir: '' }),
       project: files.project, episode: '02', output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
     })
-    const check = report.checks.find(item => item.id === 'output_provenance')
+    const check = report.checks.find(item => item.id === 'output_source_record')
     expect(check?.ok).toBe(false)
-    expect(report.failures.join(' ')).toContain('output_provenance')
+    expect(report.failures.join(' ')).toContain('output_source_record')
     expect(report.failures.join(' ')).toContain('已经被换过')
   })
 
@@ -401,7 +401,7 @@ describe('verifyEpisode', () => {
     expect(report.checks.map(check => check.id)).toEqual([
       'duration', 'video_stream', 'frame_rate', 'audio_stream', 'bitrate_floor', 'decode_probe',
       'black_frames', 'fade_to_black', 'silence', 'long_pauses', 'subtitle_bounds', 'subtitle_present',
-      'output_provenance',
+      'output_source_record',
     ])
     expect(report.failures).toEqual([])
     expect(report.warnings).toEqual([])

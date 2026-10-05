@@ -48,7 +48,7 @@ class DownloadTests(unittest.TestCase):
     def setUp(self):
         settings = tempfile.TemporaryDirectory()
         self.addCleanup(settings.cleanup)
-        environment = patch.dict(os.environ, {"DSH_HOME": settings.name, "MUSE_HOME": settings.name})
+        environment = patch.dict(os.environ, {"DSH_HOME": settings.name, "MUSE_HOME": settings.name, "DSH_FFMPEG_PATH": "fixture-decoder"})
         environment.start()
         self.addCleanup(environment.stop)
 
@@ -100,6 +100,146 @@ class DownloadTests(unittest.TestCase):
             self.assertIn("LOGIN_OR_VERIFICATION_REQUIRED", str(result.exception))
             self.assertNotIn("fixture-private", str(result.exception))
 
+    def test_official_share_json_matches_requested_video_without_changing_playback_url(self):
+        playback = "https://aweme.snssdk.com/aweme/v1/playwm/?video_id=public-fixture"
+        data = {"loaderData": {"video_(id)/page": {"videoInfoRes": {"item_list": [
+            {"aweme_id": "7689044552593788169", "desc": "公开作品", "video": {"play_addr": {"url_list": [playback]}}}
+        ]}}}}
+        html = "<script>window._ROUTER_DATA = " + json.dumps(data) + ";</script>"
+        result = module.share_video_data(html, "7689044552593788169")
+        self.assertEqual(result["urls"], [playback])
+        with self.assertRaisesRegex(module.DownloadError, "PUBLIC_SHARE_MEDIA_UNAVAILABLE"):
+            module.share_video_data(html, "7689044552593788170")
+        data["loaderData"]["video_(id)/page"]["videoInfoRes"]["item_list"][0]["video"]["play_addr"]["url_list"] = ["https://127.0.0.1/private"]
+        with self.assertRaisesRegex(module.DownloadError, "unsupported media host"):
+            module.share_video_data("window._ROUTER_DATA = " + json.dumps(data), "7689044552593788169")
+
+    def test_empty_share_player_is_not_reported_as_downloaded(self):
+        with self.assertRaisesRegex(module.DownloadError, "PUBLIC_SHARE_MEDIA_UNAVAILABLE"):
+            module.share_video_data('window._ROUTER_DATA = {"loaderData":{"video_(id)/page":{"itemId":"7689044552593788169"}}}', "7689044552593788169")
+
+    def test_extractor_failure_uses_official_share_fallback_and_full_decode_before_publication(self):
+        class Rejected(FakeDownloader):
+            def extract_info(self, *args, **kwargs):
+                raise RuntimeError("Fresh cookies required")
+        calls = []
+        def save(info, directory, limit, timeout):
+            path = Path(directory) / (info["id"] + ".mp4")
+            path.write_bytes(b"fallback-video")
+            return path
+        def verify(argv, **kwargs):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"format": {"duration": "3.5"}, "streams": [{"codec_type": "video"}]}), "")
+        with tempfile.TemporaryDirectory() as directory, patch.object(module.subprocess, "run", side_effect=verify):
+            result = module.download("https://www.douyin.com/video/7689044552593788169", directory,
+                ffprobe="fixture-probe", factory=Rejected, ssr_loader=lambda *args: {"id": "7689044552593788169", "urls": []}, media_downloader=save)
+            self.assertEqual(result["status"], "downloaded")
+            self.assertTrue(result["full_decode_verified"])
+            self.assertIn("-xerror", calls[-1])
+            self.assertNotIn("play", Path(result["receipt"]).read_text())
+
+    def test_decode_failure_keeps_workspace_free_of_unverified_media(self):
+        count = 0
+        def verify(argv, **kwargs):
+            nonlocal count
+            count += 1
+            if count == 2:
+                raise subprocess.CalledProcessError(1, argv)
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"format": {"duration": "3.5"}, "streams": [{"codec_type": "video"}]}), "")
+        with tempfile.TemporaryDirectory() as directory, patch.object(module.subprocess, "run", side_effect=verify):
+            with self.assertRaisesRegex(module.DownloadError, "readability"):
+                module.download("https://www.douyin.com/video/7689044552593788169", directory, ffprobe="fixture-probe", factory=FakeDownloader)
+            self.assertEqual(list((Path(directory) / "source/media/douyin").iterdir()), [])
+
+    def test_cookie_file_fallback_reuses_only_official_domain_cookies_and_preserves_input(self):
+        parent = module.bundled_downloader()
+        class Rejected(parent):
+            def __init__(self, options):
+                super().__init__(options, auto_init=False)
+            def extract_info(self, *args, **kwargs):
+                raise RuntimeError("Fresh cookies required")
+        captured = []
+        def load(source, jar, timeout):
+            captured.extend(entry.domain for entry in jar)
+            for host, expected in [("www.douyin.com", "douyin-fixture-private"), ("www.iesdouyin.com", "share-fixture-private"), ("example.com", None)]:
+                request = Request("https://" + host + "/")
+                jar.add_cookie_header(request)
+                header = request.get_header("Cookie")
+                self.assertEqual(header, "session=" + expected if expected else None)
+            jar.set_cookie_if_ok(cookie(".example.com"), Request("https://www.example.com/"))
+            self.assertEqual(len(jar), 2)
+            return {"id": "7689044552593788169", "urls": []}
+        def save(info, directory, *args):
+            target = Path(directory) / (info["id"] + ".mp4")
+            target.write_bytes(b"fallback-video")
+            return target
+        probe = subprocess.CompletedProcess([], 0, json.dumps({"format": {"duration": "3.5"}, "streams": [{"codec_type": "video"}]}), "")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "selected-cookies.txt"
+            original = "# Netscape HTTP Cookie File\n.douyin.com\tTRUE\t/\tTRUE\t2147483647\tsession\tdouyin-fixture-private\n.iesdouyin.com\tTRUE\t/\tTRUE\t2147483647\tsession\tshare-fixture-private\n.example.com\tTRUE\t/\tTRUE\t2147483647\tsession\tunrelated-fixture-private\n.douyin.com.evil.example\tTRUE\t/\tTRUE\t2147483647\tsession\timpostor-fixture-private\n"
+            path.write_text(original)
+            with patch.object(module.subprocess, "run", return_value=probe), contextlib.redirect_stdout(io.StringIO()) as output:
+                result = module.download("https://www.douyin.com/video/7689044552593788169", directory,
+                    cookie_file=str(path), ffprobe="fixture-probe", factory=Rejected, ssr_loader=load, media_downloader=save)
+            self.assertEqual(captured, [".douyin.com", ".iesdouyin.com"])
+            self.assertEqual(result["status"], "downloaded")
+            self.assertEqual(result["authentication"], "cookie_file")
+            self.assertEqual(path.read_text(), original)
+            self.assertEqual(output.getvalue(), "")
+            self.assertNotIn("fixture-private", json.dumps(result))
+            self.assertNotIn("fixture-private", Path(result["receipt"]).read_text())
+
+    def test_unreadable_cookie_file_does_not_fall_back_without_the_selected_credentials(self):
+        class Rejected(FakeDownloader):
+            @property
+            def cookiejar(self):
+                raise ValueError("unreadable fixture-private cookie")
+            def extract_info(self, *args, **kwargs):
+                raise RuntimeError("Fresh cookies required")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "selected-cookies.txt"
+            path.write_text("malformed cookie fixture")
+            with self.assertRaisesRegex(module.DownloadError, "COOKIE_FILE_UNREADABLE") as failure:
+                module.download("https://www.douyin.com/video/7689044552593788169", directory,
+                    cookie_file=str(path), ffprobe="fixture-probe", factory=Rejected,
+                    ssr_loader=lambda *args: self.fail("must not replace selected-file authentication with public access"))
+            self.assertNotIn("fixture-private", str(failure.exception))
+            self.assertEqual(path.read_text(), "malformed cookie fixture")
+            self.assertEqual(list((Path(directory) / "source/media/douyin").iterdir()), [])
+
+    def test_selected_browser_fallback_keeps_share_domain_authentication_without_crossing_domains(self):
+        class Rejected(FakeDownloader):
+            def extract_info(self, *args, **kwargs):
+                raise RuntimeError("Fresh cookies required")
+        def extract(*args):
+            jar = http.cookiejar.CookieJar()
+            for domain, value in [(".douyin.com", "douyin-fixture-private"), (".iesdouyin.com", "share-fixture-private"), (".example.com", "unrelated-fixture-private")]:
+                jar.set_cookie(cookie(domain, value))
+            return jar
+        def load(source, jar, timeout):
+            self.assertEqual(len(jar), 2)
+            request = Request("https://www.iesdouyin.com/")
+            jar.add_cookie_header(request)
+            self.assertEqual(request.get_header("Cookie"), "session=share-fixture-private")
+            raise module.DownloadError("PUBLIC_SHARE_MEDIA_UNAVAILABLE: fixture has no playback")
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(module.DownloadError, "PUBLIC_SHARE_MEDIA_UNAVAILABLE") as failure:
+                module.download("https://www.douyin.com/video/7689044552593788169", directory,
+                    browser="chrome", browser_profile="Default", ffprobe="fixture-probe", factory=Rejected,
+                    cookie_extractor=extract, ssr_loader=load)
+            self.assertNotIn("fixture-private", str(failure.exception))
+            self.assertEqual(list((Path(directory) / "source/media/douyin").iterdir()), [])
+
+    def test_download_output_does_not_follow_workspace_link(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as outside:
+            try:
+                (Path(directory) / "source").symlink_to(outside, target_is_directory=True)
+            except OSError:
+                self.skipTest("Host cannot create test symlinks")
+            with self.assertRaisesRegex(module.DownloadError, "symbolic links"):
+                module.download("https://www.douyin.com/video/7689044552593788169", directory, ffprobe="fixture-probe", factory=FakeDownloader)
+            self.assertEqual(list(Path(outside).iterdir()), [])
+
     def test_selected_profile_only_passes_douyin_cookies_to_downloader(self):
         captured = []
         calls = []
@@ -110,13 +250,14 @@ class DownloadTests(unittest.TestCase):
                 captured.extend((entry.domain, entry.value) for entry in self.cookiejar)
                 self.cookiejar.set_cookie_if_ok(cookie(".example.com"), Request("https://www.example.com/"))
                 sizes.append(len(self.cookiejar))
+                headers.append(self.cookiejar.get_cookie_header("https://www.iesdouyin.com/"))
                 headers.append(self.cookiejar.get_cookie_header("https://www.example.com/"))
                 return super().extract_info(*args, **kwargs)
         def extract(browser, profile, logger):
             calls.append((browser, profile))
             logger.debug("private-cookie=fixture-private")
             jar = http.cookiejar.CookieJar()
-            for domain in [".douyin.com", "www.douyin.com", ".example.com", ".douyin.com.evil.example"]:
+            for domain in [".douyin.com", "www.douyin.com", ".iesdouyin.com", ".example.com", ".douyin.com.evil.example", ".iesdouyin.com.evil.example"]:
                 jar.set_cookie(cookie(domain))
             return jar
         probe = subprocess.CompletedProcess([], 0, json.dumps({"format": {"duration": "3.5"}, "streams": [{"codec_type": "video"}]}), "")
@@ -125,9 +266,9 @@ class DownloadTests(unittest.TestCase):
                 browser="edge", browser_profile="Profile 1", ffprobe="fixture-probe", factory=Inspected,
                 cookie_extractor=extract, settings_home=Path(directory) / "settings")
             self.assertEqual(calls, [("edge", "Profile 1")])
-            self.assertEqual([domain for domain, _ in captured], [".douyin.com", "www.douyin.com"])
-            self.assertEqual(sizes, [2])
-            self.assertEqual(headers, [None])
+            self.assertEqual([domain for domain, _ in captured], [".douyin.com", "www.douyin.com", ".iesdouyin.com"])
+            self.assertEqual(sizes, [3])
+            self.assertEqual(headers, ["session=fixture-private", None])
             self.assertNotIn("fixture-private", json.dumps(result))
             self.assertEqual(output.getvalue(), "")
             self.assertNotIn("fixture-private", Path(result["receipt"]).read_text())

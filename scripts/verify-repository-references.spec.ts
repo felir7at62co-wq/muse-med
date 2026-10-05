@@ -44,6 +44,13 @@ function repository(test: TestContext) {
 }
 
 describe('maintained repository reference policy', () => {
+  it('retains pinned community source references while checking owned plugins and organization URLs', () => {
+    const commit = 'd'.repeat(40)
+    const commits = new Set([commit])
+    expect(findRepositoryReferences('third_party/plugins/dsh-skill-mcp-panel/src/codec.ts', commit, commits)).toEqual([])
+    expect(findRepositoryReferences('third_party/plugins/muse-douyin-download/src/index.js', commit, commits)).toHaveLength(1)
+    expect(findRepositoryReferences('third_party/plugins/dsh-skill-mcp-panel/README.md', organizationUrl, commits)).toHaveLength(1)
+  })
   it('permits only the independent kit repository and its source URLs', () => {
     for (const suffix of ['', '.git', '/tree/main/packages/entry']) {
       expect(findRepositoryReferences('package.json', `${organizationUrl}/libreoffice-kit${suffix}`, new Set())).toEqual([])

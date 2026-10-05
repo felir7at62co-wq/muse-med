@@ -1,6 +1,6 @@
 /** Copied beside staged src by build.mjs; only CLI --version reaches a real process. */
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import * as runtime from './src/subagent-runtime.js'
@@ -106,7 +106,7 @@ test('maps only an exact app.asar directory segment for native CLI files', () =>
 })
 
 test('reads the unpacked CLI manifest before composing its physical wrapper path', async () => {
-  const temporary = mkdtempSync(join(tmpdir(), 'muse-codex-asar-'))
+  const temporary = realpathSync(mkdtempSync(join(tmpdir(), 'muse-codex-asar-')))
   const put = (path, value) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, value) }
   try {
     const entry = join(temporary, 'app.asar/provider/index.js')

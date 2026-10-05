@@ -7,6 +7,12 @@ import { findConcreteTermViolations, readTrackedSource } from './verify-concrete
 const blockedTerm = 'prove' + 'nance'
 
 describe('concrete terminology policy', () => {
+  it('keeps pinned community text while checking owned plugins', () => {
+    const term = 'prove' + 'nance'
+    expect(findConcreteTermViolations('third_party/plugins/dsh-bridge/src/index.ts', term)).toEqual([])
+    expect(findConcreteTermViolations('third_party/plugins/muse-douyin-download/src/index.js', term)).toHaveLength(1)
+  })
+
   it('rejects case variants in paths, prose, and identifiers', () => {
     expect(findConcreteTermViolations(`docs/${blockedTerm}-notes.md`, [
       'origin metadata',

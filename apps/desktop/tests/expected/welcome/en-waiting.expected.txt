@@ -1,5 +1,5 @@
-muse-med
-muse-med
+Muse
+Muse
 Browser didn’t open automatically?
 Copy sign-in link
 Completing sign in… [disabled]

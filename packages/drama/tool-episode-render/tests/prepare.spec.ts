@@ -1,7 +1,7 @@
 /** `prepare`: the shot manifest, the probes it validates against, and the layout it writes. */
 
 import { readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { episodePaths, episodeNumberOf, pathExists, shotFileName } from '../src/paths.ts'
@@ -84,29 +84,29 @@ describe('parseShotManifest', () => {
 })
 
 describe('resolveShots', () => {
-  const project = 'C:/proj'
+  const project = resolve('render-test-project')
 
   it('probes each source and resolves a relative path against the project root', async () => {
     const shots = await resolveShots(
-      toolkit([probeHandler({ 'C:/proj/media/02/p1-clean.mp4': { durationSeconds: 5.05, video: {}, audio: {} } })]),
+      toolkit([probeHandler({ [join(project, 'media/02/p1-clean.mp4')]: { durationSeconds: 5.05, video: {}, audio: {} } })]),
       project,
       [{ shot: 1, video: 'media/02/p1-clean.mp4', audio: 'media/02/p1-clean.mp4' }],
     )
     expect(shots).toEqual([{
       source: { shot: 1, video: 'media/02/p1-clean.mp4', audio: 'media/02/p1-clean.mp4' },
-      video: join('C:/proj', 'media/02/p1-clean.mp4'),
-      audio: join('C:/proj', 'media/02/p1-clean.mp4'),
+      video: join(project, 'media/02/p1-clean.mp4'),
+      audio: join(project, 'media/02/p1-clean.mp4'),
       durationUs: 5_050_000,
     }])
   })
 
   it('uses a declared audio track when the video carries none', async () => {
     const shots = await resolveShots(
-      toolkit([probeHandler({ 'C:/proj/media/02/p1.mp4': { durationSeconds: 5, video: {}, audio: false } })]),
+      toolkit([probeHandler({ [join(project, 'media/02/p1.mp4')]: { durationSeconds: 5, video: {}, audio: false } })]),
       project,
-      [{ shot: 1, video: 'media/02/p1.mp4', audio: 'C:/proj/media/02/p1.wav' }],
+      [{ shot: 1, video: 'media/02/p1.mp4', audio: join(project, 'media/02/p1.wav') }],
     )
-    expect(shots[0]?.audio).toBe('C:/proj/media/02/p1.wav')
+    expect(shots[0]?.audio).toBe(join(project, 'media/02/p1.wav'))
   })
 
   it('fails loud when the source is missing', async () => {
@@ -117,21 +117,21 @@ describe('resolveShots', () => {
 
   it('fails loud when the source has no picture', async () => {
     await expect(resolveShots(
-      toolkit([probeHandler({ 'C:/proj/media/02/p1.mp4': { video: undefined, audio: {} } })]), project,
+      toolkit([probeHandler({ [join(project, 'media/02/p1.mp4')]: { video: undefined, audio: {} } })]), project,
       [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }]))
       .rejects.toThrow('没有视频流')
   })
 
   it('fails loud when the picture has no sound and none was declared', async () => {
     await expect(resolveShots(
-      toolkit([probeHandler({ 'C:/proj/media/02/p1.mp4': { video: {}, audio: false } })]), project,
+      toolkit([probeHandler({ [join(project, 'media/02/p1.mp4')]: { video: {}, audio: false } })]), project,
       [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }]))
       .rejects.toThrow('没有音轨')
   })
 
   it('fails loud when the source reports no duration', async () => {
     await expect(resolveShots(
-      toolkit([probeHandler({ 'C:/proj/media/02/p1.mp4': { durationSeconds: 0, video: {}, audio: {} } })]), project,
+      toolkit([probeHandler({ [join(project, 'media/02/p1.mp4')]: { durationSeconds: 0, video: {}, audio: {} } })]), project,
       [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }]))
       .rejects.toThrow('时长为 0')
   })
@@ -373,14 +373,15 @@ describe('paths', () => {
   })
 
   it('resolves the whole layout under the project root', () => {
-    const paths = episodePaths('C:/proj', '02')
-    expect(paths.videoDir).toBe(join('C:/proj', 'video', '02'))
-    expect(paths.masterAudio).toBe(join('C:/proj', 'audio', '02.wav'))
-    expect(paths.timeline).toBe(join('C:/proj', 'editing', '02-timeline.json'))
-    expect(paths.subtitle).toBe(join('C:/proj', 'editing', '02.srt'))
-    expect(paths.output).toBe(join('C:/proj', 'exports', '02.mp4'))
-    expect(paths.cacheDir).toBe(join('C:/proj', 'exports', '.render_cache', '02'))
-    expect(paths.renderLog).toBe(join('C:/proj', 'exports', '.render_cache', '02', 'render.log'))
+    const project = resolve('render-test-project')
+    const paths = episodePaths(project, '02')
+    expect(paths.videoDir).toBe(join(project, 'video', '02'))
+    expect(paths.masterAudio).toBe(join(project, 'audio', '02.wav'))
+    expect(paths.timeline).toBe(join(project, 'editing', '02-timeline.json'))
+    expect(paths.subtitle).toBe(join(project, 'editing', '02.srt'))
+    expect(paths.output).toBe(join(project, 'exports', '02.mp4'))
+    expect(paths.cacheDir).toBe(join(project, 'exports', '.render_cache', '02'))
+    expect(paths.renderLog).toBe(join(project, 'exports', '.render_cache', '02', 'render.log'))
   })
 })
 

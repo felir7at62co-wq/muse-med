@@ -22,7 +22,7 @@ import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { dirname, resolve } from 'node:path'
 import { readBgmPlan } from './bgm.ts'
 import { fileSha256, readCacheIdentity } from './cache.ts'
-import { buildProvenance, provenancePathFor, writeProvenance } from './provenance.ts'
+import { buildSourceRecord, sourceRecordPathFor, writeSourceRecord } from './source-record.ts'
 import {
   audioMixFilter,
   deliveryScaleFilter,
@@ -272,8 +272,8 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   // output's own digest beside the digests consumed, so replacing the delivery at the
   // same path leaves this record describing bytes that are no longer there — and
   // `verify` reports that instead of letting these checks stand in for a newer file.
-  const provenancePath = provenancePathFor(input.output)
-  await writeProvenance(provenancePath, buildProvenance({
+  const sourceRecordPath = sourceRecordPathFor(input.output)
+  await writeSourceRecord(sourceRecordPath, buildSourceRecord({
     episode: input.episode,
     output: input.output,
     outputSha256: await fileSha256(input.output),
@@ -294,7 +294,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     timeline: { clips, bodyEndSeconds },
     sources,
     expectedDurationSeconds,
-    written: [input.output, provenancePath, paths.renderLog],
+    written: [input.output, sourceRecordPath, paths.renderLog],
     output: input.output,
     encoder: choice.encoder,
     gpuRequested: settings.preferNvenc,

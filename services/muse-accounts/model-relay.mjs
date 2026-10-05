@@ -7,6 +7,7 @@ import {createHmac,timingSafeEqual,randomBytes} from 'node:crypto';
 import {readFile,writeFile,rename,mkdir,chmod} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {pipeline} from 'node:stream/promises';
+import {readModelFailure,modelFailure} from './model-errors.mjs';
 
 export function publicIPv4(address){
  if(isIP(address)!==4)return false;
@@ -57,16 +58,35 @@ export async function forwardModel({config,body,res,signal}){
  await new Promise((resolve,reject)=>{
   const upstream=https.request(target,{method:'POST',lookup:publicLookup,signal,headers:{'content-type':'application/json',authorization:'Bearer '+config.apiKey,accept:body.stream?'text/event-stream':'application/json'}},response=>{
    if(response.statusCode<200||response.statusCode>=300){
-    // Provider refusals (4xx) pass through unchanged; anything else is ours to explain.
-    const detail=response.statusCode>=300&&response.statusCode<400?' 供应方要求跳转到 '+(response.headers.location||'未知地址')+'，说明「API 地址」填得不完整。':'';
-    console.error('[muse-model-relay]',target.href,'->',response.statusCode,response.headers.location||'');
-    response.resume();res.writeHead(response.statusCode>=400&&response.statusCode<500?response.statusCode:502,{'content-type':'application/json'});res.end(JSON.stringify({error:{message:'模型供应商拒绝请求，请联系管理员检查配置或额度。'+detail}}));resolve();return;}
+    console.error('[muse-model-relay] upstream status',response.statusCode);
+    readModelFailure(response).then(failure=>{
+     const retryAfter=response.headers['retry-after'];
+     res.writeHead(response.statusCode>=400&&response.statusCode<500?response.statusCode:502,{'content-type':'application/json','cache-control':'no-store',
+      ...(response.statusCode===429&&typeof retryAfter==='string'&&/^\d{1,5}$/.test(retryAfter)?{'retry-after':retryAfter}:{})});
+     res.end(JSON.stringify(failure));resolve();
+    },reject);return;}
+   if(body.stream&&!String(response.headers['content-type']||'').toLowerCase().includes('text/event-stream')){
+    response.resume();res.writeHead(502,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(modelFailure(502,'')));resolve();return;}
    res.writeHead(200,{'content-type':body.stream?'text/event-stream; charset=utf-8':'application/json','cache-control':'no-store','x-accel-buffering':'no'});
    pipeline(response,res).then(resolve,reject);
   });
   upstream.setTimeout(300000,()=>upstream.destroy(Error('Upstream idle timeout')));
   upstream.on('error',reject);upstream.end(JSON.stringify(body));
  });
+}
+/** Resolve the model's declared default effort while retaining an explicit request choice.
+ * @param {object} config Resolved private model settings.
+ * @param {object} body Parsed Chat Completions request, updated in place.
+ * @returns {void}
+ * @throws {Error} The request selects an undeclared effort or disables GLM-5.3 thinking.
+ */
+export function resolveModelReasoning(config,body){
+ if(body.reasoning_effort!==undefined&&(!config.reasoningEfforts||typeof body.reasoning_effort!=='string'||!Object.values(config.reasoningEfforts).includes(body.reasoning_effort)))throw Error('模型不支持所选思考档位');
+ if(config.thinking==='disabled'){body.thinking={type:'disabled'};delete body.reasoning_effort;return;}
+ const glm=/^glm-5\.3(?:-|$)/i.test(config.model.split('/').at(-1));
+ if(glm&&body.thinking?.type==='disabled')throw Error('GLM-5.3 不支持关闭思考，请选择模型支持的思考档位');
+ if(body.reasoning_effort===undefined&&body.thinking?.type!=='disabled'&&config.defaultReasoningEffort!==undefined)body.reasoning_effort=config.reasoningEfforts[config.defaultReasoningEffort];
+ if(glm&&body.reasoning_effort!==undefined)body.thinking={type:'enabled',clear_thinking:false};
 }
 export function createModelRelay({config,globalModels,secret,accounts,forward=forwardModel}){
  const active=new Map();
@@ -89,19 +109,17 @@ export function createModelRelay({config,globalModels,secret,accounts,forward=fo
    let body;try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{fail(400,'请求格式错误');return;}
    if(!body||typeof body.model!=='string'||!Array.isArray(body.messages)){fail(400,'请选择管理员配置的统一模型');return;}
    if(route){current=globalModels?.resolve(route,body.model);if(!current){fail(400,'请选择管理员配置的模型');return;}
-    if(body.reasoning_effort!==undefined&&(!current.reasoningEfforts||!Object.values(current.reasoningEfforts).includes(body.reasoning_effort)||typeof body.reasoning_effort!=='string')){fail(400,'该模型不支持所选思考档位');return;}
    }else if(body.model!=='muse-shared'){fail(400,'请选择管理员配置的统一模型');return;}
    else if(globalModels){current=globalModels.resolve('muse-shared',current.model);if(!current){fail(400,'统一模型已撤回，请重新选择管理员配置的模型');return;}
-    if(body.reasoning_effort!==undefined&&(!current.reasoningEfforts||!Object.values(current.reasoningEfforts).includes(body.reasoning_effort)||typeof body.reasoning_effort!=='string')){fail(400,'该模型不支持所选思考档位');return;}
    }
    if(!current.apiKey){fail(503,'管理员尚未配置模型凭据');return;}
    if(!accounts.get(id)||accounts.get(id).disabled){fail(401,'账户不可用');return;}
    body.model=current.model;
-   if(current.thinking==='disabled'){body.thinking={type:'disabled'};delete body.reasoning_effort;}
+   try{resolveModelReasoning(current,body);}catch(error){fail(400,error.message);return;}
    for(const key of ['max_tokens','max_completion_tokens'])if(body[key]!==undefined)body[key]=Math.min(Number(body[key])||current.maxTokens,current.maxTokens);
    if(body.max_tokens===undefined&&body.max_completion_tokens===undefined)body.max_tokens=current.maxTokens;
    await forward({config:current,body,res,signal:controller.signal});
-  }catch(error){console.error('[muse-model-relay]','连接失败:',error?.message||error);fail(502,'模型服务连接失败，请联系管理员检查配置。');}
+  }catch(error){console.error('[muse-model-relay] 连接失败');fail(502,'模型服务连接失败，请联系管理员检查配置。');}
   finally{if(controller)controllers?.delete(controller);}
  });server.on('close',()=>{accounts.off('change',changed);for(const controllers of active.values())for(const controller of controllers)controller.abort();});return server;
 }

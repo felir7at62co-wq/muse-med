@@ -1,0 +1,39 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {EventEmitter} from 'node:events';
+import http from 'node:http';
+import {Readable} from 'node:stream';
+import {createModelRelay,accountToken,resolveModelReasoning} from './model-relay.mjs';
+import {createDesktopModels} from './desktop-models.mjs';
+
+const settings={model:'glm-5.3-flash',apiKey:'synthetic-private-key',maxTokens:32768,reasoningEfforts:{low:'wire-low',high:'wire-high'},defaultReasoningEffort:'low'};
+
+test('model default maps to its wire value and explicit efforts remain selected',()=>{
+ const omitted={};resolveModelReasoning(settings,omitted);assert.deepEqual(omitted,{reasoning_effort:'wire-low',thinking:{type:'enabled',clear_thinking:false}});
+ const explicit={reasoning_effort:'wire-high'};resolveModelReasoning(settings,explicit);assert.equal(explicit.reasoning_effort,'wire-high');
+ assert.throws(()=>resolveModelReasoning(settings,{reasoning_effort:'unknown'}),/思考档位/);
+ assert.throws(()=>resolveModelReasoning(settings,{thinking:{type:'disabled'}}),/不支持关闭思考/);
+ const unrelated={};resolveModelReasoning({...settings,model:'writer',defaultReasoningEffort:undefined},unrelated);assert.deepEqual(unrelated,{});
+ const disabled={};resolveModelReasoning({...settings,model:'writer',thinking:'disabled'},disabled);assert.deepEqual(disabled,{thinking:{type:'disabled'}});
+});
+
+test('account relay forwards model defaults and caps output without modifying tool history',async t=>{
+ const id='0123456789abcdef',secret='synthetic-test-secret',accounts=new EventEmitter();accounts.get=()=>({id});const calls=[];
+ const server=createModelRelay({accounts,secret,globalModels:{resolve:()=>settings},forward:async({body,res})=>{calls.push(structuredClone(body));res.end('done');}});
+ t.after(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
+ const post=body=>fetch(base+'/v1/studio/chat/completions',{method:'POST',headers:{authorization:'Bearer '+accountToken(secret,id),'content-type':'application/json'},body:JSON.stringify({model:settings.model,messages:[{role:'assistant',reasoning_content:'saved reasoning',content:'answer'}],...body})});
+ assert.equal((await post({})).status,200);assert.equal(calls[0].max_tokens,32768);assert.equal(calls[0].reasoning_effort,'wire-low');assert.equal(calls[0].messages[0].reasoning_content,'saved reasoning');
+ assert.equal((await post({reasoning_effort:'wire-high',max_tokens:40000})).status,200);assert.equal(calls[1].max_tokens,32768);assert.equal(calls[1].reasoning_effort,'wire-high');
+ assert.equal((await post({reasoning_effort:'unknown'})).status,400);assert.equal(calls.length,2);
+});
+
+test('Desktop relay uses the same defaults and releases rejected requests',async()=>{
+ const calls=[],desktop=createDesktopModels({globalModels:{resolve:()=>settings},forward:async({body,res})=>{calls.push(structuredClone(body));res.end('done');}});
+ const invoke=async body=>{
+  const request=Readable.from([Buffer.from(JSON.stringify({model:settings.model,messages:[],...body}))]);request.method='POST';
+  const response=new EventEmitter();response.writeHead=status=>{response.statusCode=status;};response.end=()=>{};
+  await desktop.handle(request,response,{id:'alice',token:'session',expiry:Date.now()+60000},'/api/desktop-models/studio/chat/completions');return response.statusCode;
+ };
+ try{await invoke({});assert.equal(calls[0].max_tokens,32768);assert.equal(calls[0].reasoning_effort,'wire-low');assert.equal(await invoke({reasoning_effort:'unknown'}),400);await invoke({max_tokens:1234,reasoning_effort:'wire-high'});assert.equal(calls[1].max_tokens,1234);assert.equal(calls[1].reasoning_effort,'wire-high');}finally{desktop.close();}
+});

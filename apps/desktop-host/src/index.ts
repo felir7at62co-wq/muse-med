@@ -20,6 +20,8 @@ import { installDesktopQuitInspection } from './quit-inspection.ts'
 import { installPlatformSessionPublisher } from './platform-session.ts'
 import { attentionSoundForEvent } from './attention-sound.ts'
 import { installOfficeEngineResolution } from './office-engine.ts'
+import { desktopDownloadEnvironment } from './download-runtime.ts'
+import { installDesktopDouyinBrowser } from './douyin-browser.ts'
 
 const DESKTOP_PATCH = fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url))
 
@@ -114,6 +116,14 @@ async function main(): Promise<void> {
     || (pnpm === undefined) !== (nodeBin === undefined) || process.send === undefined) {
     throw new Error('muse-med: expected runtime and profile directories, optional primary runtime and paired package-manager paths, and Node IPC')
   }
+  const primarySource = primaryRuntime ?? join(runtimeDir, '..', 'runtime', 'primary-runtime')
+  const downloadEnvironment = await desktopDownloadEnvironment(primarySource, process.env)
+  process.env.MUSE_DOUYIN_PYTHON_PATH = downloadEnvironment.MUSE_DOUYIN_PYTHON_PATH
+  for (const field of ['DSH_FFMPEG_PATH', 'DSH_FFPROBE_PATH']) {
+    const value = downloadEnvironment[field]
+    if (value === undefined) Reflect.deleteProperty(process.env, field)
+    else process.env[field] = value
+  }
   installOfficeEngineResolution(runtimeDir)
   const installAnchor = join(runtimeDir, 'package.json')
   const { profile, patches } = desktopComposition(runtimeDir, projectDir, allowLinkedPackages)
@@ -189,6 +199,7 @@ async function main(): Promise<void> {
   })
   process.once('disconnect', () => { void stop() })
   const { ctx } = await application
+  installDesktopDouyinBrowser(ctx)
   ctx.on('session/event', (session, event) => {
     const kind = attentionSoundForEvent(session.header, event)
     if (kind !== undefined && process.connected) process.send?.({ type: 'attention-sound', kind })
@@ -197,7 +208,7 @@ async function main(): Promise<void> {
   control.quitInspection = installDesktopQuitInspection(ctx)
   await ctx.plugin(desktopOffice, {
     runtimeDir,
-    source: primaryRuntime ?? join(runtimeDir, '..', 'runtime', 'primary-runtime'),
+    source: primarySource,
     root: join(resolveDshHome(), 'dsh-runtimes', 'dsh-primary-runtime'),
   })
   installPlatformSessionPublisher(ctx, (session) => {

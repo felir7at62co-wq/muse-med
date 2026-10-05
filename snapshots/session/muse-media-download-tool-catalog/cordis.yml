@@ -1,0 +1,10 @@
+# Tool discovery only; the recorded response performs no media requests.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: muse-hongguo-download
+      name: '../../../third_party/plugins/muse-hongguo-download/src/index.js'
+    - id: muse-douyin-download
+      name: '../../../third_party/plugins/muse-douyin-download/src/index.js'

@@ -1,5 +1,5 @@
-muse-med
-muse-med
+Muse
+Muse
 登录已超时
 重新登录
 添加 API Key

@@ -1,0 +1,8 @@
+version: 1
+scenario: muse-media-download-tool-catalog
+profile: headless
+composition: muse-media-download-tool-catalog
+recording: authored
+header:
+  class: muse-media-download-tool-catalog
+  pin: true

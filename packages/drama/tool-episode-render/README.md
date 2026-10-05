@@ -175,7 +175,7 @@ The package is built on four commitments:
 
 - **Enforce the delivery where it is produced.** The picture geometry, the rate control, the subtitle style, the ending, and the audio mix are the operator-approved specification. They are constants in one module, not parameters a caller can drift from, and the operation that writes the file is the operation that checks it.
 - **Report the artifact, throw on the obstacle.** A delivered file that misses the bitrate floor is a domain outcome: the operator still needs the file, so it comes back with `ok: false` and one repair line per failed check. A missing input or a failed command is an environment problem: it throws, because there is nothing to hand back.
-- **Prove the tail frame.** The ending is the one frame nobody can inspect afterwards, so its provenance is a returned value rather than a comment. The `-sseof` result is compared against a sequential decode every time, and a mismatch is either repaired by index or refused.
+- **Prove the tail frame.** The ending is the one frame nobody can inspect afterwards, so its source record is a returned value rather than a comment. The `-sseof` result is compared against a sequential decode every time, and a mismatch is either repaired by index or refused.
 - **One injected process edge.** Every module takes a `MediaToolkit`; only one function starts a process. The whole pipeline therefore runs in tests against a stub channel, and the real channel is exercised by its own three-process spec.
 
 ### Source map

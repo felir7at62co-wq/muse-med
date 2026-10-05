@@ -1,11 +1,13 @@
 /** Desktop resource locations and signing-aware verification for the shared runtime builder. */
 
 import { readFileSync } from 'node:fs'
+import { cp } from 'node:fs/promises'
 import { join } from 'node:path'
 import { preparePrimaryRuntime as preparePayload, smokePrimaryRuntime as smokePayload } from '../../../scripts/primary-runtime/prepare.ts'
 import { parsePrimaryRuntime, workspaceDependencyPaths } from '../../../packages/skill/tool-workspace-dependencies/src/index.ts'
-import { resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { desktopTargetPlatform, resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { scrubWindowsSigningEnvironment } from './windows-sign.mjs'
+import { prepareMacMedia } from './prepare-macos-media.ts'
 
 /**
  * Prepare Desktop resources for its selected packaging target.
@@ -15,7 +17,14 @@ import { scrubWindowsSigningEnvironment } from './windows-sign.mjs'
 export async function preparePrimaryRuntime(options: { deferSmoke?: boolean } = {}): Promise<void> {
   const paths = resolveDesktopTargetBuildPaths()
   const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
-  await preparePayload({ target: resolveDesktopBuildTarget(), output: paths.runtime, cache: paths.downloads, version })
+  const target = resolveDesktopBuildTarget()
+  await preparePayload({ target, output: paths.runtime, cache: paths.downloads, version })
+  const platform = desktopTargetPlatform(target)
+  if (platform.platform === 'darwin') {
+    const media = join(paths.downloads, 'macos-media', platform.arch)
+    await prepareMacMedia(media, paths.downloads, platform.arch)
+    await cp(media, join(paths.runtime, 'media'), { recursive: true })
+  }
   if (!options.deferSmoke) smokePrimaryRuntime(join(paths.runtime, 'primary-runtime'))
 }
 

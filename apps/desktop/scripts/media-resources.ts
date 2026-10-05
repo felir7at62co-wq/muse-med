@@ -72,7 +72,7 @@ export async function shortStage(output: string): Promise<string> {
       return candidate
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
-      if (code !== 'EPERM' && code !== 'EACCES' && code !== 'ENOENT') throw error
+      if (code !== 'EPERM' && code !== 'EACCES' && code !== 'ENOENT' && code !== 'EROFS') throw error
     }
   }
   throw new Error('media staging: no writable short staging directory on the output volume')

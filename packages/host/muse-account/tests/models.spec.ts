@@ -334,3 +334,50 @@ it.each(['same-model', 'changed-model', 'changed-provider', 'missing-replay'] as
     expect(assistant?.reasoning_content).toBe(history === 'same-model' ? 'private scratchpad' : history === 'changed-provider' ? undefined : '')
   },
 )
+
+it('loads Muse GLM models through Loader and retains reasoning on a tool continuation', async () => {
+  const fixture = await oldSessionFixture(false)
+  const events = [
+    JSON.stringify({ choices: [{ index: 0, delta: { reasoning_content: 'saved GLM reasoning' }, finish_reason: null }] }),
+    JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'glm-call', type: 'function',
+      function: { name: 'lookup', arguments: '{"query":"note"}' } }] }, finish_reason: null }] }),
+    JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }), '[DONE]',
+  ]
+  const server = await mockServer([{ events }, { events: textEvents }, { events: textEvents }])
+  await writeMuseSession(sessionFile(), { baseUrl: server.url, username: 'alice', cookie: '__Host-muse=alice-session' })
+  fixture.ctx.loader.builtins['glm-models'] = {
+    inject: accountInject,
+    apply: async (scope: Context) => {
+      const owned = new MuseModels(scope, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+        fetcher: async () => Response.json({ providers: [{ id: 'yunying', name: 'Yunying', models: [{
+          id: 'glm-5.3-flash', name: 'GLM-5.3 Flash', contextWindow: 200000, maxTokens: 32768,
+          input: ['text'], reasoningEfforts: { low: 'low' }, defaultReasoningEffort: 'low',
+        }] }] }) })
+      models = owned
+      scope.effect(() => () => { owned.dispose() })
+      await owned.refresh()
+    },
+  }
+  const id = await fixture.ctx.loader.create({ name: 'cordis:glm-models' })
+  await fixture.ctx.loader.await()
+  await fixture.ctx.loader.resolve(id).fiber?.await()
+  const request = { provider: 'muse-cloud-yunying', model: 'glm-5.3-flash' }
+  const first = await assemble(fixture.ctx, { ...request, messages: [] })
+  expect(first.finish).toEqual({ kind: 'tool-calls' })
+  const result = createToolResultMessage({ callId: ToolCallId('glm-call'), isError: false, content: [{ type: 'text', text: 'found' }] })
+  expect((await assemble(fixture.ctx, { ...request, messages: [first.message, result] })).finish).toEqual({ kind: 'stop' })
+  expect((await assemble(fixture.ctx, { ...request, reasoningEffort: ReasoningEffortId('low'), messages: [] })).finish).toEqual({ kind: 'stop' })
+  const wire = server.requests as {
+    max_tokens: number
+    thinking?: object
+    reasoning_effort?: string
+    messages: { role: string; reasoning_content?: string }[]
+  }[]
+  expect(wire[0]?.max_tokens).toBe(32768)
+  expect(wire[0]?.thinking).toBeUndefined()
+  expect(wire[1]?.messages.find(message => message.role === 'assistant')?.reasoning_content).toBe('saved GLM reasoning')
+  expect(wire[2]?.thinking).toEqual({ type: 'enabled' })
+  expect(wire[2]?.reasoning_effort).toBe('low')
+  await fixture.ctx.loader.resolve(id).fiber?.dispose()
+  expect(fixture.ctx.llm.listProviders().some(provider => provider.id === request.provider)).toBe(false)
+})

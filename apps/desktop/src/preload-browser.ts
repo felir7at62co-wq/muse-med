@@ -17,8 +17,17 @@ export function createDesktopBrowserBridge(): DesktopBrowserBridge {
     }
   })
   return {
-    acquire: workspace => ipcRenderer.invoke(DESKTOP_IPC.browserAcquire, workspace) as ReturnType<DesktopBrowserBridge['acquire']>,
+    acquire: (workspace, sessionId, initialUrl) => ipcRenderer.invoke(DESKTOP_IPC.browserAcquire, workspace, sessionId, initialUrl) as ReturnType<DesktopBrowserBridge['acquire']>,
     release: lease => ipcRenderer.invoke(DESKTOP_IPC.browserRelease, lease) as Promise<void>,
+    activeSession: (sessionId) => { void ipcRenderer.invoke(DESKTOP_IPC.browserActiveSession, sessionId) },
+    onDownloadPageRequested(listener) {
+      const receive = (_event: Electron.IpcRendererEvent, value: unknown): void => {
+        if (typeof value === 'object' && value !== null && 'sessionId' in value && 'url' in value
+          && typeof value.sessionId === 'string' && typeof value.url === 'string') listener({ sessionId: value.sessionId, url: value.url })
+      }
+      ipcRenderer.on(DESKTOP_IPC.browserDownloadPage, receive)
+      return () => { ipcRenderer.removeListener(DESKTOP_IPC.browserDownloadPage, receive) }
+    },
     onOpenRequested(lease, listener) {
       let callbacks = listeners.get(lease)
       if (callbacks === undefined) { callbacks = new Set(); listeners.set(lease, callbacks) }

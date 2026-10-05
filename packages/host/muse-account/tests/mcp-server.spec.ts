@@ -203,8 +203,9 @@ it('reads a valid large Wiki link graph produced by the cloud MCP service', asyn
   }
   const captured = await remote('wiki_capture_source', { title: '原件', text: '资料'.repeat(400), source: 'project/notes' })
   const source = JSON.parse(captured.content[0]!.text) as { source: { id: string } }
+  // UTF-8 directory names and the temporary root share macOS's full-path limit.
   const pageIds = Array.from({ length: 50 }, (_value, index) => 'concepts/'
-    + ['甲'.repeat(78), '乙'.repeat(78), '丙'.repeat(78), '页'.repeat(77) + String(index)].join('/'))
+    + ['甲'.repeat(70), '乙'.repeat(70), '丙'.repeat(70), '页'.repeat(69) + String(index)].join('/'))
   for (const pageId of pageIds) {
     const file = join(personalRoot, owner.id, 'wiki', pageId + '.md')
     await mkdir(dirname(file), { recursive: true })

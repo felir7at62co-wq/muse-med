@@ -1,6 +1,6 @@
-muse-med
-muse-med
-Welcome to muse-med
+Muse
+Muse
+Welcome to Muse
 Build potential. Explore intelligence.
 Sign in
 Add API Key

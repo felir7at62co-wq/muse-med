@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -30,7 +31,7 @@ it('prepares content-addressed public tracks without machine paths', async () =>
     valence: 5, arousal: 6, moods: ['dramatic'],
   }] })
   expect(JSON.stringify(plan.manifest)).not.toContain(f.root)
-  expect(plan.artifacts[0]?.source).toBe(f.audio)
+  expect(plan.artifacts[0]?.source).toBe(realpathSync(f.audio))
   expect(plan.artifacts[0]?.key).toBe(`bgm/tracks/${f.track.sha256.slice(7)}.mp3`)
   expect(await readFile(f.audio, 'utf8')).toBe('owned audio fixture')
 })

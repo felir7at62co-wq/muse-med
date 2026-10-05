@@ -42,7 +42,7 @@ The namespace carries exactly three Remote methods, all confined to the configur
 
 ### The notes catalog
 
-`list` reports only regular `.md` files, and a row's category is the first segment of its own id, so a note sitting directly in the root has no category. The walk descends at most eight directory levels and skips a deeper directory without reporting it. An uncreated root is the normal empty state `state: 'absent'` with no rows, while a root that exists but is not a directory fails the call with `agent-note/not-regular-file`. `maxNotes` stops the walk and sets `truncated`. Title, `status`, and `summary` come from each note's own text, and `modifiedMs` is present only when the Host can observe the file's modification time.
+`list` reports only regular `.md` files inside the canonical root and skips symlink files and directories, and a row's category is the first segment of its own id, so a note sitting directly in the root has no category. The walk descends at most eight directory levels and skips a deeper directory without reporting it. An uncreated root is the normal empty state `state: 'absent'` with no rows, while a root that exists but is not a directory fails the call with `agent-note/not-regular-file`. `maxNotes` stops the walk and sets `truncated`. Title, `status`, and `summary` come from each note's own text, and `modifiedMs` is present only when the Host can observe the file's modification time.
 
 ### Note ids and the root boundary
 

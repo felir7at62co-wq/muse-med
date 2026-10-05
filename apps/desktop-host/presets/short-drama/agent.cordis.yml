@@ -189,3 +189,21 @@
 # Public Hongguo metadata tools register only inside this creative preset.
 - id: muse-hongguo-search
   name: muse-hongguo-search
+
+# Download tools resolve media output inside the active conversation workspace.
+- id: muse-hongguo-download
+  name: muse-hongguo-download
+  config:
+    sourceMode: legacy
+    legacyAppDir: !!js process.env.MUSE_HONGGUO_LEGACY_APP_DIR || ''
+    signServer: !!js process.env.MUSE_HONGGUO_SIGN_SERVER || ''
+    signTokenEnv: MUSE_HONGGUO_SIGN_TOKEN
+    pythonExecutable: !!js process.env.MUSE_HONGGUO_PYTHON_PATH || ''
+    ffprobeExecutable: !!js process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || ''
+    ffmpegExecutable: !!js process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || ''
+- id: muse-douyin-download
+  name: muse-douyin-download
+  config:
+    pythonExecutable: !!js process.env.MUSE_DOUYIN_PYTHON_PATH || null
+    ffmpegExecutable: !!js process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || null
+    ffprobeExecutable: !!js process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || null

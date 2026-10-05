@@ -122,7 +122,7 @@ manifest 包含 `lib/index.js`、`lib/config.js`、`lib/worker.js`、类型声�
 <details>
 <summary>维护者工作上下文——点击展开</summary>
 
-`scripts/runtime.py` 是维护者工具，不进入 npm 包。`prepare`（仅 Windows x64）读取独立发行的 CPython 3.11.16 基底、一个已验证的 CPU 环境、冻结的 Hugging Face 缓存、两个检查点和两个按 hash 固定的 wheel，写出一个自包含目录树：复制进来的解释器、`Lib/site-packages`、MKL 与 Intel OpenMP 发行包记录在 site-packages 之外的 `Library/bin` DLL、`models/J_all.ckpt`、`models/data` 和 `models/hf-cache`。它只复制 RECORD 列出的资源，绝不从基底自身的 `site-packages` 或 `Scripts` 取任何文件，拒绝 venv 启动器、字节码、启动模块和指向外部的 `.pth` 路径，丢弃已审查的 setuptools `distutils-precedence.pth`，并把该决定与每个已安装文件的 SHA-256 一并记入 `runtime-manifest.json`。
+`scripts/runtime.py` 是维护者工具，不进入 npm 包。`prepare`（仅 Windows x64）读取独立发行的 CPython 3.11.16 基底、一个已验证的 CPU 环境、冻结的 Hugging Face 缓存、两个检查点和两个按 hash 固定的 wheel，写出一个自包含目录树：复制进来的解释器、`Lib/site-packages`、MKL 与 Intel OpenMP 发行包记录在 site-packages 之外的 `Library/bin` DLL、`models/J_all.ckpt`、`models/data` 和 `models/hf-cache`。它只复制 RECORD 列出的资源，绝不从基底自身的 `site-packages` 或 `Scripts` 取任何文件，拒绝 venv 启动器、字节码、启动模块和指向外部的 `.pth` 路径，丢弃已审查的 setuptools `distutils-precedence.pth`，并把该决定与每个已安装文件的 SHA-256 一并记入 `runtime-manifest.json`。 清单用 `packageSource` 记录复制的发行包来源。
 
 `verify` 在运行前后各重算一次该清单，用 `-I -B -X utf8` 探测并要求 `sys.prefix`、`sys.base_prefix` 和每一项 `sys.path` 都落在目录树内，重命名目录树后再探测一次，并通过 `worker_main.py` 离线分析一首真实曲目。由于基底解释器是复制进来的，运行时不读取 `%APPDATA%` 下 uv 管理的安装，源环境可以随时删除。
 

@@ -1,6 +1,7 @@
 """Download a user-selected Douyin video with the bundled yt-dlp distribution."""
 
 import argparse
+from copy import copy
 from datetime import datetime, timezone
 import hashlib
 import http.cookiejar
@@ -14,7 +15,11 @@ import subprocess
 import sys
 import tempfile
 from urllib.parse import parse_qs, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, Request, build_opener
+
+
+MOBILE_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+MEDIA_DOMAINS = ("douyin.com", "douyinvod.com", "bytecdn.cn", "byteimg.com", "ibytedtos.com", "amemv.com", "snssdk.com")
 
 
 class DownloadError(Exception):
@@ -107,18 +112,31 @@ def forget_browser(settings_home=None):
 
 
 def douyin_cookie(entry):
-    """Accept only Douyin's domain and subdomains in the in-memory session."""
+    """Accept only official Douyin and mobile-share domains in the in-memory session."""
     domain = entry.domain.lstrip(".").lower()
-    return domain == "douyin.com" or domain.endswith(".douyin.com")
+    return any(domain == site or domain.endswith("." + site) for site in ("douyin.com", "iesdouyin.com"))
 
 
 class DouyinCookiePolicy(http.cookiejar.DefaultCookiePolicy):
-    """Keep both imported and newly received cookies scoped to Douyin."""
+    """Keep imported and newly received cookies scoped to official Douyin domains."""
     def set_ok(self, cookie, request):
         return douyin_cookie(cookie) and super().set_ok(cookie, request)
 
     def return_ok(self, cookie, request):
         return douyin_cookie(cookie) and super().return_ok(cookie, request)
+
+
+def file_fallback_cookie_jar(downloader):
+    """Copy the extractor's selected-file cookies without retaining unrelated account domains."""
+    try:
+        source = downloader.cookiejar
+    except Exception:
+        raise DownloadError("COOKIE_FILE_UNREADABLE: The selected Netscape Cookie file could not be loaded; export it again from the selected browser.") from None
+    jar = http.cookiejar.CookieJar(policy=DouyinCookiePolicy())
+    for entry in source:
+        if douyin_cookie(entry):
+            jar.set_cookie(copy(entry))
+    return jar
 
 
 def normalize_url(value):
@@ -167,6 +185,110 @@ def resolve_share(url):
     return resolved
 
 
+def share_video_data(html, video_id):
+    """Read JSON emitted by the official share player without executing scripts."""
+    match = re.search(r"(?:window\.)?_ROUTER_DATA\s*=\s*", html)
+    if not match:
+        raise DownloadError("PUBLIC_SHARE_MEDIA_UNAVAILABLE: The official share page did not expose playable video data.")
+    try:
+        data, _ = json.JSONDecoder().raw_decode(html[match.end():].lstrip())
+        pages = data["loaderData"]
+        for page in pages.values():
+            if not isinstance(page, dict):
+                continue
+            info = page.get("videoInfoRes")
+            if not isinstance(info, dict):
+                continue
+            for item in info.get("item_list", []):
+                if isinstance(item, dict) and str(item.get("aweme_id")) == video_id:
+                    video = item.get("video", {})
+                    urls = video.get("play_addr", {}).get("url_list", [])
+                    if isinstance(urls, list) and urls:
+                        return {"id": video_id, "title": item.get("desc", ""), "urls": [media_url(url) for url in urls]}
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise DownloadError("PUBLIC_SHARE_DATA_INVALID: The official share page returned unsupported video data.") from None
+    raise DownloadError("PUBLIC_SHARE_MEDIA_UNAVAILABLE: The official share page did not expose this video's playback URL. Open it in the selected browser and complete any required verification.")
+
+
+def media_url(url):
+    """Accept only platform media hosts published by the official share page."""
+    if not isinstance(url, str):
+        raise DownloadError("The official share page returned an invalid media URL.")
+    try:
+        parsed = urlsplit(url)
+        host = (parsed.hostname or "").lower()
+        valid = (parsed.scheme in {"http", "https"} and not parsed.username and not parsed.password
+                 and parsed.port in (None, 80, 443) and any(host == domain or host.endswith("." + domain) for domain in MEDIA_DOMAINS))
+    except ValueError:
+        valid = False
+    if not valid:
+        raise DownloadError("The official share page returned an unsupported media host.")
+    return url
+
+
+class MediaRedirect(HTTPRedirectHandler):
+    """Keep media redirects inside the platform's public CDN hosts."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        media_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def public_share_media(source, cookiejar=None, timeout=30):
+    """Fetch the official mobile share player's bounded server-rendered JSON."""
+    video_id = source.rsplit("/", 1)[-1]
+    url = f"https://www.iesdouyin.com/share/video/{video_id}/?from_ssr=1"
+    handlers = [DouyinRedirect()]
+    if cookiejar is not None:
+        handlers.append(HTTPCookieProcessor(cookiejar))
+    try:
+        with build_opener(*handlers).open(Request(url, headers={"User-Agent": MOBILE_USER_AGENT, "Referer": "https://www.douyin.com/"}), timeout=timeout) as response:
+            content = response.read(4 * 1024**2 + 1)
+        if len(content) > 4 * 1024**2:
+            raise DownloadError("The official share page exceeded the supported page size.")
+        return share_video_data(content.decode("utf-8"), video_id)
+    except DownloadError:
+        raise
+    except Exception:
+        raise DownloadError("PUBLIC_SHARE_REQUEST_FAILED: The official share page could not be read; retry after checking your network and the selected browser.") from None
+
+
+def download_public_media(info, directory, max_bytes, timeout):
+    """Save the player-provided URL unchanged, including any watermark or signature."""
+    target = Path(directory) / (info["id"] + ".mp4")
+    for url in info["urls"]:
+        target.unlink(missing_ok=True)
+        try:
+            with build_opener(MediaRedirect()).open(Request(media_url(url), headers={"User-Agent": MOBILE_USER_AGENT, "Referer": "https://www.douyin.com/"}), timeout=timeout) as response, target.open("xb") as stream:
+                length = response.headers.get("Content-Length")
+                if length and int(length) > max_bytes:
+                    raise DownloadError("The video exceeded the configured download size limit.")
+                total = 0
+                while chunk := response.read(1024 * 1024):
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise DownloadError("The video exceeded the configured download size limit.")
+                    stream.write(chunk)
+                if total == 0 or (length and total != int(length)):
+                    raise DownloadError("The platform media transfer was incomplete.")
+            return target
+        except DownloadError:
+            raise
+        except Exception:
+            continue
+    raise DownloadError("PUBLIC_MEDIA_DOWNLOAD_FAILED: The official playback URLs could not be downloaded.")
+
+
+def output_directory(project):
+    """Reject links in the download directory so publication stays in the workspace."""
+    current = project.resolve()
+    for part in ("source", "media", "douyin"):
+        current = current / part
+        if current.is_symlink() or (hasattr(current, "is_junction") and current.is_junction()):
+            raise DownloadError("Download directories cannot be symbolic links or junctions.")
+        current.mkdir(exist_ok=True)
+    return current
+
+
 def bundled_downloader():
     """Check the locked archive before importing its maintained extractor."""
     runtime = Path(__file__).resolve().parents[1] / "runtime"
@@ -209,7 +331,7 @@ class PrivateLogger:
 
 
 def browser_cookie_jar(choice, extractor=None):
-    """Use yt-dlp's browser reader, then attach only Douyin cookies in memory."""
+    """Use the selected browser's official Douyin and share-domain cookies in memory."""
     bundled_downloader()
     from yt_dlp.cookies import YoutubeDLCookieJar, extract_cookies_from_browser
     extractor = extractor or extract_cookies_from_browser
@@ -235,8 +357,9 @@ def browser_cookie_jar(choice, extractor=None):
     return jar
 
 
-def download(url, project, *, cookie_file=None, ffprobe=None, factory=None, browser=None,
-        browser_profile=None, remember=False, public_only=False, settings_home=None, cookie_extractor=None):
+def download(url, project, *, cookie_file=None, ffprobe=None, ffmpeg=None, factory=None, browser=None,
+        browser_profile=None, remember=False, public_only=False, settings_home=None, cookie_extractor=None,
+        ssr_loader=None, media_downloader=None, request_timeout=30, max_bytes=2 * 1024**3):
     """Publish verified media and a source receipt without replacing existing files."""
     if browser_profile is not None and browser is None:
         raise DownloadError("--browser-profile requires an explicit --browser.")
@@ -254,25 +377,28 @@ def download(url, project, *, cookie_file=None, ffprobe=None, factory=None, brow
     project = Path(project)
     if not project.is_absolute() or not project.is_dir():
         raise DownloadError("Choose an existing absolute project directory.")
-    probe = ffprobe or os.environ.get("MUSE_FFPROBE_EXECUTABLE") or os.environ.get("DSH_FFPROBE") or shutil.which("ffprobe")
+    probe = ffprobe or os.environ.get("MUSE_FFPROBE_EXECUTABLE") or os.environ.get("DSH_FFPROBE_PATH") or os.environ.get("FFPROBE_PATH") or os.environ.get("DSH_FFPROBE") or shutil.which("ffprobe")
     if not probe:
         raise DownloadError("The bundled ffprobe executable is required to verify the downloaded video.")
+    decoder = ffmpeg or os.environ.get("DSH_FFMPEG_PATH") or os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg")
+    if not decoder:
+        raise DownloadError("The bundled ffmpeg executable is required to decode the downloaded video.")
     if cookie_file and not Path(cookie_file).is_file():
         raise DownloadError("The selected local cookie file does not exist.")
     if remember:
         remember_browser(settings_home, choice["browser"], choice["profile"])
     cookiejar = browser_cookie_jar(choice, cookie_extractor) if choice else None
     source = resolve_share(source)
-    output = project / "source" / "media" / "douyin"
-    output.mkdir(parents=True, exist_ok=True)
+    output = output_directory(project)
+    live_downloader = factory is None
     factory = factory or bundled_downloader()
     with tempfile.TemporaryDirectory(prefix=".download-", dir=output) as temporary:
         options = {
             "outtmpl": str(Path(temporary) / "%(id)s.%(ext)s"),
             "format": "best[ext=mp4]/best", "noplaylist": True,
             "quiet": True, "noprogress": True, "logger": PrivateLogger(),
-            "socket_timeout": 30, "retries": 2, "extractor_retries": 1,
-            "max_filesize": 2 * 1024**3, "cachedir": False,
+            "socket_timeout": request_timeout, "retries": 2, "extractor_retries": 1,
+            "max_filesize": max_bytes, "cachedir": False,
             "allowed_extractors": ["douyin"],
         }
         if cookie_file:
@@ -283,12 +409,24 @@ def download(url, project, *, cookie_file=None, ffprobe=None, factory=None, brow
             with factory(options) as downloader:
                 if cookiejar is not None:
                     downloader.cookiejar = cookiejar
-                info = downloader.extract_info(source, download=True)
-                filename = Path(downloader.prepare_filename(info)).resolve()
+                try:
+                    info = downloader.extract_info(source, download=True)
+                    filename = Path(downloader.prepare_filename(info)).resolve()
+                except Exception:
+                    if cookie_file:
+                        cookiejar = file_fallback_cookie_jar(downloader)
+                    raise
         except Exception as error:
-            message = str(error).lower()
-            code = "LOGIN_OR_VERIFICATION_REQUIRED" if any(word in message for word in ("cookie", "login", "captcha", "verify", "verification")) else "DOWNLOAD_FAILED"
-            raise DownloadError(code + ": could not retrieve this video. Check the page in the selected browser/profile; reuse that choice or use a user-provided --cookie-file if required. Login has not been verified.") from None
+            if isinstance(error, DownloadError):
+                raise
+            if live_downloader or ssr_loader is not None:
+                loader = ssr_loader or public_share_media
+                info = loader(source, cookiejar, request_timeout)
+                filename = (media_downloader or download_public_media)(info, temporary, max_bytes, request_timeout).resolve()
+            else:
+                message = str(error).lower()
+                code = "LOGIN_OR_VERIFICATION_REQUIRED" if any(word in message for word in ("cookie", "login", "captcha", "verify", "verification")) else "DOWNLOAD_FAILED"
+                raise DownloadError(code + ": could not retrieve this video. Check the page in the selected browser/profile; reuse that choice or use a user-provided --cookie-file if required. Login has not been verified.") from None
         if filename.parent != Path(temporary).resolve() or not filename.is_file():
             raise DownloadError("The downloader did not produce a local video file.")
         try:
@@ -299,13 +437,16 @@ def download(url, project, *, cookie_file=None, ffprobe=None, factory=None, brow
             duration = float(metadata["format"]["duration"])
             if duration <= 0 or not any(item.get("codec_type") == "video" for item in metadata.get("streams", [])):
                 raise ValueError("No readable video stream")
+            subprocess.run([str(decoder), "-v", "error", "-xerror", "-i", str(filename), "-map", "0:v:0", "-map", "0:a?", "-f", "null", "-"],
+                           capture_output=True, timeout=max(30, int(duration * 2)), check=True,
+                           creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         except Exception as error:
             raise DownloadError("The downloaded file did not pass the video readability check.") from error
         with filename.open("rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
         target = output / filename.name
         receipt = target.with_suffix(target.suffix + ".source.json")
-        record = {"source": source, "path": str(target), "bytes": filename.stat().st_size,
+        record = {"source": source, "path": str(target), "bytes": filename.stat().st_size, "full_decode_verified": True,
                   "sha256": digest, "duration_seconds": duration, "retrieved_at": datetime.now(timezone.utc).isoformat()}
         if target.exists() or receipt.exists():
             raise DownloadError("A video or receipt with this ID already exists; inspect the existing files before downloading again.")
@@ -332,18 +473,24 @@ def main():
     parser.add_argument("--public-only", action="store_true", help="Do not read or use a saved browser choice")
     parser.add_argument("--forget-browser", action="store_true", help="Clear only the saved Muse browser choice, not browser cookies")
     parser.add_argument("--ffprobe", help="Bundled ffprobe executable path")
+    parser.add_argument("--ffmpeg", help="Bundled ffmpeg executable path")
+    parser.add_argument("--settings-home", help="Muse's own settings directory")
+    parser.add_argument("--request-timeout", type=int, default=30)
+    parser.add_argument("--max-bytes", type=int, default=2 * 1024**3)
     args = parser.parse_args()
     try:
         if args.forget_browser:
-            forget_browser()
+            forget_browser(args.settings_home)
             if not args.url and not args.project:
                 print(json.dumps({"status": "browser_selection_cleared"}))
                 return 0
         if not args.url or not args.project:
             raise DownloadError("Downloads require --url and --project.")
-        result = download(args.url, args.project, cookie_file=args.cookie_file, ffprobe=args.ffprobe,
+        if not 1 <= args.request_timeout <= 300 or not 1 <= args.max_bytes <= 8 * 1024**3:
+            raise DownloadError("Request timeout must be 1–300 seconds and size limit 1 byte–8 GiB.")
+        result = download(args.url, args.project, cookie_file=args.cookie_file, ffprobe=args.ffprobe, ffmpeg=args.ffmpeg,
             browser=args.browser, browser_profile=args.browser_profile, remember=args.remember_browser,
-            public_only=args.public_only)
+            public_only=args.public_only, settings_home=args.settings_home, request_timeout=args.request_timeout, max_bytes=args.max_bytes)
     except DownloadError as error:
         print(json.dumps({"status": "blocked", "message": str(error)}, ensure_ascii=False))
         return 1

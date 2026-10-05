@@ -116,7 +116,7 @@ it('rejects a payload whose emotion-runtime descriptor or subtree contradicts th
 it('requires the emotion-runtime lock before touching the filesystem', async () => {
   await expect(prepareMediaRuntime({ output: join(tmpdir(), 'dsh-media-absent-output'), cache: join(tmpdir(), 'dsh-media-absent-cache'),
     buildPython: 'python', lock: releaseLock, bgmLock: {} as never, bgmCache: join(tmpdir(), 'dsh-bgm-absent-cache') }))
-    .rejects.toThrow(/bgm/u)
+    .rejects.toThrow(process.platform === 'win32' && process.arch === 'x64' ? /bgm/u : /requires Windows x64/u)
 })
 
 it('states the bundled emotion runtime noncommercial limit in the redistribution notice', () => {

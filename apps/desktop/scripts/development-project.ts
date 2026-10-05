@@ -154,7 +154,10 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
   }
 
   const sourceRoot = join(options.repositoryRoot, 'third_party', 'plugins')
-  const pins = JSON.parse(readFileSync(join(sourceRoot, 'sources.json'), 'utf8')) as Record<string, { version: string }>
+  const pins = {
+    ...JSON.parse(readFileSync(join(sourceRoot, 'sources.json'), 'utf8')) as Record<string, { version: string }>,
+    ...JSON.parse(readFileSync(join(sourceRoot, 'owned-downloads.json'), 'utf8')) as Record<string, { version: string }>,
+  }
   mkdirSync(dirname(options.projectDir), { recursive: true })
   const staging = mkdtempSync(join(dirname(options.projectDir), '.community-'))
   const packages: Array<{ directory: string; name: string; version: string; dependencies: Array<[string, string]> }> = []

@@ -34,6 +34,6 @@ it('checks the x64 runtime before any offline elevated installation and fails cl
   expect(source).toContain('SetErrorLevel 1603')
   expect(source).toContain('Abort "$5"')
   expect(source).not.toMatch(/https?:\/\/|NSISdl|inetc::|ExecWait|SKIP.*(?:REDIST|PREREQ)/iu)
-  expect(source).toContain('RMDir /r "$PLUGINSDIR\\7z-out"')
-  expect(source.indexOf('RMDir /r "$PLUGINSDIR\\7z-out"')).toBeLessThan(source.lastIndexOf('Call MuseEnsureVCRuntime'))
+  expect(source).toContain('!insertmacro dshFinishDirectories')
+  expect(source.indexOf('!insertmacro dshFinishDirectories')).toBeLessThan(source.lastIndexOf('Call MuseEnsureVCRuntime'))
 })

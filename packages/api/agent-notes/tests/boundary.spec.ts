@@ -73,6 +73,19 @@ describe('agentNotes — the notes root', () => {
     if (linked) expect(catalog.notes).toHaveLength(1)
   })
 
+  it('skips markdown symlinks inside a real category without reading their target', async (test) => {
+    await writeNote(harness, 'bug-fix/real.md', '# Real\n')
+    const outside = join(harness.outside, 'private.md')
+    await writeFile(outside, '# Private content\n', 'utf8')
+    if (!await linkNote(harness, 'bug-fix/private.md', outside)) {
+      test.skip()
+      return
+    }
+    const catalog = await harness.notes.list()
+    expect(catalog.notes.map(note => note.id)).toEqual(['bug-fix/real.md'])
+    expect(JSON.stringify(catalog)).not.toContain('Private content')
+  })
+
   it('caps the catalog and reports the cut', async () => {
     const capped = await openNotes('dsh-agent-notes-cap-', { maxNotes: 1 })
     try {

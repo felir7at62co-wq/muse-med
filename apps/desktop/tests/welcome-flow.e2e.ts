@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -89,7 +89,7 @@ async function mockPlatform() {
 describe.skipIf(!existsSync(builtHost) || !existsSync(communityArtifacts))('built Desktop welcome flow', () => {
   it('persists explicit API keys and browser account login independently across Host restarts', async () => {
     vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
-    const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-welcome-'))
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-desktop-welcome-')))
     let host: DesktopHostProcess | undefined
     const platform = await mockPlatform()
     try {
@@ -122,6 +122,17 @@ describe.skipIf(!existsSync(builtHost) || !existsSync(communityArtifacts))('buil
       const nodeBin = join(root, 'runtime/primary-runtime/dependencies/node/bin')
       mkdirSync(nodeBin, { recursive: true })
       cpSync(process.execPath, join(nodeBin, process.platform === 'win32' ? 'node.exe' : 'node'))
+      const primaryRuntime = join(root, 'runtime/primary-runtime')
+      const pythonRoot = join(primaryRuntime, 'dependencies/python')
+      const pythonBin = process.platform === 'win32' ? pythonRoot : join(pythonRoot, 'bin')
+      mkdirSync(pythonBin, { recursive: true })
+      mkdirSync(join(pythonRoot, ...(process.platform === 'win32' ? ['Lib'] : ['lib', 'python3.12']), 'site-packages'), { recursive: true })
+      // This account flow validates the payload paths without invoking Python tools.
+      writeFileSync(join(pythonBin, process.platform === 'win32' ? 'python.exe' : 'python3'), '')
+      writeFileSync(join(primaryRuntime, 'runtime.json'), JSON.stringify({
+        desktopVersion: '1.0.1', platform: process.platform, arch: process.arch,
+        python: '3.12.14', pythonPackages: {},
+      }))
       const paths = resolveDesktopPaths(home)
       const manager = new DesktopProjectManager(paths, {
         node: join(nodeBin, process.platform === 'win32' ? 'node.exe' : 'node'),
@@ -135,7 +146,8 @@ describe.skipIf(!existsSync(builtHost) || !existsSync(communityArtifacts))('buil
       let hostOrigin = ''
       const restart = async (): Promise<void> => {
         await host?.stop()
-        host = new DesktopHostProcess(process.execPath, project, paths.profile)
+        // Development packages are linked; the OS allocates the inspector port.
+        host = new DesktopHostProcess(process.execPath, project, paths.profile, 0)
         const { url } = await host.start()
         hostOrigin = new URL(url).origin
         let cookie = ''

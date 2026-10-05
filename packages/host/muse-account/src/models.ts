@@ -135,7 +135,10 @@ export class MuseModels {
         baseURL: `${this.options.baseUrl}/api/desktop-models/${provider.id}`,
         headers: { origin: this.options.baseUrl },
         models: allowedModels.map(model => ({ ...model,
-          compat: { supportsReasoningEffort: model.reasoningEfforts !== false } })),
+          compat: { supportsReasoningEffort: model.reasoningEfforts !== false,
+            ...(/^glm-5\.3(?:-|$)/i.test(model.id.split('/').at(-1) ?? '') ? {
+              thinkingFormat: 'deepseek' as const, requiresReasoningContentOnAssistantMessages: true,
+            } : {}) } })),
         compat: { supportsStore: false, supportsDeveloperRole: false, maxTokensField: 'max_tokens',
           ...(provider.id === 'deepseek-official' ? { thinkingFormat: 'deepseek' as const, requiresReasoningContentOnAssistantMessages: true } : {}) },
       }

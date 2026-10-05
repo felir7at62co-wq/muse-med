@@ -514,7 +514,11 @@ async function main(): Promise<void> {
       primaryRuntime,
       resources, (next) => { platformView.setSession(next) }, () => {
         if (!quitting && !shellInstallerOwnsQuit) shell.beep()
-      })
+      }, async (request) => {
+        if (mainWindow === undefined || mainWindow.isDestroyed()) return { type: 'douyin-browser-result', requestId: request.requestId, code: 'UI_UNAVAILABLE' }
+        return browserGuests.download(mainWindow.webContents, request)
+      }, () => browserGuests.downloads.dispose())
+    browserGuests.downloads.onRevoked = (taskId, code) => { host.notifyDouyinRevoked(taskId, code) }
     return {
       start: async () => {
         const ready = await host.start()
@@ -768,13 +772,17 @@ async function main(): Promise<void> {
     reportFatal(new Error(message), 'web-boot')
   })
 
-  ipcMain.handle(DESKTOP_IPC.browserAcquire, (event, workspace: unknown) => {
+  ipcMain.handle(DESKTOP_IPC.browserAcquire, (event, workspace: unknown, sessionId: unknown, initialUrl: unknown) => {
     assertProductSender(event)
-    return browserGuests.acquire(event.sender, workspace)
+    return browserGuests.acquire(event.sender, workspace, sessionId, initialUrl)
   })
   ipcMain.handle(DESKTOP_IPC.browserRelease, (event, lease: unknown) => {
     assertProductSender(event)
     return browserGuests.release(event.sender, lease)
+  })
+  ipcMain.handle(DESKTOP_IPC.browserActiveSession, (event, sessionId: unknown) => {
+    assertProductSender(event)
+    browserGuests.downloads.activeSession(event.sender, sessionId)
   })
 
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['ws://127.0.0.1/*'] }, (details, callback) => {
