@@ -969,6 +969,9 @@ describe('Python release workflows', () => {
     expect(String(realApiPreflightPosix.if)).toContain('head.repo.fork')
     expect(String(realApiPreflightPosix.if)).toContain('dependabot[bot]')
     expect(realApiPreflightWindows).toMatchObject({ shell: 'pwsh' })
+    for (const step of [realApiPreflightPosix, realApiPreflightWindows, installedRealApiPosix, installedRealApiWindows]) {
+      expect(String(step.if)).toContain("github.repository == 'deepseek-harness/deepseek-harness' || vars.DSH_RUN_REAL_API_E2E == 'true'")
+    }
     for (const step of [installedRealApiPosix, installedRealApiWindows]) {
       expect(step).toMatchObject({
         env: {
