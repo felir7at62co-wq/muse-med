@@ -48,6 +48,8 @@ jobs:
           python-version: '3.12'
       - name: Install immutable dependencies
         run: pnpm install --frozen-lockfile
+      - name: Install model gateway dependencies
+        run: npm ci --prefix services/muse-accounts --ignore-scripts
       - name: Check model relay behavior
         run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs
       - name: Check download bundle packaging

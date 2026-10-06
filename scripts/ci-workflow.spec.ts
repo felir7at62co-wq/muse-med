@@ -40,6 +40,9 @@ describe('CI workflow', () => {
     expect(packagingCheck?.run).toMatch(/^pnpm exec vitest run /)
     expect(modelCheck).not.toHaveProperty('continue-on-error')
     expect(packagingCheck).not.toHaveProperty('continue-on-error')
+    const gatewayInstall = steps.findIndex(step => step.run === 'npm ci --prefix services/muse-accounts --ignore-scripts')
+    expect(gatewayInstall).toBeGreaterThanOrEqual(0)
+    expect(steps.indexOf(modelCheck ?? {})).toBeGreaterThan(gatewayInstall)
   })
 
   it.each([
