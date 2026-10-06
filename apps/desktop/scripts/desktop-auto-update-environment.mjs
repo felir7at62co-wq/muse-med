@@ -166,6 +166,24 @@ export function resolveDesktopGitHubUpdateConfig(version) {
 }
 
 /**
+ * Resolve the public TOS mirror and GitHub fallback embedded into a Muse package.
+ * @param {string} version - Packaged application version.
+ * @param {NodeJS.Platform} platform - Target platform.
+ * @param {string} arch - Target architecture.
+ * @returns {{schemaVersion: 1, version: string, primary: {provider: 'generic', url: string, channel: string, useMultipleRangeRequest: false}, fallback: {provider: 'github', owner: string, repo: string, channel: string}}} Sealed source record without upload credentials.
+ */
+export function resolveDesktopMuseUpdateSources(version, platform, arch) {
+  const target = resolveDesktopAutoUpdateTarget(platform, arch)
+  return {
+    schemaVersion: 1,
+    version,
+    primary: { provider: 'generic', url: `https://muse.tos-cn-beijing.volces.com/releases/feeds/${target}/`,
+      channel: desktopUpdateChannel(version), useMultipleRangeRequest: false },
+    fallback: resolveDesktopGitHubUpdateConfig(version),
+  }
+}
+
+/**
  * Resolve the public updater URL for one release target.
  *
  * Packaging records the GitHub Releases source instead; this resolver serves the retained

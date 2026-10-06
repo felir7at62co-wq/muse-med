@@ -84,10 +84,12 @@ describe('agentNotes read observations', () => {
   it.each(['removed', 'directory'] as const)('refuses a note that becomes %s after its path probe', async (change) => {
     const id = 'category/note.md'
     const path = await writeNote(harness, id, '# Original\n')
+    let probes = 0
     const resolve = harness.ctx.fs.resolve.bind(harness.ctx.fs)
     vi.spyOn(harness.ctx.fs, 'resolve').mockImplementation(async (name, options) => {
       const target = await resolve(name, options)
-      if (name === id) {
+      if (name === join(...id.split('/'))) {
+        probes++
         await rm(path)
         if (change === 'directory') await mkdir(path)
       }
@@ -95,6 +97,7 @@ describe('agentNotes read observations', () => {
     })
     const readText = vi.spyOn(harness.ctx.fs, 'readText')
     const failure = await failureOf(harness.notes.read(id))
+    expect(probes).toBe(1)
     expect(failure).toMatchObject({
       code: change === 'removed' ? 'agent-note/not-found' : 'agent-note/not-regular-file',
       details: { id, ...change === 'directory' ? { kind: 'directory' } : {} },

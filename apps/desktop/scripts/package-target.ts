@@ -55,6 +55,8 @@ const DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES = new Set([
   'DOWNLOAD_TEST_COS_SECRET_KEY',
   'DOWNLOAD_PROD_COS_SECRET_ID',
   'DOWNLOAD_PROD_COS_SECRET_KEY',
+  'VOLCENGINE_ACCESS_KEY_ID',
+  'VOLCENGINE_SECRET_ACCESS_KEY',
 ])
 
 /** `--build-version` value that numbers a build after the ones already taken. */
@@ -126,7 +128,7 @@ export function desktopElectronBuilderEnvironment(environment: NodeJS.ProcessEnv
 }
 
 /**
- * Remove upload-only COS credentials from every packaging subprocess.
+ * Remove upload-only COS and TOS credentials from every packaging subprocess.
  * @param environment - Packaging command environment.
  * @returns A copy without Desktop upload credentials.
  */

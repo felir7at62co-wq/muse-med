@@ -1,7 +1,7 @@
 import { officePackageDirectories } from '../../../scripts/libreoffice-packages.mjs'
 import { X509Certificate } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
@@ -19,7 +19,8 @@ import {
   resolveWindowsUpdatePublisher,
   scrubWindowsSigningEnvironment,
 } from './windows-sign.mjs'
-import { resolveDesktopAutoUpdateConfig, resolveDesktopGitHubUpdateConfig } from './desktop-auto-update-environment.mjs'
+import { resolveDesktopAutoUpdateConfig, resolveDesktopGitHubUpdateConfig,
+  resolveDesktopMuseUpdateSources } from './desktop-auto-update-environment.mjs'
 import { resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
 import { readDesktopProductVersion, resolveDesktopBuildVersion } from './desktop-build-version.mjs'
 import { resolveDesktopPolicyEnvironment } from './desktop-policy-environment.mjs'
@@ -203,6 +204,16 @@ export function createElectronBuilderConfig(
         await writeMacOSAppUpdateConfig(resourcesDir, resolveMacOSAppUpdateFeed(context.packager.config.publish),
           context.packager.appInfo.updaterCacheDirName)
       }
+      if (preparedRuntime === undefined && (resolvedPlatform === 'darwin' || resolvedPlatform === 'win32')) {
+        const sources = resolveDesktopMuseUpdateSources(buildVersion, resolvedPlatform, resolvedArch)
+        const path = join(resourcesDir, 'muse-update-sources.json')
+        await writeFile(path, `${JSON.stringify(sources, null, 2)}\n`)
+        const { loadDesktopUpdateSources } = await import('../lib/types/update-sources.js')
+        const actual = loadDesktopUpdateSources(path, buildVersion)
+        if (JSON.stringify(actual) !== JSON.stringify([sources.primary, sources.fallback])) {
+          throw new Error('desktop package: sealed update sources differ from the release destination')
+        }
+      }
       // Installed-update qualification may prepare a private runtime with another harness version.
       await verifyDesktopRuntime(buildPaths.dsh,
         preparedRuntimeVersion ?? harnessVersion, { platform: resolvedPlatform, arch: resolvedArch })
@@ -266,6 +277,6 @@ export function createElectronBuilderConfig(
     // Every target, unsigned included, records the product's GitHub Releases update source:
     // electron-builder writes this entry into the packaged `resources/app-update.yml`, which is
     // the Desktop updater's activation switch.
-    publish: [resolveDesktopGitHubUpdateConfig(productVersion)],
+    publish: [resolveDesktopGitHubUpdateConfig(buildVersion)],
   }
 }

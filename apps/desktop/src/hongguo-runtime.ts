@@ -91,8 +91,13 @@ export async function prepareDesktopHongguoEnvironment(options: { runtime: strin
       }
       await verifySources(stage, metadata.sourceFiles)
       try { await rename(stage, app) } catch (error) {
-        if (!['EEXIST', 'ENOTEMPTY'].includes(String((error as NodeJS.ErrnoException).code))) throw error
-        await verifySources(app, metadata.sourceFiles)
+        const code = (error as NodeJS.ErrnoException).code
+        if (!['EEXIST', 'ENOTEMPTY', 'EPERM'].includes(String(code))) throw error
+        try { await verifySources(app, metadata.sourceFiles) } catch (verificationError) {
+          // Windows reports EPERM for an existing directory; incomplete targets retain the rename failure.
+          if (code === 'EPERM') throw error
+          throw verificationError
+        }
       }
     } finally { await rm(stage, { recursive: true, force: true }) }
   }

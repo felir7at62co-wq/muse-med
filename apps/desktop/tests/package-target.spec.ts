@@ -129,7 +129,7 @@ describe('desktop package target', () => {
     })).toEqual({ DSH_DESKTOP_AUTO_UPDATE_ENV: 'production' })
   })
 
-  it('keeps COS credentials out of every packaging subprocess', () => {
+  it('keeps COS and TOS credentials out of every packaging subprocess', () => {
     expect(withoutDesktopUploadCredentials({
       DOWNLOAD_TEST_ORIGIN: 'https://desktop-updates.example.com',
       DOWNLOAD_TEST_COS_BUCKET: 'test-download-bucket',
@@ -138,6 +138,8 @@ describe('desktop package target', () => {
       DOWNLOAD_PROD_COS_BUCKET: 'production-download-bucket',
       DOWNLOAD_PROD_COS_SECRET_ID: 'production-id',
       DOWNLOAD_PROD_COS_SECRET_KEY: 'production-key',
+      VOLCENGINE_ACCESS_KEY_ID: 'tos-id',
+      VOLCENGINE_SECRET_ACCESS_KEY: 'tos-key',
       DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
     })).toEqual({
       DOWNLOAD_TEST_ORIGIN: 'https://desktop-updates.example.com',

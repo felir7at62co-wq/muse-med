@@ -6,6 +6,7 @@ import { parseDesktopRelease } from '../src/release.ts'
 import type { DesktopUpdateState } from '../src/ipc.ts'
 import { DesktopUpdatePreparationError } from '../src/update-error.ts'
 import { zh } from '../src/locale.ts'
+import type { DesktopUpdateSource } from '../src/update-sources.ts'
 
 vi.mock('electron', () => ({ app: { isPackaged: false } }))
 vi.mock('electron-updater', () => ({
@@ -49,7 +50,7 @@ type CheckResult = NonNullable<Awaited<ReturnType<DesktopUpdater['checkForUpdate
 const coordinators: InstanceType<typeof DesktopUpdateCoordinator>[] = []
 afterEach(() => { for (const item of coordinators.splice(0)) item.dispose() })
 
-function fixture(channel?: string) {
+function fixture(channel?: string, sources: readonly DesktopUpdateSource[] = []) {
   const events = new EventEmitter()
   const checkForUpdates = vi.fn(async (): Promise<CheckResult> => ({
     isUpdateAvailable: true,
@@ -62,18 +63,91 @@ function fixture(channel?: string) {
     return ['verified-package']
   })
   const quitAndInstall = vi.fn()
+  const setFeedURL = vi.fn<(source: DesktopUpdateSource) => void>()
   const beforeRestart = vi.fn(async () => true)
   const downloadResult = vi.fn()
   const states: DesktopUpdateState[] = []
-  const updater = Object.assign(events, { checkForUpdates, downloadUpdate, quitAndInstall, channel,
+  const updater = Object.assign(events, { checkForUpdates, downloadUpdate, quitAndInstall, setFeedURL, channel,
     autoDownload: true, autoInstallOnAppQuit: true, allowPrerelease: false, allowDowngrade: false })
   const coordinator = new DesktopUpdateCoordinator(
     (state) => { states.push(state); return state },
-    beforeRestart, updater, () => true, () => '1.1.0-alpha.1', downloadResult,
+    beforeRestart, updater, () => true, () => '1.1.0-alpha.1', downloadResult, sources,
   )
   coordinators.push(coordinator)
-  return { coordinator, updater, events, states, checkForUpdates, downloadUpdate, quitAndInstall, beforeRestart, downloadResult }
+  return { coordinator, updater, events, states, checkForUpdates, downloadUpdate, quitAndInstall,
+    setFeedURL, beforeRestart, downloadResult }
 }
+
+const mirrorSources: readonly DesktopUpdateSource[] = [
+  { provider: 'generic', url: 'https://mirror.example.com/', channel: 'rc' },
+  { provider: 'github', owner: 'example', repo: 'muse', channel: 'rc' },
+]
+const mirrorInfo = { version: '1.1.0-rc.2', files: [{ url: 'payload.zip', sha512: Buffer.alloc(64, 1).toString('base64'), size: 42 }] }
+
+describe('desktop update mirrors', () => {
+  it('checks TOS first and uses GitHub only after an availability failure', async () => {
+    const f = fixture(undefined, mirrorSources)
+    f.checkForUpdates.mockRejectedValueOnce(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }))
+      .mockResolvedValue({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    expect(await f.coordinator.check()).toMatchObject({ phase: 'available', version: mirrorInfo.version })
+    expect(f.setFeedURL.mock.calls.map(call => call[0])).toEqual(mirrorSources)
+    await f.coordinator.download(mirrorInfo.version)
+    expect(f.downloadUpdate).toHaveBeenCalledOnce()
+  })
+
+  it('downloads through the fallback only when version, size and SHA-512 remain identical', async () => {
+    const f = fixture(undefined, mirrorSources)
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    await f.coordinator.check()
+    expect(f.setFeedURL).toHaveBeenCalledOnce()
+    f.downloadUpdate.mockRejectedValueOnce(Object.assign(new Error('unavailable'), { statusCode: 503 }))
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'ready', version: mirrorInfo.version })
+    expect(f.setFeedURL.mock.calls.map(call => call[0])).toEqual(mirrorSources)
+    expect(f.downloadUpdate).toHaveBeenCalledTimes(2)
+    expect(f.downloadResult).toHaveBeenCalledExactlyOnceWith(true)
+  })
+
+  it.each(['version', 'size', 'sha512'] as const)('rejects fallback changes to %s after download confirmation', async (field) => {
+    const f = fixture(undefined, mirrorSources)
+    f.checkForUpdates.mockResolvedValueOnce({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    await f.coordinator.check()
+    const changed = structuredClone(mirrorInfo)
+    if (field === 'version') changed.version = '1.2.0'
+    else if (field === 'size') changed.files[0]!.size++
+    else changed.files[0]!.sha512 = Buffer.alloc(64, 2).toString('base64')
+    f.checkForUpdates.mockResolvedValueOnce({ isUpdateAvailable: true, updateInfo: changed })
+    f.downloadUpdate.mockRejectedValueOnce(Object.assign(new Error('not found'), { statusCode: 404 }))
+    const result = await f.coordinator.download(mirrorInfo.version)
+    expect(result).toMatchObject({ phase: 'error', failedOperation: 'download' })
+    if (result.phase !== 'error') throw new Error('expected a rejected fallback')
+    expect(result.message).toContain('fallback payload differs')
+    expect(f.downloadUpdate).toHaveBeenCalledOnce()
+    expect(f.quitAndInstall).not.toHaveBeenCalled()
+  })
+
+  it('retains checksum rejection without trying another source', async () => {
+    const f = fixture(undefined, mirrorSources)
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    await f.coordinator.check()
+    f.downloadUpdate.mockRejectedValueOnce(Object.assign(new Error('checksum mismatch'), { code: 'ERR_CHECKSUM_MISMATCH' }))
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'error', failedOperation: 'download' })
+    expect(f.setFeedURL).toHaveBeenCalledOnce()
+    expect(f.checkForUpdates).toHaveBeenCalledOnce()
+  })
+
+  it('stops source switching when a pending primary check is disposed', async () => {
+    const f = fixture(undefined, mirrorSources)
+    const result = Promise.withResolvers<CheckResult>()
+    f.checkForUpdates.mockImplementationOnce(() => result.promise)
+    const pending = f.coordinator.check()
+    await Promise.resolve()
+    f.coordinator.dispose()
+    result.reject(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }))
+    await pending
+    expect(f.setFeedURL).toHaveBeenCalledOnce()
+    expect(f.states).toEqual([])
+  })
+})
 
 describe('desktop update coordinator', () => {
   it('keeps safe preparation diagnostics separate and clears them on an explicit retry', async () => {

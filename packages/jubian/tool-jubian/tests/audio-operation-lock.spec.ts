@@ -1,23 +1,50 @@
 import { mkdtemp, mkdir, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assertNoAudioDeletion, withAudioDeletionLock } from '../src/audio-operation-lock.ts'
+
+const access = vi.hoisted(() => ({ path: '', error: Object.assign(new Error('audio lock metadata access denied'), { code: 'EACCES' }) }))
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, lstat: async (...args: Parameters<typeof actual.lstat>) => {
+    if (args[0] === access.path) throw access.error
+    return await actual.lstat(...args)
+  } }
+})
 
 let root: string
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'jubian-audio-exclusion-'))
   await mkdir(join(root, 'video_tasks'))
 })
-afterEach(async () => { await rm(root, { recursive: true, force: true }) })
+afterEach(async () => { access.path = ''; await rm(root, { recursive: true, force: true }) })
 
 describe('project audio exclusion', () => {
-  it('propagates filesystem errors instead of treating an unreadable parent as idle', async () => {
+  // Windows reports ENOENT for a child of a regular file; ENOTDIR is a POSIX filesystem result.
+  it.skipIf(process.platform === 'win32')('propagates a non-directory parent without changing its file', async () => {
     const file = join(root, 'not-a-directory')
     await writeFile(file, 'owned')
     await expect(assertNoAudioDeletion(file)).rejects.toMatchObject({ code: 'ENOTDIR' })
     await expect(withAudioDeletionLock(file, 2708, async () => 'unreachable')).rejects.toMatchObject({ code: 'ENOTDIR' })
     expect(await readFile(file, 'utf8')).toBe('owned')
+  })
+
+  it('propagates metadata permission failure for a valid project instead of reporting an idle writer', async () => {
+    access.path = join(root, '.audio-asset-delete.lock')
+    await expect(assertNoAudioDeletion(root)).rejects.toBe(access.error)
+    expect(await readdir(root)).toEqual(['video_tasks'])
+  })
+
+  it('refuses an existing lock directory before admitting the guarded operation', async () => {
+    const directory = join(root, '.audio-asset-delete.lock')
+    await mkdir(directory)
+    await writeFile(join(directory, 'retained.txt'), 'other owner')
+    const operation = vi.fn(async () => 'unreachable')
+    await expect(withAudioDeletionLock(root, 2708, operation)).rejects.toThrow('writer holds a lock')
+    expect(operation).not.toHaveBeenCalled()
+    expect(await readFile(join(directory, 'retained.txt'), 'utf8')).toBe('other owner')
+    expect((await readdir(root)).sort()).toEqual(['.audio-asset-delete.lock', 'video_tasks'])
   })
 
   it('retains another writer lock and removes only locks acquired by this operation', async () => {

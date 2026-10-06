@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDramaBgm, type DramaBgmSettings } from '../src/compose.ts'
 import type { ProcessChannel, ProcessOutcome } from '../src/types.ts'
 
@@ -245,8 +245,18 @@ describe('runDramaBgm', () => {
     if (kind === 'empty') await writeFile(files.timeline, '')
     if (kind === 'directory') { await rm(files.timeline); await mkdir(files.timeline) }
     const timeline = kind === 'not-directory' ? join(files.timeline, 'child.json') : files.timeline
-    await expect(runDramaBgm({ method: 'preview', project: files.project, episode: 5, timeline, plan: files.plan },
-      settings(processChannel()))).rejects.toThrow(kind === 'not-directory' ? 'ENOTDIR' : '不是非空文件')
+    if (kind === 'not-directory') {
+      await expect(stat(timeline)).rejects.toMatchObject({ code: process.platform === 'win32' ? 'ENOENT' : 'ENOTDIR' })
+    }
+    const run = vi.fn(async () => { throw new Error('Media analysis must not admit a refused control file') })
+    const operation = runDramaBgm({ method: 'preview', project: files.project, episode: 5, timeline, plan: files.plan }, settings({ run }))
+    if (kind === 'not-directory') {
+      if (process.platform === 'win32') {
+        await expect(operation).rejects.toMatchObject({ message: `时间线不存在：${timeline}` })
+        await expect(operation).rejects.toHaveProperty('cause.code', 'ENOENT')
+      } else await expect(operation).rejects.toMatchObject({ code: 'ENOTDIR' })
+    } else await expect(operation).rejects.toThrow('不是非空文件')
+    expect(run).not.toHaveBeenCalled()
   })
 
   it.each(['{', 'null', '{"body_end":0}', '{"body_end":"invalid"}'])('rejects unreadable or invalid timeline %s', async (document) => {

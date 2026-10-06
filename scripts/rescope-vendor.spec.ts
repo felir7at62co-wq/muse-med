@@ -5,6 +5,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writ
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { exactEditState, isRescopeExcluded, rewriteRescopeReferences } from './rescope-vendor.ts'
 
@@ -113,7 +114,7 @@ function fixtureTree(): string {
 
 function runCheck(directory: string): SpawnSyncReturns<string> {
   const outcome = spawnSync(process.execPath,
-    ['--import', createRequire(import.meta.url).resolve('tsx/esm'), join(directory, 'scripts/rescope-vendor.ts'), '--check'],
+    ['--import', pathToFileURL(createRequire(import.meta.url).resolve('tsx/esm')).href, join(directory, 'scripts/rescope-vendor.ts'), '--check'],
     { cwd: directory, encoding: 'utf8', timeout: 30_000 })
   expect(outcome.error).toBeUndefined()
   expect(outcome.signal).toBeNull()

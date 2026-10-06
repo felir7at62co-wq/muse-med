@@ -9,16 +9,18 @@ import { gt, valid } from 'semver'
 import type { DesktopUpdateState } from './ipc.ts'
 import { DesktopUpdateHttpExecutor } from './update-http-executor.ts'
 import { DesktopUpdatePreparationError } from './update-error.ts'
+import { desktopUpdateIdentity, isDesktopUpdateSourceUnavailable, loadDesktopUpdateSources,
+  type DesktopUpdateSource } from './update-sources.ts'
 
 /** Electron updater operations used by the coordinator. */
-export type DesktopUpdater = Pick<AppUpdater, 'downloadUpdate' | 'quitAndInstall'
+export type DesktopUpdater = Pick<AppUpdater, 'downloadUpdate' | 'quitAndInstall' | 'setFeedURL'
   | 'autoDownload' | 'autoInstallOnAppQuit' | 'allowPrerelease' | 'allowDowngrade'> & {
   /** Subscribe to updater notifications. */
     on(...args: Parameters<AppUpdater['on']>): unknown
     /** Retire an updater notification listener. */
     off(...args: Parameters<AppUpdater['off']>): unknown
     /** Check the selected feed's availability and release version. */
-    checkForUpdates(): Promise<{ isUpdateAvailable: boolean; updateInfo: Pick<UpdateInfo, 'version'> } | null>
+    checkForUpdates(): Promise<{ isUpdateAvailable: boolean; updateInfo: Pick<UpdateInfo, 'version'> & Partial<Pick<UpdateInfo, 'files'>> } | null>
   }
 
 const { autoUpdater } = electronUpdater
@@ -32,6 +34,8 @@ export class DesktopUpdateCoordinator {
   private checkOperation: Promise<DesktopUpdateState> | undefined
   private downloadOperation: Promise<DesktopUpdateState> | undefined
   private installOperation: Promise<DesktopUpdateState> | undefined
+  private sourceIndex = 0
+  private identity: string | undefined
 
   private readonly onProgress = (progress: ProgressInfo): void => {
     if (this.downloadOperation === undefined || this.downloaded) return
@@ -58,6 +62,7 @@ export class DesktopUpdateCoordinator {
    * @param enabled - Whether this process has a packaged update source.
    * @param currentVersion - Actual installed application version.
    * @param downloadResult - Once per completed download attempt, including platform preparation failures.
+   * @param sources - Sealed primary and fallback feeds; injected only by updater qualification fixtures.
    */
   constructor(
     private readonly publish: (state: DesktopUpdateState) => DesktopUpdateState,
@@ -66,6 +71,8 @@ export class DesktopUpdateCoordinator {
     private readonly enabled: () => boolean = () => app.isPackaged && existsSync(join(process.resourcesPath, 'app-update.yml')),
     private readonly currentVersion: () => string = () => app.getVersion(),
     private readonly downloadResult?: (success: boolean, reason?: string) => void,
+    private readonly sources: readonly DesktopUpdateSource[] = updater === autoUpdater && app.isPackaged
+      ? loadDesktopUpdateSources(join(process.resourcesPath, 'muse-update-sources.json'), currentVersion()) : [],
   ) {
     if (updater === autoUpdater) {
       // electron-updater omits this internal transport property from its public declarations.
@@ -78,9 +85,7 @@ export class DesktopUpdateCoordinator {
     }
     this.updater.autoDownload = false
     this.updater.autoInstallOnAppQuit = false
-    // The channel is a packaging fact: `app-update.yml` records the one this build's version derives,
-    // and the provider reads it from there. Assigning a channel here overrides that record, so the
-    // GitHub provider resolves tags and a `<channel>.yml` filename no release publishes.
+    // Each sealed source carries the packaged channel; assigning updater.channel overrides it.
     this.updater.allowPrerelease = true
     // Selecting a channel can enable downgrade in electron-updater.
     this.updater.allowDowngrade = false
@@ -122,7 +127,7 @@ export class DesktopUpdateCoordinator {
       if (version !== this.candidate) throw new Error('desktop update: download confirmation is stale')
       this.setState({ phase: 'downloading', version, percent: 0 })
       try {
-        await this.updater.downloadUpdate()
+        await this.downloadFromSource()
         if (!this.downloaded) throw new Error('desktop update: platform preparation did not report readiness')
         this.downloadResult?.(true)
         return this.setState({ phase: 'ready', version })
@@ -197,14 +202,45 @@ export class DesktopUpdateCoordinator {
     try {
       this.assertLive()
       if (!this.enabled()) throw new Error('desktop update: this application has no packaged update source')
-      const result = await this.updater.checkForUpdates()
+      this.sourceIndex = 0
+      const result = await this.checkFromSource()
       if (result === null) throw new Error('desktop update: no check result was returned')
       const version = result.updateInfo.version
       if (valid(version) === null) throw new Error('desktop update: feed version is invalid')
+      this.identity = this.sources.length > 1 ? desktopUpdateIdentity(result.updateInfo) : undefined
       this.candidate = result.isUpdateAvailable && gt(version, this.currentVersion()) ? version : undefined
       return this.setState(this.candidate === undefined ? { phase: 'idle' } : { phase: 'available', version })
     } catch (error) {
       return this.failure(error, 'check')
+    }
+  }
+
+  private async checkFromSource(): ReturnType<DesktopUpdater['checkForUpdates']> {
+    for (;;) {
+      this.assertLive()
+      const source = this.sources[this.sourceIndex]
+      if (source !== undefined) this.updater.setFeedURL(source)
+      try { return await this.updater.checkForUpdates() } catch (error) {
+        if (!isDesktopUpdateSourceUnavailable(error) || this.sourceIndex + 1 >= this.sources.length) throw error
+        this.sourceIndex++
+      }
+    }
+  }
+
+  private async downloadFromSource(): Promise<void> {
+    for (;;) {
+      this.assertLive()
+      try { await this.updater.downloadUpdate(); return } catch (error) {
+        if (!isDesktopUpdateSourceUnavailable(error) || this.sourceIndex + 1 >= this.sources.length) throw error
+        this.downloaded = false
+        this.sourceIndex++
+        const result = await this.checkFromSource()
+        if (result === null || this.identity === undefined || desktopUpdateIdentity(result.updateInfo) !== this.identity) {
+          throw new Error('desktop update: fallback payload differs from the confirmed release; check for updates again')
+        }
+        this.assertLive()
+        this.setState({ phase: 'downloading', ...this.target(), percent: 0 })
+      }
     }
   }
 }

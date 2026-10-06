@@ -73,7 +73,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     expect(rows.find(row => row.id === 'webserver')).toMatchObject({ name: '@deepseek-ai/dsh-host-webserver' })
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-muse-account')).toEqual([
       { id: 'muse-account', name: '@deepseek-ai/dsh-muse-account', inject: ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'museDesktopBridge', 'connection', 'webServer'], config: {
-        remoteAccess: true, excludedModelPrefixes: ['gpt-', 'chatgpt-', 'o1', 'o3', 'o4'],
+        remoteAccess: true, excludedModelPrefixes: [],
         baseUrl: { __jsExpr: "process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'" },
       } },
     ])

@@ -92,6 +92,23 @@ export interface DesktopGitHubUpdateConfig {
  */
 export function resolveDesktopGitHubUpdateConfig(version: string): DesktopGitHubUpdateConfig
 
+/** Public TOS mirror and GitHub fallback sealed into a Muse application. */
+export interface DesktopMuseUpdateSources {
+  readonly schemaVersion: 1
+  readonly version: string
+  readonly primary: { readonly provider: 'generic'; readonly url: string; readonly channel: string; readonly useMultipleRangeRequest: false }
+  readonly fallback: DesktopGitHubUpdateConfig
+}
+
+/**
+ * Resolve the public TOS mirror and GitHub fallback embedded into a Muse package.
+ * @param version - Packaged application version.
+ * @param platform - Target platform.
+ * @param arch - Target architecture.
+ * @returns Sealed source record without upload credentials.
+ */
+export function resolveDesktopMuseUpdateSources(version: string, platform: NodeJS.Platform, arch: string): DesktopMuseUpdateSources
+
 /**
  * Resolve the public updater URL for one release target.
  *

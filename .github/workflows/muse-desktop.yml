@@ -66,11 +66,7 @@ jobs:
       - name: Record the exact unsigned build
         env:
           MUSE_RELEASE_TARGET: ${{ matrix.target }}
-        run: >-
-          node --input-type=module -e "import { readFileSync, writeFileSync } from 'node:fs';
-          const version = JSON.parse(readFileSync('apps/desktop/muse-product.json', 'utf8')).version;
-          writeFileSync('apps/desktop/.desktop-build/targets/' + process.env.MUSE_RELEASE_TARGET + '/unsigned-artifacts/unsigned-build.json',
-          JSON.stringify({ target: process.env.MUSE_RELEASE_TARGET, version, sourceCommit: process.env.GITHUB_SHA, unsigned: true }, null, 2) + '\n');"
+        run: node apps/desktop/scripts/record-muse-unsigned-build.mjs
       - name: Upload installers, update metadata and build identity
         uses: actions/upload-artifact@v4
         with:

@@ -106,7 +106,7 @@
       inject: [tools, llm, sessionProjections, agentDefaultModel, museDesktopBridge, connection, webServer]
       config:
         baseUrl: !!js process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'
-        excludedModelPrefixes: [gpt-, chatgpt-, o1, o3, o4]
+        excludedModelPrefixes: []
         remoteAccess: true
 
     - id: ui-muse-account

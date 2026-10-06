@@ -6,7 +6,7 @@
 
 桌面应用是完整 dsh Web 应用外的一层 Electron 壳。Electron RunAsNode 子进程启动共享 profile runner，Electron 立即从 `dsh-app://app/` 加载打包内的 Web 入口。共享加载页等待 Host 启动注入，然后在同一文档中启动客户端。Electron 将应用 HTTP 请求转发给已认证的 Web Host，转发时丢弃描述 Node fetch 连接而非资源本身的响应头（`transfer-encoding`、`connection`、`keep-alive`），并把插件 bundle 响应标记为 `no-store`，因为其每次启动都变化的 revision 只会在 Chromium 磁盘缓存中累积；WebSocket 流连接到该 Host，仅为归属的应用窗口附加凭据。Node IPC 承载启动注入、就绪与关闭。muse-med 只绑定 `127.0.0.1`，由系统分配端口，避免占用官方 DSH 应用的端口。共享 profile runner 提供设置和插件管理服务；生成的产品覆盖层保留产品预设、内置技能及飞书开关。共享包通过运行时解析，不创建指向 ASAR 内部的目录链接。
 
-桌面壳显示 **Muse**。Windows 快捷方式和可执行文件图标、macOS 安装包与“关于”使用保留原白蜘蛛的圆角黑底图标；Windows 应用窗口和托盘使用独立的透明底黑蜘蛛。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和 GitHub 更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
+桌面壳显示 **Muse**。Windows 快捷方式和可执行文件图标、macOS 安装包与“关于”使用保留原白蜘蛛的圆角黑底图标；Windows 应用窗口和托盘使用独立的透明底黑蜘蛛。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
 
 Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明，当前为 `1.0.2`。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
 
@@ -202,7 +202,7 @@ Web 侧的对应命令是 `pnpm run dev:web` 与 `pnpm run start:web`，见[开�
 
 ### 启动引导
 
-Muse 在 Host 就绪后打开工作区。空白首启时，Web 客户端先提供 MUSE 账号登录，再检查是否有可用的模型提供方。该账号加载网页版配置的云映模型目录，并用于模型调用、知识库和云端语音服务。统一供应商密钥由服务器保管。桌面端不供应 Muse 官方 GPT 模型，自定义提供方和 Codex 仍可使用。产品预设默认值来自低于用户配置的 bundle 层，因此默认预设修改后会持久保存并在重启后生效。选择“稍后登录”或“稍后配置”后，仍可从侧栏进入对应设置。没有可用模型时，提示弹窗可直接打开模型设置；已有可用凭据则自动完成检查。
+Muse 在 Host 就绪后打开工作区。空白首启时，Web 客户端先提供 MUSE 账号登录，再检查是否有可用的模型提供方。该账号加载网页版配置的云映模型目录，并用于模型调用、知识库和云端语音服务。统一供应商密钥由服务器保管。桌面端显示账号供应的全部模型，不设置产品模型前缀过滤，包含已配置的 GPT；自定义提供方和 Codex 仍可使用。产品预设默认值来自低于用户配置的 bundle 层，因此默认预设修改后会持久保存并在重启后生效。选择“稍后登录”或“稍后配置”后，仍可从侧栏进入对应设置。没有可用模型时，提示弹窗可直接打开模型设置；已有可用凭据则自动完成检查。
 
 侧栏主账号入口打开 MUSE 账号设置。Muse 不显示 DeepSeek Platform 的账号与余额入口、旧插画首启弹窗或原生 DeepSeek 凭据欢迎窗。DeepSeek 退出登录或会话失效不会隐藏工作区。原生 DeepSeek 的预置模型目录默认为空。用户仍可在模型设置中添加自己的原生 DeepSeek 模型和 API Key 引用；这些模型配置会持久保存并在重启后恢复。
 
@@ -238,6 +238,10 @@ pnpm --dir apps/desktop run package:win:x64 --build-version 1.0.0.20260930.1
 production 发布使用产品版本本身，不传 `--build-version`。其上传成功后会把打包所用 commit 打成 `desktop-v<版本>` 标签；来自有改动工作区的构建不打标签，打标签失败也只打印手工命令，不会让已完成的上传变成失败。test 与本地构建有意不留标签，而所有产物的清单都记录 `dshBuildCommit` 与 `dshBuildDirty`，直接分发的构建同样可溯源。
 
 打包后的 `app-update.yml` 记录产品版本派生的通道：Muse `1.0.0` 使用 `latest.yml`，beta 版本使用 `beta.yml`。COS 上传元数据使用相同文件名，macOS 增加 `-mac`。正式版 `1.0.0` 高于 `1.0.0-beta.1` 和所有先前的 `0.1.7-rc.8` 构建。客户端保持自动降级关闭，只接受更高的元数据版本。纠正为较低版本时需要手动安装。
+
+Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-sources.json` 中。检查更新优先访问北京公开存储桶 `https://muse.tos-cn-beijing.volces.com/releases/feeds/<target>/`。更新目录或下载不可用时可以切换到 GitHub；只有已确认的版本、载荷大小和 SHA-512 都一致，下载才会继续。校验、磁盘和安装准备错误仍然报告失败。两个源的 macOS 元数据都包含两种架构。没有该来源记录的旧包继续使用其已封装的 feed。
+
+未签名 CI 在打包检查之后，将每个安装器、更新载荷、blockmap 和通道文件的哈希记录在 `unsigned-build.json` 中。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求提供三个目标的目录、真实产品版本和同一个完整源码提交；`--dry-run` 仅校验记录中的哈希，不上传。发布先写入按版本保存的二进制，完整读回公开下载并核对 SHA-256，之后才更新要求缓存重新验证的通道元数据。发布计划同时提供合并后的 GitHub 元数据。请在私有发布环境中配置 `VOLCENGINE_ACCESS_KEY_ID`、`VOLCENGINE_SECRET_ACCESS_KEY` 和 `MUSE_TOS_*` 目标变量；打包过程会从子进程环境中移除 TOS 凭据。
 
 打包、上传以及手动 macOS 签名检查使用 `apps/desktop/.env.windows` 或 `.env.macos`，由目标平台选择。复制对应的 [Windows 模板](.env.windows.example) 或 [macOS 模板](.env.macos.example)，填写本机配置；Git 忽略这两个本地文件，安装产物也不包含它们。发布字段只从目标文件读取，不回退到系统或 shell 中的同名变量；`PATH`、代理和构建工具环境仍保留。发布版本是命令参数而非发布字段，上传从打包写下的完成记录中读取它。文件使用 UTF-8，支持 BOM；相对证书、SignTool、Apple API Key 和钥匙串路径以 `apps/desktop` 为基准，变量值不做 shell 展开，包含 `#` 或空格的密码需要引号。CI 同样在运行前生成目标文件。
 
@@ -288,7 +292,7 @@ Desktop 在本地打包工作区包，并通过目标捆绑的 Node 和 pnpm 安
 
 [Host 冒烟检查](scripts/smoke-runtime.ts) 在隔离 home 中启动，等待 credentials Service 就绪但不提供凭据，并先挂载完整产品预设再转换输入，因此同时检查该预设的工具和随包技能。准备阶段必须读到 Agent 释放后的完成记录，不能仅凭 Host 就绪判定成功；启动 60 秒后仍未就绪即失败。运行时根清单提供预设发现所用的完整 CLI、Desktop Host 和源码插件依赖图。
 
-打包应用运行编译后的 JavaScript 和预生成的 Typert 元数据，不编译 TypeScript 插件。源码级调试导航和编辑器声明仍可从开发包中获取。[复制规则测试](tests/runtime-file-policy.spec.ts)覆盖排除项和保留资源；[产物 smoke](tests/fixtures/runtime-payload-smoke.mjs) 在 Host smoke 和最终清单验证之前，使用内置 Node 执行。产物 smoke 解析搜索工具使用的 ripgrep 可执行文件，并验证文本搜索和文件枚举。本地红果检查创建临时设备，通过回环地址运行原 Java 签名器，加载所提供的 CPython 3.11 离线模块并检查 AES。它等待所有托管子进程退出并删除私有主目录，不访问视频平台。Windows 签名构建在依赖签名后运行这些检查；其他构建在 `prepare:dsh` 中运行。 发布清单前，[Codex 检查](scripts/verify-codex-runtime.ts)要求源码固定的 provider、CLI 及声明的目标平台包全部位于产物内部，再使用内置 Node 在隔离主目录中执行 `--version`。可选下载缺失或可执行文件版本不符都会使准备失败。冻结的生产安装阶段为 pnpm 的完整 tarball 响应体设置有界的 30 分钟 `fetch-timeout`。锁文件元数据解析保留 pnpm 的默认截止时间和重试。构建者可将 `DSH_DESKTOP_FETCH_TIMEOUT_MS` 设为不超过 2,147,483,647 的正整数毫秒数；其他继承的 npm 配置仍被排除。[Host smoke](scripts/smoke-runtime.ts) 使用捆绑的 Python 创建 DOCX、XLSX 和 PPTX 输入，通过真实 Office 提供方逐一转换并检查 PDF 输出。每个组装后的应用（包括目录包和 Windows 未签名构建）都会针对 ASAR 重复产物和 Host 检查。归档完整性检查将归档内完整描述符与准备结果比对，并核对归档和解包目录中的文件内容与清单、归档内文件记录的执行标志，以及解包文件的物理权限。转换失败会在写入发布记录前终止打包；macOS DMG/ZIP 构建在公证前执行这些检查。
+打包应用运行编译后的 JavaScript 和预生成的 Typert 元数据，不编译 TypeScript 插件。源码级调试导航和编辑器声明仍可从开发包中获取。[复制规则测试](tests/runtime-file-policy.spec.ts)覆盖排除项和保留资源；[产物 smoke](tests/fixtures/runtime-payload-smoke.mjs) 在 Host smoke 和最终清单验证之前，使用内置 Node 执行。产物 smoke 解析搜索工具使用的 ripgrep 可执行文件，并验证文本搜索和文件枚举。本地红果检查创建临时设备，通过回环地址运行原 Java 签名器，加载所提供的 CPython 3.11 离线模块并检查 AES。它等待所有托管子进程退出并删除私有主目录，不访问视频平台。首次启动相互竞争时，只有目标中的每个不可变源码文件都通过验证，才会复用该目标；目标不存在或被修改时仍报告安装失败。Windows 签名构建在依赖签名后运行这些检查；其他构建在 `prepare:dsh` 中运行。 发布清单前，[Codex 检查](scripts/verify-codex-runtime.ts)要求源码固定的 provider、CLI 及声明的目标平台包全部位于产物内部，再使用内置 Node 在隔离主目录中执行 `--version`。可选下载缺失或可执行文件版本不符都会使准备失败。冻结的生产安装阶段为 pnpm 的完整 tarball 响应体设置有界的 30 分钟 `fetch-timeout`。锁文件元数据解析保留 pnpm 的默认截止时间和重试。构建者可将 `DSH_DESKTOP_FETCH_TIMEOUT_MS` 设为不超过 2,147,483,647 的正整数毫秒数；其他继承的 npm 配置仍被排除。[Host smoke](scripts/smoke-runtime.ts) 使用捆绑的 Python 创建 DOCX、XLSX 和 PPTX 输入，通过真实 Office 提供方逐一转换并检查 PDF 输出。每个组装后的应用（包括目录包和 Windows 未签名构建）都会针对 ASAR 重复产物和 Host 检查。归档完整性检查将归档内完整描述符与准备结果比对，并核对归档和解包目录中的文件内容与清单、归档内文件记录的执行标志，以及解包文件的物理权限。转换失败会在写入发布记录前终止打包；macOS DMG/ZIP 构建在公证前执行这些检查。
 
 Windows 发布验收还需在 Desktop 构建后手动运行[目录和替换检查](scripts/smoke-windows.ps1)。将 `$Makensis`、`$SevenZip` 和 `$PluginDir` 分别设为锁定版本构建器的 NSIS 编译器、7-Zip 可执行文件和 x86-unicode NSIS 插件目录；通过 `-FrameLibrary` 传入已准备好的 `window-frame.dll`，即可同时覆盖原生解压路径及其失败报告。从仓库根目录运行以下命令。它验证 目录替换与回滚和两种文件占用替换方式；不属于单元测试通道。
 
@@ -338,7 +342,7 @@ pnpm run upload:mac:arm64
 
 早期内测包使用 `test` 部署。仅为生产发布显式选择 `production`；更换上传凭据不会改变已有包的目标部署。打包不需要 COS 凭据，禁用 electron-builder 发布，并从子进程环境中剔除 COS 凭据；只有签名和公证成功后才写入完成记录。上传在读取凭据前校验该记录、部署、目标、共享版本、文件名、大小与 SHA-512。安装包与 blockmap 先于 YAML 上传；历史对象保留。每个 release 只发布一个通道文件，即其版本派生出的那个：nightly 版本为 `nightly.yml` 或 `nightly-mac.yml`，稳定版为 `latest.yml` 或 `latest-mac.yml`。发布的 YAML 使用绝对二进制 URL。上传器不设置 Cache-Control，包括 COS SDK 本会添加的空头：缓存策略归部署基础设施所有，feed 不缓存，二进制缓存可单独配置。按目标串行发布，并在发布资格确认前验证公开产物与 feed 内容。
 
-打包后的更新器使用 `https://github.com/felir7at62co-wq/muse-med` 上的 GitHub Releases。每个已发布 release 都需要语义化版本 tag、安装包、blockmap 和通道 YAML；provider 的 feed 不包含 draft release。`verify:update-feed` 使用真实 provider 校验安装包哈希和元数据资产。COS 上传器记录另一份必需的 GitHub 发布计划，但不会发布 GitHub release。
+GitHub 备用源使用 `https://github.com/felir7at62co-wq/muse-med` 上的 GitHub Releases。每个已发布 release 都需要语义化版本 tag、安装包、blockmap 和通道 YAML；provider 的 feed 不包含 draft release。`verify:update-feed` 使用真实 provider 校验安装包哈希和元数据资产。COS 上传器记录另一份必需的 GitHub 发布计划，但不会发布 GitHub release。
 
 `muse-product.json` 为 Muse `1.0.2` 启用 `legacyRcDiscovery`。已安装的 rc 客户端只选择 rc tag，因此发布包含正式版 `v1.0.2` 以及仅用于发现的预发布入口 `v1.0.2-rc.muse-stable`。两者包含完全相同的 Muse `1.0.2` 二进制，以及声明版本为 `1.0.2` 的相同 `rc.yml` 和 `latest.yml` 元数据；macOS 使用相应的 `-mac` 名称。COS 计划包含相同的 feed 别名。真实更新器测试验证发现和版本接受，不下载或安装。线上资产和已有 profile 的安装升级仍须经过发布验收。
 
@@ -366,7 +370,7 @@ Apple 工具使用 macOS 当前活动网络服务的 HTTP/HTTPS 代理。配置�
 
 ### 未签名安装包
 
-muse-med 使用自己的 GitHub Releases 更新源，不接入 DSH 的强制更新服务。在 `.env.windows` 设置 `DSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false`，明确省略策略元数据并关闭策略请求；更新检查、下载和安装仍然启用。未作此显式选择时，缺失或无效的策略配置仍会使打包失败。
+muse-med 使用自己的更新源，不接入 DSH 的强制更新服务。在 `.env.windows` 设置 `DSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false`，明确省略策略元数据并关闭策略请求；更新检查、下载和安装仍然启用。未作此显式选择时，缺失或无效的策略配置仍会使打包失败。
 
 Windows 安装器支持英语和简体中文，默认使用专属的 `muse-med` 安装目录；不要直接安装到盘根目录。在 Windows x64 上，使用完整的未签名打包命令进行本地安装测试：
 
