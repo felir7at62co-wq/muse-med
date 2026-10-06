@@ -337,6 +337,7 @@ describe('experimental Inspector real Worker', () => {
     cdp = await TestCdpClient.connect(inspector.endpoint.webSocketDebuggerUrl)
     await cdp.call('Runtime.enable')
     const contextId = await clientContext(cdp)
+    await client.setIngestPaused(true)
 
     const timedOut = await cdp.call('Runtime.evaluate', {
       expression: 'new Promise(() => {})',
@@ -344,11 +345,15 @@ describe('experimental Inspector real Worker', () => {
       awaitPromise: true,
     })
     expect(timedOut.error?.message).toContain('timed out after 20ms')
-    expect((await cdp.call('Runtime.evaluate', {
-      expression: '42',
-      contextId,
-      returnByValue: true,
-    })).result?.result).toMatchObject({ type: 'number', value: 42 })
+    expect(await client.runtimeState()).toEqual({ requested: [], canceled: [], aborted: [], pending: 0 })
+    await client.setIngestPaused(false)
+    await vi.waitFor(async () => {
+      const state = await client!.runtimeState()
+      expect(state.requested).toHaveLength(1)
+      expect(state.canceled).toEqual(state.requested)
+      expect(state.aborted).toEqual(state.requested)
+      expect(state.pending).toBe(0)
+    })
   })
 
   it('advertises only the default Host context and preserves its numeric and unique selectors', async () => {

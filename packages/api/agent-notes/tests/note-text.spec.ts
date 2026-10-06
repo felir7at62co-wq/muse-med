@@ -193,3 +193,13 @@ describe('noteStem', () => {
     expect(noteStem('plain.md')).toBe('plain')
   })
 })
+
+it('keeps the file stem and omits blank quoted headline fields', () => {
+  expect(readHeadline('file-stem', '---\ntitle: ""\nstatus: " "\ndescription: \' \'\n---\n')).toEqual({
+    title: 'file-stem', status: undefined, summary: undefined,
+  })
+})
+
+it('retains the final filename when its suffix is not lowercase markdown', () => {
+  expect(noteStem('notes/UPPER.MD')).toBe('UPPER.MD')
+})

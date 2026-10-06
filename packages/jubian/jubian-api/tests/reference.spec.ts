@@ -54,6 +54,71 @@ function webpHeader(width: number, height: number): Uint8Array {
 }
 
 describe('reference image headers', () => {
+  it('reads lossy and extended WebP pixel dimensions', () => {
+    const lossy = new Uint8Array(30)
+    lossy.set(tag('RIFF'), 0)
+    lossy.set(tag('WEBP'), 8)
+    lossy.set(tag('VP8 '), 12)
+    lossy.set([0x9d, 0x01, 0x2a], 23)
+    const view = new DataView(lossy.buffer)
+    view.setUint16(26, 1280 | 0xc000, true)
+    view.setUint16(28, 720 | 0x4000, true)
+    expect(readReferenceImage(lossy)).toMatchObject({ format: 'webp', width: 1280, height: 720 })
+    const extended = new Uint8Array(30)
+    extended.set(tag('RIFF'), 0)
+    extended.set(tag('WEBP'), 8)
+    extended.set(tag('VP8X'), 12)
+    extended.set([0xff, 0x04, 0x00, 0xcf, 0x02, 0x00], 24)
+    expect(readReferenceImage(extended)).toMatchObject({ format: 'webp', width: 1280, height: 720 })
+    for (const length of [24, 25, 26, 27, 28, 29]) {
+      expect(() => readReferenceImage(extended.subarray(0, length))).toThrow()
+    }
+    for (const length of [26, 27, 28, 29]) {
+      expect(() => readReferenceImage(lossy.subarray(0, length))).toThrow()
+    }
+  })
+
+  it('rejects truncated and corrupt PNG and lossless WebP headers', () => {
+    const png = pngHeader(1280, 720)
+    for (const length of [16, 17, 18, 19, 20, 21, 22, 23]) {
+      expect(() => readReferenceImage(png.subarray(0, length))).toThrow()
+    }
+    png[5] = 0
+    expect(() => readReferenceImage(png)).toThrow()
+    png[5] = 0x0a
+    png[12] = 0
+    expect(() => readReferenceImage(png)).toThrow()
+    expect(() => readReferenceImage(pngHeader(0, 720))).toThrow()
+    const webp = webpHeader(1280, 720)
+    for (const length of [21, 22, 23, 24]) {
+      expect(() => readReferenceImage(webp.subarray(0, length))).toThrow()
+    }
+    webp[20] = 0
+    expect(() => readReferenceImage(webp)).toThrow()
+    webp[8] = 0
+    expect(() => readReferenceImage(webp)).toThrow()
+    webp.set(tag('WEBP'), 8)
+    webp.set(tag('JUNK'), 12)
+    expect(() => readReferenceImage(webp)).toThrow()
+  })
+
+  it('skips JPEG fill and standalone markers while locating frame dimensions', () => {
+    const header = jpegHeader(1280, 720)
+    const prefix = [0x00, 0xff, 0xff, 0x01, 0xff, 0xd0, 0xff, 0xd9]
+    const bytes = new Uint8Array(header.length + prefix.length)
+    bytes.set(header.subarray(0, 2))
+    bytes.set(prefix, 2)
+    bytes.set(header.subarray(2), prefix.length + 2)
+    expect(readReferenceImage(bytes)).toMatchObject({ format: 'jpeg', width: 1280, height: 720 })
+  })
+
+  it('refuses JPEG scan data before a frame header and incomplete frame dimensions', () => {
+    expect(() => readReferenceImage(new Uint8Array([0xff, 0xd8, 0xff, 0xda, 0, 2]))).toThrow()
+    expect(() => readReferenceImage(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 1]))).toThrow()
+    expect(() => readReferenceImage(new Uint8Array([0xff, 0xd8]))).toThrow()
+    const header = jpegHeader(1280, 720)
+    for (const length of [25, 26, 27, 28]) expect(() => readReferenceImage(header.subarray(0, length))).toThrow()
+  })
   it('reads the true size of every accepted container', () => {
     expect(readReferenceImage(pngHeader(1680, 944))).toMatchObject(
       { format: 'png', width: 1680, height: 944, content_type: 'image/png', extension: '.png' })
@@ -115,6 +180,21 @@ const APP_JS = 'var modules={{"6c3d":function(e,t,n){var o=(t.default,"AKIDEXAMP
   + 'var l="tos-cn-beijing.volces.com";return o+s+r+u+l}},"6ea0":function(){return 1}}'
 
 describe('frontend upload configuration', () => {
+  it('refuses a missing module end or a missing destination field', () => {
+    expect(() => extractTosUploadConfig(APP_JS.slice(0, APP_JS.indexOf('},"6ea0"')))).toThrow()
+    for (const assignment of ['o=(t.default,"AKIDEXAMPLE")', 's="SECRETEXAMPLE"', 'r="cn-beijing"',
+      'u="jubian-aigc"', 'l="tos-cn-beijing.volces.com"']) {
+      expect(() => extractTosUploadConfig(APP_JS.replace(assignment, 'unused="value"'))).toThrow()
+    }
+    expect(() => extractTosUploadConfig(APP_JS.replace('cn-beijing', ' '))).toThrow()
+    expect(extractTosUploadConfig(APP_JS.replace('tos-cn-beijing.volces.com', 'https://tos-cn-beijing.volces.com/')).endpoint)
+      .toBe('tos-cn-beijing.volces.com')
+  })
+
+  it.each(["'/static/js/app.hash.js'", '/static/js/app.hash.js'])('reads entry script source syntax %s', (source) => {
+    expect(extractAppScriptUrl(`<script src=${source}></script>`, 'https://web.jubianai.net/'))
+      .toBe('https://web.jubianai.net/static/js/app.hash.js')
+  })
   it('reads the destination out of the bundle the workbench serves', () => {
     expect(extractTosUploadConfig(APP_JS)).toEqual({ access_key_id: 'AKIDEXAMPLE',
       access_key_secret: 'SECRETEXAMPLE', region: 'cn-beijing', bucket: 'jubian-aigc',
@@ -168,5 +248,9 @@ describe('object upload signature', () => {
   it('refuses a key that could leave its prefix', () => {
     expect(() => signTosObjectPut({ config, key: '../secret', payload: new Uint8Array(1),
       content_type: 'image/png', now })).toThrow()
+  })
+
+  it.each(['', '/root.png', 'prod//image.png'])('refuses noncanonical object keys %s', (key) => {
+    expect(() => signTosObjectPut({ config, key, payload: new Uint8Array(1), content_type: 'image/png', now })).toThrow()
   })
 })

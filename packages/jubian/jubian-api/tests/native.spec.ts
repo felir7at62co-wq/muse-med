@@ -5,6 +5,7 @@ import {
   normalizedPrompt, readBackIdentity, resolveVideoModel, validateVideoDuration, stableJson, stableSha256,
   subjectIdentitySignature, submissionSemantics, taskIdOf, taskSemanticFields, taskStatusOf,
   terminalOutcome, validateNativeVideoPreview, validatedVideoMaterials, wireText,
+  responseRecords, storyboardMaterials,
 } from '../src/native.ts'
 
 const URL_LEAD = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/lead.jpg'
@@ -50,6 +51,40 @@ const EXPECTATION = { scriptId: 2708, storyboardId: 916953, episodeId: 46737,
   expectedPrompt: normalizedPrompt(PROMPT), beforeTaskIds: [] as string[] }
 
 describe('canonical hashing and wire reading', () => {
+  it('reads task records without inventing records from absent data', () => {
+    expect(responseRecords(null)).toEqual([])
+    expect(responseRecords('unavailable')).toEqual([])
+    expect(responseRecords({ id: 1 })).toEqual([{ id: 1 }])
+    expect(responseRecords({ rows: [{ id: 1 }] })).toEqual([{ id: 1 }])
+    expect(() => responseRecords({ rows: null })).toThrow()
+    expect(() => responseRecords([null])).toThrow()
+    expect(() => responseRecords([[]])).toThrow()
+  })
+
+  it('rejects unreadable serialized storyboard fields', () => {
+    expect(() => storyboardMaterials({ storyboardMaterialList: '{' })).toThrow()
+    expect(() => storyboardMaterials({ storyboardMaterialList: {} })).toThrow('no readable')
+    expect(() => normalizedPrompt(null)).toThrow()
+    expect(storyboardMaterials({ storyboardMaterialList: JSON.stringify(MATERIALS) })).toMatchObject({ serialized: true })
+    expect(wireText(Number.NaN)).toBeNull()
+    expect(wireText(Infinity)).toBeNull()
+    expect(stableJson(null)).toBe('null')
+    expect(stableJson(false)).toBe('false')
+  })
+
+  it('ignores unreadable scalar task fields while retaining valid fallback fields', () => {
+    expect(taskIdOf({ id: '', taskId: null, aigcVideoTaskId: 42 })).toBe('42')
+    expect(taskIdOf({ id: {}, taskId: false })).toBe('false')
+    expect(taskSemanticFields({ subTaskList: [null], modelConfig: '{', storyboardMaterialList: [null, {},
+      { assetUrl: URL_LEAD }], imageUrls: null })).toEqual({ storyboardId: null, prompt: null, imageUrls: [URL_LEAD] })
+    expect(taskSemanticFields({ subTaskList: ['unreadable'], modelConfig: [], imageUrls: 'unreadable' }))
+      .toEqual({ storyboardId: null, prompt: null, imageUrls: null })
+    expect(taskSemanticFields({ imageUrls: [URL_LEAD, null, 12] }).imageUrls).toEqual([URL_LEAD, '12'])
+    expect(taskStatusOf({ taskStatus: 1 }, { status: '  FAILED  ' })).toBe('failed')
+    expect(nativeResultUrls([null, false, { data: { rows: [{ resultUrl: [URL_LEAD, URL_LEAD, null, 'http://bad/a'] }] } }]))
+      .toEqual([URL_LEAD])
+  })
+
   it('accepts padded decimal storyboard identifiers and rejects unreadable identifiers', () => {
     expect(buildNativeVideoPreview({ storyboard: { ...STORYBOARD, id: ' 0916953 ', scriptId: ' 02708 ' },
       assets: ASSETS, models: CATALOGUE, createdAt: 'now' }))
@@ -149,6 +184,43 @@ describe('canonical hashing and wire reading', () => {
 })
 
 describe('model and identity readers', () => {
+  it.each([null, '{', [], { prompt: null }, { prompt: '' }, { prompt: '   ' },
+    { modelConfig: null }, { modelConfig: 12 }, { modelConfig: '{' }])
+  ('refuses an unreadable observable prompt %j', (config) => {
+    expect(() => nativeObservablePrompt(config)).toThrow()
+  })
+
+  it('reads nested prompts and the alternate video-standard selector', () => {
+    expect(nativeObservablePrompt({ modelConfig: JSON.stringify({ prompt: ` ${PROMPT} ` }) })).toBe(PROMPT)
+    expect(nativeModelSignature({ ...MODEL_CONFIG, videoStandardId: '', modelVideoStandardId: 91 }))
+      .toEqual(nativeModelSignature(MODEL_CONFIG))
+    expect(() => nativeModelSignature('{')).toThrow()
+    expect(() => nativeModelSignature({ ...MODEL_CONFIG, ratio: {} })).toThrow()
+  })
+
+  it.each([{ assetId: '' }, { materialName: '' }, { materialName: null, fileName: null },
+    { imageUrl: 'http://bad/image.jpg' }])('rejects incomplete child identity %j', (overrides) => {
+    expect(() => subjectIdentitySignature([{ assetId: 'a', materialName: 'lead', imageUrl: URL_LEAD, ...overrides }])).toThrow()
+  })
+
+  it('refuses an audio-only child identity and accepts numeric identity values', () => {
+    expect(() => subjectIdentitySignature([{ materialType: 'audio' }])).toThrow()
+    expect(() => subjectIdentitySignature(null)).toThrow()
+    expect(subjectIdentitySignature([{ assetId: 17, assetName: 'lead', materialUrl: URL_LEAD }]))
+      .toEqual([{ assetId: '17', materialName: 'lead', imageUrl: URL_LEAD }])
+  })
+
+  it.each([{ genTypes: null }, { videoStandards: null }, { platformId: '' },
+    { genTypes: [{ id: 7, type: 3 }], videoStandards: [{ id: 91, ratio: '', resolution: '720p' }] }])
+  ('refuses a malformed matching catalogue row %j', (overrides) => {
+    expect(() => resolveVideoModel([{ ...CATALOGUE[0], ...overrides }], MODEL_CONFIG)).toThrow()
+  })
+
+  it('resolves a single selector with missing platform intent and alternate standard id', () => {
+    expect(resolveVideoModel([{ ...CATALOGUE[0], id: undefined, standardId: 11, genNum: undefined,
+      videoStandards: [{ id: 91, ratio: '9:16', resolution: '720p' }] }], { ...MODEL_CONFIG, platformId: undefined }))
+      .toMatchObject({ standardId: 11, platformId: 'YU_DIAN', genNum: 1 })
+  })
   it('refreshes selectors without changing exact live intent or duration', () => {
     expect(resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, standardId: 999, modelGenerationTypeId: 999,
       videoStandardId: 999, duration: 12, resolution: '720P' })).toEqual({
@@ -220,6 +292,90 @@ describe('model and identity readers', () => {
 })
 
 describe('preview construction and validation', () => {
+  it.each([{ asset_status: 'pending' }, { isUsed: 0 }])
+  ('requires confirmed and selected source assets before building a preview %j', (overrides) => {
+    expect(() => buildNativeVideoPreview({ storyboard: STORYBOARD, models: CATALOGUE, createdAt: 'now',
+      assets: [{ ...ASSETS[0]!, ...overrides }, ASSETS[1]!] })).toThrow()
+  })
+
+  it('rejects a nonofficial asset in the standalone material reader', () => {
+    expect(() => validatedVideoMaterials(STORYBOARD, [{ ...ASSETS[0]!, official: false }, ASSETS[1]!])).toThrow()
+  })
+
+  it('requires nonblank trusted identity and display name in preview summaries', () => {
+    for (const material of [{ ...MATERIALS[0]!, assetId: '' }, { ...MATERIALS[0]!, fileName: '' },
+      { ...MATERIALS[0]!, fileName: undefined, assetName: undefined }]) {
+      const storyboard = { ...STORYBOARD, storyboardMaterialList: [material, MATERIALS[1]!] }
+      expect(() => buildNativeVideoPreview({ storyboard, models: CATALOGUE, createdAt: 'now',
+        assets: [{ ...ASSETS[0]!, hsAssetId: undefined }, ASSETS[1]!] })).toThrow()
+    }
+  })
+
+  it('requires the original parent identifier in ordered preview metadata', () => {
+    const material = { ...MATERIALS[0]!, materialAssetId: undefined, assetId: 81285 }
+    expect(() => buildNativeVideoPreview({ storyboard: { ...STORYBOARD, storyboardMaterialList: [material, MATERIALS[1]!] },
+      models: CATALOGUE, createdAt: 'now', assets: ASSETS })).toThrow()
+  })
+
+  it('accepts the storyboard alias and material name alias when the provider supplies them', () => {
+    const material: Record<string, unknown> = { ...MATERIALS[0]!, assetName: 'lead' }
+    delete material.fileName
+    const storyboard: Record<string, unknown> = { ...STORYBOARD, storyboardId: STORYBOARD.id,
+      storyboardMaterialList: [material, MATERIALS[1]!] }
+    delete storyboard.id
+    expect(buildNativeVideoPreview({ storyboard, models: CATALOGUE, assets: ASSETS, createdAt: 'now' }))
+      .toMatchObject({ storyboardId: STORYBOARD.id, assetSummary: { orderedAssets: [
+        expect.objectContaining({ materialName: 'lead' }), expect.any(Object)] } })
+  })
+  it.each([{ hsAssetStatus: 'inactive' }, { delFlag: '1' }, { deleted: 1 }, { resultStatus: 'failed' },
+    { taskStatus: 'disabled' }, { assetStatus: 'unverified' }, { isUsed: 0 }, { assetUrl: null, url: null },
+    { id: null }, { id: 81286 }])('rejects a parent asset that is unusable %j', (overrides) => {
+    expect(() => validatedVideoMaterials(STORYBOARD, [{ ...ASSETS[0]!, ...overrides }, ASSETS[1]!])).toThrow()
+  })
+
+  it.each([{ materialType: null }, { materialType: 'video' }, { materialKey: '' }])
+  ('rejects unusable image material fields %j', (overrides) => {
+    expect(() => validatedVideoMaterials({ ...STORYBOARD,
+      storyboardMaterialList: [{ ...MATERIALS[0]!, ...overrides }, MATERIALS[1]!] }, ASSETS)).toThrow()
+  })
+
+  it('retains trusted material identity when the parent has no translated identity', () => {
+    const asset = { ...ASSETS[0]!, id: undefined, assetId: 81285, assetUrl: undefined, url: URL_LEAD,
+      hsAssetId: undefined, hsAssetStatus: undefined, isUsed: undefined, resultStatus: '', taskStatus: null,
+      assetStatus: 'succeeded' }
+    expect(validatedVideoMaterials(STORYBOARD, [asset, ASSETS[1]!]).materials[0]).toMatchObject({ assetId: 'asset-lead' })
+  })
+
+  it.each([{ modelConfig: null }, { modelConfig: { ...MODEL_CONFIG, prompt: null } }])
+  ('rejects a storyboard without saved prompt settings %j', (overrides) => {
+    expect(() => validatedVideoMaterials({ ...STORYBOARD, ...overrides }, ASSETS)).toThrow()
+  })
+
+  it('rejects duplicated image and audio marker keys and misplaced audio prompt markers', () => {
+    const audio = { materialType: 'audio', materialUrl: 'https://media.example/voice.wav', materialKey: 'lead',
+      fileName: 'voice', sortOrder: 1, audioDuration: 2 }
+    expect(() => validatedVideoMaterials({ ...STORYBOARD, storyboardMaterialList: [...MATERIALS, audio] }, ASSETS)).toThrow()
+    expect(() => validatedVideoMaterials({ ...STORYBOARD,
+      storyboardMaterialList: [...MATERIALS, { ...audio, materialKey: 'voice' }] }, ASSETS)).toThrow()
+  })
+
+  it.each([{ status: 'submitted' }, { storyboardId: 1 }, { scriptId: 1 }, { idempotencyKey: null },
+    { idempotencyKey: 'broken' }, { assetSummary: { count: 2, orderedAssets: null } },
+    { assetSummary: { count: 1, orderedAssets: PREVIEW.assetSummary.orderedAssets } }])
+  ('rejects invalid durable preview metadata %j', (overrides) => {
+    expect(() => validateNativeVideoPreview({ ...PREVIEW, ...overrides })).toThrow()
+  })
+
+  it('rejects invalid re-fingerprinted model settings in a preview', () => {
+    for (const config of [null, { ...MODEL_CONFIG, genNum: 2 }, { ...MODEL_CONFIG, standardId: null },
+      { ...MODEL_CONFIG, platformId: '' }]) {
+      const payload = { ...PREVIEW.payload, modelConfig: config }
+      expect(() => validateNativeVideoPreview({ ...PREVIEW, payload,
+        idempotencyKey: stableSha256(submissionSemantics(payload)) })).toThrow()
+    }
+    expect(() => validateNativeVideoPreview({ ...PREVIEW,
+      extra: [{ nested: { 'private-key': 'secret' } }] })).toThrow()
+  })
   it('prepares and validates the live 2.5 480p 30-second setting without downgrading it', () => {
     const modelId = 'doubao-seedance-2-5-260628'
     const models = [...CATALOGUE, { id: 61, platformId: 'FANG_ZHOU', modelId,
@@ -327,6 +483,54 @@ describe('task claiming', () => {
   const related = { taskId: '335343', task: { id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1,
     taskStatus: 'succeeded' }, children: [CHILD] }
 
+  it('coalesces repeated task ids and rejects candidate child ambiguity', () => {
+    expect(classifyNewNativeCandidates([related, related], EXPECTATION).status).toBe('matched')
+    expect(classifyNewNativeCandidates([{ ...related, children: [CHILD, CHILD] }], EXPECTATION).status)
+      .toBe('reconcile_conflict')
+    expect(classifyExistingNativeMatches([{ ...related, children: [] }], EXPECTATION).status).toBe('reconcile_conflict')
+    expect(classifyExistingNativeMatches([{ ...related, children: [CHILD, CHILD] }], EXPECTATION).status)
+      .toBe('reconcile_conflict')
+    expect(classifyExistingNativeMatches([], EXPECTATION).status).toBe('none')
+  })
+
+  it('waits for an unresolved new child before claiming an otherwise exact task', () => {
+    const pending = { ...related, taskId: '335344', children: [] }
+    expect(classifyNewNativeCandidates([related, pending], EXPECTATION).status).toBe('none')
+  })
+
+  it.each([{ modelConfig: null }, { modelConfig: { ...MODEL_CONFIG, prompt: '' } },
+    { modelConfig: { ...MODEL_CONFIG, prompt: 'different' } }, { modelConfig: { ...MODEL_CONFIG, resolution: '480p' } }])
+  ('refuses incomplete or mismatching child model evidence %j', (overrides) => {
+    const candidate = { ...related, children: [{ ...CHILD, ...overrides }] }
+    expect(classifyNewNativeCandidates([candidate], EXPECTATION).status).toBe('reconcile_conflict')
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION).status)
+      .toBe(overrides.modelConfig === null || overrides.modelConfig.prompt === '' ? 'reconcile_conflict' : 'none')
+  })
+
+  it('reports ambiguity between identity loss and another undecidable task', () => {
+    const lost = { ...related, children: [{ ...CHILD, imageMaterials: [] }] }
+    const secondLost = { ...lost, taskId: '335344' }
+    const mismatch = { ...related, taskId: '335345', children: [{ ...CHILD, modelConfig: null }] }
+    expect(classifyNewNativeCandidates([lost, secondLost], EXPECTATION).status).toBe('reconcile_conflict')
+    expect(classifyNewNativeCandidates([lost, mismatch], EXPECTATION).status).toBe('reconcile_conflict')
+    expect(readBackIdentity({ imageMaterials: [] }, EXPECTATION.expectedIdentity).status).toBe('subject_identity_lost')
+    expect(readBackIdentity({ imageMaterials: [...MATERIALS].reverse() }, EXPECTATION.expectedIdentity).status)
+      .toBe('subject_identity_lost')
+  })
+
+  it('keeps a settled mismatching identity a conflict when no exact task exists', () => {
+    const candidate = { ...related, children: [{ ...CHILD, imageMaterials: [...MATERIALS].reverse() }] }
+    expect(classifyNewNativeCandidates([candidate], EXPECTATION).status).toBe('reconcile_conflict')
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION).status).toBe('none')
+  })
+
+  it('allows related storyboard-less task details only in the expected episode', () => {
+    const candidate = { ...related, task: { id: 335343, scriptId: 2708, episode_id: 46737 } }
+    expect(classifyNewNativeCandidates([candidate], EXPECTATION).status).toBe('matched')
+    expect(classifyNewNativeCandidates([{ ...candidate, task: { ...candidate.task, episode_id: 1 } }], EXPECTATION).status)
+      .toBe('none')
+  })
+
   it('claims the one new task whose child repeats the whole identity', () => {
     expect(classifyNewNativeCandidates([related], EXPECTATION)).toMatchObject({ status: 'matched',
       taskId: '335343' })
@@ -393,6 +597,8 @@ describe('task claiming', () => {
       .toEqual({ status: 'reconcile_conflict' })
     expect(classifyExistingNativeMatches([{ ...related, children: [{ id: 972949, aigcVideoTaskId: 335343,
       storyboardId: 916953, taskStatus: 'succeeded' }] }], EXPECTATION)).toEqual({ status: 'reconcile_conflict' })
+    expect(classifyExistingNativeMatches([{ ...related, children: [processedChild({ image_urls: [] })] }],
+      { ...EXPECTATION, expectedModel: [] })).toEqual({ status: 'reconcile_conflict' })
   })
 
   it('ignores storyboard-less history from a different episode', () => {

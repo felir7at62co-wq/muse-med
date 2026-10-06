@@ -25,6 +25,15 @@ describe('readAssetList / readAssetPage', () => {
       isLocal: 0, hsAssetStatus: 'Active' })).toEqual({ asset_id: 83749,
       name: '陆沉舟｜第一集正式出演身份母版｜16x9｜v1', asset_type: 1, is_local: false, status: 'Active' })
   })
+
+  it('keeps nullable fields absent and accepts the assetId spelling on both routes', () => {
+    expect(readAssetList({ rows: [{ assetId: 7 }] })).toEqual({ total: 1,
+      rows: [{ asset_id: 7, name: null, asset_type: null }] })
+    expect(readAssetPage({ assetId: 7, isLocal: true })).toEqual({ asset_id: 7,
+      name: null, asset_type: null, is_local: true, status: null })
+    expect(readAssetPage({ assetId: 7, assetType: '1', isLocal: '1' }))
+      .toMatchObject({ asset_type: null, is_local: false })
+  })
 })
 
 describe('readMaterialList', () => {
@@ -45,6 +54,14 @@ describe('readMaterialList', () => {
 
   it('rejects a payload without rows', () => {
     expect(() => readMaterialList({ total: 0 })).toThrow()
+  })
+
+  it('reads older material identifiers without inventing a parent or media type', () => {
+    expect(readMaterialList({ rows: [{ materialId: 9, name: 'uploaded', url: 'https://x/file.png', isUsed: true }] }))
+      .toEqual({ total: 1, rows: [{ material_id: 9, asset_id: null, name: 'uploaded',
+        url: 'https://x/file.png', material_type: null, is_used: true, status: null }] })
+    expect(readMaterialList({ rows: [{ materialId: 9, assetId: null, assetType: '1', isUsed: '1' }] }).rows[0])
+      .toMatchObject({ asset_id: null, material_type: null, is_used: false })
   })
 })
 
@@ -73,5 +90,13 @@ describe('readGeneratedImage', () => {
 
   it('rejects an empty list rather than reporting a reference it never read', () => {
     expect(() => readGeneratedImage([])).toThrow()
+  })
+
+  it('keeps a generated image URL whose response omits its optional material identifier', () => {
+    expect(readGeneratedImage({ materialUrl: 'https://x/image.png' }))
+      .toEqual({ url: 'https://x/image.png', material_id: null })
+    expect(readGeneratedImage({ materialUrl: 'https://x/image.png', materialId: null }))
+      .toEqual({ url: 'https://x/image.png', material_id: null })
+    expect(() => readGeneratedImage({ assetUrl: '  ' })).toThrow()
   })
 })

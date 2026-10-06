@@ -29,6 +29,8 @@ describe('reference audio bytes', () => {
     const audio = { materialType: 'audio', materialKey: 'voice', sortOrder: 1,
       materialUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/voice.wav' }
     expect(validateAudioMaterial(audio)).toBe(audio)
+    expect(validateAudioMaterial({ ...audio, audioDuration: 2 })).toMatchObject({ audioDuration: 2 })
+    expect(validateAudioMaterial({ ...audio, audioDuration: null })).toMatchObject({ audioDuration: null })
     expect(() => validateAudioMaterial({ ...audio, audioDuration: 16 })).toThrow('15')
     expect(() => validateAudioMaterial({ ...audio, materialUrl: 'https://user:password@example.com/voice.wav' }))
       .toThrow('credential-free')
@@ -48,5 +50,58 @@ describe('reference audio bytes', () => {
     expect(referenceAudioUrls([first, second])).toEqual([first.materialUrl, second.materialUrl])
     expect(() => referenceAudioUrls([second, first])).toThrow('sortOrder')
     expect(() => referenceAudioUrls([first, { ...second, sortOrder: 1 }])).toThrow('sortOrder')
+  })
+
+  it.each([
+    { label: 'a data chunk larger than the file', change: (bytes: Buffer) => bytes.writeUInt32LE(bytes.length, 40) },
+    { label: 'a short format chunk', change: (bytes: Buffer) => bytes.writeUInt32LE(15, 16) },
+    { label: 'compressed audio', change: (bytes: Buffer) => bytes.writeUInt16LE(3, 20) },
+    { label: 'non-16-bit samples', change: (bytes: Buffer) => bytes.writeUInt16LE(24, 34) },
+    { label: 'unsupported channel count', change: (bytes: Buffer) => bytes.writeUInt16LE(3, 22) },
+    { label: 'unsupported sample rate', change: (bytes: Buffer) => bytes.writeUInt32LE(7999, 24) },
+    { label: 'inconsistent block alignment', change: (bytes: Buffer) => bytes.writeUInt16LE(4, 32) },
+    { label: 'inconsistent byte rate', change: (bytes: Buffer) => bytes.writeUInt32LE(1, 28) },
+    { label: 'missing PCM format', change: (bytes: Buffer) => bytes.write('JUNK', 12) },
+  ])('refuses $label from the actual WAV fields', ({ change }) => {
+    const bytes = Buffer.from(wave(2))
+    change(bytes)
+    expect(() => readReferenceAudio(bytes)).toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))
+  })
+
+  it('accepts stereo PCM and skips an odd-length metadata chunk with its padding byte', () => {
+    const stereo = Buffer.from(wave(2))
+    stereo.writeUInt16LE(2, 22); stereo.writeUInt16LE(4, 32); stereo.writeUInt32LE(32000, 28)
+    const metadata = Buffer.alloc(10)
+    metadata.write('JUNK'); metadata.writeUInt32LE(1, 4)
+    const bytes = Buffer.concat([stereo.subarray(0, 36), metadata, stereo.subarray(36)])
+    bytes.writeUInt32LE(bytes.length - 8, 4)
+    expect(readReferenceAudio(bytes)).toMatchObject({ channels: 2, duration_seconds: 1 })
+  })
+
+  it('refuses duplicate, empty and incomplete sample data rather than reporting a duration', () => {
+    const duplicate = Buffer.concat([Buffer.from(wave(2)), Buffer.from('64617461020000000000', 'hex')])
+    duplicate.writeUInt32LE(duplicate.length - 8, 4)
+    expect(() => readReferenceAudio(duplicate)).toThrow()
+    expect(() => readReferenceAudio(wave(0))).toThrow()
+    const partialSample = Buffer.from(wave(2)).subarray(0, 48)
+    partialSample.writeUInt32LE(partialSample.length - 8, 4); partialSample.writeUInt32LE(3, 40)
+    expect(() => readReferenceAudio(partialSample)).toThrow()
+  })
+
+  it.each([
+    { materialType: 'image' }, { sortOrder: 0 }, { sortOrder: 1.5 }, { materialUrl: null },
+    { materialUrl: 'not a URL' }, { materialUrl: 'https://x/voice.wav#private' },
+    { materialUrl: 'https://x/voice\\sample.wav' }, { audioDuration: 0 }, { audioDuration: NaN },
+  ])('rejects incomplete or unsafe audio material fields: %j', (overrides) => {
+    expect(() => validateAudioMaterial({ materialType: 'audio', materialKey: 'voice', sortOrder: 1,
+      materialUrl: 'https://x/voice.wav', ...overrides }))
+      .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+  })
+
+  it('reports missing child audio evidence rather than accepting malformed rows or empty URLs', () => {
+    for (const audioMaterials of ['{', [null], [[]], [{ audioUrl: '' }], [{ audioUrl: 1 }]]) {
+      expect(childAudioUrls({ audioMaterials })).toBeNull()
+    }
+    expect(childAudioUrls({ audioMaterials: [] })).toEqual([])
   })
 })

@@ -224,6 +224,12 @@ describe('findMethod over the claimable pool', () => {
 })
 
 describe('findMethod pagination', () => {
+  it('stops at an empty provider page while retaining an incomplete reported total', async () => {
+    const { client, calls } = stubClient(() => new Response(JSON.stringify({ code: 200, total: 100, rows: [] })))
+    expect(await findMethod(client, { scope: 'mine', name: 'missing' }))
+      .toMatchObject({ total: 100, scanned_pages: 1, complete: false, returned: 0 })
+    expect(calls).toHaveLength(1)
+  })
   it('reads every page the total needs and says so', async () => {
     const { calls, client } = stubClient(paged(POOL))
     const result = await findMethod(client, { scope: 'pool', name: '拼车', page_size: 2 })

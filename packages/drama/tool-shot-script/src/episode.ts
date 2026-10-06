@@ -52,8 +52,12 @@ const REMOTE_REFERENCE = /^https?:\/\//i
  * @returns The captured key.
  */
 function placeholderKey(match: RegExpMatchArray): string {
-  /* v8 ignore next -- the placeholder pattern always captures the key it matches. */
-  return match[2] ?? ''
+  return match[0].slice(match[0].lastIndexOf('](') + 2, -1)
+}
+
+/** Label between the brackets of a successful material placeholder match. */
+function placeholderLabel(match: RegExpMatchArray): string {
+  return match[0].slice(2, match[0].indexOf(']('))
 }
 
 /**
@@ -84,11 +88,11 @@ export function prepareShotPrompts(shots: readonly CompiledShot[], manifest: rea
   const keysByAsset = new Map<string, string>()
   for (const item of shots) {
     for (const match of item.shot.visual.matchAll(MATERIAL_PLACEHOLDER)) {
-      const label = match[1]
+      const label = placeholderLabel(match)
       const asset = item.assets.find((bound) => {
         if (bound.name === label) return true
         const registration = manifest.find(row => row.name === bound.name && row.assetId === bound.assetId)
-        return registration?.aliases.split(/[、,，;；/|｜\s]+/).includes(label ?? '') === true
+        return registration?.aliases.split(/[、,，;；/|｜\s]+/).includes(label) === true
       })
       if (asset !== undefined && !keysByAsset.has(asset.assetId)) {
         keysByAsset.set(asset.assetId, placeholderKey(match))
@@ -96,7 +100,7 @@ export function prepareShotPrompts(shots: readonly CompiledShot[], manifest: rea
     }
   }
   return shots.map((item) => {
-    const present = new Set([...item.shot.visual.matchAll(MATERIAL_PLACEHOLDER)].map(match => match[1]))
+    const present = new Set([...item.shot.visual.matchAll(MATERIAL_PLACEHOLDER)].map(placeholderLabel))
     const added: string[] = []
     for (const asset of item.assets) {
       if (!asset.official || asset.assetId === '' || asset.materialId === '' || asset.url === '') continue
@@ -210,7 +214,7 @@ function splitUnitEvenly(unit: readonly CompiledShot[], ceiling: number): readon
     current.push(item)
     seconds += item.shot.durationSeconds
   }
-  if (current.length > 0) packs.push(current)
+  packs.push(current)
   return packs
 }
 
@@ -233,9 +237,6 @@ export function packEpisode(shots: readonly CompiledShot[], maxContentSeconds: n
   for (const unit of splitContinuityUnits(prepareShotPrompts(shots), maxContentSeconds)) {
     for (const pack of splitUnitEvenly(unit, maxContentSeconds)) {
       const contentSeconds = pack.reduce((sum, item) => sum + item.shot.durationSeconds, 0)
-      if (contentSeconds > maxContentSeconds) {
-        throw new Error(`镜头${pack.map(item => item.shot.shot).join('、')}合包时长${contentSeconds}秒超过内容预算${maxContentSeconds}秒。`)
-      }
       const prompt = `${pack.map(item => item.shot.visual).join('\n\n')}\n${HOLD_INSTRUCTION}`
       tasks.push({
         index: tasks.length + 1,

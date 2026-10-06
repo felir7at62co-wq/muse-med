@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
@@ -6,13 +6,73 @@ import { JubianLedger } from '../src/ledger.ts'
 import { checkBudget, readProjectBudget, updateProjectBudget } from '../src/budget.ts'
 
 const roots: string[] = []
-afterEach(async () => { await Promise.all(roots.map(root => rm(root, { recursive: true, force: true }))) })
+afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
 
 async function bench() {
   const root = await mkdtemp(join(tmpdir(), 'jubian-budget-update-'))
   roots.push(root)
   return new JubianLedger({ root, defaultLimitCents: () => 400000 })
 }
+
+it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])('refuses an unusable remote project identity %s', async (script_id) => {
+  const ledger = await bench()
+  await expect(readProjectBudget(ledger, script_id)).rejects.toThrow('positive safe integer')
+  await expect(updateProjectBudget(ledger, { script_id, limit_cents: 0, expected_revision: '',
+    authorization: { kind: 'settings', reference: 'ui', text: 'Budget' } })).rejects.toThrow('positive safe integer')
+})
+
+it('reports an unconfigured project without treating its absent cap as zero', async () => {
+  const configured = await bench(), ledger = new JubianLedger({ root: configured.root })
+  expect(await readProjectBudget(ledger, 2708)).toMatchObject({ source: 'unconfigured', limit_cents: null, remaining_cents: null })
+  await writeFile(join(ledger.root, 'authorization.json'), JSON.stringify({ version: 1, projects: {} }))
+  expect(await readProjectBudget(ledger, 2708)).toMatchObject({ source: 'unconfigured', limit_cents: null, remaining_cents: null })
+})
+
+it('refuses changing a ceiling while an attributed charge lacks its currency', async () => {
+  const ledger = await bench()
+  await ledger.begin({ idempotencyKey: 'no-currency', method: 'image_generate', scriptId: 2708,
+    requestSha256: 'sha256:legacy-quote', quotedAmount: '1.00' })
+  const before = await readProjectBudget(ledger, 2708)
+  expect(before).toMatchObject({ accounting_complete: false, remaining_cents: null })
+  expect(await checkBudget({ ledger, method: 'image_generate', scriptId: 2708,
+    quote: { amount: '1.00', unit: 'CNY' } })).toMatchObject({ status: 'refused' })
+  await expect(updateProjectBudget(ledger, { script_id: 2708, limit_cents: 500000, expected_revision: before.revision,
+    authorization: { kind: 'settings', reference: 'ui', text: 'Budget' } })).rejects.toThrow('currency is unresolved')
+  expect(await ledger.records()).toHaveLength(1)
+})
+
+it.each([-1, 1.5, Number.POSITIVE_INFINITY])('refuses an invalid live default budget %s', async (limit) => {
+  const configured = await bench(), ledger = new JubianLedger({ root: configured.root, defaultLimitCents: () => limit })
+  await expect(readProjectBudget(ledger, 2708)).rejects.toThrow('Invalid default project budget')
+})
+
+it('propagates an unreadable authorization file instead of interpreting it as absent', async () => {
+  const ledger = await bench()
+  await mkdir(join(ledger.root, 'authorization.json'))
+  await expect(readProjectBudget(ledger, 2708)).rejects.toMatchObject({ code: 'EISDIR' })
+})
+
+it.each(['authorization.json', '.authorization.lock'])('refuses a symlink at %s without changing its target', async (name) => {
+  const ledger = await bench(), before = await readProjectBudget(ledger, 2708)
+  const target = join(ledger.root, 'target.json')
+  await writeFile(target, 'preserved')
+  await symlink(target, join(ledger.root, name))
+  await expect(updateProjectBudget(ledger, { script_id: 2708, limit_cents: 500000, expected_revision: before.revision,
+    authorization: { kind: 'settings', reference: 'ui', text: 'Budget' } })).rejects.toThrow('regular file')
+  expect(await readFile(target, 'utf8')).toBe('preserved')
+})
+
+it('refuses malformed approval history without rewriting an otherwise valid authorization', async () => {
+  const ledger = await bench(), path = join(ledger.root, 'authorization.json')
+  const original = JSON.stringify({ version: 1, projects: {
+    '2708': { limit: '4000', unit: 'CNY', authorization_history: 'corrupt' },
+  } })
+  await writeFile(path, original)
+  const before = await readProjectBudget(ledger, 2708)
+  await expect(updateProjectBudget(ledger, { script_id: 2708, limit_cents: 500000, expected_revision: before.revision,
+    authorization: { kind: 'settings', reference: 'ui', text: 'Budget' } })).rejects.toThrow('authorization_history')
+  expect(await readFile(path, 'utf8')).toBe(original)
+})
 
 it('updates one authorized project immediately without changing defaults, spend, reservations or estimates', async () => {
   const ledger = await bench()

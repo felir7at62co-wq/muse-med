@@ -145,6 +145,7 @@ describe('decodeStreamText', () => {
 
   it('recognizes a cut tail at every UTF-8 sequence length', () => {
     const cutTails = [
+      Buffer.concat([Buffer.from('a', 'utf8'), Buffer.from('é', 'utf8').subarray(0, 1)]),
       Buffer.concat([Buffer.from('a', 'utf8'), Buffer.from('中', 'utf8').subarray(0, 2)]),
       Buffer.concat([Buffer.from('a', 'utf8'), Buffer.from('中', 'utf8').subarray(0, 1)]),
       Buffer.concat([Buffer.from('a', 'utf8'), Buffer.from('🙂', 'utf8').subarray(0, 3)]),

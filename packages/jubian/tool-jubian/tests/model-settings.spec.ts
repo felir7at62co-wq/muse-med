@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { modelMethod } from '../src/model-settings.ts'
 import { bodyHash, writeUnderLedger } from '../src/write.ts'
@@ -23,6 +23,7 @@ let models: unknown
 let calls: { method: string; path: string; body?: Record<string, unknown> }[]
 let onRead: ((id: number) => void) | undefined
 let onPut: ((body: Record<string, unknown>) => void) | undefined
+let listReply: ((path: string) => unknown) | undefined
 let client: JubianClient
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'jubian-model-'))
@@ -31,7 +32,7 @@ beforeEach(async () => {
   boards = [1, 2].map(id => ({ id, scriptId: 2708, episodeId: id + 10, isGenerate: 1,
     storyboardName: `board ${id}`, modelConfig: JSON.stringify(config),
     storyboardMaterialList: [{ assetId: 'official-a', materialAssetId: 42 }], other: 'keep' }))
-  calls = []; models = structuredClone(catalogue); onRead = undefined; onPut = undefined
+  calls = []; models = structuredClone(catalogue); onRead = undefined; onPut = undefined; listReply = undefined
   client = new JubianClient({ credential: async () => 'token', fetch: async (url, init) => {
     const path = (url instanceof Request ? url.url : url.toString()).replace('https://web.jubianai.net/prod-api', '')
     const method = String(init?.method)
@@ -39,10 +40,10 @@ beforeEach(async () => {
     calls.push({ method, path, ...(body ? { body } : {}) })
     const answer = (data: unknown) => new Response(JSON.stringify({ code: 200, data }))
     if (path.startsWith('/model/charge/')) return answer(models)
-    if (path.startsWith('/aigc/storyboard/list?')) return answer({ rows: boards, total: boards.length })
+    if (path.startsWith('/aigc/storyboard/list?')) return answer(listReply ? listReply(path) : { rows: boards, total: boards.length })
     if (method === 'GET' && path.startsWith('/aigc/storyboard/')) {
       const id = Number(path.split('/').pop()); onRead?.(id)
-      return answer(boards.find(board => board.id === id))
+      return answer(boards.find(board => Number(board.id) === id))
     }
     if (method === 'PUT' && path === '/aigc/storyboard' && body) {
       onPut?.(body)
@@ -300,9 +301,7 @@ describe('scoped model settings', () => {
   it('checks preserved ordered assets after save', async () => {
     const plan = await preview()
     onPut = (body) => { body.storyboardMaterialList = [] }
-    // The wiped material list still fails each target that saved it. What changed
-    // is that the batch keeps going: two PUTs happen instead of one, because a plan
-    // is claimed once and never resumes, so stopping early would strand the rest.
+    // A readback mismatch keeps the next target eligible; the claimed plan never resumes.
     expect(await apply(plan)).toMatchObject({ status: 'partial', items: [
       partial({ status: 'readback_mismatch' }), partial({ status: 'readback_mismatch' }),
     ] })
@@ -311,9 +310,7 @@ describe('scoped model settings', () => {
 
   it('accepts a save whose only change is the provider rebuilding material rows', async () => {
     const plan = await preview()
-    // What the provider does on save: each material row comes back with a new surrogate id
-    // and fresh audit columns, while every field that carries meaning keeps its value.
-    // Counting those churned fields made every successful write read back as a mismatch.
+    // The provider regenerates row identifiers and audit fields while retaining material identities.
     onPut = (body) => {
       const rows = body.storyboardMaterialList as Record<string, unknown>[]
       body.storyboardMaterialList = rows.map((row, index) => ({ ...row, id: 900000 + index,
@@ -327,8 +324,7 @@ describe('scoped model settings', () => {
 
   it('still fails a save that changes what a material row means', async () => {
     const plan = await preview()
-    // Same shape as the provider's rebuild, but the row now names a different asset:
-    // normalization must not swallow a real change to the ordered subject identity.
+    // Provider-generated identifiers cannot conceal a changed material asset.
     onPut = (body) => {
       const rows = body.storyboardMaterialList as Record<string, unknown>[]
       body.storyboardMaterialList = rows.map(row => ({ ...row, materialAssetId: 99, id: 900001 }))
@@ -375,5 +371,167 @@ describe('scoped model settings', () => {
     await writeFile(String(plan.preview_path), JSON.stringify(file))
     await expect(apply(plan)).rejects.toThrow()
     expect(puts()).toEqual([])
+  })
+
+  it.each([
+    { scope: 'missing' }, { scope: 'storyboards', storyboard_ids: '1' },
+    { scope: 'storyboards', storyboard_ids: [] }, { scope: 'episodes', episode_ids: [] },
+    { changes: null }, { changes: [] }, { changes: { modelId: 1 } }, { changes: { ratio: ' ' } },
+    { changes: { duration: 0 } },
+  ])('rejects malformed selectors and setting intent %j before any write', async (extra) => {
+    await expect(preview(extra)).rejects.toThrow()
+    expect(puts()).toEqual([])
+  })
+
+  it.each(['[', '[]'])('refuses malformed or non-object saved model JSON %s', async (modelConfig) => {
+    boards[0]!.modelConfig = modelConfig
+    await expect(preview({ scope: 'storyboards', storyboard_ids: [1] })).rejects.toThrow(/modelConfig|JSON object/)
+    expect(puts()).toEqual([])
+  })
+
+  it('preserves provider material values outside object rows and accepts decimal string IDs', async () => {
+    boards[0] = { ...boards[0], id: '1', storyboardMaterialList: [null, 'opaque', [], { assetId: 'official-a' }] }
+    boards[1]!.storyboardMaterialList = 'opaque-provider-field'
+    const plan = await preview()
+    expect(plan.targets).toHaveLength(2)
+    expect(puts()).toEqual([])
+  })
+
+  it.each([
+    { rows: null }, { rows: [], total: -1 }, { rows: [], total: '2' },
+    { rows: [], total: 1 },
+  ])('rejects unreadable, invalid, or incomplete provider lists %j', async (reply) => {
+    listReply = () => reply
+    await expect(preview()).rejects.toThrow()
+    expect(puts()).toEqual([])
+  })
+
+  it('accepts raw list and list-alias envelopes while refusing duplicate or foreign identities', async () => {
+    listReply = () => boards
+    expect((await preview()).targets).toHaveLength(2)
+    listReply = () => ({ list: boards })
+    expect((await preview()).targets).toHaveLength(2)
+    listReply = () => ({ rows: [boards[0], boards[0]], total: 2 })
+    await expect(preview()).rejects.toThrow(/identity mismatch/)
+    listReply = () => ({ rows: [{ ...boards[0], scriptId: 9 }], total: 1 })
+    await expect(preview()).rejects.toThrow(/identity mismatch/)
+    listReply = () => ({ rows: boards, total: 1 })
+    await expect(preview()).rejects.toThrow(/total mismatch/)
+    expect(puts()).toEqual([])
+  })
+
+  it('refuses changing totals, empty episode selections, and the provider page cap', async () => {
+    listReply = path => ({ rows: Array.from({ length: 100 }, (_, index) => ({ ...boards[0],
+      id: (Number(new URL('https://fixture.invalid'+path).searchParams.get('pageNum')) - 1) * 100 + index + 1 })),
+    total: path.includes('pageNum=1&') ? 101 : 102 })
+    await expect(preview()).rejects.toThrow(/total drift/)
+    listReply = () => ({ rows: boards, total: 2 })
+    await expect(preview({ scope: 'episodes', episode_ids: [99] })).rejects.toThrow(/no storyboards/)
+    listReply = path => ({ rows: Array.from({ length: 100 }, (_, index) => ({ ...boards[0],
+      id: (Number(new URL('https://fixture.invalid'+path).searchParams.get('pageNum')) - 1) * 100 + index + 1 })), total: 4001 })
+    await expect(preview()).rejects.toThrow(/40 pages/)
+    expect(puts()).toEqual([])
+  })
+
+  it('reports invalid episode bindings and refuses a scope with no valid settings', async () => {
+    boards[0]!.episodeId = 'not-an-id'
+    expect((await preview()).excluded_invalid).toEqual([partial({ reason: 'invalid_episode_id', episode_id: null })])
+    boards[1]!.modelConfig = JSON.stringify({ ...config, duration: 8.7 })
+    await expect(preview()).rejects.toThrow(/no valid storyboards/)
+    expect(puts()).toEqual([])
+  })
+
+  it.each([
+    { version: 1 }, { version: 3 }, { targets: [] }, { targets: null },
+    { targets: [{ before_hash: 'bad', preserved_hash: 'bad' }] },
+    { excluded_invalid: [] }, { excluded_invalid: {} },
+    { excluded_invalid: [{ reason: 1, detail: 'bad' }] },
+  ])('refuses invalid frozen-plan fields %j without sending PUT', async (fields) => {
+    const plan = await preview()
+    const path = String(plan.preview_path)
+    const value = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
+    await writeFile(path, JSON.stringify({ ...value, ...fields }))
+    await expect(apply(plan)).rejects.toThrow()
+    expect(puts()).toEqual([])
+  })
+
+  it('refuses an altered frozen plan with valid field types and a changed project selector', async () => {
+    const plan = await preview()
+    const path = String(plan.preview_path)
+    const value = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
+    await writeFile(path, JSON.stringify({ ...value, changes: { resolution: '720p' } }))
+    await expect(apply(plan)).rejects.toThrow(/fingerprint/)
+    await writeFile(path, JSON.stringify(value))
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2709 }))
+    await expect(apply(plan, { script_id: 2709 })).rejects.toThrow(/project\/path\/key/)
+    expect(puts()).toEqual([])
+  })
+
+  it('reconciles a concurrent batch claim without resending any target', async () => {
+    const plan = await preview()
+    const competing = new JubianLedger({ root: join(root, 'ledger') })
+    const original = ledger.begin.bind(ledger)
+    vi.spyOn(ledger, 'begin').mockImplementationOnce(async (claim) => {
+      await competing.begin(claim)
+      return original(claim)
+    })
+    expect(await apply(plan)).toMatchObject({ replayed: true, items: [partial({ status: 'not_attempted' }),
+      partial({ status: 'not_attempted' })] })
+    expect(puts()).toEqual([])
+  })
+
+  it('reports unreadable previously attempted targets as unknown without retries', async () => {
+    const plan = await preview()
+    await apply(plan)
+    onRead = () => { throw new Error('provider temporarily unreachable') }
+    expect(await apply(plan)).toMatchObject({ replayed: true, items: [partial({ status: 'unknown' }), partial({ status: 'unknown' })] })
+    expect(puts()).toHaveLength(2)
+  })
+
+  it('refuses unknown model-setting operations before any transport request', async () => {
+    await expect(modelMethod(client, ledger, { method: 'generate' })).rejects.toThrow(/Unknown model settings method/)
+    expect(calls).toEqual([])
+  })
+
+  it('refuses an episode membership change between listing and detail reads', async () => {
+    onRead = (id) => { if (id === 2) boards[1]!.episodeId = 99 }
+    await expect(preview({ scope: 'episodes', episode_ids: [12] })).rejects.toThrow(/membership drift/)
+    expect(puts()).toEqual([])
+  })
+
+  it('retains exclusions with numeric episode IDs during apply and replay', async () => {
+    boards[0]!.modelConfig = JSON.stringify({ ...config, duration: 8.7 })
+    const plan = await preview()
+    const excluded = [partial({ storyboard_id: 1, episode_id: 11, reason: 'invalid_settings' })]
+    expect(await apply(plan)).toMatchObject({ status: 'applied', excluded_invalid: excluded })
+    expect(await apply(plan)).toMatchObject({ replayed: true, excluded_invalid: excluded })
+    expect(puts()).toHaveLength(1)
+  })
+
+  it('stops before resending a previously claimed target even when its batch is new', async () => {
+    const plan = await preview()
+    const body = { ...boards[0], isGenerate: 0,
+      modelConfig: JSON.stringify({ ...config, resolution: '1080p', videoStandardId: 92 }) }
+    await ledger.begin({ idempotencyKey: `${String(plan.fingerprint)}:1`, method: 'storyboard_model_settings', requestSha256: bodyHash(body) })
+    expect(await apply(plan)).toMatchObject({ status: 'partial', items: [partial({ status: 'unknown' }),
+      partial({ status: 'not_attempted' })] })
+    expect(puts()).toEqual([])
+  })
+
+  it('reports a metadata failure before sending as stale with its provider error code', async () => {
+    const plan = await preview()
+    let reads = 0
+    onRead = () => { if (++reads === 3) throw new Error('provider unavailable before send') }
+    expect(await apply(plan)).toMatchObject({ status: 'partial', items: [partial({ status: 'stale', error: 'NETWORK_ERROR' }),
+      partial({ status: 'not_attempted' })] })
+    expect(puts()).toEqual([])
+  })
+
+  it('reports failed durable outcome recording as unknown after the provider accepted a write', async () => {
+    const plan = await preview()
+    vi.spyOn(ledger, 'settle').mockRejectedValue(new Error('outcome storage unavailable'))
+    expect(await apply(plan)).toMatchObject({ status: 'partial', items: [partial({ status: 'unknown', error: 'REQUEST_OR_READBACK_FAILED' }),
+      partial({ status: 'not_attempted' })] })
+    expect(puts()).toHaveLength(1)
   })
 })

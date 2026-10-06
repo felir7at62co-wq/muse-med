@@ -102,6 +102,11 @@ describe('script-level rules', () => {
 })
 
 describe('the spoken track', () => {
+  it('retains an explicit speaker when the dialogue prefix names the same person', () => {
+    const result = parse(scriptOf(speakingShot(1, '苏晚：你终于来了', ['说话人：苏晚'])))
+    expect(result.shots[0]).toMatchObject({ speaker: '苏晚', text: '你终于来了' })
+    expect(result.issues.filter(issue => issue.severity === 'failure')).toEqual([])
+  })
   it('rejects conflicting declared and prefixed speakers without silently reassigning dialogue', () => {
     const result = parse(scriptOf(speakingShot(1, '陆沉：你终于来了', ['说话人：苏晚'])))
     expect(result.issues.filter(issue => issue.severity === 'failure')).toMatchObject([{ code: 'speaker_mismatch', shot: 1 }])

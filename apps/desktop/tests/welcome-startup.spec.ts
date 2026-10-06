@@ -105,7 +105,16 @@ vi.mock('electron', () => ({
 // The Windows tray relabels through Menu as well; keep the menu call counts below platform-neutral.
 vi.mock('../src/tray.ts', () => ({ DesktopTray: class { relabel() {} dispose() {} } }))
 
-vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: '/profile' }) }))
+vi.mock('../src/paths.ts', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/paths.ts')>()
+  return { ...original, resolveDesktopPaths: (): ReturnType<typeof original.resolveDesktopPaths> => ({
+    ...original.resolveDesktopPaths(), profile: '/profile',
+  }) }
+})
+vi.mock('../src/hongguo-runtime.ts', () => ({
+  prepareDesktopHongguoEnvironment: vi.fn<typeof import('../src/hongguo-runtime.ts').prepareDesktopHongguoEnvironment>()
+    .mockResolvedValue({}),
+}))
 vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/login-shell-environment.ts')>(),
   readDesktopLoginShellEnvironment: async (base: NodeJS.ProcessEnv) => ({ environment: base, failures: [] }),
@@ -114,7 +123,8 @@ vi.mock('../src/project-manager.ts', () => ({ DesktopProjectManager: class {
   applyRelease = vi.fn(async () => {})
   canRecoverProfile = vi.fn(() => true)
 } }))
-vi.mock('../src/host-process.ts', () => ({
+vi.mock('../src/host-process.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/host-process.ts')>(),
   DesktopHostProcess: class {
     start = state.startHost
     stop = state.stopHost

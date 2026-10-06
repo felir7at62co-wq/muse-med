@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** The Feishu Settings page: what each control renders, and the call it makes. */
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { RemoteError, type RemoteErrorCode, type RemoteErrorDetailsMap } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FeishuSection } from '../src/client/FeishuSection.tsx'
@@ -12,6 +12,7 @@ import type { FeishuLoginTicket, FeishuSetupStatus } from '../src/types.ts'
 // unmounted explicitly; otherwise every later query sees every earlier tree.
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
 })
 
 const TICKET: FeishuLoginTicket = {
@@ -278,5 +279,51 @@ describe('FeishuSection', () => {
     expect(screen.getByRole('switch').hasAttribute('disabled')).toBe(true)
     expect(screen.getByText('save').closest('button')?.disabled).toBe(true)
     expect(screen.getByText('forget').closest('button')?.disabled).toBe(true)
+  })
+
+  it('expires the ticket on its local clock, refreshes it, and releases the countdown on cancel', async () => {
+    vi.useFakeTimers()
+    let current: FeishuSetupStatus = { ...OFF, login: { ...TICKET, expiresInSeconds: 2 } }
+    const beginLogin = vi.fn(async () => {
+      current = { ...OFF, login: TICKET }
+      return { ok: true as const, value: TICKET }
+    })
+    const injected = props(current, {
+      status: async () => ({ ok: true, value: current }), beginLogin,
+      cancelLogin: async () => ({ ok: true, value: OFF }),
+    })
+    await act(async () => { render(<FeishuSection {...injected} />) })
+    expect(screen.getByText('qrExpires')).toBeDefined()
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(screen.getByText('qrExpired')).toBeDefined()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(screen.getByText('qrExpired')).toBeDefined()
+    await act(async () => { fireEvent.click(screen.getByText('qrRefresh')) })
+    expect(beginLogin).toHaveBeenCalledOnce()
+    expect(screen.getByText('qrExpires')).toBeDefined()
+    await act(async () => { fireEvent.click(screen.getByText('qrCancel')) })
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('ignores a first status response after the settings page has unmounted', async () => {
+    let resolve!: (value: { ok: true; value: FeishuSetupStatus }) => void
+    const status = () => new Promise<{ ok: true; value: FeishuSetupStatus }>((yes) => { resolve = yes })
+    const page = render(<FeishuSection {...props(OFF, { status })} />)
+    page.unmount()
+    await act(async () => { resolve({ ok: true, value: { ...OFF, appId: 'cli_late' } }) })
+    expect(screen.queryByText('appIdLabel: cli_late')).toBeNull()
+  })
+
+  it('retains its last confirmed status when the scan refresh status is refused', async () => {
+    const status = vi.fn<FeishuSetupInjected['status']>()
+      .mockResolvedValueOnce({ ok: true, value: OFF })
+      .mockResolvedValueOnce({ ok: false, error: refusal('feishu/secret-required', {}) })
+    render(<FeishuSection {...props(OFF, { status })} />)
+    fireEvent.click(await screen.findByText('qrStart'))
+    await waitFor(() => { expect(status).toHaveBeenCalledTimes(2) })
+    expect(screen.getByText('status.disabled')).toBeDefined()
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.getByText('qrStart').closest('button')?.disabled).toBe(false)
   })
 })

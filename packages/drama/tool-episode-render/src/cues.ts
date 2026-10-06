@@ -70,21 +70,13 @@ export interface BuiltCues {
   readonly warnings: readonly string[]
 }
 
-/** The tolerance both the timeline check and the subtitle writer use. */
-const TIMELINE_TOLERANCE_SECONDS = 0.05
-
 /**
- * Judge the placed cues against the episode's own timeline.
- * @param cues - The placed cues on the episode clock.
- * @param bodyEndSeconds - The measured end of the episode body.
- * @returns One defect per cue that is empty, overlaps its predecessor, or runs past the body.
+ * Report cues whose alignment consumes no picture after per-shot clamping.
+ * @param cues - Ordered cues already clamped to their non-overlapping shot intervals.
+ * @returns One defect per cue with no positive duration.
  */
-function timelineDefects(
-  cues: readonly PlacedCue[],
-  bodyEndSeconds: number,
-): CueDefect[] {
+function emptyCueDefects(cues: readonly PlacedCue[]): CueDefect[] {
   const defects: CueDefect[] = []
-  let previousEnd = -Infinity
   for (const cue of cues) {
     const fix = '请复核该镜的成片与台词计划，并用同一版台词重新生成对齐；不要手工改 SRT。'
     if (cue.endSeconds - cue.startSeconds <= 0) {
@@ -94,25 +86,7 @@ function timelineDefects(
           + `（${cue.startSeconds.toFixed(3)}s–${cue.endSeconds.toFixed(3)}s）。`,
         fix,
       })
-      continue
     }
-    if (cue.startSeconds < previousEnd - TIMELINE_TOLERANCE_SECONDS) {
-      defects.push({
-        id: 'subtitle_timing',
-        detail: `镜头 ${String(cue.shot)} 的“${cue.text}”起点 ${cue.startSeconds.toFixed(3)}s`
-          + ` 早于上一条字幕的结束 ${previousEnd.toFixed(3)}s：两条字幕会重叠。`,
-        fix,
-      })
-    }
-    if (cue.endSeconds > bodyEndSeconds + TIMELINE_TOLERANCE_SECONDS) {
-      defects.push({
-        id: 'subtitle_timing',
-        detail: `镜头 ${String(cue.shot)} 的“${cue.text}”结束 ${cue.endSeconds.toFixed(3)}s`
-          + ` 超出正文末尾 ${bodyEndSeconds.toFixed(3)}s。`,
-        fix,
-      })
-    }
-    previousEnd = Math.max(previousEnd, cue.endSeconds)
   }
   return defects
 }
@@ -138,17 +112,19 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
   const placements: ShotPlacement[] = []
   const failures: CueDefect[] = []
   const warnings: string[] = []
-  for (const [index, shot] of shots.entries()) {
-    const clip = timeline.clips[index]
+  let cursorUs = 0
+  for (const shot of shots) {
     const durationSeconds = shot.durationUs / 1_000_000
-    const startSeconds = clip === undefined ? 0 : clip.startUs / 1_000_000
+    const startSeconds = cursorUs / 1_000_000
+    cursorUs += shot.durationUs
     const lines = planned.get(shot.source.shot) ?? []
     const recognized = aligned.get(shot.source.shot)
+    const recognizedCues = recognized?.cues ?? []
     if (lines.length === 0) {
-      if ((recognized?.cues ?? []).length === 0) continue
+      if (recognizedCues.length === 0) continue
       failures.push({
         id: 'subtitle_line_coverage',
-        detail: `镜头 ${String(shot.source.shot)} 的对齐文档里有 ${String(recognized?.cues.length ?? 0)} 段识别结果，`
+        detail: `镜头 ${String(shot.source.shot)} 的对齐文档里有 ${String(recognizedCues.length)} 段识别结果，`
           + '但台词计划里没有它的台词，这一镜说的话会变成没有字幕的语音。',
         fix: `把该镜的台词补进 ${input.linesPath}，或确认这一镜本就不该有台词。`,
       })
@@ -206,10 +182,7 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
   }
 
   const placed = placements.flatMap(placement => placement.cues)
-  const clipStarts = new Map<number, number>(shots.map((shot, index) => {
-    const clip = timeline.clips[index]
-    return [shot.source.shot, clip === undefined ? 0 : clip.startUs / 1_000_000]
-  }))
+  const clipStarts = new Map(timeline.clips.map(clip => [clip.shot, clip.startUs / 1_000_000]))
   const findings: CueRateFinding[] = cueRateFindings(placed, clipStarts)
   for (const finding of findings) {
     const detail = `镜头 ${String(finding.shot)} 的“${finding.text}”要求 ${finding.charactersPerSecond.toFixed(1)} 字/秒`
@@ -224,7 +197,7 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
       warnings.push(`${detail}偏快，请试听复核。`)
     }
   }
-  failures.push(...timelineDefects(placed, timeline.bodyEndSeconds))
+  failures.push(...emptyCueDefects(placed))
 
   const cues: SubtitleCue[] = placed.map((cue, index) => ({
     index: index + 1,

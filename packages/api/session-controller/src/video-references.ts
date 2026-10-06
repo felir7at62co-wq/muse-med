@@ -120,11 +120,11 @@ export const SessionVideoReferences = {
               streamController?.error(signal.reason)
             }
             signal.addEventListener('abort', abort, { once: true })
+            // Construction and listener registration are synchronous after the metadata cancellation check.
             const body = new ReadableStream<Uint8Array>({
-              start(controller) { streamController = controller; if (signal.aborted) abort() },
+              start(controller) { streamController = controller },
               pull(controller) {
                 const reading = (async () => {
-                  if (ended) return
                   try {
                     signal.throwIfAborted()
                     if (offset > range.end) { release(); controller.close(); return }

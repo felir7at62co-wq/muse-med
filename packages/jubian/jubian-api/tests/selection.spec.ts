@@ -30,6 +30,9 @@ const PARENTS = [
 
 const SELECTIONS = [{ material_key: 'lead', asset_id: 81285 }, { material_key: 'guest', asset_id: 83670 }]
 
+const oneSubject = () => ({ storyboard: { ...STORYBOARD, modelConfig: { prompt: '@[陆沉舟](lead)' } },
+  selections: [SELECTIONS[0]!], subjectRows: [ROWS[0]!], parentAssets: [PARENTS[0]!] })
+
 describe('subject selection planning', () => {
   it('preserves uploaded audio while replacing the ordered character image selections', () => {
     const audio = { materialType: 'audio', materialKey: 'voice-lead', materialUrl: 'https://x/voice.wav',
@@ -134,6 +137,79 @@ describe('subject selection planning', () => {
     expect(typeof plan.payload.storyboardMaterialList).toBe('string')
     expect(JSON.parse(plan.payload.storyboardMaterialList as string)).toHaveLength(2)
   })
+
+  it.each([
+    ['unconfirmed', { isUsed: 0 }], ['boolean confirmation', { isUsed: true }],
+    ['inactive', { hsAssetStatus: 'Inactive' }], ['missing status', { hsAssetStatus: null }],
+    ['blank identity', { hsAssetId: '  ' }], ['invalid identity', { hsAssetId: false }],
+    ['foreign project', { scriptId: 1 }], ['invalid URL', { assetUrl: 'http://x/lead.jpg' }],
+  ])('rejects a %s subject after the prompt markers have matched', (_label, overrides) => {
+    const input = oneSubject()
+    expect(() => buildSubjectSelection({ ...input, subjectRows: [{ ...ROWS[0]!, ...overrides }] }))
+      .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+  })
+
+  it.each([{ scriptId: 1 }, { assetUrl: URL_GUEST }, { delFlag: '1' }])
+  ('rejects a parent that disagrees with its active picker row: %j', (overrides) => {
+    expect(() => buildSubjectSelection({ ...oneSubject(), parentAssets: [{ ...PARENTS[0]!, ...overrides }] }))
+      .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+  })
+
+  it('requires exactly one parent and one material per selected key', () => {
+    const input = oneSubject()
+    expect(() => buildSubjectSelection({ ...input, subjectRows: [] }))
+      .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+    for (const parentAssets of [[], [PARENTS[0]!, PARENTS[0]!]]) {
+      expect(() => buildSubjectSelection({ ...input, parentAssets }))
+        .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+    }
+    expect(() => buildSubjectSelection({ ...input, storyboard: { ...input.storyboard,
+      storyboardMaterialList: [{ materialKey: 'lead' }, { materialKey: 'lead' }] } }))
+      .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+  })
+
+  it('refuses an audio marker that collides with a selected image marker', () => {
+    const input = oneSubject()
+    expect(() => buildSubjectSelection({ ...input, storyboard: { ...input.storyboard,
+      storyboardMaterialList: [{ materialType: 'audio', materialKey: 'lead', sortOrder: 1,
+        materialUrl: 'https://x/voice.wav' }] } }))
+      .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+  })
+
+  it('ignores unrelated wire rows with missing identifiers when resolving a subject', () => {
+    const input = oneSubject()
+    const plan = buildSubjectSelection({ ...input,
+      subjectRows: [{ assetId: null }, { assetId: '' }, ...input.subjectRows],
+      parentAssets: [{ id: null }, { id: '' }, ...input.parentAssets],
+      storyboard: { ...input.storyboard, storyboardMaterialList: [{ materialKey: null }, { materialKey: '' }] } })
+    expect(plan.payload.storyboardMaterialList).toEqual([expect.objectContaining({
+      assetId: 'asset-lead', materialAssetId: 81285, materialKey: 'lead', materialUrl: URL_LEAD })])
+  })
+
+  it('rejects one trusted subject represented by numeric and string identities on different parents', () => {
+    expect(() => buildSubjectSelection({ storyboard: STORYBOARD, selections: SELECTIONS,
+      subjectRows: [{ ...ROWS[0]!, hsAssetId: 12 }, { ...ROWS[1]!, hsAssetId: '12' }], parentAssets: PARENTS }))
+      .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+  })
+
+  it.each([
+    { selections: [] }, { selections: [{ material_key: ' ', asset_id: 81285 }] },
+    { selections: [{ material_key: 'lead', asset_id: -1 }] },
+    { selections: [SELECTIONS[0]!, SELECTIONS[0]!] },
+    { selections: [{ material_key: 'lead', asset_id: 81285 }, { material_key: 'guest', asset_id: 81285 }] },
+  ])('refuses ambiguous or empty requested selections before producing a payload: %j', ({ selections }) => {
+    expect(() => buildSubjectSelection({ ...oneSubject(), selections }))
+      .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+  })
+
+  it.each([
+    { storyboardMaterialList: '{' }, { storyboardMaterialList: {} }, { storyboardMaterialList: [null] },
+    { modelConfig: '{' }, { modelConfig: [] }, { modelConfig: { prompt: 1 } },
+  ])('refuses unreadable provider fields: %j', (overrides) => {
+    const input = oneSubject()
+    expect(() => buildSubjectSelection({ ...input, storyboard: { ...input.storyboard, ...overrides } }))
+      .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+  })
 })
 
 describe('trusted subject identity helpers', () => {
@@ -150,6 +226,18 @@ describe('trusted subject identity helpers', () => {
   it('hashes the same state for two equal material lists', () => {
     const materials = [{ materialKey: 'a', assetId: 'x', materialUrl: URL_LEAD, sortOrder: 1 }]
     expect(selectionState(materials, PROMPT)).toEqual(selectionState([...materials], PROMPT))
+  })
+
+  it('normalizes optional wire names and order without inventing missing values', () => {
+    expect(trustedSubjectId('  ')).toBeNull()
+    expect(trustedSubjectKey('0')).toBe('string:0')
+    const state = selectionState([{ assetId: 12, materialKey: 1, materialName: 'name', imageUrl: URL_LEAD,
+      sortOrder: null }, { fileName: 'fallback' }, {}], PROMPT)
+    expect(state.orderedMaterials).toEqual([
+      { assetId: '12', materialKey: '1', assetName: 'name', sortOrder: null },
+      { assetId: null, materialKey: null, assetName: 'fallback', sortOrder: null },
+      { assetId: null, materialKey: null, assetName: null, sortOrder: null },
+    ])
   })
 })
 
@@ -170,5 +258,13 @@ describe('selection readback normalization', () => {
     expect(verifySubjectSelection({ ...STORYBOARD, storyboardMaterialList: saved }, plan.after).matches).toBe(true)
     saved[0]!.materialUrl = 'https://example.test/wrong.jpg'
     expect(verifySubjectSelection({ ...STORYBOARD, storyboardMaterialList: saved }, plan.after).matches).toBe(false)
+  })
+
+  it('rejects readback fields that no longer contain the planned material list or prompt', () => {
+    const plan = buildSubjectSelection(oneSubject())
+    for (const overrides of [{ storyboardMaterialList: {} }, { modelConfig: { prompt: null } }]) {
+      expect(() => verifySubjectSelection({ ...plan.payload, ...overrides }, plan.after))
+        .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+    }
   })
 })

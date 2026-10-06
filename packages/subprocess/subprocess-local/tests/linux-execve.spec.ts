@@ -5,7 +5,8 @@ afterEach(() => {
   vi.resetModules()
 })
 
-describe.skipIf(process.platform !== 'linux')('Linux libc execve binding', () => {
+// The mocked libc bindings exercise descriptor handling without replacing the test process on any host.
+describe('Linux libc execve binding', () => {
   it.each([undefined, 'pipe'] as const)('preserves inherited stdio with control %s and reports execve errno', async (control) => {
     const nativeExecve = vi.fn(() => -1)
     const nativeFcntl = vi.fn((fd: number, command: number) => {

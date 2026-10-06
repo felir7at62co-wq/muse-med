@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { TOOL_RUNTIME_SCHEDULER } from '@deepseek-ai/dsh-tools'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -12,9 +12,11 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as VideoInspect from '../src/index.ts'
 import { runMedia, parseVideoMetadata } from '../src/media.ts'
+import * as Media from '../src/media.ts'
 
 const contexts: Context[] = [], roots: string[] = []
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
@@ -41,11 +43,11 @@ async function setup(options: Partial<VideoInspect.Config> = {}) {
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', input],
   { mode: 'danger-full-access', workspaceRoot: root }, undefined, { timeoutMs: 20_000, maxBytes: 1024, graceMs: 1000 })
   let count = 0
-  const agent = (model: string) => ({ options: {}, session: { header: { cwd: root },
-    requestHeader: () => ({ config: { provider: 'test', model } }), deriveMessages: () => [], append: () => undefined } })
+  const agent = (model: string, options: boolean) => ({ options: options ? { provider: 'test', model } : {}, session: { header: { cwd: root },
+    requestHeader: () => options ? undefined : ({ config: { provider: 'test', model } }), deriveMessages: () => [], append: () => undefined } })
   return { ctx, root, input, config, video,
-    call: (args: Record<string, unknown>, model = 'vision') => ctx.tools.execute({ callId: ToolCallId(`video-${++count}`), name: 'video_inspect',
-      arguments: { file_path: input, ...args }, signal: new AbortController().signal, agent: agent(model) as never }),
+    call: (args: Record<string, unknown>, model = 'vision', route: 'header' | 'options' | 'none' = 'header') => ctx.tools.execute({ callId: ToolCallId(`video-${++count}`), name: 'video_inspect',
+      arguments: { file_path: input, ...args }, signal: new AbortController().signal, ...route === 'none' ? {} : { agent: agent(model, route === 'options') as never } }),
   }
 }
 
@@ -140,3 +142,98 @@ it('bounds concurrent inspections and waits for owned cancellation when the plug
   await h.video.dispose()
   expect((await first).isError).toBe(true)
 }, 30_000)
+
+it('rejects an unresolved image route, while metadata remains callable without an agent', async () => {
+  const h = await setup()
+  const resolve = vi.spyOn(h.ctx.fs, 'resolve')
+  const unresolved = await h.call({}, 'vision', 'none')
+  expect(unresolved.isError).toBe(true)
+  expect(resolve).not.toHaveBeenCalled()
+  vi.spyOn(h.ctx.llm, 'resolveModelInfo').mockResolvedValueOnce({ provider: 'test', id: 'vision', name: 'vision' })
+  expect((await h.call({})).isError).toBe(true)
+  expect(resolve).not.toHaveBeenCalled()
+  expect((await h.call({ method: 'metadata' }, 'vision', 'none')).isError).toBe(false)
+}, 30_000)
+
+it('uses agent options when no request route is materialized and marks the next uninspected interval', async () => {
+  const h = await setup({ maxRangeSeconds: 1, defaultFrames: 1, maxFrames: 1 })
+  const result = await h.call({ start_seconds: 1 }, 'vision', 'options')
+  expect(result.isError).toBe(false)
+  expect(result.value).toMatchObject({ interval: { start_seconds: 1, end_seconds: 2 }, next_start_seconds: 2 })
+  expect(result.meta).toMatchObject({ frameCount: 1, interval: { start_seconds: 1, end_seconds: 2 } })
+  const tool = h.ctx.tools.get('video_inspect')
+  expect(tool?.isConcurrencySafe?.({ file_path: h.input })).toBe(true)
+}, 30_000)
+
+it('reports an actual audio stream with separate speech-transcription advice', async () => {
+  const h = await setup()
+  const ffmpeg = await h.ctx.subprocess.resolveExecutable(h.config.ffmpegPath)
+  await runMedia(h.ctx, [ffmpeg, '-y', '-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=red:size=64x48:rate=10:d=4',
+    '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', h.input],
+  { mode: 'danger-full-access', workspaceRoot: h.root }, undefined, { timeoutMs: 20_000, maxBytes: 1024, graceMs: 1000 })
+  const result = await h.call({ method: 'metadata' })
+  expect(result.value).toMatchObject({ has_audio: true })
+  expect(result.content.some(block => block.type === 'text' && block.text.includes('Discover audio_transcribe'))).toBe(true)
+}, 30_000)
+
+it('rejects non-file and unknown-size sources before probing', async () => {
+  const h = await setup()
+  const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
+  for (const file_path of [h.root, 'missing.mp4']) expect((await h.call({ method: 'metadata', file_path })).isError).toBe(true)
+  const original = h.ctx.fs.stat.bind(h.ctx.fs)
+  vi.spyOn(h.ctx.fs, 'stat').mockImplementationOnce(async (...args) => {
+    const info = await original(...args)
+    if (!info) throw new Error('fixture video stat unavailable')
+    const { size: _size, ...unknownSize } = info
+    return unknownSize
+  })
+  expect((await h.call({ method: 'metadata' })).isError).toBe(true)
+  expect(spawn).not.toHaveBeenCalled()
+}, 30_000)
+
+it('refuses source duration beyond the configured maximum before decoding', async () => {
+  const h = await setup({ maxDurationSeconds: 1 })
+  const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
+  const result = await h.call({})
+  expect(result.content.some(block => block.type === 'text' && block.text.includes('duration exceeds'))).toBe(true)
+  expect(spawn).toHaveBeenCalledOnce()
+}, 30_000)
+
+it.each(['missing-timestamp', 'negative-timestamp', 'past-end', 'invalid-number', 'missing-image'] as const)(
+  'refuses %s extraction output without publishing a manifest', async (mode) => {
+    const h = await setup()
+    const original = Media.runMedia
+    vi.spyOn(Media, 'runMedia').mockImplementation(async (...args) => {
+      if (args[1][0] !== h.config.ffmpegPath && !args[1].includes('-frames:v')) return await original(...args)
+      const diagnostic = { 'missing-timestamp': '', 'negative-timestamp': 'pts_time:-1', 'past-end': 'pts_time:4',
+        'invalid-number': 'pts_time:1e999', 'missing-image': 'pts_time:1' }[mode]
+      return { bytes: mode === 'missing-image' ? Buffer.alloc(0) : Buffer.from('unverified image'), diagnostic }
+    })
+    const result = await h.call({ timestamps_seconds: [1], end_seconds: 4, manifest_path: 'qa/refused.json' })
+    expect(result.content.some(block => block.type === 'text' && block.text.includes('verifiable source timestamp'))).toBe(true)
+    await expect(readFile(join(h.root, 'qa/refused.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  }, 30_000)
+
+it('fails publication when manifest readback differs from the written inspection', async () => {
+  const h = await setup()
+  vi.spyOn(h.ctx.fs, 'readText').mockResolvedValueOnce('changed externally')
+  const result = await h.call({ method: 'metadata', manifest_path: 'qa/readback.json' })
+  expect(result.content.some(block => block.type === 'text' && block.text.includes('readback did not match'))).toBe(true)
+  expect(JSON.parse(await readFile(join(h.root, 'qa/readback.json'), 'utf8'))).toMatchObject({ inspection: 'metadata' })
+}, 30_000)
+
+it('refuses a prepared inspection after its plugin has been unloaded', async () => {
+  const h = await setup()
+  const tool = h.ctx.tools.get('video_inspect')
+  if (!tool) throw new Error('video tool unavailable')
+  const args = { method: 'metadata', file_path: h.input }
+  const prepared = await h.ctx.tools[TOOL_RUNTIME_SCHEDULER].prepare({ callId: ToolCallId('prepared-video'),
+    name: 'video_inspect', arguments: args, signal: new AbortController().signal })
+  if (prepared.kind !== 'dispatch') throw new Error('video call was not prepared')
+  await h.video.dispose()
+  await expect(tool.execute(args, prepared.exec)).rejects.toThrow('unavailable')
+}, 30_000)
+
+it('rejects an inconsistent default sample count at plugin load', async () => {
+  await expect(setup({ maxFrames: 1, defaultFrames: 2 })).rejects.toThrow('defaultFrames')
+})

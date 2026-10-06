@@ -161,7 +161,7 @@ async function readback(client: JubianClient, config: ClaimWatchConfig, scriptId
  * Inspect or submit one user-authorized screenplay ID using the current account.
  * @param client - Authenticated provider transport.
  * @param ledger - Persistent write ledger for one Muse installation.
- * @param args - ID, operation and explicit authorization fields.
+ * @param args - ID, schema-validated operation and explicit authorization fields.
  * @param config - Validated pool scan limits.
  * @param signal - Optional claim-window cancellation; a manual claim omits it.
  * @returns Account-scoped inspection or a readback-qualified claim outcome.
@@ -170,8 +170,6 @@ export async function claimMethod(client: JubianClient, ledger: JubianLedger, ar
   config: ClaimWatchConfig, signal?: AbortSignal): Promise<Record<string, unknown>> {
   signal?.throwIfAborted()
   const scriptId = positiveId(args.script_id, 'script_id')
-  const method: string = args.method
-  if (method !== 'inspect' && method !== 'claim') throw new JubianError('INVALID_ARGUMENT', 'method')
   if (args.method === 'claim') authorization(args.authorization_basis)
   const actor = await account(client, signal)
   const claimRole = await role(client, signal)
@@ -238,7 +236,7 @@ export async function claimMethod(client: JubianClient, ledger: JubianLedger, ar
 
 /**
  * Validate a bounded watcher window before job admission.
- * @param args - Target scope, UTC window and caller-owned key prefix.
+ * @param args - Schema-validated target scope, UTC window and caller-owned key prefix.
  * @param config - Validated deployment limits.
  * @param now - Admission time.
  * @returns Validated watcher arguments.
@@ -254,15 +252,15 @@ export function claimWatchArgs(args: ClaimWatchArgs, config: ClaimWatchConfig, n
   }
   requireKey(args.idempotency_prefix)
   authorization(args.authorization_basis)
-  const scope: string = args.scope
-  if (scope === 'ids') {
+  if (args.scope === 'ids') {
     const ids = args.script_ids
     if (!Array.isArray(ids) || ids.length < 1 || ids.length > config.claimMaxItems
       || new Set(ids).size !== ids.length) throw new JubianError('INVALID_ARGUMENT', 'script_ids')
     for (const id of ids) positiveId(id, 'script_ids')
-  } else if (scope === 'new_claimable') {
-    if (args.script_ids !== undefined) throw new JubianError('INVALID_ARGUMENT', 'script_ids must be omitted for new_claimable')
-  } else throw new JubianError('INVALID_ARGUMENT', 'scope')
+  } else {
+    const scope: 'new_claimable' = args.scope
+    if (args.script_ids !== undefined) throw new JubianError('INVALID_ARGUMENT', `script_ids must be omitted for ${scope}`)
+  }
   return args
 }
 

@@ -253,18 +253,17 @@ export async function writeUnderLedger(
       ...(quoted?.standardId === undefined ? {} : { quoteStandardId: quoted.standardId }),
       ...(quoted?.observedAt === undefined ? {} : { quoteObservedAt: quoted.observedAt }) }
   })
-  const budgetSummary = budget === undefined ? undefined
-    : { status: budget.status, reason: budget.reason, settledCents: budget.settledCents,
-      reservedCents: budget.reservedCents }
   if (begun.replayed) {
     if (begun.record.method !== method || begun.record.request_sha256 !== bodyHash(payload)) {
       throw new JubianError('CONTRACT_CHANGED', 'Idempotency key belongs to a different write')
     }
     return { replayed: true, outcome: begun.record.outcome ?? 'unknown',
-      response_sha256: begun.record.response_sha256, data: null,
-      ...(budgetSummary === undefined ? {} : { budget: budgetSummary }) }
+      response_sha256: begun.record.response_sha256, data: null }
   }
-  if (budgetSummary === undefined) throw new JubianError('CONTRACT_CHANGED', 'Fresh write has no budget decision')
+  // A fresh beginChecked result has completed its authorization callback; replay skips it.
+  const approved = budget as Awaited<ReturnType<typeof checkBudget>>
+  const budgetSummary = { status: approved.status, reason: approved.reason,
+    settledCents: approved.settledCents, reservedCents: approved.reservedCents }
   try {
     const response = await send(payload)
     const code = response.transport.application_code

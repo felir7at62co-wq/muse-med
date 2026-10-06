@@ -1,5 +1,5 @@
 /** The running-build check: what it judges, and how it reads a profile's module tree. */
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -22,7 +22,7 @@ afterEach(() => {
 
 /** One temporary directory the spec owns. */
 function tempDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'verify-running-build-'))
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'verify-running-build-')))
   temporary.push(directory)
   return directory
 }

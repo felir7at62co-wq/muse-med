@@ -74,7 +74,6 @@ export function defaultSubtitleBox(videoWidth: number, videoHeight: number): Sub
   // `zimuTop 570` + `zimuHeight 720` against a 1280-tall video — ten pixels past
   // the bottom edge — and the provider accepted it. Reproducing the measured
   // arithmetic matters more than a tidier rectangle.
-  if (box.zimuWidth < 1 || box.zimuHeight < 1) invalid()
   return box
 }
 
@@ -116,12 +115,12 @@ export function buildSubtitleEraseRequest(modelId: string,
   const platformId = automatic ? 'AI_MEDIA_KIT' : 'YU_DIAN'
   const width = positive(input.videoWidth), height = positive(input.videoHeight)
   if (!Number.isFinite(input.duration) || input.duration <= 0) invalid()
-  if (typeof input.taskName !== 'string' || !input.taskName.trim() || !input.taskName.isWellFormed()
+  if (!input.taskName.trim() || !input.taskName.isWellFormed()
     || /[\u0000-\u001f\u007f]/.test(input.taskName)) invalid()
   let url: URL
   try { url = new URL(input.videoUrl) } catch { return invalid() }
   if (!input.videoUrl.startsWith('https://') || /[\s\\]/.test(input.videoUrl) || input.videoUrl.includes('#')
-    || url.protocol !== 'https:' || url.username || url.password) invalid()
+    || url.username || url.password) invalid()
   const payload: Record<string, unknown> = { scriptId: positive(input.scriptId),
     episodeId: positive(input.episodeId), episodeCount: positive(input.episodeCount),
     firstResultId: positive(input.firstResultId), parentResultId: positive(input.parentResultId),

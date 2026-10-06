@@ -26,6 +26,17 @@ const episode = {
 }
 
 describe('validateEpisodePlan', () => {
+  it.each([
+    [{ ...episode, crossfade_seconds: 0 }, '交叉淡化'],
+    [{ ...episode, segments: [] }, '没有段落'],
+    [{ ...episode, segments: [{ ...episode.segments[0], track: '', source: 'music.mp3', reason: 'scene', start_seconds: 0, end_seconds: 58.508 }] }, '曲目和来源'],
+    [{ ...episode, segments: [{ ...episode.segments[0], track: 'song', source: '', reason: 'scene', start_seconds: 0, end_seconds: 58.508 }] }, '曲目和来源'],
+    [{ ...episode, segments: episode.segments.map((segment, index) => index === 0 ? { ...segment, source_start_seconds: -1 } : segment) }, '非负秒数'],
+    [{ ...episode, segments: episode.segments.map((segment, index) => index === 2 ? { ...segment, end_seconds: 57 } : segment) }, '连续覆盖'],
+  ])('refuses an unusable source or uncovered body: %s', (document, message) => {
+    expect(() => validateEpisodePlan(document, episode.body_duration_seconds)).toThrow(message)
+  })
+
   it('accepts contiguous segments that cover the body and derives overlap input durations', () => {
     const value = validateEpisodePlan(episode, 58.508)
     expect(value.crossfadeSeconds).toBe(1.5)
@@ -76,6 +87,13 @@ describe('auditBgmBatch', () => {
       { track: '挑衅', source: 'conflict.mp3', start_seconds: 35.5, end_seconds: 58.508 },
     ],
   }
+
+  it('sorts simultaneous single-track and missing-boundary findings by rule', () => {
+    const single = row('05', ['one.mp3'])
+    const findings = auditBgmBatch(single, { project, batch: [], boundaries: [] })
+    expect(rules(findings)).toEqual(['R1', 'R5'])
+    expect(findings[1]?.detail).toContain('没有镜头包边界')
+  })
 
   it('reports nothing for a batch that shares no track with more than one sibling', () => {
     expect(auditBgmBatch(selected, context(row('06', ['other-a.mp3', 'other-b.mp3'])))).toEqual([])
@@ -142,6 +160,13 @@ describe('auditBgmBatch', () => {
 })
 
 describe('mix calculations', () => {
+  it('refuses a nonfinite loudness and unequal mix arrays before building a graph', () => {
+    expect(() => appliedGain(Number.NaN)).toThrow('不是有效数值')
+    expect(() => buildMixFilter([], [], [], 5, 1.5)).toThrow('数量不一致')
+    expect(() => buildMixFilter([5], [], [0], 5, 1.5)).toThrow('数量不一致')
+    expect(() => buildMixFilter([5], [0], [], 5, 1.5)).toThrow('数量不一致')
+  })
+
   it('uses the shared target without boosting more than nine decibels', () => {
     expect(appliedGain(-14.5)).toBe(-3)
     expect(appliedGain(-21.2)).toBe(3.7)

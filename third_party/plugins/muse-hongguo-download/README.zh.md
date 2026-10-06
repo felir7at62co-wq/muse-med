@@ -10,36 +10,40 @@
 
 ## 来源配置
 
-内置工具配置在 Muse preset 中；独立安装可通过 `dsh plugin --profile headless add /absolute/path/muse-hongguo-download-0.1.1.tgz` 加入 headless profile。
+Muse Desktop 内置本地 Java 17、CPython 3.11、PyCryptodome、签名素材及离线模块。首次原源请求通过原设备生成器创建一份私有设备配置，并自动启动带认证的本机签名器。独立安装可通过 `dsh plugin --profile headless add /absolute/path/muse-hongguo-download-0.1.2.tgz` 加入 headless profile。
 
 | 字段 | 默认值 | 用途 |
 | --- | --- | --- |
 | `sourceMode` | `legacy` | `legacy` 为原接口；`manifest` 为修复源码的授权目录；`public` 为显式官网公开播放器 |
 | `legacyAppDir` | 空 | 包含 `config.json`、`devices.json`、签名素材及离线模块的原 `app` 绝对目录 |
-| `signServer` | 空 | 原签名器 `http://127.0.0.1:端口`，请求 `/sign`；签名器程序不包含在插件中 |
+| `signServer` | 空 | 原本机签名器 `http://127.0.0.1:端口`，请求 `/sign`；显式设置时使用外部管理的签名器 |
 | `signTokenEnv` | `MUSE_HONGGUO_SIGN_TOKEN` | 仅保存环境变量名称，令牌在运行时读取 |
 | `pythonExecutable` | 空 | 用于原加密媒体模块、装有 PyCryptodome 的 CPython 3.11 可执行文件绝对路径 |
+| `javaExecutable` | 空 | 省略 `signServer` 时使用的 Java 17 可执行文件绝对路径 |
+| `bootstrapDevices` / `deviceBootstrapTimeoutMs` | false / 30000 | 使用锁定的原生成器初始化一份私有设备 / 初始化时限；Desktop 启用初始化 |
+| `signerStartupTimeoutMs` / `signerHeapMb` | 120000 / 1024 | 延迟启动时限 / Java 最大堆内存 MiB |
+| `signerPollIntervalMs` / `signerPortAttempts` | 25 / 4 | 就绪轮询间隔 / 本机端口被占用后的尝试次数 |
 | `ffmpegExecutable` / `ffprobeExecutable` | 空 / 空 | 用于完整解码及媒体流检查的可执行文件绝对路径 |
 | `catalogPath` | 空 | 修复源码 `HG_SOURCE_CATALOG` 格式的本地 JSON 绝对路径 |
 | `outputRoot` | 空 | 独立客户端显式工作区；Muse 工具使用发起会话的工作区 |
 | `mediaUserAgent` | `Mozilla/5.0 (Linux; Android 12)` | 媒体请求标识；原源媒体请求不携带官网 Referer 或会话凭据 |
 | `retryDelayMs` | 1500 | 再次下载前的等待；原源重试会为失败集重新获取视频模型 |
-| `mediaHosts` | `*.qznovelvod.com`、`*.douyinvod.com`、`*.pkoplink.com`、`*.bdcgslb.com` | 允许的原源媒体和实际观察到的 CDN 跳转域名，每次重定向同样验证 |
+| `mediaHosts` | `*.qznovelvod.com`、`*.douyinvod.com`、`*.idouyinvod.com`、`*.pkoplink.com`、`*.bdcgslb.com`、`*.vegslb.com`、`*.jspcdn.cn`、`*.qrstuvwxyzab.com` | 允许的原源媒体和实际观察到的 CDN 跳转域名，每次重定向同样验证 |
 | `mediaPorts` | 443、9305 | 允许的 HTTPS 媒体端口；页面和原源 API 始终使用 443 |
-| `maxSeries` / `maxEpisodes` | 10 / 200 | 单次最多剧数 / 每剧最多集数 |
+| `maxSeries` | 10 | 单次最多剧数；集数按完整原源目录确定，不另设集数上限 |
 | `concurrency` / `retries` | 3 / 2 | 同批并行下载上限 / 短暂网络错误重试次数 |
 | `requestTimeoutMs` / `downloadTimeoutMs` / `callTimeoutMs` | 20000 / 600000 / 7200000 | 源请求 / 单集下载 / 全部调用时限 |
 | `maxResponseBytes` / `maxEpisodeBytes` | 8388608 / 1073741824 | 元数据响应 / 单集大小上限 |
 | `mediaProcessGraceMs` | 1000 | 强制终止本次媒体进程前的等待时限 |
 
-原源必须返回声明总集数，缺少或与列表不一致时明确失败。修复版 `manifest` 只保证授权目录中的条目完整，不证明红果平台全集。`public` 必须显式选择；官网一般只开放部分集，默认整剧请求遇到未开放集会失败，不自动改为试看下载。缺少原源时同样不会自动切换到其他模式。
+原源必须返回声明总集数，缺少或与列表不一致时明确失败。修复版 `manifest` 只保证授权目录中的条目完整，不证明红果平台全集。`public` 必须显式选择；它返回的视频 ID 必须有效、不重复，数量与声明总集数一致。下载计划使用这份实际列表，不另设集数上限。官网一般只开放部分集，默认整剧请求遇到未开放集会失败，不自动改为试看下载。缺少原源时同样不会自动切换到其他模式。
 
-原运行目录包括 `config.json`、`devices.json`、`sign/unidbg-sign.jar`、`capture/fq_oversea` 中的两份签名素材，以及 `frida` 下的五个离线 `.pyc` 模块。签名器需要 Java 17，使用原 `com.hongguo.sign.FqTrace serve` 入口，工作目录设为 `app/sign`。其 `BIND_HOST` 应设为 `127.0.0.1`；插件只接受明确端口的 `http://127.0.0.1:端口` 地址。签名器 `HG_SIGN_TOKEN` 必须与 `signTokenEnv` 指向的值一致。插件不启动或公开签名器。
+原运行时使用通用 `config.json`、私有 `devices.json`、`devicepool.pyc`、原签名素材及五个离线模块。Muse 将校验过摘要的不可变源码资源安装到私有产品数据目录，并在重启后保留该设备。设备初始化失败会等待所拥有的进程停止，再返回固定的安全错误。首次使用才通过 Java 17 在私有签名目录启动 `com.hongguo.sign.FqTrace serve`，设置 `BIND_HOST=127.0.0.1` 和随机实例令牌。释放时等待进程及其子进程全部停止。显式 `signServer` 保留外部本机配置，其 `HG_SIGN_TOKEN` 必须与 `signTokenEnv` 一致。
 
 加密视频通过 [python/decrypt.py](python/decrypt.py) 调用所提供的离线模块。它们需要真实 CPython 3.11 和 PyCryptodome；较新 Python 无法导入这些字节码文件。此操作使用媒体模型中的密钥素材和下载文件在本地处理，无需 Android 或 ADB。桥接只通过 stdin 传递私密字段，并屏蔽原模块诊断输出。不支持的加密版本或媒体验证失败会终止整批。
 
-内置 patch 从 `MUSE_HONGGUO_LEGACY_APP_DIR`、`MUSE_HONGGUO_SIGN_SERVER` 和 `MUSE_HONGGUO_PYTHON_PATH` 读取原源、签名器和 Python 配置；媒体路径读取 `DSH_FFMPEG_PATH` / `DSH_FFPROBE_PATH`，也可用 `FFMPEG_PATH` / `FFPROBE_PATH`。原源配置、Java/JAR、字节码模块、会话数据和令牌都不进入 tarball；[SOURCE.json](SOURCE.json) 记录供核对的源码指纹及 Muse host 版本。
+内置 patch 从 `MUSE_HONGGUO_LEGACY_APP_DIR`、`MUSE_HONGGUO_JAVA_PATH` 和 `MUSE_HONGGUO_PYTHON_PATH` 读取源码、Java 和 Python 路径；`MUSE_HONGGUO_BOOTSTRAP_DEVICES=1` 为通用源码安装启用原设备生成器。Desktop 提供这些配置。媒体路径读取 `DSH_FFMPEG_PATH` / `DSH_FFPROBE_PATH`，也可用 `FFMPEG_PATH` / `FFPROBE_PATH`。独立 tarball 包含两个 Python 桥接脚本，不含 Java、原字节码、已保存的设备配置和令牌。Desktop 分发独立锁定的运行时；[SOURCE.json](SOURCE.json) 记录源码指纹及所属锁定文件。
 
 ## 开发验证
 
-在此插件目录运行 `npm test` 和 `npm run check`。运行 `python3.11 -B -m unittest discover -s tests -p test_decrypt_bridge.py` 检查桥接；这些测试创建独立字节码样本，不加载用户原模块，也不发送平台请求。`node scripts/pack.mjs --out /绝对输出目录` 打包当前版本。原源验收必须下载至少两部完整声明列表，并对每个请求集完整解码。在此工作区配置前述原源和运行时环境变量，将至少两个真实 ID 以逗号分隔设为 `MUSE_HONGGUO_LIVE_IDS`，再运行 `npm run test:live`；它使用真实受管子进程服务并写出 `live-evidence.json`。公开试看及授权目录测试必须与真实原源多部全集验收分别记录。
+在此插件目录运行 `npm test` 和 `npm run check`。运行 `python3.11 -I -B -m unittest discover -s tests -p 'test_*.py'` 检查桥接；这些测试创建独立字节码样本，不加载用户原模块，也不发送平台请求。`node scripts/pack.mjs --out /绝对输出目录` 打包当前版本。原源验收必须下载至少两部完整声明列表，并对每个请求集完整解码。在此工作区配置前述原源和运行时环境变量，将至少两个真实 ID 以逗号分隔设为 `MUSE_HONGGUO_LIVE_IDS`，再运行 `npm run test:live`；它使用真实受管子进程服务并写出 `live-evidence.json`。公开试看及授权目录测试必须与真实原源多部全集验收分别记录。

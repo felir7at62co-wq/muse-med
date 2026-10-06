@@ -106,7 +106,7 @@ Tool calls use the snake_case parameter names above; the registered executor map
 
 The alignment's own text is never written to a cue. It is matched against the script's lines to prove the two describe the same take, and a mismatch in text or in cue count fails `subtitle_line_coverage` instead of taking the numbers on trust.
 
-Three defects block: a shot that declares lines with no alignment entry, a shot whose alignment carries recognized speech while the plan declares no line for it (a spoken line would ship without a subtitle), and an alignment whose times place a cue outside its own shot. Every written cue is then checked against the episode: an empty cue, one overlapping its predecessor, or one running past `body_end` fails `subtitle_timing`, as does a cue asking for more than 20 spoken characters per second; past 12 characters per second is a warning. The SRT is still written so the operator can inspect what was placed.
+Three defects block: a shot that declares lines with no alignment entry, a shot whose alignment carries recognized speech while the plan declares no line for it (a spoken line would ship without a subtitle), and an alignment whose times leave a cue with no picture after clamping. Placement keeps cues ordered inside their own non-overlapping shot intervals. An empty cue or a cue asking for more than 20 spoken characters per second fails `subtitle_timing`; past 12 characters per second is a warning. The SRT is still written so the operator can inspect what was placed.
 
 The written file is plain SRT, so a line can be hand-edited before `prepare` installs it and `render` burns it.
 

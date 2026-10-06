@@ -143,6 +143,19 @@ describe('ui-settings-agent-notes browser plugin', () => {
     await b.ctx.fiber.dispose()
   })
 
+  it('retains a declared note status and unwraps a refused catalog read', async () => {
+    const b = await bench({
+      list: async () => fail(new RemoteError('gateway/internal', 'bounded catalog failure', {})),
+      read: async () => ok({ id: 'decision/note.md', title: 'Note', status: 'implemented', text: '# Note', version: 'v1', bytes: 6 }),
+    })
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const actions = b.slots.entries('settings.section')[0]!.inject!() as AgentNotesSectionInjected & Record<string, unknown>
+    expect(await actions.list()).toEqual({ ok: false, code: 'gateway/internal', message: 'bounded catalog failure' })
+    expect(await actions.read('decision/note.md')).toMatchObject({ ok: true, note: { status: 'implemented' } })
+    await b.ctx.fiber.dispose()
+  })
+
   it('follows a late declaration and releases everything on unload', async () => {
     const b = await bench()
     const fiber = b.ctx.plugin({ inject: [...inject], apply })

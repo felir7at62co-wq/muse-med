@@ -70,6 +70,60 @@ async function boot(platform: ShortcutPlatform = 'macos', runtime: 'desktop' | '
 }
 
 describe('ui-sidebar-browser apply', () => {
+  it('opens download pages only for the mounted Session and releases Desktop listeners on unload', async () => {
+    type DownloadListener = Parameters<NonNullable<DesktopBrowserBridge['onDownloadPageRequested']>>[0]
+    const listeners = new Set<DownloadListener>()
+    const unsubscribe = vi.fn()
+    const activeSession = vi.fn()
+    const bridge: DesktopBrowserBridge = {
+      acquire: vi.fn(async () => ({ lease: 'download-lease' as DesktopBrowserLeaseId, partition: 'download-partition' })),
+      release: vi.fn(async () => {}),
+      onOpenRequested: vi.fn(() => () => {}),
+      activeSession,
+      onDownloadPageRequested(listener) {
+        listeners.add(listener)
+        return () => { listeners.delete(listener); unsubscribe() }
+      },
+    }
+    vi.stubGlobal('dshDesktop', { protocolVersion: 1, browser: bridge })
+    const h = await boot()
+    const request = (sessionId: string, url: string): void => {
+      for (const listener of listeners) listener({ sessionId, url })
+    }
+    try {
+      expect(activeSession).toHaveBeenCalledExactlyOnceWith('session')
+      expect(listeners.size).toBe(1)
+      request('other', 'https://www.douyin.com/video/123')
+      expect(h.sidebar.openTab).not.toHaveBeenCalled()
+      request('session', 'https://www.douyin.com/video/456')
+      expect(h.sidebar.openTab).toHaveBeenCalledExactlyOnceWith('browser', { params: { url: 'https://www.douyin.com/video/456' } })
+
+      h.sidebar.mounted.set('replacement')
+      expect(activeSession).toHaveBeenLastCalledWith('replacement')
+      request('session', 'https://www.douyin.com/video/789')
+      expect(h.sidebar.openTab).toHaveBeenCalledOnce()
+      request('replacement', 'https://www.douyin.com/video/321')
+      expect(h.sidebar.openTab).toHaveBeenLastCalledWith('browser', { params: { url: 'https://www.douyin.com/video/321' } })
+      expect(h.sidebar.openTab).toHaveBeenCalledTimes(2)
+
+      h.sidebar.mounted.set(undefined)
+      expect(activeSession).toHaveBeenLastCalledWith(undefined)
+      request('replacement', 'https://www.douyin.com/video/654')
+      expect(h.sidebar.openTab).toHaveBeenCalledTimes(2)
+      await h.fiber.dispose()
+      expect(listeners.size).toBe(0)
+      expect(unsubscribe).toHaveBeenCalledOnce()
+      const notifications = activeSession.mock.calls.length
+      h.sidebar.mounted.set('session')
+      request('session', 'https://www.douyin.com/video/987')
+      expect(activeSession).toHaveBeenCalledTimes(notifications)
+      expect(h.sidebar.openTab).toHaveBeenCalledTimes(2)
+    } finally {
+      await h.fiber.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it.each([0, 1])('binds and rebinds session controllers under desktop protocol %s', async (protocolVersion) => {
     const acquire = vi.fn(async () => ({ lease: 'test-lease' as DesktopBrowserLeaseId, partition: 'test-partition' }))
     const bridge: DesktopBrowserBridge = {

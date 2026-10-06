@@ -72,13 +72,22 @@ async function command(executable: string, args: readonly string[], timeoutMs: n
   return await new Promise((resolveCommand, reject) => {
     const child = spawn(executable, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
-    const timer = setTimeout(() => child.kill(), timeoutMs)
-    child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString(); if (output.length > 65_536) child.kill() })
-    child.stderr.on('data', (chunk: Buffer) => { if (chunk.length > 65_536) child.kill() })
+    let stderrBytes = 0
+    let exceededOutput = false
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; child.kill() }, timeoutMs)
+    child.stdout.on('data', (chunk: Buffer) => {
+      output += chunk.toString()
+      if (output.length > 65_536) { exceededOutput = true; child.kill() }
+    })
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderrBytes += chunk.length
+      if (stderrBytes > 65_536) { exceededOutput = true; child.kill() }
+    })
     child.once('error', () => { clearTimeout(timer); reject(new Error('Bundled FFmpeg or FFprobe is unavailable')) })
     child.once('close', (code) => {
       clearTimeout(timer)
-      if (code === 0) resolveCommand(output)
+      if (code === 0 && !exceededOutput && !timedOut) resolveCommand(output)
       else reject(new Error('Media extraction or probe failed'))
     })
   })
@@ -86,10 +95,7 @@ async function command(executable: string, args: readonly string[], timeoutMs: n
 
 async function digest(file: string): Promise<string> {
   const hash = createHash('sha256')
-  for await (const chunk of createReadStream(file)) {
-    if (!Buffer.isBuffer(chunk)) throw new Error('Media stream returned a non-binary chunk')
-    hash.update(chunk)
-  }
+  for await (const chunk of createReadStream(file) as AsyncIterable<Uint8Array>) hash.update(chunk)
   return hash.digest('hex')
 }
 

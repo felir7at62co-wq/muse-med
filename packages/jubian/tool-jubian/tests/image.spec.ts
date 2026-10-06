@@ -109,4 +109,10 @@ describe('the jubianImage Remote namespace', () => {
     })
     await expect(routes.routes()).rejects.toThrow('Jubian credential is not configured')
   })
+
+  it('converts an untyped catalogue failure into the remote error response', async () => {
+    const routes = await boot(async () => { throw 'catalogue offline' })
+    await expect(routes.routes()).rejects.toMatchObject({ code: 'jubian-image/catalogue-unreadable',
+      message: 'catalogue offline', details: {} })
+  })
 })

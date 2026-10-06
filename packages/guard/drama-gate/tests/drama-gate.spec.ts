@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -16,6 +18,12 @@ import { WORKSPACE } from './harness.ts'
  */
 
 const signal = new AbortController().signal
+const contexts: Context[] = []
+const directories: string[] = []
+afterEach(async () => {
+  for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
+  for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true })
+})
 
 /** Whether each registered fixture body ran, keyed by tool name. */
 type Ran = Map<string, number>
@@ -23,6 +31,7 @@ type Ran = Map<string, number>
 /** Mount SystemPrompt + the real tool registry + the gate, and register one counting fixture per name. */
 async function harness(names: readonly string[], config: Config = {}): Promise<{ ctx: Context; ran: Ran }> {
   const ctx = new Context()
+  contexts.push(ctx)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   const ran: Ran = new Map()
@@ -49,6 +58,23 @@ async function harness(names: readonly string[], config: Config = {}): Promise<{
 }
 
 describe('the gate intercepts real dispatch', () => {
+  it.each([true, false])('discovers project directories through its host reader (workshop exists=%s)', async (exists) => {
+    const workspace = await mkdtemp(join(tmpdir(), 'drama-gate-host-'))
+    directories.push(workspace)
+    if (exists) {
+      const project = join(workspace, 'short-drama', 'selected')
+      await mkdir(project, { recursive: true })
+      await writeFile(join(workspace, 'short-drama', 'unrelated.txt'), 'not a directory')
+      await writeFile(join(project, 'project_config.json'), JSON.stringify({ jubian_script_id: 42 }))
+      await writeFile(join(project, 'assets_manifest.json'), JSON.stringify({ assets: [{ official: true }] }))
+    }
+    const { ctx, ran } = await harness(['jubian_storyboard'], { workspaceRoot: workspace })
+    const result = await ctx.tools.execute({ signal, callId: ToolCallId('host-project-discovery'),
+      name: 'jubian_storyboard', arguments: { method: 'generate', script_id: 42, idempotency_key: 'key' } })
+    expect(result.isError).toBe(!exists)
+    expect(ran.get('jubian_storyboard')).toBe(exists ? 1 : undefined)
+    if (!exists) expect(JSON.stringify(result.content)).toContain('门禁无法核对它引用的资产')
+  })
   it('refuses a paid method without a key before the body runs', async () => {
     const { ctx, ran } = await harness(['jubian_storyboard'])
     const result = await ctx.tools.execute({
@@ -168,6 +194,7 @@ describe('config validation', () => {
 
   it.each(BAD_CONFIGS)('rejects %s', async (_label, config) => {
     const ctx = new Context()
+    contexts.push(ctx)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await expect(ctx.plugin(DramaGate, config)).rejects.toThrow(/drama-gate:/)

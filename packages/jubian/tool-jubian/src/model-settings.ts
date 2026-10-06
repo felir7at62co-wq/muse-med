@@ -123,11 +123,9 @@ function preservedHash(board: Row): string {
  * Whether the board matches everything the preview froze: the model settings it
  * asked for, and every field outside them.
  *
- * The preserved half is a real guard — a save that empties `storyboardMaterialList`
- * destroys the ordered subject identity — so it stays a failure. It is also what
- * currently misfires, because the provider rewrites each material row's own audit
- * fields on every save. Normalizing those churned fields out of `preservedHash`
- * is the fix; until then a successful write can still read back as a mismatch.
+ * The preserved comparison retains ordered material identities and ignores only
+ * provider-generated row identifiers and audit fields. Removed, reordered or
+ * replaced material rows fail readback even when the requested settings match.
  */
 function matches(board: Row, target: Target): boolean {
   return preservedHash(board) === target.preserved_hash && stableJson(settings(configOf(board))) === stableJson(target.after)
@@ -163,10 +161,10 @@ Promise<{ keys: number[]; excluded: Excluded[] }> {
       const selected = collected.filter((row) => {
         let episodeId: number
         try { episodeId = id(row.episodeId) }
-        catch (error) {
+        catch {
           excluded.push({ storyboard_id: id(row.id), episode_id: null,
             reason: row.episodeId === null || row.episodeId === undefined ? 'missing_episode_id' : 'invalid_episode_id',
-            detail: error instanceof JubianError ? 'episodeId 无效；用 jubian_catalog episodes 查真实分集 ID，再 edit_preview 修复。' : 'Unreadable episodeId' })
+            detail: 'episodeId 无效；用 jubian_catalog episodes 查真实分集 ID，再 edit_preview 修复。' })
           return false
         }
         return selector.scope === 'project' || selector.episode_ids.includes(episodeId)

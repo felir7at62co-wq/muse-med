@@ -4,6 +4,8 @@ import { DownloadError } from './errors.js';
 
 const bridge = fileURLToPath(new URL('../python/decrypt.py', import.meta.url))
   .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2');
+const bootstrapBridge = fileURLToPath(new URL('../python/bootstrap.py', import.meta.url))
+  .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2');
 const outputBytes = 64 * 1024;
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const failures = {
@@ -32,6 +34,88 @@ function probeDuration(text) {
       && !['unknown', 'none', 'n_a'].includes(stream.codec_name.toLowerCase())
       && Number.isSafeInteger(stream.width) && stream.width > 0 && Number.isSafeInteger(stream.height) && stream.height > 0)) throw failure('probe');
   return duration;
+}
+
+/**
+ * Build a lazy, shared bootstrap for the original device generator in a private writable app directory.
+ * @param {object} subprocess Managed subprocess service owning Python and its descendants.
+ * @param {object} config Resolved original directory, Python path and startup deadline.
+ * @returns {object} ensure/dispose operations that wait for process and file cleanup.
+ */
+export function createDeviceBootstrap(subprocess, config) {
+  const lifetime = new AbortController();
+  let state = null, ready = false;
+  const failed = () => new DownloadError('invalid_original_source', '本机原源设备初始化失败；请检查内置 Python 3.11 和原设备生成模块');
+
+  async function start(owned) {
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(), config.deviceBootstrapTimeoutMs);
+    const active = AbortSignal.any([lifetime.signal, owned.controller.signal, deadline.signal]);
+    let handle;
+    try {
+      active.throwIfAborted();
+      if (!subprocess || !config.pythonExecutable || !config.legacyAppDir) throw failed();
+      const python = await subprocess.resolveExecutable(config.pythonExecutable, undefined, active);
+      active.throwIfAborted();
+      handle = subprocess.spawn({ argv: [python, '-I', '-B', bootstrapBridge], cwd: config.legacyAppDir,
+        stdio: { stdin: { data: JSON.stringify({ appDir: config.legacyAppDir }) }, stdout: { maxBytes: outputBytes }, stderr: { maxBytes: outputBytes } },
+        graceMs: config.mediaProcessGraceMs, signal: active });
+      const outcome = await handle.done;
+      if (!await handle.waitForExit(active)) { handle.terminate(); await handle.waitForExit(); }
+      active.throwIfAborted();
+      if (outcome.exitCode !== 0 || outcome.signal) throw failed();
+      const stdout = captured(handle, 'stdout', 'runtime'), stderr = captured(handle, 'stderr', 'runtime');
+      if (stderr.trim()) throw failed();
+      let result;
+      try { result = JSON.parse(stdout); } catch (error) { throw failed(); }
+      if (!record(result) || result.ok !== true) throw failed();
+      ready = true;
+    } catch (error) {
+      if (handle) {
+        handle.terminate();
+        await Promise.allSettled([handle.done, handle.waitForExit()]);
+      }
+      if (active.aborted) throw new DownloadError('cancelled', '本机设备初始化已取消或超过时限；未完成数据已清理');
+      throw failed();
+    } finally {
+      clearTimeout(timer);
+      if (state === owned) state = null;
+    }
+  }
+
+  return {
+    async ensure(signal) {
+      signal.throwIfAborted();
+      if (lifetime.signal.aborted) throw new DownloadError('cancelled', '本机设备初始化已取消');
+      if (ready) return;
+      let owned = state;
+      if (!owned) {
+        owned = { controller: new AbortController(), waiters: new Set() };
+        state = owned;
+        owned.work = start(owned);
+      }
+      const waiter = {};
+      owned.waiters.add(waiter);
+      let abort;
+      const cancelled = new Promise((_resolve, reject) => {
+        abort = () => reject(new DownloadError('cancelled', '本机设备初始化已取消'));
+        signal.addEventListener('abort', abort, { once: true });
+      });
+      try { await Promise.race([owned.work, cancelled]); }
+      finally {
+        signal.removeEventListener('abort', abort);
+        owned.waiters.delete(waiter);
+        if (!ready && !owned.waiters.size) {
+          owned.controller.abort();
+          await Promise.allSettled([owned.work]);
+        }
+      }
+    },
+    async dispose() {
+      lifetime.abort();
+      if (state) await Promise.allSettled([state.work]);
+    },
+  };
 }
 
 /**

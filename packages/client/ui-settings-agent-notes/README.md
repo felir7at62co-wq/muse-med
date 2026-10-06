@@ -33,7 +33,7 @@ The page lists the notes under the configured root, grouped by the category the 
 
 ### Opening and editing a note
 
-Selecting a row opens the note with its title and id in the header, its optional status tag, and the rendered Markdown. Edit replaces the rendered view with a text area over the note's raw Markdown; Save stays disabled until the draft differs from the text the read returned, and Cancel restores that text. A save sends the complete draft with the version token of the read it is based on, and a successful write reloads the catalog.
+Selecting a row opens the note with its title and id in the header, its optional status tag, and the rendered Markdown. Edit replaces the rendered view with a text area over the note's raw Markdown; Save stays disabled until the draft differs from the text the read returned, and Cancel restores that text. A save sends the complete draft with the version token of the read it is based on, and a successful write in the open view reloads the catalog. Only the latest open or save request can update the displayed note. Returning to the list or cancelling an edit discards pending note responses; a save already sent to the Host still completes.
 
 ### Notes that changed elsewhere
 
@@ -103,7 +103,7 @@ None; this package neither assembles nor sends a provider request.
 These limits define what this page can do with the notes tree; they are current package constraints.
 
 - **Editing only, never authoring** — Save replaces the text of a note that already exists; the page cannot create, rename, or delete a note, and a note removed between the listing and the open reports a failed read instead.
-- **The catalog is a snapshot** — the page reads it when it mounts, after a successful save, and when you select Reload; it does not watch the notes directory, so a note written by an agent or another editor appears only after a reload, and a listing the Host capped shows only its first part.
+- **The catalog is a snapshot** — the page reads it when it mounts, after a successful save in the open view, and when you select Reload; it does not watch the notes directory, so a note written by an agent or another editor appears only after a reload, and a listing the Host capped shows only its first part.
 - **A stale save is refused, not merged** — the write presents the version token of the read it is based on; when the file changed in the meantime the Host refuses it, the page reloads the newest text, and your draft stays in the editor to re-apply by hand.
 - **An unsaved draft is not preserved** — returning to the list discards the editor without asking, and the page keeps no per-note draft, so leaving a note is the one silent way to lose typed text.
 - **Rendered or raw, never both** — the note view shows either rendered Markdown or the raw text editor, so there is no side-by-side preview and no diff against the text the read returned.

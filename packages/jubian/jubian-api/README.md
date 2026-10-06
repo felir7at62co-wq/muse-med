@@ -100,6 +100,8 @@ A builder returns a plain object and sends nothing. Submit it with `client.reque
 
 `validateImageRequestInput()` checks one image request's project ID, asset name and type, prompt, reference URLs and optional parent asset ID without reading the live model catalogue. `buildImageRequest()` applies the same checks before resolving its catalogue row, so a batch caller can reject every malformed local item before any paid submission.
 
+`readReferenceImage()` reads pixel dimensions and media type from JPEG, PNG, and WebP headers, including lossy VP8, lossless VP8L, and extended VP8X. Lossy WebP dimensions use the little-endian fields defined by [RFC 6386](https://www.rfc-editor.org/rfc/inline-errata/rfc6386.html#section-9.1). Header inspection leaves pixel decoding to the caller.
+
 ### Resolving video settings
 
 `resolveVideoModel(catalogue, intent)` preserves the exact `modelId`, explicit `platformId`, generation type and duration, and matches ratio and resolution case-insensitively. Exactly one catalogue match must remain; missing or ambiguous choices fail rather than selecting another model or platform. The returned selectors refresh stale standard identifiers and retain `genNum=1`. Native preparation uses the live storyboard intent; use `prepare_video`/`submit_video` for model-driven generation.

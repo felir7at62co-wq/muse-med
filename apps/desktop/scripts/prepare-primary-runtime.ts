@@ -8,6 +8,7 @@ import { parsePrimaryRuntime, workspaceDependencyPaths } from '../../../packages
 import { desktopTargetPlatform, resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { scrubWindowsSigningEnvironment } from './windows-sign.mjs'
 import { prepareMacMedia } from './prepare-macos-media.ts'
+import { prepareHongguoRuntime, validateHongguoRuntimeLock } from './prepare-hongguo-runtime.ts'
 
 /**
  * Prepare Desktop resources for its selected packaging target.
@@ -25,6 +26,8 @@ export async function preparePrimaryRuntime(options: { deferSmoke?: boolean } = 
     await prepareMacMedia(media, paths.downloads, platform.arch)
     await cp(media, join(paths.runtime, 'media'), { recursive: true })
   }
+  const hongguoLock = validateHongguoRuntimeLock(JSON.parse(readFileSync(new URL('./hongguo-runtime.lock.json', import.meta.url), 'utf8')))
+  await prepareHongguoRuntime({ output: join(paths.runtime, 'hongguo'), cache: paths.downloads, target, lock: hongguoLock })
   if (!options.deferSmoke) smokePrimaryRuntime(join(paths.runtime, 'primary-runtime'))
 }
 

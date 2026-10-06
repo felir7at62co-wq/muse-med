@@ -76,7 +76,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'classifyExistingNativeMatches', 'classifyNewNativeCandidates', 'downloadMedia', 'extractAppScriptUrl',
     'extractTosUploadConfig', 'findFolder', 'findFolderById', 'imageCandidates', 'isRelatedTaskCandidate',
     'nativeResultUrls', 'needsUpscale', 'normalizedPrompt', 'readAssetList', 'readAssetPage',
-    'readBackIdentity', 'readEpisodes', 'readFolderTree', 'readGeneratedImage', 'readImageDisplayPrice',
+    'readEpisodes', 'readFolderTree', 'readGeneratedImage', 'readImageDisplayPrice',
     'readMaterialList', 'readModels', 'readReferenceAudio', 'readReferenceImage', 'readScript',
     'readScriptList', 'readStoryboard', 'readStoryboardPage', 'readSubtaskPage', 'readSubtitleTaskId',
     'readTaskList', 'readTaskPage', 'readUpscaleTaskId', 'referenceAudioUrls', 'referenceMaterialItem',

@@ -93,6 +93,39 @@ describe('placeAlignedCues', () => {
 })
 
 describe('line plans, alignment documents, and times', () => {
+  it('rejects malformed JSON rows with the document path and row position', () => {
+    for (const document of [null, [], { shots: [null] }, { shots: [3] },
+      { shots: [{ shot: 0, lines: [] }] }, { shots: [{ shot: 1.5, lines: [] }] },
+      { shots: [{ shot: 1, lines: 'line' }] }]) {
+      expect(() => parseLinePlan(document, 'private-lines.json')).toThrow('private-lines.json')
+    }
+    for (const document of [null, { shots: [null] }, { shots: [3] },
+      { shots: [{ shot: 0, cues: [] }] }, { shots: [{ shot: 1, cues: null }] },
+      { shots: [{ shot: 1, cues: [null] }] },
+      { shots: [{ shot: 1, cues: [{ text: 2, start: 0, end: 1 }] }] },
+      { shots: [{ shot: 1, cues: [{ text: 'line', start: 'Infinity', end: 1 }] }] },
+      { shots: [{ shot: 1, cues: [] }, { shot: 1, cues: [] }] }]) {
+      expect(() => parseAlignment(document, 'private-alignment.json')).toThrow('private-alignment.json')
+    }
+  })
+
+  it('orders both document types by shot and preserves explicitly absent strategies', () => {
+    expect(parseLinePlan({ shots: [{ shot: 3, lines: ['three'] }, { shot: 1, lines: ['one'] }] }, 'lines'))
+      .toEqual([{ shot: 1, lines: ['one'] }, { shot: 3, lines: ['three'] }])
+    expect(parseAlignment({ shots: [{ shot: 3, cues: [] }, { shot: 1, strategy: 'asr_aligned', cues: [] }] }, 'alignment'))
+      .toEqual([{ shot: 1, strategy: 'asr_aligned', cues: [] }, { shot: 3, cues: [] }])
+  })
+
+  it('ignores blank planned lines and cues without a measurable reading interval', () => {
+    expect(effectiveCharacterCount('，。！？')).toBe(0)
+    expect(placeAlignedCues(1, [' ', ''], [], 0, 1)).toMatchObject({ cues: [], aligned: 0, defect: '' })
+    const make = (shot: number, end: number) => ({ shot, text: '甲'.repeat(30), startSeconds: 0,
+      endSeconds: end, timingSource: 'asr_aligned' as const })
+    const findings = cueRateFindings([make(1, 2), make(2, 1), make(3, 0), make(4, -1), make(5, 1)],
+      new Map([[1, 0], [2, 0], [3, 0], [4, 0]]))
+    expect(findings.map(row => [row.shot, row.charactersPerSecond, row.impossible])).toEqual([[2, 30, true], [1, 15, false]])
+  })
+
   it('counts only characters that are actually spoken', () => {
     expect(effectiveCharacterCount('他说 A1，。')).toBe(4)
   })
@@ -180,6 +213,23 @@ function cueProbes(project: string): StubHandler {
 }
 
 describe('drama_render subtitles', () => {
+  it('keeps silent shots empty, warns about unused alignment and readable fast speech', async () => {
+    const fast = '甲'.repeat(15)
+    const { project, shots, plan, aligned, subtitle } = await cueProject({ shots: [
+      { shot: 1, lines: [fast] }, { shot: 2, lines: [] },
+    ] }, { shots: [
+      { shot: 1, strategy: 'asr_aligned', cues: [{ text: fast, start: 0, end: 1 }] },
+      { shot: 9, strategy: 'asr_aligned', cues: [{ text: 'unused', start: 0, end: 1 }] },
+    ] })
+    const report = await runDramaRender({ method: 'subtitles', project, episode: 2, shots,
+      lines: plan, alignment: aligned, subtitleSrt: subtitle }, settingsWith(stubChannel([cueProbes(project)]).channel))
+    expect(report.ok).toBe(true)
+    expect(report.failures).toEqual([])
+    expect(report.warnings.join(' ')).toContain('镜头 9 不在成片清单里')
+    expect(report.warnings.join(' ')).toContain('15.0 字/秒')
+    expect(await readFile(subtitle, 'utf8')).toContain(fast)
+  })
+
   it('writes the aligned times onto the episode clock', async () => {
     const { project, shots, plan, aligned, subtitle } = await cueProject(LINES)
     const stub = stubChannel([cueProbes(project)])

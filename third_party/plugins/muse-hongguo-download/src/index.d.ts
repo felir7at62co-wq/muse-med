@@ -9,10 +9,13 @@ export interface HongguoDownloadConfig {
   sourceMode?: 'legacy' | 'manifest' | 'public'; legacyAppDir?: string; signServer?: string;
   signTokenEnv?: string; catalogPath?: string; outputRoot?: string; mediaHosts?: string[]; mediaPorts?: number[];
   pythonExecutable?: string; ffmpegExecutable?: string; ffprobeExecutable?: string;
+  javaExecutable?: string; signerStartupTimeoutMs?: number; signerHeapMb?: number;
+  signerPollIntervalMs?: number; signerPortAttempts?: number;
+  bootstrapDevices?: boolean; deviceBootstrapTimeoutMs?: number;
   mediaUserAgent?: string; retryDelayMs?: number;
   requestTimeoutMs?: number; downloadTimeoutMs?: number; callTimeoutMs?: number;
   mediaProcessGraceMs?: number;
-  maxResponseBytes?: number; maxEpisodeBytes?: number; maxSeries?: number; maxEpisodes?: number; concurrency?: number; retries?: number;
+  maxResponseBytes?: number; maxEpisodeBytes?: number; maxSeries?: number; concurrency?: number; retries?: number;
 }
 export interface DownloadOptions {
   seriesIds: string[]; sourceMode?: 'legacy' | 'manifest' | 'public'; episodes?: number[]; outputDir?: string;

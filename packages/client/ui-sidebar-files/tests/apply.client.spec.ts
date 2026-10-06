@@ -7,9 +7,12 @@
  * and face — and that every registration is gone after dispose, which is what
  * makes a reload safe.
  */
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { ShortcutCommand } from '@deepseek-ai/dsh-client-shortcuts/client'
+import type { WorkspaceFileReferenceActions, WorkspaceFileDragTicket } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { SidebarRightTabRegistry } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/tab-registry.ts'
 import { FILES_ID, FILES_KIND } from '../src/client/definition.tsx'
 import { apply, inject } from '../src/client/index.ts'
@@ -17,6 +20,8 @@ import { apply as hostApply } from '../src/index.ts'
 import { FilesBody } from '../src/client/FilesBody.tsx'
 import { FilesTitle } from '../src/client/FilesTitle.tsx'
 import { en, zh } from '../src/client/locales.ts'
+import type { FilesInjected } from '../src/client/face.ts'
+import type { createFilesStore } from '../src/client/store.ts'
 
 interface Recorded {
   name: string
@@ -27,8 +32,9 @@ interface Recorded {
   component: unknown
 }
 
-async function boot() {
+async function boot(references?: WorkspaceFileReferenceActions) {
   const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
   const tabs = new SidebarRightTabRegistry(ctx)
   const registered: Recorded[] = []
   const slots = {
@@ -49,7 +55,10 @@ async function boot() {
     }),
   }
   const workspaceFiles = { list: vi.fn() }
-  const sidebar = { commandTarget: vi.fn(), openTabFromTarget: vi.fn() }
+  const sidebar = { commandTarget: vi.fn(), openTabFromTarget: vi.fn(),
+    mounted: createSnapshotStore<SessionId | undefined>(undefined), isExpanded: vi.fn(() => false), toggleExpanded: vi.fn(),
+  }
+  if (references !== undefined) ctx.provide('workspaceFileReferences', references)
   const commands: ShortcutCommand[] = []
   ctx.provide('shortcuts', { register: (command: ShortcutCommand) => {
     commands.push(command)
@@ -71,6 +80,7 @@ describe('ui-sidebar-files apply', () => {
     const h = await boot()
     try {
       const command = h.commands[0]!
+      expect(command.label()).toBe('guide.title')
       const input = { region: 'page', modal: null, target: null } as const
       expect(command.resolve(input)).toEqual({ status: 'blocked', reason: 'shortcut.noSession' })
       const target = { sessionId: 'files-session' }
@@ -81,6 +91,40 @@ describe('ui-sidebar-files apply', () => {
       expect(h.sidebar.openTabFromTarget).toHaveBeenCalledWith('files', target)
     } finally { await h.fiber.dispose() }
     expect(h.commands).toEqual([])
+  })
+  it('binds file gestures to the source Session and reveals only its expanded conversation', async () => {
+    const session = SessionId('source-files')
+    const ticket = 'file-ticket' as WorkspaceFileDragTicket
+    const startDrag = vi.fn(() => ticket)
+    const endDrag = vi.fn()
+    const add = vi.fn(async () => true)
+    const references: WorkspaceFileReferenceActions = {
+      dragType: 'application/x-dsh-workspace-file', startDrag, endDrag, add, drop: vi.fn(async () => false),
+    }
+    const h = await boot(references)
+    const body = h.registered[0]!
+    const store = body.store as ReturnType<typeof createFilesStore>
+    const instance = store.create()
+    const makeFace = body.inject as (id: SessionId, actions: typeof instance.actions) => FilesInjected
+    const face = makeFace(session, instance.actions).workspaceReferences!
+    expect(face.type).toBe(references.dragType)
+    expect(face.start('/work', ['/work/report.mp4'])).toBe(ticket)
+    expect(startDrag).toHaveBeenCalledExactlyOnceWith(session, '/work', ['/work/report.mp4'])
+    face.end(ticket)
+    expect(endDrag).toHaveBeenCalledExactlyOnceWith(ticket)
+    expect(await face.add('/work', ['/work/report.mp4'])).toBe(true)
+    expect(add).toHaveBeenCalledExactlyOnceWith(session, '/work', ['/work/report.mp4'])
+    h.sidebar.isExpanded.mockReturnValue(true)
+    h.sidebar.mounted.set(SessionId('other-files'))
+    face.revealConversation!()
+    expect(h.sidebar.toggleExpanded).not.toHaveBeenCalled()
+    h.sidebar.mounted.set(session)
+    h.sidebar.isExpanded.mockReturnValue(false)
+    face.revealConversation!()
+    expect(h.sidebar.toggleExpanded).not.toHaveBeenCalled()
+    h.sidebar.isExpanded.mockReturnValue(true)
+    face.revealConversation!()
+    expect(h.sidebar.toggleExpanded).toHaveBeenCalledOnce()
   })
   it('keeps the host Loader entry inert', () => {
     expect(hostApply).not.toThrow()
@@ -103,6 +147,11 @@ describe('ui-sidebar-files apply', () => {
     ])
     expect(registered[0]?.store).toBeDefined()
     expect(typeof registered[0]?.inject).toBe('function')
+    const body = registered[0]!
+    const store = body.store as ReturnType<typeof createFilesStore>
+    const instance = store.create()
+    const makeFace = body.inject as (id: SessionId, actions: typeof instance.actions) => FilesInjected
+    expect(makeFace(SessionId('files-without-conversation'), instance.actions).workspaceReferences).toBeUndefined()
   })
 
   it('takes every registration back when the plugin is disposed', async () => {

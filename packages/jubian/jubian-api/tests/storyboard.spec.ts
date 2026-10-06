@@ -45,6 +45,24 @@ function refusalDetail(call: () => unknown): string {
 }
 
 describe('readStoryboard', () => {
+  it('reads decimal identifier strings and absent display names', () => {
+    expect(readStoryboard(snapshot({ id: '916953', scriptId: '2708', storyboardName: null,
+      storyboardMaterialList: '' }))).toMatchObject({ storyboard_id: 916953, script_id: 2708, name: null,
+      material_keys: [] })
+  })
+
+  it.each([false, [], '12'])('refuses a saved config that is not an object %j', (modelConfig) => {
+    expect(() => readStoryboard(snapshot({ modelConfig }))).toThrow('not a JSON object')
+  })
+
+  it.each([{}, 'null', '[null]', '[[]]'])('refuses unreadable material containers %j', (storyboardMaterialList) => {
+    expect(() => readStoryboard(snapshot({ storyboardMaterialList }))).toThrow()
+  })
+
+  it('requires one generation in the saved model configuration', () => {
+    expect(() => readStoryboard(snapshot({ modelConfig: { ratio: '9:16', resolution: '720p', genNum: 2 } })))
+      .toThrow('genNum is not 1')
+  })
   it('parses the modelConfig string and keeps the provider snapshot intact', () => {
     const result = readStoryboard(snapshot())
     expect(result.storyboard_id).toBe(916953)
@@ -198,6 +216,10 @@ describe('readStoryboard over a storyboard nobody has configured yet (桩件 169
 })
 
 describe('withGenerationEnabled (收费路径)', () => {
+  it('refuses an unreadable saved model id without inventing a channel', () => {
+    expect(() => withGenerationEnabled(snapshot({ modelConfig: { modelId: 12, duration: 8,
+      ratio: '9:16', resolution: '720p', genNum: 1 } }), 7000)).toThrow('saved model cannot be re-checked')
+  })
   it('flips only isGenerate and hands back the provider snapshot untouched', () => {
     const next = withGenerationEnabled(snapshot(), 7000)
     expect(next.isGenerate).toBe(1)

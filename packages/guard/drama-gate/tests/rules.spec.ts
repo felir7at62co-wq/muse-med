@@ -33,6 +33,12 @@ const WRITES: [string, string, Record<string, unknown>][] = [
 ]
 
 describe('paid/write methods require an idempotency key', () => {
+  it.each([undefined, [], {}, null])('refuses a batch without a nonempty item list (%s)', (items) => {
+    const decision = evaluateCall(call({ toolName: 'jubian_video', arguments: {
+      method: 'image_generate_batch', items, idempotency_key: 'top-level-key',
+    } }))
+    expect(reason(decision)).toContain('必须提供非空 items')
+  })
   it.each(WRITES)('denies %s.%s without a key', (toolName, method, extra) => {
     const decision = evaluateCall(call({ toolName, arguments: { method, ...extra } }))
     const text = reason(decision)
@@ -89,6 +95,27 @@ describe('paid/write methods require an idempotency key', () => {
     }))
     expect(decision).toEqual({ kind: 'allow' })
   })
+})
+
+it('leaves ungated content paths and calls without a workspace to their owning tool', () => {
+  const cases: Partial<GateCall>[] = [
+    { toolName: 'write', arguments: { file_path: PROMPTS, content: 'invalid script' },
+      sessionCwd: undefined, configuredRoot: undefined },
+    { toolName: 'write', arguments: { file_path: join(PROJECT, 'prompts', 'preview.png'), content: 'image' } },
+    { toolName: 'jubian_video', arguments: { method: '   ' } },
+  ]
+  for (const args of cases) expect(evaluateCall(call(args))).toEqual({ kind: 'allow' })
+})
+
+it('resolves a relative project selection and skips a sibling with an unusable project id', () => {
+  const manifest = JSON.stringify({ assets: [{ official: true }] })
+  const reader = fakeReader({ [PROJECT_CONFIG]: PROJECT_CONFIG_TEXT,
+    [join(WORKSHOP, 'bad-project', 'project_config.json')]: '{broken',
+    [join(PROJECT, 'assets_manifest.json')]: manifest }, { [WORKSHOP]: ['bad-project', 'demo-drama'] })
+  for (const selection of [{ project_dir: 'demo-drama' }, { script_id: SCRIPT_ID }]) {
+    expect(evaluateCall(call({ toolName: 'jubian_storyboard', reader,
+      arguments: { method: 'generate', idempotency_key: 'key', ...selection } }))).toEqual({ kind: 'allow' })
+  }
 })
 
 describe('shot-script content gate', () => {

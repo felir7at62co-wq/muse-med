@@ -201,13 +201,14 @@ describe('registration', () => {
     expect(blocks[0]?.text).toContain('"ok": true')
   })
 
-  it.each(['prepare', 'render', 'verify'] as const)(
+  it.each(['prepare', 'render', 'verify', 'subtitles'] as const)(
     'accepts public snake_case arguments for %s before reading inputs', async (method) => {
       const project = await tempProject()
       temporary.push(project)
       const missing = join(project, 'missing.json')
       const args = {
-        method, project, episode: 1, shots: missing, timeline: missing,
+        method, project, episode: 1, shots: missing, timeline: missing, lines: missing, alignment: missing,
+        bgm_plan: join(project, 'plan.json'),
         subtitle_srt: join(project, 'subtitles.srt'), last_shot: 1,
         bgm: join(project, 'bgm.wav'), ending_audio: join(project, 'ending.wav'),
         ending_effect: join(project, 'effect.mp4'), output: join(project, 'output.mp4'),
@@ -291,6 +292,12 @@ describe('resolveSettings', () => {
 })
 
 describe('resolveCall', () => {
+  it('uses the installed episode subtitle path when an aligned cue build omits an output', () => {
+    const project = resolve('project')
+    expect(resolveCall({ method: 'subtitles', project, episode: 2, shots: 'shots.json',
+      lines: 'lines.json', alignment: 'alignment.json' }))
+      .toMatchObject({ method: 'subtitles', subtitleSrt: join(project, 'editing', '02.srt') })
+  })
   it('resolves a prepare call and pads the episode number', () => {
     expect(resolveCall({
       method: 'prepare', project: 'C:/proj', episode: 2, shots: 'shots.json', subtitleSrt: 'ep02.srt',

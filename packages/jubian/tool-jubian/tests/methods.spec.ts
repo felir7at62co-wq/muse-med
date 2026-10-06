@@ -1,9 +1,9 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
-import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, storyboardMethod, videoMethod } from '../src/methods.ts'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { JubianClient, JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from '../src/methods.ts'
 import type { MethodArgs } from '../src/methods.ts'
 import { requireArguments } from '../src/write.ts'
 
@@ -40,7 +40,7 @@ function stubClient(handler: (request: { method: string; path: string; body?: Re
         ...(typeof init?.body === 'string' ? { body: JSON.parse(init.body) as Record<string, unknown> } : {}) }
       calls.push(request)
       const data = await handler(request)
-      return new Response(JSON.stringify({ code: 200, data }), { status: 200 })
+      return data instanceof Response ? data : new Response(JSON.stringify({ code: 200, data }), { status: 200 })
     } })
   return { calls, client }
 }
@@ -56,6 +56,7 @@ beforeEach(async () => {
     } },
   } }))
 })
+afterEach(async () => { await rm(root, { recursive: true, force: true }) })
 
 /** A provider stub for the paid image path, with a scripted sequence of asset statuses. */
 function imageProvider(catalogue: unknown = IMAGE_CATALOGUE, statuses: string[] = ['Active']) {
@@ -147,6 +148,20 @@ describe('jubian_video upscale', () => {
 })
 
 describe('jubian_catalog reads', () => {
+  it.each([{ page_num: 0 }, { page_num: 1.5 }, { page_size: 0 }, { page_size: 1001 }])
+  ('rejects invalid pagination before a provider read %j', async (pagination) => {
+    const { client, calls } = stubClient(() => ({ rows: [] }))
+    await expect(catalogMethod(client, { method: 'episodes', script_id: 2708, ...pagination })).rejects.toThrow('page_num')
+    expect(calls).toEqual([])
+  })
+
+  it('uses the default episode page and rejects unrelated methods', async () => {
+    const { client, calls } = stubClient(() => ({ rows: [] }))
+    await catalogMethod(client, { method: 'episodes', script_id: 2708 })
+    expect(calls[0]?.path).toContain('pageNum=1&pageSize=20')
+    await expect(catalogMethod(client, { method: 'get' })).rejects.toThrow()
+    expect(calls).toHaveLength(1)
+  })
   it('addresses each catalogue endpoint exactly once', async () => {
     const cases: [MethodArgs, string, string, unknown][] = [
       [{ method: 'models', task_type: 2 }, 'GET', '/model/charge/getSelectList?taskType=2', []],
@@ -182,6 +197,96 @@ describe('jubian_catalog reads', () => {
 })
 
 describe('jubian_asset reads and the side-effecting GET', () => {
+  it('reads an audio asset through the category-specific dispatch without mutating the provider', async () => {
+    const { client, calls } = stubClient(() => ({ id: 77, scriptId: 2708, assetType: 4,
+      assetName: 'voice', assetUrl: 'https://media.example/voice.wav', isLocal: 1 }))
+    expect(await assetMethod(client, ledger, { method: 'audio_get', script_id: 2708, asset_id: 77 }))
+      .toMatchObject({ asset: { asset_id: 77, asset_type: 4 } })
+    expect(calls.map(call => call.method)).toEqual(['GET'])
+  })
+
+  it.each([undefined, 'voice'])('lists audio with the optional name filter %s', async (asset_name) => {
+    const { client, calls } = stubClient(() => ({ rows: [], total: 0 }))
+    expect(await assetMethod(client, ledger, { method: 'audio_list', script_id: 2708,
+      ...(asset_name === undefined ? {} : { asset_name }) })).toMatchObject({ assets: [], complete: true })
+    expect(calls[0]?.path.includes('assetName=voice')).toBe(asset_name !== undefined)
+  })
+
+  it('rejects an empty audio upload path before any transport call', async () => {
+    const { client, calls } = stubClient(() => null)
+    await expect(assetMethod(client, ledger, { method: 'upload_audio', audio_path: ' ' }))
+      .rejects.toThrow('audio_path')
+    expect(calls).toEqual([])
+  })
+
+  it('dispatches reference-image upload refusal before any account or object request', async () => {
+    const { client, calls } = stubClient(() => null)
+    const transport = vi.fn<typeof fetch>()
+    await expect(assetMethod(client, ledger, { method: 'upload_reference', image_path: join(root, 'missing.png') },
+      { reference: { fetch: transport } })).rejects.toThrow(JubianError)
+    expect(calls).toEqual([])
+    expect(transport).not.toHaveBeenCalled()
+  })
+
+  it.each(['audio_delete_preview', 'register'])('uses the default complete-reference bounds for audio %s', async (method) => {
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
+    const { client, calls } = stubClient(request => request.path.includes('/asset/77')
+      ? { id: 77, scriptId: 2708, assetType: 4, assetName: 'voice', assetUrl: 'https://media.example/voice.wav', isLocal: 1 }
+      : request.path.includes('selectNoPage') ? [] : { rows: [], total: 0 })
+    if (method === 'register') {
+      await expect(assetMethod(client, ledger, { method, script_id: 2708, asset_name: ' ', asset_type: 4,
+        asset_url: 'https://media.example/voice.wav', idempotency_key: 'register-default-bounds' })).rejects.toThrow('asset_name')
+    } else {
+      expect(await assetMethod(client, ledger, { method, project_dir: root, script_id: 2708, asset_id: 77,
+        delete_reason: 'User approved unused voice cleanup', authorization_basis: 'User approved removing audio asset 77' }))
+        .toMatchObject({ status: 'inspection_required', references: { characters: [], storyboards: [], complete: true } })
+    }
+    expect(calls.some(call => call.method !== 'GET')).toBe(false)
+  })
+  it.each([{ id: 113077, scriptId: 2708, assetType: 1 }, { id: 113076, scriptId: 2709, assetType: 1 },
+    { id: 113076, scriptId: 2708, assetType: null }, { id: 113076, scriptId: 2708, assetType: 4 }])
+  ('refuses removal when live project, identity or category disagrees %j', async (asset) => {
+    const { client, calls } = stubClient(() => asset)
+    await expect(assetMethod(client, ledger, { method: 'remove', idempotency_key: 'remove-mismatch',
+      asset_id: 113076, script_id: 2708 })).rejects.toThrow()
+    expect(calls.map(call => call.method)).toEqual(['GET'])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('replays a recorded removal without reading or deleting the asset again', async () => {
+    const { client, calls } = stubClient(() => ({ id: 113076, scriptId: 2708, assetType: 1 }))
+    const args = { method: 'remove', idempotency_key: 'remove-once', asset_id: 113076, script_id: 2708 }
+    await assetMethod(client, ledger, args)
+    await expect(assetMethod(client, ledger, args)).resolves.toMatchObject({ replayed: true })
+    expect(calls.map(call => call.method)).toEqual(['GET', 'DELETE'])
+  })
+
+  it('requires an explicit supported asset registration category', async () => {
+    const { client, calls } = stubClient(() => null)
+    await expect(assetMethod(client, ledger, { method: 'register', idempotency_key: 'bad-register',
+      script_id: 2708, asset_name: 'lead', asset_url: 'https://media.example/lead.jpg', asset_type: 5 }))
+      .rejects.toThrow('asset_type')
+    await expect(assetMethod(client, ledger, { method: 'models' })).rejects.toThrow()
+    expect(calls).toEqual([])
+  })
+
+  it.each([1, 2])('identifies %i new matching registered assets without selecting ambiguous rows', async (count) => {
+    let reads = 0
+    const { client, calls } = stubClient((request) => {
+      if (request.method === 'POST') return null
+      return { rows: reads++ === 0 ? [{ id: 10, assetType: 1 }] : [{ id: 10, assetType: 1 },
+        ...Array.from({ length: count }, (_, index) => ({ id: 11 + index, assetType: 1 })), { id: 20, assetType: 2 }] }
+    })
+    const args = { method: 'register', idempotency_key: 'register-once', script_id: 2708,
+      asset_name: 'lead', asset_url: 'https://media.example/lead.jpg', asset_type: 1 }
+    const result = await assetMethod(client, ledger, args)
+    expect(result).toMatchObject({ outcome: 'accepted', created_asset_id: count === 1 ? 11 : null,
+      new_asset_ids: count === 1 ? [11] : [11, 12] })
+    expect(calls.find(call => call.method === 'POST')?.body)
+      .toEqual({ scriptId: 2708, assetName: 'lead', assetType: 1, isLocal: 1, url: 'https://media.example/lead.jpg' })
+    await expect(assetMethod(client, ledger, args)).resolves.toMatchObject({ replayed: true, created_asset_id: null })
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+  })
   it('addresses asset and material endpoints, including the POST-shaped read', async () => {
     const cases: [MethodArgs, string, unknown][] = [
       [{ method: 'get', asset_id: 83749 }, '/aigc/asset/83749', { id: 83749, name: 'x', assetType: 1 }],
@@ -236,6 +341,245 @@ describe('jubian_asset reads and the side-effecting GET', () => {
 })
 
 describe('jubian_video', () => {
+  it('rejects a missing batch project before catalogue access or ledger writes', async () => {
+    const { client, calls } = imageProvider()
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch',
+      items: [{ idempotency_key: 'missing-project', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }))
+      .rejects.toThrow('positive script_id')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+  it('retains serialized storage failure evidence rather than marking a batch item as definitely unsent', async () => {
+    const { client, calls } = imageProvider()
+    const find = vi.spyOn(ledger, 'find').mockRejectedValue('storage service disconnected')
+    onTestFinished(() => { find.mockRestore() })
+    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [{ idempotency_key: 'serialized-storage-error', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())
+    expect(result.results).toMatchObject([{ status: 'error', outcome: 'unknown',
+      ledger_error: 'storage service disconnected', error: 'storage service disconnected' }])
+    expect(calls.filter(call => call.method === 'POST')).toEqual([])
+  })
+
+  it('updates an existing image parent in a default-bound batch and uses the saved estimate when catalogue prices are unavailable', async () => {
+    const { unitPrice: _price, ...row } = IMAGE_CATALOGUE[0]!
+    const { client, calls } = imageProvider([row])
+    expect(await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [{ idempotency_key: 'update-parent', parent_asset_id: 77, asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }))
+      .toMatchObject({ returned: 1, errors: 0, results: [{ asset_status: 'active' }] })
+    expect(calls.filter(call => call.method === 'PUT')).toHaveLength(1)
+    expect((await ledger.find('update-parent'))?.quoted_amount).toBe('1.00')
+    const task = stubClient(() => ({ rows: [], total: 0 }))
+    await videoMethod(task.client, ledger, { method: 'tasks', script_id: 2708 })
+    expect(task.calls[0]?.path).toContain('pageNum=1')
+  })
+
+  it('rejects a missing episode identity and unknown retry statuses before a remote write', async () => {
+    const { client, calls } = stubClient(request => request.path.includes('sub/list')
+      ? { rows: [{ id: 99, duration: 8, resultList: [{ tosVideoUrl: 'https://media.example/source.mp4' }] }] }
+      : { id: 42, scriptId: 2708 })
+    await expect(videoMethod(client, ledger, { method: 'upscale', task_id: 42, idempotency_key: 'missing-episode' }))
+      .rejects.toThrow()
+    await expect(videoMethod(client, ledger, { method: 'retry', task_id: 42, idempotency_key: 'unknown-status' })).rejects.toThrow()
+    expect(calls.filter(call => call.path.includes('hdConversion') || call.path.includes('/retry/'))).toEqual([])
+  })
+
+  it('retries a parent-terminal failure whose legacy child omits status and has no file or charge', async () => {
+    const { client, calls } = stubClient(request => request.path.includes('sub/list')
+      ? { rows: [{ id: 99 }] } : { id: 42, taskStatus: 'failed', realCost: '0' })
+    expect(await videoMethod(client, ledger, { method: 'retry', task_id: 42, idempotency_key: 'legacy-failure' }))
+      .toMatchObject({ outcome: 'accepted' })
+    expect(calls.at(-1)?.path).toContain('/retry/42')
+  })
+  it('reports a batch item as uncertain when the ledger cannot be read for its original key', async () => {
+    const { client, calls } = imageProvider()
+    const find = vi.spyOn(ledger, 'find').mockRejectedValue(new Error('ledger storage unavailable'))
+    onTestFinished(() => { find.mockRestore() })
+    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [{ idempotency_key: 'unreadable-key', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())
+    expect(result.results).toMatchObject([{ status: 'error', outcome: 'unknown',
+      ledger_error: 'ledger storage unavailable', record_id: null }])
+    expect(calls.filter(call => call.method === 'POST')).toEqual([])
+  })
+
+  it('returns the original unsettled reservation when image-batch submission and settlement both lose their connection', async () => {
+    const { client, calls } = stubClient(request => request.path.includes('getSelectList') ? IMAGE_CATALOGUE
+      : new Response(JSON.stringify({ code: 400, msg: 'provider refused' }), { status: 400 }))
+    const settle = vi.spyOn(ledger, 'settle').mockRejectedValue(new Error('settlement storage unavailable'))
+    onTestFinished(() => { settle.mockRestore() })
+    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [{ idempotency_key: 'unsettled-item', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())
+    expect(result.results).toMatchObject([{ status: 'error', outcome: 'unknown', record_script_id: 2708 }])
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+    expect((await ledger.find('unsettled-item'))?.outcome).toBeNull()
+  })
+
+  it('reports an accepted batch item with no asset ID without attempting an invented asset read', async () => {
+    const { client, calls } = stubClient(request => request.path.includes('getSelectList') ? IMAGE_CATALOGUE : null)
+    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [{ idempotency_key: 'no-asset-id', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())
+    expect(result.results).toMatchObject([{ status: 'returned', outcome: 'accepted', parent_asset_id: null, asset_status: 'unverified' }])
+    expect(calls.map(call => call.method)).toEqual(['GET', 'POST'])
+  })
+  it('polls with the deployment defaults and releases the timer after the generated image appears', async () => {
+    vi.useFakeTimers()
+    onTestFinished(() => { vi.useRealTimers() })
+    const entered = Promise.withResolvers<undefined>()
+    let reads = 0
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.path.includes('getGeneratedImageByAssetId')) return GENERATED_IMAGE
+      if (request.method === 'GET' && request.path.includes('/aigc/asset/')) {
+        entered.resolve(undefined)
+        return { id: 83749, hsAssetStatus: reads++ === 0 ? 'Submitted' : 'Active' }
+      }
+      return 83749
+    })
+    const operation = videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: 'defaults' })
+    try {
+      await entered.promise
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(await operation).toMatchObject({ asset_status: 'active', waited_ms: 3000 })
+      expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { await vi.runAllTimersAsync(); await Promise.allSettled([operation]); vi.useRealTimers() }
+  })
+
+  it.each(['Failed', 'not-ready', 'disconnected', 'no-status'])
+  ('reports an accepted asset whose generated-image readback is %s', async (state) => {
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.path.includes('getGeneratedImageByAssetId')) {
+        if (state === 'disconnected') throw new Error('image read disconnected')
+        return []
+      }
+      if (request.method === 'GET' && request.path.includes('/aigc/asset/')) {
+        return { id: 83749, ...(state === 'no-status' ? {} : { hsAssetStatus: state === 'Failed' ? state : 'Active' }) }
+      }
+      return 83749
+    })
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: `readback-${state}` },
+    imageDeps({ timeoutMs: 100, pollMs: 100 }))
+    expect(result).toMatchObject({ parent_asset_id: 83749, outcome: 'accepted',
+      asset_status: state === 'Failed' ? 'failed' : state === 'disconnected' ? 'unverified' : 'timeout' })
+    expect(result.readback_error).toBeTypeOf('string')
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+  })
+
+  it('contains an injected readback scheduler failure after recording the accepted paid write', async () => {
+    const { client } = imageProvider(IMAGE_CATALOGUE, ['Submitted'])
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: 'scheduler-error' },
+    { image: { now: () => 0, sleep: async () => { throw 'scheduler unavailable' } } })
+    expect(result).toMatchObject({ asset_status: 'unverified', parent_asset_id: 83749 })
+    expect(result.readback_error).toContain('scheduler unavailable')
+    expect((await ledger.find('scheduler-error'))?.outcome).toBe('accepted')
+  })
+
+  it.each([{ rows: [] }, { rows: [{ id: 99 }] }, { rows: [{ id: 99, duration: 8 }] },
+    { rows: [{ id: 99, resultList: [{ tosVideoUrl: 'https://media.example/source.mp4' }] }] }])
+  ('refuses paid media processing with no complete source media %j', async ({ rows }) => {
+    const { client, calls } = stubClient(request => request.path.includes('sub/list') ? { rows }
+      : { id: 42, scriptId: 2708, episodeId: 1 })
+    await expect(videoMethod(client, ledger, { method: 'upscale', task_id: 42, idempotency_key: 'missing-source' }))
+      .rejects.toMatchObject({ message: new JubianError('CONTRACT_CHANGED').message })
+    expect(calls.map(call => call.method)).toEqual(['GET', 'POST'])
+    expect(calls.filter(call => call.path.includes('hdConversion'))).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each([null, 'not-an-id', 'unknown-envelope'])('preserves uncertainty when the accepted image response is %s', async (state) => {
+    const { client, calls } = stubClient(request => request.path.includes('getSelectList') ? IMAGE_CATALOGUE
+      : state === 'unknown-envelope' ? new Response(JSON.stringify([83749])) : state)
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: 'uncertain-response' }, imageDeps())
+    expect(result).toMatchObject({ asset_status: 'unverified',
+      outcome: state === 'unknown-envelope' ? 'unknown' : 'accepted' })
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+    expect(result.next).toContain('确认')
+  })
+
+  it('uses the child result and explicit project fallback to name an upscale with no parent task name', async () => {
+    const { client, calls } = stubClient((request) => {
+      if (request.method === 'GET') return { id: 42, episodeId: 1 }
+      if (request.path.includes('sub/list')) return { rows: [{ id: 99, duration: 8,
+        resultList: [{ lastTosVideoUrl: 'https://media.example/source.mp4' }] }] }
+      return undefined
+    })
+    expect(await videoMethod(client, ledger, { method: 'upscale', task_id: 42, script_id: 2708,
+      episode: '05', package_number: '3', idempotency_key: 'fallback-media' })).toMatchObject({ accepted_task_id: null })
+    expect(calls.at(-1)?.body).toMatchObject({ scriptId: 2708, episodeCount: 1, firstResultId: 99,
+      parentResultId: 99, taskName: 'EP05-P3-task-42-高清转换', videoUrl: 'https://media.example/source.mp4' })
+  })
+
+  it.each([{ asset_type: 4 }, { asset_type: 1.5 }, { asset_type: 1, asset_category: '场景' as const },
+    { asset_type: 1, asset_name: ' ' }])('refuses inconsistent local image identity %j before a catalogue read', async (identity) => {
+    const { client, calls } = imageProvider()
+    await expect(videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', prompt: 'ready', idempotency_key: 'identity-error', ...identity })).rejects.toThrow()
+    expect(calls).toEqual([])
+  })
+
+  it.each([{ script_id: 0, items: [] }, { script_id: 2708, items: [] }, { script_id: 2708, items: [null] },
+    { script_id: 2708, items: [{ idempotency_key: ' padded ', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] },
+    { script_id: 2708, items: [{ idempotency_key: 'bad\u0000key', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] },
+    { script_id: 2708, items: [{ idempotency_key: '\ud800', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }])
+  ('refuses malformed batch tool JSON before reading the provider %j', async (wire) => {
+    const { client, calls } = imageProvider()
+    const args = JSON.parse(JSON.stringify({ method: 'image_generate_batch', ...wire })) as MethodArgs
+    await expect(videoMethod(client, ledger, args)).rejects.toThrow()
+    expect(calls).toEqual([])
+  })
+
+  it.each([null, [12]])('refuses malformed reference values decoded from batch tool JSON %j', async (references) => {
+    const { client, calls } = imageProvider()
+    const decoded = JSON.parse(JSON.stringify({ method: 'image_generate_batch', script_id: 2708,
+      items: [{ idempotency_key: 'wire-references', asset_name: 'lead', asset_type: 1, prompt: 'ready', references }] })) as MethodArgs
+    await expect(videoMethod(client, ledger, decoded, imageDeps())).rejects.toThrow('invalid image request')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+  it('lists tasks and reports unresolved local writes without another provider request', async () => {
+    const { client, calls } = stubClient(request => request.path.includes('/list') ? { rows: [] } : { id: 42 })
+    await videoMethod(client, ledger, { method: 'task', task_id: 42 })
+    await videoMethod(client, ledger, { method: 'tasks', script_id: 2708, page_num: 2 })
+    expect(calls[1]?.path).toContain('taskType=1&pageNum=2')
+    expect(await videoMethod(client, ledger, { method: 'unresolved', script_id: 2708 }))
+      .toMatchObject({ unresolved: [] })
+    await ledger.begin({ idempotencyKey: 'pending-native', method: 'storyboard_native_submit',
+      requestSha256: 'sha256:pending', scriptId: 2708 })
+    const unresolved = await videoMethod(client, ledger, { method: 'unresolved', script_id: 2708 })
+    expect(unresolved.unresolved).toEqual([expect.objectContaining({ idempotency_key: 'pending-native', outcome: 'unsettled' })])
+    expect(unresolved.next).toContain('同一个 idempotency_key')
+    expect(calls).toHaveLength(2)
+    await expect(videoMethod(client, ledger, { method: 'models' })).rejects.toThrow()
+  })
+
+  it.each([{ taskStatus: 'running', realCost: '0' }, { taskStatus: 'failed', realCost: '1' },
+    { taskStatus: 'failed', realCost: '0', childStatus: 'running' },
+    { taskStatus: 'failed', realCost: '0', childStatus: 'succeeded' },
+    { taskStatus: 'failed', realCost: '0', childStatus: 'failed', url: 'https://media.example/result.mp4' }])
+  ('refuses retry when task evidence permits success, activity or a charge %j', async (state) => {
+    const { client, calls } = stubClient(request => request.path.includes('sub/list')
+      ? { rows: [{ id: 99, taskStatus: state.childStatus ?? 'failed',
+        ...(state.url === undefined ? {} : { resultList: [{ tosVideoUrl: state.url }] }) }] }
+      : { id: 42, taskStatus: state.taskStatus, realCost: state.realCost })
+    await expect(videoMethod(client, ledger, { method: 'retry', task_id: 42, idempotency_key: 'retry-gate' })).rejects.toThrow()
+    expect(calls.map(call => call.method)).toEqual(['GET', 'POST'])
+    expect(calls.some(call => call.path.includes('/retry/'))).toBe(false)
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('retries a terminal failed task with no result or real charge once', async () => {
+    const { client, calls } = stubClient(request => request.path.includes('sub/list')
+      ? { rows: [{ id: 99, taskStatus: 'failed' }] } : { id: 42, taskStatus: 'failed', realCost: '0.0' })
+    const args = { method: 'retry', task_id: 42, idempotency_key: 'retry-once' }
+    await expect(videoMethod(client, ledger, args)).resolves.toMatchObject({ outcome: 'accepted' })
+    await expect(videoMethod(client, ledger, args)).resolves.toMatchObject({ replayed: true })
+    expect(calls.map(call => call.method)).toEqual(['GET', 'POST', 'POST'])
+    expect(calls[2]?.path).toContain('/retry/42')
+  })
   it('sends the subtask read as a POST with the parent identity in its body', async () => {
     const { client, calls } = stubClient(() => ({ total: 0, rows: [] }))
     await videoMethod(client, ledger, { method: 'subtasks', task_id: 335343 })
@@ -576,6 +920,111 @@ describe('jubian_video', () => {
 })
 
 describe('jubian_storyboard', () => {
+  const createBody = { scriptId: 2708, episodeId: 9, storyboardName: 'P1', sortOrder: 0,
+    modelConfig: { prompt: 'ready' } }
+
+  it('refuses absent native previews and unreadable preparation inputs before any paid request', async () => {
+    const { client, calls } = stubClient(() => 1)
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
+    await expect(storyboardMethod(client, ledger, { method: 'submit_video', project_dir: root,
+      storyboard_id: 916953, preview_path: join(root, 'video_tasks', 'missing.prepared.json'),
+      idempotency_key: 'missing-preview' })).rejects.toThrow(JubianError)
+    await expect(storyboardMethod(client, ledger, { method: 'submit_video_batch', video_previews: [] }))
+      .rejects.toThrow('video batch items')
+    expect(calls).toEqual([])
+    await expect(storyboardMethod(client, ledger, { method: 'prepare_video', project_dir: join(root, 'absent-project'),
+      storyboard_id: 916953, content_duration_ms: 7000 })).rejects.toThrow(JubianError)
+    expect(calls.map(call => call.method)).toEqual(['GET'])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('uses default edit and deletion limits while refusing an empty deletion target list', async () => {
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
+    const { client, calls } = stubClient(() => STORYBOARD)
+    const plan = await storyboardMethod(client, ledger, { method: 'edit_preview', project_dir: root,
+      script_id: 2708, storyboard_id: 916953, changes: { name: 'Edited card' } })
+    expect(plan).toMatchObject({ operation: 'storyboard_edit', targets: [{ storyboard_id: 916953,
+      after: { name: 'Edited card' } }] })
+    await expect(storyboardMethod(client, ledger, { method: 'delete_preview', project_dir: root,
+      script_id: 2708, storyboard_ids: [], delete_reason: 'Remove unused cards', authorization_basis: 'User approved removal' }))
+      .rejects.toThrow()
+    expect(calls.every(call => call.method === 'GET')).toBe(true)
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each(['null', '[]', '"text"'])('refuses a nonobject frozen batch body %s before creating any card', async (contents) => {
+    const bodyPath = join(root, 'invalid-batch-body.json')
+    await writeFile(bodyPath, contents)
+    const { client, calls } = stubClient(() => 1)
+    await expect(storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708,
+      storyboards: [{ idempotency_key: 'bad-batch-file', body_path: bodyPath }] })).rejects.toThrow('Invalid storyboard body')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('reports a serialized ledger failure for a creation item without sending its body', async () => {
+    const { client, calls } = stubClient(() => 1)
+    const read = vi.spyOn(ledger, 'find').mockRejectedValue('ledger service disconnected')
+    onTestFinished(() => { read.mockRestore() })
+    expect(await storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708,
+      storyboards: [{ idempotency_key: 'unread-ledger', body: createBody }] })).toMatchObject({
+      returned: 0, errors: 1, results: [{ status: 'error', outcome: 'reconcile_required', error: 'Storyboard creation failed' }],
+    })
+    expect(calls).toEqual([])
+  })
+
+  it.each([{ scriptId: 2709 }, { storyboardName: '' }, { sortOrder: -1 }, { sortOrder: 0.5 },
+    { modelConfig: [] }, { modelConfig: null }, { modelConfig: { prompt: '' } }, { modelConfig: { prompt: 12 } }])
+  ('preflights invalid batch creation fields without writing %j', async (overrides) => {
+    const { client, calls } = stubClient(() => 1)
+    await expect(storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708,
+      storyboards: [{ idempotency_key: 'bad-create', body: { ...createBody, ...overrides } }] })).rejects.toThrow()
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('refuses duplicate batch keys, episode names and conflicting body sources', async () => {
+    const { client, calls } = stubClient(() => 1)
+    for (const storyboards of [[],
+      [{ idempotency_key: 'same', body: createBody }, { idempotency_key: 'same', body: { ...createBody, storyboardName: 'P2' } }],
+      [{ idempotency_key: 'first', body: createBody }, { idempotency_key: 'second', body: createBody }],
+      [{ idempotency_key: 'both', body: createBody, body_path: join(root, 'unused') }],
+      [{ idempotency_key: 'neither' }]]) {
+      await expect(storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708, storyboards })).rejects.toThrow()
+    }
+    expect(calls).toEqual([])
+  })
+
+  it('prepares batch bodies from files and isolates ledger conflicts per item', async () => {
+    const bodyPath = join(root, 'batch-body.json')
+    await writeFile(bodyPath, JSON.stringify(createBody))
+    await ledger.begin({ idempotencyKey: 'conflict', method: 'asset_register', requestSha256: 'sha256:other' })
+    const { client, calls } = stubClient(() => 1)
+    const result = await storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708,
+      storyboards: [{ idempotency_key: 'file-create', body_path: bodyPath },
+        { idempotency_key: 'conflict', body: { ...createBody, storyboardName: 'P2' } }] })
+    expect(result).toMatchObject({ total: 2, returned: 1, errors: 1,
+      results: [expect.objectContaining({ status: 'returned' }), expect.objectContaining({ status: 'error', outcome: 'reconcile_required' })] })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.body).toMatchObject({ ...createBody, isGenerate: 0 })
+  })
+
+  it.each(['{', 'null', '[]'])('refuses unreadable creation body files %s', async (contents) => {
+    const bodyPath = join(root, 'bad-body.json')
+    await writeFile(bodyPath, contents)
+    const { client, calls } = stubClient(() => 1)
+    await expect(storyboardMethod(client, ledger, { method: 'create', idempotency_key: 'bad-file', body_path: bodyPath }))
+      .rejects.toThrow()
+    expect(calls).toEqual([])
+  })
+
+  it('refuses a direct creation with conflicting sources and unsupported methods', async () => {
+    const { client, calls } = stubClient(() => null)
+    await expect(storyboardMethod(client, ledger, { method: 'create', idempotency_key: 'both', body: createBody,
+      body_path: join(root, 'unused') })).rejects.toThrow()
+    await expect(storyboardMethod(client, ledger, { method: 'models' })).rejects.toThrow()
+    expect(calls).toEqual([])
+  })
   it('directs changes to existing identities to editing instead of creating another card', async () => {
     const { calls, client } = stubClient(() => null)
     const body = { id: 916953, scriptId: 2708, episodeId: 9, storyboardName: 'EP01-P1', sortOrder: 1,
@@ -730,6 +1179,19 @@ describe('jubian_storyboard', () => {
     expect(calls[2]!.body).toMatchObject({ scriptId: 2708 })
   })
 
+  it('uses an explicit subtitle rectangle and task fallback name for a nameless parent', async () => {
+    const { client, calls } = stubClient(request => request.path.includes('sub/list')
+      ? { total: 1, rows: [{ id: 99, duration: 8, resultList: [{ tosVideoUrl: 'https://example.test/source.mp4' }] }] }
+      : { id: 42, scriptId: 2708, episodeId: 1 })
+    expect(await storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'explicit-subtitle-box',
+      task_id: 42, model_id: 'quzimuToB', video_width: 1280, video_height: 720,
+      subtitle_box: { zimuLeft: 0, zimuTop: 600, zimuWidth: 1279, zimuHeight: 100 } }))
+      .toMatchObject({ outcome: 'accepted' })
+    expect(calls[2]?.body).toMatchObject({ taskName: 'task-42-去字幕',
+      zimuLeft: 0, zimuTop: 600, zimuWidth: 1279, zimuHeight: 100 })
+    expect(calls.map(call => call.method)).toEqual(['GET', 'POST', 'POST'])
+  })
+
   it('refuses an erasure with no model rather than defaulting to one', async () => {
     const { client, calls } = stubClient(request => request.path.includes('sub/list')
       ? { total: 1, rows: [{ id: 972949, aigcVideoTaskId: 428322, taskStatus: 'succeeded', duration: 13,
@@ -745,6 +1207,16 @@ describe('jubian_storyboard', () => {
 })
 
 describe('required arguments', () => {
+  it.each([{ storyboardBatchConcurrency: 0 }, { storyboardBatchConcurrency: 9 },
+    { storyboardBatchConcurrency: 1.5 }, { storyboardBatchMaxItems: 0 }, { storyboardBatchMaxItems: 1001 }])
+  ('rejects invalid storyboard batch limits %j', (config) => {
+    expect(() => resolveStoryboardBatchOptions(config)).toThrow('storyboardBatchConcurrency')
+  })
+
+  it('resolves explicit storyboard batch limits', () => {
+    expect(resolveStoryboardBatchOptions({ storyboardBatchConcurrency: 2, storyboardBatchMaxItems: 8 }))
+      .toEqual({ concurrency: 2, maxItems: 8 })
+  })
   it('names the missing argument and lets nothing reach the transport', () => {
     // The schema is one object per tool, so it cannot say "required for this
     // method only"; this check is what turns that into an actionable failure.

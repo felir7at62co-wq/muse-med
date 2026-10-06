@@ -11,7 +11,8 @@ import { ORIGIN, parsePlayer, seriesId, episodeNumber } from './parser.js';
 import { responseBytes, SourceCatalog } from './source.js';
 import { ManifestCatalog } from './manifest.js';
 import { validateMp4 } from './media.js';
-import { createMediaProcessor } from './runtime.js';
+import { createDeviceBootstrap, createMediaProcessor } from './runtime.js';
+import { LocalSigner } from './signer.js';
 
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const modes = ['legacy', 'manifest', 'public'];
@@ -34,7 +35,7 @@ function argumentsFor(args, config, download) {
   }
   let episodes = null;
   if (args.episodes !== undefined) {
-    if (!Array.isArray(args.episodes) || !args.episodes.length || args.episodes.length > config.maxEpisodes
+    if (!Array.isArray(args.episodes) || !args.episodes.length
       || new Set(args.episodes).size !== args.episodes.length) throw new DownloadError('invalid_arguments', 'episodes 必须是不重复的正整数集号列表');
     try { args.episodes.forEach(episodeNumber); } catch (error) { throw new DownloadError('invalid_arguments', 'episodes 集号无效'); }
     episodes = [...args.episodes].sort((a, b) => a - b);
@@ -73,7 +74,9 @@ export class HongguoDownloadClient {
   constructor(config = {}, dependencies = {}) {
     this.config = resolveConfig(config);
     this.request = dependencies.request ?? officialRequest;
-    this.source = dependencies.source ?? new SourceCatalog(this.config, { request: this.request, sign: dependencies.sign });
+    this.bootstrap = !dependencies.source && this.config.bootstrapDevices ? createDeviceBootstrap(dependencies.subprocess, this.config) : null;
+    this.signer = !dependencies.source && !this.config.signServer ? new LocalSigner(dependencies.subprocess, this.config) : null;
+    this.source = dependencies.source ?? new SourceCatalog(this.config, { request: this.request, sign: dependencies.sign, signer: this.signer, bootstrap: this.bootstrap });
     this.processMedia = dependencies.processMedia ?? (dependencies.subprocess ? createMediaProcessor(dependencies.subprocess, this.config) : null);
     this.manifest = new ManifestCatalog(this.config);
     this.lifetime = new AbortController();
@@ -81,7 +84,12 @@ export class HongguoDownloadClient {
   }
 
   /** Abort all owned work and resolve only after pending calls and their cleanup settle. */
-  async dispose() { this.lifetime.abort(); await Promise.allSettled([...this.pending]); }
+  async dispose() {
+    this.lifetime.abort();
+    await Promise.allSettled([...this.pending]);
+    await this.signer?.dispose();
+    await this.bootstrap?.dispose();
+  }
 
   run(signal, operation) {
     const active = AbortSignal.any([this.lifetime.signal, ...(signal ? [signal] : []), AbortSignal.timeout(this.config.callTimeoutMs)]);
@@ -109,10 +117,9 @@ export class HongguoDownloadClient {
     const active = AbortSignal.any([signal, AbortSignal.timeout(this.config.requestTimeoutMs)]);
     if (mode === 'legacy') return this.source.episodes(id, active);
     if (mode === 'manifest') return this.manifest.episodes(id);
-    const { info } = await this.player(id, 1, active);
-    if (info.episodeCount > this.config.maxEpisodes) throw new DownloadError('episode_limit', '官网剧集超过配置的 maxEpisodes');
+    const { info, vids } = await this.player(id, 1, active);
     return { seriesId: id, title: info.title, episodeCount: info.episodeCount, source: 'official-public-player',
-      accessibleEpisodeCount: info.accessibleEpisodeCount, episodes: Array.from({ length: info.episodeCount }, (_, position) => ({ index: position + 1, vid: `${id}:${position + 1}`, title: `第 ${position + 1} 集`, durationSeconds: null })) };
+      accessibleEpisodeCount: info.accessibleEpisodeCount, episodes: vids.map((vid, position) => ({ index: position + 1, vid, title: `第 ${position + 1} 集`, durationSeconds: null })) };
   }
 
   /** List declared counts without returning signed URLs or treating configuration as live verification. */

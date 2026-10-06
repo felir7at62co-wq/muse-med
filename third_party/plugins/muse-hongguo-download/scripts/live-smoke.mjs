@@ -15,6 +15,7 @@ await mkdir(workspace, { recursive: true, mode: 0o700 });
 const config = resolveConfig({ sourceMode: mode, legacyAppDir: process.env.MUSE_HONGGUO_LEGACY_APP_DIR || '',
   signServer: process.env.MUSE_HONGGUO_SIGN_SERVER || '', catalogPath: process.env.MUSE_HONGGUO_CATALOG_PATH || '', outputRoot: workspace,
   pythonExecutable: process.env.MUSE_HONGGUO_PYTHON_PATH || '',
+  javaExecutable: process.env.MUSE_HONGGUO_JAVA_PATH || '', bootstrapDevices: process.env.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1',
   ffprobeExecutable: process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || '',
   ffmpegExecutable: process.env.MUSE_HONGGUO_FFMPEG || process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || '' });
 const ctx = new Context();

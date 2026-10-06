@@ -6,6 +6,7 @@ import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { DeepSeekFileStore, MAX_IMAGE_BYTES } from '../src/file-store.ts'
 import { DeepSeekFileId } from '../src/file-id.ts'
+import { RequestFiles } from '../src/request-files.ts'
 import { deepSeekFileScope, DeepSeekUploadIndex } from '../src/upload-index.ts'
 
 const REF: ImageAttachmentRef = {
@@ -67,6 +68,26 @@ function uploadFetch(now: () => number = () => NOW) {
 }
 
 describe('DeepSeekFileStore', () => {
+  it('tracks every successfully resolved image occurrence only within its current request attempt', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-request-files-'))
+    roots.push(dir)
+    const remote = uploadFetch(() => NOW)
+    const store = new DeepSeekFileStore({ index: new DeepSeekUploadIndex(join(dir, 'index.json')), fetch: remote.fetchImpl, now: () => NOW })
+    const activity = vi.fn()
+    const request = new RequestFiles(store, CONNECTION, POLICY, 5_000, new AbortController().signal, activity)
+    expect(request.usedFiles).toEqual([])
+    const first = await request.resolve(VERSION, { message: 1, image: 1 })
+    expect(request.usedFiles.map(({ fileId, version }) => ({ fileId, version }))).toEqual([{ fileId: first, version: VERSION }])
+    const repeated = await request.resolve(VERSION, { message: 2, image: 1 })
+    expect(repeated).toBe(first)
+    expect(request.usedFiles).toHaveLength(2)
+    expect(remote.uploads()).toBe(1)
+    expect(activity).toHaveBeenCalledTimes(2)
+    request.beginAttempt()
+    expect(request.usedFiles).toEqual([])
+    expect(remote.uploads()).toBe(1)
+  })
+
   it('isolates credential values and header kinds while reusing reordered headers', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-file-credentials-'))
     roots.push(dir)

@@ -28,6 +28,24 @@ function names(root: HTMLElement): string[] {
 }
 
 describe('FilesBody', () => {
+  it('keeps native drags alone when no reference provider exists and closes the file menu with Escape', async () => {
+    const noReferences = mountBody(ROOT)
+    await act(() => noReferences.script.watches.ready(ROOT))
+    await act(() => noReferences.script.settle({ ok: true, value: ROOT_LEVEL }))
+    const setData = vi.fn()
+    fireEvent.dragStart(noReferences.view.getByRole('button', { name: 'README.md' }), { dataTransfer: { setData } })
+    fireEvent.dragEnd(noReferences.view.getByRole('button', { name: 'README.md' }))
+    expect(setData).not.toHaveBeenCalled()
+    noReferences.view.unmount()
+    const references = { type: 'application/x-dsh-workspace-file', start: vi.fn(() => 'ticket'), end: vi.fn(), add: vi.fn(async () => true) }
+    const h = mountBody(ROOT, undefined, references)
+    await act(() => h.script.watches.ready(ROOT))
+    await act(() => h.script.settle({ ok: true, value: ROOT_LEVEL }))
+    fireEvent.click(h.view.getByRole('button', { name: 'README.md 的操作' }))
+    fireEvent.keyDown(h.view.getByRole('menu'), { key: 'Escape' })
+    expect(h.view.queryByRole('menu')).toBeNull()
+    expect(references.add).not.toHaveBeenCalled()
+  })
   it('reveals the conversation before adding from a fullscreen file menu', async () => {
     const order: string[] = []
     const references = {

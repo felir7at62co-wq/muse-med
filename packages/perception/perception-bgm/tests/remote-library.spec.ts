@@ -224,3 +224,39 @@ it.each(['caller', 'unload'])('aborts a pending request on %s cancellation', asy
   else await dispose()
   await failure
 })
+
+it.each([null, [], false, { version: 1, tracks: [null] }, { version: 1, tracks: [{ ...track, name: 'music.txt' }] }])(
+  'rejects non-object catalogue data and unsupported audio extensions', async (document) => {
+    transport(document)
+    const { run } = await mount()
+    await expect(run({ method: 'match', valence: 5, arousal: 5 })).rejects.toThrow(/catalog|extension/i)
+  })
+
+it.each([new Response(null), new Response('body', { headers: { 'content-length': 'not-a-number' } })])(
+  'refuses missing or inconsistent HTTP response bodies', async (response) => {
+    const fetch = transport()
+    fetch.mockResolvedValue(response)
+    const { run } = await mount()
+    await expect(run({ method: 'match', valence: 5, arousal: 5 })).rejects.toThrow(/HTTP/)
+  })
+
+it('refuses a redirected response even if a transport returns HTTP 200', async () => {
+  const fetch = transport()
+  const response = new Response(JSON.stringify(catalog))
+  Object.defineProperty(response, 'redirected', { value: true })
+  fetch.mockResolvedValue(response)
+  const { run } = await mount()
+  await expect(run({ method: 'match', valence: 5, arousal: 5 })).rejects.toThrow(/redirect/)
+})
+
+it.each([undefined, 'not-an-id', 'sha256:' + 'A'.repeat(64)])('rejects missing or noncanonical selected track IDs', async (track_id) => {
+  const fetch = transport(), { run } = await mount()
+  await expect(run({ method: 'download', ...track_id === undefined ? {} : { track_id } })).rejects.toThrow(/track_id/)
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+it('reports an empty public catalogue without suggesting a local index', async () => {
+  transport({ version: 1, tracks: [] })
+  const { run } = await mount()
+  await expect(run({ method: 'match', valence: 5, arousal: 5 })).rejects.toThrow('no tracks in the configured BGM catalog')
+})

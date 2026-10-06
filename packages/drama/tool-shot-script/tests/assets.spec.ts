@@ -107,6 +107,39 @@ describe('reading the asset manifest', () => {
 })
 
 describe('binding one shot', () => {
+  it.each([['后厨', '场景'], ['苏晚', '角色']])('reports that every %s version belongs to a different episode', (name, type) => {
+    const assets = parseAssetManifest({ assets: [
+      assetRow(name, type, { jubian_asset_id: '72001', episodes: [2] }),
+      assetRow(name, type, { jubian_asset_id: '72002', episodes: [3] }),
+    ] }, 'manifest.json').assets
+    const shot = firstShot(scriptOf(speakingShot(1, '苏晚：你好', ['出镜人物：苏晚', '核心场景：后厨', '关键道具：无'])))
+    const binding = bindShot(shot, assets, 1)
+    expect(binding.assets).toEqual([])
+    expect(binding.issues.find(issue => issue.code === 'asset_episode_mismatch')?.message).toContain('第1集')
+  })
+
+  it('reads lists with empty separators and parenthesized costume names without inventing a person', () => {
+    const shot = firstShot(scriptOf(actionShot(1, [
+      '出镜人物：、苏晚（家常装，青年）、', '核心场景：后厨', '关键道具：无',
+    ])))
+    const binding = bindShot(shot, parseAssetManifest({ assets: [
+      assetRow('苏晚（家常装，青年）', '角色'), assetRow('后厨', '场景'),
+    ] }, 'manifest.json').assets, 1)
+    expect(binding.characters).toEqual(['苏晚（家常装，青年）'])
+    expect(binding.issues.map(issue => issue.code)).not.toContain('unregistered_character')
+  })
+
+  it('does not use human body-state compatibility to select between animal registrations', () => {
+    const shot = firstShot(scriptOf(actionShot(1, [
+      '出镜人物：小鸡', '核心场景：后厨', '关键道具：无',
+    ])))
+    const binding = bindShot(shot, parseAssetManifest({ assets: [
+      assetRow('雏鸡A', '动物', { aliases: ['小鸡'] }), assetRow('雏鸡B', '动物', { aliases: ['小鸡'] }),
+      assetRow('后厨', '场景'),
+    ] }, 'manifest.json').assets, 1)
+    expect(binding.characters).toEqual([])
+    expect(binding.issues.map(issue => issue.code)).toContain('asset_binding_ambiguous')
+  })
   const speaking = firstShot(scriptOf(speakingShot(1, '苏晚：原文台词', ['出镜人物：苏晚', '核心场景：后厨', '关键道具：奶瓶'])))
 
   it('binds characters, scene, and props in prompt order', () => {
@@ -344,4 +377,23 @@ describe('binding one shot', () => {
 it('keeps array aliases available to the existing name matcher', () => {
   const result = parseAssetManifest({ assets: [{ name: '张三', type: '角色', aliases: ['小张', ' 张先生 '] }] }, 'manifest.json')
   expect(result.assets[0]?.aliases).toBe('小张、张先生')
+})
+
+it('keeps multiple human versions ambiguous when the script provides no body-state declaration', () => {
+  const script = scriptOf(speakingShot(1, '苏晚：你好。', ['出镜人物：苏晚', '核心场景：后厨']))
+    .replace(/^.*(?:身体状态|主体状态追踪).*\n/gm, '')
+  const shot = firstShot(script)
+  const manifest = parseAssetManifest({ assets: [assetRow('苏晚（甲）', '角色'), assetRow('苏晚（乙）', '角色'),
+    assetRow('后厨', '场景')] }, 'manifest.json').assets
+  expect(bindShot(shot, manifest, 1).issues.some(issue => issue.code === 'asset_binding_ambiguous')).toBe(true)
+})
+
+it('does not apply human age-state replacement rules to a named animal tracking declaration', () => {
+  const script = scriptOf(actionShot(1, ['出镜人物：小鸡', '核心场景：后厨']))
+    .replaceAll('苏晚', '小鸡').replace(/身体状态：【[^】]*】；/g, '身体状态：【幼年，黄色绒毛】；')
+  const shot = firstShot(script)
+  expect(shot.bodyStates.has('小鸡')).toBe(true)
+  const manifest = parseAssetManifest({ assets: [assetRow('小鸡', '动物', { state_or_costume: '黄色绒毛' }),
+    assetRow('后厨', '场景')] }, 'manifest.json').assets
+  expect(bindShot(shot, manifest, 1).issues.some(issue => issue.code === 'asset_state_missing')).toBe(false)
 })

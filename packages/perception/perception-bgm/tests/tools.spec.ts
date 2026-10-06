@@ -1,11 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { apply, inject } from '../src/index.ts'
+
+const contexts: Context[] = []
+afterEach(async () => { for (const ctx of contexts.splice(0)) await ctx.fiber.dispose() })
 
 interface Registered { name: string; description: string }
 
 async function mount(config: Record<string, unknown> = {}): Promise<Registered[]> {
   const ctx = new Context()
+  contexts.push(ctx)
   const registered: Registered[] = []
   ctx.provide('tools', {
     register: (definition: { name: string; description: string }) => {
@@ -40,4 +44,19 @@ describe('bgm_match registration', () => {
     expect(text).toContain('index')
     expect(text).toContain('match')
   })
+})
+
+it('removes the tool contribution when its plugin is unloaded', async () => {
+  const ctx = new Context()
+  contexts.push(ctx)
+  const registered = new Set<string>()
+  ctx.provide('tools', { register(definition: Registered) {
+    registered.add(definition.name)
+    return () => { registered.delete(definition.name) }
+  } })
+  const plugin = ctx.plugin({ apply, inject, name: 'perception-bgm' }, {})
+  await plugin.await()
+  expect(registered.has('bgm_match')).toBe(true)
+  await plugin.dispose()
+  expect(registered.size).toBe(0)
 })

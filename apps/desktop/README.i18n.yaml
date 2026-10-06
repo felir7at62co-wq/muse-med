@@ -15,8 +15,8 @@
   en: 8068346eccc0af07
   zh: a91982455452a30c
 /muse-desktop/key-technical-decisions/bundled-workspace-dependencies:
-  en: b7db0421c8ad20d7
-  zh: f3bcaec7383b6a43
+  en: 79707e9f77b79a19
+  zh: a93dca35ecb2dc48
 /muse-desktop/bundled-command-runtime:
   en: 312049a0aafdedb3
   zh: 571507f4c89dc9f5
@@ -48,11 +48,11 @@
   en: 0a20368ae8ad048e
   zh: 09f45a0c214e7d6a
 /muse-desktop/package/runtime-file-selection:
-  en: 93744cf863c9e689
-  zh: c46b4d563ae54fab
+  en: 069d841fc231c48d
+  zh: 854fb6e230305439
 /muse-desktop/package/upload-updates:
-  en: 8f99fc0cb1518cfe
-  zh: a373f76f0de57752
+  en: 3dfae78d81817008
+  zh: e9adef2e5a26bb1b
 /muse-desktop/package/unsigned-installers:
   en: b9664a730653a225
   zh: 185c71923d6133fc

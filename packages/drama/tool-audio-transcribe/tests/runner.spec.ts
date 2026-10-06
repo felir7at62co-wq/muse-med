@@ -42,6 +42,37 @@ it('saves an account-bound receipt before submit and publishes versioned timed o
   expect(await readdir(join(fixture.project, 'transcript', 'raw'))).toEqual(['clip-v1.json', 'clip-v1.srt', 'clip-v1.txt'])
 })
 
+it.each([
+  ['non-object', null, 'Invalid transcription receipt'],
+  ['source digest', { sourceSha256: 'invalid' }, 'Invalid source digest'],
+  ['purpose', { purpose: 'other' }, 'Invalid transcription purpose'],
+  ['empty parts', { parts: [] }, 'Invalid transcription parts'],
+  ['non-array parts', { parts: {} }, 'Invalid transcription parts'],
+  ['non-object part', { parts: [null] }, 'Invalid transcription parts'],
+  ['bad part fields', { parts: [{}] }, 'Invalid transcription parts'],
+] as const)('rejects a corrupted %s receipt before a provider query and retains the bytes', async (_label, patch, message) => {
+  const fixture = await setup()
+  const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as Record<string, unknown>
+  const content = JSON.stringify(patch === null ? null : { ...receipt, ...patch })
+  await writeFile(first.receipt, content)
+  await expect(finishAudioTranscription(fixture.project, first.receipt, fixture.account)).rejects.toThrow(message)
+  expect(fixture.counts()).toEqual({ submits: 1, queries: 0 })
+  expect(await readFile(first.receipt, 'utf8')).toBe(content)
+})
+
+it('rejects empty completed speech without marking the receipt complete or publishing output', async () => {
+  const fixture = await setup()
+  const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+  const before = await readFile(first.receipt, 'utf8')
+  fixture.setJob({ id: first.job_id, status: 'complete', segments: [] })
+  await expect(finishAudioTranscription(fixture.project, first.receipt, fixture.account)).rejects.toThrow('no timed speech segments')
+  expect(await readFile(first.receipt, 'utf8')).toBe(before)
+  await expect(stat(join(fixture.project, 'transcript', 'raw'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
 it.skipIf(process.platform === 'win32')('keeps staged audio, receipts, and published transcripts private on Unix', async () => {
   const fixture = await setup()
   const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
@@ -325,4 +356,257 @@ it('attempts each confirmed absent task once per explicit status even when the s
   expect((await finishAudioTranscription(fixture.project, first.receipt, account)).status).toBe('processing')
   expect(submissions).toHaveLength(4)
   expect(submissions.slice(2)).toEqual(submissions.slice(0, 2))
+})
+
+const shortMedia = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'audio') } }
+
+it('requires a signed-in account and a regular source before creating paid work', async () => {
+  const f = await setup()
+  const signedOut: AudioAccount = { ...f.account, status: async () => ({ state: 'signed-out' }) }
+  await expect(startAudioTranscription(f.project, f.input, 'zh', signedOut, config, shortMedia)).rejects.toThrow('Sign in')
+  await expect(startAudioTranscription(f.project, join(f.project, 'source'), 'zh', f.account, config, shortMedia)).rejects.toThrow('not a file')
+  expect(f.counts()).toEqual({ submits: 0, queries: 0 })
+})
+
+it('retains an unfinished receipt for its original account and returns prepared work without resubmission', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  const original = JSON.parse(await readFile(first.receipt, 'utf8')) as Record<string, unknown>
+  delete original.purpose
+  await writeFile(first.receipt, JSON.stringify({ ...original, status: 'prepared' }))
+  const other: AudioAccount = { ...f.account, status: async () => ({ state: 'signed-in', username: 'bob', verified: false }) }
+  await expect(startAudioTranscription(f.project, f.input, 'zh', other, config, shortMedia)).rejects.toThrow('another Muse account')
+  const resumed = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  expect(resumed).toMatchObject({ status: 'uncertain', job_id: first.job_id })
+  expect(resumed).not.toHaveProperty('purpose')
+  expect(f.counts().submits).toBe(1)
+})
+
+it('starts a later version after a terminal receipt and ignores unrelated job-directory files', async () => {
+  const f = await setup()
+  const account: AudioAccount = { ...f.account, submitAudio: async (_file, id) => ({ id, status: 'failed' }) }
+  const first = await startAudioTranscription(f.project, f.input, 'zh', account, config, shortMedia)
+  await writeFile(join(f.project, 'transcript', 'jobs', 'readme.txt'), 'receipt notes')
+  const second = await startAudioTranscription(f.project, f.input, 'zh', account, config, shortMedia)
+  expect(second.receipt).toContain('clip-v2.json')
+  expect(second.job_id).not.toBe(first.job_id)
+  expect(await readFile(join(f.project, 'transcript', 'jobs', 'readme.txt'), 'utf8')).toBe('receipt notes')
+})
+
+it('uses a stable media stem for a source whose extension consumes its basename', async () => {
+  const f = await setup()
+  const source = join(f.project, 'source', '.mp4')
+  await writeFile(source, 'video')
+  const account: AudioAccount = { ...f.account, submitAudio: async (_file, id) => ({ id, status: 'processing' }) }
+  expect((await startAudioTranscription(f.project, source, 'zh', account, config, shortMedia)).receipt).toContain('media-v1.json')
+})
+
+it.each([0, Number.NaN, config.maxDurationSeconds + 1])('refuses a media duration of %s before submission', async (duration) => {
+  const f = await setup()
+  await expect(startAudioTranscription(f.project, f.input, 'zh', f.account, config,
+    { ...shortMedia, probe: async () => duration })).rejects.toThrow('duration exceeds')
+  expect(f.counts().submits).toBe(0)
+})
+
+it.each([0, 7_201, 1.5])('refuses an unsupported chunk duration of %s before extraction', async (chunkSeconds) => {
+  const f = await setup()
+  await expect(startAudioTranscription(f.project, f.input, 'zh', f.account,
+    { ...config, chunkSeconds }, shortMedia)).rejects.toThrow('Invalid cloud audio chunk duration')
+  expect(f.counts().submits).toBe(0)
+})
+
+it.each([0, config.maxAudioBytes + 1])('removes an invalid %s-byte extraction before creating a receipt', async (size) => {
+  const f = await setup()
+  await expect(startAudioTranscription(f.project, f.input, 'zh', f.account, config,
+    { ...shortMedia, encode: async (_source, target) => { await writeFile(target, Buffer.alloc(size)) } })).rejects.toThrow('size limit')
+  expect(await readdir(join(f.project, 'transcript', 'jobs'))).toEqual([])
+  expect(f.counts().submits).toBe(0)
+})
+
+it.each([false, true])('refuses a source changed during %s-part extraction before submission', async (split) => {
+  const f = await setup()
+  await expect(startAudioTranscription(f.project, f.input, 'zh', f.account,
+    { ...config, chunkSeconds: split ? 10 : 600 }, { ...shortMedia, encode: async (source, target) => {
+      await writeFile(target, 'audio'); await writeFile(source, 'changed video')
+    } })).rejects.toThrow('Media changed')
+  expect(await readdir(join(f.project, 'transcript', 'jobs'))).toEqual([])
+  expect(f.counts().submits).toBe(0)
+})
+
+it.each([false, true])('retains a %s-part receipt when the gateway returns another task ID', async (split) => {
+  const f = await setup()
+  const account: AudioAccount = { ...f.account, submitAudio: async () => ({ id: randomUUID(), status: 'processing' }) }
+  await expect(startAudioTranscription(f.project, f.input, 'zh', account,
+    { ...config, chunkSeconds: split ? 10 : 600 }, shortMedia)).rejects.toThrow(split ? 'different part ID' : 'different task ID')
+  expect(await stat(join(f.project, 'transcript', 'jobs', 'clip-v1.json'))).toBeDefined()
+})
+
+it('rejects a receipt with invalid scalar fields without querying the gateway', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as Record<string, unknown>
+  await writeFile(first.receipt, JSON.stringify({ ...receipt, version: 0 }))
+  await expect(finishAudioTranscription(f.project, first.receipt, f.account)).rejects.toThrow('Invalid transcription receipt')
+  expect(f.counts().queries).toBe(0)
+})
+
+it.each(['outside', 'basename', 'media'] as const)('rejects receipt %s paths without querying or rewriting', async (kind) => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as Record<string, unknown>
+  if (kind === 'media') await writeFile(first.receipt, JSON.stringify({ ...receipt, mp3: f.input }))
+  if (kind === 'basename') await writeFile(first.receipt, JSON.stringify({ ...receipt, stem: 'other' }))
+  await expect(finishAudioTranscription(f.project, kind === 'outside' ? f.input : first.receipt, f.account)).rejects.toThrow(kind === 'outside' ? 'inside this project' : 'paths do not match')
+  expect(f.counts().queries).toBe(0)
+})
+
+it('returns a status recovery call when the gateway cannot answer and does not resubmit', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  const account: AudioAccount = { ...f.account, audioStatus: async () => { throw new MuseAsrError('response-invalid') } }
+  const result = await finishAudioTranscription(f.project, first.receipt, account)
+  expect(result).toMatchObject({ status: 'uncertain', error_code: 'response-invalid', resume_status: { method: 'status' } })
+  expect(f.counts().submits).toBe(1)
+})
+
+it('keeps a completed legacy transcript without an SRT and recovers missing output through the original job', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  f.setJob({ id: first.job_id, status: 'complete', segments: [{ start: 0, end: 1, text: 'speech' }] })
+  const done = await finishAudioTranscription(f.project, first.receipt, f.account)
+  if (done.output_txt === undefined || done.output_json === undefined || done.output_srt === undefined) throw new Error('missing published transcript')
+  await rm(done.output_srt)
+  expect(await finishAudioTranscription(f.project, first.receipt, f.account)).not.toHaveProperty('output_srt')
+  await rm(done.output_txt)
+  expect((await finishAudioTranscription(f.project, first.receipt, f.account)).output_srt).toBe(done.output_srt)
+  await rm(done.output_json)
+  expect((await finishAudioTranscription(f.project, first.receipt, f.account)).status).toBe('complete')
+  expect(f.counts().submits).toBe(1)
+})
+
+it.each(['preparing', 'failed'] as const)('resumes %s single-part preparation with its original ID', async (status) => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  f.setJob({ id: first.job_id, status })
+  expect((await finishAudioTranscription(f.project, first.receipt, f.account)).status).toBe('processing')
+  expect(f.counts().submits).toBe(2)
+})
+
+it('does not recreate a confirmed absent job after its local audio has expired', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as Record<string, unknown>
+  if (typeof receipt.mp3 !== 'string') throw new Error('missing staged audio')
+  await rm(receipt.mp3)
+  await writeFile(first.receipt, JSON.stringify({ ...receipt, status: 'prepared' }))
+  const account: AudioAccount = { ...f.account, audioStatus: async () => { throw new MuseAsrError('job-not-found') } }
+  await expect(finishAudioTranscription(f.project, first.receipt, account)).rejects.toMatchObject({ code: 'job-not-found' })
+  expect(f.counts().submits).toBe(1)
+})
+
+it('retains a legacy receipt without a source digest and preserves processing status after a queue refusal', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as Record<string, unknown>
+  delete receipt.sourceSha256
+  await writeFile(first.receipt, JSON.stringify(receipt))
+  const account: AudioAccount = { ...f.account, audioStatus: async () => { throw new MuseAsrError('queue_full') } }
+  expect(await finishAudioTranscription(f.project, first.receipt, account)).toMatchObject({ status: 'processing', error_code: 'queue_full' })
+  expect(f.counts().submits).toBe(1)
+})
+
+it.each([false, true])('rejects a changed gateway ID %s a preparation retry without publishing', async (retry) => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  const before = await readFile(first.receipt, 'utf8')
+  const account: AudioAccount = { ...f.account,
+    audioStatus: async id => ({ id: retry ? id : randomUUID(), status: retry ? 'preparing' : 'processing' }),
+    submitAudio: async () => ({ id: randomUUID(), status: 'processing' }),
+  }
+  await expect(finishAudioTranscription(f.project, first.receipt, account)).rejects.toThrow('different task ID')
+  expect(await readFile(first.receipt, 'utf8')).toBe(before)
+})
+
+it('retains a failed job after its staged audio has expired without attempting a new submit', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as { mp3: string }
+  await rm(receipt.mp3)
+  f.setJob({ id: first.job_id, status: 'failed' })
+  expect((await finishAudioTranscription(f.project, first.receipt, f.account)).status).toBe('failed')
+  expect(f.counts().submits).toBe(1)
+})
+
+async function splitFixture() {
+  const f = await setup()
+  const account: AudioAccount = { ...f.account, submitAudio: async (_file, id) => ({ id, status: 'processing' }) }
+  const first = await startAudioTranscription(f.project, f.input, 'zh', account, { ...config, chunkSeconds: 20 }, shortMedia)
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as {
+    parts: { id: string; mp3: string; offset: number; retentionExpired?: boolean }[]
+  }
+  return { ...f, account, first, receipt }
+}
+
+it.each(['sequence', 'duplicate', 'path'] as const)('rejects a damaged part %s without querying or discarding audio', async (kind) => {
+  const f = await splitFixture()
+  const first = f.receipt.parts[0], last = f.receipt.parts[1]
+  if (first === undefined || last === undefined) throw new Error('missing split parts')
+  if (kind === 'sequence') last.offset = 5
+  if (kind === 'duplicate') { last.id = first.id; last.mp3 = first.mp3 }
+  if (kind === 'path') last.mp3 = f.input
+  await writeFile(f.first.receipt, JSON.stringify(f.receipt))
+  await expect(finishAudioTranscription(f.project, f.first.receipt, f.account)).rejects.toThrow('Invalid transcription part sequence')
+  expect(f.counts().queries).toBe(0)
+  expect(await stat(first.mp3)).toBeDefined()
+})
+
+it.each([false, true])('refuses changed staged audio %s a missing-task preparation retry', async (missing) => {
+  const f = await splitFixture()
+  const part = f.receipt.parts[0]
+  if (part === undefined) throw new Error('missing split part')
+  await writeFile(part.mp3, 'changed audio')
+  const account: AudioAccount = { ...f.account, audioStatus: async (id) => {
+    if (missing) throw new MuseAsrError('job-not-found')
+    return { id, status: 'preparing' }
+  } }
+  await expect(finishAudioTranscription(f.project, f.first.receipt, account)).rejects.toThrow('Staged audio part changed')
+  expect(await readFile(part.mp3, 'utf8')).toBe('changed audio')
+})
+
+it.each([false, true])('refuses a changed part ID %s a retry without publishing', async (retry) => {
+  const f = await splitFixture()
+  const account: AudioAccount = { ...f.account,
+    audioStatus: async id => ({ id: retry ? id : randomUUID(), status: retry ? 'preparing' : 'processing' }),
+    submitAudio: async () => ({ id: randomUUID(), status: 'processing' }),
+  }
+  await expect(finishAudioTranscription(f.project, f.first.receipt, account)).rejects.toThrow('different part ID')
+  await expect(stat(join(f.project, 'transcript', 'raw'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it.each(['silent', 'failed', 'complete'] as const)('combines terminal split results into %s without resubmission', async (status) => {
+  const f = await splitFixture()
+  const firstPart = f.receipt.parts[0]
+  if (firstPart === undefined) throw new Error('missing first split part')
+  const account: AudioAccount = { ...f.account, audioStatus: async id => id === firstPart.id
+    ? { id, status, ...(status === 'complete' ? { segments: [{ start: 0, end: 1, text: 'speech' }] } : {}) }
+    : { id, status: 'silent' } }
+  const result = await finishAudioTranscription(f.project, f.first.receipt, account)
+  expect(result.status).toBe(status)
+  for (const part of f.receipt.parts) await expect(stat(part.mp3)).rejects.toMatchObject({ code: 'ENOENT' })
+  if (status === 'complete') {
+    if (result.output_json === undefined) throw new Error('missing published output')
+    expect(JSON.parse(await readFile(result.output_json, 'utf8'))).toEqual([{ start: 0, end: 1, text: 'speech' }])
+    for (const extension of ['json', 'txt', 'srt']) {
+      await rm(join(f.project, 'transcript', 'raw', `clip-v1.${extension}`))
+      expect((await finishAudioTranscription(f.project, f.first.receipt, account)).status).toBe('complete')
+    }
+  } else await expect(stat(join(f.project, 'transcript', 'raw'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('cleans every prepared part when an extraction produces an oversized chunk', async () => {
+  const f = await setup()
+  await expect(startAudioTranscription(f.project, f.input, 'zh', f.account, { ...config, chunkSeconds: 20 },
+    { ...shortMedia, encode: async (_source, target) => { await writeFile(target, Buffer.alloc(config.maxAudioBytes + 1)) } })).rejects.toThrow('part exceeds cloud limit')
+  expect(await readdir(join(f.project, 'transcript', 'jobs'))).toEqual([])
+  expect(f.counts().submits).toBe(0)
 })

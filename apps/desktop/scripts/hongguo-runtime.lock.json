@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "pythonVersion": "3.11.17",
+  "javaVersion": "17.0.20.1",
+  "cryptoVersion": "3.23.0",
+  "targets": {
+    "mac-arm64": {
+      "python": {
+        "filename": "cpython-3.11.17+20261003-aarch64-apple-darwin-install_only.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.11.17%2B20261003-aarch64-apple-darwin-install_only.tar.gz",
+        "bytes": 27099994,
+        "sha256": "3663b71c18364eccfbad74c4f21f9f6149e40b07329cd776287410cc1da5d612"
+      },
+      "java": {
+        "filename": "OpenJDK17U-jre_aarch64_mac_hotspot_17.0.20.1_1.tar.gz",
+        "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jre_aarch64_mac_hotspot_17.0.20.1_1.tar.gz",
+        "bytes": 42722113,
+        "sha256": "190480874ccceb358cbc840393207f77ac3e63a4c5f8129d0e23e9518b96ad05"
+      },
+      "wheel": {
+        "filename": "pycryptodome-3.23.0-cp37-abi3-macosx_10_9_universal2.whl",
+        "url": "https://files.pythonhosted.org/packages/db/6c/a1f71542c969912bb0e106f64f60a56cc1f0fabecf9396f45accbe63fa68/pycryptodome-3.23.0-cp37-abi3-macosx_10_9_universal2.whl",
+        "bytes": 2495627,
+        "sha256": "187058ab80b3281b1de11c2e6842a357a1f71b42cb1e15bce373f3d238135c27"
+      }
+    },
+    "mac-x64": {
+      "python": {
+        "filename": "cpython-3.11.17+20261003-x86_64-apple-darwin-install_only.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.11.17%2B20261003-x86_64-apple-darwin-install_only.tar.gz",
+        "bytes": 26992271,
+        "sha256": "4338dc0c2b954f20ca6437406db5b806626c69bae3cafeec43f1b7d57dd72a88"
+      },
+      "java": {
+        "filename": "OpenJDK17U-jre_x64_mac_hotspot_17.0.20.1_1.tar.gz",
+        "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jre_x64_mac_hotspot_17.0.20.1_1.tar.gz",
+        "bytes": 37635516,
+        "sha256": "333cb81123c36568586646c73c8fa2326dab8badc43f5ea388a90fff59c9df27"
+      },
+      "wheel": {
+        "filename": "pycryptodome-3.23.0-cp37-abi3-macosx_10_9_universal2.whl",
+        "url": "https://files.pythonhosted.org/packages/db/6c/a1f71542c969912bb0e106f64f60a56cc1f0fabecf9396f45accbe63fa68/pycryptodome-3.23.0-cp37-abi3-macosx_10_9_universal2.whl",
+        "bytes": 2495627,
+        "sha256": "187058ab80b3281b1de11c2e6842a357a1f71b42cb1e15bce373f3d238135c27"
+      }
+    },
+    "win-x64": {
+      "python": {
+        "filename": "cpython-3.11.17+20261003-x86_64-pc-windows-msvc-install_only.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.11.17%2B20261003-x86_64-pc-windows-msvc-install_only.tar.gz",
+        "bytes": 48217207,
+        "sha256": "0f7defa7a0ed99b61e0df0bba5027474711521f1307cc3830c2f456401beeed5"
+      },
+      "java": {
+        "filename": "OpenJDK17U-jre_x64_windows_hotspot_17.0.20.1_1.zip",
+        "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jre_x64_windows_hotspot_17.0.20.1_1.zip",
+        "bytes": 43780109,
+        "sha256": "bc21a93923103cdaac93ee337b0ae4365e739fde36df823dd456bc67c8a9d352"
+      },
+      "wheel": {
+        "filename": "pycryptodome-3.23.0-cp37-abi3-win_amd64.whl",
+        "url": "https://files.pythonhosted.org/packages/54/2f/e97a1b8294db0daaa87012c24a7bb714147c7ade7656973fd6c736b484ff/pycryptodome-3.23.0-cp37-abi3-win_amd64.whl",
+        "bytes": 1799636,
+        "sha256": "c75b52aacc6c0c260f204cbdd834f76edc9fb0d8e0da9fbf8352ef58202564e2"
+      }
+    }
+  },
+  "javaSource": {
+    "filename": "OpenJDK17U-jdk-sources_17.0.20.1_1.tar.gz",
+    "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk-sources_17.0.20.1_1.tar.gz",
+    "bytes": 109272338,
+    "sha256": "21e2a065d244ab048e737f21af5d1fc74daaeb6707de36477ead8db1dca71214"
+  },
+  "sourceFiles": [
+    {
+      "path": "config.json",
+      "bytes": 974,
+      "sha256": "564fbaf76d5318bc661029ff1d2bace77b2a4d969e29db2dfadb9dfddba5d7e8"
+    },
+    {
+      "path": "devicepool.pyc",
+      "bytes": 7440,
+      "sha256": "85299d65916515c032b8e5c4b7920e4f52149099b23d74042aaa878a43c245ba"
+    },
+    {
+      "path": "sign/unidbg-sign.jar",
+      "bytes": 32404581,
+      "sha256": "bcbfb6fae0952435bddf286457d785c1a3f9ba67c83503cf3f87cb34cedb252b"
+    },
+    {
+      "path": "capture/fq_oversea/libmetasec_ml.so",
+      "bytes": 3447432,
+      "sha256": "20d3f8dd8d0d47e4e3c0da0f377eaf69e72a72c8d214ca56e6e7493c65a8fc2d"
+    },
+    {
+      "path": "capture/fq_oversea/ms_16777218.bin",
+      "bytes": 2014,
+      "sha256": "c44b4f1e213490e3518f85fa8dace1e7d52b77d3d360ef06cc27b6562adfb62c"
+    },
+    {
+      "path": "frida/unwrap_spade.pyc",
+      "bytes": 5536,
+      "sha256": "c56d6071a0d339491499ffa8c1c28f7d166d9961a6aa2252825342643a0345d7"
+    },
+    {
+      "path": "frida/extract_keybox_pairs.pyc",
+      "bytes": 11574,
+      "sha256": "c510a62cf432239229c56d54c2bfcabbc297a1f245df431bbdc3463f20bdd35a"
+    },
+    {
+      "path": "frida/offline_decrypt.pyc",
+      "bytes": 5060,
+      "sha256": "01d164943b8b36481ad4f877305c4721ce3e8b9fbebb4964e0adfe61c3e48263"
+    },
+    {
+      "path": "frida/oracle.pyc",
+      "bytes": 23487,
+      "sha256": "c53b6f033cb89b148d35eda8bc93db9da708e87f98ec11fbd9e6d9802137f471"
+    },
+    {
+      "path": "frida/decutil.pyc",
+      "bytes": 13672,
+      "sha256": "3422fac49f14f531e1e0d367e0accfa0e221e16ecd3ebbf69ef184e2747a6ba7"
+    }
+  ],
+  "source": {
+    "filename": "hongguo-source-runtime-1.tgz",
+    "url": "https://github.com/felir7at62co-wq/muse-med/releases/download/hongguo-source-runtime-9869b8571b45/hongguo-source-runtime-1.tgz",
+    "bytes": 32872766,
+    "sha256": "9869b8571b45994cd24d0dd29357b9793db032a4988fef017f740fd58a9b888a"
+  }
+}

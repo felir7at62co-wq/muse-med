@@ -109,8 +109,10 @@ export function auditBgmBatch(selected: BgmBatchRow, context: BgmBatchContext): 
       users.set(id, list)
     }
   }
-  for (const id of distinct) {
-    const episodes = [...(users.get(id) ?? new Set<string>())].sort()
+  const selectedTracks = [...users].filter(([id]) => distinct.includes(id))
+    .sort(([left], [right]) => distinct.indexOf(left) - distinct.indexOf(right))
+  for (const [id, trackUsers] of selectedTracks) {
+    const episodes = [...trackUsers].sort()
     if (episodes.length > limits.maxEpisodesPerTrack) {
       findings.push({ rule: 'R3',
         detail: `曲目 ${id} 出现在 ${String(episodes.length)} 集（${episodes.join('、')}），`
@@ -118,7 +120,7 @@ export function auditBgmBatch(selected: BgmBatchRow, context: BgmBatchContext): 
         fix: `从 ${episodes.slice(limits.maxEpisodesPerTrack).join('、')} 里换掉这首，另选一首情绪接近、本批还没用满的曲子。` })
     }
   }
-  const fresh = distinct.filter(id => (users.get(id) ?? new Set<string>()).size === 1)
+  const fresh = selectedTracks.filter(([, trackUsers]) => trackUsers.size === 1)
   if (fresh.length < limits.freshTracksPerEpisode) {
     findings.push({ rule: 'R4',
       detail: `第 ${episode} 集没有任何一首是本批其它集没用的，用户要求每集至少 ${String(limits.freshTracksPerEpisode)} 首全新曲目。`,
@@ -132,13 +134,12 @@ export function auditBgmBatch(selected: BgmBatchRow, context: BgmBatchContext): 
   }
   for (const [index, segment] of selected.segments.entries()) {
     if (index === 0) continue
-    const nearest = context.boundaries
-      .map(boundary => ({ boundary, distance: Math.abs(boundary - segment.start_seconds) }))
-      .sort((left, right) => left.distance - right.distance)[0]
-    if (nearest === undefined || nearest.distance > limits.boundaryToleranceSeconds) {
+    const nearest = context.boundaries.reduce((closest, boundary) =>
+      Math.abs(boundary - segment.start_seconds) < Math.abs(closest - segment.start_seconds) ? boundary : closest)
+    if (Math.abs(nearest - segment.start_seconds) > limits.boundaryToleranceSeconds) {
       findings.push({ rule: 'R5',
         detail: `第 ${episode} 集的切点 ${segment.start_seconds.toFixed(3)}s 不在任何镜头包边界上`
-          + `${nearest === undefined ? '' : `（最近的是 ${nearest.boundary.toFixed(3)}s）`}。`,
+          + `（最近的是 ${nearest.toFixed(3)}s）。`,
         fix: '把切点移到某个镜头包的起点；段的时间必须与时间线的包边界对齐。' })
     }
   }
@@ -155,12 +156,18 @@ export function segmentInputDurations(
   segments: readonly Pick<BgmPlanSegment, 'start_seconds' | 'end_seconds'>[],
   crossfadeSeconds: number,
 ): number[] {
+  return segments.map((segment, index) => sourceDuration(segment, index, segments.length, crossfadeSeconds))
+}
+
+/** Source duration includes the adjacent half-overlaps for its position in the ordered plan. */
+function sourceDuration(segment: Pick<BgmPlanSegment, 'start_seconds' | 'end_seconds'>,
+  index: number, count: number, crossfadeSeconds: number): number {
   const half = crossfadeSeconds / 2
-  return segments.map((segment, index) => Number((
+  return Number((
     segment.end_seconds - segment.start_seconds
     + (index === 0 ? half : crossfadeSeconds)
-    - (index === segments.length - 1 ? half : 0)
-  ).toFixed(6)))
+    - (index === count - 1 ? half : 0)
+  ).toFixed(6))
 }
 
 /**
@@ -196,10 +203,10 @@ export function validateEpisodePlan(input: BgmEpisodePlan, bodyDurationSeconds: 
   if (Math.abs(expectedStart - bodyDurationSeconds) > EPSILON_SECONDS) {
     throw new Error('BGM 段落必须按顺序连续覆盖正文。')
   }
-  const lengths = segmentInputDurations(input.segments, crossfadeSeconds)
-  if (input.segments.some((segment, index) => {
-    const inputDuration = lengths[index]
-    return inputDuration === undefined || inputDuration <= crossfadeSeconds
+  const segments = input.segments.map((segment, index) => ({ ...segment,
+    inputDurationSeconds: sourceDuration(segment, index, input.segments.length, crossfadeSeconds) }))
+  if (segments.some((segment) => {
+    return segment.inputDurationSeconds <= crossfadeSeconds
       || segment.end_seconds - segment.start_seconds < crossfadeSeconds
   })) {
     throw new Error('BGM 交叉淡化不能长于最短剧情段。')
@@ -207,11 +214,7 @@ export function validateEpisodePlan(input: BgmEpisodePlan, bodyDurationSeconds: 
   return {
     bodyDurationSeconds,
     crossfadeSeconds,
-    segments: input.segments.map((segment, index) => {
-      const inputDurationSeconds = lengths[index]
-      if (inputDurationSeconds === undefined) throw new Error('BGM 段落时长数量不一致。')
-      return { ...segment, inputDurationSeconds }
-    }),
+    segments,
   }
 }
 
@@ -227,9 +230,9 @@ export function appliedGain(meanDb: number): number {
 
 /**
  * Build the complete audio graph for ordered source tracks.
- * @param inputDurations - Source contribution durations before overlaps are removed.
- * @param sourceStarts - Source offsets in seconds.
- * @param gainsDb - Per-source gain in decibels.
+ * @param inputDurations - Dense ordered source contribution durations before overlaps are removed.
+ * @param sourceStarts - Dense source offsets in seconds, with one item per contribution.
+ * @param gainsDb - Dense per-source gains in decibels, with one item per contribution.
  * @param bodyDurationSeconds - Exact output duration.
  * @param crossfadeSeconds - Adjacent overlap duration.
  * @returns An FFmpeg filter-complex graph ending at `[bgmout]`.
@@ -243,12 +246,11 @@ export function buildMixFilter(
 ): string {
   if (inputDurations.length === 0 || sourceStarts.length !== inputDurations.length
     || gainsDb.length !== inputDurations.length) throw new Error('BGM 混音参数数量不一致。')
+  const starts = sourceStarts.map(start => start.toFixed(6))
+  const gains = gainsDb.map(gain => gain.toFixed(1))
   const filters = inputDurations.map((duration, index) => {
-    const sourceStart = sourceStarts[index]
-    const gainDb = gainsDb[index]
-    if (sourceStart === undefined || gainDb === undefined) throw new Error('BGM 混音参数数量不一致。')
-    return `[${index}:a]atrim=start=${sourceStart.toFixed(6)}:duration=${duration.toFixed(6)},`
-      + `asetpts=PTS-STARTPTS,volume=${gainDb.toFixed(1)}dB[s${index}]`
+    return `[${index}:a]atrim=start=${starts[index]}:duration=${duration.toFixed(6)},`
+      + `asetpts=PTS-STARTPTS,volume=${gains[index]}dB[s${index}]`
   })
   let current = 's0'
   for (let index = 1; index < inputDurations.length; index += 1) {

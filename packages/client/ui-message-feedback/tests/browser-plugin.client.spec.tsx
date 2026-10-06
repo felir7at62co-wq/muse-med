@@ -40,7 +40,12 @@ const seeded: MessageFeedbackItem = {
 }
 
 /** Boot the plugin over fake faces; the Remote namespaces record every call. */
-async function bench(options: { recordResult?: unknown; recordCarrier?: unknown; delivery?: FeedbackDelivery } = {}) {
+async function bench(options: {
+  recordResult?: unknown
+  recordCarrier?: unknown
+  recordFailure?: Error
+  delivery?: FeedbackDelivery
+} = {}) {
   const ctx = new Context()
   const calls: { method: string; request: unknown }[] = []
   // The generated face wraps every business result in the carrier envelope.
@@ -67,6 +72,7 @@ async function bench(options: { recordResult?: unknown; recordCarrier?: unknown;
   const sessionFeedback = {
     record: (request: unknown) => {
       calls.push({ method: 'record', request })
+      if (options.recordFailure !== undefined) return Promise.reject(options.recordFailure)
       if (options.recordCarrier !== undefined) return Promise.resolve(options.recordCarrier)
       return carried(options.recordResult ?? { ok: true as const, value: { recorded: true as const } })
     },
@@ -119,6 +125,31 @@ async function bench(options: { recordResult?: unknown; recordCarrier?: unknown;
 }
 
 describe('ui-message-feedback browser plugin', () => {
+  it('keeps unconfirmed Muse feedback in the dialog when delivery throws a non-Error value', async () => {
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- External delivery may reject with an untyped value.
+    const b = await bench({ delivery: { submit: () => Promise.reject('private upstream data') } })
+    await b.fiber.await()
+    const dialog = b.dialogEntry()!.inject!(sid('s1'))
+    b.ctx.feedbackUi.openSession(sid('s1'))
+    await dialog.submit()
+    expect(dialog.hooks.dialog.getSnapshot()).toMatchObject({ failure: 'muse-feedback/unconfirmed', target: { kind: 'session' }, toast: 0 })
+    expect(b.calls.some(call => call.method === 'record')).toBe(false)
+    await b.ctx.fiber.dispose()
+  })
+
+  it('keeps the confirmed Muse receipt even when the local receipt write throws', async () => {
+    const b = await bench({
+      delivery: { submit: async () => ({ ok: true, receiptId: 'receipt-test' }) },
+      recordFailure: new Error('local receipt cannot be saved'),
+    })
+    await b.fiber.await()
+    const dialog = b.dialogEntry()!.inject!(sid('s1'))
+    b.ctx.feedbackUi.openSession(sid('s1'))
+    await dialog.submit()
+    expect(dialog.hooks.dialog.getSnapshot()).toMatchObject({ target: null, failure: null, toast: 1 })
+    expect(b.calls.filter(call => call.method === 'record')).toHaveLength(1)
+    await b.ctx.fiber.dispose()
+  })
   it('routes message and task drafts to the inbox before storing only the receipt locally', async () => {
     const submit = vi.fn<FeedbackDelivery['submit']>().mockResolvedValue({ ok: true, receiptId: 'feedback-123' })
     const b = await bench({ delivery: { submit } })

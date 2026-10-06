@@ -1,9 +1,10 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { apply, inject, name, workspacePipelineToken } from '../src/index.ts'
+import type { Config } from '../src/index.ts'
 import { JubianImageRoutes } from '../src/image.ts'
 import { JubianToken } from '../src/token.ts'
 import { JubianBudgets } from '../src/budget.ts'
@@ -16,14 +17,15 @@ interface Registered {
 }
 
 /** Mount the plugin against a stub `tools` registry and a stub credential store. */
-async function mount(): Promise<{ registered: Registered[]; mounted: unknown[] }> {
+async function mount(options: { config?: Partial<Config>; jobs?: { start: (spec: unknown) => string }; defaultLedger?: boolean } = {})
+  : Promise<{ registered: Registered[]; mounted: unknown[]; root: string }> {
   const registered: Registered[] = []
   const mounted: unknown[] = []
   const ctx = Object.assign(new Context(), {
     plugin: (plugin: unknown) => { mounted.push(plugin) },
     effect: (callback: () => unknown) => callback(),
     on: () => () => {},
-    get: () => undefined,
+    get: (service: string) => service === 'jobs' ? options.jobs : undefined,
     tools: {
       register: (definition: Registered) => {
         registered.push(definition)
@@ -32,11 +34,90 @@ async function mount(): Promise<{ registered: Registered[]; mounted: unknown[] }
     },
     credentials: { resolve: async () => ({ value: 'eyJhbGci.payload.sig', source: 'file' }) },
   })
-  apply(ctx, { ledgerRoot: await mkdtemp(join(tmpdir(), 'jubian-tools-')) })
-  return { registered, mounted }
+  const root = await mkdtemp(join(tmpdir(), 'jubian-tools-'))
+  onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
+  if (options.defaultLedger) {
+    vi.stubEnv('DSH_HOME', root)
+    onTestFinished(() => { vi.unstubAllEnvs() })
+  }
+  apply(ctx, { ...(options.defaultLedger ? {} : { ledgerRoot: root }), workspaceSecrets: false, ...options.config })
+  return { registered, mounted, root }
 }
 
 describe('tool-jubian registration', () => {
+  it('uses the deployment home for an omitted ledger directory and renders the registered budget output', async () => {
+    const { registered, root } = await mount({ defaultLedger: true })
+    const budget = registered.find(tool => tool.name === 'jubian_budget')!
+    expect(await budget.execute({ action: 'read', script_id: 2708 }, {})).toMatchObject({
+      authorization_path: join(root, 'jubian', 'ledger', 'authorization.json'), source: 'unconfigured',
+    })
+  })
+  it.each(['yes', 1, null])('rejects a nonboolean generated-media approval %j at the registered tool schema', async (approval) => {
+    const transport = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('unexpected transport'))
+    onTestFinished(() => { transport.mockRestore() })
+    const { registered, root } = await mount(), storyboard = registered.find(tool => tool.name === 'jubian_storyboard')!
+    await expect(storyboard.execute({ method: 'delete_preview', script_id: 2708, project_dir: root,
+      storyboard_ids: [1], delete_reason: 'User approved card cleanup', authorization_basis: 'Delete card 1',
+      include_generated_media: approval }, {})).rejects.toThrow('invalid arguments')
+    expect(transport).not.toHaveBeenCalled()
+  })
+
+  it.each([{}, { project_dir: '/project' }, { project_dir: '/project', limit_cny: '20' }])
+  ('refuses an incomplete registered budget update %j before reading the project', async (fields) => {
+    const budget = (await mount()).registered.find(tool => tool.name === 'jubian_budget')!
+    await expect(budget.execute({ action: 'update', script_id: 2708, ...fields },
+      { agent: {}, signal: new AbortController().signal }))
+      .rejects.toThrow('live agent')
+  })
+
+  it('starts an owned snatch job, exposes its window and cancels the job hook without leaving a timer', async () => {
+    const jobs: { kind: string; owner: string; run: () => { cancel: () => void; done: Promise<{ status: string }> } }[] = []
+    const { registered } = await mount({ config: { timeoutMs: 1000, imageActiveTimeoutMs: 1000, imageActivePollMs: 100,
+      baseUrl: 'https://workbench.example/', nameSeparator: '｜', seriesLabel: '全剧', assetIndexPath: 'assets/index.json' },
+    jobs: { start: (spec) => {
+      jobs.push(spec as (typeof jobs)[number])
+      return 'owned-snatch-job'
+    } } })
+    const tool = registered.find(tool => tool.name === 'jubian_snatch')!
+    const start_at = new Date(Date.now() + 60000).toISOString(), end_at = new Date(Date.now() + 120000).toISOString()
+    const args = { scope: 'ids', script_ids: [11], start_at, end_at,
+      idempotency_prefix: 'approved-window', authorization_basis: 'User approved ID 11 within this window' }
+    await expect(tool.execute(args, {})).rejects.toThrow('owning Agent')
+    expect(jobs).toEqual([])
+    expect(await tool.execute(args, { agent: { id: 'mock-owner' } })).toMatchObject({ job_id: 'owned-snatch-job', start_at, end_at })
+    expect(jobs[0]).toMatchObject({ kind: 'jubianClaim', owner: 'mock-owner' })
+    const hook = jobs[0]!.run()
+    try { hook.cancel(); expect((await hook.done).status).toBe('killed') }
+    finally { hook.cancel(); await hook.done }
+  })
+
+  it('refuses snatch without a jobs provider and protects registered read calls with credential resolution', async () => {
+    const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(
+      JSON.stringify({ code: 200, data: { rows: [], total: 0 } })))
+    onTestFinished(() => { transport.mockRestore() })
+    const { registered } = await mount()
+    const start_at = new Date(Date.now() + 60000).toISOString(), end_at = new Date(Date.now() + 120000).toISOString()
+    await expect(registered.find(tool => tool.name === 'jubian_snatch')!.execute({ scope: 'ids', script_ids: [11],
+      start_at, end_at, idempotency_prefix: 'window', authorization_basis: 'User approved ID 11' }, {})).rejects.toThrow('jobs provider')
+    expect(await registered.find(tool => tool.name === 'jubian_find')!.execute({ scope: 'mine', name: 'empty' }, {}))
+      .toMatchObject({ matches: [] })
+    await expect(registered.find(tool => tool.name === 'jubian_claim')!.execute({ method: 'inspect', script_id: 11 }, {}))
+      .rejects.toThrow()
+    await expect(registered.find(tool => tool.name === 'jubian_media')!.execute({ method: 'download',
+      media_url: 'https://untrusted.example/image.png', media_kind: 'image', output_path: '/unused.png' }, {})).rejects.toThrow()
+  })
+  it('applies configured readback bounds and index paths before refusing incomplete work', async () => {
+    const transport = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('unexpected transport'))
+    onTestFinished(() => { transport.mockRestore() })
+    const { registered, root } = await mount({ config: {
+      imageActiveTimeoutMs: 1000, imageActivePollMs: 100, assetIndexPath: 'assets/index.json',
+    } })
+    await expect(registered.find(tool => tool.name === 'jubian_video')!.execute({ method: 'image_generate',
+      script_id: 2708, asset_name: 'lead', asset_type: 1, prompt: 'Portrait' }, {})).rejects.toThrow('idempotency_key')
+    await expect(registered.find(tool => tool.name === 'jubian_organize')!.execute({ method: 'index',
+      script_id: 2708, project_dir: root }, {})).rejects.toThrow()
+    expect(transport).not.toHaveBeenCalled()
+  })
   it('declares its identity and the services it needs', () => {
     expect(name).toBe('tool-jubian')
     expect(inject).toEqual(['tools', 'credentials'])

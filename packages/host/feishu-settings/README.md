@@ -31,7 +31,7 @@ Select **Save credentials** after entering an App ID and App Secret. The enable 
 <a id="registration"></a>
 ## Registration
 
-Scan the QR code to register an app instead of entering an existing credential pair. A completed registration saves the returned credentials; a failed registration reports a bounded error code.
+Scan the QR code to register an app instead of entering an existing credential pair. A completed registration saves the returned credentials; a failed registration or credential write reports a bounded error code. A withdrawn scan cannot replace the current scan's status with a late failure.
 
 <a id="restart-sequence"></a>
 ## Restart sequence

@@ -51,31 +51,37 @@ interface RawAnalysis {
 }
 
 /** Recursively list audio files, sorted so an interrupted index resumes predictably. */
-async function listAudio(directory: string): Promise<string[]> {
+async function listAudio(directory: string, signal: AbortSignal): Promise<string[]> {
+  signal.throwIfAborted()
   const found: string[] = []
   const entries = await readdir(directory, { withFileTypes: true })
+  signal.throwIfAborted()
   for (const entry of entries) {
     const full = join(directory, entry.name)
-    if (entry.isDirectory()) found.push(...await listAudio(full))
+    if (entry.isDirectory()) found.push(...await listAudio(full, signal))
     else if (AUDIO_EXTENSIONS.has(extname(entry.name).toLowerCase())) found.push(full)
   }
   return found.sort()
 }
 
-async function loadIndex(path: string): Promise<TrackEmotion[]> {
+async function loadIndex(path: string, signal: AbortSignal): Promise<TrackEmotion[]> {
   try {
-    const parsed: unknown = JSON.parse(await readFile(path, 'utf8'))
+    const parsed: unknown = JSON.parse(await readFile(path, { encoding: 'utf8', signal }))
     return Array.isArray(parsed) ? parsed as TrackEmotion[] : []
-  } catch { return [] }
+  } catch { signal.throwIfAborted(); return [] }
 }
 
-async function saveIndex(path: string, tracks: TrackEmotion[]): Promise<void> {
+async function saveIndex(path: string, tracks: TrackEmotion[], signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
   await mkdir(dirname(path), { recursive: true })
+  signal.throwIfAborted()
+  // An admitted write completes before cancellation is reported.
   await writeFile(path, `${JSON.stringify(tracks, null, 2)}\n`, 'utf8')
+  signal.throwIfAborted()
 }
 
-async function hashFile(path: string): Promise<string> {
-  return `sha256:${createHash('sha256').update(await readFile(path)).digest('hex')}`
+async function hashFile(path: string, signal: AbortSignal): Promise<string> {
+  return `sha256:${createHash('sha256').update(await readFile(path, { signal })).digest('hex')}`
 }
 
 /** Rank by distance to a target point; the scale is the model's own 1–9. */
@@ -102,11 +108,13 @@ export function apply(ctx: Context, config: BgmConfig = {}): void {
   const indexPath = config.indexPath ?? defaultIndexPath()
   const catalog = resolveCatalogConfig(config)
   const lifetime = new AbortController()
+  const pending = new Set<Promise<Record<string, JsonValue>>>()
 
   let worker: EmotionWorker | undefined
 
   /** One process, started at most once, with a dependency handshake before use. */
-  const ensureWorker = async (): Promise<EmotionWorker> => {
+  const ensureWorker = async (signal: AbortSignal): Promise<EmotionWorker> => {
+    signal.throwIfAborted()
     if (python === '') {
       throw new Error('perception-bgm: no usable Python interpreter is configured '
         + '(set pythonExecutable, or the DSH_PERCEPTION_PYTHON environment variable)')
@@ -124,22 +132,30 @@ export function apply(ctx: Context, config: BgmConfig = {}): void {
       ...(config.callTimeoutMs === undefined ? {} : { callTimeoutMs: config.callTimeoutMs }) })
     worker = created
     const ready = await created.start()
+    signal.throwIfAborted()
     if (!ready.ready) {
       throw new Error(`perception-bgm: the worker cannot import its dependencies: ${ready.missing.join('; ')}`)
     }
     return created
   }
 
-  ctx.effect(() => () => { lifetime.abort(); void worker?.dispose() }, 'perception-bgm: worker and downloads')
+  ctx.effect(() => async () => {
+    lifetime.abort(new Error('perception-bgm: plugin unloaded'))
+    try { await worker?.dispose() }
+    finally { await Promise.allSettled([...pending]) }
+  }, 'perception-bgm: worker and operations')
 
-  const analyseOne = async (file: string): Promise<RawAnalysis> => {
-    const active = await ensureWorker()
-    return await active.call('analyse', {
+  const analyseOne = async (file: string, signal: AbortSignal): Promise<RawAnalysis> => {
+    const active = await ensureWorker(signal)
+    signal.throwIfAborted()
+    const result = await active.call('analyse', {
       audio_path: file, weights_path: weights, data_dir: dataDir,
     }) as RawAnalysis
+    signal.throwIfAborted()
+    return result
   }
 
-  ctx.tools.register(defineTool({
+  ctx.effect(() => ctx.tools.register(defineTool({
     name: 'bgm_match',
     description: '在本地索引或部署配置的公开 BGM 库里按情绪选曲。'
       + 'match：给出目标「愉悦度」与「能量」（都用 1–9 的刻度，1=最消极/最平静，9=最积极/最激烈），'
@@ -165,96 +181,110 @@ export function apply(ctx: Context, config: BgmConfig = {}): void {
     },
     timeoutMs: 30 * 60 * 1000,
     async execute(args, exec): Promise<Record<string, JsonValue>> {
-      const networkSignal = (timeoutMs: number): AbortSignal => AbortSignal.any([
-        exec.signal, lifetime.signal, AbortSignal.timeout(timeoutMs),
-      ])
-      switch (args.method) {
-        case 'download': {
-          if (!catalog) throw new Error('download requires a configured catalogUrl')
-          if (typeof args.track_id !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(args.track_id)) {
-            throw new Error('download requires a catalog track_id (sha256:64 lowercase hex)')
-          }
-          return await downloadTrack(catalog, args.track_id, networkSignal(catalog.networkTimeoutMs))
-        }
-        case 'match': {
-          if (typeof args.valence !== 'number' || typeof args.arousal !== 'number'
-            || !Number.isFinite(args.valence) || !Number.isFinite(args.arousal)
-            || args.valence < 1 || args.valence > 9 || args.arousal < 1 || args.arousal > 9) {
-            throw new Error('match requires numeric valence and arousal on the 1–9 scale')
-          }
-          const tracks = catalog ? await loadCatalog(catalog, networkSignal(catalog.networkTimeoutMs)) : await loadIndex(indexPath)
-          if (tracks.length === 0) {
-            throw new Error(catalog ? 'no tracks in the configured BGM catalog'
-              : `no indexed tracks at ${indexPath}; run index on a music directory first`)
-          }
-          const limit = Math.min(Math.max(Math.trunc(args.limit ?? 5), 1), 20)
-          return {
-            target: { valence: args.valence, arousal: args.arousal },
-            evaluated_tracks: tracks.length,
-            candidates: rank(tracks, { valence: args.valence, arousal: args.arousal }, limit),
-            note: 'candidates are ranked by measured distance; choose one yourself.',
-          }
-        }
-
-        case 'index': {
-          if (args.directory === undefined || args.directory.trim() === '') {
-            throw new Error('index requires directory')
-          }
-          const root = resolve(args.directory)
-          const files = await listAudio(root)
-          const tracks = await loadIndex(indexPath)
-          const byPath = new Map(tracks.map(track => [track.path, track]))
-          const failures: { path: string; error: string }[] = []
-          let analysed = 0
-          let unchanged = 0
-
-          for (const file of files) {
-            const info = await stat(file)
-            const known = byPath.get(file)
-            // Cheap pre-filter first: identical size and mtime cannot hide new
-            // content in practice, and this keeps a re-index from reading 200 MB of
-            // audio only to compute hashes it already has.
-            if (known !== undefined && known.bytes === info.size && known.modified_ms === info.mtimeMs) {
-              unchanged += 1
-              continue
+      const signal = AbortSignal.any([exec.signal, lifetime.signal])
+      const operation = async (): Promise<Record<string, JsonValue>> => {
+        signal.throwIfAborted()
+        const networkSignal = (timeoutMs: number): AbortSignal => AbortSignal.any([
+          signal, AbortSignal.timeout(timeoutMs),
+        ])
+        switch (args.method) {
+          case 'download': {
+            if (!catalog) throw new Error('download requires a configured catalogUrl')
+            if (typeof args.track_id !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(args.track_id)) {
+              throw new Error('download requires a catalog track_id (sha256:64 lowercase hex)')
             }
-            const sha256 = await hashFile(file)
-            if (known !== undefined && known.sha256 === sha256) {
-              byPath.set(file, { ...known, bytes: info.size, modified_ms: info.mtimeMs })
-              unchanged += 1
-              continue
-            }
-            try {
-              const analysis = await analyseOne(file)
-              byPath.set(file, { path: file, sha256, bytes: info.size, modified_ms: info.mtimeMs,
-                valence: analysis.valence, arousal: analysis.arousal, moods: analysis.moods })
-              analysed += 1
-            } catch (error) {
-              // One unreadable track must never end the run; it is recorded and skipped.
-              failures.push({ path: file, error: error instanceof Error ? error.message : String(error) })
-            }
-            // Persist after every track so an interruption resumes instead of restarting.
-            await saveIndex(indexPath, [...byPath.values()])
+            return await downloadTrack(catalog, args.track_id, networkSignal(catalog.networkTimeoutMs))
           }
-          const finalTracks = [...byPath.values()]
-          await saveIndex(indexPath, finalTracks)
-          return { scanned: files.length, indexed: finalTracks.length, analysed, unchanged,
-            failures, index_path: indexPath }
-        }
+          case 'match': {
+            if (typeof args.valence !== 'number' || typeof args.arousal !== 'number'
+              || !Number.isFinite(args.valence) || !Number.isFinite(args.arousal)
+              || args.valence < 1 || args.valence > 9 || args.arousal < 1 || args.arousal > 9) {
+              throw new Error('match requires numeric valence and arousal on the 1–9 scale')
+            }
+            const tracks = catalog ? await loadCatalog(catalog, networkSignal(catalog.networkTimeoutMs))
+              : await loadIndex(indexPath, signal)
+            signal.throwIfAborted()
+            if (tracks.length === 0) {
+              throw new Error(catalog ? 'no tracks in the configured BGM catalog'
+                : `no indexed tracks at ${indexPath}; run index on a music directory first`)
+            }
+            const limit = Math.min(Math.max(Math.trunc(args.limit ?? 5), 1), 20)
+            return {
+              target: { valence: args.valence, arousal: args.arousal },
+              evaluated_tracks: tracks.length,
+              candidates: rank(tracks, { valence: args.valence, arousal: args.arousal }, limit),
+              note: 'candidates are ranked by measured distance; choose one yourself.',
+            }
+          }
 
-        case 'inspect': {
-          if (args.audio_path === undefined || args.audio_path.trim() === '') {
-            throw new Error('inspect requires audio_path')
+          case 'index': {
+            if (args.directory === undefined || args.directory.trim() === '') {
+              throw new Error('index requires directory')
+            }
+            const root = resolve(args.directory)
+            const files = await listAudio(root, signal)
+            const tracks = await loadIndex(indexPath, signal)
+            signal.throwIfAborted()
+            const byPath = new Map(tracks.map(track => [track.path, track]))
+            const failures: { path: string; error: string }[] = []
+            let analysed = 0
+            let unchanged = 0
+
+            for (const file of files) {
+              const info = await stat(file)
+              signal.throwIfAborted()
+              const known = byPath.get(file)
+              // Cheap pre-filter first: identical size and mtime cannot hide new
+              // content in practice, and this keeps a re-index from reading 200 MB of
+              // audio only to compute hashes it already has.
+              if (known !== undefined && known.bytes === info.size && known.modified_ms === info.mtimeMs) {
+                unchanged += 1
+                continue
+              }
+              const sha256 = await hashFile(file, signal)
+              signal.throwIfAborted()
+              if (known !== undefined && known.sha256 === sha256) {
+                byPath.set(file, { ...known, bytes: info.size, modified_ms: info.mtimeMs })
+                unchanged += 1
+                continue
+              }
+              try {
+                const analysis = await analyseOne(file, signal)
+                byPath.set(file, { path: file, sha256, bytes: info.size, modified_ms: info.mtimeMs,
+                  valence: analysis.valence, arousal: analysis.arousal, moods: analysis.moods })
+                analysed += 1
+              } catch (error) {
+                signal.throwIfAborted()
+                // One unreadable track must never end the run; it is recorded and skipped.
+                failures.push({ path: file, error: error instanceof Error ? error.message : String(error) })
+              }
+              // Persist after every track so an interruption resumes instead of restarting.
+              await saveIndex(indexPath, [...byPath.values()], signal)
+            }
+            const finalTracks = [...byPath.values()]
+            await saveIndex(indexPath, finalTracks, signal)
+            return { scanned: files.length, indexed: finalTracks.length, analysed, unchanged,
+              failures, index_path: indexPath }
           }
-          const file = resolve(args.audio_path)
-          const analysis = await analyseOne(file)
-          return { path: file, valence: Number(analysis.valence.toFixed(4)),
-            arousal: Number(analysis.arousal.toFixed(4)), moods: analysis.moods,
-            dropped_trailing_samples: analysis.dropped_trailing_samples ?? 0 }
+
+          case 'inspect': {
+            if (args.audio_path === undefined || args.audio_path.trim() === '') {
+              throw new Error('inspect requires audio_path')
+            }
+            const file = resolve(args.audio_path)
+            const analysis = await analyseOne(file, signal)
+            return { path: file, valence: Number(analysis.valence.toFixed(4)),
+              arousal: Number(analysis.arousal.toFixed(4)), moods: analysis.moods,
+              dropped_trailing_samples: analysis.dropped_trailing_samples ?? 0 }
+          }
         }
       }
+      const work = operation()
+      pending.add(work)
+      try { return await work }
+      finally { pending.delete(work) }
     },
-  }))
+  })), 'perception-bgm: model tool')
 }
 
 /** Exposed for diagnostics: where the plugin looks for the emotion head. */

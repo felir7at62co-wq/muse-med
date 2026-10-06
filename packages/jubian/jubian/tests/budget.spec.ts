@@ -50,6 +50,18 @@ async function record(ledger: JubianLedger, input: {
 const AUTHORIZED = { version: 1, projects: { '2708': { limit: '10.00', unit: 'CNY', note: '用户授权' } } }
 
 describe('readAuthorization', () => {
+  it('propagates an unreadable authorization path instead of treating it as absent', async () => {
+    const { authorizationPath } = await fixture()
+    await mkdir(authorizationPath, { recursive: true })
+    await expect(readAuthorization(authorizationPath)).rejects.toMatchObject({ code: 'EISDIR' })
+  })
+
+  it.each(['null', 'false', '[]'])('refuses a nonobject authorization document %s', async (contents) => {
+    const { authorizationPath } = await fixture()
+    await mkdir(join(authorizationPath, '..'), { recursive: true })
+    await writeFile(authorizationPath, contents)
+    await expect(readAuthorization(authorizationPath)).rejects.toThrow('JSON authorization object')
+  })
   it('reads a version 1 authorization', async () => {
     const { authorizationPath } = await fixture(AUTHORIZED)
     const read = await readAuthorization(authorizationPath)
@@ -77,6 +89,46 @@ describe('readAuthorization', () => {
 })
 
 describe('checkBudget', () => {
+  it.each([0, -1, 1.5])('refuses an invalid aggregate request count of %s', async (count) => {
+    const { ledger } = await fixture(AUTHORIZED)
+    await expect(checkBudget({ ledger, method: 'image_generate', scriptId: 2708, count }))
+      .rejects.toThrow('positive safe integer')
+  })
+
+  it.each([-1, 1.5, Number.NaN])('refuses a malformed automatic limit of %s', async (limit) => {
+    const { ledger } = await fixture()
+    const automatic = new JubianLedger({ root: ledger.root, defaultLimitCents: () => limit })
+    await expect(checkBudget({ ledger: automatic, method: 'image_generate', scriptId: 2708,
+      quote: { amount: '1', unit: 'CNY' } })).rejects.toThrow('automatic series limit')
+  })
+
+  it('refuses a non-CNY historical authorization under an automatic CNY limit', async () => {
+    const { ledger } = await fixture({ version: 1, projects: { '2708': { limit: '10.00', unit: 'USD' } } })
+    const automatic = new JubianLedger({ root: ledger.root, defaultLimitCents: () => 1000 })
+    const decision = await checkBudget({ ledger: automatic, method: 'image_generate', scriptId: 2708,
+      quote: { amount: '1', unit: 'USD' } })
+    expect(decision.status).toBe('refused')
+    expect(decision.reason).toContain('历史授权单位')
+  })
+
+  it.each(['one foreign currency', 'mixed currencies'])('refuses incompatible historical accounting: %s', async (scenario) => {
+    const { ledger } = await fixture(AUTHORIZED)
+    await record(ledger, { key: 'usd', scriptId: 2708, amount: '1', unit: 'USD', settle: 'accepted' })
+    if (scenario === 'mixed currencies') {
+      await record(ledger, { key: 'cny', scriptId: 2708, amount: '1', unit: 'CNY', settle: 'accepted' })
+    }
+    const decision = await checkBudget({ ledger, method: 'image_generate', scriptId: 2708,
+      quote: { amount: '1', unit: 'CNY' } })
+    expect(decision.status).toBe('refused')
+    expect(decision.reason).toContain('单位不一致')
+  })
+
+  it('explains the native submission estimate requirement when no price evidence exists', async () => {
+    const { ledger } = await fixture(AUTHORIZED)
+    const decision = await checkBudget({ ledger, method: 'storyboard_native_submit', scriptId: 2708 })
+    expect(decision.status).toBe('refused')
+    expect(decision.reason).toContain('estimate_basis')
+  })
   it('refuses a paid call while no authorization exists', async () => {
     const { ledger, authorizationPath } = await fixture()
     const decision = await checkBudget({ ledger, method: 'image_generate', scriptId: 2708,

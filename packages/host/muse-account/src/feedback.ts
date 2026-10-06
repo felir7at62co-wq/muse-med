@@ -55,7 +55,7 @@ export class MuseFeedbackClient {
 
   /**
    * Capture the current account, verify the target and send optional related visible excerpts.
-   * @param request - Explicit form fields and diagnostics choice.
+   * @param request - Transport-validated target, form fields and diagnostics choice.
    * @returns Confirmed inbox record ID and revision; no automatic retry is made.
    */
   async submit(request: MuseFeedbackRequest): Promise<MuseFeedbackReceipt> {
@@ -70,7 +70,6 @@ export class MuseFeedbackClient {
     let index = messages.length - 1
     if (request.target.kind === 'message') {
       const target = request.target
-      if (typeof target.messageId !== 'string' || !['positive', 'negative'].includes(target.rating)) throw new MuseFeedbackError('invalid-input')
       index = messages.findIndex(message => message.id === target.messageId && message.role === 'assistant')
       if (index < 0) throw new MuseFeedbackError('invalid-input')
     } else {
@@ -127,7 +126,9 @@ export class MuseFeedbackClient {
  * @returns Values to redact; none are sent as diagnostic fields.
  */
 export async function feedbackSecrets(ctx: Context): Promise<readonly string[]> {
-  const secrets = Object.entries(process.env).filter(([key]) => /(?:TOKEN|SECRET|PASSWORD|API_?KEY|COOKIE)/iu.test(key)).map(([, value]) => value ?? '')
+  const secrets = Object.entries(process.env)
+    .filter((entry): entry is [string, string] => /(?:TOKEN|SECRET|PASSWORD|API_?KEY|COOKIE)/iu.test(entry[0]) && typeof entry[1] === 'string')
+    .map(([, value]) => value)
   const credentials = ctx.get('credentials')
   if (!credentials) return secrets
   for (const entry of await credentials.listRecords()) {

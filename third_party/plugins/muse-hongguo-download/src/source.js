@@ -64,21 +64,24 @@ export class SourceCatalog {
     this.request = dependencies.request ?? officialRequest;
     this.sign = dependencies.sign ?? localSigner;
     this.randomIndex = dependencies.randomIndex ?? randomInt;
+    this.signer = dependencies.signer ?? null;
+    this.bootstrap = dependencies.bootstrap ?? null;
     this.loaded = null;
     this.deviceIndex = null;
   }
 
   /** Load only the explicitly configured original legacy directory. */
-  async load() {
+  async load(signal = new AbortController().signal) {
     if (this.loaded) return this.loaded;
     const directory = this.config.legacyAppDir;
-    if (!directory || !isAbsolute(directory)) throw new DownloadError('missing_original_source', '缺少原源：请配置 legacyAppDir 指向原便携包含 config.json、devices.json 的目录；修复覆盖包不含原源');
+    if (!directory || !isAbsolute(directory)) throw new DownloadError('missing_original_source', '本地红果原源运行环境未配置：Muse 内置工具需要包含原源运行时的安装包；独立插件请配置 legacyAppDir（config.json、devices.json）');
+    if (this.bootstrap) await this.bootstrap.ensure(signal);
     let source, devices;
     try {
       source = await jsonFile(join(directory, 'config.json'));
       devices = await jsonFile(join(directory, 'devices.json'));
     } catch (error) {
-      if (error.code === 'ENOENT') throw new DownloadError('missing_original_source', '原源缺少 config.json 或 devices.json；请提供完整 Hongguo-Downloader-Portable.zip');
+      if (error.code === 'ENOENT') throw new DownloadError('missing_original_source', '本地红果原源运行环境不完整：缺少 config.json 或 devices.json；请检查 Muse 安装包运行时或独立插件的 legacyAppDir');
       throw new DownloadError('invalid_original_source', '原源配置无法读取或格式无效');
     }
     if (!record(source) || typeof source.api_host !== 'string' || !record(source.base_query) || !Object.keys(source.base_query).length
@@ -88,16 +91,16 @@ export class SourceCatalog {
     if (api.host !== source.api_host || api.username || api.password) throw new DownloadError('invalid_original_source', '原源 api_host 无效');
     checkedUrl(api.href, 'api', [api.hostname]);
     const signer = this.config.signServer;
-    if (!signer) throw new DownloadError('missing_original_signer', '缺少原签名器：请启动原 runtime/sign/unidbg-sign.jar 并配置 signServer');
-    const signUrl = new URL(signer);
-    if (signUrl.protocol !== 'http:' || signUrl.hostname !== '127.0.0.1' || !signUrl.port || signUrl.username || signUrl.password
-      || signUrl.search || signUrl.hash || (signUrl.pathname !== '/' && signUrl.pathname !== '')) {
+    if (!signer && !this.signer) throw new DownloadError('missing_original_signer', '缺少原签名器：请配置本机 Java 17 和原签名素材，或配置 signServer');
+    const signUrl = signer ? new URL(signer) : null;
+    if (signUrl && (signUrl.protocol !== 'http:' || signUrl.hostname !== '127.0.0.1' || !signUrl.port || signUrl.username || signUrl.password
+      || signUrl.search || signUrl.hash || (signUrl.pathname !== '/' && signUrl.pathname !== ''))) {
       throw new DownloadError('invalid_original_signer', 'signServer 必须是显式端口的 http://127.0.0.1 本地原签名器地址');
     }
     const headers = Object.fromEntries(Object.entries(source.session_headers).filter(([key, value]) => typeof value === 'string' && value
       && !['cookie', 'x-tt-token'].includes(key.toLowerCase())));
     this.deviceIndex ??= this.randomIndex(devices.length);
-    this.loaded = { source, devices, headers, api, signUrl: new URL('/sign', signUrl).href };
+    this.loaded = { source, devices, headers, api, signUrl: signUrl ? new URL('/sign', signUrl).href : null };
     return this.loaded;
   }
 
@@ -121,7 +124,7 @@ export class SourceCatalog {
 
   /** Apply the original JSON body digest and local signer to each HTTPS API request. */
   async apiOnce(path, body, signal, method, params) {
-    const { source, devices, headers, api, signUrl } = await this.load();
+    const { source, devices, headers, api, signUrl } = await this.load(signal);
     const device = devices[this.deviceIndex % devices.length];
     const url = new URL(path, api);
     for (const [key, value] of Object.entries({ ...source.base_query, ...device.query, ...params, _rticket: String(Date.now()) })) {
@@ -130,7 +133,9 @@ export class SourceCatalog {
     const raw = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
     const requestHeaders = { ...headers, 'user-agent': device.user_agent || headers['user-agent'] || 'HongguoDownloader/SourceRebuild',
       'content-type': 'application/json; charset=utf-8', ...(raw ? { 'x-ss-stub': createHash('md5').update(raw).digest('hex').toUpperCase() } : {}) };
-    const signedResponse = await this.sign(signUrl, { url: url.href, headers: requestHeaders }, process.env[this.config.signTokenEnv] || '', signal);
+    const endpoint = this.signer ? await this.signer.ensure(signal)
+      : { url: signUrl, token: process.env[this.config.signTokenEnv] || '' };
+    const signedResponse = await this.sign(endpoint.url, { url: url.href, headers: requestHeaders }, endpoint.token, signal);
     let signed;
     try { signed = JSON.parse((await responseBytes(signedResponse, 128 * 1024, signal)).toString('utf8')); }
     catch (error) { if (error instanceof DownloadError || signal.aborted) throw error; throw new DownloadError('signer', '原签名器返回无效 JSON'); }
@@ -162,7 +167,7 @@ export class SourceCatalog {
     if (!record(video) || !Array.isArray(video.video_list) || !video.video_list.length) throw new DownloadError('incomplete_catalog', '原源没有返回完整剧集列表');
     if (video.series_id !== undefined && String(video.series_id) !== id) throw new DownloadError('series_mismatch', '原源返回了其他剧集，下载已拒绝');
     const count = Number(video.episode_cnt ?? detail.episode_cnt);
-    if (!Number.isSafeInteger(count) || count < 1 || count > this.config.maxEpisodes) throw new DownloadError('unverified_episode_count', '原源未返回有效的声明总集数，不能确认全剧');
+    if (!Number.isSafeInteger(count) || count < 1) throw new DownloadError('unverified_episode_count', '原源未返回有效的声明总集数，不能确认全剧');
     if (video.video_list.length !== count) throw new DownloadError('incomplete_catalog', '原源返回集数与声明总集数不一致，不能下载为全剧');
     const episodes = video.video_list.map(item => {
       const index = Number(item?.vid_index);

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { MuseAccountSection, type MuseAccountInjected, type MuseAccountSectionProps } from '../src/client/MuseAccountSection.tsx'
 import { MuseAccountOnboarding } from '../src/client/MuseAccountOnboarding.tsx'
 import type { MuseAccountStatus, MuseAccountStatusRequest } from '@deepseek-ai/dsh-muse-account/types'
@@ -150,4 +150,112 @@ it('uses Muse sign-in to advance the desktop first-run flow', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'signIn' }))
   await waitFor(() => { expect(complete).toHaveBeenCalledOnce() })
   expect(screen.queryByDisplayValue('private-password')).toBeNull()
+})
+
+it.each([false, true])('restores the page inert state after onboarding (previous=%s)', async (previous) => {
+  const root = document.createElement('main')
+  root.id = 'root'
+  root.inert = previous
+  document.body.append(root)
+  onTestFinished(() => { root.remove() })
+  const complete = vi.fn()
+  const page = render(<MuseAccountOnboarding {...props()} stepId="muse-account" complete={complete} openSection={vi.fn()} />)
+  expect(root.inert).toBe(true)
+  fireEvent.keyDown(await screen.findByRole('dialog'), { key: 'Escape' })
+  expect(complete).not.toHaveBeenCalled()
+  expect(screen.getByRole('dialog')).toBeDefined()
+  fireEvent.click(screen.getByRole('button', { name: 'onboardingLater' }))
+  expect(complete).toHaveBeenCalledOnce()
+  page.unmount()
+  expect(root.inert).toBe(previous)
+  root.remove()
+})
+
+it('advances an existing authenticated account and displays its workspace', async () => {
+  const onSignedIn = vi.fn()
+  const status = vi.fn(async () => ({ ok: true as const, value: { ...SIGNED_IN, workspaceLabel: 'studio' } }))
+  render(<MuseAccountSection {...props({ status })} onSignedIn={onSignedIn} />)
+  expect(await screen.findByText('workspaceNamed')).toBeDefined()
+  expect(onSignedIn).toHaveBeenCalledOnce()
+})
+
+it.each(['resolve', 'reject'] as const)('ignores an initial account request that %s after unmount', async (mode) => {
+  let resolve!: (value: { ok: true; value: MuseAccountStatus }) => void
+  let reject!: (reason: Error) => void
+  const pending = new Promise<{ ok: true; value: MuseAccountStatus }>((yes, no) => { resolve = yes; reject = no })
+  const onSignedIn = vi.fn()
+  const page = render(<MuseAccountSection {...props({ status: () => pending })} onSignedIn={onSignedIn} />)
+  expect(screen.getByText('loading')).toBeDefined()
+  page.unmount()
+  await act(async () => {
+    if (mode === 'resolve') resolve({ ok: true, value: SIGNED_IN })
+    else reject(new Error('private late transport detail'))
+    await pending.catch(() => undefined)
+  })
+  expect(onSignedIn).not.toHaveBeenCalled()
+  expect(screen.queryByText('private late transport detail')).toBeNull()
+})
+
+it.each(['muse-account/rate-limited', 'future-refusal', 'transport'])(
+  'recovers verification after %s without losing the account', async (code) => {
+    const status = vi.fn<MuseAccountInjected['status']>()
+      .mockResolvedValueOnce({ ok: true, value: SIGNED_IN })
+    if (code === 'transport') status.mockRejectedValueOnce(new Error('private wire detail'))
+    else status.mockResolvedValueOnce({ ok: false, code })
+    status.mockResolvedValueOnce({ ok: true, value: SIGNED_IN })
+    render(<MuseAccountSection {...props({ status })} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'verify' }))
+    expect(await screen.findByText(code === 'muse-account/rate-limited' ? 'error.rateLimited' : 'error.generic')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'verify' }))
+    await waitFor(() => { expect(status).toHaveBeenCalledTimes(3) })
+    expect(screen.getByText('accountNamed')).toBeDefined()
+    expect(screen.queryByText('private wire detail')).toBeNull()
+  },
+)
+
+it.each(['muse-account/storage-failed', 'future-refusal', 'transport'])(
+  'keeps the identity when logout returns %s and allows a retry', async (code) => {
+    const logout = vi.fn<MuseAccountInjected['logout']>()
+    if (code === 'transport') logout.mockRejectedValueOnce(new Error('private session cookie'))
+    else logout.mockResolvedValueOnce({ ok: false, code })
+    logout.mockResolvedValueOnce({ ok: true, value: SIGNED_OUT })
+    render(<MuseAccountSection {...props({ status: async () => ({ ok: true, value: SIGNED_IN }), logout })} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'signOut' }))
+    expect(await screen.findByText(code === 'muse-account/storage-failed' ? 'error.storageFailed' : 'error.generic')).toBeDefined()
+    expect(screen.getByText('accountNamed')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'signOut' }))
+    expect(await screen.findByText('signedOut')).toBeDefined()
+    expect(screen.queryByText('private session cookie')).toBeNull()
+  },
+)
+
+it('renders unknown initial and login refusal codes as fixed generic copy', async () => {
+  const status = vi.fn<MuseAccountInjected['status']>()
+    .mockResolvedValueOnce({ ok: false, code: 'future-initial-code' })
+    .mockResolvedValueOnce({ ok: true, value: SIGNED_OUT })
+  render(<MuseAccountSection {...props({ status, login: async () => ({ ok: false, code: 'future-login-code' }) })} />)
+  expect(await screen.findByText('error.generic')).toBeDefined()
+  fireEvent.click(screen.getByRole('button', { name: 'retry' }))
+  fireEvent.change(await screen.findByLabelText('username'), { target: { value: ' writer ' } })
+  fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
+  fireEvent.click(screen.getByRole('button', { name: 'signIn' }))
+  expect(await screen.findByText('error.generic')).toBeDefined()
+  expect(screen.queryByDisplayValue('private-password')).toBeNull()
+})
+
+it('rejects empty and repeated form submissions while one sign-in is pending', async () => {
+  let resolve!: (value: { ok: false; code: string }) => void
+  const login = vi.fn<MuseAccountInjected['login']>(() => new Promise((yes) => { resolve = yes }))
+  render(<MuseAccountSection {...props({ login })} />)
+  const username = await screen.findByLabelText('username'), form = username.closest('form')!
+  fireEvent.submit(form)
+  fireEvent.change(username, { target: { value: 'writer' } })
+  fireEvent.submit(form)
+  expect(login).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
+  fireEvent.submit(form)
+  fireEvent.submit(form)
+  expect(login).toHaveBeenCalledExactlyOnceWith({ username: 'writer', password: 'private-password', registerIfMissing: false })
+  await act(async () => { resolve({ ok: false, code: 'muse-account/invalid-credentials' }) })
+  expect(screen.getByText('error.invalidCredentials')).toBeDefined()
 })

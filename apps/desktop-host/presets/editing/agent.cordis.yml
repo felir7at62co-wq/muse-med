@@ -224,6 +224,8 @@
     signServer: !!js process.env.MUSE_HONGGUO_SIGN_SERVER || ''
     signTokenEnv: MUSE_HONGGUO_SIGN_TOKEN
     pythonExecutable: !!js process.env.MUSE_HONGGUO_PYTHON_PATH || ''
+    javaExecutable: !!js process.env.MUSE_HONGGUO_JAVA_PATH || ''
+    bootstrapDevices: !!js process.env.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'
     ffprobeExecutable: !!js process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || ''
     ffmpegExecutable: !!js process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || ''
 - id: muse-douyin-download

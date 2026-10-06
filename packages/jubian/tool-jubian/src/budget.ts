@@ -54,7 +54,7 @@ function approvedAmounts(text: string): number[] {
   const action = /(?:(?:调整|提高|增加|设置|设|改|定|批准|授权)(?:到|为|成)?|为|是|就是|set\s+(?:to|at)|raise\s+to|is|[=:：])?\s*/
   const amount = /[¥￥]?\s*(\d+(?:\.\d{1,2})?)(?![\d.万亿千百])/
   const pattern = new RegExp(subject.source + action.source + amount.source, 'gi')
-  return [...text.matchAll(pattern)].map(match => budgetCents(match[1] ?? ''))
+  return [...text.matchAll(pattern)].map(match => budgetCents(match.slice(1).join('')))
 }
 
 /**
@@ -80,9 +80,7 @@ export function budgetApproval(messages: readonly Message[], sessionId: string, 
     }
     return currentProject
   })
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index]
-    if (!message) continue
+  for (const [index, message] of [...messages.entries()].reverse()) {
     if (message.role === 'user' && message.source.kind === 'user') {
       const text = content(message)
       if (!/(预算|额度|budget|ceiling|limit)/i.test(text)) continue

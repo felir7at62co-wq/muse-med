@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import Tools from '../../../core/tools/src/index.ts'
 import SystemPrompt from '../../../core/system-prompt/src/index.ts'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { expect, it, vi } from 'vitest'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
 import { DramaSettingsSchema, apply } from '../src/index.ts'
@@ -64,4 +65,19 @@ it('reports a write that did not persist instead of returning a ready root', asy
   const { ctx, home } = await bench()
   vi.spyOn(ctx.settings, 'update').mockResolvedValue(undefined)
   await expect(draftDirectory(ctx.settings, home)).rejects.toThrow('was not saved')
+})
+
+it('saves the supplied root through the loaded tool and renders its actual readback', async () => {
+  const { ctx, home } = await bench()
+  const result = await ctx.tools.execute({ name: 'drama_draft_dir', callId: ToolCallId('save-draft-root'),
+    arguments: { path: home }, signal: new AbortController().signal })
+  expect(result.isError).toBe(false)
+  expect(result.content).toEqual([{ type: 'text', text: JSON.stringify({ status: 'ready', path: home }) }])
+})
+
+it('reports an unavailable owning Settings namespace after its plugin unloads', async () => {
+  const { ctx } = await bench()
+  const entry = ctx.configEditor.entries().find(row => row.options.id === 'drama-settings')
+  await entry?.fiber?.dispose()
+  await expect(draftDirectory(ctx.settings)).rejects.toThrow('Drama settings are unavailable')
 })

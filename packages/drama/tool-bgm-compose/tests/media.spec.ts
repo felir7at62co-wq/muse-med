@@ -12,6 +12,7 @@ import {
   createMediaToolkit,
   createSubprocessChannel,
   publishNoClobber,
+  probeAudio,
   type ProcessChannel,
 } from '../src/media.ts'
 
@@ -28,6 +29,16 @@ async function tempDirectory(): Promise<string> {
 }
 
 describe('createMediaToolkit', () => {
+  it.each(['mean_volume: -inf dB', 'decoder supplied no volume measurement'])('refuses a source with unusable mean volume (%s)', async (stderr) => {
+    const channel: ProcessChannel = { run: async () => ({ code: 0, stdout: '', stderr }) }
+    await expect(createMediaToolkit('ffmpeg', 'ffprobe', channel).meanVolume('silent.mp3', 1, 10))
+      .rejects.toThrow('无法测量')
+  })
+
+  it('refuses an onset that begins at the end of the analyzed window', async () => {
+    const channel: ProcessChannel = { run: async () => ({ code: 0, stdout: '', stderr: 'silence_start: 0\nsilence_end: 4\n' }) }
+    await expect(createMediaToolkit('ffmpeg', 'ffprobe', channel).detectSourceStart('silent.mp3')).rejects.toThrow('没有可用起音')
+  })
   it('uses the first audible onset in the one-to-five-second window', async () => {
     const calls: { command: string; args: readonly string[] }[] = []
     const channel: ProcessChannel = {
@@ -75,7 +86,44 @@ describe('createMediaToolkit', () => {
   })
 })
 
+describe('probeAudio', () => {
+  it.each([
+    ['not-json', '无效 JSON'], ['null', '缺少媒体信息'], ['{}', '缺少媒体信息'],
+    [JSON.stringify({ streams: [null, { codec_type: 'video' }], format: {} }), '没有音频流'],
+    [JSON.stringify({ streams: [{ codec_type: 'audio' }], format: {} }), '音频信息不完整'],
+  ])('rejects an unusable provider document (%s)', async (stdout, message) => {
+    const channel: ProcessChannel = { run: async () => ({ code: 0, stdout, stderr: '' }) }
+    await expect(probeAudio('ffprobe', channel, 'audio.mp3')).rejects.toThrow(message)
+  })
+
+  it('retains a failed probe diagnostic', async () => {
+    const channel: ProcessChannel = { run: async () => ({ code: 2, stdout: '', stderr: 'file not readable' }) }
+    await expect(probeAudio('ffprobe', channel, 'audio.mp3')).rejects.toMatchObject({ code: 2, stderr: 'file not readable' })
+  })
+})
+
 describe('createSubprocessChannel', () => {
+  it.each(['missing', 'stdout-loss', 'stderr-loss', 'signal'] as const)('reports provider %s streams or termination without accepting incomplete output', async (kind) => {
+    const reader = (lossy: boolean) => ({ readFrom: () => ({ text: 'diagnostic', nextOffset: 10, lossy }) })
+    class OutputRuntime extends SubprocessRuntime {
+      resolveExecutable = async () => 'ffmpeg'
+      terminalEnvironment(): never { throw new Error('Unexpected terminal inspection') }
+      spawnTerminal(): never { throw new Error('Unexpected terminal allocation') }
+      spawn(): SubprocessHandle {
+        return { done: Promise.resolve({ exitCode: null, signal: 'SIGTERM' }),
+          collected: { ...kind === 'missing' ? {} : { stdout: reader(kind === 'stdout-loss') }, stderr: reader(kind === 'stderr-loss') },
+          stdin: undefined, stdout: undefined, stderr: undefined, control: undefined,
+          terminate() {}, waitForExit: async () => true }
+      }
+    }
+    const ctx = new Context()
+    try {
+      const channel = createSubprocessChannel(new OutputRuntime(ctx), process.cwd(), 1_000, 100, 1_024)
+      if (kind === 'signal') expect(await channel.run('ffmpeg', [])).toEqual({ code: 127, stdout: 'diagnostic', stderr: 'diagnostic\nterminated by SIGTERM' })
+      else await expect(channel.run('ffmpeg', [])).rejects.toThrow(kind === 'missing' ? '没有返回可收集的输出流' : '超过收集上限')
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('rejects cancellation even when the terminated process exits zero', async () => {
     const controller = new AbortController()
     const reader = { readFrom: () => ({ text: '', nextOffset: 0, lossy: false }) }

@@ -350,7 +350,7 @@ function shotTarget(workshopRoot: string, target: string): 'script' | 'matched' 
   const rel = relative(workshopRoot, target)
   if (rel.length === 0 || rel.startsWith('..') || isAbsolute(rel)) return undefined
   const segments = rel.split(/[\\/]/)
-  const base = (segments.at(-1) ?? '').toLowerCase()
+  const base = rel.slice(Math.max(rel.lastIndexOf('/'), rel.lastIndexOf('\\')) + 1).toLowerCase()
   const inPipelineDir = segments.slice(0, -1)
     .some(segment => ['prompts', 'matches', 'episode_packages'].includes(segment.toLowerCase()))
   if (!inPipelineDir) return undefined

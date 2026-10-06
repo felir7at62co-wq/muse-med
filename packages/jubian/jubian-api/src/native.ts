@@ -427,11 +427,12 @@ export function resolveVideoModel(catalogue: unknown, intent: unknown): Seedance
       }
     }
   }
-  if (matches.length === 0) throw new JubianError('CONTRACT_CHANGED', 'No catalogue row matches video settings')
+  const [match] = matches
+  if (match === undefined) throw new JubianError('CONTRACT_CHANGED', 'No catalogue row matches video settings')
   if (matches.length !== 1) {
     throw new JubianError('CONTRACT_CHANGED', 'Video settings match multiple catalogue selectors; specify one platform and specification')
   }
-  return matches[0] ?? invalid()
+  return match
 }
 
 /**
@@ -474,8 +475,7 @@ export function validatedVideoMaterials(storyboard: Record<string, unknown>, ass
 
   const keys: string[] = []
   const enriched = imageMaterials.map((material, index) => {
-    if (index >= assets.length) invalid()
-    const asset = assets[index] ?? invalid()
+    const asset = assets[index] as Record<string, unknown>
     const assetId = asset.id ?? asset.assetId
     const parentId = material.materialAssetId ?? material.assetId
     if (integer(asset.scriptId) !== scriptId) invalid()
@@ -533,7 +533,8 @@ export function validatedVideoMaterials(storyboard: Record<string, unknown>, ass
 
 /** Read the prompt's ordered `@[name](key)` placeholder keys. */
 function promptKeys(prompt: string): string[] {
-  return [...prompt.matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)].map(match => match[2] ?? '')
+  return [...prompt.matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)]
+    .map(match => match[0].slice(match[0].lastIndexOf('(') + 1, -1))
 }
 
 /** Everything one preview is built from. */
@@ -579,14 +580,12 @@ export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoP
     const assetId = wireText(material.assetId)
     const materialAssetId = material.materialAssetId
     const materialName = wireText(material.fileName ?? material.assetName)
-    const imageUrl = httpUrl(material.materialUrl)
+    const imageUrl = String(material.materialUrl)
     if (assetId === null || !assetId.trim()) invalid()
     if (materialAssetId === undefined || materialAssetId === null || materialAssetId === '') invalid()
     if (materialName === null || !materialName.trim()) invalid()
-    if (imageUrl === null) invalid()
-    if (typeof material.materialKey !== 'string' || !material.materialKey) invalid()
     return { assetId, materialAssetId: integer(materialAssetId),
-      materialKey: material.materialKey, materialName, imageUrl }
+      materialKey: String(material.materialKey), materialName, imageUrl }
   })
   return {
     version: 1,
@@ -811,7 +810,7 @@ export function classifyNewNativeCandidates(candidates: HydratedTask[],
     if (!candidateBelongsTo(candidate, expectation)) continue
     if (candidate.children.length === 0) { pending.push(candidate); continue }
     if (candidate.children.length !== 1) { mismatched.push(candidate); continue }
-    const child = candidate.children[0] ?? invalid()
+    const child = candidate.children[0] as Record<string, unknown>
     const identity = childIdentity(child)
     if (identity === null) { identityLost.push(candidate); continue }
     if (stableJson(identity) !== stableJson(expectation.expectedIdentity)) {
@@ -835,16 +834,16 @@ export function classifyNewNativeCandidates(candidates: HydratedTask[],
   if (exact.length > 1 || (exact.length > 0 && mismatched.length > 0)) return { status: 'reconcile_conflict' }
   if (exact.length > 0 && pending.length > 0) return { status: 'none' }
   if (exact.length === 1) {
-    const matched = exact[0] ?? invalid()
+    const matched = exact[0] as HydratedTask
     return { status: 'matched', taskId: matched.taskId, task: matched.task,
-      child: matched.children[0] ?? invalid() }
+      child: matched.children[0] as Record<string, unknown> }
   }
   if (pending.length > 0) return { status: 'none' }
   if (identityLost.length > 0) {
     if (identityLost.length === 1 && mismatched.length === 0) {
-      const lost = identityLost[0] ?? invalid()
+      const lost = identityLost[0] as HydratedTask
       return { status: 'subject_identity_lost', taskId: lost.taskId, task: lost.task,
-        child: lost.children[0] ?? null }
+        child: lost.children[0] as Record<string, unknown> }
     }
     return { status: 'reconcile_conflict' }
   }
@@ -870,7 +869,7 @@ export function classifyExistingNativeMatches(candidates: HydratedTask[],
   for (const candidate of candidates) {
     if (!candidateBelongsTo(candidate, expectation)) continue
     if (candidate.children.length !== 1) { unsafe = true; continue }
-    const child = candidate.children[0] ?? invalid()
+    const child = candidate.children[0] as Record<string, unknown>
     const identity = childIdentity(child)
     if (identity === null) {
       // A processed child keeps only the provider's own fields. When those contradict the
@@ -890,9 +889,9 @@ export function classifyExistingNativeMatches(candidates: HydratedTask[],
   }
   if (matches.length > 1 || unsafe) return { status: 'reconcile_conflict' }
   if (matches.length === 1) {
-    const matched = matches[0] ?? invalid()
+    const matched = matches[0] as HydratedTask
     return { status: 'matched', taskId: matched.taskId, task: matched.task,
-      child: matched.children[0] ?? invalid() }
+      child: matched.children[0] as Record<string, unknown> }
   }
   return { status: 'none' }
 }

@@ -101,6 +101,35 @@ function sectionEntry(slots: SlotRegistry) {
 afterEach(() => { vi.restoreAllMocks() })
 
 describe('drama-settings browser plugin', () => {
+  it('forwards project budget requests to a composed authorization face without altering their values', async () => {
+    const b = await bench()
+    try {
+      declareSlots(b.slots)
+      const answer = { ok: true as const, value: { script_id: 2708, limit_cents: 500000 } }
+      const read = vi.fn(async () => answer), update = vi.fn(async () => answer)
+      b.ctx.provide('remote.jubianBudget', { read, update })
+      await b.ctx.plugin({ inject: [...inject], apply }).await()
+      const face = sectionEntry(b.slots)?.inject?.() as DramaSettingsSectionInjected | undefined
+      if (!face?.budgetRead || !face.budgetUpdate) throw new Error('Missing budget UI actions')
+      expect(await face.budgetRead(2708)).toBe(answer)
+      expect(await face.budgetUpdate(2708, 500000, 'revision')).toBe(answer)
+      expect(read).toHaveBeenCalledWith(2708)
+      expect(update).toHaveBeenCalledWith(2708, 500000, 'revision')
+    } finally { await b.ctx.fiber.dispose() }
+  })
+
+  it('reports a non-Error image carrier rejection as printable text', async () => {
+    const b = await bench()
+    try {
+      declareSlots(b.slots)
+      b.ctx.provide('remote.jubianImage', { routes: async () => { throw 'carrier closed' } })
+      await b.ctx.plugin({ inject: [...inject], apply }).await()
+      const face = sectionEntry(b.slots)?.inject?.() as DramaSettingsSectionInjected | undefined
+      if (!face?.imageRoutes) throw new Error('Missing image route action')
+      expect(await face.imageRoutes()).toEqual({ status: 'failed', message: 'carrier closed' })
+    } finally { await b.ctx.fiber.dispose() }
+  })
+
   it('returns a maintained carrier failure when project budget operations are not mounted', async () => {
     const b = await bench()
     try {

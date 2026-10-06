@@ -346,14 +346,12 @@ function candidate(config: JsonObject, initial: JsonObject, changes: JsonObject,
     else if (key === 'characters') {
       const characters = records(previous.characters, 'characters')
       for (const row of records(value, 'characters')) {
-        const index = characters.findIndex(existing => existing.character_id === row.character_id)
-        if (index < 0) characters.push({ ...row, ...(row.voice_profile === undefined ? {} : {
+        const existing = characters.find(character => character.character_id === row.character_id)
+        if (existing === undefined) characters.push({ ...row, ...(row.voice_profile === undefined ? {} : {
           voice_profile: mergeVoice(undefined, row.voice_profile),
         }) })
         else {
-          const existing = characters[index]
-          if (!existing) throw new Error('Character record is unavailable.')
-          characters[index] = { ...existing, ...row, ...(row.voice_profile === undefined ? {} : {
+          characters[characters.indexOf(existing)] = { ...existing, ...row, ...(row.voice_profile === undefined ? {} : {
             voice_profile: mergeVoice(existing.voice_profile, row.voice_profile),
           }) }
         }
@@ -407,7 +405,7 @@ function markdown(config: JsonObject): string {
 }
 
 /** Add live authorization data to the model-facing projection without duplicating its editable amount. */
-async function withBudget(value: ProjectBibleResult, reader?: ProjectBudgetReader): Promise<ProjectBibleResult> {
+async function withBudget<T extends ProjectBibleResult>(value: T, reader?: ProjectBudgetReader): Promise<T> {
   const selected = value.status === 'preview' ? value.proposed : value.config
   if (selected.jubian_script_id === undefined) return { ...value, budget: { status: 'unbound' } }
   if (!reader) return { ...value, budget: { status: 'unavailable' } }
@@ -449,7 +447,7 @@ export async function readProjectBible(settings: SettingsForms, directory: strin
  * @returns Candidate config, expected revision, preview fingerprint and affected stages.
  */
 export async function previewProjectBible(settings: SettingsForms, directory: string,
-  changes: JsonObject, reason: string, budget?: ProjectBudgetReader): Promise<ProjectBibleResult> {
+  changes: JsonObject, reason: string, budget?: ProjectBudgetReader): Promise<ProjectBibleResult & { changed_fields: string[] }> {
   const root = await projectRoot(directory), snapshot = await state(root), initial = defaults(settings)
   const proposed = candidate(snapshot.config, initial, changes, reason)
   const fingerprint = digest(JSON.stringify({ root, revision: snapshot.revision, config: proposed.config }))
@@ -510,7 +508,7 @@ export async function updateProjectBible(settings: SettingsForms, directory: str
       throw new Error(`Project JSON committed at revision ${digest(contents)}, but rendering project-bible.md failed. Read current config before retrying.`, { cause: error })
     }
     return await withBudget({ ...result(root, { config: preview.proposed, revision: digest(contents) }, defaults(settings)),
-      status: 'ready', affected_stages: preview.affected_stages, changed_fields: preview.changed_fields ?? [] }, budget)
+      status: 'ready', affected_stages: preview.affected_stages, changed_fields: preview.changed_fields }, budget)
   } finally {
     await lock.close()
     await unlink(lockPath)

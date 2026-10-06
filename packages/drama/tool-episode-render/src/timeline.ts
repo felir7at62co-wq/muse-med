@@ -128,7 +128,7 @@ export function selectBodyClips(timeline: Timeline, lastShot: number): TimelineC
 /**
  * Lay clips out on one continuous clock from their own durations.
  * @param durations - One duration in microseconds per shot, in shot order.
- * @returns The timeline with `start_us` accumulated from zero.
+ * @returns One clip per duration in the same order, with `start_us` accumulated from zero and shot numbers 1..N.
  */
 export function appendClips(durations: readonly number[]): Timeline {
   const clips: TimelineClip[] = []

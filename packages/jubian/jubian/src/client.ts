@@ -233,7 +233,6 @@ export class JubianClient {
   constructor(options: JubianClientOptions) {
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
     const maximum = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES
-    if (typeof options.credential !== 'function') throw new TypeError('Jubian credential resolver must be a function')
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) {
       throw new TypeError(`Jubian timeoutMs must be an integer within 1..${MAX_TIMEOUT_MS}`)
     }

@@ -155,9 +155,10 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
   const prompt = normalizedPrompt(config.prompt)
   const preserved = materials.filter(material => material.materialType === 'audio')
   referenceAudioUrls(preserved)
-  const preservedKeys = preserved.map(material => wireText(material.materialKey))
-  if (preservedKeys.some(key => key === null) || preservedKeys.some(key => keys.includes(key ?? ''))) invalid()
-  const promptKeys = [...new Set([...prompt.matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)].map(match => match[2] ?? ''))]
+  const preservedKeys = preserved.map(material => String(material.materialKey))
+  if (preservedKeys.some(key => keys.includes(key))) invalid()
+  const promptKeys = [...new Set([...prompt.matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)]
+    .map(match => match[0].slice(match[0].lastIndexOf('(') + 1, -1)))]
     .filter(key => !preservedKeys.includes(key))
   if (promptKeys.join('\u0000') !== keys.join('\u0000')) {
     throw new JubianError('INVALID_ARGUMENT', `PRE_PUT_MARKER_MISMATCH: prompt keys=${JSON.stringify(promptKeys)}, selection keys=${JSON.stringify(keys)}; no PUT sent`)
@@ -189,9 +190,9 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
     const parentKey = String(selection.asset_id)
     const rows = rowsByParent.get(parentKey) ?? []
     const assets = assetsById.get(parentKey) ?? []
-    if (rows.length !== 1 || assets.length !== 1) invalid()
-    const row = rows[0] ?? invalid()
-    const asset = assets[0] ?? invalid()
+    const [row] = rows
+    const [asset] = assets
+    if (row === undefined || asset === undefined || rows.length !== 1 || assets.length !== 1) invalid()
     if (integer(row.scriptId) !== scriptId || integer(asset.scriptId) !== scriptId) invalid()
     if (!strictlyUsed(row.isUsed)) invalid()
     if ((wireText(row.hsAssetStatus) ?? '').trim().toLowerCase() !== 'active') invalid()

@@ -62,7 +62,7 @@ export class FeishuLoginError extends Error {
 export interface FeishuLoginOptions {
   /** Registration call, official in production and a fake in tests. */
   readonly register: RegisterAppPort
-  /** Writes the credentials a completed scan produced. */
+  /** Writes the credentials a completed scan produced; rejection records a failure for the current scan. */
   readonly onRegistered: (registration: FeishuRegistration) => Promise<void>
   /** Records a failure code for the page. */
   readonly onFailed?: (code: string) => void
@@ -117,8 +117,8 @@ export class FeishuLoginFlow {
     this.#failure = undefined
     const entry: PendingLogin = { controller: new AbortController() }
     this.#pending = entry
-    let settle: (ticket: FeishuLoginTicket) => void = () => {}
-    let fail: (error: Error) => void = () => {}
+    let settle!: (ticket: FeishuLoginTicket) => void
+    let fail!: (error: Error) => void
     const ready = new Promise<FeishuLoginTicket>((resolve, reject) => {
       settle = resolve
       fail = reject
@@ -172,12 +172,12 @@ export class FeishuLoginFlow {
     try {
       const result = await call
       if (this.#pending !== entry) return
-      this.#pending = undefined
       await this.options.onRegistered({
         appId: result.client_id,
         appSecret: result.client_secret,
         ...(result.user_info?.open_id === undefined ? {} : { registeredBy: result.user_info.open_id }),
       })
+      if (this.#pending === entry) this.#pending = undefined
     } catch (error) {
       if (this.#pending !== entry) return
       this.#pending = undefined

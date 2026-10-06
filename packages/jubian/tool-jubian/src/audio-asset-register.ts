@@ -70,7 +70,7 @@ export async function registerAudioAsset(client: JubianClient, ledger: JubianLed
   const matched = after.filter(asset => asset.name === args.asset_name && asset.url === args.asset_url)
   const created = replayed ? matched : matched.filter(asset => !before.some(old => old.asset_id === asset.asset_id))
   return { replayed, outcome: responseStatus, verified_readback: created.length === 1,
-    created_asset_id: created.length === 1 ? created[0]?.asset_id ?? null : null,
+    created_asset_id: created.length === 1 ? (created[0] as AudioAsset).asset_id : null,
     new_asset_ids: replayed ? [] : created.map(asset => asset.asset_id),
     matching_assets: matched, paid_requests: 0,
     next: created.length === 1

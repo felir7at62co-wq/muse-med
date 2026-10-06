@@ -352,12 +352,8 @@ function imageNext(readback: ImageReadback, assetId: number | null): string {
  * @returns The readback outcome; a timed-out readback is reported, never thrown, because the
  *   paid write was already accepted and the ledger already records it.
  */
-async function awaitGeneratedImage(client: JubianClient, assetId: number | null,
+async function awaitGeneratedImage(client: JubianClient, assetId: number,
   options: ImageMethodOptions): Promise<ImageReadback> {
-  if (assetId === null) {
-    return unread('unverified', '受理响应没有给出可回读的资产 ID，无法确认生成图；'
-      + '用 jubian_asset list 按 asset_name 找到该资产后再读 generated_image。')
-  }
   const now = options.now ?? ((): number => Date.now())
   const sleep = options.sleep
     ?? ((ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms) }))
@@ -401,9 +397,13 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number | null,
 /** Preserve the accepted asset ID in the result when its free readback fails. */
 async function readbackAcceptedImage(client: JubianClient, assetId: number | null,
   options: ImageMethodOptions): Promise<ImageReadback> {
+  if (assetId === null) {
+    return unread('unverified', '受理响应没有给出可回读的资产 ID，无法确认生成图；'
+      + '用 jubian_asset list 按 asset_name 找到该资产后再读 generated_image。')
+  }
   try { return await awaitGeneratedImage(client, assetId, options) }
   catch (error) {
-    return unread('unverified', `计费请求已受理，资产 ID 为 ${assetId ?? '未提供'}，但回读失败：`
+    return unread('unverified', `计费请求已受理，资产 ID 为 ${assetId}，但回读失败：`
       + `${error instanceof Error ? error.message : String(error)}。不要换 key 重投。`)
   }
 }
@@ -439,7 +439,7 @@ function imageIdentity(args: Pick<MethodArgs, 'asset_category' | 'asset_type' | 
   const assetName = args.episode === undefined
     ? need(args.asset_name)
     : composedAssetName(args.episode, need(category, 'asset_category'), need(args.asset_name), naming)
-  if (typeof assetName !== 'string' || !assetName.trim()) throw new JubianError('INVALID_ARGUMENT', 'asset_name')
+  if (!assetName.trim()) throw new JubianError('INVALID_ARGUMENT', 'asset_name')
   return { assetName, assetType }
 }
 
@@ -450,7 +450,7 @@ function preparedImageBatch(args: MethodArgs, naming: Naming, maxItems: number):
   assetName: string
   assetType: number
 }> {
-  if (!Number.isSafeInteger(args.script_id) || (args.script_id ?? 0) <= 0) {
+  if (!Number.isSafeInteger(args.script_id) || (args.script_id as number) <= 0) {
     throw new JubianError('INVALID_ARGUMENT', 'image_generate_batch requires a positive script_id')
   }
   if (!Array.isArray(args.items) || args.items.length < 1 || args.items.length > maxItems) {
@@ -570,9 +570,9 @@ Promise<{ asset_id: number; asset_type: number | null }[]> {
  * confirmation, the irreversible removal, the explicit-category registration
  * and the local reference upload.
  * @param client - Jubian transport.
- * @param ledger - Write-path ledger, used only by the two state-changing methods.
+ * @param ledger - Durable request identities for provider mutations.
  * @param args - Dispatched on `method`.
- * @param deps - Optional seams for the local reference upload.
+ * @param deps - Local reference upload and complete-reference scan options.
  * @returns The requested asset view, keyed by the `method` that asked for it.
  */
 export async function assetMethod(client: JubianClient, ledger: JubianLedger,
@@ -654,10 +654,8 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
       if (assetType === 4) return registerAudioAsset(client, ledger, {
         script_id: positiveInteger(scriptId), asset_name: assetName, asset_url: assetUrl, idempotency_key: args.idempotency_key,
       }, deps.audioReferenceScan ?? resolveAudioReferenceScanOptions())
-      // The provider's own upload-register branch: an existing media URL plus
-      // `isLocal`, and deliberately no modelConfig and no isGenerate, which is
-      // what keeps this off the paid generation path. The captured request and
-      // its reasoning are in the project's `_probe/asset-category-fix-plan.md`.
+      // Existing media registration uses isLocal without modelConfig or
+      // isGenerate; it creates a library entry without starting generation.
       const before = await listedAssets(client, scriptId)
       const result = await writeUnderLedger(ledger, args.idempotency_key, 'asset_register',
         () => ({ scriptId, assetName, assetType, isLocal: 1, url: assetUrl }),
@@ -666,12 +664,12 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
         return { ...result, created_asset_id: null, new_asset_ids: [],
           next: '同一个 idempotency_key 已经登记过，没有重发。用 jubian_asset list 按名字核对那条资产的类别。' }
       }
-      // Identity comes from the list rather than the response body: the capture
-      // records the request, not a response shape to depend on.
+      // The complete before/after lists identify additions independently of the
+      // registration response, which does not reliably carry an asset ID.
       const created = (await listedAssets(client, scriptId))
         .filter(asset => !before.some(seen => seen.asset_id === asset.asset_id) && asset.asset_type === assetType)
       return { ...result,
-        created_asset_id: created.length === 1 ? created[0]?.asset_id ?? null : null,
+        created_asset_id: created.length === 1 ? (created[0] as (typeof created)[number]).asset_id : null,
         new_asset_ids: created.map(asset => asset.asset_id),
         next: created.length === 1
           ? '新资产已登记：它引用你给的图片地址，没有触发生成。费用与状态以账户账单为准，不要仅凭本结果断言免费。'
@@ -778,8 +776,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         for (;;) {
           const index = nextIndex++
           if (index >= prepared.length) return
-          const current = prepared[index]
-          if (current === undefined) return
+          const current = prepared[index] as (typeof prepared)[number]
           const { item, key, assetName, assetType } = current
           const identity = { index, idempotency_key: key, asset_name: assetName,
             asset_type: assetType, requested_parent_asset_id: item.parent_asset_id ?? null }
@@ -815,8 +812,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         for (;;) {
           const index = nextReadback++
           if (index >= results.length) return
-          const result = results[index]
-          if (result === undefined) throw new JubianError('CONTRACT_CHANGED', 'Missing image batch result')
+          const result = results[index] as Record<string, unknown>
           if (result['status'] !== 'returned' || result['outcome'] !== 'accepted'
             || result['replayed'] !== false) continue
           const assetId = typeof result['parent_asset_id'] === 'number' ? result['parent_asset_id'] : null
@@ -845,7 +841,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       let cached: ClientResponse | undefined
       const catalogue = async (): Promise<unknown> => {
         if (deps.imageCatalogue !== undefined) return deps.imageCatalogue
-        cached ??= await client.request({
+        cached = await client.request({
           method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })
         return cached.data
       }
@@ -861,10 +857,11 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         body => client.request({ method: args.parent_asset_id === undefined ? 'POST' : 'PUT',
           path: '/aigc/asset', body: need(body) }),
         () => {
-          const price = readImageDisplayPrice(deps.imageCatalogue ?? cached?.data, selection)
+          const price = readImageDisplayPrice(deps.imageCatalogue ?? (cached as ClientResponse).data, selection)
           return { ...(price.status === 'available' ? { amount: String(price.unit_price) } : {}),
             observedAt: new Date().toISOString() }
         }, { scriptId: need(args.script_id), verifyReplayBody: true })
+      const model = selectors as ImageModelSelectors
       const assetId = result.data === null || result.data === undefined || !Number.isSafeInteger(Number(result.data))
         ? null : Number(result.data)
       const readback = result.replayed
@@ -879,11 +876,10 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       return { replayed: result.replayed, outcome: result.outcome, response_sha256: result.response_sha256,
         budget: result.budget ?? null,
         parent_asset_id: assetId,
-        resolution: selectors?.resolution ?? '',
+        resolution: model.resolution,
         // Which catalogue row was actually bought from, echoed so a price can never
         // be attributed to the wrong platform.
-        model_selection: selectors === undefined ? null
-          : { standard_id: selectors.standardId, platform_id: selectors.platformId },
+        model_selection: { standard_id: model.standardId, platform_id: model.platformId },
         asset_status: readback.status, material_id: readback.material_id, image_url: readback.image_url,
         observed_asset_status: readback.observed_status, waited_ms: readback.waited_ms,
         readback_error: readback.error,
@@ -909,10 +905,10 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           })
         },
         sent => client.request({ method: 'POST', path: '/aigc/storyboard/hdConversion', body: need(sent) }),
-        () => (projectId === undefined ? undefined : { scriptId: projectId }))
+        () => ({ scriptId: projectId as number }))
       // Upscaling is asynchronous and was measured taking minutes, so this
       // returns the submission rather than waiting for the result.
-      return { ...result, accepted_task_id: result.data === undefined ? null : readUpscaleTaskId({ data: result.data }),
+      return { ...result, accepted_task_id: readUpscaleTaskId({ data: result.data }),
         next: '转高清是异步任务，会持续数分钟到十几分钟。不要在这里等待——先做别的，'
           + '之后再用 subtasks 回读该任务的 hd_count / last_task_type / resolution 判断是否转好。' }
     }
@@ -1095,7 +1091,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
           return withGenerationEnabled(current.data, need(args.content_duration_ms))
         },
         body => client.request({ method: 'PUT', path: '/aigc/storyboard', body: need(body) }),
-        () => (projectId === undefined ? undefined : { scriptId: projectId }))
+        () => ({ scriptId: projectId as number }))
       return { ...result }
     }
     case 'select_assets': {
@@ -1139,7 +1135,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
           })
         },
         sent => client.request({ method: 'POST', path: '/aigc/storyboard/subtitleEraser', body: need(sent) }),
-        () => (projectId === undefined ? undefined : { scriptId: projectId }))
+        () => ({ scriptId: projectId as number }))
       return { ...result, accepted_task_id: readSubtitleTaskId({ code: 200, data: result.data }),
         next: '去字幕是异步任务。不要在这里等待——先做别的，之后用 subtasks 回读；只有 subtitle_erased=true 且 video_url 有值才表示当前文件已有成功的去字幕记录。' }
     }

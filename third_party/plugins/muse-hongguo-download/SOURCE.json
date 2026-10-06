@@ -47,5 +47,7 @@
     "frida/decutil.pyc",
     "frida/oracle.pyc",
     "frida/extract_keybox_pairs.pyc"
-  ]
+  ],
+  "desktopRuntimeLock": "apps/desktop/scripts/hongguo-runtime.lock.json",
+  "deviceBootstrap": "original devicepool.pyc, fresh per-install device; saved source device pool excluded"
 }

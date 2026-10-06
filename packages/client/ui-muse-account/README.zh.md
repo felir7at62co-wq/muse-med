@@ -38,7 +38,7 @@ kind: "package-reference"
 <a id="understand-the-implementation"></a>
 ## 实现方式
 
-浏览器包先装载生成的 `museAccount` Remote contribution，再注册本地化文案、设置页、侧栏入口与初次运行登录面板。它仅从 Host 接收限定的状态与错误码；已保存的 cookie 和知识库 bearer 留在 Host 进程。本包不发布运行时不变量伴随插件，因为这些注册可通过其所属的 slot 与 Remote 注册表观察，无需另存状态核对。
+Host 与 Client 分别通过 `tsconfig.host.json` 和 `tsconfig.client.json` 编译；包根配置仅组合这两个程序。浏览器包先装载生成的 `museAccount` Remote contribution，再注册本地化文案、设置页、侧栏入口与初次运行登录面板。它仅从 Host 接收限定的状态与错误码；已保存的 cookie 和知识库 bearer 留在 Host 进程。本包不发布运行时不变量伴随插件，因为这些注册可通过其所属的 slot 与 Remote 注册表观察，无需另存状态核对。
 
 -----
 

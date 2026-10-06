@@ -337,7 +337,16 @@ vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
   readDesktopLoginShellEnvironment: harness.loginShell,
 }))
 vi.mock('../src/runtime-tree.ts', () => ({ readDesktopRuntime: () => ({ release: { version: '1.0.0' } }) }))
-vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile' }) }))
+vi.mock('../src/paths.ts', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/paths.ts')>()
+  return { ...original, resolveDesktopPaths: (): ReturnType<typeof original.resolveDesktopPaths> => ({
+    ...original.resolveDesktopPaths(), profile: 'desktop-test-profile',
+  }) }
+})
+const hongguo = vi.hoisted(() => ({
+  prepare: vi.fn<typeof import('../src/hongguo-runtime.ts').prepareDesktopHongguoEnvironment>(),
+}))
+vi.mock('../src/hongguo-runtime.ts', () => ({ prepareDesktopHongguoEnvironment: hongguo.prepare }))
 // merged: the kept manager class exposes the invariants and profile operations this product's shell uses.
 vi.mock('../src/project-manager.ts', () => ({
   DesktopProjectManager: class {
@@ -428,6 +437,7 @@ beforeEach(() => {
   testAuth.login.mockResolvedValue('cancelled')
   vi.useFakeTimers()
   harness.reset()
+  hongguo.prepare.mockReset().mockResolvedValue({})
   const userData = mkdtempSync(join(tmpdir(), 'dsh-main-user-data-'))
   onTestFinished(() => { rmSync(userData, { recursive: true, force: true }) })
   harness.app.getPath.mockImplementation(name => name === 'userData' ? userData : name === 'appData' ? harness.appData : `desktop-test-${name}`)

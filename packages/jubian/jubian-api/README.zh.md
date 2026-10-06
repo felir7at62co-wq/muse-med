@@ -100,6 +100,8 @@ const body = buildSubtitleEraseRequest('quzimuToB', {
 
 `validateImageRequestInput()` 无需读取实时模型目录，就能校验一次图片请求的项目 ID、资产名称和类别、提示词、参考图 URL，以及可选的父资产 ID。`buildImageRequest()` 在解析目录行前也使用同一套校验，因此批次调用方可以在任何计费提交前拒绝所有本地参数错误的项。
 
+`readReferenceImage()` 从 JPEG、PNG 和 WebP 文件头读取像素尺寸与媒体类型，支持有损 VP8、无损 VP8L 和扩展 VP8X。有损 WebP 的尺寸使用 [RFC 6386](https://www.rfc-editor.org/rfc/inline-errata/rfc6386.html#section-9.1) 定义的小端字段。文件头检查由本库负责，像素解码由调用方负责。
+
 ### 解析视频设置
 
 `resolveVideoModel(catalogue, intent)` 保留精确的 `modelId`、显式 `platformId`、生成类型和时长，宽高比与分辨率匹配不区分大小写。目录必须恰好匹配一项；缺失或歧义会失败，而不是改选其他模型或平台。返回的选择器刷新过期标准标识，并保留 `genNum=1`。原生准备流程使用实时分镜设置；按模型生成应使用 `prepare_video`/`submit_video`。

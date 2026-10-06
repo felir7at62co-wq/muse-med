@@ -19,6 +19,37 @@ const MULTI = [
 ]
 
 describe('resolveImageModel', () => {
+  it.each([{ ratio: '9:16' }, { resolution: '8K' }, { resolution: null }, { width: 0 }, { width: 8193 },
+    { width: 1.5 }, { width: '1280' }, { width: 1281 }, { height: 0 }, { height: 8193 }, { height: 1.5 },
+    { height: '720' }, { height: 721 }, { width: 1280, height: 736 }])
+  ('rejects unsupported image dimensions or specifications %j', (overrides) => {
+    const row = CATALOGUE[0]!
+    expect(() => resolveImageModel([{ ...row, videoStandards: [{ ...row.videoStandards[1], ...overrides }] }])).toThrow()
+  })
+
+  it('reads decimal catalogue selectors and tolerates absent generation selectors', () => {
+    const row = CATALOGUE[0]!
+    expect(resolveImageModel([{ ...row, id: undefined, standardId: '42', genTypes: null }]))
+      .toMatchObject({ standardId: 42, modelGenerationTypeId: null })
+    expect(resolveImageModel([{ ...row, genTypes: [{ type: 3 }] }])).toMatchObject({ modelGenerationTypeId: null })
+    expect(resolveImageModel([{ ...row, genTypes: [{ type: 3, id: null }] }])).toMatchObject({ modelGenerationTypeId: null })
+    expect(resolveImageModel([{ ...row, genTypes: undefined }])).toMatchObject({ modelGenerationTypeId: null })
+  })
+
+  it('refuses duplicate generation selectors and duplicate resolution standards', () => {
+    const row = CATALOGUE[0]!
+    expect(() => resolveImageModel([{ ...row, genTypes: [row.genTypes[0], row.genTypes[0]] }])).toThrow()
+    expect(() => resolveImageModel([{ ...row, videoStandards: [row.videoStandards[1], row.videoStandards[1]] }])).toThrow()
+    expect(() => resolveImageModel(null)).toThrow()
+    expect(() => resolveImageModel([null])).toThrow()
+  })
+
+  it('names incomplete catalogue candidates without inventing their metadata', () => {
+    const row = { modelId: 'gpt-image-2' }
+    expect(() => resolveImageModel([row, row])).toThrow('standardId=? platformId=? unitPrice=? unit=?')
+    expect(() => resolveImageModel([{ ...row, id: '42', unitPrice: '0.5', unit: '' }, row]))
+      .toThrow('standardId=42 platformId=? unitPrice=0.5 unit=?')
+  })
   it('selects the lowest supported resolution with valid 16:9 dimensions', () => {
     expect(resolveImageModel(CATALOGUE)).toEqual({ standardId: 42, modelId: 'gpt-image-2', platformId: 'YU_DIAN',
       modelGenerationTypeId: 7, genType: 3, videoStandardId: 91, resolution: '1K' })
@@ -76,6 +107,25 @@ describe('resolveImageModel against a catalogue listing several gpt-image-2 rows
 })
 
 describe('buildImageRequest', () => {
+  const request = { scriptId: 1, assetName: 'lead', assetType: 1, prompt: 'ready', references: [] }
+
+  it.each([{ scriptId: 0 }, { assetType: 0 }, { parentAssetId: 0 }, { assetName: '' }, { assetName: '\ud800' },
+    { assetName: 'bad\nname' }, { prompt: '' }, { prompt: 'bad\u0000prompt' }])
+  ('refuses unusable local image request fields %j', (overrides) => {
+    expect(() => buildImageRequest({ ...request, ...overrides }, CATALOGUE)).toThrow()
+  })
+
+  it.each(['not-a-url', 'https://media.example/a.png#fragment', 'https://media.example/a b.png',
+    'https://media.example/a\\b.png', 'https://user@media.example/a.png', 'https://:secret@media.example/a.png'])
+  ('refuses unsafe image references %s', (reference) => {
+    expect(() => buildImageRequest({ ...request, references: [reference] }, CATALOGUE)).toThrow()
+  })
+
+  it('accepts multiline prompts while preserving the exact text', () => {
+    const body = buildImageRequest({ ...request, prompt: 'first line\nsecond\tline' }, CATALOGUE)
+    const config = JSON.parse(String(body.modelConfig)) as Record<string, unknown>
+    expect(config.prompt).toBe('first line\nsecond\tline')
+  })
   it('builds the exact create body with a deterministic modelConfig string', () => {
     const body = buildImageRequest({ scriptId: 2708, assetName: '陆沉舟', assetType: 1,
       prompt: '一位中年男性', references: [] }, CATALOGUE)

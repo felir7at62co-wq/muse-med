@@ -110,3 +110,74 @@ it('does not remove a newer login when an older logout completes', async () => {
   await expect(signingOut).resolves.toMatchObject({ state: 'signed-in', username: 'new' })
   expect((await readMuseSession(file, 'https://muse.example'))?.cookie).toBe('__Host-muse=new')
 })
+
+it('distinguishes locally saved identity from a current gateway verification and confirmed logout', async () => {
+  const file = join(await accountHome(), 'session.json')
+  const gateway: MuseAccountGateway = { signIn: async () => '__Host-muse=fixture', register: async () => '__Host-muse=fixture',
+    identity: async () => ({ username: 'writer', workspaceLabel: 'Studio' }), signOut: async () => {} }
+  const account = new MuseAccountController({ baseUrl: 'https://muse.example', sessionFile: file, gateway })
+  expect(await account.status()).toEqual({ state: 'signed-out' })
+  expect(await account.logout()).toEqual({ state: 'signed-out' })
+  await account.login({ username: 'writer', password: 'password', registerIfMissing: false })
+  expect(await account.status()).toEqual({ state: 'signed-in', username: 'writer', workspaceLabel: 'Studio', verified: false })
+  expect(await account.status({ verify: true })).toEqual({ state: 'signed-in', username: 'writer', workspaceLabel: 'Studio', verified: true })
+  expect(await account.logout()).toEqual({ state: 'signed-out' })
+})
+
+it.each([{ username: 'a', password: 'password' }, { username: 'x'.repeat(33), password: 'password' },
+  { username: 'writer', password: '' }, { username: 'writer', password: 'x'.repeat(129) }])(
+  'refuses invalid login field lengths before dispatch (%j)', async (fields) => {
+    const gateway: MuseAccountGateway = { signIn: async () => { throw new Error('credentials dispatched') }, register: async () => '',
+      identity: async () => ({ username: 'writer' }), signOut: async () => {} }
+    const account = new MuseAccountController({ baseUrl: 'https://muse.example', sessionFile: join(await accountHome(), 'session.json'), gateway })
+    await expect(account.login({ ...fields, registerIfMissing: false })).rejects.toMatchObject({ code: 'invalid-input' })
+  },
+)
+
+it.each(['username-taken', 'registration-disabled'] as const)(
+  'keeps password rejection distinct from registration failure (%s)', async (failure) => {
+    const gateway: MuseAccountGateway = { signIn: async () => { throw new MuseGatewayError('invalid-credentials') },
+      register: async () => { throw new MuseGatewayError(failure) }, identity: async () => ({ username: 'writer' }), signOut: async () => {} }
+    const account = new MuseAccountController({ baseUrl: 'https://muse.example', sessionFile: join(await accountHome(), 'session.json'), gateway })
+    await expect(account.login({ username: 'writer', password: 'password', registerIfMissing: true }))
+      .rejects.toMatchObject({ code: failure === 'username-taken' ? 'invalid-credentials' : failure })
+  },
+)
+
+it('retains a saved login when verification fails because the gateway is unavailable', async () => {
+  const file = join(await accountHome(), 'session.json')
+  await writeMuseSession(file, { baseUrl: 'https://muse.example', cookie: '__Host-muse=fixture', username: 'writer' })
+  const account = new MuseAccountController({ baseUrl: 'https://muse.example', sessionFile: file, gateway: {
+    signIn: async () => '', register: async () => '', identity: async () => { throw new MuseGatewayError('gateway-unavailable') }, signOut: async () => {},
+  } })
+  await expect(account.status({ verify: true })).rejects.toMatchObject({ code: 'gateway-unavailable' })
+  expect((await readMuseSession(file, 'https://muse.example'))?.cookie).toBe('__Host-muse=fixture')
+})
+
+it('retains a saved login when an unexpected verification failure occurs', async () => {
+  const file = join(await accountHome(), 'session.json')
+  await writeMuseSession(file, { baseUrl: 'https://muse.example', cookie: '__Host-muse=fixture', username: 'writer' })
+  const account = new MuseAccountController({ baseUrl: 'https://muse.example', sessionFile: file, gateway: {
+    signIn: async () => '', register: async () => '', identity: async () => { throw new Error('unexpected gateway failure') }, signOut: async () => {},
+  } })
+  await expect(account.status({ verify: true })).rejects.toThrow('unexpected gateway failure')
+  expect(await account.status()).toMatchObject({ state: 'signed-in', verified: false })
+})
+
+it('returns the replacement login when an older successful verification finishes', async () => {
+  const file = join(await accountHome(), 'session.json')
+  const baseUrl = 'https://muse.example'
+  await writeMuseSession(file, { baseUrl, cookie: '__Host-muse=old', username: 'old' })
+  let entered!: () => void, release!: () => void
+  const started = new Promise<void>((resolve) => { entered = resolve })
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const account = new MuseAccountController({ baseUrl, sessionFile: file, gateway: {
+    signIn: async () => '', register: async () => '', signOut: async () => {},
+    identity: async () => { entered(); await gate; return { username: 'old' } },
+  } })
+  const checking = account.status({ verify: true })
+  await started
+  await writeMuseSession(file, { baseUrl, cookie: '__Host-muse=new', username: 'new' })
+  release()
+  expect(await checking).toEqual({ state: 'signed-in', username: 'new', verified: false })
+})

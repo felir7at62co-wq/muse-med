@@ -176,7 +176,7 @@ inherited process environment (read-only, highest)
 
 `create_batch` 接收一个项目的 `script_id` 和 `storyboards` 数组，每项独立 key，并提供 `body` 或 `body_path`。工具先读取并检查所有项，再以 `isGenerate=0` 并发 POST；`storyboardBatchConcurrency` 默认 4，范围 1–8；`storyboardBatchMaxItems` 默认 1000，范围 1–1000。结果逐项保留序号、名称、key 与账本结果。部分失败或结果不明时沿用原 key 对账，已成功项不重建。每条创建后回读，再选材和准备整批视频。
 
-已有卡片用 `edit_preview` 提供一个 `storyboard_id`，或用 `edit_batch_preview` 提供含明确 ID 与 `changes` 的 `edits` 数组；两者都要求绑定的 `script_id` 与 `project_dir`。Changes 接受提示词、已存模型设置、`name`、`episode_id` 与 `sort_order`。提示词写入 `modelConfig`；显式修复分集归属时，ID 必须属于当前项目的实时分集目录。核对 before/after 后，用返回的 `preview_path` 与 `idempotency_key=fingerprint` 调用 `edit_apply`。编辑拒绝过期卡片，保留身份、有序素材和其他服务端字段，并按创建批次上限只发免费 `isGenerate=0` PUT。回读核验已存值与保留素材。提示词标记变化返回 `needs_reselect`：保存批准的文本并保留素材。当前账号的本地账本会阻止准备和新提交，直到 `select_assets` 核验映射；同一 key 改名称也需要重新选源。这项记录只作用于当前账本，不跨设备同步。结果不明时用原 preview 和 key 对账；重放不发送请求。编辑应用先校验预览文件的固定路径并拒绝符号链接，再读取预览。真正的新包才用创建。
+已有卡片用 `edit_preview` 提供一个 `storyboard_id`，或用 `edit_batch_preview` 提供含明确 ID 与 `changes` 的 `edits` 数组；两者都要求绑定的 `script_id` 与 `project_dir`。Changes 接受提示词、已存模型设置、`name`、`episode_id` 与 `sort_order`。提示词写入 `modelConfig`；旧卡片缺少配置时，预览和执行会按相同的请求字段顺序补齐。显式修复分集归属时，ID 必须属于当前项目的实时分集目录。核对 before/after 后，用返回的 `preview_path` 与 `idempotency_key=fingerprint` 调用 `edit_apply`。编辑拒绝过期卡片，保留身份、有序素材和其他服务端字段，并按创建批次上限只发免费 `isGenerate=0` PUT。回读核验已存值与保留素材。提示词标记变化返回 `needs_reselect`：保存批准的文本并保留素材。当前账号的本地账本会阻止准备和新提交，直到 `select_assets` 核验映射；同一 key 改名称也需要重新选源。这项记录只作用于当前账本，不跨设备同步。结果不明时用原 preview 和 key 对账；重放不发送请求。编辑应用先校验预览文件的固定路径并拒绝符号链接，再读取预览。真正的新包才用创建。
 
 提示词保存于 `modelConfig.prompt`，不是顶层 `prompt`。按选材顺序在提示词映射中各写一次 `@[名称](material_key)` 引用。`get.material_keys` 表示已经绑定的素材行；新分镜该字段为空不能证明提示词不存在。
 
@@ -188,7 +188,7 @@ inherited process environment (read-only, highest)
 
 ### 账号剧本池认领
 
-`jubian_claim.inspect` 只读检查一个 ID 的账号专属 `can_claim`。`jubian_claim.claim` 要求用户明确授权依据、同一个剧本 ID 和调用方给出的 `idempotency_key`；它读取 `viewRole`、完整扫描池子，只有该 ID 是 `canClaim=1` 才发送一次 POST。组长使用 `/script/center/pool/claim/{id}`，组员使用 `/script/center/pool/memberClaim/{id}`，未知角色直接拒绝。账本在提交前记录无请求体的认领尝试。超时或收据不清楚时按已登录账号 ID 回读；同一账本里给这本换一个 key 不会再发送请求。
+`jubian_claim.inspect` 只读检查一个 ID 的账号专属 `can_claim`。工具 schema 在查询账号前验证认领方法和观察范围。`jubian_claim.claim` 要求用户明确授权依据、同一个剧本 ID 和调用方给出的 `idempotency_key`；它读取 `viewRole`、完整扫描池子，只有该 ID 是 `canClaim=1` 才发送一次 POST。组长使用 `/script/center/pool/claim/{id}`，组员使用 `/script/center/pool/memberClaim/{id}`，未知角色直接拒绝。账本在提交前记录无请求体的认领尝试。超时或收据不清楚时按已登录账号 ID 回读；同一账本里给这本换一个 key 不会再发送请求。
 
 `jubian_snatch` 在明确的 UTC 开止窗口中启动当前进程内的作业。`scope=ids` 要求已授权的 ID 列表；`scope=new_claimable` 启动时先取得完整池子基线，只考虑后来新出现且 `canClaim=1` 的行。每本的 key 由调用方给出的 `idempotency_prefix` 与 ID 构成；作业到窗口或数量上限即停止，逐本结果由 `job_output` 返回。工具不会把列表结果当成授权。随包的 [jubian-snatch skill](../../../apps/desktop-host/skills/jubian-snatch/SKILL.md) 要求 agent 在认领前核对用户原话；工具调用里的授权摘要可供审计，但不是独立的同意证明。Host 重启会结束作业，不会自动恢复。
 
@@ -263,7 +263,7 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 调用 `jubian_model preview`，提供 `project_dir`、与之绑定的 `script_id`、明确的 `scope` 与非空 `changes`。`storyboards` 接受精确远端 `storyboard_ids`；`episodes` 接受远端 `episode_ids`，不是显示集号；`project` 表示全部已有分镜，不涉及未来默认值。未指定的设置保留，选择器 ID 从实时目录重新解析。更换 `modelId` 而未给 `platformId` 时，要求唯一兼容平台，不沿用旧平台。Preview 返回每项 before/after，写入 `<project_dir>/video_tasks/<fingerprint>.model-settings.prepared.json`，不产生任何远端写入。
 
-用户批准范围与设置后，调用 `apply`，提供同一项目绑定、`preview_path` 及等于 `fingerprint` 的 `idempotency_key`。它在第一次写入前拒绝被改动的计划、变化的成员、过期的目标或变化的目录选择器，并在每项 `PUT` 前即时回读目标。请求体从实时目标构造，只改模型设置，并强制 `isGenerate=0`。回读核验设置、提示词、资产身份/顺序与非模型值。错误会停止剩余目标并逐项报告；重放只对已尝试目标进行回读对账，不重发也不续写该计划。已生成媒体与项目未来默认值保持不变。
+用户批准范围与设置后，调用 `apply`，提供同一项目绑定、`preview_path` 及等于 `fingerprint` 的 `idempotency_key`。它在第一次写入前拒绝被改动的计划、变化的成员、过期的目标或变化的目录选择器，并在每项 `PUT` 前即时回读目标。请求体从实时目标构造，只改模型设置，并强制 `isGenerate=0`。回读核验设置、提示词、资产身份/顺序与非模型值。错误会停止剩余目标并逐项报告；重放只对已尝试目标进行回读对账，不重发也不续写该计划。 提供方接受写入但本地 outcome 无法记录时，该目标仍返回 `unknown`，停止剩余目标，重放保留原 key 而不再次写入。已生成媒体与项目未来默认值保持不变。
 
 项目和分集预览在 `excluded_invalid` 中报告异常卡片，只规划有效成员。缺少可用 `episodeId` 的孤立卡片不会阻塞其他分集。精确 `storyboards` 范围仍报告该卡片的错误；用 `edit_preview` 显式修复分集绑定或时长，再重新预览目标模型范围。工具不会把显示用 `episodeCount` 推断为远端分集 ID。
 

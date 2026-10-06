@@ -20,11 +20,11 @@ export function apply(ctx, config = {}) {
   ctx.effect(() => () => client.dispose(), 'hongguo-download: abort and await cleanup');
   const definitions = [
     { name: 'hongguo_download_info', title: '检查红果全剧下载来源', method: 'info', kind: 'read', properties: common,
-      description: '先检查一部或多部红果的声明总集数与连续集号。默认使用用户提供 Hongguo source 的原接口及本机原源/签名器配置；缺原config.json、devices.json或签名器明确失败。配置成功不等于下载验收；不返回Cookie、设备值、签名或媒体直链。公开播放器仅开放的试看集不能充作全剧。' },
+      description: '先检查一部或多部红果的声明总集数与连续集号。默认使用 Hongguo source 的原接口；全集范围按原源真实总集数确定，不另设集数上限。Muse 安装包内置本地运行环境，首次使用初始化本机设备并自动启动原签名器；独立配置缺少原源或运行时明确失败。配置成功不等于下载验收；不返回Cookie、设备值、签名或媒体直链。公开播放器仅开放的试看集不能充作全剧。' },
     { name: 'hongguo_download', title: '下载红果全剧或多部剧', method: 'download', kind: 'write', properties: { ...common,
       episodes: { type: 'array', items: { type: 'integer' }, description: '省略下载完整全集；若提供，对每部剧只下载这些集号，complete可能false。不能将试看当全剧' },
       outputDir: { type: 'string', description: '默认当前会话工作区的downloads目录；可指定工作区内相对目录或绝对路径，拒绝越界或符号链接' } },
-      description: '按 seriesIds 下载一部或多部完整剧集，默认用户提供源码的原红果接口。累积每5集源请求，检查声明总集数、连续集号、每集媒体长度；加密集使用本机原版离线解密模块，所有视频经MP4、ffprobe、完整ffmpeg解码及SHA256检查，全批完成才返回成功与真实文件路径。失败或取消清理新建文件。省略episodes下载全集。默认写当前会话工作区downloads。public只能显式选择；官网未开放的集明确拒绝。缺少原源、签名器或视频运行时明确失败。' },
+      description: '按 seriesIds 下载一部或多部完整剧集，默认用户提供源码的原红果接口。累积每5集源请求，检查声明总集数、连续集号、每集媒体长度；加密集使用本机原版离线解密模块，所有视频经MP4、ffprobe、完整ffmpeg解码及SHA256检查，全批完成才返回成功与真实文件路径。失败或取消清理新建文件。省略episodes按原源真实总集数下载全集，不另设集数上限。默认写当前会话工作区downloads。public只能显式选择；官网未开放的集明确拒绝。Muse 安装包内置原源、Java、Python 和视频运行时，首次使用自动启动本机原签名器；独立配置缺少所需运行时明确失败。' },
   ];
   for (const definition of definitions) {
     ctx.effect(() => ctx.tools.register({

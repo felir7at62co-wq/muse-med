@@ -530,6 +530,13 @@ describe('hydrateSessionFixtureCwd', () => {
     expect(JSON.parse(parsed.arguments)).toEqual({ command: 'view', path: `${cwd}/note.txt` })
     expect(parsed.args).toEqual([parsed.arguments])
   })
+
+  it('retains primitive text, nulls and blank lines while hydrating nested arrays', () => {
+    const fixture = JSON.stringify({ value: null, items: [true, 7, '\"{{cwd}}\"', null], partial: '{\"path\":\"{{cwd}}' }) + '\n  \n'
+    const hydrated = hydrateSessionFixtureCwd(fixture, '/tmp/session')
+    expect(JSON.parse(hydrated.split('\n')[0] ?? '')).toEqual({ value: null, items: [true, 7, '\"/tmp/session\"', null], partial: '{\"path\":\"/tmp/session' })
+    expect(hydrated.endsWith('\n  \n')).toBe(true)
+  })
 })
 
 describe('sessionFixtureNames', () => {

@@ -330,3 +330,14 @@ it('finishes the Muse model step when a provider is already usable', async () =>
   await waitFor(() => { expect(h.complete).toHaveBeenCalledOnce() })
   expect(screen.queryByRole('dialog')).toBeNull()
 })
+
+it('offers a fresh model check after the provider catalog was unavailable', async () => {
+  const h = harness({ providersFailure: 'private transport failure' })
+  render(<MuseModelCheck {...h.props} />)
+  expect(await screen.findByText(en.museModelCheckUnavailable)).toBeDefined()
+  expect(screen.queryByText('private transport failure')).toBeNull()
+  const load = vi.spyOn(h.controller, 'load')
+  fireEvent.click(screen.getByRole('button', { name: en.museModelRetry }))
+  expect(load).toHaveBeenCalledOnce()
+  await waitFor(() => { expect(screen.getByText(en.museModelCheckUnavailable)).toBeDefined() })
+})

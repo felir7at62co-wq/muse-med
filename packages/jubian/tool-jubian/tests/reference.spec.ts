@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { uploadAudioReferenceMethod, uploadReferenceMethod } from '../src/reference.ts'
 
 const FRONTEND_HTML = '<html><script src="/static/js/app.abc123.js"></script></html>'
@@ -41,7 +41,7 @@ interface StubRequest {
 }
 
 /** A transport that serves the workbench bundle and records the object PUT. */
-function transport(options: { status?: number; failBundle?: boolean } = {}): {
+function transport(options: { status?: number; failBundle?: boolean; failScript?: boolean } = {}): {
   fetch: typeof fetch
   uploads: Recorded[]
   bundleLoads: number
@@ -57,6 +57,7 @@ function transport(options: { status?: number; failBundle?: boolean } = {}): {
     }
     if (target.endsWith('/static/js/app.abc123.js')) {
       state.bundleLoads += 1
+      if (options.failScript) return new Response('missing script', { status: 503 })
       return new Response(APP_JS, { status: 200 })
     }
     const body = init?.body
@@ -78,7 +79,50 @@ async function file(name: string, bytes: Uint8Array): Promise<string> {
 }
 
 describe('upload_reference', () => {
-  it('uploads a measured short PCM voice file without an image asset or a generation task', async () => {
+  it.each([{}, { audio_path: '' }, { audio_path: ' ' }])('rejects an absent voice path before bundle reads: %j', async (args) => {
+    const stub = transport()
+    await expect(uploadAudioReferenceMethod(args, { fetch: stub.fetch })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(stub.bundleLoads).toBe(0)
+  })
+
+  it('uses the default transport for an aligned image and refuses an unreadable script', async () => {
+    const path = await file('aligned.png', pngHeader(1024, 1024)), stub = transport()
+    const global = vi.spyOn(globalThis, 'fetch').mockImplementation(stub.fetch)
+    try {
+      expect(await uploadReferenceMethod({ image_path: path })).toMatchObject({ reencoded: false })
+      expect(stub.uploads).toHaveLength(1)
+    } finally { global.mockRestore() }
+    await expect(uploadReferenceMethod({ image_path: path }, { fetch: transport({ failScript: true }).fetch }))
+      .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+  })
+
+  it('contains frontend, response-body and object transport failures without uploading twice', async () => {
+    const path = await file('aligned.png', pngHeader(1024, 1024))
+    const rejected: typeof fetch = async () => { throw new Error('offline') }
+    await expect(uploadReferenceMethod({ image_path: path }, { fetch: rejected }))
+      .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+    const unreadable: typeof fetch = async () => new Response(new ReadableStream({
+      start(controller) { controller.error(new Error('body disconnected')) },
+    }))
+    await expect(uploadReferenceMethod({ image_path: path }, { fetch: unreadable }))
+      .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+    const stub = transport(), requests: string[] = []
+    const failingPut: typeof fetch = async (input, init) => {
+      requests.push(init?.method ?? 'GET')
+      if (init?.method === 'PUT') throw new Error('connection closed')
+      return await stub.fetch(input, init)
+    }
+    await expect(uploadReferenceMethod({ image_path: path }, { fetch: failingPut }))
+      .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+    expect(requests).toEqual(['GET', 'GET', 'PUT'])
+    const cancellingPut: typeof fetch = async (input, init) => init?.method === 'PUT'
+      ? new Response(new ReadableStream({ cancel() { throw new Error('cancel disconnected') } }), { status: 403 })
+      : await stub.fetch(input, init)
+    await expect(uploadReferenceMethod({ image_path: path }, { fetch: cancellingPut }))
+      .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+  })
+
+  it.each(['injected', 'default'])('uploads a measured short PCM voice file with %s transport and clock', async (mode) => {
     const wave = Buffer.alloc(44 + 32000)
     wave.write('RIFF', 0); wave.writeUInt32LE(wave.length - 8, 4); wave.write('WAVEfmt ', 8)
     wave.writeUInt32LE(16, 16); wave.writeUInt16LE(1, 20); wave.writeUInt16LE(1, 22)
@@ -86,7 +130,10 @@ describe('upload_reference', () => {
     wave.writeUInt16LE(2, 32); wave.writeUInt16LE(16, 34); wave.write('data', 36)
     wave.writeUInt32LE(32000, 40)
     const stub = transport()
-    const result = await uploadAudioReferenceMethod({ audio_path: await file('voice.wav', wave) }, { fetch: stub.fetch })
+    const global = vi.spyOn(globalThis, 'fetch').mockImplementation(stub.fetch)
+    const result = await uploadAudioReferenceMethod({ audio_path: await file('voice.wav', wave) },
+      mode === 'injected' ? { fetch: stub.fetch, now: () => new Date('2026-09-20T10:11:12Z') } : {})
+      .finally(() => { global.mockRestore() })
     expect(stub.uploads).toHaveLength(1)
     expect(stub.uploads[0]?.url).toContain('/prod/sys-material-video/')
     expect(result).toMatchObject({ materialType: 'audio', audioDuration: 2, duration_verified: true, paidRequests: 0 })

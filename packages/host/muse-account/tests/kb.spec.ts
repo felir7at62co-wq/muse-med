@@ -8,7 +8,7 @@ import { writeMuseSession } from '../src/session.ts'
 const { mockConnect, mockCallTool, mockClose } = vi.hoisted(() => ({
   mockConnect: vi.fn<(_transport: unknown, _options?: { signal?: AbortSignal }) => Promise<void>>(),
   mockCallTool: vi.fn<(_params: unknown, _options?: { signal?: AbortSignal }) => Promise<{
-    content: { type: 'text'; text: string }[]
+    content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }>
     isError?: boolean
   }>>(),
   mockClose: vi.fn<() => Promise<void>>(),
@@ -179,4 +179,88 @@ it.each([
   mockClose.mockResolvedValue(undefined)
   await expect(callMuseKbTool('https://muse.example/api/kb/mcp', 'bearer', 'wiki_write_page', {}, 15_000))
     .rejects.toMatchObject({ code })
+})
+
+async function signedReader(fetcher: typeof fetch, text = 'safe text', error = false) {
+  const home = await mkdtemp(join(tmpdir(), 'muse-kb-response-')); homes.push(home)
+  const sessionFile = join(home, 'session.json')
+  await writeMuseSession(sessionFile, { baseUrl: 'https://muse.example', cookie: '__Host-muse=fixture', username: 'writer' })
+  const call = vi.fn(async () => ({ content: [{ type: 'text' as const, text }], ...(error ? { isError: true } : {}) }))
+  return { reader: createMuseKbReader({ baseUrl: 'https://muse.example', sessionFile, requestTimeoutMs: 1000, fetcher, callTool: call }), call }
+}
+const access = () => ({ url: 'https://muse.example/api/kb/mcp', token: 'fixture-bearer', expiresAt: Date.now() + 60000 })
+
+it.each([401, 403, 503, 500])('maps access exchange status %s without exposing the response body', async (status) => {
+  const { reader, call } = await signedReader(async () => new Response('PRIVATE_GATEWAY_DETAIL', { status }))
+  await expect(reader.read('source:one')).rejects.toMatchObject({ code: status === 401 ? 'sign-in-required'
+    : status === 403 ? 'access-denied' : status === 503 ? 'kb-unavailable' : 'kb-rejected' })
+  expect(call).not.toHaveBeenCalled()
+})
+
+it.each(['network', 'json'] as const)('bounds access exchange %s failures', async (failure) => {
+  const { reader, call } = await signedReader(async () => {
+    if (failure === 'network') throw new Error('PRIVATE_GATEWAY_DETAIL')
+    return new Response('PRIVATE_INVALID_JSON')
+  })
+  await expect(reader.search('opening')).rejects.toMatchObject({ code: failure === 'network' ? 'kb-unavailable' : 'kb-rejected' })
+  expect(call).not.toHaveBeenCalled()
+})
+
+it.each([null, [], 'bad', { url: 7 }, { token: 7 }, { token: '' }, { token: 'x'.repeat(4097) },
+  { expiresAt: 'tomorrow' }, { expiresAt: 1.5 }, { expiresAt: 0 }, { url: 'invalid' },
+  { url: 'https://user:password@muse.example/api/kb/mcp' }, { url: 'https://muse.example/foreign' },
+  { url: 'https://muse.example/api/kb/mcp?token=private' }, { url: 'https://muse.example/api/kb/mcp#fragment' }])(
+  'rejects malformed, expired or credential-bearing access metadata (%j)', async (invalid) => {
+    const { reader, call } = await signedReader(async () => Response.json(typeof invalid === 'object' && invalid !== null && !Array.isArray(invalid)
+      ? { ...access(), ...invalid } : invalid))
+    await expect(reader.search('opening')).rejects.toMatchObject({ code: 'kb-rejected' })
+    expect(call).not.toHaveBeenCalled()
+  },
+)
+
+it.each(['bearer', 'oversized', 'error'] as const)('rejects unsafe remote content before model presentation (%s)', async (kind) => {
+  const { reader } = await signedReader(async () => Response.json(access()), kind === 'bearer' ? 'fixture-bearer'
+    : kind === 'oversized' ? 'x'.repeat(131073) : 'private remote failure', kind === 'error')
+  await expect(reader.search('opening')).rejects.toMatchObject({ code: 'kb-rejected' })
+})
+
+it('checks source identifiers, pagination, search bounds and ingest batch size before access exchange', async () => {
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json(access()))
+  const { reader } = await signedReader(fetcher)
+  for (const query of ['', ' ', 'x'.repeat(201)]) await expect(reader.search(query)).rejects.toMatchObject({ code: 'kb-rejected' })
+  for (const limit of [0, 21, 1.5]) await expect(reader.search('opening', limit)).rejects.toMatchObject({ code: 'kb-rejected' })
+  for (const id of ['', 'x'.repeat(513)]) await expect(reader.read(id)).rejects.toMatchObject({ code: 'kb-rejected' })
+  await expect(reader.read('source:one', 1.5)).rejects.toMatchObject({ code: 'kb-rejected' })
+  for (const id of ['', 'x'.repeat(257)]) await expect(reader.readOpening(id)).rejects.toMatchObject({ code: 'kb-rejected' })
+  await expect(reader.readOpening('source:one', 24000)).rejects.toMatchObject({ code: 'kb-rejected' })
+  await expect(reader.ingestScript([])).rejects.toMatchObject({ code: 'kb-rejected' })
+  await expect(reader.ingestScript(Array.from({ length: 13 }, () => ({ title: 'Episode', text: 'Reviewed', source: 'project/episode', reviewed: true as const }))))
+    .rejects.toMatchObject({ code: 'kb-rejected' })
+  expect(fetcher).not.toHaveBeenCalled()
+  await reader.search('opening', 2)
+  await reader.readOpening('source:one', 6000)
+  expect(fetcher).toHaveBeenCalledTimes(2)
+})
+
+it.each(['Account login is required for private and project Wiki.', 'Account Wiki is not configured.'])('maps bounded Wiki deployment errors (%s)', async (text) => {
+  mockConnect.mockResolvedValue(undefined); mockClose.mockResolvedValue(undefined)
+  mockCallTool.mockResolvedValue({ isError: true, content: [{ type: 'text', text }] })
+  await expect(callMuseKbTool('https://muse.example/api/kb/mcp', 'bearer', 'wiki_status', {}, 1000))
+    .rejects.toMatchObject({ code: text.includes('login') ? 'sign-in-required' : 'kb-unavailable' })
+})
+
+it.each(['legacy', 'multiple', 'image', 'oversized'] as const)('rejects unsupported remote result content (%s)', async (kind) => {
+  mockConnect.mockResolvedValue(undefined); mockClose.mockResolvedValue(undefined)
+  mockCallTool.mockResolvedValue(kind === 'image' ? { content: [{ type: 'image', data: 'AQ==', mimeType: 'image/png' }] }
+    : { isError: true, content: kind === 'multiple' ? [{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }]
+      : [{ type: 'text', text: kind === 'oversized' ? 'x'.repeat(2049) : 'PRIVATE_UNTRUSTED_DETAIL' }] })
+  await expect(callMuseKbTool('https://muse.example/api/kb/mcp', 'bearer', kind === 'legacy' ? 'read' : 'wiki_read', {}, 1000))
+    .rejects.toMatchObject({ code: 'kb-rejected' })
+})
+
+it('closes the owned MCP client after a connection failure even when close itself fails', async () => {
+  mockConnect.mockRejectedValueOnce(new Error('PRIVATE_CONNECT_DETAIL'))
+  mockClose.mockRejectedValueOnce(new Error('PRIVATE_CLOSE_DETAIL'))
+  await expect(callMuseKbTool('https://muse.example/api/kb/mcp', 'bearer', 'read', {}, 1000))
+    .rejects.toMatchObject({ code: 'kb-unavailable', message: 'MUSE knowledge base: kb-unavailable' })
 })

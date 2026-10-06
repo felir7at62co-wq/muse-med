@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
+import { FsError, FsVersion } from '@deepseek-ai/dsh-fs'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as media from '../src/media-references.ts'
 
@@ -160,4 +161,130 @@ it('cancels a pending Session lookup and awaits it before finishing disposal', a
   expect(read).not.toHaveBeenCalled()
   expect(h.unregister).toHaveBeenCalledOnce()
   await response.body?.cancel()
+})
+
+it('refuses missing identifiers, cancelled requests, and calls retained after disposal before I/O', async () => {
+  const h = await mount()
+  const stat = vi.spyOn(h.ctx.sessionPersistence, 'stat')
+  for (const [path, session] of [['', 'owner-session'], ['clip.mp4', ''], ['clip.mp4', 'a'.repeat(257)], ['bad\0.mp4', 'owner-session']]) {
+    expect((await h.call(path, {}, session)).status).toBe(400)
+  }
+  const abort = new AbortController()
+  abort.abort()
+  const head = await h.call('clip.mp4', { method: 'HEAD', signal: abort.signal })
+  expect(head.status).toBe(499)
+  expect(head.body).toBeNull()
+  await h.videoFiber.dispose()
+  expect((await h.call()).status).toBe(499)
+  expect(stat).not.toHaveBeenCalled()
+})
+
+it('rejects unavailable workspaces, absent files, and unavailable source sizes', async () => {
+  const h = await mount()
+  const originalSession = h.ctx.sessionPersistence.stat.bind(h.ctx.sessionPersistence)
+  vi.spyOn(h.ctx.sessionPersistence, 'stat').mockImplementationOnce(async (id, options) => {
+    const session = await originalSession(id, options)
+    if (!session) throw new Error('fixture session missing')
+    const header = { ...session.header }
+    delete header.cwd
+    return { ...session, header }
+  })
+  expect((await h.call()).status).toBe(403)
+  expect((await h.call('missing.mp4')).status).toBe(404)
+  const original = h.fs.stat.bind(h.fs)
+  vi.spyOn(h.fs, 'stat').mockImplementationOnce(async (target, signal) => {
+    const info = await original(target, signal)
+    if (!info) throw new Error('fixture video missing')
+    const metadata = { ...info }
+    delete metadata.size
+    return metadata
+  })
+  expect((await h.call()).status).toBe(500)
+})
+
+it('serves an empty video without reads and ignores Range when If-Range has no strong validator', async () => {
+  const h = await mount()
+  const response = await h.call('clip.mp4', { headers: { range: 'bytes=2-3', 'if-range': 'old-validator' } })
+  expect(response.status).toBe(200)
+  expect(response.headers.get('content-range')).toBeNull()
+  expect((await response.arrayBuffer()).byteLength).toBe(10)
+  await writeFile(h.file, '')
+  const read = vi.spyOn(h.fs, 'readByteRange')
+  const empty = await h.call()
+  expect(empty.status).toBe(200)
+  expect((await empty.arrayBuffer()).byteLength).toBe(0)
+  expect(read).not.toHaveBeenCalled()
+  expect((await h.call('clip.mp4', { headers: { range: 'bytes=0-' } })).status).toBe(416)
+})
+
+it('maps filesystem failures and propagates unrelated metadata errors', async () => {
+  const h = await mount()
+  const stat = vi.spyOn(h.fs, 'stat')
+  for (const [code, status] of [['FS_NOT_FOUND', 404], ['FS_NOT_REGULAR_FILE', 403], ['FS_PERMISSION_DENIED', 403],
+    ['FS_SANDBOX_DENIED', 403], ['FS_TOO_LARGE', 413], ['FS_ABORTED', 499], ['FS_IO_ERROR', 500]] as const) {
+    stat.mockRejectedValueOnce(new FsError('provider failure', code))
+    const response = await h.call()
+    expect(response.status).toBe(status)
+    expect(await response.text()).toBe(code)
+  }
+  stat.mockRejectedValueOnce(new Error('unexpected provider failure'))
+  await expect(h.call()).rejects.toThrow('unexpected provider failure')
+})
+
+it('detects source changes before a window read and empty reads from a changed provider', async () => {
+  const h = await mount()
+  const original = h.fs.stat.bind(h.fs)
+  vi.spyOn(h.fs, 'stat').mockImplementationOnce(original).mockImplementationOnce(async (target, signal) => {
+    const info = await original(target, signal)
+    if (!info) throw new Error('fixture video missing')
+    return { ...info, version: FsVersion('changed-before-read') }
+  })
+  await expect((await h.call()).arrayBuffer()).rejects.toThrow('Video changed during playback')
+  vi.spyOn(h.fs, 'readByteRange').mockResolvedValueOnce(new Uint8Array())
+  await expect((await h.call()).arrayBuffer()).rejects.toThrow('Video changed during playback')
+})
+
+it('aborts a streaming read and awaits provider settlement during disposal', async () => {
+  const h = await mount()
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const aborted = Promise.withResolvers<undefined>()
+  const original = h.fs.readByteRange.bind(h.fs)
+  vi.spyOn(h.fs, 'readByteRange').mockImplementationOnce(async (target, range, signal) => {
+    signal?.addEventListener('abort', () => { aborted.resolve(undefined) }, { once: true })
+    entered.resolve(undefined)
+    await release.promise
+    return original(target, range, signal)
+  })
+  const response = await h.call()
+  const reading = response.arrayBuffer()
+  const rejected = expect(reading).rejects.toThrow('Video playback disposed')
+  await entered.promise
+  const disposing = h.videoFiber.dispose()
+  try {
+    await aborted.promise
+    let settled = false
+    void disposing.then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+  } finally { release.resolve(undefined) }
+  await rejected
+  await disposing
+  expect(h.unregister).toHaveBeenCalledOnce()
+})
+
+it.each([false, true])('cancels metadata admission when the provider settles after abort, rejection=%s', async (reject) => {
+  const h = await mount()
+  const abort = new AbortController()
+  const original = h.fs.stat.bind(h.fs)
+  vi.spyOn(h.fs, 'stat').mockImplementationOnce(async (target, signal) => {
+    const info = await original(target, signal)
+    abort.abort()
+    if (reject) throw new FsError('provider cancelled', 'FS_ABORTED')
+    return info
+  })
+  const read = vi.spyOn(h.fs, 'readByteRange')
+  const response = await h.call('clip.mp4', { signal: abort.signal })
+  expect(response.status).toBe(499)
+  expect(await response.text()).toBe('request cancelled')
+  expect(read).not.toHaveBeenCalled()
 })

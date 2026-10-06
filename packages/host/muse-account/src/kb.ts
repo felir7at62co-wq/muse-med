@@ -255,9 +255,6 @@ export const callMuseKbTool: MuseKbToolCaller = async (url, token, name, args, r
       throw new MuseKbError(name.startsWith('wiki_') && block?.type === 'text'
         ? wikiFailure(block.text, token) : 'kb-rejected')
     }
-    if (!Array.isArray(result.content)) {
-      throw new MuseKbError('kb-rejected')
-    }
     return { content: result.content.map((block) => {
       if (block.type !== 'text') throw new MuseKbError('kb-rejected')
       return { type: 'text', text: block.text }

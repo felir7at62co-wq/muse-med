@@ -84,6 +84,12 @@ describe('material keys', () => {
   })
 })
 
+it('rejects an unusable package budget and a complete shot that cannot fit it', () => {
+  const shots = fixture([speakingShot(1, `苏晚：${'字'.repeat(80)}`)], DEFAULT_ASSETS)
+  expect(() => packEpisode(shots, MIN_CONTENT_SECONDS - 1)).toThrow('内容预算至少为')
+  expect(() => packEpisode(shots, MIN_CONTENT_SECONDS)).toThrow('超过内容预算')
+})
+
 describe('packing an episode', () => {
   it('adds packages when whole-shot boundaries prevent the arithmetic minimum', () => {
     const shots = fixture([actionShot(1, ['时长：9秒']), actionShot(2, ['时长：9秒']),

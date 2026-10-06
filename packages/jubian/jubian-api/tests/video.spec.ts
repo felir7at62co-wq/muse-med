@@ -5,6 +5,11 @@ const PARENT = { id: 335343, taskType: 10, taskStatus: 'success', firstResultId:
   realCost: '3.50', estimatedCost: '4.00' }
 
 describe('readTaskPage', () => {
+  it('leaves malformed optional identifiers null instead of failing a readable task', () => {
+    expect(readTaskPage({ id: 1, scriptId: 0, episodeId: 'bad', firstResultId: -1, parentResultId: {},
+      episodeCount: 1.5 })).toMatchObject({ task_id: 1, script_id: null, episode_id: null,
+      first_result_id: null, parent_result_id: null, episode_count: null })
+  })
   it('reads task identity, status and the cost observation when present', () => {
     expect(readTaskPage(PARENT)).toEqual({ task_id: 335343, task_type: 10, status: 'success',
       first_result_id: 1, parent_result_id: 2, real_cost: '3.50', estimated_cost: '4.00', discount_cost: null,
@@ -39,6 +44,13 @@ describe('readTaskList', () => {
 })
 
 describe('readSubtaskPage', () => {
+  it('preserves unknown stage types and both image URL field spellings', () => {
+    const row = readSubtaskPage({ rows: [{ subTaskId: 1, imageMaterials: [{ materialUrl: 'https://media.example/ref.png' }],
+      resultList: [{ taskType: 999, lastTaskType: 999, tosVideoUrl: 'https://media.example/result.mp4' }] }] }).rows[0]!
+    expect(row.versions).toEqual([expect.objectContaining({ task_type: 999, stage: null })])
+    expect(row.image_urls).toEqual(['https://media.example/ref.png'])
+    expect(row.last_stage).toBeNull()
+  })
   it('reads child identity, duration and the single video material URL', () => {
     const child = { id: 990, aigcVideoTaskId: 335343, taskType: 10, taskStatus: 'success', genNum: 1, duration: 13,
       zimuLeft: 0, zimuTop: 900, zimuWidth: 720, zimuHeight: 300, modelId: 'doubao-seedance-2-0-260128',

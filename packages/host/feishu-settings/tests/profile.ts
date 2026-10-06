@@ -23,6 +23,7 @@ import { boot, initProfile, readProfilePatches, type ProfileContext } from '@dee
 import ConfigEditor from '@deepseek-ai/dsh-config-editor'
 import Settings from '@deepseek-ai/dsh-settings'
 import Hmr from '@deepseek-ai/dsh-hmr'
+import * as Feishu from '../src/index.ts'
 
 /** Config of the product switch row. */
 export const ProbeConfig = z.object({
@@ -49,6 +50,9 @@ export const ProbeRow = { name: 'probe-row', Config: ProbeConfig, apply: () => {
 
 /** The bridge row stand-in. */
 export const BridgeRow = { name: 'bridge-row', Config: BridgeConfig, apply: () => {} }
+
+/** Bridge instance whose activation waits for the product's setup service. */
+const GatedBridgeRow = { ...BridgeRow, name: 'gated-bridge-row', inject: ['feishuSetup'] }
 
 /** Rows every harness composition carries: the settings pair plus the two sections this product writes. */
 export const FEISHU_ROWS: readonly EntryOptions[] = [
@@ -115,7 +119,9 @@ async function bootFeishuProfile(profile: ProfileContext): Promise<FeishuComposi
   const ctx = await boot('test', join(dir, 'cordis.yml'), readProfilePatches('test', profile), (host) => {
     host.provide('profileContext', profile)
     host.provide('appReady', { onReady: (listener: () => void) => { listener(); return () => {} } })
-    Object.assign(host.loader.builtins, { editor: ConfigEditor, settings: Settings, probe: ProbeRow, bridge: BridgeRow })
+    Object.assign(host.loader.builtins, {
+      editor: ConfigEditor, settings: Settings, probe: ProbeRow, bridge: BridgeRow, feishu: Feishu, gatedBridge: GatedBridgeRow,
+    })
   })
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(Timer)

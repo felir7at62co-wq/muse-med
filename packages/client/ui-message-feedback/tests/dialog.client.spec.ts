@@ -18,6 +18,24 @@ function bench(result: () => Promise<MessageFeedbackActionResult> = () => Promis
 }
 
 describe('FeedbackDialogController', () => {
+  it('ignores dismissal after its session surface has retired', () => {
+    const { controller } = bench()
+    controller.open(MESSAGE_TARGET)
+    controller.dispose()
+    const closed = controller.state.getSnapshot()
+    controller.dismiss()
+    expect(controller.state.getSnapshot()).toBe(closed)
+  })
+
+  it('retains the draft when the submission throws a non-Error value', async () => {
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Submission adapters may reject with an untyped value.
+    const { controller } = bench(() => Promise.reject('private unexpected carrier data'))
+    controller.open(MESSAGE_TARGET)
+    controller.edit({ text: 'draft to retain' })
+    await controller.submitDraft()
+    expect(controller.state.getSnapshot()).toMatchObject({ text: 'draft to retain', failure: 'submission-failed', submitting: false })
+    expect(JSON.stringify(controller.state.getSnapshot())).not.toContain('private unexpected carrier data')
+  })
   it('keeps a disposed dialog closed when an in-flight submission succeeds', async () => {
     let release = (): void => {}
     const pendingResult = new Promise<MessageFeedbackActionResult>((resolve) => { release = () => { resolve({ ok: true }) } })

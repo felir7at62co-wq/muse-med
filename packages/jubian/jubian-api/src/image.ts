@@ -193,7 +193,7 @@ export function validateImageRequestInput(input: ImageRequestInput): void {
     let url: URL
     try { url = new URL(materialUrl) } catch { return invalid() }
     if (!materialUrl.startsWith('https://') || /[\s\\]/.test(materialUrl) || materialUrl.includes('#')
-      || url.protocol !== 'https:' || !url.hostname || url.username || url.password) invalid()
+      || url.username || url.password) invalid()
   }
 }
 

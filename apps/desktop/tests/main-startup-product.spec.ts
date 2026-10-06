@@ -271,7 +271,16 @@ vi.mock('../src/welcome-backend.ts', () => ({
     },
   }),
 }))
-vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile' }) }))
+vi.mock('../src/paths.ts', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/paths.ts')>()
+  return { ...original, resolveDesktopPaths: (): ReturnType<typeof original.resolveDesktopPaths> => ({
+    ...original.resolveDesktopPaths(), profile: 'desktop-test-profile',
+  }) }
+})
+const hongguo = vi.hoisted(() => ({
+  prepare: vi.fn<typeof import('../src/hongguo-runtime.ts').prepareDesktopHongguoEnvironment>(),
+}))
+vi.mock('../src/hongguo-runtime.ts', () => ({ prepareDesktopHongguoEnvironment: hongguo.prepare }))
 vi.mock('../src/project-manager.ts', () => ({
   DesktopProjectManager: class {
     constructor() { harness.countManager() }
@@ -356,6 +365,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.useFakeTimers()
   harness.reset()
+  hongguo.prepare.mockReset().mockResolvedValue({})
   // The native recovery dialog stays open until the test chooses an action; every other dialog
   // (quit confirmation, update prompts) answers as cancelled.
   harness.dialog.showMessageBox.mockReset()
@@ -391,6 +401,7 @@ afterEach(async () => {
   await vi.advanceTimersByTimeAsync(0)
   for (const host of harness.hosts) { host.ready.resolve(); host.exited.resolve() }
   await harness.quitCompleted.promise
+  harness.powerMonitor.removeAllListeners()
   vi.restoreAllMocks()
   harness.canRecoverProfile.mockReturnValue(true)
   vi.clearAllTimers()
@@ -749,6 +760,65 @@ describe('desktop main startup', () => {
     expect(harness.windows).toHaveLength(1)
     expect(window.urls).toEqual(['dsh-app://app/'])
     expect(invoke(DESKTOP_IPC.backendStatus)).toEqual({ phase: 'ready' })
+  })
+
+  it.each([true, false])('awaits the local Hongguo environment before spawning the Host (packaged=%s)', async (packaged) => {
+    harness.app.isPackaged = packaged
+    const entered = Promise.withResolvers<undefined>(), prepared = Promise.withResolvers<NodeJS.ProcessEnv>()
+    const environment = {
+      MUSE_HONGGUO_JAVA_PATH: join(harness.appRoot, 'hongguo', 'java'),
+      MUSE_HONGGUO_PYTHON_PATH: join(harness.appRoot, 'hongguo', 'python'),
+      MUSE_HONGGUO_LEGACY_APP_DIR: join(harness.appRoot, 'hongguo', 'source-fixture'),
+      MUSE_HONGGUO_BOOTSTRAP_DEVICES: '1',
+    }
+    hongguo.prepare.mockImplementationOnce(async () => { entered.resolve(undefined); return await prepared.promise })
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    harness.prepared.resolve()
+    await entered.promise
+    try {
+      expect(hongguo.prepare).toHaveBeenCalledExactlyOnceWith({
+        runtime: packaged ? join('desktop-test-resources', 'runtime', 'hongguo') : resolve('test-primary-runtime', '..', 'hongguo'),
+        productHome: packaged ? join(homedir(), '.muse') : resolve('upstream-dsh-home'),
+      })
+      expect(harness.hosts).toHaveLength(0)
+      prepared.resolve(environment)
+      await harness.hostStarted.promise
+      expect(harness.hosts[0]!.environment).toMatchObject(environment)
+      expect(process.env.MUSE_HONGGUO_LEGACY_APP_DIR).not.toBe(environment.MUSE_HONGGUO_LEGACY_APP_DIR)
+      harness.hosts[0]!.ready.resolve()
+      await harness.windows[0]!.shown.promise
+    } finally { prepared.resolve(environment) }
+  })
+
+  it('refuses the Host spawn after Hongguo installation fails and retries the installation through startup recovery', async () => {
+    const entered = Promise.withResolvers<undefined>(), prepared = Promise.withResolvers<NodeJS.ProcessEnv>()
+    hongguo.prepare.mockImplementationOnce(async () => { entered.resolve(undefined); return await prepared.promise })
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    await entered.promise
+    try {
+      const initialRetry = expect(Promise.resolve(invoke(DESKTOP_IPC.backendRetry))).rejects.toThrow('Hongguo runtime: checksum mismatch')
+      prepared.reject(new Error('Hongguo runtime: checksum mismatch'))
+      harness.prepared.resolve()
+      await harness.errorPublished.promise
+      await initialRetry
+      expect(harness.hosts).toHaveLength(0)
+      expect(invoke(DESKTOP_IPC.backendStatus)).toMatchInlineSnapshot(`
+        {
+          "failure": [Error: Hongguo runtime: checksum mismatch],
+          "message": "Hongguo runtime: checksum mismatch",
+          "phase": "error",
+          "profileRecovery": true,
+        }
+      `)
+      const retry = Promise.resolve(invoke(DESKTOP_IPC.backendRetry))
+      await harness.hostStarted.promise
+      expect(hongguo.prepare).toHaveBeenCalledTimes(2)
+      harness.hosts[0]!.ready.resolve()
+      await retry
+      expect(invoke(DESKTOP_IPC.backendStatus)).toEqual({ phase: 'ready' })
+    } finally { prepared.resolve({}) }
   })
 
   it('starts the unpackaged Host from the application development directory', async () => {

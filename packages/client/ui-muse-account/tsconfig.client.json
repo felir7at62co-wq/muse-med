@@ -1,0 +1,50 @@
+{
+  "extends": "../../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
+  },
+  "references": [
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../api/remotes/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/locale/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-primitives"
+    },
+    {
+      "path": "../../client/ui-renderer"
+    },
+    {
+      "path": "../../client/ui-settings/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-slots"
+    },
+    {
+      "path": "../../host/muse-account/tsconfig.host.json"
+    },
+    {
+      "path": "../ui-message-feedback"
+    }
+  ],
+  "files": [
+    "src/css-modules.d.ts",
+    "src/feedback-config.ts",
+    "src/client/index.ts",
+    "src/client/mount.ts",
+    "src/client/locales.ts",
+    "src/client/MuseAccountLauncher.tsx",
+    "src/client/MuseAccountOnboarding.tsx",
+    "src/client/MuseAccountSection.tsx"
+  ]
+}

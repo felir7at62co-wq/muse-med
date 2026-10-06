@@ -13,6 +13,7 @@ import css from './MuseAccountOnboarding.module.css'
  */
 export function MuseAccountOnboarding(props: PropsRuntime<'settings.onboarding'> & PropsLocale<'settings.museAccount'> & InjectFace<MuseAccountInjected>): ReactNode {
   const { complete, t } = props
+  const keepOpen = (): void => {}
   useEffect(() => {
     const root = document.getElementById('root')
     if (root === null) return
@@ -20,11 +21,11 @@ export function MuseAccountOnboarding(props: PropsRuntime<'settings.onboarding'>
     root.inert = true
     return () => { root.inert = previous }
   }, [])
-  return <Modal open title={t('onboardingTitle')} onClose={() => {}} headless className={css.dialog as string}>
+  return <Modal open title={t('onboardingTitle')} onClose={keepOpen} headless className={css.dialog as string}>
     <div className={css.content}>
       <h2 className={css.title}>{t('onboardingTitle')}</h2>
       <p className={css.description}>{t('onboardingDescription')}</p>
-      <MuseAccountSection {...props} close={() => {}} onSignedIn={complete} />
+      <MuseAccountSection {...props} close={keepOpen} onSignedIn={complete} />
       <div className={css.actions}>
         <Button onClick={complete}>{t('onboardingLater')}</Button>
       </div>

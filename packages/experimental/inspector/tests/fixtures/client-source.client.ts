@@ -34,6 +34,7 @@ interface ClientFixtureRequest {
     | 'publish'
     | 'refresh-tree'
     | 'remove-fiber'
+    | 'runtime-state'
     | 'set-global'
     | 'set-ingest-paused'
   readonly paused?: boolean
@@ -67,6 +68,27 @@ const sourceCatalog = input.sourceCatalog === undefined
     loadSourceMap: async () => input.sourceCatalog!.sourceMap,
   }])
 const source = new ClientInspectorSource(input.bootstrap, input.label, sourceCatalog)
+const runtimeRequests = runtimeRequestMap(source)
+const socket: unknown = Reflect.get(source, 'socket')
+if (!(socket instanceof WebSocket)) {
+  throw new Error('Inspector Client fixture Runtime transport is unavailable')
+}
+const requested: string[] = []
+const canceled: string[] = []
+const controllers = new Map<string, AbortController>()
+socket.addEventListener('message', (event) => {
+  if (typeof event.data !== 'string') return
+  const frame: unknown = JSON.parse(event.data)
+  if (!isRecord(frame) || typeof frame.requestId !== 'string') return
+  if (frame.t === 'client-runtime/request') {
+    const operation: unknown = runtimeRequests.get(frame.requestId)
+    if (!isRecord(operation) || !(operation.controller instanceof AbortController)) {
+      throw new Error('Inspector Client fixture Runtime operation is unavailable')
+    }
+    requested.push(frame.requestId)
+    controllers.set(frame.requestId, operation.controller)
+  } else if (frame.t === 'client-runtime/cancel') canceled.push(frame.requestId)
+})
 const disposeCordis = publishCordisTree(context, source, {
   maxNodes: input.bootstrap.maxCordisNodes,
   maxBytes: input.bootstrap.maxFrameBytes - 4_096,
@@ -108,6 +130,9 @@ async function dispatch(message: ClientFixtureRequest): Promise<unknown> {
       return undefined
     case 'get-tree':
       return await service.cordis.getTree()
+    case 'runtime-state':
+      return { requested, canceled, pending: runtimeRequests.size,
+        aborted: [...controllers].filter(([, controller]) => controller.signal.aborted).map(([id]) => id) }
     case 'set-ingest-paused': {
       const socket = Reflect.get(source, 'socket') as WebSocket | undefined
       if (socket === undefined) throw new Error('Inspector Client ingest socket is unavailable')
@@ -143,4 +168,14 @@ async function dispatch(message: ClientFixtureRequest): Promise<unknown> {
 function requiredString(value: string | undefined, field: string): string {
   if (value === undefined) throw new Error(`Inspector Client fixture ${field} is required`)
   return value
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function runtimeRequestMap(source: ClientInspectorSource): Map<unknown, unknown> {
+  const requests: unknown = Reflect.get(source, 'runtimeRequests')
+  if (!(requests instanceof Map)) throw new Error('Inspector Client fixture Runtime requests are unavailable')
+  return requests
 }

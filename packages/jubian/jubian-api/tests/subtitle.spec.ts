@@ -46,6 +46,19 @@ describe('defaultSubtitleBox', () => {
 })
 
 describe('buildSubtitleEraseRequest', () => {
+  it.each([{ scriptId: 0 }, { videoWidth: 0 }, { videoHeight: 1.5 }, { duration: 0 },
+    { duration: Number.NaN }, { taskName: '' }, { taskName: '\ud800' }, { taskName: 'bad\nname' }])
+  ('rejects invalid request identities, timing or text %j', (overrides) => {
+    expect(() => buildSubtitleEraseRequest('quzimuToB', { ...CAPTURED_SOURCE, ...overrides })).toThrow()
+  })
+
+  it.each(['not-a-url', 'http://media.example/a.mp4', 'https://media.example/a.mp4#fragment',
+    'https://media.example/a b.mp4', 'https://media.example/a\\b.mp4',
+    'https://user@media.example/a.mp4', 'https://:password@media.example/a.mp4'])
+  ('rejects unsafe source URLs %s', (videoUrl) => {
+    expect(() => buildSubtitleEraseRequest('quzimuToB', { ...CAPTURED_SOURCE, videoUrl })).toThrow()
+  })
+
   it('reproduces the captured workbench body for the regional eraser', () => {
     expect(buildSubtitleEraseRequest('quzimuToB', CAPTURED_SOURCE)).toEqual({ ...CAPTURED_SOURCE,
       taskType: 10, modelId: 'quzimuToB', platformId: 'YU_DIAN', standardId: 26, videoStandardId: null,
@@ -80,6 +93,14 @@ describe('buildSubtitleEraseRequest', () => {
 })
 
 describe('readSubtitleTaskId', () => {
+  it.each([null, false, [], { code: 200, data: null }, { code: 200, data: [] },
+    { code: 0, data: { taskId: 0 } }, { code: 0, data: { taskId: 'bad' } }])
+  ('returns no task identity for unreadable submission responses %j', (value) => {
+    expect(readSubtitleTaskId(value)).toBeNull()
+  })
+  it('accepts a successful zero-code response using the alternate job identity', () => {
+    expect(readSubtitleTaskId({ code: 0, data: { jobId: '123' } })).toBe('123')
+  })
   it('reads the single task identity a submitted erasure returns', () => {
     expect(readSubtitleTaskId({ code: 200, data: { taskId: 123, jobId: '123' } })).toBe('123')
     expect(readSubtitleTaskId({ code: 200, data: { taskId: 1, jobId: 2 } })).toBeNull()

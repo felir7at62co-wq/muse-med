@@ -39,11 +39,10 @@ export function ProjectBudgetGroup({ t, read, update }: {
   const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(amount.trim())
   const cents = match ? Number(match[1]) * 100 + Number((match[2] ?? '').padEnd(2, '0')) : -1
   const validAmount = Number.isSafeInteger(cents) && cents >= 0
-  const run = async (save: boolean): Promise<void> => {
-    if (!read || !update || !validId || (save && (!budget || !validAmount))) return
+  const run = async (operation: () => Promise<RemoteResult<ProjectBudget>>): Promise<void> => {
     setBusy(true); setError(undefined)
     try {
-      const result = save && budget ? await update(scriptId, cents, budget.revision) : await read(scriptId)
+      const result = await operation()
       if (!alive.current) return
       if (!result.ok) { setError(result.error.message); return }
       setBudget(result.value)
@@ -60,7 +59,7 @@ export function ProjectBudgetGroup({ t, read, update }: {
         placeholder={t('projectBudgetId')} value={id} disabled={busy}
         onChange={(event) => { setId(event.currentTarget.value); setBudget(undefined); setError(undefined) }} />
       <div className={css.actions}><Button variant="outline" disabled={busy || !validId}
-        onClick={() => { void run(false) }}>{t('projectBudgetRead')}</Button></div>
+        onClick={() => { void run(async () => await read(scriptId)) }}>{t('projectBudgetRead')}</Button></div>
       {budget ? <>
         <p className={css.notice}>{t('projectBudgetTotals', {
           limit: budget.limit_cents === null ? t('projectBudgetUnconfigured') : (budget.limit_cents / 100).toFixed(2),
@@ -71,7 +70,7 @@ export function ProjectBudgetGroup({ t, read, update }: {
           onChange={(event) => { setAmount(event.currentTarget.value) }} />
         <div className={css.actions}><Button variant="outline"
           disabled={busy || !validAmount || budget.unit !== 'CNY' || !budget.accounting_complete || cents === budget.limit_cents}
-          onClick={() => { void run(true) }}>{t('projectBudgetSave')}</Button></div>
+          onClick={() => { void run(async () => await update(scriptId, cents, budget.revision)) }}>{t('projectBudgetSave')}</Button></div>
       </> : null}
       {error ? <p className={css.notice} role="alert">{t('projectBudgetFailed', { reason: error })}</p> : null}
     </>}

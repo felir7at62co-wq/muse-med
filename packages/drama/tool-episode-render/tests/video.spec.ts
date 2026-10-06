@@ -1,12 +1,13 @@
 /** User bans identify exact bytes and never stand in for source review. */
 import * as atomic from '@deepseek-ai/dsh-atomic-write'
-import { copyFile, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Tools from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as Render from '../src/index.ts'
+import { runDramaVideo } from '../src/video.ts'
 import { cleanup, runContext, tempProject, writePlaceholder } from './harness.ts'
 
 const roots: string[] = []
@@ -41,6 +42,53 @@ it('requires at least one nonblank label and an existing video for ban', async (
   }
   await expect(f.call({ method: 'ban', video: 'missing.mp4', labels: ['字幕错误'] })).rejects.toThrow()
   await expect(f.call({ method: 'ban', sha256: 'a'.repeat(64), labels: ['字幕错误'] })).rejects.toThrow('video')
+  await expect(runDramaVideo({ method: 'ban', project: f.project, video: f.video, labels: [] })).rejects.toThrow('labels')
+})
+
+it('rejects incomplete or conflicting tool JSON before creating a decision manifest', async () => {
+  const f = await fixture()
+  const cases: [Record<string, unknown>, string][] = [
+    [{ method: 'list', project: ' ' }, 'project'],
+    [{ method: 'list', project: f.video }, 'project'],
+    [{ method: 'unknown' }, 'method'],
+    [{ method: 'inspect' }, '必须且只能'],
+    [{ method: 'inspect', video: f.video, sha256: 'a'.repeat(64) }, '必须且只能'],
+    [{ method: 'inspect', video: ' ' }, 'video'],
+    [{ method: 'inspect', video: f.project }, '本地文件'],
+    [{ method: 'inspect', sha256: 'NOT-A-HASH' }, 'sha256'],
+    [{ method: 'ban', video: f.video, labels: ['字幕错误'], reason: 1 }, 'reason'],
+    [{ method: 'ban', video: f.video, labels: [], reason: 'bad labels' }, 'labels'],
+  ]
+  for (const [args, message] of cases) await expect(f.call(args)).rejects.toThrow(message)
+  await expect(readFile(f.manifest)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('propagates an unreadable manifest and does not replace the directory', async () => {
+  const f = await fixture()
+  await mkdir(f.manifest)
+  await expect(f.call({ method: 'list' })).rejects.toMatchObject({ code: 'EISDIR' })
+  await expect(f.call({ method: 'ban', video: f.video, labels: ['字幕错误'] })).rejects.toMatchObject({ code: 'EISDIR' })
+})
+
+it('rechecks a queued decision after the caller changes its labels', async () => {
+  const f = await fixture()
+  const labels = ['字幕错误']
+  const actualLock = atomic.withFileLock
+  let release: (() => void) | undefined
+  let entered: (() => void) | undefined
+  const paused = new Promise<void>((resolve) => { release = resolve })
+  const queued = new Promise<void>((resolve) => { entered = resolve })
+  vi.spyOn(atomic, 'withFileLock').mockImplementation(async (path, operation) => {
+    entered?.()
+    await paused
+    return await actualLock(path, operation)
+  })
+  const pending = f.call({ method: 'ban', video: f.video, labels })
+  await queued
+  labels.splice(0)
+  release?.()
+  await expect(pending).rejects.toThrow('labels')
+  await expect(readFile(f.manifest)).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
 it('persists labels and reason without evidence, shares bans across copies, and leaves new bytes usable', async () => {

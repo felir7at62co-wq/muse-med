@@ -134,6 +134,10 @@ describe('decodeProbePoints', () => {
 })
 
 describe('decodeAt', () => {
+  it('retains an empty diagnostic when a decoder exits without stderr', async () => {
+    const result = await decodeAt(toolkit([() => ({ code: 2, stderr: '' })]), 'out.mp4', { label: '首', seconds: 0 })
+    expect(result).toMatchObject({ frames: 0, error: '' })
+  })
   it('seeks, decodes one frame, and counts what the decoder produced', async () => {
     const channel = stubChannel([decodeHandler(2)])
     const probe = await decodeAt(
@@ -154,6 +158,11 @@ describe('decodeAt', () => {
 })
 
 describe('decodeChecks', () => {
+  it('includes the failed decoder diagnostic in each sampled position', async () => {
+    const [check] = await decodeChecks(toolkit([decodeHandler(0, 1)]), 'out.mp4', 1)
+    expect(check?.ok).toBe(false)
+    expect(check?.detail).toContain('（Invalid NAL unit size）')
+  })
   it('passes a file that decodes at every sampled position', async () => {
     const [check] = await decodeChecks(toolkit([decodeHandler(2)]), 'out.mp4', 116.733332)
     expect(check?.id).toBe('decode_probe')
@@ -314,6 +323,27 @@ describe('verifyEpisode', () => {
     }))
     return { project, output, timeline, subtitle }
   }
+
+  it.each(['output', 'other', 'corrupt'] as const)('reports a %s ban decision without deleting the delivery', async (kind) => {
+    const files = await delivered()
+    const { runDramaVideo } = await import('../src/video.ts')
+    if (kind === 'corrupt') await writePlaceholder(join(files.project, 'video-bans.json'), '{broken')
+    else {
+      const video = kind === 'output' ? files.output : join(files.project, 'unused.mp4')
+      if (kind === 'other') await writePlaceholder(video, 'unused source')
+      await runDramaVideo({ method: 'ban', project: files.project, video, labels: ['字幕错误'] })
+    }
+    const report = await verifyEpisode({
+      toolkit: toolkit([probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }),
+        decodeHandler(), () => ({})]),
+      settings: resolveSettings({ fontsDir: '' }), project: files.project, episode: '02',
+      output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
+    })
+    const check = report.checks.find(row => row.id === 'video_bans')
+    expect(check?.ok).toBe(kind === 'other')
+    expect(check?.detail).toContain(kind === 'output' ? '输出版本已禁用' : kind === 'other' ? '未命中禁用 SHA256' : '禁用清单损坏')
+    expect(await readFile(files.output, 'utf8')).toBe('delivered')
+  })
 
   it('warns when the delivery carries no record of what was rendered and checked', async () => {
     const files = await delivered()

@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mkdtemp, mkdir, copyFile, writeFile, readFile, realpath, rm } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { createMediaProcessor } from '../src/runtime.js';
+import { createDeviceBootstrap, createMediaProcessor } from '../src/runtime.js';
 
 const config = () => ({ legacyAppDir: join(tmpdir(), 'source-app'), pythonExecutable: join(tmpdir(), 'runtime', 'python'),
   ffmpegExecutable: join(tmpdir(), 'runtime', 'ffmpeg'), ffprobeExecutable: join(tmpdir(), 'runtime', 'ffprobe'),
-  downloadTimeoutMs: 600000, maxEpisodeBytes: 1024 ** 3, mediaProcessGraceMs: 1000 });
+  downloadTimeoutMs: 600000, maxEpisodeBytes: 1024 ** 3, mediaProcessGraceMs: 1000, deviceBootstrapTimeoutMs: 30000 });
 const paths = () => ({ inputPath: join(tmpdir(), 'owned-staging', 'episode.part'), outputPath: join(tmpdir(), 'owned-staging', 'episode.decoded.part'),
   workspace: join(tmpdir(), 'owned-staging'), signal: new AbortController().signal });
 const probe = overrides => JSON.stringify({ format: { duration: '12.34' }, streams: [{ codec_type: 'video', codec_name: 'h264', width: 720, height: 1280 }], ...overrides });
@@ -195,4 +195,109 @@ test('deadline cancellation waits for the managed process completion even after 
   done.resolve({ exitCode: 0, signal: null }); range.resolve(true);
   await assert.rejects(work, error => error.code === 'cancelled');
   assert.equal(f.calls.length, 1);
+});
+
+test('device bootstrap safely rejects missing runtime inputs without leaving an unhandled startup', async t => {
+  for (const missing of ['subprocess', 'pythonExecutable', 'legacyAppDir']) {
+    await t.test(missing, async () => {
+      const f = fixture([]);
+      const settings = { ...config(), ...(missing === 'subprocess' ? {} : { [missing]: '' }) };
+      const bootstrap = createDeviceBootstrap(missing === 'subprocess' ? undefined : f.subprocess, settings);
+      try {
+        await assert.rejects(bootstrap.ensure(new AbortController().signal), error =>
+          error.code === 'invalid_original_source' && error.message === '本机原源设备初始化失败；请检查内置 Python 3.11 和原设备生成模块');
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(f.calls, []);
+        assert.deepEqual(f.resolutions, []);
+      } finally { await bootstrap.dispose(); }
+    });
+  }
+});
+
+test('original device bootstrap owns one successful Python execution and retains its readiness', async () => {
+  const f = fixture([{ stdout: '{"ok":true,"code":"OK"}' }], config(), createDeviceBootstrap);
+  try {
+    assert.equal(f.calls.length, 0);
+    await f.process.ensure(new AbortController().signal);
+    await f.process.ensure(new AbortController().signal);
+    assert.equal(f.calls.length, 1);
+    const spec = f.calls[0];
+    assert.deepEqual(spec.argv.slice(0, 3), [f.settings.pythonExecutable, '-I', '-B']);
+    assert.ok(spec.argv[3].endsWith('bootstrap.py'));
+    assert.deepEqual(JSON.parse(spec.stdio.stdin.data), { appDir: f.settings.legacyAppDir });
+    assert.equal(spec.cwd, f.settings.legacyAppDir);
+    assert.equal(spec.graceMs, f.settings.mediaProcessGraceMs);
+    assert.deepEqual(f.exits, [1]);
+  } finally { await f.process.dispose(); }
+  await assert.rejects(f.process.ensure(new AbortController().signal), error => error.code === 'cancelled');
+});
+
+test('device bootstrap shares first use and one cancelled caller preserves another initializer wait', async () => {
+  const started = deferred(), done = deferred(), range = deferred(), controller = new AbortController();
+  const f = fixture([{ stdout: '{"ok":true,"code":"OK"}', done: done.promise, waitForExit: () => range.promise }], config(), createDeviceBootstrap);
+  const spawn = f.subprocess.spawn.bind(f.subprocess);
+  f.subprocess.spawn = spec => { const handle = spawn(spec); started.resolve(spec); return handle; };
+  try {
+    const first = f.process.ensure(controller.signal), second = f.process.ensure(new AbortController().signal);
+    const spec = await started.promise;
+    controller.abort();
+    await assert.rejects(first, error => error.code === 'cancelled');
+    assert.equal(spec.signal.aborted, false); assert.equal(f.calls.length, 1);
+    done.resolve({ exitCode: 0, signal: null }); range.resolve(true);
+    await second;
+  } finally { done.resolve({ exitCode: 0, signal: null }); range.resolve(true); await f.process.dispose(); }
+});
+
+test('device bootstrap sole caller cancellation waits for Python and its managed descendants', async () => {
+  const started = deferred(), terminated = deferred(), done = deferred(), range = deferred(), controller = new AbortController();
+  const f = fixture([{ stdout: '{"ok":true,"code":"OK"}', done: done.promise, terminate: () => terminated.resolve(),
+    waitForExit(signal) {
+      if (!signal) return range.promise;
+      if (signal.aborted) return false;
+      return Promise.race([range.promise, new Promise(resolve => signal.addEventListener('abort', () => resolve(false), { once: true }))]);
+    } }], config(), createDeviceBootstrap);
+  const spawn = f.subprocess.spawn.bind(f.subprocess);
+  f.subprocess.spawn = spec => { const handle = spawn(spec); started.resolve(spec); return handle; };
+  const work = f.process.ensure(controller.signal);
+  let settled = false; void work.then(() => { settled = true; }, () => { settled = true; });
+  try {
+    const spec = await started.promise;
+    controller.abort(new Error('PRIVATE_CANCEL_REASON'));
+    assert.equal(spec.signal.aborted, false);
+    // The last waiter owns cancellation of the shared initialization process.
+    done.resolve({ exitCode: 0, signal: null });
+    await terminated.promise;
+    assert.equal(spec.signal.aborted, true); assert.equal(settled, false);
+    range.resolve(true);
+    await assert.rejects(work, error => error.code === 'cancelled' && !error.message.includes('PRIVATE'));
+  } finally { done.resolve({ exitCode: 0, signal: null }); range.resolve(true); await f.process.dispose(); }
+});
+
+test('device initialization rejects incomplete output, failure codes and diagnostic leakage', async () => {
+  for (const output of [{ stdout: '{"ok":false,"code":"DEVICES_INVALID"}' }, { stdout: '{PRIVATE' }, { stdout: 'null' },
+    { stdout: '{"ok":true}', exitCode: 1 }, { stdout: '{"ok":true}', signal: 'SIGTERM' },
+    { stdout: '{"ok":true}', stderr: 'PRIVATE_SOURCE' }, { stdout: '{"ok":true}', stdoutRead: { lossy: true } }]) {
+    const f = fixture([output], config(), createDeviceBootstrap);
+    try { await assert.rejects(f.process.ensure(new AbortController().signal), error => error.code === 'invalid_original_source' && !error.message.includes('PRIVATE')); }
+    finally { await f.process.dispose(); }
+    assert.equal(f.calls.length, 1);
+  }
+});
+
+test('device bootstrap disposal aborts startup and waits for complete child cleanup', async () => {
+  const started = deferred(), done = deferred(), range = deferred();
+  const f = fixture([{ stdout: '{"ok":true,"code":"OK"}', done: done.promise, waitForExit: () => range.promise }], config(), createDeviceBootstrap);
+  const spawn = f.subprocess.spawn.bind(f.subprocess);
+  f.subprocess.spawn = spec => { const handle = spawn(spec); started.resolve(spec); return handle; };
+  const work = f.process.ensure(new AbortController().signal);
+  void work.catch(() => {});
+  const spec = await started.promise;
+  const disposing = f.process.dispose();
+  let settled = false; void disposing.then(() => { settled = true; });
+  assert.equal(spec.signal.aborted, true); assert.equal(settled, false);
+  done.resolve({ exitCode: 0, signal: null });
+  await Promise.resolve(); assert.equal(settled, false);
+  range.resolve(true);
+  await disposing;
+  await assert.rejects(work, error => error.code === 'cancelled');
 });

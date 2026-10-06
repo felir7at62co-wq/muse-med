@@ -74,7 +74,7 @@ function materials(value: unknown): Row[] {
 function markers(prompt: string): { name: string; key: string }[] {
   const seen = new Set<string>()
   return [...normalizedPrompt(prompt).matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)]
-    .map(match => ({ name: match[1] ?? '', key: match[2] ?? '' }))
+    .map(match => ({ name: String(match[1]), key: String(match[2]) }))
     .filter(marker => !seen.has(marker.key) && Boolean(seen.add(marker.key)))
 }
 function materialSnapshot(rows: Row[], expected?: Row[]): Row[] {

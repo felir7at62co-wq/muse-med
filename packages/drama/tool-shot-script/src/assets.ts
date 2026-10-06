@@ -305,8 +305,7 @@ function selectCharacters(shot: ParsedShot, assets: readonly ManifestAsset[], ep
         + `${candidates.map(describeAsset).join('；')}。用完整资产名明确本镜版本，或补清 episodes 与身体状态；不按清单顺序猜。`))
       continue
     }
-    const chosen = candidates[0]
-    if (chosen !== undefined) {
+    for (const chosen of candidates) {
       const qualified = chosen.name === mention.label || aliasNames(chosen).includes(mention.label)
       const declared = declaredStateFor(chosen, shot.bodyStates)
       if (!isAnimal(chosen) && !qualified && declared !== undefined) {
@@ -559,8 +558,7 @@ function selectNamedAssets(candidates: readonly ManifestAsset[], shot: ParsedSho
         + '用不同的完整资产名明确本镜版本，或补清 episodes；不按清单顺序猜。'))
       continue
     }
-    const asset = versions[0]
-    if (asset !== undefined) selected.push(asset)
+    selected.push(...versions)
   }
   return selected
 }

@@ -47,6 +47,11 @@ describe('readScript', () => {
     expect(() => readScript({ name: 'x' })).toThrow()
     expect(() => readScript(null)).toThrow()
   })
+
+  it('preserves an unreadable saved configuration instead of substituting settings', () => {
+    expect(readScript({ scriptId: '2708', modelConfig: '{', videoModelConfig: '', defaultModelConfig: null }))
+      .toMatchObject({ project_settings: { modelConfig: '{', videoModelConfig: '', defaultModelConfig: null } })
+  })
 })
 
 describe('readEpisodes', () => {
@@ -57,6 +62,14 @@ describe('readEpisodes', () => {
 
   it('rejects a payload that is not a page', () => {
     expect(() => readEpisodes({ total: 2 })).toThrow()
+  })
+
+  it('uses row count when the page omits a numeric total and keeps absent episode names null', () => {
+    expect(readEpisodes({ total: '1', rows: [{ episodeId: '2' }] }))
+      .toEqual({ total: 1, rows: [{ episode_id: 2, name: null }] })
+    for (const payload of [null, []]) {
+      expect(() => readEpisodes(payload)).toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+    }
   })
 })
 

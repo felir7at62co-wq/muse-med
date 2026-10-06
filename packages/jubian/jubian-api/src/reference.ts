@@ -85,6 +85,11 @@ function be16(bytes: Uint8Array, offset: number): number {
   return (high << 8) | low
 }
 
+function le16(bytes: Uint8Array, offset: number): number {
+  const value = be16(bytes, offset)
+  return ((value & 0xff) << 8) | (value >> 8)
+}
+
 function be32(bytes: Uint8Array, offset: number): number {
   const a = bytes[offset], b = bytes[offset + 1], c = bytes[offset + 2], d = bytes[offset + 3]
   if (a === undefined || b === undefined || c === undefined || d === undefined) invalid()
@@ -120,8 +125,7 @@ function jpegSize(bytes: Uint8Array): { width: number; height: number } {
       offset += 1
       continue
     }
-    const marker = bytes[offset + 1]
-    if (marker === undefined) break
+    const marker = bytes[offset + 1] as number
     // Fill bytes and standalone markers carry no length field.
     if (marker === 0xff || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9)) {
       offset += marker === 0xff ? 1 : 2
@@ -143,11 +147,11 @@ function pngSize(bytes: Uint8Array): { width: number; height: number } {
 }
 
 function webpSize(bytes: Uint8Array): { width: number; height: number } {
-  if (ascii(bytes, 0, 4) !== 'RIFF' || ascii(bytes, 8, 4) !== 'WEBP') invalid()
+  if (ascii(bytes, 8, 4) !== 'WEBP') invalid()
   const chunk = ascii(bytes, 12, 4)
   if (chunk === 'VP8 ') {
-    // Lossy frame header: a 3-byte start code then two 14-bit dimensions.
-    return { width: be16(bytes, 26) & 0x3fff, height: be16(bytes, 28) & 0x3fff }
+    // VP8 key frames store two little-endian 14-bit dimensions after the start code.
+    return { width: le16(bytes, 26) & 0x3fff, height: le16(bytes, 28) & 0x3fff }
   }
   if (chunk === 'VP8L') {
     if (bytes[20] !== 0x2f) invalid()
@@ -221,8 +225,8 @@ export function buildReferenceObjectKey(now: Date, token: string, extension: str
  */
 export function extractAppScriptUrl(html: string, frontendUrl: string): string {
   for (const match of html.matchAll(/<script[^>]+src=(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
-    const source = match.slice(1).find(value => value)
-    if (source !== undefined && /\/static\/js\/app\.[^/]+\.js$/.test(source)) return new URL(source, frontendUrl).toString()
+    const source = match.slice(1).find(value => value) as string
+    if (/\/static\/js\/app\.[^/]+\.js$/.test(source)) return new URL(source, frontendUrl).toString()
   }
   return invalid()
 }
@@ -317,7 +321,7 @@ export function signTosObjectPut(request: TosPutRequest): TosSignedPut {
   }
   const names = Object.keys(canonical).sort()
   const signedHeaders = names.join(';')
-  const canonicalHeaders = names.map(name => `${name}:${canonical[name] ?? ''}\n`).join('')
+  const canonicalHeaders = names.map(name => `${name}:${canonical[name]}\n`).join('')
   const canonicalRequest = ['PUT', path, '', canonicalHeaders, signedHeaders, payloadHash].join('\n')
   const stringToSign = ['TOS4-HMAC-SHA256', stamp, scope, sha256Hex(canonicalRequest)].join('\n')
   const signingKey = hmac(hmac(hmac(hmac(request.config.access_key_secret, date),

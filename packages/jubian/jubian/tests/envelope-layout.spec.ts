@@ -39,6 +39,14 @@ describe('JubianClient response layouts', () => {
     expect(result.transport).toEqual({ http_status: 200, application_code: 200 })
   })
 
+  it('retains list fields from a flat envelope wrapped in one array', async () => {
+    const result = await client(async () => jsonResponse([{ code: 0, total: 1, rows: [PAYLOAD], msg: 'ok' }]))
+      .request({ method: 'GET', path: '/list' })
+    expect(result).toMatchObject({ data: { code: 0, total: 1, rows: [PAYLOAD] }, envelope_layout: 'array-envelope',
+      transport: { http_status: 200, application_code: 0 } })
+    expect(result.data).not.toHaveProperty('msg')
+  })
+
   it('treats a one-element array of a payload object as that payload', async () => {
     const result = await client(async () => jsonResponse([PAYLOAD])).request({ method: 'GET', path: '/one' })
     expect(result.data).toEqual(PAYLOAD)

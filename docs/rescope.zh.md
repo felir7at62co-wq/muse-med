@@ -51,3 +51,5 @@ pnpm run rescope-vendor --apply --reverse   # return to the upstream names
 ```
 
 上游 sync 之后重跑它（[流程](../vendor/README.md)），并接上它打印的重生成：`pnpm install` 重生成 lockfile、`pnpm run gen-third-party-notices`、以及对它触及的双语对跑 `pnpm run verify-translation-pairing --write`。
+
+按文件声明的例外保留产品标识，如 `cordis` preset 与 `cordis/*` 事件主题；这些文件中解析得到的 import、export 和模块声明仍使用带作用域的包名。固定上游 registry lockfile 与源码校验脚本按精确路径排除，同目录内的其他文件仍接受检查。

@@ -180,6 +180,18 @@ describe('registration', () => {
   })
 })
 
+it('prioritizes manifest repair over asset dispositions in the model-facing verdict', async () => {
+  const projectDir = await project({ script_id: 2708 })
+  const { client } = stubTransport(ALIVE, USED)
+  const result = await runDramaAssets(client, { method: 'reconcile', project_dir: projectDir })
+  expect(result.ready).toBe(false)
+  expect(result.issues.length).toBeGreaterThan(0)
+  expect(result.ready_reason).toContain('处必须先修的问题')
+  expect(result.next).toContain('清单读不全')
+  expect(result.next).toContain('issues')
+  expect((await evidence(projectDir)).issues).toEqual(result.issues)
+})
+
 describe('workspacePipelineToken', () => {
   it('reads the pipeline token from the nearest workspace secret file', async () => {
     const workspace = await project()

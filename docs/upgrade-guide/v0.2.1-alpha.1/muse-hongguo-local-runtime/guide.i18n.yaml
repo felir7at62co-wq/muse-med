@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/muse-hongguo-local-runtime/guide.md
+/:
+  en: edf7d450b1ee4819
+  zh: bfe6a1bf09f7d2d9
+/muse-hongguo-local-runtime:
+  en: 4fcacbf76521beca
+  zh: 3e7b6aae813a142b
+/muse-hongguo-local-runtime/change:
+  en: eea20d8384e7d86f
+  zh: a5017f86a0fa0bae
+/muse-hongguo-local-runtime/migration:
+  en: 641926fd5e84e27b
+  zh: 3601577dc90fcb0b

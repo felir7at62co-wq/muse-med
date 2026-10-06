@@ -22,6 +22,16 @@ interface PresetRow {
   readonly config?: Record<string, unknown>
 }
 
+it('bundles one original-source runtime configuration under the standalone patch config', () => {
+  const patch = yaml.load(readFileSync(new URL('../../../third_party/plugins/muse-hongguo-download/cordis.patch.yml', import.meta.url), 'utf8'), { schema }) as { insert: PresetRow[] }[]
+  expect(patch).toHaveLength(1)
+  expect(patch[0]?.insert).toHaveLength(1)
+  const row = patch[0]?.insert[0]
+  expect(row?.config?.javaExecutable).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_JAVA_PATH || ''" })
+  expect(row?.config?.bootstrapDevices).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'" })
+  expect(Object.keys(row ?? {}).sort()).toEqual(['config', 'id', 'name'])
+})
+
 it('registers three download tools in creative scopes and leaves minimal and global scopes empty', async () => {
   const ctx = new Context()
   try {
@@ -43,6 +53,8 @@ it('registers three download tools in creative scopes and leaves minimal and glo
           expect(hongguo?.name, preset).toBe('muse-hongguo-download')
           expect(hongguo?.config?.sourceMode, preset).toBe('legacy')
           expect(hongguo?.config?.signTokenEnv, preset).toBe('MUSE_HONGGUO_SIGN_TOKEN')
+          expect(hongguo?.config?.javaExecutable, preset).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_JAVA_PATH || ''" })
+          expect(hongguo?.config?.bootstrapDevices, preset).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'" })
           expect(douyin?.name, preset).toBe('muse-douyin-download')
           expect(douyin?.config?.pythonExecutable, preset).toEqual({ __jsExpr: 'process.env.MUSE_DOUYIN_PYTHON_PATH || null' })
           expect(douyin?.config?.ffmpegExecutable, preset).toEqual({ __jsExpr: 'process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || null' })

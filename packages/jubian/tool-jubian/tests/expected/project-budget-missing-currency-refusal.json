@@ -1,0 +1,13 @@
+[
+  {
+    "tool_call_id": "currency-budget",
+    "unit": "CNY",
+    "accounting_complete": false,
+    "remaining_cents": null
+  },
+  {
+    "tool_call_id": "currency-image",
+    "is_error": true,
+    "message": "Error: Jubian spend is not covered by the authorization this deployment holds: 账本里有 1 笔计费记录没有报价（history-missing-currency），花费未知，不能把它们当成 0。请先补齐这些调用点的报价，或人工确认金额后再继续。"
+  }
+]

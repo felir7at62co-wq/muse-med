@@ -13,6 +13,23 @@ function client(fetchImpl: typeof fetch, credential = async () => TOKEN) {
 }
 
 describe('JubianClient.request', () => {
+  it.each([0, 60001, 1.5, Number.NaN])('rejects an invalid timeout of %s before transport', (timeoutMs) => {
+    expect(() => new JubianClient({ credential: async () => TOKEN, timeoutMs })).toThrow(TypeError)
+  })
+
+  it.each([0, 32 * 1024 * 1024 + 1, 1.5, Number.NaN])('rejects an invalid response byte cap of %s', (maxResponseBytes) => {
+    expect(() => new JubianClient({ credential: async () => TOKEN, maxResponseBytes })).toThrow(TypeError)
+  })
+
+  it('uses the selected origin and default transport', async () => {
+    const transport = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ code: 200, data: 'ready' }))
+    try {
+      const subject = new JubianClient({ credential: async () => TOKEN, baseUrl: 'https://proxy.example/prod-api' })
+      await expect(subject.request({ method: 'GET', path: '/health' })).resolves.toMatchObject({ data: 'ready' })
+      expect(transport).toHaveBeenCalledWith('https://proxy.example/prod-api/health', expect.objectContaining({ method: 'GET' }))
+    } finally { transport.mockRestore() }
+  })
+
   it('sends one fixed-origin request with the repaired bearer token', async () => {
     const calls: { url: string; init: RequestInit }[] = []
     const subject = client(async (url, init) => {
@@ -199,6 +216,35 @@ describe('JubianClient.request', () => {
     await expect(subject.request({ method: 'GET', path: '/x' }))
       .rejects.toMatchObject({ code: 'AUTHENTICATION_REQUIRED' })
     expect(called).toBe(false)
+  })
+
+  it('contains a credential resolver failure before transport', async () => {
+    const transport = vi.fn<typeof fetch>(async () => jsonResponse({ code: 200, data: null }))
+    const subject = client(transport, async () => { throw new Error(TOKEN) })
+    await expect(subject.request({ method: 'GET', path: '/x' })).rejects.toMatchObject({
+      code: 'AUTHENTICATION_REQUIRED', message: 'Jubian login is unavailable or expired',
+    })
+    expect(transport).not.toHaveBeenCalled()
+  })
+
+  it('rejects a successful response with no readable body', async () => {
+    const message: unknown = expect.stringContaining('not readable')
+    await expect(client(async () => new Response(null, { status: 200 })).request({ method: 'GET', path: '/x' }))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED', message })
+  })
+
+  it('contains cancellation failure while rejecting an HTTP error', async () => {
+    const cancel = vi.fn(async () => { throw new Error(TOKEN) })
+    const response = new Response(new ReadableStream({ cancel }), { status: 500 })
+    await expect(client(async () => response).request({ method: 'GET', path: '/x' }))
+      .rejects.toMatchObject({ code: 'NETWORK_ERROR', message: 'Jubian request failed: HTTP 500' })
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it('maps a bodyless HTTP error without attempting to read it', async () => {
+    const message: unknown = expect.stringContaining('HTTP 403')
+    await expect(client(async () => new Response(null, { status: 403 })).request({ method: 'GET', path: '/x' }))
+      .rejects.toMatchObject({ code: 'AUTHENTICATION_REQUIRED', message })
   })
 
   it('rejects a body that is not JSON or not an object, and hands an array to the reader', async () => {

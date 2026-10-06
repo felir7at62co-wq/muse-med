@@ -29,7 +29,7 @@ kind: "package-reference"
 
 | 辅助函数 | 行为 |
 |---|---|
-| `sessionLookup` | 读取可选的 Host `sessions` 服务。 |
+| `sessionLookup` | 读取可选的 Host `sessions` 服务；服务为 null、缺失或不可调用时返回 `undefined`。 |
 | `sessionDirectory` | 返回存活会话记录的 `cwd`；身份无效、服务缺失或会话未知时抛出 `DomainRecordError`。 |
 | `trySessionDirectory` | 返回 `cwd`；身份缺失、服务缺失、会话未知或查询失败时返回 `undefined`。 |
 | `verifiedDirectory` | 要求现有绝对目录，拒绝符号链接或 realpath 解析发生重定向的路径。 |

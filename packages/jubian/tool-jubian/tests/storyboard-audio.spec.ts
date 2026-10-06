@@ -9,6 +9,17 @@ import { storyboardAudioMethod } from '../src/storyboard-audio.ts'
 import { bodyHash } from '../src/write.ts'
 import * as audioOperationLock from '../src/audio-operation-lock.ts'
 
+const storage = vi.hoisted(() => ({ lockFailure: false }))
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...fs, open: async (...args: Parameters<typeof fs.open>) => {
+    if (storage.lockFailure && String(args[0]).endsWith('.storyboard-audio.lock')) {
+      throw Object.assign(new Error('card lock storage unavailable'), { code: 'EACCES' })
+    }
+    return await fs.open(...args)
+  } }
+})
+
 type Row = Record<string, unknown>
 const image = { id: 42, assetId: 'character-zhou', materialAssetId: 142,
   materialType: 'image', materialUrl: 'https://media.example/zhou.jpg',
@@ -29,6 +40,7 @@ let assets: Map<number, Row>
 let calls: { method: string; path: string; body?: Row }[]
 let onPut: ((body: Row) => void) | undefined
 let onRead: ((current: Row) => Promise<void>) | undefined
+let readOverride: unknown
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'jubian-storyboard-audio-'))
   await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
@@ -36,7 +48,7 @@ beforeEach(async () => {
   board = { id: 1745324, scriptId: 2708, episodeId: 13, episodeCount: 2, scriptName: '原项目',
     storyboardName: 'EP02-P01', sortOrder: 1, isGenerate: 1,
     modelConfig: JSON.stringify(model), storyboardMaterialList: [image], custom: 'preserve' }
-  calls = []; onPut = undefined; onRead = undefined; otherBoard = undefined
+  calls = []; onPut = undefined; onRead = undefined; otherBoard = undefined; readOverride = undefined; storage.lockFailure = false
   assets = new Map([[77, { id: 77, scriptId: 2708, assetType: 4, assetName: '周海生声音',
     assetUrl: voice.materialUrl, isLocal: 1 }]])
   client = new JubianClient({ credential: async () => 'token', fetch: async (url, init) => {
@@ -47,7 +59,7 @@ beforeEach(async () => {
     if (method === 'GET' && path === '/aigc/storyboard/1745324') {
       const current = structuredClone(board)
       await onRead?.(current)
-      return new Response(JSON.stringify({ code: 200, data: current }))
+      return new Response(JSON.stringify({ code: 200, data: readOverride === undefined ? current : readOverride }))
     }
     if (method === 'GET' && path === '/aigc/storyboard/1745325' && otherBoard) {
       const current = structuredClone(otherBoard)
@@ -78,6 +90,165 @@ const apply = (plan: Row, extra = {}) => storyboardAudioMethod(client, ledger, {
   idempotency_key: String(plan.fingerprint), ...extra,
 })
 const writes = () => calls.filter(call => call.method !== 'GET')
+
+it('propagates a card-lock storage failure without fetching the current card or saving', async () => {
+  const plan = await preview([voice]), start = calls.length
+  storage.lockFailure = true
+  await expect(apply(plan)).rejects.toMatchObject({ code: 'EACCES' })
+  expect(calls.slice(start)).toEqual([])
+})
+
+it('reports fields removed from saved model and board data as a readback mismatch', async () => {
+  const plan = await preview([voice])
+  onPut = (body) => {
+    const config = JSON.parse(String(body.modelConfig)) as Row
+    delete config.seed
+    body.modelConfig = config
+    delete body.storyboardName
+  }
+  expect(await apply(plan)).toMatchObject({ status: 'readback_mismatch', verified_readback: false })
+})
+
+async function revisedPlan(plan: Row, change: (prepared: Row) => void, retainPath = false): Promise<Row> {
+  const prepared = JSON.parse(await readFile(String(plan.preview_path), 'utf8')) as Row
+  change(prepared)
+  delete prepared.fingerprint
+  const fingerprint = stableSha256(prepared)
+  prepared.fingerprint = fingerprint
+  const path = retainPath ? String(plan.preview_path) : join(root, 'video_tasks', `${fingerprint}.storyboard-audio.prepared.json`)
+  await writeFile(path, JSON.stringify(prepared))
+  return { fingerprint: retainPath ? plan.fingerprint : fingerprint, preview_path: path }
+}
+
+it.each([{ value: null }, { value: [] }, { value: 'not a card' }])('rejects nonobject provider card JSON %j', async ({ value }) => {
+  readOverride = value
+  await expect(preview([voice])).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(writes()).toEqual([])
+})
+
+it.each(['broken', '[]', 'null'])('rejects malformed saved modelConfig %s', async (value) => {
+  board.modelConfig = value
+  await expect(preview([voice])).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(writes()).toEqual([])
+})
+
+it.each(['broken', 'null', '[null]'])('rejects malformed model material-list JSON %s', async (value) => {
+  board.modelConfig = JSON.stringify({ ...model, materialList: value })
+  await expect(preview([voice])).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(writes()).toEqual([])
+})
+
+it('reads a serialized model material list and retains the original prompt when removing all audio', async () => {
+  board.modelConfig = JSON.stringify({ ...model, materialList: JSON.stringify([image]) })
+  expect(await storyboardAudioMethod(client, ledger, { method: 'audio_preview', project_dir: root,
+    script_id: 2708, storyboard_id: 1745324, audio_references: [] })).toMatchObject({ prompt: basePrompt })
+  board.modelConfig = { ...model, prompt: null }
+  await expect(storyboardAudioMethod(client, ledger, { method: 'audio_preview', project_dir: root,
+    script_id: 2708, storyboard_id: 1745324, audio_references: [] })).rejects.toThrow('Missing storyboard prompt')
+})
+
+it('retains image materials when modelConfig has no materialList and rejects missing or empty prompt text', async () => {
+  const config: Row = { ...model }
+  delete config.materialList
+  board.modelConfig = JSON.stringify(config)
+  const plan = await preview([voice])
+  expect(await apply(plan)).toMatchObject({ status: 'applied' })
+  expect(JSON.parse(String(board.modelConfig))).toMatchObject({ materialList: [image, voice] })
+  board.modelConfig = JSON.stringify({ ...model, prompt: 12 })
+  await expect(preview([voice])).rejects.toThrow('complete audio-edit prompt')
+  board.modelConfig = JSON.stringify(model)
+  await expect(preview([voice], ' ')).rejects.toThrow('complete audio-edit prompt')
+})
+
+it('refuses a provider card with a different identity', async () => {
+  board.id = 1745325
+  await expect(preview([voice])).rejects.toThrow('identity mismatch')
+  expect(writes()).toEqual([])
+})
+
+it('rejects an unknown audio operation without fetching or saving a card', async () => {
+  await expect(storyboardAudioMethod(client, ledger, { method: 'other', project_dir: root,
+    script_id: 2708, storyboard_id: 1745324 })).rejects.toThrow('Unknown storyboard audio method')
+  expect(calls).toEqual([])
+})
+
+it.each([
+  { version: 2 }, { operation: 'other' }, { prompt: null }, { request_hash: 12 }, { request_hash: 'sha256:broken' },
+  { audio_references: {} }, { audio_references: 'broken' }, { audio_asset_bindings: {} },
+  { audio_asset_bindings: [{ asset_id: 77, material_key: null, url: voice.materialUrl }] },
+  { audio_asset_bindings: [{ asset_id: 77, material_key: voice.materialKey, url: null }] },
+  { audio_asset_bindings: [{ asset_id: 77, material_key: 'other', url: voice.materialUrl }] },
+  { audio_asset_bindings: [{ asset_id: 77, material_key: voice.materialKey, url: 'https://media.example/other.wav' }] },
+  { before_snapshot: null }, { after_snapshot: [] },
+])('rejects malformed frozen audio plan fields %j before saving', async (fields) => {
+  const plan = await preview([voice]), changed = await revisedPlan(plan, (prepared) => { Object.assign(prepared, fields) })
+  await expect(apply(changed)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(writes()).toEqual([])
+})
+
+it('rejects duplicate audio bindings and edited fingerprints before writing', async () => {
+  const plan = await preview([{ ...voice, audio_asset_id: 77 }])
+  const duplicate = await revisedPlan(plan, (prepared) => {
+    const bindings = prepared.audio_asset_bindings as Row[]
+    prepared.audio_asset_bindings = [...bindings, ...bindings]
+  })
+  await expect(apply(duplicate)).rejects.toThrow('Duplicate audio asset binding')
+  const prepared = JSON.parse(await readFile(String(plan.preview_path), 'utf8')) as Row
+  prepared.extra = 'unreviewed'
+  await writeFile(String(plan.preview_path), JSON.stringify(prepared))
+  await expect(apply(plan)).rejects.toThrow('fingerprint mismatch')
+  expect(writes()).toEqual([])
+})
+
+it.each(['project', 'card', 'key'])('rejects a self-consistent audio plan for a different %s', async (kind) => {
+  const plan = await preview([voice])
+  const changed = await revisedPlan(plan, (prepared) => {
+    if (kind === 'project') prepared.script_id = 2709
+    else if (kind === 'card') prepared.storyboard_id = 1745325
+    else prepared.prompt = `${audioPrompt}，新增文字`
+  }, kind === 'key')
+  await expect(apply(changed)).rejects.toThrow('project/card/key mismatch')
+  expect(writes()).toEqual([])
+})
+
+it.each(['method', 'project', 'body'])('refuses a claimed key for another audio %s', async (kind) => {
+  const plan = await preview([voice])
+  await ledger.begin({ idempotencyKey: String(plan.fingerprint),
+    method: kind === 'method' ? 'asset_remove' : 'storyboard_save',
+    scriptId: kind === 'project' ? 2709 : 2708, requestSha256: kind === 'body' ? 'sha256:other' : String(plan.request_hash) })
+  await expect(apply(plan)).rejects.toThrow('different audio edit')
+  expect(writes()).toEqual([])
+})
+
+it('detects changes to provider fields excluded from the reviewed snapshot before sending', async () => {
+  const plan = await preview([voice])
+  board.custom = 'changed outside reviewed fields'
+  await expect(apply(plan)).rejects.toThrow('request changed since audio preview')
+  expect(writes()).toEqual([])
+})
+
+it.each(['provider', 'local'])('reports %s readback failure and replays an unsettled key without PUT', async (kind) => {
+  const plan = await preview([voice])
+  await ledger.begin({ idempotencyKey: String(plan.fingerprint), method: 'storyboard_save',
+    scriptId: 2708, requestSha256: String(plan.request_hash) })
+  if (kind === 'provider') onRead = async () => { throw new Error('provider disconnected') }
+  else {
+    const request = vi.spyOn(client, 'request').mockRejectedValueOnce(new Error('local reader unavailable'))
+    onTestFinished(() => { request.mockRestore() })
+  }
+  expect(await apply(plan)).toMatchObject({ status: 'unknown', replayed: true, outcome: 'unknown',
+    error: kind === 'provider' ? 'NETWORK_ERROR' : 'READBACK_FAILED' })
+  expect(writes()).toEqual([])
+})
+
+it('propagates failure to record a fresh intent and releases the card lock without sending', async () => {
+  const plan = await preview([voice])
+  const claim = vi.spyOn(ledger, 'beginChecked').mockRejectedValueOnce(new Error('intent storage unavailable'))
+  onTestFinished(() => { claim.mockRestore() })
+  await expect(apply(plan)).rejects.toThrow('intent storage unavailable')
+  expect(writes()).toEqual([])
+  expect((await readdir(join(root, 'video_tasks'))).filter(name => name.endsWith('.storyboard-audio.lock'))).toEqual([])
+})
 
 it('previews adding a voice to the original card without changing images or generation settings', async () => {
   await expect(preview([voice])).resolves.toMatchObject({ status: 'ready', operation: 'storyboard_audio',

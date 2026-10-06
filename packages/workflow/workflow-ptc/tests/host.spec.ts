@@ -66,6 +66,9 @@ describe('workflow host callback validation', () => {
     ['progress', [{ type: 'phase', title: null }], 'phase must be a string'],
     ['progress', [{ type: 'agent-start', info: { seq: 0 } }], 'sequence must be a positive integer'],
     ['progress', [{ type: 'agent-end', info: { outcome: 'unknown' } }], 'invalid workflow agent outcome'],
+    ['progress', [{ type: 'agent-end', info: { outcome: 'failed', reason: { kind: 7 } } }], 'invalid workflow agent failure reason'],
+    ['progress', [{ type: 'agent-end', info: { outcome: 'failed', reason: { kind: 'unknown' } } }], 'invalid workflow agent failure reason'],
+    ['progress', [{ type: 'agent-end', info: { outcome: 'failed', reason: { kind: 'invalid-structured-output', detail: null } } }], 'reason detail must be a string'],
     ['progress', [{ type: 'unknown' }], 'invalid workflow progress event'],
     ['childResult', { callId: '1' }, 'call id must be an integer'],
     ['disposeChild', { callId: 99 }, 'child call is not active'],
@@ -93,6 +96,39 @@ describe('workflow host callback validation', () => {
     try {
       expect((await handle.result).stopReason).toBe('completed')
       expect(ended).toHaveBeenCalledOnce()
+    } finally { await handle.dispose() }
+  })
+
+  it.each([false, true])('checks required structured properties only when the schema declares them (%s)', async (required) => {
+    const detail = 'the structured result is missing the required property "dialogue"'
+    const info = { seq: 1, label: 'child', childId: 'host-child' }
+    const { ctx, start } = await setup(async (bindings) => {
+      const child = await bindings.startChild!({ prompt: 'return an object', schema: {
+        type: 'object', properties: { dialogue: { type: 'array', items: { type: 'string' } } },
+        ...required ? { required: ['dialogue'] } : {},
+      } })
+      expect(await bindings.childResult!(child)).toEqual({ output: [], stopReason: 'completed', structured: {},
+        ...required ? { artifactFailure: detail } : {} })
+      await bindings.progress!([{ type: 'agent-start', info }, { type: 'agent-end', info: {
+        ...info, outcome: required ? 'failed' : 'completed',
+        ...required ? { reason: { kind: 'invalid-structured-output', detail } } : {},
+      } }])
+      return completed
+    })
+    const disposed = vi.fn(() => Promise.resolve())
+    vi.spyOn(ctx.subagents.getProvider('stub')!, 'start').mockResolvedValue({
+      id: SessionId('host-child'), localAgent: undefined,
+      result: Promise.resolve({ output: [], stopReason: 'completed', structured: {} }), dispose: disposed,
+    })
+    const ended = vi.fn()
+    ctx.on('workflow/agent-end', ended)
+    const handle = start()
+    try {
+      expect((await handle.result).stopReason).toBe('completed')
+      expect(ended).toHaveBeenCalledOnce()
+      expect(ended.mock.calls[0]?.[1]).toEqual({ ...info, outcome: required ? 'failed' : 'completed',
+        ...required ? { reason: { kind: 'invalid-structured-output', detail } } : {} })
+      expect(disposed).toHaveBeenCalledOnce()
     } finally { await handle.dispose() }
   })
 

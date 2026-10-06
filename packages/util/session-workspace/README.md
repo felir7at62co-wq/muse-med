@@ -29,7 +29,7 @@ Import helpers from `@deepseek-ai/dsh-session-workspace`. This package registers
 
 | Helper | Behavior |
 |---|---|
-| `sessionLookup` | Reads the optional Host `sessions` service. |
+| `sessionLookup` | Reads the optional Host `sessions` service; a null, absent, or non-callable service returns `undefined`. |
 | `sessionDirectory` | Returns a live session's recorded `cwd`; invalid identity, missing service, or unknown session throws `DomainRecordError`. |
 | `trySessionDirectory` | Returns `cwd`, or `undefined` for absent identity, missing service, unknown session, or lookup failure. |
 | `verifiedDirectory` | Requires an existing absolute directory and rejects symbolic links or paths redirected by realpath resolution. |

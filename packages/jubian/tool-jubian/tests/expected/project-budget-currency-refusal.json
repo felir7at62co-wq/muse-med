@@ -1,0 +1,13 @@
+[
+  {
+    "tool_call_id": "currency-budget",
+    "unit": "CNY",
+    "accounting_complete": false,
+    "remaining_cents": null
+  },
+  {
+    "tool_call_id": "currency-image",
+    "is_error": true,
+    "message": "Error: Jubian spend is not covered by the authorization this deployment holds: 账本里的报价单位是 CNY、USD，而授权写的是 CNY：单位不一致不能相加比较。"
+  }
+]

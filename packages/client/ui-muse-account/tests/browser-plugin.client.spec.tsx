@@ -5,7 +5,10 @@ import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { MuseFeedbackReceipt } from '@deepseek-ai/dsh-muse-account/types'
+import { RemoteError, type RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+import type { FeedbackDelivery } from '@deepseek-ai/dsh-client-ui-message-feedback/client'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { MuseAccountSection } from '../src/client/MuseAccountSection.tsx'
@@ -13,6 +16,11 @@ import type { MuseAccountInjected } from '../src/client/MuseAccountSection.tsx'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { MessageId } from '@deepseek-ai/dsh-api-remotes/client'
 import { inject, mountMuseAccountSettings, NS } from '../src/client/mount.ts'
+import { apply } from '../src/client/index.ts'
+
+vi.mock('@deepseek-ai/dsh-muse-account/remote', () => ({
+  default: { package: '@deepseek-ai/dsh-muse-account', descriptors: [] },
+}))
 
 usePinnedBrowserLanguages('zh-CN')
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
@@ -21,6 +29,7 @@ const REMOTE: TypertRemoteContribution = { package: '@deepseek-ai/dsh-muse-accou
 
 async function bench() {
   const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
@@ -29,7 +38,9 @@ async function bench() {
   const status = vi.fn(async () => ({ ok: true as const, value: { state: 'signed-out' as const } }))
   const login = vi.fn(async () => ({ ok: false as const, error: { code: 'muse-account/invalid-credentials', message: 'private' } }))
   const logout = vi.fn(async () => ({ ok: true as const, value: { state: 'signed-out' as const } }))
-  const feedback = vi.fn(async (_request: unknown) => ({ ok: true as const, value: { id: 'a'.repeat(32), revision: 1 } }))
+  const feedback = vi.fn(async (_request: unknown): Promise<RemoteResult<MuseFeedbackReceipt>> => ({
+    ok: true, value: { id: 'a'.repeat(32) as MuseFeedbackReceipt['id'], revision: 1 },
+  }))
   ctx.provide('remote', {
     $mount: mount,
     get museAccount() {
@@ -47,11 +58,43 @@ async function bench() {
 }
 
 describe('MUSE account browser plugin', () => {
+  it('binds the browser entry to its generated namespace contribution', async () => {
+    const b = await bench(), dispose = await apply(b.ctx)
+    expect(b.mount).toHaveBeenCalledExactlyOnceWith(REMOTE)
+    expect(b.slots.entries('settings.section')).toHaveLength(1)
+    await dispose()
+    await b.ctx.fiber.dispose()
+  })
+
+  it('reports only a bounded code when feedback delivery is refused', async () => {
+    vi.stubGlobal('dshDesktop', { productName: 'muse-med' })
+    vi.stubGlobal('__MUSE_FEEDBACK_CONFIG__', { feedbackUrl: 'https://muse.example/feedback' })
+    const b = await bench(), dispose = await mountMuseAccountSettings(b.ctx, REMOTE)
+    b.feedback.mockResolvedValueOnce({
+      ok: false, error: new RemoteError('muse-account/gateway-unavailable', 'private gateway credentials', {}),
+    })
+    const delivery = b.ctx.get('feedbackDelivery') as FeedbackDelivery
+    expect(await delivery.submit('session-one' as SessionId, { kind: 'session' }, { category: 'other' }, false))
+      .toEqual({ ok: false, error: { code: 'muse-account/gateway-unavailable', message: 'MUSE feedback was not confirmed' } })
+    await dispose()
+    await b.ctx.fiber.dispose()
+  })
+
+  it('releases the mounted Remote contribution when desktop configuration rejects', async () => {
+    vi.stubGlobal('dshDesktop', { productName: 'muse-med' })
+    vi.stubGlobal('__MUSE_FEEDBACK_CONFIG__', { feedbackUrl: 'http://muse.example/feedback' })
+    const b = await bench()
+    await expect(mountMuseAccountSettings(b.ctx, REMOTE)).rejects.toThrow()
+    expect(b.disposeMount).toHaveBeenCalledOnce()
+    expect(b.slots.entries('settings.section')).toHaveLength(0)
+    expect(b.ctx.get('feedbackDelivery')).toBeUndefined()
+    await b.ctx.fiber.dispose()
+  })
   it('delivers both feedback targets through Muse and releases the sender with the product scope', async () => {
     vi.stubGlobal('dshDesktop', { productName: 'muse-med' })
     vi.stubGlobal('__MUSE_FEEDBACK_CONFIG__', { feedbackUrl: 'https://muse.example/feedback' })
     const b = await bench(), dispose = await mountMuseAccountSettings(b.ctx, REMOTE)
-    const delivery = b.ctx.feedbackDelivery, sessionId = 'one-session' as SessionId
+    const delivery = b.ctx.get('feedbackDelivery') as FeedbackDelivery, sessionId = 'one-session' as SessionId
     expect(await delivery.submit(sessionId, { kind: 'session' }, { category: 'resource-cost', text: 'too much' }, false))
       .toEqual({ ok: true, receiptId: 'a'.repeat(32) })
     await delivery.submit(sessionId, { kind: 'message', messageId: 'one-message' as MessageId, rating: 'negative' }, { category: 'task-result' }, true)

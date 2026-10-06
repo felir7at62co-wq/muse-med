@@ -1,19 +1,54 @@
 /**
- * Process-spawning cases set Vitest's case timeout to 90 seconds, including
- * plain local runs without a CI override. Configuration-only cases keep the default.
+ * Executable probes own a private source workspace with the repository's real
+ * compiler and lint configuration. Child-process cases keep a 90-second deadline.
  */
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { join, matchesGlob, relative } from 'node:path'
+import { existsSync, globSync } from 'node:fs'
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { dirname, join, matchesGlob, relative } from 'node:path'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { flattenDiagnosticMessageText, parseConfigFileTextToJson } from 'typescript'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 
-const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
+const sourceRepositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 const oxlintCli = fileURLToPath(new URL('../node_modules/oxlint/bin/oxlint', import.meta.url))
 const tsxCli = fileURLToPath(new URL('../node_modules/tsx/dist/cli.mjs', import.meta.url))
+
+/** Copy compiler inputs, including declarations, without installed artifacts or user data. */
+async function prepareContractWorkspace(): Promise<string> {
+  const root = await mkdtemp(join(await realpath(tmpdir()), 'dsh-oxlint-contract-'))
+  try {
+    const files = globSync([
+      'tsconfig*.json', '.oxlintrc.json', '.oxlintrc.staged.json', 'package.json', 'lefthook.yml',
+      'packages/*/*.{ts,tsx,json}',
+      'packages/*/*/{package.json,tsconfig*.json}', 'packages/*/*/src/**/*.{ts,tsx,json}',
+      'vendor/*/{package.json,tsconfig*.json}', 'vendor/*/src/**/*.{ts,tsx,json}',
+      'apps/*/{package.json,tsconfig*.json}', 'apps/*/src/**/*.{ts,tsx,json}',
+      'native/system/packages/*/{package.json,tsconfig*.json}', 'native/system/packages/*/src/**/*.{ts,json}',
+      'scripts/*.{ts,mjs,json}', 'scripts/types/**/*.d.ts',
+      'packages/typert/generator/tests/fixtures/type-model/**/*.{ts,tsx,json}',
+      'third_party/plugins/sources.json',
+    ], { cwd: sourceRepositoryRoot })
+    const copies = await Promise.allSettled(files.map(async (file) => {
+      const destination = join(root, file)
+      await mkdir(dirname(destination), { recursive: true })
+      await copyFile(join(sourceRepositoryRoot, file), destination)
+    }))
+    const failedCopies = copies.filter(result => result.status === 'rejected')
+    if (failedCopies.length > 0) throw new AggregateError(failedCopies.map((result): unknown => result.reason), 'Failed to copy lint compiler inputs')
+    await symlink(join(sourceRepositoryRoot, 'node_modules'), join(root, 'node_modules'),
+      process.platform === 'win32' ? 'junction' : 'dir')
+    return root
+  } catch (error) {
+    await rm(root, { recursive: true, force: true })
+    throw error
+  }
+}
+
+const fixtureRoot = await prepareContractWorkspace()
+afterAll(async () => { await rm(fixtureRoot, { recursive: true, force: true }) })
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -25,7 +60,7 @@ function isUnknownArray(value: unknown): value is unknown[] {
 
 function runRepositoryOxlint(args: readonly string[], env: NodeJS.ProcessEnv = {}) {
   return spawnSync(process.execPath, [tsxCli, 'scripts/run-oxlint.ts', ...args], {
-    cwd: repositoryRoot,
+    cwd: fixtureRoot,
     encoding: 'utf8',
     env: { ...process.env, NO_COLOR: '1', ...env },
   })
@@ -33,7 +68,7 @@ function runRepositoryOxlint(args: readonly string[], env: NodeJS.ProcessEnv = {
 
 function runOxlint(args: readonly string[], env: NodeJS.ProcessEnv = {}) {
   return spawnSync(process.execPath, [oxlintCli, ...args], {
-    cwd: repositoryRoot,
+    cwd: fixtureRoot,
     encoding: 'utf8',
     env: { ...process.env, NO_COLOR: '1', ...env },
   })
@@ -44,18 +79,18 @@ function normalizedOutput(result: ReturnType<typeof runOxlint>): string {
 }
 
 async function writeContractConfig(suffix: string): Promise<string> {
-  const path = join(repositoryRoot, `.oxlintrc.contract-${suffix}.json`)
+  const path = join(fixtureRoot, `.oxlintrc.contract-${suffix}.json`)
   await writeFile(path, JSON.stringify({ extends: ['./.oxlintrc.json'], ignorePatterns: [] }))
   return path
 }
 
 describe('Oxlint executable contract', () => {
   it.each(['.oxlintrc.json', '.oxlintrc.staged.json'])('protects only pinned community source directories in %s', async (config) => {
-    const sources: unknown = JSON.parse(await readFile(join(repositoryRoot, 'third_party/plugins/sources.json'), 'utf8'))
+    const sources: unknown = JSON.parse(await readFile(join(sourceRepositoryRoot, 'third_party/plugins/sources.json'), 'utf8'))
     if (!isRecord(sources)) throw new Error('Community source manifest must be an object')
     const names = Object.keys(sources).sort()
     expect(names).toEqual(['dsh-bridge', 'dsh-codex-subscription', 'dsh-ffmpeg', 'dsh-ponytail', 'dsh-skill-mcp-panel', 'dshmarket', 'muse-hongguo-search'])
-    const result = parseConfigFileTextToJson(config, await readFile(join(repositoryRoot, config), 'utf8'))
+    const result = parseConfigFileTextToJson(config, await readFile(join(sourceRepositoryRoot, config), 'utf8'))
     if (result.error !== undefined) throw new Error(flattenDiagnosticMessageText(result.error.messageText, '\n'))
     const parsed: unknown = result.config
     if (!isRecord(parsed) || !isUnknownArray(parsed.ignorePatterns)
@@ -98,15 +133,19 @@ probePromise()
     try {
       const paths: Array<readonly [label: string, path: string, tsconfig: string]> = []
       for (const [label, parent, tsconfig, extension = '.ts'] of probes) {
-        const path = join(repositoryRoot, parent, `oxlint-contract-${suffix}${extension}`)
+        const path = join(fixtureRoot, parent, `oxlint-contract-${suffix}${extension}`)
+        await mkdir(dirname(path), { recursive: true })
         await writeFile(path, source)
-        paths.push([label, relative(repositoryRoot, path), tsconfig])
+        paths.push([label, relative(fixtureRoot, path), tsconfig])
+      }
+      for (const [, path] of paths) {
+        await expect(readFile(join(sourceRepositoryRoot, path))).rejects.toMatchObject({ code: 'ENOENT' })
       }
       const clientScript = 'scripts/client-bundle-purity.spec.ts'
 
       const result = runOxlint([
         '--config',
-        relative(repositoryRoot, configPath),
+        relative(fixtureRoot, configPath),
         '--format',
         'unix',
         ...paths.map(([, path]) => path),
@@ -119,18 +158,18 @@ probePromise()
       for (const [label, path, tsconfig] of paths) {
         expect(output, label).toContain(`${path.replaceAll('\\', '/')}:5:1: Promises must be awaited`)
         expect(output, `${label} project`).toContain(
-          `Got tsconfig for file ${join(repositoryRoot, path).replaceAll('\\', '/')}: ${join(repositoryRoot, tsconfig).replaceAll('\\', '/')}`,
+          `Got tsconfig for file ${join(fixtureRoot, path).replaceAll('\\', '/')}: ${join(fixtureRoot, tsconfig).replaceAll('\\', '/')}`,
         )
       }
       expect(output.match(/typescript\(no-floating-promises\)/g)).toHaveLength(probes.length)
       expect(output, 'client aggregate script project').toContain(
-        `Got tsconfig for file ${join(repositoryRoot, clientScript).replaceAll('\\', '/')}: ${join(repositoryRoot, 'tsconfig.client.json').replaceAll('\\', '/')}`,
+        `Got tsconfig for file ${join(fixtureRoot, clientScript).replaceAll('\\', '/')}: ${join(fixtureRoot, 'tsconfig.client.json').replaceAll('\\', '/')}`,
       )
       expect(output).not.toContain('Unmatched file:')
     } finally {
       await Promise.all([
         ...probes.map(([, parent, , extension = '.ts']) =>
-          rm(join(repositoryRoot, parent, `oxlint-contract-${suffix}${extension}`), { force: true })),
+          rm(join(fixtureRoot, parent, `oxlint-contract-${suffix}${extension}`), { force: true })),
         rm(configPath, { force: true }),
       ])
     }
@@ -139,7 +178,7 @@ probePromise()
   it('runs JavaScript compatibility and nursery rules', async () => {
     const suffix = randomUUID()
     const configPath = await writeContractConfig(suffix)
-    const path = join(repositoryRoot, 'scripts', `oxlint-contract-${suffix}.ts`)
+    const path = join(fixtureRoot, 'scripts', `oxlint-contract-${suffix}.ts`)
     const source = `export function firstProbe(): number {
   const first = 1
   const second = 2
@@ -163,10 +202,10 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
       await writeFile(path, source)
       const result = runOxlint([
         '--config',
-        relative(repositoryRoot, configPath),
+        relative(fixtureRoot, configPath),
         '--format',
         'unix',
-        relative(repositoryRoot, path),
+        relative(fixtureRoot, path),
       ])
       const output = normalizedOutput(result)
 
@@ -184,7 +223,7 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
   }, 90_000)
 
   it('keeps the complete stylistic contract in Oxlint', async () => {
-    const oxlintPath = join(repositoryRoot, '.oxlintrc.json')
+    const oxlintPath = join(sourceRepositoryRoot, '.oxlintrc.json')
     const result = parseConfigFileTextToJson(oxlintPath, await readFile(oxlintPath, 'utf8'))
     if (result.error !== undefined) {
       throw new Error(flattenDiagnosticMessageText(result.error.messageText, '\n'))
@@ -237,7 +276,7 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
   }, 90_000)
 
   it('keeps repository lint workflows Oxlint-only', async () => {
-    const packageJson: unknown = JSON.parse(await readFile(join(repositoryRoot, 'package.json'), 'utf8'))
+    const packageJson: unknown = JSON.parse(await readFile(join(sourceRepositoryRoot, 'package.json'), 'utf8'))
     if (!isRecord(packageJson) || !isRecord(packageJson.scripts) || !isRecord(packageJson.devDependencies)) {
       throw new Error('package.json must contain scripts and devDependencies objects')
     }
@@ -248,9 +287,9 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
     )
     expect(packageJson.devDependencies).not.toHaveProperty('eslint')
     expect(packageJson.devDependencies).not.toHaveProperty('@typescript-eslint/parser')
-    expect(existsSync(join(repositoryRoot, 'eslint.format.config.mjs'))).toBe(false)
+    expect(existsSync(join(sourceRepositoryRoot, 'eslint.format.config.mjs'))).toBe(false)
 
-    const lefthook = await readFile(join(repositoryRoot, 'lefthook.yml'), 'utf8')
+    const lefthook = await readFile(join(sourceRepositoryRoot, 'lefthook.yml'), 'utf8')
     expect(lefthook).toContain('scripts/run-oxlint.ts --config .oxlintrc.staged.json --fix')
     expect(lefthook).not.toContain('node_modules/.bin/eslint')
     expect(lefthook).not.toContain('eslint.format.config.mjs')
@@ -259,16 +298,16 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
   it('reports an unused suppression', async () => {
     const suffix = randomUUID()
     const configPath = await writeContractConfig(suffix)
-    const path = join(repositoryRoot, 'scripts', `oxlint-contract-${suffix}.ts`)
+    const path = join(fixtureRoot, 'scripts', `oxlint-contract-${suffix}.ts`)
 
     try {
       await writeFile(path, '// oxlint-disable-next-line no-console\nexport const value = 1\n')
       const result = runOxlint([
         '--config',
-        relative(repositoryRoot, configPath),
+        relative(fixtureRoot, configPath),
         '--format',
         'unix',
-        relative(repositoryRoot, path),
+        relative(fixtureRoot, path),
       ])
       const output = normalizedOutput(result)
 
@@ -328,24 +367,30 @@ export function unrelatedRead(): void {
 `
 
     try {
-      await mkdir(join(repositoryRoot, exampleRoot, 'tests'), { recursive: true })
-      await writeFile(join(repositoryRoot, exampleRoot, 'tsconfig.json'), JSON.stringify({
+      await mkdir(join(fixtureRoot, exampleRoot, 'tests'), { recursive: true })
+      await writeFile(join(fixtureRoot, exampleRoot, 'tsconfig.json'), JSON.stringify({
         extends: '../../tsconfig.base.json',
         include: ['tests/**/*.ts'],
       }))
       await Promise.all([
-        ...testPaths.map(path => writeFile(join(repositoryRoot, path), reads)),
-        ...productionPaths.map(path => writeFile(join(repositoryRoot, path), existing)),
+        ...testPaths.map(async (path) => {
+          await mkdir(dirname(join(fixtureRoot, path)), { recursive: true })
+          await writeFile(join(fixtureRoot, path), reads)
+        }),
+        ...productionPaths.map(async (path) => {
+          await mkdir(dirname(join(fixtureRoot, path)), { recursive: true })
+          await writeFile(join(fixtureRoot, path), existing)
+        }),
       ])
-      const args = ['--config', relative(repositoryRoot, configPath), '--format', 'unix', ...paths]
+      const args = ['--config', relative(fixtureRoot, configPath), '--format', 'unix', ...paths]
       const allowed = runRepositoryOxlint(args)
       expect(allowed.error).toBeUndefined()
       expect(allowed.signal).toBeNull()
       expect(allowed.status, normalizedOutput(allowed)).toBe(0)
 
       await Promise.all([
-        ...testPaths.map(path => writeFile(join(repositoryRoot, path), reads + unrelated)),
-        ...productionPaths.map(path => writeFile(join(repositoryRoot, path), reads)),
+        ...testPaths.map(path => writeFile(join(fixtureRoot, path), reads + unrelated)),
+        ...productionPaths.map(path => writeFile(join(fixtureRoot, path), reads)),
       ])
       const rejected = runRepositoryOxlint(args)
       const output = normalizedOutput(rejected)
@@ -369,8 +414,8 @@ export function unrelatedRead(): void {
       )
     } finally {
       await Promise.all([
-        ...paths.filter(path => path !== examplePath).map(path => rm(join(repositoryRoot, path), { force: true })),
-        rm(join(repositoryRoot, exampleRoot), { recursive: true, force: true }),
+        ...paths.filter(path => path !== examplePath).map(path => rm(join(fixtureRoot, path), { force: true })),
+        rm(join(fixtureRoot, exampleRoot), { recursive: true, force: true }),
         rm(configPath, { force: true }),
       ])
     }
@@ -388,7 +433,7 @@ export function unrelatedRead(): void {
   }, 90_000)
 
   it('keeps staged validation project-free while preserving source rules', async () => {
-    const configPath = join(repositoryRoot, '.oxlintrc.staged.json')
+    const configPath = join(fixtureRoot, '.oxlintrc.staged.json')
     const result = parseConfigFileTextToJson(configPath, await readFile(configPath, 'utf8'))
     if (result.error !== undefined) {
       throw new Error(flattenDiagnosticMessageText(result.error.messageText, '\n'))
@@ -402,15 +447,15 @@ export function unrelatedRead(): void {
     expect(stagedConfig.ignorePatterns).not.toContain('packages/typert/generator/tests/fixtures/type-model/**')
 
     const suffix = randomUUID()
-    const path = join(repositoryRoot, 'scripts', `staged-lint-probe-${suffix}.ts`)
+    const path = join(fixtureRoot, 'scripts', `staged-lint-probe-${suffix}.ts`)
     try {
       await writeFile(path, 'export const value={answer:1};\n')
       const lint = runOxlint([
         '--config',
-        relative(repositoryRoot, configPath),
+        relative(fixtureRoot, configPath),
         '--format',
         'unix',
-        relative(repositoryRoot, path),
+        relative(fixtureRoot, path),
       ])
       const output = normalizedOutput(lint)
 
@@ -425,7 +470,7 @@ export function unrelatedRead(): void {
 
   it('preserves successful fix output channels', async () => {
     const suffix = randomUUID()
-    const path = join(repositoryRoot, 'scripts', `staged-lint-probe-${suffix}.ts`)
+    const path = join(fixtureRoot, 'scripts', `staged-lint-probe-${suffix}.ts`)
 
     try {
       await writeFile(path, '// oxlint-disable-next-line no-console\nexport const value = 1\n')
@@ -435,7 +480,7 @@ export function unrelatedRead(): void {
         '--format',
         'unix',
         '--fix',
-        relative(repositoryRoot, path),
+        relative(fixtureRoot, path),
       ])
 
       expect(result.error).toBeUndefined()
@@ -449,7 +494,7 @@ export function unrelatedRead(): void {
 
   it('prints only the final diagnostics when a fix retry still fails', async () => {
     const suffix = randomUUID()
-    const path = join(repositoryRoot, 'scripts', `staged-lint-probe-${suffix}.ts`)
+    const path = join(fixtureRoot, 'scripts', `staged-lint-probe-${suffix}.ts`)
 
     try {
       await writeFile(path, `export const longProbe = ${'1 + '.repeat(80)}1\n`)
@@ -459,7 +504,7 @@ export function unrelatedRead(): void {
         '--format',
         'unix',
         '--fix',
-        relative(repositoryRoot, path),
+        relative(fixtureRoot, path),
       ])
       const output = normalizedOutput(result)
 
@@ -475,14 +520,14 @@ export function unrelatedRead(): void {
     'converges overlapping staged stylistic fixes through Oxlint under %s',
     async (fixFlag) => {
       const suffix = randomUUID()
-      const directory = join(repositoryRoot, 'scripts', `.oxlint-contract-${suffix}`)
+      const directory = join(fixtureRoot, 'scripts', `.oxlint-contract-${suffix}`)
       const path = join(directory, 'fix.ts')
 
       try {
         await mkdir(directory, { recursive: true })
         await writeFile(path, 'const value={answer:1};  \nconsole.log(value)\n')
 
-        const relativePath = relative(repositoryRoot, path)
+        const relativePath = relative(fixtureRoot, path)
         const lintResult = runRepositoryOxlint(['--config', '.oxlintrc.staged.json', fixFlag, relativePath])
 
         expect(lintResult.error).toBeUndefined()

@@ -79,7 +79,7 @@ function materialsOf(board: Row): unknown[] {
   let rows: unknown = raw
   if (typeof raw === 'string') {
     try { rows = JSON.parse(raw) }
-    catch (error) { return fail(error instanceof Error ? 'Invalid storyboardMaterialList JSON' : 'Unreadable materials') }
+    catch { return fail('Invalid storyboardMaterialList JSON') }
   }
   if (!Array.isArray(rows)) return fail('Invalid storyboardMaterialList')
   return rows
@@ -106,8 +106,11 @@ function view(board: Row): Row {
 function markers(value: unknown): { name: string; key: string }[] {
   if (typeof value !== 'string') return []
   const seen = new Set<string>()
-  return [...normalizedPrompt(value).matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)]
-    .map(match => ({ name: match[1] ?? '', key: match[2] ?? '' }))
+  return [...normalizedPrompt(value).matchAll(/@\[[^\]]+\]\([^()\s]+\)/g)]
+    .map(([marker]) => {
+      const separator = marker.indexOf('](')
+      return { name: marker.slice(2, separator), key: marker.slice(separator + 2, -1) }
+    })
     .filter(marker => !seen.has(marker.key) && Boolean(seen.add(marker.key)))
 }
 async function readBoard(client: JubianClient, scriptId: number, storyboardId: number): Promise<Row> {
@@ -168,10 +171,10 @@ function targetOf(board: Row, next: Row): Target {
 async function build(client: JubianClient, scriptId: number, edits: Edit[]): Promise<Plan> {
   const catalogue = edits.some(edit => MODEL_KEYS.some(key => edit.changes[key] !== undefined))
     ? (await client.request({ method: 'GET', path: '/model/charge/getSelectList?taskType=1' })).data : undefined
-  const episodes = edits.some(edit => edit.changes.episode_id !== undefined) ? await episodeIds(client, scriptId) : undefined
+  const episodes = edits.some(edit => edit.changes.episode_id !== undefined) ? await episodeIds(client, scriptId) : new Set<number>()
   const targets: Target[] = []
   for (const edit of edits) {
-    if (edit.changes.episode_id !== undefined && !episodes?.has(Number(edit.changes.episode_id))) {
+    if (edit.changes.episode_id !== undefined && !episodes.has(Number(edit.changes.episode_id))) {
       invalid(`episode_id ${JSON.stringify(edit.changes.episode_id)} is absent from this project's episode catalogue`)
     }
     const board = await readBoard(client, scriptId, edit.storyboard_id)
@@ -254,8 +257,9 @@ async function apply(client: JubianClient, ledger: JubianLedger, args: MethodArg
       try {
         const board = await readBoard(client, scriptId, target.storyboard_id)
         if (stableSha256(snapshot(board)) !== target.before_hash) { item.status = 'stale'; state.stopped = true; return }
-        const body: Row = { ...board, isGenerate: 0 }
         const config = { ...configOf(board) }
+        // Frozen request hashes include the JSON member order for newly added configuration.
+        const body: Row = { ...board, isGenerate: 0, modelConfig: config }
         for (const [key, value] of Object.entries(target.after)) {
           if (key === 'name' || key === 'episode_id' || key === 'sort_order') {
             if (edit.changes[key] !== undefined) body[BOARD_FIELDS[key]] = value

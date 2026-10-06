@@ -140,6 +140,7 @@ describe('listAudioAssetMaterialUrls', () => {
     [{ assetUrl: null }], [{ assetUrl: '' }], [{ assetUrl: 123 }],
     [{ assetUrl: AUDIO_URL, assetId: 78 }], [{ assetUrl: AUDIO_URL, scriptId: 2709 }],
     [{ assetUrl: 'http://media.example/zhou.wav' }], [{ assetUrl: 'https://user:secret@media.example/zhou.wav' }],
+    [{ assetUrl: 'not-a-url' }],
   ])('refuses an unreadable or unrelated complete enumeration %#', async (payload) => {
     const f = fixture(payload)
     await expect(listAudioAssetMaterialUrls(f.client, 2708, 77)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })

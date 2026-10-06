@@ -184,11 +184,11 @@ function summarise(records: readonly JubianLedgerRecord[], scriptId: number): {
     }
     if (record.script_id !== scriptId) continue
     const cents = centsOf(record.quoted_amount)
-    if (cents === null) {
+    if (cents === null || record.quote_unit === null) {
       summary.unquoted.push(record.record_id)
       continue
     }
-    if (record.quote_unit !== null) summary.units.add(record.quote_unit)
+    summary.units.add(record.quote_unit)
     if (record.outcome === 'accepted') summary.settled += cents
     else summary.reserved += cents
   }
@@ -243,12 +243,12 @@ export async function checkBudget(input: {
     return { status: 'refused', ...empty,
       reason: `项目 ${String(scriptId)} 的历史授权单位 ${savedEntry.unit} 与自动预算 CNY 不一致。` }
   }
-  const entry = savedEntry ?? { limit: ((autoLimitCents ?? 0) / 100).toFixed(2), unit: 'CNY' }
+  const entry = savedEntry ?? { limit: ((autoLimitCents as number) / 100).toFixed(2), unit: 'CNY' }
   if (input.quote?.unit !== undefined && input.quote.unit !== entry.unit) {
     return { status: 'refused', ...empty,
       reason: `本次计费报价单位 ${input.quote.unit} 与项目授权单位 ${entry.unit} 不一致。` }
   }
-  const limitCents = centsOf(entry.limit) ?? 0
+  const limitCents = centsOf(entry.limit) as number
   const summary = summarise(records, scriptId)
   const base = { limitCents, settledCents: summary.settled, reservedCents: summary.reserved }
   if (summary.unattributed.length > 0) {
@@ -261,7 +261,7 @@ export async function checkBudget(input: {
       reason: `账本里有 ${String(summary.unquoted.length)} 笔计费记录没有报价（${summary.unquoted.slice(0, 5).join('、')}），`
         + '花费未知，不能把它们当成 0。请先补齐这些调用点的报价，或人工确认金额后再继续。' }
   }
-  if (summary.units.size > 0 && !summary.units.has(entry.unit)) {
+  if ([...summary.units].some(unit => unit !== entry.unit)) {
     return { status: 'refused', ...base,
       reason: `账本里的报价单位是 ${[...summary.units].join('、')}，而授权写的是 ${entry.unit}：单位不一致不能相加比较。` }
   }

@@ -293,9 +293,10 @@ export async function decodeAt(toolkit: MediaToolkit, file: string, point: Decod
     '-frames:v', '1', '-vf', 'showinfo', '-an', '-f', 'null', '-',
   ])
   const frames = (outcome.stderr.match(/\]\s*n:\s*\d+/g) ?? []).length
+  const diagnostic = outcome.stderr.trim()
   const error = outcome.code === 0
     ? ''
-    : (outcome.stderr.trim().split(/\r?\n/).at(-1) ?? '').slice(0, 200)
+    : diagnostic.slice(diagnostic.lastIndexOf('\n') + 1).slice(0, 200)
   return { ...point, frames, error }
 }
 

@@ -87,7 +87,7 @@ function scrubText(text: string): string {
 function excerptString(text: string): string {
   const scrubbed = scrubText(text)
   const url = /^(https?):\/\/([^/?#\s]+)(?:[/?#]\S*)?$/iu.exec(scrubbed)
-  const bounded = url === null ? scrubbed : `${url[1] ?? ''}://${url[2] ?? ''}/…`
+  const bounded = url === null ? scrubbed : `${url[1]}://${url[2]}/…`
   return bounded.length <= VALUE_CHARS ? bounded : `${bounded.slice(0, VALUE_CHARS)}…`
 }
 

@@ -50,6 +50,7 @@ export class EmotionWorker {
   private readonly options: EmotionWorkerOptions
   private child?: ReturnType<typeof spawn>
   private reader?: Interface
+  private processClosed: Promise<void> | undefined
   private pending = new Map<string, Pending>()
   private counter = 0
   private ready?: Handshake
@@ -107,11 +108,14 @@ export class EmotionWorker {
     })
   }
 
-  /** Stop the process and reject every outstanding request. */
-  dispose(): Promise<void> {
+  /**
+   * Stop the process and reject every outstanding request.
+   * @returns Completion after the owned child has closed its process and streams.
+   */
+  async dispose(): Promise<void> {
     this.kill()
     this.failAll(new Error('worker disposed'))
-    return Promise.resolve()
+    await this.processClosed
   }
 
   private async startOnce(): Promise<Handshake> {
@@ -152,6 +156,7 @@ export class EmotionWorker {
       throw new Error('worker failed to start')
     }
     this.child = child
+    this.processClosed = new Promise<void>((resolve) => { child.once('close', () => { resolve() }) })
     child.once('error', () => { this.failAll(new Error('worker failed to start')) })
     child.once('close', () => { this.failAll(new Error('worker exited')) })
     child.stderr?.on('data', () => { /* drain diagnostics; never mix them into JSON */ })
@@ -170,22 +175,21 @@ export class EmotionWorker {
       this.failAll(new Error('worker response exceeded its byte limit'))
       return
     }
-    let parsed: {
-      id?: string
-      status?: string
-      result?: unknown
-      error?: { code?: string; message?: string }
-    }
-    try { parsed = JSON.parse(line) as typeof parsed }
+    let parsed: unknown
+    try { parsed = JSON.parse(line) }
     catch { return }
-    const id = parsed.id
-    if (id === undefined) return
-    const waiter = this.pending.get(id)
+    if (parsed === null || typeof parsed !== 'object' || !('id' in parsed) || typeof parsed.id !== 'string') return
+    const waiter = this.pending.get(parsed.id)
     if (waiter === undefined) return
-    this.pending.delete(id)
+    this.pending.delete(parsed.id)
     clearTimeout(waiter.timer)
-    if (parsed.status === 'ok') waiter.resolve(parsed.result)
-    else waiter.reject(new Error(`${parsed.error?.code ?? 'WORKER_ERROR'}: ${parsed.error?.message ?? ''}`))
+    if ('status' in parsed && parsed.status === 'ok') waiter.resolve('result' in parsed ? parsed.result : undefined)
+    else {
+      const failure = 'error' in parsed && parsed.error !== null && typeof parsed.error === 'object' ? parsed.error : {}
+      const code = 'code' in failure && typeof failure.code === 'string' ? failure.code : 'WORKER_ERROR'
+      const message = 'message' in failure && typeof failure.message === 'string' ? failure.message : ''
+      waiter.reject(new Error(`${code}: ${message}`))
+    }
   }
 
   private kill(): void {

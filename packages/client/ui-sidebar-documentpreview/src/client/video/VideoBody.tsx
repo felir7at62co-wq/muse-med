@@ -57,17 +57,17 @@ export function VideoBody(props: VideoBodyProps): ReactNode {
       if (video) { video.pause(); video.removeAttribute('src'); video.load() }
     }
   }, [state?.source?.url, revision])
-  if (revision === undefined) return null
-  if (state?.revision !== revision) return <LoadingIndicator label={t('loading')} />
+  if (content.kind !== 'renderer') return null
+  if (state?.revision !== content.revision) return <LoadingIndicator label={t('loading')} />
   if (state.failed || !state.source) return <p className={css.status} role="alert">{t('failed')}</p>
   const source = state.source
   return <div className={css.body} ref={props.scrollportRef}>
     <video ref={player} key={`${source.url}:${revision}`} className={css.player} src={source.url}
       controls playsInline preload="metadata" aria-label={t('player')} data-video-preview
-      onLoadedMetadata={() => { if (content.kind === 'renderer') content.loaded(source.version) }}
+      onLoadedMetadata={() => { content.loaded(source.version) }}
       onError={() => {
-        setState({ revision, failed: true })
-        if (content.kind === 'renderer') content.failed()
+        setState({ revision: content.revision, failed: true })
+        content.failed()
       }} />
   </div>
 }

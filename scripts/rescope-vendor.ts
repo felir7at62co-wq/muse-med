@@ -31,6 +31,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -67,8 +68,9 @@ interface ExactEdit {
 
 /**
  * A file where an upstream name also appears as a vendor DIRECTORY name or an
- * upstream runtime identifier: the generic pass is disabled for the listed
- * names and {@link EXACT_EDITS} renames the real package-name occurrences.
+ * upstream runtime identifier: the generic pass preserves the listed names.
+ * Parsed module references still use scoped names; {@link EXACT_EDITS} handles
+ * other package-name occurrences that require exact text.
  */
 interface GenericSkip {
   readonly file: string
@@ -85,6 +87,8 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   { file: 'packages/boot/app-boot/tests/config-schema.spec.ts', upstream: ['schemastery'] },
   // Asserts the vendored-manifest table, which gains an upstream-name column.
   { file: 'scripts/gen-third-party-notices.spec.ts', upstream: RENAMES.map(rename => rename.upstream) },
+  // The owner tests exercise upstream tokens as input data; their imports remain checked.
+  { file: 'scripts/rescope-vendor.spec.ts', upstream: RENAMES.map(rename => rename.upstream) },
   // `cordis` is also an agent-preset id, so in these files the bare name is
   // product data, not a package reference. Renaming it changed which preset
   // the creator flow stages and which id the roster reports.
@@ -98,6 +102,35 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   { file: 'apps/cli/tests/profiles/web/tests/fixtures/creator-plugin-manager.mjs', upstream: ['cordis'] },
   { file: 'apps/web/tests/agent-preset-authoring.e2e.ts', upstream: ['cordis'] },
   { file: 'packages/preset/agent-preset-registry/tests/session.spec.ts', upstream: ['cordis'] },
+  { file: 'packages/preset/agent-preset-registry/tests/deprecated-id.spec.ts', upstream: ['cordis'] },
+  { file: 'packages/client/ui-agent-preset/src/client/CreatePluginMenuItem.tsx', upstream: ['cordis'] },
+  { file: 'packages/client/ui-agent-preset/tests/components.client.spec.tsx', upstream: ['cordis'] },
+  { file: 'packages/client/ui-agent-preset/tests/create-plugin-menu-item.client.spec.tsx', upstream: ['cordis'] },
+  { file: 'packages/client/ui-agent-preset/tests/section-store.client.spec.ts', upstream: ['cordis'] },
+  { file: 'apps/web/tests/agent-preset-selection.e2e.ts', upstream: ['cordis'] },
+  { file: 'apps/web/tests/developer-tools-settings.e2e.ts', upstream: ['cordis'] },
+  // Desktop preset ids and installed skill directories retain their product names.
+  { file: 'apps/desktop-host/config/desktop.cordis.patch.yml', upstream: ['cordis'] },
+  { file: 'apps/desktop-host/presets/cordis/agent.cordis.yml', upstream: ['cordis'] },
+  { file: 'apps/desktop-host/src/native-preset.ts', upstream: ['cordis'] },
+  { file: 'apps/desktop-host/tests/hongguo-presets.spec.ts', upstream: ['cordis'] },
+  { file: 'apps/desktop-host/tests/muse-wiki-skill.spec.ts', upstream: ['cordis'] },
+  { file: 'apps/desktop-host/tests/reminder-presets.spec.ts', upstream: ['cordis'] },
+  { file: 'apps/desktop/scripts/smoke-runtime.ts', upstream: ['cordis'] },
+  { file: 'apps/desktop/tests/media-download-presets.spec.ts', upstream: ['cordis'] },
+  { file: 'apps/desktop/tests/native-preset-roster.spec.ts', upstream: ['cordis'] },
+  { file: 'apps/desktop/tests/native-preset.spec.ts', upstream: ['cordis'] },
+  { file: 'apps/desktop/tests/prepare-package-set.spec.ts', upstream: ['cordis'] },
+  { file: 'apps/desktop/tests/product-preset.spec.ts', upstream: ['cordis'] },
+  { file: 'apps/desktop/tests/smoke-runtime.spec.ts', upstream: ['cordis'] },
+  // Schedule compositions and documentation name the same shipped preset ids.
+  { file: 'packages/bundle/web-app/cordis.patch.yml', upstream: ['cordis'] },
+  { file: 'docs/subsystems/schedule.md', upstream: ['cordis'] },
+  { file: 'docs/subsystems/schedule.zh.md', upstream: ['cordis'] },
+  { file: 'docs/user/guide/schedule.md', upstream: ['cordis'] },
+  { file: 'docs/user/guide/schedule.zh.md', upstream: ['cordis'] },
+  { file: 'docs/upgrade-guide/v0.2.0-rc.2/schedule-bundle-retired/guide.md', upstream: ['cordis'] },
+  { file: 'docs/upgrade-guide/v0.2.0-rc.2/schedule-bundle-retired/guide.zh.md', upstream: ['cordis'] },
   // The preset-roster loop names the `cordis` preset id, not a package.
   { file: 'apps/cli/tests/windows-shell.spec.ts', upstream: ['cordis'] },
   // GROUP_ORDER holds `packages/<group>/` directory names, not package names.
@@ -120,6 +153,10 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   { file: 'packages/extensions/cordis-host-runner/tests/helpers.ts', upstream: ['cordis'] },
   { file: 'packages/extensions/cordis-host-runner/tests/runner.spec.ts', upstream: ['cordis'] },
   { file: 'packages/extensions/cordis-host-runner/tests/versioning.spec.ts', upstream: ['cordis'] },
+  { file: 'packages/extensions/cordis-host-runner/tests/inspect-registration-replacement.spec.ts', upstream: ['cordis'] },
+  { file: 'packages/extensions/cordis-host-runner/tests/inspect-registry.spec.ts', upstream: ['cordis'] },
+  { file: 'snapshots/session/cordis-inspect-liveness/client-fixture.mjs', upstream: ['cordis'] },
+  { file: 'snapshots/session/cordis-inspect-timeout/client-fixture.mjs', upstream: ['cordis'] },
   { file: 'packages/extensions/tool-cordis/src/api-catalog.ts', upstream: ['cordis'] },
   { file: 'packages/extensions/tool-cordis/src/providers.ts', upstream: ['cordis'] },
   { file: 'packages/extensions/ui-cordis/src/client/index.ts', upstream: ['cordis'] },
@@ -442,6 +479,11 @@ export function isRescopeExcluded(file: string): boolean {
   if (file === 'pnpm-lock.yaml') return true // regenerated by pnpm install
   // Raw npm registry resolution; only gen-dependency-catalog --refresh replaces this evidence.
   if (file === 'scripts/dependency-catalog/package-lock.json') return true
+  // Fixed upstream registry resolutions and source-verification scripts are not Harness package references.
+  if (file === 'third_party/plugins/dsh-bridge/package-lock.json'
+    || file === 'third_party/plugins/dshmarket/package-lock.json'
+    || file === 'third_party/plugins/dsh-ponytail/scripts/sync-dist.mjs'
+    || file === 'third_party/plugins/dsh-ponytail/scripts/verify-dist.mjs') return true
   if (/^vendor\/[^/]+\/(README\.md|LICENSE)$/.test(file)) return true // upstream files kept verbatim
   return !EXTENSIONS.some(extension => file.endsWith(extension))
 }
@@ -481,11 +523,72 @@ function skipped(file: string, pattern: Pattern): boolean {
 function rewriteLine(line: string, file: string, all: readonly Pattern[]): string {
   let out = line
   for (const pattern of all) {
-    if (skipped(file, pattern)) continue
-    out = out.replace(pattern.token, (_match, quote: string, subpath: string) => `${quote}${pattern.to}${subpath}${quote}`)
+    if (!skipped(file, pattern)) {
+      out = out.replace(pattern.token, (_match, quote: string, subpath: string) => `${quote}${pattern.to}${subpath}${quote}`)
+    }
     out = out.replace(pattern.yamlName, (_match, prefix: string, suffix: string) => `${prefix}${pattern.to}${suffix}`)
   }
   return out
+}
+
+function rewriteModuleReferences(text: string, file: string, all: readonly Pattern[]): string {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
+  const printer = ts.createPrinter()
+  const edits = new Map<number, { end: number; text: string }>()
+  function specifier(value: ts.Expression | undefined): void {
+    if (value === undefined || !ts.isStringLiteralLike(value)) return
+    const pattern = all.find(candidate => skipped(file, candidate)
+      && (value.text === candidate.from || value.text.startsWith(`${candidate.from}/`)))
+    if (pattern !== undefined) {
+      const start = value.getStart(source)
+      const literal = ts.factory.createStringLiteral(pattern.to + value.text.slice(pattern.from.length), text[start] === "'")
+      edits.set(start, { end: value.getEnd(), text: printer.printNode(ts.EmitHint.Expression, literal, source) })
+    }
+  }
+  const visited = new Set<ts.Node>()
+  function visit(node: ts.Node): void {
+    if (visited.has(node)) return
+    visited.add(node)
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) specifier(node.moduleSpecifier)
+    else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      specifier(node.moduleReference.expression)
+    } else if (ts.isModuleDeclaration(node) && ts.isStringLiteral(node.name)) specifier(node.name)
+    else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) specifier(node.argument.literal)
+    else if (ts.isCallExpression(node)) {
+      const target = node.expression
+      if (target.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(target) && target.text === 'require')
+        || (ts.isPropertyAccessExpression(target) && ts.isIdentifier(target.expression)
+          && target.expression.text === 'require' && target.name.text === 'resolve')) specifier(node.arguments[0])
+    }
+    ts.forEachChild(node, visit)
+    for (const documentation of ts.getJSDocCommentsAndTags(node)) visit(documentation)
+  }
+  visit(source)
+  let output = text
+  for (const [start, edit] of [...edits].sort(([left], [right]) => right - left)) {
+    output = output.slice(0, start) + edit.text + output.slice(edit.end)
+  }
+  return output
+}
+
+function rewritePreservedModules(text: string, file: string, all: readonly Pattern[]): string {
+  if (!GENERIC_SKIPS.some(skip => skip.file === file)) return text
+  if (/\.(?:ts|tsx|js|mjs|cjs|tpl)$/u.test(file)) return rewriteModuleReferences(text, file, all)
+  if (!file.endsWith('.md')) return text
+  let fence = false, block: string[] = []
+  const output: string[] = []
+  for (const line of text.split('\n')) {
+    if (/^\s*```/u.test(line)) {
+      if (fence) output.push(rewriteModuleReferences(block.join('\n'), file, all))
+      block = []
+      fence = !fence
+      output.push(line)
+    } else if (fence) block.push(line)
+    else output.push(line)
+  }
+  if (fence) output.push(rewriteModuleReferences(block.join('\n'), file, all))
+  return output.join('\n')
 }
 
 /**
@@ -504,7 +607,8 @@ function rewrite(text: string, file: string, all: readonly Pattern[]): { text: s
   const prose = markdown && file.startsWith('docs/')
   let insideFence = false
   let lines = 0
-  const out = text.split('\n').map((line) => {
+  const originalLines = text.split('\n')
+  const out = originalLines.map((line) => {
     if (markdown) {
       if (/^\s*```/.test(line)) {
         insideFence = !insideFence
@@ -516,7 +620,21 @@ function rewrite(text: string, file: string, all: readonly Pattern[]): { text: s
     if (next !== line) lines += 1
     return next
   })
-  return { text: out.join('\n'), lines }
+  const rewritten = rewritePreservedModules(out.join('\n'), file, all)
+  if (rewritten !== out.join('\n')) {
+    lines = rewritten.split('\n').filter((line, index) => line !== originalLines[index]).length
+  }
+  return { text: rewritten, lines }
+}
+
+/** Rewrite eligible package references while preserving file-specific product and upstream identifiers.
+ * @param text - Complete source text, including code fences for Markdown.
+ * @param file - Repository-relative filename used to select the documented exceptions.
+ * @param reverse - Whether to restore upstream package names.
+ * @returns Rewritten text and the number of changed lines; excluded files remain byte-identical.
+ */
+export function rewriteRescopeReferences(text: string, file: string, reverse = false): { text: string; lines: number } {
+  return isRescopeExcluded(file) ? { text, lines: 0 } : rewrite(text, file, patterns(reverse))
 }
 
 function classify(file: string): string {

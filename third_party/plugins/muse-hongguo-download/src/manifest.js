@@ -21,7 +21,7 @@ export class ManifestCatalog {
     return data.series.map(row => {
       if (!record(row) || typeof row.series_id !== 'string' || !/^[\w\u4e00-\u9fff.-]{1,120}$/.test(row.series_id)
         || ids.has(row.series_id) || typeof row.title !== 'string' || !row.title.trim() || row.title.length > 200
-        || !Array.isArray(row.episodes) || !row.episodes.length || row.episodes.length > this.config.maxEpisodes) throw new DownloadError('invalid_manifest', '授权媒体目录系列 ID、标题或集数无效');
+        || !Array.isArray(row.episodes) || !row.episodes.length) throw new DownloadError('invalid_manifest', '授权媒体目录系列 ID、标题或集数无效');
       ids.add(row.series_id);
       const count = row.episode_cnt ?? row.episodes.length;
       if (!Number.isSafeInteger(count) || count !== row.episodes.length) throw new DownloadError('incomplete_catalog', '授权媒体目录声明总集数与列表不一致');

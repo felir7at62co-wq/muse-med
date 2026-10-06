@@ -38,11 +38,10 @@ export function hydrateSessionFixtureCwd(content: string, cwd: string): string {
       let encoded: unknown
       try {
         encoded = JSON.parse(value)
-      } catch (error) {
+      } catch (_error) {
         // User prose and partial stream chunks need no nested JSON decoding.
-        if (!(error instanceof SyntaxError)) throw error
       }
-      return encoded !== null && typeof encoded === 'object'
+      return typeof encoded === 'object'
         ? JSON.stringify(replace(encoded))
         : value.replaceAll('{{cwd}}', cwd)
     }

@@ -6,6 +6,8 @@ import { join } from 'node:path'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, expect, it } from 'vitest'
 import { MuseGatewayError } from '../src/gateway.ts'
+import { MuseAccountInputError } from '../src/account.ts'
+import { MuseFeedbackError } from '../src/feedback.ts'
 import { MuseAccountService } from '../src/service.ts'
 import { MuseAsrClient } from '../src/asr.ts'
 import { writeMuseSession } from '../src/session.ts'
@@ -73,4 +75,61 @@ it('forwards the receipt purpose through the Host service without adding transcr
     await context.fiber.dispose()
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+it('orders account refresh and disconnect operations and returns an explicit feedback receipt', async () => {
+  const context = new Context(), operations: string[] = []
+  contexts.push(context)
+  const signedOut = { state: 'signed-out' } as const
+  await context.plugin(MuseAccountService, { controller: {
+    status: async () => { operations.push('status'); return signedOut },
+    login: async () => { operations.push('login'); return { outcome: 'signed-in', status: { state: 'signed-in', username: 'writer', verified: true } } },
+    logout: async () => { operations.push('logout'); return signedOut },
+  }, models: { refresh: async () => { operations.push('models') } }, remote: {
+    refresh: async () => { operations.push('remote') }, pause: async () => { operations.push('pause') },
+  }, feedback: { submit: async () => ({ id: 'feedback' as never, revision: 1 }) } })
+  const service = context.get('museAccount') as MuseAccountService
+  expect(await service.status({})).toEqual(signedOut)
+  await service.login({ username: 'writer', password: 'password', registerIfMissing: false })
+  expect(await service.logout()).toEqual(signedOut)
+  expect(operations).toEqual(['models', 'remote', 'status', 'login', 'remote', 'models', 'pause', 'logout', 'models'])
+  expect(await service.feedback({ sessionId: 'session' as never, target: { kind: 'session' }, includeDiagnostics: false }))
+    .toEqual({ id: 'feedback', revision: 1 })
+})
+
+it.each(['username-taken', 'rate-limited', 'registration-disabled', 'gateway-unavailable', 'gateway-rejected', 'input'] as const)(
+  'bounds login failure text for %s', async (failure) => {
+    const context = new Context(); contexts.push(context)
+    await context.plugin(MuseAccountService, { controller: {
+      status: async () => ({ state: 'signed-out' }), logout: async () => ({ state: 'signed-out' }),
+      login: async () => { throw failure === 'input' ? new MuseAccountInputError() : new MuseGatewayError(failure) },
+    } })
+    const service = context.get('museAccount') as MuseAccountService
+    await expect(service.login({ username: 'writer', password: 'password', registerIfMissing: false }))
+      .rejects.toMatchObject({ code: `muse-account/${failure === 'input' ? 'invalid-input' : failure === 'username-taken' ? 'invalid-credentials' : failure}`, details: {} })
+  },
+)
+
+it('keeps logout and feedback failures fixed and reports missing cloud transcription explicitly', async () => {
+  const context = new Context(); contexts.push(context)
+  await context.plugin(MuseAccountService, { controller: {
+    status: async () => ({ state: 'signed-out' }), login: async () => { throw new Error('unused') },
+    logout: async () => { throw new Error('PRIVATE_STORAGE') },
+  }, feedback: { submit: async () => { throw new Error('PRIVATE_RECEIPT') } } })
+  const service = context.get('museAccount') as MuseAccountService
+  await expect(service.logout()).rejects.toMatchObject({ code: 'muse-account/storage-failed' })
+  await expect(service.feedback({ sessionId: 'session' as never, target: { kind: 'session' }, includeDiagnostics: false }))
+    .rejects.toMatchObject({ code: 'muse-feedback/unavailable' })
+  await expect(service.submitAudio('/missing', 'id', 'digest', 'zh')).rejects.toThrow('unavailable')
+  await expect(service.audioStatus('id')).rejects.toThrow('unavailable')
+})
+
+it('preserves a recognized feedback refusal without forwarding its local detail', async () => {
+  const context = new Context(); contexts.push(context)
+  await context.plugin(MuseAccountService, { controller: {
+    status: async () => ({ state: 'signed-out' }), login: async () => { throw new Error('unused') }, logout: async () => ({ state: 'signed-out' }),
+  }, feedback: { submit: async () => { throw new MuseFeedbackError('account-changed') } } })
+  const service = context.get('museAccount') as MuseAccountService
+  await expect(service.feedback({ sessionId: 'session' as never, target: { kind: 'session' }, includeDiagnostics: false }))
+    .rejects.toMatchObject({ code: 'muse-feedback/account-changed' })
 })

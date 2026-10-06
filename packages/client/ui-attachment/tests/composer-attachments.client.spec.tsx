@@ -88,6 +88,21 @@ function props(overrides: Partial<ComposerAttachmentsOwnerProps> = {}): Composer
 }
 
 describe('ComposerAttachments', () => {
+  it('blocks workspace drag intake while its workspace provider cannot accept files', () => {
+    const onDrop = vi.fn(), onAddFiles = vi.fn()
+    const view = render(<ComposerAttachments {...props({
+      onAddFiles, workspaceDrop: { type: 'application/x-dsh-workspace-file', canAccept: false, onDrop },
+    })} />)
+    const transfer = { types: ['application/x-dsh-workspace-file'], files: [], items: [], dropEffect: 'copy', getData: vi.fn() }
+    fireEvent.dragEnter(document.body, { dataTransfer: transfer })
+    expect(view.getByRole('status').textContent).toBe('当前无法添加文件或图片')
+    fireEvent.dragOver(document.body, { dataTransfer: transfer })
+    expect(transfer.dropEffect).toBe('none')
+    fireEvent.drop(document.body, { dataTransfer: transfer })
+    expect(onDrop).not.toHaveBeenCalled()
+    expect(onAddFiles).not.toHaveBeenCalled()
+    expect(transfer.getData).not.toHaveBeenCalled()
+  })
   it('captures workspace drops before an editable target can stop their propagation', () => {
     const onDrop = vi.fn()
     const targetDrop = vi.fn((event: React.DragEvent) => { event.stopPropagation() })

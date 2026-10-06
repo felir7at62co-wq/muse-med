@@ -158,6 +158,17 @@ describe('extractTailFrame', () => {
     )).rejects.toThrow('尾帧校验不通过')
   })
 
+  it('refuses a wrong sequential replacement when the seek produced no frame', async () => {
+    const project = await tempProject()
+    temporary.push(project)
+    const channel = tailChannel({ seekWrites: false, imageHashes: ['wrong'], videoHashes: ['tail'] })
+    await expect(extractTailFrame(
+      createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }),
+      join(project, 'source.mp4'), join(project, 'tail.png'),
+    )).rejects.toThrow('顺序抽出的帧 wrong 与最后一帧 tail')
+    expect(channel.calls.some(isSelect)).toBe(true)
+  })
+
   it('falls back to the proven sequential tail when `-sseof` writes no file', async () => {
     const project = await tempProject()
     temporary.push(project)
@@ -228,6 +239,14 @@ describe('extractTailFrame', () => {
   })
 })
 describe('requireEndingAssetFile', () => {
+  it('does not classify an unreadable sibling as a verified installed asset', async () => {
+    const project = await tempProject()
+    temporary.push(project)
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(join(project, 'ending_audio.mp3'))
+    await expect(requireEndingAssetFile(join(project, 'ending_effect.mp4'), ENDING_EFFECT_ASSET, ENDING_AUDIO_ASSET))
+      .rejects.toThrow('不是随包 assets 目录')
+  })
   it('accepts a readable file wherever the caller put it', async () => {
     const project = await tempProject()
     temporary.push(project)

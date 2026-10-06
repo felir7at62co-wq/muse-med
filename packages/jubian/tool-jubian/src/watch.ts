@@ -56,19 +56,20 @@ function record(value: unknown): Record<string, unknown> | undefined {
     ? value as Record<string, unknown> : undefined
 }
 
-function currentOutput(row: VideoSubtask, raw: unknown, stage: WatchArgs['stage']): boolean {
+/** Inspect result fields only after readSubtaskPage validates every child and version object. */
+function currentOutput(row: VideoSubtask, raw: Record<string, unknown>, stage: WatchArgs['stage']): boolean {
   if (!row.video_url || (row.last_task_type !== null && row.last_stage !== stage)) return false
   if (stage === 'generate' && row.last_task_type === null && row.video_url === row.base_video_url) return true
-  const results = record(raw)?.resultList
-  const current = Array.isArray(results) ? record(results[0]) : undefined
+  const results = raw.resultList
+  const current = Array.isArray(results) ? results[0] as Record<string, unknown> | undefined : undefined
   if (row.last_stage === stage && current?.lastResultStatus !== undefined) {
     return typeof current.lastResultStatus === 'string'
       && terminalOutcome(current.lastResultStatus) === 'succeeded'
       && current.lastTosVideoUrl === row.video_url
   }
   return Array.isArray(results) && results.some((value) => {
-    const version = record(value)
-    return version !== undefined && typeof version.taskType === 'number'
+    const version = value as Record<string, unknown>
+    return typeof version.taskType === 'number'
       && VIDEO_TASK_TYPES[version.taskType] === stage
       && (version.tosVideoUrl ?? version.originalVideoUrl) === row.video_url
       && typeof version.resultStatus === 'string' && terminalOutcome(version.resultStatus) === 'succeeded'
@@ -93,8 +94,8 @@ async function observe(client: JubianClient, args: WatchArgs, signal: AbortSigna
     const raw = record(response.data)
     const reportedTotal = raw?.total
     if (typeof reportedTotal !== 'number' || !Number.isSafeInteger(reportedTotal) || reportedTotal < 1) return
-    const listed = Array.isArray(raw?.rows) ? raw.rows : []
     const page = readSubtaskPage(response.data)
+    const listed = (raw as Record<string, unknown>).rows as Record<string, unknown>[]
     if (total !== undefined && page.total !== total) return
     total = page.total
     if (!page.rows.length || rows.length + page.rows.length > total) return
@@ -105,7 +106,7 @@ async function observe(client: JubianClient, args: WatchArgs, signal: AbortSigna
         return { status: 'failed', detail: `provider child ${row.subtask_id} ${row.status}` }
       }
       if (terminalOutcome(row.status ?? '') !== 'succeeded'
-        || !currentOutput(row, listed[index], args.stage)) return
+        || !currentOutput(row, listed[index] as Record<string, unknown>, args.stage)) return
       rows.push(row)
     }
     if (rows.length === total) break

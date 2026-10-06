@@ -32,7 +32,7 @@ export function requiredSeconds(effectiveChars: number): number {
  */
 export function checkShotScriptText(text: string): string | undefined {
   for (const match of text.matchAll(/^[ \t]*时长[：:][ \t]*(.*?)[ \t]*$/gm)) {
-    const declared = match[1] ?? ''
+    const declared = match[0].replace(/^[ \t]*时长[：:][ \t]*/u, '').replace(/[ \t]+$/u, '')
     if (!/^[1-9]\d*秒$/.test(declared) || !Number.isSafeInteger(Number(declared.slice(0, -1)))) {
       return `时长「${declared}」不合法：明确声明时长时必须是正整数秒，例如「时长：20秒」；也可省略，由 drama_shot 估算。`
     }

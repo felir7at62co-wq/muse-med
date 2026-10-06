@@ -19,6 +19,14 @@ export interface ClientFixtureOptions {
   readonly sourceCatalog?: ClientFixtureSourceCatalog
 }
 
+/** Received Runtime controls and cancellation state in the isolated Client. */
+export interface ClientFixtureRuntimeState {
+  readonly requested: readonly string[]
+  readonly canceled: readonly string[]
+  readonly aborted: readonly string[]
+  readonly pending: number
+}
+
 interface FixtureResponse {
   readonly type: 'response'
   readonly id: number
@@ -104,6 +112,22 @@ export class InspectorClientFixture {
    */
   async setIngestPaused(paused: boolean): Promise<void> {
     await this.request({ op: 'set-ingest-paused', paused })
+  }
+
+  /**
+   * Read received Runtime controls and their owned AbortSignals.
+   * @returns Correlated request ids, aborted operations, and the pending count.
+   */
+  async runtimeState(): Promise<ClientFixtureRuntimeState> {
+    const value = await this.request({ op: 'runtime-state' })
+    if (!isRecord(value)
+      || !Array.isArray(value.requested) || !value.requested.every(id => typeof id === 'string')
+      || !Array.isArray(value.canceled) || !value.canceled.every(id => typeof id === 'string')
+      || !Array.isArray(value.aborted) || !value.aborted.every(id => typeof id === 'string')
+      || typeof value.pending !== 'number' || !Number.isSafeInteger(value.pending) || value.pending < 0) {
+      throw new Error('Inspector Client fixture returned invalid Runtime state')
+    }
+    return { requested: value.requested, canceled: value.canceled, aborted: value.aborted, pending: value.pending }
   }
 
   /** Break the active ingest socket while preserving the Client source. */

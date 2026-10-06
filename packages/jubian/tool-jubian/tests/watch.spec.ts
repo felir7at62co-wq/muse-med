@@ -1,7 +1,9 @@
 /** Read-only operation completion and cancellation through the real provider parser. */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { JubianClient } from '@deepseek-ai/dsh-jubian'
-import { watchJob, resolveWatchConfig } from '../src/watch.ts'
+import type { JubianRequest, JubianResponse } from '@deepseek-ai/dsh-jubian'
+import { watchJob, resolveWatchConfig, watchArgs } from '../src/watch.ts'
+import type { WatchArgs } from '../src/watch.ts'
 
 const args = { task_id: 42, stage: 'upscale' as const }
 const config = { watchPollIntervalMs: 10, watchTimeoutMs: 100 }
@@ -33,6 +35,42 @@ function start(client: JubianClient, input = args) {
 }
 
 describe('jubian watcher', () => {
+  it('accepts a parsed watch identity and refuses a nonobject child page', async () => {
+    expect(watchArgs(args)).toBe(args)
+    vi.useFakeTimers()
+    const { client } = provider(path => path.includes('/sub/list') ? null : task())
+    const hook = start(client)
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await hook.done).status).toBe('failed')
+  })
+  it.each([{ task_id: 0, stage: 'generate' }, { task_id: 1.5, stage: 'generate' },
+    { task_id: 1, stage: 'other' }, { task_id: 1, stage: null }])
+  ('rejects invalid model-authored watch JSON %j', (input) => {
+    const decoded = JSON.parse(JSON.stringify(input)) as WatchArgs
+    expect(() => watchArgs(decoded)).toThrow('jubian_watch')
+  })
+
+  it('does not accept a child-list alias that lacks the inspected raw rows', async () => {
+    vi.useFakeTimers()
+    const { client } = provider(path => path.includes('/sub/list') ? { total: 1, list: [child()] } : task())
+    const hook = start(client)
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await hook.done).status).toBe('failed')
+  })
+  it('reports a credential failure without continuing polling', async () => {
+    const client = new JubianClient({ credential: async () => { throw new Error('private reason') } })
+    await expect(start(client).done).resolves.toEqual({ status: 'failed', detail: 'AUTHENTICATION_REQUIRED' })
+  })
+
+  it('contains an unexpected client failure and releases its deadline', async () => {
+    vi.useFakeTimers()
+    class FailingClient extends JubianClient {
+      override async request(_request: JubianRequest): Promise<JubianResponse> { throw new Error('private reason') }
+    }
+    await expect(start(new FailingClient({ credential: async () => 'token' })).done)
+      .resolves.toEqual({ status: 'failed', detail: 'watch read failed' })
+    expect(vi.getTimerCount()).toBe(0)
+  })
   it('resolves bounded defaults and rejects invalid settings', () => {
     expect(resolveWatchConfig({})).toEqual({ watchPollIntervalMs: 15000, watchTimeoutMs: 1800000 })
     for (const value of [0, -1, 1.5, Infinity, 60001]) {
@@ -91,6 +129,40 @@ describe('jubian watcher', () => {
       '/admin/aigc/video/task/sub/list?pageNum=1&pageSize=1000',
       '/admin/aigc/video/task/sub/list?pageNum=2&pageSize=1000',
     ])
+  })
+
+  it.each([
+    ['changed total', (page: number) => ({ total: page === 1 ? 2 : 3, rows: [child(page === 1 ? 51 : 52)] })],
+    ['repeated child', () => ({ total: 2, rows: [child()] })],
+    ['empty incomplete page', () => ({ total: 2, rows: [] })],
+    ['too many rows', () => ({ total: 1, rows: [child(), child(52)] })],
+    ['missing child status', () => ({ total: 1, rows: [{ ...child(), taskStatus: null }] })],
+    ['missing parent status', () => ({ total: 1, rows: [child()] })],
+    ['missing current URL', () => ({ total: 1, rows: [{ ...child(), resultList: [] }] })],
+    ['nontext current status', () => ({ total: 1, rows: [{ ...child(), resultList: [{
+      ...child().resultList[0], lastResultStatus: 2 }] }] })],
+    ['failed prior version', () => ({ total: 1, rows: [{ ...child(), resultList: [{
+      taskType: 20, resultStatus: 'processing', tosVideoUrl: 'https://cdn.example/source.mp4' }] }] })],
+    ['missing prior status', () => ({ total: 1, rows: [{ ...child(), resultList: [{
+      taskType: 20, tosVideoUrl: 'https://cdn.example/source.mp4' }] }] })],
+    ['material without version evidence', () => ({ total: 1, rows: [{ ...child(), resultList: null,
+      videoMaterials: [{ videoUrl: 'https://cdn.example/source.mp4' }] }] })],
+  ] as const)('keeps %s unverified until the deadline', async (label, page) => {
+    vi.useFakeTimers()
+    const { client } = provider(path => path.includes('/sub/list')
+      ? page(Number(new URL(`https://example.test${path}`).searchParams.get('pageNum')))
+      : label === 'missing parent status' ? { ...task(), taskStatus: null } : task())
+    const hook = start(client)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(await hook.done).toMatchObject({ status: 'failed', detail: 'timeout: operation completion unverified' })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('accepts the requested completed version when no latest-stage fields are recorded', async () => {
+    const { client } = provider(path => path.includes('/sub/list') ? { total: 1, rows: [{ ...child(),
+      resultList: [{ taskType: 20, resultStatus: 'succeeded', originalVideoUrl: 'https://cdn.example/source.mp4' }] }] }
+      : task())
+    expect(await start(client).done).toMatchObject({ status: 'completed' })
   })
 
   it.each([undefined, 2])('does not accept incomplete or unverified total %s', async (total) => {

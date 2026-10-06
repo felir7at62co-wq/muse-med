@@ -84,6 +84,8 @@ function mount(
     restoreDefaults?: DramaWriteOutcome
     components?: DramaComponentState[]
     imageRoutes?: DramaImageRoutes
+    budgetRead?: DramaSettingsSectionProps['budgetRead']
+    budgetUpdate?: DramaSettingsSectionProps['budgetUpdate']
   } = {},
 ): Bench {
   let current = snapshot(initial)
@@ -100,6 +102,8 @@ function mount(
     restoreDefaults,
     components,
     imageRoutes,
+    ...(answers.budgetRead === undefined ? {} : { budgetRead: answers.budgetRead }),
+    ...(answers.budgetUpdate === undefined ? {} : { budgetUpdate: answers.budgetUpdate }),
   }) as DramaSettingsSectionProps
   const view = render(<DramaSettingsSection {...props()} />)
   return {
@@ -126,6 +130,31 @@ function routeSelect(): HTMLSelectElement {
 }
 
 describe('DramaSettingsSection — read states', () => {
+  it('reports a backend validation refusal after a valid draft is submitted', async () => {
+    const bench = mount({}, { write: 'invalid' })
+    await bench.settle()
+    fireEvent.change(box(en.bgmDirTitle), { target: { value: '/music/library' } })
+    fireEvent.click(screen.getByRole('button', { name: en.save }))
+    await screen.findByText(en.invalidNumber)
+    expect(bench.write).toHaveBeenCalledOnce()
+  })
+
+  it('includes the optional project-budget editor and saves a changed BGM directory', async () => {
+    const budget = { script_id: 2708, limit_cents: 400000, unit: 'CNY', source: 'project' as const,
+      settled_cents: 0, reserved_cents: 0, remaining_cents: 400000, revision: 'revision',
+      authorization_path: 'budget.json', note: '', accounting_complete: true }
+    const read = vi.fn(async () => ({ ok: true as const, value: budget }))
+    const bench = mount({}, { budgetRead: read, budgetUpdate: async () => ({ ok: true, value: budget }) })
+    await bench.settle()
+    fireEvent.change(screen.getByLabelText(en.projectBudgetId), { target: { value: '2708' } })
+    fireEvent.click(screen.getByRole('button', { name: en.projectBudgetRead }))
+    await waitFor(() => { expect(read).toHaveBeenCalledWith(2708) })
+    fireEvent.change(box(en.bgmDirTitle), { target: { value: '/music/library' } })
+    fireEvent.click(screen.getByRole('button', { name: en.save }))
+    await screen.findByText(en.saved)
+    expect(bench.write).toHaveBeenCalledWith({ ...draftOf(DRAMA_SETTINGS_DEFAULTS), bgmDir: '/music/library' })
+  })
+
   it('holds a loading line until the first section arrives', () => {
     const bench = mount({ status: 'loading', value: undefined })
     expect(screen.getByText(en.loading)).toBeDefined()
@@ -322,6 +351,15 @@ describe('DramaSettingsSection — the asset-image route', () => {
     // The row the section pins is still what the form holds, so nothing differs.
     expect(screen.getByRole('button', { name: en.save }).hasAttribute('disabled')).toBe(true)
     expect(bench.write).not.toHaveBeenCalled()
+  })
+
+  it('labels a catalogue row with unavailable price measurements', async () => {
+    const bench = mount({}, { imageRoutes: { status: 'ok', routes: [
+      { standardId: 66, platformId: 'KU_AI', unitPrice: null, unit: null },
+    ] } })
+    await bench.settle()
+    expect(screen.getByRole('option', { name: en.imageRouteOption.replace('{platform}', 'KU_AI')
+      .replace('{price}', en.imageRoutePriceUnknown).replace('{id}', '66') })).toBeDefined()
   })
 
   it('says why there are no rows to offer instead of showing an empty catalogue', async () => {

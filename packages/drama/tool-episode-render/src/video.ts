@@ -128,9 +128,7 @@ export async function runDramaVideo(args: VideoArguments): Promise<{
   const project = resolve(args.project)
   if (!(await stat(project)).isDirectory()) throw new Error('project 必须是项目目录。')
   const manifest_path = resolve(project, 'video-bans.json')
-  if (!['ban', 'unban', 'list', 'inspect'].includes(args.method)) throw new Error('不支持的 drama_video method。')
   if (args.method === 'ban' && !labelsValid(args.labels)) throw new Error('ban 的 labels 必须是至少含一个非空字符串的列表。')
-  if (args.reason !== undefined && typeof args.reason !== 'string') throw new Error('reason 必须是字符串。')
   if (args.method === 'ban' && (args.video === undefined || args.sha256 !== undefined)) {
     throw new Error('ban 必须指定现有本地 video，不接受 sha256 代替。')
   }

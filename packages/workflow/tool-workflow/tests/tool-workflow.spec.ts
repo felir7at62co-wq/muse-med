@@ -181,6 +181,28 @@ describe('dsh-tool-workflow', () => {
     ])
   })
 
+  it('persists the member failure reason with its identity before the run settles', async () => {
+    const { ctx, engine, parent, session } = await setup()
+    const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
+    const runId = WorkflowRunId('run-1')
+    const reason = { kind: 'invalid-structured-output', detail: 'missing required dialogue' } as const
+    try {
+      await vi.waitFor(() => { expect(engine.requests).toHaveLength(1) })
+      engine.agentStart(runId, { seq: 1, label: 'writer', childId: SessionId('writer-child') })
+      engine.agentEnd(runId, { seq: 1, label: 'writer', childId: SessionId('writer-child'), outcome: 'failed', reason })
+      expect(session.snapshotEvents().find(event => event.type === 'tool-workflow/agent-end')?.data).toEqual({
+        runId: 'run-1', seq: 1, label: 'writer', childId: 'writer-child', outcome: 'failed', reason,
+      })
+      engine.settleRun(runId, { value: null, stopReason: 'error', error: 'member artifact rejected', agentsStarted: 1 })
+      expect((await pending).isError).toBe(true)
+      expect(engine.disposed).toBe(1)
+    } finally {
+      engine.settle({ value: null, stopReason: 'error', agentsStarted: 1 })
+      await pending
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('writes run-end only after run disposal reaches quiescence', async () => {
     const { ctx, engine, parent, session } = await setup()
     const barrier = Promise.withResolvers<undefined>()

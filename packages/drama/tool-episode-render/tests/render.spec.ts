@@ -160,6 +160,25 @@ async function render(
 }
 
 describe('renderEpisode', () => {
+  it('retains the prior delivery and refuses a cache identity when a selected source changes during encoding', async () => {
+    const prepared = await preparedProject()
+    await writePlaceholder(prepared.output, 'previous delivery')
+    const source = join(prepared.paths.videoDir, 'shot_001.mp4')
+    const cached = join(prepared.paths.cacheDir, 'shot_001.mp4')
+    const base = renderChannel(prepared)
+    const channel: ReturnType<typeof stubChannel> = { calls: base.calls, channel: {
+      async run(command, args) {
+        const outcome = await base.channel.run(command, args)
+        if (args.at(-1) === cached) await writePlaceholder(source, 'replacement generation')
+        return outcome
+      },
+    } }
+    await expect(render(prepared, channel)).rejects.toThrow('编码期间源视频发生变化')
+    expect(await readFile(prepared.output, 'utf8')).toBe('previous delivery')
+    await expect(readFile(`${cached}.identity`)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(`${prepared.output}.source-record.json`)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(channel.calls.some(call => call.args.includes('-movflags'))).toBe(false)
+  })
   it.each(['source', 'ending', 'subtitled'])('keeps the old delivery when a %s ban arrives during final mux', async (kind) => {
     const prepared = await preparedProject()
     await writePlaceholder(prepared.output, 'previous delivery')

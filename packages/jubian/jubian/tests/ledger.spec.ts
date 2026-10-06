@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,6 +9,51 @@ beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'jubian-ledger-')) 
 afterEach(async () => { await rm(root, { recursive: true, force: true }) })
 
 describe('JubianLedger', () => {
+  it('refuses a prepared intent under another key without recording it', async () => {
+    const ledger = new JubianLedger({ root })
+    await expect(ledger.beginChecked('claimed', async () => ({ idempotencyKey: 'different',
+      method: 'storyboard_save', requestSha256: 'sha256:1' }))).rejects.toThrow('prepared key differs')
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('refuses empty or duplicate batch claims before preparation', async () => {
+    const ledger = new JubianLedger({ root })
+    const prepare = vi.fn(async () => [])
+    for (const keys of [[], ['duplicate', 'duplicate']]) {
+      await expect(ledger.beginManyChecked(keys, prepare)).rejects.toThrow('distinct and nonempty')
+    }
+    expect(prepare).not.toHaveBeenCalled()
+  })
+
+  it('requires prepared batch keys to preserve the complete claimed order', async () => {
+    const ledger = new JubianLedger({ root })
+    const input = (idempotencyKey: string) => ({ idempotencyKey, method: 'storyboard_save' as const,
+      requestSha256: `sha256:${idempotencyKey}` })
+    for (const inputs of [[input('a')], [input('b'), input('a')]]) {
+      await expect(ledger.beginManyChecked(['a', 'b'], async () => inputs)).rejects.toThrow('prepared batch keys differ')
+    }
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('propagates an unreadable ledger directory instead of reporting no records', async () => {
+    const file = join(root, 'not-a-directory')
+    await writeFile(file, 'owned')
+    await expect(new JubianLedger({ root: file }).files()).rejects.toMatchObject({ code: 'ENOTDIR' })
+  })
+
+  it('reads older intents with absent optional quote metadata and ignores settlement-only records', async () => {
+    const line = { phase: 'begin', record_id: 'legacy-1', idempotency_key: 'old', method: 'storyboard_save',
+      at: '2026-09-01T00:00:00.000Z', request_sha256: 'sha256:old' }
+    await writeFile(join(root, '2026-09-01.ndjson'), [
+      JSON.stringify({ phase: 'settle', idempotency_key: 'orphan', outcome: 'unknown' }),
+      JSON.stringify(line), JSON.stringify({ phase: 'metadata', idempotency_key: 'old' }), '',
+    ].join('\n'))
+    const ledger = new JubianLedger({ root })
+    expect(await ledger.find('orphan')).toBeUndefined()
+    expect(await ledger.find('old')).toMatchObject({ script_id: null, quoted_amount: null, quote_unit: null,
+      quote_standard_id: null, quote_observed_at: null, outcome: null })
+    expect(await ledger.records()).toHaveLength(1)
+  })
   it('claims a key once across distinct ledger instances sharing one resolved root', async () => {
     const ledgers = [new JubianLedger({ root }), new JubianLedger({ root: join(root, '.') })]
     const outcomes = await Promise.all(ledgers.map(ledger => ledger.begin({ idempotencyKey: 'shared',

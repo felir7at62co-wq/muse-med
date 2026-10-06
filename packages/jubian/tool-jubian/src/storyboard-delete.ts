@@ -50,7 +50,7 @@ function ids(value: unknown, maxItems: number): number[] {
 function parsed(value: unknown): unknown {
   if (typeof value !== 'string') return value
   try { return JSON.parse(value) }
-  catch (error) { return { unreadable: error instanceof Error ? 'JSON' : 'value', raw: value } }
+  catch { return { unreadable: 'JSON', raw: value } }
 }
 async function readBoard(client: JubianClient, scriptId: number, id: number): Promise<Row | null> {
   const data = (await client.request({ method: 'GET', path: `/aigc/storyboard/${id}` })).data
@@ -147,7 +147,6 @@ export async function storyboardDeleteMethod(client: JubianClient, ledger: Jubia
   const binding = await validateProjectBinding(need(args.project_dir, 'project_dir'), scriptId)
   if (args.method === 'delete_preview') {
     const idsToInspect = ids(args.storyboard_ids, limits.maxItems)
-    if (args.include_generated_media !== undefined && typeof args.include_generated_media !== 'boolean') invalid('include_generated_media must be boolean')
     const unsigned: Omit<Plan, 'fingerprint'> = { version: 1, operation: 'storyboard_delete', script_id: scriptId,
       delete_reason: text(args.delete_reason, 'delete_reason'), authorization_basis: text(args.authorization_basis, 'authorization_basis'),
       include_generated_media: args.include_generated_media === true, targets: [] }

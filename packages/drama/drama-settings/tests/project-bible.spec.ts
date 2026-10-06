@@ -314,3 +314,106 @@ it('refuses malformed persisted voice metadata on read', async () => {
   await writeFile(join(home, 'project_config.json'), JSON.stringify(invalid))
   await expect(readProjectBible(ctx.settings, home)).rejects.toThrow('reference_audio_duration_seconds')
 })
+
+it.each([
+  [{ schema_version: 2 }, 'schema_version'], [{ revision: 0 }, 'revision'],
+  [{ initial_budget_cents: -1 }, 'initial_budget_cents'],
+  [{ delivery: { width: 1440, height: 2560, fps: 241, min_bitrate_mbps: 4.6 } }, 'fps'],
+  [{ delivery: { width: 1440, height: 2560, fps: 60, min_bitrate_mbps: 0 } }, 'min_bitrate_mbps'],
+  [{ video: { model_id: 'model', platform_id: 'platform', resolution: '720p', generation_type: 0 } }, 'generation_type'],
+  [{ episode_plan: { mode: 'unknown' } }, 'episode_plan.mode'],
+  [{ episode_plan: { mode: 'fixed', episode_count: 0 } }, 'episode_count'],
+  [{ episode_plan: { mode: 'fixed', target_seconds: 0 } }, 'target_seconds'],
+  [{ package_bindings: [{ package_id: 'a', storyboard_id: 1 }, { package_id: 'a', storyboard_id: 2 }] }, 'unique package'],
+  [{ package_bindings: [{ package_id: 'a', storyboard_id: 1, episode_id: 0 }] }, 'episode_id'],
+  [{ characters: [{ character_id: 'a', name: 'Alice' }, { character_id: 'a', name: 'Other' }] }, 'unique character'],
+  [{ characters: [{ character_id: 'a', name: 'Alice', aliases: {} }] }, 'aliases'],
+  [{ characters: [{ character_id: 'a', name: 'Alice' }] }, ''],
+  [{ completed_tasks: [{ task_id: 'a', kind: 'video' }, { task_id: 'a', kind: 'video' }] }, 'unique task'],
+  [{ history: [{ revision: 1, reason: 'edited', changed_fields: 'title', affected_stages: [] }] }, 'changed_fields'],
+  [{ characters: {} }, 'must be an array'],
+  [{ characters: [{ character_id: 'a', name: 'Alice', voice_profile: { description: 'Warm', reference_audio: 'voice.wav',
+    reference_audio_asset_id: 1, reference_audio_sha256: 'a'.repeat(64), reference_audio_duration_seconds: 2 } }] }, 'HTTPS URL'],
+  [{ characters: [{ character_id: 'a', name: 'Alice', voice_profile: { description: 'Warm',
+    reference_audio: 'https://assets.example/voice.wav', reference_audio_asset_id: 1 } }] }, 'requires measured'],
+] as const)('reads durable bible fields without accepting invalid data: %s', async (patch, message) => {
+  const { ctx, home } = await bench()
+  const preview = await previewProjectBible(ctx.settings, home, { title: 'Project' }, 'create')
+  const config = { ...preview.proposed, project_bible: { ...preview.proposed.project_bible as object, ...patch } }
+  const content = JSON.stringify(config)
+  await writeFile(join(home, 'project_config.json'), content)
+  if (message) await expect(readProjectBible(ctx.settings, home)).rejects.toThrow(message)
+  else expect((await readProjectBible(ctx.settings, home)).status).toBe('ready')
+  expect(await readFile(join(home, 'project_config.json'), 'utf8')).toBe(content)
+})
+
+it.each(['http://assets.example/voice.wav', 'https://alice@assets.example/voice.wav', 'https://alice:secret@assets.example/voice.wav'])('refuses an unapproved remote voice URL %s', async (reference_audio) => {
+  const { ctx, home } = await bench()
+  await expect(previewProjectBible(ctx.settings, home, { characters: [{ character_id: 'a', name: 'Alice',
+    voice_profile: { description: 'Warm', reference_audio, reference_audio_asset_id: 1,
+      reference_audio_sha256: 'a'.repeat(64), reference_audio_duration_seconds: 2 } }] }, 'approve voice')).rejects.toThrow('HTTPS URL')
+})
+
+it('rejects clearing a voice reference and supplying a new asset binding together', async () => {
+  const { ctx, home } = await bench()
+  await expect(previewProjectBible(ctx.settings, home, { characters: [{ character_id: 'a', name: 'Alice',
+    voice_profile: { description: 'Warm', reference_audio: null, reference_audio_asset_id: 1 } }] }, 'clear reference')).rejects.toThrow('cannot be combined')
+})
+
+it('requires a reason and resolves an omitted initial episode mode to flexible', async () => {
+  const { ctx, home } = await bench()
+  await expect(previewProjectBible(ctx.settings, home, { title: 'Project' }, ' ')).rejects.toThrow('reason is required')
+  const first = await previewProjectBible(ctx.settings, home, { episode_plan: { outline: 'First act' } }, 'outline')
+  expect(first.proposed).toMatchObject({ project_bible: { episode_plan: { mode: 'flexible', outline: 'First act' } } })
+  await updateProjectBible(ctx.settings, home, { episode_plan: { outline: 'First act' } }, 'outline', first.expected_revision, first.preview_fingerprint)
+  const updated = await previewProjectBible(ctx.settings, home, { episode_plan: { outline: 'New act' } }, 'edit outline')
+  expect(updated.proposed).toMatchObject({ project_bible: { episode_plan: { mode: 'flexible', outline: 'New act' } } })
+})
+
+it('retains unchanged immutable records without appending copies', async () => {
+  const { ctx, home } = await bench()
+  const changes = { package_bindings: [{ package_id: 'a', storyboard_id: 1 }], completed_tasks: [{ task_id: 'a', kind: 'video' }] }
+  const preview = await previewProjectBible(ctx.settings, home, changes, 'bind')
+  await updateProjectBible(ctx.settings, home, changes, 'bind', preview.expected_revision, preview.preview_fingerprint)
+  const duplicate = await previewProjectBible(ctx.settings, home, changes, 'retain')
+  expect(duplicate.proposed).toMatchObject({ project_bible: {
+    package_bindings: changes.package_bindings, completed_tasks: changes.completed_tasks,
+  } })
+  expect(duplicate.changed_fields).toEqual([])
+})
+
+it.each([null, 50_000])('reads actual budget authorization %s without changing the project or default', async (limit_cents) => {
+  const { ctx, home } = await bench()
+  const reader = { read: async (script_id: number) => ({ script_id, limit_cents, unit: 'CNY', source: 'project' as const,
+    settled_cents: 1_000, reserved_cents: 500, remaining_cents: limit_cents === null ? null : limit_cents - 1_500,
+    revision: 'budget-revision', authorization_path: join(home, 'budget.json'), note: '', accounting_complete: true }) }
+  const preview = await previewProjectBible(ctx.settings, home, { jubian_script_id: 2708 }, 'bind', reader)
+  expect(preview.budget).toMatchObject({ status: 'ready', limit_cents, settled_cents: 1_000, reserved_cents: 500 })
+  if (typeof preview.markdown !== 'string') throw new Error('missing project markdown')
+  expect(preview.markdown).toContain(limit_cents === null ? '未授权' : '¥500.00 CNY')
+  await writeFile(join(home, 'project_config.json'), '{"jubian_script_id":2708}')
+  const legacy = await readProjectBible(ctx.settings, home, reader)
+  expect(legacy.budget).toMatchObject({ status: 'ready', limit_cents })
+  expect(legacy).not.toHaveProperty('markdown')
+  expect(await readFile(join(home, 'project_config.json'), 'utf8')).toBe('{"jubian_script_id":2708}')
+})
+
+it('rejects incomplete loaded project-tool mutations before writing', async () => {
+  const { ctx, home } = await bench()
+  for (const arguments_ of [
+    { action: 'preview', project_dir: home },
+    { action: 'update', project_dir: home, changes: { title: 'Project' }, reason: 'create' },
+  ]) {
+    const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('incomplete-bible'),
+      arguments: arguments_, signal: new AbortController().signal })
+    expect(outcome.isError).toBe(true)
+  }
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('reports absent Settings defaults after the owning row unloads', async () => {
+  const { ctx, home } = await bench()
+  const entry = ctx.configEditor.entries().find(row => row.options.id === 'drama-settings')
+  await entry?.fiber?.dispose()
+  await expect(readProjectBible(ctx.settings, home)).rejects.toThrow('Drama settings are unavailable')
+})

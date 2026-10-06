@@ -169,6 +169,27 @@ function assertPayload(type: string, data: SessionFormatJsonValue): void {
   assertReleasedEventPayload({ type, seq: 3, time: 4, data }, 1)
 }
 
+describe('released workflow completion metadata', () => {
+  const completed = { runId: 'run-1', seq: 1, outcome: 'failed', label: 'worker', childId: 'child-1' }
+
+  it.each(['child-failed', 'missing-structured-output', 'invalid-structured-output', 'infrastructure-fault', 'cancelled'])(
+    'retains the released %s failure tag with or without detail', (kind) => {
+      for (const reason of [{ kind }, { kind, detail: 'worker stopped before producing its output' }]) {
+        const data = { ...completed, reason }
+        expect(() => { assertPayload('tool-workflow/agent-end', data) }).not.toThrow()
+        expect(restoreV1(v1Header, [{ type: 'tool-workflow/agent-end', seq: 0, time: 1, data }]).events[0]?.data).toEqual(data)
+      }
+    })
+
+  it.each([
+    { reason: { kind: 'future-failure' } }, { reason: { kind: 'cancelled', detail: '' } },
+    { reason: { kind: 'cancelled', detail: 1 } }, { reason: { kind: 'cancelled', extra: true } },
+    { label: 1 }, { childId: '' },
+  ])('refuses malformed released workflow completion metadata', (fields) => {
+    expect(() => { assertPayload('tool-workflow/agent-end', { ...completed, ...fields }) }).toThrow()
+  })
+})
+
 function invalidLeafMutations(
   type: string,
   value: SessionFormatJsonValue,
@@ -575,6 +596,17 @@ describe('released event and payload inventory', () => {
     }) }).toThrow(/does not match/)
     expect(() => { assertPayload('user/message', { ...message, content: [textBlock] }) })
       .toThrow(/content does not match/)
+    const created = {
+      kind: 'goal/change', version: 1, operation: 'create',
+      goal: { id: 'goal', revision: 2, objective: 'finish work', phase: 'active', maxGoalRounds: 3 },
+      roundsStarted: 0, createdAt: 1, updatedAt: 2,
+    }
+    const createdContent = [{ type: 'text', text: `<goal_state>${JSON.stringify({
+      goal: created.goal, roundsStarted: created.roundsStarted, createdAt: created.createdAt, updatedAt: created.updatedAt,
+    })}</goal_state>` }]
+    const createdMessage = { ...message, content: createdContent, source: { ...message.source, change: created } }
+    expect(() => { assertPayload('user/message', createdMessage) }).not.toThrow()
+    expect(() => { assertPayload('user/message', { ...createdMessage, content }) }).toThrow(/content does not match/)
   })
 
   it('refuses malformed logical headers, cuts, event envelopes, and surface metadata', () => {

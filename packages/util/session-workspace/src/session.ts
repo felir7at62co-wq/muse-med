@@ -28,12 +28,12 @@ export interface SessionDirectory {
 /**
  * Narrow the Host context to the session lookup, without requiring a service that may be absent.
  * @param ctx - Host context, or anything that may or may not expose `sessions`.
- * @returns The lookup, or undefined when this deployment composes no session service.
+ * @returns The lookup, or undefined for a null, absent, or non-callable session service.
  */
 export function sessionLookup(ctx: { get?: (name: string, strict?: false) => unknown }): SessionLookup | undefined {
   if (typeof ctx.get !== 'function') return undefined
-  const sessions = ctx.get('sessions', false) as SessionLookup | undefined
-  return sessions !== undefined && typeof sessions.get === 'function' ? sessions : undefined
+  const sessions = ctx.get('sessions', false) as SessionLookup | null | undefined
+  return sessions !== null && sessions !== undefined && typeof sessions.get === 'function' ? sessions : undefined
 }
 
 /**

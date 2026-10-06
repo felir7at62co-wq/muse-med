@@ -38,7 +38,7 @@ The Account row fills the expanded sidebar's available width with equal side ins
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-The browser bundle mounts the generated `museAccount` Remote contribution, then registers locale copy, the Settings section, the sidebar launcher, and the first-run sign-in panel. It only exposes bounded status and error codes from the Host; saved cookies and KB bearers remain in the Host process. No runtime invariant companion is published because these registrations are visible through their owning slot and Remote registries, with no separate state to reconcile.
+The Host and Client compile through `tsconfig.host.json` and `tsconfig.client.json`; the package root config only combines these programs. The browser bundle mounts the generated `museAccount` Remote contribution, then registers locale copy, the Settings section, the sidebar launcher, and the first-run sign-in panel. It only exposes bounded status and error codes from the Host; saved cookies and KB bearers remain in the Host process. No runtime invariant companion is published because these registrations are visible through their owning slot and Remote registries, with no separate state to reconcile.
 
 -----
 

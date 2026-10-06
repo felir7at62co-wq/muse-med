@@ -5,7 +5,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { apply, Config } from '../src/index.ts'
-import { createMuseAccountMcpServer } from '../src/mcp-server.ts'
+import type { MuseAccountStatus } from '../src/types.ts'
+import { createMuseAccountMcpServer, parseMuseAccountLaunch } from '../src/mcp-server.ts'
 import { createMuseKbReader, MuseKbError, type MuseKbFailure, type MuseKbResult } from '../src/kb.ts'
 import { writeMuseSession } from '../src/session.ts'
 
@@ -28,8 +29,10 @@ it('publishes account status, KB reads, and private script ingestion without cre
   const calls: Array<{ operation: string; id: string; start?: number }> = []
   const ingested: Array<{ title: string; source: string }> = []
   const content: MuseKbResult = { content: [{ type: 'text', text: 'source=s1 range=[6000,12000) hasMore=true' }] }
+  let status: MuseAccountStatus = { state: 'signed-out' }
+  let failed = false
   const server = createMuseAccountMcpServer(
-    { status: async () => ({ state: 'signed-out' }) } as never,
+    { status: async () => { if (failed) throw new Error('PRIVATE_GATEWAY_DETAIL'); return status } },
     {
       search: async () => content,
       read: async (id: string, start?: number) => {
@@ -67,6 +70,19 @@ it('publishes account status, KB reads, and private script ingestion without cre
     'muse_kb_wiki_migration_preview', 'muse_kb_wiki_project_portfolio', 'muse_kb_wiki_read', 'muse_kb_wiki_record_project',
     'muse_kb_wiki_search', 'muse_kb_wiki_status', 'muse_kb_wiki_write_page',
   ])
+  expect(await client.callTool({ name: 'muse_account_status', arguments: {} }))
+    .toMatchObject({ content: [{ type: 'text', text: 'No MUSE account is signed in.' }] })
+  status = { state: 'signed-in', username: 'writer', verified: false }
+  expect(JSON.stringify(await client.callTool({ name: 'muse_account_status', arguments: { verify: false } })))
+    .toContain('saved locally, not yet verified')
+  status = { ...status, verified: true }
+  expect(JSON.stringify(await client.callTool({ name: 'muse_account_status', arguments: { verify: true } })))
+    .toContain('gateway verified')
+  failed = true
+  expect(await client.callTool({ name: 'muse_account_status', arguments: {} }))
+    .toMatchObject({ isError: true, content: [{ type: 'text', text: 'MUSE account status is unavailable.' }] })
+  expect(await client.callTool({ name: 'muse_kb_search', arguments: { query: 'opening' } })).toMatchObject(content)
+  expect(await client.callTool({ name: 'muse_kb_read_opening', arguments: { id: 'source:s1' } })).toMatchObject(content)
   expect(await client.callTool({ name: 'muse_kb_read', arguments: { id: 'source:s1', start: 6000 } }))
     .toMatchObject(content)
   expect(calls).toEqual([{ operation: 'read', id: 'source:s1', start: 6000 }])
@@ -150,11 +166,12 @@ it('routes Wiki tools and participation records through the current account sess
 
 it('returns fixed Wiki revision recovery guidance separately from access refusal', async () => {
   let failure: MuseKbFailure = 'wiki-revision-conflict'
+  let unexpected = false
   const kb = createMuseKbReader({ baseUrl: 'https://muse.example',
     sessionFile: join(tmpdir(), 'unused-wiki-error-session.json'), requestTimeoutMs: 15_000 })
   const server = createMuseAccountMcpServer({ status: async () => ({ state: 'signed-out' }) }, {
     ...kb,
-    wikiWritePage: async () => { throw new MuseKbError(failure) },
+    wikiWritePage: async () => { if (unexpected) throw new Error('PRIVATE_UPSTREAM_DETAIL'); throw new MuseKbError(failure) },
   })
   const client = new Client({ name: 'muse-wiki-errors', version: '1' })
   closers.push(() => client.close(), () => server.close())
@@ -171,6 +188,9 @@ it('returns fixed Wiki revision recovery guidance separately from access refusal
   failure = 'access-denied'
   expect(await client.callTool(request)).toMatchObject({ isError: true,
     content: [{ type: 'text', text: 'MUSE knowledge base: access-denied' }] })
+  unexpected = true
+  expect(await client.callTool(request)).toMatchObject({ isError: true,
+    content: [{ type: 'text', text: 'MUSE knowledge base: kb-unavailable' }] })
 })
 
 it('reads a valid large Wiki link graph produced by the cloud MCP service', async () => {
@@ -227,4 +247,19 @@ it('reads a valid large Wiki link graph produced by the cloud MCP service', asyn
   expect(links.outgoing).toHaveLength(50)
   expect(links.backlinks).toHaveLength(50)
   expect(links.citations).toHaveLength(64)
+})
+
+it.each([undefined, 'invalid JSON', 'null', '[]', '7', JSON.stringify({ baseUrl: 7 }),
+  JSON.stringify({ baseUrl: 'https://muse.example', accountHome: 7, requestTimeoutMs: 1000 }),
+  JSON.stringify({ baseUrl: 'https://muse.example', accountHome: 'relative', requestTimeoutMs: 1000 }),
+  ...[undefined, '1000', 1.5, 999, 120001].map(requestTimeoutMs => JSON.stringify({ baseUrl: 'https://muse.example', accountHome: join(tmpdir(), 'parse-only-account'), requestTimeoutMs }))])(
+  'rejects malformed credential-free MCP launch configuration (%s)', (raw) => {
+    expect(() => parseMuseAccountLaunch(raw)).toThrow('muse-account MCP:')
+  },
+)
+
+it('canonicalizes a valid MCP launch origin and retains only permitted startup fields', () => {
+  const accountHome = join(tmpdir(), 'parse-only-account')
+  expect(parseMuseAccountLaunch(JSON.stringify({ baseUrl: 'https://muse.example/', accountHome, requestTimeoutMs: 1000,
+    password: 'ignored-private-value' }))).toEqual({ baseUrl: 'https://muse.example', accountHome, requestTimeoutMs: 1000 })
 })

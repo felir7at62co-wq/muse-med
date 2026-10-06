@@ -22,6 +22,7 @@ const metadata = z.object({ providers: z.array(z.object({
     reasoningEfforts: z.union([z.literal(false), z.record(z.string(), z.string().nullable())]),
   })).max(256),
 })).max(100) })
+const modelName = (id: string): string => id.slice(id.lastIndexOf('/') + 1)
 
 /** Product-selected origin and polling limits, with a testable HTTP transport. */
 export interface MuseModelsOptions {
@@ -128,7 +129,7 @@ export class MuseModels {
       const id = `muse-cloud-${provider.id}`
       if (Object.hasOwn(providers, id)) throw new MuseGatewayError('gateway-rejected')
       const allowedModels = provider.models.filter(model => !(this.options.excludedModelPrefixes ?? [])
-        .some(prefix => model.id.toLowerCase().split('/').at(-1)?.startsWith(prefix.toLowerCase())))
+        .some(prefix => modelName(model.id).toLowerCase().startsWith(prefix.toLowerCase())))
       if (!allowedModels.length) continue
       providers[id] = {
         displayName: `Muse · ${provider.name}`, api: 'openai-completions',
@@ -136,7 +137,7 @@ export class MuseModels {
         headers: { origin: this.options.baseUrl },
         models: allowedModels.map(model => ({ ...model,
           compat: { supportsReasoningEffort: model.reasoningEfforts !== false,
-            ...(/^glm-5\.3(?:-|$)/i.test(model.id.split('/').at(-1) ?? '') ? {
+            ...(/^glm-5\.3(?:-|$)/i.test(modelName(model.id)) ? {
               thinkingFormat: 'deepseek' as const, requiresReasoningContentOnAssistantMessages: true,
             } : {}) } })),
         compat: { supportsStore: false, supportsDeveloperRole: false, maxTokensField: 'max_tokens',

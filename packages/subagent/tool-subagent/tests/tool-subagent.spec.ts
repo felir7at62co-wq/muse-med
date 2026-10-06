@@ -164,6 +164,7 @@ describe('dsh-tool-subagent', () => {
     { stopReason: 'error' as const, fragment: 'failed' },
     { stopReason: 'max-tokens' as const, fragment: 'token limit' },
     { stopReason: 'refusal' as const, fragment: 'declined' },
+    { stopReason: 'structured-output-missing' as const, fragment: 'requested structured result' },
   ])('maps stop reason $stopReason to an isError result (not partial success)', async ({ stopReason, fragment }) => {
     const ctx = await setup({ provider: 'mock' }, { stopReason })
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })

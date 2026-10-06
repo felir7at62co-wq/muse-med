@@ -2,20 +2,24 @@ import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { MuseAsrClient } from '../src/asr.ts'
 import { writeMuseSession } from '../src/session.ts'
 
 const dirs: string[] = []
-afterEach(async () => { await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))) })
+afterEach(async () => { vi.unstubAllGlobals(); await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))) })
 
-async function fixture(fetcher: typeof fetch) {
+async function fixture(fetcher?: typeof fetch) {
   const dir = await mkdtemp(join(tmpdir(), 'muse-asr-client-'))
   dirs.push(dir)
   const baseUrl = 'https://muse.test', sessionFile = join(dir, 'session.json'), file = join(dir, 'clip.mp3')
   await writeMuseSession(sessionFile, { baseUrl, cookie: '__Host-muse=secret-session', username: 'alice' })
   await writeFile(file, 'mock mp3')
-  return { client: new MuseAsrClient({ baseUrl, sessionFile, requestTimeoutMs: 2000, fetcher }), file }
+  return {
+    client: new MuseAsrClient({ baseUrl, sessionFile, requestTimeoutMs: 2000, ...(fetcher === undefined ? {} : { fetcher }) }),
+    file,
+    sessionFile,
+  }
 }
 
 it('uses the current account cookie and a persisted UUID without returning credentials', async () => {
@@ -96,4 +100,76 @@ it('distinguishes a temporary admission pause from an unconfigured transcription
   await expect(paused.client.submit(paused.file, randomUUID(), 'a'.repeat(64), 'zh', 'screenplay')).rejects.toMatchObject({ code: 'server-unavailable', retryAfterSeconds: 2 })
   const missing = await fixture(async () => new Response('{}', { status: 405, headers: { 'retry-after': '2' } }))
   await expect(missing.client.submit(missing.file, randomUUID(), 'a'.repeat(64), 'zh')).rejects.toMatchObject({ code: 'server-not-configured' })
+})
+
+it('requires a local login and never dispatches a signed-out status query', async () => {
+  const transport = vi.fn<typeof fetch>()
+  const setup = await fixture(transport)
+  await rm(setup.sessionFile)
+  await expect(setup.client.get(randomUUID())).rejects.toMatchObject({ code: 'sign-in-required' })
+  expect(transport).not.toHaveBeenCalled()
+})
+
+it.each([303, 401])('requires renewed authentication after gateway status %s', async (status) => {
+  const setup = await fixture(async () => new Response('', { status }))
+  await expect(setup.client.get(randomUUID())).rejects.toMatchObject({ code: 'sign-in-required' })
+})
+
+it('uses the default transport and the WAV media type for a local WAV upload', async () => {
+  const id = randomUUID()
+  const transport = vi.fn<typeof fetch>(async () => Response.json({ id, status: 'silent', retentionExpired: true }))
+  vi.stubGlobal('fetch', transport)
+  const setup = await fixture()
+  const wav = `${setup.file}.WAV`
+  await writeFile(wav, 'mock wav')
+  expect(await setup.client.submit(wav, id, 'b'.repeat(64), 'auto')).toEqual({ id, status: 'silent', retentionExpired: true })
+  expect(new Headers(transport.mock.calls[0]?.[1]?.headers).get('content-type')).toBe('audio/wav')
+})
+
+it('bounds network failures and unreadable error bodies without leaking provider details', async () => {
+  const offline = await fixture(async () => { throw new Error('PRIVATE_PROVIDER_DETAIL') })
+  await expect(offline.client.get(randomUUID())).rejects.toMatchObject({ code: 'server-unavailable' })
+  const invalidError = await fixture(async () => new Response('PRIVATE_PROVIDER_DETAIL', { status: 500 }))
+  await expect(invalidError.client.get(randomUUID())).rejects.toMatchObject({ code: 'request-rejected' })
+  const nonObject = await fixture(async () => Response.json(null, { status: 400 }))
+  await expect(nonObject.client.get(randomUUID())).rejects.toMatchObject({ code: 'request-rejected' })
+  const hugeRetry = await fixture(async () => Response.json({}, { status: 503, headers: { 'retry-after': '9007199254740992' } }))
+  await expect(hugeRetry.client.get(randomUUID())).rejects.toMatchObject({ code: 'server-not-configured' })
+})
+
+it.each([null, [], 'string', { id: undefined }, { id: 7 }, { id: 'bad' }, { status: 'private' }, { retentionExpired: 1 }])(
+  'rejects invalid job metadata before exposing response data (%j)', async (invalid) => {
+    const id = randomUUID()
+    const setup = await fixture(async () => Response.json(typeof invalid === 'object' && invalid !== null && !Array.isArray(invalid)
+      ? { id, status: 'processing', ...invalid } : invalid))
+    await expect(setup.client.get(id)).rejects.toMatchObject({ code: 'response-invalid' })
+  },
+)
+
+it('rejects malformed success JSON and accepts every published service version', async () => {
+  const bad = await fixture(async () => new Response('private invalid JSON'))
+  await expect(bad.client.get(randomUUID())).rejects.toMatchObject({ code: 'response-invalid' })
+  for (const service_version of ['flash', 'standard-v1', 'standard-v2']) {
+    const id = randomUUID()
+    const setup = await fixture(async () => Response.json({ id, status: 'processing', service_version }))
+    expect((await setup.client.get(id)).service_version).toBe(service_version)
+  }
+})
+
+it.each([undefined, [], 'bad', [null], [{ start: '0', end: 1, text: 'bad' }],
+  [{ start: 0, end: '1', text: 'bad' }], [{ start: 0, end: 0, text: 'bad' }], [{ start: 0, end: 1, text: 7 }],
+  [{ start: 2, end: 3, text: 'later' }, { start: 1, end: 2, text: 'earlier' }],
+  [{ start: 0, end: 2, text: 'bad words', words: {} }],
+  [{ start: 0, end: 2, text: 'bad words', words: [{ start: 1, end: 3, text: 'outside' }] }],
+  [{ start: 0, end: 3, text: 'bad words', words: [{ start: 1, end: 2, text: 'later' }, { start: 0, end: 1, text: 'earlier' }] }]])(
+  'rejects missing, unordered or out-of-range completed transcript timings (%j)', async (segments) => {
+    const id = randomUUID(), setup = await fixture(async () => Response.json({ id, status: 'complete', segments }))
+    await expect(setup.client.get(id)).rejects.toMatchObject({ code: 'response-invalid' })
+  },
+)
+
+it('accepts a complete sentence with no word timing array', async () => {
+  const id = randomUUID(), segments = [{ start: 0, end: 1, text: 'complete' }]
+  const setup = await fixture(async () => Response.json({ id, status: 'complete', segments }))
+  expect((await setup.client.get(id)).segments).toEqual(segments)
 })

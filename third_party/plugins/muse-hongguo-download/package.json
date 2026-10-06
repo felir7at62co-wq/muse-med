@@ -1,6 +1,6 @@
 {
   "name": "muse-hongguo-download",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Muse full-series batch downloader based on the supplied Hongguo source interfaces",
   "type": "module",
   "main": "./src/index.js",
@@ -17,6 +17,7 @@
   "files": [
     "src/",
     "python/decrypt.py",
+    "python/bootstrap.py",
     "cordis.patch.yml",
     "README.md",
     "README.zh.md",

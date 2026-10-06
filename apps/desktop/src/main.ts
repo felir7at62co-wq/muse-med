@@ -63,6 +63,7 @@ import { DesktopUpdateOverlays } from './update-overlay.ts'
 import { DesktopQuitConfirmation } from './quit-confirmation.ts'
 import { DesktopTray } from './tray.ts'
 import { DesktopBackgroundNotice } from './background-notice.ts'
+import { prepareDesktopHongguoEnvironment } from './hongguo-runtime.ts'
 import { applyDesktopProductIdentity, DESKTOP_PRIMARY_ACCOUNT, desktopProductVersion } from './product-identity.ts'
 
 // Identity precedes the product home, every path read, and the single-instance lock below.
@@ -386,7 +387,12 @@ async function main(): Promise<void> {
     return result.environment
   })
   let hostEnvironment: NodeJS.ProcessEnv = process.env
-  const prepareHostEnvironment = async (): Promise<void> => { hostEnvironment = await loginShell }
+  const prepareHostEnvironment = async (): Promise<void> => {
+    hostEnvironment = await loginShell
+    const hongguoRuntime = app.isPackaged ? join(process.resourcesPath, 'runtime', 'hongguo') : resolve(primaryRuntime, '..', 'hongguo')
+    const hongguo = await prepareDesktopHongguoEnvironment({ runtime: hongguoRuntime, productHome: resolve(paths.root, '..') })
+    hostEnvironment = { ...hostEnvironment, ...hongguo }
+  }
   let quitting = false
   let startup: Promise<void> | undefined
   let workspaceRecovery: Promise<void> | undefined

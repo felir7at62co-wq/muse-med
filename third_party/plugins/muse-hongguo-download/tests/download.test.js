@@ -395,6 +395,29 @@ test('a missing declared total cannot be presented as a verified full catalog', 
   assert.equal(result.code, 'unverified_episode_count'); assert.equal(result.ok, false);
 });
 
+test('default original-source downloads include every episode of two 209-episode series', async t => {
+  const f = await fixture(t, { count: 209 });
+  const result = await f.client.download({ seriesIds: ['101', '102'] });
+  assert.equal(result.ok, true);
+  assert.equal(result.complete, true);
+  assert.deepEqual(result.items.map(item => [item.episodeCount, item.downloadedEpisodeCount]), [[209, 209], [209, 209]]);
+  assert.equal(f.urls.filter(item => item.kind === 'media').length, 418);
+});
+
+test('the full catalog and requested last episode follow real counts beyond former caps', async t => {
+  const f = await fixture(t, { count: 10001 });
+  const info = await f.client.info({ seriesIds: ['101'] });
+  assert.equal(info.ok, true);
+  assert.equal(info.items[0].episodeCount, 10001);
+  assert.equal(info.items[0].completeCatalog, true);
+  const result = await f.client.download({ seriesIds: ['101'], episodes: [10001] });
+  assert.equal(result.ok, true);
+  assert.equal(result.complete, false);
+  assert.equal(result.items[0].episodes[0].index, 10001);
+  assert.equal(f.urls.filter(item => item.kind === 'media').length, 1);
+  assert.throws(() => resolveConfig({ maxEpisodes: 200 }), /未知红果插件配置字段/);
+});
+
 test('an invalid episode rolls back every file already downloaded for the whole batch', async t => {
   const f = await fixture(t);
   f.setMedia(value => value.includes('102v1') ? reply(Buffer.from('<html>PRIVATE_TOKEN</html>'), 200, { 'content-type': 'text/html' })
@@ -504,13 +527,17 @@ test('config and URL validation reject unsafe and unknown settings', () => {
 test('media port defaults allow official CDN hosts on 443 and 9305 while rejecting other ports', () => {
   const config = resolveConfig();
   assert.deepEqual(config.mediaPorts, [443, 9305]);
-  for (const hostname of ['v1.qznovelvod.com', 'v1.douyinvod.com', 'media.pkoplink.com', 'media.bdcgslb.com']) {
+  for (const hostname of ['v1.qznovelvod.com', 'v1.douyinvod.com', 'rt2016n-41.free-lbv13.idouyinvod.com', 'media.pkoplink.com', 'media.bdcgslb.com', 'media.vegslb.com', 'bvqhvgghkihvgu.jspcdn.cn', '3026312747.qrstuvwxyzab.com']) {
     for (const suffix of ['', ':443', ':9305']) {
       const value = `https://${hostname}${suffix}/fixture.mp4`;
       assert.equal(checkedUrl(value, 'media', config.mediaHosts, config.mediaPorts).hostname, hostname);
     }
     assert.throws(() => checkedUrl(`https://${hostname}:9306/fixture.mp4`, 'media', config.mediaHosts, config.mediaPorts),
       error => error.code === 'unsafe_url');
+  }
+  for (const value of ['http://media.jspcdn.cn/fixture.mp4', 'https://media.jspcdn.cn.evil.example/fixture.mp4', 'https://user:secret@media.jspcdn.cn/fixture.mp4',
+    'http://media.idouyinvod.com/fixture.mp4', 'https://media.idouyinvod.com.evil.example/fixture.mp4', 'https://user:secret@media.idouyinvod.com/fixture.mp4']) {
+    assert.throws(() => checkedUrl(value, 'media', config.mediaHosts, config.mediaPorts), error => error.code === 'unsafe_url');
   }
 });
 

@@ -3,6 +3,7 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runDramaBgm, type DramaBgmSettings } from '../src/compose.ts'
 import type { ProcessChannel, ProcessOutcome } from '../src/types.ts'
@@ -231,5 +232,146 @@ describe('runDramaBgm', () => {
     expect(report).toMatchObject({ method: 'verify', segments: [] })
     expect((await stat(files.output)).mtimeMs).toBe(before.mtimeMs)
     await expect(stat(files.report)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('names the default output when verify has no explicit WAV path', async () => {
+    const files = await fixture()
+    await expect(runDramaBgm({ method: 'verify', project: files.project, episode: 5,
+      timeline: files.timeline, plan: files.plan }, settings(processChannel()))).rejects.toThrow('audio/bgm/05.wav')
+  })
+
+  it.each(['empty', 'directory', 'not-directory'] as const)('rejects a %s control file before media analysis', async (kind) => {
+    const files = await fixture()
+    if (kind === 'empty') await writeFile(files.timeline, '')
+    if (kind === 'directory') { await rm(files.timeline); await mkdir(files.timeline) }
+    const timeline = kind === 'not-directory' ? join(files.timeline, 'child.json') : files.timeline
+    await expect(runDramaBgm({ method: 'preview', project: files.project, episode: 5, timeline, plan: files.plan },
+      settings(processChannel()))).rejects.toThrow(kind === 'not-directory' ? 'ENOTDIR' : '不是非空文件')
+  })
+
+  it.each(['{', 'null', '{"body_end":0}', '{"body_end":"invalid"}'])('rejects unreadable or invalid timeline %s', async (document) => {
+    const files = await fixture()
+    await writeFile(files.timeline, document)
+    await expect(runDramaBgm({ method: 'preview', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan },
+      settings(processChannel()))).rejects.toThrow(document === '{' ? '时间线不可读' : 'body_end')
+  })
+
+  it('reports absent package boundaries and ignores unrelated directory entries in the plan batch', async () => {
+    const files = await fixture()
+    await writeFile(files.timeline, JSON.stringify({ body_end: 58.508, clips: 'unmeasured' }))
+    await mkdir(join(files.project, 'editing', 'archive.json'))
+    await writeFile(join(files.project, 'editing', 'notes.txt'), 'unrelated text')
+    await writeFile(join(files.project, 'editing', 'scalar.json'), '3')
+    await writeFile(join(files.project, 'editing', 'null.json'), 'null')
+    const report = await runDramaBgm({ method: 'preview', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan },
+      settings(processChannel()))
+    expect(report.policy_findings.some(finding => finding.rule === 'R5')).toBe(true)
+    expect(report.batch_episodes).toEqual(['05'])
+  })
+
+  it.each(['malformed', 'duplicate', 'invalid-id', 'missing'] as const)('rejects a %s selected episode plan', async (kind) => {
+    const files = await fixture()
+    const document = JSON.parse(await readFile(files.plan, 'utf8')) as { episodes: { episode: string }[] }
+    const selected = document.episodes[0]
+    if (selected === undefined) throw new Error('missing selected plan')
+    if (kind === 'duplicate') document.episodes.push({ ...selected, episode: '5' })
+    if (kind === 'invalid-id') selected.episode = 'unknown'
+    if (kind === 'missing') selected.episode = '06'
+    await writeFile(files.plan, kind === 'malformed' ? '{' : JSON.stringify(document))
+    await expect(runDramaBgm({ method: 'preview', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan },
+      settings(processChannel()))).rejects.toThrow(kind === 'missing' ? '缺少第 05 集' : kind === 'malformed' ? '计划不可读' : '集号重复或无效')
+  })
+
+  it.each(['json', 'fields'] as const)('rejects a sibling plan with unreadable %s before publishing', async (kind) => {
+    const files = await fixture()
+    await writeFile(join(files.project, 'editing', '06.json'), kind === 'json' ? '{' : '{"episodes":[{}]}')
+    await expect(runDramaBgm({ method: 'compose', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan },
+      settings(processChannel()))).rejects.toThrow(kind === 'json' ? '不是可读的 JSON' : '不是合法的 BGM 计划')
+    await expect(stat(files.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('retains absolute source paths and repeated ordered source sequences in preview evidence', async () => {
+    const files = await fixture()
+    const document = JSON.parse(await readFile(files.plan, 'utf8')) as {
+      episodes: { episode: string; segments: { source: string; source_sha256?: string; valence?: number; arousal?: number }[] }[]
+    }
+    const selected = document.episodes[0]
+    if (selected === undefined) throw new Error('missing selected plan')
+    for (const segment of selected.segments) {
+      segment.source = join(files.project, segment.source)
+      segment.source_sha256 = 'sha256:' + createHash('sha256').update(await readFile(segment.source)).digest('hex').toUpperCase()
+      delete segment.valence
+      delete segment.arousal
+    }
+    document.episodes.push({ ...selected, episode: '06' })
+    await writeFile(files.plan, JSON.stringify(document))
+    const report = await runDramaBgm({ method: 'preview', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan },
+      settings(processChannel()))
+    expect(report.repeated_sequence_episodes).toEqual(['06'])
+    expect(report.segments.every(segment => segment.source.startsWith(files.project))).toBe(true)
+    expect(report.segments[0]).not.toHaveProperty('valence')
+    expect(report.segments[0]).not.toHaveProperty('arousal')
+  })
+
+  it('refuses source digest drift before publishing', async () => {
+    const files = await fixture()
+    const document = JSON.parse(await readFile(files.plan, 'utf8')) as { episodes: { segments: { source_sha256?: string }[] }[] }
+    const segment = document.episodes[0]?.segments[0]
+    if (segment === undefined) throw new Error('missing first segment')
+    segment.source_sha256 = '0'.repeat(64)
+    await writeFile(files.plan, JSON.stringify(document))
+    await expect(runDramaBgm({ method: 'compose', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan },
+      settings(processChannel()))).rejects.toThrow('源曲摘要已变化')
+    await expect(stat(files.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('refuses a source window longer than its probed media', async () => {
+    const files = await fixture()
+    const base = processChannel()
+    const channel: ProcessChannel = { run: async (command, args, signal) => {
+      const outcome = await base.run(command, args, signal)
+      if (command !== 'ffprobe') return outcome
+      const document = JSON.parse(outcome.stdout) as { format: { duration: string } }
+      document.format.duration = '3'
+      return { ...outcome, stdout: JSON.stringify(document) }
+    } }
+    await expect(runDramaBgm({ method: 'compose', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan },
+      settings(channel))).rejects.toThrow('源曲不足以覆盖')
+  })
+
+  it.each(['output', 'report'] as const)('retains an existing %s instead of replacing it', async (kind) => {
+    const files = await fixture()
+    await mkdir(join(files.project, 'audio', 'bgm'), { recursive: true })
+    const retained = kind === 'output' ? files.output : files.report
+    await writeFile(retained, 'user delivery')
+    await expect(runDramaBgm({ method: 'compose', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan },
+      settings(processChannel()))).rejects.toThrow('已存在，不会覆盖')
+    expect(await readFile(retained, 'utf8')).toBe('user delivery')
+  })
+
+  it('requires a WAV output extension and a positive safe episode number', async () => {
+    const files = await fixture()
+    const args = { method: 'preview' as const, project: files.project, episode: 5, timeline: files.timeline, plan: files.plan }
+    await expect(runDramaBgm({ ...args, output: 'audio/bgm/05.mp3' }, settings(processChannel()))).rejects.toThrow('.wav 扩展名')
+    await expect(runDramaBgm({ ...args, episode: 0 }, settings(processChannel()))).rejects.toThrow('正安全整数')
+  })
+
+  it.each(['sample_rate', 'channels', 'duration'] as const)('rejects generated %s drift and removes temporary files', async (field) => {
+    const files = await fixture()
+    const base = processChannel()
+    const channel: ProcessChannel = { run: async (command, args, signal) => {
+      const outcome = await base.run(command, args, signal)
+      if (command !== 'ffprobe' || !basename(args[args.length - 1] ?? '').startsWith('.05-')) return outcome
+      const document = JSON.parse(outcome.stdout) as { format: { duration: string }; streams: { sample_rate: string; channels: number }[] }
+      const audio = document.streams[0]
+      if (audio === undefined) throw new Error('missing generated stream')
+      if (field === 'sample_rate') audio.sample_rate = '44100'
+      if (field === 'channels') audio.channels = 1
+      if (field === 'duration') document.format.duration = '58.6'
+      return { ...outcome, stdout: JSON.stringify(document) }
+    } }
+    await expect(runDramaBgm({ method: 'compose', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan },
+      settings(channel))).rejects.toThrow('48kHz、双声道')
+    expect(await readdir(join(files.project, 'audio', 'bgm'))).toEqual([])
   })
 })

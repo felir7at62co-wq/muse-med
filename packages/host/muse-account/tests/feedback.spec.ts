@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:http'
@@ -16,7 +16,10 @@ import * as DeepSeekApiKey from '../../../llm/llm-deepseek-api-key/src/index.ts'
 import { writeMuseSession, readMuseSession, clearMuseSessionIfUnchanged } from '../src/session.ts'
 
 const dirs: string[] = []
-afterEach(async () => { await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))) })
+afterEach(async () => {
+  vi.restoreAllMocks(); vi.unstubAllEnvs()
+  await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
+})
 const sessionId = 'session-one' as SessionId
 const messageId = 'answer-one' as MessageId
 const request = { sessionId, target: { kind: 'message', messageId, rating: 'negative' }, category: 'instruction-following', text: 'Wrong animal', includeDiagnostics: false } as const
@@ -185,4 +188,113 @@ it('sends the authenticated JSON body through an actual HTTP listener and receiv
     server.closeAllConnections()
     await new Promise<void>((resolve, reject) => { server.close((error) => { if (error) reject(error); else resolve() }) })
   }
+})
+
+it('redacts ambient credentials without requiring a credentials provider', async () => {
+  vi.stubEnv('MUSE_FEEDBACK_TEST_TOKEN', 'ambient-private-value')
+  const context = new Context()
+  try { expect(await feedbackSecrets(context)).toContain('ambient-private-value') }
+  finally { await context.fiber.dispose() }
+})
+
+it('collects record environment values while ignoring opaque grants and absent records', async () => {
+  const context = new Context()
+  await context.plugin(LlmRuntime)
+  await context.plugin(MemoryCredentials)
+  try {
+    await context.credentials.modifyRecord(credentialKey('provider', 'environment'), async () => ({ kind: 'api-key', env: { AWS_TOKEN: 'record-env-secret' } }))
+    await context.credentials.modifyRecord(credentialKey('provider', 'opaque'), async () => ({ kind: 'grant', payload: { secret: 'opaque-payload' } }))
+    await context.credentials.modifyRecord(credentialKey('provider', 'ambient'), async () => ({ kind: 'api-key' }))
+    const disappearing = credentialKey('provider', 'removed')
+    await context.credentials.modifyRecord(disappearing, async () => ({ kind: 'api-key', key: 'removed-secret' }))
+    const list = context.credentials.listRecords.bind(context.credentials)
+    vi.spyOn(context.credentials, 'listRecords').mockImplementation(async () => {
+      const snapshot = await list(); await context.credentials.deleteRecord(disappearing); return snapshot
+    })
+    context.llm.registerConfigurableProviders([{ provider: 'ambient', displayName: 'Ambient', settingsNs: 'absent-settings', settingsPath: [] }])
+    const result = await feedbackSecrets(context)
+    expect(result).toContain('record-env-secret')
+    expect(result).not.toContain('opaque-payload')
+    expect(result).not.toContain('removed-secret')
+  } finally { await context.fiber.dispose() }
+})
+
+it.each(['nested', 'primitive', 'absent', 'unconfigured'] as const)(
+  'reads provider-declared nested credential references without guessing missing configuration (%s)', async (kind) => {
+    const fixture = await configurationFixture({ hmr: false, rows: [
+      { id: 'config-editor', name: 'cordis:editor' }, { id: 'settings', name: 'cordis:settings' },
+      { id: 'credentials', name: 'cordis:credentials', config: { MY_CUSTOM_REF: 'nested-reference-secret' } },
+      { id: 'llm', name: 'cordis:llm' }, { id: 'deepseek', name: 'cordis:deepseek', config: { apiKeyEnv: 'MY_CUSTOM_REF' } },
+    ], builtins: { llm: LlmRuntime, credentials: MemoryCredentials, deepseek: DeepSeekApiKey } })
+    const routes = fixture.ctx.llm.listConfigurableProviders()
+    vi.spyOn(fixture.ctx.llm, 'listConfigurableProviders').mockReturnValue(routes.map(row => ({ ...row, settingsPath: ['nested', 'profile'] })))
+    const describe = fixture.ctx.settings.describe.bind(fixture.ctx.settings)
+    vi.spyOn(fixture.ctx.settings, 'describe').mockImplementation(options => describe(options).map(row => String(row.ns) === 'deepseek'
+      ? { ...row, value: kind === 'nested' ? { nested: { profile: { apiKeyEnv: 'MY_CUSTOM_REF' } } }
+        : kind === 'unconfigured' ? { nested: { profile: { apiKeyEnv: 'MISSING_REF' } } }
+          : kind === 'primitive' ? { nested: 7 } : undefined } : row))
+    expect((await feedbackSecrets(fixture.ctx)).includes('nested-reference-secret')).toBe(kind === 'nested')
+  },
+)
+
+it('refuses unavailable transcript targets and empty or oversized session identifiers before posting', async () => {
+  const { options, seen } = await fixture()
+  await expect(new MuseFeedbackClient({ ...options, readMessages: () => undefined }).submit(request))
+    .rejects.toMatchObject({ code: 'invalid-input' })
+  for (const sessionId of ['', 'x'.repeat(201)] as SessionId[]) {
+    await expect(new MuseFeedbackClient(options).submit({ ...request, sessionId })).rejects.toMatchObject({ code: 'invalid-input' })
+  }
+  expect(seen).toHaveLength(0)
+})
+
+it('uses empty visible excerpts for a task with no assistant answer and skips non-user messages', async () => {
+  const { options, seen } = await fixture()
+  const toolMessages: Message[] = [messages[0]!, { id: 'system-one' as MessageId, role: 'user', source: { kind: 'system-prompt' },
+    content: [{ type: 'text', text: 'SYSTEM_MESSAGE_MUST_NOT_UPLOAD' }] }]
+  const client = new MuseFeedbackClient({ ...options, readMessages: () => toolMessages, secrets: async () => ['xx', 'private-api-value'] })
+  await client.submit({ sessionId, target: { kind: 'session' }, includeDiagnostics: true })
+  const body = bodyOf(seen[0])
+  expect(body).toContain('Write my bird story [redacted]')
+  expect(body).not.toContain('SYSTEM_MESSAGE_MUST_NOT_UPLOAD')
+  expect(body).toContain('Related assistant answer')
+  expect(body).toContain('Category: unspecified')
+})
+
+it('classifies explicit positive feedback as other and refuses an oversized combined diagnostic body', async () => {
+  const { options, seen } = await fixture()
+  await new MuseFeedbackClient(options).submit({ ...request, target: { ...request.target, rating: 'positive' } })
+  const submitted: unknown = JSON.parse(bodyOf(seen[0]))
+  expect(submitted).toMatchObject({ category: 'other' })
+  const longMessages = messages.map(message => ({ ...message, content: [{ type: 'text' as const, text: '中'.repeat(2000) }] }))
+  await expect(new MuseFeedbackClient({ ...options, excerptChars: 2000, readMessages: () => longMessages }).submit({
+    ...request, text: 'feedback '.repeat(555), includeDiagnostics: true,
+  })).rejects.toMatchObject({ code: 'invalid-input' })
+  expect(seen).toHaveLength(1)
+})
+
+it.each([null, [], 'private-string', { id: 1 }, { id: 'invalid' }, { revision: 2 },
+  { username: 'other' }, { title: 'different' }, { body: 'different' }, { category: 'other' }])(
+  'requires every created receipt field to match the submitted account and body (%j)', async (invalid) => {
+    const { options } = await fixture()
+    const client = new MuseFeedbackClient({ ...options, fetcher: async (_url, init) => {
+      const sent: unknown = JSON.parse(bodyOf(init))
+      if (typeof sent !== 'object' || sent === null) throw new Error('Feedback body must be an object')
+      const valid: object = { ...sent, id: 'a'.repeat(32), revision: 1, username: 'alice' }
+      return Response.json(typeof invalid === 'object' && invalid !== null && !Array.isArray(invalid) ? { ...valid, ...invalid } : invalid, { status: 201 })
+    } })
+    await expect(client.submit(request)).rejects.toMatchObject({ code: 'unconfirmed' })
+  },
+)
+
+it('keeps a saved receipt uncertain when local session storage becomes unreadable after the POST', async () => {
+  const { options } = await fixture()
+  const client = new MuseFeedbackClient({ ...options, fetcher: async (_url, init) => {
+    const sent: unknown = JSON.parse(bodyOf(init))
+    if (typeof sent !== 'object' || sent === null) throw new Error('Feedback body must be an object')
+    const valid: object = { ...sent, id: 'a'.repeat(32), revision: 1, username: 'alice' }
+    await rm(options.sessionFile)
+    await mkdir(options.sessionFile)
+    return Response.json(valid, { status: 201 })
+  } })
+  await expect(client.submit(request)).rejects.toMatchObject({ code: 'unconfirmed' })
 })

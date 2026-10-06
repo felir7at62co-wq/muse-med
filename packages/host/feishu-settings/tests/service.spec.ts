@@ -284,6 +284,91 @@ describe('FeishuSetupService', () => {
     expect((await pendingService.status()).login?.url).toContain('/pending')
     expect((await pendingService.cancelLogin()).login).toBeNull()
   })
+
+  it('cancels a pending scan when disabled and forgets an absent bridge section', async () => {
+    const composition = await feishuProfile([
+      { id: 'config-editor', name: 'cordis:editor' },
+      { id: 'settings', name: 'cordis:settings' },
+      { id: 'feishu', name: 'cordis:probe', config: { ordinary: 'switch', enabled: true } },
+    ])
+    let signal: AbortSignal | undefined
+    const service = await harness(composition, async (request) => {
+      signal = request.signal
+      request.onQRCodeReady({ url: 'https://open.feishu.cn/scan/pending', expireIn: 60 })
+      return await new Promise<never>(() => {})
+    })
+    await service.beginLogin()
+    expect((await service.setEnabled({ enabled: false })).login).toBeNull()
+    expect(signal?.aborted).toBe(true)
+    expect(await service.forget()).toMatchObject({ enabled: false, writable: false, credential: 'none' })
+  })
+
+  it('preserves sender and session bindings when the app and scanner stay unchanged', async () => {
+    const composition = await feishuProfile([
+      { id: 'config-editor', name: 'cordis:editor' },
+      { id: 'settings', name: 'cordis:settings' },
+      { id: 'feishu', name: 'cordis:probe', config: { ordinary: 'switch' } },
+      { id: 'feishu-channel', name: 'cordis:bridge', config: {
+        ordinary: 'bridge', appId: 'cli_same', appSecret: 'private-test-secret', allowFrom: ['ou_allowed'], activeSessionId: 'session-one',
+      } },
+    ])
+    const service = await harness(composition)
+    await service.setCredentials({ appId: 'cli_same', appSecret: '' })
+    expect(rowConfig(composition.ctx, FEISHU_CHANNEL_ROW_ID)).toMatchObject({ allowFrom: ['ou_allowed'], activeSessionId: 'session-one' })
+  })
+
+  it('clears old bindings when scanning the same app with a different user', async () => {
+    const composition = await feishuProfile([
+      { id: 'config-editor', name: 'cordis:editor' },
+      { id: 'settings', name: 'cordis:settings' },
+      { id: 'feishu', name: 'cordis:probe', config: { ordinary: 'switch' } },
+      { id: 'feishu-channel', name: 'cordis:bridge', config: {
+        ordinary: 'bridge', appId: 'cli_same', appSecret: 'private-test-secret', registeredBy: 'ou_old',
+        allowFrom: ['ou_old'], activeSessionId: 'session-one',
+      } },
+    ])
+    const service = await harness(composition, async (request) => {
+      request.onQRCodeReady({ url: 'https://open.feishu.cn/scan/new-user', expireIn: 60 })
+      return { client_id: 'cli_same', client_secret: 'private-test-secret', user_info: { open_id: 'ou_new' } }
+    })
+    await service.beginLogin()
+    await vi.waitFor(async () => {
+      expect(rowConfig(composition.ctx, FEISHU_CHANNEL_ROW_ID)).toMatchObject({ registeredBy: 'ou_new', allowFrom: [], activeSessionId: '' })
+    })
+  })
+
+  it('stores a scan without a scanner id as a manual credential', async () => {
+    const composition = await feishuProfile()
+    const service = await harness(composition, async (request) => {
+      request.onQRCodeReady({ url: 'https://open.feishu.cn/scan/no-user', expireIn: 60 })
+      return { client_id: 'cli_test', client_secret: 'private-test-secret' }
+    })
+    await service.beginLogin()
+    await vi.waitFor(async () => { expect((await service.status()).credential).toBe('manual') })
+    expect(storedRows(composition.patchPath).get(FEISHU_CHANNEL_ROW_ID)).toMatchObject({ registeredBy: '' })
+  })
+
+  it('reports credential persistence failure from the current QR scan without exposing the rejected pair', async () => {
+    const composition = await feishuProfile()
+    const service = await harness(composition, async (request) => {
+      request.onQRCodeReady({ url: 'https://open.feishu.cn/scan/write-rejected', expireIn: 60 })
+      return { client_id: 'invalid-app-id', client_secret: 'private-rejected-secret' }
+    })
+    await service.beginLogin()
+    await vi.waitFor(async () => { expect((await service.status()).lastError).toBe('registration-failed') })
+    expect(await service.status()).toMatchInlineSnapshot(`
+      {
+        "appId": "",
+        "credential": "none",
+        "enabled": false,
+        "lastError": "registration-failed",
+        "login": null,
+        "row": "disabled",
+        "writable": true,
+      }
+    `)
+    expect(JSON.stringify(await service.status())).not.toContain('private-rejected-secret')
+  })
 })
 
 describe('an upgraded product home', () => {

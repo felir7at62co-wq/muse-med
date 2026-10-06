@@ -9,7 +9,7 @@
  * scrolls its content column (about 564px wide inside the 800px panel), so
  * everything here is a plain stack that grows downward.
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AgentNoteSummary, AgentNotesCatalog } from '@deepseek-ai/dsh-api-agent-notes/types'
 import { Button, IconSearchOutlineRegular, MarkdownText, Tag, type MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -213,6 +213,9 @@ export function AgentNotesSection(props: AgentNotesSectionProps): ReactNode {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
+  const generation = useRef(0)
+
+  useEffect(() => () => { generation.current += 1 }, [])
 
   useEffect(() => {
     let current = true
@@ -228,10 +231,13 @@ export function AgentNotesSection(props: AgentNotesSectionProps): ReactNode {
 
   /** Open one note, replacing any note already open. */
   const openNote = useCallback((id: string) => {
+    const current = ++generation.current
     setFailure(undefined)
     setEditing(false)
+    setSaving(false)
     setOpen({ status: 'loading', id })
     void read(id).then((outcome) => {
+      if (current !== generation.current) return
       setOpen(outcome.ok
         ? { status: 'ready', note: outcome.note, text: outcome.note.text }
         : { status: 'error', id, message: failureText(outcome.code, outcome.message) })
@@ -240,8 +246,10 @@ export function AgentNotesSection(props: AgentNotesSectionProps): ReactNode {
   }, [read, t])
 
   const closeNote = useCallback(() => {
+    generation.current += 1
     setOpen(undefined)
     setEditing(false)
+    setSaving(false)
     setFailure(undefined)
   }, [])
 
@@ -250,28 +258,30 @@ export function AgentNotesSection(props: AgentNotesSectionProps): ReactNode {
    * Host text is reloaded so the next save is accepted, and the editor is left
    * showing the caller's own draft so nothing typed is lost.
    */
-  const saveNote = useCallback(() => {
-    if (open?.status !== 'ready') return
+  const saveNote = useCallback((opened: Extract<OpenState, { status: 'ready' }>) => {
+    const current = ++generation.current
     setSaving(true)
     setFailure(undefined)
-    void save(open.note.id, draft, open.note.version).then((outcome) => {
+    void save(opened.note.id, draft, opened.note.version).then((outcome) => {
+      if (current !== generation.current) return
       setSaving(false)
       if (outcome.ok) {
-        setOpen({ status: 'ready', note: { ...open.note, text: draft, version: outcome.version, bytes: outcome.bytes }, text: draft })
+        setOpen({ status: 'ready', note: { ...opened.note, text: draft, version: outcome.version, bytes: outcome.bytes }, text: draft })
         setEditing(false)
         setReloads(value => value + 1)
         return
       }
       if (outcome.code === 'agent-note/stale') {
         setFailure(t('saveStale'))
-        void read(open.note.id).then((refreshed) => {
+        void read(opened.note.id).then((refreshed) => {
+          if (current !== generation.current) return
           if (refreshed.ok) setOpen({ status: 'ready', note: refreshed.note, text: refreshed.note.text })
         })
         return
       }
       setFailure(t('savingFailed', { reason: failureText(outcome.code, outcome.message) }))
     })
-  }, [draft, open, read, save, t])
+  }, [draft, read, save, t])
 
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const notes = catalog.status === 'ready' ? catalog.catalog.notes : []
@@ -305,8 +315,14 @@ export function AgentNotesSection(props: AgentNotesSectionProps): ReactNode {
           t={t}
           onDraft={setDraft}
           onEdit={() => { setEditing(true) }}
-          onCancel={() => { setDraft(open.note.text); setEditing(false); setFailure(undefined) }}
-          onSave={saveNote}
+          onCancel={() => {
+            generation.current += 1
+            setSaving(false)
+            setDraft(open.note.text)
+            setEditing(false)
+            setFailure(undefined)
+          }}
+          onSave={() => { saveNote(open) }}
           onBack={closeNote}
         />
       </div>
