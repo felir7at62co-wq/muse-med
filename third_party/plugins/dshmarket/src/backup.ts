@@ -451,7 +451,7 @@ export async function downloadWebdav(url: string, username: string, password: st
   }
   // Validate strictly server-side so the fetch result is never a generic
   // echo of an internal response: restore only accepts real backups.
-  const body = JSON.parse(response.body.toString('utf8')) as unknown
+  const body: unknown = JSON.parse(response.body.toString('utf8'))
   validatedBackup(body)
   return body
 }

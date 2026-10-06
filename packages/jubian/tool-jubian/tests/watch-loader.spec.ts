@@ -85,10 +85,14 @@ it('returns immediately, reaches idle, then delivers the jobs notice in a second
     ctx.baseUrl = pathToFileURL(root).href + '/'
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
-    ctx.loader.internal = { version: 'v2', async import(name: string) {
-      if (!modules.has(name)) throw new Error(`Unexpected module ${name}`)
-      return modules.get(name)
-    } } as unknown as NonNullable<typeof ctx.loader.internal>
+    ctx.loader.internal = { version: 'v2', loadCache: new Map(),
+      register() { throw new Error('Unexpected loader hooks') },
+      getOrCreateModuleJob() { throw new Error('Unexpected loader job') },
+      resolveSync() { throw new Error('Unexpected loader resolution') },
+      load() { throw new Error('Unexpected loader load') }, async import(name: string) {
+        if (!modules.has(name)) throw new Error(`Unexpected module ${name}`)
+        return modules.get(name)
+      } }
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()

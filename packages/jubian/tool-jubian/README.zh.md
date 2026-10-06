@@ -112,7 +112,7 @@ inherited process environment (read-only, highest)
 
 继承的进程环境优先级最高，所以 `JUBIANAI_ADMIN_TOKEN=… dsh` 会盖过已存储的值并让它显示为只读。当改过的 token 看起来没生效时，先查这个顺序。传输层会修复粘贴通常带来的边界痕迹——首尾空白、一个 `;`、一对引号——且从不改写 token 本身；值内部还有空白时本地就失败，一个请求都不会发出。明文永远不会进入工具结果。
 
-当凭证库解析不出任何值时，这一行才会回落到流水线自己的密钥文件 `.agents/secrets/pipeline.env`，从启动目录逐级向上查找；文件里的 `JUBIANAI_ADMIN_TOKEN` 优先于遗留的 `JUBIANAI_TOKEN`。该文件每次调用都重新读取，所以改动无需重启即可生效，值也永远不会被回显。把 `workspaceSecrets` 设为 `false` 可以让凭证库成为唯一来源。
+当凭证库解析不出任何值时，这一行才会回落到流水线自己的密钥文件 `.agents/secrets/pipeline.env`，从启动目录逐级向上查找；[共享工作间解析函数](../jubian/README.zh.md)优先使用非空的 `JUBIANAI_ADMIN_TOKEN`，再使用遗留的 `JUBIANAI_TOKEN`。该文件每次调用都重新读取，所以改动无需重启即可生效，值也永远不会被回显。把 `workspaceSecrets` 设为 `false` 可以让凭证库成为唯一来源。
 
 ### 令牌设置页
 
@@ -250,7 +250,7 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 资产列表会分页读到最后一页；清单就是集数映射。清单某行的 `type` 可以写成约定的两种语言词形（`character`/`角色`、`scene`/`场景`、`prop`/`道具`），也可以写成提供方自己的类别号（`1`、`2`、`3`），因为两者命名的是同样三个类别。读不懂的行会让整次调用失败并点名该条目与字段：`<path> 的第 3 条资产（酒店大堂）的 type="unknown" 不是 character/角色、scene/场景、prop/道具，或类别号 1/2/3`；字段确实缺失时则列出该行自身的键名。文档层的失败同样会说明实际读到的结构，因此资产放在意外键名下的清单会报出那个键，而不是声称某个资产缺少 name。
 
-结果带四样东西，同样的内容会写到 `<project_dir>/<assetIndexPath>`：
+结果带四样东西。同样的内容会原子替换 `<project_dir>/<assetIndexPath>`，并在支持的平台上使用仅所有者可访问的权限：
 
 - `episodes`——每集一条，`categories`（角色/场景/道具）列出该集用到的资产及其 `asset_id`、`material_id`、清单状态、远端名与远端状态，外加名字里带该集号 token 的视频任务。
 - `series`——清单里没有写集号的资产，也就是跨集母版。`episodes` 写 `all`、`*` 或配置的 `seriesLabel` 声明的是同一件事——该资产服务全剧而不是某一集——因此归到这里，而不是让读取失败。

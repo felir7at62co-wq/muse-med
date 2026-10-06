@@ -70,7 +70,7 @@ function declare(slots: SlotRegistry): () => void {
 
 /** The face one registration handed its component. */
 function injectedOf(slots: SlotRegistry): JubianTokenInjected {
-  return (slots.entries('settings.section')[0]!.inject as unknown as () => JubianTokenInjected)()
+  return slots.entries('settings.section')[0]!.inject!() as JubianTokenInjected & Record<string, unknown>
 }
 
 describe('tool-jubian browser plugin', () => {

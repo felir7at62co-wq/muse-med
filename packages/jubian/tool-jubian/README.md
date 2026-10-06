@@ -112,7 +112,7 @@ inherited process environment (read-only, highest)
 
 The inherited process environment wins, so `JUBIANAI_ADMIN_TOKEN=… dsh` overrides the stored value and makes it read-only. When a changed token appears to have no effect, check that order first. The transport repairs the boundary damage a paste usually carries — leading or trailing whitespace, one `;`, one pair of quotes — and never rewrites the token itself; a value with interior whitespace fails locally and sends no request. Plaintext never enters a tool result.
 
-When the credential store resolves to nothing, the row falls back — only then — to the pipeline's own secret file, `.agents/secrets/pipeline.env`, searched upward from the launch directory. `JUBIANAI_ADMIN_TOKEN` wins over the legacy `JUBIANAI_TOKEN` inside it. The file is read on every call, so an edit is picked up without a restart, and the value is never echoed. Set `workspaceSecrets: false` to make the credential store the only source.
+When the credential store resolves to nothing, the row falls back — only then — to the pipeline's own secret file, `.agents/secrets/pipeline.env`, searched upward from the launch directory. The [shared workspace resolver](../jubian/README.md) uses a nonempty `JUBIANAI_ADMIN_TOKEN` before the legacy `JUBIANAI_TOKEN`. The file is read on every call, so an edit is picked up without a restart, and the value is never echoed. Set `workspaceSecrets: false` to make the credential store the only source.
 
 ### The token Settings page
 
@@ -250,7 +250,7 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 The asset list is paged to the end; the manifest is the episode map. A manifest row's `type` may be spelled as the convention's word in either language (`character`/`角色`, `scene`/`场景`, `prop`/`道具`) or as the provider's own category number (`1`, `2`, `3`), because both name the same three categories. A row this cannot read fails the whole call with the entry and the field named: `<path> 的第 3 条资产（酒店大堂）的 type="unknown" 不是 character/角色、scene/场景、prop/道具，或类别号 1/2/3`, or, when the field is genuinely absent, the row's own key names. The document-level failures name the structure actually read as well, so a manifest whose assets live under an unexpected key reports that key instead of claiming an asset is missing a name.
 
-The result carries four things, and the same content is written to `<project_dir>/<assetIndexPath>`:
+The result carries four things. The same content atomically replaces `<project_dir>/<assetIndexPath>` with owner-only permissions where supported:
 
 - `episodes` — one entry per episode, each with `categories` (角色/场景/道具) listing the assets that episode uses, their `asset_id`, `material_id`, manifest status, remote name and remote status, plus the video tasks whose name carries that episode token.
 - `series` — the assets the manifest declares with no episode number, which are the cross-episode masters. An `episodes` entry of `all`, `*` or the configured `seriesLabel` declares the same thing — the asset serves every episode rather than one — so it lands here instead of failing the read.

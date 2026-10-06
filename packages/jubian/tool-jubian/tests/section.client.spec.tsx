@@ -43,7 +43,7 @@ function props(overrides: Partial<JubianTokenSectionProps> = {}): JubianTokenSec
     set: async () => ok(CONFIGURED),
     unset: async () => ok(ABSENT),
     ...overrides,
-  } as unknown as JubianTokenSectionProps
+  } as JubianTokenSectionProps
 }
 
 /** Type one token into the password field. */

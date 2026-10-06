@@ -185,7 +185,7 @@ function decodeStrict(bytes: Uint8Array): string | null {
 
 /** Parse one decoded body, or undefined when it is not JSON. */
 function parseJson(text: string): unknown {
-  try { return JSON.parse(text) as unknown }
+  try { return JSON.parse(text) }
   catch { return undefined }
 }
 

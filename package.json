@@ -267,7 +267,8 @@
     "vitest": "^4.1.8",
     "@deepseek-ai/dsh-skill-office": "workspace:*",
     "@deepseek-ai/dsh-tool-workspace-dependencies": "workspace:*",
-    "@deepseek-ai/dsh-tool-bgm-compose": "workspace:*"
+    "@deepseek-ai/dsh-tool-bgm-compose": "workspace:*",
+    "@deepseek-ai/dsh-drama-settings": "workspace:*"
   },
   "description": "muse-med short-drama desktop agent, built on the DeepSeek Harness fork"
 }

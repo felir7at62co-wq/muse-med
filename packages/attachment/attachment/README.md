@@ -81,6 +81,7 @@ The service family runs one admission-and-storage flow: every entry point enforc
 | [`src/index.ts`](src/index.ts) | Plugin entry: abstract `AttachmentStore` service and re-exports |
 | [`src/types.ts`](src/types.ts) | Durable vocabulary: references, limits, upload and store payloads |
 | [`src/admission.ts`](src/admission.ts) | Canonical-base64 enforcement and store delegation for encoded image and file uploads |
+| [`src/image-result-schema.ts`](src/image-result-schema.ts) | Shared stored-image result metadata for file and video tools |
 | [`src/error.ts`](src/error.ts) | `AttachmentError` class and the `isImageAdmissionError` runtime subset |
 | [`src/brand.ts`](src/brand.ts) | `AttachmentId` branded opaque identifier |
 

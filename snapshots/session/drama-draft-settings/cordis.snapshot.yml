@@ -14,3 +14,6 @@
       name: '@deepseek-ai/dsh-tool-ask-user'
     - id: draft-root-answer
       name: './draft-root-fixture.mjs'
+
+- id: drama-settings
+  name: '@deepseek-ai/dsh-drama-settings'

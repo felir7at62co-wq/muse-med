@@ -13,7 +13,7 @@
 
 import { basename, extname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
+import { AttachmentError, AttachmentId, IMAGE_RESULT_SCHEMA } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -59,27 +59,8 @@ export function sniffImageMediaType(data: Uint8Array): ImageMediaType | undefine
   return undefined
 }
 
-const IMAGE_VALUE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: true,
-  properties: {
-    attachmentId: { type: 'string', required: true },
-    mediaType: { type: 'string', enum: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'], required: true },
-    bytes: { type: 'integer', required: true },
-    width: { type: 'integer', required: true },
-    height: { type: 'integer', required: true },
-    name: { type: 'string' },
-    originalDimensions: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        width: { type: 'integer', required: true },
-        height: { type: 'integer', required: true },
-      },
-    },
-  },
-} as const
+const IMAGE_VALUE_SCHEMA = { type: 'object', additionalProperties: false, required: true,
+  properties: IMAGE_RESULT_SCHEMA.properties } as const
 
 /** The structured outcome declared by the `read_image` output schema. */
 export interface ImageReadValue {

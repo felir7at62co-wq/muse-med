@@ -45,12 +45,15 @@ test('duration and daily quota stop new paid submissions',async t=>{
  await assert.rejects(env.service.submit('alice',randomUUID(),hash,'zh',Readable.from(audio)),{status:429});
  assert.equal(env.counts().submits,1);
 });
-test('one account reserves its configured upload slot before asynchronous job lookup',async t=>{
+test('one account admits one simultaneous upload for its single configured slot',async t=>{
  const env=await setup({maxPendingUploadsPerAccount:1});t.after(env.close);
  const first=env.service.submit('alice',randomUUID(),hash,'zh',Readable.from(audio));
  const second=env.service.submit('alice',randomUUID(),hash,'zh',Readable.from(audio));
- await assert.rejects(second,{status:429});
- assert.equal((await first).status,'processing');
+ const outcomes=await Promise.allSettled([first,second]);
+ const accepted=outcomes.filter(outcome=>outcome.status==='fulfilled');
+ const refused=outcomes.filter(outcome=>outcome.status==='rejected');
+ assert.equal(accepted.length,1);assert.equal(refused.length,1);
+ assert.equal(accepted[0].value.status,'processing');assert.equal(refused[0].reason.status,429);
  await env.service.idle();
  assert.equal(env.counts().submits,1);
 });

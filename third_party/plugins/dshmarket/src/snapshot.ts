@@ -410,7 +410,7 @@ export function listSnapshots(profileDir: string): ProfileSnapshot[] {
   for (const name of names) {
     try {
       const id = name.slice(0, -5)
-      const value = JSON.parse(readFileSync(snapshotFile(profileDir, id), 'utf8')) as unknown
+      const value: unknown = JSON.parse(readFileSync(snapshotFile(profileDir, id), 'utf8'))
       const validated = validateSnapshotDocument(value)
       if (validated.ok && validated.value.snapshot.id === id) snapshots.push(validated.value.snapshot)
     } catch { /* corrupt snapshot — skip */ }
@@ -433,7 +433,7 @@ export function restoreSnapshot(profileDir: string, id: string): { ok: boolean; 
   }
   let parsed: unknown
   try {
-    parsed = JSON.parse(readFileSync(snapshotFile(profileDir, id), 'utf8')) as unknown
+    parsed = JSON.parse(readFileSync(snapshotFile(profileDir, id), 'utf8'))
   } catch {
     return { ok: false, restored: [], error: 'snapshot not found / 快照不存在' }
   }

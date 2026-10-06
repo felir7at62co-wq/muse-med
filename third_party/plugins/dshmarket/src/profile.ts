@@ -254,7 +254,7 @@ export function readInstalledManifest(profile: string, name: string, explicitDir
   try {
     return JSON.parse(
       readFileSync(join(profileDir(profile, explicitDir), 'node_modules', name, 'package.json'), 'utf8'),
-    ) as unknown
+    )
   } catch {
     return null
   }
@@ -335,7 +335,7 @@ function installedPackageDirectory(root: string, name: string): string | null {
 
 function manifestAt(dir: string): Record<string, unknown> | null {
   try {
-    const value = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as unknown
+    const value: unknown = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
     return typeof value === 'object' && value !== null ? value as Record<string, unknown> : null
   } catch {
     return null

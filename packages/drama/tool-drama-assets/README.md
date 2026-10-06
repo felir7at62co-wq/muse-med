@@ -58,7 +58,7 @@ The token itself is the credential reference `JUBIANAI_ADMIN_TOKEN`, resolved th
 | `status` | `dispose` | `registered` or `ignored` |
 | `note` | `ignored` | Why the asset is not needed; must be non-empty for `ignored` |
 
-`reconcile` sends exactly two requests, both the provider's own list endpoints, and charges nothing. `dispose` sends none. The only file either method writes is the evidence file, written through a temporary file and a rename.
+`reconcile` sends exactly two requests, both the provider's own list endpoints, and charges nothing. `dispose` sends none. The only file either method writes is the evidence file, atomically replaced with owner-only permissions where supported.
 
 ### What decides the verdict
 
@@ -170,5 +170,5 @@ This Dev Note is working context for maintainers: open questions and directions 
 
 The comparison is a port of the pipeline's `_tools/asset_reconcile.py`, and the port is field-for-field on purpose. That script stays in the production workspace and remains the reference for the evidence file's byte layout; this package is the path that does not need Python on the user's machine. `ready_reason` is the one field the Python tool writes that this one does not: it is derived, the host gate computes its own copy, and `reconcile` returns the same sentence in the tool result instead.
 
-The token resolution follows `packages/jubian/tool-jubian/src/index.ts`, including the workspace secret fallback, rather than introducing a third resolver. `readAssetList` and `readMaterialList` stay the authority on what a page is, but this package reads `delFlag`, `createTime` and the two name spellings from the rows those readers accepted — the mappings do not carry them, and the evidence schema needs them.
+Token resolution uses the [shared Jubian workspace helpers](../../jubian/jubian/README.md), including the workspace secret fallback. `readAssetList` and `readMaterialList` stay the authority on what a page is, but this package reads `delFlag`, `createTime` and the two name spellings from the rows those readers accepted — the mappings do not carry them, and the evidence schema needs them.
 </details>

@@ -114,7 +114,7 @@ describe('official browser-brand plugin', () => {
     const subject = await bench()
     const fiber = subject.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    const { hooks } = (subject.slots.entries(HOLES[0])[0]!.inject as unknown as () => BrandInjected)()
+    const { hooks } = subject.slots.entries(HOLES[0])[0]!.inject!() as BrandInjected & Record<string, unknown>
     const useLogo = <T,>(select: (url: string) => T) => select(hooks.logo.getSnapshot())
     const mark = render(<OfficialBrandMark size={34} useLogo={useLogo} />)
     expect(mark.container.querySelector('img')?.getAttribute('src')).toBe('./muse-med-logo-black.webp')

@@ -7,25 +7,8 @@
  * this reader returns the tree rather than a flat list with a parent column: a
  * flattened form would have to invent the parent it was given.
  */
-import { JubianError } from '@deepseek-ai/dsh-jubian'
 import { readPayload } from './reading.ts'
-
-function invalid(): never { throw new JubianError('CONTRACT_CHANGED') }
-
-function object(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) invalid()
-  return value as Record<string, unknown>
-}
-
-function id(value: unknown): number {
-  const candidate = typeof value === 'string' && /^[1-9][0-9]*$/.test(value) ? Number(value) : value
-  if (typeof candidate !== 'number' || !Number.isSafeInteger(candidate) || candidate < 1) invalid()
-  return candidate
-}
-
-function nullableText(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value : null
-}
+import { invalid, wireObject as object, wirePositiveId as id, wireNullableText as nullableText } from './wire.ts'
 
 /** One asset-library folder, with the sub-folders the provider nested under it. */
 export interface FolderNode {

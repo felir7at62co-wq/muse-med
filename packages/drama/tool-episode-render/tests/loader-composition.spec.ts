@@ -31,12 +31,16 @@ it('loads the renderer, accepts public arguments, and removes its tool on dispos
       ['@deepseek-ai/dsh-tool-episode-render', Render],
     ])
     ctx.loader.internal = {
-      version: 'v2',
+      version: 'v2', loadCache: new Map(),
+      register() { throw new Error('Unexpected loader hooks') },
+      getOrCreateModuleJob() { throw new Error('Unexpected loader job') },
+      resolveSync() { throw new Error('Unexpected loader resolution') },
+      load() { throw new Error('Unexpected loader load') },
       async import(specifier: string) {
         if (!modules.has(specifier)) throw new Error(`unexpected module: ${specifier}`)
         return modules.get(specifier)
       },
-    } as unknown as NonNullable<typeof ctx.loader.internal>
+    }
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()

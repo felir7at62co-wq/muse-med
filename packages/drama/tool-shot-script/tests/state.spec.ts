@@ -82,7 +82,7 @@ function clinic(): Record<string, unknown> {
 async function validate(files: { scriptPath: string; manifestPath: string }, episode?: number):
 Promise<DramaShotReport> {
   return await call({ method: 'validate', script: files.scriptPath, assets: files.manifestPath,
-    ...(episode === undefined ? {} : { episode }) }) as unknown as DramaShotReport
+    ...(episode === undefined ? {} : { episode }) })
 }
 
 /** Every failure of one report as `code: message` lines. */

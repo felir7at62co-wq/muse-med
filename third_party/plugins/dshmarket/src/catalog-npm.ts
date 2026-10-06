@@ -116,5 +116,5 @@ export async function catalogFromPackage(
   if (!tarRes.ok) throw new Error(`HTTP ${String(tarRes.status)} reading ${pkg} tarball`)
   const bytes = fileFromTarball(Buffer.from(await tarRes.arrayBuffer()), file)
   if (bytes === null) throw new Error(`${pkg}@${version} carries no ${file}`)
-  return { version, data: JSON.parse(bytes.toString('utf8')) as unknown }
+  return { version, data: JSON.parse(bytes.toString('utf8')) }
 }

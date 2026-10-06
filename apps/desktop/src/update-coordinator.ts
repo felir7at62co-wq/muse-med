@@ -4,10 +4,22 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import electronUpdater, { type AppUpdater, type ProgressInfo, type UpdateInfo } from 'electron-updater'
+
 import { gt, valid } from 'semver'
 import type { DesktopUpdateState } from './ipc.ts'
 import { DesktopUpdateHttpExecutor } from './update-http-executor.ts'
 import { DesktopUpdatePreparationError } from './update-error.ts'
+
+/** Electron updater operations used by the coordinator. */
+export type DesktopUpdater = Pick<AppUpdater, 'downloadUpdate' | 'quitAndInstall'
+  | 'autoDownload' | 'autoInstallOnAppQuit' | 'allowPrerelease' | 'allowDowngrade'> & {
+  /** Subscribe to updater notifications. */
+    on(...args: Parameters<AppUpdater['on']>): unknown
+    /** Retire an updater notification listener. */
+    off(...args: Parameters<AppUpdater['off']>): unknown
+    /** Check the selected feed's availability and release version. */
+    checkForUpdates(): Promise<{ isUpdateAvailable: boolean; updateInfo: Pick<UpdateInfo, 'version'> } | null>
+  }
 
 const { autoUpdater } = electronUpdater
 
@@ -50,7 +62,7 @@ export class DesktopUpdateCoordinator {
   constructor(
     private readonly publish: (state: DesktopUpdateState) => DesktopUpdateState,
     private readonly beforeRestart: () => Promise<boolean>,
-    private readonly updater: AppUpdater = autoUpdater,
+    private readonly updater: DesktopUpdater = autoUpdater,
     private readonly enabled: () => boolean = () => app.isPackaged && existsSync(join(process.resourcesPath, 'app-update.yml')),
     private readonly currentVersion: () => string = () => app.getVersion(),
     private readonly downloadResult?: (success: boolean, reason?: string) => void,
@@ -61,7 +73,7 @@ export class DesktopUpdateCoordinator {
       const transportOwner = updater as AppUpdater & { httpExecutor: DesktopUpdateHttpExecutor }
       transportOwner.httpExecutor = new DesktopUpdateHttpExecutor(
         Number(process.env.DSH_DESKTOP_UPDATE_HTTP_IDLE_TIMEOUT_MS ?? 60_000),
-        (authInfo, callback) => { updater.emit('login', authInfo, callback) },
+        (authInfo, callback) => { autoUpdater.emit('login', authInfo, callback) },
       )
     }
     this.updater.autoDownload = false

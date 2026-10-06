@@ -75,3 +75,13 @@ it('builds same-origin authenticated URLs for browser and Desktop without creden
     expect(url.username).toBe('')
   }
 })
+
+it('keeps the selected computer and app mount in the video stream URL', () => {
+  const file = { sessionId: 'owner' as SessionId, path: 'final/镜头 1.mp4' }
+  const url = new URL(videoUrl(file, 'https://muse.example/muse/computer/desktop-1/', 'v2'))
+  expect(url.pathname).toBe('/muse/computer/desktop-1/api/video')
+  expect(url.searchParams.get('path')).toBe(file.path)
+  expect(url.searchParams.get('sessionId')).toBe('owner')
+  expect(url.searchParams.get('version')).toBe('v2')
+  expect([...url.searchParams.keys()]).toEqual(['sessionId', 'path', 'version'])
+})

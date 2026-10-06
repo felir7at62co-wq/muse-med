@@ -1,3 +1,4 @@
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 /**
  * The plugin entry: its identity, its registration, the argument names the model
  * sends, and one call per method through the registered executor.
@@ -7,7 +8,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
-import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
+import type { ToolExecutionToken, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { JUBIAN_TOKEN_REF } from '@deepseek-ai/dsh-jubian'
 import { apply, name, inject, runDramaAssets, workspacePipelineToken } from '../src/index.ts'
 import { evidencePath } from '../src/reconcile.ts'
@@ -30,15 +31,15 @@ async function project(document: Record<string, unknown> = manifestDocument()): 
 /** The registry context a registered tool's executor receives. */
 function runContext(): ToolRunContext {
   return {
-    callId: 'drama-assets-spec',
-    rootCallId: 'drama-assets-spec',
+    callId: ToolCallId('drama-assets-spec'),
+    rootCallId: ToolCallId('drama-assets-spec'),
     name: 'drama_assets',
     arguments: {},
     signal: new AbortController().signal,
-    token: 'drama-assets-spec',
+    token: Symbol('drama-assets-spec') as ToolExecutionToken,
     deferContext: () => {},
     concludeTurn: () => {},
-  } as unknown as ToolRunContext
+  }
 }
 
 /** One `drama_assets` result, as `runDramaAssets` reports it. */

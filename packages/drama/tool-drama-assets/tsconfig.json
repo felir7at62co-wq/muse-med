@@ -28,6 +28,9 @@
     },
     {
       "path": "../../llm/llm"
+    },
+    {
+      "path": "../../util/atomic-write"
     }
   ]
 }

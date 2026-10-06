@@ -26,6 +26,18 @@ afterEach(async () => {
 })
 
 describe('macOS packaged updater configuration', () => {
+  it('embeds and verifies the selected GitHub repository and version channel', async () => {
+    const paths = await fixture()
+    const github = resolveMacOSAppUpdateFeed([{ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel: 'latest' }])
+    expect(createMacOSAppUpdateConfig(github, 'muse-med-updater')).toEqual({
+      provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel: 'latest', updaterCacheDirName: 'muse-med-updater',
+    })
+    await writeMacOSAppUpdateConfig(paths.resourcesDir, github, 'muse-med-updater')
+    await expect(verifyMacOSAppUpdateConfig(paths.appPath, github, 'muse-med-updater')).resolves.toBeUndefined()
+    await writeFile(join(paths.resourcesDir, 'app-update.yml'), 'provider: github\nowner: wrong\nrepo: muse-med\nchannel: latest\nupdaterCacheDirName: muse-med-updater\n')
+    await expect(verifyMacOSAppUpdateConfig(paths.appPath, github)).rejects.toThrow(/selected release feed/u)
+  })
+
   it('uses the final generic Nightly provider configured for the build', () => {
     expect(resolveMacOSAppUpdateFeed([{ provider: 'generic', url: update.publicUrl, channel: 'nightly' }]))
       .toEqual(update)

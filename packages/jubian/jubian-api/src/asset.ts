@@ -9,36 +9,8 @@
  * file `assetUrl`; a reader accepts those first and keeps the spelling the
  * earlier captures showed.
  */
-import { JubianError } from '@deepseek-ai/dsh-jubian'
 import { readPayload } from './reading.ts'
-
-function invalid(): never { throw new JubianError('CONTRACT_CHANGED') }
-
-function object(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) invalid()
-  return value as Record<string, unknown>
-}
-
-function rowsOf(value: unknown): Record<string, unknown>[] {
-  const record = object(value)
-  if (!Array.isArray(record.rows)) invalid()
-  return record.rows.map(object)
-}
-
-function totalOf(value: unknown, fallback: number): number {
-  const record = object(value)
-  return typeof record.total === 'number' && Number.isSafeInteger(record.total) ? record.total : fallback
-}
-
-function id(value: unknown): number {
-  const candidate = typeof value === 'string' && /^[1-9][0-9]*$/.test(value) ? Number(value) : value
-  if (typeof candidate !== 'number' || !Number.isSafeInteger(candidate) || candidate < 1) invalid()
-  return candidate
-}
-
-function nullableText(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value : null
-}
+import { invalid, wireObject as object, wireRows as rowsOf, wireTotal as totalOf, wirePositiveId as id, wireNullableText as nullableText } from './wire.ts'
 
 function flag(value: unknown): boolean {
   return value === 1 || value === true

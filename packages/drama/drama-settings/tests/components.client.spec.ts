@@ -6,10 +6,10 @@
  * inventory reports — preset rows and Loader entries.
  */
 import { describe, expect, it } from 'vitest'
-import type { PluginInventorySnapshot } from '@deepseek-ai/dsh-api-remotes/client'
+import type { PluginInventorySnapshot, PluginEntryId } from '@deepseek-ai/dsh-api-remotes/client'
 import { DRAMA_COMPONENTS, componentStates } from '../src/client/components.ts'
 
-type Row = { moduleName: string; enabled: boolean | 'conditional'; fiberPhase: string | null; condition?: string }
+type Row = { moduleName: string; enabled: boolean | 'conditional'; fiberPhase: PluginInventorySnapshot['entries'][number]['fiberPhase']; condition?: string }
 
 /** One inventory answer over preset rows and Loader entries. */
 function snapshot(
@@ -17,9 +17,9 @@ function snapshot(
   entries: Row[] = [],
 ): PluginInventorySnapshot {
   return {
-    entries: entries.map(entry => ({ ...entry, entryId: entry.moduleName })),
-    agentPresets: [{ id: 'short-drama', trust: 'system', isDefault: false, rows: presets }],
-  } as unknown as PluginInventorySnapshot
+    entries: entries.map(entry => ({ ...entry, enabled: entry.enabled === true, entryId: entry.moduleName as PluginEntryId })),
+    agentPresets: [{ id: 'short-drama', isDefault: false, rows: presets.map(row => ({ ...row, entryId: null })) }],
+  }
 }
 
 /** The status one module got out of one answer. */
@@ -83,28 +83,28 @@ describe('componentStates', () => {
   })
 
   it('lets a mounted preset answer for a package an unmounted preset named first', () => {
-    const twoPresets = {
+    const twoPresets: PluginInventorySnapshot = {
       entries: [],
       agentPresets: [
-        { id: 'short-drama', trust: 'system', isDefault: false, rows: [
-          { moduleName: '@deepseek-ai/dsh-guard-drama', enabled: true, fiberPhase: null }] },
-        { id: 'short-drama-local', trust: 'user', isDefault: false, rows: [
-          { moduleName: '@deepseek-ai/dsh-guard-drama', enabled: true, fiberPhase: 'active' }] },
+        { id: 'short-drama', isDefault: false, rows: [
+          { entryId: null, moduleName: '@deepseek-ai/dsh-guard-drama', enabled: true, fiberPhase: null }] },
+        { id: 'short-drama-local', isDefault: false, rows: [
+          { entryId: null, moduleName: '@deepseek-ai/dsh-guard-drama', enabled: true, fiberPhase: 'active' }] },
       ],
-    } as unknown as PluginInventorySnapshot
+    }
     expect(statusOf(twoPresets, '@deepseek-ai/dsh-guard-drama')).toBe('loaded')
   })
 
   it('keeps a mounted preset’s row over an unmounted one seen later', () => {
-    const twoPresets = {
+    const twoPresets: PluginInventorySnapshot = {
       entries: [],
       agentPresets: [
-        { id: 'short-drama', trust: 'system', isDefault: false, rows: [
-          { moduleName: '@deepseek-ai/dsh-guard-drama', enabled: true, fiberPhase: 'failed' }] },
-        { id: 'short-drama-local', trust: 'user', isDefault: false, rows: [
-          { moduleName: '@deepseek-ai/dsh-guard-drama', enabled: true, fiberPhase: null }] },
+        { id: 'short-drama', isDefault: false, rows: [
+          { entryId: null, moduleName: '@deepseek-ai/dsh-guard-drama', enabled: true, fiberPhase: 'failed' }] },
+        { id: 'short-drama-local', isDefault: false, rows: [
+          { entryId: null, moduleName: '@deepseek-ai/dsh-guard-drama', enabled: true, fiberPhase: null }] },
       ],
-    } as unknown as PluginInventorySnapshot
+    }
     expect(statusOf(twoPresets, '@deepseek-ai/dsh-guard-drama')).toBe('failed')
   })
 

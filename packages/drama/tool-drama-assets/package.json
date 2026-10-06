@@ -28,7 +28,8 @@
   "license": "MIT",
   "dependencies": {
     "@deepseek-ai/dsh-jubian": "workspace:*",
-    "@deepseek-ai/dsh-jubian-api": "workspace:*"
+    "@deepseek-ai/dsh-jubian-api": "workspace:*",
+    "@deepseek-ai/dsh-atomic-write": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",

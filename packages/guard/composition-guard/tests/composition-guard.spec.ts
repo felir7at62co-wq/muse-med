@@ -498,7 +498,7 @@ describe('containment and ownership', () => {
     await h.mountGuard()
     const session = await h.spawn('a1', 'drama')
     // A disposed or detached session is exactly the state a delivery can lose to.
-    ;(session.agent as unknown as { inject: () => void }).inject = () => { throw new Error('session detached') }
+    session.agent.inject = () => { throw new Error('session detached') }
 
     session.withdraw()
     await expect(h.loaderUpdate()).resolves.toBeUndefined()
@@ -519,7 +519,7 @@ describe('containment and ownership', () => {
       levels: { default: WARN_LEVEL },
       export: () => { throw new Error('log sink down') },
     })
-    ;(session.agent as unknown as { inject: () => void }).inject = () => { throw new Error('session detached') }
+    session.agent.inject = () => { throw new Error('session detached') }
 
     session.withdraw()
     await h.loaderUpdate()

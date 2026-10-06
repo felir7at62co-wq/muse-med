@@ -168,10 +168,10 @@ export async function storyboardDeleteMethod(client: JubianClient, ledger: Jubia
   if (stableSha256(ids(args.checked_storyboard_ids, limits.maxItems)) !== stableSha256(plan.targets.map(target => target.storyboard_id))) {
     invalid('删除检查：checked_storyboard_ids 必须包含已逐张 inspect 检查过的全部目标')
   }
+  const items: Row[] = []
   const prior = await ledger.find(key)
   if (prior !== undefined) {
     verifyClaim(prior, scriptId, `sha256:${key}`)
-    const items: Row[] = []
     for (const target of plan.targets) {
       const recorded = await ledger.find(`${key}:${target.storyboard_id}`)
       if (recorded === undefined) { items.push({ storyboard_id: target.storyboard_id, status: 'not_attempted', verified_readback: false }); continue }
@@ -194,7 +194,6 @@ export async function storyboardDeleteMethod(client: JubianClient, ledger: Jubia
   }
   const claim = await ledger.begin({ idempotencyKey: key, method: 'storyboard_remove', scriptId, requestSha256: `sha256:${key}` })
   if (claim.replayed) return storyboardDeleteMethod(client, ledger, args, limits)
-  const items: Row[] = []
   let stopped = false
   for (const target of plan.targets) {
     if (stopped) { items.push({ storyboard_id: target.storyboard_id, status: 'not_attempted', verified_readback: false }); continue }

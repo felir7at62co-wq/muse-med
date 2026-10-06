@@ -37,7 +37,7 @@ async function fixture(created: Record<string, unknown> | null = { id: 900100, n
         return new Response(JSON.stringify({ code: 200, data: { total: selected.length, rows: selected } }), { status: 200 })
       }
       calls.push({ method: String(init?.method), path,
-        body: typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined })
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined })
       if (created !== null) assets = [...assets, created]
       return new Response(JSON.stringify({ code: 200, data: { id: 900100 } }), { status: 200 })
     } })

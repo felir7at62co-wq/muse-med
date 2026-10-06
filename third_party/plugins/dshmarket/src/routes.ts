@@ -11,7 +11,7 @@
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import { IncomingMessage, ServerResponse } from 'node:http'
 import { load as loadYaml } from 'js-yaml'
 import { forgetCatalog, loadRegistry, pluginCategories } from './registry.ts'
 import {
@@ -653,7 +653,7 @@ export function mountMarketRoutes(
   function captureUpdateManifest(): ManifestCapture {
     const file = join(activeProfileDir, 'package.json')
     try {
-      const value = JSON.parse(readFileSync(file, 'utf8')) as unknown
+      const value: unknown = JSON.parse(readFileSync(file, 'utf8'))
       if (typeof value !== 'object' || value === null || Array.isArray(value)) {
         return { ok: false, detail: 'the profile package.json root is not an object' }
       }
@@ -1146,7 +1146,9 @@ export function mountMarketRoutes(
     const handler = legacyHandlers.get(path)
     if (handler === undefined) throw new Error(`legacy route is unavailable: ${path}`)
     const chunks = body === undefined ? [] : [Buffer.from(JSON.stringify(body))]
-    const replay = Readable.from(chunks) as unknown as IncomingMessage
+    const replay = new IncomingMessage(source.socket)
+    for (const chunk of chunks) replay.push(chunk)
+    replay.push(null)
     Object.assign(replay, {
       method,
       url,
@@ -1155,16 +1157,16 @@ export function mountMarketRoutes(
     })
     let status = 200
     let text = ''
-    const captured = {
-      writeHead(code: number) { status = code; return this },
-      end(chunk?: string | Buffer) {
-        if (chunk !== undefined) text += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : chunk
-        return this
-      },
-    } as unknown as ServerResponse
+    const captured = new ServerResponse(replay)
+    captured.writeHead = function (code: number) { status = code; return this }
+    captured.end = function (chunk?: string | Uint8Array | (() => void)) {
+      if (typeof chunk === 'string') text += chunk
+      else if (chunk instanceof Uint8Array) text += Buffer.from(chunk).toString('utf8')
+      return this
+    }
     await handler(replay, captured)
     let payload: unknown = null
-    try { payload = text === '' ? null : JSON.parse(text) as unknown } catch { payload = { error: text } }
+    try { payload = text === '' ? null : JSON.parse(text) } catch { payload = { error: text } }
     return { status, payload }
   }
 

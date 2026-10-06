@@ -110,7 +110,7 @@ describe('ui-settings-agent-notes browser plugin', () => {
     await b.ctx.plugin({ inject: [...inject], apply }).await()
 
     const entry = b.slots.entries('settings.section')[0]!
-    const injected = (entry.inject as unknown as () => AgentNotesSectionInjected)()
+    const injected = entry.inject!() as AgentNotesSectionInjected & Record<string, unknown>
     await expect(injected.list()).resolves.toEqual({ ok: true, catalog: { state: 'ready', root: '/notes', notes: [], truncated: false } })
     await expect(injected.read('bug-fix/gone.md')).resolves.toEqual({
       ok: false,
@@ -133,7 +133,7 @@ describe('ui-settings-agent-notes browser plugin', () => {
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
 
-    const injected = ((b.slots.entries('settings.section')[0]!.inject) as unknown as () => AgentNotesSectionInjected)()
+    const injected = b.slots.entries('settings.section')[0]!.inject!() as AgentNotesSectionInjected & Record<string, unknown>
     // A note that declares no status carries no status field, not an empty one.
     await expect(injected.read('bug-fix/a.md')).resolves.toEqual({
       ok: true,

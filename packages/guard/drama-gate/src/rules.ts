@@ -179,13 +179,10 @@ function idempotencyRefusal(call: GateCall): string | undefined {
 
 /** Refuse a paid storyboard submission while its own project holds no official asset record. */
 function officialAssetRefusal(call: GateCall): string | undefined {
-  const methods = PAID_SUBMISSIONS[call.toolName]
-  const method = calledMethod(call)
-  if (methods === undefined || method === undefined || !methods.includes(method)) return undefined
-  const workspace = workspaceRoot(call)
-  if (workspace === undefined) return unboundRefusal(call, method, '找不到工作目录')
-  const project = operationProject(call, resolve(workspace, call.workshopDir))
-  if (project === undefined) return unboundRefusal(call, method, '这次调用没有说明它属于哪个项目')
+  const binding = bindProjectMethod(call, PAID_SUBMISSIONS)
+  if (binding === undefined) return undefined
+  if ('refusal' in binding) return binding.refusal
+  const { method, project } = binding
   if (hasOfficialAssetEvidence([project], call.reader)) return undefined
   return `${call.toolName}.${method} 会真实计费，但这个项目里找不到 official=true 的正式资产记录（已查：${project}）。`
     + '镜头与视频只能引用 official=true 且有剧变 asset/material id 与 URL 的资产；'
@@ -207,6 +204,22 @@ function unboundRefusal(call: GateCall, method: string, cause: string): string {
     + '让本次操作绑定到一个具体项目后重试；普通查询与草稿编辑不受此限制。'
 }
 
+/** Resolve the project of a gated method, retaining an actionable refusal when it is unbound. */
+function bindProjectMethod(
+  call: GateCall,
+  gatedMethods: Readonly<Record<string, readonly string[]>>,
+): { method: string; project: string } | { refusal: string } | undefined {
+  const methods = gatedMethods[call.toolName]
+  const method = calledMethod(call)
+  if (methods === undefined || method === undefined || !methods.includes(method)) return undefined
+  const workspace = workspaceRoot(call)
+  if (workspace === undefined) return { refusal: unboundRefusal(call, method, '找不到工作目录') }
+  const project = operationProject(call, resolve(workspace, call.workshopDir))
+  return project === undefined
+    ? { refusal: unboundRefusal(call, method, '这次调用没有说明它属于哪个项目') }
+    : { method, project }
+}
+
 /**
  * Refuse creating a new billed asset while the project holds no usable reconcile
  * of what the remote project already contains. The manifest records what this
@@ -214,13 +227,10 @@ function unboundRefusal(call: GateCall, method: string, cause: string): string {
  * manifest regenerates an asset that is already there and selected.
  */
 function reconcileRefusal(call: GateCall): string | undefined {
-  const methods = ASSET_CREATIONS[call.toolName]
-  const method = calledMethod(call)
-  if (methods === undefined || method === undefined || !methods.includes(method)) return undefined
-  const workspace = workspaceRoot(call)
-  if (workspace === undefined) return unboundRefusal(call, method, '找不到工作目录')
-  const project = operationProject(call, resolve(workspace, call.workshopDir))
-  if (project === undefined) return unboundRefusal(call, method, '这次调用没有说明它属于哪个项目')
+  const binding = bindProjectMethod(call, ASSET_CREATIONS)
+  if (binding === undefined) return undefined
+  if ('refusal' in binding) return binding.refusal
+  const { method, project } = binding
   const state = reconcileState(join(project, RECONCILE_PROBE_DIR, RECONCILE_FILE), call.reader)
   if (state.kind === 'ready') return undefined
   return `${call.toolName}.${method} 会新建资产并真实计费，但先要有本项目的资产对账证据：${describeReconcile(state)}`

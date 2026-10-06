@@ -62,6 +62,8 @@ Two layouts are documented, and the client hides the difference from you. A sing
 
 `trimBearerToken()` removes surrounding whitespace, one trailing shell separator (`;` or `&`) and one matching quote pair — the artifacts a shell export or a copied settings value leaves behind — and never rewrites the interior. `isUsableBearerToken()` then requires a non-empty value with no whitespace. A value that still carries an interior space fails locally as `AUTHENTICATION_REQUIRED` before any request leaves, so a broken secret reaches neither the network nor a log. The credential reference this package owns is `JUBIANAI_ADMIN_TOKEN`; the host owns its value.
 
+`workspaceJubianClient()` uses a nonblank credential-store value first. When workspace secrets are enabled and the store is empty, `workspacePipelineToken()` searches the start directory and up to eleven parents for the nearest readable `.agents/secrets/pipeline.env`. That file supplies a nonempty `JUBIANAI_ADMIN_TOKEN`, then `JUBIANAI_TOKEN`; a readable file with neither stops the search. Each request reads the current values without logging them.
+
 ### The six stable failure codes
 
 `JubianError` keeps its stable code and local message. HTTP failures append only the numeric status, such as `HTTP 502`; recognized timeout, abort, DNS, connection and TLS failures append allowlisted, locally authored detail. Provider messages, bodies, URLs, tokens and original causes are never attached. Unknown transport failures retain `Jubian request failed`; diagnostics do not trigger retries.
@@ -151,6 +153,7 @@ The package is five small modules over `fetch`: one boundary that owns the wire,
 | [`src/index.ts`](src/index.ts) | The public surface: the client, the credential helpers, the failure codes and the ledger |
 | [`src/client.ts`](src/client.ts) | The one HTTP path: fixed origin, single attempt, byte-bounded read, envelope layout reading and the response hash |
 | [`src/credential.ts`](src/credential.ts) | The credential reference name and the paste-artifact repair applied before any header is built |
+| [`src/workspace.ts`](src/workspace.ts) | Shared store-first client construction and optional workspace token lookup |
 | [`src/diagnostic.ts`](src/diagnostic.ts) | The redacted structure description every rejected body and every dump record is written from |
 | [`src/debug-dump.ts`](src/debug-dump.ts) | The opt-in JSONL response dump behind `DSH_JUBIAN_DEBUG_DUMP` |
 | [`src/error.ts`](src/error.ts) | The six stable codes, the HTTP-status mapping and the envelope-code mapping |

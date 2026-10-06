@@ -6,7 +6,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { JubianClient } from '@deepseek-ai/dsh-jubian'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 
@@ -140,13 +140,13 @@ export function mountContext(credential = 'stored-token'):
 { ctx: Context; registered: ToolDefinition[]; resolvedRefs: string[] } {
   const registered: ToolDefinition[] = []
   const resolvedRefs: string[] = []
-  const ctx = {
+  const ctx = Object.assign(new Context(), {
     tools: { register: (definition: ToolDefinition) => { registered.push(definition); return () => {} } },
     credentials: { resolve: (ref: string) => {
       resolvedRefs.push(ref)
       return Promise.resolve(credential === '' ? undefined : { value: credential })
     } },
-  } as unknown as Context
+  })
   return { ctx, registered, resolvedRefs }
 }
 

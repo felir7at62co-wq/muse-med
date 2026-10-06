@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { apply, inject, name, workspacePipelineToken } from '../src/index.ts'
 import { JubianImageRoutes } from '../src/image.ts'
 import { JubianToken } from '../src/token.ts'
@@ -19,7 +19,7 @@ interface Registered {
 async function mount(): Promise<{ registered: Registered[]; mounted: unknown[] }> {
   const registered: Registered[] = []
   const mounted: unknown[] = []
-  const ctx = {
+  const ctx = Object.assign(new Context(), {
     plugin: (plugin: unknown) => { mounted.push(plugin) },
     effect: (callback: () => unknown) => callback(),
     on: () => () => {},
@@ -31,7 +31,7 @@ async function mount(): Promise<{ registered: Registered[]; mounted: unknown[] }
       },
     },
     credentials: { resolve: async () => ({ value: 'eyJhbGci.payload.sig', source: 'file' }) },
-  } as unknown as Context
+  })
   apply(ctx, { ledgerRoot: await mkdtemp(join(tmpdir(), 'jubian-tools-')) })
   return { registered, mounted }
 }
@@ -189,13 +189,13 @@ describe('tool-jubian registration', () => {
 
   it('reports a missing credential as an authentication failure rather than a crash', async () => {
     const registered: Registered[] = []
-    const ctx = {
+    const ctx = Object.assign(new Context(), {
       plugin: () => {},
       effect: (callback: () => unknown) => callback(),
       on: () => () => {},
       tools: { register: (definition: Registered) => { registered.push(definition); return () => {} } },
       credentials: { resolve: async () => undefined },
-    } as unknown as Context
+    })
     apply(ctx, { ledgerRoot: await mkdtemp(join(tmpdir(), 'jubian-tools-')) })
     const catalog = registered.find(tool => tool.name === 'jubian_catalog')!
     await expect(catalog.execute({ method: 'models', task_type: 2 }, {})).rejects.toMatchObject(

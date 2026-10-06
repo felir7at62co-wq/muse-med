@@ -16,7 +16,7 @@ import { CordisInspectRegistryService } from '../src/inspect-registry.ts'
 import type { HostCordisInspectProviderRegistration } from '../src/inspect-registry.ts'
 
 /** A requesting Agent stand-in: the fixture providers key nothing off it. */
-const AGENT = { id: 'S-fixture' } as unknown as Agent
+const AGENT = { id: 'S-fixture' } as Agent
 
 const EMPTY_INPUT = { type: 'object', properties: {}, additionalProperties: false } as const
 const ANY_OUTPUT = { description: 'Fixture data owned by this inspect provider.' } as const

@@ -111,7 +111,7 @@ function configOf(source: Record<string, unknown>): {
     // Blank text is the provider's third spelling of unset, beside `null` and an
     // absent key; only text it did send is parsed, and text that is not JSON is refused by name.
     if (!raw.trim()) parsed = {}
-    else { try { parsed = JSON.parse(raw) as unknown } catch { invalid('modelConfig is not JSON') } }
+    else { try { parsed = JSON.parse(raw) } catch { invalid('modelConfig is not JSON') } }
   }
   if (parsed === undefined || parsed === null) parsed = {}
   if (typeof parsed !== 'object' || Array.isArray(parsed)) invalid('modelConfig is not a JSON object')
@@ -161,7 +161,7 @@ function materialRowsOf(source: Record<string, unknown>): unknown[] {
   if (Array.isArray(raw)) return raw
   if (typeof raw === 'string') {
     let parsed: unknown
-    try { parsed = JSON.parse(raw) as unknown } catch { invalid('storyboardMaterialList is not JSON') }
+    try { parsed = JSON.parse(raw) } catch { invalid('storyboardMaterialList is not JSON') }
     if (Array.isArray(parsed)) return parsed
   }
   return invalid('storyboardMaterialList is not a list of materials')

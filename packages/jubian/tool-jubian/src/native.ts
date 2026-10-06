@@ -381,7 +381,7 @@ export async function validateProjectBinding(projectDir: string, scriptId: unkno
     text = await readFile(join(projectRoot, 'project_config.json'), 'utf8')
   } catch { throw new JubianError('CONTRACT_CHANGED') }
   let parsed: unknown
-  try { parsed = JSON.parse(text.replace(/^\uFEFF/, '')) as unknown } catch { throw new JubianError('CONTRACT_CHANGED') }
+  try { parsed = JSON.parse(text.replace(/^\uFEFF/, '')) } catch { throw new JubianError('CONTRACT_CHANGED') }
   const configured = positiveInteger(object(parsed).jubian_script_id)
   if (configured !== positiveInteger(scriptId)) throw new JubianError('CONTRACT_CHANGED')
   return { project_root: projectRoot, script_id: configured }
@@ -605,7 +605,7 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
   const previewPath = await resolvePreviewPath(args)
   let parsed: unknown
   try {
-    parsed = JSON.parse(await readFile(previewPath, 'utf8')) as unknown
+    parsed = JSON.parse(await readFile(previewPath, 'utf8'))
   } catch { throw new JubianError('CONTRACT_CHANGED') }
   const preview = validateNativeVideoPreview(parsed)
   const binding = await validateProjectBinding(projectRootOfPreview(previewPath), preview.scriptId)
@@ -760,7 +760,7 @@ async function batchPreview(item: VideoBatchItem): Promise<FrozenBatchItem> {
   const key = requireKey(item.idempotency_key)
   const previewPath = resolve(item.preview_path)
   let parsed: unknown
-  try { parsed = JSON.parse(await readFile(previewPath, 'utf8')) as unknown }
+  try { parsed = JSON.parse(await readFile(previewPath, 'utf8')) }
   catch (error) { throw new JubianError('CONTRACT_CHANGED', `Unreadable video preview: ${error instanceof Error ? error.name : 'error'}`) }
   const preview = validateNativeVideoPreview(parsed)
   await validateProjectBinding(projectRootOfPreview(previewPath), preview.scriptId)

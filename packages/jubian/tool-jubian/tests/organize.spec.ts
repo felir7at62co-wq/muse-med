@@ -81,18 +81,16 @@ describe('organizeMethod', () => {
 
     expect(index).toMatchObject({ script_id: 2708, project_dir: project, naming_checked: 5, video_tasks_total: 2 })
     // Two episodes from the manifest plus the one the video task names.
-    const episodes = index.episodes as { label: string; asset_count: number; video_tasks: unknown[] }[]
+    const episodes = index.episodes
     expect(episodes.map(episode => episode.label)).toEqual(['EP02', 'EP05'])
     expect(episodes[0]).toMatchObject({ asset_count: 1, video_tasks: [] })
     expect(episodes[1]).toMatchObject({ asset_count: 2 })
     expect(episodes[1]!.video_tasks).toHaveLength(1)
 
-    const ep05 = episodes[1] as unknown as {
-      categories: Record<string, { name: string; material_id: number | null; remote_status: string | null }[]>
-    }
-    expect(ep05.categories['角色']![0]).toMatchObject({ name: '陆沉舟', material_id: 124527,
+    const ep05 = episodes[1]!
+    expect(ep05.categories['角色'][0]).toMatchObject({ name: '陆沉舟', material_id: 124527,
       remote_status: 'Active', asset_id: 125204, official: true, manifest_status: 'approved' })
-    expect(ep05.categories['道具']![0]).toMatchObject({ name: '红包', material_id: null, remote_status: null })
+    expect(ep05.categories['道具'][0]).toMatchObject({ name: '红包', material_id: null, remote_status: null })
 
     // The series master the manifest declares with no episode number.
     const series = index.series as Record<string, unknown[]>
@@ -172,7 +170,7 @@ describe('organizeMethod', () => {
     expect(body).toContain('## 类别审计')
     expect(body).toContain('## 命名审计')
     expect(body).toContain('## 未匹配的远端资产')
-    expect(String(index.index_path)).toBe(join(project, '_probe', 'asset-index.md'))
+    expect(index.index_path).toBe(join(project, '_probe', 'asset-index.md'))
   })
 
   it('takes a configured index path and refuses one that would leave the project', async () => {
@@ -180,7 +178,7 @@ describe('organizeMethod', () => {
     const { client } = stubClient()
     const index = await organizeMethod(client, { script_id: 2708, project_dir: project },
       { naming: NAMING, indexPath: join('reports', 'index.md') })
-    expect(String(index.index_path)).toBe(join(project, 'reports', 'index.md'))
+    expect(index.index_path).toBe(join(project, 'reports', 'index.md'))
     await expect(organizeMethod(client, { script_id: 2708, project_dir: project },
       { naming: NAMING, indexPath: join('..', 'escaped.md') })).rejects.toThrow(/索引路径/)
   })
@@ -343,23 +341,16 @@ describe('organizeMethod over a partly unreadable provider payload', () => {
     expect(index.unmatched_remote_assets).toEqual([
       { asset_id: 125500, name: 'scene_停车场' }, { asset_id: 125600, name: null }])
     expect(index.naming_checked).toBe(4)
-    const episodes = index.episodes as { label: string; asset_count: number; video_tasks: unknown[] }[]
+    const episodes = index.episodes
     expect(episodes.map(episode => episode.label)).toEqual(['EP05', 'EP07', 'EP09'])
     expect(episodes[0]).toMatchObject({ asset_count: 2 })
     expect(episodes[2]).toMatchObject({ asset_count: 0 })
     expect(episodes[2]!.video_tasks).toHaveLength(1)
 
     // The manifest row with no asset id keeps its own name and no remote status.
-    const ep05 = episodes[0] as unknown as {
-      categories: Record<string, {
-        name: string
-        asset_id: number | null
-        material_id: number | null
-        remote_status: string | null
-      }[]>
-    }
-    expect(ep05.categories['道具']![0]).toMatchObject({ name: '红包', material_id: null, remote_status: null })
-    expect(ep05.categories['角色']![0]).toMatchObject({ name: '程野', remote_status: 'Active' })
+    const ep05 = episodes[0]!
+    expect(ep05.categories['道具'][0]).toMatchObject({ name: '红包', material_id: null, remote_status: null })
+    expect(ep05.categories['角色'][0]).toMatchObject({ name: '程野', remote_status: 'Active' })
     const series = index.series as Record<string, { name: string; asset_id: number | null }[]>
     expect(series['角色']).toEqual([{ name: '5', official: false, asset_id: null, material_id: null,
       manifest_status: null, remote_name: null, remote_status: null }])

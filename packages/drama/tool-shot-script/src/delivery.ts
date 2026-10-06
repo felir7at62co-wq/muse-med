@@ -91,7 +91,7 @@ async function readConfig(path: string): Promise<FoundConfig | undefined> {
     return undefined
   }
   try {
-    return { path, document: JSON.parse(text) as unknown }
+    return { path, document: JSON.parse(text) }
   } catch {
     return { path, document: undefined }
   }

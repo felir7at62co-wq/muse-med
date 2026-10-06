@@ -138,6 +138,7 @@ async function downloadVideo(row: VideoSubtask) {
 |---|---|
 | [`src/index.ts`](src/index.ts) | 公开表面：这里导出的每个读取器、构造器与常量 |
 | [`src/catalog.ts`](src/catalog.ts) | 模型目录行、剧本身份与分集分页 |
+| [`src/wire.ts`](src/wire.ts) | 接口读取器共用的提供方字段校验 |
 | [`src/asset.ts`](src/asset.ts) | 资产分页与详情、主体设定材质、单张生成图 |
 | [`src/video.ts`](src/video.ts) | 视频任务、子结果、阶段名与转高清判定 |
 | [`src/storyboard.ts`](src/storyboard.ts) | 分镜快照与两个只改一个字段的 PUT 变换 |

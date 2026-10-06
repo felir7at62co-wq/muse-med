@@ -71,6 +71,7 @@ interface SlotsService {
  * host provides the real Context; typing the touched surface keeps this
  * external package free of monorepo-internal type dependencies). */
 interface MarketClientContext {
+  inject(services: string[], callback: (scoped: SettingsScopeHost) => void): void
   effect(callback: () => unknown, label?: string): void
   on(event: string, callback: () => void): () => void
   locale: LocaleService
@@ -87,7 +88,7 @@ export function apply(ctx: MarketClientContext): void {
   // Older hosts resolve the primitives module but lack the rc.6 exports the
   // market renders with. Skip registration (market simply absent from the
   // settings list) rather than throwing mid-render and blanking the dialog.
-  const gaps = missingPrimitives(primitives as unknown as Record<string, unknown>)
+  const gaps = missingPrimitives(primitives)
   if (gaps.length > 0) {
     console.warn('[dsh-market] host ui-primitives missing ' + gaps.join(', ') + ' — market section disabled (dsh web >= 0.1.0-rc.6 required)')
     return
@@ -148,10 +149,7 @@ export function apply(ctx: MarketClientContext): void {
   // would keep this whole plugin unmounted on any host without that
   // service — the market's own page would vanish on rc.6 to gain a card
   // rc.6 cannot render. Nested, the card simply never appears there.
-  const settingsCtx = ctx as unknown as {
-    inject(services: string[], callback: (scoped: SettingsScopeHost) => void): void
-  }
-  settingsCtx.inject(['configForms'], (scoped) => {
+  ctx.inject(['configForms'], (scoped) => {
     scoped.slots.inject('settings.plugin.item', () => scoped.slots.register({
       name: 'settings.plugin.item',
       key: NS,

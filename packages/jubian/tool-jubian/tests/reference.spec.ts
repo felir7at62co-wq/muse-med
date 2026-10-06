@@ -64,7 +64,7 @@ function transport(options: { status?: number; failBundle?: boolean } = {}): {
       body: body instanceof Uint8Array ? body : new Uint8Array() })
     return new Response(null, { status: options.status ?? 200 })
   }
-  return { fetch: stub as unknown as typeof fetch, uploads, get bundleLoads() { return state.bundleLoads } }
+  return { fetch: stub as typeof fetch, uploads, get bundleLoads() { return state.bundleLoads } }
 }
 
 let root: string
@@ -174,6 +174,6 @@ describe('upload_reference', () => {
       new Response(url.toString().endsWith('.js') ? 'var modules={{"1":function(){}}}' : FRONTEND_HTML,
         { status: 200 })
     await expect(uploadReferenceMethod({ image_path: path },
-      { fetch: stub as unknown as typeof fetch })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+      { fetch: stub as typeof fetch })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
   })
 })

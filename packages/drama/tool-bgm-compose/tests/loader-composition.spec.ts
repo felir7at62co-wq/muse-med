@@ -1,3 +1,5 @@
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 /** Public preview through a Loader-owned tool registration and injected subprocess service. */
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -66,10 +68,10 @@ class FakeSubprocess extends SubprocessRuntime {
 
 function runContext(): ToolRunContext {
   return {
-    callId: 'drama-bgm-loader-spec', rootCallId: 'drama-bgm-loader-spec', name: 'drama_bgm',
-    arguments: {}, signal: new AbortController().signal, token: 'drama-bgm-loader-spec',
+    callId: ToolCallId('drama-bgm-loader-spec'), rootCallId: ToolCallId('drama-bgm-loader-spec'), name: 'drama_bgm',
+    arguments: {}, signal: new AbortController().signal, token: Symbol('drama-bgm-loader-spec') as ToolExecutionToken,
     deferContext: () => {}, concludeTurn: () => {},
-  } as unknown as ToolRunContext
+  }
 }
 
 it('loads the composer, previews public arguments, and removes its tool on disposal', async () => {
@@ -110,12 +112,16 @@ it('loads the composer, previews public arguments, and removes its tool on dispo
       ['@deepseek-ai/dsh-tool-bgm-compose', Bgm],
     ])
     ctx.loader.internal = {
-      version: 'v2',
+      version: 'v2', loadCache: new Map(),
+      register() { throw new Error('Unexpected loader hooks') },
+      getOrCreateModuleJob() { throw new Error('Unexpected loader job') },
+      resolveSync() { throw new Error('Unexpected loader resolution') },
+      load() { throw new Error('Unexpected loader load') },
       async import(specifier: string) {
         if (!modules.has(specifier)) throw new Error(`unexpected module: ${specifier}`)
         return modules.get(specifier)
       },
-    } as unknown as NonNullable<typeof ctx.loader.internal>
+    }
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()

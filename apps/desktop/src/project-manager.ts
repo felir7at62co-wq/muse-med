@@ -159,12 +159,15 @@ function projectManifest(projectDir: string): DesktopProjectManifest {
     || !Array.isArray(profile?.bundles) || !profile.bundles.every(bundle => typeof bundle === 'string')) {
     throw new Error(`desktop project: invalid desktop profile manifest ${path}`)
   }
-  const manifest = { ...value, dependencies: value.dependencies ?? {} } as unknown as DesktopProjectManifest
-  if (Object.entries(manifest.dependencies).some(([name, version]) => !PACKAGE_NAME_PATTERN.test(name)
-    || typeof version !== 'string' || valid(version) !== version)) {
-    throw new Error('desktop project: plugin dependencies must use exact registry versions')
+  const dependencies: Record<string, string> = {}
+  for (const [name, version] of Object.entries(value.dependencies ?? {})) {
+    if (!PACKAGE_NAME_PATTERN.test(name) || typeof version !== 'string' || valid(version) !== version) {
+      throw new Error('desktop project: plugin dependencies must use exact registry versions')
+    }
+    dependencies[name] = version
   }
-  return manifest
+  return { ...value, name: value.name, private: true, version: value.version, dependencies,
+    dsh: { ...dsh, profile: { ...profile, bundles: profile.bundles } } }
 }
 
 /**

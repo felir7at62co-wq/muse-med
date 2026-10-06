@@ -11,6 +11,7 @@ export type { JubianLedgerBegin, JubianLedgerBeginResult, JubianLedgerMethod, Ju
   JubianLedgerRecord, JubianLedgerSettlement } from './ledger.ts'
 export { JUBIAN_DEFAULT_BASE_URL, JubianClient } from './client.ts'
 export type { JubianClientOptions, JubianEnvelopeLayout, JubianRequest, JubianResponse } from './client.ts'
+export { workspacePipelineToken, workspaceJubianClient } from './workspace.ts'
 export { describeBodyRejection, describePayload, describeRejection, describeUnparsed, namesCaptureSwitch,
   redactForDump } from './diagnostic.ts'
 export { DEBUG_DUMP_ENV, JubianDebugDump } from './debug-dump.ts'

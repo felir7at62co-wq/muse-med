@@ -1357,7 +1357,9 @@
       "data": {
         "runId": "{{workflow-run}}",
         "seq": 1,
-        "outcome": "completed"
+        "outcome": "completed",
+        "label": "workflow-child",
+        "childId": "{{child-2}}"
       }
     },
     {
@@ -4369,7 +4371,9 @@
           "data": {
             "runId": "{{workflow-run}}",
             "seq": 1,
-            "outcome": "completed"
+            "outcome": "completed",
+            "label": "workflow-child",
+            "childId": "{{child-2}}"
           }
         }
       }

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
+import type { DesktopUpdater } from '../src/update-coordinator.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AppUpdater } from 'electron-updater'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { parseDesktopRelease } from '../src/release.ts'
 import type { DesktopUpdateState } from '../src/ipc.ts'
@@ -44,12 +44,14 @@ describe('desktop release metadata', () => {
   })
 })
 
+type CheckResult = NonNullable<Awaited<ReturnType<DesktopUpdater['checkForUpdates']>>>
+
 const coordinators: InstanceType<typeof DesktopUpdateCoordinator>[] = []
 afterEach(() => { for (const item of coordinators.splice(0)) item.dispose() })
 
 function fixture(channel?: string) {
   const events = new EventEmitter()
-  const checkForUpdates = vi.fn(async () => ({
+  const checkForUpdates = vi.fn(async (): Promise<CheckResult> => ({
     isUpdateAvailable: true,
     updateInfo: { version: '1.1.0-rc.2' },
   }))
@@ -63,7 +65,8 @@ function fixture(channel?: string) {
   const beforeRestart = vi.fn(async () => true)
   const downloadResult = vi.fn()
   const states: DesktopUpdateState[] = []
-  const updater = Object.assign(events, { checkForUpdates, downloadUpdate, quitAndInstall, channel }) as unknown as AppUpdater
+  const updater = Object.assign(events, { checkForUpdates, downloadUpdate, quitAndInstall, channel,
+    autoDownload: true, autoInstallOnAppQuit: true, allowPrerelease: false, allowDowngrade: false })
   const coordinator = new DesktopUpdateCoordinator(
     (state) => { states.push(state); return state },
     beforeRestart, updater, () => true, () => '1.1.0-alpha.1', downloadResult,
@@ -117,7 +120,7 @@ describe('desktop update coordinator', () => {
 
   it('consumes late updater errors until an in-flight check settles after disposal', async () => {
     const f = fixture()
-    const checked = Promise.withResolvers<{ isUpdateAvailable: boolean; updateInfo: { version: string } }>()
+    const checked = Promise.withResolvers<CheckResult>()
     f.checkForUpdates.mockImplementation(() => checked.promise)
     const pending = f.coordinator.check()
     await Promise.resolve()
@@ -157,7 +160,7 @@ describe('desktop update coordinator', () => {
 
   it('joins checks and downloads without retargeting a prepared release', async () => {
     const f = fixture()
-    const checked = Promise.withResolvers<{ isUpdateAvailable: boolean; updateInfo: { version: string } }>()
+    const checked = Promise.withResolvers<CheckResult>()
     f.checkForUpdates.mockImplementation(() => checked.promise)
     const checking = f.coordinator.check()
     const manual = f.coordinator.check(true)
@@ -218,7 +221,7 @@ describe('desktop update coordinator', () => {
 
   it('does not publish late check completion after disposal', async () => {
     const f = fixture()
-    const checked = Promise.withResolvers<{ isUpdateAvailable: boolean; updateInfo: { version: string } }>()
+    const checked = Promise.withResolvers<CheckResult>()
     f.checkForUpdates.mockImplementation(() => checked.promise)
     const pending = f.coordinator.check()
     f.coordinator.dispose()

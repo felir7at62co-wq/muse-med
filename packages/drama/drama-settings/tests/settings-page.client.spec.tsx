@@ -100,7 +100,7 @@ function mount(
     restoreDefaults,
     components,
     imageRoutes,
-  }) as unknown as DramaSettingsSectionProps
+  }) as DramaSettingsSectionProps
   const view = render(<DramaSettingsSection {...props()} />)
   return {
     write,
@@ -406,7 +406,7 @@ describe('DramaSettingsSection — the component list', () => {
           restoreDefaults: vi.fn(),
           components,
           imageRoutes: vi.fn(async (): Promise<DramaImageRoutes> => ({ status: 'ok', routes: ROUTES })),
-        } as unknown as DramaSettingsSectionProps)}
+        } as DramaSettingsSectionProps)}
       />,
     )
     view.unmount()

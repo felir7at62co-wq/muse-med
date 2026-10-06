@@ -19,13 +19,11 @@
  * @module @deepseek-ai/dsh-tool-drama-assets
  */
 
-import { readFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { JUBIAN_TOKEN_REF, JubianClient, JubianError } from '@deepseek-ai/dsh-jubian'
+import { JUBIAN_TOKEN_REF, workspaceJubianClient, JubianError, type JubianClient } from '@deepseek-ai/dsh-jubian'
 import { disposeAsset, evidencePath, reconcileProject, resolveProjectDir } from './reconcile.ts'
 import type { DisposedEvidence } from './reconcile.ts'
 import type { DanglingItem, DramaAssetsMethod, ReconcileReport, UnregisteredItem } from './types.ts'
@@ -52,42 +50,7 @@ export interface Config {
   workspaceSecrets?: boolean
 }
 
-/** The workspace-relative secret file the pipeline skills and `tool-jubian` already use. */
-const PIPELINE_ENV = join('.agents', 'secrets', 'pipeline.env')
-
-/**
- * Read the pipeline token from the nearest workspace secret file.
- *
- * The credential store stays the source of truth: this runs only when that store
- * has no usable value, because the pipeline's own client resolves the same file
- * and a session that lost the store entry should not lose its login with it. The
- * value never enters a result, a log or a preview.
- * @param start - Directory to search upward from, normally the launch directory.
- * @returns The token, or an empty string when no file in the chain carries one.
- */
-export async function workspacePipelineToken(start: string): Promise<string> {
-  let directory = resolve(start)
-  for (let hop = 0; hop < 12; hop += 1) {
-    try {
-      const text = await readFile(join(directory, PIPELINE_ENV), 'utf8')
-      const values = new Map<string, string>()
-      for (const line of text.split('\n')) {
-        const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line)
-        const key = match?.[1]
-        const value = match?.[2]
-        if (key === undefined || value === undefined) continue
-        values.set(key, value.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1'))
-      }
-      // The admin token is the pipeline's own name and the plain one is the older
-      // spelling; an empty value falls through to the next name rather than winning.
-      return values.get('JUBIANAI_ADMIN_TOKEN') || values.get('JUBIANAI_TOKEN') || ''
-    } catch { /* keep walking up */ }
-    const parent = dirname(directory)
-    if (parent === directory) break
-    directory = parent
-  }
-  return ''
-}
+export { workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
 
 /** One call's arguments, exactly as the parameter schema declares them. */
 interface DramaAssetsArguments {
@@ -469,35 +432,16 @@ const DESCRIPTION = '短剧流水线的付费生成前资产对账（剧变）�
   + '本工具绝不调用剧变的任何写方法、绝不计费：远端只读，本地只写 _probe/asset-reconcile.json 这一个文件。'
 
 /**
- * Present one result to the registry.
- *
- * The result types carry `disposition` as a map of `{status, note}` while the
- * schema declares the same map with open values, so the two are the same JSON
- * object and not the same TypeScript type. The cast is at this one seam, and both
- * the registry and this package's own suite validate the returned value against
- * the declared schema.
- * @param value - The canonical result this call computed.
- * @returns The value the registered executor returns.
- */
-function asRegistered(value: PresentedReconcile | PresentedDispose): never {
-  return value as unknown as never
-}
-
-/**
  * Register the `drama_assets` tool.
  * @param ctx - Host context carrying the tool registry and the credential store.
  * @param config - Optional origin, timeout and workspace-secret overrides.
  */
 export function apply(ctx: Context, config: Config = {}): void {
-  const client = new JubianClient({
-    credential: async () => {
-      const stored = (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? ''
-      if (stored.trim()) return stored
-      return config.workspaceSecrets === false ? '' : await workspacePipelineToken(process.cwd())
-    },
+  const client = workspaceJubianClient({
+    credential: async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? '',
     ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
     ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
-  })
+  }, config.workspaceSecrets !== false, process.cwd())
   ctx.tools.register(defineTool({
     name: 'drama_assets',
     description: DESCRIPTION,
@@ -519,6 +463,9 @@ export function apply(ctx: Context, config: Config = {}): void {
       schema: RESULT_SCHEMA,
       render: (_args, value): ContentBlock[] => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
-    execute: async args => asRegistered(await runDramaAssets(client, args as DramaAssetsArguments)),
+    execute: async (args) => {
+      const result = await runDramaAssets(client, args)
+      return { ...result, disposition: Object.fromEntries(Object.entries(result.disposition).map(([key, value]) => [key, { ...value }])) }
+    },
   }))
 }

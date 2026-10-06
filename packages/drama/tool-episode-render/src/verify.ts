@@ -16,7 +16,7 @@ import { fileSha256 } from './cache.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { readVideoBans } from './video.ts'
 import { DELIVERY_FPS, DELIVERY_HEIGHT, DELIVERY_WIDTH, ENDING_SECONDS, MIN_BITRATE_BPS } from './delivery.ts'
-import { firstStreamOfType, frameRateOf, probeMedia } from './ffmpeg.ts'
+import { mediaFactsOf, probeMedia } from './ffmpeg.ts'
 import { buildReport, NO_TAIL_FRAME, type ReportInput } from './report.ts'
 import { sourceRecordPathFor, readSourceRecord } from './source-record.ts'
 import { readSubtitleCues } from './subtitles.ts'
@@ -437,20 +437,7 @@ export async function verifyEpisode(input: VerifyInput): Promise<DramaRenderRepo
   const timeline = await readTimeline(input.timelinePath)
   const expectedDurationSeconds = Number((timeline.bodyEndSeconds + ENDING_SECONDS).toFixed(6))
   const probed = await probeMedia(input.toolkit, input.output)
-  const video = firstStreamOfType(probed, 'video')
-  const audio = firstStreamOfType(probed, 'audio')
-  const media: MediaFacts = {
-    durationSeconds: probed.durationSeconds,
-    sizeBytes: probed.sizeBytes,
-    bitrateBps: probed.bitRateBps,
-    videoCodec: video?.codecName ?? '',
-    width: video?.width ?? 0,
-    height: video?.height ?? 0,
-    fps: frameRateOf(video),
-    hasAudio: audio !== undefined,
-    audioCodec: audio?.codecName ?? '',
-    audioSampleRate: audio?.sampleRate ?? 0,
-  }
+  const media = mediaFactsOf(probed)
   const black = await detectBlackSegments(input.toolkit, input.output, media.durationSeconds)
   const silence = await detectSilenceSegments(input.toolkit, input.output, media.durationSeconds)
   const cues = await readSubtitleCues(input.subtitleSrt)

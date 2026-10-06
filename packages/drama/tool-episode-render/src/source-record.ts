@@ -124,7 +124,7 @@ export async function readSourceRecord(path: string): Promise<DeliverySourceReco
   }
   let parsed: unknown
   try {
-    parsed = JSON.parse(text) as unknown
+    parsed = JSON.parse(text)
   } catch (error) {
     throw new Error(`${path} 不是合法 JSON：来源清单损坏，不能当作没有清单。`, { cause: error })
   }

@@ -145,7 +145,7 @@ describe('drama-settings browser plugin', () => {
     declareSlots(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
 
-    const section = (sectionEntry(b.slots)!.inject as unknown as () => {
+    const section = (sectionEntry(b.slots)!.inject as () => {
       hooks: { drama: { getSnapshot(): { value: unknown } } }
     })()
     expect(section.hooks.drama.getSnapshot().value).toEqual(DRAMA_SETTINGS_DEFAULTS)
@@ -155,7 +155,7 @@ describe('drama-settings browser plugin', () => {
     const b = await bench()
     declareSlots(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const face = (sectionEntry(b.slots)!.inject as unknown as () => {
+    const face = (sectionEntry(b.slots)!.inject as () => {
       write: (draft: ReturnType<typeof draftOf>) => Promise<string>
     })()
 
@@ -186,7 +186,7 @@ describe('drama-settings browser plugin', () => {
     const b = await bench()
     declareSlots(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const face = (sectionEntry(b.slots)!.inject as unknown as () => {
+    const face = (sectionEntry(b.slots)!.inject as () => {
       write: (draft: ReturnType<typeof draftOf>) => Promise<string>
     })()
 
@@ -200,7 +200,7 @@ describe('drama-settings browser plugin', () => {
     const b = await bench()
     declareSlots(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const face = (sectionEntry(b.slots)!.inject as unknown as () => {
+    const face = (sectionEntry(b.slots)!.inject as () => {
       restoreDefaults: () => Promise<string>
     })()
 
@@ -220,7 +220,7 @@ describe('drama-settings browser plugin', () => {
     const b = await bench()
     declareSlots(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const face = (sectionEntry(b.slots)!.inject as unknown as () => {
+    const face = (sectionEntry(b.slots)!.inject as () => {
       write: (draft: ReturnType<typeof draftOf>) => Promise<string>
     })()
 
@@ -242,7 +242,7 @@ describe('drama-settings browser plugin', () => {
     const b = await bench()
     declareSlots(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const face = (sectionEntry(b.slots)!.inject as unknown as () => {
+    const face = (sectionEntry(b.slots)!.inject as () => {
       write: (draft: ReturnType<typeof draftOf>) => Promise<string>
     })()
     b.mutate.mockResolvedValueOnce({
@@ -260,7 +260,7 @@ describe('drama-settings browser plugin', () => {
     const b = await bench()
     declareSlots(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const face = (sectionEntry(b.slots)!.inject as unknown as () => {
+    const face = (sectionEntry(b.slots)!.inject as () => {
       components: () => Promise<readonly { status: string }[]>
     })()
 
@@ -292,7 +292,7 @@ describe('drama-settings browser plugin', () => {
     }))
     b.ctx.provide('remote.pluginInventory', { list })
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const face = (sectionEntry(b.slots)!.inject as unknown as () => {
+    const face = (sectionEntry(b.slots)!.inject as () => {
       components: () => Promise<readonly { component: { pkg: string }; status: string }[]>
     })()
 
@@ -314,7 +314,7 @@ describe('drama-settings browser plugin', () => {
       list: async () => ({ ok: false as const, error: { code: 'gateway/unavailable', message: 'no' } }),
     })
     await refused.ctx.plugin({ inject: [...inject], apply }).await()
-    const refusedFace = (sectionEntry(refused.slots)!.inject as unknown as () => {
+    const refusedFace = (sectionEntry(refused.slots)!.inject as () => {
       components: () => Promise<readonly { status: string }[]>
     })()
     expect((await refusedFace.components()).every(state => state.status === 'unknown')).toBe(true)
@@ -326,7 +326,7 @@ describe('drama-settings browser plugin', () => {
       list: async () => { throw new Error('the inventory carrier died') },
     })
     await broken.ctx.plugin({ inject: [...inject], apply }).await()
-    const brokenFace = (sectionEntry(broken.slots)!.inject as unknown as () => {
+    const brokenFace = (sectionEntry(broken.slots)!.inject as () => {
       components: () => Promise<readonly { status: string }[]>
     })()
     expect((await brokenFace.components()).every(state => state.status === 'unknown')).toBe(true)
@@ -337,7 +337,7 @@ describe('drama-settings browser plugin', () => {
     const b = await bench()
     declareSlots(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const face = (sectionEntry(b.slots)!.inject as unknown as () => {
+    const face = (sectionEntry(b.slots)!.inject as () => {
       imageRoutes: () => Promise<{ status: string }>
     })()
 
@@ -354,7 +354,7 @@ describe('drama-settings browser plugin', () => {
     // Provided after the page mounts, which is how a bundled neighbour may arrive.
     b.ctx.provide('remote.jubianImage', { routes })
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const face = (sectionEntry(b.slots)!.inject as unknown as () => {
+    const face = (sectionEntry(b.slots)!.inject as () => {
       imageRoutes: () => Promise<{ status: string; routes?: readonly { standardId: number }[] }>
     })()
 
@@ -373,7 +373,7 @@ describe('drama-settings browser plugin', () => {
         error: { code: 'jubian-image/catalogue-unreadable', message: 'no token' } }),
     })
     await refused.ctx.plugin({ inject: [...inject], apply }).await()
-    const refusedFace = (sectionEntry(refused.slots)!.inject as unknown as () => {
+    const refusedFace = (sectionEntry(refused.slots)!.inject as () => {
       imageRoutes: () => Promise<{ status: string; message?: string }>
     })()
     await expect(refusedFace.imageRoutes()).resolves.toEqual({
@@ -386,7 +386,7 @@ describe('drama-settings browser plugin', () => {
       routes: async () => { throw new Error('the Remote carrier died') },
     })
     await broken.ctx.plugin({ inject: [...inject], apply }).await()
-    const brokenFace = (sectionEntry(broken.slots)!.inject as unknown as () => {
+    const brokenFace = (sectionEntry(broken.slots)!.inject as () => {
       imageRoutes: () => Promise<{ status: string; message?: string }>
     })()
     await expect(brokenFace.imageRoutes()).resolves.toEqual({

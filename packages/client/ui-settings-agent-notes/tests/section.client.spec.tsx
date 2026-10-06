@@ -60,7 +60,7 @@ function props(overrides: {
       note: { id, title: 'A defect', status: 'implemented', text: SOURCE, version: 'v1', bytes: SOURCE.length },
     })),
     save: overrides.save ?? (async () => ({ ok: true, version: 'v2', bytes: SOURCE.length })),
-  } as unknown as AgentNotesSectionProps
+  } as AgentNotesSectionProps
 }
 
 /** Open the first note and wait for its body. */

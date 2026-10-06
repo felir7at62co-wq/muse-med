@@ -1,17 +1,17 @@
 /** Model-facing tool identity, schema, and configuration. */
 
 import { describe, expect, it } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { apply, Config, inject, name } from '../src/index.ts'
 
 function mount(config: Config = {}): ToolDefinition {
   const registered: ToolDefinition[] = []
-  apply({
+  apply(Object.assign(new Context(), {
     subprocess: {},
     tools: { register: (tool: ToolDefinition) => { registered.push(tool); return () => {} } },
-  } as unknown as Context, config)
+  }), config)
   const tool = registered.find(candidate => candidate.name === 'drama_bgm')
   if (tool === undefined) throw new Error('drama_bgm was not registered')
   return tool

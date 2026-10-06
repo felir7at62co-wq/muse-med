@@ -75,7 +75,7 @@ describe('downloadMedia', () => {
   it('reports a transport failure as a network error', async () => {
     await expect(downloadMedia(`${CDN}/a.png`, { kind: 'image',
       fetch: transport(PNG, { status: 500 }) })).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
-    const failing = (async () => { throw new Error('socket hang up') }) as unknown as typeof fetch
+    const failing = (async () => { throw new Error('socket hang up') }) as typeof fetch
     await expect(downloadMedia(`${CDN}/a.png`, { kind: 'image', fetch: failing }))
       .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
   })

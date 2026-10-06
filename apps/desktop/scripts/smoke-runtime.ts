@@ -111,7 +111,7 @@ export function apply(ctx) {
         const skill = skills.find(value => value.name === name)
         const expected = join(productSkills, name, 'SKILL.md')
         if (!skill?.invocation.modelInvocable || !existsSync(expected)
-          || realpathSync(skill.path) !== realpathSync(expected)) {
+          || realpathSync.native(skill.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: missing shared Muse skill ' + name)
         }
       }
@@ -123,7 +123,7 @@ export function apply(ctx) {
         const skill = skills.find(value => value.name === name)
         const expected = join(productSkills, name, 'SKILL.md')
         if (!skill?.invocation.modelInvocable || !existsSync(expected)
-          || realpathSync(skill.path) !== realpathSync(expected)) {
+          || realpathSync.native(skill.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: missing shared Muse skill ' + name)
         }
         if (!existsSync(join(productSkills, name, 'references', guide))) {
@@ -148,23 +148,25 @@ export function apply(ctx) {
         'presets', 'cordis', 'skills', 'editing-cordis-compositions', 'SKILL.md')
         .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
       if (!cordisSkill?.invocation.modelInvocable || !existsSync(expected)
-        || realpathSync(cordisSkill.path) !== realpathSync(expected)) {
+        || realpathSync.native(cordisSkill.path) !== realpathSync.native(expected)) {
         throw new Error('desktop runtime: cordis authoring skill is not mounted')
       }
     }
     const editingSkill = skills.find(skill => skill.name === 'muse-script-editing')
     if (id === 'editing' && (!editingSkill
-      || realpathSync(editingSkill.path) !== realpathSync(join(root, 'node_modules', '@deepseek-ai',
+      || realpathSync.native(editingSkill.path) !== realpathSync.native(join(root, 'node_modules', '@deepseek-ai',
         'dsh-desktop-host', 'skills', 'editing', 'SKILL.md')
         .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')))) {
       throw new Error('desktop runtime: editing skill is not mounted')
     }
     const custom = skills.find(skill => skill.name === 'desktop-user-skill')
-    if (!custom || realpathSync(custom.path) !== realpathSync(join(home, 'skills/desktop-user-skill/SKILL.md'))
+    if (!custom || realpathSync.native(custom.path) !== realpathSync.native(join(home, 'skills/desktop-user-skill/SKILL.md'))
       || skills.some(skill => skill.name === 'desktop-legacy-only')) {
-      throw new Error('desktop runtime: product custom skills missing or legacy skills discovered in ' + id)
+      throw new Error('desktop runtime: product custom skills missing or legacy skills discovered in ' + id
+        + '; custom=' + (custom?.path ?? 'missing') + '; expected=' + join(home, 'skills/desktop-user-skill/SKILL.md')
+        + '; legacy=' + skills.some(skill => skill.name === 'desktop-legacy-only'))
     }
-    const bundled = realpathSync(join(root, 'node_modules', '@deepseek-ai', 'dsh-drama-skills', 'skills')
+    const bundled = realpathSync.native(join(root, 'node_modules', '@deepseek-ai', 'dsh-drama-skills', 'skills')
       .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2'))
     if (existsSync(join(bundled, 'xiaohongshu-reference')) || skills.some(skill => skill.name === 'xiaohongshu-reference')) {
       throw new Error('desktop runtime: XHS must not ship in the product directory or skill registry')
@@ -176,7 +178,7 @@ export function apply(ctx) {
     for (const name of requiredSkills) {
       const skill = skills.find(value => value.name === name)
       if (!skill || !skill.path || !skill.invocation.modelInvocable) throw new Error('desktop runtime: missing product skill ' + name)
-      const path = relative(bundled, realpathSync(skill.path))
+      const path = relative(bundled, realpathSync.native(skill.path))
       if (isAbsolute(path) || path === '..' || path.startsWith('../') || path.startsWith('..\\\\')) {
         throw new Error('desktop runtime: skill outside product bundle ' + name)
       }
@@ -213,7 +215,7 @@ export async function smokeDesktopRuntime(
   const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-smoke-'))
   const profile = join(home, 'profiles', 'desktop')
   const host = new DesktopHostProcess(node, root, profile, undefined, {
-    ...environment, DSH_HOME: home, HOME: home, USERPROFILE: home,
+    ...environment, MUSE_HOME: home, DSH_HOME: home, HOME: home, USERPROFILE: home,
     APPDATA: join(home, 'AppData', 'Roaming'), LOCALAPPDATA: join(home, 'AppData', 'Local'),
   }, undefined, join(resourcesRuntime, 'primary-runtime'),
   { pnpm: join(resourcesRuntime, 'pnpm', 'bin', 'pnpm.cjs'), nodeBin: join(resourcesRuntime, 'bin') })

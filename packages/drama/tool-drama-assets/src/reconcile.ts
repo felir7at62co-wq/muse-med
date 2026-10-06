@@ -17,9 +17,9 @@
  * @module @deepseek-ai/dsh-tool-drama-assets/reconcile
  */
 
-import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import { join, resolve } from 'node:path'
 import type { JubianClient } from '@deepseek-ai/dsh-jubian'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import { MANIFEST_FILE, manifestAssetIds, readManifest } from './manifest.ts'
@@ -272,10 +272,7 @@ export async function buildReport(client: JubianClient, projectDir: string, prev
 
 /** Write one text file atomically beside its destination directory. */
 async function writeAtomic(path: string, body: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const temporary = `${path}.${randomBytes(6).toString('hex')}.tmp`
-  await writeFile(temporary, body, 'utf8')
-  await rename(temporary, path)
+  await writeFileAtomic(path, body, { mode: 0o600 })
 }
 
 /** Serialize one report as the evidence file spells it: two-space indent, no ASCII escaping, one trailing newline. */

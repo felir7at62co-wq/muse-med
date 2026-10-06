@@ -62,6 +62,8 @@ try {
 
 `trimBearerToken()` 去掉首尾空白、一个尾部 shell 分隔符（`;` 或 `&`）以及一对匹配的引号——这些是 shell 导出或复制的设置值留下的残留——并且从不改写内部字符。`isUsableBearerToken()` 随后要求取值非空且不含空白。仍带内部空格的取值会在任何请求离开之前于本地以 `AUTHENTICATION_REQUIRED` 失败，因此损坏的密钥既不会到达网络，也不会进入日志。本包拥有的凭据引用名是 `JUBIANAI_ADMIN_TOKEN`；它的值由宿主拥有。
 
+`workspaceJubianClient()` 优先使用凭据库中的非空白值。启用工作间密钥且凭据库为空时，`workspacePipelineToken()` 从起始目录向上最多检查十一层父目录，读取最近的可读 `.agents/secrets/pipeline.env`。该文件优先提供非空的 `JUBIANAI_ADMIN_TOKEN`，其次使用 `JUBIANAI_TOKEN`；可读文件两者都没有时停止查找。每次请求读取当前值，且不将值写入日志。
+
 ### 六个稳定错误码
 
 `JubianError` 保留稳定错误码与本地消息。HTTP 失败只追加数字状态，例如 `HTTP 502`；已识别的超时、中止、DNS、连接与 TLS 失败追加白名单内的本地撰写详情。提供方消息、响应体、URL、令牌与原始 cause 都不会被附加。未知传输失败仍为 `Jubian request failed`；诊断不会触发重试。
@@ -151,6 +153,7 @@ if (!begun.replayed) {
 | [`src/index.ts`](src/index.ts) | 公开接口：客户端、凭据 helper、错误码与账本 |
 | [`src/client.ts`](src/client.ts) | 唯一的 HTTP 通道：固定源、单次尝试、有界读取、信封形态读取与响应哈希 |
 | [`src/credential.ts`](src/credential.ts) | 凭据引用名，以及构建任何请求头之前应用的粘贴残留修复 |
+| [`src/workspace.ts`](src/workspace.ts) | 共享的凭据库优先客户端构造与可选工作间令牌查找 |
 | [`src/diagnostic.ts`](src/diagnostic.ts) | 每个被拒响应体与每条 dump 记录所依据的脱敏结构描述 |
 | [`src/debug-dump.ts`](src/debug-dump.ts) | `DSH_JUBIAN_DEBUG_DUMP` 背后那个可选的 JSONL 响应落盘 |
 | [`src/error.ts`](src/error.ts) | 六个稳定错误码、HTTP 状态映射与信封 code 映射 |

@@ -13,9 +13,9 @@
  * names is reported rather than dropped, because that is exactly the asset a
  * caller has lost track of.
  */
-import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve, sep } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import { join, resolve, sep } from 'node:path'
 import type { JubianClient } from '@deepseek-ai/dsh-jubian'
 import { JubianError, describePayload } from '@deepseek-ai/dsh-jubian'
 import { readAssetList, readFolderTree, readMaterialList, readTaskList } from '@deepseek-ai/dsh-jubian-api'
@@ -111,6 +111,31 @@ interface CategoryMismatch {
   expected: AssetCategory
 }
 
+/** Read-only project assets and the local index written from them. */
+type OrganizeIndex = {
+  script_id: number
+  project_dir: string
+  source_manifest: string
+  convention: string
+  episodes: {
+    episode: string
+    label: string
+    categories: Record<AssetCategory, IndexedAsset[]>
+    asset_count: number
+    video_tasks: { task_id: number; task_name: string | null; status: string | null }[]
+  }[]
+  series: Record<AssetCategory, IndexedAsset[]>
+  unmatched_remote_assets: { asset_id: number; name: string | null }[]
+  naming_checked: number
+  naming_violations: NamingViolation[]
+  folders: Record<AssetCategory, FolderNode[]>
+  folder_scope: string
+  category_mismatches: CategoryMismatch[]
+  video_tasks_total: number
+  index_path: string
+  next: string
+}
+
 /** Read one value as trimmed text, or an empty string when it carries none. */
 function text(value: unknown): string {
   if (typeof value === 'string') return value.trim()
@@ -152,7 +177,7 @@ async function readManifest(projectDir: string, seriesLabel: string): Promise<Ma
   } catch { throw new JubianError('CONTRACT_CHANGED', `${path} 读不到`) }
   let parsed: unknown
   try {
-    parsed = JSON.parse(raw.replace(/^\uFEFF/, '')) as unknown
+    parsed = JSON.parse(raw.replace(/^\uFEFF/, ''))
   } catch { throw new JubianError('CONTRACT_CHANGED', `${path} 不是 JSON`) }
   const document = object(parsed, `${path} 顶层不是 JSON 对象（${describePayload(parsed)}）`)
   const rows = Array.isArray(document.items) ? document.items : document.assets
@@ -241,18 +266,13 @@ function assetRow(asset: IndexedAsset): string {
 }
 
 /** Render the whole index as markdown, mirroring the value the tool returns. */
-function renderMarkdown(index: Record<string, unknown>): string {
-  const episodes = index.episodes as {
-    label: string
-    asset_count: number
-    categories: Record<AssetCategory, IndexedAsset[]>
-    video_tasks: { task_id: number; task_name: string | null; status: string | null }[]
-  }[]
-  const series = index.series as Record<AssetCategory, IndexedAsset[]>
+function renderMarkdown(index: OrganizeIndex): string {
+  const episodes = index.episodes
+  const series = index.series
   const lines = ['# 资产组织索引', '',
     `- 项目 scriptId：${String(index.script_id)}`,
-    `- 素材来源：${String(index.source_manifest)}`,
-    `- 命名规范：${String(index.convention)}`, '']
+    `- 素材来源：${index.source_manifest}`,
+    `- 命名规范：${index.convention}`, '']
   const section = (title: string, categories: Record<AssetCategory, IndexedAsset[]>): void => {
     lines.push(`## ${title}`, '')
     for (const category of ASSET_CATEGORIES) {
@@ -268,25 +288,25 @@ function renderMarkdown(index: Record<string, unknown>): string {
       episode.categories)
   }
   section('全剧母版（未标注集号的资产）', series)
-  const unmatched = index.unmatched_remote_assets as { asset_id: number; name: string | null }[]
+  const unmatched = index.unmatched_remote_assets
   lines.push('## 未匹配的远端资产', '',
     ...(unmatched.length === 0 ? ['（无：每个远端资产都在清单里有对应行）'] : unmatched.map(
       asset => `- ${asset.asset_id} ${asset.name ?? '（无名称）'}`)), '')
-  const violations = index.naming_violations as NamingViolation[]
+  const violations = index.naming_violations
   lines.push('## 命名审计', '',
     `共检查 ${String(index.naming_checked)} 个远端名称，${String(violations.length)} 个不符合规范。`, '',
     ...(violations.length === 0 ? [] : violations.map(
       item => `- [${item.source} ${String(item.id)}] ${item.name} —— ${item.reason}`)), '')
-  const folders = index.folders as Record<AssetCategory, FolderNode[]>
+  const folders = index.folders
   const flatten = (nodes: readonly FolderNode[], depth: number): string[] => nodes.flatMap(node =>
     [`${'  '.repeat(depth)}- ${node.name ?? '（无名称）'}（folder_id=${String(node.folder_id)}）`,
       ...flatten(node.children, depth + 1)])
-  lines.push('## 文件夹', '', `库范围：${String(index.folder_scope)}`, '')
+  lines.push('## 文件夹', '', `库范围：${index.folder_scope}`, '')
   for (const category of ASSET_CATEGORIES) {
     lines.push(`### ${category}库`, '',
       ...(folders[category].length === 0 ? ['（无文件夹）'] : flatten(folders[category], 0)), '')
   }
-  const mismatches = index.category_mismatches as CategoryMismatch[]
+  const mismatches = index.category_mismatches
   lines.push('## 类别审计', '',
     `共 ${String(mismatches.length)} 个资产的类别号与它自己的名字或清单声明不一致。`, '',
     ...(mismatches.length === 0 ? [] : mismatches.map(item =>
@@ -300,10 +320,7 @@ function renderMarkdown(index: Record<string, unknown>): string {
 
 /** Write one text file atomically inside its destination directory. */
 async function atomicWriteText(path: string, body: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const temporary = `${path}.${randomBytes(6).toString('hex')}.tmp`
-  await writeFile(temporary, body, 'utf8')
-  await rename(temporary, path)
+  await writeFileAtomic(path, body, { mode: 0o600 })
 }
 
 /**
@@ -318,7 +335,7 @@ async function atomicWriteText(path: string, body: string): Promise<void> {
 export async function organizeMethod(client: JubianClient, args: {
   script_id?: number | undefined
   project_dir?: string | undefined
-}, options: OrganizeOptions): Promise<Record<string, unknown>> {
+}, options: OrganizeOptions): Promise<OrganizeIndex> {
   const scriptId = need(args.script_id, 'script_id')
   const projectRoot = resolve(need(args.project_dir, 'project_dir'))
   const manifest = await readManifest(projectRoot, options.naming.seriesLabel)
@@ -418,7 +435,7 @@ export async function organizeMethod(client: JubianClient, args: {
   if (!indexPath.startsWith(`${projectRoot}${sep}`)) {
     throw new JubianError('CONTRACT_CHANGED', '索引路径必须落在项目目录内')
   }
-  const index: Record<string, unknown> = { script_id: scriptId, project_dir: projectRoot,
+  const index = { script_id: scriptId, project_dir: projectRoot,
     source_manifest: join(projectRoot, 'assets_manifest.json'),
     convention: `EP{两位集数}${options.naming.separator}{类别}${options.naming.separator}{名称}`
       + `，跨集母版用 ${options.naming.seriesLabel}`,

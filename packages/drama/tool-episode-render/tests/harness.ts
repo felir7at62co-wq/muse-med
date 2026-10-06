@@ -1,3 +1,4 @@
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 /**
  * Fixtures shared by this package's specs: the stub process channel, the fake
  * ffprobe reports, the framemd5 and detection responses, and the temporary
@@ -8,7 +9,7 @@ import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
+import type { ToolExecutionToken, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { MediaCommandOutcome, ProcessChannel } from '../src/types.ts'
 
 /**
@@ -34,15 +35,15 @@ export function shippedEndingAsset(name: 'ending_effect.mp4' | 'ending_audio.mp3
  */
 export function runContext(): ToolRunContext {
   return {
-    callId: 'drama-render-spec',
-    rootCallId: 'drama-render-spec',
+    callId: ToolCallId('drama-render-spec'),
+    rootCallId: ToolCallId('drama-render-spec'),
     name: 'drama_render',
     arguments: {},
     signal: new AbortController().signal,
-    token: 'drama-render-spec',
+    token: Symbol('drama-render-spec') as ToolExecutionToken,
     deferContext: () => {},
     concludeTurn: () => {},
-  } as unknown as ToolRunContext
+  }
 }
 
 /** One process call the stub channel received. */

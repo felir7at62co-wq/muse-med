@@ -184,7 +184,7 @@ The package is built on four commitments:
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config`, argument resolution, the method dispatch, and the `drama_render` schema and description |
 | [`src/delivery.ts`](src/delivery.ts) | The fixed delivery specification: geometry, encoder arguments, the ASS header and timestamps, the shipped ending assets, the ending filter, and the audio mix graph |
-| [`src/ffmpeg.ts`](src/ffmpeg.ts) | The process edge: the spawn channel, the ffmpeg and ffprobe wrappers, and ffprobe report parsing |
+| [`src/ffmpeg.ts`](src/ffmpeg.ts) | Process channel, ffmpeg and ffprobe wrappers, and shared media measurement |
 | [`src/paths.ts`](src/paths.ts) | Where one episode's render inputs and outputs live, and the existence check that distinguishes a cache miss from a broken path |
 | [`src/timeline.ts`](src/timeline.ts) | Reading, validating, selecting, laying out, and serializing the episode timeline |
 | [`src/subtitles.ts`](src/subtitles.ts) | SRT parsing and writing, and the ASS document the delivery burns |

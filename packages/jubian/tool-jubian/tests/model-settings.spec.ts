@@ -6,6 +6,9 @@ import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { modelMethod } from '../src/model-settings.ts'
 import { bodyHash, writeUnderLedger } from '../src/write.ts'
 
+/** Keep asymmetric fixture matchers opaque until Vitest evaluates them. */
+function partial(value: Record<string, unknown>): unknown { return expect.objectContaining(value) }
+
 const modelId = 'doubao-seedance-2-0-260128'
 const config = { platformId: 'YU_DIAN', modelId, standardId: 11, genType: 3,
   modelGenerationTypeId: 7, videoStandardId: 91, duration: 8, ratio: '9:16', resolution: '720p', genNum: 1,
@@ -94,8 +97,8 @@ describe('scoped model settings', () => {
     boards[0] = { ...boards[0], episodeId: null, episodeCount: 2,
       modelConfig: JSON.stringify({ ...config, duration: 8.7 }) }
     const plan = await preview({ scope: 'episodes', episode_ids: [12] })
-    expect(plan.targets).toEqual([expect.objectContaining({ storyboard_id: 2, episode_id: 12 })])
-    expect(plan.excluded_invalid).toEqual([expect.objectContaining({
+    expect(plan.targets).toEqual([partial({ storyboard_id: 2, episode_id: 12 })])
+    expect(plan.excluded_invalid).toEqual([partial({
       storyboard_id: 1, episode_id: null, reason: 'missing_episode_id',
     })])
     expect(await apply(plan)).toMatchObject({ status: 'applied' })
@@ -106,8 +109,8 @@ describe('scoped model settings', () => {
   it('excludes malformed cards from project preview while preserving explicit-target failure', async () => {
     boards[0] = { ...boards[0], modelConfig: JSON.stringify({ ...config, duration: 8.7 }) }
     const plan = await preview()
-    expect(plan.targets).toEqual([expect.objectContaining({ storyboard_id: 2 })])
-    expect(plan.excluded_invalid).toEqual([expect.objectContaining({ storyboard_id: 1, reason: 'invalid_settings' })])
+    expect(plan.targets).toEqual([partial({ storyboard_id: 2 })])
+    expect(plan.excluded_invalid).toEqual([partial({ storyboard_id: 1, reason: 'invalid_settings' })])
     await expect(preview({ scope: 'storyboards', storyboard_ids: [1] })).rejects.toThrow()
     expect(puts()).toEqual([])
   })
@@ -147,8 +150,8 @@ describe('scoped model settings', () => {
     expect(await apply(plan)).toMatchObject({ status: 'applied', paid_requests: 0 })
     expect(puts()).toHaveLength(2)
     for (const [index, call] of puts().entries()) {
-      expect(call.body).toMatchObject({ ...before[index], isGenerate: 0,
-        modelConfig: expect.any(String) as unknown })
+      const modelConfig: unknown = expect.any(String)
+      expect(call.body).toMatchObject({ ...before[index], isGenerate: 0, modelConfig })
       expect(JSON.parse(String(call.body?.modelConfig))).toEqual({ ...config, resolution: '1080p', videoStandardId: 92 })
     }
     expect(await apply(plan)).toMatchObject({ replayed: true })
@@ -159,8 +162,8 @@ describe('scoped model settings', () => {
     boards = boards.map(board => ({ ...board, modelConfig: null }))
     const plan = await preview({ changes: { platformId: 'YU_DIAN', modelId, ratio: '9:16',
       resolution: '720p', genType: 3, duration: 8, genNum: 1 } })
-    expect(plan.targets).toEqual([1, 2].map(storyboard_id => expect.objectContaining({
-      storyboard_id, before: {} }) as unknown))
+    expect(plan.targets).toEqual([1, 2].map(storyboard_id => partial({
+      storyboard_id, before: {} })))
     expect(await apply(plan)).toMatchObject({ status: 'applied', paid_requests: 0 })
     expect(puts()).toHaveLength(2)
     expect(puts()[0]?.body?.modelConfig).toEqual({ platformId: 'YU_DIAN', modelId, standardId: 11, genType: 3,
@@ -174,9 +177,9 @@ describe('scoped model settings', () => {
       videoStandards: [{ id: 72, ratio: '9:16', resolution: '480P', genNum: 1 }] }]
     const plan = await preview({ changes: { modelId: replacement, platformId: 'FANG_ZHOU', ratio: '9:16',
       resolution: '480p', genType: 3, duration: 30, genNum: 1 } })
-    expect(plan.targets).toEqual([1, 2].map(storyboard_id => expect.objectContaining({ storyboard_id,
+    expect(plan.targets).toEqual([1, 2].map(storyboard_id => partial({ storyboard_id,
       after: { platformId: 'FANG_ZHOU', modelId: replacement, standardId: 338, genType: 3,
-        modelGenerationTypeId: 71, videoStandardId: 72, duration: 30, ratio: '9:16', resolution: '480P', genNum: 1 } }) as unknown))
+        modelGenerationTypeId: 71, videoStandardId: 72, duration: 30, ratio: '9:16', resolution: '480P', genNum: 1 } })))
     expect(await apply(plan)).toMatchObject({ status: 'applied' })
     expect(JSON.parse(String(puts()[0]?.body?.modelConfig))).toMatchObject({ modelId: replacement,
       platformId: 'FANG_ZHOU', duration: 30, resolution: '480P', videoStandardId: 72, prompt: 'keep prompt' })
@@ -216,8 +219,8 @@ describe('scoped model settings', () => {
     const replacement = 'doubao-seedance-2-5-260628'
     models = [...catalogue, { ...catalogue[0], id: 12, modelId: replacement, platformId: 'OTHER' }]
     const plan = await preview({ changes: { modelId: replacement } })
-    expect(plan.targets).toEqual([1, 2].map(storyboard_id => expect.objectContaining({ storyboard_id,
-      after: expect.objectContaining({ modelId: replacement, platformId: 'OTHER', standardId: 12 }) as unknown }) as unknown))
+    expect(plan.targets).toEqual([1, 2].map(storyboard_id => partial({ storyboard_id,
+      after: partial({ modelId: replacement, platformId: 'OTHER', standardId: 12 }) })))
     expect(await apply(plan)).toMatchObject({ status: 'applied' })
   })
 
@@ -237,7 +240,7 @@ describe('scoped model settings', () => {
 
   it('selects exact remote episode IDs rather than episode names or counts', async () => {
     const plan = await preview({ scope: 'episodes', episode_ids: [12] })
-    expect(plan.targets).toEqual([expect.objectContaining({ storyboard_id: 2, episode_id: 12 })])
+    expect(plan.targets).toEqual([partial({ storyboard_id: 2, episode_id: 12 })])
   })
 
   it.each([
@@ -278,8 +281,8 @@ describe('scoped model settings', () => {
     const plan = await preview()
     onPut = () => { throw new Error('timeout') }
     expect(await apply(plan)).toMatchObject({ status: 'partial', items: [
-      expect.objectContaining({ storyboard_id: 1, status: 'unknown' }),
-      expect.objectContaining({ storyboard_id: 2, status: 'not_attempted' }),
+      partial({ storyboard_id: 1, status: 'unknown' }),
+      partial({ storyboard_id: 2, status: 'not_attempted' }),
     ] })
     expect(await apply(plan)).toMatchObject({ replayed: true })
     expect(puts()).toHaveLength(1)
@@ -289,7 +292,7 @@ describe('scoped model settings', () => {
     const plan = await preview()
     onPut = () => { boards[1] = { ...boards[1], other: 'concurrent edit' } }
     expect(await apply(plan)).toMatchObject({ status: 'partial', items: [
-      expect.objectContaining({ status: 'applied' }), expect.objectContaining({ status: 'stale' }),
+      partial({ status: 'applied' }), partial({ status: 'stale' }),
     ] })
     expect(puts()).toHaveLength(1)
   })
@@ -301,7 +304,7 @@ describe('scoped model settings', () => {
     // is that the batch keeps going: two PUTs happen instead of one, because a plan
     // is claimed once and never resumes, so stopping early would strand the rest.
     expect(await apply(plan)).toMatchObject({ status: 'partial', items: [
-      expect.objectContaining({ status: 'readback_mismatch' }), expect.objectContaining({ status: 'readback_mismatch' }),
+      partial({ status: 'readback_mismatch' }), partial({ status: 'readback_mismatch' }),
     ] })
     expect(puts()).toHaveLength(2)
   })
@@ -317,7 +320,7 @@ describe('scoped model settings', () => {
         createTime: '2026-09-22 16:00:00', updateTime: '2026-09-22 16:00:00' }))
     }
     expect(await apply(plan)).toMatchObject({ status: 'applied', items: [
-      expect.objectContaining({ status: 'applied' }), expect.objectContaining({ status: 'applied' }),
+      partial({ status: 'applied' }), partial({ status: 'applied' }),
     ] })
     expect(puts()).toHaveLength(2)
   })
@@ -331,7 +334,7 @@ describe('scoped model settings', () => {
       body.storyboardMaterialList = rows.map(row => ({ ...row, materialAssetId: 99, id: 900001 }))
     }
     expect(await apply(plan)).toMatchObject({ status: 'partial', items: [
-      expect.objectContaining({ status: 'readback_mismatch' }), expect.objectContaining({ status: 'readback_mismatch' }),
+      partial({ status: 'readback_mismatch' }), partial({ status: 'readback_mismatch' }),
     ] })
   })
 
@@ -356,11 +359,11 @@ describe('scoped model settings', () => {
     const plan = await preview()
     await apply(plan)
     const replay = await apply(plan)
-    expect(replay).toMatchObject({ items: [expect.objectContaining({ status: 'applied' }),
-      expect.objectContaining({ status: 'applied' })] })
+    expect(replay).toMatchObject({ items: [partial({ status: 'applied' }),
+      partial({ status: 'applied' })] })
     boards[0] = { ...boards[0], storyboardMaterialList: [] }
-    expect(await apply(plan)).toMatchObject({ items: [expect.objectContaining({ status: 'readback_mismatch' }),
-      expect.objectContaining({ status: 'applied' })] })
+    expect(await apply(plan)).toMatchObject({ items: [partial({ status: 'readback_mismatch' }),
+      partial({ status: 'applied' })] })
     expect(puts()).toHaveLength(2)
   })
 

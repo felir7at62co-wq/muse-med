@@ -3165,10 +3165,10 @@ export function MarketSection(props: MarketSectionProps) {
         throw error
       }
       if (action === 'export') {
-        setGistResult(body as unknown as GistExportResult)
-        // Backfill the id so the next export updates this Gist instead of
-        // creating yet another one.
-        const ref = body as unknown as GistExportResult
+        if (body.ok !== true || typeof body.gistId !== 'string' || !body.gistId
+          || typeof body.gistUrl !== 'string' || !body.gistUrl) throw new Error(t('gistErrInvalid'))
+        const ref: GistExportResult = { ok: true, gistId: body.gistId, gistUrl: body.gistUrl }
+        setGistResult(ref)
         if (typeof ref.gistId === 'string' && ref.gistId !== '') {
           setGistId(ref.gistId)
           // A fresh export flips the mode to update so the next export
@@ -5137,12 +5137,9 @@ export function MarketSection(props: MarketSectionProps) {
         <Modal
           open
           onClose={() => setNotesFor(null)}
-          /* The host's Modal renders its title node verbatim; the hand-written
-             primitives.d.ts narrows the prop to string, so this cast documents
-             intent rather than defeating a runtime check. */
           title={(notesFor.repoUrl !== null
             ? <a className={css.nameLink} href={notesFor.repoUrl + '#readme'} target="_blank" rel="noreferrer">{notesFor.name}</a>
-            : notesFor.name) as unknown as string}
+            : notesFor.name)}
           footer={(
             <Button variant="ghost" onClick={() => setNotesFor(null)}>{t('cancel')}</Button>
           )}

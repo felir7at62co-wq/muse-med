@@ -4,7 +4,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { RemoteError, type RemoteErrorCode, type RemoteErrorDetailsMap } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { FeishuSection, type FeishuSectionProps, type FeishuSetupInjected } from '../src/client/FeishuSection.tsx'
+import { FeishuSection } from '../src/client/FeishuSection.tsx'
+import type { FeishuSectionProps, FeishuSetupInjected } from '../src/client/mount.ts'
 import type { FeishuLoginTicket, FeishuSetupStatus } from '../src/types.ts'
 
 // This suite runs without the repository's global test setup, so each render is
@@ -58,7 +59,7 @@ function props(status: FeishuSetupStatus = OFF, overrides: Partial<FeishuSetupIn
     forget: vi.fn(async () => ({ ok: true as const, value: status })),
     ...overrides,
   }
-  return { t: (key: string) => key, ...injected } as unknown as FeishuSectionProps
+  return { t: (key: string) => key, close: vi.fn(), ...injected } as FeishuSectionProps
 }
 
 describe('FeishuSection', () => {

@@ -10,7 +10,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { JubianClient } from '@deepseek-ai/dsh-jubian'
+import { JubianClient } from '@deepseek-ai/dsh-jubian'
+import type { JubianRequest, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { DRAMA_SETTINGS_NAMESPACE } from '../src/budget-settings.ts'
 import { JubianImageRoutes, pinnedImageSelection } from '../src/image.ts'
 
@@ -73,9 +74,16 @@ describe('the jubianImage Remote namespace', () => {
    * @param request - the transport call this test drives.
    * @returns the Host service under its Remote namespace.
    */
-  async function boot(request: (options: { path: string }) => Promise<unknown>): Promise<JubianImageRoutes> {
+  async function boot(request: (options: { path: string }) => Promise<{ data: unknown }>): Promise<JubianImageRoutes> {
     const ctx = new Context()
-    await ctx.plugin(JubianImageRoutes, { client: { request } as unknown as JubianClient })
+    class CatalogueClient extends JubianClient {
+      override async request(options: JubianRequest): Promise<JubianResponse> {
+        return { ...await request(options), transport: { http_status: 200, application_code: 200 },
+          response_sha256: null, envelope_layout: 'object-data' }
+      }
+    }
+    const client = new CatalogueClient({ credential: async () => 'fixture-token' })
+    await ctx.plugin(JubianImageRoutes, { client })
     return ctx.jubianImage
   }
 

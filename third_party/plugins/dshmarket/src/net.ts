@@ -91,7 +91,7 @@ let agent: EnvHttpProxyAgent | null = null
 export async function marketFetch(
   url: string,
   init?: { signal?: AbortSignal; headers?: Record<string, string> },
-): Promise<Response> {
+): Promise<Response | Awaited<ReturnType<typeof undiciFetch>>> {
   const { http, https } = proxyFromEnv()
   if (http === null && https === null) return await fetch(url, init)
   // Pass the resolved proxies explicitly. EnvHttpProxyAgent itself reads
@@ -102,5 +102,5 @@ export async function marketFetch(
     httpProxy: http ?? undefined,
     httpsProxy: https ?? undefined,
   })
-  return await undiciFetch(url, { ...init, dispatcher: agent }) as unknown as Response
+  return await undiciFetch(url, { ...init, dispatcher: agent })
 }

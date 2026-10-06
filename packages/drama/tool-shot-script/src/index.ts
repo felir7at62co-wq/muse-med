@@ -294,6 +294,19 @@ async function runDramaShot(args: DramaShotArguments, config: ResolvedConfig): P
 /** The one sentence every issue-field description repeats. */
 const ISSUE_SHAPE = 'severity=failure 表示必须先修好再编译，warning 不阻塞编译。'
 
+/** Shared issue fields for both severities. */
+const ISSUE_ITEM_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    severity: { type: 'string', required: true, enum: ['failure', 'warning'], description: ISSUE_SHAPE },
+    code: { type: 'string', required: true, description: '稳定的规则代码（见包 README 的代码表）。' },
+    line: { type: 'integer', required: true, description: '脚本行号；0 表示整篇问题。' },
+    shot: { type: 'integer', required: true, description: '镜头号；0 表示整篇问题。' },
+    message: { type: 'string', required: true, description: '中文说明：指出违规值并给出修法。' },
+  },
+} as const
+
 /** Model-facing result schema: every field of the canonical report, all of them always present. */
 const RESULT_SCHEMA = {
   type: 'object',
@@ -366,30 +379,8 @@ const RESULT_SCHEMA = {
             description: '本包镜头绑定的资产名，按镜头顺序去重。' },
         },
       } },
-    failures: { type: 'array', required: true, description: ISSUE_SHAPE,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          severity: { type: 'string', required: true, enum: ['failure', 'warning'], description: ISSUE_SHAPE },
-          code: { type: 'string', required: true, description: '稳定的规则代码（见包 README 的代码表）。' },
-          line: { type: 'integer', required: true, description: '脚本行号；0 表示整篇问题。' },
-          shot: { type: 'integer', required: true, description: '镜头号；0 表示整篇问题。' },
-          message: { type: 'string', required: true, description: '中文说明：指出违规值并给出修法。' },
-        },
-      } },
-    warnings: { type: 'array', required: true, description: ISSUE_SHAPE,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          severity: { type: 'string', required: true, enum: ['failure', 'warning'], description: ISSUE_SHAPE },
-          code: { type: 'string', required: true, description: '稳定的规则代码（见包 README 的代码表）。' },
-          line: { type: 'integer', required: true, description: '脚本行号；0 表示整篇问题。' },
-          shot: { type: 'integer', required: true, description: '镜头号；0 表示整篇问题。' },
-          message: { type: 'string', required: true, description: '中文说明：指出违规值并给出修法。' },
-        },
-      } },
+    failures: { type: 'array', required: true, description: ISSUE_SHAPE, items: ISSUE_ITEM_SCHEMA },
+    warnings: { type: 'array', required: true, description: ISSUE_SHAPE, items: ISSUE_ITEM_SCHEMA },
     written: { type: 'array', required: true, items: { type: 'string' },
       description: '本次写入的绝对路径；只有 compile 通过后才非空。' },
     summary: {

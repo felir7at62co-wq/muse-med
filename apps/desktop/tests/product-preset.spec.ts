@@ -51,10 +51,14 @@ it('loads exactly the six product modes without discovering other shipped or per
       ['test:projections', SessionProjections], ['test:registry', AgentPresetRegistry], ['test:native', NativePreset],
       ['test:prompt', SystemPrompt], ['test:tools', Tools], ['@deepseek-ai/dsh-guard-drama', DramaGate],
     ])
-    ctx.loader.internal = { version: 'v2', async import(specifier: string) {
-      if (!modules.has(specifier)) throw new Error(`Unexpected module ${specifier}`)
-      return modules.get(specifier)
-    } } as unknown as NonNullable<typeof ctx.loader.internal>
+    ctx.loader.internal = { version: 'v2', loadCache: new Map(),
+      register() { throw new Error('Unexpected loader hooks') },
+      getOrCreateModuleJob() { throw new Error('Unexpected loader job') },
+      resolveSync() { throw new Error('Unexpected loader resolution') },
+      load() { throw new Error('Unexpected loader load') }, async import(specifier: string) {
+        if (!modules.has(specifier)) throw new Error(`Unexpected module ${specifier}`)
+        return modules.get(specifier)
+      } }
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()

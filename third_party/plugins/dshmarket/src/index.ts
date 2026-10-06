@@ -58,7 +58,7 @@ function agentsLookupOf(ctx: Context): () => AgentsServiceLike | undefined {
 
 export function apply(ctx: Context, config?: Config): void {
   ctx.inject(['webServer', 'loader'], (hostCtx: Context) => {
-    const host = hostCtx as unknown as MarketEffectHost
+    const host = hostCtx as Context & MarketEffectHost
     const desktopProfiles = ctx.get('desktopProfiles') as DesktopProfilesLike | undefined
     if (desktopProfiles === undefined) {
       const resolved: MarketConfig = {
@@ -86,7 +86,7 @@ export function apply(ctx: Context, config?: Config): void {
     // Ordinary DSH keeps the existing CLI path above.
     hostCtx.inject(['desktopPnpm'], (desktopCtx: Context) => {
       const current = desktopProfiles.current
-      const service = (desktopCtx as unknown as { desktopPnpm: DesktopPnpmLike }).desktopPnpm
+      const service = (desktopCtx as Context & { desktopPnpm: DesktopPnpmLike }).desktopPnpm
       const runtime = createDesktopPluginRuntime(service, current.dir)
       const resolved: MarketConfig = {
         profile: current.name,
@@ -96,7 +96,7 @@ export function apply(ctx: Context, config?: Config): void {
         allowRestart: false,
         maxSnapshots: config?.maxSnapshots,
       }
-      const desktopHost = desktopCtx as unknown as MarketEffectHost
+      const desktopHost = desktopCtx as Context & MarketEffectHost
       desktopHost.effect(() => {
         const disposeRoutes = mountMarketRoutes(host, resolved, runtime, agentsLookupOf(ctx))
         return async () => {

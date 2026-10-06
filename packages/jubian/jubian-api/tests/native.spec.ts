@@ -283,6 +283,18 @@ describe('preview construction and validation', () => {
     expect(() => validateNativeVideoPreview(swapped)).toThrow()
   })
 
+  it.each([
+    { version: 2 }, { estimatedSubmissions: 0 }, { createdAt: null }, { nextAction: null },
+  ])('rejects incomplete preview metadata %j', (overrides) => {
+    expect(() => validateNativeVideoPreview({ ...PREVIEW, ...overrides })).toThrow()
+  })
+
+  it.each([{ materialAssetId: null }, { materialKey: null }, { imageUrl: null }])
+  ('rejects incomplete ordered material metadata %j', (overrides) => {
+    const orderedAssets = PREVIEW.assetSummary.orderedAssets.map((asset, index) => index === 0 ? { ...asset, ...overrides } : asset)
+    expect(() => validateNativeVideoPreview({ ...PREVIEW, assetSummary: { count: 2, orderedAssets } })).toThrow()
+  })
+
   it('validates the ordered materials of a live storyboard directly', () => {
     const { materials, prompt, config } = validatedVideoMaterials(STORYBOARD, ASSETS)
     expect(materials[1]).toMatchObject({ assetId: 'asset-guest', official: true, asset_status: 'confirmed' })

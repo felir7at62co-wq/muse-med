@@ -18,14 +18,13 @@
 import { homedir } from 'node:os'
 import { deletionInspectionReason } from './storyboard-delete.ts'
 import { audioDeletionInspectionReason, resolveAudioReferenceScanOptions } from './audio-asset-delete.ts'
-import { readFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { JUBIAN_TOKEN_REF, JubianClient, JubianLedger, readProjectBudget, updateProjectBudget } from '@deepseek-ai/dsh-jubian'
+import { JUBIAN_TOKEN_REF, workspaceJubianClient, JubianLedger, readProjectBudget, updateProjectBudget } from '@deepseek-ai/dsh-jubian'
 import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
 import { validateProjectBinding } from './native.ts'
 import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from './methods.ts'
@@ -129,40 +128,7 @@ export interface Config extends ImageRouteConfig {
 const WRITE_NOTE = '写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。'
   + '超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。'
 
-/** The workspace-relative secret file the pipeline skills already use. */
-const PIPELINE_ENV = join('.agents', 'secrets', 'pipeline.env')
-
-/**
- * Read the pipeline token from the nearest workspace secret file.
- *
- * The credential store stays the source of truth: this runs only when that store
- * has no usable value, because the pipeline's own client resolves the same file
- * and a session that lost the store entry should not lose its login with it. The
- * value never enters a result, a log or a preview.
- * @param start - Directory to search upward from, normally the launch directory.
- * @returns The token, or an empty string when no file in the chain carries one.
- */
-export async function workspacePipelineToken(start: string): Promise<string> {
-  let directory = resolve(start)
-  for (let hop = 0; hop < 12; hop += 1) {
-    try {
-      const text = await readFile(join(directory, PIPELINE_ENV), 'utf8')
-      const values = new Map<string, string>()
-      for (const line of text.split('\n')) {
-        const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line)
-        const name = match?.[1]
-        if (name === undefined) continue
-        values.set(name, (match?.[2] ?? '').replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1'))
-      }
-      const token = values.get('JUBIANAI_ADMIN_TOKEN') ?? values.get('JUBIANAI_TOKEN')
-      return token ?? ''
-    } catch { /* keep walking up */ }
-    const parent = dirname(directory)
-    if (parent === directory) break
-    directory = parent
-  }
-  return ''
-}
+export { workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
 
 /** Arguments shared by more than one tool; each tool lists only what it accepts. */
 const VIDEO_ESTIMATE_ARGS = {
@@ -376,15 +342,11 @@ export function apply(ctx: Context, config: Config = {}): void {
         expected_revision: args.expected_revision, authorization }) }
     },
   })))
-  const client = new JubianClient({
-    credential: async () => {
-      const stored = (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? ''
-      if (stored.trim()) return stored
-      return config.workspaceSecrets === false ? '' : await workspacePipelineToken(process.cwd())
-    },
+  const client = workspaceJubianClient({
+    credential: async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? '',
     ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
     ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
-  })
+  }, config.workspaceSecrets !== false, process.cwd())
   // The rows a Settings page may pick between. It shares the transport above, so
   // the token that authorizes the read stays in this process.
   ctx.plugin(JubianImageRoutes, { client })

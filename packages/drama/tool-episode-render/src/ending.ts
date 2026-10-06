@@ -188,6 +188,37 @@ async function sequentialFrameHashes(toolkit: MediaToolkit, file: string): Promi
   return hashes
 }
 
+/** Extract the indexed final frame and compare its pixels with the sequential decode. */
+async function indexedTailFrame(
+  toolkit: MediaToolkit,
+  sourceVideo: string,
+  target: string,
+  hashes: readonly string[],
+  missingSeekFrame: boolean,
+): Promise<TailFrameEvidence> {
+  const sequentialTailMd5 = hashes.slice(-1).join('')
+  await runFfmpeg(toolkit, [
+    '-y', '-v', 'error', '-i', sourceVideo,
+    '-vf', `select=eq(n\\,${String(lastFrameIndex(hashes.length))})`,
+    '-frames:v', '1', '-f', 'image2', target,
+  ])
+  const decodedMd5 = await frameHash(toolkit, target)
+  if (decodedMd5 !== sequentialTailMd5) {
+    const comparison = missingSeekFrame
+      ? `顺序抽出的帧 ${decodedMd5} 与最后一帧 ${sequentialTailMd5}`
+      : `按索引抽出的帧 ${decodedMd5} 与顺序解码的最后一帧 ${sequentialTailMd5}`
+    throw new Error(`尾帧校验不通过：${comparison} 不一致`
+      + `（源文件 ${sourceVideo}）。请确认该文件在渲染期间没有被改写，然后重跑 render。`)
+  }
+  return {
+    path: target,
+    frameMd5: decodedMd5,
+    sequentialTailMd5,
+    fromSequentialDecode: true,
+    matchesSequentialTail: true,
+  }
+}
+
 /**
  * Extract the ending frame and prove it is the source's real last frame.
  * @param toolkit - The binaries and channel to use.
@@ -206,24 +237,7 @@ export async function extractTailFrame(
   ])
   if (!await pathExists(target)) {
     const hashes = await sequentialFrameHashes(toolkit, sourceVideo)
-    const sequentialTailMd5 = hashes.slice(-1).join('')
-    await runFfmpeg(toolkit, [
-      '-y', '-v', 'error', '-i', sourceVideo,
-      '-vf', `select=eq(n\\,${String(lastFrameIndex(hashes.length))})`,
-      '-frames:v', '1', '-f', 'image2', target,
-    ])
-    const decodedMd5 = await frameHash(toolkit, target)
-    if (decodedMd5 !== sequentialTailMd5) {
-      throw new Error(`尾帧校验不通过：顺序抽出的帧 ${decodedMd5} 与最后一帧 ${sequentialTailMd5} 不一致`
-        + `（源文件 ${sourceVideo}）。请确认该文件在渲染期间没有被改写，然后重跑 render。`)
-    }
-    return {
-      path: target,
-      frameMd5: decodedMd5,
-      sequentialTailMd5,
-      fromSequentialDecode: true,
-      matchesSequentialTail: true,
-    }
+    return indexedTailFrame(toolkit, sourceVideo, target, hashes, true)
   }
   const frameMd5 = await frameHash(toolkit, target)
   const hashes = await sequentialFrameHashes(toolkit, sourceVideo)
@@ -231,23 +245,7 @@ export async function extractTailFrame(
   if (frameMd5 === sequentialTailMd5) {
     return { path: target, frameMd5, sequentialTailMd5, fromSequentialDecode: false, matchesSequentialTail: true }
   }
-  await runFfmpeg(toolkit, [
-    '-y', '-v', 'error', '-i', sourceVideo,
-    '-vf', `select=eq(n\\,${String(lastFrameIndex(hashes.length))})`,
-    '-frames:v', '1', '-f', 'image2', target,
-  ])
-  const decodedMd5 = await frameHash(toolkit, target)
-  if (decodedMd5 !== sequentialTailMd5) {
-    throw new Error(`尾帧校验不通过：按索引抽出的帧 ${decodedMd5} 与顺序解码的最后一帧 ${sequentialTailMd5} 不一致`
-      + `（源文件 ${sourceVideo}）。请确认该文件在渲染期间没有被改写，然后重跑 render。`)
-  }
-  return {
-    path: target,
-    frameMd5: decodedMd5,
-    sequentialTailMd5,
-    fromSequentialDecode: true,
-    matchesSequentialTail: true,
-  }
+  return indexedTailFrame(toolkit, sourceVideo, target, hashes, false)
 }
 
 /**

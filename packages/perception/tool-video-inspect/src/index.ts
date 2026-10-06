@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import { AttachmentId, type ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { AttachmentId, IMAGE_RESULT_SCHEMA, type ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-llm'
@@ -86,11 +86,7 @@ export interface VideoInspection extends VideoMetadata {
   next_start_seconds?: number
 }
 
-const imageSchema = { type: 'object', additionalProperties: false, properties: {
-  attachmentId: { type: 'string', required: true }, mediaType: { type: 'string', enum: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'], required: true },
-  bytes: { type: 'integer', required: true }, width: { type: 'integer', required: true }, height: { type: 'integer', required: true }, name: { type: 'string' },
-  originalDimensions: { type: 'object', additionalProperties: false, properties: { width: { type: 'integer', required: true }, height: { type: 'integer', required: true } } },
-} } as const
+const imageSchema = IMAGE_RESULT_SCHEMA
 
 const outputSchema = { type: 'object', additionalProperties: false, properties: {
   path: { type: 'string', required: true }, source_version: { type: 'string', required: true },

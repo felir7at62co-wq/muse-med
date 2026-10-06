@@ -184,7 +184,7 @@ kind: "package-reference"
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`Config`、参数解析、方法分发，以及 `drama_render` 的 schema 与描述 |
 | [`src/delivery.ts`](src/delivery.ts) | 固定交付规格：画面几何、编码器参数、ASS 头与时间码、随包片尾素材、片尾滤镜、混音图 |
-| [`src/ffmpeg.ts`](src/ffmpeg.ts) | 进程边界：spawn 通道、ffmpeg 与 ffprobe 包装、ffprobe 报告解析 |
+| [`src/ffmpeg.ts`](src/ffmpeg.ts) | 进程通道、ffmpeg 与 ffprobe 包装，以及共享媒体测量 |
 | [`src/paths.ts`](src/paths.ts) | 一集的渲染输入与产物路径，以及把「缓存未命中」与「路径坏了」区分开的存在性检查 |
 | [`src/timeline.ts`](src/timeline.ts) | 分集时间线的读取、校验、选取、铺排与序列化 |
 | [`src/subtitles.ts`](src/subtitles.ts) | SRT 解析与写出，以及交付烧录用的 ASS 文档 |

@@ -84,12 +84,13 @@ describe('owned desktop child processes', () => {
     const manager = new DesktopProjectManager(paths, {
       node: 'C:/desktop/muse-med.exe', pnpm: 'C:/runtime/pnpm/bin/pnpm.mjs', dsh: join(root, 'resources', 'dsh'),
     })
-    const owned = manager as unknown as { lockDescriptor: number; runPnpm(dir: string, args: string[]): Promise<void> }
-    owned.lockDescriptor = lock
+    Reflect.set(manager, 'lockDescriptor', lock)
+    const runPnpm: unknown = Reflect.get(manager, 'runPnpm')
+    if (typeof runPnpm !== 'function') throw new Error('Missing owned package manager operation')
     try {
       const project = join(root, 'project')
       mkdirSync(project, { recursive: true })
-      const running = owned.runPnpm(project, ['install'])
+      const running: unknown = Reflect.apply(runPnpm, manager, [project, ['install']])
       expect(spawnCalls).toHaveLength(1)
       expect(spawnCalls[0]).toMatchObject({ command: 'C:/desktop/muse-med.exe', windowsHide: true })
       child?.emit('close', 0, null)

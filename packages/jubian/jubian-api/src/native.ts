@@ -19,6 +19,7 @@
  */
 import { createHash } from 'node:crypto'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { wireInteger as integer, wireHttpsUrl as httpUrl } from './wire.ts'
 import { childAudioUrls, referenceAudioUrls, validateAudioMaterial } from './audio.ts'
 
 function invalid(detail?: string): never { throw new JubianError('CONTRACT_CHANGED', detail) }
@@ -128,30 +129,15 @@ export function wireText(value: unknown): string | null {
   return null
 }
 
-function integer(value: unknown): number {
-  const candidate = typeof value === 'string' && /^[0-9]+$/.test(value.trim()) ? Number(value.trim()) : value
-  if (typeof candidate !== 'number' || !Number.isSafeInteger(candidate) || candidate < 1) invalid()
-  return candidate
-}
-
 function text(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || !value.isWellFormed()) invalid()
   return value
 }
 
-function httpUrl(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  try {
-    const url = new URL(value)
-    return url.protocol === 'https:' && url.hostname && !url.username && !url.password && !value.includes('\\')
-      ? value : null
-  } catch { return null }
-}
-
 /** Parse a storyboard field the provider serializes as JSON on some routes and inline on others. */
 function storyboardObject(value: unknown): unknown {
   if (typeof value === 'string') {
-    try { return JSON.parse(value) as unknown } catch { invalid() }
+    try { return JSON.parse(value) } catch { invalid() }
   }
   return value
 }
@@ -271,7 +257,7 @@ function materialUrlOf(material: Record<string, unknown>): string | null {
 function parseConfig(value: unknown): Record<string, unknown> | null {
   let parsed: unknown = value
   if (typeof value === 'string') {
-    try { parsed = JSON.parse(value) as unknown } catch { return null }
+    try { parsed = JSON.parse(value) } catch { return null }
   }
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
     ? parsed as Record<string, unknown> : null
@@ -667,14 +653,21 @@ export function validateNativeVideoPreview(value: unknown): NativeVideoPreview {
   if (key !== stableSha256(submissionSemantics(payload))) invalid()
   if (hasSecretField(preview)) invalid()
   const summary = object(preview.assetSummary)
-  const ordered = Array.isArray(summary.orderedAssets) ? summary.orderedAssets.map(object) : invalid()
+  const ordered = Array.isArray(summary.orderedAssets) ? summary.orderedAssets.map((item) => {
+    const asset = object(item)
+    return { assetId: text(asset.assetId), materialName: text(asset.materialName), imageUrl: text(asset.imageUrl),
+      materialAssetId: integer(asset.materialAssetId), materialKey: text(asset.materialKey) }
+  }) : invalid()
   const expected = subjectIdentitySignature(ordered)
   if (Number(summary.count) !== expected.length) invalid()
   const { materials } = storyboardMaterials(payload)
   referenceAudioUrls(materials)
   const actual = subjectIdentitySignature(materials)
   if (stableJson(actual) !== stableJson(expected)) invalid()
-  return preview as unknown as NativeVideoPreview
+  if (preview.version !== 1 || preview.estimatedSubmissions !== 1) invalid()
+  return { ...preview, version: 1, operation: 'prepare_storyboard_native_video', status: 'prepared',
+    createdAt: text(preview.createdAt), scriptId, storyboardId, idempotencyKey: key, estimatedSubmissions: 1,
+    assetSummary: { count: ordered.length, orderedAssets: ordered }, payload, nextAction: text(preview.nextAction) }
 }
 
 /** Whether any key at any depth looks like a credential field a preview must never carry. */

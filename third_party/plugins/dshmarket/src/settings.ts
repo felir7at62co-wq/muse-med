@@ -126,7 +126,7 @@ export function installMarketSettings(ctx: Context, resolved: { allowRestart?: b
   // `inject` is the graceful-degradation boundary: on a host with no
   // settings service the callback never runs and the composed entry stands.
   ctx.inject(['settings'], (scopedCtx: Context) => {
-    const scoped = scopedCtx as unknown as Context & { settings: SettingsService }
+    const scoped = scopedCtx as Context & { settings: SettingsService }
     const scope = scoped.settings.register(MARKET_SETTINGS_NS, MarketSettings, { base: entry })
     source = () => scope.get()
     // Unload restores the composed entry, so a disabled section cannot leave

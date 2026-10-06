@@ -6,7 +6,9 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
+import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import type { DramaShotReport } from '../src/types.ts'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { apply } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
@@ -110,14 +112,14 @@ export type RegisteredShot = Omit<ToolDefinition, 'execute'> & {
 /** Mount the plugin against a stub tool registry and return what it registered. */
 export function mount(config: Config = {}): RegisteredShot[] {
   const registered: RegisteredShot[] = []
-  const ctx = {
+  const ctx = Object.assign(new Context(), {
     tools: {
       register: (definition: RegisteredShot) => {
         registered.push(definition)
         return () => {}
       },
     },
-  } as unknown as Context
+  })
   apply(ctx, config)
   return registered
 }
@@ -130,8 +132,12 @@ export function dramaShot(): RegisteredShot {
 }
 
 /** Run one `drama_shot` call through the registered definition. */
-export async function call(args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return await dramaShot().execute(args) as Record<string, unknown>
+export async function call(args: Record<string, unknown>): Promise<DramaShotReport> {
+  const tool = dramaShot()
+  const result = await tool.execute(args)
+  const errors = validateJsonSchemaValue(tool.output.schema, result, '')
+  if (errors.length > 0) throw new Error(`Invalid drama_shot result: ${JSON.stringify(errors)}`)
+  return result as DramaShotReport
 }
 
 /** Create a temporary directory the caller removes. */

@@ -71,7 +71,7 @@ PNG、JPEG、GIF、WebP、BMP、ICO 和 SVG 通过 Blob URL 在 `<img>` 静态�
 <a id="video-preview"></a>
 ## 视频预览
 
-在 Sidebar 中使用浏览器原生播放控件打开 `.mp4`、`.m4v`、`.webm` 和 `.mov`。播放使用当前应用源下鉴权、按会话限定的 [`/api/video` 流](../../api/session-controller/README.zh.md#session-media-references)，通过字节范围支持跳转，不在 JavaScript 中缓冲完整文件。源版本来自鉴权后的工作区元数据查询。关闭或替换预览会取消查询并释放媒体源；视频不会自动播放。加载以及编码或连接失败使用本地化的原位提示。远程播放要求提供文件的桌面端保持连接。H.264 MP4 是基础支持格式，其他编码取决于浏览器。视频播放不会把画面或声音送给 Agent；独立的 [`video_inspect` 工具](../../perception/tool-video-inspect/README.zh.md) 发布带时间码的图片观察。
+在 Sidebar 中使用浏览器原生播放控件打开 `.mp4`、`.m4v`、`.webm` 和 `.mov`。播放使用当前应用源与文档基准路径下鉴权、按会话限定的 [`/api/video` 流](../../api/session-controller/README.zh.md#session-media-references)，保留所选电脑的路由，通过字节范围支持跳转，不在 JavaScript 中缓冲完整文件。源版本来自鉴权后的工作区元数据查询。关闭或替换预览会取消查询并释放媒体源；视频不会自动播放。加载以及编码或连接失败使用本地化的原位提示。远程播放要求提供文件的桌面端保持连接。H.264 MP4 是基础支持格式，其他编码取决于浏览器。视频播放不会把画面或声音送给 Agent；独立的 [`video_inspect` 工具](../../perception/tool-video-inspect/README.zh.md) 发布带时间码的图片观察。
 
 包所属的[浏览器场景](../../../apps/web/tests/video-preview.e2e.ts)通过已注册的子进程运行时编码真实 MP4，检查元数据、播放、跳转、鉴权后的 Range 响应，以及浅色、深色和窄屏布局下可见的控件，不发起模型请求。
 

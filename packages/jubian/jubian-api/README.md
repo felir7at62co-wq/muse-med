@@ -138,6 +138,7 @@ The library is eight small modules with one shape each: they read a payload the 
 |---|---|
 | [`src/index.ts`](src/index.ts) | The public surface: every reader, builder, and constant exported here |
 | [`src/catalog.ts`](src/catalog.ts) | Model catalogue rows, screenplay identity, and episode pages |
+| [`src/wire.ts`](src/wire.ts) | Shared provider-field validation for endpoint readers |
 | [`src/asset.ts`](src/asset.ts) | Asset pages and details, subject materials, one generated image |
 | [`src/video.ts`](src/video.ts) | Video tasks, child results, the stage names, the upscale verdict |
 | [`src/storyboard.ts`](src/storyboard.ts) | Storyboard snapshots and the two one-field PUT transformations |

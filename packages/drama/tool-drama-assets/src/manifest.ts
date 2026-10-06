@@ -145,7 +145,7 @@ export async function readManifest(projectDir: string): Promise<ManifestRead> {
   } catch { throw new JubianError('CONTRACT_CHANGED', `${path} 读不到：project_dir 必须是含 ${MANIFEST_FILE} 的项目根目录`) }
   let document: unknown
   try {
-    document = JSON.parse(text.replace(/^\uFEFF/, '')) as unknown
+    document = JSON.parse(text.replace(/^\uFEFF/, ''))
   } catch { throw new JubianError('CONTRACT_CHANGED', `${path} 不是合法 JSON`) }
   const record = objectAt(document, `${path} 顶层不是 JSON 对象`)
   const scriptId = record['script_id']

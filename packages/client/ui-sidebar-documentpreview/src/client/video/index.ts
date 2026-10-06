@@ -11,12 +11,12 @@ export const VIDEO_BODY_ID = '@deepseek-ai/dsh-client-ui-sidebar-documentpreview
 /**
  * Build a Session-scoped video URL on the current authenticated app origin.
  * @param file - Addressed Session and workspace-relative or absolute path.
- * @param pageUrl - Current browser or Desktop app URL.
+ * @param documentBaseUrl - Served document base, including the selected computer's route.
  * @param version - Optional source version obtained through authorized metadata lookup.
  * @returns Same-origin video endpoint; credentials are never encoded in its query.
  */
-export function videoUrl(file: SessionFile, pageUrl: string, version?: string): string {
-  const url = new URL('/api/video', pageUrl)
+export function videoUrl(file: SessionFile, documentBaseUrl: string, version?: string): string {
+  const url = new URL('api/video', documentBaseUrl)
   url.searchParams.set('sessionId', file.sessionId)
   url.searchParams.set('path', file.path)
   if (version !== undefined) url.searchParams.set('version', version)
@@ -40,7 +40,7 @@ export function apply(ctx: Context): void {
       const result = await ctx.remote.workspaceFiles.stat(file.sessionId, file.path, signal)
       signal.throwIfAborted()
       if (!result.ok) throw new Error(t('unavailable'))
-      return { url: videoUrl(file, window.location.href, result.value.version), version: result.value.version }
+      return { url: videoUrl(file, document.baseURI, result.value.version), version: result.value.version }
     } }),
   }, VideoBody)), 'document-video: body')
 }

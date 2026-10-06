@@ -16,10 +16,14 @@ it('matches the public BGM catalogue without claiming a bundled analysis model',
   const ctx = new Context()
   try {
     await ctx.plugin(Loader)
-    ctx.loader.internal = { version: 'v2', async import(specifier: string) {
-      if (specifier !== row.name) throw new Error(`Unexpected module ${specifier}`)
-      return { name: 'bgm-config-probe', apply(_ctx: Context, config: Record<string, unknown>) { captured = config } }
-    } } as unknown as NonNullable<typeof ctx.loader.internal>
+    ctx.loader.internal = { version: 'v2', loadCache: new Map(),
+      register() { throw new Error('Unexpected loader hooks') },
+      getOrCreateModuleJob() { throw new Error('Unexpected loader job') },
+      resolveSync() { throw new Error('Unexpected loader resolution') },
+      load() { throw new Error('Unexpected loader load') }, async import(specifier: string) {
+        if (specifier !== row.name) throw new Error(`Unexpected module ${specifier}`)
+        return { name: 'bgm-config-probe', apply(_ctx: Context, config: Record<string, unknown>) { captured = config } }
+      } }
     await ctx.loader.create(row)
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()

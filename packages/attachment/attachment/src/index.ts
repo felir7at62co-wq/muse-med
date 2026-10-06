@@ -18,6 +18,7 @@ import type {
   StoredImageAttachment,
 } from './types.ts'
 
+export { IMAGE_RESULT_SCHEMA } from './image-result-schema.ts'
 export { AttachmentId, ImageVariantId } from './brand.ts'
 export { AttachmentError, isAttachmentError, isImageAdmissionError } from './error.ts'
 export type { AttachmentErrorCode, ImageAdmissionErrorCode } from './error.ts'

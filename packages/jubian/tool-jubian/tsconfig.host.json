@@ -64,6 +64,9 @@
     },
     {
       "path": "../jubian-api"
+    },
+    {
+      "path": "../../util/atomic-write"
     }
   ]
 }

@@ -42,7 +42,7 @@ import {
   requireEndingEffectFits,
   requireShippedEndingAsset,
 } from './ending.ts'
-import { firstStreamOfType, frameRateOf, probeMedia, runFfmpeg } from './ffmpeg.ts'
+import { mediaFactsOf, probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { buildReport, type ReportInput } from './report.ts'
 import { readSubtitleCues, buildAssDocument } from './subtitles.ts'
@@ -102,21 +102,7 @@ function concatLine(path: string): string {
 
 /** Read the delivered file's measurable facts. */
 async function measure(toolkit: MediaToolkit, output: string): Promise<MediaFacts> {
-  const probed = await probeMedia(toolkit, output)
-  const video = firstStreamOfType(probed, 'video')
-  const audio = firstStreamOfType(probed, 'audio')
-  return {
-    durationSeconds: probed.durationSeconds,
-    sizeBytes: probed.sizeBytes,
-    bitrateBps: probed.bitRateBps,
-    videoCodec: video?.codecName ?? '',
-    width: video?.width ?? 0,
-    height: video?.height ?? 0,
-    fps: frameRateOf(video),
-    hasAudio: audio !== undefined,
-    audioCodec: audio?.codecName ?? '',
-    audioSampleRate: audio?.sampleRate ?? 0,
-  }
+  return mediaFactsOf(await probeMedia(toolkit, output))
 }
 
 /** Render one line of the render log for a verdict. */

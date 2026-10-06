@@ -3,7 +3,7 @@
 import { copyFile, mkdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { apply, Config, inject, name, resolveCall, resolveSettings, runDramaRender } from '../src/index.ts'
@@ -32,14 +32,14 @@ afterEach(async () => {
 /** Mount the plugin against a stub tool registry and return what it registered. */
 function mount(config: Config = {}): ToolDefinition[] {
   const registered: ToolDefinition[] = []
-  const ctx = {
+  const ctx = Object.assign(new Context(), {
     tools: {
       register: (definition: ToolDefinition) => {
         registered.push(definition)
         return () => {}
       },
     },
-  } as unknown as Context
+  })
   apply(ctx, config)
   return registered
 }

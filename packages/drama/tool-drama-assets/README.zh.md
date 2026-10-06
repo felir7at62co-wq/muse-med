@@ -58,7 +58,7 @@ token 本身就是凭据引用 `JUBIANAI_ADMIN_TOKEN`，每次读取都经 `ctx.
 | `status` | `dispose` | `registered` 或 `ignored` |
 | `note` | `ignored` | 为什么这个资产不需要；判 `ignored` 时必须非空 |
 
-`reconcile` 只发两个请求，都是提供方自己的列表接口，不计费。`dispose` 一个都不发。两个方法写的文件只有证据文件一个，经临时文件加改名写入。
+`reconcile` 只发两个请求，都是提供方自己的列表接口，不计费。`dispose` 一个都不发。两个方法写的文件只有证据文件一个，原子替换，并在支持的平台上使用仅所有者可访问的权限。
 
 ### 判定口径
 
@@ -170,5 +170,5 @@ token 本身就是凭据引用 `JUBIANAI_ADMIN_TOKEN`，每次读取都经 `ctx.
 
 这次比对是流水线 `_tools/asset_reconcile.py` 的移植，而且是逐字段移植。那个脚本留在生产工作间里，仍是证据文件字节布局的参照；本包是不需要在用户机器上装 Python 的那条路。`ready_reason` 是 Python 工具会写、本包不写的唯一字段：它是推导出来的，宿主钩子自己算一份，`reconcile` 改成在工具结果里返回同一句话。
 
-token 解析照 `packages/jubian/tool-jubian/src/index.ts` 来，包括工作间密钥回退，而不是再引入第三个解析器。`readAssetList` 与 `readMaterialList` 仍然是「一页是什么」的权威，但本包从它们接受的行里读出 `delFlag`、`createTime` 与两种名字拼写——映射不带这些字段，而证据 schema 需要它们。
+token 解析使用[剧变共享工作间函数](../../jubian/jubian/README.zh.md)，包括工作间密钥回退。`readAssetList` 与 `readMaterialList` 仍然是「一页是什么」的权威，但本包从它们接受的行里读出 `delFlag`、`createTime` 与两种名字拼写——映射不带这些字段，而证据 schema 需要它们。
 </details>

@@ -76,10 +76,14 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
       ['test:credentials', MemoryCredentials], ['@deepseek-ai/dsh-skill-filesystem', SkillFilesystem],
       ['@deepseek-ai/dsh-tool-skill', ToolSkill], ['@deepseek-ai/dsh-tool-jubian', Jubian],
     ])
-    ctx.loader.internal = { version: 'v2', async import(specifier: string) {
-      if (!modules.has(specifier)) throw new Error(`Unexpected module ${specifier}`)
-      return modules.get(specifier)
-    } } as unknown as NonNullable<typeof ctx.loader.internal>
+    ctx.loader.internal = { version: 'v2', loadCache: new Map(),
+      register() { throw new Error('Unexpected loader hooks') },
+      getOrCreateModuleJob() { throw new Error('Unexpected loader job') },
+      resolveSync() { throw new Error('Unexpected loader resolution') },
+      load() { throw new Error('Unexpected loader load') }, async import(specifier: string) {
+        if (!modules.has(specifier)) throw new Error(`Unexpected module ${specifier}`)
+        return modules.get(specifier)
+      } }
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()

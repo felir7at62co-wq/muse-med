@@ -11,7 +11,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { AgentNotes } from '../src/index.ts'
+import { AgentNotes, type Config } from '../src/index.ts'
 import { failureOf, linkNote, openNotes, writeNote, type Harness } from './harness.ts'
 
 let harness: Harness
@@ -43,7 +43,7 @@ describe('agentNotes — the notes root', () => {
   it('falls back to <workspace root>/.agents/notes when no root is configured', async () => {
     // The service has no fallback of its own: a row that omits `root` fails to
     // mount. This pins that shape, so a later default cannot appear silently.
-    expect(() => new AgentNotes(new Context(), { root: undefined as unknown as string, maxNotes: 2000 }))
+    expect(() => new AgentNotes(new Context(), JSON.parse('{"maxNotes":2000}') as Config))
       .toThrow(TypeError)
   })
 

@@ -619,6 +619,10 @@ def test_committed_python_native_goldens_compare_current_output_without_rewritin
     filenames = SMOKE[f"{scenario}_SNAPSHOT_FILENAMES"]
     before = {path.name: path.read_bytes() for path in directory.iterdir() if path.is_file()}
     selected = SMOKE["selected_snapshot_session_files"](directory)
+    if scenario == "ADVANCED":
+        selected = {index: directory / (
+            "writer.expected.jsonl" if index == 0 else f"writer.{index}.expected.jsonl"
+        ) for index in selected}
     first = next(iter(selected.values()))
     source_version = SMOKE["session_header_version"](before[first.name].decode("utf-8"), first.name)
 
@@ -647,8 +651,26 @@ def test_committed_python_native_goldens_compare_current_output_without_rewritin
             ])
         else:
             fresh[name] = json.dumps(current_writer(json.loads(content)), indent=2, ensure_ascii=False) + "\n"
-    SMOKE["compare_snapshot_files"](fresh, False, directory, filenames, native_writer_output=True)
+    SMOKE["compare_snapshot_files"](
+        fresh, False, directory, filenames, native_writer_output=True,
+        writer_expected=scenario == "ADVANCED",
+    )
     assert {path.name: path.read_bytes() for path in directory.iterdir() if path.is_file()} == before
+
+
+def test_writer_oracle_updates_leave_same_generation_recordings_immutable(tmp_path: Path) -> None:
+    fresh = native_delivery_snapshot(SESSION_FORMAT_VERSION)
+    name = f"session.v{SESSION_FORMAT_VERSION}.jsonl"
+    recording = fresh[name].replace('"turn":1', '"turn":2')
+    (tmp_path / name).write_text(recording, encoding="utf-8")
+    compare = SMOKE["compare_snapshot_files"]
+    compare(fresh, True, tmp_path, tuple(fresh), native_writer_output=True, writer_expected=True)
+    assert (tmp_path / name).read_text(encoding="utf-8") == recording
+    assert (tmp_path / "writer.expected.jsonl").read_text(encoding="utf-8") == fresh[name]
+    compare(fresh, False, tmp_path, tuple(fresh), native_writer_output=True, writer_expected=True)
+    (tmp_path / "writer.expected.jsonl").unlink()
+    with pytest.raises(AssertionError, match="writer oracle inventory"):
+        compare(fresh, False, tmp_path, tuple(fresh), native_writer_output=True, writer_expected=True)
 
 
 @pytest.mark.parametrize("filenames", [

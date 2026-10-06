@@ -15,6 +15,7 @@
  * official URL and name. Those fields are not interchangeable.
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { wireInteger as integer, wireHttpsUrl as httpUrl } from './wire.ts'
 import { readPayload } from './reading.ts'
 import { referenceAudioUrls } from './audio.ts'
 import { normalizedPrompt, stableJson, stableSha256, wireText } from './native.ts'
@@ -55,27 +56,11 @@ function object(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-function integer(value: unknown): number {
-  const candidate = typeof value === 'string' && /^[0-9]+$/.test(value.trim()) ? Number(value.trim()) : value
-  if (typeof candidate !== 'number' || !Number.isSafeInteger(candidate) || candidate < 1) invalid()
-  return candidate
-}
-
 function parseField(value: unknown): { value: unknown; serialized: boolean } {
   if (typeof value !== 'string') return { value, serialized: false }
   try {
-    return { value: JSON.parse(value) as unknown, serialized: true }
+    return { value: JSON.parse(value), serialized: true }
   } catch { return invalid() }
-}
-
-/** Read the one official HTTPS URL a picker row or parent asset states. */
-function httpUrl(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  try {
-    const url = new URL(value)
-    return url.protocol === 'https:' && url.hostname && !url.username && !url.password && !value.includes('\\')
-      ? value : null
-  } catch { return null }
 }
 
 /** Whether a picker row states the one confirmed-use value the wire uses. */

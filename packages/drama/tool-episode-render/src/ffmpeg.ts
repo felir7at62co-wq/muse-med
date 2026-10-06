@@ -14,7 +14,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, open, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { MediaCommandOutcome, MediaToolkit, ProcessChannel, ProbedMedia, ProbedStream } from './types.ts'
+import type { MediaCommandOutcome, MediaToolkit, ProcessChannel, MediaFacts, ProbedMedia, ProbedStream } from './types.ts'
 
 /** Bytes of a failed command's stderr kept for the diagnostic message. */
 const STDERR_TAIL_CHARS = 4000
@@ -325,4 +325,26 @@ export function frameRateOf(stream: ProbedStream | undefined): number {
  */
 export function escapeFilterPath(path: string): string {
   return path.split('\\').join('/').replace(/:/g, '\\:')
+}
+
+/**
+ * Project decoded stream metadata into delivery facts.
+ * @param probed - Decoded probe result.
+ * @returns Measured media fields.
+ */
+export function mediaFactsOf(probed: ProbedMedia): MediaFacts {
+  const video = firstStreamOfType(probed, 'video')
+  const audio = firstStreamOfType(probed, 'audio')
+  return {
+    durationSeconds: probed.durationSeconds,
+    sizeBytes: probed.sizeBytes,
+    bitrateBps: probed.bitRateBps,
+    videoCodec: video?.codecName ?? '',
+    width: video?.width ?? 0,
+    height: video?.height ?? 0,
+    fps: frameRateOf(video),
+    hasAudio: audio !== undefined,
+    audioCodec: audio?.codecName ?? '',
+    audioSampleRate: audio?.sampleRate ?? 0,
+  }
 }

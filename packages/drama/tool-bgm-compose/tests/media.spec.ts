@@ -3,7 +3,9 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import { Context } from '@deepseek-ai/cordis'
+import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   MediaCommandError,
@@ -77,18 +79,25 @@ describe('createSubprocessChannel', () => {
   it('rejects cancellation even when the terminated process exits zero', async () => {
     const controller = new AbortController()
     const reader = { readFrom: () => ({ text: '', nextOffset: 0, lossy: false }) }
-    const subprocess = {
-      resolveExecutable: async () => 'ffmpeg',
-      spawn: () => {
+    class CancelledRuntime extends SubprocessRuntime {
+      resolveExecutable = async () => 'ffmpeg'
+      terminalEnvironment(): never { throw new Error('Unexpected terminal inspection') }
+      spawnTerminal(): never { throw new Error('Unexpected terminal allocation') }
+      spawn(): SubprocessHandle {
         controller.abort(new Error('cancelled after termination'))
         return {
           done: Promise.resolve({ exitCode: 0, signal: null }),
           collected: { stdout: reader, stderr: reader },
+          stdin: undefined, stdout: undefined, stderr: undefined, control: undefined,
+          terminate() {}, waitForExit: async () => true,
         }
-      },
-    } as unknown as SubprocessRuntime
-    const channel = createSubprocessChannel(subprocess, process.cwd(), 1_000, 100, 1_024)
-    await expect(channel.run('ffmpeg', [], controller.signal)).rejects.toThrow('cancelled after termination')
+      }
+    }
+    const ctx = new Context()
+    try {
+      const channel = createSubprocessChannel(new CancelledRuntime(ctx), process.cwd(), 1_000, 100, 1_024)
+      await expect(channel.run('ffmpeg', [], controller.signal)).rejects.toThrow('cancelled after termination')
+    } finally { await ctx.fiber.dispose() }
   })
 })
 

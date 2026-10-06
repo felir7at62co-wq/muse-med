@@ -37,5 +37,5 @@ export async function readJsonBody(request: IncomingMessage, maxBytes = 4096): P
     if (size > maxBytes) throw new Error('request body too large')
     chunks.push(buffer)
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
 }
