@@ -539,7 +539,7 @@ node apps/desktop/node_modules/pnpm/bin/pnpm.mjs --dir apps/desktop run test:upd
 
 共享技能 `wechat-shortdrama-harvest` 通过用户已登录的 Windows 微信获取小程序及受支持的视频号资源，随包提供 Python 辅助脚本、OpenCV 和 SciPy。配置与私有采集状态保存在项目内本次任务的 `SHORTDRAMA_WORK` 目录，转写前核对判集结果，不覆盖内容不同的已有视频。平台兼容性和可访问集数可能不同，须报告缺集。自动采集会先归档候选文件，再进行最终核对，文件数量不能单独证明全集完整。
 
-小说与视频转剧本在起草前共用 `screenplay-format` 技能：集号与场次、人物表、▲动作段、对白、OS/VO，以及有来源依据的集尾钩子。剧本正文不带来源时间码；集数与篇幅沿用大纲阶段可修改的约定。
+小说与视频改编、续写、修订和审校均加载共享 `screenplay-format` 技能及其[叙述规范](../desktop-host/skills/screenplay-format/references/narrative-layers.md)。规范区分现实场景、闪回、角色 OS、旁述与作者评述，并在分段写作和合稿中保留时间层与人物知情范围。这些是需要依据原文复核的模型指令，不自动保证叙事准确。剧本正文不带来源时间码；集数与篇幅沿用大纲阶段可修改的约定。
 
 内置 `muse-llm-wiki` 技能沿用当前 Muse 登录，支持浏览目录、全文检索、读取原始资料，以及沿链接页和引用查找依据。经审核的笔记和剧本在私人或明确绑定的项目范围内保留不可变原文；Muse 主模型使用原文区间引用和版本检查写入派生页。共享资料需要管理员授权。工具与访问规则见 [Muse LLM Wiki](../../services/muse-accounts/README.zh.md#muse-llm-wiki)。
 

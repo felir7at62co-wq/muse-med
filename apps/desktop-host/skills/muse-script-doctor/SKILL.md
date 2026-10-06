@@ -7,6 +7,6 @@ description: 当前剧本写作、修订或交付审校需要评估与修复平�
 
 评审或修改剧本前读取[诊断与修复方法](references/doctor-workflow.md)，依据当前原文定位问题，按用户授权交付可替换正文并复核受影响内容。
 
-分集重排需要加载 `muse-episode-design`；对白专项精修需要加载 `muse-dialogue-polish`。修改分场正文前加载共享技能 `screenplay-format`。
+分集重排需要加载 `muse-episode-design`；对白专项精修需要加载 `muse-dialogue-polish`。评审或修改分场正文前加载共享技能 `screenplay-format`，读取其时间线与叙述归属规范，按实际原文核对回忆进出、OS/VO 与人物知情范围。
 
 [来源与许可证](references/sources.md)说明参考资料和适配范围；`upstream/` 只保存溯源原件，不作为执行指令加载。

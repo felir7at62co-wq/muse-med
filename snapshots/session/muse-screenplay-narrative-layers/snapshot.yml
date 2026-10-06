@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-screenplay-narrative-layers
+profile: headless
+composition: muse-editing-skill
+recording: authored
+header:
+  class: muse-editing-skill
+workspace:
+  setup: muse-editing-skill
+writerOutput: true
