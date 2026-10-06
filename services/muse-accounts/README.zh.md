@@ -66,7 +66,7 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 
 启用知识库的网关启动前，须把 `MUSE_KB_USER_ROOT` 指向共享 vault 外已存在、仅所有者可访问的绝对目录。目录缺失、权限过宽或与共享 vault 重叠会阻止启动。已登录账号每次可用 `ingest_script` 提交 1–12 段复核后的 Markdown 剧本；请求上限为 2 MiB，单段上限为 400,000 字符。每段的标题、项目相对来源标识与不可变正文按稳定账号 ID 分开保存；结果逐项报告已写入、已存在或失败。账号可通过 `search`、`read` 和 `read_opening` 阅读自己的 `private/SRC-...` ID；其他账号和机器令牌不能读取这些私有 ID。Muse 召回使用目录、全文关键词和页面链接；MCP 端点不调用语义向量。此工具不上传视频二进制。桌面端使用前，服务器须完成部署和配置；只发布源码不会启用此功能。
 
-桌面模型调用复用网页版的账号会话和全局模型目录。`GET /api/desktop-models/providers` 返回公开元数据；`POST /api/desktop-models/:provider/chat/completions` 接受会话令牌作为 Bearer 凭据，并要求已配置的公开 Origin。上游密钥保留在服务器。活动流默认每账号四条、每个网关进程三十二条；同一账号的不同登录共享账号上限。启动前可将 `MUSE_DESKTOP_MODEL_MAX_ACTIVE` 设为 1–32 的整数，将 `MUSE_DESKTOP_MODEL_MAX_TOTAL` 设为 1–1,024 的整数；无效值阻止启动。额度已满时，在转发前返回 429 与 `Retry-After: 1`，目录读取仍然可用。完成、取消、输入拒绝或上游失败会释放名额；退出登录、撤销账号和会话到期会中止活动流。输出仍受各模型的配置上限约束。并发应保持在上游承载能力之内；增加密钥本身不能证明提供方额度扩大，多个网关进程须分配共享额度。
+桌面模型调用复用网页版的账号会话和全局模型目录。`GET /api/desktop-models/providers` 返回公开元数据；`POST /api/desktop-models/:provider/chat/completions` 接受会话令牌作为 Bearer 凭据，并要求已配置的公开 Origin。上游密钥保留在服务器。Desktop 与云端工作间模型中转对已认证请求不设置 Muse 自有的每账号或共享并发上限，Desktop 路由也没有 Muse 模型请求频率限制。上游供应商限流与模型输出上限仍然有效。退出登录、账号撤销、会话过期与客户端取消会中止所属请求。启动网关前删除已移除的环境设置 `MUSE_DESKTOP_MODEL_MAX_ACTIVE` 和 `MUSE_DESKTOP_MODEL_MAX_TOTAL`；存在这些设置会拒绝启动并给出迁移提示。
 
 全局目录中的各模型可将 `defaultReasoningEffort` 声明为其 `reasoningEfforts` 映射中已启用的键。两条转发路径只在请求未提供 `reasoning_effort` 时将默认档位映射成上游值；请求显式选择的受支持档位优先。未配置默认档位时保留提供方默认行为。GLM-5.3 请求通过 `clear_thinking: false` 在工具续接时保留思考，关闭该模型思考的请求会被拒绝。配置中的 `maxTokens` 为省略输出上限的请求提供默认值并限制更大的请求，显式更小的上限保持原值。直接编辑私有目录文件后须重启网关；管理员设置更新实时生效。
 

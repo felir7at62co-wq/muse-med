@@ -8,6 +8,36 @@ import {createDesktopModels} from './desktop-models.mjs';
 
 const settings={model:'glm-5.3-flash',apiKey:'synthetic-private-key',maxTokens:32768,reasoningEfforts:{low:'wire-low',high:'wire-high'},defaultReasoningEffort:'low'};
 
+test('Desktop relay keeps one thousand synthetic account requests active without an imposed shared limit',{timeout:30000},async t=>{
+ let release,entered;const held=new Promise(r=>{release=r;}),allStarted=new Promise(r=>{entered=r;});let calls=0;
+ const desktop=createDesktopModels({globalModels:{resolve:()=>settings},forward:async({res})=>{if(++calls===1000)entered();await held;res.end('done');}});
+ const requests=Array.from({length:1000},(_,index)=>{
+  const req=Readable.from([Buffer.from(JSON.stringify({model:settings.model,messages:[]}))]);req.method='POST';
+  const res=new EventEmitter();res.writeHead=()=>{};res.end=()=>{};
+  return desktop.handle(req,res,{id:'account-'+index,token:'session-'+index,expiry:Date.now()+60000},'/api/desktop-models/studio/chat/completions');
+ });
+ try{
+  await Promise.race([allStarted,new Promise((_,reject)=>t.signal.addEventListener('abort',()=>reject(Error('Concurrent relay fixture timed out')),{once:true}))]);
+  assert.equal(calls,1000);
+ }finally{release();await Promise.all(requests);desktop.close();}
+});
+
+test('cloud workspace relay forwards eight simultaneous requests and cancels them on account revocation',{timeout:30000},async t=>{
+ const id='0123456789abcdef',secret='synthetic-test-secret',accounts=new EventEmitter();accounts.get=()=>({id});
+ let entered;const allStarted=new Promise(r=>{entered=r;});let calls=0,aborted=0;
+ const server=createModelRelay({accounts,secret,globalModels:{resolve:()=>settings},forward:async({res,signal})=>{
+  if(++calls===8)entered();
+  await new Promise(resolve=>signal.addEventListener('abort',()=>{aborted++;resolve();},{once:true}));
+  res.end('done');
+ }});
+ t.after(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
+ const pending=Array.from({length:8},()=>fetch(base+'/v1/studio/chat/completions',{method:'POST',headers:{authorization:'Bearer '+accountToken(secret,id),'content-type':'application/json'},body:JSON.stringify({model:settings.model,messages:[]})}));
+ await allStarted;assert.equal(calls,8);accounts.emit('change',id);
+ const responses=await Promise.all(pending);assert.ok(responses.every(response=>response.status===200));
+ await Promise.all(responses.map(response=>response.text()));assert.equal(aborted,8);
+});
+
 test('model default maps to its wire value and explicit efforts remain selected',()=>{
  const omitted={};resolveModelReasoning(settings,omitted);assert.deepEqual(omitted,{reasoning_effort:'wire-low',thinking:{type:'enabled',clear_thinking:false}});
  const explicit={reasoning_effort:'wire-high'};resolveModelReasoning(settings,explicit);assert.equal(explicit.reasoning_effort,'wire-high');

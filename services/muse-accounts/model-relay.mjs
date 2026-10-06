@@ -93,9 +93,9 @@ export function createModelRelay({config,globalModels,secret,accounts,forward=fo
  const changed=id=>{for(const controller of active.get(id)||[])controller.abort();};accounts.on('change',changed);
  const server=http.createServer(async(req,res)=>{
   const fail=(status,message)=>{if(res.headersSent){res.destroy();return;}res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify({error:{message}}));};
-  let controllers,controller;
+  let controllers,controller,abort,id;
   try{
-   const token=req.headers.authorization?.replace(/^Bearer /,''),id=token?.split('.')[0];
+   const token=req.headers.authorization?.replace(/^Bearer /,'');id=token?.split('.')[0];
    if(!/^[a-f0-9]{16}\.[a-f0-9]{64}$/.test(token||'')||!timingSafeEqual(Buffer.from(token),Buffer.from(accountToken(secret,id)))||!accounts.get(id)||accounts.get(id).disabled){fail(401,'工作间认证失效');return;}
    let current=config?.private()||{};
    if(req.url==='/v1/muse-config'&&req.method==='GET'){
@@ -103,8 +103,8 @@ export function createModelRelay({config,globalModels,secret,accounts,forward=fo
    }
    const route=req.url.match(/^\/v1\/([a-z][a-z0-9-]{0,63})\/chat\/completions$/)?.[1];
    if((req.url!=='/v1/chat/completions'&&!route)||req.method!=='POST'){fail(404,'接口不存在');return;}
-   controllers=active.get(id)||new Set();active.set(id,controllers);if(controllers.size>=4){fail(429,'模型请求过多，请稍后重试');return;}
-   controller=new AbortController();controllers.add(controller);req.on('aborted',()=>controller.abort());res.on('close',()=>controller.abort());
+   controllers=active.get(id)||new Set();active.set(id,controllers);
+   controller=new AbortController();controllers.add(controller);abort=()=>controller.abort();req.on('aborted',abort);res.on('close',abort);
    let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>24*1024*1024){fail(413,'上下文过大');return;}chunks.push(chunk);}
    let body;try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{fail(400,'请求格式错误');return;}
    if(!body||typeof body.model!=='string'||!Array.isArray(body.messages)){fail(400,'请选择管理员配置的统一模型');return;}
@@ -119,7 +119,8 @@ export function createModelRelay({config,globalModels,secret,accounts,forward=fo
    for(const key of ['max_tokens','max_completion_tokens'])if(body[key]!==undefined)body[key]=Math.min(Number(body[key])||current.maxTokens,current.maxTokens);
    if(body.max_tokens===undefined&&body.max_completion_tokens===undefined)body.max_tokens=current.maxTokens;
    await forward({config:current,body,res,signal:controller.signal});
-  }catch(error){console.error('[muse-model-relay] 连接失败');fail(502,'模型服务连接失败，请联系管理员检查配置。');}
-  finally{if(controller)controllers?.delete(controller);}
+  }catch(error){if(controller?.signal.aborted)fail(401,'账户失效或请求已取消');
+   else{console.error('[muse-model-relay] 连接失败');fail(502,'模型服务连接失败，请联系管理员检查配置。');}}
+  finally{if(abort){req.off('aborted',abort);res.off('close',abort);}if(controller)controllers?.delete(controller);if(controllers?.size===0)active.delete(id);}
  });server.on('close',()=>{accounts.off('change',changed);for(const controllers of active.values())for(const controller of controllers)controller.abort();});return server;
 }

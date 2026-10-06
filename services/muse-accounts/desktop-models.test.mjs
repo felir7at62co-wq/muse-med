@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {desktopModelCatalog,createDesktopModels,resolveDesktopModelLimits} from './desktop-models.mjs';
+import {desktopModelCatalog,createDesktopModels} from './desktop-models.mjs';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -62,33 +62,23 @@ async function capacityFixture(t,options={}){
  return {call,login,generate};
 }
 
-test('one held stream reserves global capacity across accounts, while catalog reads remain available',async t=>{
- let release,entered;const started=new Promise(r=>{entered=r;}),hold=new Promise(r=>{release=r;});let calls=0;
+test('Desktop model requests exceed the old account and shared caps without local 429 responses',{timeout:30000},async t=>{
+ let release,entered;const held=new Promise(r=>{release=r;}),allStarted=new Promise(r=>{entered=r;});let calls=0;
  t.after(()=>release());
- const fixture=await capacityFixture(t,{desktopModelMaxActive:4,desktopModelMaxTotal:1,modelForward:async({res})=>{if(++calls===1){entered();await hold;}res.end('done');}});
+ const fixture=await capacityFixture(t,{modelForward:async({res})=>{if(++calls===40)entered();await held;res.end('done');}});
  const one=await fixture.login('editor-one'),two=await fixture.login('editor-two');
- const first=fixture.generate(one);await started;
- try{const blocked=await fixture.generate(two);assert.equal(blocked.status,429);assert.equal(blocked.headers.get('retry-after'),'1');
- assert.equal((await fixture.call('/api/desktop-models/providers',{headers:{cookie:two}})).status,200);assert.equal(calls,1);
- }finally{release();assert.equal((await first).status,200);}
- const next=await fixture.generate(two);assert.equal(next.status,200);assert.equal(calls,2);
-});
-
-test('per-account capacity includes separate login cookies for the same account',async t=>{
- let release,entered;const started=new Promise(r=>{entered=r;}),hold=new Promise(r=>{release=r;});let calls=0;
- t.after(()=>release());
- const fixture=await capacityFixture(t,{desktopModelMaxActive:1,desktopModelMaxTotal:3,modelForward:async({res})=>{if(++calls===1){entered();await hold;}res.end('done');}});
- const one=await fixture.login('editor-one'),same=await fixture.login('editor-one'),other=await fixture.login('editor-two');assert.notEqual(one,same);
- const first=fixture.generate(one);await started;
- try{const blocked=await fixture.generate(same);assert.equal(blocked.status,429);assert.equal(blocked.headers.get('retry-after'),'1');
- assert.equal((await fixture.generate(other)).status,200);assert.equal(calls,2);
- }finally{release();await first;}
- assert.equal((await fixture.generate(same)).status,200);
+ const pending=Array.from({length:40},(_,index)=>fixture.generate(index%2?one:two));
+ try{await allStarted;assert.equal(calls,40);assert.equal((await fixture.call('/api/desktop-models/providers',{headers:{cookie:one}})).status,200);}
+ finally{release();}
+ const responses=await Promise.all(pending);assert.ok(responses.every(response=>response.status===200));
+ await Promise.all(responses.map(response=>response.text()));
+ const later=await Promise.all(Array.from({length:121},()=>fixture.generate(one)));
+ assert.ok(later.every(response=>response.status===200));await Promise.all(later.map(response=>response.text()));
 });
 
 test('client cancellation releases the global slot after the active forwarding call exits',async t=>{
  let exited;const finished=new Promise(r=>{exited=r;});let calls=0;
- const fixture=await capacityFixture(t,{desktopModelMaxActive:1,desktopModelMaxTotal:1,modelForward:async({res,signal})=>{
+ const fixture=await capacityFixture(t,{modelForward:async({res,signal})=>{
   if(++calls===1){res.writeHead(200,{'content-type':'text/event-stream'});res.write('data: started\n\n');await new Promise(r=>signal.addEventListener('abort',r,{once:true}));exited();return;}res.end('done');
  }});
  const one=await fixture.login('editor-one'),two=await fixture.login('editor-two');const controller=new AbortController();
@@ -96,25 +86,17 @@ test('client cancellation releases the global slot after the active forwarding c
  assert.equal((await fixture.generate(two)).status,200);assert.equal(calls,2);
 });
 
-test('Desktop model environment limits reject invalid values and retain validated defaults',()=>{
- assert.deepEqual(resolveDesktopModelLimits({}),{desktopModelMaxActive:4,desktopModelMaxTotal:32});
- assert.deepEqual(resolveDesktopModelLimits({MUSE_DESKTOP_MODEL_MAX_ACTIVE:'2',MUSE_DESKTOP_MODEL_MAX_TOTAL:'16'}),{desktopModelMaxActive:2,desktopModelMaxTotal:16});
- for(const [name,values] of Object.entries({MUSE_DESKTOP_MODEL_MAX_ACTIVE:['','0','33','1.5','Infinity',' 2'],MUSE_DESKTOP_MODEL_MAX_TOTAL:['','0','1025','1.5','Infinity',' 2']}))
-  for(const value of values)assert.throws(()=>resolveDesktopModelLimits({[name]:value}),new RegExp(name));
- for(const limits of [{maxActive:0},{maxActive:33},{maxTotal:0},{maxTotal:1025},{maxTotal:1.5}])assert.throws(()=>createDesktopModels(limits),/desktop model concurrency/);
-});
-
 test('malformed input and upstream failures release capacity before later submissions',async t=>{
  let calls=0;
- const fixture=await capacityFixture(t,{desktopModelMaxActive:1,desktopModelMaxTotal:1,modelForward:async({res})=>{if(++calls===1)throw Error('test upstream failure');res.end('done');}});
+ const fixture=await capacityFixture(t,{modelForward:async({res})=>{if(++calls===1)throw Error('test upstream failure');res.end('done');}});
  const one=await fixture.login('editor-one'),two=await fixture.login('editor-two');
  assert.equal((await fixture.generate(one,{body:'{'})).status,400);
  assert.equal((await fixture.generate(one)).status,502);
  assert.equal((await fixture.generate(two)).status,200);assert.equal(calls,2);
 });
 
-test('invalid Desktop capacity stops the executable gateway before opening its runtime',async()=>{
+test('removed Desktop capacity configuration fails with an operator migration instruction',async()=>{
  await assert.rejects(promisify(execFile)(process.execPath,[fileURLToPath(new URL('./gateway.mjs',import.meta.url))],{
   env:{MUSE_DESKTOP_MODEL_MAX_TOTAL:'0'},timeout:20000,
- }),error=>{assert.match(error.stderr,/Invalid MUSE_DESKTOP_MODEL_MAX_TOTAL/);assert.doesNotMatch(error.stdout,/listening/);return true;});
+ }),error=>{assert.match(error.stderr,/MUSE_DESKTOP_MODEL_MAX_TOTAL.*remove/);assert.doesNotMatch(error.stdout,/listening/);return true;});
 });
