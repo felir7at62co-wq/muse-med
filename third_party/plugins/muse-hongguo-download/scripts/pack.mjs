@@ -15,6 +15,8 @@ if (source.hostVersion !== host.version || manifest.peerDependencies['@deepseek-
   || manifest.peerDependencies['@deepseek-ai/dsh-subprocess'] !== host.version) throw new Error('Rebuild SOURCE.json and host peer versions for this Muse release');
 mkdirSync(output, { recursive: true });
 const npm = process.env.npm_execpath;
-const result = npm ? spawnSync(process.execPath, [npm, 'pack', '--ignore-scripts', '--pack-destination', output], { cwd: root, stdio: 'inherit' })
-  : spawnSync('npm', ['pack', '--ignore-scripts', '--pack-destination', output], { cwd: root, stdio: 'inherit', shell: false });
+const options = { cwd: root, stdio: 'inherit', env: { ...process.env, npm_config_ignore_scripts: 'true' } };
+const result = npm ? spawnSync(process.execPath, [npm, 'pack', '--pack-destination', output], options)
+  : spawnSync('npm', ['pack', '--pack-destination', output], { ...options, shell: false });
+if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;

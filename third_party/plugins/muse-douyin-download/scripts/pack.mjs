@@ -27,8 +27,16 @@ try {
     hostProtocolVersion: 5, browserBridgeVersion: 1,
     script: 'apps/desktop-host/skills/douyin-download/scripts/download.py',
     scriptSha256: createHash('sha256').update(readFileSync(join(skill, 'scripts/download.py'))).digest('hex'), runtime }, null, 2) + '\n');
-  const result = spawnSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', output], { cwd: staging, encoding: 'utf8' });
+  const cli = process.env.npm_execpath;
+  const packArgs = ['pack', '--json', '--pack-destination', output];
+  const result = spawnSync(cli ? process.execPath : 'npm', cli ? [cli, ...packArgs] : packArgs,
+    { cwd: staging, encoding: 'utf8', env: { ...process.env, npm_config_ignore_scripts: 'true' } });
+  if (result.error) throw result.error;
   if (result.status !== 0 || result.signal) throw new Error('Douyin package creation failed');
-  const [{ filename }] = JSON.parse(result.stdout);
-  process.stdout.write(JSON.stringify({ package: join(output, filename), hostVersion }) + '\n');
+  const packed = JSON.parse(result.stdout);
+  const { filename } = Array.isArray(packed) ? packed[0] : packed;
+  const manifest = JSON.parse(readFileSync(join(staging, 'package.json'), 'utf8'));
+  const archive = join(output, `${manifest.name}-${manifest.version}.tgz`);
+  if (typeof filename !== 'string' || resolve(output, filename) !== archive) throw new Error('Unexpected Douyin package filename');
+  process.stdout.write(JSON.stringify({ package: archive, hostVersion }) + '\n');
 } finally { rmSync(staging, { recursive: true, force: true }); }
