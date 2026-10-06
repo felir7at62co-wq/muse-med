@@ -62,7 +62,7 @@ describe('canonical hashing and wire reading', () => {
   ('rejects an unsafe material URL %s', (url) => {
     expect(() => buildNativeVideoPreview({ storyboard: { ...STORYBOARD,
       storyboardMaterialList: [{ ...MATERIALS[0], materialUrl: url }, MATERIALS[1]] },
-    assets: [{ ...ASSETS[0], assetUrl: url }, ASSETS[1]], models: CATALOGUE, createdAt: 'now' })).toThrow()
+    assets: [{ ...ASSETS[0]!, assetUrl: url }, ASSETS[1]!], models: CATALOGUE, createdAt: 'now' })).toThrow()
   })
 
   it('freezes uploaded voice references without treating them as character image assets', () => {
