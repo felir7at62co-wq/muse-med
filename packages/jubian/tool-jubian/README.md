@@ -371,6 +371,8 @@ After an authorized submission, do other work and read `subtasks` later; use the
 <details>
 <summary>Implementation internals — click to expand</summary>
 
+Published Client code uses `lib/client.js`; `lib/types/client` contains declarations only.
+
 This section explains how the row is built; the observable behavior is fully covered in [Use this package](#use-this-package).
 
 The Client TypeScript project references `dsh-jubian`, which owns the shared project-budget types used by the generated Remote declarations. That project emits these types under its own `lib/types` directory.

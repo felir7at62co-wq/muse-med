@@ -371,6 +371,8 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 <details>
 <summary>实现细节——点击展开</summary>
 
+发布的 Client 代码使用 `lib/client.js`；`lib/types/client` 只包含声明文件。
+
 本节解释这一行是怎么搭起来的；可观察行为已在[使用本包](#use-this-package)中完整说明。
 
 Client TypeScript 项目引用 `dsh-jubian`，由后者拥有生成的 Remote 声明使用的共享项目预算类型。该项目将这些类型编译到自己的 `lib/types` 目录。
