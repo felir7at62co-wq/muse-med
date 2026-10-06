@@ -1,9 +1,14 @@
 /** Workspace credential precedence, bounded lookup and live edits. */
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, parse } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { workspaceJubianClient, workspacePipelineToken } from '../src/workspace.ts'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...original, readFile: vi.fn(original.readFile) }
+})
 
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
@@ -17,6 +22,15 @@ async function fixture(body: string): Promise<string> {
 }
 
 describe('workspacePipelineToken', () => {
+  it('stops at the filesystem root after one unavailable secret file', async () => {
+    const read = vi.mocked(readFile)
+    read.mockClear()
+    read.mockRejectedValueOnce(new Error('fixture has no root secret'))
+    const root = parse(tmpdir()).root
+    expect(await workspacePipelineToken(root)).toBe('')
+    expect(read).toHaveBeenCalledExactlyOnceWith(join(root, '.agents/secrets/pipeline.env'), 'utf8')
+  })
+
   it('reads the nearest readable file and prefers an admin value over the legacy value', async () => {
     const root = await fixture('JUBIANAI_TOKEN=legacy\nJUBIANAI_ADMIN_TOKEN="admin"\n')
     const child = join(root, 'project')

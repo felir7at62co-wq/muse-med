@@ -50,6 +50,21 @@ const EXPECTATION = { scriptId: 2708, storyboardId: 916953, episodeId: 46737,
   expectedPrompt: normalizedPrompt(PROMPT), beforeTaskIds: [] as string[] }
 
 describe('canonical hashing and wire reading', () => {
+  it('accepts padded decimal storyboard identifiers and rejects unreadable identifiers', () => {
+    expect(buildNativeVideoPreview({ storyboard: { ...STORYBOARD, id: ' 0916953 ', scriptId: ' 02708 ' },
+      assets: ASSETS, models: CATALOGUE, createdAt: 'now' }))
+      .toMatchObject({ scriptId: 2708, storyboardId: 916953 })
+    expect(() => buildNativeVideoPreview({ storyboard: { ...STORYBOARD, id: 'not-an-id' },
+      assets: ASSETS, models: CATALOGUE, createdAt: 'now' })).toThrow()
+  })
+
+  it.each(['http://media.example/lead.jpg', 'https://user:password@media.example/lead.jpg'])
+  ('rejects an unsafe material URL %s', (url) => {
+    expect(() => buildNativeVideoPreview({ storyboard: { ...STORYBOARD,
+      storyboardMaterialList: [{ ...MATERIALS[0], materialUrl: url }, MATERIALS[1]] },
+    assets: [{ ...ASSETS[0], assetUrl: url }, ASSETS[1]], models: CATALOGUE, createdAt: 'now' })).toThrow()
+  })
+
   it('freezes uploaded voice references without treating them as character image assets', () => {
     const audio = { materialType: 'audio', materialUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/voice.wav',
       materialKey: 'voice-lead', fileName: '陆沉舟声线', sortOrder: 1, audioDuration: 2 }
