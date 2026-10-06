@@ -10,6 +10,7 @@ The setup tutorial takes a new contributor from prerequisites to a checked check
 
 - Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md).
 - Node.js TypeScript type stripping enabled. The repository build scripts load `tsdown.config.ts` with tsdown's native config loader, so they fail when `--no-experimental-strip-types` is in `NODE_OPTIONS` or the Node.js build lacks TypeScript support; `pnpm run build` checks this first and names the cause.
+- The Host TypeScript build permits a six-GiB Node heap. Leave additional memory available for compiler buffers and build subprocesses.
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git 2.26 or newer; hook setup enables Git's worktree-specific configuration extension.
 - Optional: a DeepSeek API key for the Web, headless, and ACP automation demos and real-API e2e tests.
@@ -133,6 +134,10 @@ Apart from the scoped staged-record verification, the hooks intentionally do not
 Contributors can opt into the comprehensive local gate set with `pnpm run check:all`. The command is independent of the Git hooks and is not an agent instruction.
 
 ### CI gates
+
+Without a failover setting, repository copies use standard GitHub Linux and Windows runners. The upstream repository retains its enterprise pools; explicit failover settings retain their selected pools.
+
+Upstream Issue/Project policy, weighted approval, and Cloudflare preview workflows run only in their configured upstream repository. Copies enable real-API CI with `DSH_RUN_REAL_API_E2E=true` in repository variables and `DEEPSEEK_API_KEY_EXTERNAL` in repository secrets; the key preflight and untrusted-PR exclusions remain required.
 
 The keyless [CI workflow](../.github/workflows/ci.yml) groups independent gates into broad lanes and runs a smaller compatibility signal across supported Node versions. Artifact consumers wait for one build within their lane. Required benchmarks run separately on standard GitHub-hosted Linux; the [benchmark runner reference](../benchmarks/AGENTS.md) owns routing and the job timeout. The separate real-API workflow runs `pnpm run test:e2e` with its configured worker bound. See [scripts/run-gates.ts](../scripts/run-gates.ts) and the workflow files for the current gate and job inventory.
 

@@ -12,6 +12,7 @@
 
 - Node.js 支持 22.19+ 与 24+。CI 覆盖 22.19、24 和 26；见 [Node 引擎下限 Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.zh.md)。
 - 启用 Node.js TypeScript 类型剥离。仓库构建脚本用 tsdown 的 native 配置加载器加载 `tsdown.config.ts`，因此当 `NODE_OPTIONS` 含 `--no-experimental-strip-types` 或 Node.js 构建缺少 TypeScript 支持时会失败；`pnpm run build` 会先检查这一条件并指出原因。
+- Host TypeScript 构建允许 Node 使用六 GiB 堆内存；还需为编译器缓冲区及构建子进程预留额外内存。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中固定使用 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，请先运行 `corepack enable`。
 - Git 2.26 或更高版本；钩子设置会启用 Git 的 worktree 专属配置扩展。
 - 可选：一个 DeepSeek API key，用于 Web、headless 和 ACP（Agent Client Protocol）自动化 agent（智能体）演示以及真实 API 的 e2e 测试。
@@ -137,6 +138,10 @@ vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `v
 贡献者可以选择运行 `pnpm run check:all`，执行全面的本地门禁集。该命令独立于 Git 钩子，也不是对 agent 的指令。
 
 ### CI 门禁
+
+未设置 failover 时，仓库副本使用标准 GitHub Linux 和 Windows 运行器。上游仓库保留其企业运行器池；显式 failover 设置仍使用选定的池。
+
+上游 Issue/Project 策略、加权审批及 Cloudflare 预览工作流仅在配置所指向的上游仓库运行。副本可在仓库变量中设置 `DSH_RUN_REAL_API_E2E=true`，并在仓库密钥中配置 `DEEPSEEK_API_KEY_EXTERNAL`，启用真实 API CI；密钥预检及不受信任 PR 的排除规则仍然适用。
 
 keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若干宽粒度 lane，并在受支持的 Node 版本上运行一组较小的兼容性检查。产物消费方在各自 lane 内等待一次 build。必需 benchmark 在标准 GitHub 托管 Linux 上独立运行；[benchmark 运行器说明](../benchmarks/AGENTS.md)拥有路由及 job 超时。单独的真实 API 工作流按其配置的 worker 上限运行 `pnpm run test:e2e`。当前门禁和 job 清单以 [scripts/run-gates.ts](../scripts/run-gates.ts) 和工作流文件为准。
 

@@ -1,0 +1,89 @@
+name: Muse unsigned desktop packages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: muse-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'felir7at62co-wq/muse-med'
+    name: ${{ matrix.target }} unsigned installer
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win-x64
+            runner: windows-2025
+            shell: pwsh
+          - target: mac-arm64
+            runner: macos-15
+            shell: bash
+          - target: mac-x64
+            runner: macos-15-intel
+            shell: bash
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install immutable dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check model relay behavior
+        run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs
+      - name: Check packaging behavior
+        run: pnpm exec vitest run apps/desktop/tests/package-target.spec.ts apps/desktop/tests/package-target-stages.spec.ts apps/desktop/tests/macos-signature.spec.ts apps/desktop/tests/desktop-package-environment.spec.ts apps/desktop/tests/prepare-macos-media.spec.ts apps/desktop/tests/package-resume.spec.ts
+      - name: Configure unsigned Muse packaging
+        run: >-
+          node --input-type=module -e "import { writeFileSync } from 'node:fs';
+          writeFileSync('apps/desktop/.env.' + (process.platform === 'win32' ? 'windows' : 'macos'),
+          'DSH_DESKTOP_APP_ID=cn.muse.med\nDSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false\n');"
+      - name: Build and verify the assembled application
+        run: pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned
+      - name: Record the exact unsigned build
+        env:
+          MUSE_RELEASE_TARGET: ${{ matrix.target }}
+        run: >-
+          node --input-type=module -e "import { readFileSync, writeFileSync } from 'node:fs';
+          const version = JSON.parse(readFileSync('apps/desktop/muse-product.json', 'utf8')).version;
+          writeFileSync('apps/desktop/.desktop-build/targets/' + process.env.MUSE_RELEASE_TARGET + '/unsigned-artifacts/unsigned-build.json',
+          JSON.stringify({ target: process.env.MUSE_RELEASE_TARGET, version, sourceCommit: process.env.GITHUB_SHA, unsigned: true }, null, 2) + '\n');"
+      - name: Upload installers, update metadata and build identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: muse-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.exe
+            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.dmg
+            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.zip
+            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.blockmap
+            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.yml
+            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/unsigned-build.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Retain packaging diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: muse-${{ matrix.target }}-diagnostics-${{ github.sha }}
+          path: apps/desktop/.desktop-build/packaging-runs/
+          if-no-files-found: ignore
+          retention-days: 14

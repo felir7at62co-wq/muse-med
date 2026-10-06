@@ -14,6 +14,67 @@ const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
 
 describe('CI workflow', () => {
+  it('builds unsigned Muse installers on native runners without publication credentials', () => {
+    const workflow = loadWorkflow('.github/workflows/muse-desktop.yml')
+    expect(workflow.on).toEqual({ workflow_dispatch: null })
+    expect(workflow.permissions).toEqual({ contents: 'read' })
+    const job = workflowJob(workflow, 'build')
+    expect(job.if).toBe("github.repository == 'felir7at62co-wq/muse-med'")
+    expect(job.strategy).toEqual({
+      'fail-fast': false,
+      matrix: { include: [
+        { target: 'win-x64', runner: 'windows-2025', shell: 'pwsh' },
+        { target: 'mac-arm64', runner: 'macos-15', shell: 'bash' },
+        { target: 'mac-x64', runner: 'macos-15-intel', shell: 'bash' },
+      ] },
+    })
+    if (!Array.isArray(job.steps)) throw new TypeError('Muse packaging must define steps')
+    const steps = job.steps.filter(isRecord)
+    expect(steps).toContainEqual(expect.objectContaining({
+      run: 'pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned',
+    }))
+    const modelCheck = steps.find(step => step.name === 'Check model relay behavior')
+    const packagingCheck = steps.find(step => step.name === 'Check packaging behavior')
+    expect(modelCheck?.run).toBe('node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs')
+    expect(packagingCheck?.run).toMatch(/^pnpm exec vitest run /)
+    expect(modelCheck).not.toHaveProperty('continue-on-error')
+    expect(packagingCheck).not.toHaveProperty('continue-on-error')
+  })
+
+  it.each([
+    ['issue-policy.yml', 'policy'],
+    ['issue-lifecycle.yml', 'lifecycle'],
+    ['weighted-approval.yml', 'publish-status'],
+    ['build-preview-cloudflare.yml', 'preview'],
+  ])('%s restricts upstream services to the configured repository', (file, jobName) => {
+    const job = workflowJob(loadWorkflow('.github/workflows/' + file), jobName)
+    if (typeof job.if !== 'string') throw new TypeError('Upstream service must declare a repository condition')
+    const condition = job.if
+    const evaluate = (repository: string): unknown => runInNewContext(condition, {
+      github: { repository, event_name: 'pull_request', event: {
+        action: 'opened', pull_request: { state: 'open' }, review: {}, changes: {},
+      } },
+    }, { timeout: 1000 })
+    expect(evaluate('deepseek-harness/deepseek-harness')).toBe(true)
+    expect(evaluate('felir7at62co-wq/muse-med')).toBe(false)
+  })
+
+  it.each([
+    ['node-24', 'ubuntu-24.04'],
+    ['node-24-coverage', 'ubuntu-24.04'],
+    ['node-24-consumers', 'ubuntu-24.04'],
+    ['windows-build', 'windows-2025'],
+    ['windows-coverage', 'windows-2025'],
+    ['windows-native-tests', 'windows-2025'],
+  ])('%s uses an available GitHub runner outside the upstream repository', (name, expected) => {
+    const job = workflowJob(loadWorkflow('.github/workflows/ci.yml'), name)
+    expect(evaluateRunsOn(job['runs-on'], {
+      vars: { DSH_CI_FAILOVER_LINUX: '', DSH_CI_FAILOVER_WINDOWS: '' },
+      github: { repository: 'felir7at62co-wq/muse-med', event: { pull_request: { user: { login: 'maintainer' } } } },
+      fromJSON: JSON.parse,
+    })).toBe(expected)
+  })
+
   it('prepares confinement before Node compatibility smokes', () => {
     const job = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-compat')
     if (!Array.isArray(job.steps)) throw new TypeError('Node compatibility job must define steps')
@@ -369,7 +430,7 @@ describe('CI workflow', () => {
       return evaluateRunsOn(expression, {
         vars,
         fromJSON: JSON.parse,
-        github: { event: { pull_request: { user: { login } } } },
+        github: { repository: 'deepseek-harness/deepseek-harness', event: { pull_request: { user: { login } } } },
       })
     }
     for (const [name, selector, variable, pool, hosted] of [
@@ -701,6 +762,21 @@ describe('bubblewrap preparation script', () => {
 })
 
 describe('DeepSeek e2e workflow', () => {
+  it.each([
+    ['deepseek-harness/deepseek-harness', '', false, 'maintainer', true],
+    ['felir7at62co-wq/muse-med', '', false, 'maintainer', false],
+    ['felir7at62co-wq/muse-med', 'true', false, 'maintainer', true],
+    ['felir7at62co-wq/muse-med', 'true', true, 'maintainer', false],
+    ['felir7at62co-wq/muse-med', 'true', false, 'dependabot[bot]', false],
+  ])('admits real-API CI for %s with opt-in=%s fork=%s author=%s', (repository, optIn, fork, login, expected) => {
+    const job = workflowJob(loadWorkflow('.github/workflows/e2e.yml'), 'e2e')
+    if (typeof job.if !== 'string') throw new TypeError('Real-API CI must declare its credential condition')
+    expect(runInNewContext(job.if, {
+      vars: { DSH_RUN_REAL_API_E2E: optIn },
+      github: { repository, event_name: 'pull_request', event: { pull_request: { head: { repo: { fork } }, user: { login } } } },
+    }, { timeout: 1000 })).toBe(expected)
+  })
+
   it('prepares bubblewrap from the pinned payload without a package transaction', () => {
     const workflow = loadWorkflow('.github/workflows/e2e.yml')
     const e2e = workflowJob(workflow, 'e2e')
@@ -996,7 +1072,7 @@ describe('Weighted approval workflow', () => {
       'cancel-in-progress': false,
     })
     expect(job).toMatchObject({
-      if: "(github.event_name != 'pull_request_target' || github.event.pull_request.state == 'open') && "
+      if: "github.repository == 'deepseek-harness/deepseek-harness' && (github.event_name != 'pull_request_target' || github.event.pull_request.state == 'open') && "
         + "(github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') && "
         + "(github.event_name != 'issue_comment' || (github.event.issue.pull_request && github.event.issue.state == 'open' &&\n"
         + "  (contains(github.event.comment.body, '/delegate') || contains(github.event.changes.body.from, '/delegate'))))",
@@ -1106,7 +1182,7 @@ describe('Issue lifecycle workflow', () => {
     expect(preflightStep?.run).toContain('if [ -f .github/issue-management/selective-preflight.json ]; then')
     expect(preflightStep?.run).toContain('node .github/issue-management/policy.mjs pr-preflight')
     expect(preflightStep?.if).toBeUndefined()
-    expect(policyJob.if).toBeUndefined()
+    expect(policyJob.if).toBe("github.repository == 'deepseek-harness/deepseek-harness'")
     expect(validateStep?.if).toBe("${{ steps.preflight.outputs.legacy-automated != 'true' }}")
 
     expect(tokenStep).toMatchObject({
