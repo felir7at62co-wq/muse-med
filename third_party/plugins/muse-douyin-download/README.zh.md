@@ -6,7 +6,7 @@
 
 ## 运行环境与配置
 
-此包的内置浏览器获取功能依赖 Desktop Host 协议 5和 `douyinBrowser.version === 1`。单独安装插件不会增加浏览器下载接口。Desktop 自动选择经过验证的随包 Python，保留显式媒体程序设置，并从随包媒体目录或普通 PATH 查找已有 ffmpeg/ffprobe；不安装依赖或修改 PATH。Mac 安装包包含对应架构的媒体程序，运行时查找不会安装依赖。
+此包的内置浏览器获取功能依赖 Desktop Host 协议 5和 `douyinBrowser.version === 1`。单独安装插件不会增加浏览器下载接口。Desktop 自动选择经过验证的随包 Python，保留显式媒体程序设置，并从随包媒体目录或普通 PATH 查找已有 ffmpeg/ffprobe；不安装依赖或修改 PATH。Mac 安装包包含对应架构的媒体程序，运行时查找不会安装依赖。打包后的 Python 脚本及提取器归档位于 ASAR 外，使内置解释器可以读取。
 
 公开执行器需要 `agents`、`tools`、`subprocess`；浏览器回退还需要宿主下载接口。部署配置保留 `pythonExecutable`、`ffprobeExecutable`、`ffmpegExecutable`、`settingsHome`、`requestTimeoutMs`、`timeoutMs`、`maxDownloadBytes`、`graceMs`、`maxVideos`。执行器默认 120 秒、100 MiB、20 条链接；公开执行器的部署配置可能不同。内置浏览器固定最多一个任务、100 MiB、120 秒，含准备时间。缺少验证程序时返回 blocked。
 

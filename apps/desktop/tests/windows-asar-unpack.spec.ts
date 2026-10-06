@@ -232,6 +232,9 @@ it('places product media scripts where external Python can open them', async () 
   const scripts = [
     join('node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills', 'audio-transcribe', 'scripts', 'transcribe.py'),
     join('node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills', 'media-link-import', 'scripts', 'import_media.py'),
+    join('node_modules', 'muse-douyin-download', 'python', 'scripts', 'download.py'),
+    join('node_modules', 'muse-douyin-download', 'python', 'runtime', 'yt-dlp.pyz'),
+    join('node_modules', 'muse-hongguo-download', 'python', 'decrypt.py'),
   ]
   for (const relativeScript of scripts) {
     const source = join(input.source, relativeScript)

@@ -3,6 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { mkdtemp, mkdir, copyFile, writeFile, readFile, realpath, rm } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { createMediaProcessor } from '../src/runtime.js';
 
 const config = () => ({ legacyAppDir: join(tmpdir(), 'source-app'), pythonExecutable: join(tmpdir(), 'runtime', 'python'),
@@ -13,7 +15,7 @@ const paths = () => ({ inputPath: join(tmpdir(), 'owned-staging', 'episode.part'
 const probe = overrides => JSON.stringify({ format: { duration: '12.34' }, streams: [{ codec_type: 'video', codec_name: 'h264', width: 720, height: 1280 }], ...overrides });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 
-function fixture(outputs, settings = config()) {
+function fixture(outputs, settings = config(), processor = createMediaProcessor) {
   const calls = [], resolutions = [], exits = [];
   const subprocess = {
     async resolveExecutable(value, _env, signal) { signal.throwIfAborted(); resolutions.push(value); return value; },
@@ -28,8 +30,26 @@ function fixture(outputs, settings = config()) {
         async waitForExit(signal) { exits.push(calls.length); return entry.waitForExit ? entry.waitForExit(signal) : true; } };
     },
   };
-  return { process: createMediaProcessor(subprocess, settings), subprocess, calls, resolutions, exits, settings };
+  return { process: processor(subprocess, settings), subprocess, calls, resolutions, exits, settings };
 }
+
+test('archived plugin passes its unpacked bridge to external Python', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-hongguo-asar-')));
+  try {
+    await writeFile(join(root, 'package.json'), '{"type":"module"}\n');
+    const source = join(root, 'app.asar', 'node_modules', 'muse-hongguo-download', 'src');
+    const python = join(root, 'app.asar.unpacked', 'node_modules', 'muse-hongguo-download', 'python');
+    await mkdir(source, { recursive: true });
+    await mkdir(python, { recursive: true });
+    for (const file of ['runtime.js', 'errors.js']) await copyFile(new URL('../src/' + file, import.meta.url), join(source, file));
+    await writeFile(join(python, 'decrypt.py'), 'print("native bridge")\n');
+    const plugin = await import(pathToFileURL(join(source, 'runtime.js')).href);
+    const f = fixture([{ stdout: '{"ok":true}' }, { stdout: probe() }, {}], config(), plugin.createMediaProcessor);
+    await f.process({ encryption: { spade: 'PRIVATE' } }, paths());
+    assert.equal(f.calls[0].argv[3], join(python, 'decrypt.py'));
+    assert.equal(await readFile(f.calls[0].argv[3], 'utf8'), 'print("native bridge")\n');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test('plaintext requires only media executables and validates every video and audio stream', async () => {
   const f = fixture([{ stdout: probe() }, {}], { ...config(), pythonExecutable: '', legacyAppDir: '' });

@@ -65,7 +65,7 @@ Windows 签名打包按 PE 文件内容扫描第一方运行时和应用生产�
 
 Desktop 携带独立的 Python、Node.js 和 pnpm 分发包。Python 包含 numpy、pandas、python-docx、python-pptx、openpyxl、Pillow、lxml、XlsxWriter 及其完整依赖。`load_workspace_dependencies` 工具首次使用时，将该产物离线安装到 `$DSH_HOME/dsh-runtimes/dsh-primary-runtime`（通常为 `~/.dsh/dsh-runtimes/dsh-primary-runtime`），并返回解释器、pnpm 脚本和库目录的绝对路径，以及记录内置分发包名称与版本的 `pythonDistributions`。版本报告不包含用户自行安装的包。Office 任务默认使用这些库，用户或工作区指令指定其他环境时遵循其要求。pnpm 脚本通过返回的 Node 可执行文件运行。返回的 Node 库目录为随包交付的库预留，不是 pnpm 的全局安装目录。
 
-Host 在加载创作预设前验证内置主运行时，并将抖音下载工具绑定到其 Python 绝对入口。工具以隔离模式运行 Python，不会查找系统解释器。Windows 和 macOS 均使用内置 ffmpeg 和 ffprobe。Mac 构建按架构编译锁定的 FFmpeg 官方源码，禁用外部依赖自动发现、GPL 和 nonfree 组件；可执行文件随附对应源码归档及 LGPL 许可证。配置及受阻结果见[下载组合包](../../third_party/plugins/muse-douyin-download/README.zh.md)。
+Host 在加载创作预设前验证内置主运行时，并将抖音下载工具绑定到其 Python 绝对入口。工具以隔离模式运行 Python，不会查找系统解释器。下载插件的 Python 文件放在 ASAR 外；打包时先用内置解释器执行下载器帮助命令，再启动 Host。Windows 和 macOS 均使用内置 ffmpeg 和 ffprobe。Mac 构建按架构编译锁定的 FFmpeg 官方源码，禁用外部依赖自动发现、GPL 和 nonfree 组件；可执行文件随附对应源码归档及 LGPL 许可证。配置及受阻结果见[下载组合包](../../third_party/plugins/muse-douyin-download/README.zh.md)。
 
 Desktop 默认注册 `office-docx`、`office-pptx` 和 `office-xlsx`。这些技能使用内置 Python 库创建文件和进行定点编辑，随后重新打开文件，并在交付前运行共享结构检查器。PowerPoint 的创建和编辑使用 python-pptx。技能资源复制到 ASAR 外的 `runtime/office-skills`，让 Python 可以读取检查器。可用的 `render_document` 工具可以补充视觉检查；缺少该工具不妨碍创作或交付。检查范围与限制见 [Office 技能包](../../packages/skill/skill-office/README.zh.md)。
 

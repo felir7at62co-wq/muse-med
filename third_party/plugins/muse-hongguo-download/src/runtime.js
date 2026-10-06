@@ -2,7 +2,8 @@
 import { fileURLToPath } from 'node:url';
 import { DownloadError } from './errors.js';
 
-const bridge = fileURLToPath(new URL('../python/decrypt.py', import.meta.url));
+const bridge = fileURLToPath(new URL('../python/decrypt.py', import.meta.url))
+  .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2');
 const outputBytes = 64 * 1024;
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const failures = {

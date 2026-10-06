@@ -235,6 +235,10 @@ export async function smokeDesktopRuntime(
     mkdirSync(plugin, { recursive: true })
     const primary = join(resourcesRuntime, 'primary-runtime')
     const dependencies = workspaceDependencyPaths(primary, await readPrimaryRuntime(primary))
+    const downloadScript = join(root, 'node_modules', 'muse-douyin-download', 'python', 'scripts', 'download.py')
+      .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
+    await promisify(execFile)(dependencies.python, ['-I', '-B', downloadScript, '--help'],
+      { env: environment, timeout: 30_000, windowsHide: true })
     await promisify(execFile)(dependencies.python, ['-I', '-B',
       fileURLToPath(new URL('../tests/fixtures/office-conversion-inputs.py', import.meta.url)), home],
     { env: environment, timeout: 120_000, windowsHide: true })

@@ -14,11 +14,10 @@ const editingModelInput = JSON.parse(readFileSync(new URL('./expected/editing-mo
 
 vi.mock('../src/profile-packages.ts', () => ({ recordDesktopRuntimeProfile: vi.fn(), validateDesktopPluginGraph: vi.fn() }))
 
-// The Office-conversion fixture script and the Host startup are the two halves of
-// this smoke; only the Host startup is under test, so the interpreter call is
-// stubbed with the one thing the smoke reads back from it: the three sample
-// documents it writes into the smoke home named by its last argument.
+// External interpreter calls are isolated; the Office fixture writes the three
+// documents consumed by the Host checks, while downloader help needs no files.
 const { payload } = vi.hoisted(() => ({ payload: vi.fn(async (_file: string, args: string[]) => {
+  if (args.at(-1) === '--help') return { stdout: 'usage: download.py' }
   const home = args[args.length - 1]!
   for (const extension of ['docx', 'xlsx', 'pptx']) writeFileSync(join(home, `input.${extension}`), Buffer.from('fixture'))
   return { stdout: '' }
@@ -190,7 +189,7 @@ function fixture(packaged = false) {
   }
   const apply = async (ctx: TestContext) => { register(ctx); await request() }
   return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names,
-    accountMcpNames, editingCapabilityNames, skills, cordisSkill, skillRoot, home }
+    accountMcpNames, editingCapabilityNames, skills, cordisSkill, skillRoot, home, root }
 }
 
 it('defers preset checks until the Host-ready caller requests them', async () => {
@@ -346,6 +345,27 @@ it('rejects Host readiness when the private preset smoke never completes', async
   } finally {
     start.mockRestore()
     fetch.mockRestore()
+    stop.mockRestore()
+  }
+})
+
+it.each([false, true])('runs downloader help from the native filesystem before Host startup, archived=%s', async (archived) => {
+  const start = vi.spyOn(DesktopHostProcess.prototype, 'start')
+  const stop = vi.spyOn(DesktopHostProcess.prototype, 'stop').mockResolvedValue()
+  try {
+    const f = fixture(archived)
+    const root = f.root
+    const runtime = runtimeFixture(root)
+    payload.mockRejectedValueOnce(new Error('Python cannot read download script'))
+    await expect(smokeDesktopRuntime(root, process.execPath, runtime, {}, primaryRuntimeFixture(f.home)))
+      .rejects.toThrow('Python cannot read download script')
+    const invocation = payload.mock.calls.at(-1)
+    expect(invocation?.[1]).toEqual(['-I', '-B', join(root, 'node_modules', 'muse-douyin-download', 'python', 'scripts', 'download.py')
+      .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2'), '--help'])
+    expect(start).not.toHaveBeenCalled()
+    expect(stop).toHaveBeenCalledOnce()
+  } finally {
+    start.mockRestore()
     stop.mockRestore()
   }
 })

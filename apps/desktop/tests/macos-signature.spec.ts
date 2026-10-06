@@ -70,6 +70,8 @@ describe('desktop macOS release signature', () => {
       '**/@deepseek-ai/dsh-drama-skills/**',
       '**/@deepseek-ai/dsh-desktop-host/skills/**',
       '**/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/**',
+      '**/muse-douyin-download/python/**',
+      '**/muse-hongguo-download/python/**',
       '**/@openai/codex*/**',
     ]))
     expect(config.icon).toMatch(/[/\\]renderer[/\\]icon\.png$/u)

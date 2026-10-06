@@ -71,6 +71,7 @@ export function createElectronBuilderConfig(
   const unpack = ['**/*.{node,dylib,dll,so,exe}', '**/*.so.*', '**/spawn-helper', '**/@vscode/ripgrep-*/bin/rg',
     '**/@deepseek-ai/dsh-drama-skills/**', '**/@deepseek-ai/dsh-desktop-host/skills/**',
     '**/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/**', '**/@openai/codex*/**',
+    '**/muse-douyin-download/python/**', '**/muse-hongguo-download/python/**',
     `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`]
   const windowsSigner = packagesWindows && !unsigned
     ? createWindowsTokenSigner({

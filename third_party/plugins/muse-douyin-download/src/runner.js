@@ -2,7 +2,8 @@
 import { isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const script = fileURLToPath(new URL('../python/scripts/download.py', import.meta.url));
+const script = fileURLToPath(new URL('../python/scripts/download.py', import.meta.url))
+  .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2');
 const fields = new Set(['pythonExecutable', 'ffprobeExecutable', 'ffmpegExecutable', 'settingsHome', 'requestTimeoutMs', 'timeoutMs', 'maxDownloadBytes', 'graceMs', 'maxVideos']);
 
 /** Validate deployment settings before registering tools. @param {object} config Settings. @returns {object} Explicit subprocess settings. */
