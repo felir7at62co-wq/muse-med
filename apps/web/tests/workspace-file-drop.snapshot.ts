@@ -2,10 +2,11 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { composeEntries, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { entryListProblem, type PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
+import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import yaml from 'js-yaml'
 import { chromium, type Browser } from 'playwright'
 import { expect, it } from 'vitest'
@@ -31,16 +32,29 @@ async function fixtureOverlay(): Promise<{ root: string; path: string }> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-file-drop-overlay-'))
   const path = join(root, 'cordis.patch.yml')
   try {
+    const entries = parseSessionLog(await readFile(FIXTURE, 'utf8')).flatMap(event =>
+      event.type === 'user/message' && event.data.source.kind === 'skill-catalog'
+        && event.data.source.form === 'catalog' ? event.data.source.entries : [])
+    if (entries.length !== 2 || entries[0]?.name !== 'cordis-plugin-development'
+      || entries[1]?.name !== 'editing-cordis-compositions') {
+      throw new Error('Workspace file drop recording has no historical two-skill catalog')
+    }
+    const skills = join(root, 'skills')
+    for (const entry of entries) {
+      const directory = join(skills, entry.name)
+      await mkdir(directory, { recursive: true })
+      await writeFile(join(directory, 'SKILL.md'), `---\n${yaml.dump(entry)}---\nHistorical file-reference fixture metadata.\n`)
+    }
     await writeFile(path, yaml.dump([{
       id: 'preset-standard',
       config: {
         ...definition,
         plugins: [
-          ...definition.plugins.map(plugin => plugin.id === 'time-context' ? { ...plugin, disabled: true } : plugin),
-          {
-            name: pathToFileURL(fileURLToPath(new URL('./fixtures/workspace-file-drop/skill-policy.mjs', import.meta.url))).href,
-            config: { names: ['cordis-plugin-development', 'editing-cordis-compositions'] },
-          },
+          ...definition.plugins.map(plugin => plugin.id === 'time-context' ? { ...plugin, disabled: true }
+            : plugin.id === 'skill-filesystem' ? { ...plugin, config: {
+              includeDefaultRoots: false, watch: false,
+              customSkillDirs: [skills],
+            } } : plugin),
         ],
       },
     }], { schema: entryListSchema }))
@@ -86,7 +100,8 @@ it('replays workspace file drag and touch menu references without uploading or s
     await notes.dragTo(input)
     await expect.poll(() => input.innerText()).toContain('notes 中文.txt')
     await expect.poll(() => input.innerText()).toContain('Review ')
-    await input.press('ControlOrMeta+End')
+    await input.press('ControlOrMeta+a')
+    await input.press('ArrowRight')
 
     await page.setViewportSize({ width: 390, height: 844 })
     await page.getByRole('button', { name: 'Actions for outline.md', exact: true }).click()

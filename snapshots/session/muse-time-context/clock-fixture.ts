@@ -1,7 +1,11 @@
 /** A fixture-owned clock and deterministic adapter verify model-visible time from the Muse preset. */
 import type { Context } from '@deepseek-ai/cordis'
-import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
+import { importSnapshotPackage } from '../muse-fixture-import.mjs'
+
+const { LlmAdapter }: typeof import('@deepseek-ai/dsh-llm') = await importSnapshotPackage(
+  '@deepseek-ai/dsh-llm', new URL('../../../packages/host/muse-account/package.json', import.meta.url),
+)
 
 /** Loader name for the isolated recorded clock. */
 export const name = 'snapshot-muse-clock'

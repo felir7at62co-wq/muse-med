@@ -1,16 +1,25 @@
 /** Mount the editing preset and discover the source Muse MCP catalog over loopback. */
-import { Service } from '@deepseek-ai/cordis'
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { PERSONA_SUFFIX_SECTION } from '@deepseek-ai/dsh-system-prompt'
-import NativePreset from '../../../apps/desktop-host/src/native-preset.ts'
-import * as McpClient from '../../../packages/mcp/mcp-client/src/index.ts'
-import { createMuseAccountMcpServer } from '../../../packages/host/muse-account/src/mcp-server.ts'
-import { createMuseKbReader } from '../../../packages/host/muse-account/src/kb.ts'
 import { applyLoopbackServerEffect } from '../loopback-fixture-server.mjs'
+import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
+
+const [{ Service }, { PERSONA_SUFFIX_SECTION }, { default: NativePreset }, McpClient,
+  { createMuseAccountMcpServer }, { createMuseKbReader }] = await Promise.all([
+  importSnapshotPackage('@deepseek-ai/cordis', new URL('../../../apps/desktop-host/package.json', import.meta.url)),
+  importSnapshotPackage('@deepseek-ai/dsh-system-prompt', new URL('../../../packages/mcp/mcp-client/package.json', import.meta.url)),
+  importSnapshotModule(new URL('../../../apps/desktop-host/src/native-preset.ts', import.meta.url),
+    new URL('../../../apps/desktop-host/lib/native-preset.js', import.meta.url)),
+  importSnapshotModule(new URL('../../../packages/mcp/mcp-client/src/index.ts', import.meta.url),
+    new URL('../../../packages/mcp/mcp-client/lib/index.js', import.meta.url)),
+  importSnapshotModule(new URL('../../../packages/host/muse-account/src/mcp-server.ts', import.meta.url),
+    new URL('../../../packages/host/muse-account/lib/types/mcp-server.js', import.meta.url)),
+  importSnapshotModule(new URL('../../../packages/host/muse-account/src/kb.ts', import.meta.url),
+    new URL('../../../packages/host/muse-account/lib/types/kb.js', import.meta.url)),
+])
 
 export const name = 'snapshot-editing-preset'
 export const inject = ['agentPresets', 'tools', 'systemPrompt']
@@ -27,6 +36,19 @@ export async function apply(ctx, config) {
     const anchor = await mkdtemp(fileURLToPath(new URL('../../../apps/desktop-host/.snapshot-hongguo-', import.meta.url)))
     try {
       await mkdir(join(anchor, 'node_modules'))
+      const linked = new Set()
+      for (const manifestUrl of [new URL('../../../apps/cli/package.json', import.meta.url),
+        new URL('../../../apps/desktop-host/package.json', import.meta.url)]) {
+        const manifest = JSON.parse(await readFile(manifestUrl, 'utf8'))
+        const requireOwner = createRequire(manifestUrl)
+        for (const name of Object.keys(manifest.dependencies)) {
+          if (!name.startsWith('@deepseek-ai/dsh') || linked.has(name)) continue
+          await mkdir(join(anchor, 'node_modules', '@deepseek-ai'), { recursive: true })
+          await symlink(dirname(requireOwner.resolve(`${name}/package.json`)), join(anchor, 'node_modules', name),
+            process.platform === 'win32' ? 'junction' : 'dir')
+          linked.add(name)
+        }
+      }
       for (const plugin of ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
         await symlink(fileURLToPath(new URL(`../../../third_party/plugins/${plugin}/`, import.meta.url)), join(anchor, 'node_modules', plugin), process.platform === 'win32' ? 'junction' : 'dir')
       }

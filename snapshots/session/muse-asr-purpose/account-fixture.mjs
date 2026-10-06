@@ -1,5 +1,8 @@
 /** Account identity for resuming a seeded receipt without a cloud request. */
-import { Service } from '@deepseek-ai/cordis'
+import { importSnapshotPackage } from '../muse-fixture-import.mjs'
+
+const { Service } = await importSnapshotPackage('@deepseek-ai/cordis',
+  new URL('../../../apps/desktop-host/package.json', import.meta.url))
 
 export const name = 'snapshot-asr-purpose-account'
 

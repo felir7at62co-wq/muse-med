@@ -27,6 +27,28 @@ const experimental = {
   },
 } satisfies WorkspaceManifest
 
+it('allows root emitted runtime exports to omit unbundled Client implementation files', () => {
+  const manifest = { files: ['lib/index.js', 'lib/types/*.js', 'lib/types/**/*.d.ts'],
+    exports: { './types': { default: './lib/types/types.js' } } }
+  expect(expectedDshPackageFiles(manifest)).toEqual(manifest.files)
+  expect(expectedDshPackageFiles({ ...manifest, exports: {
+    ...manifest.exports, './nested': { default: './lib/types/nested/index.js' },
+  } })).toEqual(['lib/index.js', 'lib/types/**/*.js', 'lib/types/**/*.d.ts'])
+  expect(expectedDshPackageFiles({ ...manifest,
+    files: ['lib/index.js', 'lib/types/**/*.js', 'lib/types/**/*.d.ts'],
+  })).toEqual(['lib/index.js', 'lib/types/**/*.js', 'lib/types/**/*.d.ts'])
+})
+
+it.each(['packages/host/feishu-settings', 'packages/jubian/tool-jubian'])(
+  'accepts complete browser bundles and flat Host emission in %s', (dir) => {
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, exports: {
+      ...manifest.exports, './nested': { default: './lib/types/client/index.js' },
+    } } })).toEqual([expect.stringContaining('package.json files must be')])
+  },
+)
+
 describe('workspace dependency ranges', () => {
   const dependency = { dir: 'packages/core/runtime', manifest: { name: '@deepseek-ai/dsh-runtime' } }
   const cli = { dir: 'apps/cli', manifest: { name: '@deepseek-ai/dsh' } }

@@ -299,7 +299,7 @@ export function expectedDshPackageFiles(manifest: PackageManifest): readonly str
     // browser-safe source channels rehomed off src so plain Node can import
     // them without type stripping) publish the emitted JS alongside the
     // declarations.
-    ...usesEmittedTreeDefaults(manifest) ? ['lib/types/**/*.js'] : [],
+    ...emittedRuntimeFiles(manifest),
     'lib/types/**/*.d.ts',
     ...hasExportPair(manifest, './typert', './lib/typert.host.d.ts', './lib/typert.host.js')
       ? ['lib/typert.host.js', 'lib/typert.host.d.ts']
@@ -341,10 +341,14 @@ function exportDefault(manifest: PackageManifest, subpath: string): string | und
   return typeof target === 'string' ? target : undefined
 }
 
-/** Whether any export's runtime default points into the tsc-emitted lib/types tree. */
-function usesEmittedTreeDefaults(manifest: PackageManifest): boolean {
-  return Object.keys(manifest.exports ?? {}).some(subpath =>
-    exportDefault(manifest, subpath)?.startsWith('./lib/types/') === true)
+/** Root-only emitted exports may omit intermediate Client JavaScript from publication. */
+function emittedRuntimeFiles(manifest: PackageManifest): string[] {
+  const targets = Object.keys(manifest.exports ?? {}).map(subpath => exportDefault(manifest, subpath))
+    .filter((target): target is string => target?.startsWith('./lib/types/') === true)
+  if (targets.length === 0) return []
+  const rootOnly = manifest.files?.includes('lib/types/*.js') === true
+    && targets.every(target => /^\.\/lib\/types\/[^/]+\.js$/u.test(target))
+  return [rootOnly ? 'lib/types/*.js' : 'lib/types/**/*.js']
 }
 
 /** Experimental manifest requirements, including explicit private exceptions. */
