@@ -107,7 +107,7 @@ export class LocalSigner {
         active.throwIfAborted();
         const port = this.port();
         const handle = this.subprocess.spawn({
-          argv: [java, `-Xmx${this.config.signerHeapMb}m`, '-XX:+ExitOnOutOfMemoryError',
+          argv: [java, `-Xmx${this.config.signerHeapMb}m`, '-XX:+ExitOnOutOfMemoryError', '-Dfile.encoding=UTF-8',
             `-Duser.home=${state.directory}`, '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
             '-cp', 'unidbg-sign.jar', 'com.hongguo.sign.FqTrace', 'serve', String(port)],
           cwd: signing, env: { BIND_HOST: '127.0.0.1', HG_SIGN_TOKEN: token,

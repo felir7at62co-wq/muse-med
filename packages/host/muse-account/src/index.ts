@@ -73,6 +73,7 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
 
 /**
  * Mount the Host account service and await the bundled stdio MCP discovery.
+ * The MCP child requires the package's built files, including for source profile launches.
  * @param ctx - Product Host context.
  * @param config - Gateway origin and optional product-home storage directory.
  * @returns Completion after the MCP tools have registered.
@@ -135,7 +136,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const service = ctx.plugin(MuseAccountService, { controller, asr, models, feedback, ...(remote === undefined ? {} : { remote }) })
   await service.await()
 
-  const server = fileURLToPath(new URL('./types/mcp-server.js', import.meta.url))
+  const server = fileURLToPath(new URL('./lib/types/mcp-server.js', import.meta.resolve('@deepseek-ai/dsh-muse-account/package.json')))
   const child = ctx.plugin(McpClient, McpClient.Config({
     serverName: 'muse-account',
     transport: 'stdio',

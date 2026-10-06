@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { resolvePwshPath } from './packages/shell/pwsh-local/src/resolve.ts'
 import { defineConfig } from 'vitest/config'
-import { standardDecoratorPlugin, vitestExecArgv } from './vitest.shared.ts'
+import { generatedRemoteMockPlugin, standardDecoratorPlugin, vitestExecArgv } from './vitest.shared.ts'
 import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './scripts/coverage-exempt.ts'
 import { COVERAGE_PARTITION_MODE_ENV, COVERAGE_TEST_TIMEOUT_ENV, coverageTestTimeoutOptions } from './scripts/coverage-partitions.ts'
 
@@ -171,7 +171,7 @@ const claudeCodeTestingAliases = {
 }
 
 export default defineConfig({
-  plugins: [pathsPlugin(), standardDecoratorPlugin()],
+  plugins: [pathsPlugin(), standardDecoratorPlugin(), generatedRemoteMockPlugin(fileURLToPath(new URL('./', import.meta.url)))],
   resolve: { alias: claudeCodeTestingAliases },
   test: {
     setupFiles: ['./scripts/test-proxy-environment.ts', './scripts/test-dom-environment.ts'],
@@ -182,7 +182,7 @@ export default defineConfig({
     // Node stability; process-bound suites stay separate for inventory control.
     projects: [
       {
-        plugins: [pathsPlugin(), standardDecoratorPlugin()],
+        plugins: [pathsPlugin(), standardDecoratorPlugin(), generatedRemoteMockPlugin(fileURLToPath(new URL('./', import.meta.url)))],
         resolve: { alias: claudeCodeTestingAliases },
         test: {
           name: 'thread-safe',
@@ -202,7 +202,7 @@ export default defineConfig({
         },
       },
       {
-        plugins: [pathsPlugin(), standardDecoratorPlugin()],
+        plugins: [pathsPlugin(), standardDecoratorPlugin(), generatedRemoteMockPlugin(fileURLToPath(new URL('./', import.meta.url)))],
         resolve: { alias: claudeCodeTestingAliases },
         test: {
           name: 'process-bound',

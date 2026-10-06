@@ -38,7 +38,7 @@ Muse Desktop 内置本地 Java 17、CPython 3.11、PyCryptodome、签名素材�
 
 原源必须返回声明总集数，缺少或与列表不一致时明确失败。修复版 `manifest` 只保证授权目录中的条目完整，不证明红果平台全集。`public` 必须显式选择；它返回的视频 ID 必须有效、不重复，数量与声明总集数一致。下载计划使用这份实际列表，不另设集数上限。官网一般只开放部分集，默认整剧请求遇到未开放集会失败，不自动改为试看下载。缺少原源时同样不会自动切换到其他模式。
 
-原运行时使用通用 `config.json`、私有 `devices.json`、`devicepool.pyc`、原签名素材及五个离线模块。Muse 将校验过摘要的不可变源码资源安装到私有产品数据目录，并在重启后保留该设备。设备初始化失败会等待所拥有的进程停止，再返回固定的安全错误。首次使用才通过 Java 17 在私有签名目录启动 `com.hongguo.sign.FqTrace serve`，设置 `BIND_HOST=127.0.0.1` 和随机实例令牌。释放时等待进程及其子进程全部停止。显式 `signServer` 保留外部本机配置，其 `HG_SIGN_TOKEN` 必须与 `signTokenEnv` 一致。
+原运行时使用通用 `config.json`、私有 `devices.json`、`devicepool.pyc`、原签名素材及五个离线模块。Muse 将校验过摘要的不可变源码资源安装到私有产品数据目录，并在重启后保留该设备。设备初始化失败会等待所拥有的进程停止，再返回固定的安全错误。首次使用才通过 Java 17 在私有签名目录启动 `com.hongguo.sign.FqTrace serve`，采用 UTF-8 进程输出，设置 `BIND_HOST=127.0.0.1` 和随机实例令牌。释放时等待进程及其子进程全部停止。显式 `signServer` 保留外部本机配置，其 `HG_SIGN_TOKEN` 必须与 `signTokenEnv` 一致。
 
 加密视频通过 [python/decrypt.py](python/decrypt.py) 调用所提供的离线模块。它们需要真实 CPython 3.11 和 PyCryptodome；较新 Python 无法导入这些字节码文件。此操作使用媒体模型中的密钥素材和下载文件在本地处理，无需 Android 或 ADB。桥接只通过 stdin 传递私密字段，并屏蔽原模块诊断输出。不支持的加密版本或媒体验证失败会终止整批。
 

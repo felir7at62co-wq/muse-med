@@ -18,6 +18,10 @@ usePinnedBrowserLanguages('zh-CN')
 const REMOTE: TypertRemoteContribution = { package: '@deepseek-ai/dsh-feishu-settings', descriptors: [] }
 const OFF: FeishuSetupStatus = { enabled: false, row: 'disabled', appId: '', credential: 'none', writable: true, login: null }
 
+it('requires its owning mock instead of treating the virtual Remote as a generated export', async () => {
+  await expect(vi.importActual('@deepseek-ai/dsh-feishu-settings/remote')).rejects.toThrow('Generated Remote contribution requires an explicit owning-test mock')
+})
+
 async function bench() {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })

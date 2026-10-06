@@ -58,6 +58,11 @@ async function bench() {
 }
 
 describe('MUSE account browser plugin', () => {
+  it('refuses the generated Remote contribution without its explicit mock', async () => {
+    await expect(vi.importActual('@deepseek-ai/dsh-muse-account/remote'))
+      .rejects.toThrow('Generated Remote contribution requires an explicit owning-test mock')
+  })
+
   it('binds the browser entry to its generated namespace contribution', async () => {
     const b = await bench(), dispose = await apply(b.ctx)
     expect(b.mount).toHaveBeenCalledExactlyOnceWith(REMOTE)

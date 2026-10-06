@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import { checkHongguoRuntime } from './fixtures/hongguo-runtime-smoke.mjs'
+import type { SubprocessHandle, SubprocessOutcome, SubprocessRuntime, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import { checkHongguoRuntime, createNativeDiagnostics } from './fixtures/hongguo-runtime-smoke.mjs'
 import type { HongguoSmokeRuntime } from './fixtures/hongguo-runtime-smoke.mjs'
 
 const environment = { MUSE_HONGGUO_BOOTSTRAP_DEVICES: '1', MUSE_HONGGUO_LEGACY_APP_DIR: import.meta.dirname,
@@ -79,7 +79,7 @@ it.each(['MUSE_HONGGUO_BOOTSTRAP_DEVICES', 'MUSE_HONGGUO_LEGACY_APP_DIR', 'MUSE_
 it('stops before signing and native probes when source bootstrap fails and suppresses its diagnostic', async () => {
   const fixture = mountedRuntime()
   fixture.runtime.client.source.load.mockRejectedValueOnce(new Error('private-device-identifier'))
-  await expect(checkHongguoRuntime('/root', '/runtime', environment, fixture.mount)).rejects.toThrow(/^Hongguo native payload check failed$/u)
+  await expect(checkHongguoRuntime('/root', '/runtime', environment, fixture.mount)).rejects.toThrow('Hongguo native payload check failed (stage=bootstrap; code=native_check; deadline=false)')
   expect(fixture.runtime.client.signer.ensure).not.toHaveBeenCalled()
   expect(fixture.spawn).not.toHaveBeenCalled()
   expect(fixture.runtime.client.dispose).toHaveBeenCalledOnce()
@@ -99,7 +99,7 @@ it('disposes the client and context when the original signer cannot start', asyn
 it.each(['{"error":"private-device-identifier"}', '{"x-argus":"private-signature"}', 'private-signature'])
 ('rejects an invalid local signature response without disclosing it (%#)', async (signature) => {
   const fixture = mountedRuntime(signature)
-  await expect(checkHongguoRuntime('/root', '/runtime', environment, fixture.mount)).rejects.toThrow(/^Hongguo native payload check failed$/u)
+  await expect(checkHongguoRuntime('/root', '/runtime', environment, fixture.mount)).rejects.toThrow('Hongguo native payload check failed (stage=signer-request; code=native_check; deadline=false)')
   expect(fixture.destroy).toHaveBeenCalled()
   expect(fixture.spawn).not.toHaveBeenCalled()
   expect(fixture.runtime.client.dispose).toHaveBeenCalledOnce()
@@ -124,7 +124,7 @@ it.each([
   const fixture = mountedRuntime()
   const handle = nativeHandle(output.stdout, output.stderr, output.exitCode)
   fixture.spawn.mockImplementationOnce(() => nativeHandle('', 'openjdk version "17.0.20.1"\n')).mockImplementationOnce(() => handle)
-  await expect(checkHongguoRuntime('/root', '/runtime', environment, fixture.mount)).rejects.toThrow(/^Hongguo native payload check failed$/u)
+  await expect(checkHongguoRuntime('/root', '/runtime', environment, fixture.mount)).rejects.toThrow('Hongguo native payload check failed (stage=offline-aes; code=native_check; deadline=false)')
   expect(handle.terminate).toHaveBeenCalled()
   expect(handle.waitForExit).toHaveBeenCalled()
   expect(fixture.runtime.client.dispose).toHaveBeenCalledOnce()
@@ -165,9 +165,96 @@ it('bounds a hung bootstrap with cancellation and awaits its owned cleanup', asy
     signal.addEventListener('abort', () => { reject(new Error('bootstrap cancelled')) }, { once: true })
   }))
   const result = checkHongguoRuntime('/root', '/runtime', environment, fixture.mount)
-  const assertion = expect(result).rejects.toThrow('native payload check failed')
+  const assertion = expect(result).rejects.toThrow('Hongguo native payload check failed (stage=bootstrap; code=native_check; deadline=true)')
   await vi.advanceTimersByTimeAsync(180_000)
   await assertion
   expect(fixture.runtime.client.dispose).toHaveBeenCalledOnce()
   expect(fixture.runtime.disposeContext).toHaveBeenCalledOnce()
+})
+
+it.each([
+  { code: 'signer_start_timeout', expected: 'signer_start_timeout' },
+  { code: 'private-device-signature', expected: 'native_check' },
+])('reports only an allowed signer error code and fixed stage (%#)', async ({ code, expected }) => {
+  const fixture = mountedRuntime()
+  fixture.runtime.client.signer.ensure.mockRejectedValueOnce(Object.assign(new Error('private-cookie-token'), { code }))
+  let failure: unknown
+  try { await checkHongguoRuntime('/root', '/runtime', environment, fixture.mount) }
+  catch (error) { failure = error }
+  expect(failure).toBeInstanceOf(Error)
+  if (!(failure instanceof Error)) throw new Error('Expected a bounded diagnostic')
+  expect(failure.message).toBe(`Hongguo native payload check failed (stage=signer-start; code=${expected}; deadline=false)`)
+  expect(failure.message).not.toContain('private-cookie-token')
+  expect(failure.message).not.toContain('private-device-signature')
+  expect(fixture.runtime.client.dispose).toHaveBeenCalledOnce()
+  expect(fixture.runtime.disposeContext).toHaveBeenCalledOnce()
+})
+
+it('reports the mount stage without creating native probes and clears its deadline', async () => {
+  vi.useFakeTimers()
+  const fixture = mountedRuntime()
+  fixture.mount.mockRejectedValueOnce(new Error('private-native-installation-path'))
+  await expect(checkHongguoRuntime('/root', '/runtime', environment, fixture.mount)).rejects.toThrow('Hongguo native payload check failed (stage=mount; code=native_check; deadline=false)')
+  expect(fixture.spawn).not.toHaveBeenCalled()
+  expect(fixture.runtime.client.dispose).not.toHaveBeenCalled()
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it.each([
+  { argv: ['java', 'serve', '12345'], kind: 'java' },
+  { argv: ['python', '-I', 'bridge.py'], kind: 'python' },
+  { argv: ['ffmpeg', '-version'], kind: 'other' },
+  { argv: ['other'], kind: 'other' },
+])('delegates native resources and retains only fixed classifications (%#)', async ({ argv, kind }) => {
+  const handle = nativeHandle('private-token unidbg 离线签名服务已启动: 127.0.0.1:12345/sign (auth on,\n番茄海外 init 完成 base=0x1234\n', 'SIGBUS libunicorn private-device-path')
+  const service: Pick<SubprocessRuntime, 'spawn' | 'resolveExecutable'> = {
+    spawn: vi.fn(() => handle), resolveExecutable: vi.fn(async (value: string) => value),
+  }
+  const diagnostic = createNativeDiagnostics(service)
+  const spec: SubprocessSpawnSpec = { argv, cwd: '/private-tool-workspace', env: { HG_SIGN_TOKEN: 'private-token' }, graceMs: 1000,
+    stdio: { stdin: 'ignore', stdout: { maxBytes: 65536 }, stderr: { maxBytes: 65536 } } }
+  expect(diagnostic.subprocess.spawn(spec)).toBe(handle)
+  expect(await diagnostic.subprocess.resolveExecutable('private-executable', undefined, new AbortController().signal)).toBe('private-executable')
+  expect(service.spawn).toHaveBeenCalledWith(spec)
+  await diagnostic.settle()
+  expect(diagnostic.records()).toHaveLength(1)
+  expect(diagnostic.records()[0]).toMatchObject({ kind, exitCode: 0, signal: null, rejected: false,
+    markers: { bus: true, unicorn: true, asciiInit: true, utf8Init: true, asciiListener: true, utf8Listener: true } })
+  expect(JSON.stringify(diagnostic.records())).not.toMatch(/private-(?:token|device|tool|executable)/u)
+})
+
+it('joins admitted process outcomes before publishing diagnostics and bounds retained records', async () => {
+  let finish!: (value: SubprocessOutcome) => void
+  const handle = { ...nativeHandle(''), done: new Promise<SubprocessOutcome>((done) => { finish = done }) }
+  const service: Pick<SubprocessRuntime, 'spawn' | 'resolveExecutable'> = {
+    spawn: () => handle, resolveExecutable: async value => value,
+  }
+  const diagnostic = createNativeDiagnostics(service)
+  for (let index = 0; index < 30; index++) diagnostic.subprocess.spawn({ argv: ['child'], cwd: '/fixture', graceMs: 1000,
+    stdio: { stdin: 'ignore', stdout: { maxBytes: 65536 }, stderr: { maxBytes: 65536 } } })
+  let settled = false
+  const join = diagnostic.settle().then(() => { settled = true })
+  await Promise.resolve()
+  expect(settled).toBe(false)
+  expect(diagnostic.records()).toEqual([])
+  finish({ exitCode: 137, signal: 'SIGKILL' })
+  await join
+  expect(settled).toBe(true)
+  expect(diagnostic.records()).toHaveLength(8)
+  expect(diagnostic.records().every(record => record.exitCode === 137 && record.signal === 'SIGKILL')).toBe(true)
+})
+
+it('joins rejected process observation and replaces collection errors with a fixed fact', async () => {
+  const failure = Promise.reject(new Error('private-signature-token'))
+  const base = nativeHandle('')
+  const handle = { ...base, done: failure, collected: { stdout: { readFrom: () => { throw new Error('private-capture') } } } }
+  const service: Pick<SubprocessRuntime, 'spawn' | 'resolveExecutable'> = {
+    spawn: () => handle, resolveExecutable: async value => value,
+  }
+  const diagnostic = createNativeDiagnostics(service)
+  diagnostic.subprocess.spawn({ argv: ['java', 'serve'], cwd: '/fixture', graceMs: 1000,
+    stdio: { stdin: 'ignore', stdout: { maxBytes: 65536 }, stderr: { maxBytes: 65536 } } })
+  await diagnostic.settle()
+  expect(diagnostic.records()[0]).toMatchObject({ kind: 'java', rejected: true, exitCode: null, signal: null, markers: { captureFailed: true } })
+  expect(JSON.stringify(diagnostic.records())).not.toContain('private-')
 })

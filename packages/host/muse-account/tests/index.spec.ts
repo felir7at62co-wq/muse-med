@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -79,7 +80,7 @@ it('mounts the account service and a credential-free child using the configured 
   expect(discovery.apply).toHaveBeenCalledOnce()
   const configured = discovery.apply.mock.calls[0]?.[1]
   expect(configured).toMatchObject({ serverName: 'muse-account', transport: 'stdio', command: process.execPath,
-    failOnStartupError: true, args: [expect.stringContaining('types/mcp-server.js')] })
+    failOnStartupError: true, args: [fileURLToPath(new URL('../lib/types/mcp-server.js', import.meta.url))] })
   if (!configured || configured.transport !== 'stdio') throw new Error('Bundled stdio discovery was not mounted')
   const launch = JSON.parse(configured.env?.MUSE_ACCOUNT_CONFIG ?? '{}') as Record<string, unknown>
   expect(launch).toEqual({ baseUrl, accountHome: join(home, 'muse-account'), requestTimeoutMs: 15000 })

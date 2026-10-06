@@ -1,7 +1,7 @@
 /** Recorded-session replay through the shipped headless `dsh` profile. */
 
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
-import { cp, copyFile, mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises'
+import { cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -544,14 +544,15 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     await copyFile(join(repoRoot, 'snapshots/session/muse-transcript-to-script-skill/transcript-to-script.skill.txt'), join(cwd, '.dsh/skills/transcript-to-script/SKILL.md'))
   },
   async 'muse-asr-purpose'(cwd) {
+    const workspace = await realpath(cwd)
     await workspaceSetups['muse-editing-skill']!(cwd)
     await mkdir(join(cwd, 'source'), { recursive: true })
     await mkdir(join(cwd, 'transcript/jobs'), { recursive: true })
     const id = '71000000-0000-4000-8000-000000000001'
     await writeFile(join(cwd, 'source/fixture.mp4'), 'The source of an already submitted screenplay transcription.\n')
     await writeFile(join(cwd, 'transcript/jobs/fixture-v1.json'), JSON.stringify({
-      id, source: join(cwd, 'source/fixture.mp4'), accountUsername: 'fixture', stem: 'fixture', version: 1,
-      language: 'zh', purpose: 'screenplay', sha256: 'a'.repeat(64), mp3: join(cwd, `transcript/jobs/.${id}.wav`), status: 'processing',
+      id, source: join(workspace, 'source/fixture.mp4'), accountUsername: 'fixture', stem: 'fixture', version: 1,
+      language: 'zh', purpose: 'screenplay', sha256: 'a'.repeat(64), mp3: join(workspace, `transcript/jobs/.${id}.wav`), status: 'processing',
     }) + '\n')
   },
   async 'muse-drama-pipeline-skill'(cwd) {
@@ -883,6 +884,24 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('seeds resumed ASR receipts with a canonical workspace through a directory alias', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-asr-workspace-alias-'))
+    try {
+      const workspace = join(directory, 'workspace')
+      const alias = join(directory, 'alias')
+      await mkdir(workspace)
+      await symlink(workspace, alias, process.platform === 'win32' ? 'junction' : 'dir')
+      await workspaceSetups['muse-asr-purpose']!(alias)
+      const receipt = JSON.parse(await readFile(join(alias, 'transcript/jobs/fixture-v1.json'), 'utf8')) as { source: string; mp3: string }
+      const canonical = await realpath(workspace)
+      expect(receipt.source).toBe(join(canonical, 'source/fixture.mp4'))
+      expect(receipt.mp3).toBe(join(canonical, 'transcript/jobs/.71000000-0000-4000-8000-000000000001.wav'))
+      expect(receipt.source).not.toBe(join(alias, 'source/fixture.mp4'))
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('writes a separate output oracle without changing the canonical replay input', async () => {
     const owner = scenarios.find(scenario => scenario.name === 'muse-media-download-tool-catalog')
     if (owner === undefined) throw new Error('Missing current-writer media tool fixture')

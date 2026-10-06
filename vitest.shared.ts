@@ -1,4 +1,5 @@
 import ts from 'typescript'
+export { generatedRemoteMockPlugin } from './scripts/generated-remote-mock.ts'
 
 const decoratorSyntax = /^\s*@[A-Za-z_$][\w$]*/m
 

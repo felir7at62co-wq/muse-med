@@ -72,6 +72,7 @@ test('owned startup copies only signer assets and keeps its token private to the
   assert.equal(spec.env.JAVA_TOOL_OPTIONS, undefined);
   assert.equal(spec.argv.at(-1), '54321');
   assert.ok(spec.argv.includes('-Xmx1024m'));
+  assert.ok(spec.argv.includes('-Dfile.encoding=UTF-8'));
   assert.deepEqual(spec.stdio, { stdin: 'ignore', stdout: { maxBytes: 65536 }, stderr: { maxBytes: 65536 } });
   f.ready();
   const endpoint = await work;

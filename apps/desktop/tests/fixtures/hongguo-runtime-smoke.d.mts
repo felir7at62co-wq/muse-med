@@ -1,4 +1,28 @@
-import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessOutcome, SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+
+/** Fixed native outcome facts; no process argument, response text or identity is retained. */
+export interface HongguoNativeDiagnostic {
+  kind: 'java' | 'python' | 'other'
+  exitCode: number | null
+  signal: SubprocessOutcome['signal']
+  rejected: boolean
+  markers: {
+    bus: boolean; segmentation: boolean; fatalJvm: boolean; unicorn: boolean; nativeLink: boolean
+    missingClass: boolean; outOfMemory: boolean; asciiInit: boolean; utf8Init: boolean
+    asciiListener: boolean; utf8Listener: boolean; lossy: boolean; captureFailed: boolean
+  }
+}
+
+/**
+ * Observe real managed process completion using only bounded fixed classifications.
+ * @param service Actual Cordis provider; all operations are delegated without replacement.
+ * @returns Delegated operations, joined observations and at most eight safe records.
+ */
+export function createNativeDiagnostics(service: Pick<SubprocessRuntime, 'spawn' | 'resolveExecutable'>): {
+  subprocess: Pick<SubprocessRuntime, 'spawn' | 'resolveExecutable'>
+  settle(): Promise<void>
+  records(): readonly HongguoNativeDiagnostic[]
+}
 
 /** Private executable and source paths used only by native payload fixtures. */
 export interface HongguoSmokePaths {
@@ -25,6 +49,7 @@ export interface HongguoSmokeRuntime {
   subprocess: Pick<SubprocessRuntime, 'spawn'>
   bridge: string
   disposeContext(): Promise<void>
+  nativeDiagnostics?(): readonly HongguoNativeDiagnostic[]
 }
 
 /**
