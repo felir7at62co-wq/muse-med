@@ -1,3 +1,4 @@
+import { getSystemErrorMessage, getSystemErrorName } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 afterEach(() => {
@@ -52,13 +53,14 @@ describe('Linux libc execve binding', () => {
     )
     expect(errno).toHaveBeenCalledOnce()
     expect(failure).toMatchObject({
-      code: 'ENOENT',
+      code: getSystemErrorName(-2),
       errno: -2,
       syscall: 'execve',
       path: '/missing/tool',
     })
     expect(failure).toBeInstanceOf(Error)
-    expect((failure as Error).message).toContain("ENOENT: no such file or directory, execve '/missing/tool'")
+    // Node maps numeric system errors with the test host's libuv table, including Windows.
+    expect((failure as Error).message).toBe(`${getSystemErrorName(-2)}: ${getSystemErrorMessage(-2)}, execve '/missing/tool'`)
   })
 
   it('reports failure to read descriptor flags before replacing the process', async () => {
@@ -74,7 +76,7 @@ describe('Linux libc execve binding', () => {
 
     const { loadLinuxExecve } = await import('../src/linux-execve.ts')
     expect(() => loadLinuxExecve()('/bin/tool', ['tool'], {})).toThrow(expect.objectContaining({
-      code: 'EBADF',
+      code: getSystemErrorName(-9),
       errno: -9,
       syscall: 'fcntl',
     }))
@@ -98,7 +100,7 @@ describe('Linux libc execve binding', () => {
 
     const { loadLinuxExecve } = await import('../src/linux-execve.ts')
     expect(() => loadLinuxExecve()('/bin/tool', ['tool'], {})).toThrow(expect.objectContaining({
-      code: 'EIO',
+      code: getSystemErrorName(-5),
       errno: -5,
       syscall: 'fcntl',
     }))
