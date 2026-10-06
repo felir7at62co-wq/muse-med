@@ -2,6 +2,8 @@ name: Muse unsigned desktop packages
 
 on:
   workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -12,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'felir7at62co-wq/muse-med'
+    if: github.repository == 'felir7at62co-wq/muse-med' && (github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft)
     name: ${{ matrix.target }} unsigned installer
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180

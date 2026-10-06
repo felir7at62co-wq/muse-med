@@ -16,10 +16,11 @@ const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ githu
 describe('CI workflow', () => {
   it('builds unsigned Muse installers on native runners without publication credentials', () => {
     const workflow = loadWorkflow('.github/workflows/muse-desktop.yml')
-    expect(workflow.on).toEqual({ workflow_dispatch: null })
+    expect(workflow.on).toEqual({ workflow_dispatch: null,
+      pull_request: { types: ['opened', 'synchronize', 'reopened', 'ready_for_review'] } })
     expect(workflow.permissions).toEqual({ contents: 'read' })
     const job = workflowJob(workflow, 'build')
-    expect(job.if).toBe("github.repository == 'felir7at62co-wq/muse-med'")
+    expect(job.if).toBe("github.repository == 'felir7at62co-wq/muse-med' && (github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft)")
     expect(job.strategy).toEqual({
       'fail-fast': false,
       matrix: { include: [
