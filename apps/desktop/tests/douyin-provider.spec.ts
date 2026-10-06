@@ -86,8 +86,15 @@ it('requires a unique ready playing video and refuses an unbounded player list',
     currentSrc: media,
     mediaKeys: null,
   }
-  const probe = (document: object): unknown => new Script(PROVIDER_PLAYER_PROBE).runInNewContext({ document })
-  expect(probe({ querySelectorAll: () => [video] })).toEqual({ duration: 34.41, https: true, protected: false })
+  const probe = (document: object): unknown => new Script(PROVIDER_PLAYER_PROBE).runInNewContext({ document, URL })
+  expect(probe({ querySelectorAll: () => [video] })).toEqual({ duration: 34.41, sourceSupported: true, protected: false })
+  expect(probe({ querySelectorAll: () => [{ ...video, currentSrc: 'blob:https://www.douyin.com/fixture' }] }))
+    .toEqual({ duration: 34.41, sourceSupported: true, protected: false })
+  for (const currentSrc of ['blob:https://other.test/fixture', 'blob:http://www.douyin.com/fixture', 'file:///tmp/video'])
+    expect(probe({ querySelectorAll: () => [{ ...video, currentSrc }] }))
+      .toEqual({ duration: 34.41, sourceSupported: false, protected: false })
+  expect(probe({ querySelectorAll: () => [{ ...video, mediaKeys: {} }] }))
+    .toEqual({ duration: 34.41, sourceSupported: true, protected: true })
   for (const list of [
     [video, video],
     Array.from({ length: 17 }, () => video),

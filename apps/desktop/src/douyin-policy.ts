@@ -67,6 +67,10 @@ export function parseDouyinRequest(value: unknown): DouyinDesktopRequest | undef
     v.cwd.includes('\0') ||
     typeof v.url !== 'string' ||
     !douyinPage(v.url) ||
+    typeof v.maxDownloadBytes !== 'number' ||
+    !Number.isSafeInteger(v.maxDownloadBytes) ||
+    v.maxDownloadBytes < 1 ||
+    v.maxDownloadBytes > 8 * 1024 ** 3 ||
     (v.action === 'download' && (typeof v.targetVideoId !== 'string' || !/^\d{10,25}$/.test(v.targetVideoId)))
   )
     return undefined

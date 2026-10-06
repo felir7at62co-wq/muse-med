@@ -15,7 +15,7 @@ export function resolveConfig(config = {}) {
     ffprobeExecutable: process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || null,
     ffmpegExecutable: process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || null,
     settingsHome: process.env.DSH_HOME || process.env.MUSE_HOME || null,
-    requestTimeoutMs: 30000, timeoutMs: 120000, maxDownloadBytes: 100 * 1024 ** 2, graceMs: 1000, maxVideos: 20,
+    requestTimeoutMs: 30000, timeoutMs: 120000, maxDownloadBytes: 512 * 1024 ** 2, graceMs: 1000, maxVideos: 20,
     ...config,
   };
   for (const field of ['pythonExecutable', 'ffprobeExecutable', 'ffmpegExecutable']) {

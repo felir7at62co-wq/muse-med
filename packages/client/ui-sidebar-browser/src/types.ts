@@ -47,6 +47,8 @@ export interface DouyinDesktopRequest {
   readonly sessionId: string
   readonly cwd: string
   readonly url: string
+  /** Tool deployment's validated per-video file bound. */
+  readonly maxDownloadBytes: number
   readonly targetVideoId?: string
 }
 

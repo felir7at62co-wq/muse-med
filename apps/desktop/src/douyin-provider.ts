@@ -169,7 +169,9 @@ export const PROVIDER_PLAYER_PROBE = `(() => {
  const all=document.querySelectorAll('video');if(all.length>16)return null;
  const v=[...all].filter(x=>x.getBoundingClientRect().width>0&&x.getBoundingClientRect().height>0);
  if(v.length!==1||v[0].readyState<2||v[0].paused)return null;
- return {duration:v[0].duration,https:v[0].currentSrc.startsWith('https:'),protected:v[0].mediaKeys!==null};
+ const src=v[0].currentSrc;
+ const sourceSupported=src.startsWith('https:')||(src.startsWith('blob:')&&new URL(src).origin==='https://www.douyin.com');
+ return {duration:v[0].duration,sourceSupported,protected:v[0].mediaKeys!=null};
 })()`
 
 interface PendingResponse {

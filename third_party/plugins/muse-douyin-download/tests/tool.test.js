@@ -153,20 +153,21 @@ test('missing bundled runtime blocks single and multiple videos before accessing
     assert.equal(spawns, 0);
   } finally { for (const cleanup of cleanups.reverse()) await cleanup(); }
 });
-test('plugin unload waits for the internal-browser operation to settle', async () => {
-  const cleanups = []; let tool; let settle; let browserSignal; let entered;
+test('plugin forwards its file bound and unload waits for the internal-browser operation to settle', async () => {
+  const cleanups = []; let tool; let settle; let browserSignal; let browserLimit; let entered;
   const started = new Promise(resolve => { entered = resolve; });
   const native = new Promise(resolve => { settle = resolve; });
   const ctx = {
     agents: { requireInitiator() { return { session: { header: { cwd: workspace } } }; } },
     tools: { register(definition) { tool = definition; return () => {}; } },
     subprocess: subprocess({ status: 'blocked', message: 'ACCESS_RESTRICTED' }, { exitCode: 1, signal: null }),
-    get() { return { version: 1, download(_agent, _url, signal) { browserSignal = signal; entered(); return native; } }; },
+    get() { return { version: 2, download(_agent, _url, signal, maxDownloadBytes) { browserSignal = signal; browserLimit = maxDownloadBytes; entered(); return native; } }; },
     effect(factory) { cleanups.push(factory()); },
   };
   apply(ctx, settings);
   const operation = tool.execute({ url: input.url }, {});
   await started;
+  assert.equal(browserLimit, settings.maxDownloadBytes);
   let stopped = false;
   const stop = cleanups[0]().then(() => { stopped = true; });
   assert.equal(browserSignal.aborted, true);
@@ -175,4 +176,22 @@ test('plugin unload waits for the internal-browser operation to settle', async (
   await operation; await stop;
   assert.equal(stopped, true);
   await cleanups[1]();
+});
+
+test('an older browser acquisition returns a blocked result before native IPC', async () => {
+  const cleanups = []; let tool; let nativeCalls = 0;
+  const ctx = {
+    agents: { requireInitiator() { return { session: { header: { cwd: workspace } } }; } },
+    tools: { register(definition) { tool = definition; return () => {}; } },
+    subprocess: subprocess({ status: 'blocked', message: 'ACCESS_RESTRICTED' }, { exitCode: 1, signal: null }),
+    get() { return { version: 1, download() { nativeCalls++; throw new Error('Old transport must not run'); } }; },
+    effect(factory) { cleanups.push(factory()); },
+  };
+  apply(ctx, settings);
+  try {
+    const result = await tool.execute({ url: input.url }, {});
+    assert.equal(result.code, 'DESKTOP_HOST_REQUIRED');
+    assert.equal(result.status, 'blocked');
+    assert.equal(nativeCalls, 0);
+  } finally { for (const cleanup of cleanups.reverse()) await cleanup(); }
 });

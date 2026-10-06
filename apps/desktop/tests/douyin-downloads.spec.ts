@@ -23,9 +23,11 @@ function web() {
     id: Math.random(),
     getURL: (): string => page,
     isDestroyed: (): boolean => false,
+    isLoadingMainFrame: (): boolean => false,
     reload: vi.fn(),
     downloadURL: vi.fn(),
     debugger: { isAttached: () => true },
+    session: { resolveHost: vi.fn(async () => ({ endpoints: [{ address: '1.1.1.1', family: 'ipv4' }] })) },
     executeJavaScript: vi.fn(async () => ({ id, src: media })),
   })
 }
@@ -83,6 +85,7 @@ beforeEach(() => {
     sessionId: 'session-a',
     cwd: root,
     url: page,
+    maxDownloadBytes: 100 * 1024 ** 2,
   }
 })
 afterEach(async () => {
@@ -143,6 +146,9 @@ it('allows only official pages, a single target ID and public HTTPS CDN names', 
     expect(douyinMedia(url)).toBe(false)
   expect(parseDouyinRequest({ ...request, action: 'download' })).toBeUndefined()
   expect(parseDouyinRequest({ ...request, cwd: '/tmp\0bad' })).toBeUndefined()
+  for (const maxDownloadBytes of [undefined, 0, -1, 1.5, Infinity, 8 * 1024 ** 3 + 1])
+    expect(parseDouyinRequest({ ...request, maxDownloadBytes })).toBeUndefined()
+  expect(parseDouyinRequest({ ...request, maxDownloadBytes: 512 * 1024 ** 2 })).toBeDefined()
 })
 it('denies unrequested and replayed downloads while allowing one exact guest ticket', async () => {
   expect(controller.accept(new Item() as never, guest as never)).toBe(false)
@@ -159,6 +165,21 @@ it('denies unrequested and replayed downloads while allowing one exact guest tic
   expect(staged.code).toBe('STAGED')
   expect(JSON.stringify(staged)).not.toContain('secret=')
   expect(staged.evidence?.mediaUrlHash).toMatch(/^[a-f0-9]{64}$/)
+})
+it('waits for the share-page navigation to finish before granting the target reload', async () => {
+  let loading = true
+  guest.isLoadingMainFrame = () => loading
+  const result = controller.request(owner as never, { ...request, url: 'https://v.douyin.com/zz584KwAVaA/' })
+  controller.attached({ owner: owner as never, guest: guest as never, lease: 'lease-a' as never,
+    workspace: `cwd:${root}`, sessionId: 'session-a' })
+  const reply = vi.fn()
+  void result.then(reply)
+  await vi.advanceTimersByTimeAsync(500)
+  expect(reply).not.toHaveBeenCalled()
+  expect(guest.reload).not.toHaveBeenCalled()
+  loading = false
+  await vi.advanceTimersByTimeAsync(100)
+  expect(await result).toMatchObject({ code: 'PREPARED', targetVideoId: id })
 })
 it('does not identify recommended, wrong-ID, blob or absent-metadata media as the target', async () => {
   for (const player of [
@@ -207,6 +228,9 @@ it('fails closed on other owners, sessions, targets, repeated clicks and leases'
   await controller.request(owner as never, { ...request, action: 'release' })
   expect((await prep).code).toBe('CANCELLED')
   await prepared()
+  expect((await controller.request(owner as never, {
+    ...request, action: 'download', targetVideoId: id, maxDownloadBytes: 512 * 1024 ** 2,
+  })).code).toBe('GRANT_MISMATCH')
   expect(
     (await controller.request(owner as never, { ...request, action: 'download', targetVideoId: '7690000000000000000' }))
       .code,
@@ -248,11 +272,26 @@ it.each(['oversize', 'interrupted', 'redirect', 'truncated'])(
     expect(existsSync(item.path)).toBe(false)
   },
 )
+it('accepts a video larger than 100 MiB when the deployment permits it', async () => {
+  request = { ...request, maxDownloadBytes: 512 * 1024 ** 2 }
+  const { result } = await transfer()
+  const item = new Item()
+  item.total = item.got = 150 * 1024 ** 2
+  expect(controller.accept(item as never, guest as never)).toBe(true)
+  item.complete()
+  expect((await result).code).toBe('STAGED')
+})
+it('rejects the declared file size before saving when it exceeds the deployment limit', async () => {
+  request = { ...request, maxDownloadBytes: 7 }
+  const { result } = await transfer()
+  expect(controller.accept(new Item() as never, guest as never)).toBe(false)
+  expect((await result).code).toBe('SIZE_LIMIT')
+})
 
 async function providerTransfer() {
   const debug = fixtureDebugger()
   Object.assign(guest, { debugger: debug })
-  guest.executeJavaScript.mockResolvedValue({ duration: 34.41, https: true, protected: false } as never)
+  guest.executeJavaScript.mockResolvedValue({ duration: 34.41, sourceSupported: true, protected: false } as never)
   guest.reload.mockImplementation(() => {
     guest.emit('did-start-navigation', {}, page, false, true)
     debug.emit('message', {}, 'Page.frameNavigated', { frame: { id: 'main', loaderId: 'loader' } })
@@ -298,7 +337,7 @@ it.each(['wrong-duration', 'protected', 'changed-document', 'private-dns', 'wron
     }
     const { result, debug } = await providerTransfer()
     if (reason === 'wrong-duration')
-      guest.executeJavaScript.mockResolvedValue({ duration: 1, https: true, protected: false } as never)
+      guest.executeJavaScript.mockResolvedValue({ duration: 1, sourceSupported: true, protected: false } as never)
     if (reason === 'protected') {
       const body = fixtureBody()
       Object.assign(body.aweme_detail.video, { drm_type: 1 })
@@ -324,6 +363,49 @@ it.each(['wrong-duration', 'protected', 'changed-document', 'private-dns', 'wron
     expect((await result).code).not.toBe('STAGED')
     if (reason !== 'wrong-response') expect(guest.downloadURL).not.toHaveBeenCalled()
     expect(debug.isAttached()).toBe(false)
+  },
+)
+it('retains provider facts until main-document loading finishes before probing playback', async () => {
+  const { debug } = await providerTransfer()
+  guest.isLoadingMainFrame = () => true
+  await fixtureResponse(debug)
+  await vi.advanceTimersByTimeAsync(500)
+  expect(guest.executeJavaScript).not.toHaveBeenCalled()
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+  guest.isLoadingMainFrame = () => false
+  await vi.advanceTimersByTimeAsync(100)
+  expect(guest.downloadURL).toHaveBeenCalledWith(fixtureMedia)
+})
+it('uses the leased browser network resolver for media and redirect address checks', async () => {
+  controller = new DesktopDouyinDownloads(open)
+  controller.activeSession(owner as never, 'session-a')
+  const { result, debug } = await providerTransfer()
+  await fixtureResponse(debug)
+  await vi.advanceTimersByTimeAsync(100)
+  expect(guest.session.resolveHost).toHaveBeenCalledWith('v3.douyinvod.com')
+  expect(guest.downloadURL).toHaveBeenCalledWith(fixtureMedia)
+  guest.session.resolveHost.mockResolvedValue({ endpoints: [{ address: '127.0.0.1', family: 'ipv4' }] })
+  expect(await controller.blocksRequest('https://v4.douyinvod.com/redirect.mp4', guest.id)).toBe(true)
+  expect(guest.session.resolveHost).toHaveBeenLastCalledWith('v4.douyinvod.com')
+  expect((await result).code).toBe('PRIVATE_MEDIA_ADDRESS')
+})
+it.each(['player', 'dns', 'staging', 'download'] as const)(
+  'reports the failed provider %s stage without disclosing response data', async (stage) => {
+    if (stage === 'dns') {
+      controller = new DesktopDouyinDownloads(open, async () => { throw new Error('private diagnostics') })
+      controller.activeSession(owner as never, 'session-a')
+    }
+    const { result, debug } = await providerTransfer()
+    if (stage === 'player') guest.executeJavaScript.mockRejectedValue(new Error('private diagnostics'))
+    if (stage === 'staging') writeFileSync(join(root, 'source'), 'not a directory')
+    if (stage === 'download') guest.downloadURL.mockImplementation(() => { throw new Error('private diagnostics') })
+    await fixtureResponse(debug)
+    await vi.advanceTimersByTimeAsync(100)
+    const codes = { player: 'PLAYER_PROBE_UNAVAILABLE', dns: 'MEDIA_DNS_UNAVAILABLE',
+      staging: 'MEDIA_STAGING_UNAVAILABLE', download: 'NATIVE_DOWNLOAD_UNAVAILABLE' }
+    const response = await result
+    expect(response.code).toBe(codes[stage])
+    expect(JSON.stringify(response)).not.toContain('private diagnostics')
   },
 )
 it('denies private redirect resolution and cannot issue a download after cancellation during DNS', async () => {

@@ -2,7 +2,6 @@
 import type { DownloadItem, WebContents, OnResponseStartedListenerDetails } from 'electron'
 import { mkdirSync, lstatSync, realpathSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { lookup } from 'node:dns/promises'
 import type {
   DesktopBrowserLeaseId,
   DouyinDesktopRequest,
@@ -49,8 +48,7 @@ interface Task {
   transferResponses?: Map<string, number>
 }
 
-/** Explicit hard upper bounds; this first transport handles one task and one complete MP4. */
-const MAX_BYTES = 100 * 1024 ** 2
+/** One native task has a bounded preparation and transfer lifetime. */
 const MAX_MS = 120_000
 
 /** @param cwd - session root. @param task - random task ID. @returns private real-directory staging path. */
@@ -85,8 +83,7 @@ export class DesktopDouyinDownloads {
 
   constructor(
     private readonly open: (owner: WebContents, sessionId: string, url: string) => void,
-    private readonly addresses: (host: string) => Promise<readonly string[]> = async host =>
-      (await lookup(host, { all: true })).map(v => v.address),
+    private readonly addresses?: (host: string) => Promise<readonly string[]>,
   ) {}
 
   /** @param owner - authenticated application window. @param session - selected Session, or absent. */
@@ -189,7 +186,8 @@ export class DesktopDouyinDownloads {
       task.request.taskId === request.taskId &&
       task.request.sessionId === request.sessionId &&
       task.request.cwd === request.cwd &&
-      task.request.url === request.url
+      task.request.url === request.url &&
+      task.request.maxDownloadBytes === request.maxDownloadBytes
     )
   }
 
@@ -207,6 +205,7 @@ export class DesktopDouyinDownloads {
     if (task.phase === 'preparing') {
       // Only the new guest opened for this request may be associated by attach().
       if (task.lease === undefined) return
+      if (task.lease.guest.isLoadingMainFrame()) return
       const id = targetVideoId(task.lease.guest.getURL())
       if (id === undefined) return
       const expected = targetVideoId(task.request.url)
@@ -273,7 +272,8 @@ export class DesktopDouyinDownloads {
         task.transferResponses ??= new Map()
         if (task.transferResponses.size < 16) task.transferResponses.set(details.url, details.statusCode)
       } else if (details.url === task.selectedURL || task.item?.getURLChain().includes(details.url))
-        void this.revoke('DOWNLOAD_RESPONSE_REJECTED')
+        void this.revoke([200, 206].includes(details.statusCode)
+          ? 'DOWNLOAD_MIME_REJECTED' : `DOWNLOAD_HTTP_${details.statusCode}`)
       return
     }
     if (task.phase !== 'observing' || ![200, 206].includes(details.statusCode) || details.resourceType !== 'media')
@@ -291,6 +291,7 @@ export class DesktopDouyinDownloads {
 
   private async choose(task: Task): Promise<void> {
     if (task.checking || task.phase !== 'observing' || task.lease === undefined || task.response === undefined) return
+    if (task.lease.guest.isLoadingMainFrame()) return
     task.checking = true
     const observed = task.response
     const epoch = task.documentEpoch
@@ -326,9 +327,11 @@ export class DesktopDouyinDownloads {
 
   private async chooseProvider(task: Task): Promise<void> {
     if (task.checking || task.phase !== 'observing' || task.lease === undefined || task.provider === undefined) return
+    if (task.lease.guest.isLoadingMainFrame()) return
     task.checking = true
     const source = task.provider,
       epoch = task.documentEpoch
+    let failureCode = 'PLAYER_PROBE_UNAVAILABLE'
     try {
       const player: unknown = await task.lease.guest.executeJavaScript(PROVIDER_PLAYER_PROBE)
       if (
@@ -340,12 +343,12 @@ export class DesktopDouyinDownloads {
         return
       if (typeof player !== 'object' || player === null) return
       const facts = player as Record<string, unknown>
-      if (facts.protected || facts.https === false) {
+      if (facts.protected || facts.sourceSupported === false) {
         void this.revoke('PROTECTED_OR_UNSUPPORTED_MEDIA')
         return
       }
       if (
-        facts.https !== true ||
+        facts.sourceSupported !== true ||
         typeof facts.duration !== 'number' ||
         !Number.isFinite(facts.duration) ||
         Math.abs(facts.duration - source.durationMs / 1000) > 0.25
@@ -353,7 +356,8 @@ export class DesktopDouyinDownloads {
         return
       const url = source.urls[0]
       if (url === undefined) return
-      if (!(await this.publicHost(url))) {
+      failureCode = 'MEDIA_DNS_UNAVAILABLE'
+      if (!(await this.publicHost(url, task.lease.guest))) {
         void this.revoke('PRIVATE_MEDIA_ADDRESS')
         return
       }
@@ -365,12 +369,16 @@ export class DesktopDouyinDownloads {
         targetVideoId(task.lease.guest.getURL()) !== source.targetVideoId
       )
         return
+      failureCode = 'MEDIA_STAGING_UNAVAILABLE'
       task.directory = stagingDirectory(task.request.cwd, task.request.taskId)
       task.selectedURL = url
       task.association = 'provider-detail-verified'
       task.phase = 'downloading'
       task.providerResponses?.close()
+      failureCode = 'NATIVE_DOWNLOAD_UNAVAILABLE'
       task.lease.guest.downloadURL(url)
+    } catch (_error) {
+      if (this.task === task) void this.revoke(failureCode)
     } finally {
       task.checking = false
     }
@@ -393,10 +401,10 @@ export class DesktopDouyinDownloads {
     )
       return false
     if (task.association === 'provider-detail-verified' && !/^video\/mp4(?:;|$)/i.test(item.getMimeType())) {
-      void this.revoke('DOWNLOAD_RESPONSE_REJECTED')
+      void this.revoke('DOWNLOAD_MIME_REJECTED')
       return false
     }
-    if (item.getTotalBytes() > MAX_BYTES) {
+    if (item.getTotalBytes() > task.request.maxDownloadBytes) {
       void this.revoke('SIZE_LIMIT')
       return false
     }
@@ -406,7 +414,7 @@ export class DesktopDouyinDownloads {
     item.setSavePath(join(task.directory, 'video.mp4'))
     item.on('updated', (_event, state) => {
       if (this.task !== task) return
-      if (state === 'interrupted' || item.getReceivedBytes() > MAX_BYTES || !this.validChain(item.getURLChain()))
+      if (state === 'interrupted' || item.getReceivedBytes() > task.request.maxDownloadBytes || !this.validChain(item.getURLChain()))
         void this.revoke('DOWNLOAD_INTERRUPTED')
     })
     item.once('done', (_event, state) => {
@@ -418,7 +426,7 @@ export class DesktopDouyinDownloads {
       if (
         state !== 'completed' ||
         item.getReceivedBytes() <= 0 ||
-        item.getReceivedBytes() > MAX_BYTES ||
+        item.getReceivedBytes() > task.request.maxDownloadBytes ||
         (item.getTotalBytes() > 0 && item.getTotalBytes() !== item.getReceivedBytes()) ||
         !this.validChain(item.getURLChain()) ||
         item.getURLChain()[0] !== task.selectedURL ||
@@ -499,8 +507,9 @@ export class DesktopDouyinDownloads {
       (guestId !== undefined && guestId !== task.lease?.guest.id)
     )
       return false
+    if (task.lease === undefined) return true
     try {
-      if (!(await this.publicHost(url))) {
+      if (!(await this.publicHost(url, task.lease.guest))) {
         if (this.task === task) void this.revoke('PRIVATE_MEDIA_ADDRESS')
         return true
       }
@@ -511,11 +520,13 @@ export class DesktopDouyinDownloads {
     return !this.isCurrent(task, 'downloading')
   }
 
-  private async publicHost(url: string): Promise<boolean> {
+  private async publicHost(url: string, guest: WebContents): Promise<boolean> {
     let timeout: ReturnType<typeof setTimeout> | undefined
     try {
       const addresses = await Promise.race([
-        this.addresses(new URL(url).hostname),
+        this.addresses === undefined
+          ? guest.session.resolveHost(new URL(url).hostname).then(result => result.endpoints.map(v => v.address))
+          : this.addresses(new URL(url).hostname),
         new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(() => {
             reject(new Error('DNS timeout'))

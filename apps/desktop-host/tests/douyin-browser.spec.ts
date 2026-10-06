@@ -5,9 +5,14 @@ import { realpathSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { installDesktopDouyinBrowser } from '../src/douyin-browser.ts'
 
-it.each(['PREPARED', 'LOGIN_OR_VERIFICATION_REQUIRED'])(
-  'starts the target-bound download without an additional prompt after %s',
-  async (preparedCode) => {
+it.each([
+  ['PREPARED', 'UNSUPPORTED_MEDIA_ASSOCIATION'],
+  ['PREPARED', 'DOWNLOAD_HTTP_403'],
+  ['LOGIN_OR_VERIFICATION_REQUIRED', 'UNSUPPORTED_MEDIA_ASSOCIATION'],
+  ['DOWNLOAD_HTTP_403', 'UNSUPPORTED_MEDIA_ASSOCIATION'],
+])(
+  'starts or rejects the target-bound download after %s and preserves %s',
+  async (preparedCode, downloadCode) => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('native-approval-fixture'), {
@@ -15,19 +20,24 @@ it.each(['PREPARED', 'LOGIN_OR_VERIFICATION_REQUIRED'])(
     })
     session.append('turn/start', { turn: 1 })
     const operations: string[] = []
+    const limits: number[] = []
     const connected = Object.getOwnPropertyDescriptor(process, 'connected')
     const send = Object.getOwnPropertyDescriptor(process, 'send')
     Object.defineProperty(process, 'connected', { value: true, configurable: true })
     Object.defineProperty(process, 'send', {
       configurable: true,
-      value: (message: Record<string, string>, callback: (error: Error | null) => void) => {
-        operations.push(message.action ?? '')
+      value: (
+        message: { action: string; requestId: string; taskId: string; maxDownloadBytes: number },
+        callback: (error: Error | null) => void,
+      ) => {
+        operations.push(message.action)
+        limits.push(message.maxDownloadBytes)
         queueMicrotask(() => {
           if (message.action === 'download')
             EventEmitter.prototype.emit.call(process, 'message', {
               type: 'douyin-browser-revoked',
               taskId: message.taskId,
-              code: 'UNSUPPORTED_MEDIA_ASSOCIATION',
+              code: downloadCode,
             })
           EventEmitter.prototype.emit.call(process, 'message', {
             type: 'douyin-browser-result',
@@ -36,7 +46,7 @@ it.each(['PREPARED', 'LOGIN_OR_VERIFICATION_REQUIRED'])(
               message.action === 'prepare'
                 ? preparedCode
                 : message.action === 'download'
-                  ? 'UNSUPPORTED_MEDIA_ASSOCIATION'
+                  ? downloadCode
                   : 'RELEASED',
             targetVideoId: '7692443246022167851',
           })
@@ -50,14 +60,16 @@ it.each(['PREPARED', 'LOGIN_OR_VERIFICATION_REQUIRED'])(
         { id: session.id, session } as never,
         'https://v.douyin.com/zz584KwAVaA/',
         new AbortController().signal,
+        512 * 1024 ** 2,
       )
       expect(result).toMatchObject({
         status: 'blocked',
-        code: preparedCode === 'PREPARED' ? 'UNSUPPORTED_MEDIA_ASSOCIATION' : preparedCode,
+        code: preparedCode === 'PREPARED' ? downloadCode : preparedCode,
       })
       expect(operations).toEqual(
         preparedCode === 'PREPARED' ? ['prepare', 'download', 'release'] : ['prepare', 'release'],
       )
+      expect(limits).toEqual(operations.map(() => 512 * 1024 ** 2))
       expect(
         session
           .snapshotEvents()

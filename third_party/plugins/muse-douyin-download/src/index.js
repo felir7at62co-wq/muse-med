@@ -63,8 +63,8 @@ export function apply(ctx, config = {}) {
           if (result.status === 'blocked' && args.publicOnly !== true
             && /PUBLIC_SHARE_MEDIA_UNAVAILABLE|PUBLIC_SHARE_REQUEST_FAILED|PUBLIC_MEDIA_DOWNLOAD_FAILED|LOGIN_OR_VERIFICATION_REQUIRED|ACCESS_RESTRICTED/.test(result.message || '')) {
             const browser = ctx.get('douyinBrowser');
-            if (browser?.version === 1) {
-              const nativePending = browser.download(agent, url, signal);
+            if (browser?.version === 2) {
+              const nativePending = browser.download(agent, url, signal, settings.maxDownloadBytes);
               running.add(nativePending);
               try { result = await nativePending; } finally { running.delete(nativePending); }
             } else result = { status: 'blocked', code: 'DESKTOP_HOST_REQUIRED', message: 'This plugin requires the matching MUSE Desktop browser download bridge for authorized playback.' };

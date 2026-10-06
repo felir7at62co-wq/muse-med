@@ -24,7 +24,7 @@ try {
   const runtime = JSON.parse(readFileSync(join(skill, 'runtime/SOURCE.json'), 'utf8'));
   const hostVersion = JSON.parse(readFileSync(join(repository, 'apps/desktop-host/package.json'), 'utf8')).version;
   writeFileSync(join(staging, 'SOURCE.json'), JSON.stringify({ name: 'muse-douyin-download', hostVersion,
-    hostProtocolVersion: 5, browserBridgeVersion: 1,
+    hostProtocolVersion: 5, browserBridgeVersion: 2,
     script: 'apps/desktop-host/skills/douyin-download/scripts/download.py',
     scriptSha256: createHash('sha256').update(readFileSync(join(skill, 'scripts/download.py'))).digest('hex'), runtime }, null, 2) + '\n');
   const cli = process.env.npm_execpath;

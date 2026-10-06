@@ -14,14 +14,15 @@ import type {
 import { mediaEvidence, nativeMediaFacts } from './douyin-media-facts.ts'
 
 interface BrowserAcquisition {
-  readonly version: 1
+  readonly version: 2
   /**
    * @param agent - initiating real Agent.
    * @param url - requested official page.
    * @param signal - tool lifetime.
+   * @param maxDownloadBytes - validated tool deployment's per-video file bound.
    * @returns verified receipt or explicit failure.
    */
-  download(agent: Agent, url: string, signal: AbortSignal): Promise<object>
+  download(agent: Agent, url: string, signal: AbortSignal, maxDownloadBytes: number): Promise<object>
 }
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -37,7 +38,7 @@ function resultOf(value: unknown): DouyinDesktopResult | undefined {
     v.type !== 'douyin-browser-result' ||
     typeof v.requestId !== 'string' ||
     typeof v.code !== 'string' ||
-    !/^[A-Z_]{1,64}$/.test(v.code)
+    !/^[A-Z0-9_]{1,64}$/.test(v.code)
   )
     return undefined
   if (v.targetVideoId !== undefined && (typeof v.targetVideoId !== 'string' || !/^\d{10,25}$/.test(v.targetVideoId)))
@@ -66,7 +67,7 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
       typeof value.taskId === 'string'
     ) {
       const reason =
-        'code' in value && typeof value.code === 'string' && /^[A-Z_]{1,64}$/.test(value.code)
+        'code' in value && typeof value.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(value.code)
           ? value.code
           : 'CANCELLED'
       taskLifetimes.get(value.taskId)?.abort(reason)
@@ -116,7 +117,7 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
     },
     'douyin: settle transport on Host shutdown',
   )
-  const acquire = async (agent: Agent, url: string, callerSignal: AbortSignal): Promise<object> => {
+  const acquire = async (agent: Agent, url: string, callerSignal: AbortSignal, maxDownloadBytes: number): Promise<object> => {
     const taskLifetime = new AbortController()
     const signal = AbortSignal.any([callerSignal, lifetime.signal, taskLifetime.signal])
     const taskId = randomUUID() as DouyinTaskId
@@ -154,7 +155,7 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
         : ['www.douyin.com', 'www.iesdouyin.com'].includes(page.hostname) && target)
     if (!official) return { status: 'blocked', code: 'INVALID_URL' }
     taskLifetimes.set(taskId, taskLifetime)
-    const base = { type: 'douyin-browser' as const, taskId, sessionId: agent.id, cwd, url }
+    const base = { type: 'douyin-browser' as const, taskId, sessionId: agent.id, cwd, url, maxDownloadBytes }
     const release = (): Promise<DouyinDesktopResult> => send({ ...base, requestId: randomUUID(), action: 'release' })
     const abort = (): void => {
       if (!taskLifetime.signal.aborted) void release()
@@ -170,7 +171,7 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
       const staged = await send({ ...base, requestId: randomUUID(), action: 'download', targetVideoId: target })
       signal.throwIfAborted()
       if (staged.code !== 'STAGED') return { status: 'blocked', code: staged.code, taskId, targetVideoId: target }
-      return await verifyNativeMedia(ctx, staged, cwd, taskId, target, signal)
+      return await verifyNativeMedia(ctx, staged, cwd, taskId, target, maxDownloadBytes, signal)
     } catch (_error) {
       const revoked: unknown = taskLifetime.signal.reason
       return {
@@ -192,9 +193,9 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
   ctx.effect(
     () =>
       ctx.provide('douyinBrowser', {
-        version: 1,
-        download(agent, url, callerSignal) {
-          const operation = acquire(agent, url, callerSignal)
+        version: 2,
+        download(agent, url, callerSignal, maxDownloadBytes) {
+          const operation = acquire(agent, url, callerSignal, maxDownloadBytes)
           downloads.add(operation)
           return operation.finally(() => {
             downloads.delete(operation)
@@ -241,6 +242,7 @@ async function mediaCommand(ctx: Context, args: string[], cwd: string, signal: A
  * @param cwd - canonical root.
  * @param taskId - owned task.
  * @param target - approved video.
+ * @param maxDownloadBytes - validated tool deployment's per-video file bound.
  * @param signal - lifetime.
  * @returns file-backed verified receipt.
  */
@@ -250,13 +252,14 @@ async function verifyNativeMedia(
   cwd: string,
   taskId: string,
   target: string,
+  maxDownloadBytes: number,
   signal: AbortSignal,
 ): Promise<object> {
   const file = join(cwd, 'source', 'media', 'douyin', `.native-${taskId}`, 'video.mp4')
   if (staged.path !== file || staged.targetVideoId !== target || realpathSync(file) !== file)
     throw new Error('Invalid media location')
   const info = await stat(file)
-  if (!info.isFile() || info.size <= 0 || info.size > 100 * 1024 ** 2) throw new Error('Invalid media size')
+  if (!info.isFile() || info.size <= 0 || info.size > maxDownloadBytes) throw new Error('Invalid media size')
   const evidence = mediaEvidence(staged.evidence, target)
   const probe = await ctx.subprocess.resolveExecutable(process.env.DSH_FFPROBE_PATH ?? 'ffprobe', undefined, signal)
   const decoder = await ctx.subprocess.resolveExecutable(process.env.DSH_FFMPEG_PATH ?? 'ffmpeg', undefined, signal)
