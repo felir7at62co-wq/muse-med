@@ -201,13 +201,13 @@ describe('desktop package step table', () => {
     expect(() => selectPackageSteps(steps, 'S14', undefined)).toThrow(/unknown step "S14"; expected one of S1/u)
   })
 
-  it('declares the media payload only for the target that prepares it', () => {
+  it('declares each platform media payload for resumed packaging', () => {
     const media = (target: 'win-x64' | 'mac-arm64'): string[] =>
       desktopPackageSteps(process.cwd(), target, target === 'win-x64')
         .flatMap(step => step.artifacts.map(artifact => artifact.glob))
         .filter(glob => glob.includes('media'))
     expect(media('win-x64')).toEqual(['apps/desktop/.desktop-build/targets/win-x64/runtime/media'])
-    expect(media('mac-arm64')).toEqual([])
+    expect(media('mac-arm64')).toEqual(['apps/desktop/.desktop-build/targets/mac-arm64/runtime/media'])
   })
 
   it('records the unsigned installer directory when the run is unsigned', () => {

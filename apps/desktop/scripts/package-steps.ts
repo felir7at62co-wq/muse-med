@@ -98,7 +98,7 @@ function tarballName(manifestPath: string): string {
  * installer.
  * @param root - absolute repository root.
  * @param target - release target the run packages.
- * @param unsigned - whether the run creates a local unsigned Windows artifact.
+ * @param unsigned - whether artifacts omit publisher signing and notarization.
  * @returns The steps in execution order, with the paths each produces.
  */
 export function desktopPackageSteps(
@@ -194,9 +194,7 @@ export function desktopPackageSteps(
       title: 'prepare the target runtime and its media payload',
       artifacts: [
         { glob: `${runtime}/versions.json`, label: 'prepared Node and pnpm versions', kind: 'files' },
-        ...(target === 'win-x64'
-          ? [{ glob: `${runtime}/media`, label: 'media runtime payload', kind: 'directory' as const }]
-          : []),
+        { glob: `${runtime}/media`, label: 'media runtime payload', kind: 'directory' },
       ],
     },
     {

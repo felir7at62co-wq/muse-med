@@ -109,7 +109,7 @@ export function withoutWindowsSigningEnvironment(environment: NodeJS.ProcessEnv)
 /**
  * Select signing and NSIS-compatible archive filters for electron-builder.
  * @param environment - Target packaging environment.
- * @param unsigned - Whether to create a local unsigned Windows artifact.
+ * @param unsigned - Whether to create an artifact without publisher signing or notarization.
  * @returns Packaging environment without certificate inputs for unsigned builds.
  */
 export function desktopElectronBuilderEnvironment(environment: NodeJS.ProcessEnv, unsigned: boolean): NodeJS.ProcessEnv {
@@ -119,7 +119,7 @@ export function desktopElectronBuilderEnvironment(environment: NodeJS.ProcessEnv
   if (!unsigned) return selected
   return {
     ...Object.fromEntries(Object.entries(withoutWindowsSigningEnvironment(selected))
-      .filter(([name]) => !/^(?:WIN_)?CSC_/iu.test(name))),
+      .filter(([name]) => !/^(?:(?:WIN_)?CSC_|APPLE_|DSH_DESKTOP_MACOS_(?:SIGNING_IDENTITY|TEAM_ID))/iu.test(name))),
     CSC_IDENTITY_AUTO_DISCOVERY: 'false',
     DSH_DESKTOP_UNSIGNED: '1',
   }
@@ -267,7 +267,6 @@ export function parseDesktopPackageInvocation(
   })
   if (positionals.length > 1) throw new Error('desktop package: expected at most one target')
   const name = positionals[0] ?? hostTargetName(hostPlatform, hostArch)
-  if (values.unsigned && name !== 'win-x64') throw new Error('desktop package: --unsigned requires win-x64')
   if (values.unsigned && values['prepare-only']) throw new Error('desktop package: --unsigned cannot use --prepare-only')
   if (values['with-bgm'] && name !== 'win-x64') throw new Error('desktop package: --with-bgm requires win-x64')
   const requestedBuildVersion = values['build-version']?.trim()
@@ -336,7 +335,12 @@ export function desktopPrepareMediaRuntimeArguments(
   paths: { readonly runtime: string; readonly downloads: string },
   withBgm: boolean,
 ): readonly string[] | undefined {
-  if (target.platform !== 'win32' || target.arch !== 'x64') return undefined
+  if (target.platform === 'darwin') return [
+    'exec', 'tsx', 'apps/desktop/scripts/prepare-macos-media.ts',
+    '--output', join(paths.runtime, 'media'),
+    '--cache', join(paths.downloads, 'macos-media'), '--arch', target.arch,
+  ]
+  if (target.arch !== 'x64') return undefined
   return [
     'exec',
     'tsx',
@@ -468,8 +472,9 @@ async function main(): Promise<void> {
       recordPackagingEvent(run.directory, { type: 'macos-settings', packConcurrency: settings.packConcurrency,
         downloadProxyConfigured: settings.downloadProxy !== undefined,
         notarizationProxyConfigured: settings.notarizationProxy !== undefined })
-      await packagingStep(run.directory, 'macos-package', () => withMacOSSigningKeychain(environment,
-        signingEnvironment => packageTarget(invocation, signingEnvironment, run)), secrets)
+      await packagingStep(run.directory, 'macos-package', () => invocation.unsigned
+        ? packageTarget(invocation, environment, run)
+        : withMacOSSigningKeychain(environment, signingEnvironment => packageTarget(invocation, signingEnvironment, run)), secrets)
     } else {
       await packagingStep(run.directory, 'windows-package', () => packageTarget(invocation, environment, run), secrets)
     }
@@ -529,7 +534,9 @@ export async function packageTarget(
     rmSync(`${releaseRecordPath}.tmp`, { force: true })
   }
   const buildEnv = {
-    ...withoutWindowsSigningEnvironment(withoutDesktopUploadCredentials(environment)),
+    ...desktopElectronBuilderEnvironment(
+      withoutWindowsSigningEnvironment(withoutDesktopUploadCredentials(environment)), invocation.unsigned,
+    ),
     DSH_CLIENT_TITLE: 'Muse',
     DSH_CLIENT_PRODUCT_VERSION: resolveDesktopBuildVersion(environment, readDesktopProductVersion(APP_ROOT)),
   }
@@ -632,7 +639,10 @@ export async function packageTarget(
       if (signPrimaryRuntime) await execute(['run', 'sign:primary-runtime', '--dsh'], electronBuilderEnv)
     },
     S13: async () => {
-      if (target.platform === 'darwin' && !invocation.directory) {
+      if (target.platform === 'darwin' && invocation.unsigned) {
+        await execute(desktopElectronBuilderArguments(target, invocation.directory), electronBuilderEnv)
+        await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts', '--unsigned'], targetEnv)
+      } else if (target.platform === 'darwin' && !invocation.directory) {
         await execute([
           ...desktopElectronBuilderArguments(target, true),
           '--config.mac.notarize=false',
@@ -657,7 +667,7 @@ export async function packageTarget(
         await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts', ...(invocation.unsigned ? ['--unsigned'] : [])], targetEnv)
       }
       if (!invocation.directory && !invocation.unsigned) writeReleaseRecord(target, electronBuilderEnv, buildPaths.artifacts)
-      if (journal) recordPackagingEvent(journal, { type: 'artifacts', directory: buildPaths.artifacts })
+      if (journal) recordPackagingEvent(journal, { type: 'artifacts', directory: invocation.unsigned ? buildPaths.unsignedArtifacts : buildPaths.artifacts })
     },
   }
   const runSteps: readonly DesktopPackageRunStep[] = steps.map(step => ({ ...step, run: bodies[step.id] }))

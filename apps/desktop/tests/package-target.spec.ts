@@ -77,14 +77,14 @@ describe('desktop package target', () => {
     expect(desktopElectronBuilderArguments(target, true)).toContain('--dir')
   })
 
-  it('accepts unsigned Windows artifacts and rejects other targets or preparation-only use', () => {
+  it('accepts unsigned installers on both platforms and rejects preparation-only use', () => {
     expect(parseDesktopPackageInvocation(['win-x64', '--unsigned'], 'win32', 'x64').unsigned).toBe(true)
     expect(parseDesktopPackageInvocation(['win-x64'], 'win32', 'x64').unsigned).toBe(false)
     expect(parseDesktopPackageInvocation(['--unsigned', '--dir'], 'win32', 'x64')).toMatchObject({
       unsigned: true, directory: true,
     })
-    expect(() => parseDesktopPackageInvocation(['mac-arm64', '--unsigned'], 'darwin', 'arm64'))
-      .toThrow(/requires win-x64/u)
+    expect(parseDesktopPackageInvocation(['mac-arm64', '--unsigned'], 'darwin', 'arm64').unsigned).toBe(true)
+    expect(parseDesktopPackageInvocation(['mac-x64', '--unsigned'], 'darwin', 'arm64').unsigned).toBe(true)
     expect(() => parseDesktopPackageInvocation(['--unsigned', '--prepare-only'], 'win32', 'x64'))
       .toThrow(/cannot use --prepare-only/u)
   })
@@ -96,6 +96,9 @@ describe('desktop package target', () => {
       CSC_LINK: 'private.pfx',
       CSC_KEY_PASSWORD: 'secret',
       WIN_CSC_LINK: 'windows.pfx',
+      APPLE_API_KEY: 'private.p8',
+      DSH_DESKTOP_MACOS_SIGNING_IDENTITY: 'Example',
+      DSH_DESKTOP_MACOS_TEAM_ID: 'TEAMID1234',
       CSC_IDENTITY_AUTO_DISCOVERY: 'true',
       DSH_DESKTOP_UNSIGNED: '1',
     }
@@ -168,8 +171,12 @@ describe('desktop package target', () => {
     expect(optInArguments).toContain('--bgm-cache')
     expect(optInArguments?.at(-1)).toBe(join(paths.downloads, 'bgm'))
     expect(desktopPrepareMediaRuntimeArguments(
-      resolveDesktopPackageTarget('mac-arm64', 'darwin', 'arm64'), paths, true,
-    )).toBeUndefined()
+      resolveDesktopPackageTarget('mac-arm64', 'darwin', 'arm64'), paths, false,
+    )).toEqual([
+      'exec', 'tsx', 'apps/desktop/scripts/prepare-macos-media.ts',
+      '--output', join(paths.runtime, 'media'),
+      '--cache', join(paths.downloads, 'macos-media'), '--arch', 'arm64',
+    ])
   })
 
   it('names the emotion-runtime inputs a BGM opt-in still needs', () => {

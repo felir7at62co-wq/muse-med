@@ -4,6 +4,7 @@ import { join, dirname, resolve } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { createHash } from 'node:crypto'
+import { parseArgs } from 'node:util'
 import { obtain, verifyMediaResource, type MediaResource } from './media-resources.ts'
 
 interface MacMediaLock {
@@ -201,4 +202,12 @@ export function smokeMacMedia(output: string): void {
     )
       throw new Error(`Mac media: ${name} failed standalone smoke`)
   }
+}
+
+if (process.argv[1] !== undefined && import.meta.filename === resolve(process.argv[1])) {
+  const { values } = parseArgs({ options: { output: { type: 'string' }, cache: { type: 'string' }, arch: { type: 'string' } } })
+  if (!values.output || !values.cache || (values.arch !== 'arm64' && values.arch !== 'x64')) {
+    throw new Error('Mac media: --output, --cache and --arch arm64|x64 are required')
+  }
+  await prepareMacMedia(values.output, values.cache, values.arch)
 }

@@ -149,10 +149,23 @@ describe('desktop macOS release signature', () => {
     expect(config.win.signtoolOptions.publisherName).toBeUndefined()
   })
 
-  it('rejects unsigned macOS builds and malformed signing modes', async () => {
+  it('builds unsigned macOS artifacts without signing credentials or Apple operations', async () => {
     const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
-    expect(() => createElectronBuilderConfig({ ...RELEASE_ENVIRONMENT, DSH_DESKTOP_UNSIGNED: '1' }))
-      .toThrow(/unsigned builds require Windows/u)
+    const config = createElectronBuilderConfig({ DSH_DESKTOP_UNSIGNED: '1',
+      DSH_DESKTOP_APP_ID: RELEASE_ENVIRONMENT.DSH_DESKTOP_APP_ID,
+      DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: RELEASE_ENVIRONMENT.DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN,
+      DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: RELEASE_ENVIRONMENT.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG,
+    }, 'darwin', 'arm64')
+    expect(config.mac).toMatchObject({ identity: null, forceCodeSigning: false, hardenedRuntime: false, notarize: false })
+    expect(config.dmg.sign).toBe(false)
+    expect(portablePath(config.directories.output)).toContain('/targets/mac-arm64/unsigned-artifacts')
+    expect(config.publish).toMatchObject([{ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med' }])
+    expect(config.artifactBuildCompleted({ file: 'unsigned.dmg' })).toBeUndefined()
+    await config.afterSign({ electronPlatformName: 'darwin' } as Parameters<typeof config.afterSign>[0])
+  })
+
+  it('rejects malformed signing modes', async () => {
+    const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
     expect(() => createElectronBuilderConfig({ ...RELEASE_ENVIRONMENT, DSH_DESKTOP_UNSIGNED: 'yes' }))
       .toThrow(/must be 0 or 1/u)
   })

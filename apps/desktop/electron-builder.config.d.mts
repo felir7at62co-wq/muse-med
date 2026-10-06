@@ -28,7 +28,7 @@ export interface DesktopElectronBuilderConfig {
     }
     readonly entitlements: string
     readonly entitlementsInherit: string
-    readonly identity: string | undefined
+    readonly identity: string | null | undefined
     readonly forceCodeSigning: boolean
     readonly hardenedRuntime: boolean
     readonly notarize: boolean

@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
 /muse-desktop:
-  en: 48ccdd4bdde474af
-  zh: 04e13e637d4343c4
+  en: 9c76f2bb997ccbf5
+  zh: edbf6148e61670e2
 /muse-desktop/terminal-command:
   en: bef92953c237363f
   zh: d21d6effd21b8c00
@@ -53,9 +53,9 @@
 /muse-desktop/package/upload-updates:
   en: 8f99fc0cb1518cfe
   zh: a373f76f0de57752
-/muse-desktop/package/unsigned-windows-test-installer:
-  en: f7b8790912269e39
-  zh: 86cc93942730c5d4
+/muse-desktop/package/unsigned-installers:
+  en: b9664a730653a225
+  zh: 185c71923d6133fc
 /muse-desktop/package/windows-installer-interface:
   en: 141baf77e16296b3
   zh: 4f27b879f3fdff68
@@ -63,8 +63,8 @@
   en: ad3a7c6df22fe778
   zh: 805d9f97a5233764
 /muse-desktop/updates:
-  en: b4b16c766bea8ac6
-  zh: cead6b4f5ee555c2
+  en: a5fe2ee7d92a9837
+  zh: c43f6f5582951cfd
 /muse-desktop/updates/mandatory-update-policy:
   en: c00a0e7d32056ba9
   zh: a76dae44cb513d6f

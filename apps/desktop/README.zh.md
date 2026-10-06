@@ -8,7 +8,7 @@
 
 桌面壳显示 **Muse**。Windows 快捷方式和可执行文件图标、macOS 安装包与“关于”使用保留原白蜘蛛的圆角黑底图标；Windows 应用窗口和托盘使用独立的透明底黑蜘蛛。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和 GitHub 更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
 
-Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明，当前为 `1.0.1`。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
+Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明，当前为 `1.0.2`。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
 
 依赖校验也会检查与 Node 内置模块同名的 npm 包，包括 `buffer`，并要求链接的 Host 包解析到该发行版拥有的同一个包实例。
 
@@ -362,7 +362,7 @@ Mac 打包从 `.env.macos` 读取三个调优字段：
 
 Apple 工具使用 macOS 当前活动网络服务的 HTTP/HTTPS 代理。配置公证代理后，打包会检查代理可达性、保存该服务的设置，在两条产物任务期间启用代理，并在两条任务均结束后恢复原设置。对于原本关闭、服务器为空且端口为零的代理，恢复时仅关闭代理；临时服务器和端口可能保留，但不生效。仅生成目录的打包会在签名目录构建完成后的 App 公证期间启用代理。这会临时影响其他应用，并要求修改系统代理的权限；必须先禁用 PAC、自动发现、SOCKS 及需要认证的代理配置。打包和恢复在读取恢复记录或修改代理前获取同一个用户级 POSIX 文件锁；进程退出会释放锁的持有权，锁文件保留。该锁在首次使用时才加载 `@deepseek-ai/node-addon-system/flock`，而不是在脚本启动时加载，因此 `check:package` 和打包入口在未构建 `native/system` 的 checkout 上也能加载；加锁时若宿主 addon 二进制或入口的 JavaScript 缺失，加载器会先运行 `pnpm run build:native-system` 和 `pnpm --dir native/system run build:ts` 再加锁，因此恢复命令在这样的 checkout 上同样可用。这会阻止不同 checkout 的代理事务重叠；其他用户及网络设置工具不得同时修改这些设置。SIGINT/SIGTERM 会等待活动任务结束后恢复。强制终止或恢复失败后，先停止残留公证进程，再运行 `pnpm --dir apps/desktop run restore:mac-proxy`；保存的记录会保留到恢复成功。配置检查仅验证 URL 语法，不修改系统设置或连接代理。
 
-### 未签名 Windows 测试安装包
+### 未签名安装包
 
 muse-med 使用自己的 GitHub Releases 更新源，不接入 DSH 的强制更新服务。在 `.env.windows` 设置 `DSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false`，明确省略策略元数据并关闭策略请求；更新检查、下载和安装仍然启用。未作此显式选择时，缺失或无效的策略配置仍会使打包失败。
 
@@ -373,6 +373,8 @@ pnpm run package:desktop:win:x64:unsigned
 ```
 
 该命令要求设置 `DSH_DESKTOP_APP_ID` 并具备常规构建依赖，包括编译原生模块所需的 Python 和 Visual C++ 构建工具。Python 不在 `PATH` 中时，将 `PYTHON` 设置为其可执行文件路径。命令将安装包写入 `.desktop-build/targets/win-x64/unsigned-artifacts/`，记录 GitHub Releases 更新源且不含 publisher name，清除签名凭据，且不生成发布完成记录。它不需要 EV 凭据或更新源地址。签名打包和上传命令仍遵循正式发布要求。
+
+macOS 支持同一个显式 `--unsigned` 标志：`pnpm run package:desktop:mac:arm64 -- --unsigned` 或 `pnpm run package:desktop:mac:x64 -- --unsigned`。使用 UTF-8 的 `.env.macos`，包含 `DSH_DESKTOP_APP_ID=cn.muse.med` 和 `DSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false`。这类构建省略 Developer ID 签名、钥匙串导入和 Apple 公证，将 DMG/ZIP 及 GitHub 更新元数据写到该目标的 `unsigned-artifacts/`，仍验证组装后的运行时。macOS 打包为签名和未签名构建准备从源码编译且架构匹配的 FFmpeg/ffprobe 载荷。未签名产物没有签名发布完成记录，通过 GitHub Releases 显式发布；COS 上传命令仍要求签名记录。用户需要在 Windows 允许未验证的发布者，或在 macOS 首次尝试打开后到“隐私与安全性”批准 Muse。
 
 ### Windows 安装界面
 
@@ -455,7 +457,7 @@ macOS 打包在组装 App 时、代码签名前写入 `Contents/Resources/app-up
 
 更新页使用冷白色卡片、浅灰状态面板与圆角蓝色下载进度条；校验和安装阶段显示状态，不补造百分比。打包后的更新器使用按产品版本推导的 GitHub Releases 通道。
 
-打包会把 GitHub Releases 更新源写入包内的 `app-update.yml`：`provider: github` 加本产品的 owner、仓库与更新频道。只有该文件存在时更新器才会检查更新，因此现在所有目标都会检查，未签名的 Windows 构建也一样。未签名的包不记录 `publisherName`，electron-updater 随后会接受下载到的安装包而不校验 Authenticode 签名；频道元数据里的 SHA-512 仍能拒绝损坏的下载，但没有任何环节确认发布者是谁。`upload:*` 命令仍为 `DSH_DESKTOP_AUTO_UPDATE_ENV` 选择的部署写入频道元数据。当频道元数据带有 `blockMapSize` 时，NSIS 差分包与 macOS ZIP 目标让 electron-updater 可以复用未变化的数据块；这里构建的 NSIS 辅助安装包把 block map 写到 `.exe.blockmap` 侧车文件，该模式不返回 `blockMapSize`，因此客户端会完整下载安装包而不用差分补丁。供手动安装的 DMG 经过公证，但不生成 blockmap，因为它不是 macOS updater 的载荷。运行时与桌面壳仍属于同一个签名 Desktop 发布。macOS 签名与公证凭据使用 electron-builder 的标准环境变量；Windows EV 签名使用上文所述的公开证书、已验证 SignTool、SafeNet 容器和 runner PIN。必填 Desktop 发布环境选择构建所验证的应用身份与平台签名身份。
+打包会把 GitHub Releases 更新源写入包内的 `app-update.yml`：`provider: github` 加本产品的 owner、仓库与更新频道。只有该文件存在时更新器才会检查更新，因此现在所有目标都会检查，两个平台的未签名构建也一样。未签名的包不记录 `publisherName`，electron-updater 随后会接受下载到的安装包而不校验 Authenticode 签名；频道元数据里的 SHA-512 仍能拒绝损坏的下载，但没有任何环节确认发布者是谁。`upload:*` 命令仍为 `DSH_DESKTOP_AUTO_UPDATE_ENV` 选择的部署写入频道元数据。当频道元数据带有 `blockMapSize` 时，NSIS 差分包与 macOS ZIP 目标让 electron-updater 可以复用未变化的数据块；这里构建的 NSIS 辅助安装包把 block map 写到 `.exe.blockmap` 侧车文件，该模式不返回 `blockMapSize`，因此客户端会完整下载安装包而不用差分补丁。签名且供手动安装的 DMG 经过公证，但不生成 blockmap，因为它不是 macOS updater 的载荷。签名发布包含运行时与桌面壳。macOS 签名与公证凭据使用 electron-builder 的标准环境变量；Windows EV 签名使用上文所述的公开证书、已验证 SignTool、SafeNet 容器和 runner PIN。必填 Desktop 发布环境选择构建所验证的应用身份与平台签名身份。
 
 原生更新浮层在文档就绪且父窗口可见时显示，并在父窗口再次显示时恢复。关闭浮层会释放输入拦截和父窗口监听。[本地窗口验证](tests/README.zh.md#verification-overlay)无需启动工作区即可检查这些切换。
 
