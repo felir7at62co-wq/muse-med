@@ -6,3 +6,4 @@ recording: authored
 header:
   class: team-targets
   pin: true
+writerOutput: true

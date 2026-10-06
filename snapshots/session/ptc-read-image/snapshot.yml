@@ -10,3 +10,4 @@ header:
 platform: posix
 workspace:
   final: true
+writerOutput: true

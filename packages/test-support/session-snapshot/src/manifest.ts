@@ -122,6 +122,8 @@ export interface SnapshotManifest {
   session?: SnapshotSessionReference
   /** Historical generation retained by an owner instead of tracking the current writer. */
   sessionFormat?: SnapshotSessionFormatManifest
+  /** Headless owner compares separate writer output while preserving its canonical replay inputs. */
+  writerOutput?: true
 }
 
 /** Snapshot execution modes that may read or replace committed fixture generations. */
@@ -129,8 +131,8 @@ export type SnapshotSessionWriteMode = 'replay' | 'record' | 'refresh'
 
 /**
  * Whether one run writes current-writer Session fixtures for this scenario.
- * Explicit historical generations remain immutable replay inputs; record and
- * refresh may still update their non-Session expected outputs.
+ * Historical generations and writerOutput owners retain their replay inputs;
+ * refresh may update their separate output oracles and header sidecars.
  *
  * @param manifest - Parsed scenario ownership and retained-generation metadata.
  * @param mode - Snapshot execution mode.
@@ -141,6 +143,7 @@ export function writesCurrentSessionFixtures(
   mode: SnapshotSessionWriteMode,
 ): boolean {
   return mode !== 'replay' && manifest.session === undefined && manifest.sessionFormat === undefined
+    && manifest.writerOutput !== true
 }
 
 const PROFILES = new Set<SnapshotProfile>(['headless', 'sdk', 'acp', 'web'])
@@ -223,6 +226,7 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
       'input',
       'session',
       'sessionFormat',
+      'writerOutput',
     ], 'manifest')
     if (root.version !== 1) throw new Error('manifest.version must equal 1')
     const scenario = root.scenario === undefined ? undefined : name(root.scenario, 'manifest.scenario')
@@ -409,6 +413,13 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
       }
     }
 
+    if (root.writerOutput !== undefined) {
+      if (root.writerOutput !== true) throw new Error('manifest.writerOutput must be true when present')
+      if (root.profile !== 'headless' || session !== undefined || sessionFormat !== undefined) {
+        throw new Error('manifest.writerOutput requires a headless Session owner without sessionFormat')
+      }
+    }
+
     return {
       version: 1,
       ...(scenario === undefined ? {} : { scenario }),
@@ -423,6 +434,7 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
       ...(workspace === undefined ? {} : { workspace }),
       ...(input === undefined ? {} : { input }),
       ...(session === undefined ? {} : { session }),
+      ...(root.writerOutput === true ? { writerOutput: true } : {}),
       ...(sessionFormat === undefined ? {} : { sessionFormat }),
     }
   } catch (error) {

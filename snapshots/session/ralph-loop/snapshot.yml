@@ -10,3 +10,4 @@ header:
   childToolSchemas: [1, 2]
 replay:
   override: true
+writerOutput: true

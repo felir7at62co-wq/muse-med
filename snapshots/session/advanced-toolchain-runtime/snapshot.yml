@@ -7,3 +7,4 @@ header:
   class: advanced
   systemPromptSource: cordis-inspect-jsdoc
   toolSchemasSource: cordis-inspect-jsdoc
+writerOutput: true

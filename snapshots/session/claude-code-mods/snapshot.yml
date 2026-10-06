@@ -8,3 +8,4 @@ header:
   pin: true
 workspace:
   final: true
+writerOutput: true

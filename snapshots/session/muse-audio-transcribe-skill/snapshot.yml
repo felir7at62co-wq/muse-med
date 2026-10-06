@@ -8,3 +8,4 @@ header:
 workspace:
   # Preserve the exact skill body returned by this retained V4 recording.
   setup: muse-audio-transcribe-skill-legacy
+writerOutput: true

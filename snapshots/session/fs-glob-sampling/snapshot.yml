@@ -9,3 +9,4 @@ header:
 platform: posix
 workspace:
   setup: fixed-search-mtimes
+writerOutput: true

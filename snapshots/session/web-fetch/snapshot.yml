@@ -7,3 +7,4 @@ permission: workspace-write
 header:
   class: web
   pin: true
+writerOutput: true

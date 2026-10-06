@@ -133,6 +133,45 @@
       }
     },
     {
+      "name": "douyin_download",
+      "description": "Download one or several user-selected Douyin video/share URLs into the current workspace and return file-backed receipts after full decoding. Public playback is tried first, then MUSE opens its internal official page automatically. Complete normal login or verification there if required; workspace-scoped Douyin login survives application restarts. No external browser profiles, Cookie files, DRM or verification bypass. Browser transport requires Desktop Host protocol 5. Report blocked or partial results accurately",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "User-selected Douyin HTTPS video URL, modal_id page, or share link"
+          },
+          "urls": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string"
+            },
+            "description": "Several user-selected video/share links, checked and downloaded separately; mutually exclusive with url"
+          },
+          "publicOnly": {
+            "type": "boolean",
+            "description": "Try public playback only; do not open the internal browser"
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "url"
+            ]
+          },
+          {
+            "required": [
+              "urls"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "edit",
       "description": "Edit an existing UTF-8 text file by replacing literal text.",
       "parameters": {
@@ -304,6 +343,75 @@
         },
         "required": [
           "seriesId"
+        ]
+      }
+    },
+    {
+      "name": "hongguo_download",
+      "description": "按 seriesIds 下载一部或多部完整剧集，默认用户提供源码的原红果接口。累积每5集源请求，检查声明总集数、连续集号、每集媒体长度；加密集使用本机原版离线解密模块，所有视频经MP4、ffprobe、完整ffmpeg解码及SHA256检查，全批完成才返回成功与真实文件路径。失败或取消清理新建文件。省略episodes下载全集。默认写当前会话工作区downloads。public只能显式选择；官网未开放的集明确拒绝。缺少原源、签名器或视频运行时明确失败。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "seriesIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "一部或多部系列 ID；红果 ID 保持十进制字符串，默认最多10部"
+          },
+          "sourceMode": {
+            "type": "string",
+            "enum": [
+              "legacy",
+              "manifest",
+              "public"
+            ],
+            "description": "默认legacy使用用户提供源码的原接口。manifest仅用于已配置的授权直链目录。public必须明确指定，仅使用官网开放集，试看不是全剧"
+          },
+          "episodes": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "省略下载完整全集；若提供，对每部剧只下载这些集号，complete可能false。不能将试看当全剧"
+          },
+          "outputDir": {
+            "type": "string",
+            "description": "默认当前会话工作区的downloads目录；可指定工作区内相对目录或绝对路径，拒绝越界或符号链接"
+          }
+        },
+        "required": [
+          "seriesIds"
+        ]
+      }
+    },
+    {
+      "name": "hongguo_download_info",
+      "description": "先检查一部或多部红果的声明总集数与连续集号。默认使用用户提供 Hongguo source 的原接口及本机原源/签名器配置；缺原config.json、devices.json或签名器明确失败。配置成功不等于下载验收；不返回Cookie、设备值、签名或媒体直链。公开播放器仅开放的试看集不能充作全剧。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "seriesIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "一部或多部系列 ID；红果 ID 保持十进制字符串，默认最多10部"
+          },
+          "sourceMode": {
+            "type": "string",
+            "enum": [
+              "legacy",
+              "manifest",
+              "public"
+            ],
+            "description": "默认legacy使用用户提供源码的原接口。manifest仅用于已配置的授权直链目录。public必须明确指定，仅使用官网开放集，试看不是全剧"
+          }
+        },
+        "required": [
+          "seriesIds"
         ]
       }
     },

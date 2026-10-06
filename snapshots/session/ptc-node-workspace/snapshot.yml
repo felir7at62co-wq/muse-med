@@ -15,3 +15,4 @@ environment:
 workspace:
   final: true
   parent: outside-temp
+writerOutput: true

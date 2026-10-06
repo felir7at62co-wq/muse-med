@@ -10,3 +10,4 @@ header:
   toolSchemasSource: office-skills
 workspace:
   setup: office-skills
+writerOutput: true

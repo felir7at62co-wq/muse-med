@@ -12,3 +12,4 @@ platform: posix
 permission: read-only
 workspace:
   final: true
+writerOutput: true

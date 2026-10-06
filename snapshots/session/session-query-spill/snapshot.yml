@@ -9,3 +9,4 @@ header:
 replay:
   override: true
 platform: posix
+writerOutput: true

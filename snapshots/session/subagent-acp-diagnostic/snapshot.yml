@@ -9,3 +9,4 @@ header:
   systemPromptSource: product-subagent-codex
 replay:
   override: true
+writerOutput: true

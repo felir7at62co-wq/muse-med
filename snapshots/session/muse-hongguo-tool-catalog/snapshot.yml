@@ -6,3 +6,4 @@ recording: authored
 header:
   class: muse-hongguo-tool-catalog
   pin: true
+writerOutput: true

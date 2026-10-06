@@ -7,3 +7,4 @@ header:
   class: muse-editing-skill
 workspace:
   setup: muse-editing-trial-skills
+writerOutput: true

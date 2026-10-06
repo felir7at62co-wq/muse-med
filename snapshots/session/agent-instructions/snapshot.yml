@@ -12,3 +12,4 @@ replay:
 platform: posix
 workspace:
   setup: delimiter-path
+writerOutput: true

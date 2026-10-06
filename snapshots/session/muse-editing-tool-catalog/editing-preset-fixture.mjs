@@ -27,7 +27,9 @@ export async function apply(ctx, config) {
     const anchor = await mkdtemp(fileURLToPath(new URL('../../../apps/desktop-host/.snapshot-hongguo-', import.meta.url)))
     try {
       await mkdir(join(anchor, 'node_modules'))
-      await symlink(fileURLToPath(new URL('../../../third_party/plugins/muse-hongguo-search/', import.meta.url)), join(anchor, 'node_modules/muse-hongguo-search'), process.platform === 'win32' ? 'junction' : 'dir')
+      for (const plugin of ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
+        await symlink(fileURLToPath(new URL(`../../../third_party/plugins/${plugin}/`, import.meta.url)), join(anchor, 'node_modules', plugin), process.platform === 'win32' ? 'junction' : 'dir')
+      }
       await writeFile(join(anchor, 'package.json'), '{"name":"snapshot-editing-resolution","version":"0.0.0","type":"module"}\n')
       productBaseUrl = pathToFileURL(join(anchor, 'package.json')).href
       productPresetDirectory = join(anchor, 'editing')

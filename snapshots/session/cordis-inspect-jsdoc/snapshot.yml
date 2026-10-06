@@ -6,3 +6,4 @@ recording: authored
 header:
   class: advanced
   pin: true
+writerOutput: true

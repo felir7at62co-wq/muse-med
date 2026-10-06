@@ -6,3 +6,4 @@ recording: authored
 header:
   class: pty-sandbox-backend
   pin: true
+writerOutput: true

@@ -6,3 +6,4 @@ recording: authored
 header:
   class: lsp
   pin: true
+writerOutput: true

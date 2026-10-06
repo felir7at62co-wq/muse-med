@@ -9,3 +9,4 @@ header:
   promptChanges: 1
 replay:
   override: true
+writerOutput: true

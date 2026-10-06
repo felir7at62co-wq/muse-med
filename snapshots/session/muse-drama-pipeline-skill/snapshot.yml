@@ -8,3 +8,4 @@ header:
   pin: true
 workspace:
   setup: muse-drama-pipeline-skill
+writerOutput: true

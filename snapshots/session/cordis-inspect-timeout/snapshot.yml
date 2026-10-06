@@ -8,3 +8,4 @@ header:
   pin: true
   systemPromptSource: cordis-inspect-jsdoc
   toolSchemasSource: cordis-inspect-jsdoc
+writerOutput: true

@@ -2,6 +2,25 @@ import { describe, expect, it } from 'vitest'
 import { parseSnapshotManifest, writesCurrentSessionFixtures } from '../src/manifest.ts'
 
 describe('snapshot manifest', () => {
+  it('preserves a headless owner replay input while refreshing separate writer output', () => {
+    const manifest = parseSnapshotManifest('version: 1\nprofile: headless\nwriterOutput: true\n')
+    expect(manifest.writerOutput).toBe(true)
+    for (const mode of ['replay', 'record', 'refresh'] as const) {
+      expect(writesCurrentSessionFixtures(manifest, mode)).toBe(false)
+    }
+  })
+
+  it.each([
+    'profile: headless\nwriterOutput: false',
+    'profile: acp\nwriterOutput: true',
+    'profile: sdk\nwriterOutput: true',
+    'profile: web\nwriterOutput: true',
+    'profile: headless\nwriterOutput: true\nsession:\n  source: ../owner/session.jsonl',
+    'profile: headless\nwriterOutput: true\nsessionFormat:\n  version: 3\n  coverage: [adjacent-migration]',
+  ])('rejects invalid writer output ownership: %s', (fields) => {
+    expect(() => parseSnapshotManifest('version: 1\n' + fields + '\n')).toThrow('manifest.writerOutput')
+  })
+
   it('parses an owning scenario', () => {
     expect(parseSnapshotManifest('version: 1\nprofile: headless\n')).toEqual({
       version: 1,

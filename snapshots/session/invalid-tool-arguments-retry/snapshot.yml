@@ -6,3 +6,4 @@ recording: authored
 header:
   class: invalid-tool-arguments-retry
   pin: true
+writerOutput: true

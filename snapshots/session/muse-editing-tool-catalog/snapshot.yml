@@ -12,3 +12,4 @@ header:
   pin: true
 workspace:
   setup: muse-editing-trial-skills
+writerOutput: true

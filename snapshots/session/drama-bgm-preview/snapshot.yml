@@ -6,3 +6,4 @@ recording: authored
 header:
   class: drama-bgm
   pin: true
+writerOutput: true

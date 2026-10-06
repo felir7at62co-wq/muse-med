@@ -252,7 +252,7 @@ async function writeSessionFixtures(
   existing: readonly string[],
   ctx: NormalizeContext,
 ): Promise<string[]> {
-  const names = actualLogs.map((log, index) => scenario.manifest.sessionFormat === undefined
+  const names = actualLogs.map((log, index) => scenario.manifest.sessionFormat === undefined && scenario.manifest.writerOutput !== true
     ? sessionFixtureName(index, sessionHeaderVersion(log.content, `harvested Session ${index}`))
     : writerSnapshotName(index))
   const prior = names.map((_, index) => existing[index] ?? '')
@@ -883,6 +883,26 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('writes a separate output oracle without changing the canonical replay input', async () => {
+    const owner = scenarios.find(scenario => scenario.name === 'muse-media-download-tool-catalog')
+    if (owner === undefined) throw new Error('Missing current-writer media tool fixture')
+    const [fixture] = await fixtureSessions(owner)
+    if (fixture === undefined) throw new Error('Missing canonical replay input')
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-writer-output-'))
+    try {
+      const canonical = join(dir, sessionFixtureName(0, sessionHeaderVersion(fixture, owner.name)))
+      await writeFile(canonical, fixture)
+      const header: JsonObject = JSON.parse(fixture.split('\n')[0] ?? '')
+      await writeSessionFixtures({ ...owner, dir, manifest: { ...owner.manifest, writerOutput: true } },
+        [{ content: fixture, header }], [fixture], contextOf([fixture]))
+      expect(await readFile(canonical, 'utf8')).toBe(fixture)
+      expect(sessionHeaderVersion(await readFile(join(dir, writerSnapshotName(0)), 'utf8'), 'writer output'))
+        .toBe(sessionHeaderVersion(fixture, 'replay input'))
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('tokenizes a refreshed skill path after the session header retained cwd', () => {
     const cwd = String.raw`C:\Users\runner\AppData\Local\Temp\dsh-log-snap-test`
     const log = [
@@ -1171,6 +1191,7 @@ describe('headless recorded-session snapshots', () => {
       || scenario.manifest.platform === 'pwsh' && !hasPwsh
       || mode === 'record' && scenario.manifest.recording === 'authored'
       || mode === 'record' && scenario.manifest.sessionFormat !== undefined
+      || mode === 'record' && scenario.manifest.writerOutput === true
     const scenarioTest = skipped ? it.skip : mode === 'replay' ? it.concurrent : it
     const inputLabel = retainedToolInput === undefined ? '' : ' from retained V3 input'
     scenarioTest(`${mode}s ${scenario.name}${inputLabel} through dsh --profile headless`, async () => {
@@ -1335,11 +1356,11 @@ describe('headless recorded-session snapshots', () => {
       expect(actualLogs, `${scenario.name}: persisted session count`).toHaveLength(fixtures.length)
       const writerFiles = (await readdir(scenario.dir)).filter(name => /^writer(?:\.[1-9]\d*)?\.expected\.jsonl$/u.test(name)).sort()
       if (mode === 'replay') {
-        expect(writerFiles, 'native writer oracle inventory').toEqual(scenario.manifest.sessionFormat === undefined
+        expect(writerFiles, 'native writer oracle inventory').toEqual(scenario.manifest.sessionFormat === undefined && scenario.manifest.writerOutput !== true
           ? [] : fixtures.map((_, index) => writerSnapshotName(index)).sort())
       }
       let expected = fixtures
-      if (scenario.manifest.sessionFormat !== undefined) {
+      if (scenario.manifest.sessionFormat !== undefined || scenario.manifest.writerOutput === true) {
         if (mode === 'refresh') await writeSessionFixtures(scenario, actualLogs, fixtures, actualContext)
         expected = await Promise.all(fixtures.map((_, index) => readFile(join(scenario.dir, writerSnapshotName(index)), 'utf8')))
         for (const [index, content] of expected.entries()) {

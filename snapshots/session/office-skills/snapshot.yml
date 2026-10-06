@@ -8,3 +8,4 @@ header:
   pin: true
 workspace:
   setup: office-skills
+writerOutput: true

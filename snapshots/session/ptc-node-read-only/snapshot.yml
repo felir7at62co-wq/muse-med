@@ -13,3 +13,4 @@ permission: read-only
 workspace:
   final: true
   parent: outside-temp
+writerOutput: true

@@ -80,6 +80,8 @@ Headless/ACP 与 SDK 适配器在规范化之前，将原始目录中的子创�
 
 ### 录制、回放与刷新
 
+Headless owner 可以声明 `writerOutput: true`，保留规范 replay 输入，并在 `writer.expected.jsonl` 及每个子会话的 `writer.<ordinal>.expected.jsonl` 中比较完整当前输出。refresh 更新这些输出比较基准及 owner 自有的 header 伴随文件；record 跳过该 owner。此选项不声明历史迁移覆盖，不能与 `session` 或 `sessionFormat` 同时使用，其他 profile 也会拒绝它。replay 要求输出比较基准清单完全匹配，并比较每个规范化事件，不移除结构差异。
+
 `pnpm run test:snapshot:record` 调用在线 LLM（大语言模型），并在规范具名版本文件下写入收集到的当前 generation。record 与 refresh 绝不重命名或删除已完成的 generation，即使后续运行不再产生某个 child 角色也一样；受审阅的源树整理只有在同角色存在已验证的当前替代文件后才移除前代。显式声明 `sessionFormat` 的场景在录制模式下保持只读。`pnpm run test:snapshot:refresh` 保持无密钥，运行选定的最高 replay 输入，并写入 stdout、各 pin 自有的提示词与工具 schema 伴随文件，以及新鲜当前 generation 的可比较 Session 输出；保留历史输入的场景写入单独的 writer 输出比较基准，而非规范当前格式 replay 代际。每个组合 owner 把 replay patch 放在 live patch 旁；顶层 `snapshots/` 拥有 Session 驱动场景，其他预期输出留在其 package owner 旁。[`dsh-llm-replay`](../llm-replay/README.zh.md) 提供通过 `DSH_SNAPSHOT_*` 环境值选择的已记录流。
 
 SDK 回放副本在 JSONL 字符串值和序列化工具参数中展开 `{{cwd}}`，并使用 JSON 字符串转义，使 Windows 分隔符、引号与 Unicode 路径保持有效，且不修改已提交的 fixture。SDK 语料排除个人技能目录，固定使用 Bash 与透传沙箱运行器，不依赖宿主平台；Windows 运行需要 Git Bash（可用 `DSH_SNAPSHOT_BASH` 选择其可执行文件）。原生隔离由对应提供方测试覆盖。
