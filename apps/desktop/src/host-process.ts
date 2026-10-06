@@ -4,11 +4,13 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { desktopNodeEnvironment } from './node-environment.ts'
-import { parseDouyinRequest } from './douyin-policy.ts'
-import type { DouyinDesktopRequest, DouyinDesktopResult } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
+import { parseDouyinRequest, parseDouyinDataRequest } from './douyin-policy.ts'
+import { DESKTOP_HOST_PROTOCOL_VERSION } from './host-protocol.ts'
+import type { DouyinDesktopRequest, DouyinDesktopResult, DouyinDesktopDataRequest, DouyinDesktopDataResult } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 
 interface ReadyEvent {
   readonly type: 'ready'
+  readonly hostProtocolVersion: typeof DESKTOP_HOST_PROTOCOL_VERSION
   readonly url: string
   readonly injections?: readonly unknown[] | undefined
 }
@@ -71,7 +73,7 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
     case 'shutdown-complete':
       return true
     case 'ready':
-      return typeof candidate.url === 'string'
+      return typeof candidate.url === 'string' && candidate.hostProtocolVersion === DESKTOP_HOST_PROTOCOL_VERSION
     case 'attention-sound':
       return candidate.kind === 'complete' || candidate.kind === 'question'
     case 'platform-session': {
@@ -253,6 +255,7 @@ export class DesktopHostProcess {
     private readonly onAttentionSound?: (kind: 'complete' | 'question') => void,
     private readonly onDouyinRequest?: (request: DouyinDesktopRequest) => Promise<DouyinDesktopResult>,
     private readonly onDouyinDisconnect?: () => void | Promise<void>,
+    private readonly onDouyinDataRequest?: (request: DouyinDesktopDataRequest) => Promise<DouyinDesktopDataResult>,
   ) {}
 
   /**
@@ -288,6 +291,21 @@ export class DesktopHostProcess {
     })
     child.stdout?.pipe(process.stdout)
     child.on('message', (message: unknown) => {
+      const dataRequest = parseDouyinDataRequest(message)
+      if (dataRequest !== undefined) {
+        void (async () => {
+          let result: DouyinDesktopDataResult
+          try {
+            result = (await this.onDouyinDataRequest?.(dataRequest)) ?? {
+              type: 'douyin-browser-data-result', requestId: dataRequest.requestId, code: 'HOST_UNAVAILABLE',
+            }
+          } catch (_error) {
+            result = { type: 'douyin-browser-data-result', requestId: dataRequest.requestId, code: 'HOST_UNAVAILABLE' }
+          }
+          if (child.connected) child.send(result)
+        })().catch(() => { this.disconnectDouyin() })
+        return
+      }
       const downloadRequest = parseDouyinRequest(message)
       if (downloadRequest !== undefined) {
         void (async () => {

@@ -6,6 +6,7 @@
  * visible console window. Both owned spawn sites must ask for it explicitly.
  */
 
+import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { EventEmitter } from 'node:events'
 import { closeSync, mkdirSync, mkdtempSync, openSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -71,7 +72,7 @@ describe('owned desktop child processes', () => {
     const started = host.start()
     expect(spawnCalls).toHaveLength(1)
     expect(spawnCalls[0]?.windowsHide).toBe(true)
-    child?.emit('message', { type: 'ready', url: 'http://127.0.0.1:3131/?token=fixture', injections: [] })
+    child?.emit('message', { type: 'ready', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION, url: 'http://127.0.0.1:3131/?token=fixture', injections: [] })
     await expect(started).resolves.toMatchObject({ url: 'http://127.0.0.1:3131/?token=fixture' })
   })
 

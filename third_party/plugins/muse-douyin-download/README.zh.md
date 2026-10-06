@@ -1,4 +1,4 @@
-# Muse 抖音下载工具
+# Muse 抖音数据与下载工具
 
 [English](README.md) | 中文
 
@@ -6,9 +6,17 @@
 
 ## 运行环境与配置
 
-此包的内置浏览器获取功能依赖 Desktop Host 协议 5和 `douyinBrowser.version === 2`。单独安装插件不会增加浏览器下载接口。Desktop 自动选择经过验证的随包 Python，保留显式媒体程序设置，并从随包媒体目录或普通 PATH 查找已有 ffmpeg/ffprobe；不安装依赖或修改 PATH。Mac 安装包包含对应架构的媒体程序，运行时查找不会安装依赖。打包后的 Python 脚本及提取器归档位于 ASAR 外，使内置解释器可以读取。
+随包集成的页面数据与内置浏览器获取功能依赖 Desktop Host 协议 6 和 `douyinBrowser.version === 3`。下载工具也接受现有的版本 2 下载服务。单独安装插件不会增加浏览器下载接口。Desktop 自动选择经过验证的随包 Python，保留显式媒体程序设置，并从随包媒体目录或普通 PATH 查找已有 ffmpeg/ffprobe；不安装依赖或修改 PATH。Mac 安装包包含对应架构的媒体程序，运行时查找不会安装依赖。打包后的 Python 脚本及提取器归档位于 ASAR 外，使内置解释器可以读取。
 
-公开执行器需要 `agents`、`tools`、`subprocess`；浏览器回退还需要宿主下载接口。部署配置保留 `pythonExecutable`、`ffprobeExecutable`、`ffmpegExecutable`、`settingsHome`、`requestTimeoutMs`、`timeoutMs`、`maxDownloadBytes`、`graceMs`、`maxVideos`。执行器默认 120 秒、512 MiB、20 条链接。`maxDownloadBytes`（1 字节到 8 GiB）同时用于公开下载、内置浏览器传输和本地文件验证。内置浏览器最多一个任务、120 秒，含准备时间。缺少验证程序时返回 blocked。
+公开执行器需要 `agents`、`tools`、`subprocess`；浏览器回退还需要宿主下载接口。部署配置保留 `pythonExecutable`、`ffprobeExecutable`、`ffmpegExecutable`、`settingsHome`、`requestTimeoutMs`、`timeoutMs`、`maxDownloadBytes`、`graceMs`、`maxVideos`、`dataTimeoutMs`、`maxComments`。执行器默认 120 秒、512 MiB、20 条链接；页面数据默认每条链接 30 秒、每页 20 条评论。`requestTimeoutMs` 还用于在外层传输截止前等待页面结果送达。`maxDownloadBytes`（1 字节到 8 GiB）同时用于公开下载、内置浏览器传输和本地文件验证。内置浏览器最多一个任务、120 秒，含准备时间。缺少验证程序时返回 blocked。
+
+## 页面数据与可选下载
+
+`douyin_data` 接受 `url` 或 `urls`，数量不超过 `maxVideos`，按顺序读取所选作品。`source` 可选 `public`、`creator` 或 `auto`；成功结果标明 `public-page` 或 `creator-page` 以及观察时间。创作者数据要求正常登录，并有证据将确切作品关联到该账号。浏览器登录不授予 OAuth API 权限。`auto` 使用公开页。`creator` 打开正常的创作者内容管理页，要求字符串作品 ID、同一位置的修改权限和统计中的作品 ID 一致。仅返回所选作品；未核验归属时返回 `CREATOR_OWNERSHIP_UNVERIFIED`。必要时完成页面加载或在正常页面中定位较早作品。公开数据不替代不可用的创作者数据。
+
+五项计数分别是播放、点赞、评论、分享和收藏，每项返回精确数值、取整显示值，或带原因的 `null`。公开计数来自确切作品的正常详情响应、页面初始数据或唯一可见的作品操作栏，保留源提供的正数播放量；缺失值和占位零仍为不可用。`includeComments:true` 请求一个已观察的评论页，数量受 `commentLimit` 和 `maxComments` 限制；`commentCursor` 只适用于单条作品链接。总评论数与返回的评论条目分开。Desktop 的评论内容和分页返回 `COMMENTS_UNAVAILABLE`，保留已观察计数，并将结果标为 partial。数据格式支持有界的评论文本、评论 ID 和数值计数，不包含账号标识或凭据。
+
+`download:true` 通过现有下载器获取每条相同链接，并包含独立的下载结果。下载失败仍保留可用数据；数据不可用也可伴随经过验证的下载。批量结果为 complete、partial 或 blocked，各项保持输入顺序。取消会等待已接入的浏览器读取或子进程结束，在已记录的取消结果中保留已观察数据，并阻止下一条链接开始。只读页面数据不需要 Python 或媒体程序。数据保存在模型可见且持久记录的工具结果中；此工具不另建统计文件。
 
 ## 内置播放与结果
 
@@ -20,4 +28,4 @@
 
 ## 验证与打包
 
-执行 `node --test tests/*.test.js` 和 `node scripts/pack.mjs --out /absolute/output/directory`。包内包含锁定的公开 Python 提取器；内置浏览器获取依赖配套 Host 补丁。[批量阻塞会话回放](../../../snapshots/session/muse-douyin-blocked-batch/snapshot.yml)通过真实工具和智能体循环执行隔离的获取失败，并保留各条诊断。离线和合成媒体测试不能证明真实验收链接可下载，真实验收还需正常播放和该链接对应的文件验证记录。
+执行 `node --test tests/*.test.js` 和 `node scripts/pack.mjs --out /absolute/output/directory`。包内包含锁定的公开 Python 提取器；内置浏览器获取依赖配套 Host 补丁。无密钥页面数据 fixture 使用明确编写的计数和传输结果，不能证明真实公开页或创作者页可用。[批量阻塞会话回放](../../../snapshots/session/muse-douyin-blocked-batch/snapshot.yml)通过真实工具和智能体循环执行隔离的获取失败，并保留各条诊断。离线和合成媒体测试不能证明真实验收链接可下载，真实验收还需正常播放和该链接对应的文件验证记录。

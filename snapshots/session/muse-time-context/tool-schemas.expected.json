@@ -133,8 +133,70 @@
       }
     },
     {
+      "name": "douyin_data",
+      "description": "Read one or several selected Douyin works’ public-page data or your normally signed-in creator-page data, in link order. Counts preserve missing values as null and mark rounded displays; public play counts require observed official page data, and placeholder zero remains unavailable. Creator data requires ordinary login and an exact own-work list row with its matching modification permission and statistics identity. Unavailable ownership returns CREATOR_OWNERSHIP_UNVERIFIED. A login is not OAuth authorization. Comment content and pagination currently return COMMENTS_UNAVAILABLE; an observed total comment count remains separate. A commentCursor applies to one link only. Complete normal login or verification in MUSE’s internal official Browser when required. No credentials, arbitrary browser profiles or signed requests are accepted. download:true reuses the existing verified Douyin downloader for each same link and includes its separate result. Report partial results, unavailable fields and blocked source/comment/download results accurately",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "One user-selected official Douyin HTTPS video or share URL"
+          },
+          "urls": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "string"
+            },
+            "description": "Several selected official video/share links; mutually exclusive with url"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "public",
+              "creator"
+            ],
+            "description": "Public work page (public or auto), or your normally signed-in creator content page (creator)"
+          },
+          "includeComments": {
+            "type": "boolean",
+            "description": "Include one observed comment page; the total comment count remains separate"
+          },
+          "commentCursor": {
+            "type": "string",
+            "description": "The previous result cursor for the same video and source"
+          },
+          "commentLimit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum comments in this page, within the deployment limit",
+            "maximum": 20
+          },
+          "download": {
+            "type": "boolean",
+            "description": "Also download this video using the existing verified downloader"
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "url"
+            ]
+          },
+          {
+            "required": [
+              "urls"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "douyin_download",
-      "description": "Download one or several user-selected Douyin video/share URLs into the current workspace and return file-backed receipts after full decoding. Public playback is tried first, then MUSE opens its internal official page automatically. Complete normal login or verification there if required; workspace-scoped Douyin login survives application restarts. No external browser profiles, Cookie files, DRM or verification bypass. Browser transport requires Desktop Host protocol 5. Report blocked or partial results accurately",
+      "description": "Download one or several user-selected Douyin video/share URLs into the current workspace and return file-backed receipts after full decoding. Public playback is tried first, then MUSE opens its internal official page automatically. Complete normal login or verification there if required; workspace-scoped Douyin login survives application restarts. No external browser profiles, Cookie files, DRM or verification bypass. Browser transport requires Desktop Host protocol 6. Report blocked or partial results accurately",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -146,7 +208,7 @@
           "urls": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 100,
+            "maxItems": 20,
             "items": {
               "type": "string"
             },
@@ -226,6 +288,50 @@
         },
         "required": [
           "plan"
+        ]
+      }
+    },
+    {
+      "name": "fanqie_download",
+      "description": "使用 Muse 本地独立引擎下载一部或多部公开免费番茄小说，按当前已发布真实完整目录下载，不设章节数量上限。注册新匿名设备，原程序和原设备不参与。逐章核对书籍/章节ID、正文长度、乱码和文件SHA256；所有书下载验证完成才交付TXT和每章收据。连载仅表示当前已发布章节齐全。付费、VIP或需要其他授权的正文明确拒绝，不把试看当全文。失败或取消清理本批未完成文件，输出仅限当前工作区。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "bookIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "一部或多部书籍ID或官方书籍页链接；默认最多10本"
+          },
+          "outputDir": {
+            "type": "string",
+            "description": "当前工作区内目录，默认 downloads/fanqie"
+          }
+        },
+        "required": [
+          "bookIds"
+        ]
+      }
+    },
+    {
+      "name": "fanqie_download_info",
+      "description": "检查一个或多个官方番茄书籍的真实目录。bookIds 接受十进制字符串或 https://fanqienovel.com/page/书籍ID。目录成功不代表正文下载通过。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "bookIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "一部或多部书籍ID或官方书籍页链接；默认最多10本"
+          }
+        },
+        "required": [
+          "bookIds"
         ]
       }
     },
@@ -1322,6 +1428,44 @@
         "required": [
           "server",
           "uri"
+        ]
+      }
+    },
+    {
+      "name": "reverse_analyze",
+      "description": "Statically inspect a user-selected file inside the active workspace. Return SHA256, bytes, executable format and bounded Mach-O symbols with addresses. Identifies PE, ELF, ZIP and DMG; does not execute or unpack the target, contact any server, bypass authorization or reconstruct source. Use reverse_skill for deeper analysis. Symbol counts and truncation are explicit.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Workspace-relative file path, or absolute path inside the workspace"
+          },
+          "symbolContains": {
+            "type": "string",
+            "description": "Optional literal substring filter for Mach-O symbol names"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "reverse_skill",
+      "description": "Load the appropriate methodology from the bundled pinned reverse-skill project. Use for authorized binary, APK, JavaScript, desktop or protocol analysis. Returns original instructions and real resource paths. Does not install tools, start services, register MCP, access networks or authorize a target. Optional tools may require separate installation and licenses.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "hint": {
+            "type": "string",
+            "description": "Describe the authorized analysis target and goal"
+          }
+        },
+        "required": [
+          "hint"
         ]
       }
     },

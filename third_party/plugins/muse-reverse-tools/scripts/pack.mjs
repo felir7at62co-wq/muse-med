@@ -10,7 +10,7 @@ const output = args[1] ?? join(root, 'releases');
 const source = JSON.parse(readFileSync(join(root, 'SOURCE.json'), 'utf8'));
 const host = JSON.parse(readFileSync(new URL('../../../../apps/desktop-host/package.json', import.meta.url), 'utf8'));
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-if (!source.commit || manifest.peerDependencies['@deepseek-ai/dsh-tools'] !== host.version
+if (!source.commit || source.hostVersion !== host.version || manifest.peerDependencies['@deepseek-ai/dsh-tools'] !== host.version
   || manifest.peerDependencies['@deepseek-ai/dsh-agent'] !== host.version) throw new Error('Rebuild host peer versions for this Muse release');
 mkdirSync(output, { recursive: true });
 const npm = process.env.npm_execpath;

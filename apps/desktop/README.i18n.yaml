@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
 /muse-desktop:
-  en: 142760dcace092ca
-  zh: 0319bc9fcf5ad8e7
+  en: ab1195a324966f13
+  zh: 4d6b642d648d0d38
 /muse-desktop/terminal-command:
   en: bef92953c237363f
   zh: d21d6effd21b8c00
@@ -15,8 +15,8 @@
   en: 8068346eccc0af07
   zh: a91982455452a30c
 /muse-desktop/key-technical-decisions/bundled-workspace-dependencies:
-  en: 79707e9f77b79a19
-  zh: a93dca35ecb2dc48
+  en: 1b065616662ec70b
+  zh: cc1226cb9f0bb08e
 /muse-desktop/bundled-command-runtime:
   en: 312049a0aafdedb3
   zh: 571507f4c89dc9f5
@@ -42,8 +42,8 @@
   en: 4cd8a8da6977928d
   zh: 9f624855a2edac37
 /muse-desktop/package/release-versions:
-  en: fa2b8bd26c11992f
-  zh: 3d20b8446ba1a79b
+  en: 013e50a24acd214e
+  zh: 064ffb7ce1e1133f
 /muse-desktop/package/resuming-a-failed-run:
   en: 0a20368ae8ad048e
   zh: 09f45a0c214e7d6a
@@ -51,8 +51,8 @@
   en: af24fb2c5a1987cc
   zh: efab151447b389d5
 /muse-desktop/package/upload-updates:
-  en: 5d806d856d93d8a1
-  zh: 06dc3036c0546c95
+  en: 60ce9b8389e10f39
+  zh: 92a4241d9dacacbf
 /muse-desktop/package/unsigned-installers:
   en: b98d7f5ec39cd219
   zh: 0b84d716aa9ca78c

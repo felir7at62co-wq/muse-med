@@ -60,7 +60,7 @@ node third_party/plugins/build-downloads.mjs --out .artifacts/download-plugins
 
 标准、PTC、创造、短剧和编辑预设在各自的智能体作用域内启用 `hongguo_download_info`、`hongguo_download`、`douyin_download`、`reverse_skill`、`reverse_analyze`、`fanqie_download_info` 和 `fanqie_download`；极简预设不提供这些工具。工具以发起调用的会话工作区为输出位置。通过 `dsh plugin --profile headless add <tarball>` 安装压缩包会在该 profile 启用对应 bundle 补丁；构建新的桌面发行版则通过预设组合内置它们。
 
-下载 bundle 打包支持 npm 与 pnpm 的生命周期入口，在 Windows 上直接运行 JavaScript 入口，并通过包管理器环境禁用生命周期脚本。`node --test third_party/plugins/download-pack.test.mjs` 使用桌面打包采用的 pnpm 入口验证所有自有压缩包，检查凭证文件排除规则，并保持源码清单不变。逆向与番茄压缩包必须包含 `SOURCE.json` 声明的文件，且 SHA-256 完全一致；npm 排除的上游 `.gitignore` 元数据除外。
+下载 bundle 打包支持 npm 与 pnpm 的生命周期入口，在 Windows 上直接运行 JavaScript 入口，并通过包管理器环境禁用生命周期脚本。`node --test third_party/plugins/download-pack.test.mjs` 使用桌面打包采用的 pnpm 入口验证所有自有压缩包，检查凭证文件排除规则，并保持源码清单不变。Node tar 解析器按精确 Unicode 路径读取归档成员。逆向与番茄压缩包必须包含 `SOURCE.json` 声明的文件，且 SHA-256 完全一致；npm 排除的上游 `.gitignore` 元数据除外。
 
 红果默认使用用户提供源码的原接口，并接受多部系列 ID。操作者必须按包内文档配置原始 `config.json`、`devices.json` 和可用的签名服务。缺少原源配置会明确失败，公开试看集不代表全集可用。抖音接受用户指定的视频链接列表，对每个下载运行 FFmpeg 验证，并报告被拦截或部分完成的批次。视频列表本身不代表已覆盖整部剧；平台登录或验证在 Muse 内置浏览器面板中完成，不使用外部 profile 或 Cookie 文件导入。
 

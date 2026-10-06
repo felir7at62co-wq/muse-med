@@ -8,7 +8,7 @@
 
 桌面壳显示 **Muse**。Windows 快捷方式和可执行文件图标、macOS 安装包与“关于”使用保留原白蜘蛛的圆角黑底图标；Windows 应用窗口和托盘使用独立的透明底黑蜘蛛。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
 
-Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明，当前为 `1.0.2`。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
+Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明，当前为 `1.0.3`。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
 
 依赖校验也会检查与 Node 内置模块同名的 npm 包，包括 `buffer`，并要求链接的 Host 包解析到该发行版拥有的同一个包实例。
 
@@ -65,7 +65,9 @@ Windows 签名打包按 PE 文件内容扫描第一方运行时和应用生产�
 
 Desktop 携带独立的 Python、Node.js 和 pnpm 分发包。Python 包含 numpy、pandas、python-docx、python-pptx、openpyxl、Pillow、lxml、XlsxWriter 及其完整依赖。`load_workspace_dependencies` 工具首次使用时，将该产物离线安装到 `$DSH_HOME/dsh-runtimes/dsh-primary-runtime`（通常为 `~/.dsh/dsh-runtimes/dsh-primary-runtime`），并返回解释器、pnpm 脚本和库目录的绝对路径，以及记录内置分发包名称与版本的 `pythonDistributions`。版本报告不包含用户自行安装的包。Office 任务默认使用这些库，用户或工作区指令指定其他环境时遵循其要求。pnpm 脚本通过返回的 Node 可执行文件运行。返回的 Node 库目录为随包交付的库预留，不是 pnpm 的全局安装目录。
 
-Host 在加载创作预设前验证内置主运行时，并将抖音下载工具绑定到其 Python 绝对入口。工具以隔离模式运行 Python，不会查找系统解释器。下载插件的 Python 文件放在 ASAR 外；打包时先用内置解释器执行下载器帮助命令，再启动 Host。Windows 和 macOS 均使用内置 ffmpeg 和 ffprobe。Mac 构建按架构编译锁定的 FFmpeg 官方源码，禁用外部依赖自动发现、GPL 和 nonfree 组件；可执行文件随附对应源码归档及 LGPL 许可证。配置及受阻结果见[下载组合包](../../third_party/plugins/muse-douyin-download/README.zh.md)。
+Host 在加载创作预设前验证内置主运行时，并将抖音下载工具绑定到其 Python 绝对入口。工具以隔离模式运行 Python，不会查找系统解释器。下载插件的 Python 文件放在 ASAR 外；打包时先用内置解释器执行下载器帮助命令，再启动 Host。Windows 和 macOS 均使用内置 ffmpeg 和 ffprobe。Mac 构建按架构编译锁定的 FFmpeg 官方源码，禁用外部依赖自动发现、GPL 和 nonfree 组件；可执行文件随附对应源码归档及 LGPL 许可证。配置及受阻结果见[下载组合包](../../third_party/plugins/muse-douyin-download/README.zh.md)。 原生提供者下载仅在播放器地址出现在已验证目标响应中时优先选择该地址；其他渲染器地址不能授权下载。
+
+Desktop Main 与 Host 使用私有协议 6，在 Host 就绪消息及运行时描述中核对。浏览器服务版本 3 提供 `data(agent, selection, signal)`，保留下载参数。数据观察读取确切作品的有界详情 GET 响应或当前公开页的初始数据；Creator 观察仅读取正常本人作品列表 GET 响应。它返回带精度及不可用原因的公开计数、独立评论分页；响应正文、认证字段、媒体地址与作者标识留在私有进程内。缺失的公开播放量与零占位值均标为不可用。Creator 结果要求字符串作品 ID、同一位置的修改权限和统计中的作品 ID 一致。未核验的归属和不可用评论分页返回明确诊断。会话切换、导航、取消及 Host 关闭会等待未完成的响应读取结束后再返回。数据观察与下载不能同时占用浏览器通道。配套应用及插件的安装见[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-douyin-internal-browser/guide.zh.md)。
 
 红果在 `runtime/hongguo` 下使用独立于 Office 解释器、经哈希锁定的 Java 17、CPython 3.11 和 PyCryptodome。[准备程序](scripts/prepare-hongguo-runtime.ts)在发布产物前检查公开归档的大小、校验和、安全成员、解释器版本及 AES 可用性。产物保留 Temurin 声明及对应源码归档。只包含原下载器最小签名、解密文件和通用来源配置，不包含已保存设备或账号请求头。Shell 将验证后的静态文件复制到 `$DSH_HOME/hongguo/source-<digest>`，并向 Host 提供 `MUSE_HONGGUO_JAVA_PATH`、`MUSE_HONGGUO_PYTHON_PATH` 和 `MUSE_HONGGUO_LEGACY_APP_DIR` 的绝对路径。[红果提供者](../../third_party/plugins/muse-hongguo-download/README.zh.md)在首次使用时创建本地设备状态，并在重新启动后保留。不可变文件被修改时明确报错，不会覆盖用户状态。Host 启动会等候安装完成；安装错误会阻止 Host 启动，并显示为启动错误。
 
@@ -239,9 +241,9 @@ production 发布使用产品版本本身，不传 `--build-version`。其上传
 
 打包后的 `app-update.yml` 记录产品版本派生的通道：Muse `1.0.0` 使用 `latest.yml`，beta 版本使用 `beta.yml`。COS 上传元数据使用相同文件名，macOS 增加 `-mac`。正式版 `1.0.0` 高于 `1.0.0-beta.1` 和所有先前的 `0.1.7-rc.8` 构建。客户端保持自动降级关闭，只接受更高的元数据版本。纠正为较低版本时需要手动安装。
 
-Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-sources.json` 中。检查更新优先访问北京公开存储桶 `https://muse.tos-cn-beijing.volces.com/releases/feeds/<target>/`。更新目录或下载不可用时可以切换到 GitHub；只有已确认的版本、载荷大小和 SHA-512 都一致，下载才会继续。校验、磁盘和安装准备错误仍然报告失败。两个源的 macOS 元数据都包含两种架构。没有该来源记录的旧包继续使用其已封装的 feed。
+Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-sources.json` 中。检查更新优先访问北京公开存储桶 `https://muse.tos-cn-beijing.volces.com/releases/feeds/<target>/`。更新目录或下载不可用时可以切换到 GitHub；只有已确认的版本、载荷大小和 SHA-512 都一致，下载才会继续。校验、磁盘和安装准备错误仍然报告失败。Muse 正式发布 Apple Silicon Mac 和 Windows x64 安装包，两个源使用相同的载荷元数据。没有该来源记录的旧包继续使用其已封装的 feed。
 
-未签名 CI 在打包检查之后，将每个安装器、更新载荷、blockmap 和通道文件的哈希记录在 `unsigned-build.json` 中。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求提供三个目标的目录、真实产品版本和同一个完整源码提交；`--dry-run` 仅校验记录中的哈希，不上传。发布先写入按版本保存的二进制，完整读回公开下载并核对 SHA-256，之后才更新要求缓存重新验证的通道元数据。发布计划同时提供合并后的 GitHub 元数据。请在私有发布环境中配置 `VOLCENGINE_ACCESS_KEY_ID`、`VOLCENGINE_SECRET_ACCESS_KEY` 和 `MUSE_TOS_*` 目标变量；打包过程会从子进程环境中移除 TOS 凭据。
+未签名 CI 在打包检查之后，将每个安装器、更新载荷、blockmap 和通道文件的哈希记录在 `unsigned-build.json` 中。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求提供 Mac arm64 和 Windows x64 两个目标的目录、真实产品版本和同一个完整源码提交；`--dry-run` 仅校验记录中的哈希，不上传。发布先写入按版本保存的二进制，完整读回公开下载并核对 SHA-256，之后才更新要求缓存重新验证的通道元数据。发布计划同时提供合并后的 GitHub 元数据。请在私有发布环境中配置 `VOLCENGINE_ACCESS_KEY_ID`、`VOLCENGINE_SECRET_ACCESS_KEY` 和 `MUSE_TOS_*` 目标变量；打包过程会从子进程环境中移除 TOS 凭据。
 
 打包、上传以及手动 macOS 签名检查使用 `apps/desktop/.env.windows` 或 `.env.macos`，由目标平台选择。复制对应的 [Windows 模板](.env.windows.example) 或 [macOS 模板](.env.macos.example)，填写本机配置；Git 忽略这两个本地文件，安装产物也不包含它们。发布字段只从目标文件读取，不回退到系统或 shell 中的同名变量；`PATH`、代理和构建工具环境仍保留。发布版本是命令参数而非发布字段，上传从打包写下的完成记录中读取它。文件使用 UTF-8，支持 BOM；相对证书、SignTool、Apple API Key 和钥匙串路径以 `apps/desktop` 为基准，变量值不做 shell 展开，包含 `#` 或空格的密码需要引号。CI 同样在运行前生成目标文件。
 
@@ -344,7 +346,7 @@ pnpm run upload:mac:arm64
 
 GitHub 备用源使用 `https://github.com/felir7at62co-wq/muse-med` 上的 GitHub Releases。每个已发布 release 都需要语义化版本 tag、安装包、blockmap 和通道 YAML；provider 的 feed 不包含 draft release。`verify:update-feed` 使用真实 provider 校验安装包哈希和元数据资产。COS 上传器记录另一份必需的 GitHub 发布计划，但不会发布 GitHub release。
 
-`muse-product.json` 为 Muse `1.0.2` 启用 `legacyRcDiscovery`。已安装的 rc 客户端只选择 rc tag，因此发布包含正式版 `v1.0.2` 以及仅用于发现的预发布入口 `v1.0.2-rc.muse-stable`。两者包含完全相同的 Muse `1.0.2` 二进制，以及声明版本为 `1.0.2` 的相同 `rc.yml` 和 `latest.yml` 元数据；macOS 使用相应的 `-mac` 名称。COS 计划包含相同的 feed 别名。真实更新器测试验证发现和版本接受，不下载或安装。线上资产和已有 profile 的安装升级仍须经过发布验收。
+`muse-product.json` 为 Muse `1.0.3` 启用 `legacyRcDiscovery`。已安装的 rc 客户端只选择 rc tag，因此发布包含正式版 `v1.0.3` 以及仅用于发现的预发布入口 `v1.0.3-rc.muse-stable`。两者包含完全相同的 Muse `1.0.3` 二进制，以及声明版本为 `1.0.3` 的相同 `rc.yml` 和 `latest.yml` 元数据；macOS 使用相应的 `-mac` 名称。COS 计划包含相同的 feed 别名。真实更新器测试验证发现和版本接受，不下载或安装。线上资产和已有 profile 的安装升级仍须经过发布验收。
 
 macOS 配置使用必填发布环境，不会接受钥匙串中最先发现的证书。空值、格式错误的 Team ID、包含 electron-builder 不支持的 `Developer ID Application:` 前缀的签名身份，以及不完整的公证凭据都会被拒绝。macOS 打包要求已配置的身份及其私钥可用。运行时准备会把该身份、安全时间戳与 hardened runtime 应用到每个内嵌 Mach-O 文件；应用签名完成后，深度严格检查会拒绝其他叶证书 Authority 或 Team ID，验证通过才生成发布产物。macOS 固定目标安装包命令为已签名应用创建独立副本，并发执行两条产物流。一路先公证 App 并钉票，再生成 ZIP 及其更新元数据。另一路把已签名 App 副本封装进签名 DMG，再公证 DMG、钉票并验证；其中的 App 不单独附加票据。只有两路均成功结束，产物才会移入最终目录并写入发布完成记录。仅生成目录的命令同样需要公证凭据，并等待 Apple 公证和 App 钉票完成。[并行公证决策](../../.agents/notes/implemented/process/2026-09-09-parallel-macos-notarization.zh.md)负责副本隔离与容器票据语义。私钥可以来自登录钥匙串或 electron-builder 的标准 `CSC_LINK` 输入；环境中的 `CSC_NAME` 与证书发现顺序都不能选择发布所有者。公证凭据也可以使用 electron-builder 支持的完整 Apple ID 或钥匙串 profile 方式。手动执行 `pnpm --dir apps/desktop run verify:mac-signature -- <path-to-app>` 重复应用检查时，也必须提供两个 macOS 身份变量。
 

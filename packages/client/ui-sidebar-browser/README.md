@@ -90,6 +90,8 @@ The page refresh shortcut calls the same reload operation as the toolbar. Its to
 
 Official Douyin video tabs retain login in a workspace-scoped persistent partition across application restarts; their main document stays on official Douyin HTTPS pages. Download tool calls open those tabs automatically. Other browser tabs keep process-local storage. The Host owns each download and verifies its exact target and complete media file.
 
+The private data IPC types retain branded work, comment and request identities. Snapshots separate counter precision from availability, and total comments from retrieved items and pagination. Only bounded projected page facts cross the Main/Host wire; raw response and authentication fields are absent. [Desktop](../../../apps/desktop/README.md) owns observation, cancellation and runtime protocol requirements.
+
 ## Model Experience
 
 None, as Browser tabs are user-facing presentation state and register no tool, prompt section, or Session event.

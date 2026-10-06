@@ -8,7 +8,6 @@ import { desktopUpdateChannel, desktopUpdateMetadataFilename, resolveDesktopMuse
 
 const TARGETS = {
   'mac-arm64': { platform: 'darwin', arch: 'arm64', os: 'mac' },
-  'mac-x64': { platform: 'darwin', arch: 'x64', os: 'mac' },
   'win-x64': { platform: 'win32', arch: 'x64', os: 'win' },
 }
 
@@ -60,7 +59,7 @@ function contentType(filename) {
 }
 
 /**
- * Validate all three platform builds before producing any upload operations.
+ * Validate the Apple Silicon Mac and Windows builds before producing upload operations.
  * @param {{version: string, sourceCommit: string, artifactDirectories: Record<string, string>, legacyRcDiscovery?: boolean}} options - Exact release and completed target directories.
  * @returns {Promise<{version: string, sourceCommit: string, artifacts: object[], metadata: object[], githubMetadata: object[]}>} Immutable binaries and channel metadata ordered separately for publication.
  */
@@ -91,7 +90,7 @@ export async function createMuseMirrorPlan({ version, sourceCommit, artifactDire
     if (!binary || binary.sha512 !== info.sha512 || binary.size !== info.size) throw new Error(`Muse mirror: ${target} update checksum differs from its payload`)
     updates[target] = update
   }
-  const mac = { ...updates['mac-arm64'], files: [updates['mac-arm64'].files[0], updates['mac-x64'].files[0]] }
+  const mac = updates['mac-arm64']
   const win = updates['win-x64']
   const channel = desktopUpdateChannel(version)
   const channels = legacyRcDiscovery && ['latest', 'beta'].includes(channel) ? [...new Set([channel, 'rc', 'latest'])] : [channel]
@@ -109,7 +108,7 @@ export async function createMuseMirrorPlan({ version, sourceCommit, artifactDire
       const filename = `${alias}${platform === 'darwin' ? '-mac' : ''}.yml`
       const contents = dump(mirrored, { lineWidth: -1, noRefs: true })
       metadata.push({ filename, key: `${prefix}${filename}`, contents, contentType: 'application/yaml', sha256: createHash('sha256').update(contents).digest('hex') })
-      if (target !== 'mac-x64') githubMetadata.push({ filename, contents: dump(original, { lineWidth: -1, noRefs: true }) })
+      githubMetadata.push({ filename, contents: dump(original, { lineWidth: -1, noRefs: true }) })
     }
   }
   return { version, sourceCommit, artifacts, metadata, githubMetadata }

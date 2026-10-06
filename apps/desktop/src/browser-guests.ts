@@ -8,7 +8,8 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 import { DESKTOP_IPC } from './ipc.ts'
 import { DesktopDouyinDownloads } from './douyin-downloads.ts'
-import type { DouyinDesktopRequest, DouyinDesktopResult } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
+import { DesktopDouyinData } from './douyin-data.ts'
+import type { DouyinDesktopRequest, DouyinDesktopResult, DouyinDesktopDataRequest, DouyinDesktopDataResult } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 import { douyinStorageNavigation, douyinStoragePartition } from './douyin-storage.ts'
 
 interface GuestLease {
@@ -29,17 +30,32 @@ export class DesktopBrowserGuests {
   readonly downloads = new DesktopDouyinDownloads((owner, sessionId, url) => {
     owner.send(DESKTOP_IPC.browserDownloadPage, { sessionId, url })
   })
+  readonly observations = new DesktopDouyinData((owner, sessionId, url) => {
+    owner.send(DESKTOP_IPC.browserDownloadPage, { sessionId, url })
+  }, () => this.downloads.isActive)
 
   /** @param owner - authenticated application. @param request - validated Host operation. @returns task answer. */
   download(owner: WebContents, request: DouyinDesktopRequest): Promise<DouyinDesktopResult> {
+    if (request.action === 'prepare' && this.observations.isActive) return Promise.resolve({
+      type: 'douyin-browser-result', requestId: request.requestId, code: 'BUSY',
+    })
     return this.downloads.request(owner, request)
+  }
+
+  /**
+   * @param owner - Authenticated application.
+   * @param request - Validated data operation.
+   * @returns Sanitized exact-work page facts.
+   */
+  data(owner: WebContents, request: DouyinDesktopDataRequest): Promise<DouyinDesktopDataResult> {
+    return this.observations.request(owner, request)
   }
 
   /** @param hostUrl - current authenticated DSH Host, which guests cannot request. */
   constructor(private readonly hostUrl: () => string | undefined) {}
 
   /**
-   * Reserve one guest; official Douyin video tabs retain workspace login across restarts.
+   * Reserve one guest; official Douyin tabs retain workspace login across restarts.
    * @param owner - authenticated primary application WebContents.
    * @param workspace - workspace identity received over IPC.
    * @param sessionId - owning Session identity.
@@ -91,6 +107,7 @@ export class DesktopBrowserGuests {
     if (lease === undefined) return
     if (lease.owner !== owner) throw new Error('desktop browser: guest belongs to another window')
     this.downloads.released(key)
+    this.observations.released(key)
     lease.releaseInput?.()
     this.leases.delete(key)
     const guest = lease.guest
@@ -156,10 +173,12 @@ export class DesktopBrowserGuests {
         }
         lease.guest = guest
         this.downloads.attached({ lease: id, owner, guest, workspace: lease.workspace, sessionId: lease.sessionId })
+        this.observations.attached({ lease: id, owner, guest, workspace: lease.workspace, sessionId: lease.sessionId })
         attachedLease = id
         lease.releaseInput = attachInput(guest, id)
         guest.once('destroyed', () => {
           this.downloads.released(id)
+          this.observations.released(id)
           lease.releaseInput?.()
           this.leases.delete(id)
         })

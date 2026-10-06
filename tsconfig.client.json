@@ -20,6 +20,8 @@
     "apps/desktop/src/keyboard.ts",
     "apps/desktop/src/keybindings.ts",
     "apps/desktop/src/browser-guests.ts",
+    "apps/desktop/src/douyin-data.ts",
+    "apps/desktop/src/douyin-data-provider.ts",
     "apps/desktop/src/douyin-downloads.ts",
     "apps/desktop/src/douyin-policy.ts",
     "apps/desktop/src/douyin-provider.ts",

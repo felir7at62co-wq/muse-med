@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
+import { DESKTOP_HOST_PROTOCOL_VERSION as HOST_PROTOCOL_VERSION } from '../../desktop-host/src/host-protocol.ts'
 import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError, QUIT_INSPECTION_DEADLINE_MS } from '../src/host-process.ts'
 
 const roots: string[] = []
@@ -27,7 +29,7 @@ const server = createServer((request, response) => {
   response.end(JSON.stringify({runtime: process.argv[2], profile: process.argv[3], cwd: process.cwd(), nodePath: process.env.NODE_PATH, registry: process.env.NPM_CONFIG_REGISTRY, nodeOptions: process.env.NODE_OPTIONS, runAsNode: process.env.ELECTRON_RUN_AS_NODE, internals: process.execArgv.includes('--expose-internals')}))
 })
 server.listen(0, '127.0.0.1', () => {
-  process.send({ type: 'ready', url: 'http://127.0.0.1:' + server.address().port + '/?token=fixture' })
+  process.send({ type: 'ready', hostProtocolVersion: ${DESKTOP_HOST_PROTOCOL_VERSION}, url: 'http://127.0.0.1:' + server.address().port + '/?token=fixture' })
 })
 process.on('message', message => {
   if (message.type === 'update-tasks') {
@@ -73,6 +75,14 @@ afterEach(async () => {
 })
 
 describe('desktop host process', () => {
+  it('keeps Main and Host on one private protocol generation', () => {
+    expect(HOST_PROTOCOL_VERSION).toBe(DESKTOP_HOST_PROTOCOL_VERSION)
+  })
+
+  it.each([undefined, 5, 7, '6'])('refuses a mismatched or absent Host ready protocol: %s', async (version) => {
+    const host = hostProcess(projectWithHost(`process.send({ type: 'ready', hostProtocolVersion: ${JSON.stringify(version)}, url: 'http://127.0.0.1:3080/' })`))
+    await expect(host.start()).rejects.toThrow('invalid IPC event')
+  })
   it('waits for one native download cleanup after both child disconnect and exit', async () => {
     const runtime = projectWithHost()
     const completion = Promise.withResolvers<undefined>()
@@ -122,7 +132,7 @@ describe('desktop host process', () => {
     'process.exit(0)',
   ])('refuses installation when exit lacks successful teardown acknowledgement: %s', async (exit) => {
     const host = hostProcess(projectWithHost(`
-      process.send({ type: 'ready', url: 'http://127.0.0.1:3080/' })
+      process.send({ type: 'ready', hostProtocolVersion: ${DESKTOP_HOST_PROTOCOL_VERSION}, url: 'http://127.0.0.1:3080/' })
       process.on('message', message => {
         if (message.type === 'shutdown') process.stderr.write('token=fixture-secret', () => { ${exit} })
       })
@@ -215,7 +225,7 @@ describe('desktop host process', () => {
 
   it.each([
     ["process.send({ type: 'fatal', message: 'startup failed' }); process.disconnect()", 'startup failed'],
-    ["process.send({ type: 'ready', url: 4 })", 'invalid IPC event'],
+    [`process.send({ type: 'ready', hostProtocolVersion: ${DESKTOP_HOST_PROTOCOL_VERSION}, url: 4 })`, 'invalid IPC event'],
     ["process.send({ type: 'fatal', message: 'startup failed', diagnostic: 42 })", 'invalid IPC event'],
     ['process.exit(0)', 'host stopped'],
   ])('rejects startup when the child fails before readiness: %s', async (source, message) => {

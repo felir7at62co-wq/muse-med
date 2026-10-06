@@ -523,7 +523,12 @@ async function main(): Promise<void> {
       }, async (request) => {
         if (mainWindow === undefined || mainWindow.isDestroyed()) return { type: 'douyin-browser-result', requestId: request.requestId, code: 'UI_UNAVAILABLE' }
         return browserGuests.download(mainWindow.webContents, request)
-      }, () => browserGuests.downloads.dispose())
+      }, async () => {
+        await Promise.all([browserGuests.downloads.dispose(), browserGuests.observations.dispose()])
+      }, async (request) => {
+        if (mainWindow === undefined || mainWindow.isDestroyed()) return { type: 'douyin-browser-data-result', requestId: request.requestId, code: 'UI_UNAVAILABLE' }
+        return browserGuests.data(mainWindow.webContents, request)
+      })
     browserGuests.downloads.onRevoked = (taskId, code) => { host.notifyDouyinRevoked(taskId, code) }
     return {
       start: async () => {
@@ -789,6 +794,7 @@ async function main(): Promise<void> {
   ipcMain.handle(DESKTOP_IPC.browserActiveSession, (event, sessionId: unknown) => {
     assertProductSender(event)
     browserGuests.downloads.activeSession(event.sender, sessionId)
+    browserGuests.observations.activeSession(event.sender, sessionId)
   })
 
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['ws://127.0.0.1/*'] }, (details, callback) => {

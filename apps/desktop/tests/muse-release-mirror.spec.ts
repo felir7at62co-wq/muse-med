@@ -17,7 +17,7 @@ async function fixture(version = '1.0.2') {
   roots.push(root)
   const artifactDirectories: Record<string, string> = {}
   const channel = version.includes('-beta.') ? 'beta' : 'latest'
-  for (const target of ['mac-arm64', 'mac-x64', 'win-x64']) {
+  for (const target of ['mac-arm64', 'win-x64']) {
     const directory = join(root, target)
     artifactDirectories[target] = directory
     await mkdir(directory)
@@ -40,14 +40,14 @@ describe('Muse release mirror validation', () => {
   it('retains genuine versions, exact source commits and identical Mac payload identities on both mirrors', async () => {
     const f = await fixture()
     const plan = await createMuseMirrorPlan(f)
-    expect(plan.artifacts).toHaveLength(8)
-    expect(plan.metadata).toHaveLength(6)
+    expect(plan.artifacts).toHaveLength(5)
+    expect(plan.metadata).toHaveLength(4)
     expect(plan.githubMetadata.map(file => file.filename)).toEqual(['latest-mac.yml', 'rc-mac.yml', 'latest.yml', 'rc.yml'])
     expect(plan.version).toBe(f.version)
     expect(plan.sourceCommit).toBe(sourceCommit)
     const github = load(plan.githubMetadata.find(file => file.filename === 'latest-mac.yml')!.contents) as UpdateInfo
-    expect(github.files).toHaveLength(2)
-    for (const target of ['mac-arm64', 'mac-x64']) {
+    expect(github.files).toHaveLength(1)
+    for (const target of ['mac-arm64']) {
       const mirrored = load(plan.metadata.find(file => file.key === `releases/feeds/${target}/latest-mac.yml`)!.contents) as UpdateInfo
       expect(desktopUpdateIdentity(mirrored)).toBe(desktopUpdateIdentity(github))
       expect(mirrored.files.every(file => file.url.startsWith('https://muse.tos-cn-beijing.volces.com/releases/1.0.2/'))).toBe(true)
@@ -59,14 +59,14 @@ describe('Muse release mirror validation', () => {
   it('publishes prerelease aliases with the actual beta version', async () => {
     const f = await fixture('1.0.3-beta.1')
     const plan = await createMuseMirrorPlan(f)
-    expect(plan.metadata).toHaveLength(9)
+    expect(plan.metadata).toHaveLength(6)
     expect(plan.metadata.every(file => (load(file.contents) as UpdateInfo).version === f.version)).toBe(true)
     expect(plan.githubMetadata.map(file => file.filename)).toEqual(['beta-mac.yml', 'rc-mac.yml', 'latest-mac.yml', 'beta.yml', 'rc.yml', 'latest.yml'])
   })
 
   it('refuses to combine builds from different source commits', async () => {
     const f = await fixture()
-    const path = join(f.artifactDirectories['mac-x64']!, 'unsigned-build.json')
+    const path = join(f.artifactDirectories['mac-arm64']!, 'unsigned-build.json')
     const record = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
     await writeFile(path, JSON.stringify({ ...record, sourceCommit: 'b'.repeat(40) }))
     await expect(createMuseMirrorPlan(f)).rejects.toThrow(/another build/u)

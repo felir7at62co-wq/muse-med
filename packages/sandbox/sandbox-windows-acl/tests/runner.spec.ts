@@ -542,6 +542,10 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     const grant = AclWriteGrant.create(workspaceWriteSid(granted))
     grant.add(granted, true)
     try {
+      // Explicit creator-owner allows precede inherited denies on some hosts.
+      // This fixture measures the parent's container-only inheritance.
+      const reset = spawnSync('icacls', [child, '/reset'], { encoding: 'utf8', timeout: 30_000 })
+      expect(reset.status, `fixture DACL reset failed: ${reset.stdout}\n${reset.stderr}`).toBe(0)
       const probe = `
 $ErrorActionPreference='SilentlyContinue'
 Add-Type -Namespace P -Name F -MemberDefinition @'

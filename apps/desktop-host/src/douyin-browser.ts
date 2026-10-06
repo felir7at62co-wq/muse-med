@@ -1,7 +1,7 @@
 /** Application-owned browser transport for the initiating Session's download tool call. */
 import { randomUUID, createHash } from 'node:crypto'
 import { createReadStream, realpathSync } from 'node:fs'
-import { stat, link, writeFile, unlink } from 'node:fs/promises'
+import { stat, link, open, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -12,9 +12,12 @@ import type {
   DouyinDesktopResult,
 } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 import { mediaEvidence, nativeMediaFacts } from './douyin-media-facts.ts'
+import { installDesktopDouyinData, type DouyinDataMethod } from './douyin-data.ts'
 
 interface BrowserAcquisition {
-  readonly version: 2
+  readonly version: 3
+  /** Observe normal-page data with the initiating Agent's cancellation and workspace lifetime. */
+  readonly data: DouyinDataMethod
   /**
    * @param agent - initiating real Agent.
    * @param url - requested official page.
@@ -49,6 +52,7 @@ function resultOf(value: unknown): DouyinDesktopResult | undefined {
 
 /** @param ctx - booted profile. @returns after installing the owned transport and its disposer. */
 export function installDesktopDouyinBrowser(ctx: Context): void {
+  const data = installDesktopDouyinData(ctx)
   const pending = new Map<
     string,
     { resolve: (value: DouyinDesktopResult) => void; timer: ReturnType<typeof setTimeout> }
@@ -193,7 +197,8 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
   ctx.effect(
     () =>
       ctx.provide('douyinBrowser', {
-        version: 2,
+        version: 3,
+        data,
         download(agent, url, callerSignal, maxDownloadBytes) {
           const operation = acquire(agent, url, callerSignal, maxDownloadBytes)
           downloads.add(operation)
@@ -336,15 +341,24 @@ async function verifyNativeMedia(
   }
   bounded.throwIfAborted()
   await link(file, targetPath)
+  let ownsReceipt = false
   try {
-    await writeFile(receipt, JSON.stringify(record, null, 2) + '\n', { flag: 'wx', mode: 0o600, signal: bounded })
+    const handle = await open(receipt, 'wx', 0o600)
+    ownsReceipt = true
+    try {
+      await handle.writeFile(JSON.stringify(record, null, 2) + '\n', { signal: bounded })
+    } finally {
+      await handle.close()
+    }
     bounded.throwIfAborted()
   } catch (error) {
     await unlink(targetPath)
-    try {
-      await unlink(receipt)
-    } catch (_error) {
-      /* Exclusive task receipt may not have been created. */
+    if (ownsReceipt) {
+      try {
+        await unlink(receipt)
+      } catch (_error) {
+        /* The owned receipt may already have been removed. */
+      }
     }
     throw error
   }

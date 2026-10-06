@@ -49,7 +49,7 @@ export async function apply(ctx, config) {
           linked.add(name)
         }
       }
-      for (const plugin of ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
+      for (const plugin of ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download']) {
         await symlink(fileURLToPath(new URL(`../../../third_party/plugins/${plugin}/`, import.meta.url)), join(anchor, 'node_modules', plugin), process.platform === 'win32' ? 'junction' : 'dir')
       }
       await writeFile(join(anchor, 'package.json'), '{"name":"snapshot-editing-resolution","version":"0.0.0","type":"module"}\n')

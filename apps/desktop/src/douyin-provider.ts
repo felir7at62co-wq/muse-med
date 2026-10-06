@@ -39,6 +39,15 @@ export function providerRequest(url: string, target: string): boolean {
   )
 }
 
+/** @param url - Normal Creator page request. @returns Whether the official own-work list produced it. */
+export function creatorProviderRequest(url: string): boolean {
+  if (url.length > 8192 || !URL.canParse(url)) return false
+  const value = new URL(url)
+  return value.protocol === 'https:' && !value.username && !value.password
+    && (!value.port || value.port === '443') && value.hostname === 'creator.douyin.com'
+    && value.pathname === '/janus/douyin/creator/pc/work_list'
+}
+
 /** @param url - provider address, retained verbatim. @returns true for a plain HTTPS MP4 on the allowed CDN names. */
 export function providerMP4(url: string): boolean {
   if (!douyinMedia(url)) return false
@@ -171,7 +180,7 @@ export const PROVIDER_PLAYER_PROBE = `(() => {
  if(v.length!==1||v[0].readyState<2||v[0].paused)return null;
  const src=v[0].currentSrc;
  const sourceSupported=src.startsWith('https:')||(src.startsWith('blob:')&&new URL(src).origin==='https://www.douyin.com');
- return {duration:v[0].duration,sourceSupported,protected:v[0].mediaKeys!=null};
+ return {duration:v[0].duration,sourceSupported,protected:v[0].mediaKeys!=null,src};
 })()`
 
 interface PendingResponse {
@@ -182,6 +191,7 @@ interface PendingResponse {
 /** Reads bounded bodies only for page-generated target GET requests in the main document. */
 export class ProviderResponses {
   private readonly pending = new Map<string, PendingResponse>()
+  private readonly reads = new Set<Promise<void>>()
   private frame = ''
   private loader = ''
   private closed = false
@@ -196,7 +206,13 @@ export class ProviderResponses {
     private readonly currentEpoch: () => number,
     private readonly deliver: (source: ProviderEvidence) => void,
     private readonly protection: () => void,
+    private readonly data?: (body: string, documentEpoch: number) => void,
+    private readonly source: 'public' | 'creator' = 'public',
   ) {}
+
+  private matches(url: string): boolean {
+    return this.source === 'creator' ? creatorProviderRequest(url) : providerRequest(url, this.target)
+  }
 
   /** @returns whether this observer attached; never takes over an existing debugger. */
   async start(): Promise<boolean> {
@@ -236,9 +252,11 @@ export class ProviderResponses {
   }
 
   private readonly message = (_event: Electron.Event, method: string, params: unknown): void => {
-    void this.readMessage(method, params).catch(() => {
+    const reading = this.readMessage(method, params).catch(() => {
       /* Malformed/evicted CDP data provides no media selection. */
     })
+    this.reads.add(reading)
+    void reading.then(() => { this.reads.delete(reading) })
   }
 
   private async readMessage(method: string, value: unknown): Promise<void> {
@@ -262,7 +280,7 @@ export class ProviderResponses {
           request?.method === 'GET' &&
           typeof request.url === 'string' &&
           typeof params.loaderId === 'string' &&
-          providerRequest(request.url, this.target)
+          this.matches(request.url)
         )
           this.pending.set(params.requestId, { epoch: this.epoch, loader: params.loaderId, received: false })
       }
@@ -283,7 +301,7 @@ export class ProviderResponses {
         typeof response.mimeType === 'string' &&
         /^application\/json(?:;|$)/i.test(response.mimeType) &&
         typeof response.url === 'string' &&
-        providerRequest(response.url, this.target)
+        this.matches(response.url)
       if (!request.received) this.pending.delete(params.requestId)
     } else if (method === 'Network.loadingFailed') this.pending.delete(params.requestId)
     else if (method === 'Network.loadingFinished') {
@@ -309,6 +327,10 @@ export class ProviderResponses {
           return
         const body = Buffer.from(result.body, result.base64Encoded ? 'base64' : 'utf8')
         if (body.length > PROVIDER_MAX_BYTES) return
+        if (this.data !== undefined) {
+          this.data(body.toString('utf8'), request.epoch)
+          return
+        }
         const parsed = providerSources(body.toString('utf8'), this.target)
         if (parsed.protected) {
           this.protection()
@@ -334,5 +356,11 @@ export class ProviderResponses {
       /* Guest may already have closed. */
     }
     this.attached = false
+  }
+
+  /** @returns after detaching observation and settling all outstanding bounded response reads. */
+  async closeAndWait(): Promise<void> {
+    this.close()
+    await Promise.allSettled([...this.reads])
   }
 }

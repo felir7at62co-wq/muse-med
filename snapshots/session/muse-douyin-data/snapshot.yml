@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-douyin-data
+profile: headless
+composition: muse-douyin-data
+recording: authored
+writerOutput: true
+header:
+  class: muse-douyin-data
+  pin: true
+  systemPromptSource: muse-media-download-tool-catalog
+  toolSchemasSource: muse-media-download-tool-catalog

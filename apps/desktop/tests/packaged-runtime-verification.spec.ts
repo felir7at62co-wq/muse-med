@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { readDesktopProductVersion } from '../scripts/desktop-build-version.mjs'
 
 const { verifyDesktopRuntime } = vi.hoisted(() => ({
@@ -6,6 +9,7 @@ const { verifyDesktopRuntime } = vi.hoisted(() => ({
 }))
 // The hook imports the built tree, which a clean checkout has not produced; this is the path it resolves.
 vi.mock('/apps/desktop/lib/types/runtime-tree.js', () => ({ verifyDesktopRuntime }))
+vi.mock('/apps/desktop/lib/types/update-sources.js', () => import('../src/update-sources.ts'))
 vi.mock('../scripts/windows-asar-unpack.mjs', async importOriginal => ({
   ...await importOriginal<typeof import('../scripts/windows-asar-unpack.mjs')>(),
   verifyWindowsAsarUnpack: async () => undefined,
@@ -22,7 +26,16 @@ const ENVIRONMENT = {
   DOWNLOAD_TEST_RELEASE_ID: '0123456789abcdef0123456789abcdef',
 }
 
-const CONTEXT = { appOutDir: 'out', packager: { getResourcesDir: () => 'out/resources' } }
+async function verifyWithResources(config: ReturnType<typeof import('../scripts/electron-builder-config.mjs').createElectronBuilderConfig>): Promise<void> {
+  const appOutDir = await mkdtemp(join(tmpdir(), 'dsh-version-verification-'))
+  const resources = join(appOutDir, 'resources')
+  try {
+    await mkdir(resources)
+    type PackContext = Parameters<typeof config.afterPack>[0]
+    const packager: Pick<PackContext['packager'], 'getResourcesDir'> = { getResourcesDir: () => resources }
+    await config.afterPack({ appOutDir, packager } as PackContext)
+  } finally { await rm(appOutDir, { recursive: true, force: true }) }
+}
 
 /**
  * Run the packaging hook that verifies the bundled runtime.
@@ -32,7 +45,7 @@ async function requiredRuntimeVersion(preparedRuntime?: string, preparedRuntimeV
   verifyDesktopRuntime.mockClear()
   const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
   const config = createElectronBuilderConfig(ENVIRONMENT, 'win32', 'x64', preparedRuntime, preparedRuntimeVersion)
-  await config.afterPack(CONTEXT as never)
+  await verifyWithResources(config)
   return verifyDesktopRuntime.mock.calls[0]?.[1]
 }
 
@@ -59,7 +72,7 @@ describe('packaged runtime verification', () => {
     const config = createElectronBuilderConfig(
       { ...ENVIRONMENT, DSH_DESKTOP_BUILD_VERSION: `${productVersion}-test.20260921.1` }, 'win32', 'x64')
     expect(config.extraMetadata).toMatchObject({ version: `${productVersion}-test.20260921.1` })
-    await config.afterPack(CONTEXT as never)
+    await verifyWithResources(config)
     expect(verifyDesktopRuntime.mock.calls[0]?.[1]).toBe(harnessVersion)
   })
 })

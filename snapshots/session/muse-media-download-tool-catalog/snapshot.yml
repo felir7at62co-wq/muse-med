@@ -3,6 +3,7 @@ scenario: muse-media-download-tool-catalog
 profile: headless
 composition: muse-media-download-tool-catalog
 recording: authored
+writerOutput: true
 header:
   class: muse-media-download-tool-catalog
   pin: true

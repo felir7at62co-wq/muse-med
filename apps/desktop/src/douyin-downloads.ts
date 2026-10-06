@@ -24,6 +24,21 @@ export interface DouyinGuest {
   readonly sessionId: string | undefined
 }
 
+/**
+ * @param lease - Main-issued browser reservation.
+ * @param owner - Initiating application window.
+ * @param sessionId - Selected owning Session.
+ * @param cwd - Host-resolved workspace directory.
+ * @returns Whether the reservation uses that Session and its canonical storage identity.
+ */
+export function douyinGuestMatches(lease: DouyinGuest, owner: WebContents, sessionId: string, cwd: string): boolean {
+  if (lease.owner !== owner || lease.sessionId !== sessionId) return false
+  let workspace: string
+  try { workspace = realpathSync(cwd) }
+  catch (_error) { return false /* A removed workspace cannot acquire browser ownership. */ }
+  return [`cwd:${workspace}`, `session:${sessionId}`].includes(lease.workspace)
+}
+
 interface Task {
   request: DouyinDesktopRequest
   owner: WebContents
@@ -85,6 +100,11 @@ export class DesktopDouyinDownloads {
     private readonly open: (owner: WebContents, sessionId: string, url: string) => void,
     private readonly addresses?: (host: string) => Promise<readonly string[]>,
   ) {}
+
+  /** @returns Whether a main-issued download task currently owns the native grant. */
+  get isActive(): boolean {
+    return this.task !== undefined
+  }
 
   /** @param owner - authenticated application window. @param session - selected Session, or absent. */
   activeSession(owner: WebContents, session: unknown): void {
@@ -242,9 +262,7 @@ export class DesktopDouyinDownloads {
     if (
       task?.phase === 'preparing' &&
       task.lease === undefined &&
-      task.owner === lease.owner &&
-      task.request.sessionId === lease.sessionId &&
-      [`cwd:${realpathSync(task.request.cwd)}`, `session:${task.request.sessionId}`].includes(lease.workspace)
+      douyinGuestMatches(lease, task.owner, task.request.sessionId, task.request.cwd)
     )
       task.lease = lease
   }
@@ -354,7 +372,7 @@ export class DesktopDouyinDownloads {
         Math.abs(facts.duration - source.durationMs / 1000) > 0.25
       )
         return
-      const url = source.urls[0]
+      const url = typeof facts.src === 'string' && source.urls.includes(facts.src) ? facts.src : source.urls[0]
       if (url === undefined) return
       failureCode = 'MEDIA_DNS_UNAVAILABLE'
       if (!(await this.publicHost(url, task.lease.guest))) {

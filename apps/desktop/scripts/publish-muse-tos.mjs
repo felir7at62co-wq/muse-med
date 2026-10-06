@@ -1,4 +1,4 @@
-/** Publish an exact three-target Muse release to TOS, verifying public bytes before channel promotion. */
+/** Publish an exact Mac arm64 and Windows x64 Muse release to TOS, verifying public bytes before channel promotion. */
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { createReadStream } from 'node:fs'
 import { createHash } from 'node:crypto'
@@ -9,7 +9,7 @@ import { readDesktopProductConfig } from './desktop-build-version.mjs'
 
 const { values } = parseArgs({ options: {
   version: { type: 'string' }, commit: { type: 'string' },
-  'mac-arm64': { type: 'string' }, 'mac-x64': { type: 'string' }, 'win-x64': { type: 'string' },
+  'mac-arm64': { type: 'string' }, 'win-x64': { type: 'string' },
   'dry-run': { type: 'boolean', default: false },
 } })
 
@@ -23,7 +23,7 @@ async function main() {
   const product = readDesktopProductConfig()
   if (values.version !== product.version) throw new Error('Muse TOS: release version differs from the current product version')
   const plan = await createMuseMirrorPlan({ version: values.version, sourceCommit: values.commit,
-    artifactDirectories: Object.fromEntries(['mac-arm64', 'mac-x64', 'win-x64'].map(target => [target, values[target]])),
+    artifactDirectories: Object.fromEntries(['mac-arm64', 'win-x64'].map(target => [target, values[target]])),
     legacyRcDiscovery: product.legacyRcDiscovery })
   if (values['dry-run']) {
     console.log(JSON.stringify({ stage: 'validated', version: plan.version, sourceCommit: plan.sourceCommit,

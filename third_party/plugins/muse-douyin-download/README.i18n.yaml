@@ -2,15 +2,18 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write third_party/plugins/muse-douyin-download/README.md
-/muse-douyin-download-tool:
-  en: 06cee12274157875
-  zh: ca5ae9fef83bdce1
-/muse-douyin-download-tool/runtime-and-configuration:
-  en: c57e32eb8ef52c2a
-  zh: eed30b8204ad739d
-/muse-douyin-download-tool/internal-playback-and-results:
-  en: d9ed243dbf29d6ac
+/muse-douyin-data-and-download-tools:
+  en: 84e856f2e2390be7
+  zh: 61d843e99b78a61a
+/muse-douyin-data-and-download-tools/runtime-and-configuration:
+  en: caab029a1220413c
+  zh: dbb7c518bc31863a
+/muse-douyin-data-and-download-tools/page-data-and-optional-downloads:
+  en: d545e8bd47f20c5f
+  zh: 79a33edaf87a180d
+/muse-douyin-data-and-download-tools/internal-playback-and-results:
+  en: b23660893f00b0bb
   zh: db15ab3f37257c29
-/muse-douyin-download-tool/validation-and-packaging:
-  en: 61711a835f6f0b8e
-  zh: 7cdff30e1221a521
+/muse-douyin-data-and-download-tools/validation-and-packaging:
+  en: 2f7407a225916fdf
+  zh: b7ebefcc6da965f7

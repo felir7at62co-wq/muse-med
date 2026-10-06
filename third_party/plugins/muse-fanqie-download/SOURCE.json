@@ -1,4 +1,5 @@
 {
+  "hostVersion": "0.2.1-alpha.1",
   "commit": "1fc752bdb1a45afa2d42dfe9b9742ce02c83ce84",
   "referenceApp": {
     "sha256": "590e69effee4eecf817c67b7bb84e285799296e0e0892ba6a851314eebbb382e",

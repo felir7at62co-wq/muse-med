@@ -26,7 +26,6 @@ describe('CI workflow', () => {
       matrix: { include: [
         { target: 'win-x64', runner: 'windows-2025', shell: 'pwsh' },
         { target: 'mac-arm64', runner: 'macos-15', shell: 'bash' },
-        { target: 'mac-x64', runner: 'macos-15-intel', shell: 'bash' },
       ] },
     })
     if (!Array.isArray(job.steps)) throw new TypeError('Muse packaging must define steps')

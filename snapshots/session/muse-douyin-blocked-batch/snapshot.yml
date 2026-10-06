@@ -3,6 +3,7 @@ scenario: muse-douyin-blocked-batch
 profile: headless
 composition: muse-douyin-blocked-batch
 recording: authored
+writerOutput: true
 header:
   class: muse-douyin-blocked-batch
   pin: true

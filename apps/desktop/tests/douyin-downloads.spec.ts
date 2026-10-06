@@ -28,7 +28,7 @@ function web() {
     downloadURL: vi.fn(),
     debugger: { isAttached: () => true },
     session: { resolveHost: vi.fn(async () => ({ endpoints: [{ address: '1.1.1.1', family: 'ipv4' }] })) },
-    executeJavaScript: vi.fn(async () => ({ id, src: media })),
+    executeJavaScript: vi.fn(async (): Promise<unknown> => ({ id, src: media })),
   })
 }
 class Item extends EventEmitter {
@@ -187,7 +187,7 @@ it('does not identify recommended, wrong-ID, blob or absent-metadata media as th
     { id: '7690000000000000000', src: media },
     { id, src: 'blob:https://www.douyin.com/x' },
   ]) {
-    guest.executeJavaScript.mockResolvedValue(player as never)
+    guest.executeJavaScript.mockResolvedValue(player)
     const prep = controller.request(owner as never, request)
     controller.attached({
       owner: owner as never,
@@ -291,7 +291,7 @@ it('rejects the declared file size before saving when it exceeds the deployment 
 async function providerTransfer() {
   const debug = fixtureDebugger()
   Object.assign(guest, { debugger: debug })
-  guest.executeJavaScript.mockResolvedValue({ duration: 34.41, sourceSupported: true, protected: false } as never)
+  guest.executeJavaScript.mockResolvedValue({ duration: 34.41, sourceSupported: true, protected: false })
   guest.reload.mockImplementation(() => {
     guest.emit('did-start-navigation', {}, page, false, true)
     debug.emit('message', {}, 'Page.frameNavigated', { frame: { id: 'main', loaderId: 'loader' } })
@@ -337,7 +337,7 @@ it.each(['wrong-duration', 'protected', 'changed-document', 'private-dns', 'wron
     }
     const { result, debug } = await providerTransfer()
     if (reason === 'wrong-duration')
-      guest.executeJavaScript.mockResolvedValue({ duration: 1, sourceSupported: true, protected: false } as never)
+      guest.executeJavaScript.mockResolvedValue({ duration: 1, sourceSupported: true, protected: false })
     if (reason === 'protected') {
       const body = fixtureBody()
       Object.assign(body.aweme_detail.video, { drm_type: 1 })
@@ -427,4 +427,103 @@ it('denies private redirect resolution and cannot issue a download after cancell
   await vi.advanceTimersByTimeAsync(100)
   expect(await controller.blocksRequest('https://v4.douyinvod.com/redirect.mp4', guest.id)).toBe(true)
   expect((await next.result).code).toBe('PRIVATE_MEDIA_ADDRESS')
+})
+
+it('uses the playing verified alternative when the first provider address returns 403', async () => {
+  const backup = 'https://v26-web.douyinvod.com/video.mp4?synthetic=backup'
+  const { result, debug } = await providerTransfer()
+  const body = fixtureBody()
+  body.aweme_detail.video.bit_rate = [{ bit_rate: 1000000, play_addr: { url_list: [fixtureMedia, backup] } }]
+  debug.sendCommand.mockResolvedValue({ body: JSON.stringify(body), base64Encoded: false })
+  guest.executeJavaScript.mockResolvedValue({ duration: 34.41, sourceSupported: true, protected: false, src: backup })
+  guest.downloadURL.mockImplementation((selected: string) => {
+    controller.response({ webContentsId: guest.id, statusCode: 403, resourceType: 'other', url: fixtureMedia,
+      responseHeaders: { 'Content-Type': ['text/html'] } } as never)
+    if (selected === backup) controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'other',
+      url: backup, responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+  })
+  await fixtureResponse(debug)
+  await vi.advanceTimersByTimeAsync(100)
+  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(backup)
+  const item = new Item()
+  item.url = backup
+  item.chain = [backup]
+  expect(controller.accept(item as never, guest as never)).toBe(true)
+  item.complete()
+  expect(await result).toMatchObject({ code: 'STAGED', evidence: { responseStatus: 206,
+    association: 'provider-detail-verified', provider: { targetVideoId: id, documentEpoch: 1 } } })
+})
+
+it.each([
+  'https://v5.douyinvod.com/unlisted.mp4?synthetic=not-authorized',
+  'https://untrusted.example/video.mp4',
+  'blob:https://www.douyin.com/playing-video',
+])('cannot authorize a player address outside its verified provider list: %s', async (unlisted) => {
+  const { result, debug } = await providerTransfer()
+  guest.executeJavaScript.mockResolvedValue({ duration: 34.41, sourceSupported: true, protected: false, src: unlisted })
+  await fixtureResponse(debug)
+  await vi.advanceTimersByTimeAsync(100)
+  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(fixtureMedia)
+  expect(guest.downloadURL).not.toHaveBeenCalledWith(unlisted)
+  const item = new Item()
+  item.url = unlisted
+  item.chain = [unlisted]
+  expect(controller.accept(item as never, guest as never)).toBe(false)
+  await controller.request(owner as never, { ...request, action: 'release' })
+  expect((await result).code).toBe('CANCELLED')
+})
+
+it('does not authorize a playing address from a wrong-target provider response', async () => {
+  const { result, debug } = await providerTransfer()
+  const body = fixtureBody()
+  body.aweme_detail.aweme_id = '7690000000000000000'
+  debug.sendCommand.mockResolvedValue({ body: JSON.stringify(body), base64Encoded: false })
+  guest.executeJavaScript.mockResolvedValue({ duration: 34.41, sourceSupported: true, protected: false, src: fixtureMedia })
+  await fixtureResponse(debug)
+  await vi.advanceTimersByTimeAsync(120_000)
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+  expect((await result).code).toBe('UNSUPPORTED_MEDIA_ASSOCIATION')
+})
+
+it('discards player selection when its exact-target document changes during the probe', async () => {
+  const { result, debug } = await providerTransfer()
+  const probing = Promise.withResolvers<unknown>()
+  guest.executeJavaScript.mockImplementation(() => probing.promise)
+  await fixtureResponse(debug)
+  expect(guest.executeJavaScript).toHaveBeenCalledOnce()
+  guest.emit('did-start-navigation', {}, page, false, true)
+  probing.resolve({ duration: 34.41, sourceSupported: true, protected: false, src: fixtureMedia })
+  await vi.advanceTimersByTimeAsync(100)
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+  expect((await result).code).toBe('DOCUMENT_CHANGED')
+  expect(debug.isAttached()).toBe(false)
+})
+
+it('joins native cancellation before removing the selected provider download', async () => {
+  const { result, debug } = await providerTransfer()
+  guest.executeJavaScript.mockResolvedValue({ duration: 34.41, sourceSupported: true, protected: false, src: fixtureMedia })
+  await fixtureResponse(debug)
+  await vi.advanceTimersByTimeAsync(100)
+  class DeferredItem extends Item {
+    requested = false
+    override cancel() { this.requested = true }
+    close() { this.state = 'cancelled'; this.emit('done', {}, 'cancelled') }
+  }
+  const item = new DeferredItem()
+  item.url = fixtureMedia
+  item.chain = [fixtureMedia]
+  expect(controller.accept(item as never, guest as never)).toBe(true)
+  expect(controller.isActive).toBe(true)
+  let released = false
+  const releasing = controller.request(owner as never, { ...request, action: 'release' }).then(() => { released = true })
+  try {
+    expect(item.requested).toBe(true)
+    expect(controller.isActive).toBe(false)
+    expect((await result).code).toBe('CANCELLED')
+    expect(released).toBe(false)
+    expect(existsSync(item.path)).toBe(true)
+  } finally { item.close(); await releasing }
+  expect(released).toBe(true)
+  expect(existsSync(item.path)).toBe(false)
+  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(fixtureMedia)
 })

@@ -76,7 +76,7 @@ test('plugin scope uses the initiating session and unload awaits subprocess exit
   const done = new Promise(resolve => { settle = resolve; });
   const ctx = {
     agents: { requireInitiator() { return { session: { header: { cwd: workspace } } }; } },
-    tools: { register(definition) { tool = definition; return () => { tool = undefined; }; } },
+    tools: { register(definition) { if (definition.name === 'douyin_download') tool = definition; return () => { tool = undefined; }; } },
     subprocess: { spawn(value) { spec = value; return { done, collected: { stdout: { readFrom() { return { text: JSON.stringify(receipt) }; } } } }; } },
     effect(factory) { cleanups.push(factory()); },
   };
@@ -104,7 +104,7 @@ test('batch execution downloads distinct works and preserves a middle failure as
   let tool;
   const ctx = {
     agents: { requireInitiator() { return { session: { header: { cwd: workspace } } }; } },
-    tools: { register(definition) { tool = definition; return () => {}; } },
+    tools: { register(definition) { if (definition.name === 'douyin_download') tool = definition; return () => {}; } },
     subprocess: { spawn(spec) {
       const url = spec.argv[spec.argv.indexOf('--url') + 1];
       calls.push(url);
@@ -136,7 +136,7 @@ test('missing bundled runtime blocks single and multiple videos before accessing
   let spawns = 0;
   const ctx = {
     agents: { requireInitiator() { return { session: { header: { cwd: workspace } } }; } },
-    tools: { register(definition) { tool = definition; return () => {}; } },
+    tools: { register(definition) { if (definition.name === 'douyin_download') tool = definition; return () => {}; } },
     subprocess: { spawn() { spawns++; throw new Error('No process should start'); } },
     effect(factory) { cleanups.push(factory()); },
   };
@@ -159,7 +159,7 @@ test('plugin forwards its file bound and unload waits for the internal-browser o
   const native = new Promise(resolve => { settle = resolve; });
   const ctx = {
     agents: { requireInitiator() { return { session: { header: { cwd: workspace } } }; } },
-    tools: { register(definition) { tool = definition; return () => {}; } },
+    tools: { register(definition) { if (definition.name === 'douyin_download') tool = definition; return () => {}; } },
     subprocess: subprocess({ status: 'blocked', message: 'ACCESS_RESTRICTED' }, { exitCode: 1, signal: null }),
     get() { return { version: 2, download(_agent, _url, signal, maxDownloadBytes) { browserSignal = signal; browserLimit = maxDownloadBytes; entered(); return native; } }; },
     effect(factory) { cleanups.push(factory()); },
@@ -182,7 +182,7 @@ test('an older browser acquisition returns a blocked result before native IPC', 
   const cleanups = []; let tool; let nativeCalls = 0;
   const ctx = {
     agents: { requireInitiator() { return { session: { header: { cwd: workspace } } }; } },
-    tools: { register(definition) { tool = definition; return () => {}; } },
+    tools: { register(definition) { if (definition.name === 'douyin_download') tool = definition; return () => {}; } },
     subprocess: subprocess({ status: 'blocked', message: 'ACCESS_RESTRICTED' }, { exitCode: 1, signal: null }),
     get() { return { version: 1, download() { nativeCalls++; throw new Error('Old transport must not run'); } }; },
     effect(factory) { cleanups.push(factory()); },
