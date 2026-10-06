@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write third_party/plugins/README.md
 /community-plugin-source-and-builds:
-  en: 8aba0b56410bbc97
-  zh: 7fde0fac0753f2eb
+  en: a8db1e2ea138dfc6
+  zh: 846e25bfa10b0b3e
 /community-plugin-source-and-builds/build:
   en: a5e9102cc9cc0eb8
   zh: 1ba5dc25ae28f581
@@ -17,9 +17,9 @@
 /community-plugin-source-and-builds/compatibility-and-desktop-integration/hongguo-public-metadata:
   en: bb23ebad1ebbcb86
   zh: bfe5b1ed488fbf5b
-/community-plugin-source-and-builds/compatibility-and-desktop-integration/muse-download-tools:
-  en: 0dac48a38ef7c414
-  zh: a47a7399880a508d
+/community-plugin-source-and-builds/compatibility-and-desktop-integration/muse-local-tools:
+  en: ecf610d09520cac3
+  zh: 4a5974c7c360c233
 /community-plugin-source-and-builds/licenses:
   en: c3b3d30f0293f569
   zh: 4e82b1878b25ec0a

@@ -1,0 +1,33 @@
+- id: llm-deepseek
+  disabled: true
+- insert:
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: deepseek-official
+            name: DeepSeek
+            models:
+              - id: deepseek-v4-flash
+                contextWindow: 1000000
+                defaultMaxTokens: 256000
+                reasoningEfforts: [off, low, high, max]
+                defaultReasoningEffort: max
+    - id: muse-reverse-tools
+      name: '../../../third_party/plugins/muse-reverse-tools/src/index.js'
+    - id: muse-fanqie-download
+      name: '../../../third_party/plugins/muse-fanqie-download/src/index.js'
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+  config:
+    runnerCommand:
+      - bash
+      - -c
+      - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+      - passthrough-runner
+    runnerFailureSignatures:
+      - 'passthrough-runner: profile rejected'

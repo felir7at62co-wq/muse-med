@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-这七份源码快照保留了 Muse Med 使用的社区插件。[sources.json](sources.json) 记录各公开上游仓库、版本、许可证，以及修订或恢复发行包的 SHA-256。快照保留上游源码和清单；部分文本文件将 CRLF 规范为 LF。已安装的用户配置、凭据、用户媒体和生成的运行时均不作为构建输入。翻译检查仅排除这七个上游目录；本 README 与其他自有文档仍须成对维护。
+这七份源码快照保留了 Muse Med 使用的社区插件。[sources.json](sources.json) 记录各公开上游仓库、版本、许可证，以及修订或恢复发行包的 SHA-256。快照保留上游源码和清单；部分文本文件将 CRLF 规范为 LF。已安装的用户配置、凭据、用户媒体和生成的运行时均不作为构建输入。翻译检查排除七个上游目录及经哈希检查的内嵌上游资源；Muse 自有源码与文档仍接受检查。
 
-[owned-downloads.json](owned-downloads.json) 单独固定 Muse 红果和抖音下载 bundle 的版本。其源码、配置及验证限制分别由[红果](muse-hongguo-download/README.zh.md)和[抖音](muse-douyin-download/README.zh.md) README 说明；它们不改变保留的上游清单。
+[owned-downloads.json](owned-downloads.json) 单独固定 Muse 红果和抖音下载 bundle 的版本。清单还包含本地[逆向工具](muse-reverse-tools/README.zh.md)和独立[番茄下载器](muse-fanqie-download/README.zh.md)。各包 README 说明配置与验证限制；它们不改变保留的上游清单。
 
 ## 构建
 
@@ -50,7 +50,7 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。Codex 使用可选�
 
 搜索、详情、榜单与收藏筛选读取官方公开数据页，不需要 key 或 Cookie，也无需用户初始配置。结果区分收藏、点赞、热度、近似数及未完整覆盖的数据。搜索覆盖首屏窗口，榜单覆盖所选公开榜单，不能冒充全平台片库。网站请求保持串行、限速、缓存并支持取消；访问限制明确报错。插件不下载视频。恢复后的 20 项离线测试及真实 Host 注册、规范结果、提示词发现、输入拒绝、取消和卸载检查随打包运行。`test:hongguo` 检查两个全新目录生成的压缩包一致；实站可用性另行只读检查。
 
-### Muse 下载工具
+### Muse 本地工具
 
 在仓库根目录通过独立[构建脚本](build-downloads.mjs)打包自有下载 bundle：
 
@@ -58,9 +58,9 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。Codex 使用可选�
 node third_party/plugins/build-downloads.mjs --out .artifacts/download-plugins
 ```
 
-标准、PTC、创造、短剧和编辑预设在各自的智能体作用域内启用 `hongguo_download_info`、`hongguo_download` 和 `douyin_download`；极简预设不提供这些工具。工具以发起调用的会话工作区为输出位置。通过 `dsh plugin --profile headless add <tarball>` 安装压缩包会在该 profile 启用对应 bundle 补丁；构建新的桌面发行版则通过预设组合内置它们。
+标准、PTC、创造、短剧和编辑预设在各自的智能体作用域内启用 `hongguo_download_info`、`hongguo_download`、`douyin_download`、`reverse_skill`、`reverse_analyze`、`fanqie_download_info` 和 `fanqie_download`；极简预设不提供这些工具。工具以发起调用的会话工作区为输出位置。通过 `dsh plugin --profile headless add <tarball>` 安装压缩包会在该 profile 启用对应 bundle 补丁；构建新的桌面发行版则通过预设组合内置它们。
 
-下载 bundle 打包支持 npm 与 pnpm 的生命周期入口，在 Windows 上直接运行 JavaScript 入口，并通过包管理器环境禁用生命周期脚本。`node --test third_party/plugins/download-pack.test.mjs` 使用桌面打包采用的 pnpm 入口验证两个压缩包，检查凭证文件排除规则，并保持源码清单不变。
+下载 bundle 打包支持 npm 与 pnpm 的生命周期入口，在 Windows 上直接运行 JavaScript 入口，并通过包管理器环境禁用生命周期脚本。`node --test third_party/plugins/download-pack.test.mjs` 使用桌面打包采用的 pnpm 入口验证所有自有压缩包，检查凭证文件排除规则，并保持源码清单不变。
 
 红果默认使用用户提供源码的原接口，并接受多部系列 ID。操作者必须按包内文档配置原始 `config.json`、`devices.json` 和可用的签名服务。缺少原源配置会明确失败，公开试看集不代表全集可用。抖音接受用户指定的视频链接列表，对每个下载运行 FFmpeg 验证，并报告被拦截或部分完成的批次。视频列表本身不代表已覆盖整部剧；平台登录或验证在 Muse 内置浏览器面板中完成，不使用外部 profile 或 Cookie 文件导入。
 

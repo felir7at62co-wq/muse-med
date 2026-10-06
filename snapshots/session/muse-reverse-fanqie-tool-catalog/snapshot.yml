@@ -1,0 +1,8 @@
+version: 1
+scenario: muse-reverse-fanqie-tool-catalog
+profile: headless
+composition: muse-reverse-fanqie-tool-catalog
+recording: authored
+header:
+  class: muse-reverse-fanqie-tool-catalog
+  pin: true

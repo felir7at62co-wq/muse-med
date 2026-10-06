@@ -4,5 +4,11 @@
   },
   "muse-douyin-download": {
     "version": "0.2.0"
+  },
+  "muse-reverse-tools": {
+    "version": "0.1.0"
+  },
+  "muse-fanqie-download": {
+    "version": "0.1.0"
   }
 }

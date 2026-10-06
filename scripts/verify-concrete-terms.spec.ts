@@ -11,6 +11,10 @@ describe('concrete terminology policy', () => {
     const term = 'prove' + 'nance'
     expect(findConcreteTermViolations('third_party/plugins/dsh-bridge/src/index.ts', term)).toEqual([])
     expect(findConcreteTermViolations('third_party/plugins/muse-douyin-download/src/index.js', term)).toHaveLength(1)
+    expect(findConcreteTermViolations('third_party/plugins/muse-reverse-tools/resources/reverse-skill/README.md', term)).toEqual([])
+    expect(findConcreteTermViolations('third_party/plugins/muse-fanqie-download/python/vendor/TTEncrypt.py', term)).toEqual([])
+    expect(findConcreteTermViolations('third_party/plugins/muse-reverse-tools/README.md', term)).toHaveLength(1)
+    expect(findConcreteTermViolations('third_party/plugins/muse-fanqie-download/src/index.js', term)).toHaveLength(1)
   })
 
   it('rejects case variants in paths, prose, and identifiers', () => {
