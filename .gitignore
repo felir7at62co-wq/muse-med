@@ -5,6 +5,10 @@ apps/desktop/.env.macos
 apps/desktop/*.p12
 node_modules/
 lib/
+!third_party/plugins/muse-fanqie-download/python/vendor/signer/lib/
+!third_party/plugins/muse-fanqie-download/python/vendor/signer/lib/*.py
+!third_party/plugins/muse-reverse-tools/resources/reverse-skill/skills/scripts/lib/
+!third_party/plugins/muse-reverse-tools/resources/reverse-skill/skills/scripts/lib/*.ps1
 *.tsbuildinfo
 pnpm-debug.log
 .pnpm-store/

@@ -1,5 +1,6 @@
 /** Qualify every owned bundle through the pnpm entry used by Desktop packaging. */
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -7,6 +8,10 @@ import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 
 const repository = resolve(import.meta.dirname, '../..')
+const embeddedSourceRoots = {
+  'muse-reverse-tools': 'resources/reverse-skill/',
+  'muse-fanqie-download': '',
+}
 
 test('packs every owned tool through pnpm without modifying source or exposing local credentials', () => {
   const output = mkdtempSync(join(tmpdir(), 'muse-download-pack-'))
@@ -31,6 +36,20 @@ test('packs every owned tool through pnpm without modifying source or exposing l
       assert.equal(listed.status, 0, listed.stderr)
       assert.match(listed.stdout, /package\/src\/index\.js/u)
       assert.doesNotMatch(listed.stdout, /(?:^|\/)(?:node_modules|config\.json|devices\.json|\.env)(?:\/|$|\n)/u)
+      if (Object.hasOwn(embeddedSourceRoots, name)) {
+        const source = JSON.parse(readFileSync(join(import.meta.dirname, name, 'SOURCE.json'), 'utf8'))
+        assert.ok(source.files.length > 0)
+        for (const file of source.files) {
+          // npm excludes upstream Git ignore metadata from distributable archives.
+          if (name === 'muse-reverse-tools' && file.path === 'skills/pentest-tools/src-hunter/.gitignore') continue
+          const member = `package/${embeddedSourceRoots[name]}${file.path}`
+          const extracted = spawnSync('tar', ['-xOf', archive, member], { timeout: 30000, maxBuffer: 16 * 1024 * 1024 })
+          assert.equal(extracted.error, undefined, member)
+          assert.equal(extracted.signal, null, member)
+          assert.equal(extracted.status, 0, `${member}: ${extracted.stderr}`)
+          assert.equal(createHash('sha256').update(extracted.stdout).digest('hex'), file.sha256, member)
+        }
+      }
     }
     for (const [index, name] of names.entries())
       assert.deepEqual(readFileSync(join(import.meta.dirname, name, 'package.json')), before[index])
