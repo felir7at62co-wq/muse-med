@@ -7,6 +7,7 @@
  */
 
 import { basename } from 'node:path'
+import { embeddedPluginSourcePrefixes } from './retained-plugin-sources.ts'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import { gfm } from 'micromark-extension-gfm'
@@ -134,6 +135,7 @@ const UPSTREAM_PLUGIN_DIRECTORIES = [
   'third_party/plugins/dsh-ffmpeg/',
   'third_party/plugins/dsh-skill-mcp-panel/',
   'third_party/plugins/muse-hongguo-search/',
+  ...embeddedPluginSourcePrefixes,
 ]
 
 /** Glob traversal exclusions corresponding to the non-source path predicate. */

@@ -303,6 +303,13 @@ describe('translation pairing records', () => {
 })
 
 describe('translation scope discovery', () => {
+  it('excludes embedded upstream resources while retaining their Muse README and source', () => {
+    expect(isTranslationScopeFile('third_party/plugins/muse-reverse-tools/resources/reverse-skill/README.md')).toBe(false)
+    expect(isTranslationScopeFile('third_party/plugins/muse-fanqie-download/python/vendor/README.md')).toBe(false)
+    expect(isTranslationScopeFile('third_party/plugins/muse-reverse-tools/README.md')).toBe(true)
+    expect(isTranslationScopeFile('third_party/plugins/muse-fanqie-download/README.md')).toBe(true)
+    expect(isTranslationScopeFile('third_party/plugins/muse-reverse-tools/resources/reverse-skill-owned/README.md')).toBe(true)
+  })
   const upstreamDirectories = ['dshmarket', 'dsh-codex-subscription', 'dsh-ponytail', 'dsh-bridge', 'dsh-ffmpeg', 'dsh-skill-mcp-panel', 'muse-hongguo-search']
 
   it.each(upstreamDirectories)('preserves original upstream documentation in %s', (directory) => {

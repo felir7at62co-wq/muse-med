@@ -1,0 +1,82 @@
+{
+  "commit": "1fc752bdb1a45afa2d42dfe9b9742ce02c83ce84",
+  "referenceApp": {
+    "sha256": "590e69effee4eecf817c67b7bb84e285799296e0e0892ba6a851314eebbb382e",
+    "included": false
+  },
+  "primitives": [
+    {
+      "repository": "https://github.com/tr4cex/TikTok-Encryption",
+      "commit": "1fc752bdb1a45afa2d42dfe9b9742ce02c83ce84",
+      "license": "MIT"
+    },
+    {
+      "repository": "https://github.com/ssovit/x-gorogn-khronos-argus-ladon",
+      "commit": "9ef4ab947916b8a37de0ac1b8fd712dac5feae42",
+      "license": "MIT"
+    }
+  ],
+  "files": [
+    {
+      "path": "python/vendor/TTEncrypt-LICENSE",
+      "sha256": "f866ca9733f297c64a5c51212b45fac6fe2066eee14bf165e020a2bc0b5b8df4",
+      "upstreamSha256": "f866ca9733f297c64a5c51212b45fac6fe2066eee14bf165e020a2bc0b5b8df4"
+    },
+    {
+      "path": "python/vendor/TTEncrypt.py",
+      "sha256": "57a439ed562a380f341ab97cc63eb944f40f837fe89922406c482490051c957a",
+      "upstreamSha256": "2ac65ca1384fa94cade7246deeb066378724b7b2bc26cb76d22bbad024180f5b"
+    },
+    {
+      "path": "python/vendor/TikTok-Encryption-LICENSE",
+      "sha256": "7abd74ef3ff0d700eea4bd296611d25c3cabc05da3ac61e5bca6b753bd47ec8d",
+      "upstreamSha256": "7abd74ef3ff0d700eea4bd296611d25c3cabc05da3ac61e5bca6b753bd47ec8d"
+    },
+    {
+      "path": "python/vendor/signer/__init__.py",
+      "sha256": "aa82e4ef7ec265298cbf2f4ecc66b05aa2b3db87a7d51af0c1c47d727b9db47b",
+      "upstreamSha256": "77de55e25121f4c87600ecbbc3394d0791ec25c829101c65747b0001c3511054"
+    },
+    {
+      "path": "python/vendor/signer/argus.py",
+      "sha256": "77abbb540421346a9d5a9df748568dee341a4afbe0ca3f270866827a197cc6ad",
+      "upstreamSha256": "0a321d4aa8aad6ac96212ac226a2104a709190cf31dc4da2bd505578d40f8b03"
+    },
+    {
+      "path": "python/vendor/signer/gorgon.py",
+      "sha256": "13231d3c4837d9577c008a0540f3e9cf298f6d4e78627997d9b4e7507f2ee054",
+      "upstreamSha256": "13231d3c4837d9577c008a0540f3e9cf298f6d4e78627997d9b4e7507f2ee054"
+    },
+    {
+      "path": "python/vendor/signer/ladon.py",
+      "sha256": "0dd5e9d4580cb4d042bb47231da48798f73b0e63fb515bf96b5514ea029718d6",
+      "upstreamSha256": "6b0f533c786d3d2c3d73f3b88dd890026bfeb5ab473e35f194de0f501e8463bb"
+    },
+    {
+      "path": "python/vendor/signer/lib/ByteBuf.py",
+      "sha256": "3a32c7b1399479b699fb75d02d4832a3b3937026a95cb5569c194aedc9820b3c",
+      "upstreamSha256": "20f60b389e2a870c128eb6fa5541ecf4281c95744731b06acc97611278decc54"
+    },
+    {
+      "path": "python/vendor/signer/lib/Simon.py",
+      "sha256": "970213910f22d43cb2931adf2d876a602c13f4e3e4dec774eebe2260c85b5ddf",
+      "upstreamSha256": "10450c52e0c3eadf4a6eb92335ab4e0fd21c67dda9195d28a264cdec6478b70f"
+    },
+    {
+      "path": "python/vendor/signer/lib/Sm3.py",
+      "sha256": "b50ab47f25cefdc7cff15de66ba17ae6b0f4e30ccaeb79ee44fc38378ed66bf7",
+      "upstreamSha256": "4bea0a7a7ae7a2c712a2249eb91e7a926c759addf74a96a8367a09ae4a024cb6"
+    },
+    {
+      "path": "python/vendor/signer/lib/pkcs7_padding.py",
+      "sha256": "0182d3a6a0673c43cab57a42dc56d0960460675eeb32469260c381dcbeba4e03",
+      "upstreamSha256": "2853bfc13e7c6f767970ce17a952cdd068a568a3d01cc5f2a8e13826b8e90aeb"
+    },
+    {
+      "path": "python/vendor/signer/lib/protobuf.py",
+      "sha256": "a26eb1f670056d040879c3da622128810a2e56a53b39e57de72f991ffbe666dc",
+      "upstreamSha256": "a26eb1f670056d040879c3da622128810a2e56a53b39e57de72f991ffbe666dc"
+    }
+  ],
+  "localEdits": "UTF-8 text uses LF, no trailing spaces and one final newline; upstreamSha256 retains source identity"
+}

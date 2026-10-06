@@ -73,6 +73,7 @@ export function createElectronBuilderConfig(
     '**/@deepseek-ai/dsh-drama-skills/**', '**/@deepseek-ai/dsh-desktop-host/skills/**',
     '**/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/**', '**/@openai/codex*/**',
     '**/muse-douyin-download/python/**', '**/muse-hongguo-download/python/**',
+    '**/muse-reverse-tools/resources/**', '**/muse-fanqie-download/python/**',
     `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`]
   const windowsSigner = packagesWindows && !unsigned
     ? createWindowsTokenSigner({

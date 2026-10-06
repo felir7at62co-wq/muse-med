@@ -2,9 +2,9 @@
 
 English | [中文](README.zh.md)
 
-These seven source snapshots retain the community plugins used by Muse Med. [sources.json](sources.json) records each public upstream repository, version, license, and either its revision or recovered release archive SHA-256. The snapshots retain upstream source and manifests; some text files normalize CRLF to LF. No installed profile, credentials, user media, or generated runtime is a build input. The translation gate excludes only these seven upstream directories; this README and other owned documentation remain paired.
+These seven source snapshots retain the community plugins used by Muse Med. [sources.json](sources.json) records each public upstream repository, version, license, and either its revision or recovered release archive SHA-256. The snapshots retain upstream source and manifests; some text files normalize CRLF to LF. No installed profile, credentials, user media, or generated runtime is a build input. The translation gate excludes the seven upstream directories and hash-checked embedded upstream resources; Muse-owned source and documentation remain checked.
 
-[owned-downloads.json](owned-downloads.json) separately pins the Muse Hongguo and Douyin download bundles. Their source, configuration, and verification limits belong to their [Hongguo](muse-hongguo-download/README.md) and [Douyin](muse-douyin-download/README.md) READMEs; they do not change the retained upstream inventory.
+[owned-downloads.json](owned-downloads.json) separately pins the Muse Hongguo and Douyin download bundles. The inventory also includes the local [reverse tools](muse-reverse-tools/README.md) and independent [Fanqie downloader](muse-fanqie-download/README.md). Their READMEs own configuration and verification limits; they do not change the retained upstream inventory.
 
 ## Build
 
@@ -50,7 +50,7 @@ The Feishu provider reuses the upstream gateway, conversation node, commands, ca
 
 Search, detail, rankings, and collection filtering use public official metadata pages without a key or Cookie; no initial user configuration is required. Results distinguish collections, likes, heat, approximate counts, and incomplete coverage. Search covers the initial window, and rankings cover the requested public boards rather than the entire platform. Website requests remain serial, rate limited, cached, and cancellable; access restrictions fail explicitly. The plugin does not download videos. Its 20 recovered offline tests and real Host registration, canonical results, prompt discovery, input rejection, cancellation, and unload checks run during packaging. `test:hongguo` checks two clean, identical tarballs; live site availability is a separate read-only check.
 
-### Muse download tools
+### Muse local tools
 
 Build the owned download bundles from the repository root with the separate [builder](build-downloads.mjs):
 
@@ -58,9 +58,9 @@ Build the owned download bundles from the repository root with the separate [bui
 node third_party/plugins/build-downloads.mjs --out .artifacts/download-plugins
 ```
 
-Standard, PTC, Cordis, Short Drama, and Editing activate `hongguo_download_info`, `hongguo_download`, and `douyin_download` inside their agent scopes; Minimal contributes none. The tools use the initiating conversation's workspace for output. Installing the tarballs with `dsh plugin --profile headless add <tarball>` activates their bundle patches in that profile; building a new Desktop release includes them through the preset compositions.
+Standard, PTC, Cordis, Short Drama, and Editing activate `hongguo_download_info`, `hongguo_download`, `douyin_download`, `reverse_skill`, `reverse_analyze`, `fanqie_download_info`, and `fanqie_download` inside their agent scopes; Minimal contributes none. The tools use the initiating conversation's workspace for output. Installing the tarballs with `dsh plugin --profile headless add <tarball>` activates their bundle patches in that profile; building a new Desktop release includes them through the preset compositions.
 
-Download bundle packing accepts npm and pnpm lifecycle entries, runs the JavaScript entry directly on Windows, and disables lifecycle scripts through the package-manager environment. `node --test third_party/plugins/download-pack.test.mjs` verifies both archives through the pnpm entry used by Desktop packaging, checks credential-file exclusion, and preserves source manifests.
+Download bundle packing accepts npm and pnpm lifecycle entries, runs the JavaScript entry directly on Windows, and disables lifecycle scripts through the package-manager environment. `node --test third_party/plugins/download-pack.test.mjs` verifies all owned archives through the pnpm entry used by Desktop packaging, checks credential-file exclusion, and preserves source manifests.
 
 Hongguo defaults to the supplied source's legacy interfaces and accepts several series IDs. The operator must supply the original `config.json`, `devices.json`, and a working signing service through the package's documented configuration. Missing source configuration fails explicitly, and public preview episodes do not establish full-series availability. Douyin accepts a list of user-selected video links, verifies each download with FFmpeg, and reports blocked or partial batches. A list of videos alone does not establish complete coverage of a drama; platform login or verification takes place in Muse's internal Browser panel, without external profiles or Cookie-file import.
 

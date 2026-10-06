@@ -13,6 +13,7 @@
 import { existsSync, globSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve, sep } from 'node:path'
 import { gitIndexPaths, readGitIndexBlob } from './translation-pairing-git.ts'
+import { assertEmbeddedPluginSourceIntegrity } from './retained-plugin-sources.ts'
 import {
   computeTranslationPairingRecord,
   parseTranslationPairingRecord,
@@ -41,6 +42,7 @@ import {
 } from './translation-links.ts'
 
 const root = resolve(import.meta.dirname, '..')
+assertEmbeddedPluginSourceIntegrity(root)
 let request: ReturnType<typeof parseTranslationPairingCliArgs>
 try {
   request = parseTranslationPairingCliArgs(process.argv.slice(2))

@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { lstatSync, readFileSync, readlinkSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { retainedPluginSourcePrefixes } from './retained-plugin-sources.ts'
+import { assertEmbeddedPluginSourceIntegrity, retainedPluginSourcePrefixes } from './retained-plugin-sources.ts'
 import { historicalSchemaRegion } from './historical-schema-region.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -91,6 +91,7 @@ function scanRepository(repoRoot: string): ConcreteTermViolation[] {
 const invokedPath = process.argv[1]
 const isMain = invokedPath !== undefined && import.meta.url === pathToFileURL(resolve(invokedPath)).href
 if (isMain) {
+  assertEmbeddedPluginSourceIntegrity(root)
   const violations = scanRepository(root)
   if (violations.length === 0) {
     console.log(`verify-concrete-terms: maintained tracked files contain no ${blockedTerm}.`)

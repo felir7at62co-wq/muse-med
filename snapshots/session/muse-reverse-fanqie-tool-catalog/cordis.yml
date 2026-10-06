@@ -1,0 +1,10 @@
+# Tool discovery only; the recorded response performs no media requests.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: muse-reverse-tools
+      name: '../../../third_party/plugins/muse-reverse-tools/src/index.js'
+    - id: muse-fanqie-download
+      name: '../../../third_party/plugins/muse-fanqie-download/src/index.js'

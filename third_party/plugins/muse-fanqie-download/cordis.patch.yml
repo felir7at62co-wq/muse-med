@@ -1,0 +1,5 @@
+- insert:
+    - id: muse-fanqie-download
+      name: muse-fanqie-download
+      config:
+        pythonExecutable: !!js process.env.MUSE_FANQIE_PYTHON_PATH || process.env.MUSE_HONGGUO_PYTHON_PATH || ''

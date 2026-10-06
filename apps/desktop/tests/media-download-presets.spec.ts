@@ -10,6 +10,8 @@ import * as yaml from 'js-yaml'
 import { expect, it } from 'vitest'
 import * as Hongguo from '../../../third_party/plugins/muse-hongguo-download/src/index.js'
 import * as Douyin from '../../../third_party/plugins/muse-douyin-download/src/index.js'
+import * as Reverse from '../../../third_party/plugins/muse-reverse-tools/src/index.js'
+import * as Fanqie from '../../../third_party/plugins/muse-fanqie-download/src/index.js'
 
 const expressionTag = new yaml.Type('tag:yaml.org,2002:js', {
   kind: 'scalar', construct: (value: string) => ({ __jsExpr: value }),
@@ -32,7 +34,7 @@ it('bundles one original-source runtime configuration under the standalone patch
   expect(Object.keys(row ?? {}).sort()).toEqual(['config', 'id', 'name'])
 })
 
-it('registers three download tools in creative scopes and leaves minimal and global scopes empty', async () => {
+it('registers local analysis and download tools in creative scopes and leaves minimal and global scopes empty', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(SystemPrompt)
@@ -43,12 +45,16 @@ it('registers three download tools in creative scopes and leaves minimal and glo
       const rows = yaml.load(readFileSync(new URL(`../../desktop-host/presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8'), { schema }) as PresetRow[]
       const hongguo = rows.find(row => row.id === 'muse-hongguo-download')
       const douyin = rows.find(row => row.id === 'muse-douyin-download')
+      const reverse = rows.find(row => row.id === 'muse-reverse-tools')
+      const fanqie = rows.find(row => row.id === 'muse-fanqie-download')
       const key = {}
       const scope = createScope(ctx, key)
       try {
         if (preset === 'minimal') {
           expect(hongguo).toBeUndefined()
           expect(douyin).toBeUndefined()
+          expect(reverse).toBeUndefined()
+          expect(fanqie).toBeUndefined()
         } else {
           expect(hongguo?.name, preset).toBe('muse-hongguo-download')
           expect(hongguo?.config?.sourceMode, preset).toBe('legacy')
@@ -59,11 +65,17 @@ it('registers three download tools in creative scopes and leaves minimal and glo
           expect(douyin?.config?.pythonExecutable, preset).toEqual({ __jsExpr: 'process.env.MUSE_DOUYIN_PYTHON_PATH || null' })
           expect(douyin?.config?.ffmpegExecutable, preset).toEqual({ __jsExpr: 'process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || null' })
           expect(douyin?.config?.ffprobeExecutable, preset).toEqual({ __jsExpr: 'process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || null' })
+          expect(reverse?.name, preset).toBe('muse-reverse-tools')
+          expect(fanqie?.name, preset).toBe('muse-fanqie-download')
+          expect(fanqie?.config?.pythonExecutable, preset).toEqual({ __jsExpr: "process.env.MUSE_FANQIE_PYTHON_PATH || process.env.MUSE_HONGGUO_PYTHON_PATH || ''" })
           await scope.ctx.plugin(Hongguo, { sourceMode: 'legacy', signTokenEnv: 'MUSE_HONGGUO_SIGN_TOKEN' })
           await scope.ctx.plugin(Douyin)
+          await scope.ctx.plugin(Reverse)
+          await scope.ctx.plugin(Fanqie)
         }
         expect(ctx.tools.schemas(key).map(tool => tool.name), preset).toEqual(preset === 'minimal' ? [] : [
           'hongguo_download_info', 'hongguo_download', 'douyin_download',
+          'reverse_skill', 'reverse_analyze', 'fanqie_download_info', 'fanqie_download',
         ])
         expect(ctx.tools.schemas()).toEqual([])
       } finally {
