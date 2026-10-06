@@ -13,6 +13,19 @@ function profileScope(name: string) {
 }
 
 describe('webApp (the real web profile)', () => {
+  it('resolves a standalone bundle and its own browser row from its manifest', () => {
+    const root = mkdtempSync(join(tmpdir(), 'self-bundle-'))
+    onTestFinished(() => { rmSync(root, { recursive: true, force: true }) })
+    const manifest = join(root, 'package.json')
+    writeFileSync(manifest, JSON.stringify({ name: '@t/self', dsh: {
+      bundle: { patch: './cordis.patch.yml' }, client: { platform: 'web' },
+    } }))
+    writeFileSync(join(root, 'cordis.patch.yml'), '- insert:\n    - id: self\n      name: \'@t/self\'\n')
+    expect(bundleRoster(['@t/self'], manifest).rows).toEqual([
+      { name: '@t/self', inject: [], immediately: false },
+    ])
+  })
+
   it('composes dsh-base then dsh-web-app: unique names, inject edges on roster rows or platform seed words', () => {
     expect(WEB_PROFILE_BUNDLES).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
     const names = webApp.rows.map(row => row.name)

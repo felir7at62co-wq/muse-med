@@ -187,6 +187,9 @@ jobs:
           if (( install_status != 0 )); then exit "$install_status"; fi
           exit "$sandbox_status"
 
+      - name: Prepare media test executables
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+
       - name: Run exhaustive coverage
         run: pnpm run check:ci:coverage
 
@@ -629,6 +632,10 @@ jobs:
       # suites (webworker-packer image-loadable, webworker-runtime
       # transform-corpus, client ui-trajectory client-bundle) self-skip on
       # unbuilt checkouts.
+      - name: Prepare media test executables
+        shell: pwsh
+        run: choco install ffmpeg --yes --no-progress
+
       - name: Run Windows coverage
         shell: pwsh
         run: pnpm run check:ci:coverage

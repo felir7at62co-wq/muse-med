@@ -45,7 +45,7 @@ describe('validateEpisodePlan', () => {
 })
 
 describe('auditBgmBatch', () => {
-  const project = 'D:/project'
+  const project = resolve('project')
   const boundaries = [0, 26.5, 35.5]
 
   /** One batch row with the segments a test needs. */
@@ -82,7 +82,7 @@ describe('auditBgmBatch', () => {
   })
 
   it('identifies a track by its resolved source, not by its label', () => {
-    expect(trackIdentity(project, 'light.mp3')).toBe(trackIdentity(project, 'D:/project/light.mp3'))
+    expect(trackIdentity(project, 'light.mp3')).toBe(trackIdentity(project, join(project, 'light.mp3')))
   })
 
   it('reports an episode that is one single track and says to split it', () => {
@@ -160,9 +160,9 @@ describe('mix calculations', () => {
 
 describe('resolveOutputPath', () => {
   it('keeps outputs inside the project', () => {
-    const project = resolve('D:/project')
+    const project = resolve('project')
     expect(resolveOutputPath(project, 'audio/bgm/05.wav')).toBe(join(project, 'audio/bgm/05.wav'))
     expect(() => resolveOutputPath(project, '../05.wav')).toThrow('项目目录')
-    expect(() => resolveOutputPath(project, 'D:/outside/05.wav')).toThrow('项目目录')
+    expect(() => resolveOutputPath(project, resolve('outside/05.wav'))).toThrow('项目目录')
   })
 })

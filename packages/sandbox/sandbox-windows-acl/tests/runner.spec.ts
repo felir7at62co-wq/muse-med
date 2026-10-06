@@ -549,7 +549,20 @@ Add-Type -Namespace P -Name F -MemberDefinition @'
 public static extern IntPtr CreateFileW(string n, uint a, uint s, IntPtr sa, uint d, uint f, IntPtr t);
 [DllImport("kernel32.dll", SetLastError=true)]
 public static extern bool CloseHandle(IntPtr h);
+[DllImport("kernel32.dll")]
+public static extern IntPtr GetCurrentProcess();
+[DllImport("advapi32.dll", SetLastError=true)]
+public static extern bool OpenProcessToken(IntPtr p, uint access, out IntPtr token);
+[DllImport("advapi32.dll", SetLastError=true)]
+public static extern bool AdjustTokenPrivileges(IntPtr token, bool disableAll, IntPtr state, uint length, IntPtr previous, IntPtr returned);
 '@ | Out-Null
+$token = [IntPtr]::Zero
+if (-not [P.F]::OpenProcessToken([P.F]::GetCurrentProcess(), 0x20, [ref]$token)) { throw 'Cannot open probe token' }
+try {
+  if (-not [P.F]::AdjustTokenPrivileges($token, $true, [IntPtr]::Zero, 0, [IntPtr]::Zero, [IntPtr]::Zero)) {
+    throw 'Cannot disable probe backup and restore privileges'
+  }
+} finally { [void][P.F]::CloseHandle($token) }
 function TryOpen([string]$label, [string]$path) {
   $h = [P.F]::CreateFileW($path, 0x10000000, 7, [IntPtr]::Zero, 3, 0x02000000, [IntPtr]::Zero)
   if ($h -eq [IntPtr]::new(-1)) { "$($label): DENIED" } else { [void][P.F]::CloseHandle($h); "$($label): OK" }

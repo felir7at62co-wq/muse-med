@@ -60,7 +60,7 @@
   height: 32px;
   padding: 0 12px 0 36px;
   border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
   font: inherit;
@@ -87,7 +87,7 @@
 .groupTitle {
   margin: 0;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 20px;
   color: var(--dsw-alias-label-secondary);
 }
@@ -108,7 +108,7 @@
   width: 100%;
   padding: 8px 10px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-sm);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -121,7 +121,7 @@
 }
 
 .row:focus-visible {
-  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline: 2px solid var(--dsw-focus-ring-color);
   outline-offset: 2px;
 }
 
@@ -173,7 +173,7 @@
 .detailTitle {
   overflow: hidden;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 22px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -213,7 +213,7 @@
   min-height: 360px;
   padding: 12px;
   border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
   font-family: var(--dsw-font-mono);

@@ -36,7 +36,7 @@
 .budgetWarning {
   margin: 0;
   padding: 10px 12px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   font-size: 13px;
   line-height: 20px;

@@ -17,7 +17,7 @@ it('routes product preset packages from the complete runtime dependency closure,
   const source = readFileSync(new URL('../../desktop-host/src/index.ts', import.meta.url), 'utf8')
   expect(source).toContain("const installAnchor = join(runtimeDir, 'package.json')")
   expect(source).toContain('resolvedProfile: { profile, installAnchor }')
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'desktop-resolution-')))
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'desktop-resolution-')))
   try {
     const host = JSON.parse(readFileSync(new URL('../../desktop-host/package.json', import.meta.url), 'utf8')) as { name: string; dependencies: Record<string, string> }
     const community = ['dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail']

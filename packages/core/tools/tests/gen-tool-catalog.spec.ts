@@ -31,7 +31,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
       'drama_draft_dir', 'drama_project', 'drama_render', 'drama_shot', 'drama_video',
       'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep',
       'interrupt_agent', 'interrupt_agent', 'job_kill', 'job_list', 'job_output',
-      'jubian_asset', 'jubian_catalog', 'jubian_claim', 'jubian_find', 'jubian_media',
+      'jubian_asset', 'jubian_budget', 'jubian_catalog', 'jubian_claim', 'jubian_find', 'jubian_media',
       'jubian_model', 'jubian_organize', 'jubian_snatch', 'jubian_storyboard', 'jubian_video',
       'jubian_watch', 'list_agents', 'list_agents', 'list_mcp_resource_templates', 'list_mcp_resources',
       'list_subagent_models', 'load_workspace_dependencies', 'lsp', 'plugin_manager', 'present',
@@ -42,7 +42,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
       'stagehand_act', 'stagehand_extract', 'stagehand_navigate', 'stagehand_observe', 'stagehand_screenshot',
       'stagehand_tabs', 'str_replace_editor', 'subagent', 'team_task_create', 'team_task_get',
       'team_task_list', 'team_task_update', 'terminal_close', 'terminal_list', 'terminal_open',
-      'terminal_read', 'terminal_send', 'terminal_signal', 'todo_write', 'update_goal',
+      'terminal_read', 'terminal_send', 'terminal_signal', 'todo_write', 'update_goal', 'video_inspect',
       'wait_agent', 'web_fetch', 'web_search', 'workflow', 'write',
     ])
     // Every tool carries a JSON-Schema `parameters` object (what the model sees).

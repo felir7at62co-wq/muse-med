@@ -10,7 +10,6 @@
     { "path": "docs/tool-catalog.md", "generator": "scripts/gen-tool-catalog.ts" },
     { "path": "docs/tool-catalog.zh.md", "generator": "scripts/gen-tool-catalog.ts" },
     { "path": "THIRD_PARTY_NOTICES.md", "generator": "scripts/gen-third-party-notices.ts" },
-    { "path": "packages/core/scope/src/scoped-events.generated.ts", "generator": "scripts/gen-scoped-events.ts" },
     { "path": "packages/core/session/src/known-event-types.ts", "generator": "scripts/gen-persistence-catalog.ts" },
     { "path": "packages/extensions/cordis-client-runner/src/client/api-catalog.ts", "generator": "scripts/gen-cordis-inspect-catalog.ts" },
     { "path": "packages/extensions/cordis-client-runner/src/client/slot-catalog.ts", "generator": "scripts/gen-client-catalog.ts" },

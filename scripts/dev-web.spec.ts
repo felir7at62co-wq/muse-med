@@ -112,6 +112,8 @@ it('samples one local environment at startup without validating watcher outputs'
   const root = await mkdtemp(join(tmpdir(), 'dsh-dev-web-environment-'))
   try {
     await mkdir(join(root, 'apps/web/dist'), { recursive: true })
+    await mkdir(join(root, 'apps/desktop'), { recursive: true })
+    await writeFile(join(root, 'apps/desktop/muse-product.json'), JSON.stringify({ version: '1.0.2' }))
     await mkdir(join(root, 'packages/client/example/lib'), { recursive: true })
     await writeFile(join(root, 'package.json'), JSON.stringify({ version: '1.2.3' }))
     await writeFile(join(root, 'apps/web/dist/index.html'), '<main></main>')
@@ -134,6 +136,8 @@ it('samples one local environment at startup without validating watcher outputs'
       DSH_CLIENT_COMMIT_HASH: 'abc1234',
       DSH_CLIENT_EXTRA: 'launch-value',
       DSH_CLIENT_VERSION: '1.2.3',
+      DSH_CLIENT_PRODUCT_VERSION: '1.0.2',
+      DSH_CLIENT_TITLE: 'Muse',
     })
   } finally {
     await rm(root, { recursive: true, force: true })

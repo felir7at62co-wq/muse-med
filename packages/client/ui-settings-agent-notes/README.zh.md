@@ -53,6 +53,8 @@ kind: "package-reference"
 
 `apply()` 在 `ctx.effect` 释放器内注册本包自己的 `settings.agentNotes` locale 命名空间，绑定它，并贡献一个 `settings.section` 条目：id 为 `agent-notes`、顺序 30、随语言变化的导航标签，以及该命名空间作为它的 locale。该贡献经 `ctx.slots.inject('settings.section', …)` 完成，因此延迟声明的分区 slot 仍能到达本页，而卸载 fiber 会同时释放座位与字典。插件还 inject 了 `slots`、`locale`、`remote` 与 `remote.agentNotes`，因此它会等待生成命名空间出现，而不是半激活。注入面把每个 Remote 结果都转成值——`{ ok: true, … }` 或 `{ ok: false, code, message }`——因此本页渲染宿主失败，而不是把它抛出。
 
+浏览器依赖列表包含 Remote 客户端和 UI 提供方；宿主笔记包只提供类型。样式在两种主题下均使用共享圆角和焦点变量。
+
 ### 源码地图
 
 | 文件 | 职责 |

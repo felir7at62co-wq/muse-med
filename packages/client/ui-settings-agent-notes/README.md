@@ -53,6 +53,8 @@ The package is a browser half with a deliberately empty Host entry: `src/index.t
 
 `apply()` registers this package's own `settings.agentNotes` locale namespace inside a `ctx.effect` disposer, binds it, and contributes one `settings.section` entry with id `agent-notes`, order 30, a locale-following nav label, and that namespace as its locale. The contribution goes through `ctx.slots.inject('settings.section', …)`, so a section slot declared late still reaches the page, and unloading the fiber releases the seat and the dictionary together. The plugin also injects `slots`, `locale`, `remote`, and `remote.agentNotes`, so it waits for the generated namespace instead of half-activating. The injected face turns every Remote result into a value — `{ ok: true, … }` or `{ ok: false, code, message }` — so the page renders a Host failure rather than throwing it.
 
+The browser dependency list contains the Remote client and UI providers; the Host notes package supplies types only. Styles use shared radius and focus tokens in both themes.
+
 ### Source map
 
 | File | Role |

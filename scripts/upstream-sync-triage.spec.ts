@@ -241,7 +241,7 @@ describe('this repository\'s generated manifest', () => {
     expect(outputs.get('docs/module-graph.md')).toBe('scripts/gen-module-graph.ts')
     expect(outputs.get('docs/module-graph.zh.md')).toBe('scripts/gen-module-graph.ts')
     expect(outputs.get('docs/module-graph.i18n.yaml')).toBe('scripts/gen-module-graph.ts')
-    expect(outputs.size).toBeGreaterThanOrEqual(19)
+    expect(outputs.size).toBeGreaterThanOrEqual(18)
     for (const [path, generator] of outputs) {
       expect(path.startsWith('/')).toBe(false)
       expect(generator).toMatch(/^scripts\/gen-[a-z-]+\.ts$/u)
