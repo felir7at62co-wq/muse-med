@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - ops/muse-ci-transfer-20261007-0b6d47532eb3b9ba
+    paths:
+      - .github/workflows/muse-ci-transfer.yml
+      - .github/scripts/muse-ci-transfer/**
 
 permissions:
   contents: read
@@ -40,7 +43,7 @@ jobs:
         with:
           ref: 3cccd5b08cda16f5dcd4afea920793628b0840eb
           persist-credentials: false
-      - name: Check TOS bucket access before large transfers
+      - name: Verify a temporary TOS object before large transfers
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.MUSE_CI_TRANSFER_TOS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MUSE_CI_TRANSFER_TOS_SECRET_ACCESS_KEY }}

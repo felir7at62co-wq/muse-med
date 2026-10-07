@@ -2,6 +2,7 @@
 """Relay two fixed, verified build ZIPs to an isolated temporary TOS prefix."""
 
 import concurrent.futures
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -71,8 +72,14 @@ def download():
 
 def aws(arguments, allow_missing=False):
     """Keep AWS credentials in the environment and print only safe error codes."""
+    environment = dict(os.environ)
+    for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
+        value = environment.get(name, "").strip()
+        if not value:
+            raise transfer.DownloadError("Runner is missing a dedicated TOS credential")
+        environment[name] = value
     result = subprocess.run(["aws", *arguments, "--endpoint-url", ENDPOINT,
-        "--region", "cn-beijing"], capture_output=True, text=True, check=False)
+        "--region", "cn-beijing"], env=environment, capture_output=True, text=True, check=False)
     if result.returncode:
         match = re.search(r"An error occurred \(([A-Za-z0-9_-]+)\)", result.stderr)
         code = match.group(1) if match else "UnknownAwsError"
@@ -133,11 +140,30 @@ def upload():
 
 
 def preflight():
-    """Check the runner's AWS CLI and bucket access before large downloads."""
+    """Verify small-object Put/Get/hash without requiring bucket-list permission."""
     if not shutil.which("aws"):
         raise transfer.DownloadError("Runner has no AWS CLI")
-    aws(["s3api", "head-bucket", "--bucket", "muse"])
-    print(json.dumps({"stage": "tos-preflight", "bucket": "muse", "head_succeeded": True}), flush=True)
+    payload = b"Muse temporary relay connectivity probe\n"
+    digest = hashlib.sha256(payload).hexdigest()
+    key = PREFIX + "/_runner-connectivity-probe.txt"
+    with tempfile.TemporaryDirectory(dir=transfer.ROOT) as temporary:
+        source, received = Path(temporary) / "source.txt", Path(temporary) / "received.txt"
+        source.write_bytes(payload)
+        aws(["s3api", "put-object", "--bucket", "muse", "--key", key,
+             "--body", str(source), "--content-type", "text/plain", "--metadata", "sha256=" + digest])
+        try:
+            aws(["s3api", "get-object", "--bucket", "muse", "--key", key, str(received)])
+            transfer.verify_archive(received, len(payload), digest)
+            head = aws(["s3api", "head-object", "--bucket", "muse", "--key", key])
+            if head.get("ContentLength") != len(payload):
+                raise transfer.ProtocolError("Probe HeadObject size differs")
+            print(json.dumps({"stage": "tos-preflight", "bucket": "muse", "bytes": len(payload),
+                              "sha256": digest, "put_get_head_verified": True}), flush=True)
+        finally:
+            try:
+                aws(["s3api", "delete-object", "--bucket", "muse", "--key", key])
+            except transfer.DownloadError as error:
+                print(f"Probe cleanup deferred: {error}", flush=True)
 
 
 if __name__ == "__main__":
