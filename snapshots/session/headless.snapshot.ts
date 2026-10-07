@@ -529,8 +529,10 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     const episodeGuide = join(cwd, '.dsh/skills/trope-adaptation/references/episode-design.md')
     await mkdir(dirname(episodeGuide), { recursive: true })
     await copyFile(join(repoRoot, 'apps/desktop-host/skills/trope-adaptation/references/episode-design.md'), episodeGuide)
-    await cp(join(repoRoot, 'apps/desktop-host/skills/screenplay-format/references'),
-      join(cwd, '.dsh/skills/screenplay-format/references'), { recursive: true })
+    for (const name of ['screenplay-format', 'screenplay-project']) {
+      await cp(join(repoRoot, 'apps/desktop-host/skills', name, 'references'),
+        join(cwd, '.dsh/skills', name, 'references'), { recursive: true })
+    }
   },
   async 'muse-editing-trial-skills'(cwd) {
     await workspaceSetups['muse-editing-skill']!(cwd)
