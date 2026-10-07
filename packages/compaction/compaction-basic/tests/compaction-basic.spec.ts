@@ -1386,6 +1386,33 @@ describe('compaction region transaction', () => {
       .toMatchObject({ error: 'plain failure' })
   })
 
+  it('rebuilds summarization input after a logged recovery without losing the selected source', async () => {
+    const ctx = createContext()
+    const compact = service({ auto: false }, ctx)
+    const session = conversation(2)
+    const before = [...session.surface.nodes]
+    const failure = new Error('recoverable summary failure')
+    const tools = [{ name: 'recovered_tool', description: 'Recovered declaration', parameters: { type: 'object' } }]
+    compact.error = failure
+    ctx.on('compaction/summary-error', ({ error, sourceEventSeqs }, next) => {
+      if (error !== failure) return next()
+      expect(sourceEventSeqs).toEqual(before.slice(0, 3))
+      session.append('request/header', { header: { config: { provider: MODEL, model: MODEL }, tools }, reason: 'change' })
+      compact.error = undefined
+      return true
+    })
+
+    const result = await compact.compactRegion(before[0]!, before[2]!, agent(session, MODEL), SIGNAL)
+    expect(compact.calls).toHaveLength(2)
+    expect(compact.calls[1]!.input.messages).toEqual(compact.calls[0]!.input.messages)
+    expect(compact.calls[0]!.input.tools).toBeUndefined()
+    expect(compact.calls[1]!.input.tools).toEqual(tools)
+    expect(result.shadowedSeqs).toEqual(before.slice(0, 3))
+    expect(session.snapshotEvents().filter(event => event.type === 'compaction/summary')).toHaveLength(1)
+    expect(session.snapshotEvents().findLast(event => event.type === 'compaction/end')?.data)
+      .not.toHaveProperty('error')
+  })
+
   it('tolerates concurrent log-only appends while the selected surface is stable', async () => {
     const compact = service()
     const session = conversation(2)

@@ -86,6 +86,17 @@ it('refuses invalid flashback transitions within the flashback layer', () => {
   expect(() => renderEpisode(scoped, [first, scene({ layer: 'dream', transition: 'return_present' })], {}, 1)).toThrow('flashback_return')
 })
 
+it.each(['dream', 'imagined'] as const)('returns from %s to the present without sharing private knowledge across layers', (layer) => {
+  const recalled = FACT_RECORD.parse({ ...thought, id: `f:${layer}`, layer })
+  const scoped = { ...project, facts: [...project.facts, recalled] }
+  const other = scene({ layer, transition: 'cut' })
+  other.beats[0]!.fact_ids = [recalled.id]
+  const result = renderEpisode(scoped, [scene(), other, scene({ transition: 'return_present' })], {}, 1)
+  expect(result.knowledge['present:甲']).toEqual([thought.id])
+  expect(result.knowledge[`${layer}:甲`]).toEqual([recalled.id])
+  expect(result.lines.map(line => line.scene)).toEqual([1, 2, 3])
+})
+
 it.each(['missing', 'episode', 'base', 'uncommitted', 'unreviewed', 'rejected', 'self-reviewed'] as const)
 ('refuses %s entries in persisted accepted history', (failure) => {
   const scenes = [scene()]

@@ -61,8 +61,8 @@ export function renderEpisode(project: ProjectFile, scenes: ProjectFile['candida
       if (scene.transition === 'enter_flashback' && (scene.layer !== 'flashback' || prior.layer === 'flashback')) {
         throw Error('flashback_entry: enter_flashback 必须进入闪回层。')
       }
-      if (scene.transition === 'return_present' && (prior.layer !== 'flashback' || scene.layer !== 'present')) {
-        throw Error('flashback_return: return_present 必须从闪回回到现实。')
+      if (scene.transition === 'return_present' && (prior.layer === 'present' || scene.layer !== 'present')) {
+        throw Error('flashback_return: return_present 必须从闪回、梦境或想象回到现实。')
       }
     }
     const layer = { present: '现实', flashback: '闪回', dream: '梦境', imagined: '想象' }[scene.layer]
