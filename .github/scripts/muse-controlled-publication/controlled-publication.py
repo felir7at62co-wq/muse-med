@@ -64,6 +64,36 @@ def api(path, *, method='GET', data=None, missing=False):
     return command(argv, json_result=True, allow_missing=missing)
 
 
+def release_for_tag(tag, *, missing=False):
+    """Resolve drafts by release ID when GitHub's published-tag endpoint returns 404."""
+    release = api('releases/tags/' + tag, missing=True)
+    if release is not None:
+        return release
+    matches = []
+    for page in range(1, 21):
+        releases = api(f'releases?per_page=100&page={page}')
+        if not isinstance(releases, list):
+            raise PublicationError('Release listing returned invalid JSON')
+        matches.extend(item for item in releases if item.get('tag_name') == tag)
+        if len(matches) > 1:
+            raise PublicationError('Multiple releases identify the same required tag')
+        if len(releases) < 100:
+            break
+    else:
+        raise PublicationError('Release listing exceeds the bounded reconciliation inventory')
+    if not matches:
+        if missing:
+            return None
+        raise PublicationError('Required draft or public release is absent')
+    release_id = matches[0].get('id')
+    if type(release_id) is not int or release_id < 1:
+        raise PublicationError('Draft release identifier is invalid')
+    release = api('releases/' + str(release_id))
+    if release.get('id') != release_id or release.get('tag_name') != tag:
+        raise PublicationError('Draft release lookup returned another release')
+    return release
+
+
 def require_authorization(mode):
     """Default preparation cannot write remotely; the root must explicitly commit the publishing gate."""
     if mode == 'prepare':
@@ -194,7 +224,7 @@ def check_assets(release, inventory, *, complete=False):
 def reconcile_release(tag, inventory):
     """Inspect both destinations before any remote creation."""
     tag_commit(tag)
-    release = api('releases/tags/' + tag, missing=True)
+    release = release_for_tag(tag, missing=True)
     if release is not None:
         if release['tag_name'] != tag or release['prerelease'] != (tag != TAGS[0]):
             raise PublicationError('Existing release identity or channel differs')
@@ -215,7 +245,7 @@ def upload_draft(tag, inventory, existing):
         command(argv)
     for file in inventory['files']:
         for attempt in range(3):
-            release = api('releases/tags/' + tag)
+            release = release_for_tag(tag)
             if file['filename'] in check_assets(release, inventory):
                 break
             if release['draft'] is not True:
@@ -224,13 +254,13 @@ def upload_draft(tag, inventory, existing):
                 command(['gh', 'release', 'upload', tag, str(Path(inventory['output']) / file['filename']), '--repo', REPOSITORY])
             except PublicationError:
                 # A lost upload response may still have committed the exact asset.
-                if file['filename'] in check_assets(api('releases/tags/' + tag), inventory):
+                if file['filename'] in check_assets(release_for_tag(tag), inventory):
                     break
                 if attempt == 2:
                     raise
                 time.sleep(2 ** (attempt + 1))
-        check_assets(api('releases/tags/' + tag), inventory)
-    check_assets(api('releases/tags/' + tag), inventory, complete=True)
+        check_assets(release_for_tag(tag), inventory)
+    check_assets(release_for_tag(tag), inventory, complete=True)
     print(json.dumps({'stage': 'completed-assets-verified', 'tag': tag, 'files': 11}), flush=True)
 
 
@@ -252,7 +282,7 @@ def publish(work, inventory, tos_mode):
     inventory_path = str(work / 'publication.inventory.json')
     logged_node([verifier, '--inventory', inventory_path, '--tos'], work / 'tos-full-readback.log')
     for tag in TAGS:
-        check_assets(api('releases/tags/' + tag), inventory, complete=True)
+        check_assets(release_for_tag(tag), inventory, complete=True)
         argv = ['gh', 'release', 'edit', tag, '--repo', REPOSITORY, '--draft=false',
                 '--prerelease=false' if tag == TAGS[0] else '--prerelease', '--latest' if tag == TAGS[0] else '--latest=false']
         command(argv)

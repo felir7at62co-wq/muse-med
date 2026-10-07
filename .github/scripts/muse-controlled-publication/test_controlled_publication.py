@@ -18,6 +18,42 @@ with patch.dict(os.environ, {'MUSE_CI_TRANSFER_SOURCE_COMMIT': 'f' * 40}):
 
 
 class ControllerTests(unittest.TestCase):
+    def test_draft_tag_endpoint_404_resolves_exact_release_id(self):
+        tag = 'v1.0.3'
+        draft = {'id': 73, 'tag_name': tag, 'draft': True, 'assets': []}
+        with patch.object(controller, 'api', side_effect=[None, [draft], draft]) as remote:
+            self.assertEqual(controller.release_for_tag(tag), draft)
+            self.assertEqual([call.args[0] for call in remote.call_args_list],
+                             ['releases/tags/' + tag, 'releases?per_page=100&page=1', 'releases/73'])
+
+    def test_draft_lookup_rejects_duplicates_absence_and_mismatched_id(self):
+        tag = 'v1.0.3'
+        draft = {'id': 73, 'tag_name': tag, 'draft': True, 'assets': []}
+        for responses in ([None, [draft, {**draft, 'id': 74}]], [None, []],
+                          [None, [draft], {**draft, 'id': 74}],
+                          [None, [{**draft, 'id': '73'}]],
+                          [None, [draft], {**draft, 'tag_name': 'another-tag'}]):
+            with patch.object(controller, 'api', side_effect=responses):
+                with self.assertRaises(controller.PublicationError):
+                    controller.release_for_tag(tag)
+        with patch.object(controller, 'api', side_effect=[None, []]):
+            self.assertIsNone(controller.release_for_tag(tag, missing=True))
+
+    def test_draft_lookup_pages_exact_tag_and_rejects_cross_page_duplicates(self):
+        tag = 'v1.0.3'
+        draft = {'id': 73, 'tag_name': tag, 'draft': True, 'assets': []}
+        unrelated = [{'id': index + 100, 'tag_name': 'other-' + str(index)} for index in range(100)]
+        with patch.object(controller, 'api', side_effect=[None, unrelated, [draft], draft]) as remote:
+            self.assertEqual(controller.release_for_tag(tag), draft)
+            self.assertEqual(remote.call_args_list[2].args[0], 'releases?per_page=100&page=2')
+        with patch.object(controller, 'api', side_effect=[None, [draft, *unrelated[:99]], [draft]]):
+            with self.assertRaisesRegex(controller.PublicationError, 'Multiple releases'):
+                controller.release_for_tag(tag)
+        with patch.object(controller, 'api', side_effect=[None, *[unrelated for _ in range(20)]]) as remote:
+            with self.assertRaisesRegex(controller.PublicationError, 'bounded reconciliation'):
+                controller.release_for_tag(tag)
+            self.assertEqual(remote.call_count, 21)
+
     def test_source_setting_is_mandatory_and_exact_lowercase_full_commit(self):
         for value in (None, '', 'f' * 39, 'F' * 40, 'g' * 40):
             environment = dict(os.environ)
