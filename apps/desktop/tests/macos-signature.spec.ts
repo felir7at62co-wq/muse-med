@@ -169,11 +169,13 @@ describe('desktop macOS release signature', () => {
 
   it('rejects the standalone Electron signature without sealed application resources', () => {
     const fields = ['Identifier=com.example.desktop', 'Signature=adhoc', 'Info.plist=not bound', 'Sealed Resources=none']
-    expect(() => assertMacOSAdHocSignatureDetails(fields.join('\n'), 'com.example.desktop')).toThrow('sealed resources')
+    expect(() => { assertMacOSAdHocSignatureDetails(fields.join('\n'), 'com.example.desktop') }).toThrow('sealed resources')
     const complete = ['Identifier=com.example.desktop', 'Signature=adhoc', 'Info.plist entries=12', 'Sealed Resources version=2 rules=13 files=42'].join('\n')
-    expect(() => assertMacOSAdHocSignatureDetails(complete, 'com.example.desktop')).not.toThrow()
-    expect(() => assertMacOSAdHocSignatureDetails(complete, 'com.other.desktop')).toThrow('identifier')
-    expect(() => assertMacOSAdHocSignatureDetails(complete.replace('Signature=adhoc', 'Authority=Unrelated'), 'com.example.desktop')).toThrow()
+    expect(() => { assertMacOSAdHocSignatureDetails(complete, 'com.example.desktop') }).not.toThrow()
+    expect(() => { assertMacOSAdHocSignatureDetails(complete, 'com.other.desktop') }).toThrow('identifier')
+    expect(() => {
+      assertMacOSAdHocSignatureDetails(complete.replace('Signature=adhoc', 'Authority=Unrelated'), 'com.example.desktop')
+    }).toThrow()
   })
 
   it('rejects malformed signing modes', async () => {
