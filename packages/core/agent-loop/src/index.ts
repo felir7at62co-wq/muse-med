@@ -140,10 +140,16 @@ class FactoryOwnership {
     this.accepting = false
     this.teardown.abort(new Error('agent loop is not active'))
     this.inactive.resolve()
-    await Promise.all([
+    const settlements = await Promise.allSettled([
       ...[...this.liveAgents].map(dispose => dispose()),
       ...this.startupTasks,
     ])
+    const failures: unknown[] = []
+    for (const result of settlements) {
+      if (result.status === 'rejected') failures.push(result.reason)
+    }
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) throw new AggregateError(failures, 'agent loop disposal failed')
   }
 }
 
@@ -348,6 +354,8 @@ export class AgentLoop extends Service implements AgentFactory {
   /** Validated configuration owned by the agent-loop service. */
   readonly config: Config
   private readonly ownership: FactoryOwnership
+  private readonly stopTransactions: () => void | Promise<void>
+  private shutdownTask: Promise<void> | undefined
   /** Plain holder prevents Cordis from re-tracing the factory's dependency context through a caller shadow. */
   private readonly runtime: { ctx: Context }
 
@@ -359,14 +367,25 @@ export class AgentLoop extends Service implements AgentFactory {
       maxParallelToolCalls: config.maxParallelToolCalls,
     }
     validateConfiguredAgents(this.config.agents)
-    // Register only after every config validation above has passed, so a
-    // rejected constructor leaves no projection unit behind.
-    ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
-    ctx.sessionProjections.register(inboxProjectionDefinition)
-    this.ownership = new FactoryOwnership(ctx.fiber)
+    const ownership = this.ownership = new FactoryOwnership(ctx.fiber)
     this.runtime = { ctx }
-    ctx.effect(() => () => this.ownership.dispose(), 'agentLoop.transactions()')
-    ctx.effect(() => ctx.agents.setFactory(this), 'agentLoop.setFactory()')
+    this.stopTransactions = ctx.effect(function* (this: AgentLoop) {
+      const projections = ctx.effect(function* () {
+        yield ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
+        yield ctx.sessionProjections.register(inboxProjectionDefinition)
+      }, 'agentLoop.projections()')
+      yield projections
+      yield async () => {
+        // Projection reads remain valid until every live driver and startup
+        // continuation settles, including when one disposal rejects.
+        try {
+          await ownership.dispose()
+        } finally {
+          await projections()
+        }
+      }
+      yield ctx.agents.setFactory(this)
+    }.bind(this), 'agentLoop.transactions()')
     ctx.systemPrompt.variable('provider', context => context.agent?.options.provider)
     ctx.systemPrompt.variable('model', context => context.agent?.options.model)
     ctx.systemPrompt.variable('cwd', context => context.agent?.session.header.cwd)
@@ -401,6 +420,17 @@ export class AgentLoop extends Service implements AgentFactory {
         return fiber.dispose
       }, `agentLoop.resume(${id})`)
     }
+  }
+
+  /**
+   * Stop admission and join every owned agent and startup continuation while
+   * the surrounding services still route and persist the driver's closing events.
+   * Hosts call this before disposing the application tree. Repeated calls share
+   * the same completion and any disposal failure.
+   * @returns completion after all owned work and projection registrations unwind.
+   */
+  shutdown(): Promise<void> {
+    return this.shutdownTask ??= (async () => { await this.stopTransactions() })()
   }
 
   /** Report a contained declarative-start failure to identity-bound consumers. */

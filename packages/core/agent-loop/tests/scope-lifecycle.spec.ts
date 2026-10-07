@@ -1,5 +1,5 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { describe, expect, it, onTestFinished } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context, symbols, type EffectMeta, type Fiber } from '@deepseek-ai/cordis'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -12,6 +12,7 @@ import { scopeOf } from '@deepseek-ai/dsh-scope'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ReactLoopAgent } from '../src/agent.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 async function harnessWithLoop(adapter: MockAdapter = new MockAdapter([textResponse('ok')])): Promise<{ ctx: Context; loopFiber: Fiber }> {
@@ -708,6 +709,139 @@ describe('agent scope lifecycle', () => {
       sessionId: SessionId('factory-inactive-s'),
     })).rejects.toThrow(/agent loop is not active|inactive context/)
     await ctx.fiber.dispose()
+  })
+
+  it('joins every live agent before unregistering projections when one disposal fails', async () => {
+    const { ctx, loopFiber } = await harnessWithLoop()
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const reason = new Error('driver quiescence failed')
+    const first = await ctx.agents.create({ sessionId: SessionId('failed-quiescence') })
+    const second = await ctx.agents.create({
+      sessionId: SessionId('pending-quiescence'),
+      setup(agentCtx) {
+        agentCtx.effect(() => async () => {
+          entered.resolve(undefined)
+          await release.promise
+        })
+      },
+    })
+    vi.spyOn(first.agent, 'whenIdle').mockRejectedValue(reason)
+    const disposing = loopFiber.dispose()
+    try {
+      await entered.promise
+      await expect(first.dispose()).rejects.toBe(reason)
+      expect(ctx.sessionProjections.stateOf(second.agent.session, 'inbox')).toBeDefined()
+      expect(ctx.agents.get(second.agent.id)).toBe(second.agent)
+      release.resolve(undefined)
+      await disposing
+      expect(ctx.sessionProjections.stateOf(second.agent.session, 'inbox')).toBeUndefined()
+      expect(ctx.agents.list()).toEqual([])
+      await second.dispose()
+    } finally {
+      release.resolve(undefined)
+      await disposing
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('shares explicit shutdown quiescence before a later root disposal', async () => {
+    const { ctx, loopFiber } = await harnessWithLoop()
+    const loop = ctx.agentLoop
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('explicit-shutdown'),
+      setup(agentCtx) {
+        agentCtx.effect(() => async () => {
+          entered.resolve(undefined)
+          await release.promise
+        })
+      },
+    })
+    const first = loop.shutdown()
+    const second = loop.shutdown()
+    try {
+      expect(first).toBe(second)
+      await entered.promise
+      await expect(ctx.agents.create({ sessionId: SessionId('after-shutdown') })).rejects.toThrow(/no agent factory/)
+      expect(ctx.sessionProjections.stateOf(handle.agent.session, 'inbox')).toBeDefined()
+      release.resolve(undefined)
+      await first
+      expect(ctx.sessionProjections.stateOf(handle.agent.session, 'inbox')).toBeUndefined()
+      await loop.shutdown()
+      await ctx.fiber.dispose()
+      await loopFiber.dispose()
+      await handle.dispose()
+    } finally {
+      release.resolve(undefined)
+      await first
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('aggregates independent agent failures only after the last owned cleanup settles', async () => {
+    const { ctx } = await harnessWithLoop()
+    const loop = ctx.agentLoop
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const idleFailure = new Error('first driver failed to become idle')
+    const cleanupFailure = new Error('second scope cleanup failed')
+    let scopeSettled = false
+    let treeReleased = false
+    ctx.effect(() => () => { treeReleased = true })
+    const first = await ctx.agents.create({ sessionId: SessionId('aggregate-idle-failure') })
+    const second = await ctx.agents.create({
+      sessionId: SessionId('aggregate-cleanup-failure'),
+      setup(agentCtx) {
+        agentCtx.effect(() => async () => {
+          entered.resolve(undefined)
+          await release.promise
+          scopeSettled = true
+        })
+      },
+    })
+    const idleSpy = vi.spyOn(first.agent, 'whenIdle').mockRejectedValue(idleFailure)
+    const machine = second.agent as ReactLoopAgent
+    const disposeScope = machine.scope.dispose.bind(machine.scope)
+    const cleanupSpy = vi.spyOn(machine.scope, 'dispose').mockImplementation(async () => {
+      await disposeScope()
+      throw cleanupFailure
+    })
+    let shutdownSettled = false
+    const outcome = loop.shutdown().then(
+      () => { throw new Error('shutdown unexpectedly succeeded') },
+      (error: unknown) => { shutdownSettled = true; return error },
+    )
+    try {
+      await entered.promise
+      await expect(first.dispose()).rejects.toBe(idleFailure)
+      expect(shutdownSettled).toBe(false)
+      expect(scopeSettled).toBe(false)
+      expect(treeReleased).toBe(false)
+      expect(ctx.sessionProjections.stateOf(first.agent.session, 'inbox')).toBeDefined()
+      expect(ctx.sessionProjections.stateOf(second.agent.session, 'inbox')).toBeDefined()
+      expect(ctx.agents.get(second.agent.id)).toBe(second.agent)
+      release.resolve(undefined)
+      const error = await outcome
+      expect(error).toBeInstanceOf(AggregateError)
+      if (!(error instanceof AggregateError)) throw new Error('shutdown did not aggregate its failures', { cause: error })
+      expect(error.errors).toEqual([idleFailure, cleanupFailure])
+      expect(error.errors[0]).toBe(idleFailure)
+      expect(error.errors[1]).toBe(cleanupFailure)
+      expect(scopeSettled).toBe(true)
+      expect(ctx.sessionProjections.stateOf(second.agent.session, 'inbox')).toBeUndefined()
+      expect(ctx.agents.list()).toEqual([])
+      expect(ctx.sessions.list()).toEqual([])
+      await ctx.fiber.dispose()
+      expect(treeReleased).toBe(true)
+    } finally {
+      release.resolve(undefined)
+      await outcome
+      idleSpy.mockRestore()
+      cleanupSpy.mockRestore()
+      await ctx.fiber.dispose()
+    }
   })
 
   it('keeps AgentLoop dependencies available when the caller injects only agents', async () => {

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import difflib
 import importlib
 import importlib.metadata
@@ -12,6 +13,7 @@ import os
 import queue
 import re
 import secrets
+import signal
 import shutil
 import subprocess
 import sys
@@ -145,6 +147,10 @@ RECOVERY_SNAPSHOT_DIRECTORY = (
     Path(__file__).resolve().parent / "snapshots" / "python-sdk-single-exe" / "scheduler-recovery"
 )
 RECOVERY_SNAPSHOT_FILENAMES = ("result.json", "requests.json", "session.v4.jsonl")
+SHUTDOWN_SNAPSHOT_DIRECTORY = (
+    Path(__file__).resolve().parent / "snapshots" / "python-sdk-single-exe" / "factory-shutdown"
+)
+SHUTDOWN_SNAPSHOT_FILENAMES = ("result.json", "session.v4.jsonl", "session.1.v4.jsonl")
 MCP_SERVER_SCRIPT = """\
 import json
 import os
@@ -778,7 +784,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--scenario",
-        choices=("all", "sdk-default", "sdk-custom", "sdk-minimal", "sdk-minimal-in-history", "sdk-dynamic-tools", "sdk-fs-search", "sdk-spawn-node", "sdk-mcp", "sdk-snapshot", "sdk-recovery", "sdk-restart", "sdk-profile-plugin", "sdk-office", "sdk-authoring", "sdk-live", "runner", "direct"),
+        choices=("all", "sdk-default", "sdk-custom", "sdk-minimal", "sdk-minimal-in-history", "sdk-dynamic-tools", "sdk-fs-search", "sdk-spawn-node", "sdk-mcp", "sdk-snapshot", "sdk-recovery", "sdk-restart", "sdk-shutdown", "sdk-profile-plugin", "sdk-office", "sdk-authoring", "sdk-live", "runner", "direct"),
         default="all",
     )
     parser.add_argument("--exe", type=Path)
@@ -797,10 +803,10 @@ def main() -> None:
         parser.error("--scenario sdk-profile-plugin requires --installed-wheel")
     if args.installed_wheel:
         args.exe = assert_installed_wheel_environment()
-    if args.scenario in {"all", "sdk-custom", "sdk-minimal", "sdk-minimal-in-history", "sdk-dynamic-tools", "sdk-fs-search", "sdk-spawn-node", "sdk-snapshot", "sdk-recovery", "sdk-restart", "sdk-office", "sdk-authoring", "runner", "direct"} and args.exe is None:
-        parser.error("--exe is required for custom, minimal, dynamic-tools, fs-search, spawn-node, snapshot, recovery, restart, office, runner, and direct scenarios")
-    if args.update_snapshots and args.scenario not in {"all", "sdk-minimal", "sdk-minimal-in-history", "sdk-dynamic-tools", "sdk-snapshot", "sdk-recovery", "sdk-restart", "sdk-authoring"}:
-        parser.error("--update-snapshots requires --scenario sdk-minimal, sdk-minimal-in-history, sdk-dynamic-tools, sdk-snapshot, sdk-recovery, sdk-restart, sdk-authoring, or all")
+    if args.scenario in {"all", "sdk-custom", "sdk-minimal", "sdk-minimal-in-history", "sdk-dynamic-tools", "sdk-fs-search", "sdk-spawn-node", "sdk-snapshot", "sdk-recovery", "sdk-restart", "sdk-shutdown", "sdk-office", "sdk-authoring", "runner", "direct"} and args.exe is None:
+        parser.error("--exe is required for custom, minimal, dynamic-tools, fs-search, spawn-node, snapshot, recovery, restart, shutdown, office, runner, and direct scenarios")
+    if args.update_snapshots and args.scenario not in {"all", "sdk-minimal", "sdk-minimal-in-history", "sdk-dynamic-tools", "sdk-snapshot", "sdk-recovery", "sdk-restart", "sdk-shutdown", "sdk-authoring"}:
+        parser.error("--update-snapshots requires --scenario sdk-minimal, sdk-minimal-in-history, sdk-dynamic-tools, sdk-snapshot, sdk-recovery, sdk-restart, sdk-shutdown, sdk-authoring, or all")
     if args.exe is not None and not args.exe.is_file():
         parser.error(f"runtime executable does not exist: {args.exe}")
 
@@ -821,6 +827,11 @@ def main() -> None:
     if args.scenario == "sdk-live":
         smoke_sdk_live()
         print("smoke-python-runtime: sdk-live passed")
+        return
+
+    if args.scenario == "sdk-shutdown":
+        assert args.exe is not None
+        smoke_sdk_shutdown_snapshot(args.exe.resolve(), args.update_snapshots)
         return
 
     with MockModel() as model:
@@ -855,6 +866,9 @@ def main() -> None:
         if args.scenario in {"all", "sdk-snapshot", "sdk-recovery"}:
             assert args.exe is not None
             smoke_sdk_scheduler_recovery(model.url, args.exe.resolve(), args.update_snapshots)
+        if args.scenario in {"all", "sdk-snapshot"}:
+            assert args.exe is not None
+            smoke_sdk_shutdown_snapshot(args.exe.resolve(), args.update_snapshots)
         if args.scenario in {"all", "sdk-restart"}:
             assert args.exe is not None
             smoke_sdk_restart_snapshot(model.url, args.exe.resolve(), args.update_snapshots)
@@ -1511,6 +1525,163 @@ def smoke_sdk_profile_plugin(base_url: str) -> None:
 
         assert result.final_response == PROFILE_PLUGIN_TEXT, result.final_response
         assert_zstd_session_log(dsh_home / "sessions")
+
+
+def smoke_sdk_shutdown_snapshot(executable: Path | None, update_snapshots: bool) -> None:
+    """Cancel a published model-active child, retaining SDK observations and final durable state."""
+    from deepseek_harness import DeepSeekHarness
+    from deepseek_harness.errors import TransportClosedError
+
+    if IS_WINDOWS:
+        print("smoke-python-runtime: sdk-shutdown skipped; requires POSIX SIGTERM")
+        return
+    repository = Path(__file__).resolve().parents[1]
+    with tempfile.TemporaryDirectory(prefix="dsh-python-factory-shutdown-") as temporary:
+        root = Path(temporary).resolve()
+        home = root / "home"
+        sessions = home / "sessions"
+        ready_file = root / "model-ready"
+        receipt_file = root / "shutdown-receipt.jsonl"
+        override = root / "replay.override.json"
+        override.write_text(json.dumps([{"kind": "hang", "readyFile": str(ready_file)}]))
+        patch = write_profile_patch(root, "shutdown.patch.yml", sessions, [
+            {"id": "llm-deepseek", "disabled": True},
+            {"id": "tool-bash", "disabled": True},
+            {"id": "tool-pwsh", "disabled": True},
+            {"insert": [{"id": "factory-shutdown-fixture", "name": (
+                repository / "snapshots/sdk/factory-shutdown/runtime.mjs"
+            ).as_uri(), "config": {
+                "replayFile": str(repository / "snapshots/sdk/factory-shutdown/session.1.v4.jsonl"),
+                "overrideFile": str(override), "receiptFile": str(receipt_file), "readyFile": str(ready_file),
+            }}]},
+        ])
+        environment = {"DSH_HOME": str(home), "DSH_PERMISSION_MODE": "danger-full-access",
+                       "DSH_TELEMETRY_DISABLED": "1"}
+        launch_args = None
+        if executable is None:
+            node = shutil.which("node")
+            if node is None:
+                raise AssertionError("source SDK shutdown requires Node")
+            launch_args = (node, "--import", str(repository / "node_modules/tsx/dist/esm/index.mjs"),
+                           str(repository / "apps/cli/src/bin.ts"), "--profile", "sdk", "--patch", str(patch))
+            environment["TSX_TSCONFIG_PATH"] = str(repository / "tsconfig.json")
+        harness = DeepSeekHarness(
+            provider="shutdown-replay", model="shutdown", profile="sdk", cwd=str(root),
+            dsh_bin=None if executable is None else str(executable), dsh_home=str(home),
+            patches=(str(patch),), env=environment, _launch_args=launch_args,
+            initialize_timeout_seconds=60, request_timeout_seconds=60, shutdown_timeout_seconds=5,
+        )
+        model_ready = threading.Event()
+        request_seen = threading.Event()
+        notification_lock = threading.Lock()
+        notifications = []
+        readiness_notifications = []
+        closed_errors = []
+
+        class ObservedStderr(deque):
+            """Observe exact fixture markers using the SDK's existing stderr reader."""
+            def append(self, value: str) -> None:
+                super().append(value)
+                if value == "SHUTDOWN_MODEL_READY":
+                    model_ready.set()
+
+        harness.client._stderr_lines = ObservedStderr(maxlen=400)
+        subscription = harness.client.subscribe_notifications()
+
+        def collect() -> None:
+            try:
+                while True:
+                    notification = subscription.next()
+                    with notification_lock:
+                        notifications.append({"method": notification.method, "payload": notification.payload})
+                        event = notification.payload.get("event", {})
+                        if (notification.method == "session.event"
+                                and notification.payload.get("sessionId") != "shutdown-parent"
+                                and event.get("type") == "request/context"
+                                and not request_seen.is_set()):
+                            readiness_notifications.extend(notifications)
+                            request_seen.set()
+            except BaseException as error:
+                closed_errors.append(error)
+
+        collector = threading.Thread(target=collect, name="python-shutdown-notifications", daemon=True)
+        collector.start()
+        try:
+            harness.start()
+            harness.client.session_prompt("shutdown-parent", [{"type": "text", "text": "Exercise active child shutdown."}])
+            if not model_ready.wait(60) or not request_seen.wait(60):
+                raise AssertionError(f"published model-active child was not observed: {harness.client._runtime_diagnostics()}")
+            if not ready_file.is_file():
+                raise AssertionError("model-ready marker had no actual replay barrier")
+            process = harness.client._proc
+            if process is None or process.poll() is not None:
+                raise AssertionError("SDK runtime exited before the active-child SIGTERM")
+            process.send_signal(signal.SIGTERM)
+            returncode = process.wait(timeout=60)
+            for reader in (harness.client._reader_thread, harness.client._stderr_thread, collector):
+                if reader is not None:
+                    reader.join(timeout=5)
+                    if reader.is_alive():
+                        raise AssertionError("SDK shutdown reader did not reach quiescence")
+            if returncode != 0:
+                raise AssertionError(f"SIGTERM exited {returncode}: {harness.client._runtime_diagnostics()}")
+            if "projection registration is not active" in "\n".join(harness.client._stderr_lines):
+                raise AssertionError("active child cancellation used a revoked projection registration")
+            if len(closed_errors) != 1 or not isinstance(closed_errors[0], TransportClosedError):
+                raise AssertionError(f"unexpected SDK notification termination: {closed_errors}")
+            phases = [json.loads(line) for line in receipt_file.read_text().splitlines()]
+            if [phase["phase"] for phase in phases] != ["published", "model-ready", "model-aborted", "late-abort-delivered", "settled"]:
+                raise AssertionError(f"late abort did not overlap live-child settlement: {phases}")
+            if phases[-1].get("stopReason") != "aborted":
+                raise AssertionError(f"active child did not settle as aborted: {phases[-1]}")
+            child_id = phases[0]["childId"]
+            logs = read_session_logs(sessions)
+            if set(logs) != {"shutdown-parent", child_id}:
+                raise AssertionError(f"shutdown did not retain both Session roles: {list(logs)}")
+            parent_ends = [record for record in logs["shutdown-parent"] if record.get("type") == "turn/end"]
+            if len(parent_ends) != 1 or parent_ends[0]["data"]["reason"]["kind"] != "aborted":
+                raise AssertionError("parent has no single final persisted aborted turn")
+            child_ends = [record for record in logs[child_id] if record.get("type") == "turn/end"]
+            if len(child_ends) != 1 or child_ends[0]["data"]["reason"]["kind"] != "aborted":
+                raise AssertionError(f"active child has no final persisted aborted turn: phases={phases}; "
+                                     f"eventTypes={[record.get('type') for record in logs[child_id]]}; "
+                                     f"turnEnds={child_ends}")
+            observed_events = [notification["payload"]["event"] for notification in notifications
+                               if notification["method"] == "session.event"]
+            for event in observed_events:
+                session_id = next(notification["payload"]["sessionId"] for notification in notifications
+                                  if notification["method"] == "session.event" and notification["payload"]["event"] is event)
+                if event not in logs[session_id]:
+                    raise AssertionError("pre-shutdown SDK event differs from its durable record")
+            replacements = [(str(root), "{{cwd}}"), ("shutdown-parent", "{{parent}}"), (child_id, "{{child}}")]
+            result = {"exitCode": returncode, "phases": [phase["phase"] for phase in phases],
+                      "liveChildStopReason": phases[-1]["stopReason"],
+                      "notificationClose": type(closed_errors[0]).__name__,
+                      "notificationScope": "through-active-child-request-context", "notifications": readiness_notifications,
+                      "terminalNotificationsRequired": False}
+            files = {"result.json": json.dumps(normalize_snapshot_value(result, replacements), indent=2, ensure_ascii=False) + "\n"}
+            for index, session_id in enumerate(("shutdown-parent", child_id)):
+                records = project_session_snapshot([normalize_snapshot_value(record, replacements) for record in logs[session_id]])
+                content = render_jsonl(records)
+                files[snapshot_session_filename(index, session_header_version(content, session_id))] = content
+            # Canonical inputs are sampled once; subsequent updates only write current-writer oracles.
+            if update_snapshots and not SHUTDOWN_SNAPSHOT_DIRECTORY.exists():
+                SHUTDOWN_SNAPSHOT_DIRECTORY.mkdir()
+                for name, content in files.items():
+                    if parse_snapshot_session_filename(name) is not None:
+                        with (SHUTDOWN_SNAPSHOT_DIRECTORY / name).open("x", encoding="utf-8", newline="\n") as target:
+                            target.write(content)
+            compare_snapshot_files(files, update_snapshots, SHUTDOWN_SNAPSHOT_DIRECTORY,
+                                   SHUTDOWN_SNAPSHOT_FILENAMES, native_writer_output=True, writer_expected=True)
+        finally:
+            process = harness.client._proc
+            harness.close()
+            collector.join(timeout=5)
+            subscription.close()
+            if process is not None:
+                for stream in (process.stdin, process.stdout, process.stderr):
+                    if stream is not None:
+                        stream.close()
 
 
 def smoke_sdk_snapshot(base_url: str, executable: Path, update_snapshots: bool) -> None:

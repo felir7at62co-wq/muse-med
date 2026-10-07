@@ -1,0 +1,11 @@
+version: 1
+scenario: factory-shutdown
+profile: sdk
+composition: sdk-default
+recording: authored
+header:
+  class: sdk-default
+  childSystemPrompts: [1]
+  childToolSchemas: [1]
+replay:
+  override: true

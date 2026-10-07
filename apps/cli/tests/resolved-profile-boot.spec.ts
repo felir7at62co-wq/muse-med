@@ -7,7 +7,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import {
   boot, composeEntries, createRuntimeResolution,
-  PluginPackages, type Profile,
+  installFailLoud, PluginPackages, type Profile,
 } from '@deepseek-ai/dsh-app-boot'
 import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -33,6 +33,95 @@ afterEach(() => {
 })
 
 describe('runProfile with an application-owned profile', () => {
+  it.each([
+    { path: 'normal', fails: false },
+    { path: 'signal', fails: false },
+    { path: 'fail-loud', fails: false },
+    { path: 'fail-loud', fails: true },
+    { path: 'startup-failure', fails: true },
+  ] as const)('orders quiescence, tree disposal, and proxy release for $path (failure=$fails)', async ({ path, fails }) => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-profile-quiescence-'))
+    homes.push(home)
+    mkdirSync(join(home, 'runtime'))
+    writeFileSync(join(home, 'runtime/package.json'), '{"name":"test-runtime","version":"1.0.0"}')
+    writeFileSync(join(home, 'package.json'), '{"name":"test-bundle","version":"1.0.0"}')
+    vi.stubEnv('DSH_HOME', home)
+    const signals = vi.spyOn(process, 'on').mockReturnValue(process)
+    const exit = vi.spyOn(process, 'exit').mockReturnValue(undefined as never)
+    const oldExitCode = process.exitCode
+    const ctx = new Context()
+    ctx.provide('loader', { create: vi.fn() })
+    ctx.provide('hmr', {})
+    const order: string[] = []
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const failures = [new Error('quiescence failed'), new Error('tree failed'), new Error('proxy failed')]
+    const quiesce = vi.fn(async () => {
+      order.push('quiesce:start')
+      entered.resolve(undefined)
+      await release.promise
+      order.push('quiesce:end')
+      if (fails) throw failures[0]
+    })
+    ctx.provide('agentLoop', { shutdown: quiesce })
+    const originalDispose = ctx.fiber.dispose
+    const dispose = vi.spyOn(ctx.fiber, 'dispose').mockImplementation(async () => {
+      order.push('tree')
+      if (fails) throw failures[1]
+      await originalDispose()
+    })
+    const disposeProxy = vi.fn(async () => {
+      order.push('proxy')
+      if (fails) throw failures[2]
+    })
+    vi.mocked(installProxyFromEnvironment).mockResolvedValue(disposeProxy)
+    const startupFailure = new Error('startup failed')
+    vi.mocked(boot).mockImplementation(async (_name, _root, _patches, setup) => {
+      await setup?.(ctx)
+      if (path === 'startup-failure') throw startupFailure
+      return ctx
+    })
+    const profile: Profile = { skippedBundles: [], name: 'desktop', dir: home,
+      patchPath: join(home, 'cordis.patch.yml'), patches: [], layers: [] }
+    const application = runProfile({ environment: createLaunchEnvironmentSnapshot([]), profile: 'desktop', patchFiles: [], args: [],
+      resolvedProfile: { profile, installAnchor: join(home, 'runtime/package.json') } })
+    try {
+      let completion: Promise<unknown>
+      if (path === 'startup-failure') {
+        completion = expect(application).rejects.toMatchObject({ errors: [startupFailure, { errors: failures }] })
+      } else {
+        const { shutdown } = await application
+        const fatalRelease = vi.mocked(installFailLoud).mock.calls.at(-1)?.[2]
+        if (fatalRelease === undefined) throw new Error('profile did not install its failure disposer')
+        if (path === 'signal') {
+          const signal = signals.mock.calls.find(call => call[0] === 'SIGTERM')?.[1]
+          if (signal === undefined) throw new Error('profile did not install SIGTERM')
+          signal()
+        }
+        const first = fatalRelease()
+        const second = fatalRelease()
+        expect(first).toBe(second)
+        const settled = fails ? expect(first).rejects.toMatchObject({ errors: failures }) : first
+        completion = Promise.all([settled, shutdown.shutdown(0)])
+      }
+      await entered.promise
+      expect(order).toEqual(['quiesce:start'])
+      expect(dispose).not.toHaveBeenCalled()
+      expect(disposeProxy).not.toHaveBeenCalled()
+      release.resolve(undefined)
+      await completion
+      expect(order).toEqual(['quiesce:start', 'quiesce:end', 'tree', 'proxy'])
+      expect(quiesce).toHaveBeenCalledOnce()
+      expect(dispose).toHaveBeenCalledOnce()
+      expect(disposeProxy).toHaveBeenCalledOnce()
+      if (path === 'signal' || fails && path !== 'startup-failure') expect(exit).toHaveBeenCalledWith(0)
+    } finally {
+      release.resolve(undefined)
+      await originalDispose()
+      process.exitCode = oldExitCode
+    }
+  })
+
   it.each(
     ['composition', 'boot', 'watch', 'cleanup', 'tree-cleanup', 'both-cleanups'] as const,
   )('releases startup resources after a %s failure', async (stage) => {

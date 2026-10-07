@@ -111,6 +111,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
       },
       {
+        signature: 'shutdown(): Promise<void>',
+        description: 'Stop admission and join every owned agent and startup continuation while the surrounding services still route and persist the driver\'s closing events. Hosts call this before disposing the application tree. Repeated calls share the same completion and any disposal failure.',
+        parameters: [],
+        returns: 'completion after all owned work and projection registrations unwind.',
+      },
+      {
         signature: 'async create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, \'cwd\'> = {}): Promise<Agent>',
         description: 'Create an agent and session under one caller-supplied identity, owned by the accessing fiber. Constructor-driven config calls mint a fresh combined id before entering this boundary. When a persistence backend is mounted, the session\'s durable identity and any seed are stored before publication.',
         parameters: [{ name: 'id', description: 'shared agent/session identity.' }, { name: 'options', description: 'concrete loop options.' }, { name: 'meta', description: 'optional fresh-session workspace metadata.' }],

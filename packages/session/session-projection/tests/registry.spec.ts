@@ -508,6 +508,34 @@ describe('SessionProjectionRegistry drive', () => {
     expect(ctx.sessionProjections.snapshot(session).values['test/marks']).toEqual({ marks: ['cached'] })
   })
 
+  it('nests the exact registration effect behind an awaited owner teardown', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(SessionId('ordered-projection-owner'))
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const owner = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.effect(function* () {
+        yield inner.sessionProjections.register(countUnit())
+        yield async () => {
+          entered.resolve(undefined)
+          await release.promise
+        }
+      })
+    }, { inject: ['sessionProjections'] }))
+    const disposing = owner.dispose()
+    try {
+      await entered.promise
+      expect(ctx.sessionProjections.stateOf(session, 'test/count')).toBe(0)
+      release.resolve(undefined)
+      await disposing
+      expect(ctx.sessionProjections.stateOf(session, 'test/count')).toBeUndefined()
+    } finally {
+      release.resolve(undefined)
+      await disposing
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('removes registrations and change listeners when their owning fiber unloads (HMR safety)', async () => {
     const { ctx, session } = await harness()
     const notifications: string[] = []
