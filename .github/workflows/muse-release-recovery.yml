@@ -1,0 +1,94 @@
+name: Temporary verified Muse 1.0.3 release recovery
+
+on:
+  push:
+    branches:
+      - ops/muse-release-recovery-20261007
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: muse-controlled-publication-1.0.3
+  cancel-in-progress: false
+
+# Root changes these two literals only after actual final-installed acceptance passes.
+# No external document, artifact or tool output can authorize remote publication.
+env:
+  MUSE_CI_TRANSFER_SOURCE_COMMIT: ${{ vars.MUSE_CI_TRANSFER_SOURCE_COMMIT }}
+  MUSE_RELEASE_MODE: publish
+  MUSE_RELEASE_AUTHORIZATION: ${{ format('FINAL_INSTALLED_ACCEPTANCE_{0}', vars.MUSE_CI_TRANSFER_SOURCE_COMMIT) }}
+  MUSE_RELEASE_TOS_MODE: root-verified
+  MUSE_RELEASE_ROOT_TOS_PROOF: ${{ vars.MUSE_LOCAL_TOS_READBACK_RECEIPT }}
+  MUSE_RELEASE_ROOT_TOS_PROOF_SHA256: a68b5a279411f594e467482e634a2f0f07362e3da4a6c59d8fdf7852a93f858c
+
+jobs:
+  controlled-publication:
+    if: github.repository == 'felir7at62co-wq/muse-med' && github.event_name == 'push' && github.ref == 'refs/heads/ops/muse-release-recovery-20261007'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Load the root-reviewed operations commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Retain reviewed utilities outside the final source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$MUSE_CI_TRANSFER_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            printf '%s\n' 'Final source setting must be an exact 40-character commit' >&2
+            exit 1
+          fi
+          umask 077
+          mkdir "$RUNNER_TEMP/muse-controlled-publication-1.0.3"
+          cp -R .github/scripts/muse-controlled-publication/. "$RUNNER_TEMP/muse-controlled-publication-1.0.3/"
+          test "$(find "$RUNNER_TEMP/muse-controlled-publication-1.0.3" -name '*.py' | wc -l)" -eq 6
+      - name: Check out the exact completed build source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ vars.MUSE_CI_TRANSFER_SOURCE_COMMIT }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install immutable script dependencies without native builds
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter @deepseek-ai/dsh-desktop...
+      - name: Restore utilities into the private staging directory and run offline checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p .artifacts/muse-release-20261006-gxgg057c
+          cp -R "$RUNNER_TEMP/muse-controlled-publication-1.0.3/." .artifacts/muse-release-20261006-gxgg057c/
+          python3 .artifacts/muse-release-20261006-gxgg057c/test_controlled_publication.py -v
+          python3 .artifacts/muse-release-20261006-gxgg057c/test_root_tos_proof.py -v
+          node .artifacts/muse-release-20261006-gxgg057c/test-stage-muse-1.0.3.mjs
+      - name: Execute only the root-authorized release mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MUSE_TOS_BUCKET: muse
+          MUSE_TOS_REGION: cn-beijing
+          MUSE_TOS_S3_ENDPOINT: https://tos-s3-cn-beijing.volces.com
+          MUSE_TOS_PUBLIC_BASE_URL: https://muse.tos-cn-beijing.volces.com
+          MUSE_TOS_PREFIX: releases
+          PYTHONUNBUFFERED: '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$MUSE_CI_TRANSFER_SOURCE_COMMIT"
+          python3 .artifacts/muse-release-20261006-gxgg057c/controlled-publication.py \
+            --mode "$MUSE_RELEASE_MODE" --tos-mode "$MUSE_RELEASE_TOS_MODE"
+      - name: Preserve sanitized receipts and full public readback logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: muse-1.0.3-controlled-publication-${{ github.run_id }}
+          path: |
+            .artifacts/muse-release-20261006-gxgg057c/controlled-work-*/controlled-receipt.json
+            .artifacts/muse-release-20261006-gxgg057c/controlled-work-*/*.log
+          if-no-files-found: warn
+          retention-days: 30
