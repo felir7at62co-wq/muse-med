@@ -1,6 +1,6 @@
 /** Build Mac media inspection and download-verification tools from locked official FFmpeg source. */
 import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { join, dirname, resolve, basename } from 'node:path'
+import { join, dirname, posix, resolve, basename } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { createHash } from 'node:crypto'
@@ -207,7 +207,8 @@ function checkSystemLibraries(binary: string): void {
     if (!match) throw new Error(`Mac media: ${basename(binary)} has invalid library diagnostics`)
     return match[1]!
   })
-  if (!libraries.includes('/usr/lib/libz.1.dylib') || libraries.some(path => resolve(path) !== path
+  // Mach-O library diagnostics contain POSIX paths on every test host.
+  if (!libraries.includes('/usr/lib/libz.1.dylib') || libraries.some(path => posix.resolve(path) !== path
     || (!path.startsWith('/usr/lib/') && !path.startsWith('/System/Library/Frameworks/')))) {
     throw new Error(`Mac media: ${basename(binary)} requires Apple system zlib and libraries: ${libraries.join(', ')}`)
   }
