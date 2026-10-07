@@ -67,9 +67,19 @@ try {
     $record.sourceCommit -ne $sourceCommit -or $record.unsigned -ne $true) { throw 'Unsigned build identity differs' }
   $filenames = @("muse-med-$version-win-x64.exe", "muse-med-$version-win-x64.exe.blockmap", 'latest.yml')
   if (@($record.artifacts.PSObject.Properties).Count -ne $filenames.Count) { throw 'Unexpected build-record members' }
-  if (@(Get-ChildItem -LiteralPath $artifacts -File).Count -ne 4 -or @(Get-ChildItem -LiteralPath $artifacts -Directory).Count -ne 0) {
+  $archiveFilenames = @($filenames + @('unsigned-build.json', 'builder-debug.yml'))
+  $actualFilenames = @(Get-ChildItem -LiteralPath $artifacts -File -Force | Select-Object -ExpandProperty Name)
+  if ($actualFilenames.Count -ne 5 -or @(Get-ChildItem -LiteralPath $artifacts -Directory -Force).Count -ne 0 -or
+    @(Compare-Object -ReferenceObject $archiveFilenames -DifferenceObject $actualFilenames -CaseSensitive).Count -ne 0) {
     throw 'Unexpected GitHub artifact archive members'
   }
+  $diagnostic = Join-Path $artifacts 'builder-debug.yml'
+  $diagnosticHash = 'e959fb106c8946f04d42697e9c96b25d90ef50cef404e8e257081d6736d000ea'
+  if ((Get-Item -LiteralPath $diagnostic).Length -ne 7902 -or
+    (Get-FileHash -LiteralPath $diagnostic -Algorithm SHA256).Hash.ToLowerInvariant() -ne $diagnosticHash) {
+    throw 'Original builder diagnostic differs from its fixed archive bytes'
+  }
+  $result.originalBuilderDiagnostic = @{ bytes = 7902; sha256 = $diagnosticHash; published = $false }
   foreach ($filename in $filenames) {
     $file = Join-Path $artifacts $filename
     $expected = $record.artifacts.$filename
