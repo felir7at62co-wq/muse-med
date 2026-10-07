@@ -1,0 +1,79 @@
+name: Temporary verified Muse artifact relay
+
+on:
+  push:
+    branches:
+      - ops/muse-ci-transfer-20261007-0b6d47532eb3b9ba
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: muse-ci-transfer-20261007-0b6d47532eb3b9ba
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    if: github.repository == 'felir7at62co-wq/muse-med' && github.ref == 'refs/heads/ops/muse-ci-transfer-20261007-0b6d47532eb3b9ba'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Load this exact operations commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Keep reviewed relay utilities outside the source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/muse-ci-transfer-0b6d47532eb3b9ba"
+          cp .github/scripts/muse-ci-transfer/*.py "$RUNNER_TEMP/muse-ci-transfer-0b6d47532eb3b9ba/"
+          cd "$RUNNER_TEMP/muse-ci-transfer-0b6d47532eb3b9ba"
+          python3 -m unittest -v test_artifact_range_download.py test_ci_transfer_runner.py
+          command -v gh
+          command -v aws
+      - name: Check out the exact completed build source
+        uses: actions/checkout@v6
+        with:
+          ref: 3cccd5b08cda16f5dcd4afea920793628b0840eb
+          persist-credentials: false
+      - name: Check TOS bucket access before large transfers
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.MUSE_CI_TRANSFER_TOS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MUSE_CI_TRANSFER_TOS_SECRET_ACCESS_KEY }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          PYTHONUNBUFFERED: '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/muse-ci-transfer-0b6d47532eb3b9ba/ci_transfer_runner.py" preflight
+      - name: Probe and download only the two verified raw build ZIPs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 3cccd5b08cda16f5dcd4afea920793628b0840eb
+          python3 "$RUNNER_TEMP/muse-ci-transfer-0b6d47532eb3b9ba/ci_transfer_runner.py" download
+      - name: Put verified ZIPs into the isolated temporary TOS prefix
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.MUSE_CI_TRANSFER_TOS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MUSE_CI_TRANSFER_TOS_SECRET_ACCESS_KEY }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          AWS_MAX_ATTEMPTS: '10'
+          AWS_RETRY_MODE: standard
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          PYTHONUNBUFFERED: '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/muse-ci-transfer-0b6d47532eb3b9ba/ci_transfer_runner.py" upload
