@@ -133,7 +133,9 @@ export const DOUYIN_PLAYER_PROBE = `(() => {
       if (typeof value!=='string' || markers.length!==1 || !URL.canParse(value)) return false;
       const supplied=new URL(value);
       if (supplied.searchParams.has('__vid')) return false;
-      current.searchParams.delete('__vid');
+      const parameters=[...current.searchParams].filter(([key])=>key!=='__vid'), expected=[...supplied.searchParams];
+      if (parameters.length!==expected.length || parameters.some(([key,value],index)=>key!==expected[index][0] || value!==expected[index][1])) return false;
+      current.search=''; supplied.search='';
       return current.href===supplied.href;
     };
     let parent = player.parentElement;

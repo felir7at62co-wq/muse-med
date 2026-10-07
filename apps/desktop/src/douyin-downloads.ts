@@ -329,7 +329,8 @@ export class DesktopDouyinDownloads {
     }
     if (!this.isCurrent(task, 'observing') || task.documentEpoch !== epoch) return
     if (typeof player === 'object' && player !== null && 'unsupported' in player) {
-      if (player.unsupported !== 'PAGE_METADATA' || task.providerAvailable === false)
+      if ((player.unsupported !== 'PAGE_METADATA' && player.unsupported !== 'BLOB_OR_SEGMENTS')
+        || task.providerAvailable === false)
         void this.revoke('UNSUPPORTED_MEDIA_ASSOCIATION')
       return
     }

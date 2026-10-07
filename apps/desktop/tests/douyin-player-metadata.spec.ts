@@ -132,6 +132,31 @@ it('binds the normal player work marker while preserving the unchanged native so
   } finally { f.dom.window.close() }
 })
 
+it.each(['name=hello%20world', 'signature=abc~def', 'signature=a%2fb'])('preserves encoded query values when matching the player work marker: %s', (query) => {
+  const supplied = `${source}?${query}&part=1&part=2`
+  const current = `${supplied}&__vid=${target}`
+  const f = fixture({ children: { props: { awemeInfo: work({ playAddr: [{ src: supplied }] }) } } })
+  try {
+    Object.defineProperty(f.video, 'currentSrc', { value: current })
+    expect(f.run()).toEqual({ id: target, src: current })
+  } finally { f.dom.window.close() }
+})
+
+it.each([
+  `${source}?part=2&part=1&signature=fixture&__vid=${target}`,
+  `${source}?part=1&part=2&signature=changed&__vid=${target}`,
+  `${source}?part=1&signature=fixture&__vid=${target}`,
+  `${source}?part=1&part=2&signature=fixture&__vid=${target}#changed`,
+  `https://user@v3-web.douyinvod.com/fixture.mp4?part=1&part=2&signature=fixture&__vid=${target}`,
+])('refuses changed query ordering, duplicates and base URL fields: %s', (current) => {
+  const supplied = `${source}?part=1&part=2&signature=fixture`
+  const f = fixture({ children: { props: { awemeInfo: work({ playAddr: [{ src: supplied }] }) } } })
+  try {
+    Object.defineProperty(f.video, 'currentSrc', { value: current })
+    expect(f.run()).toEqual({ unsupported: 'PAGE_METADATA' })
+  } finally { f.dom.window.close() }
+})
+
 it.each([
   `?signature=changed&__vid=${target}`,
   '?signature=fixture&__vid=7624973984769004151',

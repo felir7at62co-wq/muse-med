@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest'
 import { DesktopDouyinDownloads } from '../src/douyin-downloads.ts'
-import { douyinMedia, douyinPage, parseDouyinRequest, targetVideoId } from '../src/douyin-policy.ts'
+import { douyinMedia, douyinPage, parseDouyinRequest, targetVideoId, DOUYIN_PLAYER_PROBE } from '../src/douyin-policy.ts'
 import type { DouyinDesktopRequest } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 import { fixtureDebugger, fixtureResponse, fixtureMedia, fixtureBody } from './douyin-provider-fixture.ts'
 
@@ -28,7 +28,7 @@ function web() {
     downloadURL: vi.fn(),
     debugger: { isAttached: () => true },
     session: { resolveHost: vi.fn(async () => ({ endpoints: [{ address: '1.1.1.1', family: 'ipv4' }] })) },
-    executeJavaScript: vi.fn(async (): Promise<unknown> => ({ id, src: media })),
+    executeJavaScript: vi.fn(async (_source: string): Promise<unknown> => ({ id, src: media })),
   })
 }
 class Item extends EventEmitter {
@@ -329,6 +329,107 @@ async function providerTransfer() {
   await vi.advanceTimersByTimeAsync(100)
   return { result, debug }
 }
+
+it('waits for exact provider evidence after an observed MP4 encounters a blob player', async () => {
+  const { result, debug } = await providerTransfer()
+  guest.executeJavaScript.mockImplementation(async source => source === DOUYIN_PLAYER_PROBE
+    ? { unsupported: 'BLOB_OR_SEGMENTS' }
+    : { duration: 34.41, sourceSupported: true, protected: false, src: 'blob:https://www.douyin.com/fixture' })
+  controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'xhr', url: fixtureMedia,
+    responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(guest.executeJavaScript).toHaveBeenCalledWith(DOUYIN_PLAYER_PROBE)
+  expect(controller.isActive).toBe(true)
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+  await fixtureResponse(debug)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(fixtureMedia)
+  const item = new Item()
+  item.url = fixtureMedia
+  item.chain = [fixtureMedia]
+  expect(controller.accept(item as never, guest as never)).toBe(true)
+  controller.response({ webContentsId: guest.id, statusCode: 200, resourceType: 'other', url: fixtureMedia,
+    responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+  item.complete()
+  expect(await result).toMatchObject({ code: 'STAGED', evidence: {
+    association: 'provider-detail-verified', currentSrcMatched: false, provider: { targetVideoId: id, documentEpoch: 1 },
+  } })
+})
+
+it('retains a blob player while the exact provider observer is still starting', async () => {
+  const debug = fixtureDebugger()
+  const frame = Promise.withResolvers<object>()
+  const tree = { frameTree: { frame: { id: 'main', loaderId: 'loader' } } }
+  debug.sendCommand.mockImplementation(async method => method === 'Page.getFrameTree' ? frame.promise
+    : method === 'Network.getResponseBody' ? { body: JSON.stringify(fixtureBody()), base64Encoded: false } : {})
+  Object.assign(guest, { debugger: debug })
+  guest.reload.mockImplementation(() => {
+    guest.emit('did-start-navigation', {}, page, false, true)
+    debug.emit('message', {}, 'Page.frameNavigated', { frame: { id: 'main', loaderId: 'loader' } })
+  })
+  guest.executeJavaScript.mockImplementation(async source => source === DOUYIN_PLAYER_PROBE
+    ? { unsupported: 'BLOB_OR_SEGMENTS' }
+    : { duration: 34.41, sourceSupported: true, protected: false, src: 'blob:https://www.douyin.com/fixture' })
+  await prepared()
+  const result = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  try {
+    await vi.advanceTimersByTimeAsync(0)
+    expect(debug.sendCommand).toHaveBeenCalledWith('Page.getFrameTree')
+    expect(guest.reload).not.toHaveBeenCalled()
+    controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'xhr', url: fixtureMedia,
+      responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(controller.isActive).toBe(true)
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+    frame.resolve(tree)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(guest.reload).toHaveBeenCalledOnce()
+    await fixtureResponse(debug)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(fixtureMedia)
+    await controller.request(owner as never, { ...request, action: 'release' })
+    expect((await result).code).toBe('CANCELLED')
+  } finally {
+    frame.resolve(tree)
+    await vi.advanceTimersByTimeAsync(0)
+  }
+})
+
+it('rejects a blob player when provider observation is unavailable', async () => {
+  guest.executeJavaScript.mockResolvedValue({ unsupported: 'BLOB_OR_SEGMENTS' })
+  await prepared()
+  const result = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  await vi.advanceTimersByTimeAsync(0)
+  controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'xhr', url: fixtureMedia,
+    responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+  await vi.advanceTimersByTimeAsync(0)
+  expect((await result).code).toBe('UNSUPPORTED_MEDIA_ASSOCIATION')
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+  expect(guest.debugger.isAttached()).toBe(true)
+})
+
+it('rejects a protected player even while provider observation is available', async () => {
+  const { result, debug } = await providerTransfer()
+  guest.executeJavaScript.mockResolvedValue({ unsupported: 'PROTECTED_MEDIA' })
+  controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'xhr', url: fixtureMedia,
+    responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+  await vi.advanceTimersByTimeAsync(0)
+  expect((await result).code).toBe('UNSUPPORTED_MEDIA_ASSOCIATION')
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+  expect(debug.isAttached()).toBe(false)
+})
+
+it('expires a blob association when an available observer never supplies exact provider evidence', async () => {
+  const { result, debug } = await providerTransfer()
+  guest.executeJavaScript.mockResolvedValue({ unsupported: 'BLOB_OR_SEGMENTS' })
+  controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'xhr', url: fixtureMedia,
+    responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+  await vi.advanceTimersByTimeAsync(120_000)
+  expect((await result).code).toBe('UNSUPPORTED_MEDIA_ASSOCIATION')
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+  expect(debug.isAttached()).toBe(false)
+})
+
 it('stages only native MP4 completion with provider evidence and never claims currentSrc equality', async () => {
   const { result, debug } = await providerTransfer()
   await fixtureResponse(debug)

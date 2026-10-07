@@ -77,7 +77,7 @@ it('rejects local, private, mapped IPv6 and reserved addresses', () => {
     expect(publicMediaAddress(ip)).toBe(false)
   for (const ip of ['1.1.1.1', '2606:4700:4700::1111']) expect(publicMediaAddress(ip)).toBe(true)
 })
-it('requires a unique ready playing video and refuses an unbounded player list', () => {
+it('requires a unique loaded video and refuses an unbounded player list', () => {
   const video = {
     getBoundingClientRect: () => ({ width: 10, height: 10 }),
     readyState: 4,
@@ -98,10 +98,19 @@ it('requires a unique ready playing video and refuses an unbounded player list',
   for (const list of [
     [video, video],
     Array.from({ length: 17 }, () => video),
-    [{ ...video, paused: true }],
     [{ ...video, readyState: 1 }],
   ])
     expect(probe({ querySelectorAll: () => list })).toBeNull()
+})
+
+it('reads a paused loaded player without changing playback', () => {
+  const play = vi.fn(), pause = vi.fn()
+  const video = { getBoundingClientRect: () => ({ width: 10, height: 10 }), readyState: 2, paused: true,
+    duration: 34.41, currentSrc: 'blob:https://www.douyin.com/fixture', mediaKeys: null, play, pause }
+  const result: unknown = new Script(PROVIDER_PLAYER_PROBE).runInNewContext({ document: { querySelectorAll: () => [video] }, URL })
+  expect(result).toEqual({ duration: 34.41, sourceSupported: true, protected: false, src: video.currentSrc })
+  expect(play).not.toHaveBeenCalled()
+  expect(pause).not.toHaveBeenCalled()
 })
 it('reads only bounded exact main-document JSON responses and detaches its own observer', async () => {
   const debug = fixtureDebugger(),
