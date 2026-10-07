@@ -50,10 +50,15 @@ try {
   await writeFile(fakeNetwork, `const inventory=${JSON.stringify(inventory)};
 const bodies=${JSON.stringify(bodies)};
 const feeds=${JSON.stringify(Object.fromEntries(mirror.metadata.map(file => [file.key, Buffer.from(file.contents).toString('base64')])))};
-globalThis.fetch=async value=>{
+globalThis.fetch=async (value,options={})=>{
   const url=new URL(value), tag=url.pathname.includes('rc.muse-stable')?'v1.0.3-rc.muse-stable':'v1.0.3';
+  if(url.hostname!=='api.github.com' && options.headers?.Authorization!==undefined) throw new Error('Token reached a public non-API request');
   if(url.pathname.endsWith('/releases.atom')) return new Response('<feed><entry><link href="https://github.com/felir7at62co-wq/muse-med/releases/tag/'+(process.env.MUSE_STAGING_SYNTHETIC_WRONG_ATOM==='1'?'hongguo-source-runtime-fixture':process.env.MUSE_STAGING_SYNTHETIC_STABLE_ATOM==='1'?'v1.0.3':'v1.0.3-rc.muse-stable')+'"/></entry></feed>');
   if(url.hostname==='api.github.com') {
+    if(options.redirect!=='error') throw new Error('Metadata request permits redirects');
+    if(process.env.GH_TOKEN && options.headers?.Authorization!=='Bearer '+process.env.GH_TOKEN) throw new Error('Metadata request did not use the in-memory API token');
+    if(process.env.MUSE_STAGING_SYNTHETIC_API_REDIRECT==='1') return new Response(null,{status:302,headers:{Location:'https://untrusted.example/redirect'}});
+    if(process.env.MUSE_STAGING_SYNTHETIC_API_LIMIT==='1') return new Response(null,{status:403,headers:{'x-ratelimit-remaining':'0','x-ratelimit-reset':'1700000000'}});
     if(url.pathname.includes('/git/ref/')) return Response.json({object:{type:'commit',sha:inventory.sourceCommit}});
     return Response.json({tag_name:tag,draft:false,prerelease:tag!=='v1.0.3',assets:inventory.files.map(file=>({name:file.filename,size:file.size,state:'uploaded',digest:'sha256:'+file.sha256}))});
   }
@@ -66,7 +71,7 @@ globalThis.fetch=async value=>{
 };\n`)
   const readback = ['--import', fakeNetwork, readbackScript, '--inventory', `${output}.inventory.json`]
   for (const tag of ['v1.0.3', 'v1.0.3-rc.muse-stable']) {
-    const lines = execFileSync(process.execPath, [...readback, '--github-tag', tag, '--tos'], { encoding: 'utf8' }).trim().split('\n')
+    const lines = execFileSync(process.execPath, [...readback, '--github-tag', tag, '--tos'], { encoding: 'utf8', env: { ...process.env, GH_TOKEN: 'synthetic-read-only-token' } }).trim().split('\n')
     assert.equal(JSON.parse(lines.at(-1)).stage, 'public-readback-complete')
     assert.equal(lines.length, tag === 'v1.0.3' ? 21 : 22)
   }
@@ -82,6 +87,12 @@ globalThis.fetch=async value=>{
   assert.throws(() => execFileSync(process.execPath, [...readback, '--github-tag', 'v1.0.3-rc.muse-stable'], {
     stdio: 'pipe', env: { ...process.env, MUSE_STAGING_SYNTHETIC_WRONG_ATOM: '1' },
   }), error => error.stderr.toString().includes('Legacy Atom discovery must select a current app release'))
+  assert.throws(() => execFileSync(process.execPath, [...readback, '--github-tag', 'v1.0.3'], {
+    stdio: 'pipe', env: { ...process.env, GH_TOKEN: 'synthetic-read-only-token', MUSE_STAGING_SYNTHETIC_API_REDIRECT: '1' },
+  }), error => error.stderr.toString().includes('Public GitHub metadata HTTP 302'))
+  assert.throws(() => execFileSync(process.execPath, [...readback, '--github-tag', 'v1.0.3'], {
+    stdio: 'pipe', env: { ...process.env, MUSE_STAGING_SYNTHETIC_API_LIMIT: '1' },
+  }), error => error.stderr.toString().includes('Public GitHub metadata HTTP 403; rateRemaining=0; rateReset=1700000000'))
   await writeFile(join(directories['mac-arm64'], 'muse-med-1.0.3-mac-arm64.zip'), 'changed synthetic bytes')
   assert.throws(() => execFileSync(process.execPath, [stageScript, ...args.slice(0, -1), join(root, 'changed')], { stdio: 'pipe' }),
     error => error.stderr.toString().includes('changed after packaging verification'))
