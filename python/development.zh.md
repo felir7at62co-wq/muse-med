@@ -38,6 +38,8 @@ SDK 场景会比对 `scripts/snapshots/python-sdk-single-exe/` 下已提交的�
 
 `scheduler-recovery/` 记录一个失败的工具轮次及后续完成的轮次。它保留原始的 `UNKNOWN` 轮次错误、第一个工具已完成的结果，以及其余调用的 `TOOL_OUTCOME_UNKNOWN` / `TOOL_NOT_STARTED` 结果。`sdk-snapshot` 和 `all` 包含此场景；`--scenario sdk-recovery` 单独运行它。
 
+`factory-shutdown/` 比对截至活跃 child 的 `request/context` 的 Python SDK 通知前缀，以及 SIGTERM 取消已发布 child 的模型等待后，实时 child 的 aborted 结果与写入完成的父／子日志。`sdk-snapshot` 和 `all` 包含此场景；`--scenario sdk-shutdown` 单独运行它。Windows 跳过这个 POSIX 信号场景。此 Python 关闭场景保留 skill 服务并使用空的文件系统技能目录，禁用随包 Office 提供方与运行时查询；宿主技能根目录和载体资源不会改变其期望输出。退场先移除 SDK 通知监听，再等待 agent 收尾，因此不要求终端通知与最终持久日志完全相同。更新保留规范 Session 代际，只写入 `writer[.n].expected.jsonl` 输出预期。
+
 `advanced` 与 `restart` 的比较按每份输入自身的 Session 代际匹配原生 delivery 限定值，包括 SDK 事件与通知。捕获的代际及其他 delivery 代际保留数值。每一侧的 Session 角色必须使用同一个代际，新日志必须标识当前写入器。advanced 场景使用 `writer[.n].expected.jsonl` 比较当前写入器输出。`--update` 更新这些预期文件，同时保留已提交的 `session[.n].vN.jsonl` 代际。
 
 在上游仓库中，或设置 `DSH_RUN_REAL_API_E2E=true` 时，可信拉取请求与 master 推送还会在各自选定的原生目标上运行 `--scenario sdk-live --installed-wheel`。该场景面向 `https://api.deepseek.com` 执行两个使用工具的轮次：立即检查已创建文件，将其内容替换为仅宿主知道的随机挑战值，并要求第二轮将变更后的内容复制到全新的回执文件，且不修改源文件。两个轮次都必须完成、返回精确的哨兵答案并由模型请求调用工具；文件通过外部逐字节比较验证。仓库密钥缺失时失败，而不是自行 skip。Fork 与 Dependabot 拉取请求会运行完整的 keyless 安装后 wheel 路径，但不会获得密钥。
@@ -61,6 +63,8 @@ with DeepSeekHarness(dsh_home="/absolute/path/to/test-dsh-home") as harness:
 - 将 `dsh_bin` 设置为已构建 `apps/cli/lib/bin.js` 的绝对路径，直接验证当前 checkout 的 CLI。请显式提供 `dsh_home`，并按需提供 `profile` 与有序 `patches`。
 
 `python/sdk/tests/manual_sdk_agent_smoke.py` 使用内部 `_launch_args` 测试适配器，通过 tsx 验证未构建的 TypeScript CLI。公开 SDK 刻意不提供任意 argv 替换。
+
+`python/sdk/tests/test_factory_shutdown_snapshot.py` 使用同一内部适配器，通过 `tsx/esm` 启动 `apps/cli/src/bin.ts --profile sdk`。它需要 `pnpm install` 和宿主 native addon（`pnpm run build:native-system`），无需构建分发可执行文件即可比对 Python 退场场景的输出预期。
 
 ## 构建分发包
 

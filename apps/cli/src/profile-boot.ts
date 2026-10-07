@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FiberState, type Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-agent-loop'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import {
   boot,
@@ -255,7 +256,11 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   let disposal: Promise<void> | undefined
   const dispose = (): Promise<void> => disposal ??= (async () => {
     const failures: unknown[] = []
-    for (const release of [() => app.current?.fiber.dispose(), disposeProxy]) {
+    for (const release of [
+      () => app.current?.get('agentLoop')?.shutdown(),
+      () => app.current?.fiber.dispose(),
+      disposeProxy,
+    ]) {
       try { await release() } catch (error) { failures.push(error) }
     }
     if (failures.length === 1) throw failures[0]
@@ -279,9 +284,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     // complete; SIGINT is a user interrupt and reports 130.
     process.on('SIGTERM', () => { interrupt(0) })
     process.on('SIGINT', () => { interrupt(130) })
-    installFailLoud(NAME, process, async () => {
-      await app.current?.fiber.dispose()
-    })
+    installFailLoud(NAME, process, dispose)
 
     const rootConfig = join(composed.profile.dir, PROFILE_ROOT_FILENAME)
     const profileContext: ProfileContext = {

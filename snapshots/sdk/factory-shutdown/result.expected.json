@@ -1,0 +1,44 @@
+{
+  "exitCode": 0,
+  "lateAbortDelivered": true,
+  "closedTurns": [
+    {
+      "turn": 1,
+      "reason": {
+        "kind": "aborted",
+        "reason": {
+          "kind": "disposed"
+        }
+      }
+    },
+    {
+      "turn": 1,
+      "reason": {
+        "kind": "aborted",
+        "reason": {
+          "kind": "disposed"
+        }
+      }
+    }
+  ],
+  "eventsBeforeClose": [
+    "permission/preset",
+    "sandbox/mode",
+    "approval/policy",
+    "agent/inbox/spliced",
+    "turn/start",
+    "agent/inbox/spliced",
+    "agent/inbox/spliced",
+    "turn/start",
+    "agent/inbox/spliced",
+    "subagent/catalog",
+    "subagent/descriptor",
+    "step/start",
+    "system/message",
+    "user/message",
+    "user/message",
+    "request/header",
+    "request/context",
+    "session/title"
+  ]
+}

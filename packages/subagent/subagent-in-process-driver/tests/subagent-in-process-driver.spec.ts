@@ -1,6 +1,6 @@
 import { ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { type Agent, type AgentOptions } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -363,6 +363,70 @@ describe('startInProcessRun', () => {
     await new Promise(resolve => setTimeout(resolve, 30))
     await disposed.dispose()
     await expect(disposed.result).resolves.toMatchObject({ stopReason: 'aborted' })
+  })
+
+  it('retains inbox projections while factory teardown joins a child with a live abort listener', async () => {
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    const loopFiber = await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(SubagentRuntime)
+    const adapter = new MockAdapter([])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const started = Promise.withResolvers<undefined>()
+    const aborted = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const effectsStarted = Promise.withResolvers<undefined>()
+    vi.spyOn(adapter, 'stream').mockImplementation(async function* (options) {
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: 'partial' }
+      const signal = options.signal
+      if (signal === undefined) throw new Error('missing model cancellation signal')
+      const stopped = Promise.withResolvers<undefined>()
+      const onAbort = (): void => { stopped.resolve(undefined) }
+      signal.addEventListener('abort', onAbort, { once: true })
+      if (signal.aborted) onAbort()
+      started.resolve(undefined)
+      try {
+        await stopped.promise
+        aborted.resolve(undefined)
+        await release.promise
+        throw new Error('model stream aborted')
+      } finally {
+        signal.removeEventListener('abort', onAbort)
+      }
+    })
+    // This sibling teardown barrier settles after the synchronous portions
+    // of every concurrently started loop effect, without a timed sleep.
+    loopFiber.ctx.effect(() => async () => {
+      await Promise.resolve()
+      effectsStarted.resolve(undefined)
+    })
+    const parent = await ctx.agentLoop.create(SessionId('teardown-parent'), { provider: 'mock', model: 'mock' })
+    const controller = new AbortController()
+    const run = await startInProcessRun(request(parent, controller.signal), {})
+    const child = run.localAgent
+    if (child === undefined) throw new Error('in-process child was not published')
+    let disposing: Promise<void> | undefined
+    try {
+      await started.promise
+      disposing = loopFiber.dispose()
+      await Promise.all([effectsStarted.promise, aborted.promise])
+      expect(ctx.sessionProjections.stateOf(child.session, 'inbox')).toBeDefined()
+      expect(ctx.sessionProjections.stateOf(parent.session, 'inbox')).toBeDefined()
+      controller.abort('late parent cancellation')
+      expect(child.inbox.nextTurn).toEqual([])
+      release.resolve(undefined)
+      await disposing
+      await expect(run.result).resolves.toMatchObject({ stopReason: 'aborted' })
+      expect(ctx.sessionProjections.stateOf(child.session, 'inbox')).toBeUndefined()
+      expect(ctx.agents.get(run.id)).toBeUndefined()
+      expect(ctx.sessions.get(run.id)).toBeUndefined()
+      await run.dispose()
+    } finally {
+      release.resolve(undefined)
+      await disposing
+      await ctx.fiber.dispose()
+    }
   })
 
   it('cleans a failed unpublished setup before rejecting', async () => {

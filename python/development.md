@@ -38,6 +38,8 @@ SDK scenarios compare committed expected output under `scripts/snapshots/python-
 
 `scheduler-recovery/` records a failed tool turn and a subsequent completed turn. It preserves the original `UNKNOWN` turn error, the first tool's completed result, and `TOOL_OUTCOME_UNKNOWN` / `TOOL_NOT_STARTED` results for the remaining calls. `sdk-snapshot` and `all` include this case; `--scenario sdk-recovery` runs it alone.
 
+`factory-shutdown/` compares the Python SDK notification prefix through the active child's `request/context`, the live child's aborted result, and the flushed parent/child logs after SIGTERM cancels the published child's waiting model call. `sdk-snapshot` and `all` include it; `--scenario sdk-shutdown` runs it alone. Windows skips this POSIX signal case. This Python shutdown scenario keeps the skill service with an empty filesystem skill directory and disables the bundled Office provider and runtime query; host skill roots and carrier assets do not change its expected output. Shutdown removes SDK notification listeners before agents settle, so terminal notifications are not required to mirror the final durable logs. Updates preserve the canonical Session generations and write `writer[.n].expected.jsonl` oracles.
+
 The `advanced` and `restart` comparisons match native delivery qualifiers against each input's own Session generation, including SDK events and notifications. Captured and other delivery generations retain their numeric values. Each side must use one generation across its Session roles, and fresh logs must identify the current writer. The advanced case uses `writer[.n].expected.jsonl` for current-writer output. `--update` refreshes these expected files while preserving committed `session[.n].vN.jsonl` generations.
 
 In the upstream repository, or when `DSH_RUN_REAL_API_E2E=true`, trusted pull requests and master pushes also run `--scenario sdk-live --installed-wheel` on each selected native target. That scenario performs two tool-using turns against `https://api.deepseek.com`: it checks the created file immediately, replaces its content with a host-only random challenge, and requires the second turn to copy the changed content into a fresh receipt without modifying the source. Both turns must complete with the exact sentinel answer and a model-requested tool call; external byte comparisons check the files. Missing repository secrets fail instead of self-skipping. Fork and Dependabot pull requests run the complete keyless installed-wheel path but receive no key.
@@ -61,6 +63,8 @@ Repository contributors can select either development route; both execute the no
 - Set `dsh_bin` to the absolute built `apps/cli/lib/bin.js` path to exercise the checkout's CLI directly. Supply an explicit `dsh_home`, plus `profile` and ordered `patches` as needed.
 
 `python/sdk/tests/manual_sdk_agent_smoke.py` uses the internal `_launch_args` test adapter to exercise the unbuilt TypeScript CLI under tsx. Arbitrary argv replacement is intentionally absent from the public SDK.
+
+`python/sdk/tests/test_factory_shutdown_snapshot.py` uses the same internal adapter to launch `apps/cli/src/bin.ts --profile sdk` under `tsx/esm`. It requires `pnpm install` and the host native addon (`pnpm run build:native-system`) and compares the Python shutdown oracles without building a distribution executable.
 
 ## Build distributions
 

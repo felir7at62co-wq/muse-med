@@ -220,7 +220,8 @@ async function collectCorpus(): Promise<CorpusScenario[]> {
 const corpus = await collectCorpus()
 const scenarioByKey = new Map(corpus.map(scenario => [scenario.key, scenario]))
 const sdkScenarios = corpus
-  .filter(scenario => scenario.manifest.profile === 'sdk')
+  // The OS-signal owner drives its live child through factory-shutdown.snapshot.ts.
+  .filter(scenario => scenario.manifest.profile === 'sdk' && scenario.name !== 'factory-shutdown')
   .sort((left, right) => left.name.localeCompare(right.name))
 const compositionOwners = new Map<string, CorpusScenario>()
 const headerPins = new Map<string, CorpusScenario>()

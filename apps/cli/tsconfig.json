@@ -39,6 +39,9 @@
       "path": "../../packages/host/frontend-static"
     },
     {
+      "path": "../../packages/core/agent-loop"
+    },
+    {
       "path": "../../packages/core/session"
     },
     {

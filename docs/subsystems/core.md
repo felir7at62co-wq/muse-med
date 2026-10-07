@@ -452,6 +452,15 @@ Concrete agent factory and driver service.
 
 ```ts cordis-catalog
 /**
+ * Stop admission and join every owned agent and startup continuation while
+ * the surrounding services still route and persist the driver's closing events.
+ * Hosts call this before disposing the application tree. Repeated calls share
+ * the same completion and any disposal failure.
+ * @returns completion after all owned work and projection registrations unwind.
+ */
+shutdown(): Promise<void>
+
+/**
  * Create an agent and session under one caller-supplied identity, owned by
  * the accessing fiber. Constructor-driven config calls mint a fresh combined
  * id before entering this boundary. When a persistence backend is mounted,
