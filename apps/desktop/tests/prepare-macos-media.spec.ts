@@ -13,11 +13,13 @@ it('requires the official version, bounded source and exact source hash', () => 
   expect(() => validateMacMediaLock({ ...lock, source: undefined })).toThrow('invalid resource')
   expect(() => validateMacMediaLock({ ...lock, version: 2 })).toThrow('invalid release')
 })
-it.each(['arm64', 'x64'] as const)('builds standalone %s executables without GPL, nonfree or host dependencies', (arch) => {
+it.each(['arm64', 'x64'] as const)('builds %s executables with system zlib and without GPL, nonfree or host discovery', (arch) => {
   const args = macMediaConfigureArguments(arch)
   expect(args).toContain('--disable-autodetect')
+  expect(args).toContain('--enable-zlib')
   expect(args).toContain('--disable-gpl')
   expect(args).toContain('--disable-nonfree')
+  expect(args).toContain('--disable-version3')
   expect(args).toContain(arch === 'arm64' ? '--arch=arm64' : '--arch=x86_64')
 })
 
