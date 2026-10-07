@@ -3940,6 +3940,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'payload', description: '.message - the inserted message. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.' }],
   },
   {
+    name: 'agent/output-limit-recovered',
+    mode: 'waterfall',
+    signature: '\'agent/output-limit-recovered\'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; signal: AbortSignal }, next: () => Promise<boolean>): Promise<boolean>',
+    summary: 'Resolve whether an output-limited turn completed through an admitted continuation.',
+    description: 'Resolve whether an output-limited turn completed through an admitted continuation. The default is false. A continuation owner delegates first and returns true only after a later response completed its continued work. Cancellation and request errors do not reach this decision.',
+    parameters: [{ name: 'payload', description: '.signal - the turn cancellation signal.' }, { name: 'next', description: 'remaining recovery policies, ending in false.' }],
+  },
+  {
     name: 'agent/pre-step',
     mode: 'waterfall',
     signature: '\'agent/pre-step\'(this: Scoped<Agent>, payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>',

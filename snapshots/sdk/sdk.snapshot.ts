@@ -138,6 +138,7 @@ interface SdkAssertions {
 }
 
 const SDK_ASSERTIONS: Readonly<Record<string, SdkAssertions>> = {
+  'output-continuation': { expectedFinalResponse: 'COMPLETE_SEGMENT' },
   'dynamic-tool-updates': {
     expectedFinalResponse: 'DONE',
   },

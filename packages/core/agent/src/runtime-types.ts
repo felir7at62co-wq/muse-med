@@ -379,6 +379,18 @@ declare module '@deepseek-ai/cordis' {
      * @mode serial
      */
     'agent/turn-stopping'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; signal: AbortSignal }): Promise<void> | void
+    /**
+     * Resolve whether an output-limited turn completed through an admitted continuation.
+     * The default is false. A continuation owner delegates first and returns
+     * true only after a later response completed its continued work. Cancellation
+     * and request errors do not reach this decision.
+     * @param payload.agent - the agent whose clean turn contained an output-limited step.
+     * @param payload.turn - the turn being finalized.
+     * @param payload.signal - the turn cancellation signal.
+     * @param next - remaining recovery policies, ending in false.
+     * @mode waterfall
+     */
+    'agent/output-limit-recovered'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; signal: AbortSignal }, next: () => Promise<boolean>): Promise<boolean>
     // ---- error notifications (emit) ----
     /**
      * A step or turn errored. The machine reports a failure here even when

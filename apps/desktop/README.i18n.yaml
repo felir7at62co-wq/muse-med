@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
 /muse-desktop:
-  en: ab1195a324966f13
-  zh: 4d6b642d648d0d38
+  en: 8a9353c4a35ec3ae
+  zh: c200ce717f1ff260
 /muse-desktop/terminal-command:
   en: bef92953c237363f
   zh: d21d6effd21b8c00

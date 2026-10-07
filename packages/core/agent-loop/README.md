@@ -127,6 +127,8 @@ Final adapter selection, dispatch, and iteration failures arrive as terminal fin
 
 Before closing a failed step, the driver records an error result for each unanswered assistant tool call. A recorded `tool/call` without a committed result receives `TOOL_OUTCOME_UNKNOWN`; a request without a call record receives `TOOL_NOT_STARTED`. Committed results remain intact, started dispatches settle before recovery, and the turn retains the original failure. These results let later requests use paired tool history without automatically retrying uncertain operations.
 
+Output-limited steps retain their recorded finish reasons. A clean turn closes as `completed` only when `agent/output-limit-recovered` reports successful continuation; without such a plugin it closes as `max-tokens`. Later tool calls still owe a model step even after an earlier output limit.
+
 </details>
 
 -----

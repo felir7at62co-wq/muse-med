@@ -127,6 +127,8 @@ const handle = await ctx.agents.create({
 
 关闭失败步骤之前，驱动器为每个尚无结果的 assistant 工具调用记录错误结果。已有 `tool/call` 记录但尚无已提交结果的调用获得 `TOOL_OUTCOME_UNKNOWN`；没有调用记录的请求获得 `TOOL_NOT_STARTED`。已提交的结果保持完整，已启动的派发先结算再恢复，轮次保留原始失败。这些结果让后续请求使用配对完整的工具历史，而不自动重试结果不明的操作。
 
+达到输出上限的步骤保留其日志结束原因。只有 `agent/output-limit-recovered` 报告续写成功时，正常结束的轮次才标记为 `completed`；没有此插件时标记为 `max-tokens`。较早的输出截断不会阻止后续工具调用结果进入下一次模型请求。
+
 </details>
 
 -----

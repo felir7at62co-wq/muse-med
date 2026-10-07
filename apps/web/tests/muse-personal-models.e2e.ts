@@ -10,7 +10,7 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import { launchWebScaffold, type WebScaffold } from './scaffold.ts'
-import { REPO_ROOT, ZH_BROWSER_LOCALE, connectFreshWorkspaceZh } from './support.ts'
+import { REPO_ROOT, ZH_BROWSER_LOCALE, connectFreshWorkspaceZh, writeComposerDraft } from './support.ts'
 
 it('discovers a personal model in Muse, retains it after restart and selects it for requests', async () => {
   const home = await mkdtemp(join(tmpdir(), 'muse-custom-review-'))
@@ -18,6 +18,7 @@ it('discovers a personal model in Muse, retains it after restart and selects it 
   let browser: Browser | undefined
   let server: Server | undefined
   const requests: { model: string; authorization?: string | undefined }[] = []
+  let continuationRequests = 0
   try {
     server = createServer((request, response) => {
       if (request.url === '/v1/models') {
@@ -41,12 +42,18 @@ it('discovers a personal model in Muse, retains it after restart and selects it 
       let body = ''
       request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
       request.once('end', () => {
-        const value = JSON.parse(body) as { model: string }
+        const value = JSON.parse(body) as { model: string; messages: { content: string | { text?: string }[] }[] }
         requests.push({ model: value.model, authorization: request.headers.authorization })
+        const continuing = value.messages.some(message => typeof message.content === 'string'
+          ? message.content.includes('MUSE_CONTINUATION_PROBE')
+          : message.content.some(block => block.text?.includes('MUSE_CONTINUATION_PROBE')))
+        const segment = continuing ? ['FIRST_PROBE_PART', 'SECOND_PROBE_PART', 'FINAL_PROBE_PART'][continuationRequests++] : 'LOCAL_PROBE_OK'
+        if (segment === undefined) throw new Error('Unexpected extra continuation request')
+        const finish = continuing && continuationRequests < 3 ? 'length' : 'stop'
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         response.end([
-          'data: {"choices":[{"index":0,"delta":{"content":"LOCAL_PROBE_OK"},"finish_reason":null}]}',
-          'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+          `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: segment }, finish_reason: null }] })}`,
+          `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: finish }] })}`,
           'data: [DONE]', '', '',
         ].join('\n\n'))
       })
@@ -130,6 +137,27 @@ it('discovers a personal model in Muse, retains it after restart and selects it 
     })) chunks.push(chunk)
     expect(chunks).toContainEqual(expect.objectContaining({ type: 'finish', reason: { kind: 'stop' } }))
     expect(requests).toEqual([{ model: 'personal-review-model', authorization: 'Bearer synthetic-review-key' }])
+
+    browser = await chromium.launch()
+    const continuedPage = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: ZH_BROWSER_LOCALE })
+    await continuedPage.addInitScript(() => {
+      Object.defineProperty(globalThis, 'dshDesktop', { value: { protocolVersion: 1, productName: 'muse-med' } })
+    })
+    await continuedPage.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+    await connectFreshWorkspaceZh(continuedPage, scaffold.workspaceCwd)
+    const composer = continuedPage.locator('[data-composer-input][contenteditable="true"]')
+    await writeComposerDraft(continuedPage, composer, 'MUSE_CONTINUATION_PROBE: finish the three segments.')
+    await composer.press('Enter')
+    await continuedPage.getByText('FINAL_PROBE_PART', { exact: true }).waitFor()
+    await expect.poll(() => scaffold!.ctx.agents.list().every(agent => agent.status === 'idle')).toBe(true)
+    const active = scaffold.ctx.agents.list().find(agent => agent.session.snapshotEvents().some(event => event.type === 'user/message'
+      && event.data.source.kind === 'user' && event.data.content.some(block => block.type === 'text' && block.text.includes('MUSE_CONTINUATION_PROBE'))))
+    expect(active).toBeDefined()
+    const events = active!.session.snapshotEvents()
+    expect(events.filter(event => event.type === 'user/message' && event.data.source.kind === 'output-continuation')).toHaveLength(2)
+    expect(events.filter(event => event.type === 'turn/end').map(event => event.data)).toEqual([{ turn: 1, reason: { kind: 'completed' } }])
+    expect(await continuedPage.getByText('已达到输出 token 上限', { exact: false }).count()).toBe(0)
+    expect(continuationRequests).toBe(3)
   } finally {
     try {
       await browser?.close()

@@ -8,6 +8,15 @@
   config:
     models: []
 
+# Continue output-limited responses through normal requests and compaction.
+- insert:
+    - id: agent-output-continuation
+      name: '@deepseek-ai/dsh-agent-output-continuation'
+      config:
+        maxContinuations: null
+        maxNoProgressResponses: 2
+        repeatWindowChars: 16384
+
 # Muse account models reserve a bounded budget for summaries.
 - id: compaction-basic
   config:

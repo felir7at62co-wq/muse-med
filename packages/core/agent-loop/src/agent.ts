@@ -308,6 +308,7 @@ export class ReactLoopAgent implements Agent {
     }
     phase.turn = turn
     let turnEnds: TurnEndReason | null = null
+    let sawOutputLimit = false
     let target: InboxTarget = 'next-turn'
     try {
       while (true) {
@@ -333,12 +334,10 @@ export class ReactLoopAgent implements Agent {
           if (session === this.session) toolRecovery.observe(event)
         })
         try {
-          // max-tokens is sticky: once any step hits the ceiling, later steps
-          // that complete normally must not downgrade the turn outcome.
           const stepEnd = await this.step(decision)
-          // max-tokens stays sticky: a later completed step must not
-          // downgrade the turn outcome.
-          if (turnEnds === null || turnEnds.kind !== 'max-tokens') turnEnds = stepEnd
+          sawOutputLimit ||= stepEnd?.kind === 'max-tokens'
+          // Outstanding tool results still require a model step after a resumed response.
+          turnEnds = stepEnd
         } catch (error: unknown) {
           try {
             for (const event of toolRecovery.results()) {
@@ -362,6 +361,13 @@ export class ReactLoopAgent implements Agent {
         }
         if (turnEnds && this.inbox.nextStep.length === 0) break
         target = 'next-step'
+      }
+      if (sawOutputLimit) {
+        const recovered = await this.dispatch.waterfall(
+          'agent/output-limit-recovered', { turn, signal }, () => Promise.resolve(false),
+        )
+        signal.throwIfAborted()
+        turnEnds = { kind: recovered ? 'completed' : 'max-tokens' }
       }
     } catch (error: unknown) {
       // A cause is present exactly while the signal is aborted.

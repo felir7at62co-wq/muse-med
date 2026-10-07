@@ -1,0 +1,10 @@
+version: 1
+scenario: output-continuation
+profile: sdk
+composition: sdk-output-continuation
+recording: authored
+header:
+  class: sdk-output-continuation
+  pin: true
+  systemPromptSource: text-turn
+  toolSchemasSource: text-turn

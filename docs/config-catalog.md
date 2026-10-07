@@ -122,6 +122,32 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-agent-loop -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-agent-output-continuation -->
+<a id="deepseek-aidsh-agent-output-continuation"></a>
+
+## `@deepseek-ai/dsh-agent-output-continuation`
+
+- `inject`: `agents`
+- `source`: [`packages/core/agent-output-continuation/src/index.ts:14`](../packages/core/agent-output-continuation/src/index.ts)
+
+```ts config-catalog
+/** Deployment limits for continuing one output-limited turn. */
+export interface Config extends ContinuationConfig {}
+
+/** Deployment limits for continuing one output-limited turn. */
+export interface ContinuationConfig {
+  /** Maximum additional model responses per turn; null (default) leaves progressing continuations uncapped. */
+  maxContinuations?: number | null
+  /** Consecutive empty or repeated output-limited responses before stopping; defaults to two. */
+  maxNoProgressResponses?: number
+  /** Characters of recent answer text retained for contained-repeat detection; defaults to 16384. */
+  repeatWindowChars?: number
+  /** Characters from the exact response end included in continuation input; defaults to 1024. */
+  continuationTailChars?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-agent-output-continuation -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-agent-preset -->
 <a id="deepseek-aidsh-agent-preset"></a>
 
