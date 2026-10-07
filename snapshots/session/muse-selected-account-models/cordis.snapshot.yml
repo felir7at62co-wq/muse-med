@@ -1,0 +1,10 @@
+# Recorded model messages replay through the actual account adapter and HTTP stream parser.
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: snapshot-selected-account-models
+      name: './account-fixture.mjs'

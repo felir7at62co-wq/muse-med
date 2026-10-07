@@ -40,10 +40,19 @@ function validate(providers){
   }
  }
 }
+/** Validate a private global directory without reading or writing its file.
+ * @param {object} document Parsed version-two model directory.
+ * @returns {void}
+ * @throws {Error} The stored directory or provider settings are invalid.
+ */
+export function validateGlobalModelDocument(document){
+ if(!plain(document)||document.version!==2||!Number.isSafeInteger(document.revision)||document.revision<0||!Number.isSafeInteger(document.metadataRevision)||document.metadataRevision<0||!plain(document.credentials))throw Error('Invalid global model file');
+ validate(document.providers);
+}
 export async function openGlobalModels(file,{legacyConfig,schema={type:'object'},official}={}){
  let current={version:2,revision:0,metadataRevision:0,providers:{},credentials:{}};
  async function save(next){await mkdir(dirname(file),{recursive:true,mode:0o700});const tmp=file+'.'+randomBytes(8).toString('hex')+'.tmp';try{await writeFile(tmp,JSON.stringify(next),{mode:0o600,flag:'wx'});await chmod(tmp,0o600);await rename(tmp,file);}finally{await unlink(tmp).catch(()=>{});}current=next;}
- try{current=JSON.parse(await readFile(file,'utf8'));if(current.version!==2||!Number.isSafeInteger(current.revision)||!Number.isSafeInteger(current.metadataRevision)||!plain(current.credentials))throw Error('Invalid global model file');validate(current.providers);}catch(e){if(e.code!=='ENOENT')throw e;const old=legacyConfig?.private();if(old?.apiKey&&old.model&&old.baseURL){current.providers={'muse-shared':{displayName:old.name,baseURL:old.baseURL,api:'openai-completions',apiKeyEnv:'MUSE_LEGACY_KEY',models:[{id:old.model,name:old.name,contextWindow:old.contextWindow,maxTokens:old.maxTokens,input:['text'],reasoningEfforts:false}]}};current.credentials={MUSE_LEGACY_KEY:old.apiKey};validate(current.providers);}await save(current);}
+ try{current=JSON.parse(await readFile(file,'utf8'));validateGlobalModelDocument(current);}catch(e){if(e.code!=='ENOENT')throw e;const old=legacyConfig?.private();if(old?.apiKey&&old.model&&old.baseURL){current.providers={'muse-shared':{displayName:old.name,baseURL:old.baseURL,api:'openai-completions',apiKeyEnv:'MUSE_LEGACY_KEY',models:[{id:old.model,name:old.name,contextWindow:old.contextWindow,maxTokens:old.maxTokens,input:['text'],reasoningEfforts:false}]}};current.credentials={MUSE_LEGACY_KEY:old.apiKey};validate(current.providers);}await save(current);}
  let queue=Promise.resolve();const serial=fn=>{const task=queue.then(fn);queue=task.catch(()=>{});return task;};
  const view=()=>({ns:'llm-pi-ai',schema:structuredClone(schema),value:{providers:structuredClone(current.providers)},user:{providers:structuredClone(current.providers)},applies:'live',secrets:[],writable:true,revision:current.revision});
  if(official)officialValue(official,current.deepseek);

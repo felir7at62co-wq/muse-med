@@ -3,22 +3,10 @@
   config:
     default: short-drama
 
-# Shipped API-key routes contain only public model and endpoint metadata. Each
-# installation stores YUNYING_GPT_API_KEY and DEEPSEEK_API_KEY privately.
-- id: llm-pi-ai
+# Muse supplies its signed-in cloud catalog; users may configure their own native models.
+- id: llm-deepseek
   config:
-    providers:
-      yunying-gpt:
-        displayName: 云映 GPT
-        apiKeyEnv: YUNYING_GPT_API_KEY
-        api: openai-completions
-        baseURL: https://wy6688.token6688.com/v1
-        models:
-          - id: gpt-5.6-sol
-            name: gpt-5.6-sol
-
-# The native deepseek-official route uses its built-in model catalog and
-# DEEPSEEK_API_KEY reference; do not shadow it with an empty model list.
+    models: []
 
 # Feishu credentials and policy remain editable in the user profile.
 - id: feishu-channel

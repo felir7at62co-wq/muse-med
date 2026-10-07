@@ -377,12 +377,31 @@ it('loads Muse GLM models through Loader and retains reasoning on a tool continu
     messages: { role: string; reasoning_content?: string }[]
   }[]
   expect(wire[0]?.max_tokens).toBe(32768)
-  expect(wire[0]?.thinking).toBeUndefined()
+  expect(wire[0]?.thinking).toEqual({ type: 'enabled' })
+  expect(wire[0]?.reasoning_effort).toBe('low')
   expect(wire[1]?.messages.find(message => message.role === 'assistant')?.reasoning_content).toBe('saved GLM reasoning')
   expect(wire[2]?.thinking).toEqual({ type: 'enabled' })
   expect(wire[2]?.reasoning_effort).toBe('low')
   await fixture.ctx.loader.resolve(id).fiber?.dispose()
   expect(fixture.ctx.llm.listProviders().some(provider => provider.id === request.provider)).toBe(false)
+})
+
+it.each([
+  { reasoningEfforts: false, defaultReasoningEffort: 'low' },
+  { reasoningEfforts: { high: 'high' }, defaultReasoningEffort: 'low' },
+  { reasoningEfforts: { low: null }, defaultReasoningEffort: 'low' },
+  { reasoningEfforts: { low: '' }, defaultReasoningEffort: 'low' },
+  { reasoningEfforts: { off: null, low: 'low' }, defaultReasoningEffort: 'off' },
+])('rejects an account model default that is not an enabled offered effort (%j)', async (reasoning) => {
+  await login()
+  const entry = catalog.providers[0]?.models[0]
+  if (!entry) throw new Error('Account model fixture has no model')
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json({ providers: [{ ...catalog.providers[0], models: [
+      { ...entry, ...reasoning },
+    ] }] }) })
+  await expect(models.refresh()).rejects.toThrow()
+  expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal'])
 })
 
 it.each(['network', 'http', 'oversized', 'json'] as const)(

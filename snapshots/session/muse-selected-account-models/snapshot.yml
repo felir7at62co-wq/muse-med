@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-selected-account-models
+profile: headless
+composition: muse-selected-account-models
+recording: authored
+header:
+  class: muse-selected-account-models
+  pin: true
+writerOutput: true

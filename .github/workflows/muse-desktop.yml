@@ -48,7 +48,7 @@ jobs:
       - name: Install model gateway dependencies
         run: npm ci --prefix services/muse-accounts --ignore-scripts
       - name: Check model relay behavior
-        run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs
+        run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
       - name: Check download bundle packaging
         run: node --test third_party/plugins/download-pack.test.mjs
       - name: Check packaging behavior

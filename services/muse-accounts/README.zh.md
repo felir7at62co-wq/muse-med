@@ -72,7 +72,11 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 
 上游拒绝通过固定的 `error.code` 与 `error.message` 区分认证、额度、限流、上下文、输出上限和无效参数。分类最多读取 64 KiB，提供方控制的诊断和凭据不会返回。仅提及额度而未说明耗尽，不会归为额度耗尽。上游 429 拒绝会保留经验证的整数 `Retry-After`。未知服务器失败返回通用错误；结束原因 `finish_reason: length` 仍报告输出截断。
 
-部署的内置目录供应云映模型，包括 Gemini 与 Cloud models 两个分组。网关启动仅公开已配置的供应商目录，不再附加独立的原生 DeepSeek 供应。上游密钥保留为服务器私密凭据。桌面端的自定义供应商与独立 Codex 订阅各自保留其凭据与目录。
+选定的 Muse 账号目录供应官方 DeepSeek Flash、V4 Pro，以及 [`selected-models.mjs`](selected-models.mjs) 定义的六个云映模型。官方路由将 Chat Completions 请求转发到 DeepSeek；云映路由沿用运营者现有 API 根地址。请求仅由服务器凭据授权；用户登录 Muse 后无需填写供应商密钥。桌面端的自定义供应商与独立 Codex 订阅各自保留其凭据与目录。准备这份目录不会部署或启用它。
+
+运行 `node services/muse-accounts/prepare-selected-models.mjs`，通过 `--source` 和 `--output` 提供绝对路径；输出必须位于仓库与分发目录之外。源文件是现有版本二私密模型目录（`MUSE_MODEL_CONFIG` 加 `.native`）；新输出的父目录必须已存在，且仅所有者可访问。官方密钥从仅所有者可读的 `--deepseek-key-file` 或运营者进程的 `DEEPSEEK_API_KEY` 读取；云映通常沿用唯一明确的现有端点和凭据，也可通过 `--yunying-base-url`、`--yunying-key-file` 或运营者 `MUSE_YUNYING_API_KEY` 覆盖。继承和覆盖始终保留已验证的云映来源站点；其他供应商的相同模型 ID 不授权复用凭据。命令以排他创建方式生成 0600 候选文件和原文件的精确 `.source-backup`，不修改源文件。已有输出会被拒绝；仅打印模型 ID、修订号及文件摘要，候选文件和备份不得提交或打包。
+
+部署前必须将当前源文件与收据的 `sourceSha256` 比对，保留私密备份，再原子替换服务器 `.native` 文件并重启网关。报告可用前，应核查登录后的目录并实测工具连续调用。回滚时还原精确私密备份并重启网关。此次替换会撤回其他全部共享模型；已有会话若选中了撤回模型，必须重新选择可用模型。官方容量元数据保留供应商限制；云映明确的 32,768 token 预算属于 Muse 配置，上游限制仍然有效。准备的目录不添加并发上限。
 
 ## Desktop website access
 

@@ -1,0 +1,10 @@
+# The real account plugin logs in against an isolated HTTP gateway fixture.
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: snapshot-selected-account-models
+      name: './account-fixture.mjs'
