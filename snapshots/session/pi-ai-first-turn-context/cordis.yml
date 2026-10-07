@@ -1,0 +1,9 @@
+- id: tool-bash
+  disabled: false
+
+- id: tool-pwsh
+  disabled: true
+
+- insert:
+    - id: first-turn-context-check
+      name: './context-check.mjs'

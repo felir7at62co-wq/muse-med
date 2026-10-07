@@ -163,12 +163,30 @@ function splitSystemPrompt(options: GenerateOptions): SystemPromptSplit {
   return { systemPrompt: text.length > 0 ? text : undefined, messages: rest }
 }
 
-/** Assemble the request-level pi-ai context envelope shared by both conversion paths. */
+/** Keep a task and its adjacent text context together without crossing role or image boundaries. */
+function mergeTextUsers(messages: PiMessage[]): PiMessage[] {
+  const merged: PiMessage[] = []
+  for (const message of messages) {
+    const previous = merged.at(-1)
+    if (previous?.role === 'user' && message.role === 'user'
+      && typeof previous.content === 'string' && typeof message.content === 'string') {
+      merged[merged.length - 1] = {
+        ...previous,
+        content: [previous.content, message.content].filter(text => text.length > 0).join('\n\n'),
+      }
+    } else {
+      merged.push(message)
+    }
+  }
+  return merged
+}
+
+/** Assemble the shared context, merging adjacent text-only user messages for gateway compatibility. */
 function piContext(systemPrompt: string | undefined, options: GenerateOptions, messages: PiMessage[]): PiContext {
   const tools = toolsOf(options)
   return {
     ...systemPrompt !== undefined ? { systemPrompt } : {},
-    messages,
+    messages: mergeTextUsers(messages),
     ...tools !== undefined && tools.length > 0 ? { tools } : {},
   }
 }
@@ -252,7 +270,8 @@ function requestImageTarget(ref: ImageAttachmentRef, budget: PiImageRequestBudge
 
 /**
  * Convert text-only harness history to a synchronous pi-ai Context. Tool
- * result names are recovered from preceding assistant tool calls.
+ * result names are recovered from preceding assistant tool calls. Adjacent
+ * text-only user messages join with blank lines in their original order.
  * @param options - the harness request; `options.system`, else a leading `system` message, maps to pi-ai's single `systemPrompt` slot.
  * @param images - absent; selects the synchronous conversion.
  * @param onReplayDegrade - forwarded to {@link toPiAssistant} for each assistant message.
@@ -266,7 +285,8 @@ export function toPiContext(
 ): PiContext
 /**
  * Convert harness history to a pi-ai Context while resolving durable images.
- * Tool result names are recovered from preceding assistant tool calls. Image
+ * Tool result names are recovered from preceding assistant tool calls. Adjacent
+ * text-only users join without crossing image messages. Image
  * occurrences the surface marks offloaded become text placeholders; when the
  * retained occurrences' exact base64 payload still exceeds
  * `maxRequestImageBytes`, the call fails with `IMAGE_OFFLOAD_REQUIRED` naming
