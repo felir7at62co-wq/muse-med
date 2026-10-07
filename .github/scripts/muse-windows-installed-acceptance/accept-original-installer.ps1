@@ -141,7 +141,7 @@ try {
   $result.stage = 'installed-byte-and-runtime-checks'; Save-Result
   Push-Location $SourceRoot
   try {
-    & pnpm exec tsx (Join-Path $PSScriptRoot 'accept-installed.ts') $artifacts $payload $install (Join-Path $EvidenceRoot 'installed-acceptance.json') *> (Join-Path $EvidenceRoot 'installed-smoke.log')
+    & pnpm exec tsx (Join-Path $PSScriptRoot 'accept-installed.ts') $artifacts $payload $install (Join-Path $EvidenceRoot 'installed-acceptance.json') $stub *> (Join-Path $EvidenceRoot 'installed-smoke.log')
     if ($LASTEXITCODE -ne 0) { throw 'Installed sealed runtime or Host smoke failed; retain its private diagnostic log' }
   } finally { Pop-Location }
   $acceptance = Get-Content -LiteralPath (Join-Path $EvidenceRoot 'installed-acceptance.json') -Raw | ConvertFrom-Json

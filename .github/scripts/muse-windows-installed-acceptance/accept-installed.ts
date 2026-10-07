@@ -12,8 +12,9 @@ import type { DesktopRuntimeDescriptor } from '../../../apps/desktop/src/runtime
 const sourceCommit = process.env.MUSE_CI_TRANSFER_SOURCE_COMMIT
 assert.ok(sourceCommit !== undefined && /^[0-9a-f]{40}$/.test(sourceCommit),
   'MUSE_CI_TRANSFER_SOURCE_COMMIT must contain an explicit complete source commit')
-const [artifactRoot, payloadRoot, installedRoot, reportPath] = process.argv.slice(2)
-assert.ok(artifactRoot && payloadRoot && installedRoot && reportPath, 'Pass artifact, extracted payload, installed directory and report')
+const [artifactRoot, payloadRoot, installedRoot, reportPath, stubRoot] = process.argv.slice(2)
+assert.ok(artifactRoot && payloadRoot && installedRoot && reportPath && stubRoot,
+  'Pass artifact, extracted payload, installed directory, report and original NSIS contents')
 assert.equal(process.platform, 'win32')
 assert.equal(process.arch, 'x64')
 assert.equal(process.env.GITHUB_ACTIONS, 'true', 'This utility only operates in disposable GitHub Actions runners')
@@ -89,8 +90,25 @@ try {
   const installedNames = await inventory(installedRoot)
   const sourceNames = new Set(names)
   const generated = installedNames.filter(name => !sourceNames.has(name))
-  assert.ok(generated.every(name => ['Uninstall muse-med.exe', 'uninstallerIcon.ico'].includes(name)),
+  report.installerGeneratedFiles = generated
+  await persist()
+  const licenseNames = ['7zip-installer-LICENSE.txt', '7zip-installer-COPYING.txt']
+  const allowedGenerated = ['Uninstall muse-med.exe', 'uninstallerIcon.ico', ...licenseNames]
+  assert.ok(generated.every(name => allowedGenerated.includes(name)),
     'The installer produced an unexpected file outside its original application payload')
+  const stubNames = await inventory(stubRoot)
+  const licenses: Array<{ filename: string; bytes: number; sha256: string }> = []
+  for (const filename of licenseNames) {
+    assert.ok(generated.includes(filename), 'An original bootstrap license is missing from the installation')
+    const references = stubNames.filter(name => basename(name) === filename)
+    assert.equal(references.length, 1, 'The original NSIS container must contain exactly one bootstrap license')
+    const expected = await hash(join(stubRoot, ...references[0]!.split('/')))
+    const actual = await hash(join(installedRoot, filename))
+    assert.deepEqual(actual, expected, `Installed bootstrap license differs: ${filename}`)
+    licenses.push({ filename, ...actual })
+  }
+  report.installedBootstrapLicenseComparison = { passed: true, files: licenses }
+  await persist()
   const sealed = createHash('sha256')
   let totalBytes = 0
   for (const name of names) {
@@ -118,6 +136,9 @@ try {
     after.update(`${name}\0${actual.bytes}\0${actual.sha256}\n`)
   }
   assert.equal(after.digest('hex'), (report.completePayloadByteComparison as { inventorySha256: string }).inventorySha256)
+  for (const { filename, ...expected } of licenses) {
+    assert.deepEqual(await hash(join(installedRoot, filename)), expected, 'Installed bootstrap license changed during acceptance')
+  }
   report.sealedRuntimeSmoke = { passed: true, archiveInventory: true, freshNativeCache: true,
     nativePayload: true, hongguoLoopbackSigner: true, hongguoOfflinePythonAes: true,
     packagedHost: true, productPresetsAndSkills: true, officeConversionsAndCli: true, teardown: true }
