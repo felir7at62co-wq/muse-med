@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { basename } from 'node:path'
 import { parseArgs } from 'node:util'
+import { validateLegacyAtomAppRelease } from './legacy_atom_policy.mjs'
 
 const REPOSITORY = 'felir7at62co-wq/muse-med'
 const TOS = 'https://muse.tos-cn-beijing.volces.com'
@@ -82,10 +83,13 @@ async function main() {
         parts.push(part)
       }
       const first = parseXml(Buffer.concat(parts).toString('utf8')).element('entry').element('link').attribute('href')
-      if (first !== `https://github.com/${REPOSITORY}/releases/tag/${tag}`) {
-        throw new Error('Legacy 1.0.1 discovery requires the RC app alias to be the first Atom entry')
-      }
-      console.log(JSON.stringify({ stage: 'legacy-atom-verified', firstTag: tag }))
+      const firstTag = ['v1.0.3', 'v1.0.3-rc.muse-stable'].find(value => first === `https://github.com/${REPOSITORY}/releases/tag/${value}`)
+      if (!firstTag) throw new Error('Legacy Atom discovery must select a current app release')
+      const firstRelease = firstTag === tag ? release : await publicJSON(`releases/tags/${encodeURIComponent(firstTag)}`)
+      let firstObject = firstTag === tag ? object : (await publicJSON(`git/ref/tags/${encodeURIComponent(firstTag)}`)).object
+      for (let depth = 0; firstObject?.type === 'tag' && depth < 4; depth++) firstObject = (await publicJSON(`git/tags/${firstObject.sha}`)).object
+      validateLegacyAtomAppRelease(first, firstRelease, firstObject, inventory)
+      console.log(JSON.stringify({ stage: 'legacy-atom-verified', firstTag, sourceCommit: inventory.sourceCommit }))
     }
     for (const file of inventory.files) await verify(`https://github.com/${REPOSITORY}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(file.filename)}`, file)
   }

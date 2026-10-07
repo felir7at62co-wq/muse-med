@@ -1,0 +1,5 @@
+owner: felir7at62co-wq
+repo: muse-med
+provider: github
+channel: rc
+updaterCacheDirName: muse-med-updater

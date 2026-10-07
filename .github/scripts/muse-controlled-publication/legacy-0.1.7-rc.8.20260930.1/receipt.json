@@ -1,0 +1,37 @@
+{
+  "repository": "felir7at62co-wq/muse-med",
+  "release": {
+    "id": 400046111,
+    "tag_name": "v0.1.7-rc.8.20260930.1",
+    "name": "muse-med 0.1.7-rc.8.20260930.1 (Windows x64 startup fix)",
+    "draft": false,
+    "prerelease": true,
+    "created_at": "2026-09-30T12:35:31Z",
+    "published_at": "2026-09-30T12:57:08Z",
+    "html_url": "https://github.com/felir7at62co-wq/muse-med/releases/tag/v0.1.7-rc.8.20260930.1"
+  },
+  "asset": {
+    "id": 600923776,
+    "name": "muse-med-0.1.7-rc.8.20260930.1-win-x64.exe",
+    "size": 556751188,
+    "digest": "sha256:9f50869596c7c94aaac2cfb0d60fa7113fc0ced70a6ce668691559baa720e28a",
+    "state": "uploaded",
+    "browser_download_url": "https://github.com/felir7at62co-wq/muse-med/releases/download/v0.1.7-rc.8.20260930.1/muse-med-0.1.7-rc.8.20260930.1-win-x64.exe",
+    "created_at": "2026-09-30T12:55:11Z",
+    "updated_at": "2026-09-30T12:57:00Z"
+  },
+  "installerSha256": "9f50869596c7c94aaac2cfb0d60fa7113fc0ced70a6ce668691559baa720e28a",
+  "installerSize": 556751188,
+  "releaseVersion": "0.1.7-rc.8.20260930.1",
+  "packagedVersion": "0.1.7-rc.8.20260930.1",
+  "packagedName": "muse-med",
+  "manifestSha256": "ff30ac0f0b7ebcdd0ff5ebd63434741d051822a4376a69a1ecb16349a46e22fe",
+  "updaterConfigSha256": "fe5cca6c84b417c8bbaab3ab0d908a383bb830690c5c300828a62b7865a13952",
+  "updaterConfigSize": 105,
+  "archiveMembers": {
+    "payload": "$PLUGINSDIR\\app-64.7z",
+    "config": "resources\\app-update.yml",
+    "manifestContainer": "resources\\app.asar"
+  },
+  "installerExecuted": false
+}

@@ -6,7 +6,7 @@ on:
       - ops/muse-release-recovery-20261007
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 concurrency:
@@ -17,7 +17,7 @@ concurrency:
 # No external document, artifact or tool output can authorize remote publication.
 env:
   MUSE_CI_TRANSFER_SOURCE_COMMIT: ${{ vars.MUSE_CI_TRANSFER_SOURCE_COMMIT }}
-  MUSE_RELEASE_MODE: publish
+  MUSE_RELEASE_MODE: verify-public
   MUSE_RELEASE_AUTHORIZATION: ${{ format('FINAL_INSTALLED_ACCEPTANCE_{0}', vars.MUSE_CI_TRANSFER_SOURCE_COMMIT) }}
   MUSE_RELEASE_TOS_MODE: root-verified
   MUSE_RELEASE_ROOT_TOS_PROOF: ${{ vars.MUSE_LOCAL_TOS_READBACK_RECEIPT }}
@@ -45,7 +45,7 @@ jobs:
           umask 077
           mkdir "$RUNNER_TEMP/muse-controlled-publication-1.0.3"
           cp -R .github/scripts/muse-controlled-publication/. "$RUNNER_TEMP/muse-controlled-publication-1.0.3/"
-          test "$(find "$RUNNER_TEMP/muse-controlled-publication-1.0.3" -name '*.py' | wc -l)" -eq 6
+          test "$(find "$RUNNER_TEMP/muse-controlled-publication-1.0.3" -name '*.py' | wc -l)" -eq 7
       - name: Check out the exact completed build source
         uses: actions/checkout@v6
         with:
@@ -67,6 +67,7 @@ jobs:
           python3 .artifacts/muse-release-20261006-gxgg057c/test_controlled_publication.py -v
           python3 .artifacts/muse-release-20261006-gxgg057c/test_root_tos_proof.py -v
           node .artifacts/muse-release-20261006-gxgg057c/test-stage-muse-1.0.3.mjs
+          node .artifacts/muse-release-20261006-gxgg057c/test-legacy-atom-policy.mjs
       - name: Execute only the root-authorized release mode
         env:
           GH_TOKEN: ${{ github.token }}
@@ -90,5 +91,7 @@ jobs:
           path: |
             .artifacts/muse-release-20261006-gxgg057c/controlled-work-*/controlled-receipt.json
             .artifacts/muse-release-20261006-gxgg057c/controlled-work-*/*.log
+            .artifacts/muse-release-20261006-gxgg057c/controlled-work-*/historical-provider-qa/*.log
+            .artifacts/muse-release-20261006-gxgg057c/controlled-work-*/historical-provider-qa/*.json
           if-no-files-found: warn
           retention-days: 30

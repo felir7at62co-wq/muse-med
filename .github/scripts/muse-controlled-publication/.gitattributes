@@ -1,0 +1,4 @@
+legacy-0.1.7-rc.8.20260930.1/app-update.yml -text whitespace=cr-at-eol
+legacy-0.1.7-rc.8.20260930.1/receipt.json -text whitespace=cr-at-eol
+stable-1.0.1/app-update.yml -text whitespace=cr-at-eol
+stable-1.0.1/receipt.json -text whitespace=cr-at-eol

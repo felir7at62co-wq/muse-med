@@ -99,7 +99,7 @@ def release_for_tag(tag, *, missing=False):
 
 def require_authorization(mode):
     """Default preparation cannot write remotely; the root must explicitly commit the publishing gate."""
-    if mode == 'prepare':
+    if mode in ('prepare', 'verify-public'):
         return
     if (os.environ.get('MUSE_RELEASE_AUTHORIZATION') != AUTHORIZED
             or os.environ.get('GITHUB_EVENT_NAME') != 'push'
@@ -309,6 +309,13 @@ def publish(work, inventory, tos_mode):
         argv = ['gh', 'release', 'edit', tag, '--repo', REPOSITORY, '--draft=false',
                 '--prerelease=false' if tag == TAGS[0] else '--prerelease', '--latest' if tag == TAGS[0] else '--latest=false']
         command(argv)
+    verify_github_public(work, inventory)
+
+
+def verify_github_public(work, inventory):
+    """Fully read both public eleven-file app releases without changing remote state."""
+    verifier = str(PRIVATE / 'verify-muse-1.0.3-readback.mjs')
+    inventory_path = str(work / 'publication.inventory.json')
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = [pool.submit(logged_node, [verifier, '--inventory', inventory_path, '--github-tag', tag],
                                work / ('github-' + tag + '-full-readback.log')) for tag in TAGS]
@@ -316,15 +323,29 @@ def publish(work, inventory, tos_mode):
             result.result()
 
 
+def verify_historical_providers(work):
+    """Use the verified final stage for both actual historical read-only updater policies."""
+    result = subprocess.run([sys.executable, str(PRIVATE / 'run-historical-github-discovery.py'),
+        '--staged', str(work / 'publication'), '--utilities', str(PRIVATE),
+        '--output', str(work / 'historical-provider-qa')], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+    log = work / 'historical-provider-qa.log'
+    log.write_text(result.stdout + result.stderr)
+    log.chmod(0o600)
+    if result.returncode:
+        raise PublicationError('Actual historical public discovery failed; inspect the private receipt')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', choices=('prepare', 'draft', 'publish'), default='prepare')
+    parser.add_argument('--mode', choices=('prepare', 'draft', 'publish', 'verify-public'), default='prepare')
     parser.add_argument('--tos-mode', choices=('runner', 'already-published', 'root-verified'), default='runner')
     args = parser.parse_args()
     require_authorization(args.mode)
+    if args.mode == 'verify-public' and args.tos_mode != 'root-verified':
+        raise PublicationError('Read-only public verification requires root-verified TOS proof')
     if args.tos_mode == 'root-verified':
-        if args.mode != 'publish':
-            raise PublicationError('Root proof recovery is restricted to the root-authorized publishing mode')
+        if args.mode not in ('publish', 'verify-public'):
+            raise PublicationError('Root proof recovery requires publishing or public verification mode')
         rootproof.require_wire_hash(os.environ.get('MUSE_RELEASE_ROOT_TOS_PROOF'),
             os.environ.get('MUSE_RELEASE_ROOT_TOS_PROOF_SHA256'))
     validate_remote_build()
@@ -338,14 +359,19 @@ def main():
                 if existing[tag] is None or tag_commit(tag) != SOURCE:
                     raise PublicationError('Root proof recovery requires both original completed releases and exact tags')
                 check_assets(existing[tag], inventory, complete=True)
+                if args.mode == 'verify-public' and existing[tag]['draft'] is not False:
+                    raise PublicationError('Read-only public verification requires both releases already public')
         else:
             # Tag/draft creation is sequential; upload retries only reconcile, never replace.
             for tag in TAGS:
                 upload_draft(tag, inventory, existing[tag])
     if args.mode == 'publish':
         publish(work, inventory, args.tos_mode)
+    elif args.mode == 'verify-public':
+        verify_github_public(work, inventory)
+        verify_historical_providers(work)
     receipt = {'stage': 'controlled-' + args.mode + '-complete', 'sourceCommit': SOURCE, 'version': '1.0.3',
-               'files': inventory['files'], 'tosFeeds': inventory['tosFeeds'], 'remoteWritesAuthorized': args.mode != 'prepare',
+               'files': inventory['files'], 'tosFeeds': inventory['tosFeeds'], 'remoteWritesAuthorized': args.mode in ('draft', 'publish'),
                'tosMode': args.tos_mode, 'rootTosProofSha256': os.environ.get('MUSE_RELEASE_ROOT_TOS_PROOF_SHA256')
                if args.tos_mode == 'root-verified' else None}
     (work / 'controlled-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')

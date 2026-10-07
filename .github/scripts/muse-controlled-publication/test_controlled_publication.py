@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import tempfile
 import unittest
@@ -19,6 +20,73 @@ with patch.dict(os.environ, {'MUSE_CI_TRANSFER_SOURCE_COMMIT': 'f' * 40}):
 
 
 class ControllerTests(unittest.TestCase):
+    def test_read_only_public_verification_rejects_mutating_tos_modes_before_remote_reads(self):
+        for options in ([], ['--tos-mode', 'runner'], ['--tos-mode', 'already-published']):
+            with self.subTest(options=options), patch.dict(os.environ, self.root_environment(), clear=True):
+                with patch.object(controller, 'validate_remote_build') as remote, patch.object(controller, 'prepare') as prepare:
+                    with patch.object(controller, 'upload_draft') as upload, patch.object(controller, 'publish') as publish, patch.object(controller, 'api') as api:
+                        with patch.object(controller.sys, 'argv', ['controlled-publication.py', '--mode', 'verify-public', *options]):
+                            with self.assertRaisesRegex(controller.PublicationError, 'Read-only public verification requires root-verified'):
+                                controller.main()
+                        remote.assert_not_called(); prepare.assert_not_called(); upload.assert_not_called(); publish.assert_not_called(); api.assert_not_called()
+
+    def test_read_only_public_verification_never_changes_flags_or_uploads(self):
+        file = {'filename': 'one.zip', 'size': 8, 'sha256': 'a' * 64}
+        inventory = {'files': [file], 'tosFeeds': []}
+        release = {'draft': False, 'assets': [{'name': file['filename'], 'size': file['size'],
+                   'digest': 'sha256:' + file['sha256'], 'state': 'uploaded'}]}
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.dict(os.environ, self.root_environment(), clear=True), patch.object(controller, 'validate_remote_build'):
+                with patch.object(controller, 'prepare', return_value=(Path(temporary), inventory)), patch.object(controller, 'verify_root_tos_receipt'):
+                    with patch.object(controller, 'reconcile_release', return_value=release), patch.object(controller, 'tag_commit', return_value=controller.SOURCE):
+                        with patch.object(controller, 'upload_draft') as upload, patch.object(controller, 'publish') as publish, patch.object(controller, 'verify_github_public') as read, patch.object(controller, 'verify_historical_providers') as historical:
+                            with patch.object(controller.sys, 'argv', ['controlled-publication.py', '--mode', 'verify-public', '--tos-mode', 'root-verified']): controller.main()
+                            upload.assert_not_called(); publish.assert_not_called(); read.assert_called_once()
+                            historical.assert_called_once_with(Path(temporary))
+                            stored = json.loads((Path(temporary) / 'controlled-receipt.json').read_text())
+                            self.assertFalse(stored['remoteWritesAuthorized'])
+                        with patch.object(controller, 'reconcile_release', return_value={**release, 'draft': True}), patch.object(controller, 'verify_github_public') as read:
+                            with patch.object(controller.sys, 'argv', ['controlled-publication.py', '--mode', 'verify-public', '--tos-mode', 'root-verified']):
+                                with self.assertRaises(controller.PublicationError): controller.main()
+                            read.assert_not_called()
+
+    def test_historical_verification_uses_existing_stage_and_preserves_failure_log(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            result = subprocess.CompletedProcess([], 0, stdout='safe live receipt\n', stderr='')
+            with patch.object(controller.subprocess, 'run', return_value=result) as execute:
+                controller.verify_historical_providers(work)
+                argv = execute.call_args.args[0]
+                self.assertEqual(argv, [controller.sys.executable, str(controller.PRIVATE / 'run-historical-github-discovery.py'),
+                    '--staged', str(work / 'publication'), '--utilities', str(controller.PRIVATE),
+                    '--output', str(work / 'historical-provider-qa')])
+                self.assertEqual((work / 'historical-provider-qa.log').read_text(), result.stdout)
+            result.returncode = 1
+            with patch.object(controller.subprocess, 'run', return_value=result):
+                with self.assertRaisesRegex(controller.PublicationError, 'Actual historical public discovery failed'):
+                    controller.verify_historical_providers(work)
+
+    def test_historical_wrapper_rejects_changed_original_bytes_before_node_or_output(self):
+        specification = importlib.util.spec_from_file_location('historical_discovery', SCRIPT.with_name('run-historical-github-discovery.py'))
+        wrapper = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(wrapper)
+        wrapper.verify_historical_fixtures(SCRIPT.parent)
+        with tempfile.TemporaryDirectory() as temporary:
+            utilities = Path(temporary) / 'utilities'
+            for name in wrapper.FIXTURE_DIGESTS:
+                destination = utilities / name; destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(SCRIPT.parent / name, destination)
+            output = Path(temporary) / 'uncreated-output'
+            for name in wrapper.FIXTURE_DIGESTS:
+                with self.subTest(fixture=name):
+                    fixture = utilities / name; original = fixture.read_bytes(); fixture.write_bytes(original + b'\n')
+                    with patch.object(wrapper.subprocess, 'run') as execute, patch.object(controller.sys, 'argv',
+                        ['run-historical-github-discovery.py', '--staged', temporary, '--utilities', str(utilities), '--output', str(output)]):
+                        with self.assertRaisesRegex(RuntimeError, 'Original historical fixture SHA-256 differs'):
+                            wrapper.main()
+                        execute.assert_not_called(); self.assertFalse(output.exists())
+                    fixture.write_bytes(original)
+
     def root_environment(self, text='{}'):
         return {'MUSE_RELEASE_AUTHORIZATION': controller.AUTHORIZED, 'GITHUB_EVENT_NAME': 'push',
                 'GITHUB_REF': 'refs/heads/' + controller.OPS_BRANCH, 'GITHUB_REPOSITORY': controller.REPOSITORY,
