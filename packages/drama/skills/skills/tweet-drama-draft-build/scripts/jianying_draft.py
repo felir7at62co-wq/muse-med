@@ -726,22 +726,18 @@ def parse_srt_cues(srt_path) -> list:
     return cues
 
 
-def normalize_srt(srt_path, output_path) -> list:
-    """按文本规则重排一份 SRT 并写出规范化版本，返回写出的 cue 列表。"""
+def normalize_srt(srt_path, output_path=None) -> list:
+    """规范化已对齐的短句文字并保留时间；未传输出路径时只校验。"""
     normalized = []
-    for cue in parse_srt_cues(srt_path):
+    for index, cue in enumerate(parse_srt_cues(srt_path), start=1):
         lines = normalize_subtitle_text(cue["text"])
-        weights = [effective_character_count(line) for line in lines]
-        total_weight = sum(weights) or 1.0
-        cursor, consumed = cue["start_us"], 0.0
-        for index, line in enumerate(lines):
-            consumed += weights[index]
-            end = (cue["end_us"] if index == len(lines) - 1
-                   else cue["start_us"] + round((cue["end_us"] - cue["start_us"]) * consumed / total_weight))
-            end = min(max(end, cursor + 1000), cue["end_us"])
-            normalized.append({"start_us": cursor, "end_us": end, "text": line})
-            cursor = end
-    write_srt_cues(output_path, normalized)
+        if len(lines) != 1:
+            raise DraftInputError(
+                f"字幕文件 {srt_path} 的第 {index} 条需要拆分，但没有各分句的语音时间；"
+                "请先按单条不超过 14 个有效字切分台词计划，重新识别对齐并生成 SRT，不能按字数分配时间。")
+        normalized.append({"start_us": cue["start_us"], "end_us": cue["end_us"], "text": lines[0]})
+    if output_path is not None:
+        write_srt_cues(output_path, normalized)
     return normalized
 
 
@@ -1020,6 +1016,9 @@ def main_with_args(args):
         draft_path = drafts_dir / draft_name
         if draft_path.exists():
             raise DraftInputError(f"{draft_path} 已存在，拒绝覆盖；请为新候选指定唯一 name_prefix。")
+
+        if srt_path and srt_path.exists():
+            normalize_srt(srt_path)
 
         def refuse(message: str):
             """报出输入契约违规，并删掉本次刚建的草稿目录，避免半成品挡住重跑。"""

@@ -102,11 +102,11 @@ Tool calls use the snake_case parameter names above; the registered executor map
 
 ### What subtitles does
 
-`subtitles` needs no recognition of its own, because both halves are already known: the line plan says what each shot says, and a recognition alignment of the same clips says when. It reads that alignment per shot, checks it against the plan, keeps the script's text, clamps each cue inside its own shot, and lays the cues on the episode clock as the shot's own start plus the offset inside the clip. Nothing here measures energy: a level can say that somebody spoke, but not which words fall where, and a split estimated inside one stretch is what puts a subtitle on the wrong line.
+`subtitles` needs no recognition of its own, because both halves are already known: the line plan says what each shot says, and a recognition alignment of the same clips says when. It reads that alignment per shot, checks it against the plan, keeps the script's text, and places each measured span on the episode clock with only the clip offset and millisecond rounding. It does not extend short spans or shift later speech to fit a minimum display duration. Nothing here measures energy: a level can say that somebody spoke, but not which words fall where, and a split estimated inside one stretch is what puts a subtitle on the wrong line.
 
 The alignment's own text is never written to a cue. It is matched against the script's lines to prove the two describe the same take, and a mismatch in text or in cue count fails `subtitle_line_coverage` instead of taking the numbers on trust.
 
-Three defects block: a shot that declares lines with no alignment entry, a shot whose alignment carries recognized speech while the plan declares no line for it (a spoken line would ship without a subtitle), and an alignment whose times leave a cue with no picture after clamping. Placement keeps cues ordered inside their own non-overlapping shot intervals. An empty cue or a cue asking for more than 20 spoken characters per second fails `subtitle_timing`; past 12 characters per second is a warning. The SRT is still written so the operator can inspect what was placed.
+Missing or undeclared spoken lines block delivery. Invalid, overlapping, out-of-clip or zero-duration alignment times after millisecond rounding also block instead of being clamped or redistributed; a rejected shot contributes no cues. A cue asking for more than 20 spoken characters per second fails `subtitle_timing`; past 12 characters per second is a warning. The SRT is still written so the operator can inspect accepted placements, but a failed report is not a complete delivery.
 
 The written file is plain SRT, so a line can be hand-edited before `prepare` installs it and `render` burns it.
 

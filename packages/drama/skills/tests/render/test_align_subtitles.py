@@ -97,6 +97,25 @@ class PlaceTests(unittest.TestCase):
         self.assertEqual(strategy, 'asr_aligned')
         self.assertEqual(len(cues), 2)
 
+    def test_short_matched_lines_keep_their_measured_spans(self):
+        anchors = [(0.1, 0.3), (0.5, 0.7)]
+        cues, strategy = ALIGN.place(['甲', '乙'], anchors, 1.2)
+        self.assertEqual(strategy, 'asr_aligned')
+        self.assertEqual(cues, anchors)
+
+    def test_matched_spans_outside_the_clip_are_not_compressed(self):
+        with self.assertRaisesRegex(SystemExit, '时间'):
+            ALIGN.place(['甲', '乙'], [(0.2, 0.4), (1.1, 1.3)], 1.2)
+
+    def test_matched_spans_that_overlap_are_not_retimed(self):
+        with self.assertRaisesRegex(SystemExit, '时间'):
+            ALIGN.place(['甲', '乙'], [(0.1, 0.6), (0.5, 0.7)], 1.2)
+
+    def test_matched_spans_with_invalid_times_are_rejected(self):
+        for span in [(-0.1, 0.2), (0.2, 0.2), (float('nan'), 0.5), (0.1, float('inf'))]:
+            with self.subTest(span=span), self.assertRaisesRegex(SystemExit, '时间'):
+                ALIGN.place(['甲'], [span], 1.2)
+
     def test_a_shot_without_lines_places_nothing(self):
         self.assertEqual(ALIGN.place([], [], 2.0), ([], 'no_lines'))
 
@@ -119,7 +138,7 @@ class SettleTests(unittest.TestCase):
 class ModelSourceTests(unittest.TestCase):
     def test_bundled_model_env_is_used_without_network_and_explicit_cli_wins(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             bundled, explicit = root / 'bundled', root / 'explicit'
             for directory in (bundled, explicit):
                 directory.mkdir()
@@ -143,7 +162,7 @@ class ModelSourceTests(unittest.TestCase):
 
     def test_default_harness_cache_and_explicit_cache_are_resolved_without_download(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             default = root / 'cache' / 'models' / 'faster-whisper' / 'faster-whisper-fixture'
             explicit = root / 'explicit' / 'faster-whisper-fixture'
             for directory in (default, explicit):
@@ -151,7 +170,7 @@ class ModelSourceTests(unittest.TestCase):
                 for name in ALIGN.MODEL_FILES:
                     (directory / name).write_bytes(b'fixture')
             args = SimpleNamespace(model_dir='', model_url='', model_sha256='', cache_dir='')
-            with patch.dict(os.environ, {'DSH_HOME': temporary, 'MUSE_WHISPER_MODEL_DIR': ''}), patch.object(ALIGN, 'fetch_model', side_effect=AssertionError('network')):
+            with patch.dict(os.environ, {'DSH_HOME': str(root), 'MUSE_WHISPER_MODEL_DIR': ''}), patch.object(ALIGN, 'fetch_model', side_effect=AssertionError('network')):
                 self.assertEqual(ALIGN.resolve_model(args), default)
                 args.cache_dir = str(explicit.parent)
                 self.assertEqual(ALIGN.resolve_model(args), explicit)

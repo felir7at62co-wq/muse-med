@@ -1,0 +1,26 @@
+- id: tool-bash
+  disabled: false
+
+- id: tool-pwsh
+  disabled: true
+
+- insert:
+    - id: tool-episode-render
+      name: '../../../packages/drama/tool-episode-render/src/index.ts'
+      config:
+        ffprobePath: subtitle-timing-fixture-ffprobe
+    - id: subtitle-probe-fixture
+      name: './probe-fixture.mjs'
+
+# This subtitle scenario has no skill calls; platform catalogs belong to their own fixtures.
+- id: skill
+  name: '@deepseek-ai/dsh-skill'
+  disabled: true
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  disabled: true
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+  disabled: true
