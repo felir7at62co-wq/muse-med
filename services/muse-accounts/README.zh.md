@@ -88,7 +88,7 @@ HTTP 上传、事件流、Range 响应和原生 `/api/remote.mux` 数据帧按�
 
 桌面模式需要 TLS 反向代理把 WebSocket 转发到此进程。仅安装客户端不会切换已部署的网关。本地集成与 Chromium 测试验证了电脑选择、独立标签页、隔离、Range 播放、取消与撤权；生产手机登录和反向代理仍需要部署验证。
 
-浏览器表单页使用 `Referrer-Policy: same-origin`，使同源导航 POST 保留 Origin 供 CSRF 校验。跨源与 null 源写入仍被拒绝。从仓库根目录运行 `node --test services/muse-accounts/desktop-{devices,remote,tunnel}.test.mjs` 验证传输和存储；构建 Host、Client 与 Web 后，运行 `pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/muse-multi-computer.e2e.ts` 检查登录、标签页、草稿和响应式页面。
+浏览器表单页使用 `Referrer-Policy: same-origin`，使同源导航 POST 保留 Origin 供 CSRF 校验。跨源与 null 源写入仍被拒绝。仓库安装为该夹具提供 `ws`；独立网关部署仍安装此目录自身的依赖。从仓库根目录运行 `node --test services/muse-accounts/desktop-{devices,remote,tunnel}.test.mjs` 验证传输和存储；构建 Host、Client 与 Web 后，运行 `pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/muse-multi-computer.e2e.ts` 检查登录、标签页、草稿和响应式页面。
 
 ## Muse LLM Wiki
 

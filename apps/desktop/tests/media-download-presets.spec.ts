@@ -74,7 +74,7 @@ it('registers local analysis and download tools in creative scopes and leaves mi
           await scope.ctx.plugin(Fanqie)
         }
         expect(ctx.tools.schemas(key).map(tool => tool.name), preset).toEqual(preset === 'minimal' ? [] : [
-          'hongguo_download_info', 'hongguo_download', 'douyin_download',
+          'hongguo_download_info', 'hongguo_download', 'douyin_download', 'douyin_data',
           'reverse_skill', 'reverse_analyze', 'fanqie_download_info', 'fanqie_download',
         ])
         expect(ctx.tools.schemas()).toEqual([])

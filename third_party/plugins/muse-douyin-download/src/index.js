@@ -58,7 +58,7 @@ export function apply(ctx, config = {}) {
     let result = await track(runDownloader(ctx.subprocess, settings, downloadCommand(settings, { url, publicOnly: true }, workspace), workspace, signal));
     signal.throwIfAborted();
     if (result.status === 'blocked' && !publicOnly
-      && /PUBLIC_SHARE_MEDIA_UNAVAILABLE|PUBLIC_SHARE_REQUEST_FAILED|PUBLIC_MEDIA_DOWNLOAD_FAILED|LOGIN_OR_VERIFICATION_REQUIRED|ACCESS_RESTRICTED/.test(result.message || '')) {
+      && /PUBLIC_SHARE_MEDIA_UNAVAILABLE|PUBLIC_SHARE_REQUEST_FAILED|PUBLIC_MEDIA_DOWNLOAD_FAILED|LOGIN_OR_VERIFICATION_REQUIRED|ACCESS_RESTRICTED|^Share link resolution failed;/.test(result.message || '')) {
       const browser = ctx.get('douyinBrowser');
       if (browser?.version === 2 || browser?.version === 3) result = await track(browser.download(agent, url, signal, settings.maxDownloadBytes));
       else result = { status: 'blocked', code: 'DESKTOP_HOST_REQUIRED', message: 'This plugin requires the matching MUSE Desktop browser download bridge for authorized playback.' };
@@ -147,7 +147,8 @@ export function apply(ctx, config = {}) {
             if (request.download) {
               let download;
               try {
-                download = await acquireVideo(agent, url, false, signal);
+                const mediaUrl = result.url === undefined ? url : result.url;
+                download = await acquireVideo(agent, mediaUrl, false, signal);
                 signal.throwIfAborted();
               } catch (error) {
                 if (signal.aborted) {

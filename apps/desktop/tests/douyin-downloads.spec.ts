@@ -124,6 +124,34 @@ async function transfer() {
   expect(guest.downloadURL).toHaveBeenCalledWith(media)
   return { result }
 }
+
+it('uses an observed player MP4 fetched through XHR when the visible source and work match', async () => {
+  await prepared()
+  const result = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'xhr', url: media,
+    responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+  await vi.advanceTimersByTimeAsync(100)
+  expect(guest.downloadURL).toHaveBeenCalledWith(media)
+  await controller.request(owner as never, { ...request, action: 'release' })
+  expect((await result).code).toBe('CANCELLED')
+})
+
+it('keeps the successful player response when another video responds during a playback probe', async () => {
+  await prepared()
+  let resolvePlayer: (value: unknown) => void = () => { throw new Error('Missing playback waiter') }
+  guest.executeJavaScript.mockImplementation(() => new Promise((resolve) => { resolvePlayer = resolve }))
+  const result = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  controller.response({ webContentsId: guest.id, statusCode: 200, resourceType: 'media', url: media,
+    responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+  controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'xhr',
+    url: 'https://v3.douyinvod.com/recommendation.mp4', responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+  resolvePlayer({ id, src: media })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(guest.downloadURL).toHaveBeenCalledOnce()
+  expect(guest.downloadURL).toHaveBeenCalledWith(media)
+  await controller.request(owner as never, { ...request, action: 'release' })
+  expect((await result).code).toBe('CANCELLED')
+})
 it('allows only official pages, a single target ID and public HTTPS CDN names', () => {
   for (const url of [
     'http://www.douyin.com/video/' + id,

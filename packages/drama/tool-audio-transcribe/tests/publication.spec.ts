@@ -62,3 +62,16 @@ it('publishes on the Windows path without issuing Unix chmod operations', async 
     expect(observation.chmod).toEqual([])
   } finally { Object.defineProperty(process, 'platform', descriptor) }
 })
+
+it('restricts transcript and receipt directories on the POSIX publication path', async () => {
+  const f = await fixture()
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+  if (descriptor === undefined) throw new Error('missing process platform descriptor')
+  try {
+    Object.defineProperty(process, 'platform', { ...descriptor, value: 'linux' })
+    const started = await startAudioTranscription(f.project, f.input, 'zh', f.account, f.config, f.media)
+    expect((await finishAudioTranscription(f.project, started.receipt, f.account)).status).toBe('complete')
+    expect(observation.chmod).toContain(join(f.project, 'transcript'))
+    expect(observation.chmod).toContain(join(f.project, 'transcript', 'jobs'))
+  } finally { Object.defineProperty(process, 'platform', descriptor) }
+})

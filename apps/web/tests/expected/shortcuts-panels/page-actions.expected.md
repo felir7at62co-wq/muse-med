@@ -21,3 +21,4 @@
 - list:
   - listitem:
     - button "t6-refresh.txt"
+    - button "Actions for t6-refresh.txt"

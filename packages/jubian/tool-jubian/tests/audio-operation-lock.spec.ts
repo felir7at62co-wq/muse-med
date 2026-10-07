@@ -4,10 +4,13 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assertNoAudioDeletion, withAudioDeletionLock } from '../src/audio-operation-lock.ts'
 
-const access = vi.hoisted(() => ({ path: '', error: Object.assign(new Error('audio lock metadata access denied'), { code: 'EACCES' }) }))
+const access = vi.hoisted(() => ({ path: '', openPath: '', error: Object.assign(new Error('audio lock access denied'), { code: 'EACCES' }) }))
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
-  return { ...actual, lstat: async (...args: Parameters<typeof actual.lstat>) => {
+  return { ...actual, open: async (...args: Parameters<typeof actual.open>) => {
+    if (args[0] === access.openPath) throw access.error
+    return await actual.open(...args)
+  }, lstat: async (...args: Parameters<typeof actual.lstat>) => {
     if (args[0] === access.path) throw access.error
     return await actual.lstat(...args)
   } }
@@ -18,9 +21,16 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'jubian-audio-exclusion-'))
   await mkdir(join(root, 'video_tasks'))
 })
-afterEach(async () => { access.path = ''; await rm(root, { recursive: true, force: true }) })
+afterEach(async () => { access.path = ''; access.openPath = ''; await rm(root, { recursive: true, force: true }) })
 
 describe('project audio exclusion', () => {
+  it('preserves a lock creation failure without admitting the guarded operation', async () => {
+    access.openPath = join(root, '.audio-asset-delete.lock')
+    const operation = vi.fn(async () => 'unreachable')
+    await expect(withAudioDeletionLock(root, 2708, operation)).rejects.toBe(access.error)
+    expect(operation).not.toHaveBeenCalled()
+    expect(await readdir(root)).toEqual(['video_tasks'])
+  })
   // Windows reports ENOENT for a child of a regular file; ENOTDIR is a POSIX filesystem result.
   it.skipIf(process.platform === 'win32')('propagates a non-directory parent without changing its file', async () => {
     const file = join(root, 'not-a-directory')

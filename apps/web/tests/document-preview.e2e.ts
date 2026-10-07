@@ -699,7 +699,7 @@ else process.exit(1);
       writeFile(join(cwd, 'table.csv'), '00123,"中文,字段","=SUM(1,2)"\n2024-03-01,,TRUE'),
       writeFile(join(cwd, 'table.tsv'), '00123\t"中文\t字段"\t=SUM(1,2)\n2024-03-01\t\tTRUE'),
       ...['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].map(extension => writeFile(join(cwd, `unavailable.${extension}`), Buffer.from('PK\u0003\u0004OFFICE_BINARY_PREVIEW'))),
-      writeFile(join(cwd, 'clip.mp4'), Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70])),
+      writeFile(join(cwd, 'clip.bin'), Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70])),
     ])
 
     const column = page.locator('[data-rightbar-col]')
@@ -1416,12 +1416,12 @@ else process.exit(1);
     sections.push(['## Unknown suffix', '', `- Viewer menu hidden: ${String(await viewer.count() === 0)}`, `- Text: ${fallback.join(' | ')}`].join('\n'))
 
     await filesTab.click()
-    await column.locator('[data-files-entry="file"]').getByRole('button', { name: 'clip.mp4', exact: true }).click()
+    await column.locator('[data-files-entry="file"]').getByRole('button', { name: 'clip.bin', exact: true }).click()
     const unsupported = column.locator('[data-textpreview-state="unsupported"]')
     await unsupported.waitFor({ timeout: 15_000 })
     const unsupportedLine = await unsupported.locator('[data-textpreview-unsupported] p').innerText()
     expect(unsupportedLine).toContain('Preview is not available for this file type yet.')
-    expect(await unsupported.locator('[data-textpreview-path]').innerText()).toContain('clip.mp4')
+    expect(await unsupported.locator('[data-textpreview-path]').innerText()).toContain('clip.bin')
     expect(await unsupported.locator('[data-document-viewer-menu]').count()).toBe(0)
     expect(await unsupported.locator('[data-textpreview-tool="reload"]').count()).toBe(0)
     // The default-application controls land once the Host answered the pinned desktop read.
@@ -1442,7 +1442,7 @@ else process.exit(1);
     ].join('\n'))
     if (STUB_OPENER) {
       // Real Host gestures against the stubbed opener: default application from the empty state, reveal from the header menu.
-      const clip = join(cwd, 'clip.mp4')
+      const clip = join(cwd, 'clip.bin')
       await emptyOpen.click()
       await expect.poll(async () => (await opened()).length, { timeout: 15_000 }).toBe(1)
       await unsupported.locator('[data-open-path-more]').click()
@@ -1475,7 +1475,7 @@ else process.exit(1);
         // Leave the file and come back: the shared association state is discarded when the
         // last control for a path unmounts, so the marker is read again instead of reused.
         await openPreviewFile(column, filesTab, preview, 'notes.unknown')
-        await openPreviewFile(column, filesTab, preview, 'clip.mp4')
+        await openPreviewFile(column, filesTab, preview, 'clip.bin')
         await unsupported.waitFor({ timeout: 15_000 })
         await emptyOpen.waitFor({ timeout: 15_000 })
         // Opening the menu settles the re-read association before the labels are compared.

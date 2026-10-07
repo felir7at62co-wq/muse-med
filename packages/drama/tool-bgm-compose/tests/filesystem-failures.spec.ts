@@ -69,6 +69,14 @@ it('reports an inaccessible existing delivery without replacing or publishing it
   expect(await readFile(f.output, 'utf8')).toBe('retained delivery')
 })
 
+it('preserves a plan access failure and does not create a delivery', async () => {
+  const f = await fixture()
+  faults.stat = f.args.plan
+  await expect(runDramaBgm(f.args, f.settings)).rejects.toThrow('delivery access denied')
+  expect(await readFile(join(f.project, 'source.mp3'), 'utf8')).toBe('music')
+  expect(await readdir(f.project)).toEqual(['plan.json', 'source.mp3', 'timeline.json'])
+})
+
 it('stops creating directories when the filesystem loses all existing ancestors', async () => {
   const f = await fixture()
   const channel: ProcessChannel = { run: async (command, args, signal) => {

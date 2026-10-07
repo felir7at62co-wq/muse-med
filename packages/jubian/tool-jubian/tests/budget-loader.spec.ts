@@ -96,9 +96,10 @@ it('mounts the drama default and enforces its current limit in the real tool com
   }
 })
 
-it.each(['current', 'windows'])('logs the approved project budget update with %s project path comparison', async (platform) => {
+it.each(['current', 'windows', 'posix'])('logs the approved project budget update with %s project path comparison', async (platform) => {
   const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
   if (platform === 'windows') Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+  if (platform === 'posix') Object.defineProperty(process, 'platform', { ...descriptor, value: 'linux' })
   onTestFinished(() => { Object.defineProperty(process, 'platform', descriptor) })
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
     { id: 'config-editor', name: 'cordis:editor' }, { id: 'settings', name: 'cordis:settings' },

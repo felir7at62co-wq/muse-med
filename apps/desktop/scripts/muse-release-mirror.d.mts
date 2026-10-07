@@ -26,7 +26,7 @@ export interface MuseMirrorMetadata {
   readonly sha256: string
 }
 
-/** All three platform builds of one exact unsigned Muse release. */
+/** Apple Silicon Mac and Windows builds of one exact unsigned Muse release. */
 export interface MuseMirrorPlan {
   readonly version: string
   readonly sourceCommit: string
@@ -43,7 +43,7 @@ export interface MuseMirrorPlan {
 export function recordMuseUnsignedBuild(options: MuseUnsignedBuildOptions): Promise<object>
 
 /**
- * Validate all three platform builds before producing any upload operations.
+ * Validate both platform builds before producing any upload operations.
  * @param options - Exact release and completed target directories.
  * @returns Immutable binaries and channel metadata ordered separately for publication.
  */

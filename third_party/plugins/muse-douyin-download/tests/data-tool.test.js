@@ -100,6 +100,27 @@ test('optional video acquisition shares the existing public downloader and verif
   } finally { await scope.dispose(); }
 });
 
+test('resolved share-page data downloads its validated canonical work without resolving the short link twice', async () => {
+  const short = 'https://v.douyin.com/IDNKn-TPuRU/';
+  const scope = install({ version: 3, async data(_agent, selection) { assert.equal(selection.url, short); return snapshot(); } });
+  try {
+    const result = await scope.tool.execute({ url: short, download: true }, {});
+    assert.equal(result.status, 'ok');
+    const spec = scope.calls.process[0];
+    assert.equal(spec.argv[spec.argv.indexOf('--url') + 1], url);
+  } finally { await scope.dispose(); }
+});
+
+test('a public share-resolution failure enters the existing normal browser download path', async () => {
+  let native = 0;
+  const scope = install({ version: 3, async download() { native++; return receipt; } },
+    { status: 'blocked', message: 'Share link resolution failed; open it in your browser and provide the final video page.' });
+  try {
+    assert.deepEqual(await scope.downloadTool.execute({ url }, {}), receipt);
+    assert.equal(native, 1);
+  } finally { await scope.dispose(); }
+});
+
 test('the new bridge retains existing verified internal-browser download fallback', async () => {
   let native = 0;
   const scope = install({ version: 3, async data() { return snapshot(); }, async download(agent, selected, signal, limit) {

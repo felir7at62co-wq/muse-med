@@ -111,13 +111,57 @@ export function mediaURLHash(value: string): string {
   return createHash('sha256').update(value).digest('hex')
 }
 
-/** Read only visible-player and target-specific public bootstrap metadata; never cookies or response bodies. */
+/** Read bounded public player metadata and return only its work ID and unchanged visible source. */
 export const DOUYIN_PLAYER_PROBE = `(() => {
   const videos = [...document.querySelectorAll('video')].filter(v => v.getBoundingClientRect().width > 0 && v.getBoundingClientRect().height > 0);
-  if (videos.length !== 1 || videos[0].paused) return null;
+  if (videos.length !== 1 || videos[0].readyState < 2) return null;
+  if (videos[0].mediaKeys != null) return { unsupported: 'PROTECTED_MEDIA' };
   if (!videos[0].currentSrc.startsWith('https:')) return { unsupported: 'BLOB_OR_SEGMENTS' };
   const data = window._ROUTER_DATA;
-  if (!data || typeof data !== 'object' || !data.loaderData) return document.readyState === 'complete' ? { unsupported: 'PAGE_METADATA' } : null;
+  if (!data || typeof data !== 'object' || !data.loaderData) {
+    if (document.readyState !== 'complete') return null;
+    const player = videos[0], src = player.currentSrc;
+    const addressEntries = value => Array.isArray(value) ? value.slice(0,32)
+      : Array.isArray(value?.urlList) ? value.urlList.slice(0,32) : [];
+    const addressURL = entry => typeof entry==='string' ? entry
+      : typeof entry?.src==='string' ? entry.src : null;
+    // The normal player adds __vid with awemeId; transfer still uses the unchanged currentSrc.
+    const addressMatches = (entry,id) => {
+      const value=addressURL(entry), current=new URL(src), markers=current.searchParams.getAll('__vid');
+      if (markers.length && (markers.length!==1 || markers[0]!==id)) return false;
+      if (value===src) return true;
+      if (typeof value!=='string' || markers.length!==1 || !URL.canParse(value)) return false;
+      const supplied=new URL(value);
+      if (supplied.searchParams.has('__vid')) return false;
+      current.searchParams.delete('__vid');
+      return current.href===supplied.href;
+    };
+    let parent = player.parentElement;
+    for (let ancestors=0; parent && ancestors<12; ancestors++, parent=parent.parentElement) {
+      const roots = Object.getOwnPropertyNames(parent).filter(key=>key.startsWith('__reactProps$')).slice(0,4);
+      const queue = roots.map(key=>({value:parent[key],depth:0})), matches = new Set();
+      let examined=0;
+      while(queue.length && examined++<1024) {
+        const node=queue.shift(), item=node.value;
+        if (!item || typeof item!=='object') continue;
+        if (typeof item.awemeId==='string' && /^\\d{10,25}$/.test(item.awemeId) && item.video && typeof item.video==='object') {
+          const video=item.video, rates=Array.isArray(video.bitRateList)?video.bitRateList.slice(0,16):[];
+          const entries=[...addressEntries(video.playAddr),...addressEntries(video.playAddrH265),...rates.flatMap(rate=>addressEntries(rate?.playAddr))];
+          if (entries.some(entry=>addressMatches(entry,item.awemeId))) {
+            const nodes=[video,video.meta,...rates,...rates.map(rate=>rate?.playAddr),...entries].filter(x=>x && typeof x==='object');
+            if (nodes.some(x=>Object.keys(x).some(key=>/drm|encrypt|decrypt|license/i.test(key) && x[key]!=null && x[key]!==false && x[key]!==0 && x[key]!==''))) return {unsupported:'PROTECTED_MEDIA'};
+            matches.add(item.awemeId);
+          }
+        }
+        if (node.depth>=6) continue;
+        if (Array.isArray(item)) for (const value of item.slice(0,16)) queue.push({value,depth:node.depth+1});
+        else for (const key of ['props','children','awemeInfo','aweme']) if (item[key] && typeof item[key]==='object') queue.push({value:item[key],depth:node.depth+1});
+      }
+      if (matches.size>1) return null;
+      if (matches.size===1) return {id:[...matches][0],src};
+    }
+    return {unsupported:'PAGE_METADATA'};
+  }
   const items = Object.values(data.loaderData).slice(0, 16).flatMap(v => v?.videoInfoRes?.item_list || []);
   if (items.length !== 1) return null;
   const item = items[0], urls = item.video?.play_addr?.url_list;

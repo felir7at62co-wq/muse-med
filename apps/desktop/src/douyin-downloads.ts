@@ -46,6 +46,7 @@ interface Task {
   lease?: DouyinGuest
   target?: string
   response?: { url: string; status: number } | undefined
+  observedResponses?: Map<string, number>
   selectedURL?: string
   item?: DownloadItem
   directory?: string
@@ -164,6 +165,7 @@ export class DesktopDouyinDownloads {
       task.documentEpoch = (task.documentEpoch ?? 0) + 1
       task.provider = undefined
       task.response = undefined
+      task.observedResponses?.clear()
       task.providerResponses?.newDocument()
       if (task.documentEpoch !== 1 || targetVideoId(url) !== task.target) void this.revoke('DOCUMENT_CHANGED')
     }
@@ -294,9 +296,16 @@ export class DesktopDouyinDownloads {
           ? 'DOWNLOAD_MIME_REJECTED' : `DOWNLOAD_HTTP_${details.statusCode}`)
       return
     }
-    if (task.phase !== 'observing' || ![200, 206].includes(details.statusCode) || details.resourceType !== 'media')
+    if (task.phase !== 'observing' || ![200, 206].includes(details.statusCode)
+      || !['media', 'xhr'].includes(details.resourceType))
       return
     if (!/^video\/mp4(?:;|$)/i.test(type)) return
+    task.observedResponses ??= new Map()
+    if (!task.observedResponses.has(details.url) && task.observedResponses.size === 16) {
+      const oldest = task.observedResponses.keys().next().value
+      if (oldest !== undefined) task.observedResponses.delete(oldest)
+    }
+    task.observedResponses.set(details.url, details.statusCode)
     task.response = { url: details.url, status: details.statusCode }
     void this.choose(task).catch(() => {
       if (this.task === task) void this.revoke('UNSUPPORTED_MEDIA_ASSOCIATION')
@@ -311,7 +320,6 @@ export class DesktopDouyinDownloads {
     if (task.checking || task.phase !== 'observing' || task.lease === undefined || task.response === undefined) return
     if (task.lease.guest.isLoadingMainFrame()) return
     task.checking = true
-    const observed = task.response
     const epoch = task.documentEpoch
     let player: unknown
     try {
@@ -331,10 +339,15 @@ export class DesktopDouyinDownloads {
       !('id' in player) ||
       !('src' in player) ||
       player.id !== task.target ||
-      player.src !== observed.url ||
+      typeof player.src !== 'string' ||
+      !task.observedResponses?.has(player.src) ||
       targetVideoId(task.lease.guest.getURL()) !== task.target
     )
       return
+    const status = task.observedResponses.get(player.src)
+    if (status === undefined) return
+    const observed = { url: player.src, status }
+    task.response = observed
     task.directory = stagingDirectory(task.request.cwd, task.request.taskId)
     task.selectedURL = observed.url
     task.association = 'player-exact'

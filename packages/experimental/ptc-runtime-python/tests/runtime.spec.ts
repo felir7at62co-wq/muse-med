@@ -8,6 +8,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { PythonPtcRuntime, hostFrameParseCeiling, readProcessStart, resolvePythonBin } from '../src/index.ts'
 import { logTruncationMarker } from '../src/protocol.ts'
 import type { Config } from '../src/index.ts'
+import { COVERAGE_TEST_TIMEOUT_ENV, parseCoverageTestTimeout } from '../../../../scripts/coverage-partitions.ts'
 
 // Absolute supported interpreter path for shell wrappers. The runtime gives a
 // child only TMPDIR, so a bare `python3` inside a wrapper would resolve against
@@ -5053,6 +5054,7 @@ describe('PythonPtcRuntime — hostile peer', () => {
     expect(result.error?.kind).toBe('output-limit')
   }, 30_000)
 
+  const wideCompletionWallMs = parseCoverageTestTimeout(process.env[COVERAGE_TEST_TIMEOUT_ENV]) ?? 60_000
   it('checks and encodes a wide completion value in O(depth), not O(width)', async () => {
     // A wide flat list serializes to ~2 bytes per element but the pre-fix walk
     // enqueued one traversal tuple per element (_check_done_value) and one stack
@@ -5070,18 +5072,15 @@ describe('PythonPtcRuntime — hostile peer', () => {
     // exception. Linux-only RLIMIT_AS repro; on macOS the value round-trips
     // either way, but the fixture stays within the address space so it is honest.
     //
-    // `maxWallMs` is 60s, not the 20s the memory assertion alone needs: the O(depth)
-    // cursor pulls 6M elements one at a time through Python-level frames, which costs
-    // ~11s on an idle machine and more under the coverage lane's V8 instrumentation
-    // with several workers sharing a box. This budget bounds the run without letting a
-    // loaded runner's scheduling latency read as a `timeout` — what this test asserts
-    // is the O(depth) memory shape, not a speed claim.
-    const { runtime } = await setup({ maxValueBytes: 20 * 1024 * 1024, addressSpaceMb: 384, maxWallMs: 60_000 })
+    // This memory regression gives the child the declared coverage-lane budget;
+    // outside coverage it retains 60s. The outer deadline reserves another 30s
+    // for setup and process reaping, so the child reports its own timeout first.
+    const { runtime } = await setup({ maxValueBytes: 20 * 1024 * 1024, addressSpaceMb: 384, maxWallMs: wideCompletionWallMs })
     const result = await runtime.run(runtime.resolve({ program: 'return [0] * 6_000_000', bindings: [] }))
     expect(result.error).toBeUndefined()
     expect(Array.isArray(result.value)).toBe(true)
     expect((result.value as number[]).length).toBe(6_000_000)
-  }, 90_000)
+  }, wideCompletionWallMs + 30_000)
 
   it('validates wide binding arguments in O(depth), not O(width)', async () => {
     // The completion-value walks are budgeted; this one is not. `dispatch` runs

@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { randomUUID } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { withLedgerQueue } from '../src/claim-queue.ts'
 
@@ -48,6 +49,27 @@ describe('ledger operation queue', () => {
       release.resolve(undefined); await Promise.allSettled([...(first ? [first] : []), ...(second ? [second] : [])])
       Object.defineProperty(process, 'platform', descriptor)
       await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps differently cased POSIX ledger operations independent', async () => {
+    const root = join(tmpdir(), `Ledger-${randomUUID()}`)
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
+    const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+    const events: string[] = []
+    let first: Promise<void> | undefined, second: Promise<void> | undefined
+    Object.defineProperty(process, 'platform', { ...descriptor, value: 'linux' })
+    try {
+      first = withLedgerQueue(root.toUpperCase(), async () => {
+        events.push('first entered'); entered.resolve(undefined); await release.promise; events.push('first finished')
+      })
+      await entered.promise
+      second = withLedgerQueue(root.toLowerCase(), async () => { events.push('second entered') })
+      await expect.poll(() => events).toContain('second entered')
+      expect(events).not.toContain('first finished')
+    } finally {
+      release.resolve(undefined); await Promise.allSettled([...(first ? [first] : []), ...(second ? [second] : [])])
+      Object.defineProperty(process, 'platform', descriptor)
     }
   })
 })

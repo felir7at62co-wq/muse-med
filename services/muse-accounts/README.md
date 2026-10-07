@@ -88,7 +88,7 @@ The relay pings each ready desktop every `heartbeatIntervalMs` (15 seconds); a m
 
 Desktop mode requires TLS reverse-proxy WebSocket forwarding to this process. Installing the client alone does not switch the deployed gateway. Local integration and Chromium tests verify computer selection, independent tabs, isolation, Range playback, cancellation and revocation; production mobile login and reverse-proxy operation require deployment verification.
 
-Browser form pages use `Referrer-Policy: same-origin` so same-origin navigation POSTs retain their Origin for CSRF verification. Cross-origin and null-origin writes remain rejected. Run `node --test services/muse-accounts/desktop-{devices,remote,tunnel}.test.mjs` from the repository root for transport and store coverage; after building Host, Client and Web, run `pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/muse-multi-computer.e2e.ts` for login, tabs, drafts and responsive UI checks.
+Browser form pages use `Referrer-Policy: same-origin` so same-origin navigation POSTs retain their Origin for CSRF verification. Cross-origin and null-origin writes remain rejected. The repository install supplies `ws` for this fixture; standalone gateway deployments install this directory’s own dependencies. Run `node --test services/muse-accounts/desktop-{devices,remote,tunnel}.test.mjs` from the repository root for transport and store coverage; after building Host, Client and Web, run `pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/muse-multi-computer.e2e.ts` for login, tabs, drafts and responsive UI checks.
 
 ## Muse LLM Wiki
 

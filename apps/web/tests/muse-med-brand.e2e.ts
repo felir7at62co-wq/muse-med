@@ -12,8 +12,8 @@ it('follows the application theme for brand marks while keeping the favicon blac
       const page = await newEnglishPage(browser)
       await page.emulateMedia({ colorScheme: 'light' })
       await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
-      await page.getByText('muse-med', { exact: true }).first().waitFor({ timeout: 60000 })
-      expect(await page.title()).toBe('muse-med')
+      await page.getByText('Muse', { exact: true }).first().waitFor({ timeout: 60000 })
+      expect(await page.title()).toBe('Muse')
       const assertArtwork = async (color: 'black' | 'white') => {
         const url = `./muse-med-logo-${color}.webp`
         const logos = page.locator(`img[src="${url}"]`)
@@ -22,7 +22,7 @@ it('follows the application theme for brand marks while keeping the favicon blac
           await expect.poll(() => logo.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1254)
           expect(await logo.getAttribute('alt')).toBe('')
         }
-        await expect.poll(() => page.locator('link[rel="icon"]').getAttribute('href')).toBe('./muse-med-logo-black.webp')
+        await expect.poll(() => page.locator('link[rel="icon"][type="image/webp"]').getAttribute('href')).toBe('./muse-med-logo-black.webp')
       }
       const action = page.getByRole('button', { name: 'New session', exact: true }).first()
       expect(await action.isEnabled()).toBe(true)
@@ -40,8 +40,8 @@ it('follows the application theme for brand marks while keeping the favicon blac
       await page.keyboard.press('Escape')
       await page.reload({ waitUntil: 'load' })
       await assertArtwork('white')
-      expect({ title: await page.title(), name: await page.getByText('muse-med', { exact: true }).first().textContent() })
-        .toEqual({ title: 'muse-med', name: 'muse-med' })
+      expect({ title: await page.title(), name: await page.getByText('Muse', { exact: true }).first().textContent() })
+        .toEqual({ title: 'Muse', name: 'Muse' })
     } finally {
       await browser.close()
     }

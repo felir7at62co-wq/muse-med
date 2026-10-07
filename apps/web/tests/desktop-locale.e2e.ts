@@ -12,7 +12,7 @@ import { openSettings, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./expected/desktop-locale', import.meta.url))
 const MODE = webSnapshotMode()
-const { version } = JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8')) as { version: string }
+const { version } = JSON.parse(await readFile(new URL('../../desktop/muse-product.json', import.meta.url), 'utf8')) as { version: string }
 const versionCapture = { replacements: [[version, '{{version}}']] as const }
 
 describe.skipIf(MODE === 'record')('web e2e: native and Client locale preferences', () => {

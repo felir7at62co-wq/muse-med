@@ -50,7 +50,8 @@ const check = (ok, label, detail) => {
 /** Resolve the newest release through the real provider, mirroring the coordinator's updater settings. */
 async function resolveLatest({ owner, repo, channel, channelOverride }) {
   const provider = new GitHubProvider({ provider: 'github', owner, repo, channel },
-    { channel: channelOverride ?? null, allowPrerelease: true, currentVersion: semver.parse(version), fullChangelog: false },
+    { channel: channelOverride ?? null, allowPrerelease: semver.prerelease(version) !== null,
+      currentVersion: semver.parse(version), fullChangelog: false },
     { executor: new NodeHttpExecutor(), platform: 'win32', isUseMultipleRangeRequest: false })
   return provider.getLatestVersion()
 }

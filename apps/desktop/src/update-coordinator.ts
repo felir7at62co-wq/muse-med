@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import electronUpdater, { type AppUpdater, type ProgressInfo, type UpdateInfo } from 'electron-updater'
 
-import { gt, valid } from 'semver'
+import { gt, prerelease, valid } from 'semver'
 import type { DesktopUpdateState } from './ipc.ts'
 import { DesktopUpdateHttpExecutor } from './update-http-executor.ts'
 import { DesktopUpdatePreparationError } from './update-error.ts'
@@ -86,7 +86,7 @@ export class DesktopUpdateCoordinator {
     this.updater.autoDownload = false
     this.updater.autoInstallOnAppQuit = false
     // Each sealed source carries the packaged channel; assigning updater.channel overrides it.
-    this.updater.allowPrerelease = true
+    this.updater.allowPrerelease = prerelease(this.currentVersion()) !== null
     // Selecting a channel can enable downgrade in electron-updater.
     this.updater.allowDowngrade = false
     this.updater.on('download-progress', this.onProgress)
