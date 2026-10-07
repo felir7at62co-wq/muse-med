@@ -12,6 +12,13 @@ const servers: Server[] = []
 /** Credential variables a test set, cleared so the next one starts unset. */
 const touchedEnv: string[] = []
 
+it('uses the configuration owner transport for an endpoint listing', async () => {
+  const transport = vi.fn<typeof fetch>(async () => new Response('{"data":[{"id":"owned-model"}]}'))
+  const result = await discoverModels({ baseURL: 'https://provider.example/v1', api: 'openai-completions' }, undefined, transport)
+  expect(result).toEqual([{ id: 'owned-model', name: 'owned-model' }])
+  expect(transport).toHaveBeenCalledWith('https://provider.example/v1/models', expect.objectContaining({ method: 'GET' }))
+})
+
 afterEach(async () => {
   // A no-op when the test never stubbed `fetch`; only 'probe key format'
   // below installs one.

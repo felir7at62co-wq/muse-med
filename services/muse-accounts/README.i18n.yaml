@@ -15,14 +15,17 @@
   en: f5cd03bc79e06353
   zh: 0282d0518011e1ab
 /muse-accounts-gateway/release-inputs/asr-application-pools:
-  en: 0ba0bce346b0249d
-  zh: 0ea8de5cba5bec6e
+  en: 939c6fcea704b408
+  zh: f1ae43adee16b9bd
 /muse-accounts-gateway/desktop-website-access:
   en: be46fcba84d45a11
   zh: d2ee59e91d359fa8
 /muse-accounts-gateway/muse-llm-wiki:
-  en: 7439647746458ce7
-  zh: 997c607a7c83d979
+  en: 0d62ac1e79d43bba
+  zh: 03a9df2b47753589
+/muse-accounts-gateway/selected-model-budgets:
+  en: 1198886f036d9d79
+  zh: 3b81ee8429d3204f
 /muse-accounts-gateway/verification-and-release:
   en: c4dbe236a9e6557b
   zh: 94ebd7511e31c287

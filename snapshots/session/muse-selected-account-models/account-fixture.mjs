@@ -111,7 +111,12 @@ export async function apply(ctx) {
       const available = []
       for (const provider of catalog.providers) {
         const models = await ctx.llm.listModels(`muse-cloud-${provider.id}`)
-        available.push({ provider: `muse-cloud-${provider.id}`, models: models.map(model => ({ id: model.id, name: model.name })) })
+        available.push({ provider: `muse-cloud-${provider.id}`, models: await Promise.all(models.map(async model => {
+          const resolved = await ctx.llm.resolveModelInfo(`muse-cloud-${provider.id}`, model.id)
+          const configured = provider.models.find(candidate => candidate.id === model.id)
+          assert.equal(resolved.context.contextWindow, configured.contextWindow)
+          return { id: model.id, name: model.name, contextWindow: resolved.context.contextWindow, maxTokens: configured.maxTokens }
+        })) })
       }
       assert.deepEqual(available.flatMap(provider => provider.models.map(model => model.id)), [
         'deepseek-flash', 'deepseek-v4-pro', 'gpt-6-sol', 'gpt-6-astra', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5', 'gemini-3.1-pro',

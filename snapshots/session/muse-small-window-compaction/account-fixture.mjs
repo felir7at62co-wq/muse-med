@@ -1,4 +1,4 @@
-/** Selected Muse model pressure through the shipped short-drama policy and logged HTTP responses. */
+/** Historical 128k Muse model pressure through the shipped short-drama policy and logged HTTP responses. */
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:http'
@@ -77,6 +77,9 @@ export async function apply(ctx) {
     : event.type === 'compaction/summary' && event.data.llmStreamCall ? [{ summary: true, content: event.data.rawOutput }] : [])
   assert.equal(script.length, 8)
   const catalog = desktopModelCatalog({ metadata: () => ({ providers: selectedModelProviders('https://wy6688.token6688.com/v1') }) })
+  // This recording exercises the smaller account configuration that produced the original loop.
+  const recordedModel = catalog.providers.find(provider => provider.id === 'yunying').models.find(model => model.id === selection.model)
+  Object.assign(recordedModel, { contextWindow: 128000, maxTokens: 32768 })
   const requests = []
   const results = []
   let active

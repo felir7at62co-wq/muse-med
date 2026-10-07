@@ -86,6 +86,7 @@
     "apps/web/tests/window-controls.e2e.ts",
     "apps/web/tests/settings-import.e2e.ts",
     "apps/web/tests/models-settings.e2e.ts",
+    "apps/web/tests/muse-personal-models.e2e.ts",
     "apps/web/tests/deepseek-messages-settings.e2e.ts",
     "apps/web/tests/deepseek-messages-chat.e2e.ts",
     "apps/web/tests/models-settings-recovery.e2e.ts",

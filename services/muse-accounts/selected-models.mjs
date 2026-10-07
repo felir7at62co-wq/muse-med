@@ -25,7 +25,8 @@ export function selectedModelProviders(yunyingBaseURL){
  const official = (id,name,input) => ({id,name,contextWindow:1048576,maxTokens:393216,input,
   reasoningEfforts:{off:null,low:'low',high:'high',max:'max'},defaultReasoningEffort:'low'});
  const cloud = (id) => ({id,name:id,
-  contextWindow:id.startsWith('claude-')?1000000:128000,maxTokens:32768,
+  contextWindow:id.startsWith('gpt-')?1050000:id.startsWith('claude-')?1000000:1048576,
+  maxTokens:id.startsWith('gemini-')?65536:128000,
   input:id.startsWith('claude-')?['text','image']:['text'],
   reasoningEfforts:id.startsWith('gpt-')?{low:'low'}:false,
   ...id.startsWith('gpt-')?{defaultReasoningEffort:'low'}:{}});

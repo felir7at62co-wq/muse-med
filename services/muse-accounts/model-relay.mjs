@@ -7,6 +7,7 @@ import {createHmac,timingSafeEqual,randomBytes} from 'node:crypto';
 import {readFile,writeFile,rename,mkdir,chmod} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {pipeline} from 'node:stream/promises';
+import {Readable} from 'node:stream';
 import {readModelFailure,modelFailure} from './model-errors.mjs';
 
 export function publicIPv4(address){
@@ -51,6 +52,23 @@ export function publicLookup(host,options,callback){
   if(error||!records?.length||records.some(row=>!publicIPv4(row.address))){callback(Error('模型地址必须解析到公网 IPv4'));return;}
   // Pin the actual socket to the validated answer, including all:true consumers.
   if(options?.all)callback(null,[records[0]]);else callback(null,records[0].address,4);
+ });
+}
+/** Read a public HTTPS model listing with pinned DNS and without redirecting credentials.
+ * @param {string} url The validated API listing URL.
+ * @param {object} init Parser-owned headers and cancellation signal.
+ * @returns {Promise<Response>} Streamed response for the bounded model-list parser.
+ */
+export async function fetchPublicModelListing(url,init){
+ const target=new URL(baseAddress(url));
+ return await new Promise((resolve,reject)=>{
+  const request=https.request(target,{method:'GET',headers:Object.fromEntries(new Headers(init.headers)),lookup:publicLookup,signal:init.signal},response=>{
+   const status=response.statusCode>=200&&response.statusCode<=599?response.statusCode:502;
+   if(status!==200){response.resume();resolve(new Response(null,{status}));return;}
+   const headers=Object.fromEntries(Object.entries(response.headers).filter(([,value])=>value!==undefined).map(([key,value])=>[key,Array.isArray(value)?value.join(', '):value]));
+   resolve(new Response(Readable.toWeb(response),{status,headers}));
+  });
+  request.on('error',reject);request.end();
  });
 }
 export async function forwardModel({config,body,res,signal}){

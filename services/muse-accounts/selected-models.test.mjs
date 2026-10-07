@@ -35,7 +35,8 @@ test('official capacity and each selected model budget are explicit public metad
  assert.ok(official.every(model=>model.reasoningEfforts.off===null));
  assert.deepEqual(official[0].input,['text','image']);assert.deepEqual(official[1].input,['text']);
  for(const model of providers.yunying.models){
-  assert.equal(model.maxTokens,32768);
+  assert.equal(model.contextWindow,model.id.startsWith('gpt-')?1050000:model.id.startsWith('claude-')?1000000:1048576);
+  assert.equal(model.maxTokens,model.id.startsWith('gemini-')?65536:128000);
   if(model.id.startsWith('gpt-'))assert.deepEqual(model.reasoningEfforts,{low:'low'});
   else assert.equal(model.reasoningEfforts,false);
   assert.deepEqual(model.input,model.id.startsWith('claude-')?['text','image']:['text']);
@@ -108,7 +109,7 @@ test('fresh account catalog routes every selected model with only server credent
   assert.equal(actual.body.reasoning_effort,model.defaultReasoningEffort);
  }
  assert.equal(calls.length,8);
- for(const [route,model,budget] of [['deepseek-official','deepseek-flash',393216],['yunying','gpt-6-sol',32768]]){
+ for(const [route,model,budget] of [['deepseek-official','deepseek-flash',393216],['yunying','gpt-6-sol',128000]]){
   const reply=await fetch(base+'/api/desktop-models/'+route+'/chat/completions',{method:'POST',headers:{origin,cookie,'content-type':'application/json'},
    body:JSON.stringify({model,messages:[],stream:true})});
   assert.equal(reply.status,200);await reply.text();assert.equal(calls.at(-1).body.max_tokens,budget);assert.equal(calls.at(-1).body.reasoning_effort,'low');

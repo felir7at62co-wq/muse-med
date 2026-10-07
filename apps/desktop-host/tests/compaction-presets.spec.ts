@@ -40,7 +40,18 @@ function assertSmallWindowBudget(config: BasicCompactionConfig): void {
   expect(personal.headroomTokens).toBe(65_536)
   expect(personal.maxTokens).toBe(65_536)
   const large = resolveTargetPolicy(resolved, { provider: 'muse-cloud-yunying', model: 'claude-opus-5-5' })
-  expect(large.headroomTokens).toBe(65_536)
+  expect(large.headroomTokens).toBe(16_384)
+  expect(large.maxTokens).toBe(8192)
+  for (const [provider, model, context, output] of [
+    ['yunying', 'gpt-6-sol', 1050000, 128000], ['yunying', 'gpt-6-astra', 1050000, 128000],
+    ['yunying', 'claude-opus-5-5', 1000000, 128000], ['yunying', 'claude-fable-5-1', 1000000, 128000],
+    ['yunying', 'claude-sonnet-5', 1000000, 128000], ['yunying', 'gemini-3.1-pro', 1048576, 65536],
+    ['deepseek-official', 'deepseek-flash', 1048576, 393216], ['deepseek-official', 'deepseek-v4-pro', 1048576, 393216],
+  ] as const) {
+    const spec = resolveCompactSpec(resolveTargetPolicy(resolved, { provider: `muse-cloud-${provider}`, model }), context, output)
+    expect(spec.thresholdTokens).toBeGreaterThan(600000)
+    expect(spec.maxTokens).toBe(8192)
+  }
 }
 
 it.each(presets)('keeps the observed 42k request below automatic compaction pressure in the %s preset', (preset) => {
