@@ -52,7 +52,7 @@ const bodies=${JSON.stringify(bodies)};
 const feeds=${JSON.stringify(Object.fromEntries(mirror.metadata.map(file => [file.key, Buffer.from(file.contents).toString('base64')])))};
 globalThis.fetch=async value=>{
   const url=new URL(value), tag=url.pathname.includes('rc.muse-stable')?'v1.0.3-rc.muse-stable':'v1.0.3';
-  if(url.pathname.endsWith('/releases.atom')) return new Response('<feed><entry><link href="https://github.com/felir7at62co-wq/muse-med/releases/tag/'+(process.env.MUSE_STAGING_SYNTHETIC_WRONG_ATOM==='1'?'hongguo-source-runtime-fixture':'v1.0.3-rc.muse-stable')+'"/></entry></feed>');
+  if(url.pathname.endsWith('/releases.atom')) return new Response('<feed><entry><link href="https://github.com/felir7at62co-wq/muse-med/releases/tag/'+(process.env.MUSE_STAGING_SYNTHETIC_WRONG_ATOM==='1'?'hongguo-source-runtime-fixture':process.env.MUSE_STAGING_SYNTHETIC_STABLE_ATOM==='1'?'v1.0.3':'v1.0.3-rc.muse-stable')+'"/></entry></feed>');
   if(url.hostname==='api.github.com') {
     if(url.pathname.includes('/git/ref/')) return Response.json({object:{type:'commit',sha:inventory.sourceCommit}});
     return Response.json({tag_name:tag,draft:false,prerelease:tag!=='v1.0.3',assets:inventory.files.map(file=>({name:file.filename,size:file.size,state:'uploaded',digest:'sha256:'+file.sha256}))});
@@ -70,12 +70,18 @@ globalThis.fetch=async value=>{
     assert.equal(JSON.parse(lines.at(-1)).stage, 'public-readback-complete')
     assert.equal(lines.length, tag === 'v1.0.3' ? 21 : 22)
   }
+  const stableFirstLines = execFileSync(process.execPath, [...readback, '--github-tag', 'v1.0.3-rc.muse-stable'], {
+    encoding: 'utf8', env: { ...process.env, MUSE_STAGING_SYNTHETIC_STABLE_ATOM: '1' },
+  }).trim().split('\n')
+  assert.equal(JSON.parse(stableFirstLines.at(-1)).stage, 'public-readback-complete')
+  assert.equal(stableFirstLines.length, 13)
+  assert.equal(JSON.parse(stableFirstLines[0]).firstTag, 'v1.0.3')
   assert.throws(() => execFileSync(process.execPath, [...readback, '--github-tag', 'v1.0.3'], {
     stdio: 'pipe', env: { ...process.env, MUSE_STAGING_SYNTHETIC_BAD: '1' },
   }), error => error.stderr.toString().includes('SHA-256 mismatch'))
   assert.throws(() => execFileSync(process.execPath, [...readback, '--github-tag', 'v1.0.3-rc.muse-stable'], {
     stdio: 'pipe', env: { ...process.env, MUSE_STAGING_SYNTHETIC_WRONG_ATOM: '1' },
-  }), error => error.stderr.toString().includes('first Atom entry'))
+  }), error => error.stderr.toString().includes('Legacy Atom discovery must select a current app release'))
   await writeFile(join(directories['mac-arm64'], 'muse-med-1.0.3-mac-arm64.zip'), 'changed synthetic bytes')
   assert.throws(() => execFileSync(process.execPath, [stageScript, ...args.slice(0, -1), join(root, 'changed')], { stdio: 'pipe' }),
     error => error.stderr.toString().includes('changed after packaging verification'))
