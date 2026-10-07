@@ -1,9 +1,10 @@
-/** Desktop model defaults keep the native provider available for explicit user configuration. */
+/** Desktop model defaults expose separate, keyless GPT relay and native DeepSeek routes. */
 import { fileURLToPath } from 'node:url'
 import { loadOverlayPatches, composeEntries } from '@deepseek-ai/dsh-app-boot'
 import { expect, it } from 'vitest'
 import LlmRuntime from '../../../packages/llm/llm/src/index.ts'
 import * as DeepSeekApiKey from '../../../packages/llm/llm-deepseek-api-key/src/index.ts'
+import * as PiAi from '../../../packages/llm/llm-pi-ai/src/index.ts'
 import { credentialRef } from '../../../packages/credentials/credentials/src/index.ts'
 import { MemoryCredentials } from '../../../packages/credentials/credentials/tests/memory.ts'
 import { configurationFixture } from '../../../packages/settings/settings/tests/configuration-fixture.ts'
@@ -11,31 +12,59 @@ import { configurationFixture } from '../../../packages/settings/settings/tests/
 async function fixture() {
   const defaults = loadOverlayPatches('muse-default-models', fileURLToPath(new URL(
     '../config/defaults.cordis.patch.yml', import.meta.url,
-  ))).filter(patch => patch.id === 'llm-deepseek')
+  ))).filter(patch => patch.id === 'llm-pi-ai')
   const rows = composeEntries([[{ insert: [
     { id: 'config-editor', name: 'cordis:editor' },
     { id: 'settings', name: 'cordis:settings' },
     { id: 'credentials', name: 'cordis:credentials' },
     { id: 'llm', name: 'cordis:llm' },
     { id: 'llm-deepseek', name: 'cordis:deepseek' },
+    { id: 'llm-pi-ai', name: 'cordis:pi-ai' },
   ] }], defaults])
   return await configurationFixture({ hmr: false, rows,
-    builtins: { llm: LlmRuntime, credentials: MemoryCredentials, deepseek: DeepSeekApiKey } })
+    builtins: { llm: LlmRuntime, credentials: MemoryCredentials, deepseek: DeepSeekApiKey, 'pi-ai': PiAi } })
 }
 
-it('offers no unconfigured native DeepSeek model in a fresh Muse profile', async () => {
+it('offers GPT through the relay and DeepSeek through the native route without shipping credentials', async () => {
   const { ctx } = await fixture()
-  expect(await ctx.llm.listModels('deepseek-official')).toEqual([])
+  expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['deepseek-official', 'yunying-gpt'])
+  expect((await ctx.llm.listModels('yunying-gpt')).map(model => model.id)).toEqual(['gpt-5.6-sol'])
+  expect((await ctx.llm.listModels('deepseek-official')).map(model => model.id))
+    .toEqual(['deepseek-flash', 'deepseek-v4-pro'])
+  expect(ctx.settings.describe().find(view => view.ns === 'llm-pi-ai')?.value).toMatchObject({
+    providers: { 'yunying-gpt': {
+      apiKeyEnv: 'YUNYING_GPT_API_KEY', api: 'openai-completions',
+      baseURL: 'https://wy6688.token6688.com/v1',
+      models: [expect.objectContaining({ id: 'gpt-5.6-sol' })],
+    } },
+  })
   expect(ctx.llm.listConfigurableProviders()).toContainEqual({
     provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [],
   })
   expect(await ctx.credentials.describe(credentialRef('DEEPSEEK_API_KEY'))).toMatchObject({ configured: false })
+  expect(await ctx.credentials.describe(credentialRef('YUNYING_GPT_API_KEY'))).toMatchObject({ configured: false })
+
+  for (const [provider, model] of [
+    ['yunying-gpt', 'gpt-5.6-sol'],
+    ['deepseek-official', 'deepseek-flash'],
+    ['yunying-gpt', 'gpt-5.6-sol'],
+  ] as const) {
+    const call = await ctx.llm.prepareCall({ provider, model })
+    expect(call.config).toMatchObject({ provider, model })
+  }
+
+  await ctx.credentials.set(credentialRef('YUNYING_GPT_API_KEY'), 'synthetic-relay-key')
+  expect(await ctx.credentials.describe(credentialRef('YUNYING_GPT_API_KEY'))).toMatchObject({ configured: true })
+  expect(await ctx.credentials.describe(credentialRef('DEEPSEEK_API_KEY'))).toMatchObject({ configured: false })
+  await ctx.credentials.set(credentialRef('DEEPSEEK_API_KEY'), 'synthetic-official-key')
+  expect(await ctx.credentials.describe(credentialRef('YUNYING_GPT_API_KEY'))).toMatchObject({ configured: true })
+  expect(await ctx.credentials.describe(credentialRef('DEEPSEEK_API_KEY'))).toMatchObject({ configured: true })
 })
 
 it('lets users configure their own native model and credential and keeps the model after restart', async () => {
   const { ctx, start } = await fixture()
   const defaultModels = await ctx.llm.listModels('deepseek-official')
-  expect(defaultModels).toEqual([])
+  expect(defaultModels.map(model => model.id)).toEqual(['deepseek-flash', 'deepseek-v4-pro'])
   const model = { id: 'user-deepseek-model', name: 'Personal DeepSeek' }
   await ctx.settings.mutate('llm-deepseek', [
     { op: 'set', path: ['models'], value: [model] },
