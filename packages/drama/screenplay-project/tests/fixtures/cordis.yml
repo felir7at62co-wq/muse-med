@@ -1,0 +1,13 @@
+- id: agent-default-model
+  config:
+    provider: screenplay-fixture
+    model: screenplay-fixture
+- id: session-persistence-jsonl
+  config:
+    root: './.sessions'
+    compression: none
+- insert:
+    - id: screenplay-project
+      name: '../../src/index.ts'
+    - id: screenplay-fixture
+      name: './model.ts'

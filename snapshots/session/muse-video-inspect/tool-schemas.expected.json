@@ -424,7 +424,7 @@
     },
     {
       "name": "video_inspect",
-      "description": "Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. For dialogue and subtitles, discover audio_transcribe.",
+      "description": "Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. For dialogue and subtitles, discover audio_transcribe.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -447,6 +447,18 @@
           "end_seconds": {
             "type": "number",
             "description": "Exclusive interval end; default video end or start + 60 seconds, whichever is earlier. Maximum sampled interval: 120 seconds."
+          },
+          "strategy": {
+            "type": "string",
+            "description": "Default uniform. scene_dialogue detects scene changes and, when transcript_path is supplied, samples actual ASR utterance midpoints. Deferred observations remain unviewed.",
+            "enum": [
+              "uniform",
+              "scene_dialogue"
+            ]
+          },
+          "transcript_path": {
+            "type": "string",
+            "description": "Optional actual audio_transcribe JSON array or segments wrapper for scene_dialogue; video and ASR source must describe the same complete clip."
           },
           "frame_count": {
             "type": "integer",

@@ -4,7 +4,8 @@ import {once} from 'node:events';
 import http from 'node:http';
 import {cp,mkdtemp,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,dirname} from 'node:path';
+import {createRequire} from 'node:module';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {openStore} from './store.mjs';
@@ -19,7 +20,7 @@ export async function fixture(t,desktopRelayOptions={},browserOrigin=false){
  const root=await mkdtemp(join(tmpdir(),'muse-real-desktop-')),tunnels=[],servers=[],wsServers=[];
  t.after(async()=>{await Promise.allSettled(tunnels.map(x=>x.stop()));for(const wss of wsServers){for(const ws of wss.clients)ws.terminate();await new Promise(r=>wss.close(r));}for(const server of servers){server.closeAllConnections();await new Promise(r=>server.close(r));}await rm(join(root,'plugin/node_modules'),{force:true});await rm(root,{recursive:true,force:true});});
  const plugin=join(root,'plugin');await cp(join(repository,'third_party/plugins/dsh-bridge'),plugin,{recursive:true});applyBridgeDesktopCompatibility(plugin);
- await symlink(join(repository,'third_party/plugins/toolchain/node_modules'),join(plugin,'node_modules'),process.platform==='win32'?'junction':'dir');
+ await symlink(dirname(dirname(createRequire(import.meta.url).resolve('ws/package.json'))),join(plugin,'node_modules'),process.platform==='win32'?'junction':'dir');
  const {createMuseDesktopTunnel}=await import(pathToFileURL(join(plugin,'lib/muse-desktop-tunnel.mjs')).href);
  const store=await openStore(join(root,'accounts.json'));await store.create('alice','password');await store.create('bob','password');
  const listener=http.createServer();servers.push(listener);const base=await listen(listener);

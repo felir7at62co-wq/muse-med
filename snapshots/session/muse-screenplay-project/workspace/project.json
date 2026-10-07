@@ -1,0 +1,54 @@
+{
+  "format_version": 1,
+  "id": "p:00000000-0000-4000-8000-000000000001",
+  "revision": 2,
+  "mode": "faithful",
+  "instructions": "保留心理与作者分析的归属。",
+  "created_at": "2026-10-07T00:00:00.000Z",
+  "updated_at": "2026-10-07T00:00:00.000Z",
+  "sources": [
+    {
+      "id": "s:10f267b30bce9110cf4b156dafafb351a100a5692ca0b927e92452ebc82bfc85:text",
+      "path": "source.txt",
+      "sha256": "10f267b30bce9110cf4b156dafafb351a100a5692ca0b927e92452ebc82bfc85",
+      "kind": "text",
+      "units": [
+        {
+          "id": "s:10f267b30bce9110cf4b156dafafb351a100a5692ca0b927e92452ebc82bfc85:text:u1",
+          "ordinal": 1,
+          "text": "作者认为：乙有些贪心。"
+        },
+        {
+          "id": "s:10f267b30bce9110cf4b156dafafb351a100a5692ca0b927e92452ebc82bfc85:text:u2",
+          "ordinal": 2,
+          "text": ""
+        }
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f:00000000-0000-4000-8000-000000000001",
+      "kind": "author_analysis",
+      "origin": "source",
+      "layer": "commentary",
+      "summary": "作者认为乙贪心。",
+      "anchors": [
+        {
+          "unit_id": "s:10f267b30bce9110cf4b156dafafb351a100a5692ca0b927e92452ebc82bfc85:text:u1",
+          "quote": "乙有些贪心"
+        }
+      ],
+      "proposer": "fixture-writer",
+      "created_at": "2026-10-07T00:00:00.000Z",
+      "review": {
+        "actor": "fixture-reviewer",
+        "time": "2026-10-07T00:00:00.000Z",
+        "decision": "approve",
+        "reason": "这是作者判断，不是甲的心理。"
+      }
+    }
+  ],
+  "candidates": [],
+  "accepted": []
+}

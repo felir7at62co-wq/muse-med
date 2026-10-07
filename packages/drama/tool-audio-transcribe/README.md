@@ -50,6 +50,8 @@ The Host account service reads its origin-bound saved session and sends the audi
 
 The gateway selects standard or flash recognition. Flash uses the [recording-file flash API](https://www.volcengine.com/docs/6561/1631584?lang=zh), with at most two hours and 100 MB per request. The tool splits long inputs into configured chunks, keeps a source SHA-256 and per-part IDs in the receipt, then merges sentence and word timestamps onto the original media clock. Default ten-minute PCM chunks use about 19.2 MB each. Completed outputs publish atomically without overwriting different contents; repeated status calls reconcile identical outputs. Flash requests with unknown outcomes remain unresolved and are not automatically charged again.
 
+Available speaker IDs are preserved in timed JSON. Merging chunks prefixes each ID with its original job identity, so the same provider ID in separate tasks cannot silently merge voices. IDs are voice labels rather than character names; assigning a character requires separately verified audiovisual evidence.
+
 No runtime invariant companion is published because task receipts and registered tools each have one owning storage or registry, with no independently observed state to reconcile.
 
 ## Model Experience

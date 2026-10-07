@@ -19,6 +19,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | `stagehand_act`, `stagehand_extract`, `stagehand_navigate`, `stagehand_observe`, `stagehand_screenshot`, `stagehand_tabs` | `ctx.browserUse`, `ctx.agents`, `ctx.tools`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userQuestions` | `tool/call`, `tool/result after an answer or timeout`, `late user/message` | - | ask_user_question keeps the original blocking behavior by default; set `mode: timed` to opt into a foreground timeout and pending result while the question remains answerable. In timed mode, `timeout: -1` keeps that call blocking indefinitely. |
+| `@deepseek-ai/dsh-screenplay-project` | `screenplay_project` | `ctx.fs`, `ctx.tools`, `ctx.attachments`, `ctx.llm`, `ctx.sandboxPolicy when filesystem confinement is enabled` | `tool/call`, `tool/result`, `guarded project artifact`, `accepted screenplay and source map` | - | Source-unit identities, revisions, candidate digests, timestamps and rendered line references are issued by the host. Facts and episode candidates require a different reviewing session before acceptance. |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`, `ctx.museAccount`, `FFmpeg and FFprobe on PATH (or configured)` | `tool/call`, `tool/result`, `transcript/jobs task receipt`, `transcript/raw timed TXT and JSON when complete` | - | `start` submits compressed speech under the signed-in Muse account and returns a project receipt; `status` checks that receipt and publishes timed TXT and JSON when recognition completes. The same tool is available in every Muse mode, with provider credentials held by the account gateway. |
 | `@deepseek-ai/dsh-tool-video-inspect` | `video_inspect` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | - | Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.ptcRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: ptc` / `mode: both` (see the PTC mode Agent Note). Under `ptc` it is the registry's only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime's language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
@@ -526,6 +527,768 @@ Source: [`packages/interaction/tool-ask-user/src/index.ts`](../packages/interact
 
 ask_user_question keeps the original blocking behavior by default; set `mode: timed` to opt into a foreground timeout and pending result while the question remains answerable. In timed mode, `timeout: -1` keeps that call blocking indefinitely.
 
+<a id="deepseek-aidsh-screenplay-project"></a>
+
+## `@deepseek-ai/dsh-screenplay-project`
+
+### `screenplay_project`
+
+小说、视频、换梗剧本的来源与逐集验收工具。init 记录用户方向；import_source 导入原文、segments 转写或 video_inspect 实际生成的 video_inspection 帧清单；read_source 返回程序生成的片段编号与原文。propose_fact 区分动作、发声、角色心理、作者分析；review_fact 须由另一会话核对归属。propose_facts/review_facts 可原子批量处理最多 20 条事实，每条独立归属与审校理由必须保留，任一失败整批不写入。read_source/list_facts 每次最多 100 条，编号从 1 开始。list_facts 从 1 起始分页恢复事实，read_fact/read_candidate 读取审校所需的事实或完整候选。stage 提交结构化场次；stage_files 按文件顺序组稿，每个 JSON 文件含一个完整场次，单文件最多 65536 字节、最多 100 个文件，避免一次生成长 JSON；正文引用已批准事实。review 独立核对，commit 推进下一集。status 是中断恢复依据，export 只导出已验收正文。所有修改携带当前 expected_revision；编号、时间、摘要和引用行号由程序生成。已验收稿需修改时用 fork_project，从 before_episode 集之前复制已验收状态到新的 destination 项目；原稿与原项目保留，修订仍须独立验收。OS 仅对应本人的心理，作者分析不能变成 OS。witnesses 仅填实际听见对白或看见动作的人；OS/VO 无场内见证者。requires_knowledge 填本人物须先获知的事实编号；未知身份使用声音编号，不猜角色。机械通过不等于语义通过，独立审校仍须读取来源和完整候选正文。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "request": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "init"
+            },
+            "project": {
+              "type": "string"
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "faithful",
+                "adaptation"
+              ]
+            },
+            "instructions": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "mode",
+            "instructions"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "import_source"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "path": {
+              "type": "string"
+            },
+            "source_kind": {
+              "type": "string",
+              "enum": [
+                "text",
+                "transcript",
+                "video_inspection"
+              ]
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "path",
+            "source_kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "fork_project"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "destination": {
+              "type": "string"
+            },
+            "before_episode": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "destination",
+            "before_episode"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "read_source"
+            },
+            "project": {
+              "type": "string"
+            },
+            "source_id": {
+              "type": "string"
+            },
+            "start": {
+              "type": "integer"
+            },
+            "count": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "source_id",
+            "start",
+            "count"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "propose_fact"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "fact": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "action",
+                    "speech",
+                    "thought",
+                    "author_analysis"
+                  ]
+                },
+                "origin": {
+                  "type": "string",
+                  "enum": [
+                    "source",
+                    "adaptation"
+                  ]
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "layer": {
+                  "type": "string",
+                  "enum": [
+                    "present",
+                    "flashback",
+                    "dream",
+                    "imagined",
+                    "commentary"
+                  ]
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "anchors": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "unit_id": {
+                        "type": "string"
+                      },
+                      "quote": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "unit_id",
+                      "quote"
+                    ]
+                  }
+                },
+                "adaptation_reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "origin",
+                "layer",
+                "summary",
+                "anchors"
+              ]
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "fact"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "propose_facts"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "facts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "action",
+                      "speech",
+                      "thought",
+                      "author_analysis"
+                    ]
+                  },
+                  "origin": {
+                    "type": "string",
+                    "enum": [
+                      "source",
+                      "adaptation"
+                    ]
+                  },
+                  "actor": {
+                    "type": "string"
+                  },
+                  "layer": {
+                    "type": "string",
+                    "enum": [
+                      "present",
+                      "flashback",
+                      "dream",
+                      "imagined",
+                      "commentary"
+                    ]
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "anchors": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "unit_id": {
+                          "type": "string"
+                        },
+                        "quote": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "unit_id",
+                        "quote"
+                      ]
+                    }
+                  },
+                  "adaptation_reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "origin",
+                  "layer",
+                  "summary",
+                  "anchors"
+                ]
+              }
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "facts"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "review_facts"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "reviews": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "fact_id": {
+                    "type": "string"
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "approve",
+                      "reject"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "fact_id",
+                  "decision",
+                  "reason"
+                ]
+              }
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "reviews"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "review_fact"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "fact_id": {
+              "type": "string"
+            },
+            "decision": {
+              "type": "string",
+              "enum": [
+                "approve",
+                "reject"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "fact_id",
+            "decision",
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "stage"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "episode": {
+              "type": "integer"
+            },
+            "scenes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "location": {
+                    "type": "string"
+                  },
+                  "time": {
+                    "type": "string"
+                  },
+                  "setting": {
+                    "type": "string",
+                    "description": "Source-verified interior or exterior; omission remains explicitly unresolved in the script.",
+                    "enum": [
+                      "内",
+                      "外",
+                      "内外"
+                    ]
+                  },
+                  "layer": {
+                    "type": "string",
+                    "enum": [
+                      "present",
+                      "flashback",
+                      "dream",
+                      "imagined"
+                    ]
+                  },
+                  "transition": {
+                    "type": "string",
+                    "enum": [
+                      "opening",
+                      "continuous",
+                      "cut",
+                      "enter_flashback",
+                      "return_present"
+                    ]
+                  },
+                  "characters": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "beats": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "action",
+                            "dialogue",
+                            "os",
+                            "vo"
+                          ]
+                        },
+                        "actor": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "fact_ids": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "requires_knowledge": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "witnesses": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "hook": {
+                          "type": "boolean",
+                          "description": "Mark the existing episode-end suspense beat, never invent a hook for faithful source material."
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "text",
+                        "fact_ids",
+                        "requires_knowledge",
+                        "witnesses"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "location",
+                  "time",
+                  "layer",
+                  "transition",
+                  "characters",
+                  "beats"
+                ]
+              }
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "episode",
+            "scenes"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "stage_files"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "episode": {
+              "type": "integer"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "episode",
+            "files"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "review"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "candidate_id": {
+              "type": "string"
+            },
+            "candidate_sha256": {
+              "type": "string"
+            },
+            "decision": {
+              "type": "string",
+              "enum": [
+                "approve",
+                "reject"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "candidate_id",
+            "candidate_sha256",
+            "decision",
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "commit"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "candidate_id": {
+              "type": "string"
+            },
+            "candidate_sha256": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "candidate_id",
+            "candidate_sha256"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "status"
+            },
+            "project": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "read_fact"
+            },
+            "project": {
+              "type": "string"
+            },
+            "fact_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "fact_id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "list_facts"
+            },
+            "project": {
+              "type": "string"
+            },
+            "start": {
+              "type": "integer"
+            },
+            "count": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "start",
+            "count"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "read_candidate"
+            },
+            "project": {
+              "type": "string"
+            },
+            "candidate_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "candidate_id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "export"
+            },
+            "project": {
+              "type": "string"
+            },
+            "candidate_id": {
+              "type": "string"
+            },
+            "directory": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "candidate_id",
+            "directory"
+          ]
+        }
+      ]
+    }
+  },
+  "required": [
+    "request"
+  ]
+}
+```
+
+Source: [`packages/drama/screenplay-project/src/index.ts`](../packages/drama/screenplay-project/src/index.ts)
+
+Source-unit identities, revisions, candidate digests, timestamps and rendered line references are issued by the host. Facts and episode candidates require a different reviewing session before acceptance.
+
 <a id="deepseek-aidsh-tool-audio-transcribe"></a>
 
 ## `@deepseek-ai/dsh-tool-audio-transcribe`
@@ -592,7 +1355,7 @@ Source: [`packages/drama/tool-audio-transcribe/src/index.ts`](../packages/drama/
 
 ### `video_inspect`
 
-Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. For dialogue and subtitles, discover audio_transcribe.
+Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. For dialogue and subtitles, discover audio_transcribe.
 
 ```json
 {
@@ -617,6 +1380,18 @@ Inspect local video metadata or view timestamped sampled frames. Returns actual 
     "end_seconds": {
       "type": "number",
       "description": "Exclusive interval end; default video end or start + 60 seconds, whichever is earlier. Maximum sampled interval: 120 seconds."
+    },
+    "strategy": {
+      "type": "string",
+      "description": "Default uniform. scene_dialogue detects scene changes and, when transcript_path is supplied, samples actual ASR utterance midpoints. Deferred observations remain unviewed.",
+      "enum": [
+        "uniform",
+        "scene_dialogue"
+      ]
+    },
+    "transcript_path": {
+      "type": "string",
+      "description": "Optional actual audio_transcribe JSON array or segments wrapper for scene_dialogue; video and ASR source must describe the same complete clip."
     },
     "frame_count": {
       "type": "integer",

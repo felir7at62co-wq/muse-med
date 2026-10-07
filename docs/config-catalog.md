@@ -2771,6 +2771,34 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-schedule -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-screenplay-project -->
+<a id="deepseek-aidsh-screenplay-project"></a>
+
+## `@deepseek-ai/dsh-screenplay-project`
+
+- `inject`: `fs` · `tools` · `attachments` · `llm`
+- `source`: [`packages/drama/screenplay-project/src/index.ts:22`](../packages/drama/screenplay-project/src/index.ts)
+
+```ts config-catalog
+/** Source allocation, durable project size, and bounded source-read budgets. */
+export interface Config extends ProjectLimits {}
+
+/** Validated allocation and source-read budgets. */
+export interface ProjectLimits {
+  /** Maximum bytes read from each original source file. */
+  maxSourceBytes: number
+  /** Maximum encoded bytes loaded or published for a project artifact. */
+  maxProjectBytes: number
+  /** Maximum original units, facts, or drafted scene files in one operation. */
+  maxReadUnits: number
+  /** Maximum encoded bytes returned by a source or fact window. */
+  maxReadBytes: number
+  /** Maximum facts proposed or independently reviewed by one atomic mutation. */
+  maxFactBatch: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-screenplay-project -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-sdk-app -->
 <a id="deepseek-aidsh-sdk-app"></a>
 
@@ -4439,7 +4467,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-video-inspect`
 
 - `inject`: `tools` · `fs` · `subprocess` · `attachments` · `sandboxPolicy`
-- `source`: [`packages/perception/tool-video-inspect/src/index.ts:22`](../packages/perception/tool-video-inspect/src/index.ts)
+- `source`: [`packages/perception/tool-video-inspect/src/index.ts:23`](../packages/perception/tool-video-inspect/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-resolved media executables and inspection bounds. */
@@ -4470,6 +4498,14 @@ export interface Config {
   commandTimeoutMs: number
   /** Process termination grace, in milliseconds. */
   graceMs: number
+  /** Scene difference threshold supplied to the FFmpeg scene filter. */
+  sceneThreshold: number
+  /** Source time offset for observations before and after a detected cut. */
+  scenePaddingSeconds: number
+  /** Maximum event observations in one adaptive selection plan. */
+  maxPlanPoints: number
+  /** Maximum bytes read from an ASR transcript used for adaptive sampling. */
+  maxTranscriptBytes: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-video-inspect -->

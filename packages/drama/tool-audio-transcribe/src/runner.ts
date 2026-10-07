@@ -423,6 +423,7 @@ async function finishParts(
       return (job.segments ?? []).map((row) => {
         if (row.end > part.duration + 0.25) throw new Error('Recognition timestamp exceeds its audio part')
         return { ...row, start: row.start + part.offset, end: row.end + part.offset,
+          ...(row.speaker_id === undefined ? {} : { speaker_id: `${part.id}:${row.speaker_id}` }),
           ...(row.words === undefined ? {} : { words: row.words.map(word => ({
             ...word, start: word.start + part.offset, end: word.end + part.offset,
           })) }) }

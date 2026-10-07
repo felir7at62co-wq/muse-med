@@ -6,7 +6,8 @@ import {once} from 'node:events';
 import {cp,mkdtemp,rm,symlink,unlink,writeFile} from 'node:fs/promises';
 import http from 'node:http';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,dirname} from 'node:path';
+import {createRequire} from 'node:module';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {applyBridgeDesktopCompatibility} from '../../third_party/plugins/compatibility/bridge-desktop.mjs';
 import {openAdminAccess} from './admin-access.mjs';
@@ -89,7 +90,7 @@ for(const launch of ['factory','executable'])test(`desktop ${launch} preserves e
  assert.equal(authorized.status,200);assert.deepEqual(await authorized.json(),{owner:alice.id,kind:'administrator-runtime'});
  assert.deepEqual(starts,[alice.id]);assert.deepEqual(nativeRequests,[{url:'/api/session/list',cookie:'native=admin-private',authorization:undefined}]);
  const plugin=join(root,'plugin');await cp(join(repository,'third_party/plugins/dsh-bridge'),plugin,{recursive:true});applyBridgeDesktopCompatibility(plugin);
- await symlink(join(repository,'third_party/plugins/toolchain/node_modules'),join(plugin,'node_modules'),process.platform==='win32'?'junction':'dir');pluginLinked=true;
+ await symlink(dirname(dirname(createRequire(import.meta.url).resolve('ws/package.json'))),join(plugin,'node_modules'),process.platform==='win32'?'junction':'dir');pluginLinked=true;
  const {createMuseDesktopTunnel}=await import(pathToFileURL(join(plugin,'lib/muse-desktop-tunnel.mjs')).href);
  for(const [account,cookie]of [[alice,ac],[bob,bc]]){
   const host=http.createServer((req,res)=>{res.setHeader('content-type','application/json');res.end(JSON.stringify({owner:account.id,cookie:req.headers.cookie,origin:req.headers.origin}));});servers.push(host);await listen(host);

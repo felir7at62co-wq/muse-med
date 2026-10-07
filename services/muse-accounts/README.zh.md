@@ -25,6 +25,7 @@ kind: "package-reference"
 | `providerKind` | 旧单资源默认值：`standard`（1.0）或 `flash`；显式资源分别声明版本。 |
 | `resources`、`quotaGroups`、`defaultPoolId` | 资源声明 `poolId`、`appId`、私密 `accessToken`、`quotaGroup`、`maxConcurrentJobs` 及对应 `serviceVersion`／`resourceId`。组声明 `id`、共享 `maxConcurrentJobs` 及可选日额度；默认资源处理未提供用途的请求并保留旧归属。 |
 | `routes` | 用途映射：`{ "subtitles": "flash", "screenplay": "standard-v2" }`；兼容时显式选择 `standard-v1`。混合池须使用这些服务类型并提供对应资源。 |
+| `speakerDiarization`, `speakerDiarizationVersion`, `speakerLongAudioSeconds` | 剧本标准转写默认启用说话人分离，使用版本 `200`，以 180 秒区分短、长音频模式。可显式关闭或选择 `300`，后者不发送仅适用于 `200` 的模式。保留 `speaker_id`、`additions.speaker_id` 和实际 AUC `additions.speaker` 字段，别名冲突会使结果失败；编号区分同一任务内的声音，不能直接确定角色姓名。 |
 | 组 `submitQps`、`queryQps` | 标准版提交与查询的独立频率，各默认 10；合计不超过 20 QPS，不表示在途任务数。 |
 | 组 `rollingAudioWindowSeconds`、`maxRollingAudioSeconds` | 可选且成对配置的组时长上限，覆盖所有账号与版本。标准版部署使用 1,800 秒／1,800,000 音频秒，对应官方半小时提交 500 小时限制。 |
 | `legacyAppId` | 用于迁移无资源字段收据的原应用 ID，默认取保留的顶层 `appId`。显式资源池存在旧收据时必须提供此归属，并与默认应用一致。 |
@@ -48,7 +49,7 @@ kind: "package-reference"
 
 标准版工作线程只提交一次，随后查询原任务直到完成或静音。处理中与未知结果持续占用应用／服务／组名额，重启后亦然；状态读取不额外查询提供方。留存到期删除音频，但未知计费不可重试，也不释放名额；修改容量前核查未解决的提供方任务。缺 `providerKind` 的旧收据保持标准 1.0 语义，须保留原存储与服务定义。每份账本只运行一个网关，多个部署须分配共享额度；`close()` 停止受理与轮询并等待自身操作完成，不取消提供方任务。
 
-极速版对客户端允许的 `zh` 和 `auto` 都使用提供方默认语言检测，不发送显式语言选项。标准版适配器保留其语言参数。
+极速版对客户端允许的 `zh` 和 `auto` 都使用提供方默认语言检测，不发送显式语言选项。标准版中文转剧本请求使用提供方默认中英模型以保留说话人分离能力；旧标准版请求保留原有语言参数。
 
 ### ASR 应用资源池
 

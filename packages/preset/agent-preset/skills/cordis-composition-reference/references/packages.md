@@ -182,6 +182,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-drama-settings` | no | Short-drama settings and Web UI for delivery, media and the automatic per-drama paid-call budget |
+| `@deepseek-ai/dsh-screenplay-project` | yes | Source-backed screenplay projects with independent episode review and resumable character knowledge |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | yes | Muse account cloud speech transcription with versioned local project output |
 | `@deepseek-ai/dsh-tool-bgm-compose` | yes | Short-drama BGM composer: preview, deterministic source assembly, and fixed-format WAV verification |
 | `@deepseek-ai/dsh-tool-drama-assets` | yes | Short-drama pre-spend asset reconciliation: the model-facing drama_assets tool that compares the Jubian project's used assets with the manifest and writes the evidence the paid-call gate reads |

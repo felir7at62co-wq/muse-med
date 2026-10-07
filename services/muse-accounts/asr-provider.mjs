@@ -33,9 +33,10 @@ export class AsrProviderError extends Error{
 function headers(config,id){return {'content-type':'application/json','X-Api-App-Key':config.appId,'X-Api-Access-Key':config.accessToken,'X-Api-Resource-Id':config.resourceId??resource,'X-Api-Request-Id':id};}
 
 /** Submit one paid request. Every failure retains an unknown charge outcome and must be reconciled by query. */
-export async function submitAsr(config,{id,url,language,format='mp3'},fetcher=fetch){
+export async function submitAsr(config,{id,url,language,format='mp3',purpose,durationSeconds},fetcher=fetch){
+ const speakers=purpose==='screenplay'&&config.speakerDiarization?{enable_speaker_info:true,ssd_version:config.speakerDiarizationVersion,...config.speakerDiarizationVersion==='200'?{ssd_mode:durationSeconds>=config.speakerLongAudioSeconds?1:0}:{}}:{};
  let response;
- try{response=await fetcher(endpoint+'/submit',{method:'POST',headers:{...headers(config,id),'X-Api-Sequence':'-1'},body:JSON.stringify({user:{uid:'muse-audio-transcribe'},audio:{format,url,rate:16000,channel:1},request:{model_name:'bigmodel',enable_itn:true,enable_punc:true,show_utterances:true,...language==='auto'?{enable_auto_lang:true}:{language}}}),signal:AbortSignal.timeout(config.timeoutMs)});}
+ try{response=await fetcher(endpoint+'/submit',{method:'POST',headers:{...headers(config,id),'X-Api-Sequence':'-1'},body:JSON.stringify({user:{uid:'muse-audio-transcribe'},audio:{format,url,rate:16000,channel:1},request:{model_name:'bigmodel',enable_itn:true,enable_punc:true,show_utterances:true,...speakers,...language==='auto'?{enable_auto_lang:true}:purpose==='screenplay'?{}:{language}}}),signal:AbortSignal.timeout(config.timeoutMs)});}
  catch(error){throw new AsrProviderError('submit','transport');}
  const code=response.headers.get('X-Api-Status-Code');
  if(response.ok&&['20000000','20000001','20000002'].includes(code))return;
@@ -64,6 +65,12 @@ function normalizeResult(body){
   if(!Number.isFinite(start)||start<0||!Number.isFinite(end)||end<=start||typeof text!=='string'||segments.length&&start<segments.at(-1).start*1000)throw Error('ASR utterance has invalid time or text');
   if(text.trim()){
    const segment={start:start/1000,end:end/1000,text:text.trim()};
+   const identities=[row.speaker_id,row.additions?.speaker_id,row.additions?.speaker].filter(value=>value!==undefined);
+   const speaker=identities[0];
+   if(speaker!==undefined){
+    if(identities.some(value=>typeof value!=='string'||!value.trim()||value!==speaker))throw Error('ASR speaker identity is invalid');
+    segment.speaker_id=speaker;
+   }
    if(row.words!==undefined){
     if(!Array.isArray(row.words))throw Error('ASR words are invalid');
     segment.words=[];

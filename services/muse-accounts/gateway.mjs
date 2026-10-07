@@ -286,7 +286,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
    storage=createTosAudioStore(config,sdk.default??sdk);
   }
   const resources=config.resources.map(resource=>{
-   const credentials={appId:resource.appId,accessToken:resource.accessToken,resourceId:resource.resourceId,timeoutMs:config.timeoutMs};
+   const credentials={appId:resource.appId,accessToken:resource.accessToken,resourceId:resource.resourceId,timeoutMs:config.timeoutMs,speakerDiarization:config.speakerDiarization,speakerDiarizationVersion:config.speakerDiarizationVersion,speakerLongAudioSeconds:config.speakerLongAudioSeconds};
    return {...resource,provider:{submit:input=>submitAsr(credentials,input),query:id=>queryAsr(credentials,id),recognize:input=>recognizeFlashAsr(credentials,input)}};
   });
   asr=createAsrService({root:config.root,storage,storageKind:config.storageKind,resources,quotaGroups:config.quotaGroups,defaultPoolId:config.defaultPoolId,legacyAppId:config.legacyAppId,routes:config.routes,providerKind:config.providerKind,autoStart:false,pollIntervalMs:config.pollIntervalMs,maxConcurrentJobs:config.maxConcurrentJobs,maxQueuedJobs:config.maxQueuedJobs,maxPendingUploadsPerAccount:config.maxPendingUploadsPerAccount,probe:file=>import('./asr-service.mjs').then(module=>module.probeAudio(file,config.ffprobePath)),maxAudioBytes:config.maxAudioBytes,maxDurationSeconds:config.maxDurationSeconds,maxDailySeconds:config.maxDailySeconds,maxDailyJobs:config.maxDailyJobs,maxActiveJobs:config.maxActiveJobs,retentionSeconds:config.retentionSeconds});

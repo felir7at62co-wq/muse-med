@@ -252,6 +252,7 @@ flowchart TD
   subgraph group_drama["packages/drama"]
     pkg_drama_settings["drama-settings"]
     pkg_drama_skills["drama-skills"]
+    pkg_screenplay_project["screenplay-project"]
     pkg_tool_audio_transcribe["tool-audio-transcribe"]
     pkg_tool_bgm_compose["tool-bgm-compose"]
     pkg_tool_drama_assets["tool-drama-assets"]
@@ -885,6 +886,14 @@ flowchart TD
   pkg_workspace_changes --> pkg_subprocess
   pkg_workspace_changes --> pkg_tools
   pkg_drama_settings --> pkg_tools
+  pkg_screenplay_project --> pkg_attachment
+  pkg_screenplay_project --> pkg_brand
+  pkg_screenplay_project --> pkg_fs
+  pkg_screenplay_project --> pkg_llm
+  pkg_screenplay_project --> pkg_sandbox
+  pkg_screenplay_project --> pkg_sandbox_policy
+  pkg_screenplay_project --> pkg_tools
+  pkg_screenplay_project --> pkg_util_values
   pkg_tool_audio_transcribe --> pkg_llm
   pkg_tool_audio_transcribe --> pkg_tools
   pkg_tool_bgm_compose --> pkg_llm
@@ -1689,6 +1698,7 @@ flowchart TD
 | [`tool-present`](../packages/deliverables/tool-present) | `deliverables` | [`agent`](../packages/core/agent), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tools`](../packages/core/tools) |
 | [`workspace-changes`](../packages/deliverables/workspace-changes) | `deliverables` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
 | [`drama-settings`](../packages/drama/drama-settings) | `drama` | [`tools`](../packages/core/tools) |
+| [`screenplay-project`](../packages/drama/screenplay-project) | `drama` | [`attachment`](../packages/attachment/attachment), [`brand`](../packages/util/brand), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`tools`](../packages/core/tools), [`util-values`](../packages/util/values) |
 | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-bgm-compose`](../packages/drama/tool-bgm-compose) | `drama` | [`llm`](../packages/llm/llm), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
 | [`tool-drama-assets`](../packages/drama/tool-drama-assets) | `drama` | [`credentials`](../packages/credentials/credentials), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |

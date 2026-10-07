@@ -56,6 +56,14 @@ test('purpose routes pin service and application; changing purpose under the sam
  }finally{release.resolve();}
 });
 
+test('the worker submits immutable screenplay purpose and probed audio duration to its original provider',async t=>{
+ const requests=[];
+ const env=await fixture(t,()=>({recognize:async()=>({status:'silent'}),submit:async request=>{requests.push(request);},query:async()=>({status:'silent'})}),{probe:async()=>240});
+ const job=await env.submit('screenplay');await env.service.idle();
+ assert.equal(requests.length,1);assert.equal(requests[0].purpose,'screenplay');assert.equal(requests[0].durationSeconds,240);
+ assert.equal((await env.service.get('alice',job.id)).service_version,'standard-v2');
+});
+
 test('standard jobs retain their worker until completion and queued accounts share capacity fairly',async t=>{
  const entered=[deferred(),deferred()],release=[deferred(),deferred()],calls=[];
  const config=declaration(()=>({}));config.quotaGroups=config.quotaGroups.map(group=>group.id==='standard-shared'?{...group,maxConcurrentJobs:1}:group);
@@ -157,6 +165,8 @@ test('legacy receipt migration retains provider kind and does not invent a purpo
 
 test('gateway download signatures cover processing and retained audio without exceeding seven days',()=>{
  const input={...declaration(()=>({})),resources:declaration(()=>({})).resources.map(row=>({...row,accessToken:'synthetic'})),root:join(tmpdir(),'synthetic-jobs'),ffprobePath:'ffprobe',timeoutMs:180000,maxAudioBytes:100000000,maxDurationSeconds:7200,maxDailySeconds:180000,maxDailyJobs:1000,maxActiveJobs:1,retentionSeconds:86400,sweepIntervalSeconds:60,storageKind:'gateway',signedUrlTtlSeconds:86400,gatewayStorage:{root:join(tmpdir(),'synthetic-private-audio'),baseURL:'https://synthetic.invalid/api/asr/audio/',secret:'synthetic'.repeat(8)}};
+ for(const extra of [{speakerDiarization:'yes'},{speakerDiarizationVersion:'100'},{speakerLongAudioSeconds:0},{speakerLongAudioSeconds:1.5}])assert.throws(()=>resolveAsrConfig({...input,...extra}),/speaker configuration/);
+ assert.equal(resolveAsrConfig(input).speakerDiarization,true);
  assert.equal(resolveAsrConfig(input).retentionSeconds,86400);
  for(const gatewayStorage of [{...input.gatewayStorage,baseURL:'http://synthetic.invalid/api/asr/audio/'},{...input.gatewayStorage,root:input.root},{...input.gatewayStorage,secret:'short'}])assert.throws(()=>resolveAsrConfig({...input,gatewayStorage}),/configuration/);
  assert.equal(resolveAsrConfig({...input,signedUrlTtlSeconds:604800}).signedUrlTtlSeconds,604800);

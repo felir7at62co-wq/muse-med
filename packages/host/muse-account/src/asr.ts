@@ -20,6 +20,8 @@ export interface MuseAsrSegment {
   readonly start: number
   readonly end: number
   readonly text: string
+  /** Provider-local speaker identity; it does not establish a screenplay character name. */
+  readonly speaker_id?: string
   readonly words?: readonly { readonly start: number; readonly end: number; readonly text: string }[]
 }
 
@@ -37,6 +39,8 @@ function validSegments(value: unknown): boolean {
   return value.every((row: unknown) => {
     if (!validSpan(row) || row.start < previous) return false
     previous = row.start
+    const speaker = (row as Record<string, unknown>).speaker_id
+    if (speaker !== undefined && (typeof speaker !== 'string' || speaker.trim().length === 0)) return false
     const words = (row as Record<string, unknown>).words
     if (words === undefined) return true
     if (!Array.isArray(words)) return false

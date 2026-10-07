@@ -24,6 +24,7 @@ kind: "package-group"
 
 | 包 | 提供什么 |
 |---|---|
+| [`screenplay-project/`](screenplay-project/README.zh.md) | 以来源为依据写作、独立事实与分集审校、程序生成引用和可恢复的人物知情状态 |
 | [`tool-audio-transcribe/`](tool-audio-transcribe/README.zh.md) | 模型可见的 `audio_transcribe` 工具：通过当前账号云端转写本地媒体，保存持久任务收据和版本化转写稿 |
 | [`tool-shot-script/`](tool-shot-script/README.zh.md) | 模型可见的 `drama_shot` 工具：硬失败与警告分开的脚本校验、打包预算预演，以及 matched JSON 与单集 package 的编译 |
 | [`tool-bgm-compose/`](tool-bgm-compose/README.zh.md) | 模型可见的 `drama_bgm` 工具：源曲分析、确定性交叉淡化合成、无覆盖发布与固定 WAV 核验 |

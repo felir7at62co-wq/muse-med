@@ -136,7 +136,7 @@ it('queries a prepared receipt before retrying the identical idempotency key', a
 })
 
 
-it('splits long media into durable jobs and merges word timestamps onto the source clock', async () => {
+it('merges word timestamps onto the source clock and scopes speaker identities to each durable part', async () => {
   const fixture = await setup()
   const calls: Array<{ offset: number; duration: number }> = []
   const states = new Map<string, MuseAsrJob>()
@@ -151,10 +151,11 @@ it('splits long media into durable jobs and merges word timestamps onto the sour
   const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', account, { ...config, chunkSeconds: 10 }, media)
   expect(calls).toEqual([{ offset: 0, duration: 10 }, { offset: 10, duration: 10 }, { offset: 20, duration: 5 }])
   expect(submits).toBe(3)
-  for (const id of states.keys()) states.set(id, { id, status: 'complete', segments: [{ start: 1, end: 2, text: 'hi', words: [{ start: 1, end: 2, text: 'hi' }] }] })
+  for (const id of states.keys()) states.set(id, { id, status: 'complete', segments: [{ start: 1, end: 2, text: 'hi', speaker_id: '0', words: [{ start: 1, end: 2, text: 'hi' }] }] })
   const done = await finishAudioTranscription(fixture.project, first.receipt, account)
   const segments = JSON.parse(await readFile(done.output_json!, 'utf8')) as NonNullable<MuseAsrJob['segments']>
   expect(segments.map(row => row.words?.[0]?.start)).toEqual([1, 11, 21])
+  expect(segments.map(row => row.speaker_id)).toEqual([...states.keys()].map(id => `${id}:0`))
   expect(await readFile(done.output_srt!, 'utf8')).toContain('00:00:21,000 --> 00:00:22,000')
   expect((await finishAudioTranscription(fixture.project, first.receipt, account)).status).toBe('complete')
   expect(submits).toBe(3)

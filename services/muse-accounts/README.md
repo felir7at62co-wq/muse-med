@@ -25,6 +25,7 @@ The service reads a private JSON file named by `MUSE_ASR_CONFIG`. Omit the varia
 | `providerKind` | Legacy single-resource default: `standard` (1.0) or `flash`. Explicit resources declare their own versions. |
 | `resources`, `quotaGroups`, `defaultPoolId` | Resources declare `poolId`, `appId`, private `accessToken`, `quotaGroup`, `maxConcurrentJobs`, and matching `serviceVersion`/`resourceId`. Groups declare `id`, shared `maxConcurrentJobs`, and optional daily limits. The default handles requests without a purpose and retains legacy ownership. |
 | `routes` | Purpose map: `{ "subtitles": "flash", "screenplay": "standard-v2" }`; explicitly select `standard-v1` for compatibility. Mixed pools require these families and configured resources. |
+| `speakerDiarization`, `speakerDiarizationVersion`, `speakerLongAudioSeconds` | Screenplay standard requests enable speaker separation by default, using version `200` and short/long mode split at 180 seconds. Disable explicitly or select `300` without the `200`-only mode. Available `speaker_id`, `additions.speaker_id`, and observed AUC `additions.speaker` values survive normalization; conflicting aliases fail the result; they identify voices within a task, not named characters. |
 | Group `submitQps`, `queryQps` | Separate standard request frequencies, each defaulting to 10; their sum cannot exceed 20 QPS. These are not in-flight job counts. |
 | Group `rollingAudioWindowSeconds`, `maxRollingAudioSeconds` | Optional paired ceiling across accounts and versions. Standard deployment uses 1,800 seconds / 1,800,000 audio seconds for the official half-hour / 500-hour audio submission limit. |
 | `legacyAppId` | Original application ID for migrating receipts without resource fields. Defaults to the retained top-level `appId`; an explicit pool with old receipts must provide this referent, matching its default application. |
@@ -48,7 +49,7 @@ The account-authenticated API accepts `audio/mpeg` and `audio/wav`, verifying MP
 
 Standard workers submit once and poll the original task through completion or silence. Processing and unknown outcomes retain application/service/group slots across restart; status reads do not issue extra queries. Retention removes audio without making unknown charges retryable or freeing their slots. Investigate unresolved provider tasks before changing capacity. Receipts without `providerKind` retain standard 1.0 semantics; preserve their original storage and service definitions. Run one gateway per ledger and divide shared allowances between deployments. `close()` stops admission and polling, awaits owned operations, and does not cancel supplier tasks.
 
-Flash uses the provider's default language detection for both accepted client values, `zh` and `auto`; it sends no explicit language option. The standard adapter retains its language parameters.
+Flash uses the provider's default language detection for both accepted client values, `zh` and `auto`; it sends no explicit language option. Standard screenplay Chinese requests use the provider's default Chinese/English model so speaker separation remains available; legacy standard requests retain their language parameters.
 
 ### ASR application pools
 

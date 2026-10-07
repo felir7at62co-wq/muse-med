@@ -1,0 +1,7 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: screenplay-project
+      name: '../../../packages/drama/screenplay-project/src/index.ts'

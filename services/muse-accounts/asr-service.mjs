@@ -16,7 +16,8 @@ const digest=value=>createHash('sha256').update(value).digest('hex');
 
 /** Resolve and validate private gateway configuration before creating workers or storage clients. */
 export function resolveAsrConfig(input){
- const config={providerKind:'standard',maxQueuedJobs:20,maxPendingUploadsPerAccount:4,pollIntervalMs:5000,storageKind:'tos',...input,...resolveAsrResources(input,true)};
+ const config={providerKind:'standard',maxQueuedJobs:20,maxPendingUploadsPerAccount:4,pollIntervalMs:5000,storageKind:'tos',speakerDiarization:true,speakerDiarizationVersion:'200',speakerLongAudioSeconds:180,...input,...resolveAsrResources(input,true)};
+ if(typeof config.speakerDiarization!=='boolean'||!['200','300'].includes(config.speakerDiarizationVersion)||!Number.isSafeInteger(config.speakerLongAudioSeconds)||config.speakerLongAudioSeconds<=0)throw Error('Invalid MUSE ASR speaker configuration');
  const onlyFlash=config.resources.every(row=>row.serviceVersion==='flash');
  const positive=['timeoutMs','maxAudioBytes','maxDurationSeconds','maxDailySeconds','maxDailyJobs','maxActiveJobs','retentionSeconds','sweepIntervalSeconds','maxConcurrentJobs','maxQueuedJobs','maxPendingUploadsPerAccount'];
  if(!['standard','flash'].includes(config.providerKind)||typeof config.ffprobePath!=='string'||!config.ffprobePath.trim()||typeof config.root!=='string'||!isAbsolute(config.root)||!positive.every(key=>Number.isSafeInteger(config[key])&&config[key]>0)||config.timeoutMs<1000||config.maxActiveJobs!==1||config.sweepIntervalSeconds<60||config.sweepIntervalSeconds>config.retentionSeconds||config.retentionSeconds<config.maxDurationSeconds+3600||config.maxDurationSeconds>(onlyFlash?7200:18000)||onlyFlash&&config.maxAudioBytes>100_000_000)throw Error('Invalid MUSE ASR server configuration');
@@ -187,7 +188,7 @@ export function createAsrService(options){
     const url=await storage.signedReadUrl(object);await storage.assertPrivateAndReadable(object,url);
     await rateProvider(resource,'submit');if(closing)return;
     job.status='submitting';job.submittedAtMs=now();await save(job.account,job.id,job);
-    try{await resource.provider.submit({id:job.taskId,url,language:job.language,format:job.audioFormat});job.status='processing';}
+    try{await resource.provider.submit({id:job.taskId,url,language:job.language,format:job.audioFormat,purpose:job.purpose,durationSeconds:job.duration});job.status='processing';}
     catch(error){job.status='uncertain';recordProviderFailure(job,error);}
     await save(job.account,job.id,job);await rm(file,{force:true});
    }catch(error){

@@ -73,6 +73,7 @@ import * as PluginManagerTools from '@deepseek-ai/dsh-plugin-manager/tools'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import * as ToolJubian from '@deepseek-ai/dsh-tool-jubian'
 import * as ToolAudioTranscribe from '@deepseek-ai/dsh-tool-audio-transcribe'
+import * as ScreenplayProject from '@deepseek-ai/dsh-screenplay-project'
 import * as ToolVideoInspect from '@deepseek-ai/dsh-tool-video-inspect'
 import type { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
 import * as ToolShotScript from '@deepseek-ai/dsh-tool-shot-script'
@@ -259,6 +260,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'ask_user_question keeps the original blocking behavior by default; set `mode: timed` to opt into a foreground timeout and pending result while the question remains answerable. In timed mode, `timeout: -1` keeps that call blocking indefinitely.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-screenplay-project',
+    dir: 'screenplay-project',
+    source: 'packages/drama/screenplay-project/src/index.ts',
+    requires: ['ctx.fs', 'ctx.tools', 'ctx.attachments', 'ctx.llm', 'ctx.sandboxPolicy when filesystem confinement is enabled'],
+    writes: ['tool/call', 'tool/result', 'guarded project artifact', 'accepted screenplay and source map'],
+    async mount(ctx) {
+      await ctx.plugin(LocalFileSystem)
+      await ctx.plugin(CatalogAttachmentStore)
+      await ctx.plugin(LlmRuntime)
+      await ctx.plugin(ScreenplayProject)
+    },
+    note: 'Source-unit identities, revisions, candidate digests, timestamps and rendered line references are issued by the host. Facts and episode candidates require a different reviewing session before acceptance.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-audio-transcribe',

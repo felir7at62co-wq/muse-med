@@ -1,5 +1,5 @@
 /** Video inspection uses the real filesystem, attachment store and managed FFmpeg subprocesses. */
-import { mkdtemp, rm, readFile, appendFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, appendFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -237,3 +237,70 @@ it('refuses a prepared inspection after its plugin has been unloaded', async () 
 it('rejects an inconsistent default sample count at plugin load', async () => {
   await expect(setup({ maxFrames: 1, defaultFrames: 2 })).rejects.toThrow('defaultFrames')
 })
+
+
+it('uses actual cut detection and ASR timing to sample a clip while persisting all deferred observations', async () => {
+  const h = await setup({ maxFrames: 2, defaultFrames: 2, sceneThreshold: 0.01 })
+  const transcript = join(h.root, 'transcript.json')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '红画面说话', speaker_id: 'job-a:0' },
+    { start: 2, end: 3, text: '蓝画面说话', speaker_id: 'job-a:1' }]))
+  const result = await h.call({ strategy: 'scene_dialogue', transcript_path: transcript, start_seconds: 0, end_seconds: 4, manifest_path: 'qa/adaptive.json' })
+  expect(result.isError).toBe(false)
+  const saved = JSON.parse(await readFile(join(h.root, 'qa/adaptive.json'), 'utf8')) as VideoInspect.VideoInspection
+  expect(saved.frames).toHaveLength(2)
+  expect(saved.sampling_plan?.selected.map(point => point.reasons)).toEqual([['before_scene_cut'], ['after_scene_cut']])
+  expect(saved.sampling_plan?.deferred.map(point => point.time)).toEqual([0.5, 1, 2.5, 3])
+  expect(saved.transcript_source?.path).toBe(transcript)
+  expect(saved.frames[0]!.timestamp_seconds).toBeLessThan(2)
+  expect(saved.frames[1]!.timestamp_seconds).toBeGreaterThanOrEqual(2)
+  const followup = await h.call({ start_seconds: 0, end_seconds: 2, timestamps_seconds: [0.5, 1] })
+  expect(followup.isError).toBe(false)
+  expect(followup.content.filter(block => block.type === 'image')).toHaveLength(2)
+}, 30_000)
+
+it('rejects incompatible adaptive inputs, missing transcripts and source mutation during extraction', async () => {
+  const h = await setup()
+  for (const args of [{ method: 'metadata', strategy: 'scene_dialogue' }, { strategy: 'scene_dialogue', timestamps_seconds: [1] },
+    { transcript_path: 'no-file.json' }, { strategy: 'scene_dialogue', transcript_path: 'no-file.json' }]) expect((await h.call(args)).isError).toBe(true)
+  const transcript = join(h.root, 'transcript.json')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '台词' }]))
+  const original = h.ctx.attachments.saveImage.bind(h.ctx.attachments)
+  vi.spyOn(h.ctx.attachments, 'saveImage').mockImplementation(async (input) => {
+    const image = await original(input)
+    await appendFile(transcript, ' ')
+    return image
+  })
+  const result = await h.call({ strategy: 'scene_dialogue', transcript_path: transcript, end_seconds: 4 })
+  expect(result.isError).toBe(true)
+  expect(result.content.some(block => block.type === 'text' && block.text.includes('Transcript changed'))).toBe(true)
+}, 30_000)
+
+
+it('samples actual later scene intervals without a transcript and rejects a transcript changed while it is read', async () => {
+  const h = await setup()
+  const later = await h.call({ strategy: 'scene_dialogue', start_seconds: 2, end_seconds: 4 })
+  expect(later.isError).toBe(false)
+  const images = later.content.filter(block => block.type === 'image')
+  expect(images).toHaveLength(6)
+  const transcript = join(h.root, 'read-race.json')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '台词' }]))
+  const original = h.ctx.fs.readBytes.bind(h.ctx.fs)
+  vi.spyOn(h.ctx.fs, 'readBytes').mockImplementation(async (target, signal, maxBytes) => {
+    const result = await original(target, signal, maxBytes)
+    await appendFile(transcript, ' ')
+    return result
+  })
+  const raced = await h.call({ strategy: 'scene_dialogue', transcript_path: transcript, end_seconds: 4 })
+  expect(raced.isError).toBe(true)
+  expect(raced.content.some(block => block.type === 'text' && block.text.includes('Transcript changed during adaptive planning'))).toBe(true)
+}, 30_000)
+
+it('excludes a real cut at the requested interval end before detector metadata is emitted', async () => {
+  const h = await setup({ maxFrames: 2, defaultFrames: 2, sceneThreshold: 0.01 })
+  const result = await h.call({ strategy: 'scene_dialogue', start_seconds: 0, end_seconds: 2, manifest_path: 'qa/boundary.json' })
+  expect(result.isError).toBe(false)
+  const saved = JSON.parse(await readFile(join(h.root, 'qa/boundary.json'), 'utf8')) as VideoInspect.VideoInspection
+  expect(saved.sampling_plan?.selected.map(point => point.reasons)).toEqual([['uniform_checkpoint'], ['uniform_checkpoint']])
+  expect(saved.sampling_plan?.deferred).toEqual([])
+  expect(saved.frames.every(frame => frame.timestamp_seconds < 2)).toBe(true)
+}, 30_000)

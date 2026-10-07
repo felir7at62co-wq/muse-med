@@ -82,6 +82,9 @@
     },
     {
       "path": "../../packages/client/ui-sidebar-browser/tsconfig.host.json"
+    },
+    {
+      "path": "../../packages/drama/screenplay-project"
     }
   ]
 }

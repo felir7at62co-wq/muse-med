@@ -23,8 +23,9 @@
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | `stagehand_act`、`stagehand_extract`、`stagehand_navigate`、`stagehand_observe`、`stagehand_screenshot`、`stagehand_tabs` | `ctx.browserUse`、`ctx.agents`、`ctx.tools`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`、`ctx.userQuestions` | `tool/call`、`tool/result after an answer or timeout`、`late user/message` | - | ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才启用前台超时与 pending 结果，同时问题仍可回答；timed 模式内 `timeout: -1` 让本次调用无限期阻塞。 |
+| `@deepseek-ai/dsh-screenplay-project` | `screenplay_project` | `ctx.fs`, `ctx.tools`, `ctx.attachments`, `ctx.llm`, `ctx.sandboxPolicy（文件系统约束开启时）` | `tool/call`, `tool/result`, `guarded project artifact`, `accepted screenplay and source map` | - | 来源片段编号、修订号、候选摘要、时间和正文引用行号由宿主生成。事实与逐集候选须经另一会话审校后验收。 |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`、`ctx.museAccount`、PATH 中的 FFmpeg 与 FFprobe | `tool/call`、`tool/result`，`transcript/jobs` 中的任务收据，`transcript/raw` 中的 TXT 与 JSON | - | start 使用已登录的 Muse 账号上传压缩音轨并提交云转写；status 根据收据查询同一任务，完成后保存带时间戳的结果。需要可读取的本地音视频与服务端转写配置。 |
-| `@deepseek-ai/dsh-tool-video-inspect` | `video_inspect` | `ctx.tools`、`ctx.fs`、`ctx.subprocess`、`ctx.attachments`、`ctx.sandboxPolicy`、FFmpeg 与 FFprobe | `tool/call`、包含带时间码图片附件的 `tool/result`、可选的项目相对 JSON 清单 | - | 视频观察仅覆盖结果报告的采样画面与时间区间。语音时间码需单独使用 audio_transcribe；采样不会提交付费转写。 |
+| `@deepseek-ai/dsh-tool-video-inspect` | `video_inspect` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | - | Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`、`ctx.ptcRuntime (execution time)`、`ctx.systemPrompt` | `tool/call`、`one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`、`tool/result` | - | 在 `mode: ptc`／`mode: both` 下，它由工具注册表所有，作为可过滤能力层之外的保留传输机制（参见 PTC mode Agent Note）。在 `ptc` 下，它是注册表对协议格式（wire format）的唯一贡献；其他可见能力在使用已加载运行时语言生成的 SDK 章节中声明。程序通过 binding 调用这些能力，调用按照原生并发约定调度：启动顺序和策略遵循提交顺序，并发安全的函数体最多重叠执行 `maxParallelSubCalls` 个。调用会重新进入完整且受守卫保护的工具流水线，并将每个嵌套执行关联到此外层结果。 |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`、`ctx.systemPrompt`、`ctx.userQuestions (execution time, opportunistic)` | `tool/call`、`plan/mode inactive on an approved review`、`tool/result` | - | 规划未激活时，exit_plan_mode 仍保留在面向模型的 schema 中，这样状态转换不会在规划策略变更之外额外造成工具目录变动。其执行路径会拒绝规划模式之外的调用；在规划模式下，它通过用户交互 seam 提交计划（批准／根据反馈继续规划），批准后会在步骤边界记录规划模式已停用。 |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`、`ctx.shell`、`ctx.systemPrompt`、`ctx.shellEnv`、`ctx.jobs for run_in_background and the job-backed foreground path` | `tool/call`、`tool/result` | - | bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job 注册表时，每次调用一启动就注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具（来自 `@deepseek-ai/dsh-tool-jobs`）收集／停止；没有注册表或 `enableRunInBackground: false` 时，工具注册不带 `run_in_background` 参数的纯前台 schema。 |
@@ -530,6 +531,768 @@
 
 ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才启用前台超时与 pending 结果，同时问题仍可回答；timed 模式内 `timeout: -1` 让本次调用无限期阻塞。
 
+<a id="deepseek-aidsh-screenplay-project"></a>
+
+## `@deepseek-ai/dsh-screenplay-project`
+
+### `screenplay_project`
+
+小说、视频、换梗剧本的来源与逐集验收工具。init 记录用户方向；import_source 导入原文、segments 转写或 video_inspect 实际生成的 video_inspection 帧清单；read_source 返回程序生成的片段编号与原文。propose_fact 区分动作、发声、角色心理、作者分析；review_fact 须由另一会话核对归属。propose_facts/review_facts 可原子批量处理最多 20 条事实，每条独立归属与审校理由必须保留，任一失败整批不写入。read_source/list_facts 每次最多 100 条，编号从 1 开始。list_facts 从 1 起始分页恢复事实，read_fact/read_candidate 读取审校所需的事实或完整候选。stage 提交结构化场次；stage_files 按文件顺序组稿，每个 JSON 文件含一个完整场次，单文件最多 65536 字节、最多 100 个文件，避免一次生成长 JSON；正文引用已批准事实。review 独立核对，commit 推进下一集。status 是中断恢复依据，export 只导出已验收正文。所有修改携带当前 expected_revision；编号、时间、摘要和引用行号由程序生成。已验收稿需修改时用 fork_project，从 before_episode 集之前复制已验收状态到新的 destination 项目；原稿与原项目保留，修订仍须独立验收。OS 仅对应本人的心理，作者分析不能变成 OS。witnesses 仅填实际听见对白或看见动作的人；OS/VO 无场内见证者。requires_knowledge 填本人物须先获知的事实编号；未知身份使用声音编号，不猜角色。机械通过不等于语义通过，独立审校仍须读取来源和完整候选正文。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "request": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "init"
+            },
+            "project": {
+              "type": "string"
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "faithful",
+                "adaptation"
+              ]
+            },
+            "instructions": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "mode",
+            "instructions"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "import_source"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "path": {
+              "type": "string"
+            },
+            "source_kind": {
+              "type": "string",
+              "enum": [
+                "text",
+                "transcript",
+                "video_inspection"
+              ]
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "path",
+            "source_kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "fork_project"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "destination": {
+              "type": "string"
+            },
+            "before_episode": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "destination",
+            "before_episode"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "read_source"
+            },
+            "project": {
+              "type": "string"
+            },
+            "source_id": {
+              "type": "string"
+            },
+            "start": {
+              "type": "integer"
+            },
+            "count": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "source_id",
+            "start",
+            "count"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "propose_fact"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "fact": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "action",
+                    "speech",
+                    "thought",
+                    "author_analysis"
+                  ]
+                },
+                "origin": {
+                  "type": "string",
+                  "enum": [
+                    "source",
+                    "adaptation"
+                  ]
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "layer": {
+                  "type": "string",
+                  "enum": [
+                    "present",
+                    "flashback",
+                    "dream",
+                    "imagined",
+                    "commentary"
+                  ]
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "anchors": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "unit_id": {
+                        "type": "string"
+                      },
+                      "quote": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "unit_id",
+                      "quote"
+                    ]
+                  }
+                },
+                "adaptation_reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "origin",
+                "layer",
+                "summary",
+                "anchors"
+              ]
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "fact"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "propose_facts"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "facts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "action",
+                      "speech",
+                      "thought",
+                      "author_analysis"
+                    ]
+                  },
+                  "origin": {
+                    "type": "string",
+                    "enum": [
+                      "source",
+                      "adaptation"
+                    ]
+                  },
+                  "actor": {
+                    "type": "string"
+                  },
+                  "layer": {
+                    "type": "string",
+                    "enum": [
+                      "present",
+                      "flashback",
+                      "dream",
+                      "imagined",
+                      "commentary"
+                    ]
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "anchors": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "unit_id": {
+                          "type": "string"
+                        },
+                        "quote": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "unit_id",
+                        "quote"
+                      ]
+                    }
+                  },
+                  "adaptation_reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "origin",
+                  "layer",
+                  "summary",
+                  "anchors"
+                ]
+              }
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "facts"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "review_facts"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "reviews": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "fact_id": {
+                    "type": "string"
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "approve",
+                      "reject"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "fact_id",
+                  "decision",
+                  "reason"
+                ]
+              }
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "reviews"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "review_fact"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "fact_id": {
+              "type": "string"
+            },
+            "decision": {
+              "type": "string",
+              "enum": [
+                "approve",
+                "reject"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "fact_id",
+            "decision",
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "stage"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "episode": {
+              "type": "integer"
+            },
+            "scenes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "location": {
+                    "type": "string"
+                  },
+                  "time": {
+                    "type": "string"
+                  },
+                  "setting": {
+                    "type": "string",
+                    "description": "Source-verified interior or exterior; omission remains explicitly unresolved in the script.",
+                    "enum": [
+                      "内",
+                      "外",
+                      "内外"
+                    ]
+                  },
+                  "layer": {
+                    "type": "string",
+                    "enum": [
+                      "present",
+                      "flashback",
+                      "dream",
+                      "imagined"
+                    ]
+                  },
+                  "transition": {
+                    "type": "string",
+                    "enum": [
+                      "opening",
+                      "continuous",
+                      "cut",
+                      "enter_flashback",
+                      "return_present"
+                    ]
+                  },
+                  "characters": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "beats": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "action",
+                            "dialogue",
+                            "os",
+                            "vo"
+                          ]
+                        },
+                        "actor": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "fact_ids": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "requires_knowledge": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "witnesses": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "hook": {
+                          "type": "boolean",
+                          "description": "Mark the existing episode-end suspense beat, never invent a hook for faithful source material."
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "text",
+                        "fact_ids",
+                        "requires_knowledge",
+                        "witnesses"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "location",
+                  "time",
+                  "layer",
+                  "transition",
+                  "characters",
+                  "beats"
+                ]
+              }
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "episode",
+            "scenes"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "stage_files"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "episode": {
+              "type": "integer"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "episode",
+            "files"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "review"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "candidate_id": {
+              "type": "string"
+            },
+            "candidate_sha256": {
+              "type": "string"
+            },
+            "decision": {
+              "type": "string",
+              "enum": [
+                "approve",
+                "reject"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "candidate_id",
+            "candidate_sha256",
+            "decision",
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "commit"
+            },
+            "project": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "type": "integer"
+            },
+            "candidate_id": {
+              "type": "string"
+            },
+            "candidate_sha256": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "expected_revision",
+            "candidate_id",
+            "candidate_sha256"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "status"
+            },
+            "project": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "read_fact"
+            },
+            "project": {
+              "type": "string"
+            },
+            "fact_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "fact_id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "list_facts"
+            },
+            "project": {
+              "type": "string"
+            },
+            "start": {
+              "type": "integer"
+            },
+            "count": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "start",
+            "count"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "read_candidate"
+            },
+            "project": {
+              "type": "string"
+            },
+            "candidate_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "candidate_id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "export"
+            },
+            "project": {
+              "type": "string"
+            },
+            "candidate_id": {
+              "type": "string"
+            },
+            "directory": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "project",
+            "candidate_id",
+            "directory"
+          ]
+        }
+      ]
+    }
+  },
+  "required": [
+    "request"
+  ]
+}
+```
+
+Source: [`packages/drama/screenplay-project/src/index.ts`](../packages/drama/screenplay-project/src/index.ts)
+
+Source-unit identities, revisions, candidate digests, timestamps and rendered line references are issued by the host. Facts and episode candidates require a different reviewing session before acceptance.
+
 <a id="deepseek-aidsh-tool-audio-transcribe"></a>
 
 ## `@deepseek-ai/dsh-tool-audio-transcribe`
@@ -596,7 +1359,7 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
 
 ### `video_inspect`
 
-读取本地视频元数据，或查看带源时间码的采样画面。返回真实图片与保存的核对清单。采样不覆盖每个瞬间；动作不明确时，补看其他区间或指定时间码。对白与字幕使用 audio_transcribe。
+Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. For dialogue and subtitles, discover audio_transcribe.
 
 ```json
 {
@@ -622,6 +1385,18 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
       "type": "number",
       "description": "Exclusive interval end; default video end or start + 60 seconds, whichever is earlier. Maximum sampled interval: 120 seconds."
     },
+    "strategy": {
+      "type": "string",
+      "description": "Default uniform. scene_dialogue detects scene changes and, when transcript_path is supplied, samples actual ASR utterance midpoints. Deferred observations remain unviewed.",
+      "enum": [
+        "uniform",
+        "scene_dialogue"
+      ]
+    },
+    "transcript_path": {
+      "type": "string",
+      "description": "Optional actual audio_transcribe JSON array or segments wrapper for scene_dialogue; video and ASR source must describe the same complete clip."
+    },
     "frame_count": {
       "type": "integer",
       "description": "Uniform samples, default 6; maximum 12."
@@ -644,9 +1419,9 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
 }
 ```
 
-源代码：[`packages/perception/tool-video-inspect/src/index.ts`](../packages/perception/tool-video-inspect/src/index.ts)
+Source: [`packages/perception/tool-video-inspect/src/index.ts`](../packages/perception/tool-video-inspect/src/index.ts)
 
-视频观察仅覆盖结果报告的采样画面与时间区间。带时间码的语音需单独使用 audio_transcribe；采样不会提交付费转写。
+Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription.
 
 <a id="deepseek-aidsh-tools"></a>
 
@@ -654,7 +1429,7 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
 
 ### `run_code`
 
-针对可用工具执行 TypeScript 程序。接受两个必填参数：`description`，简要说明该程序做什么；以及 `code`，即异步函数的**函数体**（仅使用可擦除语法；支持顶层 `await` 和 `return`）。请根据系统提示词中的声明，以 `await tools.name(args)` 形式调用工具。只有打印或返回的内容属于程序输出，请谨慎筛选。含图片的子工具结果会在运行结束后附加。
+Execute a TypeScript program against the available tools. Takes two required arguments: `description`, a short summary of what the program does, and `code`, the BODY of an async function (erasable syntax only; top-level `await` and `return` work). Call tools as `await tools.name(args)` per the declarations in the system prompt. Only what you print or return is program output — curate it. Image-bearing subtool results are attached after the run.
 
 ```json
 {
@@ -692,9 +1467,9 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
 }
 ```
 
-来源：[`packages/core/tools/src/ptc.ts`](../packages/core/tools/src/ptc.ts)
+来源： [`packages/core/tools/src/ptc.ts`](../packages/core/tools/src/ptc.ts)
 
-在 `mode: ptc`／`mode: both` 下，它由工具注册表所有，作为可过滤能力层之外的保留传输机制（参见 PTC mode Agent Note）。在 `ptc` 下，它是注册表对协议格式的唯一贡献；其他可见能力在使用已加载运行时语言生成的 SDK 章节中声明。程序通过 binding 调用这些能力，调用按照原生并发约定调度：启动顺序和策略遵循提交顺序，并发安全的函数体最多重叠执行 `maxParallelSubCalls` 个。调用会重新进入完整且受守卫保护的工具流水线，并将每个嵌套执行关联到此外层结果。
+Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: ptc` / `mode: both` (see the PTC mode Agent Note). Under `ptc` it is the registry's only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime's language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.
 
 <a id="deepseek-aidsh-plan-mode"></a>
 
@@ -702,7 +1477,7 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
 
 ### `exit_plan_mode`
 
-仅在规划模式下使用。提交计划供用户评审，并在获批后退出规划模式。用户可以批准（从你的下一步骤起执行计划），也可以要求继续规划；其反馈会通过工具结果返回，请修改后再次提交。
+Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.
 
 ```json
 {
@@ -719,9 +1494,9 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
 }
 ```
 
-来源：[`packages/plan/plan-mode/src/index.ts`](../packages/plan/plan-mode/src/index.ts)
+来源： [`packages/plan/plan-mode/src/index.ts`](../packages/plan/plan-mode/src/index.ts)
 
-规划未激活时，exit_plan_mode 仍保留在面向模型的 schema 中，这样状态转换不会在规划策略变更之外额外造成工具目录变动。其执行路径会拒绝规划模式之外的调用；在规划模式下，它通过用户交互 seam 提交计划（批准／根据反馈继续规划），批准后会在步骤边界记录规划模式已停用。
+exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-questions seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary.
 
 <a id="deepseek-aidsh-tool-bash"></a>
 
@@ -729,7 +1504,7 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
 
 ### `bash`
 
-执行 bash 命令（`bash -c`）并返回 stdout/stderr。每次调用都在新 shell 中运行；请传入 `workdir`，不要使用 `cd`。托管的 `$DSH_*` 变量公开当前 harness 环境信息。较长的输出会截断，只保留尾部；如可用，完整输出会保存到文件并报告其路径。请在参数中先提供 `description`，再提供 `command`。在任何删除或移动之前，请确认解析后的绝对目标路径正是预期路径；绝不要对未经检查的计算路径执行此类操作。未设置的变量会展开为空字符串，因此请用 `${VAR:?}` 保护此类路径中的变量。命令可能在文件沙箱中运行；被阻止的文件操作报告为 `[sandbox: file access denied under <mode> mode]`，这是策略拒绝：请勿换一种方式重试。
+Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell; pass `workdir` instead of using `cd`. Managed `$DSH_*` variables expose current harness environment facts. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Provide `description` before `command` in the arguments. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]`, a policy denial: do not retry another way.
 
 ```json
 {
@@ -763,9 +1538,9 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
 }
 ```
 
-来源：[`packages/shell/tool-bash/src/index.ts`](../packages/shell/tool-bash/src/index.ts)
+来源： [`packages/shell/tool-bash/src/index.ts`](../packages/shell/tool-bash/src/index.ts)
 
-bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job 注册表时，每次调用一启动就注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具（来自 `@deepseek-ai/dsh-tool-jobs`）收集／停止；没有注册表或 `enableRunInBackground: false` 时，工具注册不带 `run_in_background` 参数的纯前台 schema。
+The bash tool is the model-facing consumer of the bash executor seam. With a job registry composed every call registers with the generic `ctx.jobs` runtime as it starts, collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; without one, or with `enableRunInBackground: false`, the tool registers a foreground-only schema without the `run_in_background` parameter.
 
 <a id="deepseek-aidsh-tool-present"></a>
 
@@ -773,7 +1548,7 @@ bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job �
 
 ### `present`
 
-将已有文件声明为交付给用户的最终交付物。当用户需要独立文件时使用，尤其是 Office 文档、电子表格和演示文稿；如果最终回复已经足够，优先使用最终回复。用户打开的是当前文件；不复制其内容。
+Declare existing files as final deliverables for the user. Use it when the user needs a separate file, especially Office documents, spreadsheets, and slide decks; prefer your final response when that suffices. The user opens the current files; their contents are not copied.
 
 ```json
 {
@@ -809,7 +1584,7 @@ bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job �
 
 来源： [`packages/deliverables/tool-present/src/index.ts`](../packages/deliverables/tool-present/src/index.ts)
 
-交付归调用方 Session 所有；Web ui-deliverables 提供源文件打开与卡片。
+Deliveries belong to the calling Session; Web ui-deliverables supplies source-file opening and cards.
 
 <a id="deepseek-aidsh-tool-pwsh"></a>
 
@@ -817,7 +1592,7 @@ bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job �
 
 ### `pwsh`
 
-执行 PowerShell 命令（`pwsh -Command`）并返回 stdout/stderr。每次调用都在新的 pwsh 进程中运行；请传入 `workdir`，不要使用 `cd`。路径采用 Windows 原生形式（`C:\...`）；使用 `$env:NAME` 读取环境变量。托管的 `$env:DSH_*` 变量公开当前 harness 环境信息。较长的输出会截断，只保留尾部；如可用，完整输出会保存到文件并报告其路径。在 Windows 上，被强制终止的命令会以 `[exit code: 1]` 结算且不带信号标记，请将其视为中断，而不是命令失败。请在参数中先提供 `description`，再提供 `command`。在任何删除或移动之前，请确认解析后的绝对目标路径正是预期路径；绝不要对未经检查的计算路径执行此类操作。不要给 `$HOME` 等自动变量赋值；变量名不区分大小写，因此 `$home` 就是同一个只读变量。命令可能在文件沙箱中运行；被阻止的文件操作报告为 `[sandbox: file access denied under <mode> mode]`，这是策略拒绝：请勿换一种方式重试。
+Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. Each call runs in a fresh pwsh process; pass `workdir` instead of using `cd`. Paths use native Windows form (`C:\...`); read environment variables with `$env:NAME`. Managed `$env:DSH_*` variables expose current harness environment facts. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. On Windows a force-killed command settles as `[exit code: 1]` without a signal marker — treat it as an interruption, not a command failure. Provide `description` before `command` in the arguments. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. Do not assign to automatic variables such as `$HOME`; variable names are case-insensitive, so `$home` is the same read-only variable. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]`, a policy denial: do not retry another way.
 
 ```json
 {
@@ -851,9 +1626,9 @@ bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job �
 }
 ```
 
-来源：[`packages/shell/tool-pwsh/src/index.ts`](../packages/shell/tool-pwsh/src/index.ts)
+来源： [`packages/shell/tool-pwsh/src/index.ts`](../packages/shell/tool-pwsh/src/index.ts)
 
-pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费方（由 `@deepseek-ai/dsh-pwsh-local` 等 PowerShell 执行器为 `ctx.shell` 提供后端）；除沙箱接口外，它逐项对应 bash 工具调用。使用 `run_in_background` 的运行会注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具收集／停止；托管的 `DSH_*` 环境来自 `@deepseek-ai/dsh-shell-env`。每次调用都在新进程中运行，不使用持久 PTY 会话。路径采用原生 `C:\...` 形式，变量采用 `$env:NAME`。
+The pwsh tool is the PowerShell-dialect consumer of the bash executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.shell`); it mirrors the bash tool call-for-call minus sandbox controls — `run_in_background` runs register with the generic `ctx.jobs` runtime and are collected/stopped through the `job_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-shell-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables.
 
 <a id="deepseek-aidsh-tool-cordis"></a>
 
@@ -861,7 +1636,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 ### `cordis_inspect_list`
 
-列出 Host 当前已知的所有 Cordis Inspect Provider，包括本地 Host Provider 和 Client 同步的最新清单。每项包含平台、用途、只读方法以及输入输出 schema。编写或配置插件前先调用本工具，再从结果选择 cordis_inspect_query 的 provider 和方法。不要猜测名称，也不要把 Inspect 方法当作插件代码可调用的业务 Service。
+List every Cordis Inspect Provider currently known to the Host, including local Host Providers and the latest manifests synchronized from the Client. Each entry includes its platform, purpose, read-only methods, and input/output schemas. Call this Tool before writing or configuring a plugin, then select the provider and method for cordis_inspect_query from its result. Do not guess names or treat an Inspect method as a business Service that Plugin code can call.
 
 ```json
 {
@@ -874,7 +1649,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 ### `cordis_inspect_query`
 
-执行 Inspect Provider 声明的只读查询。platform、provider 和 method 必须来自 cordis_inspect_list，input 必须符合该方法的 schema。编写插件代码前，用本工具读取准确的 Service 方法、Event 模式、插件 Config schema、Tool schema、主题 token，或实时 Slot 树与 props。Host 查询在本地运行。Client 查询在配置的超时内等待页面首个有效响应；否则返回 Client 错误，或提示重新连接后重试。本工具不能调用业务 Service 方法或修改运行时。
+Run a read-only query declared by an Inspect Provider. platform, provider, and method must come from cordis_inspect_list, and input must satisfy that method's schema. Use this Tool before writing plugin code to read exact Service methods, Event modes, plugin Config schemas, Tool schemas, theme tokens, or live Slot trees and props. Host queries run locally. A Client query waits for the first valid page response within the configured timeout; otherwise it reports a Client failure or asks you to reconnect and retry. This Tool cannot invoke business Service methods or modify the runtime.
 
 ```json
 {
@@ -910,7 +1685,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 来源： [`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
 
-创造模式提供两个只读运行时检查工具。Cordis host runner 提供检查注册表；Client 查询需要已连接页面。持久化变更编写为组合包，再通过 plugin_manager 安装。
+Creator mode provides two read-only runtime inspection tools. The Cordis host runner supplies the inspection registry; Client queries require a connected page. Author persistent changes as bundles and install them with plugin_manager.
 
 <a id="deepseek-aidsh-tool-bash-persistent"></a>
 
@@ -918,7 +1693,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 ### `bash`
 
-在持久 bash shell 中运行命令。包括当前目录和已导出环境变量在内的状态会在此 agent 的多次调用之间保留。
+Run commands in a persistent bash shell. State, including the current directory and exported environment variables, persists across calls for this agent.
 
 ```json
 {
@@ -935,9 +1710,9 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 }
 ```
 
-来源：[`packages/shell/tool-bash-persistent/src/index.ts`](../packages/shell/tool-bash-persistent/src/index.ts)
+来源： [`packages/shell/tool-bash-persistent/src/index.ts`](../packages/shell/tool-bash-persistent/src/index.ts)
 
-一个按所有者隔离的持久 bash 工具；部署组合提供 PTY 后端，并可覆盖面向模型的环境描述。
+One owner-isolated persistent bash tool; deployment composition supplies the PTY backend and may override the model-facing environment description.
 
 <a id="deepseek-aidsh-tool-pwsh-persistent"></a>
 
@@ -945,7 +1720,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 ### `pwsh`
 
-在持久 PowerShell shell 中运行命令。包括当前目录和已导出环境变量在内的状态会在此 agent 的多次调用之间保留。
+Run commands in a persistent PowerShell shell. State, including the current directory and exported environment variables, persists across calls for this agent.
 
 ```json
 {
@@ -962,9 +1737,9 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 }
 ```
 
-来源：[`packages/shell/tool-pwsh-persistent/src/index.ts`](../packages/shell/tool-pwsh-persistent/src/index.ts)
+来源： [`packages/shell/tool-pwsh-persistent/src/index.ts`](../packages/shell/tool-pwsh-persistent/src/index.ts)
 
-一个按所有者隔离的持久 pwsh 工具，持久 bash 工具的 Windows 对应物；部署组合提供 pwsh 方言的 PTY 后端，并可覆盖面向模型的环境描述。
+One owner-isolated persistent pwsh tool, the Windows counterpart of the persistent bash tool; deployment composition supplies a pwsh-dialect PTY backend and may override the model-facing environment description.
 
 <a id="deepseek-aidsh-tool-str-replace-editor"></a>
 
@@ -972,19 +1747,17 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 ### `str_replace_editor`
 
-用于查看、创建和编辑文件的自定义编辑工具：
+Custom editing tool for viewing, creating and editing files
+* State is persistent across command calls and discussions with the user
+* If `path` is a file, `view` displays the result of applying `cat -n`. If `path` is a directory, `view` lists non-hidden files and directories up to 2 levels deep
+* The `create` command cannot be used if the specified `path` already exists as a file
+* If a `command` generates a long output, it will be truncated and marked with `<response clipped>`
+* A null placeholder for a parameter unused by the selected command is treated as omitted. Required parameters still need values; omit `str_replace.new_str` rather than setting it to null when deleting a match
 
-* 状态会在命令调用以及与用户的讨论之间持久保留
-* 如果 `path` 是文件，`view` 会显示应用 `cat -n` 后的结果。如果 `path` 是目录，`view` 会列出最多向下 2 层的非隐藏文件和目录
-* 如果指定的 `create` 命令目标 `path` 已作为文件存在，则不能使用该命令
-* 如果 `command` 产生较长输出，输出会被截断并标记为 `<response clipped>`
-* 当前命令不使用某个参数时，值为 `null` 的占位参数视为未提供。必填参数仍须提供值；删除匹配内容时应省略 `str_replace.new_str`，而不是将其设为 `null`
-
-使用 `str_replace` 命令时请注意：
-
-* `old_str` 参数应与原文件中一行或多行连续内容**完全**匹配。请留意空白字符！
-* 如果 `old_str` 参数在文件中不唯一，则不会执行替换。请确保在 `old_str` 中包含足够的上下文，使其唯一
-* `new_str` 参数应包含用于替换 `old_str` 的已编辑行
+Notes for using the `str_replace` command:
+* The `old_str` parameter should match EXACTLY one or more consecutive lines from the original file. Be mindful of whitespaces!
+* If the `old_str` parameter is not unique in the file, the replacement will not be performed. Make sure to include enough context in `old_str` to make it unique
+* The `new_str` parameter should contain the edited lines that should replace the `old_str`
 
 ```json
 {
@@ -1070,9 +1843,9 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 }
 ```
 
-来源：[`packages/fs/tool-str-replace-editor/src/index.ts`](../packages/fs/tool-str-replace-editor/src/index.ts)
+来源： [`packages/fs/tool-str-replace-editor/src/index.ts`](../packages/fs/tool-str-replace-editor/src/index.ts)
 
-基于文件系统 seam 的独立查看／创建／唯一字面量替换／按行插入工具；可与任何 shell 或终端接口组合。
+Standalone view/create/unique literal replace/line insert tool over the filesystem seam; it composes with any shell or terminal API.
 
 <a id="deepseek-aidsh-tool-fs"></a>
 
@@ -1080,7 +1853,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 ### `edit`
 
-通过替换字面量文本来编辑现有 UTF-8 文本文件。
+Edit an existing UTF-8 text file by replacing literal text.
 
 ```json
 {
@@ -1111,11 +1884,11 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 }
 ```
 
-来源：[`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
+来源： [`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
 
 ### `read`
 
-读取 UTF-8 文本文件，并返回带行号的内容。
+Read a UTF-8 text file and return line-numbered content.
 
 ```json
 {
@@ -1140,11 +1913,11 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 }
 ```
 
-来源：[`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
+来源： [`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
 
 ### `read_image`
 
-读取 PNG/JPEG/WebP/GIF 文件并返回图像本身。大图会自动缩小；不要为了查看图片而安装图片库或创建缩略图。
+Read a PNG/JPEG/WebP/GIF file and return the image itself. Large images are downscaled automatically; do not install image libraries or create thumbnails to inspect an image.
 
 ```json
 {
@@ -1161,11 +1934,11 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 }
 ```
 
-来源：[`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
+来源： [`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
 
 ### `write`
 
-创建或完全替换 UTF-8 文本文件。
+Create or fully replace a UTF-8 text file.
 
 ```json
 {
@@ -1187,9 +1960,9 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 }
 ```
 
-来源：[`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
+来源： [`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
 
-先读后写／编辑策略由 `@deepseek-ai/dsh-fs-observation-policy` 添加；它是一个 `fs/*` 事件门禁插件，不会改变 schema。加载这些工具的部署按预期也应加载该插件。没有 `ctx.attachments` 时图片工具不会注册；其 schema 与路由无关，执行时除非确切路由的模型声明图片输入，否则拒绝。
+The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-observation-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The image tool is not registered without `ctx.attachments`; its schema is route-independent, and execution refuses unless the exact routed model declares image input.
 
 <a id="deepseek-aidsh-tool-fs-search"></a>
 
@@ -1197,7 +1970,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 ### `glob`
 
-查找路径匹配 glob 模式的文件（不含目录），包括隐藏文件和被忽略的文件。最多按修改时间顺序返回 100 条路径；更大的结果会从顶层条目中抽样，并报告完整列表的保存位置。
+Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. Returns up to 100 paths in modification-time order; a larger result is sampled across top-level entries and reports where the complete list was saved.
 
 ```json
 {
@@ -1218,11 +1991,11 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 }
 ```
 
-来源：[`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-search/src/index.ts)
+来源： [`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-search/src/index.ts)
 
 ### `grep`
 
-使用 ripgrep 正则表达式搜索文件内容。返回带行号的匹配行，并按文件分组。最多返回 250 条匹配；更大的结果会报告完整匹配列表的保存位置。
+Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns up to 250 matches; a larger result reports where the complete match list was saved.
 
 ```json
 {
@@ -1247,9 +2020,9 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 }
 ```
 
-来源：[`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-search/src/index.ts)
+来源： [`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-search/src/index.ts)
 
-glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn 随包提供的 ripgrep 二进制文件（`@vscode/ripgrep`），并作为普通前台调用运行，绝不作为后台任务；无需在宿主机安装 `rg`，也不经过 shell 层。本目录使用 `sampleOverCapGlobResults: true`；部署必须显式选择该行为。结果超过上限时，会通过可选的 ctx.spillStore 后端保存完整的格式化列表；在共置部署中，如果后端公开本地路径，返回的定位信息可供后续读取／搜索。
+glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background jobs) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.
 
 <a id="deepseek-aidsh-tool-terminal"></a>
 
@@ -1257,7 +2030,7 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 
 ### `terminal_close`
 
-关闭一个持久终端，并等待其捕获且所有的进程树完全退出。
+Close one persistent terminal and wait until its captured owned process tree is gone.
 
 ```json
 {
@@ -1274,11 +2047,11 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 }
 ```
 
-来源：[`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
+来源： [`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
 
 ### `terminal_list`
 
-列出当前 agent 所有的持久终端会话。
+List persistent terminal sessions owned by the current agent.
 
 ```json
 {
@@ -1287,11 +2060,11 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 }
 ```
 
-来源：[`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
+来源： [`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
 
 ### `terminal_open`
 
-通过已注册的后端类型创建按所有者隔离的持久终端会话。需要在多次工具调用之间保留 shell 或 REPL 状态时，请使用此工具。
+Create a persistent, owner-isolated terminal session from a registered backend type. Use this for shell or REPL state that must survive across tool calls.
 
 ```json
 {
@@ -1316,11 +2089,11 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 }
 ```
 
-来源：[`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
+来源： [`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
 
 ### `terminal_read`
 
-从持久终端读取一页有界的保留输出，不发送输入。
+Read a bounded page of retained output from a persistent terminal without sending input.
 
 ```json
 {
@@ -1345,11 +2118,11 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 }
 ```
 
-来源：[`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
+来源： [`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
 
 ### `terminal_send`
 
-向持久终端发送文本。默认会提交 Enter，并等待提示符、stdin 等待、输出静默、超时或会话退出。后台模式会返回供 job_output／job_kill 使用的 job id。
+Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, timeout, or session exit. Background mode returns a job id for job_output/job_kill.
 
 ```json
 {
@@ -1379,11 +2152,11 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 }
 ```
 
-来源：[`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
+来源： [`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
 
 ### `terminal_signal`
 
-向持久终端当前的前台进程组发送允许的信号。
+Send an allowed signal to the current foreground process group of a persistent terminal.
 
 ```json
 {
@@ -1412,9 +2185,9 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 }
 ```
 
-来源：[`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
+来源： [`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
 
-这 6 个终端工具需要选择启用，用于补充一次性 bash／文件系统工具。`terminal_send(run_in_background: true)` 会注册到 `ctx.jobs`；schema 不包含 TUI、具名按键序列、BEL、调整尺寸、自动启动和跨 agent 共享。
+The six terminal tools are opt-in and complement one-shot shell/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.jobs`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema.
 
 <a id="deepseek-aidsh-tool-goal"></a>
 
@@ -1422,7 +2195,7 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 
 ### `create_goal`
 
-创建一个持久化目标，使当前会话跨自动延续 Round 持续工作。当直接人类请求是长期目标时使用，即使用户没有说「目标」；不要用于单轮工作。
+Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say "goal"; not for single-turn work.
 
 ```json
 {
@@ -1443,11 +2216,11 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 }
 ```
 
-来源：[`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/index.ts)
+来源： [`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/index.ts)
 
 ### `get_goal`
 
-读取当前会话目标，包括 update_goal 所需的 id 和 revision。
+Read the current session goal, including the id and revision that update_goal requires.
 
 ```json
 {
@@ -1456,11 +2229,11 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 }
 ```
 
-来源：[`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/index.ts)
+来源： [`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/index.ts)
 
 ### `update_goal`
 
-更新当前目标。
+Update the current goal.
 
 ```json
 {
@@ -1506,9 +2279,9 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 }
 ```
 
-来源：[`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/index.ts)
+来源： [`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/index.ts)
 
-create、edit、pause 和 resume 要求直接来自人类的根权限；complete 和 blocked 也接受确切的当前 Goal Round。blocked 的默认下限是 3 个获准的 Round。
+create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds.
 
 <a id="deepseek-aidsh-tool-schedule"></a>
 
@@ -1516,7 +2289,7 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 
 ### `schedule_create`
 
-在当前会话中创建一条提醒，到期时投递 prompt。请恰好提供一个时间参数：after_seconds、at、every_seconds、daily、weekly 或 cron。时区中不存在的本地时间会被跳过；重复出现的本地时间只在较早的时刻触发一次。停机后，重复提醒只投递最近错过的一次。崩溃后可能重复投递。
+Create a reminder in the current session that delivers prompt when it becomes due. Supply exactly one timing parameter: after_seconds, at, every_seconds, daily, weekly, or cron. Local times that do not exist in the zone are skipped; repeated local times fire once, at the earlier instant. After downtime, a recurring reminder delivers only its latest missed occurrence. Delivery can repeat after a crash.
 
 ```json
 {
@@ -1639,11 +2412,11 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 }
 ```
 
-来源：[`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts)
+来源： [`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts)
 
 ### `schedule_delete`
 
-删除当前会话中的一条提醒，活动或已结束的均可。删除不会撤回已经入队的提醒消息。
+Delete a reminder in the current session, active or inactive. Deletion does not retract a reminder message that is already queued.
 
 ```json
 {
@@ -1660,11 +2433,11 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 }
 ```
 
-来源：[`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts)
+来源： [`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts)
 
 ### `schedule_list`
 
-列出当前会话中的活动提醒。
+List the active reminders in the current session.
 
 ```json
 {
@@ -1673,11 +2446,11 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 }
 ```
 
-来源：[`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts)
+来源： [`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts)
 
 ### `schedule_update`
 
-原地修改一条提醒并保留其 id。提供新的 title、prompt，或至多一个时间参数；未提供的字段保持原值。需要相对延迟时请新建一条提醒。
+Change a reminder in place, keeping its id. Supply a new title, prompt, or at most one timing parameter; omitted fields keep their stored values. To change a relative delay, create a new reminder.
 
 ```json
 {
@@ -1799,9 +2572,9 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 }
 ```
 
-Source: [`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts)
+来源： [`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts)
 
-preset 或 Agent scope 挂载本包；由 preset 决定哪些 agent 获得这四个管理工具。每次调用都作用于调用方 Agent 的 Session。接受 after_seconds、显式绝对 at、有界固定速率 every_seconds、带显式 IANA 时区的每日与每周本地时间，以及作为五字段表达式的 cron。管理使用宿主 storage domain；到期消息会恢复原 Session。
+A preset or Agent scope mounts this package; the preset decides which agents receive the four management tools. Each call acts on the calling Agent's Session. Accepts after_seconds, explicit absolute at, bounded fixed-rate every_seconds, daily and weekly local times in an explicit IANA zone, and cron as a five-field expression. Management uses the Host storage domain; due messages resume the original Session.
 
 <a id="deepseek-aidsh-tool-lsp"></a>
 
@@ -1809,7 +2582,7 @@ preset 或 Agent scope 挂载本包；由 preset 决定哪些 agent 获得这四
 
 ### `lsp`
 
-查询语言服务器，以精确导航代码。operation 可取 goToDefinition、findReferences、goToImplementation 或 hover。line 和 character 是从 1 开始的 UTF-16 光标坐标。findReferences 包含声明。
+Query a language server for precise code navigation. operation is one of goToDefinition, findReferences, goToImplementation, hover. line and character are one-based UTF-16 cursor coordinates. findReferences includes the declaration.
 
 ```json
 {
@@ -1847,9 +2620,9 @@ preset 或 Agent scope 挂载本包；由 preset 决定哪些 agent 获得这四
 }
 ```
 
-来源：[`packages/lsp/tool-lsp/src/index.ts`](../packages/lsp/tool-lsp/src/index.ts)
+来源： [`packages/lsp/tool-lsp/src/index.ts`](../packages/lsp/tool-lsp/src/index.ts)
 
-lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，因此其模型可见 schema 在更换提供方时保持稳定。运行时要求已注册提供方，例如 `@deepseek-ai/dsh-lsp-stdio`；如果没有提供方，查询会返回结构化 `LSP_UNAVAILABLE` 错误，而不会改变 schema。
+The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-stdio`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema.
 
 <a id="deepseek-aidsh-tool-ralph"></a>
 
@@ -1857,7 +2630,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 ### `ralph`
 
-围绕一个不可变目标运行使用全新 agent 的前台 Ralph 循环。仅当直接人类明确要求 Ralph 或使用全新 agent 迭代时使用。每个 Round 都会启动一个全新子级，该子级看不到父级对话或先前子会话；共享工作区充当长期记忆，Round 之间只传递有界的结构化报告。当工作进程报告完成、报告具体阻塞项或达到 Round 上限时，调用返回。普通的长期同会话工作应使用 goal 工具。
+Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools.
 
 ```json
 {
@@ -1878,9 +2651,9 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/workflow/tool-ralph/src/index.ts`](../packages/workflow/tool-ralph/src/index.ts)
+来源： [`packages/workflow/tool-ralph/src/index.ts`](../packages/workflow/tool-ralph/src/index.ts)
 
-固定的前台工作流会在每个 Round 启动一个全新的结构化子级；模型只能选择不可变目标和可选的 Round 上限。
+A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap.
 
 <a id="deepseek-aidsh-tool-skill"></a>
 
@@ -1888,7 +2661,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 ### `skill`
 
-加载某项 skill（技能）的完整说明。在执行点名某项 skill 或与会话 skill 目录中某项 skill 明确匹配的任务前，请调用此工具。
+Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.
 
 ```json
 {
@@ -1905,7 +2678,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/src/index.ts)
+来源： [`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/src/index.ts)
 
 <a id="deepseek-aidsh-tool-session-query"></a>
 
@@ -1913,7 +2686,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 ### `session_event_read`
 
-从一个已获授权的会话中读取一个完整且未删节的事件，以及可选的相邻原始事件概述。
+Read one full unabridged event and optional neighboring raw-event summaries from an authorized session.
 
 ```json
 {
@@ -1942,11 +2715,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+来源： [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
 ### `session_event_search`
 
-在一个已获授权的会话中搜索先前事件；如果搜索当前会话，则排除执行此次调用的步骤。
+Search prior events in one authorized session; the current session excludes the step performing this call.
 
 ```json
 {
@@ -2002,11 +2775,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+来源： [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
 ### `session_event_trace`
 
-读取已获授权会话中某个事件的所有直接替换关系，以及该事件与其引用的来源事件之间的关系。
+Read every direct replacement and relationship to a cited source event for one event in an authorized session.
 
 ```json
 {
@@ -2027,11 +2800,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+来源： [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
 ### `session_search`
 
-搜索调用方工作区中的先前会话，并从每个会话返回匹配度最高的事件。
+Search prior sessions in the caller workspace and return the strongest matching event from each session.
 
 ```json
 {
@@ -2120,11 +2893,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+来源： [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
 ### `session_trace`
 
-读取围绕一个会话的已授权会话谱系，包括完整可见的祖先和后代关系。
+Read the authorized session lineage around one session, including complete visible ancestor and descendant relationships.
 
 ```json
 {
@@ -2138,9 +2911,9 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+来源： [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
-这 5 个只读工具会隐藏提供方游标，并根据不可变的调用 agent 会话为每个结果授权。该包需要选择启用；需要强制截止时间或限制行内输出的组合还会挂载通用超时或 spill 策略。
+The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies.
 
 <a id="deepseek-aidsh-tool-subagent"></a>
 
@@ -2148,7 +2921,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 ### `list_subagent_models`
 
-发现 subagent 可用的 LLM 路由，不更改当前 Agent。无参数调用会列出已注册提供方；提供 `provider` 时会列出其公布的模型；同时提供 `provider` 和 `model` 时会检查该精确模型及其推理强度。目录条目只提供建议：adapter 可能接受未列出的模型 id。把返回的 id 用于委派工具的 `provider`、`model` 与 `reasoning_effort` 字段。
+Discover LLM routes for subagents without changing the current Agent. Call with no arguments to list registered providers, with `provider` to list its advertised models, or with `provider` and `model` to inspect that exact model and its reasoning efforts. Catalog membership is advisory: an adapter may accept an unlisted model id. Use the returned ids with a delegation tool's `provider`, `model`, and `reasoning_effort` fields.
 
 ```json
 {
@@ -2166,11 +2939,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/subagent/tool-subagent/src/list-models.ts`](../packages/subagent/tool-subagent/src/list-models.ts)
+来源： [`packages/subagent/tool-subagent/src/list-models.ts`](../packages/subagent/tool-subagent/src/list-models.ts)
 
 ### `subagent`
 
-将一项自包含任务委派给 subagent（在自身上下文中工作的独立 agent），用它卸载聚焦且独立的工作，例如研究、限定范围的实现或分析，以免消耗当前对话的上下文。subagent 会返回结果，但不会返回中间步骤。此调用默认等待结果。
+Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. This call waits for the result by default.
 
 ```json
 {
@@ -2196,9 +2969,9 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/subagent/tool-subagent/src/index.ts`](../packages/subagent/tool-subagent/src/index.ts)
+来源： [`packages/subagent/tool-subagent/src/index.ts`](../packages/subagent/tool-subagent/src/index.ts)
 
-注册的委派工具名称取决于加载时 `toolName` 配置（默认为 `subagent`）；上述默认 schema 关闭模型选择，而发现 schema 则展示为已启用 Session 中可用的固定配套工具。Web preset 会在每个新顶层 Session 创建时读取插件页偏好，并为其子 Session 保留该决定；`subagent_fork` 始终使用固定路由。每个实例通过 `modelSelectionSettings`、`backgroundMode` 与 `enableRunInBackground` 独立控制是否读取模型选择设置及其后台行为。
+The registered delegation name is the load-time `toolName` config (default `subagent`); the default schema above has model selection off, while the discovery schema is shown as the fixed companion available in an enabled Session. Web presets sample the Plugins preference for each new top-level Session and preserve that decision for its child Sessions; `subagent_fork` remains fixed-route. Each instance independently controls whether it reads model-selection settings and its background behavior through `modelSelectionSettings`, `backgroundMode`, and `enableRunInBackground`.
 
 <a id="deepseek-aidsh-tool-subagent-control"></a>
 
@@ -2206,7 +2979,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 ### `interrupt_agent`
 
-请 subagent 停止当前工作。此调用不等待其停止即返回。之后可以用 send_message 继续与直接子级的对话。它启动的 subagent 会继续运行。
+Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a direct child's conversation later with send_message. Subagents it started will keep running.
 
 ```json
 {
@@ -2223,11 +2996,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts)
+来源： [`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts)
 
 ### `list_agents`
 
-列出你启动的 subagent 及其 id、标签和状态。running 表示正在工作；inactive 表示当前未在工作。subagent 完成时你会收到通知，无需反复查看状态。使用 send_message 继续对话。
+List subagents you started, with their ids, labels, and status. running means it is working; inactive means it is not currently working. You will be notified when a subagent finishes; there is no need to keep checking its status. Use send_message to continue the conversation.
 
 ```json
 {
@@ -2245,11 +3018,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/subagent/tool-subagent-control/src/list-agents.ts`](../packages/subagent/tool-subagent-control/src/list-agents.ts)
+来源： [`packages/subagent/tool-subagent-control/src/list-agents.ts`](../packages/subagent/tool-subagent-control/src/list-agents.ts)
 
 ### `send_message`
 
-向某个 agent 发送消息。工作中的 agent 会在下一个 step 收到消息；空闲的 agent 会以该消息开始新一轮。返回投递确认，而不是该 agent 的答案。
+Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation, not the agent's answer.
 
 ```json
 {
@@ -2271,9 +3044,9 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts)
+来源： [`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts)
 
-这些是控制可继续后台 subagent 的全局命名工具：绑定提供方的 `tool-subagent` 实例注册不同的委派工具；本包注册一次 `send_message` 和 `interrupt_agent`，另由 `list_agents` 通过单独加载的 `/list-agents` 插件提供，其目录行使用 sessionProjections 和实时 Agent 注册表。
+The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries).
 
 <a id="deepseek-aidsh-tool-jobs"></a>
 
@@ -2281,7 +3054,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 ### `job_kill`
 
-请求取消正在运行的后台任务。
+Request cancellation of a running background job.
 
 ```json
 {
@@ -2302,11 +3075,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/jobs/tool-jobs/src/index.ts`](../packages/jobs/tool-jobs/src/index.ts)
+来源： [`packages/jobs/tool-jobs/src/index.ts`](../packages/jobs/tool-jobs/src/index.ts)
 
 ### `job_list`
 
-列出你的后台任务（包括正在运行和已完成的任务）及其 id、种类和状态。
+List your background jobs (running and finished) with their ids, kinds, and statuses.
 
 ```json
 {
@@ -2315,11 +3088,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/jobs/tool-jobs/src/index.ts`](../packages/jobs/tool-jobs/src/index.ts)
+来源： [`packages/jobs/tool-jobs/src/index.ts`](../packages/jobs/tool-jobs/src/index.ts)
 
 ### `job_output`
 
-读取后台任务：流式任务返回自上次读取以来的输出，已完成的最终输出任务返回其结果。
+Read a background job: output since the previous read for stream jobs, or the result of a finished final-output job.
 
 ```json
 {
@@ -2344,9 +3117,9 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/jobs/tool-jobs/src/index.ts`](../packages/jobs/tool-jobs/src/index.ts)
+来源： [`packages/jobs/tool-jobs/src/index.ts`](../packages/jobs/tool-jobs/src/index.ts)
 
-与任务种类无关的后台任务控制器：后台 bash 命令、PTY 发送和 subagent 都通过相同的 3 个工具读取、列出和终止。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。
+The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`.
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 
@@ -2354,7 +3127,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 ### `interrupt_agent`
 
-中断一名 teammate 的当前 turn，同时保留其待处理 inbox。仅 Team Lead 可用。
+Interrupt one teammate's current turn while preserving its pending inbox. Team Lead only.
 
 ```json
 {
@@ -2371,11 +3144,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
+来源： [`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
 
 ### `list_agents`
 
-列出 Lead 与所有持久 teammate，以及可用于寻址的 target 和当前可用状态。inactive 表示没有轮次在执行，不表示任务结果。provisioning 与 failed 描述成员创建状态。
+List the Lead and every durable teammate with an addressable target and current availability. inactive means no turn is executing, not a task result. provisioning and failed describe member creation.
 
 ```json
 {
@@ -2384,11 +3157,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
+来源： [`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
 
 ### `send_message`
 
-向另一名 Team member 发送一条持久消息。running target 会在最近的步骤边界收到消息；inactive target 会启动或恢复一个 turn。
+Send one durable message to another Team member. A running target receives it at the nearest step boundary; an inactive target starts or resumes a turn.
 
 ```json
 {
@@ -2410,11 +3183,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
+来源： [`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
 
 ### `spawn_teammate`
 
-创建一名具名、持久的 teammate。只有 Team Lead 可以调用此工具。
+Create one named, durable teammate. Only the Team Lead may call this tool.
 
 ```json
 {
@@ -2449,11 +3222,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
+来源： [`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
 
 ### `team_task_create`
 
-在共享 Team 任务板上创建一个无 owner 的 pending task。
+Create one unowned pending task on the shared Team task board.
 
 ```json
 {
@@ -2489,11 +3262,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
+来源： [`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
 
 ### `team_task_get`
 
-在修改或执行共享任务前，读取其完整的最新值。
+Read the complete latest value of one shared task before changing or executing it.
 
 ```json
 {
@@ -2510,11 +3283,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
+来源： [`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
 
 ### `team_task_list`
 
-列出共享任务，包括 readiness、owner、revision、blocker 与 write-scope warning。
+List shared tasks, including readiness, owner, revision, blockers, and write-scope warnings.
 
 ```json
 {
@@ -2549,11 +3322,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
+来源： [`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
 
 ### `team_task_update`
 
-使用 team_task_get 或 team_task_list 返回的最新 revision，对共享任务操作执行 compare-and-set。
+Compare-and-set a shared task action using the latest revision from team_task_get or team_task_list.
 
 ```json
 {
@@ -2616,11 +3389,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
+来源： [`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
 
 ### `wait_agent`
 
-等待本次调用开始后下一次 teammate 状态、mailbox 或共享任务变更。它绝不会唤醒 inactive member；若没有其他 member 正在 running 或 provisioning，则立即返回 noProgress。唤醒或超时后应重新列出状态，而不是轮询。
+Wait for the next teammate status, mailbox, or shared-task change after this call starts. This never wakes inactive members and returns noProgress immediately when no other member is running or provisioning. Re-list after wakeup or timeout instead of polling.
 
 ```json
 {
@@ -2634,9 +3407,9 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
+来源： [`packages/experimental/tool-agent-team/src/index.ts`](../packages/experimental/tool-agent-team/src/index.ts)
 
-这 10 个工具限定于隐式 Team Lead 与持久 teammate 作用域。随产品发布的 dsh-base bundle 默认禁用该包；文档中的 Agent Teams profile patch 会启用它，并禁用旧 continuable child 的同名控制工具。
+All nine tools are scoped to implicit Team Leads and durable teammates. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names.
 
 <a id="deepseek-aidsh-tool-todo"></a>
 
@@ -2644,7 +3417,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 ### `todo_write`
 
-记录并更新任务列表，用于规划多步骤工作并展示进度；简单的单步骤任务无需使用。开始前为每个具体步骤添加一项 todo。只要工作尚未完成，就将正在处理的 todo 标记为 `in_progress`，仅在工作并行运行时同时标记多项。某项 todo 完成后立即标记为 `completed`。
+Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. Mark each todo `completed` as soon as it is done.
 
 ```json
 {
@@ -2684,9 +3457,9 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 }
 ```
 
-来源：[`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts)
+来源： [`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts)
 
-todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。
+todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task.
 
 <a id="deepseek-aidsh-tool-workflow"></a>
 
@@ -2694,16 +3467,15 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
 
 ### `workflow`
 
-运行用于大规模编排 subagent 的 JavaScript 工作流脚本。当工作会分散到许多相互独立的部分时，请使用此工具，例如审查大量文件、执行迁移、开展多角度研究或对发现进行对抗式验证；此时应将编排写成脚本，而不是逐轮委派。
+Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.
 
-脚本函数体提供以下钩子：
+Script-body hooks:
+- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object, and the child must call its `structured_output` tool to report it: a `schema` call whose child answers in plain text resolves `null`. If the prompt text states its own return format, that text describes the payload, never the reporting channel. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.
+- `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages.
+- `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`.
+- `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim.
 
-- `agent(prompt, opts?): Promise<any>`：运行一个 subagent 直至完成。不提供 `opts.schema` 时，解析为子级最终文本；提供 `opts.schema` 时，它必须是以对象为根、且**只能**使用 type/properties/required/additionalProperties/items/enum/const/oneOf 的 JSON Schema，此时解析为通过校验的对象。子级失败时解析为 `null`，可使用 `.filter(Boolean)` 过滤。其他选项包括 `label`（显示名称）、`phase`（进度组），以及相互独立的 `provider`／`model` LLM（大语言模型）目标覆盖项。
-- `pipeline(items, ...stages): Promise<any[]>`：让每个条目分别经过各阶段，阶段之间**没有**屏障；多阶段工作优先使用它。每个阶段接收 `(prev, item, index)`。阶段异常会将该**条目**变为 `null`，并跳过它的剩余阶段。
-- `parallel(thunks): Promise<any[]>`：并发运行零参数函数并等待**全部**完成。它会形成屏障，仅当某个阶段确实需要汇总全部先前结果时使用。抛出异常的 thunk 解析为 `null`。
-- `phase(title)`：开始一个进度阶段；`log(message)`：说明进度；`args`：工具调用的 `args` 输入，原样提供。
-
-如果误用钩子（参数错误、未知选项、不受支持的 schema、触发上限），整个脚本会终止，而不会产生 `null`。脚本没有文件系统、网络、定时器或 Node.js API；具体工作由 agent 完成。
+Misused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) end the whole script instead of producing `null`. The script has no filesystem, network, timer, or Node.js APIs; the agents do the work.
 
 ```json
 {
@@ -2782,7 +3554,7 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
 }
 ```
 
-来源：[`packages/workflow/tool-workflow/src/index.ts`](../packages/workflow/tool-workflow/src/index.ts)
+来源： [`packages/workflow/tool-workflow/src/index.ts`](../packages/workflow/tool-workflow/src/index.ts)
 
 <a id="deepseek-aidsh-tool-workspace-dependencies"></a>
 
@@ -2790,7 +3562,7 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
 
 ### `load_workspace_dependencies`
 
-获取随包附带的 Python 和库目录的绝对路径，以及随包 Python 发行版的版本。payload 提供 Node.js 和 pnpm 时才返回对应路径。Python 含 numpy、pandas、python-docx、python-pptx、openpyxl、Pillow、lxml 与 XlsxWriter。除非用户或工作区指令选择了别的环境，Office 文件请使用这些库。返回 Node.js 和 pnpm 路径时，用该 Node 可执行文件和 pnpm 脚本路径运行 pnpm。本工具不改 PATH，也不改包管理器设置。
+Get absolute paths to bundled Python and library directories, plus bundled Python distribution versions. Node.js and pnpm paths are included when the payload provides them. Python includes numpy, pandas, python-docx, python-pptx, openpyxl, Pillow, lxml, and XlsxWriter. Use these libraries for Office files unless the user or workspace instructions select another environment. When Node.js and pnpm paths are returned, run pnpm with that Node executable and pnpm script path. This does not change PATH or package-manager settings.
 
 ```json
 {
@@ -2799,7 +3571,7 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
 }
 ```
 
-来源：[`packages/skill/tool-workspace-dependencies/src/index.ts`](../packages/skill/tool-workspace-dependencies/src/index.ts)
+来源： [`packages/skill/tool-workspace-dependencies/src/index.ts`](../packages/skill/tool-workspace-dependencies/src/index.ts)
 
 <a id="deepseek-aidsh-tool-web"></a>
 
@@ -2807,7 +3579,7 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
 
 ### `web_fetch`
 
-获取指定 HTTP(S) URL 的内容，并将其解码为文本后返回。
+Fetch the content of a specific HTTP(S) URL and return it decoded to text.
 
 ```json
 {
@@ -2824,11 +3596,11 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
 }
 ```
 
-来源：[`packages/web/tool-web/src/index.ts`](../packages/web/tool-web/src/index.ts)
+来源： [`packages/web/tool-web/src/index.ts`](../packages/web/tool-web/src/index.ts)
 
 ### `web_search`
 
-在 Web 上搜索最新信息。返回可选的摘要答案和来源 URL 列表。
+Search the web for current information. Returns an optional summary answer and a list of source URLs.
 
 ```json
 {
@@ -2848,9 +3620,9 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
 }
 ```
 
-来源：[`packages/web/tool-web/src/index.ts`](../packages/web/tool-web/src/index.ts)
+来源： [`packages/web/tool-web/src/index.ts`](../packages/web/tool-web/src/index.ts)
 
-web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。
+web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps.
 
 <a id="deepseek-aidsh-tool-jubian"></a>
 
@@ -3016,7 +3788,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 
 ### `jubian_budget`
 
-读取项目总预算、已花与预留金额及精确修订号；仅在用户明确授权金额后保存新的总额度。额度不足时，用 id 为 `jubian-budget-<script_id>` 的 `ask_user_question` 询问，并复用该答复。工具写入与设置页共用实际授权，修改立即生效。不向提供方发请求，也不产生费用。
+Read a project total budget, spent/reserved amounts and exact revision; save a new total only after explicit user amount authorization. When insufficient ask_user_question with id jubian-budget-<script_id>, then reuse that answer. Writes and Settings share the actual authorization, effective immediately. No provider requests or charges.
 
 ```json
 {
@@ -3331,7 +4103,7 @@ web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可�
 }
 ```
 
-Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_organize`
 
@@ -3971,7 +4743,7 @@ Every paid write (image_generate, image_generate_batch, generate, submit_video, 
 
 ### `drama_draft_dir`
 
-读取并验证 Settings 中的剪映草稿根目录，或保存并回读用户提供的编辑器根目录。创建草稿前先读取；未配置时用 ask_user_question 询问本机已安装编辑器的草稿根目录。已保存且有效的路径直接复用，不重复询问。
+Read and validate the Jianying draft root from Settings, or save and reread the user-provided editor root. Read before creating drafts; when unconfigured use ask_user_question to ask for the installed editor draft root. Reuse a valid saved path without asking again.
 
 ```json
 {
@@ -3989,7 +4761,7 @@ Every paid write (image_generate, image_generate_batch, generate, submit_video, 
 
 ### `drama_project`
 
-读取权威项目圣经，预览已确认修改及其下游影响，或保存已审阅修订。保留既有项目绑定、稳定的视频包/分镜 ID、已完成任务与版本历史。选择视频设置前，通过剧变目录工具验证精确模型、平台、比例与分辨率。
+Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. Preserves legacy project bindings, stable package/storyboard IDs, completed tasks and version history. Validate exact model/platform/ratio/resolution through Jubian catalogue tools before selecting video settings.
 
 ```json
 {
@@ -4238,7 +5010,7 @@ Every paid write (image_generate, image_generate_batch, generate, submit_video, 
 
 来源： [`packages/drama/drama-settings/src/index.ts`](../packages/drama/drama-settings/src/index.ts)
 
-drama_project 维护权威 JSON、受版本检查保护的修订、视频包身份与已完成任务历史。生成尺寸与交付尺寸分别记录；初始预算是 Settings 快照，实际计费请求执行当前 Settings 与账号账本授权。drama_draft_dir 读取，或验证并保存已配置的剪映草稿根目录。
+drama_project keeps authoritative JSON, guarded revisions, package identities and completed-task history. Generation dimensions and delivery dimensions are separate; the initial budget is a Settings snapshot, while paid requests enforce current Settings and the account ledger authorization. drama_draft_dir reads or validates and saves the configured Jianying draft root.
 
 <a id="deepseek-aidsh-tool-shot-script"></a>
 
@@ -4291,7 +5063,7 @@ drama_project 维护权威 JSON、受版本检查保护的修订、视频包身�
 
 来源： [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-shot-script/src/index.ts)
 
-三个方法共用同一 schema：`validate` 与 `preview` 只读，`compile` 写入 matched JSON 和单集 package，返回每包的 `content_duration_ms`、提交整秒时长，以及按提示词顺序排列的 `material_keys`；`jubian_storyboard` 的 `select_assets` 必须使用同一顺序。脚本存在任何硬失败时返回失败列表，不写文件。
+The three methods share one schema: `validate` and `preview` only read, and `compile` writes the matched JSON and the episode package, returning each package's `content_duration_ms`, its submitted whole-second length, and the prompt-ordered `material_keys` that `jubian_storyboard` `select_assets` must match. A script with any hard failure returns that failure list and writes nothing.
 
 <a id="deepseek-aidsh-perception-bgm"></a>
 
@@ -4346,9 +5118,9 @@ drama_project 维护权威 JSON、受版本检查保护的修订、视频包身�
 }
 ```
 
-来源：[`packages/perception/perception-bgm/src/index.ts`](../packages/perception/perception-bgm/src/index.ts)
+来源： [`packages/perception/perception-bgm/src/index.ts`](../packages/perception/perception-bgm/src/index.ts)
 
-`match` 排序候选，不代替选曲；公开库模式返回 ID 与 URL，不自动下载。`download` 接受选定的目录曲目 ID，返回经校验的本地文件。默认使用本地索引；公开库匹配需由部署配置。`index` 和 `inspect` 仅在执行时启动 Python，收集 schema 时不会启动。MERT 分析骨干仅限非商业用途（CC-BY-NC-4.0）；音频权利须另行确认。
+`match` ranks candidates without choosing a track; public mode returns IDs and URLs without downloading. `download` accepts a selected catalogue track ID and returns a verified local file. The default is local-index mode; public matching requires deployment configuration. `index` and `inspect` start Python only when executed, never during schema collection. The MERT analysis backbone is non-commercial (CC-BY-NC-4.0); audio rights remain separate.
 
 <a id="deepseek-aidsh-tool-bgm-compose"></a>
 
@@ -4356,7 +5128,7 @@ drama_project 维护权威 JSON、受版本检查保护的修订、视频包身�
 
 ### `drama_bgm`
 
-短剧整集 BGM 合成工具；只执行 Agent 已确认的 episodes/segments 计划，不选曲、不替代试听。可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。preview=安全预检：验证时间线、来源和完整连续覆盖，检测 1–5 秒内的起音，测量源窗口平均响度并计算目标 -17.5 dB、最大 +9 dB 的增益，不写正式产物。compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。compose 返回的 output 传给 drama_render.bgm，同一 plan 传给 drama_render.bgm_plan。本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。
+短剧整集 BGM 合成工具；只执行 Agent 已确认的 episodes/segments 计划，不选曲、不替代试听。可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。preview=安全预检：验证时间线、来源和完整连续覆盖，检测 1–5 秒内的起音，测量源窗口平均响度并计算目标 -17.5 dB、最大 +9 dB 的增益，不写正式产物。compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。**跨集复用规则以 policy_findings 返回，不拦截调用；读到了就必须照 fix 改完再交付**：每集至少 2 首不同曲目（R1）、一集内不得重复同一首（R2）、整批之内同一首最多出现在 2 集（R3）、每集至少 1 首是本批其它集没用过的（R4）、每个切点必须落在镜头包边界上（R5，容差 0.05 秒）。批次 = 计划文件所在目录里所有含 episodes 数组的 JSON（通常 episodes/segments/*.json），因此同目录放不相关的 JSON 没关系，但读不动的文件会直接报错；返回的 batch_episodes 就是本次核对过的集号。同一首曲子的身份按解析后的绝对 source 路径判定，track 只当展示名。阈值是部署配置项（minTracksPerEpisode、maxEpisodesPerTrack、freshTracksPerEpisode、boundaryToleranceSeconds）。compose 返回的 output 传给 drama_render.bgm，同一 plan 传给 drama_render.bgm_plan。本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。
 
 ```json
 {
@@ -4402,9 +5174,9 @@ drama_project 维护权威 JSON、受版本检查保护的修订、视频包身�
 }
 ```
 
-来源：[`packages/drama/tool-bgm-compose/src/index.ts`](../packages/drama/tool-bgm-compose/src/index.ts)
+来源： [`packages/drama/tool-bgm-compose/src/index.ts`](../packages/drama/tool-bgm-compose/src/index.ts)
 
-`preview` 校验剧情完整覆盖并回报源哈希、偏移、实测平均音量与增益，不发布产物；`compose` 交叉淡化选定曲目，暂存 WAV 通过 ffprobe 后才发布；`verify` 测量已有 WAV，不重写它。工具不选曲，也不调用 `bgm_match`；剧情解读与最终选曲归 Agent。
+`preview` validates complete story coverage and reports source hashes, offsets, measured mean volume, and gains without publishing; `compose` crossfades the selected tracks and publishes only after the staged WAV passes ffprobe; `verify` measures an existing WAV without rewriting it. The tool does not choose music or call `bgm_match`; the agent owns plot interpretation and final track selection.
 
 <a id="deepseek-aidsh-tool-episode-render"></a>
 
@@ -4412,7 +5184,7 @@ drama_project 维护权威 JSON、受版本检查保护的修订、视频包身�
 
 ### `drama_render`
 
-短剧整集渲染编排（剧变流水线）。subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，字幕文字只取 lines 里的剧本原文，cue 时间 = 该镜在时间线上的起点 + 镜内偏移。**本工具不做识别、不测能量、不估算时间**：能量门限分不出具体哪句在哪里，估算出来的时间正是字幕压在错句上的原因。缺某一镜的对齐、段数与台词条数不符、识别文本与剧本对不上，都按 failure 报出（subtitle_line_coverage），并指出该对哪一镜重跑识别；有识别结果却没声明台词，同样报 failure。写出的每条字幕还会检查时长、重叠、越界与阅读速度（超过 20 字/秒按 failure，超过 12 字/秒按 warning）。对齐时间本身的准确度不由本工具判断，识别模型与语言选择由调用方负责。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。render=出片：逐镜编码到交付规格 1440x2560@60、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1，片尾用最后一镜的真实尾帧定格 2 秒：ending_effect 按自身原速只播放一次，覆盖片尾开头它自己的时长，其余时间是纯定格帧（不变速、不拉伸、不补黑场），只有 ending_audio 的前 2 秒在正片结束处进入混音；这两份素材按 SHA-256 校验，只接受随包字节，换成别的文件或送上长于 2 秒的特效都会直接报错。拼接后烧录 ASS 字幕（默认 SimHei 68，字体服从部署配置；字间距 -2、黑描边按成片像素推导（目标 7px，标准管线写入 5）、底部居中，烧录链最后是 fps=60,setpts=N/(60*TB)，把帧率与时间基准固定在字幕之后，手写链把 fps 放在 subtitles 之前会让成片只剩少量帧，右下角唯一的「内容由AI生成」标记——这条标记由写出的 ASS 携带一次，另加 drawtext 或 overlay 就会重复），再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、首/中/尾抽帧真实解码、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。**不许只看元数据**：容器里的时长、帧率、码率在一份大量丢帧的成片上照样正常，decode_probe 会在首、中、尾各解一帧，任何一处解不出画面就按 failure 报出。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。
+短剧整集渲染编排（剧变流水线）。subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，字幕文字只取 lines 里的剧本原文，cue 时间 = 该镜在时间线上的起点 + 镜内偏移。**本工具不做识别、不测能量、不估算时间**：能量门限分不出具体哪句在哪里，估算出来的时间正是字幕压在错句上的原因。缺某一镜的对齐、段数与台词条数不符、识别文本与剧本对不上，都按 failure 报出（subtitle_line_coverage），并指出该对哪一镜重跑识别；有识别结果却没声明台词，同样报 failure。写出的每条字幕还会检查时长、重叠、越界与阅读速度（超过 20 字/秒按 failure，超过 12 字/秒按 warning）。对齐时间本身的准确度不由本工具判断，识别模型与语言选择由调用方负责。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。render=出片：逐镜编码到交付规格 1440x2560@60、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1，片尾用最后一镜的真实尾帧定格 2 秒：ending_effect 按自身原速只播放一次，覆盖片尾开头它自己的时长，其余时间是纯定格帧（不变速、不拉伸、不补黑场），只有 ending_audio 的前 2 秒在正片结束处进入混音；这两份素材按 SHA-256 校验，只接受随包字节，换成别的文件或送上长于 2 秒的特效都会直接报错。拼接后烧录 ASS 字幕（默认 SimHei 68，字体服从部署配置；字间距 -2、黑描边按成片像素推导（目标 7px，标准管线写入 5）、底部居中，烧录链最后是 fps=60,setpts=N/(60*TB)，把帧率与时间基准固定在字幕之后，手写链把 fps 放在 subtitles 之前会让成片只剩少量帧；右下角唯一的「内容由AI生成」标记——这条标记由写出的 ASS 携带一次，另加 drawtext 或 overlay 就会重复），再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、首/中/尾抽帧真实解码、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。**不许只看元数据**：容器里的时长、帧率、码率在一份大量丢帧的成片上照样正常，decode_probe 会在首、中、尾各解一帧，任何一处解不出画面就按 failure 报出。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。
 
 ```json
 {
@@ -4493,7 +5265,7 @@ drama_project 维护权威 JSON、受版本检查保护的修订、视频包身�
 }
 ```
 
-Source: [`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/tool-episode-render/src/index.ts)
+来源： [`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/tool-episode-render/src/index.ts)
 
 ### `drama_video`
 
@@ -4543,9 +5315,9 @@ Source: [`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/to
 }
 ```
 
-来源：[`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/tool-episode-render/src/index.ts)
+来源： [`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/tool-episode-render/src/index.ts)
 
-`drama_video` 记录带标签、可逆的 SHA256 禁用决定，不要求审核证据；解除禁用不等于批准。`drama_render` 在 `prepare`/`render` 中拒绝已禁用的选用字节，`verify` 则报告风险，不删除媒体。其三个方法：`prepare` 构建渲染输入但不编码画面，`render` 出片并回报实测的分辨率、帧率、码率、时长、大小与编码器，`verify` 检查成片。交付样式固定——1440x2560@60、24M 目标码率与 30M 上限、4.6 Mbps 下限、SimHei 68 字幕加右下角唯一的 AI 标记，以及用最后一镜经过证明的真实尾帧定格的 2 秒片尾。无法进行下去的渲染会抛错并给修法；不符合规格的成片返回 `ok: false` 与逐项修法。
+`drama_video` stores reversible, labelled SHA256 exclusions without review evidence; release is not approval. `drama_render` refuses banned selected bytes in `prepare`/`render`, while `verify` reports risks without deleting media. Its three methods: `prepare` lays out render inputs without encoding picture, `render` produces the delivery and reports its measured resolution, frame rate, bitrate, duration, size, and encoder, and `verify` checks the delivered file. The delivery style is fixed — 1440x2560 at 60 fps, 24M target with a 30M ceiling and a 4.6 Mbps floor, SimHei 68 subtitles with the single bottom-right AI-content mark, and a two-second ending frozen from the last shot’s proved tail frame. A render that cannot proceed throws with its repair instruction; a delivered file that misses the specification returns `ok: false` with per-check repairs.
 
 <a id="deepseek-aidsh-tool-drama-assets"></a>
 

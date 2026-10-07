@@ -58,6 +58,18 @@ it('retains word times and rejects invalid nested timing from the gateway', asyn
   await expect(setup.client.get(id)).rejects.toMatchObject({ code: 'response-invalid' })
 })
 
+it('retains optional speaker identities and rejects malformed gateway identities', async () => {
+  const id = randomUUID()
+  let speaker: unknown = 'speaker_1'
+  const setup = await fixture(async () => Response.json({ id, status: 'complete', segments: [{ start: 0, end: 1, text: '你好', speaker_id: speaker }] }))
+  expect((await setup.client.get(id)).segments?.[0]?.speaker_id).toBe('speaker_1')
+  for (speaker of ['', '  ', 0, null, { id: 'speaker_1' }]) {
+    await expect(setup.client.get(id)).rejects.toMatchObject({ code: 'response-invalid' })
+  }
+  speaker = undefined
+  expect((await setup.client.get(id)).segments?.[0]).not.toHaveProperty('speaker_id')
+})
+
 it.each(['subtitles', 'screenplay'] as const)('sends %s purpose only when submitting a new purpose-bound task', async (purpose) => {
   const id = randomUUID(), headers: Headers[] = []
   const setup = await fixture(async (_url, init) => {
