@@ -35,6 +35,7 @@ const beat = {
     fact_ids: strings,
     requires_knowledge: strings,
     witnesses: strings,
+    audible_in_scene: { type: 'boolean', description: 'VO only: true when actual characters hear the approved speech, such as a phone call or played voice message. Name those listeners in witnesses. Omission or false remains audience-only.' },
     hook: { type: 'boolean', description: 'Mark the existing episode-end suspense beat, never invent a hook for faithful source material.' },
   },
 } as const
@@ -173,7 +174,7 @@ export const SCENE_RECORD = z.strictObject({
   characters: z.array(nonempty), beats: z.array(z.strictObject({
     kind: z.enum(['action', 'dialogue', 'os', 'vo']), actor: nonempty.optional(), text: nonempty,
     fact_ids: z.array(factId), requires_knowledge: z.array(factId), witnesses: z.array(nonempty),
-    hook: z.boolean().optional(),
+    audible_in_scene: z.boolean().optional(), hook: z.boolean().optional(),
   })),
 })
 /** Parser for an application-issued structured episode version. */

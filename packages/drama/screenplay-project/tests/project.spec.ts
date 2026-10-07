@@ -376,6 +376,22 @@ it('recovers all fact identities in bounded original order after a writer exits 
   await expect(run({ method: 'list_facts', project: path, start: 1, count: 1 })).rejects.toThrow('fact_window_bytes')
 })
 
+it('pages complete facts by encoded byte size without losing review records or mutating the project', async () => {
+  const first = await fact('thought', 1, '甲')
+  const second = await fact('speech', 3, '乙')
+  const before = await current()
+  const budget = Math.max(...before.facts.map(value => Buffer.byteLength(JSON.stringify([value]), 'utf8')))
+  commands = new ProjectCommands(ctx.fs, { ...limits, maxReadBytes: budget }, ctx.attachments)
+  expect(await run({ method: 'list_facts', project: path, start: 1, count: 100 }))
+    .toEqual({ revision: before.revision, facts: [before.facts[0]], next: 2 })
+  expect(await run({ method: 'list_facts', project: path, start: 2, count: 100 }))
+    .toEqual({ revision: before.revision, facts: [before.facts[1]], next: null })
+  expect(before.facts.map(value => value.id)).toEqual([first, second])
+  expect(await current()).toEqual(before)
+  commands = new ProjectCommands(ctx.fs, { ...limits, maxReadBytes: 2 }, ctx.attachments)
+  await expect(run({ method: 'list_facts', project: path, start: 1, count: 100 })).rejects.toThrow('单条事实超过读取预算')
+})
+
 async function inspection(count = 2, large = false) {
   const video = join(root, 'fixture.mp4')
   await writeFile(video, 'Owned video fixture bytes')

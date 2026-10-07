@@ -210,8 +210,18 @@ export class ProjectCommands {
           || request.start > Math.max(1, project.facts.length)) {
           throw Error('fact_window: 使用 1 起始编号及配置预算内的读取数量。')
         }
-        const facts = project.facts.slice(request.start - 1, request.start - 1 + request.count)
-        if (Buffer.byteLength(JSON.stringify(facts), 'utf8') > this.limits.maxReadBytes) throw Error('fact_window_bytes: 内容超过读取预算，请缩小窗口。')
+        const facts: ProjectFile['facts'] = []
+        let bytes = 2
+        if (bytes > this.limits.maxReadBytes) throw Error('fact_window_bytes: 内容超过读取预算，请缩小窗口。')
+        for (const fact of project.facts.slice(request.start - 1, request.start - 1 + request.count)) {
+          const encodedBytes = Buffer.byteLength(JSON.stringify(fact), 'utf8') + (facts.length === 0 ? 0 : 1)
+          if (bytes + encodedBytes > this.limits.maxReadBytes) {
+            if (facts.length === 0) throw Error('fact_window_bytes: 单条事实超过读取预算，请调整配置后重试。')
+            break
+          }
+          facts.push(fact)
+          bytes += encodedBytes
+        }
         return { revision: project.revision, facts,
           next: request.start - 1 + facts.length < project.facts.length ? request.start + facts.length : null }
       }

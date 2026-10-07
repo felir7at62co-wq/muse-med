@@ -78,6 +78,28 @@ it('allows continuous scenes and keeps acquired knowledge available without inve
   expect(renderEpisode(project, [scene(), next], {}, 1).knowledge).toEqual({ 'present:甲': [thought.id] })
 })
 
+it('acquires offscreen speech through a declared audible source without sharing private thoughts', () => {
+  const phone = scene({ beats: [{ kind: 'vo', actor: '乙', text: '门开了。', fact_ids: [speech.id],
+    requires_knowledge: [], witnesses: ['甲'], audible_in_scene: true }] })
+  const reply = scene({ transition: 'continuous' })
+  reply.beats[0]!.requires_knowledge = [speech.id]
+  const result = renderEpisode(project, [phone, reply], {}, 1)
+  expect(result.knowledge).toEqual({ 'present:甲': [speech.id, thought.id], 'present:乙': [speech.id] })
+  expect(result.script).toContain('乙（VO）：门开了。')
+  const unheard = scene({ beats: [{ ...phone.beats[0]!, audible_in_scene: false, witnesses: [] }] })
+  expect(() => renderEpisode(project, [unheard, reply], {}, 1)).toThrow('knowledge_not_acquired')
+})
+
+it.each([
+  scene({ beats: [{ kind: 'os', actor: '甲', text: '钥匙在我手里。', fact_ids: [thought.id], requires_knowledge: [], witnesses: [], audible_in_scene: false }] }),
+  scene({ beats: [{ kind: 'vo', actor: '甲', text: '钥匙在我手里。', fact_ids: [thought.id], requires_knowledge: [], witnesses: ['乙'], audible_in_scene: true }] }),
+  scene({ beats: [{ kind: 'vo', text: '作者认为乙有些贪心。', fact_ids: [comment.id], requires_knowledge: [], witnesses: ['甲'], audible_in_scene: true }] }),
+  scene({ beats: [{ kind: 'vo', text: '门开了。', fact_ids: [speech.id], requires_knowledge: [], witnesses: [], audible_in_scene: true }] }),
+])('refuses to turn private thoughts, author analysis or unattributed narration into audible scene speech (%#)', (invalid) => {
+  const scoped = { ...project, facts: project.facts.map(fact => fact.id === speech.id ? { ...fact, actor: undefined } : fact) }
+  expect(() => renderEpisode(scoped, [invalid], {}, 1)).toThrow('voice_audibility')
+})
+
 it('refuses invalid flashback transitions within the flashback layer', () => {
   const past = { ...thought, layer: 'flashback' as const }
   const scoped = { ...project, facts: [past] }

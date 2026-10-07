@@ -30,6 +30,7 @@ export interface EpisodeRender {
 
 /**
  * Validate attribution and fold an episode's public observations and private thoughts.
+ * Audible VO requires reviewed speech; only its declared listeners acquire it.
  * Semantic entailment of paraphrases remains the independent reviewer's responsibility.
  * @param project - Validated immutable facts and accepted episodes.
  * @param scenes - Ordered scenes to render.
@@ -105,7 +106,14 @@ export function renderEpisode(project: ProjectFile, scenes: ProjectFile['candida
           default: assertNever(beat.kind)
         }
       }
-      if ((beat.kind === 'os' || beat.kind === 'vo') && beat.witnesses.length > 0) throw Error('private_knowledge: OS 与画外音不能让场内人物获知。')
+      if (beat.audible_in_scene !== undefined && beat.kind !== 'vo') throw Error('voice_audibility: 仅 VO 可声明场内是否可闻。')
+      if (beat.audible_in_scene === true && (beat.actor === undefined
+        || referenced.some(fact => fact.kind !== 'speech'))) {
+        throw Error('voice_audibility: 场内可闻 VO 须有发声人物并引用其已批准的发声事实。')
+      }
+      if ((beat.kind === 'os' || (beat.kind === 'vo' && beat.audible_in_scene !== true)) && beat.witnesses.length > 0) {
+        throw Error('private_knowledge: OS 与仅观众可闻的 VO 不能让场内人物获知。')
+      }
       if (beat.actor === undefined && beat.requires_knowledge.length > 0) throw Error('knowledge_actor: 知情要求须指定人物。')
       for (const id of beat.requires_knowledge) {
         if (!knowledge[`${scene.layer}:${beat.actor}`]?.includes(id)) throw Error(`knowledge_not_acquired: ${beat.actor} 尚未在 ${scene.layer} 剧情中获知 ${id}。`)
