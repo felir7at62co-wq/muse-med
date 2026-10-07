@@ -84,6 +84,30 @@ function history(role: 'system' | 'assistant', content: ContentBlock[]): Message
 }
 
 describe('pi-ai request context conversion', () => {
+  it('keeps adjacent text-only task and context in one user message', async () => {
+    const input = request([
+      user([{ type: 'text', text: 'Create the test file.' }]),
+      user([{ type: 'text', text: 'Current runtime context.' }]),
+      user([{ type: 'text', text: 'Available skills.' }]),
+    ])
+    const expected = [{ role: 'user', content: 'Create the test file.\n\nCurrent runtime context.\n\nAvailable skills.', timestamp: 0 }]
+    expect(toPiContext(input).messages).toEqual(expected)
+    expect((await toPiContext(input, imageContext(attachments))).messages).toEqual(expected)
+  })
+
+  it('joins empty text neighbours without crossing assistant or tool-result messages', () => {
+    const callId = ToolCallId('call-boundary')
+    expect(toPiContext(request([
+      user([]), user([{ type: 'text', text: 'task' }]), user([]),
+      history('assistant', [{ type: 'tool-call', id: callId, name: 'lookup', arguments: '{}' }]),
+      createToolResultMessage({ callId, content: [{ type: 'text', text: 'result' }], isError: false }),
+      user([{ type: 'text', text: 'next' }]), user([{ type: 'text', text: 'context' }]),
+    ])).messages).toMatchObject([
+      { role: 'user', content: 'task' }, { role: 'assistant' }, { role: 'toolResult' },
+      { role: 'user', content: 'next\n\ncontext' },
+    ])
+  })
+
   it.each(['user', 'system', 'assistant', 'tool'] as const)('rejects tool-change blocks in %s history', (role) => {
     for (const type of ['tool-addition', 'tool-removal'] as const) {
       const message = { id: 'invalid', role, source: { kind: 'test' }, content: [{ type, toolName: 'search' }] } as unknown as Message
@@ -549,8 +573,7 @@ describe('pi-ai system prompt source', () => {
     const options: GenerateOptions = { ...base, messages: [question, leading] }
     const expected = {
       messages: [
-        { role: 'user', content: 'hi', timestamp: 0 },
-        { role: 'user', content: 'lead rule', timestamp: 0 },
+        { role: 'user', content: 'hi\n\nlead rule', timestamp: 0 },
       ],
     }
     expect(toPiContext(options)).toEqual(expected)
@@ -562,8 +585,7 @@ describe('pi-ai system prompt source', () => {
     const expected = {
       systemPrompt: 'direct',
       messages: [
-        { role: 'user', content: 'lead rule', timestamp: 0 },
-        { role: 'user', content: 'hi', timestamp: 0 },
+        { role: 'user', content: 'lead rule\n\nhi', timestamp: 0 },
       ],
     }
     expect(toPiContext(options)).toEqual(expected)
