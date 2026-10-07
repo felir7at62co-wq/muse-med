@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-fanqie-body-download
+profile: headless
+composition: muse-fanqie-body-download
+recording: authored
+header:
+  class: muse-fanqie-body-download
+  pin: true
+workspace:
+  final: true

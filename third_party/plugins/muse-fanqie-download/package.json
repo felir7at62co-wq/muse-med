@@ -1,6 +1,6 @@
 {
   "name": "muse-fanqie-download",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Independent local whole-book Fanqie download tools for Muse",
   "type": "module",
   "main": "./src/index.js",

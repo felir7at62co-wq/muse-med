@@ -1,0 +1,10 @@
+# Authored engine output and directory allocation; the shipped tool verifies and publishes real TXT files.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: subprocess
+  disabled: true
+- insert:
+    - id: snapshot-fanqie-download-transport
+      name: './transport-fixture.mjs'

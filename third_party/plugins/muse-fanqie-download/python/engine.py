@@ -34,30 +34,44 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class ArticleText(html.parser.HTMLParser):
-    """Extract article text while discarding executable markup and external resources."""
+    """Prefer article text, otherwise body text; exclude document metadata and scripts."""
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.depth = 0
+        self.depth = {'article': 0, 'body': 0}
         self.ignored = 0
-        self.parts = []
+        self.has_article = False
+        self.collected = {'article': [], 'body': []}
+
+    @property
+    def parts(self):
+        return self.collected['article' if self.has_article else 'body']
+
+    def append(self, text):
+        if not self.ignored:
+            for container, depth in self.depth.items():
+                if depth:
+                    self.collected[container].append(text)
 
     def handle_starttag(self, tag, attrs):
-        if tag == 'article':
-            self.depth += 1
-        if tag in ('script', 'style'):
+        if tag in ('head', 'script', 'style'):
             self.ignored += 1
+        if tag in self.depth:
+            self.depth[tag] += 1
+            if tag == 'article' and not self.ignored:
+                self.has_article = True
+        if tag == 'br':
+            self.append('\n')
 
     def handle_endtag(self, tag):
-        if tag in ('p', 'h1', 'h2', 'div', 'blk') and self.depth and not self.ignored:
-            self.parts.append('\n')
-        if tag == 'article':
-            self.depth = max(0, self.depth - 1)
-        if tag in ('script', 'style'):
+        if tag in ('p', 'h1', 'h2', 'div', 'blk'):
+            self.append('\n')
+        if tag in self.depth:
+            self.depth[tag] = max(0, self.depth[tag] - 1)
+        if tag in ('head', 'script', 'style'):
             self.ignored = max(0, self.ignored - 1)
 
     def handle_data(self, data):
-        if self.depth and not self.ignored:
-            self.parts.append(data)
+        self.append(data)
 
 
 def decrypt(value, key):
@@ -86,6 +100,7 @@ def decode_chapter(chapter, expected, book_id, key, limit):
     text = raw.decode('utf-8', errors='strict')
     parser = ArticleText()
     parser.feed(text)
+    parser.close()
     body = '\n'.join(line.strip() for line in ''.join(parser.parts).splitlines() if line.strip())
     words = int(expected.get('chapter_word_number') or meta.get('chapter_word_number') or 0)
     if not body or '\ufffd' in body or re.search('[\ue000-\uf8ff]', body) or words <= 0 or len(re.sub(r'\s', '', body)) < words:

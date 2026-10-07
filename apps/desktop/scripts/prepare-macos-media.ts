@@ -1,6 +1,6 @@
-/** Build standalone Mac download-verification tools from the locked official FFmpeg source. */
+/** Build Mac media inspection and download-verification tools from locked official FFmpeg source. */
 import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { join, dirname, resolve } from 'node:path'
+import { join, dirname, posix, resolve, basename } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { createHash } from 'node:crypto'
@@ -47,12 +47,13 @@ export function validateMacMediaLock(value: unknown): MacMediaLock {
 
 /**
  * @param arch - Mac binary architecture.
- * @returns standalone LGPL configuration with no external libraries or host package discovery.
+ * @returns LGPL configuration using Apple system zlib without host package discovery.
  */
 export function macMediaConfigureArguments(arch: 'arm64' | 'x64'): string[] {
   const machine = arch === 'arm64' ? 'arm64' : 'x86_64'
   return [
     '--disable-autodetect',
+    '--enable-zlib',
     '--disable-shared',
     '--enable-static',
     '--disable-doc',
@@ -185,23 +186,64 @@ export async function prepareMacMedia(output: string, cache: string, arch: 'arm6
   }
 }
 
-/** @param output - prepared media directory. @returns after both tools execute without PATH, Homebrew or excluded license options. */
+function smokeCommand(binary: string, args: string[], input?: Buffer): { bytes: Buffer; diagnostic: string } {
+  const result = spawnSync(binary, args, {
+    timeout: 30_000,
+    env: { PATH: '/usr/bin:/bin' },
+    maxBuffer: 64 * 1024,
+    ...(input === undefined ? {} : { input }),
+  })
+  const diagnostic = result.stderr?.toString('utf8') ?? ''
+  if (result.error !== undefined || result.signal !== null || result.status !== 0) {
+    throw new Error(`Mac media: ${basename(binary)} smoke failed (exit ${String(result.status)}, signal ${String(result.signal)}): ${result.error?.message ?? diagnostic}`)
+  }
+  return { bytes: result.stdout, diagnostic }
+}
+
+function checkSystemLibraries(binary: string): void {
+  const { bytes } = smokeCommand('/usr/bin/otool', ['-L', binary])
+  const libraries = bytes.toString('utf8').trimEnd().split('\n').slice(1).map((line) => {
+    const match = /^\s+(.+?) \(compatibility version /u.exec(line)
+    if (!match) throw new Error(`Mac media: ${basename(binary)} has invalid library diagnostics`)
+    return match[1]!
+  })
+  // Mach-O library diagnostics contain POSIX paths on every test host.
+  if (!libraries.includes('/usr/lib/libz.1.dylib') || libraries.some(path => posix.resolve(path) !== path
+    || (!path.startsWith('/usr/lib/') && !path.startsWith('/System/Library/Frameworks/')))) {
+    throw new Error(`Mac media: ${basename(binary)} requires Apple system zlib and libraries: ${libraries.join(', ')}`)
+  }
+}
+
+/**
+ * @param output - Prepared media directory.
+ * @returns After both tools execute, use only Apple libraries and produce a decodable, scaled PNG with a source timestamp.
+ * @throws When execution, license options, library paths or PNG extraction fail; subprocess failures include diagnostics.
+ */
 export function smokeMacMedia(output: string): void {
   for (const name of ['ffmpeg', 'ffprobe']) {
-    const result = spawnSync(join(output, 'ffmpeg', 'bin', name), ['-version'], {
-      encoding: 'utf8',
-      timeout: 30_000,
-      env: { PATH: '/usr/bin:/bin' },
-      maxBuffer: 64 * 1024,
-    })
-    if (
-      result.error !== undefined ||
-      result.status !== 0 ||
-      !result.stdout.startsWith(`${name} version `) ||
-      /--enable-(?:gpl|nonfree|version3)/u.test(result.stdout)
-    )
+    const binary = join(output, 'ffmpeg', 'bin', name)
+    const version = smokeCommand(binary, ['-version']).bytes.toString('utf8')
+    if (!version.startsWith(`${name} version `) || /--enable-(?:gpl|nonfree|version3)/u.test(version))
       throw new Error(`Mac media: ${name} failed standalone smoke`)
+    checkSystemLibraries(binary)
   }
+  const binary = join(output, 'ffmpeg', 'bin', 'ffmpeg')
+  const frame = smokeCommand(binary, ['-nostdin', '-hide_banner', '-loglevel', 'info', '-protocol_whitelist', 'file,pipe',
+    '-copyts', '-f', 'lavfi', '-i', 'testsrc=size=32x24:rate=2:duration=1,setpts=PTS+0.5/TB',
+    '-map', '0:v:0', '-an', '-sn', '-dn', '-frames:v', '1',
+    '-vf', "scale=w='min(16,iw)':h='min(16,ih)':force_original_aspect_ratio=decrease,showinfo",
+    '-c:v', 'png', '-f', 'image2pipe', 'pipe:1'])
+  const timestamp = /\bpts_time:([\d.e+-]+)/u.exec(frame.diagnostic)
+  const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  if (!timestamp || Number(timestamp[1]) !== 0.5 || frame.bytes.length < 24
+    || !frame.bytes.subarray(0, pngSignature.length).equals(pngSignature)
+    || frame.bytes.toString('ascii', 12, 16) !== 'IHDR'
+    || frame.bytes.readUInt32BE(16) !== 16 || frame.bytes.readUInt32BE(20) !== 12) {
+    throw new Error(`Mac media: PNG extraction did not return a scaled image and source timestamp: ${frame.diagnostic}`)
+  }
+  const decoded = smokeCommand(binary, ['-nostdin', '-hide_banner', '-loglevel', 'error', '-protocol_whitelist', 'file,pipe',
+    '-f', 'image2pipe', '-i', 'pipe:0', '-frames:v', '1', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1'], frame.bytes)
+  if (decoded.bytes.length !== 16 * 12 * 3) throw new Error(`Mac media: extracted PNG did not decode completely: ${decoded.diagnostic}`)
 }
 
 if (process.argv[1] !== undefined && import.meta.filename === resolve(process.argv[1])) {
