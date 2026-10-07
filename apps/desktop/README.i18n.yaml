@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
 /muse-desktop:
-  en: ab1195a324966f13
-  zh: 4d6b642d648d0d38
+  en: 8a9353c4a35ec3ae
+  zh: c200ce717f1ff260
 /muse-desktop/terminal-command:
   en: bef92953c237363f
   zh: d21d6effd21b8c00
@@ -36,8 +36,8 @@
   en: 3aae4931f42e196e
   zh: c39dbabb9ff329f7
 /muse-desktop/develop/startup-onboarding:
-  en: ae70e30744cb5b6a
-  zh: 134bf0f208bfd6ba
+  en: dda0650862725702
+  zh: 6f9bf0c7c70fb18e
 /muse-desktop/package:
   en: 4cd8a8da6977928d
   zh: 9f624855a2edac37
@@ -52,10 +52,10 @@
   zh: efab151447b389d5
 /muse-desktop/package/upload-updates:
   en: 60ce9b8389e10f39
-  zh: 92a4241d9dacacbf
+  zh: 16f5fe075ddc7e58
 /muse-desktop/package/unsigned-installers:
-  en: b98d7f5ec39cd219
-  zh: 0b84d716aa9ca78c
+  en: 8620b9d44e3058a2
+  zh: 13ce3b2ea0d81fb5
 /muse-desktop/package/windows-installer-interface:
   en: 141baf77e16296b3
   zh: 4f27b879f3fdff68
@@ -63,8 +63,8 @@
   en: 6e80edbea2fcd0a6
   zh: 26e4dd87887b5477
 /muse-desktop/updates:
-  en: a5fe2ee7d92a9837
-  zh: c43f6f5582951cfd
+  en: 28e0e0bd0bad3097
+  zh: bb494916177a0eb6
 /muse-desktop/updates/mandatory-update-policy:
   en: c00a0e7d32056ba9
   zh: a76dae44cb513d6f

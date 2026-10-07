@@ -1,0 +1,25 @@
+{
+  "final_response": "COMPLETE_SEGMENT",
+  "finish_reason": "completed",
+  "endings": [
+    {
+      "turn": 1,
+      "reason": {
+        "kind": "completed"
+      }
+    }
+  ],
+  "continuations": [
+    {
+      "kind": "output-continuation"
+    },
+    {
+      "kind": "output-continuation"
+    }
+  ],
+  "segments": [
+    "FIRST_SEGMENT ",
+    "SECOND_SEGMENT ",
+    "COMPLETE_SEGMENT"
+  ]
+}

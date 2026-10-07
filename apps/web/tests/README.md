@@ -16,6 +16,8 @@ Ordinary scenarios begin with no registered Workspace or Session and a durable m
 
 The workspace file-reference recording supplies its historical two-skill catalog through an owned temporary skill directory, using the descriptors retained in the recorded Session and independent of personal or bundled skill roots. Its keyboard gesture collapses a selected draft at the end before inserting the next reference on macOS and Windows.
 
+[Muse personal models](muse-personal-models.e2e.ts) discovers a model from an owned local endpoint, saves its credential separately, and verifies settings rows, conversation selection, restart persistence and an adapter request. It boots the shipped desktop settings overlay without touching an installed Muse application.
+
 ## Completion observations
 
 State-sensitive cases use Workspace, admission, attachment, and model-stream barriers to separate visible intermediate states from completed operations. Model-picker persistence assertions wait for the saved default, independently of menu closure. Details close waits for frame transitions; archive verification assigns an explicit title to the seeded Session and follows that identity across reload. The [CI test reliability workflow](../../../.agents/skills/dsh-ci-test-reliability/SKILL.md#synchronize-on-state) owns these synchronization rules.

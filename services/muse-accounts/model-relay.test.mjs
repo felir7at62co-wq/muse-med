@@ -2,11 +2,32 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import http from 'node:http';
+import https from 'node:https';
 import {Readable} from 'node:stream';
-import {createModelRelay,accountToken,resolveModelReasoning} from './model-relay.mjs';
+import {createModelRelay,accountToken,resolveModelReasoning,fetchPublicModelListing,publicLookup} from './model-relay.mjs';
 import {createDesktopModels} from './desktop-models.mjs';
 
 const settings={model:'glm-5.3-flash',apiKey:'synthetic-private-key',maxTokens:32768,reasoningEfforts:{low:'wire-low',high:'wire-high'},defaultReasoningEffort:'low'};
+
+test('model listing transport pins public DNS, retains cancellation and refuses redirects',async t=>{
+ const calls=[],signal=new AbortController().signal;let status=200;
+ t.mock.method(https,'request',(url,options,receive)=>{
+  calls.push({url,options});const request=new EventEmitter();request.end=()=>{
+   const response=Readable.from([Buffer.from('{"data":[{"id":"fixture-model"}]}')]);
+   response.statusCode=status;response.headers={'content-type':'application/json','x-fixture':['one','two'],'x-absent':undefined};receive(response);
+  };return request;
+ });
+ const response=await fetchPublicModelListing('https://provider.example/v1/models',{headers:new Headers({authorization:'Bearer synthetic-key'}),signal});
+ assert.deepEqual(await response.json(),{data:[{id:'fixture-model'}]});assert.equal(response.headers.get('x-fixture'),'one, two');
+ assert.equal(calls[0].options.lookup,publicLookup);assert.equal(calls[0].options.signal,signal);assert.equal(calls[0].options.method,'GET');
+ assert.equal(calls[0].options.headers.authorization,'Bearer synthetic-key');
+ for(const code of [302,401,204,600]){status=code;const failure=await fetchPublicModelListing('https://provider.example/v1/models',{headers:{},signal});
+  assert.equal(failure.status,code===600?502:code);assert.equal(await failure.text(),'');}
+ for(const url of ['http://provider.example/v1/models','https://127.0.0.1/v1/models','https://user:password@provider.example/v1/models'])await assert.rejects(fetchPublicModelListing(url,{headers:{},signal}));
+ assert.equal(calls.length,5);
+ t.mock.method(https,'request',()=>{const request=new EventEmitter();request.end=()=>request.emit('error',Error('synthetic-transport-failure'));return request;});
+ await assert.rejects(fetchPublicModelListing('https://provider.example/v1/models',{headers:{},signal}),/synthetic-transport-failure/);
+});
 
 test('Desktop relay keeps one thousand synthetic account requests active without an imposed shared limit',{timeout:30000},async t=>{
  let release,entered;const held=new Promise(r=>{release=r;}),allStarted=new Promise(r=>{entered=r;});let calls=0;

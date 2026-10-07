@@ -675,12 +675,14 @@ async function main(): Promise<void> {
       const host = backend.host
       if (host === undefined) throw new DesktopUpdatePreparationError('tasks-unavailable', locale.messages.updateTasksUnavailable)
       const active = await host.updateTasks('inspect')
-      const ready = desktopUpdateReadyConfirmation(locale.messages, updates.state.version ?? '', process.platform)
+      const manual = updates.installationMode === 'manual-dmg'
+      const ready = desktopUpdateReadyConfirmation(locale.messages, updates.state.version ?? '', process.platform, manual)
       const confirmation: Electron.MessageBoxOptions = {
         type: active ? 'warning' : 'info', title: locale.messages.updateTitle,
         message: active ? locale.messages.updateActiveTasks : ready.message,
-        detail: active ? locale.messages.updateActiveTasksDetail : ready.detail,
-        buttons: active ? [locale.messages.updateStopTasks, locale.messages.updateLater] : [locale.messages.installAndRestart],
+        detail: active ? manual ? locale.messages.updateManualActiveTasksDetail : locale.messages.updateActiveTasksDetail : ready.detail,
+        buttons: active ? [manual ? locale.messages.updateManualStopTasks : locale.messages.updateStopTasks, locale.messages.updateLater]
+          : [manual ? locale.messages.updateManualOpen : locale.messages.installAndRestart],
         defaultId: 1, cancelId: 1,
       }
       if (isMandatory()) {
@@ -1522,6 +1524,7 @@ async function main(): Promise<void> {
     }, policyAuth?.request, () => desktopClientMetadata(locale.id))
     const policy = mandatoryPolicy
     mandatoryUI = new DesktopMandatoryUpdateWindow({
+      ...updates.installationMode === 'manual-dmg' ? { installationMode: 'manual-dmg' as const } : {},
       overlays: updateOverlays,
       preload: fileURLToPath(new URL('./preload-mandatory.cjs', import.meta.url)), locale,
       allowedPageOrigins: policyConfig.allowedPageOrigins, parent: () => mainWindow,

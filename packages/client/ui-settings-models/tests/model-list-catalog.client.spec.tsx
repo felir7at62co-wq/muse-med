@@ -105,3 +105,29 @@ it('restores inherited image input after a failed catalog read is retried manual
   expect(discover).toHaveBeenCalledTimes(2)
   expect(onChange).not.toHaveBeenCalled()
 })
+
+it('shows inherited catalog rows without saving an override and materializes the list only on an edit', async () => {
+  const onChange = vi.fn()
+  render(<ModelListEditor models={[]} inheritCatalog overridden={false} onChange={onChange}
+    catalogProvider="openai" probe={{ settingsNs: 'llm-pi-ai', provider: 'openai' }} disabled={false}
+    t={key => en[key]} onBusyChange={() => {}} operations={operations(() => Promise.resolve({ kind: 'found', models: [
+      { id: 'first', contextWindow: 1050000, maxTokens: 128000 }, { id: 'second' },
+    ] }))} />)
+  expect((await screen.findByLabelText<HTMLInputElement>(`${en.modelId} 1`)).value).toBe('first')
+  expect(screen.queryByText(en.modelsEmpty)).toBeNull()
+  expect(onChange).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText(`${en.modelName} 1`), { target: { value: 'Personal first' } })
+  expect(onChange).toHaveBeenCalledWith([
+    { id: 'first', name: 'Personal first', contextWindow: 1050000, maxTokens: 128000 }, { id: 'second' },
+  ])
+})
+
+it('keeps an explicit empty model list instead of restoring the installed catalog', async () => {
+  const discover = vi.fn<ModelsOperations['discoverModels']>().mockResolvedValue({ kind: 'found', models: [{ id: 'hidden' }] })
+  render(<ModelListEditor models={[]} inheritCatalog overridden onChange={vi.fn()}
+    catalogProvider="openai" probe={{ settingsNs: 'llm-pi-ai', provider: 'openai' }} disabled={false}
+    t={key => en[key]} onBusyChange={() => {}} operations={operations(discover)} />)
+  await waitFor(() => { expect(discover).toHaveBeenCalled() })
+  expect(screen.getByText(en.modelsEmpty)).toBeDefined()
+  expect(screen.queryByLabelText(`${en.modelId} 1`)).toBeNull()
+})

@@ -40,3 +40,27 @@ test('model defaults require an offered enabled effort',async t=>{
  ])await assert.rejects(directory.mutate({ns:'llm-pi-ai',expectedRevision:0,ops:[{op:'set',path:['providers','studio'],value:{...provider,models:[entry]}}]}),/默认思考档位/);
  assert.equal(directory.view().revision,0);
 });
+
+test('model discovery reads saved catalogs and uses stored credentials only for the requested endpoint',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'muse-model-discovery-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+ const calls=[],discover=async(request,stored)=>{calls.push({request,key:await stored().resolveApiKey()});return [{id:'new-model'}];};
+ const directory=await openGlobalModels(join(dir,'models'),{discover});
+ await directory.mutate({ns:'llm-pi-ai',expectedRevision:0,ops:[{op:'set',path:['providers','studio'],value:provider}]});
+ await directory.setCredential('GLM_KEY','synthetic-discovery-key');
+ assert.deepEqual(await directory.discoverModels({settingsNs:'llm-pi-ai',request:{provider:'studio'}}),[
+  {id:model.id,name:model.id,contextWindow:200000,maxTokens:32768,inputModalities:['text']},
+ ]);assert.equal(calls.length,0);
+ assert.deepEqual(await directory.discoverModels({settingsNs:'llm-pi-ai',request:{provider:'studio',baseURL:provider.baseURL}}),[{id:'new-model'}]);
+ assert.equal(calls[0].key,'synthetic-discovery-key');assert.equal(calls[0].request.api,'openai-completions');
+ assert.equal(calls[0].request.signal.aborted,false);
+ await directory.discoverModels({settingsNs:'llm-pi-ai',request:{baseURL:'https://custom.example/v1',apiKey:'new-draft-key'}});
+ assert.equal(calls[1].request.apiKey,'new-draft-key');assert.equal(calls[1].key,undefined);
+ for(const args of [{settingsNs:'wrong',request:{}},{settingsNs:'llm-pi-ai',request:null},
+  {settingsNs:'llm-pi-ai',request:{baseURL:'http://bad.test'}},
+  {settingsNs:'llm-pi-ai',request:{baseURL:provider.baseURL,api:'anthropic-messages'}},
+ ])await assert.rejects(directory.discoverModels(args),{code:'llm/model-discovery-rejected'});
+ assert.equal(calls.length,2);
+ const failed=await openGlobalModels(join(dir,'models'),{discover:async()=>{throw Error('synthetic-secret-leak');}});
+ await assert.rejects(failed.discoverModels({settingsNs:'llm-pi-ai',request:{baseURL:provider.baseURL}}),error=>error.code==='llm/model-discovery-rejected'&&!error.message.includes('synthetic-secret'));
+ assert.equal(directory.view().revision,1);
+});

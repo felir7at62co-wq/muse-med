@@ -57,16 +57,17 @@ kind: "package-reference"
         retainTokens: 2048
 ```
 
+<a id="tuning-when-condensation-starts"></a>
 ### 调整压缩开始的时机
 
-所有设置都可选。设上下文窗口为 `W`、生效请求输出上限为 `O`、余量为 `B`，默认触发阈值为 `floor(min(W × 0.8, W − O − B))`，其中 `B = 65,536` tokens。逐字保留的近期历史预算仍为 `W − O` 的 16%。下表列出全部设置；生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-compaction-basic)还包含字段类型。
+所有设置都可选。设上下文窗口为 `W`、生效请求输出上限为 `O`、余量为 `B`，默认触发阈值为 `floor(min(W × 0.8, W − O − B))`，其中 `B = 65,536` tokens。逐字保留的近期历史目标预算为 `W − O` 的 16%；若固定请求内容使检查点无法装入触发阈值以内，压力路径会缩小该预算。下表列出全部设置；生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-compaction-basic)还包含字段类型。
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `thresholdRatio` | `0.8` | 用于 `floor(min(W × thresholdRatio, W − O − headroomTokens))` 的窗口比例。 |
 | `headroomTokens` | `65536` | 路由请求输出预留之外的额外压力余量；必须为非负整数。 |
-| `retainRatio` | `0.16` | 以 `W − O` 的一部分表示逐字保留的近期对话；与 `retainTokens` 互斥。 |
-| `retainTokens` | — | 逐字保留的近期对话绝对预算；与 `retainRatio` 互斥，并且必须低于已解析阈值。 |
+| `retainRatio` | `0.16` | 以 `W − O` 的一部分表示逐字保留的近期对话目标预算；与 `retainTokens` 互斥。 |
+| `retainTokens` | — | 逐字保留的近期对话绝对目标预算；与 `retainRatio` 互斥，并且必须低于已解析阈值。 |
 | `summarizationProvider` | `''` | 与 `summarizationModel` 一起设置；空对使用最新已路由请求目标，再回退到 `AgentOptions` 对。 |
 | `summarizationModel` | `''` | 与 `summarizationProvider` 一起设置；空对使用最新已路由请求目标，再回退到 `AgentOptions` 对。 |
 | `maxTokens` | `headroomTokens`（`65536`） | 正数摘要输出上限，包含提供方计入的推理 token。显式模型上限覆盖显式全局上限；否则跟随解析后的余量。 |
@@ -114,6 +115,8 @@ kind: "package-reference"
 
 压力策略从拥有持久路由的适配器解析容量。容量缺失、输出预留与余量耗尽窗口，或保留预算不小于阈值时，手动压力路径会抛出目标特定配置错误。自动 listener 会对该精确目标警告一次，并在配置修正前跳过主动压缩；提供方确认溢出后的恢复仍然可用。
 
+压力选区先从阈值中扣除工具定义、系统首节点以及提供方用量修正，再为保留尾部和检查点包装分配预算。若工具配对边界扩大后的尾部超过剩余空间，则只保留最新不可分单元；若仍放不下有用的检查点，则每种请求策略仅警告一次，不调用摘要模型。失败选区的投影消息和请求策略不变时，不会重复摘要。成功替换后，压力路径也会跳过仅包含该检查点的选区。当原始历史进入选区时，追加内容才有资格再次压缩；路由请求信封或解析策略变化也允许再次尝试。这些保护仅保存在活动后端中，不抑制取消、手动压缩或提供方确认溢出后的恢复。
+
 ### 摘要机制
 
 直接 `ctx.llm.stream()` 调用使用已配置的提供方／模型对与上限，回退到最新已记录请求目标，然后再回退到 `AgentOptions` 对，而不运行仅用于 agent loop 的 `agent/request` 扩展点。该调用将 surface 节点 0 处派生的 `system/message` 作为 `messages` 的首项回放，后接已遮蔽区域消息（包括位于其 surface 位置的被遮蔽历史内 `system/message`），并提供 header 的有效工具供路由特定投影使用。所选适配器必须解析回放消息中的图片引用或明确拒绝它们。调用将压缩指令作为最后一条 user 消息追加，在投影允许时保留提供方的热前缀 cache。空内容系统头节点不贡献消息，但仍处于压缩范围之外。最终指令是冻结的 `RequestUserInput`，不含持久身份或来源；回放历史和持久化检查点仍然使用持久消息。调用将 `GenerateOptions.purpose` 设为 `compaction`；只有返回文本进入检查点，推理与工具调用都会被排除。图片输出会以 `UNSUPPORTED_CONTENT` 失败，而不是消失。替换 user 消息用 `<compacted-summary>` 标签框定摘要；原始摘要保留在 `compaction/summary` 事件上。 调用还携带 `Session.toolHistory()`，供运行时投影延迟和保留定义；若前缀缺少更新消息，则使用有效声明且不发送 developer 更新。
@@ -134,6 +137,7 @@ kind: "package-reference"
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`BasicCompactionEngine`、自动 listener、入口点分发 |
 | [`src/region.ts`](src/region.ts) | 保留选择与共享的先记录标记压缩事务 |
+| [`src/pressure.ts`](src/pressure.ts) | 可行尾部保留预算与不变选区身份 |
 | [`src/summarizer.ts`](src/summarizer.ts) | 默认 `ctx.llm.stream()` 摘要、检查点框定、安全摘要投影 |
 | [`src/config.ts`](src/config.ts) | 加载时验证与路由模型策略解析 |
 | [`src/types.ts`](src/types.ts) | `BasicCompactionConfig` 与已解析策略词汇 |

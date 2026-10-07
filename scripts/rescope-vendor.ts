@@ -114,6 +114,7 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   { file: 'apps/desktop-host/presets/cordis/agent.cordis.yml', upstream: ['cordis'] },
   { file: 'apps/desktop-host/src/native-preset.ts', upstream: ['cordis'] },
   { file: 'apps/desktop-host/tests/hongguo-presets.spec.ts', upstream: ['cordis'] },
+  { file: 'apps/desktop-host/tests/compaction-presets.spec.ts', upstream: ['cordis'] },
   { file: 'apps/desktop-host/tests/muse-wiki-skill.spec.ts', upstream: ['cordis'] },
   { file: 'apps/desktop-host/tests/reminder-presets.spec.ts', upstream: ['cordis'] },
   { file: 'apps/desktop/scripts/smoke-runtime.ts', upstream: ['cordis'] },

@@ -4,6 +4,8 @@ English | [中文](core.zh.md)
 
 The **core** subsystem is [`packages/core`](../../packages/core/README.md) — the packages every composition boots: the event-sourced session log, system-prompt assembly, the tool registry, the agent types, and the concrete loop that drives them. This page explains what the `agent`/`agent-loop` pair declares — how an agent is created and owned, and the `Agent` handle's delivery, cancellation, and interception contracts — plus the two type patterns every subsystem follows. The group's dedicated pages and the rest of the folder are indexed in the [subsystems README](README.md).
 
+[`agent-output-continuation`](../../packages/core/agent-output-continuation/README.md) supplies an optional continuation policy and owns the logged `output-continuation` message source.
+
 ## The spine, package by package
 
 A turn flows through the six packages in one loop: the driver in [`agent-loop`](../../packages/core/agent-loop) claims a queued prompt, opens a turn on the [session log](session.md) (`ctx.sessions`), assembles the request prefix through [system-prompt](system-prompt.md) (`ctx.systemPrompt`) and derives history from the log, streams the model response through the [LLM seam](llm-streaming.md), dispatches tool calls through the [tool registry](tools.md) (`ctx.tools`), and appends every model-visible fact back onto the log before the next step derives from it. The conversation vocabulary the loop moves — `Message`, `ContentBlock`, `StreamChunk`, the model request — is declared by [`packages/llm`](../../packages/llm/README.md) and documented on [llm-streaming.md](llm-streaming.md).
@@ -920,6 +922,31 @@ One message entered the live inbox.
 ```
 
 Types: [Scoped](scope.md) · [UserMessage](session.md)
+
+Source: [`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/src/runtime-types.ts)
+
+<a id="agentoutput-limit-recovered--waterfall"></a>
+
+#### `agent/output-limit-recovered` — waterfall
+
+Resolve whether an output-limited turn completed through an admitted continuation. The default is false. A continuation owner delegates first and returns true only after a later response completed its continued work. Cancellation and request errors do not reach this decision.
+
+```ts cordis-catalog
+/**
+ * Resolve whether an output-limited turn completed through an admitted continuation.
+ * The default is false. A continuation owner delegates first and returns
+ * true only after a later response completed its continued work. Cancellation
+ * and request errors do not reach this decision.
+ * @param payload.agent - the agent whose clean turn contained an output-limited step.
+ * @param payload.turn - the turn being finalized.
+ * @param payload.signal - the turn cancellation signal.
+ * @param next - remaining recovery policies, ending in false.
+ * @mode waterfall
+ */
+'agent/output-limit-recovered'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; signal: AbortSignal }, next: () => Promise<boolean>): Promise<boolean>
+```
+
+Types: [Scoped](scope.md)
 
 Source: [`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/src/runtime-types.ts)
 

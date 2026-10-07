@@ -1,4 +1,4 @@
-/** Sign runtime code and verify that packaged macOS artifacts carry the company release identity. */
+/** Sign runtime code and verify sealed macOS applications and publisher release identities. */
 
 import { spawn, spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
@@ -19,6 +19,32 @@ export function assertMacOSSignatureDetails(details, expected) {
   if (missing.length > 0) {
     throw new Error(`desktop macOS signing: signature does not match the release identity; missing ${missing.join(', ')}`)
   }
+}
+
+/**
+ * Require a complete ad-hoc application signature with the configured bundle identifier.
+ * @param {string} details - Output from `codesign --display --verbose=4`.
+ * @param {string} appId - Application identifier fixed by the packaging configuration.
+ * @returns {void}
+ */
+export function assertMacOSAdHocSignatureDetails(details, appId) {
+  const fields = details.split(/\r?\n/u).map(line => line.trim())
+  if (!fields.includes(`Identifier=${appId}`) || !fields.includes('Signature=adhoc')
+    || !fields.some(line => /^Sealed Resources version=2 rules=\d+ files=\d+$/u.test(line))
+    || fields.includes('Info.plist=not bound')) {
+    throw new Error('desktop macOS signing: ad-hoc application must bind its identifier, Info.plist, and sealed resources')
+  }
+}
+
+/**
+ * Reject an incomplete, modified, or differently identified ad-hoc application bundle.
+ * @param {string} appPath - Complete `.app` directory, never the standalone main executable.
+ * @param {string} appId - Expected application identifier.
+ * @returns {void}
+ */
+export function verifyMacOSAdHocSignature(appPath, appId) {
+  runCodeSign(['--verify', '--deep', '--strict', '--verbose=2', appPath])
+  assertMacOSAdHocSignatureDetails(runCodeSign(['--display', '--verbose=4', appPath]), appId)
 }
 
 /**

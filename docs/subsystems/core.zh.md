@@ -4,6 +4,8 @@
 
 **核心**子系统即 [`packages/core`](../../packages/core/README.zh.md)，包含每个组合都会启动的包：事件溯源的会话日志、系统提示词组装、工具注册表、agent（智能体）类型，以及驱动它们的具体循环。本页说明 `agent`/`agent-loop` 这对包所声明的内容：agent 如何被创建与拥有，以及 `Agent` 句柄的投递、取消与拦截约定；本页还说明每个子系统都遵循的两个类型模式。该组的专属页面与目录其余部分见[子系统 README](README.zh.md)。
 
+[`agent-output-continuation`](../../packages/core/agent-output-continuation/README.zh.md) 提供可选续写策略，并拥有日志中的 `output-continuation` 消息来源。
+
 ## 主干逐包速览
 
 一个轮次按同一条循环流经六个包：[`agent-loop`](../../packages/core/agent-loop) 中的 driver 认领一条排队的提示词，在[会话日志](session.zh.md)（`ctx.sessions`）上开启轮次，通过 [system-prompt](system-prompt.zh.md)（`ctx.systemPrompt`）组装请求前缀并从日志派生历史，经 [LLM（大语言模型） seam](llm-streaming.zh.md) 流式获取模型响应，经[工具注册表](tools.zh.md)（`ctx.tools`）分发工具调用，并把每个模型可见的事实追加回日志，供下一步派生。循环搬运的对话词汇——`Message`、`ContentBlock`、`StreamChunk`、模型请求——由 [`packages/llm`](../../packages/llm/README.zh.md) 声明，记录在 [llm-streaming.md](llm-streaming.zh.md)。
@@ -930,6 +932,31 @@ One message entered the live inbox.
 ```
 
 Types: [Scoped](scope.zh.md) · [UserMessage](session.zh.md)
+
+Source: [`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/src/runtime-types.ts)
+
+<a id="agentoutput-limit-recovered--waterfall"></a>
+
+#### `agent/output-limit-recovered` — waterfall
+
+Resolve whether an output-limited turn completed through an admitted continuation. The default is false. A continuation owner delegates first and returns true only after a later response completed its continued work. Cancellation and request errors do not reach this decision.
+
+```ts cordis-catalog
+/**
+ * Resolve whether an output-limited turn completed through an admitted continuation.
+ * The default is false. A continuation owner delegates first and returns
+ * true only after a later response completed its continued work. Cancellation
+ * and request errors do not reach this decision.
+ * @param payload.agent - the agent whose clean turn contained an output-limited step.
+ * @param payload.turn - the turn being finalized.
+ * @param payload.signal - the turn cancellation signal.
+ * @param next - remaining recovery policies, ending in false.
+ * @mode waterfall
+ */
+'agent/output-limit-recovered'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; signal: AbortSignal }, next: () => Promise<boolean>): Promise<boolean>
+```
+
+Types: [Scoped](scope.zh.md)
 
 Source: [`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/src/runtime-types.ts)
 

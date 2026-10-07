@@ -2,7 +2,7 @@
 import {readFile,writeFile,rename,mkdir,chmod,unlink} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {randomBytes} from 'node:crypto';
-import {baseAddress} from './model-relay.mjs';
+import {baseAddress,fetchPublicModelListing} from './model-relay.mjs';
 import {officialValue,officialMetadata} from './official-model.mjs';
 const own=(o,k)=>Object.hasOwn(o,k),plain=o=>o!==null&&typeof o==='object'&&!Array.isArray(o);
 const banned=new Set(['__proto__','prototype','constructor']);
@@ -40,10 +40,19 @@ function validate(providers){
   }
  }
 }
-export async function openGlobalModels(file,{legacyConfig,schema={type:'object'},official}={}){
+/** Validate a private global directory without reading or writing its file.
+ * @param {object} document Parsed version-two model directory.
+ * @returns {void}
+ * @throws {Error} The stored directory or provider settings are invalid.
+ */
+export function validateGlobalModelDocument(document){
+ if(!plain(document)||document.version!==2||!Number.isSafeInteger(document.revision)||document.revision<0||!Number.isSafeInteger(document.metadataRevision)||document.metadataRevision<0||!plain(document.credentials))throw Error('Invalid global model file');
+ validate(document.providers);
+}
+export async function openGlobalModels(file,{legacyConfig,schema={type:'object'},official,discover}={}){
  let current={version:2,revision:0,metadataRevision:0,providers:{},credentials:{}};
  async function save(next){await mkdir(dirname(file),{recursive:true,mode:0o700});const tmp=file+'.'+randomBytes(8).toString('hex')+'.tmp';try{await writeFile(tmp,JSON.stringify(next),{mode:0o600,flag:'wx'});await chmod(tmp,0o600);await rename(tmp,file);}finally{await unlink(tmp).catch(()=>{});}current=next;}
- try{current=JSON.parse(await readFile(file,'utf8'));if(current.version!==2||!Number.isSafeInteger(current.revision)||!Number.isSafeInteger(current.metadataRevision)||!plain(current.credentials))throw Error('Invalid global model file');validate(current.providers);}catch(e){if(e.code!=='ENOENT')throw e;const old=legacyConfig?.private();if(old?.apiKey&&old.model&&old.baseURL){current.providers={'muse-shared':{displayName:old.name,baseURL:old.baseURL,api:'openai-completions',apiKeyEnv:'MUSE_LEGACY_KEY',models:[{id:old.model,name:old.name,contextWindow:old.contextWindow,maxTokens:old.maxTokens,input:['text'],reasoningEfforts:false}]}};current.credentials={MUSE_LEGACY_KEY:old.apiKey};validate(current.providers);}await save(current);}
+ try{current=JSON.parse(await readFile(file,'utf8'));validateGlobalModelDocument(current);}catch(e){if(e.code!=='ENOENT')throw e;const old=legacyConfig?.private();if(old?.apiKey&&old.model&&old.baseURL){current.providers={'muse-shared':{displayName:old.name,baseURL:old.baseURL,api:'openai-completions',apiKeyEnv:'MUSE_LEGACY_KEY',models:[{id:old.model,name:old.name,contextWindow:old.contextWindow,maxTokens:old.maxTokens,input:['text'],reasoningEfforts:false}]}};current.credentials={MUSE_LEGACY_KEY:old.apiKey};validate(current.providers);}await save(current);}
  let queue=Promise.resolve();const serial=fn=>{const task=queue.then(fn);queue=task.catch(()=>{});return task;};
  const view=()=>({ns:'llm-pi-ai',schema:structuredClone(schema),value:{providers:structuredClone(current.providers)},user:{providers:structuredClone(current.providers)},applies:'live',secrets:[],writable:true,revision:current.revision});
  if(official)officialValue(official,current.deepseek);
@@ -54,6 +63,22 @@ export async function openGlobalModels(file,{legacyConfig,schema={type:'object'}
   listConfigurableProviders:()=>[...official?[{provider:'deepseek-official',displayName:'DeepSeek',settingsNs:'llm-deepseek',settingsPath:[]}]:[],...Object.entries(current.providers).map(([provider,p])=>({provider,displayName:p.displayName||provider,settingsNs:'llm-pi-ai',settingsPath:['providers',provider],declared:true}))],
   metadata:()=>({revision:current.metadataRevision,...official?{deepseek:officialMetadata(official,current.deepseek)}:{},providers:Object.fromEntries(Object.entries(current.providers).map(([route,p])=>[route,{displayName:p.displayName||route,models:p.models.map(m=>({...structuredClone(m),name:m.name||m.id,contextWindow:m.contextWindow??128000,maxTokens:m.maxTokens??8192,input:m.input??['text'],reasoningEfforts:m.reasoningEfforts??false}))}]))}),
   resolve:(route,id)=>{if(official&&route==='deepseek-official'){const p=officialValue(official,current.deepseek),m=p.models.find(m=>m.id===id);return m?{baseURL:p.baseURL,apiKey:current.credentials[p.apiKeyEnv],model:m.id,maxTokens:m.maxTokens??p.maxTokens,thinking:p.thinking,reasoningEfforts:p.thinking==='disabled'?false:{low:'low',high:'high',max:'max'}}:undefined;}const p=own(current.providers,route)?current.providers[route]:undefined,m=p?.models.find(m=>m.id===id);return m?{baseURL:p.baseURL,apiKey:current.credentials[p.apiKeyEnv],model:m.id,maxTokens:m.maxTokens??8192,reasoningEfforts:structuredClone(m.reasoningEfforts??false),...m.defaultReasoningEffort===undefined?{}:{defaultReasoningEffort:m.defaultReasoningEffort}}:undefined;},
+  discoverModels:async args=>{
+   if(args.settingsNs!=='llm-pi-ai')reject('模型发现命名空间无效','llm/model-discovery-rejected');
+   const request=args.request;if(!plain(request))reject('模型发现请求无效','llm/model-discovery-rejected');
+   const p=typeof request.provider==='string'&&own(current.providers,request.provider)?current.providers[request.provider]:undefined;
+   if(p&&request.baseURL===undefined&&request.apiKey===undefined)return p.models.map(m=>({id:m.id,name:m.name||m.id,
+    ...m.contextWindow===undefined?{}:{contextWindow:m.contextWindow},...m.maxTokens===undefined?{}:{maxTokens:m.maxTokens},
+    ...m.input===undefined?{}:{inputModalities:structuredClone(m.input)}}));
+   if(!discover)reject('此环境暂不支持自动发现，请手动添加模型 ID','llm/model-discovery-rejected');
+   const baseURL=request.baseURL??p?.baseURL;try{baseAddress(baseURL);}catch{reject('请填写有效的 HTTPS API 地址','llm/model-discovery-rejected');}
+   if((request.api??p?.api??'openai-completions')!=='openai-completions')reject('当前仅支持 OpenAI Chat Completions','llm/model-discovery-rejected');
+   const storedKey=p?.apiKeyEnv?current.credentials[p.apiKeyEnv]:undefined;
+   try{return await discover({baseURL,api:'openai-completions',
+    ...request.apiKey===undefined?{}:{apiKey:request.apiKey},signal:AbortSignal.timeout(30000)},
+    ()=>({headers:undefined,resolveApiKey:async()=>storedKey}),fetchPublicModelListing);}
+   catch{reject('无法获取模型列表，请检查 API 地址和密钥，或手动添加模型 ID','llm/model-discovery-rejected');}
+  },
   mutate:args=>serial(async()=>{
    if(args.expectedRevision!==current.revision)reject('配置已变化，请刷新后重试','settings/conflict');
    if(args.ns==='llm-deepseek'&&official){

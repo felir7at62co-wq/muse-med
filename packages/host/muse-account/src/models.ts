@@ -2,12 +2,12 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { LlmError, ReasoningEffortId, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm'
-import type { AdapterRegistrationHandle, LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import type { AdapterRegistrationHandle, LlmCallConfig, LlmResolvedModelInfo, PreparedAdapterCall } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { PiAiAdapter, resolveProfiles } from '@deepseek-ai/dsh-llm-pi-ai'
-import type { PiAiProviderProfile, ResolvedPiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai'
+import type { PiAiAdapterOptions, PiAiProviderProfile, ResolvedPiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai'
 import type {} from '@deepseek-ai/dsh-settings'
 import { z } from 'zod'
 import { readMuseSession, clearMuseSessionIfUnchanged } from './session.ts'
@@ -20,9 +20,37 @@ const metadata = z.object({ providers: z.array(z.object({
     contextWindow: z.number().int().positive(), maxTokens: z.number().int().positive(),
     input: z.array(z.enum(['text', 'image'])).min(1),
     reasoningEfforts: z.union([z.literal(false), z.record(z.string(), z.string().nullable())]),
+    defaultReasoningEffort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional(),
+  }).superRefine((model, context) => {
+    const level = model.defaultReasoningEffort
+    if (level !== undefined && (model.reasoningEfforts === false
+      || typeof model.reasoningEfforts[level] !== 'string' || !model.reasoningEfforts[level].length)) {
+      context.addIssue({ code: 'custom', path: ['defaultReasoningEffort'], message: 'Model default effort must be offered' })
+    }
   })).max(256),
 })).max(100) })
 const modelName = (id: string): string => id.slice(id.lastIndexOf('/') + 1)
+
+/** Capture account catalog defaults with the same prepared generation as its request stream. */
+class MusePiAiAdapter extends PiAiAdapter {
+  constructor(
+    options: PiAiAdapterOptions,
+    private readonly defaultEffort: (provider: string, model: string) => ReasoningEffortId | undefined,
+  ) {
+    super(options)
+  }
+
+  override async resolveModel(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo> {
+    return (await this.prepareCall(provider, model, signal)).model
+  }
+
+  override async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<PreparedAdapterCall> {
+    const defaultEffort = this.defaultEffort(provider, model)
+    const prepared = await super.prepareCall(provider, model, signal)
+    if (defaultEffort === undefined || prepared.model.reasoning === undefined) return prepared
+    return { ...prepared, model: { ...prepared.model, reasoning: { ...prepared.model.reasoning, defaultEffort } } }
+  }
+}
 
 /** Product-selected origin and polling limits, with a testable HTTP transport. */
 export interface MuseModelsOptions {
@@ -37,6 +65,7 @@ export interface MuseModelsOptions {
 export class MuseModels {
   private profiles = new Map<string, ResolvedPiAiProviderProfile>()
   private readonly revisions = new WeakMap<ResolvedPiAiProviderProfile, string>()
+  private defaultEfforts: ReadonlyMap<string, ReasoningEffortId> = new Map()
   private registration: AdapterRegistrationHandle | undefined
   private revision: string | undefined
   private signature: string | undefined
@@ -46,7 +75,7 @@ export class MuseModels {
   private readonly disposeRequestRoute: () => void
 
   constructor(private readonly ctx: Context, private readonly options: MuseModelsOptions) {
-    this.adapter = new PiAiAdapter({
+    this.adapter = new MusePiAiAdapter({
       profiles: () => this.profiles,
       resolveApiKey: async (_provider, profile) => {
         const session = await readMuseSession(options.sessionFile, options.baseUrl)
@@ -67,7 +96,7 @@ export class MuseModels {
       },
       resolveAttachments: () => ctx.get('attachments'),
       resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(attachments, () => undefined, ref),
-    })
+    }, (provider, model) => this.defaultEfforts.get(`${provider}:${model}`))
     this.disposeRequestRoute = ctx.on('agent/request', async ({ agent, signal }, next) => {
       const config = await next()
       return await this.repairRequestRoute(agent, config, signal)
@@ -81,6 +110,7 @@ export class MuseModels {
     this.registration?.()
     this.registration = undefined
     this.profiles = new Map()
+    this.defaultEfforts = new Map()
   }
 
   /**
@@ -96,6 +126,7 @@ export class MuseModels {
   private clear(): void {
     this.registration?.replace([])
     this.profiles = new Map()
+    this.defaultEfforts = new Map()
     this.revision = undefined
     this.signature = undefined
   }
@@ -125,12 +156,16 @@ export class MuseModels {
     const signature = JSON.stringify(data)
     if (signature === this.signature && session.revision === this.revision) return
     const providers: Record<string, PiAiProviderProfile> = {}
+    const defaults = new Map<string, ReasoningEffortId>()
     for (const provider of data.providers) {
       const id = `muse-cloud-${provider.id}`
       if (Object.hasOwn(providers, id)) throw new MuseGatewayError('gateway-rejected')
       const allowedModels = provider.models.filter(model => !(this.options.excludedModelPrefixes ?? [])
         .some(prefix => modelName(model.id).toLowerCase().startsWith(prefix.toLowerCase())))
       if (!allowedModels.length) continue
+      for (const model of allowedModels) {
+        if (model.defaultReasoningEffort !== undefined) defaults.set(`${id}:${model.id}`, ReasoningEffortId(model.defaultReasoningEffort))
+      }
       providers[id] = {
         displayName: `Muse · ${provider.name}`, api: 'openai-completions',
         baseURL: `${this.options.baseUrl}/api/desktop-models/${provider.id}`,
@@ -145,13 +180,17 @@ export class MuseModels {
       }
     }
     const candidate = resolveProfiles(providers)
-    for (const profile of candidate.values()) this.revisions.set(profile, session.revision)
+    for (const profile of candidate.values()) {
+      this.revisions.set(profile, session.revision)
+    }
     const previous = this.profiles
+    const previousDefaults = this.defaultEfforts
     this.profiles = candidate
+    this.defaultEfforts = defaults
     try {
       if (this.registration) this.registration.replace([...candidate.keys()])
       else if (candidate.size) this.registration = this.ctx.llm.registerAdapter([...candidate.keys()], this.adapter)
-    } catch (error) { this.profiles = previous; throw error }
+    } catch (error) { this.profiles = previous; this.defaultEfforts = previousDefaults; throw error }
     this.revision = session.revision
     await this.selectInitialDefault(providers, session.revision)
     this.signature = signature

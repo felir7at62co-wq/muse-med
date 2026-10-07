@@ -59,7 +59,8 @@
     "@deepseek-ai/libreoffice-kit": "^0.1.5",
     "yaml": "^2.9.0",
     "@deepseek-ai/dsh-tool-video-inspect": "workspace:*",
-    "koffi": "^3.1.0"
+    "koffi": "^3.1.0",
+    "@deepseek-ai/dsh-agent-output-continuation": "workspace:*"
   },
   "exports": {
     ".": "./lib/index.js",
@@ -72,6 +73,7 @@
     }
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-compaction-basic": "workspace:*",
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
     "@deepseek-ai/cordis-plugin-include": "workspace:~",
     "@deepseek-ai/dsh-skill": "workspace:*",

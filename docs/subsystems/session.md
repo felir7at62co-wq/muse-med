@@ -726,7 +726,7 @@ interface TurnEndReasonMap {
 }
 ```
 
-`max-tokens` mirrors the model-call `FinishReason` of the same name: any `max-tokens` step in a turn makes the whole turn end `max-tokens` rather than `completed` (the cut-short fact wins over a later continuation), so a consumer can tell a clean stop from a truncated one. Cancellation and errors remain distinct outcomes. The loop emits neither `interrupted` nor `forked` live: crash recovery synthesizes `interrupted` (see [persistence.md](persistence.md)), while fork-seed construction synthesizes `forked`. The map is merge-extensible.
+`max-tokens` mirrors the model-call `FinishReason` of the same name: an output-limited turn ends `max-tokens` unless a continuation owner reports a later successful recovery through `agent/output-limit-recovered`, in which case it ends `completed`. Individual attempt streams retain their original finish reasons. See [automatic output continuation](../../packages/core/agent-output-continuation/README.md). Cancellation and errors remain distinct outcomes. The loop emits neither `interrupted` nor `forked` live: crash recovery synthesizes `interrupted` (see [persistence.md](persistence.md)), while fork-seed construction synthesizes `forked`. The map is merge-extensible.
 
 ## Execution enclosure and standalone events
 

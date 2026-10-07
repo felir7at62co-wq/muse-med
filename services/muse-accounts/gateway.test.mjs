@@ -34,7 +34,9 @@ test('native model RPC uses admin-only global settings and redacted credentials 
  assert.equal((await(await rpc('credentials/set',{ref:'KEY',value:'secret-key'})).json()).result.ok,true);
  const creds=await(await rpc('credentials/describe',{refs:['KEY']})).json();assert.equal(creds.result.value.KEY.configured,true);assert.doesNotMatch(JSON.stringify(creds),/secret-key/);
  assert.deepEqual((await(await rpc('llm/listProviders')).json()).result.value,[{id:'example',name:'Example'}]);
- assert.equal((await(await rpc('llm/discoverModels',{})).json()).result.ok,false);
+ const discovered=await(await rpc('llm/discoverModels',{settingsNs:'llm-pi-ai',request:{provider:'example'}})).json();
+ assert.deepEqual(discovered.result,{ok:true,value:[{id:'m',name:'m'}]});
+ const invalid=await(await rpc('llm/discoverModels',{settingsNs:'llm-pi-ai',request:{}})).json();assert.equal(invalid.result.error.code,'llm/model-discovery-rejected');assert.deepEqual(invalid.result.error.details,{settingsNs:'llm-pi-ai'});
  assert.equal((await rpc('llm/listConfigurableProviders',{},editor)).status,403);
  const legacy=await fetch(base+'/admin/models',{headers:{cookie:admin}});assert.equal(legacy.status,200);assert.match(await legacy.text(),/设置/);
  assert.equal((await fetch(base+'/admin/models',{method:'POST',headers:{cookie:admin,origin},body:'revision=0'})).status,409);

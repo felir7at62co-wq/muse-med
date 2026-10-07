@@ -12,7 +12,7 @@ import {
   resolveMacOSSigningEnvironment,
 } from './desktop-release-environment.mjs'
 import { notarizeMacOSDiskImageArtifact } from './notarize-macos-disk-images.mjs'
-import { verifyMacOSSignatureAfterSign } from './verify-macos-signature.mjs'
+import { verifyMacOSAdHocSignature, verifyMacOSSignatureAfterSign } from './verify-macos-signature.mjs'
 import {
   createWindowsTokenSigner,
   installWindowsNsisBootstrapSigner,
@@ -169,7 +169,7 @@ export function createElectronBuilderConfig(
         CFBundleLocalizations: ['en', 'zh_CN'],
         NSMicrophoneUsageDescription: 'muse-med uses your microphone to transcribe speech into message drafts.',
       },
-      identity: unsigned ? null : macOSSigning?.signingIdentity,
+      identity: unsigned ? '-' : macOSSigning?.signingIdentity,
       forceCodeSigning: !unsigned,
       hardenedRuntime: !unsigned,
       entitlements: fileURLToPath(new URL('./macos-entitlements.plist', import.meta.url)),
@@ -205,6 +205,11 @@ export function createElectronBuilderConfig(
         await writeMacOSAppUpdateConfig(resourcesDir, resolveMacOSAppUpdateFeed(context.packager.config.publish),
           context.packager.appInfo.updaterCacheDirName)
       }
+      if (resolvedPlatform === 'darwin' && unsigned) {
+        await writeFile(join(resourcesDir, 'muse-macos-update.json'), `${JSON.stringify({
+          schemaVersion: 1, version: buildVersion, appId, installationMode: 'manual-dmg',
+        }, null, 2)}\n`)
+      }
       if (preparedRuntime === undefined && (resolvedPlatform === 'darwin' || resolvedPlatform === 'win32')) {
         const sources = resolveDesktopMuseUpdateSources(buildVersion, resolvedPlatform, resolvedArch)
         const path = join(resourcesDir, 'muse-update-sources.json')
@@ -230,13 +235,14 @@ export function createElectronBuilderConfig(
         })
         await verifyWindowsAsarUnpack(buildPaths.dsh, context.packager.getResourcesDir(context.appOutDir), windowsCode)
       }
-      if (context.electronPlatformName !== 'darwin' || unsigned) return
+      if (context.electronPlatformName !== 'darwin') return
       const appPath = join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`)
       if (update !== undefined) {
         await verifyMacOSAppUpdateConfig(appPath, resolveMacOSAppUpdateFeed(context.packager.config.publish),
           context.packager.appInfo.updaterCacheDirName)
       }
-      verifyMacOSSignatureAfterSign(context, macOSSigning ?? resolveMacOSSigningEnvironment(env))
+      if (unsigned) verifyMacOSAdHocSignature(appPath, appId)
+      else verifyMacOSSignatureAfterSign(context, macOSSigning ?? resolveMacOSSigningEnvironment(env))
     },
     artifactBuildCompleted: artifact => {
       if (unsigned || !artifact.file.endsWith('.dmg')) return

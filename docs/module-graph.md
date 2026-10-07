@@ -42,6 +42,7 @@ flowchart TD
     pkg_agent["agent"]
     pkg_agent_default_model["agent-default-model"]
     pkg_agent_loop["agent-loop"]
+    pkg_agent_output_continuation["agent-output-continuation"]
     pkg_agent_tool_presentation["agent-tool-presentation"]
     pkg_scope["scope"]
     pkg_session["session"]
@@ -646,6 +647,9 @@ flowchart TD
   pkg_llm_retry --> pkg_timeout
   pkg_agent_default_model --> pkg_agent
   pkg_agent_default_model --> pkg_llm
+  pkg_agent_output_continuation --> pkg_agent
+  pkg_agent_output_continuation --> pkg_llm
+  pkg_agent_output_continuation --> pkg_session
   pkg_goal --> pkg_agent
   pkg_goal --> pkg_brand
   pkg_goal --> pkg_llm
@@ -1647,6 +1651,7 @@ flowchart TD
 | [`llm-deepseek-api-key`](../packages/llm/llm-deepseek-api-key) | `llm` | [`credentials`](../packages/credentials/credentials), [`launch-environment`](../packages/util/launch-environment), [`llm`](../packages/llm/llm), [`llm-deepseek`](../packages/llm/llm-deepseek) |
 | [`llm-retry`](../packages/llm/llm-retry) | `llm` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`timeout`](../packages/util/timeout) |
 | [`agent-default-model`](../packages/core/agent-default-model) | `core` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm) |
+| [`agent-output-continuation`](../packages/core/agent-output-continuation) | `core` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`goal`](../packages/goal/goal) | `goal` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`typert-protocol`](../packages/typert/protocol) |
 | [`file-reference`](../packages/context/file-reference) | `context` | [`agent`](../packages/core/agent) |
 | [`time-context`](../packages/context/time-context) | `context` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection) |

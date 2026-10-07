@@ -28,6 +28,7 @@ import {
   selectCompactableRange,
 } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
+import { pressureSelectionKey, selectPressureRange } from './pressure.ts'
 import type { SummarizationInput, SummaryResult } from './summarizer.ts'
 import type {
   BasicCompactionConfig,
@@ -133,6 +134,8 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly warnedPressureConfigTargets = new Set<string>()
   private readonly overflowRetries = new WeakMap<Agent, number>()
   private readonly overflowAgents = new WeakMap<Session, Agent>()
+  private readonly pressureSuppression = new WeakMap<Session, string>()
+  private readonly warnedInfeasiblePressure = new WeakMap<Session, string>()
 
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
     super(ctx)
@@ -327,21 +330,50 @@ export class BasicCompactionEngine extends CompactionEngine {
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
     let result: CompactionResult | null = null
+    let attempts = 0
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
-      const range = selectCompactableRange(agent.session, measurement, spec.retainTokens)
+      const range = selectPressureRange(agent.session, measurement, spec, meter)
       if (range === null) {
-        /* v8 ignore else -- concrete replacement preserves a compactable checkpoint; subclass hooks cannot mutate it. */
-        if (result === null) return null
-        /* v8 ignore next -- paired with the defensive post-success branch above. */
+        /* v8 ignore else -- a successful nonempty checkpoint remains feasible under the unchanged fixed content and tail. */
+        if (result === null) {
+          const policyKey = JSON.stringify({ header: agent.session.requestHeader(), spec })
+          if (this.warnedInfeasiblePressure.get(agent.session) !== policyKey) {
+            this.warnedInfeasiblePressure.set(agent.session, policyKey)
+            this.ctx.logger.warn(
+              `pressure compaction has no balanced range that can fit a checkpoint below threshold ${spec.thresholdTokens}; `
+              + 'reduce fixed prompt/tool content, compaction headroomTokens, or retained context',
+            )
+          }
+          return null
+        }
+        /* v8 ignore next -- paired with the concrete checkpoint feasibility invariant above. */
         break
       }
-      result = await this.compactRegion(range.start, range.end, agent, signal)
+      const key = pressureSelectionKey(agent.session, range, spec)
+      if (this.pressureSuppression.get(agent.session) === key) {
+        if (result === null) return null
+        break
+      }
+      attempts += 1
+      const replacementIndex = agent.session.surface.nodes.indexOf(range.start)
+      try {
+        result = await this.compactRegion(range.start, range.end, agent, signal)
+      } catch (error: unknown) {
+        if (!signal.aborted) this.pressureSuppression.set(agent.session, key)
+        throw error
+      }
       measurement = meter.measure(agent.session)
+      // Successful replacement leaves one checkpoint at the selected start position.
+      // oxlint-disable-next-line typescript/no-non-null-assertion
+      const checkpointSeq = agent.session.surface.nodes[replacementIndex]!
+      this.pressureSuppression.set(agent.session, pressureSelectionKey(
+        agent.session, { start: checkpointSeq, end: checkpointSeq }, spec,
+      ))
       if (measurement.totalTokens < spec.thresholdTokens) return result
     }
 
     throw new Error(
-      `compaction still above threshold after ${spec.compactionRetries + 1} compaction attempts `
+      `compaction still above threshold after ${attempts} compaction attempts `
       + `(${measurement.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
     )
   }

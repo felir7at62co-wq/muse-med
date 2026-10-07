@@ -1,0 +1,43 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/core/agent-output-continuation/README.md
+/:
+  en: e6189f7555e8b384
+  zh: b80557c410a144b9
+/deepseek-ai-dsh-agent-output-continuation:
+  en: fe8c44edbdada715
+  zh: 20e2fbea2f747a0e
+/deepseek-ai-dsh-agent-output-continuation/summary:
+  en: 7d9027208f95fa5d
+  zh: 4e308fef84ad6c27
+/deepseek-ai-dsh-agent-output-continuation/table-of-contents:
+  en: d4e9596852e22009
+  zh: 4d182c78e0cf42f5
+/deepseek-ai-dsh-agent-output-continuation/use-this-package:
+  en: 9d37aa167442a6db
+  zh: 2df2720d96b0e6b1
+/deepseek-ai-dsh-agent-output-continuation/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-agent-output-continuation/model-experience/continuation-after-a-settled-output-limited-response:
+  en: ee158fe7f2dc5b73
+  zh: 06e0b633ef4fcf5f
+/deepseek-ai-dsh-agent-output-continuation/model-experience/continuation-after-a-settled-output-limited-response/what-the-model-sees:
+  en: 8e2b315dbe850715
+  zh: 450b461b5e28b649
+/deepseek-ai-dsh-agent-output-continuation/model-experience/continuation-after-a-settled-output-limited-response/what-the-model-sees/verbatim-continuation-instruction:
+  en: ed6337d37e1416a1
+  zh: 59eb8f44c8441b0d
+/deepseek-ai-dsh-agent-output-continuation/model-experience/continuation-after-a-settled-output-limited-response/token-effect:
+  en: e79dad6712cbc42d
+  zh: 89313e32dc12330d
+/deepseek-ai-dsh-agent-output-continuation/model-experience/continuation-after-a-settled-output-limited-response/kv-cache-effect:
+  en: 261873ce2a4c069f
+  zh: 671718427a107686
+/deepseek-ai-dsh-agent-output-continuation/known-limitations-and-deferred-work:
+  en: 4b2a1a0a964d391e
+  zh: d639dc12fd1b0a96
+/deepseek-ai-dsh-agent-output-continuation/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 8ec3e73528ddb1a6

@@ -1,0 +1,11 @@
+version: 1
+scenario: pi-ai-first-turn-context
+profile: headless
+composition: pi-ai-first-turn-context
+recording: authored
+header:
+  class: default
+  pin: true
+  systemPromptSource: text-turn
+  toolSchemasSource: text-turn
+writerOutput: true

@@ -33,6 +33,8 @@ export const textEvents = [
 export async function mockServer(script: {
   status?: number
   events?: string[]
+  /** Emit the SSE event name required by the Anthropic SDK. */
+  namedEvents?: boolean
   body?: string
   delayMs?: number
   /** Keep the SSE response open after its scripted events until the client disconnects. */
@@ -79,7 +81,9 @@ export async function mockServer(script: {
           if (!behavior.holdOpen) response.end()
           return
         }
-        response.write(`data: ${event}\n\n`)
+        response.write(behavior.namedEvents
+          ? `event: ${(JSON.parse(event) as { type: string }).type}\ndata: ${event}\n\n`
+          : `data: ${event}\n\n`)
         if (behavior.delayMs === undefined) writeNext()
         else timer = setTimeout(writeNext, behavior.delayMs)
       }

@@ -42,7 +42,7 @@ class StepwiseToolAdapter extends LlmAdapter {
       provider,
       id: model,
       name: model,
-      context: { contextWindow: 400 },
+      context: { contextWindow: 1_000 },
     })
   }
 
@@ -206,7 +206,7 @@ function overflowHistorySeed(): readonly SessionEvent[] {
 
 describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', () => {
   it('uses the model actually routed by agent/request for post-step pressure', async () => {
-    const { ctx } = await harness(8)
+    const { ctx } = await harness(20)
     ctx.on('agent/request', async (_payload, next) => ({
       ...await next(), provider: 'mock', model: 'mock',
     }))
@@ -230,7 +230,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
   })
 
   it('runs automatic pressure between the completed tool step and the next step', async () => {
-    const { ctx } = await harness(8)
+    const { ctx } = await harness(20)
     try {
       const agent = await ctx.agentLoop.create(SessionId('post-step-order'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'do tool work' }], source: { kind: 'user' } }))
@@ -262,7 +262,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
   })
 
   it('the head checkpoint the loop lands is a balanced cut on both sides', async () => {
-    const { ctx } = await harness(8)
+    const { ctx } = await harness(20)
     try {
       const agent = await ctx.agentLoop.create(SessionId('repro'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'do a long multi-step task' }], source: { kind: 'user' } }))

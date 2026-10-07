@@ -1,0 +1,15 @@
+{
+  "ready": {
+    "message": "Muse v1.0.4 downloaded",
+    "detail": "The installer has downloaded and passed verification. Open it and quit Muse, then drag Muse into Applications and replace the existing app. Reopen Muse after copying finishes. Your sessions and settings are retained.",
+    "button": "Open installer and quit"
+  },
+  "active": {
+    "message": "Tasks are still in progress",
+    "detail": "This will stop running tasks, open the verified installer and quit Muse. Drag Muse into Applications and replace the existing app, then reopen it after copying finishes. Continue?",
+    "buttons": [
+      "Stop tasks and open installer",
+      "Update later"
+    ]
+  }
+}

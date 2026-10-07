@@ -124,6 +124,32 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-agent-loop -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-agent-output-continuation -->
+<a id="deepseek-aidsh-agent-output-continuation"></a>
+
+## `@deepseek-ai/dsh-agent-output-continuation`
+
+- `inject`: `agents`
+- `source`: [`packages/core/agent-output-continuation/src/index.ts:14`](../packages/core/agent-output-continuation/src/index.ts)
+
+```ts config-catalog
+/** Deployment limits for continuing one output-limited turn. */
+export interface Config extends ContinuationConfig {}
+
+/** Deployment limits for continuing one output-limited turn. */
+export interface ContinuationConfig {
+  /** Maximum additional model responses per turn; null (default) leaves progressing continuations uncapped. */
+  maxContinuations?: number | null
+  /** Consecutive empty or repeated output-limited responses before stopping; defaults to two. */
+  maxNoProgressResponses?: number
+  /** Characters of recent answer text retained for contained-repeat detection; defaults to 16384. */
+  repeatWindowChars?: number
+  /** Characters from the exact response end included in continuation input; defaults to 1024. */
+  continuationTailChars?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-agent-output-continuation -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-agent-preset -->
 <a id="deepseek-aidsh-agent-preset"></a>
 
@@ -750,7 +776,7 @@ export type ThemePreference = typeof THEME_PREFERENCES[number]
 ## `@deepseek-ai/dsh-compaction-basic`
 
 - `inject`: `llm` · `tokenMeter` · `sessions`
-- `source`: [`packages/compaction/compaction-basic/src/types.ts:40`](../packages/compaction/compaction-basic/src/types.ts)
+- `source`: [`packages/compaction/compaction-basic/src/types.ts:44`](../packages/compaction/compaction-basic/src/types.ts)
 
 ```ts config-catalog
 /** Basic compaction configuration with an optional exact-target policy table. */
@@ -767,9 +793,13 @@ export interface CompactionPolicyConfig {
   thresholdRatio?: number
   /** Additional pressure headroom beyond the routed output reservation. Non-negative integer; defaults to `65536`. */
   headroomTokens?: number
-  /** Recent context retained as a fraction of context window minus reserved output tokens. Defaults to `0.16`. */
+  /**
+   * Requested recent context as a fraction of context window minus reserved
+   * output tokens. Pressure may reduce it to fit fixed content and a checkpoint.
+   * Defaults to `0.16`.
+   */
   retainRatio?: number
-  /** Absolute recent-context budget; mutually exclusive with `retainRatio`. */
+  /** Requested absolute recent-context budget; pressure may reduce it to fit a checkpoint. Mutually exclusive with `retainRatio`. */
   retainTokens?: number
   /** Summary provider; set together with `summarizationModel`, or inherit the conversation target. */
   summarizationProvider?: string

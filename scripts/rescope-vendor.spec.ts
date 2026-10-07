@@ -135,6 +135,7 @@ describe('executed rescope check', () => {
 
   it.each([
     'apps/desktop-host/src/native-preset.ts',
+    'apps/desktop-host/tests/compaction-presets.spec.ts',
     'packages/example/src/index.ts',
   ])('rejects a new bare module import in %s', (file) => {
     const directory = fixtureTree()

@@ -87,7 +87,7 @@ AgentLoop 在启动已排队工作前等待串行 `agent/created` 初始化。�
 
 ## 轮次流程
 
-一个**步骤**是一次模型请求加上它调用的工具。一个**轮次**包含零个或多个步骤：它在领取首条输入之前打开，并在不再欠下任何工作时关闭。
+一个**步骤**包含一次模型请求及其工具。一个**轮次**在领取输入之前打开，经过零个或多个步骤，在没有剩余工作时关闭。
 
 ```text
 turn/start
@@ -106,11 +106,12 @@ turn/start
      tool/call* -> tools/pre-execute -> tools/execute -> tools/post-execute -> tool/result*
      step/end
      tools owe another request, or next-step input arrived -> claim -> next step
-  -> agent/turn-stopping
+  -> agent/turn-stopping             may inject next-step input
+  -> agent/output-limit-recovered   after an output-limited turn completes
 turn/end
 ```
 
-`turn/*`、`step/*`、`system/message`、`user/message`、`assistant/message`、`assistant/attempt` 和 `tool/*` 是持久会话事件；其余是分属三个事件域的实时扩展点。`agent/assistant-stream` 发布进程本地 start、瞬态 chunk 与 end frame。loop 会在 committed end frame 前把完整紧凑 stream 提交为一个 message 或仅日志 attempt；Web Session-follow adapter 是该 live event 唯一的远程消费方。`agent/pre-step`、`agent/request`、`llm/stream` 和三个 `tools/*` 事件是 waterfall（瀑布式事件），其监听器必须调用 `next()` 才能委托下去；`agent/turn-stopping` 是 serial 事件，没有 `next()`。
+`turn/*`、`step/*`、`system/message`、`user/message`、`assistant/message`、`assistant/attempt` 和 `tool/*` 是持久会话事件；其余是实时扩展点。`agent/assistant-stream` 发布本地 start、chunk 与 end frame。loop 会在 committed end frame 前把完整紧凑 stream 提交为一个 message 或仅日志 attempt；Web Session-follow adapter 是该 live event 唯一的远程消费方。`agent/pre-step`、`agent/request`、`agent/output-limit-recovered`、`llm/stream` 和三个 `tools/*` 事件是 waterfall（瀑布式事件），其监听器必须调用 `next()` 才能委托下去；`agent/turn-stopping` 是 serial 事件，没有 `next()`。
 
 输入通过同一个 inbox 到达驱动器；注入的上下文等待一条唤醒消息。AgentLoop 的持久 `inbox` 投影使待处理输入在没有活跃 Agent 时仍可读取。
 

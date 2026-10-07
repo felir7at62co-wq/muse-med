@@ -35,7 +35,7 @@ describe('CI workflow', () => {
     }))
     const modelCheck = steps.find(step => step.name === 'Check model relay behavior')
     const packagingCheck = steps.find(step => step.name === 'Check packaging behavior')
-    expect(modelCheck?.run).toBe('node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs')
+    expect(modelCheck?.run).toBe('node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs')
     expect(packagingCheck?.run).toMatch(/^pnpm exec vitest run /)
     expect(modelCheck).not.toHaveProperty('continue-on-error')
     expect(packagingCheck).not.toHaveProperty('continue-on-error')

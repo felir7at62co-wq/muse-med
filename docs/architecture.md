@@ -56,8 +56,6 @@ Electron starts the private Desktop Host in Electron Node mode. The Host invokes
 
 ## Core packages
 
-Here are some core packages that contribute to the Cordis tree.
-
 | Package | Owns | `ctx` key |
 |---|---|---|
 | [`core/session`](subsystems/session.md) | The append-only `SessionEvent` log and in-memory store | `ctx.sessions` |
@@ -83,7 +81,7 @@ The [event map](event-producer-consumer.md) lists every event's producers and co
 
 ## Turn flow
 
-A **step** is one model request plus the tools it calls. A **turn** is zero or more steps: it opens before its first input is claimed and closes once nothing is owed.
+A **step** contains one model request and its tools. A **turn** opens before input is claimed and closes after zero or more steps when no work remains.
 
 ```text
 turn/start
@@ -102,11 +100,12 @@ turn/start
      tool/call* -> tools/pre-execute -> tools/execute -> tools/post-execute -> tool/result*
      step/end
      tools owe another request, or next-step input arrived -> claim -> next step
-  -> agent/turn-stopping
+  -> agent/turn-stopping             may inject next-step input
+  -> agent/output-limit-recovered   after an output-limited turn completes
 turn/end
 ```
 
-`turn/*`, `step/*`, `system/message`, `user/message`, `assistant/message`, `assistant/attempt`, and `tool/*` are durable session events; the rest are live extension points across three domains. `agent/assistant-stream` publishes process-local start, transient chunk, and end frames. The loop commits the complete compact stream as one message or log-only attempt before a committed end frame, and the Web Session-follow adapter is the live event's only remote consumer. `agent/pre-step`, `agent/request`, `llm/stream`, and the three `tools/*` events are waterfalls, whose listeners must call `next()` to delegate; `agent/turn-stopping` is serial and has no `next()`.
+`turn/*`, `step/*`, `system/message`, `user/message`, `assistant/message`, `assistant/attempt`, and `tool/*` are durable session events; the rest are live extension points `agent/assistant-stream` publishes local start, chunk, and end frames. The loop commits the complete compact stream as one message or log-only attempt before a committed end frame, and the Web Session-follow adapter is the live event's only remote consumer. `agent/pre-step`, `agent/request`, `agent/output-limit-recovered`, `llm/stream`, and the three `tools/*` events are waterfalls, whose listeners must call `next()` to delegate; `agent/turn-stopping` is serial and has no `next()`.
 
 One inbox feeds the driver; injected context waits for a waking message. AgentLoop’s durable `inbox` projection exposes pending input without live Agents.
 

@@ -59,14 +59,14 @@ You can verify success by watching the conversation continue past the point wher
 
 ### Tuning when condensation starts
 
-All settings are optional. With context window `W`, effective request output cap `O`, and headroom `B`, the default trigger is `floor(min(W × 0.8, W − O − B))`, where `B = 65,536` tokens. Retention keeps the newest 16% of `W − O` verbatim. The table below lists every setting; the generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-compaction-basic) also includes their types.
+All settings are optional. With context window `W`, effective request output cap `O`, and headroom `B`, the default trigger is `floor(min(W × 0.8, W − O − B))`, where `B = 65,536` tokens. Retention requests the newest 16% of `W − O` verbatim; pressure reduces that budget when fixed request content would prevent a checkpoint from fitting below the trigger. The table below lists every setting; the generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-compaction-basic) also includes their types.
 
 | Field | Default | Meaning |
 |---|---|---|
 | `thresholdRatio` | `0.8` | Window fraction used in `floor(min(W × thresholdRatio, W − O − headroomTokens))`. |
 | `headroomTokens` | `65536` | Additional pressure headroom beyond the routed output reservation; a non-negative integer. |
-| `retainRatio` | `0.16` | Recent conversation kept verbatim as a fraction of `W − O`; mutually exclusive with `retainTokens`. |
-| `retainTokens` | — | Absolute recent-conversation budget kept verbatim; mutually exclusive with `retainRatio` and must be below the resolved threshold. |
+| `retainRatio` | `0.16` | Requested verbatim recent-conversation budget as a fraction of `W − O`; mutually exclusive with `retainTokens`. |
+| `retainTokens` | — | Requested absolute verbatim recent-conversation budget; mutually exclusive with `retainRatio` and must be below the resolved threshold. |
 | `summarizationProvider` | `''` | Set together with `summarizationModel`; an empty pair uses the latest routed request target, then the `AgentOptions` pair. |
 | `summarizationModel` | `''` | Set together with `summarizationProvider`; an empty pair uses the latest routed request target, then the `AgentOptions` pair. |
 | `maxTokens` | `headroomTokens` (`65536`) | Positive summary output cap, including any provider-counted reasoning tokens. Explicit per-model caps override explicit global caps; otherwise the cap follows the resolved headroom. |
@@ -114,6 +114,8 @@ With `auto: true`, a serial `agent/pre-step` listener checks pressure before req
 
 Pressure policy resolves capacity from the adapter that owns the durable route. Missing capacity, output plus headroom exhausting the window, or a retained budget at least as large as the threshold makes the manual pressure path throw a target-specific configuration error. The automatic listener warns once for that exact target and skips proactive compaction until its configuration is corrected; provider-confirmed overflow recovery remains available.
 
+Pressure selection subtracts tool schemas, the system head, and any provider-usage adjustment from the threshold before budgeting a retained tail and checkpoint framing. If tool-pair rounding exceeds the remaining space, it keeps only the newest indivisible unit; if that still cannot fit a useful checkpoint, it warns once per request policy and makes no summary call. A failed selection is not summarized again while its projected messages and request policy stay unchanged. After a successful replacement, pressure also skips summarizing that checkpoint alone. Appends become eligible when original history enters the selected range; changes to the routed envelope or resolved policy allow another attempt. These guards are local to the live backend and do not suppress cancellation, manual compaction, or provider-confirmed overflow recovery.
+
 ### Summarization mechanics
 
 A direct `ctx.llm.stream()` call uses the configured provider/model pair and cap, falling back to the latest logged request target and then the `AgentOptions` pair, without running the loop-only `agent/request` extension point. The call replays the derived `system/message` at surface node 0 as the leading entry of `messages`, followed by the shadowed-region messages (including a shadowed in-history `system/message` in its surface position), and supplies the header's active tools for route-specific projection. The selected adapter must resolve image references in the replayed messages or explicitly reject them. The call appends the compaction instruction as the final user message, preserving the provider's warm prefix where projection permits. An empty-content system head contributes no message but remains outside the compacted range. The final instruction is a frozen `RequestUserInput` without durable identity or source; the replayed history and persisted checkpoint remain durable messages. The call sets `GenerateOptions.purpose` to `compaction`; only returned text enters the checkpoint, excluding reasoning and tool calls. Image output fails with `UNSUPPORTED_CONTENT` rather than disappearing. The replacement user message frames the summary with `<compacted-summary>` tags; the raw summary remains on the `compaction/summary` event. The call also carries `Session.toolHistory()` so the runtime can project deferred and retained definitions; a prefix missing update messages uses active declarations without developer updates.
@@ -134,6 +136,7 @@ The transaction validates the surface span and the durable lock, appends `compac
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `BasicCompactionEngine`, automatic listeners, entry-point dispatch |
 | [`src/region.ts`](src/region.ts) | Retention selection and the shared bracket-first compaction transaction |
+| [`src/pressure.ts`](src/pressure.ts) | Feasible retained-tail budgets and unchanged-selection identities |
 | [`src/summarizer.ts`](src/summarizer.ts) | Default `ctx.llm.stream()` summarization, checkpoint framing, safe-summary projection |
 | [`src/config.ts`](src/config.ts) | Load-time validation and routed-model policy resolution |
 | [`src/types.ts`](src/types.ts) | `BasicCompactionConfig` and resolved policy vocabulary |

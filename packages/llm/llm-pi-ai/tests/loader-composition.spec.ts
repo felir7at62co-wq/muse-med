@@ -83,6 +83,38 @@ async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }
 }
 
 describe('llm-pi-ai real dormant composition', () => {
+  it('sends first-turn task and injected text together through a configured gateway', async () => {
+    vi.stubEnv('PI_COMPOSITION_KEY', '')
+    const server = await mockServer([{ events: textEvents }])
+    const { ctx, settingsPath } = await loadComposition()
+    await writeFile(settingsPath, [
+      '- id: llm-pi-ai',
+      '  config:',
+      '    providers:',
+      '      claude-gateway-test:',
+      '        apiKeyEnv: PI_COMPOSITION_KEY',
+      '        api: openai-completions',
+      `        baseURL: ${server.url}`,
+      '        models:',
+      '          - id: claude-test',
+      '',
+    ].join('\n'))
+    await vi.waitFor(() => {
+      expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['claude-gateway-test'])
+    }, { timeout: 5000 })
+    await assemble(ctx, {
+      provider: 'claude-gateway-test', model: 'claude-test',
+      messages: [
+        createUserMessage({ content: [{ type: 'text', text: 'Create the test file.' }], source: { kind: 'user' } }),
+        createUserMessage({ content: [{ type: 'text', text: 'Current runtime context.' }], source: { kind: 'user' } }),
+        createUserMessage({ content: [{ type: 'text', text: 'Available skills.' }], source: { kind: 'user' } }),
+      ],
+    })
+    expect(server.requests[0]).toMatchObject({
+      messages: [{ role: 'user', content: 'Create the test file.\n\nCurrent runtime context.\n\nAvailable skills.' }],
+    })
+  })
+
   it('boots with zero routes and registers one the moment settings supply a profile', async () => {
     vi.stubEnv('PI_COMPOSITION_KEY', '')
     const server = await mockServer([{ events: textEvents }])

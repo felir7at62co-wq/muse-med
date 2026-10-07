@@ -182,7 +182,7 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
      else if(rpcMethod==='llm/discoverModels')value=await globalModels.discoverModels(args);
      else throw Object.assign(Error('此环境暂不支持自动发现，请手动添加供应商模型 ID。'),{code:'llm/discovery-unsupported'});
      respond({ok:true,...value===undefined?{}:{value}});
-    }catch(error){const discovered=rpcMethod==='llm/discoverModels';respond({ok:false,error:{code:error.code||(discovered?'llm/discovery-rejected':'settings/rejected'),message:error.code||discovered?error.message:'配置保存失败，请检查输入或稍后重试。',details:{}}});}return;
+    }catch(error){const discovered=rpcMethod==='llm/discoverModels';respond({ok:false,error:{code:error.code||(discovered?'llm/discovery-rejected':'settings/rejected'),message:error.code||discovered?error.message:'配置保存失败，请检查输入或稍后重试。',details:discovered?{settingsNs:args.settingsNs}:{}}});}return;
    }
   }
   if(path==='/logout'){if(req.method!=='POST'){reply(res,405,'',{allow:'POST'});return;}revoke(s.token);reply(res,303,'',{location:'/login','set-cookie':`${cookieName}=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0`});return;}
@@ -264,7 +264,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
  const {createRuntime}=await import('./runtime.mjs');const store=await openStore(process.env.MUSE_ACCOUNTS_FILE||'/var/lib/muse/accounts.json');const runtime=await createRuntime();
  const modelConfig=process.env.MUSE_MODEL_CONFIG?await openModelConfig(process.env.MUSE_MODEL_CONFIG):undefined;
  let globalModels;
- if(modelConfig){const {Config}=await import('../node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js');globalModels=await openGlobalModels(process.env.MUSE_MODEL_CONFIG+'.native',{legacyConfig:modelConfig,schema:restrictModelSchema(Config.toJSON())});const secret=(await readFile(process.env.MUSE_MODEL_SECRET,'utf8')).trim();if(secret.length<32)throw Error('Invalid model relay secret');createModelRelay({config:modelConfig,globalModels,secret,accounts:store}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);}
+ if(modelConfig){const {Config,discoverModels}=await import('../node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js');globalModels=await openGlobalModels(process.env.MUSE_MODEL_CONFIG+'.native',{legacyConfig:modelConfig,schema:restrictModelSchema(Config.toJSON()),discover:discoverModels});const secret=(await readFile(process.env.MUSE_MODEL_SECRET,'utf8')).trim();if(secret.length<32)throw Error('Invalid model relay secret');createModelRelay({config:modelConfig,globalModels,secret,accounts:store}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);}
  const feedback=await openFeedback(join(dirname(process.env.MUSE_ACCOUNTS_FILE||'/var/lib/muse/accounts.json'),'feedback'));
  const adminAccess=process.env.MUSE_ADMIN_ROOT?await openAdminAccess(process.env.MUSE_ADMIN_ROOT):undefined;
  const adminHosts=process.env.MUSE_ADMIN_HOSTS?JSON.parse(await readFile(process.env.MUSE_ADMIN_HOSTS,'utf8')):{};

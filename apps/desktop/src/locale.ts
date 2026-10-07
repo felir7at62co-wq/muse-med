@@ -160,6 +160,10 @@ export const en = {
   updateDownload: 'Download update',
   updateDownloadedTitle: 'Muse v{version} downloaded',
   updateDownloadedDetail: 'The update package has downloaded. Select “Install and Restart” to restart the app and begin installation.',
+  updateManualDetail: 'The installer has downloaded and passed verification. Open it and quit Muse, then drag Muse into Applications and replace the existing app. Reopen Muse after copying finishes. Your sessions and settings are retained.',
+  updateManualOpen: 'Open installer and quit',
+  updateManualActiveTasksDetail: 'This will stop running tasks, open the verified installer and quit Muse. Drag Muse into Applications and replace the existing app, then reopen it after copying finishes. Continue?',
+  updateManualStopTasks: 'Stop tasks and open installer',
   updateDownloadedTitleWindows: 'New version v{version} is ready',
   updateCurrentDetail: 'Current version: {version}',
   updateDownloadedDetailWindows: 'The app will close temporarily during the update and reopen automatically when it is complete.\n\nThe update may take some time. Please wait and do not launch the app again during installation.',
@@ -379,6 +383,10 @@ export const zh = {
   updateDownload: '下载更新',
   updateDownloadedTitle: 'Muse v{version} 下载完成',
   updateDownloadedDetail: '安装包已下载完毕，点击“安装并重启”，即刻重启客户端，开始部署。',
+  updateManualDetail: '安装包已下载并通过校验。打开安装包并退出 Muse 后，请将 Muse 拖入“应用程序”并替换原应用，复制完成后重新打开。会话与设置会保留。',
+  updateManualOpen: '打开安装包并退出',
+  updateManualActiveTasksDetail: '这将停止进行中的任务，打开已校验的安装包并退出 Muse。请将 Muse 拖入“应用程序”并替换原应用，复制完成后重新打开。是否继续？',
+  updateManualStopTasks: '停止任务并打开安装包',
   updateDownloadedTitleWindows: '新版本 v{version} 已准备就绪',
   updateCurrentDetail: '当前版本：{version}',
   updateDownloadedDetailWindows: '更新期间应用将暂时关闭，完成后会自动打开。\n\n更新可能需要一些时间，请耐心等待，期间请勿重复启动应用。',
@@ -477,15 +485,17 @@ export function formatDesktopMessage(
  * @param messages - Selected Desktop dictionary.
  * @param version - Prepared update version, including any prerelease suffix.
  * @param platform - Operating system presenting the confirmation.
+ * @param manual - Whether this ad-hoc macOS build requires drag-and-drop installation.
  * @returns The versioned title and installation guidance.
  */
 export function desktopUpdateReadyConfirmation(
   messages: DesktopMessages,
   version: string,
   platform: string,
+  manual = false,
 ): { message: string; detail: string } {
   return {
     message: formatDesktopMessage(messages.updateDownloadedTitle, { version }),
-    detail: platform === 'win32' ? messages.updateDownloadedDetailWindows : messages.updateDownloadedDetail,
+    detail: manual ? messages.updateManualDetail : platform === 'win32' ? messages.updateDownloadedDetailWindows : messages.updateDownloadedDetail,
   }
 }

@@ -5,6 +5,7 @@ import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import { frameSummary } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
+import { pressureSelectionKey, selectPressureRange } from '@deepseek-ai/dsh-compaction-basic/src/pressure.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import { CompactionId, toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
 import {
@@ -939,6 +940,156 @@ describe('pressure measurement and retention', () => {
 
     const priced = ctx.tokenMeter.measure(session)
     expect(selectCompactableRange(session, priced, 1)).toBeNull()
+  })
+})
+
+describe('pressure compaction progress', () => {
+  function appendText(session: Session, text: string): void {
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+  }
+
+  it('declines an empty surface, tiny old history, and an indivisible tail exceeding the trigger', () => {
+    const ctx = createContext()
+    const spec = resolveCompactSpec(resolveTargetPolicy(resolveConfig({ headroomTokens: 0, maxTokens: 8 }), {
+      provider: MODEL, model: MODEL,
+    }), 1_000, 0)
+    const empty = Session.create(SessionId('no-pressure-history'))
+    expect(selectPressureRange(empty, ctx.tokenMeter.measure(empty), spec, ctx.tokenMeter)).toBeNull()
+    const tiny = conversation(2, 'x')
+    expect(selectPressureRange(tiny, ctx.tokenMeter.measure(tiny), spec, ctx.tokenMeter)).toBeNull()
+    const largeTail = conversation(3, 'x'.repeat(4_000))
+    expect(selectPressureRange(largeTail, ctx.tokenMeter.measure(largeTail), spec, ctx.tokenMeter)).toBeNull()
+  })
+
+  it('makes a 128K request fit despite fixed tools exceeding the configured tail budget', async () => {
+    const ctx = createContext(128_000)
+    const compact = new TestCompactionEngine(ctx, { auto: false })
+    const session = conversation(12, 'x'.repeat(4_000), 's'.repeat(8_500))
+    session.append('request/header', {
+      header: {
+        config: { provider: MODEL, model: MODEL, maxTokens: 32_768 },
+        tools: [{ name: 'bulk', description: 't'.repeat(95_500), parameters: { type: 'object' } }],
+      }, reason: 'change',
+    })
+    const before = ctx.tokenMeter.measure(session)
+    const spec = resolveCompactSpec(resolveTargetPolicy(compact.config, { provider: MODEL, model: MODEL }), 128_000, 32_768)
+    const oldRange = selectCompactableRange(session, before, spec.retainTokens)!
+    const oldEnd = before.nodes.findIndex(node => node.seq === oldRange.end)
+    const oldRetained = before.nodes.slice(oldEnd + 1).reduce((total, node) => total + node.tokens, 0)
+    expect(before.totalTokens - before.surfaceTokens + before.nodes[0]!.tokens + oldRetained)
+      .toBeGreaterThan(spec.thresholdTokens)
+
+    const result = await compactIfNeeded(compact, session)
+    expect(result).not.toBeNull()
+    expect(compact.calls).toHaveLength(1)
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(spec.thresholdTokens)
+    expect(session.requestHeader()?.tools).toEqual(compact.calls[0]!.input.tools)
+    expect(session.deriveMessages()[0]?.role).toBe('system')
+  })
+
+  it('does not call the model when fixed request content leaves no checkpoint space', async () => {
+    const ctx = createContext()
+    const compact = service({ auto: false, thresholdRatio: 0.5, retainTokens: 180 }, ctx)
+    const session = conversation(4, undefined, 's'.repeat(2_000))
+    const warning = vi.spyOn(ctx.logger, 'warn')
+    await expect(compactIfNeeded(compact, session)).resolves.toBeNull()
+    await expect(compactIfNeeded(compact, session)).resolves.toBeNull()
+    expect(compact.calls).toHaveLength(0)
+    expect(warning).toHaveBeenCalledTimes(1)
+    expect(warning).toHaveBeenCalledWith(expect.stringContaining('no balanced range'))
+  })
+
+  it('does not repeat a failed selection when appended messages remain in the tail', async () => {
+    const ctx = createContext()
+    const compact = service({ auto: false, thresholdRatio: 0.5, retainTokens: 180 }, ctx)
+    const session = conversation(4)
+    const spec = resolveCompactSpec(resolveTargetPolicy(compact.config, { provider: MODEL, model: MODEL }), 1_000, 0)
+    const range = selectPressureRange(session, ctx.tokenMeter.measure(session), spec, ctx.tokenMeter)!
+    const firstKey = pressureSelectionKey(session, range, spec)
+    compact.error = new Error('summary unavailable')
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('summary unavailable')
+    appendText(session, 'tiny')
+    const laterRange = selectPressureRange(session, ctx.tokenMeter.measure(session), spec, ctx.tokenMeter)!
+    expect(pressureSelectionKey(session, laterRange, spec)).toBe(firstKey)
+    await expect(compactIfNeeded(compact, session)).resolves.toBeNull()
+    expect(compact.calls).toHaveLength(1)
+
+    compact.error = undefined
+    for (let index = 0; index < 4; index += 1) appendText(session, 'new history '.repeat(30))
+    await expect(compactIfNeeded(compact, session)).resolves.not.toBeNull()
+    expect(compact.calls).toHaveLength(2)
+  })
+
+  it('retries unchanged content after a route, output reservation, or policy-capacity change', async () => {
+    const ctx = createContext()
+    const compact = service({ auto: false, thresholdRatio: 0.5, retainTokens: 180 }, ctx)
+    const session = conversation(4)
+    compact.error = new Error('summary unavailable')
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('summary unavailable')
+    await expect(compactIfNeeded(compact, session)).resolves.toBeNull()
+    session.append('request/header', {
+      header: { config: { provider: 'actual', model: 'actual' } }, reason: 'change',
+    })
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('summary unavailable')
+    session.append('request/header', {
+      header: { config: { provider: 'actual', model: 'actual', maxTokens: 100 } }, reason: 'change',
+    })
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('summary unavailable')
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({
+      provider: 'actual', id: 'actual', name: 'actual', context: { contextWindow: 900 },
+    })
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('summary unavailable')
+    expect(compact.calls).toHaveLength(4)
+  })
+
+  it('retries a failed selection after the projected system prompt changes', async () => {
+    const compact = service({ auto: false, thresholdRatio: 0.5, retainTokens: 180 })
+    const session = conversation(4, undefined, 'initial prompt')
+    const head = session.surface.nodes[0]!
+    compact.error = new Error('summary unavailable')
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('summary unavailable')
+    await expect(compactIfNeeded(compact, session)).resolves.toBeNull()
+    session.append('system/message', {
+      turn: 5, step: 1, message: createSystemMessage('updated prompt'),
+    }, { surfaceOp: { op: 'replace', startSeq: head, endSeq: head }, sourceEventSeqs: [head] })
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('summary unavailable')
+    expect(compact.calls).toHaveLength(2)
+  })
+
+  it('does not repeatedly summarize a checkpoint that remains above threshold', async () => {
+    const compact = service({ auto: false, thresholdRatio: 0.3, retainTokens: 180, compactionRetries: 1 })
+    const session = conversation(4)
+    compact.summary = Array.from({ length: 7 }, (_, index) => ({ type: 'text', text: `summary ${index}` }))
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('still above threshold after 1 compaction attempts')
+    expect(compact.calls).toHaveLength(1)
+    appendText(session, 'tiny')
+    await expect(compactIfNeeded(compact, session)).resolves.toBeNull()
+    expect(compact.calls).toHaveLength(1)
+  })
+
+  it('does not suppress a later pressure attempt after cancellation', async () => {
+    const compact = service({ auto: false, thresholdRatio: 0.5, retainTokens: 180 })
+    const session = conversation(4)
+    const controller = new AbortController()
+    compact.error = new Error('cancelled summary')
+    compact.mutateDuringSummary = () => { controller.abort('stop') }
+    await expect(compact.compactIfNeeded(agent(session), 'pressure', controller.signal)).rejects.toThrow('cancelled summary')
+    compact.mutateDuringSummary = undefined
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('cancelled summary')
+    expect(compact.calls).toHaveLength(2)
+  })
+
+  it('bypasses pressure suppression for provider-confirmed context overflow', async () => {
+    const compact = service({ auto: false, thresholdRatio: 0.5, retainTokens: 180 })
+    const session = conversation(4)
+    compact.error = new Error('summary unavailable')
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('summary unavailable')
+    await expect(compactIfNeeded(compact, session)).resolves.toBeNull()
+    compact.error = undefined
+    await expect(compactIfNeeded(compact, session, 'context-overflow')).resolves.not.toBeNull()
+    expect(compact.calls).toHaveLength(2)
   })
 })
 

@@ -6,6 +6,8 @@ import { readDesktopRuntime, verifyDesktopRuntime } from '../src/runtime-tree.ts
 import { verifyWindowsCode } from './windows-runtime-signature.mjs'
 import { smokePreparedRuntime } from './smoke-prepared-runtime.ts'
 import { resolveDesktopPackageTarget } from './package-target.ts'
+import { resolveDesktopAppId } from './desktop-release-environment.mjs'
+import { verifyMacOSAdHocSignature } from './verify-macos-signature.mjs'
 
 const paths = resolveDesktopTargetBuildPaths()
 const { values } = parseArgs({ options: { unsigned: { type: 'boolean', default: false } }, allowPositionals: false })
@@ -19,4 +21,5 @@ const executable = windows ? join(application, 'muse-med.exe') : join(applicatio
 const descriptor = await verifyDesktopRuntime(paths.dsh, readDesktopRuntime(paths.dsh).release.version,
   resolveDesktopPackageTarget(target))
 if (windows && !values.unsigned) await verifyWindowsCode(application)
+if (!windows && values.unsigned) verifyMacOSAdHocSignature(join(application, '..'), resolveDesktopAppId(process.env))
 await smokePreparedRuntime(join(resources, 'app.asar', 'dsh'), executable, join(resources, 'runtime'), descriptor)

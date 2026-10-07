@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/subtitle-speech-boundaries/guide.md
+/:
+  en: 460c5bf86ed07b89
+  zh: 2b38df05be224372
+/subtitle-speech-boundaries:
+  en: 76d18472c9057372
+  zh: a579d88ff86ca56a
+/subtitle-speech-boundaries/change:
+  en: 314ff44bc3a48caf
+  zh: eccb1035fa7844fa
+/subtitle-speech-boundaries/migration:
+  en: f4774bd416ddcc87
+  zh: ceda4b8984dabbf9
