@@ -21,7 +21,7 @@ class PublicFailure extends Service {
 }
 
 class BrowserFailure extends Service {
-  version = 3
+  version = 4
   constructor(ctx) { super(ctx, 'douyinBrowser') }
   async data(agent, selection, signal) {
     signal.throwIfAborted()
@@ -34,7 +34,8 @@ class BrowserFailure extends Service {
         share_count: { value: 1, precision: 'exact' }, collect_count: { value: 1, precision: 'exact' } },
       comments: { status: 'not-requested', items: [], cursor: null, hasMore: null } }
   }
-  async download(agent, url, signal) {
+  async download(agent, url, signal, _maxDownloadBytes, nativeTimeoutMs) {
+    if (nativeTimeoutMs !== 1800000) throw new Error('Missing native timeout deployment setting')
     signal.throwIfAborted()
     if (agent.session.header.cwd === undefined) throw new Error('Missing initiating workspace')
     const codes = new Map([

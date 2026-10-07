@@ -6,9 +6,9 @@
 
 ## 运行环境与配置
 
-随包集成的页面数据与内置浏览器获取功能依赖 Desktop Host 协议 6 和 `douyinBrowser.version === 3`。下载工具也接受现有的版本 2 下载服务。单独安装插件不会增加浏览器下载接口。Desktop 自动选择经过验证的随包 Python，保留显式媒体程序设置，并从随包媒体目录或普通 PATH 查找已有 ffmpeg/ffprobe；不安装依赖或修改 PATH。Mac 安装包包含对应架构的媒体程序，运行时查找不会安装依赖。打包后的 Python 脚本及提取器归档位于 ASAR 外，使内置解释器可以读取。
+随包集成的页面数据与内置浏览器获取功能依赖 Desktop Host 协议 6 和 `douyinBrowser.version === 4`。版本 2 和 3 在页面数据或下载 IPC 前被拒绝。版本 4 的下载方法要求显式传入第五个 `nativeTimeoutMs` 参数；应用与插件必须配套更新。单独安装插件不会增加浏览器下载接口。Desktop 自动选择经过验证的随包 Python，保留显式媒体程序设置，并从随包媒体目录或普通 PATH 查找已有 ffmpeg/ffprobe；不安装依赖或修改 PATH。Mac 安装包包含对应架构的媒体程序，运行时查找不会安装依赖。打包后的 Python 脚本及提取器归档位于 ASAR 外，使内置解释器可以读取。
 
-公开执行器需要 `agents`、`tools`、`subprocess`；浏览器回退还需要宿主下载接口。部署配置保留 `pythonExecutable`、`ffprobeExecutable`、`ffmpegExecutable`、`settingsHome`、`requestTimeoutMs`、`timeoutMs`、`maxDownloadBytes`、`graceMs`、`maxVideos`、`dataTimeoutMs`、`maxComments`。执行器默认 120 秒、512 MiB、20 条链接；页面数据默认每条链接 30 秒、每页 20 条评论。`requestTimeoutMs` 还用于在外层传输截止前等待页面结果送达。`maxDownloadBytes`（1 字节到 8 GiB）同时用于公开下载、内置浏览器传输和本地文件验证。内置浏览器最多一个任务、120 秒，含准备时间。缺少验证程序时返回 blocked。
+公开执行器需要 `agents`、`tools`、`subprocess`；浏览器回退还需要宿主下载接口。部署配置保留 `pythonExecutable`、`ffprobeExecutable`、`ffmpegExecutable`、`settingsHome`、`requestTimeoutMs`、`timeoutMs`、`nativeTimeoutMs`、`maxDownloadBytes`、`graceMs`、`maxVideos`、`dataTimeoutMs`、`maxComments`。执行器默认 120 秒、512 MiB、20 条链接；页面数据默认每条链接 30 秒、每页 20 条评论。`requestTimeoutMs` 还用于在外层传输截止前等待页面结果送达。`maxDownloadBytes`（1 字节到 8 GiB）同时用于公开下载、内置浏览器传输和本地文件验证。内置浏览器最多一个任务。准备阶段单独限时 120 秒；`nativeTimeoutMs` 默认 30 分钟（整数 1 秒到 2 小时），用于选定媒体后的原生传输，之后完整本地验证重新获得等长的独立预算。媒体关联另有 120 秒截止。宿主下载 IPC 预算包含这段关联时间、原生预算及额外 10 秒结果送达时间。此配置独立于公开 Python 的 `timeoutMs`；工具截止涵盖两条下载路径、验证及传输清理。组合批次截止超过 Node 计时器范围时配置会被拒绝，请降低 `maxVideos` 或预算。缺少验证程序时返回 blocked。
 
 ## 页面数据与可选下载
 
@@ -20,7 +20,7 @@
 
 ## 内置播放与结果
 
-公开访问失败后，MUSE 在当前会话的隔离 Browser 面板打开官方页面。用户正常完成登录、验证和播放；发起工具调用后，Host 在初始主文档导航结束后自动开始下载确切作品；播放检查也等待主文档加载结束。播放检查、DNS 解析、暂存和原生下载启动失败分别返回独立的 blocked 代码。官方抖音视频页按工作区保留登录，应用重启后可继续使用；其他浏览器页面使用进程内临时存储。下载器不访问外部浏览器数据库，不导出会话凭据，不制造签名，不绕过访问控制、验证码或 DRM。
+公开访问失败后，MUSE 在当前会话的隔离 Browser 面板打开官方页面。用户正常完成登录、验证和播放；发起工具调用后，Host 在初始主文档导航结束后自动开始下载确切作品；播放检查也等待主文档加载结束。页面数据观察先等待初始主文档加载完成，再进行一次目标绑定的重载；观察中更换文档仍会被拒绝。播放检查、DNS 解析、暂存和原生下载启动失败分别返回独立的 blocked 代码。官方抖音视频页按工作区保留登录，应用重启后可继续使用；其他浏览器页面使用进程内临时存储。下载器不访问外部浏览器数据库，不导出会话凭据，不制造签名，不绕过访问控制、验证码或 DRM。
 
 传输通过 `player-exact`、`provider-detail-verified` 或 `player-metadata-verified` 识别媒体。`player-exact` 要求匹配作品的公开 `_ROUTER_DATA` 或播放器父节点中有界的 `awemeInfo` 属性，以及唯一可见播放器来源的成功 MP4 响应。播放器添加的 `__vid` 必须等于字符串作品 ID；其余 URL 组成部分和按原顺序解码的查询参数必须与提供地址一致。原生传输仍使用未改写的可见播放地址。当前文档最多保留媒体或 XHR 请求中 16 个成功的 MP4 响应地址，替换文档时清空。
 

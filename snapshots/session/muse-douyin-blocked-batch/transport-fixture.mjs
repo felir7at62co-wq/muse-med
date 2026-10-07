@@ -21,10 +21,11 @@ class PublicFailure extends Service {
 }
 
 class BrowserFailure extends Service {
-  version = 2
+  version = 4
   constructor(ctx) { super(ctx, 'douyinBrowser') }
-  async download(agent, url, signal) {
+  async download(agent, url, signal, _maxDownloadBytes, nativeTimeoutMs) {
     signal.throwIfAborted()
+    if (nativeTimeoutMs !== 1800000) throw new Error('Missing native timeout deployment setting')
     if (agent.session.header.cwd === undefined) throw new Error('Missing initiating workspace')
     const codes = new Map([
       ['https://www.douyin.com/video/7660900818614324490', 'PLAYER_PROBE_UNAVAILABLE'],

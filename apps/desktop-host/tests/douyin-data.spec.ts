@@ -86,9 +86,9 @@ async function harness(run: (fixture: {
     vi.useRealTimers()
   }
 }
-it('provides version 3 data while retaining the download method and forwarded timeout', async () => harness(async (fixture) => {
+it('provides version 4 data while retaining the download method and forwarded timeout', async () => harness(async (fixture) => {
   installDesktopDouyinBrowser(fixture.ctx)
-  expect(fixture.ctx.douyinBrowser.version).toBe(3)
+  expect(fixture.ctx.douyinBrowser.version).toBe(4)
   expect(typeof fixture.ctx.douyinBrowser.download).toBe('function')
   expect(await fixture.ctx.douyinBrowser.data(fixture.agent, selection, new AbortController().signal))
     .toMatchObject({ targetVideoId: videoId })

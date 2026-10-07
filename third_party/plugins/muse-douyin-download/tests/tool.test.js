@@ -154,20 +154,21 @@ test('missing bundled runtime blocks single and multiple videos before accessing
   } finally { for (const cleanup of cleanups.reverse()) await cleanup(); }
 });
 test('plugin forwards its file bound and unload waits for the internal-browser operation to settle', async () => {
-  const cleanups = []; let tool; let settle; let browserSignal; let browserLimit; let entered;
+  const cleanups = []; let tool; let settle; let browserSignal; let browserLimit; let browserTimeout; let entered;
   const started = new Promise(resolve => { entered = resolve; });
   const native = new Promise(resolve => { settle = resolve; });
   const ctx = {
     agents: { requireInitiator() { return { session: { header: { cwd: workspace } } }; } },
     tools: { register(definition) { if (definition.name === 'douyin_download') tool = definition; return () => {}; } },
     subprocess: subprocess({ status: 'blocked', message: 'ACCESS_RESTRICTED' }, { exitCode: 1, signal: null }),
-    get() { return { version: 2, download(_agent, _url, signal, maxDownloadBytes) { browserSignal = signal; browserLimit = maxDownloadBytes; entered(); return native; } }; },
+    get() { return { version: 4, download(_agent, _url, signal, maxDownloadBytes, nativeTimeoutMs) { browserSignal = signal; browserLimit = maxDownloadBytes; browserTimeout = nativeTimeoutMs; entered(); return native; } }; },
     effect(factory) { cleanups.push(factory()); },
   };
   apply(ctx, settings);
   const operation = tool.execute({ url: input.url }, {});
   await started;
   assert.equal(browserLimit, settings.maxDownloadBytes);
+  assert.equal(browserTimeout, settings.nativeTimeoutMs);
   let stopped = false;
   const stop = cleanups[0]().then(() => { stopped = true; });
   assert.equal(browserSignal.aborted, true);
@@ -178,13 +179,13 @@ test('plugin forwards its file bound and unload waits for the internal-browser o
   await cleanups[1]();
 });
 
-test('an older browser acquisition returns a blocked result before native IPC', async () => {
+for (const version of [1, 2, 3]) test(`browser acquisition version ${version} is rejected before native IPC`, async () => {
   const cleanups = []; let tool; let nativeCalls = 0;
   const ctx = {
     agents: { requireInitiator() { return { session: { header: { cwd: workspace } } }; } },
     tools: { register(definition) { if (definition.name === 'douyin_download') tool = definition; return () => {}; } },
     subprocess: subprocess({ status: 'blocked', message: 'ACCESS_RESTRICTED' }, { exitCode: 1, signal: null }),
-    get() { return { version: 1, download() { nativeCalls++; throw new Error('Old transport must not run'); } }; },
+    get() { return { version, download() { nativeCalls++; throw new Error('Old transport must not run'); } }; },
     effect(factory) { cleanups.push(factory()); },
   };
   apply(ctx, settings);
@@ -194,4 +195,13 @@ test('an older browser acquisition returns a blocked result before native IPC', 
     assert.equal(result.status, 'blocked');
     assert.equal(nativeCalls, 0);
   } finally { for (const cleanup of cleanups.reverse()) await cleanup(); }
+});
+
+test('native download and verification budgets are explicit and independent from the public deadline', () => {
+  assert.equal(settings.nativeTimeoutMs, 1800000);
+  const configured = resolveConfig({ timeoutMs: 1000, nativeTimeoutMs: 7200000 });
+  assert.equal(configured.timeoutMs, 1000);
+  assert.equal(configured.nativeTimeoutMs, 7200000);
+  for (const nativeTimeoutMs of [999, 7200001, 1000.5, NaN, Infinity, "1800000", null]) assert.throws(() => resolveConfig({ nativeTimeoutMs }), /nativeTimeoutMs/);
+  assert.throws(() => resolveConfig({ timeoutMs: 7200000, nativeTimeoutMs: 7200000, maxVideos: 100 }), /timer range/);
 });

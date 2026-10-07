@@ -60,7 +60,7 @@ export function apply(ctx, config = {}) {
     if (result.status === 'blocked' && !publicOnly
       && /PUBLIC_SHARE_MEDIA_UNAVAILABLE|PUBLIC_SHARE_REQUEST_FAILED|PUBLIC_MEDIA_DOWNLOAD_FAILED|LOGIN_OR_VERIFICATION_REQUIRED|ACCESS_RESTRICTED|^Share link resolution failed;/.test(result.message || '')) {
       const browser = ctx.get('douyinBrowser');
-      if (browser?.version === 2 || browser?.version === 3) result = await track(browser.download(agent, url, signal, settings.maxDownloadBytes));
+      if (browser?.version === 4) result = await track(browser.download(agent, url, signal, settings.maxDownloadBytes, settings.nativeTimeoutMs));
       else result = { status: 'blocked', code: 'DESKTOP_HOST_REQUIRED', message: 'This plugin requires the matching MUSE Desktop browser download bridge for authorized playback.' };
     }
     return result;
@@ -72,7 +72,7 @@ export function apply(ctx, config = {}) {
     parameters: { type: 'object', additionalProperties: false, properties: { ...properties, urls: { ...properties.urls, maxItems: settings.maxVideos } }, oneOf: [{ required: ['url'] }, { required: ['urls'] }] },
     output: { schema: { type: 'object', additionalProperties: true, properties: { status: { type: 'string', enum: ['downloaded', 'complete', 'partial', 'blocked'] } }, required: ['status'] },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
-    timeoutMs: settings.timeoutMs * settings.maxVideos + 10000,
+    timeoutMs: (settings.timeoutMs + 2 * settings.nativeTimeoutMs + 390000) * settings.maxVideos + 10000,
     async execute(raw, exec) {
       const args = validateArgs(raw);
       const agent = ctx.agents.requireInitiator();
@@ -108,7 +108,7 @@ export function apply(ctx, config = {}) {
     parameters: { type: 'object', additionalProperties: false, properties: { ...dataProperties, urls: { ...dataProperties.urls, maxItems: settings.maxVideos }, commentLimit: { ...dataProperties.commentLimit, maximum: settings.maxComments } }, oneOf: [{ required: ['url'] }, { required: ['urls'] }] },
     output: { schema: { type: 'object', additionalProperties: true, properties: { status: { type: 'string', enum: ['ok', 'complete', 'partial', 'blocked'] } }, required: ['status'] },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
-    timeoutMs: (settings.dataTimeoutMs + settings.requestTimeoutMs + settings.timeoutMs) * settings.maxVideos + 10000,
+    timeoutMs: (settings.dataTimeoutMs + settings.requestTimeoutMs + settings.timeoutMs + 2 * settings.nativeTimeoutMs + 390000) * settings.maxVideos + 10000,
     async execute(raw, exec) {
       const request = resolveDataArgs(raw, settings);
       const signal = exec?.signal ? AbortSignal.any([exec.signal, lifetime.signal]) : lifetime.signal;
@@ -123,7 +123,7 @@ export function apply(ctx, config = {}) {
             signal.throwIfAborted();
             const selection = { url, source: request.source, comments: request.comments, timeoutMs: request.timeoutMs };
             let result;
-            if (browser?.version !== 3) result = { status: 'blocked', code: 'DESKTOP_HOST_REQUIRED' };
+            if (browser?.version !== 4) result = { status: 'blocked', code: 'DESKTOP_HOST_REQUIRED' };
             else {
               const deadline = new AbortController();
               const timer = setTimeout(() => deadline.abort(new Error('Douyin data request timed out')), settings.dataTimeoutMs + settings.requestTimeoutMs);

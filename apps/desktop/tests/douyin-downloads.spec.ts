@@ -86,6 +86,7 @@ beforeEach(() => {
     cwd: root,
     url: page,
     maxDownloadBytes: 100 * 1024 ** 2,
+    nativeTimeoutMs: 30 * 60_000,
   }
 })
 afterEach(async () => {
@@ -177,6 +178,10 @@ it('allows only official pages, a single target ID and public HTTPS CDN names', 
   for (const maxDownloadBytes of [undefined, 0, -1, 1.5, Infinity, 8 * 1024 ** 3 + 1])
     expect(parseDouyinRequest({ ...request, maxDownloadBytes })).toBeUndefined()
   expect(parseDouyinRequest({ ...request, maxDownloadBytes: 512 * 1024 ** 2 })).toBeDefined()
+  for (const nativeTimeoutMs of [undefined, null, '1800000', 0, -1, 999, 1000.5, Number.NaN, Infinity, 7_200_001])
+    expect(parseDouyinRequest({ ...request, nativeTimeoutMs })).toBeUndefined()
+  for (const nativeTimeoutMs of [1000, 30 * 60_000, 7_200_000])
+    expect(parseDouyinRequest({ ...request, nativeTimeoutMs })).toBeDefined()
 })
 it('denies unrequested and replayed downloads while allowing one exact guest ticket', async () => {
   expect(controller.accept(new Item() as never, guest as never)).toBe(false)
@@ -194,6 +199,137 @@ it('denies unrequested and replayed downloads while allowing one exact guest tic
   expect(JSON.stringify(staged)).not.toContain('secret=')
   expect(staged.evidence?.mediaUrlHash).toMatch(/^[a-f0-9]{64}$/)
 })
+it.each(['player-exact', 'provider-detail-verified', 'player-metadata-verified'] as const)(
+  'keeps a growing %s native transfer past the preparation deadline', async (association) => {
+    const { result, selected } = await associatedTransfer(association)
+    const item = new Item()
+    item.url = selected
+    item.chain = [selected]
+    item.total = 64
+    expect(controller.accept(item as never, guest as never)).toBe(true)
+    controller.response({ webContentsId: guest.id, statusCode: 200, resourceType: 'other', url: selected,
+      responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+    await vi.advanceTimersByTimeAsync(120_000)
+    item.got = 32
+    item.emit('updated', {}, 'progressing')
+    expect(controller.isActive).toBe(true)
+    expect(item.state).toBe('progressing')
+    expect(existsSync(item.path)).toBe(true)
+    item.got = 64
+    item.complete()
+    expect((await result).code).toBe('STAGED')
+  },
+)
+
+it('gives association its full deadline after a long preparation', async () => {
+  let loading = true
+  guest.isLoadingMainFrame = () => loading
+  guest.executeJavaScript.mockResolvedValue(null)
+  const pending = controller.request(owner as never, request)
+  controller.attached({ owner: owner as never, guest: guest as never, lease: 'lease-a' as never,
+    workspace: `cwd:${root}`, sessionId: 'session-a' })
+  await vi.advanceTimersByTimeAsync(100_000)
+  loading = false
+  await vi.advanceTimersByTimeAsync(100)
+  expect((await pending).code).toBe('PREPARED')
+  const result = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  await vi.advanceTimersByTimeAsync(119_000)
+  expect(controller.isActive).toBe(true)
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+  guest.executeJavaScript.mockResolvedValue({ id, src: media })
+  controller.response({ webContentsId: guest.id, statusCode: 200, resourceType: 'media', url: media,
+    responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+  await vi.advanceTimersByTimeAsync(0)
+  const item = new Item()
+  expect(controller.accept(item as never, guest as never)).toBe(true)
+  item.complete()
+  expect((await result).code).toBe('STAGED')
+})
+
+it.each(['player-exact', 'provider-detail-verified', 'player-metadata-verified'] as const)(
+  'bounds the %s native transfer and joins cancellation before removing its staging file', async (association) => {
+    request = { ...request, nativeTimeoutMs: 2000 }
+    let nativeStartedAt: number | undefined
+    guest.downloadURL.mockImplementation(() => { nativeStartedAt = Date.now() })
+    const { result, selected } = await associatedTransfer(association)
+    class DeferredItem extends Item {
+      requested = false
+      override cancel() { this.requested = true }
+      close() { this.state = 'cancelled'; this.emit('done', {}, 'cancelled') }
+    }
+    const item = new DeferredItem()
+    item.url = selected
+    item.chain = [selected]
+    expect(controller.accept(item as never, guest as never)).toBe(true)
+    try {
+      if (nativeStartedAt === undefined) throw new Error('Missing native transfer start')
+      const remaining = nativeStartedAt + request.nativeTimeoutMs - Date.now()
+      await vi.advanceTimersByTimeAsync(remaining - 1)
+      expect(controller.isActive).toBe(true)
+      expect(item.requested).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect((await result).code).toBe('NATIVE_DOWNLOAD_TIMEOUT')
+      expect(item.requested).toBe(true)
+      expect(controller.isActive).toBe(false)
+      expect(existsSync(item.path)).toBe(true)
+    } finally { item.close(); await controller.dispose() }
+    expect(existsSync(item.path)).toBe(false)
+  },
+)
+
+it('joins explicit cancellation after a native transfer has outlasted preparation', async () => {
+  const revoked = vi.fn()
+  controller.onRevoked = revoked
+  const { result } = await metadataTransfer()
+  class DeferredItem extends Item {
+    requested = false
+    override cancel() { this.requested = true }
+    close() { this.state = 'cancelled'; this.emit('done', {}, 'cancelled') }
+  }
+  const item = new DeferredItem()
+  expect(controller.accept(item as never, guest as never)).toBe(true)
+  await vi.advanceTimersByTimeAsync(120_000)
+  expect(controller.isActive).toBe(true)
+  let released = false
+  const releasing = controller.request(owner as never, { ...request, action: 'release' })
+    .then(() => { released = true })
+  try {
+    expect(item.requested).toBe(true)
+    expect((await result).code).toBe('CANCELLED')
+    expect(existsSync(item.path)).toBe(true)
+    expect(released).toBe(false)
+  } finally { item.close(); await releasing }
+  expect(existsSync(item.path)).toBe(false)
+  await vi.advanceTimersByTimeAsync(request.nativeTimeoutMs)
+  expect(revoked).toHaveBeenCalledExactlyOnceWith(request.taskId, 'CANCELLED')
+})
+
+it.each(['cancel', 'session', 'document', 'owner'] as const)(
+  'keeps staged bytes beyond transfer expiry and removes them when the %s authority ends', async (reason) => {
+    request = { ...request, nativeTimeoutMs: 2000 }
+    const revoked = vi.fn()
+    controller.onRevoked = revoked
+    const { result } = await metadataTransfer()
+    const item = new Item()
+    expect(controller.accept(item as never, guest as never)).toBe(true)
+    controller.response({ webContentsId: guest.id, statusCode: 200, resourceType: 'other', url: media,
+      responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+    item.complete()
+    expect((await result).code).toBe('STAGED')
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(controller.isActive).toBe(true)
+    expect(existsSync(item.path)).toBe(true)
+    expect(revoked).not.toHaveBeenCalled()
+    if (reason === 'cancel') await controller.request(owner as never, { ...request, action: 'release' })
+    if (reason === 'session') controller.activeSession(owner as never, 'session-b')
+    if (reason === 'document') guest.emit('did-start-navigation', {}, page, false, true)
+    if (reason === 'owner') owner.isDestroyed = () => true
+    await vi.advanceTimersByTimeAsync(100)
+    expect(controller.isActive).toBe(false)
+    expect(existsSync(item.path)).toBe(false)
+    expect(item.state).toBe('completed')
+  },
+)
 it('waits for the share-page navigation to finish before granting the target reload', async () => {
   let loading = true
   guest.isLoadingMainFrame = () => loading
@@ -258,6 +394,9 @@ it('fails closed on other owners, sessions, targets, repeated clicks and leases'
   await prepared()
   expect((await controller.request(owner as never, {
     ...request, action: 'download', targetVideoId: id, maxDownloadBytes: 512 * 1024 ** 2,
+  })).code).toBe('GRANT_MISMATCH')
+  expect((await controller.request(owner as never, {
+    ...request, action: 'download', targetVideoId: id, nativeTimeoutMs: request.nativeTimeoutMs + 1000,
   })).code).toBe('GRANT_MISMATCH')
   expect(
     (await controller.request(owner as never, { ...request, action: 'download', targetVideoId: '7690000000000000000' }))
@@ -343,6 +482,15 @@ async function metadataTransfer(value: unknown = playerMetadata()) {
   const result = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
   await vi.advanceTimersByTimeAsync(100)
   return { result }
+}
+
+async function associatedTransfer(association: 'player-exact' | 'provider-detail-verified' | 'player-metadata-verified') {
+  if (association === 'player-exact') return { ...await transfer(), selected: media }
+  if (association === 'player-metadata-verified') return { ...await metadataTransfer(), selected: media }
+  const source = await providerTransfer()
+  await fixtureResponse(source.debug)
+  await vi.advanceTimersByTimeAsync(100)
+  return { ...source, selected: fixtureMedia }
 }
 
 it('stages plain native media from exact public player metadata without a prior detail or MP4 response', async () => {

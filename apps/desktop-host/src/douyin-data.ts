@@ -83,7 +83,7 @@ export function dataResult(value: unknown): DouyinDesktopDataResult | undefined 
 /** Unavailable page observations carry fixed diagnostics. */
 export interface DouyinDataBlocked { readonly status: 'blocked'; readonly code: DouyinDataCode }
 /**
- * Data-only acquisition method used by the version 3 browser service.
+ * Data-only acquisition method used by the version 4 browser service.
  * @param agent - Initiating Agent with a canonical workspace.
  * @param selection - Validated official page and bounded observation options.
  * @param signal - Tool cancellation lifetime.

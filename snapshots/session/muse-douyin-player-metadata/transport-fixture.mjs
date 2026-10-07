@@ -25,10 +25,11 @@ class PublicFailure extends Service {
 }
 
 class BrowserSuccess extends Service {
-  version = 3
+  version = 4
   constructor(ctx) { super(ctx, 'douyinBrowser') }
-  async download(agent, requested, signal) {
+  async download(agent, requested, signal, _maxDownloadBytes, nativeTimeoutMs) {
     signal.throwIfAborted()
+    if (nativeTimeoutMs !== 1800000) throw new Error('Missing native timeout deployment setting')
     const cwd = agent.session.header.cwd
     if (cwd === undefined || requested !== url) throw new Error('Native receipt fixture refuses unrelated works')
     const evidence = mediaEvidence({ responseStatus: 206, mediaHost: 'v3.douyinvod.com', mediaUrlHash: 'a'.repeat(64),

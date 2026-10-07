@@ -22,15 +22,16 @@ function setup() {
     guest.emit('did-start-navigation', {}, current, false, true)
     debug.emit('message', {}, 'Page.frameNavigated', { frame: { id: 'main', loaderId: 'loader' } })
   })
-  const guestMethods: Pick<WebContents, 'debugger' | 'isDestroyed' | 'getURL' | 'reload'> = {
-    debugger: debug, isDestroyed: () => false, getURL: () => current, reload,
+  const loading = vi.fn(() => false)
+  const guestMethods: Pick<WebContents, 'debugger' | 'isDestroyed' | 'getURL' | 'reload' | 'isLoadingMainFrame'> = {
+    debugger: debug, isDestroyed: () => false, getURL: () => current, reload, isLoadingMainFrame: loading,
   }
   const guest = Object.assign(new EventEmitter(), guestMethods) as WebContents
   const open = vi.fn(), busy = vi.fn(() => false), controller = new DesktopDouyinData(open, busy)
   controllers.push(controller)
   controller.activeSession(owner, 'owning-session')
   const lease = { lease: randomUUID() as DesktopBrowserLeaseId, owner, guest, workspace: `cwd:${process.cwd()}`, sessionId: 'owning-session' }
-  return { controller, owner, guest, debug, open, busy, lease, reload, navigate: (next: string) => { current = next; guest.emit('did-start-navigation', {}, next, false, true) } }
+  return { controller, owner, guest, debug, open, busy, lease, reload, loading, navigate: (next: string) => { current = next; guest.emit('did-start-navigation', {}, next, false, true) } }
 }
 async function attached(fixture: ReturnType<typeof setup>, operation: DouyinDesktopDataRequest) {
   const result = fixture.controller.request(fixture.owner, operation)
@@ -60,6 +61,28 @@ it('projects counters from the normal exact-target GET and joins detachment befo
   expect(fixture.debug.detach).toHaveBeenCalledOnce()
   expect(fixture.debug.listenerCount('message')).toBe(0)
   expect(fixture.controller.isActive).toBe(false)
+})
+
+it.each(['public', 'creator'] as const)('waits for the initial %s document before beginning its one-document observation', async (source) => {
+  vi.useFakeTimers()
+  const fixture = setup(), base = request()
+  const operation = { ...base, selection: { ...base.selection, source } }
+  if (source === 'creator') fixture.navigate('https://creator.douyin.com/creator-micro/content/manage')
+  fixture.loading.mockReturnValue(true)
+  const result = fixture.controller.request(fixture.owner, operation)
+  fixture.controller.attached(fixture.lease)
+  await vi.advanceTimersByTimeAsync(200)
+  expect(fixture.reload).not.toHaveBeenCalled()
+  expect(fixture.debug.attach).not.toHaveBeenCalled()
+  fixture.navigate(source === 'creator' ? 'https://creator.douyin.com/creator-micro/content/manage' : page)
+  fixture.loading.mockReturnValue(false)
+  await vi.advanceTimersByTimeAsync(100)
+  expect(fixture.reload).toHaveBeenCalledOnce()
+  dataBody(fixture, source === 'creator' ? { status_code: 0, can_modify: [true], has_more: false,
+    aweme_list: [{ aweme_id: fixtureId, statistics: { aweme_id: fixtureId, play_count: 42 } }] } : body())
+  await fixtureResponse(fixture.debug, source === 'creator' ? { url: 'https://creator.douyin.com/janus/douyin/creator/pc/work_list' } : {})
+  expect(await result).toMatchObject({ code: 'OK', data: { targetVideoId: fixtureId } })
+  expect(fixture.debug.detach).toHaveBeenCalledOnce()
 })
 
 it('reads already served public metadata and joins a pending page read on cancellation', async () => {

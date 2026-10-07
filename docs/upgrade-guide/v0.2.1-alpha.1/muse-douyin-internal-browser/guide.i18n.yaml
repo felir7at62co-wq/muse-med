@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/muse-douyin-internal-browser/guide.md
 /:
-  en: 52e13f79c9ccbff4
-  zh: dd326337690173f9
+  en: 3d08a4b661a65db2
+  zh: 0ec89e1e3374e52d
 /muse-douyin-internal-browser:
   en: 1fef61c63dd51b9d
   zh: 699f36e3c61fca11
 /muse-douyin-internal-browser/change:
-  en: 26ae252ad4ef1226
-  zh: 609f5719b68c5008
+  en: e06e38107352b212
+  zh: ae793ade59d56c58
 /muse-douyin-internal-browser/migration:
-  en: 9787131304facf49
-  zh: 3fb65a0da4263cf5
+  en: 4040a7d3c0a41b29
+  zh: db8d9636560f3777

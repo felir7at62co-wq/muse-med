@@ -27,6 +27,7 @@ const playerEvidence = { responseStatus: 206, mediaHost: 'v3.douyinvod.com', med
 /** Verification dependency fixture; these tests exercise actual filesystem publication, not codecs or platform downloads. */
 class FileVerification extends SubprocessRuntime {
   readonly commands: string[][] = []
+  constructor(ctx: Context, private readonly config: { decode?: (spec: SubprocessSpawnSpec) => Promise<void> } = {}) { super(ctx) }
   override async resolveExecutable(command: string): Promise<string> { return command }
   override async terminalEnvironment() { return { platform: 'posix' as const } }
   override async spawnTerminal(): Promise<SubprocessTerminalHandle> { throw new Error('No terminal in file verification fixture') }
@@ -35,17 +36,32 @@ class FileVerification extends SubprocessRuntime {
     const text = spec.argv.includes('-show_entries') ? JSON.stringify({ format: { duration: '34.41' }, streams: [{ codec_type: 'video', width: 3840, height: 2160 }] }) : ''
     return { stdin: undefined, stdout: undefined, stderr: undefined, control: undefined,
       collected: { stdout: { readFrom: () => ({ text, nextOffset: Buffer.byteLength(text), lossy: false }) } },
-      done: Promise.resolve({ exitCode: 0, signal: null }), terminate() {}, waitForExit: async () => true,
+      done: (spec.argv.includes('-xerror') && this.config.decode !== undefined ? this.config.decode(spec) : Promise.resolve())
+        .then(() => ({ exitCode: 0, signal: null })), terminate() {}, waitForExit: async () => true,
     }
   }
 }
 it.each(['publish', 'publish-player-metadata', 'player-duration-mismatch', 'player-aspect-mismatch', 'crossed-player-provider',
+  'long-verification', 'cancel-verification', 'expired-verification',
   'existing-media', 'existing-receipt', 'outside', 'symlink', 'wrong-work', 'write-failure', 'cancel-close'] as const)(
   'native file publication preserves private source effects: %s', async (mode) => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'muse-native-file-effects-'))), ctx = new Context()
     const connected = Object.getOwnPropertyDescriptor(process, 'connected'), send = Object.getOwnPropertyDescriptor(process, 'send')
     let published = '', receipt = '', staging = ''
     const cancellation = new AbortController(), closing = Promise.withResolvers<undefined>(), closeGate = Promise.withResolvers<undefined>()
+    const decodeEntered = Promise.withResolvers<undefined>(), decodeExit = Promise.withResolvers<undefined>()
+    const timedVerification = ['long-verification', 'cancel-verification', 'expired-verification'].includes(mode)
+    let decodeSignal: AbortSignal | undefined
+    let restoreTimeout: (() => void) | undefined
+    if (timedVerification) {
+      vi.useFakeTimers()
+      const timeoutMock = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+        const timer = new AbortController()
+        setTimeout(() => { timer.abort(new Error('Verification deadline')) }, ms)
+        return timer.signal
+      })
+      restoreTimeout = () => { timeoutMock.mockRestore() }
+    }
     if (mode === 'write-failure' || mode === 'cancel-close') vi.mocked(fileIO.open).mockImplementationOnce(async (...args) => {
       const handle = await realFileIO.open(...args)
       const write = handle.writeFile.bind(handle), close = handle.close.bind(handle)
@@ -81,22 +97,43 @@ it.each(['publish', 'publish-player-metadata', 'player-duration-mismatch', 'play
           : mode === 'player-duration-mismatch' ? { ...playerEvidence, playerMetadata: { ...playerMetadata, durationMs: 1000 } }
             : mode === 'player-aspect-mismatch' ? { ...playerEvidence, playerMetadata: { ...playerMetadata, width: 2160, height: 3840 } }
               : mode === 'crossed-player-provider' ? { ...playerEvidence, provider: { targetVideoId: id } } : evidence
-        queueMicrotask(() => { EventEmitter.prototype.emit.call(process, 'message', {
+        const staged = (): void => { EventEmitter.prototype.emit.call(process, 'message', {
           type: 'douyin-browser-result', requestId: request.requestId, code: 'STAGED',
           targetVideoId: mode === 'wrong-work' ? '7690000000000000000' : id,
           path: mode === 'outside' ? other : staging, evidence: selectedEvidence,
-        }) })
+        }) }
+        if (mode === 'long-verification') setTimeout(staged, 290_000)
+        else queueMicrotask(staged)
       } else queueMicrotask(() => { EventEmitter.prototype.emit.call(process, 'message', {
         type: 'douyin-browser-result', requestId: request.requestId, code: request.action === 'prepare' ? 'PREPARED' : 'RELEASED', targetVideoId: id,
       }) })
       callback(null)
     } })
     try {
-      await ctx.plugin(SessionStore); await ctx.plugin(FileVerification)
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(FileVerification, timedVerification ? { decode(spec) {
+        decodeSignal = spec.signal
+        decodeEntered.resolve(undefined)
+        return decodeExit.promise
+      } } : {})
       const session = ctx.sessions.create(SessionId('native-file-effects'), { meta: { cwd: root } })
       installDesktopDouyinBrowser(ctx)
       const operation = ctx.douyinBrowser.download({ id: session.id, session } as Agent,
-        `https://www.douyin.com/video/${id}`, cancellation.signal, 1024)
+        `https://www.douyin.com/video/${id}`, cancellation.signal, 1024,
+        mode === 'expired-verification' ? 1000 : mode === 'long-verification' ? 300_000 : 1_800_000)
+      if (timedVerification) {
+        if (mode === 'long-verification') await vi.advanceTimersByTimeAsync(290_000)
+        await decodeEntered.promise
+        let settled = false
+        void operation.then(() => { settled = true })
+        if (mode === 'cancel-verification') cancellation.abort('cancelled')
+        await vi.advanceTimersByTimeAsync(mode === 'expired-verification' ? 1000 : 130_001)
+        expect(decodeSignal?.aborted).toBe(mode !== 'long-verification')
+        expect(settled).toBe(false)
+        expect(existsSync(published)).toBe(false)
+        expect(existsSync(receipt)).toBe(false)
+        decodeExit.resolve(undefined)
+      }
       if (mode === 'write-failure' || mode === 'cancel-close') {
         let settled = false
         void operation.then(() => { settled = true })
@@ -109,7 +146,7 @@ it.each(['publish', 'publish-player-metadata', 'player-duration-mismatch', 'play
         } finally { closeGate.resolve(undefined) }
       }
       const result = await operation
-      if (mode === 'publish' || mode === 'publish-player-metadata') {
+      if (mode === 'publish' || mode === 'publish-player-metadata' || mode === 'long-verification') {
         expect(result).toMatchObject({ status: 'downloaded', path: published, receipt, bytes: 13 })
         expect(readFileSync(published, 'utf8')).toBe('fixture-media')
         expect(JSON.parse(readFileSync(receipt, 'utf8'))).toMatchObject({ targetVideoId: id, path: published })
@@ -123,7 +160,7 @@ it.each(['publish', 'publish-player-metadata', 'player-duration-mismatch', 'play
           expect(ctx.subprocess.commands.some(argv => argv.includes('-xerror') && argv.includes('null'))).toBe(true)
         }
       } else {
-        expect(result).toMatchObject({ status: 'blocked', code: mode === 'cancel-close' ? 'CANCELLED' : 'MEDIA_VERIFICATION_FAILED' })
+        expect(result).toMatchObject({ status: 'blocked', code: mode === 'cancel-close' || mode === 'cancel-verification' ? 'CANCELLED' : 'MEDIA_VERIFICATION_FAILED' })
         if (mode === 'existing-media') expect(readFileSync(published, 'utf8')).toBe('retain-media')
         else expect(existsSync(published)).toBe(false)
         if (mode === 'existing-receipt') expect(readFileSync(receipt, 'utf8')).toBe('retain-receipt')
@@ -133,11 +170,13 @@ it.each(['publish', 'publish-player-metadata', 'player-duration-mismatch', 'play
       expect(existsSync(staging)).toBe(true)
     } finally {
       closeGate.resolve(undefined)
+      decodeExit.resolve(undefined)
       await ctx.fiber.dispose()
       vi.mocked(fileIO.open).mockRestore()
       if (connected !== undefined) Object.defineProperty(process, 'connected', connected); else Reflect.deleteProperty(process, 'connected')
       if (send !== undefined) Object.defineProperty(process, 'send', send); else Reflect.deleteProperty(process, 'send')
       rmSync(root, { recursive: true, force: true })
+      if (timedVerification) { restoreTimeout?.(); vi.useRealTimers() }
     }
   },
 )

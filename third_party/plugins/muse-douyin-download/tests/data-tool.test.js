@@ -43,7 +43,7 @@ function install(browser, output = receipt, settings = config) {
 
 test('data read uses the initiating agent and configured limits without media runtimes', async () => {
   let selection;
-  const scope = install({ version: 3, async data(agent, request, signal) { assert.equal(agent, scope.agent); assert.equal(signal.aborted, false); selection = request; return snapshot(); } }, receipt,
+  const scope = install({ version: 4, async data(agent, request, signal) { assert.equal(agent, scope.agent); assert.equal(signal.aborted, false); selection = request; return snapshot(); } }, receipt,
     { pythonExecutable: null, ffprobeExecutable: null, ffmpegExecutable: null, dataTimeoutMs: 2000, maxComments: 2 });
   try {
     const result = await scope.tool.execute({ url, source: 'creator' }, {});
@@ -60,7 +60,7 @@ test('data read uses the initiating agent and configured limits without media ru
 });
 
 test('tool JSON refuses cookie input and excessive comment limits before any service lookup', async () => {
-  const scope = install({ version: 3, data() { throw new Error('Not admitted'); } });
+  const scope = install({ version: 4, data() { throw new Error('Not admitted'); } });
   try {
     for (const args of [{ url, cookieFile: '/private' }, { url, source: 'oauth' }, { url, includeComments: true, commentLimit: 3 }]) await assert.rejects(scope.tool.execute(args, {}));
     assert.equal(scope.calls.initiator, 0);
@@ -72,7 +72,7 @@ test('tool JSON refuses cookie input and excessive comment limits before any ser
 });
 
 test('older or missing bridges report the required Desktop data capability', async () => {
-  for (const bridge of [undefined, { version: 2, data() { throw new Error('Older bridge must not run'); } }]) {
+  for (const bridge of [undefined, ...[2, 3].map(version => ({ version, data() { throw new Error('Older bridge must not run'); } }))]) {
     const scope = install(bridge);
     try { assert.deepEqual(await scope.tool.execute({ url }, {}), { status: 'blocked', code: 'DESKTOP_HOST_REQUIRED' }); }
     finally { await scope.dispose(); }
@@ -80,13 +80,13 @@ test('older or missing bridges report the required Desktop data capability', asy
 });
 
 test('unverified creator ownership stays unavailable without substituting public views', async () => {
-  const scope = install({ version: 3, async data(_agent, selection) { assert.equal(selection.source, 'creator'); return { status: 'blocked', code: 'CREATOR_OWNERSHIP_UNVERIFIED', raw: 'private' }; } });
+  const scope = install({ version: 4, async data(_agent, selection) { assert.equal(selection.source, 'creator'); return { status: 'blocked', code: 'CREATOR_OWNERSHIP_UNVERIFIED', raw: 'private' }; } });
   try { assert.deepEqual(await scope.tool.execute({ url, source: 'creator' }, {}), { status: 'blocked', code: 'CREATOR_OWNERSHIP_UNVERIFIED' }); }
   finally { await scope.dispose(); }
 });
 
 test('optional video acquisition shares the existing public downloader and verified receipt', async () => {
-  const scope = install({ version: 3, async data() { return snapshot(); } });
+  const scope = install({ version: 4, async data() { return snapshot(); } });
   try {
     const result = await scope.tool.execute({ url, download: true }, {});
     assert.equal(result.status, 'ok');
@@ -102,7 +102,7 @@ test('optional video acquisition shares the existing public downloader and verif
 
 test('resolved share-page data downloads its validated canonical work without resolving the short link twice', async () => {
   const short = 'https://v.douyin.com/IDNKn-TPuRU/';
-  const scope = install({ version: 3, async data(_agent, selection) { assert.equal(selection.url, short); return snapshot(); } });
+  const scope = install({ version: 4, async data(_agent, selection) { assert.equal(selection.url, short); return snapshot(); } });
   try {
     const result = await scope.tool.execute({ url: short, download: true }, {});
     assert.equal(result.status, 'ok');
@@ -113,7 +113,7 @@ test('resolved share-page data downloads its validated canonical work without re
 
 test('a public share-resolution failure enters the existing normal browser download path', async () => {
   let native = 0;
-  const scope = install({ version: 3, async download() { native++; return receipt; } },
+  const scope = install({ version: 4, async download() { native++; return receipt; } },
     { status: 'blocked', message: 'Share link resolution failed; open it in your browser and provide the final video page.' });
   try {
     assert.deepEqual(await scope.downloadTool.execute({ url }, {}), receipt);
@@ -123,8 +123,8 @@ test('a public share-resolution failure enters the existing normal browser downl
 
 test('the new bridge retains existing verified internal-browser download fallback', async () => {
   let native = 0;
-  const scope = install({ version: 3, async data() { return snapshot(); }, async download(agent, selected, signal, limit) {
-    native++; assert.equal(agent, scope.agent); assert.equal(selected, url); assert.equal(signal.aborted, false); assert.equal(limit, 512 * 1024 ** 2); return receipt;
+  const scope = install({ version: 4, async data() { return snapshot(); }, async download(agent, selected, signal, limit, nativeTimeoutMs) {
+    native++; assert.equal(agent, scope.agent); assert.equal(selected, url); assert.equal(signal.aborted, false); assert.equal(limit, 512 * 1024 ** 2); assert.equal(nativeTimeoutMs, 1800000); return receipt;
   } }, { status: 'blocked', message: 'ACCESS_RESTRICTED' });
   try {
     assert.deepEqual((await scope.tool.execute({ url, download: true }, {})).download, receipt);
@@ -135,7 +135,7 @@ test('the new bridge retains existing verified internal-browser download fallbac
 });
 
 test('available data and blocked media retain independent outcomes', async () => {
-  const scope = install({ version: 3, async data() { return snapshot(); } }, receipt, { pythonExecutable: null, ffprobeExecutable: null, ffmpegExecutable: null });
+  const scope = install({ version: 4, async data() { return snapshot(); } }, receipt, { pythonExecutable: null, ffprobeExecutable: null, ffmpegExecutable: null });
   try {
     const result = await scope.tool.execute({ url, download: true }, {});
     assert.equal(result.status, 'partial');
@@ -146,7 +146,7 @@ test('available data and blocked media retain independent outcomes', async () =>
 
 test('unload waits for an admitted read and refuses its late result and optional download', async () => {
   const entered = deferred(); const read = deferred(); const aborted = deferred(); let dataSignal;
-  const scope = install({ version: 3, data(_agent, _selection, signal) { dataSignal = signal; signal.addEventListener('abort', () => { aborted.resolve(); }, { once: true }); entered.resolve(); return read.promise; } });
+  const scope = install({ version: 4, data(_agent, _selection, signal) { dataSignal = signal; signal.addEventListener('abort', () => { aborted.resolve(); }, { once: true }); entered.resolve(); return read.promise; } });
   const operation = scope.tool.execute({ url, download: true }, {});
   const refused = assert.rejects(operation, /unloaded/);
   await entered.promise;
@@ -167,7 +167,7 @@ test('unload waits for an admitted read and refuses its late result and optional
 
 test('caller cancellation settles the admitted read without starting optional media', async () => {
   const entered = deferred(); const read = deferred(); let dataSignal;
-  const scope = install({ version: 3, data(_agent, _selection, signal) { dataSignal = signal; entered.resolve(); return read.promise; } });
+  const scope = install({ version: 4, data(_agent, _selection, signal) { dataSignal = signal; entered.resolve(); return read.promise; } });
   const cancel = new AbortController();
   const operation = scope.tool.execute({ url, download: true }, { signal: cancel.signal });
   const refused = assert.rejects(operation, /user cancelled/);
@@ -184,7 +184,7 @@ test('caller cancellation settles the admitted read without starting optional me
 test('the deployment deadline aborts the read and still joins its completion', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const entered = deferred(); const read = deferred(); let dataSignal;
-  const scope = install({ version: 3, data(_agent, _selection, signal) { dataSignal = signal; entered.resolve(); return read.promise; } });
+  const scope = install({ version: 4, data(_agent, _selection, signal) { dataSignal = signal; entered.resolve(); return read.promise; } });
   const operation = scope.tool.execute({ url }, {});
   try {
     await entered.promise; t.mock.timers.tick(31000);
@@ -199,7 +199,7 @@ test('the deployment deadline aborts the read and still joins its completion', a
 test('the page deadline retains its specific result within the transport allowance', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const entered = deferred(); const read = deferred(); let dataSignal;
-  const scope = install({ version: 3, data(_agent, _selection, signal) { dataSignal = signal; entered.resolve(); return read.promise; } });
+  const scope = install({ version: 4, data(_agent, _selection, signal) { dataSignal = signal; entered.resolve(); return read.promise; } });
   const operation = scope.tool.execute({ url }, {});
   try {
     await entered.promise; t.mock.timers.tick(1000);
@@ -212,7 +212,7 @@ test('the page deadline retains its specific result within the transport allowan
 test('batch reads enter one guest operation at a time and preserve each work identity', async () => {
   const urls = [url, 'https://www.douyin.com/video/7690548660732434410'];
   const entered = deferred(); const first = deferred(); const calls = [];
-  const scope = install({ version: 3, data(_agent, selection) {
+  const scope = install({ version: 4, data(_agent, selection) {
     calls.push(selection.url);
     const result = { ...snapshot(), targetVideoId: selection.url.split('/').at(-1) };
     if (calls.length === 1) { entered.resolve(); return first.promise.then(() => result); }
@@ -236,7 +236,7 @@ test('batch reads enter one guest operation at a time and preserve each work ide
 
 test('batch source failures do not prevent later reads and media failures preserve available data', async () => {
   const urls = [url, 'https://www.douyin.com/video/7690548660732434410', 'https://www.douyin.com/video/7691377127358441866'];
-  const scope = install({ version: 3, async data(_agent, request) {
+  const scope = install({ version: 4, async data(_agent, request) {
     if (request.url === urls[1]) return { status: 'blocked', code: 'CREATOR_OWNERSHIP_UNVERIFIED' };
     return { ...snapshot(), targetVideoId: request.url.split('/').at(-1) };
   } }, () => { throw new Error('private media diagnostics must not enter data output'); });
@@ -254,7 +254,7 @@ test('batch source failures do not prevent later reads and media failures preser
 });
 
 test('video acquisition can succeed while page data remains explicitly unavailable', async () => {
-  const scope = install({ version: 3, async data() { return { status: 'blocked', code: 'CREATOR_OWNERSHIP_UNVERIFIED' }; } });
+  const scope = install({ version: 4, async data() { return { status: 'blocked', code: 'CREATOR_OWNERSHIP_UNVERIFIED' }; } });
   try {
     const result = await scope.tool.execute({ url, download: true }, {});
     assert.equal(result.status, 'partial');
@@ -265,8 +265,8 @@ test('video acquisition can succeed while page data remains explicitly unavailab
 });
 
 test('invalid or rejected page results produce bounded per-work diagnostics', async () => {
-  for (const bridge of [{ version: 3, async data() { return { ...snapshot(), targetVideoId: '7691637134771391772', private: 'secret' }; } },
-    { version: 3, async data() { throw new Error('private account diagnostics'); } }]) {
+  for (const bridge of [{ version: 4, async data() { return { ...snapshot(), targetVideoId: '7691637134771391772', private: 'secret' }; } },
+    { version: 4, async data() { throw new Error('private account diagnostics'); } }]) {
     const scope = install(bridge);
     try {
       const result = await scope.tool.execute({ urls: [url] }, {});
@@ -279,7 +279,7 @@ test('invalid or rejected page results produce bounded per-work diagnostics', as
 });
 
 test('an escaping media receipt cannot turn available data into a verified download', async () => {
-  const scope = install({ version: 3, async data() { return snapshot(); } }, { ...receipt, path: join(tmpdir(), 'outside-data-video.mp4') });
+  const scope = install({ version: 4, async data() { return snapshot(); } }, { ...receipt, path: join(tmpdir(), 'outside-data-video.mp4') });
   try {
     const result = await scope.tool.execute({ url, download: true }, {});
     assert.equal(result.status, 'partial');
@@ -289,7 +289,7 @@ test('an escaping media receipt cannot turn available data into a verified downl
 });
 
 test('comment refusal makes an observed work partial without changing its total', async () => {
-  const scope = install({ version: 3, async data() { return { ...snapshot(), counts: { ...snapshot().counts, comment_count: exact(14) }, comments: { status: 'blocked', code: 'COMMENTS_UNAVAILABLE' } }; } });
+  const scope = install({ version: 4, async data() { return { ...snapshot(), counts: { ...snapshot().counts, comment_count: exact(14) }, comments: { status: 'blocked', code: 'COMMENTS_UNAVAILABLE' } }; } });
   try {
     const result = await scope.tool.execute({ url, includeComments: true }, {});
     assert.equal(result.status, 'partial');
@@ -302,7 +302,7 @@ test('comment refusal makes an observed work partial without changing its total'
 test('cancelled batches join the admitted read and append completed work to the registry error', async () => {
   const urls = [url, 'https://www.douyin.com/video/7690548660732434410'];
   const entered = deferred(); const second = deferred(); let calls = 0; let dataSignal;
-  const scope = install({ version: 3, data(_agent, request, signal) {
+  const scope = install({ version: 4, data(_agent, request, signal) {
     calls++;
     if (calls === 1) return Promise.resolve(snapshot());
     dataSignal = signal; entered.resolve(); return second.promise;
@@ -332,7 +332,7 @@ test('cancelled batches join the admitted read and append completed work to the 
 
 test('cancelled optional download retains its observed metadata and waits for child exit', async () => {
   const entered = deferred(); const child = deferred(); let processSignal;
-  const scope = install({ version: 3, async data() { return snapshot(); } }, spec => {
+  const scope = install({ version: 4, async data() { return snapshot(); } }, spec => {
     processSignal = spec.signal; entered.resolve(); return { done: child.promise,
       collected: { stdout: { readFrom() { return { text: JSON.stringify(receipt), lossy: false, truncated: false }; } } } };
   });

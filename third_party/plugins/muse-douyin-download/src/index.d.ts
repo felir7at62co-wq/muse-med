@@ -6,6 +6,8 @@ export interface DouyinConfig {
   settingsHome?: string | null;
   requestTimeoutMs?: number;
   timeoutMs?: number;
+  /** Independent native transfer and complete local verification budgets; default 30 minutes. */
+  nativeTimeoutMs?: number;
   maxDownloadBytes?: number;
   graceMs?: number;
   maxVideos?: number;

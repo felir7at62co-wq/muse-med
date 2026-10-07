@@ -122,6 +122,7 @@ export class DesktopDouyinData {
       }
       return
     }
+    if (guest.isLoadingMainFrame()) return
     if (task.request.selection.source === 'creator' && task.target !== undefined) {
       if (!isCreatorWorkPage(guest.getURL())) return
       task.phase = 'observing'

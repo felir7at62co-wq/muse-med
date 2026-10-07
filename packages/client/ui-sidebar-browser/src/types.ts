@@ -49,6 +49,8 @@ export interface DouyinDesktopRequest {
   readonly url: string
   /** Tool deployment's validated per-video file bound. */
   readonly maxDownloadBytes: number
+  /** Independently bounded native transfer and local verification budgets, in milliseconds. */
+  readonly nativeTimeoutMs: number
   readonly targetVideoId?: string
 }
 

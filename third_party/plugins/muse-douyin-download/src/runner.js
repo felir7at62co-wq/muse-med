@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const script = fileURLToPath(new URL('../python/scripts/download.py', import.meta.url))
   .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2');
-const fields = new Set(['pythonExecutable', 'ffprobeExecutable', 'ffmpegExecutable', 'settingsHome', 'requestTimeoutMs', 'timeoutMs', 'maxDownloadBytes', 'graceMs', 'maxVideos', 'dataTimeoutMs', 'maxComments']);
+const fields = new Set(['pythonExecutable', 'ffprobeExecutable', 'ffmpegExecutable', 'settingsHome', 'requestTimeoutMs', 'timeoutMs', 'nativeTimeoutMs', 'maxDownloadBytes', 'graceMs', 'maxVideos', 'dataTimeoutMs', 'maxComments']);
 
 /** Validate deployment settings before registering tools. @param {object} config Settings. @returns {object} Explicit subprocess settings. */
 export function resolveConfig(config = {}) {
@@ -15,16 +15,17 @@ export function resolveConfig(config = {}) {
     ffprobeExecutable: process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || null,
     ffmpegExecutable: process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || null,
     settingsHome: process.env.DSH_HOME || process.env.MUSE_HOME || null,
-    requestTimeoutMs: 30000, timeoutMs: 120000, maxDownloadBytes: 512 * 1024 ** 2, graceMs: 1000, maxVideos: 20, dataTimeoutMs: 30000, maxComments: 20,
+    requestTimeoutMs: 30000, timeoutMs: 120000, nativeTimeoutMs: 1800000, maxDownloadBytes: 512 * 1024 ** 2, graceMs: 1000, maxVideos: 20, dataTimeoutMs: 30000, maxComments: 20,
     ...config,
   };
   for (const field of ['pythonExecutable', 'ffprobeExecutable', 'ffmpegExecutable']) {
     if (result[field] !== null && (typeof result[field] !== 'string' || !result[field].trim() || result[field].includes('\0'))) throw new TypeError(`${field} must name an executable or be null`);
   }
   if (result.settingsHome !== null && (typeof result.settingsHome !== 'string' || !isAbsolute(result.settingsHome))) throw new TypeError('settingsHome must be Muse’s absolute settings directory');
-  for (const [field, min, max] of [['requestTimeoutMs', 1000, 300000], ['timeoutMs', 1000, 7200000], ['maxDownloadBytes', 1, 8 * 1024 ** 3], ['graceMs', 0, 10000], ['maxVideos', 1, 100], ['dataTimeoutMs', 1000, 300000], ['maxComments', 1, 200]]) {
+  for (const [field, min, max] of [['requestTimeoutMs', 1000, 300000], ['timeoutMs', 1000, 7200000], ['nativeTimeoutMs', 1000, 7200000], ['maxDownloadBytes', 1, 8 * 1024 ** 3], ['graceMs', 0, 10000], ['maxVideos', 1, 100], ['dataTimeoutMs', 1000, 300000], ['maxComments', 1, 200]]) {
     if (!Number.isSafeInteger(result[field]) || result[field] < min || result[field] > max) throw new TypeError(`${field} must be an integer from ${min} to ${max}`);
   }
+  if ((result.dataTimeoutMs + result.requestTimeoutMs + result.timeoutMs + 2 * result.nativeTimeoutMs + 390000) * result.maxVideos + 10000 > 2147483647) throw new TypeError('Combined Douyin tool deadline exceeds the Node timer range; reduce maxVideos or the deployment budgets');
   return result;
 }
 

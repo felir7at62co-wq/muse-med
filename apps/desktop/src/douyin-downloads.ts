@@ -69,8 +69,8 @@ interface Task {
   transferResponses?: Map<string, number>
 }
 
-/** One native task has a bounded preparation and transfer lifetime. */
-const MAX_MS = 120_000
+/** Preparation and media identification each have a separate deadline before native transfer. */
+const ASSOCIATION_MS = 120_000
 
 /**
  * @param player - Private guest probe result.
@@ -176,8 +176,8 @@ export class DesktopDouyinDownloads {
           owner,
           phase: 'preparing',
           timer: setTimeout(() => {
-            void this.revoke(this.task?.phase === 'observing' ? 'UNSUPPORTED_MEDIA_ASSOCIATION' : 'EXPIRED')
-          }, MAX_MS),
+            if (this.task === task) void this.revoke('EXPIRED')
+          }, ASSOCIATION_MS),
           poll: setInterval(() => {
             this.tick()
           }, 100),
@@ -197,6 +197,10 @@ export class DesktopDouyinDownloads {
     // Only the owning Host can begin the target-bound tool operation; renderer IPC cannot issue it.
     task.request = request
     task.phase = 'observing'
+    clearTimeout(task.timer)
+    task.timer = setTimeout(() => {
+      if (this.isCurrent(task, 'observing')) void this.revoke('UNSUPPORTED_MEDIA_ASSOCIATION')
+    }, ASSOCIATION_MS)
     task.documentEpoch = 0
     const target = task.target
     if (target === undefined) return answer('GRANT_MISMATCH')
@@ -251,7 +255,8 @@ export class DesktopDouyinDownloads {
       task.request.sessionId === request.sessionId &&
       task.request.cwd === request.cwd &&
       task.request.url === request.url &&
-      task.request.maxDownloadBytes === request.maxDownloadBytes
+      task.request.maxDownloadBytes === request.maxDownloadBytes &&
+      task.request.nativeTimeoutMs === request.nativeTimeoutMs
     )
   }
 
@@ -358,6 +363,14 @@ export class DesktopDouyinDownloads {
     return this.task === task && task.phase === phase
   }
 
+  private beginTransfer(task: Task): void {
+    clearTimeout(task.timer)
+    task.phase = 'downloading'
+    task.timer = setTimeout(() => {
+      if (this.isCurrent(task, 'downloading')) void this.revoke('NATIVE_DOWNLOAD_TIMEOUT')
+    }, task.request.nativeTimeoutMs)
+  }
+
   private async choose(task: Task): Promise<void> {
     if (task.checking || task.phase !== 'observing' || task.lease === undefined) return
     if (task.lease.guest.isLoadingMainFrame()) return
@@ -394,7 +407,7 @@ export class DesktopDouyinDownloads {
         task.playerMetadata = metadata
         task.selectedURL = facts.src
         task.association = 'player-metadata-verified'
-        task.phase = 'downloading'
+        this.beginTransfer(task)
         task.providerResponses?.close()
         failureCode = 'NATIVE_DOWNLOAD_UNAVAILABLE'
         task.lease.guest.downloadURL(facts.src)
@@ -407,7 +420,7 @@ export class DesktopDouyinDownloads {
       task.directory = stagingDirectory(task.request.cwd, task.request.taskId)
       task.selectedURL = facts.src
       task.association = 'player-exact'
-      task.phase = 'downloading'
+      this.beginTransfer(task)
       task.providerResponses?.close()
       task.lease.guest.downloadURL(facts.src)
     } catch (_error) {
@@ -465,7 +478,7 @@ export class DesktopDouyinDownloads {
       task.directory = stagingDirectory(task.request.cwd, task.request.taskId)
       task.selectedURL = url
       task.association = 'provider-detail-verified'
-      task.phase = 'downloading'
+      this.beginTransfer(task)
       task.providerResponses?.close()
       failureCode = 'NATIVE_DOWNLOAD_UNAVAILABLE'
       task.lease.guest.downloadURL(url)
@@ -531,6 +544,8 @@ export class DesktopDouyinDownloads {
         void this.revoke('INCOMPLETE_MEDIA')
         return
       }
+      // Host verification owns its deadline; completed bytes keep only ownership revocation.
+      clearTimeout(task.timer)
       task.phase = 'staged'
       const reply = task.reply
       task.reply = undefined

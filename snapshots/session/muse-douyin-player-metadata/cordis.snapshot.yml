@@ -22,6 +22,7 @@
         ffprobeExecutable: !!js process.execPath
         ffmpegExecutable: !!js process.execPath
         settingsHome: !!js process.env.DSH_HOME
+        nativeTimeoutMs: 1800000
 - id: tool-bash
   disabled: true
 - id: tool-pwsh
