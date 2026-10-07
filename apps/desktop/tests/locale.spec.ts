@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { en, formatDesktopMessage, resolveDesktopLocale, resolveDesktopStartupLocale, zh } from '../src/locale.ts'
+import { desktopUpdateReadyConfirmation, en, formatDesktopMessage, resolveDesktopLocale, resolveDesktopStartupLocale, zh } from '../src/locale.ts'
 
 describe('desktop locale dictionaries', () => {
+  it.each([['en', en], ['zh-CN', zh]] as const)('shows verified manual installation guidance in %s without claiming an automatic restart', async (language, messages) => {
+    await expect(JSON.stringify({
+      ready: { ...desktopUpdateReadyConfirmation(messages, '1.0.4', 'darwin', true), button: messages.updateManualOpen },
+      active: { message: messages.updateActiveTasks, detail: messages.updateManualActiveTasksDetail,
+        buttons: [messages.updateManualStopTasks, messages.updateLater] },
+    }, null, 2) + '\n').toMatchFileSnapshot(`./expected/update-manual-macos-${language}.json`)
+  })
   it.each([en, zh])('names Muse in the application, welcome, and About surfaces', (messages) => {
     expect(messages.productName).toBe('Muse')
     expect(messages.welcomeBrand).toBe('Muse')

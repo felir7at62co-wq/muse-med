@@ -8,6 +8,20 @@ import type { MacOSSigningEnvironment } from './desktop-release-environment.mjs'
 export function assertMacOSSignatureDetails(details: string, expected: MacOSSigningEnvironment): void
 
 /**
+ * Require a complete ad-hoc application signature with the configured bundle identifier.
+ * @param details - Output from `codesign --display --verbose=4`.
+ * @param appId - Application identifier fixed by the packaging configuration.
+ */
+export function assertMacOSAdHocSignatureDetails(details: string, appId: string): void
+
+/**
+ * Reject an incomplete, modified, or differently identified ad-hoc application bundle.
+ * @param appPath - Complete `.app` directory, never the standalone main executable.
+ * @param appId - Expected application identifier.
+ */
+export function verifyMacOSAdHocSignature(appPath: string, appId: string): void
+
+/**
  * Require the signature properties Apple validates for executable runtime content.
  * @param details - Output from `codesign --display --verbose=4`.
  * @param expected - Public release identity.

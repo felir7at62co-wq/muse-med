@@ -9,13 +9,21 @@ import { gt, prerelease, valid } from 'semver'
 import type { DesktopUpdateState } from './ipc.ts'
 import { DesktopUpdateHttpExecutor } from './update-http-executor.ts'
 import { DesktopUpdatePreparationError } from './update-error.ts'
+import { createMacOSManualUpdater, readMacOSManualUpdateAppId } from './macos-manual-updater.ts'
 import { desktopUpdateIdentity, isDesktopUpdateSourceUnavailable, loadDesktopUpdateSources,
   type DesktopUpdateSource } from './update-sources.ts'
 
 /** Electron updater operations used by the coordinator. */
-export type DesktopUpdater = Pick<AppUpdater, 'downloadUpdate' | 'quitAndInstall' | 'setFeedURL'
+export type DesktopUpdater = Pick<AppUpdater, 'downloadUpdate' | 'setFeedURL'
   | 'autoDownload' | 'autoInstallOnAppQuit' | 'allowPrerelease' | 'allowDowngrade'> & {
-  /** Subscribe to updater notifications. */
+    readonly installationMode?: 'manual-dmg'
+    /** Recheck a prepared manual installer before stopping tasks. */
+    verifyPreparedUpdate?(): Promise<void>
+    /** Open an authorized manual installer, propagating asynchronous failures. */
+    openPreparedInstaller?(): Promise<void>
+    /** Hand off a native updater’s authorized installation. */
+    quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void
+    /** Subscribe to updater notifications. */
     on(...args: Parameters<AppUpdater['on']>): unknown
     /** Retire an updater notification listener. */
     off(...args: Parameters<AppUpdater['off']>): unknown
@@ -23,7 +31,9 @@ export type DesktopUpdater = Pick<AppUpdater, 'downloadUpdate' | 'quitAndInstall
     checkForUpdates(): Promise<{ isUpdateAvailable: boolean; updateInfo: Pick<UpdateInfo, 'version'> & Partial<Pick<UpdateInfo, 'files'>> } | null>
   }
 
-const { autoUpdater } = electronUpdater
+const manualAppId = process.platform === 'darwin' && app.isPackaged
+  ? readMacOSManualUpdateAppId(join(process.resourcesPath, 'muse-macos-update.json'), app.getVersion()) : undefined
+const autoUpdater = manualAppId === undefined ? electronUpdater.autoUpdater : createMacOSManualUpdater(manualAppId)
 
 /** Owns one updater target until its download and installation settle. */
 export class DesktopUpdateCoordinator {
@@ -97,6 +107,9 @@ export class DesktopUpdateCoordinator {
   /** Latest observable state; complete download identity remains main-process-owned. */
   get state(): DesktopUpdateState { return this.current }
 
+  /** Ad-hoc macOS installations open a verified DMG instead of invoking Squirrel. */
+  get installationMode(): 'native' | 'manual-dmg' { return this.updater.installationMode ?? 'native' }
+
   /**
    * Check metadata without downloading, joining any current check.
    * @param manual - Whether a failed check must remain visible in the status indicator.
@@ -151,9 +164,17 @@ export class DesktopUpdateCoordinator {
     this.installOperation ??= Promise.resolve().then(async () => {
       this.setState({ phase: 'installing', version })
       try {
+        try { await this.updater.verifyPreparedUpdate?.() }
+        catch (error) {
+          this.downloaded = false
+          return this.setState(this.failure(error, 'download'))
+        }
         if (!await this.beforeRestart()) return this.setState({ phase: 'ready', version })
         this.assertLive()
-        this.updater.quitAndInstall(true, true)
+        if (this.updater.installationMode === 'manual-dmg') {
+          if (this.updater.openPreparedInstaller === undefined) throw new Error('desktop update: manual installation operation is missing')
+          await this.updater.openPreparedInstaller()
+        } else this.updater.quitAndInstall(true, true)
         return this.current
       } catch (error) {
         if (this.current.phase === 'error' && this.current.failedOperation === 'install') return this.current

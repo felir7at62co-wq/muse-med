@@ -50,7 +50,7 @@ type CheckResult = NonNullable<Awaited<ReturnType<DesktopUpdater['checkForUpdate
 const coordinators: InstanceType<typeof DesktopUpdateCoordinator>[] = []
 afterEach(() => { for (const item of coordinators.splice(0)) item.dispose() })
 
-function fixture(channel?: string, sources: readonly DesktopUpdateSource[] = []) {
+function fixture(channel?: string, sources: readonly DesktopUpdateSource[] = [], manual = false) {
   const events = new EventEmitter()
   const checkForUpdates = vi.fn(async (): Promise<CheckResult> => ({
     isUpdateAvailable: true,
@@ -66,8 +66,11 @@ function fixture(channel?: string, sources: readonly DesktopUpdateSource[] = [])
   const setFeedURL = vi.fn<(source: DesktopUpdateSource) => void>()
   const beforeRestart = vi.fn(async () => true)
   const downloadResult = vi.fn()
+  const verifyPreparedUpdate = vi.fn(async () => undefined)
+  const openPreparedInstaller = vi.fn(async () => undefined)
   const states: DesktopUpdateState[] = []
   const updater = Object.assign(events, { checkForUpdates, downloadUpdate, quitAndInstall, setFeedURL, channel,
+    ...manual ? { installationMode: 'manual-dmg' as const, verifyPreparedUpdate, openPreparedInstaller } : {},
     autoDownload: true, autoInstallOnAppQuit: true, allowPrerelease: false, allowDowngrade: false })
   const coordinator = new DesktopUpdateCoordinator(
     (state) => { states.push(state); return state },
@@ -75,8 +78,43 @@ function fixture(channel?: string, sources: readonly DesktopUpdateSource[] = [])
   )
   coordinators.push(coordinator)
   return { coordinator, updater, events, states, checkForUpdates, downloadUpdate, quitAndInstall,
-    setFeedURL, beforeRestart, downloadResult }
+    setFeedURL, beforeRestart, downloadResult, verifyPreparedUpdate, openPreparedInstaller }
 }
+
+describe('manual macOS installation authorization', () => {
+  it('keeps a verified download ready when the user defers, without opening an installer or stopping tasks', async () => {
+    const f = fixture(undefined, [], true)
+    await f.coordinator.check()
+    await f.coordinator.download('1.1.0-rc.2')
+    f.beforeRestart.mockResolvedValue(false)
+    expect(f.coordinator.installationMode).toBe('manual-dmg')
+    expect(await f.coordinator.install('1.1.0-rc.2')).toEqual({ phase: 'ready', version: '1.1.0-rc.2' })
+    expect(f.verifyPreparedUpdate).toHaveBeenCalledOnce()
+    expect(f.quitAndInstall).not.toHaveBeenCalled()
+  })
+  it('rejects changed cached bytes before task authorization and permits an explicit retry', async () => {
+    const f = fixture(undefined, [], true)
+    await f.coordinator.check()
+    await f.coordinator.download('1.1.0-rc.2')
+    f.verifyPreparedUpdate.mockRejectedValueOnce(new Error('SHA-512 mismatch'))
+    expect(await f.coordinator.install('1.1.0-rc.2')).toMatchObject({ phase: 'error', failedOperation: 'download', message: 'SHA-512 mismatch' })
+    expect(f.beforeRestart).not.toHaveBeenCalled()
+    expect(f.quitAndInstall).not.toHaveBeenCalled()
+    expect(await f.coordinator.download('1.1.0-rc.2')).toMatchObject({ phase: 'ready' })
+    expect(await f.coordinator.install('1.1.0-rc.2')).toMatchObject({ phase: 'installing' })
+    expect(f.beforeRestart).toHaveBeenCalledOnce()
+  })
+  it('propagates an asynchronous installer-open failure through the normal installation recovery state', async () => {
+    const f = fixture(undefined, [], true)
+    await f.coordinator.check()
+    await f.coordinator.download('1.1.0-rc.2')
+    f.openPreparedInstaller.mockRejectedValueOnce(new Error('open failed'))
+    expect(await f.coordinator.install('1.1.0-rc.2')).toMatchObject({ phase: 'error', failedOperation: 'install', message: 'open failed' })
+  })
+  it('retains native installation mode for publisher-signed and older applications', () => {
+    expect(fixture().coordinator.installationMode).toBe('native')
+  })
+})
 
 const mirrorSources: readonly DesktopUpdateSource[] = [
   { provider: 'generic', url: 'https://mirror.example.com/', channel: 'rc' },

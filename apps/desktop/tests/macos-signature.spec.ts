@@ -12,6 +12,7 @@ import { notarizeMacOSDiskImageArtifact } from '../scripts/notarize-macos-disk-i
 import {
   assertMacOSRuntimeSignatureDetails,
   assertMacOSSignatureDetails,
+  assertMacOSAdHocSignatureDetails,
 } from '../scripts/verify-macos-signature.mjs'
 
 const RELEASE_ENVIRONMENT = {
@@ -151,19 +152,28 @@ describe('desktop macOS release signature', () => {
     expect(config.win.signtoolOptions.publisherName).toBeUndefined()
   })
 
-  it('builds unsigned macOS artifacts without signing credentials or Apple operations', async () => {
+  it('seals ad-hoc macOS artifacts without publisher credentials or notarization', async () => {
     const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
     const config = createElectronBuilderConfig({ DSH_DESKTOP_UNSIGNED: '1',
       DSH_DESKTOP_APP_ID: RELEASE_ENVIRONMENT.DSH_DESKTOP_APP_ID,
       DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: RELEASE_ENVIRONMENT.DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN,
       DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: RELEASE_ENVIRONMENT.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG,
     }, 'darwin', 'arm64')
-    expect(config.mac).toMatchObject({ identity: null, forceCodeSigning: false, hardenedRuntime: false, notarize: false })
+    expect(config.mac).toMatchObject({ identity: '-', forceCodeSigning: false, hardenedRuntime: false, notarize: false })
     expect(config.dmg.sign).toBe(false)
     expect(portablePath(config.directories.output)).toContain('/targets/mac-arm64/unsigned-artifacts')
     expect(config.publish).toMatchObject([{ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med' }])
     expect(config.artifactBuildCompleted({ file: 'unsigned.dmg' })).toBeUndefined()
-    await config.afterSign({ electronPlatformName: 'darwin' } as Parameters<typeof config.afterSign>[0])
+    await config.afterSign({ electronPlatformName: 'win32' } as Parameters<typeof config.afterSign>[0])
+  })
+
+  it('rejects the standalone Electron signature without sealed application resources', () => {
+    const fields = ['Identifier=com.example.desktop', 'Signature=adhoc', 'Info.plist=not bound', 'Sealed Resources=none']
+    expect(() => assertMacOSAdHocSignatureDetails(fields.join('\n'), 'com.example.desktop')).toThrow('sealed resources')
+    const complete = ['Identifier=com.example.desktop', 'Signature=adhoc', 'Info.plist entries=12', 'Sealed Resources version=2 rules=13 files=42'].join('\n')
+    expect(() => assertMacOSAdHocSignatureDetails(complete, 'com.example.desktop')).not.toThrow()
+    expect(() => assertMacOSAdHocSignatureDetails(complete, 'com.other.desktop')).toThrow('identifier')
+    expect(() => assertMacOSAdHocSignatureDetails(complete.replace('Signature=adhoc', 'Authority=Unrelated'), 'com.example.desktop')).toThrow()
   })
 
   it('rejects malformed signing modes', async () => {

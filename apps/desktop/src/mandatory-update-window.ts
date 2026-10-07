@@ -32,6 +32,7 @@ export interface MandatoryUpdateApi {
 
 /** Main-process operations owned by the policy client, updater, and application lifecycle. */
 export interface MandatoryUpdateWindowOptions {
+  readonly installationMode?: 'manual-dmg'
   readonly preload: string
   readonly overlays: Pick<DesktopUpdateOverlays, 'create'>
   readonly locale: DesktopLocale
@@ -243,10 +244,15 @@ export class DesktopMandatoryUpdateWindow {
   }
 
   private view(): MandatoryUpdateView {
-    const locale = process.platform === 'win32'
-      ? { ...this.options.locale, messages: { ...this.options.locale.messages,
-        mandatoryReadyDetail: this.options.locale.messages.updateDownloadedDetailWindows } }
-      : this.options.locale
+    const messages = this.options.locale.messages
+    const locale = this.options.installationMode === 'manual-dmg'
+      ? { ...this.options.locale, messages: { ...messages, installAndRestart: messages.updateManualOpen,
+        updateActiveTasksDetail: messages.updateManualActiveTasksDetail, updateStopTasks: messages.updateManualStopTasks,
+        mandatoryReadyDetail: messages.updateManualDetail } }
+      : process.platform === 'win32'
+        ? { ...this.options.locale, messages: { ...this.options.locale.messages,
+          mandatoryReadyDetail: this.options.locale.messages.updateDownloadedDetailWindows } }
+        : this.options.locale
     return { locale, policy: this.options.policy(), update: this.options.update(),
       deferred: this.deferred,
       ...(this.confirmation === undefined ? {}
