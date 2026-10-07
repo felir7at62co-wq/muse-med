@@ -38,7 +38,7 @@ SDK 场景会比对 `scripts/snapshots/python-sdk-single-exe/` 下已提交的�
 
 `scheduler-recovery/` 记录一个失败的工具轮次及后续完成的轮次。它保留原始的 `UNKNOWN` 轮次错误、第一个工具已完成的结果，以及其余调用的 `TOOL_OUTCOME_UNKNOWN` / `TOOL_NOT_STARTED` 结果。`sdk-snapshot` 和 `all` 包含此场景；`--scenario sdk-recovery` 单独运行它。
 
-`factory-shutdown/` 比对截至活跃 child 的 `request/context` 的 Python SDK 通知前缀，以及 SIGTERM 取消已发布 child 的模型等待后，实时 child 的 aborted 结果与写入完成的父／子日志。`sdk-snapshot` 和 `all` 包含此场景；`--scenario sdk-shutdown` 单独运行它。Windows 跳过这个 POSIX 信号场景。退场先移除 SDK 通知监听，再等待 agent 收尾，因此不要求终端通知与最终持久日志完全相同。更新保留规范 Session 代际，只写入 `writer[.n].expected.jsonl` 输出预期。
+`factory-shutdown/` 比对截至活跃 child 的 `request/context` 的 Python SDK 通知前缀，以及 SIGTERM 取消已发布 child 的模型等待后，实时 child 的 aborted 结果与写入完成的父／子日志。`sdk-snapshot` 和 `all` 包含此场景；`--scenario sdk-shutdown` 单独运行它。Windows 跳过这个 POSIX 信号场景。此 Python 关闭场景保留 skill 服务并使用空的文件系统技能目录，禁用随包 Office 提供方与运行时查询；宿主技能根目录和载体资源不会改变其期望输出。退场先移除 SDK 通知监听，再等待 agent 收尾，因此不要求终端通知与最终持久日志完全相同。更新保留规范 Session 代际，只写入 `writer[.n].expected.jsonl` 输出预期。
 
 `advanced` 与 `restart` 的比较按每份输入自身的 Session 代际匹配原生 delivery 限定值，包括 SDK 事件与通知。捕获的代际及其他 delivery 代际保留数值。每一侧的 Session 角色必须使用同一个代际，新日志必须标识当前写入器。advanced 场景使用 `writer[.n].expected.jsonl` 比较当前写入器输出。`--update` 更新这些预期文件，同时保留已提交的 `session[.n].vN.jsonl` 代际。
 

@@ -1527,8 +1527,12 @@ def smoke_sdk_profile_plugin(base_url: str) -> None:
         assert_zstd_session_log(dsh_home / "sessions")
 
 
-def smoke_sdk_shutdown_snapshot(executable: Path | None, update_snapshots: bool) -> None:
-    """Cancel a published model-active child, retaining SDK observations and final durable state."""
+def smoke_sdk_shutdown_snapshot(
+    executable: Path | None,
+    update_snapshots: bool,
+    runtime_environment: dict[str, str] | None = None,
+) -> None:
+    """Cancel a model-active child; optional runtime environment belongs only to that subprocess."""
     from deepseek_harness import DeepSeekHarness
     from deepseek_harness.errors import TransportClosedError
 
@@ -1540,6 +1544,8 @@ def smoke_sdk_shutdown_snapshot(executable: Path | None, update_snapshots: bool)
         root = Path(temporary).resolve()
         home = root / "home"
         sessions = home / "sessions"
+        skills = root / "isolated-skills"
+        skills.mkdir()
         ready_file = root / "model-ready"
         receipt_file = root / "shutdown-receipt.jsonl"
         override = root / "replay.override.json"
@@ -1548,6 +1554,11 @@ def smoke_sdk_shutdown_snapshot(executable: Path | None, update_snapshots: bool)
             {"id": "llm-deepseek", "disabled": True},
             {"id": "tool-bash", "disabled": True},
             {"id": "tool-pwsh", "disabled": True},
+            {"id": "skill-filesystem", "config": {
+                "includeDefaultRoots": False, "customSkillDirs": [str(skills)],
+            }},
+            {"id": "skill-office", "disabled": True},
+            {"id": "workspace-dependencies", "disabled": True},
             {"insert": [{"id": "factory-shutdown-fixture", "name": (
                 repository / "snapshots/sdk/factory-shutdown/runtime.mjs"
             ).as_uri(), "config": {
@@ -1555,7 +1566,8 @@ def smoke_sdk_shutdown_snapshot(executable: Path | None, update_snapshots: bool)
                 "overrideFile": str(override), "receiptFile": str(receipt_file), "readyFile": str(ready_file),
             }}]},
         ])
-        environment = {"DSH_HOME": str(home), "DSH_PERMISSION_MODE": "danger-full-access",
+        environment = {**(runtime_environment or {}),
+                       "DSH_HOME": str(home), "DSH_PERMISSION_MODE": "danger-full-access",
                        "DSH_TELEMETRY_DISABLED": "1"}
         launch_args = None
         if executable is None:
