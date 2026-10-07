@@ -79,15 +79,28 @@ it('allows continuous scenes and keeps acquired knowledge available without inve
 })
 
 it('acquires offscreen speech through a declared audible source without sharing private thoughts', () => {
-  const phone = scene({ beats: [{ kind: 'vo', actor: '乙', text: '门开了。', fact_ids: [speech.id],
+  const phone = scene({ voice_only_characters: ['乙'], beats: [{ kind: 'vo', actor: '乙', text: '门开了。', fact_ids: [speech.id],
     requires_knowledge: [], witnesses: ['甲'], audible_in_scene: true }] })
   const reply = scene({ transition: 'continuous' })
   reply.beats[0]!.requires_knowledge = [speech.id]
   const result = renderEpisode(project, [phone, reply], {}, 1)
   expect(result.knowledge).toEqual({ 'present:甲': [speech.id, thought.id], 'present:乙': [speech.id] })
   expect(result.script).toContain('乙（VO）：门开了。')
+  expect(result.script).toContain('人物：甲、乙（VO）')
   const unheard = scene({ beats: [{ ...phone.beats[0]!, audible_in_scene: false, witnesses: [] }] })
   expect(() => renderEpisode(project, [unheard, reply], {}, 1)).toThrow('knowledge_not_acquired')
+})
+
+it.each([
+  scene({ voice_only_characters: ['乙', '乙'] }),
+  scene({ voice_only_characters: ['丙'] }),
+  scene({ voice_only_characters: ['乙'] }),
+  scene({ voice_only_characters: ['甲'], beats: [
+    { kind: 'vo', actor: '甲', text: '钥匙在我手里。', fact_ids: [thought.id], requires_knowledge: [], witnesses: [] },
+    { kind: 'os', actor: '甲', text: '我知道钥匙。', fact_ids: [thought.id], requires_knowledge: [], witnesses: [] },
+  ] }),
+])('rejects repeated, absent, silent or visibly participating voice-only characters (%#)', (invalid) => {
+  expect(() => renderEpisode(project, [invalid], {}, 1)).toThrow('voice_characters')
 })
 
 it.each([

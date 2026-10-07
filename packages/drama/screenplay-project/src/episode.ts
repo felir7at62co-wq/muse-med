@@ -31,6 +31,7 @@ export interface EpisodeRender {
 /**
  * Validate attribution and fold an episode's public observations and private thoughts.
  * Audible VO requires reviewed speech; only its declared listeners acquire it.
+ * Voice-only character labels decorate the script without changing stored identities.
  * Semantic entailment of paraphrases remains the independent reviewer's responsibility.
  * @param project - Validated immutable facts and accepted episodes.
  * @param scenes - Ordered scenes to render.
@@ -67,7 +68,17 @@ export function renderEpisode(project: ProjectFile, scenes: ProjectFile['candida
       }
     }
     const layer = { present: '现实', flashback: '闪回', dream: '梦境', imagined: '想象' }[scene.layer]
-    output.push(`${episode}-${sceneIndex + 1} ${scene.location} ${scene.time} ${scene.setting ?? '内外待核实'}【${layer}】`, `人物：${scene.characters.join('、')}`)
+    const voiceOnly = new Set(scene.voice_only_characters ?? [])
+    if (voiceOnly.size !== (scene.voice_only_characters?.length ?? 0)) throw Error('voice_characters: 画外人物不能重复。')
+    for (const character of voiceOnly) {
+      if (!scene.characters.includes(character)
+        || !scene.beats.some(beat => beat.kind === 'vo' && beat.actor === character)
+        || scene.beats.some(beat => beat.kind !== 'vo' && beat.actor === character)) {
+        throw Error(`voice_characters: ${character} 须为本场仅以 VO 发声的人物。`)
+      }
+    }
+    const characters = scene.characters.map(character => voiceOnly.has(character) ? `${character}（VO）` : character)
+    output.push(`${episode}-${sceneIndex + 1} ${scene.location} ${scene.time} ${scene.setting ?? '内外待核实'}【${layer}】`, `人物：${characters.join('、')}`)
     for (const beat of scene.beats) {
       if (beat.hook === true) {
         if (hookSeen || sceneIndex !== scenes.length - 1) throw Error('episode_hook: 集尾悬念仅可在最后场次标记一次。')

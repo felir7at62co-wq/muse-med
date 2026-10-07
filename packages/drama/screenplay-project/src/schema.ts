@@ -48,6 +48,7 @@ const scene = {
     layer: { type: 'string', enum: ['present', 'flashback', 'dream', 'imagined'], required: true },
     transition: { type: 'string', enum: ['opening', 'continuous', 'cut', 'enter_flashback', 'return_present'], required: true },
     characters: strings,
+    voice_only_characters: { type: 'array', items: { type: 'string' }, description: 'Exact character names heard only as VO in this scene. Keep characters and actor names undecorated; the renderer adds the VO label.' },
     beats: { type: 'array', items: beat, required: true },
   },
 } as const
@@ -171,7 +172,7 @@ export const SCENE_RECORD = z.strictObject({
   location: nonempty, time: nonempty, layer: z.enum(['present', 'flashback', 'dream', 'imagined']),
   setting: z.enum(['内', '外', '内外']).optional(),
   transition: z.enum(['opening', 'continuous', 'cut', 'enter_flashback', 'return_present']),
-  characters: z.array(nonempty), beats: z.array(z.strictObject({
+  characters: z.array(nonempty), voice_only_characters: z.array(nonempty).optional(), beats: z.array(z.strictObject({
     kind: z.enum(['action', 'dialogue', 'os', 'vo']), actor: nonempty.optional(), text: nonempty,
     fact_ids: z.array(factId), requires_knowledge: z.array(factId), witnesses: z.array(nonempty),
     audible_in_scene: z.boolean().optional(), hook: z.boolean().optional(),
