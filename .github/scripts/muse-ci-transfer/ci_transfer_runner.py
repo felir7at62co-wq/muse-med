@@ -17,7 +17,16 @@ import artifact_range_download as transfer
 
 
 REPOSITORY = "felir7at62co-wq/muse-med"
-SOURCE = "3cccd5b08cda16f5dcd4afea920793628b0840eb"
+
+
+def require_source(value):
+    """Require an explicit lowercase source commit from the operator's public configuration."""
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{40}", value):
+        raise transfer.ProtocolError("MUSE_CI_TRANSFER_SOURCE_COMMIT must contain an explicit complete commit SHA")
+    return value
+
+
+SOURCE = require_source(os.environ.get("MUSE_CI_TRANSFER_SOURCE_COMMIT"))
 PREFIX = "ci-transfer/20261007-0b6d47532eb3b9ba"
 ENDPOINT = "https://tos-s3-cn-beijing.volces.com"
 PUBLIC_BASE = "https://muse.tos-cn-beijing.volces.com"
@@ -70,6 +79,23 @@ def download():
         list(pool.map(download_one, ARTIFACTS))
 
 
+def identity():
+    """Bind the configured source to both immutable selected artifact records before checkout."""
+    ca_file = "/etc/ssl/cert.pem" if Path("/etc/ssl/cert.pem").is_file() else None
+    for artifact in ARTIFACTS:
+        metadata = transfer.GitHubArchive(REPOSITORY, artifact["id"], None, ca_file, 90).metadata()
+        workflow = metadata.get("workflow_run", {})
+        if (metadata.get("id") != artifact["id"] or metadata.get("expired") is not False
+                or metadata.get("size_in_bytes") != artifact["size"]
+                or transfer.require_digest(metadata.get("digest")) != artifact["sha256"]
+                or workflow.get("head_sha") != SOURCE or workflow.get("id") != 37567499544
+                or workflow.get("repository_id") != 1365170863
+                or workflow.get("head_repository_id") != 1365170863):
+            raise transfer.ProtocolError("Configured source differs from the fixed artifact build")
+    print(json.dumps({"stage": "source-identity", "source_commit": SOURCE,
+                      "workflow_run": 37567499544}), flush=True)
+
+
 def aws(arguments, allow_missing=False):
     """Keep AWS credentials in the environment and print only safe error codes."""
     environment = dict(os.environ)
@@ -118,17 +144,28 @@ def upload_one(artifact):
     return receipt
 
 
-def upload():
-    """Upload independently named ZIPs without channel or installer publication."""
+def configure_aws():
+    """Require virtual bucket hosts and bounded multipart transfers for TOS."""
     if not shutil.which("aws"):
         raise transfer.DownloadError("Runner has no AWS CLI")
     # These settings contain no credentials; multipart uploads remain bounded.
-    for key, value in (("max_concurrent_requests", "8"),
+    for key, value in (("addressing_style", "virtual"), ("max_concurrent_requests", "8"),
                        ("multipart_threshold", "64MB"), ("multipart_chunksize", "32MB")):
         result = subprocess.run(["aws", "configure", "set", "default.s3." + key, value],
                                 capture_output=True, check=False)
         if result.returncode:
             raise transfer.DownloadError("Unable to configure bounded TOS multipart transfer")
+    configured = subprocess.run(["aws", "configure", "get", "default.s3.addressing_style"],
+                                capture_output=True, text=True, check=False)
+    if configured.returncode or configured.stdout.strip() != "virtual":
+        raise transfer.ProtocolError("TOS requires AWS CLI virtual addressing style")
+    print(json.dumps({"stage": "aws-configuration", "addressing_style": "virtual",
+                      "bucket_host": "muse.tos-s3-cn-beijing.volces.com"}), flush=True)
+
+
+def upload():
+    """Upload independently named ZIPs without channel or installer publication."""
+    configure_aws()
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         receipts = list(pool.map(upload_one, ARTIFACTS))
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -141,8 +178,7 @@ def upload():
 
 def preflight():
     """Verify small-object Put/Get/hash without requiring bucket-list permission."""
-    if not shutil.which("aws"):
-        raise transfer.DownloadError("Runner has no AWS CLI")
+    configure_aws()
     payload = b"Muse temporary relay connectivity probe\n"
     digest = hashlib.sha256(payload).hexdigest()
     key = PREFIX + "/_runner-connectivity-probe.txt"
@@ -174,8 +210,10 @@ if __name__ == "__main__":
             upload()
         elif sys.argv[1:] == ["preflight"]:
             preflight()
+        elif sys.argv[1:] == ["identity"]:
+            identity()
         else:
-            raise transfer.DownloadError("Expected preflight, download or upload")
+            raise transfer.DownloadError("Expected identity, preflight, download or upload")
     except transfer.DownloadError as error:
         print(str(error), file=sys.stderr)
         sys.exit(1)

@@ -1,0 +1,129 @@
+name: Temporary original Muse Windows installer acceptance
+
+on:
+  push:
+    branches:
+      - ops/muse-ci-transfer-20261007-0b6d47532eb3b9ba
+    paths:
+      - .github/workflows/muse-windows-installed-acceptance.yml
+      - .github/scripts/muse-windows-installed-acceptance/**
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: muse-windows-installed-acceptance-0b6d47532eb3b9ba
+  cancel-in-progress: false
+
+env:
+  MUSE_CI_TRANSFER_SOURCE_COMMIT: ${{ vars.MUSE_CI_TRANSFER_SOURCE_COMMIT }}
+
+jobs:
+  original-exe-installed-acceptance:
+    if: github.repository == 'felir7at62co-wq/muse-med' && github.event_name == 'push' && github.ref == 'refs/heads/ops/muse-ci-transfer-20261007-0b6d47532eb3b9ba'
+    runs-on: windows-2025
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Load reviewed operations utilities
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Retain acceptance utilities outside the source checkout
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $saved = Join-Path $env:RUNNER_TEMP 'muse-windows-installed-acceptance-utilities'
+          if (Test-Path -LiteralPath $saved) { throw 'Acceptance utility temporary directory already exists' }
+          New-Item -ItemType Directory -Path $saved | Out-Null
+          Copy-Item -LiteralPath '.github/scripts/muse-windows-installed-acceptance/accept-original-installer.ps1' -Destination $saved
+          Copy-Item -LiteralPath '.github/scripts/muse-windows-installed-acceptance/accept-installed.ts' -Destination $saved
+      - name: Bind the configured source to the fixed original Windows artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceCommit = $env:MUSE_CI_TRANSFER_SOURCE_COMMIT
+          if ($sourceCommit -cnotmatch '^[0-9a-f]{40}$') { throw 'An explicit complete source commit is required' }
+          $raw = Join-Path $env:RUNNER_TEMP 'muse-windows-original-11460053986'
+          if (Test-Path -LiteralPath $raw) { throw 'Original artifact destination already exists' }
+          New-Item -ItemType Directory -Path $raw | Out-Null
+          $metadata = Join-Path $raw 'artifact-metadata.json'
+          gh api repos/felir7at62co-wq/muse-med/actions/artifacts/11460053986 > $metadata
+          if ($LASTEXITCODE -ne 0) { throw 'Original artifact metadata request failed' }
+          $identity = Get-Content -LiteralPath $metadata -Raw | ConvertFrom-Json
+          if ($identity.id -ne 11460053986 -or $identity.expired -or
+              $identity.name -ne "muse-win-x64-$sourceCommit" -or
+              $identity.size_in_bytes -ne 766360946 -or
+              $identity.digest -ne 'sha256:88ebf218fcc748dd620443b0565cc7be4ad4be0c768b684598299cd4230c4c47' -or
+              $identity.workflow_run.id -ne 37567499544 -or
+              $identity.workflow_run.head_sha -ne $sourceCommit -or
+              $identity.workflow_run.repository_id -ne 1365170863 -or
+              $identity.workflow_run.head_repository_id -ne 1365170863) {
+            throw 'Configured source differs from the fixed original Windows artifact'
+          }
+          Write-Output "Verified fixed original artifact source: $sourceCommit"
+      - name: Check out the exact original application source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ vars.MUSE_CI_TRANSFER_SOURCE_COMMIT }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install only source-control helper dependencies without rebuilding
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter @deepseek-ai/dsh-desktop... --filter @deepseek-ai/dsh-tool-workspace-dependencies... --filter .
+      - name: Restore utility files at the declared three-level repository path
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:MUSE_CI_TRANSFER_SOURCE_COMMIT) { throw 'Application helper checkout differs' }
+          if ($LASTEXITCODE -ne 0) { throw 'Source lookup failed' }
+          $helpers = '.artifacts/muse-release-20261006-gxgg057c/windows-audit'
+          New-Item -ItemType Directory -Path $helpers -Force | Out-Null
+          Copy-Item -Path (Join-Path $env:RUNNER_TEMP 'muse-windows-installed-acceptance-utilities/*') -Destination $helpers
+          $parseErrors = $null
+          $tokens = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $helpers 'accept-original-installer.ps1'), [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { throw 'Acceptance utility has a PowerShell parse error' }
+      - name: Fetch only the fixed original Windows archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($PSVersionTable.PSVersion -lt [version]'7.4') { throw 'Native binary output redirection requires PowerShell 7.4 or newer' }
+          $raw = Join-Path $env:RUNNER_TEMP 'muse-windows-original-11460053986'
+          $metadata = Join-Path $raw 'artifact-metadata.json'
+          if (-not (Test-Path -LiteralPath $metadata)) { throw 'Validated original artifact metadata is missing' }
+          # PowerShell 7.4+ redirects native stdout bytes directly without text conversion.
+          gh api repos/felir7at62co-wq/muse-med/actions/artifacts/11460053986/zip > (Join-Path $raw 'original-windows-artifact.zip')
+          if ($LASTEXITCODE -ne 0) { throw 'Original Windows archive request failed' }
+      - name: Install the same verified EXE and check its installed payload and runtime
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $raw = Join-Path $env:RUNNER_TEMP 'muse-windows-original-11460053986'
+          pwsh -NoProfile -File .artifacts/muse-release-20261006-gxgg057c/windows-audit/accept-original-installer.ps1 `
+            -ArtifactZip (Join-Path $raw 'original-windows-artifact.zip') `
+            -ArtifactMetadata (Join-Path $raw 'artifact-metadata.json') `
+            -EvidenceRoot (Join-Path $env:RUNNER_TEMP "muse-installed-acceptance-$env:GITHUB_RUN_ID") `
+            -SourceRoot $env:GITHUB_WORKSPACE -PrepareBundledVisualCpp
+          if ($LASTEXITCODE -ne 0) { throw 'Original Windows installer acceptance failed' }
+      - name: Retain installer identity and bounded acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: muse-1.0.3-original-windows-installed-acceptance-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/muse-windows-original-11460053986/artifact-metadata.json
+            ${{ runner.temp }}/muse-installed-acceptance-${{ github.run_id }}/installer-result.json
+            ${{ runner.temp }}/muse-installed-acceptance-${{ github.run_id }}/installed-acceptance.json
+            ${{ runner.temp }}/muse-installed-acceptance-${{ github.run_id }}/nsis-extraction.log
+            ${{ runner.temp }}/muse-installed-acceptance-${{ github.run_id }}/payload-extraction.log
+            ${{ runner.temp }}/muse-installed-acceptance-${{ github.run_id }}/installed-smoke.log
+            ${{ runner.temp }}/muse-installed-acceptance-${{ github.run_id }}/timeout-termination.log
+          if-no-files-found: warn
+          retention-days: 30

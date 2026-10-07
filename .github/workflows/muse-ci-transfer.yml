@@ -16,6 +16,9 @@ concurrency:
   group: muse-ci-transfer-20261007-0b6d47532eb3b9ba
   cancel-in-progress: false
 
+env:
+  MUSE_CI_TRANSFER_SOURCE_COMMIT: ${{ vars.MUSE_CI_TRANSFER_SOURCE_COMMIT }}
+
 jobs:
   relay:
     if: github.repository == 'felir7at62co-wq/muse-med' && github.ref == 'refs/heads/ops/muse-ci-transfer-20261007-0b6d47532eb3b9ba'
@@ -38,10 +41,17 @@ jobs:
           python3 -m unittest -v test_artifact_range_download.py test_ci_transfer_runner.py
           command -v gh
           command -v aws
+      - name: Bind the configured source to both fixed original artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/muse-ci-transfer-0b6d47532eb3b9ba/ci_transfer_runner.py" identity
       - name: Check out the exact completed build source
         uses: actions/checkout@v6
         with:
-          ref: 3cccd5b08cda16f5dcd4afea920793628b0840eb
+          ref: ${{ vars.MUSE_CI_TRANSFER_SOURCE_COMMIT }}
           persist-credentials: false
       - name: Verify a temporary TOS object before large transfers
         env:
@@ -63,7 +73,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 3cccd5b08cda16f5dcd4afea920793628b0840eb
+          test "$(git rev-parse HEAD)" = "$MUSE_CI_TRANSFER_SOURCE_COMMIT"
           python3 "$RUNNER_TEMP/muse-ci-transfer-0b6d47532eb3b9ba/ci_transfer_runner.py" download
       - name: Put verified ZIPs into the isolated temporary TOS prefix
         env:
