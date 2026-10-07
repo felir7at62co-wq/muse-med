@@ -9,6 +9,8 @@ English | [中文](README.zh.md)
 
 The private Host supplies the Muse compositions used by the [Desktop application](../desktop/README.md). Its bundled preset files remain ordinary Cordis configuration. User-owned model providers and credentials stay separate from the Muse account catalog.
 
+The Desktop account composition sets `requestTimeoutMs` to 60,000 milliseconds for gateway and knowledge-base requests, including project portfolio scans. Personal overlays can change this validated account setting; the underlying plugin's default remains 15,000 milliseconds. A timeout still reports an unavailable service and does not establish whether a remote write completed.
+
 ## Compaction defaults
 
 The Host defaults and the `standard`, `ptc`, `cordis`, `short-drama`, and `editing` presets declare exact policies for all eight account models in the [selected catalog](../../services/muse-accounts/README.md#selected-model-budgets). Each policy reserves 16,384 tokens of additional compaction headroom and caps summaries at 8,192 tokens; conversation output keeps its provider budget. Other routes inherit backend defaults; `minimal` does not mount automatic compaction.

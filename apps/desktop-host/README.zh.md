@@ -9,6 +9,8 @@ description: "Muse Desktop Host 的产品配置与智能体预设默认值。"
 
 私有 Host 为[桌面应用](../desktop/README.zh.md)提供 Muse 组合。内置预设文件使用普通 Cordis 配置。用户自有模型提供方与凭据独立于 Muse 账号目录。
 
+桌面账号组合将网关与知识库请求的 `requestTimeoutMs` 设置为 60,000 毫秒，包含项目参与组合扫描。个人覆盖文件可修改这一经过验证的账号配置；底层插件默认值仍为 15,000 毫秒。超时仍报告服务不可用，不能据此判断远程写入是否完成。
+
 <a id="compaction-defaults"></a>
 ## 压缩默认值
 

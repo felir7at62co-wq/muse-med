@@ -107,6 +107,7 @@
       config:
         baseUrl: !!js process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'
         excludedModelPrefixes: []
+        requestTimeoutMs: 60000
         remoteAccess: true
 
     - id: ui-muse-account
