@@ -748,7 +748,7 @@ export type ThemePreference = typeof THEME_PREFERENCES[number]
 ## `@deepseek-ai/dsh-compaction-basic`
 
 - `inject`: `llm` · `tokenMeter` · `sessions`
-- `source`: [`packages/compaction/compaction-basic/src/types.ts:40`](../packages/compaction/compaction-basic/src/types.ts)
+- `source`: [`packages/compaction/compaction-basic/src/types.ts:44`](../packages/compaction/compaction-basic/src/types.ts)
 
 ```ts config-catalog
 /** Basic compaction configuration with an optional exact-target policy table. */
@@ -765,9 +765,13 @@ export interface CompactionPolicyConfig {
   thresholdRatio?: number
   /** Additional pressure headroom beyond the routed output reservation. Non-negative integer; defaults to `65536`. */
   headroomTokens?: number
-  /** Recent context retained as a fraction of context window minus reserved output tokens. Defaults to `0.16`. */
+  /**
+   * Requested recent context as a fraction of context window minus reserved
+   * output tokens. Pressure may reduce it to fit fixed content and a checkpoint.
+   * Defaults to `0.16`.
+   */
   retainRatio?: number
-  /** Absolute recent-context budget; mutually exclusive with `retainRatio`. */
+  /** Requested absolute recent-context budget; pressure may reduce it to fit a checkpoint. Mutually exclusive with `retainRatio`. */
   retainTokens?: number
   /** Summary provider; set together with `summarizationModel`, or inherit the conversation target. */
   summarizationProvider?: string

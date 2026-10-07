@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-small-window-compaction
+profile: headless
+composition: muse-small-window-compaction
+recording: authored
+header:
+  class: muse-small-window-compaction
+  pin: true
+  changes: 1
+writerOutput: true

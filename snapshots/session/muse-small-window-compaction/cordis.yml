@@ -1,0 +1,12 @@
+# Mount the selected account route and the actual short-drama compaction policy.
+- id: llm-deepseek
+  disabled: true
+- id: compaction-basic
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: snapshot-small-window-compaction
+      name: './account-fixture.mjs'

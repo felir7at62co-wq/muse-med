@@ -161,6 +161,20 @@
   config:
     - id: compaction-basic
       name: '@deepseek-ai/dsh-compaction-basic'
+      config:
+        modelPolicies:
+          - provider: muse-cloud-yunying
+            model: gpt-6-sol
+            headroomTokens: 16384
+            maxTokens: 8192
+          - provider: muse-cloud-yunying
+            model: gpt-6-astra
+            headroomTokens: 16384
+            maxTokens: 8192
+          - provider: muse-cloud-yunying
+            model: gemini-3.1-pro
+            headroomTokens: 16384
+            maxTokens: 8192
 
     - id: command-compact
       name: '@deepseek-ai/dsh-command-compact'

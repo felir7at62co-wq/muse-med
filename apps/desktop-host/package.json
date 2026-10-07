@@ -71,6 +71,7 @@
     }
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-compaction-basic": "workspace:*",
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
     "@deepseek-ai/cordis-plugin-include": "workspace:~",
     "@deepseek-ai/dsh-skill": "workspace:*",

@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/compaction-pressure-budget/guide.md
+/:
+  en: 8e3b9fada3984089
+  zh: 6a5a9f8da5a454aa
+/compaction-pressure-budgets:
+  en: 624b915e74d19ec7
+  zh: 7041b949dbf001be
+/compaction-pressure-budgets/change:
+  en: 598f37511b37c64b
+  zh: 6b8970ff39fff926
+/compaction-pressure-budgets/migration:
+  en: 64084ff417939d57
+  zh: 50d6ebf1cd7677cd
