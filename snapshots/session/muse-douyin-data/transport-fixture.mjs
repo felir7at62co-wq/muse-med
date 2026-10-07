@@ -31,7 +31,7 @@ class BrowserFailure extends Service {
     return { status: 'ok', source: 'public-page', targetVideoId: '7660900818614324490', observedAt: '2026-10-06T12:00:00.000Z',
       counts: { play_count: { value: null, precision: 'unavailable', reason: 'not-exposed' },
         digg_count: { value: 12, precision: 'exact' }, comment_count: { value: 3, precision: 'exact' },
-        share_count: { value: 1, precision: 'exact' }, collect_count: { value: 12000, precision: 'rounded', display: '1.2万' } },
+        share_count: { value: 1, precision: 'exact' }, collect_count: { value: 1, precision: 'exact' } },
       comments: { status: 'not-requested', items: [], cursor: null, hasMore: null } }
   }
   async download(agent, url, signal) {

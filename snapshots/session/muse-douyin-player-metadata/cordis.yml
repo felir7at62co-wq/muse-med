@@ -1,4 +1,4 @@
-# Tool discovery only; the recorded response performs no media requests.
+# Native receipt projection only; no source or media network request is made.
 - id: tool-bash
   disabled: true
 - id: tool-pwsh
@@ -13,9 +13,8 @@
         ffprobeExecutable: !!js process.execPath
         ffmpegExecutable: !!js process.execPath
         settingsHome: !!js process.env.DSH_HOME
-
 - id: subprocess
   disabled: true
 - insert:
-    - id: snapshot-douyin-blocked-transport
+    - id: snapshot-douyin-player-metadata-transport
       name: './transport-fixture.mjs'

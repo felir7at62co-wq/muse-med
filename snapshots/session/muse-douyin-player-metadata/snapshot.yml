@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-douyin-player-metadata
+profile: headless
+composition: muse-douyin-player-metadata
+recording: authored
+writerOutput: true
+header:
+  class: muse-douyin-player-metadata
+  pin: true
+  systemPromptSource: muse-media-download-tool-catalog
+  toolSchemasSource: muse-media-download-tool-catalog

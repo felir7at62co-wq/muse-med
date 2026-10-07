@@ -63,7 +63,7 @@ export interface DouyinDesktopResult {
     readonly responseStatus: number
     readonly mediaHost: string
     readonly mediaUrlHash: string
-    readonly association: 'player-exact' | 'provider-detail-verified'
+    readonly association: 'player-exact' | 'provider-detail-verified' | 'player-metadata-verified'
     readonly currentSrcMatched: boolean
     readonly provider?: {
       readonly detailResponseStatus: number
@@ -75,6 +75,16 @@ export interface DouyinDesktopResult {
       readonly width: number
       readonly height: number
       readonly documentEpoch: number
+    }
+    /** Exact-work metadata observed on the visible player's parent, without endpoint claims or media URLs. */
+    readonly playerMetadata?: {
+      readonly targetVideoId: DouyinVideoId
+      readonly sourceField: 'video.playAddr' | 'video.playAddrH265' | 'video.bitRateList.playAddr'
+      readonly durationMs: number
+      readonly width: number
+      readonly height: number
+      readonly documentEpoch: 1
+      readonly source: 'player-parent-awemeInfo'
     }
   }
 }

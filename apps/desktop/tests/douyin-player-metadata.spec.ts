@@ -9,7 +9,7 @@ const source = 'https://v3-web.douyinvod.com/fixture.mp4'
 const work = (video: object = { playAddr: [source] }, awemeId: string | number = target) => ({ awemeId, video })
 
 function fixture(properties: object, extra = '') {
-  const dom = new JSDOM(`<main><section><video></video></section>${extra}</main>`)
+  const dom = new JSDOM(`<main><section><video></video></section>${extra}</main>`, { url: `https://www.douyin.com/video/${target}` })
   const video = dom.window.document.querySelector('video')
   if (video === null || video.parentElement === null) throw new Error('Missing fixture player')
   Object.defineProperties(video, {
@@ -18,7 +18,7 @@ function fixture(properties: object, extra = '') {
     currentSrc: { value: source, configurable: true },
   })
   Object.defineProperty(dom.window.document, 'readyState', { value: 'complete', configurable: true })
-  Object.defineProperty(video.parentElement, '__reactProps$fixture', { value: properties })
+  Object.defineProperty(video.parentElement, '__reactProps$fixture', { value: properties, configurable: true })
   dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
     x: 0, y: 0, top: 0, left: 0, bottom: 20, right: 20, width: 20, height: 20, toJSON: () => ({}),
   })
@@ -28,6 +28,112 @@ function fixture(properties: object, extra = '') {
     return result
   } }
 }
+
+function metadataFixture(
+  video: object = { playAddr: [source], duration: 2112208, width: 1920, height: 1320 }, awemeId: string | number = target,
+) {
+  const f = fixture({ children: { props: { awemeInfo: work(video, awemeId) } } })
+  Object.defineProperties(f.video, {
+    currentSrc: { value: 'blob:https://www.douyin.com/fixture', configurable: true },
+    duration: { value: 2112.2, configurable: true },
+    videoWidth: { value: 1920, configurable: true },
+    videoHeight: { value: 1320, configurable: true },
+  })
+  return f
+}
+
+it('associates a loaded blob player with its nearest exact public work metadata', () => {
+  const f = metadataFixture()
+  try { expect(f.run()).toEqual({ id: target, src: source, association: 'player-metadata-verified',
+    sourceField: 'video.playAddr', durationMs: 2112208, width: 1920, height: 1320,
+    visible: { src: 'blob:https://www.douyin.com/fixture', duration: 2112.2, width: 1920, height: 1320 } }) }
+  finally { f.dom.window.close() }
+})
+
+it.each([
+  [{ playAddrH265: [{ src: source }] }, 'video.playAddrH265'],
+  [{ bitRateList: [{ playAddr: { urlList: [source] } }] }, 'video.bitRateList.playAddr'],
+  [{ playAddr: [`${source}?signature=fixture%2f~&part=1&part=2`] }, 'video.playAddr'],
+] as const)('retains the exact plain address and its source field for a blob player %#', (address, sourceField) => {
+  const f = metadataFixture({ ...address, duration: 2112208, width: 1920, height: 1320 })
+  try {
+    Object.defineProperty(f.video, 'paused', { value: true })
+    expect(f.run()).toMatchObject({ association: 'player-metadata-verified', sourceField,
+      src: sourceField === 'video.playAddr' ? `${source}?signature=fixture%2f~&part=1&part=2` : source })
+    expect(f.video.paused).toBe(true)
+  } finally { f.dom.window.close() }
+})
+
+it('deduplicates repeated objects and identical nearest work facts without reading an outer roster', () => {
+  const video = { playAddr: [source], duration: 2112208, width: 1920, height: 1320 }
+  const info = work(video)
+  const f = metadataFixture()
+  try {
+    const parent = f.video.parentElement
+    if (parent === null || parent.parentElement === null) throw new Error('Missing fixture ancestors')
+    const props = { children: [{ props: { awemeInfo: info } }, { props: { awemeInfo: info } },
+      { props: { awemeInfo: work({ ...video }) } }] }
+    Object.defineProperty(parent, '__reactProps$fixture', { value: props })
+    Object.defineProperty(parent.parentElement, '__reactProps$roster', { value: { awemeInfo: work(video, '7624973984769004151') } })
+    expect(f.run()).toMatchObject({ id: target, association: 'player-metadata-verified' })
+  } finally { f.dom.window.close() }
+})
+
+it.each(['id', 'duration', 'dimensions', 'address'])('rejects nearest conflicting work %s before consulting an outer matching work', (difference) => {
+  const video = { playAddr: [source], duration: 2112208, width: 1920, height: 1320 }
+  const other = { ...video, ...(difference === 'duration' ? { duration: 2112207 }
+    : difference === 'dimensions' ? { width: 1919 }
+      : difference === 'address' ? { playAddr: [`${source}?other=1`] } : {}) }
+  const f = metadataFixture()
+  try {
+    const parent = f.video.parentElement
+    if (parent === null || parent.parentElement === null) throw new Error('Missing fixture ancestors')
+    Object.defineProperty(parent, '__reactProps$fixture', { value: { children: [{ awemeInfo: work(video) },
+      { awemeInfo: work(other, difference === 'id' ? '7624973984769004151' : target) }] } })
+    Object.defineProperty(parent.parentElement, '__reactProps$roster', { value: { awemeInfo: work(video) } })
+    expect(f.run()).toBeNull()
+  } finally { f.dom.window.close() }
+})
+
+it.each([
+  { duration: 0 }, { duration: Number.NaN }, { duration: 86400001 }, { width: 0 }, { height: 1.5 },
+  { width: 1200 }, { playAddr: ['http://v3.douyinvod.com/video.mp4'] },
+  { playAddr: ['https://user:password@v3.douyinvod.com/video.mp4'] },
+  { playAddr: ['https://v3.douyinvod.com/video.m3u8?mime_type=video_mp4'] },
+  { playAddr: ['https://v3.douyinvod.com/video.mp4#fragment'] },
+  { playAddr: ['https://evil.test/video.mp4'] }, { playAddr: ['blob:https://www.douyin.com/source'] },
+])('rejects invalid public metadata or non-plain source %#', (invalid) => {
+  const f = metadataFixture({ playAddr: [source], duration: 2112208, width: 1920, height: 1320, ...invalid })
+  try { expect(f.run()).toEqual({ unsupported: 'BLOB_OR_SEGMENTS' }) }
+  finally { f.dom.window.close() }
+})
+
+it.each(['duration', 'dimensions', 'foreign-blob', 'wrong-id', 'numeric-id', 'protected'])('rejects a blob player with %s', (difference) => {
+  const f = metadataFixture(undefined, difference === 'wrong-id' ? '7624973984769004151'
+    : difference === 'numeric-id' ? Number(target) : target)
+  try {
+    if (difference === 'duration') Object.defineProperty(f.video, 'duration', { value: 2112.5 })
+    if (difference === 'dimensions') Object.defineProperty(f.video, 'videoHeight', { value: 1000 })
+    if (difference === 'foreign-blob') Object.defineProperty(f.video, 'currentSrc', { value: 'blob:https://evil.test/fixture' })
+    if (difference === 'protected') Object.defineProperty(f.video, 'mediaKeys', { value: {} })
+    expect(f.run()).toEqual({ unsupported: difference === 'protected' ? 'PROTECTED_MEDIA' : 'BLOB_OR_SEGMENTS' })
+  } finally { f.dom.window.close() }
+})
+
+it('rejects active protection metadata even when a blob player otherwise matches', () => {
+  const f = metadataFixture({ playAddr: { urlList: [source], encryptionKey: 'protected' },
+    duration: 2112208, width: 1920, height: 1320 })
+  try { expect(f.run()).toEqual({ unsupported: 'PROTECTED_MEDIA' }) }
+  finally { f.dom.window.close() }
+})
+
+it('rejects a mismatched work marker before using duration-based player metadata', () => {
+  const f = metadataFixture()
+  try {
+    Object.defineProperty(f.video, 'currentSrc', { value: `${source}?__vid=7624973984769004151` })
+    expect(f.run()).toEqual({ unsupported: 'PAGE_METADATA' })
+  } finally { f.dom.window.close() }
+})
 
 it('binds one visible player to its own work properties when the legacy bootstrap is absent', () => {
   const f = fixture({ children: [{ props: { awemeInfo: { ...work(), authorInfo: { token: 'PRIVATE' } } } }] })

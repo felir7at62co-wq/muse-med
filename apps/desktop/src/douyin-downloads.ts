@@ -6,12 +6,14 @@ import type {
   DesktopBrowserLeaseId,
   DouyinDesktopRequest,
   DouyinDesktopResult,
+  DouyinVideoId,
 } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 import { douyinMedia, douyinPage, mediaURLHash, targetVideoId, DOUYIN_PLAYER_PROBE } from './douyin-policy.ts'
 import {
   ProviderResponses,
   PROVIDER_PLAYER_PROBE,
   publicMediaAddress,
+  providerMP4,
   type ProviderEvidence,
 } from './douyin-provider.ts'
 
@@ -39,6 +41,8 @@ export function douyinGuestMatches(lease: DouyinGuest, owner: WebContents, sessi
   return [`cwd:${workspace}`, `session:${sessionId}`].includes(lease.workspace)
 }
 
+type PlayerMetadata = NonNullable<NonNullable<DouyinDesktopResult['evidence']>['playerMetadata']>
+
 interface Task {
   request: DouyinDesktopRequest
   owner: WebContents
@@ -58,7 +62,8 @@ interface Task {
   providerResponses?: ProviderResponses
   providerAvailable?: boolean
   provider?: ProviderEvidence | undefined
-  association?: 'player-exact' | 'provider-detail-verified'
+  playerMetadata?: PlayerMetadata
+  association?: 'player-exact' | 'provider-detail-verified' | 'player-metadata-verified'
   documentEpoch?: number
   navigation?: (event: Electron.Event, url: string, inPlace: boolean, mainFrame: boolean) => void
   transferResponses?: Map<string, number>
@@ -66,6 +71,43 @@ interface Task {
 
 /** One native task has a bounded preparation and transfer lifetime. */
 const MAX_MS = 120_000
+
+/**
+ * @param player - Private guest probe result.
+ * @param target - Granted work.
+ * @param page - Current official page.
+ * @returns Validated player facts, without its transient address.
+ */
+function playerMetadata(player: Record<string, unknown>, target: string, page: string): PlayerMetadata | undefined {
+  if (player.id !== target || !/^\d{10,25}$/.test(target) || player.association !== 'player-metadata-verified'
+    || typeof player.src !== 'string' || !providerMP4(player.src)
+    || typeof player.sourceField !== 'string'
+    || !['video.playAddr', 'video.playAddrH265', 'video.bitRateList.playAddr'].includes(player.sourceField)
+    || typeof player.durationMs !== 'number' || !Number.isFinite(player.durationMs)
+    || player.durationMs <= 0 || player.durationMs > 86_400_000) return undefined
+  const dimensions = (value: unknown): value is number => typeof value === 'number'
+    && Number.isSafeInteger(value) && value > 0 && value <= 16384
+  if (!dimensions(player.width) || !dimensions(player.height)
+    || typeof player.visible !== 'object' || player.visible === null) return undefined
+  const visible = player.visible as Record<string, unknown>
+  if (typeof visible.src !== 'string' || visible.src.length > 8192 || !URL.canParse(visible.src)
+    || !(douyinMedia(visible.src) || (new URL(visible.src).protocol === 'blob:' && new URL(visible.src).origin === new URL(page).origin))
+    || typeof visible.duration !== 'number' || !Number.isFinite(visible.duration) || visible.duration <= 0
+    || !dimensions(visible.width) || !dimensions(visible.height)
+    || Math.abs(visible.duration - player.durationMs / 1000) > 0.25
+    || Math.abs((visible.width / visible.height) / (player.width / player.height) - 1) > 0.01) return undefined
+  const markers = new URL(visible.src).searchParams.getAll('__vid')
+  if (markers.length > 0 && (markers.length !== 1 || markers[0] !== target)) return undefined
+  return {
+    targetVideoId: target as DouyinVideoId,
+    sourceField: player.sourceField as PlayerMetadata['sourceField'],
+    durationMs: player.durationMs,
+    width: player.width,
+    height: player.height,
+    documentEpoch: 1,
+    source: 'player-parent-awemeInfo',
+  }
+}
 
 /** @param cwd - session root. @param task - random task ID. @returns private real-directory staging path. */
 function stagingDirectory(cwd: string, task: string): string {
@@ -251,7 +293,7 @@ export class DesktopDouyinDownloads {
         void this.chooseProvider(task).catch(() => {
           if (this.task === task) void this.revoke('PROVIDER_SOURCE_REJECTED')
         })
-      else if (task.response !== undefined)
+      else
         void this.choose(task).catch(() => {
           if (this.task === task) void this.revoke('UNSUPPORTED_MEDIA_ASSOCIATION')
         })
@@ -317,44 +359,62 @@ export class DesktopDouyinDownloads {
   }
 
   private async choose(task: Task): Promise<void> {
-    if (task.checking || task.phase !== 'observing' || task.lease === undefined || task.response === undefined) return
+    if (task.checking || task.phase !== 'observing' || task.lease === undefined) return
     if (task.lease.guest.isLoadingMainFrame()) return
     task.checking = true
     const epoch = task.documentEpoch
-    let player: unknown
+    let failureCode = 'UNSUPPORTED_MEDIA_ASSOCIATION'
     try {
-      player = await task.lease.guest.executeJavaScript(DOUYIN_PLAYER_PROBE)
+      const player: unknown = await task.lease.guest.executeJavaScript(DOUYIN_PLAYER_PROBE)
+      if (!this.isCurrent(task, 'observing') || task.documentEpoch !== epoch || task.owner.isDestroyed()
+        || this.active.get(task.owner) !== task.request.sessionId || task.lease.guest.isDestroyed()
+        || targetVideoId(task.lease.guest.getURL()) !== task.target) return
+      if (typeof player !== 'object' || player === null) return
+      const facts = player as Record<string, unknown>
+      if ('unsupported' in facts) {
+        if ((facts.unsupported !== 'PAGE_METADATA' && facts.unsupported !== 'BLOB_OR_SEGMENTS')
+          || task.providerAvailable === false)
+          void this.revoke('UNSUPPORTED_MEDIA_ASSOCIATION')
+        return
+      }
+      if (facts.association === 'player-metadata-verified') {
+        if (epoch !== 1 || task.target === undefined) return
+        const metadata = playerMetadata(facts, task.target, task.lease.guest.getURL())
+        if (metadata === undefined || typeof facts.src !== 'string') return
+        failureCode = 'MEDIA_DNS_UNAVAILABLE'
+        if (!(await this.publicHost(facts.src, task.lease.guest))) {
+          void this.revoke('PRIVATE_MEDIA_ADDRESS')
+          return
+        }
+        if (!this.isCurrent(task, 'observing') || task.documentEpoch !== 1 || task.owner.isDestroyed()
+          || this.active.get(task.owner) !== task.request.sessionId || task.lease.guest.isDestroyed()
+          || targetVideoId(task.lease.guest.getURL()) !== metadata.targetVideoId) return
+        failureCode = 'MEDIA_STAGING_UNAVAILABLE'
+        task.directory = stagingDirectory(task.request.cwd, task.request.taskId)
+        task.playerMetadata = metadata
+        task.selectedURL = facts.src
+        task.association = 'player-metadata-verified'
+        task.phase = 'downloading'
+        task.providerResponses?.close()
+        failureCode = 'NATIVE_DOWNLOAD_UNAVAILABLE'
+        task.lease.guest.downloadURL(facts.src)
+        return
+      }
+      if (facts.association !== undefined || facts.id !== task.target || typeof facts.src !== 'string') return
+      const status = task.observedResponses?.get(facts.src)
+      if (status === undefined) return
+      task.response = { url: facts.src, status }
+      task.directory = stagingDirectory(task.request.cwd, task.request.taskId)
+      task.selectedURL = facts.src
+      task.association = 'player-exact'
+      task.phase = 'downloading'
+      task.providerResponses?.close()
+      task.lease.guest.downloadURL(facts.src)
+    } catch (_error) {
+      if (this.task === task) void this.revoke(failureCode)
     } finally {
       task.checking = false
     }
-    if (!this.isCurrent(task, 'observing') || task.documentEpoch !== epoch) return
-    if (typeof player === 'object' && player !== null && 'unsupported' in player) {
-      if ((player.unsupported !== 'PAGE_METADATA' && player.unsupported !== 'BLOB_OR_SEGMENTS')
-        || task.providerAvailable === false)
-        void this.revoke('UNSUPPORTED_MEDIA_ASSOCIATION')
-      return
-    }
-    if (
-      typeof player !== 'object' ||
-      player === null ||
-      !('id' in player) ||
-      !('src' in player) ||
-      player.id !== task.target ||
-      typeof player.src !== 'string' ||
-      !task.observedResponses?.has(player.src) ||
-      targetVideoId(task.lease.guest.getURL()) !== task.target
-    )
-      return
-    const status = task.observedResponses.get(player.src)
-    if (status === undefined) return
-    const observed = { url: player.src, status }
-    task.response = observed
-    task.directory = stagingDirectory(task.request.cwd, task.request.taskId)
-    task.selectedURL = observed.url
-    task.association = 'player-exact'
-    task.phase = 'downloading'
-    task.providerResponses?.close()
-    task.lease.guest.downloadURL(observed.url)
   }
 
   private async chooseProvider(task: Task): Promise<void> {
@@ -432,7 +492,7 @@ export class DesktopDouyinDownloads {
       targetVideoId(guest.getURL()) !== task.target
     )
       return false
-    if (task.association === 'provider-detail-verified' && !/^video\/mp4(?:;|$)/i.test(item.getMimeType())) {
+    if (task.association !== 'player-exact' && !/^video\/mp4(?:;|$)/i.test(item.getMimeType())) {
       void this.revoke('DOWNLOAD_MIME_REJECTED')
       return false
     }
@@ -466,7 +526,7 @@ export class DesktopDouyinDownloads {
         guest.isDestroyed() ||
         targetVideoId(guest.getURL()) !== task.target ||
         this.active.get(task.owner) !== task.request.sessionId ||
-        (task.association === 'provider-detail-verified' && !task.transferResponses?.has(item.getURL()))
+        (task.association !== 'player-exact' && !task.transferResponses?.has(item.getURL()))
       ) {
         void this.revoke('INCOMPLETE_MEDIA')
         return
@@ -482,13 +542,15 @@ export class DesktopDouyinDownloads {
         path: join(task.directory ?? '', 'video.mp4'),
         evidence: {
           responseStatus:
-            task.association === 'provider-detail-verified'
+            task.association !== 'player-exact'
               ? (task.transferResponses?.get(item.getURL()) ?? 0)
               : (task.response?.status ?? 0),
           mediaHost: new URL(task.selectedURL ?? '').hostname,
           mediaUrlHash: mediaURLHash(task.selectedURL ?? ''),
           association: task.association ?? 'player-exact',
           currentSrcMatched: task.association === 'player-exact',
+          ...(task.association === 'player-metadata-verified' && task.playerMetadata !== undefined
+            ? { playerMetadata: task.playerMetadata } : {}),
           ...(task.association === 'provider-detail-verified' && task.provider !== undefined
             ? {
               provider: {

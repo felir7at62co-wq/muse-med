@@ -3,6 +3,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import { SubprocessRuntime, type SubprocessHandle, type SubprocessSpawnSpec, type SubprocessTerminalHandle } from '@deepseek-ai/dsh-subprocess'
 import { EventEmitter } from 'node:events'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -19,12 +20,18 @@ const realFileIO = await vi.importActual<typeof import('node:fs/promises')>('nod
 
 const id = '7692443246022167851'
 const evidence = { responseStatus: 206, mediaHost: 'v3.douyinvod.com', mediaUrlHash: 'a'.repeat(64), association: 'player-exact', currentSrcMatched: true }
+const playerMetadata = { targetVideoId: id, sourceField: 'video.playAddr', durationMs: 34434,
+  width: 3840, height: 2160, documentEpoch: 1, source: 'player-parent-awemeInfo' }
+const playerEvidence = { responseStatus: 206, mediaHost: 'v3.douyinvod.com', mediaUrlHash: 'b'.repeat(64),
+  association: 'player-metadata-verified', currentSrcMatched: false, playerMetadata }
 /** Verification dependency fixture; these tests exercise actual filesystem publication, not codecs or platform downloads. */
 class FileVerification extends SubprocessRuntime {
+  readonly commands: string[][] = []
   override async resolveExecutable(command: string): Promise<string> { return command }
   override async terminalEnvironment() { return { platform: 'posix' as const } }
   override async spawnTerminal(): Promise<SubprocessTerminalHandle> { throw new Error('No terminal in file verification fixture') }
   override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
+    this.commands.push([...spec.argv])
     const text = spec.argv.includes('-show_entries') ? JSON.stringify({ format: { duration: '34.41' }, streams: [{ codec_type: 'video', width: 3840, height: 2160 }] }) : ''
     return { stdin: undefined, stdout: undefined, stderr: undefined, control: undefined,
       collected: { stdout: { readFrom: () => ({ text, nextOffset: Buffer.byteLength(text), lossy: false }) } },
@@ -32,7 +39,8 @@ class FileVerification extends SubprocessRuntime {
     }
   }
 }
-it.each(['publish', 'existing-media', 'existing-receipt', 'outside', 'symlink', 'wrong-work', 'write-failure', 'cancel-close'] as const)(
+it.each(['publish', 'publish-player-metadata', 'player-duration-mismatch', 'player-aspect-mismatch', 'crossed-player-provider',
+  'existing-media', 'existing-receipt', 'outside', 'symlink', 'wrong-work', 'write-failure', 'cancel-close'] as const)(
   'native file publication preserves private source effects: %s', async (mode) => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'muse-native-file-effects-'))), ctx = new Context()
     const connected = Object.getOwnPropertyDescriptor(process, 'connected'), send = Object.getOwnPropertyDescriptor(process, 'send')
@@ -69,10 +77,14 @@ it.each(['publish', 'existing-media', 'existing-receipt', 'outside', 'symlink', 
         if (mode === 'outside' || mode === 'symlink') writeFileSync(other, 'retain-input')
         if (mode === 'symlink') symlinkSync(other, staging)
         else writeFileSync(staging, 'fixture-media')
+        const selectedEvidence = mode === 'publish-player-metadata' ? playerEvidence
+          : mode === 'player-duration-mismatch' ? { ...playerEvidence, playerMetadata: { ...playerMetadata, durationMs: 1000 } }
+            : mode === 'player-aspect-mismatch' ? { ...playerEvidence, playerMetadata: { ...playerMetadata, width: 2160, height: 3840 } }
+              : mode === 'crossed-player-provider' ? { ...playerEvidence, provider: { targetVideoId: id } } : evidence
         queueMicrotask(() => { EventEmitter.prototype.emit.call(process, 'message', {
           type: 'douyin-browser-result', requestId: request.requestId, code: 'STAGED',
           targetVideoId: mode === 'wrong-work' ? '7690000000000000000' : id,
-          path: mode === 'outside' ? other : staging, evidence,
+          path: mode === 'outside' ? other : staging, evidence: selectedEvidence,
         }) })
       } else queueMicrotask(() => { EventEmitter.prototype.emit.call(process, 'message', {
         type: 'douyin-browser-result', requestId: request.requestId, code: request.action === 'prepare' ? 'PREPARED' : 'RELEASED', targetVideoId: id,
@@ -97,10 +109,19 @@ it.each(['publish', 'existing-media', 'existing-receipt', 'outside', 'symlink', 
         } finally { closeGate.resolve(undefined) }
       }
       const result = await operation
-      if (mode === 'publish') {
+      if (mode === 'publish' || mode === 'publish-player-metadata') {
         expect(result).toMatchObject({ status: 'downloaded', path: published, receipt, bytes: 13 })
         expect(readFileSync(published, 'utf8')).toBe('fixture-media')
         expect(JSON.parse(readFileSync(receipt, 'utf8'))).toMatchObject({ targetVideoId: id, path: published })
+        if (mode === 'publish-player-metadata') {
+          const recorded: unknown = JSON.parse(readFileSync(receipt, 'utf8'))
+          expect(recorded).toMatchObject({ evidence: playerEvidence,
+            sha256: createHash('sha256').update(readFileSync(published)).digest('hex'), full_decode_verified: true })
+          expect(recorded).not.toHaveProperty('evidence.provider')
+          if (!(ctx.subprocess instanceof FileVerification)) throw new Error('Unexpected verification provider')
+          expect(ctx.subprocess.commands.some(argv => argv.includes('-show_entries'))).toBe(true)
+          expect(ctx.subprocess.commands.some(argv => argv.includes('-xerror') && argv.includes('null'))).toBe(true)
+        }
       } else {
         expect(result).toMatchObject({ status: 'blocked', code: mode === 'cancel-close' ? 'CANCELLED' : 'MEDIA_VERIFICATION_FAILED' })
         if (mode === 'existing-media') expect(readFileSync(published, 'utf8')).toBe('retain-media')

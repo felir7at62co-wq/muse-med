@@ -90,7 +90,7 @@ The page refresh shortcut calls the same reload operation as the toolbar. Its to
 
 Official Douyin video tabs retain login in a workspace-scoped persistent partition across application restarts; their main document stays on official Douyin HTTPS pages. Download tool calls open those tabs automatically. Other browser tabs keep process-local storage. The Host owns each download and verifies its exact target and complete media file.
 
-The private data IPC types retain branded work, comment and request identities. Snapshots separate counter precision from availability, and total comments from retrieved items and pagination. Only bounded projected page facts cross the Main/Host wire; raw response and authentication fields are absent. [Desktop](../../../apps/desktop/README.md) owns observation, cancellation and runtime protocol requirements.
+The private data IPC types retain branded work, comment and request identities. Snapshots separate counter precision from availability, and total comments from retrieved items and pagination. Only bounded projected page facts cross the Main/Host wire; raw response and authentication fields are absent. Native media evidence distinguishes an exact player source, an observed official detail response, and exact-work metadata on the visible player's parent. Player metadata retains its own source label and does not claim an endpoint response or an exact blob-source match. [Desktop](../../../apps/desktop/README.md) owns observation, cancellation and runtime protocol requirements.
 
 ## Model Experience
 

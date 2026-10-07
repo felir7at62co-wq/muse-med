@@ -38,4 +38,7 @@
       - 'passthrough-runner: profile rejected'
 
 - id: subprocess
-  name: './transport-fixture.mjs'
+  disabled: true
+- insert:
+    - id: snapshot-douyin-data-transport
+      name: './transport-fixture.mjs'

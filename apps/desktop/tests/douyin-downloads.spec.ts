@@ -330,6 +330,108 @@ async function providerTransfer() {
   return { result, debug }
 }
 
+function playerMetadata() {
+  return { id, src: media, association: 'player-metadata-verified', sourceField: 'video.playAddr',
+    durationMs: 2112208, width: 1920, height: 1320,
+    visible: { src: 'blob:https://www.douyin.com/fixture', duration: 2112.2, width: 1920, height: 1320 } }
+}
+
+async function metadataTransfer(value: unknown = playerMetadata()) {
+  guest.reload.mockImplementation(() => { guest.emit('did-start-navigation', {}, page, false, true) })
+  guest.executeJavaScript.mockResolvedValue(value)
+  await prepared()
+  const result = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  await vi.advanceTimersByTimeAsync(100)
+  return { result }
+}
+
+it('stages plain native media from exact public player metadata without a prior detail or MP4 response', async () => {
+  const { result } = await metadataTransfer()
+  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(media)
+  const item = new Item()
+  expect(controller.accept(item as never, guest as never)).toBe(true)
+  controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'other', url: media,
+    responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+  item.complete()
+  expect(await result).toMatchObject({ code: 'STAGED', evidence: {
+    association: 'player-metadata-verified', currentSrcMatched: false, playerMetadata: {
+      targetVideoId: id, sourceField: 'video.playAddr', durationMs: 2112208, width: 1920, height: 1320,
+      documentEpoch: 1, source: 'player-parent-awemeInfo',
+    },
+  } })
+  expect(JSON.stringify(await result)).not.toContain('transient')
+  expect((await result).evidence?.provider).toBeUndefined()
+})
+
+it.each([
+  { id: '7690000000000000000' }, { id: Number(id) }, { sourceField: 'video.play_addr' },
+  { durationMs: 0 }, { durationMs: Number.NaN }, { durationMs: 86_400_001 }, { width: 0 }, { height: 16385 },
+  { src: 'https://evil.test/video.mp4' }, { src: 'https://v3.douyinvod.com/video.m3u8?mime_type=video_mp4' },
+  { visible: { src: 'blob:https://evil.test/fixture', duration: 2112.2, width: 1920, height: 1320 } },
+  { visible: { src: 'blob:https://www.douyin.com/fixture', duration: 2112.5, width: 1920, height: 1320 } },
+  { visible: { src: 'blob:https://www.douyin.com/fixture', duration: 2112.2, width: 1920, height: 1000 } },
+  { visible: { src: `${media}&__vid=7690000000000000000`, duration: 2112.2, width: 1920, height: 1320 } },
+])('does not grant invalid private player metadata %#', async (invalid) => {
+  const { result } = await metadataTransfer({ ...playerMetadata(), ...invalid })
+  await vi.advanceTimersByTimeAsync(120_000)
+  expect((await result).code).toBe('UNSUPPORTED_MEDIA_ASSOCIATION')
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+})
+
+it('rejects an object pretending to be a player metadata source field', async () => {
+  const { result } = await metadataTransfer({ ...playerMetadata(), sourceField: { toString: () => 'video.playAddr' } })
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(120_000)
+  expect((await result).code).toBe('UNSUPPORTED_MEDIA_ASSOCIATION')
+})
+
+it.each(['mime', 'missing-response', 'http-error'])('rejects a metadata-associated native transfer with %s', async (invalid) => {
+  const { result } = await metadataTransfer()
+  const item = new Item()
+  if (invalid === 'mime') item.getMimeType = () => 'text/html'
+  expect(controller.accept(item as never, guest as never)).toBe(invalid !== 'mime')
+  if (invalid === 'http-error') controller.response({ webContentsId: guest.id, statusCode: 403,
+    resourceType: 'other', url: media, responseHeaders: { 'Content-Type': ['text/html'] } } as never)
+  if (invalid === 'missing-response') item.complete()
+  expect((await result).code).toBe(invalid === 'mime' ? 'DOWNLOAD_MIME_REJECTED'
+    : invalid === 'http-error' ? 'DOWNLOAD_HTTP_403' : 'INCOMPLETE_MEDIA')
+})
+
+it('rejects private DNS for a public-metadata source before native download', async () => {
+  controller = new DesktopDouyinDownloads(open, async () => ['127.0.0.1'])
+  controller.activeSession(owner as never, 'session-a')
+  const { result } = await metadataTransfer()
+  expect((await result).code).toBe('PRIVATE_MEDIA_ADDRESS')
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+})
+
+it.each(['document', 'session', 'owner', 'cancel'])('revokes metadata selection during DNS when its %s changes', async (change) => {
+  const lookup = Promise.withResolvers<readonly string[]>()
+  const addresses = vi.fn(() => lookup.promise)
+  controller = new DesktopDouyinDownloads(open, addresses)
+  controller.activeSession(owner as never, 'session-a')
+  const { result } = await metadataTransfer()
+  expect(addresses).toHaveBeenCalledExactlyOnceWith('v3.douyinvod.com')
+  if (change === 'document') guest.emit('did-start-navigation', {}, page, false, true)
+  if (change === 'session') controller.activeSession(owner as never, 'session-b')
+  if (change === 'owner') owner.isDestroyed = () => true
+  if (change === 'cancel') await controller.request(owner as never, { ...request, action: 'release' })
+  lookup.resolve(['1.1.1.1'])
+  await vi.advanceTimersByTimeAsync(100)
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+  expect((await result).code).toBe(change === 'document' ? 'DOCUMENT_CHANGED'
+    : change === 'session' ? 'SESSION_CHANGED' : change === 'owner' ? 'OWNER_LOST' : 'CANCELLED')
+})
+
+it('keeps metadata selection unavailable until the first granted document navigation', async () => {
+  guest.executeJavaScript.mockResolvedValue(playerMetadata())
+  await prepared()
+  const result = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  await vi.advanceTimersByTimeAsync(120_000)
+  expect((await result).code).toBe('UNSUPPORTED_MEDIA_ASSOCIATION')
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+})
+
 it('waits for exact provider evidence after an observed MP4 encounters a blob player', async () => {
   const { result, debug } = await providerTransfer()
   guest.executeJavaScript.mockImplementation(async source => source === DOUYIN_PLAYER_PROBE
@@ -496,6 +598,7 @@ it.each(['wrong-duration', 'protected', 'changed-document', 'private-dns', 'wron
 )
 it('retains provider facts until main-document loading finishes before probing playback', async () => {
   const { debug } = await providerTransfer()
+  guest.executeJavaScript.mockClear()
   guest.isLoadingMainFrame = () => true
   await fixtureResponse(debug)
   await vi.advanceTimersByTimeAsync(500)
@@ -616,6 +719,7 @@ it('does not authorize a playing address from a wrong-target provider response',
 
 it('discards player selection when its exact-target document changes during the probe', async () => {
   const { result, debug } = await providerTransfer()
+  guest.executeJavaScript.mockClear()
   const probing = Promise.withResolvers<unknown>()
   guest.executeJavaScript.mockImplementation(() => probing.promise)
   await fixtureResponse(debug)

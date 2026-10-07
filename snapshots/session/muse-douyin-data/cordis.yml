@@ -15,4 +15,7 @@
         settingsHome: !!js process.env.DSH_HOME
 
 - id: subprocess
-  name: './transport-fixture.mjs'
+  disabled: true
+- insert:
+    - id: snapshot-douyin-data-transport
+      name: './transport-fixture.mjs'

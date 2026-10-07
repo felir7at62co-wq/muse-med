@@ -36,9 +36,8 @@
       - passthrough-runner
     runnerFailureSignatures:
       - 'passthrough-runner: profile rejected'
-
 - id: subprocess
   disabled: true
 - insert:
-    - id: snapshot-douyin-blocked-transport
+    - id: snapshot-douyin-player-metadata-transport
       name: './transport-fixture.mjs'
