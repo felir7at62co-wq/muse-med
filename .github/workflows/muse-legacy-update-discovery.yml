@@ -1,0 +1,61 @@
+name: Temporary read-only Muse legacy updater configuration
+
+on:
+  push:
+    branches:
+      - ops/muse-legacy-update-20261007
+    paths:
+      - .github/workflows/muse-legacy-update-discovery.yml
+      - .github/scripts/muse-legacy-update-evidence.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: muse-legacy-updater-config-readonly-20261007
+  cancel-in-progress: false
+
+env:
+  MUSE_CI_TRANSFER_SOURCE_COMMIT: ${{ vars.MUSE_CI_TRANSFER_SOURCE_COMMIT }}
+
+jobs:
+  read-historical-packaged-configs:
+    if: github.repository == 'felir7at62co-wq/muse-med' && github.event_name == 'push' && github.ref == 'refs/heads/ops/muse-legacy-update-20261007'
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Read the reviewed temporary operations helper
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Retain only the extraction helper outside the source checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:MUSE_CI_TRANSFER_SOURCE_COMMIT -notmatch '^[0-9a-f]{40}$') {
+            throw 'Exact reviewed source repository variable is required'
+          }
+          Copy-Item '.github/scripts/muse-legacy-update-evidence.py' "$env:RUNNER_TEMP/muse-legacy-update-evidence.py"
+      - name: Read the exact final source commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ vars.MUSE_CI_TRANSFER_SOURCE_COMMIT }}
+          persist-credentials: false
+      - name: Extract original settings without executing old installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: '1'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python "$env:RUNNER_TEMP/muse-legacy-update-evidence.py" --output "$env:RUNNER_TEMP/muse-legacy-update-evidence" --work "$env:RUNNER_TEMP/muse-legacy-update-work"
+          if ($LASTEXITCODE -ne 0) { throw 'Read-only historical updater extraction failed' }
+      - name: Preserve exact settings and sanitized identity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: muse-legacy-update-configs-${{ github.run_id }}
+          path: ${{ runner.temp }}/muse-legacy-update-evidence/
+          if-no-files-found: error
+          retention-days: 30
