@@ -16,8 +16,9 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve().parents[2] / 'skills/tweet-drama-draft-build/scripts/jianying_draft.py'
 TIMELINE = {'clips': [{'shot': 1, 'start_us': 0, 'duration_us': 2_000_000},
                       {'shot': 2, 'start_us': 2_000_000, 'duration_us': 2_000_000}]}
-SRT = ('1\n00:00:00,000 --> 00:00:02,000\n孕八周。指标目前正常，但你最近睡眠不太好，注意休息。\n\n'
-       '2\n00:00:02,000 --> 00:00:04,000\n八周？\n')
+SRT = ('1\n00:00:00,000 --> 00:00:00,900\n孕八周。指标目前正常。\n\n'
+       '2\n00:00:00,900 --> 00:00:02,000\n但你最近睡眠不太好，注意休息。\n\n'
+       '3\n00:00:02,000 --> 00:00:04,000\n八周？\n')
 DRAFT_NAME = '候选A-25'
 
 
@@ -152,6 +153,24 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertEqual(len(cues), len(texts))
         self.assertEqual(cues, [style['text'] for style in texts])
         self.assertNotIn('。', normalized.read_text(encoding='utf-8'))
+
+    def test_long_unsplit_subtitle_refuses_before_draft_creation(self):
+        root = self.build_root(srt='1\n00:00:00,000 --> 00:00:04,000\n'
+                                   '孕八周。指标目前正常，但你最近睡眠不太好，注意休息。\n')
+        with self.assertRaisesRegex(self.module.DraftInputError, '分句.*时间'):
+            self.generate(root)
+        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+
+    def test_draft_segments_keep_short_speech_spans_and_pauses(self):
+        srt = ('1\n00:00:00,100 --> 00:00:00,300\n甲。\n\n'
+               '2\n00:00:00,500 --> 00:00:00,700\n乙！\n\n'
+               '3\n00:00:02,200 --> 00:00:02,400\n丙。\n')
+        content = self.generate_content(self.build_root(srt=srt))
+        segments = self.segments(content, 'text')
+        spans = [(segment['target_timerange']['start'],
+                  segment['target_timerange']['start'] + segment['target_timerange']['duration'])
+                 for segment in segments]
+        self.assertEqual(spans, [(100_000, 300_000), (500_000, 700_000), (2_200_000, 2_400_000)])
 
     def test_a_timeline_that_disagrees_with_the_audio_is_refused(self):
         fifteen_seconds = {'clips': [{'shot': shot, 'start_us': (shot - 1) * 5_000_000,

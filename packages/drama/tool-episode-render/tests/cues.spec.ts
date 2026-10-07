@@ -52,6 +52,27 @@ describe('placeAlignedCues', () => {
     ])
   })
 
+  it('keeps short speech spans without delaying the next line', () => {
+    const placement = placeAlignedCues(1, ['甲', '乙'], [
+      { text: '甲', startSeconds: 0.1, endSeconds: 0.3 },
+      { text: '乙', startSeconds: 0.5, endSeconds: 0.7 },
+    ], 10, 1.2)
+    expect(placement.defect).toBe('')
+    expect(placement.cues.map(cue => [cue.startSeconds, cue.endSeconds])).toEqual([[10.1, 10.3], [10.5, 10.7]])
+  })
+
+  it('rejects a negative clip-relative start instead of moving it to zero', () => {
+    const placement = placeAlignedCues(1, ['甲'], [{ text: '甲', startSeconds: -0.1, endSeconds: 0.2 }], 10, 1)
+    expect(placement.cues).toEqual([])
+    expect(placement.defect).not.toBe('')
+  })
+
+  it('rejects a span too short to survive SRT millisecond rounding', () => {
+    const placement = placeAlignedCues(1, ['甲'], [{ text: '甲', startSeconds: 0.1, endSeconds: 0.1001 }], 0, 1)
+    expect(placement.cues).toEqual([])
+    expect(placement.defect).not.toBe('')
+  })
+
   it('ignores whitespace the recognizer added where the script has none', () => {
     const placement = placeAlignedCues(1, ['第一句'], [{ text: '第 一 句', startSeconds: 0, endSeconds: 1 }], 0, 2)
     expect(placement.defect).toBe('')
@@ -76,19 +97,19 @@ describe('placeAlignedCues', () => {
     expect(placement.defect).toContain('对齐时间无效')
   })
 
-  it('keeps cues ordered when a recognizer reports overlapping stretches', () => {
+  it('rejects overlapping recognized stretches instead of moving speech boundaries', () => {
     const placement = placeAlignedCues(1, ['第一句', '第二句'], [
       { text: '第一句', startSeconds: 0.2, endSeconds: 1.4 },
       { text: '第二句', startSeconds: 1.1, endSeconds: 1.9 },
     ], 0, 3)
-    // The second cue starts where the first ended, and the shortest cue length
-    // still applies, so an overlap never reaches the SRT writer.
-    expect(placement.cues.map(cue => [cue.startSeconds, cue.endSeconds])).toEqual([[0.2, 1.4], [1.4, 2.2]])
+    expect(placement.cues).toEqual([])
+    expect(placement.defect).toContain('重叠')
   })
 
-  it('clamps a stretch that runs past the end of its shot', () => {
+  it('rejects a stretch that runs past the end of its shot', () => {
     const placement = placeAlignedCues(1, ['第一句'], [{ text: '第一句', startSeconds: 3, endSeconds: 9 }], 0, 4)
-    expect(placement.cues[0]?.endSeconds).toBe(4)
+    expect(placement.cues).toEqual([])
+    expect(placement.defect).toContain('超出镜头范围')
   })
 })
 
@@ -328,7 +349,7 @@ describe('drama_render subtitles', () => {
     }, settingsWith(stub.channel))
 
     expect(report.ok).toBe(false)
-    expect(report.failures.join('\n')).toContain('时长不是正数')
+    expect(report.failures.join('\n')).toContain('超出镜头范围')
   })
 
   it('refuses a shot number the manifest does not contain', async () => {

@@ -2,6 +2,8 @@
 
 The script retains the declared dialogue and aligns it to word timestamps from
 Muse cloud transcription receipts. Source SHA-256 must match the current shot.
+Fully matched lines retain their measured spans. Invalid, overlapping or
+out-of-clip anchors fail rather than being compressed into an aligned result.
 Explicit local model arguments remain available for an offline installation;
 the default path never downloads or loads a local recognition model.
 
@@ -221,7 +223,17 @@ def place(lines: list, anchors: list, shot_end: float) -> tuple:
         index = run_end
 
     found = sum(1 for item in anchors if item is not None)
-    strategy = ALL_ALIGNED if found == len(lines) else ("anchored" if found else "estimated_total")
+    if found == len(lines):
+        clock = 0.0
+        for index, (start, end) in enumerate(cues, start=1):
+            if (not math.isfinite(start) or not math.isfinite(end)
+                    or start < clock or end <= start or end > shot_end):
+                raise SystemExit(f"第 {index} 条已识别字幕的时间无效、重叠或超出镜头："
+                                 f"{start}–{end} / {shot_end} 秒。请核对同版成片和字词时间，"
+                                 "不得压缩或重排后标为 asr_aligned。")
+            clock = end
+        return cues, ALL_ALIGNED
+    strategy = "anchored" if found else "estimated_total"
     return settle(cues, shot_end), strategy
 
 

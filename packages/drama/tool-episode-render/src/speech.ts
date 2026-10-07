@@ -14,7 +14,7 @@
  * @module @deepseek-ai/dsh-tool-episode-render/speech
  */
 
-/** Shortest cue written to the delivery. */
+/** Advisory reading interval; measured alignment spans are never extended to it. */
 export const MIN_CUE_SECONDS = 0.8
 
 
@@ -111,6 +111,8 @@ function toMilliseconds(seconds: number): number {
  * Place one shot's lines on times an outside alignment already measured.
  *
  * The alignment proves where each line is spoken; it never supplies the words.
+ * Measured spans receive only the clip offset and millisecond rounding. Invalid,
+ * overlapping or out-of-clip spans return a defect rather than being retimed.
  * @param shot - Shot number.
  * @param lines - The shot's lines, in spoken order.
  * @param aligned - The recognized stretches for this shot, in time order.
@@ -135,10 +137,8 @@ export function placeAlignedCues(
         + '这份对齐不是为当前台词做的，请用同一版台词重新生成对齐。',
     }
   }
-  const clipEnd = clipStartSeconds + clipDurationSeconds
-  const clamp = (value: number): number => toMilliseconds(Math.min(Math.max(value, clipStartSeconds), clipEnd))
   const cues: PlacedCue[] = []
-  let clock = clipStartSeconds
+  let clock = 0
   for (const [index, text] of spoken.entries()) {
     const stretch = aligned[index] as AlignedCue
     if (withoutSpace(stretch.text) !== withoutSpace(text)) {
@@ -156,10 +156,20 @@ export function placeAlignedCues(
           + `${String(stretch.endSeconds)}）：请检查生成对齐的脚本输出。`,
       }
     }
-    const start = clamp(Math.max(clipStartSeconds + stretch.startSeconds, clock))
-    const end = clamp(Math.max(clipStartSeconds + stretch.endSeconds, start + MIN_CUE_SECONDS))
+    if (stretch.startSeconds < clock || stretch.endSeconds > clipDurationSeconds) {
+      return {
+        ...empty,
+        defect: `镜头 ${String(shot)} 第 ${String(index + 1)} 条对齐时间重叠或超出镜头范围（${String(stretch.startSeconds)}–`
+          + `${String(stretch.endSeconds)}，镜头 ${String(clipDurationSeconds)} 秒）：请核对同版成片并重新对齐，不自动移动语音时间。`,
+      }
+    }
+    const start = toMilliseconds(clipStartSeconds + stretch.startSeconds)
+    const end = toMilliseconds(clipStartSeconds + stretch.endSeconds)
+    if (end <= start) {
+      return { ...empty, defect: `镜头 ${String(shot)} 第 ${String(index + 1)} 条对齐时间不足一毫秒：请重新核对字词时间。` }
+    }
     cues.push({ shot, text, startSeconds: start, endSeconds: end, timingSource: 'asr_aligned' })
-    clock = end
+    clock = stretch.endSeconds
   }
   return { shot, cues, aligned: cues.length, defect: '' }
 }

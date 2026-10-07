@@ -1,0 +1,7 @@
+- insert:
+    - id: tool-episode-render
+      name: '../../../packages/drama/tool-episode-render/src/index.ts'
+      config:
+        ffprobePath: subtitle-timing-fixture-ffprobe
+    - id: subtitle-probe-fixture
+      name: './probe-fixture.mjs'

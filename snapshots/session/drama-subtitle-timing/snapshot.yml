@@ -1,0 +1,11 @@
+version: 1
+scenario: drama-subtitle-timing
+profile: headless
+composition: drama-subtitle-timing
+recording: authored
+header:
+  class: drama-subtitle-timing
+  pin: true
+writerOutput: true
+workspace:
+  final: true

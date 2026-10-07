@@ -71,8 +71,8 @@ export interface BuiltCues {
 }
 
 /**
- * Report cues whose alignment consumes no picture after per-shot clamping.
- * @param cues - Ordered cues already clamped to their non-overlapping shot intervals.
+ * Report cues whose placed alignment has no positive display interval.
+ * @param cues - Ordered cues placed inside their own shot intervals.
  * @returns One defect per cue with no positive duration.
  */
 function emptyCueDefects(cues: readonly PlacedCue[]): CueDefect[] {

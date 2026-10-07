@@ -97,6 +97,25 @@ class PlaceTests(unittest.TestCase):
         self.assertEqual(strategy, 'asr_aligned')
         self.assertEqual(len(cues), 2)
 
+    def test_short_matched_lines_keep_their_measured_spans(self):
+        anchors = [(0.1, 0.3), (0.5, 0.7)]
+        cues, strategy = ALIGN.place(['甲', '乙'], anchors, 1.2)
+        self.assertEqual(strategy, 'asr_aligned')
+        self.assertEqual(cues, anchors)
+
+    def test_matched_spans_outside_the_clip_are_not_compressed(self):
+        with self.assertRaisesRegex(SystemExit, '时间'):
+            ALIGN.place(['甲', '乙'], [(0.2, 0.4), (1.1, 1.3)], 1.2)
+
+    def test_matched_spans_that_overlap_are_not_retimed(self):
+        with self.assertRaisesRegex(SystemExit, '时间'):
+            ALIGN.place(['甲', '乙'], [(0.1, 0.6), (0.5, 0.7)], 1.2)
+
+    def test_matched_spans_with_invalid_times_are_rejected(self):
+        for span in [(-0.1, 0.2), (0.2, 0.2), (float('nan'), 0.5), (0.1, float('inf'))]:
+            with self.subTest(span=span), self.assertRaisesRegex(SystemExit, '时间'):
+                ALIGN.place(['甲'], [span], 1.2)
+
     def test_a_shot_without_lines_places_nothing(self):
         self.assertEqual(ALIGN.place([], [], 2.0), ([], 'no_lines'))
 
