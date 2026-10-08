@@ -19,7 +19,7 @@ import { parseShotManifest, readJsonDocument, resolveShots } from './prepare.ts'
 import type { ResolvedShot } from './prepare.ts'
 import { ALIGNED_STRATEGY, cueRateFindings, effectiveCharacterCount, parseAlignment, parseLinePlan,
   placeAlignedCues } from './speech.ts'
-import type { CueRateFinding, PlacedCue, ShotPlacement } from './speech.ts'
+import type { CueRateFinding, ShotPlacement } from './speech.ts'
 import { formatSrtDocument } from './subtitles.ts'
 import { appendClips } from './timeline.ts'
 import type { MediaToolkit, SubtitleCue, Timeline } from './types.ts'
@@ -68,27 +68,6 @@ export interface BuiltCues {
   readonly failures: readonly CueDefect[]
   /** One Chinese line per non-blocking observation. */
   readonly warnings: readonly string[]
-}
-
-/**
- * Report cues whose placed alignment has no positive display interval.
- * @param cues - Ordered cues placed inside their own shot intervals.
- * @returns One defect per cue with no positive duration.
- */
-function emptyCueDefects(cues: readonly PlacedCue[]): CueDefect[] {
-  const defects: CueDefect[] = []
-  for (const cue of cues) {
-    const fix = '请复核该镜的成片与台词计划，并用同一版台词重新生成对齐；不要手工改 SRT。'
-    if (cue.endSeconds - cue.startSeconds <= 0) {
-      defects.push({
-        id: 'subtitle_timing',
-        detail: `镜头 ${String(cue.shot)} 的“${cue.text}”时长不是正数`
-          + `（${cue.startSeconds.toFixed(3)}s–${cue.endSeconds.toFixed(3)}s）。`,
-        fix,
-      })
-    }
-  }
-  return defects
 }
 
 /**
@@ -197,7 +176,6 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
       warnings.push(`${detail}偏快，请试听复核。`)
     }
   }
-  failures.push(...emptyCueDefects(placed))
 
   const cues: SubtitleCue[] = placed.map((cue, index) => ({
     index: index + 1,
