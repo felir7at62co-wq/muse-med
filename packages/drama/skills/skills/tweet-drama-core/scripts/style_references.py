@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -38,6 +39,48 @@ def import_references(project: Path, role_id: str, name: str, role_class: str, i
                               "queries": [], "style_reference_status": "pending_review",
                               "review_authority": "user_confirmation", "review_reason": "",
                               "candidates": records}
+    _write(project, data)
+
+
+def import_library_pair(project: Path, role_id: str, name: str, role_class: str,
+                        library_root: Path, face_id: int, body_id: int) -> None:
+    """Archive exactly one checked face and one checked outfit from the local library."""
+    project = project.resolve()
+    library_root = library_root.resolve()
+    _validate_role_details(role_id, name, role_class)
+    library_scripts = Path(__file__).resolve().parents[2] / "jubian-asset-library" / "scripts"
+    if not library_scripts.is_dir():
+        raise ValueError("Bundled character library scripts are missing")
+    sys.path.insert(0, str(library_scripts))
+    try:
+        from character_candidates import pair
+        selected = pair(library_root, face_id, body_id)
+    finally:
+        sys.path.pop(0)
+    data = _load(project)
+    records = []
+    for kind in ("face", "body"):
+        choice = selected[kind]
+        source = Path(choice["local_path"])
+        archived, digest = _archive_image(project, source)
+        records.append({
+            "note_id": f"library-{kind}-{choice['asset_id']}-{digest}",
+            "origin": "library",
+            "library_asset_id": choice["asset_id"],
+            "library_kind": kind,
+            "source_relative_path": source.relative_to(library_root).as_posix(),
+            "title": choice["name"],
+            "local_image_paths": [archived.relative_to(project).as_posix()],
+            "review_status": "pending_review",
+            "review_reason": "",
+            "extracted_visual_elements": {},
+        })
+    data["roles"][role_id] = {
+        "role_name": name, "role_class": role_class, "queries": [],
+        "style_reference_status": "pending_review",
+        "review_authority": "user_confirmation", "review_reason": "",
+        "candidates": records,
+    }
     _write(project, data)
 
 
@@ -157,6 +200,17 @@ def validate_role(project: Path, role: dict) -> None:
         elif origin == "user_supplied":
             if authority != "user_confirmation":
                 raise ValueError("User-supplied reference needs traceable user confirmation")
+        elif origin == "library":
+            if authority != "user_confirmation":
+                raise ValueError("Library references need traceable user confirmation")
+            asset_id = candidate.get("library_asset_id")
+            kind = candidate.get("library_kind")
+            relative = candidate.get("source_relative_path")
+            if (not isinstance(asset_id, int) or asset_id <= 0 or kind not in {"face", "body"}
+                    or not _text(relative) or not relative.startswith(
+                        "faces/" if kind == "face" else "fullbody/"
+                    )):
+                raise ValueError("Library reference provenance is incomplete")
         else:
             raise ValueError("Unknown reference origin")
         paths = candidate.get("local_image_paths")
@@ -172,8 +226,10 @@ def validate_role(project: Path, role: dict) -> None:
             note_id = candidate.get("note_id", "")
             if not isinstance(note_id, str) or not note_id:
                 raise ValueError("Reference identity is missing")
-            prefix = "online-" if origin == "online" else "local-"
-            if (origin == "online" or note_id.startswith("local-")) and note_id != prefix + hashlib.sha256(path.read_bytes()).hexdigest():
+            prefix = ("online-" if origin == "online" else
+                      f"library-{candidate['library_kind']}-{candidate['library_asset_id']}-"
+                      if origin == "library" else "local-")
+            if (origin in {"online", "library"} or note_id.startswith("local-")) and note_id != prefix + hashlib.sha256(path.read_bytes()).hexdigest():
                 raise ValueError("Reference image changed; repeat review and confirmation")
         accepted += 1
     if not accepted:
@@ -206,6 +262,12 @@ def main() -> int:
     online.add_argument("--usage-rights-reason", required=True)
     online.add_argument("--title", default="")
     online.add_argument("--append", action="store_true")
+    library = commands.add_parser("import-library")
+    library.add_argument("--name", required=True)
+    library.add_argument("--role-class", choices=["lead", "important_support", "support", "extra"], required=True)
+    library.add_argument("--library-root", type=Path, required=True)
+    library.add_argument("--face-id", type=int, required=True)
+    library.add_argument("--body-id", type=int, required=True)
     commands.add_parser("check")
     args = parser.parse_args()
     try:
@@ -216,6 +278,9 @@ def main() -> int:
                                     args.image, args.source_page, args.image_url,
                                     args.license_name, args.license_url,
                                     args.usage_rights_reason, title=args.title, append=args.append)
+        elif args.command == "import-library":
+            import_library_pair(args.project, args.role_id, args.name, args.role_class,
+                                args.library_root, args.face_id, args.body_id)
         else:
             check_references(args.project, args.role_id)
     except (ValueError, OSError) as exc:

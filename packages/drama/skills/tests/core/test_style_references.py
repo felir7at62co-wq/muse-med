@@ -13,6 +13,60 @@ sys.path.insert(0, str(SCRIPTS))
 
 
 class StyleReferencesTests(unittest.TestCase):
+    def test_library_pair_preserves_asset_provenance_and_originals(self):
+        import style_references as refs
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            library = root / "library"
+            index = library / "index"
+            index.mkdir(parents=True)
+            for name, rows in {
+                "assets.jsonl": [
+                    {"asset_id": 11, "asset_type_label": "character", "asset_name": "村民",
+                     "style_label": "realistic"},
+                    {"asset_id": 12, "asset_type_label": "character", "asset_name": "西装",
+                     "style_label": "realistic"},
+                ],
+                "face-manifest.jsonl": [
+                    {"asset_id": 11, "status": "ok", "file": "faces/11/11_f0.png",
+                     "label_parts": {"face": {"gender": "男", "age": 30}}},
+                ],
+                "fullbody-manifest.jsonl": [
+                    {"asset_id": 12, "status": "ok", "file": "fullbody/12/12_body.png"},
+                ],
+            }.items():
+                (index / name).write_text(
+                    "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+                    encoding="utf-8",
+                )
+            face = library / "faces/11/11_f0.png"
+            body = library / "fullbody/12/12_body.png"
+            for path, color in ((face, "red"), (body, "blue")):
+                path.parent.mkdir(parents=True)
+                Image.new("RGB", (16, 16), color).save(path)
+            before = (face.read_bytes(), body.read_bytes())
+            project = root / "project"
+            refs.import_library_pair(project, "hero", "主角", "lead", library, 11, 12)
+            data_path = project / "asset_style_references.json"
+            data = json.loads(data_path.read_text(encoding="utf-8"))
+            role = data["roles"]["hero"]
+            self.assertEqual([c["library_asset_id"] for c in role["candidates"]], [11, 12])
+            self.assertEqual([c["library_kind"] for c in role["candidates"]], ["face", "body"])
+            self.assertEqual(role["review_authority"], "user_confirmation")
+            with self.assertRaises(ValueError):
+                refs.check_references(project, "hero")
+            role.update(style_reference_status="approved",
+                        review_reason="User selected face 11 and outfit 12 in this conversation")
+            for candidate in role["candidates"]:
+                candidate.update(review_status="approved", review_reason="Matches the role",
+                                 extracted_visual_elements={"use": candidate["library_kind"]})
+            data_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            refs.check_references(project, "hero")
+            self.assertEqual((face.read_bytes(), body.read_bytes()), before)
+            role["candidates"][0]["library_asset_id"] = 99
+            with self.assertRaises(ValueError):
+                refs.validate_role(project, role)
+
     def test_online_reference_requires_source_rights_and_agent_review(self):
         import style_references as refs
         with tempfile.TemporaryDirectory() as temp:

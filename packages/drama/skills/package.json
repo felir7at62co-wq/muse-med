@@ -17,6 +17,7 @@
     "skills/jubian-asset-library/scripts/download_and_tag_project.py",
     "skills/jubian-asset-library/scripts/retry_failed.py",
     "skills/jubian-asset-library/scripts/search_assets.py",
+    "skills/jubian-asset-library/scripts/character_candidates.py",
     "skills/jubian-snatch/SKILL.md",
     "skills/jubian-snatch/references/api-notes.md",
     "skills/jubian-snatch/scripts/check_pool_live.py",
@@ -95,6 +96,6 @@
     "skills/tweet-drama-voice-continuity/scripts/extract_voice_reference.py"
   ],
   "scripts": {
-    "test": "python -B -m unittest tests/test_resources.py tests/test_skill_suite.py tests/helpers/test_helper_migration.py tests/creation/test_creation_resources.py tests/render/test_portability.py tests/render/test_align_subtitles.py tests/render/test_draft_preservation.py tests/render/test_subtitle_contracts.py tests/render/test_draft_delivery_contract.py && python -B -m unittest discover -s tests/core && python -B -m unittest discover -s tests/jubian_snatch"
+    "test": "python -B -m unittest tests/test_resources.py tests/test_character_library.py tests/test_skill_suite.py tests/helpers/test_helper_migration.py tests/creation/test_creation_resources.py tests/render/test_portability.py tests/render/test_align_subtitles.py tests/render/test_draft_preservation.py tests/render/test_subtitle_contracts.py tests/render/test_draft_delivery_contract.py && python -B -m unittest discover -s tests/core && python -B -m unittest discover -s tests/jubian_snatch"
   }
 }

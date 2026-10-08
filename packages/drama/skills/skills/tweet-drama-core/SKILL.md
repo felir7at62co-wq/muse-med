@@ -28,7 +28,7 @@ stable_id、type、name、aliases、episodes、prompt、review、review_attempts
 
 ## 资产参考搜索
 
-缺角色（含主角）、场景、道具或全剧视觉参考时，Agent 主动用 `web_search` 搜索，再用 `web_fetch` 阅读来源，依据剧本事实和项目风格提炼参考元素；不用等待用户先提供图片。已有合格正式资产直接复用，已有用户指定参考优先沿用，不重复搜索或收费重生。角色服化道按[参考图流程](references/style-references.md)实看、归档和审核，收费生图前运行 `style_references.py <项目目录> <role_id> check`；场景和道具在项目参考记录中保存来源、采用元素与使用判断，不伪装成角色传给此脚本。没有可用结果才报告具体缺项并向用户索取；不自动启动小红书。网上参考只辅助生成，不能直接作为正式资产或真人身份；生成后仍按正式资产流程审核与确认。
+缺角色（含主角）、场景、道具或全剧视觉参考时，Agent 先查本项目正式资产与已指定参考，再用 `jubian-asset-library` 检索本地素材；仍缺时主动用 `web_search` 搜索、`web_fetch` 阅读来源，依据剧本事实和项目风格提炼参考元素，不重复收费重生。角色服化道按[参考图流程](references/style-references.md)实看、归档和审核：网上图用 `style_references.py import-online`，已确认的人脸与全身素材对用 `import-library`；收费生图前运行 `style_references.py <项目目录> <role_id> check`。场景和道具在项目参考记录中保存来源、采用元素与使用判断，不伪装成角色传给此脚本。没有可用结果才报告具体缺项并向用户索取；不自动启动小红书。网上参考只辅助生成，不能直接作为正式资产或真人身份；生成后仍按正式资产流程审核与确认。
 
 ## 视频禁用标签
 
