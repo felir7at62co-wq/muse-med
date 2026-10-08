@@ -41,7 +41,8 @@ export interface EpisodeRender {
  */
 export function renderEpisode(project: ProjectFile, scenes: ProjectFile['candidates'][number]['scenes'], previous: Record<string, string[]>, episode: number): EpisodeRender {
   const knowledge = structuredClone(previous)
-  const facts = new Map(project.facts.filter(fact => fact.review?.decision === 'approve').map(fact => [fact.id, fact]))
+  const facts = new Map(project.facts.filter(fact => fact.review?.decision === 'approve' && fact.withdrawal === undefined).map(fact => [fact.id, fact]))
+  const withdrawn = new Set(project.facts.filter(fact => fact.withdrawal !== undefined).map(fact => fact.id))
   const output: string[] = [`第${episode}集`]
   const lines: ScriptLine[] = []
   let prior: ProjectFile['candidates'][number]['scenes'][number] | undefined
@@ -89,6 +90,7 @@ export function renderEpisode(project: ProjectFile, scenes: ProjectFile['candida
       if (beat.fact_ids.length === 0) throw Error('missing_evidence: 每条正文须引用已审校事实。')
       const referenced = beat.fact_ids.map((id) => {
         const fact = facts.get(id)
+        if (withdrawn.has(id)) throw Error(`withdrawn_fact: ${id} 已撤销，请读取更正事实。`)
         if (fact === undefined) throw Error(`unapproved_fact: ${id}`)
         if (fact.layer !== scene.layer && !(beat.kind === 'vo' && fact.layer === 'commentary')) {
           throw Error(`narrative_layer: ${id} 属于 ${fact.layer}，当前场次为 ${scene.layer}。`)

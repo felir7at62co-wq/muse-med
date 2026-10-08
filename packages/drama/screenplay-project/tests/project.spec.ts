@@ -11,6 +11,7 @@ import sharp from 'sharp'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ActorId } from '../src/ids.ts'
 import { ProjectCommands } from '../src/project.ts'
+import { sha256 } from '../src/episode.ts'
 import { PROJECT_FILE } from '../src/schema.ts'
 import type { FactInput, ProjectRequest, SceneInput } from '../src/schema.ts'
 
@@ -78,6 +79,91 @@ it('rejects an author judgement converted into a character OS without advancing 
   const before = await readFile(path, 'utf8')
   await expect(stage([scene(id)])).rejects.toThrow(/narrative_layer|os_attribution/)
   expect(await readFile(path, 'utf8')).toBe(before)
+})
+
+it('withdraws mistaken approval without erasing its review and blocks reuse in a new draft', async () => {
+  const id = await fact('thought', 1, '甲')
+  const before = await current()
+  await run({ method: 'withdraw_fact', project: path, expected_revision: before.revision, fact_id: id,
+    reason: '独立复核发现原判断不成立；更正事实另行提交。' }, 'verifier')
+  const after = await current()
+  expect(after.revision).toBe(before.revision + 1)
+  expect(after.facts[0]!.review).toEqual(before.facts[0]!.review)
+  expect(after.facts[0]!.withdrawal).toMatchObject({ actor: 'verifier', reason: '独立复核发现原判断不成立；更正事实另行提交。' })
+  await expect(stage([scene(id)])).rejects.toThrow('withdrawn_fact')
+  await expect(run({ method: 'withdraw_fact', project: path, expected_revision: after.revision, fact_id: id,
+    reason: '重复撤销。' }, 'verifier')).rejects.toThrow('fact_withdrawn')
+  expect(await current()).toEqual(after)
+})
+
+it('rejects absent, unapproved, self-authored or unexplained withdrawals before publication', async () => {
+  const id = await fact('thought', 1, '甲')
+  const before = await readFile(path, 'utf8')
+  const request = { method: 'withdraw_fact', project: path, expected_revision: (await current()).revision,
+    fact_id: id, reason: '独立复核错误。' } as const
+  await expect(run({ ...request, fact_id: 'missing' }, 'verifier')).rejects.toThrow('fact_approval')
+  await expect(run(request)).rejects.toThrow('self_review')
+  await expect(run({ ...request, reason: '  ' }, 'verifier')).rejects.toThrow('review_reason')
+  expect(await readFile(path, 'utf8')).toBe(before)
+  const rejected = await current()
+  rejected.facts[0]!.review!.decision = 'reject'
+  await writeFile(path, JSON.stringify(rejected))
+  await expect(run(request, 'verifier')).rejects.toThrow('fact_approval')
+})
+
+it('requires a revision fork when a mistaken fact already supports a candidate and preserves the original export', async () => {
+  const id = await fact('thought', 1, '甲')
+  const candidate = await stage([scene(id)])
+  await approveAndCommit(candidate.id, candidate.sha256)
+  const directory = join(root, 'original-final')
+  await run({ method: 'export', project: path, candidate_id: candidate.id, directory })
+  const exported = join(directory, `episode-1-${candidate.id.slice(2)}.md`)
+  const original = await readFile(path, 'utf8'), text = await readFile(exported, 'utf8')
+  await expect(run({ method: 'withdraw_fact', project: path, expected_revision: (await current()).revision,
+    fact_id: id, reason: '原事实错误。' }, 'verifier')).rejects.toThrow('fact_in_history')
+  const destination = join(root, 'correction.json')
+  await run({ method: 'fork_project', project: path, expected_revision: (await current()).revision,
+    destination, before_episode: 1 })
+  await run({ method: 'withdraw_fact', project: destination, expected_revision: 0, fact_id: id,
+    reason: '在修订项目中撤销，不改原版本。' }, 'verifier')
+  expect(await readFile(path, 'utf8')).toBe(original)
+  expect(await readFile(exported, 'utf8')).toBe(text)
+  expect(PROJECT_FILE.parse(JSON.parse(await readFile(destination, 'utf8'))).facts[0]!.withdrawal).toBeDefined()
+})
+
+it('protects knowledge prerequisites as well as direct references when withdrawing facts', async () => {
+  const prior = await fact('thought', 1, '甲'), later = await fact('thought', 1, '甲')
+  const first = await stage([scene(prior)])
+  await approveAndCommit(first.id, first.sha256)
+  const next = scene(later)
+  next.beats[0]!.requires_knowledge = [prior]
+  await run({ method: 'stage', project: path, expected_revision: (await current()).revision, episode: 2, scenes: [next] })
+  const stored = await current()
+  stored.candidates.reverse()
+  await writeFile(path, JSON.stringify(stored))
+  await expect(run({ method: 'withdraw_fact', project: path, expected_revision: stored.revision,
+    fact_id: prior, reason: '检查知情引用。' }, 'verifier')).rejects.toThrow('fact_in_history')
+})
+
+it('rejects malformed persisted withdrawals and permits withdrawing facts unrelated to a saved candidate', async () => {
+  const kept = await fact('thought', 1, '甲'), unused = await fact('thought', 1, '甲')
+  await stage([scene(kept)])
+  const original = await current()
+  for (const [id, actor, decision] of [[unused, 'writer', 'approve'], [unused, 'verifier', 'reject'], [kept, 'verifier', 'approve']] as const) {
+    const invalid = structuredClone(original), record = invalid.facts.find(item => item.id === id)!
+    record.review!.decision = decision
+    record.withdrawal = { actor: brandString<ActorId>(actor), time: new Date().toISOString(), reason: '更正。' }
+    await writeFile(path, JSON.stringify(invalid))
+    await expect(run({ method: 'status', project: path })).rejects.toThrow('invalid_withdrawal')
+  }
+  await writeFile(path, JSON.stringify(original))
+  await run({ method: 'withdraw_fact', project: path, expected_revision: original.revision, fact_id: unused,
+    reason: '无候选依赖的旧事实撤销。' }, 'verifier')
+  const saved = await current()
+  expect(saved.candidates).toEqual(original.candidates)
+  expect(saved.facts.find(item => item.id === unused)!.withdrawal).toBeDefined()
+  expect(sha256(JSON.stringify({ episode: saved.candidates[0]!.episode, scenes: saved.candidates[0]!.scenes })))
+    .toBe(saved.candidates[0]!.sha256)
 })
 
 it('rejects another character’s private thought and never informs an on-scene listener', async () => {

@@ -94,6 +94,9 @@ export const REQUEST = {
       method: { type: 'string', const: 'review_fact', required: true }, ...mutation, fact_id: string, ...review,
     } },
     { type: 'object', additionalProperties: false, properties: {
+      method: { type: 'string', const: 'withdraw_fact', required: true }, ...mutation, fact_id: string, reason: string,
+    } },
+    { type: 'object', additionalProperties: false, properties: {
       method: { type: 'string', const: 'stage', required: true }, ...mutation, episode: integer,
       scenes: { type: 'array', items: scene, required: true },
     } },
@@ -166,6 +169,7 @@ export const FACT_RECORD = z.strictObject({
   summary: nonempty, anchors: z.array(z.strictObject({ unit_id: unitId, quote: nonempty })),
   adaptation_reason: nonempty.optional(), proposer: actorId, created_at: timestamp,
   review: reviewRecord.optional(),
+  withdrawal: z.strictObject({ actor: actorId, time: timestamp, reason: nonempty }).optional(),
 })
 /** One complete drafted scene parsed from candidate records or a bounded JSON file. */
 export const SCENE_RECORD = z.strictObject({

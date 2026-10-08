@@ -8,7 +8,7 @@ import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { PROJECT_FILE, TRANSCRIPT, VIDEO_INSPECTION, FACT_RECORD, CANDIDATE_RECORD, SCENE_RECORD } from './schema.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { ActorId, SourceId, UnitId } from './ids.ts'
+import type { ActorId, FactId, SourceId, UnitId } from './ids.ts'
 import type { ProjectFile, ProjectRequest, ProjectSource } from './schema.ts'
 import { acceptedCandidates, acceptedKnowledge, renderEpisode, sha256 } from './episode.ts'
 
@@ -41,6 +41,10 @@ interface Loaded {
   project: ProjectFile
 }
 
+function referencesFact(candidate: ProjectFile['candidates'][number], id: FactId): boolean {
+  return candidate.scenes.some(scene => scene.beats.some(beat => beat.fact_ids.includes(id) || beat.requires_knowledge.includes(id)))
+}
+
 /** Project operations using the mounted filesystem; each mutation publishes one guarded JSON file. */
 export class ProjectCommands {
   constructor(private readonly fs: FileSystem, private readonly limits: ProjectLimits, private readonly attachments: AttachmentStore) {}
@@ -64,6 +68,10 @@ export class ProjectCommands {
     for (const fact of project.facts) {
       this.validateFact(project, fact, units)
       if (fact.review?.actor === fact.proposer) throw Error('invalid_project: 事实由提交者自行批准。')
+      if (fact.withdrawal !== undefined && (fact.review?.decision !== 'approve' || fact.withdrawal.actor === fact.proposer
+        || project.candidates.some(candidate => referencesFact(candidate, fact.id)))) {
+        throw Error('invalid_withdrawal: 撤销须独立进行，保留原批准记录且不能更改已有候选的事实。')
+      }
     }
     for (const candidate of project.candidates) {
       if (candidate.sha256 !== sha256(JSON.stringify({ episode: candidate.episode, scenes: candidate.scenes }))) {
@@ -294,6 +302,19 @@ export class ProjectCommands {
         })
         await this.save(loaded, exec)
         return request.method === 'review_fact' ? { revision: project.revision, fact: facts[0] } : { revision: project.revision, facts }
+      }
+      case 'withdraw_fact': {
+        const fact = project.facts.find(item => item.id === request.fact_id)
+        if (fact === undefined || fact.review?.decision !== 'approve') throw Error('fact_approval: 仅可撤销已批准的事实。')
+        if (fact.withdrawal !== undefined) throw Error('fact_withdrawn: 该事实已经撤销。')
+        if (fact.proposer === exec.actor) throw Error('self_review: 事实提交者不能自行撤销审批。')
+        if (!request.reason.trim()) throw Error('review_reason: 请记录事实错误及其来源核对。')
+        if (project.candidates.some(candidate => referencesFact(candidate, fact.id))) {
+          throw Error('fact_in_history: 事实已被候选引用；先 fork_project 到最早受影响集之前，再撤销并重提事实。')
+        }
+        fact.withdrawal = { actor: exec.actor, time: new Date().toISOString(), reason: request.reason }
+        await this.save(loaded, exec)
+        return { revision: project.revision, fact }
       }
       case 'stage':
       case 'stage_files': {

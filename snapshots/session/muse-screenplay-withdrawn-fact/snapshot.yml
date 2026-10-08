@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-screenplay-withdrawn-fact
+profile: headless
+composition: muse-screenplay-withdrawn-fact
+recording: authored
+header:
+  class: muse-screenplay-withdrawn-fact
+  pin: true
+writerOutput: true

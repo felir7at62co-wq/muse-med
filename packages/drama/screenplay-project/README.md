@@ -70,6 +70,8 @@ Scene `characters` and beat `actor` retain exact undecorated names. `voice_only_
 
 `fork_project` starts a revision in a new destination file before a chosen accepted episode, or before the next episode. It retains the original direction, verified sources, fact history and accepted ancestors; it records the exact parent file digest and revision. Later episodes must be rewritten and independently reviewed in order. The original project and exports remain unchanged, and an existing destination is refused.
 
+`withdraw_fact` independently withdraws an erroneous approved fact while retaining its original review. Withdrawn facts remain readable but cannot support new scenes. A fact already cited by any saved candidate, including its knowledge prerequisites, requires a fork before the earliest affected episode; the original candidate and export remain readable in their original project. The correcting writer proposes a replacement fact for independent review. Withdrawal records are host-owned, reject changes by the original proposer, and cannot alter candidate history.
+
 Rendering uses the accepted episode number and scene order, source-verified interior/exterior settings, and explicit Chinese narrative-layer labels. Omitted settings display as unresolved; the program does not infer them from a place name. A writer may mark one source-backed suspense beat in the final scene with `hook`; semantic review checks its evidence. Source-index line numbers include these headings and the marker. This projection leaves earlier exported files unchanged.
 
 <a id="understand-the-implementation"></a>
