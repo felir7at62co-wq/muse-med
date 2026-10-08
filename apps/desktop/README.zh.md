@@ -245,7 +245,7 @@ production 发布使用产品版本本身，不传 `--build-version`。其上传
 
 Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-sources.json` 中。检查更新优先访问北京公开存储桶 `https://muse.tos-cn-beijing.volces.com/releases/feeds/<target>/`。更新目录或下载不可用时可以切换到 GitHub；只有已确认的版本、载荷大小和 SHA-512 都一致，下载才会继续。校验、磁盘和安装准备错误仍然报告失败。正式版本通过 GitHub 的正式 Latest 发布查找更新；预发布版本保留由自身版本选择的发现通道。辅助运行时发布必须排除在 Latest 之外。Muse 正式发布 Apple Silicon Mac 和 Windows x64 安装包，两个源使用相同的载荷元数据。没有该来源记录的旧包继续使用其已封装的 feed。
 
-未签名 CI 在打包检查之后，将每个安装器、更新载荷、blockmap 和通道文件的哈希记录在 `unsigned-build.json` 中。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求提供 Mac arm64 和 Windows x64 两个目标的目录、真实产品版本和同一个完整源码提交；`--dry-run` 仅校验记录中的哈希，不上传。发布先写入按版本保存的二进制，完整读回公开下载并核对 SHA-256，之后才更新要求缓存重新验证的通道元数据。发布计划同时提供合并后的 GitHub 元数据。请在私有发布环境中配置 `VOLCENGINE_ACCESS_KEY_ID`、`VOLCENGINE_SECRET_ACCESS_KEY` 和 `MUSE_TOS_*` 目标变量；打包过程会从子进程环境中移除 TOS 凭据。
+未签名 CI 允许在拉取请求中进行应用的 ad-hoc 封装，不使用发布者凭据；在打包检查之后，将每个安装器、更新载荷、blockmap 和通道文件的哈希记录在 `unsigned-build.json` 中。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求提供 Mac arm64 和 Windows x64 两个目标的目录、真实产品版本和同一个完整源码提交；`--dry-run` 仅校验记录中的哈希，不上传。发布先写入按版本保存的二进制，完整读回公开下载并核对 SHA-256，之后才更新要求缓存重新验证的通道元数据。发布计划同时提供合并后的 GitHub 元数据。请在私有发布环境中配置 `VOLCENGINE_ACCESS_KEY_ID`、`VOLCENGINE_SECRET_ACCESS_KEY` 和 `MUSE_TOS_*` 目标变量；打包过程会从子进程环境中移除 TOS 凭据。
 
 打包、上传以及手动 macOS 签名检查使用 `apps/desktop/.env.windows` 或 `.env.macos`，由目标平台选择。复制对应的 [Windows 模板](.env.windows.example) 或 [macOS 模板](.env.macos.example)，填写本机配置；Git 忽略这两个本地文件，安装产物也不包含它们。发布字段只从目标文件读取，不回退到系统或 shell 中的同名变量；`PATH`、代理和构建工具环境仍保留。发布版本是命令参数而非发布字段，上传从打包写下的完成记录中读取它。文件使用 UTF-8，支持 BOM；相对证书、SignTool、Apple API Key 和钥匙串路径以 `apps/desktop` 为基准，变量值不做 shell 展开，包含 `#` 或空格的密码需要引号。CI 同样在运行前生成目标文件。
 
