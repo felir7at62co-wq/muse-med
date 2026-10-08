@@ -12,6 +12,17 @@ const owner = new URL('../../../packages/host/muse-account/package.json', import
 const account = await importSnapshotModule(new URL('../../../packages/host/muse-account/src/index.ts', import.meta.url),
   new URL('../../../packages/host/muse-account/lib/types/index.js', import.meta.url))
 const { defineContentToolFixture } = await importSnapshotPackage('@deepseek-ai/dsh-tools', owner)
+const { LlmAdapter } = await importSnapshotPackage('@deepseek-ai/dsh-llm', owner)
+
+class PersonalAdapter extends LlmAdapter {
+  listModels() {
+    return Promise.resolve([{ provider: 'personal', id: 'gemini-personal', name: 'Personal Gemini' }])
+  }
+
+  stream() {
+    throw new Error('The personal catalog fixture must not receive model requests')
+  }
+}
 
 /** Loader name for the account-backed model recording. */
 export const name = 'snapshot-selected-account-models'
@@ -33,9 +44,16 @@ function completion(message) {
  * @returns {Promise<void>} Completion after account, tool and stream fixture registration.
  */
 export async function apply(ctx) {
+  const excludedProvider = process.env.DSH_SNAPSHOT_EXCLUDED_ACCOUNT_PROVIDER
+  assert.ok(excludedProvider === undefined || excludedProvider === 'aa')
+  const excludesStandaloneAa = excludedProvider === 'aa'
   const home = await mkdtemp(join(tmpdir(), 'muse-selected-snapshot-'))
   ctx.effect(() => () => rm(home, { recursive: true, force: true }))
   const catalog = desktopModelCatalog({ metadata: () => ({ providers: selectedModelProviders('https://wy6688.token6688.com/v1') }) })
+  if (excludesStandaloneAa) catalog.providers.unshift({ id: 'aa', name: 'Gemini', models: [{
+    id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', contextWindow: 128000, maxTokens: 8192,
+    input: ['text', 'image'], reasoningEfforts: false,
+  }] })
   const recorded = (await readFile(process.env.DSH_SNAPSHOT_FILE, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
   const selection = recorded.find(event => event.type === 'request/header')?.data.header.config
   assert.deepEqual({ provider: selection?.provider, model: selection?.model }, {
@@ -74,6 +92,11 @@ export async function apply(ctx) {
             const result = payload.messages.find(message => message.role === 'tool')
             assert.ok(result?.content.includes('gemini-3.1-pro'))
             assert.ok(result?.content.includes('deepseek-v4-pro'))
+            if (excludesStandaloneAa) {
+              assert.ok(result?.content.includes('"provider":"personal"'))
+              assert.ok(result?.content.includes('gemini-personal'))
+              assert.ok(!result?.content.includes('"provider":"muse-cloud-aa"'))
+            }
           }
           response.writeHead(200, { 'content-type': 'text/event-stream' }); response.end(completion(message)); return
         }
@@ -97,7 +120,9 @@ export async function apply(ctx) {
   await writeFile(profile.patchPath, JSON.stringify([{ id: 'agent-default-model', config: {
     provider: selection.provider, model: selection.model,
   } }]) + '\n')
-  const mounted = ctx.plugin(account, { baseUrl: `http://127.0.0.1:${address.port}`, accountHome: home, remoteAccess: false })
+  if (excludesStandaloneAa) ctx.effect(() => ctx.llm.registerAdapter(['personal'], new PersonalAdapter()))
+  const mounted = ctx.plugin(account, { baseUrl: `http://127.0.0.1:${address.port}`, accountHome: home, remoteAccess: false,
+    ...(excludesStandaloneAa ? { excludedProviderIds: ['aa'] } : {}) })
   await mounted.await()
   const service = ctx.get('museAccount')
   assert.ok(service instanceof account.MuseAccountService)
@@ -109,7 +134,12 @@ export async function apply(ctx) {
     name: 'muse_selected_models', description: 'Read the signed-in Muse account model catalog.', parameters: {},
     async execute() {
       const available = []
+      const providerIds = ctx.llm.listProviders().map(provider => provider.id)
+      assert.deepEqual(providerIds.filter(provider => provider.startsWith('muse-cloud-')), [
+        'muse-cloud-deepseek-official', 'muse-cloud-yunying',
+      ])
       for (const provider of catalog.providers) {
+        if (!providerIds.includes(`muse-cloud-${provider.id}`)) continue
         const models = await ctx.llm.listModels(`muse-cloud-${provider.id}`)
         available.push({ provider: `muse-cloud-${provider.id}`, models: await Promise.all(models.map(async model => {
           const resolved = await ctx.llm.resolveModelInfo(`muse-cloud-${provider.id}`, model.id)
@@ -121,6 +151,13 @@ export async function apply(ctx) {
       assert.deepEqual(available.flatMap(provider => provider.models.map(model => model.id)), [
         'deepseek-flash', 'deepseek-v4-pro', 'gpt-6-sol', 'gpt-6-astra', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5', 'gemini-3.1-pro',
       ])
+      if (excludesStandaloneAa) {
+        assert.equal(catalog.providers[0].id, 'aa')
+        assert.ok(!providerIds.includes('muse-cloud-aa'))
+        const personal = (await ctx.llm.listModels('personal')).map(model => ({ id: model.id, name: model.name }))
+        assert.deepEqual(personal, [{ id: 'gemini-personal', name: 'Personal Gemini' }])
+        available.push({ provider: 'personal', models: personal })
+      }
       return [{ type: 'text', text: JSON.stringify({ default: ctx.agentDefaultModel.currentSelection(), available }) }]
     },
   })))

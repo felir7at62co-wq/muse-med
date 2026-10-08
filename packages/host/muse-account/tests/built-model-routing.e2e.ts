@@ -36,10 +36,15 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
           return
         case '/api/desktop-models/providers':
           response.writeHead(200, { 'content-type': 'application/json' })
-          response.end(JSON.stringify({ providers: [{ id: 'deepseek-official', name: 'DeepSeek', models: [{
-            id: 'deepseek-flash', name: 'DeepSeek-Flash', contextWindow: 1000000, maxTokens: 256000,
-            input: ['text'], reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' },
-          }] }] }))
+          response.end(JSON.stringify({ providers: [
+            { id: 'aa', name: 'Gemini', models: [{ id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash',
+              contextWindow: 128000, maxTokens: 8192, input: ['text'], reasoningEfforts: false }] },
+            { id: 'yunying', name: '云映', models: [{ id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro',
+              contextWindow: 128000, maxTokens: 8192, input: ['text'], reasoningEfforts: false }] },
+            { id: 'deepseek-official', name: 'DeepSeek', models: [{
+              id: 'deepseek-flash', name: 'DeepSeek-Flash', contextWindow: 1000000, maxTokens: 256000,
+              input: ['text'], reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' },
+            }] }] }))
           return
         case '/api/desktop-models/deepseek-official/chat/completions':
           streams.push(request.headers.authorization)
@@ -66,6 +71,10 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
     '../../../../apps/desktop-host/config/desktop.cordis.patch.yml', import.meta.url,
   ))).flatMap(patch => patch.insert ?? []).find(entry => entry.id === 'muse-account')
   if (!Array.isArray(row?.inject)) throw new Error('Muse Desktop model injections are not an array')
+  const productConfig: unknown = row.config
+  if (typeof productConfig !== 'object' || productConfig === null || Array.isArray(productConfig)) {
+    throw new Error('Muse Desktop account configuration is not an object')
+  }
   fixture.ctx.loader.builtins['muse-account-built'] = account
   const id = await fixture.ctx.loader.create({
     name: 'cordis:muse-account-built',
@@ -73,7 +82,7 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
       inject: row.inject.filter((key: unknown): key is string => typeof key === 'string'
         && ['tools', 'llm', 'sessionProjections', 'agentDefaultModel'].includes(key)),
     } : {}),
-    config: { baseUrl, accountHome: home, remoteAccess: false },
+    config: { ...(composition === 'desktop' ? productConfig : {}), baseUrl, accountHome: home, remoteAccess: false },
   })
   await fixture.ctx.loader.await()
   await fixture.ctx.loader.resolve(id).fiber?.await()
@@ -83,6 +92,8 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
   expect(fixture.ctx.tools.schemas().some(tool => tool.name === 'mcp__muse-account__muse_account_status')).toBe(true)
   expect(await service.login({ username: 'alice', password: 'local-test-password', registerIfMissing: false }))
     .toMatchObject({ outcome: 'signed-in', status: { state: 'signed-in', username: 'alice' } })
+  expect(fixture.ctx.llm.listProviders().some(provider => provider.id === 'muse-cloud-aa')).toBe(composition === 'package')
+  expect((await fixture.ctx.llm.listModels('muse-cloud-yunying')).map(model => model.id)).toEqual(['gemini-3.1-pro'])
   expect(fixture.ctx.agentDefaultModel.currentSelection()).toMatchObject({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
   for (const text of ['Continue the script.', 'Continue the next scene.']) {
     const idle = waitForIdle(fixture.ctx, fixture.agent)

@@ -59,6 +59,7 @@ export interface MuseModelsOptions {
   readonly requestTimeoutMs: number
   readonly fetcher?: typeof fetch
   readonly excludedModelPrefixes?: readonly string[]
+  readonly excludedProviderIds?: readonly string[]
 }
 
 /** Own Muse registrations and repair defaults whose matching direct route has no credential. */
@@ -158,6 +159,7 @@ export class MuseModels {
     const providers: Record<string, PiAiProviderProfile> = {}
     const defaults = new Map<string, ReasoningEffortId>()
     for (const provider of data.providers) {
+      if (this.options.excludedProviderIds?.includes(provider.id)) continue
       const id = `muse-cloud-${provider.id}`
       if (Object.hasOwn(providers, id)) throw new MuseGatewayError('gateway-rejected')
       const allowedModels = provider.models.filter(model => !(this.options.excludedModelPrefixes ?? [])

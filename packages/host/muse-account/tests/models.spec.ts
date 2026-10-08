@@ -161,6 +161,39 @@ it('publishes the supplied Gemini and DeepSeek metadata through the browser cata
   expect(browser.failures.filter(group => group.id.startsWith('muse-cloud-'))).toEqual([])
 })
 
+it('excludes only the specified account provider and retains Yunying Gemini and personal adapters', async () => {
+  await login()
+  const entry = suppliedCatalog.providers[0]!.models[0]!
+  const personal = ctx.llm.registerAdapter(['aa'], new PersonalAdapter())
+  try {
+    models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+      excludedProviderIds: ['aa'], fetcher: async () => Response.json({ providers: [
+        suppliedCatalog.providers[0],
+        { id: 'yunying', name: '云映', models: [
+          { ...entry, id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro' },
+          { ...entry, id: 'gpt-5', name: 'GPT 5' },
+          { ...entry, id: 'claude-opus-4-6', name: 'Claude Opus 4.6' },
+        ] },
+        suppliedCatalog.providers[1],
+      ] }) })
+    await models.refresh()
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual([
+      'personal', 'aa', 'muse-cloud-yunying', 'muse-cloud-deepseek-official',
+    ])
+    const browser = await buildModelCatalog(ctx, { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro' })
+    expect(browser.groups.filter(group => group.id.startsWith('muse-cloud-')).map(group => ({
+      id: group.id, models: group.models.map(model => model.id),
+    }))).toEqual([
+      { id: 'muse-cloud-yunying', models: ['gemini-3.1-pro', 'gpt-5', 'claude-opus-4-6'] },
+      { id: 'muse-cloud-deepseek-official', models: ['deepseek-flash'] },
+    ])
+    expect((await assemble(ctx, { provider: 'aa', model: 'gemini-3.8-flash', messages: [] })).finish)
+      .toEqual({ kind: 'stop' })
+    models.dispose()
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal', 'aa'])
+  } finally { personal() }
+})
+
 it.each(['plugin', 'desktop'] as const)('routes an existing unconfigured direct session through the %s Muse scope and records the actual selection and request', async (composition) => {
   const fixture = await oldSessionFixture(false)
   const server = await mockServer([{ events: textEvents }, { events: textEvents }])

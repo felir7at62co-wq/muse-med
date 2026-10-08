@@ -2327,6 +2327,8 @@ export interface Config {
   readonly modelRefreshMs: number
   /** Model ID prefixes excluded from the account-supplied catalog. */
   readonly excludedModelPrefixes: string[]
+  /** Exact provider IDs excluded from the account-supplied catalog; personal adapters are unaffected. */
+  readonly excludedProviderIds: string[]
   /** Product-private account directory; omission selects the active DSH home. */
   readonly accountHome?: string
   /** Timeout for account and knowledge-base gateway requests in milliseconds. */

@@ -9,6 +9,8 @@ English | [中文](README.zh.md)
 
 The private Host supplies the Muse compositions used by the [Desktop application](../desktop/README.md). Its bundled preset files remain ordinary Cordis configuration. User-owned model providers and credentials stay separate from the Muse account catalog.
 
+The Desktop account composition excludes the standalone Gemini provider `aa` through [`excludedProviderIds`](../../packages/host/muse-account/README.md#minimal-configuration). The account picker retains Yunying's `gemini-3.1-pro` and its other supplied models, plus official DeepSeek. Saved standalone Gemini selections require choosing an available model before another request; [the migration guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-gemini-provider/guide.md) describes that step.
+
 The Desktop account composition sets `requestTimeoutMs` to 60,000 milliseconds for gateway and knowledge-base requests, including project portfolio scans. Personal overlays can change this validated account setting; the underlying plugin's default remains 15,000 milliseconds. A timeout still reports an unavailable service and does not establish whether a remote write completed.
 
 ## Compaction defaults
