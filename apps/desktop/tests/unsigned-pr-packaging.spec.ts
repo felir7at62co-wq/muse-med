@@ -23,6 +23,7 @@ it('allows ad-hoc resource sealing for unsigned PR packages without publisher si
     CSC_LINK: '/private/publisher.p12', CSC_KEY_PASSWORD: 'fixture-password' }, true)
   expect(environment).not.toHaveProperty('CSC_LINK')
   expect(environment).not.toHaveProperty('CSC_KEY_PASSWORD')
+  expect(environment.CSC_FOR_PULL_REQUEST).toBe('true')
   const require = createRequire(import.meta.url)
   const result = execFileSync(process.execPath, ['-e',
     'process.stdout.write(String(require(process.argv[1]).isSignAllowed(false)))',
@@ -30,7 +31,7 @@ it('allows ad-hoc resource sealing for unsigned PR packages without publisher si
     env: { ...process.env, CSC_FOR_PULL_REQUEST: undefined, ...environment },
     encoding: 'utf8', timeout: 10_000,
   })
-  expect(result).toBe('true')
+  expect(result).toBe(String(process.platform === 'darwin'))
   const config = createElectronBuilderConfig({ DSH_DESKTOP_APP_ID: 'cn.muse.med',
     DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: 'false', DSH_DESKTOP_UNSIGNED: '1' }, 'darwin', 'arm64')
   expect(config.mac).toMatchObject({ identity: '-', forceCodeSigning: false, hardenedRuntime: false, notarize: false })
