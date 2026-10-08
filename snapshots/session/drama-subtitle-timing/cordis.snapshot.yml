@@ -1,3 +1,8 @@
+# This subtitle-only replay never invokes skills; keep OS-specific catalogs out of its composition.
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+  disabled: true
+
 # Replay the actual subtitle tool; the fixture supplies only external media probe facts.
 - id: tool-bash
   disabled: false
