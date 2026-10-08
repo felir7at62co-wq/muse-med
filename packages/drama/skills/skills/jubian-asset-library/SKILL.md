@@ -54,11 +54,11 @@ python scripts/search_assets.py --root <素材库根目录> --style realistic --
 
 ```powershell
 python -B scripts/character_candidates.py --root <素材库根目录> --kind face --style realistic --gender female --q "年轻 女主" --limit 5
-python -B scripts/character_candidates.py --root <素材库根目录> --kind body --style realistic --gender female --q "红色礼服" --limit 5
+python -B scripts/character_candidates.py --root <素材库根目录> --kind body --style realistic --gender female --age young --q "米色风衣" --require-item "米色|卡其色:风衣" --limit 5
 python -B scripts/character_candidates.py --root <素材库根目录> --pair <人脸asset_id> <全身asset_id>
 ```
 
-默认排除资产名为群像、合照、多人、人群或视觉标签为 mixed 的图。可用 `--include-groups` 查看它们，但配对仍拒绝群像，因为最大脸和全身裁图可能属于不同人。配对检查文件确实位于当前库内，并拒绝风格或已知性别不一致；年龄段差异作为人工审核警告。输出按“人脸、全身造型”给出两条**本地路径**，没有上传或生图副作用。
+从剧本提取不可缺的属性，独立属性用重复的 `--require`；颜色加服装款式用 `--require-item "颜色|近义色:服装|近义款式"`，同一描述短语里的颜色必须修饰该服装，不接受其他衣物的颜色。`|` 表示可接受的同义取值，各条件须同时满足。全身检索在服装描述中查证，人脸检索在脸部、身份和服装描述中查证；`--q` 用于排序，不能代替必需条件。结果的 `match_status=qualified` 仅表示传入条件有文字依据，`match_evidence` 给出依据；`needs_review` 表示信息不足，不能按合格图使用。`qualified_count=0` 时 `result_status=no_qualified_candidates`，不可自动放宽要求并宣称成功。默认排除群像、合照、多人或 mixed 标签图片；`--include-groups` 可查看但不能配对。配对拒绝风格或已知性别不一致，年龄差异发出警告，并始终将两张图的人物同一性标为 `pending_review`，不得凭服装或相似度判定同一人。输出有序的两条本地路径，不上传、不生图。
 
 给用户展示各 3–5 个有图候选及资产 ID，由用户确定两张图。确定后使用 `tweet-drama-core` 的 `style_references.py import-library` 仅将这两张图归档到当前项目，记录各自资产 ID、用途和原库相对路径；原库只读。实看归档图并记录用户选择，`check` 通过后，再按当前项目的付费授权与预算流程分别调用 `jubian_asset upload_reference`，将返回的 HTTPS URL 按人脸、全身顺序交给 `jubian_video image_generate`。参考图顺序只说明请求输入，不保证模型忠实继承五官或服装；生成图仍要视觉审核、确认出演和项目身份回查。用户未选定具体图或未授权本次生成时止于候选与配对。
 
