@@ -133,6 +133,48 @@ it('selects the first Muse model through real Loader settings and preserves a cu
   models.dispose()
 })
 
+it('completes catalog refresh while preserving a newer model selection committed during initial-default repair', async () => {
+  const fixture = await directProviderFixture(false)
+  await login()
+  let entered!: () => void, release!: () => void
+  const started = new Promise<void>((resolve) => { entered = resolve })
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const replace = fixture.ctx.settings.replace.bind(fixture.ctx.settings)
+  vi.spyOn(fixture.ctx.settings, 'replace').mockImplementation(async (...args) => {
+    entered(); await gate; await replace(...args)
+  })
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    excludedProviderIds: ['aa'], fetcher: async () => Response.json(suppliedCatalog) })
+  const refreshing = models.refresh()
+  try {
+    await started
+    const newer = { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash', reasoningEffort: ReasoningEffortId('high') }
+    await fixture.ctx.agentDefaultModel.saveSelection(newer)
+    expect(fixture.ctx.settings.describe().find(row => row.ns === 'agent-default-model')?.revision).toBe(1)
+    release()
+    await expect(refreshing).resolves.toBeUndefined()
+    expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual(newer)
+    expect((await fixture.ctx.llm.listModels('muse-cloud-deepseek-official')).map(model => model.id)).toEqual(['deepseek-flash'])
+    await models.refresh()
+    expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual(newer)
+  } finally {
+    release()
+    await Promise.allSettled([refreshing])
+  }
+})
+
+it('rejects an unexpected initial-default write failure and allows a later explicit refresh', async () => {
+  const fixture = await directProviderFixture(false)
+  await login()
+  const failure = new Error('Initial model settings write failed')
+  vi.spyOn(fixture.ctx.settings, 'replace').mockRejectedValueOnce(failure)
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    excludedProviderIds: ['aa'], fetcher: async () => Response.json(suppliedCatalog) })
+  await expect(models.refresh()).rejects.toBe(failure)
+  await models.refresh()
+  expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
+})
+
 it.each([false, true])('repairs a saved direct default only when its own credential is unconfigured (%s)', async (configured) => {
   const fixture = await directProviderFixture(configured)
   await fixture.ctx.settings.replace('agent-default-model', { provider: 'deepseek-official', model: 'deepseek-flash' })

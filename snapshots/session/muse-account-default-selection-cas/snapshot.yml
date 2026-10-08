@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-account-default-selection-cas
+profile: headless
+composition: muse-selected-account-models
+recording: authored
+header:
+  class: muse-account-default-selection-cas
+  pin: true
+  toolSchemasSource: muse-selected-account-models
+writerOutput: true
+environment:
+  DSH_SNAPSHOT_DEFAULT_SELECTION_RACE: preserve-newer
