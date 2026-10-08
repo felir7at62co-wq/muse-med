@@ -11,6 +11,7 @@ import type { Nodes } from 'mdast'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { cleanDocSiteOutput, docSiteBuildOptions } from '../website/build.ts'
 import { docsPages, landingLink, routeLink, sectionSpec, type DocsPage } from '../website/docs.ts'
+import { COVERAGE_TEST_TIMEOUT_ENV, coverageTestTimeoutOptions } from './coverage-partitions.ts'
 import {
   addProjectionFrontmatter, emitRawMarkdownPages, llmsTxt, projectedPageContent, publishableImage,
   rawMarkdownFiles, rawMarkdownPageContent, rawMarkdownRoute, resolveRepositoryRef, rewriteMarkdown,
@@ -18,6 +19,7 @@ import {
 
 const roots: string[] = []
 const repositoryRoot = resolve(import.meta.dirname, '..')
+const fullManifestTimeout = coverageTestTimeoutOptions(process.env[COVERAGE_TEST_TIMEOUT_ENV]).hookTimeout ?? 60_000
 
 function unexpectedWebsiteMarkdown(files: readonly string[]): string[] {
   return files.filter(file => file.endsWith('.md') && file !== 'website/AGENTS.md').sort()
@@ -761,12 +763,11 @@ describe('rawMarkdownFiles', () => {
 describe('raw Markdown projection of the published manifest', () => {
   let mirror: string
 
-  // Coverage instrumentation on a loaded CI runner stretches the full-manifest
-  // emission and the 181-file link walk past vitest's 5s default.
+  // Full-manifest filesystem work keeps the coverage lane's hook budget under load.
   beforeAll(() => {
     mirror = mkdtempSync(join(tmpdir(), 'dsh-doc-mirror-real-'))
     emitRawMarkdownPages(mirror, { pages: docsPages, repoRoot: repositoryRoot, repositoryRef: 'master' })
-  }, 60_000)
+  }, fullManifestTimeout)
 
   afterAll(() => {
     rmSync(mirror, { recursive: true, force: true })
@@ -786,7 +787,7 @@ describe('raw Markdown projection of the published manifest', () => {
     }
   })
 
-  it('resolves every relative link inside the emitted tree', { timeout: 60_000 }, () => {
+  it('resolves every relative link inside the emitted tree', { timeout: fullManifestTimeout }, () => {
     // Raw pages are read outside the site, so a relative target that only the
     // rendered site serves would strand every agent following it.
     const broken: string[] = []

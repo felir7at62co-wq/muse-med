@@ -112,7 +112,7 @@ export function withoutWindowsSigningEnvironment(environment: NodeJS.ProcessEnv)
  * Select signing and NSIS-compatible archive filters for electron-builder.
  * @param environment - Target packaging environment.
  * @param unsigned - Whether to create an artifact without publisher signing or notarization.
- * @returns Packaging environment without certificate inputs for unsigned builds.
+ * @returns Packaging environment with ad-hoc PR sealing and no certificate inputs for unsigned builds.
  */
 export function desktopElectronBuilderEnvironment(environment: NodeJS.ProcessEnv, unsigned: boolean): NodeJS.ProcessEnv {
   const selected: NodeJS.ProcessEnv = { ...environment, DSH_DESKTOP_UNSIGNED: unsigned ? '1' : '0' }
@@ -123,6 +123,7 @@ export function desktopElectronBuilderEnvironment(environment: NodeJS.ProcessEnv
     ...Object.fromEntries(Object.entries(withoutWindowsSigningEnvironment(selected))
       .filter(([name]) => !/^(?:(?:WIN_)?CSC_|APPLE_|DSH_DESKTOP_MACOS_(?:SIGNING_IDENTITY|TEAM_ID))/iu.test(name))),
     CSC_IDENTITY_AUTO_DISCOVERY: 'false',
+    CSC_FOR_PULL_REQUEST: 'true',
     DSH_DESKTOP_UNSIGNED: '1',
   }
 }

@@ -88,7 +88,8 @@ describe('desktop macOS release signature', () => {
         identity: RELEASE_ENVIRONMENT.DSH_DESKTOP_MACOS_SIGNING_IDENTITY,
         forceCodeSigning: true,
         notarize: true,
-        signIgnore: ['/Contents/Resources/app\\.asar\\.unpacked/dsh(?:/|$)', '/Contents/Resources/runtime/primary-runtime(?:/|$)', '\\.pak$'],
+        signIgnore: ['/Contents/Resources/app\\.asar\\.unpacked/dsh(?:/|$)', '/Contents/Resources/runtime/primary-runtime(?:/|$)',
+          '/Contents/Resources/runtime/hongguo/java/Contents/Home/lib/server/classes(?:_nocoops)?\\.jsa$', '\\.pak$'],
       },
       dmg: {
         sign: true,
@@ -119,6 +120,21 @@ describe('desktop macOS release signature', () => {
       '/App.app/Contents/Frameworks/Electron.framework/Versions/A/library.dylib',
       '/App.app/Contents/Frameworks/Electron.framework',
       '/App.app',
+    ]) expect(ignored(path)).toBe(false)
+  })
+
+  it.each(['0', '1'])('seals Java shared-class caches as data in signing mode %s', async (unsigned) => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const config = createElectronBuilderConfig({ ...RELEASE_ENVIRONMENT, DSH_DESKTOP_UNSIGNED: unsigned }, 'darwin', 'arm64')
+    const ignored = (path: string): boolean => config.mac.signIgnore.some(pattern => new RegExp(pattern).test(path))
+    const java = '/App.app/Contents/Resources/runtime/hongguo/java/Contents/Home'
+    for (const filename of ['classes.jsa', 'classes_nocoops.jsa']) {
+      expect(ignored(`${java}/lib/server/${filename}`)).toBe(true)
+    }
+    for (const path of [
+      `${java}/bin/java`, `${java}/lib/server/libjvm.dylib`,
+      `${java}/lib/server/other.jsa`, '/App.app/Contents/Resources/classes.jsa',
+      '/App.app/Contents/Resources/runtime/hongguo/java', '/App.app',
     ]) expect(ignored(path)).toBe(false)
   })
 

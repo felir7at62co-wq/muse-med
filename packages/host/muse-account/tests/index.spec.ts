@@ -66,6 +66,32 @@ function account(ctx: Context): MuseAccountService {
   return service
 }
 
+it('defaults account provider exclusions to an empty list and rejects malformed IDs before activation', () => {
+  expect(Config({ baseUrl })).toMatchObject({ excludedProviderIds: [] })
+  expect(Config({ baseUrl, excludedProviderIds: ['aa', 'deepseek-official'] })).toMatchObject({
+    excludedProviderIds: ['aa', 'deepseek-official'],
+  })
+  for (const excludedProviderIds of ['aa', [1], [''], ['../aa'], ['AA']]) {
+    expect(() => { Reflect.apply(Config, undefined, [{ baseUrl, excludedProviderIds }]) }).toThrow()
+  }
+  expect(discovery.apply).not.toHaveBeenCalled()
+})
+
+it('forwards account provider exclusions without removing other account groups', async () => {
+  const { ctx, home, sessionFile } = await fixture()
+  const entry = catalog.providers[0]!.models[0]!
+  await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=account-private' })
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => Response.json({ providers: [
+    { id: 'aa', name: 'Gemini', models: [{ ...entry, id: 'gemini-3.8-flash' }] },
+    { id: 'yunying', name: '云映', models: [{ ...entry, id: 'gemini-3.1-pro' }] },
+    catalog.providers[0],
+  ] })))
+  await apply(ctx, Config({ baseUrl, accountHome: home, excludedProviderIds: ['aa'] }))
+  await account(ctx).status({})
+  expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['muse-cloud-yunying', 'muse-cloud-studio'])
+  expect((await ctx.llm.listModels('muse-cloud-yunying')).map(model => model.id)).toEqual(['gemini-3.1-pro'])
+})
+
 it('rejects a relative product account home before mounting account services or discovery', async () => {
   const { ctx } = await fixture()
   await expect(apply(ctx, Config({ baseUrl, accountHome: 'relative/account' }))).rejects.toThrow('accountHome must be absolute')

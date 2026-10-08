@@ -133,6 +133,48 @@ it('selects the first Muse model through real Loader settings and preserves a cu
   models.dispose()
 })
 
+it('completes catalog refresh while preserving a newer model selection committed during initial-default repair', async () => {
+  const fixture = await directProviderFixture(false)
+  await login()
+  let entered!: () => void, release!: () => void
+  const started = new Promise<void>((resolve) => { entered = resolve })
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const replace = fixture.ctx.settings.replace.bind(fixture.ctx.settings)
+  vi.spyOn(fixture.ctx.settings, 'replace').mockImplementation(async (...args) => {
+    entered(); await gate; await replace(...args)
+  })
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    excludedProviderIds: ['aa'], fetcher: async () => Response.json(suppliedCatalog) })
+  const refreshing = models.refresh()
+  try {
+    await started
+    const newer = { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash', reasoningEffort: ReasoningEffortId('high') }
+    await fixture.ctx.agentDefaultModel.saveSelection(newer)
+    expect(fixture.ctx.settings.describe().find(row => row.ns === 'agent-default-model')?.revision).toBe(1)
+    release()
+    await expect(refreshing).resolves.toBeUndefined()
+    expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual(newer)
+    expect((await fixture.ctx.llm.listModels('muse-cloud-deepseek-official')).map(model => model.id)).toEqual(['deepseek-flash'])
+    await models.refresh()
+    expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual(newer)
+  } finally {
+    release()
+    await Promise.allSettled([refreshing])
+  }
+})
+
+it('rejects an unexpected initial-default write failure and allows a later explicit refresh', async () => {
+  const fixture = await directProviderFixture(false)
+  await login()
+  const failure = new Error('Initial model settings write failed')
+  vi.spyOn(fixture.ctx.settings, 'replace').mockRejectedValueOnce(failure)
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    excludedProviderIds: ['aa'], fetcher: async () => Response.json(suppliedCatalog) })
+  await expect(models.refresh()).rejects.toBe(failure)
+  await models.refresh()
+  expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
+})
+
 it.each([false, true])('repairs a saved direct default only when its own credential is unconfigured (%s)', async (configured) => {
   const fixture = await directProviderFixture(configured)
   await fixture.ctx.settings.replace('agent-default-model', { provider: 'deepseek-official', model: 'deepseek-flash' })
@@ -159,6 +201,39 @@ it('publishes the supplied Gemini and DeepSeek metadata through the browser cata
         { id: 'high', name: 'High' }, { id: 'max', name: 'Max' }] } }] },
   ])
   expect(browser.failures.filter(group => group.id.startsWith('muse-cloud-'))).toEqual([])
+})
+
+it('excludes only the specified account provider and retains Yunying Gemini and personal adapters', async () => {
+  await login()
+  const entry = suppliedCatalog.providers[0]!.models[0]!
+  const personal = ctx.llm.registerAdapter(['aa'], new PersonalAdapter())
+  try {
+    models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+      excludedProviderIds: ['aa'], fetcher: async () => Response.json({ providers: [
+        suppliedCatalog.providers[0],
+        { id: 'yunying', name: '云映', models: [
+          { ...entry, id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro' },
+          { ...entry, id: 'gpt-5', name: 'GPT 5' },
+          { ...entry, id: 'claude-opus-4-6', name: 'Claude Opus 4.6' },
+        ] },
+        suppliedCatalog.providers[1],
+      ] }) })
+    await models.refresh()
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual([
+      'personal', 'aa', 'muse-cloud-yunying', 'muse-cloud-deepseek-official',
+    ])
+    const browser = await buildModelCatalog(ctx, { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro' })
+    expect(browser.groups.filter(group => group.id.startsWith('muse-cloud-')).map(group => ({
+      id: group.id, models: group.models.map(model => model.id),
+    }))).toEqual([
+      { id: 'muse-cloud-yunying', models: ['gemini-3.1-pro', 'gpt-5', 'claude-opus-4-6'] },
+      { id: 'muse-cloud-deepseek-official', models: ['deepseek-flash'] },
+    ])
+    expect((await assemble(ctx, { provider: 'aa', model: 'gemini-3.8-flash', messages: [] })).finish)
+      .toEqual({ kind: 'stop' })
+    models.dispose()
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal', 'aa'])
+  } finally { personal() }
 })
 
 it.each(['plugin', 'desktop'] as const)('routes an existing unconfigured direct session through the %s Muse scope and records the actual selection and request', async (composition) => {

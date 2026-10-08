@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-account-excluded-provider
+profile: headless
+composition: muse-selected-account-models
+recording: authored
+header:
+  class: muse-selected-account-models
+writerOutput: true
+environment:
+  DSH_SNAPSHOT_EXCLUDED_ACCOUNT_PROVIDER: aa

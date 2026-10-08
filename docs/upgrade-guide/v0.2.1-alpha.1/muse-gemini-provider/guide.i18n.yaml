@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/muse-gemini-provider/guide.md
+/:
+  en: 07446e0fd1365acb
+  zh: 8fc981c3fbf4a1b3
+/select-yunying-gemini-for-saved-standalone-gemini-conversations:
+  en: def273e597900811
+  zh: e5518ccc386ed862
+/select-yunying-gemini-for-saved-standalone-gemini-conversations/change:
+  en: a2cde0e40614e96e
+  zh: 4a2d6d34fa6dae9f
+/select-yunying-gemini-for-saved-standalone-gemini-conversations/migration:
+  en: 8a1b7e5ef0b3baf2
+  zh: 690749b557572c9d

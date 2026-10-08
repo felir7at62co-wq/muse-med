@@ -52,7 +52,7 @@ jobs:
       - name: Check download bundle packaging
         run: node --test third_party/plugins/download-pack.test.mjs
       - name: Check packaging behavior
-        run: pnpm exec vitest run apps/desktop/tests/package-target.spec.ts apps/desktop/tests/package-target-stages.spec.ts apps/desktop/tests/macos-signature.spec.ts apps/desktop/tests/desktop-package-environment.spec.ts apps/desktop/tests/prepare-macos-media.spec.ts apps/desktop/tests/package-resume.spec.ts
+        run: pnpm exec vitest run apps/desktop/tests/package-target.spec.ts apps/desktop/tests/package-target-stages.spec.ts apps/desktop/tests/macos-signature.spec.ts apps/desktop/tests/unsigned-pr-packaging.spec.ts apps/desktop/tests/desktop-package-environment.spec.ts apps/desktop/tests/prepare-macos-media.spec.ts apps/desktop/tests/package-resume.spec.ts
       - name: Configure unsigned Muse packaging
         run: >-
           node --input-type=module -e "import { writeFileSync } from 'node:fs';

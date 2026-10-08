@@ -29,6 +29,8 @@ Muse Desktop offers MUSE sign-in before model setup on a blank first run; **Sign
 
 Models use each account model's declared default thinking level until the user explicitly selects another offered level. The prepared model carries that default into the logged request; models without thinking support receive no default effort.
 
+A model choice saved during catalog refresh takes precedence over initial account default selection. The refreshed catalog remains available; an unrelated settings write failure still rejects the refresh.
+
 An existing conversation with an unconfigured direct route can use the same exact model advertised by Muse. The Host records that change through normal model selection and request headers only while the assembled provider, model and reasoning choice still match the current selection; a newer user choice remains selected. If Muse does not advertise that model, the conversation asks the user to choose an available Muse model from the picker.
 
 The message rating and task feedback dialogs submit to the same Muse opinion inbox as the sidebar Feedback page. A submission uses the saved Desktop account and retains its category and local Session/message identifiers. The optional related-excerpt checkbox starts clear; selected diagnostics contain only bounded visible request and answer text, with known credentials removed. No tool arguments, tool results, reasoning, attachments, or full Session log are sent. A confirmed inbox receipt closes the form; login, network, and account-switch failures retain the draft. An uncertain result requires checking the inbox before another submission. Administrators review all submitted opinions at `/feedback`; ordinary users see their own.
@@ -47,6 +49,7 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 |---|---|---|
 | `baseUrl` | Required | HTTPS gateway origin; loopback HTTP is allowed for a local gateway. |
 | `excludedModelPrefixes` | `[]` | Case-insensitive model-name prefixes omitted from account-supplied models; an optional provider path is stripped before comparison. Custom providers are unaffected. |
+| `excludedProviderIds` | `[]` | Exact account provider IDs omitted from the catalog. IDs follow the gateway's lowercase identifier syntax; personal adapters are unaffected. |
 | `modelRefreshMs` | 60,000 | Model catalog refresh interval in milliseconds, from 10,000 to 3,600,000. |
 | `accountHome` | Active DSH home | Absolute directory containing this product's account session file. |
 | `requestTimeoutMs` | 15,000 | Account and KB access request timeout in milliseconds, from 1,000 to 120,000. |

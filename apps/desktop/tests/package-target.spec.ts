@@ -105,6 +105,7 @@ describe('desktop package target', () => {
     expect(desktopElectronBuilderEnvironment(environment, true)).toEqual({
       DSH_DESKTOP_APP_ID: 'com.example.desktop',
       CSC_IDENTITY_AUTO_DISCOVERY: 'false',
+      CSC_FOR_PULL_REQUEST: 'true',
       DSH_DESKTOP_UNSIGNED: '1',
     })
     expect(desktopElectronBuilderEnvironment(environment, false)).toEqual({ ...environment, DSH_DESKTOP_UNSIGNED: '0' })

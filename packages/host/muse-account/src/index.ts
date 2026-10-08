@@ -38,6 +38,8 @@ export interface Config {
   readonly modelRefreshMs: number
   /** Model ID prefixes excluded from the account-supplied catalog. */
   readonly excludedModelPrefixes: string[]
+  /** Exact provider IDs excluded from the account-supplied catalog; personal adapters are unaffected. */
+  readonly excludedProviderIds: string[]
   /** Product-private account directory; omission selects the active DSH home. */
   readonly accountHome?: string
   /** Timeout for account and knowledge-base gateway requests in milliseconds. */
@@ -61,6 +63,7 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
   baseUrl: Schema.string().required(),
   modelRefreshMs: Schema.number().step(1).min(10_000).max(3_600_000).default(60_000),
   excludedModelPrefixes: Schema.array(Schema.string()).default([]),
+  excludedProviderIds: Schema.array(Schema.string().pattern(/^[a-z][a-z0-9-]{0,63}$/)).default([]),
   accountHome: Schema.string(),
   requestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(15_000),
   asrRequestTimeoutMs: Schema.number().step(1).min(10_000).max(1_800_000).default(300_000),
@@ -89,7 +92,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   const asr = new MuseAsrClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.asrRequestTimeoutMs })
   const models = new MuseModels(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs,
-    excludedModelPrefixes: config.excludedModelPrefixes })
+    excludedModelPrefixes: config.excludedModelPrefixes, excludedProviderIds: config.excludedProviderIds })
   let remote: MuseDesktopRemote | undefined
   if (config.remoteAccess) {
     const bridge = ctx.get('museDesktopBridge')

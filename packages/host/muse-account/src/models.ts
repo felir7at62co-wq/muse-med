@@ -8,7 +8,7 @@ import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { PiAiAdapter, resolveProfiles } from '@deepseek-ai/dsh-llm-pi-ai'
 import type { PiAiAdapterOptions, PiAiProviderProfile, ResolvedPiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai'
-import type {} from '@deepseek-ai/dsh-settings'
+import { SettingsConflictError } from '@deepseek-ai/dsh-settings'
 import { z } from 'zod'
 import { readMuseSession, clearMuseSessionIfUnchanged } from './session.ts'
 import { MuseGatewayError } from './gateway.ts'
@@ -59,6 +59,7 @@ export interface MuseModelsOptions {
   readonly requestTimeoutMs: number
   readonly fetcher?: typeof fetch
   readonly excludedModelPrefixes?: readonly string[]
+  readonly excludedProviderIds?: readonly string[]
 }
 
 /** Own Muse registrations and repair defaults whose matching direct route has no credential. */
@@ -115,7 +116,7 @@ export class MuseModels {
 
   /**
    * Serialize refreshes, publishing only metadata for the still-current login.
-   * @returns Completion after registration and initial default selection.
+   * @returns Completion after registration and default selection, retaining any concurrently saved choice.
    */
   refresh(): Promise<void> {
     const operation = this.queue.then(() => this.synchronize())
@@ -158,6 +159,7 @@ export class MuseModels {
     const providers: Record<string, PiAiProviderProfile> = {}
     const defaults = new Map<string, ReasoningEffortId>()
     for (const provider of data.providers) {
+      if (this.options.excludedProviderIds?.includes(provider.id)) continue
       const id = `muse-cloud-${provider.id}`
       if (Object.hasOwn(providers, id)) throw new MuseGatewayError('gateway-rejected')
       const allowedModels = provider.models.filter(model => !(this.options.excludedModelPrefixes ?? [])
@@ -262,6 +264,9 @@ export class MuseModels {
     const model = first?.[1].models?.find(model => model.id === user.model) ?? first?.[1].models?.[0]
     const current = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
     if (this.stop.signal.aborted || current?.revision !== revision) return
-    if (first && model) await settings.replace('agent-default-model', { provider: first[0], model: model.id }, section.revision)
+    if (first && model) {
+      try { await settings.replace('agent-default-model', { provider: first[0], model: model.id }, section.revision) }
+      catch (error) { if (!(error instanceof SettingsConflictError)) throw error }
+    }
   }
 }
