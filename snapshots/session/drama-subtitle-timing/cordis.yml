@@ -1,6 +1,6 @@
+# This replay never invokes a shell; use the same tool catalog on every platform.
 - id: tool-bash
-  disabled: false
-
+  disabled: true
 - id: tool-pwsh
   disabled: true
 
