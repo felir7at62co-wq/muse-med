@@ -1,3 +1,9 @@
+# This replay never invokes a shell; use the same tool catalog on every platform.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+
 # This subtitle-only replay never invokes skills; keep OS-specific catalogs out of its composition.
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
