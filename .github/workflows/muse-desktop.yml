@@ -30,8 +30,10 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ github.token }}
       MUSE_TRANSFER_SEAL: scripts/owner/muse-release-artifact-transfer/seal.json
-      MUSE_TRANSFER_ROOT: ${{ runner.temp }}/muse-release-artifact-transfer
     steps:
+      - name: Set the runner-owned transfer directory
+        run: |
+          printf 'MUSE_TRANSFER_ROOT=%s\n' "$RUNNER_TEMP/muse-release-artifact-transfer" >> "$GITHUB_ENV"
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
