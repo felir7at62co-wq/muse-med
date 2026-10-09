@@ -35,7 +35,7 @@ async function projectAt(path: string, maxBytes: number) {
   for (const source of project.sources) {
     if (sha256(await readFile(source.path)) !== source.sha256) throw Error('source_changed: 正式交付的来源已变更。')
   }
-  return { path, project, scripts: acceptedScripts(project) }
+  return { path: await realpath(path), project, scripts: acceptedScripts(project) }
 }
 
 async function scopedProjects(paths: readonly string[], maxBytes: number, explicit?: string) {
@@ -44,7 +44,7 @@ async function scopedProjects(paths: readonly string[], maxBytes: number, explic
   if (explicit !== undefined) {
     const value = await projectAt(explicit, maxBytes)
     if (value === undefined) throw Error('video_delivery_project: 指定的受管视频项目不存在或未标记。')
-    projects.set(resolve(explicit), value)
+    projects.set(value.path, value)
   }
   for (const file of paths) {
     let directory = dirname(resolve(file))
@@ -54,7 +54,7 @@ async function scopedProjects(paths: readonly string[], maxBytes: number, explic
       if (part === 'final' && !visited.has(projectPath)) {
         visited.add(projectPath)
         const value = await projectAt(projectPath, maxBytes)
-        if (value !== undefined) projects.set(resolve(projectPath), value)
+        if (value !== undefined) projects.set(value.path, value)
       }
       const parent = dirname(directory)
       if (parent === directory) break
@@ -131,13 +131,12 @@ export async function validateVideoDelivery(files: readonly string[], config: Co
     }
     const checked = receipt.parse(JSON.parse(receiptText))
     if (sha256(await readFile(file)) !== checked.output_sha256) throw Error('video_delivery_changed: Word 文件与验收导出记录不一致。')
-    const projectPaths = await Promise.all(projects.map(value => realpath(value.path)))
     const contents: string[] = []
     for (const episode of checked.episodes) {
-      if (projectPaths.length > 0 && !projectPaths.includes(await realpath(episode.project))) {
+      const owner = await projectAt(episode.project, maxProjectBytes)
+      if (projects.length > 0 && !projects.some(value => value.path === owner?.path)) {
         throw Error('video_delivery_project: Word 验收记录不属于当前正式交付目录的项目。')
       }
-      const owner = await projectAt(episode.project, maxProjectBytes)
       const candidate = owner?.scripts.find(value => value.id === episode.candidate_id)
       if (owner?.project.id !== episode.project_id || candidate === undefined || candidate.sha256 !== episode.candidate_sha256
         || sha256(candidate.script) !== episode.script_sha256) {

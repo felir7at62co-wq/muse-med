@@ -24,7 +24,7 @@ test('offline CLI creates owner-only candidate and exact backup without modifyin
  const f=await fixture(t),result=await run(process.execPath,[cli,...f.args],{env:{},timeout:20000});
  assert.equal(result.stderr,'');assert.doesNotMatch(result.stdout,/private-|wy6688\.token6688\.com|api\.deepseek/);
  const receipt=JSON.parse(result.stdout);assert.equal(receipt.prepared,true);assert.equal(receipt.deployed,false);
- assert.equal(receipt.providers.flatMap(provider=>provider.models).length,10);
+ assert.equal(receipt.providers.flatMap(provider=>provider.models).length,11);
  assert.equal(await readFile(f.source,'utf8'),f.raw);assert.equal(await readFile(f.output+'.source-backup','utf8'),f.raw);
  const candidate=JSON.parse(await readFile(f.output,'utf8'));assert.equal(candidate.credentials.MUSE_DEEPSEEK_API_KEY,'private-official-fixture');
  assert.equal(candidate.credentials.MUSE_YUNYING_API_KEY,'private-yunying-fixture');
@@ -106,6 +106,6 @@ test('concurrent CLI preparations acquire one candidate and never overwrite its 
  assert.equal(failure.killed,false);assert.equal(failure.signal,null);assert.equal(failure.code,1);
  assert.equal(await readFile(f.source,'utf8'),f.raw);assert.equal(await readFile(f.output+'.source-backup','utf8'),f.raw);
  assert.equal(JSON.parse(await readFile(f.output,'utf8')).providers.yunying.models.length,7);
- assert.equal(JSON.parse(await readFile(f.output,'utf8')).providers['zhipu-official'].models.length,1);
+ assert.equal(JSON.parse(await readFile(f.output,'utf8')).providers['zhipu-official'].models.length,2);
  assert.deepEqual((await readdir(f.root)).filter(name=>name.endsWith('.tmp')),[]);
 });

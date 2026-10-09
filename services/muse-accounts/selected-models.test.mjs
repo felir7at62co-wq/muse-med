@@ -16,13 +16,13 @@ function original(){return {version:2,revision:4,metadataRevision:9,providers:{l
  models:[{id:'gpt-6-sol'},{id:'glm-5.3-flash'}],
  }},credentials:{LEGACY_KEY:cloudKey,OTHER_KEY:'synthetic-unrelated-key',MUSE_ZHIPU_API_KEY:zhipuKey}};}
 
-test('selected directory contains two DeepSeek, seven Yunying and one Zhipu model without changing its source',()=>{
+test('selected directory contains two DeepSeek, seven Yunying and two Zhipu model without changing its source',()=>{
  const source=original(),before=structuredClone(source),prepared=prepareSelectedModels(source,{deepseekKey:officialKey});
  assert.deepEqual(source,before);assert.equal(prepared.revision,5);assert.equal(prepared.metadataRevision,10);
  assert.deepEqual(Object.keys(prepared.providers),['deepseek-official','yunying','zhipu-official']);
  assert.deepEqual(prepared.providers['deepseek-official'].models.map(model=>model.id),['deepseek-flash','deepseek-v4-pro']);
  assert.deepEqual(prepared.providers.yunying.models.map(model=>model.id),YUNYING_MODEL_IDS);
- assert.deepEqual(prepared.providers['zhipu-official'].models.map(model=>model.id),['glm-5.3-flashx']);
+ assert.deepEqual(prepared.providers['zhipu-official'].models.map(model=>model.id),['glm-5.3-flashx','glm-5.3-flash']);
  assert.equal(prepared.providers['deepseek-official'].baseURL,'https://api.deepseek.com/v1');
  assert.equal(prepared.providers.yunying.baseURL,'https://wy6688.token6688.com/v1');
  assert.equal(prepared.providers['zhipu-official'].baseURL,'https://open.bigmodel.cn/api/paas/v4');
@@ -52,6 +52,7 @@ test('official capacity and each selected model budget are explicit public metad
  const flashx=providers['zhipu-official'].models[0];
  assert.deepEqual(flashx,{id:'glm-5.3-flashx',name:'GLM-5.3-FlashX',contextWindow:1048576,maxTokens:128000,
   input:['text','image'],reasoningEfforts:{low:'low',high:'high',max:'max'},defaultReasoningEffort:'max'});
+ assert.deepEqual(providers['zhipu-official'].models[1],{...flashx,id:'glm-5.3-flash',name:'GLM-5.3-Flash'});
  providers.yunying.models.pop();assert.equal(selectedModelProviders('https://wy6688.token6688.com').yunying.models.length,7);
 });
 
@@ -100,7 +101,7 @@ test('fresh account catalog routes every selected model with only server credent
  const prepared=prepareSelectedModels(original(),{deepseekKey:officialKey}),file=join(root,'models');
  await writeFile(file,JSON.stringify(prepared),{mode:0o600});const globalModels=await openGlobalModels(file);
  const safe=desktopModelCatalog(globalModels);
- assert.equal(safe.providers.flatMap(provider=>provider.models).length,10);
+ assert.equal(safe.providers.flatMap(provider=>provider.models).length,11);
  assert.doesNotMatch(JSON.stringify(safe),/synthetic-|API_KEY|wy6688\.token6688\.com|api\.deepseek|open\.bigmodel/);
  const store=await openStore(join(root,'accounts'));await store.create('editor','pw');
  const origin='https://muse.test',calls=[];
@@ -125,24 +126,24 @@ test('fresh account catalog routes every selected model with only server credent
   assert.equal(actual.body.reasoning_effort,model.defaultReasoningEffort);
   if(provider.id==='zhipu-official')assert.deepEqual(actual.body.thinking,{type:'enabled',clear_thinking:false});
  }
- assert.equal(calls.length,10);
+ assert.equal(calls.length,11);
  for(const [route,model,budget,effort] of [['deepseek-official','deepseek-flash',393216,'low'],['yunying','gpt-6-sol',128000,'low'],
-  ['zhipu-official','glm-5.3-flashx',128000,'max']]){
+  ['zhipu-official','glm-5.3-flashx',128000,'max'],['zhipu-official','glm-5.3-flash',128000,'max']]){
   const reply=await fetch(base+'/api/desktop-models/'+route+'/chat/completions',{method:'POST',headers:{origin,cookie,'content-type':'application/json'},
    body:JSON.stringify({model,messages:[],stream:true})});
   assert.equal(reply.status,200);await reply.text();assert.equal(calls.at(-1).body.max_tokens,budget);assert.equal(calls.at(-1).body.reasoning_effort,effort);
  }
- assert.equal(calls.length,13);
+ assert.equal(calls.length,15);
  const off=await fetch(base+'/api/desktop-models/deepseek-official/chat/completions',{method:'POST',headers:{origin,cookie,'content-type':'application/json'},
   body:JSON.stringify({model:'deepseek-flash',messages:[],stream:true,thinking:{type:'disabled'},max_tokens:100})});
  assert.equal(off.status,200);await off.text();assert.deepEqual(calls.at(-1).body.thinking,{type:'disabled'});
  assert.equal(calls.at(-1).body.reasoning_effort,undefined);assert.equal(calls.at(-1).body.max_tokens,100);
- for(const [route,model] of [['yunying','glm-5.3-flashx'],['zhipu-official','glm-5.3-flash'],
+ for(const [route,model] of [['yunying','glm-5.3-flashx'],['zhipu-official','gemini-3.1-pro'],
   ['deepseek-official','glm-5.3-flashx'],['zhipu-official','deepseek-flash'],['zhipu-official','unknown-model'],['yunying','deepseek-flash']]){
   const rejected=await fetch(base+'/api/desktop-models/'+route+'/chat/completions',{method:'POST',headers:{origin,cookie,'content-type':'application/json'},
    body:JSON.stringify({model,messages:[]})});assert.equal(rejected.status,400);
  }
- assert.equal(calls.length,14);
+ assert.equal(calls.length,16);
  await fetch(base+'/logout',{method:'POST',headers:{origin,cookie},redirect:'manual'});
  assert.equal((await fetch(base+'/api/desktop-models/providers',{headers:{cookie}})).status,401);
 });

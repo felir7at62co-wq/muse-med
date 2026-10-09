@@ -61,6 +61,10 @@
         model: glm-5.3-flashx
         headroomTokens: 16384
         maxTokens: 8192
+      - provider: muse-cloud-zhipu-official
+        model: glm-5.3-flash
+        headroomTokens: 16384
+        maxTokens: 8192
 
 # Feishu credentials and policy remain editable in the user profile.
 - id: feishu-channel
