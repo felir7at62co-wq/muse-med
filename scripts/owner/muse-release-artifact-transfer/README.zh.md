@@ -40,6 +40,8 @@
 
 草稿读回流式读取两个确认 release 各十一资产，核验准确字节数和 SHA256。只有固定 GitHub asset API 的首个请求带认证；跳转为人工处理且绝不转发 token。只允许 HTTPS、两个 GitHub asset CDN 主机或该资产准确公开地址；跳转数、字节大小与时间都有上界。HTTP 失败、内容不足、过长或 digest 不符均失败。
 
+每个私有 release 的浏览地址必须统一使用其正式 tag，或 GitHub `untagged-` 后准确二十位小写十六进制字符的前缀；仓库与编码后的文件名必须完全匹配。这些浏览地址只作为元数据检查，私有下载始终使用已封存的 API 资产 ID。公开 release 的浏览地址必须使用正式 tag。
+
 运营者公开两个 release 后，再人工 dispatch `operation=public-readback`。此操作不下载原始构建 artifact，不调用上传；所有资产匿名下载。它检查两个准确 tag 提交、公开 ID、prerelease 和十一资产、GitHub Latest 选中稳定版，以及 Atom 选中同一源码的当前 App 入口之一。Atom 使用 updater 实际 XML parser，并按旧 `rc` 频道的真实选择方式跳过 stable、alpha 与 beta；首个合法 rc tag 必须为本次封存的兼容入口。当前 stable 首项不能掩盖后续旧 rc 版本。
 
 两种操作在每个文件读取前后检查 release metadata 与 asset ID；只允许读取自身引起的下载次数变化，其余变更均失败。公开发现入口在结束时再次验证。安全 JSON 收据只含源码、release ID、文件名、大小、digest 和 asset ID；不记录凭据、签名 URL 或私有路径。工作流把成功报告或最小失败记录保存为 Actions artifact；读回成功不会发布，TOS 检查及正式发布仍由运营者负责。

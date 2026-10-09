@@ -93,13 +93,21 @@ async function assetResponse(fetch, asset, file, tag, mode, token) {
   }
 }
 
-function checkedAssets(releases, seal) {
+function checkedAssets(releases, seal, mode) {
   const ids = new Set()
-  for (const release of releases) for (const asset of release.assets) {
-    if (!Number.isSafeInteger(asset.id) || asset.id < 1 || ids.has(asset.id)) throw new Error('Invalid or duplicate sealed asset ID')
-    ids.add(asset.id)
-    if (asset.url !== `${API}${asset.id}` || asset.browser_download_url !== publicAssetUrl(release.tag_name, asset.name)) {
-      throw new Error('Sealed asset has another API or public address')
+  for (const release of releases) {
+    let browserTag
+    for (const asset of release.assets) {
+      if (!Number.isSafeInteger(asset.id) || asset.id < 1 || ids.has(asset.id)) throw new Error('Invalid or duplicate sealed asset ID')
+      ids.add(asset.id)
+      const address = asset.browser_download_url, prefix = `https://github.com/${REPOSITORY}/releases/download/`
+      const candidate = typeof address === 'string' && address.startsWith(prefix) ? address.slice(prefix.length).split('/')[0] : ''
+      const selected = address === publicAssetUrl(release.tag_name, asset.name) ? release.tag_name
+        : mode === 'draft' && /^untagged-[a-f0-9]{20}$/u.test(candidate)
+          && address === publicAssetUrl(candidate, asset.name) ? candidate : undefined
+      if (asset.url !== `${API}${asset.id}` || selected === undefined) throw new Error('Sealed asset has another API or public address')
+      if (browserTag !== undefined && browserTag !== selected) throw new Error('Sealed release has inconsistent browser address prefixes')
+      browserTag = selected
     }
   }
   if (ids.size !== seal.files.length * 2) throw new Error('Release asset IDs are incomplete')
@@ -109,7 +117,7 @@ async function checkedState(seal, adapter, mode, before) {
   let releases
   try { releases = await verifySealedReleaseState(seal, adapter, { draft: mode === 'draft' }) }
   catch (error) { throw new Error('Sealed release source, visibility or metadata check failed', { cause: error }) }
-  checkedAssets(releases, seal)
+  checkedAssets(releases, seal, mode)
   const actual = snapshot(releases)
   if (before && !isDeepStrictEqual(actual, before)) throw new Error('Release metadata or asset IDs changed during readback')
   return releases
@@ -146,7 +154,7 @@ async function publicDiscovery(seal, adapter, fetch, parseXml, releases) {
 }
 
 /**
- * Verify all eleven complete remote byte streams in both unchanged private or public releases.
+ * Verify all eleven remote byte streams in unchanged releases; each draft may use one exact GitHub untagged browser prefix, while downloads use API IDs.
  * @param seal - Strict approved source, release IDs and eleven-file inventory.
  * @param adapter - Repository-scoped JSON reader; no upload method is called.
  * @param options - Mode, byte fetcher, RAM-only private token, updater XML parser and safe progress observer.

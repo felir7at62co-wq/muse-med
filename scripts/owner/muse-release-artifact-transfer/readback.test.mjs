@@ -17,6 +17,7 @@ const names = [
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 const publicURL = (tag, name) => `https://github.com/${repository}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(name)}`
 const apiURL = id => `https://api.github.com/repos/${repository}/releases/assets/${id}`
+const draftTag = index => `untagged-${(index === 0 ? 'a' : 'b').repeat(20)}`
 const responseBody = (bytes, headers = {}) => new Response(new ReadableStream({ start(controller) {
   const split = Math.max(1, Math.floor(bytes.length / 2))
   controller.enqueue(bytes.subarray(0, split))
@@ -94,6 +95,12 @@ function fixture(mode = 'draft') {
   return { seal, releases, refs, annotations, bodies, adapter, options, controls, metadataCalls, fetchCalls, events }
 }
 
+function useUntaggedAddresses(f, indexes = [0, 1]) {
+  for (const index of indexes) for (const asset of f.releases[index].assets) {
+    asset.browser_download_url = publicURL(draftTag(index), asset.name)
+  }
+}
+
 test('reads all eleven original files from each draft without forwarding the API credential', async () => {
   const f = fixture()
   const receipt = await readbackSealedReleases(f.seal, f.adapter, f.options)
@@ -115,6 +122,95 @@ test('reads all eleven original files from each draft without forwarding the API
   assert.equal(serialized.includes(token), false)
   assert.equal(serialized.includes('synthetic-signed-url'), false)
   assert.equal(serialized.includes('https://'), false)
+})
+
+for (const [label, indexes] of [
+  ['both drafts', [0, 1]], ['only the stable draft', [0]], ['only the compatibility draft', [1]],
+]) test(`reads all sealed bytes with canonical twenty-hex untagged browser addresses on ${label}`, async () => {
+  const f = fixture()
+  useUntaggedAddresses(f, indexes)
+  const receipt = await readbackSealedReleases(f.seal, f.adapter, f.options)
+  assert.equal(receipt.success, true)
+  assert.equal(receipt.releases.length, 2)
+  assert.ok(receipt.releases.every(release => release.draft && release.verifiedFiles.length === 11))
+  assert.equal(f.events.length, 22)
+  assert.equal(f.fetchCalls.length, 44)
+  const authenticated = f.fetchCalls.filter(call => call.options.headers.has('authorization'))
+  assert.deepEqual(authenticated.map(call => call.url).sort(), f.releases.flatMap(release => release.assets.map(asset => asset.url)).sort())
+  assert.ok(authenticated.every(call => call.options.headers.get('authorization') === `Bearer ${token}`))
+  assert.ok(f.fetchCalls.filter(call => !call.options.headers.has('authorization'))
+    .every(call => call.url.startsWith('https://release-assets.githubusercontent.com/')))
+  assert.ok(f.fetchCalls.every(call => !call.url.includes('/untagged-')))
+  for (const release of receipt.releases) for (const verified of release.verifiedFiles) {
+    assert.deepEqual({ size: verified.size, sha256: verified.sha256 },
+      { size: f.bodies.get(verified.filename).length, sha256: sha256(f.bodies.get(verified.filename)) })
+  }
+  const serialized = JSON.stringify(receipt)
+  assert.equal(serialized.includes('untagged-'), false)
+  assert.equal(serialized.includes(token), false)
+  assert.equal(serialized.includes('synthetic-signed-url'), false)
+})
+
+const untaggedAddressFailures = [
+  ['another browser host', asset => { asset.browser_download_url = asset.browser_download_url.replace('github.com', 'other.example') }],
+  ['a lookalike browser host', asset => { asset.browser_download_url = asset.browser_download_url.replace('github.com', 'github.com.other.example') }],
+  ['another repository', asset => { asset.browser_download_url = asset.browser_download_url.replace(repository, 'someone/another-repository') }],
+  ['plain HTTP', asset => { asset.browser_download_url = asset.browser_download_url.replace('https:', 'http:') }],
+  ['embedded credentials', asset => { asset.browser_download_url = asset.browser_download_url.replace('github.com', 'user:password@github.com') }],
+  ['a port', asset => { asset.browser_download_url = asset.browser_download_url.replace('github.com', 'github.com:443') }],
+  ['a short untagged identifier', asset => { asset.browser_download_url = publicURL(`untagged-${'a'.repeat(19)}`, asset.name) }],
+  ['a long untagged identifier', asset => { asset.browser_download_url = publicURL(`untagged-${'a'.repeat(21)}`, asset.name) }],
+  ['an uppercase untagged identifier', asset => { asset.browser_download_url = publicURL(`untagged-${'A'.repeat(20)}`, asset.name) }],
+  ['a nonhexadecimal untagged identifier', asset => { asset.browser_download_url = publicURL(`untagged-${'g'.repeat(20)}`, asset.name) }],
+  ['an encoded untagged prefix', asset => { asset.browser_download_url = asset.browser_download_url.replace('untagged-', 'untagged%2D') }],
+  ['a different filename', asset => { asset.browser_download_url = publicURL(draftTag(0), 'another-file.dmg') }],
+  ['a noncanonical filename encoding', asset => { asset.browser_download_url = asset.browser_download_url.replace('/muse-med-', '/%6Duse-med-') }],
+  ['an extra path component', asset => { asset.browser_download_url = `${asset.browser_download_url}/another-file` }],
+  ['a query string', asset => { asset.browser_download_url += '?download=1' }],
+  ['a fragment', asset => { asset.browser_download_url += '#download' }],
+  ['a different API asset ID', asset => { asset.url = apiURL(asset.id + 1) }],
+  ['an API address in another repository', asset => { asset.url = asset.url.replace(repository, 'someone/another-repository') }],
+]
+for (const [label, change] of untaggedAddressFailures) test(`refuses a draft untagged address with ${label} before any bytes`, async () => {
+  const f = fixture()
+  useUntaggedAddresses(f)
+  change(f.releases[0].assets[0])
+  await assert.rejects(readbackSealedReleases(f.seal, f.adapter, f.options))
+  assert.equal(f.fetchCalls.length, 0)
+  assert.equal(f.events.length, 0)
+})
+
+for (const [label, tag] of [['two untagged identifiers', `untagged-${'c'.repeat(20)}`], ['tagged and untagged addresses', 'v1.0.5']]) {
+  test(`refuses mixed ${label} within one draft`, async () => {
+    const f = fixture()
+    useUntaggedAddresses(f)
+    const asset = f.releases[0].assets[1]
+    asset.browser_download_url = publicURL(tag, asset.name)
+    await assert.rejects(readbackSealedReleases(f.seal, f.adapter, f.options), /inconsistent browser address prefixes/u)
+    assert.equal(f.fetchCalls.length, 0)
+    assert.equal(f.events.length, 0)
+  })
+}
+
+test('refuses a consistent draft browser prefix change after the first original byte stream', async () => {
+  const f = fixture()
+  useUntaggedAddresses(f)
+  f.controls.afterBody = async ({ verifiedBodies }) => {
+    if (verifiedBodies === 1) for (const asset of f.releases[0].assets) {
+      asset.browser_download_url = publicURL(`untagged-${'c'.repeat(20)}`, asset.name)
+    }
+  }
+  await assert.rejects(readbackSealedReleases(f.seal, f.adapter, f.options), /metadata or asset IDs changed/u)
+  assert.equal(f.fetchCalls.length, 2)
+  assert.equal(f.events.length, 0)
+})
+
+for (const index of [0, 1]) test(`refuses untagged browser addresses on public release ${index + 1} before discovery or bytes`, async () => {
+  const f = fixture('public')
+  useUntaggedAddresses(f, [index])
+  await assert.rejects(readbackSealedReleases(f.seal, f.adapter, f.options))
+  assert.equal(f.fetchCalls.length, 0)
+  assert.equal(f.events.length, 0)
 })
 
 for (const firstTag of ['v1.0.5', 'v1.0.5-rc.muse-stable']) test(`anonymous public readback accepts ${firstTag} as the actual first Atom app entry`, async () => {
