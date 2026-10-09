@@ -67,11 +67,13 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 
 启用知识库的网关启动前，须把 `MUSE_KB_USER_ROOT` 指向共享 vault 外已存在、仅所有者可访问的绝对目录。目录缺失、权限过宽或与共享 vault 重叠会阻止启动。已登录账号每次可用 `ingest_script` 提交 1–12 段复核后的 Markdown 剧本；请求上限为 2 MiB，单段上限为 400,000 字符。每段的标题、项目相对来源标识与不可变正文按稳定账号 ID 分开保存；结果逐项报告已写入、已存在或失败。账号可通过 `search`、`read` 和 `read_opening` 阅读自己的 `private/SRC-...` ID；其他账号和机器令牌不能读取这些私有 ID。Muse 召回使用目录、全文关键词和页面链接；MCP 端点不调用语义向量。此工具不上传视频二进制。桌面端使用前，服务器须完成部署和配置；只发布源码不会启用此功能。
 
-桌面模型调用复用网页版的账号会话和全局模型目录。`GET /api/desktop-models/providers` 返回公开元数据；`POST /api/desktop-models/:provider/chat/completions` 接受会话令牌作为 Bearer 凭据，并要求已配置的公开 Origin。上游密钥保留在服务器。Desktop 与云端工作间模型中转对已认证请求不设置 Muse 自有的每账号或共享并发上限，Desktop 路由也没有 Muse 模型请求频率限制。上游供应商限流与模型输出上限仍然有效。退出登录、账号撤销、会话过期与客户端取消会中止所属请求。启动网关前删除已移除的环境设置 `MUSE_DESKTOP_MODEL_MAX_ACTIVE` 和 `MUSE_DESKTOP_MODEL_MAX_TOTAL`；存在这些设置会拒绝启动并给出迁移提示。
+桌面模型调用复用网页版的账号会话和全局模型目录。`GET /api/desktop-models/providers` 返回公开元数据；`POST /api/desktop-models/:provider/chat/completions` 接受会话令牌作为 Bearer 凭据，并要求已配置的公开 Origin。默认 `MUSE_DESKTOP_MODEL_TRANSPORT=relay` 模式下，上游密钥保留在服务器。Desktop 与云端工作间模型中转对已认证请求不设置 Muse 自有的每账号或共享并发上限，Desktop 路由也没有 Muse 模型请求频率限制。上游供应商限流与模型输出上限仍然有效。退出登录、账号撤销、会话过期与客户端取消会中止所属请求。启动网关前删除已移除的环境设置 `MUSE_DESKTOP_MODEL_MAX_ACTIVE` 和 `MUSE_DESKTOP_MODEL_MAX_TOTAL`；存在这些设置会拒绝启动并给出迁移提示。
 
 全局目录中的各模型可将 `defaultReasoningEffort` 声明为其 `reasoningEfforts` 映射中已启用的键。两条转发路径只在请求未提供 `reasoning_effort` 时将默认档位映射成上游值；请求显式选择的受支持档位优先。未配置默认档位时保留提供方默认行为。GLM-5.3 请求通过 `clear_thinking: false` 在工具续接时保留思考，关闭该模型思考的请求会被拒绝。配置中的 `maxTokens` 为省略输出上限的请求提供默认值并限制更大的请求，显式更小的上限保持原值。直接编辑私有目录文件后须重启网关；管理员设置更新实时生效。
 
 上游拒绝通过固定的 `error.code` 与 `error.message` 区分认证、额度、限流、上下文、输出上限和无效参数。分类最多读取 64 KiB，提供方控制的诊断和凭据不会返回。仅提及额度而未说明耗尽，不会归为额度耗尽。上游 429 拒绝会保留经验证的整数 `Retry-After`。未知服务器失败返回通用错误；结束原因 `finish_reason: length` 仍报告输出截断。
+
+`MUSE_DESKTOP_MODEL_TRANSPORT=direct` 明确启用向已登录 Desktop Host 分发供应商凭据。新版 Host 在元数据请求中通过 `X-Muse-Model-Access: direct-v1` 协商，再从 `GET /api/desktop-models/access` 取得含供应商私密地址和密钥的当前目录；两个响应均禁止缓存。旧版客户端继续使用中转。直连要求完整的原生全局目录：供应商中的每个模型必须解析为其公布的 ID、相同的 HTTPS API 根地址和相同的已配置密钥。配置缺失会报错，不回退到云端中转。Host 将凭据存入账号目录并直接调用供应商；模型请求正文和 SSE 回复不经过此网关。账号禁用、过期和退出会阻止再次领取凭据，但无法使已复制的供应商密钥失效，也无法终止 Muse 之外的直连请求；需要时应在供应商处撤销或轮换密钥。该选项不提供供应商执行的用户配额、临时密钥或请求审计。仅对已获授权分发的凭据启用。
 
 选定的 Muse 账号目录供应官方 DeepSeek Flash、V4 Pro，七个云映模型（包括 GLM-5.3-Flash），以及 [`selected-models.mjs`](selected-models.mjs) 定义的智谱官方 GLM-5.3-Flash 与 FlashX。DeepSeek 和智谱分别使用官方 Chat Completions 路由；云映路由沿用运营者现有 API 根地址。各路由使用独立的服务器凭据引用；用户登录 Muse 后无需填写供应商密钥。桌面端的自定义供应商与独立 Codex 订阅各自保留其凭据与目录。准备这份目录不会部署或启用它。
 

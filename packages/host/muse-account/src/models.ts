@@ -12,9 +12,22 @@ import { SettingsConflictError } from '@deepseek-ai/dsh-settings'
 import { z } from 'zod'
 import { readMuseSession, clearMuseSessionIfUnchanged } from './session.ts'
 import { MuseGatewayError } from './gateway.ts'
+import { clearModelAccess, saveModelAccess } from './model-access.ts'
+
+const supplierAccess = z.object({
+  baseURL: z.string().max(2048).refine((value) => {
+    try {
+      const url = new URL(value)
+      return !url.username && !url.password && !url.search && !url.hash
+        && (url.protocol === 'https:' || url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))
+    } catch { return false }
+  }),
+  apiKey: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/),
+})
 
 const metadata = z.object({ providers: z.array(z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/), name: z.string().min(1).max(200),
+  access: supplierAccess.optional(),
   models: z.array(z.object({
     id: z.string().min(1).max(200), name: z.string().min(1).max(200),
     contextWindow: z.number().int().positive(), maxTokens: z.number().int().positive(),
@@ -28,7 +41,11 @@ const metadata = z.object({ providers: z.array(z.object({
       context.addIssue({ code: 'custom', path: ['defaultReasoningEffort'], message: 'Model default effort must be offered' })
     }
   })).max(256),
-})).max(100) })
+})).max(100), transport: z.enum(['relay', 'direct']).optional() }).superRefine((data, context) => {
+  if (data.providers.some(provider => data.transport === 'direct' ? !provider.access : provider.access !== undefined)) {
+    context.addIssue({ code: 'custom', message: 'Supplier access must match the negotiated transport' })
+  }
+})
 const modelName = (id: string): string => id.slice(id.lastIndexOf('/') + 1)
 
 /** Capture account catalog defaults with the same prepared generation as its request stream. */
@@ -36,6 +53,7 @@ class MusePiAiAdapter extends PiAiAdapter {
   constructor(
     options: PiAiAdapterOptions,
     private readonly defaultEffort: (provider: string, model: string) => ReasoningEffortId | undefined,
+    private readonly authorizationSignal: () => AbortSignal,
   ) {
     super(options)
   }
@@ -46,10 +64,16 @@ class MusePiAiAdapter extends PiAiAdapter {
 
   override async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<PreparedAdapterCall> {
     const defaultEffort = this.defaultEffort(provider, model)
+    const authorization = this.authorizationSignal()
     const prepared = await super.prepareCall(provider, model, signal)
-    if (defaultEffort === undefined || prepared.model.reasoning === undefined) return prepared
-    return { ...prepared, model: { ...prepared.model, reasoning: { ...prepared.model.reasoning, defaultEffort } } }
+    return { ...prepared,
+      model: defaultEffort === undefined || prepared.model.reasoning === undefined ? prepared.model
+        : { ...prepared.model, reasoning: { ...prepared.model.reasoning, defaultEffort } },
+      stream: options => prepared.stream({ ...options, signal: options.signal === undefined ? authorization
+        : AbortSignal.any([authorization, options.signal]) }),
+    }
   }
+
 }
 
 /** Product-selected origin and polling limits, with a testable HTTP transport. */
@@ -66,6 +90,8 @@ export interface MuseModelsOptions {
 export class MuseModels {
   private profiles = new Map<string, ResolvedPiAiProviderProfile>()
   private readonly revisions = new WeakMap<ResolvedPiAiProviderProfile, string>()
+  private readonly keys = new WeakMap<ResolvedPiAiProviderProfile, string>()
+  private authorization = new AbortController()
   private defaultEfforts: ReadonlyMap<string, ReasoningEffortId> = new Map()
   private registration: AdapterRegistrationHandle | undefined
   private revision: string | undefined
@@ -83,6 +109,8 @@ export class MuseModels {
         if (this.stop.signal.aborted || !session || session.revision !== this.revisions.get(profile)) {
           throw new LlmError('Please sign in to Muse and refresh the model list', 'MISSING_CREDENTIAL')
         }
+        const key = this.keys.get(profile)
+        if (key !== undefined) return key
         const token = session.cookie.slice(session.cookie.indexOf('=') + 1)
         if (!/^[A-Za-z0-9_-]+$/.test(token)) throw new LlmError('Muse session is invalid', 'MISSING_CREDENTIAL')
         return token
@@ -97,7 +125,7 @@ export class MuseModels {
       },
       resolveAttachments: () => ctx.get('attachments'),
       resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(attachments, () => undefined, ref),
-    }, (provider, model) => this.defaultEfforts.get(`${provider}:${model}`))
+    }, (provider, model) => this.defaultEfforts.get(`${provider}:${model}`), () => this.authorization.signal)
     this.disposeRequestRoute = ctx.on('agent/request', async ({ agent, signal }, next) => {
       const config = await next()
       return await this.repairRequestRoute(agent, config, signal)
@@ -107,6 +135,7 @@ export class MuseModels {
   /** Withdraw this instance's models and cancel its pending catalog fetch. */
   dispose(): void {
     this.stop.abort()
+    this.authorization.abort()
     this.disposeRequestRoute()
     this.registration?.()
     this.registration = undefined
@@ -124,36 +153,58 @@ export class MuseModels {
     return operation
   }
 
-  private clear(): void {
+  private async clear(): Promise<void> {
+    const revision = this.revision
+    this.authorization.abort()
+    this.authorization = new AbortController()
     this.registration?.replace([])
     this.profiles = new Map()
     this.defaultEfforts = new Map()
     this.revision = undefined
     this.signature = undefined
+    await clearModelAccess(this.options.sessionFile, this.options.baseUrl, revision)
   }
 
   private async synchronize(): Promise<void> {
     if (this.stop.signal.aborted) return
     const session = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
-    if (!session) { this.clear(); return }
-    if (this.revision !== session.revision) this.clear()
+    if (!session) { await this.clear(); return }
+    if (this.revision !== session.revision) await this.clear()
     const response = await (this.options.fetcher ?? fetch)(new URL('/api/desktop-models/providers', this.options.baseUrl), {
-      headers: { cookie: session.cookie }, redirect: 'error',
+      headers: { cookie: session.cookie, 'x-muse-model-access': 'direct-v1' }, redirect: 'error',
       signal: AbortSignal.any([this.stop.signal, AbortSignal.timeout(this.options.requestTimeoutMs)]),
     }).catch(() => { throw new MuseGatewayError('gateway-unavailable') })
     if (response.status === 401) {
       await clearMuseSessionIfUnchanged(this.options.sessionFile, session)
-      this.clear()
+      await this.clear()
       return
     }
     if (!response.ok) throw new MuseGatewayError('gateway-unavailable')
-    const text = await response.text()
+    let text = await response.text()
+    if (text.length > 2 * 1024 * 1024) throw new MuseGatewayError('gateway-rejected')
+    let announcement: unknown
+    try { announcement = JSON.parse(text) } catch { throw new MuseGatewayError('gateway-rejected') }
+    if (typeof announcement === 'object' && announcement !== null && Reflect.get(announcement, 'transport') === 'direct') {
+      const access = await (this.options.fetcher ?? fetch)(new URL('/api/desktop-models/access', this.options.baseUrl), {
+        headers: { cookie: session.cookie, 'x-muse-model-access': 'direct-v1' }, redirect: 'error',
+        signal: AbortSignal.any([this.stop.signal, AbortSignal.timeout(this.options.requestTimeoutMs)]),
+      }).catch(() => { throw new MuseGatewayError('gateway-unavailable') })
+      if (access.status === 401) {
+        await clearMuseSessionIfUnchanged(this.options.sessionFile, session)
+        await this.clear()
+        return
+      }
+      if (!access.ok) throw new MuseGatewayError('gateway-unavailable')
+      text = await access.text()
+    }
     if (text.length > 2 * 1024 * 1024) throw new MuseGatewayError('gateway-rejected')
     let data: z.infer<typeof metadata>
     try { data = metadata.parse(JSON.parse(text)) } catch { throw new MuseGatewayError('gateway-rejected') }
+    if (typeof announcement === 'object' && announcement !== null && Reflect.get(announcement, 'transport') === 'direct'
+      && data.transport !== 'direct') throw new MuseGatewayError('gateway-rejected')
     const current = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
     this.stop.signal.throwIfAborted()
-    if (current?.revision !== session.revision) { this.clear(); return }
+    if (current?.revision !== session.revision) { await this.clear(); return }
     const signature = JSON.stringify(data)
     if (signature === this.signature && session.revision === this.revision) return
     const providers: Record<string, PiAiProviderProfile> = {}
@@ -170,8 +221,8 @@ export class MuseModels {
       }
       providers[id] = {
         displayName: `Muse · ${provider.name}`, api: 'openai-completions',
-        baseURL: `${this.options.baseUrl}/api/desktop-models/${provider.id}`,
-        headers: { origin: this.options.baseUrl },
+        baseURL: provider.access?.baseURL ?? `${this.options.baseUrl}/api/desktop-models/${provider.id}`,
+        ...(provider.access === undefined ? { headers: { origin: this.options.baseUrl } } : {}),
         models: allowedModels.map(model => ({ ...model,
           compat: { supportsReasoningEffort: model.reasoningEfforts !== false,
             ...(/^glm-5\.3(?:-|$)/i.test(modelName(model.id)) ? {
@@ -182,9 +233,16 @@ export class MuseModels {
       }
     }
     const candidate = resolveProfiles(providers)
-    for (const profile of candidate.values()) {
+    for (const [id, profile] of candidate) {
       this.revisions.set(profile, session.revision)
+      const key = data.providers.find(provider => `muse-cloud-${provider.id}` === id)?.access?.apiKey
+      if (key !== undefined) this.keys.set(profile, key)
     }
+    if (data.transport === 'direct') {
+      const access = data.providers.flatMap(provider => provider.access && candidate.has(`muse-cloud-${provider.id}`)
+        ? [{ id: provider.id, access: provider.access }] : [])
+      if (!await saveModelAccess(this.options.sessionFile, this.options.baseUrl, session.revision, access)) { await this.clear(); return }
+    } else await clearModelAccess(this.options.sessionFile, this.options.baseUrl, session.revision)
     const previous = this.profiles
     const previousDefaults = this.defaultEfforts
     this.profiles = candidate

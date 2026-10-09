@@ -45,6 +45,7 @@ function completion(message) {
  * @returns {Promise<void>} Completion after account, tool and stream fixture registration.
  */
 export async function apply(ctx) {
+  const direct = process.env.DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS === 'true'
   const excludedProvider = process.env.DSH_SNAPSHOT_EXCLUDED_ACCOUNT_PROVIDER
   assert.ok(excludedProvider === undefined || excludedProvider === 'aa')
   const excludesStandaloneAa = excludedProvider === 'aa'
@@ -65,10 +66,11 @@ export async function apply(ctx) {
     ? { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro' }
     : { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }
   assert.deepEqual({ provider: selection?.provider, model: selection?.model }, selectedModel)
-  const completionPath = `/api/desktop-models/${selectedModel.provider.slice('muse-cloud-'.length)}/chat/completions`
+  const completionPath = `${direct ? '/supplier' : '/api/desktop-models'}/${selectedModel.provider.slice('muse-cloud-'.length)}/chat/completions`
   const script = recorded.filter(event => event.type === 'assistant/message').map(event => event.data.message)
   assert.equal(script.length, 2)
   const requests = []
+  let baseUrl
   let rejected
   let defaultSelectionConflict
   const server = createServer((request, response) => {
@@ -84,11 +86,21 @@ export async function apply(ctx) {
         }
         if (request.url === '/api/desktop-models/providers') {
           assert.equal(request.headers.cookie, '__Host-muse=snapshot-session')
-          response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify(catalog)); return
+          response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ ...catalog,
+            ...(direct ? { transport: 'direct' } : {}) })); return
+        }
+        if (request.url === '/api/desktop-models/access' && direct) {
+          assert.equal(request.headers.cookie, '__Host-muse=snapshot-session')
+          assert.equal(request.headers['x-muse-model-access'], 'direct-v1')
+          response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ transport: 'direct',
+            providers: catalog.providers.map(provider => ({ ...provider, access: {
+              baseURL: `${baseUrl}/supplier/${provider.id}`, apiKey: `supplier-fixture-${provider.id}`,
+            } })) })); return
         }
         if (request.url === completionPath) {
           const payload = JSON.parse(body)
-          assert.equal(request.headers.authorization, 'Bearer snapshot-session')
+          assert.equal(request.headers.authorization, direct ? 'Bearer supplier-fixture-deepseek-official' : 'Bearer snapshot-session')
+          if (direct) { assert.equal(request.headers.cookie, undefined); assert.equal(request.headers.origin, undefined) }
           assert.equal(payload.model, selectedModel.model)
           if (preservesNewerDefault) {
             assert.equal(payload.max_tokens, 65536)
@@ -133,6 +145,7 @@ export async function apply(ctx) {
   })
   const address = server.address()
   assert.ok(address && typeof address !== 'string')
+  baseUrl = `http://127.0.0.1:${address.port}`
   const profile = ctx.get('profileContext')
   assert.ok(profile)
   // Account repair reads the owned profile's persisted selection.
@@ -223,7 +236,7 @@ export async function apply(ctx) {
         ...(preservesNewerDefault ? { defaultSelectionConflict } : {}) }) }]
     },
   })))
-  ctx.on('agent/turn-stopping', ({ agent }) => {
+  ctx.on('agent/turn-stopping', async ({ agent }) => {
     if (rejected) throw rejected
     assert.equal(requests.length, 2)
     const config = agent.session.requestHeader()?.config
@@ -231,5 +244,10 @@ export async function apply(ctx) {
     assert.deepEqual({ provider: config.provider, model: config.model }, selectedModel)
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('snapshot-session'))
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('fixture-password'))
+    assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('supplier-fixture-'))
+    if (direct) {
+      const access = JSON.parse(await readFile(join(home, 'model-access.json'), 'utf8'))
+      assert.equal(access.providers.length, 3)
+    }
   })
 }

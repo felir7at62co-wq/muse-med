@@ -1,5 +1,5 @@
 /** Account-authenticated Desktop access to the website's current model catalog. */
-import {forwardModel,resolveModelReasoning} from './model-relay.mjs';
+import {forwardModel,resolveModelReasoning,completionEndpoint} from './model-relay.mjs';
 
 /** Project only public model metadata; upstream endpoints and keys stay on the server. */
 export function desktopModelCatalog(globalModels,modelConfig){
@@ -25,13 +25,32 @@ export function desktopModelCatalog(globalModels,modelConfig){
  * @param {object} options Model configuration, forwarding operation and login clock.
  * @returns {object} Request handling and stream cancellation operations.
  */
-export function createDesktopModels({globalModels,modelConfig,forward=forwardModel,now=Date.now}){
+export function createDesktopModels({globalModels,modelConfig,forward=forwardModel,now=Date.now,transport='relay'}){
+ if(!['relay','direct'].includes(transport))throw Error('Invalid Desktop model transport');
  const active=new Map();
  const revoke=token=>{for(const item of active.get(token)??[])item.controller.abort();};
  return {revoke,close(){for(const token of active.keys())revoke(token);},async handle(req,res,session,path){
   const fail=(status,message,headers={})=>{if(res.headersSent){res.destroy();return;}res.writeHead(status,{'content-type':'application/json','cache-control':'no-store',...headers});res.end(JSON.stringify({error:{message}}));};
   if(path==='/api/desktop-models/providers'&&req.method==='GET'){
-   res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(desktopModelCatalog(globalModels,modelConfig)));return;
+   const catalog=desktopModelCatalog(globalModels,modelConfig);
+   if(transport==='direct'&&req.headers['x-muse-model-access']==='direct-v1')catalog.transport='direct';
+   res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(catalog));return;
+  }
+  if(path==='/api/desktop-models/access'&&req.method==='GET'){
+   if(transport!=='direct'||req.headers['x-muse-model-access']!=='direct-v1'){fail(404,'本地模型直连未启用');return;}
+   const catalog=desktopModelCatalog(globalModels,modelConfig),providers=[];
+   for(const provider of catalog.providers){
+    const configs=provider.models.map(model=>globalModels?.resolve(provider.id,model.id));
+    const first=configs[0];
+    if(!first?.apiKey||configs.some((config,index)=>!config||config.apiKey!==first.apiKey||config.baseURL!==first.baseURL||config.model!==provider.models[index].id)){
+     fail(503,'模型直连配置不完整，请联系管理员');return;
+    }
+    let baseURL;
+    try{baseURL=completionEndpoint(first.baseURL).href.replace(/\/chat\/completions$/,'');}catch{fail(503,'模型直连地址无效，请联系管理员');return;}
+    providers.push({...provider,access:{baseURL,apiKey:first.apiKey}});
+   }
+   res.writeHead(200,{'content-type':'application/json','cache-control':'no-store','pragma':'no-cache'});
+   res.end(JSON.stringify({transport:'direct',providers}));return;
   }
   const route=/^\/api\/desktop-models\/([a-z][a-z0-9-]{0,63})\/chat\/completions$/.exec(path)?.[1];
   if(!route||req.method!=='POST'){fail(404,'模型接口不存在');return;}

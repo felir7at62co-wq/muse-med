@@ -47,6 +47,47 @@ test('native DeepSeek metadata exposes capacity and reasoning without private co
  assert.ok(!JSON.stringify(result).includes('SECRET'));
 });
 
+test('only enabled, negotiated, live account access distributes supplier keys',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'muse-direct-access-'));let server;
+ t.after(async()=>{if(server){server.closeAllConnections();await new Promise(r=>server.close(r));}await rm(dir,{recursive:true,force:true});});
+ const store=await openStore(join(dir,'accounts.json'));await store.create('editor','pw');
+ let key='direct-test-key',baseURL='https://provider.test/v1';
+ const globalModels={metadata:()=>({providers:{studio:{models:[{id:'writer',contextWindow:128000,maxTokens:8192,reasoningEfforts:false}]}}}),
+  resolve:()=>({model:'writer',apiKey:key,baseURL,maxTokens:8192,reasoningEfforts:false})};
+ const origin='https://muse.test';
+ server=createAccountServer({store,globalModels,publicOrigin:origin,desktopModelTransport:'direct'});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
+ const call=(path,options={})=>fetch(base+path,{redirect:'manual',...options});
+ const accessHeaders={'x-muse-model-access':'direct-v1'};
+ assert.equal((await call('/api/desktop-models/access',{headers:accessHeaders})).status,401);
+ const login=await call('/login',{method:'POST',headers:{origin},body:'username=editor&password=pw'});
+ const cookie=login.headers.get('set-cookie').split(';')[0],headers={cookie,...accessHeaders};
+ assert.equal((await call('/api/desktop-models/access',{headers:{cookie}})).status,404);
+ const legacy=await (await call('/api/desktop-models/providers',{headers:{cookie}})).json();
+ assert.equal(legacy.transport,undefined);assert.ok(!JSON.stringify(legacy).includes(key));
+ const announced=await (await call('/api/desktop-models/providers',{headers})).json();
+ assert.equal(announced.transport,'direct');assert.ok(!JSON.stringify(announced).includes(key));
+ const access=await call('/api/desktop-models/access',{headers});
+ assert.equal(access.headers.get('cache-control'),'no-store');
+ assert.deepEqual((await access.json()).providers[0].access,{baseURL,apiKey:key});
+ baseURL='https://provider.test';
+ assert.equal((await (await call('/api/desktop-models/access',{headers})).json()).providers[0].access.baseURL,'https://provider.test/v1');
+ assert.equal((await call('/api/desktop-models/access',{headers:{...headers,origin:'https://evil.test'}})).status,403);
+ key='';assert.equal((await call('/api/desktop-models/access',{headers})).status,503);
+ key='rotated-test-key';baseURL='http://private.test';assert.equal((await call('/api/desktop-models/access',{headers})).status,503);
+ baseURL='https://provider.test/v1';
+ assert.equal((await (await call('/api/desktop-models/access',{headers})).json()).providers[0].access.apiKey,key);
+ await call('/logout',{method:'POST',headers:{cookie,origin}});
+ assert.equal((await call('/api/desktop-models/access',{headers})).status,401);
+});
+
+test('direct access is unavailable by default and invalid transport fails at load',async t=>{
+ assert.throws(()=>createDesktopModels({transport:'typo'}),/transport/);
+ const fixture=await capacityFixture(t);
+ const cookie=await fixture.login('editor-one');
+ assert.equal((await fixture.call('/api/desktop-models/access',{headers:{cookie,'x-muse-model-access':'direct-v1'}})).status,404);
+});
+
 async function capacityFixture(t,options={}){
  const dir=await mkdtemp(join(tmpdir(),'muse-desktop-capacity-'));let server;
  t.after(async()=>{if(server){server.closeAllConnections();await new Promise(r=>server.close(r));}await rm(dir,{recursive:true,force:true});});
