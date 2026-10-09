@@ -50,6 +50,7 @@
     "skills/tweet-drama-core/scripts/asset_context.py",
     "skills/tweet-drama-core/scripts/asset_image_import.py",
     "skills/tweet-drama-core/scripts/asset_prompt_templates.py",
+    "skills/tweet-drama-core/scripts/episode_coverage.py",
     "skills/tweet-drama-core/scripts/paths.py",
     "skills/tweet-drama-core/scripts/pipeline_state.py",
     "skills/tweet-drama-core/scripts/style_references.py",

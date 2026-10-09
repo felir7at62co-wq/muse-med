@@ -15,6 +15,6 @@
 
 依赖就绪即可推进独立集或镜头，不要求整剧串行。模型自主安排异步任务后续查询，期间做独立工作。pending/unknown 查原 task ID，不盲目付费重投；确认失败后按根因、已花费用及剩余授权评估恢复。
 
-主体视频路径保持有序：本轮全部分镜先完成 select_assets（免费 isGenerate=0）与 prepare_video（只读 preview）；汇总 preview 路径和 fingerprint，与本次授权分镜 ID 逐一对应并排除遗漏、重复，再统一核对项目、原文、包边界、资产身份/顺序、规格、已有任务与整批预计费用。任一包未通过则修正并重查本轮全部视频包，禁止提前收费。全批通过后调用一次 jubian_storyboard submit_video_batch，把独立分镜的 preview_path 与各自 idempotency_key 放入 video_previews；工具核查本次提交清单内全部 preview、预约整批预算，再有界并行执行每项一次 isGenerate=1 PUT，按输入顺序逐项返回对账结果。授权范围内无需逐笔即时批准。禁止 direct POST 视频任务；提交后回读子项身份，丢失即暂停诊断。
+主体视频路径保持有序：多集项目先按当前原文、镜头脚本和来源映射完成逐集 `episode_coverage.py accept <本集号>`，任何付费清单提交前再执行 `gate <本次集号...>`；前序集未验收或本次任一集不通过时停止，不进入收费提交。之后，本轮全部分镜先完成 select_assets（免费 isGenerate=0）与 prepare_video（只读 preview）；汇总 preview 路径和 fingerprint，与本次授权分镜 ID 逐一对应并排除遗漏、重复，再统一核对项目、原文、包边界、资产身份/顺序、规格、已有任务与整批预计费用。任一包未通过则修正并重查本轮全部视频包，禁止提前收费。全批通过后调用一次 jubian_storyboard submit_video_batch，把独立分镜的 preview_path 与各自 idempotency_key 放入 video_previews；工具核查本次提交清单内全部 preview、预约整批预算，再有界并行执行每项一次 isGenerate=1 PUT，按输入顺序逐项返回对账结果。授权范围内无需逐笔即时批准。禁止 direct POST 视频任务；提交后回读子项身份，丢失即暂停诊断。
 
 非本地候选需 material_id、confirm_casting 成功和父资产回查一致；isLocal=1 正式主体须当前项目、isUsed=1、hsAssetStatus=Active、URL/hsAssetId 与父资产及 picker 一致。跳过生成链经唯一 writer 的合法阶段写 skipped、reason=skipped_with_official_local_evidence 和对应证据。

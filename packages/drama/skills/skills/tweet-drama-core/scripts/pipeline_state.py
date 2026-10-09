@@ -23,6 +23,7 @@ from typing import Any, Dict, Iterable, List
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from video_bans import check_videos
+from episode_coverage import audit_project
 
 
 VERSION = 3
@@ -217,7 +218,61 @@ class PipelineState:
             "episodes_generated": {path.parent.name[2:] for path in packs},
             "episodes_rendered": {episode_of_export(path) for path in glob("export/*成片*.mp4")},
             "episodes_delivered": {path.name.split("-ep", 1)[1][:2] for path in glob("export/delivery-ep*.mp4")},
+            "episode_inventory": self._episode_inventory(),
+            "coverage": audit_project(project),
         }
+
+    def _episode_inventory(self) -> Dict[str, Any]:
+        """Compare split files with the manifest's consecutive episode IDs and hashes."""
+        directory = self.project / "episodes"
+        manifest_path = directory / "manifest.json"
+        actual = {path.stem for path in directory.glob("*.txt") if path.is_file()}
+        if not manifest_path.is_file():
+            return {"expected": set(), "actual": actual, "issues": ["episodes/manifest.json is missing"] if actual else [],
+                    "manifest_exists": False}
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+            entries = manifest["episodes"]
+            if not isinstance(entries, dict) or not entries:
+                raise ValueError("episodes must be a nonempty object")
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            return {"expected": set(), "actual": actual, "issues": [f"episodes/manifest.json: {error}"],
+                    "manifest_exists": True}
+
+        expected = set(entries)
+        issues = []
+        declared_count = manifest.get("expected_episode_count")
+        if declared_count is not None:
+            if type(declared_count) is not int or not 1 <= declared_count <= 9999:
+                issues.append("expected_episode_count must be an integer from 1 to 9999")
+            else:
+                declared_ids = {f"{number:02d}" for number in range(1, declared_count + 1)}
+                if expected != declared_ids:
+                    missing = sorted(declared_ids - expected)
+                    extra = sorted(expected - declared_ids)
+                    issues.append(f"expected_episode_count={declared_count}: missing {missing}, extra {extra}")
+        if expected != {f"{number:02d}" for number in range(1, len(expected) + 1)}:
+            issues.append(f"episode IDs must be consecutive from 01: {sorted(expected)}")
+        for episode in sorted(expected):
+            row = entries[episode]
+            if not isinstance(row, dict) or not isinstance(row.get("sha256"), str) or len(row["sha256"]) != 64:
+                issues.append(f"EP{episode}: missing valid manifest sha256")
+                continue
+            path = directory / f"{episode}.txt"
+            if not path.is_file():
+                issues.append(f"EP{episode}: split text is missing")
+                continue
+            try:
+                # The splitter hashes cleaned text before Windows newline conversion on save.
+                actual_hash = hashlib.sha256(path.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+            except (OSError, UnicodeError) as error:
+                issues.append(f"EP{episode}: cannot read split text ({error})")
+                continue
+            if actual_hash != row["sha256"]:
+                issues.append(f"EP{episode}: split text sha256 differs from manifest")
+        for episode in sorted(actual - expected):
+            issues.append(f"EP{episode}: split text is absent from manifest")
+        return {"expected": expected, "actual": actual, "issues": issues, "manifest_exists": True}
 
     def _reviewed_sources(self, episodes: Iterable[str]) -> tuple:
         """Check prepared selections against each expected package's byte-bound review.
@@ -348,9 +403,13 @@ class PipelineState:
             evidence = facts["source_script"]
             return ("completed" if evidence else "pending", relative(evidence), {})
         if stage == "episodes":
-            evidence = facts["episodes"]
-            return ("completed" if evidence else "pending", relative(evidence),
-                    {"episodes": len(evidence)})
+            inventory = facts["episode_inventory"]
+            status = ("failed" if inventory["manifest_exists"] else "review") if inventory["issues"] else (
+                "completed" if inventory["expected"] else "pending")
+            evidence = ([project / "episodes" / "manifest.json"] if inventory["manifest_exists"] else []) + facts["episodes"]
+            return (status, relative(evidence), {"episodes": len(inventory["actual"]),
+                                                "expected_episodes": sorted(inventory["expected"]),
+                                                "missing_evidence": inventory["issues"]})
         if stage == "style":
             evidence = facts["style_bible"]
             return ("completed" if evidence else "pending", relative(evidence), {})
@@ -375,33 +434,63 @@ class PipelineState:
         # 后段阶段（脚本匹配 / 生成 / 审片 / 草稿 / 成片）是「整部剧」的口径：只有全部分集都
         # 走到这一步才算 completed，否则是 review（在推进中）。否则 3/50 集交付会让整个
         # 项目显示成「已导出」，比不写还误导。
-        total = len(facts["episodes_with_text"])
+        inventory = facts["episode_inventory"]
+        expected = inventory["expected"]
+        total = len(expected)
+        coverage = facts["coverage"]
+        accepted = {episode for episode, row in coverage["episodes"].items()
+                    if row.get("status") == "passed" and row.get("accepted") is True}
+        coverage_ready = (bool(expected) and not inventory["issues"]
+                          and coverage["status"] == "passed" and accepted == expected)
+        coverage_files = project / "shots_and_matches"
+        legacy_single = (len(expected) == 1 and not inventory["issues"]
+                         and coverage.get("source_integrity") is True
+                         and not any(coverage_files.glob("ep*-source-map.json"))
+                         and not any(coverage_files.glob("ep*-coverage-acceptance.json")))
+        stage_ready = coverage_ready or legacy_single
         if stage == "shots_and_matches":
-            scripts, matched = len(facts["episodes_with_script"]), len(facts["episodes_matched"])
-            if total and matched >= total:
+            scripts_set, matched_set = facts["episodes_with_script"], facts["episodes_matched"]
+            scripts, matched = len(scripts_set), len(matched_set)
+            if stage_ready and scripts_set == expected and matched_set == expected:
                 status = "completed"
             elif scripts or matched:
-                status = "review"
+                status = "failed" if coverage["status"] == "failed" else "review"
             else:
                 status = "pending"
             return (status, relative(facts["scripts"] + facts["matched"]),
-                    {"episodes_total": total, "scripts": scripts, "matched": matched})
+                    {"episodes_total": total, "scripts": scripts, "matched": matched,
+                     "coverage_accepted": sorted(accepted), "coverage_pending": sorted(expected - accepted),
+                     "legacy_single_without_coverage": legacy_single,
+                     "missing_evidence": inventory["issues"] + coverage["reasons"],
+                     "unexpected_scripts": sorted(scripts_set - expected),
+                     "unexpected_matches": sorted(matched_set - expected)})
         if stage == "video_tasks":
-            generated, packed = len(facts["episodes_generated"]), len(facts["episodes_packed"])
-            if total and generated >= total:
+            generated_set, packed_set = facts["episodes_generated"], facts["episodes_packed"]
+            generated, packed = len(generated_set), len(packed_set)
+            if stage_ready and generated_set == expected and packed_set == expected:
                 status = "completed"
             elif generated or packed:
-                status = "review"
+                status = "failed" if coverage["status"] == "failed" else "review"
             else:
                 status = "pending"
             return (status, relative(facts["packs"]),
                     {"episodes_total": total, "packs": len(facts["packs"]),
-                     "episodes_generated": generated, "episodes_packed": packed})
+                     "episodes_generated": generated, "episodes_packed": packed,
+                     "coverage_accepted": sorted(accepted), "coverage_pending": sorted(expected - accepted),
+                     "legacy_single_without_coverage": legacy_single,
+                     "missing_evidence": inventory["issues"] + coverage["reasons"],
+                     "unexpected_generated": sorted(generated_set - expected),
+                     "unexpected_packed": sorted(packed_set - expected)})
         if stage == "reviewed_videos":
             reviewed, evidence, missing = self._reviewed_sources(facts["episodes_with_text"])
-            status = "completed" if total and not missing else ("review" if total or facts["cleaned"] else "pending")
-            return (status, evidence, {"episodes_total": total, "episodes_reviewed": reviewed,
-                                      "missing_evidence": missing})
+            reviewed_total = len(facts["episodes_with_text"])
+            status = "completed" if reviewed_total and not missing and (
+                not inventory["manifest_exists"] or stage_ready) else (
+                "review" if reviewed_total or facts["cleaned"] else "pending")
+            return (status, evidence, {"episodes_total": reviewed_total, "episodes_reviewed": reviewed,
+                                      "missing_evidence": missing,
+                                      "coverage_pending": sorted(expected - accepted) if inventory["manifest_exists"] else [],
+                                      "legacy_single_without_coverage": legacy_single})
         if stage in {'draft', 'export'}:
             try:
                 videos = list((self.project / 'video').glob('*/shot_*.mp4'))
@@ -413,25 +502,30 @@ class PipelineState:
         if stage == "draft":
             draft_episodes = {path.name.split("-", 1)[0][2:] for path in facts["editing"]
                               if path.name.startswith("ep")}
-            if total and len(draft_episodes) >= total:
+            if stage_ready and draft_episodes == expected:
                 status = "completed"
             elif facts["editing"]:
                 status = "review"
             else:
                 status = "pending"
             return (status, relative(facts["editing"]),
-                    {"episodes_total": total, "episodes_with_draft": len(draft_episodes),
-                     "files": len(facts["editing"])})
+                     {"episodes_total": total, "episodes_with_draft": len(draft_episodes),
+                      "files": len(facts["editing"]), "coverage_pending": sorted(expected - accepted),
+                      "legacy_single_without_coverage": legacy_single,
+                      "unexpected_drafts": sorted(draft_episodes - expected)})
         if stage == "export":
             rendered, delivered = len(facts["episodes_rendered"]), len(facts["episodes_delivered"])
-            if total and delivered >= total:
+            if stage_ready and facts["episodes_delivered"] == expected:
                 status = "completed"
             elif rendered:
                 status = "review"
             else:
                 status = "pending"
             return (status, relative(facts["masters"] + facts["deliveries"]),
-                    {"episodes_total": total, "masters": len(facts["masters"]), "delivered": delivered})
+                    {"episodes_total": total, "masters": len(facts["masters"]), "delivered": delivered,
+                     "coverage_pending": sorted(expected - accepted),
+                     "legacy_single_without_coverage": legacy_single,
+                     "unexpected_deliveries": sorted(facts["episodes_delivered"] - expected)})
         return ("pending", [], {})
 
     def project_stages(self, dry_run: bool = False) -> Dict[str, Any]:
