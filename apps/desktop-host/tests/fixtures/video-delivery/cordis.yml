@@ -1,0 +1,20 @@
+- id: agent-default-model
+  config:
+    provider: video-delivery-fixture
+    model: video-delivery-fixture
+- id: session-persistence-jsonl
+  config:
+    root: './.sessions'
+    compression: none
+- insert:
+    - id: tool-present
+      name: '../../../../../packages/deliverables/tool-present/src/index.ts'
+    - id: screenplay-docx
+      name: '../../../src/screenplay-docx.ts'
+      config:
+        source: './unused-runtime'
+        maxInputBytes: 1000000
+        maxProjectBytes: 1000000
+        timeoutMs: 30000
+    - id: video-delivery-fixture
+      name: './model.ts'

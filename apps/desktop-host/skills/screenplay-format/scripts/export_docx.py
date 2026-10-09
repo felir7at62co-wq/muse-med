@@ -5,6 +5,7 @@ import tempfile
 import json
 import re
 import sys
+import zipfile
 from pathlib import Path
 from docx import Document
 from docx.oxml import OxmlElement
@@ -15,8 +16,11 @@ from docx.shared import Cm, Pt
 def export(request):
     sources = []
     total = 0
-    for name in request["inputs"]:
-        data = Path(name).read_bytes()
+    pinned = request.get("contents")
+    if pinned is not None and len(pinned) != len(request["inputs"]):
+        raise ValueError("Pinned content count differs from input count")
+    for index, name in enumerate(request["inputs"]):
+        data = pinned[index].encode("utf-8") if pinned is not None else Path(name).read_bytes()
         total += len(data)
         if total > request["max_input_bytes"]:
             raise ValueError("Markdown inputs exceed the export size limit")
@@ -57,6 +61,36 @@ def export(request):
             expected.append(plain)
     if not expected:
         raise ValueError("No screenplay content to export")
+    if request.get("verify_only"):
+        with zipfile.ZipFile(request["output"]) as archive:
+            if sum(item.file_size for item in archive.infolist()) > request["max_docx_bytes"]:
+                raise ValueError("Word contents exceed the verification size limit")
+        reopened = Document(request["output"])
+        body = reopened.element.body
+        if any(child.tag not in (qn("w:p"), qn("w:sectPr")) for child in body):
+            raise ValueError("Unexpected Word body content outside screenplay paragraphs")
+        if [p.text for p in reopened.paragraphs] != expected:
+            raise ValueError("Word paragraph content differs from accepted Markdown")
+        for paragraph in reopened.paragraphs:
+            inline = "".join(node.text or "" if node.tag == qn("w:t") else "\t" if node.tag == qn("w:tab") else "\n"
+                             for node in paragraph._p.iter() if node.tag in (qn("w:t"), qn("w:tab"), qn("w:br"), qn("w:cr")))
+            if inline != paragraph.text:
+                raise ValueError("Unexpected nested text in a screenplay paragraph")
+        for tag in ("w:drawing", "w:pict", "w:object", "w:instrText", "w:footnoteReference", "w:endnoteReference"):
+            if next(body.iter(qn(tag)), None) is not None:
+                raise ValueError("Unexpected embedded body content")
+        for saved_section in reopened.sections:
+            for extra in (saved_section.header, saved_section.first_page_header, saved_section.even_page_header,
+                          saved_section.footer, saved_section.first_page_footer, saved_section.even_page_footer):
+                if any(node.text for node in extra._element.iter(qn("w:t"))):
+                    raise ValueError("Unexpected screenplay text outside the accepted body")
+                for tag in ("w:drawing", "w:pict", "w:object", "w:instrText"):
+                    if next(extra._element.iter(qn(tag)), None) is not None:
+                        raise ValueError("Unexpected embedded header or footer content")
+                if any(field.get(qn("w:instr"), "").strip() != "PAGE" for field in extra._element.iter(qn("w:fldSimple"))):
+                    raise ValueError("Only page numbering is allowed outside the accepted body")
+        print(json.dumps({"paragraphs": len(expected)}, ensure_ascii=False))
+        return
     footer = section.footer.paragraphs[0]
     footer.alignment = 1
     field = OxmlElement("w:fldSimple")

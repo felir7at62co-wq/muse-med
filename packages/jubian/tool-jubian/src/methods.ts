@@ -23,7 +23,8 @@ import {
   validateImageRequestInput,
   withGenerationDisabled, withGenerationEnabled,
 } from '@deepseek-ai/dsh-jubian-api'
-import type { ImageModelSelection, ImageModelSelectors, MediaKind, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
+import type { ImageAspectRatio, ImageModelSelection, ImageModelSelectors, MediaKind,
+  SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
 import { positiveInteger, prepareVideoMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
 import type { VideoBatchItem, VideoBatchOptions } from './native.ts'
 import { createFolderMethod, moveMethod, renameMethod } from './folders.ts'
@@ -96,6 +97,8 @@ export interface MethodArgs {
   estimate_basis?: string
   /** `image_generate`: one-call platform choice; omitting it uses the configured or saved route. */
   image_platform_id?: string
+  /** `image_generate`: requested image ratio; omitted calls retain 16:9. */
+  image_aspect_ratio?: ImageAspectRatio
   references?: string[]
   parent_asset_id?: number
   content_duration_ms?: number
@@ -849,9 +852,10 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       const result = await writeUnderLedger(ledger, args.idempotency_key, 'image_generate',
         async () => {
           const rows = await catalogue()
-          selectors = resolveImageModel(rows, selection)
+          selectors = resolveImageModel(rows, selection, args.image_aspect_ratio)
           return buildImageRequest({ scriptId: need(args.script_id), assetName,
             assetType, prompt: need(args.prompt), references: args.references ?? [],
+            ...(args.image_aspect_ratio === undefined ? {} : { aspectRatio: args.image_aspect_ratio }),
             ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }) }, rows, selection)
         },
         body => client.request({ method: args.parent_asset_id === undefined ? 'POST' : 'PUT',

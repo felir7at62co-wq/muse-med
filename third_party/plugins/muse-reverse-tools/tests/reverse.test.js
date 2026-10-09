@@ -1,7 +1,7 @@
 /** Offline bounded parsing, workspace confinement, original routing and tool lifecycle checks. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, rm, symlink } from 'node:fs/promises';
+import { lstat, mkdtemp, writeFile, readFile, realpath, rm, stat, symlink, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspectBytes, inspectFile } from '../src/inspect.js';
@@ -63,13 +63,35 @@ test('workspace inspection preserves bytes and refuses outside files, links, ove
     assert.deepEqual(await readFile(join(workspace, 'sample')), source);
     await writeFile(join(outside, 'other'), source);
     await assert.rejects(inspectFile({ path: join(outside, 'other') }, workspace, limits, signal()), /inside/u);
-    await symlink(join(outside, 'other'), join(workspace, 'link'));
-    await assert.rejects(inspectFile({ path: 'link' }, workspace, limits, signal()), /Linked/u);
     await assert.rejects(inspectFile({ path: 'sample' }, workspace, { ...limits, maxFileBytes: 10 }, signal()), /file limit/u);
     await assert.rejects(inspectFile({ path: 'sample', extra: true }, workspace, limits, signal()), /arguments/u);
     const abort = new AbortController(); abort.abort(new Error('cancel test'));
     await assert.rejects(inspectFile({ path: 'sample' }, workspace, limits, abort.signal), /cancel test/u);
+    await symlink(join(outside, 'other'), join(workspace, 'link'), 'file');
+    await assert.rejects(inspectFile({ path: 'link' }, workspace, limits, signal()), /Linked/u);
   } finally { await rm(workspace, { recursive: true, force: true }); await rm(outside, { recursive: true, force: true }); }
+});
+
+test('refuses an ordinary file reached through a linked directory outside the workspace', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'muse-reverse-linked-'));
+  const outside = await mkdtemp(join(tmpdir(), 'muse-reverse-linked-outside-'));
+  const directory = join(workspace, 'linked-directory');
+  let linked = false;
+  try {
+    const source = macho(), target = join(outside, 'other');
+    await writeFile(target, source);
+    await symlink(outside, directory, process.platform === 'win32' ? 'junction' : 'dir');
+    linked = true;
+    assert.equal((await lstat(directory)).isSymbolicLink(), true);
+    assert.equal((await stat(join(directory, 'other'))).isFile(), true);
+    assert.equal(await realpath(join(directory, 'other')), await realpath(target));
+    await assert.rejects(inspectFile({ path: 'linked-directory/other' }, workspace, limits, signal()), /Linked/u);
+    assert.deepEqual(await readFile(target), source);
+  } finally {
+    if (linked) await unlink(directory);
+    await rm(workspace, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
 });
 
 test('pinned route priorities select macOS and Rust and load actual portable resources', async () => {
@@ -84,7 +106,13 @@ test('pinned route priorities select macOS and Rust and load actual portable res
   assert.throws(() => resolveConfig({ assetRoot: 'relative' }), /resources/u);
   assert.throws(() => resolveConfig({ surprise: true }), /Unknown/u);
   assert.throws(() => resolveConfig(null), /object/u);
-  assert.equal(resolveResourceRoot('file:///tmp/app.asar/node_modules/muse-reverse-tools/src/router.js'), '/tmp/app.asar.unpacked/node_modules/muse-reverse-tools/resources/reverse-skill/');
+  const archiveModuleUrl = process.platform === 'win32'
+    ? 'file:///C:/tmp/app.asar/node_modules/muse-reverse-tools/src/router.js'
+    : 'file:///tmp/app.asar/node_modules/muse-reverse-tools/src/router.js';
+  const archiveResourcePath = process.platform === 'win32'
+    ? 'C:\\tmp\\app.asar.unpacked\\node_modules\\muse-reverse-tools\\resources\\reverse-skill\\'
+    : '/tmp/app.asar.unpacked/node_modules/muse-reverse-tools/resources/reverse-skill/';
+  assert.equal(resolveResourceRoot(archiveModuleUrl), archiveResourcePath);
 });
 
 test('session tools render real receipts and dispose all registrations', async () => {

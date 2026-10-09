@@ -28,18 +28,34 @@ def load_jsonl(path: Path) -> list[dict]:
     return rows
 
 
-def load_assets() -> list[dict]:
-    return load_jsonl(INDEX / "assets.jsonl")
+def load_assets(root: Path | None = None) -> list[dict]:
+    return load_jsonl((root / "index" if root else INDEX) / "assets.jsonl")
 
 
-def load_tags() -> dict[int, dict]:
+def load_tags(root: Path | None = None) -> dict[int, dict]:
     out = {}
-    for r in load_jsonl(INDEX / "tags.jsonl"):
+    for r in load_jsonl((root / "index" if root else INDEX) / "tags.jsonl"):
         try:
             out[int(r["asset_id"])] = r
         except Exception:
             pass
     return out
+
+
+def local_media_paths(root: Path) -> dict[int, str]:
+    """Resolve downloaded images by asset ID, ignoring stale absolute paths in tags."""
+    media = root / "media"
+    if not media.is_dir():
+        return {}
+    resolved_root = root.resolve()
+    paths = {}
+    for path in sorted(media.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+            continue
+        match = re.fullmatch(r"a?(\d+)", path.stem)
+        if match and path.resolve().is_relative_to(resolved_root):
+            paths.setdefault(int(match.group(1)), str(path.resolve()))
+    return paths
 
 
 def tokenize(q: str) -> list[str]:
@@ -72,7 +88,7 @@ def score_row(
     query: str,
     prefer_project: str,
     avoid_text: bool,
-) -> float:
+) -> tuple[float, bool]:
     score = 0.0
     name = (row.get("asset_name") or "").lower()
     prompt = (row.get("prompt") or "").lower()
@@ -127,6 +143,8 @@ def score_row(
         if tok in prompt:
             score += 1
 
+    query_matched = score > 0
+
     # prefer a specific source project (e.g. the target drama)
     if prefer_project:
         pref = prefer_project.strip().lower()
@@ -145,11 +163,12 @@ def score_row(
 
     if row.get("usable"):
         score += 0.5
-    return score
+    return score, query_matched
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Search Jubian asset library")
+    ap.add_argument("--root", type=Path, default=ROOT)
     ap.add_argument("--style", default="all", choices=["realistic", "3d", "all"])
     ap.add_argument(
         "--type",
@@ -176,8 +195,9 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    assets = load_assets()
-    tags = load_tags()
+    assets = load_assets(args.root)
+    tags = load_tags(args.root)
+    local_paths = local_media_paths(args.root)
     toks = tokenize(args.q)
 
     rows = []
@@ -204,23 +224,23 @@ def main() -> None:
                 continue
             if args.reusable == "false" and t.get("reusable") is not False:
                 continue
-        if args.require_local:
-            lp = (tag or {}).get("local_path") or ""
-            if not lp or not Path(lp).exists():
-                continue
-        sc = score_row(
+        asset_id = int(a.get("asset_id") or 0)
+        local_path = local_paths.get(asset_id)
+        if args.require_local and not local_path:
+            continue
+        sc, query_matched = score_row(
             a, tag, toks, args.q, args.prefer_project, args.avoid_text
         )
-        if toks and sc <= 0:
+        if toks and not query_matched:
             continue
-        rows.append((sc, a, tag))
+        rows.append((sc, a, tag, local_path))
 
     rows.sort(key=lambda x: x[0], reverse=True)
     rows = rows[: args.limit]
 
     if args.json:
         out = []
-        for sc, a, tag in rows:
+        for sc, a, tag, local_path in rows:
             t = (tag or {}).get("tags") or {}
             out.append(
                 {
@@ -238,7 +258,7 @@ def main() -> None:
                     "prop_category": t.get("prop_category"),
                     "reusable": t.get("reusable"),
                     "tags": t.get("tags"),
-                    "local_path": (tag or {}).get("local_path"),
+                    "local_path": local_path,
                     "url": a.get("url"),
                     "script_id": a.get("script_id"),
                     "prompt_excerpt": (a.get("prompt") or "")[:160],
@@ -255,7 +275,7 @@ def main() -> None:
         f"{'score':>5}  {'id':>7}  {'style':<9} {'type':<9} {'name':<28}  {'identity/place':<22}  tags"
     )
     print("-" * 110)
-    for sc, a, tag in rows:
+    for sc, a, tag, local_path in rows:
         t = (tag or {}).get("tags") or {}
         ident = t.get("identity_hint") or t.get("place_hint") or t.get("prop_category") or ""
         tagstr = ",".join((t.get("tags") or [])[:4])
@@ -264,9 +284,8 @@ def main() -> None:
             f"{sc:5.1f}  {a.get('asset_id'):>7}  {a.get('style_label'):<9} "
             f"{a.get('asset_type_label'):<9} {name:<28}  {ident[:22]:<22}  {tagstr}"
         )
-        lp = (tag or {}).get("local_path")
-        if lp:
-            print(f"       local: {lp}")
+        if local_path:
+            print(f"       local: {local_path}")
 
 
 if __name__ == "__main__":

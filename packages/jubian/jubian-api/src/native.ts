@@ -24,6 +24,12 @@ import { childAudioUrls, referenceAudioUrls, validateAudioMaterial } from './aud
 
 function invalid(detail?: string): never { throw new JubianError('CONTRACT_CHANGED', detail) }
 
+/** Native subject videos require at least one image identity, including when audio is present. */
+function requireVideoSubjects(count: number): void {
+  if (count === 0) throw new JubianError('INVALID_ARGUMENT',
+    '缺少视频主体素材：当前主体视频模式至少需要一张已绑定的图片主体。本次调用尚未进入账本，尚未发出远端付费请求。')
+}
+
 /** Provider statuses that mean a task finished successfully. */
 export const SUCCESS_STATUSES = ['succeeded', 'completed'] as const
 
@@ -458,7 +464,8 @@ export function storyboardMaterials(storyboard: Record<string, unknown>):
  * @param storyboard - The live storyboard snapshot.
  * @param assets - One parent asset per image, in storyboard image order.
  * @returns The enriched ordered materials, the normalized prompt and the model config.
- * @throws {JubianError} `CONTRACT_CHANGED` when any identity, order or prompt reference disagrees.
+ * @throws {JubianError} `CONTRACT_CHANGED` when a bound identity or material order disagrees.
+ * @throws {JubianError} `INVALID_ARGUMENT` when ordered Prompt markers disagree with bound materials.
  */
 export function validatedVideoMaterials(storyboard: Record<string, unknown>, assets: Record<string, unknown>[]):
 { materials: Record<string, unknown>[]; prompt: string; config: Record<string, unknown> } {
@@ -523,9 +530,15 @@ export function validatedVideoMaterials(storyboard: Record<string, unknown>, ass
   const audioKeys = audioMaterials.map(material => String(material.materialKey))
   const allKeys = [...keys, ...audioKeys]
   if (new Set(allKeys).size !== allKeys.length) invalid()
-  const references = promptKeys(prompt)
-  if (references.filter(key => !audioKeys.includes(key)).join('\u0000') !== keys.join('\u0000')) invalid()
-  if (references.filter(key => audioKeys.includes(key)).join('\u0000') !== audioKeys.join('\u0000')) invalid()
+  const references = [...new Set(promptKeys(prompt))]
+  const imageReferences = references.filter(key => !audioKeys.includes(key))
+  if (imageReferences.join('\u0000') !== keys.join('\u0000')) {
+    throw new JubianError('INVALID_ARGUMENT', `PREPARE_VIDEO_IMAGE_MARKER_MISMATCH: prompt keys=${JSON.stringify(imageReferences)}, bound keys=${JSON.stringify(keys)}; no PUT sent`)
+  }
+  const audioReferences = references.filter(key => audioKeys.includes(key))
+  if (audioReferences.join('\u0000') !== audioKeys.join('\u0000')) {
+    throw new JubianError('INVALID_ARGUMENT', `PREPARE_VIDEO_AUDIO_MARKER_MISMATCH: prompt keys=${JSON.stringify(audioReferences)}, bound keys=${JSON.stringify(audioKeys)}; no PUT sent`)
+  }
   const maximumAudio = config.modelId === 'doubao-seedance-2-0-260128' ? 3 : 10
   if (audioMaterials.length > maximumAudio) invalid(`The selected SD model accepts at most ${maximumAudio} audio references`)
   return { materials: [...enriched, ...audioMaterials], prompt, config }
@@ -553,9 +566,11 @@ export interface NativePreviewInput {
  * Build the exact, deterministic storyboard PUT preview without any I/O.
  * @param input - Live storyboard, ordered parent assets, live catalogue and a timestamp.
  * @returns The preview, including the one-PUT payload and its semantic fingerprint.
+ * @throws {JubianError} `INVALID_ARGUMENT` when no image subject is selected; no preview is produced.
  * @throws {JubianError} `CONTRACT_CHANGED` when any identity, setting or model rule fails.
  */
 export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoPreview {
+  requireVideoSubjects(storyboardMaterials(input.storyboard).materials.filter(material => material.materialType !== 'audio').length)
   for (const asset of input.assets) {
     if (asset.official !== true) invalid()
     if (asset.asset_status !== 'confirmed') invalid()
@@ -630,6 +645,7 @@ export function validateVideoDuration(modelId: string, duration: unknown): numbe
  * and the ordered identity it claims — rather than trusted because it parsed.
  * @param value - The parsed preview file.
  * @returns The preview, once every invariant holds.
+ * @throws {JubianError} `INVALID_ARGUMENT` for an empty subject preview, before submission ledger or HTTP access.
  * @throws {JubianError} `CONTRACT_CHANGED` when the artifact is not exactly this plugin's own preview.
  */
 export function validateNativeVideoPreview(value: unknown): NativeVideoPreview {
@@ -657,6 +673,7 @@ export function validateNativeVideoPreview(value: unknown): NativeVideoPreview {
     return { assetId: text(asset.assetId), materialName: text(asset.materialName), imageUrl: text(asset.imageUrl),
       materialAssetId: integer(asset.materialAssetId), materialKey: text(asset.materialKey) }
   }) : invalid()
+  requireVideoSubjects(ordered.length)
   const expected = subjectIdentitySignature(ordered)
   if (Number(summary.count) !== expected.length) invalid()
   const { materials } = storyboardMaterials(payload)

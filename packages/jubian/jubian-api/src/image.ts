@@ -65,6 +65,16 @@ export interface ImageModelSelection {
   standardId?: number
 }
 
+/** Supported aspect ratios for one generated asset image. */
+export type ImageAspectRatio = '16:9' | '9:16'
+
+function imageAspectRatio(value: unknown): ImageAspectRatio {
+  if (value !== '16:9' && value !== '9:16') {
+    throw new JubianError('INVALID_ARGUMENT', 'image_aspect_ratio must be 16:9 or 9:16')
+  }
+  return value
+}
+
 /** The one model id the paid image route buys. */
 const IMAGE_MODEL_ID = 'gpt-image-2'
 
@@ -136,19 +146,23 @@ function imageModelRow(catalogue: unknown, selection: ImageModelSelection): Reco
  * Resolve the supported image selectors from a live `taskType=2` catalogue.
  * @param catalogue - Envelope `data` already read from `/model/charge/getSelectList?taskType=2`.
  * @param selection - The row this deployment pinned; required as soon as the catalogue lists several.
- * @returns The lowest supported resolution whose standard has exact 16:9 dimensions divisible by 16.
- * @throws {JubianError} `CONTRACT_CHANGED` when no unambiguous row is selected; the message lists every
- *   `gpt-image-2` candidate with its `platformId`, `standardId`, unit price and unit.
+ * @param aspectRatio - Requested image ratio; existing callers default to 16:9.
+ * @returns The lowest supported resolution whose standard has the requested dimensions divisible by 16.
+ * @throws {JubianError} `INVALID_ARGUMENT` for an unsupported ratio, or `CONTRACT_CHANGED` when the
+ *   selected model row or requested image specification cannot be identified in the catalogue.
  */
-export function resolveImageModel(catalogue: unknown, selection: ImageModelSelection = {}): ImageModelSelectors {
+export function resolveImageModel(catalogue: unknown, selection: ImageModelSelection = {},
+  aspectRatio: ImageAspectRatio = '16:9'): ImageModelSelectors {
+  const ratio = imageAspectRatio(aspectRatio)
   return readPayload('resolveImageModel', catalogue, () => {
     const model = imageModelRow(catalogue, selection)
-    const standards = rows(model.videoStandards).filter(row => row.ratio === '16:9'
+    const standards = rows(model.videoStandards).filter(row => row.ratio === ratio
       && typeof row.resolution === 'string' && ['1K', '2K', '4K'].includes(row.resolution.toUpperCase())
       && typeof row.width === 'number' && Number.isSafeInteger(row.width) && row.width > 0 && row.width <= 8192
       && row.width % 16 === 0
       && typeof row.height === 'number' && Number.isSafeInteger(row.height) && row.height > 0 && row.height <= 8192
-      && row.height % 16 === 0 && row.width * 9 === row.height * 16)
+      && row.height % 16 === 0 && (ratio === '16:9'
+      ? row.width * 9 === row.height * 16 : row.width * 16 === row.height * 9))
     const resolution = ['1K', '2K', '4K'].find(value => standards.some(row => (row.resolution as string).toUpperCase() === value))
     const atResolution = standards.filter(row => (row.resolution as string).toUpperCase() === resolution)
     const generationRows = model.genTypes === undefined || model.genTypes === null ? [] : rows(model.genTypes)
@@ -156,8 +170,9 @@ export function resolveImageModel(catalogue: unknown, selection: ImageModelSelec
     const generations = generationRows.filter(row => row.type === 3)
     if (generations.length > 1) invalid()
     const generation = generations.length === 1 ? generations[0] : undefined
-    const standard = atResolution.length === 1 ? atResolution[0] : undefined
-    if (standard === undefined) invalid()
+    const standard = atResolution[0]
+    if (standard === undefined) invalid(`selected gpt-image-2 catalogue row has no valid ${ratio} image specification`)
+    if (atResolution.length > 1) invalid(`selected gpt-image-2 catalogue row has multiple ${ratio} image specifications at ${resolution}`)
     return { standardId: positive(model.id ?? model.standardId), modelId: IMAGE_MODEL_ID,
       platformId: text(model.platformId), genType: 3,
       modelGenerationTypeId: generation === undefined || generation.id === undefined || generation.id === null
@@ -173,19 +188,23 @@ export interface ImageRequestInput {
   assetType: number
   prompt: string
   references: string[]
+  /** Defaults to 16:9 when omitted. */
+  aspectRatio?: ImageAspectRatio
   /** Present only for the update route; the provider then takes PUT instead of POST. */
   parentAssetId?: number
 }
 
 /**
  * Validate the local fields of a paid image request without reading the account catalogue.
- * @param input - Caller-supplied image identity, prompt and reference URLs.
+ * @param input - Caller-supplied image identity, prompt, aspect ratio and reference URLs.
+ * @throws {JubianError} `INVALID_ARGUMENT` when the requested aspect ratio is unsupported.
  */
 export function validateImageRequestInput(input: ImageRequestInput): void {
   positive(input.scriptId)
   text(input.assetName)
   positive(input.assetType)
   text(input.prompt, true)
+  imageAspectRatio(input.aspectRatio ?? '16:9')
   if (input.parentAssetId !== undefined) positive(input.parentAssetId)
   if (!Array.isArray(input.references)) invalid()
   for (const materialUrl of input.references) {
@@ -199,7 +218,7 @@ export function validateImageRequestInput(input: ImageRequestInput): void {
 
 /**
  * Build the exact `/aigc/asset` body.
- * @param input - Caller-supplied identity, prompt and ordered reference URLs.
+ * @param input - Caller-supplied identity, prompt, optional aspect ratio and ordered reference URLs.
  * @param catalogue - Live `taskType=2` catalogue.
  * @param selection - The catalogue row this deployment pinned.
  * @returns The wire body, with `id` present only on the update route.
@@ -207,10 +226,11 @@ export function validateImageRequestInput(input: ImageRequestInput): void {
 export function buildImageRequest(input: ImageRequestInput, catalogue: unknown,
   selection: ImageModelSelection = {}): Record<string, unknown> {
   validateImageRequestInput(input)
-  const { resolution, ...selectors } = resolveImageModel(catalogue, selection)
+  const aspectRatio = input.aspectRatio ?? '16:9'
+  const { resolution, ...selectors } = resolveImageModel(catalogue, selection, aspectRatio)
   const references = input.references.map((materialUrl, index) =>
     ({ materialUrl, materialType: 'image', sortOrder: index + 1 }))
-  const config = { ...selectors, duration: 1, resolution, ratio: '16:9', genNum: 1, backupModelList: [],
+  const config = { ...selectors, duration: 1, resolution, ratio: aspectRatio, genNum: 1, backupModelList: [],
     prompt: input.prompt, style: 0, materialList: references, quality: '' }
   return { scriptId: input.scriptId, assetName: input.assetName, assetType: input.assetType,
     modelConfig: JSON.stringify(config), isLocal: 0, isGenerate: 1,

@@ -1,3 +1,10 @@
+- id: tool-workflow
+  disabled: true
+# Pin an unused runner so this shell-free fixture has the same skill catalog on every platform.
+- id: sandbox
+  config:
+    runnerCommand: [snapshot-unused-runner]
+    runnerFailureSignatures: [snapshot-unused-runner-failure]
 # The real account plugin logs in against an isolated HTTP gateway fixture.
 - id: llm-deepseek
   disabled: true

@@ -10,7 +10,7 @@ import { PROJECT_FILE, TRANSCRIPT, VIDEO_INSPECTION, FACT_RECORD, CANDIDATE_RECO
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ActorId, FactId, SourceId, UnitId } from './ids.ts'
 import type { ProjectFile, ProjectRequest, ProjectSource } from './schema.ts'
-import { acceptedCandidates, acceptedKnowledge, renderEpisode, sha256 } from './episode.ts'
+import { acceptedCandidates, acceptedKnowledge, candidateDigest, checkVideoCoverage, renderEpisode, sha256 } from './episode.ts'
 
 /** Validated allocation and source-read budgets. */
 export interface ProjectLimits {
@@ -74,11 +74,12 @@ export class ProjectCommands {
       }
     }
     for (const candidate of project.candidates) {
-      if (candidate.sha256 !== sha256(JSON.stringify({ episode: candidate.episode, scenes: candidate.scenes }))) {
+      if (candidate.sha256 !== candidateDigest(candidate)) {
         throw Error('invalid_candidate_digest: 正文结构和版本摘要不一致。')
       }
     }
     acceptedKnowledge(project)
+    for (const candidate of acceptedCandidates(project)) checkVideoCoverage(project, candidate)
     return { target, version: before.version, sha256: sha256(bytes), project }
   }
 
@@ -156,6 +157,7 @@ export class ProjectCommands {
 
   private status(project: ProjectFile): object {
     return { project_id: project.id, revision: project.revision, mode: project.mode, instructions: project.instructions,
+      ...(project.workflow === undefined ? {} : { workflow: project.workflow }),
       ...(project.parent === undefined ? {} : { parent: project.parent }),
       next_episode: project.accepted.length + 1,
       sources: project.sources.map(source => ({
@@ -183,7 +185,8 @@ export class ProjectCommands {
       if (!request.instructions.trim()) throw Error('missing_direction: 请先记录用户的改编方向和交付标准。')
       const now = new Date().toISOString()
       const project = PROJECT_FILE.parse({ format_version: 1, id: `p:${randomUUID()}`, revision: 0, mode: request.mode,
-        instructions: request.instructions, created_at: now, updated_at: now, sources: [], facts: [], candidates: [], accepted: [] })
+        instructions: request.instructions, ...(request.workflow === undefined ? {} : { workflow: request.workflow }),
+        created_at: now, updated_at: now, sources: [], facts: [], candidates: [], accepted: [] })
       await this.fs.writeText(await this.target(request.project, exec), this.serialize(project), { kind: 'createIfAbsent' }, exec.signal, exec.policy)
       return this.status(project)
     }
@@ -344,8 +347,10 @@ export class ProjectCommands {
         const candidate = CANDIDATE_RECORD.parse({ id: `c:${randomUUID()}`,
           sha256: sha256(JSON.stringify({ episode: request.episode, scenes })),
           episode: request.episode, base_episode: project.accepted.length, author: exec.actor,
-          created_at: new Date().toISOString(), scenes })
-        candidate.sha256 = sha256(JSON.stringify({ episode: candidate.episode, scenes: candidate.scenes }))
+          created_at: new Date().toISOString(), scenes,
+          ...(request.coverage === undefined ? {} : { coverage: request.coverage }) })
+        candidate.sha256 = candidateDigest(candidate)
+        checkVideoCoverage(project, candidate)
         const rendered = renderEpisode(project, candidate.scenes, acceptedKnowledge(project), candidate.episode)
         project.candidates.push(candidate)
         await this.save(loaded, exec)
@@ -358,7 +363,11 @@ export class ProjectCommands {
         if (candidate.author === exec.actor) throw Error('self_review: 编写会话不能自行验收该版本。')
         if (!request.reason.trim()) throw Error('review_reason: 请记录来源、人物、时间、场次与改编语义的核对结果。')
         const rendered = renderEpisode(project, candidate.scenes, acceptedKnowledge(project), candidate.episode)
+        if (checkVideoCoverage(project, candidate) && request.decision === 'approve' && !request.zero_action_reason?.trim()) {
+          throw Error('zero_action_review_required: 请记录本集实际画面复核和确无关键动作遗漏的依据。')
+        }
         candidate.review = { actor: exec.actor, time: new Date().toISOString(), decision: request.decision, reason: request.reason }
+        if (request.zero_action_reason !== undefined) candidate.review.zero_action_reason = request.zero_action_reason.trim()
         await this.save(loaded, exec)
         return { revision: project.revision, candidate, rendered }
       }
@@ -371,6 +380,7 @@ export class ProjectCommands {
           throw Error('episode_order: 版本已提交或基于过期前集，请从 status 恢复下一集。')
         }
         renderEpisode(project, candidate.scenes, acceptedKnowledge(project), candidate.episode)
+        checkVideoCoverage(project, candidate)
         candidate.committed_at = new Date().toISOString()
         project.accepted.push(candidate.id)
         await this.save(loaded, exec)
@@ -379,6 +389,7 @@ export class ProjectCommands {
       case 'export': {
         const candidate = project.candidates.find(candidate => candidate.id === request.candidate_id)
         if (candidate === undefined || !project.accepted.includes(candidate.id)) throw Error('export_unaccepted: 只能交付已验收版本。')
+        checkVideoCoverage(project, candidate)
         const index = project.accepted.indexOf(candidate.id)
         const before = { ...project, accepted: project.accepted.slice(0, index) }
         const rendered = renderEpisode(project, candidate.scenes, acceptedKnowledge(before), candidate.episode)

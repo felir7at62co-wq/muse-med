@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-video-screenplay-delivery
+profile: headless
+composition: muse-video-screenplay-delivery
+recording: authored
+header:
+  class: muse-video-screenplay-delivery
+  pin: true
+writerOutput: true

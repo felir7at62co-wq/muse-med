@@ -158,6 +158,8 @@ async function downloadVideo(row: VideoSubtask) {
 
 ### 视频阶段词表
 
+原生主体视频准备至少需要一张已选定的图片主体。`buildNativeVideoPreview()` 对空主体或仅有音频的选择返回 `INVALID_ARGUMENT`，不生成 prepared 预览。`validateNativeVideoPreview()` 对历史空主体预览返回明确的本地参数错误；本次提交调用尚未进入账本，也尚未发出远端付费请求。现有身份校验和提交指纹规则仍然适用。
+
 上传的音频参考使用 `materialType=audio`、`materialUrl`、`materialKey` 和音频组独立的 `sortOrder`；无需图片父资产或确认出演。原生准备保留这些行，排在已确认图片之后，并将其保存字段纳入指纹。主体选源保留已有音频。视频认领要求子结果的有序 `audioMaterials[].audioUrl` 与提交参考一致；证据缺失或变化时只允许对账，不再次付费提交。`readReferenceAudio()` 测量完整 16 位 PCM WAV 字节，拒绝超过 15 秒的参考。已保存远端 `audioDuration` 存在时会校验，缺失时保留未核实状态。
 
 `VIDEO_TASK_TYPES` 把 `1` 映射为 `generate`、`10` 映射为 `erase_subtitle`、`20` 映射为 `upscale`；`versions` 携带结果历史。`subtitle_erased` 要求存在当前 URL，且最新类型 10 结果成功并有显式输出 URL，或存在成功的类型 10 历史条目且其 URL 等于当前 URL。只有阶段 10 不足以成立，该标记也不代表字幕视觉审核通过。`upscaled` 要求转高清次数为正或最新阶段为 20，不能仅凭 URL 变化判断。
@@ -216,6 +218,8 @@ async function downloadVideo(row: VideoSubtask) {
 - **没有任何传输行为会被重试或续跑**——除媒体下载外，本包不自己发起任何请求，因此每一次重试、超时与轮询决定都属于调用方。
 
 项目读取通过 `project_settings` 返回已保存的视频配置，不代选模型。素材选源按 key 首次出现的顺序处理，允许提示词重复引用；回读比较身份、名称、URL、类型、顺序与提示词，不比较服务端附加元数据。媒体下载也接受 HTTPS 域名 `101.aigc.jubianai.net`，沿用大小、文件头与重定向检查。
+
+图片请求构造器默认使用 `16:9`，也接受显式 `9:16`。它从实时 `taskType=2` 目录中已选模型／平台行按画幅挑选 `videoStandardId`，而 `standardId` 仍是该计价模型行的 ID。参考图 URL 按原顺序进入 `materialList`；缺少或无效的规格在返回计费请求体之前被拒绝。这仅证明本地请求构造能力，远端是否受理 9:16 尚未验证。
 
 <a id="dev-note"></a>
 ### 开发备注

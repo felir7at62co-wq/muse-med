@@ -1,0 +1,31 @@
+# Bilingual-pair consistency record for 2026-10-08-character-reference-approval-at-tool-execution.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/proposed/feature/2026-10-08-character-reference-approval-at-tool-execution.md
+/agent-note-character-reference-approval-at-jubian-tool-execution:
+  en: de3b4dfea8681fa1
+  zh: dba05b111807f883
+/agent-note-character-reference-approval-at-jubian-tool-execution/problem:
+  en: 261a22bc460e25ed
+  zh: f4088734c3f174b8
+/agent-note-character-reference-approval-at-jubian-tool-execution/proposal:
+  en: 1eeb0d0a2750a867
+  zh: 3d00c2ce675b76bf
+/agent-note-character-reference-approval-at-jubian-tool-execution/proposal/current-entry-points:
+  en: ad9c99122ce77b62
+  zh: 007e5ce52e0f9ff4
+/agent-note-character-reference-approval-at-jubian-tool-execution/proposal/identity-and-records:
+  en: 90c1d23fcf70ae6f
+  zh: 8da042adfb7ebb5e
+/agent-note-character-reference-approval-at-jubian-tool-execution/proposal/refusals-and-compatibility:
+  en: f531f9a49de16111
+  zh: 5ec573b607057110
+/agent-note-character-reference-approval-at-jubian-tool-execution/alternatives-considered:
+  en: 90492899d236fe1f
+  zh: 1a4edc8faf767a20
+/agent-note-character-reference-approval-at-jubian-tool-execution/acceptance-criteria:
+  en: 24b3c724b82e32a2
+  zh: f25cd4226996be99
+/agent-note-character-reference-approval-at-jubian-tool-execution/risks:
+  en: 355e2dfc862d1751
+  zh: edc1b904509cf62e

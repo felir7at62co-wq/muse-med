@@ -22,13 +22,15 @@ source、episodes、style、asset_prompts、asset_candidates、official_assets�
 - 状态 = 产物投影 + 人工批注；手写自述必然腐烂，所以不要手改 JSON，也不要指望谁记得回写。
 - 后段阶段（脚本匹配 / 生成 / 审片 / 草稿 / 成片）是**整部剧口径**：全部分集都走到才算 completed，否则是 review——否则「3/50 集交付」会被读成「整部已导出」。
 
+多集镜头的覆盖证据是业务产物，不是第二套流程状态：`episodes/manifest.json` 列出预期集号与每集原文 SHA；若已从用户或正式剧本确认总集数，在清单顶层记录可选的整数 `expected_episode_count`（例如 52），以阻断连续但缺少末集的清单。`shots_and_matches/epNN-source-map.json` 的 `version=1`、`episode="NN"`、`source_sha256`、`shot_script` 和 `entries` 明确连接原文与镜头。每条非空原文行记录 `source_line`、`source_text`、`kind`、`shots`；发声行还记录 `speaker`、`speech_text`，类型用 `dialogue`、`os` 或 `vo`，其他行用 `action`、`scene`、`state`、`transition` 或 `heading`。运行 `python -B scripts/episode_coverage.py <项目目录> audit` 只读核对，再运行 `accept <本集号>` 为该集签发绑定原文、镜头、映射摘要的记录；未来集尚待验收时，`accept_status=passed` 与整剧 `status=pending` 可同时成立。`gate <集号...>` 是新多集自动付费清单的前置检查。缺映射、格式无法独立识别或摘要变化时不放行；不能用 Agent 自述、手工 `set completed` 或文件存在代替 `gate`。该检查不判定动作表演和视频视觉质量。
+
 ## 资产硬字段
 
 stable_id、type、name、aliases、episodes、prompt、review、review_attempts、max_review_attempts、jubian_asset_id、jubian_material_id、url、asset_confirmation、official。正式资产必须 official=true；非本地生成候选确认响应可追溯，本地正式主体使用总控规定的实时独立门禁证据，不伪造 material_id 或确认响应。
 
 ## 资产参考搜索
 
-缺角色（含主角）、场景、道具或全剧视觉参考时，Agent 主动用 `web_search` 搜索，再用 `web_fetch` 阅读来源，依据剧本事实和项目风格提炼参考元素；不用等待用户先提供图片。已有合格正式资产直接复用，已有用户指定参考优先沿用，不重复搜索或收费重生。角色服化道按[参考图流程](references/style-references.md)实看、归档和审核，收费生图前运行 `style_references.py <项目目录> <role_id> check`；场景和道具在项目参考记录中保存来源、采用元素与使用判断，不伪装成角色传给此脚本。没有可用结果才报告具体缺项并向用户索取；不自动启动小红书。网上参考只辅助生成，不能直接作为正式资产或真人身份；生成后仍按正式资产流程审核与确认。
+缺角色（含主角）、场景、道具或全剧视觉参考时，Agent 先查本项目正式资产与已指定参考，再用 `jubian-asset-library` 检索本地素材；仍缺时主动用 `web_search` 搜索、`web_fetch` 阅读来源，依据剧本事实和项目风格提炼参考元素，不重复收费重生。角色服化道按[参考图流程](references/style-references.md)实看、归档和审核：网上图用 `style_references.py import-online`，已确认的人脸与全身素材对用 `import-library`；收费生图前运行 `style_references.py <项目目录> <role_id> check`。场景和道具在项目参考记录中保存来源、采用元素与使用判断，不伪装成角色传给此脚本。没有可用结果才报告具体缺项并向用户索取；不自动启动小红书。网上参考只辅助生成，不能直接作为正式资产或真人身份；生成后仍按正式资产流程审核与确认。
 
 ## 视频禁用标签
 

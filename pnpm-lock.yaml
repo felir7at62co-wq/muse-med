@@ -837,6 +837,9 @@ importers:
       '@deepseek-ai/dsh-tool-video-inspect':
         specifier: workspace:*
         version: link:../../packages/perception/tool-video-inspect
+      '@deepseek-ai/dsh-tool-present':
+        specifier: workspace:*
+        version: link:../../packages/deliverables/tool-present
       '@deepseek-ai/dsh-tool-workspace-dependencies':
         specifier: workspace:*
         version: link:../../packages/skill/tool-workspace-dependencies
@@ -858,6 +861,9 @@ importers:
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/cordis-plugin-loader':
         specifier: workspace:~
@@ -7442,6 +7448,9 @@ importers:
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
     devDependencies:
+      '@deepseek-ai/dsh-typert-protocol':
+        specifier: workspace:*
+        version: link:../../typert/protocol
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis

@@ -351,6 +351,49 @@ describe('preview construction and validation', () => {
     expect(() => validatedVideoMaterials({ ...STORYBOARD, ...overrides }, ASSETS)).toThrow()
   })
 
+  it('accepts normal and repeated Prompt markers in first-seen bound order', () => {
+    expect(validatedVideoMaterials(STORYBOARD, ASSETS).materials).toHaveLength(2)
+    const prompt = `${PROMPT}；再次出现 @[陆沉舟](lead) 和 @[苏晚](guest)`
+    const storyboard = { ...STORYBOARD, modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) }
+    const preview = buildNativeVideoPreview({ storyboard, assets: ASSETS, models: CATALOGUE, createdAt: 'now' })
+    expect(preview.assetSummary.count).toBe(2)
+    expect(preview.assetSummary.orderedAssets.map(asset => asset.materialKey)).toEqual(['lead', 'guest'])
+    expect((JSON.parse(String(preview.payload.modelConfig)) as { prompt: string }).prompt).toBe(prompt)
+    expect(validateNativeVideoPreview(preview)).toEqual(preview)
+  })
+
+  it('accepts repeated audio references without duplicating the bound audio material', () => {
+    const audio = { materialType: 'audio', materialUrl: 'https://media.example/voice.wav',
+      materialKey: 'voice', fileName: 'voice', sortOrder: 1, audioDuration: 2 }
+    const prompt = `${PROMPT}；声音 @[旁白](voice)，再次引用 @[旁白](voice)`
+    const storyboard = { ...STORYBOARD, storyboardMaterialList: [...MATERIALS, audio],
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) }
+    const preview = buildNativeVideoPreview({ storyboard, assets: ASSETS, models: CATALOGUE, createdAt: 'now' })
+    expect(preview.assetSummary.count).toBe(2)
+    expect(preview.payload.storyboardMaterialList).toHaveLength(3)
+    expect(validateNativeVideoPreview(preview)).toEqual(preview)
+  })
+
+  it.each([
+    { label: 'wrong first-seen order', prompt: '@[苏晚](guest) @[陆沉舟](lead) @[苏晚](guest)',
+      keys: ['guest', 'lead'] },
+    { label: 'unknown marker', prompt: '@[陆沉舟](lead) @[未知](unknown) @[苏晚](guest)',
+      keys: ['lead', 'unknown', 'guest'] },
+  ])('rejects $label with a local marker error', ({ prompt, keys }) => {
+    const storyboard = { ...STORYBOARD, modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) }
+    expect(() => buildNativeVideoPreview({ storyboard, assets: ASSETS, models: CATALOGUE, createdAt: 'now' }))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT',
+        detail: `PREPARE_VIDEO_IMAGE_MARKER_MISMATCH: prompt keys=${JSON.stringify(keys)}, bound keys=["lead","guest"]; no PUT sent` }))
+  })
+
+  it('keeps the bound image identity check when repeated markers are valid', () => {
+    const prompt = `${PROMPT}；再次出现 @[陆沉舟](lead)`
+    const storyboard = { ...STORYBOARD, modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }),
+      storyboardMaterialList: [{ ...MATERIALS[0]!, materialAssetId: 83670 }, MATERIALS[1]!] }
+    expect(() => buildNativeVideoPreview({ storyboard, assets: ASSETS, models: CATALOGUE, createdAt: 'now' }))
+      .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+  })
+
   it('rejects duplicated image and audio marker keys and misplaced audio prompt markers', () => {
     const audio = { materialType: 'audio', materialUrl: 'https://media.example/voice.wav', materialKey: 'lead',
       fileName: 'voice', sortOrder: 1, audioDuration: 2 }
@@ -392,6 +435,28 @@ describe('preview construction and validation', () => {
       ...JSON.parse(String(preview.payload.modelConfig)), duration: 31 }) }
     expect(() => validateNativeVideoPreview({ ...preview, payload,
       idempotencyKey: stableSha256(submissionSemantics(payload)) })).toThrow()
+  })
+
+  it.each([{ label: 'empty', materials: [] }, { label: 'audio-only', materials: [
+    { materialType: 'audio', materialUrl: 'https://example.test/voice.wav',
+      materialKey: 'voice', fileName: 'voice', sortOrder: 1 },
+  ] }])('refuses $label subjects before preparing a native video', ({ materials }) => {
+    expect(() => buildNativeVideoPreview({ storyboard: { ...STORYBOARD, storyboardMaterialList: materials },
+      assets: [], models: CATALOGUE, createdAt: 'now' })).toThrow(expect.objectContaining({
+      code: 'INVALID_ARGUMENT',
+      detail: '缺少视频主体素材：当前主体视频模式至少需要一张已绑定的图片主体。本次调用尚未进入账本，尚未发出远端付费请求。',
+    }))
+  })
+
+  it('rejects a historical empty preview with a local parameter error', () => {
+    const payload = { ...PREVIEW.payload, storyboardMaterialList: [],
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: 'A quiet street', materialList: [] }) }
+    expect(() => validateNativeVideoPreview({ ...PREVIEW, payload,
+      assetSummary: { count: 0, orderedAssets: [] },
+      idempotencyKey: stableSha256(submissionSemantics(payload)) })).toThrow(expect.objectContaining({
+      code: 'INVALID_ARGUMENT',
+      detail: '缺少视频主体素材：当前主体视频模式至少需要一张已绑定的图片主体。本次调用尚未进入账本，尚未发出远端付费请求。',
+    }))
   })
 
   it('builds one PUT body with the live model selectors and a deterministic fingerprint', () => {

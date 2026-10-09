@@ -21,6 +21,12 @@ const MULTI_IMAGE_CATALOGUE = [
     videoStandards: [{ id: 92, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 }] },
 ]
 
+const PORTRAIT_IMAGE_CATALOGUE = [{ id: 66, modelId: 'gpt-image-2', platformId: 'KU_AI',
+  unitPrice: 0.12, unit: '张', genTypes: [{ id: 7, type: 3 }], videoStandards: [
+    { id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 },
+    { id: 93, ratio: '9:16', resolution: '1K', width: 720, height: 1280, genNum: 1 },
+  ] }]
+
 /** The generated image row the endpoint really answers with: a list, `assetUrl` and `id`. */
 const GENERATED_IMAGE = [{ id: 900, assetId: 83749, assetUrl: 'https://x/gen.png', hsAssetStatus: 'Active' }]
 
@@ -822,6 +828,7 @@ describe('jubian_video', () => {
     // Catalogue, the one paid write, the asset status read, then the generated image.
     expect(calls.map(call => call.method)).toEqual(['GET', 'POST', 'GET', 'GET'])
     expect(calls[1]!.path.endsWith('/aigc/asset')).toBe(true)
+    expect(JSON.parse(calls[1]!.body!.modelConfig as string)).toMatchObject({ ratio: '16:9', videoStandardId: 91 })
     expect(calls[3]!.path).toContain('getGeneratedImageByAssetId?assetId=83749')
     expect(result.outcome).toBe('accepted')
     expect(result.parent_asset_id).toBe(83749)
@@ -831,6 +838,45 @@ describe('jubian_video', () => {
     const record = await ledger.find('k-1')
     expect(record?.outcome).toBe('accepted')
     expect(record?.quoted_amount).toBe('0.5')
+  })
+
+  it('sends an explicit 9:16 specification with references in their original order', async () => {
+    const { client, calls } = imageProvider(PORTRAIT_IMAGE_CATALOGUE)
+    const result = await videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'portrait-image',
+      script_id: 2708, asset_name: '竖屏候选', asset_type: 2, prompt: '公司大厅',
+      image_aspect_ratio: '9:16', references: [
+        'https://example.test/character.png', 'https://example.test/twins.png',
+      ] }, imageDeps({ selection: { platformId: 'KU_AI' } }))
+    expect(result.outcome).toBe('accepted')
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+    const config = JSON.parse(calls.find(call => call.method === 'POST')!.body!.modelConfig as string) as Record<string, unknown>
+    expect(config).toMatchObject({ standardId: 66, platformId: 'KU_AI', ratio: '9:16',
+      videoStandardId: 93, resolution: '1K', materialList: [
+        { materialUrl: 'https://example.test/character.png', materialType: 'image', sortOrder: 1 },
+        { materialUrl: 'https://example.test/twins.png', materialType: 'image', sortOrder: 2 },
+      ] })
+  })
+
+  it.each([undefined, 83749])('refuses missing 9:16 specification before paid POST or PUT (parent %s)',
+    async (parentAssetId) => {
+      const { client, calls } = imageProvider(IMAGE_CATALOGUE)
+      const key = `missing-portrait-${parentAssetId ?? 'new'}`
+      await expect(videoMethod(client, ledger, { method: 'image_generate', idempotency_key: key,
+        script_id: 2708, asset_name: '竖屏候选', asset_type: 2, prompt: '公司大厅',
+        image_aspect_ratio: '9:16',
+        ...(parentAssetId === undefined ? {} : { parent_asset_id: parentAssetId }) }, imageDeps()))
+        .rejects.toThrow(/9:16/u)
+      expect(calls.filter(call => call.method === 'POST' || call.method === 'PUT')).toHaveLength(0)
+      expect(await ledger.find(key)).toBeUndefined()
+    })
+
+  it('refuses an unsupported image ratio before a paid request or ledger intent', async () => {
+    const { client, calls } = imageProvider(PORTRAIT_IMAGE_CATALOGUE)
+    await expect(videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'invalid-portrait',
+      script_id: 2708, asset_name: '竖屏候选', asset_type: 2, prompt: '公司大厅',
+      image_aspect_ratio: '4:3' as '9:16' }, imageDeps())).rejects.toThrow(/image_aspect_ratio/u)
+    expect(calls.filter(call => call.method === 'POST' || call.method === 'PUT')).toHaveLength(0)
+    expect(await ledger.find('invalid-portrait')).toBeUndefined()
   })
 
   it('polls a pending asset instead of returning an accepted asset with no image', async () => {

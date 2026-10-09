@@ -191,7 +191,7 @@ export async function apply(ctx) {
       const available = []
       const providerIds = ctx.llm.listProviders().map(provider => provider.id)
       assert.deepEqual(providerIds.filter(provider => provider.startsWith('muse-cloud-')), [
-        'muse-cloud-deepseek-official', 'muse-cloud-yunying',
+        'muse-cloud-deepseek-official', 'muse-cloud-yunying', 'muse-cloud-zhipu-official',
       ])
       for (const provider of catalog.providers) {
         if (!providerIds.includes(`muse-cloud-${provider.id}`)) continue
@@ -204,7 +204,7 @@ export async function apply(ctx) {
         })) })
       }
       assert.deepEqual(available.flatMap(provider => provider.models.map(model => model.id)), [
-        'deepseek-flash', 'deepseek-v4-pro', 'gpt-6-sol', 'gpt-6-astra', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5', 'gemini-3.1-pro',
+        'deepseek-flash', 'deepseek-v4-pro', 'gpt-6-sol', 'gpt-6-astra', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'gemini-3.1-pro', 'glm-5.3-flash', 'glm-5.3-flashx', 'glm-5.3-flash',
       ])
       if (excludesStandaloneAa) {
         assert.equal(catalog.providers[0].id, 'aa')

@@ -158,6 +158,8 @@ Where a field is optional in the provider's own data, the reader carries that op
 
 ### The video stage vocabulary
 
+Native subject-video preparation requires at least one selected image subject. `buildNativeVideoPreview()` rejects an empty or audio-only selection with `INVALID_ARGUMENT` instead of producing a prepared preview. `validateNativeVideoPreview()` rejects historical empty-subject previews with a local parameter diagnostic; that submission call has not entered the ledger or sent a remote paid request. Existing identity checks and submission fingerprints still apply.
+
 Uploaded audio references use `materialType=audio`, `materialUrl`, `materialKey`, and a separate audio-group `sortOrder`; they do not require an image parent asset or a casting approval. Native preparation preserves those rows after the confirmed images and fingerprints their saved fields. Subject selection preserves existing audio. Video claims require the ordered child `audioMaterials[].audioUrl` to match the submitted references; absent or changed evidence requires reconciliation, never another paid submission. `readReferenceAudio()` measures complete 16-bit PCM WAV bytes and rejects references longer than 15 seconds. Saved remote `audioDuration` is checked when present, but its absence remains unverified.
 
 `VIDEO_TASK_TYPES` maps `1` to `generate`, `10` to `erase_subtitle`, and `20` to `upscale`; `versions` carries the result history. `subtitle_erased` requires a current URL and either a successful latest type-10 result with an explicit output URL or a successful type-10 history entry whose URL equals the current URL. Stage 10 alone is insufficient, and this flag does not imply visual subtitle review. `upscaled` requires a positive upscale count or latest stage 20, not merely a changed URL.
@@ -216,6 +218,8 @@ These constraints are current package behavior, not a task backlog.
 - **No transport behavior is retried or resumed** — this package performs no request of its own except the media download, so every retry, timeout, and polling decision belongs to the caller.
 
 Project reads expose saved video settings in `project_settings` without choosing a replacement model. Subject selection uses material keys in first-occurrence order, permits repeated prompt references, and compares saved identity, name, URL, type, order, and prompt independently of provider metadata. Media downloads also accept HTTPS origin `101.aigc.jubianai.net` with the same size, header, and redirect checks.
+
+The image request builder defaults to `16:9` and accepts an explicit `9:16` aspect ratio. It selects `videoStandardId` by ratio from the chosen model/platform row of the live `taskType=2` catalogue, while `standardId` remains that priced catalogue row's id. It preserves reference URL order in `materialList` and rejects missing or invalid specifications before returning a paid request body. This is local request construction; remote acceptance of 9:16 has not been verified.
 
 <a id="dev-note"></a>
 ### Dev Note

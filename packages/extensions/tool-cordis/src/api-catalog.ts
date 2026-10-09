@@ -4170,6 +4170,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [],
   },
   {
+    name: 'deliverables/validate',
+    mode: 'serial',
+    signature: '\'deliverables/validate\'(files: readonly string[], signal: AbortSignal): Promise<void>',
+    summary: 'Apply mounted workflow checks before a final file declaration succeeds.',
+    description: 'Apply mounted workflow checks before a final file declaration succeeds.',
+    parameters: [{ name: 'files', description: 'Absolute final file paths after filesystem validation.' }, { name: 'signal', description: 'Initiating delivery cancellation.' }],
+  },
+  {
     name: 'domain/changed',
     mode: 'emit',
     signature: '\'domain/changed\'(change: DomainChanged): void',

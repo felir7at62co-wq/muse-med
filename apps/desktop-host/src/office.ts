@@ -23,6 +23,8 @@ export interface Config {
   readonly docxMaxInputBytes?: number
   /** Word conversion process deadline in milliseconds. */
   readonly docxTimeoutMs?: number
+  /** Maximum managed screenplay project/verification bytes read per file. */
+  readonly docxMaxProjectBytes?: number
 }
 
 /**
@@ -33,7 +35,8 @@ export interface Config {
 export async function apply(ctx: Context, config: Config): Promise<void> {
   await ctx.plugin(workspaceDependencies, config)
   await ctx.plugin(screenplayDocx, { source: config.source,
-    maxInputBytes: config.docxMaxInputBytes ?? 16 * 1024 * 1024, timeoutMs: config.docxTimeoutMs ?? 120_000 })
+    maxInputBytes: config.docxMaxInputBytes ?? 16 * 1024 * 1024, timeoutMs: config.docxTimeoutMs ?? 120_000,
+    maxProjectBytes: config.docxMaxProjectBytes ?? 32 * 1024 * 1024 })
   const archive = runtimeArchivePath(config.runtimeDir) === undefined ? undefined : dirname(realpathSync(config.runtimeDir))
   const manifest = fileURLToPath(import.meta.resolve('@deepseek-ai/libreoffice-kit/package.json'))
   const packageRoot = dirname(archive === undefined ? manifest : join(`${archive}.unpacked`, relative(archive, manifest)))

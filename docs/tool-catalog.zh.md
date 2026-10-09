@@ -537,7 +537,7 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
 
 ### `screenplay_project`
 
-小说、视频、换梗剧本的来源与逐集验收工具。init 记录用户方向；import_source 导入原文、segments 转写或 video_inspect 实际生成的 video_inspection 帧清单；read_source 返回程序生成的片段编号与原文。propose_fact 区分动作、发声、角色心理、作者分析；review_fact 须由另一会话核对归属。propose_facts/review_facts 可原子批量处理最多 20 条事实，每条独立归属与审校理由必须保留，任一失败整批不写入。read_source/list_facts 每次最多 100 条，编号从 1 开始。list_facts 从 1 起始恢复事实，按 65536 字节返回完整事实的前缀，用实际 next 继续直到 null，不以请求 count 推定已读完。read_fact/read_candidate 读取事实或完整候选。stage 提交结构化场次；stage_files 按文件顺序组稿，每个 JSON 文件含一个完整场次，单文件最多 65536 字节、最多 100 个文件，避免一次生成长 JSON；正文引用已批准事实。review 独立核对，commit 推进下一集。status 是中断恢复依据，export 只导出已验收正文。所有修改携带当前 expected_revision；编号、时间、摘要和引用行号由程序生成。已验收稿需修改时用 fork_project，从 before_episode 集之前复制已验收状态到新的 destination 项目；原稿与原项目保留，修订仍须独立验收。批准事实有误时用 withdraw_fact 独立撤销，保留原审批但禁止再用于正文。已有候选引用时先 fork_project 到最早受影响集之前；更正事实须重新提出和独立审校，不覆盖原版本。OS 仅对应本人的心理，作者分析不能变成 OS。characters/actor/witnesses 保留纯人物名，本场仅以 VO 发声的人物另列入 voice_only_characters，程序在人物行标注（VO）。witnesses 仅填实际听见发声或看见动作的人。OS 无见证者；电话或播放语音等 VO 仅在 audible_in_scene=true 且引用已批准发声事实时可声明听者，未声明的 VO 仅观众可闻。requires_knowledge 填本人物须先获知的事实编号；未知身份使用声音编号，不猜角色。机械通过不等于语义通过，独立审校仍须读取来源和完整候选正文。
+小说、视频、换梗剧本的来源与逐集验收工具。init 记录用户方向；import_source 导入原文、segments 转写或 video_inspect 实际生成的 video_inspection 帧清单；read_source 返回程序生成的片段编号与原文。propose_fact 区分动作、发声、角色心理、作者分析；review_fact 须由另一会话核对归属。propose_facts/review_facts 可原子批量处理最多 20 条事实，每条独立归属与审校理由必须保留，任一失败整批不写入。read_source/list_facts 每次最多 100 条，编号从 1 开始。list_facts 从 1 起始恢复事实，按 65536 字节返回完整事实的前缀，用实际 next 继续直到 null，不以请求 count 推定已读完。read_fact/read_candidate 读取事实或完整候选。stage 提交结构化场次；stage_files 按文件顺序组稿，每个 JSON 文件含一个完整场次，单文件最多 65536 字节、最多 100 个文件，避免一次生成长 JSON；正文引用已批准事实。review 独立核对，commit 推进下一集。status 是中断恢复依据，export 只导出已验收正文。所有修改携带当前 expected_revision；编号、时间、摘要和引用行号由程序生成。视频转剧本 init 必须指定 workflow=video_to_screenplay；先导入并实际查看本集帧，分类、独立审校事实，再 stage/stage_files。coverage.windows 填本集完整来源范围，required_beats 保留范围内已批准事实的动作、对白、OS/VO类型；关键事件、无对白行动和人物反应不能遗漏。零动作候选 approve 时须提供 zero_action_reason，记录实际复看依据，不能为通过检查虚构动作或旁白。已验收稿需修改时用 fork_project，从 before_episode 集之前复制已验收状态到新的 destination 项目；原稿与原项目保留，修订仍须独立验收。批准事实有误时用 withdraw_fact 独立撤销，保留原审批但禁止再用于正文。已有候选引用时先 fork_project 到最早受影响集之前；更正事实须重新提出和独立审校，不覆盖原版本。OS 仅对应本人的心理，作者分析不能变成 OS。characters/actor/witnesses 保留纯人物名，本场仅以 VO 发声的人物另列入 voice_only_characters，程序在人物行标注（VO）。witnesses 仅填实际听见发声或看见动作的人。OS 无见证者；电话或播放语音等 VO 仅在 audible_in_scene=true 且引用已批准发声事实时可声明听者，未声明的 VO 仅观众可闻。requires_knowledge 填本人物须先获知的事实编号；未知身份使用声音编号，不猜角色。机械通过不等于语义通过，独立审校仍须读取来源和完整候选正文。
 
 ```json
 {
@@ -565,6 +565,13 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
             },
             "instructions": {
               "type": "string"
+            },
+            "workflow": {
+              "type": "string",
+              "description": "Managed video conversion: visual source preparation, coverage review and accepted-only final delivery.",
+              "enum": [
+                "video_to_screenplay"
+              ]
             }
           },
           "required": [
@@ -1099,6 +1106,64 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
                   "beats"
                 ]
               }
+            },
+            "coverage": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "windows": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "source_id": {
+                        "type": "string"
+                      },
+                      "start": {
+                        "type": "integer"
+                      },
+                      "count": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "source_id",
+                      "start",
+                      "count"
+                    ]
+                  }
+                },
+                "required_beats": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "fact_id": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "action",
+                          "dialogue",
+                          "os",
+                          "vo"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "fact_id",
+                      "kind"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "windows",
+                "required_beats"
+              ]
             }
           },
           "required": [
@@ -1131,6 +1196,64 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
               "items": {
                 "type": "string"
               }
+            },
+            "coverage": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "windows": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "source_id": {
+                        "type": "string"
+                      },
+                      "start": {
+                        "type": "integer"
+                      },
+                      "count": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "source_id",
+                      "start",
+                      "count"
+                    ]
+                  }
+                },
+                "required_beats": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "fact_id": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "action",
+                          "dialogue",
+                          "os",
+                          "vo"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "fact_id",
+                      "kind"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "windows",
+                "required_beats"
+              ]
             }
           },
           "required": [
@@ -1170,6 +1293,10 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
             },
             "reason": {
               "type": "string"
+            },
+            "zero_action_reason": {
+              "type": "string",
+              "description": "For approving a managed video episode with no action beats: actual visual/source recheck and why no essential action is missing. Never invent action to avoid this review."
             }
           },
           "required": [
@@ -4698,6 +4825,14 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
     "image_platform_id": {
       "type": "string",
       "description": "image_generate 可选：仅本次使用实时目录中的指定 platformId；省略时使用设置或部署已选通道。切换前核对价格、授权和上一笔结果；超时或未知结果不能直接换通道重投。"
+    },
+    "image_aspect_ratio": {
+      "type": "string",
+      "description": "image_generate 可选：图片画幅；省略时保持 16:9。按所选通道的实时规格目录选择对应 videoStandardId，不接受直接传入规格 ID。",
+      "enum": [
+        "16:9",
+        "9:16"
+      ]
     },
     "references": {
       "type": "array",

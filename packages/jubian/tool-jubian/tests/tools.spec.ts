@@ -184,10 +184,15 @@ describe('tool-jubian registration', () => {
     const video = byName.get('jubian_video')!
     expect((video.properties as Record<string, { enum?: string[] }>).method!.enum)
       .toEqual(['task', 'tasks', 'subtasks', 'unresolved', 'image_generate', 'image_generate_batch', 'upscale', 'retry'])
+    const videoProperties = video.properties as Record<string, Record<string, unknown>>
+    expect(videoProperties.image_aspect_ratio).toMatchObject({ type: 'string', enum: ['16:9', '9:16'] })
+    expect(videoProperties.image_aspect_ratio!.description).toContain('省略时保持 16:9')
     expect((video.properties as Record<string, Record<string, unknown>>).items).toMatchObject({
       type: 'array', items: { type: 'object', additionalProperties: false,
         required: ['idempotency_key', 'asset_name', 'prompt'] },
     })
+    const batchItem = videoProperties.items!.items as { properties: Record<string, unknown> }
+    expect(batchItem.properties).not.toHaveProperty('image_aspect_ratio')
 
     const asset = byName.get('jubian_asset')!
     expect((asset.properties as Record<string, { enum?: string[] }>).method!.enum)

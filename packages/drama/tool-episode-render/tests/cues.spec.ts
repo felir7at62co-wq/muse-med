@@ -334,6 +334,24 @@ describe('drama_render subtitles', () => {
     expect(report.failures.join('\n')).toContain('subtitle_timing')
   })
 
+  it.each([
+    { end: 0.1, defect: '对齐时间无效' },
+    { end: 0.1001, defect: '不足一毫秒' },
+  ])('blocks an unwritable speech interval ending at $end before emitting a cue', async ({ end, defect }) => {
+    const { project, shots, plan, aligned, subtitle } = await cueProject({ shots: [
+      { shot: 1, lines: ['甲'] },
+    ] }, { shots: [
+      { shot: 1, strategy: 'asr_aligned', cues: [{ text: '甲', start: 0.1, end }] },
+    ] })
+    const report = await runDramaRender({
+      method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
+    }, settingsWith(stubChannel([cueProbes(project)]).channel))
+
+    expect(report.ok).toBe(false)
+    expect(report.failures.join('\n')).toContain(defect)
+    expect(await readFile(subtitle, 'utf8')).toBe('\n')
+  })
+
   it('blocks a cue the alignment places past the end of its own shot', async () => {
     const { project, shots, plan, aligned, subtitle } = await cueProject(LINES, { shots: [
       { shot: 1, strategy: 'asr_aligned', cues: [

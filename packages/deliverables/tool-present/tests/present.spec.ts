@@ -1,5 +1,5 @@
 /** Explicit deliveries commit only after a successful final tool result. */
-import { mkdtemp, rm, writeFile, symlink } from 'node:fs/promises'
+import { lstat, mkdtemp, rm, writeFile, symlink, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -136,7 +136,10 @@ describe('present', () => {
   it('rejects missing, non-file, empty, and excessive inputs', async () => {
     const { root, owner, execute } = await setup()
     await writeFile(join(root, 'large'), 'four')
-    await symlink(tmpdir(), join(root, 'outside'))
+    const outside = join(root, 'outside')
+    await symlink(tmpdir(), outside, process.platform === 'win32' ? 'junction' : 'dir')
+    cleanups.push(() => unlink(outside))
+    expect((await lstat(outside)).isSymbolicLink()).toBe(true)
     for (const files of [[], [{ path: '' }], [{ path: 'missing' }], [{ path: '.' }], [{ path: 'outside' }], [{ path: 'large' }, { path: 'large' }, { path: 'large' }]]) {
       const result = await execute(files)
       expect(result.isError, JSON.stringify(files)).toBe(true)

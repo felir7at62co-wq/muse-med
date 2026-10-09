@@ -2809,7 +2809,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-screenplay-project`
 
 - `inject`: `fs` · `tools` · `attachments` · `llm`
-- `source`: [`packages/drama/screenplay-project/src/index.ts:22`](../packages/drama/screenplay-project/src/index.ts)
+- `source`: [`packages/drama/screenplay-project/src/index.ts:25`](../packages/drama/screenplay-project/src/index.ts)
 
 ```ts config-catalog
 /** Source allocation, durable project size, and bounded source-read budgets. */
@@ -4217,7 +4217,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-present`
 
 - `inject`: `tools` · `fs` · `sessionProjections`
-- `source`: [`packages/deliverables/tool-present/src/index.ts:15`](../packages/deliverables/tool-present/src/index.ts)
+- `source`: [`packages/deliverables/tool-present/src/index.ts:27`](../packages/deliverables/tool-present/src/index.ts)
 
 ```ts config-catalog
 /** Per-call delivery limit. */
