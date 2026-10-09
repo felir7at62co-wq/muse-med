@@ -89,6 +89,8 @@ kind: "package-bundle"
 
 `jubian_video image_generate` 可为单次调用设置 `image_platform_id`，优先从实时目录选择该平台的一行，覆盖已保存或部署锁定。Muse 随包部署在用户尚未选定通道时锁定 `KU_AI`；获授权的备用通道可显式指定 `DUO_YUAN_TAN_SUO`。切换前核对实时价格及上一笔收费任务：超时或结果未知不等于扣费失败，必须先对账，才能使用新 key 或新通道。
 
+单张 `image_generate` 可选填 `image_aspect_ratio`，仅接受 `16:9`（保持原默认）或 `9:16`。工具在已选模型／平台的实时目录行中寻找匹配的 `videoStandardId`；`imageStandardId` 仍只锁定计价模型行，不选择画幅。`references` 的顺序原样进入 `materialList`。不支持的画幅或缺少匹配规格会在计费资产请求前被拒绝。`image_generate_batch` 暂不暴露此参数，批次项仍默认 16:9。远端是否受理 9:16 图片仍须另行验证。
+
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)是每个受支持字段及其 JSDoc 的穷尽式真源。这一行注入 `tools` 与 `credentials`，在挂载时注册全部十二个工具，并挂载三个 Remote 命名空间：账户凭证使用的 `jubianToken`、账户 `gpt-image-2` 行使用的 `jubianImage`，以及设置页读取和修改实际项目额度与账务使用的 `jubianBudget`；既没有按工具启用的开关，也没有单独的一行页面配置。
 
 ### 凭证

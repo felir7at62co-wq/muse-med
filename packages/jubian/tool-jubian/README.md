@@ -89,6 +89,8 @@ A row is pinned in one of two places, and the settings page wins: **Settings →
 
 `jubian_video image_generate` may set `image_platform_id` for one call; it selects that platform's live catalogue row ahead of the saved or deployment pin. Muse's bundled deployment pins `KU_AI` when the user has not chosen a row. An authorized fallback can request `DUO_YUAN_TAN_SUO` explicitly. Check its live price and the previous paid task before switching: a timeout or unknown result is not a failed charge and must be reconciled before a new key or route is used.
 
+For one `image_generate` call, optional `image_aspect_ratio` accepts `16:9` (the unchanged default) or `9:16`. The tool selects a matching `videoStandardId` from the chosen model/platform row of the live catalogue; `imageStandardId` still pins the priced model row and does not select the aspect ratio. Ordered `references` remain ordered in `materialList`. An unsupported ratio or a missing matching specification fails before the paid asset request. This option is not exposed by `image_generate_batch`, whose items retain the 16:9 default. Remote acceptance of 9:16 images still requires separate verification.
+
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-jubian) is the exhaustive source for every accepted field and its JSDoc. The row injects `tools` and `credentials`, registers all twelve tools at mount, and mounts three Remote namespaces: `jubianToken` for account credentials, `jubianImage` for the account's `gpt-image-2` rows, and `jubianBudget` for the Settings page's live project ceiling and accounting. There is no per-tool enable flag and no separate page row.
 
 ### Credential

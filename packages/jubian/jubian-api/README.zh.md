@@ -219,6 +219,8 @@ async function downloadVideo(row: VideoSubtask) {
 
 项目读取通过 `project_settings` 返回已保存的视频配置，不代选模型。素材选源按 key 首次出现的顺序处理，允许提示词重复引用；回读比较身份、名称、URL、类型、顺序与提示词，不比较服务端附加元数据。媒体下载也接受 HTTPS 域名 `101.aigc.jubianai.net`，沿用大小、文件头与重定向检查。
 
+图片请求构造器默认使用 `16:9`，也接受显式 `9:16`。它从实时 `taskType=2` 目录中已选模型／平台行按画幅挑选 `videoStandardId`，而 `standardId` 仍是该计价模型行的 ID。参考图 URL 按原顺序进入 `materialList`；缺少或无效的规格在返回计费请求体之前被拒绝。这仅证明本地请求构造能力，远端是否受理 9:16 尚未验证。
+
 <a id="dev-note"></a>
 ### 开发备注
 

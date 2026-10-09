@@ -219,6 +219,8 @@ These constraints are current package behavior, not a task backlog.
 
 Project reads expose saved video settings in `project_settings` without choosing a replacement model. Subject selection uses material keys in first-occurrence order, permits repeated prompt references, and compares saved identity, name, URL, type, order, and prompt independently of provider metadata. Media downloads also accept HTTPS origin `101.aigc.jubianai.net` with the same size, header, and redirect checks.
 
+The image request builder defaults to `16:9` and accepts an explicit `9:16` aspect ratio. It selects `videoStandardId` by ratio from the chosen model/platform row of the live `taskType=2` catalogue, while `standardId` remains that priced catalogue row's id. It preserves reference URL order in `materialList` and rejects missing or invalid specifications before returning a paid request body. This is local request construction; remote acceptance of 9:16 has not been verified.
+
 <a id="dev-note"></a>
 ### Dev Note
 

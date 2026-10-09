@@ -6,6 +6,7 @@ const CATALOGUE = [{ id: 42, standardId: 42, modelId: 'gpt-image-2', platformId:
   videoStandards: [
     { id: 90, ratio: '16:9', resolution: '2K', width: 2048, height: 1152, genNum: 1 },
     { id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 },
+    { id: 93, ratio: '9:16', resolution: '1K', width: 720, height: 1280, genNum: 1 },
   ] }]
 
 // The live account catalogue: one model id, two platforms, two prices.
@@ -53,6 +54,16 @@ describe('resolveImageModel', () => {
   it('selects the lowest supported resolution with valid 16:9 dimensions', () => {
     expect(resolveImageModel(CATALOGUE)).toEqual({ standardId: 42, modelId: 'gpt-image-2', platformId: 'YU_DIAN',
       modelGenerationTypeId: 7, genType: 3, videoStandardId: 91, resolution: '1K' })
+  })
+
+  it('selects the requested 9:16 specification from the same model and price row', () => {
+    expect(resolveImageModel(CATALOGUE, {}, '9:16')).toEqual({ standardId: 42, modelId: 'gpt-image-2',
+      platformId: 'YU_DIAN', modelGenerationTypeId: 7, genType: 3, videoStandardId: 93, resolution: '1K' })
+  })
+
+  it('refuses 9:16 when the selected model row has no matching specification', () => {
+    const landscapeOnly = [{ ...CATALOGUE[0]!, videoStandards: [CATALOGUE[0]!.videoStandards[1]] }]
+    expect(() => resolveImageModel(landscapeOnly, {}, '9:16')).toThrow(/9:16/u)
   })
 
   it('rejects a standard whose dimensions are not exactly 16:9', () => {
@@ -135,6 +146,28 @@ describe('buildImageRequest', () => {
       genNum: 1, backupModelList: [], style: 0, quality: '', prompt: '一位中年男性', materialList: [] })
     expect(config.standardId).toBe(42)
     expect(config.videoStandardId).toBe(91)
+  })
+
+  it('keeps the default and explicit 16:9 wire bodies identical', () => {
+    const omitted = buildImageRequest(request, CATALOGUE)
+    const explicit = buildImageRequest({ ...request, aspectRatio: '16:9' }, CATALOGUE)
+    expect(explicit).toEqual(omitted)
+  })
+
+  it('builds a 9:16 body with its own specification and ordered reference URLs', () => {
+    const body = buildImageRequest({ ...request, aspectRatio: '9:16',
+      references: ['https://example.test/identity.png', 'https://example.test/location.png'] }, CATALOGUE)
+    const config = JSON.parse(body.modelConfig as string) as Record<string, unknown>
+    expect(config).toMatchObject({ standardId: 42, videoStandardId: 93, ratio: '9:16', resolution: '1K',
+      materialList: [
+        { materialUrl: 'https://example.test/identity.png', materialType: 'image', sortOrder: 1 },
+        { materialUrl: 'https://example.test/location.png', materialType: 'image', sortOrder: 2 },
+      ] })
+  })
+
+  it('refuses an unsupported requested aspect ratio locally', () => {
+    expect(() => buildImageRequest({ ...request, aspectRatio: '4:3' as '9:16' }, CATALOGUE))
+      .toThrow(/image_aspect_ratio/u)
   })
 
   it('numbers ordered references from one and rejects a non-HTTPS url', () => {
