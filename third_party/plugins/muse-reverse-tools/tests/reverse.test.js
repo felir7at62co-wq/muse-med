@@ -84,7 +84,13 @@ test('pinned route priorities select macOS and Rust and load actual portable res
   assert.throws(() => resolveConfig({ assetRoot: 'relative' }), /resources/u);
   assert.throws(() => resolveConfig({ surprise: true }), /Unknown/u);
   assert.throws(() => resolveConfig(null), /object/u);
-  assert.equal(resolveResourceRoot('file:///tmp/app.asar/node_modules/muse-reverse-tools/src/router.js'), '/tmp/app.asar.unpacked/node_modules/muse-reverse-tools/resources/reverse-skill/');
+  const archiveModuleUrl = process.platform === 'win32'
+    ? 'file:///C:/tmp/app.asar/node_modules/muse-reverse-tools/src/router.js'
+    : 'file:///tmp/app.asar/node_modules/muse-reverse-tools/src/router.js';
+  const archiveResourcePath = process.platform === 'win32'
+    ? 'C:\\tmp\\app.asar.unpacked\\node_modules\\muse-reverse-tools\\resources\\reverse-skill\\'
+    : '/tmp/app.asar.unpacked/node_modules/muse-reverse-tools/resources/reverse-skill/';
+  assert.equal(resolveResourceRoot(archiveModuleUrl), archiveResourcePath);
 });
 
 test('session tools render real receipts and dispose all registrations', async () => {
