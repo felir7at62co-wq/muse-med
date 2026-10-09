@@ -7,6 +7,16 @@
   disabled: true
 - id: tool-pwsh
   disabled: true
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+  config:
+    runnerCommand:
+      - bash
+      - -c
+      - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+      - passthrough-runner
+    runnerFailureSignatures:
+      - 'passthrough-runner: profile rejected'
 - insert:
     - id: snapshot-small-window-compaction
       name: './account-fixture.mjs'

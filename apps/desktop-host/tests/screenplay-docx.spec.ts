@@ -1,5 +1,5 @@
 /** Screenplay conversion preserves source order and never replaces an existing deliverable. */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { tmpdir } from 'node:os'
@@ -59,6 +59,26 @@ it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME)('exports an accepted video ver
     await writeFile(fixture.projectPath, JSON.stringify({ ...fixture.project, accepted: [] }))
     await expect(validateVideoDelivery([output], deliveryConfig, new AbortController().signal)).rejects.toThrow('video_delivery_unaccepted')
   } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME)('accepts a reviewed Word through a directory alias while rejecting changed body text', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'accepted-video-alias-'))
+  const alias = `${root}-alias`
+  try {
+    const fixture = await acceptedVideo(root), output = join(root, 'final', 'accepted.docx')
+    await exportScreenplayDocx({ inputs: [fixture.input], output }, deliveryConfig)
+    await symlink(root, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    const aliasedOutput = join(alias, 'final', 'accepted.docx')
+    await expect(validateVideoDelivery([aliasedOutput], deliveryConfig, new AbortController().signal)).resolves.toBeUndefined()
+    await writeFile(output, 'Altered Word content')
+    const receiptPath = `${output}.screenplay.json`
+    const record = JSON.parse(await readFile(receiptPath, 'utf8')) as { output_sha256: string }
+    await writeFile(receiptPath, JSON.stringify({ ...record, output_sha256: sha256(await readFile(output)) }))
+    await expect(validateVideoDelivery([aliasedOutput], deliveryConfig, new AbortController().signal)).rejects.toThrow('video_delivery_body_changed')
+  } finally {
+    await rm(alias, { force: true, recursive: true })
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 it('refuses changed managed sources and an explicit missing project without restricting ordinary final folders', async () => {

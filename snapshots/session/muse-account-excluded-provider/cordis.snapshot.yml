@@ -1,10 +1,4 @@
-# The real account plugin logs in against an isolated HTTP gateway fixture.
-- id: llm-deepseek
-  disabled: true
-- id: tool-bash
-  disabled: true
-- id: tool-pwsh
-  disabled: true
+# Keep the account replay independent of the Windows-only ACL skill catalog.
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'
   config:
@@ -15,6 +9,3 @@
       - passthrough-runner
     runnerFailureSignatures:
       - 'passthrough-runner: profile rejected'
-- insert:
-    - id: snapshot-selected-account-models
-      name: './account-fixture.mjs'

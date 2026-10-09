@@ -358,7 +358,7 @@ class CoverageTests(unittest.TestCase):
         script = Path(__file__).resolve().parents[2] / "skills" / "tweet-drama-core" / "scripts" / "episode_coverage.py"
 
         def command(*args):
-            return subprocess.run([sys.executable, "-B", str(script), str(self.root), *args],
+            return subprocess.run([sys.executable, "-X", "utf8", "-B", str(script), str(self.root), *args],
                                   capture_output=True, text=True, encoding="utf-8", check=False)
 
         self.assertEqual(command("gate", "01").returncode, 1)

@@ -1,5 +1,5 @@
 /** Accepted-only delivery for explicitly managed video screenplay final directories. */
-import { lstat, readFile } from 'node:fs/promises'
+import { lstat, readFile, realpath } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
@@ -131,9 +131,10 @@ export async function validateVideoDelivery(files: readonly string[], config: Co
     }
     const checked = receipt.parse(JSON.parse(receiptText))
     if (sha256(await readFile(file)) !== checked.output_sha256) throw Error('video_delivery_changed: Word 文件与验收导出记录不一致。')
+    const projectPaths = await Promise.all(projects.map(value => realpath(value.path)))
     const contents: string[] = []
     for (const episode of checked.episodes) {
-      if (projects.length > 0 && !projects.some(value => resolve(value.path) === resolve(episode.project))) {
+      if (projectPaths.length > 0 && !projectPaths.includes(await realpath(episode.project))) {
         throw Error('video_delivery_project: Word 验收记录不属于当前正式交付目录的项目。')
       }
       const owner = await projectAt(episode.project, maxProjectBytes)
