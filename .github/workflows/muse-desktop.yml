@@ -64,6 +64,11 @@ jobs:
         env:
           MUSE_RELEASE_TARGET: ${{ matrix.target }}
         run: node apps/desktop/scripts/record-muse-unsigned-build.mjs
+      - name: Accept the genuine installer in an isolated directory
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          MUSE_RELEASE_TARGET: ${{ matrix.target }}
+        run: pnpm exec tsx apps/desktop/scripts/muse-installer-acceptance.ts
       - name: Upload installers, update metadata and build identity
         uses: actions/upload-artifact@v4
         with:
@@ -77,6 +82,16 @@ jobs:
             apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/unsigned-build.json
           if-no-files-found: error
           compression-level: 0
+          retention-days: 30
+      - name: Retain native installer acceptance evidence
+        if: always() && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: muse-${{ matrix.target }}-installed-acceptance-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/muse-installer-acceptance-*/acceptance.json
+            ${{ runner.temp }}/muse-installer-acceptance-*/processes/
+          if-no-files-found: warn
           retention-days: 30
       - name: Retain packaging diagnostics
         if: always()

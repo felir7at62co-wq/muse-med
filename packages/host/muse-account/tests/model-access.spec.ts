@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, onTestFinished, vi } from 'vitest'
+import * as atomicWrite from '@deepseek-ai/dsh-atomic-write'
 import { clearModelAccess, saveModelAccess } from '../src/model-access.ts'
 import { clearMuseSessionIfUnchanged, readMuseSession, writeMuseSession } from '../src/session.ts'
 
@@ -67,5 +68,27 @@ it('propagates a storage failure and tolerates another Host deleting access befo
     return text
   })
   await clearModelAccess(f.sessionFile, f.baseUrl)
+  await expect(readFile(f.accessFile)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('leaves private files untouched when their owner was already disposed', async () => {
+  const f = await fixture()
+  await saveModelAccess(f.sessionFile, f.baseUrl, f.session.revision, providers)
+  const controller = new AbortController()
+  controller.abort()
+  expect(await saveModelAccess(f.sessionFile, f.baseUrl, f.session.revision,
+    [{ id: 'other', access: { baseURL: 'https://other.test/v1', apiKey: 'other-key' } }], controller.signal)).toBe(false)
+  await clearModelAccess(f.sessionFile, f.baseUrl, f.session.revision, controller.signal)
+  expect(await readFile(f.accessFile, 'utf8')).toContain('fixture-key')
+})
+
+it('removes its cancelled atomic publication before releasing the account writer lock', async () => {
+  const f = await fixture(), controller = new AbortController(), write = atomicWrite.writeFileAtomic
+  const spy = vi.spyOn(atomicWrite, 'writeFileAtomic').mockImplementation(async (...args) => {
+    await write(...args)
+    controller.abort()
+  })
+  onTestFinished(() => { spy.mockRestore() })
+  expect(await saveModelAccess(f.sessionFile, f.baseUrl, f.session.revision, providers, controller.signal)).toBe(false)
   await expect(readFile(f.accessFile)).rejects.toMatchObject({ code: 'ENOENT' })
 })

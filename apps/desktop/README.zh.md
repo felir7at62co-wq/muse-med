@@ -8,7 +8,7 @@
 
 桌面壳显示 **Muse**。Windows 快捷方式和可执行文件图标、macOS 安装包与“关于”使用保留原白蜘蛛的圆角黑底图标；Windows 应用窗口和托盘使用独立的透明底黑蜘蛛。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
 
-Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明，当前为 `1.0.3`。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
+Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明，当前为 `1.0.5`。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
 
 依赖校验也会检查与 Node 内置模块同名的 npm 包，包括 `buffer`，并要求链接的 Host 包解析到该发行版拥有的同一个包实例。
 
@@ -348,7 +348,7 @@ pnpm run upload:mac:arm64
 
 GitHub 备用源使用 `https://github.com/felir7at62co-wq/muse-med` 上的 GitHub Releases。每个已发布 release 都需要语义化版本 tag、安装包、blockmap 和通道 YAML；provider 的 feed 不包含 draft release。`verify:update-feed` 使用真实 provider 校验安装包哈希和元数据资产。COS 上传器记录另一份必需的 GitHub 发布计划，但不会发布 GitHub release。
 
-`muse-product.json` 为 Muse `1.0.3` 启用 `legacyRcDiscovery`。已安装的 rc 客户端只选择 rc tag，因此发布包含正式版 `v1.0.3` 以及仅用于发现的预发布入口 `v1.0.3-rc.muse-stable`。两者包含完全相同的 Muse `1.0.3` 二进制，以及声明版本为 `1.0.3` 的相同 `rc.yml` 和 `latest.yml` 元数据；macOS 使用相应的 `-mac` 名称。COS 计划包含相同的 feed 别名。真实更新器测试验证发现和版本接受，不下载或安装。线上资产和已有 profile 的安装升级仍须经过发布验收。
+`muse-product.json` 为 Muse `1.0.5` 启用 `legacyRcDiscovery`。已安装的 rc 客户端只选择 rc tag，因此发布包含正式版 `v1.0.5` 以及仅用于发现的预发布入口 `v1.0.5-rc.muse-stable`。两者包含完全相同的 Muse `1.0.5` 二进制，以及声明版本为 `1.0.5` 的相同 `rc.yml` 和 `latest.yml` 元数据；macOS 使用相应的 `-mac` 名称。COS 计划包含相同的 feed 别名。真实更新器测试验证发现和版本接受，不下载或安装。线上资产和已有 profile 的安装升级仍须经过发布验收。
 
 macOS 配置使用必填发布环境，不会接受钥匙串中最先发现的证书。空值、格式错误的 Team ID、包含 electron-builder 不支持的 `Developer ID Application:` 前缀的签名身份，以及不完整的公证凭据都会被拒绝。macOS 打包要求已配置的身份及其私钥可用。运行时准备会把该身份、安全时间戳与 hardened runtime 应用到每个内嵌 Mach-O 文件；应用签名完成后，深度严格检查会拒绝其他叶证书 Authority 或 Team ID，验证通过才生成发布产物。macOS 固定目标安装包命令为已签名应用创建独立副本，并发执行两条产物流。一路先公证 App 并钉票，再生成 ZIP 及其更新元数据。另一路把已签名 App 副本封装进签名 DMG，再公证 DMG、钉票并验证；其中的 App 不单独附加票据。只有两路均成功结束，产物才会移入最终目录并写入发布完成记录。仅生成目录的命令同样需要公证凭据，并等待 Apple 公证和 App 钉票完成。[并行公证决策](../../.agents/notes/implemented/process/2026-09-09-parallel-macos-notarization.zh.md)负责副本隔离与容器票据语义。私钥可以来自登录钥匙串或 electron-builder 的标准 `CSC_LINK` 输入；环境中的 `CSC_NAME` 与证书发现顺序都不能选择发布所有者。公证凭据也可以使用 electron-builder 支持的完整 Apple ID 或钥匙串 profile 方式。手动执行 `pnpm --dir apps/desktop run verify:mac-signature -- <path-to-app>` 重复应用检查时，也必须提供两个 macOS 身份变量。
 

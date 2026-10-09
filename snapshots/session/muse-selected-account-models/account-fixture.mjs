@@ -46,6 +46,8 @@ function completion(message) {
  */
 export async function apply(ctx) {
   const direct = process.env.DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS === 'true'
+  const refusal = process.env.DSH_SNAPSHOT_SUPPLIER_REFUSAL === 'true'
+  assert.ok(!refusal || direct)
   const excludedProvider = process.env.DSH_SNAPSHOT_EXCLUDED_ACCOUNT_PROVIDER
   assert.ok(excludedProvider === undefined || excludedProvider === 'aa')
   const excludesStandaloneAa = excludedProvider === 'aa'
@@ -68,7 +70,7 @@ export async function apply(ctx) {
   assert.deepEqual({ provider: selection?.provider, model: selection?.model }, selectedModel)
   const completionPath = `${direct ? '/supplier' : '/api/desktop-models'}/${selectedModel.provider.slice('muse-cloud-'.length)}/chat/completions`
   const script = recorded.filter(event => event.type === 'assistant/message').map(event => event.data.message)
-  assert.equal(script.length, 2)
+  assert.equal(script.length, refusal ? 0 : 2)
   const requests = []
   let baseUrl
   let rejected
@@ -112,8 +114,13 @@ export async function apply(ctx) {
             assert.deepEqual(payload.thinking, { type: 'enabled' })
           }
           const message = script[requests.length]
-          assert.ok(message)
+          if (!refusal) assert.ok(message)
           requests.push(payload)
+          if (refusal) {
+            response.writeHead(400, { 'content-type': 'application/json' })
+            response.end(JSON.stringify({ error: { message: 'Invalid request using supplier-fixture-deepseek-official' } }))
+            return
+          }
           if (requests.length === 2) {
             const result = payload.messages.find(message => message.role === 'tool')
             assert.ok(result?.content.includes('gemini-3.1-pro'))
@@ -238,7 +245,7 @@ export async function apply(ctx) {
   })))
   ctx.on('agent/turn-stopping', async ({ agent }) => {
     if (rejected) throw rejected
-    assert.equal(requests.length, 2)
+    assert.equal(requests.length, refusal ? 1 : 2)
     const config = agent.session.requestHeader()?.config
     assert.equal(config.reasoningEffort, preservesNewerDefault ? undefined : 'low')
     assert.deepEqual({ provider: config.provider, model: config.model }, selectedModel)

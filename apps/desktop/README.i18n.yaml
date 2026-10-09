@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
 /muse-desktop:
-  en: 8a9353c4a35ec3ae
-  zh: c200ce717f1ff260
+  en: eda1ac94a6b19c9b
+  zh: 7c31166ed582bf7d
 /muse-desktop/terminal-command:
   en: bef92953c237363f
   zh: d21d6effd21b8c00
@@ -51,8 +51,8 @@
   en: af24fb2c5a1987cc
   zh: efab151447b389d5
 /muse-desktop/package/upload-updates:
-  en: 60ce9b8389e10f39
-  zh: 16f5fe075ddc7e58
+  en: 2bb612359326045b
+  zh: 8bfd1480f7db8705
 /muse-desktop/package/unsigned-installers:
   en: 8620b9d44e3058a2
   zh: 13ce3b2ea0d81fb5

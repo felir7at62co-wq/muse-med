@@ -13,6 +13,7 @@ import { z } from 'zod'
 import { readMuseSession, clearMuseSessionIfUnchanged } from './session.ts'
 import { MuseGatewayError } from './gateway.ts'
 import { clearModelAccess, saveModelAccess } from './model-access.ts'
+import { safeMuseModelStream } from './model-errors.ts'
 
 const supplierAccess = z.object({
   baseURL: z.string().max(2048).refine((value) => {
@@ -69,8 +70,8 @@ class MusePiAiAdapter extends PiAiAdapter {
     return { ...prepared,
       model: defaultEffort === undefined || prepared.model.reasoning === undefined ? prepared.model
         : { ...prepared.model, reasoning: { ...prepared.model.reasoning, defaultEffort } },
-      stream: options => prepared.stream({ ...options, signal: options.signal === undefined ? authorization
-        : AbortSignal.any([authorization, options.signal]) }),
+      stream: options => safeMuseModelStream(() => prepared.stream({ ...options, signal: options.signal === undefined ? authorization
+        : AbortSignal.any([authorization, options.signal]) })),
     }
   }
 
@@ -132,8 +133,11 @@ export class MuseModels {
     }, { prepend: true })
   }
 
-  /** Withdraw this instance's models and cancel its pending catalog fetch. */
-  dispose(): void {
+  /**
+   * Withdraw models immediately and await pending catalog and private-file work.
+   * @returns Completion after every previously queued refresh has settled.
+   */
+  dispose(): Promise<void> {
     this.stop.abort()
     this.authorization.abort()
     this.disposeRequestRoute()
@@ -141,6 +145,7 @@ export class MuseModels {
     this.registration = undefined
     this.profiles = new Map()
     this.defaultEfforts = new Map()
+    return this.queue
   }
 
   /**
@@ -162,14 +167,22 @@ export class MuseModels {
     this.defaultEfforts = new Map()
     this.revision = undefined
     this.signature = undefined
-    await clearModelAccess(this.options.sessionFile, this.options.baseUrl, revision)
+    await clearModelAccess(this.options.sessionFile, this.options.baseUrl, revision, this.stop.signal)
+  }
+
+  private isStopped(): boolean {
+    return this.stop.signal.aborted
   }
 
   private async synchronize(): Promise<void> {
-    if (this.stop.signal.aborted) return
+    if (this.isStopped()) return
     const session = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
+    if (this.isStopped()) return
     if (!session) { await this.clear(); return }
     if (this.revision !== session.revision) await this.clear()
+    if (this.isStopped()) return
+    if ((await readMuseSession(this.options.sessionFile, this.options.baseUrl))?.revision !== session.revision) return
+    if (this.isStopped()) return
     const response = await (this.options.fetcher ?? fetch)(new URL('/api/desktop-models/providers', this.options.baseUrl), {
       headers: { cookie: session.cookie, 'x-muse-model-access': 'direct-v1' }, redirect: 'error',
       signal: AbortSignal.any([this.stop.signal, AbortSignal.timeout(this.options.requestTimeoutMs)]),
@@ -226,7 +239,8 @@ export class MuseModels {
         models: allowedModels.map(model => ({ ...model,
           compat: { supportsReasoningEffort: model.reasoningEfforts !== false,
             ...(/^glm-5\.3(?:-|$)/i.test(modelName(model.id)) ? {
-              thinkingFormat: 'deepseek' as const, requiresReasoningContentOnAssistantMessages: true,
+              thinkingFormat: provider.id === 'zhipu-official' ? 'zai' as const : 'deepseek' as const,
+              requiresReasoningContentOnAssistantMessages: true,
             } : {}) } })),
         compat: { supportsStore: false, supportsDeveloperRole: false, maxTokensField: 'max_tokens',
           ...(provider.id === 'deepseek-official' ? { thinkingFormat: 'deepseek' as const, requiresReasoningContentOnAssistantMessages: true } : {}) },
@@ -241,8 +255,13 @@ export class MuseModels {
     if (data.transport === 'direct') {
       const access = data.providers.flatMap(provider => provider.access && candidate.has(`muse-cloud-${provider.id}`)
         ? [{ id: provider.id, access: provider.access }] : [])
-      if (!await saveModelAccess(this.options.sessionFile, this.options.baseUrl, session.revision, access)) { await this.clear(); return }
-    } else await clearModelAccess(this.options.sessionFile, this.options.baseUrl, session.revision)
+      const accepted = await saveModelAccess(this.options.sessionFile, this.options.baseUrl, session.revision, access, this.stop.signal)
+      if (this.isStopped()) return
+      if (!accepted) { await this.clear(); return }
+    } else await clearModelAccess(this.options.sessionFile, this.options.baseUrl, session.revision, this.stop.signal)
+    const publishedSession = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
+    if (this.isStopped()) return
+    if (publishedSession?.revision !== session.revision) { await this.clear(); return }
     const previous = this.profiles
     const previousDefaults = this.defaultEfforts
     this.profiles = candidate

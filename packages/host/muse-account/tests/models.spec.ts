@@ -47,7 +47,7 @@ beforeEach(async () => {
   ctx.llm.registerAdapter(['personal'], new PersonalAdapter())
 })
 afterEach(async () => {
-  models?.dispose(); await ctx.fiber.dispose(); await closeMockServers()
+  await models?.dispose(); await ctx.fiber.dispose(); await closeMockServers()
   await rm(root, { recursive: true, force: true })
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -153,7 +153,7 @@ it('does not distribute excluded supplier credentials and rejects issuance raced
   await models.refresh()
   const stored: unknown = JSON.parse(await readFile(join(root, 'model-access.json'), 'utf8'))
   expect(stored).toMatchObject({ providers: [] })
-  models.dispose()
+  await models.dispose()
   const save = modelAccess.saveModelAccess
   vi.spyOn(modelAccess, 'saveModelAccess').mockImplementation(async (...args) => {
     await login('bob')
@@ -239,7 +239,7 @@ it('selects the first Muse model through real Loader settings and preserves a cu
   await fixture.ctx.settings.replace('agent-default-model', { provider: 'personal', model: 'private-model' })
   await login('bob'); await models.refresh()
   expect(fixture.ctx.agentDefaultModel.currentSelection()).toMatchObject({ provider: 'personal', model: 'private-model' })
-  models.dispose()
+  await models.dispose()
 })
 
 it('completes catalog refresh while preserving a newer model selection committed during initial-default repair', async () => {
@@ -340,7 +340,7 @@ it('excludes only the specified account provider and retains Yunying Gemini and 
     ])
     expect((await assemble(ctx, { provider: 'aa', model: 'gemini-3.8-flash', messages: [] })).finish)
       .toEqual({ kind: 'stop' })
-    models.dispose()
+    await models.dispose()
     expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal', 'aa'])
   } finally { personal() }
 })
@@ -360,7 +360,7 @@ it.each(['plugin', 'desktop'] as const)('routes an existing unconfigured direct 
     const owned = new MuseModels(scope, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
       fetcher: async () => Response.json(suppliedCatalog) })
     models = owned
-    scope.effect(() => () => { owned.dispose() })
+    scope.effect(() => () => owned.dispose())
   } })
   await mounted.await()
   await models.refresh()
@@ -541,7 +541,7 @@ it('loads Muse GLM models through Loader and retains reasoning on a tool continu
           input: ['text'], reasoningEfforts: { low: 'low' }, defaultReasoningEffort: 'low',
         }] }] }) })
       models = owned
-      scope.effect(() => () => { owned.dispose() })
+      scope.effect(() => () => owned.dispose())
       await owned.refresh()
     },
   }
@@ -648,8 +648,9 @@ it('does not fetch after disposal and cancels a catalog whose response arrives a
   const fetcher = vi.fn<typeof fetch>(async () => { entered(); await gate; return Response.json(catalog) })
   models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000, fetcher })
   const refreshing = models.refresh(); await started
-  models.dispose(); release()
+  const disposal = models.dispose(); release()
   await expect(refreshing).rejects.toThrow()
+  await disposal
   await models.refresh()
   expect(fetcher).toHaveBeenCalledTimes(1)
   expect(ctx.llm.listProviders().map(row => row.id)).toEqual(['personal'])
@@ -712,9 +713,9 @@ it.each(['account-change', 'dispose'] as const)('does not save an initial defaul
     fetcher: async () => Response.json(suppliedCatalog) })
   const refreshing = models.refresh()
   await started
-  if (change === 'dispose') models.dispose()
-  else await login('bob')
-  release(); await refreshing
+  const disposal = change === 'dispose' ? models.dispose() : login('bob')
+  if (change === 'account-change') await disposal
+  release(); await Promise.all([refreshing, disposal])
   expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'deepseek-official', model: 'deepseek-flash' })
 })
 

@@ -27,7 +27,7 @@ interface WireRequest {
   model: string
   max_tokens: number
   reasoning_effort?: string
-  thinking?: { type: string }
+  thinking?: { type: string; clear_thinking?: boolean }
   messages: { role: string; content?: string; reasoning_content?: string }[]
 }
 
@@ -144,7 +144,8 @@ it.each(['relay', 'direct'] as const)('offers eleven account models through %s a
       expect(request.authorization).toBe(transport === 'direct' ? `Bearer supplier-fixture-${provider.id}` : 'Bearer alice-session')
       expect(request.body.max_tokens).toBe(model.maxTokens)
       expect(request.body.reasoning_effort).toBe(model.defaultReasoningEffort)
-      expect(request.body.thinking).toEqual(provider.id === 'deepseek-official' || provider.id === 'zhipu-official' ? { type: 'enabled' } : undefined)
+      expect(request.body.thinking).toEqual(provider.id === 'zhipu-official' ? { type: 'enabled', clear_thinking: false }
+        : provider.id === 'deepseek-official' ? { type: 'enabled' } : undefined)
     }
     expect(pair[1]?.body.messages.find(message => message.role === 'tool')?.content).toBe('PROBE_OK')
     expect(pair[1]?.body.messages.find(message => message.role === 'assistant')?.reasoning_content)
