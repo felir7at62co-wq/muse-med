@@ -1,103 +1,66 @@
-name: Muse unsigned desktop packages
+name: Muse verified draft artifact transfer
 
 on:
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
 
 concurrency:
-  group: muse-desktop-${{ github.ref }}
+  group: muse-release-artifact-transfer-105
   cancel-in-progress: false
 
 jobs:
-  build:
-    if: github.repository == 'felir7at62co-wq/muse-med' && (github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft)
-    name: ${{ matrix.target }} unsigned installer
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: win-x64
-            runner: windows-2025
-            shell: pwsh
-          - target: mac-arm64
-            runner: macos-15
-            shell: bash
-    defaults:
-      run:
-        shell: ${{ matrix.shell }}
+  transfer:
+    if: github.repository == 'felir7at62co-wq/muse-med' && github.ref == 'refs/heads/codex/muse-release-artifact-transfer-105'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      MUSE_TRANSFER_SEAL: scripts/owner/muse-release-artifact-transfer/seal.json
+      MUSE_TRANSFER_ROOT: ${{ runner.temp }}/muse-release-artifact-transfer
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
-      - uses: actions/setup-python@v6
+      - name: Verify isolated transfer tests
+        run: node --test scripts/owner/muse-release-artifact-transfer/*.test.mjs
+      - name: Require the successful source run and both approved drafts
+        id: preflight
+        run: node scripts/owner/muse-release-artifact-transfer/run.mjs --mode preflight --manifest "$MUSE_TRANSFER_SEAL"
+      - name: Download the original Windows installer artifact
+        uses: actions/download-artifact@v4
         with:
-          python-version: '3.12'
-      - name: Install immutable dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Install model gateway dependencies
-        run: npm ci --prefix services/muse-accounts --ignore-scripts
-      - name: Check model relay behavior
-        run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
-      - name: Check download bundle packaging
-        run: node --test third_party/plugins/download-pack.test.mjs
-      - name: Check packaging behavior
-        run: pnpm exec vitest run apps/desktop/tests/package-target.spec.ts apps/desktop/tests/package-target-stages.spec.ts apps/desktop/tests/macos-signature.spec.ts apps/desktop/tests/unsigned-pr-packaging.spec.ts apps/desktop/tests/desktop-package-environment.spec.ts apps/desktop/tests/prepare-macos-media.spec.ts apps/desktop/tests/package-resume.spec.ts
-      - name: Configure unsigned Muse packaging
-        run: >-
-          node --input-type=module -e "import { writeFileSync } from 'node:fs';
-          writeFileSync('apps/desktop/.env.' + (process.platform === 'win32' ? 'windows' : 'macos'),
-          'DSH_DESKTOP_APP_ID=cn.muse.med\nDSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false\n');"
-      - name: Build and verify the assembled application
-        run: pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned
-      - name: Record the exact unsigned build
-        env:
-          MUSE_RELEASE_TARGET: ${{ matrix.target }}
-        run: node apps/desktop/scripts/record-muse-unsigned-build.mjs
-      - name: Accept the genuine installer in an isolated directory
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          MUSE_RELEASE_TARGET: ${{ matrix.target }}
-        run: pnpm exec tsx apps/desktop/scripts/muse-installer-acceptance.ts
-      - name: Upload installers, update metadata and build identity
-        uses: actions/upload-artifact@v4
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.preflight.outputs.source_run }}
+          name: muse-win-x64-${{ steps.preflight.outputs.source_commit }}
+          path: ${{ env.MUSE_TRANSFER_ROOT }}/win-x64
+      - name: Download the original Mac ARM installer artifact
+        uses: actions/download-artifact@v4
         with:
-          name: muse-${{ matrix.target }}-${{ github.sha }}
-          path: |
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.exe
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.dmg
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.zip
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.blockmap
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.yml
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/unsigned-build.json
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 30
-      - name: Retain native installer acceptance evidence
-        if: always() && github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.preflight.outputs.source_run }}
+          name: muse-mac-arm64-${{ steps.preflight.outputs.source_commit }}
+          path: ${{ env.MUSE_TRANSFER_ROOT }}/mac-arm64
+      - name: Download the real Windows installation receipt
+        uses: actions/download-artifact@v4
         with:
-          name: muse-${{ matrix.target }}-installed-acceptance-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/muse-installer-acceptance-*/acceptance.json
-            ${{ runner.temp }}/muse-installer-acceptance-*/processes/
-          if-no-files-found: warn
-          retention-days: 30
-      - name: Retain packaging diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.preflight.outputs.source_run }}
+          name: muse-win-x64-installed-acceptance-${{ steps.preflight.outputs.source_commit }}
+          path: ${{ env.MUSE_TRANSFER_ROOT }}/acceptance/win-x64
+      - name: Download the real Mac ARM installation receipt
+        uses: actions/download-artifact@v4
         with:
-          name: muse-${{ matrix.target }}-diagnostics-${{ github.sha }}
-          path: apps/desktop/.desktop-build/packaging-runs/
-          if-no-files-found: ignore
-          retention-days: 14
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.preflight.outputs.source_run }}
+          name: muse-mac-arm64-installed-acceptance-${{ steps.preflight.outputs.source_commit }}
+          path: ${{ env.MUSE_TRANSFER_ROOT }}/acceptance/mac-arm64
+      - name: Verify original bytes and supplement the two drafts
+        run: node scripts/owner/muse-release-artifact-transfer/run.mjs --mode transfer --manifest "$MUSE_TRANSFER_SEAL" --artifacts-root "$MUSE_TRANSFER_ROOT"
