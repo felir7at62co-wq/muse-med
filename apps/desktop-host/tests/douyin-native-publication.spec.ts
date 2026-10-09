@@ -4,7 +4,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import { SubprocessRuntime, type SubprocessHandle, type SubprocessSpawnSpec, type SubprocessTerminalHandle } from '@deepseek-ai/dsh-subprocess'
 import { EventEmitter } from 'node:events'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
@@ -43,11 +43,12 @@ class FileVerification extends SubprocessRuntime {
 }
 it.each(['publish', 'publish-player-metadata', 'player-duration-mismatch', 'player-aspect-mismatch', 'crossed-player-provider',
   'long-verification', 'cancel-verification', 'expired-verification',
-  'existing-media', 'existing-receipt', 'outside', 'symlink', 'wrong-work', 'write-failure', 'cancel-close'] as const)(
+  'existing-media', 'existing-receipt', 'outside', 'symlink', 'linked-directory', 'wrong-work', 'write-failure', 'cancel-close'] as const)(
   'native file publication preserves private source effects: %s', async (mode) => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'muse-native-file-effects-'))), ctx = new Context()
     const connected = Object.getOwnPropertyDescriptor(process, 'connected'), send = Object.getOwnPropertyDescriptor(process, 'send')
     let published = '', receipt = '', staging = ''
+    let linkedDirectory: string | undefined
     const cancellation = new AbortController(), closing = Promise.withResolvers<undefined>(), closeGate = Promise.withResolvers<undefined>()
     const decodeEntered = Promise.withResolvers<undefined>(), decodeExit = Promise.withResolvers<undefined>()
     const timedVerification = ['long-verification', 'cancel-verification', 'expired-verification'].includes(mode)
@@ -87,12 +88,19 @@ it.each(['publish', 'publish-player-metadata', 'player-duration-mismatch', 'play
       }
       if (request.action === 'download') {
         const directory = join(root, 'source', 'media', 'douyin', `.native-${request.taskId}`)
-        mkdirSync(directory)
+        if (mode === 'linked-directory') {
+          const retained = join(root, 'retained-directory')
+          mkdirSync(retained)
+          writeFileSync(join(retained, 'video.mp4'), 'retain-input')
+          symlinkSync(retained, directory, process.platform === 'win32' ? 'junction' : 'dir')
+          linkedDirectory = directory
+          expect(lstatSync(directory).isSymbolicLink()).toBe(true)
+        } else mkdirSync(directory)
         staging = join(directory, 'video.mp4')
         const other = join(root, 'retained-input.mp4')
-        if (mode === 'outside' || mode === 'symlink') writeFileSync(other, 'retain-input')
-        if (mode === 'symlink') symlinkSync(other, staging)
-        else writeFileSync(staging, 'fixture-media')
+        if (mode === 'outside') writeFileSync(other, 'retain-input')
+        if (mode === 'symlink') renameSync(join(root, 'staged-link.mp4'), staging)
+        else if (mode !== 'linked-directory') writeFileSync(staging, 'fixture-media')
         const selectedEvidence = mode === 'publish-player-metadata' ? playerEvidence
           : mode === 'player-duration-mismatch' ? { ...playerEvidence, playerMetadata: { ...playerMetadata, durationMs: 1000 } }
             : mode === 'player-aspect-mismatch' ? { ...playerEvidence, playerMetadata: { ...playerMetadata, width: 2160, height: 3840 } }
@@ -110,6 +118,12 @@ it.each(['publish', 'publish-player-metadata', 'player-duration-mismatch', 'play
       callback(null)
     } })
     try {
+      // Create the file-link fixture before the transport can convert setup errors into a blocked receipt.
+      if (mode === 'symlink') {
+        const other = join(root, 'retained-input.mp4')
+        writeFileSync(other, 'retain-input')
+        symlinkSync(other, join(root, 'staged-link.mp4'), 'file')
+      }
       await ctx.plugin(SessionStore)
       await ctx.plugin(FileVerification, timedVerification ? { decode(spec) {
         decodeSignal = spec.signal
@@ -166,6 +180,12 @@ it.each(['publish', 'publish-player-metadata', 'player-duration-mismatch', 'play
         if (mode === 'existing-receipt') expect(readFileSync(receipt, 'utf8')).toBe('retain-receipt')
         else expect(existsSync(receipt)).toBe(false)
         if (mode === 'outside' || mode === 'symlink') expect(readFileSync(join(root, 'retained-input.mp4'), 'utf8')).toBe('retain-input')
+        if (mode === 'linked-directory') {
+          expect(readFileSync(join(root, 'retained-directory', 'video.mp4'), 'utf8')).toBe('retain-input')
+          expect(realpathSync(staging)).not.toBe(staging)
+          if (!(ctx.subprocess instanceof FileVerification)) throw new Error('Unexpected verification provider')
+          expect(ctx.subprocess.commands).toEqual([])
+        }
       }
       expect(existsSync(staging)).toBe(true)
     } finally {
@@ -175,6 +195,7 @@ it.each(['publish', 'publish-player-metadata', 'player-duration-mismatch', 'play
       vi.mocked(fileIO.open).mockRestore()
       if (connected !== undefined) Object.defineProperty(process, 'connected', connected); else Reflect.deleteProperty(process, 'connected')
       if (send !== undefined) Object.defineProperty(process, 'send', send); else Reflect.deleteProperty(process, 'send')
+      if (linkedDirectory !== undefined) unlinkSync(linkedDirectory)
       rmSync(root, { recursive: true, force: true })
       if (timedVerification) { restoreTimeout?.(); vi.useRealTimers() }
     }
