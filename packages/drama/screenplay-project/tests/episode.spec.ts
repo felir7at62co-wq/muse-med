@@ -2,7 +2,9 @@
 import { expect, it } from 'vitest'
 import { FACT_RECORD, PROJECT_FILE } from '../src/schema.ts'
 import type { ProjectFile } from '../src/schema.ts'
-import { acceptedKnowledge, renderEpisode, sha256 } from '../src/episode.ts'
+import type { FactId, UnitId } from '../src/ids.ts'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import { acceptedKnowledge, acceptedScripts, candidateDigest, checkVideoCoverage, renderEpisode, sha256 } from '../src/episode.ts'
 
 const thought = FACT_RECORD.parse({ id: 'f:thought', kind: 'thought', origin: 'source', actor: '甲', layer: 'present',
   summary: '甲知道钥匙的位置。', anchors: [{ unit_id: 'unit:1', quote: '钥匙' }], proposer: 'writer', created_at: '2026-10-07T00:00:00.000Z',
@@ -164,4 +166,48 @@ it('refuses premature and duplicate hook markers instead of manufacturing an epi
   expect(() => renderEpisode(project, [first, scene({ transition: 'continuous' })], {}, 1)).toThrow('episode_hook')
   const duplicate = scene({ beats: [first.beats[0]!, first.beats[0]!] })
   expect(() => renderEpisode(project, [duplicate], {}, 1)).toThrow('episode_hook')
+})
+
+
+function videoCoverageFixture() {
+  const scenes = [beat({ kind: 'dialogue', actor: '乙', fact_ids: [speech.id] })]
+  const scoped = PROJECT_FILE.parse({ ...project, workflow: 'video_to_screenplay', facts: [speech],
+    sources: [{ id: 's:text', kind: 'text', path: '/source.txt', sha256: sha256('text'), units: [{ id: 'unit:1', ordinal: 1, text: '钥匙' }] },
+      { id: 's:frames', kind: 'video_inspection', path: '/frames.json', sha256: sha256('frames'), units: [{ id: 'unit:image', ordinal: 1, text: '帧',
+        image: { attachmentId: 'fixed-frame', mediaType: 'image/png', bytes: 1, width: 1, height: 1 } }] }],
+    candidates: [{ id: 'c:00000000-0000-4000-8000-000000000001', episode: 1, base_episode: 0, author: 'writer',
+      created_at: speech.created_at, committed_at: speech.created_at, sha256: sha256('pending'), scenes,
+      coverage: { windows: [{ source_id: 's:text', start: 1, count: 1 }, { source_id: 's:frames', start: 1, count: 1 }],
+        required_beats: [{ fact_id: speech.id, kind: 'dialogue' }] },
+      review: { actor: 'reviewer', decision: 'approve', reason: '核对通过', time: speech.created_at, zero_action_reason: '确认无动作' } }],
+    accepted: ['c:00000000-0000-4000-8000-000000000001'] })
+  const candidate = scoped.candidates[0]!
+  candidate.sha256 = candidateDigest(candidate)
+  return { project: scoped, candidate }
+}
+
+it.each(['missing-source', 'overflow', 'no-frame', 'duplicate', 'missing-fact', 'rejected-fact', 'unscoped-action', 'zero-action-review', 'digest'] as const)
+('refuses %s during accepted video delivery revalidation', (failure) => {
+  const { project: scoped, candidate } = videoCoverageFixture(), coverage = candidate.coverage!
+  let code: string
+  switch (failure) {
+    case 'missing-source': coverage.windows[0]!.source_id = 'absent'; code = 'source_window'; break
+    case 'overflow': coverage.windows[0]!.count = 2; code = 'source_window'; break
+    case 'no-frame': coverage.windows.pop(); code = 'visual_preparation_required'; break
+    case 'duplicate': coverage.required_beats.push(coverage.required_beats[0]!); code = 'source_coverage'; break
+    case 'missing-fact': coverage.required_beats.push({ fact_id: brandString<FactId>('absent'), kind: 'dialogue' }); code = 'source_coverage'; break
+    case 'rejected-fact': scoped.facts[0]!.review!.decision = 'reject'; code = 'source_coverage'; break
+    case 'unscoped-action': {
+      scoped.facts.push({ ...action, anchors: [{ unit_id: brandString<UnitId>('outside'), quote: '动作' }] })
+      candidate.scenes[0]!.beats.push({ kind: 'action', actor: '甲', text: '甲推门。', fact_ids: [action.id], witnesses: [], requires_knowledge: [] })
+      code = 'visual_fact_evidence'; break
+    }
+    case 'zero-action-review': delete candidate.review!.zero_action_reason; code = 'zero_action_review_required'; break
+    case 'digest': candidate.scenes[0]!.beats[0]!.text = '修改后的台词'; code = 'invalid_candidate_digest'; break
+  }
+  if (failure !== 'digest') {
+    expect(() => checkVideoCoverage(scoped, candidate)).toThrow(code)
+    candidate.sha256 = candidateDigest(candidate)
+  }
+  expect(() => acceptedScripts(scoped)).toThrow(code)
 })

@@ -34,7 +34,7 @@ test('catalog probes retain family-specific thinking and preserve real pi-ai too
  });
  t.after(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const publicSettings={baseURL:'https://provider.example/v1'};
- for(const [route,id] of [['yunying','glm-5.3-flash'],['zhipu-official','glm-5.3-flashx'],
+ for(const [route,id] of [['yunying','glm-5.3-flash'],['zhipu-official','glm-5.3-flashx'],['zhipu-official','glm-5.3-flash'],
   ...['gemini-3.8-flash','claude-sonnet-5-5','grok-4.7','qwen3.8-max','MiniMax-m3','doubao-seed-2-pro','kimi-k3'].map(id=>['yunying',id])]){
   const model=probeModel(route,publicSettings,{id,contextWindow:200000,maxTokens:8192,reasoningEfforts:false});model.baseUrl='http://127.0.0.1:'+server.address().port+'/v1';
   const outcomes=[];assert.equal(await probeTask({route,key:'synthetic-key',model},stream,value=>outcomes.push(value)),true);

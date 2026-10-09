@@ -40,10 +40,12 @@ export function selectedModelProviders(yunyingBaseURL){
   yunying:{displayName:'云映',baseURL:yunyingAddress(yunyingBaseURL),api:'openai-completions',
    apiKeyEnv:'MUSE_YUNYING_API_KEY',models:YUNYING_MODEL_IDS.map(cloud)},
   'zhipu-official':{displayName:'智谱官方',baseURL:'https://open.bigmodel.cn/api/paas/v4',
-   api:'openai-completions',apiKeyEnv:'MUSE_ZHIPU_API_KEY',models:[{
-    id:'glm-5.3-flashx',name:'GLM-5.3-FlashX',contextWindow:1048576,maxTokens:128000,
+   api:'openai-completions',apiKeyEnv:'MUSE_ZHIPU_API_KEY',models:[
+    ['glm-5.3-flashx','GLM-5.3-FlashX'],['glm-5.3-flash','GLM-5.3-Flash'],
+   ].map(([id,name])=>({
+    id,name,contextWindow:1048576,maxTokens:128000,
     input:['text','image'],reasoningEfforts:{low:'low',high:'high',max:'max'},defaultReasoningEffort:'max',
-   }]},
+   }))},
  };
 }
 

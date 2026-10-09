@@ -1,5 +1,5 @@
 /** Screenplay conversion preserves source order and never replaces an existing deliverable. */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { tmpdir } from 'node:os'
@@ -132,4 +132,27 @@ it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME)('exports ordered Chinese Markd
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+
+it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME)('accepts a directory alias for the same project but rejects a different project receipt', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'video-project-alias-'))
+  try {
+    const original = join(root, 'original'), alias = join(root, 'alias'), other = join(root, 'other')
+    await mkdir(original); await mkdir(other)
+    const fixture = await acceptedVideo(original), otherFixture = await acceptedVideo(other)
+    await symlink(original, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    const output = join(original, 'final', 'accepted.docx')
+    await exportScreenplayDocx({ inputs: [fixture.input], output }, deliveryConfig)
+    const receiptPath = `${output}.screenplay.json`
+    const receipt = z.object({ episodes: z.array(z.object({ project: z.string() }).loose()) }).loose()
+      .parse(JSON.parse(await readFile(receiptPath, 'utf8')))
+    receipt.episodes[0]!.project = join(alias, 'qa', 'screenplay-project.json')
+    await writeFile(receiptPath, JSON.stringify(receipt))
+    await expect(validateVideoDelivery([output], deliveryConfig, new AbortController().signal)).resolves.toBeUndefined()
+    await expect(validateVideoDelivery([join(alias, 'final', 'accepted.docx')], deliveryConfig, new AbortController().signal)).resolves.toBeUndefined()
+    receipt.episodes[0]!.project = otherFixture.projectPath
+    await writeFile(receiptPath, JSON.stringify(receipt))
+    await expect(validateVideoDelivery([output], deliveryConfig, new AbortController().signal)).rejects.toThrow('video_delivery_project')
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
