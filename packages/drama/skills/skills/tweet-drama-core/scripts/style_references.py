@@ -210,7 +210,7 @@ def validate_role(project: Path, role: dict) -> None:
                     or not _text(relative) or not relative.startswith(
                         "faces/" if kind == "face" else "fullbody/"
                     )):
-                raise ValueError("Library reference provenance is incomplete")
+                raise ValueError("Library reference asset ID, kind, or source path is incomplete")
         else:
             raise ValueError("Unknown reference origin")
         paths = candidate.get("local_image_paths")

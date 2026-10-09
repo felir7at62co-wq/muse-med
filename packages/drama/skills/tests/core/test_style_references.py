@@ -13,7 +13,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 
 class StyleReferencesTests(unittest.TestCase):
-    def test_library_pair_preserves_asset_provenance_and_originals(self):
+    def test_library_pair_preserves_asset_ids_source_paths_and_originals(self):
         import style_references as refs
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
