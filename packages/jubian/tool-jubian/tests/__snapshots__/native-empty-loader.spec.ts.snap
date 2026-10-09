@@ -1,0 +1,15 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`records the empty-subject diagnostic without ledger or HTTP side effects > local empty-subject refusal 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "Error: Jubian tool call is missing an argument it cannot run without: 缺少视频主体素材：当前主体视频模式至少需要一张已绑定的图片主体。本次调用尚未进入账本，尚未发出远端付费请求。",
+        "type": "text",
+      },
+    ],
+    "isError": true,
+  },
+]
+`;

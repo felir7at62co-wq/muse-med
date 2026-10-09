@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { storyboardEditMethod } from '../src/storyboard-edit.ts'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { stableSha256, submissionSemantics } from '@deepseek-ai/dsh-jubian-api'
+import type { NativeVideoPreview } from '@deepseek-ai/dsh-jubian-api'
 import { bodyHash } from '../src/write.ts'
 import { positiveInteger, prepareVideoMethod, resolveVideoBatchOptions, selectAssetsMethod,
   submitVideoBatchMethod, submitVideoMethod, validateProjectBinding } from '../src/native.ts'
@@ -291,6 +292,18 @@ async function ready(promise: Promise<void>): Promise<void> {
 }
 
 describe('prepare_video', () => {
+  it('refuses empty subjects without creating a preview or reserving a write', async () => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      storyboardMaterialList: [], modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: 'A quiet street' }) } }
+    const directory = await project()
+    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: directory }))
+      .rejects.toMatchObject({ code: 'INVALID_ARGUMENT',
+        detail: '缺少视频主体素材：当前主体视频模式至少需要一张已绑定的图片主体。本次调用尚未进入账本，尚未发出远端付费请求。' })
+    expect(await readdir(directory)).toEqual(['project_config.json'])
+    expect(await ledger.records()).toEqual([])
+    expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  })
+
   it('reads a repeated parent once and refuses conflicting material identity before writing a preview', async () => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       storyboardMaterialList: [MATERIALS[0], { ...MATERIALS[1], materialAssetId: 81285 }] } }
@@ -358,6 +371,35 @@ describe('prepare_video', () => {
     expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
   })
 
+  it('prepares repeated Prompt references without adding duplicate bound assets or sending PUT', async () => {
+    const prompt = `${PROMPT}；再次出现 @[陆沉舟](lead) 和 @[苏晚](guest)`
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) }, tasks: [], subtasks: {} }
+    const result = await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953,
+      project_dir: await project() })
+    const preview = JSON.parse(await readFile(String(result.preview_path), 'utf8')) as NativeVideoPreview
+    expect(result.status).toBe('prepared')
+    expect(preview.assetSummary.orderedAssets.map(asset => asset.materialKey)).toEqual(['lead', 'guest'])
+    expect(JSON.parse(String(preview.payload.modelConfig)).prompt).toBe(prompt)
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each([
+    { label: 'wrong first-seen order', prompt: '@[苏晚](guest) @[陆沉舟](lead) @[苏晚](guest)' },
+    { label: 'unknown marker', prompt: '@[陆沉舟](lead) @[未知](unknown) @[苏晚](guest)' },
+  ])('rejects $label locally before writing a preview or sending PUT', async ({ prompt }) => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) }, tasks: [], subtasks: {} }
+    const directory = await project()
+    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953,
+      project_dir: directory })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT',
+        detail: expect.stringContaining('PREPARE_VIDEO_IMAGE_MARKER_MISMATCH') })
+    expect(await readdir(directory)).toEqual(['project_config.json'])
+    expect(await ledger.records()).toEqual([])
+    expect(putCalls(provider)).toEqual([])
+  })
+
   it('refuses a project bound to another scriptId and writes nothing', async () => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const directory = await project(1, 'foreign')
@@ -383,6 +425,24 @@ describe('prepare_video', () => {
 })
 
 describe('submit_video', () => {
+  it('rejects a historical empty preview without ledger writes or any HTTP request', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath } = await prepared(provider)
+    const preview = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    preview.payload.storyboardMaterialList = []
+    preview.payload.modelConfig = JSON.stringify({ ...MODEL_CONFIG, prompt: 'A quiet street', materialList: [] })
+    preview.assetSummary = { count: 0, orderedAssets: [] }
+    preview.idempotencyKey = stableSha256(submissionSemantics(preview.payload))
+    const serialized = JSON.stringify(preview)
+    await writeFile(previewPath, serialized)
+    await expect(submitVideoMethod(clientFor(provider), ledger, { preview_path: previewPath,
+      idempotency_key: preview.idempotencyKey })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT',
+      detail: '缺少视频主体素材：当前主体视频模式至少需要一张已绑定的图片主体。本次调用尚未进入账本，尚未发出远端付费请求。' })
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+    expect(await readFile(previewPath, 'utf8')).toBe(serialized)
+  })
+
   /** One prepared project, ready to be submitted against. */
   interface Prepared {
     directory: string
