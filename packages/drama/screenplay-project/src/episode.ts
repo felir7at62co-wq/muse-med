@@ -198,6 +198,9 @@ export function checkVideoCoverage(project: ProjectFile, candidate: ProjectFile[
   for (const entry of required.values()) {
     const fact = scoped.find(value => value.id === entry.fact_id && value.review?.decision === 'approve')
     if (fact === undefined) throw Error(`source_coverage: ${entry.fact_id} 须为本集范围内已批准的来源事实。`)
+    if (fact.kind === 'action' && entry.kind !== 'action') {
+      throw Error(`source_coverage: ${entry.fact_id} 的画面动作必须按动作保留，不能改列为对白或 OS/VO。`)
+    }
     if (fact.kind === 'action' && !fact.anchors.some(anchor => units.get(anchor.unit_id)?.image !== undefined)) {
       throw Error(`visual_fact_evidence: ${fact.id} 的画面动作须有本集实际帧依据，不能由台词推断。`)
     }
@@ -213,6 +216,7 @@ export function checkVideoCoverage(project: ProjectFile, candidate: ProjectFile[
         throw Error(`${code}: ${id} 的新增内容不是视频来源事实。`)
       }
       if (beat.kind !== 'action') {
+        if (fact?.kind === 'action') throw Error(`voice_source_evidence: ${id} 的动作事实不能改写为无来源发声。`)
         if (!fact?.anchors.some(anchor => units.has(anchor.unit_id) && units.get(anchor.unit_id)?.image === undefined)) {
           throw Error(`voice_source_evidence: ${id} 的对白或 OS/VO 须有本集核对文字，不能仅凭画面推断。`)
         }

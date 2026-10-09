@@ -5,7 +5,7 @@ description: 小说转剧本、视频转剧本、剧本换梗及长篇续写时�
 
 # 剧本项目与独立验收
 
-视频转剧本使用 `init workflow=video_to_screenplay`，项目固定为项目根的 `qa/screenplay-project.json`。先按集整理并独立审校视觉事实，再提交本集候选；不要先按音频生成全稿。`stage` 或 `stage_files` 的 `coverage.windows` 列出本集实际完整的转写和帧清单窗口（source_id、从1开始的 start、count），`required_beats` 列出已批准来源事实及必须保留的 action/dialogue/os/vo 类型。关键动作、无对白事件、人物反应及已有 OS/VO 都须进入清单并对应正文，不把人物资料等无关事实混进本集窗口。程序检查窗口内已批准事实的覆盖与动作的帧引用；事实提取是否完整、范围是否真实完整仍由独立审校逐场核实。
+视频转剧本使用 `init workflow=video_to_screenplay`，项目固定为项目根的 `qa/screenplay-project.json`。先按集整理并独立审校视觉事实，再提交本集候选；不要先按音频生成全稿。`stage` 或 `stage_files` 的 `coverage.windows` 列出本集实际完整的转写和帧清单窗口（source_id、从1开始的 start、count），`required_beats` 列出已批准来源事实及必须保留的 action/dialogue/os/vo 类型。关键动作、无对白事件、人物反应及已有 OS/VO 都须进入清单并对应正文，不把人物资料等无关事实混进本集窗口。动作事实即使同时引用文字，也必须按 action 保留，不能改成对白或 OS/VO；原有发声另引对应事实。程序检查窗口内已批准事实的覆盖与动作的帧引用；事实提取是否完整、范围是否真实完整仍由独立审校逐场核实。
 
 零动作候选不能只凭格式批准。独立审校复看本集画面、转写及遗漏疑点，确认确无必须保留的行动后，在 `review approve` 中提供具体 `zero_action_reason`；否则拒绝并补看、局部修订。纯对白素材可凭来源复核通过，不能虚构动作、情绪或旁白规避检查。长视频按剧情段保存窗口、事实及逐场文件，恢复时读 `status`、分页事实与候选中的 coverage，不以摘要代替来源。
 

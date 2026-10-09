@@ -9,7 +9,7 @@ import { z } from 'zod'
 import { runLoaderSmoke, LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
 import { resolvePrimaryRuntime } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import { exportScreenplayDocx } from '../src/screenplay-docx.ts'
-import { sha256 } from '@deepseek-ai/dsh-screenplay-project'
+import { acceptedScripts, sha256 } from '@deepseek-ai/dsh-screenplay-project'
 import { acceptedVideo } from './fixtures/video-delivery/accepted-video.ts'
 
 it('blocks generic Word, Markdown and Office bypasses at the actual present executor while allowing an ordinary document', async () => {
@@ -34,6 +34,20 @@ it('blocks generic Word, Markdown and Office bypasses at the actual present exec
         const record = z.object({ version: z.literal(1), output_sha256: z.string(), episodes: z.array(z.unknown()) })
           .parse(JSON.parse(await readFile(`${output}.screenplay.json`, 'utf8')))
         await writeFile(`${output}.screenplay.json`, JSON.stringify({ ...record, output_sha256: sha256(await readFile(output)) }))
+        const convertedRoot = join(cwd, 'converted-action')
+        await mkdir(convertedRoot)
+        const converted = await acceptedVideo(convertedRoot)
+        const action = converted.project.facts[0]!, candidate = converted.project.candidates[0]!
+        action.kind = 'action'
+        action.summary = '甲推开门。'
+        const visualUnit = converted.project.sources[1]!.units[0]!
+        action.anchors.push({ unit_id: visualUnit.id, quote: visualUnit.text })
+        candidate.scenes[0]!.beats[0]!.kind = 'vo'
+        candidate.scenes[0]!.beats[0]!.text = action.summary
+        candidate.coverage!.required_beats[0]!.kind = 'vo'
+        candidate.sha256 = sha256(JSON.stringify({ episode: candidate.episode, scenes: candidate.scenes, coverage: candidate.coverage }))
+        await writeFile(converted.projectPath, JSON.stringify(converted.project))
+        await writeFile(converted.input, acceptedScripts({ ...converted.project, workflow: undefined })[0]!.script)
       } else {
         await mkdir(join(cwd, 'qa')); await mkdir(join(cwd, 'final'))
         const now = '2026-10-09T00:00:00.000Z'
@@ -72,6 +86,7 @@ it('blocks generic Word, Markdown and Office bypasses at the actual present exec
       ])
       if (process.env.MUSE_TEST_PRIMARY_RUNTIME) {
         expect(results[3]?.data.message.content[0]?.text).toContain('video_delivery_body_changed')
+        expect(results[4]?.data.message.content[0]?.text).toContain('source_coverage')
       }
     },
   })

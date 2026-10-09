@@ -83,11 +83,13 @@ async function videoProject(mode: 'faithful' | 'adaptation' = 'faithful') {
   await run({ method: 'import_source', project: path, expected_revision: 1, path: frames.manifest, source_kind: 'video_inspection' })
 }
 
-async function visualAction(actor: string | null = '甲') {
+async function visualAction(actor: string | null = '甲', includeText = false) {
   const project = await current(), unit = project.sources[1]!.units[0]!
+  const text = project.sources[0]!.units[3]!
   await run({ method: 'propose_fact', project: path, expected_revision: project.revision,
     fact: { kind: 'action', origin: 'source', ...(actor === null ? {} : { actor }), layer: 'present',
-      summary: actor === null ? '未确认人物推门，旁人后退。' : '甲推开门，乙后退。', anchors: [{ unit_id: unit.id, quote: unit.text }] } })
+      summary: actor === null ? '未确认人物推门，旁人后退。' : '甲推开门，乙后退。',
+      anchors: [{ unit_id: unit.id, quote: unit.text }, ...(includeText ? [{ unit_id: text.id, quote: text.text }] : [])] } })
   const proposed = await current(), record = proposed.facts.at(-1)!
   await run({ method: 'review_fact', project: path, expected_revision: proposed.revision, fact_id: record.id,
     decision: 'approve', reason: '固定测试事实：关键无对白事件与人物反应。' }, 'reviewer')
@@ -119,6 +121,29 @@ it('video: refuses action inferred solely from text despite having imported fram
   await videoProject()
   const action = await fact('action', 4, '甲')
   await expect(videoStage([scene(action, 'action')], [{ fact_id: action, kind: 'action' }])).rejects.toThrow('visual_fact_evidence')
+})
+
+it.each([
+  { kind: 'vo' as const, retained: false }, { kind: 'vo' as const, retained: true },
+  { kind: 'os' as const, retained: false }, { kind: 'os' as const, retained: true },
+  { kind: 'dialogue' as const, retained: false }, { kind: 'dialogue' as const, retained: true },
+])('video: rejects converting a source action into $kind, action retained=$retained', async ({ kind, retained }) => {
+  await videoProject()
+  const action = await visualAction('甲', true), converted = scene(action, kind)
+  converted.beats[0]!.text = '甲推开门，乙后退。'
+  if (retained) converted.beats.unshift({ ...converted.beats[0]!, kind: 'action' })
+  await expect(videoStage([converted], [{ fact_id: action, kind: retained ? 'action' : kind }]))
+    .rejects.toThrow(retained ? 'voice_source_evidence' : 'source_coverage')
+  expect((await current()).candidates).toHaveLength(0)
+})
+
+it('keeps existing novel action narration available outside the managed video workflow', async () => {
+  const action = await fact('action', 4, '甲'), narration = scene(action, 'vo')
+  narration.beats[0]!.text = '甲推开门。'
+  const candidate = await stage([narration])
+  await approveAndCommit(candidate.id, candidate.sha256)
+  await run({ method: 'export', project: path, candidate_id: candidate.id, directory: join(root, 'final') })
+  expect((await current()).accepted).toEqual([candidate.id])
 })
 
 it.each(['os', 'vo'] as const)('video: rejects omission of an existing %s source fact', async (kind) => {

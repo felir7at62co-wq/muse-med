@@ -11,7 +11,7 @@ export function apply(ctx: Context): void {
   class FixtureAdapter extends LlmAdapter {
     async *stream(): AsyncIterable<StreamChunk> {
       const files = ['final/unaccepted.docx', 'final/unaccepted.md', 'final/unaccepted.xlsx',
-        ...(process.env.MUSE_TEST_PRIMARY_RUNTIME ? ['final/forged.docx'] : []), 'ordinary.docx']
+        ...(process.env.MUSE_TEST_PRIMARY_RUNTIME ? ['final/forged.docx', 'converted-action/final/accepted.md'] : []), 'ordinary.docx']
       if (step < files.length) {
         const id = ToolCallId(`video-delivery-${step + 1}`)
         const path = files[step]!
