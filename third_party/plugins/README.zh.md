@@ -28,7 +28,7 @@ Codex 订阅模型仅在连接了 Codex OAuth 账号时出现在模型选择器�
 
 ## 兼容性与桌面集成
 
-`dsh-skill-mcp-panel` 固定于上游 2.1.2。它通过 Web 侧栏管理当前 profile 的技能和 MCP 服务配置。随桌面应用打包的产物不暴露上游 `dsh-panel` 可执行入口：Desktop 只通过 `dsh` profile 启动受支持的 Node 应用。面板网关负责配置 MCP 连接，实际 MCP 客户端仍为 `@deepseek-ai/dsh-mcp-client`。隔离构建会运行保留的模型、网关、插槽与图标检查。
+`dsh-skill-mcp-panel` 固定于上游 2.1.2。它通过 Web 侧栏管理当前 profile 的技能和 MCP 服务配置。随桌面应用打包的产物移除上游 `dsh-panel` 可执行入口，并禁用自动安装全局 CLI：Desktop 只通过 `dsh` profile 启动受支持的 Node 应用。启用时不会调用 npm 或写入应用目录；隔离构建在只读目录下加载生成的面板，并确认技能和 MCP 注册仍然存在。面板网关负责配置 MCP 连接，实际 MCP 客户端仍为 `@deepseek-ai/dsh-mcp-client`。隔离构建会运行保留的模型、网关、插槽与图标检查。
 
 构建脚本导入每个生成的 Host 入口。Codex 针对当前 DSH API 和 pi-ai 0.87.1 执行 26 项保留的上游检查，包括模型准备和已认证传输校验；上游注册上下文是测试替身，而非完整桌面 Loader。另有八项 Codex 检查加载真实 provider、Host adapter 和 CLI，通过模拟对端验证订阅 SSE 与子任务认证传输，并拒绝运行时版本偏移及错误的归档路径。FFmpeg 执行 89 项保留的检查。构建测试检查导出产物文件，并验证同一平台下两个全新临时目录生成的所有固定插件压缩包均逐字节一致。这不代表跨平台或整个安装包逐字节一致。
 
