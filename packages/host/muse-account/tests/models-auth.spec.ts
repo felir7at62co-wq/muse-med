@@ -29,7 +29,7 @@ it('keeps the account adapter outside provider credential storage and ambient au
     await expect(options.auth.credentials.delete('provider')).resolves.toBeUndefined()
     expect(await options.auth.authContext.env('MUSE_AUTH_TEST_TOKEN')).toBeUndefined()
     expect(await options.auth.authContext.fileExists('/private/provider/credentials')).toBe(false)
-  } finally { owner.dispose(); await context.fiber.dispose() }
+  } finally { await owner.dispose(); await context.fiber.dispose() }
 })
 
 it('resolves attachments mounted after the account adapter and exposes no execution path mapping', async () => {
@@ -54,5 +54,5 @@ it('resolves attachments mounted after the account adapter and exposes no execut
     expect(images).toBeInstanceOf(Images)
     if (!images) throw new Error('Late-mounted attachment provider was not found')
     expect(options.resolveImageAccess?.(images, ref)).toBeUndefined()
-  } finally { owner.dispose(); await context.fiber.dispose() }
+  } finally { await owner.dispose(); await context.fiber.dispose() }
 })

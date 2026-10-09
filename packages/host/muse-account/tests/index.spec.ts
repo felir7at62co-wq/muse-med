@@ -210,11 +210,13 @@ it('continues catalog polling after a bounded failure and stops its owned timer 
 it('does not schedule another refresh when a pending catalog settles after disposal', async () => {
   const { ctx, home, sessionFile } = await fixture()
   await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=account-private' })
-  let entered!: () => void, release!: () => void, settled!: () => void
+  let entered!: () => void, release!: () => void, settled!: () => void, cancelled!: () => void
   const started = new Promise<void>((resolve) => { entered = resolve })
   const gate = new Promise<void>((resolve) => { release = resolve })
   const completed = new Promise<void>((resolve) => { settled = resolve })
+  const interrupted = new Promise<void>((resolve) => { cancelled = resolve })
   vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (_input, init) => {
+    init?.signal?.addEventListener('abort', cancelled, { once: true })
     entered(); await gate
     try { init?.signal?.throwIfAborted(); return Response.json(catalog) }
     finally { settled() }
@@ -222,8 +224,9 @@ it('does not schedule another refresh when a pending catalog settles after dispo
   const timer = vi.spyOn(globalThis, 'setTimeout')
   await apply(ctx, Config({ baseUrl, accountHome: home }))
   await started
-  await ctx.fiber.dispose()
-  release(); await completed
-  await new Promise<void>((resolve) => { setImmediate(resolve) })
+  const disposal = ctx.fiber.dispose()
+  try { await interrupted }
+  finally { release() }
+  await Promise.all([disposal, completed])
   expect(timer).not.toHaveBeenCalledWith(expect.any(Function), 60000)
 })

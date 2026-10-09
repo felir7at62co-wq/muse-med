@@ -16,6 +16,8 @@
     "src/session.ts",
     "src/types.ts",
     "src/models.ts",
+    "src/model-access.ts",
+    "src/model-errors.ts",
     "src/feedback.ts",
     "src/desktop-bridge.ts",
     "src/desktop-remote.ts"

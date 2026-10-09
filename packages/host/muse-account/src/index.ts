@@ -130,7 +130,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       if (!closed) { timer = setTimeout(() => { void refresh() }, config.modelRefreshMs); timer.unref() }
     }
     void refresh()
-    return () => { closed = true; clearTimeout(timer); models.dispose() }
+    return async () => { closed = true; clearTimeout(timer); await models.dispose() }
   })
   const feedback = new MuseFeedbackClient({ baseUrl, sessionFile: join(accountHome, 'session.json'),
     requestTimeoutMs: config.requestTimeoutMs, excerptChars: config.feedbackExcerptChars,
