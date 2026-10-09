@@ -6,6 +6,7 @@ import { describe, expect, it, type TestContext } from 'vitest'
 import { findRepositoryReferences, scanRepositoryReferences } from './verify-repository-references.ts'
 
 const organizationUrl = `https://${['github.com', ['deepseek', 'harness'].join('-')].join('/')}`
+const transferSeal = 'scripts/owner/muse-release-artifact-transfer/seal.json'
 
 function repository(test: TestContext) {
   const root = mkdtempSync(join(tmpdir(), 'dsh-repository-references-'))
@@ -147,6 +148,48 @@ describe('maintained repository reference policy', () => {
     fixture.write('upstream.json', `{\n  "pinnedCommit": "${fixture.commit}"\n}\n`)
     expect(scanRepositoryReferences(fixture.root)).toEqual([])
   })
+
+  it('accepts the unique rendered source commit in the artifact-transfer seal through the repository scan', (test) => {
+    const fixture = repository(test)
+    fixture.write(transferSeal, `${JSON.stringify({ schemaVersion: 1, sourceCommit: fixture.commit, version: '1.0.5' }, null, 2)}\n`)
+    expect(scanRepositoryReferences(fixture.root)).toEqual([])
+  })
+
+  it('still scans other fields and organization URLs in a valid transfer seal', () => {
+    const commit = 'd'.repeat(40)
+    const source = JSON.stringify({ sourceCommit: commit, notes: commit, repository: organizationUrl }, null, 2)
+    expect(findRepositoryReferences(transferSeal, source, new Set([commit]))).toEqual([
+      { file: transferSeal, line: 3, kind: 'commit-hash' },
+      { file: transferSeal, line: 4, kind: 'organization-url' },
+    ])
+  })
+
+  for (const file of ['seal.json', 'docs/seal.json', `nested/${transferSeal}`]) {
+    it(`rejects a source commit at the wrong seal path ${file}`, () => {
+      const commit = 'd'.repeat(40)
+      const source = JSON.stringify({ sourceCommit: commit }, null, 2)
+      expect(findRepositoryReferences(file, source, new Set([commit]))).toEqual([
+        { file, line: 2, kind: 'commit-hash' },
+      ])
+    })
+  }
+
+  for (const [label, source, lines, commit] of [
+    ['invalid JSON', `{\n  "sourceCommit": "${'d'.repeat(40)}",\n}\n`, [2], 'd'.repeat(40)],
+    ['an abbreviated commit', `{\n  "sourceCommit": "${'d'.repeat(7)}"\n}`, [2], 'd'.repeat(7)],
+    ['an uppercase commit', `{\n  "sourceCommit": "${'D'.repeat(40)}"\n}`, [2], 'd'.repeat(40)],
+    ['a compact declaration', JSON.stringify({ sourceCommit: 'd'.repeat(40) }), [1], 'd'.repeat(40)],
+    ['a differently indented declaration', `{\n    "sourceCommit": "${'d'.repeat(40)}"\n}`, [2], 'd'.repeat(40)],
+    ['a repeated source property', `{\n  "sourceCommit": "${'d'.repeat(40)}",\n  "sourceCommit": "${'d'.repeat(40)}"\n}`, [2, 3], 'd'.repeat(40)],
+    ['an escaped repeated source property', `{\n  "sourceCommit": "${'d'.repeat(40)}",\n  "\\u0073ourceCommit": "${'d'.repeat(40)}"\n}`, [2, 3], 'd'.repeat(40)],
+    ['a nested repeated source property', JSON.stringify({ sourceCommit: 'd'.repeat(40), nested: { sourceCommit: 'd'.repeat(40) } }, null, 2), [2, 4], 'd'.repeat(40)],
+  ] as const) {
+    it(`rejects ${label} in the transfer seal`, () => {
+      expect(findRepositoryReferences(transferSeal, source, new Set([commit]))).toEqual(
+        lines.map(line => ({ file: transferSeal, line, kind: 'commit-hash' })),
+      )
+    })
+  }
 
   it('still rejects the same commit identifier in any other file at the root', (test) => {
     const fixture = repository(test)

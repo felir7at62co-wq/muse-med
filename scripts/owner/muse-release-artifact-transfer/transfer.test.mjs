@@ -224,6 +224,78 @@ test('binds all five binary paths to the original native build records and insta
   assert.equal(f.uploads.length, 0)
 })
 
+for (const [label, diagnosticTargets] of [
+  ['Mac only', ['mac-arm64']], ['Windows only', ['win-x64']], ['both targets', targets],
+]) test(`accepts a regular builder diagnostic from ${label} without publishing it`, async t => {
+  const f = await fixture(t)
+  const originalSeal = structuredClone(f.seal)
+  const originalRecords = new Map(await Promise.all(targets.map(async target =>
+    [target, await readFile(join(f.root, target, 'unsigned-build.json'))])))
+  for (const target of diagnosticTargets) await writeFile(join(f.root, target, 'builder-debug.yml'), 'synthetic builder diagnostic\n')
+  const paths = await verifyDownloadedInputs(f.seal, f.root)
+  assert.deepEqual([...paths.keys()].sort(), filenames.filter(name => name.startsWith('muse-med-')).sort())
+  assert.equal(paths.has('builder-debug.yml'), false)
+  assert.deepEqual(await transferSealedArtifacts(f.seal, f.root, f.adapter), { uploaded: 6, skipped: 0 })
+  assert.ok(f.uploads.every(upload => largeNames.includes(upload.filename)))
+  assert.deepEqual(f.seal, originalSeal)
+  for (const target of targets) {
+    assert.deepEqual(await readFile(join(f.root, target, 'unsigned-build.json')), originalRecords.get(target))
+    assert.equal(Object.hasOwn(f.records[target].artifacts, 'builder-debug.yml'), false)
+  }
+  for (const release of f.remoteReleases) assert.deepEqual(release.assets.map(asset => asset.name).sort(), [...filenames].sort())
+  for (const target of diagnosticTargets) assert.equal(await readFile(join(f.root, target, 'builder-debug.yml'), 'utf8'), 'synthetic builder diagnostic\n')
+})
+
+for (const target of targets) {
+  test(`rejects a builder diagnostic directory in ${target} before uploading`, async t => {
+    const f = await fixture(t)
+    await mkdir(join(f.root, target, 'builder-debug.yml'))
+    await assert.rejects(verifyDownloadedInputs(f.seal, f.root))
+    await assert.rejects(transferSealedArtifacts(f.seal, f.root, f.adapter))
+    assert.equal(f.uploads.length, 0)
+  })
+
+  test(`rejects a linked builder diagnostic in ${target} before uploading`,
+    { skip: process.platform === 'win32' ? 'Creating file symlinks requires Windows privileges unavailable to this fixture.' : false }, async t => {
+      const f = await fixture(t)
+      const saved = join(f.root, 'saved-diagnostic')
+      await writeFile(saved, 'synthetic diagnostic outside the original artifact directory')
+      await symlink(saved, join(f.root, target, 'builder-debug.yml'))
+      await assert.rejects(verifyDownloadedInputs(f.seal, f.root))
+      await assert.rejects(transferSealedArtifacts(f.seal, f.root, f.adapter))
+      assert.equal(f.uploads.length, 0)
+    })
+
+  test(`rejects an unknown extra beside a regular builder diagnostic in ${target}`, async t => {
+    const f = await fixture(t)
+    await writeFile(join(f.root, target, 'builder-debug.yml'), 'known diagnostic')
+    await writeFile(join(f.root, target, 'builder-debug.yaml'), 'unknown downloaded input')
+    await assert.rejects(verifyDownloadedInputs(f.seal, f.root))
+    await assert.rejects(transferSealedArtifacts(f.seal, f.root, f.adapter))
+    assert.equal(f.uploads.length, 0)
+  })
+
+  test(`rejects a builder diagnostic declared as a build artifact in ${target}`, async t => {
+    const f = await fixture(t)
+    const bytes = Buffer.from('synthetic builder diagnostic\n')
+    await writeFile(join(f.root, target, 'builder-debug.yml'), bytes)
+    f.records[target].artifacts['builder-debug.yml'] = digest(bytes)
+    await writeFile(join(f.root, target, 'unsigned-build.json'), jsonBytes(f.records[target]))
+    await assert.rejects(verifyDownloadedInputs(f.seal, f.root))
+    await assert.rejects(transferSealedArtifacts(f.seal, f.root, f.adapter))
+    assert.equal(f.uploads.length, 0)
+  })
+}
+
+test('rejects a builder diagnostic declared as a public sealed asset', async t => {
+  const f = await fixture(t)
+  f.seal.files[0] = { ...f.seal.files[0], filename: 'builder-debug.yml' }
+  assert.throws(() => validateTransferSeal(f.seal))
+  await assert.rejects(transferSealedArtifacts(f.seal, f.root, f.adapter))
+  assert.equal(f.requests.length, 0)
+  assert.equal(f.uploads.length, 0)
+})
+
 const recordFailures = [
   ['unknown build-record field', record => { record.extra = true }],
   ['wrong schema', record => { record.schemaVersion = 2 }],

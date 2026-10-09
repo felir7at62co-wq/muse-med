@@ -215,7 +215,7 @@ function checkedReceipt(seal, target, receipt, installerSha256) {
 }
 
 /**
- * Bind all original artifact bytes and actual native installer receipts to the approved publication.
+ * Bind original artifacts and native receipts, allowing only a regular builder-debug.yml diagnostic beside them.
  * @param seal - Validated public transfer seal.
  * @param artifactsRoot - Owned directory containing each target and acceptance/target downloads.
  * @returns Paths of the five original binary files, after both target records and receipts pass.
@@ -237,7 +237,12 @@ export async function verifyDownloadedInputs(seal, artifactsRoot) {
     const metadataName = target === 'mac-arm64' ? 'latest-mac.yml' : 'latest.yml'
     const names = [...files.map(file => file.filename), metadataName].sort()
     keys(record.artifacts, names, 'original artifact inventory')
-    assert.deepEqual((await readdir(directory)).sort(), [...names, 'unsigned-build.json'].sort(), 'Original artifact directory differs')
+    const entries = await readdir(directory), expectedEntries = [...names, 'unsigned-build.json']
+    if (entries.includes('builder-debug.yml')) {
+      assert.ok((await lstat(join(directory, 'builder-debug.yml'))).isFile(), 'Packaging diagnostic must be a regular file')
+      expectedEntries.push('builder-debug.yml')
+    }
+    assert.deepEqual(entries.sort(), expectedEntries.sort(), 'Original artifact directory differs')
     for (const filename of names) {
       const expected = record.artifacts[filename]
       keys(expected, ['size', 'sha256', 'sha512'], 'original artifact hash')

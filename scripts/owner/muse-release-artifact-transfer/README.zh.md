@@ -20,6 +20,8 @@
 
 运营者在最终源码 CI、两平台真实安装验收与本地发布暂存通过后，将 `seal.json` 放到本说明旁。清单只包含 `schemaVersion: 1`、公开 `repository`、稳定 `version`、完整 `sourceCommit`、正整数 `sourceRun`、两个 `releases` 和十一项 `files`。每个 release 只含正整数 `id`、准确 `tag` 和 `prerelease`；稳定版先于 RC 兼容入口。每个文件只含 `filename`、字节 `size` 和小写 `sha256`。严格字段校验拒绝私有路径、凭据与报告正文；缺少清单时不能执行。
 
+仓库引用检查只允许这份有效 JSON 输入中唯一的小写 40 位 `sourceCommit` 声明行。其他提交引用、无效输入、不同路径及组织 URL 仍然拒绝。
+
 十一项身份来自已验证的最终发布 inventory。运营者先在两个草稿预加载八个小文件，包括 ZIP 在前且含同批 ARM DMG 的 Mac metadata。稳定与 RC tag 都指向确认的源码。源 run 必须是 main 上已完成且成功的人工构建，两个原生作业及真实安装验收都成功；原 artifact 必须属于此 run 与源码且未过期。
 
 <a id="draft-transfer"></a>
@@ -28,7 +30,7 @@
 
 人工 dispatch `codex/muse-release-artifact-transfer-105` 并选择 `operation=transfer`；只有此分支与仓库能够执行。工作流下载两个原始产物与两份真实安装报告。小型 owner 包将 `builder-util-runtime` 与 `semver` 锁定到 updater 同版本，校验 registry integrity 并禁用生命周期脚本；不安装仓库 workspace 依赖。工作流 token 仅驻留内存；明确 release ID 避免 draft 按 tag 查询返回 404。
 
-两份原 `unsigned-build.json`、全部原产物字节与原生安装报告都必须匹配源码和版本。字节数及 SHA256/SHA512 与记录相同；五个二进制还需匹配清单。每份报告须通过完整已安装文件比较、runtime 检查与真实安装操作，installer SHA256 必须对应本次 EXE 或 DMG。
+两份原 `unsigned-build.json`、全部原产物字节与原生安装报告都必须匹配源码和版本。字节数及 SHA256/SHA512 与记录相同；五个二进制还需匹配清单。每份报告须通过完整已安装文件比较、runtime 检查与真实安装操作，installer SHA256 必须对应本次 EXE 或 DMG。可选打包诊断文件 `builder-debug.yml` 必须是普通文件；工具不读取正文、不纳入记录或封存清单，也不发布它。诊断目录、符号链接及任何其他额外文件名均拒绝。
 
 每次上传前后都检查两个 tag、草稿 ID、可见性、prerelease、已有大小与 digest。小文件缺失或不符、未知资产与不完整上传都会停止。已匹配二进制跳过；只上传缺失的 EXE、DMG 和 ZIP，不用 `--clobber`。两个草稿各十一资产齐全后还须完整读取远端字节。整个过程中保持草稿私有；GitHub 没有上传时的原子草稿条件，外部变更会令下一次检查失败。
 

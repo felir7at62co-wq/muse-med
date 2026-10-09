@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { lstatSync, readFileSync, readlinkSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import ts from 'typescript'
 import { canonicalReferenceText } from './verify-public-repository-links.ts'
 import { retainedPluginSourcePrefixes } from './retained-plugin-sources.ts'
 
@@ -15,11 +16,13 @@ const kitRepositoryUrl = new RegExp(`\\bgithub\\.com/${organization}/libreoffice
 const commitCandidate = /(?<![a-z0-9])[\da-f]{7,40}(?![a-z0-9])/gi
 const excludedPrefixes = ['vendor/', '.agents/notes/archived/']
 const gitOutputLimit = 64 * 1024 * 1024
+const transferSealPath = 'scripts/owner/muse-release-artifact-transfer/seal.json'
 
 /**
  * The repository-root upstream pin may contain its commit identifier.
  * Retained community copies declared in `third_party/plugins/sources.json` also preserve upstream
- * commit references. Other maintained files use release tags; organization URL checks apply to all pins.
+ * commit references. The transfer seal retains only its unique rendered source commit declaration;
+ * other maintained references use release tags. Organization URL checks apply to every declaration.
  */
 export const UPSTREAM_PIN_RECORD = 'upstream.json'
 
@@ -37,13 +40,35 @@ function isMaintained(file: string): boolean {
   return !excludedPrefixes.some(prefix => file.startsWith(prefix))
 }
 
+function transferSourceCommitLine(file: string, source: string): string | undefined {
+  if (file !== transferSealPath) return undefined
+  let value: unknown
+  try { value = JSON.parse(source) }
+  catch (_error) { return undefined } // Invalid JSON has no permitted source declaration.
+  if (value === null || typeof value !== 'object' || Array.isArray(value)
+    || !('sourceCommit' in value) || typeof value.sourceCommit !== 'string'
+    || !/^[a-f0-9]{40}$/u.test(value.sourceCommit)) return undefined
+  const sourceCommit = value.sourceCommit
+  let declarations = 0
+  function visit(node: ts.Node): void {
+    if (ts.isPropertyAssignment(node) && ts.isStringLiteral(node.name) && node.name.text === 'sourceCommit') declarations++
+    ts.forEachChild(node, visit)
+  }
+  visit(ts.parseJsonText(file, source))
+  if (declarations !== 1) return undefined
+  return JSON.stringify(value, null, 2).split('\n').find(line =>
+    line === `  "sourceCommit": "${sourceCommit}",` || line === `  "sourceCommit": "${sourceCommit}"`)
+}
+
 /**
  * Inspect a maintained source file against known commit identifiers.
  * @param file - Repository-relative path used in diagnostics and exclusions.
  * @param source - File text or a symlink's stored target.
  * @param commits - Lowercase, unambiguous full or abbreviated commit identifiers.
  * @returns One finding per line and reference kind; digests and other Git object types are accepted,
- * and declared source pins retain commit identifiers.
+ * and declared source pins retain commit identifiers. Only the unique root `sourceCommit` declaration
+ * in valid artifact-transfer seal JSON is accepted on its exact two-space rendered line;
+ * other fields and organization URLs remain checked.
  */
 export function findRepositoryReferences(
   file: string,
@@ -52,12 +77,14 @@ export function findRepositoryReferences(
 ): RepositoryReference[] {
   if (!isMaintained(file)) return []
   const isPinRecord = file === UPSTREAM_PIN_RECORD || retainedPluginSourcePrefixes.some(prefix => file.startsWith(prefix))
+  const transferSourceLine = transferSourceCommitLine(file, source)
   const references: RepositoryReference[] = []
   for (const [index, line] of source.split('\n').entries()) {
     if (organizationUrl.test(canonicalReferenceText(line).replace(kitRepositoryUrl, ''))) {
       references.push({ file, line: index + 1, kind: 'organization-url' })
     }
-    if (!isPinRecord && [...line.matchAll(commitCandidate)].some(match => commits.has(match[0].toLowerCase()))) {
+    if (!isPinRecord && line !== transferSourceLine
+      && [...line.matchAll(commitCandidate)].some(match => commits.has(match[0].toLowerCase()))) {
       references.push({ file, line: index + 1, kind: 'commit-hash' })
     }
   }
