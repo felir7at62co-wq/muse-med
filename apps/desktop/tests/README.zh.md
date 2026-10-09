@@ -6,7 +6,7 @@
 
 本地下载和强更弹窗证据与生产后端联调、视觉验收、已安装应用升级分开记录。运行 [Desktop README](../README.zh.md) 中的命令可生成新的隔离报告。
 
-手动启动 [Muse 无签名打包流程](../../../.github/workflows/muse-desktop.yml) 会在打包后运行[真实安装包验收](../scripts/muse-installer-acceptance.ts)。临时原生 CI 机器将原 Windows EXE 安装到独立目录，或只读挂载 Apple Silicon DMG 并将应用复制到独立目录。验收检查记录的安装包哈希、完整安装文件、干净源码提交、产品版本、应用标识和原生架构，然后通过现有运行时检查运行已安装的资源与 Host。报告明确记录未操作 GUI、未调用付费供应商。该检查不替代已安装版本升级、生产更新源或发布者签名验证，也不会修改已有 Muse 安装。
+手动启动 [Muse 无签名打包流程](../../../.github/workflows/muse-desktop.yml) 会在打包后运行[真实安装包验收](../scripts/muse-installer-acceptance.ts)。临时原生 CI 机器将原 Windows EXE 安装到独立目录，或只读挂载 Apple Silicon DMG 并将应用复制到独立目录。验收检查记录的安装包哈希、完整安装文件、干净源码提交、产品版本、应用标识和原生架构。Windows 还要求两份 7-Zip 许可证与构建器选择的安装输入逐字节一致。随后通过现有运行时检查运行已安装的资源与 Host，并拒绝任何安装文件或链接变化。报告明确记录未操作 GUI、未调用付费供应商。该检查不替代已安装版本升级、生产更新源或发布者签名验证，也不会修改已有 Muse 安装。
 
 macOS 手动更新验收使用真实 Electron HTTPS 下载和 Apple 只读 DMG 检查，不修改已安装的应用。编译 Desktop Host 源码并准备目标 Electron 运行时后，在仓库根运行 `node apps/desktop/scripts/test-macos-manual-updater.mjs`；`DSH_DESKTOP_TEST_ELECTRON` 可选择其他已准备的 Electron 可执行文件。每次运行使用独立 profile、缓存、证书和随机回环端口，只信任本次夹具的证书，Electron 退出后清理临时数据。六个场景覆盖下载、稍后安装、明确批准打开、打开失败、缓存变化拒绝及重新下载，以及错误 hash、资源签名或架构元数据。保留的 `result.json` 记录原生 Squirrel 调用为零。安装包打开和应用退出被拦截，Host 任务检查为模拟；这不验证拖动替换安装、生产更新源或重新构建的 Muse 安装包。无需密钥的 `macos-update-package.e2e.ts` 另用真实 codesign、lipo 和 hdiutil，拒绝签名有效但实际可执行文件架构错误的应用，以及变化的身份、版本、资源和文件字节。[Desktop README](../README.zh.md#unsigned-installers)定义生产安装流程。
 

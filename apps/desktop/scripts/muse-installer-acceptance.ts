@@ -5,9 +5,10 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { readAsar } from 'app-builder-lib/out/asar/asar.js'
+import { getPath7za } from 'app-builder-lib/out/toolsets/7zip.js'
 import { isEntry } from '../../../scripts/release/process.ts'
 import { readDesktopRuntime, verifyDesktopRuntime } from '../src/runtime-tree.ts'
 import { desktopTargetBuildPaths, desktopTargetPlatform } from './desktop-build-paths.mjs'
@@ -74,6 +75,24 @@ async function fileDigests(path: string): Promise<{ size: number; sha256: string
   return { size, sha256: sha256.digest('hex'), sha512: sha512.digest('base64') }
 }
 
+/**
+ * Require the two license files embedded by the Windows directory installer.
+ * @param tool Original builder-selected 7-Zip executable, with licenses two directories above it.
+ * @returns Installed filenames and complete size/SHA-256 values from the actual installer inputs.
+ */
+export async function museAcceptanceWindowsLicenses(tool: string): Promise<Record<string, string>> {
+  const directory = dirname(dirname(tool))
+  const files: Record<string, string> = {}
+  for (const [installed, source] of [
+    ['7zip-installer-LICENSE.txt', 'LICENSE.txt'], ['7zip-installer-COPYING.txt', 'COPYING'],
+  ] as const) {
+    const digest = await fileDigests(join(directory, source))
+    assert.ok(digest.size > 0, `Installer acceptance: empty 7-Zip license ${source}`)
+    files[installed] = `${digest.size}:${digest.sha256}`
+  }
+  return files
+}
+
 async function payloadInventory(root: string, directory = ''): Promise<Record<string, string>> {
   const files: Record<string, string> = {}
   for (const entry of await readdir(join(root, directory), { withFileTypes: true })) {
@@ -104,6 +123,16 @@ export function assertMuseInstalledPayload(expected: Readonly<Record<string, str
   const generated = target === 'win-x64' ? new Set(['Uninstall muse-med.exe', 'uninstallerIcon.ico']) : new Set<string>()
   assert.deepEqual(Object.keys(actual).filter(name => !Object.hasOwn(expected, name) && !generated.has(name)), [],
     'Installer acceptance: unexpected installed payload')
+}
+
+/**
+ * Reject any installed file or link mutation during the real runtime smoke.
+ * @param before Complete installed inventory captured after installer verification.
+ * @param after Complete installed inventory after Host and native runtime teardown.
+ * @returns Nothing; additions, removals or byte/link changes throw.
+ */
+export function assertMuseInstalledUnchanged(before: Readonly<Record<string, string>>, after: Readonly<Record<string, string>>): void {
+  assert.deepEqual(after, before, 'Installer acceptance: installed application changed during smoke')
 }
 
 async function main(): Promise<void> {
@@ -159,7 +188,9 @@ async function main(): Promise<void> {
     const assembled = target === 'win-x64' ? join(paths.unsignedArtifacts, 'win-unpacked')
       : join(paths.unsignedArtifacts, 'mac-arm64', 'muse-med.app')
     const expectedFiles = await payloadInventory(assembled)
-    assertMuseInstalledPayload(expectedFiles, await payloadInventory(installed), target)
+    if (target === 'win-x64') Object.assign(expectedFiles, await museAcceptanceWindowsLicenses(await getPath7za()))
+    const installedFiles = await payloadInventory(installed)
+    assertMuseInstalledPayload(expectedFiles, installedFiles, target)
     report.completeInstalledPayload = { comparedFiles: Object.keys(expectedFiles).length, passed: true }
     const application = target === 'win-x64' ? installed : join(installed, 'Contents')
     const resources = join(application, target === 'win-x64' ? 'resources' : 'Resources')
@@ -169,9 +200,8 @@ async function main(): Promise<void> {
     const manifest: unknown = JSON.parse((await archive.readFile('package.json')).toString('utf8'))
     assertMuseInstalledIdentity(manifest, identity)
     const descriptor = await verifyDesktopRuntime(paths.dsh, readDesktopRuntime(paths.dsh).release.version, platform)
-    const before = await fileDigests(archivePath)
     await smokePreparedRuntime(join(resources, 'app.asar', 'dsh'), executable, join(resources, 'runtime'), descriptor)
-    assert.deepEqual(await fileDigests(archivePath), before, 'Installer acceptance: installed archive changed during smoke')
+    assertMuseInstalledUnchanged(installedFiles, await payloadInventory(installed))
     report.installedRuntimeSmoke = { passed: true, archiveInventory: true, nativePayload: true,
       packagedHost: true, productPresetsAndSkills: true, officeConversions: true, teardown: true }
     report.success = true

@@ -105,6 +105,9 @@ test('builds every pinned plugin with its declared runtime entries and notices',
       if (manifest.name === 'dsh-skill-mcp-panel') {
         assert.equal(manifest.bin, undefined)
         assert.match(list.stdout, /package\/lib\/client.js/)
+        const entry = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/lib/index.js'], { encoding: 'utf8' })
+        assert.equal(entry.status, 0)
+        assert.doesNotMatch(entry.stdout, /ensureGlobalShim|global-shim/)
       }
       for (const [dependency, range] of Object.entries(original.peerDependencies ?? {})) {
         if (dependency === '@deepseek-ai/dsh-invariants') {
@@ -126,6 +129,9 @@ test('builds every pinned plugin with its declared runtime entries and notices',
       const sourceMetadata = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/SOURCE.json'], { encoding: 'utf8' })
       assert.equal(sourceMetadata.status, 0)
       assert.deepEqual(JSON.parse(sourceMetadata.stdout).hostRuntimeCompatibility, hostRuntimeCompatibility)
+      if (manifest.name === 'dsh-skill-mcp-panel') {
+        assert.deepEqual(JSON.parse(sourceMetadata.stdout).compatibilityOverlay, { builtInConnections: 1, globalCliShim: false })
+      }
       const entries = value => typeof value === 'string' ? [value] : value && typeof value === 'object' ? Object.values(value).flatMap(entries) : []
       for (const entry of entries(manifest.exports).filter(entry => !entry.includes('*'))) {
         assert.ok(list.stdout.split(/\r?\n/).includes(`package/${entry.replace(/^\.\//, '')}`), `${tarball} omits ${entry}`)

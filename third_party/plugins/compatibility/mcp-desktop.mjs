@@ -1,8 +1,8 @@
-/** Display registered built-in MCP tools without copying their private connection settings. */
+/** Mount the panel through dsh profiles and display built-in tools without private connection settings. */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-export const mcpDesktopCompatibility = { builtInConnections: 1 }
+export const mcpDesktopCompatibility = { builtInConnections: 1, globalCliShim: false }
 
 /** Apply the Desktop panel overlay to an isolated build directory. */
 export function applyMcpDesktopCompatibility(directory) {
@@ -12,6 +12,8 @@ export function applyMcpDesktopCompatibility(directory) {
     if (source.split(before).length !== 2) throw new Error(`MCP Desktop overlay anchor changed: ${file}`)
     writeFileSync(path, source.replace(before, after))
   }
+  edit('src/index.ts', 'import { ensureGlobalShim } from "./global-shim.js";\n', '')
+  edit('src/index.ts', '  ensureGlobalShim(ctx.logger);\n', '')
   edit('src/mcp/gateway.ts', '      return { servers, externalServers, patch };', `      const known = new Set([...servers, ...externalServers].map(row => row.serverName));
       const counts = new Map<string, number>();
       for (const tool of this.C.tools?.schemas?.() ?? []) {
