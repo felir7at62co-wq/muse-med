@@ -359,7 +359,7 @@ class CoverageTests(unittest.TestCase):
 
         def command(*args):
             return subprocess.run([sys.executable, "-B", str(script), str(self.root), *args],
-                                  capture_output=True, text=True, check=False)
+                                  capture_output=True, text=True, encoding="utf-8", check=False)
 
         self.assertEqual(command("gate", "01").returncode, 1)
         accepted = command("accept", "01")

@@ -162,7 +162,7 @@ export function resolveImageModel(catalogue: unknown, selection: ImageModelSelec
       && row.width % 16 === 0
       && typeof row.height === 'number' && Number.isSafeInteger(row.height) && row.height > 0 && row.height <= 8192
       && row.height % 16 === 0 && (ratio === '16:9'
-        ? row.width * 9 === row.height * 16 : row.width * 16 === row.height * 9))
+      ? row.width * 9 === row.height * 16 : row.width * 16 === row.height * 9))
     const resolution = ['1K', '2K', '4K'].find(value => standards.some(row => (row.resolution as string).toUpperCase() === value))
     const atResolution = standards.filter(row => (row.resolution as string).toUpperCase() === resolution)
     const generationRows = model.genTypes === undefined || model.genTypes === null ? [] : rows(model.genTypes)
@@ -170,9 +170,9 @@ export function resolveImageModel(catalogue: unknown, selection: ImageModelSelec
     const generations = generationRows.filter(row => row.type === 3)
     if (generations.length > 1) invalid()
     const generation = generations.length === 1 ? generations[0] : undefined
-    if (atResolution.length === 0) invalid(`selected gpt-image-2 catalogue row has no valid ${ratio} image specification`)
+    const standard = atResolution[0]
+    if (standard === undefined) invalid(`selected gpt-image-2 catalogue row has no valid ${ratio} image specification`)
     if (atResolution.length > 1) invalid(`selected gpt-image-2 catalogue row has multiple ${ratio} image specifications at ${resolution}`)
-    const standard = atResolution[0]!
     return { standardId: positive(model.id ?? model.standardId), modelId: IMAGE_MODEL_ID,
       platformId: text(model.platformId), genType: 3,
       modelGenerationTypeId: generation === undefined || generation.id === undefined || generation.id === null

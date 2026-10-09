@@ -380,7 +380,7 @@ describe('prepare_video', () => {
     const preview = JSON.parse(await readFile(String(result.preview_path), 'utf8')) as NativeVideoPreview
     expect(result.status).toBe('prepared')
     expect(preview.assetSummary.orderedAssets.map(asset => asset.materialKey)).toEqual(['lead', 'guest'])
-    expect(JSON.parse(String(preview.payload.modelConfig)).prompt).toBe(prompt)
+    expect((JSON.parse(String(preview.payload.modelConfig)) as { prompt: string }).prompt).toBe(prompt)
     expect(putCalls(provider)).toEqual([])
     expect(await ledger.records()).toEqual([])
   })
@@ -392,9 +392,10 @@ describe('prepare_video', () => {
     const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) }, tasks: [], subtasks: {} }
     const directory = await project()
-    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953,
-      project_dir: directory })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT',
-        detail: expect.stringContaining('PREPARE_VIDEO_IMAGE_MARKER_MISMATCH') })
+    const preparation = prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953,
+      project_dir: directory })
+    await expect(preparation).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    await expect(preparation).rejects.toThrow('PREPARE_VIDEO_IMAGE_MARKER_MISMATCH')
     expect(await readdir(directory)).toEqual(['project_config.json'])
     expect(await ledger.records()).toEqual([])
     expect(putCalls(provider)).toEqual([])

@@ -358,7 +358,7 @@ describe('preview construction and validation', () => {
     const preview = buildNativeVideoPreview({ storyboard, assets: ASSETS, models: CATALOGUE, createdAt: 'now' })
     expect(preview.assetSummary.count).toBe(2)
     expect(preview.assetSummary.orderedAssets.map(asset => asset.materialKey)).toEqual(['lead', 'guest'])
-    expect(JSON.parse(String(preview.payload.modelConfig)).prompt).toBe(prompt)
+    expect((JSON.parse(String(preview.payload.modelConfig)) as { prompt: string }).prompt).toBe(prompt)
     expect(validateNativeVideoPreview(preview)).toEqual(preview)
   })
 

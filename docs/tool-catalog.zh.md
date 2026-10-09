@@ -4826,6 +4826,14 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
       "type": "string",
       "description": "image_generate 可选：仅本次使用实时目录中的指定 platformId；省略时使用设置或部署已选通道。切换前核对价格、授权和上一笔结果；超时或未知结果不能直接换通道重投。"
     },
+    "image_aspect_ratio": {
+      "type": "string",
+      "description": "image_generate 可选：图片画幅；省略时保持 16:9。按所选通道的实时规格目录选择对应 videoStandardId，不接受直接传入规格 ID。",
+      "enum": [
+        "16:9",
+        "9:16"
+      ]
+    },
     "references": {
       "type": "array",
       "description": "image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。",

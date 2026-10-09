@@ -62,16 +62,16 @@ it('blocks generic Word, Markdown and Office bypasses at the actual present exec
       const delivered = events.filter(value => value.type === 'deliverables/presented')
         .map(value => z.object({ data: z.object({ files: z.array(z.object({ path: z.string() })) }) }).parse(value))
       expect(delivered, logs.join('\n').split('\n').filter(line => /tools\/result|tool\/result|tool\/call/.test(line)).join('\n')).toHaveLength(1)
-      expect(delivered[0].data.files).toEqual([{ path: 'ordinary.docx' }])
+      expect(delivered[0]?.data.files).toEqual([{ path: 'ordinary.docx' }])
       const results = events.filter(value => value.type === 'tool/result')
         .map(value => z.object({ data: z.object({
           message: z.object({ content: z.array(z.object({ text: z.string() })) }) }) }).parse(value))
-      expect(results.slice(0, 3).map(value => value.data.message.content[0].text)).toEqual([
+      expect(results.slice(0, 3).map(value => value.data.message.content[0]?.text)).toEqual([
         expect.stringContaining('video_delivery_unaccepted'), expect.stringContaining('video_delivery_unaccepted'),
         expect.stringContaining('video_delivery_unaccepted'),
       ])
       if (process.env.MUSE_TEST_PRIMARY_RUNTIME) {
-        expect(results[3].data.message.content[0].text).toContain('video_delivery_body_changed')
+        expect(results[3]?.data.message.content[0]?.text).toContain('video_delivery_body_changed')
       }
     },
   })
