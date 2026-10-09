@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "repository": "felir7at62co-wq/muse-med",
+  "version": "1.0.5",
+  "sourceCommit": "e92ca8dce21315f00b3413d95469987790f04c76",
+  "sourceRun": 37999925079,
+  "releases": [
+    {
+      "id": 408364732,
+      "tag": "v1.0.5",
+      "prerelease": false
+    },
+    {
+      "id": 408376031,
+      "tag": "v1.0.5-rc.muse-stable",
+      "prerelease": true
+    }
+  ],
+  "files": [
+    {
+      "filename": "muse-med-1.0.5-win-x64.exe",
+      "size": 765654839,
+      "sha256": "4555dbcf1758ee7a46a40147db9d19635ae8702ba1780751322c24796c75871a"
+    },
+    {
+      "filename": "latest-mac.yml",
+      "size": 512,
+      "sha256": "81c09675fee438d18d4f009ff5a7fa394c144070ddc6e0db5917c2af7643bd10"
+    },
+    {
+      "filename": "latest.yml",
+      "size": 349,
+      "sha256": "0c065b13382a9e21e3914bf9972b94cf58c4e7987ee6a7d6480df539e645dc96"
+    },
+    {
+      "filename": "muse-desktop-builds.json",
+      "size": 2706,
+      "sha256": "5a3dca9ff411822ee0a2f8356c13c2c7c4960158729f08a89eb7b4c050f1f0bd"
+    },
+    {
+      "filename": "muse-desktop-SHA256SUMS.txt",
+      "size": 888,
+      "sha256": "b7131d1d8edcc9b7ab17de0dba00ff82d3fec738b87f4d49e46bbe00837d44f6"
+    },
+    {
+      "filename": "muse-med-1.0.5-mac-arm64.dmg",
+      "size": 766903983,
+      "sha256": "96532bc6756af55f4b7991d38f33c3fd672426c92d0aa9c872e6f10829e83392"
+    },
+    {
+      "filename": "muse-med-1.0.5-mac-arm64.zip",
+      "size": 771165237,
+      "sha256": "952d52eb8da947f226123a17f7eab9d13c20a211997dd2a06e409da07492b0d5"
+    },
+    {
+      "filename": "muse-med-1.0.5-mac-arm64.zip.blockmap",
+      "size": 774068,
+      "sha256": "ffdbfe388a2a2dd7be8f2564f64c2102eba7c255ab52ddd35ed44ee7d39b91d5"
+    },
+    {
+      "filename": "muse-med-1.0.5-win-x64.exe.blockmap",
+      "size": 794617,
+      "sha256": "41bd14321faa0927b6210cb63e688e58594f65dcf26bf15a52c1b989221e548e"
+    },
+    {
+      "filename": "rc-mac.yml",
+      "size": 512,
+      "sha256": "81c09675fee438d18d4f009ff5a7fa394c144070ddc6e0db5917c2af7643bd10"
+    },
+    {
+      "filename": "rc.yml",
+      "size": 349,
+      "sha256": "0c065b13382a9e21e3914bf9972b94cf58c4e7987ee6a7d6480df539e645dc96"
+    }
+  ]
+}
