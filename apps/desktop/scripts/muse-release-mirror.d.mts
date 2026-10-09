@@ -44,6 +44,7 @@ export function recordMuseUnsignedBuild(options: MuseUnsignedBuildOptions): Prom
 
 /**
  * Validate both platform builds before producing any upload operations.
+ * Mac metadata retains its ZIP first and adds the verified DMG; original build records and channel files remain unchanged.
  * @param options - Exact release and completed target directories.
  * @returns Immutable binaries and channel metadata ordered separately for publication.
  */

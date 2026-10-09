@@ -60,6 +60,7 @@ function contentType(filename) {
 
 /**
  * Validate the Apple Silicon Mac and Windows builds before producing upload operations.
+ * Mac publication metadata retains its ZIP first and adds the verified DMG without rewriting build inputs.
  * @param {{version: string, sourceCommit: string, artifactDirectories: Record<string, string>, legacyRcDiscovery?: boolean}} options - Exact release and completed target directories.
  * @returns {Promise<{version: string, sourceCommit: string, artifacts: object[], metadata: object[], githubMetadata: object[]}>} Immutable binaries and channel metadata ordered separately for publication.
  */
@@ -86,8 +87,11 @@ export async function createMuseMirrorPlan({ version, sourceCommit, artifactDire
       throw new Error(`Muse mirror: ${target} has incompatible update metadata`)
     }
     const info = object(update.files[0], 'update file')
-    const binary = artifacts.find(file => file.key.startsWith(`releases/${version}/${target}/`) && file.filename === info.url)
-    if (!binary || binary.sha512 !== info.sha512 || binary.size !== info.size) throw new Error(`Muse mirror: ${target} update checksum differs from its payload`)
+    const { os, arch } = targetSettings(target)
+    const payloadName = `muse-med-${version}-${os}-${arch}.${platform === 'darwin' ? 'zip' : 'exe'}`
+    const binary = artifacts.find(file => file.key.startsWith(`releases/${version}/${target}/`) && file.filename === payloadName)
+    if (!binary || info.url !== payloadName || update.path !== payloadName || update.sha512 !== binary.sha512
+      || binary.sha512 !== info.sha512 || binary.size !== info.size) throw new Error(`Muse mirror: ${target} update checksum differs from its payload`)
     updates[target] = update
   }
   const mac = updates['mac-arm64']
@@ -97,18 +101,21 @@ export async function createMuseMirrorPlan({ version, sourceCommit, artifactDire
   const metadata = [], githubMetadata = []
   for (const [target, { platform }] of Object.entries(TARGETS)) {
     const original = platform === 'darwin' ? mac : win
-    const files = original.files.map(info => {
+    const publication = platform === 'darwin' ? { ...original, files: [...original.files,
+      ...artifacts.filter(file => file.key.startsWith(`releases/${version}/${target}/`) && file.filename.endsWith('.dmg'))
+        .map(file => ({ url: file.filename, sha512: file.sha512, size: file.size }))] } : original
+    const files = publication.files.map(info => {
       const binary = artifacts.find(file => file.filename === info.url)
       return { ...info, url: `https://muse.tos-cn-beijing.volces.com/${binary.key}` }
     })
-    const mirrored = { ...original, files, path: files[0].url }
+    const mirrored = { ...publication, files, path: files[0].url }
     const feed = resolveDesktopMuseUpdateSources(version, platform, TARGETS[target].arch).primary.url
     const prefix = new URL(feed).pathname.slice(1)
     for (const alias of channels) {
       const filename = `${alias}${platform === 'darwin' ? '-mac' : ''}.yml`
       const contents = dump(mirrored, { lineWidth: -1, noRefs: true })
       metadata.push({ filename, key: `${prefix}${filename}`, contents, contentType: 'application/yaml', sha256: createHash('sha256').update(contents).digest('hex') })
-      githubMetadata.push({ filename, contents: dump(original, { lineWidth: -1, noRefs: true }) })
+      githubMetadata.push({ filename, contents: dump(publication, { lineWidth: -1, noRefs: true }) })
     }
   }
   return { version, sourceCommit, artifacts, metadata, githubMetadata }
