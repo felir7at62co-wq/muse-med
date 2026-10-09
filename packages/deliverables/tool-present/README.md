@@ -41,6 +41,8 @@ Mount it in an agent's Cordis composition with `tools`, `fs`, and the `turnBound
 
 The file-count limit is validated at mount. The tool requires an agent Session with a workspace and an open turn. Delivery belongs to the calling Session; a parent must call `present` itself to declare files created by a subagent.
 
+Workflow owners can register `deliverables/validate` listeners. The executor calls them serially with resolved absolute paths and cancellation after filesystem checks and before declaring delivery. A rejection fails the tool without writing `deliverables/presented`; listeners return void so all mounted checks run. Without a listener, file delivery retains its existing behavior. Each owner defines its own workflow scope rather than imposing a global document-conversion restriction.
+
 -----
 
 <a id="understand-the-implementation"></a>

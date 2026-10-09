@@ -153,6 +153,102 @@ export function renderEpisode(project: ProjectFile, scenes: ProjectFile['candida
 }
 
 /**
+ * Bind the source coverage plan to the same immutable version as the scenes.
+ * @param candidate - Episode content and optional managed-video coverage.
+ * @returns Candidate SHA-256; legacy candidates retain their original digest.
+ */
+export function candidateDigest(candidate: Pick<ProjectFile['candidates'][number], 'episode' | 'scenes' | 'coverage'>): string {
+  return sha256(JSON.stringify({ episode: candidate.episode, scenes: candidate.scenes,
+    ...(candidate.coverage === undefined ? {} : { coverage: candidate.coverage }) }))
+}
+
+/**
+ * Check a managed video's prepared source inventory against the actual beats.
+ * @param project - Original sources and independently reviewed facts.
+ * @param candidate - Candidate with declared complete episode source windows.
+ * @returns Whether the episode requires an independent zero-action recheck.
+ */
+export function checkVideoCoverage(project: ProjectFile, candidate: ProjectFile['candidates'][number]): boolean {
+  if (project.workflow !== 'video_to_screenplay') return false
+  const coverage = candidate.coverage
+  if (coverage === undefined) throw Error('visual_preparation_required: 视频候选须先整理实际画面与来源事实，提交本集 coverage。')
+  const units = new Map<string, ProjectFile['sources'][number]['units'][number]>()
+  for (const window of coverage.windows) {
+    const source = project.sources.find(value => value.id === window.source_id)
+    if (source === undefined || window.start + window.count - 1 > source.units.length) {
+      throw Error('source_window: 本集来源范围必须对应已导入片段。')
+    }
+    for (const unit of source.units.slice(window.start - 1, window.start - 1 + window.count)) units.set(unit.id, unit)
+  }
+  if (![...units.values()].some(unit => unit.image !== undefined)) {
+    throw Error('visual_preparation_required: 本集来源范围必须包含实际视频帧。')
+  }
+  const required = new Map(coverage.required_beats.map(value => [value.fact_id, value]))
+  if (required.size !== coverage.required_beats.length) throw Error('source_coverage: 必保留事实不能重复。')
+  // A later episode's newly proposed facts do not alter an earlier accepted inventory.
+  const scoped = project.facts.filter(fact => fact.origin === 'source' && fact.created_at <= candidate.created_at
+    && fact.withdrawal === undefined && fact.anchors.some(anchor => units.has(anchor.unit_id)))
+  for (const fact of scoped) {
+    if (fact.review === undefined) throw Error(`unreviewed_source_fact: ${fact.id} 尚未独立审校，不能先写全稿。`)
+    if (fact.review.decision === 'approve' && !required.has(fact.id)) {
+      throw Error(`source_coverage: ${fact.id} 尚未列入本集必保留事实。`)
+    }
+  }
+  const beats = candidate.scenes.flatMap(scene => scene.beats)
+  for (const entry of required.values()) {
+    const fact = scoped.find(value => value.id === entry.fact_id && value.review?.decision === 'approve')
+    if (fact === undefined) throw Error(`source_coverage: ${entry.fact_id} 须为本集范围内已批准的来源事实。`)
+    if (fact.kind === 'action' && !fact.anchors.some(anchor => units.get(anchor.unit_id)?.image !== undefined)) {
+      throw Error(`visual_fact_evidence: ${fact.id} 的画面动作须有本集实际帧依据，不能由台词推断。`)
+    }
+    if (!beats.some(beat => beat.kind === entry.kind && beat.fact_ids.includes(entry.fact_id))) {
+      throw Error(`source_coverage: ${entry.fact_id} 未在正文中按 ${entry.kind} 保留。`)
+    }
+  }
+  for (const beat of beats) {
+    for (const id of beat.fact_ids) {
+      const fact = project.facts.find(value => value.id === id)
+      if (fact?.origin === 'adaptation') {
+        const code = beat.kind === 'action' ? 'visual_fact_evidence' : 'video_source_fact_required'
+        throw Error(`${code}: ${id} 的新增内容不是视频来源事实。`)
+      }
+      if (beat.kind !== 'action') {
+        if (!fact?.anchors.some(anchor => units.has(anchor.unit_id) && units.get(anchor.unit_id)?.image === undefined)) {
+          throw Error(`voice_source_evidence: ${id} 的对白或 OS/VO 须有本集核对文字，不能仅凭画面推断。`)
+        }
+        continue
+      }
+      if (fact?.origin === 'source' && !fact.anchors.some(anchor => units.get(anchor.unit_id)?.image !== undefined)) {
+        throw Error(`visual_fact_evidence: ${id} 的动作没有本集画面依据。`)
+      }
+      if (beat.actor !== undefined && beat.actor !== fact?.actor) {
+        throw Error(`action_attribution: ${id} 的行动人物与正文不一致。`)
+      }
+    }
+  }
+  const zeroAction = !beats.some(beat => beat.kind === 'action')
+  if (zeroAction && candidate.review?.decision === 'approve' && !candidate.review.zero_action_reason?.trim()) {
+    throw Error('zero_action_review_required: 零动作集须记录独立画面复核依据，不得补造动作。')
+  }
+  return zeroAction
+}
+
+/**
+ * Reconstruct accepted scripts for formal delivery without trusting sidecar claims.
+ * @param project - Parsed authoritative project file.
+ * @returns Ordered candidate identities, digests and exact accepted Markdown.
+ */
+export function acceptedScripts(project: ProjectFile): { id: string; sha256: string; script: string }[] {
+  return acceptedCandidates(project).map((candidate, index) => {
+    if (candidate.sha256 !== candidateDigest(candidate)) throw Error('invalid_candidate_digest: 候选内容已变更。')
+    checkVideoCoverage(project, candidate)
+    const knowledge = acceptedKnowledge({ ...project, accepted: project.accepted.slice(0, index) })
+    return { id: candidate.id, sha256: candidate.sha256,
+      script: renderEpisode(project, candidate.scenes, knowledge, candidate.episode).script }
+  })
+}
+
+/**
  * Resolve approved, sequential episode records from persisted history.
  * @param project - Parsed project history.
  * @returns Accepted candidate records in episode order.

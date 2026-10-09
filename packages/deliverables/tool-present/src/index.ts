@@ -8,6 +8,18 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { PresentedFile } from './types.ts'
 
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * Apply mounted workflow checks before a final file declaration succeeds.
+     * @mode serial
+     * @param files - Absolute final file paths after filesystem validation.
+     * @param signal - Initiating delivery cancellation.
+     */
+    'deliverables/validate'(files: readonly string[], signal: AbortSignal): Promise<void>
+  }
+}
+
 /** Stable Loader identity. */
 export const name = 'tool-present'
 
@@ -82,6 +94,7 @@ export function apply(ctx: Context, config: Config): void {
       if (cwd === undefined) throw new Error('present requires a workspace')
       const options = { cwd, signal: exec.signal }
       const files: PresentedFile[] = []
+      const resolved: string[] = []
       for (const file of args.files) {
         if (file.path.trim().length === 0) throw new Error('present requires a non-empty file path')
         const entry = await ctx.fs.lstat(file.path, { cwd }, exec.signal)
@@ -91,7 +104,9 @@ export function apply(ctx: Context, config: Config): void {
         if (info === undefined) throw new FsError(`Cannot present ${file.path}: file not found. Check the path, create the file if needed, and retry.`, 'FS_NOT_FOUND')
         if (info.type !== 'file') throw new Error(`Cannot present ${file.path}: not a regular file`)
         files.push({ ...file })
+        resolved.push(target.displayPath)
       }
+      await ctx.serial('deliverables/validate', resolved, exec.signal)
       exec.signal.throwIfAborted()
       pending.set(exec, { session: exec.agent.session, turn: boundary.lastTurn, files })
       return { turn: boundary.lastTurn, files }

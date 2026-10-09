@@ -51,6 +51,10 @@ The [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-scree
 
 ### Project operations
 
+Video conversion initializes with `workflow: video_to_screenplay`. Before drafting an episode, import and independently review its visual and speech facts. Both staging methods require `coverage.windows` identifying the complete episode source ranges and `coverage.required_beats` mapping each approved source fact to action, dialogue, OS or VO. Every approved fact in those ranges must appear in the inventory and actual corresponding beats; unresolved facts block staging. Visual action facts require frame references in the declared ranges; named action actors require matching reviewed attribution. Dialogue and OS/VO require checked text in those ranges, not a frame reference alone. Adaptation additions cannot supply source conversion content.
+
+A video candidate without action beats needs an independent `zero_action_reason` on approval, recording the actual source recheck. Verified dialogue-only material can pass; adding unsupported action is refused. Coverage travels with the candidate digest, scene-file assembly, acceptance and export. Recovery uses the saved source windows and reviews. Projects without this optional workflow retain their existing behavior. These checks cover the prepared inventory; independent review still checks unclassified events, emotion, identity and actual OS/VO in the original material.
+
 `propose_facts` submits a bounded list of individually attributed facts; `review_facts` carries an independent decision and reason for every fact. Either operation publishes once and advances the revision once. An empty, over-budget, invalid or duplicate-review batch publishes nothing. Read and classify all source context before reviewing; batching does not waive semantic review. Single-fact operations remain available.
 
 

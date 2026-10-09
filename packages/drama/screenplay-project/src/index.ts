@@ -13,6 +13,9 @@ import { ProjectCommands } from './project.ts'
 import { REQUEST, IMAGE_REFERENCE } from './schema.ts'
 import type { ProjectLimits } from './project.ts'
 
+export { acceptedScripts, sha256 } from './episode.ts'
+export { PROJECT_FILE } from './schema.ts'
+
 /** Loader diagnostics name. */
 export const name = 'screenplay-project'
 /** Filesystem and logged tool registry required by this plugin. */
@@ -47,6 +50,7 @@ export function apply(ctx: Context, config: Config): void {
       + `propose_facts/review_facts 可原子批量处理最多 ${config.maxFactBatch} 条事实，每条独立归属与审校理由必须保留，任一失败整批不写入。read_source/list_facts 每次最多 ${config.maxReadUnits} 条，编号从 1 开始。`
       + `list_facts 从 1 起始恢复事实，按 ${config.maxReadBytes} 字节返回完整事实的前缀，用实际 next 继续直到 null，不以请求 count 推定已读完。read_fact/read_candidate 读取事实或完整候选。stage 提交结构化场次；stage_files 按文件顺序组稿，每个 JSON 文件含一个完整场次，单文件最多 ${config.maxReadBytes} 字节、最多 ${config.maxReadUnits} 个文件，避免一次生成长 JSON；正文引用已批准事实。review 独立核对，commit 推进下一集。`
       + 'status 是中断恢复依据，export 只导出已验收正文。所有修改携带当前 expected_revision；编号、时间、摘要和引用行号由程序生成。'
+      + '视频转剧本 init 必须指定 workflow=video_to_screenplay；先导入并实际查看本集帧，分类、独立审校事实，再 stage/stage_files。coverage.windows 填本集完整来源范围，required_beats 保留范围内已批准事实的动作、对白、OS/VO类型；关键事件、无对白行动和人物反应不能遗漏。零动作候选 approve 时须提供 zero_action_reason，记录实际复看依据，不能为通过检查虚构动作或旁白。'
       + '已验收稿需修改时用 fork_project，从 before_episode 集之前复制已验收状态到新的 destination 项目；原稿与原项目保留，修订仍须独立验收。'
       + '批准事实有误时用 withdraw_fact 独立撤销，保留原审批但禁止再用于正文。已有候选引用时先 fork_project 到最早受影响集之前；更正事实须重新提出和独立审校，不覆盖原版本。'
       + 'OS 仅对应本人的心理，作者分析不能变成 OS。characters/actor/witnesses 保留纯人物名，本场仅以 VO 发声的人物另列入 voice_only_characters，程序在人物行标注（VO）。witnesses 仅填实际听见发声或看见动作的人。OS 无见证者；电话或播放语音等 VO 仅在 audible_in_scene=true 且引用已批准发声事实时可声明听者，未声明的 VO 仅观众可闻。'

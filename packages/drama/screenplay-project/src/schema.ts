@@ -53,6 +53,19 @@ const scene = {
   },
 } as const
 const mutation = { project: string, expected_revision: integer }
+const coverage = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    windows: { type: 'array', required: true, items: {
+      type: 'object', additionalProperties: false, properties: { source_id: string, start: integer, count: integer },
+    } },
+    required_beats: { type: 'array', required: true, items: {
+      type: 'object', additionalProperties: false, properties: {
+        fact_id: string, kind: { type: 'string', enum: ['action', 'dialogue', 'os', 'vo'], required: true },
+      },
+    } },
+  },
+} as const
 const review = {
   decision: { type: 'string', enum: ['approve', 'reject'], required: true },
   reason: string,
@@ -64,6 +77,7 @@ export const REQUEST = {
     { type: 'object', additionalProperties: false, properties: {
       method: { type: 'string', const: 'init', required: true }, project: string,
       mode: { type: 'string', enum: ['faithful', 'adaptation'], required: true }, instructions: string,
+      workflow: { type: 'string', enum: ['video_to_screenplay'], description: 'Managed video conversion: visual source preparation, coverage review and accepted-only final delivery.' },
     } },
     { type: 'object', additionalProperties: false, properties: {
       method: { type: 'string', const: 'import_source', required: true }, ...mutation,
@@ -99,14 +113,17 @@ export const REQUEST = {
     { type: 'object', additionalProperties: false, properties: {
       method: { type: 'string', const: 'stage', required: true }, ...mutation, episode: integer,
       scenes: { type: 'array', items: scene, required: true },
+      coverage,
     } },
     { type: 'object', additionalProperties: false, properties: {
       method: { type: 'string', const: 'stage_files', required: true }, ...mutation, episode: integer,
       files: { type: 'array', items: { type: 'string' }, required: true },
+      coverage,
     } },
     { type: 'object', additionalProperties: false, properties: {
       method: { type: 'string', const: 'review', required: true }, ...mutation,
       candidate_id: string, candidate_sha256: string, ...review,
+      zero_action_reason: { type: 'string', description: 'For approving a managed video episode with no action beats: actual visual/source recheck and why no essential action is missing. Never invent action to avoid this review.' },
     } },
     { type: 'object', additionalProperties: false, properties: {
       method: { type: 'string', const: 'commit', required: true }, ...mutation,
@@ -157,6 +174,11 @@ const candidateId = z.string()
   .regex(/^c:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/).transform(value => brandString<CandidateId>(value))
 const unitId = nonempty.transform(value => brandString<UnitId>(value))
 const reviewRecord = z.strictObject({ actor: actorId, time: timestamp, decision: z.enum(['approve', 'reject']), reason: nonempty })
+/** Episode source windows and required expression channels, bound to the candidate digest. */
+export const COVERAGE_RECORD = z.strictObject({
+  windows: z.array(z.strictObject({ source_id: nonempty, start: z.number().int().positive(), count: z.number().int().positive() })).min(1),
+  required_beats: z.array(z.strictObject({ fact_id: factId, kind: z.enum(['action', 'dialogue', 'os', 'vo']) })).min(1),
+})
 const unitRecord = z.strictObject({
   id: unitId, ordinal: z.number().int().positive(), text: z.string(),
   start: z.number().nonnegative().optional(), end: z.number().nonnegative().optional(), speaker_id: nonempty.optional(),
@@ -186,13 +208,15 @@ export const SCENE_RECORD = z.strictObject({
 export const CANDIDATE_RECORD = z.strictObject({
   id: candidateId, sha256: digest, episode: z.number().int().positive(), base_episode: z.number().int().nonnegative(),
   author: actorId, created_at: timestamp, scenes: z.array(SCENE_RECORD).min(1),
-  review: reviewRecord.optional(), committed_at: timestamp.optional(),
+  coverage: COVERAGE_RECORD.optional(),
+  review: reviewRecord.extend({ zero_action_reason: nonempty.optional() }).optional(), committed_at: timestamp.optional(),
 })
 
 /** File-format parser; unknown fields, malformed metadata, and unsupported versions fail on read. */
 export const PROJECT_FILE = z.strictObject({
   format_version: z.literal(1), id: nonempty.transform(value => brandString<ProjectId>(value)), revision: z.number().int().nonnegative(),
   mode: z.enum(['faithful', 'adaptation']), instructions: nonempty, created_at: timestamp, updated_at: timestamp,
+  workflow: z.literal('video_to_screenplay').optional(),
   parent: z.strictObject({ id: nonempty.transform(value => brandString<ProjectId>(value)), path: nonempty,
     revision: z.number().int().nonnegative(), before_episode: z.number().int().positive(), sha256: digest }).optional(),
   sources: z.array(z.strictObject({ id: nonempty.transform(value => brandString<SourceId>(value)), path: nonempty, sha256: digest, kind: z.enum(['text', 'transcript', 'video_inspection']), units: z.array(unitRecord) })),

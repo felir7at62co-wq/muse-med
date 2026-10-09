@@ -41,6 +41,8 @@ kind: "package-reference"
 
 挂载时校验文件数量上限。工具要求 Agent Session 具有工作区和尚未结束的轮次。交付归调用方 Session 所有；父 Session 如需声明交付子 Agent 创建的文件，必须自行调用 `present`。
 
+流程所有者可注册 `deliverables/validate` 监听器。执行器在文件系统检查后、声明交付前，按顺序传入已解析的绝对路径与取消信号。拒绝校验会使工具失败，不写入 `deliverables/presented`；监听器返回 void，确保执行所有已挂载检查。不挂载监听器时，文件交付保持原有行为。各所有者限定自身流程范围，不全局限制文档转换。
+
 -----
 
 <a id="understand-the-implementation"></a>

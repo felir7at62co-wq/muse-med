@@ -175,4 +175,26 @@ diff(sessionId: SessionId, seq: number, index: number, signal: AbortSignal): Pro
 Types: [SessionId](core.zh.md)
 
 Source: [`packages/deliverables/workspace-changes/src/types.ts`](../../packages/deliverables/workspace-changes/src/types.ts)
+
+<a id="deliverables-events"></a>
+
+### `deliverables/*` events
+
+<a id="deliverablesvalidate--serial"></a>
+
+#### `deliverables/validate` — serial
+
+Apply mounted workflow checks before a final file declaration succeeds.
+
+```ts cordis-catalog
+/**
+ * Apply mounted workflow checks before a final file declaration succeeds.
+ * @mode serial
+ * @param files - Absolute final file paths after filesystem validation.
+ * @param signal - Initiating delivery cancellation.
+ */
+'deliverables/validate'(files: readonly string[], signal: AbortSignal): Promise<void>
+```
+
+Source: [`packages/deliverables/tool-present/src/index.ts`](../../packages/deliverables/tool-present/src/index.ts)
 <!-- END GENERATED cordis-surface -->

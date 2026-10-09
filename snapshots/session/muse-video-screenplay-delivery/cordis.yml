@@ -1,0 +1,7 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: video-delivery
+      name: './runtime.mjs'

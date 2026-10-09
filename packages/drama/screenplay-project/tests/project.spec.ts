@@ -74,6 +74,184 @@ async function approveAndCommit(id: string, hash: string) {
   await run({ method: 'commit', project: path, expected_revision: (await current()).revision, candidate_id: id, candidate_sha256: hash })
 }
 
+async function videoProject(mode: 'faithful' | 'adaptation' = 'faithful') {
+  path = join(root, 'qa', 'screenplay-project.json')
+  await mkdir(join(root, 'qa'))
+  await run({ method: 'init', project: path, mode, workflow: 'video_to_screenplay', instructions: '忠实视频整理，不推断未核实动作。' })
+  await run({ method: 'import_source', project: path, expected_revision: 0, path: source, source_kind: 'text' })
+  const frames = await inspection()
+  await run({ method: 'import_source', project: path, expected_revision: 1, path: frames.manifest, source_kind: 'video_inspection' })
+}
+
+async function visualAction(actor: string | null = '甲') {
+  const project = await current(), unit = project.sources[1]!.units[0]!
+  await run({ method: 'propose_fact', project: path, expected_revision: project.revision,
+    fact: { kind: 'action', origin: 'source', ...(actor === null ? {} : { actor }), layer: 'present',
+      summary: actor === null ? '未确认人物推门，旁人后退。' : '甲推开门，乙后退。', anchors: [{ unit_id: unit.id, quote: unit.text }] } })
+  const proposed = await current(), record = proposed.facts.at(-1)!
+  await run({ method: 'review_fact', project: path, expected_revision: proposed.revision, fact_id: record.id,
+    decision: 'approve', reason: '固定测试事实：关键无对白事件与人物反应。' }, 'reviewer')
+  return record.id
+}
+
+async function videoStage(scenes: SceneInput[], required: { fact_id: string; kind: SceneInput['beats'][number]['kind'] }[]) {
+  const project = await current()
+  await run({ method: 'stage', project: path, expected_revision: project.revision, episode: 1, scenes,
+    coverage: { windows: project.sources.map(value => ({ source_id: value.id, start: 1, count: value.units.length })),
+      required_beats: required } })
+  return (await current()).candidates.at(-1)!
+}
+
+it('video: refuses writing before visual preparation instead of accepting an audio-only draft', async () => {
+  await videoProject()
+  const speech = await fact('speech', 3, '乙')
+  await expect(stage([scene(speech, 'dialogue', '乙')])).rejects.toThrow('visual_preparation_required')
+})
+
+it('video: rejects a missing silent key action and reaction even when all dialogue is present', async () => {
+  await videoProject()
+  const action = await visualAction(), speech = await fact('speech', 3, '乙')
+  await expect(videoStage([scene(speech, 'dialogue', '乙')], [{ fact_id: action, kind: 'action' }, { fact_id: speech, kind: 'dialogue' }]))
+    .rejects.toThrow('source_coverage')
+})
+
+it('video: refuses action inferred solely from text despite having imported frames', async () => {
+  await videoProject()
+  const action = await fact('action', 4, '甲')
+  await expect(videoStage([scene(action, 'action')], [{ fact_id: action, kind: 'action' }])).rejects.toThrow('visual_fact_evidence')
+})
+
+it.each(['os', 'vo'] as const)('video: rejects omission of an existing %s source fact', async (kind) => {
+  await videoProject()
+  const voice = await fact(kind === 'os' ? 'thought' : 'author_analysis', kind === 'os' ? 1 : 2,
+    kind === 'os' ? '甲' : undefined, kind === 'os' ? 'present' : 'commentary')
+  const speech = await fact('speech', 3, '乙')
+  await expect(videoStage([scene(speech, 'dialogue', '乙')], [{ fact_id: voice, kind }, { fact_id: speech, kind: 'dialogue' }]))
+    .rejects.toThrow('source_coverage')
+})
+
+it('video: a zero-action candidate requires a specific independent recheck', async () => {
+  await videoProject()
+  const speech = await fact('speech', 3, '乙'), candidate = await videoStage([scene(speech, 'dialogue', '乙')], [{ fact_id: speech, kind: 'dialogue' }])
+  await expect(run({ method: 'review', project: path, expected_revision: (await current()).revision,
+    candidate_id: candidate.id, candidate_sha256: candidate.sha256, decision: 'approve', reason: '格式合格。' }, 'reviewer'))
+    .rejects.toThrow('zero_action_review_required')
+})
+
+it('video: independently verified dialogue-only material passes and survives context recovery', async () => {
+  await videoProject()
+  const speech = await fact('speech', 3, '乙'), candidate = await videoStage([scene(speech, 'dialogue', '乙')], [{ fact_id: speech, kind: 'dialogue' }])
+  await run({ method: 'review', project: path, expected_revision: (await current()).revision,
+    candidate_id: candidate.id, candidate_sha256: candidate.sha256, decision: 'approve', reason: '人物归属核对。',
+    zero_action_reason: '复核两个实际帧及完整发声；本固定片段无需要保留的动作，不增加剧情。' }, 'reviewer')
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments)
+  await run({ method: 'commit', project: path, expected_revision: (await current()).revision, candidate_id: candidate.id, candidate_sha256: candidate.sha256 })
+  expect(await run({ method: 'status', project: path })).toMatchObject({ workflow: 'video_to_screenplay', next_episode: 2 })
+  expect((await current()).candidates[0]!.coverage).toBeDefined()
+  await run({ method: 'export', project: path, candidate_id: candidate.id, directory: join(root, 'final') })
+})
+
+it('video: source-backed action, reaction and dialogue pass without fabricating narration', async () => {
+  await videoProject()
+  const action = await visualAction(), speech = await fact('speech', 3, '乙')
+  const combined = scene(action, 'action');combined.beats.push(...scene(speech, 'dialogue', '乙').beats)
+  const candidate = await videoStage([combined], [{ fact_id: action, kind: 'action' }, { fact_id: speech, kind: 'dialogue' }])
+  await approveAndCommit(candidate.id, candidate.sha256)
+  expect((await current()).accepted).toEqual([candidate.id])
+})
+
+it('video: cannot hide an approved key action by omitting it from the required inventory', async () => {
+  await videoProject()
+  await visualAction()
+  const speech = await fact('speech', 3, '乙')
+  await expect(videoStage([scene(speech, 'dialogue', '乙')], [{ fact_id: speech, kind: 'dialogue' }])).rejects.toThrow('source_coverage')
+})
+
+it('video: refuses writing while a source fact still awaits independent classification review', async () => {
+  await videoProject()
+  const speech = await fact('speech', 3, '乙'), project = await current(), unit = project.sources[1]!.units[0]!
+  await run({ method: 'propose_fact', project: path, expected_revision: project.revision,
+    fact: { kind: 'action', origin: 'source', actor: '甲', layer: 'present', summary: '甲推门。', anchors: [{ unit_id: unit.id, quote: unit.text }] } })
+  await expect(videoStage([scene(speech, 'dialogue', '乙')], [{ fact_id: speech, kind: 'dialogue' }])).rejects.toThrow('unreviewed_source_fact')
+})
+
+it('video: refuses reassignment of a visual action to another participant', async () => {
+  await videoProject()
+  const action = await visualAction()
+  await expect(videoStage([scene(action, 'action', '乙')], [{ fact_id: action, kind: 'action' }])).rejects.toThrow('action_attribution')
+})
+
+it('video: adaptation mode does not permit invented actions in a managed source conversion', async () => {
+  await videoProject('adaptation')
+  const speech = await fact('speech', 3, '乙'), project = await current()
+  await run({ method: 'propose_fact', project: path, expected_revision: project.revision,
+    fact: { kind: 'action', origin: 'adaptation', actor: '甲', layer: 'present', summary: '甲跳舞。', anchors: [], adaptation_reason: '补动作。' } })
+  const proposed = await current(), invented = proposed.facts.at(-1)!
+  await run({ method: 'review_fact', project: path, expected_revision: proposed.revision, fact_id: invented.id,
+    decision: 'approve', reason: '无视觉依据的新增事件。' }, 'reviewer')
+  const scenes = scene(invented.id, 'action'); scenes.beats.push(...scene(speech, 'dialogue', '乙').beats)
+  await expect(videoStage([scenes], [{ fact_id: speech, kind: 'dialogue' }])).rejects.toThrow('visual_fact_evidence')
+})
+
+it.each(['dialogue', 'os', 'vo'] as const)('video: rejects %s inferred from a visual reference alone', async (kind) => {
+  await videoProject()
+  const project = await current(), unit = project.sources[1]!.units[0]!
+  await run({ method: 'propose_fact', project: path, expected_revision: project.revision,
+    fact: { kind: kind === 'dialogue' ? 'speech' : kind === 'os' ? 'thought' : 'author_analysis', origin: 'source',
+      ...(kind === 'vo' ? {} : { actor: '甲' }), layer: kind === 'vo' ? 'commentary' : 'present',
+      summary: '由画面推断的发声或内心。', anchors: [{ unit_id: unit.id, quote: unit.text }] } })
+  const proposed = await current(), id = proposed.facts.at(-1)!.id
+  await run({ method: 'review_fact', project: path, expected_revision: proposed.revision, fact_id: id,
+    decision: 'approve', reason: '本用例检验独立批准也不能补造来源发声。' }, 'reviewer')
+  const draft = scene(id, kind)
+  if (kind === 'vo') delete draft.beats[0]!.actor
+  await expect(videoStage([draft], [{ fact_id: id, kind }])).rejects.toThrow('voice_source_evidence')
+})
+
+it('video: rejects invented narration alongside correctly sourced dialogue', async () => {
+  await videoProject('adaptation')
+  const speech = await fact('speech', 3, '乙'), project = await current()
+  await run({ method: 'propose_fact', project: path, expected_revision: project.revision,
+    fact: { kind: 'author_analysis', origin: 'adaptation', layer: 'commentary', summary: '一段新增旁白。', anchors: [], adaptation_reason: '补叙事。' } })
+  const proposed = await current(), id = proposed.facts.at(-1)!.id
+  await run({ method: 'review_fact', project: path, expected_revision: proposed.revision, fact_id: id,
+    decision: 'approve', reason: '批准新增旁白不能变成视频原有内容。' }, 'reviewer')
+  const draft = scene(speech, 'dialogue', '乙')
+  draft.beats.push({ kind: 'vo', text: '一段新增旁白。', fact_ids: [id], requires_knowledge: [], witnesses: [] })
+  await expect(videoStage([draft], [{ fact_id: speech, kind: 'dialogue' }])).rejects.toThrow('video_source_fact_required')
+})
+
+it('video: rejects assignment of an unidentified visual actor to a named character', async () => {
+  await videoProject()
+  const action = await visualAction(null)
+  await expect(videoStage([scene(action, 'action')], [{ fact_id: action, kind: 'action' }])).rejects.toThrow('action_attribution')
+})
+
+it('video: resumes bounded scene files and source windows without losing coverage or original OS/VO', async () => {
+  await videoProject()
+  const action = await visualAction(), thought = await fact('thought', 1, '甲')
+  const voice = await fact('author_analysis', 2, undefined, 'commentary'), speech = await fact('speech', 3, '乙')
+  const first = scene(action, 'action')
+  first.beats.push(...scene(thought, 'os').beats)
+  const second = { ...scene(speech, 'dialogue', '乙'), transition: 'continuous' as const }
+  second.beats.push({ kind: 'vo', text: '作者认为：乙有些贪心。', fact_ids: [voice], requires_knowledge: [], witnesses: [] })
+  const files = [join(root, 'chunk-1.json'), join(root, 'chunk-2.json')]
+  await writeFile(files[0]!, JSON.stringify(first)); await writeFile(files[1]!, JSON.stringify(second))
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments)
+  const project = await current()
+  const windows = project.sources.flatMap(source => source.units.map(unit => ({ source_id: source.id, start: unit.ordinal, count: 1 })))
+  await run({ method: 'stage_files', project: path, expected_revision: project.revision, episode: 1, files,
+    coverage: { windows,
+      required_beats: [{ fact_id: action, kind: 'action' }, { fact_id: thought, kind: 'os' }, { fact_id: voice, kind: 'vo' }, { fact_id: speech, kind: 'dialogue' }] } })
+  const candidate = (await current()).candidates.at(-1)!
+  await approveAndCommit(candidate.id, candidate.sha256)
+  const output = join(root, 'final')
+  await run({ method: 'export', project: path, candidate_id: candidate.id, directory: output })
+  const names = await import('node:fs/promises').then(fs => fs.readdir(output))
+  const text = await readFile(join(output, names.find(name => name.endsWith('.md'))!), 'utf8')
+  expect(text).toContain('（OS）：'); expect(text).toContain('（VO）：'); expect(text).toContain('▲')
+})
+
 it('rejects an author judgement converted into a character OS without advancing the project', async () => {
   const id = await fact('author_analysis', 2, undefined, 'commentary')
   const before = await readFile(path, 'utf8')
