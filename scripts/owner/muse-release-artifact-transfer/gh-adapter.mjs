@@ -30,7 +30,7 @@ export function createGitHubTransferAdapter(token, options = {}) {
   return {
     async json(route) {
       if (typeof route !== 'string'
-        || !/^(?:actions\/runs\/[1-9][0-9]*(?:\/(?:jobs|artifacts)\?per_page=100)?|git\/ref\/tags\/v\d+\.\d+\.\d+(?:-rc\.muse-stable)?|git\/tags\/[a-f0-9]{40}|releases\/[1-9][0-9]*)$/u.test(route)) {
+        || !/^(?:actions\/runs\/[1-9][0-9]*(?:\/(?:jobs|artifacts)\?per_page=100)?|git\/ref\/tags\/v\d+\.\d+\.\d+(?:-rc\.muse-stable)?|git\/tags\/[a-f0-9]{40}|releases\/(?:[1-9][0-9]*|latest))$/u.test(route)) {
         throw new Error('Unexpected GitHub transfer API route')
       }
       const output = invoke(['api', '--method', 'GET', `repos/${REPOSITORY}/${route}`], 30000, 'metadata read')

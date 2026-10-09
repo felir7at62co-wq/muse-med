@@ -1,7 +1,16 @@
-name: Muse verified draft artifact transfer
+name: Muse verified artifact transfer and readback
 
 on:
   workflow_dispatch:
+    inputs:
+      operation:
+        description: Transfer approved draft binaries, or read all public bytes
+        type: choice
+        required: true
+        default: transfer
+        options:
+          - transfer
+          - public-readback
 
 permissions:
   contents: read
@@ -29,12 +38,17 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
+      - name: Install only the pinned owner XML parser
+        working-directory: scripts/owner/muse-release-artifact-transfer
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Verify isolated transfer tests
         run: node --test scripts/owner/muse-release-artifact-transfer/*.test.mjs
       - name: Require the successful source run and both approved drafts
         id: preflight
+        if: inputs.operation == 'transfer'
         run: node scripts/owner/muse-release-artifact-transfer/run.mjs --mode preflight --manifest "$MUSE_TRANSFER_SEAL"
       - name: Download the original Windows installer artifact
+        if: inputs.operation == 'transfer'
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
@@ -42,6 +56,7 @@ jobs:
           name: muse-win-x64-${{ steps.preflight.outputs.source_commit }}
           path: ${{ env.MUSE_TRANSFER_ROOT }}/win-x64
       - name: Download the original Mac ARM installer artifact
+        if: inputs.operation == 'transfer'
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
@@ -49,6 +64,7 @@ jobs:
           name: muse-mac-arm64-${{ steps.preflight.outputs.source_commit }}
           path: ${{ env.MUSE_TRANSFER_ROOT }}/mac-arm64
       - name: Download the real Windows installation receipt
+        if: inputs.operation == 'transfer'
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
@@ -56,11 +72,24 @@ jobs:
           name: muse-win-x64-installed-acceptance-${{ steps.preflight.outputs.source_commit }}
           path: ${{ env.MUSE_TRANSFER_ROOT }}/acceptance/win-x64
       - name: Download the real Mac ARM installation receipt
+        if: inputs.operation == 'transfer'
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
           run-id: ${{ steps.preflight.outputs.source_run }}
           name: muse-mac-arm64-installed-acceptance-${{ steps.preflight.outputs.source_commit }}
           path: ${{ env.MUSE_TRANSFER_ROOT }}/acceptance/mac-arm64
-      - name: Verify original bytes and supplement the two drafts
-        run: node scripts/owner/muse-release-artifact-transfer/run.mjs --mode transfer --manifest "$MUSE_TRANSFER_SEAL" --artifacts-root "$MUSE_TRANSFER_ROOT"
+      - name: Transfer verified originals and read all draft bytes
+        if: inputs.operation == 'transfer'
+        run: node scripts/owner/muse-release-artifact-transfer/run.mjs --mode transfer --manifest "$MUSE_TRANSFER_SEAL" --artifacts-root "$MUSE_TRANSFER_ROOT" --receipt "$MUSE_TRANSFER_ROOT/readback-transfer.json"
+      - name: Read all public bytes and verify current release discovery
+        if: inputs.operation == 'public-readback'
+        run: node scripts/owner/muse-release-artifact-transfer/run.mjs --mode public-readback --manifest "$MUSE_TRANSFER_SEAL" --receipt "$MUSE_TRANSFER_ROOT/readback-public-readback.json"
+      - name: Retain the safe remote byte readback receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: muse-readback-${{ inputs.operation }}-${{ github.run_id }}
+          path: ${{ env.MUSE_TRANSFER_ROOT }}/readback-${{ inputs.operation }}.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -77,10 +77,10 @@ async function tagCommit(seal, adapter, tag) {
   assert.equal(object.sha, seal.sourceCommit, 'Release tag points to another source commit')
 }
 
-function checkedRelease(seal, expected, release) {
+function checkedRelease(seal, expected, release, { draft = true, complete = false } = {}) {
   assert.equal(release.id, expected.id, 'GitHub returned another release ID')
   assert.equal(release.tag_name, expected.tag, 'GitHub returned another release tag')
-  assert.equal(release.draft, true, 'Transfer requires a draft release')
+  assert.equal(release.draft, draft, 'Release visibility differs from the operation')
   assert.equal(release.prerelease, expected.prerelease, 'Unexpected release prerelease flag')
   assert.ok(Array.isArray(release.assets), 'Missing release assets')
   assert.equal(new Set(release.assets.map(asset => asset.name)).size, release.assets.length, 'Duplicate release assets')
@@ -94,16 +94,30 @@ function checkedRelease(seal, expected, release) {
   for (const file of seal.files.filter(file => !largeFiles(seal).includes(file))) {
     assert.ok(release.assets.some(asset => asset.name === file.filename), `Missing preloaded small asset: ${file.filename}`)
   }
+  if (complete) assert.equal(release.assets.length, 11, 'Release must contain precisely eleven sealed assets')
   return release
 }
 
-async function liveReleases(seal, adapter) {
+async function liveReleases(seal, adapter, options) {
   const result = []
   for (const expected of seal.releases) {
     await tagCommit(seal, adapter, expected.tag)
-    result.push(checkedRelease(seal, expected, await adapter.json(`releases/${expected.id}`)))
+    result.push(checkedRelease(seal, expected, await adapter.json(`releases/${expected.id}`), options))
   }
   return result
+}
+
+/**
+ * Require both sealed tag commits, release IDs, visibility and complete asset metadata for readback.
+ * @param seal - Approved public inventory and exact source identities.
+ * @param adapter - Repository-scoped JSON metadata reader.
+ * @param options - Expected draft visibility and whether all eleven assets must exist.
+ * @returns Both checked releases, preserving their wire metadata for an unchanged-state comparison.
+ */
+export async function verifySealedReleaseState(seal, adapter, { draft, complete = true }) {
+  validateTransferSeal(seal)
+  assert.equal(typeof draft, 'boolean', 'Readback must declare expected release visibility')
+  return liveReleases(seal, adapter, { draft, complete })
 }
 
 /**

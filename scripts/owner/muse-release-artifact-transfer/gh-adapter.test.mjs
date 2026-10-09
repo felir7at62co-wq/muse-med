@@ -73,3 +73,10 @@ test('Actions entry help is local and transfer refuses nonmanual local execution
     return true
   })
 })
+
+test('Latest discovery uses the same fixed read-only metadata route', async () => {
+  const calls = []
+  const adapter = createGitHubTransferAdapter(token, { execute(program, args) { calls.push({ program, args }); return '{"id":42}' } })
+  assert.deepEqual(await adapter.json('releases/latest'), { id: 42 })
+  assert.deepEqual(calls, [{ program: 'gh', args: ['api', '--method', 'GET', 'repos/felir7at62co-wq/muse-med/releases/latest'] }])
+})

@@ -1,0 +1,10 @@
+{
+  "name": "muse-release-artifact-transfer-owner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "builder-util-runtime": "9.7.0",
+    "semver": "7.7.4"
+  }
+}

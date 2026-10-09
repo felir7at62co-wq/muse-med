@@ -2,24 +2,27 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write scripts/owner/muse-release-artifact-transfer/README.md
-/verified-muse-draft-artifact-transfer:
-  en: 4d3dac2e7a6f5f6b
-  zh: b8ccf5ecb05bf0a6
-/verified-muse-draft-artifact-transfer/summary:
-  en: 4e9e8b11fbbda9ec
-  zh: 2c53b61456f33814
-/verified-muse-draft-artifact-transfer/table-of-contents:
-  en: d819f189d448ac2c
-  zh: a5b7390e5ad21dff
-/verified-muse-draft-artifact-transfer/operator-seal:
-  en: 49cfb701ee84ae2e
-  zh: 8c378b4dc209744f
-/verified-muse-draft-artifact-transfer/draft-transfer:
-  en: 05b9032bd4c28557
-  zh: 83303d944ef25d04
-/verified-muse-draft-artifact-transfer/verification:
-  en: af69bf29d0c6dc52
-  zh: 75516058edb9a8ac
-/verified-muse-draft-artifact-transfer/dev-note:
+/verified-muse-artifact-transfer-and-readback:
+  en: 715295cf267d2268
+  zh: 4c54531b94ff3637
+/verified-muse-artifact-transfer-and-readback/summary:
+  en: 0f7f6bfdad5433df
+  zh: e3628780ec097ad2
+/verified-muse-artifact-transfer-and-readback/table-of-contents:
+  en: 87e802a9020787fe
+  zh: 6ccf7208292b17b3
+/verified-muse-artifact-transfer-and-readback/operator-seal:
+  en: 732811f47560678f
+  zh: 72682be636dbc783
+/verified-muse-artifact-transfer-and-readback/draft-transfer:
+  en: bee7a6fc3f8ba629
+  zh: a761440873116ad4
+/verified-muse-artifact-transfer-and-readback/complete-readback:
+  en: bf271dd66d745021
+  zh: d083485ffdc8b9fd
+/verified-muse-artifact-transfer-and-readback/verification:
+  en: 0c7c438b82380ef0
+  zh: fa6e234707257fc2
+/verified-muse-artifact-transfer-and-readback/dev-note:
   en: b75c8458928b72b9
-  zh: 003ba4e17b4b5269
+  zh: 45e76642489dcc3c
