@@ -34,12 +34,13 @@ test('catalog probes retain family-specific thinking and preserve real pi-ai too
  });
  t.after(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const publicSettings={baseURL:'https://provider.example/v1'};
- for(const id of ['glm-5.3-flash','gemini-3.8-flash','claude-sonnet-5','grok-4.7','qwen3.8-max','MiniMax-m3','doubao-seed-2-pro','kimi-k3']){
-  const model=probeModel('yunying',publicSettings,{id,contextWindow:200000,maxTokens:8192,reasoningEfforts:false});model.baseUrl='http://127.0.0.1:'+server.address().port+'/v1';
-  const outcomes=[];assert.equal(await probeTask({route:'yunying',key:'synthetic-key',model},stream,value=>outcomes.push(value)),true);
+ for(const [route,id] of [['yunying','glm-5.3-flash'],['zhipu-official','glm-5.3-flashx'],
+  ...['gemini-3.8-flash','claude-sonnet-5-5','grok-4.7','qwen3.8-max','MiniMax-m3','doubao-seed-2-pro','kimi-k3'].map(id=>['yunying',id])]){
+  const model=probeModel(route,publicSettings,{id,contextWindow:200000,maxTokens:8192,reasoningEfforts:false});model.baseUrl='http://127.0.0.1:'+server.address().port+'/v1';
+  const outcomes=[];assert.equal(await probeTask({route,key:'synthetic-key',model},stream,value=>outcomes.push(value)),true);
   const [first,second]=requests.slice(-2);assert.equal(first.max_tokens,32768);assert.equal(second.max_tokens,32768);assert.equal(second.messages.find(message=>message.role==='assistant').reasoning_content,'saved private reasoning');
   assert.equal(Object.hasOwn(first,'tool_choice'),false);assert.equal(Object.hasOwn(second,'tool_choice'),false);
-  if(id==='glm-5.3-flash'){assert.deepEqual(first.thinking,{type:'enabled',clear_thinking:false});assert.equal(first.reasoning_effort,'low');}
+  if(id.startsWith('glm-5.3-')){assert.deepEqual(first.thinking,{type:'enabled',clear_thinking:false});assert.equal(first.reasoning_effort,'low');}
   else{assert.equal(first.thinking,undefined);assert.equal(first.reasoning_effort,undefined);}
   assert.doesNotMatch(JSON.stringify(outcomes),/synthetic-key|private reasoning|private-balance|private-cost/);assert.deepEqual(outcomes[1].tokens,{input:4,output:2,cacheRead:0,cacheWrite:0,totalTokens:6});
  }

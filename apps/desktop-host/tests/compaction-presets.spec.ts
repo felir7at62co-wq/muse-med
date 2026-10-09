@@ -45,7 +45,9 @@ function assertSmallWindowBudget(config: BasicCompactionConfig): void {
   for (const [provider, model, context, output] of [
     ['yunying', 'gpt-6-sol', 1050000, 128000], ['yunying', 'gpt-6-astra', 1050000, 128000],
     ['yunying', 'claude-opus-5-5', 1000000, 128000], ['yunying', 'claude-fable-5-1', 1000000, 128000],
-    ['yunying', 'claude-sonnet-5', 1000000, 128000], ['yunying', 'gemini-3.1-pro', 1048576, 65536],
+    ['yunying', 'claude-sonnet-5-5', 1000000, 128000], ['yunying', 'gemini-3.1-pro', 1048576, 65536],
+    ['yunying', 'glm-5.3-flash', 1048576, 128000],
+    ['zhipu-official', 'glm-5.3-flashx', 1048576, 128000],
     ['deepseek-official', 'deepseek-flash', 1048576, 393216], ['deepseek-official', 'deepseek-v4-pro', 1048576, 393216],
   ] as const) {
     const spec = resolveCompactSpec(resolveTargetPolicy(resolved, { provider: `muse-cloud-${provider}`, model }), context, output)

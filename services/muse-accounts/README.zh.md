@@ -73,9 +73,9 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 
 上游拒绝通过固定的 `error.code` 与 `error.message` 区分认证、额度、限流、上下文、输出上限和无效参数。分类最多读取 64 KiB，提供方控制的诊断和凭据不会返回。仅提及额度而未说明耗尽，不会归为额度耗尽。上游 429 拒绝会保留经验证的整数 `Retry-After`。未知服务器失败返回通用错误；结束原因 `finish_reason: length` 仍报告输出截断。
 
-选定的 Muse 账号目录供应官方 DeepSeek Flash、V4 Pro，以及 [`selected-models.mjs`](selected-models.mjs) 定义的六个云映模型。官方路由将 Chat Completions 请求转发到 DeepSeek；云映路由沿用运营者现有 API 根地址。请求仅由服务器凭据授权；用户登录 Muse 后无需填写供应商密钥。桌面端的自定义供应商与独立 Codex 订阅各自保留其凭据与目录。准备这份目录不会部署或启用它。
+选定的 Muse 账号目录供应官方 DeepSeek Flash、V4 Pro，七个云映模型（包括 GLM-5.3-Flash），以及 [`selected-models.mjs`](selected-models.mjs) 定义的智谱官方 GLM-5.3-FlashX。DeepSeek 和智谱分别使用官方 Chat Completions 路由；云映路由沿用运营者现有 API 根地址。各路由使用独立的服务器凭据引用；用户登录 Muse 后无需填写供应商密钥。桌面端的自定义供应商与独立 Codex 订阅各自保留其凭据与目录。准备这份目录不会部署或启用它。
 
-运行 `node services/muse-accounts/prepare-selected-models.mjs`，通过 `--source` 和 `--output` 提供绝对路径；输出必须位于仓库与分发目录之外。源文件是现有版本二私密模型目录（`MUSE_MODEL_CONFIG` 加 `.native`）；新输出的父目录必须已存在，且仅所有者可访问。官方密钥从仅所有者可读的 `--deepseek-key-file` 或运营者进程的 `DEEPSEEK_API_KEY` 读取；云映通常沿用唯一明确的现有端点和凭据，也可通过 `--yunying-base-url`、`--yunying-key-file` 或运营者 `MUSE_YUNYING_API_KEY` 覆盖。继承和覆盖始终保留已验证的云映来源站点；其他供应商的相同模型 ID 不授权复用凭据。命令以排他创建方式生成 0600 候选文件和原文件的精确 `.source-backup`，不修改源文件。已有输出会被拒绝；仅打印模型 ID、修订号及文件摘要，候选文件和备份不得提交或打包。
+运行 `node services/muse-accounts/prepare-selected-models.mjs`，通过 `--source` 和 `--output` 提供绝对路径；输出必须位于仓库与分发目录之外。源文件是现有版本二私密模型目录（`MUSE_MODEL_CONFIG` 加 `.native`）；新输出的父目录必须已存在，且仅所有者可访问。DeepSeek 密钥从仅所有者可读的 `--deepseek-key-file` 或运营者进程的 `DEEPSEEK_API_KEY` 读取。独立的智谱密钥从仅所有者可读的 `--zhipu-key-file`、运营者进程的 `MUSE_ZHIPU_API_KEY`，或现有私有目录中同名凭据引用读取；云映通常沿用唯一明确的现有端点和凭据，也可通过 `--yunying-base-url`、`--yunying-key-file` 或运营者 `MUSE_YUNYING_API_KEY` 覆盖。继承和覆盖始终保留已验证的云映来源站点；其他供应商的相同模型 ID 不授权复用凭据。命令以排他创建方式生成 0600 候选文件和原文件的精确 `.source-backup`，不修改源文件。已有输出会被拒绝；仅打印模型 ID、修订号及文件摘要，候选文件和备份不得提交或打包。
 
 部署前必须将当前源文件与收据的 `sourceSha256` 比对，保留私密备份，再原子替换服务器 `.native` 文件并重启网关。报告可用前，应核查登录后的目录并实测工具连续调用。回滚时还原精确私密备份并重启网关。此次替换会撤回其他全部共享模型；已有会话若选中了撤回模型，必须重新选择可用模型。选定容量和输出预算见[模型预算表](#selected-model-budgets)，上游限制仍然有效。准备的目录不添加并发上限。
 
@@ -126,7 +126,7 @@ Muse LLM Wiki 通过既有 `/api/kb/access` 接口复用当前 Muse 登录，不
 <a id="selected-model-budgets"></a>
 ## Selected model budgets
 
-`prepare-selected-models.mjs` 生成含八款模型的私有目录，不执行部署。[GPT Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) 与 [Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) 使用 1,050,000 上下文与 128,000 输出 tokens；[Claude Opus 5.5/Fable 5.1](https://platform.claude.com/docs/en/models/overview) 与 [Sonnet 5](https://platform.claude.com/docs/en/models/sonnet-5/overview) 使用 1,000,000 上下文与 128,000 输出 tokens。[Gemini 3.1 Pro](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-pro-preview) 使用 1,048,576 上下文与 65,536 输出 tokens。官方 [DeepSeek Flash/Pro](https://api-docs.deepseek.com/api/create-chat-completion/) 使用 1,048,576 上下文与 393,216 输出 tokens。GPT 与 DeepSeek 默认使用低思考档位。这些是模型规格，不保证云映开放了上游全部能力。部署前须验证所配置的接口；短回复不能证明完整上下文或最大输出容量。有限输出预算仍可能以 `max-tokens` 结束；部分输出保留在会话中，可继续生成。
+`prepare-selected-models.mjs` 生成含十款模型的私有目录，不执行部署。[GPT Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) 与 [Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) 使用 1,050,000 上下文与 128,000 输出 tokens；[Claude Opus 5.5/Fable 5.1 与 Sonnet 5.5](https://platform.claude.com/docs/en/models/overview) 使用 1,000,000 上下文与 128,000 输出 tokens。[Gemini 3.1 Pro](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-pro-preview) 使用 1,048,576 上下文与 65,536 输出 tokens。[GLM-5.3-Flash 与 FlashX](https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash) 标注 1M 上下文、128K 输出及文本和图像输入；目录分别声明 1,048,576 上下文与 128,000 输出上限。云映 Flash 沿用供应商默认思考档位；智谱官方 FlashX 默认使用 `max` 并开启思考。官方 [DeepSeek Flash/Pro](https://api-docs.deepseek.com/api/create-chat-completion/) 使用 1,048,576 上下文与 393,216 输出 tokens。GPT 与 DeepSeek 默认使用低思考档位。这些是模型规格，不保证云映开放了上游全部能力。部署前须验证所配置的接口；短回复不能证明完整上下文或最大输出容量。有限输出预算仍可能以 `max-tokens` 结束；部分输出保留在会话中，可继续生成。
 
 云端管理员模型发现复用本地设置的 pi-ai 列表解析器。已保存的目录无需调用供应商；显式接口探测固定公网 DNS 结果、拒绝跳转，使用草稿密钥或指定路由存储的凭据。发现只返回候选模型，不修改配置。管理员选择并保存后，账号目录才会包含它们。探测失败返回安全的字段诊断，并保留手动添加能力。
 

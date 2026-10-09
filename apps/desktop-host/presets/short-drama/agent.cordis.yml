@@ -138,11 +138,19 @@
             headroomTokens: 16384
             maxTokens: 8192
           - provider: muse-cloud-yunying
-            model: claude-sonnet-5
+            model: claude-sonnet-5-5
             headroomTokens: 16384
             maxTokens: 8192
           - provider: muse-cloud-yunying
             model: gemini-3.1-pro
+            headroomTokens: 16384
+            maxTokens: 8192
+          - provider: muse-cloud-yunying
+            model: glm-5.3-flash
+            headroomTokens: 16384
+            maxTokens: 8192
+          - provider: muse-cloud-zhipu-official
+            model: glm-5.3-flashx
             headroomTokens: 16384
             maxTokens: 8192
     - id: command-compact

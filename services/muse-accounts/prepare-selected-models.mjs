@@ -6,7 +6,7 @@ import {createHash,randomBytes} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {prepareSelectedModels} from './selected-models.mjs';
 
-const options = new Set(['source','output','deepseek-key-file','yunying-key-file','yunying-base-url']);
+const options = new Set(['source','output','deepseek-key-file','yunying-key-file','zhipu-key-file','yunying-base-url']);
 const distributionDirectory=/^(?:\.artifacts|artifacts|build|dist|downloads|node_modules|out|public|publish|release|releases|win-unpacked|mac(?:-arm64)?|.*\.app)$/i;
 
 async function candidateDirectory(path){
@@ -80,9 +80,10 @@ export async function prepareSelectedModelsFiles(args,environment=process.env){
  const original=await readPrivateModelFile(parsed.source);
  const deepseekKey=parsed['deepseek-key-file']?(await readPrivateModelFile(parsed['deepseek-key-file'])).trim():environment.DEEPSEEK_API_KEY;
  const yunyingKey=parsed['yunying-key-file']?(await readPrivateModelFile(parsed['yunying-key-file'])).trim():environment.MUSE_YUNYING_API_KEY;
+ const zhipuKey=parsed['zhipu-key-file']?(await readPrivateModelFile(parsed['zhipu-key-file'])).trim():environment.MUSE_ZHIPU_API_KEY;
  let current;
  try{current=JSON.parse(original);}catch(_error){throw Error('Private model input must contain valid JSON');}
- const prepared=prepareSelectedModels(current,{deepseekKey,yunyingKey,yunyingBaseURL:parsed['yunying-base-url']});
+ const prepared=prepareSelectedModels(current,{deepseekKey,yunyingKey,zhipuKey,yunyingBaseURL:parsed['yunying-base-url']});
  const candidate=JSON.stringify(prepared,null,2)+'\n';
  await publishNewPrivateFile(backup,original);
  await publishNewPrivateFile(output,candidate);
