@@ -160,10 +160,12 @@ describe('registration', () => {
         { method: 'reconcile', project_dir: projectDir }, runContext()))
         .rejects.toThrow('HTTP 401')
       expect(resolvedRefs).toEqual([JUBIAN_TOKEN_REF])
-      expect(transport).toHaveBeenCalledExactlyOnceWith(
-        expect.stringMatching(/^https:\/\/jubian\.example\.invalid\/prod-api\/aigc\/asset\/list\?/),
-        expect.objectContaining({ method: 'GET', headers: expect.objectContaining({ Authorization: 'Bearer resolved-secret' }) }),
-      )
+      expect(transport).toHaveBeenCalledTimes(1)
+      const request = transport.mock.calls[0]
+      if (request === undefined) throw new Error('Expected the credential-bearing provider request')
+      expect(request[0]).toMatch(/^https:\/\/jubian\.example\.invalid\/prod-api\/aigc\/asset\/list\?/)
+      expect(request[1]?.method).toBe('GET')
+      expect(new Headers(request[1]?.headers).get('Authorization')).toBe('Bearer resolved-secret')
     } finally {
       transport.mockRestore()
     }
