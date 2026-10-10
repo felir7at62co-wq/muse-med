@@ -4,13 +4,14 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The manual [transfer workflow](../../../.github/workflows/muse-desktop.yml) supplements two approved draft releases with existing Windows EXE and Mac ARM DMG/ZIP files, then reads every remote byte in both releases. A separate public operation reads the same eleven files after publication. It does not build, install, publish, delete, replace assets, or access TOS.
+The manual [transfer workflow](../../../.github/workflows/muse-desktop.yml) supplements two approved draft releases with existing Windows EXE and Mac ARM DMG/ZIP files, then reads every remote byte in both releases. A separate public operation reads the same eleven files after publication. These GitHub operations do not build, install, publish, delete, replace assets, or access TOS. An explicit TOS operation executes the approved final-source publisher without rebuilding.
 
 ## Table of Contents
 
 - [Operator seal](#operator-seal)
 - [Draft transfer](#draft-transfer)
 - [Complete readback](#complete-readback)
+- [TOS mirror](#tos-mirror)
 - [Verification](#verification)
 - [Dev Note](#dev-note)
 
@@ -44,7 +45,17 @@ Each private release's browser addresses must share its canonical tag or one Git
 
 Manually dispatch `operation=public-readback` after the operator publishes both releases. This operation downloads no original build artifacts and calls no upload method. All asset downloads are anonymous. It verifies both exact tag commits, public IDs, prerelease flags and eleven assets, GitHub Latest selecting the stable release, and the Atom feed selecting either current app entry from the same source. Atom uses the actual updater XML parser. It also follows the legacy `rc` channel's selection: stable, alpha and beta entries are skipped, and the first valid rc tag must be the sealed compatibility release. A current stable first entry cannot hide an older rc later in the feed.
 
-Both modes check release metadata and asset IDs before and after each streamed file. Only download counters may change as a result of reading; other changes fail. Public discovery is checked again at completion. Safe JSON receipts contain source, release IDs, names, sizes, digests and asset IDs; no credential, signed URL or private path is recorded. The workflow retains a successful receipt or a minimal failure receipt as an Actions artifact. Readback success never publishes the release; the operator owns TOS verification and publication.
+Both readback modes check release metadata and asset IDs before and after each streamed file. Only download counters may change as a result of reading; other changes fail. Public discovery is checked again at completion. Safe JSON receipts contain source, release IDs, names, sizes, digests and asset IDs; no credential, signed URL or private path is recorded. The workflow retains a successful receipt or a minimal failure receipt as an Actions artifact. Readback success never publishes the release; the operator separately authorizes TOS and GitHub publication.
+
+<a id="tos-mirror"></a>
+
+## TOS mirror
+
+Manually dispatch `operation=tos-publish` only while both approved GitHub releases remain drafts. The workflow downloads the same four original artifacts and repeats source-run, full-file and native-receipt checks. A separate sparse checkout selects `seal.sourceCommit`; five original producer/configuration files must match their exact Git blobs before and after execution. The operator branch's producer is never used. The isolated `tos-deps` package locks the original publisher's S3 SDK, YAML and semver dependencies; a temporary dependency link is removed afterward. No workspace install or build runs.
+
+The original mirror plan must match all five sealed binary identities and four GitHub feed hashes. Maintained YAML parsing requires Mac ZIP first with the same-batch ARM DMG, the single Windows EXE, exact SHA512/size fields, and the corresponding absolute TOS object URLs. The original publisher conditionally uploads absent immutable binaries, accepts an existing object only after complete anonymous size/SHA256 readback, then writes and verifies four feeds. A failure can leave completed objects or partly promoted feeds; reconcile them before another dispatch. This operation neither publishes nor modifies GitHub releases.
+
+Only the TOS step receives the temporary encrypted Actions secret `MUSE_TOS_PUBLISH_ENV_105_20261010`. The operator supplies its seven-field environment configuration and removes that one secret after execution. The wrapper rejects other fields or destinations, creates a private runner directory and a `0600` configuration file, then removes it before writing a success receipt. The original publisher receives only the validated TOS fields and ordinary runtime environment; it receives no GitHub token, secret blob or TLS override. SDK argument logging is replaced with bounded JSON diagnostics, without consuming streams. Safe JSONL retains five `binary-verified` events, four `feed-verified` events and the original terminal `published` event; failure includes a fixed `failed` event. The workflow saves this log and a source-bound receipt, without secret paths or contents.
 
 <a id="verification"></a>
 

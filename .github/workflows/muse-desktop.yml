@@ -4,13 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Transfer approved draft binaries, or read all public bytes
+        description: Transfer draft binaries, read public bytes, or publish the verified TOS mirror
         type: choice
         required: true
         default: transfer
         options:
           - transfer
           - public-readback
+          - tos-publish
 
 permissions:
   contents: read
@@ -47,10 +48,10 @@ jobs:
         run: node --test scripts/owner/muse-release-artifact-transfer/*.test.mjs
       - name: Require the successful source run and both approved drafts
         id: preflight
-        if: inputs.operation == 'transfer'
+        if: inputs.operation == 'transfer' || inputs.operation == 'tos-publish'
         run: node scripts/owner/muse-release-artifact-transfer/run.mjs --mode preflight --manifest "$MUSE_TRANSFER_SEAL"
       - name: Download the original Windows installer artifact
-        if: inputs.operation == 'transfer'
+        if: inputs.operation == 'transfer' || inputs.operation == 'tos-publish'
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
@@ -58,7 +59,7 @@ jobs:
           name: muse-win-x64-${{ steps.preflight.outputs.source_commit }}
           path: ${{ env.MUSE_TRANSFER_ROOT }}/win-x64
       - name: Download the original Mac ARM installer artifact
-        if: inputs.operation == 'transfer'
+        if: inputs.operation == 'transfer' || inputs.operation == 'tos-publish'
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
@@ -66,7 +67,7 @@ jobs:
           name: muse-mac-arm64-${{ steps.preflight.outputs.source_commit }}
           path: ${{ env.MUSE_TRANSFER_ROOT }}/mac-arm64
       - name: Download the real Windows installation receipt
-        if: inputs.operation == 'transfer'
+        if: inputs.operation == 'transfer' || inputs.operation == 'tos-publish'
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
@@ -74,24 +75,51 @@ jobs:
           name: muse-win-x64-installed-acceptance-${{ steps.preflight.outputs.source_commit }}
           path: ${{ env.MUSE_TRANSFER_ROOT }}/acceptance/win-x64
       - name: Download the real Mac ARM installation receipt
-        if: inputs.operation == 'transfer'
+        if: inputs.operation == 'transfer' || inputs.operation == 'tos-publish'
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
           run-id: ${{ steps.preflight.outputs.source_run }}
           name: muse-mac-arm64-installed-acceptance-${{ steps.preflight.outputs.source_commit }}
           path: ${{ env.MUSE_TRANSFER_ROOT }}/acceptance/mac-arm64
+      - name: Check out only the approved final publisher inputs
+        if: inputs.operation == 'tos-publish'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.preflight.outputs.source_commit }}
+          path: approved-publisher
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /apps/desktop/muse-product.json
+            /apps/desktop/scripts/publish-muse-tos.mjs
+            /apps/desktop/scripts/muse-release-mirror.mjs
+            /apps/desktop/scripts/desktop-build-version.mjs
+            /apps/desktop/scripts/desktop-auto-update-environment.mjs
+      - name: Install only the original publisher's pinned dependencies
+        if: inputs.operation == 'tos-publish'
+        working-directory: scripts/owner/muse-release-artifact-transfer/tos-deps
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Transfer verified originals and read all draft bytes
         if: inputs.operation == 'transfer'
         run: node scripts/owner/muse-release-artifact-transfer/run.mjs --mode transfer --manifest "$MUSE_TRANSFER_SEAL" --artifacts-root "$MUSE_TRANSFER_ROOT" --receipt "$MUSE_TRANSFER_ROOT/readback-transfer.json"
       - name: Read all public bytes and verify current release discovery
         if: inputs.operation == 'public-readback'
         run: node scripts/owner/muse-release-artifact-transfer/run.mjs --mode public-readback --manifest "$MUSE_TRANSFER_SEAL" --receipt "$MUSE_TRANSFER_ROOT/readback-public-readback.json"
+      - name: Publish verified original bytes to TOS before promoting four feeds
+        if: inputs.operation == 'tos-publish'
+        shell: bash
+        env:
+          MUSE_TOS_PUBLISH_ENV_105_20261010: ${{ secrets.MUSE_TOS_PUBLISH_ENV_105_20261010 }}
+        run: |
+          node scripts/owner/muse-release-artifact-transfer/tos-publish-run.mjs --manifest "$MUSE_TRANSFER_SEAL" --artifacts-root "$MUSE_TRANSFER_ROOT" --publisher-root "$GITHUB_WORKSPACE/approved-publisher" --receipt "$MUSE_TRANSFER_ROOT/readback-tos-publish.json" | tee "$MUSE_TRANSFER_ROOT/tos-publish.jsonl"
       - name: Retain the safe remote byte readback receipt
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: muse-readback-${{ inputs.operation }}-${{ github.run_id }}
-          path: ${{ env.MUSE_TRANSFER_ROOT }}/readback-${{ inputs.operation }}.json
+          path: |
+            ${{ env.MUSE_TRANSFER_ROOT }}/readback-${{ inputs.operation }}.json
+            ${{ env.MUSE_TRANSFER_ROOT }}/tos-publish.jsonl
           if-no-files-found: warn
           retention-days: 30

@@ -4,13 +4,14 @@
 
 ## 概述
 
-人工[转运工作流](../../../.github/workflows/muse-desktop.yml)为两个已确认的草稿补传现有 Windows EXE 与 Mac ARM DMG/ZIP，再完整读取两个 release 的全部远端字节。另一项公开读回操作在发布后验证相同十一文件。它不构建、安装、发布、删除、替换资产或访问 TOS。
+人工[转运工作流](../../../.github/workflows/muse-desktop.yml)为两个已确认的草稿补传现有 Windows EXE 与 Mac ARM DMG/ZIP，再完整读取两个 release 的全部远端字节。另一项公开读回操作在发布后验证相同十一文件。这两项 GitHub 操作不构建、安装、发布、删除、替换资产或访问 TOS；明确选择的 TOS 操作执行已确认最终源码中的原发布器，不重新构建。
 
 ## 目录
 
 - [运营封存清单](#operator-seal)
 - [草稿转运](#draft-transfer)
 - [完整读回](#complete-readback)
+- [TOS 镜像](#tos-mirror)
 - [验证](#verification)
 - [开发说明](#dev-note)
 
@@ -44,7 +45,17 @@
 
 运营者公开两个 release 后，再人工 dispatch `operation=public-readback`。此操作不下载原始构建 artifact，不调用上传；所有资产匿名下载。它检查两个准确 tag 提交、公开 ID、prerelease 和十一资产、GitHub Latest 选中稳定版，以及 Atom 选中同一源码的当前 App 入口之一。Atom 使用 updater 实际 XML parser，并按旧 `rc` 频道的真实选择方式跳过 stable、alpha 与 beta；首个合法 rc tag 必须为本次封存的兼容入口。当前 stable 首项不能掩盖后续旧 rc 版本。
 
-两种操作在每个文件读取前后检查 release metadata 与 asset ID；只允许读取自身引起的下载次数变化，其余变更均失败。公开发现入口在结束时再次验证。安全 JSON 收据只含源码、release ID、文件名、大小、digest 和 asset ID；不记录凭据、签名 URL 或私有路径。工作流把成功报告或最小失败记录保存为 Actions artifact；读回成功不会发布，TOS 检查及正式发布仍由运营者负责。
+两种读回操作在每个文件读取前后检查 release metadata 与 asset ID；只允许读取自身引起的下载次数变化，其余变更均失败。公开发现入口在结束时再次验证。安全 JSON 收据只含源码、release ID、文件名、大小、digest 和 asset ID；不记录凭据、签名 URL 或私有路径。工作流把成功报告或最小失败记录保存为 Actions artifact；读回成功不会发布，TOS 与 GitHub 的发布由运营者分别授权。
+
+<a id="tos-mirror"></a>
+
+## TOS 镜像
+
+只有两个已确认的 GitHub release 仍为草稿时，才能人工 dispatch `operation=tos-publish`。工作流下载相同四份原始 artifact，再检查源 run、全部文件字节及原生安装报告。独立稀疏 checkout 选择 `seal.sourceCommit`；执行前后，五份原 producer 与配置文件必须逐字节匹配准确 Git blob，绝不使用运营分支的 producer。独立 `tos-deps` 包锁定原发布器的 S3 SDK、YAML 与 semver 依赖；临时依赖链接随后删除，不安装 workspace 或重新构建。
+
+原镜像计划必须匹配五项封存二进制身份及四份 GitHub feed 哈希。维护中的 YAML parser 要求 Mac ZIP 在前并包含同批 ARM DMG、Windows 只有 EXE、SHA512 与大小准确，且 TOS 绝对 URL 指向对应对象。原发布器仅在不可变对象缺失时条件上传；已有对象也须匿名全文核对大小与 SHA256，之后才写入并验证四份 feed。失败可能留下已完成对象或部分已提升的 feed，再次 dispatch 前须核对。这项操作不发布或修改 GitHub release。
+
+只有 TOS 步骤接收临时加密 Actions secret `MUSE_TOS_PUBLISH_ENV_105_20261010`；运营者提供七字段环境配置，并在执行后删除这一项 secret。Wrapper 拒绝其他字段或目的地，建立 runner 私有目录及 `0600` 配置文件，删除后才写成功报告。原发布器只接收已验证的 TOS 字段与普通运行环境，不接收 GitHub token、整份 secret 或 TLS override。SDK 参数日志替换为有界 JSON 诊断，不消费请求流。安全 JSONL 保留五条 `binary-verified`、四条 `feed-verified` 和原末条 `published`；失败写固定 `failed` 事件。工作流保留日志及绑定源码的报告，不记录 secret 路径或内容。
 
 <a id="verification"></a>
 
