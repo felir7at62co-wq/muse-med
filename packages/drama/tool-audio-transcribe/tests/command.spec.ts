@@ -9,7 +9,12 @@ import { startAudioTranscription } from '../src/runner.ts'
 const adapter = vi.hoisted(() => ({
   probe: "process.stdout.write('30');process.stderr.write('probe diagnostic')",
   encode: "require('node:fs').writeFileSync(process.argv.at(-1), 'audio')",
-  children: [] as { closed: Promise<void>; isClosed: () => boolean; terminate: () => void }[],
+  children: [] as {
+    closed: Promise<void>
+    isClosed: () => boolean
+    killSignal: () => NodeJS.Signals | number | undefined
+    terminate: () => void
+  }[],
   onReady: undefined as (() => void) | undefined,
   onSpawn: undefined as (() => void) | undefined,
 }))
@@ -22,8 +27,12 @@ vi.mock('node:child_process', async (importOriginal) => {
       : actual.spawn(process.execPath, ['-e', command === 'fixture-probe' ? adapter.probe : adapter.encode, '--', ...args], options)
     if (command === 'fixture-encode') child.stdout?.once('data', () => { adapter.onReady?.() })
     let closed = false
+    let killSignal: NodeJS.Signals | number | undefined
+    const kill = child.kill.bind(child)
+    child.kill = (signal) => { killSignal = signal; return kill(signal) }
     adapter.children.push({ closed: new Promise<void>(resolve => child.once('close', () => { closed = true; resolve() })),
       isClosed: () => closed,
+      killSignal: () => killSignal,
       terminate: () => { child.kill() } })
     adapter.onSpawn?.()
     return child
@@ -126,6 +135,7 @@ it('preserves a cancellation arriving during spawn before the abort listener is 
   adapter.onSpawn = () => { controller.abort(reason) }
   await expect(startAudioTranscription(f.project, f.input, 'zh', f.account, f.config,
     undefined, undefined, controller.signal)).rejects.toBe(reason)
+  expect(adapter.children.at(-1)?.killSignal()).toBe('SIGKILL')
   expect(adapter.children.every(child => child.isClosed())).toBe(true)
   expect(f.submissions).toEqual([])
   expect(await readdir(join(f.project, 'transcript', 'jobs'))).toEqual([])
