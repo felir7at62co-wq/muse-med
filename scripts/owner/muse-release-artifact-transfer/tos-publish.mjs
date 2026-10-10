@@ -164,12 +164,12 @@ export function createTosPublisherObserver(plan, onEvent = () => {}) {
       } else if (event.stage === 'multipart-failed') {
         const details = event.details
         assert.ok(details && typeof details === 'object' && !Array.isArray(details), 'Missing multipart failure details')
-        assert.ok(['local-verification', 'create', 'part', 'complete', 'file-close'].includes(details.phase), 'Unknown multipart failure phase')
+        assert.ok(['local-verification', 'create', 'part', 'complete', 'file-close', 'transport-cleanup'].includes(details.phase), 'Unknown multipart failure phase')
         const httpStatus = value => value === null || Number.isInteger(value) && value >= 100 && value <= 599
         assert.ok(httpStatus(details.status), 'Invalid multipart failure status')
         assert.ok(['unknown', 'not-completed', 'existing-object', 'committed-or-existing'].includes(details.completion), 'Unknown multipart completion state')
         assert.ok(details.cleanup && typeof details.cleanup === 'object' && !Array.isArray(details.cleanup)
-          && ['unknown-upload-id', 'not-created', 'aborted', 'no-such-upload', 'abort-failed', 'not-needed', 'file-close-failed'].includes(details.cleanup.state)
+          && ['unknown-upload-id', 'not-created', 'aborted', 'no-such-upload', 'abort-failed', 'not-needed', 'file-close-failed', 'transport-disposal-failed'].includes(details.cleanup.state)
           && httpStatus(details.cleanup.status), 'Invalid multipart cleanup details')
         assert.ok(details.fileCloseFailed === undefined || typeof details.fileCloseFailed === 'boolean', 'Invalid multipart file-close status')
         const failure = { phase: details.phase, status: details.status, completion: details.completion,

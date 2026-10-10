@@ -55,6 +55,8 @@
 
 原镜像计划必须匹配五项封存二进制身份及四份 GitHub feed 哈希。维护中的 YAML parser 要求 Mac ZIP 在前并包含同批 ARM DMG、Windows 只有 EXE、SHA512 与大小准确，且 TOS 绝对 URL 指向对应对象。输送 preload 只选择封存的 Windows EXE 进行分片；Mac 文件保留原不可覆盖 PUT 和完整公开验证。原封存字节哈希固定源工作流与源提交。桥接器默认选择全部大二进制，只接受非空且不重复的选定子集。分片使用与原发布器同一 S3 SDK 模块的命令类。它全文验证本地大小与 SHA256，再串行上传可重放的 8 MiB 分片，瞬态错误（包含自身分片截止时间）最多尝试两次，最终用 `IfNoneMatch: '*'` 条件完成。Create 与 Complete 绝不自动重试；完成状态不明或自身任务取消失败时停止，不删除已完成对象或其他任务。小 blockmap 与四份 feed 仍走原 SDK。
 
+选中的 Windows 上传拥有由同一 SDK 模块创建的独立客户端，复用原凭据 provider。其 S3 配置禁用 `Expect: 100-continue`；明确配置的 HTTPS agent 保持默认 TLS 验证、不复用连接且只用一个 socket。原客户端与 Mac 请求保持不变。构造失败会释放已取得资源；每种上传结果都只销毁独立客户端、handler 与 agent。上传失败且资源释放也失败时，保留原上传错误；完成成功或已有对象结果之后释放失败，则停止 feed 提升。有界诊断分别报告这些结果，不含 SDK 错误正文或任务标识。
+
 完成成功与已有对象响应都回到原发布器，匿名全文核对大小与 SHA256。五份原二进制必须全部重新验证，之后才能写入并核验四份 feed，不能用之前的报告替代此次完整读回。失败可能留下已完成对象、自身未完成任务或部分已提升的 feed，再次 dispatch 前须核对。这项操作不发布或修改 GitHub release。
 
 只有 TOS 步骤接收临时加密 Actions secret `MUSE_TOS_PUBLISH_ENV_105_20261010`；运营者提供七字段环境配置，并在执行后删除这一项 secret。Wrapper 拒绝其他字段或目的地，建立 runner 私有目录及 `0600` 配置文件，删除后才写成功报告。原发布器只接收已验证的 TOS 字段与普通运行环境，不接收 GitHub token、整份 secret 或 TLS override。SDK 参数日志替换为有界 JSON 诊断，不消费请求流。安全 JSONL 保留五条 `binary-verified`、四条 `feed-verified` 和原末条 `published`；失败写固定 `failed` 事件。工作流保留日志及绑定源码的报告，不记录 secret 路径或内容。
@@ -64,6 +66,8 @@
 ## 验证
 
 只安装 owner 包：`npm ci --prefix scripts/owner/muse-release-artifact-transfer --ignore-scripts --no-audit --no-fund`，再运行 `node --test scripts/owner/muse-release-artifact-transfer/*.test.mjs`。Owner 测试使用临时目录、注入的 GitHub adapter 和模拟字节流，不申请网络监听器或调用 GitHub 服务。夹具覆盖原字节与报告绑定、匹配跳过、完整转运、源码与可见性变更、跳转、凭据不外传、流长度、digest 与公开发现入口。
+
+TOS 输送检查只安装 `tos-deps`：`npm ci --prefix scripts/owner/muse-release-artifact-transfer/tos-deps --ignore-scripts --no-audit --no-fund`，再运行 `node --test scripts/owner/muse-release-artifact-transfer/transport-tests/*.test.mjs`。锁定版本的官方 SDK 将命令序列化到假 HTTP handler，不发网络请求。检查覆盖默认与禁用 Expect 的请求头、准确请求正文和条件完成、原客户端归属、已取得资源释放及释放失败。工作流在 TOS 依赖安装之后运行这一独立测试入口。
 
 Actions 入口拒绝本地执行、其他仓库、非人工事件与其他分支。可运行 `node scripts/owner/muse-release-artifact-transfer/run.mjs --help` 查看帮助；真实 runner 执行须先提供确认清单。读回收据只放在 runner 临时目录，并排他创建以保留已有记录。
 

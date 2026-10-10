@@ -27,11 +27,11 @@ function check(condition) {
 
 /**
  * Install a reversible SDK send interceptor with injectable upload function for pure owner tests.
- * @param options - Release seal using the pinned original source/run, original artifact directories, SDK classes, optional nonempty distinct large-binary selectedKeys subset (defaults to all large binaries), and safe JSON event observer.
+ * @param options - Pinned release seal, original artifact directories and SDK classes, optional selectedKeys subset and owned transport factory, plus safe JSON events. Transport disposal failures prevent successful publication; upload errors remain primary.
  * @returns Function restoring the original SDK send method; import and installation perform no upload.
  */
 export function installSealedMultipartBridge({ S3Client, PutObjectCommand, S3ServiceException, commands, seal, artifactDirectories, selectedKeys,
-  multipartUpload = uploadImmutableMultipart, onEvent = () => {} }) {
+  createMultipartTransport, multipartUpload = uploadImmutableMultipart, onEvent = () => {} }) {
   validateTransferSeal(seal)
   check(seal.version === version && seal.sourceCommit === approvedSeal.sourceCommit && seal.sourceRun === approvedSeal.sourceRun)
   const files = new Map()
@@ -69,18 +69,47 @@ export function installSealedMultipartBridge({ S3Client, PutObjectCommand, S3Ser
       try { onEvent({ stage: 'sdk-log', level, key: file.key }) }
       catch (_error) { /* Diagnostics do not replace upload outcomes. */ }
     }
-    client.config.logger = { debug() {}, info() {}, warn() { reportSdk('warn') }, error() { reportSdk('error') } }
+    const logger = { debug() {}, info() {}, warn() { reportSdk('warn') }, error() { reportSdk('error') } }
+    let transport, successfulResult = false, primaryFailure, cleanupReported = false
+    const cleanupDetails = () => ({ phase: 'transport-cleanup', status: null,
+      completion: successfulResult ? 'committed-or-existing' : 'unknown',
+      cleanup: { state: 'transport-disposal-failed', status: null } })
+    const reportCleanupFailure = () => {
+      if (cleanupReported) return
+      cleanupReported = true
+      try { onEvent({ stage: 'multipart-failed', key: file.key, details: cleanupDetails() }) }
+      catch (_error) { /* Diagnostic failures do not replace the upload or disposal outcome. */ }
+    }
     try {
-      const result = await multipartUpload({ client, file, commands, signal: options.abortSignal, partSize: 8 * 1024 ** 2,
+      let uploadClient = client
+      if (createMultipartTransport) {
+        transport = createMultipartTransport({ sourceClient: client, logger, onCleanupFailure: reportCleanupFailure })
+        uploadClient = transport.client
+      } else client.config.logger = logger
+      const result = await multipartUpload({ client: uploadClient, file, commands, signal: options.abortSignal, partSize: 8 * 1024 ** 2,
         maxPartAttempts: 2, onEvent })
       check(result?.publicVerificationRequired === true && ['uploaded', 'already-exists'].includes(result.outcome))
+      successfulResult = true
       onEvent({ stage: 'multipart-finished', key: file.key, outcome: result.outcome, publicVerificationRequired: true })
       if (result.outcome === 'already-exists') throw new S3ServiceException({ name: 'PreconditionFailed', $fault: 'client',
         $metadata: { httpStatusCode: 412 }, message: 'Muse TOS: immutable object exists; complete public verification is required.' })
       return { $metadata: { httpStatusCode: 200 } }
     } catch (error) {
-      if (error instanceof MultipartUploadFailure) onEvent({ stage: 'multipart-failed', key: file.key, details: error.details })
+      primaryFailure = error
+      if (error instanceof MultipartUploadFailure) {
+        try { onEvent({ stage: 'multipart-failed', key: file.key, details: error.details }) }
+        catch (_diagnosticError) { /* Upload failure remains primary when its diagnostic observer fails. */ }
+      }
       throw error
+    } finally {
+      if (transport) {
+        try { transport.dispose() }
+        catch (_error) {
+          reportCleanupFailure()
+          // An accepted 412 is an upload result; failed transport disposal must prevent channel promotion.
+          if (!primaryFailure || successfulResult) throw new MultipartUploadFailure(cleanupDetails())
+        }
+      }
     }
     })()
   }
