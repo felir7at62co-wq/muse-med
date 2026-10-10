@@ -41,7 +41,7 @@ it('registers local analysis and download tools in creative scopes and leaves mi
     await ctx.plugin(Tools)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(SubprocessLocal)
-    for (const preset of ['standard', 'ptc', 'cordis', 'short-drama', 'editing', 'minimal']) {
+    for (const preset of ['standard', 'ptc', 'cordis', 'short-drama', 'editing', 'creation', 'minimal']) {
       const rows = yaml.load(readFileSync(new URL(`../../desktop-host/presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8'), { schema }) as PresetRow[]
       const hongguo = rows.find(row => row.id === 'muse-hongguo-download')
       const douyin = rows.find(row => row.id === 'muse-douyin-download')
@@ -65,7 +65,8 @@ it('registers local analysis and download tools in creative scopes and leaves mi
           expect(douyin?.config?.pythonExecutable, preset).toEqual({ __jsExpr: 'process.env.MUSE_DOUYIN_PYTHON_PATH || null' })
           expect(douyin?.config?.ffmpegExecutable, preset).toEqual({ __jsExpr: 'process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || null' })
           expect(douyin?.config?.ffprobeExecutable, preset).toEqual({ __jsExpr: 'process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || null' })
-          expect(reverse?.name, preset).toBe('muse-reverse-tools')
+          if (preset === 'creation') expect(reverse, preset).toBeUndefined()
+          else expect(reverse?.name, preset).toBe('muse-reverse-tools')
           expect(fanqie?.name, preset).toBe('muse-fanqie-download')
           expect(fanqie?.config?.pythonExecutable, preset).toEqual({ __jsExpr: "process.env.MUSE_FANQIE_PYTHON_PATH || process.env.MUSE_HONGGUO_PYTHON_PATH || ''" })
           await scope.ctx.plugin(Hongguo, { sourceMode: 'legacy', signTokenEnv: 'MUSE_HONGGUO_SIGN_TOKEN' })

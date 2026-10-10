@@ -1,6 +1,6 @@
 import { defineConfig } from 'tsdown'
 
-export default defineConfig(['index', 'cli', 'native-preset'].map(name => ({
+export default defineConfig(['index', 'cli', 'native-preset', 'creation-policy', 'creation-skills'].map(name => ({
   entry: ['lib/types/' + name + '.js'],
   outDir: 'lib',
   format: ['esm'] as const,

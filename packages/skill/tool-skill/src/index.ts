@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionSeq, type UserMessage } from '@deepseek-ai/dsh-session'
 import {
@@ -25,6 +25,8 @@ export const name = 'tool-skill'
 export const inject = ['agents', 'tools', 'skills']
 
 const DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH = 500
+// Only the visible active loader owns a catalog in nested preset compositions.
+const activeSkillTools = new WeakSet<ToolDefinition>()
 /**
  * Durable provider and item records for one published session skill catalog. The catalog is a
  * `catalog`-form context, so it records the entries it published beside the
@@ -61,11 +63,14 @@ function catalogSourceEntries(
 export interface Config {
   /** Maximum normalized description length rendered in the session catalog; minimum 3. */
   catalogDescriptionMaxLength?: number
+  /** Preserve this scoped loader's catalog through other Host loader listeners; defaults to false. */
+  scopedCatalogOwner?: boolean
 }
 
 /** Validate and default the model-facing skill catalog configuration. */
 export const Config: z<Config> = z.object({
   catalogDescriptionMaxLength: z.number().default(DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH),
+  scopedCatalogOwner: z.boolean().default(false),
 })
 
 /**
@@ -76,6 +81,7 @@ export const Config: z<Config> = z.object({
  */
 export function apply(ctx: Context, config: Config = {}): void {
   const catalogDescriptionMaxLength = config.catalogDescriptionMaxLength ?? DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH
+  const scopedCatalogOwner = config.scopedCatalogOwner ?? false
   assertPositiveInteger('catalogDescriptionMaxLength', catalogDescriptionMaxLength, 3)
 
   const skillTool = defineTool({
@@ -159,6 +165,12 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
   })
   ctx.tools.register(skillTool)
+  if (scopedCatalogOwner) {
+    ctx.effect(() => {
+      activeSkillTools.add(skillTool)
+      return () => { activeSkillTools.delete(skillTool) }
+    }, 'tool-skill.catalog-owner')
+  }
 
   // User-explicit skill invocation: a claimed user message whose first line
   // starts with `/<name>` naming a user-invocable skill is a deterministic
@@ -180,6 +192,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   ): Promise<PreStepDecision> => {
     const decision = await next()
     if (decision.kind === 'reject') return decision
+    if (ctx.tools.get(skillTool.name, agent) !== skillTool) return decision
     const names = invokedSkillNames(messages)
     if (names.length === 0) return decision
     signal.throwIfAborted()
@@ -199,7 +212,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         source,
       }))
     }
-    if (injections.length === 0) return decision
+    if (injections.length === 0 || ctx.tools.get(skillTool.name, agent) !== skillTool) return decision
     return { ...decision, messages: [...decision.messages, ...injections] }
   })
 
@@ -217,11 +230,18 @@ export function apply(ctx: Context, config: Config = {}): void {
     const decision = await next()
     if (decision.kind === 'reject') return decision
     signal.throwIfAborted()
-    const toolVisible = ctx.tools.get(skillTool.name, agent) === skillTool
-    const snapshot = toolVisible
+    const visibleTool = ctx.tools.get(skillTool.name, agent)
+    if (visibleTool !== skillTool && visibleTool !== undefined && activeSkillTools.has(visibleTool)) return decision
+    const toolVisible = visibleTool === skillTool
+    let snapshot = toolVisible
       ? await ctx.skills.snapshot({ cwd: agent.session.header.cwd, signal, scope: agent })
       : { skills: [], complete: true }
     signal.throwIfAborted()
+    const currentTool = ctx.tools.get(skillTool.name, agent)
+    if (currentTool !== skillTool) {
+      if (currentTool !== undefined && activeSkillTools.has(currentTool)) return decision
+      if (scopedCatalogOwner) snapshot = { skills: [], complete: true }
+    }
     if (!snapshot.complete) return decision
     const skills = snapshot.skills.filter(isModelInvocable)
     const entries = catalogSourceEntries(skills, catalogDescriptionMaxLength)

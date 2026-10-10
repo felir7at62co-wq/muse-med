@@ -21,6 +21,8 @@ export type AgentPresetSettingsKey =
   | 'presetMinimalDescription'
   | 'presetCordisName'
   | 'presetCordisDescription'
+  | 'presetCreationName'
+  | 'presetCreationDescription'
   | 'inUse'
   | 'noDescription'
   | 'brokenBadge'
@@ -59,6 +61,10 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   presetCordisName: 'Creator mode',
   presetCordisDescription:
     'Customize DSH through conversation. Let the agent write plugins that add features or UI, or combine tools and prompts to create your own mode.',
+
+  presetCreationName: 'Creation mode',
+  presetCreationDescription:
+    'Use one agent for transcription, script editing, short-drama production, and media editing. Load skills as needed and coordinate tools through PTC.',
 
   inUse: 'New task default',
 
@@ -100,6 +106,9 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   presetMinimalDescription: 'Agent 仅使用终端工具完成任务，适合测试和对比其基础表现。',
   presetCordisName: '创造模式',
   presetCordisDescription: '用对话定制 DSH：让 Agent 编写插件，添加新功能或界面；也能组合工具和提示词，创建自己的模式。',
+
+  presetCreationName: '创作模式',
+  presetCreationDescription: '用单个 Agent 完成转写、剧本编辑、短剧制作与素材剪辑，按需加载技能并通过 PTC 编排工具。',
 
   inUse: '新任务默认',
 

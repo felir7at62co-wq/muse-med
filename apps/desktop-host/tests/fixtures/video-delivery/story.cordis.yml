@@ -1,0 +1,16 @@
+- id: agent-default-model
+  config:
+    provider: story-delivery-fixture
+    model: story-delivery-fixture
+- insert:
+    - id: tool-present
+      name: '../../../../../packages/deliverables/tool-present/src/index.ts'
+    - id: screenplay-docx
+      name: '../../../src/screenplay-docx.ts'
+      config:
+        source: './unused-runtime'
+        maxInputBytes: 1000000
+        maxProjectBytes: 1000000
+        timeoutMs: 30000
+    - id: story-delivery-fixture
+      name: './story-model.ts'

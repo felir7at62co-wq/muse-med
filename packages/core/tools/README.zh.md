@@ -80,7 +80,7 @@ ctx.tools.register(defineTool({
 
 ### 按 agent 限制工具
 
-`ctx.tools.restrict(filter)` 对单个 agent 继承的全局工具应用允许或拒绝掩码；掩码取交集，作用域注册保持可见，限制在 dispose（资源释放）时解除。`allow` 和 `deny` 在注册时拒绝未知名称。只有已知提供方可能在 agent 挂载后才注册工具时才使用 `futureDeny`；工具出现后仍会被隐藏。`ctx.tools.get(name, scope)` 按一个作用域的视角解析工具。使用 Host 本地展示转换器的消费方如需匹配实际执行的定义，会传入发起调用的 agent。`ctx.tools.schemas(scope)` 返回可见 schema（不含 `execute` 函数）。
+`ctx.tools.restrict(filter)` 过滤 agent 从全局层和祖先层继承的工具；限制取交集，并在 dispose（资源释放）时解除。自身作用域的注册默认保持可见。设置 `includeOwn: true` 后也过滤自身注册，包括后代作用域中的自身注册。`allow` 和 `deny` 拒绝尚未在继承层注册的名称。`futureAllow` 和 `futureDeny` 接受提供方可能稍后注册的名称；同时提供 `allow` 和 `futureAllow` 时两者取交集。保留的 `run_code` 传输工具不受过滤。`ctx.tools.get(name, scope)` 按一个作用域的视角解析工具。Host 本地展示转换器传入发起调用的 agent，以匹配实际执行的定义。`ctx.tools.schemas(scope)` 返回可见 schema，不含执行函数。
 
 ### 对调用实施策略
 

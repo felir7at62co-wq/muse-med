@@ -1,0 +1,19 @@
+- id: agent-default-model
+  config:
+    provider: screenplay-refinement-fixture
+    model: screenplay-refinement-fixture
+- id: tools
+  config:
+    mode: ptc
+- id: session-persistence-jsonl
+  config:
+    root: './.sessions'
+    compression: none
+- insert:
+    - id: screenplay-project
+      name: '../../src/index.ts'
+      config:
+        reviewMode: self-check
+        refinementMode: source-preserving-v1
+    - id: screenplay-refinement-fixture
+      name: './refinement-model.ts'

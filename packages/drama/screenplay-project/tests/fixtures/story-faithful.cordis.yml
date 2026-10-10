@@ -1,0 +1,25 @@
+- id: agent-default-model
+  config:
+    provider: screenplay-story-faithful-fixture
+    model: screenplay-story-faithful-fixture
+- id: tools
+  config:
+    mode: ptc
+- id: session-persistence-jsonl
+  config:
+    root: './.sessions'
+    compression: none
+- insert:
+    - id: screenplay-project
+      name: '../../src/index.ts'
+      config:
+        reviewMode: self-check
+        refinementMode: source-preserving-v1
+        storyFaithfulMode: story-faithful-v2
+    - id: tool-video-inspect
+      name: '../../../../perception/tool-video-inspect/src/index.ts'
+      config:
+        trustedEvidence: true
+        frameMaxDimension: 64
+    - id: screenplay-story-faithful-fixture
+      name: './story-faithful-model.ts'

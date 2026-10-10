@@ -19,7 +19,7 @@ import NativePreset from '../../desktop-host/src/native-preset.ts'
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/defaults.cordis.patch.yml', import.meta.url))
 
-it('loads exactly the six product modes without discovering other shipped or personal presets', async () => {
+it('loads exactly the seven product modes without discovering other shipped or personal presets', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-product-preset-'))
   const ctx = new Context()
   try {
@@ -62,8 +62,12 @@ it('loads exactly the six product modes without discovering other shipped or per
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['cordis', 'editing', 'minimal', 'ptc', 'short-drama', 'standard'])
+    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['cordis', 'creation', 'editing', 'minimal', 'ptc', 'short-drama', 'standard'])
     expect(ctx.agentPresets.defaultId).toBe('short-drama')
+    expect(await ctx.agentPresets.resolve('creation')).toMatchObject({ id: 'creation' })
+    const creation = (await ctx.agentPresets.list()).find(row => row.id === 'creation')
+    expect(creation?.name).toBeUndefined()
+    expect(creation?.description).toBeUndefined()
     const document = await ctx.agentPresets.readDocument('short-drama')
     const source = document.content
     const rows = yaml.load(source, { schema: entryListSchema }) as Array<{ id: string; config?: { prefix?: string } }>

@@ -1,0 +1,18 @@
+- id: agent-default-model
+  config:
+    provider: screenplay-self-check-fixture
+    model: screenplay-self-check-fixture
+- id: tools
+  config:
+    mode: ptc
+- id: session-persistence-jsonl
+  config:
+    root: './.sessions'
+    compression: none
+- insert:
+    - id: screenplay-project
+      name: '../../src/index.ts'
+      config:
+        reviewMode: self-check
+    - id: screenplay-self-check-fixture
+      name: './self-check-model.ts'

@@ -22,7 +22,7 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
-async function fixture() {
+async function fixture(reviewMode: 'independent' | 'self-check' = 'independent') {
   const root = await mkdtemp(join(tmpdir(), 'screenplay-tool-'))
   const ctx = new Context()
   fixtures.push({ ctx, root })
@@ -32,7 +32,7 @@ async function fixture() {
   const driver = await mountAgentLoopTestHarness(ctx)
   const agent = await driver.create(SessionId('screenplay-writer'), {}, { cwd: root })
   const register = vi.spyOn(ctx.tools, 'register')
-  apply(ctx, Config({}))
+  apply(ctx, Config({ reviewMode }))
   const tool = register.mock.calls[0]![0]
   let ordinal = 0
   const call = (request: Record<string, unknown>, initiated = true) => ctx.tools.execute({
@@ -46,6 +46,7 @@ it('validates configurable allocation budgets and rejects nonpositive or fractio
   expect(name).toBe('screenplay-project')
   expect(inject).toEqual(['fs', 'tools', 'attachments', 'llm'])
   expect(Config({})).toEqual({
+    reviewMode: 'independent', refinementMode: 'disabled', storyFaithfulMode: 'disabled',
     maxSourceBytes: 16 * 1024 * 1024, maxProjectBytes: 32 * 1024 * 1024, maxReadUnits: 100, maxReadBytes: 64 * 1024, maxFactBatch: 20,
   })
   for (const field of ['maxSourceBytes', 'maxProjectBytes', 'maxReadUnits', 'maxReadBytes', 'maxFactBatch']) {

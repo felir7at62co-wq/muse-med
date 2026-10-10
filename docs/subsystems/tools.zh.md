@@ -162,20 +162,24 @@ type InferArgs<S> = InferProperties<S, []>
 
 ## `ToolRestriction` — 单个作用域对其继承内容的实时过滤器
 
-`ToolRestriction` 作用于该作用域继承来的工具：部署全局层，加上其链上的每个祖先作用域。注册表将 readonly 名称编译为私有集合，对多个限制取交集，再叠加该作用域**自身**的注册——后者不受约束，因此被委派的子 agent 会保留其回报所依赖的工具。仅 deny 的过滤器允许后续未列出的继承工具通过，而 allow 列表则排除它们。`allow` 和 `deny` 要求名称已经注册；`futureDeny` 会在所指工具的提供方稍后注册时隐藏该工具。
+`ToolRestriction` 过滤作用域从部署全局层和祖先层继承的工具。自身注册默认不受限制，使被委派的子 agent 保留其回答工具；`includeOwn: true` 也将该限制应用于查看作用域及其后代作用域中的自身注册。注册表为 readonly 名称创建快照，并对限制取交集。仅 deny 的过滤器允许后续未列出的工具；allow 列表排除它们。`allow` 和 `deny` 要求继承名称已经注册，而 `futureAllow` 和 `futureDeny` 接受提供方可能稍后注册的名称。同时提供 `allow` 和 `futureAllow` 时两者取交集。所有限制均保留 PTC 传输工具。
 
 ```ts type-equiv
 /**
- * Per-scope filter over global tools. Restrictions intersect and do not affect
- * scoped registrations or the reserved PTC mode transport.
+ * Per-scope filter over inherited tools. Restrictions intersect; `includeOwn`
+ * also filters the viewing scope's registrations. The reserved PTC transport is exempt.
  */
 interface ToolRestriction {
-  /** Global tool names that stay visible; everything else is removed. */
+  /** Registered inherited tool names that stay visible; everything else is removed. */
   readonly allow?: readonly string[]
-  /** Global tool names removed from visibility. */
+  /** Tool names that stay visible, including names whose providers register later; intersects `allow`. */
+  readonly futureAllow?: readonly string[]
+  /** Registered inherited tool names removed from visibility. */
   readonly deny?: readonly string[]
-  /** Global tool names to hide even if their provider registers after this restriction. */
+  /** Tool names to hide even if their provider registers after this restriction. */
   readonly futureDeny?: readonly string[]
+  /** Also filter the viewing scope's own registrations; omission preserves their exemption. */
+  readonly includeOwn?: boolean
 }
 ```
 
@@ -532,12 +536,11 @@ presentAs(mode: ToolPresentationMode): () => Promise<void>
 register(definition: ToolDefinition): () => void
 
 /**
- * Restrict global tools for the calling agent scope. Empty filters, unknown
+ * Restrict inherited tools for the calling agent scope. Empty filters, unknown
  * `allow`/`deny` names, scope-local names, and reserved transport names fail.
- * `futureDeny` names are explicit exceptions for providers that register later.
- * Restrictions intersect; scoped registrations remain visible.
- * @param filter - global-tool mask: `allow` (keep only), `deny` (remove known names),
- * and/or `futureDeny` (remove names even when registered later).
+ * `futureAllow` and `futureDeny` accept names whose providers register later.
+ * Allow-lists intersect; own registrations remain visible unless `includeOwn` is true.
+ * @param filter - inherited-tool mask, optionally including own-scope registrations.
  * @returns the exact disposer that lifts this restriction.
  */
 restrict(filter: ToolRestriction): () => void

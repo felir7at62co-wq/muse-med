@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-10-screenplay-self-check-read.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-10-10-screenplay-self-check-read.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-10-10-screenplay-self-check-read:
+  en: eebd3fd571a6b932
+  zh: e46357b6aa9a968a
+/2026-10-10-screenplay-self-check-read/summary:
+  en: c9763f69a6f44dc0
+  zh: 25ec49b201d36548
+/2026-10-10-screenplay-self-check-read/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-10-10-screenplay-self-check-read/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-10-10-screenplay-self-check-read/compatibility:
+  en: 8570e09728a6ec53
+  zh: c5ca5a4a487e9cce
+/2026-10-10-screenplay-self-check-read/verification:
+  en: ac12d28ffb4428fd
+  zh: 48cc8336d1b09c24
+/2026-10-10-screenplay-self-check-read/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

@@ -33,6 +33,8 @@ Uniform samples use the middle of equally sized intervals. `timestamps_seconds` 
 
 The deployment can configure `sceneThreshold` (default 0.25), `scenePaddingSeconds` (0.12), `maxPlanPoints` (1000) and `maxTranscriptBytes` (2097152). A candidate-plan overflow rejects the call with a shorter-interval instruction instead of hiding events. An absent transcript still permits scene-based sampling. Transcript changes during reading or extraction abort publication.
 
+Creation deployments can enable `trustedEvidence` (default false). A real `metadata` call then returns `window_plan`, partitioning the complete probed duration into contiguous windows no longer than `min(60, maxRangeSeconds)`. Trusted sampling requires a successful metadata call for the same current video first. Planned windows remain unviewed until subsequent successful sample calls return actual frames; narrow follow-up calls can inspect conflicts, causes, consequences, endings and uncertain moments. Scene cuts and ASR timecodes select candidates, without identifying story meaning.
+
 ## Execution and storage
 
 Reads resolve through `ctx.fs`; probes and decoders execute through `ctx.subprocess` under the current Session file policy. Confined execution requires an available sandbox provider. FFmpeg accepts only local file and pipe protocols. Source size, encoded image area (`maxSourcePixels`, default 33,177,600), duration, frame dimensions, complete PNG bytes, process deadlines and concurrent inspections are deployment-configurable. Each command awaits process-range termination, including cancellation and failure. Removing the plugin cancels and awaits its active inspections.
@@ -40,6 +42,10 @@ Reads resolve through `ctx.fs`; probes and decoders execute through `ctx.subproc
 Frames enter the normalized attachment store before returning as image blocks. The manifest is created inside the current workspace without replacing an existing file, then read back. A changed source version aborts publication. Source media is unchanged, and no remote media URL or account credential enters the result. No invariant companion is published because each manifest and attachment has one authoritative storage owner.
 
 Adaptive sampling trims decoded source timestamps to the requested interval before emitting scene metadata. It divides that interval by the returned-frame budget and prioritizes cuts, then utterances, within each temporal bucket. A burst of cuts near the opening cannot consume the whole overview. Every remaining observation stays deferred; an overview remains sampled evidence, not continuous viewing.
+
+The Host-only `resolveTrustedVideoEvidence` export matches an imported manifest to this registration's actual execution record. It requires unchanged canonical tool output, successful enclosing executions, committed tool results, and a later completed image-capable AgentLoop request whose provider projection retains every returned image. Its receipt binds source path and filesystem version, probed duration, metadata plan, the actual sampled interval, requested times, decoded timestamps, attachments, original manifest-byte hashes, projected model-input digest and Session event references. `verified_readback` establishes only manifest readback; model-supplied JSON cannot issue a receipt. An individual receipt never establishes that every planned window has been sampled.
+
+In-progress work requires live registration evidence; unloading or restarting removes it and requires inspection again. For already accepted work only, the Host can supply its saved receipt to the same helper, with no current Session required. Recovery reads the original Session through `sessionQuery`, verifies real video-tool results and successful execution ancestry, and reconstructs the later model's image-containing input before checking current source versions, manifests and attachments. It does not rerun media commands or a model. Missing original logs or changed files block recovery. The receipt relies on trusted Host Session storage, rather than a signature resistant to administrator changes to that storage. The exported `TRUSTED_VIDEO_INSPECTION_RECEIPT` parser validates file fields; parsing alone establishes no trust.
 
 ## Model Experience
 
@@ -53,6 +59,8 @@ The [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-video-inspe
 
 The schema adds a fixed request cost. Results add bounded text and at most the configured number of image inputs; image pricing and request resizing belong to the selected provider. Full video bytes are never placed in model context.
 
+Opt-in metadata plans add one interval per planned window. Host evidence checks and accepted-record recovery add no model request or model-visible context.
+
 #### KV Cache effect
 
 Tool results append without rewriting earlier messages. Schema or description changes alter the reusable request prefix; frame attachments add visual inputs to later requests until the ordinary image offload policy applies.
@@ -62,7 +70,9 @@ Tool results append without rewriting earlier messages. Schema or description ch
 - Sampled frames can miss short actions, transitions and lip movement. Inspect uncertain timecodes and additional intervals; sampling does not establish complete video coverage.
 - Visual observations do not establish dialogue, speaker identity or consistent timbre. Speech transcription and human listening remain separate.
 - Decode support depends on the installed FFmpeg build. This tool does not fetch web links, use native provider video input or identify characters automatically.
+- A later image-input receipt requires every target frame to remain visible, excluding offloaded images. It establishes delivery of sampled frames, without proving attention, story interpretation, artistic quality or continuous viewing. Story coverage, unresolved critical issues and semantic decisions remain the caller's responsibility.
+- Evidence recovery requires the original model route and its image-capable projection to remain available. Private assistant replay state from another provider blocks issuance when the adapter-specific projection cannot be reconstructed; use a fresh Session for that provider switch.
 
 ### Dev Note
 
-Focused tests use actual FFmpeg, filesystem reads and normalized attachments. The recorded Session scenario loads the plugin through the shipped profile and substitutes only deterministic media process output.
+Focused tests use original synthetic FFmpeg media, real PTC execution, filesystem reads, normalized attachments and a keyless scripted model. They inspect actual image blocks in its requests and exercise registration loss and log-backed accepted recovery. The recorded Session scenario loads the plugin through the shipped profile and substitutes only deterministic media process output.

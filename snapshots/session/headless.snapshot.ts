@@ -540,6 +540,11 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       await cp(join(repoRoot, 'apps/desktop-host/skills', name), join(cwd, '.dsh', 'skills', name), { recursive: true })
     }
   },
+  async 'muse-creation-skills'(cwd) {
+    await workspaceSetups['muse-editing-trial-skills']!(cwd)
+    await cp(join(repoRoot, 'packages/drama/skills/skills'), join(cwd, '.dsh/skills'), { recursive: true })
+    await cp(join(repoRoot, 'apps/desktop-host/skills'), join(cwd, '.dsh/skills'), { recursive: true })
+  },
   async 'muse-audio-transcribe-skill-legacy'(cwd) {
     await workspaceSetups['muse-editing-skill']!(cwd)
     await copyFile(join(repoRoot, 'snapshots/session/muse-audio-transcribe-skill/audio-transcribe.skill.txt'), join(cwd, '.dsh/skills/audio-transcribe/SKILL.md'))

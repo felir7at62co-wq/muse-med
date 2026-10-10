@@ -3,6 +3,12 @@
 import { createHash } from 'node:crypto'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { ProjectFile } from './schema.ts'
+import { validReview, validWithdrawal } from './review.ts'
+import { renderStoryNotes, validateStoryCandidate, validateStorySupplement } from './story.ts'
+import { isAuthorizedSupplement, renderModificationNotes, validateRefinement } from './refinement.ts'
+
+type Scene = ProjectFile['candidates'][number]['scenes'][number]
+type Beat = Scene['beats'][number]
 
 /**
  * SHA-256 of exact UTF-8 text or original file bytes.
@@ -26,32 +32,87 @@ export interface EpisodeRender {
   script: string
   lines: ScriptLine[]
   knowledge: Record<string, string[]>
+  /** Final-bound refinement report delivered separately from the screenplay body. */
+  modification_notes?: string
 }
 
 /**
  * Validate attribution and fold an episode's public observations and private thoughts.
  * Audible VO requires reviewed speech; only its declared listeners acquire it.
  * Voice-only character labels decorate the script without changing stored identities.
+ * Explicit synchronous action display preserves typed beat order and knowledge timing.
+ * Adjacency alone does not establish simultaneous action; review must verify the reason.
  * Semantic entailment of paraphrases remains the independent reviewer's responsibility.
  * @param project - Validated immutable facts and accepted episodes.
  * @param scenes - Ordered scenes to render.
  * @param previous - Character knowledge derived from preceding accepted episodes.
  * @param episode - Application-issued episode number used in scene headings.
- * @returns Generated script lines, their source references, and resulting knowledge.
+ * @param candidate - Exact candidate carrying explicit source-preserving refinement metadata.
+ * @returns Script lines, source references, knowledge, and a separate report for refinement candidates.
  */
-export function renderEpisode(project: ProjectFile, scenes: ProjectFile['candidates'][number]['scenes'], previous: Record<string, string[]>, episode: number): EpisodeRender {
-  return renderWithFacts(scenes, previous, episode, factIndex(project))
+export function renderEpisode(project: ProjectFile, scenes: Scene[], previous: Record<string, string[]>, episode: number,
+  candidate?: ProjectFile['candidates'][number]): EpisodeRender {
+  if (candidate !== undefined) {
+    validateRefinement(project, candidate)
+    validateStoryCandidate(project, candidate)
+    if ((candidate.refinement !== undefined || candidate.story_adaptation !== undefined)
+      && (episode !== candidate.episode || JSON.stringify(scenes) !== JSON.stringify(candidate.scenes))) {
+      throw Error('synchronous_action_context: 同步展示须使用已绑定精修候选的原场次和集号。')
+    }
+  }
+  const rendered = renderWithFacts(scenes, previous, episode, factIndex(project),
+    candidate?.refinement !== undefined || candidate?.story_adaptation !== undefined)
+  if (candidate?.story_adaptation !== undefined) return { ...rendered, modification_notes: renderStoryNotes(project, candidate) }
+  return candidate?.refinement === undefined ? rendered
+    : { ...rendered, modification_notes: renderModificationNotes(project, candidate) }
 }
 
 function factIndex(project: ProjectFile) {
+  const allFacts = project.facts
+  for (const fact of allFacts) validateStorySupplement(project, fact)
+  for (const fact of allFacts) if (fact.review !== undefined && !validReview(project, fact, 'fact')) {
+    throw Error('invalid_fact_review: 事实审校身份或自检证据无效。')
+  }
+  for (const fact of allFacts) if (fact.withdrawal !== undefined && !validWithdrawal(project, fact)) {
+    throw Error('invalid_withdrawal: 事实撤销身份或自检证据无效。')
+  }
   return {
-    facts: new Map(project.facts.filter(fact => fact.review?.decision === 'approve' && fact.withdrawal === undefined).map(fact => [fact.id, fact])),
-    withdrawn: new Set(project.facts.filter(fact => fact.withdrawal !== undefined).map(fact => fact.id)),
+    facts: new Map(allFacts.filter(fact => fact.review?.decision === 'approve' && fact.withdrawal === undefined).map(fact => [fact.id, fact])),
+    withdrawn: new Set(allFacts.filter(fact => fact.withdrawal !== undefined).map(fact => fact.id)),
   }
 }
 
+function synchronousActions(scene: Scene, facts: ReturnType<typeof factIndex>['facts']) {
+  const targets = new Map<number, { beat: Beat; index: number }>()
+  for (const [index, beat] of scene.beats.entries()) {
+    if (beat.sync_with === undefined && beat.synchrony_reason === undefined) continue
+    const targetIndex = (beat.sync_with ?? 0) - 1
+    const target = scene.beats[targetIndex]
+    if (beat.kind !== 'action' || beat.sync_with === undefined || !Number.isInteger(beat.sync_with)
+      || !beat.synchrony_reason?.trim() || Math.abs(targetIndex - index) !== 1
+      || target === undefined || target.kind === 'action') {
+      throw Error('synchronous_action_relation: 同步展示须由动作明确关联本场相邻的对白、OS 或 VO，并说明真实同时发生的依据。')
+    }
+    if (beat.actor === undefined || !scene.characters.includes(beat.actor) || target.actor !== beat.actor
+      || scene.voice_only_characters?.includes(beat.actor)
+      || beat.fact_ids.some(id => facts.get(id)?.actor !== beat.actor)) {
+      throw Error('synchronous_action_actor: 同步动作须保留原行动人物，并与本场非仅 VO 人物的发声归属一致。')
+    }
+    if (targets.has(targetIndex)) throw Error('synchronous_action_target: 一条发声仅可合并展示一条同步动作。')
+    for (const id of beat.fact_ids) {
+      const fact = facts.get(id)
+      if (fact?.origin === 'source' && fact.kind === 'action'
+        && scene.beats.filter(other => other.fact_ids.includes(id)).length > 1) {
+        throw Error(`synchronous_action_duplicate: ${id} 的来源动作不能在本场重复展示。`)
+      }
+    }
+    targets.set(targetIndex, { beat, index })
+  }
+  return targets
+}
+
 function renderWithFacts(scenes: ProjectFile['candidates'][number]['scenes'], previous: Record<string, string[]>, episode: number,
-  { facts, withdrawn }: ReturnType<typeof factIndex>): EpisodeRender {
+  { facts, withdrawn }: ReturnType<typeof factIndex>, refinement = false): EpisodeRender {
   const knowledge = structuredClone(previous)
   const output: string[] = [`第${episode}集`]
   const lines: ScriptLine[] = []
@@ -78,6 +139,10 @@ function renderWithFacts(scenes: ProjectFile['candidates'][number]['scenes'], pr
         throw Error('flashback_return: return_present 必须从闪回、梦境或想象回到现实。')
       }
     }
+    if (!refinement && scene.beats.some(beat => beat.sync_with !== undefined || beat.synchrony_reason !== undefined)) {
+      throw Error('synchronous_action_policy: 同步展示须在明确授权且绑定原稿的保源精修候选中使用。')
+    }
+    const synchronous = synchronousActions(scene, facts)
     const layer = { present: '现实', flashback: '闪回', dream: '梦境', imagined: '想象' }[scene.layer]
     const voiceOnly = new Set(scene.voice_only_characters ?? [])
     if (voiceOnly.size !== (scene.voice_only_characters?.length ?? 0)) throw Error('voice_characters: 画外人物不能重复。')
@@ -90,10 +155,9 @@ function renderWithFacts(scenes: ProjectFile['candidates'][number]['scenes'], pr
     }
     const characters = scene.characters.map(character => voiceOnly.has(character) ? `${character}（VO）` : character)
     output.push(`${episode}-${sceneIndex + 1} ${scene.location} ${scene.time} ${scene.setting ?? '内外待核实'}【${layer}】`, `人物：${characters.join('、')}`)
-    for (const beat of scene.beats) {
+    for (const [beatIndex, beat] of scene.beats.entries()) {
       if (beat.hook === true) {
         if (hookSeen || sceneIndex !== scenes.length - 1) throw Error('episode_hook: 集尾悬念仅可在最后场次标记一次。')
-        output.push('【下集钩子】')
         hookSeen = true
       }
       if (beat.text.includes('\n') || beat.text.includes('\r')) throw Error('beat_text: 每条动作或发声须为一个段落。')
@@ -150,11 +214,19 @@ function renderWithFacts(scenes: ProjectFile['candidates'][number]['scenes'], pr
         for (const fact of referenced) known.add(fact.id)
         knowledge[key] = [...known].sort()
       }
-      const prefix = beat.kind === 'action' ? '▲' : beat.kind === 'dialogue' ? `${beat.actor}：`
-        : beat.kind === 'os' ? `${beat.actor}（OS）：` : `${beat.actor ?? '旁白'}（VO）：`
+      if (beat.sync_with !== undefined) continue
+      const linked = synchronous.get(beatIndex)
+      if (beat.hook === true || linked?.beat.hook === true) output.push('【下集钩子】')
+      const actor = beat.actor ?? '旁白'
+      const display = linked === undefined ? '' : linked.beat.text
+      const prefix = beat.kind === 'action' ? '▲' : beat.kind === 'dialogue' ? `${actor}${linked === undefined ? '' : `（${display}）`}：`
+        : `${actor}（${beat.kind === 'os' ? 'OS' : 'VO'}${linked === undefined ? '' : `，${display}`}）：`
       output.push(`${prefix}${beat.text}`)
-      lines.push({ line: output.length, scene: sceneIndex + 1, fact_ids: [...beat.fact_ids],
-        source_units: [...new Set(referenced.flatMap(fact => fact.anchors.map(anchor => anchor.unit_id)))].sort() })
+      const displayed = linked === undefined ? [beat] : linked.index < beatIndex ? [linked.beat, beat] : [beat, linked.beat]
+      const ids = linked === undefined ? [...beat.fact_ids] : [...new Set(displayed.flatMap(value => value.fact_ids))]
+      const displayFacts = ids.flatMap((id) => { const fact = facts.get(id); return fact === undefined ? [] : [fact] })
+      lines.push({ line: output.length, scene: sceneIndex + 1, fact_ids: ids,
+        source_units: [...new Set(displayFacts.flatMap(fact => fact.anchors.map(anchor => anchor.unit_id)))].sort() })
     }
     output.push('')
     prior = scene
@@ -163,14 +235,16 @@ function renderWithFacts(scenes: ProjectFile['candidates'][number]['scenes'], pr
 }
 
 /**
- * Bind the source coverage plan to the same immutable version as the scenes.
- * @param candidate - Episode content and optional managed-video coverage.
+ * Bind scene content, source coverage, and optional refinement notes to one immutable version.
+ * @param candidate - Episode content and optional coverage or refinement metadata.
  * @returns Candidate SHA-256; legacy candidates retain their original digest.
  */
-export function candidateDigest(candidate: Pick<ProjectFile['candidates'][number], 'episode' | 'scenes' | 'coverage' | 'source_ids'>): string {
+export function candidateDigest(candidate: Pick<ProjectFile['candidates'][number], 'episode' | 'scenes' | 'coverage' | 'source_ids' | 'refinement' | 'story_adaptation'>): string {
   return sha256(JSON.stringify({ episode: candidate.episode, scenes: candidate.scenes,
     ...(candidate.coverage === undefined ? {} : { coverage: candidate.coverage }),
-    ...(candidate.source_ids === undefined ? {} : { source_ids: candidate.source_ids }) }))
+    ...(candidate.source_ids === undefined ? {} : { source_ids: candidate.source_ids }),
+    ...(candidate.refinement === undefined ? {} : { refinement: candidate.refinement }),
+    ...(candidate.story_adaptation === undefined ? {} : { story_adaptation: candidate.story_adaptation }) }))
 }
 
 /**
@@ -180,6 +254,10 @@ export function candidateDigest(candidate: Pick<ProjectFile['candidates'][number
  * @returns Whether the episode requires an independent zero-action recheck.
  */
 export function checkVideoCoverage(project: ProjectFile, candidate: ProjectFile['candidates'][number]): boolean {
+  validateRefinement(project, candidate)
+  validateStoryCandidate(project, candidate, candidate.committed_at !== undefined)
+  if (candidate.story_adaptation === undefined && project.story_policy?.retained_candidates?.some(value => value.id === candidate.id)
+    && project.story_policy.legacy_workflow === undefined) return false
   if (project.workflow !== 'video_to_screenplay') return false
   const coverage = candidate.coverage
   if (coverage === undefined) throw Error('visual_preparation_required: 视频候选须先整理实际画面与来源事实，提交本集 coverage。')
@@ -200,7 +278,7 @@ export function checkVideoCoverage(project: ProjectFile, candidate: ProjectFile[
         throw Error('video_episode_interval: 本集时间范围须在检查区间内，并包含所选采样点。')
       }
     }
-    for (const point of source.video.sampling_plan?.deferred ?? []) {
+    for (const point of candidate.story_adaptation !== undefined ? [] : source.video.sampling_plan?.deferred ?? []) {
       if (interval !== undefined && (point.time < interval.start_seconds || point.time >= interval.end_seconds)) continue
       const observed = visualSources.some(other => other.video.path === source.video.path
         && other.video.source_version === source.video.source_version
@@ -220,6 +298,10 @@ export function checkVideoCoverage(project: ProjectFile, candidate: ProjectFile[
   }
   if (![...units.values()].some(unit => unit.image !== undefined)) {
     throw Error('visual_preparation_required: 本集来源范围必须包含实际视频帧。')
+  }
+  if (candidate.story_adaptation !== undefined) {
+    // V2 maps reviewed story invariants rather than requiring every original expression channel.
+    return !candidate.scenes.some(scene => scene.beats.some(beat => beat.kind === 'action'))
   }
   const required = new Map(coverage.required_beats.map(value => [value.fact_id, value]))
   if (required.size !== coverage.required_beats.length) throw Error('source_coverage: 必保留事实不能重复。')
@@ -250,6 +332,7 @@ export function checkVideoCoverage(project: ProjectFile, candidate: ProjectFile[
     for (const id of beat.fact_ids) {
       const fact = project.facts.find(value => value.id === id)
       if (fact?.origin === 'adaptation') {
+        if (isAuthorizedSupplement(project, candidate, fact)) continue
         const code = beat.kind === 'action' ? 'visual_fact_evidence' : 'video_source_fact_required'
         throw Error(`${code}: ${id} 的新增内容不是视频来源事实。`)
       }
@@ -278,17 +361,22 @@ export function checkVideoCoverage(project: ProjectFile, candidate: ProjectFile[
 /**
  * Reconstruct accepted scripts for formal delivery without trusting sidecar claims.
  * @param project - Parsed authoritative project file.
- * @returns Ordered candidate identities, digests and exact accepted Markdown.
+ * @returns Candidate identities, digests, exact accepted scripts, and optional separate refinement reports.
  */
-export function acceptedScripts(project: ProjectFile): { id: string; sha256: string; script: string }[] {
+export function acceptedScripts(project: ProjectFile): { id: string; sha256: string; script: string; modification_notes?: string }[] {
   let knowledge: Record<string, string[]> = {}
   const facts = factIndex(project)
   return acceptedCandidates(project).map((candidate) => {
     if (candidate.sha256 !== candidateDigest(candidate)) throw Error('invalid_candidate_digest: 候选内容已变更。')
+    validateRefinement(project, candidate)
+    validateStoryCandidate(project, candidate, true)
     checkVideoCoverage(project, candidate)
-    const rendered = renderWithFacts(candidate.scenes, knowledge, candidate.episode, facts)
+    const rendered = renderWithFacts(candidate.scenes, knowledge, candidate.episode, facts,
+      candidate.refinement !== undefined || candidate.story_adaptation !== undefined)
     knowledge = rendered.knowledge
-    return { id: candidate.id, sha256: candidate.sha256, script: rendered.script }
+    return { id: candidate.id, sha256: candidate.sha256, script: rendered.script,
+      ...(candidate.story_adaptation !== undefined ? { modification_notes: renderStoryNotes(project, candidate) }
+        : candidate.refinement === undefined ? {} : { modification_notes: renderModificationNotes(project, candidate) }) }
   })
 }
 
@@ -303,7 +391,7 @@ export function acceptedCandidates(project: ProjectFile): ProjectFile['candidate
     const candidate = candidates.get(id)
     if (candidate === undefined || candidate.episode !== index + 1 || candidate.base_episode !== index
       || candidate.committed_at === undefined
-      || candidate.review?.decision !== 'approve' || candidate.review.actor === candidate.author) {
+      || candidate.review?.decision !== 'approve' || !validReview(project, candidate, 'candidate')) {
       throw Error('invalid_history: 验收记录缺失、集号不连续或审校无效。')
     }
     return candidate
@@ -319,7 +407,11 @@ export function acceptedKnowledge(project: ProjectFile): Record<string, string[]
   let knowledge: Record<string, string[]> = {}
   const facts = factIndex(project)
   for (const candidate of acceptedCandidates(project)) {
-    knowledge = renderWithFacts(candidate.scenes, knowledge, candidate.episode, facts).knowledge
+    validateRefinement(project, candidate)
+    validateStoryCandidate(project, candidate, true)
+    checkVideoCoverage(project, candidate)
+    knowledge = renderWithFacts(candidate.scenes, knowledge, candidate.episode, facts,
+      candidate.refinement !== undefined || candidate.story_adaptation !== undefined).knowledge
   }
   return knowledge
 }

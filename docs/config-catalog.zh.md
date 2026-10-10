@@ -2811,11 +2811,18 @@ export interface Config {
 ## `@deepseek-ai/dsh-screenplay-project`
 
 - `inject`: `fs` · `tools` · `attachments` · `llm`
-- `source`: [`packages/drama/screenplay-project/src/index.ts:25`](../packages/drama/screenplay-project/src/index.ts)
+- `source`: [`packages/drama/screenplay-project/src/index.ts:35`](../packages/drama/screenplay-project/src/index.ts)
 
 ```ts config-catalog
 /** Source allocation, durable project size, and bounded source-read budgets. */
-export interface Config extends ProjectLimits {}
+export interface Config extends ProjectLimits {
+  /** Explicit sequential same-session review for new creation projects only. */
+  reviewMode: 'independent' | 'self-check'
+  /** Creation-only source-preserving refinement fork; disabled keeps the historical tool schema. */
+  refinementMode: 'disabled' | 'source-preserving-v1'
+  /** Story-faithful video creation with current work grants and located semantic reports. */
+  storyFaithfulMode: 'disabled' | 'story-faithful-v2'
+}
 
 /** Validated allocation and source-read budgets. */
 export interface ProjectLimits {
@@ -4352,13 +4359,15 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-skill`
 
 - `inject`: `agents` · `tools` · `skills`
-- `source`: [`packages/skill/tool-skill/src/index.ts:61`](../packages/skill/tool-skill/src/index.ts)
+- `source`: [`packages/skill/tool-skill/src/index.ts:63`](../packages/skill/tool-skill/src/index.ts)
 
 ```ts config-catalog
 /** Model-facing skill catalog configuration. */
 export interface Config {
   /** Maximum normalized description length rendered in the session catalog; minimum 3. */
   catalogDescriptionMaxLength?: number
+  /** Preserve this scoped loader's catalog through other Host loader listeners; defaults to false. */
+  scopedCatalogOwner?: boolean
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-skill -->
@@ -4501,11 +4510,13 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-video-inspect`
 
 - `inject`: `tools` · `fs` · `subprocess` · `attachments` · `sandboxPolicy`
-- `source`: [`packages/perception/tool-video-inspect/src/index.ts:23`](../packages/perception/tool-video-inspect/src/index.ts)
+- `source`: [`packages/perception/tool-video-inspect/src/index.ts:26`](../packages/perception/tool-video-inspect/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-resolved media executables and inspection bounds. */
 export interface Config {
+  /** Creation-only metadata plans and Host-issued visual evidence; disabled in other deployments. */
+  trustedEvidence: boolean
   /** Same-world FFmpeg executable. */
   ffmpegPath: string
   /** Same-world FFprobe executable. */

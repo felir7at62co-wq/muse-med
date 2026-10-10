@@ -100,19 +100,20 @@ function renderLabel(
 }
 
 describe('the new-session chip', () => {
-  it.each([false, true])('offers Standard, Creator and custom presets with Developer tools %s', (enabled) => {
+  it.each([false, true])('offers Standard, Creator, Creation and custom presets with Developer tools %s', (enabled) => {
     const actions = renderSeat({ options: [
-      { id: 'standard' }, { id: 'ptc' }, { id: 'minimal' }, { id: 'cordis' }, { id: 'mine' },
+      { id: 'standard' }, { id: 'ptc' }, { id: 'minimal' }, { id: 'cordis' }, { id: 'creation' }, { id: 'mine' },
     ] }, undefined, undefined, enabled)
 
     fireEvent.click(screen.getByRole('button'))
-    expect(screen.getAllByRole('menuitem')).toHaveLength(enabled ? 5 : 3)
+    expect(screen.getAllByRole('menuitem')).toHaveLength(enabled ? 6 : 4)
     expect(screen.getByRole('menuitem', { name: /^Standard mode/ })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: /^mine/ })).toBeTruthy()
     expect(screen.queryByRole('menuitem', { name: /^PTC mode/ }) !== null).toBe(enabled)
     expect(screen.queryByRole('menuitem', { name: /^Minimal mode/ }) !== null).toBe(enabled)
-    fireEvent.click(screen.getByRole('menuitem', { name: /^Creator mode/ }))
-    expect(actions.select).toHaveBeenCalledWith('cordis')
+    expect(screen.getByRole('menuitem', { name: /^Creator mode/ })).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Creation mode/ }))
+    expect(actions.select).toHaveBeenCalledWith('creation')
   })
 
   it('keeps a named custom preset that overrides a development preset id', () => {
@@ -392,6 +393,18 @@ describe('the session-header label', () => {
     // A control here would promise a switch the host refuses outright.
     expect(screen.queryByRole('button')).toBeNull()
     expect(screen.getByTitle(en.presetStandardDescription).textContent).toBe(en.presetStandardName)
+  })
+
+  it('localizes the creation label from an unnamed product roster row', () => {
+    renderLabel({ blank: false, projectionValues: { agentPreset: 'creation' } }, { options: [{ id: 'creation' }] })
+    expect(screen.getByTitle(en.presetCreationDescription).textContent).toBe(en.presetCreationName)
+  })
+
+  it('keeps a named creation override visible with its own copy', () => {
+    renderLabel({ blank: false, projectionValues: { agentPreset: 'creation' } }, {
+      options: [{ id: 'creation', name: 'My creation', description: 'Team copy' }],
+    })
+    expect(screen.getByTitle('Team copy').textContent).toBe('My creation')
   })
 
   it('falls back to the id, and to the generic hint, when metadata is absent', () => {

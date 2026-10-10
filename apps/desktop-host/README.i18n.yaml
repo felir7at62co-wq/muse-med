@@ -8,9 +8,12 @@
 /muse-desktop-host:
   en: 96ee7a8adb7a3839
   zh: 063bafc6fa692f60
+/muse-desktop-host/creation-mode:
+  en: 5a4b68e18e466ea4
+  zh: 052e36ee8439f527
 /muse-desktop-host/compaction-defaults:
-  en: 6b1f0cb712666fa5
-  zh: 709a7cb96754bdb0
+  en: e0ff9a14fb81cdc8
+  zh: a65ac36641773ccd
 /muse-desktop-host/video-screenplay-delivery:
-  en: 2f0bd6076115d152
-  zh: a2941b8681684b92
+  en: 580d2ec502dc215e
+  zh: e7ce3dbc26404db0

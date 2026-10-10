@@ -12,6 +12,9 @@ import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
 import { planSamples } from './sample.ts'
 import { adaptivePlan, sceneTimecodes, type AdaptivePlan } from './adaptive.ts'
 import { parseVideoMetadata, runMedia, type VideoMetadata } from './media.ts'
+import { installVideoEvidence } from './evidence.ts'
+
+export { resolveTrustedVideoEvidence, TRUSTED_VIDEO_INSPECTION_RECEIPT, type TrustedVideoInspectionReceipt } from './evidence.ts'
 
 /** Plugin name for video observations. */
 export const name = 'tool-video-inspect'
@@ -21,6 +24,8 @@ export const inject = ['tools', 'fs', 'subprocess', 'attachments', 'sandboxPolic
 
 /** Deployment-resolved media executables and inspection bounds. */
 export interface Config {
+  /** Creation-only metadata plans and Host-issued visual evidence; disabled in other deployments. */
+  trustedEvidence: boolean
   /** Same-world FFmpeg executable. */
   ffmpegPath: string
   /** Same-world FFprobe executable. */
@@ -59,6 +64,7 @@ export interface Config {
 
 /** Validated deployment knobs; argument defaults are resolved before media work. */
 export const Config: Schema<Partial<Config>, Config> = Schema.object({
+  trustedEvidence: Schema.boolean().default(false),
   ffmpegPath: Schema.string().default('ffmpeg'), ffprobePath: Schema.string().default('ffprobe'),
   maxSourceBytes: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(8 * 1024 * 1024 * 1024),
   maxSourcePixels: Schema.number().step(1).min(1).max(268_435_456).default(33_177_600),
@@ -101,6 +107,8 @@ export interface VideoInspection extends VideoMetadata {
   sampling_plan?: AdaptivePlan
   /** ASR file identity when utterance boundaries informed the selection. */
   transcript_source?: { path: string; version: FsVersion }
+  /** Complete probed-duration plan in opt-in metadata results; planned windows remain unviewed. */
+  window_plan?: { start_seconds: number; end_seconds: number }[]
 }
 
 const imageSchema = IMAGE_RESULT_SCHEMA
@@ -118,6 +126,12 @@ const outputSchema = { type: 'object', additionalProperties: false, properties: 
   sampling_plan: { type: 'object', additionalProperties: false, properties: { strategy: { type: 'string', const: 'scene_dialogue', required: true }, selected: { type: 'array', items: observationSchema, required: true }, deferred: { type: 'array', items: observationSchema, required: true } } },
   transcript_source: { type: 'object', additionalProperties: false, properties: { path: { type: 'string', required: true }, version: { type: 'string', required: true } } },
   manifest_path: { type: 'string', required: true }, verified_readback: { type: 'boolean', required: true }, next_start_seconds: { type: 'number' },
+} } as const
+
+const plannedOutputSchema = { ...outputSchema, properties: { ...outputSchema.properties,
+  window_plan: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+    start_seconds: { type: 'number', required: true }, end_seconds: { type: 'number', required: true },
+  } } },
 } } as const
 
 /**
@@ -155,6 +169,7 @@ async function imageRoute(ctx: Context, exec: ToolExecution): Promise<void> {
  */
 export function apply(ctx: Context, config: Config): void {
   if (config.defaultFrames > config.maxFrames) throw new Error('defaultFrames must not exceed maxFrames')
+  const evidence = config.trustedEvidence ? installVideoEvidence(ctx) : undefined
   let disposed = false
   const active = new Map<AbortController, Promise<void>>()
   ctx.effect(() => async () => {
@@ -182,7 +197,7 @@ export function apply(ctx: Context, config: Config): void {
       manifest_path: { type: 'string', description: 'Optional new JSON output path inside the current workspace; default .muse/video-inspections/<unique-id>.json. An existing file is never replaced.' },
     },
     output: {
-      schema: outputSchema,
+      schema: config.trustedEvidence ? plannedOutputSchema : outputSchema,
       render: (_args, value) => {
         const { transcript_source, ...inspection } = value
         return inspectionContent({ ...inspection, source_version: FsVersion(value.source_version),
@@ -224,6 +239,7 @@ export function apply(ctx: Context, config: Config): void {
         const metadata = parseVideoMetadata(probe.bytes)
         if (metadata.duration_seconds > config.maxDurationSeconds) throw new Error('Video duration exceeds the deployment limit')
         if (metadata.width * metadata.height > config.maxSourcePixels) throw new Error('Encoded video dimensions exceed the deployment limit')
+        const priorMetadata = method === 'sample' ? evidence?.metadata(exec, target.displayPath, info.version, metadata.duration_seconds) : undefined
         const start = method === 'metadata' ? 0 : args.start_seconds ?? 0
         const end = method === 'metadata' ? metadata.duration_seconds
           : args.end_seconds ?? Math.min(metadata.duration_seconds, start + Math.min(60, config.maxRangeSeconds))
@@ -282,10 +298,15 @@ export function apply(ctx: Context, config: Config): void {
           ...samplingPlan === undefined ? {} : { sampling_plan: samplingPlan },
           ...transcriptSource === undefined ? {} : { transcript_source: transcriptSource },
           ...method === 'sample' && end < metadata.duration_seconds ? { next_start_seconds: end } : {},
+          ...method === 'metadata' && evidence !== undefined ? { window_plan: Array.from({ length: Math.ceil(metadata.duration_seconds / Math.min(60, config.maxRangeSeconds)) },
+            (_, index) => ({ start_seconds: index * Math.min(60, config.maxRangeSeconds),
+              end_seconds: Math.min(metadata.duration_seconds, (index + 1) * Math.min(60, config.maxRangeSeconds)) })) } : {},
         }
         const serialized = JSON.stringify(value, null, 2) + '\n'
         await ctx.fs.writeText(manifest, serialized, { kind: 'createIfAbsent' }, signal, policy)
         if (await ctx.fs.readText(manifest, signal) !== serialized) throw new Error('Inspection manifest readback did not match')
+        signal.throwIfAborted()
+        evidence?.issue(exec, value, serialized, priorMetadata)
         ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, exec)
         return value
       } finally { active.delete(owner); completion.resolve() }

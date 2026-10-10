@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, ToolCallId  } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
-import { createScope } from '@deepseek-ai/dsh-scope'
+import { bindScopeParent, createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
@@ -332,6 +332,54 @@ describe('mode-aware wire contribution', () => {
     expect(result.content).toEqual([{ type: 'text', text: 'kept' }])
   })
 
+  it.each(['ptc', 'both'] as const)('omits inherited and own forbidden tools from the SDK and bindings in mode %s', async (mode) => {
+    const { ctx, systemPrompt, runtime } = await setup({ mode })
+    try {
+      const preset = await mintAgentScope(ctx, 'preset')
+      const { scope, agent } = await mintAgentScope(ctx, 'agent')
+      bindScopeParent(agent, preset.agent)
+      preset.scope.ctx.tools.restrict({ futureAllow: ['safe'], includeOwn: true })
+      registerEcho(ctx, 'global_hidden')
+      registerEcho(preset.scope.ctx, 'preset_hidden')
+      registerEcho(scope.ctx, 'spawn_teammate')
+      registerEcho(scope.ctx, 'safe')
+      const assembly = await systemPrompt.assemble({ scope: agent })
+      expect(assembly.tools.map(tool => tool.name)).toEqual(mode === 'ptc' ? [RUN_CODE_NAME] : [RUN_CODE_NAME, 'safe'])
+      const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text
+      expect(sdk).toContain('safe: {')
+      for (const name of ['global_hidden', 'preset_hidden', 'spawn_teammate']) expect(sdk).not.toContain(`${name}:`)
+      runtime.behavior = request => Promise.resolve({
+        logs: [], value: Object.keys(request.bindings[0]!.functions).sort().join(','),
+      })
+      const result = await runCode(ctx, 'return Object.keys(tools)', { agent })
+      expect(result.isError).toBe(false)
+      expect(result.content).toEqual([{ type: 'text', text: 'safe' }])
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('rechecks an own-scope restriction before executing an already-bound SDK call', async () => {
+    const { ctx, runtime } = await setup()
+    try {
+      const { scope, agent } = await mintAgentScope(ctx)
+      const calls = registerEcho(scope.ctx, 'hidden')
+      runtime.behavior = async (request) => {
+        const bound = request.bindings[0]!.functions['hidden']!
+        scope.ctx.tools.restrict({ futureAllow: [], includeOwn: true })
+        await expect(bound({ value: 'forbidden' })).rejects.toThrow('unknown tool "hidden"')
+        return { logs: [], value: 'denied' }
+      }
+      const result = await runCode(ctx, 'return await tools.hidden({value: "forbidden"})', { agent })
+      expect(result.isError).toBe(false)
+      expect(result.content).toEqual([{ type: 'text', text: 'denied' }])
+      expect(calls).toEqual([])
+      expect(ctx.tools.schemas(agent).map(tool => tool.name)).toEqual([RUN_CODE_NAME])
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it.each(['ptc', 'both'] as const)('reserves run_code against scoped shadows and explicit restrictions in mode %s', async (mode) => {
     const { ctx, systemPrompt } = await setup({ mode })
     const { scope, agent } = await mintAgentScope(ctx)
@@ -345,6 +393,8 @@ describe('mode-aware wire contribution', () => {
     expect(() => scope.ctx.tools.register(impostor)).toThrow(/reserved for the PTC mode presentation transport/)
     expect(() => ctx.tools.register(impostor)).toThrow(/reserved for the PTC mode presentation transport/)
     expect(() => scope.ctx.tools.restrict({ allow: [RUN_CODE_NAME] })).toThrow(/cannot name reserved PTC mode presentation transport/)
+    expect(() => scope.ctx.tools.restrict({ futureAllow: [RUN_CODE_NAME], includeOwn: true }))
+      .toThrow(/cannot name reserved PTC mode presentation transport/)
     expect(() => scope.ctx.tools.restrict({ deny: [RUN_CODE_NAME] })).toThrow(/cannot name reserved PTC mode presentation transport/)
     expect(() => scope.ctx.tools.restrict({ futureDeny: [RUN_CODE_NAME] })).toThrow(/cannot name reserved PTC mode presentation transport/)
     scope.ctx.systemPrompt.section({

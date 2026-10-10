@@ -2,10 +2,10 @@
  * The product roster over the upstream preset registry.
  *
  * The Desktop Host declares one row per packaged `presets/<id>` directory and nothing else, so the
- * roster is exactly those six ids in the order their `preset.yml` gives, defaults to the product's
+ * roster is exactly those seven ids in the order their `preset.yml` gives, defaults to the product's
  * own `short-drama`, and every definition carries the rows the packaged composition file declares.
  * A composition file is product data: registering it must never rewrite it. The packaged-runtime
- * smoke (`scripts/smoke-runtime.ts`) is the check that activates all six against the real Host.
+ * smoke (`scripts/smoke-runtime.ts`) is the check that activates all seven against the real Host.
  */
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -49,8 +49,8 @@ describe('the product preset roster', () => {
       const roster = await ctx.agentPresets.list()
 
       expect(roster.map(row => row.id).sort()).toEqual(directories)
-      // `preset.yml` order decides the picker's sequence; the product's own composition is last.
-      expect(roster.map(row => row.id)).toEqual(['standard', 'ptc', 'minimal', 'cordis', 'short-drama', 'editing'])
+      // `preset.yml` order decides the picker's sequence.
+      expect(roster.map(row => row.id)).toEqual(['standard', 'ptc', 'minimal', 'cordis', 'short-drama', 'editing', 'creation'])
       expect(ctx.agentPresets.defaultId).toBe('short-drama')
     } finally {
       await ctx.fiber.dispose()

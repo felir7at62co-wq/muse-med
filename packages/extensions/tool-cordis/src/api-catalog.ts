@@ -3390,8 +3390,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'restrict(filter: ToolRestriction): () => void',
-        description: 'Restrict global tools for the calling agent scope. Empty filters, unknown `allow`/`deny` names, scope-local names, and reserved transport names fail. `futureDeny` names are explicit exceptions for providers that register later. Restrictions intersect; scoped registrations remain visible.',
-        parameters: [{ name: 'filter', description: 'global-tool mask: `allow` (keep only), `deny` (remove known names), and/or `futureDeny` (remove names even when registered later).' }],
+        description: 'Restrict inherited tools for the calling agent scope. Empty filters, unknown `allow`/`deny` names, scope-local names, and reserved transport names fail. `futureAllow` and `futureDeny` accept names whose providers register later. Allow-lists intersect; own registrations remain visible unless `includeOwn` is true.',
+        parameters: [{ name: 'filter', description: 'inherited-tool mask, optionally including own-scope registrations.' }],
         returns: 'the exact disposer that lifts this restriction.',
       },
       {
@@ -8015,7 +8015,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolRestriction',
-    declaration: 'export interface ToolRestriction {\n    readonly allow?: readonly string[];\n    readonly deny?: readonly string[];\n    readonly futureDeny?: readonly string[];\n}',
+    declaration: 'export interface ToolRestriction {\n    readonly allow?: readonly string[];\n    readonly futureAllow?: readonly string[];\n    readonly deny?: readonly string[];\n    readonly futureDeny?: readonly string[];\n    readonly includeOwn?: boolean;\n}',
   },
   {
     name: 'ToolResult',

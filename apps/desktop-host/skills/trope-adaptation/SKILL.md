@@ -5,7 +5,9 @@ description: 当前创作需要拆解小说或视频剧本的情绪机制、为�
 
 # 换梗与改编大纲
 
-涉及正文起草、修订或续写时，先加载 `screenplay-project`，通过 `screenplay_project` 管理来源、人物知情及逐集独立验收，再按本技能完成内容。工具生成的引用、版本和已验收状态是续写依据；未通过独立审校的候选不作为正式交付。
+涉及受管正文起草、修订或续写时，加载 `screenplay-project`，通过 `screenplay_project` 管理来源、人物知情及逐集验收；审核方式沿项目实际声明的 self-check 或 independent，历史独立审校不转为自检。工具生成的引用、版本和已验收状态是续写依据；未通过对应审校的候选不作为正式交付。
+
+起草、续写、修订或审校分场正文前，按当前工具形态加载 `screenplay-format`：native 工具直接调用 `skill` 并保留完整返回值；PTC 用 `return await tools.skill({name: "screenplay-format"})` 返回完整 `content`、`provider`、`resourceBase`。下一模型轮读到正文后，按该技能实际返回的 `resourceBase` 读取所导航的共享写作品质与时间线规范，不从本技能目录拼接跨包路径。
 
 写逐集大纲、创作分集或重新分集前，读取本技能的 [剧情与情绪分集指南](references/episode-design.md)。先按事件因果与情绪推进确定边界，再调整篇幅、增强对白互动，联合设计集尾钩子与下集承接。用户可调整集数和篇幅；当前已确定的创作方向直接沿用。
 

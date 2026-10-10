@@ -21,11 +21,11 @@
   en: b7d33bd969826ee3
   zh: 4e155a0f14b41541
 /deepseek-ai-dsh-tool-skill/use-this-package/mount-and-configure:
-  en: 440b17442e431e27
-  zh: f8e6d8ef9a954e86
+  en: cd29f488837ebb8c
+  zh: de8d6b84a6bf8aa0
 /deepseek-ai-dsh-tool-skill/use-this-package/what-the-model-gets:
-  en: cf02796bd3f8877e
-  zh: 81b93b1eb7f74690
+  en: 1ab17bce61743b84
+  zh: 631bda5692db1c0c
 /deepseek-ai-dsh-tool-skill/use-this-package/observable-success-and-failures:
   en: 813f1a7ab04d283e
   zh: 4adfcffcbb131d54
@@ -39,11 +39,11 @@
   en: 509699e3a467df41
   zh: ff7fc30ec4998e5a
 /deepseek-ai-dsh-tool-skill/understand-the-implementation/catalog-lifecycle:
-  en: 847745cf78860904
-  zh: 55137ebef224ad48
+  en: 5076eb6370b2e672
+  zh: 188c4199baf25b89
 /deepseek-ai-dsh-tool-skill/understand-the-implementation/invocation-boundary:
-  en: bb8543ea29cbc451
-  zh: b1124fa489bf9ea4
+  en: 3d000346c175d38a
+  zh: 457103c265af17f7
 /deepseek-ai-dsh-tool-skill/further-exploration:
   en: c4797732cde7d1f5
   zh: daabfd858cceb271
@@ -120,8 +120,8 @@
   en: 657124bac34aba61
   zh: 00aae3514ab12676
 /deepseek-ai-dsh-tool-skill/model-experience/user-explicit-invocation-injection/what-the-model-sees:
-  en: f9c7b7c6cb042d2f
-  zh: ba3372515505f413
+  en: 1657ceea82c1b209
+  zh: 41df25b66c38006a
 /deepseek-ai-dsh-tool-skill/model-experience/user-explicit-invocation-injection/token-effect:
   en: d1068ea431fb768f
   zh: acacd161731c27c6

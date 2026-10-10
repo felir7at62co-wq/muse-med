@@ -176,10 +176,10 @@ async function composePrefixForAgent(ctx: Context, agent: Agent, signal = new Ab
   return agent.session.deriveMessages()
 }
 
-async function mintAgentScope(ctx: Context, subject: string | Agent): Promise<{ agent: Agent; scope: Scope }> {
+async function mintAgentScope(ctx: Context, subject: string | Agent, parent?: Agent): Promise<{ agent: Agent; scope: Scope }> {
   const agent = typeof subject === 'string' ? agentForCwd(subject) : subject
   let scope!: Scope
-  await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) }, {
+  await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent, parent === undefined ? undefined : { parent }) }, {
     inject: ['tools'],
   }))
   return { agent, scope }
@@ -747,6 +747,277 @@ describe('dsh-tool-skill', () => {
     expect(catalogMessages(session)).toHaveLength(1)
   })
 
+  it('keeps default nested-loader catalogs omitted until scoped ownership is enabled', async () => {
+    const home = await tempDir('tool-catalog-owner-opt-in')
+    const ctx = await setup(home)
+    try {
+      ctx.skills.register({ name: 'root-skill', description: 'Root skill', source: 'runtime', content: 'Root body.' })
+      const { agent, scope } = await mintAgentScope(ctx, '/workspace/nested')
+      const isolated = scope.ctx.isolate('skills')
+      await isolated.plugin(SkillRegistry)
+      isolated.get('skills')!.register({ name: 'nested-skill', description: 'Nested skill', source: 'runtime', content: 'Nested body.' })
+      const defaultLoader = await isolated.plugin(toolSkill)
+      await fireStep(ctx, agent, 1, 1)
+      expect(catalogMessages(agent.session)).toEqual([])
+      expect(await composePrefix(ctx, '/workspace/root')).toHaveLength(1)
+      const user = createUserMessage({ content: [{ type: 'text', text: '/nested-skill /root-skill' }], source: { kind: 'user' } })
+      const decision = await proposeStep(ctx, agent, [user])
+      if (decision.kind !== 'enter') throw new Error('expected enter')
+      expect(decision.messages.map(message => message.source)).toEqual([
+        { kind: 'user' }, { kind: 'skill-invocation', name: 'nested-skill', form: 'instructions' },
+      ])
+
+      await defaultLoader.dispose()
+      await isolated.plugin(toolSkill, { scopedCatalogOwner: true })
+      await fireStep(ctx, agent, 1, 2)
+      expect(catalogMessages(agent.session)[0]?.data.source).toEqual({
+        kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'nested-skill', description: 'Nested skill' }],
+      })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it.each([false, true])('leaves nested loader catalogs with their visible owner (isolated skills: %s)', async (isolatedSkills) => {
+    const home = await tempDir('tool-nested-catalog')
+    const ctx = await setup(home)
+    try {
+      ctx.skills.register({ name: 'root-skill', description: 'Root description', source: 'runtime', content: 'Root body.' })
+      const { agent: middleAgent, scope: middleScope } = await mintAgentScope(ctx, '/workspace/middle')
+      const middle = isolatedSkills ? middleScope.ctx.isolate('skills') : middleScope.ctx
+      if (isolatedSkills) await middle.plugin(SkillRegistry)
+      middle.get('skills')!.register({ name: 'middle-skill', description: 'Middle description', source: 'runtime', content: 'Middle body.' })
+      await middle.plugin(toolSkill, { catalogDescriptionMaxLength: 6, scopedCatalogOwner: true })
+      const { agent, scope } = await mintAgentScope(middle, '/workspace/nested', middleAgent)
+      const nested = isolatedSkills ? scope.ctx.isolate('skills') : scope.ctx
+      if (isolatedSkills) await nested.plugin(SkillRegistry)
+      nested.get('skills')!.register({ name: 'nested-skill', description: 'Nested description', source: 'runtime', content: 'Nested body.' })
+      await nested.plugin(toolSkill, { catalogDescriptionMaxLength: 5, scopedCatalogOwner: true })
+
+      expect(ctx.tools.get('skill', agent)).not.toBe(ctx.tools.get('skill', middleAgent))
+      expect(ctx.tools.get('skill', middleAgent)).not.toBe(ctx.tools.get('skill'))
+      await fireStep(ctx, agent, 1, 1)
+      const catalog = catalogMessages(agent.session)
+      expect(catalog).toHaveLength(1)
+      expect(catalog[0]?.data.source).toEqual({
+        kind: 'skill-catalog', form: 'catalog',
+        entries: isolatedSkills
+          ? [{ name: 'nested-skill', description: 'Ne...' }]
+          : [
+            { name: 'middle-skill', description: 'Mi...' },
+            { name: 'nested-skill', description: 'Ne...' },
+            { name: 'root-skill', description: 'Ro...' },
+          ],
+      })
+      await fireStep(ctx, agent, 1, 2)
+      expect(catalogMessages(agent.session)).toHaveLength(1)
+
+      await fireStep(ctx, middleAgent, 1, 1)
+      expect(catalogMessages(middleAgent.session)[0]?.data.source).toEqual({
+        kind: 'skill-catalog', form: 'catalog',
+        entries: isolatedSkills
+          ? [{ name: 'middle-skill', description: 'Mid...' }]
+          : [
+            { name: 'middle-skill', description: 'Mid...' },
+            { name: 'root-skill', description: 'Roo...' },
+          ],
+      })
+      const rootAgent = agentForCwd('/workspace/root')
+      await fireStep(ctx, rootAgent, 1, 1)
+      expect(catalogMessages(rootAgent.session)[0]?.data.source).toEqual({
+        kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'root-skill', description: 'Root description' }],
+      })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it.each(['restriction', 'shadow'] as const)('retires a published nested catalog after a %s', async (hiddenBy) => {
+    const home = await tempDir('tool-nested-catalog-hidden')
+    const ctx = await setup(home)
+    try {
+      ctx.skills.register({ name: 'root-skill', description: 'Root skill', source: 'runtime', content: 'Root body.' })
+      const { agent: ownerAgent, scope } = await mintAgentScope(ctx, '/workspace/nested')
+      const isolated = scope.ctx.isolate('skills')
+      await isolated.plugin(SkillRegistry)
+      isolated.get('skills')!.register({ name: 'nested-skill', description: 'Nested skill', source: 'runtime', content: 'Nested body.' })
+      await isolated.plugin(toolSkill, { scopedCatalogOwner: true })
+      const { agent, scope: consumerScope } = await mintAgentScope(
+        isolated, sessionAgent(ownerAgent.session, 'nested-catalog-reader'), ownerAgent,
+      )
+      await fireStep(ctx, agent, 1, 1)
+      expect(catalogMessages(agent.session)[0]?.data.source).toMatchObject({ entries: [{ name: 'nested-skill' }] })
+
+      let restore: () => void
+      if (hiddenBy === 'restriction') restore = consumerScope.ctx.tools.restrict({ deny: ['skill'] })
+      else restore = consumerScope.ctx.tools.register(defineContentToolFixture({
+        name: 'skill', description: 'Unrelated skill consumer.', parameters: {},
+        execute: () => Promise.resolve([{ type: 'text', text: 'shadow' }]),
+      }))
+      await fireStep(ctx, agent, 1, 2)
+      const catalogs = catalogMessages(agent.session)
+      expect(catalogs).toHaveLength(2)
+      expect(catalogs[1]?.data.source).toEqual({ kind: 'skill-catalog', form: 'catalog', update: true, entries: [] })
+      expect(JSON.stringify(catalogs[1]?.data.content)).toContain('Do not use names from earlier skill catalogs')
+      await fireStep(ctx, agent, 1, 3)
+      expect(catalogMessages(agent.session)).toHaveLength(2)
+      const user = createUserMessage({ content: [{ type: 'text', text: '/nested-skill /root-skill' }], source: { kind: 'user' } })
+      expect(await proposeStep(ctx, agent, [user])).toEqual({ kind: 'enter', messages: [user] })
+      restore()
+      await fireStep(ctx, agent, 1, 4)
+      expect(catalogMessages(agent.session).at(-1)?.data.source).toMatchObject({ update: true, entries: [{ name: 'nested-skill' }] })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('restores root ownership after loader disposal and publishes fresh isolated catalogs on remount', async () => {
+    const home = await tempDir('tool-catalog-owner-remount')
+    const ctx = await setup(home)
+    try {
+      ctx.skills.register({ name: 'root-skill', description: 'Root skill', source: 'runtime', content: 'Root body.' })
+      const { agent, scope } = await mintAgentScope(ctx, '/workspace/nested')
+      const isolated = scope.ctx.isolate('skills')
+      await isolated.plugin(SkillRegistry)
+      const removeSkill = isolated.get('skills')!.register({
+        name: 'nested-skill', description: 'Nested skill', source: 'runtime', content: 'Nested body.',
+      })
+      const loader = await isolated.plugin(toolSkill, { scopedCatalogOwner: true })
+      const originalTool = ctx.tools.get('skill', agent)
+      const rootTool = ctx.tools.get('skill')
+      await fireStep(ctx, agent, 1, 1)
+      expect(catalogMessages(agent.session)[0]?.data.source).toMatchObject({ entries: [{ name: 'nested-skill' }] })
+
+      await loader.dispose()
+      expect(ctx.tools.get('skill', agent)).toBe(rootTool)
+      await fireStep(ctx, agent, 1, 2)
+      expect(catalogMessages(agent.session)[1]?.data.source).toMatchObject({ update: true, entries: [{ name: 'root-skill' }] })
+
+      await isolated.plugin(toolSkill, { scopedCatalogOwner: true })
+      expect(ctx.tools.get('skill', agent)).not.toBe(originalTool)
+      expect(ctx.tools.get('skill', agent)).not.toBe(rootTool)
+      await fireStep(ctx, agent, 1, 3)
+      expect(catalogMessages(agent.session)[2]?.data.source).toMatchObject({ update: true, entries: [{ name: 'nested-skill' }] })
+      removeSkill()
+      await fireStep(ctx, agent, 1, 4)
+      expect(catalogMessages(agent.session)[3]?.data.source).toEqual({
+        kind: 'skill-catalog', form: 'catalog', update: true, entries: [],
+      })
+      await fireStep(ctx, agent, 1, 5)
+      expect(catalogMessages(agent.session)).toHaveLength(4)
+
+      await scope.dispose()
+      expect(ctx.tools.get('skill', agent)).toBe(rootTool)
+      await fireStep(ctx, agent, 1, 6)
+      expect(catalogMessages(agent.session)[4]?.data.source).toMatchObject({ update: true, entries: [{ name: 'root-skill' }] })
+
+      const { scope: freshScope } = await mintAgentScope(ctx, agent)
+      const fresh = freshScope.ctx.isolate('skills')
+      await fresh.plugin(SkillRegistry)
+      fresh.get('skills')!.register({ name: 'fresh-skill', description: 'Fresh skill', source: 'runtime', content: 'Fresh body.' })
+      await fresh.plugin(toolSkill, { scopedCatalogOwner: true })
+      await fireStep(ctx, agent, 1, 7)
+      expect(catalogMessages(agent.session)[5]?.data.source).toEqual({
+        kind: 'skill-catalog', form: 'catalog', update: true, entries: [{ name: 'fresh-skill', description: 'Fresh skill' }],
+      })
+      expect(catalogMessages(agent.session)).toHaveLength(6)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('does not leave a disposed loader definition eligible to own a catalog', async () => {
+    const home = await tempDir('tool-catalog-inactive-owner')
+    const ctx = await setup(home)
+    try {
+      ctx.skills.register({ name: 'root-skill', description: 'Root skill', source: 'runtime', content: 'Root body.' })
+      const { agent, scope } = await mintAgentScope(ctx, '/workspace/nested')
+      const isolated = scope.ctx.isolate('skills')
+      await isolated.plugin(SkillRegistry)
+      isolated.get('skills')!.register({ name: 'nested-skill', description: 'Nested skill', source: 'runtime', content: 'Nested body.' })
+      const loader = await isolated.plugin(toolSkill, { scopedCatalogOwner: true })
+      const retiredTool = ctx.tools.get('skill', agent)
+      if (retiredTool === undefined) throw new Error('expected scoped loader')
+      await fireStep(ctx, agent, 1, 1)
+      await loader.dispose()
+      scope.ctx.tools.register(retiredTool)
+
+      await fireStep(ctx, agent, 1, 2)
+      expect(catalogMessages(agent.session).at(-1)?.data.source).toEqual({
+        kind: 'skill-catalog', form: 'catalog', update: true, entries: [],
+      })
+      const user = createUserMessage({ content: [{ type: 'text', text: '/nested-skill /root-skill' }], source: { kind: 'user' } })
+      expect(await proposeStep(ctx, agent, [user])).toEqual({ kind: 'enter', messages: [user] })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it.each(['restriction', 'shadow', 'replacement'] as const)('handles a %s during discovery without publishing a stale catalog', async (change) => {
+    const home = await tempDir('tool-catalog-visibility-race')
+    const ctx = await setup(home)
+    const started = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    try {
+      ctx.skills.register({ name: 'root-skill', description: 'Root skill', source: 'runtime', content: 'Root body.' })
+      const { agent: ownerAgent, scope: ownerScope } = await mintAgentScope(ctx, '/workspace')
+      const owner = ownerScope.ctx.isolate('skills')
+      await owner.plugin(SkillRegistry)
+      owner.get('skills')!.register({ name: 'nested-skill', description: 'Nested skill', source: 'runtime', content: 'Nested body.' })
+      await owner.plugin(toolSkill, { scopedCatalogOwner: true })
+      const { agent, scope } = await mintAgentScope(owner, sessionAgent(ownerAgent.session, 'racing-catalog-reader'), ownerAgent)
+      await fireStep(ctx, agent, 1, 1)
+      owner.get('skills')!.registerProvider(() => ({
+        name: 'deferred-discovery',
+        async list() {
+          started.resolve(undefined)
+          await release.promise
+          return [{
+            name: 'racing-skill', description: 'Must not be published after visibility changes.', source: 'runtime',
+            provider: 'deferred-discovery', rank: 1, locator: 'racing-skill',
+            invocation: { modelInvocable: true, userInvocable: true },
+          }]
+        },
+        get: () => Promise.resolve(undefined),
+      }))
+      const pending = fireStep(ctx, agent, 1, 2)
+      await started.promise
+      if (change === 'restriction') scope.ctx.tools.restrict({ deny: ['skill'] })
+      else if (change === 'shadow') scope.ctx.tools.register(defineContentToolFixture({
+        name: 'skill', description: 'Unrelated skill consumer.', parameters: {},
+        execute: () => Promise.resolve([{ type: 'text', text: 'shadow' }]),
+      }))
+      else {
+        const isolated = scope.ctx.isolate('skills')
+        await isolated.plugin(SkillRegistry)
+        isolated.get('skills')!.register({
+          name: 'replacement-skill', description: 'Replacement skill', source: 'runtime', content: 'Replacement body.',
+        })
+        await isolated.plugin(toolSkill, { scopedCatalogOwner: true })
+      }
+      release.resolve(undefined)
+      await pending
+
+      const catalogs = catalogMessages(agent.session)
+      expect(catalogs).toHaveLength(change === 'replacement' ? 1 : 2)
+      if (change !== 'replacement') {
+        expect(catalogs[1]?.data.source).toEqual({ kind: 'skill-catalog', form: 'catalog', update: true, entries: [] })
+      }
+      expect(JSON.stringify(catalogs)).not.toContain('racing-skill')
+      await fireStep(ctx, agent, 1, 3)
+      expect(catalogMessages(agent.session)).toHaveLength(2)
+      if (change === 'replacement') {
+        expect(catalogMessages(agent.session)[1]?.data.source).toEqual({
+          kind: 'skill-catalog', form: 'catalog', update: true,
+          entries: [{ name: 'replacement-skill', description: 'Replacement skill' }],
+        })
+      }
+    } finally {
+      release.resolve(undefined)
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('omits catalog guidance when the calling agent restricts away the shipped skill tool', async () => {
     const home = await tempDir('tool-restricted-catalog')
     const ctx = await setup(home)
@@ -1015,6 +1286,89 @@ describe('user-explicit invocation injection', () => {
     const ctx = await setup(home)
     return { ctx, agent: agentForCwd(home) }
   }
+
+  it('does not inject explicit skills when its exact tool is restricted or shadowed', async () => {
+    for (const hiddenBy of ['restriction', 'shadow'] as const) {
+      const { ctx, agent } = await invokeHarness()
+      try {
+        const { scope } = await mintAgentScope(ctx, agent)
+        if (hiddenBy === 'restriction') scope.ctx.tools.restrict({ deny: ['skill'] })
+        else scope.ctx.tools.register(defineContentToolFixture({
+          name: 'skill', description: 'Different skill consumer.', parameters: {},
+          execute: () => Promise.resolve([{ type: 'text', text: 'shadow' }]),
+        }))
+        const first = gesture('/hidden-demo /shared-skill')
+        const decision = await proposeStep(ctx, agent, [first])
+        expect(decision).toEqual({ kind: 'enter', messages: [first] })
+      } finally {
+        await ctx.fiber.dispose()
+      }
+    }
+  })
+
+  it('uses only the isolated scoped skill consumer for explicit invocation', async () => {
+    const { ctx, agent } = await invokeHarness()
+    try {
+      ctx.skills.register({
+        name: 'authoring-skill', description: 'Host authoring skill.', source: 'runtime',
+        content: 'Start a separate authoring agent.',
+      })
+      const { scope } = await mintAgentScope(ctx, agent)
+      const isolated = scope.ctx.isolate('skills')
+      await isolated.plugin(SkillRegistry)
+      const skills = isolated.get('skills')!
+      skills.register({
+        name: 'shared-skill', description: 'Scoped shared skill.', source: 'runtime',
+        content: 'Scoped source-reading instructions.',
+      })
+      skills.register({
+        name: 'creation-only', description: 'Scoped user-only skill.', source: 'runtime',
+        invocation: { modelInvocable: false, userInvocable: true }, content: 'Scoped user-only instructions.',
+      })
+      await isolated.plugin(toolSkill)
+      const decision = await proposeStep(ctx, agent, [gesture('/authoring-skill /hidden-demo /shared-skill /creation-only')])
+      if (decision.kind !== 'enter') throw new Error('expected enter')
+      const injections = decision.messages.filter(message => message.source.kind === 'skill-invocation')
+      expect(injections.map(message => message.source)).toEqual([
+        { kind: 'skill-invocation', name: 'shared-skill', form: 'instructions' },
+        { kind: 'skill-invocation', name: 'creation-only', form: 'instructions' },
+      ])
+      const rendered = JSON.stringify(injections)
+      expect(rendered).toContain('Scoped source-reading instructions.')
+      expect(rendered).toContain('Scoped user-only instructions.')
+      expect(rendered).not.toContain('Start a separate authoring agent.')
+      expect(rendered).not.toContain('PINEAPPLE')
+      expect(rendered).not.toContain('Shared instructions.')
+      const globalDecision = await proposeStep(ctx, agentForCwd(agent.session.header.cwd!), [gesture('/authoring-skill')])
+      expect(JSON.stringify(globalDecision)).toContain('Start a separate authoring agent.')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('discards an explicit skill load when its tool becomes hidden while loading', async () => {
+    const { ctx, agent } = await invokeHarness()
+    try {
+      const { scope } = await mintAgentScope(ctx, agent)
+      ctx.skills.registerProvider(() => ({
+        name: 'visibility-race',
+        list: () => Promise.resolve([{
+          name: 'racing-skill', description: 'Changing visibility.', source: 'runtime', provider: 'visibility-race',
+          rank: 1, locator: 'racing-skill', invocation: { modelInvocable: true, userInvocable: true },
+        }]),
+        get(candidate) {
+          scope.ctx.tools.restrict({ deny: ['skill'] })
+          return Promise.resolve({ ...candidate, content: 'This body must not be injected.' })
+        },
+      }))
+      const decision = await proposeStep(ctx, agent, [gesture('/racing-skill')])
+      if (decision.kind !== 'enter') throw new Error('expected enter')
+      expect(decision.messages.some(message => message.source.kind === 'skill-invocation')).toBe(false)
+      expect(JSON.stringify(decision)).not.toContain('This body must not be injected.')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
 
   it('injects a user-invocable skill named by a leading /token, after every other injection', async () => {
     const { ctx, agent } = await invokeHarness()

@@ -12,6 +12,7 @@ import { createPluginProfile } from '../src/project-manager.ts'
 import { recordDesktopRuntimeProfile, validateDesktopPluginGraph } from '../src/profile-packages.ts'
 import { readDesktopRuntime, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 import { isEntry } from '../../../scripts/release/process.ts'
+import { CREATION_SKILL_NAMES } from '../../desktop-host/src/creation-skills.ts'
 
 const editingModelInput = JSON.parse(readFileSync(new URL('../tests/expected/editing-model-input.json', import.meta.url), 'utf8')) as {
   personaPrefix: string
@@ -35,12 +36,13 @@ export function apply(ctx) {
   const root = ${JSON.stringify(root)}
   const home = ${JSON.stringify(home)}
   const editingModelInput = ${JSON.stringify(editingModelInput)}
+  const creationSkillNames = new Set(${JSON.stringify(CREATION_SKILL_NAMES)})
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
-  const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'editing']
+  const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'editing', 'creation']
   const presets = await ctx.agentPresets.list()
   if (presets.length !== ids.length || ids.some(id => !presets.some(preset => preset.id === id))) {
-    throw new Error('desktop runtime: expected exactly the six product presets; found ' + presets.map(preset => preset.id).join(', '))
+    throw new Error('desktop runtime: expected exactly the seven product presets; found ' + presets.map(preset => preset.id).join(', '))
   }
   if (ctx.agentPresets.defaultId !== 'short-drama') throw new Error('desktop runtime: product default preset changed')
   const inventory = await ctx.agentPresets.compositionInventory()
@@ -74,6 +76,12 @@ export function apply(ctx) {
           'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
           'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
           'mcp__muse-account__muse_kb_ingest_script']
+        : id === 'creation' ? ['read', 'skill', shell, 'present', 'run_code',
+          'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir',
+          'jubian_find', 'jubian_claim', 'jubian_snatch',
+          'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
+          'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
+          'mcp__muse-account__muse_kb_ingest_script']
         : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
     if (names.has('audio_transcribe') !== (id !== 'minimal')) throw new Error('desktop runtime: transcription availability differs in ' + id)
@@ -101,8 +109,31 @@ export function apply(ctx) {
         }
       }
     }
-    if (id === 'ptc' && (!names.has('run_code') || names.has('workflow'))) throw new Error('desktop runtime: PTC tool presentation is incomplete')
-    const skills = await ctx.skills.list({ scope: handle.agent, cwd: home })
+    if ((id === 'ptc' || id === 'creation') && (!names.has('run_code') || names.has('workflow'))) {
+      throw new Error('desktop runtime: PTC tool presentation is incomplete in ' + id)
+    }
+    if (id === 'creation' && ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code'].some(name => names.has(name))) {
+      throw new Error('desktop runtime: creation mode must use a single agent')
+    }
+    const skillRegistry = id === 'creation' ? ctx.agentPresets.serviceFor(handle.agent, 'skills') : ctx.skills
+    if (skillRegistry === undefined) throw new Error('desktop runtime: creation skill registry is not isolated')
+    const skills = await skillRegistry.list({ scope: handle.agent, cwd: home })
+    if (id === 'creation') {
+      for (const name of ['muse-creation', 'muse-script-editing', 'office-docx', 'office-xlsx', 'office-pptx', 'video-review']) {
+        if (!skills.some(skill => skill.name === name && skill.invocation.modelInvocable)) {
+          throw new Error('desktop runtime: missing creation skill ' + name)
+        }
+      }
+      if (skills.some(skill => !creationSkillNames.has(skill.name))) {
+        throw new Error('desktop runtime: creation skill registry exposes unreviewed skills')
+      }
+      const router = skills.find(skill => skill.name === 'muse-creation')
+      const expected = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills', 'muse-creation', 'SKILL.md')
+        .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
+      if (!router?.path || !existsSync(expected) || realpathSync.native(router.path) !== realpathSync.native(expected)) {
+        throw new Error('desktop runtime: creation routing skill is not packaged')
+      }
+    }
     if (names.has('skill')) {
       const productSkills = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills')
         .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
@@ -160,8 +191,8 @@ export function apply(ctx) {
       throw new Error('desktop runtime: editing skill is not mounted')
     }
     const custom = skills.find(skill => skill.name === 'desktop-user-skill')
-    if (!custom || realpathSync.native(custom.path) !== realpathSync.native(join(home, 'skills/desktop-user-skill/SKILL.md'))
-      || skills.some(skill => skill.name === 'desktop-legacy-only')) {
+    if (id !== 'creation' && (!custom || realpathSync.native(custom.path) !== realpathSync.native(join(home, 'skills/desktop-user-skill/SKILL.md'))
+      || skills.some(skill => skill.name === 'desktop-legacy-only'))) {
       throw new Error('desktop runtime: product custom skills missing or legacy skills discovered in ' + id
         + '; custom=' + (custom?.path ?? 'missing') + '; expected=' + join(home, 'skills/desktop-user-skill/SKILL.md')
         + '; legacy=' + skills.some(skill => skill.name === 'desktop-legacy-only'))

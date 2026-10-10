@@ -40,6 +40,21 @@
     },
     {
       "path": "../../llm/llm"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../perception/tool-video-inspect"
+    },
+    {
+      "path": "../../session-query/session-query"
     }
   ]
 }

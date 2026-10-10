@@ -173,6 +173,54 @@ describe('restrict()', () => {
     expect(await run(ctx, 'late', other.key)).toBe('ran:late')
   })
 
+  it('admits only future allow-listed inherited tools before their providers register', async () => {
+    const ctx = await mount()
+    const allowed = await mintAgentScope(ctx, 'allowed')
+    const other = await mintAgentScope(ctx, 'other')
+    allowed.scope.ctx.tools.restrict({ futureAllow: ['late-safe'] })
+    ctx.tools.register(tool('late-safe'))
+    ctx.tools.register(tool('late-hidden'))
+
+    expect(ctx.tools.schemas(allowed.key).map(t => t.name)).toEqual(['late-safe'])
+    expect(await run(ctx, 'late-safe', allowed.key)).toBe('ran:late-safe')
+    expect(await run(ctx, 'late-hidden', allowed.key)).toBe('Error: unknown tool "late-hidden"')
+    expect(ctx.tools.schemas(other.key).map(t => t.name)).toEqual(['late-safe', 'late-hidden'])
+  })
+
+  it('intersects current and future allow-lists with deny-lists and preserves empty allow-lists', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'a')
+    for (const name of ['a', 'b', 'c']) ctx.tools.register(tool(name))
+    const lift = scope.ctx.tools.restrict({ allow: ['a', 'b'], futureAllow: ['b', 'c', 'late'], futureDeny: ['c'] })
+    ctx.tools.register(tool('late'))
+    expect(ctx.tools.schemas(key).map(t => t.name)).toEqual(['b'])
+    lift()
+    scope.ctx.tools.restrict({ futureAllow: [] })
+    expect(ctx.tools.schemas(key)).toEqual([])
+  })
+
+  it('snapshots future allow-list names and own-registration filtering until disposal', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'a')
+    const filter = { futureAllow: ['safe'], includeOwn: true }
+    const changed = vi.fn()
+    ctx.on('tools/change', changed)
+    const lift = scope.ctx.tools.restrict(filter)
+    expect(changed).toHaveBeenCalledTimes(1)
+    filter.futureAllow.push('hidden')
+    filter.includeOwn = false
+    scope.ctx.tools.register(tool('safe'))
+    scope.ctx.tools.register(tool('hidden'))
+    expect(ctx.tools.schemas(key).map(t => t.name)).toEqual(['safe'])
+    expect(await run(ctx, 'hidden', key)).toBe('Error: unknown tool "hidden"')
+    changed.mockClear()
+    lift()
+    expect(changed).toHaveBeenCalledTimes(1)
+    expect(ctx.tools.schemas(key).map(t => t.name)).toEqual(['safe', 'hidden'])
+    await scope.dispose()
+    expect(ctx.tools.schemas(key)).toEqual([])
+  })
+
   it('composes multiple restrictions by intersection and lifts each independently', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')
@@ -203,6 +251,8 @@ describe('restrict()', () => {
     scope.ctx.tools.register(tool('local'))
     expect(() => ctx.tools.restrict({ deny: ['real'] })).toThrow(/requires a scoped context/)
     expect(() => scope.ctx.tools.restrict({})).toThrow(/no-op/)
+    expect(() => scope.ctx.tools.restrict({ includeOwn: true })).toThrow(/no-op/)
+    expect(() => scope.ctx.tools.restrict({ includeOwn: false })).toThrow(/no-op/)
     // A scope's own registration is exempt from its own filter, so naming it
     // is a caller error rather than a silent no-op.
     expect(() => scope.ctx.tools.restrict({ allow: ['local'] })).toThrow(/unknown global tool "local"/)
@@ -274,6 +324,82 @@ describe('restrict() over an inherited scope layer', () => {
 
     expect(ctx.tools.schemas(child.key).map(t => t.name)).toEqual(['bash'])
     expect(ctx.tools.schemas(parent.key).map(t => t.name)).toEqual(['bash'])
+  })
+
+  it('filters late global, ancestor, own, and descendant registrations when an ancestor includes own tools', async () => {
+    const ctx = await mount()
+    const preset = await mintAgentScope(ctx, 'preset')
+    const agent = await mintChild(ctx, preset.key, 'agent')
+    const child = await mintChild(ctx, agent.key, 'child')
+    preset.scope.ctx.tools.restrict({ futureAllow: ['safe'], includeOwn: true })
+    ctx.tools.register(tool('global-hidden'))
+    preset.scope.ctx.tools.register(tool('preset-hidden'))
+    agent.scope.ctx.tools.register(tool('spawn_teammate'))
+    agent.scope.ctx.tools.register(tool('safe'))
+    child.scope.ctx.tools.register(tool('workflow'))
+    child.scope.ctx.tools.register(tool('safe', 'child-safe'))
+
+    expect(ctx.tools.schemas(preset.key)).toEqual([])
+    expect(ctx.tools.schemas(agent.key).map(t => t.name)).toEqual(['safe'])
+    expect(ctx.tools.schemas(child.key).map(t => t.name)).toEqual(['safe'])
+    for (const name of ['global-hidden', 'preset-hidden', 'spawn_teammate', 'workflow']) {
+      expect(ctx.tools.get(name, child.key)).toBeUndefined()
+      expect(await run(ctx, name, child.key)).toBe(`Error: unknown tool "${name}"`)
+    }
+    expect(await run(ctx, 'safe', child.key)).toBe('child-safe')
+    expect(ctx.tools.schemas().map(t => t.name)).toEqual(['global-hidden'])
+  })
+
+  it('does not restore a forbidden inherited definition when an own shadow is filtered', async () => {
+    const ctx = await mount()
+    const parent = await mintAgentScope(ctx, 'parent')
+    const child = await mintChild(ctx, parent.key, 'child')
+    ctx.tools.register(tool('hidden', 'global-hidden'))
+    parent.scope.ctx.tools.register(tool('hidden', 'parent-hidden'))
+    child.scope.ctx.tools.register(tool('hidden', 'child-hidden'))
+    parent.scope.ctx.tools.restrict({ futureDeny: ['hidden'], includeOwn: true })
+    expect(ctx.tools.get('hidden', parent.key)).toBeUndefined()
+    expect(ctx.tools.get('hidden', child.key)).toBeUndefined()
+    expect(await run(ctx, 'hidden', child.key)).toBe('Error: unknown tool "hidden"')
+  })
+
+  it('preserves own answer tools for ordinary restrictions beside an all-scope restriction', async () => {
+    const ctx = await mount()
+    const parent = await mintAgentScope(ctx, 'parent')
+    const child = await mintChild(ctx, parent.key, 'child')
+    parent.scope.ctx.tools.register(tool('read'))
+    parent.scope.ctx.tools.restrict({ futureAllow: ['read', 'structured_output'], includeOwn: true })
+    child.scope.ctx.tools.restrict({ allow: ['read'], includeOwn: false })
+    child.scope.ctx.tools.register(tool('structured_output'))
+    expect(ctx.tools.schemas(child.key).map(t => t.name)).toEqual(['read', 'structured_output'])
+    expect(await run(ctx, 'structured_output', child.key)).toBe('ran:structured_output')
+  })
+
+  it('denies both direct and nested execution of own tools hidden by an ancestor allow-list', async () => {
+    const ctx = await mount()
+    const parent = await mintAgentScope(ctx, 'parent')
+    const child = await mintChild(ctx, parent.key, 'child')
+    let bodyCalls = 0
+    let transport!: ToolExecutionToken
+    ctx.tools.register(tool('transport'))
+    ctx.on('tools/pre-execute', (exec, next) => {
+      if (exec.name === 'transport') transport = exec.token
+      return next()
+    })
+    await run(ctx, 'transport')
+    parent.scope.ctx.tools.restrict({ futureAllow: ['safe'], includeOwn: true })
+    child.scope.ctx.tools.register({
+      ...tool('hidden'),
+      execute: () => { bodyCalls += 1; return Promise.resolve('hidden') },
+    })
+    for (const nested of [false, true]) {
+      const result = await ctx.tools.execute({
+        signal: testToolSignal, callId: ToolCallId(`hidden-${String(nested)}`), name: 'hidden',
+        arguments: {}, agent: child.key, ...nested ? { parent: transport } : {},
+      })
+      expect(result).toMatchObject({ isError: true, error: { info: { code: 'UNKNOWN_TOOL' } } })
+    }
+    expect(bodyCalls).toBe(0)
   })
 })
 

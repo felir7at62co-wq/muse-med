@@ -6,8 +6,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolvePrimaryRuntime } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import type {} from '@deepseek-ai/dsh-tool-present'
-import { sha256 } from '@deepseek-ai/dsh-screenplay-project'
-import { approveVideoMarkdown, validateVideoDelivery } from './video-delivery.ts'
+import { sha256, validateAcceptedStoryEvidence, validateStoryApprovalLog } from '@deepseek-ai/dsh-screenplay-project'
+import { resolveTrustedVideoEvidence } from '@deepseek-ai/dsh-tool-video-inspect'
+import { approveVideoMarkdown, validateVideoDelivery, type StoryEvidenceVerifier } from './video-delivery.ts'
 
 /** Application-owned Word export limits and runtime. */
 export interface Config {
@@ -25,7 +26,7 @@ export interface Config {
 export interface ScreenplayDocxInput {
   inputs: readonly string[]
   output: string
-  /** Managed video project when exporting outside its conventional final directory. */
+  /** Managed video or refinement project when exporting outside its conventional final directory. */
   project?: string
 }
 
@@ -34,9 +35,11 @@ export interface ScreenplayDocxInput {
  * @param input - Absolute Markdown paths in episode order and a new DOCX path.
  * @param config - Bundled runtime and resource limits.
  * @param signal - Caller cancellation, forwarded to the conversion process.
+ * @param verifyStoryEvidence - Host-only persisted video receipt verification for story projects.
  * @returns Output path after Python has checked saved paragraph contents.
  */
-export async function exportScreenplayDocx(input: ScreenplayDocxInput, config: Config, signal?: AbortSignal): Promise<{ output: string }> {
+export async function exportScreenplayDocx(input: ScreenplayDocxInput, config: Config, signal?: AbortSignal,
+  verifyStoryEvidence?: StoryEvidenceVerifier): Promise<{ output: string }> {
   signal?.throwIfAborted()
   if (!input.inputs.length || input.inputs.some(path => !isAbsolute(path) || extname(path).toLowerCase() !== '.md')
     || !isAbsolute(input.output) || extname(input.output).toLowerCase() !== '.docx') {
@@ -54,7 +57,7 @@ export async function exportScreenplayDocx(input: ScreenplayDocxInput, config: C
     throw error
   })
   if (exists) throw new Error('Word output already exists; choose a new versioned path')
-  const approved = await approveVideoMarkdown(input.inputs, input.output, config.maxProjectBytes, input.project)
+  const approved = await approveVideoMarkdown(input.inputs, input.output, config.maxProjectBytes, input.project, verifyStoryEvidence)
   if (approved !== undefined && await lstat(`${input.output}.screenplay.json`).then(() => true, () => false)) {
     throw Error('Word verification record already exists; choose a new versioned path')
   }
@@ -77,7 +80,9 @@ export async function exportScreenplayDocx(input: ScreenplayDocxInput, config: C
   if (approved !== undefined) {
     await writeFile(`${input.output}.screenplay.json`, `${JSON.stringify({ version: 1,
       output_sha256: sha256(await readFile(input.output)), episodes: approved.episodes }, null, 2)}\n`, { flag: 'wx' })
-    await validateVideoDelivery([input.output], config, signal ?? new AbortController().signal)
+    await validateVideoDelivery([input.output], config, signal ?? new AbortController().signal, {
+      requireRefinementPair: false, ...(verifyStoryEvidence === undefined ? {} : { verifyStoryEvidence }),
+    })
   }
   return { output: input.output }
 }
@@ -93,7 +98,19 @@ export const inject = ['tools']
  * @param config - Application runtime and conversion limits.
  */
 export function apply(ctx: Context, config: Config): void {
-  ctx.on('deliverables/validate', (files, signal) => validateVideoDelivery(files, config, signal))
+  let evidenceContext: Context | undefined
+  ctx.inject(['fs', 'attachments', 'sessions', 'sessionQuery', 'llm'], (scope) => {
+    evidenceContext = scope
+    scope.effect(() => () => { if (evidenceContext === scope) evidenceContext = undefined })
+  })
+  const verify = (signal: AbortSignal): StoryEvidenceVerifier => (project) => {
+    const scope = evidenceContext
+    if (scope === undefined) throw Error('story_video_evidence_pending: 正式故事交付需要Host来源、附件和Session查询服务。')
+    return validateAcceptedStoryEvidence(project,
+      (input, persisted) => resolveTrustedVideoEvidence(scope, undefined, input, signal, persisted),
+      candidate => validateStoryApprovalLog(scope, project, candidate, signal))
+  }
+  ctx.on('deliverables/validate', (files, signal) => validateVideoDelivery(files, config, signal, { verifyStoryEvidence: verify(signal) }))
   ctx.tools.register(defineTool({
     name: 'screenplay_export_docx',
     description: '将已审校的剧本 Markdown 转为 Word 交付。按 inputs 顺序合并多集，保留场次、人物、▲动作、对白和 OS/VO；转换标题与加粗，其他 Markdown 写法按原文保留。逐段核对导出正文，不覆盖已有文件。先加载 screenplay-format 和 office-docx；生成后检查排版，再用 present 交付实际 DOCX。',
@@ -106,7 +123,7 @@ export function apply(ctx: Context, config: Config): void {
       schema: { type: 'object', additionalProperties: false, properties: { output: { type: 'string', required: true } } },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
-    execute: (args, exec) => exportScreenplayDocx(args, config, exec.signal),
+    execute: (args, exec) => exportScreenplayDocx(args, config, exec.signal, verify(exec.signal)),
     presentCall: () => ({ card: 'generic', title: 'Export screenplay to Word', kind: 'edit' }),
   }))
 }

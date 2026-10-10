@@ -162,20 +162,24 @@ Registration is a trusted same-process contract. The registry borrows the typed 
 
 ## `ToolRestriction` — one scope's live filter over what it inherits
 
-`ToolRestriction` applies to the tools a scope inherits: the deployment-global layer plus every ancestor scope on its chain. The registry compiles readonly names into private sets, intersects multiple restrictions, then overlays the scope's OWN registrations, which stay exempt so a delegated child keeps the tools it answers through. A deny-only filter admits later unlisted inherited tools, while an allow-list excludes them. `allow` and `deny` require names already registered; `futureDeny` hides a named tool when its provider registers later.
+`ToolRestriction` filters the deployment-global and ancestor tools a scope inherits. Own registrations stay exempt by default so delegated children retain their answer tools; `includeOwn: true` applies that restriction to own registrations in the viewing scope and its descendants too. The registry snapshots readonly names and intersects restrictions. Deny-only filters admit later unlisted tools; allow-lists exclude them. `allow` and `deny` require registered inherited names, while `futureAllow` and `futureDeny` accept names whose providers may register later. `allow` and `futureAllow` intersect when both are supplied. Every restriction leaves the reserved PTC transport available.
 
 ```ts type-equiv
 /**
- * Per-scope filter over global tools. Restrictions intersect and do not affect
- * scoped registrations or the reserved PTC mode transport.
+ * Per-scope filter over inherited tools. Restrictions intersect; `includeOwn`
+ * also filters the viewing scope's registrations. The reserved PTC transport is exempt.
  */
 interface ToolRestriction {
-  /** Global tool names that stay visible; everything else is removed. */
+  /** Registered inherited tool names that stay visible; everything else is removed. */
   readonly allow?: readonly string[]
-  /** Global tool names removed from visibility. */
+  /** Tool names that stay visible, including names whose providers register later; intersects `allow`. */
+  readonly futureAllow?: readonly string[]
+  /** Registered inherited tool names removed from visibility. */
   readonly deny?: readonly string[]
-  /** Global tool names to hide even if their provider registers after this restriction. */
+  /** Tool names to hide even if their provider registers after this restriction. */
   readonly futureDeny?: readonly string[]
+  /** Also filter the viewing scope's own registrations; omission preserves their exemption. */
+  readonly includeOwn?: boolean
 }
 ```
 
@@ -532,12 +536,11 @@ presentAs(mode: ToolPresentationMode): () => Promise<void>
 register(definition: ToolDefinition): () => void
 
 /**
- * Restrict global tools for the calling agent scope. Empty filters, unknown
+ * Restrict inherited tools for the calling agent scope. Empty filters, unknown
  * `allow`/`deny` names, scope-local names, and reserved transport names fail.
- * `futureDeny` names are explicit exceptions for providers that register later.
- * Restrictions intersect; scoped registrations remain visible.
- * @param filter - global-tool mask: `allow` (keep only), `deny` (remove known names),
- * and/or `futureDeny` (remove names even when registered later).
+ * `futureAllow` and `futureDeny` accept names whose providers register later.
+ * Allow-lists intersect; own registrations remain visible unless `includeOwn` is true.
+ * @param filter - inherited-tool mask, optionally including own-scope registrations.
  * @returns the exact disposer that lifts this restriction.
  */
 restrict(filter: ToolRestriction): () => void

@@ -9,8 +9,8 @@
   en: f8a9a4cfae084691
   zh: 791e07d5d7bad1a6
 /deepseek-ai-dsh-screenplay-project/summary:
-  en: 1f3cc8d6ed8ec1e0
-  zh: a718e85ba527f6cb
+  en: 45669eb1bf82102c
+  zh: c0bd866b603f9cca
 /deepseek-ai-dsh-screenplay-project/table-of-contents:
   en: d152484eb41ac6b4
   zh: 1db86285abf6c499
@@ -21,14 +21,20 @@
   en: 1e74f519ce731c66
   zh: 5b3ff47a8783ef5a
 /deepseek-ai-dsh-screenplay-project/use-this-package/minimal-configuration:
-  en: d591b983069b3763
-  zh: 4551ae57520986a4
+  en: ae44da968e943ff8
+  zh: e7879ace02d311f1
+/deepseek-ai-dsh-screenplay-project/use-this-package/story-faithful-video-creation:
+  en: 9f7dd45daa161d8e
+  zh: 8df922e111d05542
+/deepseek-ai-dsh-screenplay-project/use-this-package/source-preserving-refinement:
+  en: 156f6de0f58ff8e8
+  zh: 7f17839f558d8909
 /deepseek-ai-dsh-screenplay-project/use-this-package/project-operations:
-  en: 2e41ef3c46dbd13f
-  zh: 072d80dd812558e6
+  en: e10fd083f344c390
+  zh: 6afeeefc99942baa
 /deepseek-ai-dsh-screenplay-project/understand-the-implementation:
-  en: a94c225a1f96ef46
-  zh: 5036008b724f5b78
+  en: 65ac4eabc982fe89
+  zh: f85eb35c865447eb
 /deepseek-ai-dsh-screenplay-project/further-exploration:
   en: a89d543bcbb5536d
   zh: 8484b255e1410df1
@@ -42,14 +48,14 @@
   en: d600a3a77a50da32
   zh: 8485705147be0c0e
 /deepseek-ai-dsh-screenplay-project/model-experience/the-screenplay-project-tool/token-effect:
-  en: b0a76feee9b149d1
-  zh: bf29e874dfda8961
+  en: cc851f418dccb33b
+  zh: 0150637d45c662e7
 /deepseek-ai-dsh-screenplay-project/model-experience/the-screenplay-project-tool/kv-cache-effect:
   en: fa91831b16390529
   zh: 844095af9b221f6e
 /deepseek-ai-dsh-screenplay-project/known-limitations-and-deferred-work:
-  en: fbb3234a245a4f9c
-  zh: 42abc3a28869d0b1
+  en: a98a76637ab70436
+  zh: 7053efb4d545f5ea
 /deepseek-ai-dsh-screenplay-project/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: bd8a8936229e035e

@@ -1,4 +1,4 @@
-/** Mount the editing preset and discover the source Muse MCP catalog over loopback. */
+/** Mount a product preset and discover the source Muse MCP catalog over loopback. */
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -26,9 +26,10 @@ export const inject = ['agentPresets', 'tools', 'systemPrompt']
 
 /**
  * @param {import('@deepseek-ai/cordis').Context} ctx - Snapshot composition.
- * @param config - Platform-shell visibility and whether the recording includes clock messages.
+ * @param config - Product preset id (editing by default), platform-shell visibility and clock recording.
  */
 export async function apply(ctx, config) {
+  const presetId = config.presetId ?? 'editing'
   let productBaseUrl
   let productPresetDirectory
   await ctx.effect(async () => {
@@ -54,13 +55,19 @@ export async function apply(ctx, config) {
       }
       await writeFile(join(anchor, 'package.json'), '{"name":"snapshot-editing-resolution","version":"0.0.0","type":"module"}\n')
       productBaseUrl = pathToFileURL(join(anchor, 'package.json')).href
-      productPresetDirectory = join(anchor, 'editing')
+      productPresetDirectory = join(anchor, presetId)
       await mkdir(productPresetDirectory)
-      const sourceDirectory = new URL('../../../apps/desktop-host/presets/editing/', import.meta.url)
-      const source = (await readFile(new URL('agent.cordis.yml', sourceDirectory), 'utf8')).replaceAll('\r\n', '\n')
+      const sourceDirectory = new URL(`../../../apps/desktop-host/presets/${presetId}/`, import.meta.url)
+      let source = (await readFile(new URL('agent.cordis.yml', sourceDirectory), 'utf8')).replaceAll('\r\n', '\n')
+      if (presetId === 'creation') {
+        for (const entry of ['creation-policy', 'creation-skills']) {
+          source = source.replace(`'@deepseek-ai/dsh-desktop-host/${entry}'`,
+            JSON.stringify(new URL(`../muse-creation-ptc/${entry}.mjs`, import.meta.url).href))
+        }
+      }
       const clockRow = "- id: time-context\n  name: '@deepseek-ai/dsh-time-context'\n"
       if (!source.includes(clockRow) || source.indexOf(clockRow) !== source.lastIndexOf(clockRow)) {
-        throw new Error('The source editing preset must declare one request clock')
+        throw new Error(`The source ${presetId} preset must declare one request clock`)
       }
       // This catalog recording predates clock messages; the clock recording keeps the current preset contribution.
       await writeFile(join(productPresetDirectory, 'agent.cordis.yml'), config.keepClock === true
@@ -123,11 +130,11 @@ export async function apply(ctx, config) {
   })).await()
   const productCtx = ctx.extend({baseUrl: productBaseUrl})
   await productCtx.plugin(NativePreset, {
-    id: 'editing',
+    id: presetId,
     directory: productPresetDirectory,
   })
   ctx.on('agent/created', async ({ agent }) => {
-    await ctx.agentPresets.mount(agent.ctx, 'editing')
+    await ctx.agentPresets.mount(agent.ctx, presetId)
     // The product suffix puts Chinese punctuation directly after {{cwd}};
     // this snapshot-only shadow keeps the same meaning with a path boundary.
     agent.ctx.effect(() => agent.ctx.systemPrompt.section({

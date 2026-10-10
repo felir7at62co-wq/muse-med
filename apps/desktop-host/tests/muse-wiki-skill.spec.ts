@@ -4,6 +4,7 @@ import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry, { renderSkillContent } from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import { expect, it } from 'vitest'
+import { CREATION_SKILL_NAMES } from '../src/creation-skills.ts'
 
 it('discovers Muse Wiki guidance for logged-in navigation, cited synthesis, and concurrent revisions', async () => {
   const ctx = new Context()
@@ -47,9 +48,14 @@ it('discovers proactive participation guidance across presets with private recor
     }
     expect(input).toMatch(/不同 Muse 账号.*分开保存.*不将旧账号.*写入新账号/su)
     expect(input).toMatch(/组合查询.*不返回原始资料/su)
-    for (const name of ['standard', 'ptc', 'cordis', 'editing', 'short-drama']) {
+    for (const name of ['standard', 'ptc', 'cordis', 'editing', 'short-drama', 'creation']) {
       const preset = await readFile(new URL('../presets/' + name + '/agent.cordis.yml', import.meta.url), 'utf8')
-      expect(preset).toContain('muse-project-participation')
+      if (name === 'creation') {
+        expect(preset).toContain('@deepseek-ai/dsh-desktop-host/creation-skills')
+        expect(CREATION_SKILL_NAMES).toContain('muse-project-participation')
+      } else {
+        expect(preset).toContain('muse-project-participation')
+      }
     }
     const minimal = await readFile(new URL('../presets/minimal/agent.cordis.yml', import.meta.url), 'utf8')
     expect(minimal).toContain('no Muse Wiki tools')

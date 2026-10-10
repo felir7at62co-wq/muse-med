@@ -80,7 +80,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Restrict tools per agent
 
-`ctx.tools.restrict(filter)` applies an allow or deny mask to the global tools one agent inherits; masks intersect, scoped registrations stay visible, and the restriction lifts when disposed. `allow` and `deny` reject unknown names at registration. Use `futureDeny` only for a known provider that may register its tool after the agent mounts; the named tool is hidden when it appears. `ctx.tools.get(name, scope)` resolves a tool as one scope sees it. A Host-local presenter consumer passes the calling agent when it must match the definition that executed. `ctx.tools.schemas(scope)` returns the visible schemas without the `execute` functions.
+`ctx.tools.restrict(filter)` filters tools an agent inherits from the global and ancestor layers; restrictions intersect and lift when disposed. Own-scope registrations stay visible by default. Set `includeOwn: true` to filter them too, including own registrations in descendant scopes. `allow` and `deny` reject names not already registered in inherited layers. `futureAllow` and `futureDeny` accept names whose providers may register later; `allow` and `futureAllow` intersect when both are supplied. The reserved `run_code` transport stays outside filtering. `ctx.tools.get(name, scope)` resolves a tool as one scope sees it. A Host-local presenter passes the calling agent to match the definition that executed. `ctx.tools.schemas(scope)` returns visible schemas without execution functions.
 
 ### Enforce policy on calls
 

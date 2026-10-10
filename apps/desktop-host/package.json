@@ -13,7 +13,9 @@
     "presets",
     "skills",
     "config/defaults.cordis.patch.yml",
-    "lib/cli.js"
+    "lib/cli.js",
+    "lib/creation-policy.js",
+    "lib/creation-skills.js"
   ],
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -62,12 +64,16 @@
     "@deepseek-ai/dsh-tool-video-inspect": "workspace:*",
     "koffi": "^3.1.0",
     "@deepseek-ai/dsh-agent-output-continuation": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@deepseek-ai/dsh-skill": "workspace:*",
+    "@deepseek-ai/dsh-system-prompt": "workspace:*"
   },
   "exports": {
     ".": "./lib/index.js",
     "./native-preset": "./lib/native-preset.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./creation-policy": "./lib/creation-policy.js",
+    "./creation-skills": "./lib/creation-skills.js"
   },
   "dsh": {
     "bundle": {
@@ -78,7 +84,6 @@
     "@deepseek-ai/dsh-compaction-basic": "workspace:*",
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
     "@deepseek-ai/cordis-plugin-include": "workspace:~",
-    "@deepseek-ai/dsh-skill": "workspace:*",
     "@deepseek-ai/dsh-user-approval": "workspace:*",
     "@deepseek-ai/dsh-subprocess": "workspace:*",
     "@deepseek-ai/dsh-client-ui-sidebar-browser": "workspace:*"

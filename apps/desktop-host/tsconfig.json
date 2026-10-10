@@ -88,6 +88,12 @@
     },
     {
       "path": "../../packages/deliverables/tool-present"
+    },
+    {
+      "path": "../../packages/skill/skill"
+    },
+    {
+      "path": "../../packages/core/system-prompt"
     }
   ]
 }

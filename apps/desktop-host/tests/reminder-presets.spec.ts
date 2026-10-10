@@ -19,7 +19,7 @@ interface PresetRow {
 }
 
 const reminderTools = ['schedule_create', 'schedule_delete', 'schedule_list', 'schedule_update']
-const presets = ['standard', 'ptc', 'cordis', 'short-drama', 'editing', 'minimal']
+const presets = ['standard', 'ptc', 'cordis', 'short-drama', 'editing', 'creation', 'minimal']
 
 function rows(preset: string): readonly PresetRow[] {
   return parseYaml(readFileSync(new URL(`../presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8'), {
@@ -27,7 +27,7 @@ function rows(preset: string): readonly PresetRow[] {
   }) as PresetRow[]
 }
 
-it('registers reminders only in the five complete Muse preset scopes and disposes them with the mount', async () => {
+it('registers reminders only in the complete Muse preset scopes and disposes them with the mount', async () => {
   const { ctx } = await harness()
   try {
     for (const preset of presets) {
@@ -55,7 +55,7 @@ it('registers reminders only in the five complete Muse preset scopes and dispose
 })
 
 it('filters the four reminder tools from each complete preset spawn and fork delegation', () => {
-  for (const preset of presets.filter(preset => preset !== 'minimal')) {
+  for (const preset of presets.filter(preset => preset !== 'minimal' && preset !== 'creation')) {
     const delegation = rows(preset).find(row => row.id === 'delegation')
     if (delegation === undefined || !Array.isArray(delegation.config)) throw new Error(`Missing ${preset} delegation`)
     const children = delegation.config as readonly PresetRow[]
@@ -67,6 +67,10 @@ it('filters the four reminder tools from each complete preset spawn and fork del
       expect(config.toolFilter?.deny, `${preset}/${id}`).toEqual(reminderTools)
     }
   }
+})
+
+it('keeps the single-agent creation preset without delegation', () => {
+  expect(rows('creation').find(row => row.id === 'delegation')).toBeUndefined()
 })
 
 it('keeps reminders absent when the optional Host schedule service is disabled', async () => {

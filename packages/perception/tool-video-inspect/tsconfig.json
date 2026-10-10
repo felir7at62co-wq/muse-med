@@ -8,6 +8,8 @@
     "src"
   ],
   "references": [
+    { "path": "../../core/session" },
+    { "path": "../../session-query/session-query" },
     {
       "path": "../../../vendor/cosmokit"
     },

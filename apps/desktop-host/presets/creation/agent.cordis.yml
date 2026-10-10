@@ -1,0 +1,249 @@
+# Single-model creation, using the Host PTC runtime and existing media policies.
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    complete: false
+    prefix: >-
+      你是 muse-med 的创作助手，由 {{model}} 驱动，用中文交流。专业技能按当前任务需要加载。
+      PTC 只直接调用 run_code。加载按需技能时使用 return await tools.skill({name: "audio-transcribe"}) 或输出完整返回值，把 content、provider、resourceBase 送回对话；等下一轮读到正文后再执行，不能只 await 而不返回。引用资源按真实 resourceBase 读取。
+      独立工具操作可并发；依赖步骤顺序执行。账号密码不得进入对话或工具参数。
+    suffix: 当前工作目录是 {{cwd}}；短剧项目沿用 short-drama/ 下已有工作间。
+- id: creation-policy
+  name: '@deepseek-ai/dsh-desktop-host/creation-policy'
+- id: tool-presentation
+  name: '@deepseek-ai/dsh-agent-tool-presentation'
+  config:
+    mode: ptc
+- id: creation-skills
+  name: cordis:group
+  group: true
+  isolate:
+    skills: true
+  config:
+    - id: skill-registry
+      name: '@deepseek-ai/dsh-skill'
+    - id: skill-catalog
+      name: '@deepseek-ai/dsh-desktop-host/creation-skills'
+    - id: tool-skill
+      name: '@deepseek-ai/dsh-tool-skill'
+      config:
+        scopedCatalogOwner: true
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+- id: time-context
+  name: '@deepseek-ai/dsh-time-context'
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+- id: tool-schedule
+  name: '@deepseek-ai/dsh-tool-schedule'
+- id: drama-gate
+  name: '@deepseek-ai/dsh-guard-drama'
+- id: tool-drama-assets
+  name: '@deepseek-ai/dsh-tool-drama-assets'
+- id: tool-shot-script
+  name: '@deepseek-ai/dsh-tool-shot-script'
+- id: tool-bgm-compose
+  name: '@deepseek-ai/dsh-tool-bgm-compose'
+- id: tool-episode-render
+  name: '@deepseek-ai/dsh-tool-episode-render'
+  config:
+    fontsDir: !!js process.env.MUSE_FONTS_DIR || 'C:/Windows/Fonts'
+    subtitleFontFamily: !!js process.env.MUSE_FONT_FAMILY || 'SimHei'
+    watermarkFontFamily: !!js process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'
+- id: perception-bgm
+  name: '@deepseek-ai/dsh-perception-bgm'
+  config:
+    catalogUrl: https://muse.tos-cn-beijing.volces.com/bgm/index.json
+    # The packaged product binds its own offline interpreter, model and caches;
+    # a deployment without that payload keeps catalogue matching only.
+    pythonExecutable: !!js >-
+      process.env.MUSE_BGM_RUNTIME_DIR ? `${process.env.MUSE_BGM_RUNTIME_DIR}/python/python.exe` : undefined
+    dataDir: !!js >-
+      process.env.MUSE_BGM_RUNTIME_DIR ? `${process.env.MUSE_BGM_RUNTIME_DIR}/models/data` : undefined
+    weightsPath: !!js >-
+      process.env.MUSE_BGM_RUNTIME_DIR ? `${process.env.MUSE_BGM_RUNTIME_DIR}/models/J_all.ckpt` : undefined
+    env: !!js >-
+      (() => {
+        const root = process.env.MUSE_BGM_RUNTIME_DIR;
+        if (!root) return undefined;
+        const home = process.env.DSH_HOME;
+        if (!home) throw new Error('Bundled BGM requires an explicit product home');
+        const cache = `${home}/perception/bgm/runtime-cache`;
+        const interpreter = `${root}/python`;
+        const separated = [interpreter, `${interpreter}/DLLs`, `${interpreter}/Library/bin`, process.env.PATH ?? ''].filter(Boolean);
+        return {
+          PATH: separated.join(process.platform === 'win32' ? ';' : ':'),
+          HF_HOME: `${root}/models/hf-cache`,
+          HF_MODULES_CACHE: `${cache}/hf-modules`,
+          NUMBA_CACHE_DIR: `${cache}/numba`,
+          MPLCONFIGDIR: `${cache}/matplotlib`,
+          HOME: cache, USERPROFILE: cache, APPDATA: cache, LOCALAPPDATA: cache,
+          HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1',
+          PYTHONNOUSERSITE: '1', PYTHONDONTWRITEBYTECODE: '1',
+          OMP_NUM_THREADS: '1', MKL_NUM_THREADS: '1', OPENBLAS_NUM_THREADS: '1'
+        };
+      })()
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+- id: planning
+  name: cordis:group
+  group: true
+  isolate:
+    planMode: true
+  config:
+    - id: plan-mode
+      name: '@deepseek-ai/dsh-plan-mode'
+      config:
+        section: >-
+          You are in plan mode. Investigate read-only; do not edit files, run mutating commands,
+          submit paid or state-changing Jubian operations, or implement the plan. These rules
+          override later tool guidance. Tool availability does not grant permission. Ask only
+          for user-owned choices after resolving discoverable facts. State scope, acceptance
+          criteria, changes, data flow, failure cases and checks in a complete plan. Present it
+          with exit_plan_mode as the final tool call, not todo_write or a prose approval question.
+          Conversational agreement does not approve implementation. Remain in plan mode until
+          exit_plan_mode succeeds or the user switches modes; rejected review means revise.
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+      config:
+        modelPolicies:
+          - provider: muse-cloud-deepseek-official
+            model: deepseek-flash
+            headroomTokens: 16384
+            maxTokens: 8192
+          - provider: muse-cloud-deepseek-official
+            model: deepseek-v4-pro
+            headroomTokens: 16384
+            maxTokens: 8192
+          - provider: muse-cloud-yunying
+            model: gpt-6-sol
+            headroomTokens: 16384
+            maxTokens: 8192
+          - provider: muse-cloud-yunying
+            model: gpt-6-astra
+            headroomTokens: 16384
+            maxTokens: 8192
+          - provider: muse-cloud-yunying
+            model: claude-opus-5-5
+            headroomTokens: 16384
+            maxTokens: 8192
+          - provider: muse-cloud-yunying
+            model: claude-fable-5-1
+            headroomTokens: 16384
+            maxTokens: 8192
+          - provider: muse-cloud-yunying
+            model: claude-sonnet-5-5
+            headroomTokens: 16384
+            maxTokens: 8192
+          - provider: muse-cloud-yunying
+            model: gemini-3.1-pro
+            headroomTokens: 16384
+            maxTokens: 8192
+          - provider: muse-cloud-yunying
+            model: glm-5.3-flash
+            headroomTokens: 16384
+            maxTokens: 8192
+          - provider: muse-cloud-zhipu-official
+            model: glm-5.3-flashx
+            headroomTokens: 16384
+            maxTokens: 8192
+          - provider: muse-cloud-zhipu-official
+            model: glm-5.3-flash
+            headroomTokens: 16384
+            maxTokens: 8192
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: true
+    searchTimeoutMs: 60000
+- id: present
+  name: '@deepseek-ai/dsh-tool-present'
+
+- id: tool-audio-transcribe
+  name: '@deepseek-ai/dsh-tool-audio-transcribe'
+  config:
+    ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+    ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
+
+- id: tool-video-inspect
+  name: '@deepseek-ai/dsh-tool-video-inspect'
+  config:
+    trustedEvidence: true
+    ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+    ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
+
+# Public Hongguo metadata tools register only inside this creative preset.
+- id: muse-hongguo-search
+  name: muse-hongguo-search
+
+# Download tools resolve media output inside the active conversation workspace.
+- id: muse-hongguo-download
+  name: muse-hongguo-download
+  config:
+    sourceMode: legacy
+    legacyAppDir: !!js process.env.MUSE_HONGGUO_LEGACY_APP_DIR || ''
+    signServer: !!js process.env.MUSE_HONGGUO_SIGN_SERVER || ''
+    signTokenEnv: MUSE_HONGGUO_SIGN_TOKEN
+    pythonExecutable: !!js process.env.MUSE_HONGGUO_PYTHON_PATH || ''
+    javaExecutable: !!js process.env.MUSE_HONGGUO_JAVA_PATH || ''
+    bootstrapDevices: !!js process.env.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'
+    ffprobeExecutable: !!js process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || ''
+    ffmpegExecutable: !!js process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || ''
+- id: muse-douyin-download
+  name: muse-douyin-download
+  config:
+    pythonExecutable: !!js process.env.MUSE_DOUYIN_PYTHON_PATH || null
+    ffmpegExecutable: !!js process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || null
+    ffprobeExecutable: !!js process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || null
+
+- id: muse-fanqie-download
+  name: muse-fanqie-download
+  config:
+    pythonExecutable: !!js process.env.MUSE_FANQIE_PYTHON_PATH || process.env.MUSE_HONGGUO_PYTHON_PATH || ''
+
+- id: screenplay-project
+  name: '@deepseek-ai/dsh-screenplay-project'
+  config:
+    reviewMode: self-check
+    refinementMode: source-preserving-v1
+    storyFaithfulMode: story-faithful-v2
