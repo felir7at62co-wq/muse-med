@@ -49,7 +49,7 @@ it('uses the Host account for start and preserves explicit language and purpose'
     expect(result.isError).toBe(false)
     expect(result.value).toMatchObject({ status: 'processing', job_id: 'job' })
     expect(startAudioTranscription).toHaveBeenLastCalledWith('project', 'source.mp4',
-      'language' in fields ? 'auto' : 'zh', account, config, undefined, 'purpose' in fields ? 'screenplay' : undefined)
+      'language' in fields ? 'auto' : 'zh', account, config, undefined, 'purpose' in fields ? 'screenplay' : undefined, expect.any(AbortSignal))
   }
   expect(tool.parameters).not.toHaveProperty('properties.cookie')
   expect(tool.parameters).not.toHaveProperty('properties.token')
@@ -58,7 +58,7 @@ it('uses the Host account for start and preserves explicit language and purpose'
 it('queries the original receipt and renders the canonical response', async () => {
   const { call, account } = await fixture()
   const result = await call({ method: 'status', project: 'project', receipt: 'original.json' })
-  expect(finishAudioTranscription).toHaveBeenCalledExactlyOnceWith('project', 'original.json', account)
+  expect(finishAudioTranscription).toHaveBeenCalledExactlyOnceWith('project', 'original.json', account, expect.any(AbortSignal))
   expect(startAudioTranscription).not.toHaveBeenCalled()
   expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(result.value) }])
 })

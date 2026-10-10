@@ -34,6 +34,8 @@ Rate refusals report a safe `error_code`, the original receipt, and optional `re
 
 `start` probes the source, extracts 16 kHz mono PCM WAV with FFmpeg, and stores the job ID and audio digest in `transcript/jobs/`. On Unix, tool-owned transcript directories use mode 0700 and staged audio, receipts, and published files use mode 0600. An uncertain submit retains the receipt. Query that receipt before another request; a confirmed absent server task can be retried with the same key and staged audio. A complete task writes `transcript/raw/<media>-vN.txt` , `.json`, and `.srt`; a silent task keeps only its receipt. The offline Python skill remains available only on an explicit offline request.
 
+Cancelling a call stops active media extraction and HTTP requests, prevents later part submissions or queries, and waits for owned work to settle. Cancellation before a receipt is saved removes staged audio; a persisted receipt retains its audio and original IDs for a later explicit `status` call. An already accepted cloud task may still run and incur charges. Local writes already in progress settle before cancellation returns; no later output publication, receipt replacement, or staged-audio deletion starts. Already published files remain available for receipt-based reconciliation.
+
 Local media commands reject timeout or excessive diagnostic output even when the terminated process exits successfully. Each command limits captured standard output to 65,536 characters and cumulative standard error to 65,536 bytes; extraction failures before a receipt is saved remove staged audio and make no paid submission.
 
 | Config | Default | Meaning |

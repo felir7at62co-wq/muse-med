@@ -185,3 +185,72 @@ it('accepts a complete sentence with no word timing array', async () => {
   const setup = await fixture(async () => Response.json({ id, status: 'complete', segments }))
   expect((await setup.client.get(id)).segments).toEqual(segments)
 })
+
+it('does not dispatch pre-cancelled uploads or queries', async () => {
+  const transport = vi.fn<typeof fetch>(async () => Response.json({ id: randomUUID(), status: 'processing' }))
+  const f = await fixture(transport), controller = new AbortController(), reason = new Error('cancelled')
+  controller.abort(reason)
+  await expect(f.client.submit(f.file, randomUUID(), 'a'.repeat(64), 'zh', undefined, controller.signal)).rejects.toBe(reason)
+  await expect(f.client.get(randomUUID(), controller.signal)).rejects.toBe(reason)
+  expect(transport).not.toHaveBeenCalled()
+})
+
+it.each(['submit', 'get'] as const)('cancels %s transport and awaits it before rejecting with the caller reason', async (method) => {
+  const entered = Promise.withResolvers<AbortSignal>(), release = Promise.withResolvers<undefined>()
+  const id = randomUUID(), controller = new AbortController(), reason = new Error('cancelled transport')
+  const f = await fixture(async (_url, init) => {
+    entered.resolve(init!.signal!); await release.promise
+    init!.signal!.throwIfAborted()
+    return Response.json({ id, status: 'processing' })
+  })
+  let settled = false
+  const task = method === 'submit' ? f.client.submit(f.file, id, 'a'.repeat(64), 'zh', undefined, controller.signal)
+    : f.client.get(id, controller.signal)
+  const observed = task.then(() => { settled = true }, () => { settled = true })
+  try {
+    const signal = await entered.promise
+    controller.abort(reason)
+    await Promise.resolve(undefined)
+    expect(signal.aborted).toBe(true)
+    expect(settled).toBe(false)
+  } finally { release.resolve(undefined); await observed }
+  await expect(task).rejects.toBe(reason)
+})
+
+it.each([200, 429])('preserves cancellation while reading a %s response body', async (status) => {
+  const reading = Promise.withResolvers<undefined>(), controller = new AbortController(), reason = new Error('cancelled body')
+  const f = await fixture(async (_url, init) => new Response(new ReadableStream({
+    start(stream) {
+      init!.signal!.addEventListener('abort', () => { stream.error(init!.signal!.reason) }, { once: true })
+    },
+    pull() { reading.resolve(undefined) },
+  }), { status }))
+  const task = f.client.get(randomUUID(), controller.signal)
+  const observed = task.catch(() => {})
+  await reading.promise
+  controller.abort(reason)
+  await observed
+  await expect(task).rejects.toBe(reason)
+})
+
+it('waits for an unread response body to close before returning a rejected status', async () => {
+  const cancelling = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const f = await fixture(async () => new Response(new ReadableStream({
+    async cancel() { cancelling.resolve(undefined); await release.promise },
+  }), { status: 401 }))
+  let settled = false
+  const task = f.client.get(randomUUID())
+  const observed = task.then(() => { settled = true }, () => { settled = true })
+  try {
+    await cancelling.promise
+    expect(settled).toBe(false)
+  } finally { release.resolve(undefined); await observed }
+  await expect(task).rejects.toMatchObject({ code: 'sign-in-required' })
+})
+
+it('retains a bounded rejection when the unused response body is already errored', async () => {
+  const f = await fixture(async () => new Response(new ReadableStream({
+    start(stream) { stream.error(new Error('private transport detail')) },
+  }), { status: 401 }))
+  await expect(f.client.get(randomUUID())).rejects.toMatchObject({ code: 'sign-in-required' })
+})

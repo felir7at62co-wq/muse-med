@@ -47,19 +47,25 @@ describe('desktop release metadata', () => {
 
 type CheckResult = NonNullable<Awaited<ReturnType<DesktopUpdater['checkForUpdates']>>>
 
+const mirrorSources: readonly DesktopUpdateSource[] = [
+  { provider: 'generic', url: 'https://mirror.example.com/', channel: 'rc' },
+  { provider: 'github', owner: 'example', repo: 'muse', channel: 'rc' },
+]
+const mirrorInfo = { version: '1.1.0-rc.2', files: [{ url: 'payload.zip', sha512: Buffer.alloc(64, 1).toString('base64'), size: 42 }] }
+
 const coordinators: InstanceType<typeof DesktopUpdateCoordinator>[] = []
 afterEach(() => { for (const item of coordinators.splice(0)) item.dispose() })
 
 function fixture(channel?: string, sources: readonly DesktopUpdateSource[] = [], manual = false) {
   const events = new EventEmitter()
-  const checkForUpdates = vi.fn(async (): Promise<CheckResult> => ({
+  const checkForUpdates = vi.fn(async (): Promise<CheckResult | null> => ({
     isUpdateAvailable: true,
     updateInfo: { version: '1.1.0-rc.2' },
   }))
   const downloadUpdate = vi.fn(async () => {
     events.emit('download-progress', { percent: 58 })
     events.emit('download-progress', { percent: 100 })
-    events.emit('update-downloaded', { version: '1.1.0-rc.2' })
+    events.emit('update-downloaded', sources.length > 1 ? mirrorInfo : { version: '1.1.0-rc.2' })
     return ['verified-package']
   })
   const quitAndInstall = vi.fn()
@@ -116,12 +122,6 @@ describe('manual macOS installation authorization', () => {
   })
 })
 
-const mirrorSources: readonly DesktopUpdateSource[] = [
-  { provider: 'generic', url: 'https://mirror.example.com/', channel: 'rc' },
-  { provider: 'github', owner: 'example', repo: 'muse', channel: 'rc' },
-]
-const mirrorInfo = { version: '1.1.0-rc.2', files: [{ url: 'payload.zip', sha512: Buffer.alloc(64, 1).toString('base64'), size: 42 }] }
-
 describe('desktop update mirrors', () => {
   it('checks TOS first and uses GitHub only after an availability failure', async () => {
     const f = fixture(undefined, mirrorSources)
@@ -153,14 +153,88 @@ describe('desktop update mirrors', () => {
     if (field === 'version') changed.version = '1.2.0'
     else if (field === 'size') changed.files[0]!.size++
     else changed.files[0]!.sha512 = Buffer.alloc(64, 2).toString('base64')
-    f.checkForUpdates.mockResolvedValueOnce({ isUpdateAvailable: true, updateInfo: changed })
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: changed })
     f.downloadUpdate.mockRejectedValueOnce(Object.assign(new Error('not found'), { statusCode: 404 }))
     const result = await f.coordinator.download(mirrorInfo.version)
     expect(result).toMatchObject({ phase: 'error', failedOperation: 'download' })
     if (result.phase !== 'error') throw new Error('expected a rejected fallback')
     expect(result.message).toContain('fallback payload differs')
+    for (let retry = 0; retry < 2; retry++) {
+      expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'error', failedOperation: 'download' })
+      await expect(f.coordinator.install(mirrorInfo.version)).rejects.toThrow(/not ready/u)
+    }
     expect(f.downloadUpdate).toHaveBeenCalledOnce()
+    expect(f.downloadResult).toHaveBeenCalledTimes(3)
+    expect(f.downloadResult).not.toHaveBeenCalledWith(true)
     expect(f.quitAndInstall).not.toHaveBeenCalled()
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'ready', version: mirrorInfo.version })
+    expect(f.downloadUpdate).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['unavailable', 'no result', 'invalid metadata'] as const)('revalidates the fallback after its check returns %s', async (failure) => {
+    const f = fixture(undefined, mirrorSources)
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    await f.coordinator.check()
+    if (failure === 'unavailable') f.checkForUpdates.mockRejectedValue(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }))
+    else if (failure === 'no result') f.checkForUpdates.mockResolvedValue(null)
+    else f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: { version: mirrorInfo.version } })
+    f.downloadUpdate.mockRejectedValueOnce(Object.assign(new Error('unavailable'), { statusCode: 503 }))
+    for (let attempt = 0; attempt < 3; attempt++) {
+      expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'error', failedOperation: 'download' })
+      await expect(f.coordinator.install(mirrorInfo.version)).rejects.toThrow(/not ready/u)
+    }
+    expect(f.downloadUpdate).toHaveBeenCalledOnce()
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'ready' })
+    expect(f.downloadUpdate).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['size', 'sha512', 'missing files'] as const)('rejects unconfirmed downloaded metadata: %s', async (field) => {
+    const f = fixture(undefined, mirrorSources)
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    await f.coordinator.check()
+    const changed = structuredClone(mirrorInfo)
+    if (field === 'size') changed.files[0]!.size++
+    else if (field === 'sha512') changed.files[0]!.sha512 = Buffer.alloc(64, 2).toString('base64')
+    f.downloadUpdate.mockImplementation(async () => {
+      f.events.emit('update-downloaded', field === 'missing files' ? { version: mirrorInfo.version } : changed)
+      return ['unconfirmed-package']
+    })
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'error', failedOperation: 'download' })
+      await expect(f.coordinator.install(mirrorInfo.version)).rejects.toThrow(/not ready/u)
+    }
+    expect(f.downloadResult).not.toHaveBeenCalledWith(true)
+    expect(f.quitAndInstall).not.toHaveBeenCalled()
+  })
+
+  it('ignores readiness events before fallback metadata is validated', async () => {
+    const f = fixture(undefined, mirrorSources)
+    f.checkForUpdates.mockResolvedValueOnce({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    await f.coordinator.check()
+    f.checkForUpdates.mockImplementationOnce(async () => {
+      f.events.emit('update-downloaded', mirrorInfo)
+      return { isUpdateAvailable: true, updateInfo: mirrorInfo }
+    })
+    f.downloadUpdate.mockRejectedValueOnce(Object.assign(new Error('unavailable'), { statusCode: 503 }))
+      .mockResolvedValueOnce(['unprepared-package'])
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'error', failedOperation: 'download',
+      message: 'desktop update: platform preparation did not report readiness' })
+    await expect(f.coordinator.install(mirrorInfo.version)).rejects.toThrow(/not ready/u)
+  })
+
+  it('discards the prior target when a fresh metadata check fails', async () => {
+    const f = fixture(undefined, mirrorSources)
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    await f.coordinator.check()
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: { version: mirrorInfo.version } })
+    expect(await f.coordinator.check(true)).toMatchObject({ phase: 'error', failedOperation: 'check' })
+    await expect(f.coordinator.download(mirrorInfo.version)).rejects.toThrow(/no checked update/u)
+    expect(f.downloadUpdate).not.toHaveBeenCalled()
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    await f.coordinator.check(true)
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'ready' })
   })
 
   it('retains checksum rejection without trying another source', async () => {

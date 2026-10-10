@@ -6,7 +6,7 @@ import { FsError } from '@deepseek-ai/dsh-fs'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
-import { PROJECT_FILE, TRANSCRIPT, VIDEO_INSPECTION, FACT_RECORD, CANDIDATE_RECORD, SCENE_RECORD } from './schema.ts'
+import { PROJECT_FILE, TRANSCRIPT, VIDEO_INSPECTION, VIDEO_SOURCE, FACT_RECORD, CANDIDATE_RECORD, SCENE_RECORD } from './schema.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ActorId, FactId, SourceId, UnitId } from './ids.ts'
 import type { ProjectFile, ProjectRequest, ProjectSource } from './schema.ts'
@@ -39,6 +39,8 @@ interface Loaded {
   version: FsVersion
   sha256: string
   project: ProjectFile
+  knowledge: Record<string, string[]>
+  validated?: boolean
 }
 
 function referencesFact(candidate: ProjectFile['candidates'][number], id: FactId): boolean {
@@ -47,6 +49,8 @@ function referencesFact(candidate: ProjectFile['candidates'][number], id: FactId
 
 /** Project operations using the mounted filesystem; each mutation publishes one guarded JSON file. */
 export class ProjectCommands {
+  private cached: { hash: string; project: ProjectFile; knowledge: Record<string, string[]> } | undefined
+
   constructor(private readonly fs: FileSystem, private readonly limits: ProjectLimits, private readonly attachments: AttachmentStore) {}
 
   private async target(path: string, exec: ProjectExecution): Promise<FsTarget> {
@@ -60,6 +64,11 @@ export class ProjectCommands {
     const bytes = await this.fs.readBytes(target, exec.signal, this.limits.maxProjectBytes)
     const after = await this.fs.stat(target, exec.signal)
     if (after?.version !== before.version) throw Error('stale_read: 项目读取期间发生变更，请重读 status。')
+    const hash = sha256(bytes)
+    if (this.cached?.hash === hash) {
+      return { target, version: before.version, sha256: hash, project: structuredClone(this.cached.project),
+        knowledge: structuredClone(this.cached.knowledge), validated: true }
+    }
     const project = PROJECT_FILE.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)))
     const allIds = [project.id, ...project.sources.flatMap(source => [source.id, ...source.units.map(unit => unit.id)]),
       ...project.facts.map(fact => fact.id), ...project.candidates.map(candidate => candidate.id)]
@@ -74,13 +83,17 @@ export class ProjectCommands {
       }
     }
     for (const candidate of project.candidates) {
+      if (candidate.source_ids !== undefined && (new Set(candidate.source_ids).size !== candidate.source_ids.length
+        || candidate.source_ids.some(id => !project.sources.some(source => source.id === id)))) {
+        throw Error('invalid_candidate_sources: 候选来源绑定缺失或重复。')
+      }
       if (candidate.sha256 !== candidateDigest(candidate)) {
         throw Error('invalid_candidate_digest: 正文结构和版本摘要不一致。')
       }
     }
-    acceptedKnowledge(project)
+    const knowledge = acceptedKnowledge(project)
     for (const candidate of acceptedCandidates(project)) checkVideoCoverage(project, candidate)
-    return { target, version: before.version, sha256: sha256(bytes), project }
+    return { target, version: before.version, sha256: hash, project, knowledge }
   }
 
   private validateFact(project: ProjectFile, fact: ProjectFile['facts'][number] | Extract<ProjectRequest, { method: 'propose_fact' }>['fact'],
@@ -101,13 +114,21 @@ export class ProjectCommands {
     }
   }
 
-  private async verifySources(project: ProjectFile, exec: ProjectExecution): Promise<void> {
+  private async verifySources(project: ProjectFile, exec: ProjectExecution, validated = false): Promise<void> {
     for (const source of project.sources) {
       const bytes = await this.fs.readBytes(await this.target(source.path, exec), exec.signal, this.limits.maxSourceBytes)
       if (sha256(bytes) !== source.sha256) throw Error(`source_changed: ${source.path} 已变更；旧来源不能继续用于新验收。`)
-      const expected = this.units(bytes, source.id, source.kind)
-      if (JSON.stringify(expected) !== JSON.stringify(source.units)) throw Error('source_index_changed: 来源索引与原文件不一致。')
-      if (source.kind === 'video_inspection') await this.verifyVideo(bytes, exec)
+      if (!validated) {
+        const expected = this.units(bytes, source.id, source.kind)
+        if (JSON.stringify(expected) !== JSON.stringify(source.units)) throw Error('source_index_changed: 来源索引与原文件不一致。')
+      }
+      if (source.kind === 'video_inspection') {
+        const input = await this.verifyVideo(bytes, exec)
+        const video = VIDEO_SOURCE.strip().parse({ ...input, samples: input.frames.map(
+          ({ requested_seconds, timestamp_seconds }) => ({ requested_seconds, timestamp_seconds })) })
+        if (source.video !== undefined && JSON.stringify(source.video) !== JSON.stringify(video)) throw Error('source_index_changed: 视频检查范围与原文件不一致。')
+        source.video = video
+      }
     }
   }
 
@@ -138,6 +159,17 @@ export class ProjectCommands {
     const input = VIDEO_INSPECTION.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)))
     const info = await this.fs.stat(await this.target(input.path, exec), exec.signal)
     if (info?.type !== 'file' || info.version !== input.source_version) throw Error('video_changed: 帧清单绑定的视频原件已变更，需重新检查画面。')
+    if (input.interval !== undefined && (input.interval.end_seconds <= input.interval.start_seconds
+      || input.interval.end_seconds > input.duration_seconds)) throw Error('video_interval: 检查区间超出视频范围。')
+    const interval = input.interval
+    if (interval !== undefined && input.frames.some(frame => frame.requested_seconds < interval.start_seconds
+      || frame.requested_seconds >= interval.end_seconds)) throw Error('video_interval: 采样帧超出声明检查区间。')
+    for (const point of [...(input.sampling_plan?.selected ?? []), ...(input.sampling_plan?.deferred ?? [])]) {
+      if (point.time >= input.duration_seconds || (input.interval !== undefined
+        && (point.time < input.interval.start_seconds || point.time >= input.interval.end_seconds))) {
+        throw Error('video_interval: 检查点超出声明区间。')
+      }
+    }
     return input
   }
 
@@ -155,7 +187,7 @@ export class ProjectCommands {
     return text
   }
 
-  private status(project: ProjectFile): object {
+  private status(project: ProjectFile, knowledge = acceptedKnowledge(project)): object {
     return { project_id: project.id, revision: project.revision, mode: project.mode, instructions: project.instructions,
       ...(project.workflow === undefined ? {} : { workflow: project.workflow }),
       ...(project.parent === undefined ? {} : { parent: project.parent }),
@@ -170,7 +202,7 @@ export class ProjectCommands {
       pending: project.candidates.filter(candidate => candidate.committed_at === undefined)
         .slice(-this.limits.maxReadUnits).map(candidate => ({
           id: candidate.id, episode: candidate.episode, sha256: candidate.sha256, author: candidate.author, review: candidate.review,
-        })), knowledge: acceptedKnowledge(project) }
+        })), knowledge }
   }
 
   /**
@@ -192,12 +224,15 @@ export class ProjectCommands {
     }
     const loaded = await this.load(request.project, exec)
     const project = loaded.project
-    await this.verifySources(project, exec)
+    await this.verifySources(project, exec, loaded.validated)
+    if (!loaded.validated) {
+      this.cached = { hash: loaded.sha256, project: structuredClone(project), knowledge: structuredClone(loaded.knowledge) }
+    }
     if ('expected_revision' in request && request.expected_revision !== project.revision) {
       throw Error(`stale_revision: 预期 ${request.expected_revision}，实际 ${project.revision}；重读 status 后重新决定。`)
     }
     switch (request.method) {
-      case 'status': return this.status(project)
+      case 'status': return this.status(project, loaded.knowledge)
       case 'fork_project': {
         if (request.before_episode < 1 || request.before_episode > project.accepted.length + 1) {
           throw Error('revision_episode: 修订从已验收集号或下一集开始，不能跳过未写集数。')
@@ -251,7 +286,8 @@ export class ProjectCommands {
           throw Error('source_window: 使用 1 起始编号及配置预算内的读取数量。')
         }
         const units = source.units.slice(request.start - 1, request.start - 1 + request.count)
-        if (Buffer.byteLength(JSON.stringify(units), 'utf8') > this.limits.maxReadBytes) throw Error('source_window_bytes: 内容超过读取预算，请缩小窗口。')
+        if (Buffer.byteLength(JSON.stringify({ units, ...(source.video === undefined ? {} : { video: source.video }) }), 'utf8')
+          > this.limits.maxReadBytes) throw Error('source_window_bytes: 内容超过读取预算，请缩小窗口。')
         const images = units.flatMap(unit => unit.image === undefined ? [] : [unit.image])
         if (images.length > this.attachments.imageLimits.maxImagesPerMessage
           || images.reduce((total, image) => total + image.bytes, 0) > this.attachments.imageLimits.maxMessageImageBytes) {
@@ -259,6 +295,7 @@ export class ProjectCommands {
         }
         for (const unit of units) if (unit.image !== undefined) await this.attachments.readImage(unit.image, exec.signal)
         return { revision: project.revision, source_id: source.id, source_sha256: source.sha256, units,
+          ...(source.video === undefined ? {} : { video: source.video }),
           next: request.start - 1 + units.length < source.units.length ? request.start + units.length : null }
       }
       case 'import_source': {
@@ -271,6 +308,8 @@ export class ProjectCommands {
           units: this.units(bytes, id, request.source_kind) }
         if (source.kind === 'video_inspection') {
           const input = await this.verifyVideo(bytes, exec)
+          source.video = VIDEO_SOURCE.strip().parse({ ...input, samples: input.frames.map(
+            ({ requested_seconds, timestamp_seconds }) => ({ requested_seconds, timestamp_seconds })) })
           for (const frame of input.frames) await this.attachments.readImage(frame.image, exec.signal)
         }
         project.sources.push(source)
@@ -347,11 +386,11 @@ export class ProjectCommands {
         const candidate = CANDIDATE_RECORD.parse({ id: `c:${randomUUID()}`,
           sha256: sha256(JSON.stringify({ episode: request.episode, scenes })),
           episode: request.episode, base_episode: project.accepted.length, author: exec.actor,
-          created_at: new Date().toISOString(), scenes,
+          created_at: new Date().toISOString(), scenes, source_ids: project.sources.map(source => source.id),
           ...(request.coverage === undefined ? {} : { coverage: request.coverage }) })
         candidate.sha256 = candidateDigest(candidate)
         checkVideoCoverage(project, candidate)
-        const rendered = renderEpisode(project, candidate.scenes, acceptedKnowledge(project), candidate.episode)
+        const rendered = renderEpisode(project, candidate.scenes, loaded.knowledge, candidate.episode)
         project.candidates.push(candidate)
         await this.save(loaded, exec)
         return { revision: project.revision, candidate, rendered }
@@ -362,7 +401,7 @@ export class ProjectCommands {
         if (candidate.base_episode !== project.accepted.length) throw Error('candidate_base_changed: 前集已经推进，须基于当前验收状态提交新版本。')
         if (candidate.author === exec.actor) throw Error('self_review: 编写会话不能自行验收该版本。')
         if (!request.reason.trim()) throw Error('review_reason: 请记录来源、人物、时间、场次与改编语义的核对结果。')
-        const rendered = renderEpisode(project, candidate.scenes, acceptedKnowledge(project), candidate.episode)
+        const rendered = renderEpisode(project, candidate.scenes, loaded.knowledge, candidate.episode)
         if (checkVideoCoverage(project, candidate) && request.decision === 'approve' && !request.zero_action_reason?.trim()) {
           throw Error('zero_action_review_required: 请记录本集实际画面复核和确无关键动作遗漏的依据。')
         }
@@ -379,7 +418,7 @@ export class ProjectCommands {
           || candidate.committed_at !== undefined) {
           throw Error('episode_order: 版本已提交或基于过期前集，请从 status 恢复下一集。')
         }
-        renderEpisode(project, candidate.scenes, acceptedKnowledge(project), candidate.episode)
+        renderEpisode(project, candidate.scenes, loaded.knowledge, candidate.episode)
         checkVideoCoverage(project, candidate)
         candidate.committed_at = new Date().toISOString()
         project.accepted.push(candidate.id)
@@ -394,14 +433,24 @@ export class ProjectCommands {
         const before = { ...project, accepted: project.accepted.slice(0, index) }
         const rendered = renderEpisode(project, candidate.scenes, acceptedKnowledge(before), candidate.episode)
         const basename = `episode-${candidate.episode}-${candidate.id.slice(2)}`
+        const sourceRows = project.sources.filter(source => candidate.source_ids === undefined
+          || candidate.source_ids.includes(source.id)).map(source => ({ id: source.id, path: source.path, sha256: source.sha256 }))
+        const sidecar = {
+          candidate_id: candidate.id, candidate_sha256: candidate.sha256,
+          created_at: candidate.created_at, committed_at: candidate.committed_at,
+          review: candidate.review, lines: rendered.lines, knowledge: rendered.knowledge,
+          ...(candidate.source_ids === undefined || candidate.coverage === undefined ? {} : {
+            visual_coverage: candidate.coverage.windows.flatMap((window) => {
+              const source = project.sources.find(source => source.id === window.source_id)
+              return source?.video === undefined ? [] : [{ source_id: source.id, ...source.video }]
+            }),
+          }),
+          sources: sourceRows,
+        }
+        const encodeSidecar = (sources: typeof sourceRows) => `${JSON.stringify({ ...sidecar, sources }, null, 2)}\n`
         const files = [
           { path: `${request.directory}/${basename}.md`, content: rendered.script },
-          { path: `${request.directory}/${basename}.sources.json`, content: `${JSON.stringify({
-            candidate_id: candidate.id, candidate_sha256: candidate.sha256,
-            created_at: candidate.created_at, committed_at: candidate.committed_at,
-            review: candidate.review, lines: rendered.lines, knowledge: rendered.knowledge,
-            sources: project.sources.map(source => ({ id: source.id, path: source.path, sha256: source.sha256 })),
-          }, null, 2)}\n` },
+          { path: `${request.directory}/${basename}.sources.json`, content: encodeSidecar(sourceRows) },
         ]
         for (const file of files) {
           const target = await this.target(file.path, exec)
@@ -409,7 +458,22 @@ export class ProjectCommands {
             await this.fs.writeText(target, file.content, { kind: 'createIfAbsent' }, exec.signal, exec.policy)
           } catch (error) {
             if (!(error instanceof FsError) || error.code !== 'FS_NOT_OBSERVED') throw error
-            if (await this.fs.readText(target, exec.signal) !== file.content) throw Error('export_changed: 导出文件已修改，请使用新的交付目录。')
+            const existing = await this.fs.readText(target, exec.signal)
+            if (existing === file.content) continue
+            if (candidate.source_ids === undefined && file.path.endsWith('.sources.json')) {
+              let prior: unknown
+              try { prior = JSON.parse(existing) } catch (error) {
+                throw Error('export_changed: 导出文件已修改，请使用新的交付目录。', { cause: error })
+              }
+              if (typeof prior === 'object' && prior !== null && 'sources' in prior && Array.isArray(prior.sources)) {
+                const prefix = sourceRows.slice(0, prior.sources.length)
+                const retained = new Set(project.sources.slice(0, prior.sources.length)
+                  .flatMap(source => source.units.map(unit => unit.id)))
+                if (rendered.lines.every(line => line.source_units.every(id => retained.has(brandString<UnitId>(id))))
+                  && existing === encodeSidecar(prefix)) continue
+              }
+            }
+            throw Error('export_changed: 导出文件已修改，请使用新的交付目录。')
           }
         }
         return { revision: project.revision, candidate_id: candidate.id, files: files.map(file => file.path) }

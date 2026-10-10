@@ -68,13 +68,13 @@ export function apply(ctx: Context, config: Config): void {
       purpose: { type: 'string', enum: ['subtitles', 'screenplay'], description: 'start 用途：字幕校时用 subtitles（默认，极速）；音视频转剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。' },
     },
     output: { schema: outputSchema, render: (_args, value): ContentBlock[] => [{ type: 'text', text: JSON.stringify(value) }] },
-    execute: async (args) => {
+    execute: async (args, exec) => {
       if (args.method === 'start') {
         if (!args.input) throw new Error('audio_transcribe start requires input')
-        return await startAudioTranscription(args.project, args.input, args.language ?? 'zh', account, config, undefined, args.purpose)
+        return await startAudioTranscription(args.project, args.input, args.language ?? 'zh', account, config, undefined, args.purpose, exec.signal)
       }
       if (!args.receipt) throw new Error('audio_transcribe status requires receipt')
-      return await finishAudioTranscription(args.project, args.receipt, account)
+      return await finishAudioTranscription(args.project, args.receipt, account, exec.signal)
     },
   }))
 }

@@ -67,21 +67,23 @@ export class MuseAccountService extends TypertRemoteService {
    * @param sha256 - SHA-256 digest of the audio.
    * @param language - Recognition language.
    * @param purpose - Receipt-bound use; omit only for a legacy receipt without a purpose.
+   * @param signal - Cancellation of the local upload, without cancelling an accepted gateway task.
    * @returns Account-scoped task status without session or provider credentials.
    */
-  async submitAudio(file: string, id: string, sha256: string, language: 'zh' | 'auto', purpose?: MuseAsrPurpose): Promise<MuseAsrJob> {
+  async submitAudio(file: string, id: string, sha256: string, language: 'zh' | 'auto', purpose?: MuseAsrPurpose, signal?: AbortSignal): Promise<MuseAsrJob> {
     if (!this.asr) throw new Error('MUSE cloud transcription is unavailable in this Host')
-    return await this.asr.submit(file, id, sha256, language, purpose)
+    return await this.asr.submit(file, id, sha256, language, purpose, signal)
   }
 
   /**
    * Query a previously submitted transcription without making another paid submission.
    * @param id - Persisted idempotency UUID.
+   * @param signal - Cancellation of this status request.
    * @returns Task state and timed segments when complete.
    */
-  async audioStatus(id: string): Promise<MuseAsrJob> {
+  async audioStatus(id: string, signal?: AbortSignal): Promise<MuseAsrJob> {
     if (!this.asr) throw new Error('MUSE cloud transcription is unavailable in this Host')
-    return await this.asr.get(id)
+    return await this.asr.get(id, signal)
   }
 
   /**

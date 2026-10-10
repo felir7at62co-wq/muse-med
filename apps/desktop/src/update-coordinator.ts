@@ -39,23 +39,24 @@ const autoUpdater = manualAppId === undefined ? electronUpdater.autoUpdater : cr
 export class DesktopUpdateCoordinator {
   private current: DesktopUpdateState = { phase: 'idle' }
   private candidate: string | undefined
-  private downloaded = false
+  private downloadedInfo: UpdateInfo | undefined
   private disposed = false
   private checkOperation: Promise<DesktopUpdateState> | undefined
   private downloadOperation: Promise<DesktopUpdateState> | undefined
   private installOperation: Promise<DesktopUpdateState> | undefined
   private sourceIndex = 0
   private identity: string | undefined
+  private sourceValidated = false
 
   private readonly onProgress = (progress: ProgressInfo): void => {
-    if (this.downloadOperation === undefined || this.downloaded) return
+    if (this.downloadOperation === undefined || this.downloadedInfo !== undefined) return
     const percent = Math.min(100, Math.max(0, progress.percent))
     this.setState({ phase: percent >= 100 ? 'verifying' : 'downloading', ...this.target(), percent })
   }
 
   private readonly onDownloaded = (info: UpdateInfo): void => {
-    if (this.downloadOperation === undefined || info.version !== this.candidate) return
-    this.downloaded = true
+    if (this.downloadOperation === undefined || !this.sourceValidated || info.version !== this.candidate) return
+    this.downloadedInfo = info
   }
 
   private readonly onError = (error: Error): void => {
@@ -117,7 +118,8 @@ export class DesktopUpdateCoordinator {
    */
   async check(manual = false): Promise<DesktopUpdateState> {
     this.assertLive()
-    if (this.downloadOperation !== undefined || this.installOperation !== undefined || this.downloaded) return this.current
+    if (this.downloadOperation !== undefined || this.installOperation !== undefined
+      || this.downloadedInfo !== undefined) return this.current
     if (!manual && this.current.phase === 'error' && this.current.failedOperation === 'download') return this.current
     this.checkOperation ??= Promise.resolve().then(() => this.doCheck())
       .finally(() => { this.checkOperation = undefined })
@@ -127,12 +129,13 @@ export class DesktopUpdateCoordinator {
   }
 
   /**
+   * Retries recheck any source that has not matched the confirmed release.
    * @param version - Version shown in the user's download confirmation.
-   * @returns Download readiness or failure, without authorizing installation.
+   * @returns Download readiness only for the checked payload identity, or failure without authorizing installation.
    */
   async download(version: string): Promise<DesktopUpdateState> {
     this.assertLive()
-    if (this.downloaded || this.installOperation !== undefined) return this.current
+    if (this.downloadedInfo !== undefined || this.installOperation !== undefined) return this.current
     this.downloadOperation ??= Promise.resolve().then(async () => {
       await this.checkOperation
       this.assertLive()
@@ -141,11 +144,14 @@ export class DesktopUpdateCoordinator {
       this.setState({ phase: 'downloading', version, percent: 0 })
       try {
         await this.downloadFromSource()
-        if (!this.downloaded) throw new Error('desktop update: platform preparation did not report readiness')
+        if (this.downloadedInfo === undefined) throw new Error('desktop update: platform preparation did not report readiness')
+        if (this.identity !== undefined && desktopUpdateIdentity(this.downloadedInfo) !== this.identity) {
+          throw new Error('desktop update: downloaded payload differs from the confirmed release; check for updates again')
+        }
         this.downloadResult?.(true)
         return this.setState({ phase: 'ready', version })
       } catch (error) {
-        this.downloaded = false
+        this.downloadedInfo = undefined
         this.downloadResult?.(false, error instanceof DesktopUpdatePreparationError ? error.kind : 'download_failed')
         return this.setState(this.failure(error, 'download'))
       }
@@ -160,13 +166,13 @@ export class DesktopUpdateCoordinator {
    */
   async install(version: string): Promise<DesktopUpdateState> {
     this.assertLive()
-    if (!this.downloaded || this.downloadOperation !== undefined || version !== this.candidate) throw new Error('desktop update: confirmed target is not ready')
+    if (this.downloadedInfo === undefined || this.downloadOperation !== undefined || version !== this.candidate) throw new Error('desktop update: confirmed target is not ready')
     this.installOperation ??= Promise.resolve().then(async () => {
       this.setState({ phase: 'installing', version })
       try {
         try { await this.updater.verifyPreparedUpdate?.() }
         catch (error) {
-          this.downloaded = false
+          this.downloadedInfo = undefined
           return this.setState(this.failure(error, 'download'))
         }
         if (!await this.beforeRestart()) return this.setState({ phase: 'ready', version })
@@ -223,6 +229,8 @@ export class DesktopUpdateCoordinator {
     try {
       this.assertLive()
       if (!this.enabled()) throw new Error('desktop update: this application has no packaged update source')
+      this.candidate = undefined
+      this.identity = undefined
       this.sourceIndex = 0
       const result = await this.checkFromSource()
       if (result === null) throw new Error('desktop update: no check result was returned')
@@ -230,6 +238,7 @@ export class DesktopUpdateCoordinator {
       if (valid(version) === null) throw new Error('desktop update: feed version is invalid')
       this.identity = this.sources.length > 1 ? desktopUpdateIdentity(result.updateInfo) : undefined
       this.candidate = result.isUpdateAvailable && gt(version, this.currentVersion()) ? version : undefined
+      this.sourceValidated = true
       return this.setState(this.candidate === undefined ? { phase: 'idle' } : { phase: 'available', version })
     } catch (error) {
       return this.failure(error, 'check')
@@ -237,6 +246,7 @@ export class DesktopUpdateCoordinator {
   }
 
   private async checkFromSource(): ReturnType<DesktopUpdater['checkForUpdates']> {
+    this.sourceValidated = false
     for (;;) {
       this.assertLive()
       const source = this.sources[this.sourceIndex]
@@ -251,16 +261,21 @@ export class DesktopUpdateCoordinator {
   private async downloadFromSource(): Promise<void> {
     for (;;) {
       this.assertLive()
-      try { await this.updater.downloadUpdate(); return } catch (error) {
-        if (!isDesktopUpdateSourceUnavailable(error) || this.sourceIndex + 1 >= this.sources.length) throw error
-        this.downloaded = false
-        this.sourceIndex++
+      if (!this.sourceValidated) {
         const result = await this.checkFromSource()
-        if (result === null || this.identity === undefined || desktopUpdateIdentity(result.updateInfo) !== this.identity) {
+        if (result === null || !result.isUpdateAvailable || this.identity === undefined
+          || desktopUpdateIdentity(result.updateInfo) !== this.identity) {
           throw new Error('desktop update: fallback payload differs from the confirmed release; check for updates again')
         }
         this.assertLive()
+        this.sourceValidated = true
         this.setState({ phase: 'downloading', ...this.target(), percent: 0 })
+      }
+      try { await this.updater.downloadUpdate(); return } catch (error) {
+        if (!isDesktopUpdateSourceUnavailable(error) || this.sourceIndex + 1 >= this.sources.length) throw error
+        this.downloadedInfo = undefined
+        this.sourceValidated = false
+        this.sourceIndex++
       }
     }
   }
