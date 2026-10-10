@@ -55,7 +55,7 @@
 
 原镜像计划必须匹配五项封存二进制身份及四份 GitHub feed 哈希。维护中的 YAML parser 要求 Mac ZIP 在前并包含同批 ARM DMG、Windows 只有 EXE、SHA512 与大小准确，且 TOS 绝对 URL 指向对应对象。输送 preload 只选择封存的 Windows EXE 进行分片；Mac 文件保留原不可覆盖 PUT 和完整公开验证。原封存字节哈希固定源工作流与源提交。桥接器默认选择全部大二进制，只接受非空且不重复的选定子集。分片使用与原发布器同一 S3 SDK 模块的命令类。它全文验证本地大小与 SHA256，再串行上传可重放的 8 MiB 分片，瞬态错误（包含自身分片截止时间）最多尝试两次，最终用 `IfNoneMatch: '*'` 条件完成。Create 与 Complete 绝不自动重试；完成状态不明或自身任务取消失败时停止，不删除已完成对象或其他任务。小 blockmap 与四份 feed 仍走原 SDK。
 
-选中的 Windows 上传拥有由同一 SDK 模块创建的独立客户端，复用原凭据 provider。其 S3 配置禁用 `Expect: 100-continue`；明确配置的 HTTPS agent 保持默认 TLS 验证、不复用连接且只用一个 socket。原客户端与 Mac 请求保持不变。构造失败会释放已取得资源；每种上传结果都只销毁独立客户端、handler 与 agent。上传失败且资源释放也失败时，保留原上传错误；完成成功或已有对象结果之后释放失败，则停止 feed 提升。有界诊断分别报告这些结果，不含 SDK 错误正文或任务标识。
+选中的 Windows 上传拥有由同一 SDK 模块创建的独立客户端，复用原凭据 provider。其 S3 配置禁用 `Expect: 100-continue`；明确配置的 HTTPS agent 保持默认 TLS 验证，按 [SDK 连接指导](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/node-reusing-connections.html)只用一个 socket 为串行分片请求复用连接。原客户端与 Mac 请求保持不变。构造失败会释放已取得资源；每种上传结果都只销毁独立客户端、handler 与 agent。上传失败且资源释放也失败时，保留原上传错误；完成成功或已有对象结果之后释放失败，则停止 feed 提升。有界诊断分别报告这些结果，不含 SDK 错误正文或任务标识。
 
 完成成功与已有对象响应都回到原发布器，匿名全文核对大小与 SHA256。五份原二进制必须全部重新验证，之后才能写入并核验四份 feed，不能用之前的报告替代此次完整读回。失败可能留下已完成对象、自身未完成任务或部分已提升的 feed，再次 dispatch 前须核对。这项操作不发布或修改 GitHub release。
 

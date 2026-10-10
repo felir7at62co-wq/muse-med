@@ -33,7 +33,7 @@ export function createIsolatedMultipartTransport({ sourceClient, S3Client, NodeH
     }
   }
   try {
-    const agent = acquire(new Agent({ keepAlive: false, maxSockets: 1 }))
+    const agent = acquire(new Agent({ keepAlive: true, maxSockets: 1 }))
     const handler = acquire(new NodeHttpHandler({ httpsAgent: agent }))
     const client = acquire(new S3Client({ region: 'cn-beijing', endpoint: 'https://tos-s3-cn-beijing.volces.com',
       credentials: sourceClient.config.credentials, maxAttempts: 1, forcePathStyle: false,

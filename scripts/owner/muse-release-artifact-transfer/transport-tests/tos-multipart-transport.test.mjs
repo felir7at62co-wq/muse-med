@@ -58,7 +58,7 @@ function factoryFixture(failAt) {
   return { sourceClient, created, cleanupEvents, primary, run, logger, Agent, Handler, Client }
 }
 
-test('creates an isolated one-request transport without copying resolved configuration or resolving credentials', () => {
+test('creates an isolated serial transport without copying resolved configuration or resolving credentials', () => {
   const f = factoryFixture(), before = { ...f.sourceClient.config }, transport = f.run()
   const [agent, handler, client] = f.created
   assert.equal(transport.client, client)
@@ -72,7 +72,7 @@ test('creates an isolated one-request transport without copying resolved configu
   assert.equal(client.options.responseChecksumValidation, 'WHEN_REQUIRED')
   assert.equal(client.options.requestHandler, handler)
   assert.equal(Object.hasOwn(client.options, 'unrelatedResolvedConfig'), false)
-  assert.deepEqual(agent.options, { keepAlive: false, maxSockets: 1 })
+  assert.deepEqual(agent.options, { keepAlive: true, maxSockets: 1 })
   assert.equal(Object.hasOwn(agent.options, 'rejectUnauthorized'), false)
   assert.equal(handler.options.httpsAgent, agent)
   assert.deepEqual(f.sourceClient.config, before)
@@ -159,7 +159,7 @@ test('the isolated pinned SDK removes Expect while preserving the exact 8 MiB bo
     NodeHttpHandler, Agent: HTTPSAgent })
   t.after(() => transport.dispose())
   const handler = transport.client.config.requestHandler, configured = await handler.configProvider
-  assert.equal(configured.httpsAgent.keepAlive, false)
+  assert.equal(configured.httpsAgent.keepAlive, true)
   assert.equal(configured.httpsAgent.maxSockets, 1)
   assert.equal(Object.hasOwn(configured.httpsAgent.options, 'rejectUnauthorized'), false)
   assert.equal(handler.externalAgent, true)
@@ -176,6 +176,36 @@ test('the isolated pinned SDK removes Expect while preserving the exact 8 MiB bo
   assert.equal(captured.requests[0].protocol, 'https:')
   assert.equal(source.config.requestHandler, originalHandler)
   assert.equal(source.config.expectContinueHeader, originalExpect)
+  assert.equal(originalRecorder.requests.length, 0)
+  transport.dispose()
+})
+
+test('retains the same configured owned agent across isolated SDK requests without establishing sockets', async t => {
+  const originalRecorder = recorder(), source = actualSource(t, originalRecorder)
+  const sourceHandler = source.config.requestHandler, sourceExpect = source.config.expectContinueHeader
+  const transport = createIsolatedMultipartTransport({ sourceClient: source, S3Client: sdk.S3Client,
+    NodeHttpHandler, Agent: HTTPSAgent })
+  t.after(() => transport.dispose())
+  const handler = transport.client.config.requestHandler, firstConfig = await handler.configProvider
+  const agent = firstConfig.httpsAgent
+  assert.equal(agent.keepAlive, true)
+  assert.equal(agent.maxSockets, 1)
+  assert.equal(Object.hasOwn(agent.options, 'rejectUnauthorized'), false)
+  assert.equal(handler.externalAgent, true)
+  assert.equal(await handler.configProvider, firstConfig)
+  const captured = recorder()
+  handler.handle = captured.handle
+  const body = Buffer.alloc(8 * MiB, 0x44)
+  for (const PartNumber of [1, 2]) await transport.client.send(new sdk.UploadPartCommand({ Bucket: 'muse', Key: winKey,
+    UploadId: 'synthetic-upload', PartNumber, ContentLength: body.length, Body: body }))
+  assert.equal(transport.client.config.requestHandler, handler)
+  assert.equal((await handler.configProvider).httpsAgent, agent)
+  assert.equal(captured.requests.length, 2)
+  assert.ok(captured.requests.every(request => request.expect === undefined && request.body === body && request.contentLength === body.length))
+  assert.equal(Object.keys(agent.sockets).length, 0)
+  assert.equal(Object.keys(agent.freeSockets).length, 0)
+  assert.equal(source.config.requestHandler, sourceHandler)
+  assert.equal(source.config.expectContinueHeader, sourceExpect)
   assert.equal(originalRecorder.requests.length, 0)
   transport.dispose()
 })
