@@ -89,21 +89,20 @@ it('creates a fresh accepted V2 work with three actual sampled windows, exact ne
   } finally { await cleanup(cwd) }
 }, DEADLINE)
 
-it('cold-resumes pending V2 fail-closed, reacquires real image evidence and rereads B before a later C approval', async () => {
+it('cold-restores saved pending V2 observations and rereads B before a later C approval', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'story-faithful-pending-'))
   try {
     await prepareStoryFixture(cwd)
     const first = await runStoryFixture(cwd, { phase: 'checkpoint' }), fixture = await readStoryFixture(cwd, first.stdout)
     expect(fixture.project.accepted).toEqual([]); expect(fixture.project.candidates[0]!.review).toBeUndefined()
     const second = await runStoryFixture(cwd, { phase: 'resume-pending', sessionId: fixture.sessionId, prompt: '同一合成作品冷恢复后重新检查原视频和完整来源，再分轮审校。' })
-    expect(second.stdout).toContain('EXPECTED_DENIAL video_evidence_pending')
     expect(second.stdout).toContain('EXPECTED_DENIAL self_check_read_required')
     const accepted = PROJECT_FILE.parse(JSON.parse(await readFile(fixture.projectPath, 'utf8'))), candidate = accepted.candidates.at(-1)!
     expect(accepted.accepted).toEqual([candidate.id])
-    expect(accepted.candidates).toHaveLength(2)
-    expect(accepted.story_inventories![0]!.superseded_at_revision).toBeDefined()
-    expect(candidate.id).not.toBe(fixture.project.candidates[0]!.id)
-    expect(candidate.story_adaptation!.input_candidate_json).toBeDefined()
+    expect(accepted.candidates).toHaveLength(1)
+    expect(accepted.story_inventories![0]!.superseded_at_revision).toBeUndefined()
+    expect(candidate.id).toBe(fixture.project.candidates[0]!.id)
+    expect(await readFile(join(cwd, 'story-fixture-tools.json'), 'utf8')).not.toContain('video_inspect')
     expect(candidate.review!.evidence!.reads.every(read => read.step > fixture.project.candidates[0]!.created_step!
       && read.step < candidate.review!.evidence!.review_step)).toBe(true)
     expect(await readFile(join(cwd, 'story-fixture-observations.json'), 'utf8')).toContain('resume-pending')

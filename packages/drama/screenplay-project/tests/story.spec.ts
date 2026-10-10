@@ -1,11 +1,12 @@
 /** Synthetic original scenes exercise story declarations; trusted callbacks are test doubles, not media verification. */
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
+import { FsVersion } from '@deepseek-ai/dsh-fs'
 import { SessionSeq, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import sharp from 'sharp'
@@ -15,7 +16,7 @@ import { PROJECT_FILE, STORY_NOTES, SEMANTIC_INPUT, REQUEST_STORY, VIDEO_INSPECT
 import type { ProjectFile, ProjectRequest } from '../src/schema.ts'
 import type { ProjectReadReceipt } from '../src/review.ts'
 import { acceptedScripts, acceptedKnowledge, renderEpisode, sha256 } from '../src/episode.ts'
-import { validateAcceptedStoryEvidence, validateStoryApprovalLog } from '../src/story.ts'
+import { validateAcceptedStoryEvidence, validateStoryApprovalLog, validateStoryPolicy, storyPolicyDigest, validateInventory, inventoryDigest, storyScopeDigest } from '../src/story.ts'
 import type { ActorId, FactId, UnitId } from '../src/ids.ts'
 import type { HumanAuthorization } from '../src/refinement.ts'
 import { stageScenes, stageCoverage, stageStoryNotes } from './fixtures/stage-input.ts'
@@ -179,6 +180,35 @@ it('creates directly from sources, strengthens dialogue and authorized OS, restr
   await mkdir(join(root, 'delivery')); await run({ method: 'export', project, candidate_id: candidate.id, directory: join(root, 'delivery') })
   expect(await readFile(join(root, 'delivery', `episode-1-${candidate.id.slice(2)}.md`), 'utf8')).toBe(output.script)
   expect(verifyCount).toBeGreaterThan(1)
+})
+it('matches a sampled video alias to the canonical authorized file without rewriting its receipt', async () => {
+  const alias = join(root, 'linked-original.mp4')
+  await symlink(join(root, 'original.mp4'), alias)
+  const manifest = VIDEO_INSPECTION.parse(JSON.parse(await readFile(join(root, 'inspection.json'), 'utf8')))
+  manifest.path = alias
+  const bytes = JSON.stringify(manifest)
+  await writeFile(join(root, 'inspection.json'), bytes)
+  proof = { ...proof!, video_path: alias, manifest_sha256: sha256(bytes) }
+  await initialize()
+  const file = await current()
+  expect(file.sources[1]!.video!.path).toBe(alias)
+  expect(file.sources[1]!.story_video_path).toBe(join(root, 'original.mp4'))
+  expect(file.sources[1]!.trusted_video_receipt!.video_path).toBe(alias)
+  await sourcesAndFacts(false, true)
+  await inventory()
+  expect(await run({ method: 'status', project })).toMatchObject({ evidence_pending: [] })
+})
+it('restores saved observation receipts for an unaccepted episode and still propagates invalid evidence', async () => {
+  await sourcesAndFacts(); await inventory()
+  const saved = (await current()).sources[1]!.trusted_video_receipt
+  const verifyStoryVideo = async (_manifest: unknown, receipt: unknown) => {
+    expect(receipt).toEqual(saved)
+    return saved
+  }
+  expect(await commands.execute({ method: 'status', project }, { actor, signal: new AbortController().signal, verifyStoryVideo }))
+    .toMatchObject({ evidence_pending: [] })
+  await expect(commands.execute({ method: 'status', project }, { actor, signal: new AbortController().signal,
+    verifyStoryVideo: async () => { throw Error('Original Session log is missing') } })).rejects.toThrow('Original Session log is missing')
 })
 it('defaults disabled and requires the latest actual Host user grant and original video version', async () => {
   commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check')
@@ -519,3 +549,45 @@ it('binds V2 rendering to its actual candidate scenes and episode while preservi
   const changed = structuredClone(candidate.scenes); changed[0]!.beats[0]!.text = '别的版本。'
   expect(() => renderEpisode(staged, changed, {}, 1, candidate)).toThrow('synchronous_action_context')
 })
+
+it.each(['missing_policy', 'changed_grant', 'duplicate_episode', 'unrelated_video', 'changed_video_version'] as const)(
+  'refuses durable story source or grant changes: %s', async (variant) => {
+    await sourcesAndFacts(); await inventory()
+    const file = await current(), policy = file.story_policy!
+    switch (variant) {
+      case 'missing_policy': delete file.story_policy; break
+      case 'changed_grant': policy.authorization.quote += ' altered'; break
+      case 'duplicate_episode': policy.scope.episodes.push(policy.scope.episodes[0]!); policy.sha256 = storyPolicyDigest(policy); break
+      case 'unrelated_video': file.sources[1]!.story_video_path = join(root, 'other.mp4'); break
+      case 'changed_video_version': file.sources[1]!.video!.source_version = FsVersion('changed-version'); break
+    }
+    const code = { missing_policy: 'story_policy_required', changed_grant: 'story_policy_digest',
+      duplicate_episode: 'story_policy_scope', unrelated_video: 'story_source_scope', changed_video_version: 'story_source_scope' }[variant]
+    expect(() => { validateStoryPolicy(file) }).toThrow(code)
+  },
+)
+it.each(['unknown_source', 'oversized_window', 'duplicate_item', 'missing_dimension', 'causal_cycle', 'self_dependency',
+  'unknown_fact', 'adaptation_as_source', 'unreviewed_fact', 'uncovered_evidence'] as const)(
+  'refuses incomplete or replaced durable story inventory: %s', async (variant) => {
+    await sourcesAndFacts(); await inventory()
+    const file = await current(), item = file.story_inventories![0]!, first = item.items[0]!
+    switch (variant) {
+      case 'unknown_source': item.coverage.windows[0]!.source_id = brandString<typeof file.sources[number]['id']>('s:missing'); break
+      case 'oversized_window': item.coverage.windows[0]!.count += 100; break
+      case 'duplicate_item': item.items.push(first); break
+      case 'missing_dimension': item.items.splice(2, 1); break
+      case 'causal_cycle': first.depends_on = ['door']; break
+      case 'self_dependency': first.depends_on = [first.id]; break
+      case 'unknown_fact': first.fact_ids = [brandString<FactId>('f:missing')]; break
+      case 'adaptation_as_source': first.fact_ids = [file.facts[3]!.id]; break
+      case 'unreviewed_fact': delete file.facts[0]!.review; break
+      case 'uncovered_evidence': first.source_units.push(file.sources[1]!.units[0]!.id); break
+    }
+    item.scope_sha256 = storyScopeDigest(file, item); item.sha256 = inventoryDigest(item)
+    const code = { unknown_source: 'story_source_window', oversized_window: 'story_source_window', duplicate_item: 'story_item_duplicate',
+      missing_dimension: 'story_dimensions_required', causal_cycle: 'story_causal_cycle', self_dependency: 'story_item_scope',
+      unknown_fact: 'story_fact_review', adaptation_as_source: 'story_fact_review', unreviewed_fact: 'story_fact_review',
+      uncovered_evidence: 'story_item_evidence' }[variant]
+    expect(() => { validateInventory(file, item) }).toThrow(code)
+  },
+)

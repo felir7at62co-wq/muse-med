@@ -394,8 +394,7 @@ export class ProjectCommands {
       const ids = new Set(inventory?.coverage.windows.map(window => window.source_id) ?? [])
       for (const source of project.sources) if (ids.has(source.id) && source.video !== undefined) {
         if (exec.verifyStoryVideo === undefined || source.trusted_video_manifest === undefined || source.trusted_video_receipt === undefined) throw Error('story_video_evidence_pending: 本集真实检查尚未恢复，继续probe/抽帧/实际读图后重试。')
-        const accepted = 'candidate_id' in request && project.accepted.includes(brandString<typeof project.accepted[number]>(request.candidate_id))
-        await exec.verifyStoryVideo(source.trusted_video_manifest, accepted ? source.trusted_video_receipt : undefined)
+        await exec.verifyStoryVideo(source.trusted_video_manifest, source.trusted_video_receipt)
       }
     }
     switch (request.method) {
@@ -413,7 +412,7 @@ export class ProjectCommands {
         for (const source of project.sources) if (sourceIds.has(source.id) && source.video !== undefined) {
           if (exec.verifyStoryVideo === undefined || source.trusted_video_manifest === undefined) evidencePending.push(`${source.id} 当前实际检查未恢复，须重新inspect与实际读图。`)
           else {
-            try { await exec.verifyStoryVideo(source.trusted_video_manifest) } catch (error) {
+            try { await exec.verifyStoryVideo(source.trusted_video_manifest, source.trusted_video_receipt) } catch (error) {
               if (!(error instanceof Error) || !error.message.includes('video_evidence_pending')) throw error
               evidencePending.push(`${source.id} 当前实际检查未恢复，须重新inspect与实际读图。`)
             }
@@ -599,7 +598,7 @@ export class ProjectCommands {
           if (accepted) continue
           const overlap = inventory.coverage.windows.some((window) => {
             const old = project.sources.find(value => value.id === window.source_id)
-            if ((old?.video?.path ?? old?.story_video_path) !== (source.video?.path ?? source.story_video_path)) return false
+            if ((old?.story_video_path ?? old?.video?.path) !== (source.story_video_path ?? source.video?.path)) return false
             const range = window.interval ?? old?.video?.interval
             const added = source.video?.interval
             return range === undefined || added === undefined || range.start_seconds < added.end_seconds

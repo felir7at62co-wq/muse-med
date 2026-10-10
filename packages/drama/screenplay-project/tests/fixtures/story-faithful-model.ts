@@ -46,7 +46,7 @@ export function apply(ctx: Context): void {
       return { provider, id: model, name: model, inputModalities: ['text', 'image'] as const }
     }
     async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-      const imageRound = (phase === 'full' || phase === 'checkpoint') ? step === 1 : phase === 'resume-pending' && step === 1
+      const imageRound = (phase === 'full' || phase === 'checkpoint') && step === 1
       if (imageRound) {
         const content = options.messages.flatMap(message => message.content)
         const actualImages = content.filter(block => block.type === 'image').map(block => block.attachment.attachmentId)
@@ -64,13 +64,22 @@ export function apply(ctx: Context): void {
         observations.push({ phase, step, images: actualImages, canonical })
         await writeFile(join(process.cwd(), 'story-fixture-observations.json'), JSON.stringify(observations))
       }
-      if ((phase === 'full' && step === 10) || (phase === 'resume-pending' && step === 8)) {
+      if ((phase === 'full' && step === 10) || (phase === 'resume-pending' && step === 2)) {
         const reads = options.messages.filter(message => message.source?.kind === 'screenplay-project-read')
           .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
         if (!reads.some(text => text.includes('"candidate"') && text.includes('"rendered"') && text.includes('别把我当外人！'))
           || !reads.some(text => text.includes('"inventory"') && text.includes('"story_policy"'))
           || !reads.some(text => text.includes('红屏只是警报，不是赶你走。')))
           throw Error('story fixture actual C model request omitted complete candidate, inventory, policy or original transcript')
+      }
+      if (phase === 'resume-pending' && step === 2) {
+        const index = options.messages.findIndex(message => message.source?.kind === 'tool'
+          && message.source.callId === 'story-faithful-resume-pending-1')
+        const reads = options.messages.slice(index + 1).filter(message => message.source?.kind === 'screenplay-project-read')
+        const images = reads.flatMap(message => message.content.filter(block => block.type === 'image'))
+        if (index === -1 || images.length !== 3) throw Error('cold-resumed C request omitted fresh B source images')
+        observations.push({ phase, step, images: images.map(block => block.attachment.attachmentId), canonical: true })
+        await writeFile(join(process.cwd(), 'story-fixture-observations.json'), JSON.stringify(observations))
       }
       const programs: [
         string, string, string, string, string, string,
@@ -95,20 +104,11 @@ export function apply(ctx: Context): void {
       if (phase === 'accepted-cold') program = step === 0 ? "const s=await current();console.log(await call({method:'export',project,candidate_id:s.accepted[0].id,directory:'cold-delivery'}));" : undefined
       if (phase === 'export-negative') program = step === 0 ? "await deny(processExpected,async()=>{const s=await current();await call({method:'export',project,candidate_id:s.accepted[0].id,directory:'forbidden-delivery'});});".replace('processExpected', JSON.stringify(process.env.SCREENPLAY_STORY_EXPECTED_ERROR)) : undefined
       if (phase === 'resume-pending') {
-        // New inspection manifests create new source, inventory and candidate versions; old proofs stay immutable.
-        const selectedFacts = 'const existing=(await allFacts()).facts;const facts=[existing[4],existing[5],existing[2],existing[3]];'
-        const nextInventory = programs[5].replace('const facts=(await allFacts()).facts;', selectedFacts)
-          .replace('reviews:facts.map', 'reviews:facts.slice(0,2).map')
-          .replace('windows:s.sources.map', "windows:s.sources.filter(source=>source.kind==='transcript'||source.path.includes('/resumed-')).map")
-        const nextCandidate = "const priorStatus=await current();const previous=(await call({method:'read_candidate',project,candidate_id:priorStatus.pending.at(-1).id})).candidate;"
-          + programs[8].replace('facts=(await allFacts()).facts,i=', 'existing=(await allFacts()).facts,facts=[existing[4],existing[5],existing[2],existing[3]],i=')
-            .replace('story_notes:{inventory_id:i.id,mapping', 'story_notes:{inventory_id:i.id,input_candidate_id:previous.id,mapping')
-            .replace('after:position(index+1),reason:', 'before:{scene:1,beat:index+1,text:previous.scenes[0].beats[index].text},after:position(index+1),reason:')
+        // Saved Host observations restore source trust; a fresh B read still precedes C approval.
         program = [
-          "await deny('video_evidence_pending',async()=>{" + REPORT + "await review();});const prefix='resumed-';" + INSPECT,
-          "for(const path of ['resumed-sample-1.json','resumed-sample-2.json','resumed-sample-3.json']){const s=await current();await call({method:'import_source',project,expected_revision:s.revision,path,source_kind:'video_inspection'});}const s=await current();const units=[];for(const source of s.sources.filter(source=>source.path.includes('/resumed-')))units.push((await call({method:'read_source',project,source_id:source.id,start:1,count:source.units})).units);await call({method:'propose_facts',project,expected_revision:s.revision,facts:[{kind:'action',origin:'source',layer:'present',summary:'重新实际观察的原创合成提示屏显示蓝色。',anchors:[{unit_id:units[0][0].id,quote:units[0][0].text}]},{kind:'action',origin:'source',layer:'present',summary:'重新实际观察的原创合成提示屏切换为红色。',anchors:[{unit_id:units[1][0].id,quote:units[1][0].text}]}]});",
-          "const s=await current(),facts=(await allFacts()).facts.slice(4);await deny('self_check_read_required',()=>call({method:'review_facts',project,expected_revision:s.revision,reviews:facts.map(fact=>({fact_id:fact.id,decision:'approve',reason:'不能复用重启前或新source提交前读回。'}))}));await allFacts();await readSources();",
-          nextInventory, programs[6], programs[7], nextCandidate, CANDIDATE_READ, programs[10], programs[11],
+          REPORT + "await deny('self_check_read_required',review);",
+          CANDIDATE_READ + 'await allFacts();',
+          programs[10], programs[11],
         ][step]
       }
       if ((phase === 'full' || phase === 'checkpoint') && step === 2) {

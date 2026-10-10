@@ -286,7 +286,7 @@ async function recover(ctx: Context, receipt: TrustedVideoInspectionReceipt, met
  * @param session - Current initiating Session; required for in-progress work.
  * @param input - Imported manifest fields, used only to match the issued inspection.
  * @param signal - Cancels filesystem, attachment, and log reads.
- * @param persistedReceipt - Host-read accepted record; never take this argument from model tool JSON.
+ * @param persistedReceipt - Host-saved observation receipt; never take this argument from model tool JSON.
  * @returns Source-version-bound actual frame evidence; this does not establish semantic understanding or whole-video coverage.
  */
 export async function resolveTrustedVideoEvidence(ctx: Context, session: Session | undefined, input: unknown, signal: AbortSignal,

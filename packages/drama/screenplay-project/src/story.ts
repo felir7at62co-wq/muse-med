@@ -80,7 +80,7 @@ export function validateStoryPolicy(project: ProjectFile): void {
     if (candidate.sha256 !== candidateDigest(candidate)) throw Error('story_input_digest: 原输入候选摘要不一致。')
   }
   for (const source of project.sources) {
-    const videoPath = source.video?.path ?? source.story_video_path
+    const videoPath = source.story_video_path ?? source.video?.path
     const video = policy.videos.find(video => video.path === videoPath)
     if (video === undefined || (source.video !== undefined && source.video.source_version !== video.source_version)) {
       throw Error('story_source_scope: 新来源须属于实际获授权的原作品版本。')
@@ -103,7 +103,7 @@ export function validateInventory(project: ProjectFile, inventory: StoryInventor
   for (const window of inventory.coverage.windows) {
     const source = project.sources.find(value => value.id === window.source_id)
     if (source === undefined || window.start + window.count - 1 > source.units.length
-      || !project.story_policy.videos.some(video => video.episode === inventory.episode && video.path === (source.video?.path ?? source.story_video_path))) throw Error('story_source_window: 清单须绑定实际完整来源窗口。')
+      || !project.story_policy.videos.some(video => video.episode === inventory.episode && video.path === (source.story_video_path ?? source.video?.path))) throw Error('story_source_window: 清单须绑定实际完整来源窗口。')
     for (const unit of source.units.slice(window.start - 1, window.start - 1 + window.count)) units.add(unit.id)
   }
   if (new Set(inventory.items.map(item => item.id)).size !== inventory.items.length) throw Error('story_item_duplicate: 故事项编号不能重复。')
@@ -154,7 +154,7 @@ export function storyEvidencePending(project: ProjectFile, inventory: StoryInven
   })
   if (windows.length === 0) return ['本集没有实际视频图像证据']
   for (const video of project.story_policy?.videos.filter(video => video.episode === inventory.episode) ?? []) {
-    if (!windows.some(value => value.source.video?.path === video.path)) pending.push(`${video.path} 本集原视频尚未实际probe/抽帧覆盖`)
+    if (!windows.some(value => (value.source.story_video_path ?? value.source.video?.path) === video.path)) pending.push(`${video.path} 本集原视频尚未实际probe/抽帧覆盖`)
   }
   if (!project.story_policy?.videos.some(video => video.episode === inventory.episode)) pending.push('本集没有明确关联的获授权原视频；须绑定集号，不能从其他集借证据')
   for (const { source } of windows) {
@@ -168,8 +168,9 @@ export function storyEvidencePending(project: ProjectFile, inventory: StoryInven
     for (const plan of receipt.plan) {
       const start = Math.max(plan.start_seconds, range.start_seconds), end = Math.min(plan.end_seconds, range.end_seconds)
       if (end <= start) continue
-      const sampled = windows.some(other => other.source.video?.path === receipt.video_path
-        && other.source.video.source_version === receipt.source_version
+      const sampled = windows.some(other => (other.source.story_video_path ?? other.source.video?.path)
+        === (source.story_video_path ?? source.video?.path)
+        && other.source.video?.source_version === receipt.source_version
         && other.source.units.slice(other.window.start - 1, other.window.start - 1 + other.window.count)
           .some(unit => unit.image !== undefined && unit.start !== undefined && unit.start >= start && unit.start < end))
       if (!sampled) pending.push(`${receipt.video_path} ${start}–${end}s 计划窗口尚无实际图片`)
