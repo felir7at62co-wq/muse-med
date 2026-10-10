@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
+import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
@@ -77,6 +78,14 @@ it('defaults account provider exclusions to an empty list and rejects malformed 
   expect(discovery.apply).not.toHaveBeenCalled()
 })
 
+it('rejects invalid model image budgets before activation', () => {
+  expect(Config({ baseUrl }).modelRequestImageMaxBytes).toBeUndefined()
+  expect(Config({ baseUrl, modelRequestImageMaxBytes: 1048576 }).modelRequestImageMaxBytes).toBe(1048576)
+  for (const modelRequestImageMaxBytes of [0, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER + 1, '1024']) {
+    expect(() => { Reflect.apply(Config, undefined, [{ baseUrl, modelRequestImageMaxBytes }]) }).toThrow()
+  }
+})
+
 it('forwards account provider exclusions without removing other account groups', async () => {
   const { ctx, home, sessionFile } = await fixture()
   const entry = catalog.providers[0]!.models[0]!
@@ -90,6 +99,31 @@ it('forwards account provider exclusions without removing other account groups',
   await account(ctx).status({})
   expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['muse-cloud-yunying', 'muse-cloud-studio'])
   expect((await ctx.llm.listModels('muse-cloud-yunying')).map(model => model.id)).toEqual(['gemini-3.1-pro'])
+})
+
+it('requests durable offloading when account model images exceed the configured byte budget', async () => {
+  const { ctx, home, sessionFile } = await fixture()
+  await ctx.plugin(LocalAttachmentStore, { dshHome: home })
+  const ref = await ctx.attachments.saveImage({
+    mediaType: 'image/png',
+    data: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'),
+  })
+  await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=account-private' })
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json({ providers: [{ ...catalog.providers[0],
+    models: [{ ...catalog.providers[0]!.models[0]!, input: ['text', 'image'] }],
+  }] }))
+  vi.stubGlobal('fetch', fetcher)
+  await apply(ctx, Config({ baseUrl, accountHome: home, modelRequestImageMaxBytes: 1 }))
+  await account(ctx).status({})
+  const call = await ctx.llm.prepareCall({ provider: 'muse-cloud-studio', model: 'writer' })
+  const chunks = []
+  for await (const chunk of call.stream({ ...call.config, messages: [
+    createUserMessage({ content: [{ type: 'image', attachment: ref }], source: { kind: 'user' } }),
+  ] })) chunks.push(chunk)
+  expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'error',
+    failure: { code: 'IMAGE_OFFLOAD_REQUIRED', offloadImages: 1 } } })
+  expect(fetcher.mock.calls.every(([input]) => new URL(input instanceof Request ? input.url : input).pathname === '/api/desktop-models/providers')).toBe(true)
+  expect((await ctx.attachments.readImage(ref)).data.byteLength).toBeGreaterThan(0)
 })
 
 it('rejects a relative product account home before mounting account services or discovery', async () => {

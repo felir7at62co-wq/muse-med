@@ -44,6 +44,8 @@ export interface Config {
   readonly accountHome?: string
   /** Timeout for account and knowledge-base gateway requests in milliseconds. */
   readonly requestTimeoutMs: number
+  /** Optional base64 image-byte budget per model request; omission keeps the adapter default. */
+  readonly modelRequestImageMaxBytes?: number
   /** Maximum time for one compressed-audio upload and gateway response. */
   readonly asrRequestTimeoutMs: number
   /** Maximum visible characters in each optional related request and answer excerpt. */
@@ -66,6 +68,7 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
   excludedProviderIds: Schema.array(Schema.string().pattern(/^[a-z][a-z0-9-]{0,63}$/)).default([]),
   accountHome: Schema.string(),
   requestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(15_000),
+  modelRequestImageMaxBytes: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
   asrRequestTimeoutMs: Schema.number().step(1).min(10_000).max(1_800_000).default(300_000),
   feedbackExcerptChars: Schema.number().step(1).min(100).max(1_200).default(1_000),
   remoteAccess: Schema.boolean().default(false),
@@ -92,7 +95,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   const asr = new MuseAsrClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.asrRequestTimeoutMs })
   const models = new MuseModels(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs,
-    excludedModelPrefixes: config.excludedModelPrefixes, excludedProviderIds: config.excludedProviderIds })
+    excludedModelPrefixes: config.excludedModelPrefixes, excludedProviderIds: config.excludedProviderIds,
+    ...(config.modelRequestImageMaxBytes === undefined ? {} : { modelRequestImageMaxBytes: config.modelRequestImageMaxBytes }) })
   let remote: MuseDesktopRemote | undefined
   if (config.remoteAccess) {
     const bridge = ctx.get('museDesktopBridge')

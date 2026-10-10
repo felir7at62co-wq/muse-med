@@ -85,6 +85,8 @@ export interface MuseModelsOptions {
   readonly fetcher?: typeof fetch
   readonly excludedModelPrefixes?: readonly string[]
   readonly excludedProviderIds?: readonly string[]
+  /** Base64 image-byte budget resolved by the provider adapter; omission keeps its default. */
+  readonly modelRequestImageMaxBytes?: number
 }
 
 /** Own Muse registrations and repair defaults whose matching direct route has no credential. */
@@ -236,6 +238,8 @@ export class MuseModels {
         displayName: `Muse · ${provider.name}`, api: 'openai-completions',
         baseURL: provider.access?.baseURL ?? `${this.options.baseUrl}/api/desktop-models/${provider.id}`,
         ...(provider.access === undefined ? { headers: { origin: this.options.baseUrl } } : {}),
+        ...(this.options.modelRequestImageMaxBytes === undefined ? {}
+          : { maxRequestImageBytes: this.options.modelRequestImageMaxBytes }),
         models: allowedModels.map(model => ({ ...model,
           compat: { supportsReasoningEffort: model.reasoningEfforts !== false,
             ...(/^glm-5\.3(?:-|$)/i.test(modelName(model.id)) ? {

@@ -2331,6 +2331,8 @@ export interface Config {
   readonly accountHome?: string
   /** Timeout for account and knowledge-base gateway requests in milliseconds. */
   readonly requestTimeoutMs: number
+  /** Optional base64 image-byte budget per model request; omission keeps the adapter default. */
+  readonly modelRequestImageMaxBytes?: number
   /** Maximum time for one compressed-audio upload and gateway response. */
   readonly asrRequestTimeoutMs: number
   /** Maximum visible characters in each optional related request and answer excerpt. */
@@ -4533,7 +4535,11 @@ export interface Config {
   defaultFrames: number
   /** Largest dimension of an extracted frame, in pixels. */
   frameMaxDimension: number
-  /** Largest complete PNG output from one extraction command, in bytes. */
+  /** Encoding of extracted observations; original video bytes remain unchanged. */
+  frameFormat: 'png' | 'jpeg'
+  /** FFmpeg JPEG quantizer, from 1 (highest quality) to 31; ignored for PNG. */
+  frameJpegQuality: number
+  /** Largest complete image output from one extraction command, in bytes. */
   maxFrameBytes: number
   /** Largest simultaneous inspection count. */
   maxConcurrent: number

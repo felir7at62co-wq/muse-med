@@ -57,6 +57,7 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 | `modelRefreshMs` | 60,000 | 模型目录刷新间隔毫秒数，可设为 10,000 至 3,600,000。 |
 | `accountHome` | 当前 DSH 主目录 | 存放本产品账号会话文件的绝对目录。 |
 | `requestTimeoutMs` | 15,000 | 账号和知识库授权请求的超时毫秒数，可设为 1,000 至 120,000。 |
+| `modelRequestImageMaxBytes` | 适配器默认值（`20 MiB`） | 每次模型请求累计 base64 图片字节上限，可设为正安全整数。挂载 `compaction-image-offload` 后记录最早图片的卸载并重试，来源附件仍可读取；不限制正文输出。 |
 | `feedbackExcerptChars` | 1,000 | 每条可选相关请求或回答摘录的可见字数，可设为 100 至 1,200。 |
 | `asrRequestTimeoutMs` | 300,000 | 一次压缩音频上传与网关响应的超时毫秒数，可设为 10,000 至 1,800,000。 |
 | `remoteAccess` | `false` | 启用账号绑定的桌面连接；Muse 桌面默认启用。需要桥接、Connection 和 Web server 提供者。 |
