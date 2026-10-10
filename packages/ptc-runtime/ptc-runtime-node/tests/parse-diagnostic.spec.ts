@@ -7,7 +7,9 @@ it.each([undefined, 'failure', 42])('retains non-Error parse failures: %s', (val
 })
 it.each([undefined, 'SyntaxError: bad syntax\n    at internal:secret', ':3\nsource\n    at internal:secret']) (
   'retains plain messages when no compiler excerpt is available: %s', (stack) => {
-    const error = new Error('bad syntax'); error.stack = stack
+    const error = new Error('bad syntax')
+    if (stack === undefined) delete error.stack
+    else error.stack = stack
     expect(programParseDiagnostic(error)).toBe('bad syntax')
   },
 )
