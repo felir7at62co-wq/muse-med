@@ -57,9 +57,7 @@ The [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-video-inspe
 
 #### Token effect
 
-The schema adds a fixed request cost. Results add bounded text and at most the configured number of image inputs; image pricing and request resizing belong to the selected provider. Full video bytes are never placed in model context.
-
-Opt-in metadata plans add one interval per planned window. Host evidence checks and accepted-record recovery add no model request or model-visible context.
+The schema adds a fixed request cost. Results add bounded text and at most the configured number of image inputs; image pricing and request resizing belong to the selected provider. Full video bytes are never placed in model context. Opt-in metadata plans add one interval per planned window. Host evidence checks and accepted-record recovery add no model request or model-visible context.
 
 #### KV Cache effect
 

@@ -117,7 +117,7 @@ Host 转写调用同时接受调用方取消信号与请求超时。取消会终
 
 #### What the model sees
 
-内置 MCP 服务连接后，模型会收到十六个 schema：账号状态、四个旧来源操作、九个范围内 Wiki 操作、参与汇报和获授权的项目组合。Wiki 结果包含来源或页面 ID、摘要哈希、修订号、引用、链接、限长摘录和续读起点。写入工具区分不可变原件、综合知识页与经复核的剧本段落。`muse_kb_wiki_record_project` 区分已保存详情与未同步概览；`muse_kb_wiki_project_portfolio` 标明本人或获授权的跨账号访问。密码、cookie 和 bearer 不出现在工具参数或结果中。模型可见的参数与结果仍属于 Session 数据。
+内置 MCP 服务连接后，模型会收到十六个 schema：账号状态、四个旧来源操作、九个范围内 Wiki 操作、参与汇报和获授权的项目组合。Wiki 结果包含来源或页面 ID、摘要哈希、修订号、引用、链接、限长摘录和续读起点。写入工具区分不可变原件、综合知识页与经复核的剧本段落。`muse_kb_wiki_record_project` 区分已保存详情与未同步概览；`muse_kb_wiki_project_portfolio` 标明本人或获授权的跨账号访问。密码、cookie 和 bearer 不出现在工具参数或结果中。模型可见的参数与结果仍属于 Session 数据。模型图片预算超出时，已组合的图片卸载执行器会记录最早图片的占位文字；模型仍可重新读取原附件。
 
 #### Token effect
 
