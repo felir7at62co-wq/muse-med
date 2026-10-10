@@ -22,7 +22,7 @@ async function receipt(value) {
 
 function executePublisher(entry, env, args, observer) {
   return new Promise((resolveRun, rejectRun) => {
-    const child = spawn(process.execPath, ['--import', join(ownerRoot, 'tos-publisher-preload.mjs'), entry, ...args],
+    const child = spawn(process.execPath, ['--import', join(ownerRoot, 'tos-multipart-preload.mjs'), entry, ...args],
       { env, stdio: ['ignore', 'pipe', 'pipe'] })
     let failed, buffers = ['', '']
     const stop = () => child.kill('SIGTERM')
@@ -83,10 +83,12 @@ async function main() {
     const privateEnv = parsePrivateTosEnvironment(privateContents)
     secretDirectory = await mkdtemp(join(root, 'muse-tos-private-'))
     await writeFile(join(secretDirectory, 'publish.env'), privateContents, { flag: 'wx', mode: 0o600 })
-    const childEnv = { ...privateEnv, MUSE_TOS_APPROVED_PUBLISHER: entry }
+    const childEnv = { ...privateEnv, MUSE_TOS_APPROVED_PUBLISHER: entry,
+      MUSE_TOS_APPROVED_SEAL: resolve(values.manifest), MUSE_TOS_APPROVED_ARTIFACT_ROOT: artifactsRoot }
     for (const name of ['PATH', 'HOME', 'LANG', 'TMPDIR']) if (process.env[name]) childEnv[name] = process.env[name]
     const observer = createTosPublisherObserver(plan, emit)
-    emit({ stage: 'tos-publisher-inputs-verified', sourceCommit: seal.sourceCommit, sourceRun: seal.sourceRun, binaries: 5, feeds: 4 })
+    emit({ stage: 'tos-publisher-inputs-verified', sourceCommit: seal.sourceCommit, sourceRun: seal.sourceRun,
+      binaries: 5, feeds: 4, transport: 'conditional-multipart', multipartTarget: 'win-x64', partSize: 8388608, maxPartAttempts: 2 })
     result = await executePublisher(entry, childEnv, ['--version', seal.version, '--commit', seal.sourceCommit,
       '--mac-arm64', join(artifactsRoot, 'mac-arm64'), '--win-x64', join(artifactsRoot, 'win-x64')], observer)
     await verifyFinalPublisherSource(seal, sourceRoot)

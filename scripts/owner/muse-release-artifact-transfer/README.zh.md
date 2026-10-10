@@ -53,7 +53,9 @@
 
 只有两个已确认的 GitHub release 仍为草稿时，才能人工 dispatch `operation=tos-publish`。工作流下载相同四份原始 artifact，再检查源 run、全部文件字节及原生安装报告。独立稀疏 checkout 选择 `seal.sourceCommit`；执行前后，五份原 producer 与配置文件必须逐字节匹配准确 Git blob，绝不使用运营分支的 producer。独立 `tos-deps` 包锁定原发布器的 S3 SDK、YAML 与 semver 依赖；临时依赖链接随后删除，不安装 workspace 或重新构建。
 
-原镜像计划必须匹配五项封存二进制身份及四份 GitHub feed 哈希。维护中的 YAML parser 要求 Mac ZIP 在前并包含同批 ARM DMG、Windows 只有 EXE、SHA512 与大小准确，且 TOS 绝对 URL 指向对应对象。原发布器仅在不可变对象缺失时条件上传；已有对象也须匿名全文核对大小与 SHA256，之后才写入并验证四份 feed。失败可能留下已完成对象或部分已提升的 feed，再次 dispatch 前须核对。这项操作不发布或修改 GitHub release。
+原镜像计划必须匹配五项封存二进制身份及四份 GitHub feed 哈希。维护中的 YAML parser 要求 Mac ZIP 在前并包含同批 ARM DMG、Windows 只有 EXE、SHA512 与大小准确，且 TOS 绝对 URL 指向对应对象。输送 preload 只选择封存的 Windows EXE 进行分片；Mac 文件保留原不可覆盖 PUT 和完整公开验证。原封存字节哈希固定源工作流与源提交。桥接器默认选择全部大二进制，只接受非空且不重复的选定子集。分片使用与原发布器同一 S3 SDK 模块的命令类。它全文验证本地大小与 SHA256，再串行上传可重放的 8 MiB 分片，瞬态错误（包含自身分片截止时间）最多尝试两次，最终用 `IfNoneMatch: '*'` 条件完成。Create 与 Complete 绝不自动重试；完成状态不明或自身任务取消失败时停止，不删除已完成对象或其他任务。小 blockmap 与四份 feed 仍走原 SDK。
+
+完成成功与已有对象响应都回到原发布器，匿名全文核对大小与 SHA256。五份原二进制必须全部重新验证，之后才能写入并核验四份 feed，不能用之前的报告替代此次完整读回。失败可能留下已完成对象、自身未完成任务或部分已提升的 feed，再次 dispatch 前须核对。这项操作不发布或修改 GitHub release。
 
 只有 TOS 步骤接收临时加密 Actions secret `MUSE_TOS_PUBLISH_ENV_105_20261010`；运营者提供七字段环境配置，并在执行后删除这一项 secret。Wrapper 拒绝其他字段或目的地，建立 runner 私有目录及 `0600` 配置文件，删除后才写成功报告。原发布器只接收已验证的 TOS 字段与普通运行环境，不接收 GitHub token、整份 secret 或 TLS override。SDK 参数日志替换为有界 JSON 诊断，不消费请求流。安全 JSONL 保留五条 `binary-verified`、四条 `feed-verified` 和原末条 `published`；失败写固定 `failed` 事件。工作流保留日志及绑定源码的报告，不记录 secret 路径或内容。
 

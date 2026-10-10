@@ -133,6 +133,65 @@ export function createTosPublisherObserver(plan, onEvent = () => {}) {
     assert.ok(Buffer.byteLength(line) <= 16384, 'Publisher log exceeds its bound')
     const event = JSON.parse(line)
     assert.ok(event && typeof event === 'object' && !Array.isArray(event), 'Invalid publisher event')
+    if (['multipart-created', 'multipart-part-retry', 'multipart-part-staged'].includes(event.status)) {
+      assert.ok(keys.has(event.key) && plan.artifacts.some(file => file.key === event.key && /\.(?:dmg|zip|exe)$/u.test(file.filename)), 'Multipart progress uses another binary')
+      const safe = { stage: event.status, key: event.key }
+      if (event.status === 'multipart-created') {
+        assert.equal(event.concurrency, 1, 'Multipart uploads must remain serial')
+        assert.equal(event.partSize, 8388608, 'Multipart part size differs')
+        assert.equal(event.maxPartAttempts, 2, 'Multipart retry bound differs')
+        Object.assign(safe, { concurrency: 1, partSize: 8388608, maxPartAttempts: 2 })
+      } else {
+        assert.ok(Number.isSafeInteger(event.partNumber) && event.partNumber > 0 && event.partNumber <= 10000, 'Invalid multipart part number')
+        safe.partNumber = event.partNumber
+        if (event.status === 'multipart-part-retry') {
+          assert.equal(event.attempt, 1, 'Multipart retry exceeds its bound'); safe.attempt = 1
+        } else {
+          assert.ok(Number.isSafeInteger(event.byteCount) && event.byteCount > 0
+            && event.byteCount <= plan.artifacts.find(file => file.key === event.key).size, 'Multipart byte count exceeds the sealed file')
+          safe.byteCount = event.byteCount
+        }
+      }
+      onEvent(safe)
+      return
+    }
+    if (['multipart-sdk-request-started', 'multipart-sdk-request-completed', 'multipart-sdk-request-failed', 'multipart-finished', 'multipart-failed'].includes(event.stage)) {
+      assert.ok(keys.has(event.key) && plan.artifacts.some(file => file.key === event.key && /\.(?:dmg|zip|exe)$/u.test(file.filename)), 'Multipart request uses another binary')
+      const safe = { stage: event.stage, key: event.key }
+      if (event.stage === 'multipart-finished') {
+        assert.ok(['uploaded', 'already-exists'].includes(event.outcome) && event.publicVerificationRequired === true, 'Missing required multipart public verification')
+        Object.assign(safe, { outcome: event.outcome, publicVerificationRequired: true })
+      } else if (event.stage === 'multipart-failed') {
+        const details = event.details
+        assert.ok(details && typeof details === 'object' && !Array.isArray(details), 'Missing multipart failure details')
+        assert.ok(['local-verification', 'create', 'part', 'complete', 'file-close'].includes(details.phase), 'Unknown multipart failure phase')
+        const httpStatus = value => value === null || Number.isInteger(value) && value >= 100 && value <= 599
+        assert.ok(httpStatus(details.status), 'Invalid multipart failure status')
+        assert.ok(['unknown', 'not-completed', 'existing-object', 'committed-or-existing'].includes(details.completion), 'Unknown multipart completion state')
+        assert.ok(details.cleanup && typeof details.cleanup === 'object' && !Array.isArray(details.cleanup)
+          && ['unknown-upload-id', 'not-created', 'aborted', 'no-such-upload', 'abort-failed', 'not-needed', 'file-close-failed'].includes(details.cleanup.state)
+          && httpStatus(details.cleanup.status), 'Invalid multipart cleanup details')
+        assert.ok(details.fileCloseFailed === undefined || typeof details.fileCloseFailed === 'boolean', 'Invalid multipart file-close status')
+        const failure = { phase: details.phase, status: details.status, completion: details.completion,
+          cleanup: { state: details.cleanup.state, status: details.cleanup.status } }
+        if (details.fileCloseFailed !== undefined) failure.fileCloseFailed = details.fileCloseFailed
+        onEvent({ stage: 'failed', key: event.key, detail: 'Conditional multipart did not complete; reconcile object and owned task.', details: failure })
+        failed = true
+        return
+      } else {
+        assert.ok(['create', 'part', 'complete', 'abort'].includes(event.phase), 'Unknown multipart request phase')
+        safe.phase = event.phase
+        for (const name of ['elapsedMs', 'attempts', 'totalRetryDelayMs']) {
+          if (Number.isSafeInteger(event[name]) && event[name] >= 0) safe[name] = event[name]
+        }
+        if (event.status === null || Number.isInteger(event.status) && event.status >= 100 && event.status <= 599) safe.status = event.status
+        if (['TimeoutError', 'AbortError', 'Error', 'TypeError', 'RequestTimeout', 'PreconditionFailed', 'NoSuchUpload', 'SDKError'].includes(event.errorName)) safe.errorName = event.errorName
+        if (allowedCodes.has(event.code)) safe.code = event.code
+        if (['read', 'write', 'connect', 'getaddrinfo'].includes(event.syscall)) safe.syscall = event.syscall
+      }
+      onEvent(safe)
+      return
+    }
     if (['sdk-request-started', 'sdk-request-completed', 'sdk-request-failed', 'sdk-log'].includes(event.stage)) {
       assert.ok(keys.has(event.key), 'SDK diagnostic uses another object')
       const safe = { stage: event.stage, key: event.key }

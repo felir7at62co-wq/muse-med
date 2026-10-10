@@ -106,7 +106,7 @@ jobs:
       - name: Read all public bytes and verify current release discovery
         if: inputs.operation == 'public-readback'
         run: node scripts/owner/muse-release-artifact-transfer/run.mjs --mode public-readback --manifest "$MUSE_TRANSFER_SEAL" --receipt "$MUSE_TRANSFER_ROOT/readback-public-readback.json"
-      - name: Publish verified original bytes to TOS before promoting four feeds
+      - name: Publish verified originals with conditional multipart before promoting four feeds
         if: inputs.operation == 'tos-publish'
         shell: bash
         env:
