@@ -227,10 +227,11 @@ Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[]
       && ((typeof row.isUsed === 'number' && row.isUsed === 1)
         || (typeof row.isUsed === 'string' && row.isUsed.trim() === '1'))
       && (wireText(row.hsAssetStatus) ?? '').trim().toLowerCase() === 'active')
-    if (matches.length !== 1) throw new JubianError('CONTRACT_CHANGED',
+    const [match] = matches
+    if (matches.length !== 1 || match === undefined) throw new JubianError('CONTRACT_CHANGED',
       `prepare_video stage=subject_identity; image_index=${index + 1}; materialAssetId has no unique active official mapping; `
       + 'inspect the saved subject selection manually; paid_request_sent=false')
-    material.materialAssetId = Number(matches[0]!.assetId)
+    material.materialAssetId = Number(match.assetId)
     resolved = true
   }
   const byId = new Map<string, Record<string, unknown>>()

@@ -282,10 +282,10 @@ it('rejects a local asset when only another project has its matching official su
   const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
     storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: 'asset-20261009' }, MATERIALS[1]] },
   subjectPage: () => ({ total: rows.length, rows }) }
-  await expect(prepareVideoMethod(clientFor(provider), ledger,
-    { storyboard_id: 916953, project_dir: await project() })).rejects.toMatchObject({
-    code: 'CONTRACT_CHANGED', detail: expect.stringContaining('stage=subject_identity'),
-  })
+  const preparation = prepareVideoMethod(clientFor(provider), ledger,
+    { storyboard_id: 916953, project_dir: await project() })
+  await expect(preparation).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  await expect(preparation).rejects.toHaveProperty('detail', expect.stringContaining('stage=subject_identity'))
   expect(provider.calls.filter(call => call.path.startsWith('/aigc/asset/'))).toEqual([])
   expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
   expect(await ledger.records()).toEqual([])
@@ -314,10 +314,10 @@ it.each(['asset-parent', '1e3', '0x10', '9007199254740993'])
   const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
     storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: 'asset-20261009' }, MATERIALS[1]] },
   subjectPage: () => ({ total: rows.length, rows }) }
-  await expect(prepareVideoMethod(clientFor(provider), ledger,
-    { storyboard_id: 916953, project_dir: await project() })).rejects.toMatchObject({
-    code: 'CONTRACT_CHANGED', detail: expect.stringContaining('stage=subject_identity'),
-  })
+  const preparation = prepareVideoMethod(clientFor(provider), ledger,
+    { storyboard_id: 916953, project_dir: await project() })
+  await expect(preparation).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  await expect(preparation).rejects.toHaveProperty('detail', expect.stringContaining('stage=subject_identity'))
   expect(provider.calls.filter(call => call.path.startsWith('/aigc/asset/'))).toEqual([])
   expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
   expect(await ledger.records()).toEqual([])
@@ -332,10 +332,10 @@ it.each([
   const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
     storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: 'asset-20261009' }, MATERIALS[1]] },
   subjectPage: () => ({ total: rows.length, rows }) }
-  await expect(prepareVideoMethod(clientFor(provider), ledger,
-    { storyboard_id: 916953, project_dir: await project() })).rejects.toMatchObject({
-    code: 'CONTRACT_CHANGED', detail: expect.stringContaining('stage=subject_identity'),
-  })
+  const preparation = prepareVideoMethod(clientFor(provider), ledger,
+    { storyboard_id: 916953, project_dir: await project() })
+  await expect(preparation).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  await expect(preparation).rejects.toHaveProperty('detail', expect.stringContaining('stage=subject_identity'))
   expect(provider.calls.filter(call => call.path.startsWith('/aigc/asset/'))).toEqual([])
   expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
   expect(await ledger.records()).toEqual([])
@@ -346,8 +346,8 @@ it('reports the failed video read stage and numeric remote code without provider
     parentFailureCode: 500 }
   const error = await prepareVideoMethod(clientFor(provider), ledger,
     { storyboard_id: 916953, project_dir: await project() }).catch((failure: unknown) => failure)
-  expect(error).toMatchObject({ code: 'CONTRACT_CHANGED',
-    detail: expect.stringContaining('stage=parent_asset_read; remote_code=500') })
+  expect(error).toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(error).toHaveProperty('detail', expect.stringContaining('stage=parent_asset_read; remote_code=500'))
   expect(String(error)).not.toContain('private provider detail')
   expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
   expect(await ledger.records()).toEqual([])
@@ -358,8 +358,8 @@ it('keeps a non-default storyboard model preflight error safe and sends no paid 
     storyboard: { ...STORYBOARD, id: 1855865 }, modelFailureCode: 500 }
   const error = await prepareVideoMethod(clientFor(provider), ledger,
     { storyboard_id: 1855865, project_dir: await project() }).catch((failure: unknown) => failure)
-  expect(error).toMatchObject({ code: 'CONTRACT_CHANGED',
-    detail: expect.stringContaining('stage=model_catalogue_read; remote_code=500') })
+  expect(error).toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(error).toHaveProperty('detail', expect.stringContaining('stage=model_catalogue_read; remote_code=500'))
   expect(String(error)).not.toContain('private provider detail')
   expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
   expect(putCalls(provider)).toEqual([])
@@ -371,8 +371,8 @@ it('names a local subject verification failure without exposing asset URLs', asy
     subjectPage: () => ({ total: 2, rows: [{ ...SUBJECT_ROWS[0], assetUrl: URL_GUEST }, SUBJECT_ROWS[1]] }) }
   const error = await prepareVideoMethod(clientFor(provider), ledger,
     { storyboard_id: 916953, project_dir: await project() }).catch((failure: unknown) => failure)
-  expect(error).toMatchObject({ code: 'CONTRACT_CHANGED',
-    detail: expect.stringContaining('stage=subject_validation') })
+  expect(error).toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(error).toHaveProperty('detail', expect.stringContaining('stage=subject_validation'))
   expect(String(error)).not.toContain(URL_GUEST)
   expect(putCalls(provider)).toEqual([])
 })

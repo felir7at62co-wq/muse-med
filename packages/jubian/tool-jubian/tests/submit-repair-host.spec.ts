@@ -33,7 +33,9 @@ it('keeps an accepted image pending and resolves only verified numeric video par
     hsAssetId: 'asset-lead', assetUrl: imageUrl, hsAssetStatus: 'Active', isUsed: 1 }]
   const calls: { method: string; path: string }[] = []
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
-    const path = new URL(String(url)).pathname + new URL(String(url)).search
+    const address = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url
+    const requestUrl = new URL(address)
+    const path = requestUrl.pathname + requestUrl.search
     const method = String(init?.method)
     calls.push({ method, path })
     let data: unknown
