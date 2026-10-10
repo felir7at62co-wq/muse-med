@@ -72,3 +72,11 @@ pending 原片可供内部草稿/预览，必须明确标注“未完成，非�
 ## 完成定义
 
 所有使用资产为 official=true；原文/说话人/身份与真实供应商约束检查通过；所有最终选用视频经内容、实际分辨率和音画审核，字幕状态只能 clean 或 not_required；实际发声字幕完整且时间来自真实音频；BGM 选曲计划与试听复核可追溯；逐集的最终成片 MP4、SRT、来源映射和剪映可编辑草稿齐全，并分别对实际成片和草稿工程做 QA。最终回复同时交付成片、剪映草稿工程及其引用素材的路径；预览 MP4、截图或仅有草稿都不能替代成片与工程。pending/unknown/failed 不能标记最终完成。保留项目已确认交付规格。
+
+## 集中匹配准备
+
+资产准备阶段先提取有原文位置的需求，再按 [匹配预览字段](../tweet-drama-core/references/match-preview.md) 调用 `drama_assets match_preview` 集中核对当前项目人物、场景及已认可声线。它完全只读，不能代替 `drama_assets reconcile` 的对账证据或原文覆盖验收；旧项目可继续原有入口，不强制改写旧文件。复用建议汇总展示，`needs_review` 的身份不确定项交人工确认，`blocked` 不按缺素材处理，`missing` 先查历史库。缺少素材的生成及新候选正式采用均保留人工审批；不能因预览给出 `reuse_ready` 就自动确认出演、绑定或提交收费请求。
+
+### 集中复用计划
+
+多镜头选材先用 `drama_assets method=reuse_preview` 集中展示 groups、候选、适用范围和原因；沿用 requirements_path，已有分镜可传 plan_path。按「匹配预览 → 复用建议 → 用户确认 → 模型调用原有 jubian_storyboard.select_assets」衔接，参数及声线流程见[匹配预览字段](../tweet-drama-core/references/match-preview.md#用户确认后使用现有绑定工具)。needs_review 先澄清并重做预览，missing 继续检索，blocked 停止受影响项。此预览不审批、不写关系、不自动绑定；apply_allowed=false 只表示预览本身不授予写入权限。取得覆盖项目、分镜与素材版本的真实用户授权后，模型可沿原工具绑定和回读，不把 reuse_ready、already_bound、fingerprint 或 Agent 自填 approved 当作授权。

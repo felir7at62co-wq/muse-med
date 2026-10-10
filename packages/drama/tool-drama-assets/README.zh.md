@@ -40,25 +40,42 @@ kind: "package-reference"
 | `baseUrl` | 客户端自己的默认源 | 两次远端读取的源覆盖。 |
 | `timeoutMs` | `30000` | 单次读取的中止预算，毫秒，1–60000。 |
 | `workspaceSecrets` | `true` | 凭据库没有值时，是否允许最近的 `.agents/secrets/pipeline.env` 提供 token。 |
+| `matchPageSize` | `1000` | 匹配预览的页大小，1–1000。 |
+| `matchPageLimit` | `100` | 匹配预览每个列表的正整数页数上限，超限阻断。 |
+| `matchRequirementLimit` | `100` | 单次预览的正整数需求数量上限。 |
 
 token 本身就是凭据引用 `JUBIANAI_ADMIN_TOKEN`，每次读取都经 `ctx.credentials` 解析，绝不写进结果、日志或预览。
 
-### 两个方法
+### 方法
 
 | 方法 | 读取 | 写入 | 用途 |
 |---|---|---|---|
 | `reconcile` | 剧变项目的资产与材质，以及清单 | `<project_dir>/_probe/asset-reconcile.json` | 在任何付费生成之前，知道哪些已选用资产清单里没有 |
 | `dispose` | 证据文件 | 同一个证据文件 | 记录对某条未登记资产的一个决定——`registered` 或 `ignored` |
+| `reuse_preview` | 匹配输入及可选的分镜卡 GET | 无 | 集中审核和保留原卡的绑定建议，不审批或执行 |
+| `match_preview` | 原文需求、清单、项目圣经、声线记录及完整当前项目 GET 列表 | 无 | 准备人物、场景与已认可声线复用建议 |
 
 | 参数 | 何时必填 | 含义 |
 |---|---|---|
-| `method` | 始终 | `reconcile` 或 `dispose` |
+| `method` | 始终 | `reconcile`、`dispose`、`match_preview` 或 `reuse_preview` |
 | `project_dir` | 始终 | 含 `assets_manifest.json` 的项目根目录，绝对路径 |
 | `asset_id` | `dispose` | 这个决定针对的未登记资产 |
 | `status` | `dispose` | `registered` 或 `ignored` |
 | `note` | `ignored` | 为什么这个资产不需要；判 `ignored` 时必须非空 |
 
 `reconcile` 只发两个请求，都是提供方自己的列表接口，不计费。`dispose` 一个都不发。两个方法写的文件只有证据文件一个，原子替换，并在支持的平台上使用仅所有者可访问的权限。
+
+### 只读匹配预览
+
+调用 `method=match_preview`，传 `project_dir` 与项目内 `requirements_path`。[输入和判断规则](../skills/skills/tweet-drama-core/references/match-preview.md)规定版本1需求、精确原文行/SHA-256、已登记身份关系、场景条件和认可声线样本。结果返回 `reuse_ready`、`needs_review`、`missing` 或 `blocked`，附候选ID与原因。同名不证明身份；读取失败、分页不完整、项目冲突或来源变化均阻断，不能当作缺素材。
+
+此方法不写本地或远端文件，不生成、不审批、不绑定。`missing` 仅限当前项目；历史检索继续由既有素材库 Skill 负责。复用依据是登记事实与已有认可记录，不是图像或音频质量通过判定。正式采用仍由人工决定，实际绑定沿用原工具。预览不产生 `ready` 对账证据，不改变对账、付费授权或账本。提供方读取后重新检查输入；最终绑定仍需自己的实时校验。
+
+### 集中复用预览
+
+`reuse_preview` 复用相同匹配检查，仅在身份、状态、条件和候选选择一致时归组，返回候选详情、适用范围、版本/来源指纹及可选的逐卡素材选择建议。参见[映射格式](../skills/skills/tweet-drama-core/references/match-preview.md#集中复用与分镜预检)。沿用 `select_assets` 构造器检查图片身份和 Prompt 顺序；建议保留每项无关素材的原位置，以及模型、Prompt 和提供方字段。无法保留时阻断。首张预检失败后停止后续预检；重复预览不执行绑定。
+
+流程为匹配预览 → 复用建议 → 用户确认 → 模型调用原有 `jubian_storyboard.select_assets`。`reuse_ready`、`already_bound` 和指纹是观察结果，不是授权。`apply_allowed=false` 表示预览不授予写入权限，不禁止模型取得真实用户授权后使用原有绑定工具。逐卡ID和有序 selections 来自 `shots`；来源、身份、版本或范围变化后重新审核。声线继续走 `audio_preview → audio_apply`。本包不新增绑定执行器或审批签发，既有工具继续保留授权、身份、顺序、幂等和回读检查。
 
 ### 判定口径
 
@@ -94,7 +111,7 @@ token 本身就是凭据引用 `JUBIANAI_ADMIN_TOKEN`，每次读取都经 `ctx.
 
 本节说明一次调用是怎么判定的、代码在哪里；可观察行为在[使用本包](#use-this-package)里已经写全。
 
-### 设计取舍
+### 对账设计
 
 这个包建立在三条承诺上：
 
@@ -109,6 +126,8 @@ token 本身就是凭据引用 `JUBIANAI_ADMIN_TOKEN`，每次读取都经 `ctx.
 | [`src/index.ts`](src/index.ts) | 插件入口：`Config`、凭据解析、参数 schema 与描述，以及结果的两种写法 |
 | [`src/remote.ts`](src/remote.ts) | 两次远端读取：翻页、读者校验过的行，以及读者没有映射的提供方字段 |
 | [`src/manifest.ts`](src/manifest.ts) | `assets_manifest.json` 的读取与已声明资产 ID |
+| [`src/matching.ts`](src/matching.ts) | 只读身份、条件、声线/来源校验与完整匹配列表读取 |
+| [`src/reuse.ts`](src/reuse.ts) | 集中归组、证据指纹和保留原卡的预览；没有确认或写入执行器 |
 | [`src/reconcile.ts`](src/reconcile.ts) | 比对、处置继承、判定、证据写入，以及 `dispose` |
 | [`src/types.ts`](src/types.ts) | 只有类型：证据文档、远端行与清单 |
 | — | 不发布运行时 invariant 伴生模块：本包在调用之间不持有状态、不暴露快照，每个答案都是它读到的文件与两次远端列表的函数。 |
@@ -135,7 +154,7 @@ token 本身就是凭据引用 `JUBIANAI_ADMIN_TOKEN`，每次读取都经 `ctx.
 
 #### 模型看到什么
 
-请求的工具列表里多一个名为 `drama_assets` 的工具：本包的 `description`、五个参数，以及结果的 JSON schema，三者在生成的[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-drama-assets)里都有原文。描述里写明两个方法、三条比对口径（`delFlag == "0"`、`isUsed == 1` 且 `hsAssetStatus == "Active"`、`unregistered` / `dangling` / `matched`）、`ready` 才是宿主钩子读的那一条、24 小时有效期、这个工具存在的起因，以及它绝不做的两件事。结果 schema 声明 `method`、`ready`、`ready_reason`、`evidence`、`asset_id`、`script_id`、`ran_at`、`source`、`manifest`、`matched`、`unregistered`、`dangling`、`disposition`、`blocking`、`ignored_without_note`、`policy`、`cross_project_note` 与 `next`；渲染出来的内容就是同一份值的美化 JSON。某个方法不报的字段是「不带」，不是「填默认值」，schema 也不强制它们。
+请求的工具列表里多一个名为 `drama_assets` 的工具：本包的 `description`、七个参数，以及结果的 JSON schema，三者在生成的[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-drama-assets)里都有原文。描述里写明四个方法、三条比对口径（`delFlag == "0"`、`isUsed == 1` 且 `hsAssetStatus == "Active"`、`unregistered` / `dangling` / `matched`）、`ready` 才是宿主钩子读的那一条、24 小时有效期、这个工具存在的起因，以及它绝不做的两件事。结果 schema 声明 `method`、`ready`、`ready_reason`、`evidence`、`asset_id`、`script_id`、`ran_at`、`source`、`manifest`、`matched`、`unregistered`、`dangling`、`disposition`、`blocking`、`ignored_without_note`、`policy`、`cross_project_note` 与 `next`；渲染出来的内容就是同一份值的美化 JSON。某个方法不报的字段是「不带」，不是「填默认值」，schema 也不强制它们。
 
 #### Token 影响
 

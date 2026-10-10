@@ -40,25 +40,42 @@ Mount the plugin as one row of a short-drama preset; it needs the tool registry 
 | `baseUrl` | the client's own default origin | Origin override for the two remote reads. |
 | `timeoutMs` | `30000` | Per-read abort budget in milliseconds, 1–60000. |
 | `workspaceSecrets` | `true` | Whether the nearest `.agents/secrets/pipeline.env` may supply the token when the credential store holds none. |
+| `matchPageSize` | `1000` | Matching-only page size, 1–1000. |
+| `matchPageLimit` | `100` | Positive maximum pages per matching inventory; exhaustion blocks. |
+| `matchRequirementLimit` | `100` | Positive maximum requirements per preview. |
 
 The token itself is the credential reference `JUBIANAI_ADMIN_TOKEN`, resolved through `ctx.credentials` on every read, and never written to a result, a log or a preview.
 
-### The two methods
+### Methods
 
 | Method | Reads | Writes | Use it for |
 |---|---|---|---|
 | `reconcile` | The remote project's assets and materials, and the manifest | `<project_dir>/_probe/asset-reconcile.json` | Knowing which used assets the manifest does not record, before any paid generation |
 | `dispose` | The evidence file | The same evidence file | Recording one decision — `registered` or `ignored` — about one unregistered asset |
+| `reuse_preview` | Matching inputs and optional live storyboard GETs | None | Centralized review and preserved-card binding suggestions without approval or execution |
+| `match_preview` | Source-backed requirements, manifest, project bible, voice records and complete current-project GET inventories | None | Preparing character, scene and approved voice reuse recommendations |
 
 | Parameter | Required | Meaning |
 |---|---|---|
-| `method` | always | `reconcile` or `dispose` |
+| `method` | always | `reconcile`, `dispose`, `match_preview` or `reuse_preview` |
 | `project_dir` | always | Project root holding `assets_manifest.json`, absolute |
 | `asset_id` | `dispose` | The unregistered asset the decision is about |
 | `status` | `dispose` | `registered` or `ignored` |
 | `note` | `ignored` | Why the asset is not needed; must be non-empty for `ignored` |
 
 `reconcile` sends exactly two requests, both the provider's own list endpoints, and charges nothing. `dispose` sends none. The only file either method writes is the evidence file, atomically replaced with owner-only permissions where supported.
+
+### Read-only matching preview
+
+Call `method=match_preview` with `project_dir` and project-contained `requirements_path`. The [input and decision rules](../skills/skills/tweet-drama-core/references/match-preview.md) define version-1 requirements, exact source lines/SHA-256, registered identity links, scene conditions and approved voice samples. The result reports `reuse_ready`, `needs_review`, `missing` or `blocked`, candidate IDs and reasons. Names alone never establish identity. Failed reads, incomplete pagination, conflicting project bindings or changed sources block instead of claiming absence.
+
+This method writes no local or remote file and never generates, approves or binds. `missing` covers only the current project; historical retrieval remains owned by the existing asset-library Skill. Registered facts and existing approvals guide reuse, without an image/audio quality verdict. Final adoption remains a human decision and actual binding uses the existing tools. Matching returns no `ready` evidence and does not change reconciliation, paid authorization or the ledger. Inputs are rechecked after provider reads; final binding still requires its own live verification.
+
+### Centralized reuse preview
+
+`reuse_preview` reuses the same matching checks and groups requirements only when identity, state, conditions and candidate selection agree. It returns candidate details, applicability, version/source fingerprints and optional per-card selection suggestions. See the [mapping format](../skills/skills/tweet-drama-core/references/match-preview.md#集中复用与分镜预检). The existing `select_assets` builder validates image identity and prompt order; suggestions preserve every unrelated material at its current position and retain model, prompt and provider fields. Changes that cannot preserve those values block the preview. Card preflight stops after the first failure. Repeating a preview causes no application.
+
+The workflow is matching preview → reuse recommendations → user confirmation → model calls the existing `jubian_storyboard.select_assets` tool. `reuse_ready`, `already_bound` and fingerprints are observations, not authorization. `apply_allowed=false` means the preview grants no write permission; it does not prevent a model from using existing binding tools after real user authorization. Per-card IDs and ordered selections come from `shots`; changed source, identity, version or scope requires renewed review. Voice references continue through `audio_preview → audio_apply`. This package adds no binding executor or approval issuer, and existing tools retain their authorization, identity, order, idempotency and readback checks.
 
 ### What decides the verdict
 
@@ -94,7 +111,7 @@ The tool result is not the evidence file. The file follows the pipeline's own sp
 
 This section explains how one call is judged and where the code lives; the observable behavior is fully covered in [Use this package](#use-this-package).
 
-### Design philosophy
+### Reconciliation design
 
 The package is built on three commitments:
 
@@ -109,6 +126,8 @@ The package is built on three commitments:
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config`, the credential resolution, the parameter schema and description, and the two spellings of a result |
 | [`src/remote.ts`](src/remote.ts) | The two remote reads: page following, the reader-validated rows, and the provider fields the readers do not map |
 | [`src/manifest.ts`](src/manifest.ts) | `assets_manifest.json` reading and the declared asset ids |
+| [`src/matching.ts`](src/matching.ts) | Read-only identity, condition, voice/source checks and complete matching inventory reads |
+| [`src/reuse.ts`](src/reuse.ts) | Centralized groups, evidence fingerprints and preserved-card previews; no confirmation or write executor |
 | [`src/reconcile.ts`](src/reconcile.ts) | The comparison, the disposition carry-over, the verdicts, the evidence write, and `dispose` |
 | [`src/types.ts`](src/types.ts) | Types only: the evidence document, the remote rows, and the manifest |
 | — | No runtime invariant companion is published: the package holds no state between calls, exposes no snapshot, and every answer is a function of the files it reads and the two remote lists. |
@@ -135,7 +154,7 @@ Read these pages when the package-level contract is not enough.
 
 #### What the model sees
 
-One tool named `drama_assets` in the request's tool list: this package's `description`, its five parameters, and the JSON schema of its result, all reproduced in the generated [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-drama-assets). The description states the two methods, the three comparison rules (`delFlag == "0"`, `isUsed == 1` with `hsAssetStatus == "Active"`, `unregistered` / `dangling` / `matched`), the fact that `ready` is what the host gate reads, the 24-hour validity window, the accident the tool exists for, and the two things it never does. The result schema declares `method`, `ready`, `ready_reason`, `evidence`, `asset_id`, `script_id`, `ran_at`, `source`, `manifest`, `matched`, `unregistered`, `dangling`, `disposition`, `blocking`, `ignored_without_note`, `policy`, `cross_project_note`, and `next`; the rendered content is the same value as pretty-printed JSON. The fields a method does not report are absent from its value rather than defaulted, and the schema does not require them.
+One tool named `drama_assets` in the request's tool list: this package's `description`, its seven parameters, and the JSON schema of its result, all reproduced in the generated [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-drama-assets). The description states the four methods, the three comparison rules (`delFlag == "0"`, `isUsed == 1` with `hsAssetStatus == "Active"`, `unregistered` / `dangling` / `matched`), the fact that `ready` is what the host gate reads, the 24-hour validity window, the accident the tool exists for, and the two things it never does. The result schema declares `method`, `ready`, `ready_reason`, `evidence`, `asset_id`, `script_id`, `ran_at`, `source`, `manifest`, `matched`, `unregistered`, `dangling`, `disposition`, `blocking`, `ignored_without_note`, `policy`, `cross_project_note`, and `next`; the rendered content is the same value as pretty-printed JSON. The fields a method does not report are absent from its value rather than defaulted, and the schema does not require them.
 
 #### Token effect
 
