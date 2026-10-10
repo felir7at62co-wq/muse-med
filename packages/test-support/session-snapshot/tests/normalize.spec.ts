@@ -157,6 +157,44 @@ describe('normalizeStdout', () => {
     })
   })
 
+
+  it('decodes JSON-escaped cwd paths before canonicalizing their separators', () => {
+    const cwd = String.raw`C:\work\snapshot`
+    const aliases = [JSON.stringify(cwd).slice(1, -1)]
+    const payload = {
+      file: cwd + String.raw`\novels\book.txt`,
+      receipt: cwd + String.raw`\media\clip.mp4.source.json`,
+      sha256: 'synthetic-unchanged-digest',
+      regex: String.raw`\d+\w+`,
+      command: String.raw`printf "\\n"`,
+      unrelatedPath: String.raw`D:\outside\book.txt`,
+      repeatedSlash: '{{cwd}}//retained//book.txt',
+    }
+    const expected = { ...payload, file: '{{cwd}}/novels/book.txt', receipt: '{{cwd}}/media/clip.mp4.source.json' }
+    const raw = JSON.stringify({ text: JSON.stringify(payload, null, 2) })
+    const frame = JSON.parse(normalizeStdout(raw, { sessionIds: [], cwd, cwdAliases: aliases })) as { text: string }
+    expect(frame.text).toBe(JSON.stringify(expected, null, 2))
+    expect(JSON.parse(frame.text)).toEqual(expected)
+  })
+
+  it('retains JSON-escaped separators for a native platform golden', () => {
+    const cwd = String.raw`C:\work\snapshot`
+    const payload = { file: cwd + String.raw`\novels\book.txt` }
+    const raw = JSON.stringify({ text: JSON.stringify(payload) })
+    const frame = JSON.parse(normalizeStdout(raw, {
+      sessionIds: [], cwd, cwdAliases: [JSON.stringify(cwd).slice(1, -1)],
+    }, { cwdPathMode: 'native' })) as { text: string }
+    expect(frame.text).toBe(JSON.stringify({ file: String.raw`{{cwd}}\novels\book.txt` }))
+  })
+
+  it('keeps POSIX path differences and unrelated JSON literals visible', () => {
+    const payload = { file: ctx.cwd + '/novels/wrong-book.txt', regex: String.raw`\d+`, quote: '"unchanged"' }
+    const raw = JSON.stringify({ text: JSON.stringify(payload) })
+    const frame = JSON.parse(normalizeStdout(raw, ctx)) as { text: string }
+    expect(frame.text).toBe(JSON.stringify({ ...payload, file: '{{cwd}}/novels/wrong-book.txt' }))
+    expect(frame.text).not.toContain('{{cwd}}/novels/book.txt')
+  })
+
   it('canonicalizes generated relative path fields and text markers without rewriting other text', () => {
     const raw = JSON.stringify({
       path: String.raw`nested\AGENTS.md`,
