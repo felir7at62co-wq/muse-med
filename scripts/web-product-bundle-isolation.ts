@@ -12,8 +12,9 @@ export interface WebOutputChunk {
   modules: Record<string, unknown>
   imports: string[]
   dynamicImports: string[]
-  implicitlyLoadedBefore: string[]
-  referencedFiles: string[]
+  /** Rollup-only edges are absent from Rolldown output; its ordinary imports and Vite asset observations remain checked. */
+  implicitlyLoadedBefore?: string[]
+  referencedFiles?: string[]
   viteMetadata?: { importedCss: Set<string>; importedAssets: Set<string> }
 }
 
@@ -88,8 +89,8 @@ export class WebProductBundleIsolation {
         modules: { ...item.modules },
         imports: [...item.imports],
         dynamicImports: [...item.dynamicImports],
-        implicitlyLoadedBefore: [...item.implicitlyLoadedBefore],
-        referencedFiles: [...item.referencedFiles],
+        implicitlyLoadedBefore: [...item.implicitlyLoadedBefore ?? []],
+        referencedFiles: [...item.referencedFiles ?? []],
         ...(item.viteMetadata === undefined ? {} : { viteMetadata: {
           importedCss: new Set(item.viteMetadata.importedCss),
           importedAssets: new Set(item.viteMetadata.importedAssets),
@@ -156,7 +157,11 @@ export class WebProductBundleIsolation {
       visitedModules.add(id)
       this.inputs.assertInput(id)
       const info = moduleInfo(id)
-      if (info === null) throw new Error(`Web product isolation: module ${id} has no Rollup module record`)
+      if (info === null) {
+        // Rolldown's compiler-owned helper is emitted without a source module record.
+        if (id === '\0rolldown/runtime.js') return
+        throw new Error(`Web product isolation: module ${id} has no Rollup module record`)
+      }
       if (info.isExternal) throw new Error(`Web product isolation: external module ${id} has no bundled input proof`)
       if (/\.(?:css|less|sass|scss|styl|stylus|pcss|postcss|sss)(?:$|\?)/i.test(id) && !this.cssInputs.has(id)) {
         throw new Error(`Web product isolation: stylesheet ${id} has no recorded transform inputs`)
@@ -178,7 +183,7 @@ export class WebProductBundleIsolation {
       if (this.workerInputs.has(file)) checkWorker(file)
       else if (item.type === 'chunk') {
         for (const id of Object.keys(item.modules)) checkModule(id)
-        queue.push(...item.imports, ...item.dynamicImports, ...item.implicitlyLoadedBefore, ...item.referencedFiles)
+        queue.push(...item.imports, ...item.dynamicImports, ...item.implicitlyLoadedBefore ?? [], ...item.referencedFiles ?? [])
         queue.push(...item.viteMetadata?.importedCss ?? [], ...item.viteMetadata?.importedAssets ?? [])
       } else if (cssOwners.has(file)) {
         for (const id of cssOwners.get(file) ?? []) checkModule(id)
