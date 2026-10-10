@@ -21,6 +21,8 @@ B 读回须来自同一当前项目修订、成功的外层工具和实际进入
 
 长视频先初始化作品账，再逐批看图；后续模型轮确认实际图像后及时 `import_source` 保存该批的 Host 证据，再取下一批。不要等全片观察结束才导入全部清单。进程重启后，已导入来源可按保存凭据核对原 Session 恢复；尚未导入的清单仍需重新实际检查，手写观察不能代替受信任证据。未恢复的 live inspection 不是按几分钟定时过期；先区分进程重启、外层失败、缺少后轮实际读图或来源字节变化，不把等待时间推断成凭据有效期。转写导入用 `story_video_path` 关联获授权原视频。
 
+剧情清单的 `coverage.required_beats[].kind` 使用成稿渠道 `action/dialogue/os/vo`，不是事实分类 `speech/thought/author_analysis`；声音在场且可归属时选 `dialogue`，明确画外声用对应 `vo`。`propose_story_inventory` 同样带实际 `expected_revision`，视频窗口带真实 `interval_seconds`；只读回实际返回字段，不靠旧长程序重抄猜测。
+
 按本集实际完整窗口整理已审校来源事实，使用 `propose_story_inventory` 提交故事清单，返回产物后在后续模型轮实际 `read_story_inventory` 与相关来源，再 `review_story_inventory`。逐项定位事件、行动结果、情绪冲突、关系立场及因果揭晓，记录依赖和人物知情；关键证据未解决先补看，不靠 free-form confirmed 通过。视频全时段取材与重点加密沿 `transcript-to-script` 的真实 metadata、窗口与后续轮看图步骤。
 
 用 `stage`/`stage_files` 起草作品，`story_notes` 对应实际清单与成稿位置、来源 retained/merged/omitted_non_story 处置、真实变化和批注对账；省略无故事功能的重复表达不能省略关键原因、结果或揭晓。新增表演细节、少量 OS 和辅助对白按工具公开的授权类别标明，授权摘要使用 `status.story_policy.authorization_sha256` 的实际返回值，不能成为新的来源事实；重大因果、关系立场、事件反转或关键揭晓变化另待用户授权。不存在旧稿时不填虚构 before，来源→作品映射沿真实输入处理。

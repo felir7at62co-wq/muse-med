@@ -61,6 +61,8 @@ ctx.tools.register(defineTool({
 
 The unified schema DSL supports `string`, `number`, `integer`, `boolean`, `null`, `array`, `object`, author-only `json`, and exact-one `oneOf`; `InferValue` preserves exact types through 16 container levels before widening to `JsonValue`. A raw JSON Schema (`JsonSchemaNode`) is the wire-level counterpart shared with subagents, workflows, and MCP.
 
+When a zero-match `oneOf` has one object alternative identified by matching required constant fields, validation also reports that alternative's invalid field paths and expected values. Unknown or ambiguous tags keep the generic diagnostic; exact-one validation still evaluates every alternative.
+
 ### Configure the presentation mode
 
 The `mode` config decides what the model sees: `native` (every visible schema), `ptc` (only `run_code` plus a generated SDK), or `both`.

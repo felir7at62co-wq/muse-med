@@ -61,6 +61,8 @@ ctx.tools.register(defineTool({
 
 统一 schema DSL 支持 `string`、`number`、`integer`、`boolean`、`null`、`array`、`object`、仅供作者使用的 `json` 与恰好匹配一个分支的 `oneOf`；`InferValue` 在 16 层容器内保留精确类型，之后加宽为 `JsonValue`。原始 JSON Schema（`JsonSchemaNode`）是与 subagent、工作流和 MCP 共享的协议级对应类型。
 
+当 `oneOf` 无匹配分支、且必填常量字段唯一定位某个对象分支时，校验还会报告该分支的错误字段路径和允许值。未知或歧义标记保留通用错误；恰好匹配一个分支的校验仍检查全部分支。
+
 ### 配置呈现模式
 
 `mode` 配置决定模型看到什么：`native`（每个可见 schema）、`ptc`（只有 `run_code` 加一份生成 SDK）或 `both`。

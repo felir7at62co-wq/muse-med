@@ -392,6 +392,39 @@ describe('validateJsonSchemaValue', () => {
     expect(validateJsonSchemaValue(overlap, 1.5)).toEqual([])
   })
 
+  it('reports invalid fields in one required-constant alternative without changing exact-one acceptance', () => {
+    const schema = asserted({ type: 'object', properties: { request: { oneOf: [
+      { type: 'object', properties: { method: { type: 'string', const: 'inventory' },
+        expected_revision: { type: 'integer' }, beats: { type: 'array', items: { type: 'object',
+          properties: { kind: { type: 'string', enum: ['action', 'dialogue', 'os', 'vo'] } }, required: ['kind'] } } },
+      required: ['method', 'expected_revision', 'beats'] },
+      { type: 'object', properties: { method: { type: 'string', const: 'status' } }, required: ['method'] },
+      { type: 'string' },
+    ] } }, required: ['request'] })
+    const invalid = { request: { method: 'inventory', beats: [{ kind: 'speech' }] } }
+    expect(validateJsonSchemaValue(schema, invalid, '')).toEqual([
+      '"request" must match exactly one oneOf branch (matched 0)',
+      'missing required property "request.expected_revision"',
+      '"request.beats[0].kind" must be one of ["action","dialogue","os","vo"]',
+    ])
+    expect(validateJsonSchemaValue(schema, { request: { method: 'inventory', expected_revision: 1, beats: [{ kind: 'dialogue' }] } })).toEqual([])
+    expect(validateJsonSchemaValue(schema, { request: { method: 'unknown', beats: [] } }, '')).toEqual([
+      '"request" must match exactly one oneOf branch (matched 0)',
+    ])
+  })
+
+  it('does not choose diagnostics for ambiguous, optional or absent object tags', () => {
+    const branch = { type: 'object', properties: { method: { type: 'string', const: 'shared' }, count: { type: 'integer' } },
+      required: ['method', 'count'] }
+    const ambiguous = asserted({ oneOf: [branch, branch] })
+    expect(validateJsonSchemaValue(ambiguous, { method: 'shared' })).toEqual(['"value" must match exactly one oneOf branch (matched 0)'])
+    expect(validateJsonSchemaValue(ambiguous, { method: 'shared', count: 1 })).toEqual(['"value" must match exactly one oneOf branch (matched 2)'])
+    const optional = asserted({ oneOf: [{ ...branch, required: ['count'] }, { type: 'object' }] })
+    expect(validateJsonSchemaValue(optional, { method: 'shared' })).toEqual([])
+    const absent = asserted({ oneOf: [{ type: 'object' }, { type: 'object', properties: {} }] })
+    expect(validateJsonSchemaValue(absent, 1)).toEqual(['"value" must match exactly one oneOf branch (matched 0)'])
+  })
+
   it('validates deeply nested exact-one unions without using the JavaScript call stack', () => {
     const depth = 5_000
     let schema: JsonSchemaNode = { type: 'string' }

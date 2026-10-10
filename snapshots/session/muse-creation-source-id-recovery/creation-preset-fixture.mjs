@@ -11,8 +11,10 @@ const { PROJECT_FILE } = await importSnapshotModule(new URL('../../../packages/d
   new URL('../../../packages/drama/screenplay-project/lib/schema.js', import.meta.url))
 export const name = 'snapshot-creation-preset'
 export const inject = ['agentPresets', 'tools', 'systemPrompt', 'skills', 'llm', 'agents', 'credentials']
-/** Mount the product preset and verify source diagnostics in later requests. */
-export async function apply(ctx) {
+/** Mount the product preset and verify source diagnostics in later requests. @param ctx - Headless services. @param config - Optional argument-diagnostic replay variant. */
+export async function apply(ctx, config = {}) {
+  const argumentDiagnostics = config.argumentDiagnostics === true
+  const expectedRequests = argumentDiagnostics ? 4 : 3
   await ctx.plugin(Jubian, { baseUrl: 'https://snapshot-jubian.invalid', workspaceSecrets: false }).await()
   await mountPreset(ctx, { presetId: 'creation', hidePlatformShellTools: true })
   let requests = 0
@@ -35,7 +37,7 @@ export async function apply(ctx) {
     }
   })
   ctx.on('agent/turn-stopping', async () => {
-    assert.equal(requests, 3)
+    assert.equal(requests, expectedRequests)
     // The fixture removes only its own readonly inputs after proving byte-for-byte preservation.
     for (const [path, bytes] of originals) {
       assert.equal(await readFile(path, 'utf8'), bytes)
@@ -49,18 +51,30 @@ export async function apply(ctx) {
     if (requests >= 1) {
       assert.equal(results[0].isError, true)
       const text = results[0].content.filter(block => block.type === 'text').map(block => block.text).join('')
-      assert.ok(text.includes('编号须保留类型后缀'))
-      assert.match(text, /s:[a-f0-9]{64}:text/u)
-      assert.ok(text.includes('未读取来源'))
+      if (argumentDiagnostics) {
+        assert.ok(text.includes('request.expected_revision'))
+        assert.ok(text.includes('request.coverage.required_beats[0].kind'))
+        assert.ok(text.includes('["action","dialogue","os","vo"]'))
+      } else {
+        assert.ok(text.includes('编号须保留类型后缀'))
+        assert.match(text, /s:[a-f0-9]{64}:text/u)
+        assert.ok(text.includes('未读取来源'))
+      }
     }
-    if (requests === 2) {
-      assert.equal(results[1].isError, false)
-      assert.ok(results[1].content.some(block => block.type === 'text' && block.text.includes('原文：甲推开门。')))
+    if (argumentDiagnostics && requests >= 2) {
+      assert.equal(results[1].isError, true)
+      assert.ok(results[1].content.some(block => block.type === 'text' && block.text.includes('story_inventory_scope')),
+        'Correcting arguments does not grant a story policy to a historical project')
+    }
+    if (requests === expectedRequests - 1) {
+      const result = results[argumentDiagnostics ? 2 : 1]
+      assert.equal(result.isError, false)
+      assert.ok(result.content.some(block => block.type === 'text' && block.text.includes('原文：甲推开门。')))
     }
     requests++
     yield* next()
   })
   ctx.on('session/event', (_session, event) => {
-    if (event.type === 'turn/end') assert.equal(requests, 3)
+    if (event.type === 'turn/end') assert.equal(requests, expectedRequests)
   })
 }
