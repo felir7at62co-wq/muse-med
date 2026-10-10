@@ -996,7 +996,7 @@ it('preserves a pre-upgrade legacy sidecar including unused sources after later 
   await run({ method: 'export', project: path, candidate_id: candidate.id, directory })
   const sidecar = join(directory, `episode-1-${candidate.id.slice(2)}.sources.json`)
   const before = await readFile(sidecar, 'utf8')
-  expect(JSON.parse(before).sources).toHaveLength(2)
+  expect((JSON.parse(before) as { sources: unknown[] }).sources).toHaveLength(2)
   const later = join(root, 'later.txt')
   await writeFile(later, 'later source')
   await run({ method: 'import_source', project: path, expected_revision: (await current()).revision, path: later, source_kind: 'text' })
@@ -1027,3 +1027,66 @@ it('scopes deferred observations to the declared episode interval within a longe
   await approveAndCommit(candidate.id, candidate.sha256)
   expect(await run({ method: 'status', project: path })).toMatchObject({ next_episode: 2 })
 })
+
+it.each(['duplicate', 'missing'] as const)('rejects a persisted candidate with %s source bindings before reusing its digest', async (failure) => {
+  const id = await fact('thought', 1, '甲')
+  await stage([scene(id)])
+  const saved = await current(), candidate = saved.candidates[0]!
+  candidate.source_ids = failure === 'duplicate'
+    ? [saved.sources[0]!.id, saved.sources[0]!.id]
+    : [brandString<typeof saved.sources[0]['id']>('missing-source')]
+  candidate.sha256 = candidateDigest(candidate)
+  await writeFile(path, JSON.stringify(saved))
+  await expect(run({ method: 'status', project: path })).rejects.toThrow('invalid_candidate_sources')
+})
+
+it('rejects persisted video metadata that disagrees with its unchanged original manifest', async () => {
+  const fixture = await inspection()
+  await run({ method: 'import_source', project: path, expected_revision: 1, path: fixture.manifest, source_kind: 'video_inspection' })
+  const saved = await current()
+  saved.sources[1]!.video!.samples[0]!.timestamp_seconds = 0.5
+  await writeFile(path, JSON.stringify(saved))
+  await expect(run({ method: 'status', project: path })).rejects.toThrow('source_index_changed')
+})
+
+it.each(['backward', 'duration', 'frame', 'point-duration', 'point-before', 'point-after'] as const)(
+  'rejects an inspection manifest with a %s interval violation without importing it', async (failure) => {
+    const fixture = await inspection()
+    const interval = { start_seconds: 0, end_seconds: 10 }
+    if (failure === 'backward') interval.start_seconds = 10
+    if (failure === 'duration') interval.end_seconds = 31
+    if (failure === 'frame' || failure === 'point-before') interval.start_seconds = 2
+    const sampling_plan = { strategy: 'scene_dialogue', selected: [], deferred: [
+      { time: failure === 'point-duration' ? 30 : failure === 'point-after' ? 10 : 0, reasons: ['scene'] },
+    ] }
+    const frames = failure === 'point-before'
+      ? [{ ...fixture.value.frames[0]!, requested_seconds: 3, timestamp_seconds: 3 }]
+      : fixture.value.frames
+    await writeFile(fixture.manifest, JSON.stringify({ ...fixture.value, interval, frames, sampling_plan }))
+    const before = await readFile(path, 'utf8')
+    await expect(run({ method: 'import_source', project: path, expected_revision: 1, path: fixture.manifest, source_kind: 'video_inspection' }))
+      .rejects.toThrow('video_interval')
+    expect(await readFile(path, 'utf8')).toBe(before)
+  },
+)
+
+it.each(['invalid-json', 'null', 'missing-sources', 'non-array-sources', 'removed-used-source'] as const)(
+  'preserves and rejects a legacy export sidecar altered to %s', async (failure) => {
+    const id = await fact('thought', 1, '甲')
+    await stage([scene(id)])
+    const saved = await current(), candidate = saved.candidates[0]!
+    delete candidate.source_ids
+    candidate.sha256 = candidateDigest(candidate)
+    await writeFile(path, JSON.stringify(saved))
+    await approveAndCommit(candidate.id, candidate.sha256)
+    const directory = join(root, 'legacy-export')
+    await run({ method: 'export', project: path, candidate_id: candidate.id, directory })
+    const sidecar = join(directory, `episode-1-${candidate.id.slice(2)}.sources.json`)
+    const previous = JSON.parse(await readFile(sidecar, 'utf8')) as Record<string, unknown>
+    const content = failure === 'invalid-json' ? '{' : JSON.stringify(failure === 'null' ? null
+      : failure === 'missing-sources' ? {} : { ...previous, sources: failure === 'non-array-sources' ? {} : [] })
+    await writeFile(sidecar, content)
+    await expect(run({ method: 'export', project: path, candidate_id: candidate.id, directory })).rejects.toThrow('export_changed')
+    expect(await readFile(sidecar, 'utf8')).toBe(content)
+  },
+)

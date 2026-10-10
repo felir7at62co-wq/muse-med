@@ -11,6 +11,7 @@ const adapter = vi.hoisted(() => ({
   encode: "require('node:fs').writeFileSync(process.argv.at(-1), 'audio')",
   children: [] as { closed: Promise<void>; isClosed: () => boolean; terminate: () => void }[],
   onReady: undefined as (() => void) | undefined,
+  onSpawn: undefined as (() => void) | undefined,
 }))
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -24,6 +25,7 @@ vi.mock('node:child_process', async (importOriginal) => {
     adapter.children.push({ closed: new Promise<void>(resolve => child.once('close', () => { closed = true; resolve() })),
       isClosed: () => closed,
       terminate: () => { child.kill() } })
+    adapter.onSpawn?.()
     return child
   } }
 })
@@ -37,6 +39,7 @@ afterEach(async () => {
   adapter.probe = "process.stdout.write('30');process.stderr.write('probe diagnostic')"
   adapter.encode = "require('node:fs').writeFileSync(process.argv.at(-1), 'audio')"
   adapter.onReady = undefined
+  adapter.onSpawn = undefined
   vi.useRealTimers()
 })
 
@@ -113,6 +116,16 @@ it('kills an active extraction and waits for process close before cancelling and
   await ready
   controller.abort(reason)
   await rejection
+  expect(adapter.children.every(child => child.isClosed())).toBe(true)
+  expect(f.submissions).toEqual([])
+  expect(await readdir(join(f.project, 'transcript', 'jobs'))).toEqual([])
+})
+
+it('preserves a cancellation arriving during spawn before the abort listener is installed', async () => {
+  const f = await fixture(), controller = new AbortController(), reason = 'cancel during spawn'
+  adapter.onSpawn = () => { controller.abort(reason) }
+  await expect(startAudioTranscription(f.project, f.input, 'zh', f.account, f.config,
+    undefined, undefined, controller.signal)).rejects.toBe(reason)
   expect(adapter.children.every(child => child.isClosed())).toBe(true)
   expect(f.submissions).toEqual([])
   expect(await readdir(join(f.project, 'transcript', 'jobs'))).toEqual([])

@@ -186,6 +186,16 @@ function videoCoverageFixture() {
   return { project: scoped, candidate }
 }
 
+it('uses the video duration when a candidate scopes samples from a manifest without an inspection interval', () => {
+  const { project: scoped, candidate } = videoCoverageFixture()
+  scoped.sources[1]!.video = VIDEO_SOURCE.parse({ path: '/original.mp4', source_version: 'original-version',
+    inspection: 'sampled_frames', duration_seconds: 30, samples: [{ requested_seconds: 1, timestamp_seconds: 1 }] })
+  candidate.coverage!.windows[1]!.interval = { start_seconds: 0, end_seconds: 2 }
+  expect(checkVideoCoverage(scoped, candidate)).toBe(true)
+  candidate.coverage!.windows[1]!.interval.end_seconds = 31
+  expect(() => checkVideoCoverage(scoped, candidate)).toThrow('video_episode_interval')
+})
+
 it.each(['missing-source', 'overflow', 'no-frame', 'duplicate', 'missing-fact', 'rejected-fact', 'unscoped-action', 'zero-action-review', 'digest'] as const)
 ('refuses %s during accepted video delivery revalidation', (failure) => {
   const { project: scoped, candidate } = videoCoverageFixture(), coverage = candidate.coverage!

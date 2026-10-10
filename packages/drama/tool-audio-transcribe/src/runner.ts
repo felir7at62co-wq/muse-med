@@ -94,7 +94,10 @@ async function command(executable: string, args: readonly string[], timeoutMs: n
     child.once('close', (code) => {
       clearTimeout(timer)
       signal?.removeEventListener('abort', abort)
-      if (signal?.aborted) reject(signal.reason)
+      if (signal?.aborted) {
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Preserve arbitrary AbortSignal reasons.
+        reject(signal.reason)
+      }
       else if (processError) reject(new Error('Bundled FFmpeg or FFprobe is unavailable'))
       else if (code === 0 && !exceededOutput && !timedOut) resolveCommand(output)
       else reject(new Error('Media extraction or probe failed'))

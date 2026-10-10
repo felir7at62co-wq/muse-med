@@ -14,13 +14,13 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return { ...actual,
     mkdir: async (...args: Parameters<typeof actual.mkdir>) => {
       const result = await actual.mkdir(...args)
-      await io.pause?.('mkdir', String(args[0]))
+      if (typeof args[0] === 'string') await io.pause?.('mkdir', args[0])
       return result
     },
     writeFile: async (...args: Parameters<typeof actual.writeFile>) => {
-      io.writes.push(String(args[0]))
+      if (typeof args[0] === 'string') io.writes.push(args[0])
       await actual.writeFile(...args)
-      await io.pause?.('write', String(args[0]))
+      if (typeof args[0] === 'string') await io.pause?.('write', args[0])
     },
     link: async (...args: Parameters<typeof actual.link>) => { io.links.push(String(args[1])); await actual.link(...args) },
     rename: async (...args: Parameters<typeof actual.rename>) => {

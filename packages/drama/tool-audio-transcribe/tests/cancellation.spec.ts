@@ -6,8 +6,21 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { MuseAsrError } from '@deepseek-ai/dsh-muse-account'
 import { finishAudioTranscription, startAudioTranscription, type AudioAccount } from '../src/runner.ts'
 
+const hashing = vi.hoisted(() => ({ onOpen: undefined as ((stream: import('node:fs').ReadStream) => void) | undefined }))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return { ...actual, createReadStream: (...args: Parameters<typeof actual.createReadStream>) => {
+    const stream = actual.createReadStream(...args)
+    hashing.onOpen?.(stream)
+    return stream
+  } }
+})
+
 const roots: string[] = []
-afterEach(async () => { await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true }))) })
+afterEach(async () => {
+  hashing.onOpen = undefined
+  await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true })))
+})
 const config = { ffmpegPath: 'unused', ffprobePath: 'unused', commandTimeoutMs: 1000, maxDurationSeconds: 100,
   maxAudioBytes: 1024, chunkSeconds: 10 }
 
@@ -112,4 +125,19 @@ it('rejects a pre-cancelled status without reading a receipt or querying the acc
   await expect(finishAudioTranscription(f.project, join(f.jobs, 'missing-v1.json'), f.account, controller.signal)).rejects.toBe(reason)
   expect(f.status).not.toHaveBeenCalled()
   expect(f.audioStatus).not.toHaveBeenCalled()
+})
+
+it.each(['cancel', 'read-error'] as const)('settles a source hash interrupted by %s before any paid submission', async (failure) => {
+  const f = await fixture(5), controller = new AbortController(), reason = new Error('source hash interrupted')
+  let stream: import('node:fs').ReadStream | undefined
+  hashing.onOpen = (opened) => {
+    stream = opened
+    if (failure === 'cancel') controller.abort(reason)
+    else opened.destroy(reason)
+  }
+  await expect(startAudioTranscription(f.project, f.input, 'zh', f.account, config,
+    f.media, undefined, controller.signal)).rejects.toBe(reason)
+  expect(stream?.closed).toBe(true)
+  expect(f.submitAudio).not.toHaveBeenCalled()
+  expect(await readdir(f.jobs)).toEqual([])
 })
