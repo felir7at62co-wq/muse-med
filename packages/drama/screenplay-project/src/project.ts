@@ -546,7 +546,11 @@ export class ProjectCommands {
       }
       case 'read_source': {
         const source = project.sources.find(source => source.id === request.source_id)
-        if (source === undefined) throw Error('missing_source: 请使用 status 返回的来源编号。')
+        if (source === undefined) {
+          const complete = project.sources.filter(value => value.id === `${request.source_id}:${value.kind}`).map(value => value.id)
+          throw Error('missing_source: 请使用 status 返回的来源编号。' + (complete.length === 0 ? ''
+            : `编号须保留类型后缀；从 status.sources 选择完整 id：${complete.join('、')}。未读取来源。`))
+        }
         if (request.start < 1 || request.count < 1 || request.count > this.limits.maxReadUnits || request.start > source.units.length) {
           throw Error('source_window: 使用 1 起始编号及配置预算内的读取数量。')
         }

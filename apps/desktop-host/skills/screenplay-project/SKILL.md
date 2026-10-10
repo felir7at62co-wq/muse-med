@@ -11,6 +11,8 @@ description: 小说转剧本、视频转剧本、剧本换梗及长篇续写时�
 
 PTC 调用形式是 `return await tools.screenplay_project({request: {method: "status", project: "short-drama/作品/qa/screenplay-project.json"}})`；所有项目命令都在外层 `request` 内，不能把 `method` 和 `project` 直接传给工具。项目路径指向 JSON 文件，不是目录。补充事实沿用 `status.story_policy.authorization_sha256` 等工具实际返回值；`propose_fact` / `propose_facts` 的事实包含 `kind`、`origin`、可选 `actor`、`layer`、`summary`、`anchors`，获授权演绎按公开声明补相应字段。`witnesses`、`requires_knowledge`、`sync_with` 属于场次节拍，不写进事实对象。事实编号、片段编号和引用原文从工具返回值取得；批量失败先保存起草数据并核对字段，不重新抄写整批长 JSON。参数错误先读当前 SDK 声明与收据，再恢复原项目或任务，不从头重投。
 
+来源原样使用 `status.sources[].id`，保留 `:text`、`:transcript` 或 `:video_inspection` 后缀；按实际 `kind` 和 `path` 选择，不用正则截取编号，不回退到压缩摘要里的旧值。`read_source.units[]` 使用 `id` 和 `text`，事实状态使用 `fact.review?.decision`，没有 `review` 表示未审；不要猜 `unit_id`、`status` 或 `review_state` 等替代返回字段。丢失后缀时工具拒绝读取并提示匹配的完整编号，不自动选择来源。
+
 仅新创作模式的视频转剧本默认使用工具提供的 `init_story_faithful`，绑定真实用户授权、视频路径与版本、逐集视频关联、计划集数和类别，不要求先做逐字 baseline。单视频单集可自动关联，多视频明确每份对应的集号；本轮策略按真实总时长检查整片，不用候选自填 interval 缩成片段，也不支持同片跨集裁剪。明确逐字、字幕或继续旧项目时保持下述严格路径。来源账仍保存实际 ASR、帧、事实分类与引用；作品层按已核对故事表达事件及行动结果、情绪冲突、关系立场、因果和关键揭晓，不把每条源动作的发声/动作渠道、首次顺序或场次结构硬锁套到新作品表示。
 
 创建或派生故事忠实作品时，`authorization_quote` 逐字复制最新真实用户消息中的一个短句；不能把旧消息的授权句与最新消息拼接，不能把自己概括的“沿用授权”当作用户原话。Host 比较消息身份和精确文本，不要求授权短句此前从未出现过。授权引用被拒时核对当前最新消息，保留原有范围，不以改写短句、增加同意说明或盲目重复旧请求修复。

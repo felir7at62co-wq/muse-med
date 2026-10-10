@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-creation-source-id-recovery
+profile: headless
+composition: muse-creation-source-id-recovery
+recording: authored
+header:
+  class: muse-creation-source-id-recovery
+  pin: true
+workspace:
+  setup: muse-creation-skills

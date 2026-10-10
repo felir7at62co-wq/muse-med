@@ -3,6 +3,7 @@ scenario: muse-creation-review-guidance
 profile: headless
 composition: muse-creation-review-guidance
 recording: authored
+writerOutput: true
 header:
   class: muse-creation-review-guidance
   pin: true

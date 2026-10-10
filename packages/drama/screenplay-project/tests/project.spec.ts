@@ -48,6 +48,37 @@ async function run(request: ProjectRequest, actor = 'writer', signal = new Abort
 async function current() {
   return PROJECT_FILE.parse(JSON.parse(await readFile(path, 'utf8')))
 }
+
+it('rejects an omitted source-kind suffix, offers the complete identity and reads only its exact correction', async () => {
+  const before = await current(), original = before.sources[0]!
+  const partial = original.id.slice(0, original.id.lastIndexOf(':'))
+  await expect(run({ method: 'read_source', project: path, source_id: partial, start: 1, count: 1 }))
+    .rejects.toThrow(`从 status.sources 选择完整 id：${original.id}`)
+  expect(await current()).toEqual(before)
+  expect(await run({ method: 'read_source', project: path, source_id: original.id, start: 1, count: 1 }))
+    .toMatchObject({ source_id: original.id, units: [{ id: original.units[0]!.id, text: original.units[0]!.text }] })
+})
+
+it('reports both complete identities when the same bytes were imported as text and transcript', async () => {
+  const file = join(root, 'timed.json')
+  await writeFile(file, JSON.stringify([{ start: 0, end: 1, text: '你走吧。' }]))
+  await run({ method: 'import_source', project: path, expected_revision: 1, path: file, source_kind: 'text' })
+  await run({ method: 'import_source', project: path, expected_revision: 2, path: file, source_kind: 'transcript' })
+  const before = await current(), text = before.sources[1]!, transcript = before.sources[2]!
+  const partial = text.id.slice(0, text.id.lastIndexOf(':'))
+  await expect(run({ method: 'read_source', project: path, source_id: partial, start: 1, count: 1 }))
+    .rejects.toThrow(`${text.id}、${transcript.id}`)
+  expect(await current()).toEqual(before)
+  expect(await run({ method: 'read_source', project: path, source_id: transcript.id, start: 1, count: 1 }))
+    .toMatchObject({ units: [{ text: '你走吧。' }] })
+})
+
+it('does not expose unrelated source identities when a missing id shares no complete byte digest', async () => {
+  const before = await current()
+  await expect(run({ method: 'read_source', project: path, source_id: 's:missing', start: 1, count: 1 }))
+    .rejects.toThrow(/^missing_source: 请使用 status 返回的来源编号。$/u)
+  expect(await current()).toEqual(before)
+})
 async function fact(kind: FactInput['kind'], ordinal: number, actor?: string, layer: FactInput['layer'] = 'present') {
   const project = await current()
   const unit = project.sources[0]!.units[ordinal - 1]!

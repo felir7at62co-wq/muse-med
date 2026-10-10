@@ -3,6 +3,7 @@ scenario: muse-creation-parse-recovery
 profile: headless
 composition: muse-creation-parse-recovery
 recording: authored
+writerOutput: true
 header:
   class: muse-creation-parse-recovery
   pin: true
