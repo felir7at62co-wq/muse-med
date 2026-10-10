@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ActorId } from './ids.ts'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { createUserMessage, type ContentBlock, type UserMessage, type MessageId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, isAgentLoopRequest, type ContentBlock, type UserMessage, type MessageId, type Message } from '@deepseek-ai/dsh-llm'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-projection'
@@ -25,6 +25,18 @@ export { acceptedScripts, sha256 } from './episode.ts'
 import { validateStoryApprovalLog } from './story.ts'
 export { validateAcceptedStoryEvidence, validateStoryApprovalLog } from './story.ts'
 export { PROJECT_FILE } from './schema.ts'
+
+/** Match exact read text and attachments; only observed history may carry logged offload flags. */
+function matchesReadContext(message: Message, hash: string, observed: boolean): boolean {
+  if (sha256(JSON.stringify(message)) === hash) return true
+  if (!observed) return false
+  const content = message.content.map((block) => {
+    if (block.type !== 'image' || block.offloaded !== true) return block
+    const { offloaded: _offloaded, ...original } = block
+    return original
+  })
+  return sha256(JSON.stringify({ ...message, content })) === hash
+}
 
 /** Loader diagnostics name. */
 export const name = 'screenplay-project'
@@ -82,7 +94,7 @@ export function apply(ctx: Context, config: Config): void {
   }
   const commands = new ProjectCommands(ctx.fs, config, ctx.attachments, config.reviewMode, config.refinementMode, config.storyFaithfulMode)
   const pending = new WeakMap<ToolExecution, { context: UserMessage; receipt: ProjectReadReceipt; valueHash: string; contentHash: string; root: ToolExecution['rootCallId'] }>()
-  const delivered = new Map<MessageId, { contextHash: string; receipt: ProjectReadReceipt; root: ToolExecution['rootCallId'] }>()
+  const delivered = new Map<MessageId, { contextHash: string; receipt: ProjectReadReceipt; root: ToolExecution['rootCallId']; observed: boolean }>()
   ctx.effect(() => () => { delivered.clear() })
   ctx.on('agent/disposed', ({ agent }) => {
     for (const [id, read] of delivered) if (read.receipt.actor === brandString<ActorId>(agent.session.id)) delivered.delete(id)
@@ -100,8 +112,25 @@ export function apply(ctx: Context, config: Config): void {
             || (prior.receipt.step === read.receipt.step && prior.root === read.root
               && JSON.stringify(prior.receipt.reads) === JSON.stringify(read.receipt.reads)))) delivered.delete(id)
       }
-      delivered.set(read.context.id, { contextHash: sha256(JSON.stringify(read.context)), receipt: read.receipt, root: read.root })
+      delivered.set(read.context.id, { contextHash: sha256(JSON.stringify(read.context)), receipt: read.receipt,
+        root: read.root, observed: false })
     }
+  })
+  ctx.on('llm/stream', async function* (options, next) {
+    const roots = new Set(options.messages.filter(message => message.role === 'tool' && message.isError !== true)
+      .map(message => message.role === 'tool' ? message.toolCallId : undefined))
+    const eligible = !isAgentLoopRequest(options) ? [] : options.messages.flatMap((message) => {
+      const read = message.id === undefined ? undefined : delivered.get(message.id)
+      return read !== undefined && options.sessionId !== undefined
+        && read.receipt.actor === brandString<ActorId>(options.sessionId) && roots.has(read.root)
+        && message.source?.kind === 'screenplay-project-read' && sha256(JSON.stringify(message)) === read.contextHash ? [read] : []
+    })
+    let complete = false
+    for await (const chunk of next()) {
+      if (chunk.type === 'finish') complete = ['stop', 'tool-calls', 'max-tokens'].includes(chunk.reason.kind)
+      yield chunk
+    }
+    if (complete && !options.signal?.aborted) for (const read of eligible) read.observed = true
   })
   ctx.tools.register(defineTool({
     name: 'screenplay_project',
@@ -149,7 +178,7 @@ export function apply(ctx: Context, config: Config): void {
       for (const [id, read] of delivered) {
         if (read.receipt.actor !== actor || step === undefined || read.receipt.step >= step) continue
         const message = visible.get(id)
-        if (message === undefined || !roots.has(read.root) || sha256(JSON.stringify(message)) !== read.contextHash) {
+        if (message === undefined || !roots.has(read.root) || !matchesReadContext(message, read.contextHash, read.observed)) {
           delivered.delete(id); continue
         }
         const key = JSON.stringify([read.receipt.project_id, read.receipt.project_sha256, read.receipt.reads])
@@ -161,7 +190,7 @@ export function apply(ctx: Context, config: Config): void {
       for (const message of messages) {
         const read = delivered.get(message.id)
         if (read !== undefined && roots.has(read.root) && message.source.kind === 'screenplay-project-read'
-          && sha256(JSON.stringify(message)) === read.contextHash) receipts.push(read.receipt)
+          && matchesReadContext(message, read.contextHash, read.observed)) receipts.push(read.receipt)
       }
       let observation: ProjectReadReceipt | undefined
       const policy = ctx.get('sandboxPolicy')?.resolve({ session })

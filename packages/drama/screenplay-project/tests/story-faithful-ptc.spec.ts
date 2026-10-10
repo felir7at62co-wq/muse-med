@@ -109,3 +109,24 @@ it('cold-restores saved pending V2 observations and rereads B before a later C a
     expect(second.stderr).not.toContain('UNHANDLED')
   } finally { await cleanup(cwd) }
 }, DEADLINE)
+
+it.each(['offload-after-observation', 'offload-before-observation'] as const)(
+  'uses actual model observation when source images leave the request: %s', async (phase) => {
+    const cwd = await mkdtemp(join(tmpdir(), 'story-faithful-offload-'))
+    try {
+      await prepareStoryFixture(cwd)
+      const output = await runStoryFixture(cwd, { phase }), fixture = await readStoryFixture(cwd, output.stdout)
+      expect(await logs(cwd)).toContain('image/offload')
+      if (phase === 'offload-after-observation') {
+        expect(fixture.project.accepted).toEqual([fixture.project.candidates[0]!.id])
+        expect(fixture.input).toBeDefined()
+        expect(await readFile(fixture.input!, 'utf8')).toContain('红屏只是警报，不是赶你走。')
+      } else {
+        expect(output.stdout).toContain('EXPECTED_DENIAL self_check_read_required')
+        expect(fixture.project.accepted).toEqual([])
+        expect(fixture.project.candidates[0]!.review).toBeUndefined()
+      }
+      expect(output.stderr).not.toContain('UNHANDLED')
+    } finally { await cleanup(cwd) }
+  }, DEADLINE,
+)

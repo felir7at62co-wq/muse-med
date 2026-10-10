@@ -15,8 +15,8 @@ import { ProjectCommands } from '../src/project.ts'
 import { PROJECT_FILE, STORY_NOTES, SEMANTIC_INPUT, REQUEST_STORY, VIDEO_INSPECTION } from '../src/schema.ts'
 import type { ProjectFile, ProjectRequest } from '../src/schema.ts'
 import type { ProjectReadReceipt } from '../src/review.ts'
-import { acceptedScripts, acceptedKnowledge, renderEpisode, sha256 } from '../src/episode.ts'
-import { validateAcceptedStoryEvidence, validateStoryApprovalLog, validateStoryPolicy, storyPolicyDigest, validateInventory, inventoryDigest, storyScopeDigest } from '../src/story.ts'
+import { acceptedScripts, acceptedKnowledge, renderEpisode, sha256, candidateDigest } from '../src/episode.ts'
+import { validateAcceptedStoryEvidence, validateStoryApprovalLog, validateStoryPolicy, storyPolicyDigest, validateInventory, inventoryDigest, storyScopeDigest, validateStoryCandidate, storyContentDigest } from '../src/story.ts'
 import type { ActorId, FactId, UnitId } from '../src/ids.ts'
 import type { HumanAuthorization } from '../src/refinement.ts'
 import { stageScenes, stageCoverage, stageStoryNotes } from './fixtures/stage-input.ts'
@@ -589,5 +589,42 @@ it.each(['unknown_source', 'oversized_window', 'duplicate_item', 'missing_dimens
       unknown_fact: 'story_fact_review', adaptation_as_source: 'story_fact_review', unreviewed_fact: 'story_fact_review',
       uncovered_evidence: 'story_item_evidence' }[variant]
     expect(() => { validateInventory(file, item) }).toThrow(code)
+  },
+)
+
+it.each(['duplicate_mapping', 'missing_mapping', 'unknown_mapping', 'changed_quote', 'unrelated_mapping', 'action_as_dialogue',
+  'knowledge_as_os', 'duplicate_disposition', 'omit_critical', 'fake_before', 'missing_input', 'missing_change_source',
+  'unrelated_change_source', 'duplicate_scene_notes', 'missing_scene_notes', 'comment_without_change', 'missing_beat_change'] as const)(
+  'refuses durable screenplay notes that lose actual event or output references: %s', async (variant) => {
+    await ready()
+    const file = await current(), candidate = file.candidates[0]!, metadata = candidate.story_adaptation!, notes = metadata.notes
+    switch (variant) {
+      case 'duplicate_mapping': notes.mapping.push(notes.mapping[0]!); break
+      case 'missing_mapping': notes.mapping.pop(); break
+      case 'unknown_mapping': notes.mapping[0]!.item_id = 'unknown'; break
+      case 'changed_quote': notes.mapping[0]!.outputs[0]!.text = 'another line'; break
+      case 'unrelated_mapping': notes.mapping[0]!.outputs = [{ scene: 2, beat: 1, text: candidate.scenes[1]!.beats[0]!.text }]; break
+      case 'action_as_dialogue': candidate.scenes[1]!.beats[0]!.kind = 'dialogue'; break
+      case 'knowledge_as_os': candidate.scenes[0]!.beats[0]!.kind = 'os'; break
+      case 'duplicate_disposition': notes.dispositions.push(notes.dispositions[0]!); break
+      case 'omit_critical': notes.dispositions[0]!.disposition = 'omitted_non_story'; break
+      case 'fake_before': notes.changes[0]!.before = { scene: 1, beat: 1, text: 'not an actual input' }; break
+      case 'missing_input': notes.input_candidate_id = candidate.id; break
+      case 'missing_change_source': delete notes.changes[0]!.source; break
+      case 'unrelated_change_source': notes.changes[0]!.source!.unit_id = brandString<UnitId>('u:missing'); break
+      case 'duplicate_scene_notes': notes.scene_changes.push(notes.scene_changes[0]!); break
+      case 'missing_scene_notes': notes.scene_changes.pop(); break
+      case 'comment_without_change': notes.editor_comments[0]!.change_indices = []; break
+      case 'missing_beat_change': notes.changes.pop(); break
+    }
+    metadata.output_content_sha256 = storyContentDigest(candidate); candidate.sha256 = candidateDigest(candidate)
+    const code = { duplicate_mapping: 'story_mapping_required', missing_mapping: 'story_mapping_required',
+      unknown_mapping: 'story_mapping_required', changed_quote: 'story_notes_location', unrelated_mapping: 'story_mapping_evidence',
+      action_as_dialogue: 'story_key_action', knowledge_as_os: 'story_knowledge_preservation',
+      duplicate_disposition: 'story_source_disposition', omit_critical: 'story_key_omitted', fake_before: 'story_no_before',
+      missing_input: 'story_input_required', missing_change_source: 'story_change_source', unrelated_change_source: 'story_change_source',
+      duplicate_scene_notes: 'story_scene_notes', missing_scene_notes: 'story_scene_notes',
+      comment_without_change: 'story_comment_location', missing_beat_change: 'story_change_unhandled' }[variant]
+    expect(() => { validateStoryCandidate(file, candidate) }).toThrow(code)
   },
 )

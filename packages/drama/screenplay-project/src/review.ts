@@ -169,7 +169,7 @@ export function validWithdrawal(project: ProjectFile, fact: Fact): boolean {
  * @param kind - Subject type.
  * @param actor - Initiating session identity.
  * @param step - Live host model-step sequence.
- * @param receipts - Successful context reads still present in model history.
+ * @param receipts - Successful exact-content reads present in model history; previously observed images may be offloaded.
  * @param afterStep - Original approval step when withdrawing an already approved fact.
  * @returns Durable exact-content and sequential-step evidence.
  */
@@ -186,7 +186,7 @@ export function selfCheckEvidence(project: ProjectFile, projectHash: string, sub
   const reads = requiredReads(project, subject, kind).map((read) => {
     const receipt = available.find(receipt => receipt.reads.some(value => value.kind === read.kind
       && value.id === read.id && value.sha256 === read.sha256))
-    if (receipt === undefined) throw Error(`self_check_read_required: ${read.kind} ${read.id} 须在编写后的模型轮实际读回当前内容，待下一模型轮自检；内容变更后须重读。`)
+    if (receipt === undefined) throw Error(`self_check_read_required: ${read.kind} ${read.id} 须在编写后的模型轮实际读回当前内容，待下一模型轮自检；内容变更后须重读。图像分小批读回，须真正进入成功模型轮，不能把请求前卸载的图像当已看。`)
     return { ...read, step: receipt.step }
   })
   return { project_id: project.id, project_revision: project.revision, context_sha256: contextDigest(project, subject),

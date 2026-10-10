@@ -31,7 +31,7 @@ export async function prepareStoryFixture(cwd: string): Promise<void> {
 
 /** Optional persistent control and an additional Host-owned Loader overlay. */
 export interface StoryFixtureRunOptions {
-  phase?: 'full' | 'checkpoint' | 'resume-pending' | 'accepted-cold' | 'export-negative'
+  phase?: 'full' | 'checkpoint' | 'resume-pending' | 'accepted-cold' | 'export-negative' | 'offload-after-observation' | 'offload-before-observation'
   sessionId?: string
   prompt?: string
   patches?: string[]

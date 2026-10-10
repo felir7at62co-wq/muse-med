@@ -4,7 +4,7 @@ import { writeFileSync } from 'node:fs'
 import type {} from '../../src/index.ts'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { LlmAdapter, ToolCallId, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, IMAGE_OFFLOAD_REQUIRED_CODE, ToolCallId, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { z } from 'zod'
 import { VIDEO_INSPECTION } from '../../src/schema.ts'
@@ -27,6 +27,7 @@ const REPORT = "const s=await current(),c=s.pending.at(-1),r=await call({method:
 export function apply(ctx: Context): void {
   const phase = process.env.SCREENPLAY_STORY_FIXTURE_MODE ?? 'full'
   let step = 0
+  let offloadInjected = false
   const samples: ContentBlock[][] = []
   const observations: { phase: string; step: number; images: string[]; canonical: boolean }[] = []
   const tools: { name: string; method?: string; isError: boolean }[] = []
@@ -46,7 +47,14 @@ export function apply(ctx: Context): void {
       return { provider, id: model, name: model, inputModalities: ['text', 'image'] as const }
     }
     async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-      const imageRound = (phase === 'full' || phase === 'checkpoint') && step === 1
+      const offloadStep = phase === 'offload-after-observation' ? 11 : phase === 'offload-before-observation' ? 10 : undefined
+      if (!offloadInjected && step === offloadStep) {
+        offloadInjected = true
+        const offloadImages = options.messages.flatMap(message => message.content)
+          .filter(block => block.type === 'image' && block.offloaded !== true).length
+        throw new LlmError('fixture request image budget', IMAGE_OFFLOAD_REQUIRED_CODE, { offloadImages })
+      }
+      const imageRound = !['resume-pending', 'accepted-cold', 'export-negative'].includes(phase) && step === 1
       if (imageRound) {
         const content = options.messages.flatMap(message => message.content)
         const actualImages = content.filter(block => block.type === 'image').map(block => block.attachment.attachmentId)
@@ -71,6 +79,12 @@ export function apply(ctx: Context): void {
           || !reads.some(text => text.includes('"inventory"') && text.includes('"story_policy"'))
           || !reads.some(text => text.includes('红屏只是警报，不是赶你走。')))
           throw Error('story fixture actual C model request omitted complete candidate, inventory, policy or original transcript')
+      }
+      if (phase.startsWith('offload-') && step === (phase === 'offload-after-observation' ? 11 : 10)) {
+        const index = options.messages.findLastIndex(message => message.source?.kind === 'tool'
+          && String(message.source.callId).startsWith('story-faithful-' + phase + '-9'))
+        const images = options.messages.slice(index + 1).flatMap(message => message.content.filter(block => block.type === 'image'))
+        if (images.length !== 3 || images.some(block => block.offloaded !== true)) throw Error('fixture source images were not offloaded: ' + JSON.stringify({ index, images: images.map(block => ({ id: block.attachment.attachmentId, offloaded: block.offloaded })) }))
       }
       if (phase === 'resume-pending' && step === 2) {
         const index = options.messages.findIndex(message => message.source?.kind === 'tool'
@@ -98,9 +112,14 @@ export function apply(ctx: Context): void {
         REPORT + "await deny('story_semantic_deviation',()=>call({method:'review',project,expected_revision:s.revision,candidate_id:c.id,candidate_sha256:c.sha256,decision:'approve',reason:'报告声明偏差不得批准。',semantic_report:{...report,deviations:['合成负例：把挽留改为驱逐。']}})); await review(); const updated=await current();await deny('story_approval_log_pending',()=>call({method:'commit',project,expected_revision:updated.revision,candidate_id:c.id,candidate_sha256:c.sha256}));",
         "const s=await current(),c=s.pending.at(-1);await call({method:'commit',project,expected_revision:s.revision,candidate_id:c.id,candidate_sha256:c.sha256});console.log(await call({method:'export',project,candidate_id:c.id,directory:'delivery'}));",
       ]
-      programs[8] += '{' + REPORT + "await readSources();await deny('self_check_step',review);}"
+      if (!phase.startsWith('offload-')) programs[8] += '{' + REPORT + "await readSources();await deny('self_check_step',review);}"
       let program = programs[step]
       if (phase === 'checkpoint' && step >= 10) program = undefined
+      if (phase === 'offload-after-observation' && step >= 10) program = [
+        'console.log("Source images reached this successful model response before offloading.");', programs[10], programs[11],
+      ][step - 10]
+      if (phase === 'offload-before-observation' && step >= 10) program = step === 10
+        ? REPORT + "await deny('self_check_read_required',review);" : undefined
       if (phase === 'accepted-cold') program = step === 0 ? "const s=await current();console.log(await call({method:'export',project,candidate_id:s.accepted[0].id,directory:'cold-delivery'}));" : undefined
       if (phase === 'export-negative') program = step === 0 ? "await deny(processExpected,async()=>{const s=await current();await call({method:'export',project,candidate_id:s.accepted[0].id,directory:'forbidden-delivery'});});".replace('processExpected', JSON.stringify(process.env.SCREENPLAY_STORY_EXPECTED_ERROR)) : undefined
       if (phase === 'resume-pending') {
@@ -111,7 +130,7 @@ export function apply(ctx: Context): void {
           programs[10], programs[11],
         ][step]
       }
-      if ((phase === 'full' || phase === 'checkpoint') && step === 2) {
+      if (!['resume-pending', 'accepted-cold', 'export-negative'].includes(phase) && step === 2) {
         const sample = VIDEO_INSPECTION.parse(JSON.parse(await readFile(join(process.cwd(), 'sample-1.json'), 'utf8')))
         await writeFile(join(process.cwd(), 'fake-inspection.json'), JSON.stringify({ ...sample, duration_seconds: 256, verified_readback: true }))
         await writeFile(join(process.cwd(), 'fake-samples.json'), JSON.stringify({ ...sample, verified_readback: true,
