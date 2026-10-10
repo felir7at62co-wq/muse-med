@@ -1,6 +1,6 @@
 /** Synthetic original scenes exercise story declarations; trusted callbacks are test doubles, not media verification. */
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
@@ -16,8 +16,9 @@ import type { ProjectFile, ProjectRequest } from '../src/schema.ts'
 import type { ProjectReadReceipt } from '../src/review.ts'
 import { acceptedScripts, acceptedKnowledge, renderEpisode, sha256 } from '../src/episode.ts'
 import { validateAcceptedStoryEvidence, validateStoryApprovalLog } from '../src/story.ts'
-import type { ActorId } from '../src/ids.ts'
+import type { ActorId, FactId, UnitId } from '../src/ids.ts'
 import type { HumanAuthorization } from '../src/refinement.ts'
+import { stageScenes, stageCoverage, stageStoryNotes } from './fixtures/stage-input.ts'
 
 const actor = brandString<ActorId>('story-test-session')
 const limits = { maxSourceBytes: 100_000, maxProjectBytes: 1_000_000, maxReadUnits: 30, maxReadBytes: 100_000, maxFactBatch: 20 }
@@ -41,7 +42,7 @@ async function initialize(episodes = [1, 2]) {
   await run({ method: 'import_source', project, expected_revision: 1, path: join(root, 'inspection.json'), source_kind: 'video_inspection' })
 }
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'story-faithful-')); project = join(root, 'project.json')
+  root = await realpath(await mkdtemp(join(tmpdir(), 'story-faithful-'))); project = join(root, 'project.json')
   ctx = new Context(); await ctx.plugin(LocalFileSystem, { cwd: root }); await ctx.plugin(LocalAttachmentStore, { dshHome: root })
   commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check', 'disabled', 'story-faithful-v2')
   step = 10; receipts = []; verifyCount = 0
@@ -138,7 +139,7 @@ async function draft() {
 }
 async function stage() {
   const { file, item, scenes, notes } = await draft(); step = 100
-  await run({ method: 'stage', project, expected_revision: file.revision, episode: file.accepted.length + 1, scenes, coverage: item.coverage, story_notes: notes })
+  await run({ method: 'stage', project, expected_revision: file.revision, episode: file.accepted.length + 1, scenes: stageScenes(scenes), coverage: stageCoverage(item.coverage), story_notes: stageStoryNotes(notes) })
   return (await current()).candidates.at(-1)!
 }
 async function rereadCandidate() {
@@ -166,6 +167,7 @@ async function accepted() {
 }
 it('creates directly from sources, strengthens dialogue and authorized OS, restructures scenes and keeps originals unchanged', async () => {
   const original = await readFile(join(root, 'source.txt'), 'utf8'); const candidate = await accepted(), file = await current()
+  expect(await run({ method: 'status', project })).toHaveProperty('story_policy.authorization_sha256', sha256(JSON.stringify(file.story_policy!.authorization)))
   expect(file.candidates).toHaveLength(1); expect(file.facts[1]!.kind).toBe('author_analysis'); expect(file.facts[1]!.origin).toBe('source')
   expect(file.facts[3]!.origin).toBe('adaptation'); expect(candidate.story_adaptation!.input_candidate_json).toBeUndefined()
   expect(candidate.story_adaptation!.notes.changes.every(change => change.before === undefined)).toBe(true)
@@ -215,7 +217,7 @@ it.each(['missing', 'unrelated', 'actor', 'os_listener', 'cause_order', 'before'
   if (variant === 'cause_order') { scenes[0]!.beats.unshift(scenes[1]!.beats[0]!); scenes[1]!.beats.pop() }
   if (variant === 'before') notes.changes[0]!.before = notes.changes[0]!.after
   if (variant === 'comments') notes.editor_comments[0]!.change_indices = [30]
-  await expect(run({ method: 'stage', project, expected_revision: file.revision, episode: 1, scenes, coverage: item.coverage, story_notes: notes })).rejects.toThrow(/story_|private_knowledge|empty_scene/)
+  await expect(run({ method: 'stage', project, expected_revision: file.revision, episode: 1, scenes: stageScenes(scenes), coverage: stageCoverage(item.coverage), story_notes: stageStoryNotes(notes) })).rejects.toThrow(/story_|private_knowledge|empty_scene/)
 })
 it('requires B receipts again after cold restart and refuses direct commit/export without the actual C-log callback', async () => {
   await ready(); receipts = []; commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check', 'disabled', 'story-faithful-v2')
@@ -309,7 +311,7 @@ it('uses a bounded exact input snapshot across five same-episode revisions', asy
       change.after.text = scenes[change.after.scene - 1]!.beats[change.after.beat - 1]!.text
     }
     step = 110 + index * 10
-    await run({ method: 'stage', project, expected_revision: file.revision, episode: 1, scenes, coverage: item.coverage, story_notes: notes })
+    await run({ method: 'stage', project, expected_revision: file.revision, episode: 1, scenes: stageScenes(scenes), coverage: stageCoverage(item.coverage), story_notes: stageStoryNotes(notes) })
     previous = (await current()).candidates.at(-1)!
     const snapshot = previous.story_adaptation!.input_candidate_json!
     if (index === 0) firstBytes = Buffer.byteLength(snapshot)
@@ -327,35 +329,35 @@ it.each(['before', 'after'] as const)('rejects revision notes that misquote the 
   notes.changes[0]![variant]!.text = '此句没有出现在实际版本中。'
   step = 110
   await expect(run({ method: 'stage', project, expected_revision: file.revision, episode: 1,
-    scenes, coverage: item.coverage, story_notes: notes })).rejects.toThrow('story_notes_location')
+    scenes: stageScenes(scenes), coverage: stageCoverage(item.coverage), story_notes: stageStoryNotes(notes) })).rejects.toThrow('story_notes_location')
   expect(await readFile(project, 'utf8')).toBe(original)
   expect((await current()).candidates.at(-1)!.id).toBe(previous.id)
 })
 it('rejects future-only source facts and unauthorized adaptation knowledge even when notes cite valid current units', async () => {
   await sourcesAndFacts(); await reviewedInventory(); const { file, item, scenes, notes } = await draft()
-  const future = structuredClone(file.facts[0]!); future.id = brandString('f:future'); future.anchors = [{ unit_id: brandString('future-unit'), quote: '未来身份揭晓。' }]
+  const future = structuredClone(file.facts[0]!); future.id = brandString<FactId>('f:future'); future.anchors = [{ unit_id: brandString<UnitId>('future-unit'), quote: '未来身份揭晓。' }]
   file.facts.push(future)
   const candidate = { ...file, candidates: [] }
   // The public executor refuses the forged source before it can become an accepted knowledge prerequisite.
   await writeFile(project, JSON.stringify(candidate))
   scenes[1]!.beats[0]!.requires_knowledge = [future.id]
-  await expect(run({ method: 'stage', project, expected_revision: file.revision, episode: 1, scenes, coverage: item.coverage, story_notes: notes })).rejects.toThrow(/source_quote_mismatch|invalid_project|story_fact_scope/)
+  await expect(run({ method: 'stage', project, expected_revision: file.revision, episode: 1, scenes: stageScenes(scenes), coverage: stageCoverage(item.coverage), story_notes: stageStoryNotes(notes) })).rejects.toThrow(/source_quote_mismatch|invalid_project|story_fact_scope/)
 })
 it.each(['failed_outer', 'missing_outer'] as const)('does not repair a %s C execution with a later successful reused call ID', async (variant) => {
   await accepted(); const file = await current(), candidate = file.candidates[0]!, input = await report()
   const rootCallId = ToolCallId('reused-root'), subCallId = ToolCallId('reused-root:ptc:1')
-  const events: SessionEvent[] = Array.from({ length: 120 }, (_, index) => ({ type: 'turn/end', seq: SessionSeq(index), time: 0, data: { turn: 0 } }))
+  const events: SessionEvent[] = Array.from({ length: 120 }, (_, index) => ({ type: 'turn/end', seq: SessionSeq(index), time: 0, data: { turn: 0, reason: { kind: 'completed' } } }))
   events[120] = { type: 'step/start', seq: SessionSeq(120), time: 0, data: { turn: 1, step: 1 } }
   events[121] = { type: 'tool/ptc-dispatch', seq: SessionSeq(121), time: 0, data: { name: 'screenplay_project', rootCallId, parentCallId: rootCallId, subCallId,
     arguments: { request: { method: 'review', candidate_id: candidate.id, candidate_sha256: candidate.sha256, decision: 'approve', semantic_report: input } }, isError: false,
     content: [{ type: 'text', text: JSON.stringify({ candidate }) }] } }
   events[122] = { type: 'tool/call', seq: SessionSeq(122), time: 0, data: { turn: 1, step: 1, callId: rootCallId, name: 'run_code', arguments: '{}' } }
-  if (variant === 'failed_outer') events[122] = { type: 'tool/result', seq: SessionSeq(122), time: 0, data: { turn: 1, step: 1,
-    message: createToolResultMessage({ toolCallId: rootCallId, name: 'run_code', isError: true, content: [{ type: 'text', text: 'failed synthetic C outer' }] }) } }
+  if (variant === 'failed_outer') events[122] = { type: 'tool/result', surfaceOp: 'append', seq: SessionSeq(122), time: 0, data: { turn: 1, step: 1,
+    message: createToolResultMessage({ callId: rootCallId, isError: true, content: [{ type: 'text', text: 'failed synthetic C outer' }] }) } }
   events[123] = { type: 'step/end', seq: SessionSeq(123), time: 0, data: { turn: 1, step: 1 } }
   events[124] = { type: 'step/start', seq: SessionSeq(124), time: 0, data: { turn: 1, step: 2 } }
-  events[125] = { type: 'tool/result', seq: SessionSeq(125), time: 0, data: { turn: 1, step: 2,
-    message: createToolResultMessage({ toolCallId: rootCallId, name: 'run_code', content: [{ type: 'text', text: 'unrelated later success' }] }) } }
+  events[125] = { type: 'tool/result', surfaceOp: 'append', seq: SessionSeq(125), time: 0, data: { turn: 1, step: 2,
+    message: createToolResultMessage({ callId: rootCallId, isError: false, content: [{ type: 'text', text: 'unrelated later success' }] }) } }
   // This read-only query double supplies the event window being validated; media proof is tested separately.
   ctx.provide('sessionQuery', { observeSession: async () => ({ events, [Symbol.dispose]() {} }) } as never)
   await expect(validateStoryApprovalLog(ctx, file, candidate, new AbortController().signal)).rejects.toThrow('story_approval_log_pending')
@@ -397,7 +399,7 @@ it.each(['action_after_speech', 'speech_after_action'] as const)('keeps genuine 
     scenes[1]!.beats.push(beat)
     notes.changes.push({ source: { unit_id: speech.anchors[0]!.unit_id, fact_id: speech.id }, after: { scene: 2, beat: 2, text: beat.text }, reason: '人物观察实际开门行动后重复同一拒绝立场，前提是图像动作不是语音。' })
   }
-  await run({ method: 'stage', project, expected_revision: file.revision, episode: 1, scenes, coverage: item.coverage, story_notes: notes })
+  await run({ method: 'stage', project, expected_revision: file.revision, episode: 1, scenes: stageScenes(scenes), coverage: stageCoverage(item.coverage), story_notes: stageStoryNotes(notes) })
   expect((await current()).candidates).toHaveLength(1)
 })
 it('does not let a model-defined short coverage interval skip the remaining probed original duration', async () => {
@@ -406,7 +408,7 @@ it('does not let a model-defined short coverage interval skip the remaining prob
   const raw = await current(), pending = raw.story_inventories!.at(-1)!
   // Repropose with a truthful tiny sample interval. It grants no permission to discard the other original-video window.
   await run({ method: 'propose_story_inventory', project, expected_revision: raw.revision, episode: 1, items: pending.items, not_applicable: [],
-    coverage: { ...pending.coverage, windows: pending.coverage.windows.map(window => window.source_id === file.sources[1]!.id
+    coverage: { ...pending.coverage, windows: stageCoverage(pending.coverage).windows.map(window => window.source_id === file.sources[1]!.id
       ? { ...window, interval: { start_seconds: 0, end_seconds: 2 } } : window) } })
   const cropped = (await current()).story_inventories!.at(-1)!; step = 80
   await run({ method: 'read_story_inventory', project, inventory_id: cropped.id }); await readAll(); step = 90
@@ -471,7 +473,7 @@ it('requires explicit multi-video episode mapping and does not invalidate episod
   expect(acceptedScripts(await current())[0]).toEqual(first)
   const firstInventory = (await current()).story_inventories![0]!
   await expect(run({ method: 'propose_story_inventory', project, expected_revision: (await current()).revision, episode: 2,
-    coverage: firstInventory.coverage, items: firstInventory.items, not_applicable: [] })).rejects.toThrow('story_source_window')
+    coverage: stageCoverage(firstInventory.coverage), items: firstInventory.items, not_applicable: [] })).rejects.toThrow('story_source_window')
 })
 it('rejects duplicate persisted inventory identities and changed original source bytes', async () => {
   await sourcesAndFacts(); await reviewedInventory(); const file = await current()
@@ -508,7 +510,7 @@ it('binds V2 rendering to its actual candidate scenes and episode while preservi
   for (const mapping of notes.mapping) mapping.outputs = mapping.item_id === 'door' ? [position(2)] : mapping.item_id === 'tension' ? [position(3)]
     : mapping.item_id === 'cause' ? [position(1), position(2)] : [position(1)]
   notes.changes[1]!.after = position(3); notes.changes[2]!.after = position(2)
-  await run({ method: 'stage', project, expected_revision: file.revision, episode: 1, scenes, coverage: item.coverage, story_notes: notes })
+  await run({ method: 'stage', project, expected_revision: file.revision, episode: 1, scenes: stageScenes(scenes), coverage: stageCoverage(item.coverage), story_notes: stageStoryNotes(notes) })
   const staged = await current(), candidate = staged.candidates[0]!
   const rendered = renderEpisode(staged, candidate.scenes, {}, 1, candidate)
   expect(rendered.script).toContain('甲（甲推开门，门应声打开。）：走吧！我说过，你走吧。')

@@ -13,7 +13,7 @@ export function apply(ctx: Context): void {
     override async resolveModel(provider: string, model: string) { return { provider, id: model, name: model, inputModalities: ['text'] as const } }
     async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
       if (step === 9) {
-        const values = options.messages.filter(message => message.source.kind === 'screenplay-project-read')
+        const values = options.messages.filter(message => message.source?.kind === 'screenplay-project-read')
           .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
         if (!values.some(value => value.includes('"baseline"') && value.includes('"modification_notes"') && value.includes('这把钥匙，在我手里。'))) {
           throw Error('refinement fixture omitted actual baseline, report, or candidate reread')

@@ -9,11 +9,13 @@ description: 小说转剧本、视频转剧本、剧本换梗及长篇续写时�
 
 ## 新创作模式的故事忠实路径
 
+PTC 调用形式是 `return await tools.screenplay_project({request: {method: "status", project: "short-drama/作品/qa/screenplay-project.json"}})`；所有项目命令都在外层 `request` 内，不能把 `method` 和 `project` 直接传给工具。项目路径指向 JSON 文件，不是目录。补充事实沿用 `status.story_policy.authorization_sha256` 等工具实际返回值；参数错误先读当前 SDK 声明与收据，再恢复原项目或任务，不从头重投。
+
 仅新创作模式的视频转剧本默认使用工具提供的 `init_story_faithful`，绑定真实用户授权、视频路径与版本、逐集视频关联、计划集数和类别，不要求先做逐字 baseline。单视频单集可自动关联，多视频明确每份对应的集号；本轮策略按真实总时长检查整片，不用候选自填 interval 缩成片段，也不支持同片跨集裁剪。明确逐字、字幕或继续旧项目时保持下述严格路径。来源账仍保存实际 ASR、帧、事实分类与引用；作品层按已核对故事表达事件及行动结果、情绪冲突、关系立场、因果和关键揭晓，不把每条源动作的发声/动作渠道、首次顺序或场次结构硬锁套到新作品表示。
 
 按本集实际完整窗口整理已审校来源事实，使用 `propose_story_inventory` 提交故事清单，返回产物后在后续模型轮实际 `read_story_inventory` 与相关来源，再 `review_story_inventory`。逐项定位事件、行动结果、情绪冲突、关系立场及因果揭晓，记录依赖和人物知情；关键证据未解决先补看，不靠 free-form confirmed 通过。视频全时段取材与重点加密沿 `transcript-to-script` 的真实 metadata、窗口与后续轮看图步骤。
 
-用 `stage`/`stage_files` 起草作品，`story_notes` 对应实际清单与成稿位置、来源 retained/merged/omitted_non_story 处置、真实变化和批注对账；省略无故事功能的重复表达不能省略关键原因、结果或揭晓。新增表演细节、少量 OS 和辅助对白按工具公开的授权类别标明，不能成为新的来源事实；重大因果、关系立场、事件反转或关键揭晓变化另待用户授权。不存在旧稿时不填虚构 before，来源→作品映射沿真实输入处理。
+用 `stage`/`stage_files` 起草作品，`story_notes` 对应实际清单与成稿位置、来源 retained/merged/omitted_non_story 处置、真实变化和批注对账；省略无故事功能的重复表达不能省略关键原因、结果或揭晓。新增表演细节、少量 OS 和辅助对白按工具公开的授权类别标明，授权摘要使用 `status.story_policy.authorization_sha256` 的实际返回值，不能成为新的来源事实；重大因果、关系立场、事件反转或关键揭晓变化另待用户授权。不存在旧稿时不填虚构 before，来源→作品映射沿真实输入处理。
 
 候选返回后按工具的后续轮读取证据与版本要求复检，`review.semantic_report` 依据实际材料分列保留、偏离和未核实的故事项，不能模板全部 pass。修正后重读受影响来源、清单、候选及说明，旧检查不复用；C轮 `review approve` 后先让当前程序成功结束，下一模型轮再 `commit`/`export`；同一程序立刻 commit 会因外层尚未成功而拒。C外层失败或被取消后，已写 review 不等于成功验收，须重新 stage 新候选、实际读回并完成成功C轮，不盲重commit。候选的 `story_adaptation` 和独立《修改说明》对应最终版本。参数以公开 schema 与工具状态为准，不手改项目 JSON 或推定任意程序已验证剧情语义。
 

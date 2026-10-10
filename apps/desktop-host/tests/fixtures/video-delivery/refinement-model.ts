@@ -1,5 +1,5 @@
 /** Real offline export, Word and present calls for a synthetic accepted precision edit. */
-import { appendFile, readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { LlmAdapter, ToolCallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -9,13 +9,15 @@ export const inject = ['llm', 'tools']
 
 export function apply(ctx: Context): void {
   const results: { name: string; isError: boolean }[] = []
-  ctx.on('tools/result', async (exec, result) => {
+  const errors: string[] = []
+  ctx.on('tools/result', (exec, result) => {
     results.push({ name: exec.name, isError: result.isError })
-    await writeFile('fixture-tool-results.json', JSON.stringify(results))
-    if (result.isError) await appendFile('fixture-errors.txt', `${exec.name}: ${JSON.stringify(result.content)}\n`)
+    if (result.isError) errors.push(`${exec.name}: ${JSON.stringify(result.content)}`)
   })
   class FixtureAdapter extends LlmAdapter {
     async *stream(): AsyncIterable<StreamChunk> {
+      await writeFile('fixture-tool-results.json', JSON.stringify(results))
+      await writeFile('fixture-errors.txt', errors.join('\n'))
       const stem = 'refined/final/exported/episode-1-22222222-2222-4222-8222-222222222222'
       const calls = [
         { name: 'screenplay_project', args: { request: { method: 'export', project: 'refined/qa/screenplay-project.json',

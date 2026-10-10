@@ -15,6 +15,7 @@ import { acceptedScripts, candidateDigest, sha256 } from '../src/episode.ts'
 import { buildRefinement, refinementContentDigest, refinementPolicyDigest } from '../src/refinement.ts'
 import type { HumanAuthorization } from '../src/refinement.ts'
 import type { ActorId } from '../src/ids.ts'
+import { stageScenes } from './fixtures/stage-input.ts'
 
 let ctx: Context, root: string, original: string, fork: string, commands: ProjectCommands
 const actor = brandString<ActorId>('writer'), reviewer = brandString<ActorId>('reviewer')
@@ -67,7 +68,7 @@ async function proposeSupplement() {
 async function stageRefinement(customNotes = notes('钥匙在我手里。', '这把钥匙，在我手里。')) {
   const file = await current(), fact = file.facts.at(-1)!
   return run({ method: 'stage', project: fork, expected_revision: file.revision, episode: 1,
-    scenes: [{ ...file.refinement!.baselines[0]!.scenes[0]!, beats: [{ kind: 'os', actor: '甲', text: '这把钥匙，在我手里。',
+    scenes: [{ ...stageScenes(file.refinement!.baselines[0]!.scenes)[0]!, beats: [{ kind: 'os', actor: '甲', text: '这把钥匙，在我手里。',
       fact_ids: [file.facts[0]!.id, fact.id], requires_knowledge: [], witnesses: [] }] }], modification_notes: customNotes })
 }
 async function staged() {
@@ -116,7 +117,7 @@ it('binds the actual final before/after locations and rejects missing or false m
   await expect(stageRefinement(bad)).rejects.toThrow('refinement_notes_location')
   await expect(stageRefinement(notes('钥匙在我手里。', '不存在的正文。'))).rejects.toThrow('refinement_notes_location')
   file = await current()
-  await expect(run({ method: 'stage', project: fork, expected_revision: file.revision, episode: 1, scenes: file.refinement!.baselines[0]!.scenes })).rejects.toThrow('refinement_report_required')
+  await expect(run({ method: 'stage', project: fork, expected_revision: file.revision, episode: 1, scenes: stageScenes(file.refinement!.baselines[0]!.scenes) })).rejects.toThrow('refinement_report_required')
   await stageRefinement(); const candidate = (await current()).candidates[0]!
   expect(candidate.refinement!.notes.output.candidate_id).toBe(candidate.id)
   expect(candidate.refinement!.notes.output.content_sha256).toBe(candidate.refinement!.output_content_sha256)
@@ -231,8 +232,8 @@ it('rejects future episode source anchors in an earlier candidate even when both
   file = await current(original); const futureFact = file.facts.at(-1)!
   await run({ method: 'review_fact', project: original, expected_revision: file.revision, fact_id: futureFact.id, decision: 'approve', reason: '第二集本人心理。' }, reviewer)
   file = await current(original)
-  await run({ method: 'stage', project: original, expected_revision: file.revision, episode: 2, scenes: [{ ...first.scenes[0]!,
-    beats: [{ ...first.scenes[0]!.beats[0]!, text: '第二把钥匙在乙手里。', fact_ids: [futureFact.id] }] }] })
+  await run({ method: 'stage', project: original, expected_revision: file.revision, episode: 2, scenes: [{ ...stageScenes(first.scenes)[0]!,
+    beats: [{ ...stageScenes(first.scenes)[0]!.beats[0]!, text: '第二把钥匙在乙手里。', fact_ids: [futureFact.id] }] }] })
   file = await current(original)
   const bothAuthorization = { ...authorization, quote: '只精修第一、二集，可以补最小 OS，不能提前揭示。',
     consent_assessment: '用户明确允许两个输入版本范围内最小 OS，禁止提前揭示。' }
@@ -271,8 +272,8 @@ it('keeps original author analysis separate from an explicitly authorized adapta
   file = await current(); const thought = file.facts.at(-1)!
   await run({ method: 'review_fact', project: fork, expected_revision: file.revision, fact_id: thought.id, decision: 'approve', reason: '明确演绎心理，原分析归属保留。' }, reviewer)
   file = await current(); const baseline = file.refinement!.baselines[0]!
-  const result = await run({ method: 'stage', project: fork, expected_revision: file.revision, episode: 1, scenes: [{ ...baseline.scenes[0]!, beats: [
-    ...baseline.scenes[0]!.beats, { kind: 'os', actor: '甲', text: '再想一想。', fact_ids: [thought.id], requires_knowledge: [], witnesses: [] },
+  const result = await run({ method: 'stage', project: fork, expected_revision: file.revision, episode: 1, scenes: [{ ...stageScenes(baseline.scenes)[0]!, beats: [
+    ...stageScenes(baseline.scenes)[0]!.beats, { kind: 'os', actor: '甲', text: '再想一想。', fact_ids: [thought.id], requires_knowledge: [], witnesses: [] },
   ] }], modification_notes: { ...notes('甲此刻有些迟疑。', '再想一想。'),
     changes: [{ after: { scene: 1, beat: 2, text: '再想一想。' }, reason: '保留原无角色分析，另列获准最小 OS。' }] } })
   expect(result).toHaveProperty('rendered')

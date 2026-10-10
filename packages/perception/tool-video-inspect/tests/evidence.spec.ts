@@ -26,7 +26,7 @@ class Query extends SessionQueryEngine {
 class Model extends LlmAdapter {
   plans: Array<{ name: string; args: object } | 'fail' | undefined> = []
   requests: GenerateOptions[] = []
-  async resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+  override async resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     return { provider, id: model, name: model, inputModalities: model === 'text' ? ['text'] : ['text', 'image'] }
   }
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -200,7 +200,7 @@ it('requires actual metadata before trusted sampling and refuses manifest mutati
 
 it('does not treat images projected away on the following text-only route as visual observation', async () => {
   const h = await fixture()
-  h.ctx.on('agent/request', async (payload, next) => {
+  h.ctx.on('agent/request', async (_payload, next) => {
     const config = await next()
     return h.adapter.requests.length >= 2 ? { ...config, model: 'text' } : config
   })
