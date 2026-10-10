@@ -244,6 +244,7 @@ export class MuseModels {
           compat: { supportsReasoningEffort: model.reasoningEfforts !== false,
             ...(/^glm-5\.3(?:-|$)/i.test(modelName(model.id)) ? {
               thinkingFormat: provider.id === 'zhipu-official' ? 'zai' as const : 'deepseek' as const,
+              ...(provider.id === 'zhipu-official' ? { zaiToolStream: true } : {}),
               requiresReasoningContentOnAssistantMessages: true,
             } : {}) } })),
         compat: { supportsStore: false, supportsDeveloperRole: false, maxTokensField: 'max_tokens',

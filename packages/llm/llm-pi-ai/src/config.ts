@@ -267,6 +267,7 @@ const compatProfile: z<PiAiCompatProfile> = z.object({
   requiresThinkingAsText: z.boolean(),
   requiresReasoningContentOnAssistantMessages: z.boolean(),
   thinkingFormat: z.union(SUPPORTED_THINKING_FORMATS),
+  zaiToolStream: z.boolean(),
   chatTemplateKwargs: z.dict(chatTemplateKwarg),
   chatTemplateArgs: z.dict(chatTemplateKwarg),
   supportsThinkingTokenBudget: z.boolean(),

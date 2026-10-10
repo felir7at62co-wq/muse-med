@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-glm-tool-stream
+profile: headless
+composition: muse-glm-tool-stream
+recording: authored
+header:
+  class: muse-glm-tool-stream
+  pin: true
+environment:
+  DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS: "true"
+  DSH_SNAPSHOT_GLM_TOOL_STREAM: "true"

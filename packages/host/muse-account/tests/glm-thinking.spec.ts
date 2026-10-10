@@ -70,8 +70,9 @@ it.each([
   for (const request of server.requests) {
     expect(request).toMatchObject({ model, max_tokens: 128000 })
     if (official) {
-      expect(request).toMatchObject({ reasoning_effort: 'max', thinking: { type: 'enabled', clear_thinking: false } })
+      expect(request).toMatchObject({ reasoning_effort: 'max', thinking: { type: 'enabled', clear_thinking: false }, tool_stream: true })
     } else {
+      expect(request).not.toHaveProperty('tool_stream')
       expect(request).not.toHaveProperty('thinking')
       expect(request).not.toHaveProperty('reasoning_effort')
     }

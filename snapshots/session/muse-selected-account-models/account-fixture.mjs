@@ -47,6 +47,8 @@ function completion(message) {
 export async function apply(ctx) {
   const direct = process.env.DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS === 'true'
   const refusal = process.env.DSH_SNAPSHOT_SUPPLIER_REFUSAL === 'true'
+  const officialGlm = process.env.DSH_SNAPSHOT_GLM_TOOL_STREAM === 'true'
+  assert.ok(!officialGlm || direct)
   assert.ok(!refusal || direct)
   const excludedProvider = process.env.DSH_SNAPSHOT_EXCLUDED_ACCOUNT_PROVIDER
   assert.ok(excludedProvider === undefined || excludedProvider === 'aa')
@@ -64,7 +66,7 @@ export async function apply(ctx) {
   }] })
   const recorded = (await readFile(process.env.DSH_SNAPSHOT_FILE, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
   const selection = recorded.find(event => event.type === 'request/header')?.data.header.config
-  const selectedModel = preservesNewerDefault
+  const selectedModel = officialGlm ? { provider: 'muse-cloud-zhipu-official', model: 'glm-5.3-flash' } : preservesNewerDefault
     ? { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro' }
     : { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }
   assert.deepEqual({ provider: selection?.provider, model: selection?.model }, selectedModel)
@@ -101,10 +103,15 @@ export async function apply(ctx) {
         }
         if (request.url === completionPath) {
           const payload = JSON.parse(body)
-          assert.equal(request.headers.authorization, direct ? 'Bearer supplier-fixture-deepseek-official' : 'Bearer snapshot-session')
+          assert.equal(request.headers.authorization, direct ? `Bearer supplier-fixture-${selectedModel.provider.slice('muse-cloud-'.length)}` : 'Bearer snapshot-session')
           if (direct) { assert.equal(request.headers.cookie, undefined); assert.equal(request.headers.origin, undefined) }
           assert.equal(payload.model, selectedModel.model)
-          if (preservesNewerDefault) {
+          if (officialGlm) {
+            assert.equal(payload.max_tokens, 128000)
+            assert.equal(payload.reasoning_effort, 'max')
+            assert.deepEqual(payload.thinking, { type: 'enabled', clear_thinking: false })
+            assert.equal(payload.tool_stream, true)
+          } else if (preservesNewerDefault) {
             assert.equal(payload.max_tokens, 65536)
             assert.equal(payload.reasoning_effort, undefined)
             assert.equal(payload.thinking, undefined)
@@ -247,7 +254,7 @@ export async function apply(ctx) {
     if (rejected) throw rejected
     assert.equal(requests.length, refusal ? 1 : 2)
     const config = agent.session.requestHeader()?.config
-    assert.equal(config.reasoningEffort, preservesNewerDefault ? undefined : 'low')
+    assert.equal(config.reasoningEffort, officialGlm ? 'max' : preservesNewerDefault ? undefined : 'low')
     assert.deepEqual({ provider: config.provider, model: config.model }, selectedModel)
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('snapshot-session'))
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('fixture-password'))

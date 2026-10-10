@@ -251,7 +251,7 @@ const COMPLETIONS_COMPAT_GATE = {
   supportsLongCacheRetention: 'offer',
   openRouterRouting: 'withhold',
   vercelGatewayRouting: 'withhold',
-  zaiToolStream: 'withhold',
+  zaiToolStream: 'offer',
   supportsOpenAIGrammarTools: 'withhold',
   sendSessionAffinityHeaders: 'withhold',
   supportsMidConvoSystemMessages: 'withhold',
@@ -399,6 +399,8 @@ export interface PiAiCompatProfile {
   requiresReasoningContentOnAssistantMessages?: boolean
   /** Reasoning parameter format the endpoint expects; `openai-completions`. */
   thinkingFormat?: PiAiThinkingFormat
+  /** Whether to send `tool_stream: true` for GLM endpoints when tools are present; `openai-completions`. */
+  zaiToolStream?: boolean
   /**
    * Kwargs sent as `chat_template_kwargs`, which pi-ai reads only under the
    * two `chat-template` thinking formats; `openai-completions`. Nothing checks

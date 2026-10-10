@@ -45,6 +45,17 @@ describe('reasoning schema boundary', () => {
     expect(configWith({ compat: { thinkingFormat: 'quantum' } })).toThrow(/expected/)
   })
 
+  it('keeps explicit GLM tool streaming flags and rejects nonboolean values', () => {
+    for (const value of [true, false]) {
+      const providers = { 'glm-endpoint': { api: 'openai-completions' as const,
+        baseURL: 'https://glm.test', models: [{ id: 'glm-5.3-flash', compat: { zaiToolStream: value } }] } }
+      const result = Config({ providers }).providers.get()
+      expect(result['glm-endpoint']?.models?.[0]?.compat?.zaiToolStream).toBe(value)
+      expect(resolveProfiles(providers).get('glm-endpoint')?.piProvider?.getModels()[0]?.compat).toMatchObject({ zaiToolStream: value })
+    }
+    expect(configWith({ compat: { zaiToolStream: 'true' } })).toThrow()
+  })
+
   it('accepts Baseten template arguments and completion controls', () => {
     expect(configWith({
       compat: {
