@@ -6,7 +6,7 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionToken, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { JUBIAN_TOKEN_REF } from '@deepseek-ai/dsh-jubian'
@@ -151,15 +151,22 @@ describe('registration', () => {
   })
 
   it('sends the token the credential store resolved to the deployment origin', async () => {
-    // The origin is the deployment's; the token comes from the credential store and
-    // reaches the transport's own request to that origin.
-    const { ctx, registered, resolvedRefs } = mountContext('resolved-secret')
-    apply(ctx, { baseUrl: 'https://jubian.example.invalid/prod-api', timeoutMs: 5000 })
-    const projectDir = await project()
-    await expect(dramaAssets(registered).execute(
-      { method: 'reconcile', project_dir: projectDir }, runContext()))
-      .rejects.toThrow()
-    expect(resolvedRefs).toEqual([JUBIAN_TOKEN_REF])
+    const transport = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 401 }))
+    try {
+      const { ctx, registered, resolvedRefs } = mountContext('resolved-secret')
+      apply(ctx, { baseUrl: 'https://jubian.example.invalid/prod-api', timeoutMs: 5000 })
+      const projectDir = await project()
+      await expect(dramaAssets(registered).execute(
+        { method: 'reconcile', project_dir: projectDir }, runContext()))
+        .rejects.toThrow('HTTP 401')
+      expect(resolvedRefs).toEqual([JUBIAN_TOKEN_REF])
+      expect(transport).toHaveBeenCalledExactlyOnceWith(
+        expect.stringMatching(/^https:\/\/jubian\.example\.invalid\/prod-api\/aigc\/asset\/list\?/),
+        expect.objectContaining({ method: 'GET', headers: expect.objectContaining({ Authorization: 'Bearer resolved-secret' }) }),
+      )
+    } finally {
+      transport.mockRestore()
+    }
   })
 
   it('renders the canonical value as pretty JSON', () => {
