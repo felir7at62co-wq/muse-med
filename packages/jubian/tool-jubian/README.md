@@ -271,6 +271,8 @@ Project and episode previews report malformed cards in `excluded_invalid` and pl
 
 ### The storyboard-native video channel
 
+When a saved image has no valid numeric `materialAssetId`, `prepare_video` reads the active subject inventory and requires one row matching its official subject ID, image URL and project before reading that row's numeric parent asset. Missing or ambiguous mappings stop before preview or paid submission; local `asset-...` IDs are never used as numeric parent paths. Read failures name the preparation stage and available numeric remote code without exposing provider message text.
+
 Register uploaded voices with `jubian_asset register asset_type=4`. `audio_list` and `audio_get` read project audio identities and URLs without guessing duration. Registration matches project, name and URL across complete inventories; ambiguous results cannot supply a guessed ID. Same-key reconciliation never registers again. `jubian_storyboard audio_preview` accepts the original card ID, project binding, complete prompt and final ordered `audio_references`; `[]` removes all audio. Optional `audio_asset_id` verifies project/category/URL without inventing provider material IDs. `audio_apply` requires the same original ID, reviewed fingerprint and key; it sends one `isGenerate=0` PUT, preserves images, model, duration and episode, then checks actual readback. Unknown writes only reconcile under the original key. Refresh `prepare_video` after changes.
 
 Audio deletion requires `audio_delete_preview`, an exact authorized ID and reason. It enumerates the asset's media versions and checks current project-bible voices and all project cards; incomplete or unreadable inspection refuses deletion. Remove or replace references, then preview again. `audio_delete_apply` requires `checked_audio_asset_id` and the preview fingerprint as key; it rechecks the target and references, deletes once, then independently verifies absence. Generic `remove` refuses audio. Deletion excludes local audio_apply and project-bible writers through readback. Other write tools and external console edits do not participate in those locks; avoid concurrent reference changes during deletion. Deletion does not cancel or refund historical jobs. `audioReferencePageSize` (default 1000, range 1–1000) and `audioReferencePageLimit` (default 100, range 1–100) bound complete scans.
@@ -297,6 +299,8 @@ The verdicts are the contract. `submitted` means one task was claimed with its i
 Because the key is the preview's fingerprint, the same preview file can cause exactly one request in its lifetime. A preview is therefore **not** interchangeable with the CLI's own prepared file: the two serializers hash different JSON text, so a preview written by one is refused as stale by the other.
 
 ### The paid image route
+
+An accepted image write reports `generation_status: submitted_pending` when the later readback times out; it echoes the original `idempotency_key` and `parent_asset_id` for reconciliation. `succeeded` requires a generated image, `failed` requires a terminal provider status, `not_submitted` means a batch item was refused before a ledger intent, and `reconciliation_required` covers a replay or uncertain write. None of these states changes the paid retry rules.
 
 `image_generate` is one paid write followed by a free readback, and which catalogue row it writes against is a deployment decision rather than a guess:
 

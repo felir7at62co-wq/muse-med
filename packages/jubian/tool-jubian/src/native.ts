@@ -169,6 +169,27 @@ async function parentAsset(client: JubianClient, requested: string): Promise<Rec
   return asset
 }
 
+/** Keep the failed read and its numeric remote code without exposing provider text. */
+async function preflightRead<T>(stage: string, read: () => Promise<T>): Promise<T> {
+  try { return await read() }
+  catch (error) {
+    if (!(error instanceof JubianError)) throw error
+    const applicationCode = /unmapped envelope code ([0-9]+)/u.exec(error.detail ?? '')?.[1]
+    const httpStatus = /^HTTP ([0-9]+)$/u.exec(error.detail ?? '')?.[1]
+    throw new JubianError(error.code, `prepare_video stage=${stage}`
+      + (applicationCode === undefined ? '' : `; remote_code=${applicationCode}`)
+      + (httpStatus === undefined ? '' : `; http_status=${httpStatus}`)
+      + '; paid_request_sent=false; inspect the live storyboard and official assets')
+  }
+}
+
+/** Resolve only a positive numeric parent identity; local subject IDs are never asset paths. */
+function numericParentId(value: unknown): string | null {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !/^[0-9]+$/u.test(value.trim()))) return null
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed > 0 ? String(parsed) : null
+}
+
 /** Read the live storyboard snapshot, refusing a body that is not the requested storyboard. */
 async function storyboardSnapshot(client: JubianClient, storyboardId: number): Promise<Record<string, unknown>> {
   const storyboard = object((await client.request({ method: 'GET', path: `/aigc/storyboard/${storyboardId}` })).data)
@@ -190,25 +211,45 @@ async function storyboardSnapshot(client: JubianClient, storyboardId: number): P
  */
 async function loadLiveInputs(client: JubianClient, storyboardId: number):
 Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[] }> {
-  const storyboard = await storyboardSnapshot(client, storyboardId)
+  const storyboard = await preflightRead('storyboard_read', () => storyboardSnapshot(client, storyboardId))
   const scriptId = positiveInteger(storyboard.scriptId)
   const { materials } = storyboardMaterials(storyboard)
+  let rows: Record<string, unknown>[] | undefined
+  let resolved = false
+  const orderedMaterials = materials.map(material => ({ ...material }))
+  for (const [index, material] of orderedMaterials.entries()) {
+    if (material.materialType === 'audio' || numericParentId(material.materialAssetId) !== null) continue
+    rows ??= await preflightRead('subject_list_read', () => listAllSubjectMaterials(client, scriptId))
+    const localId = wireText(material.assetId)
+    const matches = rows.filter(row => localId !== null && localId.trim() !== ''
+      && wireText(row.hsAssetId) === localId && row.assetUrl === material.materialUrl
+      && numericParentId(row.assetId) !== null && numericParentId(row.scriptId) === String(scriptId)
+      && ((typeof row.isUsed === 'number' && row.isUsed === 1)
+        || (typeof row.isUsed === 'string' && row.isUsed.trim() === '1'))
+      && (wireText(row.hsAssetStatus) ?? '').trim().toLowerCase() === 'active')
+    if (matches.length !== 1) throw new JubianError('CONTRACT_CHANGED',
+      `prepare_video stage=subject_identity; image_index=${index + 1}; materialAssetId has no unique active official mapping; `
+      + 'inspect the saved subject selection manually; paid_request_sent=false')
+    material.materialAssetId = Number(matches[0]!.assetId)
+    resolved = true
+  }
   const byId = new Map<string, Record<string, unknown>>()
   const ordered: Record<string, unknown>[] = []
-  for (const material of materials) {
+  for (const material of orderedMaterials) {
     if (material.materialType === 'audio') continue
-    const parentId = wireText(material.materialAssetId ?? material.assetId)
-    if (parentId === null || parentId === '') throw new JubianError('CONTRACT_CHANGED')
+    const parentId = numericParentId(material.materialAssetId)
+    if (parentId === null) throw new JubianError('CONTRACT_CHANGED',
+      'prepare_video stage=subject_identity; invalid numeric materialAssetId; paid_request_sent=false')
     const key = parentId
     let asset = byId.get(key)
     if (asset === undefined) {
-      asset = await parentAsset(client, parentId)
+      asset = await preflightRead('parent_asset_read', () => parentAsset(client, parentId))
       if (positiveInteger(asset.scriptId) !== scriptId) throw new JubianError('CONTRACT_CHANGED')
       byId.set(key, asset)
     }
     ordered.push(asset)
   }
-  const rows = await listAllSubjectMaterials(client, scriptId)
+  rows ??= await preflightRead('subject_list_read', () => listAllSubjectMaterials(client, scriptId))
   const rowsByParent = new Map<string, Record<string, unknown>[]>()
   for (const row of rows) {
     const parent = wireText(row.assetId)
@@ -247,7 +288,8 @@ Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[]
     asset.isUsed = row.isUsed
     asset.assetUrl = rowUrl
   }
-  return { storyboard, assets: ordered }
+  return { storyboard: resolved ? { ...storyboard, storyboardMaterialList: orderedMaterials } : storyboard,
+    assets: ordered }
 }
 
 /** The live catalogue of video-generation models. */
@@ -258,8 +300,21 @@ async function videoCatalogue(client: JubianClient): Promise<unknown> {
 /** Build the exact preview from live provider state, without writing anything. */
 async function livePreview(client: JubianClient, storyboardId: number, createdAt: string):
 Promise<NativeVideoPreview> {
-  const { storyboard, assets } = await loadLiveInputs(client, storyboardId)
-  return buildNativeVideoPreview({ storyboard, assets, models: await videoCatalogue(client), createdAt })
+  let inputs: Awaited<ReturnType<typeof loadLiveInputs>>
+  try { inputs = await loadLiveInputs(client, storyboardId) }
+  catch (error) {
+    if (!(error instanceof JubianError) || error.detail?.includes('stage=')) throw error
+    throw new JubianError(error.code, 'prepare_video stage=subject_validation; paid_request_sent=false; '
+      + 'check subject identity, project, active status and official image URL')
+  }
+  const { storyboard, assets } = inputs
+  const models = await preflightRead('model_catalogue_read', () => videoCatalogue(client))
+  try { return buildNativeVideoPreview({ storyboard, assets, models, createdAt }) }
+  catch (error) {
+    if (!(error instanceof JubianError) || error.code === 'INVALID_ARGUMENT') throw error
+    throw new JubianError(error.code, 'prepare_video stage=preview_validation; paid_request_sent=false; '
+      + 'check official materials and the saved ratio, model and duration')
+  }
 }
 
 /** Read a positive episode id; missing or malformed values cannot exclude a candidate. */

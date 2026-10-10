@@ -347,6 +347,17 @@ describe('jubian_asset reads and the side-effecting GET', () => {
 })
 
 describe('jubian_video', () => {
+  it('marks a batch item as not submitted when authorization refuses it before the ledger intent', async () => {
+    const { client, calls } = imageProvider()
+    await writeFile(join(root, 'authorization.json'), JSON.stringify({ version: 1, projects: {
+      '2708': { limit: '0', unit: 'CNY', estimates: { image_generate: '1' } },
+    } }))
+    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [{ idempotency_key: 'unsent-item', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())
+    expect(result.results).toMatchObject([{ idempotency_key: 'unsent-item', outcome: 'not_sent',
+      generation_status: 'not_submitted' }])
+    expect(calls.filter(call => call.method === 'POST' || call.method === 'PUT')).toEqual([])
+  })
   it('rejects a missing batch project before catalogue access or ledger writes', async () => {
     const { client, calls } = imageProvider()
     await expect(videoMethod(client, ledger, { method: 'image_generate_batch',
@@ -362,6 +373,7 @@ describe('jubian_video', () => {
     const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
       items: [{ idempotency_key: 'serialized-storage-error', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())
     expect(result.results).toMatchObject([{ status: 'error', outcome: 'unknown',
+      generation_status: 'reconciliation_required',
       ledger_error: 'storage service disconnected', error: 'storage service disconnected' }])
     expect(calls.filter(call => call.method === 'POST')).toEqual([])
   })
@@ -424,6 +436,7 @@ describe('jubian_video', () => {
     const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
       items: [{ idempotency_key: 'no-asset-id', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())
     expect(result.results).toMatchObject([{ status: 'returned', outcome: 'accepted', parent_asset_id: null, asset_status: 'unverified' }])
+    expect(result.results).toMatchObject([{ generation_status: 'submitted_pending', idempotency_key: 'no-asset-id' }])
     expect(calls.map(call => call.method)).toEqual(['GET', 'POST'])
   })
   it('polls with the deployment defaults and releases the timer after the generated image appears', async () => {
@@ -468,7 +481,8 @@ describe('jubian_video', () => {
       asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: `readback-${state}` },
     imageDeps({ timeoutMs: 100, pollMs: 100 }))
     expect(result).toMatchObject({ parent_asset_id: 83749, outcome: 'accepted',
-      asset_status: state === 'Failed' ? 'failed' : state === 'disconnected' ? 'unverified' : 'timeout' })
+      asset_status: state === 'Failed' ? 'failed' : state === 'disconnected' ? 'unverified' : 'timeout',
+      generation_status: state === 'Failed' ? 'failed' : 'submitted_pending' })
     expect(result.readback_error).toBeTypeOf('string')
     expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
   })
@@ -833,6 +847,7 @@ describe('jubian_video', () => {
     expect(result.outcome).toBe('accepted')
     expect(result.parent_asset_id).toBe(83749)
     expect(result.asset_status).toBe('active')
+    expect(result).toMatchObject({ generation_status: 'succeeded', idempotency_key: 'k-1' })
     expect(result.material_id).toBe(900)
     expect(result.image_url).toBe('https://x/gen.png')
     const record = await ledger.find('k-1')
@@ -893,6 +908,8 @@ describe('jubian_video', () => {
     const result = await videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'k-timeout',
       script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p' }, imageDeps({ timeoutMs: 1000, pollMs: 100 }))
     expect(result.asset_status).toBe('timeout')
+    expect(result).toMatchObject({ generation_status: 'submitted_pending',
+      idempotency_key: 'k-timeout', parent_asset_id: 83749, outcome: 'accepted' })
     expect(result.material_id).toBeNull()
     expect(result.image_url).toBeNull()
     expect(String(result.readback_error)).toContain('回读超时')
@@ -900,6 +917,26 @@ describe('jubian_video', () => {
     expect(String(result.next)).toContain('不要换 key 重投')
     expect(calls.filter(call => call.method === 'POST').length).toBe(1)
     expect((await ledger.find('k-timeout'))?.outcome).toBe('accepted')
+  })
+
+  it('reconciles a delayed image by read-only queries while preserving the original key', async () => {
+    const statuses = ['Pending']
+    const { client, calls } = imageProvider(IMAGE_CATALOGUE, statuses)
+    const args = { method: 'image_generate' as const, idempotency_key: 'k-delayed',
+      script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p' }
+    const pending = await videoMethod(client, ledger, args, imageDeps({ timeoutMs: 100, pollMs: 100 }))
+    expect(pending).toMatchObject({ generation_status: 'submitted_pending',
+      outcome: 'accepted', parent_asset_id: 83749, idempotency_key: 'k-delayed' })
+    statuses.push('Active')
+    expect(await assetMethod(client, ledger, { method: 'get', asset_id: 83749 }))
+      .toMatchObject({ asset: { status: 'Active' } })
+    expect(await assetMethod(client, ledger, { method: 'generated_image', asset_id: 83749 }))
+      .toMatchObject({ image: { material_id: 900, url: 'https://x/gen.png' } })
+    const replayed = await videoMethod(client, ledger, args, imageDeps())
+    expect(replayed).toMatchObject({ replayed: true, generation_status: 'reconciliation_required',
+      idempotency_key: 'k-delayed' })
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+    expect((await ledger.find('k-delayed'))?.outcome).toBe('accepted')
   })
 
   it('refuses to buy from one of several gpt-image-2 rows and sends no request', async () => {
@@ -946,6 +983,7 @@ describe('jubian_video', () => {
     expect(second.calls.map(call => call.method)).toEqual(['GET'])
     expect(replayed.replayed).toBe(true)
     expect(replayed.asset_status).toBe('replayed')
+    expect(replayed).toMatchObject({ generation_status: 'reconciliation_required', idempotency_key: 'k-2' })
     expect(replayed.material_id).toBeNull()
   })
 

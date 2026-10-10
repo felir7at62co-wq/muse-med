@@ -299,6 +299,15 @@ const IMAGE_ACTIVE_POLL_MS = 3_000
  */
 type ImageAssetStatus = 'active' | 'failed' | 'timeout' | 'replayed' | 'unverified'
 
+/** Separate the paid submission from the later image readback. */
+function imageGenerationStatus(outcome: string, replayed: boolean, status: ImageAssetStatus):
+'submitted_pending' | 'succeeded' | 'failed' | 'reconciliation_required' {
+  if (replayed || outcome !== 'accepted') return 'reconciliation_required'
+  if (status === 'active') return 'succeeded'
+  if (status === 'failed') return 'failed'
+  return 'submitted_pending'
+}
+
 /** One post-write readback, as the tool result carries it. */
 interface ImageReadback {
   status: ImageAssetStatus
@@ -797,6 +806,8 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
             const ownRecord = record?.method === 'image_generate' ? record : undefined
             results[index] = { ...identity, status: 'error',
               outcome: ledgerError === null && ownRecord === undefined ? 'not_sent' : ownRecord?.outcome ?? 'unknown',
+              generation_status: ledgerError === null && ownRecord === undefined
+                ? 'not_submitted' : 'reconciliation_required',
               response_sha256: ownRecord?.response_sha256 ?? null,
               record_id: ownRecord?.record_id ?? null,
               record_script_id: ownRecord?.script_id ?? null,
@@ -820,7 +831,9 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
             || result['replayed'] !== false) continue
           const assetId = typeof result['parent_asset_id'] === 'number' ? result['parent_asset_id'] : null
           const readback = await readbackAcceptedImage(client, assetId, deps.image ?? {})
-          results[index] = { ...result, asset_status: readback.status, material_id: readback.material_id,
+          results[index] = { ...result, asset_status: readback.status,
+            generation_status: imageGenerationStatus('accepted', false, readback.status),
+            material_id: readback.material_id,
             image_url: readback.image_url, observed_asset_status: readback.observed_status,
             waited_ms: readback.waited_ms, readback_error: readback.error,
             next: imageNext(readback, assetId) }
@@ -877,7 +890,9 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
             : await readbackAcceptedImage(client, assetId, deps.image ?? {})
           : unread('unverified', '受理结果不是 accepted，无法确认资产是否真的创建；'
             + '先回读 jubian_asset list，不要换 key 重投。')
-      return { replayed: result.replayed, outcome: result.outcome, response_sha256: result.response_sha256,
+      return { replayed: result.replayed, outcome: result.outcome,
+        generation_status: imageGenerationStatus(result.outcome, result.replayed, readback.status),
+        idempotency_key: args.idempotency_key, response_sha256: result.response_sha256,
         budget: result.budget ?? null,
         parent_asset_id: assetId,
         resolution: model.resolution,

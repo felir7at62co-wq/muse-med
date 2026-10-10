@@ -271,6 +271,8 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 ### 主体视频的分镜原生通道
 
+已存图片没有合法的数字型 `materialAssetId` 时，`prepare_video` 只读有效主体清单，要求正式主体 ID、图片 URL 与项目唯一对应一条记录，再读取该记录的数字型父资产。缺失或不唯一的映射会在预览和计费提交前阻断；本地 `asset-...` ID 不会用作数字父资产路径。读取失败会标出预检步骤及可用的数字远端错误码，不暴露提供方消息原文。
+
 `jubian_asset register asset_type=4` 登记已上传声线。`audio_list`、`audio_get` 读取真实项目音频身份与 URL，不猜时长。登记通过完整列表对照项目、名称、URL；结果不唯一时不猜 ID。同 key 对账不再次登记。`jubian_storyboard audio_preview` 接受原卡 ID、项目绑定、完整提示词与最终有序 `audio_references`；`[]` 移除全部音频。可选 `audio_asset_id` 核对项目、类别与 URL，不编造提供方材质 ID。`audio_apply` 要求同一原卡 ID、已检查指纹与 key；发送一次 `isGenerate=0` PUT，保留图片、模型、时长、集数，再核对真实回读。未知写入只沿用原 key 对账。改动后重新 `prepare_video`。
 
 删除音频先做 `audio_delete_preview`，明确授权 ID 与原因。工具枚举资产媒体版本，检查当前项目圣经声线与全部项目分镜；检查不完整或不可读时拒绝删除。先移除或替换引用，再重新预览。`audio_delete_apply` 要求 `checked_audio_asset_id`，以预览指纹为 key；再次核对目标与引用，删除一次，再独立回读确认不存在。通用 `remove` 拒绝音频。删除至回读期间排除本地 audio_apply 与项目圣经写入。其他写工具和外部控制台不参与这些锁；删除期间避免并发修改引用。删除不取消历史任务或退费。`audioReferencePageSize`（默认 1000，范围 1–1000）、`audioReferencePageLimit`（默认 100，范围 1–100）限定完整扫描。
@@ -297,6 +299,8 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 由于 key 就是 preview 的 fingerprint，同一个 preview 文件一生只能造成一次请求。因此 preview **不能**与 CLI 自己产出的 prepared 文件互换：两边的序列化文本不同，一方写出的 preview 在另一方那里会被判为过期而拒绝。
 
 ### 计费生图路径
+
+图片计费请求已受理但随后回读超时时，结果明确标为 `generation_status: submitted_pending`，并回显原 `idempotency_key` 与 `parent_asset_id` 供对账。`succeeded` 要求读到生成图，`failed` 要求提供方终态失败，`not_submitted` 表示批次项在账本登记前被拒绝，`reconciliation_required` 涵盖重放或写入结果不明。这些状态都不改变计费重试规则。
 
 `image_generate` 是「一次计费写 + 一次免费回读」，而它到底写在哪一行目录上，是部署决定而不是猜测：
 
