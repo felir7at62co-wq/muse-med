@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-creation-parse-recovery
+profile: headless
+composition: muse-creation-parse-recovery
+recording: authored
+header:
+  class: muse-creation-parse-recovery
+  pin: true
+workspace:
+  setup: muse-creation-skills

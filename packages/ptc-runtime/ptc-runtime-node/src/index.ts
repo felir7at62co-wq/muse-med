@@ -20,6 +20,7 @@ import { OutputLedger } from './output-ledger.ts'
 import { drainOutput } from './output-stream.ts'
 import { STARTUP_ENVIRONMENT_NAMES } from './environment.ts'
 import { decodePtcJsonWire, encodePtcJsonWire } from './json-wire.ts'
+import { programParseDiagnostic } from './parse-diagnostic.ts'
 import type { ProgramBootData } from './protocol.ts'
 
 /** Deployment-varying runtime bounds and launch choices. */
@@ -348,7 +349,8 @@ export class NodePtcRuntime extends PtcRuntime {
         setImmediate(() => { processFinished(outcome) })
       }, (error: unknown) => { finish({ kind: confined !== undefined && isRunnerSpawnFailure(error, confined.argv[0], spec.cwd) ? 'sandbox-unavailable' : 'worker-exit', message: messageOf(error) }) })
     } catch (error: unknown) {
-      finish({ kind: error instanceof SandboxUnavailableError ? 'sandbox-unavailable' : parsing ? 'exception' : 'worker-exit', message: messageOf(error) })
+      finish({ kind: error instanceof SandboxUnavailableError ? 'sandbox-unavailable' : parsing ? 'exception' : 'worker-exit',
+        message: parsing ? programParseDiagnostic(error) : messageOf(error) })
     }
     return await result.promise
   }

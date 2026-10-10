@@ -126,6 +126,15 @@ describe('Node program process', () => {
     expect((await run({ program, bindings: [] })).error?.kind).toBe('exception')
   })
 
+  it('returns the exact user-code line for a malformed nested tool request before execution', async () => {
+    const { run } = await setup()
+    const result = await run({ program: 'const facts = [];\nawait tools.mutate({ request: { facts: []});', bindings: [] })
+    expect(result.error?.kind).toBe('exception')
+    expect(result.error?.message).toContain('PTC program line 2:')
+    expect(result.error?.message).toContain('await tools.mutate({ request: { facts: []});')
+    expect(result.error?.message).not.toContain('node:internal')
+  })
+
   it('rejects lossy program output', async () => {
     const { run } = await setup()
     expect((await run({ program: 'return { value: undefined }', bindings: [] })).error?.kind).toBe('invalid-output')
