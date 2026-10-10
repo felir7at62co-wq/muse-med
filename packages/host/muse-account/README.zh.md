@@ -53,6 +53,7 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 |---|---|---|
 | `baseUrl` | 必填 | HTTPS 网关源地址；本机回环网关可使用 HTTP。 |
 | `excludedModelPrefixes` | `[]` | 账号供应模型需要排除的模型名称前缀，忽略大小写；比较前会移除可选的提供方路径。不影响自定义提供方。 |
+| `excludedModels` | `[]` | 从账号目录排除的精确 `{ providerId, modelId }` 组合；不影响其他提供方的同 ID 模型或个人适配器。 |
 | `excludedProviderIds` | `[]` | 从目录排除的精确账号提供方 ID，须符合网关的小写标识语法；不影响个人适配器。 |
 | `modelRefreshMs` | 60,000 | 模型目录刷新间隔毫秒数，可设为 10,000 至 3,600,000。 |
 | `accountHome` | 当前 DSH 主目录 | 存放本产品账号会话文件的绝对目录。 |

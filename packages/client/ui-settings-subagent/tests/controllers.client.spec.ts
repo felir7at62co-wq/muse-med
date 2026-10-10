@@ -91,6 +91,23 @@ describe('SubagentModelSelectionCardController', () => {
     ])
   })
 
+  it('marks saved excluded Yunying routes unavailable while retaining official GLM as a new option', () => {
+    const hidden = ['claude-opus-5-5', 'claude-fable-5-1', 'gpt-6-astra', 'glm-5.3-flash']
+    const candidates = subagentModelCandidates([
+      { id: 'muse-cloud-yunying', name: 'Muse · 云映', models: [{ id: 'gpt-6-sol', name: 'gpt-6-sol' }] },
+      { id: 'muse-cloud-zhipu-official', name: 'Muse · 智谱官方', models: [{ id: 'glm-5.3-flash', name: 'GLM-5.3-Flash' }] },
+    ], hidden.map(model => ({ provider: 'muse-cloud-yunying', model })),
+    new Set(hidden.map(model => `muse-cloud-yunying\0${model}`)))
+
+    expect(candidates.filter(candidate => candidate.provider === 'muse-cloud-yunying' && candidate.available)
+      .map(candidate => candidate.model)).toEqual(['gpt-6-sol'])
+    expect(candidates.filter(candidate => candidate.provider === 'muse-cloud-yunying' && !candidate.available)
+      .map(candidate => candidate.model)).toEqual(hidden)
+    expect(candidates.find(candidate => candidate.provider === 'muse-cloud-zhipu-official')).toMatchObject({
+      model: 'glm-5.3-flash', available: true, selected: false,
+    })
+  })
+
   it('loads adapter models and saves the switch and routes atomically', async () => {
     const host = stubConfigForm<SubagentModelSelectionSettings>()
     acceptWrites(host)

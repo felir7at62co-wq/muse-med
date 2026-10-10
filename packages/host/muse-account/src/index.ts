@@ -38,6 +38,8 @@ export interface Config {
   readonly modelRefreshMs: number
   /** Model ID prefixes excluded from the account-supplied catalog. */
   readonly excludedModelPrefixes: string[]
+  /** Exact account provider/model pairs hidden from the selectable catalog. */
+  readonly excludedModels: { providerId: string; modelId: string }[]
   /** Exact provider IDs excluded from the account-supplied catalog; personal adapters are unaffected. */
   readonly excludedProviderIds: string[]
   /** Product-private account directory; omission selects the active DSH home. */
@@ -63,6 +65,10 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
   baseUrl: Schema.string().required(),
   modelRefreshMs: Schema.number().step(1).min(10_000).max(3_600_000).default(60_000),
   excludedModelPrefixes: Schema.array(Schema.string()).default([]),
+  excludedModels: Schema.array(Schema.object({
+    providerId: Schema.string().pattern(/^[a-z][a-z0-9-]{0,63}$/).required(),
+    modelId: Schema.string().min(1).max(200).required(),
+  })).default([]),
   excludedProviderIds: Schema.array(Schema.string().pattern(/^[a-z][a-z0-9-]{0,63}$/)).default([]),
   accountHome: Schema.string(),
   requestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(15_000),
@@ -92,7 +98,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   const asr = new MuseAsrClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.asrRequestTimeoutMs })
   const models = new MuseModels(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs,
-    excludedModelPrefixes: config.excludedModelPrefixes, excludedProviderIds: config.excludedProviderIds })
+    excludedModelPrefixes: config.excludedModelPrefixes, excludedModels: config.excludedModels,
+    excludedProviderIds: config.excludedProviderIds })
   let remote: MuseDesktopRemote | undefined
   if (config.remoteAccess) {
     const bridge = ctx.get('museDesktopBridge')

@@ -486,6 +486,9 @@ export function ModelSelect(
           aria-label={t('menu.aria')}
           aria-busy={state.status === 'loading' || busy}
         >
+          {state.routable === false && state.current !== null && (
+            <div className={css.warning} role="status">{t('warning.savedModelUnavailable')}</div>
+          )}
           {pane === 'root' && (
             <>
               <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill('model') }}>

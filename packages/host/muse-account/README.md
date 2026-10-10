@@ -53,6 +53,7 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 |---|---|---|
 | `baseUrl` | Required | HTTPS gateway origin; loopback HTTP is allowed for a local gateway. |
 | `excludedModelPrefixes` | `[]` | Case-insensitive model-name prefixes omitted from account-supplied models; an optional provider path is stripped before comparison. Custom providers are unaffected. |
+| `excludedModels` | `[]` | Exact `{ providerId, modelId }` pairs omitted from the account catalog. Other providers with the same model ID and personal adapters are unaffected. |
 | `excludedProviderIds` | `[]` | Exact account provider IDs omitted from the catalog. IDs follow the gateway's lowercase identifier syntax; personal adapters are unaffected. |
 | `modelRefreshMs` | 60,000 | Model catalog refresh interval in milliseconds, from 10,000 to 3,600,000. |
 | `accountHome` | Active DSH home | Absolute directory containing this product's account session file. |
