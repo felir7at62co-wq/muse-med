@@ -39,7 +39,12 @@ export interface Config {
   /** Model ID prefixes excluded from the account-supplied catalog. */
   readonly excludedModelPrefixes: string[]
   /** Exact account provider/model pairs hidden from the selectable catalog. */
-  readonly excludedModels: { providerId: string; modelId: string }[]
+  readonly excludedModels: {
+    /** Exact provider ID in the account gateway catalog. */
+    providerId: string
+    /** Exact model ID excluded only for the specified provider. */
+    modelId: string
+  }[]
   /** Exact provider IDs excluded from the account-supplied catalog; personal adapters are unaffected. */
   readonly excludedProviderIds: string[]
   /** Product-private account directory; omission selects the active DSH home. */
