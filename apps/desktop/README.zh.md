@@ -243,7 +243,7 @@ production 发布使用产品版本本身，不传 `--build-version`。其上传
 
 打包后的 `app-update.yml` 记录产品版本派生的通道：Muse `1.0.0` 使用 `latest.yml`，beta 版本使用 `beta.yml`。COS 上传元数据使用相同文件名，macOS 增加 `-mac`。正式版 `1.0.0` 高于 `1.0.0-beta.1` 和所有先前的 `0.1.7-rc.8` 构建。客户端保持自动降级关闭，只接受更高的元数据版本。纠正为较低版本时需要手动安装。
 
-Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-sources.json` 中。检查更新优先访问北京公开存储桶 `https://muse.tos-cn-beijing.volces.com/releases/feeds/<target>/`。更新目录或下载不可用时可以切换到 GitHub；只有已确认的版本、载荷大小和 SHA-512 都一致，下载才会继续。校验、磁盘和安装准备错误仍然报告失败。正式版本通过 GitHub 的正式 Latest 发布查找更新；预发布版本保留由自身版本选择的发现通道。辅助运行时发布必须排除在 Latest 之外。Muse 正式发布 Apple Silicon Mac 和 Windows x64 安装包，两个源使用相同的载荷元数据。没有该来源记录的旧包继续使用其已封装的 feed。
+Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-sources.json` 中。检查更新优先访问北京公开存储桶 `https://muse.tos-cn-beijing.volces.com/releases/feeds/<target>/`。更新目录或下载不可用时可以切换到 GitHub；只有已确认的版本、载荷大小和 SHA-512 都一致，下载才会继续。备用源检查失败或不匹配时，重试仍须重新验证，直到确认载荷身份一致；下载完成的元数据也必须匹配，才会允许安装。重新检查更新失败时会清除先前的目标。校验、磁盘和安装准备错误仍然报告失败。正式版本通过 GitHub 的正式 Latest 发布查找更新；预发布版本保留由自身版本选择的发现通道。辅助运行时发布必须排除在 Latest 之外。Muse 正式发布 Apple Silicon Mac 和 Windows x64 安装包，两个源使用相同的载荷元数据。没有该来源记录的旧包继续使用其已封装的 feed。
 
 未签名 CI 允许在拉取请求中进行应用的 ad-hoc 封装，不使用发布者凭据；在打包检查之后，将每个安装器、更新载荷、blockmap 和通道文件的哈希记录在 `unsigned-build.json` 中。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求提供 Mac arm64 和 Windows x64 两个目标的目录、真实产品版本和同一个完整源码提交；`--dry-run` 仅校验记录中的哈希，不上传。发布先写入按版本保存的二进制，完整读回公开下载并核对 SHA-256，之后才更新要求缓存重新验证的通道元数据。Mac 发布元数据保留原 ZIP 为首项，并加入已验证 DMG 的 SHA-512 与大小供手动更新使用；GitHub 与 TOS 列出相同的载荷身份，原构建记录和通道文件保持不变。请在私有发布环境中配置 `VOLCENGINE_ACCESS_KEY_ID`、`VOLCENGINE_SECRET_ACCESS_KEY` 和 `MUSE_TOS_*` 目标变量；打包过程会从子进程环境中移除 TOS 凭据。
 

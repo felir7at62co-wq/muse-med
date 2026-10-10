@@ -1125,6 +1125,23 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
                       },
                       "count": {
                         "type": "integer"
+                      },
+                      "interval": {
+                        "type": "object",
+                        "description": "Episode time range within this sampled-video manifest. Omission checks the complete manifest range. Sampling never establishes continuous visual coverage.",
+                        "additionalProperties": false,
+                        "properties": {
+                          "start_seconds": {
+                            "type": "number"
+                          },
+                          "end_seconds": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "start_seconds",
+                          "end_seconds"
+                        ]
                       }
                     },
                     "required": [
@@ -1215,6 +1232,23 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
                       },
                       "count": {
                         "type": "integer"
+                      },
+                      "interval": {
+                        "type": "object",
+                        "description": "Episode time range within this sampled-video manifest. Omission checks the complete manifest range. Sampling never establishes continuous visual coverage.",
+                        "additionalProperties": false,
+                        "properties": {
+                          "start_seconds": {
+                            "type": "number"
+                          },
+                          "end_seconds": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "start_seconds",
+                          "end_seconds"
+                        ]
                       }
                     },
                     "required": [

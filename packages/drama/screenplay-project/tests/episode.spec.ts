@@ -1,6 +1,6 @@
 /** Narrative layers, audible attribution, continuity, and immutable accepted histories. */
 import { expect, it } from 'vitest'
-import { FACT_RECORD, PROJECT_FILE } from '../src/schema.ts'
+import { FACT_RECORD, PROJECT_FILE, VIDEO_SOURCE } from '../src/schema.ts'
 import type { ProjectFile } from '../src/schema.ts'
 import type { FactId, UnitId } from '../src/ids.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -210,4 +210,45 @@ it.each(['missing-source', 'overflow', 'no-frame', 'duplicate', 'missing-fact', 
     candidate.sha256 = candidateDigest(candidate)
   }
   expect(() => acceptedScripts(scoped)).toThrow(code)
+})
+
+
+it.each(['original', 'version', 'excluded-window', 'outside-interval'] as const)(
+  'refuses unresolved deferred observations with a supplemental %s mismatch', (mismatch) => {
+    const { project: scoped, candidate } = videoCoverageFixture()
+    const source = scoped.sources[1]!
+    source.video = VIDEO_SOURCE.parse({ path: '/original.mp4', source_version: 'original-version', inspection: 'sampled_frames',
+      duration_seconds: 30, interval: { start_seconds: 0, end_seconds: 30 },
+      samples: [{ requested_seconds: 1, timestamp_seconds: 1 }],
+      sampling_plan: { strategy: 'scene_dialogue', selected: [], deferred: [{ time: 8, reasons: ['scene'] }] } })
+    const supplemental = { ...source, id: brandString<typeof source.id>('s:supplemental'), video: VIDEO_SOURCE.parse({
+      ...source.video, sampling_plan: undefined, samples: [{ requested_seconds: 8, timestamp_seconds: 7.98 }],
+      path: mismatch === 'original' ? '/different.mp4' : source.video.path,
+      source_version: mismatch === 'version' ? 'different-version' : source.video.source_version,
+    }) }
+    scoped.sources.push(supplemental)
+    if (mismatch !== 'excluded-window') candidate.coverage!.windows.push({ source_id: supplemental.id, start: 1, count: 1 })
+    if (mismatch === 'outside-interval') candidate.coverage!.windows[1]!.interval = { start_seconds: 2, end_seconds: 10 }
+    candidate.sha256 = candidateDigest(candidate)
+    expect(() => acceptedScripts(scoped)).toThrow(mismatch === 'outside-interval' ? 'video_episode_interval' : 'video_observation_deferred')
+  },
+)
+
+it('indexes facts once while exporting a long accepted history instead of replaying every prefix', () => {
+  const candidates = Array.from({ length: 64 }, (_, index) => ({
+    id: `c:00000000-0000-4000-8000-${(index + 1).toString(16).padStart(12, '0')}`,
+    episode: index + 1, base_episode: index, author: 'writer', scenes: [scene()],
+    created_at: thought.created_at, committed_at: thought.created_at,
+    sha256: candidateDigest({ episode: index + 1, scenes: [scene()] }),
+    review: { actor: 'reviewer', decision: 'approve', reason: '核对通过', time: thought.created_at },
+  }))
+  const scoped = PROJECT_FILE.parse({ ...project, candidates, accepted: candidates.map(candidate => candidate.id) })
+  for (const candidate of scoped.candidates) candidate.sha256 = candidateDigest(candidate)
+  const facts = scoped.facts
+  let reads = 0
+  Object.defineProperty(scoped, 'facts', { get() { reads += 1; return facts } })
+  const scripts = acceptedScripts(scoped)
+  expect(scripts).toHaveLength(64)
+  expect(scripts[63]!.script).toContain('第64集')
+  expect(reads).toBeLessThanOrEqual(2)
 })

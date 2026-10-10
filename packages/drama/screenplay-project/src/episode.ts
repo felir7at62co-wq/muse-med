@@ -40,9 +40,19 @@ export interface EpisodeRender {
  * @returns Generated script lines, their source references, and resulting knowledge.
  */
 export function renderEpisode(project: ProjectFile, scenes: ProjectFile['candidates'][number]['scenes'], previous: Record<string, string[]>, episode: number): EpisodeRender {
+  return renderWithFacts(scenes, previous, episode, factIndex(project))
+}
+
+function factIndex(project: ProjectFile) {
+  return {
+    facts: new Map(project.facts.filter(fact => fact.review?.decision === 'approve' && fact.withdrawal === undefined).map(fact => [fact.id, fact])),
+    withdrawn: new Set(project.facts.filter(fact => fact.withdrawal !== undefined).map(fact => fact.id)),
+  }
+}
+
+function renderWithFacts(scenes: ProjectFile['candidates'][number]['scenes'], previous: Record<string, string[]>, episode: number,
+  { facts, withdrawn }: ReturnType<typeof factIndex>): EpisodeRender {
   const knowledge = structuredClone(previous)
-  const facts = new Map(project.facts.filter(fact => fact.review?.decision === 'approve' && fact.withdrawal === undefined).map(fact => [fact.id, fact]))
-  const withdrawn = new Set(project.facts.filter(fact => fact.withdrawal !== undefined).map(fact => fact.id))
   const output: string[] = [`第${episode}集`]
   const lines: ScriptLine[] = []
   let prior: ProjectFile['candidates'][number]['scenes'][number] | undefined
@@ -157,9 +167,10 @@ export function renderEpisode(project: ProjectFile, scenes: ProjectFile['candida
  * @param candidate - Episode content and optional managed-video coverage.
  * @returns Candidate SHA-256; legacy candidates retain their original digest.
  */
-export function candidateDigest(candidate: Pick<ProjectFile['candidates'][number], 'episode' | 'scenes' | 'coverage'>): string {
+export function candidateDigest(candidate: Pick<ProjectFile['candidates'][number], 'episode' | 'scenes' | 'coverage' | 'source_ids'>): string {
   return sha256(JSON.stringify({ episode: candidate.episode, scenes: candidate.scenes,
-    ...(candidate.coverage === undefined ? {} : { coverage: candidate.coverage }) }))
+    ...(candidate.coverage === undefined ? {} : { coverage: candidate.coverage }),
+    ...(candidate.source_ids === undefined ? {} : { source_ids: candidate.source_ids }) }))
 }
 
 /**
@@ -173,9 +184,36 @@ export function checkVideoCoverage(project: ProjectFile, candidate: ProjectFile[
   const coverage = candidate.coverage
   if (coverage === undefined) throw Error('visual_preparation_required: 视频候选须先整理实际画面与来源事实，提交本集 coverage。')
   const units = new Map<string, ProjectFile['sources'][number]['units'][number]>()
+  const sources = new Map(project.sources.map(source => [String(source.id), source]))
+  const visualSources = coverage.windows.flatMap((window) => {
+    const source = sources.get(window.source_id)
+    return source?.video === undefined ? [] : [{ id: source.id, video: source.video, window }]
+  })
+  for (const source of visualSources) {
+    const interval = source.window.interval ?? source.video.interval
+    if (interval !== undefined) {
+      const allowed = source.video.interval ?? { start_seconds: 0, end_seconds: source.video.duration_seconds }
+      if (interval.end_seconds <= interval.start_seconds || interval.start_seconds < allowed.start_seconds
+        || interval.end_seconds > allowed.end_seconds
+        || source.video.samples.slice(source.window.start - 1, source.window.start - 1 + source.window.count)
+          .some(sample => sample.requested_seconds < interval.start_seconds || sample.requested_seconds >= interval.end_seconds)) {
+        throw Error('video_episode_interval: 本集时间范围须在检查区间内，并包含所选采样点。')
+      }
+    }
+    for (const point of source.video.sampling_plan?.deferred ?? []) {
+      if (interval !== undefined && (point.time < interval.start_seconds || point.time >= interval.end_seconds)) continue
+      const observed = visualSources.some(other => other.video.path === source.video.path
+        && other.video.source_version === source.video.source_version
+        && coverage.windows.some(window => window.source_id === other.id
+          && other.video.samples.slice(window.start - 1, window.start - 1 + window.count)
+            .some(sample => sample.requested_seconds === point.time)))
+      if (!observed) throw Error(`video_observation_deferred: ${point.time}s 的待查画面尚未补查，不能验收。`)
+    }
+  }
   for (const window of coverage.windows) {
-    const source = project.sources.find(value => value.id === window.source_id)
-    if (source === undefined || window.start + window.count - 1 > source.units.length) {
+    const source = sources.get(window.source_id)
+    if (source === undefined || (window.interval !== undefined && source.video === undefined)
+      || window.start + window.count - 1 > source.units.length) {
       throw Error('source_window: 本集来源范围必须对应已导入片段。')
     }
     for (const unit of source.units.slice(window.start - 1, window.start - 1 + window.count)) units.set(unit.id, unit)
@@ -243,12 +281,14 @@ export function checkVideoCoverage(project: ProjectFile, candidate: ProjectFile[
  * @returns Ordered candidate identities, digests and exact accepted Markdown.
  */
 export function acceptedScripts(project: ProjectFile): { id: string; sha256: string; script: string }[] {
-  return acceptedCandidates(project).map((candidate, index) => {
+  let knowledge: Record<string, string[]> = {}
+  const facts = factIndex(project)
+  return acceptedCandidates(project).map((candidate) => {
     if (candidate.sha256 !== candidateDigest(candidate)) throw Error('invalid_candidate_digest: 候选内容已变更。')
     checkVideoCoverage(project, candidate)
-    const knowledge = acceptedKnowledge({ ...project, accepted: project.accepted.slice(0, index) })
-    return { id: candidate.id, sha256: candidate.sha256,
-      script: renderEpisode(project, candidate.scenes, knowledge, candidate.episode).script }
+    const rendered = renderWithFacts(candidate.scenes, knowledge, candidate.episode, facts)
+    knowledge = rendered.knowledge
+    return { id: candidate.id, sha256: candidate.sha256, script: rendered.script }
   })
 }
 
@@ -258,8 +298,9 @@ export function acceptedScripts(project: ProjectFile): { id: string; sha256: str
  * @returns Accepted candidate records in episode order.
  */
 export function acceptedCandidates(project: ProjectFile): ProjectFile['candidates'] {
+  const candidates = new Map(project.candidates.map(candidate => [candidate.id, candidate]))
   return project.accepted.map((id, index) => {
-    const candidate = project.candidates.find(item => item.id === id)
+    const candidate = candidates.get(id)
     if (candidate === undefined || candidate.episode !== index + 1 || candidate.base_episode !== index
       || candidate.committed_at === undefined
       || candidate.review?.decision !== 'approve' || candidate.review.actor === candidate.author) {
@@ -276,8 +317,9 @@ export function acceptedCandidates(project: ProjectFile): ProjectFile['candidate
  */
 export function acceptedKnowledge(project: ProjectFile): Record<string, string[]> {
   let knowledge: Record<string, string[]> = {}
+  const facts = factIndex(project)
   for (const candidate of acceptedCandidates(project)) {
-    knowledge = renderEpisode(project, candidate.scenes, knowledge, candidate.episode).knowledge
+    knowledge = renderWithFacts(candidate.scenes, knowledge, candidate.episode, facts).knowledge
   }
   return knowledge
 }

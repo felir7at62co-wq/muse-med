@@ -71,6 +71,11 @@ it('forwards the receipt purpose through the Host service without adding transcr
     await service.audioStatus(id)
     expect(headers.map(row => row.get('x-muse-asr-purpose'))).toEqual(['screenplay', null])
     expect(remoteMethods(service).map(entry => entry.method)).toEqual(['feedback', 'status', 'login', 'logout'])
+    const controller = new AbortController(), reason = new Error('cancelled service call')
+    controller.abort(reason)
+    await expect(service.submitAudio(file, id, 'a'.repeat(64), 'zh', 'screenplay', controller.signal)).rejects.toBe(reason)
+    await expect(service.audioStatus(id, controller.signal)).rejects.toBe(reason)
+    expect(headers).toHaveLength(2)
   } finally {
     await context.fiber.dispose()
     await rm(dir, { recursive: true, force: true })

@@ -57,7 +57,11 @@ const coverage = {
   type: 'object', additionalProperties: false,
   properties: {
     windows: { type: 'array', required: true, items: {
-      type: 'object', additionalProperties: false, properties: { source_id: string, start: integer, count: integer },
+      type: 'object', additionalProperties: false, properties: { source_id: string, start: integer, count: integer,
+        interval: { type: 'object', additionalProperties: false,
+          description: 'Episode time range within this sampled-video manifest. Omission checks the complete manifest range. Sampling never establishes continuous visual coverage.',
+          properties: { start_seconds: { type: 'number', required: true }, end_seconds: { type: 'number', required: true } } },
+      },
     } },
     required_beats: { type: 'array', required: true, items: {
       type: 'object', additionalProperties: false, properties: {
@@ -176,7 +180,9 @@ const unitId = nonempty.transform(value => brandString<UnitId>(value))
 const reviewRecord = z.strictObject({ actor: actorId, time: timestamp, decision: z.enum(['approve', 'reject']), reason: nonempty })
 /** Episode source windows and required expression channels, bound to the candidate digest. */
 export const COVERAGE_RECORD = z.strictObject({
-  windows: z.array(z.strictObject({ source_id: nonempty, start: z.number().int().positive(), count: z.number().int().positive() })).min(1),
+  windows: z.array(z.strictObject({ source_id: nonempty, start: z.number().int().positive(), count: z.number().int().positive(),
+    interval: z.strictObject({ start_seconds: z.number().nonnegative(), end_seconds: z.number().positive() }).optional(),
+  })).min(1),
   required_beats: z.array(z.strictObject({ fact_id: factId, kind: z.enum(['action', 'dialogue', 'os', 'vo']) })).min(1),
 })
 const unitRecord = z.strictObject({
@@ -209,7 +215,18 @@ export const CANDIDATE_RECORD = z.strictObject({
   id: candidateId, sha256: digest, episode: z.number().int().positive(), base_episode: z.number().int().nonnegative(),
   author: actorId, created_at: timestamp, scenes: z.array(SCENE_RECORD).min(1),
   coverage: COVERAGE_RECORD.optional(),
+  source_ids: z.array(nonempty).optional(),
   review: reviewRecord.extend({ zero_action_reason: nonempty.optional() }).optional(), committed_at: timestamp.optional(),
+})
+
+const observation = z.strictObject({ time: z.number().nonnegative(), reasons: z.array(nonempty) })
+/** Sampled inspection scope and outstanding observations; never continuous visual coverage. */
+export const VIDEO_SOURCE = z.strictObject({
+  path: nonempty, source_version: nonempty.transform(FsVersion), inspection: z.literal('sampled_frames'),
+  duration_seconds: z.number().positive(),
+  samples: z.array(z.strictObject({ requested_seconds: z.number().nonnegative(), timestamp_seconds: z.number().nonnegative() })),
+  interval: z.strictObject({ start_seconds: z.number().nonnegative(), end_seconds: z.number().positive() }).optional(),
+  sampling_plan: z.strictObject({ strategy: z.literal('scene_dialogue'), selected: z.array(observation), deferred: z.array(observation) }).optional(),
 })
 
 /** File-format parser; unknown fields, malformed metadata, and unsupported versions fail on read. */
@@ -219,7 +236,7 @@ export const PROJECT_FILE = z.strictObject({
   workflow: z.literal('video_to_screenplay').optional(),
   parent: z.strictObject({ id: nonempty.transform(value => brandString<ProjectId>(value)), path: nonempty,
     revision: z.number().int().nonnegative(), before_episode: z.number().int().positive(), sha256: digest }).optional(),
-  sources: z.array(z.strictObject({ id: nonempty.transform(value => brandString<SourceId>(value)), path: nonempty, sha256: digest, kind: z.enum(['text', 'transcript', 'video_inspection']), units: z.array(unitRecord) })),
+  sources: z.array(z.strictObject({ id: nonempty.transform(value => brandString<SourceId>(value)), path: nonempty, sha256: digest, kind: z.enum(['text', 'transcript', 'video_inspection']), units: z.array(unitRecord), video: VIDEO_SOURCE.optional() })),
   facts: z.array(FACT_RECORD), candidates: z.array(CANDIDATE_RECORD), accepted: z.array(candidateId),
 })
 
@@ -236,8 +253,7 @@ const segments = z.array(z.object({
 export const TRANSCRIPT = z.union([segments, z.object({ segments })]).transform(value => Array.isArray(value) ? value : value.segments)
 
 /** Actual sampled-frame manifests; image metadata is not an automatic claim about actions or identities. */
-export const VIDEO_INSPECTION = z.object({ path: nonempty, source_version: nonempty.transform(FsVersion),
-  inspection: z.literal('sampled_frames'), verified_readback: z.literal(true), duration_seconds: z.number().positive(),
+export const VIDEO_INSPECTION = VIDEO_SOURCE.omit({ samples: true }).loose().extend({ verified_readback: z.literal(true),
   frames: z.array(z.object({ requested_seconds: z.number().nonnegative(),
     timestamp_seconds: z.number().nonnegative(), image: IMAGE_REFERENCE })).min(1),
 })

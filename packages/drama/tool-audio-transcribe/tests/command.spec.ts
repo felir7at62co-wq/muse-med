@@ -9,7 +9,7 @@ import { startAudioTranscription } from '../src/runner.ts'
 const adapter = vi.hoisted(() => ({
   probe: "process.stdout.write('30');process.stderr.write('probe diagnostic')",
   encode: "require('node:fs').writeFileSync(process.argv.at(-1), 'audio')",
-  children: [] as { closed: Promise<void>; terminate: () => void }[],
+  children: [] as { closed: Promise<void>; isClosed: () => boolean; terminate: () => void }[],
   onReady: undefined as (() => void) | undefined,
 }))
 
@@ -20,7 +20,9 @@ vi.mock('node:child_process', async (importOriginal) => {
       ? actual.spawn(command, args, options)
       : actual.spawn(process.execPath, ['-e', command === 'fixture-probe' ? adapter.probe : adapter.encode, '--', ...args], options)
     if (command === 'fixture-encode') child.stdout?.once('data', () => { adapter.onReady?.() })
-    adapter.children.push({ closed: new Promise<void>(resolve => child.once('close', () => { resolve() })),
+    let closed = false
+    adapter.children.push({ closed: new Promise<void>(resolve => child.once('close', () => { closed = true; resolve() })),
+      isClosed: () => closed,
       terminate: () => { child.kill() } })
     return child
   } }
@@ -97,6 +99,21 @@ it('rejects a command deadline after its termination handler is ready', async ()
   await ready
   await vi.advanceTimersByTimeAsync(f.config.commandTimeoutMs)
   await rejection
+  expect(f.submissions).toEqual([])
+  expect(await readdir(join(f.project, 'transcript', 'jobs'))).toEqual([])
+})
+
+
+it('kills an active extraction and waits for process close before cancelling and removing staging', async () => {
+  const f = await fixture(), controller = new AbortController(), reason = new Error('cancelled extraction')
+  adapter.encode = "process.on('SIGTERM', () => process.exit(0));process.stdout.write('ready');setInterval(() => {}, 1000)"
+  const ready = new Promise<void>((resolve) => { adapter.onReady = resolve })
+  const task = startAudioTranscription(f.project, f.input, 'zh', f.account, f.config, undefined, undefined, controller.signal)
+  const rejection = expect(task).rejects.toBe(reason)
+  await ready
+  controller.abort(reason)
+  await rejection
+  expect(adapter.children.every(child => child.isClosed())).toBe(true)
   expect(f.submissions).toEqual([])
   expect(await readdir(join(f.project, 'transcript', 'jobs'))).toEqual([])
 })

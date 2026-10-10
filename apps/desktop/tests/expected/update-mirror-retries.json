@@ -1,0 +1,53 @@
+[
+  {
+    "phase": "available",
+    "version": "1.0.4"
+  },
+  {
+    "phase": "downloading",
+    "version": "1.0.4",
+    "percent": 0
+  },
+  {
+    "phase": "error",
+    "version": "1.0.4",
+    "failedOperation": "download",
+    "message": "desktop update: fallback payload differs from the confirmed release; check for updates again"
+  },
+  {
+    "phase": "downloading",
+    "version": "1.0.4",
+    "percent": 0
+  },
+  {
+    "phase": "error",
+    "version": "1.0.4",
+    "failedOperation": "download",
+    "message": "desktop update: fallback payload differs from the confirmed release; check for updates again"
+  },
+  {
+    "phase": "downloading",
+    "version": "1.0.4",
+    "percent": 0
+  },
+  {
+    "phase": "error",
+    "version": "1.0.4",
+    "failedOperation": "download",
+    "message": "desktop update: fallback payload differs from the confirmed release; check for updates again"
+  },
+  {
+    "phase": "downloading",
+    "version": "1.0.4",
+    "percent": 0
+  },
+  {
+    "phase": "downloading",
+    "version": "1.0.4",
+    "percent": 0
+  },
+  {
+    "phase": "ready",
+    "version": "1.0.4"
+  }
+]

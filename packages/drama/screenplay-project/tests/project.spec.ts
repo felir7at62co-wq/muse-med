@@ -11,7 +11,7 @@ import sharp from 'sharp'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ActorId } from '../src/ids.ts'
 import { ProjectCommands } from '../src/project.ts'
-import { sha256 } from '../src/episode.ts'
+import { candidateDigest } from '../src/episode.ts'
 import { PROJECT_FILE } from '../src/schema.ts'
 import type { FactInput, ProjectRequest, SceneInput } from '../src/schema.ts'
 
@@ -365,7 +365,7 @@ it('rejects malformed persisted withdrawals and permits withdrawing facts unrela
   const saved = await current()
   expect(saved.candidates).toEqual(original.candidates)
   expect(saved.facts.find(item => item.id === unused)!.withdrawal).toBeDefined()
-  expect(sha256(JSON.stringify({ episode: saved.candidates[0]!.episode, scenes: saved.candidates[0]!.scenes })))
+  expect(candidateDigest(saved.candidates[0]!))
     .toBe(saved.candidates[0]!.sha256)
 })
 
@@ -900,4 +900,130 @@ it('retains only accepted ancestors when revising a later episode and refuses ga
   expect(await readFile(destination, 'utf8')).toBe(bytes)
   await expect(run({ method: 'fork_project', project: path, expected_revision: parent.revision, destination: path, before_episode: 1 })).rejects.toThrow()
   expect(await current()).toEqual(parent)
+})
+
+it('keeps accepted exports identical after importing an unrelated next episode source', async () => {
+  const id = await fact('thought', 1, '甲')
+  const candidate = await stage([scene(id)])
+  await approveAndCommit(candidate.id, candidate.sha256)
+  const directory = join(root, 'stable-export')
+  await run({ method: 'export', project: path, candidate_id: candidate.id, directory })
+  const sidecar = join(directory, `episode-1-${candidate.id.slice(2)}.sources.json`)
+  const before = await readFile(sidecar, 'utf8')
+  const later = join(root, 'episode-two.txt')
+  await writeFile(later, '第二集的新来源。')
+  await run({ method: 'import_source', project: path, expected_revision: (await current()).revision, path: later, source_kind: 'text' })
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments)
+  await run({ method: 'export', project: path, candidate_id: candidate.id, directory })
+  expect(await readFile(sidecar, 'utf8')).toBe(before)
+})
+
+it('retains sampled inspection intervals and deferred observations in imported source reads', async () => {
+  const fixture = await inspection()
+  const interval = { start_seconds: 0, end_seconds: 12 }
+  const sampling_plan = { strategy: 'scene_dialogue', selected: [{ time: 1, reasons: ['scene'] }], deferred: [{ time: 8, reasons: ['dialogue'] }] }
+  await writeFile(fixture.manifest, JSON.stringify({ ...fixture.value, interval, sampling_plan }))
+  await run({ method: 'import_source', project: path, expected_revision: 1, path: fixture.manifest, source_kind: 'video_inspection' })
+  const video = (await current()).sources[1]!
+  expect(await run({ method: 'read_source', project: path, source_id: video.id, start: 1, count: 1 }))
+    .toMatchObject({ video: { inspection: 'sampled_frames', interval, sampling_plan } })
+})
+
+it('reuses unchanged validated project bytes without trusting unchanged file metadata or returned objects', async () => {
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments)
+  const parse = vi.spyOn(PROJECT_FILE, 'parse')
+  await run({ method: 'status', project: path })
+  parse.mockClear()
+  await run({ method: 'status', project: path })
+  expect(parse).not.toHaveBeenCalled()
+  const project = await current()
+  project.sources[0]!.units[0]!.text = 'tampered'
+  await writeFile(path, JSON.stringify(project))
+  await expect(run({ method: 'status', project: path })).rejects.toThrow('source_index_changed')
+})
+
+it('blocks deferred visual observations until supplemental samples are included in candidate coverage', async () => {
+  const fixture = await inspection()
+  await writeFile(fixture.manifest, JSON.stringify({ ...fixture.value, interval: { start_seconds: 0, end_seconds: 30 },
+    sampling_plan: { strategy: 'scene_dialogue', selected: [{ time: 1, reasons: ['scene'] }], deferred: [{ time: 8, reasons: ['scene'] }] } }))
+  await run({ method: 'import_source', project: path, expected_revision: 1, path: fixture.manifest, source_kind: 'video_inspection' })
+  const project = await current()
+  project.workflow = 'video_to_screenplay'
+  await writeFile(path, JSON.stringify(project))
+  const action = await visualAction()
+  await expect(videoStage([scene(action, 'action')], [{ fact_id: action, kind: 'action' }])).rejects.toThrow('video_observation_deferred')
+  const supplemental = join(root, 'supplemental.json')
+  await writeFile(supplemental, JSON.stringify({ ...fixture.value, interval: { start_seconds: 7, end_seconds: 9 },
+    frames: [{ requested_seconds: 8, timestamp_seconds: 7.98, image: fixture.image }] }))
+  await run({ method: 'import_source', project: path, expected_revision: (await current()).revision, path: supplemental, source_kind: 'video_inspection' })
+  const candidate = await videoStage([scene(action, 'action')], [{ fact_id: action, kind: 'action' }])
+  await approveAndCommit(candidate.id, candidate.sha256)
+})
+
+it('rehashes sources on cached reads and isolates returned records from the validation cache', async () => {
+  const id = await fact('thought', 1, '甲')
+  const response = await run({ method: 'read_fact', project: path, fact_id: id }) as { fact: { summary: string } }
+  response.fact.summary = 'caller mutation'
+  expect(await run({ method: 'read_fact', project: path, fact_id: id })).not.toMatchObject({ fact: { summary: 'caller mutation' } })
+  await writeFile(source, 'changed source')
+  await expect(run({ method: 'status', project: path })).rejects.toThrow('source_changed')
+})
+
+it('loads legacy candidates with their original content digests', async () => {
+  const id = await fact('thought', 1, '甲')
+  await stage([scene(id)])
+  const project = await current()
+  const candidate = project.candidates[0]!
+  delete candidate.source_ids
+  candidate.sha256 = candidateDigest(candidate)
+  await writeFile(path, JSON.stringify(project))
+  await approveAndCommit(candidate.id, candidate.sha256)
+  expect(await run({ method: 'status', project: path })).toMatchObject({ next_episode: 2 })
+})
+
+it('preserves a pre-upgrade legacy sidecar including unused sources after later imports', async () => {
+  const unused = join(root, 'unused.txt')
+  await writeFile(unused, 'unused original')
+  await run({ method: 'import_source', project: path, expected_revision: (await current()).revision, path: unused, source_kind: 'text' })
+  const id = await fact('thought', 1, '甲')
+  await stage([scene(id)])
+  const project = await current(), candidate = project.candidates[0]!
+  delete candidate.source_ids
+  candidate.sha256 = candidateDigest(candidate)
+  await writeFile(path, JSON.stringify(project))
+  await approveAndCommit(candidate.id, candidate.sha256)
+  const directory = join(root, 'legacy-export')
+  await run({ method: 'export', project: path, candidate_id: candidate.id, directory })
+  const sidecar = join(directory, `episode-1-${candidate.id.slice(2)}.sources.json`)
+  const before = await readFile(sidecar, 'utf8')
+  expect(JSON.parse(before).sources).toHaveLength(2)
+  const later = join(root, 'later.txt')
+  await writeFile(later, 'later source')
+  await run({ method: 'import_source', project: path, expected_revision: (await current()).revision, path: later, source_kind: 'text' })
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments)
+  await run({ method: 'export', project: path, candidate_id: candidate.id, directory })
+  expect(await readFile(sidecar, 'utf8')).toBe(before)
+  await writeFile(sidecar, before.replace('unused.txt', 'edited.txt'))
+  await expect(run({ method: 'export', project: path, candidate_id: candidate.id, directory })).rejects.toThrow('export_changed')
+})
+
+it('scopes deferred observations to the declared episode interval within a longer-video manifest', async () => {
+  const fixture = await inspection()
+  await writeFile(fixture.manifest, JSON.stringify({ ...fixture.value, interval: { start_seconds: 0, end_seconds: 30 },
+    sampling_plan: { strategy: 'scene_dialogue', selected: [{ time: 1, reasons: ['scene'] }], deferred: [{ time: 20, reasons: ['scene'] }] } }))
+  await run({ method: 'import_source', project: path, expected_revision: 1, path: fixture.manifest, source_kind: 'video_inspection' })
+  const project = await current()
+  project.workflow = 'video_to_screenplay'
+  await writeFile(path, JSON.stringify(project))
+  const action = await visualAction()
+  const saved = await current(), video = saved.sources[1]!
+  const request: ProjectRequest = { method: 'stage', project: path, expected_revision: saved.revision, episode: 1,
+    scenes: [scene(action, 'action')], coverage: {
+      windows: [{ source_id: video.id, start: 1, count: 2, interval: { start_seconds: 0, end_seconds: 10 } }],
+      required_beats: [{ fact_id: action, kind: 'action' }],
+    } }
+  await run(request)
+  const candidate = (await current()).candidates[0]!
+  await approveAndCommit(candidate.id, candidate.sha256)
+  expect(await run({ method: 'status', project: path })).toMatchObject({ next_episode: 2 })
 })

@@ -90,8 +90,10 @@ export interface MuseAsrOptions {
 export class MuseAsrClient {
   constructor(private readonly options: MuseAsrOptions) {}
 
-  private async request(path: string, init: RequestInit): Promise<MuseAsrJob> {
+  private async request(path: string, init: RequestInit, signal?: AbortSignal): Promise<MuseAsrJob> {
+    signal?.throwIfAborted()
     const session = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
+    signal?.throwIfAborted()
     if (session === null) throw new MuseAsrError('sign-in-required')
     let response: Response
     try {
@@ -99,32 +101,48 @@ export class MuseAsrClient {
       headers.set('cookie', session.cookie)
       response = await (this.options.fetcher ?? fetch)(new URL(path, this.options.baseUrl), {
         ...init, headers, redirect: 'manual',
-        signal: AbortSignal.timeout(this.options.requestTimeoutMs),
+        signal: signal === undefined ? AbortSignal.timeout(this.options.requestTimeoutMs)
+          : AbortSignal.any([signal, AbortSignal.timeout(this.options.requestTimeoutMs)]),
       })
-    } catch { throw new MuseAsrError('server-unavailable') }
-    if (response.status === 303 || response.status === 401) throw new MuseAsrError('sign-in-required')
-    if (response.status === 404 && init.method === 'GET') throw new MuseAsrError('job-not-found')
-    if (response.status === 503 && retryAfterSeconds(response) !== undefined) throw new MuseAsrError('server-unavailable', retryAfterSeconds(response))
-    if (response.status === 404 || response.status === 405 || response.status === 503) throw new MuseAsrError('server-not-configured')
-    if (!response.ok) throw await rejection(response)
-    let value: unknown
-    try { value = await response.json() } catch { throw new MuseAsrError('response-invalid') }
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new MuseAsrError('response-invalid')
-    const job = value as Record<string, unknown>
-    if (typeof job.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(job.id)
-      || !['preparing', 'processing', 'submitting', 'uncertain', 'complete', 'silent', 'failed'].includes(String(job.status))
-      || (job.purpose !== undefined && job.purpose !== 'subtitles' && job.purpose !== 'screenplay')
-      || (job.service_version !== undefined && job.service_version !== 'flash' && job.service_version !== 'standard-v1' && job.service_version !== 'standard-v2')
-      || (job.retentionExpired !== undefined && typeof job.retentionExpired !== 'boolean')) {
-      throw new MuseAsrError('response-invalid')
+    } catch {
+      signal?.throwIfAborted()
+      throw new MuseAsrError('server-unavailable')
     }
-    if (job.status === 'complete' && !validSegments(job.segments)) throw new MuseAsrError('response-invalid')
-    return {
-      id: job.id, status: job.status as MuseAsrJob['status'],
-      ...(job.purpose === undefined ? {} : { purpose: job.purpose }),
-      ...(job.service_version === undefined ? {} : { service_version: job.service_version }),
-      ...(job.retentionExpired === undefined ? {} : { retentionExpired: job.retentionExpired }),
-      ...(job.status === 'complete' ? { segments: job.segments as readonly MuseAsrSegment[] } : {}),
+    try {
+      signal?.throwIfAborted()
+      if (response.status === 303 || response.status === 401) throw new MuseAsrError('sign-in-required')
+      if (response.status === 404 && init.method === 'GET') throw new MuseAsrError('job-not-found')
+      if (response.status === 503 && retryAfterSeconds(response) !== undefined) throw new MuseAsrError('server-unavailable', retryAfterSeconds(response))
+      if (response.status === 404 || response.status === 405 || response.status === 503) throw new MuseAsrError('server-not-configured')
+      if (!response.ok) throw await rejection(response)
+      let value: unknown
+      try { value = await response.json() } catch { throw new MuseAsrError('response-invalid') }
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new MuseAsrError('response-invalid')
+      const job = value as Record<string, unknown>
+      if (typeof job.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(job.id)
+        || !['preparing', 'processing', 'submitting', 'uncertain', 'complete', 'silent', 'failed'].includes(String(job.status))
+        || (job.purpose !== undefined && job.purpose !== 'subtitles' && job.purpose !== 'screenplay')
+        || (job.service_version !== undefined && job.service_version !== 'flash' && job.service_version !== 'standard-v1' && job.service_version !== 'standard-v2')
+        || (job.retentionExpired !== undefined && typeof job.retentionExpired !== 'boolean')) {
+        throw new MuseAsrError('response-invalid')
+      }
+      if (job.status === 'complete' && !validSegments(job.segments)) throw new MuseAsrError('response-invalid')
+      signal?.throwIfAborted()
+      return {
+        id: job.id, status: job.status as MuseAsrJob['status'],
+        ...(job.purpose === undefined ? {} : { purpose: job.purpose }),
+        ...(job.service_version === undefined ? {} : { service_version: job.service_version }),
+        ...(job.retentionExpired === undefined ? {} : { retentionExpired: job.retentionExpired }),
+        ...(job.status === 'complete' ? { segments: job.segments as readonly MuseAsrSegment[] } : {}),
+      }
+    } catch (error) {
+      signal?.throwIfAborted()
+      throw error
+    } finally {
+      if (response.body !== null && !response.bodyUsed) {
+        try { await response.body.cancel() }
+        catch (_error) { /* The transport may have already errored its aborted body. */ }
+      }
     }
   }
 
@@ -135,24 +153,27 @@ export class MuseAsrClient {
    * @param sha256 - Digest verified by the gateway.
    * @param language - Recognition language.
    * @param purpose - Persisted transcription use; omission retains legacy gateway routing.
+   * @param signal - Caller cancellation; awaited transport/body settlement preserves its reason.
    * @returns Account-scoped job status.
    */
-  async submit(file: string, id: string, sha256: string, language: 'zh' | 'auto', purpose?: MuseAsrPurpose): Promise<MuseAsrJob> {
+  async submit(file: string, id: string, sha256: string, language: 'zh' | 'auto', purpose?: MuseAsrPurpose, signal?: AbortSignal): Promise<MuseAsrJob> {
+    signal?.throwIfAborted()
     const init: RequestInit & { duplex: 'half' } = {
       method: 'POST', headers: { origin: this.options.baseUrl, 'content-type': file.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg',
         'idempotency-key': id, 'x-audio-sha256': sha256, 'x-audio-language': language,
         ...(purpose === undefined ? {} : { 'x-muse-asr-purpose': purpose }) },
       body: await openAsBlob(file), duplex: 'half',
     }
-    return await this.request('/api/asr/jobs', init)
+    return await this.request('/api/asr/jobs', init, signal)
   }
 
   /**
    * Read a previously submitted job; this never starts a new provider request.
    * @param id - Durable idempotency UUID.
+   * @param signal - Caller cancellation; awaited transport/body settlement preserves its reason.
    * @returns Account-scoped job status.
    */
-  async get(id: string): Promise<MuseAsrJob> {
-    return await this.request(`/api/asr/jobs/${encodeURIComponent(id)}`, { method: 'GET' })
+  async get(id: string, signal?: AbortSignal): Promise<MuseAsrJob> {
+    return await this.request(`/api/asr/jobs/${encodeURIComponent(id)}`, { method: 'GET' }, signal)
   }
 }

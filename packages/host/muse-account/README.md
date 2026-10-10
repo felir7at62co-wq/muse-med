@@ -90,6 +90,8 @@ The MCP SDK validates remote response fields; the local bridge accepts only text
 
 The Host-only `MuseAsrClient` reads the same saved account session for the `audio_transcribe` tool. A submit carries the receipt's optional `X-Muse-Asr-Purpose` (`subtitles` or `screenplay`); a query uses the existing account-scoped job ID. Omission preserves legacy routing. The client accepts optional safe purpose and service-version metadata and retains sentence and word timestamps in seconds, refusing invalid spans. Desktop exposes no provider keys, resource picker, or TOS credentials. Missing account login, gateway, or server ASR configuration has an explicit failure. The server deployment and task limits are documented in [`services/muse-accounts`](../../../services/muse-accounts/README.md).
 
+Host transcription calls accept a caller cancellation signal alongside the request timeout. They abort uploads and response reads, preserve the caller’s cancellation reason, and await transport or unread-body cleanup before settling. Cancellation does not revoke an already accepted gateway job.
+
 Transcription refusals distinguish queue capacity, upload contention, account request rate, provider service limits, daily account quota, and idempotency conflicts. The client keeps validated `Retry-After` seconds but discards upstream diagnostics. It never retries a submission inside an HTTP call; the receipt-owning tool controls explicit recovery.
 
 No runtime invariant companion is published because account status and registered MCP tools are available through their owning service and tool registry, with no independent observation that could diverge.

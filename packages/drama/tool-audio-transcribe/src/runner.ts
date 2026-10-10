@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { createReadStream } from 'node:fs'
+import { pipeline } from 'node:stream/promises'
 import { chmod, link, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { MuseAsrError, type MuseAsrJob, type MuseAsrPurpose, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
@@ -9,8 +10,8 @@ import { MuseAsrError, type MuseAsrJob, type MuseAsrPurpose, type MuseAccountSta
 /** Host-only account service methods consumed by the model tool. */
 export interface AudioAccount {
   status(request: { verify?: boolean }): Promise<MuseAccountStatus>
-  submitAudio(file: string, id: string, sha256: string, language: 'zh' | 'auto', purpose?: MuseAsrPurpose): Promise<MuseAsrJob>
-  audioStatus(id: string): Promise<MuseAsrJob>
+  submitAudio(file: string, id: string, sha256: string, language: 'zh' | 'auto', purpose?: MuseAsrPurpose, signal?: AbortSignal): Promise<MuseAsrJob>
+  audioStatus(id: string, signal?: AbortSignal): Promise<MuseAsrJob>
 }
 
 /** Process and file limits controlled by the product row. */
@@ -25,8 +26,8 @@ export interface AudioRunnerConfig {
 
 /** Injectable media operations for deterministic tests of receipt and publication behavior. */
 export interface AudioMediaOperations {
-  probe(source: string): Promise<number>
-  encode(source: string, target: string, range?: { offset: number; duration: number }): Promise<void>
+  probe(source: string, signal?: AbortSignal): Promise<number>
+  encode(source: string, target: string, range?: { offset: number; duration: number }, signal?: AbortSignal): Promise<void>
 }
 
 /** Agent-visible receipt path and local output state. */
@@ -68,13 +69,18 @@ interface Receipt {
   readonly status: MuseAsrJob['status'] | 'prepared'
 }
 
-async function command(executable: string, args: readonly string[], timeoutMs: number): Promise<string> {
+async function command(executable: string, args: readonly string[], timeoutMs: number, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted()
   return await new Promise((resolveCommand, reject) => {
     const child = spawn(executable, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
     let stderrBytes = 0
     let exceededOutput = false
     let timedOut = false
+    let processError = false
+    const abort = (): void => { child.kill('SIGKILL') }
+    signal?.addEventListener('abort', abort, { once: true })
+    if (signal?.aborted) abort()
     const timer = setTimeout(() => { timedOut = true; child.kill() }, timeoutMs)
     child.stdout.on('data', (chunk: Buffer) => {
       output += chunk.toString()
@@ -84,18 +90,24 @@ async function command(executable: string, args: readonly string[], timeoutMs: n
       stderrBytes += chunk.length
       if (stderrBytes > 65_536) { exceededOutput = true; child.kill() }
     })
-    child.once('error', () => { clearTimeout(timer); reject(new Error('Bundled FFmpeg or FFprobe is unavailable')) })
+    child.once('error', () => { processError = true })
     child.once('close', (code) => {
       clearTimeout(timer)
-      if (code === 0 && !exceededOutput && !timedOut) resolveCommand(output)
+      signal?.removeEventListener('abort', abort)
+      if (signal?.aborted) reject(signal.reason)
+      else if (processError) reject(new Error('Bundled FFmpeg or FFprobe is unavailable'))
+      else if (code === 0 && !exceededOutput && !timedOut) resolveCommand(output)
       else reject(new Error('Media extraction or probe failed'))
     })
   })
 }
 
-async function digest(file: string): Promise<string> {
+async function digest(file: string, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted()
   const hash = createHash('sha256')
-  for await (const chunk of createReadStream(file) as AsyncIterable<Uint8Array>) hash.update(chunk)
+  try { await pipeline(createReadStream(file), hash, { signal }) }
+  catch (error) { signal?.throwIfAborted(); throw error }
+  signal?.throwIfAborted()
   return hash.digest('hex')
 }
 
@@ -107,9 +119,14 @@ function timestamp(seconds: number): string {
   return `${hours}:${minutes}:${remainder}.${(ms % 1000).toString().padStart(3, '0')}`
 }
 
-async function save(file: string, receipt: Receipt): Promise<void> {
+async function save(file: string, receipt: Receipt, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
   const staged = `${file}.${randomUUID()}.tmp`
-  try { await writeFile(staged, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 }); await rename(staged, file) }
+  try {
+    await writeFile(staged, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
+    signal?.throwIfAborted()
+    await rename(staged, file)
+  }
   finally { await rm(staged, { force: true }) }
 }
 
@@ -183,18 +200,25 @@ function paths(project: string, receipt: Receipt): { txt: string; json: string; 
   return { txt: join(project, 'transcript', 'raw', stem + '.txt'), json: join(project, 'transcript', 'raw', stem + '.json'), srt: join(project, 'transcript', 'raw', stem + '.srt') }
 }
 
-async function publish(project: string, receipt: Receipt, segments: NonNullable<MuseAsrJob['segments']>): Promise<{ txt: string; json: string; srt: string }> {
+async function publish(
+  project: string, receipt: Receipt, segments: NonNullable<MuseAsrJob['segments']>, signal?: AbortSignal,
+): Promise<{ txt: string; json: string; srt: string }> {
+  signal?.throwIfAborted()
   const target = paths(project, receipt)
   await mkdir(dirname(target.txt), { recursive: true, mode: 0o700 })
+  signal?.throwIfAborted()
   if (process.platform !== 'win32') await chmod(dirname(target.txt), 0o700)
   const text = segments.map(row => `[${timestamp(row.start)} --> ${timestamp(row.end)}] ${row.text}\n`).join('')
   const srt = segments.map((row, index) => `${index + 1}\n${timestamp(row.start).replace('.', ',')} --> ${timestamp(row.end).replace('.', ',')}\n${row.text}\n`).join('\n')
   for (const [file, content] of [[target.txt, text], [target.json, JSON.stringify(segments, null, 2) + '\n'], [target.srt, srt]] as const) {
+    signal?.throwIfAborted()
     const temporary = `${file}.${randomUUID()}.tmp`
     try {
       await writeFile(temporary, content, { flag: 'wx', mode: 0o600 })
+      signal?.throwIfAborted()
       try { await link(temporary, file) }
       catch (error) {
+        signal?.throwIfAborted()
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || await readFile(file, 'utf8') !== content) throw error
       }
     } finally { await rm(temporary, { force: true }) }
@@ -211,16 +235,21 @@ async function publish(project: string, receipt: Receipt, segments: NonNullable<
  * @param config - Local media limits and executable paths.
  * @param media - Optional deterministic media adapter for tests.
  * @param purpose - Transcription use, resolved to subtitles for a new task when omitted.
+ * @param signal - Cancellation; stops new work and rejects only after staging or upload has settled.
  * @returns Durable job receipt and current gateway status.
  */
-export async function startAudioTranscription(projectPath: string, inputPath: string, language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig, media?: AudioMediaOperations, purpose?: MuseAsrPurpose): Promise<AudioRunResult> {
-  return portableResult(await startReceipt(projectPath, inputPath, language, account, config, media, purpose))
+export async function startAudioTranscription(projectPath: string, inputPath: string, language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig, media?: AudioMediaOperations, purpose?: MuseAsrPurpose, signal?: AbortSignal): Promise<AudioRunResult> {
+  const result = await startReceipt(projectPath, inputPath, language, account, config, media, purpose, signal)
+  signal?.throwIfAborted()
+  return portableResult(result)
 }
 
-async function startReceipt(projectPath: string, inputPath: string, language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig, media?: AudioMediaOperations, purpose?: MuseAsrPurpose): Promise<AudioRunResult> {
+async function startReceipt(projectPath: string, inputPath: string, language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig, media?: AudioMediaOperations, purpose?: MuseAsrPurpose, signal?: AbortSignal): Promise<AudioRunResult> {
+  signal?.throwIfAborted()
   const resolvedPurpose = resolvePurpose(purpose)
   const project = resolve(projectPath), source = resolve(inputPath)
   const identity = await account.status({})
+  signal?.throwIfAborted()
   if (identity.state !== 'signed-in') throw new Error('Sign in to Muse Account before cloud transcription')
   if (!(await stat(source)).isFile()) throw new Error('Transcription input is not a file')
   const transcript = join(project, 'transcript'), jobs = join(transcript, 'jobs')
@@ -233,6 +262,7 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     if (!name.endsWith('.json')) continue
     const file = join(jobs, name)
     const prior = await readReceipt(file)
+    signal?.throwIfAborted()
     if (prior.source === source && !['complete', 'silent', 'failed'].includes(prior.status)) {
       if (prior.accountUsername !== identity.username) throw new Error('Existing transcription receipt belongs to another Muse account')
       if ((prior.purpose ?? 'subtitles') !== resolvedPurpose) throw new Error(`Existing transcription receipt has a different purpose; query status with receipt ${file}`)
@@ -240,44 +270,54 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     }
   }
   const stem = basename(source).replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_').slice(0, 80) || 'media'
-  const duration = media ? await media.probe(source)
-    : Number((await command(config.ffprobePath, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', source], config.commandTimeoutMs)).trim())
+  signal?.throwIfAborted()
+  const duration = media ? await media.probe(source, signal)
+    : Number((await command(config.ffprobePath, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', source], config.commandTimeoutMs, signal)).trim())
+  signal?.throwIfAborted()
   if (!Number.isFinite(duration) || duration <= 0 || duration > config.maxDurationSeconds) throw new Error('Media duration exceeds the cloud transcription limit')
   let version = 1
   while (true) {
+    signal?.throwIfAborted()
     const prefix = `${stem}-v${version}`
     const existing = await Promise.all([join(jobs, prefix + '.json'), join(project, 'transcript', 'raw', prefix + '.txt'), join(project, 'transcript', 'raw', prefix + '.json')].map(async path => stat(path).then(() => true, () => false)))
     if (!existing.some(Boolean)) break
     version += 1
   }
-  const sourceSha256 = await digest(source)
+  const sourceSha256 = await digest(source, signal)
   const chunkSeconds = config.chunkSeconds ?? 600
   if (!Number.isSafeInteger(chunkSeconds) || chunkSeconds < 1 || chunkSeconds > 7200) throw new Error('Invalid cloud audio chunk duration')
   if (duration > chunkSeconds) {
     return await startParts(project, source, sourceSha256, duration, chunkSeconds,
-      stem, version, language, resolvedPurpose, identity.username, account, config, media)
+      stem, version, language, resolvedPurpose, identity.username, account, config, media, signal)
   }
   const id = randomUUID(), mp3 = join(jobs, `.${id}.wav`), receiptPath = join(jobs, `${stem}-v${version}.json`)
   try {
     const staged = await open(mp3, 'wx', 0o600)
     await staged.close()
-    if (media) await media.encode(source, mp3)
-    else await command(config.ffmpegPath, ['-nostdin', '-y', '-hide_banner', '-loglevel', 'error', '-i', source, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', '-f', 'wav', mp3], config.commandTimeoutMs)
+    signal?.throwIfAborted()
+    if (media) await media.encode(source, mp3, undefined, signal)
+    else await command(config.ffmpegPath, ['-nostdin', '-y', '-hide_banner', '-loglevel', 'error', '-i', source, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', '-f', 'wav', mp3], config.commandTimeoutMs, signal)
+    signal?.throwIfAborted()
     if (process.platform !== 'win32') await chmod(mp3, 0o600)
     const size = (await stat(mp3)).size
     if (!size || size > config.maxAudioBytes) throw new Error('Compressed audio exceeds the cloud transcription size limit')
-    if (await digest(source) !== sourceSha256) throw new Error('Media changed during audio extraction')
-    const receipt: Receipt = { id, source, sourceSha256, accountUsername: identity.username, stem, version, language, purpose: resolvedPurpose, sha256: await digest(mp3), mp3, status: 'prepared' }
+    if (await digest(source, signal) !== sourceSha256) throw new Error('Media changed during audio extraction')
+    const receipt: Receipt = { id, source, sourceSha256, accountUsername: identity.username, stem, version, language, purpose: resolvedPurpose, sha256: await digest(mp3, signal), mp3, status: 'prepared' }
     await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
-    const job = await account.submitAudio(mp3, id, receipt.sha256, language, receipt.purpose)
+    signal?.throwIfAborted()
+    const job = await account.submitAudio(mp3, id, receipt.sha256, language, receipt.purpose, signal)
+    signal?.throwIfAborted()
     if (job.id !== id) throw new Error('Cloud transcription returned a different task ID')
     assertJobPurpose(job, receipt.purpose)
-    await save(receiptPath, { ...receipt, status: job.status })
+    await save(receiptPath, { ...receipt, status: job.status }, signal)
     return { status: job.status, receipt: receiptPath, job_id: id, ...purposeField(receipt.purpose) }
   } catch (error) {
     const persisted = await stat(receiptPath).then(() => true, () => false)
     if (!persisted) await rm(mp3, { force: true })
-    else if (error instanceof MuseAsrError) return rejectedResult(project, receiptPath, await readReceipt(receiptPath), error)
+    else if (!signal?.aborted && error instanceof MuseAsrError) {
+      return rejectedResult(project, receiptPath, await readReceipt(receiptPath), error)
+    }
+    signal?.throwIfAborted()
     throw error
   }
 }
@@ -287,55 +327,75 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
  * @param projectPath - Project containing the receipt and output directory.
  * @param receiptPath - Receipt previously returned by start.
  * @param account - Current Host account operations.
- * @returns Current status and completed output paths when available.
+ * @param signal - Cancellation; stops further queries, recovery uploads, and publication.
+ * @returns Current status and completed output paths when available after owned work settles.
  */
-export async function finishAudioTranscription(projectPath: string, receiptPath: string, account: AudioAccount): Promise<AudioRunResult> {
-  try { return portableResult(await finishReceipt(projectPath, receiptPath, account)) }
+export async function finishAudioTranscription(
+  projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal,
+): Promise<AudioRunResult> {
+  try {
+    const result = await finishReceipt(projectPath, receiptPath, account, signal)
+    signal?.throwIfAborted()
+    return portableResult(result)
+  }
   catch (error) {
+    signal?.throwIfAborted()
     if (!(error instanceof MuseAsrError) || error.code === 'job-not-found') throw error
     const file = resolve(receiptPath)
     return portableResult(rejectedResult(resolve(projectPath), file, await readReceipt(file), error))
   }
 }
 
-async function finishReceipt(projectPath: string, receiptPath: string, account: AudioAccount): Promise<AudioRunResult> {
+async function finishReceipt(
+  projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal,
+): Promise<AudioRunResult> {
+  signal?.throwIfAborted()
   const project = resolve(projectPath), receiptFile = resolve(receiptPath), jobs = join(project, 'transcript', 'jobs')
   if (dirname(receiptFile) !== jobs || !/^[\w.-]+-v\d+\.json$/.test(basename(receiptFile))) throw new Error('Receipt must be inside this project transcript/jobs directory')
   const receipt = await readReceipt(receiptFile)
+  signal?.throwIfAborted()
   const identity = await account.status({})
+  signal?.throwIfAborted()
   if (identity.state !== 'signed-in' || identity.username !== receipt.accountUsername) throw new Error('Sign in to the Muse account that created this transcription receipt')
   if (![join(jobs, `.${receipt.id}.mp3`), join(jobs, `.${receipt.id}.wav`)].includes(receipt.mp3)
     || basename(receiptFile) !== `${receipt.stem}-v${receipt.version}.json`) throw new Error('Receipt paths do not match this project')
-  if (receipt.parts !== undefined) return await finishParts(project, receiptFile, receipt, receipt.parts, account)
+  if (receipt.parts !== undefined) return await finishParts(project, receiptFile, receipt, receipt.parts, account, signal)
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.txt).then(() => true, () => false)
     && await stat(target.json).then(() => true, () => false)) return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), output_txt: target.txt, output_json: target.json, ...(await stat(target.srt).then(() => true, () => false) ? { output_srt: target.srt } : {}) }
   let job: MuseAsrJob
   let submitted = false
-  try { job = await account.audioStatus(receipt.id) }
+  try { signal?.throwIfAborted(); job = await account.audioStatus(receipt.id, signal) }
   catch (error) {
+    signal?.throwIfAborted()
     if (!(error instanceof MuseAsrError) || error.code !== 'job-not-found'
       || !['prepared', 'uncertain'].includes(receipt.status)
       || !(await stat(receipt.mp3).then(() => true, () => false))) throw error
-    job = await account.submitAudio(receipt.mp3, receipt.id, receipt.sha256, receipt.language, receipt.purpose)
+    signal?.throwIfAborted()
+    job = await account.submitAudio(receipt.mp3, receipt.id, receipt.sha256, receipt.language, receipt.purpose, signal)
     submitted = true
   }
+  signal?.throwIfAborted()
   if (job.id !== receipt.id) throw new Error('Cloud transcription returned a different task ID')
   assertJobPurpose(job, receipt.purpose)
   if (!submitted && ['preparing', 'failed'].includes(job.status)
     && await stat(receipt.mp3).then(() => true, () => false)) {
-    job = await account.submitAudio(receipt.mp3, receipt.id, receipt.sha256, receipt.language, receipt.purpose)
+    signal?.throwIfAborted()
+    job = await account.submitAudio(receipt.mp3, receipt.id, receipt.sha256, receipt.language, receipt.purpose, signal)
   }
+  signal?.throwIfAborted()
   if (job.id !== receipt.id) throw new Error('Cloud transcription returned a different task ID')
   assertJobPurpose(job, receipt.purpose)
   if (job.status === 'complete') {
     if (!job.segments?.length) throw new Error('Cloud transcription has no timed speech segments')
-    await publish(project, receipt, job.segments)
-    await save(receiptFile, { ...receipt, status: 'complete' })
+    await publish(project, receipt, job.segments, signal)
+    await save(receiptFile, { ...receipt, status: 'complete' }, signal)
+    signal?.throwIfAborted()
     await rm(receipt.mp3, { force: true })
     return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), output_txt: target.txt, output_json: target.json, ...(await stat(target.srt).then(() => true, () => false) ? { output_srt: target.srt } : {}) }
   }
-  await save(receiptFile, { ...receipt, status: job.status })
+  await save(receiptFile, { ...receipt, status: job.status }, signal)
+  signal?.throwIfAborted()
   if (job.status === 'silent' || job.status === 'failed' || job.retentionExpired) await rm(receipt.mp3, { force: true })
   return { status: job.status, receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose) }
 }
@@ -343,35 +403,41 @@ async function finishReceipt(projectPath: string, receiptPath: string, account: 
 
 async function startParts(project: string, source: string, sourceSha256: string, duration: number, chunkSeconds: number,
   stem: string, version: number, language: 'zh' | 'auto', purpose: MuseAsrPurpose, username: string, account: AudioAccount,
-  config: AudioRunnerConfig, media?: AudioMediaOperations): Promise<AudioRunResult> {
+  config: AudioRunnerConfig, media?: AudioMediaOperations, signal?: AbortSignal): Promise<AudioRunResult> {
   const id = randomUUID(), jobs = join(project, 'transcript', 'jobs'), receiptFile = join(jobs, `${stem}-v${version}.json`)
   const parts: AudioPart[] = []
   const staged: string[] = []
   let persisted = false
   try {
     for (let offset = 0; offset < duration; offset += chunkSeconds) {
+      signal?.throwIfAborted()
       const partId = randomUUID(), mp3 = join(jobs, `.${partId}.wav`), seconds = Math.min(chunkSeconds, duration - offset)
       const handle = await open(mp3, 'wx', 0o600); await handle.close(); staged.push(mp3)
-      if (media) await media.encode(source, mp3, { offset, duration: seconds })
+      signal?.throwIfAborted()
+      if (media) await media.encode(source, mp3, { offset, duration: seconds }, signal)
       else await command(config.ffmpegPath, ['-nostdin', '-y', '-hide_banner', '-loglevel', 'error', '-ss', String(offset),
-        '-i', source, '-t', String(seconds), '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', '-f', 'wav', mp3], config.commandTimeoutMs)
+        '-i', source, '-t', String(seconds), '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', '-f', 'wav', mp3], config.commandTimeoutMs, signal)
+      signal?.throwIfAborted()
       const size = (await stat(mp3)).size
       if (!size || size > config.maxAudioBytes) throw new Error('Compressed audio part exceeds cloud limit')
-      parts.push({ id: partId, mp3, sha256: await digest(mp3), offset, duration: seconds, purpose })
+      parts.push({ id: partId, mp3, sha256: await digest(mp3, signal), offset, duration: seconds, purpose })
     }
-    if (await digest(source) !== sourceSha256) throw new Error('Media changed during audio extraction')
+    if (await digest(source, signal) !== sourceSha256) throw new Error('Media changed during audio extraction')
     const receipt: Receipt = { id, source, sourceSha256, stem, version, language, purpose, accountUsername: username,
       mp3: join(jobs, `.${id}.wav`), sha256: sourceSha256, parts, status: 'prepared' }
     await writeFile(receiptFile, JSON.stringify(receipt, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
     persisted = true
     for (const part of parts) {
-      const job = await account.submitAudio(part.mp3, part.id, part.sha256, language, part.purpose)
+      signal?.throwIfAborted()
+      const job = await account.submitAudio(part.mp3, part.id, part.sha256, language, part.purpose, signal)
+      signal?.throwIfAborted()
       if (job.id !== part.id) throw new Error('Cloud transcription returned a different part ID')
       assertJobPurpose(job, part.purpose)
     }
-    await save(receiptFile, { ...receipt, status: 'processing' })
+    await save(receiptFile, { ...receipt, status: 'processing' }, signal)
     return { status: 'processing', receipt: receiptFile, job_id: id, purpose }
   } catch (error) {
+    signal?.throwIfAborted()
     if (persisted && error instanceof MuseAsrError) return rejectedResult(project, receiptFile, await readReceipt(receiptFile), error)
     throw error
   } finally {
@@ -380,7 +446,7 @@ async function startParts(project: string, source: string, sourceSha256: string,
 }
 
 async function finishParts(
-  project: string, receiptFile: string, receipt: Receipt, parts: readonly AudioPart[], account: AudioAccount,
+  project: string, receiptFile: string, receipt: Receipt, parts: readonly AudioPart[], account: AudioAccount, signal?: AbortSignal,
 ): Promise<AudioRunResult> {
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.json).then(() => true, () => false)
@@ -397,19 +463,22 @@ async function finishParts(
   for (const part of parts) {
     let job: MuseAsrJob
     let submitted = false
-    try { job = await account.audioStatus(part.id) }
+    try { signal?.throwIfAborted(); job = await account.audioStatus(part.id, signal) }
     catch (error) {
+      signal?.throwIfAborted()
       if (!(error instanceof MuseAsrError) || error.code !== 'job-not-found' || part.retentionExpired) throw error
-      if (await digest(part.mp3) !== part.sha256) throw new Error('Staged audio part changed')
-      job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language, part.purpose)
+      if (await digest(part.mp3, signal) !== part.sha256) throw new Error('Staged audio part changed')
+      job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language, part.purpose, signal)
       submitted = true
     }
+    signal?.throwIfAborted()
     if (job.id !== part.id) throw new Error('Cloud transcription returned a different part ID')
     assertJobPurpose(job, part.purpose)
     if (!submitted && job.status === 'preparing' && !part.retentionExpired) {
-      if (await digest(part.mp3) !== part.sha256) throw new Error('Staged audio part changed')
-      job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language, part.purpose)
+      if (await digest(part.mp3, signal) !== part.sha256) throw new Error('Staged audio part changed')
+      job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language, part.purpose, signal)
     }
+    signal?.throwIfAborted()
     if (job.id !== part.id) throw new Error('Cloud transcription returned a different part ID')
     assertJobPurpose(job, part.purpose)
     results.push({ job, part })
@@ -429,11 +498,13 @@ async function finishParts(
           })) }) }
       })
     })
-    await publish(project, receipt, segments)
+    await publish(project, receipt, segments, signal)
   }
   const updatedParts = parts.map((part, index) => results[index]?.job.retentionExpired ? { ...part, retentionExpired: true } : part)
-  await save(receiptFile, { ...receipt, status, parts: updatedParts })
-  await Promise.all(updatedParts.filter(part => part.retentionExpired).map(part => rm(part.mp3, { force: true })))
-  if (['complete', 'silent', 'failed'].includes(status)) await Promise.all(parts.map(part => rm(part.mp3, { force: true })))
+  await save(receiptFile, { ...receipt, status, parts: updatedParts }, signal)
+  for (const part of updatedParts) {
+    signal?.throwIfAborted()
+    if (part.retentionExpired || ['complete', 'silent', 'failed'].includes(status)) await rm(part.mp3, { force: true })
+  }
   return { status, receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), ...(status === 'complete' ? { output_txt: target.txt, output_json: target.json, output_srt: target.srt } : {}) }
 }
