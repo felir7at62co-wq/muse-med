@@ -44,7 +44,11 @@ export interface Config {
   defaultFrames: number
   /** Largest dimension of an extracted frame, in pixels. */
   frameMaxDimension: number
-  /** Largest complete PNG output from one extraction command, in bytes. */
+  /** Encoding of extracted observations; original video bytes remain unchanged. */
+  frameFormat: 'png' | 'jpeg'
+  /** FFmpeg JPEG quantizer, from 1 (highest quality) to 31; ignored for PNG. */
+  frameJpegQuality: number
+  /** Largest complete image output from one extraction command, in bytes. */
   maxFrameBytes: number
   /** Largest simultaneous inspection count. */
   maxConcurrent: number
@@ -73,6 +77,8 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   maxFrames: Schema.number().step(1).min(1).max(32).default(12),
   defaultFrames: Schema.number().step(1).min(1).max(32).default(6),
   frameMaxDimension: Schema.number().step(1).min(64).max(4096).default(1280),
+  frameFormat: Schema.union(['png', 'jpeg']).default('png'),
+  frameJpegQuality: Schema.number().step(1).min(1).max(31).default(2),
   maxFrameBytes: Schema.number().step(1).min(1024).max(32 * 1024 * 1024).default(4 * 1024 * 1024),
   maxConcurrent: Schema.number().step(1).min(1).max(16).default(2),
   commandTimeoutMs: Schema.number().step(1).min(1000).max(600_000).default(60_000),
@@ -277,13 +283,17 @@ export function apply(ctx: Context, config: Config): void {
             const frame = await runMedia(ctx, [ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'info', '-protocol_whitelist', 'file,pipe',
               '-ss', String(seek), '-copyts', '-i', source, '-map', '0:v:0', '-an', '-sn', '-dn', '-frames:v', '1',
               '-vf', `scale=w='min(${config.frameMaxDimension},iw)':h='min(${config.frameMaxDimension},ih)':force_original_aspect_ratio=decrease,showinfo`,
-              '-c:v', 'png', '-f', 'image2pipe', 'pipe:1'], policy, signal, { ...limits, maxBytes: config.maxFrameBytes })
+              '-c:v', config.frameFormat === 'png' ? 'png' : 'mjpeg',
+              ...config.frameFormat === 'jpeg' ? ['-q:v', String(config.frameJpegQuality)] : [],
+              '-f', 'image2pipe', 'pipe:1'], policy, signal, { ...limits, maxBytes: config.maxFrameBytes })
             const match = /\bpts_time:([\d.e+-]+)/.exec(frame.diagnostic)
             const timestamp = match ? Number(match[1]) : NaN
             if (!Number.isFinite(timestamp) || timestamp < 0 || timestamp >= metadata.duration_seconds || !frame.bytes.length) {
               throw new Error('Frame extraction did not return a verifiable source timestamp and image')
             }
-            const image = await ctx.attachments.saveImage({ data: frame.bytes, mediaType: 'image/png', name: `video-frame-${timestamp}.png` })
+            const image = await ctx.attachments.saveImage({ data: frame.bytes,
+              mediaType: config.frameFormat === 'png' ? 'image/png' : 'image/jpeg',
+              name: `video-frame-${timestamp}.${config.frameFormat === 'png' ? 'png' : 'jpg'}` })
             frames.push({ requested_seconds: seek, timestamp_seconds: timestamp, image })
           }
         }

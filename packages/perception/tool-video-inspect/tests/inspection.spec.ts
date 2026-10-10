@@ -73,6 +73,31 @@ it('returns decoded source frames with original timestamps, durable image refere
   expect(retained.frames).toHaveLength(2)
 }, 30_000)
 
+it('encodes JPEG observations with the configured quantizer and source timestamps', async () => {
+  const h = await setup({ frameFormat: 'jpeg', frameJpegQuality: 3 })
+  const run = vi.spyOn(Media, 'runMedia')
+  const result = await h.call({ timestamps_seconds: [0.5, 2.5], end_seconds: 4, manifest_path: 'qa/jpeg.json' })
+  expect(result.isError).toBe(false)
+  const images = result.content.filter(block => block.type === 'image')
+  expect(images).toHaveLength(2)
+  for (const image of images) {
+    expect(image.attachment).toMatchObject({ mediaType: 'image/jpeg', width: 64, height: 48 })
+    const stored = await h.ctx.attachments.readImage(image.attachment)
+    expect(Array.from(stored.data.slice(0, 2))).toEqual([0xff, 0xd8])
+  }
+  expect(run.mock.calls.filter(call => call[1].includes('mjpeg'))).toHaveLength(2)
+  expect(run.mock.calls.find(call => call[1].includes('mjpeg'))?.[1]).toEqual(expect.arrayContaining(['-q:v', '3']))
+  const manifest: unknown = JSON.parse(await readFile(join(h.root, 'qa/jpeg.json'), 'utf8'))
+  expect(manifest).toMatchObject({ frames: [{ timestamp_seconds: 0.5 }, { timestamp_seconds: 2.5 }] })
+  expect(() => VideoInspect.Config({
+    // @ts-expect-error Config parsing must reject an unsupported deployment encoding.
+    frameFormat: 'webp',
+  })).toThrow()
+  for (const frameJpegQuality of [0, 32]) {
+    expect(() => VideoInspect.Config({ frameJpegQuality })).toThrow()
+  }
+}, 30_000)
+
 it('rejects a text-only model before filesystem or media work while permitting metadata-only reads', async () => {
   const h = await setup()
   const resolve = vi.spyOn(h.ctx.fs, 'resolve')

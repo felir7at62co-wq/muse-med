@@ -1311,7 +1311,7 @@ interface ToolArgsMap {
     strategy?: "uniform" | "scene_dialogue";
     /** Optional actual audio_transcribe JSON array or segments wrapper for scene_dialogue; video and ASR source must describe the same complete clip. */
     transcript_path?: string;
-    /** Uniform samples, default 6; maximum 12. */
+    /** Uniform samples, default 4; maximum 12. */
     frame_count?: number;
     /** Optional explicit seek times inside the interval instead of uniform samples; maximum 12. */
     timestamps_seconds?: number[];

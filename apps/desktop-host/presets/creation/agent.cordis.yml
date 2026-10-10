@@ -209,6 +209,9 @@
   name: '@deepseek-ai/dsh-tool-video-inspect'
   config:
     trustedEvidence: true
+    frameFormat: jpeg
+    frameJpegQuality: 2
+    defaultFrames: 4
     ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
     ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
 
