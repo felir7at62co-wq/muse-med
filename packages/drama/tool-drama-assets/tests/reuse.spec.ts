@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { reusePreview } from '../src/reuse.ts'
 import { character, scene, voice, limits, edit, tree } from './matching-fixture.ts'
-import { card, mapping, reuseProject, reuseProvider } from './reuse-fixture.ts'
+import { card, image, mapping, reuseProject, reuseProvider } from './reuse-fixture.ts'
 import type { MatchRequirement } from '../src/matching.ts'
 
 const roots: string[] = []
@@ -131,6 +131,30 @@ it('preserves unrelated images, reference audio, prompt, model and provider fiel
   expect(result.shots[0]?.after_sha256).toMatch(/^[a-f0-9]{64}$/)
   expect(JSON.stringify(original)).toBe(before)
 })
+
+it.each([undefined, 'asset-12', '12'] as const)(
+  'safely rejects an unchanged legacy image with non-numeric materialAssetId %s', async (parentId) => {
+    const root = await project(), original = card()
+    const background: Record<string, unknown> = image(12, 'bg', '大厅', 'https://example.invalid/lobby.png', 2)
+    delete background.materialAssetId
+    if (parentId !== undefined) background.materialAssetId = parentId
+    const materials = original.storyboardMaterialList
+    if (!Array.isArray(materials)) throw new Error('Missing fixture materials')
+    materials[1] = background
+    const before = JSON.stringify(original), filesBefore = await tree(root)
+    const mock = reuseProvider({ cards: [original] })
+    const result = await reusePreview(mock.client, root, 'requirements.json', 'reuse.json', limits)
+    expect(result.status).toBe('blocked')
+    expect(result.shots[0]).toMatchObject({
+      status: 'blocked', reason_codes: ['UNMAPPED_MATERIAL'], selections: [], apply_allowed: false,
+    })
+    expect(result).toMatchObject({ apply_allowed: false, local_writes: 0, remote_writes: 0, paid_requests: 0 })
+    expect(mock.calls.some(call => call.path.includes('/storyboard/'))).toBe(true)
+    expect(mock.calls.every(call => call.method === 'GET')).toBe(true)
+    expect(JSON.stringify(original)).toBe(before)
+    expect(await tree(root)).toEqual(filesBefore)
+  },
+)
 
 it('blocks plans that would reorder unrelated materials', async () => {
   const root = await project(), original = card()
