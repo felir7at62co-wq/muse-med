@@ -7,6 +7,8 @@ description: 小说转剧本、视频转剧本、剧本换梗及长篇续写时�
 
 先读已有项目 `status`，按工具声明的策略与 self-check/independent 恢复；历史独立审校和其他 preset 的严格策略不因共通写作指南改变。分场正文起草、续写、修改或审校前，按当前工具形态加载 `screenplay-format`：native 工具直接调用 `skill` 并保留完整返回值；PTC 用 `return await tools.skill({name: "screenplay-format"})` 返回完整 `content`、`provider`、`resourceBase`。下一模型轮读到正文后，按该技能实际返回的 `resourceBase` 读取所导航的共享写作品质与时间线规范，不从本技能目录拼接跨包路径。
 
+“下一模型轮”指工具结果返回后，agent 循环发起的下一次模型请求，不是下一条用户消息。同一用户任务内可连续执行 A、B、C 及提交，但分轮必须真实发生：A 的 run_code 成功结束，后轮 B 用工具实际读回，读回内容进入再后轮 C 才判断。B 须包括当前清单和它引用的事实、来源，读取清单摘要或 status 不能代替来源读回；新清单、新事实或新候选提交后，按工具要求重读当前版本。一个短程序结束后继续后续模型轮，直到交付或明确阻塞；仅有待执行计划时不提前结束任务等用户说“继续”。
+
 ## 新创作模式的故事忠实路径
 
 PTC 调用形式是 `return await tools.screenplay_project({request: {method: "status", project: "short-drama/作品/qa/screenplay-project.json"}})`；所有项目命令都在外层 `request` 内，不能把 `method` 和 `project` 直接传给工具。项目路径指向 JSON 文件，不是目录。补充事实沿用 `status.story_policy.authorization_sha256` 等工具实际返回值；`propose_fact` / `propose_facts` 的事实包含 `kind`、`origin`、可选 `actor`、`layer`、`summary`、`anchors`，获授权演绎按公开声明补相应字段。`witnesses`、`requires_knowledge`、`sync_with` 属于场次节拍，不写进事实对象。事实编号、片段编号和引用原文从工具返回值取得；批量失败先保存起草数据并核对字段，不重新抄写整批长 JSON。参数错误先读当前 SDK 声明与收据，再恢复原项目或任务，不从头重投。
