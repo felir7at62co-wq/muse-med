@@ -45,3 +45,18 @@ export function workspaceJubianClient(options: JubianClientOptions, workspace: b
     return workspacePipelineToken(directory)
   } })
 }
+
+/**
+ * Resolve the transport settings shared by Jubian tool plugins.
+ * @param credential - Live credential-store lookup, performed on every request.
+ * @param config - Optional origin, timeout and workspace-secret policy; workspace lookup defaults to enabled.
+ * @param directory - Starting directory for workspace-secret lookup.
+ * @returns Client retaining credential-store precedence and the transport's unspecified defaults.
+ */
+export function configuredJubianClient(credential: JubianClientOptions['credential'],
+  config: { baseUrl?: string; timeoutMs?: number; workspaceSecrets?: boolean }, directory: string): JubianClient {
+  return workspaceJubianClient({ credential,
+    ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
+    ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
+  }, config.workspaceSecrets !== false, directory)
+}

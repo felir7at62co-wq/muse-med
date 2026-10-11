@@ -114,7 +114,7 @@ class ProjectFiles {
   }
 }
 
-/** One operation's inspected inputs; the caller rechecks them after planning additional reads. */
+/** Inspected inputs contain exactly one match per validated requirement; callers recheck them after additional reads. */
 export interface MatchingSnapshot {
   preview: MatchPreview
   requirements: MatchRequirement[]
@@ -169,7 +169,6 @@ async function inventory(client: JubianClient, scriptId: number, kind: 'asset' |
     if (typeof payload.total !== 'number' || !Number.isSafeInteger(payload.total) || payload.total < 0) block('PAGINATION_INCOMPLETE', 'Provider inventory has no explicit valid total.')
     if (total !== undefined && total !== mapped.total) block('INVENTORY_CHANGED', 'Provider inventory total changed between pages.')
     total = payload.total
-    if (mapped.total !== total) block('PAGINATION_INCOMPLETE', 'Provider inventory reader and declared total differ.')
     const rows = payload.rows as Row[]
     if (rows.length > limits.pageSize || result.length + rows.length > total) block('PAGINATION_INCOMPLETE', 'Provider page count does not agree with its total.')
     for (const row of rows) {
@@ -237,9 +236,16 @@ async function visualMatch(client: JubianClient, scriptId: number, req: MatchReq
     eligible.length > 1 ? 'AMBIGUOUS_CANDIDATES' : 'STATE_OR_CONDITIONS_CONFLICT')
   const knownNames = [...names(row), ...(character === undefined ? [] : names(character))]
   if (!knownNames.some(name => normalized(name) === normalized(req.name))) return base(req, 'needs_review', [row], 'IDENTITY_NAME_CONFLICT')
-  const identity = req.stable_id !== undefined && row.stable_id === req.stable_id
-    || req.kind === 'character' && character !== undefined
-      && (row.character_id === req.character_id || row.jubian_asset_id === character.asset_id)
+  const stableIdentity = req.stable_id !== undefined && row.stable_id === req.stable_id
+  const characterIdentity = req.kind === 'character' && character !== undefined
+    && (row.character_id === req.character_id || row.jubian_asset_id === character.asset_id)
+  if (req.stable_id !== undefined && !stableIdentity
+    || req.kind === 'character' && req.character_id !== undefined
+      && (!characterIdentity || row.character_id !== undefined && row.character_id !== req.character_id
+        || character.asset_id !== undefined && character.asset_id !== row.jubian_asset_id)) {
+    return base(req, 'needs_review', [row], 'IDENTITY_FIELDS_CONFLICT')
+  }
+  const identity = stableIdentity || characterIdentity
   if (!identity) return base(req, 'needs_review', [row], 'NAME_ONLY_IDENTITY_UNVERIFIED')
   if (row.official !== true || !positive(row.jubian_asset_id) || !https(row.url)) return base(req, 'needs_review', [row], 'FORMAL_ASSET_EVIDENCE_MISSING')
   const remote = assets.filter(asset => asset.id === row.jubian_asset_id)

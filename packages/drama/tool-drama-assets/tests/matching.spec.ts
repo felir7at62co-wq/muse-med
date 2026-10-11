@@ -37,6 +37,36 @@ it('prepares verified character, scene and approved voice reuse without writing 
 it('resolves the confirmed character alias across an explicit episode and costume', async () => {
   expect((await preview(await project([character]))).result.matches[0]?.status).toBe('reuse_ready')
 })
+it('accepts stable identity alone and consistent character-and-stable identities', async () => {
+  const stableOnly = { ...character, stable_id: 'lu-office' }
+  delete stableOnly.character_id
+  for (const requirement of [stableOnly, { ...character, stable_id: 'lu-office' }]) {
+    expect((await preview(await project([requirement]))).result.matches[0]?.status).toBe('reuse_ready')
+  }
+})
+it.each(['another-person', 'unknown-person'])('rejects stable identity conflicting with character %s', async (characterId) => {
+  const root = await project([{ ...character, character_id: characterId, stable_id: 'lu-office' }])
+  await edit(root, 'project_config.json', (doc) => {
+    doc.project_bible.characters.push({ character_id: 'another-person', name: '阿舟', asset_id: 14 })
+  })
+  const { result, calls } = await preview(root)
+  expect(result.matches[0]).toMatchObject({ status: 'needs_review', reason_codes: ['IDENTITY_FIELDS_CONFLICT'] })
+  expect(calls.some(call => call.path.endsWith('/asset/11'))).toBe(false)
+})
+it('rejects an explicit stable id that contradicts the registered character', async () => {
+  const { result } = await preview(await project([{ ...character, stable_id: 'another-stable-id' }]))
+  expect(result.matches[0]?.reason_codes).toEqual(['IDENTITY_FIELDS_CONFLICT'])
+})
+it('rejects a manifest character id that contradicts its parent asset identity', async () => {
+  const root = await project([character])
+  await edit(root, 'assets_manifest.json', (doc) => { fixtureRow(doc.items).character_id = 'another-person' })
+  expect((await preview(root)).result.matches[0]?.reason_codes).toEqual(['IDENTITY_FIELDS_CONFLICT'])
+})
+it('rejects a project-bible asset that contradicts the manifest character identity', async () => {
+  const root = await project([character])
+  await edit(root, 'project_config.json', (doc) => { fixtureRow(doc.project_bible.characters).asset_id = 14 })
+  expect((await preview(root)).result.matches[0]?.reason_codes).toEqual(['IDENTITY_FIELDS_CONFLICT'])
+})
 it('does not identify a character by matching name alone', async () => {
   const requirement = { ...character }
   delete requirement.character_id

@@ -67,13 +67,13 @@ token 本身就是凭据引用 `JUBIANAI_ADMIN_TOKEN`，每次读取都经 `ctx.
 
 ### 只读匹配预览
 
-调用 `method=match_preview`，传 `project_dir` 与项目内 `requirements_path`。[输入和判断规则](../skills/skills/tweet-drama-core/references/match-preview.md)规定版本1需求、精确原文行/SHA-256、已登记身份关系、场景条件和认可声线样本。结果返回 `reuse_ready`、`needs_review`、`missing` 或 `blocked`，附候选ID与原因。同名不证明身份；读取失败、分页不完整、项目冲突或来源变化均阻断，不能当作缺素材。
+调用 `method=match_preview`，传 `project_dir` 与项目内 `requirements_path`。[输入和判断规则](../skills/skills/tweet-drama-core/references/match-preview.md)规定版本1需求、精确原文行/SHA-256、已登记身份关系、场景条件和认可声线样本。结果返回 `reuse_ready`、`needs_review`、`missing` 或 `blocked`，附候选ID与原因。同名不证明身份；明确提供的稳定身份和人物身份必须与清单、项目圣经一致，矛盾时返回 `IDENTITY_FIELDS_CONFLICT`；读取失败、分页不完整、项目冲突或来源变化均阻断，不能当作缺素材。
 
 此方法不写本地或远端文件，不生成、不审批、不绑定。`missing` 仅限当前项目；历史检索继续由既有素材库 Skill 负责。复用依据是登记事实与已有认可记录，不是图像或音频质量通过判定。正式采用仍由人工决定，实际绑定沿用原工具。预览不产生 `ready` 对账证据，不改变对账、付费授权或账本。提供方读取后重新检查输入；最终绑定仍需自己的实时校验。
 
 ### 集中复用预览
 
-`reuse_preview` 复用相同匹配检查，仅在身份、状态、条件和候选选择一致时归组，返回候选详情、适用范围、版本/来源指纹及可选的逐卡素材选择建议。参见[映射格式](../skills/skills/tweet-drama-core/references/match-preview.md#集中复用与分镜预检)。沿用 `select_assets` 构造器检查图片身份和 Prompt 顺序；建议保留每项无关素材的原位置，以及模型、Prompt 和提供方字段。无法保留时阻断。首张预检失败后停止后续预检；重复预览不执行绑定。
+`reuse_preview` 复用相同匹配检查，仅在身份、状态、条件和候选选择一致时归组，返回候选详情、适用范围、版本/来源指纹及可选的逐卡素材选择建议。参见[映射格式](../skills/skills/tweet-drama-core/references/match-preview.md#集中复用与分镜预检)。沿用 `select_assets` 构造器检查图片身份和 Prompt 顺序；建议保留每项无关素材的原位置，以及模型、Prompt 和提供方字段。无法保留时阻断。人物需求未提供 `character_id` 时可按已核验 `stable_id` 归组，两种身份类型不会相互混用。图片需求映射到音频占位符时返回 `IMAGE_MAPPING_TARGETS_AUDIO` 并阻断。首张预检失败后停止后续预检；重复预览不执行绑定。
 
 流程为匹配预览 → 复用建议 → 用户确认 → 模型调用原有 `jubian_storyboard.select_assets`。`reuse_ready`、`already_bound` 和指纹是观察结果，不是授权。`apply_allowed=false` 表示预览不授予写入权限，不禁止模型取得真实用户授权后使用原有绑定工具。逐卡ID和有序 selections 来自 `shots`；来源、身份、版本或范围变化后重新审核。声线继续走 `audio_preview → audio_apply`。本包不新增绑定执行器或审批签发，既有工具继续保留授权、身份、顺序、幂等和回读检查。
 

@@ -23,7 +23,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { JUBIAN_TOKEN_REF, workspaceJubianClient, JubianError, type JubianClient } from '@deepseek-ai/dsh-jubian'
+import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianError, type JubianClient } from '@deepseek-ai/dsh-jubian'
 import { disposeAsset, evidencePath, reconcileProject, resolveProjectDir } from './reconcile.ts'
 import type { DisposedEvidence } from './reconcile.ts'
 import { matchPreview } from './matching.ts'
@@ -280,9 +280,45 @@ function presentDispose(projectDir: string, assetId: number, evidence: DisposedE
  *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
  */
 export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'reconcile' }, limits?: MatchLimits): Promise<PresentedReconcile>
+/**
+ * Run one `drama_assets` call.
+ * @param client - Jubian transport for reconciliation and GET-only matching.
+ * @param args - The dispatched arguments.
+ * @param limits - Resolved matching-only bounds; omitted calls use the declared defaults.
+ * @returns Existing reconciliation results, or a read-only matching preview.
+ * @throws {JubianError} `INVALID_ARGUMENT` for a missing argument,
+ *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
+ */
 export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'dispose' }, limits?: MatchLimits): Promise<PresentedDispose>
+/**
+ * Run one `drama_assets` call.
+ * @param client - Jubian transport for reconciliation and GET-only matching.
+ * @param args - The dispatched arguments.
+ * @param limits - Resolved matching-only bounds; omitted calls use the declared defaults.
+ * @returns Existing reconciliation results, or a read-only matching preview.
+ * @throws {JubianError} `INVALID_ARGUMENT` for a missing argument,
+ *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
+ */
 export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'match_preview' }, limits?: MatchLimits): Promise<MatchPreview>
+/**
+ * Run one `drama_assets` call.
+ * @param client - Jubian transport for reconciliation and GET-only matching.
+ * @param args - The dispatched arguments.
+ * @param limits - Resolved matching-only bounds; omitted calls use the declared defaults.
+ * @returns Existing reconciliation results, or a read-only matching preview.
+ * @throws {JubianError} `INVALID_ARGUMENT` for a missing argument,
+ *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
+ */
 export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'reuse_preview' }, limits?: MatchLimits): Promise<ReusePreview>
+/**
+ * Run one `drama_assets` call.
+ * @param client - Jubian transport for reconciliation and GET-only matching.
+ * @param args - The dispatched arguments.
+ * @param limits - Resolved matching-only bounds; omitted calls use the declared defaults.
+ * @returns Existing reconciliation results, or a read-only matching preview.
+ * @throws {JubianError} `INVALID_ARGUMENT` for a missing argument,
+ *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
+ */
 export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments,
   limits?: MatchLimits): Promise<PresentedReconcile | PresentedDispose | MatchPreview | ReusePreview>
 export async function runDramaAssets(client: JubianClient,
@@ -530,11 +566,8 @@ const DESCRIPTION = '短剧流水线的付费生成前资产对账（剧变）�
  */
 export function apply(ctx: Context, config: Config = {}): void {
   const limits = matchLimits(config)
-  const client = workspaceJubianClient({
-    credential: async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? '',
-    ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
-    ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
-  }, config.workspaceSecrets !== false, process.cwd())
+  const client = configuredJubianClient(
+    async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? '', config, process.cwd())
   ctx.tools.register(defineTool({
     name: 'drama_assets',
     description: DESCRIPTION,

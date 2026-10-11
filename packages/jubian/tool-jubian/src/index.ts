@@ -24,7 +24,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { JUBIAN_TOKEN_REF, workspaceJubianClient, JubianLedger, readProjectBudget, updateProjectBudget } from '@deepseek-ai/dsh-jubian'
+import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger, readProjectBudget, updateProjectBudget } from '@deepseek-ai/dsh-jubian'
 import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
 import { validateProjectBinding } from './native.ts'
 import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from './methods.ts'
@@ -344,11 +344,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         expected_revision: args.expected_revision, authorization }) }
     },
   })))
-  const client = workspaceJubianClient({
-    credential: async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? '',
-    ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
-    ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
-  }, config.workspaceSecrets !== false, process.cwd())
+  const client = configuredJubianClient(
+    async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? '', config, process.cwd())
   // The rows a Settings page may pick between. It shares the transport above, so
   // the token that authorizes the read stays in this process.
   ctx.plugin(JubianImageRoutes, { client })

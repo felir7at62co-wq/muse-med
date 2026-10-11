@@ -38,6 +38,34 @@ it('shares one identity-and-state group across requirements and multiple shots',
   expect(result.shots[0]?.selections).toEqual([{ material_key: 'lead', asset_id: 11 }, { material_key: 'bg', asset_id: 12 }])
   expect(mock.calls.filter(call => call.method !== 'GET')).toHaveLength(0)
 })
+it('groups stable-only character requirements and keeps identity namespaces distinct', async () => {
+  const stable = { ...character, stable_id: 'lu-office' }
+  delete stable.character_id
+  const root = await project([stable, { ...stable, id: 'char-2' }, { ...character, id: 'char-3' }])
+  const result = await reusePreview(reuseProvider().client, root, 'requirements.json', undefined, limits)
+  expect(result.groups).toHaveLength(2)
+  expect(result.groups[0]).toMatchObject({ identity: 'lu-office', status: 'reuse_ready', requirement_ids: ['char-1', 'char-2'] })
+  expect(result.groups[1]).toMatchObject({ identity: 'lu', status: 'reuse_ready' })
+})
+it('blocks an image binding aimed at an audio marker instead of declaring the card bound', async () => {
+  const shot = mapping()
+  const binding = shot.bindings[0]
+  if (!binding) throw new Error('Missing fixture binding')
+  binding.material_key = 'voice'
+  const root = await project([character], [shot]), original = card()
+  original.modelConfig = { prompt: '@[阿舟](lead)走进@[大厅](bg)，@[阿舟](voice)' }
+  original.storyboardMaterialList = [
+    image(11, 'lead', '陆沉舟（职场装）', 'https://example.invalid/lu.png', 1),
+    image(12, 'bg', '大厅', 'https://example.invalid/lobby.png', 2),
+    { materialKey: 'voice', materialType: 'audio', materialUrl: 'https://example.invalid/lu.wav', sortOrder: 1 },
+  ]
+  const before = JSON.stringify(original), mock = reuseProvider({ cards: [original] })
+  const result = await reusePreview(mock.client, root, 'requirements.json', 'reuse.json', limits)
+  expect(result.shots[0]).toMatchObject({ status: 'blocked', reason_codes: ['IMAGE_MAPPING_TARGETS_AUDIO'], selections: [] })
+  expect(result.status).toBe('blocked')
+  expect(JSON.stringify(original)).toBe(before)
+  expect(mock.calls.every(call => call.method === 'GET')).toBe(true)
+})
 
 it('keeps distinct costume or identity-state requirements separate', async () => {
   const root = await project([character, { ...character, id: 'pregnant', state_or_costume: '孕期；便服' }])

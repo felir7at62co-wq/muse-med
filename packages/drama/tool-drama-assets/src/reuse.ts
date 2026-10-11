@@ -71,10 +71,10 @@ function normalize(value: string): string { return value.normalize('NFKC').trim(
 function groupsOf(snapshot: MatchingSnapshot): ReuseGroup[] {
   const groups = new Map<string, ReuseGroup>()
   for (const req of snapshot.requirements) {
-    const match = snapshot.preview.matches.find(item => item.id === req.id)
-    if (!match) block('MATCH_RESULT_INCOMPLETE')
-    const identity = req.kind === 'scene' ? req.stable_id : req.character_id
-    const scope = { kind: req.kind, identity: identity ?? `unverified:${req.id}`,
+    const match = snapshot.preview.matches.find(item => item.id === req.id) as EntityMatch
+    const identity = req.kind === 'scene' ? req.stable_id : req.character_id ?? req.stable_id
+    const identityType = req.kind === 'scene' || req.character_id === undefined ? 'stable_id' : 'character_id'
+    const scope = { kind: req.kind, identity_type: identityType, identity: identity ?? `unverified:${req.id}`,
       conditions: req.conditions.map(normalize).sort(), state: normalize(req.state_or_costume ?? ''),
       status: match.status, asset: match.selected_asset_id ?? null, candidates: match.candidate_asset_ids }
     const key = stableSha256(scope)
@@ -157,6 +157,7 @@ async function shotPreview(client: JubianClient, snapshot: MatchingSnapshot, req
     if (current.some(row => !text(row.materialKey) || !['image', 'audio'].includes(text(row.materialType)))
       || new Set(current.map(row => text(row.materialKey))).size !== current.length) block('UNREADABLE_PLAN_OR_CARD')
     const audioKeys = current.filter(row => row.materialType === 'audio').map(row => text(row.materialKey))
+    if (resolved.some(binding => audioKeys.includes(binding.material_key))) block('IMAGE_MAPPING_TARGETS_AUDIO')
     const markers = [...config.prompt.matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)]
     const keys = [...new Set(markers.map(marker => text(marker[2])))].filter(key => !audioKeys.includes(key))
     for (const binding of resolved) {
@@ -177,13 +178,11 @@ async function shotPreview(client: JubianClient, snapshot: MatchingSnapshot, req
     const parents: Row[] = []
     for (const id of [...new Set(selections.map(selection => selection.asset_id))]) {
       const recorded = snapshot.parents.filter(row => row.id === id)
-      if (recorded.length && recorded.some(row => stableSha256(row) !== stableSha256(recorded[0]))) block('ASSET_VERSION_CHANGED')
       const parent = recorded[0] ?? record((await client.request({ method: 'GET', path: `/aigc/asset/${id}` })).data)
       parents.push(parent)
     }
     const plan = buildSubjectSelection({ storyboard: board, selections, subjectRows: snapshot.materials, parentAssets: parents })
-    const proposed = parsed(plan.payload.storyboardMaterialList)
-    if (!Array.isArray(proposed)) block('UNREADABLE_PLAN_OR_CARD')
+    const proposed = parsed(plan.payload.storyboardMaterialList) as Row[]
     for (const [index, row] of current.entries()) {
       if (!resolved.some(binding => binding.material_key === row.materialKey)
         && stableSha256(proposed[index]) !== stableSha256(row)) block('PRESERVATION_CONFLICT')
