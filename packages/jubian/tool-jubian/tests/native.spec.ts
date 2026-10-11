@@ -820,14 +820,19 @@ describe('submit_video', () => {
     expect(await ledger.find(preview.idempotencyKey)).toMatchObject({ outcome: 'accepted' })
   })
 
-  it('reports what it read for every candidate when the preflight conflicts', async () => {
+  it.each([
+    { episodeId: 93828 },
+    { episode_id: ' 93828 ' },
+    { episodeId: '93828', episode_id: 93828 },
+    {},
+  ])('reports validated episode identity %j when the preflight conflicts', async (episode) => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const { previewPath, idempotencyKey } = await prepared(provider)
     // Two shapes of historical task whose only child lost its model evidence. The second
     // is the production one: the task row itself states no storyboard id, so the classifier
     // reads it as null and cannot exclude the task from this submission's candidates.
     provider.tasks = [
-      { id: 400003, scriptId: 2708, storyboardId: 916953, taskType: 1, taskStatus: 'submit' },
+      { id: 400003, scriptId: 2708, storyboardId: 916953, taskType: 1, taskStatus: 'submit', ...episode },
       { id: 400004, scriptId: 2708, taskType: 1, taskStatus: 'submit' },
     ]
     const childWithoutModel = (taskId: number, childId: number) => ({ id: childId, aigcVideoTaskId: taskId,
@@ -840,9 +845,10 @@ describe('submit_video', () => {
     expect(result).toMatchObject({ status: 'reconcile_conflict' })
     const candidates = result.candidates as Record<string, unknown>[]
     expect(candidates.find(candidate => candidate.task_id === '400003'))
-      .toMatchObject({ storyboard_id_read: '916953', children: 1 })
+      .toMatchObject({ storyboard_id_read: '916953', episode_id: Object.keys(episode).length === 0 ? null : 93828,
+        children: 1 })
     expect(candidates.find(candidate => candidate.task_id === '400004'))
-      .toMatchObject({ storyboard_id_read: null, children: 1 })
+      .toMatchObject({ storyboard_id_read: null, episode_id: null, children: 1 })
   })
 
   it('names only the tasks the project did not have before the PUT', async () => {

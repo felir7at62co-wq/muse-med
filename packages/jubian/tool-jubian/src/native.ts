@@ -322,13 +322,6 @@ Promise<NativeVideoPreview> {
   }
 }
 
-/** Read a positive episode id; missing or malformed values cannot exclude a candidate. */
-function episodeIdOf(value: unknown): number | null {
-  if (typeof value !== 'number' && (typeof value !== 'string' || !/^[0-9]+$/.test(value.trim()))) return null
-  const id = Number(value)
-  return Number.isSafeInteger(id) && id > 0 ? id : null
-}
-
 /** Whether one task record names this storyboard in its own `storyboardId` field. */
 function statesStoryboard(record: Record<string, unknown>, storyboardId: number): boolean {
   return wireText(taskSemanticFields(record).storyboardId) === String(storyboardId)
@@ -607,7 +600,7 @@ Record<string, unknown>[] {
         // Read exactly the way the classifier reads it, so a null here is the same
         // "unreadable" that made this candidate related in the first place.
         storyboard_id_read: wireText(semantic.storyboardId),
-        episode_id: episodeIdOf(candidate.task.episodeId ?? candidate.task.episode_id),
+        episode_id: nativeEpisodeScope(candidate.task).episodeId,
         children: candidate.children.length,
       }
     })

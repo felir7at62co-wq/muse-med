@@ -296,6 +296,8 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 
 读取任务详情和子结果前，提交与对账会比较明确的集 ID 与集号（`episodeCount`）；缺失 ID 保持 null，不从集号推断 ID。明确不同的字段会排除该行；缺失字段仍保留为候选。无效别名或相互矛盾的字段报 `VIDEO_TASK_EVIDENCE_INVALID`，详情为 `VIDEO_EPISODE_INVALID` 或 `VIDEO_EPISODE_CONFLICT`。剩余候选超过 100 条时，报 `VIDEO_TASK_SCAN_LIMIT` 并指出分镜与剧集字段。这些只读检查失败不授权重新提交，保留已有账本记录的原 key。完整任务快照和账本最多一次 PUT 的保护保持不变。
 
+冲突诊断与任务匹配共用经过校验的集 ID 别名；两个别名都未提供 ID 时，报告 `episode_id: null`。
+
 判定本身就是契约。`submitted` 表示已认领唯一任务且身份完整；`subject_identity_lost` 是终态——子结果保住了 URL 却丢了身份字段，答案是人工核对，绝不是第二次 `PUT`；`reconcile_conflict` 表示出现多个候选或证据不完整，同样不是重试信号；`reconcile_required` 表示那一次 `PUT` 已经发生但暂时看不到任务，用同一个 preview 与同一个 key 再调一次只会重新对账。任何原因失败的 `PUT`——超时、`5xx`、连接中断——都会被记成 `outcome: unknown` 与 `put_ambiguous: true`：不存在自动重试，同一个 key 也永远不会发出第二次 `PUT`。
 
 `submit_video` 及批次中每个已提交项返回 `put_error`，值为 null 或已去除凭据的传输诊断 `{code, message}`；意外的本地异常只显示通用信息。`put_sent: true` 表示已尝试发出 PUT，包括业务拒绝或连接失败，不代表任务已创建或已计费。结果不明的提交保留预约金额，原键仍只做只读对账。
