@@ -585,7 +585,8 @@ const REVIEW_RECEIPT = z.object({
   revision: z.number().int().nonnegative(),
   review_receipt: z.object({
     protocol: z.literal('story-faithful-review-result-v2'),
-    candidate_id: z.string(), candidate_sha256: z.string(), review_sha256: z.string(), acceptance_sha256: z.string(),
+    candidate_id: CANDIDATE_RECORD.shape.id, candidate_sha256: CANDIDATE_RECORD.shape.sha256,
+    review_sha256: CANDIDATE_RECORD.shape.sha256, acceptance_sha256: CANDIDATE_RECORD.shape.sha256,
     decision: z.literal('approve'),
   }).strict(),
 }).strict()
