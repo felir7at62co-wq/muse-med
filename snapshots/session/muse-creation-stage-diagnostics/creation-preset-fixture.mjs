@@ -33,7 +33,8 @@ export async function apply(ctx) {
       beats: [{ kind: 'vo', actor: '乙', text: '门开了。', fact_ids: ['f:voice-fixture'],
         requires_knowledge: [], witnesses: ['甲'], audible_in_scene: true }] }
     for (const [name, bytes] of [['diagnostic-source.txt', sourceText], ['stage-diagnostic-project.json', JSON.stringify(project)],
-      ['diagnostic-scene.json', JSON.stringify(scene)]]) {
+      ['diagnostic-scene.json', JSON.stringify(scene)],
+      ['invalid-scene.json', JSON.stringify({ ...scene, beats: [{ kind: 'vo', actor: '乙', text: '门开了。', fact_ids: ['f:voice-fixture'] }] })]]) {
       const path = join(agent.session.header.cwd, name)
       originals.set(path, bytes)
       await writeFile(path, bytes, { flag: 'wx' })
@@ -57,6 +58,10 @@ export async function apply(ctx) {
       assert.ok(text.includes('missing-scene.json'))
       const value = JSON.parse(text)
       assert.equal(value.batch_failure, 'fact_batch: 本次批量审校 21 条，允许 1–20 条。')
+      assert.ok(value.schema_failure.includes('scene_file_invalid:'))
+      assert.ok(value.schema_failure.includes('invalid-scene.json'))
+      assert.ok(value.schema_failure.includes('beats.0.requires_knowledge'))
+      assert.ok(value.schema_failure.includes('beats.0.witnesses'))
     }
     if (requests >= 2) {
       assert.equal(results[1].isError, false)

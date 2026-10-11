@@ -696,7 +696,17 @@ export class ProjectCommands {
             const info = await this.fs.stat(target, exec.signal)
             if (info?.type !== 'file') throw Error(`scene_file_missing: 场次 JSON 文件不可用：${target.displayPath}`)
             const bytes = await this.fs.readBytes(target, exec.signal, this.limits.maxReadBytes)
-            scenes.push(SCENE_RECORD.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))))
+            let input: unknown
+            try { input = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) }
+            catch (error) {
+              throw Error(`scene_file_json: 场次文件 ${target.displayPath} 须为有效 UTF-8 JSON：${error instanceof Error ? error.message : String(error)}`, { cause: error })
+            }
+            const scene = SCENE_RECORD.safeParse(input)
+            if (!scene.success) {
+              const issues = scene.error.issues.map(issue => `${issue.path.length === 0 ? 'root' : issue.path.map(String).join('.')}: ${issue.message}`)
+              throw Error(`scene_file_invalid: 场次文件 ${target.displayPath} 不符合完整场次字段要求：\n${issues.join('\n')}`)
+            }
+            scenes.push(scene.data)
             inputs.push({ target, version: info.version })
           }
           for (const input of inputs) {
