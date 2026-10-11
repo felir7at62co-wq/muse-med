@@ -52,12 +52,35 @@ describe('readScript', () => {
     expect(readScript({ scriptId: '2708', modelConfig: '{', videoModelConfig: '', defaultModelConfig: null }))
       .toMatchObject({ project_settings: { modelConfig: '{', videoModelConfig: '', defaultModelConfig: null } })
   })
+
+  it('reads provider global video settings without replacing separate saved settings', () => {
+    const globalConfig = { modelId: 'doubao-seedance-2-5-260628', platformId: 'FANG_ZHOU',
+      ratio: '9:16', resolution: '480p', videoStandardId: 338 }
+    for (const saved of [globalConfig, JSON.stringify(globalConfig)]) {
+      expect(readScript({ id: 4672, globalConfig: saved, modelConfig: '{"ratio":"16:9"}' }))
+        .toMatchObject({ project_settings: { globalConfig, modelConfig: { ratio: '16:9' } } })
+    }
+    expect(readScript({ id: 4672, globalConfig: '{' }))
+      .toMatchObject({ project_settings: { globalConfig: '{' } })
+  })
 })
 
 describe('readEpisodes', () => {
+  it('keeps display episode numbers independent of remote IDs and page order', () => {
+    expect(readEpisodes({ total: 300, rows: [
+      { id: 93257, episodeCount: '3', episodeName: '分家', name: 'legacy' },
+      { id: 93256, episodeCount: 2, episodeName: null },
+      { id: 93255, episodeCount: 'missing', name: 'legacy' },
+    ] })).toEqual({ total: 300, rows: [
+      { episode_id: 93257, episode_count: 3, name: '分家' },
+      { episode_id: 93256, episode_count: 2, name: null },
+      { episode_id: 93255, episode_count: null, name: 'legacy' },
+    ] })
+  })
   it('reads one envelope page into rows plus its total', () => {
     expect(readEpisodes({ total: 2, rows: [{ id: 1, name: '第1集' }, { id: 2, name: '第2集' }] }))
-      .toEqual({ total: 2, rows: [{ episode_id: 1, name: '第1集' }, { episode_id: 2, name: '第2集' }] })
+      .toEqual({ total: 2, rows: [{ episode_id: 1, episode_count: null, name: '第1集' },
+        { episode_id: 2, episode_count: null, name: '第2集' }] })
   })
 
   it('rejects a payload that is not a page', () => {
@@ -66,7 +89,7 @@ describe('readEpisodes', () => {
 
   it('uses row count when the page omits a numeric total and keeps absent episode names null', () => {
     expect(readEpisodes({ total: '1', rows: [{ episodeId: '2' }] }))
-      .toEqual({ total: 1, rows: [{ episode_id: 2, name: null }] })
+      .toEqual({ total: 1, rows: [{ episode_id: 2, episode_count: null, name: null }] })
     for (const payload of [null, []]) {
       expect(() => readEpisodes(payload)).toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
     }

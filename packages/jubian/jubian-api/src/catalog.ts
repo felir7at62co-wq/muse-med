@@ -76,11 +76,11 @@ export function readScript(data: unknown): {
     const id = record.id ?? record.scriptId
     if (typeof id !== 'number' && typeof id !== 'string') invalid()
     const projectSettings: Record<string, unknown> = {}
-    for (const key of ['modelConfig', 'videoModelConfig', 'defaultModelConfig', 'modelId', 'platformId',
+    for (const key of ['globalConfig', 'modelConfig', 'videoModelConfig', 'defaultModelConfig', 'modelId', 'platformId',
       'ratio', 'resolution', 'scriptStyle', 'style', 'styleName', 'videoModel', 'videoPlatform']) {
       const value = record[key]
       if (value === undefined) continue
-      if (key.endsWith('ModelConfig') || key === 'modelConfig') {
+      if (key.endsWith('Config')) {
         if (typeof value === 'string' && value.trim()) {
           try { projectSettings[key] = JSON.parse(value) } catch { projectSettings[key] = value }
           continue
@@ -97,9 +97,12 @@ export function readScript(data: unknown): {
 /**
  * Read one page of episodes.
  * @param data - Envelope `data` from `/aigc/episode/list`.
- * @returns The page total and its episode rows.
+ * @returns The page total and its episode rows; display episode numbers remain independent of remote IDs and row order.
  */
-export function readEpisodes(data: unknown): { total: number; rows: { episode_id: number; name: string | null }[] } {
+export function readEpisodes(data: unknown): {
+  total: number
+  rows: { episode_id: number; episode_count: number | null; name: string | null }[]
+} {
   return readPayload('readEpisodes', data, () => {
     if (!data || typeof data !== 'object' || Array.isArray(data)) invalid()
     const record = data as Record<string, unknown>
@@ -107,7 +110,8 @@ export function readEpisodes(data: unknown): { total: number; rows: { episode_id
     if (!Array.isArray(list)) invalid()
     return { total: typeof record.total === 'number' && Number.isSafeInteger(record.total) ? record.total : list.length,
       rows: rows(list).map(item => ({ episode_id: positiveInteger(item.id ?? item.episodeId),
-        name: optionalText(item.name) })) }
+        episode_count: optionalCount(item.episodeCount),
+        name: optionalText(item.episodeName) ?? optionalText(item.name) })) }
   })
 }
 

@@ -1,0 +1,54 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`records saved global settings and display episode numbers without remote writes > read-only project and episode discovery 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "{
+  "script": {
+    "script_id": 4672,
+    "name": "重生八零",
+    "production_type": null,
+    "project_settings": {
+      "globalConfig": {
+        "modelId": "doubao-seedance-2-5-260628",
+        "platformId": "FANG_ZHOU",
+        "ratio": "9:16",
+        "resolution": "480p"
+      }
+    }
+  }
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+  {
+    "content": [
+      {
+        "text": "{
+  "episodes": {
+    "total": 300,
+    "rows": [
+      {
+        "episode_id": 93257,
+        "episode_count": 3,
+        "name": "分家"
+      },
+      {
+        "episode_id": 93256,
+        "episode_count": 2,
+        "name": null
+      }
+    ]
+  }
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+]
+`;
