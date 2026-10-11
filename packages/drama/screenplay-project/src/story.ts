@@ -8,7 +8,7 @@ import type { ProjectFile } from './schema.ts'
 import type { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { ActorId } from './ids.ts'
 import { candidateDigest, sha256 } from './episode.ts'
-import { factDigest, sourceRead, validReview } from './review.ts'
+import { factDigest, sourceRead, validReview, validWithdrawal } from './review.ts'
 import type { ProjectReadReceipt, ReviewRead } from './review.ts'
 
 type Candidate = ProjectFile['candidates'][number]
@@ -91,9 +91,13 @@ export function validateStoryPolicy(project: ProjectFile): void {
  * Validate every inventory reference, source window and declared evidence status.
  * @param project - Authoritative artifact.
  * @param inventory - Proposed or reviewed episode scope.
+ * @param purpose - Active use, or loading unused superseded inventory history.
  */
-export function validateInventory(project: ProjectFile, inventory: StoryInventory): void {
+export function validateInventory(project: ProjectFile, inventory: StoryInventory, purpose: 'active' | 'history' = 'active'): void {
   validateStoryPolicy(project)
+  const historical = purpose === 'history' && inventory.superseded_at_revision !== undefined
+    && inventory.superseded_at_revision <= project.revision
+    && !project.candidates.some(candidate => candidate.story_adaptation?.inventory_id === inventory.id)
   if (project.story_policy === undefined || inventory.policy_sha256 !== project.story_policy.sha256
     || !project.story_policy.scope.episodes.includes(inventory.episode)
     || inventory.sha256 !== inventoryDigest(inventory) || inventory.scope_sha256 !== storyScopeDigest(project, inventory)) {
@@ -120,7 +124,8 @@ export function validateInventory(project: ProjectFile, inventory: StoryInventor
     }
     for (const id of [...item.fact_ids, ...item.knowledge.map(value => value.fact_id)]) {
       const fact = project.facts.find(value => value.id === id)
-      if (fact === undefined || fact.origin !== 'source' || fact.review?.decision !== 'approve' || fact.withdrawal !== undefined
+      if (fact === undefined || fact.origin !== 'source' || fact.review?.decision !== 'approve'
+        || (fact.withdrawal !== undefined && !(historical && validWithdrawal(project, fact)))
         || !validReview(project, fact, 'fact') || !fact.anchors.some(anchor => units.has(anchor.unit_id))) {
         throw Error('story_fact_review: 清单须引用本集已真实审校的来源事实，不能以演绎充当来源。')
       }

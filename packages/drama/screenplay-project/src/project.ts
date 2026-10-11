@@ -67,6 +67,8 @@ interface Loaded {
 
 function referencesFact(candidate: ProjectFile['candidates'][number], id: FactId): boolean {
   return candidate.scenes.some(scene => scene.beats.some(beat => beat.fact_ids.includes(id) || beat.requires_knowledge.includes(id)))
+    || candidate.story_adaptation?.notes.dispositions.some(disposition => disposition.fact_id === id) === true
+    || candidate.story_adaptation?.notes.changes.some(change => change.source?.fact_id === id) === true
 }
 
 /** Project operations using the mounted filesystem; each mutation publishes one guarded JSON file. */
@@ -102,7 +104,7 @@ export class ProjectCommands {
     validateRefinementPolicy(project)
     validateStoryPolicy(project)
     for (const inventory of project.story_inventories ?? []) {
-      validateInventory(project, inventory)
+      validateInventory(project, inventory, 'history')
       if (inventory.review !== undefined && !validInventoryReview(project, inventory)) throw Error('story_inventory_review: 清单真实分轮证据无效。')
     }
     const units = new Map(project.sources.flatMap(source => source.units.map(unit => [unit.id, unit] as const)))
@@ -665,6 +667,12 @@ export class ProjectCommands {
         fact.withdrawal = { actor: exec.actor, time: new Date().toISOString(), reason: request.reason,
           ...(selfCheck ? { kind: 'self-check' as const, evidence: selfCheckEvidence(project, loaded.sha256, fact, 'fact', exec.actor,
             exec.step, exec.receipts ?? [], fact.review.evidence?.review_step) } : {}) }
+        for (const inventory of project.story_inventories ?? []) {
+          const units = new Set(inventoryReads(project, inventory).filter(read => read.kind === 'source').map(read => read.id))
+          if (fact.origin === 'source' && fact.anchors.some(anchor => units.has(anchor.unit_id))) {
+            inventory.superseded_at_revision ??= project.revision + 1
+          }
+        }
         await this.save(loaded, exec)
         return { revision: project.revision, fact }
       }

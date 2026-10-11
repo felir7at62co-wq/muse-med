@@ -165,6 +165,62 @@ async function draft() {
   editor_comments: [{ comment: '拒绝情绪更强，仍然让乙离开。', disposition: 'adopted', reason: '口语化保留原立场。', change_indices: [1] }], unresolved: [] })
   return { file, item, scenes, notes }
 }
+it.each([false, true])('reloads unused inventory history after fact withdrawal, previously superseded=%s', async (alreadySuperseded) => {
+  await sourcesAndFacts(); await reviewedInventory()
+  if (alreadySuperseded) {
+    await writeFile(join(root, 'additional.txt'), '另取的本集来源。')
+    await run({ method: 'import_source', project, expected_revision: (await current()).revision,
+      path: join(root, 'additional.txt'), source_kind: 'text', story_video_path: join(root, 'original.mp4') })
+  }
+  const before = await current(), oldInventory = before.story_inventories![0]!, fact = before.facts[0]!
+  step = 100; await readAll(); step = 110
+  await run({ method: 'withdraw_fact', project, expected_revision: before.revision, fact_id: fact.id,
+    reason: '后续核对发现来源解释错误，保留审批与清单历史，另提更正。' })
+  const withdrawn = await current()
+  expect(withdrawn.story_inventories![0]!.superseded_at_revision).toBe(oldInventory.superseded_at_revision ?? withdrawn.revision)
+  expect(withdrawn.story_inventories![0]!.items).toEqual(oldInventory.items)
+  expect(withdrawn.story_inventories![0]!.review).toEqual(oldInventory.review)
+  expect(withdrawn.facts[0]!.review).toEqual(fact.review)
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check', 'disabled', 'story-faithful-v2')
+  expect(await run({ method: 'status', project })).toMatchObject({ evidence_pending: [expect.stringContaining('已失效')] })
+  expect(await run({ method: 'read_story_inventory', project, inventory_id: oldInventory.id }))
+    .toMatchObject({ inventory: { items: oldInventory.items, review: oldInventory.review } })
+  expect(() => { validateInventory(withdrawn, withdrawn.story_inventories![0]!) }).toThrow('story_fact_review')
+  const staleDraft = await draft()
+  await expect(run({ method: 'stage', project, expected_revision: withdrawn.revision, episode: 1,
+    scenes: stageScenes(staleDraft.scenes), coverage: stageCoverage(staleDraft.item.coverage),
+    story_notes: stageStoryNotes(staleDraft.notes) }))
+    .rejects.toThrow('story_fact_review')
+  expect((await current()).candidates).toHaveLength(0)
+  await expect(run({ method: 'review_story_inventory', project, expected_revision: withdrawn.revision,
+    inventory_id: oldInventory.id, inventory_sha256: oldInventory.sha256, decision: 'approve', reason: '不能重新批准已失效清单。' }))
+    .rejects.toThrow('story_inventory_review_state')
+  await run({ method: 'propose_fact', project, expected_revision: withdrawn.revision, fact: {
+    actor: '甲', kind: 'speech', origin: 'source', layer: 'present', summary: '更正的拒绝发声，仍按来源重新审校。', anchors: fact.anchors } })
+  expect((await current()).facts.at(-1)!.review).toBeUndefined()
+})
+it.each(['missing_marker', 'future_marker', 'invalid_withdrawal'] as const)('rejects invalid retired-inventory recovery: %s', async (variant) => {
+  await sourcesAndFacts(); await reviewedInventory(); const before = await current()
+  step = 100; await readAll(); step = 110
+  await run({ method: 'withdraw_fact', project, expected_revision: before.revision, fact_id: before.facts[0]!.id,
+    reason: '合法更正的合成回归夹具。' })
+  const corrupted = await current()
+  if (variant === 'missing_marker') delete corrupted.story_inventories![0]!.superseded_at_revision
+  else if (variant === 'future_marker') corrupted.story_inventories![0]!.superseded_at_revision = corrupted.revision + 1
+  else corrupted.facts[0]!.withdrawal!.actor = brandString<ActorId>('another-writer')
+  await writeFile(project, JSON.stringify(corrupted))
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check', 'disabled', 'story-faithful-v2')
+  await expect(run({ method: 'status', project })).rejects.toThrow('story_fact_review')
+})
+it('requires a fork for source facts bound only by saved candidate notes', async () => {
+  await sourcesAndFacts(); await reviewedInventory(); await stage()
+  const before = await current(), fact = before.facts[1]!, bytes = await readFile(project, 'utf8')
+  expect(before.candidates[0]!.scenes.flatMap(scene => scene.beats.flatMap(beat => beat.fact_ids))).not.toContain(fact.id)
+  step = 110; await readAll(); step = 120
+  await expect(run({ method: 'withdraw_fact', project, expected_revision: before.revision, fact_id: fact.id,
+    reason: '只在来源处置和修改说明引用，也不能令已存候选失效。' })).rejects.toThrow('fact_in_history')
+  expect(await readFile(project, 'utf8')).toBe(bytes)
+})
 async function stage() {
   const { file, item, scenes, notes } = await draft(); step = 100
   await run({ method: 'stage', project, expected_revision: file.revision, episode: file.accepted.length + 1, scenes: stageScenes(scenes), coverage: stageCoverage(item.coverage), story_notes: stageStoryNotes(notes) })
