@@ -860,6 +860,8 @@ it('rejects empty, duplicate, unavailable or malformed scene files without publi
   }
   await writeFile(malformed, 'not json')
   await expect(run({ ...request, files: [malformed] })).rejects.toThrow()
+  const missing = join(root, 'missing-scene.json')
+  await expect(run({ ...request, files: [missing] })).rejects.toThrow(`scene_file_missing: 场次 JSON 文件不可用：${missing}`)
   commands = new ProjectCommands(ctx.fs, { ...limits, maxReadBytes: 1 }, ctx.attachments)
   await expect(run({ ...request, files: [file] })).rejects.toThrow()
   expect(await readFile(path, 'utf8')).toBe(original)

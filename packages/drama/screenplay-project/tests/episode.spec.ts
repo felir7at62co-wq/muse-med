@@ -103,6 +103,10 @@ it.each([
   ] }),
 ])('rejects repeated, absent, silent or visibly participating voice-only characters (%#)', (invalid) => {
   expect(() => renderEpisode(project, [invalid], {}, 1)).toThrow('voice_characters')
+  if (new Set(invalid.voice_only_characters).size === invalid.voice_only_characters?.length) {
+    expect(() => renderEpisode(project, [invalid], {}, 1)).toThrow('第1场')
+    expect(() => renderEpisode(project, [invalid], {}, 1)).toThrow('须同时列入 characters')
+  }
 })
 
 it.each([

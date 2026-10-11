@@ -690,7 +690,7 @@ export class ProjectCommands {
             const target = await this.target(path, exec)
             if (inputs.some(input => input.target.displayPath === target.displayPath)) throw Error('duplicate_scene_file: 场次文件不可重复。')
             const info = await this.fs.stat(target, exec.signal)
-            if (info?.type !== 'file') throw Error('scene_file_missing: 场次 JSON 文件不可用。')
+            if (info?.type !== 'file') throw Error(`scene_file_missing: 场次 JSON 文件不可用：${target.displayPath}`)
             const bytes = await this.fs.readBytes(target, exec.signal, this.limits.maxReadBytes)
             scenes.push(SCENE_RECORD.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))))
             inputs.push({ target, version: info.version })

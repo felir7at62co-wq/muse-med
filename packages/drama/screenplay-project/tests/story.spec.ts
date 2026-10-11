@@ -243,6 +243,14 @@ async function approveCandidate(input?: Awaited<ReturnType<typeof report>>) {
   return run({ method: 'review', project, expected_revision: file.revision, candidate_id: candidate.id, candidate_sha256: candidate.sha256,
     decision: 'approve', reason: '真实B轮完整重读后，C轮核对故事关系、结果、情绪、因果和知情。', semantic_report: input })
 }
+it.each(['source', 'output'] as const)('identifies the story item whose semantic review replaces %s locations', async (variant) => {
+  await ready()
+  const input = await report(), check = input.checks[0]!, bytes = await readFile(project, 'utf8')
+  if (variant === 'source') check.source_units = [(await current()).sources[1]!.units[0]!.id]
+  else check.outputs = [input.checks[1]!.outputs[0]!]
+  await expect(approveCandidate(input)).rejects.toThrow(`story_semantic_scope: ${check.item_id}`)
+  expect(await readFile(project, 'utf8')).toBe(bytes)
+})
 async function ready() { await sourcesAndFacts(); await reviewedInventory(); await stage(); await rereadCandidate() }
 async function accepted() {
   await ready(); await approveCandidate(); const file = await current(), candidate = file.candidates.at(-1)!
@@ -709,5 +717,13 @@ it.each(['duplicate_mapping', 'missing_mapping', 'unknown_mapping', 'changed_quo
       duplicate_scene_notes: 'story_scene_notes', missing_scene_notes: 'story_scene_notes',
       comment_without_change: 'story_comment_location', missing_beat_change: 'story_change_unhandled' }[variant]
     expect(() => { validateStoryCandidate(file, candidate) }).toThrow(code)
+    if (variant === 'knowledge_as_os') {
+      const item = file.story_inventories!.at(-1)!.items.find(value => value.knowledge.length > 0)!
+      expect(() => { validateStoryCandidate(file, candidate) }).toThrow(`${item.id} / ${item.knowledge[0]!.fact_id}`)
+      expect(() => { validateStoryCandidate(file, candidate) }).toThrow('mapping.outputs')
+    }
+    if (variant === 'missing_beat_change') {
+      expect(() => { validateStoryCandidate(file, candidate) }).toThrow('第2场第1拍缺少 changes.after')
+    }
   },
 )

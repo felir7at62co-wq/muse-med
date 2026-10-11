@@ -362,7 +362,8 @@ export function validateStoryCandidate(project: ProjectFile, candidate: Candidat
     for (const knowledge of item.knowledge) if (!beats.some(beat => beat.fact_ids.includes(knowledge.fact_id)
       && beat.actor === knowledge.actor && (beat.kind === 'dialogue' || (beat.kind === 'vo' && beat.audible_in_scene === true))
       && knowledge.recipients.every(recipient => beat.witnesses.includes(recipient) || beat.actor === recipient))) {
-      throw Error('story_knowledge_preservation: 来源关键知情传播须保留实际发声与听者，不能以OS替代。')
+      throw Error(`story_knowledge_preservation: ${item.id} / ${knowledge.fact_id} 须在该项 mapping.outputs 中保留`
+        + ` ${knowledge.actor} 的实际发声及听者 ${JSON.stringify(knowledge.recipients)}；不能以OS替代。`)
     }
     positions.set(item.id, Math.min(...mapping.outputs.map(output => output.scene * 1_000_000 + output.beat)))
   }
@@ -428,7 +429,8 @@ export function validateStoryCandidate(project: ProjectFile, candidate: Candidat
     if (!notes.scene_changes.some(change => change.scene === sceneIndex + 1)) throw Error('story_scene_notes: 每个实际场次须说明镜头、拆合场或来源安排。')
     for (const [beatIndex, beat] of scene.beats.entries()) {
       if (!notes.changes.some(change => change.after?.scene === sceneIndex + 1 && change.after.beat === beatIndex + 1)) {
-        throw Error('story_change_unhandled: 成稿每个节拍须保留来源或真实修改前定位。')
+        throw Error(`story_change_unhandled: 第${sceneIndex + 1}场第${beatIndex + 1}拍缺少 changes.after；`
+          + '须保留来源或真实修改前定位。')
       }
       for (const id of [...beat.fact_ids, ...beat.requires_knowledge]) {
         const fact = project.facts.find(fact => fact.id === id)
@@ -500,7 +502,8 @@ export function validateSemanticReport(project: ProjectFile, candidate: Candidat
     if (check === undefined || check.source_units.length !== item.source_units.length
       || item.source_units.some(id => !check.source_units.includes(id))
         || JSON.stringify(check.outputs) !== JSON.stringify(mapping?.outputs)) {
-      throw Error('story_semantic_scope: 每项语义判断须准确覆盖实际来源和成稿位置。')
+      throw Error(`story_semantic_scope: ${item.id} 的 source_units 须完整复制清单本项来源，`
+        + 'outputs 须按顺序完整复制当前候选 story_adaptation.notes.mapping 中本项定位和全文；不能只取首拍或摘句。')
     }
     for (const output of check.outputs) located(candidate, output)
   }

@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-creation-stage-diagnostics
+profile: headless
+composition: muse-creation-stage-diagnostics
+recording: authored
+header:
+  class: muse-creation-stage-diagnostics
+  pin: true
+workspace:
+  setup: muse-creation-skills

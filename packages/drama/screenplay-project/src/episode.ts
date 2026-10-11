@@ -150,7 +150,8 @@ function renderWithFacts(scenes: ProjectFile['candidates'][number]['scenes'], pr
       if (!scene.characters.includes(character)
         || !scene.beats.some(beat => beat.kind === 'vo' && beat.actor === character)
         || scene.beats.some(beat => beat.kind !== 'vo' && beat.actor === character)) {
-        throw Error(`voice_characters: ${character} 须为本场仅以 VO 发声的人物。`)
+        throw Error(`voice_characters: 第${sceneIndex + 1}场 ${character} 须同时列入 characters，`
+          + '存在对应 VO 节拍且没有该人物的非 VO 节拍。')
       }
     }
     const characters = scene.characters.map(character => voiceOnly.has(character) ? `${character}（VO）` : character)

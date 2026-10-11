@@ -1,0 +1,11 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: creation
+    - id: snapshot-creation-preset
+      name: './creation-preset-fixture.mjs'
