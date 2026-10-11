@@ -315,7 +315,7 @@ export function subjectIdentitySignature(materials: unknown): SubjectIdentityIte
 
 /**
  * Read the model evidence a child result carries.
- * @param configValue - A child's `modelConfig`, either inline or JSON-serialized.
+ * @param configValue - A child's model fields, or its inline or JSON-serialized `modelConfig`.
  * @returns One `[field, value]` pair per required model field, in a fixed order.
  * @throws {JubianError} `CONTRACT_CHANGED` when any required field is absent.
  */
@@ -334,7 +334,7 @@ export function nativeModelSignature(configValue: unknown): [string, string][] {
 
 /**
  * Read the prompt a child result carries, in its normalized comparable form.
- * @param configValue - A child's `modelConfig`, either inline or JSON-serialized.
+ * @param configValue - A child's prompt fields, or its inline or JSON-serialized `modelConfig`.
  * @returns The fully normalized prompt.
  * @throws {JubianError} `CONTRACT_CHANGED` when no prompt is present.
  */
@@ -781,11 +781,11 @@ function childIdentity(child: Record<string, unknown>): SubjectIdentityItem[] | 
 }
 
 function childModel(child: Record<string, unknown>): [string, string][] | null {
-  try { return nativeModelSignature(child.modelConfig) } catch { return null }
+  try { return nativeModelSignature(child.modelConfig ?? child) } catch { return null }
 }
 
 function childPrompt(child: Record<string, unknown>): string | null {
-  try { return nativeObservablePrompt(child.modelConfig) } catch { return null }
+  try { return nativeObservablePrompt(child.modelConfig ?? child) } catch { return null }
 }
 
 /** A child must repeat every frozen audio URL before its submission can be claimed. */

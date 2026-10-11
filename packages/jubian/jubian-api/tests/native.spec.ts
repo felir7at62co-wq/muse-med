@@ -622,6 +622,35 @@ describe('task claiming', () => {
     expect(classifyExistingNativeMatches([related], EXPECTATION)).toMatchObject({ status: 'matched' })
   })
 
+  it.each([undefined, null])('claims complete direct child fields when modelConfig is %j', (modelConfig) => {
+    const { videoStandardId, ...directFields } = MODEL_CONFIG
+    const child = { ...CHILD, ...directFields, modelVideoStandardId: videoStandardId, modelConfig }
+    const candidate = { ...related, children: [child] }
+    expect(classifyNewNativeCandidates([candidate], EXPECTATION)).toMatchObject({ status: 'matched', taskId: '335343' })
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION)).toMatchObject({ status: 'matched', taskId: '335343' })
+  })
+
+  it.each([...EXPECTATION.expectedModel.map(([field]) => field), 'prompt'])
+  ('refuses incomplete direct child field %s', (field) => {
+    const candidate = { ...related, children: [{ ...CHILD, ...MODEL_CONFIG, modelConfig: null, [field]: null }] }
+    expect(classifyNewNativeCandidates([candidate], EXPECTATION)).toEqual({ status: 'reconcile_conflict' })
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION)).toEqual({ status: 'reconcile_conflict' })
+  })
+
+  it('keeps malformed nested evidence a conflict even when direct fields are complete', () => {
+    const candidate = { ...related, children: [{ ...CHILD, ...MODEL_CONFIG, modelConfig: '{' }] }
+    expect(classifyNewNativeCandidates([candidate], EXPECTATION)).toEqual({ status: 'reconcile_conflict' })
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION)).toEqual({ status: 'reconcile_conflict' })
+  })
+
+  it('does not claim direct child fields with a different prompt or model', () => {
+    for (const fields of [{ ...MODEL_CONFIG, prompt: 'another shot' }, { ...MODEL_CONFIG, resolution: '480p' }]) {
+      const candidate = { ...related, children: [{ ...CHILD, ...fields, modelConfig: null }] }
+      expect(classifyNewNativeCandidates([candidate], EXPECTATION)).toEqual({ status: 'reconcile_conflict' })
+      expect(classifyExistingNativeMatches([candidate], EXPECTATION)).toEqual({ status: 'none' })
+    }
+  })
+
   it('ignores a task that already existed before the PUT', () => {
     expect(classifyNewNativeCandidates([related], { ...EXPECTATION, beforeTaskIds: ['335343'] }))
       .toEqual({ status: 'none' })

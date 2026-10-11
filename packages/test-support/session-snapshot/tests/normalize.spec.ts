@@ -195,6 +195,12 @@ describe('normalizeStdout', () => {
     expect(frame.text).not.toContain('{{cwd}}/novels/book.txt')
   })
 
+  it('preserves malformed embedded JSON literals', () => {
+    const text = String.raw`{"value":"\q"}`
+    const frame = JSON.parse(normalizeStdout(JSON.stringify({ text }), ctx)) as { text: string }
+    expect(frame.text).toBe(text)
+  })
+
   it('canonicalizes generated relative path fields and text markers without rewriting other text', () => {
     const raw = JSON.stringify({
       path: String.raw`nested\AGENTS.md`,

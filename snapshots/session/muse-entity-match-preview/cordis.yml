@@ -20,7 +20,7 @@
     - id: match-preview-http-fixture
       name: './matching-fixture.mjs'
     - id: tool-drama-assets
-      name: '../../../packages/drama/tool-drama-assets/src/index.ts'
+      name: '../../../packages/drama/tool-drama-assets/tests/snapshot-plugin.mjs'
       config:
         baseUrl: https://match-preview.invalid/prod-api
         workspaceSecrets: false

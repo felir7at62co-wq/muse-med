@@ -84,6 +84,13 @@ async function evidence(projectDir: string): Promise<ReconcileReport> {
 }
 
 describe('registration', () => {
+  it.each(['match_preview', 'reuse_preview'] as const)('rejects %s without requirements before remote reads', async (method) => {
+    const dir = await project()
+    const { client, calls } = stubTransport([], [])
+    await expect(runDramaAssets(client, { method, project_dir: dir })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(calls).toHaveLength(0)
+  })
+
   it('declares its name and the two registries it needs', () => {
     expect(name).toBe('tool-drama-assets')
     expect(inject).toEqual(['tools', 'credentials'])

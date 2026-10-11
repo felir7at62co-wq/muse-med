@@ -20,7 +20,7 @@
     - id: image-material-fixture
       name: './image-fixture.mjs'
     - id: tool-jubian
-      name: '../../../packages/jubian/tool-jubian/src/index.ts'
+      name: '../../../packages/jubian/tool-jubian/tests/snapshot-plugin.mjs'
       config:
         baseUrl: https://image-material.invalid/prod-api
         workspaceSecrets: false
