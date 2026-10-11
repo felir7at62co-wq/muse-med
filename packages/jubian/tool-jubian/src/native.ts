@@ -25,12 +25,12 @@ import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/ds
 import { centsOf, checkBudget, JubianError } from '@deepseek-ai/dsh-jubian'
 import {
   buildNativeVideoPreview, buildSubjectSelection, childrenOf, classifyExistingNativeMatches,
-  classifyNewNativeCandidates, isRelatedTaskCandidate, nativeResultUrls,
+  classifyNewNativeCandidates, isRelatedTaskCandidate, matchesNativeEpisode, nativeEpisodeScope, nativeResultUrls,
   responseRecords, stableJson, storyboardMaterials, taskIdOf, taskSemanticFields, taskStatusOf,
   validateNativeVideoPreview, verifySubjectSelection, wireText,
   referenceAudioUrls,
 } from '@deepseek-ai/dsh-jubian-api'
-import type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeVideoPreview,
+import type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeEpisodeScope, NativeVideoPreview,
   SubjectIdentityItem, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
 import { acceptedWriteResponse, bodyHash, need, requireKey, writeUnderLedger } from './write.ts'
 import { atomicWriteJson } from './json-file.ts'
@@ -285,18 +285,17 @@ function statesStoryboard(record: Record<string, unknown>, storyboardId: number)
  * @param records - A complete task snapshot.
  * @param scriptId - Project id.
  * @param storyboardId - Storyboard id.
- * @param episodeId - Live preview episode; only explicit valid differences exclude tasks before the cap.
+ * @param episode - Frozen episode ID and number; only explicit differences exclude tasks before the cap.
  * @returns One hydrated entry per provably related task, each with its storyboard-matching children.
  */
 async function hydrateRelated(client: JubianClient, records: Record<string, unknown>[],
-  scriptId: number, storyboardId: number, episodeId: unknown): Promise<HydratedTask[]> {
-  const expectedEpisode = episodeIdOf(episodeId)
+  scriptId: number, storyboardId: number, episode: NativeEpisodeScope): Promise<HydratedTask[]> {
   const related = records.filter((record) => {
     if (!isRelatedTaskCandidate(record, scriptId, storyboardId)) return false
-    const episode = episodeIdOf(record.episodeId ?? record.episode_id)
-    return expectedEpisode === null || episode === null || episode === expectedEpisode
+    return matchesNativeEpisode(record, episode)
   })
-  if (related.length > MAX_HYDRATED_TASKS) throw new JubianError('CONTRACT_CHANGED')
+  if (related.length > MAX_HYDRATED_TASKS) throw new JubianError('VIDEO_TASK_EVIDENCE_INVALID',
+    `VIDEO_TASK_SCAN_LIMIT: storyboard ${storyboardId} has ${related.length} candidate tasks after episode filtering (limit ${MAX_HYDRATED_TASKS}; episodeId=${episode.episodeId}, episodeCount=${episode.episodeCount ?? null}). Reconcile task ownership or repair missing episode fields before submitting. This check is read-only; keep the original preview and key.`)
   const hydrated: HydratedTask[] = []
   for (const record of related) {
     const taskId = taskIdOf(record) as string
@@ -326,7 +325,7 @@ function expectationOf(preview: NativeVideoPreview, beforeTaskIds: string[]): Na
   const prompt = config.prompt
   if (typeof prompt !== 'string' || !prompt) throw new JubianError('CONTRACT_CHANGED')
   return { scriptId: preview.scriptId, storyboardId: preview.storyboardId,
-    episodeId: Number(preview.payload.episodeId),
+    ...nativeEpisodeScope(preview.payload),
     expectedIdentity: expectedIdentity(preview), expectedModel, expectedPrompt: prompt,
     expectedAudioUrls: referenceAudioUrls(storyboardMaterials(preview.payload).materials),
     beforeTaskIds }
@@ -606,7 +605,7 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
       throw new JubianError('CONTRACT_CHANGED', 'Recorded key belongs to a different video submission')
     }
     const records = await listAllVideoTasks(client, preview.scriptId)
-    const hydrated = await hydrateRelated(client, records, preview.scriptId, preview.storyboardId, preview.payload.episodeId)
+    const hydrated = await hydrateRelated(client, records, preview.scriptId, preview.storyboardId, nativeEpisodeScope(preview.payload))
     const claim = classifyExistingNativeMatches(hydrated, expectationOf(preview, []))
     return { replayed: true, outcome: recorded.outcome ?? 'unknown', response_sha256: recorded.response_sha256,
       preview_path: previewPath, idempotency_key: key, ...claimReport(claim),
@@ -620,7 +619,8 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
   if (live.idempotencyKey !== preview.idempotencyKey) throw new JubianError('CONTRACT_CHANGED')
 
   const preflightRecords = await listAllVideoTasks(client, preview.scriptId)
-  const preflight = await hydrateRelated(client, preflightRecords, preview.scriptId, preview.storyboardId, preview.payload.episodeId)
+  const preflight = await hydrateRelated(client, preflightRecords, preview.scriptId,
+    preview.storyboardId, nativeEpisodeScope(preview.payload))
   const expectation = expectationOf(preview, [])
   const existing = classifyExistingNativeMatches(preflight, expectation)
   if (existing.status === 'reconcile_conflict') {
@@ -681,7 +681,8 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
         state.appearedIds = afterRecords.map(taskIdOf)
           .filter((value): value is string => value !== null)
           .filter(id => !beforeAllTaskIds.has(id))
-        const hydrated = await hydrateRelated(client, afterRecords, preview.scriptId, preview.storyboardId, preview.payload.episodeId)
+        const hydrated = await hydrateRelated(client, afterRecords, preview.scriptId,
+          preview.storyboardId, nativeEpisodeScope(preview.payload))
         state.claim = classifyNewNativeCandidates(hydrated, expectationOf(preview, beforeTaskIds))
       } catch {
         state.reconciliationFailed = true
@@ -756,7 +757,7 @@ async function batchReadback(client: JubianClient, item: FrozenBatchItem): Promi
   try {
     const records = await listAllVideoTasks(client, item.preview.scriptId)
     const hydrated = await hydrateRelated(client, records, item.preview.scriptId,
-      item.preview.storyboardId, item.preview.payload.episodeId)
+      item.preview.storyboardId, nativeEpisodeScope(item.preview.payload))
     return classifyNewNativeCandidates(hydrated, expectationOf(item.preview, item.beforeTaskIds))
   } catch (error) {
     // An accepted write still needs reconciliation when a transient read fails.
@@ -861,7 +862,7 @@ Promise<{ total: number; submitted: number; reconcile_required: number; results:
   const firstRecords = await listAllVideoTasks(client, first.preview.scriptId)
   await Promise.all(items.map(item => limitedRead(async () => {
     const related = await hydrateRelated(client, firstRecords, item.preview.scriptId,
-      item.preview.storyboardId, item.preview.payload.episodeId)
+      item.preview.storyboardId, nativeEpisodeScope(item.preview.payload))
     const existing = classifyExistingNativeMatches(related, expectationOf(item.preview, []))
     if (existing.status !== 'none') {
       throw new JubianError('CONTRACT_CHANGED', `Storyboard ${item.preview.storyboardId} has a prior or ambiguous task`)
@@ -924,7 +925,7 @@ Promise<{ total: number; submitted: number; reconcile_required: number; results:
     if (finalRecords !== null) {
       try {
         const related = await hydrateRelated(client, finalRecords, item.preview.scriptId,
-          item.preview.storyboardId, item.preview.payload.episodeId)
+          item.preview.storyboardId, nativeEpisodeScope(item.preview.payload))
         claim = classifyNewNativeCandidates(related, expectationOf(item.preview, item.beforeTaskIds))
       } catch (error) { void error /* Do not turn missing readback into an identity-loss verdict. */ }
     }

@@ -33,9 +33,10 @@ export type { SelectionState, SubjectSelectionInput, SubjectSelectionPlan,
   SubjectSelectionRequest } from './selection.ts'
 export { FAILED_STATUSES, NATIVE_MODEL_FIELDS, SUCCESS_STATUSES, buildNativeVideoPreview,
   childrenOf, classifyExistingNativeMatches, classifyNewNativeCandidates, isRelatedTaskCandidate,
-  nativeModelSignature, nativeObservablePrompt, nativeResultUrls, normalizedPrompt, readBackIdentity,
+  matchesNativeEpisode, nativeEpisodeScope, nativeModelSignature, nativeObservablePrompt, nativeResultUrls,
+  normalizedPrompt, readBackIdentity,
   responseRecords, resolveVideoModel, validateVideoDuration, stableJson, stableSha256, storyboardMaterials,
   subjectIdentitySignature, submissionSemantics, taskIdOf, taskSemanticFields, taskStatusOf,
   terminalOutcome, validateNativeVideoPreview, validatedVideoMaterials, wireText } from './native.ts'
-export type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeOrderedAsset, NativePreviewInput,
+export type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeEpisodeScope, NativeOrderedAsset, NativePreviewInput,
   NativeVideoPreview, SeedanceVideoModel, SubjectIdentityItem } from './native.ts'

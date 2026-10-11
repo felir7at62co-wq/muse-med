@@ -426,6 +426,107 @@ describe('prepare_video', () => {
 })
 
 describe('submit_video', () => {
+  it.each([100, 101, 266])('submits and replays with a null episode id and %i foreign-episode tasks', async (count) => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: null, episodeCount: 76 },
+      tasks: Array.from({ length: count }, (_, index) => ({ id: 100000 + index, scriptId: 2708,
+        taskType: 1, episode_id: 93837, episode_count: 85 })), subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const frozen = await readFile(previewPath, 'utf8')
+    provider.onPut = (payload) => {
+      expect(payload.episodeId).toBeNull()
+      provider.tasks.push({ id: 335343, scriptId: 2708, taskType: 1, episode_id: 93828, episode_count: 76 })
+      provider.subtasks['335343'] = [childOf(payload)]
+    }
+    const args = { preview_path: previewPath, idempotency_key: idempotencyKey }
+    expect(await submitVideoMethod(clientFor(provider), ledger, args)).toMatchObject({
+      status: 'submitted', task_id: '335343', put_sent: true })
+    expect(await submitVideoMethod(clientFor(provider), ledger, args)).toMatchObject({
+      status: 'submitted', replayed: true, task_id: '335343' })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(await ledger.records()).toHaveLength(1)
+    expect(provider.calls.filter(call => /\/task\/\d+$/.test(call.path))
+      .every(call => call.path.endsWith('/335343'))).toBe(true)
+    expect(await readFile(previewPath, 'utf8')).toBe(frozen)
+  })
+
+  it('allows the same 266 foreign-episode tasks when the preview carries its episode id', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 93828, episodeCount: 76 },
+      tasks: Array.from({ length: 266 }, (_, index) => ({ id: 100000 + index, scriptId: 2708,
+        taskType: 1, episodeId: 93837, episodeCount: 85 })), subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    await expect(submitVideoMethod(clientFor(provider), ledger, { preview_path: previewPath,
+      idempotency_key: idempotencyKey })).resolves.toMatchObject({ put_sent: true })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(provider.calls.filter(call => /\/task\/\d+$/.test(call.path))).toHaveLength(0)
+  })
+
+  it('submits a batch with null episode ids and 266 historical tasks, then replays without a second PUT', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: null, episodeCount: 76 },
+      tasks: Array.from({ length: 266 }, (_, index) => ({ id: 100000 + index, scriptId: 2708,
+        taskType: 1, episodeId: 93837, episodeCount: 85 })), subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    provider.onPut = (payload) => {
+      provider.tasks.push({ id: 335343, scriptId: 2708, taskType: 1, episodeId: 93828, episodeCount: 76 })
+      provider.subtasks['335343'] = [childOf(payload)]
+    }
+    const args = { items: [{ preview_path: previewPath, idempotency_key: idempotencyKey }] }
+    expect(await submitVideoBatchMethod(clientFor(provider), ledger, args)).toMatchObject({ submitted: 1,
+      reconcile_required: 0, results: [{ status: 'submitted', task_id: '335343' }] })
+    expect(await submitVideoBatchMethod(clientFor(provider), ledger, args)).toMatchObject({ submitted: 1,
+      results: [{ replayed: true, status: 'submitted', task_id: '335343' }] })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(await ledger.records()).toHaveLength(1)
+  })
+
+  it.each(['missing', 'same'])('refuses more than 100 %s-episode tasks with a scan diagnostic and zero writes', async (kind) => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: null, episodeCount: 76 },
+      tasks: Array.from({ length: 101 }, (_, index) => ({ id: 100000 + index, scriptId: 2708,
+        taskType: 1, ...(kind === 'same' ? { episodeCount: 76 } : {}) })), subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    for (const run of [() => submitVideoMethod(clientFor(provider), ledger, { preview_path: previewPath,
+      idempotency_key: idempotencyKey }), () => submitVideoBatchMethod(clientFor(provider), ledger,
+      { items: [{ preview_path: previewPath, idempotency_key: idempotencyKey }] })]) {
+      const submission = run()
+      await expect(submission).rejects.toHaveProperty('code', 'VIDEO_TASK_EVIDENCE_INVALID')
+      await expect(submission).rejects.toThrow('VIDEO_TASK_SCAN_LIMIT: storyboard 916953 has 101 candidate tasks')
+    }
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('refuses contradictory episode axes before single or batch charges', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 93828, episodeCount: 76 },
+      tasks: [{ id: 100000, scriptId: 2708, taskType: 1, episodeId: 93828, episodeCount: 85 }], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    for (const run of [() => submitVideoMethod(clientFor(provider), ledger, { preview_path: previewPath,
+      idempotency_key: idempotencyKey }), () => submitVideoBatchMethod(clientFor(provider), ledger,
+      { items: [{ preview_path: previewPath, idempotency_key: idempotencyKey }] })]) {
+      const submission = run()
+      await expect(submission).rejects.toHaveProperty('code', 'VIDEO_TASK_EVIDENCE_INVALID')
+      await expect(submission).rejects.toThrow('VIDEO_EPISODE_CONFLICT')
+    }
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('reconciles a lost PUT response with a null episode id without sending again', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: null, episodeCount: 76 },
+      tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    provider.onPut = (payload) => {
+      provider.tasks.push({ id: 335343, scriptId: 2708, taskType: 1, episode_id: 93828, episode_count: 76 })
+      provider.subtasks['335343'] = [childOf(payload)]
+      throw new Error('Lost response after accepted write')
+    }
+    const args = { preview_path: previewPath, idempotency_key: idempotencyKey }
+    expect(await submitVideoMethod(clientFor(provider), ledger, args)).toMatchObject({
+      status: 'reconcile_required', put_ambiguous: true, outcome: 'unknown' })
+    expect(await submitVideoMethod(clientFor(provider), ledger, args)).toMatchObject({
+      status: 'submitted', replayed: true, task_id: '335343', outcome: 'unknown' })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(await ledger.records()).toHaveLength(1)
+  })
+
   it('rejects a historical empty preview without ledger writes or any HTTP request', async () => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const { previewPath } = await prepared(provider)
@@ -523,7 +624,7 @@ describe('submit_video', () => {
     provider.taskPage = page => ({ total: 101, rows: Array.from({ length: page === 1 ? 100 : 1 },
       (_, index) => ({ id: page * 100 + index, scriptId: 2708, taskType: 1 })) })
     await expect(submitVideoMethod(clientFor(provider), ledger,
-      { preview_path: preview.previewPath, idempotency_key: preview.idempotencyKey })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+      { preview_path: preview.previewPath, idempotency_key: preview.idempotencyKey })).rejects.toMatchObject({ code: 'VIDEO_TASK_EVIDENCE_INVALID' })
     expect(putCalls(provider)).toHaveLength(1)
   })
 

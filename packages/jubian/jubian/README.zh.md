@@ -74,6 +74,7 @@ try {
 | `PERMISSION_DENIED` | HTTP 为 2xx 而信封 `code` 为 403 |
 | `RATE_LIMITED` | HTTP 为 429，或信封 `code` 为 429 |
 | `CONTRACT_CHANGED` | 响应体不是 JSON、不是合法 UTF-8、不是对象、超出字节上限、不带整数 `code`，或带有本包不映射的错误码；详情描述响应体的结构 |
+| `VIDEO_TASK_EVIDENCE_INVALID` | 原生视频任务归属无效、矛盾或超过候选扫描上限；本地详情指出剧集字段或扫描规则。这是本地对账失败，不是远端信封拒绝 |
 | `NETWORK_ERROR` | 连接失败、调用超时、重定向被拒绝，或 HTTP 为任何其他非 2xx 状态 |
 | `BUDGET_EXCEEDED` | 一次计费调用不被本部署的授权覆盖；详情说明缺的是哪一项 |
 

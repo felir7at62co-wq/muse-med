@@ -74,6 +74,7 @@ Two layouts are documented, and the client hides the difference from you. A sing
 | `PERMISSION_DENIED` | The envelope `code` is 403 while HTTP is 2xx |
 | `RATE_LIMITED` | HTTP is 429, or the envelope `code` is 429 |
 | `CONTRACT_CHANGED` | The body is not JSON, is not valid UTF-8, is not an object, exceeds the byte cap, carries no integer `code`, or carries a code this package does not map; the detail describes the body's structure |
+| `VIDEO_TASK_EVIDENCE_INVALID` | Native video task ownership is invalid, contradictory or exceeds the bounded candidate scan; package-authored detail names the episode or scan rule. This is a local reconciliation failure, not a remote envelope rejection |
 | `NETWORK_ERROR` | The connection failed, the call timed out, a redirect was refused, or HTTP is any other non-2xx status |
 | `BUDGET_EXCEEDED` | A paid call is not covered by the deployment's authorization; the detail names what is missing |
 

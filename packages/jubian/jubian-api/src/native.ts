@@ -698,11 +698,65 @@ function hasSecretField(value: unknown): boolean {
   })
 }
 
+/** Explicit provider episode identity; missing axes cannot exclude a task. */
+export interface NativeEpisodeScope {
+  /** Positive provider episode ID, or null when absent. */
+  episodeId: number | null
+  /** Positive episode number; independent of the provider ID. */
+  episodeCount?: number | null
+}
+
+/** Read one positive provider episode field without converting an absent value to zero. */
+function episodeAxis(record: Record<string, unknown>, camel: string, snake: string): number | null {
+  const values = [record[camel], record[snake]].map((value) => {
+    if (value === undefined || value === null || value === '') return null
+    const parsed = typeof value === 'string' && /^[0-9]+$/.test(value.trim()) ? Number(value.trim()) : value
+    if (typeof parsed !== 'number' || !Number.isSafeInteger(parsed) || parsed < 1) {
+      throw new JubianError('VIDEO_TASK_EVIDENCE_INVALID', `VIDEO_EPISODE_INVALID: ${camel} must be a positive integer or absent. Read the episode and storyboard before submitting.`)
+    }
+    return parsed
+  })
+  const [first, second] = values
+  if (first !== null && second !== null && first !== second) {
+    throw new JubianError('VIDEO_TASK_EVIDENCE_INVALID', `VIDEO_EPISODE_CONFLICT: ${camel} and ${snake} disagree. Read the episode and storyboard before submitting.`)
+  }
+  return first ?? second ?? null
+}
+
+/**
+ * Read explicit episode ID and number from provider or frozen-preview fields.
+ * @param record - Provider fields in camelCase or snake_case.
+ * @returns Positive episode axes, preserving absence as null.
+ * @throws JubianError when a supplied axis is invalid or aliases disagree.
+ */
+export function nativeEpisodeScope(record: Record<string, unknown>): NativeEpisodeScope {
+  return { episodeId: episodeAxis(record, 'episodeId', 'episode_id'),
+    episodeCount: episodeAxis(record, 'episodeCount', 'episode_count') }
+}
+
+/**
+ * Exclude only tasks whose explicit episode axes disagree with the frozen preview.
+ * @param record - Provider task row or detail.
+ * @param expected - Frozen episode axes; silence is not evidence of another episode.
+ * @returns False for a proven different episode, true for matching or missing evidence.
+ * @throws JubianError when the ID agrees but number differs, or the number agrees but ID differs.
+ */
+export function matchesNativeEpisode(record: Record<string, unknown>, expected: NativeEpisodeScope): boolean {
+  const actual = nativeEpisodeScope(record)
+  const idKnown = actual.episodeId !== null && expected.episodeId !== null
+  const countKnown = actual.episodeCount != null && expected.episodeCount != null
+  const idMatches = actual.episodeId === expected.episodeId
+  const countMatches = actual.episodeCount === expected.episodeCount
+  if (idKnown && countKnown && idMatches !== countMatches) {
+    throw new JubianError('VIDEO_TASK_EVIDENCE_INVALID', 'VIDEO_EPISODE_CONFLICT: task episode ID and number contradict the frozen storyboard. Reconcile episode ownership; do not resubmit.')
+  }
+  return (!idKnown || idMatches) && (!countKnown || countMatches)
+}
+
 /** What one claim attempt is checked against. */
-export interface NativeClaimExpectation {
+export interface NativeClaimExpectation extends NativeEpisodeScope {
   scriptId: number
   storyboardId: number
-  episodeId: number
   /** Ordered trusted identity the submission claimed. */
   expectedIdentity: SubjectIdentityItem[]
   /** Ordered uploaded audio URLs, separate from character image identities. */
@@ -794,8 +848,7 @@ function audioMatches(child: Record<string, unknown>, expectation: NativeClaimEx
 /** Whether one hydrated candidate names this storyboard, using the detail's own fields first. */
 function candidateBelongsTo(candidate: HydratedTask, expectation: NativeClaimExpectation): boolean {
   if (!isRelatedTaskCandidate(candidate.task, expectation.scriptId, expectation.storyboardId)) return false
-  const remoteEpisode = wireText(candidate.task.episodeId ?? candidate.task.episode_id)
-  if (remoteEpisode !== null && remoteEpisode !== String(expectation.episodeId)) return false
+  if (!matchesNativeEpisode(candidate.task, expectation)) return false
   const semantic = taskSemanticFields(candidate.task)
   const remoteStoryboard = wireText(semantic.storyboardId ?? candidate.task.storyboardId)
   if (remoteStoryboard === null) return true
