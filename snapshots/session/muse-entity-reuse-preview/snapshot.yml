@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-entity-reuse-preview
+profile: headless
+composition: muse-entity-reuse-preview
+recording: authored
+header:
+  class: muse-entity-reuse-preview
+  pin: true
+workspace:
+  setup: muse-entity-reuse-preview
+writerOutput: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-match-fixture

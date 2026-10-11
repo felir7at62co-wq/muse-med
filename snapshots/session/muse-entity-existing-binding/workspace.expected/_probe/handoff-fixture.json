@@ -1,0 +1,148 @@
+{
+  "simulated": true,
+  "paid_requests": 0,
+  "writes": [
+    {
+      "storyboard_id": 901,
+      "isGenerate": 0,
+      "selections": [
+        {
+          "materialKey": "lead",
+          "materialAssetId": 11,
+          "assetId": "asset-11",
+          "fileName": "陆沉舟（职场装）",
+          "materialType": "image",
+          "materialUrl": "https://example.invalid/lu.png",
+          "sortOrder": 1
+        },
+        {
+          "materialKey": "bg",
+          "materialAssetId": 12,
+          "assetId": "asset-12",
+          "fileName": "大厅",
+          "materialType": "image",
+          "materialUrl": "https://example.invalid/lobby.png",
+          "sortOrder": 2
+        },
+        {
+          "materialKey": "voice",
+          "materialType": "audio",
+          "materialUrl": "https://example.invalid/lu.wav",
+          "sortOrder": 1
+        }
+      ]
+    },
+    {
+      "storyboard_id": 902,
+      "isGenerate": 0,
+      "selections": [
+        {
+          "materialKey": "lead",
+          "materialAssetId": 11,
+          "assetId": "asset-11",
+          "fileName": "陆沉舟（职场装）",
+          "materialType": "image",
+          "materialUrl": "https://example.invalid/lu.png",
+          "sortOrder": 1
+        },
+        {
+          "materialKey": "bg",
+          "materialAssetId": 12,
+          "assetId": "asset-12",
+          "fileName": "大厅",
+          "materialType": "image",
+          "materialUrl": "https://example.invalid/lobby.png",
+          "sortOrder": 2
+        },
+        {
+          "materialKey": "voice",
+          "materialType": "audio",
+          "materialUrl": "https://example.invalid/lu.wav",
+          "sortOrder": 1
+        }
+      ]
+    }
+  ],
+  "boards": [
+    {
+      "id": 901,
+      "scriptId": 2708,
+      "episodeId": 91,
+      "duration": 5000,
+      "privateProviderField": {
+        "retained": true
+      },
+      "modelConfig": {
+        "prompt": "@[阿舟](lead)走进@[大厅](bg)，@[阿舟](lead)停下。@[声线](voice)",
+        "resolution": "720p"
+      },
+      "storyboardMaterialList": [
+        {
+          "materialKey": "lead",
+          "materialAssetId": 11,
+          "assetId": "asset-11",
+          "fileName": "陆沉舟（职场装）",
+          "materialType": "image",
+          "materialUrl": "https://example.invalid/lu.png",
+          "sortOrder": 1
+        },
+        {
+          "materialKey": "bg",
+          "materialAssetId": 12,
+          "assetId": "asset-12",
+          "fileName": "大厅",
+          "materialType": "image",
+          "materialUrl": "https://example.invalid/lobby.png",
+          "sortOrder": 2
+        },
+        {
+          "materialKey": "voice",
+          "materialType": "audio",
+          "materialUrl": "https://example.invalid/lu.wav",
+          "sortOrder": 1
+        }
+      ],
+      "isGenerate": 0
+    },
+    {
+      "id": 902,
+      "scriptId": 2708,
+      "episodeId": 91,
+      "duration": 5000,
+      "privateProviderField": {
+        "retained": true
+      },
+      "modelConfig": {
+        "prompt": "@[阿舟](lead)走进@[大厅](bg)，@[阿舟](lead)停下。@[声线](voice)",
+        "resolution": "720p"
+      },
+      "storyboardMaterialList": [
+        {
+          "materialKey": "lead",
+          "materialAssetId": 11,
+          "assetId": "asset-11",
+          "fileName": "陆沉舟（职场装）",
+          "materialType": "image",
+          "materialUrl": "https://example.invalid/lu.png",
+          "sortOrder": 1
+        },
+        {
+          "materialKey": "bg",
+          "materialAssetId": 12,
+          "assetId": "asset-12",
+          "fileName": "大厅",
+          "materialType": "image",
+          "materialUrl": "https://example.invalid/lobby.png",
+          "sortOrder": 2
+        },
+        {
+          "materialKey": "voice",
+          "materialType": "audio",
+          "materialUrl": "https://example.invalid/lu.wav",
+          "sortOrder": 1
+        }
+      ],
+      "isGenerate": 0
+    }
+  ]
+}

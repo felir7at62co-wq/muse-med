@@ -12,7 +12,7 @@
  * writes only a local preview file while reading everything it needs.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { dirname, extname, resolve } from 'node:path'
 import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import {
@@ -299,6 +299,15 @@ const IMAGE_ACTIVE_POLL_MS = 3_000
  */
 type ImageAssetStatus = 'active' | 'failed' | 'timeout' | 'replayed' | 'unverified'
 
+/** Separate the paid submission from the later image readback. */
+function imageGenerationStatus(outcome: string, replayed: boolean, status: ImageAssetStatus):
+'submitted_pending' | 'succeeded' | 'failed' | 'reconciliation_required' {
+  if (replayed || outcome !== 'accepted') return 'reconciliation_required'
+  if (status === 'active') return 'succeeded'
+  if (status === 'failed') return 'failed'
+  return 'submitted_pending'
+}
+
 /** One post-write readback, as the tool result carries it. */
 interface ImageReadback {
   status: ImageAssetStatus
@@ -323,40 +332,42 @@ function unread(status: 'replayed' | 'unverified', error: string): ImageReadback
 function imageNext(readback: ImageReadback, assetId: number | null): string {
   switch (readback.status) {
     case 'active':
-      return '资产已 Active：material_id 是可用于 confirm_casting 的生成材质 ID，image_url 是这张生成图。'
+      return '生成图已就绪：material_id 是可用于 confirm_casting 的生成材质 ID，image_url 是这张生成图。'
         + '此时再落盘或审核，才不会拿到一个空资产。'
     case 'failed':
       return '资产已被提供方判为失败，不会再有生成图；重新生成要换一个新的 idempotency_key，'
         + '同一个 key 不会再次发送。'
     case 'timeout':
       return '受理已计费（outcome=accepted）但回读超时：不要换 key 重投，'
-        + '用 jubian_asset get 读 parent_asset_id 的状态，Active 之后再用 generated_image 取图。'
+        + '用 jubian_asset get 和 generated_image 查询 parent_asset_id；新资产状态为空时也要核对生成材质。'
     case 'replayed':
       return '本次是重放：没有发送任何请求。资产身份请用 jubian_asset list/get 回读。'
     case 'unverified':
       return assetId === null
         ? '没有确认资产与生成图：先回读 jubian_asset list 核对，确认前不要落盘，也不要换 key 重投。'
-        : `尚未确认生成图：先用 jubian_asset get 查询 parent_asset_id=${assetId}，Active 后用 generated_image 取图；`
+        : `尚未确认生成图：用 jubian_asset get 和 generated_image 查询 parent_asset_id=${assetId}；`
           + '确认前不要落盘，也不要换 key 重投。'
   }
 }
 
 /**
- * Wait for the accepted asset to become `Active`, then read its generated image.
+ * Wait for an accepted image to become available from its generated material.
  *
  * `POST /aigc/asset` is asynchronous: the response carries the new asset id, and
  * the asset has no image until the provider's own pipeline finishes. Returning at
- * acceptance would hand the caller an asset that reads back empty, so this polls
- * the free asset read until `hsAssetStatus` is `Active` and then reads the one
- * endpoint that carries both the material id and the image URL.
+ * acceptance would hand the caller an asset that reads back empty. This polls
+ * free reads until the parent is Active or a new parent's unique material is
+ * Active. Replacement requests require the parent status to avoid accepting an
+ * earlier image while the replacement is still pending.
  * @param client - Jubian transport.
  * @param assetId - The asset id the accepted response carried, or null when it carried none.
  * @param options - Readback budget, poll interval, clock and sleep.
+ * @param newAsset - A newly created parent may omit its status while its generated material is Active.
  * @returns The readback outcome; a timed-out readback is reported, never thrown, because the
  *   paid write was already accepted and the ledger already records it.
  */
 async function awaitGeneratedImage(client: JubianClient, assetId: number,
-  options: ImageMethodOptions): Promise<ImageReadback> {
+  options: ImageMethodOptions, newAsset: boolean): Promise<ImageReadback> {
   const now = options.now ?? ((): number => Date.now())
   const sleep = options.sleep
     ?? ((ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms) }))
@@ -368,10 +379,19 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number,
   for (;;) {
     const asset = readAssetPage((await client.request({ method: 'GET', path: `/aigc/asset/${assetId}` })).data)
     observed = asset.status
-    if (observed !== null && observed.trim().toLowerCase() === 'active') {
+    if (observed !== null && observed.trim().toLowerCase() === 'active' || newAsset && observed === null) {
       try {
-        const image = readGeneratedImage((await client.request({ method: 'GET',
-          path: `/aigc/material/getGeneratedImageByAssetId?assetId=${assetId}` })).data)
+        const generated = (await client.request({ method: 'GET',
+          path: `/aigc/material/getGeneratedImageByAssetId?assetId=${assetId}` })).data
+        let image: { url: string; material_id: number | null }
+        if (observed === null) {
+          const rows = readMaterialList({ rows: Array.isArray(generated) ? generated : [generated] }).rows
+          const active = rows.filter(row => row.asset_id === assetId && row.status?.toLowerCase() === 'active'
+            && row.url?.startsWith('https://'))
+          if (active.length !== 1) throw new JubianError('CONTRACT_CHANGED', 'New asset has no unique Active generated material')
+          const material = active[0] as (typeof active)[number]
+          image = { url: material.url as string, material_id: material.material_id }
+        } else image = readGeneratedImage(generated)
         return { status: 'active', material_id: image.material_id, image_url: image.url,
           observed_status: observed, waited_ms: now() - started, error: null }
       } catch (error) {
@@ -389,7 +409,7 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number,
     if (elapsed + interval > budget) {
       return { status: 'timeout', material_id: null, image_url: null, observed_status: observed,
         waited_ms: elapsed,
-        error: `回读超时：资产在 ${budget}ms 内没有变为 Active`
+        error: `回读超时：生成图在 ${budget}ms 内未确认就绪`
           + `（最后观察到的状态：${observed ?? '未提供'}${lastError === null ? '' : `；生成图读取失败：${lastError}`}）。`
           + '受理已被计费，不要换 key 重投。' }
     }
@@ -399,12 +419,12 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number,
 
 /** Preserve the accepted asset ID in the result when its free readback fails. */
 async function readbackAcceptedImage(client: JubianClient, assetId: number | null,
-  options: ImageMethodOptions): Promise<ImageReadback> {
+  options: ImageMethodOptions, newAsset: boolean): Promise<ImageReadback> {
   if (assetId === null) {
     return unread('unverified', '受理响应没有给出可回读的资产 ID，无法确认生成图；'
       + '用 jubian_asset list 按 asset_name 找到该资产后再读 generated_image。')
   }
-  try { return await awaitGeneratedImage(client, assetId, options) }
+  try { return await awaitGeneratedImage(client, assetId, options, newAsset) }
   catch (error) {
     return unread('unverified', `计费请求已受理，资产 ID 为 ${assetId}，但回读失败：`
       + `${error instanceof Error ? error.message : String(error)}。不要换 key 重投。`)
@@ -797,6 +817,8 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
             const ownRecord = record?.method === 'image_generate' ? record : undefined
             results[index] = { ...identity, status: 'error',
               outcome: ledgerError === null && ownRecord === undefined ? 'not_sent' : ownRecord?.outcome ?? 'unknown',
+              generation_status: ledgerError === null && ownRecord === undefined
+                ? 'not_submitted' : 'reconciliation_required',
               response_sha256: ownRecord?.response_sha256 ?? null,
               record_id: ownRecord?.record_id ?? null,
               record_script_id: ownRecord?.script_id ?? null,
@@ -819,8 +841,10 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           if (result['status'] !== 'returned' || result['outcome'] !== 'accepted'
             || result['replayed'] !== false) continue
           const assetId = typeof result['parent_asset_id'] === 'number' ? result['parent_asset_id'] : null
-          const readback = await readbackAcceptedImage(client, assetId, deps.image ?? {})
-          results[index] = { ...result, asset_status: readback.status, material_id: readback.material_id,
+          const readback = await readbackAcceptedImage(client, assetId, deps.image ?? {}, result['requested_parent_asset_id'] === null)
+          results[index] = { ...result, asset_status: readback.status,
+            generation_status: imageGenerationStatus('accepted', false, readback.status),
+            material_id: readback.material_id,
             image_url: readback.image_url, observed_asset_status: readback.observed_status,
             waited_ms: readback.waited_ms, readback_error: readback.error,
             next: imageNext(readback, assetId) }
@@ -874,10 +898,12 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         : result.outcome === 'accepted'
           ? deps.deferImageReadback
             ? unread('unverified', '批次已受理，正在逐项回读资产状态。')
-            : await readbackAcceptedImage(client, assetId, deps.image ?? {})
+            : await readbackAcceptedImage(client, assetId, deps.image ?? {}, args.parent_asset_id === undefined)
           : unread('unverified', '受理结果不是 accepted，无法确认资产是否真的创建；'
             + '先回读 jubian_asset list，不要换 key 重投。')
-      return { replayed: result.replayed, outcome: result.outcome, response_sha256: result.response_sha256,
+      return { replayed: result.replayed, outcome: result.outcome,
+        generation_status: imageGenerationStatus(result.outcome, result.replayed, readback.status),
+        idempotency_key: args.idempotency_key, response_sha256: result.response_sha256,
         budget: result.budget ?? null,
         parent_asset_id: assetId,
         resolution: model.resolution,
@@ -1154,7 +1180,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
  * The bytes never enter a tool result: a result carrying tens of megabytes of
  * base64 would poison every later request's context. This method writes the file
  * and returns its path, size and digest, and a caller then reads that path with
- * its own image or frame-extraction tool.
+ * its own image or frame-extraction tool. A conflicting extension is replaced
+ * with the decoded format's extension, so the returned path is authoritative.
  *
  * The write goes through Node's filesystem rather than the harness `fs` service,
  * which exposes only `writeText` and has no binary write. Jubian's CDN needs no
@@ -1165,7 +1192,12 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
 export async function mediaMethod(args: MethodArgs): Promise<Record<string, unknown>> {
   const kind = need(args.media_kind)
   const downloaded = await downloadMedia(need(args.media_url), { kind })
-  const target = resolve(need(args.output_path))
+  const requested = resolve(need(args.output_path))
+  const extension = extname(requested)
+  const decodedExtension = `.${downloaded.media_type.replace(/^[^/]+\//u, '')}`
+  const compatible = extension.toLowerCase() === decodedExtension
+    || extension.toLowerCase() === '.jpg' && decodedExtension === '.jpeg'
+  const target = compatible ? requested : requested.slice(0, requested.length - extension.length) + decodedExtension
   await mkdir(dirname(target), { recursive: true })
   await writeFile(target, downloaded.bytes)
   return { path: target, kind: downloaded.kind, media_type: downloaded.media_type,

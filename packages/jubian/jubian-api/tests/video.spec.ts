@@ -5,6 +5,17 @@ const PARENT = { id: 335343, taskType: 10, taskStatus: 'success', firstResultId:
   realCost: '3.50', estimatedCost: '4.00' }
 
 describe('readTaskPage', () => {
+  it.each([0, 3.3906, 3.52, 1e-7])('retains a numeric provider cost %s as text', (amount) => {
+    expect(readTaskPage({ id: 544551, realCost: amount, estimatedCost: amount, discountCost: amount }))
+      .toMatchObject({ real_cost: String(amount), estimated_cost: String(amount), discount_cost: String(amount) })
+    expect(readTaskList({ total: 1, rows: [{ id: 544551, realCost: amount }] }).rows[0]?.real_cost)
+      .toBe(String(amount))
+  })
+  it.each([-1, NaN, Infinity, -Infinity, null, true, {}, 'invalid'])
+  ('keeps an unreadable provider cost %j unavailable', (amount) => {
+    expect(readTaskPage({ id: 544551, realCost: amount, estimatedCost: amount, discountCost: amount }))
+      .toMatchObject({ real_cost: null, estimated_cost: null, discount_cost: null })
+  })
   it('leaves malformed optional identifiers null instead of failing a readable task', () => {
     expect(readTaskPage({ id: 1, scriptId: 0, episodeId: 'bad', firstResultId: -1, parentResultId: {},
       episodeCount: 1.5 })).toMatchObject({ task_id: 1, script_id: null, episode_id: null,

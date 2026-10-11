@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-image-material-readback
+profile: headless
+composition: muse-image-material-readback
+recording: authored
+header:
+  class: muse-image-material-readback
+  pin: true
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-image-fixture

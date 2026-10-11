@@ -315,7 +315,7 @@ export function subjectIdentitySignature(materials: unknown): SubjectIdentityIte
 
 /**
  * Read the model evidence a child result carries.
- * @param configValue - A child's `modelConfig`, either inline or JSON-serialized.
+ * @param configValue - A child's model fields, or its inline or JSON-serialized `modelConfig`.
  * @returns One `[field, value]` pair per required model field, in a fixed order.
  * @throws {JubianError} `CONTRACT_CHANGED` when any required field is absent.
  */
@@ -334,7 +334,7 @@ export function nativeModelSignature(configValue: unknown): [string, string][] {
 
 /**
  * Read the prompt a child result carries, in its normalized comparable form.
- * @param configValue - A child's `modelConfig`, either inline or JSON-serialized.
+ * @param configValue - A child's prompt fields, or its inline or JSON-serialized `modelConfig`.
  * @returns The fully normalized prompt.
  * @throws {JubianError} `CONTRACT_CHANGED` when no prompt is present.
  */
@@ -565,7 +565,7 @@ export interface NativePreviewInput {
 /**
  * Build the exact, deterministic storyboard PUT preview without any I/O.
  * @param input - Live storyboard, ordered parent assets, live catalogue and a timestamp.
- * @returns The preview, including the one-PUT payload and its semantic fingerprint.
+ * @returns The preview, including its one-PUT payload, explicit backup-model list and semantic fingerprint.
  * @throws {JubianError} `INVALID_ARGUMENT` when no image subject is selected; no preview is produced.
  * @throws {JubianError} `CONTRACT_CHANGED` when any identity, setting or model rule fails.
  */
@@ -588,6 +588,11 @@ export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoP
   }
   modelConfig.prompt = prompt
   modelConfig.materialList = materials.map(material => ({ ...material }))
+  if (config.backupModelList !== undefined && config.backupModelList !== null && !Array.isArray(config.backupModelList)) {
+    invalid('modelConfig.backupModelList must be a list when supplied')
+  }
+  modelConfig.backupModelList = config.backupModelList === undefined || config.backupModelList === null
+    ? [] : config.backupModelList
   payload.modelConfig = JSON.stringify(modelConfig)
 
   const storyboardId = integer(payload.id ?? payload.storyboardId)
@@ -776,11 +781,11 @@ function childIdentity(child: Record<string, unknown>): SubjectIdentityItem[] | 
 }
 
 function childModel(child: Record<string, unknown>): [string, string][] | null {
-  try { return nativeModelSignature(child.modelConfig) } catch { return null }
+  try { return nativeModelSignature(child.modelConfig ?? child) } catch { return null }
 }
 
 function childPrompt(child: Record<string, unknown>): string | null {
-  try { return nativeObservablePrompt(child.modelConfig) } catch { return null }
+  try { return nativeObservablePrompt(child.modelConfig ?? child) } catch { return null }
 }
 
 /** A child must repeat every frozen audio URL before its submission can be claimed. */

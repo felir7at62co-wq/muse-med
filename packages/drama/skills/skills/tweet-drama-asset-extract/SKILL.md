@@ -88,3 +88,7 @@ description: Use when 仿真人剧本需要提取角色服装版本、场景、�
 ## 审核门禁
 
 `review_criteria` 必须包含硬性禁用项检查：中国国徽、革命红色产物、现金纸币硬币、世界地图、现实标志性物件与建筑，以及外加字幕、标题文字、水印、Logo。发现任一禁用项即判该资产 failed 并定向重生提示词，不得因主体正确而放行。证件与文书类道具允许出现剧情必需的金额、日期、姓名，但不得出现国徽或真实机关标识。
+
+## 当前项目统一匹配预览
+
+提取人物、场景与已认可声线需求后，按 [匹配预览字段](../tweet-drama-core/references/match-preview.md) 保存项目内需求 JSON，调用 `drama_assets method=match_preview project_dir=<项目目录> requirements_path=<项目内需求文件>`。每项引用真实原文行与摘要，未知身份或状态保持未知，不为匹配而补写。它只检索当前项目：`reuse_ready` 是复用建议，`needs_review` 交人工确认，`blocked` 先修读取/分页/来源问题，`missing` 继续已有 `jubian-asset-library` 检索，不能据此直接付费生成。预览不登记、不确认出演、不绑定；正式采用及收费仍需当前用户审批。

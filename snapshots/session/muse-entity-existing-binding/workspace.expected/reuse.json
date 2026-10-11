@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "shots": [
+    {
+      "storyboard_id": 901,
+      "episode": 1,
+      "episode_id": 91,
+      "bindings": [
+        {
+          "requirement_id": "character",
+          "material_key": "lead"
+        }
+      ]
+    },
+    {
+      "storyboard_id": 902,
+      "episode": 1,
+      "episode_id": 91,
+      "bindings": [
+        {
+          "requirement_id": "character-repeat",
+          "material_key": "lead"
+        }
+      ]
+    }
+  ]
+}

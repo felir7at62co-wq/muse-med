@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 94503b6b13de09f7
 /tool-schema-catalog/tool-package-map:
-  en: a75af3c148dd1bfe
-  zh: 3058bc2305ab10bd
+  en: fb154177696bbdfb
+  zh: aae934956b1dc496
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -360,11 +360,11 @@
   en: ef79792a93ef7942
   zh: bce1b71863aea019
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-storyboard:
-  en: aef4d6344f1a3456
-  zh: 057a61726f1e69b5
+  en: 34a313f8e984de17
+  zh: 762547aa46c79326
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-video:
-  en: 171a69d10acd7e1a
-  zh: d44d63283102a205
+  en: e09f1cfe124907c0
+  zh: 2361527496fef5fc
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-watch:
   en: 921b97021b0afd52
   zh: 02e9d8e9ad438408
@@ -408,5 +408,5 @@
   en: 5b59780fe2ae6f03
   zh: 5b59780fe2ae6f03
 /tool-schema-catalog/deepseek-ai-dsh-tool-drama-assets/drama-assets:
-  en: 1b012f73145d662b
-  zh: 1b012f73145d662b
+  en: 525047aec2d7481b
+  zh: 525047aec2d7481b

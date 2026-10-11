@@ -565,6 +565,19 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     await mkdir(dirname(target), { recursive: true })
     await copyFile(musePipelineSkill, target)
   },
+  async 'muse-entity-match-preview'(cwd) {
+    for (const name of ['tweet-drama-shot-asset-match', 'tweet-drama-asset-extract', 'tweet-drama-voice-continuity', 'tweet-drama-pipeline']) {
+      const target = join(cwd, '.dsh', 'skills', name, 'SKILL.md')
+      await mkdir(dirname(target), { recursive: true })
+      await copyFile(join(repoRoot, 'packages/drama/skills/skills', name, 'SKILL.md'), target)
+    }
+  },
+  async 'muse-entity-reuse-preview'(cwd) {
+    await workspaceSetups['muse-entity-match-preview']!(cwd)
+  },
+  async 'muse-entity-existing-binding'(cwd) {
+    await workspaceSetups['muse-entity-match-preview']!(cwd)
+  },
   async 'muse-audio-skills'(cwd) {
     for (const name of ['tweet-drama-voice-continuity', 'tweet-drama-project-bible']) {
       const target = join(cwd, '.dsh', 'skills', name, 'SKILL.md')
@@ -1328,6 +1341,45 @@ describe('headless recorded-session snapshots', () => {
               const saved = await readFile(join(cwd, '.dsh/profiles/headless/cordis.patch.yml'), 'utf8')
               expect(saved).toContain('id: demo')
               expect(saved).toContain('disabled: false')
+            }
+            if (['muse-entity-match-preview', 'muse-entity-reuse-preview', 'muse-entity-existing-binding'].includes(scenario.name)) {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+              expect(calls.map(call => call.name)).toEqual(scenario.name === 'muse-entity-existing-binding'
+                ? ['skill', 'drama_assets', 'jubian_storyboard', 'jubian_storyboard'] : ['skill', 'drama_assets'])
+              expect(JSON.parse(calls[0]!.arguments)).toEqual({ name: 'tweet-drama-shot-asset-match' })
+              expect(JSON.parse(calls[1]!.arguments)).toMatchObject({
+                method: scenario.name === 'muse-entity-match-preview' ? 'match_preview' : 'reuse_preview', requirements_path: 'requirements.json',
+              })
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results.map(message => message.toolCallId)).toEqual(calls.map(call => call.callId))
+              expect(results.every(message => message.isError === false)).toBe(true)
+              expect(results[0]!.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'text', text: expect.stringContaining('skill_content name="tweet-drama-shot-asset-match"') })]))
+              const block = results[1]!.content[0]
+              if (block?.type !== 'text') throw new Error('Expected matching result text')
+              const preview = JSON.parse(block.text)
+              if (scenario.name !== 'muse-entity-match-preview') {
+                expect(preview).toMatchObject({ status: 'reuse_ready', apply_allowed: false,
+                  shots: [{ storyboard_id: 901, status: 'awaiting_confirmation' }, { storyboard_id: 902, status: 'awaiting_confirmation' }] })
+                expect(preview.groups).toHaveLength(3)
+                expect(preview.groups[0].requirement_ids).toEqual(['character', 'character-repeat'])
+              } else {
+                expect(preview.counts, JSON.stringify({ preview, call: calls[1] })).toEqual({ reuse_ready: 1, needs_review: 1, missing: 1, blocked: 1 })
+              }
+              expect(preview).toMatchObject({ read_only: true, paid_requests: 0, local_writes: 0, remote_writes: 0 })
+              if (scenario.name === 'muse-entity-existing-binding') {
+                for (const [index, id] of [901, 902].entries()) {
+                  expect(JSON.parse(calls[index + 2]!.arguments)).toEqual({ method: 'select_assets', storyboard_id: id,
+                    selections: [{ material_key: 'lead', asset_id: 11 }, { material_key: 'bg', asset_id: 12 }],
+                    idempotency_key: 'approved-selection-' + id })
+                }
+                const evidence = JSON.parse(await readFile(join(cwd, '_probe/handoff-fixture.json'), 'utf8'))
+                expect(evidence).toMatchObject({ simulated: true, paid_requests: 0 })
+                expect(evidence.writes.map((row: JsonObject) => row.storyboard_id)).toEqual([901, 902])
+                expect(evidence.boards.every((row: JsonObject) => row.scriptId === 2708 && row.isGenerate === 0)).toBe(true)
+                expect(evidence.boards[0].privateProviderField).toEqual({ retained: true })
+                expect(evidence.boards[0].storyboardMaterialList[2]).toMatchObject({ materialType: 'audio', materialUrl: 'https://example.invalid/lu.wav' })
+              }
             }
             if (scenario.name === 'session-query-spill') {
               await verifySessionQuerySpill(actualLogs[0]!.content, spillRoot, locatorRoot)

@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-native-flat-child-claim
+profile: headless
+composition: muse-native-flat-child-claim
+recording: authored
+header:
+  class: muse-native-flat-child-claim
+  pin: true
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-flat-child-fixture

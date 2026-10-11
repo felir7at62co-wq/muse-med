@@ -50,3 +50,7 @@ prompt 保留全部镜头正文和图片标记，明确写“周海生声音参�
 删除只处理用户明确授权的本项目精确音频资产。先用 `audio_delete_preview` 提交 script_id、project_dir、asset_id、delete_reason、authorization_basis，核对实际 ID、名字、URL、项目和 references。工具会检查项目圣经当前角色声线与远端任务卡；**仍被引用**时拒绝删除。需要更换则先按上述步骤替换；仅解除当前声线时用 `drama_project` 的 reference_audio=null，经 preview/update 清除 URL、资产 ID、哈希、时长，保留声音描述。原卡移除音频用最终音频列表做 audio_preview/audio_apply，同时去掉相应声音标记；只有明确要移除全部音频时传 audio_references=[]。
 
 解除引用后重新做删除预览，逐项检查正确目标，再用 `audio_delete_apply` 传同一项目/asset_id、preview_path、checked_audio_asset_id=<已检查的精确ID>、idempotency_key=fingerprint。删除不可恢复，不用通用 remove 绕过检查；成功需真实回读确认资产已不存在。结果未知只查原操作及原 ID，不重新登记、改 ID 或换 key 重删。保留本地版本、来源与删除记录；删音频不会取消既有视频任务或退费。
+
+## 声线匹配预览
+
+建立样本或逐镜绑定前，可按 [匹配预览字段](../tweet-drama-core/references/match-preview.md) 用 `drama_assets match_preview` 核对角色 `character_id`、现有 `voice_profile`、认可样本记录及来源摘要。姓名或音频名相似不证明说话人；样本未认可、来源不明或描述不符为 `needs_review`，读取失败、分页不全、引用或来源变化为 `blocked`。`reuse_ready` 仅建议复用既有认可版本，不更新声线、不替换默认、不调用后台角色音色接口，不保证成片音色一致。正式采用及替换须人工确认，再沿原卡 `audio_preview/audio_apply` 与 `prepare_video` 链路执行。

@@ -86,6 +86,19 @@ function canonicalizeEmbeddedPaths(value: string): string {
       `${prefix}${path.replaceAll('\\', '/')}`)
 }
 
+/** Decode one JSON string layer only for an already-tokenized workspace path. */
+function canonicalizeJsonCwdPaths(value: string): string {
+  return value.replace(/"(?:[^"\\]|\\.)*"/g, (literal) => {
+    let decoded: unknown
+    try { decoded = JSON.parse(literal) } catch { return literal }
+    if (typeof decoded !== 'string' || !decoded.startsWith(CWD + '\\') && !decoded.startsWith(CWD + '/')) {
+      return literal
+    }
+    const canonical = decoded.replace(CWD_ROOTED_PATH_RE, path => path.replaceAll('\\', '/'))
+    return canonical === decoded ? literal : JSON.stringify(canonical)
+  })
+}
+
 /** Inputs the normalizers need to recognize a run's volatile values. */
 export interface NormalizeContext {
   /** The session id(s) the run issued — replaced with `{{sessionId}}`. */
@@ -185,6 +198,8 @@ function scrubString(
   if (cwdPathMode === 'canonical') {
     // Restrict separator conversion to paths rooted at the cwd token. A global
     // backslash rewrite would corrupt regexes, commands, and model-authored text.
+    // Embedded tool JSON still escapes Windows separators after its outer log is parsed.
+    out = canonicalizeJsonCwdPaths(out)
     out = out.replace(CWD_ROOTED_PATH_RE, path => path.replaceAll('\\', '/'))
     out = canonicalizeEmbeddedPaths(out)
   }

@@ -1,9 +1,9 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { storyboardEditMethod } from '../src/storyboard-edit.ts'
-import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { JubianClient, JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { stableSha256, submissionSemantics } from '@deepseek-ai/dsh-jubian-api'
 import type { NativeVideoPreview } from '@deepseek-ai/dsh-jubian-api'
 import { bodyHash } from '../src/write.ts'
@@ -71,6 +71,8 @@ interface FakeProvider {
   taskPage?: (page: number) => unknown
   subjectPage?: (page: number) => unknown
   assets?: Record<string, unknown>
+  parentFailureCode?: number
+  modelFailureCode?: number
 }
 
 /** A client whose transport serves one in-memory project and records every call. */
@@ -96,13 +98,23 @@ function clientFor(provider: FakeProvider): JubianClient {
         return provider.putResponse?.(payload) ?? answer(null)
       }
       if (path.startsWith('/aigc/asset/') && method === 'GET') {
+        if (provider.parentFailureCode !== undefined) {
+          return new Response(JSON.stringify({ code: provider.parentFailureCode, msg: 'private provider detail' }),
+            { status: 200 })
+        }
         return answer((provider.assets ?? ASSETS)[path.split('/').pop() ?? ''] ?? null)
       }
       if (path.startsWith('/aigc/material/list')) {
         if (provider.subjectPage) return answer(provider.subjectPage(Number(new URL(`https://example.test${path}`).searchParams.get('pageNum'))))
         return answer({ total: SUBJECT_ROWS.length, rows: SUBJECT_ROWS })
       }
-      if (path.startsWith('/model/charge/getSelectList')) return answer(CATALOGUE)
+      if (path.startsWith('/model/charge/getSelectList')) {
+        if (provider.modelFailureCode !== undefined) {
+          return new Response(JSON.stringify({ code: provider.modelFailureCode, msg: 'private provider detail' }),
+            { status: 200 })
+        }
+        return answer(CATALOGUE)
+      }
       if (path.startsWith('/admin/aigc/video/task/list')) {
         await provider.onTaskList?.()
         await provider.onTaskRead?.(path)
@@ -246,6 +258,155 @@ it('preserves numeric official identity and a string use flag while ignoring unr
       { ...SUBJECT_ROWS[0], hsAssetId: 11, isUsed: ' 1 ' }, SUBJECT_ROWS[1]] }) }
   expect(await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: await project() }))
     .toMatchObject({ status: 'prepared' })
+  expect(putCalls(provider)).toEqual([])
+})
+
+it.each([null, 'asset-20261009'])
+('resolves a missing or invalid numeric material parent %s only from one matching active subject row', async (materialAssetId) => {
+  const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+    storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId }, MATERIALS[1]] } }
+  const result = await prepareVideoMethod(clientFor(provider), ledger,
+    { storyboard_id: 916953, project_dir: await project() })
+  expect(result).toMatchObject({ status: 'prepared', assetSummary: { orderedAssets: [
+    { assetId: 'asset-lead', materialAssetId: 81285 }, { assetId: 'asset-guest', materialAssetId: 83670 },
+  ] } })
+  expect(provider.calls.filter(call => call.path.startsWith('/aigc/asset/')).map(call => call.path))
+    .toEqual(['/aigc/asset/81285', '/aigc/asset/83670'])
+  expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  expect(await ledger.records()).toEqual([])
+})
+
+it('rejects a local asset when only another project has its matching official subject', async () => {
+  const foreign = { ...SUBJECT_ROWS[0], assetId: 99501, scriptId: 9999 }
+  const rows = [foreign, SUBJECT_ROWS[1]]
+  const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+    storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: 'asset-20261009' }, MATERIALS[1]] },
+  subjectPage: () => ({ total: rows.length, rows }) }
+  const preparation = prepareVideoMethod(clientFor(provider), ledger,
+    { storyboard_id: 916953, project_dir: await project() })
+  await expect(preparation).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  await expect(preparation).rejects.toHaveProperty('detail', expect.stringContaining('stage=subject_identity'))
+  expect(provider.calls.filter(call => call.path.startsWith('/aigc/asset/'))).toEqual([])
+  expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  expect(await ledger.records()).toEqual([])
+})
+
+it('ignores a foreign project subject when one valid current-project mapping exists', async () => {
+  const foreign = { ...SUBJECT_ROWS[0], assetId: 99501, scriptId: 9999 }
+  const rows = [foreign, ...SUBJECT_ROWS]
+  const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+    storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: 'asset-20261009' }, MATERIALS[1]] },
+  subjectPage: () => ({ total: rows.length, rows }) }
+  const result = await prepareVideoMethod(clientFor(provider), ledger,
+    { storyboard_id: 916953, project_dir: await project() })
+  expect(result).toMatchObject({ status: 'prepared', assetSummary: { orderedAssets: [
+    { assetId: 'asset-lead', materialAssetId: 81285 }, { assetId: 'asset-guest', materialAssetId: 83670 },
+  ] } })
+  expect(provider.calls.filter(call => call.path.startsWith('/aigc/asset/')).map(call => call.path))
+    .toEqual(['/aigc/asset/81285', '/aigc/asset/83670'])
+  expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  expect(await ledger.records()).toEqual([])
+})
+
+it.each(['asset-parent', '1e3', '0x10', '9007199254740993'])
+('rejects a non-decimal or unsafe official parent ID %s before any parent read or paid request', async (assetId) => {
+  const rows = [{ ...SUBJECT_ROWS[0], assetId }, SUBJECT_ROWS[1]]
+  const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+    storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: 'asset-20261009' }, MATERIALS[1]] },
+  subjectPage: () => ({ total: rows.length, rows }) }
+  const preparation = prepareVideoMethod(clientFor(provider), ledger,
+    { storyboard_id: 916953, project_dir: await project() })
+  await expect(preparation).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  await expect(preparation).rejects.toHaveProperty('detail', expect.stringContaining('stage=subject_identity'))
+  expect(provider.calls.filter(call => call.path.startsWith('/aigc/asset/'))).toEqual([])
+  expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  expect(await ledger.records()).toEqual([])
+})
+
+it.each([
+  { label: 'no official match', rows: SUBJECT_ROWS.slice(1) },
+  { label: 'duplicate official match', rows: [SUBJECT_ROWS[0], SUBJECT_ROWS[0], SUBJECT_ROWS[1]] },
+  { label: 'wrong URL', rows: [{ ...SUBJECT_ROWS[0], assetUrl: URL_GUEST }, SUBJECT_ROWS[1]] },
+  { label: 'inactive official match', rows: [{ ...SUBJECT_ROWS[0], hsAssetStatus: 'Pending' }, SUBJECT_ROWS[1]] },
+  { label: 'missing official status', rows: [{ ...SUBJECT_ROWS[0], hsAssetStatus: null }, SUBJECT_ROWS[1]] },
+  { label: 'unused string official flag', rows: [{ ...SUBJECT_ROWS[0], isUsed: '0' }, SUBJECT_ROWS[1]] },
+  { label: 'missing official flag', rows: [{ ...SUBJECT_ROWS[0], isUsed: undefined }, SUBJECT_ROWS[1]] },
+])('blocks a local asset ID with $label before numeric parent reads', async ({ rows }) => {
+  const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+    storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: 'asset-20261009' }, MATERIALS[1]] },
+  subjectPage: () => ({ total: rows.length, rows }) }
+  const preparation = prepareVideoMethod(clientFor(provider), ledger,
+    { storyboard_id: 916953, project_dir: await project() })
+  await expect(preparation).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  await expect(preparation).rejects.toHaveProperty('detail', expect.stringContaining('stage=subject_identity'))
+  expect(provider.calls.filter(call => call.path.startsWith('/aigc/asset/'))).toEqual([])
+  expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  expect(await ledger.records()).toEqual([])
+})
+
+it('resolves a local parent with a string official-use flag without a paid request', async () => {
+  const rows = [{ ...SUBJECT_ROWS[0], isUsed: ' 1 ' }, SUBJECT_ROWS[1]]
+  const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+    storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: null }, MATERIALS[1]] },
+  subjectPage: () => ({ total: rows.length, rows }) }
+  expect(await prepareVideoMethod(clientFor(provider), ledger,
+    { storyboard_id: 916953, project_dir: await project() })).toMatchObject({ status: 'prepared' })
+  expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  expect(await ledger.records()).toEqual([])
+})
+
+it.each([
+  { error: new Error('unexpected read failure'), expected: 'unchanged' },
+  { error: new JubianError('NETWORK_ERROR', 'HTTP 503'), expected: 'http_status=503' },
+])('reports a preflight $expected error without sending a paid request', async ({ error, expected }) => {
+  const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: STORYBOARD }
+  const client = clientFor(provider)
+  vi.spyOn(client, 'request').mockRejectedValueOnce(error)
+  const failure = await prepareVideoMethod(client, ledger,
+    { storyboard_id: 916953, project_dir: await project() }).catch((caught: unknown) => caught)
+  if (expected === 'unchanged') expect(failure).toBe(error)
+  else {
+    expect(failure).toMatchObject({ code: 'NETWORK_ERROR' })
+    expect(failure).toHaveProperty('detail', expect.stringContaining(expected))
+    expect(failure).toHaveProperty('detail', expect.stringContaining('paid_request_sent=false'))
+  }
+  expect(putCalls(provider)).toEqual([])
+  expect(await ledger.records()).toEqual([])
+})
+
+it('reports the failed video read stage and numeric remote code without provider text', async () => {
+  const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: STORYBOARD,
+    parentFailureCode: 500 }
+  const error = await prepareVideoMethod(clientFor(provider), ledger,
+    { storyboard_id: 916953, project_dir: await project() }).catch((failure: unknown) => failure)
+  expect(error).toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(error).toHaveProperty('detail', expect.stringContaining('stage=parent_asset_read; remote_code=500'))
+  expect(String(error)).not.toContain('private provider detail')
+  expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  expect(await ledger.records()).toEqual([])
+})
+
+it('keeps a non-default storyboard model preflight error safe and sends no paid request', async () => {
+  const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+    storyboard: { ...STORYBOARD, id: 1855865 }, modelFailureCode: 500 }
+  const error = await prepareVideoMethod(clientFor(provider), ledger,
+    { storyboard_id: 1855865, project_dir: await project() }).catch((failure: unknown) => failure)
+  expect(error).toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(error).toHaveProperty('detail', expect.stringContaining('stage=model_catalogue_read; remote_code=500'))
+  expect(String(error)).not.toContain('private provider detail')
+  expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  expect(putCalls(provider)).toEqual([])
+  expect(await ledger.records()).toEqual([])
+})
+
+it('names a local subject verification failure without exposing asset URLs', async () => {
+  const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: STORYBOARD,
+    subjectPage: () => ({ total: 2, rows: [{ ...SUBJECT_ROWS[0], assetUrl: URL_GUEST }, SUBJECT_ROWS[1]] }) }
+  const error = await prepareVideoMethod(clientFor(provider), ledger,
+    { storyboard_id: 916953, project_dir: await project() }).catch((failure: unknown) => failure)
+  expect(error).toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(error).toHaveProperty('detail', expect.stringContaining('stage=subject_validation'))
+  expect(String(error)).not.toContain(URL_GUEST)
   expect(putCalls(provider)).toEqual([])
 })
 
@@ -689,13 +850,31 @@ describe('submit_video', () => {
     expect(provider.calls).toEqual([])
   })
 
+  it('does not resend when another caller records the key during free preflight reads', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const preview = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    let reads = 0
+    provider.onTaskList = async () => {
+      if (++reads !== 2) return
+      await ledger.begin({ idempotencyKey, method: 'storyboard_native_submit', scriptId: 2708,
+        requestSha256: bodyHash(preview.payload) })
+    }
+    expect(await submitVideoMethod(clientFor(provider), ledger,
+      { preview_path: previewPath, idempotency_key: idempotencyKey }))
+      .toMatchObject({ replayed: true, outcome: 'unknown', status: 'reconcile_required', put_sent: true })
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toHaveLength(1)
+  })
+
   it('treats a failed PUT as ambiguous, records unknown and still never resends', async () => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const { previewPath, idempotencyKey } = await prepared(provider)
     provider.onPut = () => { throw new Error('connection reset') }
     const result = await submitVideoMethod(clientFor(provider), ledger, { preview_path: previewPath,
       idempotency_key: idempotencyKey })
-    expect(result).toMatchObject({ replayed: false, outcome: 'unknown', put_ambiguous: true })
+    expect(result).toMatchObject({ replayed: false, outcome: 'unknown', put_sent: true, put_ambiguous: true,
+      put_error: { code: 'NETWORK_ERROR' } })
     expect((await ledger.find(idempotencyKey))?.outcome).toBe('unknown')
     // The replay reads the storyboard the failed PUT already stored, and has no
     // PUT hook at all: an optional member is absent, never an explicit `undefined`.
@@ -706,6 +885,23 @@ describe('submit_video', () => {
       idempotency_key: idempotencyKey })
     expect(putCalls(second)).toHaveLength(0)
     expect(replayed).toMatchObject({ replayed: true, status: 'submitted', task_id: '335343' })
+  })
+
+  it('does not expose an unexpected local exception in the submission result', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const client = clientFor(provider)
+    const original = client.request.bind(client)
+    const spy = vi.spyOn(client, 'request').mockImplementation(async (request) => {
+      if (request.method === 'PUT') throw new Error('private local token detail')
+      return original(request)
+    })
+    try {
+      const result = await submitVideoMethod(client, ledger, { preview_path: previewPath, idempotency_key: idempotencyKey })
+      expect(result).toMatchObject({ outcome: 'unknown', put_ambiguous: true,
+        put_error: { code: 'UNEXPECTED_ERROR', message: 'Video submission failed' } })
+      expect(JSON.stringify(result)).not.toContain('private local token detail')
+    } finally { spy.mockRestore() }
   })
 
   it('reports a lost child identity as terminal instead of retrying', async () => {
@@ -1153,6 +1349,7 @@ describe('submit_video_batch', () => {
     const result = await submitVideoBatchMethod(clientFor(provider), ledger, { items })
     expect(putCalls(provider)).toHaveLength(2)
     expect(result.results.map(item => item.status)).toEqual(['submitted', 'reconcile_required'])
+    expect(result.results[1]).toMatchObject({ put_error: { code: 'NETWORK_ERROR' } })
     expect((await ledger.find(items[1]!.idempotency_key))?.outcome).toBe('unknown')
     provider.calls.length = 0
     await submitVideoBatchMethod(clientFor(provider), ledger, { items })
