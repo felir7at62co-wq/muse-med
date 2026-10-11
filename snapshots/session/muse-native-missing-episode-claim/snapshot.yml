@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-native-missing-episode-claim
+profile: headless
+composition: muse-native-missing-episode-claim
+recording: authored
+header:
+  class: muse-native-missing-episode-claim
+  pin: true
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-missing-episode-fixture
