@@ -66,7 +66,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/dsh-credentials': ['credentialRef'],
   '@deepseek-ai/dsh-jubian': [
     'JUBIAN_TOKEN_REF', 'JubianError', 'JubianLedger', 'centsOf', 'checkBudget',
-    'workspaceJubianClient', 'workspacePipelineToken',
+    'configuredJubianClient', 'workspacePipelineToken',
     'describePayload', 'readProjectBudget', 'updateProjectBudget',
   ],
   '@deepseek-ai/dsh-jubian-api': [
@@ -75,8 +75,8 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'buildSubjectSelection', 'buildSubtitleEraseRequest', 'buildVideoUpscaleRequest', 'childrenOf',
     'classifyExistingNativeMatches', 'classifyNewNativeCandidates', 'downloadMedia', 'extractAppScriptUrl',
     'extractTosUploadConfig', 'findFolder', 'findFolderById', 'imageCandidates', 'isRelatedTaskCandidate',
-    'nativeResultUrls', 'needsUpscale', 'normalizedPrompt', 'readAssetList', 'readAssetPage',
-    'readEpisodes', 'readFolderTree', 'readGeneratedImage', 'readImageDisplayPrice',
+    'matchesNativeEpisode', 'nativeEpisodeScope', 'nativeResultUrls', 'needsUpscale', 'normalizedPrompt', 'readAssetList', 'readAssetPage',
+    'readEpisodes', 'readFolderTree', 'readGeneratedImage', 'readImageDisplayPrice', 'readImageGeneration',
     'readMaterialList', 'readModels', 'readReferenceAudio', 'readReferenceImage', 'readScript',
     'readScriptList', 'readStoryboard', 'readStoryboardPage', 'readSubtaskPage', 'readSubtitleTaskId',
     'readTaskList', 'readTaskPage', 'readUpscaleTaskId', 'referenceAudioUrls', 'referenceMaterialItem',

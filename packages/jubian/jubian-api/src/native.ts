@@ -315,7 +315,7 @@ export function subjectIdentitySignature(materials: unknown): SubjectIdentityIte
 
 /**
  * Read the model evidence a child result carries.
- * @param configValue - A child's `modelConfig`, either inline or JSON-serialized.
+ * @param configValue - A child's model fields, or its inline or JSON-serialized `modelConfig`.
  * @returns One `[field, value]` pair per required model field, in a fixed order.
  * @throws {JubianError} `CONTRACT_CHANGED` when any required field is absent.
  */
@@ -334,7 +334,7 @@ export function nativeModelSignature(configValue: unknown): [string, string][] {
 
 /**
  * Read the prompt a child result carries, in its normalized comparable form.
- * @param configValue - A child's `modelConfig`, either inline or JSON-serialized.
+ * @param configValue - A child's prompt fields, or its inline or JSON-serialized `modelConfig`.
  * @returns The fully normalized prompt.
  * @throws {JubianError} `CONTRACT_CHANGED` when no prompt is present.
  */
@@ -565,7 +565,7 @@ export interface NativePreviewInput {
 /**
  * Build the exact, deterministic storyboard PUT preview without any I/O.
  * @param input - Live storyboard, ordered parent assets, live catalogue and a timestamp.
- * @returns The preview, including the one-PUT payload and its semantic fingerprint.
+ * @returns The preview, including its one-PUT payload, explicit backup-model list and semantic fingerprint.
  * @throws {JubianError} `INVALID_ARGUMENT` when no image subject is selected; no preview is produced.
  * @throws {JubianError} `CONTRACT_CHANGED` when any identity, setting or model rule fails.
  */
@@ -588,6 +588,11 @@ export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoP
   }
   modelConfig.prompt = prompt
   modelConfig.materialList = materials.map(material => ({ ...material }))
+  if (config.backupModelList !== undefined && config.backupModelList !== null && !Array.isArray(config.backupModelList)) {
+    invalid('modelConfig.backupModelList must be a list when supplied')
+  }
+  modelConfig.backupModelList = config.backupModelList === undefined || config.backupModelList === null
+    ? [] : config.backupModelList
   payload.modelConfig = JSON.stringify(modelConfig)
 
   const storyboardId = integer(payload.id ?? payload.storyboardId)
@@ -698,11 +703,65 @@ function hasSecretField(value: unknown): boolean {
   })
 }
 
+/** Explicit provider episode identity; missing axes cannot exclude a task. */
+export interface NativeEpisodeScope {
+  /** Positive provider episode ID, or null when absent. */
+  episodeId: number | null
+  /** Positive episode number; independent of the provider ID. */
+  episodeCount?: number | null
+}
+
+/** Read one positive provider episode field without converting an absent value to zero. */
+function episodeAxis(record: Record<string, unknown>, camel: string, snake: string): number | null {
+  const values = [record[camel], record[snake]].map((value) => {
+    if (value === undefined || value === null || value === '') return null
+    const parsed = typeof value === 'string' && /^[0-9]+$/.test(value.trim()) ? Number(value.trim()) : value
+    if (typeof parsed !== 'number' || !Number.isSafeInteger(parsed) || parsed < 1) {
+      throw new JubianError('VIDEO_TASK_EVIDENCE_INVALID', `VIDEO_EPISODE_INVALID: ${camel} must be a positive integer or absent. Read the episode and storyboard before submitting.`)
+    }
+    return parsed
+  })
+  const [first, second] = values
+  if (first !== null && second !== null && first !== second) {
+    throw new JubianError('VIDEO_TASK_EVIDENCE_INVALID', `VIDEO_EPISODE_CONFLICT: ${camel} and ${snake} disagree. Read the episode and storyboard before submitting.`)
+  }
+  return first ?? second ?? null
+}
+
+/**
+ * Read explicit episode ID and number from provider or frozen-preview fields.
+ * @param record - Provider fields in camelCase or snake_case.
+ * @returns Positive episode axes, preserving absence as null.
+ * @throws JubianError when a supplied axis is invalid or aliases disagree.
+ */
+export function nativeEpisodeScope(record: Record<string, unknown>): NativeEpisodeScope {
+  return { episodeId: episodeAxis(record, 'episodeId', 'episode_id'),
+    episodeCount: episodeAxis(record, 'episodeCount', 'episode_count') }
+}
+
+/**
+ * Exclude only tasks whose explicit episode axes disagree with the frozen preview.
+ * @param record - Provider task row or detail.
+ * @param expected - Frozen episode axes; silence is not evidence of another episode.
+ * @returns False for a proven different episode, true for matching or missing evidence.
+ * @throws JubianError when the ID agrees but number differs, or the number agrees but ID differs.
+ */
+export function matchesNativeEpisode(record: Record<string, unknown>, expected: NativeEpisodeScope): boolean {
+  const actual = nativeEpisodeScope(record)
+  const idKnown = actual.episodeId !== null && expected.episodeId !== null
+  const countKnown = actual.episodeCount != null && expected.episodeCount != null
+  const idMatches = actual.episodeId === expected.episodeId
+  const countMatches = actual.episodeCount === expected.episodeCount
+  if (idKnown && countKnown && idMatches !== countMatches) {
+    throw new JubianError('VIDEO_TASK_EVIDENCE_INVALID', 'VIDEO_EPISODE_CONFLICT: task episode ID and number contradict the frozen storyboard. Reconcile episode ownership; do not resubmit.')
+  }
+  return (!idKnown || idMatches) && (!countKnown || countMatches)
+}
+
 /** What one claim attempt is checked against. */
-export interface NativeClaimExpectation {
+export interface NativeClaimExpectation extends NativeEpisodeScope {
   scriptId: number
   storyboardId: number
-  episodeId: number
   /** Ordered trusted identity the submission claimed. */
   expectedIdentity: SubjectIdentityItem[]
   /** Ordered uploaded audio URLs, separate from character image identities. */
@@ -776,11 +835,11 @@ function childIdentity(child: Record<string, unknown>): SubjectIdentityItem[] | 
 }
 
 function childModel(child: Record<string, unknown>): [string, string][] | null {
-  try { return nativeModelSignature(child.modelConfig === undefined ? child : child.modelConfig) } catch { return null }
+  try { return nativeModelSignature(child.modelConfig ?? child) } catch { return null }
 }
 
 function childPrompt(child: Record<string, unknown>): string | null {
-  try { return nativeObservablePrompt(child.modelConfig === undefined ? child : child.modelConfig) } catch { return null }
+  try { return nativeObservablePrompt(child.modelConfig ?? child) } catch { return null }
 }
 
 /** A child must repeat every frozen audio URL before its submission can be claimed. */
@@ -794,8 +853,7 @@ function audioMatches(child: Record<string, unknown>, expectation: NativeClaimEx
 /** Whether one hydrated candidate names this storyboard, using the detail's own fields first. */
 function candidateBelongsTo(candidate: HydratedTask, expectation: NativeClaimExpectation): boolean {
   if (!isRelatedTaskCandidate(candidate.task, expectation.scriptId, expectation.storyboardId)) return false
-  const remoteEpisode = wireText(candidate.task.episodeId ?? candidate.task.episode_id)
-  if (remoteEpisode !== null && remoteEpisode !== String(expectation.episodeId)) return false
+  if (!matchesNativeEpisode(candidate.task, expectation)) return false
   const semantic = taskSemanticFields(candidate.task)
   const remoteStoryboard = wireText(semantic.storyboardId ?? candidate.task.storyboardId)
   if (remoteStoryboard === null) return true

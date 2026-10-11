@@ -32,6 +32,8 @@ exports[`records an active candidate without confirming its casting or charging 
         "text": "{
   "replayed": false,
   "outcome": "accepted",
+  "generation_status": "succeeded",
+  "idempotency_key": "lead-3d-pilot",
   "response_sha256": "sha256:483891f16820fd26cce4949960983d3b8da6768557f32879915c4cfefa24a0b8",
   "budget": {
     "status": "authorized",

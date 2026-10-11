@@ -242,6 +242,41 @@ describe('ui-model-selection dual entry', () => {
       : { placeholder: 'Search models…', empty: 'No models available.', noResults: 'No matching models.' })
   })
 
+  it('uses the filtered Host catalog for /model without hiding official GLM', async () => {
+    const b = await bench()
+    try {
+      const model = GROUPS[0]!.models[0]!
+      b.setGroups([{
+        id: 'muse-cloud-yunying', name: 'Muse · 云映',
+        models: [
+          { ...model, id: 'gpt-6-sol', name: 'gpt-6-sol' },
+          { ...model, id: 'claude-sonnet-5-5', name: 'claude-sonnet-5-5' },
+          { ...model, id: 'gemini-3.1-pro', name: 'gemini-3.1-pro' },
+        ],
+      }, {
+        id: 'muse-cloud-zhipu-official', name: 'Muse · 智谱官方',
+        models: [{ ...model, id: 'glm-5.3-flash', name: 'GLM-5.3-Flash' }],
+      }])
+      b.remote.emit('llm/adapters-updated', [])
+      b.mint('s1')
+      b.setProjected(sid('s1'), { lastUsed: null,
+        next: { provider: 'muse-cloud-yunying', model: 'gpt-6-astra' } })
+      const options = await b.popup().options(projection('s1'), new AbortController().signal)
+      expect(options.map(option => [option.group?.name, option.label])).toEqual([
+        ['muse-cloud-yunying', 'gpt-6-sol'],
+        ['muse-cloud-yunying', 'claude-sonnet-5-5'],
+        ['muse-cloud-yunying', 'gemini-3.1-pro'],
+        ['muse-cloud-zhipu-official', 'GLM-5.3-Flash'],
+      ])
+      expect(b.ctx.modelDirectories.directoryFor(sid('s1')).store.getSnapshot()).toMatchObject({
+        current: { provider: 'muse-cloud-yunying', model: 'gpt-6-astra' }, routable: false,
+      })
+      expect(b.calls.select).toBe(0)
+    } finally {
+      await b.ctx.fiber.dispose()
+    }
+  })
+
   it('orders popup provider groups account-first while retaining third-party catalog order', async () => {
     const b = await bench()
     try {

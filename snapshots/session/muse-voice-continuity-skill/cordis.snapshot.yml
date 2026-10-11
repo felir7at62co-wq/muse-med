@@ -32,3 +32,13 @@
       - passthrough-runner
     runnerFailureSignatures:
       - 'passthrough-runner: profile rejected'
+
+# This scenario loads only its workspace skills and no checkout instructions.
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    includeDefaultRoots: false
+    customSkillDirs: !!js "[process.cwd() + '/.dsh/skills']"
+    watch: false

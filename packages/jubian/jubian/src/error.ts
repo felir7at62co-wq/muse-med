@@ -14,6 +14,7 @@ export type JubianErrorCode =
   | 'PERMISSION_DENIED'
   | 'RATE_LIMITED'
   | 'CONTRACT_CHANGED'
+  | 'VIDEO_TASK_EVIDENCE_INVALID'
   | 'INVALID_ARGUMENT'
   | 'NETWORK_ERROR'
   | 'BUDGET_EXCEEDED'
@@ -23,6 +24,7 @@ const MESSAGES: Record<JubianErrorCode, string> = {
   PERMISSION_DENIED: 'Jubian account cannot access this resource',
   RATE_LIMITED: 'Jubian rate limit reached',
   CONTRACT_CHANGED: 'Jubian response did not match the expected envelope',
+  VIDEO_TASK_EVIDENCE_INVALID: 'Jubian video task ownership could not be safely verified',
   INVALID_ARGUMENT: 'Jubian tool call is missing an argument it cannot run without',
   NETWORK_ERROR: 'Jubian request failed',
   BUDGET_EXCEEDED: 'Jubian spend is not covered by the authorization this deployment holds',

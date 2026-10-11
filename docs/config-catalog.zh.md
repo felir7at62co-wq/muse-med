@@ -2329,6 +2329,13 @@ export interface Config {
   readonly modelRefreshMs: number
   /** Model ID prefixes excluded from the account-supplied catalog. */
   readonly excludedModelPrefixes: string[]
+  /** Exact account provider/model pairs hidden from the selectable catalog. */
+  readonly excludedModels: {
+    /** Exact provider ID in the account gateway catalog. */
+    providerId: string
+    /** Exact model ID excluded only for the specified provider. */
+    modelId: string
+  }[]
   /** Exact provider IDs excluded from the account-supplied catalog; personal adapters are unaffected. */
   readonly excludedProviderIds: string[]
   /** Product-private account directory; omission selects the active DSH home. */
@@ -3932,7 +3939,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-drama-assets`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/drama/tool-drama-assets/src/index.ts:44`](../packages/drama/tool-drama-assets/src/index.ts)
+- `source`: [`packages/drama/tool-drama-assets/src/index.ts:48`](../packages/drama/tool-drama-assets/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -3949,6 +3956,12 @@ export interface Config {
   timeoutMs?: number
   /** Whether the workspace's own pipeline secret file may stand in for a missing credential-store value; defaults to true. */
   workspaceSecrets?: boolean
+  /** Matching-only provider page size, 1–1000; defaults to 1000. */
+  matchPageSize?: number
+  /** Matching-only page limit per inventory; defaults to 100. */
+  matchPageLimit?: number
+  /** Matching-only requirement limit per call; defaults to 100. */
+  matchRequirementLimit?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-drama-assets -->

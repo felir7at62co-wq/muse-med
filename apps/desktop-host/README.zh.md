@@ -11,6 +11,8 @@ description: "Muse Desktop Host 的产品配置与智能体预设默认值。"
 
 桌面账号组合通过 [`excludedProviderIds`](../../packages/host/muse-account/README.zh.md#minimal-configuration) 排除独立 Gemini 提供方 `aa`。账号选择器保留云映的 `gemini-3.1-pro` 及其其他供应模型，以及官方 DeepSeek。已有对话若选用了独立 Gemini，须在下次请求前选择可用模型；操作见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-gemini-provider/guide.zh.md)。
 
+桌面账号组合还从新会话可选目录精确排除云映的 `claude-opus-5-5`、`claude-fable-5-1`、`gpt-6-astra`、`glm-5.3-flash`。网关私有目录及其他提供方（包括智谱官方 GLM 路由）保持不变。已有会话保留原模型 ID；当目录不再提供该路由时，选择器提示先切换模型。
+
 桌面账号组合将网关与知识库请求的 `requestTimeoutMs` 设置为 60,000 毫秒，包含项目参与组合扫描。个人覆盖文件可修改这一经过验证的账号配置；底层插件默认值仍为 15,000 毫秒。超时仍报告服务不可用，不能据此判断远程写入是否完成。
 
 <a id="compaction-defaults"></a>

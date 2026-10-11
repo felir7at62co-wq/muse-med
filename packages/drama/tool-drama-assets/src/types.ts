@@ -180,7 +180,7 @@ export interface ManifestIssue {
 }
 
 /** The method one call dispatches. */
-export type DramaAssetsMethod = 'reconcile' | 'dispose'
+export type DramaAssetsMethod = 'reconcile' | 'dispose' | 'match_preview' | 'reuse_preview'
 
 /** The status a `dispose` call may write. */
 export type DisposeStatus = 'registered' | 'ignored'

@@ -64,6 +64,8 @@ try {
 
 `workspaceJubianClient()` 优先使用凭据库中的非空白值。启用工作间密钥且凭据库为空时，`workspacePipelineToken()` 从起始目录向上最多检查十一层父目录，读取最近的可读 `.agents/secrets/pipeline.env`。该文件优先提供非空的 `JUBIANAI_ADMIN_TOKEN`，其次使用 `JUBIANAI_TOKEN`；可读文件两者都没有时停止查找。每次请求读取当前值，且不将值写入日志。
 
+`configuredJubianClient()` 解析工具插件共用的来源地址、超时与工作间密钥策略，并沿用相同的凭据优先级。未指定的来源和超时保留传输默认值，工作间密钥查找默认启用。
+
 ### 六个稳定错误码
 
 `JubianError` 保留稳定错误码与本地消息。HTTP 失败只追加数字状态，例如 `HTTP 502`；已识别的超时、中止、DNS、连接与 TLS 失败追加白名单内的本地撰写详情。提供方消息、响应体、URL、令牌与原始 cause 都不会被附加。未知传输失败仍为 `Jubian request failed`；诊断不会触发重试。
@@ -74,6 +76,7 @@ try {
 | `PERMISSION_DENIED` | HTTP 为 2xx 而信封 `code` 为 403 |
 | `RATE_LIMITED` | HTTP 为 429，或信封 `code` 为 429 |
 | `CONTRACT_CHANGED` | 响应体不是 JSON、不是合法 UTF-8、不是对象、超出字节上限、不带整数 `code`，或带有本包不映射的错误码；详情描述响应体的结构 |
+| `VIDEO_TASK_EVIDENCE_INVALID` | 原生视频任务归属无效、矛盾或超过候选扫描上限；本地详情指出剧集字段或扫描规则。这是本地对账失败，不是远端信封拒绝 |
 | `NETWORK_ERROR` | 连接失败、调用超时、重定向被拒绝，或 HTTP 为任何其他非 2xx 状态 |
 | `BUDGET_EXCEEDED` | 一次计费调用不被本部署的授权覆盖；详情说明缺的是哪一项 |
 

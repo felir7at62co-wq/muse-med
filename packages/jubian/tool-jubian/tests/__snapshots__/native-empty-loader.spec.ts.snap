@@ -1,5 +1,33 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`records episode-conflict on replay without another paid PUT > native episode-conflict refusal 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "Error: Jubian video task ownership could not be safely verified: VIDEO_EPISODE_CONFLICT: task episode ID and number contradict the frozen storyboard. Reconcile episode ownership; do not resubmit.",
+        "type": "text",
+      },
+    ],
+    "isError": true,
+  },
+]
+`;
+
+exports[`records scan-limit on replay without another paid PUT > native scan-limit refusal 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "Error: Jubian video task ownership could not be safely verified: VIDEO_TASK_SCAN_LIMIT: storyboard 1 has 101 candidate tasks after episode filtering (limit 100; episodeId=null, episodeCount=76). Reconcile task ownership or repair missing episode fields before submitting. This check is read-only; keep the original preview and key.",
+        "type": "text",
+      },
+    ],
+    "isError": true,
+  },
+]
+`;
+
 exports[`records the empty-subject diagnostic without ledger or HTTP side effects > local empty-subject refusal 1`] = `
 [
   {

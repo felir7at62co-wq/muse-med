@@ -66,12 +66,19 @@ export function findUnavailableRepositoryReferences(file: string, source: string
 }
 
 function trackedFiles(repoRoot: string): string[] {
-  return execFileSync('git', ['ls-files', '-z'], { cwd: repoRoot, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+  return execFileSync('git', ['ls-files', '-z'], {
+    cwd: repoRoot, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
+  })
     .split('\0')
     .filter(file => file !== '')
 }
 
-function scanRepository(repoRoot: string): UnavailableRepositoryReference[] {
+/**
+ * Scan every tracked text file and symlink for unavailable repository references.
+ * @param repoRoot - Repository root whose Git index supplies the complete file list.
+ * @returns Matching file paths and source lines outside frozen archived Agent Notes.
+ */
+export function scanRepository(repoRoot: string): UnavailableRepositoryReference[] {
   const references: UnavailableRepositoryReference[] = []
   for (const file of trackedFiles(repoRoot)) {
     const path = resolve(repoRoot, file)

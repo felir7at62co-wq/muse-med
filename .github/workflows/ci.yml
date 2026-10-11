@@ -373,6 +373,43 @@ jobs:
       - name: Build and execute the Linux Office runtime
         run: CI=true pnpm run prepare:primary-runtime --target linux-x64 --output "$RUNNER_TEMP/office-runtime" --cache "$RUNNER_TEMP/office-runtime-downloads"
 
+      - name: Verify Muse screenplay DOCX with the locked Office runtime
+        env:
+          MUSE_TEST_PRIMARY_RUNTIME: ${{ runner.temp }}/office-runtime/primary-runtime
+          MUSE_WORD_REPORT: ${{ runner.temp }}/muse-word-${{ github.run_id }}-${{ github.run_attempt }}.json
+        run: |
+          set -euo pipefail
+          test -f "$MUSE_TEST_PRIMARY_RUNTIME/runtime.json"
+          test -x "$MUSE_TEST_PRIMARY_RUNTIME/dependencies/python/bin/python3"
+          test ! -e "$MUSE_WORD_REPORT"
+          pnpm exec vitest run apps/desktop-host/tests/screenplay-docx.spec.ts --maxWorkers=2 --reporter=json --outputFile "$MUSE_WORD_REPORT"
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs'
+
+          const result = JSON.parse(readFileSync(process.env.MUSE_WORD_REPORT, 'utf8'))
+          const [file] = result.testResults ?? []
+          const assertions = file?.assertionResults
+          const accepted = result.success === true
+            && result.numTotalTestSuites === 1
+            && result.numPassedTestSuites === 1
+            && result.numTotalTests === 10
+            && result.numPassedTests === 10
+            && result.numFailedTests === 0
+            && result.numPendingTests === 0
+            && result.numTodoTests === 0
+            && result.testResults?.length === 1
+            && file.name.replaceAll('\\', '/').endsWith('/apps/desktop-host/tests/screenplay-docx.spec.ts')
+            && assertions?.length === 10
+            && assertions.every(test => test.status === 'passed')
+            && assertions.some(test => test.title === 'exports ordered Chinese Markdown using the configured Python runtime')
+          if (!accepted) {
+            console.error('Muse screenplay DOCX CI requires exactly 10 passed tests, zero failures or skips, and the real DOCX assertion.')
+            process.exitCode = 1
+          } else {
+            console.log('Muse screenplay DOCX CI: 10 passed, 0 failed, 0 skipped; real DOCX assertion passed.')
+          }
+          NODE
+
       - name: Run compatibility, snapshot, and artifact gates
         run: pnpm run check:ci:consumers
 

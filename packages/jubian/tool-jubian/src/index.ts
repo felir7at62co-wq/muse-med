@@ -24,7 +24,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { JUBIAN_TOKEN_REF, workspaceJubianClient, JubianLedger, readProjectBudget, updateProjectBudget } from '@deepseek-ai/dsh-jubian'
+import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger, readProjectBudget, updateProjectBudget } from '@deepseek-ai/dsh-jubian'
 import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
 import { validateProjectBinding } from './native.ts'
 import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from './methods.ts'
@@ -139,7 +139,7 @@ const VIDEO_ESTIMATE_ARGS = {
 const ARGS = {
   idempotency_key: { type: 'string', description: `写方法必填；读方法忽略。${WRITE_NOTE}` },
   task_type: { type: 'number', description: 'models 必填：1=视频，2=图片，10=去字幕。' },
-  standard_id: { type: 'number', description: 'rate 必填：计价标准 ID。' },
+  standard_id: { type: 'number', description: 'rate 必填：models 返回的模型计价行 id/standardId，不是 videoStandards 中的 videoStandardId。' },
   script_id: { type: 'number', description: '剧变项目 ID（scriptId）。erase_subtitle 与 upscale 从任务行读取它，'
     + '不必单独提供；其余方法按上面的必填说明传入。' },
   page_num: { type: 'number', description: '页码，默认 1。' },
@@ -205,7 +205,7 @@ const ARGS = {
     description: 'create 与 body 二选一：按 body 的字段说明生成并检查的本地 UTF-8 JSON 文件路径；一包一份请求体。' },
   media_url: { type: 'string', description: 'media 必填：剧变 CDN 上的媒体 URL（来自其他方法的返回值）。' },
   media_kind: { type: 'string', enum: ['image', 'video'], description: 'media 必填：要下载的是图片还是视频。' },
-  output_path: { type: 'string', description: 'media 必填：落盘的本地绝对路径。' },
+  output_path: { type: 'string', description: 'media 必填：期望落盘的本地绝对路径。扩展名与实际格式不一致时会修正；后续使用返回的 path。' },
   delivery_resolution: { type: 'string',
     description: 'subtasks 可选但强烈建议：本次要交付的分辨率，如 1080p。给定后每行都会得到 '
       + 'needs_upscale：低于该分辨率的结果为 true，否则为 false，无法判断时为 null。'
@@ -367,11 +367,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         expected_revision: args.expected_revision, authorization }) }
     },
   })))
-  const client = workspaceJubianClient({
-    credential: async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? '',
-    ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
-    ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
-  }, config.workspaceSecrets !== false, process.cwd())
+  const client = configuredJubianClient(
+    async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? '', config, process.cwd())
   // The rows a Settings page may pick between. It shares the transport above, so
   // the token that authorizes the read stays in this process.
   ctx.plugin(JubianImageRoutes, { client })
@@ -638,6 +635,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：'
       + 'select_assets 的素材按提示词 key 首次出现的顺序选一次，提示词后文可重复引用同一 key。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；'
       + 'prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，'
+      + '缺少数字 materialAssetId 时只从唯一匹配的正式主体素材读取父资产；映射不明则提示人工核对，绝不把 asset-... 用作数字父资产 ID。'
       + '按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，'
       + '在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；'
       + 'submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，'
@@ -727,6 +725,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '它只在同一个 idempotency_key 下发送一次，并在受理后核实父资产 Active，或新父资产下唯一 Active 未采用候选图，'
       + '再返回 material_id（confirm_casting 需要它）与 image_url；候选图须先审图再确认出演。'
       + '返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；'
+      + 'generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。'
       + 'timeout 表示受理已计费但尚未核实可用图片，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；'
       + 'failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。'
       + '**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。'
@@ -814,7 +813,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '本工具不会把图片或视频内容放进返回值。',
     parameters: {
       method: { type: 'string', required: true, enum: ['download'],
-        description: 'download=从 media_url 下载到 output_path。' },
+        description: 'download=从 media_url 下载到本地，按实际格式修正扩展名；读取返回的 path。' },
       media_url: { ...ARGS.media_url, required: true },
       media_kind: { ...ARGS.media_kind, required: true },
       output_path: { ...ARGS.output_path, required: true },

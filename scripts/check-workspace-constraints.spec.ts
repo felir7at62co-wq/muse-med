@@ -414,7 +414,7 @@ it.each([
   }
 })
 
-it('requires the Desktop Host entry, presets, skills, and configuration in its payload', () => {
+it('requires the Desktop Host public leaf bundles, presets, skills, and configuration in its payload', () => {
   const dir = 'apps/desktop-host'
   const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
   expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
@@ -424,6 +424,9 @@ it('requires the Desktop Host entry, presets, skills, and configuration in its p
   }
   expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, 'lib/extra.js'] } }))
     .toEqual([expect.stringContaining('package.json files must be')])
+  expect(checkWorkspaceManifest({ dir, manifest: {
+    ...manifest, files: [...manifest.files!.filter(file => !file.startsWith('lib/')), 'lib/*.js'],
+  } })).toEqual([expect.stringContaining('package.json files must be')])
 })
 
 it('keeps the noncommercial music analysis package private with its complete runtime payload', () => {

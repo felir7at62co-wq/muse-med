@@ -84,6 +84,7 @@ export interface MuseModelsOptions {
   readonly requestTimeoutMs: number
   readonly fetcher?: typeof fetch
   readonly excludedModelPrefixes?: readonly string[]
+  readonly excludedModels?: readonly { providerId: string; modelId: string }[]
   readonly excludedProviderIds?: readonly string[]
   /** Base64 image-byte budget resolved by the provider adapter; omission keeps its default. */
   readonly modelRequestImageMaxBytes?: number
@@ -229,7 +230,8 @@ export class MuseModels {
       const id = `muse-cloud-${provider.id}`
       if (Object.hasOwn(providers, id)) throw new MuseGatewayError('gateway-rejected')
       const allowedModels = provider.models.filter(model => !(this.options.excludedModelPrefixes ?? [])
-        .some(prefix => modelName(model.id).toLowerCase().startsWith(prefix.toLowerCase())))
+        .some(prefix => modelName(model.id).toLowerCase().startsWith(prefix.toLowerCase()))
+        && !(this.options.excludedModels ?? []).some(excluded => excluded.providerId === provider.id && excluded.modelId === model.id))
       if (!allowedModels.length) continue
       for (const model of allowedModels) {
         if (model.defaultReasoningEffort !== undefined) defaults.set(`${id}:${model.id}`, ReasoningEffortId(model.defaultReasoningEffort))

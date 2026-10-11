@@ -68,12 +68,18 @@ function account(ctx: Context): MuseAccountService {
 }
 
 it('defaults account provider exclusions to an empty list and rejects malformed IDs before activation', () => {
-  expect(Config({ baseUrl })).toMatchObject({ excludedProviderIds: [] })
+  expect(Config({ baseUrl })).toMatchObject({ excludedProviderIds: [], excludedModels: [] })
   expect(Config({ baseUrl, excludedProviderIds: ['aa', 'deepseek-official'] })).toMatchObject({
     excludedProviderIds: ['aa', 'deepseek-official'],
   })
   for (const excludedProviderIds of ['aa', [1], [''], ['../aa'], ['AA']]) {
     expect(() => { Reflect.apply(Config, undefined, [{ baseUrl, excludedProviderIds }]) }).toThrow()
+  }
+  expect(Config({ baseUrl, excludedModels: [{ providerId: 'yunying', modelId: 'glm-5.3-flash' }] }))
+    .toMatchObject({ excludedModels: [{ providerId: 'yunying', modelId: 'glm-5.3-flash' }] })
+  for (const excludedModels of [[{ providerId: 'Yunying', modelId: 'glm-5.3-flash' }],
+    [{ providerId: 'yunying', modelId: '' }], [{ providerId: 'yunying' }]]) {
+    expect(() => { Reflect.apply(Config, undefined, [{ baseUrl, excludedModels }]) }).toThrow()
   }
   expect(discovery.apply).not.toHaveBeenCalled()
 })

@@ -59,7 +59,9 @@ try {
 }
 ```
 
-成功就是一个完整带类型的值：`task.task_id` 是数字，`task.real_cost` 是提供方自己的字符串或 `null`。失败就是一个 `JubianError`，其错误码为 `CONTRACT_CHANGED`，表示载荷没有携带读取器必需的字段。读取器从不返回部分结果，也从不给缺失的数字补一个零。`JubianError` 本身属于 `@deepseek-ai/dsh-jubian`，所有失败码都由它拥有。
+成功就是一个完整带类型的值：`task.task_id` 是数字，`task.real_cost` 是以字符串呈现的提供方费用观测值或 `null`。失败就是一个 `JubianError`，其错误码为 `CONTRACT_CHANGED`，表示载荷没有携带读取器必需的字段。读取器从不返回部分结果，也从不给缺失的数字补一个零。`JubianError` 本身属于 `@deepseek-ai/dsh-jubian`，所有失败码都由它拥有。
+
+视频任务费用保留十进制字符串，并将非负有限 JSON 数字转换为字符串。缺失、负数或不可读取的费用仍为 null；不会丢弃 `3.3906` 这类数字。这些提供方观测值不改变预算授权，也不自动结算本地预约金额。
 
 ### 读取结果列表
 
@@ -160,11 +162,15 @@ async function downloadVideo(row: VideoSubtask) {
 
 ### 视频阶段词表
 
+`buildNativeVideoPreview()` 保留显式的 `backupModelList`，缺失或为 null 时补为 `[]`，使冻结的模型配置包含列表字段，但不代选备用模型。非列表值在提交前被拒绝。此字段参与指纹；缺少它的未提交预览需要重新准备。已有账本记录的键仍只做对账，不再次发送付费请求。
+
+原生任务认领从子项 `modelConfig` 读取模型选择器和提示词；该字段缺失或为 null 时读取子项直接携带的字段。直接字段 `modelVideoStandardId` 是提供方对 `videoStandardId` 的命名。两种格式都要求全部十个冻结模型字段、提示词及完整有序主体身份；证据缺失或损坏时均不允许再次付费提交。不能用当前分镜补充任务缺失的证据。
+
 原生主体视频准备至少需要一张已选定的图片主体。`buildNativeVideoPreview()` 对空主体或仅有音频的选择返回 `INVALID_ARGUMENT`，不生成 prepared 预览。`validateNativeVideoPreview()` 对历史空主体预览返回明确的本地参数错误；本次提交调用尚未进入账本，也尚未发出远端付费请求。现有身份校验和提交指纹规则仍然适用。
 
 主体选源把远端已删除的父资产报告为 `PRE_PUT_ASSET_REMOVED`，即使主体列表已经排除了它的材质。已采用的有效材质缺失或不唯一时报告 `PRE_PUT_SUBJECT_UNAVAILABLE`。两种错误均发生在选源 PUT 之前；应刷新真实项目并选择有效的现有资产，不反复重试失效引用。提供方对已保存分镜（包括免费保存）也会存储 `isGenerate=1`，因此仅凭这个回读值不能判断是否已经生成视频。
 
-任务认领取子结果明确提供的 `modelConfig`；该字段缺失时，读取子结果直接提供的模型参数和提示词。直接字段 `modelVideoStandardId` 是提供方对 `videoStandardId` 的别名。全部必需模型字段、有序主体身份和提示词仍须与提交预览一致；已提供但格式损坏或互相矛盾的 `modelConfig` 不会被直接字段替代。
+原生视频任务对账比较明确的集 ID 和集号，不把缺失值转成零。`nativeEpisodeScope()` 校验 camelCase 与 snake_case 别名；`matchesNativeEpisode()` 排除能够证明属于其他集的任务，并拒绝矛盾证据。字段缺失不能证明任务属于其他集。这些失败使用 `VIDEO_TASK_EVIDENCE_INVALID`；主体、模型、提示词和音频匹配仍为必要条件。
 
 上传的音频参考使用 `materialType=audio`、`materialUrl`、`materialKey` 和音频组独立的 `sortOrder`；无需图片父资产或确认出演。原生准备保留这些行，排在已确认图片之后，并将其保存字段纳入指纹。主体选源保留已有音频。视频认领要求子结果的有序 `audioMaterials[].audioUrl` 与提交参考一致；证据缺失或变化时只允许对账，不再次付费提交。`readReferenceAudio()` 测量完整 16 位 PCM WAV 字节，拒绝超过 15 秒的参考。已保存远端 `audioDuration` 存在时会校验，缺失时保留未核实状态。
 

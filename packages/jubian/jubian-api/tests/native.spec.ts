@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildNativeVideoPreview, childrenOf, classifyExistingNativeMatches, classifyNewNativeCandidates,
-  isRelatedTaskCandidate, nativeModelSignature, nativeObservablePrompt, nativeResultUrls,
+  isRelatedTaskCandidate, matchesNativeEpisode, nativeEpisodeScope, nativeModelSignature, nativeObservablePrompt, nativeResultUrls,
   normalizedPrompt, readBackIdentity, resolveVideoModel, validateVideoDuration, stableJson, stableSha256,
   subjectIdentitySignature, submissionSemantics, taskIdOf, taskSemanticFields, taskStatusOf,
   terminalOutcome, validateNativeVideoPreview, validatedVideoMaterials, wireText,
@@ -49,6 +49,26 @@ const EXPECTATION = { scriptId: 2708, storyboardId: 916953, episodeId: 46737,
   expectedIdentity: subjectIdentitySignature(MATERIALS),
   expectedModel: nativeModelSignature(JSON.stringify(MODEL_CONFIG)),
   expectedPrompt: normalizedPrompt(PROMPT), beforeTaskIds: [] as string[] }
+
+it.each([undefined, null])('prepares an explicit empty backup list when the saved field is %s', (backups) => {
+  const config = { ...MODEL_CONFIG, backupModelList: backups }
+  const result = buildNativeVideoPreview({ storyboard: { ...STORYBOARD, modelConfig: JSON.stringify(config) },
+    assets: ASSETS, models: CATALOGUE, createdAt: 'now' })
+  expect((JSON.parse(String(result.payload.modelConfig)) as Record<string, unknown>).backupModelList).toEqual([])
+  expect(result.payload.isGenerate).toBe(1)
+})
+it('preserves an explicitly configured backup model list in the frozen payload', () => {
+  const backups = [{ modelId: 'selected-backup', standardId: 12 }]
+  const result = buildNativeVideoPreview({ storyboard: { ...STORYBOARD,
+    modelConfig: JSON.stringify({ ...MODEL_CONFIG, backupModelList: backups }) },
+  assets: ASSETS, models: CATALOGUE, createdAt: 'now' })
+  expect((JSON.parse(String(result.payload.modelConfig)) as Record<string, unknown>).backupModelList).toEqual(backups)
+})
+it.each([{}, 'invalid', 1])('refuses an unreadable backup model list before producing a payable preview: %j', (backups) => {
+  expect(() => buildNativeVideoPreview({ storyboard: { ...STORYBOARD,
+    modelConfig: JSON.stringify({ ...MODEL_CONFIG, backupModelList: backups }) },
+  assets: ASSETS, models: CATALOGUE, createdAt: 'now' })).toThrow('backupModelList')
+})
 
 describe('canonical hashing and wire reading', () => {
   it('reads task records without inventing records from absent data', () => {
@@ -570,7 +590,6 @@ describe('task claiming', () => {
 
   it.each([
     { modelConfig: '{', existing: 'reconcile_conflict' },
-    { modelConfig: null, existing: 'reconcile_conflict' },
     { modelConfig: { ...MODEL_CONFIG, resolution: '480p' }, existing: 'none' },
   ])('does not replace stated nested model evidence with flat fields: $modelConfig', ({ modelConfig, existing }) => {
     const candidate = { ...related, children: [{ ...MODEL_CONFIG, ...CHILD, modelConfig }] }
@@ -630,6 +649,35 @@ describe('task claiming', () => {
     expect(classifyNewNativeCandidates([related], EXPECTATION)).toMatchObject({ status: 'matched',
       taskId: '335343' })
     expect(classifyExistingNativeMatches([related], EXPECTATION)).toMatchObject({ status: 'matched' })
+  })
+
+  it.each([undefined, null])('claims complete direct child fields when modelConfig is %j', (modelConfig) => {
+    const { videoStandardId, ...directFields } = MODEL_CONFIG
+    const child = { ...CHILD, ...directFields, modelVideoStandardId: videoStandardId, modelConfig }
+    const candidate = { ...related, children: [child] }
+    expect(classifyNewNativeCandidates([candidate], EXPECTATION)).toMatchObject({ status: 'matched', taskId: '335343' })
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION)).toMatchObject({ status: 'matched', taskId: '335343' })
+  })
+
+  it.each([...EXPECTATION.expectedModel.map(([field]) => field), 'prompt'])
+  ('refuses incomplete direct child field %s', (field) => {
+    const candidate = { ...related, children: [{ ...CHILD, ...MODEL_CONFIG, modelConfig: null, [field]: null }] }
+    expect(classifyNewNativeCandidates([candidate], EXPECTATION)).toEqual({ status: 'reconcile_conflict' })
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION)).toEqual({ status: 'reconcile_conflict' })
+  })
+
+  it('keeps malformed nested evidence a conflict even when direct fields are complete', () => {
+    const candidate = { ...related, children: [{ ...CHILD, ...MODEL_CONFIG, modelConfig: '{' }] }
+    expect(classifyNewNativeCandidates([candidate], EXPECTATION)).toEqual({ status: 'reconcile_conflict' })
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION)).toEqual({ status: 'reconcile_conflict' })
+  })
+
+  it('does not claim direct child fields with a different prompt or model', () => {
+    for (const fields of [{ ...MODEL_CONFIG, prompt: 'another shot' }, { ...MODEL_CONFIG, resolution: '480p' }]) {
+      const candidate = { ...related, children: [{ ...CHILD, ...fields, modelConfig: null }] }
+      expect(classifyNewNativeCandidates([candidate], EXPECTATION)).toEqual({ status: 'reconcile_conflict' })
+      expect(classifyExistingNativeMatches([candidate], EXPECTATION)).toEqual({ status: 'none' })
+    }
   })
 
   it('ignores a task that already existed before the PUT', () => {
@@ -709,5 +757,42 @@ describe('task claiming', () => {
     expect(isRelatedTaskCandidate({}, 2708, 916953)).toBe(true)
     const foreign = { ...related, task: { ...related.task, storyboardId: 5 } }
     expect(classifyNewNativeCandidates([foreign], EXPECTATION)).toEqual({ status: 'none' })
+  })
+})
+
+
+describe('native episode scope', () => {
+  it.each([{}, { episodeId: null }, { episode_id: '', episode_count: null }])('preserves missing axes in %j', (record) => {
+    expect(nativeEpisodeScope(record)).toEqual({ episodeId: null, episodeCount: null })
+    expect(matchesNativeEpisode(record, { episodeId: null, episodeCount: 76 })).toBe(true)
+  })
+  it('reads positive IDs and numbers from either alias without changing the record', () => {
+    const record = { episodeId: '93828', episode_id: 93828, episodeCount: ' 76 ', episode_count: 76 }
+    expect(nativeEpisodeScope(record)).toEqual({ episodeId: 93828, episodeCount: 76 })
+    expect(record.episodeCount).toBe(' 76 ')
+  })
+  it.each([0, -1, 1.5, false, {}, 'unknown', '9007199254740992'])('rejects invalid episode axes %j', (value) => {
+    expect(() => nativeEpisodeScope({ episodeId: value })).toThrow(/VIDEO_EPISODE_INVALID/)
+    expect(() => nativeEpisodeScope({ episodeCount: value })).toThrow(/VIDEO_EPISODE_INVALID/)
+  })
+  it.each([{ episodeId: 1, episode_id: 2 }, { episodeCount: 76, episode_count: 85 }])('rejects disagreeing aliases %j', (record) => {
+    expect(() => nativeEpisodeScope(record)).toThrow(/VIDEO_EPISODE_CONFLICT/)
+  })
+  it.each([{ episodeId: 93828, episodeCount: 85 }, { episodeId: 93837, episodeCount: 76 }])('rejects contradictory axes %j', (record) => {
+    expect(() => matchesNativeEpisode(record, { episodeId: 93828, episodeCount: 76 })).toThrow(/VIDEO_EPISODE_CONFLICT/)
+  })
+  it('uses episode number when the frozen ID is absent and excludes different known IDs', () => {
+    expect(matchesNativeEpisode({ episode_id: 93837, episode_count: 85 }, { episodeId: null, episodeCount: 76 })).toBe(false)
+    expect(matchesNativeEpisode({ episode_id: 93828 }, { episodeId: null, episodeCount: 76 })).toBe(true)
+    expect(matchesNativeEpisode({ episode_id: 93837 }, { episodeId: 93828 })).toBe(false)
+    expect(matchesNativeEpisode({ episode_id: 93837, episode_count: 85 }, { episodeId: 93828, episodeCount: 76 })).toBe(false)
+  })
+  it('claims an explicit remote ID against a missing frozen ID using the frozen episode number', () => {
+    const candidate = { taskId: '335343', task: { id: 335343, scriptId: 2708, episode_id: 93828, episode_count: 76 }, children: [CHILD] }
+    const expected = { ...EXPECTATION, episodeId: null, episodeCount: 76 }
+    expect(classifyNewNativeCandidates([candidate], expected).status).toBe('matched')
+    expect(classifyExistingNativeMatches([candidate], expected).status).toBe('matched')
+    expect(classifyNewNativeCandidates([{ ...candidate, task: { ...candidate.task, episode_count: 85 } }], expected).status).toBe('none')
+    expect(classifyExistingNativeMatches([{ ...candidate, task: { ...candidate.task, episode_count: 85 } }], expected).status).toBe('none')
   })
 })

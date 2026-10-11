@@ -64,6 +64,8 @@ Two layouts are documented, and the client hides the difference from you. A sing
 
 `workspaceJubianClient()` uses a nonblank credential-store value first. When workspace secrets are enabled and the store is empty, `workspacePipelineToken()` searches the start directory and up to eleven parents for the nearest readable `.agents/secrets/pipeline.env`. That file supplies a nonempty `JUBIANAI_ADMIN_TOKEN`, then `JUBIANAI_TOKEN`; a readable file with neither stops the search. Each request reads the current values without logging them.
 
+`configuredJubianClient()` resolves the shared tool-plugin origin, timeout and workspace-secret policy before using this same credential precedence. Omitted origin and timeout retain the transport defaults; workspace-secret lookup defaults to enabled.
+
 ### The six stable failure codes
 
 `JubianError` keeps its stable code and local message. HTTP failures append only the numeric status, such as `HTTP 502`; recognized timeout, abort, DNS, connection and TLS failures append allowlisted, locally authored detail. Provider messages, bodies, URLs, tokens and original causes are never attached. Unknown transport failures retain `Jubian request failed`; diagnostics do not trigger retries.
@@ -74,6 +76,7 @@ Two layouts are documented, and the client hides the difference from you. A sing
 | `PERMISSION_DENIED` | The envelope `code` is 403 while HTTP is 2xx |
 | `RATE_LIMITED` | HTTP is 429, or the envelope `code` is 429 |
 | `CONTRACT_CHANGED` | The body is not JSON, is not valid UTF-8, is not an object, exceeds the byte cap, carries no integer `code`, or carries a code this package does not map; the detail describes the body's structure |
+| `VIDEO_TASK_EVIDENCE_INVALID` | Native video task ownership is invalid, contradictory or exceeds the bounded candidate scan; package-authored detail names the episode or scan rule. This is a local reconciliation failure, not a remote envelope rejection |
 | `NETWORK_ERROR` | The connection failed, the call timed out, a redirect was refused, or HTTP is any other non-2xx status |
 | `BUDGET_EXCEEDED` | A paid call is not covered by the deployment's authorization; the detail names what is missing |
 

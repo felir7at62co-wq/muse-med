@@ -1,0 +1,14 @@
+version: 1
+scenario: muse-entity-existing-binding
+profile: headless
+composition: muse-entity-existing-binding
+recording: authored
+header:
+  class: muse-entity-existing-binding
+  pin: true
+workspace:
+  setup: muse-entity-existing-binding
+  final: true
+writerOutput: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-match-fixture

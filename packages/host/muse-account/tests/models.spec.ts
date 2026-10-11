@@ -345,6 +345,42 @@ it('excludes only the specified account provider and retains Yunying Gemini and 
   } finally { personal() }
 })
 
+it('hides exact Yunying model IDs while retaining other Yunying, Zhipu, and personal routes', async () => {
+  await login()
+  const entry = suppliedCatalog.providers[0]!.models[0]!
+  const hidden = ['claude-opus-5-5', 'claude-fable-5-1', 'gpt-6-astra', 'glm-5.3-flash']
+  const desktopRow = loadOverlayPatches('muse-models-test', fileURLToPath(new URL(
+    '../../../../apps/desktop-host/config/desktop.cordis.patch.yml', import.meta.url,
+  ))).flatMap(patch => patch.insert ?? []).find(row => row.id === 'muse-account')
+  const desktopConfig: unknown = desktopRow?.config
+  const excludedModels = (typeof desktopConfig === 'object' && desktopConfig !== null
+    ? Reflect.get(desktopConfig, 'excludedModels') : undefined) as { providerId: string; modelId: string }[] | undefined
+  expect(excludedModels).toEqual(hidden.map(modelId => ({ providerId: 'yunying', modelId })))
+  if (excludedModels === undefined) throw new Error('Muse Desktop overlay is missing excludedModels')
+  const personal = ctx.llm.registerAdapter(['personal-yunying'], new PersonalAdapter())
+  try {
+    models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+      excludedModels,
+      fetcher: async () => Response.json({ providers: [
+        { id: 'yunying', name: '云映', models: [...hidden, 'gpt-6-sol', 'claude-sonnet-5-5', 'gemini-3.1-pro']
+          .map(id => ({ ...entry, id, name: id })) },
+        { id: 'zhipu-official', name: '智谱官方', models: ['glm-5.3-flash', 'glm-5.3-flashx']
+          .map(id => ({ ...entry, id, name: id })) },
+      ] }) })
+    await models.refresh()
+    const groups = (await buildModelCatalog(ctx, { provider: 'muse-cloud-yunying', model: 'glm-5.3-flash' }))
+      .groups.filter(group => group.id.startsWith('muse-cloud-'))
+    expect(groups.map(group => [group.id, group.models.map(model => model.id)])).toEqual([
+      ['muse-cloud-yunying', ['gpt-6-sol', 'claude-sonnet-5-5', 'gemini-3.1-pro']],
+      ['muse-cloud-zhipu-official', ['glm-5.3-flash', 'glm-5.3-flashx']],
+    ])
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toContain('personal-yunying')
+    await expect(ctx.llm.resolveModelInfo('muse-cloud-yunying', 'glm-5.3-flash')).rejects.toThrow()
+    expect((await ctx.llm.listModels('muse-cloud-zhipu-official')).map(model => model.id))
+      .toEqual(['glm-5.3-flash', 'glm-5.3-flashx'])
+  } finally { personal() }
+})
+
 it.each(['plugin', 'desktop'] as const)('routes an existing unconfigured direct session through the %s Muse scope and records the actual selection and request', async (composition) => {
   const fixture = await oldSessionFixture(false)
   const server = await mockServer([{ events: textEvents }, { events: textEvents }])

@@ -151,6 +151,8 @@ keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若�
 
 根目录的[贡献者说明](../AGENTS.md#commands)概述常用命令，[`package.json`](../package.json) 与 [scripts/run-gates.ts](../scripts/run-gates.ts) 则负责当前脚本和门禁清单。请选择覆盖变更表面的最小检查集。文档变更使用 `pnpm run doc-sync`；包公开行为变更还需更新所属 README 或 JSDoc，而基于构建产物的检查需要先运行 `pnpm run build`。
 
+仓库链接与具体术语检查读取完整的受跟踪文件清单，输出上限为 16 MiB。更大的清单会导致发现阶段失败；两项检查都不会扫描截断后的清单。
+
 ### Profile 运行
 
 从源码 checkout 运行这些演示前，请单独执行仓库构建：

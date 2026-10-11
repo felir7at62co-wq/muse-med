@@ -93,6 +93,12 @@ describe('product identifiers and module references', () => {
     expect(rewriteRescopeReferences(text, 'apps/desktop-host/presets/cordis/agent.cordis.yml').text)
       .toBe('# The `cordis` preset\n- id: cordis\n  name: @deepseek-ai/cordis\n')
   })
+
+  it('preserves display-fixture preset ids while checking their module imports', () => {
+    const text = "import 'cordis'\nconst preset = 'cordis'\n"
+    expect(rewriteRescopeReferences(text, 'packages/preset/agent-preset-registry/tests/display.spec.ts').text)
+      .toBe("import '@deepseek-ai/cordis'\nconst preset = 'cordis'\n")
+  })
 })
 
 function fixtureTree(): string {
@@ -122,6 +128,33 @@ function runCheck(directory: string): SpawnSyncReturns<string> {
 }
 
 describe('executed rescope check', () => {
+  it('checks the final source file after a tracked manifest larger than one MiB', () => {
+    const directory = fixtureTree()
+    const options = { cwd: directory, encoding: 'utf8' as const }
+    const padding = Array.from({ length: 6000 }, (_value, index) =>
+      `.agents/notes/archived/padding/${String(index).padStart(5, '0')}-${'x'.repeat(180)}.md`)
+    const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], { ...options, input: '' }).trim()
+    execFileSync('git', ['update-index', '--index-info'], {
+      ...options, input: padding.map(file => `100644 ${blob}\t${file}\n`).join(''),
+    })
+    const file = 'zz-rescope-tail.ts'
+    const path = join(directory, file)
+    writeFileSync(path, "import '@deepseek-ai/cordis'\n")
+    execFileSync('git', ['add', '--', file], options)
+    const manifest = execFileSync('git', ['ls-files', '-z'], { ...options, maxBuffer: 32 * 1024 * 1024 })
+    expect(Buffer.byteLength(manifest.slice(0, manifest.indexOf(file)))).toBeGreaterThan(1024 * 1024)
+
+    const accepted = runCheck(directory)
+    expect(accepted.status).toBe(0)
+    expect(accepted.stdout).toContain('post-state verified')
+
+    writeFileSync(path, "import 'cordis'\n")
+    const rejected = runCheck(directory)
+    expect(rejected.status).toBe(1)
+    expect(rejected.stderr).toContain(`residue: ${file}`)
+    expect(readFileSync(path, 'utf8')).toBe("import 'cordis'\n")
+  })
+
   it('accepts product identifiers without changing source or fixed upstream files', () => {
     const directory = fixtureTree()
     const file = 'apps/desktop-host/src/native-preset.ts'
@@ -136,6 +169,7 @@ describe('executed rescope check', () => {
   it.each([
     'apps/desktop-host/src/native-preset.ts',
     'apps/desktop-host/tests/compaction-presets.spec.ts',
+    'packages/preset/agent-preset-registry/tests/display.spec.ts',
     'packages/example/src/index.ts',
   ])('rejects a new bare module import in %s', (file) => {
     const directory = fixtureTree()

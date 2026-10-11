@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, parse } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { workspaceJubianClient, workspacePipelineToken } from '../src/workspace.ts'
+import { configuredJubianClient, workspaceJubianClient, workspacePipelineToken } from '../src/workspace.ts'
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const original = await importOriginal<typeof import('node:fs/promises')>()
@@ -75,4 +75,26 @@ describe('workspaceJubianClient', () => {
     expect(authorization).toEqual(['Bearer stored', 'Bearer workspace-a', 'Bearer workspace-b'])
     expect(credential).toHaveBeenCalledTimes(4)
   })
+})
+
+it('resolves shared plugin transport settings and retains workspace credential precedence', async () => {
+  const root = await fixture('JUBIANAI_TOKEN=workspace\n')
+  const requests: { url: string; authorization: string }[] = []
+  const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    requests.push({ url: typeof url === 'string' ? url : url instanceof URL ? url.href : url.url,
+      authorization: new Headers(init?.headers).get('Authorization') ?? '' })
+    return new Response('{"code":200,"data":{}}')
+  })
+  try {
+    await configuredJubianClient(async () => '', {}, root).request({ method: 'GET', path: '/fixture' })
+    await configuredJubianClient(async () => 'stored', { baseUrl: 'https://example.invalid/api', timeoutMs: 1000,
+      workspaceSecrets: false }, root).request({ method: 'GET', path: '/fixture' })
+    await expect(configuredJubianClient(async () => '', { workspaceSecrets: false }, root)
+      .request({ method: 'GET', path: '/fixture' })).rejects.toMatchObject({ code: 'AUTHENTICATION_REQUIRED' })
+    expect(requests).toEqual([
+      { url: 'https://web.jubianai.net/prod-api/fixture', authorization: 'Bearer workspace' },
+      { url: 'https://example.invalid/api/fixture', authorization: 'Bearer stored' },
+    ])
+    expect(() => configuredJubianClient(async () => 'stored', { timeoutMs: 0 }, root)).toThrow('timeoutMs')
+  } finally { transport.mockRestore() }
 })

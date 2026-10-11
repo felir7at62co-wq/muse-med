@@ -53,6 +53,10 @@ export async function apply(ctx) {
   const excludedProvider = process.env.DSH_SNAPSHOT_EXCLUDED_ACCOUNT_PROVIDER
   assert.ok(excludedProvider === undefined || excludedProvider === 'aa')
   const excludesStandaloneAa = excludedProvider === 'aa'
+  const excludedYunying = process.env.DSH_SNAPSHOT_EXCLUDED_YUNYING_MODELS
+  assert.ok(excludedYunying === undefined || excludedYunying === 'true')
+  const excludesYunyingModels = excludedYunying === 'true'
+  const hiddenYunyingModelIds = ['claude-opus-5-5', 'claude-fable-5-1', 'gpt-6-astra', 'glm-5.3-flash']
   const defaultRace = process.env.DSH_SNAPSHOT_DEFAULT_SELECTION_RACE
   assert.ok(defaultRace === undefined || defaultRace === 'preserve-newer')
   const preservesNewerDefault = defaultRace === 'preserve-newer'
@@ -137,6 +141,15 @@ export async function apply(ctx) {
               assert.ok(result?.content.includes('gemini-personal'))
               assert.ok(!result?.content.includes('"provider":"muse-cloud-aa"'))
             }
+            if (excludesYunyingModels) {
+              const available = JSON.parse(result.content).available
+              assert.deepEqual(available.find(row => row.provider === 'muse-cloud-yunying')?.models.map(model => model.id), [
+                'gpt-6-sol', 'claude-sonnet-5-5', 'gemini-3.1-pro',
+              ])
+              assert.deepEqual(available.find(row => row.provider === 'muse-cloud-zhipu-official')?.models.map(model => model.id), [
+                'glm-5.3-flashx', 'glm-5.3-flash',
+              ])
+            }
             if (preservesNewerDefault) {
               const catalogResult = JSON.parse(result.content)
               assert.deepEqual(catalogResult.default, selectedModel)
@@ -204,7 +217,8 @@ export async function apply(ctx) {
   }
   if (excludesStandaloneAa) ctx.effect(() => ctx.llm.registerAdapter(['personal'], new PersonalAdapter()))
   const mounted = ctx.plugin(account, { baseUrl: `http://127.0.0.1:${address.port}`, accountHome: home, remoteAccess: false,
-    ...(excludesStandaloneAa ? { excludedProviderIds: ['aa'] } : {}) })
+    ...(excludesStandaloneAa ? { excludedProviderIds: ['aa'] } : {}),
+    ...(excludesYunyingModels ? { excludedModels: hiddenYunyingModelIds.map(modelId => ({ providerId: 'yunying', modelId })) } : {}) })
   await mounted.await()
   const service = ctx.get('museAccount')
   assert.ok(service instanceof account.MuseAccountService)
@@ -230,9 +244,9 @@ export async function apply(ctx) {
           return { id: model.id, name: model.name, contextWindow: resolved.context.contextWindow, maxTokens: configured.maxTokens }
         })) })
       }
-      assert.deepEqual(available.flatMap(provider => provider.models.map(model => model.id)), [
-        'deepseek-flash', 'deepseek-v4-pro', 'gpt-6-sol', 'gpt-6-astra', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'gemini-3.1-pro', 'glm-5.3-flash', 'glm-5.3-flashx', 'glm-5.3-flash',
-      ])
+      assert.deepEqual(available.flatMap(provider => provider.models.map(model => model.id)), excludesYunyingModels
+        ? ['deepseek-flash', 'deepseek-v4-pro', 'gpt-6-sol', 'claude-sonnet-5-5', 'gemini-3.1-pro', 'glm-5.3-flashx', 'glm-5.3-flash']
+        : ['deepseek-flash', 'deepseek-v4-pro', 'gpt-6-sol', 'gpt-6-astra', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'gemini-3.1-pro', 'glm-5.3-flash', 'glm-5.3-flashx', 'glm-5.3-flash'])
       if (excludesStandaloneAa) {
         assert.equal(catalog.providers[0].id, 'aa')
         assert.ok(!providerIds.includes('muse-cloud-aa'))

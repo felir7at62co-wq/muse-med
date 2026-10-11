@@ -59,7 +59,9 @@ try {
 }
 ```
 
-Success is a fully typed value: `task.task_id` is a number, and `task.real_cost` is the provider's own string or `null`. Failure is one `JubianError` whose code is `CONTRACT_CHANGED`, which means the payload did not carry a field the reader requires. The reader never returns a partial value and never substitutes a zero for a missing number. `JubianError` itself belongs to `@deepseek-ai/dsh-jubian`, which owns every failure code.
+Success is a fully typed value: `task.task_id` is a number, and `task.real_cost` is the provider's observed cost rendered as text or `null`. Failure is one `JubianError` whose code is `CONTRACT_CHANGED`, which means the payload did not carry a field the reader requires. The reader never returns a partial value and never substitutes a zero for a missing number. `JubianError` itself belongs to `@deepseek-ai/dsh-jubian`, which owns every failure code.
+
+Video task costs preserve decimal strings and convert nonnegative finite JSON numbers to strings. Missing, negative or unreadable costs remain null; a number such as `3.3906` is not discarded. These provider observations do not change budget authorization or settle local reservations automatically.
 
 ### Reading a list of results
 
@@ -160,11 +162,15 @@ Where a field is optional in the provider's own data, the reader carries that op
 
 ### The video stage vocabulary
 
+`buildNativeVideoPreview()` preserves an explicit `backupModelList` and supplies `[]` when it is missing or null, so the frozen model configuration carries the provider's list field without choosing an alternate model. A non-list value is rejected before submission. This field participates in the fingerprint; rebuild an unsubmitted preview prepared without it. Recorded keys still reconcile without another paid request.
+
+Native claims read model selectors and prompt from the child's `modelConfig`, or directly from the child when that field is absent or null. Direct `modelVideoStandardId` is the provider's spelling of `videoStandardId`. Both formats require all ten frozen model fields, the prompt and the complete ordered subject identity; incomplete or malformed evidence never permits another paid submission. The live storyboard cannot supply missing task evidence.
+
 Native subject-video preparation requires at least one selected image subject. `buildNativeVideoPreview()` rejects an empty or audio-only selection with `INVALID_ARGUMENT` instead of producing a prepared preview. `validateNativeVideoPreview()` rejects historical empty-subject previews with a local parameter diagnostic; that submission call has not entered the ledger or sent a remote paid request. Existing identity checks and submission fingerprints still apply.
 
 Subject selection reports a remotely removed parent as `PRE_PUT_ASSET_REMOVED`, including when the picker has already excluded its material. A missing or ambiguous active confirmed material is `PRE_PUT_SUBJECT_UNAVAILABLE`. Both diagnostics precede any selection PUT; refresh the live project and choose a valid existing asset instead of retrying the same invalid reference. The provider stores `isGenerate=1` on saved storyboards, including free saves, so this read-back flag alone does not establish that generation occurred.
 
-Task claims read either the child’s stated `modelConfig` or, when it is absent, the child’s direct model and prompt fields. Direct `modelVideoStandardId` is the provider alias for `videoStandardId`. Every required model field, ordered subject identity and prompt must still match the prepared submission; malformed or contradictory stated `modelConfig` is not replaced by direct fields.
+Native task reconciliation compares explicit episode IDs and numbers without converting absent values to zero. `nativeEpisodeScope()` validates camelCase and snake_case aliases; `matchesNativeEpisode()` excludes proven different episodes and refuses contradictory evidence. Missing axes do not prove another episode. These failures use `VIDEO_TASK_EVIDENCE_INVALID`; subject, model, prompt and audio matching remain required.
 
 Uploaded audio references use `materialType=audio`, `materialUrl`, `materialKey`, and a separate audio-group `sortOrder`; they do not require an image parent asset or a casting approval. Native preparation preserves those rows after the confirmed images and fingerprints their saved fields. Subject selection preserves existing audio. Video claims require the ordered child `audioMaterials[].audioUrl` to match the submitted references; absent or changed evidence requires reconciliation, never another paid submission. `readReferenceAudio()` measures complete 16-bit PCM WAV bytes and rejects references longer than 15 seconds. Saved remote `audioDuration` is checked when present, but its absence remains unverified.
 

@@ -67,6 +67,7 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-desktop-host': [
     'lib/index.js', 'lib/native-preset.js', 'config/desktop.cordis.patch.yml',
     'presets', 'skills', 'config/defaults.cordis.patch.yml', 'lib/cli.js',
+    'lib/creation-policy.js', 'lib/creation-skills.js', 'lib/short-drama-guidance.js',
   ],
   // Sourcemaps stay out by payload policy; the worker-preview surface
   // (dist/preview.html and dist/preview/) backs opt-in experimental

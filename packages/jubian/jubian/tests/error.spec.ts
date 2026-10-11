@@ -36,3 +36,11 @@ describe('JubianError', () => {
     expect(error.message).not.toContain('{')
   })
 })
+
+
+it('distinguishes local video ownership checks from remote envelope errors', () => {
+  const error = new JubianError('VIDEO_TASK_EVIDENCE_INVALID', 'VIDEO_TASK_SCAN_LIMIT: keep the original key')
+  expect(error.code).toBe('VIDEO_TASK_EVIDENCE_INVALID')
+  expect(error.message).toBe('Jubian video task ownership could not be safely verified: VIDEO_TASK_SCAN_LIMIT: keep the original key')
+  expect(error.message).not.toContain('envelope')
+})

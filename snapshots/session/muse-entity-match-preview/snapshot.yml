@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-entity-match-preview
+profile: headless
+composition: muse-entity-match-preview
+recording: authored
+header:
+  class: muse-entity-match-preview
+  pin: true
+workspace:
+  setup: muse-entity-match-preview
+writerOutput: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-match-fixture

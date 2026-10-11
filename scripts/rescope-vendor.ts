@@ -24,7 +24,8 @@
  * Usage: `pnpm run rescope-vendor [--apply|--check] [--reverse]`. Without a
  * mode it reports what would change. `--check` asserts the post-state: no
  * residue, every exact edit landed, every postcondition holds, and a second
- * `--apply` would be a no-op.
+ * `--apply` would be a no-op. Tracked-file discovery reads the complete
+ * NUL-delimited Git manifest with a 32 MiB output bound; overflow aborts before writes.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -102,6 +103,7 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   { file: 'apps/cli/tests/profiles/web/tests/fixtures/creator-plugin-manager.mjs', upstream: ['cordis'] },
   { file: 'apps/web/tests/agent-preset-authoring.e2e.ts', upstream: ['cordis'] },
   { file: 'packages/preset/agent-preset-registry/tests/session.spec.ts', upstream: ['cordis'] },
+  { file: 'packages/preset/agent-preset-registry/tests/display.spec.ts', upstream: ['cordis'] },
   { file: 'packages/preset/agent-preset-registry/tests/deprecated-id.spec.ts', upstream: ['cordis'] },
   { file: 'packages/client/ui-agent-preset/src/client/CreatePluginMenuItem.tsx', upstream: ['cordis'] },
   { file: 'packages/client/ui-agent-preset/tests/components.client.spec.tsx', upstream: ['cordis'] },
@@ -687,7 +689,9 @@ function main(): void {
   const mode = args.includes('--apply') ? 'apply' : args.includes('--check') ? 'check' : 'dry'
   const reverse = args.includes('--reverse')
   const all = patterns(reverse)
-  const files = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' })
+  const files = execFileSync('git', ['ls-files', '-z'], {
+    cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
+  })
     .split('\0')
     .filter(file => file !== '' && !isRescopeExcluded(file))
 

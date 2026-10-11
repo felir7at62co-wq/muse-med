@@ -46,6 +46,7 @@
     "skills/tweet-drama-background-render/scripts/render_episode.py",
     "skills/tweet-drama-core/SKILL.md",
     "skills/tweet-drama-core/references/io-contract.md",
+    "skills/tweet-drama-core/references/match-preview.md",
     "skills/tweet-drama-core/references/style-references.md",
     "skills/tweet-drama-core/scripts/asset_catalog.py",
     "skills/tweet-drama-core/scripts/asset_context.py",
