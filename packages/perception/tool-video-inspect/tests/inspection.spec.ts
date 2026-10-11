@@ -9,10 +9,12 @@ import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import sharp from 'sharp'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as VideoInspect from '../src/index.ts'
 import { runMedia, parseVideoMetadata } from '../src/media.ts'
 import * as Media from '../src/media.ts'
+import { contactTimecode } from '../src/contact.ts'
 
 const contexts: Context[] = [], roots: string[] = []
 afterEach(async () => {
@@ -46,10 +48,144 @@ async function setup(options: Partial<VideoInspect.Config> = {}) {
   const agent = (model: string, options: boolean) => ({ options: options ? { provider: 'test', model } : {}, session: { header: { cwd: root },
     requestHeader: () => options ? undefined : ({ config: { provider: 'test', model } }), deriveMessages: () => [], append: () => undefined } })
   return { ctx, root, input, config, video,
+    sheet: (args: Record<string, unknown>, model = 'vision', withAgent = true) => ctx.tools.execute({ callId: ToolCallId(`sheet-${++count}`), name: 'video_contact_sheet',
+      arguments: { file_path: input, ...args }, signal: new AbortController().signal,
+      ...withAgent ? { agent: agent(model, false) as never } : {} }),
     call: (args: Record<string, unknown>, model = 'vision', route: 'header' | 'options' | 'none' = 'header') => ctx.tools.execute({ callId: ToolCallId(`video-${++count}`), name: 'video_inspect',
       arguments: { file_path: input, ...args }, signal: new AbortController().signal, ...route === 'none' ? {} : { agent: agent(model, route === 'options') as never } }),
   }
 }
+
+it('returns six-cell pages in source order with readable times and retained detail frames', async () => {
+  const h = await setup()
+  const result = await h.sheet({ columns: 3, rows: 2, frame_count: 8, tile_width: 160, end_seconds: 4, manifest_path: 'qa/sheets.json' })
+  expect(result.isError).toBe(false)
+  const images = result.content.filter(block => block.type === 'image')
+  expect(images).toHaveLength(2)
+  const manifest = JSON.parse(await readFile(join(h.root, 'qa/sheets.json'), 'utf8')) as { pages: { frames: { cell: number; index: number; timestamp_seconds: number }[] }[] }
+  expect(manifest.pages.map(page => page.frames.map(frame => frame.index))).toEqual([[1, 2, 3, 4, 5, 6], [7, 8]])
+  expect(manifest.pages[1]?.frames.map(frame => frame.cell)).toEqual([1, 2])
+  const times = manifest.pages.flatMap(page => page.frames.map(frame => frame.timestamp_seconds))
+  expect(times).toEqual([...times].sort((a, b) => a - b))
+  const stored = await h.ctx.attachments.readImage(images[0]!.attachment)
+  const raw = await sharp(stored.data).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+  expect(raw.info).toMatchObject({ width: 480, height: 280, channels: 3 })
+  const pixel = (x: number, y: number) => [...raw.data.subarray((y * raw.info.width + x) * 3, (y * raw.info.width + x) * 3 + 3)]
+  expect(pixel(80, 60)[0]).toBeGreaterThan(240)
+  expect(pixel(400, 200)[2]).toBeGreaterThan(240)
+  expect(result.content.some(block => block.type === 'text' && block.text.includes('not continuous viewing'))).toBe(true)
+  expect(contactTimecode(3661.234)).toBe('01:01:01.234')
+  expect((await h.sheet({ manifest_path: 'qa/sheets.json' })).isError).toBe(true)
+}, 30_000)
+
+it('defaults to nine cells and selects explicit detail times without sending extra full frames', async () => {
+  const h = await setup()
+  const result = await h.sheet({ timestamps_seconds: [0.5, 2.5], manifest_path: 'qa/explicit-sheet.json' })
+  expect(result.isError).toBe(false)
+  expect(result.content.filter(block => block.type === 'image')).toHaveLength(1)
+  const manifest: unknown = JSON.parse(await readFile(join(h.root, 'qa/explicit-sheet.json'), 'utf8'))
+  expect(manifest).toMatchObject({ columns: 3, rows: 3, pages: [{ frames: [
+    { cell: 1, index: 1, requested_seconds: 0.5, timestamp_seconds: 0.5, image: { width: 64, height: 48 } },
+    { cell: 2, index: 2, requested_seconds: 2.5, timestamp_seconds: 2.5, image: { width: 64, height: 48 } },
+  ] }] })
+}, 30_000)
+
+it('refuses text-only image work before filesystem reads and rejects oversize or conflicting grids', async () => {
+  const h = await setup({ maxContactPixels: 1000 })
+  const resolve = vi.spyOn(h.ctx.fs, 'resolve')
+  expect((await h.sheet({}, 'text')).isError).toBe(true)
+  expect(resolve).not.toHaveBeenCalled()
+  for (const args of [{ columns: 0 }, { tile_width: 1 }, { frame_count: 33 }, {},
+    { frame_interval_seconds: 0 }, { frame_interval_seconds: 1, frame_count: 2 },
+    { strategy: 'scene', timestamps_seconds: [1] }]) {
+    expect((await h.sheet(args)).isError).toBe(true)
+  }
+})
+
+it('supports interval and scene sampling and bounds the complete page output', async () => {
+  const h = await setup()
+  const result = await h.sheet({ frame_interval_seconds: 1, end_seconds: 4, manifest_path: 'qa/interval.json' })
+  expect(result.isError).toBe(false)
+  const manifest: unknown = JSON.parse(await readFile(join(h.root, 'qa/interval.json'), 'utf8'))
+  expect(manifest).toMatchObject({ pages: [{ frames: [{ requested_seconds: 0 }, { requested_seconds: 1 },
+    { requested_seconds: 2 }, { requested_seconds: 3 }] }] })
+  const scene = await h.sheet({ strategy: 'scene', frame_count: 4 })
+  expect(scene.isError).toBe(false)
+  const limited = await setup({ maxContactBytes: 1024 })
+  const overflow = await limited.sheet({})
+  expect(overflow.isError).toBe(true)
+  expect(JSON.stringify(overflow.content)).toContain('maxContactBytes')
+}, 30_000)
+
+it('presents overview source locations and refuses an unresolved image route without filesystem work', async () => {
+  const h = await setup({ maxContactRangeSeconds: 1 })
+  const tool = h.ctx.tools.get('video_contact_sheet')
+  expect(tool?.presentCall?.({ file_path: h.input })).toMatchObject({ kind: 'read', locations: [{ path: h.input }] })
+  const resolve = vi.spyOn(h.ctx.fs, 'resolve')
+  expect((await h.sheet({}, 'vision', false)).isError).toBe(true)
+  expect(resolve).not.toHaveBeenCalled()
+  const result = await h.sheet({ frame_count: 1, start_seconds: 1 })
+  expect(result.isError).toBe(false)
+  expect(result.value).toMatchObject({ interval: { start_seconds: 1, end_seconds: 2 }, next_start_seconds: 2 })
+}, 30_000)
+
+it('refuses missing, non-file and oversized overview sources before probing', async () => {
+  const h = await setup({ maxSourceBytes: 1 })
+  const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
+  for (const file_path of [h.root, 'missing.mp4', h.input]) expect((await h.sheet({ file_path })).isError).toBe(true)
+  expect(spawn).not.toHaveBeenCalled()
+}, 30_000)
+
+it.each([{ maxDurationSeconds: 1 }, { maxSourcePixels: 1 }])(
+  'refuses overview deployment limits %j before frame extraction', async (config) => {
+    const h = await setup(config)
+    const run = vi.spyOn(Media, 'runMedia')
+    const result = await h.sheet({})
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('deployment limits')
+    expect(run.mock.calls).toHaveLength(1)
+  }, 30_000)
+
+it.each(['missing-timestamp', 'negative-timestamp', 'past-end', 'invalid-number', 'missing-image'] as const)(
+  'refuses %s contact extraction without publishing an overview', async (mode) => {
+    const h = await setup()
+    const original = Media.runMedia
+    vi.spyOn(Media, 'runMedia').mockImplementation(async (...args) => {
+      if (!args[1].includes('-frames:v')) return await original(...args)
+      const diagnostic = { 'missing-timestamp': '', 'negative-timestamp': 'pts_time:-1', 'past-end': 'pts_time:4',
+        'invalid-number': 'pts_time:1e999', 'missing-image': 'pts_time:1' }[mode]
+      return { bytes: mode === 'missing-image' ? Buffer.alloc(0) : Buffer.from('unverified image'), diagnostic }
+    })
+    const result = await h.sheet({ timestamps_seconds: [1], end_seconds: 4, manifest_path: 'qa/refused-sheet.json' })
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('verifiable timestamp')
+    await expect(readFile(join(h.root, 'qa/refused-sheet.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  }, 30_000)
+
+it('refuses an overview when its source changes before publication', async () => {
+  const h = await setup()
+  const save = h.ctx.attachments.saveImage.bind(h.ctx.attachments)
+  vi.spyOn(h.ctx.attachments, 'saveImage').mockImplementation(async (input) => {
+    const ref = await save(input)
+    await appendFile(h.input, 'changed')
+    return ref
+  })
+  const result = await h.sheet({ timestamps_seconds: [1], manifest_path: 'qa/changed-sheet.json' })
+  expect(result.isError).toBe(true)
+  expect(JSON.stringify(result.content)).toContain('Video changed')
+  await expect(readFile(join(h.root, 'qa/changed-sheet.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+}, 30_000)
+
+it('refuses outside-workspace overview manifests and mismatched readback', async () => {
+  const h = await setup()
+  const outside = await h.sheet({ timestamps_seconds: [1], manifest_path: '../outside-sheet.json' })
+  expect(outside.isError).toBe(true)
+  expect(JSON.stringify(outside.content)).toContain('inside the workspace')
+  vi.spyOn(h.ctx.fs, 'readText').mockResolvedValueOnce('changed externally')
+  const changed = await h.sheet({ timestamps_seconds: [1], manifest_path: 'qa/readback-sheet.json' })
+  expect(changed.isError).toBe(true)
+  expect(JSON.stringify(changed.content)).toContain('readback did not match')
+}, 30_000)
 
 it('returns decoded source frames with original timestamps, durable image references and a verified manifest', async () => {
   const h = await setup()

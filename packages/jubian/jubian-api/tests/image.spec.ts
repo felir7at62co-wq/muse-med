@@ -118,6 +118,14 @@ describe('resolveImageModel against a catalogue listing several gpt-image-2 rows
 })
 
 describe('buildImageRequest', () => {
+  it('refuses more than five KU_AI references before a paid request is constructed', () => {
+    const input = { scriptId: 1, assetName: 'staging', assetType: 2, prompt: 'p',
+      references: Array.from({ length: 6 }, (_, i) => `https://media.example/${i}.png`) }
+    expect(() => buildImageRequest(input, MULTI, { platformId: 'KU_AI' })).toThrow('at most 5')
+    expect(buildImageRequest({ ...input, references: input.references.slice(0, 5) }, MULTI,
+      { platformId: 'KU_AI' })).toHaveProperty('modelConfig')
+    expect(buildImageRequest(input, MULTI, { standardId: 76 })).toHaveProperty('modelConfig')
+  })
   const request = { scriptId: 1, assetName: 'lead', assetType: 1, prompt: 'ready', references: [] }
 
   it.each([{ scriptId: 0 }, { assetType: 0 }, { parentAssetId: 0 }, { assetName: '' }, { assetName: '\ud800' },

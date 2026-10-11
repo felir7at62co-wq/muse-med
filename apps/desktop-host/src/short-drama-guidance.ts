@@ -1,0 +1,45 @@
+/** Short-drama production guidance shared by the creation and short-drama presets. */
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-system-prompt'
+
+/** Cordis plugin identity. */
+export const name = 'muse-short-drama-guidance'
+/** The scoped system-prompt registry owns this guidance. */
+export const inject = ['systemPrompt']
+/** Preset-local production section; unrelated writing tasks do not use these rules. */
+export const SHORT_DRAMA_GUIDANCE_SECTION = 'muse:short-drama-production'
+/** Production requirements; timings belong to budgeting metadata rather than video prompts. */
+export const SHORT_DRAMA_GUIDANCE = `## 短剧制作：镜头、人物与节奏
+
+以下规则用于将剧本制作为视频，不把视频转写或小说改剧本的来源正文强行改成分镜。专业技能按当前制作任务加载，用户明确的项目要求优先。
+
+当编写短剧镜头脚本时，建议每个镜头控制在1–4秒。有台词时按8个有效字/秒计算预算：max(1, ceil(有效字数/8))；有效字计汉字、拉丁字母和数字，标点、空格不计。
+超过4秒的台词按原文语义拆到连续镜头，保持原文、说话人、顺序和发声连续；可以切到对方反应并让原说话人画外续说，不能为了限时删词、改台词或让别人接说。
+无台词的反应、道具信息和简单动作优先1–2秒；只有完整复杂动作确实需要时才用3–4秒，避免空停、重复动作和无信息的环境展示。
+同时发生的动作与台词放在同一镜头，不重复拆出动作停留。分镜明确景别、主要动作、可见情绪和唯一主要运镜，关键道具或屏幕信息给合适的特写。
+
+拍摄时间只写入本地预算、时间线或请求的duration/content_duration_ms参数。发送剧变的modelConfig.prompt及分镜画面正文禁止镜头时长字段、0–3秒等时间段、秒数倒排和总时长说明；
+结尾只描述自然动作收束，不写收束秒数。原剧本台词或画面内容本身的时间信息保留，不能误删台词里的“三秒”或剧情要求的倒计时。
+使用drama_shot preview/compile返回的包prompt，不按时间线重写一份带时间的提交稿；提交前回读实际保存的model_config.prompt与独立时长参数。
+各包按完整连续镜头预算加自然收束，符合当前模型实际时长范围；视频包总时长不是单镜时长。成片按实际切点复核镜头节奏，预算通过不代表成片遵守。
+
+站位图仅适用于场景固定、在场人物固定、人物位置保持不变的视频包。剧本或视频提示中只要有人物走动、靠近、后退、换位等位置移动，或人物进入场景、离开场景、换场，整个包就不使用站位图；不为使用站位图强行拆包。摄影机移动、切镜或人物因取景暂时画外不算人物走位或离场。
+符合适用条件且选择使用时，一个视频包配置一张完整全景站位图，沿用已确认角色图和场景图；一眼能看清全部在场人物各自唯一的位置、相互距离、前后与遮挡关系，以及门、桌、床等固定环境锚点。同一角色只出现一个实体，不用单镜局部图、表情图或动作状态拼图代替包级全景。
+站位图严格沿用项目已确认风格和角色、场景资产的视觉样式；3D项目不能变真人摄影，真人项目不能被强改3D。生图提示明确项目风格并使用既有图作为参照，保持脸型比例、材质、服装和场景渲染一致。
+站位图仅约束人物身份和空间关系；图中的站立、蹲下、坐下、姿势和表情不绑定视频状态，各镜按镜头脚本与视频提示决定。不能照搬图中的静态动作，或让应坐着、蹲着的人提前起身；无需因姿势或表情变化重做站位图。
+动作与情绪由逐镜脚本描述并保持衔接；需要人物走位的包用脚本和视频提示说明路径，不挂站位图。只有阵容、空间布局和固定环境完全相同时才可跨包复用，且各包都须符合站位图适用条件。
+使用站位图时，视频生成前必须实际查看该包的全景图，核对全部在场角色身份、人数、位置关系、固定物及机位轴线。多人站位参考图不取代正式角色资产；用于生成的干净图不带姓名、箭头或宫格文字，标注版本只供审核。每镜出镜名单优先于站位图中的全包阵容；单人近景不因全景图包含多人而额外生成画外人物。
+画风须通过实际看图确认，不能仅凭提示词声明或style字段验收；风格不符的站位图不得绑定视频，先修复或重新生成并复审。付费修复遵守既有授权、预览和幂等对账规则，未知结果不换key重投。
+每镜绑定实际入画角色及必要场景、道具；多视角设定只表示同一个人，不复制演员。对照正式资产逐镜检查脸型、发型、服装和年龄，不能只凭资产ID正确认定人物正确。
+人物难以辨认、重复、错绑定、瞬移或镜头节奏超限时记录具体时段，修正受影响片段后再实看复检；不把任务成功当作质量通过。
+`.replace(/(?<!\n)\n(?=[^\n])/gu, ' ')
+
+/**
+ * Supply the same production rules in each subscribing preset's system prompt.
+ * @param ctx - Preset-local system-prompt scope.
+ */
+export function apply(ctx: Context): void {
+  ctx.systemPrompt.section({ name: SHORT_DRAMA_GUIDANCE_SECTION,
+    order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
+    interpolate: false, text: SHORT_DRAMA_GUIDANCE })
+}

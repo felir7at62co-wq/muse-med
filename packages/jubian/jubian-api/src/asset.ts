@@ -22,6 +22,40 @@ export interface AssetRow { asset_id: number; name: string | null; asset_type: n
 /** One asset with its local-upload flag and remote status. */
 export interface AssetDetail extends AssetRow { is_local: boolean; status: string | null }
 
+/** Provider image task facts; failure text is classified without copying remote messages. */
+export interface ImageGeneration {
+  status: 'pending' | 'succeeded' | 'failed' | 'unknown'
+  task_id: number | null
+  result_id: number | null
+  error_code: 'reference_limit' | 'content_refused' | 'provider_failure' | null
+  max_reference_images: number | null
+}
+
+/**
+ * Read an image task result independently of whether it has produced a usable image.
+ * @param data - Generated-image endpoint data, with provider task status when available.
+ * @returns Task identity and classified failure, or null for older URL-only responses.
+ */
+export function readImageGeneration(data: unknown): ImageGeneration | null {
+  return readPayload('readImageGeneration', data, () => {
+    const row = Array.isArray(data) ? object(data[0]) : object(data)
+    const remoteStatus = nullableText(row.resultStatus)
+    if (remoteStatus === null) return null
+    const state = remoteStatus.trim().toLowerCase()
+    const status = state === 'failed' || state === 'succeeded' ? state
+      : ['submit', 'waiting', 'pending', 'running', 'processing'].includes(state) ? 'pending' : 'unknown'
+    const message = nullableText(row.resultMsg) ?? ''
+    const maximum = /最多输入([1-9][0-9]*)张图/.exec(message)
+    const limit = maximum === null ? null : Number(maximum[1])
+    const maxReferenceImages = status === 'failed' && limit !== null && Number.isSafeInteger(limit) ? limit : null
+    return { status, task_id: row.taskId === undefined || row.taskId === null ? null : id(row.taskId),
+      result_id: row.resultId === undefined || row.resultId === null ? null : id(row.resultId),
+      error_code: status === 'failed' ? maxReferenceImages !== null ? 'reference_limit'
+        : /request was rejected by the safety system/i.test(message) ? 'content_refused' : 'provider_failure' : null,
+      max_reference_images: maxReferenceImages }
+  })
+}
+
 /** One material row from the project's subject setting. */
 export interface MaterialRow {
   material_id: number

@@ -32,6 +32,8 @@ kind: "package-reference"
 
 当你要读取或提交剧变业务数据、又不想重新推导提供方的线上形状时，选择本库。它是依赖项，不是组合配置行：它不注册任何 Cordis 服务、工具、提示词片段或会话事件，因此没有任何东西会挂载它，也没有属于它的 `cordis.yml` 条目。请从自己拥有传输层的插件或测试中调用它。当模型应当通过工具调用剧变时，改用 `@deepseek-ai/dsh-tool-jubian`。
 
+`readImageGeneration(data)` 独立读取生成图接口中的任务与结果身份、状态，不以图片 URL 是否存在替代状态。它将参考图上限、内容拒绝与其他供应商失败分类，不返回远端错误原文。仅含 URL 的旧回复返回 null。`buildImageRequest` 在构造付费请求前拒绝 KU_AI 超过五张参考图的参数。
+
 读取器接收剧变响应信封的 `data` 字段，即 `JubianResponse.data`；`readStoryboardPage(data, scriptId)` 还会逐行核对请求项目。它无需生成设置即可返回当前页身份行，缺失的总数和分集归属保留为 null，并接受空页。传输层把这个字段原样返回，而赋予它类型的就是本库。
 
 ### 最小可用调用
@@ -159,6 +161,10 @@ async function downloadVideo(row: VideoSubtask) {
 ### 视频阶段词表
 
 原生主体视频准备至少需要一张已选定的图片主体。`buildNativeVideoPreview()` 对空主体或仅有音频的选择返回 `INVALID_ARGUMENT`，不生成 prepared 预览。`validateNativeVideoPreview()` 对历史空主体预览返回明确的本地参数错误；本次提交调用尚未进入账本，也尚未发出远端付费请求。现有身份校验和提交指纹规则仍然适用。
+
+主体选源把远端已删除的父资产报告为 `PRE_PUT_ASSET_REMOVED`，即使主体列表已经排除了它的材质。已采用的有效材质缺失或不唯一时报告 `PRE_PUT_SUBJECT_UNAVAILABLE`。两种错误均发生在选源 PUT 之前；应刷新真实项目并选择有效的现有资产，不反复重试失效引用。提供方对已保存分镜（包括免费保存）也会存储 `isGenerate=1`，因此仅凭这个回读值不能判断是否已经生成视频。
+
+任务认领取子结果明确提供的 `modelConfig`；该字段缺失时，读取子结果直接提供的模型参数和提示词。直接字段 `modelVideoStandardId` 是提供方对 `videoStandardId` 的别名。全部必需模型字段、有序主体身份和提示词仍须与提交预览一致；已提供但格式损坏或互相矛盾的 `modelConfig` 不会被直接字段替代。
 
 上传的音频参考使用 `materialType=audio`、`materialUrl`、`materialKey` 和音频组独立的 `sortOrder`；无需图片父资产或确认出演。原生准备保留这些行，排在已确认图片之后，并将其保存字段纳入指纹。主体选源保留已有音频。视频认领要求子结果的有序 `audioMaterials[].audioUrl` 与提交参考一致；证据缺失或变化时只允许对账，不再次付费提交。`readReferenceAudio()` 测量完整 16 位 PCM WAV 字节，拒绝超过 15 秒的参考。已保存远端 `audioDuration` 存在时会校验，缺失时保留未核实状态。
 

@@ -94,6 +94,19 @@ describe('subject selection planning', () => {
       subjectRows: [ROWS[0]!, { ...ROWS[0]!, id: 9 }], parentAssets: [PARENTS[0]!] })).toThrow()
   })
 
+  it('identifies a removed parent even when its material disappeared from the picker', () => {
+    expect(() => buildSubjectSelection({ ...oneSubject(), subjectRows: [],
+      parentAssets: [{ ...PARENTS[0]!, delFlag: '1' }] }))
+      .toThrow('PRE_PUT_ASSET_REMOVED: parent asset 81285 was removed remotely')
+  })
+
+  it('identifies missing or ambiguous active materials before selection is written', () => {
+    for (const rows of [[], [ROWS[0]!, { ...ROWS[0]!, id: 9 }]]) {
+      expect(() => buildSubjectSelection({ ...oneSubject(), subjectRows: rows }))
+        .toThrow(`PRE_PUT_SUBJECT_UNAVAILABLE: parent asset 81285 has ${rows.length} active confirmed materials`)
+    }
+  })
+
   it('reports an already saved selection as a no-op instead of a second write', () => {
     const first = buildSubjectSelection({ storyboard: STORYBOARD, selections: SELECTIONS,
       subjectRows: ROWS, parentAssets: PARENTS })

@@ -13,6 +13,7 @@ import { planSamples } from './sample.ts'
 import { adaptivePlan, sceneTimecodes, type AdaptivePlan } from './adaptive.ts'
 import { parseVideoMetadata, runMedia, type VideoMetadata } from './media.ts'
 import { installVideoEvidence } from './evidence.ts'
+import { applyContactSheets } from './contact.ts'
 
 export { resolveTrustedVideoEvidence, TRUSTED_VIDEO_INSPECTION_RECEIPT, type TrustedVideoInspectionReceipt } from './evidence.ts'
 
@@ -64,6 +65,20 @@ export interface Config {
   maxPlanPoints: number
   /** Maximum bytes read from an ASR transcript used for adaptive sampling. */
   maxTranscriptBytes: number
+  /** Default grid columns for overview pages. */
+  contactColumns: number
+  /** Default grid rows for overview pages. */
+  contactRows: number
+  /** Default overview cell width in pixels. */
+  contactTileWidth: number
+  /** Maximum sampled frames in one overview call, across all pages. */
+  maxContactFrames: number
+  /** Maximum overview source interval in seconds. */
+  maxContactRangeSeconds: number
+  /** Maximum pixel area of one overview page. */
+  maxContactPixels: number
+  /** Maximum complete overview-page bytes per call. */
+  maxContactBytes: number
 }
 
 /** Validated deployment knobs; argument defaults are resolved before media work. */
@@ -87,6 +102,13 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   scenePaddingSeconds: Schema.number().min(0.01).max(5).default(0.12),
   maxPlanPoints: Schema.number().step(1).min(1).max(10_000).default(1000),
   maxTranscriptBytes: Schema.number().step(1).min(1).max(16 * 1024 * 1024).default(2 * 1024 * 1024),
+  contactColumns: Schema.number().step(1).min(1).max(32).default(3),
+  contactRows: Schema.number().step(1).min(1).max(32).default(3),
+  contactTileWidth: Schema.number().step(1).min(160).max(1280).default(320),
+  maxContactFrames: Schema.number().step(1).min(1).max(32).default(32),
+  maxContactRangeSeconds: Schema.number().min(1).max(3600).default(300),
+  maxContactPixels: Schema.number().step(1).min(1).max(33_177_600).default(16_000_000),
+  maxContactBytes: Schema.number().step(1).min(1024).max(32 * 1024 * 1024).default(8 * 1024 * 1024),
 })
 
 /** One decoded frame with its original source presentation timestamp. */
@@ -183,6 +205,16 @@ export function apply(ctx: Context, config: Config): void {
     for (const owner of active.keys()) owner.abort(new Error('Video inspection disposed'))
     await Promise.all(active.values())
   }, 'video-inspect: cancel inspections')
+  const run = async <T>(exec: ToolExecution, operation: (signal: AbortSignal) => Promise<T>): Promise<T> => {
+    if (disposed) throw new Error('Video inspection is unavailable')
+    if (active.size >= config.maxConcurrent) throw new Error('Video inspection is busy; retry after another inspection finishes')
+    const owner = new AbortController()
+    const completion = Promise.withResolvers<void>()
+    active.set(owner, completion.promise)
+    try { return await operation(AbortSignal.any([owner.signal, exec.signal])) }
+    finally { active.delete(owner); completion.resolve() }
+  }
+  applyContactSheets(ctx, config, { run, imageRoute: exec => imageRoute(ctx, exec) })
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'video_inspect',
     description: 'Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. '
@@ -223,13 +255,7 @@ export function apply(ctx: Context, config: Config): void {
       const method = args.method ?? 'sample'
       const adaptive = args.strategy === 'scene_dialogue'
       if ((adaptive && (method !== 'sample' || args.timestamps_seconds !== undefined)) || (args.transcript_path !== undefined && !adaptive)) throw Error('Adaptive sampling requires sample mode without explicit timestamps; transcript_path requires scene_dialogue')
-      if (disposed) throw new Error('Video inspection is unavailable')
-      if (active.size >= config.maxConcurrent) throw new Error('Video inspection is busy; retry after another inspection finishes')
-      const owner = new AbortController()
-      const completion = Promise.withResolvers<void>()
-      active.set(owner, completion.promise)
-      const signal = AbortSignal.any([owner.signal, exec.signal])
-      try {
+      return run(exec, async (signal) => {
         if (method === 'sample') await imageRoute(ctx, { ...exec, signal })
         const policy = ctx.sandboxPolicy.resolve(exec.agent ? { session: exec.agent.session } : {})
         const target = await ctx.fs.resolve(args.file_path, { cwd: policy.workspaceRoot, signal })
@@ -319,7 +345,7 @@ export function apply(ctx: Context, config: Config): void {
         evidence?.issue(exec, value, serialized, priorMetadata)
         ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, exec)
         return value
-      } finally { active.delete(owner); completion.resolve() }
+      })
     },
   })), 'video-inspect: model tool')
 }

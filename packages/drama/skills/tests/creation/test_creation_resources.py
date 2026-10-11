@@ -7,7 +7,7 @@ import unittest
 PACK = Path(__file__).resolve().parents[2]
 SKILLS = PACK / "skills"
 NAMES = (
-    "shot-script-creator-9-16", "tweet-drama-pipeline",
+    "shot-script-creator-9-16", "shot-script-creator-16-9-3d", "tweet-drama-pipeline",
     "tweet-drama-early-shot-script", "tweet-drama-asset-extract",
     "tweet-drama-asset-vision-check", "tweet-drama-shot-asset-match",
 )
@@ -58,7 +58,7 @@ class CreationResourcesTests(unittest.TestCase):
         self.assertIn("project_bible.style", text)
         self.assertIn("不能把“其他（自行输入）”", text)
 
-    def test_six_current_skills_are_packaged(self):
+    def test_current_creation_skills_are_packaged(self):
         for name in NAMES:
             with self.subTest(skill=name):
                 self.assertTrue((SKILLS / name / "SKILL.md").is_file())

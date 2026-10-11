@@ -32,6 +32,8 @@ Import the library from any package that already holds a Jubian response envelop
 
 Choose this library when you read or submit Jubian business data and you do not want to re-derive the provider's wire shape. It is a dependency, not a composition row: it registers no Cordis service, tool, prompt section, or session event, so nothing mounts it and no `cordis.yml` entry exists for it. Reach for it from a plugin or a test that owns the transport itself. Reach for `@deepseek-ai/dsh-tool-jubian` instead when a model should call Jubian through tools.
 
+`readImageGeneration(data)` reads the generated-image endpoint's task/result identity and state independently of image availability. It classifies reference-limit, content-refusal and other provider failures without returning remote error text. URL-only legacy replies return null. `buildImageRequest` refuses more than five reference images on KU_AI before a billable request is constructed.
+
 Readers take the `data` field of a Jubian response envelope, through `JubianResponse.data`; `readStoryboardPage(data, scriptId)` additionally checks each row against the requested project. It returns bounded identity rows without requiring generation settings, preserves missing totals and episode bindings as null, and accepts empty pages. The transport returns that field untouched, and this library is what gives it a type.
 
 ### Smallest working call
@@ -159,6 +161,10 @@ Where a field is optional in the provider's own data, the reader carries that op
 ### The video stage vocabulary
 
 Native subject-video preparation requires at least one selected image subject. `buildNativeVideoPreview()` rejects an empty or audio-only selection with `INVALID_ARGUMENT` instead of producing a prepared preview. `validateNativeVideoPreview()` rejects historical empty-subject previews with a local parameter diagnostic; that submission call has not entered the ledger or sent a remote paid request. Existing identity checks and submission fingerprints still apply.
+
+Subject selection reports a remotely removed parent as `PRE_PUT_ASSET_REMOVED`, including when the picker has already excluded its material. A missing or ambiguous active confirmed material is `PRE_PUT_SUBJECT_UNAVAILABLE`. Both diagnostics precede any selection PUT; refresh the live project and choose a valid existing asset instead of retrying the same invalid reference. The provider stores `isGenerate=1` on saved storyboards, including free saves, so this read-back flag alone does not establish that generation occurred.
+
+Task claims read either the child’s stated `modelConfig` or, when it is absent, the child’s direct model and prompt fields. Direct `modelVideoStandardId` is the provider alias for `videoStandardId`. Every required model field, ordered subject identity and prompt must still match the prepared submission; malformed or contradictory stated `modelConfig` is not replaced by direct fields.
 
 Uploaded audio references use `materialType=audio`, `materialUrl`, `materialKey`, and a separate audio-group `sortOrder`; they do not require an image parent asset or a casting approval. Native preparation preserves those rows after the confirmed images and fingerprints their saved fields. Subject selection preserves existing audio. Video claims require the ordered child `audioMaterials[].audioUrl` to match the submitted references; absent or changed evidence requires reconciliation, never another paid submission. `readReferenceAudio()` measures complete 16-bit PCM WAV bytes and rejects references longer than 15 seconds. Saved remote `audioDuration` is checked when present, but its absence remains unverified.
 

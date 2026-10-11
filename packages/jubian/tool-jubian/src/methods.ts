@@ -18,7 +18,7 @@ import { JubianError } from '@deepseek-ai/dsh-jubian'
 import {
   MODEL_TASK_TYPES as TASKS, FAILED_STATUSES, SUCCESS_STATUSES, buildImageRequest, buildSubtitleEraseRequest,
   buildVideoUpscaleRequest, downloadMedia, readAssetList, readAssetPage, readEpisodes, readGeneratedImage,
-  readImageDisplayPrice, readMaterialList, readModels, readScript, readStoryboard, readStoryboardPage, readSubtaskPage,
+  readImageDisplayPrice, readImageGeneration, readMaterialList, readModels, readScript, readStoryboard, readStoryboardPage, readSubtaskPage,
   readTaskList, readTaskPage, readSubtitleTaskId, readUpscaleTaskId, needsUpscale, resolveImageModel,
   validateImageRequestInput, responseRecords, wireText,
   withGenerationDisabled, withGenerationEnabled,
@@ -391,6 +391,19 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number, newAss
       try {
         const data = (await client.request({ method: 'GET',
           path: `/aigc/material/getGeneratedImageByAssetId?assetId=${assetId}` })).data
+        const results = responseRecords(data).filter(row => wireText(row.assetId) === String(assetId))
+        if (results.length === 1) {
+          const generation = readImageGeneration(results)
+          if (generation?.status === 'failed') {
+            return { status: 'failed', material_id: null, image_url: null, observed_status: 'failed',
+              waited_ms: now() - started,
+              error: generation.error_code === 'reference_limit'
+                ? `原生图任务${generation.task_id ?? '未提供'}已失败：最多${generation.max_reference_images}张参考图。请修正引用数量。`
+                : generation.error_code === 'content_refused'
+                  ? `原生图任务${generation.task_id ?? '未提供'}已被供应商内容审核拒绝；不要原样重复提交。`
+                  : `原生图任务${generation.task_id ?? '未提供'}已失败：供应商报告生成失败。原请求不可继续等待。` }
+          }
+        }
         const candidates = responseRecords(data).filter(row => wireText(row.assetId) === String(assetId)
           && wireText(row.hsAssetStatus)?.trim().toLowerCase() === 'active' && row.isUsed === 0)
         if (candidates.length !== 1) throw new JubianError('CONTRACT_CHANGED', 'No unique active unselected image candidate for the accepted parent')
@@ -632,7 +645,14 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
       const assetId = need(args.asset_id)
       const result = await client.request({
         method: 'GET', path: `/aigc/material/getGeneratedImageByAssetId?assetId=${assetId}` })
-      return { image: readGeneratedImage(result.data) }
+      const generation = readImageGeneration(result.data)
+      if (generation !== null && generation.status !== 'succeeded') {
+        return { image: null, generation,
+          guidance: generation.status === 'failed'
+            ? '原任务已失败，保留原任务号与回执。修正已确认的原因后才可提交新的修订请求。'
+            : '尚未确认可用图片，继续查询原资产；不要更换 key 重复付费。' }
+      }
+      return { image: readGeneratedImage(result.data), ...generation === null ? {} : { generation } }
     }
     case 'confirm_casting': {
       requireKey(args.idempotency_key)
@@ -765,19 +785,25 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       return { tasks: readTaskList(result.data) }
     }
     case 'subtasks': {
+      const taskId = need(args.task_id)
       // A POST that only reads: the query body carries the parent task id.
       const result = await client.request({ method: 'POST', path: '/admin/aigc/video/task/sub/list',
-        body: { aigcVideoTaskId: need(args.task_id) } })
+        body: { aigcVideoTaskId: taskId } })
       const page = readSubtaskPage(result.data)
+      const downloadable = page.rows.filter(row => row.parent_task_id === taskId && row.video_url !== null
+        && (SUCCESS_STATUSES as readonly string[]).includes((row.status ?? '').trim().toLowerCase())).length
       // Resolution comparison is a hint, not authorization for paid processing.
       const target = args.delivery_resolution
       return {
         subtasks: { ...page, rows: page.rows.map(row => ({ ...row,
           needs_upscale: target === undefined ? null : needsUpscale(row, target),
           delivery_resolution: target ?? null })) },
-        guidance: (target === undefined
-          ? '未指定 delivery_resolution：无法判断哪些结果低于交付分辨率。'
-          : `交付分辨率 ${target}。`)
+        guidance: `子结果数组位于 subtasks.rows，subtasks.total 是总数；本页有 ${downloadable} 项属于本任务、已成功且带 video_url 的结果。`
+          + '逐项核对 parent_task_id、status 和 video_url 后，用 jubian_media download 下载成功项。'
+          + '其他项以各自 status 为准：运行中继续读原任务，失败停止等待并报告；不要把分页对象当数组，也不要仅凭 URL 判成功。'
+          + (target === undefined
+            ? '未指定 delivery_resolution：无法判断哪些结果低于交付分辨率。'
+            : `交付分辨率 ${target}。`)
           + 'needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。'
           + 'SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。'
           + '仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。'
@@ -790,10 +816,13 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       const prepared = preparedImageBatch(args, deps.naming ?? resolveNaming(), limits.maxItems)
       const catalogueRows = (await client.request({
         method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })).data
-      for (const { item } of prepared) {
+      for (const { item, assetName, assetType } of prepared) {
         const selection: ImageModelSelection = item.image_platform_id === undefined
           ? deps.image?.selection ?? {} : { platformId: item.image_platform_id }
-        resolveImageModel(catalogueRows, selection)
+        buildImageRequest({ scriptId: need(args.script_id), assetName,
+          assetType, prompt: need(item.prompt),
+          references: item.references ?? [],
+          ...(item.parent_asset_id === undefined ? {} : { parentAssetId: item.parent_asset_id }) }, catalogueRows, selection)
       }
       const results: Record<string, unknown>[] = Array.from({ length: prepared.length }, () => ({}))
       let nextIndex = 0

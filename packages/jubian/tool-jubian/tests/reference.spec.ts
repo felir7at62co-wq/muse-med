@@ -1,8 +1,13 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { uploadAudioReferenceMethod, uploadReferenceMethod } from '../src/reference.ts'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, readFile: vi.fn(actual.readFile) }
+})
 
 const FRONTEND_HTML = '<html><script src="/static/js/app.abc123.js"></script></html>'
 const APP_JS = 'var modules={{"6c3d":function(e,t,n){var o=(t.default,"AKIDEXAMPLE");'
@@ -196,13 +201,45 @@ describe('upload_reference', () => {
     expect(stub.uploads).toHaveLength(0)
   })
 
-  it('refuses a missing file, a non-image file and a missing path', async () => {
+  it.each([{}, { image_path: '' }, { image_path: ' ' }])('names an absent image path before any request: %j', async (args) => {
     const stub = transport()
-    await expect(uploadReferenceMethod({ image_path: join(root, 'absent.png') },
-      { fetch: stub.fetch })).rejects.toThrow()
+    await expect(uploadReferenceMethod(args, { fetch: stub.fetch })).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT', detail: 'upload_reference requires image_path',
+    })
+    expect(stub.uploads).toHaveLength(0)
+    expect(stub.bundleLoads).toBe(0)
+  })
+
+  it.each(['absent', 'not-directory'])('reports a missing local image before any request: %s', async (kind) => {
+    const stub = transport()
+    const path = kind === 'absent' ? join(root, 'absent.png')
+      : join(await file('parent.txt', new Uint8Array([1])), 'image.png')
+    await expect(uploadReferenceMethod({ image_path: path }, { fetch: stub.fetch })).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+      detail: 'image_path points to a missing local file; verify the previous step created the image at that path; no upload was attempted',
+    })
+    expect(stub.uploads).toHaveLength(0)
+    expect(stub.bundleLoads).toBe(0)
+  })
+
+  it.each([
+    Object.assign(new Error('private filesystem detail must not reach the model'), { code: 'EACCES' }),
+    new Error('private filesystem detail must not reach the model'),
+    'private filesystem detail must not reach the model',
+  ])('contains local read failures without an upload or raw exception text: %j', async (failure) => {
+    const stub = transport()
+    vi.mocked(readFile).mockRejectedValueOnce(failure)
+    await expect(uploadReferenceMethod({ image_path: join(root, 'image.png') }, { fetch: stub.fetch }))
+      .rejects.toMatchObject({ code: 'INVALID_ARGUMENT',
+        detail: 'image_path could not be read as a local file; check the path and file permissions; no upload was attempted' })
+    expect(stub.uploads).toHaveLength(0)
+    expect(stub.bundleLoads).toBe(0)
+  })
+
+  it('refuses a non-image file before any request', async () => {
+    const stub = transport()
     const text = await file('notes.txt', new TextEncoder().encode('not an image at all'))
     await expect(uploadReferenceMethod({ image_path: text }, { fetch: stub.fetch })).rejects.toThrow()
-    await expect(uploadReferenceMethod({}, { fetch: stub.fetch })).rejects.toThrow()
     expect(stub.uploads).toHaveLength(0)
     expect(stub.bundleLoads).toBe(0)
   })

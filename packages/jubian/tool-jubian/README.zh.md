@@ -89,6 +89,8 @@ kind: "package-bundle"
 
 `jubian_video image_generate` 可为单次调用设置 `image_platform_id`，优先从实时目录选择该平台的一行，覆盖已保存或部署锁定。Muse 随包部署在用户尚未选定通道时锁定 `KU_AI`；获授权的备用通道可显式指定 `DUO_YUAN_TAN_SUO`。切换前核对实时价格及上一笔收费任务：超时或结果未知不等于扣费失败，必须先对账，才能使用新 key 或新通道。
 
+`jubian_asset generated_image` 对可用图片返回 `{image: {url, material_id}}`。接口提供任务状态时，`generation` 保留原任务与结果 ID，区分生成中、成功、失败和未知状态。失败任务返回 `image: null`、分类后的 `error_code` 和已确认的参考图上限；供应商消息不会直接进入模型输入。KU_AI 最多接受五张参考图，单项与批量生成都会在付费写入前检查；批量会检查完所有项目再提交。生成失败不会抹掉账本中已受理的费用。
+
 单张 `image_generate` 可选填 `image_aspect_ratio`，仅接受 `16:9`（保持原默认）或 `9:16`。工具在已选模型／平台的实时目录行中寻找匹配的 `videoStandardId`；`imageStandardId` 仍只锁定计价模型行，不选择画幅。`references` 的顺序原样进入 `materialList`。不支持的画幅或缺少匹配规格会在计费资产请求前被拒绝。`image_generate_batch` 暂不暴露此参数，批次项仍默认 16:9。远端是否受理 9:16 图片仍须另行验证。
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)是每个受支持字段及其 JSDoc 的穷尽式真源。这一行注入 `tools` 与 `credentials`，在挂载时注册全部十二个工具，并挂载三个 Remote 命名空间：账户凭证使用的 `jubianToken`、账户 `gpt-image-2` 行使用的 `jubianImage`，以及设置页读取和修改实际项目额度与账务使用的 `jubianBudget`；既没有按工具启用的开关，也没有单独的一行页面配置。
@@ -337,9 +339,10 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 
 只有 intent 没有 settle 的那条，就是超时留下的"未知态"，也是回答那次调用到底扣没扣费的唯一依据。只有 HTTP 为 2xx 且信封 `code` 为 `0` 或 `200` 时 `outcome` 才是 `accepted`；其余一律 `unknown`。
 
+<a id="errors"></a>
 ### 错误
 
-传输失败会归结为五个稳定码之一，且永不携带提供方的响应文本或 token。
+失败使用稳定码，且永不携带提供方的响应文本或 token。
 
 | 码 | 触发 |
 |---|---|
@@ -347,8 +350,10 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 | `PERMISSION_DENIED` | HTTP 为 2xx 而信封 `code` 为 403 |
 | `RATE_LIMITED` | HTTP 429 或信封 `code` 429 |
 | `CONTRACT_CHANGED` | 非 JSON 对象、非法 UTF-8、超出字节上限、信封形状不符，或读取器字段缺失 |
-| `INVALID_ARGUMENT` | 调用方漏掉了该方法无法运行的参数；报错信息会点名是哪一个 |
+| `INVALID_ARGUMENT` | 缺少必填参数，或本地参考图片不可读；报错信息会点名参数并说明如何修正 |
 | `NETWORK_ERROR` | 连接失败、超时、重定向被拒，或其他非 2xx 状态 |
+
+`upload_reference` 在读取前端或发起上传请求前拒绝缺失或不可读的本地文件。文件缺失时，报错会要求确认上一步已在 `image_path` 创建图片；其他读取失败则要求检查路径和文件权限。两种报错都明确说明没有尝试上传。结果只包含包内编写的指引，不附本地路径或文件系统原始异常。
 
 ### 提交异步阶段
 
@@ -485,7 +490,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 
 #### 模型看到的内容
 
-每次调用都在共享的开放对象输出 schema 下返回一个美化打印的 JSON 对象，按发问的方法命名（`asset`、`assets`、`storyboard`、`subtasks`、`task` 等），并附模型用的指引字段；只有 `jubian_find` 按它扫描的范围命名自己的结果。写结果带 `replayed`、`outcome`、`response_sha256` 与信封数据；`erase_subtitle` 与 `upscale` 另加 `accepted_task_id` 和一句告诉模型不要等待的 `next`。`image_generate` 返回 `parent_asset_id`、`model_selection`、`asset_status`、`material_id`、`image_url`、`observed_asset_status`、`waited_ms`、`readback_error` 与一句 `next`，因此模型从结果里读到这张图的身份，而不是把「受理」当成「已有图」。`create_folder` 返回 `sent`、`status`、`folder_id`、`confirmed` 与一句 `next`；`move` 与 `rename` 返回 `sent`、`status` 与一句 `next`，两种本地拒绝则返回 `status: folder_exists` 或 `status: target_folder_missing` 并带 `sent: false` 与它查找过的 ID。`jubian_organize` 返回 `episodes`、`series`、`unmatched_remote_assets`、`naming_checked`、`naming_violations`、`category_mismatches`、`folders` 与 `index_path`，与它写出的文件内容一致。`jubian_find` 返回它扫描的 `scope` 与 `name`、`total`、`scanned_pages`、`complete`、`returned`、`truncated` 与 `scan_page_limit`，以及 `matches`——每行带 `script_id`、`script_name`、`manuscript_name`、`episode_count`、`status` 与 `script_style`（提供方自己的风格编码，用来区分真人与漫剧），`scope: pool` 时另有 `can_claim`、`claim_leader_name` 与 `claim_member_name`，而 `script_style` 在 pool 下不出现，因为池子的行没有被实测到带这个字段。`prepare_video` 返回整份 preview 及其 `preview_path`；`submit_video` 返回认领判定（`submitted`、`subject_identity_lost`、`reconcile_conflict` 或 `reconcile_required`）、认领到的 `task_id`，以及一句只指出唯一安全动作的 `next`。`jubian_model` 的 preview 返回冻结的 before/after 设置与 fingerprint；apply/重放则逐项目标报告 `applied`、`stale`、`unknown`、`readback_mismatch` 与 `not_attempted`。每个工具结果产生后都会留在会话里。 `image_generate_batch` 返回 `total`、`returned`、`errors` 与按输入顺序排列的 `results`。每项都有自己的键、目标身份与账本结论；`status: returned` 只表示请求已返回，`asset_status: active` 才确认生成图可用。
+每次调用都按注册的输出 schema 返回一个美化打印的 JSON 对象，按发问的方法命名（`asset`、`assets`、`storyboard`、`subtasks`、`task` 等），并附模型用的指引字段；只有 `jubian_find` 按它扫描的范围命名自己的结果。写结果带 `replayed`、`outcome`、`response_sha256` 与信封数据；`erase_subtitle` 与 `upscale` 另加 `accepted_task_id` 和一句告诉模型不要等待的 `next`。`image_generate` 返回 `parent_asset_id`、`model_selection`、`asset_status`、`material_id`、`image_url`、`observed_asset_status`、`waited_ms`、`readback_error` 与一句 `next`，因此模型从结果里读到这张图的身份，而不是把「受理」当成「已有图」。`create_folder` 返回 `sent`、`status`、`folder_id`、`confirmed` 与一句 `next`；`move` 与 `rename` 返回 `sent`、`status` 与一句 `next`，两种本地拒绝则返回 `status: folder_exists` 或 `status: target_folder_missing` 并带 `sent: false` 与它查找过的 ID。`jubian_organize` 返回 `episodes`、`series`、`unmatched_remote_assets`、`naming_checked`、`naming_violations`、`category_mismatches`、`folders` 与 `index_path`，与它写出的文件内容一致。`jubian_find` 返回它扫描的 `scope` 与 `name`、`total`、`scanned_pages`、`complete`、`returned`、`truncated` 与 `scan_page_limit`，以及 `matches`——每行带 `script_id`、`script_name`、`manuscript_name`、`episode_count`、`status` 与 `script_style`（提供方自己的风格编码，用来区分真人与漫剧），`scope: pool` 时另有 `can_claim`、`claim_leader_name` 与 `claim_member_name`，而 `script_style` 在 pool 下不出现，因为池子的行没有被实测到带这个字段。`prepare_video` 返回整份 preview 及其 `preview_path`；`submit_video` 返回认领判定（`submitted`、`subject_identity_lost`、`reconcile_conflict` 或 `reconcile_required`）、认领到的 `task_id`，以及一句只指出唯一安全动作的 `next`。`jubian_model` 的 preview 返回冻结的 before/after 设置与 fingerprint；apply/重放则逐项目标报告 `applied`、`stale`、`unknown`、`readback_mismatch` 与 `not_attempted`。每个工具结果产生后都会留在会话里。 `image_generate_batch` 返回 `total`、`returned`、`errors` 与按输入顺序排列的 `results`。每项都有自己的键、目标身份与账本结论；`status: returned` 只表示请求已返回，`asset_status: active` 或 `generated` 才确认生成图可供审核。  `jubian_video subtasks` 返回 `{ subtasks: { total, rows }, guidance }`。遍历 `subtasks.rows`；`subtasks` 是分页对象，`total` 是提供方报告的总数。每行保留 `parent_task_id`、`status` 和 `video_url`。指引只统计本页中父任务与查询任务一致、状态为 `succeeded` 或 `completed`、且 URL 非空的行。运行中、失败、身份不明或缺少 URL 的行不计为可下载；继续读取或报告失败前，先检查每行状态。视频输出 schema 在生成的 PTC 返回类型中展示这些字段，同时保留其他视频方法的结果字段。  `jubian_storyboard get` 的已存提示词位于 `storyboard.model_config.prompt`，分集 ID 位于 `storyboard.snapshot.episodeId`。`create_batch` 在 `results` 返回有序的逐项回执，`data` 保留供应商原值；数字 `data` 就是新卡 ID，不能按含 `id` 字段的对象读取。
 
 #### Token 影响
 
@@ -499,7 +504,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 
 #### 模型看到的内容
 
-失败的调用会变成错误工具结果，携带六个稳定码之一——`AUTHENTICATION_REQUIRED`、`PERMISSION_DENIED`、`RATE_LIMITED`、`CONTRACT_CHANGED`、`INVALID_ARGUMENT` 或 `NETWORK_ERROR`——即一个 `JubianError`。`INVALID_ARGUMENT` 把调用方自己的失误与提供方的行为分开：它在派发之前抛出、点名缺失的参数，并且意味着没有发出任何请求、没有写任何账本行。信封层与读取器层的意外使用 `CONTRACT_CHANGED`，所以单看这个码无法判断请求是否发出过；账本可以。调用方事先看不到的前置条件（例如 `content_duration_ms` 与该分镜已保存的时长不一致）同样使用 `CONTRACT_CHANGED`。提供方自己的响应文本与 token 永远不出现在结果里。
+失败的调用会变成错误工具结果，包含 `JubianError` 中包内编写的信息。必填参数校验和本地参考文件读取使用 `INVALID_ARGUMENT`；缺失参数在派发前失败。参考文件不存在时，信息要求模型核实上一步是否已在 `image_path` 创建图片；其他读取失败则提示检查路径与权限。两种情况均明确说明没有尝试上传，不暴露本地路径或原始文件系统异常。信封层与读取器层的意外使用 `CONTRACT_CHANGED`，所以单看这个码无法判断请求是否发出过；账本可以。调用方事先看不到的前置条件（例如 `content_duration_ms` 与该分镜已保存的时长不一致）同样使用 `CONTRACT_CHANGED`。提供方自己的响应文本与 token 永远不出现在结果里。
 
 #### Token 影响
 

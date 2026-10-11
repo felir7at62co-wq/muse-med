@@ -776,11 +776,11 @@ function childIdentity(child: Record<string, unknown>): SubjectIdentityItem[] | 
 }
 
 function childModel(child: Record<string, unknown>): [string, string][] | null {
-  try { return nativeModelSignature(child.modelConfig) } catch { return null }
+  try { return nativeModelSignature(child.modelConfig === undefined ? child : child.modelConfig) } catch { return null }
 }
 
 function childPrompt(child: Record<string, unknown>): string | null {
-  try { return nativeObservablePrompt(child.modelConfig) } catch { return null }
+  try { return nativeObservablePrompt(child.modelConfig === undefined ? child : child.modelConfig) } catch { return null }
 }
 
 /** A child must repeat every frozen audio URL before its submission can be claimed. */

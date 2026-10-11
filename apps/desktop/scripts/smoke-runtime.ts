@@ -68,7 +68,7 @@ export function apply(ctx) {
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
-      'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present',
+      'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present', 'video_contact_sheet',
       process.platform === 'win32' ? 'pwsh' : 'bash']
       : id === 'minimal' ? [shell]
         : id === 'editing' ? ['read', 'skill', shell, 'present',
@@ -76,7 +76,7 @@ export function apply(ctx) {
           'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
           'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
           'mcp__muse-account__muse_kb_ingest_script']
-        : id === 'creation' ? ['read', 'skill', shell, 'present', 'run_code',
+        : id === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'video_contact_sheet',
           'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir',
           'jubian_find', 'jubian_claim', 'jubian_snatch',
           'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
@@ -119,7 +119,7 @@ export function apply(ctx) {
     if (skillRegistry === undefined) throw new Error('desktop runtime: creation skill registry is not isolated')
     const skills = await skillRegistry.list({ scope: handle.agent, cwd: home })
     if (id === 'creation') {
-      for (const name of ['muse-creation', 'muse-script-editing', 'office-docx', 'office-xlsx', 'office-pptx', 'video-review']) {
+      for (const name of ['muse-creation', 'muse-script-editing', 'office-docx', 'office-xlsx', 'office-pptx', 'video-review', 'shot-script-creator-16-9-3d']) {
         if (!skills.some(skill => skill.name === name && skill.invocation.modelInvocable)) {
           throw new Error('desktop runtime: missing creation skill ' + name)
         }
@@ -204,7 +204,7 @@ export function apply(ctx) {
     }
     const requiredSkills = ['tweet-drama-pipeline', 'tweet-drama-core', 'tweet-drama-script-convert',
       'tweet-drama-script-split', 'tweet-drama-asset-extract', 'tweet-drama-asset-vision-check',
-      'shot-script-creator-9-16', 'tweet-drama-shot-asset-match', 'tweet-drama-early-shot-script',
+      'shot-script-creator-9-16', 'shot-script-creator-16-9-3d', 'tweet-drama-shot-asset-match', 'tweet-drama-early-shot-script',
       'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect', 'tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'tweet-drama-delivery']
     for (const name of requiredSkills) {
       const skill = skills.find(value => value.name === name)

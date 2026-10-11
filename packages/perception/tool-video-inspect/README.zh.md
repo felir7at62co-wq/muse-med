@@ -37,6 +37,10 @@ kind: "package-reference"
 创作部署可启用 `trustedEvidence`（默认 false）。真实 `metadata` 调用随后返回 `window_plan`，将实际探测的完整时长划分为连续窗口，每窗不超过 `min(60, maxRangeSeconds)`。可信抽帧要求先成功探测同一当前视频的元数据。计划窗口仍未查看，只有后续成功抽帧调用返回真实画面后才有采样依据；可用窄区间复看冲突、起因、结果、集尾和疑点。切镜与 ASR 时间码只提供候选时刻，不识别故事含义。
 
 <a id="execution-and-storage"></a>
+
+`video_contact_sheet` 返回带时间标签的视频概览图，默认3列3行九宫格，`columns: 3, rows: 2` 为六宫格。按从左到右、从上到下的源时间顺序排列；`frame_count` 可跨多页，`timestamps_seconds` 指定具体时刻，或用 `frame_interval_seconds` 按间隔取帧且不同时指定帧数。`strategy: scene` 优先查看检测到的切点两侧。清单保留原始抽帧引用；疑点先对当前来源成功调用 `video_inspect method=metadata`，再于包含该时刻的有界区间抽帧查看大图。本次仅返回概览页图像，宫格不会签发受信任的视频检查凭据。
+
+概览配置为 `contactColumns`、`contactRows`（默认均为3）、`contactTileWidth`（320像素）、`maxContactFrames`（32帧）、`maxContactRangeSeconds`（300秒）、`maxContactPixels`（每页16,000,000像素）和 `maxContactBytes`（全部页合计8MiB）。单格保持源比例，标签使用实际解码时间。还须满足图片存储的尺寸限制。超大布局、冲突的采样参数、源文件变化和已有清单均报错，不静默丢帧；长视频按 `next_start_seconds` 继续查看。人物或动作的细节验收不能只用缩略图。
 ## 执行与存储
 
 读取经由 `ctx.fs`；探测和解码经由 `ctx.subprocess`，遵守当前 Session 文件策略。受限执行要求有可用沙箱提供方。FFmpeg 只接受本地文件与管道协议。源文件大小、编码画面面积（`maxSourcePixels`，默认 33,177,600）、时长、画面尺寸、完整图像字节数、进程超时和同时检查数量均可按部署配置。每条命令都等待进程范围退出，包括取消和失败。卸载插件会取消并等待其活动检查。

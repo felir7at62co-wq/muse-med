@@ -42,7 +42,7 @@ const SPEAKER_PREFIX = /^([^：:]{1,30})[：:](.+)$/
 const SPEAKER_PREFIX_ONLY = /^([^：:]{1,30})[：:]\s*$/
 
 /** The style line every shot block is preceded by, with the whitespace that follows it. */
-const STYLE_LINE = /真人短剧写实风格\s*$/
+const STYLE_LINE = /((?:真人短剧写实|写实3D CG渲染)风格)\s*$/
 
 /** A suggested negative prompt; absence only produces a warning. */
 const NEGATIVE_PROMPT = '无噪点，无跳帧，五官稳定不变形'
@@ -106,7 +106,7 @@ export interface ParseResult {
 /**
  * Count the effective characters of one spoken text: Han characters, Latin
  * letters, and digits. Punctuation, spaces, and symbols do not count, so reading
- * speed is measured the way this format's 9 字/秒 rule measures it.
+ * speed is measured the way this format's 8 字/秒 rule measures it.
  * @param text - Spoken text, with or without punctuation.
  * @returns The number of effective characters.
  */
@@ -117,10 +117,10 @@ export function effectiveChars(text: string): number {
 /**
  * Derive a speaking shot's whole-second duration.
  * @param chars - Effective characters of the spoken text.
- * @returns `max(1, ceil(chars / 9))` seconds.
+ * @returns `max(1, ceil(chars / 8))` seconds.
  */
 export function speechSeconds(chars: number): number {
-  return Math.max(1, Math.ceil(chars / 9))
+  return Math.max(1, Math.ceil(chars / 8))
 }
 
 /** Trim the bracket forms the older gate shell wrapped field values in. */
@@ -378,7 +378,7 @@ function readDuration(
   } else if (chars > WRITING_THRESHOLD_CHARS) {
     issues.push(issue('warning', 'speech_above_writing_threshold', block.number, speech.line,
       `镜头${block.number}语音${chars}字，超过 ${WRITING_THRESHOLD_CHARS} 字的写作阈值：`
-      + `按 9 有效字/秒记为 ${seconds} 秒、不阻塞编译；原文语义上还能拆就拆成连续镜头（不删字、不改顺序）。`))
+      + `按 8 有效字/秒记为 ${seconds} 秒、不阻塞编译；原文语义上还能拆就拆成连续镜头（不删字、不改顺序）。`))
   }
   return { seconds, source: 'speech', issues }
 }
@@ -398,15 +398,17 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
   if (blocks.length === 0) {
     issues.push(issue('failure', 'no_shots', 0, 0,
       '脚本里没有任何【镜头N】块：本工具编译导演格式镜头脚本，'
-      + '每个镜头以独占一行的【镜头N】开头，其上一行是 真人短剧写实风格。'))
+      + '每个镜头以独占一行的【镜头N】开头，上一行可声明项目的真人或3D渲染风格。'))
     return { shots, issues }
   }
   for (const block of blocks) {
     const blockText = text.slice(block.start, block.end)
     const markerLine = lineAt(text, block.start)
-    if (!STYLE_LINE.test(text.slice(0, block.start))) {
+    const style = STYLE_LINE.exec(text.slice(0, block.start))?.[1]
+    if (style === undefined) {
       issues.push(issue('warning', 'missing_style_line', block.number, markerLine,
-        `镜头${block.number}（脚本第${markerLine}行）前没有建议的「真人短剧写实风格」行：`
+        `镜头${block.number}（脚本第${markerLine}行）前没有项目风格声明：`
+        + '真人项目可用「真人短剧写实风格」，3D项目可用「写实3D CG渲染风格」。'
         + '请按项目选择风格，不会自动补入固定风格。'))
     }
 
@@ -472,7 +474,7 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
       charactersField,
       sceneField: field(blockText, '核心场景'),
       propsField: field(blockText, '关键道具'),
-      visual: `${STYLE_LINE.test(text.slice(0, block.start)) ? '真人短剧写实风格\n' : ''}${body.trim()}`,
+      visual: `${style === undefined ? '' : `${style}\n`}${body.trim()}`,
       directorFormat,
       breakAfter: field(blockText, '子任务边界') === '是',
       bodyStates: declaredBodyStates(blockText),

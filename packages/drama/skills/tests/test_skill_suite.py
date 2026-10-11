@@ -13,7 +13,7 @@ sys.path.insert(0, str(SKILLS / "tweet-drama-core/scripts"))
 from validate_live_action_skills import validate_skill_package
 
 EXPECTED = {
-    "jubian-asset-library", "jubian-snatch", "shot-script-creator-9-16", "xiaohongshu-reference",
+    "jubian-asset-library", "jubian-snatch", "shot-script-creator-9-16", "shot-script-creator-16-9-3d", "xiaohongshu-reference",
     "tweet-drama-asset-extract", "tweet-drama-asset-vision-check",
     "tweet-drama-background-render", "tweet-drama-core", "tweet-drama-delivery",
     "tweet-drama-draft-build", "tweet-drama-early-shot-script", "tweet-drama-key-manager",
@@ -53,7 +53,8 @@ class SkillSuite(unittest.TestCase):
         render = (SKILLS / "tweet-drama-background-render/SKILL.md").read_text(encoding="utf-8")
         for required in ("不是普遍硬门禁", "说话人", "旁白/心声", "实时目录", "不能静默换模型"):
             self.assertIn(required, pipeline)
-        for required in ("不是普遍硬禁", "原文要求的发声不删", "max_submit_seconds", "实时模型目录"):
+        for required in ("编译器的建议性警告不等于项目制作要求可以忽略", "不删字、不换说话人",
+                         "原文要求的旁白与心声不删、不强制变成角色当场对白", "max_submit_seconds", "实时模型目录"):
             self.assertIn(required, shots)
         for required in ("一集的 BGM 必须多于一首", "按正文情绪分段选曲", "valence/arousal", "仅限非商业用途"):
             self.assertIn(required, render)

@@ -21,8 +21,8 @@
   en: ddc31d611dc21013
   zh: 4abd2fb7bfdbc0c4
 /deepseek-ai-dsh-tool-jubian/use-this-package/minimal-configuration:
-  en: f68b0e4bf8ce96f4
-  zh: a21c5917057cf1fb
+  en: 6286d93f219e4bad
+  zh: 2e93b5ceef444f48
 /deepseek-ai-dsh-tool-jubian/use-this-package/credential:
   en: 750935670ca76c82
   zh: 9182bb083c10969b
@@ -60,11 +60,11 @@
   en: 22830900eff33ede
   zh: 0dbabcc55d6eb0e4
 /deepseek-ai-dsh-tool-jubian/use-this-package/writing-safely-idempotency-and-the-ledger:
-  en: 077b0b041e366323
-  zh: 10f527b672368058
+  en: 1ef6c905274ad58d
+  zh: 3d8c6ded95272f2a
 /deepseek-ai-dsh-tool-jubian/use-this-package/errors:
-  en: 0ff8ad095fa9bd1d
-  zh: 45659b6f36350f01
+  en: 1c363ce28761d34c
+  zh: ef3288101c9e37a8
 /deepseek-ai-dsh-tool-jubian/use-this-package/submitting-an-asynchronous-stage:
   en: a2c73a713a6ee0fa
   zh: adbbc0e4c79a414c
@@ -129,8 +129,8 @@
   en: beaabb79f229692a
   zh: 8573891441963be4
 /deepseek-ai-dsh-tool-jubian/model-experience/tool-results/what-the-model-sees:
-  en: e181e7e78e242fc7
-  zh: 67b02bfa7f912633
+  en: 553a0e195f5575b0
+  zh: 826a7e374e2a1552
 /deepseek-ai-dsh-tool-jubian/model-experience/tool-results/token-effect:
   en: bda68a7c9f665e40
   zh: c9568abb42576229
@@ -141,8 +141,8 @@
   en: 9399595c521b8895
   zh: 903da9e5b06f051b
 /deepseek-ai-dsh-tool-jubian/model-experience/failures/what-the-model-sees:
-  en: 177f696f81ca15e2
-  zh: dbd2c3fff6de9a86
+  en: 94b48390053f911b
+  zh: 0b5066763c05f4f0
 /deepseek-ai-dsh-tool-jubian/model-experience/failures/token-effect:
   en: c59fa0b454727695
   zh: b8bc91e4998cb53c

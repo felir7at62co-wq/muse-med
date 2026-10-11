@@ -3,6 +3,7 @@ scenario: muse-creation-tool-argument-recovery
 profile: headless
 composition: muse-creation-tool-argument-recovery
 recording: authored
+writerOutput: true
 header:
   class: muse-creation-tool-argument-recovery
   pin: true

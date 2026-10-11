@@ -1,5 +1,29 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`logs a failed image task with its original identity instead of an envelope error > failed original image task 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "{
+  "image": null,
+  "generation": {
+    "status": "failed",
+    "task_id": 545217,
+    "result_id": 1104411,
+    "error_code": "reference_limit",
+    "max_reference_images": 5
+  },
+  "guidance": "原任务已失败，保留原任务号与回执。修正已确认的原因后才可提交新的修订请求。"
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+]
+`;
+
 exports[`records an active candidate without confirming its casting or charging again > unconfirmed active image candidate 1`] = `
 [
   {
@@ -33,6 +57,20 @@ exports[`records an active candidate without confirming its casting or charging 
       },
     ],
     "isError": false,
+  },
+]
+`;
+
+exports[`tells the model to create a missing reference file before any upload > missing local reference before upload 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "Error: Jubian tool call is missing an argument it cannot run without: image_path points to a missing local file; verify the previous step created the image at that path; no upload was attempted",
+        "type": "text",
+      },
+    ],
+    "isError": true,
   },
 ]
 `;

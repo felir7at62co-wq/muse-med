@@ -15,7 +15,8 @@
     "config/defaults.cordis.patch.yml",
     "lib/cli.js",
     "lib/creation-policy.js",
-    "lib/creation-skills.js"
+    "lib/creation-skills.js",
+    "lib/short-drama-guidance.js"
   ],
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -73,7 +74,8 @@
     "./native-preset": "./lib/native-preset.js",
     "./package.json": "./package.json",
     "./creation-policy": "./lib/creation-policy.js",
-    "./creation-skills": "./lib/creation-skills.js"
+    "./creation-skills": "./lib/creation-skills.js",
+    "./short-drama-guidance": "./lib/short-drama-guidance.js"
   },
   "dsh": {
     "bundle": {

@@ -9,6 +9,8 @@ English | [中文](README.zh.md)
 
 Shot writing keeps a per-episode source-to-shot record for dialogue, speakers, actions, and performance details. The agent reads the video model, platform, aspect ratio, resolution, and style from the Jubian project, calculates each package duration from its shots with the existing timing rules, and checks the complete batch before parallel submission.
 
+The bundled [16:9 3D shot-writing skill](skills/shot-script-creator-16-9-3d/SKILL.md) serves confirmed horizontal CG projects. It preserves approved asset style and current project settings, applies the shared timing and positioning-reference guidance, and does not convert live-action projects to 3D. Muse creation mode exposes it through the packaged skill loader without requiring a personal skill directory.
+
 ## Summary
 
 Create and review drama scripts, reuse assets, maintain project state, prepare editable drafts, render episodes, assemble whole-drama deliveries, and claim newly released scripts from the Jubian pool. The entry points are the maintained `skills/*/SKILL.md` files, starting with the pipeline skill. Python scripts and necessary static resources travel together, including the renderer's ending effect and ending sound. User projects, credentials, per-project media, and local environments do not.

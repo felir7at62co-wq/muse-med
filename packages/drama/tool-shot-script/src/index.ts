@@ -334,7 +334,7 @@ const RESULT_SCHEMA = {
           effective_chars: { type: 'integer', required: true, description: '有效字：汉字/字母/数字，标点与空格不计。' },
           duration_seconds: { type: 'integer', required: true, description: '本镜计入打包预算的整秒数。' },
           duration_source: { type: 'string', required: true, enum: ['speech', 'declared', 'complexity', 'default'],
-            description: '时长来源：明确声明、9 有效字/秒估算、动作复杂度、或编译器默认值。' },
+            description: '时长来源：明确声明、8 有效字/秒估算、动作复杂度、或编译器默认值。' },
           offscreen: { type: 'boolean', required: true, description: '是否是同场画外音。' },
           characters_field: { type: 'string', required: true, description: '出镜人物 字段原文；整行省略时为空串。' },
           scene: { type: 'string', required: true, description: '绑定到的正式场景名；空串表示没有绑定场景。' },
@@ -400,13 +400,13 @@ const RESULT_SCHEMA = {
 
 /** What the model reads before calling: what each method does and which rules decide the verdict. */
 const DESCRIPTION = '短剧镜头脚本的判定与编译（剧变流水线）。'
-  + 'validate=只读校验：逐镜给出推导时长（9 有效字/秒）、有效字、发声类型、画外音合法性、资产绑定，'
+  + 'validate=只读校验：逐镜给出推导时长（8 有效字/秒）、有效字、发声类型、画外音合法性、资产绑定，'
   + '硬失败与警告分开列出；'
   + 'preview=只读预算：在 validate 之上算出每包内容时长与打包方案，不落盘，用于提交前看预算；'
   + 'compile=判定通过后写入 matched JSON（matches/<集号>.matched.json）与单集 package'
   + '（prompts/<集号>.txt、episode_packages/<集号>/），并回报每包的 content_duration_ms、'
   + '提交给剧变的整秒时长与素材键顺序。'
-  + '时长：N秒的正整数声明优先；省略时按 9 有效字/秒估算。超过 15 字写作阈值或内建 36 字建议、偏离估算仅警告，可保留长慢镜头；'
+  + '时长：N秒的正整数声明优先；省略时按 8 有效字/秒估算。超过 15 字写作阈值或内建 36 字建议、偏离估算仅警告，可保留长慢镜头；'
   + '但项目在 project_config.json 的 delivery.max_effective_chars_per_shot 里声明了每镜上限时，超过该上限判失败'
   + '（按原文语义拆镜，或改掉该项目的这条要求），不删字、不改顺序、不换说话人；'
   + '无发声镜必须写 发声类型：action，时长由 动作复杂度（简单/一般/较复杂/复杂 = 1/2/3/4 秒）决定，'

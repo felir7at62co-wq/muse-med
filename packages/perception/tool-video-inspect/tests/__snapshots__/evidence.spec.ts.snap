@@ -1,0 +1,10 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`shows a contact sheet to the next actual model request without issuing detail approval > six-cell overview reaches the model without detail evidence 1`] = `
+[
+  {
+    "images": [],
+    "isError": false,
+  },
+]
+`;

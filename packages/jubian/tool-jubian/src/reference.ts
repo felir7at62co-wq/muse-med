@@ -177,18 +177,28 @@ function alignmentRefusal(image: ReferenceImage, size: { width: number; height: 
  * @param args - `image_path`, the local file to upload.
  * @param deps - Optional transport, re-encode, clock and `ffmpeg` path overrides.
  * @returns The uploaded URL and its material item, or an `alignment_required` refusal.
- * @throws {JubianError} `CONTRACT_CHANGED` when the file, its format or the bundle layout cannot be used,
- *   or `NETWORK_ERROR` when the frontend or the bucket could not be reached.
+ * @throws {JubianError} `INVALID_ARGUMENT` when image_path is missing or the local file cannot be read,
+ *   `CONTRACT_CHANGED` when its format or the bundle layout cannot be used, or `NETWORK_ERROR`
+ *   when the frontend or the bucket could not be reached.
  */
 export async function uploadReferenceMethod(args: { image_path?: string | undefined },
   deps: ReferenceUploadDeps = {}): Promise<Record<string, unknown>> {
   const path = args.image_path
-  if (path === undefined || !path.trim()) fail()
+  if (path === undefined || !path.trim()) {
+    throw new JubianError('INVALID_ARGUMENT', 'upload_reference requires image_path')
+  }
   const source = resolve(path)
   let bytes: Uint8Array
   try {
     bytes = await readFile(source)
-  } catch { return fail() }
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) {
+      throw new JubianError('INVALID_ARGUMENT',
+        'image_path points to a missing local file; verify the previous step created the image at that path; no upload was attempted')
+    }
+    throw new JubianError('INVALID_ARGUMENT',
+      'image_path could not be read as a local file; check the path and file permissions; no upload was attempted')
+  }
   const image: ReferenceImage = readReferenceImage(bytes)
   const size = alignedReferenceSize(image)
   const transport = deps.fetch ?? fetch

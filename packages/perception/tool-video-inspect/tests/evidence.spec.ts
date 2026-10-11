@@ -90,6 +90,30 @@ async function fixture(options: { duration?: number; range?: number; ptc?: boole
   return { root, ctx, agent, adapter, plugin, input, method, program, run, manifest, resolve, errors, driver }
 }
 
+it('shows a contact sheet to the next actual model request without issuing detail approval', async () => {
+  const h = await fixture({ ptc: true })
+  await h.run([{ name: 'run_code', args: { description: 'View a six-cell overview.',
+    code: `return await tools.video_contact_sheet(${JSON.stringify({ file_path: h.input,
+      columns: 3, rows: 2, timestamps_seconds: [1, 3], manifest_path: 'overview.json' })});` } }, undefined])
+  expect(h.errors).toEqual([])
+  expect(h.adapter.requests).toHaveLength(2)
+  const images = h.adapter.requests[1]!.messages.flatMap(message => message.content).filter(block => block.type === 'image')
+  expect(images).toHaveLength(1)
+  expect(h.adapter.requests[1]!.messages.flatMap(message => message.content)
+    .filter(block => block.type === 'text').map(block => block.text).join('\n'))
+    .toContain('first obtain successful video_inspect method=metadata')
+  const value: unknown = JSON.parse(await readFile(join(h.root, 'overview.json'), 'utf8'))
+  expect(value).toMatchObject({ columns: 3, rows: 2, pages: [{ frames: [
+    { index: 1, cell: 1, timestamp_seconds: 1 }, { index: 2, cell: 2, timestamp_seconds: 3 },
+  ] }] })
+  await expect(h.resolve(value)).rejects.toThrow('sampled_frames')
+  expect(h.agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+    .map(event => ({ isError: event.data.message.isError,
+      images: event.data.message.content.filter(block => block.type === 'image').map(block => ({
+        width: block.attachment.width, height: block.attachment.height,
+      })) }))).toMatchSnapshot('six-cell overview reaches the model without detail evidence')
+}, 30_000)
+
 it('issues real metadata and image-input evidence, retaining the actual PTC outer result and recovering accepted records', async () => {
   const h = await fixture({ ptc: true })
   let sameProgram = ''

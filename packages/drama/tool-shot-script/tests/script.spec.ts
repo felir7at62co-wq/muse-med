@@ -21,12 +21,16 @@ describe('effective characters and derived duration', () => {
     expect(effectiveChars('')).toBe(0)
   })
 
-  it('derives whole seconds at nine effective characters per second', () => {
+  it('derives whole seconds at eight effective characters per second', () => {
     expect(speechSeconds(0)).toBe(1)
     expect(speechSeconds(1)).toBe(1)
-    expect(speechSeconds(9)).toBe(1)
+    expect(speechSeconds(8)).toBe(1)
+    expect(speechSeconds(9)).toBe(2)
     expect(speechSeconds(10)).toBe(2)
-    expect(speechSeconds(36)).toBe(4)
+    expect(speechSeconds(16)).toBe(2)
+    expect(speechSeconds(17)).toBe(3)
+    expect(speechSeconds(32)).toBe(4)
+    expect(speechSeconds(33)).toBe(5)
   })
 })
 
@@ -71,6 +75,13 @@ describe('a conforming script', () => {
     expect(visual.startsWith('真人短剧写实风格\n【镜头1】')).toBe(true)
     expect(visual).toContain(NEGATIVE_PROMPT)
     expect(visual).not.toContain('时长')
+  })
+
+  it('preserves a 3D project style without inserting live-action instructions', () => {
+    const result = parse(text.replaceAll('真人短剧写实风格', '写实3D CG渲染风格'))
+    expect(result.issues).toEqual([])
+    expect(result.shots[0]?.visual).toMatch(/^写实3D CG渲染风格\n【镜头1】/)
+    expect(result.shots.every(item => !item.visual.includes('真人短剧写实风格'))).toBe(true)
   })
 
   it('reports the marker line of every shot', () => {

@@ -192,7 +192,15 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
     const assets = assetsById.get(parentKey) ?? []
     const [row] = rows
     const [asset] = assets
-    if (row === undefined || asset === undefined || rows.length !== 1 || assets.length !== 1) invalid()
+    if (asset === undefined || assets.length !== 1) invalid()
+    if (wireText(asset.delFlag) === '1') {
+      throw new JubianError('CONTRACT_CHANGED',
+        `PRE_PUT_ASSET_REMOVED: parent asset ${parentKey} was removed remotely; choose an existing active project asset; no PUT sent`)
+    }
+    if (row === undefined || rows.length !== 1) {
+      throw new JubianError('CONTRACT_CHANGED',
+        `PRE_PUT_SUBJECT_UNAVAILABLE: parent asset ${parentKey} has ${rows.length} active confirmed materials; refresh the project selection; no PUT sent`)
+    }
     if (integer(row.scriptId) !== scriptId || integer(asset.scriptId) !== scriptId) invalid()
     if (!strictlyUsed(row.isUsed)) invalid()
     if ((wireText(row.hsAssetStatus) ?? '').trim().toLowerCase() !== 'active') invalid()
@@ -205,7 +213,6 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
     const officialUrl = httpUrl(row.assetUrl)
     if (officialUrl === null) invalid()
     if (httpUrl(asset.url ?? asset.assetUrl) !== officialUrl) invalid()
-    if (wireText(asset.delFlag) === '1') invalid()
     const existing = existingByKey.get(key) ?? []
     if (existing.length > 1) invalid()
     // The provider's own material fields are preserved: this PUT saves one

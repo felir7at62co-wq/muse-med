@@ -75,3 +75,97 @@ it('records an active candidate without confirming its casting or charging again
     await ctx.fiber.dispose()
   }
 })
+
+it('logs a failed image task with its original identity instead of an envelope error', async () => {
+  const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
+    { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-token' } },
+  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  const requests: string[] = []
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = input instanceof Request ? input.url : input.toString()
+    if (init?.method !== 'GET' || !url.endsWith('getGeneratedImageByAssetId?assetId=163134')) {
+      throw new Error('Unexpected image task read')
+    }
+    requests.push(url)
+    return new Response(JSON.stringify({ code: 200, data: [{ assetId: 163134, id: null, assetUrl: null,
+      taskId: 545217, resultId: 1104411, resultStatus: 'failed',
+      resultMsg: '酷爱AI平台创建生图任务失败: 最多输入5张图' }] }))
+  })
+  try {
+    await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot: home, workspaceSecrets: false } })
+    await ctx.loader.await()
+    for (const entry of ctx.loader.entries()) await entry.fiber?.await()
+    await ctx.plugin(Llm); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
+    await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
+    const adapter = new MockAdapter([
+      toolCallResponse('read-failed', 'jubian_asset', { method: 'generated_image', asset_id: 163134 }),
+      textResponse('The original task failed; reduce the reference count before preparing a revised request.'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('image-failure-owner'),
+      { provider: 'mock', model: 'mock' }, { cwd: home })
+    agent.followup(createUserMessage({ source: { kind: 'user' },
+      content: [{ type: 'text', text: 'Read the existing image task. Do not regenerate it.' }] }))
+    await agent.whenIdle()
+    const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+      .map(event => ({ isError: event.data.message.isError, content: event.data.message.content }))
+    expect(results).toHaveLength(1)
+    expect(results[0]).toMatchObject({ isError: false })
+    expect(results).toMatchSnapshot('failed original image task')
+    expect(adapter.requests).toHaveLength(2)
+    expect(adapter.requests[1]!.messages.filter(message => message.role === 'tool')
+      .map(message => message.content)).toEqual(results.map(result => result.content))
+    expect(requests).toHaveLength(1)
+  } finally {
+    fetch.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})
+
+it('tells the model to create a missing reference file before any upload', async () => {
+  const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
+    { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-token' } },
+  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected reference upload request'))
+  const imagePath = join(home, 'private-reference-directory', 'missing-panorama.png')
+  try {
+    await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot: home, workspaceSecrets: false } })
+    await ctx.loader.await()
+    for (const entry of ctx.loader.entries()) await entry.fiber?.await()
+    await ctx.plugin(Llm); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
+    await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
+    const adapter = new MockAdapter([
+      toolCallResponse('upload-missing-reference', 'jubian_asset', { method: 'upload_reference', image_path: imagePath }),
+      textResponse('The local reference file is missing. Verify the image export before retrying the upload.'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('missing-reference-owner'),
+      { provider: 'mock', model: 'mock' }, { cwd: home })
+    agent.followup(createUserMessage({ source: { kind: 'user' },
+      content: [{ type: 'text', text: 'Upload the locally exported positioning reference.' }] }))
+    await agent.whenIdle()
+    const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+      .map(event => ({ isError: event.data.message.isError, content: event.data.message.content }))
+    expect(results).toHaveLength(1)
+    expect(results[0]).toMatchObject({ isError: true })
+    expect(results).toMatchSnapshot('missing local reference before upload')
+    const serialized = JSON.stringify(results)
+    expect(serialized).toContain('image_path points to a missing local file')
+    expect(serialized).toContain('verify the previous step created the image at that path')
+    expect(serialized).toContain('no upload was attempted')
+    expect(serialized).not.toContain(home)
+    expect(serialized).not.toContain('private-reference-directory')
+    expect(serialized).not.toContain('missing-panorama.png')
+    expect(serialized).not.toContain('mock-token')
+    expect(serialized).not.toContain('expected envelope')
+    expect(adapter.requests).toHaveLength(2)
+    expect(adapter.requests[1]!.messages.filter(message => message.role === 'tool')
+      .map(message => message.content)).toEqual(results.map(result => result.content))
+    expect(fetch).not.toHaveBeenCalled()
+  } finally {
+    fetch.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})

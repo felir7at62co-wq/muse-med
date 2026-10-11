@@ -266,6 +266,29 @@ const OUTPUT = {
     [{ type: 'text', text: JSON.stringify(value, null, 2) }],
 } as const
 
+/** Video methods keep their existing result fields; subtask reads expose the paged rows to PTC callers. */
+const VIDEO_OUTPUT = {
+  schema: { type: 'object', additionalProperties: true, properties: {
+    subtasks: { type: 'object', additionalProperties: false,
+      description: 'method=subtasks 的分页对象；子结果数组位于 subtasks.rows。',
+      properties: {
+        total: { type: 'number', required: true, description: '提供方报告的子结果总数；不是数组。' },
+        rows: { type: 'array', required: true, description: '本页子结果；逐项核对 parent_task_id、status 和 video_url。',
+          items: { type: 'object', additionalProperties: true, properties: {
+            subtask_id: { type: 'number', required: true },
+            parent_task_id: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }],
+              description: '所属父任务；下载前必须与查询的 task_id 一致。' },
+            status: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }],
+              description: '提供方子结果状态；保留未知值，不能仅凭 URL 判成功。' },
+            video_url: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }],
+              description: '当前成片 URL；本任务子结果成功且 URL 非空时才可交 jubian_media download。' },
+          } } },
+      } },
+    guidance: { type: 'string' },
+  } },
+  render: OUTPUT.render,
+} as const
+
 /**
  * Adapt one domain method to the tool registry.
  *
@@ -492,6 +515,9 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.tools.register(defineTool({
     name: 'jubian_asset',
     description: '剧变（Jubian）主体设定与资产的查询、确认出演与删除。get/list/materials/generated_image 只读。'
+      + '只读结果字段：get=asset；list=assets.rows；materials=materials.rows；generated_image=image.url/material_id。'
+      + '生成任务未就绪或失败时 image=null，generation.status 区分 pending/failed/unknown，并保留原 task_id/result_id；'
+      + 'error_code=reference_limit 时先减少参考图，content_refused 时不要原样重复提交；未知或等待中只续读原任务。'
       + '**confirm_casting 有副作用**：它用 GET 动词改变了远端状态，会使该材质被本次制作采用。'
       + '它同样需要 idempotency_key，且不要重试。'
       + '**remove 会不可恢复地删除一个父资产**（`DELETE /aigc/asset/removeAsset/{id}`，带 scriptId 与 isParent=1）：'
@@ -600,6 +626,8 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.tools.register(defineTool({
     name: 'jubian_storyboard',
     description: '剧变（Jubian）分镜查询、原位修改与提交。list/get/create/save/edit 免费（写入强制 isGenerate=0）。'
+      + '返回字段：get 的已存提示词在 storyboard.model_config.prompt，分集 ID 在 storyboard.snapshot.episodeId；'
+      + 'create_batch 的逐项回执在 results，data 保留供应商原值，数字 data 即新卡 ID，不要假定 data.id 存在。'
       + '修改已有任务卡用 edit_preview 或 edit_batch_preview 检查 before/after，再 edit_apply；保持分镜 ID，不因秒数或提示词变化新建卡。'
       + '支持修复 episode_id、duration 与提示词；修改素材标记后 needs_reselect，重新 select_assets 再准备视频。'
       + 'delete_preview 只读检查精确目标，delete_apply 不可恢复地删除已检查的卡；删除 Hook 要求核对项目、内容与生成记录是否在用户授权范围。'
@@ -690,7 +718,10 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.tools.register(defineTool({
     name: 'jubian_video',
     description: '剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读'
-      + '（subtasks 用 POST 承载查询体，仍然只读；它返回成片 videoUrl 与字幕像素框）。'
+      + '（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，'
+      + 'result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。'
+      + '逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，'
+      + '把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。'
       + '**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；'
       + '给了 parent_asset_id 就是重生成（PUT），否则新建（POST）。'
       + '它只在同一个 idempotency_key 下发送一次，并在受理后核实父资产 Active，或新父资产下唯一 Active 未采用候选图，'
@@ -722,7 +753,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       method: { type: 'string', required: true,
         enum: ['task', 'tasks', 'subtasks', 'unresolved', 'image_generate', 'image_generate_batch', 'upscale', 'retry'],
         description: 'task=单个任务（含 cost 观测）；tasks=项目任务分页；'
-          + 'subtasks=任务的子结果（成片 URL、字幕框、阶段、分辨率与 needs_upscale）；'
+          + 'subtasks=分页对象 subtasks，数组在 subtasks.rows（每项含 status、parent_task_id、video_url、字幕框、阶段、分辨率与 needs_upscale）；'
           + 'unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；'
           + 'image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；'
           + 'upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。' },
@@ -737,7 +768,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       task_name: ARGS.task_name,
       idempotency_key: ARGS.idempotency_key,
     },
-    output: OUTPUT,
+    output: VIDEO_OUTPUT,
     execute: guarded('jubian_video', args => videoMethod(client, ledger, args, { image: image(), imageBatch, naming })),
   }))
 

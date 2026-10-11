@@ -79,6 +79,10 @@ export async function apply(ctx) {
     assert.ok(stage.properties.scenes.items.properties.beats.items.properties.sync_with,
       'Refinement preserves source-backed synchronous action display')
     assert.ok(system.includes('fork_refinement'), 'The generated SDK exposes the configured refinement command')
+    assert.ok(system.includes('当编写短剧镜头脚本时，建议每个镜头控制在1–4秒'), 'Shot pacing applies when writing short-drama shot scripts')
+    assert.ok(system.includes('按8个有效字/秒计算预算'), 'The model receives the current speech budgeting rule')
+    assert.ok(system.includes('禁止镜头时长字段'), 'Generation prompts exclude shooting-time instructions')
+    assert.ok(system.includes('多人站位参考图'), 'Visible multi-character scenes require positioning references')
     for (const name of ['skill', 'screenplay_project', 'drama_assets', 'jubian_budget', 'video_inspect']) {
       assert.ok(system.includes(`\n  ${name}:`), `The real creative SDK includes ${name}`)
     }

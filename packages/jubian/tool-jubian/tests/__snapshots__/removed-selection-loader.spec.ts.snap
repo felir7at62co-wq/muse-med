@@ -1,0 +1,15 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`records the removed-asset cause without writing or charging > removed subject refusal before PUT 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "Error: Jubian response did not match the expected envelope: PRE_PUT_ASSET_REMOVED: parent asset 163129 was removed remotely; choose an existing active project asset; no PUT sent",
+        "type": "text",
+      },
+    ],
+    "isError": true,
+  },
+]
+`;

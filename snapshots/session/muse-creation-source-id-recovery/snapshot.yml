@@ -3,6 +3,7 @@ scenario: muse-creation-source-id-recovery
 profile: headless
 composition: muse-creation-source-id-recovery
 recording: authored
+writerOutput: true
 header:
   class: muse-creation-source-id-recovery
   pin: true

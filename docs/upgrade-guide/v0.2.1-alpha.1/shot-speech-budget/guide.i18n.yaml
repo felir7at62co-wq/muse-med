@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/shot-speech-budget/guide.md
+/:
+  en: 5da00e646aeed398
+  zh: 0da48ff37df090cb
+/shot-script-speech-budgets:
+  en: 71336b6deeb03bbb
+  zh: 51e0b31ee1b51ecf
+/shot-script-speech-budgets/change:
+  en: 0d1b1707dfb0c50b
+  zh: e2ca6e526b5e4853
+/shot-script-speech-budgets/migration:
+  en: 55dfb241baf470a5
+  zh: e4e1492de94387be

@@ -548,6 +548,36 @@ describe('task claiming', () => {
   const related = { taskId: '335343', task: { id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1,
     taskStatus: 'succeeded' }, children: [CHILD] }
 
+  it('claims a provider child with flat model fields and its modelVideoStandardId alias', () => {
+    const child: Record<string, unknown> = { ...MODEL_CONFIG, id: CHILD.id, storyboardId: CHILD.storyboardId,
+      imageMaterials: MATERIALS, modelVideoStandardId: MODEL_CONFIG.videoStandardId }
+    delete child.videoStandardId
+    const candidate = { ...related, children: [child] }
+    expect(classifyNewNativeCandidates([candidate], EXPECTATION).status).toBe('matched')
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION).status).toBe('matched')
+  })
+
+  it.each([
+    { overrides: { resolution: '480p' }, existing: 'none' },
+    { overrides: { prompt: 'Different scene' }, existing: 'none' },
+    { overrides: { duration: null }, existing: 'reconcile_conflict' },
+  ])('does not claim incomplete or changed flat model evidence: $overrides', ({ overrides, existing }) => {
+    const candidate = { ...related, children: [{ ...MODEL_CONFIG, ...overrides,
+      id: CHILD.id, storyboardId: CHILD.storyboardId, imageMaterials: MATERIALS }] }
+    expect(classifyNewNativeCandidates([candidate], EXPECTATION).status).toBe('reconcile_conflict')
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION).status).toBe(existing)
+  })
+
+  it.each([
+    { modelConfig: '{', existing: 'reconcile_conflict' },
+    { modelConfig: null, existing: 'reconcile_conflict' },
+    { modelConfig: { ...MODEL_CONFIG, resolution: '480p' }, existing: 'none' },
+  ])('does not replace stated nested model evidence with flat fields: $modelConfig', ({ modelConfig, existing }) => {
+    const candidate = { ...related, children: [{ ...MODEL_CONFIG, ...CHILD, modelConfig }] }
+    expect(classifyNewNativeCandidates([candidate], EXPECTATION).status).toBe('reconcile_conflict')
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION).status).toBe(existing)
+  })
+
   it('coalesces repeated task ids and rejects candidate child ambiguity', () => {
     expect(classifyNewNativeCandidates([related, related], EXPECTATION).status).toBe('matched')
     expect(classifyNewNativeCandidates([{ ...related, children: [CHILD, CHILD] }], EXPECTATION).status)

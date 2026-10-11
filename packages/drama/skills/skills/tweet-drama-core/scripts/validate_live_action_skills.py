@@ -77,7 +77,7 @@ def validate_skill_package(project_root: Path) -> list[str]:
         "asset_confirmation",
         "max_review_attempts=3",
         "1–4秒",
-        "9 个有效字",
+        "8 个有效字",
         "36",
         "subtitle_cleanup",
         "实际发声",

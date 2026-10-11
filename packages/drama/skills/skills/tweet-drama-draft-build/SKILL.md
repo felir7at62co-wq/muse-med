@@ -17,7 +17,7 @@ description: Use when 仿真人短剧需要可编辑草稿、实际发声字幕�
 
 字幕覆盖全部真实发声，保留原文与说话人：dialogue/台词、vo/画外音，以及已确认实际发声的 os/心声/旁白/解说。少用旁白是创作建议，不是删除原文的许可；未确认发声时先核查音频，不把心理或叙述说明直接变字幕。动作、表情、场景和摄影说明不出字幕。内嵌字幕与后加字幕分别记录，避免重复。去字幕清理的是源视频中不需要的生成文字，最终设计字幕仍按项目已批准要求制作，clean 不表示最终成片必须无字幕。
 
-输出可编辑草稿、SRT、预览 MP4 和镜头/任务来源映射。SRT 由 `drama_render subtitles` 写出（台词计划 + 成片清单 → `editing/<集>.srt`），它同时把每镜的 `actual_speech_start/end` 测出来。`scripts/build_spoken_subtitles.py` 的 build_spoken_cues 默认只接受 clean/not_required；pending 必须显式 draft=True。默认所有发声（包括编译为 vo 的旁白/心声）必须有完整 actual_speech_start/end，否则报缺少音频证据，不静默漏句；仅显式 draft=True 可用带 timing_source=9_chars_per_second 标记的预估时间。该函数只构造 cues，9字/秒预排不是最终校时，也不代替成片 QA。
+输出可编辑草稿、SRT、预览 MP4 和镜头/任务来源映射。SRT 由 `drama_render subtitles` 写出（台词计划 + 成片清单 → `editing/<集>.srt`），它同时把每镜的 `actual_speech_start/end` 测出来。`scripts/build_spoken_subtitles.py` 的 build_spoken_cues 默认只接受 clean/not_required；pending 必须显式 draft=True。默认所有发声（包括编译为 vo 的旁白/心声）必须有完整 actual_speech_start/end，否则报缺少音频证据，不静默漏句；仅显式 draft=True 可用带 timing_source=9_chars_per_second 标记的预估时间。该函数只构造 cues，8字/秒预排不是最终校时，也不代替成片 QA。
 
 ## 视频禁用标签
 
@@ -27,7 +27,7 @@ description: Use when 仿真人短剧需要可编辑草稿、实际发声字幕�
 
 ## 字幕交付样式（固定，不得自行发挥）
 
-- **时间必须来自语音识别对齐，用 `drama_render subtitles` 落位**：先对该镜**自己的**成片（此时还没有任何 BGM 混进来）跑一次语音识别，把每一句的起止时间写成逐镜、镜内相对的对齐文档 `{"shots":[{"shot":1,"cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}`，再连同 `lines` 一起传给 `drama_render subtitles`。**本工具不做识别、不测能量、不估算时间**：能量门限只能说明有人在说话，说不出具体哪句在哪里，估算出来的时间正是字幕压错句的原因。cue 时间 = 该镜在时间线上的起点 + 镜内偏移；字幕文字始终取剧本原文，识别文本只用于核对是不是同一段表演。缺某一镜的对齐、段数与台词条数不符、识别文本与剧本对不上、或该镜的策略不是 `asr_aligned`，都会按 failure 报出并提示该对哪一镜重跑识别；有识别结果却没声明台词同样报 failure。写出的 cue 还会检查时长、重叠、越界与阅读速度（>20 有效字/秒失败，>12 警告）。识别本身的准确度由调用方负责，`speech_alignment` 永远留在 `not_checked`。9 个有效字/秒只作为**草稿预估**，不得用于最终交付。
+- **时间必须来自语音识别对齐，用 `drama_render subtitles` 落位**：先对该镜**自己的**成片（此时还没有任何 BGM 混进来）跑一次语音识别，把每一句的起止时间写成逐镜、镜内相对的对齐文档 `{"shots":[{"shot":1,"cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}`，再连同 `lines` 一起传给 `drama_render subtitles`。**本工具不做识别、不测能量、不估算时间**：能量门限只能说明有人在说话，说不出具体哪句在哪里，估算出来的时间正是字幕压错句的原因。cue 时间 = 该镜在时间线上的起点 + 镜内偏移；字幕文字始终取剧本原文，识别文本只用于核对是不是同一段表演。缺某一镜的对齐、段数与台词条数不符、识别文本与剧本对不上、或该镜的策略不是 `asr_aligned`，都会按 failure 报出并提示该对哪一镜重跑识别；有识别结果却没声明台词同样报 failure。写出的 cue 还会检查时长、重叠、越界与阅读速度（>20 有效字/秒失败，>12 警告）。识别本身的准确度由调用方负责，`speech_alignment` 永远留在 `not_checked`。8 个有效字/秒只作为**草稿预估**，不得用于最终交付。
 - **默认使用 Muse 云端字词时间戳**：对每个有实际发声的镜头原视频调用 `audio_transcribe start`，明确传 `purpose: "subtitles"` 使用极速识别，再对返回的同一收据调用 `status`，直到完成。独立镜头可并行提交，服务端按账号共享额度排队；未知结果沿用原收据查询，不换 ID 或用途重投。输入必须是该镜头尚未混入 BGM 的真实选定视频，不用整集混音代替。原始收据与 JSON 保持不修改。
 - **用云端收据生成对齐**：写 `<项目>/_probe/epNN-cloud-transcripts.json`，格式为 `{"shots":[{"shot":1,"receipt":"<audio_transcribe 返回的绝对收据路径>"}]}`，每个有台词的镜头各一项。运行 `python -B <技能目录>/scripts/align_subtitles.py --project <项目根> --episode <集号> --cloud-transcripts <映射文件> --strict`。脚本核对视频 SHA-256 与收据、读取每个字词的实际时间，把当前剧本台词匹配到该镜头音轨；只有 `asr_aligned` 可进正式字幕。缺字词时间、源视频变化或台词未匹配时报告具体镜头，先核查，不用整句均分或预估时间替代。
 - **离线只作显式选择**：用户确需离线且自行准备好依赖和模型时，可传 `--model-dir`，或 `--model-url` 与固定 `--model-sha256`。默认安装包不含 Whisper 模型与推理依赖；不自动下载安装。独立脚本仍支持 `MUSE_WHISPER_MODEL_DIR` 的模型解析，以及 `${DSH_HOME:-~/.dsh}/cache/models/faster-whisper` 和 `--cache-dir` 缓存配置。离线识别保持单线程、temperature 0。

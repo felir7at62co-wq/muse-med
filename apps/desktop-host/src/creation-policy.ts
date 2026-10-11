@@ -3,6 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { CREATION_GUIDANCE, CREATION_GUIDANCE_SECTION } from './creation-guidance.ts'
+import { apply as installShortDramaGuidance } from './short-drama-guidance.ts'
 
 /** Cordis plugin identity. */
 export const name = 'muse-creation-policy'
@@ -95,6 +96,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'skill',
   'todo_write',
   'update_goal',
+  'video_contact_sheet',
   'video_inspect',
   'web_fetch',
   'web_search',
@@ -109,6 +111,7 @@ const allowedToolSections = new Set(['tool:goal', 'tool:jobs'])
  * @param ctx - The creation preset's standing scope.
  */
 export function apply(ctx: Context): void {
+  installShortDramaGuidance(ctx)
   ctx.systemPrompt.section({ name: CREATION_GUIDANCE_SECTION,
     order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'), interpolate: false, text: CREATION_GUIDANCE })
   ctx.tools.restrict({ futureAllow: CREATION_TOOL_NAMES, includeOwn: true })

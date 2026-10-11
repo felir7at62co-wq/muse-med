@@ -228,6 +228,9 @@ export function buildImageRequest(input: ImageRequestInput, catalogue: unknown,
   validateImageRequestInput(input)
   const aspectRatio = input.aspectRatio ?? '16:9'
   const { resolution, ...selectors } = resolveImageModel(catalogue, selection, aspectRatio)
+  if (selectors.platformId === 'KU_AI' && input.references.length > 5) {
+    throw new JubianError('INVALID_ARGUMENT', 'KU_AI image generation accepts at most 5 reference images; reduce references before submission')
+  }
   const references = input.references.map((materialUrl, index) =>
     ({ materialUrl, materialType: 'image', sortOrder: index + 1 }))
   const config = { ...selectors, duration: 1, resolution, ratio: aspectRatio, genNum: 1, backupModelList: [],

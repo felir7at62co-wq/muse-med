@@ -423,6 +423,69 @@
       }
     },
     {
+      "name": "video_contact_sheet",
+      "description": "View a local video as timestamp-labelled image grids. Defaults to a nine-cell overview; use columns=3, rows=2 for six cells. Returns actual overview images, ordered cell timecodes and a saved manifest. Extra frames form further pages. Use video_inspect at a doubtful cell timecode for a larger frame. Overview thumbnails do not establish detailed or continuous coverage.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Local source video in the current Session filesystem."
+          },
+          "columns": {
+            "type": "integer",
+            "description": "Cells per row; default 3."
+          },
+          "rows": {
+            "type": "integer",
+            "description": "Rows per page; default 3."
+          },
+          "tile_width": {
+            "type": "integer",
+            "description": "Cell image width in pixels; default 320. Height preserves source aspect ratio."
+          },
+          "frame_count": {
+            "type": "integer",
+            "description": "Default one page of frames; maximum 32. Additional frames form chronological pages."
+          },
+          "start_seconds": {
+            "type": "number",
+            "description": "Inclusive source range start; default 0."
+          },
+          "end_seconds": {
+            "type": "number",
+            "description": "Exclusive range end; default source end or start + 300s. Follow next_start_seconds for remaining ranges."
+          },
+          "timestamps_seconds": {
+            "type": "array",
+            "description": "Specific source times instead of uniform sampling. Cannot combine with frame_interval_seconds or scene strategy.",
+            "items": {
+              "type": "number"
+            }
+          },
+          "frame_interval_seconds": {
+            "type": "number",
+            "description": "Positive spacing from range start. Cannot combine with frame_count, explicit times or scene strategy."
+          },
+          "strategy": {
+            "type": "string",
+            "description": "Default uniform. scene prioritizes frames on both sides of detected cuts across the selected range.",
+            "enum": [
+              "uniform",
+              "scene"
+            ]
+          },
+          "manifest_path": {
+            "type": "string",
+            "description": "New JSON manifest inside the workspace. Existing files are never replaced."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
       "name": "video_inspect",
       "description": "Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. For dialogue and subtitles, discover audio_transcribe.",
       "parameters": {

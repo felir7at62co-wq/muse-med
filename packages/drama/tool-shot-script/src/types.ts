@@ -23,7 +23,7 @@ export type VoiceType =
 
 /** Which rule produced a shot's packing duration. */
 export type DurationSource =
-  /** Derived from the spoken text at nine effective characters per second. */
+  /** Derived from the spoken text at eight effective characters per second. */
   | 'speech'
   /** Explicit positive whole-second duration in the script. */
   | 'declared'

@@ -94,6 +94,27 @@ function imageDeps(
 }
 
 describe('jubian_video resolution guidance', () => {
+  it.each([
+    { status: 'succeeded', parent: 42, url: 'https://media.example/result.mp4', ready: 1 },
+    { status: ' Completed ', parent: 42, url: 'https://media.example/result.mp4', ready: 1 },
+    { status: 'running', parent: 42, url: 'https://media.example/stale.mp4', ready: 0 },
+    { status: 'failed', parent: 42, url: 'https://media.example/stale.mp4', ready: 0 },
+    { status: 'succeeded', parent: 43, url: 'https://media.example/other.mp4', ready: 0 },
+    { status: 'succeeded', parent: 42, url: null, ready: 0 },
+    { status: null, parent: 42, url: 'https://media.example/unknown.mp4', ready: 0 },
+  ])('counts only this page\'s identified successful videos in guidance: %j', async ({ status, parent, url, ready }) => {
+    const { client, calls } = stubClient(() => ({ total: 8, rows: [{ id: 901, aigcVideoTaskId: parent,
+      taskStatus: status, resultList: [{ tosVideoUrl: url }] }] }))
+    const result = await videoMethod(client, ledger, { method: 'subtasks', task_id: 42 })
+    expect(result.subtasks).toMatchObject({ total: 8, rows: [{ parent_task_id: parent, status, video_url: url }] })
+    expect(result.guidance).toContain(`本页有 ${ready} 项属于本任务、已成功且带 video_url 的结果`)
+    expect(result.guidance).toContain('子结果数组位于 subtasks.rows')
+    expect(result.guidance).toContain('运行中继续读原任务，失败停止等待并报告')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.body).toEqual({ aigcVideoTaskId: 42 })
+    expect(await ledger.records()).toEqual([])
+  })
+
   it.each([undefined, '1080p'])('keeps %s resolution hints separate from paid authorization', async (target) => {
     const { client, calls } = stubClient(() => ({ total: 3, rows: [
       { id: 1, resolution: '720p' }, { id: 2, resolution: '1080p' }, { id: 3 },
@@ -229,7 +250,8 @@ describe('jubian_asset reads and the side-effecting GET', () => {
     const { client, calls } = stubClient(() => null)
     const transport = vi.fn<typeof fetch>()
     await expect(assetMethod(client, ledger, { method: 'upload_reference', image_path: join(root, 'missing.png') },
-      { reference: { fetch: transport } })).rejects.toThrow(JubianError)
+      { reference: { fetch: transport } })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT',
+      detail: 'image_path points to a missing local file; verify the previous step created the image at that path; no upload was attempted' })
     expect(calls).toEqual([])
     expect(transport).not.toHaveBeenCalled()
   })
@@ -310,6 +332,20 @@ describe('jubian_asset reads and the side-effecting GET', () => {
       expect(calls.length).toBe(1)
       expect(calls[0]!.path.endsWith(suffix)).toBe(true)
     }
+  })
+
+  it.each(['failed', 'running', 'succeeded', 'future-state'])('reads %s image task facts without charging or hiding them as URL errors', async (resultStatus) => {
+    const { client, calls } = stubClient(() => [{ assetId: 83749, taskId: 545217, resultId: 1104411,
+      resultStatus, resultMsg: '酷爱AI平台创建生图任务失败: 最多输入5张图',
+      id: resultStatus === 'succeeded' ? 900 : null,
+      assetUrl: resultStatus === 'succeeded' ? 'https://media.example/staging.png' : null }])
+    const result = await assetMethod(client, ledger, { method: 'generated_image', asset_id: 83749 })
+    expect(result).toMatchObject({ generation: { task_id: 545217, result_id: 1104411,
+      status: resultStatus === 'running' ? 'pending' : resultStatus === 'future-state' ? 'unknown' : resultStatus } })
+    expect(result.image).toEqual(resultStatus === 'succeeded' ? { url: 'https://media.example/staging.png', material_id: 900 } : null)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.method).toBe('GET')
+    expect(await ledger.records()).toEqual([])
   })
 
   it('records casting confirmation under the ledger even though the verb is GET', async () => {
@@ -449,6 +485,56 @@ describe('jubian_video', () => {
       expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
       expect(vi.getTimerCount()).toBe(0)
     } finally { await vi.runAllTimersAsync(); await Promise.allSettled([operation]); vi.useRealTimers() }
+  })
+
+  it.each(['最多输入5张图', '图片编辑请求失败', 'Your request was rejected by the safety system.']
+    .flatMap(message => [true, false].map(withTaskId => ({ message, withTaskId }))))
+  ('reports an accepted image task failure %j without polling until timeout', async ({ message, withTaskId }) => {
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.method === 'POST') return 83749
+      if (request.path.includes('getGeneratedImageByAssetId')) return [{ assetId: 83749, id: null, assetUrl: null,
+        ...(withTaskId ? { taskId: 545217 } : {}), resultId: 1104411, resultStatus: 'failed', resultMsg: message }]
+      return { id: 83749, hsAssetStatus: null }
+    })
+    const sleep = vi.fn(async (_ms: number) => undefined)
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'staging', asset_type: 2, prompt: 'p', idempotency_key: 'confirmed-image-failure' },
+    { ...imageDeps(), image: { ...imageDeps().image, sleep } })
+    expect(result).toMatchObject({ outcome: 'accepted', asset_status: 'failed', observed_asset_status: 'failed', waited_ms: 0 })
+    expect(JSON.stringify(result)).toContain(withTaskId ? '545217' : '未提供')
+    expect(sleep).not.toHaveBeenCalled()
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+    expect(await ledger.records()).toHaveLength(1)
+  })
+
+  it('refuses oversized KU_AI references for the entire image batch before any paid write', async () => {
+    const { client, calls } = stubClient(() => MULTI_IMAGE_CATALOGUE)
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [batchItem('valid-staging', 'valid'), { ...batchItem('oversized-staging', 'oversized'),
+        references: Array.from({ length: 6 }, (_, i) => `https://media.example/${i}.png`) }] },
+    { ...imageDeps(), image: { ...imageDeps().image, selection: { platformId: 'KU_AI' } } })).rejects.toThrow('at most 5')
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(0)
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each(['missing-material-id', 'rate-limited'])('preserves an accepted image write after %s readback', async (mode) => {
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.method === 'POST') return 83749
+      if (request.path.includes('getGeneratedImageByAssetId')) {
+        if (mode === 'rate-limited') return new Response(JSON.stringify({ code: 429, data: null }))
+        return [{ assetId: 83749, assetUrl: 'https://media.example/unidentified.png', hsAssetStatus: 'Active', isUsed: 0 }]
+      }
+      return { id: 83749, hsAssetStatus: null }
+    })
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'staging', asset_type: 2, prompt: 'p', idempotency_key: 'readback-identity' },
+    imageDeps({ timeoutMs: 50, pollMs: 100 }))
+    expect(result).toMatchObject({ outcome: 'accepted', material_id: null,
+      asset_status: mode === 'rate-limited' ? 'unverified' : 'timeout' })
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+    expect(await ledger.records()).toHaveLength(1)
   })
 
   it.each(['Failed', 'not-ready', 'disconnected', 'no-status'])

@@ -4142,8 +4142,8 @@ export interface Config extends ImageRouteConfig {
    */
   workspaceSecrets?: boolean
   /**
-   * How long `image_generate` waits for the new asset to reach
-   * `hsAssetStatus === "Active"` before reporting a timeout, in milliseconds;
+   * How long `image_generate` waits for an active parent or a verified active
+   * unselected image candidate before reporting a timeout, in milliseconds;
    * defaults to 180000, because a measured asset took one to two minutes.
    */
   imageActiveTimeoutMs?: number
@@ -4514,7 +4514,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-video-inspect`
 
 - `inject`: `tools` · `fs` · `subprocess` · `attachments` · `sandboxPolicy`
-- `source`: [`packages/perception/tool-video-inspect/src/index.ts:26`](../packages/perception/tool-video-inspect/src/index.ts)
+- `source`: [`packages/perception/tool-video-inspect/src/index.ts:27`](../packages/perception/tool-video-inspect/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-resolved media executables and inspection bounds. */
@@ -4559,6 +4559,20 @@ export interface Config {
   maxPlanPoints: number
   /** Maximum bytes read from an ASR transcript used for adaptive sampling. */
   maxTranscriptBytes: number
+  /** Default grid columns for overview pages. */
+  contactColumns: number
+  /** Default grid rows for overview pages. */
+  contactRows: number
+  /** Default overview cell width in pixels. */
+  contactTileWidth: number
+  /** Maximum sampled frames in one overview call, across all pages. */
+  maxContactFrames: number
+  /** Maximum overview source interval in seconds. */
+  maxContactRangeSeconds: number
+  /** Maximum pixel area of one overview page. */
+  maxContactPixels: number
+  /** Maximum complete overview-page bytes per call. */
+  maxContactBytes: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-video-inspect -->

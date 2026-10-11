@@ -1,0 +1,187 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`exposes subtask rows in PTC output types while accepting other video-method results > video output type with paged subtask rows 1`] = `
+"{
+  /** method=subtasks 的分页对象；子结果数组位于 subtasks.rows。 */
+  subtasks?: {
+    /** 提供方报告的子结果总数；不是数组。 */
+    total: number;
+    /** 本页子结果；逐项核对 parent_task_id、status 和 video_url。 */
+    rows: ({
+      subtask_id: number;
+      /** 所属父任务；下载前必须与查询的 task_id 一致。 */
+      parent_task_id: number | null;
+      /** 提供方子结果状态；保留未知值，不能仅凭 URL 判成功。 */
+      status: string | null;
+      /** 当前成片 URL；本任务子结果成功且 URL 非空时才可交 jubian_media download。 */
+      video_url: string | null;
+    } & Record<string, JsonValue>)[];
+  };
+  guidance?: string;
+} & Record<string, JsonValue>"
+`;
+
+exports[`logs the actual failed child page and its download guidance into the next model request > failed paged video results 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "{
+  "subtasks": {
+    "total": 8,
+    "rows": [
+      {
+        "subtask_id": 1097112,
+        "parent_task_id": 545240,
+        "status": "failed",
+        "duration_seconds": 13,
+        "gen_num": 1,
+        "subtitle_box": null,
+        "video_url": "https://media.example/task-545240.mp4",
+        "base_video_url": "https://media.example/task-545240.mp4",
+        "image_urls": [],
+        "model_id": "doubao-seedance-2-5-260628",
+        "standard_id": 61,
+        "resolution": "480p",
+        "first_result_id": 1104434,
+        "parent_result_id": null,
+        "last_task_type": 1,
+        "last_stage": "generate",
+        "hd_count": 0,
+        "expiration_time": null,
+        "versions": [
+          {
+            "task_type": 1,
+            "stage": "generate",
+            "result_id": 1104434,
+            "model_id": null,
+            "status": "failed",
+            "video_url": "https://media.example/task-545240.mp4"
+          }
+        ],
+        "subtitle_erased": false,
+        "upscaled": false,
+        "needs_upscale": false,
+        "delivery_resolution": "480p"
+      }
+    ]
+  },
+  "guidance": "子结果数组位于 subtasks.rows，subtasks.total 是总数；本页有 0 项属于本任务、已成功且带 video_url 的结果。逐项核对 parent_task_id、status 和 video_url 后，用 jubian_media download 下载成功项。其他项以各自 status 为准：运行中继续读原任务，失败停止等待并报告；不要把分页对象当数组，也不要仅凭 URL 判成功。交付分辨率 480p。needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。"
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+]
+`;
+
+exports[`logs the actual running child page and its download guidance into the next model request > running paged video results 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "{
+  "subtasks": {
+    "total": 8,
+    "rows": [
+      {
+        "subtask_id": 1097112,
+        "parent_task_id": 545240,
+        "status": "running",
+        "duration_seconds": 13,
+        "gen_num": 1,
+        "subtitle_box": null,
+        "video_url": "https://media.example/task-545240.mp4",
+        "base_video_url": "https://media.example/task-545240.mp4",
+        "image_urls": [],
+        "model_id": "doubao-seedance-2-5-260628",
+        "standard_id": 61,
+        "resolution": "480p",
+        "first_result_id": 1104434,
+        "parent_result_id": null,
+        "last_task_type": 1,
+        "last_stage": "generate",
+        "hd_count": 0,
+        "expiration_time": null,
+        "versions": [
+          {
+            "task_type": 1,
+            "stage": "generate",
+            "result_id": 1104434,
+            "model_id": null,
+            "status": "running",
+            "video_url": "https://media.example/task-545240.mp4"
+          }
+        ],
+        "subtitle_erased": false,
+        "upscaled": false,
+        "needs_upscale": false,
+        "delivery_resolution": "480p"
+      }
+    ]
+  },
+  "guidance": "子结果数组位于 subtasks.rows，subtasks.total 是总数；本页有 0 项属于本任务、已成功且带 video_url 的结果。逐项核对 parent_task_id、status 和 video_url 后，用 jubian_media download 下载成功项。其他项以各自 status 为准：运行中继续读原任务，失败停止等待并报告；不要把分页对象当数组，也不要仅凭 URL 判成功。交付分辨率 480p。needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。"
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+]
+`;
+
+exports[`logs the actual succeeded child page and its download guidance into the next model request > succeeded paged video results 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "{
+  "subtasks": {
+    "total": 8,
+    "rows": [
+      {
+        "subtask_id": 1097112,
+        "parent_task_id": 545240,
+        "status": "succeeded",
+        "duration_seconds": 13,
+        "gen_num": 1,
+        "subtitle_box": null,
+        "video_url": "https://media.example/task-545240.mp4",
+        "base_video_url": "https://media.example/task-545240.mp4",
+        "image_urls": [],
+        "model_id": "doubao-seedance-2-5-260628",
+        "standard_id": 61,
+        "resolution": "480p",
+        "first_result_id": 1104434,
+        "parent_result_id": null,
+        "last_task_type": 1,
+        "last_stage": "generate",
+        "hd_count": 0,
+        "expiration_time": null,
+        "versions": [
+          {
+            "task_type": 1,
+            "stage": "generate",
+            "result_id": 1104434,
+            "model_id": null,
+            "status": "succeeded",
+            "video_url": "https://media.example/task-545240.mp4"
+          }
+        ],
+        "subtitle_erased": false,
+        "upscaled": false,
+        "needs_upscale": false,
+        "delivery_resolution": "480p"
+      }
+    ]
+  },
+  "guidance": "子结果数组位于 subtasks.rows，subtasks.total 是总数；本页有 1 项属于本任务、已成功且带 video_url 的结果。逐项核对 parent_task_id、status 和 video_url 后，用 jubian_media download 下载成功项。其他项以各自 status 为准：运行中继续读原任务，失败停止等待并报告；不要把分页对象当数组，也不要仅凭 URL 判成功。交付分辨率 480p。needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。"
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+]
+`;

@@ -27,6 +27,7 @@ import NativePreset from '../src/native-preset.ts'
 import * as CreationPolicy from '../src/creation-policy.ts'
 import * as CreationSkills from '../src/creation-skills.ts'
 import { CREATION_GUIDANCE, CREATION_GUIDANCE_SECTION } from '../src/creation-guidance.ts'
+import { SHORT_DRAMA_GUIDANCE, SHORT_DRAMA_GUIDANCE_SECTION } from '../src/short-drama-guidance.ts'
 
 class RuntimeProbe extends PtcRuntime {
   readonly language = 'typescript'
@@ -135,12 +136,14 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     const catalog = initial.messages.find(message => message.source.kind === 'skill-catalog')
     if (catalog?.source.kind !== 'skill-catalog') throw new Error('The initial creation skill catalog is missing')
     const initialNames = catalog.source.entries.map(entry => entry.name)
-    for (const name of ['muse-creation', 'muse-dialogue-polish', 'shot-script-creator-9-16', 'xiaohongshu-reference']) {
+    for (const name of ['muse-creation', 'muse-dialogue-polish', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d', 'xiaohongshu-reference']) {
       expect(initialNames).toContain(name)
     }
     expect(JSON.stringify(catalog.content)).toContain("task clearly matches a skill's description")
     expect(assembly.sections.filter(section => section.name === CREATION_GUIDANCE_SECTION))
       .toEqual([{ name: CREATION_GUIDANCE_SECTION, interpolate: false, text: CREATION_GUIDANCE }])
+    expect(assembly.sections.filter(section => section.name === SHORT_DRAMA_GUIDANCE_SECTION))
+      .toEqual([{ name: SHORT_DRAMA_GUIDANCE_SECTION, interpolate: false, text: SHORT_DRAMA_GUIDANCE }])
     const sectionNames = assembly.sections.map(section => section.name)
     expect(sectionNames.indexOf('deployment:persona-prefix')).toBeLessThan(sectionNames.indexOf(CREATION_GUIDANCE_SECTION))
     expect(sectionNames.indexOf(CREATION_GUIDANCE_SECTION)).toBeLessThan(sectionNames.indexOf('tools:ptc-only'))
@@ -156,6 +159,32 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(text).toContain('下一模型轮检查')
     expect(text).toContain('旧项目、未声明项目')
     expect(text).toContain('以制作人员能基本还原故事为目标')
+    expect(text).toContain('按8个有效字/秒计算预算')
+    expect(text).toContain('当编写短剧镜头脚本时，建议每个镜头控制在1–4秒')
+    expect(text).toContain('禁止镜头时长字段')
+    expect(text).toContain('站位图仅适用于场景固定、在场人物固定、人物位置保持不变的视频包')
+    expect(text).toContain('只要有人物走动、靠近、后退、换位等位置移动')
+    expect(text).toContain('或人物进入场景、离开场景、换场，整个包就不使用站位图')
+    expect(text).toContain('摄影机移动、切镜或人物因取景暂时画外不算人物走位或离场')
+    expect(text).not.toContain('复杂调度明显改变空间关系时也不用单张图约束')
+    expect(text).toContain('不为使用站位图强行拆包')
+    expect(text).toContain('符合适用条件且选择使用时，一个视频包配置一张完整全景站位图')
+    expect(text).toContain('一眼能看清全部在场人物各自唯一的位置')
+    expect(text).toContain('3D项目不能变真人摄影，真人项目不能被强改3D')
+    expect(text).toContain('生图提示明确项目风格并使用既有图作为参照')
+    expect(text).toContain('保持脸型比例、材质、服装和场景渲染一致')
+    expect(text).toContain('画风须通过实际看图确认，不能仅凭提示词声明或style字段验收')
+    expect(text).toContain('风格不符的站位图不得绑定视频，先修复或重新生成并复审')
+    expect(text).not.toContain('每个视频生成包配置一张完整全景站位图')
+    expect(text).toContain('图中的站立、蹲下、坐下、姿势和表情不绑定视频状态')
+    expect(text).toContain('各镜按镜头脚本与视频提示决定')
+    expect(text).toContain('不能照搬图中的静态动作，或让应坐着、蹲着的人提前起身')
+    expect(text).toContain('每镜出镜名单优先于站位图中的全包阵容')
+    expect(text).toContain('需要人物走位的包用脚本和视频提示说明路径，不挂站位图')
+    expect(text).toContain('只有阵容、空间布局和固定环境完全相同时才可跨包复用')
+    expect(text).toContain('且各包都须符合站位图适用条件')
+    expect(text).toContain('单人近景不因全景图包含多人而额外生成画外人物')
+    expect(text).not.toContain('9 有效字/秒')
     expect(text).toContain('新创作视频剧本默认 story-faithful-v2')
     expect(text).toContain('新写没有原稿不捏造前后对照')
     expect(text).not.toContain('# 共同自检协议')
@@ -187,6 +216,7 @@ it('serves only approved skill names from an isolated Host-forwarded registry wi
     const names = (await skills.list({ scope: f.agent })).map(skill => skill.name)
     expect(names).toContain('muse-creation')
     expect(names).toContain('tweet-drama-pipeline')
+    expect(names).toContain('shot-script-creator-16-9-3d')
     expect(names).toContain('muse-script-editing')
     expect(names).toContain('xiaohongshu-reference')
     expect(names).not.toContain('hidden-authoring')
@@ -238,5 +268,23 @@ it('serves only approved skill names from an isolated Host-forwarded registry wi
     expect(result.isError).toBe(false)
     expect(value).toMatchObject({ name: 'muse-creation', resourceBase: source!.resourceBase, content: loaded!.content })
     expect(JSON.stringify(result.content)).toContain('references/refinement.md')
+    const cgSkill = await skills.get('shot-script-creator-16-9-3d', { scope: f.agent })
+    const bundledCg = await readFile(new URL('../../../packages/drama/skills/skills/shot-script-creator-16-9-3d/SKILL.md', import.meta.url), 'utf8')
+    expect(cgSkill?.content).toBe(bundledCg.replace(/^---\n[\s\S]*?\n---\n/u, '').trim())
+    f.runtime.behavior = async (spec) => {
+      const binding = spec.bindings?.find(namespace => namespace.global === 'tools')?.functions.skill
+      if (binding === undefined) throw new Error('Missing actual skill SDK binding')
+      const resultValue = await binding({ name: 'shot-script-creator-16-9-3d' })
+      value = resultValue
+      return { logs: [], value: resultValue }
+    }
+    const cgResult = await f.ctx.tools.execute({ agent: f.agent, name: 'run_code', arguments: {
+      description: 'Read the bundled 16:9 CG shot-writing guide', code: 'return await tools.skill({name:"shot-script-creator-16-9-3d"})',
+    }, callId: ToolCallId('creation-cg-skill'), signal: new AbortController().signal })
+    expect(cgResult.isError).toBe(false)
+    expect(value).toMatchObject({ name: 'shot-script-creator-16-9-3d', resourceBase: cgSkill!.resourceBase, content: cgSkill!.content })
+    expect(JSON.stringify(cgResult.content)).toContain('真人项目不适用')
+    expect(JSON.stringify(cgResult.content)).toContain('人物位置保持不变')
+    expect(JSON.stringify(cgResult.content)).toContain('3D项目不能变真人摄影')
   } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
 })
