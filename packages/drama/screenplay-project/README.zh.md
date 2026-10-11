@@ -48,7 +48,7 @@ kind: "package-reference"
 | `maxProjectBytes` | `33554432` | 项目文件的最大字节数 |
 | `maxReadUnits` | `100` | 一次操作的来源片段、事实或场次文件数量上限 |
 | `maxReadBytes` | `65536` | 来源窗口或单个场次文件编码后的最大字节数 |
-| `maxFactBatch` | `20` | 一次原子修改可提交或独立审校的最大事实数量 |
+| `maxFactBatch` | `20` | 一次原子修改可提交或独立审校的最大事实数量；拒绝时报告实际条数与配置范围 |
 
 [配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-screenplay-project) 维护接受的配置字段。这些预算不限定剧集或章节数量。
 

@@ -796,7 +796,8 @@ it('does not write any part of a fact batch when a later source quote is invalid
   const valid: FactInput = { kind: 'thought', origin: 'source', actor: '甲', layer: 'present', summary: unit.text, anchors: [{ unit_id: unit.id, quote: unit.text }] }
   const before = await readFile(path, 'utf8')
   const write = vi.spyOn(ctx.fs, 'writeText')
-  for (const [facts, failure] of [[[], 'fact_batch'], [Array.from({ length: 21 }, () => valid), 'fact_batch'],
+  for (const [facts, failure] of [[[], 'fact_batch: 本次批量事实 0 条，允许 1–20 条。'],
+    [Array.from({ length: 21 }, () => valid), 'fact_batch: 本次批量事实 21 条，允许 1–20 条。'],
     [[valid, { ...valid, anchors: [{ unit_id: unit.id, quote: '原件不存在这段文字' }] }], 'source_quote_mismatch']] as const) {
     await expect(run({ method: 'propose_facts', project: path, expected_revision: original.revision, facts: facts.map(fact => ({ ...fact, anchors: fact.anchors.map(anchor => ({ ...anchor })) })) })).rejects.toThrow(failure)
     expect(await readFile(path, 'utf8')).toBe(before)
@@ -814,8 +815,8 @@ it('rejects an entire review batch if any member is duplicated, missing, already
   const before = await readFile(path, 'utf8')
   const write = vi.spyOn(ctx.fs, 'writeText')
   for (const [reviews, actor, failure] of [
-    [[], 'reviewer', 'fact_batch'],
-    [Array.from({ length: 21 }, () => valid), 'reviewer', 'fact_batch'],
+    [[], 'reviewer', 'fact_batch: 本次批量审校 0 条，允许 1–20 条。'],
+    [Array.from({ length: 21 }, () => valid), 'reviewer', 'fact_batch: 本次批量审校 21 条，允许 1–20 条。'],
     [[valid, valid], 'reviewer', 'duplicate_review'],
     [[valid, { ...other, fact_id: 'missing' }], 'reviewer', 'fact_review_state'],
     [[valid, { ...other, reason: ' ' }], 'reviewer', 'review_reason'],

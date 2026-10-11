@@ -32,6 +32,18 @@ export async function apply(ctx) {
         assert.ok(value.content.includes(rule), 'The actual source-review guide contains: ' + rule)
       }
     }
+    if (requests === 4) {
+      const value = JSON.parse(results[3].content.filter(block => block.type === 'text').map(block => block.text).join(''))
+      const wiki = await ctx.skills.get('muse-llm-wiki', { scope: agent, cwd: agent.session.header.cwd })
+      assert.ok(wiki)
+      assert.equal(value.wiki.content, wiki.content)
+      assert.deepEqual(value.wiki.resourceBase, wiki.resourceBase)
+      assert.equal(value.wiki.provider, 'muse-creation')
+      assert.ok(value.wiki.content.includes('读取参数不包含 `count` 或 `limit`'))
+      const writing = value.writing.lines.map(line => line.text).join('\n')
+      assert.ok(writing.includes('方案里的解释不能代替成稿呈现'))
+      assert.ok(writing.includes('不能登记为全部新写'))
+    }
     requests++
     yield* next()
   })

@@ -2010,6 +2010,8 @@ export interface PiAiCompatProfile {
   requiresReasoningContentOnAssistantMessages?: boolean
   /** Reasoning parameter format the endpoint expects; `openai-completions`. */
   thinkingFormat?: PiAiThinkingFormat
+  /** Whether to send `tool_stream: true` for GLM endpoints when tools are present; `openai-completions`. */
+  zaiToolStream?: boolean
   /**
    * Kwargs sent as `chat_template_kwargs`, which pi-ai reads only under the
    * two `chat-template` thinking formats; `openai-completions`. Nothing checks
@@ -2593,7 +2595,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-ptc-runtime-node`
 
 - `inject`: `fs` · `subprocess` · `sandbox` · `sandboxPolicy`
-- `source`: [`packages/ptc-runtime/ptc-runtime-node/src/index.ts:26`](../packages/ptc-runtime/ptc-runtime-node/src/index.ts)
+- `source`: [`packages/ptc-runtime/ptc-runtime-node/src/index.ts:27`](../packages/ptc-runtime/ptc-runtime-node/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-varying runtime bounds and launch choices. */
@@ -2811,7 +2813,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-screenplay-project`
 
 - `inject`: `fs` · `tools` · `attachments` · `llm`
-- `source`: [`packages/drama/screenplay-project/src/index.ts:35`](../packages/drama/screenplay-project/src/index.ts)
+- `source`: [`packages/drama/screenplay-project/src/index.ts:47`](../packages/drama/screenplay-project/src/index.ts)
 
 ```ts config-catalog
 /** Source allocation, durable project size, and bounded source-read budgets. */

@@ -6,6 +6,7 @@ scenario: muse-creation-ptc
 profile: headless
 composition: muse-creation-ptc
 recording: authored
+writerOutput: true
 header:
   class: muse-creation-ptc
   pin: true

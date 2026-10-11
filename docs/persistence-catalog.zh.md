@@ -7098,7 +7098,7 @@ SHA-256: `28936c614bd4e7e2774806edcbb3cbfd3ee643ac1cbf0bbdff43d915505a8fe3`
 
 SHA-256: `a581684b4d28e4899c707409755549a40c908b2d77f5a13fa5bd802f20ef9605`
 
-来源：[`packages/drama/screenplay-project/src/index.ts:49`](../packages/drama/screenplay-project/src/index.ts)
+来源：[`packages/drama/screenplay-project/src/index.ts:61`](../packages/drama/screenplay-project/src/index.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|

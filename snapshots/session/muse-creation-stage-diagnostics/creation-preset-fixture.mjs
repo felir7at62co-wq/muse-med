@@ -55,6 +55,8 @@ export async function apply(ctx) {
       const text = results[0].content.filter(block => block.type === 'text').map(block => block.text).join('')
       assert.ok(text.includes('scene_file_missing'))
       assert.ok(text.includes('missing-scene.json'))
+      const value = JSON.parse(text)
+      assert.equal(value.batch_failure, 'fact_batch: 本次批量审校 21 条，允许 1–20 条。')
     }
     if (requests >= 2) {
       assert.equal(results[1].isError, false)

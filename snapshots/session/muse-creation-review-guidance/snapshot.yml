@@ -4,6 +4,8 @@ profile: headless
 composition: muse-creation-review-guidance
 recording: authored
 writerOutput: true
+replay:
+  override: true
 header:
   class: muse-creation-review-guidance
   pin: true

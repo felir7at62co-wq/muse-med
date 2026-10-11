@@ -48,7 +48,7 @@ In a `dsh` profile composition that already mounts `fs`, `tools`, `attachments`,
 | `maxProjectBytes` | `33554432` | Maximum project artifact bytes |
 | `maxReadUnits` | `100` | Maximum source units, facts, or drafted scene files in one operation |
 | `maxReadBytes` | `65536` | Maximum encoded source-window or individual scene-file bytes |
-| `maxFactBatch` | `20` | Maximum facts proposed or independently reviewed in one atomic mutation |
+| `maxFactBatch` | `20` | Maximum facts proposed or independently reviewed in one atomic mutation; rejection reports the requested count and configured range |
 
 The [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-screenplay-project) owns accepted configuration fields. These budgets do not fix the number of episodes or chapters.
 

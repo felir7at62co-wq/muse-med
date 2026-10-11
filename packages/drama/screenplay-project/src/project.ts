@@ -618,7 +618,9 @@ export class ProjectCommands {
       case 'propose_fact':
       case 'propose_facts': {
         const inputs = request.method === 'propose_fact' ? [request.fact] : request.facts
-        if (inputs.length < 1 || inputs.length > this.limits.maxFactBatch) throw Error('fact_batch: 批量事实须非空且不超过配置预算。')
+        if (inputs.length < 1 || inputs.length > this.limits.maxFactBatch) {
+          throw Error(`fact_batch: 本次批量事实 ${inputs.length} 条，允许 1–${this.limits.maxFactBatch} 条。`)
+        }
         const units = new Map(project.sources.flatMap(source => source.units.map(unit => [unit.id, unit] as const)))
         const facts = inputs.map((input) => {
           this.validateFact(project, input, units)
@@ -637,7 +639,9 @@ export class ProjectCommands {
       case 'review_fact':
       case 'review_facts': {
         const reviews = request.method === 'review_fact' ? [request] : request.reviews
-        if (reviews.length < 1 || reviews.length > this.limits.maxFactBatch) throw Error('fact_batch: 批量审校须非空且不超过配置预算。')
+        if (reviews.length < 1 || reviews.length > this.limits.maxFactBatch) {
+          throw Error(`fact_batch: 本次批量审校 ${reviews.length} 条，允许 1–${this.limits.maxFactBatch} 条。`)
+        }
         if (new Set(reviews.map(review => review.fact_id)).size !== reviews.length) throw Error('duplicate_review: 同一批次不可重复审校事实。')
         const facts = reviews.map((review) => {
           const fact = project.facts.find(fact => fact.id === review.fact_id)
