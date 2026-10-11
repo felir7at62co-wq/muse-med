@@ -28,7 +28,7 @@ export async function apply(ctx) {
       assert.equal(value.provider, 'muse-creation')
       assert.equal(value.content, skill.content, 'Actual later model input includes the complete current guide')
       assert.deepEqual(value.resourceBase, skill.resourceBase)
-      if (index === 0) for (const rule of ['每模型轮最多4张', '成功模型轮', '只读操作不会改变项目修订号', '属于场次节拍', '不是按几分钟定时过期', '摘要里的“已读”不是凭据', 'B 不要求紧邻 C', '成稿渠道', 'expected_revision', '不包含目录索引', '同一个纯姓名', '必须逐字等于', '不能仅补 `witnesses`', '不在每轮反复生成整段长 JSON', '由对白宣布的结果', '不为满足维度名称虚构动作']) {
+      if (index === 0) for (const rule of ['每模型轮最多4张', '成功模型轮', '只读操作不会改变项目修订号', '属于场次节拍', '不是按几分钟定时过期', '摘要里的“已读”不是凭据', 'B 不要求紧邻 C', '成稿渠道', 'expected_revision', '不包含目录索引', '同一个纯姓名', '必须逐字等于', '不能仅补 `witnesses`', '不在每轮反复生成整段长 JSON', '由对白宣布的结果', '不为满足维度名称虚构动作', '声明成稿展示先后', '冷开场先示结果', '不能删空依赖']) {
         assert.ok(value.content.includes(rule), 'The actual source-review guide contains: ' + rule)
       }
     }
