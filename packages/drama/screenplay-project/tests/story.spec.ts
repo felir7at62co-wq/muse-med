@@ -112,6 +112,33 @@ async function reviewedInventory() {
   await run({ method: 'read_story_inventory', project, inventory_id: item.id }); await readAll(); step = 90
   await run({ method: 'review_story_inventory', project, expected_revision: (await current()).revision, inventory_id: item.id, inventory_sha256: item.sha256, decision: 'approve', reason: '五维及来源、动作、关系和实际听者已在前轮复读核对。' })
 }
+it('retains a spoken result through dialogue while separately preserving the source action', async () => {
+  await sourcesAndFacts(); const original = await inventory(), file = await current()
+  const speech = file.facts[0]!
+  step = 71
+  await run({ method: 'propose_story_inventory', project, expected_revision: file.revision, episode: 1,
+    coverage: stageCoverage(original.coverage), not_applicable: [], items: [...original.items,
+      { id: 'spoken-result', dimension: 'action_result', summary: '甲明确作出让乙离开的决定，结果由对白宣布。',
+        critical: true, evidence: 'confirmed', fact_ids: [speech.id], source_units: [speech.anchors[0]!.unit_id],
+        depends_on: ['refusal'], knowledge: [{ fact_id: speech.id, actor: '甲', recipients: ['乙'] }] }] })
+  const proposedInventory = (await current()).story_inventories!.at(-1)!
+  step = 72; await run({ method: 'read_story_inventory', project, inventory_id: proposedInventory.id }); await readAll()
+  step = 73
+  await run({ method: 'review_story_inventory', project, expected_revision: (await current()).revision,
+    inventory_id: proposedInventory.id, inventory_sha256: proposedInventory.sha256, decision: 'approve', reason: '决定由真实发声宣布；推门动作单独保留。' })
+  const draftInput = await draft()
+  draftInput.notes.mapping.push({ item_id: 'spoken-result', outputs: [{ scene: 1, beat: 1, text: draftInput.scenes[0]!.beats[0]!.text }] })
+  step = 100
+  await run({ method: 'stage', project, expected_revision: draftInput.file.revision, episode: 1,
+    scenes: stageScenes(draftInput.scenes), coverage: stageCoverage(proposedInventory.coverage),
+    story_notes: stageStoryNotes(draftInput.notes) })
+  await rereadCandidate(); await approveCandidate()
+  const reviewed = await current(), candidate = reviewed.candidates.at(-1)!
+  step = 130
+  await run({ method: 'commit', project, expected_revision: reviewed.revision, candidate_id: candidate.id, candidate_sha256: candidate.sha256 })
+  expect(acceptedScripts(await current())[0]!.script).toContain('甲：走吧！我说过，你走吧。')
+  expect(acceptedScripts(await current())[0]!.script).toContain('▲甲推开门，门应声打开。')
+})
 async function draft() {
   const file = await current(), [speech, analysis, action, os] = file.facts, item = file.story_inventories!.at(-1)!
   const scenes: ProjectFile['candidates'][number]['scenes'] = [

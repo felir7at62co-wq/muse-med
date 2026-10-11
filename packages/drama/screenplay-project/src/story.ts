@@ -349,7 +349,9 @@ export function validateStoryCandidate(project: ProjectFile, candidate: Candidat
       }
     }
     const beats = mapping.outputs.map(output => located(candidate, output))
-    if (item.critical && item.dimension === 'action_result' && !beats.some(beat => beat.kind === 'action')) {
+    if (item.critical && item.dimension === 'action_result'
+      && item.fact_ids.some(id => project.facts.some(fact => fact.id === id && fact.kind === 'action'))
+      && !beats.some(beat => beat.kind === 'action')) {
       throw Error('story_key_action: 关键动作与结果须在可拍动作中保留。')
     }
     for (const knowledge of item.knowledge) if (!beats.some(beat => beat.fact_ids.includes(knowledge.fact_id)
