@@ -51,7 +51,9 @@ export function findConcreteTermViolations(file: string, source: string): Concre
 }
 
 function trackedFiles(repoRoot: string): string[] {
-  const files = execFileSync('git', ['ls-files', '-z'], { cwd: repoRoot, encoding: 'utf8' })
+  const files = execFileSync('git', ['ls-files', '-z'], {
+    cwd: repoRoot, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+  })
     .split('\0')
     .filter(file => file !== '')
   if (!files.includes('AGENTS.md')
@@ -78,7 +80,12 @@ export function readTrackedSource(repoRoot: string, file: string): string | unde
   return stat.isFile() ? readFileSync(path, 'utf8') : undefined
 }
 
-function scanRepository(repoRoot: string): ConcreteTermViolation[] {
+/**
+ * Scan the complete Git index for blocked terminology in maintained paths and text.
+ * @param repoRoot - Repository root; discovery must include every required repository area.
+ * @returns Tracked-path and text violations outside the documented source exclusions.
+ */
+export function scanRepository(repoRoot: string): ConcreteTermViolation[] {
   const violations: ConcreteTermViolation[] = []
   for (const file of trackedFiles(repoRoot)) {
     const source = readTrackedSource(repoRoot, file)
