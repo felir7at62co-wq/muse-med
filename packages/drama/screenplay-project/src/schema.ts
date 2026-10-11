@@ -123,7 +123,8 @@ export const REQUEST = {
     } },
     { type: 'object', additionalProperties: false, properties: {
       method: { type: 'string', const: 'stage_files', required: true }, ...mutation, episode: integer,
-      files: { type: 'array', items: { type: 'string' }, required: true },
+      files: { type: 'array', items: { type: 'string' }, required: true,
+        description: 'Ordered JSON files, each containing one scene object at the root with location, time, characters and beats; no scenes array wrapper.' },
       coverage,
     } },
     { type: 'object', additionalProperties: false, properties: {
@@ -219,7 +220,8 @@ const semanticInput = { type: 'object', additionalProperties: false, properties:
   checks: { type: 'array', required: true, items: { type: 'object', additionalProperties: false,
     properties: { item_id: string, status: { type: 'string', required: true, enum: ['preserved', 'deviation', 'unverified'] },
       explanation: string, source_units: strings, outputs: { type: 'array', required: true, items: storyLocationInput } } } },
-  deviations: strings, unverified: strings,
+  deviations: { ...strings, description: 'Remaining departures from required story events, actions, relationships, conditions, causality or reveals. Record faithful expression edits in story_notes.changes instead.' },
+  unverified: { ...strings, description: 'Required story preservation judgments still unverified. Keep source identity or sampling limits in story_notes.unresolved when the output preserves those limits without unsupported claims.' },
 } } as const
 const storyFact = { ...refinementFact, properties: { ...refinementFact.properties, story_supplement: supplement } } as const
 /** Default-off story commands; strict and V1 schemas remain unchanged when disabled. */
@@ -403,7 +405,7 @@ export const STORY_ADAPTATION = z.strictObject({
   scope_sha256: digest, output_content_sha256: digest, notes: STORY_NOTES,
   input_candidate_json: nonempty.optional(),
 })
-/** C-step semantic judgments; bindings are derived by the Host and not supplied as pass flags. */
+/** C-step story-preservation judgments; bindings are derived by the Host, never supplied as pass flags. */
 export const SEMANTIC_INPUT = z.strictObject({
   event_chain: nonempty, emotion_conflict: nonempty, relationship_stance: nonempty, causality_reveal: nonempty,
   checks: z.array(z.strictObject({ item_id: nonempty, status: z.enum(['preserved', 'deviation', 'unverified']),

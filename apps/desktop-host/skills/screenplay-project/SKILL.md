@@ -11,6 +11,8 @@ description: 小说转剧本、视频转剧本、剧本换梗及长篇续写时�
 
 ## 新创作模式的故事忠实路径
 
+PTC 程序直接返回实际工具结果，例如 `return await tools.screenplay_project(...)`。`review` 返回 `{revision, candidate, rendered}`，批准记录在 `candidate.review`；不猜顶层 `review` 或 `accepted`。`undefined` 不是无损 JSON，拼装不存在的字段会让外层失败，即使内层修改已经保存；先 `status` 核对真实状态，不用序列化静默删除未知值，也不把外层失败说成验收成功。
+
 PTC 调用形式是 `return await tools.screenplay_project({request: {method: "status", project: "short-drama/作品/qa/screenplay-project.json"}})`；所有项目命令都在外层 `request` 内，不能把 `method` 和 `project` 直接传给工具。项目路径指向 JSON 文件，不是目录。补充事实沿用 `status.story_policy.authorization_sha256` 等工具实际返回值；`propose_fact` / `propose_facts` 的事实包含 `kind`、`origin`、可选 `actor`、`layer`、`summary`、`anchors`，获授权演绎按公开声明补相应字段。`witnesses`、`requires_knowledge`、`sync_with` 属于场次节拍，不写进事实对象。事实编号、片段编号和引用原文从工具返回值取得；批量失败先保存起草数据并核对字段，不重新抄写整批长 JSON。参数错误先读当前 SDK 声明与收据，再恢复原项目或任务，不从头重投。
 
 来源原样使用 `status.sources[].id`，保留 `:text`、`:transcript` 或 `:video_inspection` 后缀；按实际 `kind` 和 `path` 选择，不用正则截取编号，不回退到压缩摘要里的旧值。`read_source.units[]` 使用 `id` 和 `text`，事实状态使用 `fact.review?.decision`，没有 `review` 表示未审；不要猜 `unit_id`、`status` 或 `review_state` 等替代返回字段。丢失后缀时工具拒绝读取并提示匹配的完整编号，不自动选择来源。
@@ -29,7 +31,7 @@ B 读回须来自同一当前项目修订、成功的外层工具和实际进入
 
 用 `stage`/`stage_files` 起草作品，`story_notes` 对应实际清单与成稿位置、来源 retained/merged/omitted_non_story 处置、真实变化和批注对账；省略无故事功能的重复表达不能省略关键原因、结果或揭晓。新增表演细节、少量 OS 和辅助对白按工具公开的授权类别标明，授权摘要使用 `status.story_policy.authorization_sha256` 的实际返回值，不能成为新的来源事实；重大因果、关系立场、事件反转或关键揭晓变化另待用户授权。不存在旧稿时不填虚构 before，来源→作品映射沿真实输入处理。
 
-`stage_files.files` 仅列按顺序排列的场次 JSON，不包含目录索引、故事清单或审校说明。场次 `characters` 与节拍 `actor` 使用同一个纯姓名；“林砚舟（坐起）”不能当作“林砚舟”的身份。表演注记依有依据的行动与允许的同步展示保存，不能为修复姓名而把必要动作只移到修改说明。
+`stage_files.files` 仅列按顺序排列的场次 JSON，不包含目录索引、故事清单或审校说明。每个文件顶层就是一个完整场次对象（`location`、`time`、`characters`、`beats` 等），不是 `{scenes:[...]}`；程序读回后用 `scene.beats`，不猜 `scene.scenes[0]`。场次 `characters` 与节拍 `actor` 使用同一个纯姓名；“林砚舟（坐起）”不能当作“林砚舟”的身份。表演注记依有依据的行动与允许的同步展示保存，不能为修复姓名而把必要动作只移到修改说明。
 
 `story_notes.mapping[].outputs[].text` 必须逐字等于所指场、节拍的完整 `text`，不使用省略号、摘句或概括。程序从实际读回的场次对象取得文字，并核对每个定位节拍的 `fact_ids` 与该故事项的事实或获授权演绎上下文；描述相关不表示引用已经匹配。知情项还须匹配纯姓名 `actor`、真实发声渠道及全部实际听者，不能仅补 `witnesses` 而忽略发声人物不同。
 
@@ -43,7 +45,11 @@ B 读回须来自同一当前项目修订、成功的外层工具和实际进入
 
 候选返回后按工具的后续轮读取证据与版本要求复检，`review.semantic_report` 依据实际材料分列保留、偏离和未核实的故事项，不能模板全部 pass。修正后重读受影响来源、清单、候选及说明，旧检查不复用；C轮 `review approve` 后先让当前程序成功结束，下一模型轮再 `commit`/`export`；同一程序立刻 commit 会因外层尚未成功而拒。C外层失败或被取消后，已写 review 不等于成功验收，须重新 stage 新候选、实际读回并完成成功C轮，不盲重commit。候选的 `story_adaptation` 和独立《修改说明》对应最终版本。参数以公开 schema 与工具状态为准，不手改项目 JSON 或推定任意程序已验证剧情语义。
 
+`semantic_report.deviations` 和 `unverified` 记录必保留故事项仍有偏离或保留判断尚未核实，不是相对旧稿的全部文字修改或原源的全部未知。忠实表达修订记在 `story_notes.changes`，来源身份、单帧动态和采样边界记在 `story_notes.unresolved` 及对应 `checks.explanation`，正文须保持同样边界；未知声源不能强绑角色，未呈现审批不能编成已签。若这些疑点实际影响关键事件、立场、条件、行动结果或因果揭晓的保留判断，仍须声明阻塞并补核，不能为通过审批清空或转移问题。
+
 审校报告的每项 `source_units` 从当前清单本项完整复制，`outputs` 从当前候选 `story_adaptation.notes.mapping` 对应项完整按序复制，不手抄摘句。批准和拒绝报告都须覆盖全部故事项；程序只生成定位，`status` 和 `explanation` 仍按实际来源与全稿逐项判断，不能因定位自动生成就默认 preserved。
+
+V2 批准工具的模型可见日志是 `story-faithful-review-result-v2` 精简回执，绑定当前候选和完整审校；PTC 返回值仍是完整 `{revision, candidate, rendered}`。回执不能替代 B 轮完整读回，也不表示当前外层程序已经成功。需要正文时用 `read_candidate`；大外层输出的日志预览可能被截断，不据此重写或补造审校。
 
 ## 原严格来源与逐字路径
 

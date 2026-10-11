@@ -22,7 +22,7 @@ import type { HumanAuthorization } from './refinement.ts'
 import { captureRefinementAuthorization, refinementUserProjection } from './refinement-auth.ts'
 
 export { acceptedScripts, sha256 } from './episode.ts'
-import { validateStoryApprovalLog } from './story.ts'
+import { storyReviewResultReceipt, validateStoryApprovalLog } from './story.ts'
 export { validateAcceptedStoryEvidence, validateStoryApprovalLog } from './story.ts'
 export { PROJECT_FILE } from './schema.ts'
 
@@ -152,6 +152,8 @@ export function apply(ctx: Context, config: Config): void {
     output: {
       schema: { type: 'json' },
       render: (args, value) => {
+        const receipt = args.request.method === 'review' ? storyReviewResultReceipt(value) : undefined
+        if (receipt !== undefined) return [{ type: 'text', text: JSON.stringify(receipt, null, 2) }]
         const content: ContentBlock[] = [{ type: 'text', text: JSON.stringify(value, null, 2) }]
         if (args.request.method === 'read_source') {
           const window = z.object({ units: z.array(z.object({ image: IMAGE_REFERENCE.optional() })) }).parse(value)

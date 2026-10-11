@@ -85,6 +85,86 @@
       {
         "type": "block-start",
         "index": 0,
+        "blockType": "tool-call"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 0,
+        "id": "call_creation_undefined_result",
+        "name": "run_code",
+        "argumentsDelta": "{\"description\":\"验证猜测返回字段产生undefined会被拒绝\",\"code\":\"const r = await tools.screenplay_project({request:{method:\\\"status\\\",project:\\\"stage-diagnostic-project.json\\\"}}); return {revision:r.revision, approval:r.review?.decision};\"}"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "tool-call",
+          "id": "call_creation_undefined_result",
+          "name": "run_code",
+          "arguments": "{\"description\":\"验证猜测返回字段产生undefined会被拒绝\",\"code\":\"const r = await tools.screenplay_project({request:{method:\\\"status\\\",project:\\\"stage-diagnostic-project.json\\\"}}); return {revision:r.revision, approval:r.review?.decision};\"}"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 5
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "tool-calls"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "tool-call"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 0,
+        "id": "call_creation_lossless_result",
+        "name": "run_code",
+        "argumentsDelta": "{\"description\":\"直接返回真实结果恢复执行\",\"code\":\"return await tools.screenplay_project({request:{method:\\\"status\\\",project:\\\"stage-diagnostic-project.json\\\"}});\"}"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "tool-call",
+          "id": "call_creation_lossless_result",
+          "name": "run_code",
+          "arguments": "{\"description\":\"直接返回真实结果恢复执行\",\"code\":\"return await tools.screenplay_project({request:{method:\\\"status\\\",project:\\\"stage-diagnostic-project.json\\\"}});\"}"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 5
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "tool-calls"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
         "blockType": "text"
       },
       {

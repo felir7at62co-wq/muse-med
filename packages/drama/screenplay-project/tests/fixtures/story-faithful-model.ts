@@ -26,6 +26,7 @@ const REPORT = "const s=await current(),c=s.pending.at(-1),r=await call({method:
  */
 export function apply(ctx: Context): void {
   const phase = process.env.SCREENPLAY_STORY_FIXTURE_MODE ?? 'full'
+  const spillReview = process.env.SCREENPLAY_STORY_REVIEW_SPILL === '1'
   let step = 0
   let offloadInjected = false
   const samples: ContentBlock[][] = []
@@ -112,6 +113,10 @@ export function apply(ctx: Context): void {
         REPORT + "await deny('story_semantic_deviation',()=>call({method:'review',project,expected_revision:s.revision,candidate_id:c.id,candidate_sha256:c.sha256,decision:'approve',reason:'报告声明偏差不得批准。',semantic_report:{...report,deviations:['合成负例：把挽留改为驱逐。']}})); await review(); const updated=await current();await deny('story_approval_log_pending',()=>call({method:'commit',project,expected_revision:updated.revision,candidate_id:c.id,candidate_sha256:c.sha256}));",
         "const s=await current(),c=s.pending.at(-1);await call({method:'commit',project,expected_revision:s.revision,candidate_id:c.id,candidate_sha256:c.sha256});console.log(await call({method:'export',project,candidate_id:c.id,directory:'delivery'}));",
       ]
+      if (spillReview) {
+        programs[8] = programs[8].replace('未验证真实人物表演或未采样帧。', '未验证真实人物表演或未采样帧。' + 'Synthetic observation limit. '.repeat(4000))
+        programs[10] = programs[10].replace('await review();', "const reviewed=await review(); if(reviewed.candidate.story_adaptation.notes.unresolved[0].length<100000)throw Error('PTC lost the complete canonical review value'); console.log(JSON.stringify(reviewed));")
+      }
       if (!phase.startsWith('offload-')) programs[8] += '{' + REPORT + "await readSources();await deny('self_check_step',review);}"
       let program = programs[step]
       if (phase === 'checkpoint' && step >= 10) program = undefined

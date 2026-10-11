@@ -581,10 +581,42 @@ export function validateStoryAcceptance(project: ProjectFile, candidate: Candida
     throw Error('story_acceptance_digest: 最终C验收绑定缺失或版本/来源/报告摘要已变更。')
   }
 }
+const REVIEW_RECEIPT = z.object({
+  revision: z.number().int().nonnegative(),
+  review_receipt: z.object({
+    protocol: z.literal('story-faithful-review-result-v2'),
+    candidate_id: z.string(), candidate_sha256: z.string(), review_sha256: z.string(), acceptance_sha256: z.string(),
+    decision: z.literal('approve'),
+  }).strict(),
+}).strict()
+
+/**
+ * Project a successful V2 review as a bounded logged receipt; its PTC value retains the full candidate.
+ * @param value - Canonical JSON result returned by the review command.
+ * @returns Exact review receipt, or undefined for reviews without a V2 approval.
+ */
+export function storyReviewResultReceipt(value: unknown): z.infer<typeof REVIEW_RECEIPT> | undefined {
+  const result = z.object({ revision: z.number().int().nonnegative(), candidate: CANDIDATE_RECORD }).parse(value)
+  const review = result.candidate.review, acceptance = review?.story_acceptance
+  if (review?.decision !== 'approve' || acceptance === undefined) return undefined
+  return { revision: result.revision, review_receipt: { protocol: 'story-faithful-review-result-v2',
+    candidate_id: result.candidate.id, candidate_sha256: result.candidate.sha256,
+    review_sha256: sha256(JSON.stringify(review)), acceptance_sha256: acceptance.sha256, decision: 'approve' } }
+}
 function loggedCandidate(content: readonly { type: string; text?: string }[], candidate: Candidate): boolean {
   for (const block of content) if (block.type === 'text' && block.text !== undefined) {
     let parsed: unknown
     try { parsed = JSON.parse(block.text) } catch (error) { if (!(error instanceof SyntaxError)) throw error; continue }
+    const receipt = REVIEW_RECEIPT.safeParse(parsed)
+    if (receipt.success) {
+      const review = candidate.review, evidence = review?.evidence, acceptance = review?.story_acceptance
+      const recorded = receipt.data.review_receipt
+      if (review?.decision === 'approve' && evidence !== undefined && acceptance !== undefined
+        && receipt.data.revision === evidence.project_revision + 1
+        && recorded.candidate_id === candidate.id && recorded.candidate_sha256 === candidate.sha256
+        && recorded.review_sha256 === sha256(JSON.stringify(review)) && recorded.acceptance_sha256 === acceptance.sha256) return true
+      continue
+    }
     const value = z.object({ candidate: CANDIDATE_RECORD }).safeParse(parsed)
     if (!value.success) continue
     const { committed_at: _committed, ...current } = candidate

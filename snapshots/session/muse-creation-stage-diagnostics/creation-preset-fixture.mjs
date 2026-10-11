@@ -1,4 +1,4 @@
-/** Exercise scene-path and voice registration failures through the actual creation preset and Node PTC. */
+/** Exercise located scene failures and lossless-return recovery through the actual creation preset and Node PTC. */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFile, writeFile, rm } from 'node:fs/promises'
@@ -40,7 +40,7 @@ export async function apply(ctx) {
     }
   })
   ctx.on('agent/turn-stopping', async () => {
-    assert.equal(requests, 3)
+    assert.equal(requests, 5)
     for (const [path, bytes] of originals) {
       assert.equal(await readFile(path, 'utf8'), bytes)
       await rm(path)
@@ -61,6 +61,18 @@ export async function apply(ctx) {
       const text = results[1].content.filter(block => block.type === 'text').map(block => block.text).join('')
       assert.ok(text.includes('voice_characters: 第1场 乙'))
       assert.ok(text.includes('须同时列入 characters'))
+    }
+    if (requests >= 3) {
+      assert.equal(results[2].isError, true)
+      const text = results[2].content.filter(block => block.type === 'text').map(block => block.text).join('')
+      assert.ok(text.includes('invalid-output'))
+      assert.ok(text.includes('lossless JSON'))
+    }
+    if (requests >= 4) {
+      assert.equal(results[3].isError, false)
+      const value = JSON.parse(results[3].content.filter(block => block.type === 'text').map(block => block.text).join(''))
+      assert.equal(value.revision, 2)
+      assert.equal(value.pending.length, 0)
     }
     requests++
     yield* next()

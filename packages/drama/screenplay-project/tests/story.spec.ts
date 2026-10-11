@@ -16,7 +16,7 @@ import { PROJECT_FILE, STORY_NOTES, SEMANTIC_INPUT, REQUEST_STORY, VIDEO_INSPECT
 import type { ProjectFile, ProjectRequest } from '../src/schema.ts'
 import type { ProjectReadReceipt } from '../src/review.ts'
 import { acceptedScripts, acceptedKnowledge, renderEpisode, sha256, candidateDigest } from '../src/episode.ts'
-import { validateAcceptedStoryEvidence, validateStoryApprovalLog, validateStoryPolicy, storyPolicyDigest, validateInventory, inventoryDigest, storyScopeDigest, validateStoryCandidate, storyContentDigest } from '../src/story.ts'
+import { storyReviewResultReceipt, validateAcceptedStoryEvidence, validateStoryApprovalLog, validateStoryPolicy, storyPolicyDigest, validateInventory, inventoryDigest, storyScopeDigest, validateStoryCandidate, storyContentDigest } from '../src/story.ts'
 import type { ActorId, FactId, UnitId } from '../src/ids.ts'
 import type { HumanAuthorization } from '../src/refinement.ts'
 import { stageScenes, stageCoverage, stageStoryNotes } from './fixtures/stage-input.ts'
@@ -329,6 +329,24 @@ it.each(['deviation', 'unverified'] as const)('refuses declared relationship/con
   await expect(approveCandidate(input)).rejects.toThrow('story_semantic_deviation')
   expect((await current()).candidates[0]!.review).toBeUndefined()
 })
+it('retains a bounded source sampling note when the required story is actually preserved', async () => {
+  await sourcesAndFacts(); await reviewedInventory(); const { file, item, scenes, notes } = await draft()
+  const limitation = '采样帧不证明门外未呈现的空间，本集不增加门外情节。'
+  notes.unresolved.push(limitation); step = 100
+  await run({ method: 'stage', project, expected_revision: file.revision, episode: 1,
+    scenes: stageScenes(scenes), coverage: stageCoverage(item.coverage), story_notes: stageStoryNotes(notes) })
+  await rereadCandidate(); await approveCandidate()
+  const candidate = (await current()).candidates[0]!
+  expect(candidate.story_adaptation!.notes.unresolved).toEqual([limitation])
+  expect(candidate.review?.decision).toBe('approve')
+  expect(candidate.review?.semantic_report?.unverified).toEqual([])
+})
+it.each(['deviations', 'unverified'] as const)('refuses remaining %s even when every check claims preservation', async (field) => {
+  await ready(); const input = await report()
+  input[field].push('关键拒绝条件尚未保持，不能用来源限制说明代替。')
+  await expect(approveCandidate(input)).rejects.toThrow('story_semantic_deviation')
+  expect((await current()).candidates[0]!.review).toBeUndefined()
+})
 it.each(['missing', 'unrelated', 'actor', 'os_listener', 'cause_order', 'before', 'comments'] as const)('refuses mechanically invalid story mapping or preservation: %s', async (variant) => {
   await sourcesAndFacts(); await reviewedInventory(); const { file, item, scenes, notes } = await draft()
   if (variant === 'missing') notes.mapping.pop()
@@ -464,6 +482,39 @@ it('rejects future-only source facts and unauthorized adaptation knowledge even 
   scenes[1]!.beats[0]!.requires_knowledge = [future.id]
   await expect(run({ method: 'stage', project, expected_revision: file.revision, episode: 1, scenes: stageScenes(scenes), coverage: stageCoverage(item.coverage), story_notes: stageStoryNotes(notes) })).rejects.toThrow(/source_quote_mismatch|invalid_project|story_fact_scope/)
 })
+it.each(['receipt', 'legacy'] as const)('matches an actual successful C result using its %s projection after commit', async (projection) => {
+  await accepted(); const file = await current(), candidate = file.candidates[0]!, input = await report()
+  const receipt = storyReviewResultReceipt({ revision: candidate.review!.evidence!.project_revision + 1, candidate })!
+  const rootCallId = ToolCallId('review-root'), subCallId = ToolCallId('review-root:ptc:1')
+  const events: SessionEvent[] = Array.from({ length: 120 }, (_, index) => ({ type: 'turn/end', seq: SessionSeq(index), time: 0, data: { turn: 0, reason: { kind: 'completed' } } }))
+  events.push({ type: 'step/start', seq: SessionSeq(120), time: 0, data: { turn: 1, step: 1 } },
+    { type: 'tool/ptc-dispatch', seq: SessionSeq(121), time: 0, data: { name: 'screenplay_project', rootCallId, parentCallId: rootCallId, subCallId,
+      arguments: { request: { method: 'review', candidate_id: candidate.id, candidate_sha256: candidate.sha256, decision: 'approve', semantic_report: input } }, isError: false,
+      content: [{ type: 'text', text: JSON.stringify(projection === 'receipt' ? receipt : { candidate }) }] } },
+    { type: 'tool/result', surfaceOp: 'append', seq: SessionSeq(122), time: 0, data: { turn: 1, step: 1,
+      message: createToolResultMessage({ callId: rootCallId, isError: false, content: [{ type: 'text', text: 'Successful outer result preview [...]' }] }) } },
+    { type: 'step/end', seq: SessionSeq(123), time: 0, data: { turn: 1, step: 1 } })
+  // This query double supplies only the original C event window; the subprocess fixture exercises real spill storage.
+  ctx.provide('sessionQuery', { observeSession: async () => ({ events, [Symbol.dispose]() {} }) } as never)
+  await expect(validateStoryApprovalLog(ctx, file, candidate, new AbortController().signal)).resolves.toBeUndefined()
+  if (projection === 'receipt') {
+    for (const changed of [
+      { ...receipt, revision: receipt.revision + 1 },
+      ...(['candidate_id', 'candidate_sha256', 'review_sha256', 'acceptance_sha256', 'decision'] as const)
+        .map(field => ({ ...receipt, review_receipt: { ...receipt.review_receipt, [field]: 'altered' } })),
+    ]) {
+      const event = events[121]!
+      if (event.type !== 'tool/ptc-dispatch') throw Error('test fixture missing its C dispatch')
+      event.data.content = [{ type: 'text', text: JSON.stringify(changed) }]
+      await expect(validateStoryApprovalLog(ctx, file, candidate, new AbortController().signal)).rejects.toThrow('story_approval_log_pending')
+    }
+  }
+})
+it('retains complete content for ordinary or rejected review results', async () => {
+  await ready(); const file = await current(), candidate = file.candidates[0]!
+  expect(storyReviewResultReceipt({ revision: file.revision, candidate })).toBeUndefined()
+  expect(storyReviewResultReceipt({ revision: file.revision, candidate: { ...candidate, review: { actor, decision: 'reject', reason: 'reject', time: new Date().toISOString() } } })).toBeUndefined()
+})
 it.each(['failed_outer', 'missing_outer'] as const)('does not repair a %s C execution with a later successful reused call ID', async (variant) => {
   await accepted(); const file = await current(), candidate = file.candidates[0]!, input = await report()
   const rootCallId = ToolCallId('reused-root'), subCallId = ToolCallId('reused-root:ptc:1')
@@ -471,7 +522,7 @@ it.each(['failed_outer', 'missing_outer'] as const)('does not repair a %s C exec
   events[120] = { type: 'step/start', seq: SessionSeq(120), time: 0, data: { turn: 1, step: 1 } }
   events[121] = { type: 'tool/ptc-dispatch', seq: SessionSeq(121), time: 0, data: { name: 'screenplay_project', rootCallId, parentCallId: rootCallId, subCallId,
     arguments: { request: { method: 'review', candidate_id: candidate.id, candidate_sha256: candidate.sha256, decision: 'approve', semantic_report: input } }, isError: false,
-    content: [{ type: 'text', text: JSON.stringify({ candidate }) }] } }
+    content: [{ type: 'text', text: JSON.stringify(storyReviewResultReceipt({ revision: candidate.review!.evidence!.project_revision + 1, candidate })) }] } }
   events[122] = { type: 'tool/call', seq: SessionSeq(122), time: 0, data: { turn: 1, step: 1, callId: rootCallId, name: 'run_code', arguments: '{}' } }
   if (variant === 'failed_outer') events[122] = { type: 'tool/result', surfaceOp: 'append', seq: SessionSeq(122), time: 0, data: { turn: 1, step: 1,
     message: createToolResultMessage({ callId: rootCallId, isError: true, content: [{ type: 'text', text: 'failed synthetic C outer' }] }) } }

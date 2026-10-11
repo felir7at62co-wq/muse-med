@@ -1014,6 +1014,7 @@ interface ToolArgsMap {
       project: string;
       expected_revision: number;
       episode: number;
+      /** Ordered JSON files, each containing one scene object at the root with location, time, characters and beats; no scenes array wrapper. */
       files: string[];
       coverage?: {
         windows: {
@@ -1137,7 +1138,9 @@ interface ToolArgsMap {
             text: string;
           }[];
         })[];
+        /** Remaining departures from required story events, actions, relationships, conditions, causality or reveals. Record faithful expression edits in story_notes.changes instead. */
         deviations: string[];
+        /** Required story preservation judgments still unverified. Keep source identity or sampling limits in story_notes.unresolved when the output preserves those limits without unsupported claims. */
         unverified: string[];
       };
     } | {

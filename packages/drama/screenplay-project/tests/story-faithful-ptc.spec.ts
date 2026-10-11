@@ -110,6 +110,41 @@ it('cold-restores saved pending V2 observations and rereads B before a later C a
   } finally { await cleanup(cwd) }
 }, DEADLINE)
 
+it('commits and cold-exports a large real PTC review whose outer log is spilled while its bound receipt remains parseable', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'story-faithful-review-spill-'))
+  try {
+    await prepareStoryFixture(cwd)
+    const patch = join(cwd, 'spill-review.yml')
+    await writeFile(patch, '- id: spill-policy\n  config:\n    maxInlineTokens: 12800\n')
+    const first = await runStoryFixture(cwd, { patches: [patch], env: { SCREENPLAY_STORY_REVIEW_SPILL: '1' } })
+    const fixture = await readStoryFixture(cwd, first.stdout), candidate = fixture.project.candidates[0]!
+    expect(fixture.project.accepted).toEqual([candidate.id])
+    expect(candidate.story_adaptation!.notes.unresolved[0]!.length).toBeGreaterThan(100000)
+    const event = z.object({ type: z.string(), data: z.unknown().optional() })
+    const dispatch = z.object({ name: z.literal('screenplay_project'), arguments: z.object({ request: z.object({ method: z.literal('review'), decision: z.literal('approve') }) }),
+      isError: z.literal(false), content: z.array(z.object({ type: z.literal('text'), text: z.string() })), rootCallId: z.string() })
+    const entries = (await logs(cwd)).split('\n').filter(Boolean).map(line => event.parse(JSON.parse(line)))
+    const approval = entries.filter(entry => entry.type === 'tool/ptc-dispatch').map(entry => dispatch.safeParse(entry.data))
+      .find(value => value.success)
+    if (!approval?.success) throw Error('fixture did not record its actual successful review dispatch')
+    const receipt = z.object({ review_receipt: z.object({ protocol: z.literal('story-faithful-review-result-v2'),
+      candidate_id: z.string(), candidate_sha256: z.string(), acceptance_sha256: z.string() }) })
+      .parse(JSON.parse(approval.data.content[0]!.text))
+    expect(receipt.review_receipt).toMatchObject({ protocol: 'story-faithful-review-result-v2', candidate_id: candidate.id,
+      candidate_sha256: candidate.sha256, acceptance_sha256: candidate.review!.story_acceptance!.sha256 })
+    expect(approval.data.content[0]!.text.length).toBeLessThan(2000)
+    const result = z.object({ message: z.object({ toolCallId: z.literal(approval.data.rootCallId), isError: z.boolean().optional(),
+      content: z.array(z.object({ type: z.literal('text'), text: z.string() })) }) })
+    const outer = entries.filter(entry => entry.type === 'tool/result').map(entry => result.safeParse(entry.data)).find(value => value.success)
+    if (!outer?.success) throw Error('fixture did not record its actual successful outer review result')
+    expect(outer.data.message.isError).not.toBe(true)
+    expect(outer.data.message.content.some(block => block.text.includes('Omitted'))).toBe(true)
+    const cold = await runStoryFixture(cwd, { phase: 'accepted-cold', sessionId: fixture.sessionId, patches: [patch] })
+    expect(cold.stderr).not.toContain('UNHANDLED')
+    expect(await readFile(join(cwd, 'cold-delivery', fixture.input!.split('/').at(-1)!), 'utf8')).toBe(acceptedScripts(fixture.project)[0]!.script)
+  } finally { await cleanup(cwd) }
+}, DEADLINE)
+
 it.each(['offload-after-observation', 'offload-before-observation'] as const)(
   'uses actual model observation when source images leave the request: %s', async (phase) => {
     const cwd = await mkdtemp(join(tmpdir(), 'story-faithful-offload-'))
