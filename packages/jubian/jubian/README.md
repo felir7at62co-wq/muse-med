@@ -64,6 +64,8 @@ Two layouts are documented, and the client hides the difference from you. A sing
 
 `workspaceJubianClient()` uses a nonblank credential-store value first. When workspace secrets are enabled and the store is empty, `workspacePipelineToken()` searches the start directory and up to eleven parents for the nearest readable `.agents/secrets/pipeline.env`. That file supplies a nonempty `JUBIANAI_ADMIN_TOKEN`, then `JUBIANAI_TOKEN`; a readable file with neither stops the search. Each request reads the current values without logging them.
 
+`configuredJubianClient()` resolves the shared tool-plugin origin, timeout and workspace-secret policy before using this same credential precedence. Omitted origin and timeout retain the transport defaults; workspace-secret lookup defaults to enabled.
+
 ### The six stable failure codes
 
 `JubianError` keeps its stable code and local message. HTTP failures append only the numeric status, such as `HTTP 502`; recognized timeout, abort, DNS, connection and TLS failures append allowlisted, locally authored detail. Provider messages, bodies, URLs, tokens and original causes are never attached. Unknown transport failures retain `Jubian request failed`; diagnostics do not trigger retries.

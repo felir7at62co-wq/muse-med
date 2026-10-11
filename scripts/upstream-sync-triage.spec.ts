@@ -226,7 +226,7 @@ describe('this repository\'s generated manifest', () => {
     // assertion exists to prevent recurring.
     expect(DEFAULT_GENERATED_MANIFEST.startsWith('.local/')).toBe(false)
     expect(existsSync(join(REPO, DEFAULT_GENERATED_MANIFEST))).toBe(true)
-    const delivered = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
+    const delivered = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '--', DEFAULT_GENERATED_MANIFEST], {
       cwd: REPO,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],

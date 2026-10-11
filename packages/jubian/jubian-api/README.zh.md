@@ -57,7 +57,9 @@ try {
 }
 ```
 
-成功就是一个完整带类型的值：`task.task_id` 是数字，`task.real_cost` 是提供方自己的字符串或 `null`。失败就是一个 `JubianError`，其错误码为 `CONTRACT_CHANGED`，表示载荷没有携带读取器必需的字段。读取器从不返回部分结果，也从不给缺失的数字补一个零。`JubianError` 本身属于 `@deepseek-ai/dsh-jubian`，所有失败码都由它拥有。
+成功就是一个完整带类型的值：`task.task_id` 是数字，`task.real_cost` 是以字符串呈现的提供方费用观测值或 `null`。失败就是一个 `JubianError`，其错误码为 `CONTRACT_CHANGED`，表示载荷没有携带读取器必需的字段。读取器从不返回部分结果，也从不给缺失的数字补一个零。`JubianError` 本身属于 `@deepseek-ai/dsh-jubian`，所有失败码都由它拥有。
+
+视频任务费用保留十进制字符串，并将非负有限 JSON 数字转换为字符串。缺失、负数或不可读取的费用仍为 null；不会丢弃 `3.3906` 这类数字。这些提供方观测值不改变预算授权，也不自动结算本地预约金额。
 
 ### 读取结果列表
 
@@ -157,6 +159,10 @@ async function downloadVideo(row: VideoSubtask) {
 当某个字段在提供方自己的数据里本就可选时，读取器把这种可选性以 `null` 延续下去，而不是编造一个默认值。提供方没有发来的费用保持 `null`；它绝不会变成 `0`。
 
 ### 视频阶段词表
+
+`buildNativeVideoPreview()` 保留显式的 `backupModelList`，缺失或为 null 时补为 `[]`，使冻结的模型配置包含列表字段，但不代选备用模型。非列表值在提交前被拒绝。此字段参与指纹；缺少它的未提交预览需要重新准备。已有账本记录的键仍只做对账，不再次发送付费请求。
+
+原生任务认领从子项 `modelConfig` 读取模型选择器和提示词；该字段缺失或为 null 时读取子项直接携带的字段。直接字段 `modelVideoStandardId` 是提供方对 `videoStandardId` 的命名。两种格式都要求全部十个冻结模型字段、提示词及完整有序主体身份；证据缺失或损坏时均不允许再次付费提交。不能用当前分镜补充任务缺失的证据。
 
 原生主体视频准备至少需要一张已选定的图片主体。`buildNativeVideoPreview()` 对空主体或仅有音频的选择返回 `INVALID_ARGUMENT`，不生成 prepared 预览。`validateNativeVideoPreview()` 对历史空主体预览返回明确的本地参数错误；本次提交调用尚未进入账本，也尚未发出远端付费请求。现有身份校验和提交指纹规则仍然适用。
 

@@ -23,9 +23,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { JUBIAN_TOKEN_REF, workspaceJubianClient, JubianError, type JubianClient } from '@deepseek-ai/dsh-jubian'
+import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianError, type JubianClient } from '@deepseek-ai/dsh-jubian'
 import { disposeAsset, evidencePath, reconcileProject, resolveProjectDir } from './reconcile.ts'
 import type { DisposedEvidence } from './reconcile.ts'
+import { matchPreview } from './matching.ts'
+import type { MatchLimits, MatchPreview } from './matching.ts'
+import { reusePreview } from './reuse.ts'
+import type { ReusePreview } from './reuse.ts'
 import type { DanglingItem, DramaAssetsMethod, ReconcileReport, UnregisteredItem } from './types.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -48,6 +52,12 @@ export interface Config {
   timeoutMs?: number
   /** Whether the workspace's own pipeline secret file may stand in for a missing credential-store value; defaults to true. */
   workspaceSecrets?: boolean
+  /** Matching-only provider page size, 1–1000; defaults to 1000. */
+  matchPageSize?: number
+  /** Matching-only page limit per inventory; defaults to 100. */
+  matchPageLimit?: number
+  /** Matching-only requirement limit per call; defaults to 100. */
+  matchRequirementLimit?: number
 }
 
 export { workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
@@ -64,6 +74,10 @@ interface DramaAssetsArguments {
   status?: string
   /** Why the asset is not needed; required and non-empty for `ignored`. */
   note?: string
+  /** match_preview: requirement JSON contained in this project. */
+  requirements_path?: string
+  /** reuse_preview: optional project-contained per-shot requirement mapping. */
+  plan_path?: string
 }
 /** What one `reconcile` call reports: the evidence it wrote, plus what the model must do next. */
 interface DramaAssetsResult {
@@ -258,15 +272,67 @@ function presentDispose(projectDir: string, assetId: number, evidence: DisposedE
 
 /**
  * Run one `drama_assets` call.
- * @param client - Jubian transport, used only by `reconcile`.
+ * @param client - Jubian transport for reconciliation and GET-only matching.
  * @param args - The dispatched arguments.
- * @returns The evidence this call wrote, summarized for the model.
+ * @param limits - Resolved matching-only bounds; omitted calls use the declared defaults.
+ * @returns Existing reconciliation results, or a read-only matching preview.
  * @throws {JubianError} `INVALID_ARGUMENT` for a missing argument,
  *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
  */
+export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'reconcile' }, limits?: MatchLimits): Promise<PresentedReconcile>
+/**
+ * Run one `drama_assets` call.
+ * @param client - Jubian transport for reconciliation and GET-only matching.
+ * @param args - The dispatched arguments.
+ * @param limits - Resolved matching-only bounds; omitted calls use the declared defaults.
+ * @returns Existing reconciliation results, or a read-only matching preview.
+ * @throws {JubianError} `INVALID_ARGUMENT` for a missing argument,
+ *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
+ */
+export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'dispose' }, limits?: MatchLimits): Promise<PresentedDispose>
+/**
+ * Run one `drama_assets` call.
+ * @param client - Jubian transport for reconciliation and GET-only matching.
+ * @param args - The dispatched arguments.
+ * @param limits - Resolved matching-only bounds; omitted calls use the declared defaults.
+ * @returns Existing reconciliation results, or a read-only matching preview.
+ * @throws {JubianError} `INVALID_ARGUMENT` for a missing argument,
+ *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
+ */
+export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'match_preview' }, limits?: MatchLimits): Promise<MatchPreview>
+/**
+ * Run one `drama_assets` call.
+ * @param client - Jubian transport for reconciliation and GET-only matching.
+ * @param args - The dispatched arguments.
+ * @param limits - Resolved matching-only bounds; omitted calls use the declared defaults.
+ * @returns Existing reconciliation results, or a read-only matching preview.
+ * @throws {JubianError} `INVALID_ARGUMENT` for a missing argument,
+ *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
+ */
+export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'reuse_preview' }, limits?: MatchLimits): Promise<ReusePreview>
+/**
+ * Run one `drama_assets` call.
+ * @param client - Jubian transport for reconciliation and GET-only matching.
+ * @param args - The dispatched arguments.
+ * @param limits - Resolved matching-only bounds; omitted calls use the declared defaults.
+ * @returns Existing reconciliation results, or a read-only matching preview.
+ * @throws {JubianError} `INVALID_ARGUMENT` for a missing argument,
+ *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
+ */
+export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments,
+  limits?: MatchLimits): Promise<PresentedReconcile | PresentedDispose | MatchPreview | ReusePreview>
 export async function runDramaAssets(client: JubianClient,
-  args: DramaAssetsArguments): Promise<PresentedReconcile | PresentedDispose> {
+  args: DramaAssetsArguments, limits: MatchLimits = matchLimits({})):
+Promise<PresentedReconcile | PresentedDispose | MatchPreview | ReusePreview> {
   const projectDir = resolveProjectDir(args.project_dir)
+  if (args.method === 'reuse_preview') {
+    if (!args.requirements_path) throw new JubianError('INVALID_ARGUMENT', 'reuse_preview 需要 requirements_path。')
+    return await reusePreview(client, projectDir, args.requirements_path, args.plan_path, limits)
+  }
+  if (args.method === 'match_preview') {
+    if (!args.requirements_path) throw new JubianError('INVALID_ARGUMENT', 'match_preview 需要 requirements_path。')
+    return await matchPreview(client, projectDir, args.requirements_path, limits)
+  }
   if (args.method === 'dispose') {
     const { asset_id: assetId, status, note } = args
     if (assetId === undefined || status === undefined) {
@@ -361,25 +427,71 @@ const RESULT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    method: { type: 'string', required: true, enum: ['reconcile', 'dispose'],
+    method: { type: 'string', required: true, enum: ['reconcile', 'dispose', 'match_preview', 'reuse_preview'],
       description: '产生本结果的操作；两个方法的字段不同，本 schema 只强制共有字段。' },
-    ready: { type: 'boolean', required: true,
+    ready: { type: 'boolean',
       description: '证据是否已经可以让宿主钩子放行付费生图：issues 为空、blocking 与 ignored_without_note 都为空才为 true。' },
-    ready_reason: { type: 'string', required: true, description: 'ready 的判定依据；放行时为 ok。' },
+    ready_reason: { type: 'string', description: 'ready 的判定依据；放行时为 ok。' },
     issues: { type: 'array', required: true,
       description: '清单本身读不全的地方，先按每条 message 修好；非空时 ready 一定是 false，'
         + '本轮列出的 unregistered / dangling 都建立在那份读不全的清单上。',
       items: MANIFEST_ISSUE_SCHEMA },
-    evidence: { type: 'string', required: true,
+    evidence: { type: 'string',
       description: '本次写入的证据文件绝对路径（<project_dir>/_probe/asset-reconcile.json）；宿主钩子读的就是它。' },
-    disposition: { type: 'object', required: true, additionalProperties: true,
+    disposition: { type: 'object', additionalProperties: true,
       description: '每条未登记资产的处置记录，跨次运行保留；值是 {status, note}，'
         + 'status 为 pending / registered / ignored。' },
-    blocking: { type: 'array', required: true, items: { type: 'integer' },
+    blocking: { type: 'array', items: { type: 'integer' },
       description: '还没处置（不是 registered / ignored）的未登记资产 ID；非空即拒绝付费生图。' },
-    ignored_without_note: { type: 'array', required: true, items: { type: 'integer' },
+    ignored_without_note: { type: 'array', items: { type: 'integer' },
       description: '判为 ignored 但 note 为空的资产 ID；非空即拒绝付费生图。' },
     next: { type: 'string', required: true, description: '这次之后该做什么，一句中文。' },
+    status: { type: 'string', enum: ['reuse_ready', 'needs_review', 'missing', 'blocked'], description: 'match_preview 的整体结果；不是审批或付费授权。' },
+    search_scope: { type: 'string', enum: ['current_project'], description: '仅当前项目；missing 不表示历史库也没有素材。' },
+    source_sha256: { type: 'string', description: '已核对的原文摘要。' },
+    fingerprint: { type: 'string', description: 'reuse_preview 的来源、资产版本、适用条件及整卡计划摘要；无审批或执行权限。' },
+    apply_allowed: { type: 'boolean', description: '预览恒为 false，只表示本结果不授予写入权限；用户授权后仍可调用原有绑定工具。' },
+    groups: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+      fingerprint: { type: 'string', required: true }, kind: { type: 'string', required: true, enum: ['character', 'scene', 'voice'] },
+      name: { type: 'string', required: true }, identity: { type: 'string', required: true },
+      status: { type: 'string', required: true, enum: ['reuse_ready', 'needs_review', 'missing', 'blocked'] },
+      requirement_ids: { type: 'array', required: true, items: { type: 'string' } },
+      episodes: { type: 'array', required: true, items: { type: 'integer' } },
+      conditions: { type: 'array', required: true, items: { type: 'string' } },
+      state_or_costume: { type: 'string', required: true },
+      candidate_asset_ids: { type: 'array', required: true, items: { type: 'integer' } },
+      selected_asset_id: { type: 'integer' }, reason_codes: { type: 'array', required: true, items: { type: 'string' } },
+      approval_required: { type: 'boolean', required: true },
+      candidates: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
+        asset_id: { type: 'integer', required: true }, name: { type: 'string', required: true },
+        stable_id: { type: 'string', required: true }, state_or_costume: { type: 'string', required: true },
+      } } },
+    } } },
+    shots: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+      storyboard_id: { type: 'integer', required: true },
+      status: { type: 'string', required: true, enum: ['awaiting_confirmation', 'already_bound', 'blocked'] },
+      reason_codes: { type: 'array', required: true, items: { type: 'string' } },
+      requirement_ids: { type: 'array', required: true, items: { type: 'string' } },
+      selections: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
+        material_key: { type: 'string', required: true }, asset_id: { type: 'integer', required: true },
+      } } },
+      before_sha256: { type: 'string' }, after_sha256: { type: 'string' }, apply_allowed: { type: 'boolean', required: true },
+    } } },
+    read_only: { type: 'boolean', description: 'match_preview 恒为 true。' },
+    paid_requests: { type: 'integer', description: 'match_preview 恒为 0。' },
+    remote_writes: { type: 'integer', description: 'match_preview 恒为 0。' },
+    local_writes: { type: 'integer', description: 'match_preview 恒为 0。' },
+    counts: { type: 'object', additionalProperties: false, properties: {
+      reuse_ready: { type: 'integer', required: true }, needs_review: { type: 'integer', required: true },
+      missing: { type: 'integer', required: true }, blocked: { type: 'integer', required: true },
+    } },
+    matches: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+      id: { type: 'string', required: true }, kind: { type: 'string', required: true, enum: ['character', 'scene', 'voice'] },
+      name: { type: 'string', required: true }, status: { type: 'string', required: true, enum: ['reuse_ready', 'needs_review', 'missing', 'blocked'] },
+      candidate_asset_ids: { type: 'array', required: true, items: { type: 'integer' } },
+      selected_asset_id: { type: 'integer' }, reason_codes: { type: 'array', required: true, items: { type: 'string' } },
+      evidence: { type: 'array', required: true, items: { type: 'string' } },
+    } } },
     asset_id: { type: 'integer',
       description: 'dispose 报告：本次写入处置的资产 ID；reconcile 不带这个字段。' },
     script_id: { type: 'integer',
@@ -415,6 +527,16 @@ const RESULT_SCHEMA = {
   },
 } as const
 
+/** Resolve and validate the matching-only deployment bounds. */
+function matchLimits(config: Config): MatchLimits {
+  const limits = { pageSize: config.matchPageSize ?? 1000, pageLimit: config.matchPageLimit ?? 100,
+    requirementsLimit: config.matchRequirementLimit ?? 100 }
+  if (!Object.values(limits).every(value => Number.isSafeInteger(value) && value > 0) || limits.pageSize > 1000) {
+    throw new Error('Matching limits must be positive integers; matchPageSize must be at most 1000.')
+  }
+  return limits
+}
+
 /** What the model reads before calling: what each method does, the verdict rule, and what this tool never does. */
 const DESCRIPTION = '短剧流水线的付费生成前资产对账（剧变）。'
   + 'reconcile=只读剧变、免费：把「剧变远端这个项目里已选用的资产」与「assets_manifest.json 里写了什么」逐条比一遍，'
@@ -429,7 +551,13 @@ const DESCRIPTION = '短剧流水线的付费生成前资产对账（剧变）�
   + '某条记录不是对象，都写进 issues 并让 ready=false，好让 agent 一次看全所有要修的地方。'
   + '为什么清单不够：清单只记录我们生成过什么，不等于剧变项目里已经有什么——'
   + '2026-09-20 就因为只看清单，给一张项目里早就存在的正式资产重新生成了两次（花掉 1.17 元）。'
-  + '本工具绝不调用剧变的任何写方法、绝不计费：远端只读，本地只写 _probe/asset-reconcile.json 这一个文件。'
+  + 'match_preview=只读当前项目人物、场景与已认可声线；需要项目内 requirements_path，返回 reuse_ready/needs_review/missing/blocked 与证据。'
+  + '它不写任何文件，不生成、不绑定、不审批；同名不能证明身份，分页不全或来源变化必须 blocked。missing 仅限当前项目，不允许据此直接付费生成。'
+  + 'reuse_preview=集中归组并生成只读复用计划；可带 plan_path 预检各镜素材选择，保留无关素材和配置，失败即停止后续预检。'
+  + '匹配预览 → 复用建议 → 用户确认 → 模型调用原有 jubian_storyboard.select_assets。'
+  + 'reuse_ready、already_bound 和 fingerprint 不是审批；apply_allowed=false 只表示预览不授予写入权限。'
+  + '用户授权后可按 shots 的有序 selections 调用原工具，继续实时身份、顺序和回读校验；未授权不得绑定。声线沿 audio_preview → audio_apply。'
+  + '本工具绝不调用剧变的任何写方法、绝不计费：reconcile/dispose 本地只写 _probe/asset-reconcile.json，match_preview 完全只读。'
 
 /**
  * Register the `drama_assets` tool.
@@ -437,19 +565,19 @@ const DESCRIPTION = '短剧流水线的付费生成前资产对账（剧变）�
  * @param config - Optional origin, timeout and workspace-secret overrides.
  */
 export function apply(ctx: Context, config: Config = {}): void {
-  const client = workspaceJubianClient({
-    credential: async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? '',
-    ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
-    ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
-  }, config.workspaceSecrets !== false, process.cwd())
+  const limits = matchLimits(config)
+  const client = configuredJubianClient(
+    async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? '', config, process.cwd())
   ctx.tools.register(defineTool({
     name: 'drama_assets',
     description: DESCRIPTION,
     parameters: {
-      method: { type: 'string', required: true, enum: ['reconcile', 'dispose'],
-        description: 'reconcile=只读剧变做对账并写证据（免费）；dispose=只改证据里的处置记录（不联网）。' },
+      method: { type: 'string', required: true, enum: ['reconcile', 'dispose', 'match_preview', 'reuse_preview'],
+        description: 'reconcile=对账并写证据；dispose=只改处置记录；match_preview=只读人物、场景、声线匹配，不写文件、不审批。' },
       project_dir: { type: 'string', required: true,
         description: '项目根目录绝对路径，必须含 assets_manifest.json；证据写在它的 _probe/asset-reconcile.json。' },
+      requirements_path: { type: 'string', description: 'match_preview/reuse_preview 必填：项目内 version=1 的需求 JSON，含 source_path、source_sha256 与 requirements；详情见工具 README。' },
+      plan_path: { type: 'string', description: 'reuse_preview 可选：项目内 version=1 的 shots JSON，含 storyboard_id、episode、episode_id 与 requirement_id/material_key 绑定映射；不得包含 approved 或审批字段。' },
       asset_id: { type: 'integer',
         description: 'dispose 必填：要处置的 unregistered 资产 ID（不是 material_id、不是任务 ID）。' },
       status: { type: 'string', enum: ['registered', 'ignored'],
@@ -464,7 +592,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       render: (_args, value): ContentBlock[] => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
     execute: async (args) => {
-      const result = await runDramaAssets(client, args)
+      const result = await runDramaAssets(client, args, limits)
+      if (result.method === 'match_preview' || result.method === 'reuse_preview') return result
       return { ...result, disposition: Object.fromEntries(Object.entries(result.disposition).map(([key, value]) => [key, { ...value }])) }
     },
   }))

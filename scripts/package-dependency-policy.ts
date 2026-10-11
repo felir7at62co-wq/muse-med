@@ -66,7 +66,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/dsh-credentials': ['credentialRef'],
   '@deepseek-ai/dsh-jubian': [
     'JUBIAN_TOKEN_REF', 'JubianError', 'JubianLedger', 'centsOf', 'checkBudget',
-    'workspaceJubianClient', 'workspacePipelineToken',
+    'configuredJubianClient', 'workspacePipelineToken',
     'describePayload', 'readProjectBudget', 'updateProjectBudget',
   ],
   '@deepseek-ai/dsh-jubian-api': [

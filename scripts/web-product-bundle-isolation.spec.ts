@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { browserDependencyAnalysis, productWebBundleIsolation } from '../apps/web/product-isolation.ts'
-import { WebProductBundleIsolation } from './web-product-bundle-isolation.ts'
+import { WebProductBundleIsolation, type WebOutputBundle } from './web-product-bundle-isolation.ts'
 import { BundleInputIsolation } from './bundle-input-isolation.ts'
 
 const filesystem = vi.hoisted(() => ({ missingRoot: false }))
@@ -64,6 +64,45 @@ function fixture() {
 }
 
 describe('default Web bundle input isolation', () => {
+  it.each([
+    ['\0rolldown/runtime.js', true], ['\0unrecognized/runtime.js', false],
+  ] as const)('distinguishes compiler-owned runtime %j from unrecorded inputs', (runtime, allowed) => {
+    const test = fixture()
+    const inputs = new WebProductBundleIsolation(test.root, test.web)
+    const main = join(test.web, 'src/main.js')
+    const bundle: WebOutputBundle = {
+      'index.html': { type: 'asset', fileName: 'index.html', names: ['index.html'], originalFileNames: ['index.html'] },
+      'main.js': { type: 'chunk', fileName: 'main.js', facadeModuleId: main,
+        modules: { [main]: {}, [runtime]: {} }, imports: [], dynamicImports: [] },
+    }
+    inputs.assetReference('main.js', 'index.html', 'asset')
+    inputs.captureChunks(bundle)
+    const verify = (): void => { inputs.verify(bundle, id => id === runtime ? null : {
+      importedIds: [], dynamicallyImportedIds: [], isExternal: false, isIncluded: true,
+    }) }
+    if (allowed) expect(verify).not.toThrow()
+    else expect(verify).toThrow(/has no Rollup module record/)
+  })
+
+  it.each(['implicitlyLoadedBefore', 'referencedFiles'] as const)('retains Rollup %s edges when supplied', (edge) => {
+    const test = fixture()
+    const inputs = new WebProductBundleIsolation(test.root, test.web)
+    const main = join(test.web, 'src/main.js')
+    const forbidden = join(test.root, 'packages/experimental/prototype/index.js')
+    const bundle: WebOutputBundle = {
+      'index.html': { type: 'asset', fileName: 'index.html', names: ['index.html'], originalFileNames: ['index.html'] },
+      'main.js': { type: 'chunk', fileName: 'main.js', facadeModuleId: main,
+        modules: { [main]: {} }, imports: [], dynamicImports: [], [edge]: ['hidden.js'] },
+      'hidden.js': { type: 'chunk', fileName: 'hidden.js', facadeModuleId: forbidden,
+        modules: { [forbidden]: {} }, imports: [], dynamicImports: [] },
+    }
+    inputs.assetReference('main.js', 'index.html', 'asset')
+    inputs.captureChunks(bundle)
+    expect(() => { inputs.verify(bundle, () => ({
+      importedIds: [], dynamicallyImportedIds: [], isExternal: false, isIncluded: true,
+    })) }).toThrow(/Web product isolation: experimental input/)
+  })
+
   it('requires explicit analysis intent before allowing externalized inputs in a non-writing build', async () => {
     const test = fixture()
     test.write('apps/web/src/main.js', 'import "external-lib"; globalThis.product = true')

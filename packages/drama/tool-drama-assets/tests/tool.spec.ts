@@ -6,7 +6,7 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionToken, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { JUBIAN_TOKEN_REF } from '@deepseek-ai/dsh-jubian'
@@ -84,6 +84,13 @@ async function evidence(projectDir: string): Promise<ReconcileReport> {
 }
 
 describe('registration', () => {
+  it.each(['match_preview', 'reuse_preview'] as const)('rejects %s without requirements before remote reads', async (method) => {
+    const dir = await project()
+    const { client, calls } = stubTransport([], [])
+    await expect(runDramaAssets(client, { method, project_dir: dir })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(calls).toHaveLength(0)
+  })
+
   it('declares its name and the two registries it needs', () => {
     expect(name).toBe('tool-drama-assets')
     expect(inject).toEqual(['tools', 'credentials'])
@@ -109,8 +116,8 @@ describe('registration', () => {
       properties: Record<string, { enum?: string[]; required?: boolean }>
       required: string[]
     }
-    expect(Object.keys(parameters.properties).sort()).toEqual(['asset_id', 'method', 'note', 'project_dir', 'status'])
-    expect(parameters.properties['method']?.enum).toEqual(['reconcile', 'dispose'])
+    expect(Object.keys(parameters.properties).sort()).toEqual(['asset_id', 'method', 'note', 'plan_path', 'project_dir', 'requirements_path', 'status'])
+    expect(parameters.properties['method']?.enum).toEqual(['reconcile', 'dispose', 'match_preview', 'reuse_preview'])
     expect(parameters.properties['status']?.enum).toEqual(['registered', 'ignored'])
     expect(parameters.required).toEqual(['method', 'project_dir'])
   })
@@ -151,15 +158,24 @@ describe('registration', () => {
   })
 
   it('sends the token the credential store resolved to the deployment origin', async () => {
-    // The origin is the deployment's; the token comes from the credential store and
-    // reaches the transport's own request to that origin.
-    const { ctx, registered, resolvedRefs } = mountContext('resolved-secret')
-    apply(ctx, { baseUrl: 'https://jubian.example.invalid/prod-api', timeoutMs: 5000 })
-    const projectDir = await project()
-    await expect(dramaAssets(registered).execute(
-      { method: 'reconcile', project_dir: projectDir }, runContext()))
-      .rejects.toThrow()
-    expect(resolvedRefs).toEqual([JUBIAN_TOKEN_REF])
+    const transport = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 401 }))
+    try {
+      const { ctx, registered, resolvedRefs } = mountContext('resolved-secret')
+      apply(ctx, { baseUrl: 'https://jubian.example.invalid/prod-api', timeoutMs: 5000 })
+      const projectDir = await project()
+      await expect(dramaAssets(registered).execute(
+        { method: 'reconcile', project_dir: projectDir }, runContext()))
+        .rejects.toThrow('HTTP 401')
+      expect(resolvedRefs).toEqual([JUBIAN_TOKEN_REF])
+      expect(transport).toHaveBeenCalledTimes(1)
+      const request = transport.mock.calls[0]
+      if (request === undefined) throw new Error('Expected the credential-bearing provider request')
+      expect(request[0]).toMatch(/^https:\/\/jubian\.example\.invalid\/prod-api\/aigc\/asset\/list\?/)
+      expect(request[1]?.method).toBe('GET')
+      expect(new Headers(request[1]?.headers).get('Authorization')).toBe('Bearer resolved-secret')
+    } finally {
+      transport.mockRestore()
+    }
   })
 
   it('renders the canonical value as pretty JSON', () => {

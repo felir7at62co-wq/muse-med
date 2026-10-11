@@ -135,20 +135,36 @@ it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME)('refuses unaccepted Markdown i
 })
 
 
-it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME)('exports ordered Chinese Markdown using the packaged runtime', async () => {
+it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME)('exports ordered Chinese Markdown using the configured Python runtime', async () => {
   const root = await mkdtemp(join(tmpdir(), 'screenplay-docx-runtime-'))
   try {
-    const first = join(root, '第1集.md')
-    const second = join(root, '第2集.md')
+    const first = join(root, '第2集.md')
+    const second = join(root, '第10集.md')
     const output = join(root, '完整剧本.docx')
-    await writeFile(first, '# 第1集\n1-1 老屋 夜 内\n人物：林遥、周宁\n▲林遥放下信。\n林遥 OS：不能告诉他。\n周宁：你怎么了？\n林遥：没事。\n')
-    await writeFile(second, '# 第2集\n2-1 门口 日 外\n人物：林遥\n▲林遥推开门。\n**【下集钩子】**\n林遥：是你？\n')
+    await writeFile(first, '# 第2集\n2-1 老屋 夜 内\n人物：林遥、周宁\n▲林遥放下信。\n林遥 OS：不能告诉他。\n周宁：你怎么了？\n林遥：没事。\n')
+    await writeFile(second, '# 第10集\n10-1 门口 日 外\n人物：林遥\n▲林遥推开门。\n**【下集钩子】**\n林遥：是你？\n')
     expect(await exportScreenplayDocx({ inputs: [first, second], output }, {
       source: process.env.MUSE_TEST_PRIMARY_RUNTIME!, maxProjectBytes: 1000000, maxInputBytes: 10000, timeoutMs: 30000,
     })).toEqual({ output })
     const bytes = await readFile(output)
     expect(bytes.subarray(0, 2).toString()).toBe('PK')
     expect(bytes.length).toBeGreaterThan(1000)
+    const runtime = await resolvePrimaryRuntime(process.env.MUSE_TEST_PRIMARY_RUNTIME!)
+    const { stdout } = await promisify(execFile)(runtime.python, ['-c', [
+      'from docx import Document',
+      'from docx.oxml.ns import qn',
+      'import json, sys',
+      'doc = Document(sys.argv[1])',
+      'normal = doc.styles["Normal"]',
+      'print(json.dumps({"paragraphs": [p.text for p in doc.paragraphs], "font": normal.font.name,',
+      '  "eastAsia": normal.element.rPr.rFonts.get(qn("w:eastAsia")),',
+      '  "secondPageBreak": doc.paragraphs[7].paragraph_format.page_break_before}, ensure_ascii=False))',
+    ].join('\n'), output], { windowsHide: true, timeout: 30000, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } })
+    expect(JSON.parse(stdout)).toEqual({
+      paragraphs: ['第2集', '2-1 老屋 夜 内', '人物：林遥、周宁', '▲林遥放下信。', '林遥 OS：不能告诉他。',
+        '周宁：你怎么了？', '林遥：没事。', '第10集', '10-1 门口 日 外', '人物：林遥', '▲林遥推开门。', '【下集钩子】', '林遥：是你？'],
+      font: 'SimSun', eastAsia: '宋体', secondPageBreak: true,
+    })
   } finally {
     await rm(root, { recursive: true, force: true })
   }

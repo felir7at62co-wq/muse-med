@@ -1,0 +1,16 @@
+{
+  "samples": [
+    {
+      "character_id": "lu",
+      "version": 1,
+      "status": "approved",
+      "asset_id": 13,
+      "url": "https://example.invalid/lu.wav",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "duration_seconds": 2,
+      "source_path": "voice-source.txt",
+      "source_sha256": "9bba862b6d1233829131a55e4b82eb4465ad150ec3ab57bf9431f630312bebb7",
+      "start_seconds": 0
+    }
+  ]
+}

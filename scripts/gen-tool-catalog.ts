@@ -838,8 +838,8 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-drama-assets',
     dir: 'tool-drama-assets',
     source: 'packages/drama/tool-drama-assets/src/index.ts',
-    requires: ['ctx.tools', 'ctx.credentials', 'the project layout it reads and writes (assets_manifest.json, _probe/asset-reconcile.json)'],
-    writes: ['tool/call', 'tool/result', 'on reconcile: _probe/asset-reconcile.json under the project root'],
+    requires: ['ctx.tools', 'ctx.credentials', 'the project layout (assets_manifest.json, _probe/asset-reconcile.json, project_config.json, source-backed requirements and optional shot plans)'],
+    writes: ['tool/call', 'tool/result', 'on reconcile/dispose: _probe/asset-reconcile.json under the project root'],
     async mount(ctx) {
       // Like the Jubian row: this one also injects `credentials` and resolves the
       // token per read, so the harvest mounts the same stub provider.
@@ -851,8 +851,14 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolDramaAssets)
     },
     note:
-      'Two methods over one evidence file: `reconcile` reads the remote project\u2019s asset and material lists and the manifest and writes the evidence the host\u2019s '
+      'Four methods: `reconcile` reads the remote project\u2019s asset and material lists and the manifest and writes the evidence the host\u2019s '
       + 'reconcile gate reads, and `dispose` records one disposition in it without any remote read. '
+      + '`match_preview` reads source-backed requirements, the project bible, formal assets and recognized voice references, '
+      + 'returning `reuse_ready`, `needs_review`, `missing` or `blocked`. `reuse_preview` groups those recommendations across shots '
+      + 'and optionally checks an ordered material-selection plan while preserving unrelated materials and card configuration. '
+      + 'Both previews are read-only and verify source-file byte SHA-256, line numbers and exact source text; a candidate digest is not source SHA-256. '
+      + '`apply_allowed=false` means the preview grants no write permission. After user authorization, the model uses the existing '
+      + '`jubian_storyboard.select_assets` tool; voices remain on `audio_preview` / `audio_apply`. '
       + 'The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate\u2019s inputs.',
   },
 ]

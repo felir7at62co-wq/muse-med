@@ -1,7 +1,8 @@
 /** Repository-wide ownership and storage invariants for the recorded-session corpus. */
 
 import { existsSync } from 'node:fs'
-import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { expect, it } from 'vitest'
 import {
@@ -82,23 +83,52 @@ function referencedScenario(owner: Scenario, source: string): string {
   return source.includes('/') ? source : `${owner.profile}/${source}`
 }
 
-async function snapshotNamedTests(): Promise<string[]> {
+async function snapshotNamedTests(root = repoRoot): Promise<string[]> {
   const files: string[] = []
   const visit = async (directory: string, relativeDir: string): Promise<void> => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       if (entry.isDirectory()) {
-        if (['dist', 'lib', 'node_modules'].includes(entry.name)) continue
+        const childDir = join(relativeDir, entry.name).split(/[/\\]/u).join('/')
+        if (['dist', 'lib', 'node_modules'].includes(entry.name)
+          || childDir === 'apps/desktop/.desktop-build') continue
         await visit(join(directory, entry.name), join(relativeDir, entry.name))
       } else if (entry.isFile() && /\.snapshot\.tsx?$/u.test(entry.name)) {
         files.push(join(relativeDir, entry.name).split(/[/\\]/u).join('/'))
       }
     }
   }
-  for (const root of ['apps', 'native', 'packages', 'python', 'scripts', 'snapshots', 'website']) {
-    await visit(join(repoRoot, root), root)
+  for (const sourceDir of ['apps', 'native', 'packages', 'python', 'scripts', 'snapshots', 'website']) {
+    await visit(join(root, sourceDir), sourceDir)
   }
   return files.sort()
 }
+
+it('excludes desktop build copies while retaining every source snapshot adapter', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-snapshot-adapters-'))
+  try {
+    const included = [
+      'apps/desktop/tests/extra.snapshot.ts',
+      'packages/example/.desktop-build/owned.snapshot.ts',
+      'snapshots/session/headless.snapshot.ts',
+    ]
+    const excluded = [
+      'apps/desktop/.desktop-build/audit/before-files/headless.snapshot.ts',
+      'apps/example/lib/built.snapshot.ts',
+      'packages/example/node_modules/dependency.snapshot.ts',
+      'website/dist/built.snapshot.ts',
+    ]
+    for (const directory of ['apps', 'native', 'packages', 'python', 'scripts', 'snapshots', 'website']) {
+      await mkdir(join(root, directory), { recursive: true })
+    }
+    for (const path of [...included, ...excluded]) {
+      await mkdir(dirname(join(root, path)), { recursive: true })
+      await writeFile(join(root, path), '')
+    }
+    expect(await snapshotNamedTests(root)).toEqual(included)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 it('reserves the snapshot test suffix for recorded-session adapters', async () => {
   expect(await snapshotNamedTests()).toEqual([...snapshotAdapters])

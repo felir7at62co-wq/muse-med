@@ -25,3 +25,11 @@ description: 仿真人镜头与剧变正式资产匹配。逐镜头绑定确认�
 matched JSON 只能记录主体设定当前版本；分镜中的 `materialAssetId`、`assetId`、URL、名称/缩略图和提示词映射必须共同指向该版本。生成资产的字符串 `assetId=asset-...` 不得当作父资产查询 ID。
 
 候选图、仅自动审核通过的生成图、缺确认响应的生成图一律拒绝。人物必须选择当前场次正确服装和阶段；场景、道具必须符合当前时空。同一镜头引用顺序必须和视频提示词中的人物映射一致。出现新旧字段混合、已删除资产或缺少核心资产时，回到主体设定重新选择或资产生成与确认出演，不得用相似图顶替。
+
+## 绑定前集中核对
+
+优先通过 `drama_assets match_preview` 汇总本集人物与场景复用建议，输入与状态见 [匹配预览字段](../tweet-drama-core/references/match-preview.md)。同名、缺少既有角色身份关系、服装/身体状态冲突或场景条件不足不得当作匹配成功；`blocked` 暂停受影响项，`needs_review` 集中提交人工确认。当前项目的 `missing` 不等于历史库无素材。`reuse_ready` 不批准正式采用，也不写分镜；人工确认后仍按原 `drama_shot` 校验和 `select_assets` 实时身份/顺序回读绑定，不跳过既有门禁。
+
+### 集中复用计划
+
+多镜头选材按「匹配预览 → 复用建议 → 用户确认 → 模型调用原有 jubian_storyboard.select_assets」处理。先用 `drama_assets method=reuse_preview`，复用 requirements_path；有已建分镜时可传 plan_path，按稳定身份、状态及条件集中展示 groups、候选和原因。needs_review 先澄清并重做预览，missing 继续既有素材库检索，blocked 停止受影响项。输入和绑定参数见[匹配预览字段](../tweet-drama-core/references/match-preview.md#用户确认后使用现有绑定工具)。预览不审批、不写关系、不自动绑定；reuse_ready、already_bound 和 fingerprint 不是用户授权，apply_allowed=false 只表示预览本身不授予写入权限。取得覆盖具体项目、分镜和素材版本的真实用户授权后，模型可以调用原 select_assets；同一身份状态与适用范围的确认可用于已列出的多镜头，来源、状态或计划变化后重新核对。禁止 Agent 自填 approved，未授权不得绑定；继续原 drama_shot、素材身份、顺序、幂等和回读校验，声线仍走 audio_preview → audio_apply。

@@ -1,7 +1,8 @@
 /**
  * Video task reads: the remote generation identity a caller polls.
  *
- * Cost fields are carried through as observed strings. They are never a settled
+ * Cost fields preserve decimal strings and convert nonnegative finite wire numbers to strings.
+ * They are never a settled
  * charge: only a definitive provider receipt can settle billing, so these fields
  * are evidence for a human, not authorization for a program.
  */
@@ -14,6 +15,7 @@ function nullableId(value: unknown): number | null {
 }
 
 function cost(value: unknown): string | null {
+  if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? String(value) : null
   return typeof value === 'string' && /^[0-9]+(\.[0-9]+)?$/.test(value) ? value : null
 }
 

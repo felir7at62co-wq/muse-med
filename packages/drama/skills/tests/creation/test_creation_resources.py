@@ -25,6 +25,40 @@ FIXED_INSTALL_ROOT = re.compile(
 
 
 class CreationResourcesTests(unittest.TestCase):
+    def test_central_reuse_remains_a_preview_without_agent_issued_approval(self):
+        for name in ("tweet-drama-shot-asset-match", "tweet-drama-pipeline"):
+            text = (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
+            for requirement in ("reuse_preview", "plan_path", "apply_allowed=false", "不自动绑定", "approved"):
+                self.assertIn(requirement, text)
+        text = (SKILLS / "tweet-drama-core/references/match-preview.md").read_text(encoding="utf-8")
+        for requirement in ("episode_id", "awaiting_confirmation", "already_bound", "不接受 approved", "停止后续预检"):
+            self.assertIn(requirement, text)
+
+    def test_user_authorized_handoff_uses_existing_tools_without_native_confirmation(self):
+        for name in ("tweet-drama-shot-asset-match", "tweet-drama-pipeline"):
+            text = (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("匹配预览 → 复用建议 → 用户确认 → 模型调用原有 jubian_storyboard.select_assets", text)
+            self.assertIn("apply_allowed=false 只表示预览本身不授予写入权限", text)
+            self.assertNotIn("drama_assets_confirmation", text)
+        text = (SKILLS / "tweet-drama-core/references/match-preview.md").read_text(encoding="utf-8")
+        for value in ("shots[].selections", "idempotency_key", "未", "audio_preview → audio_apply", "不要把音频 asset_id 混入图片 selections"):
+            self.assertIn(value, text)
+
+    def test_matching_preview_reuses_workflow_and_preserves_approval_boundaries(self):
+        for name in ("tweet-drama-asset-extract", "tweet-drama-shot-asset-match",
+                     "tweet-drama-voice-continuity", "tweet-drama-pipeline"):
+            text = (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
+            for requirement in ("match_preview", "reuse_ready", "needs_review", "blocked", "人工确认"):
+                self.assertIn(requirement, text)
+            self.assertIn("references/match-preview.md", text)
+        contract = "skills/tweet-drama-core/references/match-preview.md"
+        manifest = json.loads((PACK / "package.json").read_text(encoding="utf-8"))
+        self.assertIn(contract, manifest["files"])
+        text = (PACK / contract).read_text(encoding="utf-8")
+        for requirement in ("source_sha256", "source_line", "current_project", "不自动生成", "missing"):
+            self.assertIn(requirement, text)
+
+
     def test_voice_references_use_library_assets_and_reviewed_original_card_changes(self):
         text = (SKILLS / "tweet-drama-voice-continuity/SKILL.md").read_text(encoding="utf-8")
         for requirement in ("音频类别", "reference_audio_asset_id", "reference_audio_sha256",

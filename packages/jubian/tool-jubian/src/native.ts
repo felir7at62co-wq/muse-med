@@ -52,6 +52,12 @@ interface ProjectBinding { project_root: string; script_id: number }
 /** Refuse one call whose input or provider state does not match the contract. */
 function fail(): never { throw new JubianError('CONTRACT_CHANGED') }
 
+/** Keep only SDK-redacted submission failures in the model-visible result. */
+function submissionFailure(error: unknown): { code: string; message: string } {
+  return error instanceof JubianError ? { code: error.code, message: error.message }
+    : { code: 'UNEXPECTED_ERROR', message: 'Video submission failed' }
+}
+
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new JubianError('CONTRACT_CHANGED')
   return value as Record<string, unknown>
@@ -169,6 +175,27 @@ async function parentAsset(client: JubianClient, requested: string): Promise<Rec
   return asset
 }
 
+/** Keep the failed read and its numeric remote code without exposing provider text. */
+async function preflightRead<T>(stage: string, read: () => Promise<T>): Promise<T> {
+  try { return await read() }
+  catch (error) {
+    if (!(error instanceof JubianError)) throw error
+    const applicationCode = /unmapped envelope code ([0-9]+)/u.exec(error.detail ?? '')?.[1]
+    const httpStatus = /^HTTP ([0-9]+)$/u.exec(error.detail ?? '')?.[1]
+    throw new JubianError(error.code, `prepare_video stage=${stage}`
+      + (applicationCode === undefined ? '' : `; remote_code=${applicationCode}`)
+      + (httpStatus === undefined ? '' : `; http_status=${httpStatus}`)
+      + '; paid_request_sent=false; inspect the live storyboard and official assets')
+  }
+}
+
+/** Resolve only a positive numeric parent identity; local subject IDs are never asset paths. */
+function numericParentId(value: unknown): string | null {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !/^[0-9]+$/u.test(value.trim()))) return null
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed > 0 ? String(parsed) : null
+}
+
 /** Read the live storyboard snapshot, refusing a body that is not the requested storyboard. */
 async function storyboardSnapshot(client: JubianClient, storyboardId: number): Promise<Record<string, unknown>> {
   const storyboard = object((await client.request({ method: 'GET', path: `/aigc/storyboard/${storyboardId}` })).data)
@@ -190,25 +217,44 @@ async function storyboardSnapshot(client: JubianClient, storyboardId: number): P
  */
 async function loadLiveInputs(client: JubianClient, storyboardId: number):
 Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[] }> {
-  const storyboard = await storyboardSnapshot(client, storyboardId)
+  const storyboard = await preflightRead('storyboard_read', () => storyboardSnapshot(client, storyboardId))
   const scriptId = positiveInteger(storyboard.scriptId)
   const { materials } = storyboardMaterials(storyboard)
+  let rows: Record<string, unknown>[] | undefined
+  let resolved = false
+  const orderedMaterials = materials.map(material => ({ ...material }))
+  for (const [index, material] of orderedMaterials.entries()) {
+    if (material.materialType === 'audio' || numericParentId(material.materialAssetId) !== null) continue
+    rows ??= await preflightRead('subject_list_read', () => listAllSubjectMaterials(client, scriptId))
+    const localId = wireText(material.assetId)
+    const matches = rows.filter(row => localId !== null && localId.trim() !== ''
+      && wireText(row.hsAssetId) === localId && row.assetUrl === material.materialUrl
+      && numericParentId(row.assetId) !== null && numericParentId(row.scriptId) === String(scriptId)
+      && ((typeof row.isUsed === 'number' && row.isUsed === 1)
+        || (typeof row.isUsed === 'string' && row.isUsed.trim() === '1'))
+      && (wireText(row.hsAssetStatus) ?? '').trim().toLowerCase() === 'active')
+    const [match] = matches
+    if (matches.length !== 1 || match === undefined) throw new JubianError('CONTRACT_CHANGED',
+      `prepare_video stage=subject_identity; image_index=${index + 1}; materialAssetId has no unique active official mapping; `
+      + 'inspect the saved subject selection manually; paid_request_sent=false')
+    material.materialAssetId = Number(match.assetId)
+    resolved = true
+  }
   const byId = new Map<string, Record<string, unknown>>()
   const ordered: Record<string, unknown>[] = []
-  for (const material of materials) {
+  for (const material of orderedMaterials) {
     if (material.materialType === 'audio') continue
-    const parentId = wireText(material.materialAssetId ?? material.assetId)
-    if (parentId === null || parentId === '') throw new JubianError('CONTRACT_CHANGED')
-    const key = parentId
+    // The resolution pass accepts only positive numeric parents or replaces them from an official row.
+    const key = String(Number(material.materialAssetId))
     let asset = byId.get(key)
     if (asset === undefined) {
-      asset = await parentAsset(client, parentId)
+      asset = await preflightRead('parent_asset_read', () => parentAsset(client, key))
       if (positiveInteger(asset.scriptId) !== scriptId) throw new JubianError('CONTRACT_CHANGED')
       byId.set(key, asset)
     }
     ordered.push(asset)
   }
-  const rows = await listAllSubjectMaterials(client, scriptId)
+  rows ??= await preflightRead('subject_list_read', () => listAllSubjectMaterials(client, scriptId))
   const rowsByParent = new Map<string, Record<string, unknown>[]>()
   for (const row of rows) {
     const parent = wireText(row.assetId)
@@ -247,7 +293,8 @@ Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[]
     asset.isUsed = row.isUsed
     asset.assetUrl = rowUrl
   }
-  return { storyboard, assets: ordered }
+  return { storyboard: resolved ? { ...storyboard, storyboardMaterialList: orderedMaterials } : storyboard,
+    assets: ordered }
 }
 
 /** The live catalogue of video-generation models. */
@@ -258,8 +305,21 @@ async function videoCatalogue(client: JubianClient): Promise<unknown> {
 /** Build the exact preview from live provider state, without writing anything. */
 async function livePreview(client: JubianClient, storyboardId: number, createdAt: string):
 Promise<NativeVideoPreview> {
-  const { storyboard, assets } = await loadLiveInputs(client, storyboardId)
-  return buildNativeVideoPreview({ storyboard, assets, models: await videoCatalogue(client), createdAt })
+  let inputs: Awaited<ReturnType<typeof loadLiveInputs>>
+  try { inputs = await loadLiveInputs(client, storyboardId) }
+  catch (error) {
+    if (!(error instanceof JubianError) || error.detail?.includes('stage=')) throw error
+    throw new JubianError(error.code, 'prepare_video stage=subject_validation; paid_request_sent=false; '
+      + 'check subject identity, project, active status and official image URL')
+  }
+  const { storyboard, assets } = inputs
+  const models = await preflightRead('model_catalogue_read', () => videoCatalogue(client))
+  try { return buildNativeVideoPreview({ storyboard, assets, models, createdAt }) }
+  catch (error) {
+    if (!(error instanceof JubianError) || error.code === 'INVALID_ARGUMENT') throw error
+    throw new JubianError(error.code, 'prepare_video stage=preview_validation; paid_request_sent=false; '
+      + 'check official materials and the saved ratio, model and duration')
+  }
 }
 
 /** Read a positive episode id; missing or malformed values cannot exclude a candidate. */
@@ -654,23 +714,25 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
   // after-list against the related set reported every unrelated task as new.
   const beforeAllTaskIds = new Set(secondIds)
 
-  const state = { putFailed: false, reconciliationFailed: false, sent: false, appearedIds: [] as string[],
+  const state = { putFailed: false, putError: null as { code: string; message: string } | null,
+    reconciliationFailed: false, sent: false, appearedIds: [] as string[],
     claim: { status: 'none' } as NativeClaim }
   const result = await writeUnderLedger(ledger, key, 'storyboard_native_submit', () => preview.payload,
     async (payload): Promise<JubianResponse> => {
       let response: JubianResponse
+      state.sent = true
       try {
         response = await client.request({ method: 'PUT', path: '/aigc/storyboard',
           body: payload as Record<string, unknown> })
-      } catch {
+      } catch (error) {
         // Every failed PUT is ambiguous: the provider may have applied it, and a
         // second request is exactly what must never happen. The ledger settle
         // below records `unknown`, which is the honest verdict.
         state.putFailed = true
+        state.putError = submissionFailure(error)
         return { transport: { http_status: null, application_code: null }, response_sha256: null,
           envelope_layout: 'unparsed', data: null }
       }
-      state.sent = true
       try {
         const afterRecords = await listAllVideoTasks(client, preview.scriptId)
         // The tasks that appeared across the PUT, whether or not any of them could be
@@ -708,9 +770,10 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
     ...(acceptedUnclaimed ? { claim_status: 'reconcile_conflict' } : {}),
     ...(state.appearedIds.length > 0 ? { new_task_ids: state.appearedIds } : {}),
     put_ambiguous: state.putFailed, before_task_ids: beforeTaskIds,
+    put_error: state.putError,
     next: state.putFailed
-      ? 'PUT 的结果不明确（超时/5xx/连接中断）：没有任何自动重试，这个 key 也不会再发 PUT。'
-        + '按上面的对账结果处理：submitted 就是已创建，否则继续用同一个 key 对账。'
+      ? 'PUT 已尝试提交，put_error 保留了提供方拒绝或连接失败的原因；任务及计费仍需对账。'
+        + '这个 key 不会再次发送 PUT：submitted 表示已找到任务，否则只用同一个 key 对账并处理报告的错误。'
       : acceptedUnclaimed
         ? 'PUT 已被提供方受理（很可能已计费），但没有一条候选能被完整认领：不要重新提交这个 preview。'
           + '按 new_task_ids 回读那些新任务（jubian_video subtasks），或人工核对归属。'
@@ -785,10 +848,12 @@ function readLimiter(concurrency: number): <T>(operation: () => Promise<T>) => P
 async function submitReservedVideo(client: JubianClient, ledger: JubianLedger, item: FrozenBatchItem):
 Promise<{ response_sha256: string | null
   outcome: 'accepted' | 'unknown'
-  put_ambiguous: boolean }> {
+  put_ambiguous: boolean
+  put_error: { code: string; message: string } | null }> {
   let response: JubianResponse | undefined
+  let errorDetail: { code: string; message: string } | null = null
   try { response = await client.request({ method: 'PUT', path: '/aigc/storyboard', body: item.preview.payload }) }
-  catch (error) { void error /* The intent remains a possible charge. */ }
+  catch (error) { errorDetail = submissionFailure(error) }
   const outcome = response !== undefined && acceptedWriteResponse(response.transport) ? 'accepted' : 'unknown'
   try {
     await ledger.settle(item.idempotency_key, { httpStatus: response?.transport.http_status ?? null,
@@ -799,7 +864,7 @@ Promise<{ response_sha256: string | null
     void error
   }
   return { response_sha256: response?.response_sha256 ?? null, outcome,
-    put_ambiguous: outcome === 'unknown' }
+    put_ambiguous: outcome === 'unknown', put_error: errorDetail }
 }
 
 /**
@@ -937,6 +1002,7 @@ Promise<{ total: number; submitted: number; reconcile_required: number; results:
       outcome: write.outcome, response_sha256: write.response_sha256,
       status: submitted ? 'submitted' : 'reconcile_required',
       task_id: submitted ? report.task_id : null, put_ambiguous: write.put_ambiguous,
+      put_error: write.put_error,
       early_task_id: earlyClaims[index]?.status === 'matched' ? earlyClaims[index].taskId : null,
       project_new_task_ids: appeared,
       next: submitted ? report.next : '该预览已有写入意图，但最终身份未完整确认；按原 key 只读对账，不要重发 PUT。' }
