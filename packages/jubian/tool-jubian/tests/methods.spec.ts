@@ -28,7 +28,7 @@ const PORTRAIT_IMAGE_CATALOGUE = [{ id: 66, modelId: 'gpt-image-2', platformId: 
   ] }]
 
 /** The generated image row the endpoint really answers with: a list, `assetUrl` and `id`. */
-const GENERATED_IMAGE = [{ id: 900, assetId: 83749, assetUrl: 'https://x/gen.png', hsAssetStatus: 'Active' }]
+const GENERATED_IMAGE = [{ id: 900, assetId: 83749, assetUrl: 'https://x/gen.png', hsAssetStatus: 'Active', isUsed: 0 }]
 
 // What the provider stores on every storyboard it holds, generated or not.
 const STORYBOARD = { id: 916953, scriptId: 2708, isGenerate: 1, storyboardName: '第1集-分镜1',
@@ -821,6 +821,49 @@ describe('jubian_video', () => {
     expect(() => resolveImageBatchOptions({ imageBatchMaxItems: 101 })).toThrow(/imageBatchMaxItems/u)
   })
 
+  it('returns an active generated candidate before its parent has been confirmed', async () => {
+    const { client, calls } = imageProvider(IMAGE_CATALOGUE, [])
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: 'candidate-before-parent' },
+    imageDeps({ timeoutMs: 100, pollMs: 100 }))
+    expect(result).toMatchObject({ outcome: 'accepted', parent_asset_id: 83749,
+      asset_status: 'generated', material_id: 900, image_url: 'https://x/gen.png', observed_asset_status: null })
+    expect(result.next).toContain('尚未确认出演')
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+    expect(calls.some(call => call.path.includes('confirm'))).toBe(false)
+  })
+
+  it.each(['wrong-parent', 'inactive', 'ambiguous'])
+  ('does not report a generated candidate with %s identity or state as ready', async (state) => {
+    const candidate = { ...GENERATED_IMAGE[0]!,
+      assetId: state === 'wrong-parent' ? 83750 : 83749,
+      hsAssetStatus: state === 'inactive' ? 'Submitted' : 'Active' }
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.path.includes('getGeneratedImageByAssetId')) return state === 'ambiguous'
+        ? [candidate, { ...candidate, id: 901 }] : [candidate]
+      if (request.method === 'GET') return { id: 83749, hsAssetStatus: null }
+      return 83749
+    })
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: `candidate-${state}` },
+    imageDeps({ timeoutMs: 100, pollMs: 100 }))
+    expect(result).toMatchObject({ outcome: 'accepted', parent_asset_id: 83749,
+      asset_status: 'timeout', material_id: null, image_url: null })
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+  })
+
+  it('does not return an old unselected candidate when regeneration has no parent status', async () => {
+    const { client, calls } = imageProvider(IMAGE_CATALOGUE, [])
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      parent_asset_id: 83749, asset_name: 'lead', asset_type: 1, prompt: 'new version',
+      idempotency_key: 'regenerate-with-old-candidate' }, imageDeps({ timeoutMs: 100, pollMs: 100 }))
+    expect(result).toMatchObject({ outcome: 'accepted', parent_asset_id: 83749,
+      asset_status: 'timeout', material_id: null, image_url: null })
+    expect(calls.filter(call => call.method === 'PUT')).toHaveLength(1)
+    expect(calls.some(call => call.path.includes('getGeneratedImageByAssetId'))).toBe(false)
+  })
+
   it('quotes, records, settles, then reads the asset back until it is Active', async () => {
     const { client, calls } = imageProvider()
     const result = await videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'k-1',
@@ -896,7 +939,7 @@ describe('jubian_video', () => {
     expect(result.material_id).toBeNull()
     expect(result.image_url).toBeNull()
     expect(String(result.readback_error)).toContain('回读超时')
-    expect(String(result.readback_error)).toContain('Active')
+    expect(String(result.readback_error)).toContain('没有核实可用生成图')
     expect(String(result.next)).toContain('不要换 key 重投')
     expect(calls.filter(call => call.method === 'POST').length).toBe(1)
     expect((await ledger.find('k-timeout'))?.outcome).toBe('accepted')

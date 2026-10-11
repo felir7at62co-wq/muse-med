@@ -1,0 +1,38 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`records an active candidate without confirming its casting or charging again > unconfirmed active image candidate 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "{
+  "replayed": false,
+  "outcome": "accepted",
+  "response_sha256": "sha256:483891f16820fd26cce4949960983d3b8da6768557f32879915c4cfefa24a0b8",
+  "budget": {
+    "status": "authorized",
+    "reason": "",
+    "settledCents": 0,
+    "reservedCents": 0
+  },
+  "parent_asset_id": 163126,
+  "resolution": "1K",
+  "model_selection": {
+    "standard_id": 66,
+    "platform_id": "KU_AI"
+  },
+  "asset_status": "generated",
+  "material_id": 166646,
+  "image_url": "https://images.example.test/lead-3d.png",
+  "observed_asset_status": null,
+  "waited_ms": 0,
+  "readback_error": null,
+  "next": "候选图片已生成且材质 Active，父资产尚未确认出演。先查看 image_url，审核通过后用 material_id 正常 confirm_casting，再回读父资产与已采用材质；不要重新付费生图。"
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+]
+`;

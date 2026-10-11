@@ -71,7 +71,7 @@ kind: "package-bundle"
 | `workspaceSecrets` | `true` | 凭证库没有值时，是否允许用 workspace 的流水线密钥文件顶替 |
 | `imagePlatformId` | 无 | `taskType=2` 目录里 `image_generate` 从哪个 `platformId` 购买，如 `KU_AI`；这是兜底锁定，只在短剧设置段没有锁定行时生效 |
 | `imageStandardId` | 无 | `image_generate` 从哪一行（`standardId`，即该行自己的 `id`）购买；它与 `imagePlatformId` 给出其一即可锁定一行，同样受设置页优先级约束 |
-| `imageActiveTimeoutMs` | `180000` | `image_generate` 等待新资产变为 `hsAssetStatus` `Active` 的上限，超过即报回读超时 |
+| `imageActiveTimeoutMs` | `180000` | `image_generate` 等待父资产 Active 或核实新父资产对应的 Active 未选用候选图的上限，超过即报回读超时 |
 | `imageActivePollMs` | `3000` | 上面这次回读的轮询间隔 |
 | `imageBatchConcurrency` | `3` | 一批同时执行的图片请求上限；整数 1..8 |
 | `imageBatchMaxItems` | `12` | 一批图片请求的项数上限；整数 1..100 |
@@ -185,7 +185,7 @@ inherited process environment (read-only, highest)
 `jubian_storyboard list` 接收 `script_id` 和可选的 `page_num`/`page_size`，返回 `storyboards.rows`、`total`（未提供时为 null）和请求页号。空项目返回空列表。未绑定的分集表示为 `episode_id: null`；来自其他项目的行会被拒绝。按总数分页读取；没有总数时继续到空页。详情用 `get`。模型 `preview` 需要已存设置或明确的 `changes`；缺字段或缺分集归属时会点名受影响分镜。它不是查询入口。
 
 `create` 使用 `scriptId`、从 `jubian_catalog episodes` 获取的真实 `episodeId`、显示集号 `episodeCount`、`scriptName`、`storyboardName`、从零开始的 `sortOrder` 和 `isGenerate: 0`。`modelConfig` 编码为 JSON 字符串，包含完整包提示词和当前目录选择器（`modelId`、`platformId`、`standardId`、`genType`、`modelGenerationTypeId`、`videoStandardId`、`ratio`、`resolution`、`genNum`），以及含收束的整数秒 `duration`。不要复制旧记录 ID、账号字段或任务列表。创建后读取返回 ID，先用 `select_assets` 绑定素材再准备视频。每份请求体可冻结在项目 `video_tasks/`，通过 `body_path` 提交。
-- `jubian_video` 读取单个任务（含观测到的费用）、项目视频任务分页，或某个任务的子结果——子结果带成片 `video_url`、字幕像素框、阶段历史、每个结果的分辨率与 `needs_upscale` 判定。`subtasks` 用 `POST` 请求体承载查询，但仍然只读。`image_generate` 生成一张计费的资产图：必填 `asset_name`、资产类别、`prompt`，可选有序的 `references`；给出 `parent_asset_id` 时用 `PUT` 重生成该资产，否则用 `POST` 新建。这次写是异步的，因此该方法随后会把新资产回读到 `hsAssetStatus` 为 `Active`，并返回它的 `material_id`（`confirm_casting` 要的就是它）与 `image_url`；见下文「计费生图路径」。`upscale` 提交一次计费的 1080p 转换（SeedVR2 视频高清，1 元/条），只需 `task_id` 与 `idempotency_key`；其他身份都从父任务与其首个子结果读取。`retry` 重新执行一次已终止且未计费的失败；它先读父任务与子结果，只有在父任务已终止失败、没有任何子结果持有文件或处于活动/成功状态、且任务没有真实费用时才发送请求。
+- `jubian_video` 读取单个任务（含观测到的费用）、项目视频任务分页，或某个任务的子结果——子结果带成片 `video_url`、字幕像素框、阶段历史、每个结果的分辨率与 `needs_upscale` 判定。`subtasks` 用 `POST` 请求体承载查询，但仍然只读。`image_generate` 生成一张计费的资产图：必填 `asset_name`、资产类别、`prompt`，可选有序的 `references`；给出 `parent_asset_id` 时用 `PUT` 重生成该资产，否则用 `POST` 新建。这次写是异步的，因此该方法随后核实父资产 Active 或新父资产下唯一 Active 未采用候选图，并返回它的 `material_id`（`confirm_casting` 要的就是它）与 `image_url`；见下文「计费生图路径」。`upscale` 提交一次计费的 1080p 转换（SeedVR2 视频高清，1 元/条），只需 `task_id` 与 `idempotency_key`；其他身份都从父任务与其首个子结果读取。`retry` 重新执行一次已终止且未计费的失败；它先读父任务与子结果，只有在父任务已终止失败、没有任何子结果持有文件或处于活动/成功状态、且任务没有真实费用时才发送请求。
 - `jubian_media` 把一个提供方媒体下载到 `output_path`，返回路径、探测出的媒体类型、字节数与 sha256。它绝不把字节放进结果：几十 MB 的 base64 会污染之后每一次请求。
 
 ### 账号剧本池认领
@@ -300,28 +300,29 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 
 `image_generate` 是「一次计费写 + 一次免费回读」，而它到底写在哪一行目录上，是部署决定而不是猜测：
 
-`image_generate_batch` 接受一个 `script_id` 和若干 `items`，默认 1–12 项。每项带独立的键、名称、提示词、类别或类型，并可带集号、参考图、父资产 ID 和通道。方法先在任何网络访问或账本操作前校验全部本地参数，拒绝重复键、最终资产目标和父资产 ID，再按默认上限同时提交三项计费请求。全部提交返回后，再以相同并发上限回读已受理资产；慢速图片轮询不会占用提交槽。多个新资产可在 `references` 中共用一张已确认的身份图 URL；`parent_asset_id` 则通过 `PUT` 更新同一个远端资产，因此重复父资产 ID 会发生写冲突。每项沿用 `image_generate` 的预算占用与账本；一项报错不会盖掉其他结果。无论重放单图请求还是批次项，都会读取当前目录，并对比完整请求体与项目和旧账本哈希；资产、提示词、参考图或所选模型行变化时拒绝重发。按输入顺序返回的 `results` 含每项请求身份、`status`、`outcome`、`response_sha256`，以及图片回读结果或错误和对账指引。`status: returned` 与总计 `returned` 只表示调用已返回；只有 `asset_status: active` 表示图已可用。回读失败时仍保留已受理的 `parent_asset_id` 供后续查询。`not_sent` 表示没有账本 intent；`accepted` 但未取得图片仍要回读，`unknown` 必须先对账再决定后续收费请求。
+`image_generate_batch` 接受一个 `script_id` 和若干 `items`，默认 1–12 项。每项带独立的键、名称、提示词、类别或类型，并可带集号、参考图、父资产 ID 和通道。方法先在任何网络访问或账本操作前校验全部本地参数，拒绝重复键、最终资产目标和父资产 ID，再按默认上限同时提交三项计费请求。全部提交返回后，再以相同并发上限回读已受理资产；慢速图片轮询不会占用提交槽。多个新资产可在 `references` 中共用一张已确认的身份图 URL；`parent_asset_id` 则通过 `PUT` 更新同一个远端资产，因此重复父资产 ID 会发生写冲突。每项沿用 `image_generate` 的预算占用与账本；一项报错不会盖掉其他结果。无论重放单图请求还是批次项，都会读取当前目录，并对比完整请求体与项目和旧账本哈希；资产、提示词、参考图或所选模型行变化时拒绝重发。按输入顺序返回的 `results` 含每项请求身份、`status`、`outcome`、`response_sha256`，以及图片回读结果或错误和对账指引。`status: returned` 与总计 `returned` 只表示调用已返回；只有 `asset_status: active` 或 `generated` 表示图已可审；`generated` 仍须审图后确认出演。回读失败时仍保留已受理的 `parent_asset_id` 供后续查询。`not_sent` 表示没有账本 intent；`accepted` 但未取得图片仍要回读，`unknown` 必须先对账再决定后续收费请求。
 
 计费请求开始前，方法只读一次实时模型目录并解析每项所选行。只要某项通道缺失或有歧义，整批就不会提交。如果该键已有账本记录，出错的项会报告旧记录的 `record_id`、`record_script_id` 与 `request_sha256`。错误行的 `outcome` 属于那笔旧记录，不能当作新请求资产已受理。
 
 ```text
 pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / imageStandardId)
   -> POST (or PUT) /aigc/asset                          paid, accepted with the new asset id
-  -> GET /aigc/asset/{id}                               free, until hsAssetStatus is Active
+  -> GET /aigc/asset/{id}                               free, parent status (may be empty before casting)
   -> GET /aigc/material/getGeneratedImageByAssetId      free, the material id and the image URL
 ```
 
-这次写会在资产还没有图的时候就返回；实测资产要一到两分钟后才变成 `Active`。因此结果用 `asset_status` 说明回读结论，而不是让调用方把「受理」读成「已有图」：
+这次写会在资产还没有图的时候就返回。新父资产确认出演前，Hosting 状态可能为空；同父 ID 下唯一 Active 且未采用的材质表示候选图已生成。因此结果用 `asset_status` 说明回读结论，而不是让调用方把「受理」读成「已有图」：
 
 | `asset_status` | 含义 | 调用方该做什么 |
 |---|---|---|
 | `active` | 资产已读到 `Active`，生成图也已读回 | 用 `material_id` 调 `confirm_casting`，用 `image_url` 作为图片；此时才可安全落盘或送审 |
-| `timeout` | 回读预算用尽时资产仍未 `Active` | 没有任何重投；稍后用 `jubian_asset` 的 `get` 或 `generated_image` 续读，绝不要换 key |
+| `generated` | 新父资产状态为空，但已核实同父 ID 下唯一 Active 未采用候选图 | 先审图，再用 `material_id` 确认出演；父资产尚未正式采用 |
+| `timeout` | 回读预算用尽时仍未取得可用图 | 没有任何重投；稍后用 `jubian_asset` 的 `get` 或 `generated_image` 续读，绝不要换 key |
 | `failed` | 提供方把该资产判为终止失败 | 换一个新的 `idempotency_key` 重新生成 |
 | `replayed` | 该 key 已有记录，本次既没有发送也没有回读 | 用 `jubian_asset` 读取该资产 |
 | `unverified` | 没有拿回资产 ID，或这次写并未被受理 | 先读 `jubian_asset` 的 `list`，再下任何结论 |
 
-回读超时是**报告**出来的，不是抛出来的：计费写已经被受理、账本也已经记下，抛异常会把一次已经完成的扣费呈现成一次失败调用。任何非 `active` 的结果都带 `readback_error`，写明确认了什么、没确认什么；无论哪种结论，结果都带 `parent_asset_id`、`model_selection`（`standard_id` 与 `platform_id`，即实际购买的那一行）、`observed_asset_status` 与 `waited_ms`。
+回读超时是**报告**出来的，不是抛出来的：计费写已经被受理、账本也已经记下，抛异常会把一次已经完成的扣费呈现成一次失败调用。任何未完成的结果都带 `readback_error`，写明确认了什么、没确认什么；无论哪种结论，结果都带 `parent_asset_id`、`model_selection`（`standard_id` 与 `platform_id`，即实际购买的那一行）、`observed_asset_status` 与 `waited_ms`。
 
 ### 安全写入：幂等与账本
 
@@ -363,7 +364,7 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 已获授权的提交完成后先做别的，稍后回读 `subtasks`；用上文的操作观察器核验是否完成，而不是靠最初的响应。
 
-`image_generate` 是唯一例外，而且只是因为不这样做结果就没法用：该方法在调用内部等待自己的资产变成 `Active`，上限由 `imageActiveTimeoutMs` 决定，超时以 `asset_status: timeout` 报告而不是抛错。
+`image_generate` 是唯一例外，而且只是因为不这样做结果就没法用：该方法在调用内部等待并核实自己的生成图已可用，上限由 `imageActiveTimeoutMs` 决定，超时以 `asset_status: timeout` 报告而不是抛错。
 
 -----
 
@@ -470,7 +471,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 
 #### 模型看到的内容
 
-描述把 `jubian_video` 的 `image_generate`、`image_generate_batch` 与 `upscale`、`jubian_storyboard` 的 `generate`、`submit_video` 与 `erase_subtitle`、以及 `jubian_asset` 的 `remove` 标为计费或不可撤销，并写明 `confirm_casting` 虽然动词像读取，却用 `GET` 改变了远端状态。`jubian_video` 的 `subtasks` 写明它的 `POST` 只读。`jubian_video` 的 `image_generate` 另外写明它受理后会把资产回读到 `Active` 再返回、每个 `asset_status` 取值是什么含义、目录里有多行 `gpt-image-2` 而未锁定行时会失败、锁定行要么是人在短剧设置页上选的、要么是 `imagePlatformId`/`imageStandardId` 配置给的，以及模型应当把候选念给用户而不是自己挑，还有类别决定 `assetType`、场景与道具不能按角色发。`image_generate_batch` 写明批内逐项独立计费和记录、`status: returned` 不代表图已可用。`jubian_asset` 写明 `create_folder`、`move` 与 `rename` 会真实写入、同名文件夹或目标文件夹不存在时只报告不发送，以及批量改名或搬家必须先取得用户明确同意。`jubian_organize` 写明它只读、不重命名也不移动，但仍会写一个本地索引文件。`jubian_storyboard` 写明整条分镜原生顺序：`select_assets` 强制 `isGenerate=0`、`prepare_video` 既不 `PUT` 也不收费，以及 direct 建任务 `POST` 被禁止。异步方法写明它们受理即返回、完成与否要之后从 `subtasks` 回读。
+描述把 `jubian_video` 的 `image_generate`、`image_generate_batch` 与 `upscale`、`jubian_storyboard` 的 `generate`、`submit_video` 与 `erase_subtitle`、以及 `jubian_asset` 的 `remove` 标为计费或不可撤销，并写明 `confirm_casting` 虽然动词像读取，却用 `GET` 改变了远端状态。`jubian_video` 的 `subtasks` 写明它的 `POST` 只读。`jubian_video` 的 `image_generate` 另外写明它受理后会核实父资产 Active 或新父资产下唯一 Active 未采用候选图再返回、每个 `asset_status` 取值是什么含义、目录里有多行 `gpt-image-2` 而未锁定行时会失败、锁定行要么是人在短剧设置页上选的、要么是 `imagePlatformId`/`imageStandardId` 配置给的，以及模型应当把候选念给用户而不是自己挑，还有类别决定 `assetType`、场景与道具不能按角色发。`image_generate_batch` 写明批内逐项独立计费和记录、`status: returned` 不代表图已可用。`jubian_asset` 写明 `create_folder`、`move` 与 `rename` 会真实写入、同名文件夹或目标文件夹不存在时只报告不发送，以及批量改名或搬家必须先取得用户明确同意。`jubian_organize` 写明它只读、不重命名也不移动，但仍会写一个本地索引文件。`jubian_storyboard` 写明整条分镜原生顺序：`select_assets` 强制 `isGenerate=0`、`prepare_video` 既不 `PUT` 也不收费，以及 direct 建任务 `POST` 被禁止。异步方法写明它们受理即返回、完成与否要之后从 `subtasks` 回读。
 
 #### Token 影响
 

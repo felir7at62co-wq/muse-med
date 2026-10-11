@@ -82,8 +82,8 @@ export interface Config extends ImageRouteConfig {
    */
   workspaceSecrets?: boolean
   /**
-   * How long `image_generate` waits for the new asset to reach
-   * `hsAssetStatus === "Active"` before reporting a timeout, in milliseconds;
+   * How long `image_generate` waits for an active parent or a verified active
+   * unselected image candidate before reporting a timeout, in milliseconds;
    * defaults to 180000, because a measured asset took one to two minutes.
    */
   imageActiveTimeoutMs?: number
@@ -693,16 +693,16 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '（subtasks 用 POST 承载查询体，仍然只读；它返回成片 videoUrl 与字幕像素框）。'
       + '**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；'
       + '给了 parent_asset_id 就是重生成（PUT），否则新建（POST）。'
-      + '它只在同一个 idempotency_key 下发送一次，并在受理后回读该资产直到 hsAssetStatus 变为 Active，'
-      + '然后返回 material_id（confirm_casting 需要它）与 image_url。'
-      + '返回里的 asset_status 说明回读结论：active 才是拿到图（此时才可落盘/审核）；'
-      + 'timeout 表示受理已计费但资产尚未 Active，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；'
+      + '它只在同一个 idempotency_key 下发送一次，并在受理后核实父资产 Active，或新父资产下唯一 Active 未采用候选图，'
+      + '再返回 material_id（confirm_casting 需要它）与 image_url；候选图须先审图再确认出演。'
+      + '返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；'
+      + 'timeout 表示受理已计费但尚未核实可用图片，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；'
       + 'failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。'
       + '**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。'
       + '工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。'
       + '随后按配置的并发上限逐项提交计费请求，'
       + '全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；'
-      + '返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active。'
+      + '返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。'
       + '逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。'
       + '账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；'
       + '插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行'

@@ -20,7 +20,7 @@ import {
   buildVideoUpscaleRequest, downloadMedia, readAssetList, readAssetPage, readEpisodes, readGeneratedImage,
   readImageDisplayPrice, readMaterialList, readModels, readScript, readStoryboard, readStoryboardPage, readSubtaskPage,
   readTaskList, readTaskPage, readSubtitleTaskId, readUpscaleTaskId, needsUpscale, resolveImageModel,
-  validateImageRequestInput,
+  validateImageRequestInput, responseRecords, wireText,
   withGenerationDisabled, withGenerationEnabled,
 } from '@deepseek-ai/dsh-jubian-api'
 import type { ImageAspectRatio, ImageModelSelection, ImageModelSelectors, MediaKind,
@@ -283,7 +283,7 @@ async function taskMediaRequest(client: JubianClient, taskId: number, fallbackSc
 /** Provider statuses that mean a task is still moving and a retry would race it. */
 const ACTIVE_STATUSES = ['submit', 'submitted', 'pending', 'queued', 'running', 'processing']
 
-/** Default readback budget: a measured image asset reaches `Active` in one to two minutes. */
+/** Default time allowed for a generated image readback. */
 const IMAGE_ACTIVE_TIMEOUT_MS = 180_000
 
 /** Default readback poll interval. */
@@ -292,12 +292,13 @@ const IMAGE_ACTIVE_POLL_MS = 3_000
 /**
  * What one `image_generate` readback concluded.
  *
- * The four non-`active` states are distinct facts, and none of them means "the
- * image is there": `failed` saw a terminal asset status, `timeout` ran out of
+ * `generated` identifies one active, unselected image candidate before its parent
+ * has been confirmed. The four incomplete states are distinct facts:
+ * `failed` saw a terminal asset status, `timeout` ran out of
  * budget, `replayed` sent nothing at all, and `unverified` could not even name
  * the asset to read.
  */
-type ImageAssetStatus = 'active' | 'failed' | 'timeout' | 'replayed' | 'unverified'
+type ImageAssetStatus = 'active' | 'generated' | 'failed' | 'timeout' | 'replayed' | 'unverified'
 
 /** One post-write readback, as the tool result carries it. */
 interface ImageReadback {
@@ -325,12 +326,15 @@ function imageNext(readback: ImageReadback, assetId: number | null): string {
     case 'active':
       return '资产已 Active：material_id 是可用于 confirm_casting 的生成材质 ID，image_url 是这张生成图。'
         + '此时再落盘或审核，才不会拿到一个空资产。'
+    case 'generated':
+      return '候选图片已生成且材质 Active，父资产尚未确认出演。先查看 image_url，审核通过后用 material_id '
+        + '正常 confirm_casting，再回读父资产与已采用材质；不要重新付费生图。'
     case 'failed':
       return '资产已被提供方判为失败，不会再有生成图；重新生成要换一个新的 idempotency_key，'
         + '同一个 key 不会再次发送。'
     case 'timeout':
       return '受理已计费（outcome=accepted）但回读超时：不要换 key 重投，'
-        + '用 jubian_asset get 读 parent_asset_id 的状态，Active 之后再用 generated_image 取图。'
+        + '用 jubian_asset get 和 generated_image 查询原 parent_asset_id 的父状态及候选图。'
     case 'replayed':
       return '本次是重放：没有发送任何请求。资产身份请用 jubian_asset list/get 回读。'
     case 'unverified':
@@ -342,20 +346,23 @@ function imageNext(readback: ImageReadback, assetId: number | null): string {
 }
 
 /**
- * Wait for the accepted asset to become `Active`, then read its generated image.
+ * Read a generated image after acceptance without confirming its casting.
  *
  * `POST /aigc/asset` is asynchronous: the response carries the new asset id, and
  * the asset has no image until the provider's own pipeline finishes. Returning at
- * acceptance would hand the caller an asset that reads back empty, so this polls
- * the free asset read until `hsAssetStatus` is `Active` and then reads the one
- * endpoint that carries both the material id and the image URL.
+ * acceptance would hand the caller an asset that reads back empty. A new parent
+ * may have no Hosting status until casting is confirmed, even while its image
+ * material is Active. In that case only one active, unselected material belonging
+ * to the accepted parent qualifies. Regeneration still waits for its parent state;
+ * it cannot reuse this path to return an old unselected candidate.
  * @param client - Jubian transport.
  * @param assetId - The asset id the accepted response carried, or null when it carried none.
+ * @param newAsset - Whether this request created a parent rather than regenerating one.
  * @param options - Readback budget, poll interval, clock and sleep.
  * @returns The readback outcome; a timed-out readback is reported, never thrown, because the
  *   paid write was already accepted and the ledger already records it.
  */
-async function awaitGeneratedImage(client: JubianClient, assetId: number,
+async function awaitGeneratedImage(client: JubianClient, assetId: number, newAsset: boolean,
   options: ImageMethodOptions): Promise<ImageReadback> {
   const now = options.now ?? ((): number => Date.now())
   const sleep = options.sleep
@@ -380,6 +387,21 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number,
         if (!(error instanceof JubianError) || error.code !== 'CONTRACT_CHANGED') throw error
         lastError = error.message
       }
+    } else if (observed === null && newAsset) {
+      try {
+        const data = (await client.request({ method: 'GET',
+          path: `/aigc/material/getGeneratedImageByAssetId?assetId=${assetId}` })).data
+        const candidates = responseRecords(data).filter(row => wireText(row.assetId) === String(assetId)
+          && wireText(row.hsAssetStatus)?.trim().toLowerCase() === 'active' && row.isUsed === 0)
+        if (candidates.length !== 1) throw new JubianError('CONTRACT_CHANGED', 'No unique active unselected image candidate for the accepted parent')
+        const image = readGeneratedImage(candidates)
+        if (image.material_id === null) throw new JubianError('CONTRACT_CHANGED', 'Generated image candidate has no material identity')
+        return { status: 'generated', material_id: image.material_id, image_url: image.url,
+          observed_status: null, waited_ms: now() - started, error: null }
+      } catch (error) {
+        if (!(error instanceof JubianError) || error.code !== 'CONTRACT_CHANGED') throw error
+        lastError = error.message
+      }
     } else if (observed !== null
       && (FAILED_STATUSES as readonly string[]).includes(observed.trim().toLowerCase())) {
       return { status: 'failed', material_id: null, image_url: null, observed_status: observed,
@@ -389,7 +411,7 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number,
     if (elapsed + interval > budget) {
       return { status: 'timeout', material_id: null, image_url: null, observed_status: observed,
         waited_ms: elapsed,
-        error: `回读超时：资产在 ${budget}ms 内没有变为 Active`
+        error: `回读超时：在 ${budget}ms 内没有核实可用生成图`
           + `（最后观察到的状态：${observed ?? '未提供'}${lastError === null ? '' : `；生成图读取失败：${lastError}`}）。`
           + '受理已被计费，不要换 key 重投。' }
     }
@@ -398,13 +420,13 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number,
 }
 
 /** Preserve the accepted asset ID in the result when its free readback fails. */
-async function readbackAcceptedImage(client: JubianClient, assetId: number | null,
+async function readbackAcceptedImage(client: JubianClient, assetId: number | null, newAsset: boolean,
   options: ImageMethodOptions): Promise<ImageReadback> {
   if (assetId === null) {
     return unread('unverified', '受理响应没有给出可回读的资产 ID，无法确认生成图；'
       + '用 jubian_asset list 按 asset_name 找到该资产后再读 generated_image。')
   }
-  try { return await awaitGeneratedImage(client, assetId, options) }
+  try { return await awaitGeneratedImage(client, assetId, newAsset, options) }
   catch (error) {
     return unread('unverified', `计费请求已受理，资产 ID 为 ${assetId}，但回读失败：`
       + `${error instanceof Error ? error.message : String(error)}。不要换 key 重投。`)
@@ -819,7 +841,8 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           if (result['status'] !== 'returned' || result['outcome'] !== 'accepted'
             || result['replayed'] !== false) continue
           const assetId = typeof result['parent_asset_id'] === 'number' ? result['parent_asset_id'] : null
-          const readback = await readbackAcceptedImage(client, assetId, deps.image ?? {})
+          const newAsset = (prepared[index] as (typeof prepared)[number]).item.parent_asset_id === undefined
+          const readback = await readbackAcceptedImage(client, assetId, newAsset, deps.image ?? {})
           results[index] = { ...result, asset_status: readback.status, material_id: readback.material_id,
             image_url: readback.image_url, observed_asset_status: readback.observed_status,
             waited_ms: readback.waited_ms, readback_error: readback.error,
@@ -874,7 +897,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         : result.outcome === 'accepted'
           ? deps.deferImageReadback
             ? unread('unverified', '批次已受理，正在逐项回读资产状态。')
-            : await readbackAcceptedImage(client, assetId, deps.image ?? {})
+            : await readbackAcceptedImage(client, assetId, args.parent_asset_id === undefined, deps.image ?? {})
           : unread('unverified', '受理结果不是 accepted，无法确认资产是否真的创建；'
             + '先回读 jubian_asset list，不要换 key 重投。')
       return { replayed: result.replayed, outcome: result.outcome, response_sha256: result.response_sha256,
