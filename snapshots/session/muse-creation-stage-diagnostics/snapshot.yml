@@ -8,3 +8,6 @@ header:
   pin: true
 workspace:
   setup: muse-creation-skills
+replay:
+  override: true
+writerOutput: true
