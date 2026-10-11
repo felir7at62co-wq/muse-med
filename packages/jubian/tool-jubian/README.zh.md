@@ -71,7 +71,7 @@ kind: "package-bundle"
 | `workspaceSecrets` | `true` | 凭证库没有值时，是否允许用 workspace 的流水线密钥文件顶替 |
 | `imagePlatformId` | 无 | `taskType=2` 目录里 `image_generate` 从哪个 `platformId` 购买，如 `KU_AI`；这是兜底锁定，只在短剧设置段没有锁定行时生效 |
 | `imageStandardId` | 无 | `image_generate` 从哪一行（`standardId`，即该行自己的 `id`）购买；它与 `imagePlatformId` 给出其一即可锁定一行，同样受设置页优先级约束 |
-| `imageActiveTimeoutMs` | `180000` | `image_generate` 等待新资产变为 `hsAssetStatus` `Active` 的上限，超过即报回读超时 |
+| `imageActiveTimeoutMs` | `180000` | `image_generate` 等待 Active 生成图的上限，超过即报回读超时 |
 | `imageActivePollMs` | `3000` | 上面这次回读的轮询间隔 |
 | `imageBatchConcurrency` | `3` | 一批同时执行的图片请求上限；整数 1..8 |
 | `imageBatchMaxItems` | `12` | 一批图片请求的项数上限；整数 1..100 |
@@ -82,6 +82,8 @@ kind: "package-bundle"
 | `assetIndexPath` | `_probe/asset-index.md` | `jubian_organize` 写索引的位置，相对于项目目录 |
 
 `nameSeparator` 或 `seriesLabel` 为空白会让挂载失败：用它们组合出来的名字无法再切回各段。
+
+新建父资产可能不提供 `hsAssetStatus`，但其生成材质已为 Active。回读只接受属于该新父资产的唯一 Active HTTPS 材质，不替代确认出演。替换已有父资产时若缺状态仍保持 pending，旧材质不能满足这条回读规则。
 
 一个账户目录可能把同一个 modelId 按平台列成多行，各自单价不同；`image_generate` 不会替你挑其中一行，所以目录里有多行 `gpt-image-2` 而没有锁定行时，请求体构造阶段就会失败，并列出每个候选行的 `platformId`、`standardId`、单价与单位。
 
@@ -186,7 +188,7 @@ inherited process environment (read-only, highest)
 
 `create` 使用 `scriptId`、从 `jubian_catalog episodes` 获取的真实 `episodeId`、显示集号 `episodeCount`、`scriptName`、`storyboardName`、从零开始的 `sortOrder` 和 `isGenerate: 0`。`modelConfig` 编码为 JSON 字符串，包含完整包提示词和当前目录选择器（`modelId`、`platformId`、`standardId`、`genType`、`modelGenerationTypeId`、`videoStandardId`、`ratio`、`resolution`、`genNum`），以及含收束的整数秒 `duration`。不要复制旧记录 ID、账号字段或任务列表。创建后读取返回 ID，先用 `select_assets` 绑定素材再准备视频。每份请求体可冻结在项目 `video_tasks/`，通过 `body_path` 提交。
 - `jubian_video` 读取单个任务（含观测到的费用）、项目视频任务分页，或某个任务的子结果——子结果带成片 `video_url`、字幕像素框、阶段历史、每个结果的分辨率与 `needs_upscale` 判定。`subtasks` 用 `POST` 请求体承载查询，但仍然只读。`image_generate` 生成一张计费的资产图：必填 `asset_name`、资产类别、`prompt`，可选有序的 `references`；给出 `parent_asset_id` 时用 `PUT` 重生成该资产，否则用 `POST` 新建。这次写是异步的，因此该方法随后会把新资产回读到 `hsAssetStatus` 为 `Active`，并返回它的 `material_id`（`confirm_casting` 要的就是它）与 `image_url`；见下文「计费生图路径」。`upscale` 提交一次计费的 1080p 转换（SeedVR2 视频高清，1 元/条），只需 `task_id` 与 `idempotency_key`；其他身份都从父任务与其首个子结果读取。`retry` 重新执行一次已终止且未计费的失败；它先读父任务与子结果，只有在父任务已终止失败、没有任何子结果持有文件或处于活动/成功状态、且任务没有真实费用时才发送请求。
-- `jubian_media` 把一个提供方媒体下载到 `output_path`，返回路径、探测出的媒体类型、字节数与 sha256。它绝不把字节放进结果：几十 MB 的 base64 会污染之后每一次请求。
+- `jubian_media` 下载一个提供方媒体，返回路径、探测出的媒体类型、字节数与 sha256。`output_path` 缺少扩展名或与实际格式冲突时，按探测出的格式修正；调用方必须读取返回的 `path`。它绝不把字节放进结果：几十 MB 的 base64 会污染之后每一次请求。
 
 ### 账号剧本池认领
 
@@ -295,6 +297,8 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 读取任务详情和子结果前，提交与对账会排除明确带有有效集 ID、且该 ID 与 preview 不同的行。集 ID 缺失或格式无效的行仍保留为候选。补充读取最多 100 个候选、完整任务快照和账本最多一次 PUT 的保护保持不变。
 
 判定本身就是契约。`submitted` 表示已认领唯一任务且身份完整；`subject_identity_lost` 是终态——子结果保住了 URL 却丢了身份字段，答案是人工核对，绝不是第二次 `PUT`；`reconcile_conflict` 表示出现多个候选或证据不完整，同样不是重试信号；`reconcile_required` 表示那一次 `PUT` 已经发生但暂时看不到任务，用同一个 preview 与同一个 key 再调一次只会重新对账。任何原因失败的 `PUT`——超时、`5xx`、连接中断——都会被记成 `outcome: unknown` 与 `put_ambiguous: true`：不存在自动重试，同一个 key 也永远不会发出第二次 `PUT`。
+
+`submit_video` 及批次中每个已提交项返回 `put_error`，值为 null 或已去除凭据的传输诊断 `{code, message}`；意外的本地异常只显示通用信息。`put_sent: true` 表示已尝试发出 PUT，包括业务拒绝或连接失败，不代表任务已创建或已计费。结果不明的提交保留预约金额，原键仍只做只读对账。
 
 由于 key 就是 preview 的 fingerprint，同一个 preview 文件一生只能造成一次请求。因此 preview **不能**与 CLI 自己产出的 prepared 文件互换：两边的序列化文本不同，一方写出的 preview 在另一方那里会被判为过期而拒绝。
 
@@ -474,7 +478,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 
 #### 模型看到的内容
 
-描述把 `jubian_video` 的 `image_generate`、`image_generate_batch` 与 `upscale`、`jubian_storyboard` 的 `generate`、`submit_video` 与 `erase_subtitle`、以及 `jubian_asset` 的 `remove` 标为计费或不可撤销，并写明 `confirm_casting` 虽然动词像读取，却用 `GET` 改变了远端状态。`jubian_video` 的 `subtasks` 写明它的 `POST` 只读。`jubian_video` 的 `image_generate` 另外写明它受理后会把资产回读到 `Active` 再返回、每个 `asset_status` 取值是什么含义、目录里有多行 `gpt-image-2` 而未锁定行时会失败、锁定行要么是人在短剧设置页上选的、要么是 `imagePlatformId`/`imageStandardId` 配置给的，以及模型应当把候选念给用户而不是自己挑，还有类别决定 `assetType`、场景与道具不能按角色发。`image_generate_batch` 写明批内逐项独立计费和记录、`status: returned` 不代表图已可用。`jubian_asset` 写明 `create_folder`、`move` 与 `rename` 会真实写入、同名文件夹或目标文件夹不存在时只报告不发送，以及批量改名或搬家必须先取得用户明确同意。`jubian_organize` 写明它只读、不重命名也不移动，但仍会写一个本地索引文件。`jubian_storyboard` 写明整条分镜原生顺序：`select_assets` 强制 `isGenerate=0`、`prepare_video` 既不 `PUT` 也不收费，以及 direct 建任务 `POST` 被禁止。异步方法写明它们受理即返回、完成与否要之后从 `subtasks` 回读。
+描述把 `jubian_video` 的 `image_generate`、`image_generate_batch` 与 `upscale`、`jubian_storyboard` 的 `generate`、`submit_video` 与 `erase_subtitle`、以及 `jubian_asset` 的 `remove` 标为计费或不可撤销，并写明 `confirm_casting` 虽然动词像读取，却用 `GET` 改变了远端状态。`jubian_video` 的 `subtasks` 写明它的 `POST` 只读。`jubian_video` 的 `image_generate` 另外写明它受理后会核验生成图就绪后再返回、每个 `asset_status` 取值是什么含义、目录里有多行 `gpt-image-2` 而未锁定行时会失败、锁定行要么是人在短剧设置页上选的、要么是 `imagePlatformId`/`imageStandardId` 配置给的，以及模型应当把候选念给用户而不是自己挑，还有类别决定 `assetType`、场景与道具不能按角色发。`image_generate_batch` 写明批内逐项独立计费和记录、`status: returned` 不代表图已可用。`jubian_asset` 写明 `create_folder`、`move` 与 `rename` 会真实写入、同名文件夹或目标文件夹不存在时只报告不发送，以及批量改名或搬家必须先取得用户明确同意。`jubian_organize` 写明它只读、不重命名也不移动，但仍会写一个本地索引文件。`jubian_storyboard` 写明整条分镜原生顺序：`select_assets` 强制 `isGenerate=0`、`prepare_video` 既不 `PUT` 也不收费，以及 direct 建任务 `POST` 被禁止。异步方法写明它们受理即返回、完成与否要之后从 `subtasks` 回读。
 
 #### Token 影响
 
@@ -535,7 +539,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 - **`retry` 有前置门禁，但看不到尚未写回的费用** —— 它在发送任何请求前先读父任务与子结果，并在任务已有结果文件、有活动或成功的子结果、或已记录真实费用时拒绝。它看不到提供方还没写到任务上的扣费，所以刚失败后的重试仍然是调用方的判断。
 - **端点集合是从抓包转写的** —— 每个路径、查询参数与请求形状都以抓到的证据存在于 `dsh-jubian-api`，而不是已发布的契约。提供方一变，表现出来就是 `CONTRACT_CHANGED` 或某个字段读回 `null`；验证一条新路径需要重新抓包，所以这里没有哪个方法可以当作有 schema 版本。对象存储签名是唯一的例外：它照实时 bundle 里的 SDK 复刻，并对真实 bucket 做过验证。
 - **结果未知要靠账本而不是靠本包来判定** —— 超时后这一行记录 `outcome: unknown` 并抛错。只有调用方能决定要不要用同一个 key 回读，也没有任何东西会自动对账"只有 intent 没有 settle"的那条。`submit_video` 是最严格的一例：它记录这次不明确的 `PUT`、返回对账指引，并且在任何情况下都不会用同一个 key 发出第二次 `PUT`。
-- **`jubian_media` 写入调用方指定的本地路径** —— `output_path` 会被解析并按需创建，该路径上已存在的文件会被直接覆盖而不会询问。它的 origin 白名单刻意排除了某些载荷字段返回的镜像 origin。
+- **`jubian_media` 写入调用方指定的本地路径** —— `output_path` 会被解析，扩展名按下载格式修正，然后按需创建；返回路径上已存在的文件会被直接覆盖而不会询问。它的 origin 白名单刻意排除了某些载荷字段返回的镜像 origin。
 - **提供方的 `taskExecute` 与 `terminate` 没有实现** —— 流水线自己的客户端从不调用它们，在这里加上就只是没有证据的转写。如果哪天需要中止一个失控任务，`terminate` 就是最明显的缺口。
 - **不注册系统提示词区段** —— 部署方无法在不改包的情况下调整这些工具的模型指引，提供方一旦重命名某个方法，描述会一直过时到包被改动为止。
 

@@ -67,6 +67,17 @@ it('rejects a project-bible asset that contradicts the manifest character identi
   await edit(root, 'project_config.json', (doc) => { fixtureRow(doc.project_bible.characters).asset_id = 14 })
   expect((await preview(root)).result.matches[0]?.reason_codes).toEqual(['IDENTITY_FIELDS_CONFLICT'])
 })
+it('reuses a registered costume version whose character shares a different reference asset', async () => {
+  const root = await project([{ ...character, stable_id: 'lu-office' }])
+  await edit(root, 'assets_manifest.json', (doc) => {
+    doc.items.push({ ...fixtureRow(doc.items), stable_id: 'lu-home', jubian_asset_id: 14,
+      state_or_costume: '非孕期；青年；家常装' })
+  })
+  await edit(root, 'project_config.json', (doc) => { fixtureRow(doc.project_bible.characters).asset_id = 14 })
+  const reference = { ...fixtureRow(assets), id: 14 }
+  expect((await preview(root, { assets: [...assets, reference] })).result.matches[0])
+    .toMatchObject({ status: 'reuse_ready', selected_asset_id: 11 })
+})
 it('does not identify a character by matching name alone', async () => {
   const requirement = { ...character }
   delete requirement.character_id

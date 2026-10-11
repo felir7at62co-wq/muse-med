@@ -565,7 +565,7 @@ export interface NativePreviewInput {
 /**
  * Build the exact, deterministic storyboard PUT preview without any I/O.
  * @param input - Live storyboard, ordered parent assets, live catalogue and a timestamp.
- * @returns The preview, including the one-PUT payload and its semantic fingerprint.
+ * @returns The preview, including its one-PUT payload, explicit backup-model list and semantic fingerprint.
  * @throws {JubianError} `INVALID_ARGUMENT` when no image subject is selected; no preview is produced.
  * @throws {JubianError} `CONTRACT_CHANGED` when any identity, setting or model rule fails.
  */
@@ -588,6 +588,11 @@ export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoP
   }
   modelConfig.prompt = prompt
   modelConfig.materialList = materials.map(material => ({ ...material }))
+  if (config.backupModelList !== undefined && config.backupModelList !== null && !Array.isArray(config.backupModelList)) {
+    invalid('modelConfig.backupModelList must be a list when supplied')
+  }
+  modelConfig.backupModelList = config.backupModelList === undefined || config.backupModelList === null
+    ? [] : config.backupModelList
   payload.modelConfig = JSON.stringify(modelConfig)
 
   const storyboardId = integer(payload.id ?? payload.storyboardId)

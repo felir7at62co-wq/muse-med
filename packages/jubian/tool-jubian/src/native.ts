@@ -52,6 +52,12 @@ interface ProjectBinding { project_root: string; script_id: number }
 /** Refuse one call whose input or provider state does not match the contract. */
 function fail(): never { throw new JubianError('CONTRACT_CHANGED') }
 
+/** Keep only SDK-redacted submission failures in the model-visible result. */
+function submissionFailure(error: unknown): { code: string; message: string } {
+  return error instanceof JubianError ? { code: error.code, message: error.message }
+    : { code: 'UNEXPECTED_ERROR', message: 'Video submission failed' }
+}
+
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new JubianError('CONTRACT_CHANGED')
   return value as Record<string, unknown>
@@ -238,13 +244,11 @@ Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[]
   const ordered: Record<string, unknown>[] = []
   for (const material of orderedMaterials) {
     if (material.materialType === 'audio') continue
-    const parentId = numericParentId(material.materialAssetId)
-    if (parentId === null) throw new JubianError('CONTRACT_CHANGED',
-      'prepare_video stage=subject_identity; invalid numeric materialAssetId; paid_request_sent=false')
-    const key = parentId
+    // The resolution pass accepts only positive numeric parents or replaces them from an official row.
+    const key = String(Number(material.materialAssetId))
     let asset = byId.get(key)
     if (asset === undefined) {
-      asset = await preflightRead('parent_asset_read', () => parentAsset(client, parentId))
+      asset = await preflightRead('parent_asset_read', () => parentAsset(client, key))
       if (positiveInteger(asset.scriptId) !== scriptId) throw new JubianError('CONTRACT_CHANGED')
       byId.set(key, asset)
     }
@@ -710,23 +714,25 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
   // after-list against the related set reported every unrelated task as new.
   const beforeAllTaskIds = new Set(secondIds)
 
-  const state = { putFailed: false, reconciliationFailed: false, sent: false, appearedIds: [] as string[],
+  const state = { putFailed: false, putError: null as { code: string; message: string } | null,
+    reconciliationFailed: false, sent: false, appearedIds: [] as string[],
     claim: { status: 'none' } as NativeClaim }
   const result = await writeUnderLedger(ledger, key, 'storyboard_native_submit', () => preview.payload,
     async (payload): Promise<JubianResponse> => {
       let response: JubianResponse
+      state.sent = true
       try {
         response = await client.request({ method: 'PUT', path: '/aigc/storyboard',
           body: payload as Record<string, unknown> })
-      } catch {
+      } catch (error) {
         // Every failed PUT is ambiguous: the provider may have applied it, and a
         // second request is exactly what must never happen. The ledger settle
         // below records `unknown`, which is the honest verdict.
         state.putFailed = true
+        state.putError = submissionFailure(error)
         return { transport: { http_status: null, application_code: null }, response_sha256: null,
           envelope_layout: 'unparsed', data: null }
       }
-      state.sent = true
       try {
         const afterRecords = await listAllVideoTasks(client, preview.scriptId)
         // The tasks that appeared across the PUT, whether or not any of them could be
@@ -763,9 +769,10 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
     ...(acceptedUnclaimed ? { claim_status: 'reconcile_conflict' } : {}),
     ...(state.appearedIds.length > 0 ? { new_task_ids: state.appearedIds } : {}),
     put_ambiguous: state.putFailed, before_task_ids: beforeTaskIds,
+    put_error: state.putError,
     next: state.putFailed
-      ? 'PUT 的结果不明确（超时/5xx/连接中断）：没有任何自动重试，这个 key 也不会再发 PUT。'
-        + '按上面的对账结果处理：submitted 就是已创建，否则继续用同一个 key 对账。'
+      ? 'PUT 已尝试提交，put_error 保留了提供方拒绝或连接失败的原因；任务及计费仍需对账。'
+        + '这个 key 不会再次发送 PUT：submitted 表示已找到任务，否则只用同一个 key 对账并处理报告的错误。'
       : acceptedUnclaimed
         ? 'PUT 已被提供方受理（很可能已计费），但没有一条候选能被完整认领：不要重新提交这个 preview。'
           + '按 new_task_ids 回读那些新任务（jubian_video subtasks），或人工核对归属。'
@@ -840,10 +847,12 @@ function readLimiter(concurrency: number): <T>(operation: () => Promise<T>) => P
 async function submitReservedVideo(client: JubianClient, ledger: JubianLedger, item: FrozenBatchItem):
 Promise<{ response_sha256: string | null
   outcome: 'accepted' | 'unknown'
-  put_ambiguous: boolean }> {
+  put_ambiguous: boolean
+  put_error: { code: string; message: string } | null }> {
   let response: JubianResponse | undefined
+  let errorDetail: { code: string; message: string } | null = null
   try { response = await client.request({ method: 'PUT', path: '/aigc/storyboard', body: item.preview.payload }) }
-  catch (error) { void error /* The intent remains a possible charge. */ }
+  catch (error) { errorDetail = submissionFailure(error) }
   const outcome = response !== undefined && acceptedWriteResponse(response.transport) ? 'accepted' : 'unknown'
   try {
     await ledger.settle(item.idempotency_key, { httpStatus: response?.transport.http_status ?? null,
@@ -854,7 +863,7 @@ Promise<{ response_sha256: string | null
     void error
   }
   return { response_sha256: response?.response_sha256 ?? null, outcome,
-    put_ambiguous: outcome === 'unknown' }
+    put_ambiguous: outcome === 'unknown', put_error: errorDetail }
 }
 
 /**
@@ -992,6 +1001,7 @@ Promise<{ total: number; submitted: number; reconcile_required: number; results:
       outcome: write.outcome, response_sha256: write.response_sha256,
       status: submitted ? 'submitted' : 'reconcile_required',
       task_id: submitted ? report.task_id : null, put_ambiguous: write.put_ambiguous,
+      put_error: write.put_error,
       early_task_id: earlyClaims[index]?.status === 'matched' ? earlyClaims[index].taskId : null,
       project_new_task_ids: appeared,
       next: submitted ? report.next : '该预览已有写入意图，但最终身份未完整确认；按原 key 只读对账，不要重发 PUT。' }

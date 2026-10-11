@@ -65,7 +65,7 @@ beforeEach(async () => {
 afterEach(async () => { await rm(root, { recursive: true, force: true }) })
 
 /** A provider stub for the paid image path, with a scripted sequence of asset statuses. */
-function imageProvider(catalogue: unknown = IMAGE_CATALOGUE, statuses: string[] = ['Active']) {
+function imageProvider(catalogue: unknown = IMAGE_CATALOGUE, statuses: (string | null)[] = ['Active']) {
   let reads = 0
   return stubClient((request) => {
     if (request.path.includes('getSelectList')) return catalogue
@@ -903,6 +903,60 @@ describe('jubian_video', () => {
     expect(calls.filter(call => call.path.includes('/aigc/asset/')).length).toBe(3)
   })
 
+  it.each(['image_generate', 'image_generate_batch'])('reads a new Active material when %s returns no parent status', async (method) => {
+    const { client, calls } = imageProvider(IMAGE_CATALOGUE, [null])
+    const item = { idempotency_key: `new-material-${method}`, asset_name: 'lead', asset_type: 1, prompt: 'ready' }
+    const response = await videoMethod(client, ledger, method === 'image_generate'
+      ? { ...item, method, script_id: 2708 } : { method, script_id: 2708, items: [item] }, imageDeps())
+    const result = method === 'image_generate' ? response : (response.results as Record<string, unknown>[])[0]
+    expect(result).toMatchObject({ generation_status: 'succeeded', observed_asset_status: null,
+      material_id: 900, image_url: 'https://x/gen.png', waited_ms: 0 })
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+  })
+
+  it.each(['pending', 'other-asset', 'ambiguous', 'missing-url', 'http-url'])
+  ('does not accept a %s material under a parent with no status', async (kind) => {
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.path.includes('getGeneratedImageByAssetId')) {
+        const row = { ...GENERATED_IMAGE[0], ...(kind === 'pending' ? { hsAssetStatus: 'Pending' } : {}),
+          ...(kind === 'other-asset' ? { assetId: 99 } : {}),
+          ...(kind === 'missing-url' ? { assetUrl: null } : {}),
+          ...(kind === 'http-url' ? { assetUrl: 'http://x/image.png' } : {}) }
+        return kind === 'ambiguous' ? [row, { ...row, id: 901 }] : [row]
+      }
+      return request.method === 'GET' ? { id: 83749 } : 83749
+    })
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: `new-material-${kind}` },
+    imageDeps({ timeoutMs: 100, pollMs: 100 }))
+    expect(result).toMatchObject({ generation_status: 'submitted_pending', image_url: null, asset_status: 'timeout' })
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+  })
+
+  it('reads a single generated material object under a new parent with no status', async () => {
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.path.includes('getGeneratedImageByAssetId')) return GENERATED_IMAGE[0]
+      return request.method === 'GET' ? { id: 83749 } : 83749
+    })
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: 'single-new-material' }, imageDeps())
+    expect(result).toMatchObject({ generation_status: 'succeeded', observed_asset_status: null,
+      material_id: 900, image_url: 'https://x/gen.png' })
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+  })
+
+  it('does not use an existing parent material to declare a replacement image ready without parent status', async () => {
+    const { client, calls } = imageProvider(IMAGE_CATALOGUE, [null])
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', asset_type: 1, prompt: 'replacement', parent_asset_id: 83749,
+      idempotency_key: 'replacement-no-status' }, imageDeps({ timeoutMs: 100, pollMs: 100 }))
+    expect(result).toMatchObject({ generation_status: 'submitted_pending', image_url: null, asset_status: 'timeout' })
+    expect(calls.some(call => call.path.includes('getGeneratedImageByAssetId'))).toBe(false)
+    expect(calls.filter(call => call.method === 'PUT')).toHaveLength(1)
+  })
+
   it('reports a readback timeout explicitly and never resends the paid write', async () => {
     const { client, calls } = imageProvider(IMAGE_CATALOGUE, ['Pending'])
     const result = await videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'k-timeout',
@@ -913,7 +967,7 @@ describe('jubian_video', () => {
     expect(result.material_id).toBeNull()
     expect(result.image_url).toBeNull()
     expect(String(result.readback_error)).toContain('回读超时')
-    expect(String(result.readback_error)).toContain('Active')
+    expect(String(result.readback_error)).toContain('未确认就绪')
     expect(String(result.next)).toContain('不要换 key 重投')
     expect(calls.filter(call => call.method === 'POST').length).toBe(1)
     expect((await ledger.find('k-timeout'))?.outcome).toBe('accepted')
@@ -1325,6 +1379,27 @@ describe('required arguments', () => {
 })
 
 describe('jubian_media', () => {
+  it.each([
+    ['cover.jpg', 'cover.png', '89504e470d0a1a0a', 'image', 'image/png'],
+    ['cover', 'cover.png', '89504e470d0a1a0a', 'image', 'image/png'],
+    ['cover.PNG', 'cover.PNG', '89504e470d0a1a0a', 'image', 'image/png'],
+    ['cover.jpg', 'cover.jpg', 'ffd8ff', 'image', 'image/jpeg'],
+    ['cover.txt', 'cover.jpeg', 'ffd8ff', 'image', 'image/jpeg'],
+    ['cover.jpg', 'cover.webp', '524946460000000057454250', 'image', 'image/webp'],
+    ['clip.jpg', 'clip.mp4', '000000106674797069736f6d00000000', 'video', 'video/mp4'],
+  ] as const)('saves %s at %s according to its downloaded header', async (requested, saved, header, kind, mediaType) => {
+    const bytes = Buffer.from(header, 'hex')
+    const original = globalThis.fetch
+    globalThis.fetch = async () => new Response(bytes, { status: 200 })
+    try {
+      const result = await mediaMethod({ method: 'download', media_kind: kind,
+        media_url: 'https://jubian-aigc.tos-cn-beijing.volces.com/provider.jpg', output_path: join(root, requested) })
+      expect(result).toMatchObject({ path: join(root, saved), media_type: mediaType, bytes: bytes.length })
+      expect(await readFile(join(root, saved))).toEqual(bytes)
+      if (requested !== saved) await expect(readFile(join(root, requested))).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally { globalThis.fetch = original }
+  })
+
   it('writes the downloaded bytes to disk and returns the path, never the payload', async () => {
     const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64')
     const original = globalThis.fetch

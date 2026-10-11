@@ -4052,7 +4052,7 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
     },
     "standard_id": {
       "type": "number",
-      "description": "rate 必填：计价标准 ID。"
+      "description": "rate 必填：models 返回的模型计价行 id/standardId，不是 videoStandards 中的 videoStandardId。"
     },
     "script_id": {
       "type": "number",
@@ -4172,7 +4172,7 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
   "properties": {
     "method": {
       "type": "string",
-      "description": "download=从 media_url 下载到 output_path。",
+      "description": "download=从 media_url 下载到本地，按实际格式修正扩展名；读取返回的 path。",
       "enum": [
         "download"
       ]
@@ -4191,7 +4191,7 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
     },
     "output_path": {
       "type": "string",
-      "description": "media 必填：落盘的本地绝对路径。"
+      "description": "media 必填：期望落盘的本地绝对路径。扩展名与实际格式不一致时会修正；后续使用返回的 path。"
     }
   },
   "required": [

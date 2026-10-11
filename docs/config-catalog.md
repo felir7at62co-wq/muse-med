@@ -4142,8 +4142,8 @@ export interface Config extends ImageRouteConfig {
    */
   workspaceSecrets?: boolean
   /**
-   * How long `image_generate` waits for the new asset to reach
-   * `hsAssetStatus === "Active"` before reporting a timeout, in milliseconds;
+   * How long `image_generate` waits for an Active generated image
+   * before reporting a timeout, in milliseconds;
    * defaults to 180000, because a measured asset took one to two minutes.
    */
   imageActiveTimeoutMs?: number

@@ -57,7 +57,9 @@ try {
 }
 ```
 
-Success is a fully typed value: `task.task_id` is a number, and `task.real_cost` is the provider's own string or `null`. Failure is one `JubianError` whose code is `CONTRACT_CHANGED`, which means the payload did not carry a field the reader requires. The reader never returns a partial value and never substitutes a zero for a missing number. `JubianError` itself belongs to `@deepseek-ai/dsh-jubian`, which owns every failure code.
+Success is a fully typed value: `task.task_id` is a number, and `task.real_cost` is the provider's observed cost rendered as text or `null`. Failure is one `JubianError` whose code is `CONTRACT_CHANGED`, which means the payload did not carry a field the reader requires. The reader never returns a partial value and never substitutes a zero for a missing number. `JubianError` itself belongs to `@deepseek-ai/dsh-jubian`, which owns every failure code.
+
+Video task costs preserve decimal strings and convert nonnegative finite JSON numbers to strings. Missing, negative or unreadable costs remain null; a number such as `3.3906` is not discarded. These provider observations do not change budget authorization or settle local reservations automatically.
 
 ### Reading a list of results
 
@@ -157,6 +159,8 @@ Each reader validates the fields it promises and ignores everything else. A fiel
 Where a field is optional in the provider's own data, the reader carries that optionality forward as `null` rather than inventing a default. A cost the provider did not send stays `null`; it never becomes `0`.
 
 ### The video stage vocabulary
+
+`buildNativeVideoPreview()` preserves an explicit `backupModelList` and supplies `[]` when it is missing or null, so the frozen model configuration carries the provider's list field without choosing an alternate model. A non-list value is rejected before submission. This field participates in the fingerprint; rebuild an unsubmitted preview prepared without it. Recorded keys still reconcile without another paid request.
 
 Native subject-video preparation requires at least one selected image subject. `buildNativeVideoPreview()` rejects an empty or audio-only selection with `INVALID_ARGUMENT` instead of producing a prepared preview. `validateNativeVideoPreview()` rejects historical empty-subject previews with a local parameter diagnostic; that submission call has not entered the ledger or sent a remote paid request. Existing identity checks and submission fingerprints still apply.
 

@@ -82,8 +82,8 @@ export interface Config extends ImageRouteConfig {
    */
   workspaceSecrets?: boolean
   /**
-   * How long `image_generate` waits for the new asset to reach
-   * `hsAssetStatus === "Active"` before reporting a timeout, in milliseconds;
+   * How long `image_generate` waits for an Active generated image
+   * before reporting a timeout, in milliseconds;
    * defaults to 180000, because a measured asset took one to two minutes.
    */
   imageActiveTimeoutMs?: number
@@ -139,7 +139,7 @@ const VIDEO_ESTIMATE_ARGS = {
 const ARGS = {
   idempotency_key: { type: 'string', description: `写方法必填；读方法忽略。${WRITE_NOTE}` },
   task_type: { type: 'number', description: 'models 必填：1=视频，2=图片，10=去字幕。' },
-  standard_id: { type: 'number', description: 'rate 必填：计价标准 ID。' },
+  standard_id: { type: 'number', description: 'rate 必填：models 返回的模型计价行 id/standardId，不是 videoStandards 中的 videoStandardId。' },
   script_id: { type: 'number', description: '剧变项目 ID（scriptId）。erase_subtitle 与 upscale 从任务行读取它，'
     + '不必单独提供；其余方法按上面的必填说明传入。' },
   page_num: { type: 'number', description: '页码，默认 1。' },
@@ -205,7 +205,7 @@ const ARGS = {
     description: 'create 与 body 二选一：按 body 的字段说明生成并检查的本地 UTF-8 JSON 文件路径；一包一份请求体。' },
   media_url: { type: 'string', description: 'media 必填：剧变 CDN 上的媒体 URL（来自其他方法的返回值）。' },
   media_kind: { type: 'string', enum: ['image', 'video'], description: 'media 必填：要下载的是图片还是视频。' },
-  output_path: { type: 'string', description: 'media 必填：落盘的本地绝对路径。' },
+  output_path: { type: 'string', description: 'media 必填：期望落盘的本地绝对路径。扩展名与实际格式不一致时会修正；后续使用返回的 path。' },
   delivery_resolution: { type: 'string',
     description: 'subtasks 可选但强烈建议：本次要交付的分辨率，如 1080p。给定后每行都会得到 '
       + 'needs_upscale：低于该分辨率的结果为 true，否则为 false，无法判断时为 null。'
@@ -782,7 +782,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '本工具不会把图片或视频内容放进返回值。',
     parameters: {
       method: { type: 'string', required: true, enum: ['download'],
-        description: 'download=从 media_url 下载到 output_path。' },
+        description: 'download=从 media_url 下载到本地，按实际格式修正扩展名；读取返回的 path。' },
       media_url: { ...ARGS.media_url, required: true },
       media_kind: { ...ARGS.media_kind, required: true },
       output_path: { ...ARGS.output_path, required: true },

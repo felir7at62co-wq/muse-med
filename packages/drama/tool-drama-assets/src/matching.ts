@@ -239,10 +239,15 @@ async function visualMatch(client: JubianClient, scriptId: number, req: MatchReq
   const stableIdentity = req.stable_id !== undefined && row.stable_id === req.stable_id
   const characterIdentity = req.kind === 'character' && character !== undefined
     && (row.character_id === req.character_id || row.jubian_asset_id === character.asset_id)
+  const referenceRows = entries.filter(entry => entry.jubian_asset_id === character?.asset_id)
+  const referenceIdentity = character?.asset_id === undefined || character.asset_id === row.jubian_asset_id
+    || referenceRows.length > 0 && referenceRows.every(entry => kindOf(entry) === 1
+      && entry.character_id === req.character_id && entry.official === true)
+      && assets.some(asset => asset.id === character.asset_id && asset.assetType === 1 && String(asset.delFlag) === '0')
   if (req.stable_id !== undefined && !stableIdentity
     || req.kind === 'character' && req.character_id !== undefined
       && (!characterIdentity || row.character_id !== undefined && row.character_id !== req.character_id
-        || character.asset_id !== undefined && character.asset_id !== row.jubian_asset_id)) {
+        || !referenceIdentity)) {
     return base(req, 'needs_review', [row], 'IDENTITY_FIELDS_CONFLICT')
   }
   const identity = stableIdentity || characterIdentity

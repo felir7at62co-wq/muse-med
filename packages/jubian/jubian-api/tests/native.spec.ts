@@ -50,6 +50,26 @@ const EXPECTATION = { scriptId: 2708, storyboardId: 916953, episodeId: 46737,
   expectedModel: nativeModelSignature(JSON.stringify(MODEL_CONFIG)),
   expectedPrompt: normalizedPrompt(PROMPT), beforeTaskIds: [] as string[] }
 
+it.each([undefined, null])('prepares an explicit empty backup list when the saved field is %s', (backups) => {
+  const config = { ...MODEL_CONFIG, backupModelList: backups }
+  const result = buildNativeVideoPreview({ storyboard: { ...STORYBOARD, modelConfig: JSON.stringify(config) },
+    assets: ASSETS, models: CATALOGUE, createdAt: 'now' })
+  expect((JSON.parse(String(result.payload.modelConfig)) as Record<string, unknown>).backupModelList).toEqual([])
+  expect(result.payload.isGenerate).toBe(1)
+})
+it('preserves an explicitly configured backup model list in the frozen payload', () => {
+  const backups = [{ modelId: 'selected-backup', standardId: 12 }]
+  const result = buildNativeVideoPreview({ storyboard: { ...STORYBOARD,
+    modelConfig: JSON.stringify({ ...MODEL_CONFIG, backupModelList: backups }) },
+  assets: ASSETS, models: CATALOGUE, createdAt: 'now' })
+  expect((JSON.parse(String(result.payload.modelConfig)) as Record<string, unknown>).backupModelList).toEqual(backups)
+})
+it.each([{}, 'invalid', 1])('refuses an unreadable backup model list before producing a payable preview: %j', (backups) => {
+  expect(() => buildNativeVideoPreview({ storyboard: { ...STORYBOARD,
+    modelConfig: JSON.stringify({ ...MODEL_CONFIG, backupModelList: backups }) },
+  assets: ASSETS, models: CATALOGUE, createdAt: 'now' })).toThrow('backupModelList')
+})
+
 describe('canonical hashing and wire reading', () => {
   it('reads task records without inventing records from absent data', () => {
     expect(responseRecords(null)).toEqual([])
