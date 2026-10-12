@@ -41,6 +41,26 @@ describe('MuseAccountSection', () => {
     expect(screen.getByText('accountNamed')).toBeDefined()
   })
 
+  it('keeps the signed-in UI when Host model refresh fails after authentication', async () => {
+    const refreshModels = vi.fn(async () => { throw new Error('private model catalog detail') })
+    const login = vi.fn(async () => {
+      await refreshModels().catch(() => undefined)
+      return { ok: true as const, value: { outcome: 'signed-in' as const, status: SIGNED_IN } }
+    })
+    render(<MuseAccountSection {...props({ login })} />)
+
+    const submit = await screen.findByRole('button', { name: 'signIn' })
+    fireEvent.change(screen.getByLabelText('username'), { target: { value: 'writer' } })
+    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
+    fireEvent.click(submit)
+
+    expect(await screen.findByText('signedIn')).toBeDefined()
+    expect(screen.getByText('accountNamed')).toBeDefined()
+    expect(screen.queryByText('error.gatewayUnavailable')).toBeNull()
+    expect(screen.queryByText('private model catalog detail')).toBeNull()
+    expect(refreshModels).toHaveBeenCalledTimes(1)
+  })
+
   it('reports a newly registered account after the user selects registration', async () => {
     const login = vi.fn(async () => ({ ok: true as const, value: { outcome: 'registered' as const, status: SIGNED_IN } }))
     render(<MuseAccountSection {...props({ login })} />)

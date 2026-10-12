@@ -4,13 +4,13 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { MuseGatewayError } from '../src/gateway.ts'
-import { MuseAccountInputError } from '../src/account.ts'
+import { MuseAccountController, MuseAccountInputError } from '../src/account.ts'
 import { MuseFeedbackError } from '../src/feedback.ts'
 import { MuseAccountService } from '../src/service.ts'
 import { MuseAsrClient } from '../src/asr.ts'
-import { writeMuseSession } from '../src/session.ts'
+import { readMuseSession, writeMuseSession } from '../src/session.ts'
 import type { MuseAccountStatus } from '../src/types.ts'
 
 const contexts: Context[] = []
@@ -97,9 +97,150 @@ it('orders account refresh and disconnect operations and returns an explicit fee
   expect(await service.status({})).toEqual(signedOut)
   await service.login({ username: 'writer', password: 'password', registerIfMissing: false })
   expect(await service.logout()).toEqual(signedOut)
-  expect(operations).toEqual(['models', 'remote', 'status', 'login', 'remote', 'models', 'pause', 'logout', 'models'])
+  expect(operations).toEqual(['status', 'remote', 'models', 'login', 'remote', 'models', 'pause', 'logout', 'models'])
   expect(await service.feedback({ sessionId: 'session' as never, target: { kind: 'session' }, includeDiagnostics: false }))
     .toEqual({ id: 'feedback', revision: 1 })
+})
+
+it('returns login success and keeps the saved session when the model catalog refresh fails', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'muse-login-refresh-'))
+  const context = new Context()
+  contexts.push(context)
+  const warn = vi.spyOn(context.logger, 'warn').mockImplementation(() => undefined)
+  const sessionFile = join(dir, 'session.json')
+  const controller = new MuseAccountController({
+    baseUrl: 'https://muse.test', sessionFile,
+    gateway: {
+      signIn: async () => '__Host-muse=saved-session',
+      register: async () => { throw new Error('unexpected registration') },
+      identity: async () => ({ username: 'writer' }),
+      signOut: async () => {},
+    },
+  })
+  try {
+    await context.plugin(MuseAccountService, { controller, models: {
+      refresh: async () => { throw new MuseGatewayError('gateway-unavailable') },
+    } })
+    const service = context.get('museAccount') as MuseAccountService
+
+    await expect(service.login({ username: 'writer', password: 'password', registerIfMissing: false }))
+      .resolves.toEqual({ outcome: 'signed-in', status: { state: 'signed-in', username: 'writer', verified: true } })
+    expect(await readMuseSession(sessionFile, 'https://muse.test')).toMatchObject({
+      username: 'writer', cookie: '__Host-muse=saved-session',
+    })
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      'Muse model catalog refresh failed after login; the saved account remains signed in.',
+      expect.objectContaining({ code: 'gateway-unavailable' }),
+    )
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+it('continues to model refresh and returns login success when desktop refresh fails', async () => {
+  const context = new Context(), operations: string[] = []
+  contexts.push(context)
+  const warn = vi.spyOn(context.logger, 'warn').mockImplementation(() => undefined)
+  await context.plugin(MuseAccountService, { controller: {
+    status: async () => ({ state: 'signed-out' }),
+    login: async () => { operations.push('login'); return { outcome: 'signed-in', status: { state: 'signed-in', username: 'writer', verified: true } } },
+    logout: async () => ({ state: 'signed-out' }),
+  }, remote: {
+    refresh: async () => { operations.push('remote'); throw new Error('private desktop refresh detail') },
+    pause: async () => {},
+  }, models: { refresh: async () => { operations.push('models') } } })
+  const service = context.get('museAccount') as MuseAccountService
+
+  await expect(service.login({ username: 'writer', password: 'password', registerIfMissing: false }))
+    .resolves.toMatchObject({ outcome: 'signed-in', status: { state: 'signed-in', username: 'writer' } })
+  expect(operations).toEqual(['login', 'remote', 'models'])
+  expect(warn).toHaveBeenCalledExactlyOnceWith(
+    'Muse desktop connection refresh failed after login; the saved account remains signed in.',
+    expect.objectContaining({ message: 'private desktop refresh detail' }),
+  )
+})
+
+it('returns the saved account after restart when desktop and model refreshes fail', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'muse-status-refresh-'))
+  const context = new Context(), operations: string[] = []
+  contexts.push(context)
+  const warn = vi.spyOn(context.logger, 'warn').mockImplementation(() => undefined)
+  const sessionFile = join(dir, 'session.json')
+  await writeMuseSession(sessionFile, { baseUrl: 'https://muse.test', cookie: '__Host-muse=saved-session', username: 'writer' })
+  const controller = new MuseAccountController({ baseUrl: 'https://muse.test', sessionFile, gateway: {
+    signIn: async () => { throw new Error('unused') }, register: async () => { throw new Error('unused') },
+    identity: async () => { throw new Error('local status must not verify') }, signOut: async () => {},
+  } })
+  try {
+    await context.plugin(MuseAccountService, { controller, remote: {
+      refresh: async () => { operations.push('remote'); throw new Error('private desktop refresh detail') }, pause: async () => {},
+    }, models: { refresh: async () => { operations.push('models'); throw new MuseGatewayError('gateway-unavailable') } } })
+    const service = context.get('museAccount') as MuseAccountService
+
+    await expect(service.status({ verify: false }))
+      .resolves.toEqual({ state: 'signed-in', username: 'writer', verified: false })
+    expect(operations).toEqual(['remote', 'models'])
+    expect(await readMuseSession(sessionFile, 'https://muse.test')).toMatchObject({ username: 'writer' })
+    expect(warn).toHaveBeenNthCalledWith(1,
+      'Muse desktop connection refresh failed while reading account status; the saved account state remains authoritative.',
+      expect.objectContaining({ message: 'private desktop refresh detail' }),
+    )
+    expect(warn).toHaveBeenNthCalledWith(2,
+      'Muse model catalog refresh failed while reading account status; the saved account state remains authoritative.',
+      expect.objectContaining({ code: 'gateway-unavailable' }),
+    )
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+it('clears a session rejected by explicit identity verification even when follow-up refreshes fail', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'muse-status-rejected-'))
+  const context = new Context()
+  contexts.push(context)
+  vi.spyOn(context.logger, 'warn').mockImplementation(() => undefined)
+  const sessionFile = join(dir, 'session.json')
+  await writeMuseSession(sessionFile, { baseUrl: 'https://muse.test', cookie: '__Host-muse=expired-session', username: 'writer' })
+  const controller = new MuseAccountController({ baseUrl: 'https://muse.test', sessionFile, gateway: {
+    signIn: async () => { throw new Error('unused') }, register: async () => { throw new Error('unused') },
+    identity: async () => { throw new MuseGatewayError('invalid-credentials') }, signOut: async () => {},
+  } })
+  try {
+    await context.plugin(MuseAccountService, { controller, remote: {
+      refresh: async () => { throw new Error('desktop cleanup unavailable') }, pause: async () => {},
+    }, models: { refresh: async () => { throw new MuseGatewayError('gateway-unavailable') } } })
+    const service = context.get('museAccount') as MuseAccountService
+
+    await expect(service.status({ verify: true })).resolves.toEqual({ state: 'signed-out' })
+    expect(await readMuseSession(sessionFile, 'https://muse.test')).toBeNull()
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+it('keeps the saved session and skips refreshes when explicit identity verification cannot reach the gateway', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'muse-status-unavailable-'))
+  const context = new Context()
+  contexts.push(context)
+  const sessionFile = join(dir, 'session.json')
+  await writeMuseSession(sessionFile, { baseUrl: 'https://muse.test', cookie: '__Host-muse=saved-session', username: 'writer' })
+  const controller = new MuseAccountController({ baseUrl: 'https://muse.test', sessionFile, gateway: {
+    signIn: async () => { throw new Error('unused') }, register: async () => { throw new Error('unused') },
+    identity: async () => { throw new MuseGatewayError('gateway-unavailable') }, signOut: async () => {},
+  } })
+  const remote = { refresh: vi.fn(async () => {}), pause: async () => {} }
+  const models = { refresh: vi.fn(async () => {}) }
+  try {
+    await context.plugin(MuseAccountService, { controller, remote, models })
+    const service = context.get('museAccount') as MuseAccountService
+
+    await expect(service.status({ verify: true })).rejects.toMatchObject({ code: 'muse-account/gateway-unavailable' })
+    expect(await readMuseSession(sessionFile, 'https://muse.test')).toMatchObject({ username: 'writer' })
+    expect(remote.refresh).not.toHaveBeenCalled()
+    expect(models.refresh).not.toHaveBeenCalled()
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 
 it.each(['username-taken', 'rate-limited', 'registration-disabled', 'gateway-unavailable', 'gateway-rejected', 'input'] as const)(

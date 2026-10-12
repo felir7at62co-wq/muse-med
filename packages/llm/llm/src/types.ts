@@ -225,6 +225,8 @@ export interface LlmProviderInfo {
   id: string
   /** Human-readable provider name for selectors and diagnostics. */
   name: string
+  /** False omits this registered route from new model selections while retaining request routing for saved Sessions. */
+  selectable?: false
 }
 
 /** Merge-extensible provider model modality vocabulary. */

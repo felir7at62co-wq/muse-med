@@ -922,3 +922,31 @@ it('restores the account model name after login without changing the saved route
   expect(screen.getByRole('button', { name: /选择模型，当前/ }).textContent).toBe('DeepSeek FlashHigh')
   expect(directory.getSnapshot().current).toEqual(selected)
 })
+
+it('keeps a hidden historical selection visible without offering it in the model picker', () => {
+  const selected = { provider: 'muse-cloud-yunying', model: 'gpt-6-sol' }
+  const groups = [
+    { id: 'muse-cloud-deepseek-official', name: 'Muse · DeepSeek', models: [
+      { id: 'deepseek-flash', name: 'DeepSeek Flash' },
+    ] },
+    { id: 'muse-cloud-zhipu-official', name: 'Muse · 智谱官方', models: [
+      { id: 'glm-5.3-flash', name: 'GLM-5.3-Flash' },
+    ] },
+  ]
+  const directory = createSnapshotStore(state({ current: selected, routable: false, groups }))
+  const select = vi.fn()
+  render(<ModelSelect locked={false} available directory={directory} load={vi.fn()} select={select} t={t} />)
+
+  const trigger = screen.getByRole('button', { name: /选择模型，当前/ })
+  expect(trigger.textContent).toContain('muse-cloud-yunying/gpt-6-sol')
+  fireEvent.click(trigger)
+  const modelCell = screen.queryByRole('menuitem', { name: /^模型/ })
+  if (modelCell !== null) fireEvent.click(modelCell)
+  expect(screen.getAllByRole('menuitemradio').map(row => row.textContent)).toEqual([
+    'DeepSeek Flash', 'GLM-5.3-Flash',
+  ])
+  expect(screen.queryByText('Muse · 云映')).toBeNull()
+  expect(screen.queryByText('GPT 6 Sol')).toBeNull()
+  expect(select).not.toHaveBeenCalled()
+  expect(directory.getSnapshot().current).toEqual(selected)
+})

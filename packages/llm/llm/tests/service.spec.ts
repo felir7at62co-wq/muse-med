@@ -668,7 +668,7 @@ describe('LlmRuntime', () => {
   it('discovers detached provider and advisory model metadata', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
-    const provider = { id: 'catalog', name: 'Catalog Provider' }
+    const provider: LlmProviderInfo = { id: 'catalog', name: 'Catalog Provider', selectable: false }
     const model = {
       provider: 'catalog',
       id: 'fast',
@@ -688,7 +688,7 @@ describe('LlmRuntime', () => {
     models[0]!.name = 'mutated'
     provider.name = 'source mutated'
     model.name = 'source mutated'
-    expect(ctx.llm.listProviders()).toEqual([{ id: 'catalog', name: 'Catalog Provider' }])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'catalog', name: 'Catalog Provider', selectable: false }])
     await expect(ctx.llm.listModels('catalog')).resolves.toEqual([{
       provider: 'catalog', id: 'fast', name: 'source mutated', description: 'Low latency', inputModalities: ['text'],
     }])
