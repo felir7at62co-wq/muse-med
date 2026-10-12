@@ -376,9 +376,10 @@ export class ApiSessionAgentController {
   /**
    * Resolve the preset id and pre-publication Agent setup for a create or resume.
    * @param presetId - requested preset or the configured default when omitted.
+   * @param creating - whether the caller is creating a new Session rather than recovering one.
    * @returns the resolved preset identity and Agent setup callback.
    */
-  async composeAgent(presetId: string | undefined): Promise<{
+  async composeAgent(presetId: string | undefined, creating = false): Promise<{
     readonly agentPreset?: string
     readonly setup: AgentSetup
   }> {
@@ -386,7 +387,7 @@ export class ApiSessionAgentController {
     if (presets === undefined) {
       return { setup: (_agentCtx, agent) => { this.installSelection(agent) } }
     }
-    const resolvedId = (await presets.resolve(presetId)).id
+    const resolvedId = (await (creating ? presets.resolveForCreation(presetId) : presets.resolve(presetId))).id
     return {
       agentPreset: resolvedId,
       setup: async (agentCtx, agent) => {
@@ -482,7 +483,7 @@ export class ApiSessionAgentController {
     } catch (error: unknown) {
       throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error })
     }
-    const composition = await this.composeAgent(presetId)
+    const composition = await this.composeAgent(presetId, true)
     return (await this.ctx.agents.create({
       sessionId,
       agentOptions: this.agentOptions(),

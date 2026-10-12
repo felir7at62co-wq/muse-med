@@ -1,0 +1,116 @@
+{
+  "assets": [
+    {
+      "name": "苏晚",
+      "id": "id-苏晚",
+      "type": "角色",
+      "official": true,
+      "jubian_asset_id": "70001",
+      "jubian_material_id": "80001",
+      "url": "https://example.invalid/70001.png",
+      "aliases": "",
+      "episodes": [
+        1
+      ],
+      "state_or_costume": "非孕期；青年；家常装"
+    },
+    {
+      "name": "陆沉",
+      "id": "id-陆沉",
+      "type": "角色",
+      "official": true,
+      "jubian_asset_id": "71001",
+      "jubian_material_id": "81001",
+      "url": "https://example.invalid/71001.png",
+      "aliases": "",
+      "episodes": [
+        1
+      ],
+      "state_or_costume": "非孕期；青年；家常装"
+    },
+    {
+      "name": "后厨",
+      "id": "id-后厨",
+      "type": "场景",
+      "official": true,
+      "jubian_asset_id": "72001",
+      "jubian_material_id": "82001",
+      "url": "https://example.invalid/72001.png",
+      "aliases": "",
+      "episodes": [
+        1
+      ],
+      "state_or_costume": "非孕期；青年；家常装"
+    },
+    {
+      "name": "办公室窗下外墙",
+      "id": "id-办公室窗下外墙",
+      "type": "场景",
+      "official": true,
+      "jubian_asset_id": "72002",
+      "jubian_material_id": "82002",
+      "url": "https://example.invalid/72002.png",
+      "aliases": "",
+      "episodes": [
+        1
+      ],
+      "state_or_costume": "非孕期；青年；家常装"
+    },
+    {
+      "name": "办公室",
+      "id": "id-办公室",
+      "type": "场景",
+      "official": true,
+      "jubian_asset_id": "72003",
+      "jubian_material_id": "82003",
+      "url": "https://example.invalid/72003.png",
+      "aliases": "",
+      "episodes": [
+        1
+      ],
+      "state_or_costume": "非孕期；青年；家常装"
+    },
+    {
+      "name": "门口",
+      "id": "id-门口",
+      "type": "场景",
+      "official": true,
+      "jubian_asset_id": "72004",
+      "jubian_material_id": "82004",
+      "url": "https://example.invalid/72004.png",
+      "aliases": "",
+      "episodes": [
+        1
+      ],
+      "state_or_costume": "非孕期；青年；家常装"
+    },
+    {
+      "name": "陆沉家",
+      "id": "id-陆沉家",
+      "type": "场景",
+      "official": true,
+      "jubian_asset_id": "72005",
+      "jubian_material_id": "82005",
+      "url": "https://example.invalid/72005.png",
+      "aliases": "",
+      "episodes": [
+        1
+      ],
+      "state_or_costume": "非孕期；青年；家常装"
+    },
+    {
+      "name": "奶瓶",
+      "id": "id-奶瓶",
+      "type": "道具",
+      "official": true,
+      "jubian_asset_id": "72006",
+      "jubian_material_id": "82006",
+      "url": "https://example.invalid/72006.png",
+      "aliases": "",
+      "episodes": [
+        1
+      ],
+      "state_or_costume": "非孕期；青年；家常装"
+    }
+  ]
+}

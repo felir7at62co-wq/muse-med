@@ -69,6 +69,7 @@ export type IssueCode =
   | 'characters_placeholder'
   | 'asset_type_unusable'
   | 'asset_binding_ambiguous'
+  | 'material_reference_mismatch'
   | 'unregistered_character'
   | 'unregistered_scene'
   | 'no_scene_bound'
@@ -136,12 +137,16 @@ export interface ParsedShot {
 export interface ManifestAsset {
   /** Declared asset name, which is also the prompt's `@[name](key)` label. */
   name: string
+  /** Stable story character name shared by appearance versions with different provider labels. */
+  characterName?: string
   /** Manifest id, falling back to the asset name. */
   id: string
   /** Declared type, such as `角色`, `动物`, `场景`, or `道具`. */
   type: string
   /** Explicit animal classification for role rows; animals skip human body-state requirements. */
   subjectKind?: 'animal' | 'human'
+  /** Identity portraits permit shot-authored clothing; appearance references require the registered costume. */
+  referenceScope?: 'identity' | 'appearance'
   /** Whether the asset passed the official-asset gate. */
   official: boolean
   /** Jubian parent asset id, or an empty string when the manifest omits it. */
@@ -162,6 +167,10 @@ export interface ManifestAsset {
 
 /** One asset bound to a shot, with the current manifest values. */
 export interface BoundAsset {
+  /** Declared animal or human classification retained when packaging without the manifest. */
+  subjectKind?: 'animal' | 'human'
+  /** Whether the image supplies identity only or the complete registered appearance. */
+  referenceScope?: 'identity' | 'appearance'
   /** Declared asset name. */
   name: string
   /** Manifest id, falling back to the asset name. */
@@ -214,6 +223,16 @@ export interface PackedTask {
   materialKeys: string[]
   /** Ordered bound asset names of this package's shots. */
   materialNames: string[]
+  /** Exact parent/material identities for each prompt key, in first-appearance order. */
+  materialBindings: MaterialBinding[]
+}
+
+/** One prompt key and the asset it references; repeated mentions share one row. */
+export interface MaterialBinding extends BindingReport {
+  /** Placeholder key passed to `select_assets`; independent of the display label. */
+  material_key: string
+  /** Which features this image supplies to the video model. */
+  reference_scope: 'identity' | 'appearance'
 }
 
 /** One issue as the model reads it. */
@@ -298,6 +317,8 @@ export interface PackageReport {
   material_keys: string[]
   /** Ordered bound asset names of this package's shots. */
   material_names: string[]
+  /** Explicit key-to-asset rows; never infer this mapping by zipping separate lists. */
+  material_bindings: MaterialBinding[]
 }
 
 /** The canonical result of one `drama_shot` call. */
@@ -409,6 +430,8 @@ export interface MatchedVideoTask {
   prompt: string
   /** Placeholder keys in first-appearance order, matching `select_assets` selections. */
   material_keys: string[]
+  /** Exact key-to-asset rows in prompt order. */
+  material_bindings: MaterialBinding[]
 }
 
 /** The matched JSON one episode compiles to. */

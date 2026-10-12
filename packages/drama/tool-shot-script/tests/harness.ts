@@ -82,7 +82,8 @@ Record<string, unknown> {
     type,
     id: `id-${name}`,
     official: true,
-    jubian_asset_id: '70001',
+    jubian_asset_id: ({ 苏晚: '70001', 后厨: '70002', 客厅: '70003', 奶瓶: '70004' } as Record<string, string>)[name]
+      ?? String(90000 + name.split('').reduce((sum, character) => sum + character.charCodeAt(0), 0)),
     jubian_material_id: '80001',
     url: 'https://cdn.example.test/asset.png',
     image_path: '',

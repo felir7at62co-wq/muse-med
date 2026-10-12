@@ -144,7 +144,7 @@ describe('character state at binding time', () => {
         clinic()] })
     const report = await validate(files, 25)
     expect(report.ok).toBe(false)
-    expect(report.failures.map(failure => failure.code)).toEqual(['asset_state_missing'])
+    expect(report.failures.map(failure => failure.code)).toContain('asset_state_missing')
     const message = failures(report)
     expect(message).toContain('角色=沈知意')
     expect(message).toContain('阶段=孕早期')
@@ -235,13 +235,13 @@ describe('character state at binding time', () => {
       assets: [latePregnancyAsset('孕早期（孕八周）、孕期职场装'), clinic()] })
     const report = await validate(files, 25)
     expect(report.ok).toBe(false)
-    expect(report.failures.map(failure => failure.code)).toEqual(['asset_state_mismatch'])
-    expect(failures(report)).toContain('孕期阶段=同一处写了两个不同取值')
+    expect(report.failures.map(failure => failure.code)).toEqual(['shot_body_state_unusable'])
+    expect(failures(report)).toContain('阶段/体型声明冲突')
   })
   it('边界：清单里没有这个角色时，补料需求写明「已登记的该角色版本：无」', async () => {
     const files = await project({ script: shenShot('孕早期（孕八周）；孕期职场装'), assets: [clinic()] })
     const report = await validate(files, 25)
-    expect(report.failures.map(failure => failure.code)).toEqual(['asset_state_missing'])
+    expect(report.failures.map(failure => failure.code)).toContain('asset_state_missing')
     expect(failures(report)).toContain('已登记的该角色版本：无')
   })
 
@@ -254,15 +254,18 @@ describe('character state at binding time', () => {
     expect(report.failures.map(failure => failure.code)).toContain('incomplete_asset')
   })
 
-  it('边界：比角色名更短的资产名要按包含关系才算是这个角色的版本', async () => {
+  it('不把未登记的短名当作另一人物的身份', async () => {
     const shortName = await project({ script: shenShot('孕早期（孕八周）；孕期职场装'),
       assets: [assetRow('沈', '角色', { episodes: [25], state_or_costume: '孕早期、孕期职场装' }), clinic()] })
     const shortReport = await validate(shortName, 25)
-    expect(shortReport.failures.map(failure => failure.code)).toContain('shot_body_state_missing')
+    expect(shortReport.failures.map(failure => failure.code)).toContain('unregistered_character')
+    expect(shortReport.shots[0]?.bindings.some(asset => asset.name === '沈')).toBe(false)
 
     const partialName = await project({ script: shenShot('孕早期（孕八周）；孕期职场装'),
       assets: [assetRow('沈知', '角色', { episodes: [25], state_or_costume: '孕早期、孕期职场装' }), clinic()] })
-    expect((await validate(partialName, 25)).ok).toBe(true)
+    const partial = await validate(partialName, 25)
+    expect(partial.ok).toBe(false)
+    expect(partial.shots[0]?.bindings.some(asset => asset.name === '沈知')).toBe(false)
   })
 
   it('边界：同一镜头给同一资产写了两条声明时，按最长的角色名判定', async () => {

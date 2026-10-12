@@ -50,6 +50,12 @@ const NEGATIVE_PROMPT = '无噪点，无跳帧，五官稳定不变形'
 /** A marker line, captured together with its shot number. */
 const SHOT_MARKER = /^【镜头(\d+)】[ \t]*$/gm
 
+/** A standalone scene heading; summaries and mentions inside directions do not match. */
+const SCENE_HEADING = /^场次[ \t]*\d+[-－]\d+[：:][ \t]*([^\r\n]+)\r?$/gm
+
+/** Source-scene metadata is prompt context, never visual evidence for asset selection. */
+export const SOURCE_SCENE_PREFIX = '来源场次（原文段落）：'
+
 /** The legacy `时长` field, tolerated on old scripts and stripped from the prompt. */
 const LEGACY_DURATION = /^时长[：:][ \t]*(.*)$/m
 
@@ -180,17 +186,24 @@ interface Block {
   end: number
   /** Shot number the marker declares. */
   number: number
+  /** Explicit source-scene heading without its cast-list annotation. */
+  sceneContext: string
 }
 
 /** Locate every `【镜头N】` block with the offsets its line numbers and text need. */
 function splitBlocks(text: string): Block[] {
   const blocks: Block[] = []
   const markers = [...text.matchAll(SHOT_MARKER)]
+  const headings = [...text.matchAll(SCENE_HEADING)]
   for (const [index, marker] of markers.entries()) {
+    const nextMarker = markers[index + 1]?.index ?? text.length
+    const nextHeading = headings.find(heading => heading.index > marker.index && heading.index < nextMarker)
+    const currentHeading = headings.findLast(heading => heading.index < marker.index)
     blocks.push({
       start: marker.index,
-      end: markers[index + 1]?.index ?? text.length,
+      end: nextHeading?.index ?? nextMarker,
       number: Number(capture(marker, 1)),
+      sceneContext: currentHeading === undefined ? '' : currentHeading[0].trim().replace(/[｜|].*$/, '').trim(),
     })
   }
   return blocks
@@ -474,7 +487,8 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
       charactersField,
       sceneField: field(blockText, '核心场景'),
       propsField: field(blockText, '关键道具'),
-      visual: `${style === undefined ? '' : `${style}\n`}${body.trim()}`,
+      visual: (block.sceneContext === '' ? '' : `${SOURCE_SCENE_PREFIX}${block.sceneContext}；本镜可为内外插镜，具体以本镜画面与核心场景为准。\n`)
+        + `${style === undefined ? '' : `${style}\n`}${body.trim()}`,
       directorFormat,
       breakAfter: field(blockText, '子任务边界') === '是',
       bodyStates: declaredBodyStates(blockText),

@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-shot-derived-visual
+profile: headless
+composition: muse-shot-derived-visual
+recording: authored
+header:
+  class: muse-shot-derived-visual
+  pin: true
+writerOutput: true

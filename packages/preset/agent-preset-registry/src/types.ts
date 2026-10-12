@@ -20,7 +20,7 @@ export interface AgentPresetRow {
 
 /** The roster one deployment currently supplies. */
 export interface AgentPresetRoster {
-  /** Every current declaration, including activation failures. */
+  /** Selectable declarations, including activation failures; historical-only definitions are omitted. */
   readonly presets: readonly AgentPresetRow[]
 }
 
@@ -42,6 +42,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'agent-preset/not-found': { readonly agentPreset: string; readonly available: readonly string[] }
     /** The id is unusable, already taken, or its composition cannot be installed. */
     'agent-preset/invalid': { readonly agentPreset: string; readonly reason: string }
+    /** The definition is retained for historical reads and recovery, but cannot start a new task. */
+    'agent-preset/not-selectable': { readonly agentPreset: string }
     /** The session's conversation has started, so its composition is fixed. */
     'agent-preset/locked': { readonly sessionId: SessionId; readonly agentPreset: string }
   }

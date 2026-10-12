@@ -19,13 +19,13 @@ import NativePreset from '../../desktop-host/src/native-preset.ts'
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/defaults.cordis.patch.yml', import.meta.url))
 
-it('loads exactly the seven product modes without discovering other shipped or personal presets', async () => {
+it('offers only short drama and editing while keeping registered legacy compositions recoverable', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-product-preset-'))
   const ctx = new Context()
   try {
     const patch = loadOverlayPatches('muse-med', patchPath).find(row => row.id === 'agent-preset-registry')
     const presetConfig = patch?.config as Record<string, unknown> | undefined
-    expect(presetConfig).toMatchObject({ default: 'short-drama' })
+    expect(presetConfig).toMatchObject({ default: 'short-drama', selectablePresets: ['short-drama', 'editing'] })
     const productRows = yaml.load(await readFile(join(productRoot, 'short-drama', 'agent.cordis.yml'), 'utf8'),
       { schema: entryListSchema }) as Array<{ id: string; name: string }>
     const guard = productRows.find(row => row.id === 'drama-gate')
@@ -64,6 +64,8 @@ it('loads exactly the seven product modes without discovering other shipped or p
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
     expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['cordis', 'creation', 'editing', 'minimal', 'ptc', 'short-drama', 'standard'])
     expect(ctx.agentPresets.defaultId).toBe('short-drama')
+    expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama', 'editing'])
+    await expect(ctx.agentPresets.resolveForCreation('creation')).rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
     expect(await ctx.agentPresets.resolve('creation')).toMatchObject({ id: 'creation' })
     const creation = (await ctx.agentPresets.list()).find(row => row.id === 'creation')
     expect(creation?.name).toBeUndefined()

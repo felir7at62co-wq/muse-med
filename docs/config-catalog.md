@@ -179,6 +179,8 @@ export interface Config {
   default: string
   /** User-selected default; edited through Settings. */
   selectedDefault: Volatile<string | undefined>
+  /** Presets available for new sessions; omitted means every registered preset. Historical resolution remains unrestricted. */
+  selectablePresets?: readonly string[]
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-agent-preset-registry -->
@@ -4353,7 +4355,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-shot-script`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-shot-script/src/index.ts:53`](../packages/drama/tool-shot-script/src/index.ts)
+- `source`: [`packages/drama/tool-shot-script/src/index.ts:54`](../packages/drama/tool-shot-script/src/index.ts)
 
 ```ts config-catalog
 /**

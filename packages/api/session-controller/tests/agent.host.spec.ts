@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
+import AgentPresets, { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionLogOffset, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import { SessionAlreadyOwnedError } from '@deepseek-ai/dsh-session-persistence'
@@ -76,6 +77,24 @@ function unpublishedAgent(ctx: Context, meta: SessionHeader): Agent {
 }
 
 describe('ApiSession identity failures', () => {
+  it('resolves new-task composition under selection policy while retaining legacy recovery', async () => {
+    const { ctx, agents } = await harness()
+    await ctx.plugin(Loader)
+    await ctx.plugin(AgentPresets, { default: 'creation', selectablePresets: ['creation'], selectedDefault: 'editing' })
+    ctx.effect(async () => await ctx.agentPresets.register({ id: 'creation', plugins: [] }))
+    ctx.effect(async () => await ctx.agentPresets.register({ id: 'editing', plugins: [] }))
+    await ctx.fiber.await()
+    const cwd = mkdtempSync(join(tmpdir(), 'muse-only-creation-'))
+    tempDirs.push(cwd)
+    const fresh = await agents.composeAgent(undefined, true)
+    expect(fresh.agentPreset).toBe('creation')
+    await expect(agents.ensureSession(SessionId('refused-editing'), cwd, false, 'editing'))
+      .rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
+    expect(ctx.agents.get(SessionId('refused-editing'))).toBeUndefined()
+    const old = await agents.composeAgent('editing')
+    expect(old.agentPreset).toBe('editing')
+  })
+
   it('describes cwd conflicts with and without a recorded cwd', () => {
     expect(new ApiSessionCwdConflict(SessionId('missing-cwd'), '/wanted', undefined).message)
       .toContain('records no cwd')

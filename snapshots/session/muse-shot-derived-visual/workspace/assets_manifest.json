@@ -1,0 +1,88 @@
+{
+  "assets": [
+    {
+      "name": "小禾身份母版",
+      "type": "角色",
+      "id": "fictional-72001",
+      "official": true,
+      "jubian_asset_id": "72001",
+      "jubian_material_id": "82001",
+      "url": "https://example.invalid/72001.png",
+      "episodes": [
+        1
+      ],
+      "character_name": "小禾",
+      "reference_scope": "identity",
+      "state_or_costume": "非孕期；7岁"
+    },
+    {
+      "name": "小竹身份母版",
+      "type": "角色",
+      "id": "fictional-72002",
+      "official": true,
+      "jubian_asset_id": "72002",
+      "jubian_material_id": "82002",
+      "url": "https://example.invalid/72002.png",
+      "episodes": [
+        1
+      ],
+      "character_name": "小竹",
+      "reference_scope": "identity",
+      "state_or_costume": "非孕期；8岁"
+    },
+    {
+      "name": "谭伯身份母版",
+      "type": "角色",
+      "id": "fictional-72003",
+      "official": true,
+      "jubian_asset_id": "72003",
+      "jubian_material_id": "82003",
+      "url": "https://example.invalid/72003.png",
+      "episodes": [
+        1
+      ],
+      "character_name": "谭伯",
+      "reference_scope": "identity",
+      "state_or_costume": "非孕期；老年"
+    },
+    {
+      "name": "小禾家",
+      "type": "场景",
+      "id": "fictional-72004",
+      "official": true,
+      "jubian_asset_id": "72004",
+      "jubian_material_id": "82004",
+      "url": "https://example.invalid/72004.png",
+      "episodes": [
+        1
+      ]
+    },
+    {
+      "name": "小禾的碗",
+      "type": "道具",
+      "id": "fictional-72005",
+      "official": true,
+      "jubian_asset_id": "72005",
+      "jubian_material_id": "82005",
+      "url": "https://example.invalid/72005.png",
+      "episodes": [
+        1
+      ]
+    },
+    {
+      "name": "木制玩具枪",
+      "type": "道具",
+      "id": "fictional-72006",
+      "official": true,
+      "jubian_asset_id": "72006",
+      "jubian_material_id": "82006",
+      "url": "https://example.invalid/72006.png",
+      "episodes": [
+        1
+      ],
+      "aliases": [
+        "木枪"
+      ]
+    }
+  ]
+}

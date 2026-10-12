@@ -1,0 +1,103 @@
+{
+  "assets": [
+    {
+      "name": "温雨身份母版",
+      "character_name": "温雨",
+      "aliases": [
+        "小雨"
+      ],
+      "type": "角色",
+      "id": "rain-identity",
+      "official": true,
+      "jubian_asset_id": "71001",
+      "jubian_material_id": "81001",
+      "url": "https://example.invalid/rain.png",
+      "episodes": [
+        "all"
+      ],
+      "reference_scope": "identity",
+      "state_or_costume": "非孕期；青年"
+    },
+    {
+      "name": "温雨雨衣版",
+      "character_name": "温雨",
+      "aliases": [
+        "小雨"
+      ],
+      "type": "角色",
+      "id": "rain-yellow",
+      "official": true,
+      "jubian_asset_id": "71002",
+      "jubian_material_id": "81002",
+      "url": "https://example.invalid/rain-yellow.png",
+      "episodes": [
+        1
+      ],
+      "state_or_costume": "非孕期；青年；黄色雨衣"
+    },
+    {
+      "name": "温雪身份母版",
+      "character_name": "温雪",
+      "type": "角色",
+      "id": "snow-identity",
+      "official": true,
+      "jubian_asset_id": "71003",
+      "jubian_material_id": "81003",
+      "url": "https://example.invalid/snow.png",
+      "episodes": [
+        "all"
+      ],
+      "reference_scope": "identity",
+      "state_or_costume": "非孕期；青年"
+    },
+    {
+      "name": "后厨",
+      "type": "场景",
+      "id": "kitchen",
+      "official": true,
+      "jubian_asset_id": "71004",
+      "jubian_material_id": "81004",
+      "url": "https://example.invalid/kitchen.png",
+      "episodes": [
+        "all"
+      ]
+    },
+    {
+      "name": "李军",
+      "type": "角色",
+      "id": "fixture-71006",
+      "official": true,
+      "jubian_asset_id": "71006",
+      "jubian_material_id": "81006",
+      "url": "https://example.invalid/71006.png",
+      "episodes": [
+        1
+      ],
+      "state_or_costume": "非孕期；青年；家常装"
+    },
+    {
+      "name": "李军家",
+      "type": "场景",
+      "id": "fixture-71007",
+      "official": true,
+      "jubian_asset_id": "71007",
+      "jubian_material_id": "81007",
+      "url": "https://example.invalid/71007.png",
+      "episodes": [
+        1
+      ]
+    },
+    {
+      "name": "李军的碗",
+      "type": "道具",
+      "id": "fixture-71008",
+      "official": true,
+      "jubian_asset_id": "71008",
+      "jubian_material_id": "81008",
+      "url": "https://example.invalid/71008.png",
+      "episodes": [
+        1
+      ]
+    }
+  ]
+}

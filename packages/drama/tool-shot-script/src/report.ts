@@ -90,6 +90,7 @@ function packageReport(task: PackedTask): PackageReport {
     prompt: task.prompt,
     material_keys: task.materialKeys,
     material_names: task.materialNames,
+    material_bindings: task.materialBindings,
   }
 }
 

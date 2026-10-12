@@ -13,14 +13,18 @@
 import { access, copyFile, mkdir, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import type {
+  BoundAsset,
   CompiledShot,
   ManifestAsset,
+  MaterialBinding,
   MatchedAsset,
   MatchedPayload,
   MatchedShot,
   MatchedVideoTask,
   PackedTask,
+  ShotIssue,
 } from './types.ts'
+import { characterNames } from './assets.ts'
 
 /** Seconds of natural reaction, breath, or movement closure every package adds. */
 export const NATURAL_HOLD_SECONDS = 1
@@ -38,7 +42,7 @@ export const MIN_CONTENT_SECONDS = MIN_SUBMIT_SECONDS - NATURAL_HOLD_SECONDS
 export const HOLD_INSTRUCTION = '结尾保持自然反应、呼吸或动作收束，不新增台词'
 
 /** Matched-JSON generation this compiler writes. */
-export const MATCHED_VERSION = 4
+export const MATCHED_VERSION = 5
 
 /** The `@[name](key)` placeholder the prompt binds material keys with. */
 const MATERIAL_PLACEHOLDER = /@\[([^\]]+)\]\(([^()\s]+)\)/g
@@ -60,6 +64,50 @@ function placeholderLabel(match: RegExpMatchArray): string {
   return match[0].slice(2, match[0].indexOf(']('))
 }
 
+/** Resolve a marker against this shot's selected assets, including provider display wrappers. */
+function referenceAsset(item: CompiledShot, match: RegExpMatchArray, manifest: readonly ManifestAsset[]): BoundAsset | undefined {
+  const label = placeholderLabel(match).replace(/^图片\d+\s*[(（](.*)[)）]$/, '$1')
+  return item.assets.find((bound) => {
+    if (bound.name === label) return true
+    const registration = manifest.find(row => row.name === bound.name && row.assetId === bound.assetId)
+    return registration !== undefined && characterNames(registration).includes(label)
+  })
+}
+
+/** Check authored references against the selected identity before creating packages.
+ * @param shots - Bound shots before prompt completion.
+ * @param manifest - Registrations supplying exact alternate names.
+ * @returns Repairable failures for unknown labels, wrong parent keys or shared keys naming different assets.
+ */
+export function materialReferenceIssues(shots: readonly CompiledShot[], manifest: readonly ManifestAsset[]): ShotIssue[] {
+  const owners = new Map<string, string>()
+  const identities = new Map<string, BoundAsset>()
+  const issues: ShotIssue[] = []
+  for (const item of shots) {
+    for (const asset of item.assets) {
+      if (asset.assetId === '') continue
+      const prior = identities.get(asset.assetId)
+      if (prior !== undefined && (prior.name !== asset.name || prior.materialId !== asset.materialId || prior.url !== asset.url)) {
+        issues.push({ severity: 'failure', code: 'material_reference_mismatch', shot: item.shot.shot, line: item.shot.line,
+          message: `镜头${item.shot.shot}的父资产 ${asset.assetId} 同时登记了不同人物或素材版本（${prior.name} / ${asset.name}）；`
+            + '核对真实父资产与 material ID，不把两个版本合并为一个素材。' })
+      } else identities.set(asset.assetId, asset)
+    }
+    for (const match of item.shot.visual.matchAll(MATERIAL_PLACEHOLDER)) {
+      const key = placeholderKey(match)
+      const asset = referenceAsset(item, match, manifest)
+      const previous = owners.get(key)
+      if (asset === undefined || (key.startsWith('asset_') && key !== `asset_${asset.assetId}`)
+        || (previous !== undefined && previous !== asset.assetId)) {
+        issues.push({ severity: 'failure', code: 'material_reference_mismatch', shot: item.shot.shot, line: item.shot.line,
+          message: `镜头${item.shot.shot}的 ${match[0]} 与本镜选定资产不一致或复用了其他人物的 key；`
+            + '删除过期引用，按本镜出镜人物、妆造和清单重新 compile，使用返回的 material_bindings。' })
+      } else owners.set(key, asset.assetId)
+    }
+  }
+  return issues
+}
+
 /**
  * Read one prompt's ordered material keys.
  *
@@ -78,38 +126,74 @@ export function materialKeys(prompt: string): string[] {
 /**
  * Complete shot prompts with the confirmed assets their visual directions bind.
  * Existing keys are reused across the episode, including registered alias labels;
- * otherwise the parent asset id supplies the stable `asset_<id>` key. The full
- * original visual text is retained before any added material references.
+ * otherwise the parent asset id supplies the stable `asset_<id>` key. Shot directions
+ * and dialogue are retained; marker labels and keys are normalized before missing
+ * named references are appended. Each shot's selected human identities limit its
+ * visible cast without forcing every reference into frame; prior derived cast
+ * limits are replaced when the selected identities change. Multi-view references
+ * describe one person; identity and prop instructions preserve visible differences
+ * without inventing features from an asset name.
  * @param shots - Compiled shots in script order.
- * @param manifest - Registrations supplying alternate names for existing markers.
- * @returns New shot rows with complete material references in their visual prompts.
+ * @param manifest - Registrations supplying story names, aliases and animal classification.
+ * @returns New shot rows with current cast limits and complete material references.
  */
 export function prepareShotPrompts(shots: readonly CompiledShot[], manifest: readonly ManifestAsset[] = []): CompiledShot[] {
   const keysByAsset = new Map<string, string>()
   for (const item of shots) {
     for (const match of item.shot.visual.matchAll(MATERIAL_PLACEHOLDER)) {
-      const label = placeholderLabel(match)
-      const asset = item.assets.find((bound) => {
-        if (bound.name === label) return true
-        const registration = manifest.find(row => row.name === bound.name && row.assetId === bound.assetId)
-        return registration?.aliases.split(/[、,，;；/|｜\s]+/).includes(label) === true
-      })
+      const asset = referenceAsset(item, match, manifest)
       if (asset !== undefined && !keysByAsset.has(asset.assetId)) {
         keysByAsset.set(asset.assetId, placeholderKey(match))
       }
     }
   }
   return shots.map((item) => {
-    const present = new Set([...item.shot.visual.matchAll(MATERIAL_PLACEHOLDER)].map(placeholderLabel))
+    const present = new Set<string>()
+    const original = item.shot.visual.split('\n').filter(line => !line.startsWith('本镜人物范围：'))
+      .join('\n').replace(MATERIAL_PLACEHOLDER, (whole: string, label: string, key: string) => {
+        const match: RegExpMatchArray = [whole, label, key]
+        const asset = referenceAsset(item, match, manifest)
+        if (asset === undefined) return whole
+        present.add(asset.assetId)
+        return `@[${asset.name}](${keysByAsset.get(asset.assetId)})`
+      })
     const added: string[] = []
+    const people = new Map(item.assets.filter((asset) => {
+      if (!item.characters.includes(asset.name) || asset.subjectKind === 'animal'
+        || (asset.type !== '角色' && asset.type !== 'character')) return false
+      const registration = manifest.find(row => row.name === asset.name && row.assetId === asset.assetId)
+      if (registration !== undefined) return registration.subjectKind !== 'animal'
+      return item.shot.bodyStates.has(asset.name) || [...item.shot.bodyStates.keys()].some(name =>
+        original.split('\n').some(line => line.startsWith(
+          `人物参考：${name} → @[${asset.name}](${keysByAsset.get(asset.assetId)})`,
+        )))
+    }).map(asset => [asset.assetId, asset.name]))
+    const castLimit = people.size === 0
+      ? '本镜人物范围：0人，无人物入画；画外发声与来源场次的人物表不增加出镜人物。'
+      : `本镜人物范围：最多${people.size}人，仅限${[...people.values()].join('、')}；`
+        + '可按本镜景别局部入画或遮挡，不强求全员同框；画外发声、来源场次人物表和其他镜头的人物不增加本镜人数。'
     for (const asset of item.assets) {
       if (!asset.official || asset.assetId === '' || asset.materialId === '' || asset.url === '') continue
       const key = keysByAsset.get(asset.assetId) ?? `asset_${asset.assetId}`
-      if (present.has(asset.name)) continue
-      present.add(asset.name)
-      added.push(`@[${asset.name}](${key})`)
+      const registration = manifest.find(row => row.name === asset.name && row.assetId === asset.assetId)
+      const subject = registration === undefined ? asset.name : [...item.shot.bodyStates.keys()]
+        .find(name => characterNames(registration).includes(name)) ?? asset.name
+      const purpose = item.characters.includes(asset.name) ? '人物' : item.scene === asset.name ? '场景' : '道具'
+      const reference = `${purpose}参考：${subject} → @[${asset.name}](${key})`
+      const instruction = asset.referenceScope === 'identity'
+        ? '（仅参考本人面孔与身份，保留区分本人的脸型、年龄感与面部特征；正文明确的年龄或妆造变化按本镜正文及对应正式版本，服装、动作和表情以本镜正文为准，不复制参考图的姿态；同一素材中的脸部、服装和多视角属于同一人，同一key在本镜仅一个人物实例，跨镜复用不新增人物）'
+        : people.has(asset.assetId)
+          ? '（保留本镜正式参考人物的脸型、年龄感和可见妆造差异；正文明确变化时使用对应正式版本，不把不同人物统一成年轻模板；动作和表情以本镜正文为准，不复制参考图的姿态；同一素材中的脸部、服装和多视角属于同一人，同一key在本镜仅一个人物实例，跨镜复用不新增人物）'
+          : item.props.includes(asset.name)
+            ? '（外形、结构、材质和颜色沿用本镜正式参考图，使用动作以本镜正文为准；不凭道具泛名替换外观，不发明图中未确认的材质或结构）'
+            : ''
+      if (instruction !== '') {
+        const explained = `@[${asset.name}](${key})${instruction}`
+        if (!original.includes(explained)) added.push(`${reference}${instruction}`)
+      } else if (!present.has(asset.assetId)) added.push(reference)
+      present.add(asset.assetId)
     }
-    const visual = added.length === 0 ? item.shot.visual : `${item.shot.visual}\n素材映射：${added.join(' ')}`
+    const visual = `${original}\n${[...added, castLimit].join('\n')}`
     return { ...item, shot: { ...item.shot, visual } }
   })
 }
@@ -228,16 +312,40 @@ function splitUnitEvenly(unit: readonly CompiledShot[], ceiling: number): readon
  * @param shots - Compiled shots in script order.
  * @param maxContentSeconds - Content-second ceiling of one package.
  * @returns Packages in submission order.
+ * @throws {Error} When a bound asset is unconfirmed or lacks its remote identity,
+ *   a prompt reference disagrees, or a complete shot exceeds the budget.
  */
 export function packEpisode(shots: readonly CompiledShot[], maxContentSeconds: number): PackedTask[] {
   if (!Number.isSafeInteger(maxContentSeconds) || maxContentSeconds < MIN_CONTENT_SECONDS) {
     throw new Error(`内容预算至少为${MIN_CONTENT_SECONDS}秒，提交总时长至少为${MIN_SUBMIT_SECONDS}秒。`)
   }
+  for (const item of shots) {
+    for (const asset of item.assets) {
+      if (!asset.official || asset.assetId === '' || asset.materialId === '' || asset.url === '') {
+        throw new Error(`镜头${item.shot.shot}的 ${asset.name} 未确认出演或缺少父资产、material ID、URL，不能生成视频素材绑定。`)
+      }
+    }
+  }
+  const prepared = prepareShotPrompts(shots)
+  const invalid = materialReferenceIssues(prepared, [])
+  if (invalid.length > 0) throw new Error(invalid.map(issue => issue.message).join('\n'))
   const tasks: PackedTask[] = []
-  for (const unit of splitContinuityUnits(prepareShotPrompts(shots), maxContentSeconds)) {
+  for (const unit of splitContinuityUnits(prepared, maxContentSeconds)) {
     for (const pack of splitUnitEvenly(unit, maxContentSeconds)) {
       const contentSeconds = pack.reduce((sum, item) => sum + item.shot.durationSeconds, 0)
       const prompt = `${pack.map(item => item.shot.visual).join('\n\n')}\n${HOLD_INSTRUCTION}`
+      const bindings = new Map<string, MaterialBinding>()
+      for (const item of pack) {
+        for (const match of item.shot.visual.matchAll(MATERIAL_PLACEHOLDER)) {
+          const key = placeholderKey(match)
+          for (const asset of item.assets.filter(bound => bound.name === placeholderLabel(match))) {
+            bindings.set(key, { material_key: key, name: asset.name, type: asset.type,
+              official: asset.official, asset_id: asset.assetId, material_id: asset.materialId, url: asset.url,
+              reference_scope: asset.referenceScope ?? 'appearance' })
+          }
+        }
+      }
+      const materialBindings = [...bindings.values()]
       tasks.push({
         index: tasks.length + 1,
         shots: pack.map(item => item.shot.shot),
@@ -246,6 +354,7 @@ export function packEpisode(shots: readonly CompiledShot[], maxContentSeconds: n
         prompt,
         materialKeys: materialKeys(prompt),
         materialNames: [...new Set(pack.flatMap(item => item.assets.map(asset => asset.name)))],
+        materialBindings,
       })
     }
   }
@@ -322,6 +431,7 @@ export function buildMatchedPayload(input: MatchedInput): MatchedPayload {
       hold_instruction: HOLD_INSTRUCTION,
       prompt: task.prompt,
       material_keys: task.materialKeys,
+      material_bindings: task.materialBindings,
     })),
   }
 }

@@ -2,6 +2,7 @@
 - id: agent-preset-registry
   config:
     default: short-drama
+    selectablePresets: [short-drama, editing]
 
 # Muse supplies its signed-in cloud catalog; users may configure their own native models.
 - id: llm-deepseek

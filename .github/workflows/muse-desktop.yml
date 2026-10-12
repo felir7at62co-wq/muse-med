@@ -2,6 +2,13 @@ name: Muse unsigned desktop packages
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: Installer platform
+        type: choice
+        required: true
+        default: all
+        options: [all, win-x64, mac-arm64]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
@@ -21,13 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: win-x64
-            runner: windows-2025
-            shell: pwsh
-          - target: mac-arm64
-            runner: macos-15
-            shell: bash
+        include: ${{ fromJSON(inputs.target == 'win-x64' && '[{"target":"win-x64","runner":"windows-2025","shell":"pwsh"}]' || inputs.target == 'mac-arm64' && '[{"target":"mac-arm64","runner":"macos-15","shell":"bash"}]' || '[{"target":"win-x64","runner":"windows-2025","shell":"pwsh"},{"target":"mac-arm64","runner":"macos-15","shell":"bash"}]') }}
     defaults:
       run:
         shell: ${{ matrix.shell }}

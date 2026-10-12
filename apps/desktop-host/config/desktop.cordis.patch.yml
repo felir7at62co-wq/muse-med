@@ -8,6 +8,12 @@
     personaPrefix: ''
     includeHarnessIdentity: false
 
+# New tasks expose only the two drama environments; registered legacy compositions remain recoverable.
+- id: agent-preset-registry
+  config:
+    default: short-drama
+    selectablePresets: [short-drama, editing]
+
 # The upstream preset registry is the engine, and the product declares every preset itself: the
 # six directories under `presets/` become six rows through the adapter in src/index.ts, which
 # knows the runtime directory holding them. The product therefore imports none of the base bundle's

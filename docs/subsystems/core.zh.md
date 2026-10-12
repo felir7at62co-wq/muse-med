@@ -532,6 +532,12 @@ async list(): Promise<AgentPreset[]>
  */
 @Remote('list') async remoteExportList(): Promise<AgentPresetRoster>
 
+/** Resolve a preset permitted for a new session, without restricting historical reads or recovery.
+ * @param id - Explicit preset or the current selectable default.
+ * @returns The resolved preset, or a refusal for a recovery-only preset.
+ */
+async resolveForCreation(id?: string): Promise<AgentPreset>
+
 /** Resolve an identity without starting an Agent.
  * @param id Explicit preset or the current default.
  * @returns Current metadata, including failure when activation failed.

@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-shot-director-format
+profile: headless
+composition: muse-shot-director-format
+recording: authored
+header:
+  class: muse-shot-director-format
+  pin: true
+workspace:
+  setup: muse-shot-director-format
+writerOutput: true

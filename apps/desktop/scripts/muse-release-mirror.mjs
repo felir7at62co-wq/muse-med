@@ -59,15 +59,19 @@ function contentType(filename) {
 }
 
 /**
- * Validate the Apple Silicon Mac and Windows builds before producing upload operations.
+ * Validate the selected builds before producing upload operations; omission selects both platforms.
  * Mac publication metadata retains its ZIP first and adds the verified DMG without rewriting build inputs.
- * @param {{version: string, sourceCommit: string, artifactDirectories: Record<string, string>, legacyRcDiscovery?: boolean}} options - Exact release and completed target directories.
+ * @param {{version: string, sourceCommit: string, artifactDirectories: Record<string, string>, legacyRcDiscovery?: boolean, targets?: string[]}} options - Exact release, selected supported targets and completed target directories.
  * @returns {Promise<{version: string, sourceCommit: string, artifacts: object[], metadata: object[], githubMetadata: object[]}>} Immutable binaries and channel metadata ordered separately for publication.
  */
-export async function createMuseMirrorPlan({ version, sourceCommit, artifactDirectories, legacyRcDiscovery = false }) {
+export async function createMuseMirrorPlan({ version, sourceCommit, artifactDirectories, legacyRcDiscovery = false,
+  targets = Object.keys(TARGETS) }) {
   if (!/^[a-f0-9]{40}$/u.test(sourceCommit)) throw new Error('Muse mirror: an exact source commit is required')
+  if (!Array.isArray(targets) || targets.length === 0 || new Set(targets).size !== targets.length
+    || targets.some(target => !Object.hasOwn(TARGETS, target))) throw new Error('Muse mirror: invalid release targets')
   const artifacts = [], updates = {}
-  for (const [target, { platform }] of Object.entries(TARGETS)) {
+  for (const target of targets) {
+    const { platform } = targetSettings(target)
     const root = artifactDirectories[target]
     if (typeof root !== 'string' || root === '') throw new Error(`Muse mirror: missing ${target} artifact directory`)
     const record = object(JSON.parse(await readFile(join(root, 'unsigned-build.json'), 'utf8')), 'build record')
@@ -94,13 +98,12 @@ export async function createMuseMirrorPlan({ version, sourceCommit, artifactDire
       || binary.sha512 !== info.sha512 || binary.size !== info.size) throw new Error(`Muse mirror: ${target} update checksum differs from its payload`)
     updates[target] = update
   }
-  const mac = updates['mac-arm64']
-  const win = updates['win-x64']
   const channel = desktopUpdateChannel(version)
   const channels = legacyRcDiscovery && ['latest', 'beta'].includes(channel) ? [...new Set([channel, 'rc', 'latest'])] : [channel]
   const metadata = [], githubMetadata = []
-  for (const [target, { platform }] of Object.entries(TARGETS)) {
-    const original = platform === 'darwin' ? mac : win
+  for (const target of targets) {
+    const { platform } = targetSettings(target)
+    const original = updates[target]
     const publication = platform === 'darwin' ? { ...original, files: [...original.files,
       ...artifacts.filter(file => file.key.startsWith(`releases/${version}/${target}/`) && file.filename.endsWith('.dmg'))
         .map(file => ({ url: file.filename, sha512: file.sha512, size: file.size }))] } : original

@@ -303,7 +303,7 @@ it('loads a warning-producing compiler with explicit board budgets and disposes 
     expect({ ok: animalReport.ok, failures: animalReport.failures.map(issue => issue.code),
       bound: animalReport.shots[0]?.bindings.map(binding => binding.name),
       packages: animalReport.packages.map(item => ({ names: item.material_names, keys: item.material_keys,
-        mappings: item.prompt.split('\n').filter(line => line.startsWith('素材映射：')) })) }).toMatchInlineSnapshot(`
+        mappings: item.prompt.split('\n').filter(line => /^(?:素材映射|人物参考|场景参考|道具参考)：/.test(line)) })) }).toMatchInlineSnapshot(`
         {
           "bound": [
             "赵大刚",
@@ -321,7 +321,8 @@ it('loads a warning-producing compiler with explicit board budgets and disposes 
               ],
               "mappings": [
                 "素材映射：@[赵大刚](human) @[后厨](scene)",
-                "素材映射：@[黄色雏鸡](asset_71002)",
+                "人物参考：赵大刚 → @[赵大刚](human)（保留本镜正式参考人物的脸型、年龄感和可见妆造差异；正文明确变化时使用对应正式版本，不把不同人物统一成年轻模板；动作和表情以本镜正文为准，不复制参考图的姿态；同一素材中的脸部、服装和多视角属于同一人，同一key在本镜仅一个人物实例，跨镜复用不新增人物）",
+                "人物参考：黄色雏鸡 → @[黄色雏鸡](asset_71002)",
               ],
               "names": [
                 "赵大刚",

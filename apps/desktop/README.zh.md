@@ -8,7 +8,7 @@
 
 桌面壳显示 **Muse**。Windows 快捷方式和可执行文件图标、macOS 安装包与“关于”使用保留原白蜘蛛的圆角黑底图标；Windows 应用窗口和托盘使用独立的透明底黑蜘蛛。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
 
-Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明，当前为 `1.0.5`。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
+Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明，当前为 `1.0.7`。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
 
 依赖校验也会检查与 Node 内置模块同名的 npm 包，包括 `buffer`，并要求链接的 Host 包解析到该发行版拥有的同一个包实例。
 
@@ -27,6 +27,8 @@ Desktop Host 的 Platform API 请求与更新策略请求用相同的 Platform �
 按 F12（多媒体功能键键盘上为 Fn+F12）、macOS 的 Command+Option+I 或 Windows 的 Ctrl+Shift+I，可切换当前获得焦点的应用页面的 DevTools，打包版本同样支持。这些原生快捷键通过隐藏的应用菜单项注册。更新遮罩和打包版本的内嵌浏览器禁用 DevTools。
 
 Muse 会在同一轮次中[自动续写达到输出上限的回答](../../packages/core/agent-output-continuation/README.zh.md)。模型输出设置限制单次请求；有进展的续写默认没有次数上限。取消和提供方错误仍正常显示。
+
+新会话只提供**短剧模式**和**编辑模式**。其他随包预设保留历史会话恢复能力，不出现在新会话选择入口。
 
 ## 终端命令
 
@@ -108,7 +110,7 @@ Node 准备内置解释器和 Python 库，无需系统 Python 或 pip。[下载
 
 Electron 拥有 `$DSH_HOME/profiles/desktop`。其 `dependencies` 包含 pnpm 安装的包；`dsh.profile.bundles` 包含内置 bundle，后接已启用插件。签名应用从 `resources/app.asar/dsh` 提供 dsh、私有 Desktop Host 及其生产依赖。打包应用选择 runtime profile 解析，不创建包链接；开发 profile 使用文件系统链接。宿主与插件在同一个 Electron Node 模式进程中执行；Desktop 不启用 `--preserve-symlinks`。CLI 不能启动此 profile。Desktop 内置命令可在应用退出后管理其插件；npm 安装的 dsh 不能修改它。
 
-Desktop Host 为所有桌面会话只组合一次短剧设置和剧变工具；有报价的收费调用按剧变 `script_id` 使用人民币 4000 元默认上限；聊天或设置保存明确项目额度后，通过共同的授权读取器即时生效。宿主加载维护的短剧技能包，提供七个产品预设：默认的 `short-drama`、编辑模式、标准模式、PTC 模式、极简模式和创造模式。编辑模式将获授权的小说或视频整理成可追溯的来源大纲，提供不同换梗方向及可调整的集数与篇幅建议，再写完并审校用户选定的剧本。分集使用[剧情与情绪指南](../desktop-host/skills/trope-adaptation/references/episode-design.md)选择剧情边界、增强人物交锋并连接集尾钩子；篇幅目标由用户调整。视频转写须先校订为分场剧本，再尝试写入当前账号的私有知识库；成功项读回核对，失败项保留项目文件并标明。写正文前，Agent 阅读本次来源剧本或小说，也可检索并打开获授权的知识页参考写法；参考页不可用不阻止创作。编辑反馈保存在项目版本中，只有已授权且校订的修订稿才写入知识库。MUSE 登录提供按账号隔离的知识库和云端语音服务；随包 MCP 按 ID 检索并阅读获授权的来源和 Wiki 页面。开头读取工具接受获授权的 `viral-script` 来源和当前账号的私有剧本。账号绑定的 `audio_transcribe` 工具向除极简模式外的桌面预设开放；Muse 云端模型沿用同一登录；自定义提供方凭据在模型设置中单独配置。四个原生编码预设通过只读薄适配器复用；其他自带及个人预设仍被排除。Windows 打包准备构建哈希锁定的 Python、文档与媒体依赖及 FFmpeg 运行时；完整安装包及干净机器检查通过前，发布仍未验收。公开分发二进制还须完成媒体描述文件记录的对应源码审核。
+Desktop Host 为所有桌面会话只组合一次短剧设置和剧变工具；有报价的收费调用按剧变 `script_id` 使用人民币 4000 元默认上限；聊天或设置保存明确项目额度后，通过共同的授权读取器即时生效。宿主加载维护的短剧技能包，保留七个产品预设定义用于历史会话恢复。编辑模式将获授权的小说或视频整理成可追溯的来源大纲，提供不同换梗方向及可调整的集数与篇幅建议，再写完并审校用户选定的剧本。分集使用[剧情与情绪指南](../desktop-host/skills/trope-adaptation/references/episode-design.md)选择剧情边界、增强人物交锋并连接集尾钩子；篇幅目标由用户调整。视频转写须先校订为分场剧本，再尝试写入当前账号的私有知识库；成功项读回核对，失败项保留项目文件并标明。写正文前，Agent 阅读本次来源剧本或小说，也可检索并打开获授权的知识页参考写法；参考页不可用不阻止创作。编辑反馈保存在项目版本中，只有已授权且校订的修订稿才写入知识库。MUSE 登录提供按账号隔离的知识库和云端语音服务；随包 MCP 按 ID 检索并阅读获授权的来源和 Wiki 页面。开头读取工具接受获授权的 `viral-script` 来源和当前账号的私有剧本。账号绑定的 `audio_transcribe` 工具向除极简模式外的桌面预设开放；Muse 云端模型沿用同一登录；自定义提供方凭据在模型设置中单独配置。四个原生编码预设通过只读薄适配器复用；其他自带及个人预设仍被排除。Windows 打包准备构建哈希锁定的 Python、文档与媒体依赖及 FFmpeg 运行时；完整安装包及干净机器检查通过前，发布仍未验收。公开分发二进制还须完成媒体描述文件记录的对应源码审核。
 
 用户尚未保存其他通道时，Muse 的资产图默认使用 KU_AI。Agent 先检查整批提示词、参考图、身份、对账证据及预计费用，再让剧变并行提交生图；每项保留独立幂等键、预算判定、回读及视觉审核。Agent 核对实时价格后，可在已授权范围内为单次调用选择 DUO_YUAN_TAN_SUO 作为备用通道；收费任务仍在处理或结果未知时，必须先对账，再换通道或 key。随包的技能与 MCP 面板出现在 Web 侧栏，管理当前 profile 的配置。根 Agent 完成一轮任务或调用 ask_user_question 时，桌面壳会播放系统提示音。短剧任务完成时逐集交付已核验的成片和对应的剪映可编辑草稿。
 
@@ -245,7 +247,7 @@ production 发布使用产品版本本身，不传 `--build-version`。其上传
 
 Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-sources.json` 中。检查更新优先访问北京公开存储桶 `https://muse.tos-cn-beijing.volces.com/releases/feeds/<target>/`。更新目录或下载不可用时可以切换到 GitHub；只有已确认的版本、载荷大小和 SHA-512 都一致，下载才会继续。备用源检查失败或不匹配时，重试仍须重新验证，直到确认载荷身份一致；下载完成的元数据也必须匹配，才会允许安装。重新检查更新失败时会清除先前的目标。校验、磁盘和安装准备错误仍然报告失败。正式版本通过 GitHub 的正式 Latest 发布查找更新；预发布版本保留由自身版本选择的发现通道。辅助运行时发布必须排除在 Latest 之外。Muse 正式发布 Apple Silicon Mac 和 Windows x64 安装包，两个源使用相同的载荷元数据。没有该来源记录的旧包继续使用其已封装的 feed。
 
-未签名 CI 允许在拉取请求中进行应用的 ad-hoc 封装，不使用发布者凭据；在打包检查之后，将每个安装器、更新载荷、blockmap 和通道文件的哈希记录在 `unsigned-build.json` 中。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求提供 Mac arm64 和 Windows x64 两个目标的目录、真实产品版本和同一个完整源码提交；`--dry-run` 仅校验记录中的哈希，不上传。发布先写入按版本保存的二进制，完整读回公开下载并核对 SHA-256，之后才更新要求缓存重新验证的通道元数据。Mac 发布元数据保留原 ZIP 为首项，并加入已验证 DMG 的 SHA-512 与大小供手动更新使用；GitHub 与 TOS 列出相同的载荷身份，原构建记录和通道文件保持不变。请在私有发布环境中配置 `VOLCENGINE_ACCESS_KEY_ID`、`VOLCENGINE_SECRET_ACCESS_KEY` 和 `MUSE_TOS_*` 目标变量；打包过程会从子进程环境中移除 TOS 凭据。
+未签名 CI 允许不使用发布者凭据的 ad-hoc 封装，在打包检查后将安装器、更新载荷、blockmap 和通道文件记录在 `unsigned-build.json` 中。手动触发接受 `target=win-x64`、`mac-arm64` 或 `all`；拉取请求保留双平台检查。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求真实产品版本、完整源码提交和已完成目标目录。不写 `--targets` 时要求双平台；`--targets win-x64` 只发布 Windows 二进制与更新 feed，Mac feed 保持不变。`--dry-run` 仅核对记录和本地哈希，不上传；公开下载字节通过核验后才更新通道。
 
 打包、上传以及手动 macOS 签名检查使用 `apps/desktop/.env.windows` 或 `.env.macos`，由目标平台选择。复制对应的 [Windows 模板](.env.windows.example) 或 [macOS 模板](.env.macos.example)，填写本机配置；Git 忽略这两个本地文件，安装产物也不包含它们。发布字段只从目标文件读取，不回退到系统或 shell 中的同名变量；`PATH`、代理和构建工具环境仍保留。发布版本是命令参数而非发布字段，上传从打包写下的完成记录中读取它。文件使用 UTF-8，支持 BOM；相对证书、SignTool、Apple API Key 和钥匙串路径以 `apps/desktop` 为基准，变量值不做 shell 展开，包含 `#` 或空格的密码需要引号。CI 同样在运行前生成目标文件。
 
@@ -348,7 +350,7 @@ pnpm run upload:mac:arm64
 
 GitHub 备用源使用 `https://github.com/felir7at62co-wq/muse-med` 上的 GitHub Releases。每个已发布 release 都需要语义化版本 tag、安装包、blockmap 和通道 YAML；provider 的 feed 不包含 draft release。`verify:update-feed` 使用真实 provider 校验安装包哈希和元数据资产。COS 上传器记录另一份必需的 GitHub 发布计划，但不会发布 GitHub release。
 
-`muse-product.json` 为 Muse `1.0.5` 启用 `legacyRcDiscovery`。已安装的 rc 客户端只选择 rc tag，因此发布包含正式版 `v1.0.5` 以及仅用于发现的预发布入口 `v1.0.5-rc.muse-stable`。两者包含完全相同的 Muse `1.0.5` 二进制，以及声明版本为 `1.0.5` 的相同 `rc.yml` 和 `latest.yml` 元数据；macOS 使用相应的 `-mac` 名称。COS 计划包含相同的 feed 别名。真实更新器测试验证发现和版本接受，不下载或安装。线上资产和已有 profile 的安装升级仍须经过发布验收。
+`muse-product.json` 为 Muse `1.0.7` 启用 `legacyRcDiscovery`。已安装的 rc 客户端只选择 rc tag，因此发布包含正式版 `v1.0.7` 以及仅用于发现的预发布入口 `v1.0.7-rc.muse-stable`。两者包含完全相同的 Muse `1.0.7` 二进制，以及声明版本为 `1.0.7` 的相同 `rc.yml` 和 `latest.yml` 元数据；macOS 使用相应的 `-mac` 名称。COS 计划包含相同的 feed 别名。真实更新器测试验证发现和版本接受，不下载或安装。线上资产和已有 profile 的安装升级仍须经过发布验收。
 
 macOS 配置使用必填发布环境，不会接受钥匙串中最先发现的证书。空值、格式错误的 Team ID、包含 electron-builder 不支持的 `Developer ID Application:` 前缀的签名身份，以及不完整的公证凭据都会被拒绝。macOS 打包要求已配置的身份及其私钥可用。运行时准备会把该身份、安全时间戳与 hardened runtime 应用到每个内嵌 Mach-O 文件；应用签名完成后，深度严格检查会拒绝其他叶证书 Authority 或 Team ID，验证通过才生成发布产物。macOS 固定目标安装包命令为已签名应用创建独立副本，并发执行两条产物流。一路先公证 App 并钉票，再生成 ZIP 及其更新元数据。另一路把已签名 App 副本封装进签名 DMG，再公证 DMG、钉票并验证；其中的 App 不单独附加票据。只有两路均成功结束，产物才会移入最终目录并写入发布完成记录。仅生成目录的命令同样需要公证凭据，并等待 Apple 公证和 App 钉票完成。[并行公证决策](../../.agents/notes/implemented/process/2026-09-09-parallel-macos-notarization.zh.md)负责副本隔离与容器票据语义。私钥可以来自登录钥匙串或 electron-builder 的标准 `CSC_LINK` 输入；环境中的 `CSC_NAME` 与证书发现顺序都不能选择发布所有者。公证凭据也可以使用 electron-builder 支持的完整 Apple ID 或钥匙串 profile 方式。手动执行 `pnpm --dir apps/desktop run verify:mac-signature -- <path-to-app>` 重复应用检查时，也必须提供两个 macOS 身份变量。
 

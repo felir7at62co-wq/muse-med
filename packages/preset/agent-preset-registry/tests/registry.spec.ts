@@ -14,6 +14,37 @@ afterEach(async () => { for (const ctx of contexts.splice(0)) await ctx.fiber.di
 async function setup() { const ctx = await harness(); contexts.push(ctx); return ctx }
 
 describe('declarative preset revisions', () => {
+  it('offers only selectable presets while retaining historical composition and ignores a retired saved default', async () => {
+    const ctx = await harness({ live: true, default: 'creation', selectablePresets: ['creation'] })
+    contexts.push(ctx)
+    await declare(ctx, contribution('creation'))
+    await declare(ctx, contribution('editing'))
+    const live = liveRegistries.get(ctx)!
+    await live.update({ selectedDefault: 'editing' })
+    expect(ctx.agentPresets.defaultId).toBe('creation')
+    expect(live.entry.options.config).toMatchObject({ selectedDefault: 'editing' })
+    expect(await ctx.agentPresets.remoteExportList()).toEqual({ presets: [{ id: 'creation', isDefault: true }] })
+    expect(await ctx.agentPresets.resolveForCreation()).toEqual({ id: 'creation' })
+    await expect(ctx.agentPresets.resolveForCreation('editing')).rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
+    const historical = await agentOn(ctx, 'historical-editing', 'editing')
+    expect(ctx.tools.schemas(historical).map(row => row.name)).toEqual(['editing'])
+    await using read = await ctx.agentPresets.acquireScope('editing')
+    expect(read.key).toBeDefined()
+    const fresh = await agentOn(ctx, 'new-creation')
+    await expect(ctx.agentPresets.select(fresh, 'editing')).rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
+    expect(ctx.agentPresets.composedPreset(fresh.ctx)).toBe('creation')
+    expect(await ctx.agentPresets.select(fresh, 'creation')).toBe('creation')
+    expect((await ctx.agentPresets.compositionInventory()).map(row => row.id)).toEqual(['creation', 'editing'])
+    await live.update({ selectedDefault: 'creation' })
+    expect(ctx.agentPresets.defaultId).toBe('creation')
+  })
+
+  it('rejects a deployment default absent from its selectable presets', async () => {
+    const ctx = await setup()
+    expect(() => new AgentPresets(ctx, { default: 'standard', selectedDefault: ctx.agentPresets.config.selectedDefault,
+      selectablePresets: ['creation'] })).toThrow('default agent preset must be selectable')
+  })
+
   it('eagerly scopes tool and prompt registrations and shares one revision across Agents', async () => {
     const ctx = await setup()
     await declare(ctx, contribution('standard'))

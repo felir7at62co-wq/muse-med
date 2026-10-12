@@ -191,6 +191,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Current presets, each marked when it is the default.',
       },
       {
+        signature: 'async resolveForCreation(id?: string): Promise<AgentPreset>',
+        description: 'Resolve a preset permitted for a new session, without restricting historical reads or recovery.',
+        parameters: [{ name: 'id', description: 'Explicit preset or the current selectable default.' }],
+        returns: 'The resolved preset, or a refusal for a recovery-only preset.',
+      },
+      {
         signature: 'async resolve(id?: string): Promise<AgentPreset>',
         description: 'Resolve an identity without starting an Agent.',
         parameters: [{ name: 'id', description: 'Explicit preset or the current default.' }],

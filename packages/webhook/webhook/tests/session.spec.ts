@@ -93,7 +93,7 @@ function harness(options: HarnessOptions = {}): SessionHarness {
       },
     },
     agentPresets: {
-      async resolve(name: string) {
+      async resolveForCreation(name: string) {
         calls.push(`preset-resolve:${name}`)
         if (options.failAt === 'preset-resolve') throw new Error('preset resolve failed')
         return { id: name }

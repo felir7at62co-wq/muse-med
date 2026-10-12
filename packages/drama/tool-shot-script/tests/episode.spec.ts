@@ -79,7 +79,7 @@ describe('material keys', () => {
     const assets = parseAssetManifest(manifestDocument(...rows), 'manifest.json').assets
     const completed = prepareShotPrompts(shots, assets)
     expect(completed.map(item => materialKeys(item.shot.visual))).toEqual([['existing'], ['existing']])
-    expect(completed[0]?.shot.visual).toContain(shots[0]?.shot.visual)
+    expect(completed[0]?.shot.visual).toContain(shots[0]?.shot.visual.replace('@[晚晚](existing)', '@[苏晚](existing)'))
     expect(prepareShotPrompts(completed)).toEqual(completed)
   })
 })
@@ -271,7 +271,7 @@ describe('the matched payload', () => {
     expect(payload.video_tasks).toEqual([
       { shots: [1, 2], content_duration: 5, natural_hold_duration: 1, requested_duration: 6,
         hold_instruction: HOLD_INSTRUCTION, prompt: tasks[0]?.prompt,
-        material_keys: ['lead', 'asset_70002', 'asset_70004'] },
+        material_keys: ['lead', 'asset_70002', 'asset_70004'], material_bindings: tasks[0]?.materialBindings },
     ])
   })
 })

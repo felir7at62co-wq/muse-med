@@ -413,6 +413,8 @@ export interface LaunchOptions {
   /** Preset selection default and additional declarative definitions for this scenario. */
   agentPresets?: {
     default: string
+    /** Deployment selection policy, without removing historical declarations. */
+    selectablePresets?: readonly string[]
     definitions?: import('@deepseek-ai/dsh-agent-preset-registry').PresetDefinition[]
   }
   /**
@@ -663,7 +665,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'open-in-app', disabled: options.openInAppEnvironment === undefined },
     { id: 'ui-open-in-app', disabled: options.openInAppEnvironment === undefined },
     ...options.agentPresets === undefined ? [] : [
-      { id: 'agent-preset-registry', config: { default: options.agentPresets.default } },
+      { id: 'agent-preset-registry', config: { default: options.agentPresets.default, selectablePresets: options.agentPresets.selectablePresets } },
       { insert: (options.agentPresets.definitions ?? []).map(config => ({ id: `preset-${config.id}`, name: '@deepseek-ai/dsh-agent-preset', config })) },
     ],
     ...options.toolsMode === undefined ? [] : [{ id: 'tools', config: { mode: options.toolsMode } }],

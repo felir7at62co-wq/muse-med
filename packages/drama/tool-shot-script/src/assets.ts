@@ -30,6 +30,7 @@ import {
   readStateFacts,
 } from './state.ts'
 import type { StateFacts } from './state.ts'
+import { SOURCE_SCENE_PREFIX } from './script.ts'
 import type { BoundAsset, IssueSeverity, ManifestAsset, ParsedShot, ShotIssue } from './types.ts'
 
 /** Manifest types that bind as an on-screen character. */
@@ -139,12 +140,18 @@ export function parseAssetManifest(document: unknown, source: string): ManifestR
     if (subjectKind !== undefined && subjectKind !== 'animal' && subjectKind !== 'human') {
       throw new Error(`${source}: assets[${index}]（${name}）subject_kind 只接受 animal 或 human`)
     }
+    const referenceScope = record.reference_scope
+    if (referenceScope !== undefined && referenceScope !== 'identity' && referenceScope !== 'appearance') {
+      throw new Error(`${source}: assets[${index}]（${name}）reference_scope 只接受 identity 或 appearance`)
+    }
     if (!TYPE_SPELLINGS.includes(type)) issues.push(assetTypeIssue(source, index, name, type))
     return {
       name,
+      ...(text(record.character_name) === '' ? {} : { characterName: text(record.character_name) }),
       id: text(record.id) || name,
       type,
       ...(subjectKind === undefined ? {} : { subjectKind }),
+      ...(referenceScope === undefined ? {} : { referenceScope }),
       official: record.official === true,
       assetId: text(record.jubian_asset_id) || text(record.asset_id),
       materialId: text(record.jubian_material_id) || text(record.material_id),
@@ -209,17 +216,25 @@ function registeredFacts(asset: ManifestAsset): StateFacts {
   return readStateFacts(`${asset.stateOrCostume}；${asset.name}`)
 }
 
+/** The character name without product naming prefixes or a parenthesized version suffix. */
+function characterBase(name: string): string {
+  return name.replace(/^(?:全剧|EP\d+)｜(?:角色|动物)｜/, '').replace(/[（(].*$/, '').trim()
+}
+
 /** The other names one asset answers to, as the registration spelled them. */
-function aliasNames(asset: ManifestAsset): string[] {
+function aliasNames(asset: Pick<ManifestAsset, 'aliases'>): string[] {
   return asset.aliases.split(/[、,，;；/|｜\s]+/).filter(name => name.trim() !== '')
 }
 
 /** One registered name or alias at a location in the shot's declared or visual text. */
 interface Mention { label: string; start: number; end: number; candidates: ManifestAsset[] }
 
-/** A character's canonical name, aliases and unqualified name before its version suffix. */
-function characterNames(asset: ManifestAsset): string[] {
-  return [...new Set([asset.name, ...aliasNames(asset), asset.name.replace(/[（(].*$/, '').trim()])].filter(Boolean)
+/** A character's exact names, including the unqualified name before its version suffix.
+ * @param asset - Registration naming one character version.
+ * @returns Distinct canonical and registered alternate names.
+ */
+export function characterNames(asset: Pick<ManifestAsset, 'name' | 'aliases' | 'characterName'>): string[] {
+  return [...new Set([asset.name, asset.characterName ?? '', ...aliasNames(asset), characterBase(asset.name)])].filter(Boolean)
 }
 
 /** Match the longest registered names at each text location, retaining alias collisions. */
@@ -247,9 +262,28 @@ function characterMentions(source: string, assets: readonly ManifestAsset[]): Me
   })
 }
 
-/** Visual inference excludes the speech track and its speaker metadata. */
-function visualDirections(shot: ParsedShot): string {
-  return shot.visual.split('\n').filter(line => !/^\s*(?:台词|说话人|发声类型|旁白|心声|画外音)\s*[：:]/.test(line)).join('\n')
+/** Asset inference excludes the source-scene annotation, which can describe a different insertion location. */
+function bindingText(shot: ParsedShot): string {
+  return shot.visual.split('\n').filter(line => !line.startsWith(SOURCE_SCENE_PREFIX)).join('\n')
+}
+
+/** Visual inference excludes speech and asset fields, then masks names of registered locations and props. */
+function visualDirections(shot: ParsedShot, assets: readonly ManifestAsset[]): string {
+  let directions = bindingText(shot).split('\n')
+    .filter(line => !/^\s*(?:台词|说话人|发声类型|旁白|心声|画外音|核心场景|关键道具)\s*[：:]/.test(line)).join('\n')
+  const people = new Set(assets.filter(asset => isType(asset, CHARACTER_TYPES) || isType(asset, ANIMAL_TYPES))
+    .flatMap(characterNames))
+  const labels = [...new Set(assets.filter(asset => isType(asset, SCENE_TYPES) || isType(asset, PROP_TYPES))
+    .flatMap(asset => [asset.name, ...aliasNames(asset)]))].filter(label => !people.has(label))
+    .sort((a, b) => b.length - a.length)
+  for (const label of labels) {
+    const original = directions
+    directions = original.replaceAll(label, (match: string, offset: number) => [...people].some((name) => {
+      const start = original.lastIndexOf(name, offset)
+      return start >= 0 && start + name.length >= offset + label.length
+    }) ? match : ' '.repeat(label.length))
+  }
+  return directions
 }
 
 /** Split an on-screen list without splitting costume annotations in parentheses. */
@@ -271,14 +305,30 @@ function declaredCharacters(source: string): string[] {
 /** Select one version per on-screen mention without defaulting to the manifest's first row. */
 function selectCharacters(shot: ParsedShot, assets: readonly ManifestAsset[], episode: number | undefined,
   issues: ShotIssue[]): ManifestAsset[] {
-  const source = shot.charactersField || visualDirections(shot)
+  const directions = visualDirections(shot, assets)
+  const source = shot.charactersField || directions
   const animals = assets.filter(isAnimal)
-  const declared = characterMentions(source, assets)
-  const mentions = [...declared, ...characterMentions(visualDirections(shot), animals).filter(mention =>
+  const declared = shot.charactersField
+    ? declaredCharacters(source).flatMap((label) => {
+      const exact = assets.filter(asset => (isType(asset, CHARACTER_TYPES) || isType(asset, ANIMAL_TYPES))
+        && characterNames(asset).includes(label))
+      const candidates = exact.length > 0 ? exact : assets.filter(asset => (isType(asset, CHARACTER_TYPES) || isType(asset, ANIMAL_TYPES))
+        && characterNames(asset).includes(label.replace(/[（(].*$/, '').trim()))
+      return candidates.length === 0 ? [] : [{ label, start: 0, end: label.length, candidates }]
+    })
+    : characterMentions(source, assets)
+  const mentions = [...declared, ...characterMentions(directions, animals).filter(mention =>
     !declared.some(named => named.candidates.some(asset => mention.candidates.includes(asset))))]
   const selected = new Set<ManifestAsset>()
   for (const mention of mentions) {
     let candidates = [...new Map(mention.candidates.map(asset => [JSON.stringify(asset), asset])).values()]
+    if (candidates.some(asset => !isAnimal(asset))
+      && new Set(candidates.map(asset => asset.characterName ?? characterBase(asset.name))).size > 1) {
+      issues.push(bindingIssue('failure', 'asset_binding_ambiguous', shot,
+        `镜头${shot.shot}的 ${mention.label} 是多个不同人物共用的别名：${candidates.map(describeAsset).join('；')}。`
+          + '请使用本人正式名；不能靠服装、年龄或清单顺序推断身份。'))
+      continue
+    }
     if (candidates.length > 1) {
       const covered = candidates.filter(asset => coversEpisode(asset.episodes, episode))
       if (covered.length === 0) {
@@ -295,9 +345,11 @@ function selectCharacters(shot: ParsedShot, assets: readonly ManifestAsset[], ep
         const declared = declaredStateFor(asset, shot.bodyStates)
         if (declared === undefined) return false
         const required = readStateFacts(declared)
-        return hasBodyDimension(required) && registrationAgrees(required, registeredFacts(asset))
+        return hasBodyDimension(required) && registrationAgrees(required, registeredFacts(asset), asset.referenceScope === 'identity')
       })
       if (compatible.length > 0) candidates = compatible
+      const appearance = candidates.filter(asset => asset.referenceScope !== 'identity')
+      if (compatible.length > 0 && appearance.length > 0) candidates = appearance
     }
     if (candidates.length !== 1) {
       issues.push(bindingIssue('failure', 'asset_binding_ambiguous', shot,
@@ -307,18 +359,20 @@ function selectCharacters(shot: ParsedShot, assets: readonly ManifestAsset[], ep
     }
     for (const chosen of candidates) {
       const qualified = chosen.name === mention.label || aliasNames(chosen).includes(mention.label)
+        || chosen.name === mention.label.replace(/[（(].*$/, '').trim() || chosen.referenceScope === 'identity'
       const declared = declaredStateFor(chosen, shot.bodyStates)
       if (!isAnimal(chosen) && !qualified && declared !== undefined) {
         const required = readStateFacts(declared)
-        if (hasBodyDimension(required) && !registrationAgrees(required, registeredFacts(chosen))) continue
+        if (hasBodyDimension(required) && !registrationAgrees(required, registeredFacts(chosen), chosen.referenceScope === 'identity')) continue
       }
       selected.add(chosen)
     }
   }
   if (shot.charactersField) {
     for (const name of declaredCharacters(shot.charactersField)) {
-      if (characterMentions(name, assets).length || [...shot.bodyStates].some(([character, state]) =>
-        name.includes(character) && hasBodyDimension(readStateFacts(state)))) continue
+      const unqualified = name.replace(/[（(].*$/, '').trim()
+      if (assets.some(asset => (isType(asset, CHARACTER_TYPES) || isType(asset, ANIMAL_TYPES))
+        && (characterNames(asset).includes(name) || characterNames(asset).includes(unqualified)))) continue
       issues.push(bindingIssue('failure', 'unregistered_character', shot,
         `镜头${shot.shot}的出镜人物 ${name} 未登记正式角色或 aliases：补登记对应资产与版本，或更正本镜出镜名单。`))
     }
@@ -329,8 +383,7 @@ function selectCharacters(shot: ParsedShot, assets: readonly ManifestAsset[], ep
 /** Whether one manifest row is a version of the character a state declaration names. */
 function isVersionOf(asset: ManifestAsset, character: string): boolean {
   if (!isType(asset, CHARACTER_TYPES) || isAnimal(asset)) return false
-  return [asset.name, ...aliasNames(asset)].some(name => name === character
-    || name.includes(character) || (name.length >= 2 && character.includes(name)))
+  return characterNames(asset).includes(character)
 }
 
 /** The state declaration that governs one bound asset: the longest declared key that names it. */
@@ -405,10 +458,11 @@ function missingCostume(required: StateFacts, registered: StateFacts): string[] 
  * registration that declares more than the shot did does not suppress it — that
  * disagreement is its own failure, repaired in the shot rather than by an asset.
  */
-function registrationAgrees(required: StateFacts, registered: StateFacts): boolean {
+function registrationAgrees(required: StateFacts, registered: StateFacts, identityOnly = false): boolean {
   const { unregistered, mismatched } = stateDifferences(required, registered)
   return unregistered.length === 0 && mismatched.length === 0
-    && missingCostume(required, registered).length === 0
+    && ![required.age, required.pregnancy, registered.age, registered.pregnancy].includes(CONFLICT)
+    && (identityOnly || missingCostume(required, registered).length === 0)
 }
 
 /** How one asset's registration reads in a restock request: its name and the stage it declares. */
@@ -465,9 +519,10 @@ function bodyStateIssues(
       continue
     }
     const required = readStateFacts(declared)
-    if (!hasBodyDimension(required)) {
+    if (!hasBodyDimension(required) || [required.age, required.pregnancy].includes(CONFLICT)) {
       issues.push(bindingIssue('failure', 'shot_body_state_unusable', shot,
-        `镜头${shot.shot}的资产 ${asset.name} 对应的身体状态声明是「${declared}」：读不出阶段/体型。`
+        `镜头${shot.shot}的资产 ${asset.name} 对应的身体状态声明是「${declared}」：`
+        + ([required.age, required.pregnancy].includes(CONFLICT) ? '同一角色的阶段/体型声明冲突。' : '读不出阶段/体型。')
         + '请写成 身体状态：【孕早期（孕八周）；孕期职场装；长发】；这样的阶段+服装，'
         + '没有体型变化也要写 非孕期。'))
       continue
@@ -475,7 +530,7 @@ function bodyStateIssues(
     const registered = registeredFacts(asset)
     const { unregistered, mismatched } = stateDifferences(required, registered)
     const shotSilent = undeclaredByShot(required, registered)
-    const costume = missingCostume(required, registered)
+    const costume = asset.referenceScope === 'identity' ? [] : missingCostume(required, registered)
     if (unregistered.length > 0) {
       issues.push(bindingIssue('failure', 'asset_state_unregistered', shot,
         `镜头${shot.shot}的${describeAsset(asset)}没有登记镜头所需的${unregistered.join('、')}：`
@@ -516,7 +571,7 @@ function bodyStateIssues(
     const versions = assets.filter(asset => isVersionOf(asset, character))
     // Episode coverage has its own failure above; a restock is about the state no
     // registration carries, so an otherwise matching version suppresses it.
-    if (versions.some(asset => registrationAgrees(required, registeredFacts(asset)))) continue
+    if (versions.some(asset => registrationAgrees(required, registeredFacts(asset), asset.referenceScope === 'identity'))) continue
     matched.add(character)
     const costume = required.costume.length === 0 ? '（镜头未写服装）' : required.costume.join('、')
     const episodes = episode === undefined ? '本次调用没给 episode，请在 compile 或 validate 时带上集号' : `第${String(episode)}集`
@@ -579,17 +634,18 @@ export function bindShot(shot: ParsedShot, assets: readonly ManifestAsset[],
   episode?: number): ShotBinding {
   const issues: ShotIssue[] = []
   const characters = selectCharacters(shot, assets, episode, issues)
+  const visual = bindingText(shot)
   const fromField = NO_PROPS.has(shot.propsField)
     ? []
     : assets.filter(asset => isType(asset, PROP_TYPES) && shot.propsField.includes(asset.name))
   const propCandidates = shot.propsField === '无' ? [] : fromField.length > 0
     ? fromField
-    : assets.filter(asset => isType(asset, PROP_TYPES) && shot.visual.includes(asset.name))
+    : assets.filter(asset => isType(asset, PROP_TYPES) && visual.includes(asset.name))
   const props = selectNamedAssets(propCandidates, shot, episode, issues)
 
   let scene = shot.sceneField
   if (scene === '') {
-    const fromVisual = assets.find(asset => isType(asset, SCENE_TYPES) && shot.visual.includes(asset.name))
+    const fromVisual = assets.find(asset => isType(asset, SCENE_TYPES) && visual.includes(asset.name))
     scene = fromVisual?.name ?? ''
   }
   const sceneCandidates = assets.filter(asset => isType(asset, SCENE_TYPES) && asset.name === scene)
@@ -637,6 +693,8 @@ export function bindShot(shot: ParsedShot, assets: readonly ManifestAsset[],
       materialId: asset.materialId,
       url: asset.url,
       localPath: asset.localPath,
+      ...(asset.subjectKind === undefined ? {} : { subjectKind: asset.subjectKind }),
+      ...(asset.referenceScope === undefined ? {} : { referenceScope: asset.referenceScope }),
     })),
     characters: [...new Set(characters.map(asset => asset.name))],
     scene,

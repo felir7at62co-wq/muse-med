@@ -112,6 +112,66 @@ describe('script-level rules', () => {
   })
 })
 
+describe('explicit source-scene headings', () => {
+  it('keeps a leading scene heading in its shots and sends a later heading only to subsequent shots', () => {
+    const text = [
+      '场次对照：54-1 李军家 夜 内；54-2 办公室 次日清晨 内',
+      '场次54-1：后厨 夜 内｜原文出场人物：苏晚、只在画外的陆沉',
+      speakingShot(1, '苏晚：别走', ['核心场景：后厨']),
+      speakingShot(2, '苏晚：等等', ['核心场景：后厨']),
+      '场次54-2：办公室 次日清晨 内｜原文出场人物：苏晚、陆沉',
+      actionShot(3, ['核心场景：办公室窗下外墙']),
+      '场次54-3：大队部门口 次日清晨 外',
+      speakingShot(4, '苏晚：回家吧', ['核心场景：大队部门口']),
+    ].join('\n')
+    const result = parse(text)
+    expect(result.issues).toEqual([])
+    expect(result.shots.map(item => item.text)).toEqual(['别走', '等等', '', '回家吧'])
+    for (const item of result.shots.slice(0, 2)) {
+      expect(item.visual).toContain('来源场次（原文段落）：场次54-1：后厨 夜 内；')
+      expect(item.visual).not.toContain('场次54-2')
+      expect(item.visual).not.toContain('场次对照')
+      expect(item.visual).not.toContain('只在画外的陆沉')
+    }
+    expect(result.shots[2]).toMatchObject({ sceneField: '办公室窗下外墙' })
+    expect(result.shots[2]?.visual).toContain('场次54-2：办公室 次日清晨 内；本镜可为内外插镜')
+    expect(result.shots[2]?.visual).not.toContain('场次54-3')
+    expect(result.shots[3]?.visual).toContain('场次54-3：大队部门口 次日清晨 外；')
+    expect(result.shots.map(item => item.line)).toEqual([...text.matchAll(/^【镜头\d+】$/gm)]
+      .map(marker => text.slice(0, marker.index).split('\n').length))
+  })
+
+  it('does not infer source-scene context from a summary, ordinary direction or dialogue', () => {
+    const text = [
+      '场次对照：54-1 后厨 夜 内',
+      speakingShot(1, '苏晚：场次54-2：不代表换场', [
+        '动作备注：她拿起写着场次54-3的纸条',
+      ]),
+      actionShot(2),
+    ].join('\n')
+    const result = parse(text)
+    expect(result.shots.every(item => !item.visual.includes('来源场次（原文段落）'))).toBe(true)
+    expect(result.shots[0]?.visual).toContain('动作备注：她拿起写着场次54-3的纸条')
+    expect(result.shots[0]?.text).toBe('场次54-2：不代表换场')
+  })
+
+  it('accepts CRLF headings and keeps the original error line after a heading change', () => {
+    const text = [
+      '场次54-1: 后厨 夜 内|原文出场人物：苏晚',
+      speakingShot(1, '苏晚：等等'),
+      '场次54－2：客厅 次日清晨 外',
+      actionShot(2, ['时长：0秒']),
+    ].join('\n').replaceAll('\n', '\r\n')
+    const result = parse(text)
+    expect(result.shots[0]?.visual).toContain('场次54-1: 后厨 夜 内；')
+    expect(result.shots[1]?.visual).toContain('场次54－2：客厅 次日清晨 外；')
+    const durationLine = text.slice(0, text.indexOf('时长：0秒')).split('\n').length
+    expect(result.issues.find(item => item.code === 'legacy_duration_invalid')).toMatchObject({
+      shot: 2, line: durationLine,
+    })
+  })
+})
+
 describe('the spoken track', () => {
   it('retains an explicit speaker when the dialogue prefix names the same person', () => {
     const result = parse(scriptOf(speakingShot(1, '苏晚：你终于来了', ['说话人：苏晚'])))

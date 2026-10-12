@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-shot-scene-context
+profile: headless
+composition: muse-shot-scene-context
+recording: authored
+header:
+  class: muse-shot-scene-context
+  pin: true
+workspace:
+  setup: muse-shot-scene-context
+writerOutput: true

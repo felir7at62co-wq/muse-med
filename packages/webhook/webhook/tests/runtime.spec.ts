@@ -228,7 +228,7 @@ describe('WebhookRuntime', () => {
       set: () => {},
     } as never)
     ctx.provide('agentPresets', {
-      resolve: async (id: string) => ({ id }),
+      resolveForCreation: async (id: string) => ({ id }),
       acquireScope: async () => ({ key: {}, [Symbol.asyncDispose]: async () => {} }),
       mount: async (_agentCtx: unknown, id: string) => ({ id }),
     } as never)

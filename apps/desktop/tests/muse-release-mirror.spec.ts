@@ -42,6 +42,24 @@ async function fixture(version = '1.0.2') {
 }
 
 describe('Muse release mirror validation', () => {
+  it('publishes only explicitly selected Windows files and leaves Mac feeds outside the plan', async () => {
+    const f = await fixture()
+    const plan = await createMuseMirrorPlan({ ...f, targets: ['win-x64'],
+      artifactDirectories: { 'win-x64': f.artifactDirectories['win-x64']! } })
+    expect(plan.artifacts.map(file => file.filename)).toEqual([
+      'muse-med-1.0.2-win-x64.exe', 'muse-med-1.0.2-win-x64.exe.blockmap',
+    ])
+    expect(plan.metadata.map(file => file.key)).toEqual([
+      'releases/feeds/win-x64/latest.yml', 'releases/feeds/win-x64/rc.yml',
+    ])
+    expect(plan.githubMetadata.map(file => file.filename)).toEqual(['latest.yml', 'rc.yml'])
+    await expect(createMuseMirrorPlan({ ...f, artifactDirectories: { 'win-x64': f.artifactDirectories['win-x64']! } }))
+      .rejects.toThrow('missing mac-arm64 artifact directory')
+    for (const targets of [[], ['win-x64', 'win-x64'], ['win-arm64']]) {
+      await expect(createMuseMirrorPlan({ ...f, targets })).rejects.toThrow('invalid release targets')
+    }
+  })
+
   it('retains genuine versions, exact source commits and identical Mac payload identities on both mirrors', async () => {
     const f = await fixture()
     const originalMac = load(await readFile(join(f.artifactDirectories['mac-arm64']!, 'latest-mac.yml'), 'utf8')) as UpdateInfo

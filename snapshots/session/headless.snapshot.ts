@@ -570,6 +570,25 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     await mkdir(dirname(target), { recursive: true })
     await copyFile(musePipelineSkill, target)
   },
+  async 'muse-shot-director-format'(cwd) {
+    for (const name of ['tweet-drama-early-shot-script', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d']) {
+      await cp(join(repoRoot, 'packages/drama/skills/skills', name), join(cwd, '.dsh/skills', name), { recursive: true })
+    }
+    const resource = await readFile(join(cwd, '.dsh/skills/tweet-drama-early-shot-script/references/director-format.md'), 'utf8')
+    const examples = [...resource.matchAll(/```(?:json|text)\n([\s\S]*?)\n```/g)].map(match => match[1]!)
+    const [assets, script] = examples
+    if (assets === undefined || script === undefined) throw new Error('Missing packaged compiler examples')
+    await writeFile(join(cwd, 'assets_manifest.json'), assets)
+    await writeFile(join(cwd, 'shot-script.txt'), script)
+  },
+  async 'muse-shot-material-identities'(cwd) {
+    const target = join(cwd, '.dsh', 'skills', 'tweet-drama-shot-asset-match', 'SKILL.md')
+    await mkdir(dirname(target), { recursive: true })
+    await copyFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-shot-asset-match/SKILL.md'), target)
+  },
+  async 'muse-shot-scene-context'(cwd) {
+    await mkdir(join(cwd, 'episodes'), { recursive: true })
+  },
   async 'muse-entity-match-preview'(cwd) {
     for (const name of ['tweet-drama-shot-asset-match', 'tweet-drama-asset-extract', 'tweet-drama-voice-continuity', 'tweet-drama-pipeline']) {
       const target = join(cwd, '.dsh', 'skills', name, 'SKILL.md')
@@ -1346,6 +1365,185 @@ describe('headless recorded-session snapshots', () => {
               const saved = await readFile(join(cwd, '.dsh/profiles/headless/cordis.patch.yml'), 'utf8')
               expect(saved).toContain('id: demo')
               expect(saved).toContain('disabled: false')
+            }
+            if (scenario.name === 'muse-shot-director-format') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+              expect(calls.map(call => call.name)).toEqual(['skill', 'skill', 'skill', 'read', 'drama_shot'])
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results.every(message => message.isError === false)).toBe(true)
+              for (const index of [1, 2]) {
+                const block = results[index]!.content[0]
+                if (block?.type !== 'text') throw new Error('Expected formal shot skill text')
+                const template = [...block.text.matchAll(/```(?:md|text)\n([\s\S]*?)\n```/g)]
+                  .find(match => match[1]?.includes('【镜头N】'))?.[1]
+                if (template === undefined) throw new Error('Formal skill needs a director template')
+                expect(template).toContain('出镜人物：')
+                expect(template).toContain('核心场景：')
+                expect(template).toContain('台词：')
+                expect(template).not.toContain('发声类型：action')
+                expect(block.text).toContain('director-format.md')
+              }
+              const resourceBlock = results[3]!.content[0]
+              if (resourceBlock?.type !== 'text') throw new Error('Expected packaged format resource text')
+              expect(resourceBlock.text).toContain('调用没有 `duration` 参数')
+              expect(resourceBlock.text).toContain('不跨镜继承')
+              expect(resourceBlock.text).toContain('场景按本镜实际内外与动作选择')
+              expect(resourceBlock.text).toContain('一个动作跨过室内与室外时拆成各自的镜头')
+              expect(resourceBlock.text).toContain('机器的 `vo` 只归类发声，不替代原文的 OS、心声、记忆音或当前画外对白语义')
+              expect(resourceBlock.text).toContain('画面人物不对这句发声、不按该句对口型，表情动作仍按原文，不强制闭嘴')
+              expect(resourceBlock.text).toContain('不强迫声源入画')
+              const previewBlock = results[4]!.content[0]
+              if (previewBlock?.type !== 'text') throw new Error('Expected format preview text')
+              const preview = JSON.parse(previewBlock.text)
+              expect(preview).toMatchObject({ ok: true, failures: [], written: [] })
+              expect(preview.shots.map((shot: JsonObject) => shot.voice_type)).toEqual(['dialogue', 'action', 'vo'])
+              expect(preview.shots[2]).toMatchObject({ speaker: '周明', offscreen: true })
+              expect(preview.shots.map((shot: JsonObject) => shot.bindings)).toMatchObject([
+                [{ name: '温雨身份母版', asset_id: '71001' }, { name: '后厨', asset_id: '71004' }],
+                [{ name: '温雨雨衣版', asset_id: '71002' }, { name: '后厨', asset_id: '71004' }],
+                [{ name: '温雪身份母版', asset_id: '71003' }, { name: '后厨', asset_id: '71004' }],
+              ])
+              expect(preview.packages.every((pack: JsonObject) => typeof pack.prompt === 'string' && !pack.prompt.includes('时长：'))).toBe(true)
+            }
+            if (scenario.name === 'muse-shot-scene-context') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+              expect(calls.map(call => call.name)).toEqual(['drama_shot', 'drama_shot'])
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results.every(message => message.isError === false), JSON.stringify(results)).toBe(true)
+              const positive = results[0]!.content[0]
+              const metadataOnly = results[1]!.content[0]
+              if (positive?.type !== 'text' || metadataOnly?.type !== 'text') throw new Error('Expected source-scene previews')
+              const preview = JSON.parse(positive.text)
+              expect(preview).toMatchObject({ ok: true, failures: [], written: [] })
+              expect(preview.shots.map((shot: JsonObject) => shot.text)).toEqual(['别走', '等等', '外面有人', '他回来了', '回家吧'])
+              expect(preview.packages.map((pack: JsonObject) => pack.shots)).toEqual([[1], [2], [3], [4], [5]])
+              expect(preview.packages[0].prompt).toContain('来源场次（原文段落）：场次1-1：后厨 夜 内；')
+              expect(preview.packages[1].prompt).toContain('场次1-1：后厨 夜 内；')
+              expect(preview.packages[1].prompt).not.toContain('场次1-2')
+              expect(preview.packages[2].prompt).toContain('场次1-2：办公室 次日清晨 内；本镜可为内外插镜')
+              expect(preview.shots[2].scene).toBe('办公室窗下外墙')
+              expect(preview.packages[3].prompt).not.toContain('场次1-3')
+              expect(preview.packages[4].prompt).toContain('场次1-3：门口 次日清晨 外；')
+              expect(preview.packages.every((pack: JsonObject) => !pack.prompt.includes('场次对照') && !pack.prompt.includes('原文出场人物') && !pack.prompt.includes('时长：'))).toBe(true)
+              expect(preview.shots.every((shot: JsonObject) => !shot.bindings.some((asset: JsonObject) => asset.name === '陆沉'))).toBe(true)
+              const refusedInference = JSON.parse(metadataOnly.text)
+              expect(refusedInference).toMatchObject({ ok: true, failures: [], written: [], shots: [{ bindings: [] }] })
+              expect(refusedInference.warnings).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'no_scene_bound' })]))
+              expect(refusedInference.packages[0].material_bindings).toEqual([])
+              expect(refusedInference.packages[0].prompt).toContain('来源场次（原文段落）：场次1-1：陆沉家 夜 内 奶瓶；')
+            }
+            if (scenario.name === 'muse-shot-derived-visual') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+              expect(calls.map(call => call.name)).toEqual(['drama_shot', 'drama_shot'])
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results.every(message => message.isError === false)).toBe(true)
+              const positive = results[0]!.content[0]
+              const negative = results[1]!.content[0]
+              if (positive?.type !== 'text' || negative?.type !== 'text') throw new Error('Expected derived visual previews')
+              const preview = JSON.parse(positive.text)
+              expect(preview).toMatchObject({ method: 'preview', ok: true, failures: [], written: [] })
+              expect(preview.shots.map((shot: JsonObject) => shot.text)).toEqual(['', '慢一点。', '别让孩子摔倒。', ''])
+              expect(preview.shots.map((shot: JsonObject) => shot.bindings.filter((asset: JsonObject) => asset.type === '角色')
+                .map((asset: JsonObject) => asset.asset_id))).toEqual([[], ['72001', '72002'], ['72001'], ['72003']])
+              expect(preview.shots[2]).toMatchObject({ speaker: '谭伯', voice_type: 'vo', offscreen: true })
+              expect(preview.packages).toHaveLength(1)
+              const pack = preview.packages[0]
+              expect(pack.material_bindings.map((binding: JsonObject) => binding.asset_id)).toEqual([
+                '72004', '72005', '72001', '72002', '72003', '72006',
+              ])
+              expect(pack.material_bindings.find((binding: JsonObject) => binding.material_key === 'he')).toMatchObject({
+                name: '小禾身份母版', asset_id: '72001', material_id: '82001', reference_scope: 'identity',
+              })
+              expect(pack.prompt).not.toContain('he-repeat')
+              expect(pack.prompt).toContain('身体状态：【非孕期；7岁；黄色雨衣】')
+              expect(pack.prompt).toContain('动作状态：【蹲下扶住板凳】')
+              expect(pack.prompt).toContain('身体状态：【非孕期；68岁；灰色夹袄；草帽】')
+              expect(pack.prompt).toContain('谭伯OS，内心独白，不对口型；声源画外')
+              expect(pack.prompt).toContain('木枪保持已有木制外形，不改成机械枪')
+              expect(pack.prompt).not.toContain('时长：')
+              const visualScopes = pack.prompt.match(/本镜人物范围：[^\n]+/g)
+              expect(visualScopes).toEqual([
+                '本镜人物范围：0人，无人物入画；画外发声与来源场次的人物表不增加出镜人物。',
+                '本镜人物范围：最多2人，仅限小禾身份母版、小竹身份母版；可按本镜景别局部入画或遮挡，不强求全员同框；画外发声、来源场次人物表和其他镜头的人物不增加本镜人数。',
+                '本镜人物范围：最多1人，仅限小禾身份母版；可按本镜景别局部入画或遮挡，不强求全员同框；画外发声、来源场次人物表和其他镜头的人物不增加本镜人数。',
+                '本镜人物范围：最多1人，仅限谭伯身份母版；可按本镜景别局部入画或遮挡，不强求全员同框；画外发声、来源场次人物表和其他镜头的人物不增加本镜人数。',
+              ])
+              expect(pack.prompt.match(/同一素材中的脸部、服装和多视角属于同一人，同一key在本镜仅一个人物实例，跨镜复用不新增人物/g)).toHaveLength(4)
+              expect(pack.prompt.match(/保留区分本人的脸型、年龄感与面部特征/g)).toHaveLength(4)
+              expect(pack.prompt.match(/正文明确的年龄或妆造变化按本镜正文及对应正式版本/g)).toHaveLength(4)
+              expect(pack.prompt.match(/外形、结构、材质和颜色沿用本镜正式参考图/g)).toHaveLength(2)
+              expect(pack.prompt).toContain('不凭道具泛名替换外观，不发明图中未确认的材质或结构')
+              const refused = JSON.parse(negative.text)
+              expect(refused).toMatchObject({ method: 'preview', ok: false, packages: [], written: [] })
+              expect(refused.failures).toEqual(expect.arrayContaining([
+                expect.objectContaining({ code: 'material_reference_mismatch', shot: 1 }),
+              ]))
+              expect(refused.failures[0].message).toContain('@[小竹](asset_72001)')
+            }
+            if (scenario.name === 'muse-shot-material-identities') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+              expect(calls.map(call => call.name)).toEqual(['skill', 'drama_shot', 'drama_shot'])
+              expect(JSON.parse(calls[0]!.arguments)).toEqual({ name: 'tweet-drama-shot-asset-match' })
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results.map(message => message.toolCallId)).toEqual(calls.map(call => call.callId))
+              expect(results.every(message => message.isError === false)).toBe(true)
+              expect(results[0]!.content).toEqual(expect.arrayContaining([expect.objectContaining({
+                type: 'text', text: expect.stringContaining('material_bindings'),
+              })]))
+              const skillBlock = results[0]!.content[0]
+              if (skillBlock?.type !== 'text') throw new Error('Expected asset matching skill text')
+              expect(skillBlock.text).toContain('默认 appearance 专用妆造图要求服装/发型文字能在资产登记里找到')
+              expect(skillBlock.text).toContain('明确的 identity 身份母版不核对服装/发型词是否出现在母版登记中')
+              expect(skillBlock.text).toContain('不得为通过校验删除原文妆造')
+              expect(skillBlock.text).toContain('场景按本镜实际内外、动作与正式图片布局匹配，不靠同名资产认定')
+              expect(skillBlock.text).toContain('`vo` 不替代原文 OS/心声与记忆音语义')
+              expect(skillBlock.text).toContain('最终提示词写清内心独白、不对口型或回忆中的声音，不强迫声源入画')
+              const previewBlock = results[1]!.content[0]
+              const refusedBlock = results[2]!.content[0]
+              if (previewBlock?.type !== 'text' || refusedBlock?.type !== 'text') {
+                throw new Error('Expected shot preview result text')
+              }
+              const preview = JSON.parse(previewBlock.text)
+              expect(preview).toMatchObject({ method: 'preview', ok: true, failures: [], written: [] })
+              expect(preview.shots.map((shot: JsonObject) => shot.bindings)).toMatchObject([
+                [{ name: '温雨身份母版', asset_id: '71001' }, { name: '温雪身份母版', asset_id: '71003' }, { name: '后厨', asset_id: '71004' }],
+                [{ name: '温雨雨衣版', asset_id: '71002' }, { name: '后厨', asset_id: '71004' }],
+                [{ name: '李军家', asset_id: '71007' }, { name: '李军的碗', asset_id: '71008' }],
+                [{ name: '李军', asset_id: '71006' }, { name: '李军家', asset_id: '71007' }, { name: '李军的碗', asset_id: '71008' }],
+              ])
+              expect(preview.shots[2]).toMatchObject({ characters_field: '', voice_type: 'action' })
+              expect(preview.shots[2].bindings.some((asset: JsonObject) => asset.type === '角色')).toBe(false)
+              expect(preview.shots[3].bindings.filter((asset: JsonObject) => asset.type === '角色')).toEqual([
+                { name: '李军', type: '角色', official: true, asset_id: '71006', material_id: '81006', url: 'https://example.invalid/71006.png' },
+              ])
+              expect(preview.packages).toHaveLength(3)
+              const identityPackage = preview.packages[0]
+              expect(identityPackage.material_keys).toEqual(['background', 'rain', 'snow'])
+              expect(identityPackage.material_bindings).toEqual([
+                { material_key: 'background', name: '后厨', type: '场景', official: true, asset_id: '71004', material_id: '81004', url: 'https://example.invalid/kitchen.png', reference_scope: 'appearance' },
+                { material_key: 'rain', name: '温雨身份母版', type: '角色', official: true, asset_id: '71001', material_id: '81001', url: 'https://example.invalid/rain.png', reference_scope: 'identity' },
+                { material_key: 'snow', name: '温雪身份母版', type: '角色', official: true, asset_id: '71003', material_id: '81003', url: 'https://example.invalid/snow.png', reference_scope: 'identity' },
+              ])
+              expect(identityPackage.prompt).not.toContain('rain-repeat')
+              expect(identityPackage.prompt.match(/仅参考本人面孔与身份/g)).toHaveLength(2)
+              expect(identityPackage.prompt).toContain('身体状态：【非孕期；青年；砖红卫衣】')
+              expect(identityPackage.prompt).toContain('身体状态：【非孕期；青年；墨绿夹克】')
+              expect(preview.packages[1].material_bindings).toEqual([
+                { material_key: 'background', name: '后厨', type: '场景', official: true, asset_id: '71004', material_id: '81004', url: 'https://example.invalid/kitchen.png', reference_scope: 'appearance' },
+                { material_key: 'asset_71002', name: '温雨雨衣版', type: '角色', official: true, asset_id: '71002', material_id: '81002', url: 'https://example.invalid/rain-yellow.png', reference_scope: 'appearance' },
+              ])
+              expect(preview.packages[1].prompt).toContain('身体状态：【非孕期；青年；黄色雨衣】')
+              expect(preview.packages[1].prompt).toContain('保留本镜正式参考人物的脸型、年龄感和可见妆造差异')
+              expect(preview.packages[1].prompt).toContain('动作和表情以本镜正文为准，不复制参考图的姿态')
+              expect(preview.packages[1].prompt).toContain('同一素材中的脸部、服装和多视角属于同一人，同一key在本镜仅一个人物实例，跨镜复用不新增人物')
+              const refused = JSON.parse(refusedBlock.text)
+              expect(refused).toMatchObject({ method: 'preview', ok: false, packages: [], written: [],
+                failures: [{ code: 'material_reference_mismatch', shot: 1 }] })
+              expect(refused.failures[0].message).toContain('@[温雪](asset_71001)')
             }
             if (['muse-entity-match-preview', 'muse-entity-reuse-preview', 'muse-entity-existing-binding'].includes(scenario.name)) {
               const events = parseSessionLog(actualLogs[0]!.content)

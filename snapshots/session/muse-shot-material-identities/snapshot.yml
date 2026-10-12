@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-shot-material-identities
+profile: headless
+composition: muse-shot-material-identities
+recording: authored
+header:
+  class: muse-shot-material-identities
+  pin: true
+workspace:
+  setup: muse-shot-material-identities
+writerOutput: true

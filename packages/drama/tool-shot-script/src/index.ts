@@ -30,6 +30,7 @@ import {
   NATURAL_HOLD_SECONDS,
   packEpisode,
   prepareShotPrompts,
+  materialReferenceIssues,
   writeEpisode,
 } from './episode.ts'
 import { buildReport } from './report.ts'
@@ -203,6 +204,7 @@ function compileShots(
     })
     cursor += shot.durationSeconds
   }
+  if (manifest !== undefined) issues.push(...materialReferenceIssues(compiled, manifest))
   return { compiled: prepareShotPrompts(compiled, manifest), issues }
 }
 
@@ -377,6 +379,14 @@ const RESULT_SCHEMA = {
             description: '本包提示词里 @[名称](key) 的 key，按出现顺序去重；select_assets 必须按这个顺序提交。' },
           material_names: { type: 'array', required: true, items: { type: 'string' },
             description: '本包镜头绑定的资产名，按镜头顺序去重。' },
+          material_bindings: { type: 'array', required: true, description: '按提示词 key 顺序的明确素材身份；直接使用这些 key、父资产 ID 与 material ID，不按名称数组下标猜。',
+            items: { type: 'object', additionalProperties: false, properties: {
+              material_key: { type: 'string', required: true }, name: { type: 'string', required: true },
+              type: { type: 'string', required: true }, official: { type: 'boolean', required: true },
+              asset_id: { type: 'string', required: true }, material_id: { type: 'string', required: true },
+              url: { type: 'string', required: true },
+              reference_scope: { type: 'string', required: true, enum: ['identity', 'appearance'] },
+            } } },
         },
       } },
     failures: { type: 'array', required: true, description: ISSUE_SHAPE, items: ISSUE_ITEM_SCHEMA },

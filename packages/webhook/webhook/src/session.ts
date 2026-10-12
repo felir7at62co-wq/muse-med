@@ -123,7 +123,7 @@ export async function createWebhookSession(
 ): Promise<void> {
   const resolved = resolveRequest(ctx, request)
   ctx.permissionPresets.resolve(resolved.permissionPreset)
-  const preset = await ctx.agentPresets.resolve(resolved.agentPreset)
+  const preset = await ctx.agentPresets.resolveForCreation(resolved.agentPreset)
   await using presetScope = await ctx.agentPresets.acquireScope(preset.id)
   void presetScope
   signal.throwIfAborted()

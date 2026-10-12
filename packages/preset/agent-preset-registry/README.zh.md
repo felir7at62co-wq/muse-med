@@ -42,8 +42,9 @@ kind: "package-reference"
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `default` | 必填 | 未显式指定时使用的 preset ID |
+| `selectablePresets` | 省略 | 新会话可选预设的非空名单，必须包含 `default`；历史恢复和内部清单仍保留所有注册定义 |
 
-Web 内置定义来自 `dsh-web-app` bundle。定义使用普通插件行；注册表不扫描目录，也不接受 preset 路径。`agent-preset-registry` 条目的 volatile 字段 `selectedDefault` 保留用户默认值，新会话优先使用它而不是部署 `default`。profile patch 仍可能带有已废弃的 `modeSelectionEnabled` 字段；注册表未声明该字段，既不读取也不重写它。
+Web 内置定义来自 `dsh-web-app` bundle。定义使用普通插件行；注册表不扫描目录，也不接受 preset 路径。`agent-preset-registry` 条目的 volatile 字段 `selectedDefault` 保留用户默认值，仅当其值在 `selectablePresets` 的允许范围内，新会话才优先使用它而不是部署 `default`。不允许的保存值保留但不生效。`resolveForCreation()` 与空白会话选择执行此策略；`resolve()`、历史挂载和读取租约保留注册的旧预设。Remote 可选清单只列出允许的预设。profile patch 仍可能带有已废弃的 `modeSelectionEnabled` 字段；注册表未声明该字段，既不读取也不重写它。
 
 注册表不写入任何声明。`read` Remote 把一条声明的子插件列表按 entry-list YAML 方言（含 `!!js` 条件）渲染回来，供客户端展示 preset 的组成；没有任何接口接受 YAML 写回。新建 preset 或覆盖内置 preset 都是 bundle 补丁：插入一行 `@deepseek-ai/dsh-agent-preset`，或按该行 id 写覆盖补丁，再用 `plugin_manager` 安装到 profile；创造模式在对话中编写这类 bundle。[显示助手](src/display.ts)通过本地化键解析已知且未命名的预设，包括产品的 `creation` 预设。有名称的声明保留自身名称和描述。
 

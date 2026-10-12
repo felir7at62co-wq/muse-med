@@ -56,6 +56,7 @@ export class AgentPresetRegistry extends TypertRemoteService {
   static Config = z.object({
     default: z.string().required(),
     selectedDefault: z.string().volatile(),
+    selectablePresets: z.union([z.const(undefined), z.array(z.string()).min(1)]),
   })
   private readonly owner: Context
   private readonly definitions = new Map<string, Definition>()
@@ -64,6 +65,9 @@ export class AgentPresetRegistry extends TypertRemoteService {
   private readonly switches = new Map<string, Promise<unknown>>()
 
   constructor(ctx: Context, public config: Config) {
+    if (config.selectablePresets !== undefined && !config.selectablePresets.includes(config.default)) {
+      throw new Error('The default agent preset must be selectable')
+    }
     super(ctx, 'agentPresets')
     this.owner = ctx
     ctx.sessionProjections.register(agentPresetProjectionDefinition)
@@ -74,7 +78,14 @@ export class AgentPresetRegistry extends TypertRemoteService {
   }
 
   /** Default preset for a subsequently created session. */
-  get defaultId(): string { return this.config.selectedDefault.get() ?? this.config.default }
+  get defaultId(): string {
+    const selected = this.config.selectedDefault.get()
+    return selected !== undefined && this.isSelectable(this.effectiveId(selected)) ? selected : this.config.default
+  }
+
+  private isSelectable(id: string): boolean {
+    return this.config.selectablePresets === undefined || this.config.selectablePresets.includes(id)
+  }
 
   /** Register and eagerly load a definition; activation failure remains visible in the roster.
    * @param definition Parsed configuration supplied by the declaring plugin.
@@ -213,7 +224,21 @@ export class AgentPresetRegistry extends TypertRemoteService {
   @Remote('list')
   async remoteExportList(): Promise<AgentPresetRoster> {
     const defaultId = this.effectiveId(this.defaultId)
-    return { presets: (await this.list()).map(row => ({ ...row, isDefault: row.id === defaultId })) }
+    return { presets: (await this.list()).filter(row => this.isSelectable(row.id))
+      .map(row => ({ ...row, isDefault: row.id === defaultId })) }
+  }
+
+  /** Resolve a preset permitted for a new session, without restricting historical reads or recovery.
+   * @param id - Explicit preset or the current selectable default.
+   * @returns The resolved preset, or a refusal for a recovery-only preset.
+   */
+  async resolveForCreation(id?: string): Promise<AgentPreset> {
+    const preset = await this.resolve(id)
+    if (!this.isSelectable(preset.id)) {
+      throw new RemoteError('agent-preset/not-selectable', `Agent preset is only available for existing sessions: ${preset.id}`,
+        { agentPreset: preset.id })
+    }
+    return preset
   }
 
   /** Resolve an identity without starting an Agent.
@@ -369,7 +394,8 @@ export class AgentPresetRegistry extends TypertRemoteService {
       if (boundary !== undefined && (boundary.openTurnStartSeq !== null || boundary.lastTurn > 0)) {
         throw new RemoteError('agent-preset/locked', 'This session has already started', { sessionId: agent.id, agentPreset })
       }
-      const preset = await this.recompose(agent.ctx, agentPreset)
+      const requested = await this.resolveForCreation(agentPreset)
+      const preset = await this.recompose(agent.ctx, requested.id)
       agent.session.append('agent-preset/selected', { agentPreset: preset.id })
       return preset.id
     })
