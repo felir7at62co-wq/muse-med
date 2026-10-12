@@ -30,19 +30,21 @@ function roster(ids: readonly string[]): unknown {
     id,
     trust: 'system',
   })
+  const resolve = (id?: string) => {
+    const wanted = id ?? ids[0] ?? ''
+    if (!ids.includes(wanted)) {
+      return Promise.reject(new RemoteError(
+        'agent-preset/not-found',
+        `agent-presets: preset "${wanted}" not found (available: ${ids.join(', ') || 'none'})`,
+        { agentPreset: wanted, available: ids },
+      ))
+    }
+    return Promise.resolve(presetOf(wanted))
+  }
   return {
     defaultId: ids[0],
-    resolve: (id?: string) => {
-      const wanted = id ?? ids[0] ?? ''
-      if (!ids.includes(wanted)) {
-        return Promise.reject(new RemoteError(
-          'agent-preset/not-found',
-          `agent-presets: preset "${wanted}" not found (available: ${ids.join(', ') || 'none'})`,
-          { agentPreset: wanted, available: ids },
-        ))
-      }
-      return Promise.resolve(presetOf(wanted))
-    },
+    resolve,
+    resolveForCreation: resolve,
     mount: (_ctx: Context, id?: string) => Promise.resolve(presetOf(id ?? ids[0] ?? '')),
   }
 }
