@@ -77,6 +77,9 @@ function fixture(packaged = false) {
     writeFileSync(path, '# fixture')
     return { name, path, invocation: { modelInvocable: true } }
   })
+  const directorGuide = join(skillRoot, 'tweet-drama-early-shot-script/references/director-format.md')
+  mkdirSync(dirname(directorGuide), { recursive: true })
+  writeFileSync(directorGuide, '# fixture director guide')
   const customPath = join(home, 'skills/desktop-user-skill/SKILL.md')
   mkdirSync(dirname(customPath), { recursive: true })
   writeFileSync(customPath, '# fixture')
@@ -236,6 +239,13 @@ it('accepts product skills loaded from the installed ASAR unpack directory', asy
   const f = fixture(true)
   await f.apply(f.ctx)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+})
+
+it('rejects an installed product missing the director shot-format guide', async () => {
+  const f = fixture(true)
+  rmSync(join(f.skillRoot, 'tweet-drama-early-shot-script/references/director-format.md'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('director shot-format guide is missing')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
 it('rejects a Cordis authoring skill served from the virtual ASAR path', async () => {

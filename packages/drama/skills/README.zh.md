@@ -62,6 +62,8 @@ npm test
 
 `package.json#files` 逐文件列出分发内容，不使用家庭目录整树或宽泛目录 glob。包排除凭据、cookies、缓存、日志、虚拟环境、可执行文件、用户索引、逐项目媒体和第三方模板 PDF；包内唯一的用户媒体是渲染器要用的两份片尾素材。测试只保留在源码中，不打包。这个私有、未授权许可的资源包没有 Cordis 入口或 TypeScript 项目。不发布运行时 invariant 伴随模块，因为静态技能文件没有可独立变化的运行时观测。
 
+发布检查会逐一比对实际 npm 压缩包和文件清单，包括[导演镜头格式指南](skills/tweet-drama-early-shot-script/references/director-format.md)；遗漏、未登记或内容过期的资源会在桌面端打包前报错。
+
 </details>
 
 <a id="model-experience"></a>

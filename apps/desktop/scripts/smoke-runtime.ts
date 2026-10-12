@@ -206,6 +206,9 @@ export function apply(ctx) {
       'tweet-drama-script-split', 'tweet-drama-asset-extract', 'tweet-drama-asset-vision-check',
       'shot-script-creator-9-16', 'shot-script-creator-16-9-3d', 'tweet-drama-shot-asset-match', 'tweet-drama-early-shot-script',
       'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect', 'tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'tweet-drama-delivery']
+    if (!existsSync(join(bundled, 'tweet-drama-early-shot-script', 'references', 'director-format.md'))) {
+      throw new Error('desktop runtime: director shot-format guide is missing from the product package')
+    }
     for (const name of requiredSkills) {
       const skill = skills.find(value => value.name === name)
       if (!skill || !skill.path || !skill.invocation.modelInvocable) throw new Error('desktop runtime: missing product skill ' + name)

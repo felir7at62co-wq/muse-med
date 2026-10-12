@@ -62,6 +62,8 @@ The maintained source is this directory. The initial inputs are the selected `SK
 
 `package.json#files` lists individual distributable files, not a home-directory tree or a broad directory glob. The package excludes credentials, cookies, caches, logs, virtual environments, executables, user indexes, per-project media, and the third-party template PDF; its only bundled user media are the renderer's two ending resources. Tests stay in source and are not packed. This private, unlicensed resource package has no Cordis entry point or TypeScript project. No runtime invariant companion is published because static skill files have no independently changing runtime observations.
 
+Release checks compare the actual npm archive with that allowlist, including the [director shot-format guide](skills/tweet-drama-early-shot-script/references/director-format.md); missing, unlisted, or stale resources fail before desktop packaging.
+
 </details>
 
 <a id="model-experience"></a>

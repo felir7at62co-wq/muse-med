@@ -15,6 +15,7 @@ def authored(directory):
         path.relative_to(package).as_posix()
         for path in (package / directory).rglob("*")
         if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+        and "tests" not in path.relative_to(package / directory).parts
         and path.relative_to(package / directory).parts[0] != "xiaohongshu-reference"
         and not path.is_relative_to(package / "skills/tweet-drama-draft-build/models")
     }

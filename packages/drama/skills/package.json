@@ -72,6 +72,7 @@
     "skills/tweet-drama-draft-build/scripts/jianying_draft.py",
     "skills/tweet-drama-draft-build/scripts/paths.py",
     "skills/tweet-drama-early-shot-script/SKILL.md",
+    "skills/tweet-drama-early-shot-script/references/director-format.md",
     "skills/tweet-drama-early-shot-script/references/project-config.md",
     "skills/tweet-drama-key-manager/SKILL.md",
     "skills/tweet-drama-key-manager/scripts/check_keys.py",
