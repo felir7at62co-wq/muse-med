@@ -1,0 +1,36 @@
+{
+  "schema_version": 2,
+  "project_id": null,
+  "title": null,
+  "deliverable_type": "image_reference",
+  "style_revision": "s001",
+  "settings_status": "draft",
+  "script_coverage": [],
+  "style": {
+    "substyle": "3D动漫／风格化三维动画，次世代高精度建模 CG，自然比例，物理可信 PBR 材质",
+    "world_and_era": null,
+    "proportions": null,
+    "face_and_silhouette": null,
+    "palette": [],
+    "materials": null,
+    "shading": null,
+    "lighting": null,
+    "avoid": []
+  },
+  "delivery": {
+    "video_aspect_ratio": null,
+    "asset_aspect_ratio": null,
+    "image_dimensions": null,
+    "target_software": null,
+    "model_formats": []
+  },
+  "assumptions": [],
+  "open_questions": [],
+  "style_lock": {
+    "family": "3d_anime",
+    "required_prefix": "3D动漫／风格化三维动画，次世代高精度建模 CG，物理可信 PBR 材质，自然比例与精细结构转折，材质微结构和局部粗糙度变化清晰，柔和主辅光保留体积与接触阴影。人物、场景、道具使用同档建模精度；人物独立五官按剧本设计，正向参考仅供质量与画风，不复制身份。",
+    "required_suffix": "最终保持3D动漫／风格化三维动画媒介、次世代高精度建模 CG 与物理可信 PBR 质感，主体、背景、服装、道具具有一致建模精度、材质层次与光照逻辑。",
+    "reference_policy": "3d_anime_identity_and_style_only",
+    "style_gate_required": true
+  }
+}

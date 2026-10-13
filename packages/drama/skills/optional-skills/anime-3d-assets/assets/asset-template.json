@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "project_id": null,
+  "asset_id": null,
+  "variant_id": "base",
+  "revision": "r001",
+  "parent_revision": null,
+  "name": null,
+  "type": null,
+  "aliases": [],
+  "episodes": [],
+  "scenes": [],
+  "script_evidence": [],
+  "deliverable_type": "image_reference",
+  "style_revision": "s001",
+  "identity": {},
+  "state": {},
+  "dependencies": [],
+  "source": {
+    "mode": "original",
+    "project_id": null,
+    "asset_id": null,
+    "variant_id": null,
+    "revision": null,
+    "location": null,
+    "usage_basis": null
+  },
+  "generation": {
+    "prompt_parts": {},
+    "final_prompt": null,
+    "negative_prompt": null,
+    "references": [],
+    "attempts": []
+  },
+  "files": [],
+  "review": {
+    "result": "not_checked",
+    "checks": [],
+    "reviewed_at": null,
+    "style_gate": {
+      "result": "not_checked",
+      "evidence": []
+    },
+    "quality_checks": []
+  },
+  "adoption": {
+    "status": "candidate",
+    "basis": null,
+    "adopted_at": null
+  },
+  "remote": null,
+  "change": {
+    "reason": null,
+    "preserve": [],
+    "modify": [],
+    "affected_shots": [],
+    "impact_status": "unknown"
+  },
+  "style_family": "3d_anime"
+}

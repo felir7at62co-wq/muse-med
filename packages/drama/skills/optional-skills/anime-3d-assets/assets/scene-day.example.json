@@ -1,0 +1,107 @@
+{
+  "schema_version": 2,
+  "project_id": "example-only",
+  "asset_id": "KITCHEN",
+  "variant_id": "base",
+  "revision": "r001",
+  "parent_revision": null,
+  "name": "虚构住家厨房",
+  "type": "scene",
+  "aliases": [],
+  "episodes": [
+    1
+  ],
+  "scenes": [
+    "example-kitchen-day"
+  ],
+  "script_evidence": [
+    {
+      "episode": 1,
+      "scene": "example-kitchen-day",
+      "basis": "虚构示例：局部布局与色卡已给定，不作为用户剧目依据"
+    }
+  ],
+  "deliverable_type": "image_reference",
+  "style_revision": "s001",
+  "identity": {
+    "layout": "后墙灶台、右窗、左门、左前木案、左后收纳架",
+    "fixtures": [
+      "铁锅和锅盖",
+      "粗陶盆",
+      "木砧板",
+      "两只素陶碗",
+      "干柴"
+    ]
+  },
+  "state": {
+    "time": "day",
+    "weather": "clear"
+  },
+  "dependencies": [],
+  "source": {
+    "mode": "original",
+    "project_id": null,
+    "asset_id": null,
+    "variant_id": null,
+    "revision": null,
+    "location": null,
+    "usage_basis": null
+  },
+  "generation": {
+    "prompt_parts": {
+      "scene_continuity": {
+        "role": "ZONE_MASTER",
+        "family_id": "HOME",
+        "locked": {
+          "layout": "后墙灶台、右窗、左门、左前木案、左后收纳架",
+          "fixtures": [
+            "铁锅和锅盖",
+            "粗陶盆",
+            "木砧板",
+            "两只素陶碗",
+            "干柴"
+          ],
+          "materials": "抹灰墙、木构件、压实地面、砌筑灶台、铁锅、粗陶",
+          "palette": [
+            "暖灰",
+            "灰蓝",
+            "土黄",
+            "自然木色"
+          ],
+          "camera": "前部中间偏左，高约1.5米，中等广角朝灶台后墙，16:9单图"
+        },
+        "delta": {}
+      },
+      "medium": "3D动漫"
+    },
+    "final_prompt": "3D动漫／风格化三维动画，次世代高精度建模 CG，物理可信 PBR 材质，纯环境场景，清晰三维空间，精细构件厚度、表面微结构和接触阴影统一。\n交付内容：住家厨房白天基础场景单图，画面无人，只展示建筑、固定陈设和环境道具。\n时代与场所：1980 年农村普通住家，局部布局和材料已按本示例设定确认。正常维护，结构完整，使用磨痕局部可读，不表现废弃或灾后破败。\n固定色卡：暖灰抹灰墙、灰蓝木门、土黄压实地面，木案保留自然木色；色名表示材质固有色，照明不把各物件统一染成同一种色。\n区域结构：以相机面向灶台后墙为观察基准，后墙中右部一座完整砌筑灶台，带铁锅和锅盖；右墙中部一扇木框窗；左墙近前部一扇关闭的灰蓝木门，门后空间不入画。左前方厚木操作案与左后方木收纳架保持固定位置，中央及门前通道无遮挡。\n固定陈设：木案上一个无文字粗陶盆和一块木砧板，收纳架上两只素陶碗；干柴整齐收于灶台侧下方。维持上述种类、数量和位置，无额外灯具、现代厨电、包装或装饰。\n材质与光照：墙体有细密抹灰起伏，木门有榫接厚度和轻微边缘磨痕，夯土地面压实平整，木纹顺构件方向，灶台灰缝有深度，锅盖的金属反射与粗陶、木材明确区分。右窗柔和白天天光照入，墙面反射提供弱补光，案脚与灶台接触阴影清楚，暗处结构可读。\n机位与输出：16:9 横向单图，相机在厨房前部中间偏左，约高1.5米，中等广角朝向灶台后墙；左门、右窗、灶台和中央通道同时可见。垂直构件稳定，保留前中后景，不拼接多机位。\n保留全部固定布局、物件数量、色卡与正常使用痕迹。排除人物、路人、人影、剪影、身体局部、玻璃或金属中的人物倒影、意外文字、水印、无依据的人形装饰、实拍背景及不符合本时代的设备。\n最终保持3D动漫／风格化三维动画媒介、次世代高精度建模 CG 与物理可信 PBR 质感，建筑、陈设、道具、材质和光照使用一致的造型精度与渲染体系，画面保持纯环境。",
+    "negative_prompt": null,
+    "references": [],
+    "attempts": []
+  },
+  "files": [],
+  "review": {
+    "result": "not_checked",
+    "checks": [],
+    "reviewed_at": null,
+    "style_gate": {
+      "result": "not_checked",
+      "evidence": []
+    },
+    "quality_checks": []
+  },
+  "adoption": {
+    "status": "candidate",
+    "basis": null,
+    "adopted_at": null
+  },
+  "remote": null,
+  "change": {
+    "reason": null,
+    "preserve": [],
+    "modify": [],
+    "affected_shots": [],
+    "impact_status": "unknown"
+  },
+  "style_family": "3d_anime"
+}

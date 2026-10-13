@@ -32,6 +32,8 @@ Resolve this package's `package.json`, then give its sibling `skills` directory 
 
 Start with [the pipeline](skills/tweet-drama-pipeline/SKILL.md), then read the relevant skill before invoking its scripts. Keep the skill directories adjacent: draft, render, and delivery share core's video-ban checks. Use Python 3.11 or newer. Image helpers require Pillow, document helpers require python-docx, and draft generation requires pyJianYingDraft; each skill owns its other optional dependencies. Draft generation rejects an existing draft directory rather than deleting it; use a distinct `name_prefix` for each candidate, without path separators or Windows-reserved characters. No Python interpreter, dependency environment, or FFmpeg binary is bundled.
 
+For a manual personal installation of the [3D anime asset skill](optional-skills/anime-3d-assets/SKILL.md), copy the complete `optional-skills/anime-3d-assets` directory into a separate personal skill directory, preserving its `scripts`, `references`, and `assets`. The consuming loader owns activation. Read the [first-pass requirements](optional-skills/anime-3d-assets/references/first-pass-cg.md) before generation.
+
 The [project bible skill](skills/tweet-drama-project-bible/SKILL.md) starts with one grouped question for missing creative and live SD model choices, reuses provided answers, and stores reviewed updates through drama_project. The style question offers photorealistic, 3D and a custom entry; the user's custom text becomes the saved style. Generation resolution and delivery dimensions remain separate; optional character voice guidance accompanies speaker checks and actual audio review. Wiki references guide writing without blocking startup. Existing projects retain stable package/storyboard identities, completed tasks and version records.
 
 The [asset extraction](skills/tweet-drama-asset-extract/SKILL.md) and [visual review](skills/tweet-drama-asset-vision-check/SKILL.md) skills resolve the current explicit request and `project_bible.style` before creating or judging image prompts. Confirmed live-action projects retain their established character-board and review rules, while confirmed anime, Chinese-animation, 2D-animation, 3D-animation and CG-animation projects inherit and are reviewed against the saved style without live-action-only constraints. Missing or conflicting styles keep neutral asset facts but stop before a generation-ready prompt, style verdict or paid request; preset names, reference-image media and model names do not supply a default.
@@ -66,6 +68,8 @@ The maintained source is this directory. The initial inputs are the selected `SK
 
 `package.json#files` lists individual distributable files, not a home-directory tree or a broad directory glob. The package excludes credentials, cookies, caches, logs, virtual environments, executables, user indexes, per-project media, and the third-party template PDF; its only bundled user media are the renderer's two ending resources. Tests stay in source and are not packed. This private, unlicensed resource package has no Cordis entry point or TypeScript project. No runtime invariant companion is published because static skill files have no independently changing runtime observations.
 
+`optional-skills` remains outside the npm file allowlist and is not enabled automatically. Maintaining that source neither synchronizes installed copies nor changes production configuration.
+
 Release checks compare the actual npm archive with that allowlist, including the [director shot-format guide](skills/tweet-drama-early-shot-script/references/director-format.md); missing, unlisted, or stale resources fail before desktop packaging.
 
 </details>
@@ -91,6 +95,7 @@ Loading instructions or returning script output appends context through the cons
 
 <a id="known-limitations-and-deferred-work"></a>
 
+- The anime skill’s request preflight is a read-only offline workflow check, not a global tool interceptor. Its limited text rules reject explicit PBR prohibitions and positive photographic-medium instructions while retaining direct photography exclusions and the supplied animation direction. It does not rewrite prompts, validate every tool field, make provider requests, or establish the generated image’s visual quality.
 - The current Web profile still needs explicit skill-loader configuration, credential injection, and Python dependency provisioning by its consumer. This package does not change root configuration or claim that the running Web session already uses these resources.
 - Draft scripts accept a caller-supplied output directory; they neither locate a teammate's installed Jianying draft root nor pair a rendered MP4 with a verified editable draft automatically.
 - The operator explicitly authorized public redistribution of the maintained skill source and the two ending resources. `private: true` and `UNLICENSED` do not grant others a license to modify or redistribute this package; the rights of external Python libraries, fonts, models, and other media remain separate.

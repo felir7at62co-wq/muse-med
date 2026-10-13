@@ -52,6 +52,8 @@ jobs:
         run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
       - name: Check download bundle packaging
         run: node --test third_party/plugins/download-pack.test.mjs
+      - name: Check optional 3D anime skill preflight
+        run: python -B -m unittest discover -s packages/drama/skills/tests/anime_3d
       - name: Verify shipped drama skill resources
         run: |
           python -m unittest discover -s packages/drama/skills/tests -p test_pack.py
