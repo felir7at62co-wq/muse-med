@@ -11,6 +11,7 @@ import { HostConnectionService } from '@deepseek-ai/dsh-client-connection'
 import { BrowserAuth } from '../../../client/connection/src/browser-auth.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 import { MuseDesktopBridge, type MuseDesktopTunnelOptions } from '../src/desktop-bridge.ts'
+import { MuseDesktopRemote } from '../src/desktop-remote.ts'
 import { MuseAccountService } from '../src/service.ts'
 import { apply, Config } from '../src/index.ts'
 import { writeMuseSession } from '../src/session.ts'
@@ -255,6 +256,38 @@ it('continues catalog polling after a bounded failure and stops its owned timer 
   const final = fetcher.mock.calls.length
   await vi.advanceTimersByTimeAsync(20000)
   expect(fetcher).toHaveBeenCalledTimes(final)
+})
+
+it('continues polling after a Desktop connection refresh fails without logging its private detail', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  const { ctx, home, sessionFile } = await fixture()
+  await host(ctx)
+  await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=account-private' })
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (input) => {
+    const url = new URL(input instanceof Request ? input.url : String(input))
+    return url.hostname === '127.0.0.1'
+      ? new Response(null, { status: 303, headers: { 'set-cookie': 'host=private; Path=/' } })
+      : Response.json(catalog)
+  }))
+  const warn = vi.spyOn(ctx.logger, 'warn')
+  const refresh = vi.spyOn(MuseDesktopRemote.prototype, 'refresh')
+  const timer = vi.spyOn(globalThis, 'setTimeout')
+  await apply(ctx, Config({ baseUrl, accountHome: home, modelRefreshMs: 10000, remoteAccess: true }))
+  await account(ctx).status({})
+  await vi.waitFor(() => expect(timer.mock.calls.some(([, delay]) => delay === 10000)).toBe(true))
+  const previous = refresh.mock.calls.length
+  refresh.mockRejectedValueOnce(new Error('PRIVATE_DESKTOP_DETAIL'))
+  await vi.advanceTimersByTimeAsync(10000)
+  await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('Muse desktop connection is unavailable; open account settings to retry.'))
+  expect(warn.mock.calls.flat().some(value => String(value).includes('PRIVATE_DESKTOP_DETAIL'))).toBe(false)
+  await vi.advanceTimersByTimeAsync(10000)
+  await account(ctx).status({})
+  expect(refresh.mock.calls.length).toBeGreaterThan(previous + 1)
+  expect(await account(ctx).status({})).toMatchObject({ state: 'signed-in', username: 'alice' })
+  await ctx.fiber.dispose()
+  const stopped = refresh.mock.calls.length
+  await vi.advanceTimersByTimeAsync(20000)
+  expect(refresh).toHaveBeenCalledTimes(stopped)
 })
 
 it('does not schedule another refresh when a pending catalog settles after disposal', async () => {
