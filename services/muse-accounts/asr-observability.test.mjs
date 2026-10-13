@@ -107,5 +107,24 @@ test('HTTP diagnostics require an elevated administrator and return only the sup
  const unlock=await fetch(base+'/admin/control/unlock',{method:'POST',headers:{cookie:admin,origin},body:new URLSearchParams({password:'test-admin-secret'}),redirect:'manual'});assert.equal(unlock.status,303);
  assert.equal((await request(admin,{method:'POST'})).status,405);
  const response=await request(admin);assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');assert.deepEqual(await response.json(),snapshot);assert.equal(reads,1);
- clock+=1001;assert.equal((await request(admin)).status,403);assert.equal(reads,1);
+ for(let index=1;index<12;index++)assert.equal((await request(admin)).status,200);
+ const limited=await request(admin);assert.equal(limited.status,429);assert.equal(limited.headers.get('cache-control'),'no-store');assert.equal(reads,12);
+ const audit=(await readFile(join(root,'privileged','audit.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
+ assert.equal(audit.filter(row=>row.event==='GET /api/admin/asr/diagnostics').length,12);
+ clock+=1001;assert.equal((await request(admin)).status,403);assert.equal(reads,12);
+});
+
+test('an elevated administrator receives an uncached unavailable response when ASR is absent',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'muse-asr-observe-unavailable-'));
+ const store=await openStore(join(root,'accounts'));await store.create('admin','pw',{admin:true});
+ const adminAccess=await openAdminAccess(join(root,'privileged'));await adminAccess.configure('test-admin-secret');
+ const origin='https://muse.test',server=createAccountServer({store,adminAccess,publicOrigin:origin});
+ t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));await rm(root,{recursive:true,force:true});});
+ const base=await new Promise(resolve=>server.listen(0,'127.0.0.1',()=>resolve('http://127.0.0.1:'+server.address().port)));
+ const login=await fetch(base+'/login',{method:'POST',headers:{origin},body:new URLSearchParams({username:'admin',password:'pw'}),redirect:'manual'});
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ const unlock=await fetch(base+'/admin/control/unlock',{method:'POST',headers:{cookie,origin},body:new URLSearchParams({password:'test-admin-secret'}),redirect:'manual'});assert.equal(unlock.status,303);
+ const response=await fetch(base+'/api/admin/asr/diagnostics',{headers:{cookie},redirect:'manual'});
+ assert.equal(response.status,503);assert.equal(response.headers.get('cache-control'),'no-store');
+ assert.deepEqual(await response.json(),{error:'Muse cloud transcription is not configured on this server'});
 });
