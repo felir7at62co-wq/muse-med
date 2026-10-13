@@ -54,8 +54,14 @@ try {
   })
   const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
   const childOptions = { env: scrubWindowsSigningEnvironment(process.env), windowsHide: true, maxBuffer: 8 * 1024 * 1024 }
-  await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-    join(appRoot, 'scripts', 'prepare-windows-installer.ps1'), '-OutputDirectory', join(output, 'ui'), '-CompileProgressOnly'], childOptions)
+  try {
+    await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+      join(appRoot, 'scripts', 'prepare-windows-installer.ps1'), '-OutputDirectory', join(output, 'ui'), '-CompileProgressOnly'], childOptions)
+  } catch (error) {
+    process.stdout.write(error.stdout ?? '')
+    process.stderr.write(error.stderr ?? '')
+    throw error
+  }
   const progressTest = join(output, 'ui', 'progress-test.exe')
   const presentationTest = join(output, 'ui', 'presentation-test.exe')
   const cleanupTest = join(output, 'ui', 'data-cleanup-test.exe')
@@ -69,6 +75,8 @@ try {
   if (!uninstallOnly) {
     await execute(progressTest, [], childOptions)
     await execute(presentationTest, [], childOptions)
+    await execute(join(output, 'ui', 'extract-report-test.exe'), [], childOptions)
+    await execute(join(output, 'ui', 'installer-timing-test.exe'), [], childOptions)
   }
   await execute(cleanupTest, [join(output, 'ui', `cleanup-${id}`)], childOptions)
   const payloadSource = join(output, 'payload.nsi')

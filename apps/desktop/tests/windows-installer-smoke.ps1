@@ -237,6 +237,7 @@ try {
     while (-not $process.HasExited) {
         if ($timer.Elapsed.TotalSeconds -gt 30) { throw 'Visible automatic update did not complete' }
         if ([InstallerCapture]::FindButton($process.Id, $copy.INSTALLER_FINISH) -ne [IntPtr]::Zero) { throw 'Automatic update waited for a manual finish click' }
+        $window = [InstallerCapture]::Find($process.Id)
         $visible = [InstallerCapture]::VisibleText($process.Id)
         if ($visible -match 'HarnessInstallerProgress[^\r\n]*?(\d+)%') {
             $percent = [int]$Matches[1]
