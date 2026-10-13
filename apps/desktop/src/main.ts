@@ -43,7 +43,7 @@ import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashRep
 import { openWelcomeWindow } from './welcome-window.ts'
 import { WELCOME_IPC, needsWelcome, type WelcomeNotice } from './welcome-api.ts'
 import { connectDesktopWelcome, type DesktopWelcomeBackend } from './welcome-backend.ts'
-import { DesktopUpdateJournal } from './update-journal.ts'
+import { DesktopUpdateJournal, type DesktopUpdateJournalResult, type DesktopUpdateJournalStage } from './update-journal.ts'
 import { DesktopUpdatePreparationError } from './update-error.ts'
 import { DesktopUpdateSchedule, resolveDesktopUpdateScheduleConfig } from './update-schedule.ts'
 import { desktopUpdateErrorSummary, presentDesktopUpdate } from './update-presentation.ts'
@@ -365,6 +365,18 @@ async function main(): Promise<void> {
   void pruneCrashReports(app.getPath('logs'))
   const journalDirectory = process.env.DSH_DESKTOP_UPDATE_JOURNAL_DIR
   const updateJournal = journalDirectory === undefined ? undefined : new DesktopUpdateJournal(journalDirectory, app.getVersion())
+  const timed = async <T>(stage: DesktopUpdateJournalStage, operation: () => Promise<T>,
+    fields?: (value: T) => { readonly result?: DesktopUpdateJournalResult; readonly hostPid?: number }): Promise<T> => {
+    const timing = updateJournal?.stage(stage)
+    try {
+      const value = await operation()
+      timing?.complete(fields?.(value))
+      return value
+    } catch (error) {
+      timing?.fail()
+      throw error
+    }
+  }
   const resources = runtimeResources()
   const paths = resolveDesktopPaths()
   // Unpackaged launches own a disposable development project; packaged ones use the managed profile.
@@ -373,7 +385,8 @@ async function main(): Promise<void> {
     ? join(process.resourcesPath, 'runtime', 'primary-runtime')
     : developmentPrimaryRuntime()
   const activeProject = development ?? paths.profile
-  const manager = new DesktopProjectManager(paths, resources)
+  let profileApplyResult: DesktopUpdateJournalResult | undefined
+  const manager = new DesktopProjectManager(paths, resources, (result) => { profileApplyResult = result })
   // Profile recovery actions exist only where packaged resources can rebuild the profile.
   profileRecoveryAvailable = () => development === undefined && manager.canRecoverProfile()
   // Dock and Finder launches inherit only launchd's environment; every Host shares one login-shell read.
@@ -390,13 +403,17 @@ async function main(): Promise<void> {
   const prepareHostEnvironment = async (): Promise<void> => {
     hostEnvironment = await loginShell
     const hongguoRuntime = app.isPackaged ? join(process.resourcesPath, 'runtime', 'hongguo') : resolve(primaryRuntime, '..', 'hongguo')
-    const hongguo = await prepareDesktopHongguoEnvironment({ runtime: hongguoRuntime, productHome: resolve(paths.root, '..') })
+    const hongguo = await timed('hongguo-prepare', () => prepareDesktopHongguoEnvironment({
+      runtime: hongguoRuntime,
+      productHome: resolve(paths.root, '..'),
+    }))
     hostEnvironment = { ...hostEnvironment, ...hongguo }
   }
   let quitting = false
   let startup: Promise<void> | undefined
   let workspaceRecovery: Promise<void> | undefined
   let mainWindow: BrowserWindow | undefined
+  let mainWindowShown = false
   let welcomeWindow: BrowserWindow | undefined
   let enteredWorkspace = false
   // NSIS passes --updated when it launches the application after installation.
@@ -532,7 +549,7 @@ async function main(): Promise<void> {
     browserGuests.downloads.onRevoked = (taskId, code) => { host.notifyDouyinRevoked(taskId, code) }
     return {
       start: async () => {
-        const ready = await host.start()
+        const ready = await timed('desktop-host-start', () => host.start(), value => ({ hostPid: value.pid }))
         hostCookie = await authenticateWebHost(ready.url)
         hostUrl = ready.url
         if (ready.injections === undefined) throw new Error('Desktop Host did not provide boot injections')
@@ -653,7 +670,13 @@ async function main(): Promise<void> {
     startup ??= (async () => {
       await navigateMain(applicationUrl)
       await backend.start(async () => {
-        await Promise.all([manager.applyRelease(), prepareHostEnvironment()])
+        profileApplyResult = undefined
+        await Promise.all([
+          timed('profile-apply', () => manager.applyRelease(), () => (
+            profileApplyResult === undefined ? {} : { result: profileApplyResult }
+          )),
+          prepareHostEnvironment(),
+        ])
       })
       if (backend.host !== undefined) await openInitialWindow()
       if (backend.host !== undefined) updateJournal?.action('workspace-ready')
@@ -674,7 +697,7 @@ async function main(): Promise<void> {
       await startup?.catch(() => undefined)
       const host = backend.host
       if (host === undefined) throw new DesktopUpdatePreparationError('tasks-unavailable', locale.messages.updateTasksUnavailable)
-      const active = await host.updateTasks('inspect')
+      const active = await timed('update-task-inspection', () => host.updateTasks('inspect'))
       const manual = updates.installationMode === 'manual-dmg'
       const ready = desktopUpdateReadyConfirmation(locale.messages, updates.state.version ?? '', process.platform, manual)
       const confirmation: Electron.MessageBoxOptions = {
@@ -693,25 +716,30 @@ async function main(): Promise<void> {
         const result = await updateDialog.show(parent, confirmation)
         if (result.response !== 0 || isMandatory()) return false
       }
-      // The update lock rejects new HTTP requests, including analytics intake.
-      await track('desktop_upgrade_install_restart_click', {})
-      if (backend.host !== host) throw new DesktopUpdatePreparationError('tasks-unavailable', locale.messages.updateTasksUnavailable)
+      updateJournal?.action('install-restart-clicked')
+      const restartTiming = updateJournal?.stage('update-restart-preparation')
       try {
-        const stillActive = await host.updateTasks('lock')
+        // The update lock rejects new HTTP requests, including analytics intake.
+        await track('desktop_upgrade_install_restart_click', {})
+        if (backend.host !== host) throw new DesktopUpdatePreparationError('tasks-unavailable', locale.messages.updateTasksUnavailable)
+        const stillActive = await timed('update-task-lock', () => host.updateTasks('lock'))
         if (stillActive && !active) throw new DesktopUpdatePreparationError('tasks-changed', locale.messages.updateTasksChanged)
         mandatoryUI?.preparingRestart(stillActive)
         // The embedded Platform document holds credentials issued by the Host that is about to stop.
-        await platformView.closeAndWait()
+        await timed('platform-cleanup', () => platformView.closeAndWait())
         requireCleanStop = true
         updateStopFailure = undefined
-        await backend.stop()
+        await timed('desktop-host-stop', () => backend.stop())
         updateStoppedHost = true
         // The backend's async cleanup callback can assign this after the reset above.
         const stopFailure = updateStopFailure as DesktopHostUncleanExitError | undefined
         if (stopFailure !== undefined) throw new DesktopUpdatePreparationError('stop-failed', locale.messages.updateStopFailed, stopFailure.message)
         updateJournal?.action('install-confirmed')
         shellInstallerOwnsQuit = true
+        updateJournal?.action('installer-handoff')
+        restartTiming?.complete()
       } catch (error) {
+        restartTiming?.fail()
         if (!updateStoppedHost) await host.updateTasks('unlock').catch((unlockError: unknown) => { console.error(unlockError) })
         throw error
       } finally {
@@ -769,6 +797,7 @@ async function main(): Promise<void> {
     process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux', () => { refreshApplicationMenu() }, window => updateOverlays.input(window))
   app.on('will-quit', () => { shortcuts.dispose() })
 
+  let clientPluginsTiming: ReturnType<DesktopUpdateJournal['stage']> | undefined
   ipcMain.handle(DESKTOP_IPC.boot, async (event) => {
     assertDesktopSender(event, ['app'])
     await startup
@@ -782,6 +811,8 @@ async function main(): Promise<void> {
       throw new Error('muse-med: rejected startup failure from a non-primary frame')
     }
     if (typeof message !== 'string') throw new Error('muse-med: startup failure must be text')
+    clientPluginsTiming?.fail()
+    clientPluginsTiming = undefined
     reportFatal(new Error(message), 'web-boot')
   })
 
@@ -818,6 +849,20 @@ async function main(): Promise<void> {
       || !event.senderFrame.url.startsWith('dsh-app://app/')) throw new Error('Rejected Platform command')
     return owner
   }
+  ipcMain.on(DESKTOP_IPC.clientPluginsLoading, (event) => {
+    assertMainApplication(event)
+    clientPluginsTiming ??= updateJournal?.stage('client-plugins-load')
+  })
+  ipcMain.on(DESKTOP_IPC.clientPluginsLoaded, (event) => {
+    assertMainApplication(event)
+    updateJournal?.action('client-plugins-loaded')
+    clientPluginsTiming?.complete()
+    clientPluginsTiming = undefined
+  })
+  ipcMain.on(DESKTOP_IPC.uiInteractive, (event) => {
+    assertMainApplication(event)
+    updateJournal?.action('ui-interactive')
+  })
   ipcMain.on(PLATFORM_IPC.bootstrap, (event) => {
     try { event.returnValue = platformView.bootstrap(event) }
     catch { event.returnValue = null }
@@ -1278,6 +1323,11 @@ async function main(): Promise<void> {
   const createMainWindow = (): BrowserWindow => {
     const window = createWindow(appPreload, false, true)
     mainWindow = window
+    window.once('show', () => {
+      if (mainWindowShown) return
+      mainWindowShown = true
+      updateJournal?.action('main-window-shown')
+    })
     browserGuests.bind(window, (guest, name) => shortcuts.attachGuest(window, guest, name))
     shortcuts.attach(window)
     window.on('focus', automaticCheck)

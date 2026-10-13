@@ -87,11 +87,53 @@ describe('installed-update qualification materials', () => {
       const result = await inspectInstalledUpdateJournals(directory, versions)
       expect(result.recordedFlow).toBe('complete')
       expect(result.missing).toEqual([])
-      expect(Object.keys(result.milestones)).toHaveLength(10)
+      expect(Object.keys(result.milestones)).toEqual(expect.arrayContaining([
+        'original-workspace', 'original-quit', 'successor-started', 'successor-workspace', 'successor-app-ready',
+      ]))
       expect(result.operatorVerificationRequired).toContain('test-data-preserved')
       expect(result.operatorVerificationRequired).toContain('installer-completion-and-installed-path')
       expect(JSON.stringify(result)).not.toContain('secret')
       expect(await readFile(original.path, 'utf8')).toBe(before)
+    })
+  })
+
+  it('retains installer, startup, visible-window, and interactive milestones as distinct evidence', async () => {
+    await fixture(async (directory) => {
+      const original = new DesktopUpdateJournal(directory, versions[0])
+      failedDownload(original)
+      original.action('install-restart-clicked')
+      completeRetry(original)
+      const quitRows = (await readFile(original.path, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { time: string })
+      const time = quitRows.at(-1)!.time
+      const installerEvents = ['installer-started', 'previous-process-wait-started', 'previous-process-wait-completed',
+        'installer-extract-started', 'installer-extract-completed', 'installer-completed'] as const
+      const installerRows = installerEvents.map((event, sequence) => JSON.stringify({ schemaVersion: 2, sequence, time,
+        elapsedMs: sequence * 10, ...(event.endsWith('completed') ? { durationMs: 10 } : {}),
+        processType: 'windows-installer', pid: 9876, ppid: 1234, platform: 'win32', arch: 'x86',
+        version: versions[1], event }))
+      await writeFile(join(directory, 'installer-20261013T010203004Z-9876.jsonl'), `${installerRows.join('\n')}\n`)
+      const successor = new DesktopUpdateJournal(directory, versions[1])
+      successor.stage('profile-apply').complete({ result: 'rebuilt' })
+      successor.stage('hongguo-prepare').complete()
+      successor.stage('desktop-host-start').complete({ hostPid: 2468 })
+      successor.action('workspace-ready')
+      successor.action('main-window-shown')
+      successor.stage('client-plugins-load').complete()
+      successor.action('client-plugins-loaded')
+      successor.action('ui-interactive')
+      const result = await inspectInstalledUpdateJournals(directory, versions)
+      expect(result.recordedFlow).toBe('complete')
+      expect(result.milestones).toMatchObject({
+        'original-process-exited': { processType: 'windows-installer', durationMs: 10 },
+        'installer-extract-completed': { durationMs: 10 },
+        'installer-completed': { durationMs: 10 },
+        'successor-profile-applied': { result: 'rebuilt' },
+        'successor-host-ready': { hostPid: 2468 },
+      })
+      expect(result.milestones['successor-window-shown']!.sequence)
+        .toBeLessThan(result.milestones['successor-interactive']!.sequence)
+      expect(result.milestones['successor-plugins-loaded']!.sequence)
+        .toBeLessThan(result.milestones['successor-interactive']!.sequence)
     })
   })
 
@@ -147,7 +189,7 @@ describe('installed-update qualification materials', () => {
       await fixture(async (directory) => {
         const journal = new DesktopUpdateJournal(directory, versions[0])
         const initial = await readFile(journal.path, 'utf8')
-        const row = { ...JSON.parse(initial) as Record<string, unknown>, sequence: 1, event: 'state', phase: 'idle' }
+        const row = { ...JSON.parse(initial.split('\n')[0]!) as Record<string, unknown>, sequence: 2, event: 'state', phase: 'idle' }
         if (variant === 'unknown-fields') Object.assign(row, { secret: 'private-value' })
         if (variant === 'wrong-sequence') row.sequence = 9
         if (variant === 'mixed-version') Object.assign(row, { version: versions[1] })

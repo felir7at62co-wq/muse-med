@@ -409,7 +409,7 @@ it('rejects transcription in the minimal preset', async () => {
 })
 
 it('rejects Host readiness when the private preset smoke never completes', async () => {
-  const start = vi.spyOn(DesktopHostProcess.prototype, 'start').mockResolvedValue({ url: 'http://127.0.0.1:1/' })
+  const start = vi.spyOn(DesktopHostProcess.prototype, 'start').mockResolvedValue({ pid: 2468, url: 'http://127.0.0.1:1/' })
   const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html></html>'))
   const stop = vi.spyOn(DesktopHostProcess.prototype, 'stop').mockResolvedValue()
   try {

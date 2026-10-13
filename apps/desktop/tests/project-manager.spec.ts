@@ -470,6 +470,20 @@ describe('desktop external plugin profile', () => {
     expect(JSON.parse(readFileSync(join(manager.paths.profile, 'package.json'), 'utf8'))).toMatchObject({ dependencies: {} })
   })
 
+  it('classifies profile preparation, reuse, and runtime rebuild without recording profile contents', async () => {
+    const { root, manager } = setup()
+    const results: string[] = []
+    const measured = new DesktopProjectManager(manager.paths, manager.runtime, (result) => { results.push(result) })
+    await measured.applyRelease()
+    await measured.applyRelease()
+    await measured.mutate({ type: 'plugin-add', spec: 'plugin@1.0.0' }, hooks())
+    const dsh = join(root, 'new-node', 'dsh')
+    runtimeFixture(dsh, '1.1.0', '24.18.0')
+    const upgraded = new DesktopProjectManager(manager.paths, { ...manager.runtime, dsh }, (result) => { results.push(result) })
+    await upgraded.applyRelease()
+    expect(results).toEqual(['prepared', 'current', 'rebuilt'])
+  })
+
   it('repairs a removed managed link without running pnpm', async () => {
     const { root, manager } = setup()
     await manager.applyRelease()

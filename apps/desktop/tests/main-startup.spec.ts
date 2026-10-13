@@ -100,7 +100,7 @@ const harness = await vi.hoisted(async () => {
       }),
     })
     readonly shown = deferred()
-    readonly show = vi.fn(() => { this.shown.resolve() })
+    readonly show = vi.fn(() => { this.shown.resolve(); this.emit('show') })
     readonly hide = vi.fn()
     readonly focus = vi.fn()
     readonly moveTop = vi.fn()
@@ -149,7 +149,10 @@ const harness = await vi.hoisted(async () => {
     readonly ready = deferred()
     readonly exited = deferred()
     readonly stopping = deferred()
-    readonly start = vi.fn(() => { hostStarted.resolve(); return this.ready.promise.then(() => ({ url: this.url, injections: [] })) })
+    readonly start = vi.fn(() => {
+      hostStarted.resolve()
+      return this.ready.promise.then(() => ({ pid: 2468, url: this.url, injections: [] }))
+    })
     readonly stop = vi.fn(() => {
       this.stopping.resolve()
       this.ready.reject(new Error('child stopped'))
@@ -721,6 +724,13 @@ describe('desktop main startup', () => {
     try {
       vi.stubEnv('DSH_DESKTOP_UPDATE_JOURNAL_DIR', directory)
       await readyForUpdate()
+      const sender = harness.windows[0]!.webContents
+      const event = { sender, senderFrame: sender.mainFrame }
+      harness.windows[0]!.emit('show')
+      for (const channel of [DESKTOP_IPC.clientPluginsLoading, DESKTOP_IPC.clientPluginsLoaded, DESKTOP_IPC.uiInteractive]) {
+        const listener = harness.ipcOn.mock.calls.find(([registered]) => registered === channel)![1]
+        listener(event)
+      }
       harness.publishUpdate({ phase: 'error', failedOperation: 'download', version: '1.2.3', message: 'ENOSPC secret-url' })
       const checkUpdates = applicationMenuItems().find(item => item.label === en.checkUpdatesMenu)!.click as () => void
       checkUpdates()
@@ -731,8 +741,15 @@ describe('desktop main startup', () => {
       const files = readdirSync(directory)
       expect(files).toHaveLength(1)
       const contents = readFileSync(join(directory, files[0]!), 'utf8')
-      const records = contents.trim().split('\n').map(line => JSON.parse(line) as { event: string })
-      expect(records.map(row => row.event)).toEqual(expect.arrayContaining(['started', 'workspace-ready', 'state', 'check-requested', 'quit-requested']))
+      const records = contents.trim().split('\n').map(line => JSON.parse(line) as { event: string; durationMs?: number; hostPid?: number })
+      expect(records.map(row => row.event)).toEqual(expect.arrayContaining(['started', 'app-ready', 'profile-apply-completed',
+        'hongguo-prepare-completed', 'desktop-host-start-completed', 'workspace-ready', 'main-window-shown',
+        'client-plugins-loaded', 'ui-interactive', 'state', 'check-requested', 'quit-requested']))
+      const hostStarted = records.find(row => row.event === 'desktop-host-start-completed')
+      expect(hostStarted?.hostPid).toBe(2468)
+      expect(typeof hostStarted?.durationMs).toBe('number')
+      expect(records.findIndex(row => row.event === 'main-window-shown'))
+        .toBeLessThan(records.findIndex(row => row.event === 'ui-interactive'))
       expect(contents).toContain('ENOSPC')
       expect(contents).not.toContain('secret-url')
     } finally {
