@@ -4618,11 +4618,11 @@ export interface Config {
   maxOcrDiagnosticBytes: number
   /** Deadline for one OCR extraction or bridge batch. */
   ocrCommandTimeoutMs: number
-  /** Minimum identical observations before conservatively labelling an overlay. */
-  ocrPersistentOverlayMinFrames: number
-  /** Minimum seconds an identical overlay must persist before labelling. */
-  ocrPersistentOverlayMinSeconds: number
-  /** Minimum spatial overlap for identical overlay evidence. */
+  /** Minimum identical observations before labelling visual text persistence. */
+  ocrPersistentTextMinFrames: number
+  /** Minimum seconds identical text must persist before labelling. */
+  ocrPersistentTextMinSeconds: number
+  /** Minimum spatial overlap for identical text evidence. */
   ocrOverlayMinIou: number
   /** Maximum merged segments returned inline; full evidence remains in files. */
   ocrPreviewSegments: number

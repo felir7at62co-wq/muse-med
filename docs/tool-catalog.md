@@ -1689,7 +1689,7 @@ Source: [`packages/perception/tool-video-inspect/src/index.ts`](../packages/perc
 
 ### `video_ocr`
 
-Recognize visible text from bounded, timestamped samples of a local video with Windows OCR. Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. A partial or failed scan is indeterminate, never proof that the video has no subtitles. Persistent overlays remain in evidence and are labelled, not silently removed. This tool never invokes audio transcription.
+Recognize visible text from bounded, timestamped samples of a local video with Windows OCR. Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. A partial or failed scan is indeterminate, never proof that the video has no subtitles. Persistent text remains a content candidate; visual persistence does not identify watermarks or non-narrative text. This tool never invokes audio transcription.
 
 ```json
 {

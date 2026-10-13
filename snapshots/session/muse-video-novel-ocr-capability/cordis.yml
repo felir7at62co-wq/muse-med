@@ -1,0 +1,24 @@
+# Exclude platform-specific shell tools from this skill-loading transcript.
+- id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true
+
+# This scenario loads only its workspace skills and no checkout instructions.
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    includeDefaultRoots: false
+    customSkillDirs: !!js "[process.cwd() + '/.dsh/skills']"
+    watch: false
+
+- id: subprocess
+  disabled: true
+- insert:
+    - id: snapshot-ocr-capability
+      name: './ocr-capability-fixture.mjs'
+    - id: tool-video-inspect
+      name: '@deepseek-ai/dsh-tool-video-inspect'

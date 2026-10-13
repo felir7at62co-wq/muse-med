@@ -30,13 +30,13 @@ kind: "package-reference"
 
 均匀采样选择等长区间的中间点。`timestamps_seconds` 可指定源文件中的具体时刻。每次默认最多 12 帧、覆盖 120 秒区间；默认区间最多 60 秒。源文件还有剩余区间时，`next_start_seconds` 指明下一个区间。画面可见或内嵌文字使用 `video_ocr`；语音对白另用现有 `audio_transcribe` 工具，并遵守其账号与计费要求。
 
-`video_ocr` 对请求的视频区间抽样，每批把数量和大小受限的 JPEG 交给一个 Windows OCR bridge 进程，并在工作区创建原始 JSON 证据和带时间码的合并 TXT。原始证据保留每行文字、词框、源时间码、扫描范围和保守分类。长时间、位置稳定且完全相同的文字可以标记为 `persistent_overlay`，但绝不静默删除；其他文字保留为 `content_candidate`。
+`video_ocr` 对请求的视频区间抽样，每批把数量和大小受限的 JPEG 交给一个 Windows OCR bridge 进程，并在工作区创建原始 JSON 证据和带时间码的合并 TXT。原始证据保留每行文字、词框、源时间码、扫描范围和保守分类。长时间、位置稳定且完全相同的文字可以标记为 `persistent_text_candidate`，这只表示视觉重复，不表示该文字不是剧情。两类文字都保留为内容候选并计入 `segment_count`，绝不静默删除；同一时间的多行文字保留 OCR 阅读顺序。
 
 ```json
 {"file_path":"source/episode-01.mp4","start_seconds":0,"end_seconds":120,"frame_interval_seconds":0.5,"language":"zh-Hans-CN","raw_json_path":"transcript/raw/episode-01-ocr.json","merged_text_path":"transcript/raw/episode-01-ocr.txt"}
 ```
 
-`scan_status` 区分 `complete`、`partial` 和 `failed`。只有该次调用的全部计划采样都处理成功时才可能返回 `text_status=no_text_detected`，但抽样 OCR 仍不能证明视频绝对没有字幕。`next_start_seconds`、未扫描范围和失败时间点会明确暴露覆盖缺口。指定的 Windows 语言缺失、解码失败或超时保持 `indeterminate`；本工具没有 ASR 回退能力，也不能授权或计费云端请求。部署可配置语言、采样间隔边界、范围/帧数/批次限制、图片与 JSON 字节限制、超时和水印判定阈值。运行时不会安装 OCR 语言包。
+`scan_status` 区分 `complete`、`partial` 和 `failed`。只有该次调用的全部计划采样都处理成功时才可能返回 `text_status=no_text_detected`，但抽样 OCR 仍不能证明视频绝对没有字幕。`next_start_seconds`、未扫描范围和失败时间点会明确暴露覆盖缺口。指定的 Windows 语言缺失、解码失败或超时保持 `indeterminate`；本工具没有 ASR 回退能力，也不能授权或计费云端请求。部署可配置语言、采样间隔边界、范围/帧数/批次限制、图片与 JSON 字节限制、超时和文字重复判定阈值。识别进程失败会停止后续批次，不重复启动不可用的引擎。运行时不会安装 OCR 语言包。在 macOS 等不支持的平台上，说明实际能力并复用已提供的字幕或转写。只有另有明确覆盖本素材、用途和扣费的授权时，调用方才可沿现有 ASR 计费与收据流程继续；OCR 失败不会授权新的付费调用，也不能把 ASR 来源写成 OCR。
 
 `strategy=scene_dialogue` 在实际 FFmpeg 镜头切换的前后选帧；`transcript_path` 指向同一完整视频的 `audio_transcribe` JSON 时，也取发声片段中点。说话人编号用于区分识别任务中的声音，不能直接当作人物姓名。调用方必须使用相同完整视频的转写，时间范围校验本身不能确认这种关联。`sampling_plan.selected` 解释本次返回的观察点，`sampling_plan.deferred` 列出未查看的时间点；后续通过 `timestamps_seconds` 分批复看，并在行动或人物归属不明处缩小区间。切镜检测可能漏掉渐变转场。
 

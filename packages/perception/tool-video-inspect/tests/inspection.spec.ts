@@ -1,6 +1,7 @@
 /** Video inspection uses the real filesystem, attachment store and managed FFmpeg subprocesses. */
 import { mkdtemp, rm, readFile, appendFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import * as Os from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -16,11 +17,170 @@ import { runMedia, parseVideoMetadata } from '../src/media.ts'
 import * as Media from '../src/media.ts'
 import { contactTimecode } from '../src/contact.ts'
 
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>()
+  return { ...actual, platform: vi.fn(actual.platform) }
+})
+
 const contexts: Context[] = [], roots: string[] = []
 afterEach(async () => {
   vi.restoreAllMocks()
+  vi.mocked(Os.platform).mockReturnValue(process.platform)
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+})
+
+it('decodes every FFmpeg batch and continues from a nonzero source range', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 2, ocrMaxRangeSeconds: 2 })
+  const run = mockWindowsOcr()
+  expect((await h.ocr({ end_seconds: 4 })).value).toMatchObject({ scan_status: 'partial', next_start_seconds: 2,
+    coverage: { planned_frame_count: 4, processed_frame_count: 4, failed_frame_count: 0 } })
+  const second = await h.ocr({ start_seconds: 2, end_seconds: 4,
+    raw_json_path: 'qa/second.json', merged_text_path: 'qa/second.txt' })
+  expect(second.isError, JSON.stringify(second.content)).toBe(false)
+  expect(second.value).toMatchObject({ scan_status: 'complete', coverage: { planned_frame_count: 4,
+    processed_frame_count: 4, failed_frame_count: 0, scanned_ranges: [{ start_seconds: 2, end_seconds: 4 }] } })
+  const raw = JSON.parse(await readFile(join(h.root, 'qa/second.json'), 'utf8')) as {
+    frames: { requested_seconds: number; timestamp_seconds: number }[] }
+  expect(raw.frames.map(frame => [frame.requested_seconds, frame.timestamp_seconds]))
+    .toEqual([[2, 2], [2.5, 2.5], [3, 3], [3.5, 3.5]])
+  expect(run.mock.calls.filter(call => call[1].includes('mjpeg'))).toHaveLength(4)
+})
+
+it('keeps persistent narrative text usable and stops after a recognizer deadline', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 0.25, ocrBatchFrames: 2,
+    ocrPersistentTextMinFrames: 2, ocrPersistentTextMinSeconds: 1 })
+  const original = Media.runMedia
+  const run = mockWindowsOcr()
+  run.mockImplementation(async (...args) => {
+    if (!args[1].some(value => value.endsWith('ocr_bridge.ps1'))) return await original(...args)
+    const input = JSON.parse(args[4].stdin ?? '{}') as { frames: { id: string; timestamp_seconds: number }[] }
+    return { bytes: Buffer.from(JSON.stringify({ ok: true, language_used: 'zh-Hans-CN',
+      frames: input.frames.map(frame => ({ ...frame, image_width: 64, image_height: 48, lines: [{
+        text: '我终于找到你了', bounding_box: { x: 8, y: 32, width: 48, height: 10 }, words: [],
+      }] })) })), diagnostic: '' }
+  })
+  expect((await h.ocr({ end_seconds: 2 })).value).toMatchObject({ scan_status: 'complete',
+    text_status: 'candidate_text_detected', segment_count: 1, persistent_text_count: 1,
+    preview_segments: [{ text: '我终于找到你了', classification: 'persistent_text_candidate' }] })
+  run.mockImplementation(async (...args) => {
+    if (!args[1].some(value => value.endsWith('ocr_bridge.ps1'))) return await original(...args)
+    throw Error('Local OCR recognizer deadline expired')
+  })
+  run.mockClear()
+  expect((await h.ocr({ end_seconds: 2 })).value).toMatchObject({ scan_status: 'failed',
+    text_status: 'indeterminate', failure_code: 'ocr_runtime_unavailable',
+    coverage: { planned_frame_count: 8, processed_frame_count: 0, failed_frame_count: 8 } })
+  expect(run.mock.calls.filter(call => call[1].some(value => value.endsWith('ocr_bridge.ps1')))).toHaveLength(1)
+})
+
+it('validates OCR sources, ranges and output identity before extraction', async () => {
+  const h = await setup()
+  for (const file_path of ['missing.mp4', h.root]) expect((await h.ocr({ file_path })).isError).toBe(true)
+  for (const args of [{ start_seconds: -1 }, { start_seconds: 4 }, { end_seconds: 0 }, { end_seconds: 5 },
+    { frame_interval_seconds: 0.1 }, { frame_interval_seconds: 31 },
+    { raw_json_path: 'same.json', merged_text_path: 'same.json' }]) {
+    expect((await h.ocr(args)).isError, JSON.stringify(args)).toBe(true)
+  }
+  const tooLarge = await setup({ maxSourceBytes: 1 })
+  expect((await tooLarge.ocr({})).isError).toBe(true)
+  const tooLong = await setup({ maxDurationSeconds: 1 })
+  expect((await tooLong.ocr({})).isError).toBe(true)
+})
+
+it('reports an unmapped bridge and missing executable without substituting ASR', async () => {
+  const h = await setup({ powershellPath: 'missing-local-ocr-executable' })
+  vi.mocked(Os.platform).mockReturnValue('win32')
+  expect((await h.ocr({ end_seconds: 1 }, undefined, false)).value)
+    .toMatchObject({ scan_status: 'failed', failure_code: 'ocr_runtime_unavailable' })
+  vi.spyOn(h.ctx.fs, 'processPathFromHostPath').mockReturnValue(undefined)
+  expect((await h.ocr({ end_seconds: 1 })).value)
+    .toMatchObject({ scan_status: 'failed', failure_code: 'ocr_runtime_unavailable' })
+})
+
+it('retains missing decoded samples and rejected bridge identities in failed coverage', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 2 })
+  const original = Media.runMedia
+  const run = mockWindowsOcr()
+  run.mockImplementation(async (...args) => {
+    if (!args[1].some(value => value.endsWith('ocr_bridge.ps1'))) return await original(...args)
+    const input = JSON.parse(args[4].stdin ?? '{}') as { frames: { id: string; timestamp_seconds: number }[] }
+    const first = input.frames[0]!
+    return { bytes: Buffer.from(JSON.stringify({ ok: true, language_used: 'en-US', frames: [
+      { ...first, id: 'foreign-frame', image_width: 64, image_height: 48, lines: [] },
+      { ...first, timestamp_seconds: first.timestamp_seconds + 1, image_width: 64, image_height: 48, lines: [] },
+    ] })), diagnostic: '' }
+  })
+  expect((await h.ocr({ end_seconds: 1 })).value).toMatchObject({ scan_status: 'failed',
+    text_status: 'indeterminate', coverage: { failed_timestamps_seconds: [0, 0.5] } })
+  run.mockImplementation(async (...args) => {
+    if (args[1].includes('mjpeg')) return { bytes: Buffer.alloc(0), diagnostic: '' }
+    if (args[1].some(value => value.endsWith('ocr_bridge.ps1'))) return {
+      bytes: Buffer.from(JSON.stringify({ ok: true, language_used: 'en-US', frames: [] })), diagnostic: '' }
+    return await original(...args)
+  })
+  expect((await h.ocr({ end_seconds: 1 })).value).toMatchObject({ scan_status: 'failed',
+    coverage: { failed_timestamps_seconds: [0, 0.5] } })
+})
+
+it('contains malformed extraction and recoverable decode failures but stops missing engines', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 2 })
+  const original = Media.runMedia
+  const run = mockWindowsOcr({ ok: false, code: 'frame_decode_failed' })
+  expect((await h.ocr({ end_seconds: 2 })).value).toMatchObject({ scan_status: 'failed',
+    failure_code: 'ocr_runtime_unavailable', coverage: { failed_frame_count: 4 } })
+  expect(run.mock.calls.filter(call => call[1].some(value => value.endsWith('ocr_bridge.ps1')))).toHaveLength(2)
+  run.mockImplementation(async (...args) => {
+    if (args[1].includes('mjpeg')) return { bytes: Buffer.from([0xff, 0xd8, 0xff, 0xd9]), diagnostic: '' }
+    return await original(...args)
+  })
+  expect((await h.ocr({ end_seconds: 1 })).value).toMatchObject({ scan_status: 'failed',
+    coverage: { failed_timestamps_seconds: [0, 0.5] } })
+  run.mockImplementation(async (...args) => {
+    if (args[1].includes('mjpeg')) return { bytes: Buffer.from([0xff, 0xd8, 0xff, 0xd9]), diagnostic: 'pts_time:9' }
+    return await original(...args)
+  })
+  expect((await h.ocr({ end_seconds: 1 })).value).toMatchObject({ scan_status: 'failed' })
+  run.mockImplementation(async (...args) => {
+    if (args[1].some(value => value.endsWith('ocr_bridge.ps1'))) return {
+      bytes: Buffer.from(JSON.stringify({ ok: false, code: 'ocr_engine_unavailable' })), diagnostic: '' }
+    return await original(...args)
+  })
+  run.mockClear()
+  expect((await h.ocr({ end_seconds: 2 })).value)
+    .toMatchObject({ scan_status: 'failed', failure_code: 'ocr_engine_unavailable' })
+  expect(run.mock.calls.filter(call => call[1].some(value => value.endsWith('ocr_bridge.ps1')))).toHaveLength(1)
+})
+
+it('keeps whitespace OCR indeterminate and detects changed artifact readback', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 1 })
+  const original = Media.runMedia
+  const run = mockWindowsOcr()
+  run.mockImplementation(async (...args) => {
+    if (!args[1].some(value => value.endsWith('ocr_bridge.ps1'))) return await original(...args)
+    const input = JSON.parse(args[4].stdin ?? '{}') as { frames: { id: string; timestamp_seconds: number }[] }
+    return { bytes: Buffer.from(JSON.stringify({ ok: true, language_used: 'en-US', frames: input.frames.map(frame => ({
+      ...frame, image_width: 64, image_height: 48, lines: [{ text: '  ', words: [], bounding_box: { x: 0, y: 0, width: 1, height: 1 } }],
+    })) })), diagnostic: '' }
+  })
+  const result = await h.ocr({ end_seconds: 1 })
+  expect(result.value).toMatchObject({ scan_status: 'complete', text_status: 'indeterminate', segment_count: 0 })
+  expect(h.ctx.tools.get('video_ocr')?.output.render({}, result.value!))
+    .toEqual([{ type: 'text', text: JSON.stringify(result.value) }])
+  expect(h.ctx.tools.get('video_ocr')?.output.presentationMeta?.({}, result.value!))
+    .toMatchObject({ scanStatus: 'complete', textStatus: 'indeterminate' })
+  vi.spyOn(h.ctx.fs, 'readText').mockResolvedValueOnce('changed by another writer')
+  const changed = await h.ocr({ end_seconds: 1 })
+  expect(changed.isError).toBe(true)
+  expect(JSON.stringify(changed.content)).toContain('readback did not match')
+})
+
+it('bounds complete bridge JSON before spawning a recognizer', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 8, maxOcrBridgeInputBytes: 1024 })
+  const run = mockWindowsOcr()
+  expect((await h.ocr({ end_seconds: 4 })).value).toMatchObject({ scan_status: 'failed',
+    failure_code: 'ocr_runtime_unavailable', coverage: { planned_frame_count: 8, processed_frame_count: 0, failed_frame_count: 8 } })
+  expect(run.mock.calls.filter(call => call[1].some(value => value.endsWith('ocr_bridge.ps1')))).toHaveLength(0)
 })
 
 async function setup(options: Partial<VideoInspect.Config> = {}) {
@@ -35,7 +195,7 @@ async function setup(options: Partial<VideoInspect.Config> = {}) {
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') }).await()
   ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'danger-full-access', workspaceRoot: root }) } as never)
   ctx.provide('llm', { resolveModelInfo: async (_provider: string, model: string) => ({ inputModalities: model === 'vision' ? ['text', 'image'] : ['text'] }) } as never)
-  const config = VideoInspect.Config(options)
+  const config = VideoInspect.Config({ powershellPath: process.execPath, ...options })
   const video = ctx.plugin(VideoInspect, config)
   await video.await()
   const ffmpeg = await ctx.subprocess.resolveExecutable(config.ffmpegPath)
@@ -53,12 +213,13 @@ async function setup(options: Partial<VideoInspect.Config> = {}) {
       ...withAgent ? { agent: agent(model, false) as never } : {} }),
     call: (args: Record<string, unknown>, model = 'vision', route: 'header' | 'options' | 'none' = 'header') => ctx.tools.execute({ callId: ToolCallId(`video-${++count}`), name: 'video_inspect',
       arguments: { file_path: input, ...args }, signal: new AbortController().signal, ...route === 'none' ? {} : { agent: agent(model, route === 'options') as never } }),
-    ocr: (args: Record<string, unknown>, signal = new AbortController().signal) => ctx.tools.execute({ callId: ToolCallId(`ocr-${++count}`), name: 'video_ocr',
-      arguments: { file_path: input, ...args }, signal, agent: agent('vision', false) as never }),
+    ocr: (args: Record<string, unknown>, signal = new AbortController().signal, withAgent = true) => ctx.tools.execute({ callId: ToolCallId(`ocr-${++count}`), name: 'video_ocr',
+      arguments: { file_path: input, ...args }, signal, ...withAgent ? { agent: agent('vision', false) as never } : {} }),
   }
 }
 
 function mockWindowsOcr(result?: { ok: false; code: string }) {
+  vi.mocked(Os.platform).mockReturnValue('win32')
   const original = Media.runMedia
   return vi.spyOn(Media, 'runMedia').mockImplementation(async (...args) => {
     if (!args[1].some(value => value.endsWith('ocr_bridge.ps1'))) return await original(...args)
@@ -74,7 +235,7 @@ function mockWindowsOcr(result?: { ok: false; code: string }) {
   })
 }
 
-it.runIf(process.platform === 'win32')('runs real bounded frame extraction with one mocked local OCR batch and publishes source-labelled evidence', async () => {
+it('runs real bounded frame extraction with one mocked local OCR batch and publishes source-labelled evidence', async () => {
   const h = await setup({ ocrFrameIntervalSeconds: 1, ocrBatchFrames: 4 })
   const run = mockWindowsOcr()
   const result = await h.ocr({ end_seconds: 2, raw_json_path: 'qa/ocr.json', merged_text_path: 'qa/ocr.txt' })
@@ -95,7 +256,7 @@ it.runIf(process.platform === 'win32')('runs real bounded frame extraction with 
   expect(h.ctx.tools.get('audio_transcribe')).toBeUndefined()
 }, 30_000)
 
-it.runIf(process.platform === 'win32')('reports bounded long-video coverage and language failure without claiming no subtitles', async () => {
+it('reports bounded long-video coverage and language failure without claiming no subtitles', async () => {
   const h = await setup({ ocrFrameIntervalSeconds: 1, ocrMaxRangeSeconds: 1, ocrMaxFrames: 1, ocrBatchFrames: 1 })
   mockWindowsOcr()
   const partial = await h.ocr({ end_seconds: 4, raw_json_path: 'qa/partial.json', merged_text_path: 'qa/partial.txt' })
@@ -111,8 +272,9 @@ it.runIf(process.platform === 'win32')('reports bounded long-video coverage and 
     coverage: { processed_frame_count: 0, failed_frame_count: 1 } })
 }, 30_000)
 
-it.runIf(process.platform === 'win32')('reports an empty completed sample as OCR no-text evidence without invoking ASR', async () => {
+it('reports an empty completed sample as OCR no-text evidence without invoking ASR', async () => {
   const h = await setup({ ocrFrameIntervalSeconds: 1, ocrBatchFrames: 4 })
+  vi.mocked(Os.platform).mockReturnValue('win32')
   const original = Media.runMedia
   vi.spyOn(Media, 'runMedia').mockImplementation(async (...args) => {
     if (!args[1].some(value => value.endsWith('ocr_bridge.ps1'))) return await original(...args)
@@ -123,12 +285,13 @@ it.runIf(process.platform === 'win32')('reports an empty completed sample as OCR
   const result = await h.ocr({ end_seconds: 2, raw_json_path: 'qa/empty.json', merged_text_path: 'qa/empty.txt' })
   expect(result.isError, JSON.stringify(result.content)).toBe(false)
   expect(result.value).toMatchObject({ text_source: 'ocr', scan_status: 'complete', text_status: 'no_text_detected',
-    segment_count: 0, persistent_overlay_count: 0 })
+    segment_count: 0, persistent_text_count: 0 })
   expect(h.ctx.tools.get('audio_transcribe')).toBeUndefined()
 }, 30_000)
 
-it.runIf(process.platform === 'win32')('rejects source mutation before publishing OCR evidence', async () => {
+it('rejects source mutation before publishing OCR evidence', async () => {
   const h = await setup({ ocrFrameIntervalSeconds: 1, ocrBatchFrames: 4 })
+  vi.mocked(Os.platform).mockReturnValue('win32')
   const original = Media.runMedia
   vi.spyOn(Media, 'runMedia').mockImplementation(async (...args) => {
     if (!args[1].some(value => value.endsWith('ocr_bridge.ps1'))) return await original(...args)
@@ -147,6 +310,7 @@ it.runIf(process.platform === 'win32')('rejects source mutation before publishin
 it('registers OCR as Windows-only, rejects unsafe output paths and never silently substitutes ASR', async () => {
   const h = await setup({ ocrFrameIntervalSeconds: 1 })
   expect(h.ctx.tools.get('video_ocr')?.presentCall?.({ file_path: h.input })).toMatchObject({ kind: 'read', locations: [{ path: h.input }] })
+  expect(h.ctx.tools.get('video_ocr')?.isConcurrencySafe?.({ file_path: h.input })).toBe(true)
   const outside = await h.ocr({ end_seconds: 1, raw_json_path: '../outside.json', merged_text_path: 'qa/ocr.txt' })
   expect(outside.isError).toBe(true)
   await writeFile(join(h.root, 'qa-existing.json'), '{}')
@@ -569,3 +733,35 @@ it('excludes a real cut at the requested interval end before detector metadata i
   expect(saved.sampling_plan?.deferred).toEqual([])
   expect(saved.frames.every(frame => frame.timestamp_seconds < 2)).toBe(true)
 }, 30_000)
+it('cancels an in-flight OCR bridge to quiescence and releases its shared inspection slot', async () => {
+  const h = await setup({ maxConcurrent: 1, ocrFrameIntervalSeconds: 1 })
+  const original = Media.runMedia
+  const run = mockWindowsOcr()
+  let ready!: () => void
+  const entered = new Promise<void>((resolve) => { ready = resolve })
+  let settled = false
+  run.mockImplementation(async (...args) => {
+    if (!args[1].some(value => value.endsWith('ocr_bridge.ps1'))) return await original(...args)
+    ready()
+    try {
+      return await new Promise<never>((_resolve, reject) => {
+        const signal = args[3]!
+        if (signal.aborted) reject(new Error('OCR bridge stopped'))
+        else signal.addEventListener('abort', () => { reject(new Error('OCR bridge stopped')) }, { once: true })
+      })
+    } finally { settled = true }
+  })
+  const controller = new AbortController()
+  const pending = h.ocr({ end_seconds: 1, raw_json_path: 'qa/cancel.json', merged_text_path: 'qa/cancel.txt' }, controller.signal)
+  await entered
+  const busy = await h.ocr({ end_seconds: 1 })
+  expect(busy.isError).toBe(true)
+  expect(JSON.stringify(busy.content)).toContain('busy')
+  controller.abort(new Error('Stop OCR'))
+  expect((await pending).isError).toBe(true)
+  expect(settled).toBe(true)
+  await expect(readFile(join(h.root, 'qa/cancel.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(readFile(join(h.root, 'qa/cancel.txt'))).rejects.toMatchObject({ code: 'ENOENT' })
+  await h.video.dispose()
+  expect(h.ctx.tools.get('video_ocr')).toBeUndefined()
+})

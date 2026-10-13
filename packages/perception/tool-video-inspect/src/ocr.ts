@@ -1,5 +1,6 @@
 /** Windows-local OCR over bounded, timestamped video frame batches. */
 import { randomUUID } from 'node:crypto'
+import { platform } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type { FsVersion } from '@deepseek-ai/dsh-fs'
@@ -14,8 +15,8 @@ export interface OcrRuntime {
 
 type OcrLanguage = 'auto' | 'zh-Hans-CN' | 'zh-Hant-TW' | 'en-US'
 type ScanStatus = 'complete' | 'partial' | 'failed'
-type TextStatus = 'candidate_text_detected' | 'no_text_detected' | 'only_non_narrative_text_detected' | 'indeterminate'
-type TextClassification = 'content_candidate' | 'persistent_overlay'
+type TextStatus = 'candidate_text_detected' | 'no_text_detected' | 'indeterminate'
+type TextClassification = 'content_candidate' | 'persistent_text_candidate'
 
 interface Box {
   x: number
@@ -120,7 +121,7 @@ export interface VideoOcrResult {
   text_status: TextStatus
   coverage: OcrEvidence['coverage']
   segment_count: number
-  persistent_overlay_count: number
+  persistent_text_count: number
   preview_segments: (Omit<OcrSegment, 'evidence_frame_ids'> & { evidence_frame_count: number })[]
   raw_json_path: string
   merged_text_path: string
@@ -137,7 +138,7 @@ const rangeSchema = { type: 'object', additionalProperties: false, properties: {
 const segmentSchema = { type: 'object', additionalProperties: false, properties: {
   start_seconds: { type: 'number', required: true }, end_seconds: { type: 'number', required: true },
   text: { type: 'string', required: true },
-  classification: { type: 'string', enum: ['content_candidate', 'persistent_overlay'], required: true },
+  classification: { type: 'string', enum: ['content_candidate', 'persistent_text_candidate'], required: true },
   evidence_frame_count: { type: 'integer', required: true },
 } } as const
 
@@ -146,7 +147,7 @@ const outputSchema = { type: 'object', additionalProperties: false, properties: 
   duration_seconds: { type: 'number', required: true }, text_source: { type: 'string', const: 'ocr', required: true },
   interval: { ...rangeSchema, required: true },
   scan_status: { type: 'string', enum: ['complete', 'partial', 'failed'], required: true },
-  text_status: { type: 'string', enum: ['candidate_text_detected', 'no_text_detected', 'only_non_narrative_text_detected', 'indeterminate'], required: true },
+  text_status: { type: 'string', enum: ['candidate_text_detected', 'no_text_detected', 'indeterminate'], required: true },
   coverage: { type: 'object', additionalProperties: false, required: true, properties: {
     planned_frame_count: { type: 'integer', required: true }, processed_frame_count: { type: 'integer', required: true },
     failed_frame_count: { type: 'integer', required: true }, frame_interval_seconds: { type: 'number', required: true },
@@ -157,7 +158,7 @@ const outputSchema = { type: 'object', additionalProperties: false, properties: 
     } }, required: true },
     failed_timestamps_seconds: { type: 'array', items: { type: 'number' }, required: true },
   } },
-  segment_count: { type: 'integer', required: true }, persistent_overlay_count: { type: 'integer', required: true },
+  segment_count: { type: 'integer', required: true }, persistent_text_count: { type: 'integer', required: true },
   preview_segments: { type: 'array', items: segmentSchema, required: true },
   raw_json_path: { type: 'string', required: true }, merged_text_path: { type: 'string', required: true },
   language_requested: { type: 'string', enum: ['auto', 'zh-Hans-CN', 'zh-Hant-TW', 'en-US'], required: true },
@@ -217,10 +218,14 @@ export function parseOcrBridgeResult(bytes: Uint8Array): BridgeResult {
     if (typeof frame.id !== 'string' || !finite(frame.timestamp_seconds) || !Number.isSafeInteger(width)
       || width <= 0 || !Number.isSafeInteger(height) || height <= 0
       || !Array.isArray(frame.lines)) throw Error('OCR bridge returned an invalid frame')
-    const lines = frame.lines.map(line)
-    if (lines.some(item => item === undefined)) throw Error('OCR bridge returned an invalid line')
+    const lines: RawOcrLine[] = []
+    for (const candidateLine of frame.lines) {
+      const parsed = line(candidateLine)
+      if (parsed === undefined) throw Error('OCR bridge returned an invalid line')
+      lines.push(parsed)
+    }
     frames.push({ id: frame.id, timestamp_seconds: frame.timestamp_seconds, image_width: width,
-      image_height: height, lines: lines.filter((item): item is RawOcrLine => item !== undefined) })
+      image_height: height, lines })
   }
   return { ok: true, language_used: source.language_used, frames }
 }
@@ -271,44 +276,45 @@ function overlap(left: Box, right: Box): number {
   return union <= 0 ? 0 : intersection / union
 }
 
-/** Classify only long-lived identical overlays and merge adjacent identical evidence conservatively.
+/** Label visually persistent text without inferring whether it is narrative, and merge adjacent identical lines.
  * @param frames - Validated timestamped OCR frame evidence.
- * @param options - Sampling interval and conservative overlay thresholds.
+ * @param options - Sampling interval and visual persistence thresholds.
  * @returns Time-ordered merged OCR segments retaining evidence identifiers.
  */
 export function classifyAndMerge(frames: RawOcrFrame[], options: {
   frameIntervalSeconds: number
-  persistentOverlayMinFrames: number
-  persistentOverlayMinSeconds: number
+  persistentTextMinFrames: number
+  persistentTextMinSeconds: number
   overlayMinIou: number
 }): OcrSegment[] {
-  const occurrences = new Map<string, { frame: RawOcrFrame; line: RawOcrLine }[]>()
+  type Occurrence = { frame: RawOcrFrame; line: RawOcrLine }
+  const occurrences = new Map<string, [Occurrence, ...Occurrence[]]>()
   for (const frame of frames) for (const candidate of frame.lines) {
     const key = normalized(candidate.text)
     if (!key) continue
-    const matching = occurrences.get(key) ?? []
-    matching.push({ frame, line: candidate })
-    occurrences.set(key, matching)
+    const matching = occurrences.get(key)
+    if (matching) matching.push({ frame, line: candidate })
+    else occurrences.set(key, [{ frame, line: candidate }])
   }
   for (const group of occurrences.values()) {
     const first = group[0]
-    if (!first) continue
     const stable = group.filter(item =>
       overlap(normalizedBox(first.line, first.frame), normalizedBox(item.line, item.frame)) >= options.overlayMinIou)
     const span = (stable.at(-1)?.frame.timestamp_seconds ?? 0) - (stable[0]?.frame.timestamp_seconds ?? 0)
-    if (stable.length >= options.persistentOverlayMinFrames && span >= options.persistentOverlayMinSeconds) {
-      for (const item of stable) item.line.classification = 'persistent_overlay'
+    if (stable.length >= options.persistentTextMinFrames && span >= options.persistentTextMinSeconds) {
+      for (const item of stable) item.line.classification = 'persistent_text_candidate'
     }
   }
-  const segments: OcrSegment[] = [], open = new Map<string, OcrSegment>()
+  const segments: OcrSegment[] = [], open = new Map<string, OcrSegment[]>()
   for (const frame of frames) for (const candidate of frame.lines) {
     const text = candidate.text.trim()
     if (!normalized(text)) continue
     const classification = candidate.classification ?? 'content_candidate'
-    const key = `${classification}:${normalized(text)}`, prior = open.get(key)
-    const adjacent = prior
-      && frame.timestamp_seconds - prior.end_seconds <= options.frameIntervalSeconds * 1.5
-    if (adjacent) {
+    const key = `${classification}:${normalized(text)}`
+    const matching = open.get(key) ?? []
+    const prior = matching.find(item => !item.evidence_frame_ids.includes(frame.id)
+      && frame.timestamp_seconds - item.end_seconds <= options.frameIntervalSeconds * 1.5)
+    if (prior) {
       prior.end_seconds = frame.timestamp_seconds + options.frameIntervalSeconds
       prior.evidence_frame_ids.push(frame.id)
     } else {
@@ -316,10 +322,11 @@ export function classifyAndMerge(frames: RawOcrFrame[], options: {
         end_seconds: frame.timestamp_seconds + options.frameIntervalSeconds, text, classification,
         evidence_frame_ids: [frame.id] }
       segments.push(segment)
-      open.set(key, segment)
+      matching.push(segment)
+      open.set(key, matching)
     }
   }
-  return segments.sort((left, right) => left.start_seconds - right.start_seconds || left.text.localeCompare(right.text))
+  return segments.sort((left, right) => left.start_seconds - right.start_seconds)
 }
 
 function scannedRanges(frames: RawOcrFrame[], interval: number, end: number): { start_seconds: number; end_seconds: number }[] {
@@ -359,27 +366,24 @@ export function ocrBridgeHostPath(moduleUrl = import.meta.url): string {
 }
 
 async function extractBatch(ctx: Context, config: Config, source: string, ffmpeg: string,
-  policy: ReturnType<Context['sandboxPolicy']['resolve']>, signal: AbortSignal, planned: number[]): Promise<ExtractedFrame[]> {
-  const start = planned[0]
-  if (start === undefined) return []
-  const second = planned[1]
-  const interval = second === undefined ? config.ocrFrameIntervalSeconds : second - start
-  const duration = Math.max(interval, planned.length * interval)
+  policy: ReturnType<Context['sandboxPolicy']['resolve']>, signal: AbortSignal, start: number, count: number,
+  interval: number): Promise<ExtractedFrame[]> {
+  const duration = count * interval
   const output = await Media.runMedia(ctx, [ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'info',
-    '-protocol_whitelist', 'file,pipe', '-ss', String(start), '-copyts', '-i', source, '-t', String(duration),
+    '-protocol_whitelist', 'file,pipe', '-ss', String(start), '-copyts', '-i', source, '-to', String(start + duration),
     '-map', '0:v:0', '-an', '-sn', '-dn', '-vf', `fps=1/${interval},scale=w='min(${config.ocrFrameMaxDimension},iw)':h='min(${config.ocrFrameMaxDimension},ih)':force_original_aspect_ratio=decrease,showinfo`,
-    '-frames:v', String(planned.length), '-c:v', 'mjpeg', '-q:v', String(config.ocrFrameJpegQuality),
+    '-frames:v', String(count), '-c:v', 'mjpeg', '-q:v', String(config.ocrFrameJpegQuality),
     '-f', 'image2pipe', 'pipe:1'], policy, signal, { timeoutMs: config.ocrCommandTimeoutMs,
     graceMs: config.graceMs, maxBytes: config.maxOcrBatchImageBytes, maxDiagnosticBytes: config.maxOcrDiagnosticBytes })
   const images = splitMjpeg(output.bytes), timestamps = showinfoTimestamps(output.diagnostic)
-  if (images.length !== timestamps.length || images.length > planned.length
+  if (timestamps.length > images.length || images.length > count
     || timestamps.some(timestamp => timestamp < start || timestamp >= start + duration + 0.001)) {
     throw Error('OCR frame batch did not return matching images and timestamps')
   }
-  return images.slice(0, planned.length).map((bytes, index) => {
-    const requested = planned[index], timestamp = timestamps[index]
-    if (requested === undefined || timestamp === undefined) throw Error('OCR frame batch index is invalid')
-    return { id: `frame-${randomUUID()}`, requested_seconds: requested, timestamp_seconds: timestamp, bytes }
+  return images.map((bytes, index) => {
+    const timestamp = timestamps[index]
+    if (timestamp === undefined) throw Error('OCR frame batch did not return matching images and timestamps')
+    return { id: `frame-${randomUUID()}`, requested_seconds: start + index * interval, timestamp_seconds: timestamp, bytes }
   })
 }
 
@@ -396,8 +400,7 @@ async function runBridge(ctx: Context, config: Config, policy: ReturnType<Contex
 }
 
 function textStatus(scanStatus: ScanStatus, frames: RawOcrFrame[], segments: OcrSegment[]): TextStatus {
-  if (segments.some(segment => segment.classification === 'content_candidate')) return 'candidate_text_detected'
-  if (segments.some(segment => segment.classification === 'persistent_overlay')) return 'only_non_narrative_text_detected'
+  if (segments.length) return 'candidate_text_detected'
   if (scanStatus !== 'complete') return 'indeterminate'
   return frames.every(frame => frame.lines.length === 0) ? 'no_text_detected' : 'indeterminate'
 }
@@ -413,7 +416,7 @@ export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime)
     description: 'Recognize visible text from bounded, timestamped samples of a local video with Windows OCR. '
       + 'Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. '
       + 'A partial or failed scan is indeterminate, never proof that the video has no subtitles. '
-      + 'Persistent overlays remain in evidence and are labelled, not silently removed. This tool never invokes audio transcription.',
+      + 'Persistent text remains a content candidate; visual persistence does not identify watermarks or non-narrative text. This tool never invokes audio transcription.',
     parameters: {
       file_path: { type: 'string', required: true, description: 'Local video path in the current Session filesystem.' },
       start_seconds: { type: 'number', description: 'Inclusive source range start; default 0.' },
@@ -458,7 +461,6 @@ export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime)
       const boundedEnd = Math.min(requestedEnd, start + config.ocrMaxRangeSeconds, start + config.ocrMaxFrames * interval)
       const planned = Array.from({ length: Math.min(config.ocrMaxFrames, Math.ceil((boundedEnd - start) / interval)) },
         (_, index) => start + index * interval).filter(timestamp => timestamp < boundedEnd)
-      if (!planned.length) throw Error('OCR range did not contain a sample point')
       const rawTarget = await ctx.fs.resolve(args.raw_json_path ?? `.muse/video-ocr/${randomUUID()}.json`, { cwd: policy.workspaceRoot, signal })
       const textTarget = await ctx.fs.resolve(args.merged_text_path ?? `.muse/video-ocr/${randomUUID()}.txt`, { cwd: policy.workspaceRoot, signal })
       const root = await ctx.fs.resolve(policy.workspaceRoot, { signal })
@@ -470,7 +472,7 @@ export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime)
       }
       const frames: RawOcrFrame[] = [], failed: number[] = []
       let languageUsed: string | undefined, failureCode: OcrEvidence['failure_code']
-      if (process.platform !== 'win32') {
+      if (platform() !== 'win32') {
         failed.push(...planned)
         failureCode = 'windows_only'
       } else {
@@ -492,7 +494,10 @@ export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime)
           else for (let offset = 0; offset < planned.length; offset += config.ocrBatchFrames) {
             const batchPlan = planned.slice(offset, offset + config.ocrBatchFrames)
             let extracted: ExtractedFrame[]
-            try { extracted = await extractBatch(ctx, config, source, ffmpeg, policy, signal, batchPlan) }
+            try {
+              extracted = await extractBatch(ctx, config, source, ffmpeg, policy, signal,
+                start + offset * interval, batchPlan.length, interval)
+            }
             catch {
               signal.throwIfAborted()
               failed.push(...batchPlan)
@@ -509,7 +514,8 @@ export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime)
               signal.throwIfAborted()
               failed.push(...extracted.map(frame => frame.requested_seconds))
               failureCode = 'ocr_runtime_unavailable'
-              continue
+              failed.push(...planned.slice(offset + batchPlan.length))
+              break
             }
             if (!result.ok) {
               failed.push(...extracted.map(frame => frame.requested_seconds))
@@ -538,8 +544,8 @@ export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime)
       const truncated = boundedEnd < requestedEnd
       const scanStatus: ScanStatus = frames.length === 0 ? 'failed' : failed.length || truncated ? 'partial' : 'complete'
       const segments = classifyAndMerge(frames, { frameIntervalSeconds: interval,
-        persistentOverlayMinFrames: config.ocrPersistentOverlayMinFrames,
-        persistentOverlayMinSeconds: config.ocrPersistentOverlayMinSeconds, overlayMinIou: config.ocrOverlayMinIou })
+        persistentTextMinFrames: config.ocrPersistentTextMinFrames,
+        persistentTextMinSeconds: config.ocrPersistentTextMinSeconds, overlayMinIou: config.ocrOverlayMinIou })
       const status = textStatus(scanStatus, frames, segments)
       const coverage: OcrEvidence['coverage'] = { planned_frame_count: planned.length,
         processed_frame_count: frames.length, failed_frame_count: failed.length, frame_interval_seconds: interval,
@@ -562,8 +568,8 @@ export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime)
       ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, exec)
       return { path: target.displayPath, source_version: info.version, duration_seconds: metadata.duration_seconds,
         text_source: 'ocr', interval: evidence.interval, scan_status: scanStatus, text_status: status, coverage,
-        segment_count: segments.filter(segment => segment.classification === 'content_candidate').length,
-        persistent_overlay_count: segments.filter(segment => segment.classification === 'persistent_overlay').length,
+        segment_count: segments.length,
+        persistent_text_count: segments.filter(segment => segment.classification === 'persistent_text_candidate').length,
         preview_segments: segments.slice(0, config.ocrPreviewSegments).map(({ evidence_frame_ids, ...segment }) => ({
           ...segment, evidence_frame_count: evidence_frame_ids.length,
         })), raw_json_path: rawTarget.displayPath,

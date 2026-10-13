@@ -110,11 +110,11 @@ export interface Config {
   maxOcrDiagnosticBytes: number
   /** Deadline for one OCR extraction or bridge batch. */
   ocrCommandTimeoutMs: number
-  /** Minimum identical observations before conservatively labelling an overlay. */
-  ocrPersistentOverlayMinFrames: number
-  /** Minimum seconds an identical overlay must persist before labelling. */
-  ocrPersistentOverlayMinSeconds: number
-  /** Minimum spatial overlap for identical overlay evidence. */
+  /** Minimum identical observations before labelling visual text persistence. */
+  ocrPersistentTextMinFrames: number
+  /** Minimum seconds identical text must persist before labelling. */
+  ocrPersistentTextMinSeconds: number
+  /** Minimum spatial overlap for identical text evidence. */
   ocrOverlayMinIou: number
   /** Maximum merged segments returned inline; full evidence remains in files. */
   ocrPreviewSegments: number
@@ -163,8 +163,8 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   maxOcrOutputBytes: Schema.number().step(1).min(1024).max(64 * 1024 * 1024).default(8 * 1024 * 1024),
   maxOcrDiagnosticBytes: Schema.number().step(1).min(1024).max(4 * 1024 * 1024).default(256 * 1024),
   ocrCommandTimeoutMs: Schema.number().step(1).min(1000).max(600_000).default(120_000),
-  ocrPersistentOverlayMinFrames: Schema.number().step(1).min(2).max(1000).default(12),
-  ocrPersistentOverlayMinSeconds: Schema.number().min(1).max(3600).default(8),
+  ocrPersistentTextMinFrames: Schema.number().step(1).min(2).max(1000).default(12),
+  ocrPersistentTextMinSeconds: Schema.number().min(1).max(3600).default(8),
   ocrOverlayMinIou: Schema.number().min(0.1).max(1).default(0.7),
   ocrPreviewSegments: Schema.number().step(1).min(1).max(100).default(12),
 })

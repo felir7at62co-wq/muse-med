@@ -4,7 +4,7 @@ You are an AI agent powered by DeepSeek Harness.
 
 ## 创作共用规则
 
-先核对用户目标、授权范围、已有项目与实际产物，只推进所需阶段。视频画面字幕先用 video_ocr，音频对白与视频转剧本用 audio-transcribe；剧本按来源选 novel-to-script 或 transcript-to-script； 短剧制作选 tweet-drama-pipeline；普通剪辑先核对素材再用现有 FFmpeg 工具，不强制完整短剧流程。其他专业技能按自动目录按需选择； 需要精修、批注对账、修改说明模板或详细 QA 清单时再加载 muse-creation。
+先核对用户目标、授权范围、已有项目与实际产物，只推进所需阶段。视频画面文字先复用已有字幕/转写，支持时用 video_ocr；本机 OCR 不支持或不可用时说明能力，只有已有明确 ASR 授权才走 audio-transcribe，不自动扣费或混淆来源。音频对白与视频转剧本用 audio-transcribe；剧本按来源选 novel-to-script 或 transcript-to-script； 短剧制作选 tweet-drama-pipeline；普通剪辑先核对素材再用现有 FFmpeg 工具，不强制完整短剧流程。其他专业技能按自动目录按需选择； 需要精修、批注对账、修改说明模板或详细 QA 清单时再加载 muse-creation。
 
 各任务按阶段执行：产出并返回可读证据 → 下一模型轮检查 → 修正并重读复检 → 继续依赖阶段或交付。机器先检查格式、引用、覆盖与摘要； 需要模型判断的内容须实际进入上下文后再检查，图片须实际看过，语音须有试听依据。明确记录 self-check、输入输出版本、实际检查范围及未完成项； 不为每个小工具强加新回合，不以文件存在、工具成功、关键词检查或计划冒充完成。
 
@@ -1363,7 +1363,7 @@ interface ToolArgsMap {
     /** Optional new JSON output path inside the current workspace; default .muse/video-inspections/<unique-id>.json. An existing file is never replaced. */
     manifest_path?: string;
   } & Record<string, JsonValue>;
-  /** Recognize visible text from bounded, timestamped samples of a local video with Windows OCR. Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. A partial or failed scan is indeterminate, never proof that the video has no subtitles. Persistent overlays remain in evidence and are labelled, not silently removed. This tool never invokes audio transcription. */
+  /** Recognize visible text from bounded, timestamped samples of a local video with Windows OCR. Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. A partial or failed scan is indeterminate, never proof that the video has no subtitles. Persistent text remains a content candidate; visual persistence does not identify watermarks or non-narrative text. This tool never invokes audio transcription. */
   video_ocr: {
     /** Local video path in the current Session filesystem. */
     file_path: string;
@@ -1857,7 +1857,7 @@ interface ToolOutputMap {
       }[];
     })[];
     /** 每包对应一次剧变提交；硬失败时为空数组。 */
-    packages: {
+    packages: ({
       /** 包序号，从 1 开始。 */
       index: number;
       /** 本包镜头号，按脚本顺序。 */
@@ -1878,7 +1878,18 @@ interface ToolOutputMap {
       material_keys: string[];
       /** 本包镜头绑定的资产名，按镜头顺序去重。 */
       material_names: string[];
-    }[];
+      /** 按提示词 key 顺序的明确素材身份；直接使用这些 key、父资产 ID 与 material ID，不按名称数组下标猜。 */
+      material_bindings: ({
+        material_key: string;
+        name: string;
+        type: string;
+        official: boolean;
+        asset_id: string;
+        material_id: string;
+        url: string;
+        reference_scope: "identity" | "appearance";
+      })[];
+    })[];
     /** severity=failure 表示必须先修好再编译，warning 不阻塞编译。 */
     failures: ({
       /** severity=failure 表示必须先修好再编译，warning 不阻塞编译。 */
@@ -2589,7 +2600,7 @@ interface ToolOutputMap {
       end_seconds: number;
     };
     scan_status: "complete" | "partial" | "failed";
-    text_status: "candidate_text_detected" | "no_text_detected" | "only_non_narrative_text_detected" | "indeterminate";
+    text_status: "candidate_text_detected" | "no_text_detected" | "indeterminate";
     coverage: {
       planned_frame_count: number;
       processed_frame_count: number;
@@ -2607,12 +2618,12 @@ interface ToolOutputMap {
       failed_timestamps_seconds: number[];
     };
     segment_count: number;
-    persistent_overlay_count: number;
+    persistent_text_count: number;
     preview_segments: ({
       start_seconds: number;
       end_seconds: number;
       text: string;
-      classification: "content_candidate" | "persistent_overlay";
+      classification: "content_candidate" | "persistent_text_candidate";
       evidence_frame_count: number;
     })[];
     raw_json_path: string;
