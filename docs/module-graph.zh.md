@@ -955,6 +955,7 @@ flowchart TD
   pkg_tool_jubian --> pkg_credentials
   pkg_tool_jubian --> pkg_jubian
   pkg_tool_jubian --> pkg_jubian_api
+  pkg_tool_jubian --> pkg_muse_account
   pkg_tool_jubian --> pkg_tools
   pkg_tool_lsp --> pkg_llm
   pkg_tool_lsp --> pkg_lsp
@@ -1733,7 +1734,7 @@ flowchart TD
 | [`tool-call-timeout-policy`](../packages/guard/timeout-policy) | `guard` | [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`tool-ask-user`](../packages/interaction/tool-ask-user) | `interaction` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools), [`user-questions`](../packages/interaction/user-questions) |
 | [`tool-jobs`](../packages/jobs/tool-jobs) | `jobs` | [`agent`](../packages/core/agent), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`output-retention`](../packages/util/output-retention), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
-| [`tool-jubian`](../packages/jubian/tool-jubian) | `jubian` | [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`jubian`](../packages/jubian/jubian), [`jubian-api`](../packages/jubian/jubian-api), [`tools`](../packages/core/tools) |
+| [`tool-jubian`](../packages/jubian/tool-jubian) | `jubian` | [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`jubian`](../packages/jubian/jubian), [`jubian-api`](../packages/jubian/jubian-api), [`muse-account`](../packages/host/muse-account), [`tools`](../packages/core/tools) |
 | [`tool-lsp`](../packages/lsp/tool-lsp) | `lsp` | [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`system-prompt`](../packages/core/system-prompt), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`mcp-resources`](../packages/mcp/mcp-resources) | `mcp` | [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`perception-bgm`](../packages/perception/perception-bgm) | `perception` | [`tools`](../packages/core/tools) |

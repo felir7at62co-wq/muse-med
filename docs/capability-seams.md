@@ -16,6 +16,9 @@ flowchart LR
   pkg_drama_settings["drama-settings"]
   svc_jubianToken["ctx.jubianToken<br/>Jubian credential settings"]
   pkg_muse_account["muse-account"]
+  svc_museAccount["ctx.museAccount<br/>Muse authenticated account operations"]
+  pkg_tool_audio_transcribe["tool-audio-transcribe"]
+  pkg_ui_muse_account["ui-muse-account"]
   svc_museDesktopBridge["ctx.museDesktopBridge<br/>Muse authenticated desktop tunnel"]
   pkg_dsh_bridge["dsh-bridge"]
   pkg_hmr["hmr"]
@@ -365,6 +368,7 @@ flowchart LR
   pkg_mcp_client --> svc_mcpResources
   pkg_mcp_resources --> svc_mcpResources
   pkg_message_feedback --> svc_messageFeedback
+  pkg_muse_account --> svc_museAccount
   pkg_muse_account --> svc_museDesktopBridge
   pkg_office_to_pdf --> svc_officeToPdf
   pkg_otel --> svc_otel
@@ -494,6 +498,9 @@ flowchart LR
   svc_llm --> pkg_compaction_basic
   svc_lsp --> pkg_tool_lsp
   svc_mcpResources --> pkg_mcp_resources
+  svc_museAccount --> pkg_tool_audio_transcribe
+  svc_museAccount --> pkg_tool_jubian
+  svc_museAccount --> pkg_ui_muse_account
   svc_museDesktopBridge --> pkg_muse_account
   svc_officeToPdf --> pkg_client_ui_sidebar_documentpreview
   svc_otel --> pkg_host_product_telemetry_otel
@@ -595,6 +602,7 @@ flowchart LR
 | `ctx.agentNotes` | `core` | [`api-agent-notes`](../packages/api/agent-notes) | - | [`api-remotes`](../packages/api/remotes), `client-ui-agent-notes` | - | Lists and edits existing notes under the configured root with filesystem version checks; the browser receives note contents through Typert Remote. |
 | `ctx.jubianImage` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`drama-settings`](../packages/drama/drama-settings) | - | Reads account-accessible image generation routes without exposing the credential or submitting paid work. |
 | `ctx.jubianToken` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Describes, stores and clears the credential through the existing credential provider; the browser receives status without the stored token. |
+| `ctx.museAccount` | `service` | [`muse-account`](../packages/host/muse-account) | - | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe), [`tool-jubian`](../packages/jubian/tool-jubian), `ui-muse-account` | - | Muse Account owns the service definition and Host implementation; tools use authenticated transcription and shared voice registration, while the account UI uses its public Remote methods. Voice-slot transport remains Host-only. |
 | `ctx.museDesktopBridge` | `seam` | [`muse-account`](../packages/host/muse-account) | `dsh-bridge` | [`muse-account`](../packages/host/muse-account) | - | The pinned bridge creates account-bound tunnels to the local Host; Muse Account owns connection refresh and disposal without cancelling agent turns. |
 | `ctx.hmr` | `core` | [`hmr`](../packages/boot/hmr) | - | [`app-boot`](../packages/boot/app-boot) | - | Owns module and exact configuration watchers; application mutations share its queue and automatic reloads await the application file lock. |
 | `ctx.pluginRegistryProbe` | `core` | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | Races public registry responses on the Host; the Client owns the initial registry recommendation. |

@@ -52,6 +52,8 @@ kind: "package-bundle"
 
 每个角色的 `voice_profile` 可用 `reference_audio`（HTTPS URL）、`reference_audio_asset_id`、`reference_audio_sha256`（64 位十六进制）和 `reference_audio_duration_seconds`（实测，大于 0 且不超过 15）绑定已认可音频资产。替换已绑定参考须同时提供四项；更换服装或省略声音字段会保留当前声线。在已预览的更新中设 `reference_audio: null` 会删除这四项引用，保留描述和说话人 ID，落盘不存 null。旧的未绑定路径或 ID 参考仍有效。[声音连续性技能](../skills/skills/tweet-drama-voice-continuity/SKILL.md) 负责音频库回读、样本认可和原卡绑定；存储这些字段不验证远端媒体，也不能替代实际听音。
 
+`voice_profiles` 保存同一 `character_id` 在童年、成年等不同人生时期的独立声线。每项包含唯一且非空的 `voice_period_id`、可选 `label` 及相同的平铺声音字段；新时期须提供 `description`。更新按时期 ID 合并，保留其他时期和旧 `voice_profile`。省略该数组或传 `[]` 不删除时期。`reference_audio: null` 只清除该时期的引用字段。服装和情绪变化不代表不同声音时期。删除检查分别报告每个仍引用资产的时期。
+
 工具在项目独占写入锁下原子替换 JSON，再原子替换派生的 `project-bible.md`。含符号链接或 junction 的路径被拒绝。文件版本过期、预览被改、字段无效或锁被占用时，两份输出都不改变。JSON 提交后 Markdown 渲染失败时，错误给出已提交版本；重试前先读配置。遗留 `.project-bible.lock` 需检查后才能手工删除。视频选择仍须由实时剧变目录及准备工具验证；存储的声音指导不保证提供方能强制相同生成音色。
 
 ### 设置页

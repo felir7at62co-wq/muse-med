@@ -9,17 +9,20 @@
   en: 571f370f730b486c
   zh: 260ca06a52cf6ca9
 /muse-accounts-gateway/summary:
-  en: 2a25ab611c404ce7
-  zh: 2afdad2b7e85393a
+  en: 11d7f0c8dafdcaa2
+  zh: e6d7a3dbecb4bfbc
+/muse-accounts-gateway/shared-voice-registration:
+  en: 36fd7c3c03f0a935
+  zh: 15c32fdca803d5e1
 /muse-accounts-gateway/release-inputs:
   en: cc1c5f9f8891e2f9
   zh: e99986fa909e9b88
 /muse-accounts-gateway/release-inputs/account-sessions:
-  en: d29314be46edbc1f
-  zh: 26477557c68b56ba
+  en: c4014191f323f203
+  zh: 83b698755b4ff573
 /muse-accounts-gateway/release-inputs/asr-application-pools:
-  en: 0c84e72bd4efb72a
-  zh: 4630ccad5a9b8a98
+  en: 1edee141eea80395
+  zh: 2d90c1055561b41e
 /muse-accounts-gateway/release-inputs/model-key-pools:
   en: cef3054ed542c8e1
   zh: 26aed6faaadfb364

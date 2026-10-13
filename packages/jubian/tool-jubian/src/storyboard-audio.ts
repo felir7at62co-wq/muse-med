@@ -1,6 +1,6 @@
 /** Frozen, free audio-reference updates on existing storyboard cards with verified readback. */
 import { join } from 'node:path'
-import { open, unlink } from 'node:fs/promises'
+import { open, readFile, unlink } from 'node:fs/promises'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import type { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { normalizedPrompt, referenceAudioUrls, stableJson, stableSha256, storyboardMaterials, validateAudioMaterial } from '@deepseek-ai/dsh-jubian-api'
@@ -24,7 +24,7 @@ export interface StoryboardAudioArgs {
   script_id?: number
   /** Existing remote storyboard ID; no card is created. */
   storyboard_id?: number
-  /** Final ordered native audio rows, optionally with audio_asset_id to verify separately; [] removes all audio. */
+  /** Ordered audio rows with optional local asset/character/period verification fields; [] removes all audio. */
   audio_references?: Row[]
   /** Complete updated prompt retaining the original image markers and their order. */
   prompt?: string
@@ -36,7 +36,14 @@ export interface StoryboardAudioArgs {
   idempotency_key?: string
 }
 
-interface AudioBinding { asset_id: number; material_key: string; url: string }
+interface AudioBinding {
+  asset_id: number
+  material_key: string
+  url: string
+  character_id?: string
+  voice_period_id?: string
+  voice_profile_fingerprint?: string
+}
 interface AudioPlan {
   version: 1
   operation: 'storyboard_audio'
@@ -86,9 +93,55 @@ async function verifyBindings(client: JubianClient, scriptId: number, bindings: 
   for (const binding of bindings) {
     const asset = await getAudioAsset(client, scriptId, binding.asset_id)
     if (asset === null || asset.url !== binding.url) refuse('Audio asset is missing or its URL differs from the reviewed reference')
+    if (asset.liveness === 'deleted' || (binding.voice_period_id !== undefined && asset.liveness !== 'active')) {
+      refuse('Only this storyboard audio binding is pending: deleted asset or unconfirmed phased voice; continue independent work without saving this card')
+    }
+    if (binding.character_id !== undefined && asset.character_id !== undefined
+      && (asset.character_id !== binding.character_id || asset.voice_period_id !== binding.voice_period_id)) {
+      refuse('Remote voice slot differs from the requested character or life period')
+    }
   }
 }
-async function audioReferences(client: JubianClient, scriptId: number, input: Row[]): Promise<{
+function identityText(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value.trim()) invalid(`${field} must be a nonempty stable ID`)
+  return value
+}
+async function voiceFingerprint(root: string, scriptId: number, binding: AudioBinding): Promise<string> {
+  let value: unknown
+  try { value = JSON.parse((await readFile(join(root, 'project_config.json'), 'utf8')).replace(/^\uFEFF/, '')) }
+  catch (_error) { return refuse('Cannot read current project voice identities') }
+  const config = object(value)
+  if (positiveInteger(config.jubian_script_id) !== scriptId) refuse('Project voice identity belongs to another project')
+  const bible = object(config.project_bible)
+  if (!Array.isArray(bible.characters)) refuse('Project voice identities are not configured')
+  const characters = bible.characters.map(object).filter(row => row.character_id === binding.character_id)
+  if (characters.length !== 1) refuse('Voice reference requires one exact stable character identity')
+  const character = object(characters[0])
+  const periods = character.voice_profiles === undefined ? [] : materials(character.voice_profiles)
+  let profile: Row
+  if (periods.length) {
+    if (binding.voice_period_id === undefined) refuse('Phased character voice requires voice_period_id; no default voice fallback')
+    const selected = periods.filter(row => row.voice_period_id === binding.voice_period_id)
+    if (selected.length !== 1) refuse('Voice period is missing or ambiguous; no child/adult voice fallback')
+    profile = object(selected[0])
+  } else {
+    if (binding.voice_period_id !== undefined) refuse('Voice period is not configured; no legacy voice fallback')
+    profile = object(character.voice_profile)
+  }
+  if (profile.reference_audio_asset_id !== binding.asset_id || profile.reference_audio !== binding.url) {
+    refuse('Audio asset ID and URL differ from the current character voice period')
+  }
+  return stableSha256(profile)
+}
+async function verifyVoiceIdentities(root: string, scriptId: number, bindings: AudioBinding[]): Promise<void> {
+  for (const binding of bindings) {
+    if (binding.character_id !== undefined
+      && await voiceFingerprint(root, scriptId, binding) !== binding.voice_profile_fingerprint) {
+      refuse('Character voice period changed since audio preview; preview again')
+    }
+  }
+}
+async function audioReferences(client: JubianClient, root: string, scriptId: number, input: Row[]): Promise<{
   audio: Row[]
   bindings: AudioBinding[]
 }> {
@@ -96,12 +149,22 @@ async function audioReferences(client: JubianClient, scriptId: number, input: Ro
   referenceAudioUrls(input)
   const bindings: AudioBinding[] = []
   const audio = input.map((row) => {
-    const { audio_asset_id: assetId, ...material } = row
+    const { audio_asset_id: assetId, character_id: characterId, voice_period_id: periodId, ...material } = row
+    if (characterId !== undefined || periodId !== undefined) {
+      identityText(characterId, 'character_id')
+      if (assetId === undefined) invalid('Character voice references require audio_asset_id')
+    }
     if (assetId !== undefined) bindings.push({ asset_id: positiveInteger(assetId),
-      material_key: String(material.materialKey), url: String(material.materialUrl) })
+      material_key: String(material.materialKey), url: String(material.materialUrl),
+      ...(characterId === undefined ? {} : { character_id: identityText(characterId, 'character_id') }),
+      ...(periodId === undefined ? {} : { voice_period_id: identityText(periodId, 'voice_period_id') }) })
     return material
   })
+  for (const binding of bindings) {
+    if (binding.character_id !== undefined) binding.voice_profile_fingerprint = await voiceFingerprint(root, scriptId, binding)
+  }
   await verifyBindings(client, scriptId, bindings)
+  await verifyVoiceIdentities(root, scriptId, bindings)
   return { audio, bindings }
 }
 function snapshot(board: Row, expected?: Row): Row {
@@ -157,7 +220,12 @@ function parsePlan(value: unknown): AudioPlan {
   if (raw.version !== 1 || raw.operation !== 'storyboard_audio' || typeof raw.prompt !== 'string'
     || typeof raw.request_hash !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(raw.request_hash)) refuse('Invalid storyboard audio preview')
   const audio = materials(raw.audio_references)
-  for (const row of audio) validateAudioMaterial(row)
+  for (const row of audio) {
+    if (['audio_asset_id', 'character_id', 'voice_period_id'].some(field => Object.hasOwn(row, field))) {
+      refuse('Frozen provider audio rows must omit local identity fields')
+    }
+    validateAudioMaterial(row)
+  }
   referenceAudioUrls(audio)
   if (!Array.isArray(raw.audio_asset_bindings)) refuse('Invalid audio asset bindings')
   const bindings = raw.audio_asset_bindings.map((value): AudioBinding => {
@@ -166,7 +234,15 @@ function parsePlan(value: unknown): AudioPlan {
       || !audio.some(row => row.materialKey === binding.material_key && row.materialUrl === binding.url)) {
       refuse('Audio asset binding differs from the reviewed audio row')
     }
-    return { asset_id: positiveInteger(binding.asset_id), material_key: binding.material_key, url: binding.url }
+    if ((binding.character_id === undefined && (binding.voice_period_id !== undefined || binding.voice_profile_fingerprint !== undefined))
+      || (binding.character_id !== undefined && (typeof binding.voice_profile_fingerprint !== 'string'
+        || !/^[a-f0-9]{64}$/.test(binding.voice_profile_fingerprint)))) refuse('Invalid frozen voice identity')
+    const identity = binding.character_id === undefined ? {} : {
+      character_id: identityText(binding.character_id, 'character_id'),
+      ...(binding.voice_period_id === undefined ? {} : { voice_period_id: identityText(binding.voice_period_id, 'voice_period_id') }),
+      voice_profile_fingerprint: String(binding.voice_profile_fingerprint),
+    }
+    return { asset_id: positiveInteger(binding.asset_id), material_key: binding.material_key, url: binding.url, ...identity }
   })
   if (new Set(bindings.map(binding => binding.material_key)).size !== bindings.length) refuse('Duplicate audio asset binding')
   const plan = { version: 1, operation: 'storyboard_audio', script_id: positiveInteger(raw.script_id),
@@ -199,7 +275,14 @@ async function readback(client: JubianClient, plan: AudioPlan, replayed: boolean
  * Apply checks the project's deletion flag before and after acquiring the card lock; both new
  * writes and claimed-key readback refuse while a local project audio deletion is active.
  * Optional audio_asset_id associations are independently verified on preview and before a new PUT,
- * then omitted from provider material rows. A claimed key only reads the original card, even if its
+ * then omitted from provider material rows. Optional character_id and voice_period_id require the
+ * exact current character's reference ID and URL, retain the selected profile fingerprint in the
+ * preview and recheck it before a new PUT. Phased voices never fall back to a legacy default or
+ * another period. Deleted assets are rejected; phased references require explicit active evidence.
+ * Legacy unphased references retain compatibility when deletion evidence is absent. Refusal affects
+ * this card's audio edit only; it sends no PUT and does not block independent work.
+ * Local identity fields are omitted from provider material rows.
+ * A claimed key only reads the original card, even if its
  * audio-library asset has changed. URL-only references remain supported without a fabricated asset ID.
  * @param client - Current-card reads and the single free isGenerate=0 PUT transport.
  * @param ledger - Durable write claims preventing repeated saves under one reviewed key.
@@ -213,7 +296,7 @@ export async function storyboardAudioMethod(client: JubianClient, ledger: Jubian
   const binding = await validateProjectBinding(need(args.project_dir, 'project_dir'), scriptId)
   if (args.method === 'audio_preview') {
     const board = await readBoard(client, scriptId, storyboardId)
-    const { audio, bindings } = await audioReferences(client, scriptId,
+    const { audio, bindings } = await audioReferences(client, binding.project_root, scriptId,
       structuredClone(need(args.audio_references, 'audio_references')))
     const config = configOf(board)
     const prompt = args.prompt ?? (typeof config.prompt === 'string' ? config.prompt : invalid('Missing storyboard prompt'))
@@ -250,6 +333,7 @@ export async function storyboardAudioMethod(client: JubianClient, ledger: Jubian
     if (stableSha256(snapshot(board, plan.before_snapshot)) !== stableSha256(plan.before_snapshot)) refuse('Stale storyboard audio preview; preview again')
     const body = payload(board, plan.audio_references, plan.prompt)
     if (bodyHash(body) !== plan.request_hash) refuse('Storyboard request changed since audio preview; preview again')
+    await verifyVoiceIdentities(binding.project_root, scriptId, plan.audio_asset_bindings)
     const send = { started: false }
     let replayed = false
     let outcome = 'unknown'

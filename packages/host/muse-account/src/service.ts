@@ -9,10 +9,18 @@ import type { MuseModels } from './models.ts'
 import { MuseFeedbackError, type MuseFeedbackClient } from './feedback.ts'
 import type { MuseFeedbackRequest, MuseFeedbackReceipt } from './types.ts'
 import type { MuseDesktopRemote } from './desktop-remote.ts'
+import { MuseVoiceSlotError, type MuseVoiceSlotRequest, type MuseVoiceSlotsClient } from './voice-slots.ts'
 import type { MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
 
 /** Account operations implemented by the product-home controller. */
 type AccountOperations = Pick<MuseAccountController, 'status' | 'login' | 'logout'>
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Private account service; voice coordination is Host-only. */
+    museAccount: MuseAccountService
+  }
+}
 
 /** The controller passed by the mounted product plugin. */
 export interface MuseAccountServiceOptions {
@@ -21,6 +29,7 @@ export interface MuseAccountServiceOptions {
   readonly models?: Pick<MuseModels, 'refresh'>
   readonly feedback?: Pick<MuseFeedbackClient, 'submit'>
   readonly remote?: Pick<MuseDesktopRemote, 'refresh' | 'pause'>
+  readonly voiceSlots?: Pick<MuseVoiceSlotsClient, 'request'>
 }
 
 /** MUSE account Remote namespace. The Connection carrier authenticates every call. */
@@ -31,6 +40,7 @@ export class MuseAccountService extends TypertRemoteService {
   private readonly models: Pick<MuseModels, 'refresh'> | undefined
   private readonly feedbackClient: Pick<MuseFeedbackClient, 'submit'> | undefined
   private readonly remote: Pick<MuseDesktopRemote, 'refresh' | 'pause'> | undefined
+  private readonly voiceSlots: Pick<MuseVoiceSlotsClient, 'request'> | undefined
 
   /**
    * @param ctx - Host context owning the service.
@@ -44,6 +54,19 @@ export class MuseAccountService extends TypertRemoteService {
     this.models = options.models
     this.feedbackClient = options.feedback
     this.remote = options.remote
+    this.voiceSlots = options.voiceSlots
+  }
+
+  /**
+   * Coordinate a voice registration through the current private Muse account.
+   * This Host-only method is deliberately absent from the renderer's Remote interface.
+   * @param request - Exact original operation and project/person/life-period identifiers.
+   * @param jubianToken - Private provider token for project-access verification.
+   * @returns Wire response validated by the Jubian registration consumer.
+   */
+  async requestVoiceSlot(request: MuseVoiceSlotRequest, jubianToken: string): Promise<unknown> {
+    if (!this.voiceSlots) throw new MuseVoiceSlotError('not-configured')
+    return await this.voiceSlots.request(request, jubianToken)
   }
 
   /**

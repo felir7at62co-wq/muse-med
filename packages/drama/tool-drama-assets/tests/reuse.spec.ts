@@ -26,6 +26,27 @@ it('centralizes character, scene and recognized voice without authorizing any bi
   expect(mock.calls.every(call => call.method === 'GET')).toBe(true)
 })
 
+it('groups voice requirements by character and exact period even when both periods share current metadata', async () => {
+  const root = await project([{ ...voice, id: 'child-1', voice_period_id: 'child' },
+    { ...voice, id: 'child-2', voice_period_id: 'child' }, { ...voice, id: 'adult-1', voice_period_id: 'adult' }])
+  await edit(root, 'project_config.json', (doc) => {
+    const row = doc.project_bible.characters[0]
+    if (!row) throw new Error('Missing character fixture')
+    row.voice_profiles = ['child', 'adult'].map(period => ({ ...row.voice_profile, voice_period_id: period }))
+  })
+  await edit(root, 'audio/voice-references/manifest.json', (doc) => {
+    const sample = doc.samples[0]
+    if (!sample) throw new Error('Missing voice fixture')
+    doc.samples = ['child', 'adult'].map(period => ({ ...sample, voice_period_id: period }))
+  })
+  const result = await reusePreview(reuseProvider().client, root, 'requirements.json', undefined, limits)
+  expect(result.status).toBe('reuse_ready')
+  expect(result.groups).toHaveLength(2)
+  expect(result.groups[0]).toMatchObject({ identity: 'lu', voice_period_id: 'child', requirement_ids: ['child-1', 'child-2'] })
+  expect(result.groups[1]).toMatchObject({ identity: 'lu', voice_period_id: 'adult', requirement_ids: ['adult-1'] })
+  expect(result.groups[0]?.fingerprint).not.toBe(result.groups[1]?.fingerprint)
+})
+
 it('shares one identity-and-state group across requirements and multiple shots', async () => {
   const root = await project([character, { ...character, id: 'char-2' }], [mapping(), mapping(902, 'char-2')])
   const mock = reuseProvider()

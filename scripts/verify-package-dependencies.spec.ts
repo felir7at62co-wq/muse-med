@@ -192,6 +192,7 @@ describe('package dependency scope', () => {
     ])
     expect(PACKAGE_DEPENDENCY_POLICY.requiredServicePeers).toEqual({
       '@deepseek-ai/dsh-api-terminal-controller': ['@deepseek-ai/dsh-subprocess'],
+      '@deepseek-ai/dsh-tool-jubian': ['@deepseek-ai/dsh-muse-account'],
     })
     expect(PACKAGE_DEPENDENCY_POLICY.configurationOnlyDevDependencies).toEqual({
       '@deepseek-ai/dsh-client-locale': ['@deepseek-ai/dsh-api-remotes'],

@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "source_path": "episode.txt",
+  "source_sha256": "7cba7b1ce624032cf55c64ad266bd1952a5f572dc0f3d891a1e1a41881970c86",
+  "requirements": [
+    {
+      "id": "character",
+      "kind": "character",
+      "name": "阿舟",
+      "character_id": "lu",
+      "episode": 1,
+      "state_or_costume": "非孕期；青年；职场装",
+      "conditions": [
+        "总裁"
+      ],
+      "source_line": 1,
+      "source_text": "阿舟穿职场装走进日间大厅。"
+    },
+    {
+      "id": "scene-review",
+      "kind": "scene",
+      "name": "大厅",
+      "stable_id": "lobby",
+      "episode": 1,
+      "conditions": [
+        "室内",
+        "日间",
+        "三个相邻空座"
+      ],
+      "source_line": 2,
+      "source_text": "大厅是室内，三个相邻空座清楚可数。"
+    },
+    {
+      "id": "voice-blocked",
+      "kind": "voice",
+      "name": "阿舟",
+      "character_id": "lu",
+      "conditions": [
+        "低沉"
+      ],
+      "source_line": 3,
+      "source_text": "阿舟：请听我说。"
+    },
+    {
+      "id": "scene-missing",
+      "kind": "scene",
+      "name": "后厨",
+      "episode": 1,
+      "conditions": [
+        "室内"
+      ],
+      "source_line": 4,
+      "source_text": "后厨仍是空场景。"
+    }
+  ]
+}

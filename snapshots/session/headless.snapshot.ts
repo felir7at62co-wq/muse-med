@@ -1545,6 +1545,62 @@ describe('headless recorded-session snapshots', () => {
                 failures: [{ code: 'material_reference_mismatch', shot: 1 }] })
               expect(refused.failures[0].message).toContain('@[温雪](asset_71001)')
             }
+            if (scenario.name === 'muse-audio-asset-usage') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_usage_preview')
+              if (result?.type !== 'tool/result') throw new Error('Missing persisted asset usage result')
+              const block = result.data.message.content.find(item => item.type === 'text')
+              if (block?.type !== 'text') throw new Error('Missing usage output')
+              expect(JSON.parse(block.text)).toMatchObject({ method: 'usage_preview', total: 2, read_only: true, paid_requests: 0,
+                usage_rows: [{ asset_id: 13, status: 'project_voice_reference' }, { asset_id: 11, episode: 54, status: 'local_package_reference' }],
+                voice_states: [{ character_id: 'lu', status: 'current_reference_needs_verification' }] })
+            }
+            if (scenario.name === 'muse-shared-asset-usage') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_shared_usage_preview')
+              if (result?.type !== 'tool/result') throw new Error('Missing shared usage query result')
+              expect(result.data.message.isError, JSON.stringify(result.data.message.content)).toBe(false)
+              const block = result.data.message.content.find(item => item.type === 'text')
+              if (block?.type !== 'text') throw new Error('Missing shared usage output')
+              expect(JSON.parse(block.text)).toMatchObject({ method: 'shared_usage_preview', complete: true, query_complete: true, stable_inventory: true,
+                paid_requests: 0, remote_writes: 0, local_writes: 0,
+                assets: [{ asset_id: 13, package_count: 2, voice_period_id: 'child' },
+                  { asset_id: 14, package_count: 1, voice_period_id: 'child' }, { asset_id: 15, package_count: 0, voice_period_id: 'adult' }],
+                uses: [{ storyboard_id: 901, episode_number: 54 }, { storyboard_id: 902, episode_number: 83 },
+                  { storyboard_id: 903, episode_number: 83 }],
+                duplicate_audio_groups: [{ asset_ids: [13, 14], preferred_asset_id: 13, delete_allowed: false }],
+                coverage: { historical_generation_tasks: false, other_computers_local_plans: false, atomic_remote_snapshot: false } })
+            }
+            if (scenario.name === 'muse-shared-voice-pending') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+              expect(calls.map(call => call.name)).toEqual(['jubian_asset'])
+              const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_shared_voice_pending')
+              if (result?.type !== 'tool/result') throw new Error('Missing shared voice pending result')
+              expect(result.data.message.isError).toBe(false)
+              const block = result.data.message.content.find(item => item.type === 'text')
+              if (block?.type !== 'text') throw new Error('Missing shared voice pending output')
+              const pending = JSON.parse(block.text)
+              expect(Array.isArray(pending)).toBe(false)
+              expect(pending).toMatchObject({ status: 'coordination_busy', reason_code: 'busy', blocking_state: 'submitted',
+                work_can_continue: true, failure_scope: 'voice_registration', submission_attempted: false,
+                retry_registration: false, original_idempotency_key: 'offline-original-voice-key', paid_requests: 0 })
+              expect(pending.next).toContain('继续无此参考音频的已授权初始视频或其他独立工作')
+              expect(pending).not.toHaveProperty('lease_id')
+              expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+            }
+            if (scenario.name === 'muse-voice-periods') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_usage_preview')
+              if (result?.type !== 'tool/result') throw new Error('Missing persisted period voice usage result')
+              const block = result.data.message.content.find(item => item.type === 'text')
+              if (block?.type !== 'text') throw new Error('Missing period voice output')
+              expect(JSON.parse(block.text)).toMatchObject({ method: 'usage_preview', total: 2, read_only: true, paid_requests: 0,
+                usage_rows: [{ asset_id: 13, voice_period_id: 'child', status: 'project_voice_reference' },
+                  { asset_id: 11, episode: 54, status: 'local_package_reference' }],
+                voice_states: [{ character_id: 'lu', voice_period_id: 'child', status: 'current_reference_needs_verification' },
+                  { character_id: 'lu', voice_period_id: 'adult', status: 'missing', candidate_count: 0 }] })
+            }
             if (['muse-entity-match-preview', 'muse-entity-reuse-preview', 'muse-entity-existing-binding'].includes(scenario.name)) {
               const events = parseSessionLog(actualLogs[0]!.content)
               const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])

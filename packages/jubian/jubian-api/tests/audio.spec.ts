@@ -105,3 +105,16 @@ describe('reference audio bytes', () => {
     expect(childAudioUrls({ audioMaterials: [] })).toEqual([])
   })
 })
+
+/** All references share one duration allowance; backgrounds do not alter byte-based timing. */
+describe('combined audio duration', () => {
+  const rows = (count: number, seconds: number) => Array.from({ length: count }, (_, index) => ({ materialType: 'audio',
+    materialKey: `voice-${index}`, materialUrl: `https://example.invalid/voice-${index}.wav`, sortOrder: index + 1, audioDuration: seconds }))
+  it('accepts seven two-second references and exactly fifteen seconds', () => {
+    expect(referenceAudioUrls(rows(7, 2))).toHaveLength(7)
+    expect(referenceAudioUrls(rows(2, 7.5))).toHaveLength(2)
+  })
+  it('refuses eight two-second references even though each reference is individually valid', () => {
+    expect(() => referenceAudioUrls(rows(8, 2))).toThrow('Total reference audio duration exceeds 15 seconds')
+  })
+})

@@ -108,6 +108,72 @@ authenticatedUrl(baseUrl: string): string
 
 Source: [`packages/client/connection/src/rpc.ts`](../../packages/client/connection/src/rpc.ts)
 
+<a id="ctxmuseaccount--museaccountservice"></a>
+
+### `ctx.museAccount` — `MuseAccountService`
+
+MUSE account Remote namespace. The Connection carrier authenticates every call.
+
+```ts cordis-catalog
+/**
+ * Coordinate a voice registration through the current private Muse account.
+ * This Host-only method is deliberately absent from the renderer's Remote interface.
+ * @param request - Exact original operation and project/person/life-period identifiers.
+ * @param jubianToken - Private provider token for project-access verification.
+ * @returns Wire response validated by the Jubian registration consumer.
+ */
+async requestVoiceSlot(request: MuseVoiceSlotRequest, jubianToken: string): Promise<unknown>
+
+/**
+ * Submit one explicitly authored remark to the signed-in Muse account's inbox.
+ * @param request - Target, category, note and optional related-excerpt choice.
+ * @returns A confirmed durable inbox receipt, without a cookie or transcript.
+ */
+@Remote('feedback') async feedback(request: MuseFeedbackRequest): Promise<MuseFeedbackReceipt>
+
+/**
+ * Submit audio through the current MUSE account; Host callers retain the job ID.
+ * @param file - Local audio created from the authorized media.
+ * @param id - Persisted idempotency UUID.
+ * @param sha256 - SHA-256 digest of the audio.
+ * @param language - Recognition language.
+ * @param purpose - Receipt-bound use; omit only for a legacy receipt without a purpose.
+ * @param signal - Cancellation of the local upload, without cancelling an accepted gateway task.
+ * @returns Account-scoped task status without session or provider credentials.
+ */
+async submitAudio(file: string, id: string, sha256: string, language: 'zh' | 'auto', purpose?: MuseAsrPurpose, signal?: AbortSignal): Promise<MuseAsrJob>
+
+/**
+ * Query a previously submitted transcription without making another paid submission.
+ * @param id - Persisted idempotency UUID.
+ * @param signal - Cancellation of this status request.
+ * @returns Task state and timed segments when complete.
+ */
+async audioStatus(id: string, signal?: AbortSignal): Promise<MuseAsrJob>
+
+/**
+ * Read the stored identity or confirm it with the gateway.
+ * @param request - Whether to verify the cookie online.
+ * @returns A browser-safe status without a cookie.
+ */
+@Remote('status') async status(request: MuseAccountStatusRequest): Promise<MuseAccountStatus>
+
+/**
+ * Sign in using UI-submitted credentials; registration requires an explicit choice.
+ * @param request - Username, password and registration choice.
+ * @returns The confirmed account identity and actual outcome, without credentials; post-login refresh failures do not replace it.
+ */
+@Remote('login') async login(request: MuseAccountLoginRequest): Promise<MuseAccountLoginResult>
+
+/**
+ * End and forget the current account session.
+ * @returns Signed-out status after the gateway accepts the logout.
+ */
+@Remote('logout') async logout(): Promise<MuseAccountStatus>
+```
+
+Source: [`packages/host/muse-account/src/service.ts`](../../packages/host/muse-account/src/service.ts)
+
 <a id="ctxmusedesktopbridge--musedesktopbridge-abstract-seam"></a>
 
 ### `ctx.museDesktopBridge` — `MuseDesktopBridge` (abstract seam)
@@ -241,3 +307,5 @@ Collect the structured index injection table. Emitted on every index render and 
 
 Source: [`packages/host/webserver/src/index.ts`](../../packages/host/webserver/src/index.ts)
 <!-- END GENERATED cordis-surface -->
+
+The Desktop Host account service `ctx.museAccount` owns Muse sign-in, account-backed operations and private voice coordination. Its `requestVoiceSlot` method is Host-only; it is absent from the renderer Remote API. See the [account package](../../packages/host/muse-account/README.md) for session and request fields.

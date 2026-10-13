@@ -43,6 +43,10 @@ An existing conversation with an unconfigured direct route can use the same exac
 
 The message rating and task feedback dialogs submit to the same Muse opinion inbox as the sidebar Feedback page. A submission uses the saved Desktop account and retains its category and local Session/message identifiers. The optional related-excerpt checkbox starts clear; selected diagnostics contain only bounded visible request and answer text, with known credentials removed. No tool arguments, tool results, reasoning, attachments, or full Session log are sent. A confirmed inbox receipt closes the form; login, network, and account-switch failures retain the draft. An uncertain result requires checking the inbox before another submission. Administrators review all submitted opinions at `/feedback`; ordinary users see their own.
 
+### Shared voice registration
+
+`MuseAccountService.requestVoiceSlot` is Host-only and uses the current private Muse session to call the [shared registration coordinator](../../../services/muse-accounts/README.md#shared-voice-registration). It sends the Jubian token only as a private transport header, verifies the account revision after the response, refuses redirects, bounds strict UTF-8 coordination responses to 16 KiB and performs no retries. It is not a Remote method or model-visible credential accessor. Unconfigured servers refuse new coordinated registration; existing audio reuse and non-audio work remain available.
+
 ### Minimal configuration
 
 The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps/desktop-host/config/desktop.cordis.patch.yml):

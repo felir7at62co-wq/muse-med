@@ -226,6 +226,92 @@ it('stores a measured remote voice asset on the stable character through costume
   expect(await readFile(join(home, 'project-bible.md'), 'utf8')).toContain('reference_audio_asset_id')
 })
 
+it('keeps child and adult voices of one character independent through costume and period edits', async () => {
+  const { ctx, home } = await bench()
+  const child = { voice_period_id: 'child', label: '童年', description: '儿童声线',
+    reference_audio: 'https://assets.example/child.wav', reference_audio_asset_id: 10,
+    reference_audio_sha256: 'a'.repeat(64), reference_audio_duration_seconds: 2 }
+  const adult = { voice_period_id: 'adult', description: '成年声线' }
+  const legacy = { description: '旧默认声线', reference_audio: 'audio/legacy.wav' }
+  const changes = { characters: [{ character_id: 'lead-1', name: '苏晚', asset_id: 12,
+    voice_profile: legacy, voice_profiles: [child, adult] }] }
+  const initial = await previewProjectBible(ctx.settings, home, changes, '记录童年与成年声线')
+  await updateProjectBible(ctx.settings, home, changes, '记录童年与成年声线', initial.expected_revision, initial.preview_fingerprint)
+  const edit = { characters: [{ character_id: 'lead-1', asset_id: 18, voice_profiles: [{ voice_period_id: 'adult',
+    label: '成年', reference_audio: 'https://assets.example/adult.wav', reference_audio_asset_id: 20,
+    reference_audio_sha256: 'b'.repeat(64), reference_audio_duration_seconds: 2 }] }] }
+  const preview = await previewProjectBible(ctx.settings, home, edit, '换服装并认可成年声线')
+  const updated = await updateProjectBible(ctx.settings, home, edit, '换服装并认可成年声线', preview.expected_revision, preview.preview_fingerprint)
+  expect(updated.config).toMatchObject({ project_bible: { characters: [{ character_id: 'lead-1', asset_id: 18,
+    voice_profile: legacy, voice_profiles: [child, { ...adult, label: '成年', reference_audio_asset_id: 20 }] }] } })
+  const clear = { characters: [{ character_id: 'lead-1', voice_profiles: [{ voice_period_id: 'child', reference_audio: null }] }] }
+  const removal = await previewProjectBible(ctx.settings, home, clear, '解除童年参考')
+  await updateProjectBible(ctx.settings, home, clear, '解除童年参考', removal.expected_revision, removal.preview_fingerprint)
+  const stored = await readProjectBible(ctx.settings, home)
+  expect(stored.config).toMatchObject({ project_bible: { characters: [{ voice_profile: legacy, voice_profiles: [
+    { voice_period_id: 'child', label: '童年', description: '儿童声线' }, { voice_period_id: 'adult', reference_audio_asset_id: 20 },
+  ] }] } })
+  const serialized = JSON.stringify(stored.config)
+  expect(serialized).not.toContain('https://assets.example/child.wav')
+  expect(serialized).not.toContain('reference_audio":null')
+  expect(await readFile(join(home, 'project-bible.md'), 'utf8')).toContain('voice_period_id')
+  const empty = await previewProjectBible(ctx.settings, home, { characters: [{ character_id: 'lead-1', voice_profiles: [] }] }, '保留已有时期')
+  expect(empty.changed_fields).toEqual([])
+  expect(empty.proposed).toMatchObject({ project_bible: { characters: [{ voice_profiles: [
+    { voice_period_id: 'child' }, { voice_period_id: 'adult', reference_audio_asset_id: 20 },
+  ] }] } })
+})
+
+it('appends a new voice period without discarding existing periods or the legacy default', async () => {
+  const { ctx, home } = await bench()
+  const changes = { characters: [{ character_id: 'lead-1', name: '苏晚', voice_profile: { description: '旧声线' } }] }
+  const initial = await previewProjectBible(ctx.settings, home, changes, '记录角色')
+  await updateProjectBible(ctx.settings, home, changes, '记录角色', initial.expected_revision, initial.preview_fingerprint)
+  for (const voice_period_id of ['child', 'adult']) {
+    const edit = { characters: [{ character_id: 'lead-1', voice_profiles: [{ voice_period_id, description: `${voice_period_id}声线` }] }] }
+    const preview = await previewProjectBible(ctx.settings, home, edit, '增加时期')
+    await updateProjectBible(ctx.settings, home, edit, '增加时期', preview.expected_revision, preview.preview_fingerprint)
+  }
+  expect((await readProjectBible(ctx.settings, home)).config).toMatchObject({ project_bible: { characters: [{
+    voice_profile: { description: '旧声线' }, voice_profiles: [
+      { voice_period_id: 'child', description: 'child声线' }, { voice_period_id: 'adult', description: 'adult声线' },
+    ],
+  }] } })
+})
+
+it.each([
+  [null, 'voice_profiles must be an array'],
+  [{}, 'voice_profiles must be an array'],
+  [[null], 'voice_profiles must be a JSON object'],
+  [[{ description: '儿童声线' }], 'voice_period_id must be nonempty'],
+  [[{ voice_period_id: ' ', description: '儿童声线' }], 'voice_period_id must be nonempty'],
+  [[{ voice_period_id: 'child', description: '儿童声线' }, { voice_period_id: 'child', description: '另一声线' }], 'unique voice_period_id'],
+  [[{ voice_period_id: 'child' }], 'voice_profile.description'],
+  [[{ voice_period_id: 'child', description: '儿童声线', label: '' }], 'voice_profiles.label'],
+])('refuses invalid voice period input without creating project files: %j', async (voice_profiles, message) => {
+  const { ctx, home } = await bench()
+  await expect(previewProjectBible(ctx.settings, home, { characters: [{ character_id: 'lead-1', name: '苏晚', voice_profiles }] }, '记录时期'))
+    .rejects.toThrow(message)
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('refuses duplicate periods in persisted project data and partial bound-period replacements', async () => {
+  const { ctx, home } = await bench()
+  const child = { voice_period_id: 'child', description: '儿童声线',
+    reference_audio: 'https://assets.example/child.wav', reference_audio_asset_id: 10,
+    reference_audio_sha256: 'a'.repeat(64), reference_audio_duration_seconds: 2 }
+  const changes = { characters: [{ character_id: 'lead-1', name: '苏晚', voice_profiles: [child] }] }
+  const initial = await previewProjectBible(ctx.settings, home, changes, '记录时期')
+  const saved = await updateProjectBible(ctx.settings, home, changes, '记录时期', initial.expected_revision, initial.preview_fingerprint)
+  await expect(previewProjectBible(ctx.settings, home, { characters: [{ character_id: 'lead-1', voice_profiles: [
+    { voice_period_id: 'child', reference_audio: 'https://assets.example/changed.wav' },
+  ] }] }, '换参考')).rejects.toThrow('reference_audio_asset_id')
+  const invalid = { ...saved.config, project_bible: { ...saved.config.project_bible as object,
+    characters: [{ character_id: 'lead-1', name: '苏晚', voice_profiles: [child, child] }] } }
+  await writeFile(join(home, 'project_config.json'), JSON.stringify(invalid))
+  await expect(readProjectBible(ctx.settings, home)).rejects.toThrow('unique voice_period_id')
+})
+
 it('clears a current voice asset explicitly while preserving character and voice guidance', async () => {
   const { ctx, home } = await bench()
   const changes = { characters: [{ character_id: 'lead-1', name: '苏晚', asset_id: 12,
@@ -289,17 +375,22 @@ it('accepts a remote voice binding and explicit reference removal through the lo
     if (rendered?.type !== 'text') throw new Error('Expected project bible JSON')
     return JSON.parse(rendered.text) as { expected_revision: string; preview_fingerprint: string; config: object }
   }
-  const changes = { characters: [{ character_id: 'lead-1', name: '苏晚', voice_profile: { description: '清亮温柔',
+  const changes = { characters: [{ character_id: 'lead-1', name: '苏晚', voice_profiles: [
+    { voice_period_id: 'child', label: '童年', description: '儿童声线', reference_audio: 'https://assets.example/child.wav',
+      reference_audio_asset_id: 10, reference_audio_sha256: 'b'.repeat(64), reference_audio_duration_seconds: 2 },
+  ], voice_profile: { description: '清亮温柔',
     reference_audio: 'https://assets.example/voice.wav', reference_audio_asset_id: 142686,
     reference_audio_sha256: 'a'.repeat(64), reference_audio_duration_seconds: 15 } }] }
   const bind = await execute({ action: 'preview', changes, reason: '认可声线' })
   await execute({ action: 'update', changes, reason: '认可声线', expected_revision: bind.expected_revision,
     preview_fingerprint: bind.preview_fingerprint })
-  const clear = { characters: [{ character_id: 'lead-1', voice_profile: { reference_audio: null } }] }
+  const clear = { characters: [{ character_id: 'lead-1', voice_profile: { reference_audio: null },
+    voice_profiles: [{ voice_period_id: 'child', reference_audio: null }] }] }
   const preview = await execute({ action: 'preview', changes: clear, reason: '解除音频引用' })
   const updated = await execute({ action: 'update', changes: clear, reason: '解除音频引用',
     expected_revision: preview.expected_revision, preview_fingerprint: preview.preview_fingerprint })
-  expect(updated.config).toMatchObject({ project_bible: { characters: [{ voice_profile: { description: '清亮温柔' } }] } })
+  expect(updated.config).toMatchObject({ project_bible: { characters: [{ voice_profile: { description: '清亮温柔' },
+    voice_profiles: [{ voice_period_id: 'child', label: '童年', description: '儿童声线' }] }] } })
   expect(JSON.stringify(updated.config)).not.toContain('reference_audio')
 })
 

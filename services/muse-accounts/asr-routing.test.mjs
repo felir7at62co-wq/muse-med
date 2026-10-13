@@ -172,3 +172,42 @@ test('gateway download signatures cover processing and retained audio without ex
  assert.equal(resolveAsrConfig({...input,signedUrlTtlSeconds:604800}).signedUrlTtlSeconds,604800);
  for(const signedUrlTtlSeconds of [3600,10799,86399,604801])assert.throws(()=>resolveAsrConfig({...input,signedUrlTtlSeconds}),/configuration/);
 });
+
+for(const code of ['45000092','55001010']){
+ test(`confirmed terminal query ${code} releases the shared worker without resubmitting its paid key`,async t=>{
+  const submitted=[],queried=[];let first;
+  const env=await fixture(t,()=>({recognize:async()=>({status:'silent'}),
+   submit:async request=>{submitted.push(request.id);first??=request.id;},
+   query:async id=>{queried.push(id);return id===first?{status:'failed',providerCode:code}:{status:'silent'};}
+  }),{maxDailyJobs:2,quotaGroups:[...['old','second','third'].map(app=>({id:app+'-flash',maxConcurrentJobs:5})),{id:'standard-shared',maxConcurrentJobs:1}]});
+  const firstJob=await env.submit('screenplay');const secondJob=await env.submit('screenplay');await env.service.idle();
+  assert.equal((await env.service.get('alice',firstJob.id)).status,'failed');
+  assert.equal((await env.service.get('alice',secondJob.id)).status,'silent');
+  assert.equal(queried.filter(id=>id===first).length,3);assert.equal(submitted.length,2);
+  assert.equal((await env.submit('screenplay','alice',firstJob.id)).status,'failed');assert.equal(submitted.length,2);
+  await assert.rejects(env.submit('screenplay'),{status:429,code:'daily_quota'});
+  const original=(await ledger(env.root)).find(row=>row.id===firstJob.id);assert.deepEqual(original.terminalQuery,{code,count:3});
+  await env.service.close();const restarted=createAsrService(env.config);await restarted.ready();await restarted.idle();await restarted.close();
+  assert.equal(submitted.length,2);assert.equal(queried.filter(id=>id===first).length,3);
+ });
+}
+
+test('a queued standard request does not block an available flash resource for the same account',async t=>{
+ const blocked=deferred(),release=deferred(),flash=deferred();let standardQueries=0;
+ const env=await fixture(t,()=>({recognize:async()=>{flash.resolve();return {status:'silent'};},submit:async()=>{},
+  query:async()=>{if(++standardQueries===1){blocked.resolve();await release.promise;}return {status:'silent'};}
+ }),{quotaGroups:[...['old','second','third'].map(app=>({id:app+'-flash',maxConcurrentJobs:5})),{id:'standard-shared',maxConcurrentJobs:1}]});
+ try{
+  await env.submit('screenplay');await blocked.promise;const queued=await env.submit('screenplay');assert.equal(queued.queued,true);
+  await env.submit('subtitles');await flash.promise;assert.equal(standardQueries,1);
+ }finally{release.resolve();await env.service.idle();}
+});
+
+test('one terminal response followed by processing does not release or duplicate a standard task',async t=>{
+ let count=0,submits=0;
+ const env=await fixture(t,()=>({recognize:async()=>({status:'silent'}),submit:async()=>{submits++;},query:async()=>{
+  count++;return count===1?{status:'failed',providerCode:'45000092'}:count===2?{status:'processing'}:{status:'silent'};
+ }}));
+ const job=await env.submit('screenplay');await env.service.idle();assert.equal((await env.service.get('alice',job.id)).status,'silent');assert.equal(submits,1);
+ const saved=(await ledger(env.root))[0];assert.equal(saved.terminalQuery,undefined);assert.equal(saved.failureCode,undefined);
+});

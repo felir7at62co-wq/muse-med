@@ -279,6 +279,14 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 `jubian_asset register asset_type=4` 登记已上传声线。`audio_list`、`audio_get` 读取真实项目音频身份与 URL，不猜时长。登记通过完整列表对照项目、名称、URL；结果不唯一时不猜 ID。同 key 对账不再次登记。`jubian_storyboard audio_preview` 接受原卡 ID、项目绑定、完整提示词与最终有序 `audio_references`；`[]` 移除全部音频。可选 `audio_asset_id` 核对项目、类别与 URL，不编造提供方材质 ID。`audio_apply` 要求同一原卡 ID、已检查指纹与 key；发送一次 `isGenerate=0` PUT，保留图片、模型、时长、集数，再核对真实回读。未知写入只沿用原 key 对账。改动后重新 `prepare_video`。
 
+角色感知引用同时提供 `character_id`，分期声线还须提供 `voice_period_id`。其精确资产 ID 和 URL 必须匹配当前项目角色及人生时期；儿童声线不能替代成年声线，更换服装保留声线时期。已删除资产不能绑定；分期引用还须有提供方明确有效的证据（delFlag=0 且没有矛盾的删除字段）。分期引用的有效状态未知时不保存该卡，其他独立工作可继续。冻结预览保存选定声音配置，并在新保存前复验。提供方材质行不接收本地身份字段。仅 URL 引用保留已有兼容性，但不验证说话人身份。
+
+共享声线登记同时提供 character_id 与 voice_period_id。规范音频名称后缀保留精确项目／人物／人生时期，普通名称不能认领声线。完整库存先复用已有候选。首次创建带共享身份的音频需要仅供 Host 使用的 Muse 账号协调器：认领槽、持久化开始状态，再用原账本 key 提交一次。忙碌、不可用或已经提交的状态不会另发 POST。完成时核对真实音频资产，再向协作者发布，客户端还会独立回读资产。coordination_state 与 exclusive_registration 表示协调状态，atomic_registration=false 保留供应商限制。旧客户端和剧变网页不参与协调，重复条目仍如实报告且不自动删除。已提交认领不会到期后放行新创建，未知结果沿原 key 对账。采用录音仍需核对实际说话人与时期。迁移或清理前，用[共享用途查询](../../drama/tool-drama-assets/README.zh.md#shared-project-uses)定位当前绑定。
+
+新分期角色音频须同时提供这两项身份字段，仅未分期旧音频可省略。coordination_unavailable、coordination_busy 和 coordination_pending 返回 submission_attempted=false、retry_registration=false 和原 key。保留候选并对账原操作，不能重试登记或删除身份字段。待处理状态只影响声线登记，无此参考的已授权初始视频或其他独立工作可继续。
+
+voice_reference_pending 与协调等待不同，reason_code 为 asset-missing、asset-deleted、asset-liveness-unknown 或 asset-identity-changed。保留候选和原 key，沿精确 audio_get 核对资产，不另发登记 POST。POST 尚未尝试时 submission_attempted=false；已经尝试 POST 后保留 submission_attempted=true 和实际 registration_created_asset_id。该标记不证明登记成功，待处理也不能证明没有写入。work_can_continue=true 指独立工作可继续。项目、类别、资产 ID 或协议数据矛盾仍拒绝调用。
+
 删除音频先做 `audio_delete_preview`，明确授权 ID 与原因。工具枚举资产媒体版本，检查当前项目圣经声线与全部项目分镜；检查不完整或不可读时拒绝删除。先移除或替换引用，再重新预览。`audio_delete_apply` 要求 `checked_audio_asset_id`，以预览指纹为 key；再次核对目标与引用，删除一次，再独立回读确认不存在。通用 `remove` 拒绝音频。删除至回读期间排除本地 audio_apply 与项目圣经写入。其他写工具和外部控制台不参与这些锁；删除期间避免并发修改引用。删除不取消历史任务或退费。`audioReferencePageSize`（默认 1000，范围 1–1000）、`audioReferencePageLimit`（默认 100，范围 1–100）限定完整扫描。
 
 统一角色声音时，加载[声线参考技能](../../drama/skills/skills/tweet-drama-voice-continuity/SKILL.md)。`jubian_asset upload_audio` 接受 `audio_path`，测量实际 16 位 PCM WAV 样本，在上传前拒绝超过 15 秒的文件，返回 `materialUrl`、`audioDuration`、SHA-256 和 `duration_verified: true`。它不创建资产或生成任务。`select_assets` 更新图片选源时保留已有上传音频；音频有独立组内顺序，无需图片父资产 ID。原生准备冻结这些参考，分别报告已保存时长与字节验证状态；未知远端时长保持未核实。提交的音频必须在子结果有序 `audioMaterials[].audioUrl` 中回读一致，才能认领任务。参考错误时修复并保存原分镜。

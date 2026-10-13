@@ -15,11 +15,17 @@
   en: d152484eb41ac6b4
   zh: f0f7f88fe2f53b05
 /deepseek-ai-dsh-tool-drama-assets/use-this-package:
-  en: 43bada344ee79401
-  zh: 0bf1dd15e8d5483b
+  en: adcb58b2d63f97a4
+  zh: bd662e5e929046f5
 /deepseek-ai-dsh-tool-drama-assets/use-this-package/methods:
-  en: c99c2d01915d4af3
-  zh: 80be00442cc407f7
+  en: bab9837837077bf6
+  zh: ce503cd81d2c8ca3
+/deepseek-ai-dsh-tool-drama-assets/use-this-package/shared-project-uses:
+  en: 70cec36402a08942
+  zh: 1121796bbbfbb11f
+/deepseek-ai-dsh-tool-drama-assets/use-this-package/audio-preparation-and-current-uses:
+  en: 15bfc40db685891d
+  zh: 5535a5df4daf18c5
 /deepseek-ai-dsh-tool-drama-assets/use-this-package/read-only-matching-preview:
   en: 4560be3ce6c37a17
   zh: 0d94966ded962943
@@ -48,8 +54,8 @@
   en: f5f938ec2015a1b5
   zh: 64d479b37b72ac22
 /deepseek-ai-dsh-tool-drama-assets/model-experience/the-drama-assets-tool-schema/what-the-model-sees:
-  en: bbe28bf0ecb06dfe
-  zh: 507c0cf71965240c
+  en: 5329425a1418282c
+  zh: f75731338b0de458
 /deepseek-ai-dsh-tool-drama-assets/model-experience/the-drama-assets-tool-schema/token-effect:
   en: 6f2578294b0c6173
   zh: 7c1f302af00b7a93

@@ -116,8 +116,8 @@ describe('registration', () => {
       properties: Record<string, { enum?: string[]; required?: boolean }>
       required: string[]
     }
-    expect(Object.keys(parameters.properties).sort()).toEqual(['asset_id', 'method', 'note', 'plan_path', 'project_dir', 'requirements_path', 'status'])
-    expect(parameters.properties['method']?.enum).toEqual(['reconcile', 'dispose', 'match_preview', 'reuse_preview'])
+    expect(Object.keys(parameters.properties).sort()).toEqual(['asset_id', 'character_id', 'method', 'note', 'output_offset', 'plan_path', 'project_dir', 'requirements_path', 'status'])
+    expect(parameters.properties['method']?.enum).toEqual(['reconcile', 'dispose', 'match_preview', 'reuse_preview', 'usage_preview', 'shared_usage_preview'])
     expect(parameters.properties['status']?.enum).toEqual(['registered', 'ignored'])
     expect(parameters.required).toEqual(['method', 'project_dir'])
   })

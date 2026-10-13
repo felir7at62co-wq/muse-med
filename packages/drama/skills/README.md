@@ -44,6 +44,8 @@ New drafts end with a two-second editable freeze of the last decoded body frame 
 
 The [voice reference skill](skills/tweet-drama-voice-continuity/SKILL.md) reuses each character's approved sample across costume versions. When none exists, it extracts a reviewed, clear single-speaker interval from that character's first generated video; the default is 2 seconds and the reference limit is 15 seconds. The script preserves the source, refuses an existing output and reports measured duration and hashes; confirming the speaker requires actual listening, with user confirmation when the agent cannot inspect audio. Upload and binding preserve the original storyboard ID. Audio references guide generation but do not guarantee identical timbre across SD outputs.
 
+The packaged `prepare_voice_assets.py` also extracts a complete mix and missing-character candidates after a successful video download, keeps current voice profiles, and resumes by task/source/character/interval identity. Its OS-released lock and atomic manifest merge preserve other samples and track records. Long full mixes are retained for editing; two-second speech references may retain background sound; empty intervals report a gap without guessing speech identity. The voice skill owns the request fields and adoption workflow.
+
 Asset scripts use `JUBIAN_ASSET_LIBRARY_ROOT` when set, otherwise `$DSH_HOME/data/jubian-asset-library`, with `~/.dsh` as the home default. Search resolves local media from the current library root instead of trusting stored `tags.local_path` values. The character candidate script joins face, body, and clothing indexes, filters group images from pairing, and returns an ordered local face/outfit pair without uploading. The core `import-library` command archives only the selected pair into a project and requires review and traceable user confirmation before the existing paid generation workflow. Vision-tagging maintenance requires explicit `DEEPSEEK_API_KEY` injection and can incur charges; it never reads an env file or a Jubian token. The credential provider and subprocess environment integration belong to the consuming application.
 
 Delivery uses its own `assets/template.json`. An explicit `TWEET_DRAMA_TEMPLATE` must be an existing directory; it does not replace the nine directory names or import third-party files. Assembly can delete stale files in its managed output sections. Output inside the project must stay under `delivery`; project ancestors, upstream overlap, and links inside existing output are refused. Reports go to stdout, not a report file; copying is not a SHA256 verification or a complete media QA.
@@ -57,6 +59,8 @@ npm test
 ```
 
 -----
+
+The voice continuity skill separates the same character's life periods, reuses the shared project library across Muse accounts, and archives duplicate local candidates after an existing voice is verified. A first authorized video package may generate without a voice reference; extraction supplies subsequent packages rather than creating an additional paid audition.
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation

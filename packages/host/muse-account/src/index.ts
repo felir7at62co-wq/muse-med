@@ -8,6 +8,7 @@ import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MuseAccountController } from './account.ts'
 import { MuseAsrClient } from './asr.ts'
+import { MuseVoiceSlotsClient } from './voice-slots.ts'
 import { MuseModels } from './models.ts'
 import { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
 import { MuseAccountService } from './service.ts'
@@ -20,6 +21,8 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 export { MuseAccountService } from './service.ts'
 export { MuseAccountController } from './account.ts'
 export { MuseAsrClient, MuseAsrError } from './asr.ts'
+export { MuseVoiceSlotsClient, MuseVoiceSlotError } from './voice-slots.ts'
+export type { MuseVoiceLeaseId, MuseVoiceSlotRequest, MuseVoiceSlotsOptions } from './voice-slots.ts'
 export type { MuseAsrJob, MuseAsrSegment, MuseAsrPurpose } from './asr.ts'
 export { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
 export type * from './types.ts'
@@ -155,7 +158,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     requestTimeoutMs: config.requestTimeoutMs, excerptChars: config.feedbackExcerptChars,
     readMessages: request => ctx.get('sessions')?.get(request.sessionId)?.deriveMessages(),
     secrets: () => feedbackSecrets(ctx) })
-  const service = ctx.plugin(MuseAccountService, { controller, asr, models, feedback, ...(remote === undefined ? {} : { remote }) })
+  const voiceSlots = new MuseVoiceSlotsClient({ baseUrl, sessionFile: join(accountHome, 'session.json'),
+    requestTimeoutMs: config.requestTimeoutMs })
+  const service = ctx.plugin(MuseAccountService, { controller, asr, models, feedback, voiceSlots,
+    ...(remote === undefined ? {} : { remote }) })
   await service.await()
 
   const server = fileURLToPath(new URL('./lib/types/mcp-server.js', import.meta.resolve('@deepseek-ai/dsh-muse-account/package.json')))

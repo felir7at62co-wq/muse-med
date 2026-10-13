@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { assetMethod } from '../src/methods.ts'
+import { encodeVoiceSlot } from '../src/voice-slot.ts'
+import { readVoiceCoordination, type VoiceCoordinator } from '../src/voice-coordination.ts'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -36,6 +38,7 @@ async function fixture(created: Record<string, unknown> | null = { id: 900100, n
         const selected = path.includes('assetType=4') ? assets.filter(row => row.assetType === 4) : assets
         return new Response(JSON.stringify({ code: 200, data: { total: selected.length, rows: selected } }), { status: 200 })
       }
+      if (init?.method === 'GET') return Response.json({ code: 200, data: assets.find(row => row.id === Number(path.split('/').at(-1))) ?? null })
       calls.push({ method: String(init?.method), path,
         body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined })
       if (created !== null) assets = [...assets, created]
@@ -117,4 +120,30 @@ it('does not resend a registration recorded under the same key', async () => {
   expect(second.replayed).toBe(true)
   expect(f.calls).toHaveLength(1)
   expect(second.created_asset_id).toBeNull()
+})
+
+
+it('dispatches shared character/period registration and reports actual project-bound slot identity', async () => {
+  const tag = encodeVoiceSlot(2708, 'zhou', 'adult'), name = '周海生声线', url = 'https://media.example/adult.wav'
+  const f = await fixture({ id: 900101, scriptId: 2708, assetType: 4, delFlag: '0', assetName: `${name} ${tag}`, url })
+  const voiceCoordinator: VoiceCoordinator = { async request(request) {
+    const state = request.action === 'acquire' ? 'reserved' : request.action === 'complete' ? 'ready' : 'submitted'
+    return readVoiceCoordination({ ...request, state, owner_operation: true, lease_id: 'a'.repeat(43),
+      ...(request.action === 'start' ? { started_now: true } : {}),
+      ...(request.action === 'complete' ? { asset: { asset_id: 900101, script_id: 2708, asset_type: 4, name: `${name} ${tag}`, url,
+        character_id: 'zhou', voice_period_id: 'adult', voice_slot_tag: tag } } : {}) }, request)
+  } }
+  const result = await assetMethod(f.client, f.ledger, { ...ARGS, asset_type: 4, asset_name: name, asset_url: url,
+    character_id: 'zhou', voice_period_id: 'adult', idempotency_key: 'shared-dispatch' }, { voiceCoordinator })
+  expect(result).toMatchObject({ canonical_voice_asset_id: 900101, registration_created_asset_id: 900101, reuse_current: false,
+    canonical_voice_asset: { character_id: 'zhou', voice_period_id: 'adult', voice_slot_tag: tag, url } })
+  expect(f.calls[0]?.body).toEqual({ scriptId: 2708, assetName: `${name} ${tag}`, assetType: 4, isLocal: 1, url })
+})
+
+it('does not dispatch a new shared-period POST without a coordination provider', async () => {
+  const f = await fixture()
+  expect(await assetMethod(f.client, f.ledger, { ...ARGS, asset_type: 4, asset_name: '声线',
+    asset_url: 'https://media.example/voice.wav', character_id: 'zhou', voice_period_id: 'adult',
+    idempotency_key: 'no-provider' })).toMatchObject({ status: 'coordination_unavailable' })
+  expect(f.calls).toEqual([])
 })

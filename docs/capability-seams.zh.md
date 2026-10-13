@@ -18,6 +18,9 @@ flowchart LR
   pkg_drama_settings["drama-settings"]
   svc_jubianToken["ctx.jubianToken<br/>Jubian credential settings"]
   pkg_muse_account["muse-account"]
+  svc_museAccount["ctx.museAccount<br/>Muse authenticated account operations"]
+  pkg_tool_audio_transcribe["tool-audio-transcribe"]
+  pkg_ui_muse_account["ui-muse-account"]
   svc_museDesktopBridge["ctx.museDesktopBridge<br/>Muse authenticated desktop tunnel"]
   pkg_dsh_bridge["dsh-bridge"]
   pkg_hmr["hmr"]
@@ -367,6 +370,7 @@ flowchart LR
   pkg_mcp_client --> svc_mcpResources
   pkg_mcp_resources --> svc_mcpResources
   pkg_message_feedback --> svc_messageFeedback
+  pkg_muse_account --> svc_museAccount
   pkg_muse_account --> svc_museDesktopBridge
   pkg_office_to_pdf --> svc_officeToPdf
   pkg_otel --> svc_otel
@@ -496,6 +500,9 @@ flowchart LR
   svc_llm --> pkg_compaction_basic
   svc_lsp --> pkg_tool_lsp
   svc_mcpResources --> pkg_mcp_resources
+  svc_museAccount --> pkg_tool_audio_transcribe
+  svc_museAccount --> pkg_tool_jubian
+  svc_museAccount --> pkg_ui_muse_account
   svc_museDesktopBridge --> pkg_muse_account
   svc_officeToPdf --> pkg_client_ui_sidebar_documentpreview
   svc_otel --> pkg_host_product_telemetry_otel
@@ -597,6 +604,7 @@ flowchart LR
 | `ctx.agentNotes` | `core` | [`api-agent-notes`](../packages/api/agent-notes) | - | [`api-remotes`](../packages/api/remotes), `client-ui-agent-notes` | - | 在配置根目录内列出和编辑已有笔记，使用文件系统版本检查；浏览器通过 Typert Remote 接收笔记内容。 |
 | `ctx.jubianImage` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`drama-settings`](../packages/drama/drama-settings) | - | 读取账号可访问的图像生成路由，不暴露凭据，也不提交付费任务。 |
 | `ctx.jubianToken` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | 通过已有凭据提供方描述、存储和清除凭据；浏览器仅接收状态，不接收保存的 token。 |
+| `ctx.museAccount` | `service` | [`muse-account`](../packages/host/muse-account) | - | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe), [`tool-jubian`](../packages/jubian/tool-jubian), `ui-muse-account` | - | Muse Account 同时拥有服务定义与 Host 实现；工具通过该服务使用已认证的转写与共享声线登记，账号界面使用公开 Remote 方法。声线槽传输仅供 Host 使用。 |
 | `ctx.museDesktopBridge` | `seam` | [`muse-account`](../packages/host/muse-account) | `dsh-bridge` | [`muse-account`](../packages/host/muse-account) | - | 钉住的桥接提供方创建账号绑定的本地 Host 隧道；Muse Account 负责连接刷新和资源释放，不取消智能体回合。 |
 | `ctx.hmr` | `core` | [`hmr`](../packages/boot/hmr) | - | [`app-boot`](../packages/boot/app-boot) | - | 负责模块和精确配置监听；应用修改共用其队列，自动重载等待应用文件锁。 |
 | `ctx.pluginRegistryProbe` | `core` | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | 在 Host 上并发比较公共安装源响应；初始安装源推荐由 Client 负责。 |

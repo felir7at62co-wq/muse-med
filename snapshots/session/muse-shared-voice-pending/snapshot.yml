@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-shared-voice-pending
+profile: headless
+composition: muse-shared-voice-pending
+recording: authored
+header:
+  class: muse-shared-voice-pending
+  pin: true
+writerOutput: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-shared-voice-fixture

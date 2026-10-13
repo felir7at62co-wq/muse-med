@@ -94,9 +94,10 @@ describe('product identifiers and module references', () => {
       .toBe('# The `cordis` preset\n- id: cordis\n  name: @deepseek-ai/cordis\n')
   })
 
-  it('preserves display-fixture preset ids while checking their module imports', () => {
+  it.each(['packages/preset/agent-preset-registry/tests/display.spec.ts', 'apps/web/tests/muse-drama-modes.e2e.ts'])
+  ('preserves %s preset ids while checking its module imports', (path) => {
     const text = "import 'cordis'\nconst preset = 'cordis'\n"
-    expect(rewriteRescopeReferences(text, 'packages/preset/agent-preset-registry/tests/display.spec.ts').text)
+    expect(rewriteRescopeReferences(text, path).text)
       .toBe("import '@deepseek-ai/cordis'\nconst preset = 'cordis'\n")
   })
 
