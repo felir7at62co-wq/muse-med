@@ -67,22 +67,44 @@ describe('MuseAccountSection', () => {
     expect(login).toHaveBeenCalledWith({ username: 'writer', password: 'private-password', registerIfMissing: false })
   })
 
-  it('checks an existing session on request and signs out', async () => {
+  it('revalidates an existing session after verification and reopening, then signs out', async () => {
     const status = vi.fn(async ({ verify }: MuseAccountStatusRequest) => ({
       ok: true as const,
       value: verify ? SIGNED_IN : { ...SIGNED_IN, verified: false },
     }))
     const logout = vi.fn(async () => ({ ok: true as const, value: SIGNED_OUT }))
-    render(<MuseAccountSection {...props({ status, logout })} />)
+    const account = props({ status, logout })
+    const page = render(<MuseAccountSection {...account} />)
 
-    expect(await screen.findByText('verificationPending')).toBeDefined()
-    expect(status).toHaveBeenCalledWith({ verify: false })
-    fireEvent.click(screen.getByRole('button', { name: 'verify' }))
     expect(await screen.findByText('verified')).toBeDefined()
-    expect(status).toHaveBeenCalledWith({ verify: true })
+    expect(status).toHaveBeenNthCalledWith(1, { verify: true })
+    fireEvent.click(screen.getByRole('button', { name: 'verify' }))
+    await waitFor(() => { expect(status).toHaveBeenCalledTimes(2) })
+    expect(status).toHaveBeenNthCalledWith(2, { verify: true })
+    page.unmount()
+    render(<MuseAccountSection {...account} />)
+    expect(await screen.findByText('verified')).toBeDefined()
+    expect(screen.queryByText('verificationPending')).toBeNull()
+    expect(status).toHaveBeenNthCalledWith(3, { verify: true })
     fireEvent.click(screen.getByRole('button', { name: 'signOut' }))
     expect(logout).toHaveBeenCalledTimes(1)
     expect(await screen.findByRole('button', { name: 'signIn' })).toBeDefined()
+  })
+
+  it('shows sign-in when the gateway rejects the session after reopening', async () => {
+    const status = vi.fn<MuseAccountInjected['status']>()
+      .mockResolvedValueOnce({ ok: true, value: SIGNED_IN })
+      .mockResolvedValueOnce({ ok: true, value: SIGNED_OUT })
+    const account = props({ status })
+    const page = render(<MuseAccountSection {...account} />)
+    expect(await screen.findByText('verified')).toBeDefined()
+    page.unmount()
+    render(<MuseAccountSection {...account} />)
+
+    expect(await screen.findByRole('button', { name: 'signIn' })).toBeDefined()
+    expect(status).toHaveBeenNthCalledWith(2, { verify: true })
+    expect(screen.queryByText('verified')).toBeNull()
+    expect(screen.queryByText('accountNamed')).toBeNull()
   })
 
   it('shows fixed copy for a login refusal without exposing the password', async () => {
@@ -98,15 +120,23 @@ describe('MuseAccountSection', () => {
     expect(screen.queryByText('private-password')).toBeNull()
   })
 
-  it('offers retry after a status refusal', async () => {
+  it('retries online verification when reopening after a successful check encounters a gateway outage', async () => {
     const status = vi.fn()
+      .mockResolvedValueOnce({ ok: true as const, value: SIGNED_IN })
       .mockResolvedValueOnce({ ok: false as const, code: 'muse-account/gateway-unavailable' })
-      .mockResolvedValueOnce({ ok: true as const, value: SIGNED_OUT })
-    render(<MuseAccountSection {...props({ status })} />)
+      .mockResolvedValueOnce({ ok: true as const, value: SIGNED_IN })
+    const account = props({ status })
+    const page = render(<MuseAccountSection {...account} />)
+    expect(await screen.findByText('verified')).toBeDefined()
+    page.unmount()
+    render(<MuseAccountSection {...account} />)
 
     expect(await screen.findByText('error.gatewayUnavailable')).toBeDefined()
+    expect(screen.queryByText('verified')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'retry' }))
-    await waitFor(() => { expect(screen.getByRole('button', { name: 'signIn' })).toBeDefined() })
+    expect(await screen.findByText('verified')).toBeDefined()
+    expect(status).toHaveBeenNthCalledWith(2, { verify: true })
+    expect(status).toHaveBeenNthCalledWith(3, { verify: true })
   })
 
   it('clears a password and permits a new sign-in after the Host connection drops', async () => {

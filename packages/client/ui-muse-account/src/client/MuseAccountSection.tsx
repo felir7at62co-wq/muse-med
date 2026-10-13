@@ -1,4 +1,4 @@
-/** MUSE account settings page. The Host returns identity and verification state without secrets. */
+/** MUSE account settings page. Each mount verifies the saved login through the Host without exposing secrets. */
 
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -52,7 +52,7 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
 
   useEffect(() => {
     let current = true
-    void status({ verify: false }).then((result) => {
+    void status({ verify: true }).then((result) => {
       if (!current) return
       if (result.ok) {
         setAccount(result.value)
@@ -63,11 +63,11 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
     return () => { current = false }
   }, [status])
 
-  const readStatus = async (verify: boolean): Promise<void> => {
+  const readStatus = async (): Promise<void> => {
     setBusy(true)
     setNotice(undefined)
     try {
-      const result = await status({ verify })
+      const result = await status({ verify: true })
       if (result.ok) setAccount(result.value)
       else setNotice(ERROR_COPY[result.code] ?? 'error.generic')
     } catch {
@@ -127,7 +127,7 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
       {account === undefined
         ? <div className={css.actions}>
           {notice === undefined ? <p className={css.status} aria-busy="true">{t('loading')}</p> : null}
-          {notice === undefined ? null : <Button disabled={busy} onClick={() => { void readStatus(false) }}>{t('retry')}</Button>}
+          {notice === undefined ? null : <Button disabled={busy} onClick={() => { void readStatus() }}>{t('retry')}</Button>}
         </div>
         : account.state === 'signed-in'
           ? <div className={css.group}>
@@ -135,7 +135,7 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
             <p className={css.status}>{t(account.verified ? 'verified' : 'verificationPending')}</p>
             {account.workspaceLabel === undefined ? null : <p className={css.status}>{t('workspaceNamed', { workspace: account.workspaceLabel })}</p>}
             <div className={css.actions}>
-              <Button disabled={busy} onClick={() => { void readStatus(true) }}>{t('verify')}</Button>
+              <Button disabled={busy} onClick={() => { void readStatus() }}>{t('verify')}</Button>
               <Button disabled={busy} onClick={() => { void signOut() }}>{t('signOut')}</Button>
             </div>
           </div>
