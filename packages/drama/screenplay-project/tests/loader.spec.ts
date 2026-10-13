@@ -72,6 +72,47 @@ it('uses real PTC model steps, exposes unprinted rereads and refuses same-step o
   expect(stderr).not.toContain('UNHANDLED')
 }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
+it.each([
+  { binding: 'apply', mutation: 'pre-init', denied: true },
+  { binding: 'after-ptc', mutation: 'pre-init', denied: false },
+  { binding: 'after-ptc', mutation: 'post-bind', denied: true },
+])('binds self-check video once after PTC preparation and rejects subsequent metadata changes: %j', async ({ binding, mutation, denied }) => {
+  const patch = fileURLToPath(new URL('./fixtures/self-check.cordis.yml', import.meta.url))
+  const { stdout, stderr } = await runLoaderSmoke({
+    label: 'screenplay self-check source-version preparation', tempDirPrefix: 'screenplay-self-check-version-',
+    binScript: fileURLToPath(new URL('../../../../apps/cli/src/bin.ts', import.meta.url)),
+    configPath: patch, binArgs: ['--profile', 'headless', '--patch', patch, '--json', '验证真实准备后的一次性视频版本绑定。'],
+    tsconfigPath: fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url)), sourceImport: 'tsx/esm', mode: 'src',
+    env: { SCREENPLAY_SELF_CHECK_FIXTURE_VIDEO_BINDING: binding, SCREENPLAY_SELF_CHECK_FIXTURE_VIDEO_MUTATION: mutation },
+    prepare: async (cwd) => { await writeFile(join(cwd, 'source.txt'), '甲想：钥匙在我手里。\n') },
+    inspect: async (cwd) => {
+      const witness = z.object({ binding: z.string(), mutation: z.string(), before_ptc_version: z.string(),
+        bound_version: z.string(), current_version: z.string(), before_sha256: z.string(), after_sha256: z.string(),
+      }).parse(JSON.parse(await readFile(join(cwd, 'self-check-video-binding.json'), 'utf8')))
+      expect(witness).toMatchObject({ binding, mutation })
+      expect(witness.before_sha256).toBe(witness.after_sha256)
+      const inspection = z.object({ source_version: z.string() }).parse(JSON.parse(await readFile(join(cwd, 'inspection.json'), 'utf8')))
+      expect(inspection.source_version).toBe(witness.bound_version)
+      const project = PROJECT_FILE.parse(JSON.parse(await readFile(join(cwd, 'project.json'), 'utf8')))
+      if (denied) {
+        expect(witness.current_version).not.toBe(witness.bound_version)
+        expect(project.sources).toHaveLength(1)
+        expect(project.sources[0]!.kind).toBe('text')
+        expect(project.facts).toEqual([])
+        expect(project.accepted).toEqual([])
+      } else {
+        expect(witness.before_ptc_version).not.toBe(witness.bound_version)
+        expect(witness.current_version).toBe(witness.bound_version)
+        expect(project.sources).toHaveLength(2)
+        expect(project.accepted).toEqual([project.candidates[0]!.id])
+      }
+    },
+  })
+  if (denied) expect(stdout).toContain('video_changed')
+  else expect(stdout).not.toContain('video_changed')
+  expect(stderr).not.toContain('UNHANDLED')
+}, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
 
 it('cold-resumes the same real session fail-closed for old visible rereads and approves only after fresh model-step reads', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'screenplay-cold-resume-'))
