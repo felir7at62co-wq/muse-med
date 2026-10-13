@@ -19,4 +19,4 @@ description: 用户提供抖音分享短链、视频页或带 modal_id 的作品
 
 输出位于 `source/media/douyin/`，旁边 `.source.json` 记录公开作品页、作品 ID、大小、时长、哈希、完整解码及脱敏来源证据，不含临时媒体地址或凭据。批量只有全成功为 complete，部分成功为 partial，其余 blocked。失败应报告确切缺项，不声称真实下载成功，也不泛化为所有抖音页面都不支持。
 
-取得已验证视频后加载 `audio-transcribe`，按任务加载 `transcript-to-script` 或 `transcript-to-novel`。把作品链接、原件路径和任务范围写入 `source/links.md`；转写放 `transcript/raw/`，核对稿放 `transcript/reviewed/`，大纲放 `outline/`，最终文件放 `final/`。不要要求用户重复上传已取得的文件；鉴权失败如实报告，不把重启说成已验证修法。
+取得已验证视频后按目标分流：视频转小说先加载 `transcript-to-novel`，优先复用已有字幕/转写，支持 OCR 时先用 `video_ocr` 识别画面文字；OCR 不支持或不可用时说明能力，只有用户明确授权本素材、用途和扣费后才沿既有 `audio-transcribe` 走 ASR 备用路径；OCR 失败或部分覆盖不能静默回退。视频转剧本先加载 `audio-transcribe`，保持 `purpose=screenplay` 的收据、恢复和计费流程，再加载 `transcript-to-script`。把作品链接、原件路径和任务范围写入 `source/links.md`；OCR/ASR 原始证据放 `transcript/raw/` 并标明来源，核对稿放 `transcript/reviewed/`，大纲放 `outline/`，最终文件放 `final/`。不要要求用户重复上传已取得的文件；鉴权失败如实报告，不把重启说成已验证修法。

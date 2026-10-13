@@ -4546,7 +4546,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-video-inspect`
 
 - `inject`: `tools` · `fs` · `subprocess` · `attachments` · `sandboxPolicy`
-- `source`: [`packages/perception/tool-video-inspect/src/index.ts:27`](../packages/perception/tool-video-inspect/src/index.ts)
+- `source`: [`packages/perception/tool-video-inspect/src/index.ts:28`](../packages/perception/tool-video-inspect/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-resolved media executables and inspection bounds. */
@@ -4557,6 +4557,8 @@ export interface Config {
   ffmpegPath: string
   /** Same-world FFprobe executable. */
   ffprobePath: string
+  /** Windows PowerShell executable used by the local OCR bridge. */
+  powershellPath: string
   /** Largest source file accepted, in bytes. */
   maxSourceBytes: number
   /** Largest encoded source image area accepted before decoding, in pixels. */
@@ -4605,6 +4607,42 @@ export interface Config {
   maxContactPixels: number
   /** Maximum complete overview-page bytes per call. */
   maxContactBytes: number
+  /** Default Windows OCR recognition language. */
+  ocrLanguage: 'auto' | 'zh-Hans-CN' | 'zh-Hant-TW' | 'en-US'
+  /** Default seconds between OCR frame samples. */
+  ocrFrameIntervalSeconds: number
+  /** Smallest allowed OCR frame spacing. */
+  ocrMinFrameIntervalSeconds: number
+  /** Largest allowed OCR frame spacing. */
+  ocrMaxFrameIntervalSeconds: number
+  /** Largest source interval scanned by one OCR call. */
+  ocrMaxRangeSeconds: number
+  /** Largest planned frame count in one OCR call. */
+  ocrMaxFrames: number
+  /** Largest frame count sent to one persistent OCR bridge process. */
+  ocrBatchFrames: number
+  /** Largest decoded OCR frame dimension. */
+  ocrFrameMaxDimension: number
+  /** FFmpeg JPEG quantizer used for OCR input frames. */
+  ocrFrameJpegQuality: number
+  /** Largest complete MJPEG extraction batch. */
+  maxOcrBatchImageBytes: number
+  /** Largest JSON input sent to the OCR bridge. */
+  maxOcrBridgeInputBytes: number
+  /** Largest JSON output accepted from the OCR bridge. */
+  maxOcrOutputBytes: number
+  /** Largest diagnostic output retained from OCR subprocesses. */
+  maxOcrDiagnosticBytes: number
+  /** Deadline for one OCR extraction or bridge batch. */
+  ocrCommandTimeoutMs: number
+  /** Minimum identical observations before labelling visual text persistence. */
+  ocrPersistentTextMinFrames: number
+  /** Minimum seconds identical text must persist before labelling. */
+  ocrPersistentTextMinSeconds: number
+  /** Minimum spatial overlap for identical text evidence. */
+  ocrOverlayMinIou: number
+  /** Maximum merged segments returned inline; full evidence remains in files. */
+  ocrPreviewSegments: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-video-inspect -->

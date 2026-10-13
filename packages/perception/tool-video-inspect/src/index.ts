@@ -14,6 +14,7 @@ import { adaptivePlan, sceneTimecodes, type AdaptivePlan } from './adaptive.ts'
 import { probeVideo, runMedia, type VideoMetadata } from './media.ts'
 import { installVideoEvidence } from './evidence.ts'
 import { applyContactSheets } from './contact.ts'
+import { applyVideoOcr } from './ocr.ts'
 
 export { resolveTrustedVideoEvidence, TRUSTED_VIDEO_INSPECTION_RECEIPT, type TrustedVideoInspectionReceipt } from './evidence.ts'
 
@@ -31,6 +32,8 @@ export interface Config {
   ffmpegPath: string
   /** Same-world FFprobe executable. */
   ffprobePath: string
+  /** Windows PowerShell executable used by the local OCR bridge. */
+  powershellPath: string
   /** Largest source file accepted, in bytes. */
   maxSourceBytes: number
   /** Largest encoded source image area accepted before decoding, in pixels. */
@@ -79,12 +82,49 @@ export interface Config {
   maxContactPixels: number
   /** Maximum complete overview-page bytes per call. */
   maxContactBytes: number
+  /** Default Windows OCR recognition language. */
+  ocrLanguage: 'auto' | 'zh-Hans-CN' | 'zh-Hant-TW' | 'en-US'
+  /** Default seconds between OCR frame samples. */
+  ocrFrameIntervalSeconds: number
+  /** Smallest allowed OCR frame spacing. */
+  ocrMinFrameIntervalSeconds: number
+  /** Largest allowed OCR frame spacing. */
+  ocrMaxFrameIntervalSeconds: number
+  /** Largest source interval scanned by one OCR call. */
+  ocrMaxRangeSeconds: number
+  /** Largest planned frame count in one OCR call. */
+  ocrMaxFrames: number
+  /** Largest frame count sent to one persistent OCR bridge process. */
+  ocrBatchFrames: number
+  /** Largest decoded OCR frame dimension. */
+  ocrFrameMaxDimension: number
+  /** FFmpeg JPEG quantizer used for OCR input frames. */
+  ocrFrameJpegQuality: number
+  /** Largest complete MJPEG extraction batch. */
+  maxOcrBatchImageBytes: number
+  /** Largest JSON input sent to the OCR bridge. */
+  maxOcrBridgeInputBytes: number
+  /** Largest JSON output accepted from the OCR bridge. */
+  maxOcrOutputBytes: number
+  /** Largest diagnostic output retained from OCR subprocesses. */
+  maxOcrDiagnosticBytes: number
+  /** Deadline for one OCR extraction or bridge batch. */
+  ocrCommandTimeoutMs: number
+  /** Minimum identical observations before labelling visual text persistence. */
+  ocrPersistentTextMinFrames: number
+  /** Minimum seconds identical text must persist before labelling. */
+  ocrPersistentTextMinSeconds: number
+  /** Minimum spatial overlap for identical text evidence. */
+  ocrOverlayMinIou: number
+  /** Maximum merged segments returned inline; full evidence remains in files. */
+  ocrPreviewSegments: number
 }
 
 /** Validated deployment knobs; argument defaults are resolved before media work. */
 export const Config: Schema<Partial<Config>, Config> = Schema.object({
   trustedEvidence: Schema.boolean().default(false),
   ffmpegPath: Schema.string().default('ffmpeg'), ffprobePath: Schema.string().default('ffprobe'),
+  powershellPath: Schema.string().default('powershell.exe'),
   maxSourceBytes: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(8 * 1024 * 1024 * 1024),
   maxSourcePixels: Schema.number().step(1).min(1).max(268_435_456).default(33_177_600),
   maxDurationSeconds: Schema.number().min(1).max(86_400).default(18_000),
@@ -109,6 +149,24 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   maxContactRangeSeconds: Schema.number().min(1).max(3600).default(300),
   maxContactPixels: Schema.number().step(1).min(1).max(33_177_600).default(16_000_000),
   maxContactBytes: Schema.number().step(1).min(1024).max(32 * 1024 * 1024).default(8 * 1024 * 1024),
+  ocrLanguage: Schema.union(['auto', 'zh-Hans-CN', 'zh-Hant-TW', 'en-US']).default('auto'),
+  ocrFrameIntervalSeconds: Schema.number().min(0.1).max(60).default(0.5),
+  ocrMinFrameIntervalSeconds: Schema.number().min(0.1).max(60).default(0.25),
+  ocrMaxFrameIntervalSeconds: Schema.number().min(0.1).max(300).default(30),
+  ocrMaxRangeSeconds: Schema.number().min(1).max(3600).default(120),
+  ocrMaxFrames: Schema.number().step(1).min(1).max(1000).default(240),
+  ocrBatchFrames: Schema.number().step(1).min(1).max(100).default(24),
+  ocrFrameMaxDimension: Schema.number().step(1).min(320).max(4096).default(1280),
+  ocrFrameJpegQuality: Schema.number().step(1).min(1).max(31).default(3),
+  maxOcrBatchImageBytes: Schema.number().step(1).min(1024).max(256 * 1024 * 1024).default(32 * 1024 * 1024),
+  maxOcrBridgeInputBytes: Schema.number().step(1).min(1024).max(384 * 1024 * 1024).default(48 * 1024 * 1024),
+  maxOcrOutputBytes: Schema.number().step(1).min(1024).max(64 * 1024 * 1024).default(8 * 1024 * 1024),
+  maxOcrDiagnosticBytes: Schema.number().step(1).min(1024).max(4 * 1024 * 1024).default(256 * 1024),
+  ocrCommandTimeoutMs: Schema.number().step(1).min(1000).max(600_000).default(120_000),
+  ocrPersistentTextMinFrames: Schema.number().step(1).min(2).max(1000).default(12),
+  ocrPersistentTextMinSeconds: Schema.number().min(1).max(3600).default(8),
+  ocrOverlayMinIou: Schema.number().min(0.1).max(1).default(0.7),
+  ocrPreviewSegments: Schema.number().step(1).min(1).max(100).default(12),
 })
 
 /** One decoded frame with its original source presentation timestamp. */
@@ -170,7 +228,7 @@ const plannedOutputSchema = { ...outputSchema, properties: { ...outputSchema.pro
 export function inspectionContent(value: VideoInspection): ContentBlock[] {
   const { frames, path, manifest_path, ...summary } = value
   const audioAdvice = value.has_audio
-    ? 'Discover audio_transcribe when dialogue or subtitles are required.' : 'No audio track was detected.'
+    ? 'Use audio_transcribe for spoken dialogue. Use video_ocr for visible or burned-in text.' : 'No audio track was detected; use video_ocr for visible text.'
   const content: ContentBlock[] = [{ type: 'text', text: JSON.stringify({ ...summary, frame_count: frames.length })
     + `\nVideo path: ${path}\nInspection manifest: ${manifest_path}`
     + `\nThese are sampled frames, not continuous viewing. Audio has not been transcribed. ${audioAdvice}` }]
@@ -197,6 +255,11 @@ async function imageRoute(ctx: Context, exec: ToolExecution): Promise<void> {
  */
 export function apply(ctx: Context, config: Config): void {
   if (config.defaultFrames > config.maxFrames) throw new Error('defaultFrames must not exceed maxFrames')
+  if (config.ocrMinFrameIntervalSeconds > config.ocrFrameIntervalSeconds
+    || config.ocrFrameIntervalSeconds > config.ocrMaxFrameIntervalSeconds) {
+    throw new Error('OCR frame interval bounds must contain ocrFrameIntervalSeconds')
+  }
+  if (config.ocrBatchFrames > config.ocrMaxFrames) throw new Error('ocrBatchFrames must not exceed ocrMaxFrames')
   const evidence = config.trustedEvidence ? installVideoEvidence(ctx) : undefined
   let disposed = false
   const active = new Map<AbortController, Promise<void>>()
@@ -215,12 +278,13 @@ export function apply(ctx: Context, config: Config): void {
     finally { active.delete(owner); completion.resolve() }
   }
   applyContactSheets(ctx, config, { run, imageRoute: exec => imageRoute(ctx, exec) })
+  applyVideoOcr(ctx, config, { run })
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'video_inspect',
     description: 'Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. '
       + 'Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. '
       + 'strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. '
-      + 'For dialogue and subtitles, discover audio_transcribe.',
+      + 'Use audio_transcribe for spoken dialogue and video_ocr for visible or burned-in text.',
     parameters: {
       file_path: { type: 'string', required: true, description: 'Local video path in the current Session filesystem.' },
       method: { type: 'string', enum: ['metadata', 'sample'], description: 'Default sample returns frames; metadata only probes source facts without image input.' },

@@ -68,7 +68,7 @@ export function apply(ctx) {
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
-      'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present', 'video_contact_sheet',
+      'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present', 'video_contact_sheet', 'video_ocr',
       process.platform === 'win32' ? 'pwsh' : 'bash']
       : id === 'minimal' ? [shell]
         : id === 'editing' ? ['read', 'skill', shell, 'present',
@@ -76,7 +76,7 @@ export function apply(ctx) {
           'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
           'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
           'mcp__muse-account__muse_kb_ingest_script']
-        : id === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'video_contact_sheet',
+        : id === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'video_contact_sheet', 'video_ocr',
           'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir',
           'jubian_find', 'jubian_claim', 'jubian_snatch',
           'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
@@ -161,10 +161,15 @@ export function apply(ctx) {
           throw new Error('desktop runtime: missing editing method guide ' + name)
         }
       }
-      for (const script of ['doctor.py', 'discover.py', 'harvest.py', 'drive.py', 'finalize.py', 'win_bridge.ps1', 'ocr_bridge.ps1']) {
+      for (const script of ['doctor.py', 'discover.py', 'harvest.py', 'drive.py', 'finalize.py', 'win_bridge.ps1']) {
         if (!existsSync(join(productSkills, 'wechat-shortdrama-harvest', 'scripts', script))) {
           throw new Error('desktop runtime: missing WeChat helper ' + script)
         }
+      }
+      if (process.platform === 'win32') {
+        const ocrBridge = join(root, 'node_modules', '@deepseek-ai', 'dsh-tool-video-inspect', 'scripts', 'ocr_bridge.ps1')
+          .replace(/([\\\\/])app\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
+        if (!existsSync(ocrBridge)) throw new Error('desktop runtime: missing packaged video OCR bridge')
       }
       if (!existsSync(join(productSkills, 'audio-transcribe', 'scripts', 'transcribe.py'))) {
         throw new Error('desktop runtime: missing shared Muse transcription script')

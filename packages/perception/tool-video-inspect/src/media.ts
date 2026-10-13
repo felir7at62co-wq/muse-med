@@ -22,7 +22,7 @@ export interface MediaOutput {
  * @returns Complete stdout and bounded diagnostics from a successful command.
  */
 export async function runMedia(ctx: Context, argv: readonly string[], policy: SandboxExecutionPolicy, signal: AbortSignal | undefined,
-  limits: { timeoutMs: number; maxBytes: number; graceMs: number }): Promise<MediaOutput> {
+  limits: { timeoutMs: number; maxBytes: number; graceMs: number; maxDiagnosticBytes?: number; stdin?: string }): Promise<MediaOutput> {
   const controller = new AbortController()
   const timer = setTimeout(() => { controller.abort(new Error('Video inspection command timed out')) }, limits.timeoutMs)
   const operation = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal
@@ -36,7 +36,8 @@ export async function runMedia(ctx: Context, argv: readonly string[], policy: Sa
       command = (await sandbox.confine(argv, { ...policy, mode: policy.mode }, operation)).argv
     }
     child = ctx.subprocess.spawn({ argv: command, cwd: policy.workspaceRoot, graceMs: limits.graceMs, signal: operation,
-      stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: 32_768 } },
+      stdio: { stdin: limits.stdin === undefined ? 'ignore' : { data: limits.stdin }, stdout: 'pipe',
+        stderr: { maxBytes: limits.maxDiagnosticBytes ?? 32_768 } },
     })
     // Attach rejection handling before reading stdout; a spawn failure can settle first.
     const done = child.done.then(outcome => ({ outcome }), (error: unknown) => ({ error }))

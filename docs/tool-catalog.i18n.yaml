@@ -9,7 +9,7 @@
   en: 8578d3ecd3382486
   zh: 94503b6b13de09f7
 /tool-schema-catalog/tool-package-map:
-  en: ee46a39ba2556062
+  en: 26d20aa32578ffae
   zh: ed0dc4b33ca8e0e3
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
@@ -75,8 +75,11 @@
   en: fad008633b25483d
   zh: 70745c9c2dd03d02
 /tool-schema-catalog/deepseek-ai-dsh-tool-video-inspect/video-inspect:
-  en: 3094460252510b6b
-  zh: 3818966a84bf1fe5
+  en: 4eb1332a3b7837bd
+  zh: db5d621562a315d1
+/tool-schema-catalog/deepseek-ai-dsh-tool-video-inspect/video-ocr:
+  en: 03d6bab91d1bd265
+  zh: 1652456e4fb1f85d
 /tool-schema-catalog/deepseek-ai-dsh-tools:
   en: 76fbbf0fe38aef10
   zh: 76fbbf0fe38aef10

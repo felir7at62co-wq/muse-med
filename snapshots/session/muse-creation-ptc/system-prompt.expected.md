@@ -4,7 +4,7 @@ You are an AI agent powered by DeepSeek Harness.
 
 ## 创作共用规则
 
-先核对用户目标、授权范围、已有项目与实际产物，只推进所需阶段。转写或字幕选 audio-transcribe；剧本按来源选 novel-to-script 或 transcript-to-script； 短剧制作选 tweet-drama-pipeline；普通剪辑先核对素材再用现有 FFmpeg 工具，不强制完整短剧流程。其他专业技能按自动目录按需选择； 需要精修、批注对账、修改说明模板或详细 QA 清单时再加载 muse-creation。
+先核对用户目标、授权范围、已有项目与实际产物，只推进所需阶段。视频画面文字先复用已有字幕/转写，支持时用 video_ocr；本机 OCR 不支持或不可用时说明能力，只有已有明确 ASR 授权才走 audio-transcribe，不自动扣费或混淆来源。音频对白与视频转剧本用 audio-transcribe；剧本按来源选 novel-to-script 或 transcript-to-script； 短剧制作选 tweet-drama-pipeline；普通剪辑先核对素材再用现有 FFmpeg 工具，不强制完整短剧流程。其他专业技能按自动目录按需选择； 需要精修、批注对账、修改说明模板或详细 QA 清单时再加载 muse-creation。
 
 各任务按阶段执行：产出并返回可读证据 → 下一模型轮检查 → 修正并重读复检 → 继续依赖阶段或交付。机器先检查格式、引用、覆盖与摘要； 需要模型判断的内容须实际进入上下文后再检查，图片须实际看过，语音须有试听依据。明确记录 self-check、输入输出版本、实际检查范围及未完成项； 不为每个小工具强加新回合，不以文件存在、工具成功、关键词检查或计划冒充完成。
 
@@ -1342,7 +1342,7 @@ interface ToolArgsMap {
     /** New JSON manifest inside the workspace. Existing files are never replaced. */
     manifest_path?: string;
   } & Record<string, JsonValue>;
-  /** Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. For dialogue and subtitles, discover audio_transcribe. */
+  /** Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. Use audio_transcribe for spoken dialogue and video_ocr for visible or burned-in text. */
   video_inspect: {
     /** Local video path in the current Session filesystem. */
     file_path: string;
@@ -1362,6 +1362,23 @@ interface ToolArgsMap {
     timestamps_seconds?: number[];
     /** Optional new JSON output path inside the current workspace; default .muse/video-inspections/<unique-id>.json. An existing file is never replaced. */
     manifest_path?: string;
+  } & Record<string, JsonValue>;
+  /** Recognize visible text from bounded, timestamped samples of a local video with Windows OCR. Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. A partial or failed scan is indeterminate, never proof that the video has no subtitles. Persistent text remains a content candidate; visual persistence does not identify watermarks or non-narrative text. This tool never invokes audio transcription. */
+  video_ocr: {
+    /** Local video path in the current Session filesystem. */
+    file_path: string;
+    /** Inclusive source range start; default 0. */
+    start_seconds?: number;
+    /** Exclusive source range end; default video end. One call scans at most 120s and 240 frames; continue from next_start_seconds. */
+    end_seconds?: number;
+    /** OCR sample spacing; default 0.5s. */
+    frame_interval_seconds?: number;
+    /** Windows OCR language; default auto. Missing requested language returns an explicit failure and never falls back to ASR. */
+    language?: "auto" | "zh-Hans-CN" | "zh-Hant-TW" | "en-US";
+    /** Optional new raw evidence JSON path inside the workspace. Existing files are never replaced. */
+    raw_json_path?: string;
+    /** Optional new timestamped text path inside the workspace. Existing files are never replaced. */
+    merged_text_path?: string;
   } & Record<string, JsonValue>;
   /** Fetch the content of a specific HTTP(S) URL and return it decoded to text. */
   web_fetch: {
@@ -2572,6 +2589,49 @@ interface ToolOutputMap {
       start_seconds: number;
       end_seconds: number;
     }[];
+  };
+  video_ocr: {
+    path: string;
+    source_version: string;
+    duration_seconds: number;
+    text_source: "ocr";
+    interval: {
+      start_seconds: number;
+      end_seconds: number;
+    };
+    scan_status: "complete" | "partial" | "failed";
+    text_status: "candidate_text_detected" | "no_text_detected" | "indeterminate";
+    coverage: {
+      planned_frame_count: number;
+      processed_frame_count: number;
+      failed_frame_count: number;
+      frame_interval_seconds: number;
+      scanned_ranges: {
+        start_seconds: number;
+        end_seconds: number;
+      }[];
+      unscanned_ranges: {
+        start_seconds: number;
+        end_seconds: number;
+        reason: "deployment_limit";
+      }[];
+      failed_timestamps_seconds: number[];
+    };
+    segment_count: number;
+    persistent_text_count: number;
+    preview_segments: ({
+      start_seconds: number;
+      end_seconds: number;
+      text: string;
+      classification: "content_candidate" | "persistent_text_candidate";
+      evidence_frame_count: number;
+    })[];
+    raw_json_path: string;
+    merged_text_path: string;
+    language_requested: "auto" | "zh-Hans-CN" | "zh-Hant-TW" | "en-US";
+    language_used?: string;
+    failure_code?: "windows_only" | "ocr_runtime_unavailable" | "language_unavailable" | "ocr_engine_unavailable";
+    next_start_seconds?: number;
   };
   web_fetch: {
     url: string;
