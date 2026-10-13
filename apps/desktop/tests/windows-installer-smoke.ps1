@@ -12,6 +12,7 @@ $installPath = Join-Path $OutputDirectory 'Installed App'
 $appPath = Join-Path $installPath ($ProductName + '.exe')
 $uninstaller = Join-Path $installPath ('Uninstall ' + $ProductName + '.exe')
 $processes = [Collections.Generic.List[Diagnostics.Process]]::new()
+$processHandles = [Collections.Generic.Dictionary[int, IntPtr]]::new()
 $results = [Collections.Generic.List[string]]::new()
 $primaryFailure = $null
 $cleanupFailures = [Collections.Generic.List[System.Management.Automation.ErrorRecord]]::new()
@@ -25,6 +26,21 @@ $localizedCopy = @{ ENGLISH = @{}; SIMPCHINESE = @{} }
 Get-Content (Join-Path $PSScriptRoot '../installer/strings.nsh') -Encoding UTF8 | ForEach-Object {
     if ($_ -match '^LangString (INSTALLER_\w+) \$\{LANG_(ENGLISH|SIMPCHINESE)\} "(.*)"$') {
         $localizedCopy[$Matches[2]][$Matches[1]] = $Matches[3]
+    }
+}
+function Start-TestProcess([string]$FilePath, [string]$Arguments = '', [Diagnostics.ProcessWindowStyle]$WindowStyle = 'Hidden') {
+    $parameters = @{ FilePath = $FilePath; PassThru = $true; WindowStyle = $WindowStyle }
+    if ($Arguments) { $parameters.ArgumentList = $Arguments }
+    $process = Start-Process @parameters
+    try {
+        $processHandles.Add($process.Id, [InstallerCapture]::RetainProcessHandle($process))
+        $processes.Add($process)
+        return $process
+    } catch {
+        $acquisitionFailure = $_
+        [void]$processes.Remove($process)
+        try { Stop-TestProcess $process } catch { $cleanupFailures.Add($_) }
+        throw $acquisitionFailure
     }
 }
 function Wait-Control([Diagnostics.Process]$Process, [string]$Text, [switch]$Dialog, [switch]$Button) {
@@ -43,8 +59,7 @@ function Start-Setup([string]$Theme, [string]$Path = $installPath, [string]$Extr
     $arguments = '/THEME=' + $Theme
     if ($ExtraArguments) { $arguments += ' ' + $ExtraArguments }
     if ($Path) { $arguments += ' /D=' + $Path }
-    $process = Start-Process -FilePath $Installer -ArgumentList $arguments -PassThru -WindowStyle Normal
-    $processes.Add($process)
+    $process = Start-TestProcess $Installer $arguments Normal
     $timer = [Diagnostics.Stopwatch]::StartNew()
     do {
         if ($process.HasExited) { throw "Setup exited: $($process.ExitCode)" }
@@ -155,11 +170,52 @@ function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$The
         if ($timer.Elapsed.TotalSeconds -gt 2) { throw 'Finish did not dismiss the installer promptly' }
         Start-Sleep -Milliseconds 25
     }
-    if (-not $Process.WaitForExit(10000) -or $Process.ExitCode -ne 0) { throw 'Finish did not exit successfully' }
+    $waitTimer = [Diagnostics.Stopwatch]::StartNew()
+    $waitReturned = $null
+    $waitError = $null
+    try { $waitReturned = $Process.WaitForExit(10000) } catch { $waitError = $_.ToString() }
+    $waitTimer.Stop()
+    $handle = $processHandles[$Process.Id]
+    $observation = [InstallerCapture]::ObserveProcessExit($Process, $handle)
+    $visibleDump = $null
+    $visibleDumpError = $null
+    try { $visibleDump = [InstallerCapture]::VisibleText($Process.Id) } catch { $visibleDumpError = $_.ToString() }
+    $exitReceipt = [ordered]@{
+        theme = $Theme
+        launch = $Launch
+        processId = $Process.Id
+        processHandle = $handle.ToInt64()
+        windowHandle = $window.ToInt64()
+        windowExists = [InstallerCapture]::IsWindow($window)
+        windowVisible = [InstallerCapture]::IsWindowVisible($window)
+        waitReturned = $waitReturned
+        waitElapsedMs = $waitTimer.ElapsedMilliseconds
+        waitError = $waitError
+        managedHasExited = $observation.ManagedHasExited
+        managedHasExitedError = $observation.ManagedHasExitedError
+        managedExitCode = $observation.ManagedExitCode
+        managedExitCodeError = $observation.ManagedExitCodeError
+        nativeWaitResult = $observation.NativeWaitResult
+        nativeExitCode = $observation.NativeExitCode
+        nativeWin32Error = $observation.NativeWin32Error
+        visibleTextDump = $visibleDump
+        visibleTextDumpError = $visibleDumpError
+    } | ConvertTo-Json -Compress
+    [IO.File]::AppendAllText((Join-Path $OutputDirectory 'finish-exit.jsonl'),
+        $exitReceipt + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    Write-Output "Installer finish exit: $exitReceipt"
+    if ($waitError -or $waitReturned -ne $true) { throw "Finish wait failed for PID $($Process.Id): returned=$waitReturned error=$waitError" }
+    if ($observation.ManagedHasExited -ne $true -or $observation.ManagedHasExitedError -or
+        $observation.ManagedExitCodeError -or $null -eq $observation.ManagedExitCode -or $observation.ManagedExitCode -ne 0) {
+        throw "Finish managed exit failed for PID $($Process.Id): code=$($observation.ManagedExitCode) error=$($observation.ManagedExitCodeError)"
+    }
+    if ($observation.NativeWaitResult -ne 0 -or $null -ne $observation.NativeWin32Error -or
+        $null -eq $observation.NativeExitCode -or $observation.NativeExitCode -ne 0) {
+        throw "Finish native exit disagrees for PID $($Process.Id): wait=$($observation.NativeWaitResult) code=$($observation.NativeExitCode) Win32=$($observation.NativeWin32Error)"
+    }
 }
 function Run-Silent([string]$Arguments, [int]$Code) {
-    $process = Start-Process -FilePath $Installer -ArgumentList $Arguments -PassThru -WindowStyle Hidden
-    $processes.Add($process)
+    $process = Start-TestProcess $Installer $Arguments
     if (-not $process.WaitForExit(60000)) { throw 'Silent setup did not exit' }
     if ($process.ExitCode -ne $Code) { throw "Silent setup returned $($process.ExitCode), expected $Code" }
 }
@@ -182,6 +238,7 @@ function Stop-TestProcess([Diagnostics.Process]$Process) {
         }
         if (-not $Process.WaitForExit(10000)) { throw "Test process $($Process.Id) did not exit during cleanup" }
     } finally {
+        [void]$processHandles.Remove($Process.Id)
         $Process.Dispose()
     }
 }
@@ -301,8 +358,7 @@ try {
         Dismiss $Setup $copy.INSTALLER_RUNNING
         if (-not $Setup.WaitForExit(10000) -or $Setup.ExitCode -ne 2 -or $app.HasExited) { throw 'Running application was not preserved' }
     }
-    $process = Start-Process -FilePath $Installer -ArgumentList ('/THEME=dark /D=' + $installPath) -PassThru -WindowStyle Hidden
-    $processes.Add($process)
+    $process = Start-TestProcess $Installer ('/THEME=dark /D=' + $installPath)
     Assert-RunningRejected $process
     $results.Add('running-app-rejected-before-welcome-and-extraction')
     Run-Silent ('/S /D=' + $installPath) 2
@@ -313,8 +369,7 @@ try {
     if (-not $app.WaitForExit(10000)) { throw 'Test application did not exit' }
 
     $process = Start-Setup dark
-    $app = Start-Process -FilePath $appPath -PassThru -WindowStyle Hidden
-    $processes.Add($app)
+    $app = Start-TestProcess $appPath
     [void](Wait-Control $app 'Installer test application is running.' -Dialog)
     Click-Control $process $copy.INSTALLER_INSTALL
     Assert-RunningRejected $process
@@ -326,8 +381,7 @@ try {
     New-Item -ItemType Directory -Path $otherPath | Out-Null
     $otherApp = Join-Path $otherPath ($ProductName + '.exe')
     Copy-Item -LiteralPath $appPath -Destination $otherApp
-    $otherProcess = Start-Process -FilePath $otherApp -PassThru -WindowStyle Hidden
-    $processes.Add($otherProcess)
+    $otherProcess = Start-TestProcess $otherApp
     [void](Wait-Control $otherProcess 'Installer test application is running.' -Dialog)
     Run-Silent '/S --updated' 0
     if ($otherProcess.HasExited) { throw 'Unrelated installation was stopped' }
@@ -339,8 +393,7 @@ try {
     $results.Add('silent-update-retains-directory-and-ignores-unrelated-process')
     # The /S argument models older Muse updaters; this automatic restart must still expose installation progress.
     Set-RegisteredPathForUpdate ($installPath + '\\')
-    $process = Start-Process -FilePath $Installer -ArgumentList '/S --updated --force-run /THEME=dark' -PassThru -WindowStyle Hidden
-    $processes.Add($process)
+    $process = Start-TestProcess $Installer '/S --updated --force-run /THEME=dark'
     $window = [InstallerCapture]::Find($process.Id)
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $observedProgress = $false
@@ -411,8 +464,7 @@ try {
     $results.Add('manual-reboot-required-disables-launch')
 
     if (Test-Path -LiteralPath $launchMarker) { Remove-Item -LiteralPath $launchMarker }
-    $process = Start-Process -FilePath $Installer -ArgumentList '/S --updated --force-run /TEST_REBOOT_REQUIRED=1 /THEME=dark' -PassThru -WindowStyle Hidden
-    $processes.Add($process)
+    $process = Start-TestProcess $Installer '/S --updated --force-run /TEST_REBOOT_REQUIRED=1 /THEME=dark'
     Finish-RebootSetup $process
     $results.Add('automatic-update-reboot-required-disables-launch')
 
@@ -454,7 +506,7 @@ try {
     if ($uninstallerExists) {
         $uninstallProcess = $null
         try {
-            $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList '/S' -PassThru -WindowStyle Hidden
+            $uninstallProcess = Start-TestProcess $uninstaller '/S'
             if (-not $uninstallProcess.WaitForExit(60000)) { throw 'Test uninstaller timed out' }
             $uninstallExitCode = $uninstallProcess.ExitCode
             if ($uninstallExitCode -ne 0) { throw "Test uninstaller returned $uninstallExitCode" }

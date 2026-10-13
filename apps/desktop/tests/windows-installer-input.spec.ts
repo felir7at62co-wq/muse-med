@@ -27,6 +27,43 @@ function buttonReadinessFailures(helper: string, scenario: string): string[] {
   return Object.entries(requirements).filter(([, satisfied]) => !satisfied).map(([name]) => name)
 }
 
+function exitObservationFailures(helper: string, scenario: string): string[] {
+  const start = scenario.slice(scenario.indexOf('function Start-TestProcess('), scenario.indexOf('function Wait-Control('))
+  const finish = scenario.slice(scenario.indexOf('function Finish-Setup('), scenario.indexOf('function Run-Silent('))
+  const recorded = finish.indexOf('[IO.File]::AppendAllText')
+  const waitFailure = finish.indexOf('if ($waitError -or $waitReturned -ne $true)')
+  const managedFailure = finish.indexOf('if ($observation.ManagedHasExited -ne $true')
+  const nativeFailure = finish.indexOf('if ($observation.NativeWaitResult -ne 0')
+  const requirements: Record<string, boolean> = {
+    retainedOwnedHandle: helper.includes('IntPtr handle = process.Handle;') && !/CloseHandle|OpenProcess\(/u.test(helper)
+      && start.includes('$processHandles.Add($process.Id, [InstallerCapture]::RetainProcessHandle($process))')
+      && start.indexOf('$processes.Add($process)') > start.indexOf('RetainProcessHandle($process)'),
+    acquisitionFailureCleanup: start.includes('$acquisitionFailure = $_') && start.includes('[void]$processes.Remove($process)')
+      && start.includes('try { Stop-TestProcess $process } catch { $cleanupFailures.Add($_) }')
+      && start.includes('throw $acquisitionFailure'),
+    oneLaunchOwner: (scenario.match(/\bStart-Process\b/gu) ?? []).length === 1 && start.includes('Start-Process @parameters')
+      && scenario.includes('[void]$processHandles.Remove($Process.Id)\n        $Process.Dispose()'),
+    originalWait: finish.includes('$waitReturned = $Process.WaitForExit(10000)') && waitFailure >= 0,
+    nonblockingNative: helper.includes('WaitForSingleObject(handle, 0)')
+      && helper.includes('else if (result.NativeWaitResult == 0) {\n            uint code;\n            if (GetExitCodeProcess(handle, out code))'),
+    nativeErrors: helper.includes('result.NativeWaitResult == UInt32.MaxValue')
+      && (helper.match(/result.NativeWin32Error = Marshal.GetLastWin32Error\(\);/gu) ?? []).length === 2,
+    managedFailurePreserved: managedFailure > waitFailure && nativeFailure > managedFailure
+      && finish.includes('$observation.ManagedHasExitedError -or') && finish.includes('$observation.ManagedExitCodeError -or')
+      && finish.includes('$null -eq $observation.ManagedExitCode -or $observation.ManagedExitCode -ne 0'),
+    nativeZeroRequired: nativeFailure >= 0 && finish.includes('$null -ne $observation.NativeWin32Error -or')
+      && finish.includes('$null -eq $observation.NativeExitCode -or $observation.NativeExitCode -ne 0'),
+    receiptBeforeFailure: recorded >= 0 && recorded < waitFailure && finish.includes("'finish-exit.jsonl'")
+      && finish.includes('[Text.UTF8Encoding]::new($false)')
+      && ['theme = $Theme', 'launch = $Launch', 'processId = $Process.Id', 'processHandle = $handle.ToInt64()',
+        'windowHandle = $window.ToInt64()', 'waitReturned = $waitReturned', 'waitElapsedMs = $waitTimer.ElapsedMilliseconds',
+        'managedHasExited = $observation.ManagedHasExited', 'managedExitCode = $observation.ManagedExitCode',
+        'nativeWaitResult = $observation.NativeWaitResult', 'nativeExitCode = $observation.NativeExitCode',
+        'nativeWin32Error = $observation.NativeWin32Error', 'visibleTextDump = $visibleDump'].every(field => finish.includes(field)),
+  }
+  return Object.entries(requirements).filter(([, satisfied]) => !satisfied).map(([name]) => name)
+}
+
 function inputEvidenceFailures(helper: string, scenario: string): string[] {
   const action = scenario.slice(scenario.indexOf('function Set-PathInput('), scenario.indexOf('function Finish-Setup('))
   const recorded = action.indexOf('[IO.File]::AppendAllText')
@@ -57,6 +94,25 @@ function inputEvidenceFailures(helper: string, scenario: string): string[] {
 }
 
 describe('Windows installer input evidence source preflight', () => {
+  it('retains the Process-owned handle at launch and records strict managed/native exit evidence before failure', () => {
+    expect(exitObservationFailures(ui, smoke)).toEqual([])
+  })
+
+  it.each([
+    ['missing handle', ui.replace('IntPtr handle = process.Handle;', 'IntPtr handle = IntPtr.Zero;'), smoke, 'retainedOwnedHandle'],
+    ['borrowed handle closed', ui + '\nCloseHandle(handle);', smoke, 'retainedOwnedHandle'],
+    ['failed handle acquisition leaked', ui, smoke.replace('try { Stop-TestProcess $process } catch', 'try { } catch'), 'acquisitionFailureCleanup'],
+    ['native second wait', ui.replace('WaitForSingleObject(handle, 0)', 'WaitForSingleObject(handle, 10000)'), smoke, 'nonblockingNative'],
+    ['unsignaled exit read', ui.replace('else if (result.NativeWaitResult == 0)', 'else if (true)'), smoke, 'nonblockingNative'],
+    ['missing Win32 error', ui.replaceAll('result.NativeWin32Error = Marshal.GetLastWin32Error();', 'result.NativeWin32Error = 0;'), smoke, 'nativeErrors'],
+    ['wait timeout forgiven', ui, smoke.replace('if ($waitError -or $waitReturned -ne $true)', 'if ($waitError)'), 'originalWait'],
+    ['managed null accepted', ui, smoke.replace('$null -eq $observation.ManagedExitCode -or', ''), 'managedFailurePreserved'],
+    ['native nonzero accepted', ui, smoke.replace('$observation.NativeExitCode -ne 0', '$observation.NativeExitCode -lt 0'), 'nativeZeroRequired'],
+    ['no durable exit receipt', ui, smoke.replace("'finish-exit.jsonl'", "'unused.jsonl'"), 'receiptBeforeFailure'],
+  ])('rejects %s exit observation regression', (_name, helper, scenario, requirement) => {
+    expect(exitObservationFailures(helper, scenario)).toContain(requirement)
+  })
+
   it('uses exact Button lookup for waits and clicks while retaining disabled checkbox and dialog lookup', () => {
     expect(buttonReadinessFailures(ui, smoke)).toEqual([])
   })
@@ -142,7 +198,7 @@ describe('Windows installer input evidence source preflight', () => {
     expect(smoke).toContain('Set-ItemProperty -LiteralPath $key -Name InstallLocation -Value $Path')
     expect(smoke).toContain('if ((Get-ItemProperty -LiteralPath $key).InstallLocation -cne $Path)')
     expect(smoke).toMatch(/Set-RegisteredPathForUpdate \(\$installPath \+ '\\'\)\s+\$process = Start-Setup dark ''/u)
-    expect(smoke).toMatch(/Set-RegisteredPathForUpdate \(\$installPath \+ '\\\\'\)\s+\$process = Start-Process/u)
+    expect(smoke).toMatch(/Set-RegisteredPathForUpdate \(\$installPath \+ '\\\\'\)\s+\$process = Start-TestProcess/u)
     expect(smoke).toContain('$registration.InstallLocation -cne $installPath')
     expect(smoke).toContain("throw 'Automatic update did not canonicalize historical InstallLocation'")
     expect(smoke).not.toContain('$registration.InstallLocation.TrimEnd')

@@ -9,6 +9,44 @@ using System.Text;
 
 public static class InstallerCapture {
     public static string ProductName;
+    [DllImport("kernel32.dll", SetLastError = true)] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+
+    public sealed class ProcessExitObservation {
+        public bool? ManagedHasExited;
+        public int? ManagedExitCode;
+        public string ManagedHasExitedError, ManagedExitCodeError;
+        public uint NativeWaitResult;
+        public uint? NativeExitCode;
+        public int? NativeWin32Error;
+    }
+
+    // The Process owns this borrowed handle until its existing Dispose cleanup.
+    public static IntPtr RetainProcessHandle(System.Diagnostics.Process process) {
+        IntPtr handle = process.Handle;
+        if (handle == IntPtr.Zero) throw new InvalidOperationException("Test process has no retained handle");
+        return handle;
+    }
+
+    public static ProcessExitObservation ObserveProcessExit(System.Diagnostics.Process process, IntPtr handle) {
+        var result = new ProcessExitObservation();
+        try { result.ManagedHasExited = process.HasExited; }
+        catch (Exception error) { result.ManagedHasExitedError = error.ToString(); }
+        if (result.ManagedHasExited == true) {
+            try { result.ManagedExitCode = process.ExitCode; }
+            catch (Exception error) { result.ManagedExitCodeError = error.ToString(); }
+        }
+        result.NativeWaitResult = WaitForSingleObject(handle, 0);
+        if (result.NativeWaitResult == UInt32.MaxValue) {
+            result.NativeWin32Error = Marshal.GetLastWin32Error();
+        } else if (result.NativeWaitResult == 0) {
+            uint code;
+            if (GetExitCodeProcess(handle, out code)) result.NativeExitCode = code;
+            else result.NativeWin32Error = Marshal.GetLastWin32Error();
+        }
+        return result;
+    }
+
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
     public static void Initialize() { SetProcessDPIAware(); }
     public delegate bool WindowCallback(IntPtr window, IntPtr data);

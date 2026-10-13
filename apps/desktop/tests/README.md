@@ -6,6 +6,8 @@ The Muse package workflow also exercises the production Windows NSIS pages with 
 
 Button and checkbox waits use the native button class and exact localized text, including disabled launch checkboxes. Dialog messages and status labels are identified separately; one caption containing another does not signal button readiness.
 
+Private test processes retain their Process-owned handles from launch until cleanup. Finish records its ten-second wait result, managed exit state and getter errors, and a nonblocking native exit observation in `finish-exit.jsonl` before reporting failure. Acceptance requires the wait to succeed and both observations to report exit code zero; a native result cannot replace a missing or failed managed observation.
+
 ## Summary
 
 Local download and mandatory-dialog evidence is separate from production backend integration, visual acceptance, and installed-application upgrades. Run the command in the [Desktop README](../README.md) to produce a fresh isolated report.
