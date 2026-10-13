@@ -1,8 +1,15 @@
 {
   "name": "@deepseek-ai/dsh-tool-character-reference",
   "version": "0.2.1-alpha.1",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/drama/tool-character-reference"
+  },
   "license": "MIT",
-  "private": true,
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -11,6 +18,10 @@
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts"
+  ],
   "dependencies": {},
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
