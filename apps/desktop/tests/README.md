@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The Muse package workflow also exercises the production Windows NSIS pages with an isolated test application in both installer languages. Native UI checks cover visible automatic-update progress, completion before 100%, and automatic application reopening, including the silent flag emitted by older updaters. Screenshots and results are retained in the installer UI artifact; this check never installs over the user's Muse application.
+The Muse package workflow also exercises the production Windows NSIS pages with an isolated test application in both installer languages. Native UI checks cover visible automatic-update progress, completion before 100%, and automatic application reopening, including the silent flag emitted by older updaters. Reboot-required cases refuse both manual and automatic launch, and an injected post-relaunch failure verifies owned process and installation cleanup. Screenshots and results are retained in the installer UI artifact; this check never installs over the user's Muse application.
 
 ## Summary
 

@@ -41,9 +41,10 @@ it('stages before stopping the application and promotes before registering the i
   expect(result).toContain('!insertmacro handleUninstallResult HKEY_CURRENT_USER')
   expect(result).not.toContain('!insertmacro installApplicationFiles')
   expect(result).not.toContain('File /oname=uninstallerIcon.ico')
+  expect(result).toContain('IfRebootFlag dsh_skip_upstream_start\n  !insertmacro StartApp\ndsh_skip_upstream_start:')
 })
 
-it.each(['!include installer.nsh', '!insertmacro setLinkVars', '!insertmacro installApplicationFiles'])(
+it.each(['!include installer.nsh', '!insertmacro setLinkVars', '!insertmacro installApplicationFiles', '  !insertmacro StartApp'])(
   'rejects a missing or duplicate upstream insertion point: %s', (point) => {
     expect(() => directoryInstallSection(section.replace(point, ''))).toThrow('Desktop NSIS template changed')
     expect(() => directoryInstallSection(`${section}\n${point}`)).toThrow('Desktop NSIS template changed')

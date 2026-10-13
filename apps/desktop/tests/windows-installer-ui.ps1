@@ -15,6 +15,7 @@ public static class InstallerCapture {
     [DllImport("user32.dll")] static extern bool EnumWindows(WindowCallback callback, IntPtr data);
     [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, WindowCallback callback, IntPtr data);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr window);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr window);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetProp(IntPtr window, string name);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
@@ -168,7 +169,19 @@ public static class InstallerCapture {
     [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr window, uint flags);
 
     public static void Click(IntPtr control) {
+        if (control == IntPtr.Zero || !IsWindow(control) || !IsWindowVisible(control) || !IsWindowEnabled(control))
+            throw new ArgumentException("Native button must be a visible enabled window", "control");
         if (!PostMessage(control, 0xF5, IntPtr.Zero, IntPtr.Zero)) throw new InvalidOperationException("Could not click native button");
+    }
+
+    public static IntPtr DialogDismissButton(IntPtr dialog) {
+        if (dialog == IntPtr.Zero || !IsWindow(dialog)) throw new ArgumentException("Native dialog is missing", "dialog");
+        // Folder pickers use Cancel; an MB_OK message box has only OK.
+        foreach (int id in new[] { 2, 1 }) {
+            IntPtr button = GetDlgItem(dialog, id);
+            if (button != IntPtr.Zero && IsWindow(button) && IsWindowVisible(button) && IsWindowEnabled(button)) return button;
+        }
+        throw new InvalidOperationException("Native dialog has no visible enabled Cancel or OK button");
     }
 
     public static IntPtr Find(int process) {

@@ -29,6 +29,13 @@ it.each(Object.entries(lock.targets))('records every locked wheel distribution a
   expect(Object.fromEntries(distributions)).toEqual(Object.fromEntries(declared))
 })
 
+it('records the shared locked distributions in the current SDK authoring output', () => {
+  const projection = JSON.parse(readFileSync(new URL('../snapshots/python-sdk-single-exe/authoring/model-visible.json', import.meta.url), 'utf8')) as {
+    result: { pythonDistributions: Record<string, string> }
+  }
+  expect(projection.result.pythonDistributions).toEqual(lock.pythonPackages)
+})
+
 it('keeps a target payload identity independent of other target archives', () => {
   const changed = structuredClone(lock)
   changed.targets['win-x64'].wheels[0]!.sha256 = 'a'.repeat(64)

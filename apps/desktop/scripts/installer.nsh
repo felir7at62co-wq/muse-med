@@ -5,20 +5,24 @@ InstallDir "$LOCALAPPDATA\Programs\${APP_FILENAME}"
 
 ; customHeader runs after electron-builder registers the installer languages.
 !macro customHeader
+  !ifdef LANG_ENGLISH
   LangString MuseVCMissing ${LANG_ENGLISH} "The bundled Microsoft Visual C++ x64 prerequisite is missing. Installation cannot complete. Obtain a complete muse-med installer."
-  LangString MuseVCMissing ${LANG_SIMPCHINESE} "安装包缺少 Microsoft Visual C++ x64 运行库，无法完成安装。请获取完整的 muse-med 安装包。"
   LangString MuseVCConsent ${LANG_ENGLISH} "muse-med requires Microsoft Visual C++ x64 Runtime 14.51.36247.0 or later. Install the bundled runtime now? This changes system components and requires administrator approval. No download is performed. Declining stops muse-med installation."
-  LangString MuseVCConsent ${LANG_SIMPCHINESE} "muse-med 需要 Microsoft Visual C++ x64 运行库 14.51.36247.0 或更高版本。现在安装随包提供的运行库吗？此操作会修改系统组件并请求管理员授权，不会联网下载。拒绝将停止 muse-med 安装。"
   LangString MuseVCDenied ${LANG_ENGLISH} "Microsoft Visual C++ x64 Runtime installation was not authorized. muse-med installation cannot complete."
-  LangString MuseVCDenied ${LANG_SIMPCHINESE} "未授权安装 Microsoft Visual C++ x64 运行库，无法完成 muse-med 安装。"
   LangString MuseVCExitFailed ${LANG_ENGLISH} "Microsoft Visual C++ x64 Runtime did not install successfully (exit result: $2). muse-med installation cannot complete."
-  LangString MuseVCExitFailed ${LANG_SIMPCHINESE} "Microsoft Visual C++ x64 运行库安装失败（退出结果：$2），无法完成 muse-med 安装。"
   LangString MuseVCLaunchFailed ${LANG_ENGLISH} "Microsoft Visual C++ x64 Runtime could not be started or monitored (status: $0, detail: $1). Administrator approval may have been denied. muse-med installation cannot complete."
-  LangString MuseVCLaunchFailed ${LANG_SIMPCHINESE} "无法启动或等待 Microsoft Visual C++ x64 运行库安装（状态：$0，详情：$1）。管理员授权可能已被拒绝，无法完成 muse-med 安装。"
   LangString MuseVCReboot ${LANG_ENGLISH} "Microsoft Visual C++ x64 Runtime installed successfully but requires a Windows restart. Restart Windows before launching muse-med. Do not select Run muse-med on the finish page."
-  LangString MuseVCReboot ${LANG_SIMPCHINESE} "Microsoft Visual C++ x64 运行库安装成功，但需要重启 Windows。请重启后再启动 muse-med，不要勾选完成页的立即运行选项。"
   LangString MuseVCPriorFailed ${LANG_ENGLISH} "muse-med installation failed before the prerequisite check."
+  !endif
+  !ifdef LANG_SIMPCHINESE
+  LangString MuseVCMissing ${LANG_SIMPCHINESE} "安装包缺少 Microsoft Visual C++ x64 运行库，无法完成安装。请获取完整的 muse-med 安装包。"
+  LangString MuseVCConsent ${LANG_SIMPCHINESE} "muse-med 需要 Microsoft Visual C++ x64 运行库 14.51.36247.0 或更高版本。现在安装随包提供的运行库吗？此操作会修改系统组件并请求管理员授权，不会联网下载。拒绝将停止 muse-med 安装。"
+  LangString MuseVCDenied ${LANG_SIMPCHINESE} "未授权安装 Microsoft Visual C++ x64 运行库，无法完成 muse-med 安装。"
+  LangString MuseVCExitFailed ${LANG_SIMPCHINESE} "Microsoft Visual C++ x64 运行库安装失败（退出结果：$2），无法完成 muse-med 安装。"
+  LangString MuseVCLaunchFailed ${LANG_SIMPCHINESE} "无法启动或等待 Microsoft Visual C++ x64 运行库安装（状态：$0，详情：$1）。管理员授权可能已被拒绝，无法完成 muse-med 安装。"
+  LangString MuseVCReboot ${LANG_SIMPCHINESE} "Microsoft Visual C++ x64 运行库安装成功，但需要重启 Windows。请重启后再启动 muse-med，不要勾选完成页的立即运行选项。"
   LangString MuseVCPriorFailed ${LANG_SIMPCHINESE} "muse-med 安装在运行库检查之前已失败。"
+  !endif
 
 ; The header hook runs after builder finishes adding its official plugin directories.
 !ifndef BUILD_UNINSTALLER

@@ -2,7 +2,8 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$Installer, [Parameter(Mandatory)][string]$ProductName,
     [Parameter(Mandatory)][string]$RegistryKey,
-    [Parameter(Mandatory)][string]$OutputDirectory)
+    [Parameter(Mandatory)][string]$OutputDirectory,
+    [switch]$FailAfterAutomaticRelaunch)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'windows-installer-ui.ps1')
 [InstallerCapture]::Initialize()
@@ -12,6 +13,13 @@ $appPath = Join-Path $installPath ($ProductName + '.exe')
 $uninstaller = Join-Path $installPath ('Uninstall ' + $ProductName + '.exe')
 $processes = [Collections.Generic.List[Diagnostics.Process]]::new()
 $results = [Collections.Generic.List[string]]::new()
+$primaryFailure = $null
+$cleanupFailures = [Collections.Generic.List[System.Management.Automation.ErrorRecord]]::new()
+$discoveredAppProcessIds = [Collections.Generic.List[int]]::new()
+$remainingAppProcessIds = @()
+$negativeControlReached = $false
+$negativeControlProcessId = $null
+$uninstallExitCode = $null
 $expected = Get-Content (Join-Path $PSScriptRoot 'expected/windows-installer.json') -Raw | ConvertFrom-Json
 $localizedCopy = @{ ENGLISH = @{}; SIMPCHINESE = @{} }
 Get-Content (Join-Path $PSScriptRoot '../installer/strings.nsh') -Encoding UTF8 | ForEach-Object {
@@ -29,8 +37,9 @@ function Wait-Control([Diagnostics.Process]$Process, [string]$Text, [switch]$Dia
     } while ($timer.Elapsed.TotalSeconds -lt 30)
     throw "Missing '$Text': $([InstallerCapture]::VisibleText($Process.Id))"
 }
-function Start-Setup([string]$Theme, [string]$Path = $installPath) {
+function Start-Setup([string]$Theme, [string]$Path = $installPath, [string]$ExtraArguments = '') {
     $arguments = '/THEME=' + $Theme
+    if ($ExtraArguments) { $arguments += ' ' + $ExtraArguments }
     if ($Path) { $arguments += ' /D=' + $Path }
     $process = Start-Process -FilePath $Installer -ArgumentList $arguments -PassThru -WindowStyle Normal
     $processes.Add($process)
@@ -63,7 +72,7 @@ function Click-Control([Diagnostics.Process]$Process, [string]$Text) {
 function Dismiss([Diagnostics.Process]$Process, [string]$Text) {
     $control = Wait-Control $Process $Text -Dialog
     $dialog = [InstallerCapture]::TopLevel($control)
-    [InstallerCapture]::Click([InstallerCapture]::GetDlgItem($dialog, 2))
+    [InstallerCapture]::Click([InstallerCapture]::DialogDismissButton($dialog))
     $timer = [Diagnostics.Stopwatch]::StartNew()
     while ([InstallerCapture]::IsWindow($dialog)) {
         if ($timer.Elapsed.TotalSeconds -gt 10) { throw 'Dialog did not close' }
@@ -131,7 +140,42 @@ function Run-Silent([string]$Arguments, [int]$Code) {
     if (-not $process.WaitForExit(60000)) { throw 'Silent setup did not exit' }
     if ($process.ExitCode -ne $Code) { throw "Silent setup returned $($process.ExitCode), expected $Code" }
 }
+function Get-OwnApplications {
+    Get-Process -Name $ProductName -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $appPath }
+}
+function Stop-TestProcess([Diagnostics.Process]$Process) {
+    try {
+        try {
+            if (-not $Process.HasExited) { $Process.Kill() }
+        } catch {
+            if (-not $Process.HasExited) { throw }
+        }
+        if (-not $Process.WaitForExit(10000)) { throw "Test process $($Process.Id) did not exit during cleanup" }
+    } finally {
+        $Process.Dispose()
+    }
+}
+function Finish-RebootSetup([Diagnostics.Process]$Process) {
+    [void](Wait-Control $Process $copy.INSTALLER_FINISH)
+    [void](Wait-Control $Process $copy.INSTALLER_REBOOT_REQUIRED)
+    $checkbox = Wait-Control $Process $copy.INSTALLER_LAUNCH
+    $state = [InstallerCapture]::SendMessage($checkbox, 0xF0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
+    if ($state -ne 0 -or [InstallerCapture]::IsWindowEnabled($checkbox)) { throw 'Reboot-required installation enabled immediate launch' }
+    Click-Control $Process $copy.INSTALLER_FINISH
+    if (-not $Process.WaitForExit(10000) -or $Process.ExitCode -ne 0) { throw 'Reboot-required installation did not finish successfully' }
+    if ((Test-Path -LiteralPath (Join-Path $installPath 'launched.txt')) -or @(Get-OwnApplications).Count -ne 0) {
+        throw 'Reboot-required installation launched its application'
+    }
+}
 try {
+    $zeroHandleRejected = $false
+    try {
+        [InstallerCapture]::Click([IntPtr]::Zero)
+    } catch {
+        if ($_.Exception -isnot [ArgumentException] -and $_.Exception.InnerException -isnot [ArgumentException]) { throw }
+        $zeroHandleRejected = $true
+    }
+    if (-not $zeroHandleRejected) { throw 'Native click accepted a zero window handle' }
     $process = Start-Setup light
     $results.Add('welcome-presented-on-first-show')
     $window = [InstallerCapture]::Find($process.Id)
@@ -250,6 +294,23 @@ try {
         if ([InstallerCapture]::GetProp($window, 'HarnessInstaller.CompletedPercent').ToInt32() -eq 100) { $observedComplete = $true }
         Start-Sleep -Milliseconds 25
     }
+    if ($FailAfterAutomaticRelaunch) {
+        $timer.Restart()
+        $unregisteredApp = $null
+        while (-not $unregisteredApp -and $timer.Elapsed.TotalSeconds -lt 10) {
+            $unregisteredApp = Get-OwnApplications | Select-Object -First 1
+            if (-not $unregisteredApp) { Start-Sleep -Milliseconds 25 }
+        }
+        if (-not $unregisteredApp) { throw 'Cleanup negative control did not observe the automatically reopened application' }
+        try {
+            [void](Wait-Control $unregisteredApp 'Installer test application is running.' -Dialog)
+            $negativeControlReached = $true
+            $negativeControlProcessId = $unregisteredApp.Id
+        } finally {
+            $unregisteredApp.Dispose()
+        }
+        throw 'Injected automatic update failure after relaunch'
+    }
     if ($process.ExitCode -ne 0 -or -not $observedProgress -or -not $observedComplete) { throw 'Automatic update did not paint verified progress through successful completion' }
     $timer.Restart()
     $app = $null
@@ -270,24 +331,96 @@ try {
     Run-Silent ('/S /D=' + $foreign) 2
     if ((Get-Content -LiteralPath (Join-Path $foreign 'keep.txt')) -ne 'preserved') { throw 'Foreign directory changed' }
     $results.Add('invalid-destination-rejection')
+
+    $launchMarker = Join-Path $installPath 'launched.txt'
+    if (Test-Path -LiteralPath $launchMarker) { Remove-Item -LiteralPath $launchMarker }
+    $process = Start-Setup light $installPath '/TEST_REBOOT_REQUIRED=1'
+    Click-Control $process $copy.INSTALLER_INSTALL
+    Finish-RebootSetup $process
+    $results.Add('manual-reboot-required-disables-launch')
+
+    if (Test-Path -LiteralPath $launchMarker) { Remove-Item -LiteralPath $launchMarker }
+    $process = Start-Process -FilePath $Installer -ArgumentList '/S --updated --force-run /TEST_REBOOT_REQUIRED=1 /THEME=dark' -PassThru -WindowStyle Hidden
+    $processes.Add($process)
+    Finish-RebootSetup $process
+    $results.Add('automatic-update-reboot-required-disables-launch')
+
+    if (Test-Path -LiteralPath $launchMarker) { Remove-Item -LiteralPath $launchMarker }
+    Run-Silent '/S --force-run /TEST_REBOOT_REQUIRED=1' 0
+    if ((Test-Path -LiteralPath $launchMarker) -or @(Get-OwnApplications).Count -ne 0) {
+        throw 'Silent force-run reboot-required installation launched its application'
+    }
+    $results.Add('silent-force-run-reboot-required-disables-launch')
 } catch {
+    $primaryFailure = $_
     Write-Output "Installer check failed: $_"
     throw
 } finally {
     foreach ($process in $processes) {
-        if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
-        $process.Dispose()
+        try { Stop-TestProcess $process } catch { $cleanupFailures.Add($_) }
     }
-    if (Test-Path -LiteralPath $uninstaller) {
-        $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList '/S' -PassThru -WindowStyle Hidden
-        if (-not $uninstallProcess.WaitForExit(60000)) { $uninstallProcess.Kill(); $uninstallProcess.WaitForExit(); throw 'Test uninstaller timed out' }
-        $timer = [Diagnostics.Stopwatch]::StartNew()
-        while (Test-Path -LiteralPath $appPath) {
-            if ($timer.Elapsed.TotalSeconds -gt 20) { throw 'Test installation was not removed' }
-            Start-Sleep -Milliseconds 50
+    # The installer may launch this exact private executable before a failing assertion registers it.
+    try {
+        foreach ($ownedApp in @(Get-OwnApplications)) {
+            $discoveredAppProcessIds.Add($ownedApp.Id)
+            try { Stop-TestProcess $ownedApp } catch { $cleanupFailures.Add($_) }
         }
-        $uninstallProcess.Dispose()
+    } catch {
+        $cleanupFailures.Add($_)
     }
+    $uninstallerExists = $false
+    try { $uninstallerExists = Test-Path -LiteralPath $uninstaller } catch { $cleanupFailures.Add($_) }
+    if ($uninstallerExists) {
+        $uninstallProcess = $null
+        try {
+            $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList '/S' -PassThru -WindowStyle Hidden
+            if (-not $uninstallProcess.WaitForExit(60000)) { throw 'Test uninstaller timed out' }
+            $uninstallExitCode = $uninstallProcess.ExitCode
+            if ($uninstallExitCode -ne 0) { throw "Test uninstaller returned $uninstallExitCode" }
+            $timer = [Diagnostics.Stopwatch]::StartNew()
+            while ((Test-Path -LiteralPath $installPath) -or (Test-Path -LiteralPath ('HKCU:\Software\' + $RegistryKey))) {
+                if ($timer.Elapsed.TotalSeconds -gt 20) { throw 'Test installation directory or registry entry was not removed' }
+                Start-Sleep -Milliseconds 50
+            }
+        } catch {
+            $cleanupFailures.Add($_)
+        } finally {
+            if ($uninstallProcess) {
+                try { Stop-TestProcess $uninstallProcess } catch { $cleanupFailures.Add($_) }
+            }
+        }
+    }
+    try {
+        $remainingAppProcesses = @(Get-OwnApplications)
+        $remainingAppProcessIds = @($remainingAppProcesses | ForEach-Object { $_.Id })
+        foreach ($remainingApp in $remainingAppProcesses) { $remainingApp.Dispose() }
+        if ($remainingAppProcessIds.Count -ne 0) { throw 'Private test application survived cleanup' }
+    } catch {
+        $cleanupFailures.Add($_)
+    }
+    try {
+        $cleanupReceipt = [ordered]@{
+            appPath = $appPath
+            primaryFailure = if ($primaryFailure) { $primaryFailure.ToString() } else { $null }
+            cleanupFailures = @($cleanupFailures | ForEach-Object { $_.ToString() })
+            negativeControlRequested = [bool]$FailAfterAutomaticRelaunch
+            negativeControlReached = $negativeControlReached
+            negativeControlProcessId = $negativeControlProcessId
+            discoveredAppProcessIds = @($discoveredAppProcessIds)
+            remainingAppProcessIds = @($remainingAppProcessIds)
+            applicationRemoved = -not (Test-Path -LiteralPath $appPath)
+            uninstallerRemoved = -not (Test-Path -LiteralPath $uninstaller)
+            installDirectoryExists = Test-Path -LiteralPath $installPath
+            uninstallRegistryExists = Test-Path -LiteralPath ('HKCU:\Software\' + $RegistryKey)
+            uninstallExitCode = $uninstallExitCode
+        } | ConvertTo-Json -Depth 3
+        [IO.File]::WriteAllText((Join-Path $OutputDirectory 'cleanup-receipt.json'),
+            $cleanupReceipt + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    } catch {
+        $cleanupFailures.Add($_)
+    }
+    foreach ($cleanupFailure in $cleanupFailures) { Write-Output "Installer cleanup failed: $cleanupFailure" }
+    if (-not $primaryFailure -and $cleanupFailures.Count -ne 0) { throw $cleanupFailures[0] }
 }
 $results.Add('uninstall')
 if (Compare-Object @($expected.cases) @($results)) { throw 'Installer results differ from expected behavior' }

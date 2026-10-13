@@ -155,7 +155,13 @@ Function InstallerCreate
     System::Call 'user32::MoveWindow(p $InstallerLaunch, i r0, i r1, i r2, i r3, i 1)'
     !insertmacro InstallerControlColors $InstallerLaunch
     ${NSD_OnNotify} $InstallerLaunch InstallerPaintCheckbox
+    IfRebootFlag installer_launch_requires_reboot
     ${NSD_Check} $InstallerLaunch
+    Goto installer_launch_configured
+installer_launch_requires_reboot:
+    ${NSD_Uncheck} $InstallerLaunch
+    EnableWindow $InstallerLaunch 0
+installer_launch_configured:
 
     ${NSD_CreateButton} 0 0 0 0 "$(INSTALLER_INSTALL)"
     Pop $InstallerButton
@@ -189,6 +195,9 @@ Function InstallerRender
     ${If} $InstallerPhase == "success"
         ${NSD_SetText} $InstallerButton "$(INSTALLER_FINISH)"
         ShowWindow $InstallerLaunch 5
+        IfRebootFlag 0 installer_render_done
+        ${NSD_SetText} $InstallerStatus "$(INSTALLER_REBOOT_REQUIRED)"
+        ShowWindow $InstallerStatus 5
     ${Else}
         ${NSD_SetText} $InstallerButton "$(INSTALLER_INSTALL)"
         ${If} $InstallerExpanded == 1
@@ -199,6 +208,7 @@ Function InstallerRender
             ShowWindow $InstallerChoose 5
         ${EndIf}
     ${EndIf}
+installer_render_done:
 FunctionEnd
 
 Function InstallerStart
@@ -228,6 +238,7 @@ Function InstallerFinishLeave
 FunctionEnd
 
 Function InstallerStartApplication
+    IfRebootFlag installer_start_requires_reboot
     StrCpy $0 ""
     ${If} ${isUpdated}
         StrCpy $0 "--updated"
@@ -248,6 +259,11 @@ Function InstallerStartApplication
         ShowWindow $HWNDPARENT 5
         MessageBox MB_OK|MB_ICONEXCLAMATION "$(INSTALLER_LAUNCH_FAILED)"
     ${EndIf}
+    Return
+installer_start_requires_reboot:
+    SetErrors
+    ShowWindow $HWNDPARENT 5
+    MessageBox MB_OK|MB_ICONINFORMATION "$(INSTALLER_REBOOT_REQUIRED)"
 FunctionEnd
 
 Function InstallerExpandPath

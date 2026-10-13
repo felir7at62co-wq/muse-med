@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 import { createWindowsTokenSigner, installWindowsNsisBootstrapSigner, scrubWindowsSigningEnvironment } from './windows-sign.mjs'
 import { loadDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 import { createPackagingRun } from './packaging-run.mjs'
+import { assertInstallerNegativeControl, assertVisualCppPrerequisiteReceipt, createInstallerTestSource } from './windows-installer-test-fixture.mjs'
 
 if (process.platform !== 'win32' || process.arch !== 'x64') {
   throw new Error('Installer UI checks require an interactive Windows x64 desktop')
@@ -54,6 +55,18 @@ try {
   })
   const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
   const childOptions = { env: scrubWindowsSigningEnvironment(process.env), windowsHide: true, maxBuffer: 8 * 1024 * 1024 }
+  const prerequisiteDirectory = join(payload, 'resources', 'runtime', 'media', 'prerequisites')
+  await execute(process.execPath, ['--import', 'tsx/esm', join(appRoot, 'scripts', 'prepare-media-runtime.ts'),
+    '--vc-redist-only', '--output', prerequisiteDirectory, '--cache', join(outputRoot, 'vc-redist-cache')], childOptions)
+  if (!process.argv.includes('--compile-only')) {
+    const receiptFile = join(output, 'vc-runtime-receipt.json')
+    const prerequisite = await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+      join(appRoot, 'scripts', 'prepare-windows-installer-prerequisite.ps1'),
+      '-RuntimeFile', join(prerequisiteDirectory, 'vc_redist.x64.exe'),
+      '-ReceiptFile', receiptFile], childOptions)
+    assertVisualCppPrerequisiteReceipt(JSON.parse(await readFile(receiptFile, 'utf8')))
+    process.stdout.write(prerequisite.stdout)
+  }
   try {
     await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
       join(appRoot, 'scripts', 'prepare-windows-installer.ps1'), '-OutputDirectory', join(output, 'ui'), '-CompileProgressOnly'], childOptions)
@@ -97,8 +110,10 @@ SectionEnd
   await execute(compiler.path, ['/V2', payloadSource], { ...childOptions, env: { ...childOptions.env, ...compiler.env } })
   if (sign) await sign({ path: join(payload, `${productName}.exe`), hash: 'sha256', isNest: false })
   const sourceStrings = await readFile(join(appRoot, 'installer', 'strings.nsh'), 'utf8')
+  const fixtureSource = createInstallerTestSource(await readFile(join(appRoot, 'scripts', 'installer.nsh'), 'utf8'), appRoot)
   for (const language of ['en_US', 'zh_CN']) {
     const config = createElectronBuilderConfig()
+    config.win.executableName = productName
     config.nsis.installerSidebar = join(output, 'ui', 'uninstaller-sidebar.bmp')
     config.nsis.uninstallerSidebar = config.nsis.installerSidebar
     if (sign) {
@@ -112,7 +127,9 @@ SectionEnd
     await writeFile(strings, sourceStrings.split('\n').filter((line) =>
       !line.startsWith('LangString ') || line.includes(`\${LANG_${languageId}}`)).join('\n'))
     const include = join(languageOutput, 'include.nsh')
-    await writeFile(include, `!define INSTALLER_BUILD_DIR "${join(output, 'ui')}"\n!define INSTALLER_STRINGS_FILE "${strings}"\n!include "${join(appRoot, 'scripts', 'installer.nsh')}"\n`)
+    const fixture = join(languageOutput, 'installer.nsh')
+    await writeFile(fixture, fixtureSource)
+    await writeFile(include, `!define INSTALLER_BUILD_DIR "${join(output, 'ui')}"\n!define INSTALLER_STRINGS_FILE "${strings}"\n!include "${fixture}"\n`)
     await build({ projectDir: appRoot, prepackaged: payload, targets: Platform.WINDOWS.createTarget(['nsis'], Arch.x64), publish: 'never',
       config: { ...config, productName, extraMetadata: { ...config.extraMetadata, name: packageName },
         artifactName: 'installer-test.exe', directories: { output: languageOutput },
@@ -125,6 +142,21 @@ SectionEnd
       '-ProductName', productName, '-RegistryKey', guid, '-OutputDirectory', languageOutput,
       ...uninstallOnly ? ['-Language', languageId, '-PackageName', packageName] : []], childOptions)
     process.stdout.write(`${language}\n${result.stdout}`)
+    if (!uninstallOnly) {
+      const negativeOutput = join(languageOutput, 'negative-cleanup')
+      await mkdir(negativeOutput)
+      let injectedFailure
+      try {
+        await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+          join(appRoot, 'tests', 'windows-installer-smoke.ps1'),
+          '-Installer', join(languageOutput, 'installer-test.exe'),
+          '-ProductName', productName, '-RegistryKey', guid, '-OutputDirectory', negativeOutput,
+          '-FailAfterAutomaticRelaunch'], childOptions)
+      } catch (error) { injectedFailure = error }
+      const receipt = JSON.parse(await readFile(join(negativeOutput, 'cleanup-receipt.json'), 'utf8'))
+      assertInstallerNegativeControl(injectedFailure, receipt)
+      process.stdout.write(`${language}: post-relaunch negative control and cleanup verified\n`)
+    }
   }
   succeeded = true
 } finally {

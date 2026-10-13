@@ -279,12 +279,15 @@ Direct dependencies of the `pyproject.toml` manifests, plus `uv` as the developm
 
 The [shared runtime lock](scripts/primary-runtime/lock.json) records each distribution version and the wheel download hashes. The table includes every entry in `pythonPackages`, including transitive dependencies. Wheel extraction preserves distribution metadata and the license and notice files supplied by each archive. Project licenses below do not enumerate the separate licenses of native libraries bundled inside wheels.
 
+Every target carries the same declared distribution set. The universal pure-Python wheels for `colorama` and `pyreadline3` are included on all targets to satisfy Windows-only dependency markers without changing that shared manifest.
+
 The [Python source distribution decision](.agents/notes/implemented/process/2026-10-14-bundled-python-mpl-sources.md) accepts only unmodified `certifi 2026.7.22` under MPL-2.0 and `tqdm 4.70.1` under MPL-2.0 AND MIT. Their complete Python source files, certificate data, copyright notices and license files remain in `dependencies/python-packages` inside the shared runtime; recipients may inspect and modify those sources under the stated terms. Other package identities, versions and terms still require review.
 
 | Distribution | Locked version | Project license |
 | --- | --- | --- |
 | [`certifi`](https://github.com/certifi/python-certifi) | 2026.7.22 | MPL-2.0 |
 | [`charset-normalizer`](https://github.com/jawah/charset_normalizer) | 3.5.2 | MIT |
+| [`colorama`](https://github.com/tartley/colorama) | 0.4.6 | BSD-3-Clause |
 | [`coloredlogs`](https://github.com/xolox/python-coloredlogs) | 15.0.1 | MIT |
 | [`colorlog`](https://github.com/borntyping/python-colorlog) | 6.12.0 | MIT |
 | [`et-xmlfile`](https://foss.heptapod.net/openpyxl/et_xmlfile) | 2.0.0 | MIT |
@@ -303,6 +306,7 @@ The [Python source distribution decision](.agents/notes/implemented/process/2026
 | [`pillow`](https://github.com/python-pillow/Pillow) | 12.3.0 | MIT-CMU |
 | [`protobuf`](https://github.com/protocolbuffers/protobuf) | 7.36.2 | BSD-3-Clause |
 | [`pyclipper`](https://github.com/fonttools/pyclipper) | 1.4.0 | MIT |
+| [`pyreadline3`](https://github.com/pyreadline3/pyreadline3) | 3.5.6 | BSD-3-Clause |
 | [`python-dateutil`](https://github.com/dateutil/dateutil) | 2.9.0.post0 | Apache-2.0 OR BSD-3-Clause |
 | [`python-docx`](https://github.com/python-openxml/python-docx) | 1.2.0 | MIT |
 | [`python-pptx`](https://github.com/scanny/python-pptx) | 1.0.2 | MIT |

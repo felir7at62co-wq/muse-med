@@ -103,6 +103,7 @@ const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
 const PYTHON_METADATA: Record<string, { license: string; repo: string; role?: string }> = {
   certifi: { license: 'MPL-2.0', repo: 'https://github.com/certifi/python-certifi' },
   'charset-normalizer': { license: 'MIT', repo: 'https://github.com/jawah/charset_normalizer' },
+  colorama: { license: 'BSD-3-Clause', repo: 'https://github.com/tartley/colorama' },
   coloredlogs: { license: 'MIT', repo: 'https://github.com/xolox/python-coloredlogs' },
   colorlog: { license: 'MIT', repo: 'https://github.com/borntyping/python-colorlog' },
   flatbuffers: { license: 'Apache-2.0', repo: 'https://github.com/google/flatbuffers' },
@@ -115,6 +116,7 @@ const PYTHON_METADATA: Record<string, { license: string; repo: string; role?: st
   packaging: { license: 'Apache-2.0 OR BSD-2-Clause', repo: 'https://github.com/pypa/packaging' },
   protobuf: { license: 'BSD-3-Clause', repo: 'https://github.com/protocolbuffers/protobuf' },
   pyclipper: { license: 'MIT', repo: 'https://github.com/fonttools/pyclipper' },
+  pyreadline3: { license: 'BSD-3-Clause', repo: 'https://github.com/pyreadline3/pyreadline3' },
   pyyaml: { license: 'MIT', repo: 'https://github.com/yaml/pyyaml' },
   rapidocr: { license: 'Apache-2.0', repo: 'https://github.com/RapidAI/RapidOCR' },
   requests: { license: 'Apache-2.0', repo: 'https://github.com/psf/requests' },
@@ -864,6 +866,8 @@ ${python.map(dep => `| [\`${dep.name}\`](${dep.repo}) | ${dep.license} | ${dep.r
 ## Bundled Python distributions
 
 The [shared runtime lock](scripts/primary-runtime/lock.json) records each distribution version and the wheel download hashes. The table includes every entry in \`pythonPackages\`, including transitive dependencies. Wheel extraction preserves distribution metadata and the license and notice files supplied by each archive. Project licenses below do not enumerate the separate licenses of native libraries bundled inside wheels.
+
+Every target carries the same declared distribution set. The universal pure-Python wheels for \`colorama\` and \`pyreadline3\` are included on all targets to satisfy Windows-only dependency markers without changing that shared manifest.
 
 The [Python source distribution decision](.agents/notes/implemented/process/2026-10-14-bundled-python-mpl-sources.md) accepts only unmodified \`certifi 2026.7.22\` under MPL-2.0 and \`tqdm 4.70.1\` under MPL-2.0 AND MIT. Their complete Python source files, certificate data, copyright notices and license files remain in \`dependencies/python-packages\` inside the shared runtime; recipients may inspect and modify those sources under the stated terms. Other package identities, versions and terms still require review.
 

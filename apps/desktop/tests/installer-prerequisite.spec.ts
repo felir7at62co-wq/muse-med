@@ -37,3 +37,21 @@ it('checks the x64 runtime before any offline elevated installation and fails cl
   expect(source).toContain('!insertmacro dshFinishDirectories')
   expect(source.indexOf('!insertmacro dshFinishDirectories')).toBeLessThan(source.lastIndexOf('Call MuseEnsureVCRuntime'))
 })
+
+it('retains reboot-required guidance and refuses both finish-page launch paths', async () => {
+  const [pages, lifecycle, strings] = await Promise.all([
+    readFile(new URL('../installer/pages.nsh', import.meta.url), 'utf8'),
+    readFile(new URL('../installer/lifecycle.nsh', import.meta.url), 'utf8'),
+    readFile(new URL('../installer/strings.nsh', import.meta.url), 'utf8'),
+  ])
+  expect(lifecycle.indexOf('IfRebootFlag installer_finish_manual'))
+    .toBeLessThan(lifecycle.indexOf('Call InstallerStartApplication'))
+  expect(pages).toMatch(/installer_launch_requires_reboot:\s+\$\{NSD_Uncheck\} \$InstallerLaunch\s+EnableWindow \$InstallerLaunch 0/u)
+  expect(pages).toMatch(/Function InstallerStartApplication\s+IfRebootFlag installer_start_requires_reboot/u)
+  expect(pages).toMatch(
+    /installer_start_requires_reboot:\s+SetErrors\s+ShowWindow \$HWNDPARENT 5\s+MessageBox .*"\$\(INSTALLER_REBOOT_REQUIRED\)"/u,
+  )
+  for (const language of ['ENGLISH', 'SIMPCHINESE']) {
+    expect(strings).toContain(`LangString INSTALLER_REBOOT_REQUIRED \${LANG_${language}}`)
+  }
+})

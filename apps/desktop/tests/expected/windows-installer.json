@@ -14,6 +14,10 @@
     "silent-running-app-rejected-before-extraction",
     "app-started-on-welcome-rejected-before-extraction",
     "silent-update-retains-directory-and-ignores-unrelated-process",
+    "automatic-update-shows-progress-and-relaunches-without-finish-click",
+    "manual-reboot-required-disables-launch",
+    "automatic-update-reboot-required-disables-launch",
+    "silent-force-run-reboot-required-disables-launch",
     "invalid-destination-rejection",
     "uninstall"
   ]
