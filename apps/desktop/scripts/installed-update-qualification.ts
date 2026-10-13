@@ -97,15 +97,24 @@ export async function readInstalledUpdateRun(path: string): Promise<InstalledUpd
 }
 
 interface JournalRecord {
+  readonly schemaVersion: 1 | 2
   readonly pid: number
+  readonly ppid?: number
+  readonly processType?: 'desktop-main' | 'windows-installer'
+  readonly platform?: string
+  readonly arch?: string
   readonly sequence: number
   readonly time: string
+  readonly elapsedMs?: number
+  readonly durationMs?: number
   readonly version: string
   readonly event: string
   readonly phase?: string
   readonly targetVersion?: string
   readonly failedOperation?: string
   readonly percent?: number
+  readonly result?: string
+  readonly hostPid?: number
 }
 
 /** A location in retained evidence, never a copy of raw diagnostics. */
@@ -113,6 +122,11 @@ export interface InstalledUpdateObservation {
   readonly file: string
   readonly sequence: number
   readonly time: string
+  readonly elapsedMs?: number
+  readonly durationMs?: number
+  readonly processType?: 'desktop-main' | 'windows-installer'
+  readonly result?: 'current' | 'prepared' | 'rebuilt'
+  readonly hostPid?: number
 }
 
 /** Observed journal sequence is deliberately separate from operator acceptance. */
@@ -126,10 +140,19 @@ export interface InstalledUpdateEvidence {
   readonly operatorVerificationRequired: readonly string[]
 }
 
-const FIELDS = new Set(['schemaVersion', 'sequence', 'time', 'pid', 'version', 'event', 'phase',
-  'targetVersion', 'percent', 'failedOperation', 'errorCode'])
+const FIELDS = new Set(['schemaVersion', 'sequence', 'time', 'elapsedMs', 'durationMs', 'processType', 'pid', 'ppid',
+  'platform', 'arch', 'version', 'event', 'phase', 'targetVersion', 'percent', 'failedOperation', 'errorCode', 'result', 'hostPid'])
+const TIMED_STAGES = ['update-restart-preparation', 'update-task-inspection', 'update-task-lock', 'platform-cleanup',
+  'desktop-host-stop', 'profile-apply', 'hongguo-prepare', 'desktop-host-start', 'client-plugins-load'] as const
 const ACTIONS = new Set(['started', 'workspace-ready', 'workspace-failed', 'check-requested',
-  'download-requested', 'install-confirmed', 'quit-requested', 'state'])
+  'download-requested', 'install-confirmed', 'quit-requested', 'state', 'app-ready', 'install-restart-clicked',
+  'installer-handoff', 'main-window-shown', 'client-plugins-loaded', 'ui-interactive',
+  'policy-login-opened', 'policy-login-returned', 'policy-login-cancelled', 'policy-login-failed',
+  ...TIMED_STAGES.flatMap(stage => [`${stage}-started`, `${stage}-completed`, `${stage}-failed`]),
+  'installer-started', 'previous-process-wait-started', 'previous-process-wait-completed',
+  'installer-extract-started', 'installer-extract-completed', 'installer-completed'])
+const INSTALLER_ACTIONS = new Set(['installer-started', 'previous-process-wait-started', 'previous-process-wait-completed',
+  'installer-extract-started', 'installer-extract-completed', 'installer-completed'])
 const PHASES = new Set(['idle', 'checking', 'available', 'downloading', 'verifying', 'installing', 'ready', 'error'])
 const OPERATIONS = new Set(['check', 'download', 'install'])
 const ERROR_CODES = new Set(['ETIMEDOUT', 'ENOSPC', 'ERR_INTERNET_DISCONNECTED', 'ERR_CONNECTION_RESET',
@@ -137,24 +160,45 @@ const ERROR_CODES = new Set(['ETIMEDOUT', 'ENOSPC', 'ERR_INTERNET_DISCONNECTED',
 const STAGES = ['original-workspace', 'first-download', 'transfer-started', 'download-failed',
   'manual-retry', 'download-ready', 'install-confirmed', 'original-quit', 'successor-started', 'successor-workspace'] as const
 
+function observation(run: JournalRun, record: JournalRecord): InstalledUpdateObservation {
+  return { file: run.file, sequence: record.sequence, time: record.time,
+    ...(record.elapsedMs === undefined ? {} : { elapsedMs: record.elapsedMs }),
+    ...(record.durationMs === undefined ? {} : { durationMs: record.durationMs }),
+    ...(record.processType === undefined ? {} : { processType: record.processType }),
+    ...(record.result === undefined ? {} : { result: record.result as 'current' | 'prepared' | 'rebuilt' }),
+    ...(record.hostPid === undefined ? {} : { hostPid: record.hostPid }) }
+}
+
 function parseRecord(line: string, sequence: number): JournalRecord {
   let value: unknown
   try { value = JSON.parse(line) }
   catch { throw new Error('installed update: invalid journal JSON; raw input is withheld') }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('installed update: invalid journal record')
   const row = value as Record<string, unknown>
-  if (Object.keys(row).some(key => !FIELDS.has(key)) || row.schemaVersion !== 1 || row.sequence !== sequence
+  const schema = row.schemaVersion
+  const processType = row.processType ?? 'desktop-main'
+  if (Object.keys(row).some(key => !FIELDS.has(key)) || (schema !== 1 && schema !== 2) || row.sequence !== sequence
     || !Number.isSafeInteger(row.pid) || (row.pid as number) <= 0
     || typeof row.time !== 'string' || !Number.isFinite(Date.parse(row.time))
     || new Date(row.time).toISOString() !== row.time || typeof row.version !== 'string' || valid(row.version) !== row.version
     || typeof row.event !== 'string' || !ACTIONS.has(row.event)
-    || (sequence === 0 && row.event !== 'started') || (sequence > 0 && row.event === 'started')
+    || (schema === 1 && processType !== 'desktop-main')
+    || (schema === 2 && processType !== 'desktop-main' && processType !== 'windows-installer')
+    || (processType === 'windows-installer') !== INSTALLER_ACTIONS.has(String(row.event))
+    || (schema === 2 && (typeof row.processType !== 'string' || typeof row.platform !== 'string' || typeof row.arch !== 'string'
+      || !Number.isSafeInteger(row.elapsedMs) || (row.elapsedMs as number) < 0
+      || !Number.isSafeInteger(row.ppid) || (row.ppid as number) < 0))
+    || (sequence === 0 && row.event !== (processType === 'windows-installer' ? 'installer-started' : 'started'))
+    || (sequence > 0 && (row.event === 'started' || row.event === 'installer-started'))
     || (row.event === 'state' && (typeof row.phase !== 'string' || !PHASES.has(row.phase)))
     || (row.phase !== undefined && (typeof row.phase !== 'string' || !PHASES.has(row.phase)))
     || (row.failedOperation !== undefined && (typeof row.failedOperation !== 'string' || !OPERATIONS.has(row.failedOperation)))
     || (row.errorCode !== undefined && (typeof row.errorCode !== 'string' || !ERROR_CODES.has(row.errorCode)))
     || (row.percent !== undefined && (typeof row.percent !== 'number' || !Number.isInteger(row.percent)
       || row.percent < 0 || row.percent > 100))
+    || (row.durationMs !== undefined && (!Number.isSafeInteger(row.durationMs) || (row.durationMs as number) < 0))
+    || (row.hostPid !== undefined && (!Number.isSafeInteger(row.hostPid) || (row.hostPid as number) <= 0))
+    || (row.result !== undefined && (typeof row.result !== 'string' || !['current', 'prepared', 'rebuilt'].includes(row.result)))
     || (row.targetVersion !== undefined && (typeof row.targetVersion !== 'string' || valid(row.targetVersion) !== row.targetVersion))) {
     throw new Error('installed update: unsupported or inconsistent journal record; raw input is withheld')
   }
@@ -181,7 +225,10 @@ async function readJournalRuns(directory: string, versions: readonly [string, st
   const runs: JournalRun[] = []
   let totalBytes = 0
   for (const file of files) {
-    if (!/^\d+-[a-f0-9-]{36}\.jsonl$/u.test(file)) throw new Error('installed update: unexpected journal filename')
+    if (!/^\d+-[a-f0-9-]{36}\.jsonl$/u.test(file)
+      && !/^installer-\d{8}T\d{9}Z-\d+\.jsonl$/u.test(file)) {
+      throw new Error('installed update: unexpected journal filename')
+    }
     if ((await stat(join(directory, file))).size > 10 * 1024 * 1024) throw new Error('installed update: journal exceeds 10 MiB inspection limit')
     const text = await readFile(join(directory, file), 'utf8')
     const bytes = Buffer.byteLength(text)
@@ -189,7 +236,10 @@ async function readJournalRuns(directory: string, versions: readonly [string, st
     if (bytes > 10 * 1024 * 1024 || totalBytes > 50 * 1024 * 1024) throw new Error('installed update: journal snapshot exceeds inspection limit')
     if (!text.endsWith('\n')) throw new Error('installed update: incomplete journal tail')
     const records = text.slice(0, -1).split('\n').map(parseRecord)
-    if (records.some(row => row.version !== records[0]!.version || row.pid !== records[0]!.pid || !versions.includes(row.version))) {
+    if (records.some((row, index) => row.version !== records[0]!.version || row.pid !== records[0]!.pid
+      || row.schemaVersion !== records[0]!.schemaVersion || row.processType !== records[0]!.processType
+      || !versions.includes(row.version) || (index > 0 && (Date.parse(row.time) < Date.parse(records[index - 1]!.time)
+        || (row.elapsedMs ?? 0) < (records[index - 1]!.elapsedMs ?? 0))))) {
       throw new Error('installed update: mixed or unexpected installed versions')
     }
     runs.push({ file, text, records })
@@ -200,7 +250,8 @@ async function readJournalRuns(directory: string, versions: readonly [string, st
 function inspectJournalRuns(runs: readonly JournalRun[], versions: readonly [string, string]): InstalledUpdateEvidence {
   let milestones: Record<string, InstalledUpdateObservation> = {}
   // A retry and installation authorization must belong to the same original process.
-  for (const run of runs.filter(run => run.records[0]!.version === versions[0])) {
+  for (const run of runs.filter(run => (run.records[0]!.processType ?? 'desktop-main') === 'desktop-main'
+    && run.records[0]!.version === versions[0])) {
     const candidate: Record<string, InstalledUpdateObservation> = {}
     let stage = 0
     for (const record of run.records) {
@@ -217,21 +268,55 @@ function inspectJournalRuns(runs: readonly JournalRun[], versions: readonly [str
         record.event === 'state' && record.phase === 'ready' && record.targetVersion === versions[1],
         record.event === 'install-confirmed', record.event === 'quit-requested']
       if (stage < 8 && matches[stage]) {
-        candidate[STAGES[stage]!] = { file: run.file, sequence: record.sequence, time: record.time }
+        candidate[STAGES[stage]!] = observation(run, record)
         stage++
       }
     }
-    if (Object.keys(candidate).length > Object.keys(milestones).length) milestones = candidate
+    const optional = [['original-install-restart-clicked', 'install-restart-clicked'],
+      ['original-restart-prepared', 'update-restart-preparation-completed'],
+      ['original-host-stopped', 'desktop-host-stop-completed'], ['installer-handoff', 'installer-handoff']] as const
+    for (const [key, event] of optional) {
+      const record = run.records.find(row => row.event === event)
+      if (record !== undefined) candidate[key] = observation(run, record)
+    }
+    const score = STAGES.slice(0, 8).filter(key => candidate[key] !== undefined).length
+    const bestScore = STAGES.slice(0, 8).filter(key => milestones[key] !== undefined).length
+    if (score > bestScore) milestones = candidate
   }
   const quit = milestones['original-quit']
   if (quit !== undefined) {
-    for (const run of runs.filter(run => run.records[0]!.version === versions[1])) {
+    const restartBegan = milestones['original-install-restart-clicked'] ?? milestones['installer-handoff'] ?? quit
+    const installerEvents = [['installer-started', 'installer-started'],
+      ['original-process-exited', 'previous-process-wait-completed'],
+      ['installer-extract-started', 'installer-extract-started'],
+      ['installer-extract-completed', 'installer-extract-completed'],
+      ['installer-completed', 'installer-completed']] as const
+    for (const run of runs.filter(run => run.records[0]!.processType === 'windows-installer'
+      && run.records[0]!.version === versions[1])) {
+      if (Date.parse(run.records[0]!.time) < Date.parse(restartBegan.time)) continue
+      for (const [key, event] of installerEvents) {
+        const record = run.records.find(row => row.event === event)
+        if (record !== undefined) milestones[key] = observation(run, record)
+      }
+      break
+    }
+    for (const run of runs.filter(run => (run.records[0]!.processType ?? 'desktop-main') === 'desktop-main'
+      && run.records[0]!.version === versions[1])) {
       const started = run.records[0]!
-      if (Date.parse(started.time) < Date.parse(quit.time)) continue
+      const appReady = run.records.find(record => record.event === 'app-ready') ?? started
+      if (Date.parse(appReady.time) < Date.parse(quit.time)) continue
       const ready = run.records.find(record => record.event === 'workspace-ready')
       if (ready === undefined) continue
-      milestones['successor-started'] = { file: run.file, sequence: started.sequence, time: started.time }
-      milestones['successor-workspace'] = { file: run.file, sequence: ready.sequence, time: ready.time }
+      milestones['successor-started'] = observation(run, started)
+      milestones['successor-workspace'] = observation(run, ready)
+      const successorEvents = [['successor-app-ready', 'app-ready'], ['successor-profile-applied', 'profile-apply-completed'],
+        ['successor-hongguo-prepared', 'hongguo-prepare-completed'], ['successor-host-ready', 'desktop-host-start-completed'],
+        ['successor-window-shown', 'main-window-shown'], ['successor-plugins-loaded', 'client-plugins-loaded'],
+        ['successor-interactive', 'ui-interactive']] as const
+      for (const [key, event] of successorEvents) {
+        const record = run.records.find(row => row.event === event)
+        if (record !== undefined) milestones[key] = observation(run, record)
+      }
       break
     }
   }

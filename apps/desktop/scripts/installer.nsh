@@ -116,6 +116,20 @@ FunctionEnd
 !define INSTALLER_SOURCE_DIR "${__FILEDIR__}\..\installer"
 !define /ifndef INSTALLER_BUILD_DIR "${__FILEDIR__}\..\.desktop-build\targets\win-x64\installer-ui"
 
+; The external qualification directory is opt-in and already created by the application.
+; Native code owns UTC timestamps and fixed event names; failures never change installation behavior.
+!macro InstallerRecordTiming EventCode
+  Push $R8
+  Push $R9
+  ReadEnvStr $R8 "DSH_DESKTOP_UPDATE_JOURNAL_DIR"
+  ${If} $R8 != ""
+    ; System's R8 source reads $R8; its r8 source reads the unrelated $8 register.
+    System::Call /NOUNLOAD '$PLUGINSDIR\window-frame.dll::InstallerRecordTiming(w R8, w "${VERSION}", i ${EventCode}) i.R9 ?c'
+  ${EndIf}
+  Pop $R9
+  Pop $R8
+!macroend
+
 ManifestDPIAware true
 !ifndef BUILD_UNINSTALLER
   !define MUI_CUSTOMFUNCTION_GUIINIT InstallerGuiInit
@@ -158,7 +172,10 @@ ManifestDPIAware true
   File "/oname=$PLUGINSDIR\brand-dark.bmp" "${INSTALLER_BUILD_DIR}\brand-dark.bmp"
   File "/oname=$PLUGINSDIR\brand-dark-2x.bmp" "${INSTALLER_BUILD_DIR}\brand-dark-2x.bmp"
   File "/oname=$PLUGINSDIR\window-frame.dll" "${INSTALLER_BUILD_DIR}\window-frame.dll"
+  !insertmacro InstallerRecordTiming 0
+  !insertmacro InstallerRecordTiming 1
   Call InstallerCheckAppRunning
+  !insertmacro InstallerRecordTiming 2
   ${If} ${Silent}
     Call InstallerPreflight
     ${If} $InstallerError != ""
@@ -213,10 +230,12 @@ ManifestDPIAware true
 
 !macro customInstallerExtract Archive
   !insertmacro InstallerPublishStage 1
+  !insertmacro InstallerRecordTiming 3
   System::Store /NOUNLOAD "S"
   System::Call /NOUNLOAD '$PLUGINSDIR\window-frame.dll::InstallerExtract(p $HWNDPARENT, w "$PLUGINSDIR\dsh-7za.exe", w "${Archive}", w "$INSTDIR", w "$PLUGINSDIR\extract.log") i.s ?c'
   System::Store "L"
   Pop $R0
+  !insertmacro InstallerRecordTiming 4
   ; The failure report owns 7-Zip's UTF-8 output; the details view only needs the result code.
   StrCpy $R1 "$R0"
 !macroend
@@ -312,4 +331,5 @@ ManifestDPIAware true
     Abort "$(MuseVCPriorFailed)"
   ${EndIf}
   Call MuseEnsureVCRuntime
+  !insertmacro InstallerRecordTiming 5
 !macroend

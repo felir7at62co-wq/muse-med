@@ -10,7 +10,7 @@
 
 macOS 手动更新验收使用真实 Electron HTTPS 下载和 Apple 只读 DMG 检查，不修改已安装的应用。编译 Desktop Host 源码并准备目标 Electron 运行时后，在仓库根运行 `node apps/desktop/scripts/test-macos-manual-updater.mjs`；`DSH_DESKTOP_TEST_ELECTRON` 可选择其他已准备的 Electron 可执行文件。每次运行使用独立 profile、缓存、证书和随机回环端口，只信任本次夹具的证书，Electron 退出后清理临时数据。六个场景覆盖下载、稍后安装、明确批准打开、打开失败、缓存变化拒绝及重新下载，以及错误 hash、资源签名或架构元数据。保留的 `result.json` 记录原生 Squirrel 调用为零。安装包打开和应用退出被拦截，Host 任务检查为模拟；这不验证拖动替换安装、生产更新源或重新构建的 Muse 安装包。无需密钥的 `macos-update-package.e2e.ts` 另用真实 codesign、lipo 和 hdiutil，拒绝签名有效但实际可执行文件架构错误的应用，以及变化的身份、版本、资源和文件字节。[Desktop README](../README.zh.md#unsigned-installers)定义生产安装流程。
 
-已安装应用验收可显式启用 `DSH_DESKTOP_UPDATE_JOURNAL_DIR`，使用安装目录树之外、两个版本共同保留的绝对路径。每个主进程将已安装版本、状态转换和人工操作标记刷新到单独的 JSONL 文件。原始诊断和请求数据被排除；存储错误会向上传播。[日志决策](../../../.agents/notes/implemented/testing/2026-09-14-desktop-installed-update-journal.zh.md)定义证据的局限。单元与主入口测试覆盖该日志；签名安装版升级仍未验证。
+已安装应用验收可显式启用 `DSH_DESKTOP_UPDATE_JOURNAL_DIR`，使用安装目录树之外、两个版本共同保留的绝对路径。每个主进程将固定的更新、profile、Hongguo、Host、窗口、客户端插件和可交互里程碑，以及进程累计耗时和阶段耗时刷新到单独的 JSONL 文件。在 Windows 上，继承该显式开关的安装器还会单独记录等待旧进程、解压和安装步骤完成时间。`main-window-shown`、`workspace-ready` 与 `ui-interactive` 被刻意区分。`ui-interactive` 表示客户端插件挂载已完成，且渲染器又完成了两个动画帧；它是比窗口可见更强的就绪代理，不代表已经执行模拟或人工输入。记录只包含版本、时间戳、固定分类、架构和进程标识，不包含原始诊断、请求数据、凭据或路径。主进程中的存储错误会向上传播，安装器诊断写入失败不会改变安装行为。[日志决策](../../../.agents/notes/implemented/testing/2026-09-14-desktop-installed-update-journal.zh.md)定义证据的局限。单元与主入口测试覆盖该日志；安装器源码回归检查目录寄存器、显式启用条件和寄存器恢复。签名安装版升级仍未验证。
 
 ## 目录
 

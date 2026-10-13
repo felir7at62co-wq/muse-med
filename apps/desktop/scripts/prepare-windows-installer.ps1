@@ -60,6 +60,16 @@ if ($TestProgress -or $CompileProgressOnly) {
         & $reportExecutable
         if ($LASTEXITCODE -ne 0) { throw 'Extraction report regression failed.' }
     }
+    $timingSource = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../tests/windows-installer-timing.cpp'))
+    $timingExecutable = Join-Path $output 'installer-timing-test.exe'
+    $timingScript = Join-Path $output 'compile-installer-timing-test.cmd'
+    [IO.File]::WriteAllLines($timingScript, @('@echo off', ('call "{0}" >nul' -f $vcvars), 'if errorlevel 1 exit /b %errorlevel%', ('cl /nologo /MT /W4 /WX /EHsc "{0}" /Fo"{1}" /Fe"{2}" /link "{3}"' -f $timingSource, (Join-Path $output 'installer-timing-test.obj'), $timingExecutable, (Join-Path $output 'window-frame.lib'))), [Text.Encoding]::Default)
+    & $env:ComSpec /d /c $timingScript
+    if ($LASTEXITCODE -ne 0) { throw 'Installer timing test compilation failed.' }
+    if ($TestProgress) {
+        & $timingExecutable
+        if ($LASTEXITCODE -ne 0) { throw 'Installer timing regression failed.' }
+    }
 }
 Add-Type -AssemblyName System.Drawing
 foreach ($asset in @('brand', 'brand-2x', 'brand-dark', 'brand-dark-2x', 'uninstaller-sidebar')) {

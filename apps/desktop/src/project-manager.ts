@@ -292,10 +292,12 @@ export class DesktopProjectManager {
   /**
    * @param paths - Electron-owned package state and reserved desktop profile paths.
    * @param runtime - absolute bundled Node.js and pnpm entry paths.
+   * @param onApply - Optional fixed classification for startup timing evidence.
    */
   constructor(
     readonly paths: DesktopPaths,
     readonly runtime: DesktopRuntimeExecutables,
+    private readonly onApply?: (result: 'current' | 'prepared' | 'rebuilt') => void,
   ) {}
 
   /** Read the active desktop plugin inventory. */
@@ -387,10 +389,12 @@ export class DesktopProjectManager {
           && previous.links.every(link => existsSync(link.target)
           && existsSync(join(this.paths.profile, 'node_modules', link.name))
           && realpathSync.native(link.target) === realpathSync.native(join(this.runtime.dsh, 'node_modules', link.name)))))) {
+        this.onApply?.('current')
         return false
       }
       if (previous === undefined) createPluginProfile(this.paths.profile)
-      await this.reconcileProfile(this.paths.profile, previous)
+      const rebuilt = await this.reconcileProfile(this.paths.profile, previous)
+      this.onApply?.(rebuilt ? 'rebuilt' : 'prepared')
       return true
     })
   }
@@ -437,7 +441,7 @@ export class DesktopProjectManager {
     })
   }
 
-  private async reconcileProfile(projectDir: string, previous: DesktopProfileState | undefined, packagesChanged = false): Promise<void> {
+  private async reconcileProfile(projectDir: string, previous: DesktopProfileState | undefined, packagesChanged = false): Promise<boolean> {
     const target = this.currentRuntime()
     const rebuild = (!packagesChanged && existsSync(this.pendingPackages))
       || (previous !== undefined && pluginRecords(projectDir).length > 0
@@ -450,6 +454,7 @@ export class DesktopProjectManager {
     }
     if (rebuild || packagesChanged) await this.finishPackageOperation(projectDir)
     else this.prepareProfile(projectDir)
+    return rebuild
   }
 
   private async finishPackageOperation(projectDir: string): Promise<void> {
