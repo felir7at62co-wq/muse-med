@@ -66,9 +66,19 @@ export function createAsrService(options){
  if(pool.resources.every(row=>row.serviceVersion==='flash')&&(maxDurationSeconds>7200||maxAudioBytes>100_000_000))throw Error('Invalid ASR provider configuration');
  const jobs=join(root,'jobs'),audio=join(root,'audio'),active=new Map(),waiting=[],workers=new Map();
  const accountTails=new Map(),fileTails=new Map(),rateTails=new Map(),nextRequestAt=new Map(),shutdown=new AbortController();let reservationTail=Promise.resolve(),lastAccount,started=autoStart;
+ const queueFullSinceStart=new Map(['occupied_total','waiting_capacity'].map(category=>[category,{category,count:0,lastSeenAt:null}])),startedAt=now();
  let workerFailure,closing=false;
  const jobKey=job=>job.account+'\0'+job.id;
  const busy=key=>workers.has(key)||waiting.some(job=>jobKey(job)===key);
+
+ function queueFull(category){const summary=queueFullSinceStart.get(category);summary.count++;summary.lastSeenAt=now();return fail(429,'Cloud transcription queue is full','queue_full',2);}
+ function ageBucket(job,observedAt){
+  const since=job.submittedAtMs??job.reservedAtMs??job.objectStagedAt;
+  if(!Number.isFinite(since))return 'unknown';
+  const seconds=Math.max(0,Math.floor((observedAt-since)/1000));
+  if(seconds<300)return 'under_5_minutes';if(seconds<1800)return '5_to_30_minutes';if(seconds<7200)return '30_minutes_to_2_hours';if(seconds<86400)return '2_to_24_hours';return '24_hours_or_more';
+ }
+ const unresolvedSummary=()=>({count:0,age_buckets:{under_5_minutes:0,'5_to_30_minutes':0,'30_minutes_to_2_hours':0,'2_to_24_hours':0,'24_hours_or_more':0,unknown:0}});
 
  const audioPath=(account,key)=>join(audio,digest(account+'\0'+key)+'.mp3');
  const path=(account,key)=>join(jobs,digest(account+'\0'+key)+'.json');
@@ -109,7 +119,7 @@ export function createAsrService(options){
    const load=resource=>all.filter(entry=>['queued','preparing','submitting','processing','uncertain'].includes(entry.status)&&resourceOf(entry).appId===resource.appId&&resourceOf(entry).resourceId===resource.resourceId).length/resource.maxConcurrentJobs;
    eligible.sort((a,b)=>Number(available(b))-Number(available(a))||load(a)-load(b));const resource=eligible[0];
    const canRun=available(resource)&&!waiting.some(entry=>entry.account===job.account);
-   if(!canRun&&waiting.length>=maxQueuedJobs)throw fail(429,'Cloud transcription queue is full','queue_full',2);
+   if(!canRun&&waiting.length>=maxQueuedJobs)throw queueFull('waiting_capacity');
    Object.assign(job,{poolId:resource.poolId,appId:resource.appId,quotaGroup:resource.quotaGroup,serviceVersion:resource.serviceVersion,resourceId:resource.resourceId});
    job.day=today;job.reservedAtMs=now();
    job.objectStagedAt=now();job.status='queued';
@@ -227,7 +237,7 @@ export function createAsrService(options){
    if(index<0)return;
    const [job]=waiting.splice(index,1),key=jobKey(job),resource=resourceOf(job);lastAccount=job.account;
    const promise=(resource.serviceVersion==='flash'?runFlash(job):runStandard(job)).catch(error=>{workerFailure=error;}).finally(()=>{workers.delete(key);dispatch();});
-   workers.set(key,{promise,resource});
+   workers.set(key,{promise,resource,job});
   }
  }
  const initialized=(async()=>{
@@ -284,7 +294,7 @@ export function createAsrService(options){
     }
     if(busy(activeKey)) {req.resume();throw fail(429,'Too many active cloud transcription jobs','upload_busy',2);}
     const occupied=new Set([...active.keys(),...workers.keys(),...waiting.map(jobKey)]).size;
-    if(occupied>=maxConcurrentJobs+maxQueuedJobs){req.resume();throw fail(429,'Cloud transcription queue is full','queue_full',2);}
+    if(occupied>=maxConcurrentJobs+maxQueuedJobs){req.resume();throw queueFull('occupied_total');}
    }
    const pendingLimit=maxPendingUploadsPerAccount;
    if([...active.values()].filter(item=>item.account===account).length>=pendingLimit){req.resume();throw fail(429,'Too many active cloud transcription jobs','upload_busy',2);}
@@ -296,6 +306,7 @@ export function createAsrService(options){
     if(existing){if(conflict(existing))throw fail(409,'Idempotency key already belongs to different audio or purpose','idempotency_conflict');
      if(!['preparing','failed'].includes(existing.status)){req.resume();return publicJob(existing);}}
     const version=existing?resourceOf(existing).serviceVersion:serviceVersion,kind=version==='flash'?'flash':'standard';
+    active.get(activeKey).serviceVersion=version;
     await mkdir(jobs,{recursive:true,mode:0o700});await mkdir(audio,{recursive:true,mode:0o700});
     ownsAudio=true;await rm(file,{force:true});
     await stage(req,file,expectedHash);const probed=await probe(file),duration=typeof probed==='number'?probed:probed.duration,audioFormat=typeof probed==='number'?'mp3':probed.format;
@@ -303,9 +314,10 @@ export function createAsrService(options){
     if(kind==='flash'&&(await stat(file)).size>100_000_000)throw fail(413,'Audio exceeds the gateway limit');
     const taskHash=digest(account+'\0'+key),taskId=`${taskHash.slice(0,8)}-${taskHash.slice(8,12)}-4${taskHash.slice(13,16)}-8${taskHash.slice(17,20)}-${taskHash.slice(20,32)}`;
     const job={id,taskId,account,hash:expectedHash,language,...purpose?{purpose}:{},duration,audioFormat,day:new Date(now()).toISOString().slice(0,10),providerKind:kind,serviceVersion:version,...kind==='standard'?{storageKind}:{},status:'preparing'};
-    await reserve(job,existing);retainAudio=true;return publicJob({...job,status:workers.has(jobKey(job))?'processing':'queued'});
+    const resource=await reserve(job,existing),activeJob=active.get(activeKey);activeJob.quotaGroup=resource.quotaGroup;
+    retainAudio=true;return publicJob({...job,status:workers.has(jobKey(job))?'processing':'queued'});
    }finally{if(ownsAudio&&!retainAudio)await rm(file,{force:true});}
-   })();active.set(activeKey,{account,hash:expectedHash,language,purpose,promise:pending});
+   })();active.set(activeKey,{account,hash:expectedHash,language,purpose,serviceVersion,promise:pending});
    const tail=pending.then(()=>{},()=>{});accountTails.set(account,tail);
    try{return await pending;}finally{active.delete(activeKey);if(accountTails.get(account)===tail)accountTails.delete(account);}
   },
@@ -314,6 +326,21 @@ export function createAsrService(options){
    if(active.has(account+'\0'+key)||busy(account+'\0'+key))return publicJob(job);
    const current=await read(account,key);await expire(current);
    return publicJob(current);
+  },
+  /** Return an in-memory, task-anonymous operational snapshot without reading or changing receipts. */
+  diagnostics(){
+   const observedAt=now(),occupied=new Set([...active.keys(),...workers.keys(),...waiting.map(jobKey)]);
+   const versions=new Map([...new Set([...resources.values()].map(resource=>resource.serviceVersion))].map(serviceVersion=>[serviceVersion,{service_version:serviceVersion,active:0,workers:0,waiting:0,occupied:new Set()}]));
+   const quotaGroups=new Map([...groups.values()].map(group=>[group.id,{quota_group:group.id,configured_worker_limit:group.maxConcurrentJobs,active:0,workers:0,waiting:0,occupied:new Set()}]));let unassignedActive=0;
+   for(const [key,item]of active){const row=versions.get(item.serviceVersion);row.active++;row.occupied.add(key);if(item.quotaGroup===undefined)unassignedActive++;else{const group=quotaGroups.get(item.quotaGroup);group.active++;group.occupied.add(key);}}
+   for(const job of waiting){const key=jobKey(job),resource=resourceOf(job),version=versions.get(resource.serviceVersion),group=quotaGroups.get(resource.quotaGroup);version.waiting++;version.occupied.add(key);group.waiting++;group.occupied.add(key);}
+   for(const [key,item]of workers){const version=versions.get(item.resource.serviceVersion),group=quotaGroups.get(item.resource.quotaGroup);version.workers++;version.occupied.add(key);group.workers++;group.occupied.add(key);}
+   const unresolved={processing:unresolvedSummary(),uncertain:unresolvedSummary()},standardJobs=new Map();
+   for(const job of waiting)if(job.providerKind!=='flash'&&['processing','uncertain'].includes(job.status))standardJobs.set(jobKey(job),job);
+   for(const [key,item]of workers)if(item.job.providerKind!=='flash'&&['processing','uncertain'].includes(item.job.status))standardJobs.set(key,item.job);
+   for(const job of standardJobs.values()){const summary=unresolved[job.status];summary.count++;summary.age_buckets[ageBucket(job,observedAt)]++;}
+   const queueFullCategories=[...queueFullSinceStart.values()].map(row=>({category:row.category,count:row.count,last_seen_seconds_ago:row.lastSeenAt===null?null:Math.max(0,Math.floor((observedAt-row.lastSeenAt)/1000))}));
+   return {schema_version:1,occupancy:{active:active.size,workers:workers.size,waiting:waiting.length,occupied_unique:occupied.size,worker_limit:maxConcurrentJobs,waiting_limit:maxQueuedJobs},by_service_version:[...versions.values()].sort((a,b)=>a.service_version.localeCompare(b.service_version)).map(({occupied:keys,...row})=>({...row,occupied_unique:keys.size})),by_quota_group:[...quotaGroups.values()].sort((a,b)=>a.quota_group.localeCompare(b.quota_group)).map(({occupied:keys,...row})=>({...row,occupied_unique:keys.size})),active_unassigned_to_quota_group:unassignedActive,standard_unresolved:unresolved,queue_full_since_start:{observed_window_seconds:Math.max(0,Math.floor((observedAt-startedAt)/1000)),total:queueFullCategories.reduce((sum,row)=>sum+row.count,0),categories:queueFullCategories}};
   },
   /** Remove expired temporary objects while retaining receipts and original task IDs. */
   async sweep(){

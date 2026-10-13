@@ -118,6 +118,16 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
    kbAccessTokens.set(token,{sessionToken:s.token,accountId:s.id,expiry:expiresAt});
    reply(res,200,JSON.stringify({url:publicOrigin+'/api/kb/mcp',token,expiresAt}),{'content-type':'application/json; charset=utf-8'});return;
   }
+  if(path==='/api/admin/asr/diagnostics'){
+   const answer=(status,value)=>reply(res,status,JSON.stringify(value),{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
+   if(req.method!=='GET'){answer(405,{error:'Unsupported ASR diagnostics method'});return;}
+   if(!s.account.admin){answer(403,{error:'Administrator access required'});return;}
+   if(!adminAccess||!adminAccess.elevated(s.account,s.token)){answer(403,{error:'Elevated administrator access required'});return;}
+   if(!asr){answer(503,{error:'Muse cloud transcription is not configured on this server'});return;}
+   if(!rate(req,'asr-diagnostics:'+s.id,12)){answer(429,{error:'ASR diagnostics request rate exceeded'});return;}
+   await adminAccess.record(s.account,'GET /api/admin/asr/diagnostics','server');
+   answer(200,asr.diagnostics());return;
+  }
   if(path==='/api/asr/jobs'||path.startsWith('/api/asr/jobs/')){
    const answer=(status,value,retryAfter)=>reply(res,status,JSON.stringify(value),{'content-type':'application/json; charset=utf-8',...retryAfter?{'retry-after':String(retryAfter)}:{}});
    if(!asr){answer(503,{error:'Muse cloud transcription is not configured on this server'});return;}
