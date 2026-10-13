@@ -1,6 +1,6 @@
 /** End-to-end preview, compose, verify, and failure cleanup over an injected process channel. */
 
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -102,6 +102,41 @@ function settings(channel: ProcessChannel): DramaBgmSettings {
 }
 
 describe('runDramaBgm', () => {
+  it.each(['missing', 'empty', 'directory'] as const)('rejects a %s source before any media process or publication', async (kind) => {
+    const files = await fixture(), source = join(files.project, 'music', 'light.mp3')
+    await rm(source)
+    if (kind === 'empty') await writeFile(source, '')
+    if (kind === 'directory') await mkdir(source)
+    const run = vi.fn<ProcessChannel['run']>(async () => { throw new Error('Unexpected media process for a rejected source') })
+    const failure = runDramaBgm({
+      method: 'compose', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan,
+    }, settings({ run }))
+    await expect(failure).rejects.toThrow(kind === 'missing' ? `BGM 源曲不存在：${source}` : `BGM 源曲不是非空文件：${source}`)
+    expect(run).not.toHaveBeenCalled()
+    await expect(stat(files.output)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(stat(files.report)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(stat(join(files.project, 'audio'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('rejects a control file redirected outside the project and reports its original and resolved paths', async () => {
+    const files = await fixture(), outside = await mkdtemp(join(tmpdir(), 'bgm-external-control-'))
+    temporary.push(outside)
+    const target = join(outside, 'timeline.json'), text = await readFile(files.timeline, 'utf8')
+    await writeFile(target, text)
+    await symlink(outside, join(files.project, 'linked-controls'), process.platform === 'win32' ? 'junction' : 'dir')
+    const input = 'linked-controls/timeline.json', resolved = join(files.project, input)
+    const run = vi.fn<ProcessChannel['run']>(async () => { throw new Error('Unexpected media process outside the project') })
+    const failure = runDramaBgm({
+      method: 'compose', project: files.project, episode: 5, timeline: input, plan: files.plan,
+    }, settings({ run }))
+    await expect(failure).rejects.toThrow('时间线必须位于项目目录内')
+    await expect(failure).rejects.toThrow(`input="${input}"; project="${files.project}"; resolved="${resolved}"`)
+    await expect(failure).rejects.toThrow(`真实路径越出项目目录（${await realpath(target)}）`)
+    expect(run).not.toHaveBeenCalled()
+    expect(await readFile(target, 'utf8')).toBe(text)
+    await expect(stat(files.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('names a missing project control file instead of exposing a raw stat failure', async () => {
     const files = await fixture()
     await rm(files.timeline)
