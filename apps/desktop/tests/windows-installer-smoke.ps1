@@ -79,6 +79,27 @@ function Dismiss([Diagnostics.Process]$Process, [string]$Text) {
         Start-Sleep -Milliseconds 25
     }
 }
+function Set-PathInput([Diagnostics.Process]$Process, [IntPtr]$Window, [IntPtr]$Edit, [string]$Path, [switch]$PressEnter) {
+    [InstallerCapture]::SetEditText($Process.Id, $Edit, $Path)
+    $focus = [InstallerCapture]::FocusEdit($Process.Id, $Window, $Edit)
+    $actual = [InstallerCapture]::ReadEditText($Process.Id, $Edit)
+    if ($actual -cne $Path) { throw "Path input changed before Enter: expected '$Path', actual '$actual'" }
+    $inputAction = [ordered]@{
+        processId = $Process.Id
+        windowHandle = $Window.ToInt64()
+        editHandle = $Edit.ToInt64()
+        focusHandle = $focus.ToInt64()
+        expected = $Path
+        actual = $actual
+        pressEnter = [bool]$PressEnter
+    } | ConvertTo-Json -Compress
+    [IO.File]::AppendAllText((Join-Path $OutputDirectory 'input-actions.jsonl'),
+        $inputAction + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    Write-Output "Installer path input: $inputAction"
+    if ($PressEnter -and -not [InstallerCapture]::PostMessage($Edit, 0x100, [IntPtr]13, [IntPtr]::Zero)) {
+        throw 'Could not post Enter to the verified path input'
+    }
+}
 function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$Theme, [string]$Bounds) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $previous = 0
@@ -143,6 +164,13 @@ function Run-Silent([string]$Arguments, [int]$Code) {
 function Get-OwnApplications {
     Get-Process -Name $ProductName -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $appPath }
 }
+function Set-RegisteredPathForUpdate([string]$Path) {
+    $key = 'HKCU:\Software\' + $RegistryKey
+    Set-ItemProperty -LiteralPath $key -Name InstallLocation -Value $Path
+    if ((Get-ItemProperty -LiteralPath $key).InstallLocation -cne $Path) {
+        throw 'Historical InstallLocation fixture did not retain its requested separators'
+    }
+}
 function Stop-TestProcess([Diagnostics.Process]$Process) {
     try {
         try {
@@ -181,17 +209,51 @@ try {
     $window = [InstallerCapture]::Find($process.Id)
     [void][InstallerCapture]::Save($window, (Join-Path $OutputDirectory 'light-welcome.png'))
     Click-Control $process $copy.INSTALLER_CHOOSE_PATH
-    $edit = Wait-Control $process $installPath
+    [void](Wait-Control $process $copy.INSTALLER_BROWSE)
+    $edit = [InstallerCapture]::FindPathEdit($process.Id, $window)
+    if ([InstallerCapture]::ReadEditText($process.Id, $edit) -cne $installPath) { throw 'Initial path input differs from the private installation directory' }
+    $foreignOwnerRejected = $false
+    try {
+        [InstallerCapture]::SetEditText(0, $edit, 'foreign-owner-negative-control')
+    } catch {
+        if ($_.Exception -isnot [ArgumentException] -and $_.Exception.InnerException -isnot [ArgumentException]) { throw }
+        $foreignOwnerRejected = $true
+    }
+    if (-not $foreignOwnerRejected -or [InstallerCapture]::ReadEditText($process.Id, $edit) -cne $installPath) {
+        throw 'Path input accepted another process identity'
+    }
     [void][InstallerCapture]::Save($window, (Join-Path $OutputDirectory 'light-path.png'))
     Click-Control $process $copy.INSTALLER_BROWSE
     Dismiss $process $copy.INSTALLER_CHOOSE_PATH
-    [void][InstallerCapture]::SendMessage($window, 0x28, $edit, [IntPtr]1)
-    foreach ($invalidPath in @('C:\Windows\Harness Installer Test', [IO.Path]::GetPathRoot($installPath), ([IO.Path]::GetPathRoot($installPath) + '\'))) {
-        [void][InstallerCapture]::SendMessage($edit, 0xC, [IntPtr]::Zero, $invalidPath)
-        [void][InstallerCapture]::PostMessage($edit, 0x100, [IntPtr]13, [IntPtr]::Zero)
+    $editAfterBrowse = [InstallerCapture]::FindPathEdit($process.Id, $window)
+    if ($editAfterBrowse -ne $edit -or [InstallerCapture]::ReadEditText($process.Id, $editAfterBrowse) -cne $installPath) {
+        throw 'Cancelling Browse changed the path input or its window handle'
+    }
+    $protectedDirectories = [ordered]@{
+        WINDIR = $env:WINDIR
+        'ProgramFiles(x86)' = ${env:ProgramFiles(x86)}
+        ProgramFiles = $env:ProgramFiles
+        USERPROFILE = $env:USERPROFILE
+        LOCALAPPDATA = $env:LOCALAPPDATA
+    }
+    foreach ($protectedDirectory in $protectedDirectories.GetEnumerator()) {
+        if ([string]::IsNullOrWhiteSpace($protectedDirectory.Value)) {
+            throw "Native invalid-path fixture requires environment variable $($protectedDirectory.Key)"
+        }
+    }
+    $windowsPath = $protectedDirectories.WINDIR.TrimEnd('\')
+    $invalidPaths = @((Join-Path $windowsPath 'Harness Installer Test'), [IO.Path]::GetPathRoot($installPath),
+        ([IO.Path]::GetPathRoot($installPath) + '\'), ($windowsPath + '\'), ($windowsPath + '\\Harness Installer Test'))
+    foreach ($protectedName in @('ProgramFiles(x86)', 'ProgramFiles', 'USERPROFILE', 'LOCALAPPDATA')) {
+        $protectedPath = $protectedDirectories[$protectedName].TrimEnd('\')
+        $invalidPaths += @($protectedPath, ($protectedPath + '\'))
+    }
+    $invalidPaths += ($protectedDirectories.ProgramFiles.TrimEnd('\') + '\\Harness Installer Test')
+    foreach ($invalidPath in $invalidPaths) {
+        Set-PathInput $process $window $edit $invalidPath -PressEnter
         Dismiss $process $copy.INSTALLER_PATH_INVALID
     }
-    [void][InstallerCapture]::SendMessage($edit, 0xC, [IntPtr]::Zero, $installPath)
+    Set-PathInput $process $window $edit $installPath
     [InstallerCapture]::MoveBy($window, 73, -41)
     $bounds = [InstallerCapture]::Bounds($window)
     Click-Control $process $copy.INSTALLER_INSTALL
@@ -202,16 +264,19 @@ try {
     $results.Add('welcome-ready-before-first-show')
     $results.Add('successful-install-paints-100-before-finish')
 
+    Set-RegisteredPathForUpdate ($installPath + '\')
     $process = Start-Setup dark ''
     Click-Control $process $copy.INSTALLER_CHOOSE_PATH
-    $edit = Wait-Control $process $installPath
-    [void][InstallerCapture]::SendMessage($edit, 0xC, [IntPtr]::Zero, ($installPath + '\\'))
+    [void](Wait-Control $process $copy.INSTALLER_BROWSE)
+    $window = [InstallerCapture]::Find($process.Id)
+    $edit = [InstallerCapture]::FindPathEdit($process.Id, $window)
+    Set-PathInput $process $window $edit ($installPath + '\\')
     [void][InstallerCapture]::Save([InstallerCapture]::Find($process.Id), (Join-Path $OutputDirectory 'dark-welcome.png'))
     $bounds = [InstallerCapture]::Bounds([InstallerCapture]::Find($process.Id))
     Click-Control $process $copy.INSTALLER_INSTALL
     Finish-Setup $process $true dark $bounds
     $registration = Get-ItemProperty ('HKCU:\Software\' + $RegistryKey)
-    if ($registration.InstallLocation.TrimEnd('\') -ne $installPath -or -not (Test-Path -LiteralPath $appPath)) {
+    if ($registration.InstallLocation -cne $installPath -or -not (Test-Path -LiteralPath $appPath)) {
         throw 'Trailing separators changed the registered installation directory'
     }
     $results.Add('registered-directory-with-trailing-separators')
@@ -268,9 +333,10 @@ try {
     if (-not $otherProcess.WaitForExit(10000)) { throw 'Unrelated test application did not exit' }
     if (-not (Test-Path -LiteralPath $appPath)) { throw 'Silent update moved the registered installation' }
     $registration = Get-ItemProperty ('HKCU:\Software\' + $RegistryKey)
-    if ($registration.InstallLocation.TrimEnd('\') -ne $installPath) { throw 'Silent update changed InstallLocation' }
+    if ($registration.InstallLocation -cne $installPath) { throw 'Silent update changed InstallLocation' }
     $results.Add('silent-update-retains-directory-and-ignores-unrelated-process')
     # The /S argument models older Muse updaters; this automatic restart must still expose installation progress.
+    Set-RegisteredPathForUpdate ($installPath + '\\')
     $process = Start-Process -FilePath $Installer -ArgumentList '/S --updated --force-run /THEME=dark' -PassThru -WindowStyle Hidden
     $processes.Add($process)
     $window = [InstallerCapture]::Find($process.Id)
@@ -293,6 +359,9 @@ try {
         }
         if ([InstallerCapture]::GetProp($window, 'HarnessInstaller.CompletedPercent').ToInt32() -eq 100) { $observedComplete = $true }
         Start-Sleep -Milliseconds 25
+    }
+    if ((Get-ItemProperty ('HKCU:\Software\' + $RegistryKey)).InstallLocation -cne $installPath) {
+        throw 'Automatic update did not canonicalize historical InstallLocation'
     }
     if ($FailAfterAutomaticRelaunch) {
         $timer.Restart()
@@ -354,6 +423,16 @@ try {
 } catch {
     $primaryFailure = $_
     Write-Output "Installer check failed: $_"
+    try {
+        if ($process -and -not $process.HasExited) {
+            foreach ($failureWindow in [InstallerCapture]::VisibleWindows($process.Id)) {
+                [void][InstallerCapture]::SaveVisibleDesktop($failureWindow,
+                    (Join-Path $OutputDirectory ("failure-window-$($failureWindow.ToInt64()).png")))
+            }
+        }
+    } catch {
+        Write-Output "Installer failure screenshot could not be saved: $_"
+    }
     throw
 } finally {
     foreach ($process in $processes) {

@@ -1,5 +1,27 @@
 Var InstallerPath
 Var InstallerError
+!macro InstallerRejectProtectedDirectory PATH SELECTED
+    ${If} ${PATH} == $WINDIR
+    ${OrIf} ${PATH} == $PROGRAMFILES32
+    ${OrIf} ${PATH} == $PROGRAMFILES64
+        Return
+    ${EndIf}
+    ${If} ${PATH} == ${SELECTED}
+        ${If} ${PATH} == $PROFILE
+        ${OrIf} ${PATH} == $LOCALAPPDATA
+            Return
+        ${EndIf}
+    ${EndIf}
+!macroend
+!macro InstallerTrimDirectorySeparators PATH
+    ${Do}
+        StrCpy $0 ${PATH} 1 -1
+        ${If} $0 != "\"
+            ${ExitDo}
+        ${EndIf}
+        StrCpy ${PATH} ${PATH} -1
+    ${Loop}
+!macroend
 ; Reject reparse points along the selected path before any write or cleanup.
 !macro InstallerValidatePathFunction PREFIX
 Function ${PREFIX}InstallerValidatePath
@@ -90,19 +112,7 @@ Function ${PREFIX}InstallerValidatePath
                 Return
             ${EndIf}
         ${EndIf}
-        ${If} $2 == $WINDIR
-        ${OrIf} $2 == $PROGRAMFILES32
-        ${OrIf} $2 == $PROGRAMFILES64
-        ${OrIf} $2 == $PROFILE
-        ${OrIf} $2 == $LOCALAPPDATA
-            ; Ancestors PROFILE and LOCALAPPDATA are allowed; the selected directory itself is not.
-            ${If} $2 == $WINDIR
-            ${OrIf} $2 == $PROGRAMFILES32
-            ${OrIf} $2 == $PROGRAMFILES64
-            ${OrIf} $2 == $InstallerPath
-                Return
-            ${EndIf}
-        ${EndIf}
+        !insertmacro InstallerRejectProtectedDirectory $2 $InstallerPath
         ${GetParent} $2 $2
     ${Loop}
     System::Call 'kernel32::GetFullPathNameW(w "$InstallerPath", i ${NSIS_MAX_STRLEN}, w .r4, p 0) i.r0'
@@ -110,6 +120,18 @@ Function ${PREFIX}InstallerValidatePath
     ${OrIf} $0 >= ${NSIS_MAX_STRLEN}
         Return
     ${EndIf}
+    !insertmacro InstallerTrimDirectorySeparators $4
+    StrLen $0 $4
+    ${If} $0 <= 3
+        Return
+    ${EndIf}
+    ; Canonical separators must not bypass protected-directory comparisons.
+    StrCpy $2 $4
+    ${Do}
+        !insertmacro InstallerRejectProtectedDirectory $2 $4
+        ${GetParent} $2 $2
+        StrLen $0 $2
+    ${LoopWhile} $0 > 3
     StrCpy $InstallerPath $4
     StrCpy $InstallerError ""
 FunctionEnd
@@ -124,7 +146,17 @@ Function InstallerPreflight
     ${EndIf}
     StrCpy $INSTDIR $InstallerPath
     ReadRegStr $0 HKCU "${INSTALL_REGISTRY_KEY}" "InstallLocation"
-    ${If} $0 != $INSTDIR
+    StrCpy $4 ""
+    ${If} $0 != ""
+        System::Call 'kernel32::GetFullPathNameW(w r0, i ${NSIS_MAX_STRLEN}, w .r4, p 0) i.r1'
+        ${If} $1 == 0
+        ${OrIf} $1 >= ${NSIS_MAX_STRLEN}
+            StrCpy $4 ""
+        ${Else}
+            !insertmacro InstallerTrimDirectorySeparators $4
+        ${EndIf}
+    ${EndIf}
+    ${If} $4 != $INSTDIR
     ${OrIfNot} ${FileExists} "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
         FindFirst $0 $1 "$INSTDIR\*.*"
         ${DoWhile} $1 != ""
