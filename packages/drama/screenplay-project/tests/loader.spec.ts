@@ -79,7 +79,10 @@ it.each([
 ])('binds self-check video once after PTC preparation and rejects subsequent metadata changes: %j', async ({ binding, mutation, denied }) => {
   const patch = fileURLToPath(new URL('./fixtures/self-check.cordis.yml', import.meta.url))
   const { stdout, stderr } = await runLoaderSmoke({
+    // This case starts a PTC worker and writes guarded project/session files;
+    // leave room for those owned operations under the 90-second coverage lane.
     label: 'screenplay self-check source-version preparation', tempDirPrefix: 'screenplay-self-check-version-',
+    processTimeoutMs: 60_000,
     binScript: fileURLToPath(new URL('../../../../apps/cli/src/bin.ts', import.meta.url)),
     configPath: patch, binArgs: ['--profile', 'headless', '--patch', patch, '--json', '验证真实准备后的一次性视频版本绑定。'],
     tsconfigPath: fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url)), sourceImport: 'tsx/esm', mode: 'src',
@@ -111,7 +114,7 @@ it.each([
   if (denied) expect(stdout).toContain('video_changed')
   else expect(stdout).not.toContain('video_changed')
   expect(stderr).not.toContain('UNHANDLED')
-}, LOADER_SMOKE_TEST_TIMEOUT_MS)
+}, 90_000)
 
 
 it('cold-resumes the same real session fail-closed for old visible rereads and approves only after fresh model-step reads', async () => {

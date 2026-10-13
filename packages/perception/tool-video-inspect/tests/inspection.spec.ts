@@ -443,10 +443,9 @@ it('registers OCR as Windows-only, rejects unsafe output paths and never silentl
   expect(existing.isError).toBe(true)
   await expect(readFile(join(h.root, 'qa/new.txt'))).rejects.toThrow()
   expect(h.ctx.tools.get('audio_transcribe')).toBeUndefined()
-  if (process.platform !== 'win32') {
-    const unsupported = await h.ocr({ end_seconds: 1, raw_json_path: 'qa/raw.json', merged_text_path: 'qa/text.txt' })
-    expect(unsupported.value).toMatchObject({ scan_status: 'failed', text_status: 'indeterminate', failure_code: 'windows_only' })
-  }
+  vi.mocked(Os.platform).mockReturnValue('darwin')
+  const unsupported = await h.ocr({ end_seconds: 1, raw_json_path: 'qa/raw.json', merged_text_path: 'qa/text.txt' })
+  expect(unsupported.value).toMatchObject({ scan_status: 'failed', text_status: 'indeterminate', failure_code: 'windows_only' })
 }, 30_000)
 
 it('returns six-cell pages in source order with readable times and retained detail frames', async () => {

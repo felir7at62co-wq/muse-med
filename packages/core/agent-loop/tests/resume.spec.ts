@@ -844,7 +844,9 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
 
     // owner.dispose() awaited transaction settlement, so the same identities
     // can be reused before awaiting the public rejection.
-    const retry = await promptly(ctx.agents.resume({ resumeSessionId: sessionId, agentOptions: { provider: 'mock', model: 'mock' } }))
+    // The retry opens real persistence; only cancellation of the abandoned open
+    // is subject to the short lifecycle guard. Disk I/O uses the test's deadline.
+    const retry = await ctx.agents.resume({ resumeSessionId: sessionId, agentOptions: { provider: 'mock', model: 'mock' } })
     await rejection
     expect(opens).toBe(2)
     expect(published).toEqual(['session/created', 'agent/created'])
