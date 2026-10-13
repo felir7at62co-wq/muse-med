@@ -35,12 +35,12 @@ afterAll(dom.dispose)
 
 /** Keep Host and Client Context declarations in their separate compiler programs. */
 interface SettingsPageFixture {
-  mountSettingsPage(host: {
-    describe(): Promise<{ ok: true; value: SettingsDescribeValue }>
-    mutate(ns: string, ops: readonly SettingsPathOpView[], revision: number | undefined): Promise<
+  mountSettingsPage: (host: {
+    describe: () => Promise<{ ok: true; value: SettingsDescribeValue }>
+    mutate: (ns: string, ops: readonly SettingsPathOpView[], revision: number | undefined) => Promise<
       { ok: true; value: SettingsNamespaceView } | { ok: false; error: RemoteError }
     >
-  }): Promise<{ container: HTMLElement; dispose(): Promise<void> }>
+  }) => Promise<{ container: HTMLElement; dispose: () => Promise<void> }>
 }
 
 const { mountSettingsPage } = await vi.importActual<SettingsPageFixture>(

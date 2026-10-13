@@ -13,8 +13,8 @@ import * as DramaClient from '../src/client/index.ts'
 
 /** Settings operations delivered by the separately compiled Host fixture. */
 interface HostSettings {
-  describe(): Promise<RemoteResult<SettingsDescribeValue>>
-  mutate(ns: string, ops: readonly SettingsPathOpView[], revision: number | undefined): Promise<RemoteResult<SettingsNamespaceView>>
+  describe: () => Promise<RemoteResult<SettingsDescribeValue>>
+  mutate: (ns: string, ops: readonly SettingsPathOpView[], revision: number | undefined) => Promise<RemoteResult<SettingsNamespaceView>>
 }
 
 /** Render only the settings section while retaining the production slot and hook binding. */
