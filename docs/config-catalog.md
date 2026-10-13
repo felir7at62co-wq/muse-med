@@ -3933,6 +3933,23 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-bgm-compose -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-character-reference -->
+<a id="deepseek-aidsh-tool-character-reference"></a>
+
+## `@deepseek-ai/dsh-tool-character-reference`
+
+- `inject`: `tools`
+- `source`: [`packages/drama/tool-character-reference/src/index.ts:12`](../packages/drama/tool-character-reference/src/index.ts)
+
+```ts config-catalog
+/** Local draft index configuration for the isolated QA reference tool. */
+export interface Config {
+  /** Absolute local path to the unpublished draft index; never an Agent argument or TOS URL. */
+  referenceIndexPath: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-character-reference -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-drama-assets -->
 <a id="deepseek-aidsh-tool-drama-assets"></a>
 

@@ -59,6 +59,7 @@
 | `@deepseek-ai/dsh-tool-bgm-compose` | `drama_bgm` | `ctx.tools`、`ctx.subprocess`、`PATH` 上（或配置的）ffmpeg 与 ffprobe、单集时间线与明确 BGM 计划 | `tool/call`、`tool/result`、`compose` 时写项目内的 48 kHz 双声道 PCM WAV 及相邻生成报告 | - | `preview` 校验剧情完整覆盖并回报源哈希、偏移、实测平均音量与增益，不发布产物；`compose` 交叉淡化选定曲目，暂存 WAV 通过 ffprobe 后才发布；`verify` 测量已有 WAV，不重写它。工具不选曲，也不调用 `bgm_match`；剧情解读与最终选曲归 Agent。 |
 | `@deepseek-ai/dsh-tool-episode-render` | `drama_render`、`drama_video` | `ctx.tools`, `ffmpeg and ffprobe on PATH (or configured), the project layout it reads and writes (video/, audio/, editing/, exports/)` | `tool/call`, `tool/result`, `on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt`, `on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/`, `drama_video ban/unban 写入项目内 video-bans.json；媒体字节不变` | - | `drama_video` 记录带标签、可逆的 SHA256 禁用决定，不要求审核证据；解除禁用不等于批准。`drama_render` 在 `prepare`/`render` 中拒绝已禁用的选用字节，`verify` 则报告风险，不删除媒体。其三个方法：`prepare` 构建渲染输入但不编码画面，`render` 出片并回报实测的分辨率、帧率、码率、时长、大小与编码器，`verify` 检查成片。交付样式固定——1440x2560@60、24M 目标码率与 30M 上限、4.6 Mbps 下限、SimHei 68 字幕加右下角唯一的 AI 标记，以及用最后一镜经过证明的真实尾帧定格的 2 秒片尾。无法进行下去的渲染会抛错并给修法；不符合规格的成片返回 `ok: false` 与逐项修法。 |
 | `@deepseek-ai/dsh-tool-drama-assets` | `drama_assets` | `ctx.tools`, `ctx.credentials`, `the project layout (assets_manifest.json, _probe/asset-reconcile.json, project_config.json, source-backed requirements and optional shot plans)` | `tool/call`, `tool/result`, `on reconcile/dispose: _probe/asset-reconcile.json under the project root` | - | Four methods: `reconcile` reads the remote project’s asset and material lists and the manifest and writes the evidence the host’s reconcile gate reads, and `dispose` records one disposition in it without any remote read. `match_preview` reads source-backed requirements, the project bible, formal assets and recognized voice references, returning `reuse_ready`, `needs_review`, `missing` or `blocked`. `reuse_preview` groups those recommendations across shots and optionally checks an ordered material-selection plan while preserving unrelated materials and card configuration. Both previews are read-only and verify source-file byte SHA-256, line numbers and exact source text; a candidate digest is not source SHA-256. `apply_allowed=false` means the preview grants no write permission. After user authorization, the model uses the existing `jubian_storyboard.select_assets` tool; voices remain on `audio_preview` / `audio_apply`. The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate’s inputs. |
+| `@deepseek-ai/dsh-tool-character-reference` | `drama_character_references` | `ctx.tools`, `an absolute deployment-configured local character reference draft index path` | `tool/call`, `tool/result` | - | `drama_character_references` 是需显式启用的隔离 QA 查询，读取由部署配置指定的本地草稿索引。它最多返回一个有证据支持的参考，说明理由和不确定项，并明确报告本地写入、远端写入和付费请求均为零。它不上传、导入、绑定、审批、生成或发布素材，也未在生产 profile 中注册。 |
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 
@@ -5658,3 +5659,49 @@ The three methods share one schema: `validate` and `preview` only read, and `com
 Source: [`packages/drama/tool-drama-assets/src/index.ts`](../packages/drama/tool-drama-assets/src/index.ts)
 
 Four methods: `reconcile` reads the remote project’s asset and material lists and the manifest and writes the evidence the host’s reconcile gate reads, and `dispose` records one disposition in it without any remote read. `match_preview` reads source-backed requirements, the project bible, formal assets and recognized voice references, returning `reuse_ready`, `needs_review`, `missing` or `blocked`. `reuse_preview` groups those recommendations across shots and optionally checks an ordered material-selection plan while preserving unrelated materials and card configuration. Both previews are read-only and verify source-file byte SHA-256, line numbers and exact source text; a candidate digest is not source SHA-256. `apply_allowed=false` means the preview grants no write permission. After user authorization, the model uses the existing `jubian_storyboard.select_assets` tool; voices remain on `audio_preview` / `audio_apply`. The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate’s inputs.
+
+<a id="deepseek-aidsh-tool-character-reference"></a>
+
+## `@deepseek-ai/dsh-tool-character-reference`
+
+### `drama_character_references`
+
+仅从部署配置指定的本地公共人物参考草稿读取一个最佳参考。输入角色描述、风格与已知外观标签；返回理由和不确定项。这是 QA 只读建议，不是已批准素材或剧变资产。不得调用导入、select_assets、生成或任何写入工具。年代未被明确证实或候选同分时不推荐。调用方提供的角色需求尚未自动核验剧本原文。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "role_description": {
+      "type": "string",
+      "description": "角色需求摘要；必须来自当前剧本，不可编造。"
+    },
+    "style": {
+      "type": "string",
+      "description": "已知风格，未确认时省略。",
+      "enum": [
+        "urban",
+        "ancient"
+      ]
+    },
+    "desired_tags": {
+      "type": "array",
+      "description": "从需求中提取的具体服装或外观标签。",
+      "items": {
+        "type": "string"
+      }
+    },
+    "era": {
+      "type": "string",
+      "description": "明确要求的年代；草稿未确认该年代则不给出推荐。"
+    }
+  },
+  "required": [
+    "role_description"
+  ]
+}
+```
+
+源码：[`packages/drama/tool-character-reference/src/index.ts`](../packages/drama/tool-character-reference/src/index.ts)
+
+`drama_character_references` 是需显式启用的隔离 QA 查询，读取由部署配置指定的本地草稿索引。它最多返回一个有证据支持的参考，说明理由和不确定项，并明确报告本地写入、远端写入和付费请求均为零。它不上传、导入、绑定、审批、生成或发布素材，也未在生产 profile 中注册。
