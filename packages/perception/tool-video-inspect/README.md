@@ -81,7 +81,7 @@ Tool results append without rewriting earlier messages. Schema or description ch
 
 #### What the model sees
 
-The model receives a compact source-labelled summary: source version, requested and scanned interval, scan and text status, coverage counts and ranges, a bounded segment preview, and paths to the full raw JSON and merged TXT. Full word boxes and all segments remain in files rather than inflating every tool result. OCR and ASR provenance are never merged by this tool.
+The model receives a compact source-labelled summary: source version, requested and scanned interval, scan and text status, coverage counts and ranges, a bounded segment preview, and paths to the full raw JSON and merged TXT. Full word boxes and all segments remain in files rather than inflating every tool result. OCR and ASR source records are never merged by this tool.
 
 #### Token effect
 
