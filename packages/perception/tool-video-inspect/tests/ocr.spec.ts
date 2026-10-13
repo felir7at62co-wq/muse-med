@@ -1,7 +1,13 @@
 /** OCR evidence parsing and classification remain deterministic without Windows or paid services. */
 import { expect, it } from 'vitest'
 import { readFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { ocrBridgeHostPath, classifyAndMerge, parseOcrBridgeResult, showinfoTimestamps, splitMjpeg, type RawOcrFrame, type RawOcrLine } from '../src/ocr.ts'
+
+const bridgeFixtureRoot = resolve('Muse 空格 # %', 'resources')
+const packageDirectory = join('dsh', 'node_modules', '@deepseek-ai', 'dsh-tool-video-inspect')
+const packagedModuleUrl = pathToFileURL(join(bridgeFixtureRoot, 'app.asar', packageDirectory, 'lib', 'index.js')).href
 
 const line = (text: string, x = 10, y = 10): RawOcrLine => ({ text,
   bounding_box: { x, y, width: 40, height: 10 }, words: [{ text, bounding_box: { x, y, width: 40, height: 10 } }] })
@@ -56,14 +62,24 @@ it('does not label moving or short-lived story text as a removable overlay', () 
 
 it('ships the Windows bridge and resolves its installed ASAR-unpacked path', async () => {
   expect(await readFile(new URL('../scripts/ocr_bridge.ps1', import.meta.url), 'utf8')).toContain('InMemoryRandomAccessStream')
-  expect(ocrBridgeHostPath('file:///C:/Muse/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-tool-video-inspect/lib/index.js').replaceAll('\\', '/'))
-    .toContain('/Muse/resources/app.asar.unpacked/dsh/node_modules/@deepseek-ai/dsh-tool-video-inspect/scripts/ocr_bridge.ps1')
+  expect(ocrBridgeHostPath(packagedModuleUrl))
+    .toBe(join(bridgeFixtureRoot, 'app.asar.unpacked', packageDirectory, 'scripts', 'ocr_bridge.ps1'))
 })
 
 it('ships the offline Python bridge and resolves its installed ASAR-unpacked path', async () => {
   expect(await readFile(new URL('../scripts/ocr_bridge.py', import.meta.url), 'utf8')).toContain('model_path')
-  expect(ocrBridgeHostPath('file:///Applications/Muse.app/Contents/Resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-tool-video-inspect/lib/index.js', 'rapidocr'))
-    .toContain('/app.asar.unpacked/dsh/node_modules/@deepseek-ai/dsh-tool-video-inspect/scripts/ocr_bridge.py')
+  expect(ocrBridgeHostPath(packagedModuleUrl, 'rapidocr'))
+    .toBe(join(bridgeFixtureRoot, 'app.asar.unpacked', packageDirectory, 'scripts', 'ocr_bridge.py'))
+})
+
+it('keeps source and already-unpacked bridge paths unchanged', () => {
+  for (const [directory, entry] of [['source', join('src', 'ocr.ts')], ['app.asar.unpacked', join('lib', 'index.js')]] as const) {
+    const moduleRoot = join(bridgeFixtureRoot, directory, packageDirectory)
+    const moduleUrl = pathToFileURL(join(moduleRoot, entry)).href
+    for (const [engine, bridge] of [['windows-native', 'ocr_bridge.ps1'], ['rapidocr', 'ocr_bridge.py']] as const) {
+      expect(ocrBridgeHostPath(moduleUrl, engine)).toBe(join(moduleRoot, 'scripts', bridge))
+    }
+  }
 })
 
 it('keeps a long-held narrative subtitle as content even when its visual persistence matches a watermark', () => {

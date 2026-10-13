@@ -117,4 +117,4 @@ kind: "package-reference"
 
 `frameFormat` 可选 `png`（默认）或 `jpeg`；`frameJpegQuality` 指定 FFmpeg JPEG 量化值，范围 1–31（默认 2，PNG 忽略）。创作模式使用 JPEG，每次默认返回四帧，降低请求上传体积并保留源时间戳。画面尺寸应足以辨认字幕和人物；编码完成不代表模型已观察画面。
 
-OCR 单元测试无需识别器即可覆盖多语言证据、MJPEG 边界、严格水印标记和部分覆盖。Windows 组合测试使用真实 FFmpeg 抽帧，只对 OCR bridge 输出使用确定性进程内替身。随包 PowerShell bridge 和已安装语言行为仍需在 Windows 打包验收中确认。
+OCR 单元测试无需识别器即可覆盖多语言证据、MJPEG 边界、严格水印标记和部分覆盖。bridge 路径夹具使用本机绝对 file URL，并以本机分隔符精确比对 ASAR 展开、源码及已展开的完整路径。Windows 组合测试使用真实 FFmpeg 抽帧，只对 OCR bridge 输出使用确定性进程内替身。随包 PowerShell bridge 和已安装语言行为仍需在 Windows 打包验收中确认。
