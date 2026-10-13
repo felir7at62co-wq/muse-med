@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -181,7 +181,7 @@ it('rejects malformed requests before reading the configured draft', async () =>
   await expect(recommendCharacterReference(missing, { role_description: '角'.repeat(2001) }))
     .rejects.toThrow('bounded role description')
   await expect(recommendCharacterReference(missing,
-    { role_description: '角色', desired_tags: '标签' as unknown as string[] }))
+    JSON.parse('{"role_description":"角色","desired_tags":"标签"}')))
     .rejects.toThrow('bounded role description')
   await expect(recommendCharacterReference(missing,
     { role_description: '角色', desired_tags: Array.from({ length: 21 }, (_, index) => `标签${index}`) }))
@@ -447,6 +447,36 @@ it('registers only in an opted-in real Loader composition without network or fil
     expect(validateJsonSchemaValue(definition.output.schema, result.value, '')).toEqual([])
     expect(result.value).toMatchObject({ status: 'recommended',
       recommendation: { reference_id: 'char_3d_0002' }, local_writes: 0, remote_writes: 0 })
+    expect(result.value).toMatchObject({ recommendation: {
+      preview_path: await realpath(join(root, 'urban', 'char_3d_0002', 'face.jpg')),
+      metadata_path: await realpath(join(root, 'urban', 'char_3d_0002', 'metadata.json')),
+    } })
+    expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(result.value, null, 2) }])
+    const noMatch = await ctx.tools.execute({ callId: ToolCallId('local-reference-no-match'),
+      name: 'drama_character_references', arguments: { role_description: '宇航员', desired_tags: ['宇航服'] },
+      signal: new AbortController().signal })
+    const tied = await ctx.tools.execute({ callId: ToolCallId('local-reference-tied'),
+      name: 'drama_character_references', arguments: { role_description: '现代西装角色', style: 'urban', desired_tags: ['西装'] },
+      signal: new AbortController().signal })
+    expect(noMatch.isError).not.toBe(true)
+    expect(tied.isError).not.toBe(true)
+    await expect(JSON.stringify({ schemas: ctx.tools.schemas(), noMatch: noMatch.content, tied: tied.content }, null, 2) + '\n')
+      .toMatchFileSnapshot(fileURLToPath(new URL('./expected/reference-model-visible.json', import.meta.url)))
+    for (const argumentsValue of [
+      { role_description: '现代西装角色', desired_tags: '西装' },
+      { role_description: '现代西装角色', style: 'science-fiction' },
+    ]) {
+      const denied = await ctx.tools.execute({ callId: ToolCallId('local-reference-invalid'),
+        name: 'drama_character_references', arguments: argumentsValue, signal: new AbortController().signal })
+      expect(denied.isError).toBe(true)
+      expect(denied.value).toBeUndefined()
+    }
+    const forgedPermission = await ctx.tools.execute({ callId: ToolCallId('local-reference-forged-permission'),
+      name: 'drama_character_references', arguments: { ...args, apply_allowed: true, auto_bind: true },
+      signal: new AbortController().signal })
+    expect(forgedPermission.isError).not.toBe(true)
+    expect(forgedPermission.value).toMatchObject({ status: 'recommended', read_only: true,
+      apply_allowed: false, local_writes: 0, remote_writes: 0, paid_requests: 0 })
     expect(network).not.toHaveBeenCalled()
     expect(await files(root)).toEqual(before)
     const tools = ctx.tools

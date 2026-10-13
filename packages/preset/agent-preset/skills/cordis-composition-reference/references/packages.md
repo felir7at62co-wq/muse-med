@@ -186,6 +186,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-screenplay-project` | yes | Source-backed screenplay projects with independent episode review and resumable character knowledge |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | yes | Muse account cloud speech transcription with versioned local project output |
 | `@deepseek-ai/dsh-tool-bgm-compose` | yes | Short-drama BGM composer: preview, deterministic source assembly, and fixed-format WAV verification |
+| `@deepseek-ai/dsh-tool-character-reference` | yes | Read-only lookup of local unpublished character references for isolated short-drama QA |
 | `@deepseek-ai/dsh-tool-drama-assets` | yes | Short-drama pre-spend asset reconciliation: the model-facing drama_assets tool that compares the Jubian project's used assets with the manifest and writes the evidence the paid-call gate reads |
 | `@deepseek-ai/dsh-tool-episode-render` | yes | Short-drama episode renderer: the model-facing drama_render tool that lays out render inputs, encodes the delivery master, and checks the result |
 | `@deepseek-ai/dsh-tool-shot-script` | yes | Short-drama shot-script gate and episode compiler: the model-facing drama_shot tool |

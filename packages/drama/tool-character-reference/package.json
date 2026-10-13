@@ -1,5 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-tool-character-reference",
+  "description": "Read-only lookup of local unpublished character references for isolated short-drama QA",
   "version": "0.2.1-alpha.1",
   "publishConfig": {
     "access": "public"
