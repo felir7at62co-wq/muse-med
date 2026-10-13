@@ -487,7 +487,7 @@
     },
     {
       "name": "video_inspect",
-      "description": "Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. For dialogue and subtitles, discover audio_transcribe.",
+      "description": "Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. Use audio_transcribe for spoken dialogue and video_ocr for visible or burned-in text.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -537,6 +537,52 @@
           "manifest_path": {
             "type": "string",
             "description": "Optional new JSON output path inside the current workspace; default .muse/video-inspections/<unique-id>.json. An existing file is never replaced."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "video_ocr",
+      "description": "Recognize visible text from bounded, timestamped samples of a local video with Windows OCR. Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. A partial or failed scan is indeterminate, never proof that the video has no subtitles. Persistent text remains a content candidate; visual persistence does not identify watermarks or non-narrative text. This tool never invokes audio transcription.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Local video path in the current Session filesystem."
+          },
+          "start_seconds": {
+            "type": "number",
+            "description": "Inclusive source range start; default 0."
+          },
+          "end_seconds": {
+            "type": "number",
+            "description": "Exclusive source range end; default video end. One call scans at most 120s and 240 frames; continue from next_start_seconds."
+          },
+          "frame_interval_seconds": {
+            "type": "number",
+            "description": "OCR sample spacing; default 0.5s."
+          },
+          "language": {
+            "type": "string",
+            "description": "Windows OCR language; default auto. Missing requested language returns an explicit failure and never falls back to ASR.",
+            "enum": [
+              "auto",
+              "zh-Hans-CN",
+              "zh-Hant-TW",
+              "en-US"
+            ]
+          },
+          "raw_json_path": {
+            "type": "string",
+            "description": "Optional new raw evidence JSON path inside the workspace. Existing files are never replaced."
+          },
+          "merged_text_path": {
+            "type": "string",
+            "description": "Optional new timestamped text path inside the workspace. Existing files are never replaced."
           }
         },
         "required": [
