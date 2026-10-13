@@ -37,15 +37,16 @@ kind: "package-reference"
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
-| `baseUrl` | 客户端自己的默认源 | 两次远端读取的源覆盖。 |
+| `baseUrl` | 客户端自己的默认源 | 剧变远端读取的源覆盖。 |
 | `timeoutMs` | `30000` | 单次读取的中止预算，毫秒，1–60000。 |
 | `workspaceSecrets` | `true` | 凭据库没有值时，是否允许最近的 `.agents/secrets/pipeline.env` 提供 token。 |
-| `matchPageSize` | `1000` | 匹配预览的页大小，1–1000。 |
-| `matchPageLimit` | `100` | 匹配预览每个列表的正整数页数上限，超限阻断。 |
-| `matchRequirementLimit` | `100` | 单次预览的正整数需求数量上限。 |
+| `matchPageSize` | `1000` | 匹配与共享查询的提供方页大小，1–1000。 |
+| `matchPageLimit` | `100` | 匹配／共享查询每个列表的正整数页数上限；超限时匹配阻断，共享查询覆盖范围记为不完整。 |
+| `matchRequirementLimit` | `100` | 单次调用的正整数匹配需求数量或查询输出行数上限。 |
 
 token 本身就是凭据引用 `JUBIANAI_ADMIN_TOKEN`，每次读取都经 `ctx.credentials` 解析，绝不写进结果、日志或预览。
 
+<a id="methods"></a>
 ### 方法
 
 | 方法 | 读取 | 写入 | 用途 |
@@ -53,18 +54,30 @@ token 本身就是凭据引用 `JUBIANAI_ADMIN_TOKEN`，每次读取都经 `ctx.
 | `reconcile` | 剧变项目的资产与材质，以及清单 | `<project_dir>/_probe/asset-reconcile.json` | 在任何付费生成之前，知道哪些已选用资产清单里没有 |
 | `dispose` | 证据文件 | 同一个证据文件 | 记录对某条未登记资产的一个决定——`registered` 或 `ignored` |
 | `reuse_preview` | 匹配输入及可选的分镜卡 GET | 无 | 集中审核和保留原卡的绑定建议，不审批或执行 |
+| `shared_usage_preview` | 完整共享资产、材质、剧集和当前包绑定 | 无 | 定位精确远端用途并比较同时期声线候选 |
 | `usage_preview` | 当前清单、项目圣经及可选的摘要锁定编译结果 | 无 | 精确的本地资产用途与声线缺口 |
 | `match_preview` | 原文需求、清单、项目圣经、声线记录及完整当前项目 GET 列表 | 无 | 准备人物、场景与已认可声线复用建议 |
 
 | 参数 | 何时必填 | 含义 |
 |---|---|---|
-| `method` | 始终 | `reconcile`、`dispose`、`match_preview`、`reuse_preview` 或 `usage_preview` |
-| `project_dir` | 始终 | 含 `assets_manifest.json` 的项目根目录，绝对路径 |
-| `asset_id` | `dispose` | 这个决定针对的未登记资产 |
+| `method` | 始终 | `reconcile`、`dispose`、`match_preview`、`reuse_preview` 或 `usage_preview` / `shared_usage_preview` |
+| `project_dir` | 始终 | 绝对项目根目录；`shared_usage_preview` 需要含 `jubian_script_id` 的 `project_config.json`，其他方法需要 `assets_manifest.json` |
+| `asset_id` | `dispose` 必填；用途预览可选 | 决定针对的精确未登记资产，或用途筛选的精确父资产 |
+| `character_id` | `shared_usage_preview` 可选 | 精确稳定人物身份；资产身份未知时人物筛选不完整 |
+| `output_offset` | `shared_usage_preview` 可选 | 非负输出行偏移；保持原筛选条件，沿 `pagination.next_offset` 读取后页 |
 | `status` | `dispose` | `registered` 或 `ignored` |
 | `note` | `ignored` | 为什么这个资产不需要；判 `ignored` 时必须非空 |
 
 `reconcile` 只发两个请求，都是提供方自己的列表接口，不计费。`dispose` 一个都不发。两个方法写的文件只有证据文件一个，原子替换，并在支持的平台上使用仅所有者可访问的权限。
+
+<a id="shared-project-uses"></a>
+### 共享项目用途
+
+`shared_usage_preview` 从 project_config.json 读取项目 ID，两次完整分页扫描当前资产、材质、剧集与视频包。一致库存表示观察到的稳定读取，不是供应商原子快照。按实际父资产／材质 ID 或唯一精确媒体 URL 匹配，同一资产在同包只计一次，名称不用于认领。集号来自剧集库存，缺少归属保留 null。可按精确 asset_id 或 character_id 筛选；本地明确的妆造登记可补人物标识，带标签音频保留人生时期。complete 表示库存和引用检查是否支持精确当前包计数；complete=false 时 package_count 为 null，observed_package_count 仅为实际发现数量。query_complete 还要求输出未截断；按 character_id 筛选时，人物身份也须完整。人物筛选遇到未知身份时 query_complete=false，保留已知包的真实计数，余下资产可按 ID 查询。输出上限仅截断展示行，不减少底层扫描与汇总计数。不完整或截断查询不能证明零引用，也不授予删除权限。
+
+pagination 包含 output_offset、output_limit、next_offset 和无前缀的 64 位十六进制 query_sha256。从偏移 0 开始，保持相同筛选条件，沿 next_offset 读到 null。该偏移同时作用于 assets、uses、duplicate_audio_groups 和 issues；汇总数与包引用计数属于底层查询，不是本页数量。仅在各页 query_sha256 相同时拼接返回数组；摘要变化须重新从偏移 0 查询。后页因省略了前面的行仍为 truncated=true，后页空数组不能证明资产不存在或零引用。可缩小到精确资产／人物筛选，或继续分页，无需调整部署输出上限。
+
+重复音频仅按同项目、同人物、同人生时期归组。显示本地已采用声线；使用次数排序不授予删除权限，也不证明录音可互换。历史任务、其他电脑本地计划和其他账号声线默认不在本视图内。用原卡音频预览／写入工具迁移适用引用并回读，再走检查后的删除；已完成视频不重新生成。查询不写文件、不收费、不增加制作流程要求。
 
 ### 音频准备与当前用途
 
@@ -167,7 +180,7 @@ token 本身就是凭据引用 `JUBIANAI_ADMIN_TOKEN`，每次读取都经 `ctx.
 
 #### 模型看到什么
 
-请求的工具列表里多一个名为 `drama_assets` 的工具：本包的 `description`、七个参数，以及结果的 JSON schema，三者在生成的[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-drama-assets)里都有原文。描述里写明四个方法、三条比对口径（`delFlag == "0"`、`isUsed == 1` 且 `hsAssetStatus == "Active"`、`unregistered` / `dangling` / `matched`）、`ready` 才是宿主钩子读的那一条、24 小时有效期、这个工具存在的起因，以及它绝不做的两件事。结果 schema 声明 `method`、`ready`、`ready_reason`、`evidence`、`asset_id`、`script_id`、`ran_at`、`source`、`manifest`、`matched`、`unregistered`、`dangling`、`disposition`、`blocking`、`ignored_without_note`、`policy`、`cross_project_note` 与 `next`；渲染出来的内容就是同一份值的美化 JSON。某个方法不报的字段是「不带」，不是「填默认值」，schema 也不强制它们。
+请求收到一个名为 `drama_assets` 的工具，其描述及参数／结果 schema 见生成的[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-drama-assets)。每个结果都是包含该方法专用字段的对象；方法未报告的字段会省略，而不是填入默认值。渲染内容是同一对象的美化 JSON。
 
 #### Token 影响
 

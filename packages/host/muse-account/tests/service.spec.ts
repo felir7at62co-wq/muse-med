@@ -138,3 +138,21 @@ it('preserves a recognized feedback refusal without forwarding its local detail'
   await expect(service.feedback({ sessionId: 'session' as never, target: { kind: 'session' }, includeDiagnostics: false }))
     .rejects.toMatchObject({ code: 'muse-feedback/account-changed' })
 })
+
+it('keeps voice coordination Host-only and explicitly reports a missing provider', async () => {
+  const context = new Context(); contexts.push(context)
+  const controller = { status: async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' }),
+    login: async () => { throw new Error('Unused') }, logout: async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' }) }
+  await context.plugin(MuseAccountService, { controller })
+  const service = context.get('museAccount') as MuseAccountService
+  const request = { action: 'read' as const, script_id: 2708, character_id: 'zhou', voice_period_id: 'adult', operation_key: 'original-key' }
+  await expect(service.requestVoiceSlot(request, 'private-provider')).rejects.toMatchObject({ code: 'not-configured' })
+  expect(remoteMethods(service).map(row => row.method)).not.toContain('requestVoiceSlot')
+  const next = new Context(); contexts.push(next)
+  const calls: string[] = []
+  await next.plugin(MuseAccountService, { controller, voiceSlots: { request: async (value, token) => {
+    expect(value).toEqual(request); calls.push(token); return { state: 'available' }
+  } } })
+  expect(await next.museAccount.requestVoiceSlot(request, 'private-provider')).toEqual({ state: 'available' })
+  expect(calls).toEqual(['private-provider'])
+})

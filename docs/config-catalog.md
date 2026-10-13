@@ -2318,7 +2318,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-muse-account`
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel`
-- `source`: [`packages/host/muse-account/src/index.ts:34`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:37`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -3939,7 +3939,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-drama-assets`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/drama/tool-drama-assets/src/index.ts:50`](../packages/drama/tool-drama-assets/src/index.ts)
+- `source`: [`packages/drama/tool-drama-assets/src/index.ts:52`](../packages/drama/tool-drama-assets/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -3956,11 +3956,11 @@ export interface Config {
   timeoutMs?: number
   /** Whether the workspace's own pipeline secret file may stand in for a missing credential-store value; defaults to true. */
   workspaceSecrets?: boolean
-  /** Matching-only provider page size, 1–1000; defaults to 1000. */
+  /** Matching and shared-query provider page size, 1–1000; defaults to 1000. */
   matchPageSize?: number
-  /** Matching-only page limit per inventory; defaults to 100. */
+  /** Matching and shared-query page limit per inventory; defaults to 100. */
   matchPageLimit?: number
-  /** Matching-only requirement limit per call; defaults to 100. */
+  /** Matching requirements and query output-row limit per call; defaults to 100. */
   matchRequirementLimit?: number
 }
 ```
@@ -4122,7 +4122,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:56`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:57`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */

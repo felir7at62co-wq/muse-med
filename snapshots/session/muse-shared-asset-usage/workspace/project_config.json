@@ -1,0 +1,19 @@
+{
+  "jubian_script_id": 2708,
+  "project_bible": {
+    "characters": [
+      {
+        "character_id": "lu",
+        "name": "陆沉舟",
+        "voice_profiles": [
+          {
+            "voice_period_id": "child",
+            "description": "童年声线",
+            "reference_audio_asset_id": 13,
+            "reference_audio": "https://example.invalid/lu-child.wav"
+          }
+        ]
+      }
+    ]
+  }
+}

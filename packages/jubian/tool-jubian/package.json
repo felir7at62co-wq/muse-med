@@ -75,6 +75,7 @@
     "@deepseek-ai/dsh-typert-protocol": "workspace:*"
   },
   "peerDependencies": {
+    "@deepseek-ai/dsh-muse-account": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-credentials": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*",
@@ -83,6 +84,7 @@
     "@deepseek-ai/dsh-atomic-write": "workspace:*"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-muse-account": "workspace:*",
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-agent-loop": "workspace:*",
     "@deepseek-ai/dsh-jobs-local": "workspace:*",

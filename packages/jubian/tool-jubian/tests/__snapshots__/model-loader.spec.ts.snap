@@ -76,6 +76,10 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
             "description": "已登记的真实音频资产 ID；工具复验同项目、类别4与URL，字段不伪造图片父资产 ID。",
             "type": "integer",
           },
+          "character_id": {
+            "description": "可选本地稳定角色 ID；提供后须与当前项目该角色声线的资产 ID、URL 精确一致，不发送给视频提供方。",
+            "type": "string",
+          },
           "fileName": {
             "type": "string",
           },
@@ -97,6 +101,10 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
           "sortOrder": {
             "description": "从 1 开始的音频组内连续顺序。",
             "type": "integer",
+          },
+          "voice_period_id": {
+            "description": "同角色的明确人生时期 ID，如 child/adult；角色有分期声线时必须提供，不能回退或混用。须同时提供 character_id。",
+            "type": "string",
           },
         },
         "required": [

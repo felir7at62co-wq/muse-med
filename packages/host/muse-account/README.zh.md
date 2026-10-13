@@ -39,6 +39,10 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 
 回答评分与任务反馈弹窗提交到侧栏意见反馈页面所用的同一个 Muse 意见箱。提交使用桌面保存的账号，并保留分类、本地会话及消息标识。相关摘录的可选勾选框默认关闭；勾选后只附有限长度的可见请求和回答文字，并移除已知凭据。不发送工具参数、工具结果、思考内容、附件或完整会话日志。意见箱保存凭据经确认后表单才关闭；登录、网络和账号切换失败保留草稿。提交结果不确定时，应先查看意见箱再决定是否重试。管理员在 `/feedback` 查看全部意见，普通用户只能查看自己的意见。
 
+### 共享声线登记
+
+`MuseAccountService.requestVoiceSlot` 仅供 Host 使用，沿当前私密 Muse 会话调用[共享登记协调器](../../../services/muse-accounts/README.zh.md#shared-voice-registration)。剧变 token 仅通过私密请求头发送，响应后核对账号修订，拒绝重定向，将严格 UTF-8 协调响应限制为 16 KiB，且不自动重试。该方法不是 Remote 接口，也不是模型可见的凭据读取器。未配置服务时拒绝新的协调登记，已有音频复用和其他制作工作仍可继续。
+
 ### Minimal configuration
 
 桌面 Host 从 [`desktop.cordis.patch.yml`](../../../apps/desktop-host/config/desktop.cordis.patch.yml) 装载此配置行：

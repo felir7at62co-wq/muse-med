@@ -31,6 +31,8 @@ import type { MatchLimits, MatchPreview } from './matching.ts'
 import { reusePreview } from './reuse.ts'
 import { usagePreview } from './usage.ts'
 import type { UsagePreview } from './usage.ts'
+import { sharedUsagePreview } from './shared-usage.ts'
+import type { SharedUsagePreview } from './shared-usage.ts'
 import type { ReusePreview } from './reuse.ts'
 import type { DanglingItem, DramaAssetsMethod, ReconcileReport, UnregisteredItem } from './types.ts'
 
@@ -54,11 +56,11 @@ export interface Config {
   timeoutMs?: number
   /** Whether the workspace's own pipeline secret file may stand in for a missing credential-store value; defaults to true. */
   workspaceSecrets?: boolean
-  /** Matching-only provider page size, 1–1000; defaults to 1000. */
+  /** Matching and shared-query provider page size, 1–1000; defaults to 1000. */
   matchPageSize?: number
-  /** Matching-only page limit per inventory; defaults to 100. */
+  /** Matching and shared-query page limit per inventory; defaults to 100. */
   matchPageLimit?: number
-  /** Matching-only requirement limit per call; defaults to 100. */
+  /** Matching requirements and query output-row limit per call; defaults to 100. */
   matchRequirementLimit?: number
 }
 
@@ -72,6 +74,10 @@ interface DramaAssetsArguments {
   project_dir?: string
   /** The unregistered asset a `dispose` call is about. */
   asset_id?: number
+  /** Exact shared character identity to query across registered costume and voice versions. */
+  character_id?: string
+  /** Shared query's explicit output page offset, starting at zero. */
+  output_offset?: number
   /** The disposition a `dispose` call writes. */
   status?: string
   /** Why the asset is not needed; required and non-empty for `ignored`. */
@@ -277,56 +283,67 @@ function presentDispose(projectDir: string, assetId: number, evidence: DisposedE
  * @param client - Jubian transport for reconciliation and GET-only matching.
  * @param args - The dispatched arguments.
  * @param limits - Resolved matching-only bounds; omitted calls use the declared defaults.
+ * @param signal - Shared query cancellation; other methods retain their existing request behavior.
  * @returns Existing reconciliation results, or a read-only matching preview.
  * @throws {JubianError} `INVALID_ARGUMENT` for a missing argument,
  *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
  */
-export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'reconcile' }, limits?: MatchLimits): Promise<PresentedReconcile>
+export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'reconcile' }, limits?: MatchLimits, signal?: AbortSignal): Promise<PresentedReconcile>
 /**
  * Run one `drama_assets` call.
  * @param client - Jubian transport for reconciliation and GET-only matching.
  * @param args - The dispatched arguments.
  * @param limits - Resolved matching-only bounds; omitted calls use the declared defaults.
+ * @param signal - Shared query cancellation; other methods retain their existing request behavior.
  * @returns Existing reconciliation results, or a read-only matching preview.
  * @throws {JubianError} `INVALID_ARGUMENT` for a missing argument,
  *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
  */
-export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'dispose' }, limits?: MatchLimits): Promise<PresentedDispose>
+export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'dispose' }, limits?: MatchLimits, signal?: AbortSignal): Promise<PresentedDispose>
 /**
  * Run one `drama_assets` call.
  * @param client - Jubian transport for reconciliation and GET-only matching.
  * @param args - The dispatched arguments.
  * @param limits - Resolved matching-only bounds; omitted calls use the declared defaults.
+ * @param signal - Shared query cancellation; other methods retain their existing request behavior.
  * @returns Existing reconciliation results, or a read-only matching preview.
  * @throws {JubianError} `INVALID_ARGUMENT` for a missing argument,
  *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
  */
-export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'match_preview' }, limits?: MatchLimits): Promise<MatchPreview>
+export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'match_preview' }, limits?: MatchLimits, signal?: AbortSignal): Promise<MatchPreview>
 /**
  * Run one `drama_assets` call.
  * @param client - Jubian transport for reconciliation and GET-only matching.
  * @param args - The dispatched arguments.
  * @param limits - Resolved matching-only bounds; omitted calls use the declared defaults.
+ * @param signal - Shared query cancellation; other methods retain their existing request behavior.
  * @returns Existing reconciliation results, or a read-only matching preview.
  * @throws {JubianError} `INVALID_ARGUMENT` for a missing argument,
  *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
  */
-export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'reuse_preview' }, limits?: MatchLimits): Promise<ReusePreview>
+export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments & { method: 'reuse_preview' }, limits?: MatchLimits, signal?: AbortSignal): Promise<ReusePreview>
 /**
  * Run one `drama_assets` call.
  * @param client - Jubian transport for reconciliation and GET-only matching.
  * @param args - The dispatched arguments.
  * @param limits - Resolved matching-only bounds; omitted calls use the declared defaults.
+ * @param signal - Shared query cancellation; other methods retain their existing request behavior.
  * @returns Existing reconciliation results, or a read-only matching preview.
  * @throws {JubianError} `INVALID_ARGUMENT` for a missing argument,
  *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
  */
 export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments,
-  limits?: MatchLimits): Promise<PresentedReconcile | PresentedDispose | MatchPreview | ReusePreview | UsagePreview>
+  limits?: MatchLimits, signal?: AbortSignal):
+Promise<PresentedReconcile | PresentedDispose | MatchPreview | ReusePreview | UsagePreview | SharedUsagePreview>
 export async function runDramaAssets(client: JubianClient,
-  args: DramaAssetsArguments, limits: MatchLimits = matchLimits({})):
-Promise<PresentedReconcile | PresentedDispose | MatchPreview | ReusePreview | UsagePreview> {
+  args: DramaAssetsArguments, limits: MatchLimits = matchLimits({}), signal?: AbortSignal):
+Promise<PresentedReconcile | PresentedDispose | MatchPreview | ReusePreview | UsagePreview | SharedUsagePreview> {
   const projectDir = resolveProjectDir(args.project_dir)
+  if (args.method === 'shared_usage_preview') return await sharedUsagePreview(client, projectDir,
+    { ...(args.asset_id === undefined ? {} : { asset_id: args.asset_id }),
+      ...(args.character_id === undefined ? {} : { character_id: args.character_id }),
+      ...(args.output_offset === undefined ? {} : { output_offset: args.output_offset }) },
+    { pageSize: limits.pageSize, pageLimit: limits.pageLimit, outputLimit: limits.requirementsLimit }, signal)
   if (args.method === 'usage_preview') return await usagePreview(client, projectDir, args.plan_path, args.asset_id, limits.requirementsLimit)
   if (args.method === 'reuse_preview') {
     if (!args.requirements_path) throw new JubianError('INVALID_ARGUMENT', 'reuse_preview 需要 requirements_path。')
@@ -396,10 +413,11 @@ const MANIFEST_ISSUE_SCHEMA = {
   additionalProperties: false,
   properties: {
     code: { type: 'string', required: true,
-      description: '稳定的清单问题代码：manifest_items_missing / manifest_items_spelling / '
-        + 'lead_records_missing / manifest_record_unreadable。' },
+      description: '稳定的问题代码；对账使用 manifest_items_missing / manifest_items_spelling / lead_records_missing / manifest_record_unreadable，共享用途查询使用库存或身份核对代码。' },
+    inventory: { type: 'string', description: 'Shared usage query: affected provider inventory or local identity records.' },
+    ids: { type: 'array', items: { type: 'integer' }, description: 'Shared usage query: exact affected asset, material or package IDs.' },
     message: { type: 'string', required: true,
-      description: '中文说明：缺哪个键、接受哪些键名（items / assets / lead_readonly_records）、具体怎么修。' },
+      description: '具体问题说明；对账解释缺失清单键，共享查询解释不完整库存或无法核实的资产身份。' },
   },
 } as const
 
@@ -419,8 +437,8 @@ const POLICY_SCHEMA = {
 /**
  * Model-facing result schema.
  *
- * One flat object holds both methods' fields, and the two method-specific halves
- * are the ones this schema does not require: the parameter DSL rejects
+ * One flat object holds method-specific fields, which the schema does not require:
+ * the parameter DSL rejects
  * `required` inside a `oneOf` branch, so a branch-per-method schema would compile
  * into branches that match nothing. Every field a call does report is required;
  * the fields a method does not report are simply absent from its value, which is
@@ -430,18 +448,27 @@ const RESULT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    method: { type: 'string', required: true, enum: ['reconcile', 'dispose', 'match_preview', 'reuse_preview', 'usage_preview'],
+    method: { type: 'string', required: true, enum: ['reconcile', 'dispose', 'match_preview', 'reuse_preview', 'usage_preview', 'shared_usage_preview'],
       description: '产生本结果的操作；两个方法的字段不同，本 schema 只强制共有字段。' },
+    assets: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Current remote parents, distinct package counts and precise identity metadata.' },
+    uses: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Remote bound package IDs and real episode identities; missing episode axes remain null.' },
+    duplicate_audio_groups: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Same-character/same-period voice candidates with usage-ranked suggestions; never deletion authorization.' },
+    coverage: { type: 'object', additionalProperties: true, description: 'Inventory completeness and explicitly unscanned history, other local plans and collaborators’ defaults.' },
+    query_complete: { type: 'boolean', description: 'Whether the requested character or asset filter is fully covered; unknown character identities do not imply no uses.' },
+    stable_inventory: { type: 'boolean', description: 'Two complete current inventories agree; this is not an atomic provider transaction.' },
+    totals: { type: 'object', additionalProperties: true, description: 'Total matching rows before output truncation.' },
+    pagination: { type: 'object', additionalProperties: true, description: 'Shared query output_offset, output_limit, next_offset and query_sha256. Read the next offset with the same filters; combine pages only when their query_sha256 matches.' },
+    complete: { type: 'boolean', description: 'Only the declared current remote inventory scan; not an atomic absence or deletion guarantee.' },
+    delete_allowed: { type: 'boolean', description: 'Shared usage queries never grant deletion authority.' },
     usage_rows: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Current local package or project voice references; never remote binding receipts.' },
     voice_states: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Stable character voice gaps and preserved current references; remote identity and sound remain to verify.' },
     total: { type: 'integer', description: 'Number of matching local references before the result limit.' },
-    truncated: { type: 'boolean', description: 'True when some local references are omitted; query an exact asset_id.' },
+    truncated: { type: 'boolean', description: 'True when a usage query omits rows because of the output limit; query an exact asset_id.' },
     ready: { type: 'boolean',
       description: '证据是否已经可以让宿主钩子放行付费生图：issues 为空、blocking 与 ignored_without_note 都为空才为 true。' },
     ready_reason: { type: 'string', description: 'ready 的判定依据；放行时为 ok。' },
     issues: { type: 'array', required: true,
-      description: '清单本身读不全的地方，先按每条 message 修好；非空时 ready 一定是 false，'
-        + '本轮列出的 unregistered / dangling 都建立在那份读不全的清单上。',
+      description: '当前方法的读取或身份核对问题。reconcile/dispose 非空时 ready=false；shared_usage_preview 按 complete、query_complete 和 coverage 判断覆盖范围，不能把未知计数当作零引用，也不阻止其他独立工作。',
       items: MANIFEST_ISSUE_SCHEMA },
     evidence: { type: 'string',
       description: '本次写入的证据文件绝对路径（<project_dir>/_probe/asset-reconcile.json）；宿主钩子读的就是它。' },
@@ -452,8 +479,8 @@ const RESULT_SCHEMA = {
       description: '还没处置（不是 registered / ignored）的未登记资产 ID；非空即拒绝付费生图。' },
     ignored_without_note: { type: 'array', items: { type: 'integer' },
       description: '判为 ignored 但 note 为空的资产 ID；非空即拒绝付费生图。' },
-    next: { type: 'string', required: true, description: '这次之后该做什么，一句中文。' },
-    status: { type: 'string', enum: ['reuse_ready', 'needs_review', 'missing', 'blocked'], description: 'match_preview 的整体结果；不是审批或付费授权。' },
+    next: { type: 'string', required: true, description: '针对本次结果的具体后续操作与范围说明。' },
+    status: { type: 'string', enum: ['reuse_ready', 'needs_review', 'missing', 'blocked', 'complete', 'incomplete'], description: 'match_preview 的整体结果；不是审批或付费授权。' },
     search_scope: { type: 'string', enum: ['current_project'], description: '仅当前项目；missing 不表示历史库也没有素材。' },
     source_sha256: { type: 'string', description: '已核对的原文摘要。' },
     fingerprint: { type: 'string', description: 'reuse_preview 的来源、资产版本、适用条件及整卡计划摘要；无审批或执行权限。' },
@@ -564,6 +591,7 @@ const DESCRIPTION = '短剧流水线的付费生成前资产对账（剧变）�
   + '匹配预览 → 复用建议 → 用户确认 → 模型调用原有 jubian_storyboard.select_assets。'
   + 'reuse_ready、already_bound 和 fingerprint 不是审批；apply_allowed=false 只表示预览不授予写入权限。'
   + '用户授权后可按 shots 的有序 selections 调用原工具，继续实时身份、顺序和回读校验；未授权不得绑定。声线沿 audio_preview → audio_apply。'
+  + 'shared_usage_preview=完整查询共享剧变项目的资产、材质、剧集和视频包，按实际绑定汇总不同包的引用数及集数；支持精确asset_id或character_id筛选。重复音频仅在同人物同人生时期归组，先迁移引用再清理；历史任务与其他账号本地计划未扫描，不授予删除权限。'
   + 'usage_preview=读取当前资产清单、项目声音和可选打包结果，按实际父资产/材质ID查询引用位置与缺失声线；支持asset_id筛选，不猜人物、不审批、不绑定、不收费。'
   + '下载成功视频后主动加载tweet-drama-voice-continuity，缺声线时用其prepare_voice_assets.py提取并登记候选；完整长音轨不直接作声线；实际讲话的2秒短参考可带背景声，同一包合计不超过15秒。'
   + '本工具绝不调用剧变的任何写方法、绝不计费：reconcile/dispose 本地只写 _probe/asset-reconcile.json，match_preview 完全只读。'
@@ -581,14 +609,16 @@ export function apply(ctx: Context, config: Config = {}): void {
     name: 'drama_assets',
     description: DESCRIPTION,
     parameters: {
-      method: { type: 'string', required: true, enum: ['reconcile', 'dispose', 'match_preview', 'reuse_preview', 'usage_preview'],
+      method: { type: 'string', required: true, enum: ['reconcile', 'dispose', 'match_preview', 'reuse_preview', 'usage_preview', 'shared_usage_preview'],
         description: 'reconcile=对账并写证据；dispose=只改处置记录；match_preview=只读人物、场景、声线匹配，不写文件、不审批。' },
       project_dir: { type: 'string', required: true,
-        description: '项目根目录绝对路径，必须含 assets_manifest.json；证据写在它的 _probe/asset-reconcile.json。' },
+        description: '项目根目录绝对路径；shared_usage_preview只需project_config.json中的jubian_script_id，其余方法需要assets_manifest.json。对账证据写在_probe/asset-reconcile.json。' },
       requirements_path: { type: 'string', description: 'match_preview/reuse_preview 必填：项目内 version=1 的需求 JSON，含 source_path、source_sha256 与 requirements；详情见工具 README。' },
       plan_path: { type: 'string', description: 'usage_preview 可选：项目内 version=1 的 documents JSON（path/sha256/episode）；reuse_preview 可选：项目内 version=1 的 shots JSON，含 storyboard_id、episode、episode_id 与 requirement_id/material_key 绑定映射；不得包含 approved 或审批字段。' },
       asset_id: { type: 'integer',
-        description: 'usage_preview 可选精确父资产筛选；dispose 必填：要处置的 unregistered 资产 ID（不是 material_id、不是任务 ID）。' },
+        description: 'usage_preview/shared_usage_preview 可选精确父资产筛选；dispose 必填：要处置的 unregistered 资产 ID（不是 material_id、不是任务 ID）。' },
+      character_id: { type: 'string', description: 'shared_usage_preview 可选：精确稳定人物ID，查询此人的已明确登记妆造和不同人生时期声线；不按名字猜。' },
+      output_offset: { type: 'integer', description: 'shared_usage_preview 输出分页偏移，默认0；后续页使用返回的pagination.next_offset及相同筛选条件，仅query_sha256相同才可拼接，不能把本页空数组当作资产不存在。' },
       status: { type: 'string', enum: ['registered', 'ignored'],
         description: 'dispose 必填：registered=已登记进清单（下次 reconcile 会自动确认）；'
           + 'ignored=确认不需要，必须同时给 note 说明原因。' },
@@ -600,8 +630,12 @@ export function apply(ctx: Context, config: Config = {}): void {
       schema: RESULT_SCHEMA,
       render: (_args, value): ContentBlock[] => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
-    execute: async (args) => {
-      const result = await runDramaAssets(client, args, limits)
+    execute: async (args, exec) => {
+      const result = await runDramaAssets(client, args, limits, exec.signal)
+      if (result.method === 'shared_usage_preview') return { ...result,
+        assets: result.assets.map(row => ({ ...row })), uses: result.uses.map(row => ({ ...row })),
+        duplicate_audio_groups: result.duplicate_audio_groups.map(row => ({ ...row })),
+        totals: { ...result.totals }, coverage: { ...result.coverage }, pagination: { ...result.pagination } }
       if (result.method === 'usage_preview') return { ...result, usage_rows: result.usage_rows.map(row => ({ ...row })), voice_states: result.voice_states.map(row => ({ ...row })) }
       if (result.method === 'match_preview' || result.method === 'reuse_preview') return result
       return { ...result, disposition: Object.fromEntries(Object.entries(result.disposition).map(([key, value]) => [key, { ...value }])) }

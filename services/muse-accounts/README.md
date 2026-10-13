@@ -11,6 +11,13 @@ English | [中文](README.zh.md)
 
 This directory contains the separately deployed Muse account gateway. It serves account-scoped speech transcription, administrator-granted reference reading, and private script storage. Desktop and workspace packages do not launch it or store its Volcengine or TOS credentials.
 
+<a id="shared-voice-registration"></a>
+## Shared voice registration
+
+Enable `POST /api/jubian/voice-slots` with `MUSE_VOICE_SLOTS_DIR`, an absolute private durable directory outside immutable releases. `MUSE_VOICE_SLOTS_LEASE_MS`, `MUSE_VOICE_SLOTS_LOCK_WAIT_MS`, `MUSE_VOICE_SLOTS_LOCK_POLL_MS` and `MUSE_VOICE_SLOTS_TIMEOUT_MS` configure reservation expiry, lock wait/polling and provider verification deadlines. The endpoint requires an active Muse cookie or Bearer session, same-origin mutation and a private `X-Jubian-Token`. Each operation verifies access to the fixed-origin exact Jubian project; ready/complete reads also require `delFlag=0` without conflicting deletion flags and verify the exact audio asset, canonical character/period tag and HTTPS URL. Provider credentials are never persisted or returned.
+
+Actions are `acquire`, `start`, `complete`, `abandon` and `read`; the key is project/person/life period plus the original registration operation. An exclusive filesystem lock serializes writers across gateway processes. Only an unused reservation expires; a durable submitted operation never authorizes a second creation. Completion preserves its exact asset ID and cannot silently replace it. Unknown outcomes require original-operation reconciliation. Interrupted lock directories require operator inspection after the writer is stopped; do not erase submitted receipts or treat an expired login as permission to create again. Missing configuration returns 503. This service coordinates participating Muse clients; it does not stop provider UI or legacy writes and supplies no automatic asset deletion.
+
 ## Release inputs
 
 Startup reports the actual loopback port after the gateway begins listening. `MUSE_PORT=0` lets the operating system allocate an available port for isolated deployment checks.

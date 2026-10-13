@@ -102,6 +102,7 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   { file: 'apps/cli/tests/web-agent-presets.e2e.ts', upstream: ['cordis'] },
   { file: 'apps/cli/tests/profiles/web/tests/fixtures/creator-plugin-manager.mjs', upstream: ['cordis'] },
   { file: 'apps/web/tests/agent-preset-authoring.e2e.ts', upstream: ['cordis'] },
+  { file: 'apps/web/tests/muse-drama-modes.e2e.ts', upstream: ['cordis'] },
   { file: 'packages/preset/agent-preset-registry/tests/session.spec.ts', upstream: ['cordis'] },
   { file: 'packages/preset/agent-preset-registry/tests/display.spec.ts', upstream: ['cordis'] },
   { file: 'packages/preset/agent-preset-registry/tests/deprecated-id.spec.ts', upstream: ['cordis'] },

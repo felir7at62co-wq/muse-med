@@ -12,6 +12,8 @@ export interface AudioAsset {
   url: string | null
   audio_duration: number | null
   is_local: boolean
+  /** Provider deletion evidence; active requires delFlag=0 without conflicting deletion, absence is unknown. */
+  liveness?: 'active' | 'deleted' | 'unknown'
   /** Stable character ID decoded from a canonical project-bound voice suffix; absent on legacy or malformed names. */
   character_id?: string
   /** Explicit life period decoded with the shared character ID; not inferred from a human name. */
@@ -60,9 +62,21 @@ function optionalText(value: unknown): string | null {
   return value.trim() ? value : null
 }
 
+function deletionEvidence(source: Record<string, unknown>): Pick<AudioAsset, 'liveness'> {
+  const flag = source.delFlag, deleted = source.deleted
+  if (flag === undefined && deleted === undefined) return {}
+  if ([flag, deleted].some(value => value === 1 || value === '1' || value === true)) return { liveness: 'deleted' }
+  if ((flag === 0 || flag === '0')
+    && (deleted === undefined || deleted === 0 || deleted === '0' || deleted === false)) {
+    return { liveness: 'active' }
+  }
+  return { liveness: 'unknown' }
+}
+
 /**
  * Read an audio parent from an already accepted provider payload, checking its project and category.
- * audio_duration is null; callers measure the sample through a media read.
+ * audio_duration is null; callers measure the sample through a media read. Deletion fields are
+ * projected independently: absent or ambiguous evidence never establishes an active shared voice.
  * @param data - Envelope data from a project asset read.
  * @param scriptId - Project that must own the asset.
  * @param assetId - Exact requested identity, when reading a single asset.
@@ -78,7 +92,7 @@ export function readAudioAsset(data: unknown, scriptId: number, assetId?: number
   const name = optionalText(source.assetName) ?? optionalText(source.name)
   return { asset_id: id, script_id: project, asset_type: 4, name,
     url: optionalText(source.assetUrl) ?? optionalText(source.url), audio_duration: null,
-    is_local: source.isLocal === 1 || source.isLocal === true, ...readVoiceSlot(name, scriptId) }
+    is_local: source.isLocal === 1 || source.isLocal === true, ...deletionEvidence(source), ...readVoiceSlot(name, scriptId) }
 }
 
 /**

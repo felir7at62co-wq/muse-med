@@ -11,8 +11,6 @@ kind: "package-reference"
 
 `@deepseek-ai/dsh-jubian-api` 校验剧变响应数据，并为目录、资产、视频、分镜、图片、去字幕与转高清操作构造请求体；它也下载有大小上限的媒体文件。载荷不匹配时，读取器抛出错误码为 `CONTRACT_CHANGED` 的 `JubianError`，否则返回带类型的值。剧变请求的传输与凭据由 `@deepseek-ai/dsh-jubian` 负责；`@deepseek-ai/dsh-tool-jubian` 使用这些函数。
 
-剧本池行在有值时提供 `claim_leader_id` 与 `claim_member_id`。认领工具将这些账号 ID 与当前登录用户比较，因为仅凭认领人名字无法核实归属。
-
 ## 目录
 
 - [使用本包](#use-this-package)
@@ -31,6 +29,10 @@ kind: "package-reference"
 ### 何时选择
 
 当你要读取或提交剧变业务数据、又不想重新推导提供方的线上形状时，选择本库。它是依赖项，不是组合配置行：它不注册任何 Cordis 服务、工具、提示词片段或会话事件，因此没有任何东西会挂载它，也没有属于它的 `cordis.yml` 条目。请从自己拥有传输层的插件或测试中调用它。当模型应当通过工具调用剧变时，改用 `@deepseek-ai/dsh-tool-jubian`。
+
+剧本池行在有值时提供 `claim_leader_id` 与 `claim_member_id`。认领工具将这些账号 ID 与当前登录用户比较，因为仅凭认领人名字无法核实归属。
+
+`encodeVoiceSlot` 与 `readVoiceSlot` 在规范的音频资产名称后缀中保留精确的项目、人物及人生时期标识。解码后的标签表示预期声线身份，不证明说话人质量，也不表示不同录音可以互换。
 
 `readImageGeneration(data)` 独立读取生成图接口中的任务与结果身份、状态，不以图片 URL 是否存在替代状态。它将参考图上限、内容拒绝与其他供应商失败分类，不返回远端错误原文。仅含 URL 的旧回复返回 null。`buildImageRequest` 在构造付费请求前拒绝 KU_AI 超过五张参考图的参数。
 

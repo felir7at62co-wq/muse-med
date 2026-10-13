@@ -168,3 +168,27 @@ it('preserves legacy and malformed names without granting shared identity metada
     expect(readAudioAsset({ ...AUDIO, assetName: name }, 2708)).toEqual({ ...EXPECTED, name })
   }
 })
+
+
+it.each([
+  { fields: { delFlag: '0' }, liveness: 'active' },
+  { fields: { delFlag: 0 }, liveness: 'active' },
+  { fields: { delFlag: 0, deleted: false }, liveness: 'active' },
+  { fields: { delFlag: 0, deleted: null }, liveness: 'unknown' },
+  { fields: { delFlag: 0, deleted: 0 }, liveness: 'active' },
+  { fields: { delFlag: 0, deleted: '0' }, liveness: 'active' },
+  { fields: { delFlag: '1' }, liveness: 'deleted' },
+  { fields: { delFlag: 1 }, liveness: 'deleted' },
+  { fields: { delFlag: true }, liveness: 'deleted' },
+  { fields: { delFlag: '0', deleted: true }, liveness: 'deleted' },
+  { fields: { deleted: '1' }, liveness: 'deleted' },
+  { fields: { deleted: 1 }, liveness: 'deleted' },
+  { fields: { delFlag: null }, liveness: 'unknown' },
+  { fields: { delFlag: 2 }, liveness: 'unknown' },
+  { fields: { delFlag: 'pending' }, liveness: 'unknown' },
+  { fields: { delFlag: false }, liveness: 'unknown' },
+  { fields: { deleted: false }, liveness: 'unknown' },
+  { fields: { delFlag: 0, deleted: 'pending' }, liveness: 'unknown' },
+])('preserves provider deletion evidence independently of usable URL: $fields', ({ fields, liveness }) => {
+  expect(readAudioAsset({ ...AUDIO, ...fields }, 2708)).toEqual({ ...EXPECTED, liveness })
+})

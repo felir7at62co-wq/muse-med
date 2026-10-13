@@ -11,6 +11,13 @@ kind: "package-reference"
 
 本目录包含单独部署的 Muse 账号网关。网关提供按账号隔离的语音转写、按管理员授权阅读参考资料，以及私有剧本保存。桌面端和工作区包不启动它，也不保存火山或 TOS 凭据。
 
+<a id="shared-voice-registration"></a>
+## 共享声线登记
+
+用 MUSE_VOICE_SLOTS_DIR 启用 POST /api/jubian/voice-slots，路径必须是不可变发布目录之外的绝对私密持久目录。MUSE_VOICE_SLOTS_LEASE_MS、MUSE_VOICE_SLOTS_LOCK_WAIT_MS、MUSE_VOICE_SLOTS_LOCK_POLL_MS 和 MUSE_VOICE_SLOTS_TIMEOUT_MS 分别配置认领到期、锁等待／轮询及供应商核验超时。接口要求有效的 Muse Cookie 或 Bearer 会话、同源写请求和私密 X-Jubian-Token。每项操作通过固定源地址核验精确剧变项目访问权；ready／complete 还要求 delFlag=0 且无冲突删除标记，并核对真实音频资产、规范人物／时期标签及 HTTPS 地址。供应商凭据不持久化、不返回。
+
+操作为 acquire、start、complete、abandon 与 read，键包含项目／人物／人生时期及原登记操作。排他文件系统锁在多个网关进程间串行化写入。只有尚未开始的认领会到期，持久化 submitted 操作不会放行第二次创建。完成后保留精确资产 ID，不悄悄更换。未知结果沿原操作对账。遗留锁目录须确认写进程已停止后由运维核查，不能删除 submitted 回执，不能把登录过期当成重新创建许可。未配置返回 503。服务协调参与的新 Muse 客户端，不阻止剧变网页或旧客户端写入，也不自动删除资产。
+
 ## Release inputs
 
 网关开始监听后，启动日志报告实际回环端口。隔离部署检查可设置 `MUSE_PORT=0`，由操作系统分配可用端口。

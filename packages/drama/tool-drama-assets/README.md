@@ -37,15 +37,16 @@ Mount the plugin as one row of a short-drama preset; it needs the tool registry 
 
 | Field | Default | Meaning |
 |---|---|---|
-| `baseUrl` | the client's own default origin | Origin override for the two remote reads. |
+| `baseUrl` | the client's own default origin | Origin override for Jubian reads. |
 | `timeoutMs` | `30000` | Per-read abort budget in milliseconds, 1–60000. |
 | `workspaceSecrets` | `true` | Whether the nearest `.agents/secrets/pipeline.env` may supply the token when the credential store holds none. |
-| `matchPageSize` | `1000` | Matching-only page size, 1–1000. |
-| `matchPageLimit` | `100` | Positive maximum pages per matching inventory; exhaustion blocks. |
-| `matchRequirementLimit` | `100` | Positive maximum requirements per preview. |
+| `matchPageSize` | `1000` | Provider page size for matching and shared queries, 1–1000. |
+| `matchPageLimit` | `100` | Positive maximum pages per matching/shared inventory; exhaustion blocks matching and leaves shared-query coverage incomplete. |
+| `matchRequirementLimit` | `100` | Positive maximum matching requirements or query output rows per call. |
 
 The token itself is the credential reference `JUBIANAI_ADMIN_TOKEN`, resolved through `ctx.credentials` on every read, and never written to a result, a log or a preview.
 
+<a id="methods"></a>
 ### Methods
 
 | Method | Reads | Writes | Use it for |
@@ -53,18 +54,30 @@ The token itself is the credential reference `JUBIANAI_ADMIN_TOKEN`, resolved th
 | `reconcile` | The remote project's assets and materials, and the manifest | `<project_dir>/_probe/asset-reconcile.json` | Knowing which used assets the manifest does not record, before any paid generation |
 | `dispose` | The evidence file | The same evidence file | Recording one decision — `registered` or `ignored` — about one unregistered asset |
 | `reuse_preview` | Matching inputs and optional live storyboard GETs | None | Centralized review and preserved-card binding suggestions without approval or execution |
+| `shared_usage_preview` | Complete shared assets, materials, episodes and current package bindings | None | Locate exact remote uses and compare same-period voice candidates |
 | `usage_preview` | Current manifests, bible and optional hash-pinned compiler outputs | None | Exact local asset references and missing voices |
 | `match_preview` | Source-backed requirements, manifest, project bible, voice records and complete current-project GET inventories | None | Preparing character, scene and approved voice reuse recommendations |
 
 | Parameter | Required | Meaning |
 |---|---|---|
-| `method` | always | `reconcile`, `dispose`, `match_preview`, `reuse_preview` or `usage_preview` |
-| `project_dir` | always | Project root holding `assets_manifest.json`, absolute |
-| `asset_id` | `dispose` | The unregistered asset the decision is about |
+| `method` | always | `reconcile`, `dispose`, `match_preview`, `reuse_preview` or `usage_preview` / `shared_usage_preview` |
+| `project_dir` | always | Absolute project root; `shared_usage_preview` needs `project_config.json` with `jubian_script_id`, while other methods need `assets_manifest.json` |
+| `asset_id` | `dispose`; optional for use previews | The exact unregistered asset for a decision, or exact parent asset for a use filter |
+| `character_id` | optional for `shared_usage_preview` | Exact stable person identity; unknown asset identities prevent a complete person filter |
+| `output_offset` | optional for `shared_usage_preview` | Nonnegative output-row offset; use `pagination.next_offset` with the same filters to read another page |
 | `status` | `dispose` | `registered` or `ignored` |
 | `note` | `ignored` | Why the asset is not needed; must be non-empty for `ignored` |
 
 `reconcile` sends exactly two requests, both the provider's own list endpoints, and charges nothing. `dispose` sends none. The only file either method writes is the evidence file, atomically replaced with owner-only permissions where supported.
+
+<a id="shared-project-uses"></a>
+### Shared project uses
+
+`shared_usage_preview` reads the project ID from `project_config.json` and scans every page of current assets, materials, episodes and packages twice. Matching inventories establish a stable observed read, not an atomic provider snapshot. References are counted once per parent and distinct package, using actual parent/material IDs or unique exact media URLs; names never identify a parent. Episode numbers come from the episode inventory; missing identity remains null. Filter by exact `asset_id` or `character_id`; local explicit costume mappings may supply character identity, while tagged audio retains its life period. `complete` states whether inventory and reference inspection support exact current-package counts. With `complete=false`, `package_count` is null and `observed_package_count` is only the number actually found. `query_complete` also requires untruncated output and, when filtering by `character_id`, complete character identities. Unknown character identities make `query_complete=false` for a character filter without discarding known current package counts; query those remaining assets by ID. Output limits truncate returned rows without lowering the underlying scan or summary counts. An incomplete or truncated query cannot establish zero uses or authorize deletion.
+
+`pagination` contains `output_offset`, `output_limit`, `next_offset` and a bare 64-hex `query_sha256`. Start at offset 0, then follow `next_offset` with the same filters until it is null. The offset applies to `assets`, `uses`, `duplicate_audio_groups` and `issues`; the totals and package counts cover the underlying query rather than this page. Combine returned arrays only when every page has the same `query_sha256`; a changed hash requires a fresh query from offset 0. Later pages remain `truncated=true` because they omit earlier rows, so an empty array on a later page does not establish absence or zero references. Narrow an exact asset/person filter or read the pages without changing deployment output limits.
+
+Duplicate audio groups require the same project, character and life period. Current local adopted voices remain visible; usage-ranked suggestions never authorize deletion or prove acoustic equivalence. History tasks, other computers’ local plans and other accounts’ voice defaults are outside this view. Replace valid current references through the original audio preview/apply tools, re-read them, then use inspected deletion; completed videos are not regenerated. This query writes no file, requests no paid operation and imposes no production workflow requirement.
 
 ### Audio preparation and current uses
 
@@ -167,7 +180,7 @@ Read these pages when the package-level contract is not enough.
 
 #### What the model sees
 
-One tool named `drama_assets` in the request's tool list: this package's `description`, its seven parameters, and the JSON schema of its result, all reproduced in the generated [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-drama-assets). The description states the four methods, the three comparison rules (`delFlag == "0"`, `isUsed == 1` with `hsAssetStatus == "Active"`, `unregistered` / `dangling` / `matched`), the fact that `ready` is what the host gate reads, the 24-hour validity window, the accident the tool exists for, and the two things it never does. The result schema declares `method`, `ready`, `ready_reason`, `evidence`, `asset_id`, `script_id`, `ran_at`, `source`, `manifest`, `matched`, `unregistered`, `dangling`, `disposition`, `blocking`, `ignored_without_note`, `policy`, `cross_project_note`, and `next`; the rendered content is the same value as pretty-printed JSON. The fields a method does not report are absent from its value rather than defaulted, and the schema does not require them.
+The request receives one tool named `drama_assets`, with its description and parameter/result schemas in the generated [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-drama-assets). Each result is an object with method-specific fields; fields a method does not report are absent rather than filled with defaults. The rendered content is the same object as pretty-printed JSON.
 
 #### Token effect
 

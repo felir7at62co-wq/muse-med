@@ -51,7 +51,7 @@ beforeEach(async () => {
     modelConfig: JSON.stringify(model), storyboardMaterialList: [image], custom: 'preserve' }
   calls = []; onPut = undefined; onRead = undefined; otherBoard = undefined; readOverride = undefined; storage.lockFailure = false
   assets = new Map([[77, { id: 77, scriptId: 2708, assetType: 4, assetName: '周海生声音',
-    assetUrl: voice.materialUrl, isLocal: 1 }]])
+    assetUrl: voice.materialUrl, isLocal: 1, delFlag: '0' }]])
   client = new JubianClient({ credential: async () => 'token', fetch: async (url, init) => {
     const path = new URL(url instanceof Request ? url.url : url.toString()).pathname.replace('/prod-api', '')
     const method = String(init?.method)
@@ -604,7 +604,7 @@ const phasedCharacter = { character_id: 'zhou', voice_profile: adultProfile,
 const adultReference = { ...voice, audio_asset_id: 77, character_id: 'zhou', voice_period_id: 'adult' }
 async function voices(characters: unknown): Promise<void> {
   await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708, project_bible: { characters } }))
-  assets.set(78, { id: 78, scriptId: 2708, assetType: 4, assetName: '童年周海生声音', assetUrl: childProfile.reference_audio, isLocal: 1 })
+  assets.set(78, { id: 78, scriptId: 2708, assetType: 4, assetName: '童年周海生声音', assetUrl: childProfile.reference_audio, isLocal: 1, delFlag: '0' })
 }
 
 it('binds adult and child voices independently and strips local identities from both provider lists', async () => {
@@ -747,7 +747,7 @@ it.each([{ character: 'other', period: 'adult' }, { character: 'zhou', period: '
   'refuses a remote shared slot contradicting the local selected voice %j', async ({ character, period }) => {
     await voices([phasedCharacter])
     assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: `声音 ${encodeVoiceSlot(2708, character, period)}`,
-      url: voice.materialUrl, isLocal: 1 })
+      url: voice.materialUrl, isLocal: 1, delFlag: '0' })
     await expect(preview([adultReference])).rejects.toThrow('Remote voice slot differs')
     expect(writes()).toEqual([])
   },
@@ -756,16 +756,47 @@ it.each([{ character: 'other', period: 'adult' }, { character: 'zhou', period: '
 it('accepts an exact remote character/period slot but refuses a later remote rename before a new save', async () => {
   await voices([phasedCharacter])
   assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: `声音 ${encodeVoiceSlot(2708, 'zhou', 'adult')}`,
-    url: voice.materialUrl, isLocal: 1 })
+    url: voice.materialUrl, isLocal: 1, delFlag: '0' })
   const plan = await preview([adultReference])
   assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: `声音 ${encodeVoiceSlot(2708, 'zhou', 'child')}`,
-    url: voice.materialUrl, isLocal: 1 })
+    url: voice.materialUrl, isLocal: 1, delFlag: '0' })
   await expect(apply(plan)).rejects.toThrow('Remote voice slot differs')
   expect(writes()).toEqual([])
 })
 
 it('does not label a URL-only legacy association as speaker-verified despite a structured remote name', async () => {
   assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: `声音 ${encodeVoiceSlot(2708, 'zhou', 'adult')}`,
-    url: voice.materialUrl, isLocal: 1 })
+    url: voice.materialUrl, isLocal: 1, delFlag: '0' })
   expect(await preview([{ ...voice, audio_asset_id: 77 }])).toMatchObject({ status: 'ready' })
+})
+
+
+it.each([false, true])('refuses deleted audio on %s character-aware preview without any PUT', async (phased) => {
+  await voices([phasedCharacter])
+  assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: '周海生声音', assetUrl: voice.materialUrl, delFlag: '1' })
+  await expect(preview([phased ? adultReference : { ...voice, audio_asset_id: 77 }])).rejects.toThrow('Only this storyboard audio binding is pending')
+  expect(writes()).toEqual([])
+})
+
+it.each([undefined, 'pending', null])('requires explicit active detail on a phased voice with flag %s before preview', async (delFlag) => {
+  await voices([phasedCharacter])
+  assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: '周海生声音', assetUrl: voice.materialUrl, delFlag })
+  await expect(preview([adultReference])).rejects.toThrow('continue independent work')
+  expect(writes()).toEqual([])
+})
+
+it.each(['deleted', 'unknown'] as const)('rechecks %s phased voice state before applying the prepared original-card edit', async (state) => {
+  await voices([phasedCharacter])
+  const plan = await preview([adultReference])
+  assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: '周海生声音', assetUrl: voice.materialUrl,
+    ...(state === 'deleted' ? { delFlag: '1' } : {}) })
+  await expect(apply(plan)).rejects.toThrow('Only this storyboard audio binding is pending')
+  expect(writes()).toEqual([])
+})
+
+it('retains legacy unphased binding compatibility when deletion evidence is unavailable', async () => {
+  assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: '周海生声音', assetUrl: voice.materialUrl })
+  const plan = await preview([{ ...voice, audio_asset_id: 77 }])
+  expect(await apply(plan)).toMatchObject({ status: 'applied', verified_readback: true })
+  expect(writes()).toHaveLength(1)
 })

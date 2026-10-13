@@ -29,13 +29,17 @@ python -B <本技能目录>/scripts/prepare_voice_assets.py --project <项目根
 
 ## 不同账号协作时复用已有声线
 
-同一剧变项目的共享音频库是跨账号检查入口；各账号本地项目文件和私有 Wiki 不是共享锁。协作者沿用共享声线记录中的 character_id、voice_period_id，不给同一人物／时期重新起身份 ID。提取前先完整查询 audio_list，登记前再次查询；只按已核对的人物、时期和真实音频资产复用，普通同名或同服装不足以认定声音身份。已有声线先 audio_get 回读项目、类别、ID、URL，再核对实际讲话人物和时期、下载测量 SHA／时长，导入本地对应时期；未核实的候选不直接当默认。
+同一剧变项目的共享音频库是跨账号检查入口；各账号本地项目文件和私有 Wiki 不是共享锁。协作者沿用共享声线记录中的 character_id、voice_period_id，不给同一人物／时期重新起身份 ID。查使用位置或整理重复时用 `drama_assets shared_usage_preview`，可按精确 asset_id 或 character_id 查当前远端集数、视频包与不同包引用数；同包重复材料只计一次。返回值是对象，assets、uses、duplicate_audio_groups 分别是数组，不把整份返回值当数组。query_complete=true 表示请求的筛选及返回数组完整，不证明未标识资产的说话人身份；人物筛选遇到未知身份时改按精确资产 ID 查。complete=false 时 package_count=null，observed_package_count 仅表示实际发现数量，不能证明零引用；truncated=true 按精确 ID 缩小范围或沿下方分页读取，仍缺项时明确报告。无需因此停下其他独立工作。coverage 不包括历史任务、他人本地待提交计划及他人声线默认，零引用不能据此直接删除。提取前先完整查询 audio_list，登记前再次查询；只按已核对的人物、时期和真实音频资产复用，普通同名或同服装不足以认定声音身份。已有声线先 audio_get 回读项目、类别、ID、URL，再核对实际讲话人物和时期、下载测量 SHA／时长，导入本地对应时期；未核实的候选不直接当默认。
+
+共享用途分页从 output_offset=0 开始，保持 asset_id／character_id 筛选，沿 pagination.next_offset 读取到 null。assets、uses、duplicate_audio_groups、issues 共用输出偏移；各页 pagination.query_sha256 相同才可拼接数组，摘要变化从 0 重查，不改部署上限。后页仍可能 truncated=true，因为前页行没有重复返回；后页 assets=[] 不证明资产不存在。totals 和 package_count 属于底层查询，不能把本页行数当总引用数。
 
 新项目为人物明确当前时期后建立 voice_profiles，即使暂时只有一项，仍沿用共享时期 ID。新分期样本登记时，register 同时传 character_id、voice_period_id；工具生成结构化共享标记，调用者不自行伪造标记。登记前已存在同槽则返回 reuse_current，不再 POST；登记后再读完整音频库，canonical_voice_asset_id 与 canonical_voice_asset 是当前共同采用的候选，registration_created_asset_id 保留本次实际登记结果，不把别人已有的资产说成自己创建。元数据只标识声线槽，不证明声音质量；仍核对说话人和时期。原无标记资产可通过来源与听音核对后直接复用，不能单凭名称自动认领。
 
 其他协作者先登记成功时，采用其已核实的真实声线，把完整四项引用保存到本地对应时期后，重新运行同一 prepare_voice_assets 请求。脚本会把同人物、同时期的本地 candidate 标为 archived，记录 archive_reason、reused_asset_id 和 reused_reference_audio，保留 WAV、哈希、源任务和区间；已认可样本、其他人物和其他时期不归档。已上传但还没登记的候选也优先这样处理，不为了使用自己的片段覆盖已有声音。不增加下一笔付费生成。
 
-供应商没有已验证的跨电脑唯一创建约束：两名协作者首次同时 POST 仍可能各创建一份。工具回读后按实际正整数资产 ID 的固定顺序选择同槽候选并报告 duplicate_assets；登记结果未知仍沿原 key 只读对账，不换 key 重发，也不删除多余远端资产。确认共同采用的声线后归档本地重复候选；本地文件锁不表示远端只创建了一次。用户明确指定的既有默认保留，不能因候选排序而擅自替换；完整库存读不到或媒体身份不清时保留候选及真实缺项，其他工作继续。
+新客户端为带人物／时期的首次登记使用 Muse 共享登记协调：先认领，再标记开始并执行原登记；其他协作者等待或复用回读结果。coordination_unavailable、coordination_busy 或 coordination_pending 只表示本次声线登记待处理：submission_attempted=false、retry_registration=false，保留候选和原 key，不循环登记、不换 key、不绕过协调；无此参考声音的已授权初始视频及其他独立工作继续。提交结果未知的认领不自动过期；原 key 只读对账，核对原资产后完成共享记录。供应商本身没有已验证的唯一创建约束，剧变网页或旧客户端不参与协调，仍可能出现重复条目；duplicate_assets 如实报告。用户明确指定的既有默认保留，不能因候选排序而擅自替换；完整库存读不到或媒体身份不清时保留候选及真实缺项，其他工作继续。
+
+voice_reference_pending 表示已有参考需回读核查，不是协调等待；reason_code 为 asset-missing、asset-deleted、asset-liveness-unknown 或 asset-identity-changed。保留本地候选和原 key，用精确 audio_get 核对，不自动登记替代声线。POST 尚未尝试时 submission_attempted=false；已经尝试 POST 的结果保留 submission_attempted=true 和实际登记资产 ID，该标记不证明登记成功，不能把待处理误当成没写入而重发。仅该参考暂不采用，独立工作继续；跨项目、类别、ID 或协议矛盾仍按工具错误处理。
 
 ## 建立第一个样本
 
@@ -53,7 +57,7 @@ python -B <本技能目录>/scripts/extract_voice_reference.py --source <首次�
 
 ## 登记音频资产与认可版本
 
-用 `jubian_asset method=upload_audio audio_path=<已核对的短 WAV>`，读取返回的 materialUrl、SHA-256 和实测 audioDuration；已有 URL 则先检查已登记资产，避免重复上传、登记。用 `jubian_asset method=register script_id=<本项目ID> asset_type=4 asset_name=<角色声线版本名> asset_url=<上传返回URL> idempotency_key=<本次稳定登记key>` 入音频类别。登记和上传不提交视频生成；结果未知时沿用原 key 查账及 audio_list/audio_get，不换 key 重发。登记结果无法唯一定位时继续核对新资产，不猜 ID。
+用 `jubian_asset method=upload_audio audio_path=<已核对的短 WAV>`，读取返回的 materialUrl、SHA-256 和实测 audioDuration；已有 URL 则先检查已登记资产，避免重复上传、登记。沿用上方 role_01 的 adult 时期示例，登记调用为 `jubian_asset method=register script_id=<本项目ID> asset_type=4 character_id=role_01 voice_period_id=adult asset_name=<角色成年声线版本名> asset_url=<上传返回URL> idempotency_key=<本次稳定登记key>`；实际调用必须替换为该角色与对应人生时期的稳定 ID。新分期角色音频必填 character_id 和 voice_period_id，仅未分期旧项目音频可省略，不能为了绕过共享协调而删除这两项。登记和上传不提交视频生成；结果未知时沿用原 key 查账及 audio_list/audio_get，不换 key 重发。登记结果无法唯一定位时继续核对新资产，不猜 ID。
 
 用 audio_get 回读实际 asset_id、项目、类别和 URL，将角色、版本、候选/认可状态、来源镜头/任务 ID、截取区间、实测时长、文件哈希及远端 ID/URL 记入 `<项目>/audio/voice-references/manifest.json` 的 samples 数组，字段为 character_id、可选 voice_period_id、version、status（candidate/approved/superseded/deleted/archived）、asset_id、url、sha256、duration_seconds、source_task_id、source_path、start_seconds、source_sha256；缺少真实来源 ID 时省略，不能编造。总控读取旧清单后按角色与版本合并保存，保留 tracks；子代理返回记录，不并发覆盖。清单保存候选和历史，当前默认仍以项目圣经为准，旧版本不因更换被删。
 
@@ -63,7 +67,7 @@ python -B <本技能目录>/scripts/extract_voice_reference.py --source <首次�
 
 上传工具的 SHA-256 带 `sha256:` 前缀；先与提取脚本的摘要核对一致，写入项目圣经时保存去掉前缀的裸 64 位十六进制。
 
-用 `jubian_storyboard get` 读原 storyboard_id 的最新完整内容。若图像选源需要修正，先 select_assets 再读卡；随后用 `jubian_storyboard audio_preview` 提交 script_id、project_dir、storyboard_id、audio_references 与需要同步修改的完整 prompt。audio_references 是**最终有序**的全部音频行；添加或替换单个角色时保留其他已选音频，不只传新增那一行。每行使用 materialType="audio"、materialKey、materialUrl、fileName、音频组内从 1 递增的 sortOrder 与实测 audioDuration，并附已登记的 audio_asset_id 与实际 character_id；分期项目还附 voice_period_id。工具在预览与发送前核对本角色本时期的当前 ID／URL；选定声线改变就重预览，其他时期或衣服变化不替换本次声音。人物与时期字段只用于本地核对，不进入供应商素材行。工具核对同项目音频资产和 URL，把自有 audio_asset_id 留在预览绑定记录中；不编造图片 materialAssetId、hsAssetId 或音频生成材质 ID。
+用 `jubian_storyboard get` 读原 storyboard_id 的最新完整内容。若图像选源需要修正，先 select_assets 再读卡；随后用 `jubian_storyboard audio_preview` 提交 script_id、project_dir、storyboard_id、audio_references 与需要同步修改的完整 prompt。audio_references 是**最终有序**的全部音频行；添加或替换单个角色时保留其他已选音频，不只传新增那一行。每行使用 materialType="audio"、materialKey、materialUrl、fileName、音频组内从 1 递增的 sortOrder 与实测 audioDuration，并附已登记的 audio_asset_id 与实际 character_id；分期项目还附 voice_period_id。工具在预览与发送前核对本角色本时期的当前 ID／URL；选定声线改变就重预览，其他时期或衣服变化不替换本次声音。已删除音频不能绑定，分期引用须回读到 delFlag=0 且无矛盾删除字段；状态未知时仅暂缓该卡的音频保存，其他独立工作继续。人物与时期字段只用于本地核对，不进入供应商素材行。工具核对同项目音频资产和 URL，把自有 audio_asset_id 留在预览绑定记录中；不编造图片 materialAssetId、hsAssetId 或音频生成材质 ID。
 
 prompt 保留全部镜头正文和图片标记，明确写“周海生声音参照 @[周海生声线](voice-zhouhaisheng)”等说话人与音频对应关系。同一 key 首次标记一次，后文复用名称；图片标记在前、音频标记在后，各自顺序与素材对应。SD2.0 最多 3 条音频参考，SD2.5 最多 10 条。
 
@@ -72,6 +76,8 @@ prompt 保留全部镜头正文和图片标记，明确写“周海生声音参�
 冻结失败先查具体字段和真实回读：不得默认摘掉声音、重建同名卡或提前付费生成部分包。修复原卡后重新 prepare；旧 fingerprint 不用于新内容。提交后必须回读 audioMaterials 的真实 audioUrl 与顺序；缺失或不符只能进入对账，不重投，不宣称已使用参考或音色已统一。参考齐备后，其余镜头包按原整批检查与并行提交流程继续。
 
 ## 替换、解除引用与删除
+
+整理同人物、同人生时期的重复音频时，先查询共享包引用和本地声线默认。已采用声线优先保留，再参考不同包的使用次数；零引用并不证明历史任务或其他电脑也未使用。少引用仍大于零时先核对音色适用性，对列出的原包逐一用 audio_preview/audio_apply 迁移全部绑定和声音标记，回读成功后重新查询并走删除检查。保留全部其他音频、图片及配置；不重新生成已完成视频，不据引用次数把儿童与成年声音合并。未核清的条目先归档本地候选，远端不自动删除。
 
 删除检查包括该音频资产全部媒体版本的 URL，也检查旧默认和全部时期声线，不只看当前版本。删除期间不要并行修改相关引用；本地音频绑定与项目圣经写入会受删除锁阻止，其他写工具和剧变控制台不参与这些锁。
 

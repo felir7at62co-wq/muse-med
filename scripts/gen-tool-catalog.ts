@@ -851,7 +851,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolDramaAssets)
     },
     note:
-      'Four methods: `reconcile` reads the remote project\u2019s asset and material lists and the manifest and writes the evidence the host\u2019s '
+      '`shared_usage_preview` reads complete current shared-project asset, material, episode and package inventories, counts distinct bound packages and reports same-period voice candidates without granting deletion. `usage_preview` reads exact local compiled references and voice gaps without network or writes. `reconcile` reads the remote project\u2019s asset and material lists and the manifest and writes the evidence the host\u2019s '
       + 'reconcile gate reads, and `dispose` records one disposition in it without any remote read. '
       + '`match_preview` reads source-backed requirements, the project bible, formal assets and recognized voice references, '
       + 'returning `reuse_ready`, `needs_review`, `missing` or `blocked`. `reuse_preview` groups those recommendations across shots '

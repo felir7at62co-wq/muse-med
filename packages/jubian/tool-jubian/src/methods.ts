@@ -41,6 +41,7 @@ import { getAudioAsset, listAudioAssets } from './audio-asset-read.ts'
 import { audioAssetDeleteMethod, resolveAudioReferenceScanOptions } from './audio-asset-delete.ts'
 import type { AudioReferenceScanOptions } from './audio-asset-delete.ts'
 import { registerAudioAsset } from './audio-asset-register.ts'
+import type { VoiceCoordinator } from './voice-coordination.ts'
 
 export { bodyHash, writeUnderLedger } from './write.ts'
 export type { WriteOutcome } from './write.ts'
@@ -237,6 +238,8 @@ export interface ImageMethodOptions {
 
 /** The seams a method needs besides the provider transport, injectable for tests. */
 export interface MethodDeps {
+  /** Current Muse account's exclusive shared voice-registration provider. */
+  voiceCoordinator?: VoiceCoordinator
   /** Resolved complete-reference inspection limits before deleting audio assets. */
   audioReferenceScan?: AudioReferenceScanOptions
   /** Local reference upload: transport, re-encode, clock and `ffmpeg` path. */
@@ -715,7 +718,7 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
         script_id: positiveInteger(scriptId), asset_name: assetName, asset_url: assetUrl, idempotency_key: args.idempotency_key,
         ...(args.character_id === undefined ? {} : { character_id: args.character_id }),
         ...(args.voice_period_id === undefined ? {} : { voice_period_id: args.voice_period_id }),
-      }, deps.audioReferenceScan ?? resolveAudioReferenceScanOptions())
+      }, deps.audioReferenceScan ?? resolveAudioReferenceScanOptions(), deps.voiceCoordinator)
       // Existing media registration uses isLocal without modelConfig or
       // isGenerate; it creates a library entry without starting generation.
       const before = await listedAssets(client, scriptId)

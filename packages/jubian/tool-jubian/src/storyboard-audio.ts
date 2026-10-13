@@ -93,6 +93,9 @@ async function verifyBindings(client: JubianClient, scriptId: number, bindings: 
   for (const binding of bindings) {
     const asset = await getAudioAsset(client, scriptId, binding.asset_id)
     if (asset === null || asset.url !== binding.url) refuse('Audio asset is missing or its URL differs from the reviewed reference')
+    if (asset.liveness === 'deleted' || (binding.voice_period_id !== undefined && asset.liveness !== 'active')) {
+      refuse('Only this storyboard audio binding is pending: deleted asset or unconfirmed phased voice; continue independent work without saving this card')
+    }
     if (binding.character_id !== undefined && asset.character_id !== undefined
       && (asset.character_id !== binding.character_id || asset.voice_period_id !== binding.voice_period_id)) {
       refuse('Remote voice slot differs from the requested character or life period')
@@ -275,7 +278,10 @@ async function readback(client: JubianClient, plan: AudioPlan, replayed: boolean
  * then omitted from provider material rows. Optional character_id and voice_period_id require the
  * exact current character's reference ID and URL, retain the selected profile fingerprint in the
  * preview and recheck it before a new PUT. Phased voices never fall back to a legacy default or
- * another period. Local identity fields are omitted from provider material rows.
+ * another period. Deleted assets are rejected; phased references require explicit active evidence.
+ * Legacy unphased references retain compatibility when deletion evidence is absent. Refusal affects
+ * this card's audio edit only; it sends no PUT and does not block independent work.
+ * Local identity fields are omitted from provider material rows.
  * A claimed key only reads the original card, even if its
  * audio-library asset has changed. URL-only references remain supported without a fabricated asset ID.
  * @param client - Current-card reads and the single free isGenerate=0 PUT transport.

@@ -24,7 +24,8 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger, readProjectBudget, updateProjectBudget } from '@deepseek-ai/dsh-jubian'
+import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger, readProjectBudget, updateProjectBudget, workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
+import { museVoiceCoordinator } from './voice-coordination.ts'
 import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
 import { validateProjectBinding } from './native.ts'
 import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from './methods.ts'
@@ -367,8 +368,12 @@ export function apply(ctx: Context, config: Config = {}): void {
         expected_revision: args.expected_revision, authorization }) }
     },
   })))
-  const client = configuredJubianClient(
-    async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? '', config, process.cwd())
+  const storedCredential = async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? ''
+  const client = configuredJubianClient(storedCredential, config, process.cwd())
+  const voiceCoordinator = museVoiceCoordinator(ctx, async () => {
+    const stored = await storedCredential()
+    return stored.trim() || config.workspaceSecrets === false ? stored : await workspacePipelineToken(process.cwd())
+  })
   // The rows a Settings page may pick between. It shares the transport above, so
   // the token that authorizes the read stays in this process.
   ctx.plugin(JubianImageRoutes, { client })
@@ -554,15 +559,15 @@ export function apply(ctx: Context, config: Config = {}): void {
       asset_name: ARGS.asset_name, episode: ARGS.episode, asset_category: ARGS.asset_category,
       asset_type: { type: 'number', enum: [1, 2, 3, 4], description: 'register 必填：1=角色，2=场景，3=道具，4=音频；音频使用 upload_audio 返回的地址。' },
       asset_url: { type: 'string', description: 'register 必填：已有图片或音频 HTTPS 地址；只登记，不生成新媒体。' },
-      character_id: { type: 'string', description: 'register 音频可选：稳定角色 ID；须与 voice_period_id 同时提供。完整音频库已有同角色/时期条目时复用，不重复登记。' },
-      voice_period_id: { type: 'string', description: 'register 音频可选：明确人生时期 ID，如 child/adult；与 character_id 组成共享声线位置。自动登记标签不能手写进 asset_name。' },
+      character_id: { type: 'string', description: 'register 新分期角色音频必须提供稳定角色 ID，并同时提供 voice_period_id；仅未分期旧音频可省略两者。完整音频库已有同角色/时期条目时复用，不重复登记。' },
+      voice_period_id: { type: 'string', description: 'register 新分期角色音频必须提供明确人生时期 ID，如 child/adult；与 character_id 组成共享声线位置。仅未分期旧音频可省略两者，自动登记标签不能手写进 asset_name。' },
       project_dir: ARGS.project_dir, preview_path: ARGS.preview_path,
       checked_audio_asset_id: { type: 'integer', description: 'audio_delete_apply 必填：已核对预览名称、URL、引用和用户删除范围的精确音频资产 ID。' },
       delete_reason: { type: 'string', description: 'audio_delete_preview 必填：删除该音频的具体原因。' },
       authorization_basis: { type: 'string', description: 'audio_delete_preview 必填：用户对该音频删除范围的授权。' },
     },
     output: OUTPUT,
-    execute: guarded('jubian_asset', args => assetMethod(client, ledger, args, { naming, audioReferenceScan })),
+    execute: guarded('jubian_asset', args => assetMethod(client, ledger, args, { naming, audioReferenceScan, voiceCoordinator })),
   }))
 
   ctx.tools.register(defineTool({
