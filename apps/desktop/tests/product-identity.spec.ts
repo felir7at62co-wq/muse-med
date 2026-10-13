@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -40,7 +40,11 @@ describe('desktop product identity', () => {
       getVersion: () => '0.1.7-rc.8',
       getAppPath: () => fileURLToPath(new URL('..', import.meta.url)),
     }
-    expect(desktopProductVersion(application)).toBe('1.0.5')
+    const product: unknown = JSON.parse(readFileSync(new URL('../muse-product.json', import.meta.url), 'utf8'))
+    if (!product || typeof product !== 'object' || !('version' in product) || typeof product.version !== 'string') {
+      throw new TypeError('Product manifest must declare its own version')
+    }
+    expect(desktopProductVersion(application)).toBe(product.version)
     expect(desktopProductVersion({ ...application, isPackaged: true, getVersion: () => '1.0.0-beta.1.20260930.2' }))
       .toBe('1.0.0-beta.1.20260930.2')
   })

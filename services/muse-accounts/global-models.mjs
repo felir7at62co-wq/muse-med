@@ -69,7 +69,7 @@ export async function openGlobalModels(file,{legacyConfig,schema={type:'object'}
   const key=value[zhipuKeyIndex];zhipuKeyIndex=(zhipuKeyIndex+1)%value.length;
   return key;
  };
- return {view,describe:()=>({writable:true,hasDocument:false,namespaces:[view(),...official?[officialView()]:[]]}),
+ return {credentialPool:route=>{const p=current.providers[route],value=p&&current.credentials[p.apiKeyEnv];return route==='zhipu-official'&&Array.isArray(value)?[...value]:undefined;},view,describe:()=>({writable:true,hasDocument:false,namespaces:[view(),...official?[officialView()]:[]]}),
   listProviders:()=>[...official?[{id:'deepseek-official',name:'DeepSeek'}]:[],...Object.entries(current.providers).map(([id,p])=>({id,name:p.displayName||id}))],
   listConfigurableProviders:()=>[...official?[{provider:'deepseek-official',displayName:'DeepSeek',settingsNs:'llm-deepseek',settingsPath:[]}]:[],...Object.entries(current.providers).map(([provider,p])=>({provider,displayName:p.displayName||provider,settingsNs:'llm-pi-ai',settingsPath:['providers',provider],declared:true}))],
   metadata:()=>({revision:current.metadataRevision,...official?{deepseek:officialMetadata(official,current.deepseek)}:{},providers:Object.fromEntries(Object.entries(current.providers).map(([route,p])=>[route,{displayName:p.displayName||route,models:p.models.map(m=>({...structuredClone(m),name:m.name||m.id,contextWindow:m.contextWindow??128000,maxTokens:m.maxTokens??8192,input:m.input??['text'],reasoningEfforts:m.reasoningEfforts??false}))}]))}),

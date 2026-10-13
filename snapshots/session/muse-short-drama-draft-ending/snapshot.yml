@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-short-drama-draft-ending
+profile: headless
+composition: muse-short-drama-draft-ending
+recording: authored
+writerOutput: true
+header:
+  class: muse-short-drama-draft-ending
+  pin: true
+workspace:
+  setup: muse-creation-skills

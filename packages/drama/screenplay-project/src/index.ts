@@ -84,12 +84,11 @@ export function apply(ctx: Context, config: Config): void {
   if (ctx.fs.sandboxMode !== undefined && ctx.get('sandboxPolicy') === undefined) {
     throw Error('screenplay-project: sandboxed filesystem requires sandboxPolicy')
   }
-  if ((config.reviewMode === 'self-check' || (config.refinementMode !== 'disabled' || config.storyFaithfulMode !== 'disabled')) && ctx.get('sessionProjections') === undefined) {
+  const projections = ctx.get('sessionProjections')
+  if ((config.reviewMode === 'self-check' || (config.refinementMode !== 'disabled' || config.storyFaithfulMode !== 'disabled')) && projections === undefined) {
     throw Error('screenplay-project: self-check requires live sessionProjections')
   }
-  const projections = ctx.get('sessionProjections')
   if ((config.refinementMode !== 'disabled' || config.storyFaithfulMode !== 'disabled')) {
-    if (projections === undefined) throw Error('screenplay-project: refinement requires live sessionProjections')
     ctx.inject(['sessionProjections'], (scope) => { scope.sessionProjections.register(refinementUserProjection) })
   }
   const commands = new ProjectCommands(ctx.fs, config, ctx.attachments, config.reviewMode, config.refinementMode, config.storyFaithfulMode)
@@ -117,8 +116,8 @@ export function apply(ctx: Context, config: Config): void {
     }
   })
   ctx.on('llm/stream', async function* (options, next) {
-    const roots = new Set(options.messages.filter(message => message.role === 'tool' && message.isError !== true)
-      .map(message => message.role === 'tool' ? message.toolCallId : undefined))
+    const roots = new Set(options.messages.flatMap(message => message.role === 'tool' && message.isError !== true
+      ? [message.toolCallId] : []))
     const eligible = !isAgentLoopRequest(options) ? [] : options.messages.flatMap((message) => {
       const read = message.id === undefined ? undefined : delivered.get(message.id)
       return read !== undefined && options.sessionId !== undefined
@@ -175,8 +174,8 @@ export function apply(ctx: Context, config: Config): void {
         && boundary.lastStepBoundary.seq === boundary.lastStepStartSeq ? boundary.lastStepStartSeq : undefined
       const messages = config.reviewMode === 'self-check' || (config.refinementMode !== 'disabled' || config.storyFaithfulMode !== 'disabled') ? session.deriveMessages() : []
       const visible = new Map(messages.map(message => [message.id, message]))
-      const roots = new Set(messages.filter(message => message.role === 'tool' && message.isError !== true)
-        .map(message => message.role === 'tool' ? message.toolCallId : undefined))
+      const roots = new Set(messages.flatMap(message => message.role === 'tool' && message.isError !== true
+        ? [message.toolCallId] : []))
       const retained = new Map<string, MessageId>()
       for (const [id, read] of delivered) {
         if (read.receipt.actor !== actor || step === undefined || read.receipt.step >= step) continue

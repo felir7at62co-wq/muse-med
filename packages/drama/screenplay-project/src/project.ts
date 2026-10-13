@@ -317,7 +317,7 @@ export class ProjectCommands {
           request.before_episode - 1).map(candidate => ({ id: candidate.id, sha256: candidate.sha256 }))
         policy.input_candidates = inputs
       }
-      policy.sha256 = storyPolicyDigest(policy)
+      policy.sha256 = storyPolicyDigest(STORY_POLICY.parse(policy))
       const now = new Date().toISOString()
       const project = PROJECT_FILE.parse({ format_version: 1, id: `p:${randomUUID()}`, revision: 0, mode: 'faithful',
         instructions: request.scope_instructions, workflow: 'video_to_screenplay', review_mode: 'self-check', story_policy: policy, story_inventories: [],
@@ -469,8 +469,7 @@ export class ProjectCommands {
           return candidate
         }).sort((a, b) => a.episode - b.episode)
         const first = baselines[0]
-        if (first === undefined || baselines.some((candidate, index) => index > 0
-          && candidate.episode !== (baselines[index - 1]?.episode ?? 0) + 1)
+        if (first === undefined || baselines.some((candidate, index) => candidate.episode !== first.episode + index)
           || first.episode > project.accepted.length + 1) throw Error('refinement_scope: 使用非空、连续的实际基线集号。')
         const beforeEpisode = first.episode
         const candidates = acceptedCandidates(project).slice(0, beforeEpisode - 1)
@@ -604,7 +603,7 @@ export class ProjectCommands {
           if (accepted) continue
           const overlap = inventory.coverage.windows.some((window) => {
             const old = project.sources.find(value => value.id === window.source_id)
-            if ((old?.story_video_path ?? old?.video?.path) !== (source.story_video_path ?? source.video?.path)) return false
+            if ((old?.story_video_path ?? old?.video?.path) !== source.story_video_path) return false
             const range = window.interval ?? old?.video?.interval
             const added = source.video?.interval
             return range === undefined || added === undefined || range.start_seconds < added.end_seconds
@@ -699,7 +698,7 @@ export class ProjectCommands {
             let input: unknown
             try { input = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) }
             catch (error) {
-              throw Error(`scene_file_json: 场次文件 ${target.displayPath} 须为有效 UTF-8 JSON：${error instanceof Error ? error.message : String(error)}`, { cause: error })
+              throw Error(`scene_file_json: 场次文件 ${target.displayPath} 须为有效 UTF-8 JSON：${String(error)}`, { cause: error })
             }
             const scene = SCENE_RECORD.safeParse(input)
             if (!scene.success) {
@@ -799,13 +798,16 @@ export class ProjectCommands {
         const basename = `episode-${candidate.episode}-${candidate.id.slice(2)}`
         const sourceRows = project.sources.filter(source => candidate.source_ids === undefined
           || candidate.source_ids.includes(source.id)).map(source => ({ id: source.id, path: source.path, sha256: source.sha256 }))
+        const report = rendered.modification_notes
+        const reportMetadata = report === undefined ? {} : { modification_notes: {
+          file: `${basename}.modification-notes.md`, sha256: sha256(report) } }
         const sidecar = {
           candidate_id: candidate.id, candidate_sha256: candidate.sha256,
           created_at: candidate.created_at, committed_at: candidate.committed_at,
           review: candidate.review, lines: rendered.lines, knowledge: rendered.knowledge,
-          ...(candidate.story_adaptation === undefined ? {} : { story_adaptation: candidate.story_adaptation, story_policy: project.story_policy, semantic_report: candidate.review?.semantic_report, modification_notes: { file: `${basename}.modification-notes.md`, sha256: sha256(rendered.modification_notes ?? '') } }),
-          ...(candidate.refinement === undefined ? {} : { refinement: candidate.refinement,
-            modification_notes: { file: `${basename}.modification-notes.md`, sha256: sha256(rendered.modification_notes ?? '') } }),
+          ...(candidate.story_adaptation === undefined ? {} : { story_adaptation: candidate.story_adaptation,
+            story_policy: project.story_policy, semantic_report: candidate.review?.semantic_report, ...reportMetadata }),
+          ...(candidate.refinement === undefined ? {} : { refinement: candidate.refinement, ...reportMetadata }),
           ...(candidate.source_ids === undefined || candidate.coverage === undefined ? {} : {
             visual_coverage: candidate.coverage.windows.flatMap((window) => {
               const source = project.sources.find(source => source.id === window.source_id)
@@ -815,9 +817,6 @@ export class ProjectCommands {
           sources: sourceRows,
         }
         const encodeSidecar = (sources: typeof sourceRows) => `${JSON.stringify({ ...sidecar, sources }, null, 2)}\n`
-        const report = candidate.refinement === undefined && candidate.story_adaptation === undefined
-          ? undefined : rendered.modification_notes
-        if ((candidate.refinement !== undefined || candidate.story_adaptation !== undefined) && !report) throw Error('refinement_report_required: 精修交付缺少实际修改说明。')
         const reportPath = `${request.directory}/${basename}.modification-notes.md`
         const files = [
           { path: `${request.directory}/${basename}.md`, content: rendered.script },

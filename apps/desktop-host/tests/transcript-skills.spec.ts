@@ -43,7 +43,7 @@ it('discovers the scene-script transcript skill without assigning uncertain spee
     expect(input).toMatch(/不.*补.*台词/su)
     expect(input).toMatch(/来源.*版本/su)
     expect(input).toMatch(/仿真人分场剧本.*参考文章.*不设开写门禁/su)
-    expect(input).toMatch(/先将转写.*分场剧本.*再从该稿写.*outline\/source-v1\.md.*outline\/adaptation-v1\.md.*用户选定换梗方向后成稿/su)
+    expect(input).toMatch(/先将转写.*分场剧本.*再从该稿写.*outline\/source-v1\.md.*outline\/adaptation-v1\.md.*用户选定方向后成稿/su)
     expect(skill?.content).not.toMatch(/[A-Z]:[\\/]|等待用户确认/u)
   } finally {
     await ctx.fiber.dispose()

@@ -1,19 +1,26 @@
 /** Source, attribution, publication, and recovery through the actual local filesystem provider. */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
+import { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import { TRUSTED_VIDEO_INSPECTION_RECEIPT } from '@deepseek-ai/dsh-tool-video-inspect'
 import { Context } from '@deepseek-ai/cordis'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import sharp from 'sharp'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ActorId } from '../src/ids.ts'
+import type { ProjectExecution } from '../src/project.ts'
+import type { ProjectReadReceipt } from '../src/review.ts'
+import type { HumanAuthorization } from '../src/refinement.ts'
 import { ProjectCommands } from '../src/project.ts'
-import { candidateDigest } from '../src/episode.ts'
-import { PROJECT_FILE } from '../src/schema.ts'
+import { candidateDigest, sha256 } from '../src/episode.ts'
+import { inventoryDigest, storyScopeDigest, storyPolicyDigest } from '../src/story.ts'
+import { PROJECT_FILE, VIDEO_INSPECTION } from '../src/schema.ts'
 import type { FactInput, ProjectRequest, SceneInput } from '../src/schema.ts'
+import { stageCoverage } from './fixtures/stage-input.ts'
 
 let root: string
 let path: string
@@ -25,7 +32,7 @@ const limits = {
 }
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'screenplay-project-'))
+  root = await realpath(await mkdtemp(join(tmpdir(), 'screenplay-project-')))
   path = join(root, 'project.json')
   source = join(root, 'source.txt')
   await writeFile(source, '甲想：我知道钥匙在哪里。\n作者认为：乙有些贪心。\n乙说：门开了。\n甲推开门。\n过去，甲想：我不会告诉乙。\n')
@@ -1131,3 +1138,535 @@ it.each(['invalid-json', 'null', 'missing-sources', 'non-array-sources', 'remove
     expect(await readFile(sidecar, 'utf8')).toBe(content)
   },
 )
+
+function humanGrant(): HumanAuthorization {
+  return { source: 'user', session_id: brandString<ActorId>('writer'), message_id: 'work-request', seq: SessionSeq(1),
+    message_sha256: '1'.repeat(64), quote: '只处理当前原视频的第一集，保持故事事实。', consent_assessment: '用户授权当前作品第一集的表达整理。' }
+}
+async function storyForkRequest(): Promise<Extract<ProjectRequest, { method: 'fork_story_faithful' }>> {
+  const fixture = await inspection(), file = await current(), grant = humanGrant()
+  return { method: 'fork_story_faithful', project: path, destination: join(root, 'story-branch.json'), expected_revision: file.revision,
+    before_episode: 1, work_title: '原件边界回归', videos: [{ path: fixture.video, source_version: fixture.value.source_version }], episodes: [1],
+    scope_instructions: '只处理本集，不改变原始事件。', authorization_quote: grant.quote, consent_assessment: grant.consent_assessment,
+    allowed_categories: [], baseline_candidate_ids: [], source_links: [{ source_id: file.sources[0]!.id, video_path: fixture.video }] }
+}
+function storyExecution(step = 10, receipts: ProjectReadReceipt[] = []): ProjectExecution {
+  return { actor: brandString<ActorId>('writer'), cwd: root, signal: new AbortController().signal, step: SessionSeq(step),
+    authorization: humanGrant(), latestUserSeq: SessionSeq(1), receipts, observeRead: receipt => receipts.push(receipt) }
+}
+async function storyBranch(categories: 'minimal_os'[] = []) {
+  const id = await fact('thought', 1, '甲'), request = await storyForkRequest()
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check', 'source-preserving-v1', 'story-faithful-v2')
+  request.allowed_categories = categories
+  await commands.execute(request, storyExecution()); path = request.destination
+  return { id, request }
+}
+async function storyInventory(withFrames = false, categories: 'minimal_os'[] = []) {
+  const { id } = await storyBranch(categories)
+  if (withFrames) {
+    const manifestPath = join(root, 'inspection.json'), proof = await storyInspectionProof(manifestPath)
+    await commands.execute({ method: 'import_source', project: path, expected_revision: (await current()).revision,
+      path: manifestPath, source_kind: 'video_inspection' }, { ...storyExecution(), verifyStoryVideo: async () => proof })
+  }
+  const file = await current(), unit = file.sources[0]!.units[0]!
+  await commands.execute({ method: 'propose_story_inventory', project: path, expected_revision: file.revision, episode: 1,
+    coverage: { windows: file.sources.map(source => ({ source_id: source.id, start: 1,
+      count: source.kind === 'text' ? 1 : source.units.length })), required_beats: [{ fact_id: id, kind: 'os' }] },
+    items: [{ id: 'thought', dimension: 'emotion_conflict', summary: '甲知道钥匙所在。', critical: false,
+      evidence: 'confirmed', fact_ids: [id], source_units: [unit.id], depends_on: [], knowledge: [] }],
+    not_applicable: (['event', 'action_result', 'relationship_stance', 'causality_reveal'] as const).map(dimension => ({
+      dimension, reason: '该局部原文只有心理，没有本维度事件。' })) }, storyExecution())
+  return (await current()).story_inventories![0]!
+}
+
+it.each(['video-version', 'episode-unspecified', 'episode-outside', 'stale-original',
+  'before-gap', 'missing-input', 'source-unlinked'] as const)(
+  'preserves the original project when a story fork rejects %s', async (failure) => {
+    const request = await storyForkRequest(), before = await readFile(path, 'utf8')
+    if (failure === 'video-version') request.videos[0]!.source_version = FsVersion('obsolete-original-version')
+    if (failure === 'episode-unspecified') request.episodes = [1, 2]
+    if (failure === 'episode-outside') request.videos[0]!.episode = 2
+    if (failure === 'stale-original') request.expected_revision++
+    if (failure === 'before-gap') request.before_episode = 2
+    if (failure === 'missing-input') request.baseline_candidate_ids = ['not-a-real-candidate']
+    if (failure === 'source-unlinked') request.source_links = []
+    commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check', 'disabled', 'story-faithful-v2')
+    const error = { 'video-version': 'story_video_version', 'episode-unspecified': 'story_video_episode',
+      'episode-outside': 'story_video_episode', 'stale-original': 'stale_revision', 'before-gap': 'revision_episode',
+      'missing-input': 'story_input_candidate', 'source-unlinked': 'story_source_scope' }[failure]
+    await expect(commands.execute(request, storyExecution())).rejects.toThrow(error)
+    expect(await readFile(path, 'utf8')).toBe(before)
+  },
+)
+it('rejects a real candidate outside the story fork authorization scope', async () => {
+  const id = await fact('thought', 1, '甲'), candidate = await stage([scene(id)]), request = await storyForkRequest()
+  request.episodes = [2]; request.videos[0]!.episode = 2; request.baseline_candidate_ids = [candidate.id]
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check', 'disabled', 'story-faithful-v2')
+  await expect(commands.execute(request, storyExecution())).rejects.toThrow('story_input_candidate')
+})
+it('does not downgrade an existing story grant by forking it into another story or refinement grant', async () => {
+  await storyBranch(); const file = await current(), request = await storyForkRequest()
+  request.before_episode = 1
+  await expect(commands.execute(request, storyExecution())).rejects.toThrow('story_fork_original')
+  await expect(commands.execute({ method: 'fork_refinement', project: path,
+    expected_revision: file.revision,
+    destination: join(root, 'refinement.json'), baseline_candidate_ids: [], scope_instructions: '第一集',
+    authorization_quote: humanGrant().quote, consent_assessment: humanGrant().consent_assessment,
+    allowed_categories: [] }, storyExecution()))
+    .rejects.toThrow('story_policy_exclusive')
+})
+it('refuses story writes from a disabled deployment while keeping historical status readable', async () => {
+  await storyBranch(); const file = await current(), source = file.sources[0]!
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments)
+  expect(await run({ method: 'status', project: path })).toMatchObject({ story_policy: { version: 'story-faithful-v2' } })
+  await expect(run({ method: 'propose_fact', project: path, expected_revision: file.revision, fact: {
+    kind: 'thought', origin: 'source', actor: '甲', layer: 'present', summary: source.units[0]!.text,
+    anchors: [{ unit_id: source.units[0]!.id, quote: source.units[0]!.text }] } })).rejects.toThrow('story_mode_disabled')
+})
+it('rejects forged persisted inventory review evidence before showing status', async () => {
+  const inventory = await storyInventory(), receipts: ProjectReadReceipt[] = []
+  await commands.execute({ method: 'read_story_inventory', project: path, inventory_id: inventory.id }, storyExecution(20, receipts))
+  const file = await current(), source = file.sources[0]!
+  await commands.execute({ method: 'read_source', project: path, source_id: source.id, start: 1, count: 1 }, storyExecution(20, receipts))
+  await commands.execute({ method: 'review_story_inventory', project: path, expected_revision: file.revision, inventory_id: inventory.id,
+    inventory_sha256: inventory.sha256, decision: 'reject', reason: '没有视频证据，不能接受来源复原。' }, storyExecution(30, receipts))
+  const saved = await current(); saved.story_inventories![0]!.review!.evidence!.subject_sha256 = '0'.repeat(64)
+  await writeFile(path, JSON.stringify(saved))
+  await expect(commands.execute({ method: 'status', project: path }, storyExecution())).rejects.toThrow('story_inventory_review')
+})
+it('reports missing video evidence and allows rejecting an inventory without claiming visual verification', async () => {
+  const inventory = await storyInventory(), file = await current()
+  const status = await commands.execute({ method: 'status', project: path }, storyExecution())
+  expect(status).toMatchObject({ evidence_pending: ['本集没有实际视频图像证据'] })
+  await expect(commands.execute({ method: 'read_story_inventory', project: path, inventory_id: 'missing' }, storyExecution()))
+    .rejects.toThrow('story_inventory_required')
+  await expect(commands.execute({ method: 'review_story_inventory', project: path, expected_revision: file.revision,
+    inventory_id: inventory.id, inventory_sha256: inventory.sha256, decision: 'reject', reason: ' ' }, storyExecution()))
+    .rejects.toThrow('review_reason')
+})
+
+async function refinementForkRequest(): Promise<Extract<ProjectRequest, { method: 'fork_refinement' }>> {
+  const id = await fact('thought', 1, '甲'), candidate = await stage([scene(id)]), file = await current(), grant = humanGrant()
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'independent', 'source-preserving-v1')
+  return { method: 'fork_refinement', project: path, expected_revision: file.revision, destination: join(root, 'refinement-branch.json'),
+    baseline_candidate_ids: [candidate.id], scope_instructions: '仅基线第一集，不改事件。', authorization_quote: grant.quote,
+    consent_assessment: grant.consent_assessment, allowed_categories: [] }
+}
+it.each(['blank-scope', 'blank-consent', 'empty-baseline', 'missing-baseline', 'missing-user'] as const)(
+  'rejects refinement %s before publishing a branch', async (failure) => {
+    const request = await refinementForkRequest(), exec = storyExecution(), before = await readFile(path, 'utf8')
+    if (failure === 'blank-scope') request.scope_instructions = ' '
+    if (failure === 'blank-consent') request.consent_assessment = ' '
+    if (failure === 'empty-baseline') request.baseline_candidate_ids = []
+    if (failure === 'missing-baseline') request.baseline_candidate_ids = ['not-a-real-candidate']
+    if (failure === 'missing-user') delete exec.authorization
+    await expect(commands.execute(request, exec)).rejects.toThrow(failure === 'missing-baseline' ? 'refinement_baseline'
+      : failure === 'missing-user' ? 'refinement_human_authorization' : 'refinement_scope')
+    expect(await readFile(path, 'utf8')).toBe(before)
+  },
+)
+it('keeps the accepted prefix in a later refinement fork and rejects nested or disabled refinement writes', async () => {
+  const request = await refinementForkRequest(), first = (await current()).candidates[0]!
+  await approveAndCommit(first.id, first.sha256)
+  const file = await current()
+  await run({ method: 'stage', project: path, expected_revision: file.revision, episode: 2, scenes: [scene(file.facts[0]!.id)] })
+  const second = (await current()).candidates.at(-1)!
+  await commands.execute({ ...request, expected_revision: (await current()).revision,
+    baseline_candidate_ids: [second.id] }, storyExecution())
+  path = request.destination; const refined = await current()
+  expect(refined.accepted).toEqual([first.id])
+  expect(refined.refinement!.retained_candidates).toEqual([{ id: first.id, sha256: first.sha256 }])
+  await expect(commands.execute({ ...request, project: path, expected_revision: refined.revision,
+    destination: join(root, 'nested-refinement.json') }, storyExecution()))
+    .rejects.toThrow('refinement_original_project')
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments)
+  await expect(run({ method: 'propose_fact', project: path, expected_revision: refined.revision, fact: {
+    kind: 'action', origin: 'adaptation', actor: '甲', layer: 'present', summary: '擅自补动作。', anchors: [], adaptation_reason: '自称授权。' } }))
+    .rejects.toThrow('refinement_disabled')
+  const forkStory = await storyForkRequest()
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check', 'disabled', 'story-faithful-v2')
+  await expect(commands.execute(forkStory, storyExecution())).rejects.toThrow('story_fork_original')
+})
+it('requires a contiguous actual refinement baseline rather than a gap or a future draft', async () => {
+  const request = await refinementForkRequest(), saved = await current(), first = saved.candidates[0]!
+  const third = { ...structuredClone(first), id: brandString<typeof first.id>('c:00000000-0000-4000-8000-000000000003'), episode: 3 }
+  third.sha256 = candidateDigest(third); saved.candidates.push(third)
+  await writeFile(path, JSON.stringify(saved))
+  await expect(commands.execute({ ...request, baseline_candidate_ids: [first.id, third.id] }, storyExecution()))
+    .rejects.toThrow('refinement_scope')
+  await expect(commands.execute({ ...request, baseline_candidate_ids: [third.id] }, storyExecution())).rejects.toThrow('refinement_scope')
+})
+it('rejects unenabled or non-model self-check writes while retaining independent source approvals', async () => {
+  const saved = await current(); saved.review_mode = 'self-check'; await writeFile(path, JSON.stringify(saved))
+  const proposed: ProjectRequest = { method: 'propose_fact', project: path, expected_revision: saved.revision,
+    fact: { kind: 'action', origin: 'source', layer: 'present', summary: saved.sources[0]!.units[3]!.text,
+      anchors: [{ unit_id: saved.sources[0]!.units[3]!.id, quote: saved.sources[0]!.units[3]!.text }] } }
+  await expect(run(proposed)).rejects.toThrow('self_check_mode')
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check')
+  await expect(run(proposed)).rejects.toThrow('self_check_step')
+  await commands.execute(proposed, storyExecution())
+  const created = await current(); commands = new ProjectCommands(ctx.fs, limits, ctx.attachments)
+  await expect(commands.execute({ method: 'review_fact', project: path, expected_revision: created.revision, fact_id: created.facts[0]!.id,
+    decision: 'reject', reason: '部署未启用自检。' }, storyExecution())).rejects.toThrow('self_check_mode')
+})
+it('does not accept story notes or semantic reports on an ordinary independently reviewed project', async () => {
+  const id = await fact('thought', 1, '甲'), candidate = await stage([scene(id)]), file = await current()
+  await expect(run({ method: 'stage', project: path, expected_revision: file.revision, episode: 1, scenes: [scene(id)], story_notes: {
+    inventory_id: 'missing', mapping: [], dispositions: [], changes: [], scene_changes: [], editor_comments: [], unresolved: [] } }))
+    .rejects.toThrow('story_policy_required')
+  await expect(run({ method: 'review', project: path, expected_revision: file.revision, candidate_id: candidate.id,
+    candidate_sha256: candidate.sha256, decision: 'reject', reason: '旧策略须保留。', semantic_report: {
+      event_chain: '原文只有心理。', emotion_conflict: '甲知道钥匙位置。', relationship_stance: '无关系变化。',
+      causality_reveal: '无新的揭示。', checks: [], deviations: [], unverified: [] } }, 'reviewer'))
+    .rejects.toThrow('story_policy_required')
+})
+
+async function preparedStoryCandidate(extraNotesFact = false) {
+  const inventory = await storyInventory(true, extraNotesFact ? ['minimal_os'] : [])
+  const file = await current(), receipts: ProjectReadReceipt[] = []
+  const proof = file.sources.find(source => source.video !== undefined)!.trusted_video_receipt!
+  const exec = (step: number): ProjectExecution => ({ ...storyExecution(step, receipts), verifyStoryVideo: async () => proof })
+  await commands.execute({ method: 'read_story_inventory', project: path, inventory_id: inventory.id }, exec(20))
+  for (const source of file.sources) await commands.execute({ method: 'read_source', project: path, source_id: source.id,
+    start: 1, count: source.kind === 'text' ? 1 : source.units.length }, exec(20))
+  await commands.execute({ method: 'review_story_inventory', project: path, expected_revision: file.revision, inventory_id: inventory.id,
+    inventory_sha256: inventory.sha256, decision: 'approve', reason: '单元测试回调证明，只有固定心理原文；不声称真实视频质量。' }, exec(30))
+  if (extraNotesFact) {
+    const reviewed = await current(), policy = reviewed.story_policy!, unit = reviewed.sources[0]!.units[0]!
+    await commands.execute({ method: 'propose_fact', project: path, expected_revision: reviewed.revision, fact: {
+      kind: 'thought', origin: 'adaptation', actor: '甲', layer: 'present', summary: '甲心里确认自己知情。',
+      anchors: [{ unit_id: unit.id, quote: unit.text }], adaptation_reason: '获准的同一心理轻微表达，未加入实际成稿。',
+      story_supplement: { category: 'minimal_os', policy_sha256: policy.sha256,
+        authorization_sha256: sha256(JSON.stringify(policy.authorization)) } } }, exec(34))
+    const proposed = await current(), additional = proposed.facts.at(-1)!
+    await commands.execute({ method: 'read_fact', project: path, fact_id: additional.id }, exec(35))
+    await commands.execute({ method: 'read_source', project: path, source_id: proposed.sources[0]!.id, start: 1, count: 1 }, exec(35))
+    await commands.execute({ method: 'review_fact', project: path, expected_revision: proposed.revision, fact_id: additional.id,
+      decision: 'approve', reason: '确认是获准心理表达的候选解释。' }, exec(36))
+  }
+  const currentFile = await current(), scenes = [scene(currentFile.facts[0]!.id)], notes = {
+    inventory_id: inventory.id, mapping: [{ item_id: 'thought', outputs: [{ scene: 1, beat: 1, text: scenes[0]!.beats[0]!.text }] }],
+    dispositions: [{ fact_id: currentFile.facts[0]!.id, disposition: 'retained' as const, reason: '保留原心理归属。' }],
+    changes: [{ source: { fact_id: extraNotesFact ? currentFile.facts.at(-1)!.id : currentFile.facts[0]!.id,
+      unit_id: currentFile.facts[0]!.anchors[0]!.unit_id },
+    after: { scene: 1, beat: 1, text: scenes[0]!.beats[0]!.text }, reason: '将原文心理归属标记改为剧本OS格式。' }],
+    scene_changes: [{ scene: 1, reason: '保持门前原场次。' }], editor_comments: [], unresolved: [],
+  }
+  return { inventory, file: currentFile, scenes, notes, proof, exec }
+}
+it.each(['missing', 'pending', 'error'] as const)('reports inspection recovery %s accurately in story status', async (failure) => {
+  await storyInventory(true)
+  const file = await current(), proof = file.sources[1]!.trusted_video_receipt!
+  const exec: ProjectExecution = { ...storyExecution(), ...(failure === 'missing' ? {} : {
+    verifyStoryVideo: async () => {
+      throw Error(failure === 'pending' ? 'video_evidence_pending: recheck' : 'unexpected resolver failure')
+    },
+  }) }
+  if (failure === 'error') await expect(commands.execute({ method: 'status', project: path }, exec))
+    .rejects.toThrow('unexpected resolver failure')
+  else expect(await commands.execute({ method: 'status', project: path }, exec))
+    .toMatchObject({ evidence_pending: [expect.stringContaining('当前实际检查未恢复')] })
+  expect(await commands.execute({ method: 'status', project: path }, { ...storyExecution(), verifyStoryVideo: async () => proof }))
+    .toMatchObject({ evidence_pending: [] })
+})
+it('requires current inspection recovery for inventory approval and final story staging', async () => {
+  const prepared = await preparedStoryCandidate(), request = { method: 'stage' as const, project: path,
+    expected_revision: prepared.file.revision, episode: 1, scenes: prepared.scenes, coverage: stageCoverage(prepared.inventory.coverage),
+    story_notes: prepared.notes }
+  await expect(commands.execute(request, storyExecution(40))).rejects.toThrow('story_video_evidence_pending')
+  const { story_notes: _notes, ...missingNotes } = request
+  await expect(commands.execute(missingNotes, prepared.exec(40))).rejects.toThrow('story_report_required')
+  await commands.execute(request, prepared.exec(40)); const candidate = (await current()).candidates[0]!
+  await expect(commands.execute({ method: 'review', project: path, expected_revision: (await current()).revision,
+    candidate_id: candidate.id, candidate_sha256: candidate.sha256, decision: 'reject', reason: '尚未语义核对。' }, prepared.exec(50)))
+    .rejects.toThrow('story_semantic_required')
+})
+
+async function acceptedStory() {
+  const prepared = await preparedStoryCandidate()
+  await commands.execute({ method: 'stage', project: path, expected_revision: prepared.file.revision, episode: 1,
+    scenes: prepared.scenes, coverage: stageCoverage(prepared.inventory.coverage), story_notes: prepared.notes }, prepared.exec(40))
+  let file = await current(); const candidate = file.candidates[0]!
+  await commands.execute({ method: 'read_candidate', project: path, candidate_id: candidate.id }, prepared.exec(50))
+  for (const source of file.sources) await commands.execute({ method: 'read_source', project: path, source_id: source.id,
+    start: 1, count: source.kind === 'text' ? 1 : source.units.length }, prepared.exec(50))
+  await commands.execute({ method: 'review', project: path, expected_revision: file.revision, candidate_id: candidate.id,
+    candidate_sha256: candidate.sha256, decision: 'approve', reason: '固定原文心理归属不变。',
+    zero_action_reason: '单元测试固定样本没有动作事实。',
+    semantic_report: { event_chain: '只保留知道钥匙位置的心理。', emotion_conflict: '本人知情，没有新增情绪事件。',
+      relationship_stance: '无关系事件。', causality_reveal: '无新因果。',
+      checks: [{ item_id: 'thought', status: 'preserved',
+        explanation: '原角色本人知情保持。', source_units: [file.facts[0]!.anchors[0]!.unit_id],
+        outputs: [{ scene: 1, beat: 1, text: prepared.scenes[0]!.beats[0]!.text }] }],
+      deviations: [], unverified: [] } }, prepared.exec(60))
+  file = await current()
+  const exec = (): ProjectExecution => ({ ...prepared.exec(70), verifyStoryApproval: async () => {} })
+  await commands.execute({ method: 'commit', project: path, expected_revision: file.revision, candidate_id: candidate.id,
+    candidate_sha256: candidate.sha256 }, exec())
+  return { ...prepared, candidate, acceptedExecution: exec }
+}
+it.each(['inspection', 'approval'] as const)('does not reopen accepted story files without restored %s evidence', async (missing) => {
+  const prepared = await acceptedStory()
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check', 'disabled', 'story-faithful-v2')
+  const exec = prepared.acceptedExecution()
+  if (missing === 'inspection') delete exec.verifyStoryVideo
+  else delete exec.verifyStoryApproval
+  await expect(commands.execute({ method: 'status', project: path }, exec)).rejects.toThrow('story_accepted_evidence_pending')
+  expect(await commands.execute({ method: 'status', project: path }, prepared.acceptedExecution()))
+    .toMatchObject({ accepted: [{ episode: 1 }] })
+})
+it('exports accepted story metadata with its report, then preserves it when another source is imported', async () => {
+  const prepared = await acceptedStory(), directory = join(root, 'story-delivery')
+  const delivered = await commands.execute({ method: 'export', project: path, candidate_id: prepared.candidate.id, directory },
+    prepared.acceptedExecution())
+  expect(delivered).toHaveProperty('files')
+  const basename = `episode-1-${prepared.candidate.id.slice(2)}`
+  const sidecar: unknown = JSON.parse(await readFile(join(directory, `${basename}.sources.json`), 'utf8'))
+  expect(sidecar).toHaveProperty('story_adaptation'); expect(sidecar).toHaveProperty('semantic_report')
+  expect(sidecar).toHaveProperty('modification_notes')
+  const before = await readFile(join(directory, `${basename}.md`), 'utf8')
+  const newSource = join(root, 'new-source.txt'); await writeFile(newSource, '下一次复看新取得的原文。')
+  const file = await current()
+  await commands.execute({ method: 'import_source', project: path, expected_revision: file.revision, path: newSource, source_kind: 'text',
+    story_video_path: file.story_policy!.videos[0]!.path }, prepared.acceptedExecution())
+  await commands.execute({ method: 'export', project: path, candidate_id: prepared.candidate.id, directory }, prepared.acceptedExecution())
+  expect(await readFile(join(directory, `${basename}.md`), 'utf8')).toBe(before)
+})
+
+it('preserves unknown critical inventory evidence in status and rejects out-of-order preparation', async () => {
+  const inventory = await storyInventory(), file = await current()
+  inventory.items[0]!.critical = true; inventory.items[0]!.evidence = 'unverified'; inventory.sha256 = inventoryDigest(inventory)
+  file.story_inventories![0] = inventory; await writeFile(path, JSON.stringify(file))
+  expect(await commands.execute({ method: 'status', project: path }, storyExecution()))
+    .toMatchObject({ evidence_pending: [expect.stringContaining('没有实际视频'), expect.stringContaining('关键证据尚未核实')] })
+  await expect(commands.execute({ method: 'propose_story_inventory', project: path, expected_revision: file.revision, episode: 2,
+    coverage: stageCoverage(inventory.coverage),
+    items: inventory.items, not_applicable: inventory.not_applicable }, storyExecution()))
+    .rejects.toThrow('story_inventory_scope')
+})
+it('rejects an ungranted new story adaptation while preserving inherited original facts', async () => {
+  await storyBranch(); const file = await current()
+  await expect(commands.execute({ method: 'propose_fact', project: path, expected_revision: file.revision, fact: {
+    kind: 'action', origin: 'adaptation', layer: 'present', summary: '擅自新增动作。', anchors: [],
+    adaptation_reason: '自行许可。' } }, storyExecution()))
+    .rejects.toThrow('story_supplement_authorization')
+})
+it('does not import unlinked ASR into a scoped story project', async () => {
+  await storyBranch(); const file = await current(), additional = join(root, 'unlinked.txt')
+  await writeFile(additional, '用户尚未说明属于哪个原视频。')
+  await expect(commands.execute({ method: 'import_source', project: path, expected_revision: file.revision, path: additional,
+    source_kind: 'text' }, storyExecution())).rejects.toThrow('story_source_scope')
+  expect((await current()).sources).toEqual(file.sources)
+})
+it.each(['inside', 'outside'] as const)('invalidates an unused story inventory only for a new source fact %s its window', async (position) => {
+  const inventory = await storyInventory(), file = await current(), unit = file.sources[0]!.units[position === 'inside' ? 0 : 1]!
+  await commands.execute({ method: 'propose_fact', project: path, expected_revision: file.revision, fact: {
+    kind: 'action', origin: 'source', layer: 'present', summary: '复看后的来源分类，尚未审核。',
+    anchors: [{ unit_id: unit.id, quote: unit.text }] } }, storyExecution(20))
+  expect((await current()).story_inventories![0]!.superseded_at_revision)
+    .toBe(position === 'inside' ? file.revision + 1 : undefined)
+  expect((await current()).story_inventories![0]!.id).toBe(inventory.id)
+})
+it.each(['later', 'earlier', 'unbounded'] as const)('tracks supplemental source overlap for a %s video window', async (range) => {
+  await storyInventory(); const file = await current(), inventory = file.story_inventories![0]!
+  inventory.coverage.windows[0]!.interval = { start_seconds: 10, end_seconds: 20 }
+  inventory.scope_sha256 = storyScopeDigest(file, inventory); inventory.sha256 = inventoryDigest(inventory)
+  await writeFile(path, JSON.stringify(file))
+  const extra = join(root, 'extra-window.json')
+  const original = VIDEO_INSPECTION.parse(JSON.parse(await readFile(join(root, 'inspection.json'), 'utf8')))
+  const interval = range === 'later' ? { start_seconds: 20, end_seconds: 30 } : { start_seconds: 0, end_seconds: 10 }
+  const frame = { ...original.frames[0]!, requested_seconds: interval.start_seconds + 1, timestamp_seconds: interval.start_seconds + 1 }
+  if (range === 'unbounded') {
+    await writeFile(extra, '没有时间范围的新增原文。')
+    await commands.execute({ method: 'import_source', project: path, expected_revision: file.revision, path: extra,
+      source_kind: 'text', story_video_path: original.path }, storyExecution(20))
+  } else {
+    await writeFile(extra, JSON.stringify({ ...original, interval, frames: [frame] }))
+    await expect(commands.execute({ method: 'import_source', project: path, expected_revision: file.revision, path: extra,
+      source_kind: 'video_inspection' }, storyExecution(20))).rejects.toThrow('story_video_evidence_pending')
+    const existingProof = await storyInspectionProof(extra)
+    await commands.execute({ method: 'import_source', project: path, expected_revision: file.revision, path: extra,
+      source_kind: 'video_inspection' }, { ...storyExecution(20), verifyStoryVideo: async () => existingProof })
+  }
+  expect((await current()).story_inventories![0]!.superseded_at_revision)
+    .toBe(range === 'unbounded' ? file.revision + 1 : undefined)
+})
+async function storyInspectionProof(manifestPath: string) {
+  const text = await readFile(manifestPath, 'utf8'), manifest = VIDEO_INSPECTION.parse(JSON.parse(text))
+  const receipt = { seq: SessionSeq(1), sha256: '2'.repeat(64) }, interval = manifest.interval ?? { start_seconds: 0, end_seconds: 30 }
+  return TRUSTED_VIDEO_INSPECTION_RECEIPT.parse({ version: 'trusted-video-inspection-v2', video_path: manifest.path,
+    source_version: manifest.source_version, duration_seconds: manifest.duration_seconds,
+    metadata_manifest_path: join(root, 'metadata.json'),
+    manifest_path: manifestPath, metadata_manifest_sha256: '3'.repeat(64), manifest_sha256: sha256(text), plan: [interval],
+    windows: [{ ...interval, sample_requested_seconds: manifest.frames.map(frame => frame.requested_seconds),
+      decoded_pts_seconds: manifest.frames.map(frame => frame.timestamp_seconds), frames: manifest.frames }],
+    model_input_step: SessionSeq(2), unresolved: [], evidence: { session_id: SessionId('writer'), metadata_result: receipt,
+      metadata_root_result: receipt, sample_result: receipt, sample_root_result: receipt, metadata_ancestors: [], sample_ancestors: [],
+      model_response: receipt, model_input_sha256: '4'.repeat(64) } })
+}
+
+it('retains the legacy video workflow when forking its original source into a new story grant', async () => {
+  const file = await current(); file.workflow = 'video_to_screenplay'; await writeFile(path, JSON.stringify(file))
+  const request = await storyForkRequest()
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check', 'disabled', 'story-faithful-v2')
+  await commands.execute(request, storyExecution()); path = request.destination
+  expect((await current()).story_policy!.legacy_workflow).toBe('video_to_screenplay')
+})
+it('reads a story grant with no inventory history without manufacturing a completed inventory', async () => {
+  await storyBranch(); const file = await current(); delete file.story_inventories; await writeFile(path, JSON.stringify(file))
+  expect(await commands.execute({ method: 'status', project: path }, storyExecution()))
+    .toMatchObject({ story_inventories: [], evidence_pending: [] })
+})
+it('requires successful model-visible read receipts for self-check rather than accepting a missing receipt list', async () => {
+  const saved = await current(); saved.review_mode = 'self-check'; await writeFile(path, JSON.stringify(saved))
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check')
+  const unit = saved.sources[0]!.units[3]!
+  await commands.execute({ method: 'propose_fact', project: path, expected_revision: saved.revision, fact: {
+    kind: 'action', origin: 'source', layer: 'present', summary: unit.text,
+    anchors: [{ unit_id: unit.id, quote: unit.text }] } }, storyExecution())
+  const proposed = await current(), exec = storyExecution(30); delete exec.receipts
+  await expect(commands.execute({ method: 'review_fact', project: path, expected_revision: proposed.revision,
+    fact_id: proposed.facts[0]!.id, decision: 'approve', reason: '没有读回证据不能批准。' }, exec)).rejects.toThrow('self_check_read_required')
+})
+it('rejects withdrawing a self-checked fact after moving to a deployment without self-check writing', async () => {
+  const saved = await current(); saved.review_mode = 'self-check'; await writeFile(path, JSON.stringify(saved))
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check')
+  const receipts: ProjectReadReceipt[] = [], unit = saved.sources[0]!.units[3]!
+  await commands.execute({ method: 'propose_fact', project: path, expected_revision: saved.revision, fact: {
+    kind: 'action', origin: 'source', layer: 'present', summary: unit.text,
+    anchors: [{ unit_id: unit.id, quote: unit.text }] } }, storyExecution())
+  const proposed = await current(), fact = proposed.facts[0]!
+  await commands.execute({ method: 'read_fact', project: path, fact_id: fact.id }, storyExecution(20, receipts))
+  await commands.execute({ method: 'read_source', project: path, source_id: proposed.sources[0]!.id, start: 4, count: 1 },
+    storyExecution(20, receipts))
+  await commands.execute({ method: 'review_fact', project: path, expected_revision: proposed.revision, fact_id: fact.id,
+    decision: 'approve', reason: '原文与动作对应。' }, storyExecution(30, receipts))
+  const approved = await current(), missingReads = storyExecution(40); delete missingReads.receipts
+  await expect(commands.execute({ method: 'withdraw_fact', project: path, expected_revision: approved.revision, fact_id: fact.id,
+    reason: '缺少此次重读证据。' }, missingReads)).rejects.toThrow('self_check_read_required')
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments)
+  await expect(commands.execute({ method: 'withdraw_fact', project: path, expected_revision: approved.revision, fact_id: fact.id,
+    reason: '没有当前写入权限。' }, storyExecution(40))).rejects.toThrow('self_check_mode')
+})
+
+function retainedNotes(text: string) {
+  return { changes: [{ before: { scene: 1, beat: 1, text }, after: { scene: 1, beat: 1, text: '钥匙在哪里，我知道。' }, reason: '调整语序，保持原人物知情。' }],
+    editor_comments: [], unresolved: [], unhandled: [], validation: {
+      semantic: { status: 'limited' as const, scenes: [1], reason: '只核对该集人物心理归属。' },
+      visual: { status: 'not_run' as const, source_units: [], reason: '文本来源没有视觉证据。' },
+    } }
+}
+it.each(['current', 'legacy'] as const)('reads the actual baseline and rejects out-of-scope drafts for a %s refinement', async (version) => {
+  const request = await refinementForkRequest()
+  if (version === 'legacy') {
+    const saved = await current(), baseline = saved.candidates[0]!
+    delete baseline.source_ids; baseline.sha256 = candidateDigest(baseline); await writeFile(path, JSON.stringify(saved))
+  }
+  await commands.execute(request, storyExecution()); path = request.destination
+  const file = await current(), baseline = file.refinement!.baselines[0]!, scenes = [scene(file.facts[0]!.id)]
+  const notes = retainedNotes(scenes[0]!.beats[0]!.text)
+  scenes[0]!.beats[0]!.text = '钥匙在哪里，我知道。'
+  await run({ method: 'stage', project: path, expected_revision: file.revision, episode: 1, scenes, modification_notes: notes })
+  const candidate = (await current()).candidates[0]!
+  expect(await run({ method: 'read_candidate', project: path, candidate_id: candidate.id }))
+    .toMatchObject({ baseline: { id: baseline.id, sha256: baseline.sha256 } })
+  await approveAndCommit(candidate.id, candidate.sha256)
+  await expect(run({ method: 'stage', project: path, expected_revision: (await current()).revision, episode: 2,
+    scenes, modification_notes: notes })).rejects.toThrow('refinement_scope')
+})
+it('does not accept modification notes before the original project has a refinement authorization', async () => {
+  const id = await fact('thought', 1, '甲'), scenes = [scene(id)]
+  await expect(run({ method: 'stage', project: path, expected_revision: (await current()).revision, episode: 1, scenes,
+    modification_notes: retainedNotes(scenes[0]!.beats[0]!.text) })).rejects.toThrow('refinement_policy_required')
+})
+it('does not stage an authorized story without the declared source coverage', async () => {
+  const prepared = await preparedStoryCandidate()
+  await expect(commands.execute({ method: 'stage', project: path, expected_revision: prepared.file.revision,
+    episode: 1, scenes: prepared.scenes, story_notes: prepared.notes }, prepared.exec(40))).rejects.toThrow('story_candidate_digest')
+})
+it('retains export approval-log verification even after an accepted project enters the validation cache', async () => {
+  const prepared = await acceptedStory()
+  await commands.execute({ method: 'status', project: path }, prepared.acceptedExecution())
+  const exec = prepared.acceptedExecution(); delete exec.verifyStoryApproval
+  await expect(commands.execute({ method: 'export', project: path, candidate_id: prepared.candidate.id,
+    directory: join(root, 'cached-export') }, exec)).rejects.toThrow('story_approval_log_pending')
+})
+it('rejects a null scene file at the root and keeps the candidate list unchanged', async () => {
+  const file = join(root, 'null-scene.json'); await writeFile(file, 'null')
+  const before = await readFile(path, 'utf8')
+  await expect(run({ method: 'stage_files', project: path, expected_revision: (await current()).revision,
+    episode: 1, files: [file] })).rejects.toThrow('root:')
+  expect(await readFile(path, 'utf8')).toBe(before)
+})
+
+it('keeps a legacy accepted prefix separate from pending story preparation and new source facts', async () => {
+  const inventory = await storyInventory(), originalPath = join(root, 'project.json')
+  path = originalPath; commands = new ProjectCommands(ctx.fs, limits, ctx.attachments)
+  const first = await stage([scene((await current()).facts[0]!.id)]); await approveAndCommit(first.id, first.sha256)
+  const request = await storyForkRequest(), grant = humanGrant()
+  grant.quote = '保留第一集，只处理当前原视频的第二集。'; grant.consent_assessment = '本次授权仅第二集，不覆盖已批准第一集。'
+  request.destination = join(root, 'second-story.json'); request.before_episode = 2; request.episodes = [2]
+  request.videos[0]!.episode = 2; request.authorization_quote = grant.quote; request.consent_assessment = grant.consent_assessment
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check', 'disabled', 'story-faithful-v2')
+  await commands.execute(request, { ...storyExecution(), authorization: grant }); path = request.destination
+  let file = await current()
+  await commands.execute({ method: 'propose_story_inventory', project: path, expected_revision: file.revision, episode: 2,
+    coverage: stageCoverage(inventory.coverage), items: inventory.items, not_applicable: inventory.not_applicable }, storyExecution())
+  expect(await commands.execute({ method: 'status', project: path }, storyExecution()))
+    .toMatchObject({ accepted: [{ id: first.id, episode: 1 }], evidence_pending: ['本集没有实际视频图像证据'] })
+  file = await current(); const unit = file.sources[0]!.units[1]!
+  await commands.execute({ method: 'propose_fact', project: path, expected_revision: file.revision, fact: {
+    kind: 'action', origin: 'source', layer: 'present', summary: '第二集新增待审来源分类。',
+    anchors: [{ unit_id: unit.id, quote: unit.text }] } }, storyExecution(20))
+  expect((await current()).accepted).toEqual([first.id])
+  expect((await current()).story_inventories![0]!.superseded_at_revision).toBeUndefined()
+})
+
+it('retains a legacy frame source video identity and ignores supplemental evidence from another granted original', async () => {
+  await storyInventory(true); const file = await current(), inventory = file.story_inventories![0]!, original = file.sources[1]!
+  delete original.story_video_path
+  inventory.coverage.windows.reverse(); inventory.scope_sha256 = storyScopeDigest(file, inventory)
+  inventory.sha256 = inventoryDigest(inventory)
+  const otherVideo = join(root, 'other-original.mp4'); await writeFile(otherVideo, 'Separate original media bytes')
+  const signal = new AbortController().signal, target = await ctx.fs.resolve(otherVideo, { signal })
+  const version = (await ctx.fs.stat(target, signal))!.version
+  file.story_policy!.videos.push({ path: otherVideo, source_version: version, episode: 1 })
+  file.story_policy!.sha256 = storyPolicyDigest(file.story_policy!)
+  inventory.policy_sha256 = file.story_policy!.sha256; inventory.scope_sha256 = storyScopeDigest(file, inventory)
+  inventory.sha256 = inventoryDigest(inventory)
+  await writeFile(path, JSON.stringify(file))
+  const sourceFile = join(root, 'other-source.txt'); await writeFile(sourceFile, '另一个原视频的来源，未纳入当前清单。')
+  await commands.execute({ method: 'import_source', project: path, expected_revision: file.revision, path: sourceFile,
+    source_kind: 'text', story_video_path: otherVideo }, storyExecution(20))
+  expect((await current()).story_inventories![0]!.superseded_at_revision).toBeUndefined()
+  expect((await current()).sources[1]!.video!.path).toBe(original.video!.path)
+})
+
+it('preserves an approved supplemental fact referenced only by a saved story change note', async () => {
+  const prepared = await preparedStoryCandidate(true)
+  await commands.execute({ method: 'stage', project: path, expected_revision: prepared.file.revision, episode: 1,
+    scenes: prepared.scenes, coverage: stageCoverage(prepared.inventory.coverage), story_notes: prepared.notes }, prepared.exec(40))
+  const saved = await current(), supplemental = saved.facts.at(-1)!, candidate = saved.candidates[0]!
+  expect(candidate.scenes.flatMap(scene => scene.beats.flatMap(beat => beat.fact_ids))).not.toContain(supplemental.id)
+  expect(candidate.story_adaptation!.notes.dispositions.map(disposition => disposition.fact_id)).not.toContain(supplemental.id)
+  await expect(commands.execute({ method: 'withdraw_fact', project: path, expected_revision: saved.revision, fact_id: supplemental.id,
+    reason: '说明中引用也必须保留历史。' }, prepared.exec(50))).rejects.toThrow('fact_in_history')
+  expect((await current()).facts.at(-1)!.withdrawal).toBeUndefined()
+})
+
+it('requires model-visible inventory reads even when rejecting a pending inventory', async () => {
+  const inventory = await storyInventory(), file = await current(), exec = storyExecution(30); delete exec.receipts
+  await expect(commands.execute({ method: 'review_story_inventory', project: path, expected_revision: file.revision,
+    inventory_id: inventory.id, inventory_sha256: inventory.sha256, decision: 'reject', reason: '没有读回记录。' }, exec))
+    .rejects.toThrow('self_check_read_required')
+})
+it('withdraws an unused supplemental interpretation without invalidating the source inventory', async () => {
+  const prepared = await preparedStoryCandidate(true), file = await current(), supplemental = file.facts.at(-1)!
+  await commands.execute({ method: 'read_fact', project: path, fact_id: supplemental.id }, prepared.exec(40))
+  await commands.execute({ method: 'read_source', project: path, source_id: file.sources[0]!.id, start: 1, count: 1 }, prepared.exec(40))
+  await commands.execute({ method: 'withdraw_fact', project: path, expected_revision: file.revision, fact_id: supplemental.id,
+    reason: '未使用的表达解释撤销，不改变原来源事实。' }, prepared.exec(50))
+  const withdrawn = await current()
+  expect(withdrawn.facts.at(-1)!.withdrawal).toMatchObject({ kind: 'self-check' })
+  expect(withdrawn.story_inventories![0]!.superseded_at_revision).toBeUndefined()
+})

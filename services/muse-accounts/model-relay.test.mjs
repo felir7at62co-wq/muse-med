@@ -6,6 +6,12 @@ import https from 'node:https';
 import {Readable} from 'node:stream';
 import {createModelRelay,accountToken,resolveModelReasoning,fetchPublicModelListing,publicLookup} from './model-relay.mjs';
 import {createDesktopModels} from './desktop-models.mjs';
+import {createModelKeyPool} from './model-key-pool.mjs';
+import {createAccountServer} from './gateway.mjs';
+import {openStore} from './store.mjs';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
 const settings={model:'glm-5.3-flash',apiKey:'synthetic-private-key',maxTokens:32768,reasoningEfforts:{low:'wire-low',high:'wire-high'},defaultReasoningEffort:'low'};
 
@@ -87,4 +93,107 @@ test('Desktop relay uses the same defaults and releases rejected requests',async
   await desktop.handle(request,response,{id:'alice',token:'session',expiry:Date.now()+60000},'/api/desktop-models/studio/chat/completions');return response.statusCode;
  };
  try{await invoke({});assert.equal(calls[0].max_tokens,32768);assert.equal(calls[0].reasoning_effort,'wire-low');assert.equal(await invoke({reasoning_effort:'unknown'}),400);await invoke({max_tokens:1234,reasoning_effort:'wire-high'});assert.equal(calls[1].max_tokens,1234);assert.equal(calls[1].reasoning_effort,'wire-high');}finally{desktop.close();}
+});
+
+test('Desktop and cloud share one whole-stream supplier slot, logout and account revocation release it',{timeout:30000},async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'muse-shared-model-pool-')),servers=[],pending=[];
+ const keys=['synthetic-independent-key'],policy={concurrency:1,maxQueued:1,waitMs:30000};
+ const pool=createModelKeyPool({keys:()=>keys,...policy});let acquisitions=0,queued;
+ const queueEntered=new Promise(resolve=>{queued=resolve;});
+ const shared={...pool,acquire(signal){if(++acquisitions===2)queued();return pool.acquire(signal);}};
+ t.after(async()=>{pool.close();for(const server of servers)server.closeAllConnections();
+  await Promise.allSettled(pending);await Promise.all(servers.map(server=>new Promise(resolve=>server.close(resolve))));
+  await rm(dir,{recursive:true,force:true});});
+ const store=await openStore(join(dir,'accounts.json'));await store.create('desktop-editor','pw');
+ const cloudAccount=await store.create('cloud-editor','pw'),origin='https://muse.test',secret='synthetic-model-secret';
+ const globalModels={credentialPool:route=>route==='zhipu-official'?keys:undefined,
+  resolve:(route,id)=>route==='zhipu-official'&&id===settings.model?{...settings,apiKey:keys[0],baseURL:'https://supplier.test/v1'}:undefined};
+ let active=0,peak=0,calls=0,aborted=0,firstEntered,secondEntered;
+ const firstStarted=new Promise(resolve=>{firstEntered=resolve;}),secondStarted=new Promise(resolve=>{secondEntered=resolve;});
+ const forward=async({config,res,signal})=>{
+  assert.equal(config.apiKey,keys[0]);active++;peak=Math.max(peak,active);calls++;
+  res.writeHead(200,{'content-type':'text/event-stream'});res.write('data: {"choices":[]}\n\n');
+  if(calls===1)firstEntered();if(calls===2)secondEntered();
+  try{signal.throwIfAborted();await new Promise((_,reject)=>signal.addEventListener('abort',()=>{aborted++;reject(Error('revoked stream'));},{once:true}));}
+  finally{active--;}
+ };
+ const desktop=createAccountServer({store,globalModels,publicOrigin:origin,modelForward:forward,modelKeyPool:shared});servers.push(desktop);
+ const cloud=createModelRelay({accounts:store,secret,globalModels,forward,keyPool:shared});servers.push(cloud);
+ for(const server of servers)await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const desktopBase='http://127.0.0.1:'+desktop.address().port,cloudBase='http://127.0.0.1:'+cloud.address().port;
+ const track=promise=>{pending.push(promise);return promise;};
+ const login=await fetch(desktopBase+'/login',{method:'POST',redirect:'manual',headers:{origin},body:'username=desktop-editor&password=pw'});
+ assert.equal(login.status,303);const cookie=login.headers.get('set-cookie').split(';')[0];
+ const body=JSON.stringify({model:settings.model,messages:[],stream:true});
+ const first=track(fetch(desktopBase+'/api/desktop-models/zhipu-official/chat/completions',{method:'POST',headers:{cookie,origin,'content-type':'application/json'},body}));
+ await firstStarted;const firstResponse=await first;assert.equal(firstResponse.status,200);
+ const firstReading=track(firstResponse.text());const firstCancelled=assert.rejects(firstReading);
+ const second=track(fetch(cloudBase+'/v1/zhipu-official/chat/completions',{method:'POST',headers:{authorization:'Bearer '+accountToken(secret,cloudAccount.id),'content-type':'application/json'},body}));
+ await queueEntered;
+ const overflow=await fetch(desktopBase+'/api/desktop-models/zhipu-official/chat/completions',{method:'POST',headers:{cookie,origin,'content-type':'application/json'},body});
+ assert.equal(overflow.status,503);assert.equal(overflow.headers.get('retry-after'),'1');await overflow.text();assert.equal(calls,1);
+ const logout=await fetch(desktopBase+'/logout',{method:'POST',redirect:'manual',headers:{cookie,origin}});assert.equal(logout.status,303);
+ await firstCancelled;await secondStarted;const secondResponse=await second;assert.equal(secondResponse.status,200);
+ assert.equal(active,1);assert.equal(peak,1);assert.equal(calls,2);
+ const secondReading=track(secondResponse.text());const secondCancelled=assert.rejects(secondReading);
+ await store.setDisabled(cloudAccount.id,true);await secondCancelled;
+ assert.equal(active,0);assert.equal(aborted,2);assert.equal(calls,2);
+ const free=await pool.acquire(new AbortController().signal);free.release();
+});
+
+async function pooledCloudFixture(t,{forward,keys=['synthetic-old-key'],policy={concurrency:1,maxQueued:1,waitMs:30000}}={}){
+ const id='0123456789abcdef',secret='synthetic-test-secret',accounts=new EventEmitter();accounts.get=()=>({id});
+ const pending=[];let current={...settings,baseURL:'https://old-supplier.test/v1'},keyList=keys,attempts=0,entered;
+ const acquired=new Promise(resolve=>{entered=resolve;});
+ const pool=createModelKeyPool({keys:()=>keyList,...policy});
+ const shared={...pool,acquire(signal){attempts++;entered();return pool.acquire(signal);}};
+ const globalModels={credentialPool:route=>route==='zhipu-official'?keyList:undefined,
+  resolve:(route,model)=>route==='zhipu-official'&&model===settings.model?current:undefined};
+ const server=createModelRelay({accounts,secret,globalModels,forward,keyPool:shared});
+ t.after(async()=>{pool.close();server.closeAllConnections();await Promise.allSettled(pending);await new Promise(resolve=>server.close(resolve));});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+server.address().port;
+ return {pool,server,acquired,revoke:()=>accounts.emit('change',id),attempts:()=>attempts,setCurrent:value=>{current=value;},setKeys:value=>{keyList=value;},
+  post:body=>{const response=fetch(base+'/v1/zhipu-official/chat/completions',{method:'POST',headers:{authorization:'Bearer '+accountToken(secret,id),'content-type':'application/json'},body:JSON.stringify({model:settings.model,messages:[],...body})});pending.push(response);return response;}};
+}
+
+test('queued cloud calls re-resolve the current endpoint, key and output and reasoning settings without a second dispatch',async t=>{
+ const calls=[],fixture=await pooledCloudFixture(t,{forward:async({config,body,res})=>{calls.push({config,body});res.end('done');}});
+ const blocker=await fixture.pool.acquire(new AbortController().signal);
+ const pending=fixture.post({max_tokens:40000});await fixture.acquired;assert.equal(calls.length,0);
+ fixture.setKeys(['synthetic-new-key']);fixture.setCurrent({...settings,apiKey:'synthetic-new-key',baseURL:'https://new-supplier.test/v1',maxTokens:1234,defaultReasoningEffort:'high'});
+ blocker.release();const response=await pending;assert.equal(response.status,200);assert.equal(await response.text(),'done');
+ assert.equal(calls.length,1);assert.equal(calls[0].config.baseURL,'https://new-supplier.test/v1');assert.equal(calls[0].config.apiKey,'synthetic-new-key');
+ assert.equal(calls[0].body.max_tokens,1234);assert.equal(calls[0].body.reasoning_effort,'wire-high');
+});
+
+test('withdrawn queued cloud models never reach the supplier and release their reserved key',async t=>{
+ let calls=0;const fixture=await pooledCloudFixture(t,{forward:async({res})=>{calls++;res.end('unexpected');}});
+ const blocker=await fixture.pool.acquire(new AbortController().signal),pending=fixture.post({});await fixture.acquired;
+ fixture.setCurrent(undefined);blocker.release();const response=await pending;
+ assert.equal(response.status,503);await response.text();assert.equal(calls,0);
+ const next=await fixture.pool.acquire(new AbortController().signal);next.release();
+});
+
+test('cloud payload errors never reserve a slot and forwarding failure releases it without automatic retry',async t=>{
+ let calls=0;const fixture=await pooledCloudFixture(t,{forward:async()=>{calls++;throw Error('synthetic provider failure');}});
+ const blocker=await fixture.pool.acquire(new AbortController().signal);
+ for(const body of [{max_tokens:'32768'},{max_completion_tokens:0},{max_tokens:1.5},{reasoning_effort:'unsupported'}]){
+  const response=await fixture.post(body);assert.equal(response.status,400);await response.text();
+ }
+ assert.equal(fixture.attempts(),0);assert.equal(calls,0);blocker.release();
+ const response=await fixture.post({});assert.equal(response.status,502);await response.text();assert.equal(calls,1);
+ const next=await fixture.pool.acquire(new AbortController().signal);next.release();
+});
+
+test('cloud account revocation removes a waiting request before dispatch and does not consume its next slot',async t=>{
+ let calls=0;const fixture=await pooledCloudFixture(t,{forward:async({res})=>{calls++;res.end('done');}});
+ const blocker=await fixture.pool.acquire(new AbortController().signal),pending=fixture.post({});await fixture.acquired;
+ fixture.revoke();const revoked=await pending;assert.equal(revoked.status,401);await revoked.text();assert.equal(calls,0);
+ blocker.release();const resumed=await fixture.post({});assert.equal(resumed.status,200);await resumed.text();assert.equal(calls,1);
+});
+
+test('closing a cloud relay leaves its externally owned pool available to other request owners',async t=>{
+ const fixture=await pooledCloudFixture(t,{forward:async({res})=>res.end('done')});
+ await new Promise(resolve=>fixture.server.close(resolve));
+ const lease=await fixture.pool.acquire(new AbortController().signal);lease.release();
 });

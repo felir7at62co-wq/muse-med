@@ -65,6 +65,10 @@ export async function apply(ctx, config) {
             JSON.stringify(new URL(`../muse-creation-ptc/${entry}.mjs`, import.meta.url).href))
         }
       }
+      if (presetId === 'short-drama') {
+        source = source.replace("'@deepseek-ai/dsh-desktop-host/short-drama-guidance'",
+          JSON.stringify(new URL('../muse-short-drama-draft-ending/short-drama-guidance.mjs', import.meta.url).href))
+      }
       const clockRow = "- id: time-context\n  name: '@deepseek-ai/dsh-time-context'\n"
       if (!source.includes(clockRow) || source.indexOf(clockRow) !== source.lastIndexOf(clockRow)) {
         throw new Error(`The source ${presetId} preset must declare one request clock`)

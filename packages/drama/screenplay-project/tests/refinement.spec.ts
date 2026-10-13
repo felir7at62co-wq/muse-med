@@ -12,7 +12,9 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import { ProjectCommands } from '../src/project.ts'
 import { PROJECT_FILE, type ProjectRequest } from '../src/schema.ts'
 import { acceptedScripts, candidateDigest, sha256 } from '../src/episode.ts'
-import { buildRefinement, refinementContentDigest, refinementPolicyDigest } from '../src/refinement.ts'
+import { buildRefinement, refinementContentDigest, refinementPolicyDigest, validateRefinement, validateRefinementPolicy,
+  validateSupplement, renderModificationNotes } from '../src/refinement.ts'
+import { requiredReads, validReview } from '../src/review.ts'
 import type { HumanAuthorization } from '../src/refinement.ts'
 import type { ActorId } from '../src/ids.ts'
 import { stageScenes } from './fixtures/stage-input.ts'
@@ -186,7 +188,11 @@ it('preserves source channels, listeners, unique fact ordering and allows duplic
     scenes: structuredClone(input.scenes) }
   candidate.scenes[0]!.beats.pop()
   const report = { ...notes('钥匙在我手里。', '钥匙在我手里。'), changes: [{ before: { scene: 1, beat: 2, text: '钥匙在我手里。' }, reason: '合并完全重复的本人心理表达，原事实与顺序仍保留。' }] }
-  expect(buildRefinement(forkFile, candidate, report)).toHaveProperty('baseline_candidate_id', input.id)
+  candidate.refinement = buildRefinement(forkFile, candidate, report)
+  candidate.sha256 = candidateDigest(candidate)
+  expect(candidate.refinement).toHaveProperty('baseline_candidate_id', input.id)
+  expect(renderModificationNotes(forkFile, candidate)).toContain('无（新增或删除）')
+  expect(renderModificationNotes(forkFile, candidate)).toContain('无新增演绎事实')
   candidate.scenes[0]!.beats[0]!.kind = 'dialogue'
   expect(() => buildRefinement(forkFile, candidate, report)).toThrow('refinement_source_channel')
   candidate.scenes[0]!.beats = []
@@ -312,4 +318,156 @@ it('rejects newly forged ungranted adaptation facts through common accepted-scri
   accepted.refinement!.notes.output.content_sha256 = accepted.refinement!.output_content_sha256
   accepted.refinement!.notes.machine.fact_ids.push(fact.id); accepted.sha256 = candidateDigest(accepted)
   expect(() => acceptedScripts(file)).toThrow('refinement_authorization')
+})
+
+it.each(['duplicate_category', 'duplicate_baseline', 'episode_scope', 'baseline_content', 'missing_fact',
+  'changed_fact', 'missing_source', 'changed_source', 'added_source'] as const)(
+  'rejects a persisted refinement policy with %s even after its outer digest is refreshed', async (variant) => {
+    await createFork(); const file = await current(), policy = file.refinement!
+    if (variant === 'duplicate_category') policy.allowed_categories.push(policy.allowed_categories[0]!)
+    if (variant === 'duplicate_baseline') policy.baselines.push(structuredClone(policy.baselines[0]!))
+    if (variant === 'episode_scope') policy.scope.episodes = [2]
+    if (variant === 'baseline_content') policy.baselines[0]!.scenes[0]!.beats[0]!.text = '被替换的基线。'
+    if (variant === 'missing_fact') file.facts = []
+    if (variant === 'changed_fact') file.facts[0]!.summary = '被替换的事实。'
+    if (variant === 'missing_source') file.sources = []
+    if (variant === 'changed_source') file.sources[0]!.units[0]!.text = '被替换的索引。'
+    if (variant === 'added_source') file.sources.push({ ...file.sources[0]!, id: brandString<typeof file.sources[0]['id']>('s:other:text') })
+    policy.sha256 = refinementPolicyDigest(policy)
+    const persisted = PROJECT_FILE.parse(JSON.parse(JSON.stringify(file)))
+    expect(() => { validateRefinementPolicy(persisted) }).toThrow('refinement_')
+  },
+)
+
+it.each(['missing_policy', 'wrong_policy', 'wrong_origin', 'wrong_grant', 'wrong_category', 'commentary',
+  'missing_actor', 'empty_anchors', 'unrelated_anchor'] as const)(
+  'rejects a saved supplement with %s', async (variant) => {
+    await createFork(); await proposeSupplement(); const file = await current(), fact = file.facts.at(-1)!
+    if (variant === 'missing_policy') delete file.refinement
+    if (variant === 'wrong_policy') fact.supplemental!.policy_sha256 = '0'.repeat(64)
+    if (variant === 'wrong_origin') fact.origin = 'source'
+    if (variant === 'wrong_grant') fact.supplemental!.authorization_sha256 = '0'.repeat(64)
+    if (variant === 'wrong_category') file.refinement!.allowed_categories = []
+    if (variant === 'commentary') fact.layer = 'commentary'
+    if (variant === 'missing_actor') delete fact.actor
+    if (variant === 'empty_anchors') fact.anchors = []
+    if (variant === 'unrelated_anchor') fact.anchors[0]!.unit_id = brandString<typeof fact.anchors[0]['unit_id']>('u:unrelated')
+    const persisted = PROJECT_FILE.parse(JSON.parse(JSON.stringify(file)))
+    expect(() => { validateSupplement(persisted, persisted.facts.at(-1)!) }).toThrow('refinement_')
+  },
+)
+
+it.each(['missing_policy', 'candidate_digest', 'policy_digest', 'baseline_id', 'baseline_digest', 'content_digest',
+  'source_scope', 'empty_change', 'missing_after', 'missing_before', 'comment_index', 'comment_unmapped',
+  'semantic_scene', 'semantic_empty', 'visual_unknown', 'visual_empty', 'report_input', 'wrong_channel'] as const)(
+  'rejects saved refinement delivery with %s without accepting refreshed outer hashes', async (variant) => {
+    await staged(); const file = await current(), candidate = file.candidates[0]!, refinement = candidate.refinement!
+    const report = refinement.notes
+    if (variant === 'missing_policy') delete file.refinement
+    if (variant === 'policy_digest') refinement.policy_sha256 = '0'.repeat(64)
+    if (variant === 'baseline_id') refinement.baseline_candidate_id = brandString<typeof candidate.id>('c:12345678-1234-4234-8234-123456789012')
+    if (variant === 'baseline_digest') refinement.baseline_sha256 = '0'.repeat(64)
+    if (variant === 'content_digest') refinement.output_content_sha256 = '0'.repeat(64)
+    if (variant === 'source_scope') candidate.source_ids = []
+    if (variant === 'empty_change') report.changes = [{ reason: '没有位置的声明。' }]
+    if (variant === 'missing_after') delete report.changes[0]!.after
+    if (variant === 'missing_before') delete report.changes[0]!.before
+    if (variant === 'comment_index') report.editor_comments[0]!.change_indices = [2]
+    if (variant === 'comment_unmapped') report.editor_comments[0]!.change_indices = []
+    if (variant === 'semantic_scene') report.validation.semantic.scenes = [2]
+    if (variant === 'semantic_empty') report.validation.semantic.scenes = []
+    if (variant === 'visual_unknown') report.validation.visual = { status: 'limited', source_units: [file.sources[0]!.units[0]!.id], reason: '文字不可冒充实际图像检查。' }
+    if (variant === 'visual_empty') report.validation.visual.status = 'limited'
+    if (variant === 'report_input') report.input.project_sha256 = '0'.repeat(64)
+    if (variant === 'wrong_channel') candidate.scenes[0]!.beats[0]!.kind = 'dialogue'
+    if (variant === 'source_scope' || variant === 'wrong_channel') {
+      refinement.output_content_sha256 = refinementContentDigest(candidate)
+      report.output.content_sha256 = refinement.output_content_sha256
+    }
+    candidate.sha256 = variant === 'candidate_digest' ? '0'.repeat(64) : candidateDigest(candidate)
+    const persisted = PROJECT_FILE.parse(JSON.parse(JSON.stringify(file)))
+    expect(() => { validateRefinement(persisted, persisted.candidates[0]!) }).toThrow('refinement_')
+  },
+)
+
+it('renders an unreviewed refinement report without claiming missing checks or editor feedback', async () => {
+  await staged(); const file = await current(), candidate = file.candidates[0]!, report = candidate.refinement!.notes
+  report.editor_comments = []; report.unresolved = []; report.unhandled = []
+  report.validation.semantic = { status: 'not_run', scenes: [], reason: '未进行语义检查。' }
+  candidate.sha256 = candidateDigest(candidate)
+  const rendered = renderModificationNotes(file, candidate)
+  expect(rendered).toContain('无提供的编辑意见')
+  expect(rendered).toContain('尚未进行')
+  expect(rendered).toContain('不等同于全局通过')
+  expect(renderModificationNotes(file, file.refinement!.baselines[0]!)).toBe('')
+})
+
+it('rejects missing grants, out-of-scope episodes, and report-free nonretained candidates', async () => {
+  const originalFile = await current(original), baseline = originalFile.candidates[0]!
+  expect(() => buildRefinement(originalFile, baseline, notes('钥匙在我手里。', '这把钥匙，在我手里。')))
+    .toThrow('refinement_policy_required')
+  await createFork(); const file = await current(), policy = file.refinement!
+  const { sha256: _digest, ...content } = policy
+  expect(refinementPolicyDigest(content)).toBe(policy.sha256)
+  expect(() => { validateRefinement(file, baseline) }).toThrow('refinement_report_required')
+  const future = { ...baseline, episode: 2 }
+  expect(() => buildRefinement(file, future, notes('钥匙在我手里。', '这把钥匙，在我手里。'))).toThrow('refinement_scope')
+})
+
+it('does not report an unchanged source beat as an edit', async () => {
+  await createFork([]); const file = await current(), baseline = file.refinement!.baselines[0]!
+  expect(() => buildRefinement(file, baseline, notes('钥匙在我手里。', '钥匙在我手里。'))).toThrow('refinement_notes_empty')
+})
+
+it('rejects supplementary expression assigned to a different actor after source expressions are preserved', async () => {
+  await staged(); const file = await current(), candidate = file.candidates[0]!
+  file.facts.at(-1)!.actor = '乙'
+  expect(() => { validateRefinement(file, candidate) }).toThrow('refinement_category')
+})
+
+it('renders source-only expression edits and separately validates retained candidates', async () => {
+  await createFork([]); const file = await current(), baseline = file.refinement!.baselines[0]!
+  const candidate = { ...baseline, scenes: structuredClone(baseline.scenes) }
+  candidate.scenes[0]!.beats[0]!.text = '钥匙，就在我手里。'
+  candidate.refinement = buildRefinement(file, candidate, {
+    ...notes('钥匙在我手里。', '钥匙，就在我手里。'), editor_comments: [{ comment: '其他修改尚未处理。', disposition: 'not_adopted',
+      reason: '超出这次范围。', change_indices: [] }],
+  })
+  candidate.sha256 = candidateDigest(candidate)
+  expect(renderModificationNotes(file, candidate)).toContain('保留来源的表达调整')
+  expect(renderModificationNotes(file, candidate)).toContain('修改条目 无')
+  const policy = file.refinement!
+  policy.retained_candidates = [{ id: baseline.id, sha256: baseline.sha256 }]
+  policy.sha256 = refinementPolicyDigest(policy)
+  expect(() => { validateRefinement(file, baseline) }).not.toThrow()
+  policy.retained_candidates[0]!.sha256 = '0'.repeat(64); policy.sha256 = refinementPolicyDigest(policy)
+  expect(() => { validateRefinement(file, baseline) }).toThrow('refinement_report_required')
+  policy.retained_candidates[0]!.id = brandString<typeof baseline.id>('c:12345678-1234-4234-8234-123456789012')
+  policy.sha256 = refinementPolicyDigest(policy)
+  expect(() => { validateRefinement(file, baseline) }).toThrow('refinement_report_required')
+})
+
+it('does not invent a missing baseline read while deriving evidence from an incomplete artifact', async () => {
+  await staged(); const file = await current(), candidate = file.candidates[0]!, baseline = file.refinement!.baselines[0]!
+  candidate.refinement!.baseline_candidate_id = brandString<typeof baseline.id>('c:12345678-1234-4234-8234-123456789012')
+  expect(requiredReads(file, candidate, 'candidate').some(read => read.id === baseline.id)).toBe(false)
+  delete file.refinement
+  expect(requiredReads(file, candidate, 'candidate').some(read => read.id === baseline.id)).toBe(false)
+})
+
+it('does not invent source units for unresolved imported coverage when deriving refinement evidence', async () => {
+  await createFork(); const file = await current(), policy = file.refinement!, baseline = policy.baselines[0]!
+  const source = file.sources[0]!, unit = source.units[0]!
+  baseline.coverage = { windows: [{ source_id: brandString<typeof source.id>('s:12345678-1234-4234-8234-123456789012'), start: 1, count: 1 }],
+    required_beats: [{ fact_id: file.facts[0]!.id, kind: 'os' }] }
+  baseline.sha256 = candidateDigest(baseline); policy.sha256 = refinementPolicyDigest(policy)
+  expect(() => { validateSupplement(file, { kind: 'thought', origin: 'adaptation', layer: 'present', actor: '甲',
+    anchors: [{ unit_id: unit.id, quote: unit.text }], supplemental: { policy_sha256: policy.sha256, category: 'minimal_os',
+      authorization_sha256: sha256(JSON.stringify(policy.authorization)) } }) }).not.toThrow()
+  const candidate = { ...baseline, scenes: structuredClone(baseline.scenes) }
+  candidate.scenes[0]!.beats[0]!.text = '钥匙，就在我手里。'
+  candidate.refinement = buildRefinement(file, candidate, notes('钥匙在我手里。', '钥匙，就在我手里。'))
+  candidate.sha256 = candidateDigest(candidate)
+  expect(requiredReads(file, candidate, 'candidate').filter(read => read.kind === 'source')).toHaveLength(1)
+  expect(validReview(file, candidate, 'candidate')).toBe(false)
 })

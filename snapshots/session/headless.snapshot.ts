@@ -1611,9 +1611,6 @@ describe('headless recorded-session snapshots', () => {
         await rm(spillRoot, { recursive: true, force: true })
       }
 
-      const stderrLog = mode === 'replay' ? primaryFixture : actualLogs[0]?.content
-      if (stderrLog === undefined) throw new Error(`${scenario.name}: stderr projection has no primary session`)
-      const expectedStderr = stderrFromSession(stderrLog)
       const actualContext = contextOf(actualLogs.map(log => log.content))
 
       if (writesCurrentSessionFixtures(scenario.manifest, mode)) {
@@ -1630,8 +1627,6 @@ describe('headless recorded-session snapshots', () => {
       }
       if (mode !== 'replay') await writeHeaderSidecars(scenario, actualLogs, actualContext)
 
-      expect(result.stdout).toBe(`${finalTextFromSession(fixtures[0] as string)}\n`)
-      expect(result.stderr).toBe(expectedStderr)
       expect(actualLogs, `${scenario.name}: persisted session count`).toHaveLength(fixtures.length)
       const writerFiles = (await readdir(scenario.dir)).filter(name => /^writer(?:\.[1-9]\d*)?\.expected\.jsonl$/u.test(name)).sort()
       if (mode === 'replay') {
@@ -1647,6 +1642,10 @@ describe('headless recorded-session snapshots', () => {
         }
         expect(await fixtureSessions(scenario), 'historical replay input remains unchanged').toEqual(fixtures)
       }
+      const outputLog = expected[0]
+      if (outputLog === undefined) throw new Error(`${scenario.name}: CLI projection has no primary session`)
+      expect(result.stdout).toBe(`${finalTextFromSession(outputLog)}\n`)
+      expect(result.stderr).toBe(stderrFromSession(outputLog))
       const actualSnapshots = normalizeSessionSnapshots(actualLogs.map(log => log.content), actualContext, { nativeWriterOutput: true })
       const expectedSnapshots = normalizeSessionSnapshots(expected, contextOf(expected), { nativeWriterOutput: true })
       for (const [index, actual] of actualSnapshots.entries()) {

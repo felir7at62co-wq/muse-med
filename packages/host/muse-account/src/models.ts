@@ -35,6 +35,7 @@ const supplierAccess = z.object({
 const metadata = z.object({ providers: z.array(z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/), name: z.string().min(1).max(200),
   access: supplierAccess.optional(),
+  transport: z.literal('relay').optional(),
   models: z.array(z.object({
     id: z.string().min(1).max(200), name: z.string().min(1).max(200),
     contextWindow: z.number().int().positive(), maxTokens: z.number().int().positive(),
@@ -49,7 +50,8 @@ const metadata = z.object({ providers: z.array(z.object({
     }
   })).max(256),
 })).max(100), transport: z.enum(['relay', 'direct']).optional() }).superRefine((data, context) => {
-  if (data.providers.some(provider => data.transport === 'direct' ? !provider.access : provider.access !== undefined)) {
+  if (data.providers.some(provider => provider.transport === 'relay' ? provider.access !== undefined
+    : data.transport === 'direct' ? !provider.access : provider.access !== undefined)) {
     context.addIssue({ code: 'custom', message: 'Supplier access must match the negotiated transport' })
   }
 })
@@ -207,7 +209,7 @@ export class MuseModels {
     if ((await readMuseSession(this.options.sessionFile, this.options.baseUrl))?.revision !== session.revision) return
     if (this.isStopped()) return
     const response = await (this.options.fetcher ?? fetch)(new URL('/api/desktop-models/providers', this.options.baseUrl), {
-      headers: { cookie: session.cookie, 'x-muse-model-access': 'direct-v1' }, redirect: 'error',
+      headers: { cookie: session.cookie, 'x-muse-model-access': 'direct-v1', 'x-muse-provider-routing': 'mixed-v1' }, redirect: 'error',
       signal: AbortSignal.any([this.stop.signal, AbortSignal.timeout(this.options.requestTimeoutMs)]),
     }).catch(() => { throw new MuseGatewayError('gateway-unavailable') })
     if (response.status === 401) {
@@ -223,7 +225,7 @@ export class MuseModels {
     try { announcement = JSON.parse(text) } catch { throw new MuseGatewayError('gateway-rejected') }
     if (typeof announcement === 'object' && announcement !== null && Reflect.get(announcement, 'transport') === 'direct') {
       const access = await (this.options.fetcher ?? fetch)(new URL('/api/desktop-models/access', this.options.baseUrl), {
-        headers: { cookie: session.cookie, 'x-muse-model-access': 'direct-v1' }, redirect: 'error',
+        headers: { cookie: session.cookie, 'x-muse-model-access': 'direct-v1', 'x-muse-provider-routing': 'mixed-v1' }, redirect: 'error',
         signal: AbortSignal.any([this.stop.signal, AbortSignal.timeout(this.options.requestTimeoutMs)]),
       }).catch(() => { throw new MuseGatewayError('gateway-unavailable') })
       if (access.status === 401) {

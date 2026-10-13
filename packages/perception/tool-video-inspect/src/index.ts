@@ -11,7 +11,7 @@ import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
 import { planSamples } from './sample.ts'
 import { adaptivePlan, sceneTimecodes, type AdaptivePlan } from './adaptive.ts'
-import { parseVideoMetadata, runMedia, type VideoMetadata } from './media.ts'
+import { probeVideo, runMedia, type VideoMetadata } from './media.ts'
 import { installVideoEvidence } from './evidence.ts'
 import { applyContactSheets } from './contact.ts'
 
@@ -264,11 +264,8 @@ export function apply(ctx: Context, config: Config): void {
         if (info.size === undefined || info.size > config.maxSourceBytes) throw new Error('Video source size is unavailable or exceeds the deployment limit')
         await ctx.fs.readByteRange(target, { offset: 0, length: 1 }, signal)
         const source = ctx.fs.processPath(target)
-        const ffprobe = await ctx.subprocess.resolveExecutable(config.ffprobePath, undefined, signal)
-        const limits = { timeoutMs: config.commandTimeoutMs, graceMs: config.graceMs, maxBytes: 128 * 1024 }
-        const probe = await runMedia(ctx, [ffprobe, '-v', 'error', '-protocol_whitelist', 'file,pipe', '-show_entries',
-          'format=duration:stream=index,codec_type,codec_name,width,height', '-of', 'json', source], policy, signal, limits)
-        const metadata = parseVideoMetadata(probe.bytes)
+        const limits = { timeoutMs: config.commandTimeoutMs, graceMs: config.graceMs }
+        const metadata = await probeVideo(ctx, config.ffprobePath, source, policy, signal, limits)
         if (metadata.duration_seconds > config.maxDurationSeconds) throw new Error('Video duration exceeds the deployment limit')
         if (metadata.width * metadata.height > config.maxSourcePixels) throw new Error('Encoded video dimensions exceed the deployment limit')
         const priorMetadata = method === 'sample' ? evidence?.metadata(exec, target.displayPath, info.version, metadata.duration_seconds) : undefined

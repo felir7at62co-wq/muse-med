@@ -8,7 +8,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { Config, VideoFrame } from './index.ts'
 import { adaptivePlan, sceneTimecodes } from './adaptive.ts'
-import { parseVideoMetadata, runMedia, type VideoMetadata } from './media.ts'
+import { probeVideo, runMedia, type VideoMetadata } from './media.ts'
 import { planSamples } from './sample.ts'
 
 /** Shared inspection ownership, including plugin removal and calling-model image admission. */
@@ -143,11 +143,8 @@ export function applyContactSheets(ctx: Context, config: Config, runtime: Contac
       if (info?.type !== 'file' || info.size === undefined || info.size > config.maxSourceBytes) throw Error('Video source must be an existing regular file within maxSourceBytes')
       await ctx.fs.readByteRange(target, { offset: 0, length: 1 }, signal)
       const source = ctx.fs.processPath(target)
-      const ffprobe = await ctx.subprocess.resolveExecutable(config.ffprobePath, undefined, signal)
-      const limits = { timeoutMs: config.commandTimeoutMs, graceMs: config.graceMs, maxBytes: 128 * 1024 }
-      const probe = await runMedia(ctx, [ffprobe, '-v', 'error', '-protocol_whitelist', 'file,pipe', '-show_entries',
-        'format=duration:stream=index,codec_type,codec_name,width,height', '-of', 'json', source], policy, signal, limits)
-      const metadata = parseVideoMetadata(probe.bytes)
+      const limits = { timeoutMs: config.commandTimeoutMs, graceMs: config.graceMs }
+      const metadata = await probeVideo(ctx, config.ffprobePath, source, policy, signal, limits)
       if (metadata.duration_seconds > config.maxDurationSeconds || metadata.width * metadata.height > config.maxSourcePixels) throw Error('Video duration or encoded image area exceeds deployment limits')
       const start = args.start_seconds ?? 0
       const end = args.end_seconds ?? Math.min(metadata.duration_seconds, start + config.maxContactRangeSeconds)

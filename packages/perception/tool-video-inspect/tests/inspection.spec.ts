@@ -139,11 +139,12 @@ it('refuses missing, non-file and oversized overview sources before probing', as
 it.each([{ maxDurationSeconds: 1 }, { maxSourcePixels: 1 }])(
   'refuses overview deployment limits %j before frame extraction', async (config) => {
     const h = await setup(config)
-    const run = vi.spyOn(Media, 'runMedia')
+    const run = vi.spyOn(h.ctx.subprocess, 'spawn')
     const result = await h.sheet({})
     expect(result.isError).toBe(true)
     expect(JSON.stringify(result.content)).toContain('deployment limits')
     expect(run.mock.calls).toHaveLength(1)
+    expect(run.mock.calls[0]?.[0].argv).toContain('-show_entries')
   }, 30_000)
 
 it.each(['missing-timestamp', 'negative-timestamp', 'past-end', 'invalid-number', 'missing-image'] as const)(

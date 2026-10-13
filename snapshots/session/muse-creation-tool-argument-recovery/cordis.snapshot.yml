@@ -38,3 +38,9 @@
       - passthrough-runner
     runnerFailureSignatures:
       - 'passthrough-runner: profile rejected'
+
+# Keep unrelated host stack locations out of this argument-diagnostic replay.
+- id: ptc-runtime
+  config:
+    bootstrapPath: !!js >-
+      process.cwd() + '/ptc-binding-bootstrap.mjs'

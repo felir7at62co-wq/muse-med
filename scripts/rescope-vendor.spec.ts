@@ -99,6 +99,12 @@ describe('product identifiers and module references', () => {
     expect(rewriteRescopeReferences(text, 'packages/preset/agent-preset-registry/tests/display.spec.ts').text)
       .toBe("import '@deepseek-ai/cordis'\nconst preset = 'cordis'\n")
   })
+
+  it('preserves hidden Muse mode ids while still rewriting framework imports', () => {
+    const text = "import { Context } from 'cordis'\nconst modes = ['short-drama', 'editing', 'cordis']\n"
+    expect(rewriteRescopeReferences(text, 'apps/web/tests/muse-drama-modes.e2e.ts').text)
+      .toBe(text.replace("from 'cordis'", "from '@deepseek-ai/cordis'"))
+  })
 })
 
 function fixtureTree(): string {
@@ -169,6 +175,7 @@ describe('executed rescope check', () => {
   it.each([
     'apps/desktop-host/src/native-preset.ts',
     'apps/desktop-host/tests/compaction-presets.spec.ts',
+    'apps/web/tests/muse-drama-modes.e2e.ts',
     'packages/preset/agent-preset-registry/tests/display.spec.ts',
     'packages/example/src/index.ts',
   ])('rejects a new bare module import in %s', (file) => {

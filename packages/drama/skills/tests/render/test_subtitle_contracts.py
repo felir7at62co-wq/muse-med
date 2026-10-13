@@ -139,12 +139,21 @@ class DraftSubtitleContractTests(unittest.TestCase):
         # No font field means the draft renders in Jianying's own default font.
         self.assertNotIn('font', style)
 
-    def test_the_draft_adds_no_watermark_track(self):
-        source = (DRAFT / 'scripts/jianying_draft.py').read_text(encoding='utf-8')
-        for notice in ('内容由AI生成', '内容纯属虚构', '请勿带入现实', '水印'):
-            self.assertNotIn(notice, source)
-        self.assertEqual(source.count('add_track'), 0)
-        self.assertEqual(source.count('字幕轨道'), 1)
+    def test_the_draft_adds_one_editable_ai_notice_independently_of_subtitle_style(self):
+        import pyJianYingDraft as draft
+        script = draft.ScriptFile(2560, 1440, 60, False)
+        self.draft.append_draft_watermark(script, 6_000_000, {'width': 2560, 'height': 1440})
+        content = json.loads(script.dumps())
+        tracks = [track for track in content['tracks'] if track['type'] == 'text']
+        self.assertEqual(len(tracks), 1)
+        self.assertEqual(tracks[0]['name'], 'AI内容标识')
+        segment = tracks[0]['segments'][0]
+        self.assertEqual(segment['target_timerange'], {'start': 0, 'duration': 6_000_000})
+        material = content['materials']['texts'][0]
+        inner = json.loads(material['content'])
+        self.assertEqual(inner['text'], '内容由AI生成')
+        self.assertFalse(inner['styles'][0].get('strokes'))
+        self.assertNotEqual(inner['styles'][0]['size'], self.draft.SUBTITLE_FONT_SIZE)
 
 
 class BothConsumersTests(unittest.TestCase):

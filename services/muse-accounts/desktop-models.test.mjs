@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {desktopModelCatalog,createDesktopModels} from './desktop-models.mjs';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {execFile} from 'node:child_process';
@@ -10,6 +10,7 @@ import {fileURLToPath} from 'node:url';
 import {openStore} from './store.mjs';
 import {createAccountServer} from './gateway.mjs';
 import {openSessionStore} from './session-store.mjs';
+import {openGlobalModels} from './global-models.mjs';
 
 test('Muse login exposes website models, streams through account auth and revokes on logout',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'muse-desktop-models-'));let server;
@@ -165,4 +166,145 @@ test('removed Desktop capacity configuration fails with an operator migration in
  await assert.rejects(promisify(execFile)(process.execPath,[fileURLToPath(new URL('./gateway.mjs',import.meta.url))],{
   env:{MUSE_DESKTOP_MODEL_MAX_TOTAL:'0'},timeout:20000,
  }),error=>{assert.match(error.stderr,/MUSE_DESKTOP_MODEL_MAX_TOTAL.*remove/);assert.doesNotMatch(error.stdout,/listening/);return true;});
+});
+
+
+test('pooled Zhipu stays in the gateway while other suppliers keep direct access',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'muse-mixed-models-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+ const store=await openStore(join(dir,'accounts.json'));await store.create('editor','pw');
+ const entries={studio:['writer'],'zhipu-official':['glm-5.3-flash','glm-5.3-flashx']};
+ const keys=['private-one','private-two'];
+ const globalModels={credentialPool:route=>route==='zhipu-official'?keys:undefined,
+  metadata:()=>({providers:Object.fromEntries(Object.entries(entries).map(([id,ids])=>[id,{displayName:id,models:ids.map(id=>({id,name:id,contextWindow:128000,maxTokens:8192,input:['text'],reasoningEfforts:false}))}]))}),
+  resolve:(route,id)=>entries[route]?.includes(id)?{model:id,apiKey:route==='studio'?'direct-studio-key':keys[0],baseURL:'https://provider.test/v1',maxTokens:8192,reasoningEfforts:false}:undefined};
+ const server=createAccountServer({store,globalModels,publicOrigin:'https://muse.test',desktopModelTransport:'direct'});
+ t.after(()=>new Promise(resolve=>{server.close(resolve);server.closeAllConnections();}));
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+server.address().port;
+ const login=await fetch(base+'/login',{method:'POST',redirect:'manual',headers:{origin:'https://muse.test'},body:'username=editor&password=pw'});
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ const legacy={cookie,'x-muse-model-access':'direct-v1'},modern={...legacy,'x-muse-provider-routing':'mixed-v1'};
+ const old=await(await fetch(base+'/api/desktop-models/providers',{headers:legacy})).json();assert.equal(old.transport,undefined);
+ const catalog=await(await fetch(base+'/api/desktop-models/providers',{headers:modern})).json();assert.equal(catalog.transport,'direct');
+ const access=await fetch(base+'/api/desktop-models/access',{headers:modern});assert.equal(access.status,200);
+ const data=await access.json();assert.equal(data.providers[0].access.apiKey,'direct-studio-key');
+ assert.equal(data.providers[1].transport,'relay');assert.equal(data.providers[1].access,undefined);
+ assert.ok(keys.every(key=>!JSON.stringify(data).includes(key)));
+ assert.equal((await fetch(base+'/api/desktop-models/access',{headers:legacy})).status,404);
+});
+
+test('two supplier credentials hold twenty whole streams each and reuse a released slot without replay',{timeout:30000},async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'muse-stream-pool-')),origin='https://muse.test';let server;
+ const gates=[],pending=[],seen=[];let hold=true;
+ try{
+  const store=await openStore(join(dir,'accounts.json'));await store.create('editor','pw');
+  const keys=['pool-account-one','pool-account-two'];
+  const globalModels={credentialPool:route=>route==='zhipu-official'?keys:undefined,
+   resolve:(route,id)=>route==='zhipu-official'&&id==='writer'?{model:id,apiKey:keys[0],maxTokens:8192,reasoningEfforts:false}:undefined};
+  server=createAccountServer({store,globalModels,publicOrigin:origin,
+   modelKeyPoolPolicy:{concurrency:20,maxQueued:0,waitMs:1000},
+   modelForward:async({config,res})=>{
+    seen.push(config.apiKey);res.writeHead(200,{'content-type':'text/event-stream'});res.write('data: started\n\n');
+    if(hold)await new Promise(resolve=>gates.push(resolve));res.end('data: [DONE]\n\n');
+   }});
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+server.address().port;
+  const login=await fetch(base+'/login',{method:'POST',redirect:'manual',headers:{origin},body:'username=editor&password=pw'});
+  const cookie=login.headers.get('set-cookie').split(';')[0];
+  const generate=(limits={})=>fetch(base+'/api/desktop-models/zhipu-official/chat/completions',{method:'POST',headers:{cookie,origin,'content-type':'application/json'},body:JSON.stringify({model:'writer',messages:[],stream:true,...limits})});
+  pending.push(...Array.from({length:40},generate));const streams=await Promise.all(pending);
+  assert.ok(streams.every(response=>response.status===200));assert.equal(gates.length,40);
+  assert.deepEqual(keys.map(key=>seen.filter(value=>value===key).length),[20,20]);
+  const blocked=await generate();assert.equal(blocked.status,503);assert.equal(blocked.headers.get('retry-after'),'1');await blocked.text();
+  for(const field of ['max_tokens','max_completion_tokens']){
+   const invalid=await generate({[field]:-1});assert.equal(invalid.status,400);assert.match(await invalid.text(),/输出上限无效/);
+  }
+  assert.equal(seen.length,40);
+  hold=false;const completed=streams[0].text();gates[0]();await completed;
+  const next=await generate();assert.equal(next.status,200);await next.text();assert.equal(seen.length,41);
+  assert.equal(seen[40],seen[0]);
+  gates.forEach(release=>release());await Promise.all(streams.slice(1).map(response=>response.text()));
+ }finally{
+  gates.forEach(release=>release());await Promise.allSettled(pending.map(async request=>(await request).text()));
+  if(server){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+  await rm(dir,{recursive:true,force:true});
+ }
+});
+
+test('a queued request rechecks its absolute login expiry before supplier dispatch',{timeout:30000},async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'muse-queued-expiry-'));let server,releaseFirst;
+ const requests=[];let clock=10000;
+ t.after(async()=>{
+  releaseFirst?.();server?.closeAllConnections();
+  await Promise.allSettled(requests.map(async pending=>(await pending).text()));
+  if(server)await new Promise(resolve=>server.close(resolve));
+  await rm(dir,{recursive:true,force:true});
+ });
+ const store=await openStore(join(dir,'accounts.json'));await store.create('editor','pw');
+ let started,queued;const entered=new Promise(resolve=>{started=resolve;}),waiting=new Promise(resolve=>{queued=resolve;});
+ const hold=new Promise(resolve=>{releaseFirst=resolve;}),dispatches=[];
+ const globalModels={credentialPool:()=>['test-account-key'],resolve:()=>{
+  if(dispatches.length===1)queued();
+  return {model:'writer',apiKey:'test-account-key',maxTokens:8192,reasoningEfforts:false};
+ }};
+ const origin='https://muse.test';
+ server=createAccountServer({store,globalModels,publicOrigin:origin,now:()=>clock,sessionTtlMs:1000,
+  modelKeyPoolPolicy:{concurrency:1,maxQueued:5,waitMs:2000},modelForward:async({res})=>{
+   dispatches.push(clock);if(dispatches.length===1){started();await hold;}res.end('done');
+  }});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+server.address().port;
+ const login=await fetch(base+'/login',{method:'POST',redirect:'manual',headers:{origin},body:'username=editor&password=pw'});
+ await login.text();const cookie=login.headers.get('set-cookie').split(';')[0];
+ const generate=()=>fetch(base+'/api/desktop-models/zhipu-official/chat/completions',{method:'POST',headers:{cookie,origin,'content-type':'application/json'},body:JSON.stringify({model:'writer',messages:[],stream:true})});
+ const first=generate();requests.push(first);await entered;
+ const second=generate();requests.push(second);await waiting;
+ clock=11001;releaseFirst();
+ const completed=await first;assert.equal(completed.status,200);await completed.text();
+ const expired=await second;assert.equal(expired.status,401);await expired.text();
+ assert.deepEqual(dispatches,[10000]);
+});
+
+for(const change of ['endpoint-and-key','model-removed','key-removed'])test('queued supplier dispatch uses the current configuration: '+change,{timeout:30000},async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'muse-queued-configuration-'));let server,releaseFirst;
+ const requests=[];
+ t.after(async()=>{
+  releaseFirst?.();server?.closeAllConnections();
+  await Promise.allSettled(requests.map(async pending=>(await pending).text()));
+  if(server)await new Promise(resolve=>server.close(resolve));
+  await rm(dir,{recursive:true,force:true});
+ });
+ const file=join(dir,'models.json');
+ await writeFile(file,JSON.stringify({version:2,revision:0,metadataRevision:0,
+  credentials:{OLD:['old-account-key'],NEW:['new-account-key']},providers:{'zhipu-official':{
+   api:'openai-completions',baseURL:'https://old-provider.test/v1',apiKeyEnv:'OLD',models:[{id:'writer',maxTokens:8192}],
+  }}}));
+ const original=await openGlobalModels(file),store=await openStore(join(dir,'accounts.json'));await store.create('editor','pw');
+ let started,queued;const entered=new Promise(resolve=>{started=resolve;}),waiting=new Promise(resolve=>{queued=resolve;});
+ const hold=new Promise(resolve=>{releaseFirst=resolve;}),dispatches=[];
+ const globalModels={...original,resolve:(route,id)=>{
+  if(dispatches.length===1)queued();return original.resolve(route,id);
+ }};
+ const origin='https://muse.test';
+ server=createAccountServer({store,globalModels,publicOrigin:origin,modelKeyPoolPolicy:{concurrency:1,maxQueued:5,waitMs:2000},
+  modelForward:async({config,body,res})=>{
+   dispatches.push({baseURL:config.baseURL,key:config.apiKey,maxTokens:body.max_tokens});
+   if(dispatches.length===1){started();await hold;}res.end('done');
+  }});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+server.address().port;
+ const login=await fetch(base+'/login',{method:'POST',redirect:'manual',headers:{origin},body:'username=editor&password=pw'});
+ await login.text();const cookie=login.headers.get('set-cookie').split(';')[0];
+ const generate=()=>fetch(base+'/api/desktop-models/zhipu-official/chat/completions',{method:'POST',headers:{cookie,origin,'content-type':'application/json'},body:JSON.stringify({model:'writer',messages:[],stream:true,max_tokens:999})});
+ const first=generate();requests.push(first);await entered;
+ const second=generate();requests.push(second);await waiting;
+ if(change==='endpoint-and-key')await original.mutate({ns:'llm-pi-ai',expectedRevision:0,ops:[
+  {op:'set',path:['providers','zhipu-official','baseURL'],value:'https://new-provider.test/v1'},
+  {op:'set',path:['providers','zhipu-official','apiKeyEnv'],value:'NEW'},
+  {op:'set',path:['providers','zhipu-official','models'],value:[{id:'writer',maxTokens:32}]},
+ ]});
+ else if(change==='model-removed')await original.mutate({ns:'llm-pi-ai',expectedRevision:0,
+  ops:[{op:'set',path:['providers','zhipu-official','models'],value:[]}]});
+ else await original.unsetCredential('OLD');
+ releaseFirst();
+ const completed=await first;assert.equal(completed.status,200);await completed.text();
+ const refreshed=await second;assert.equal(refreshed.status,change==='endpoint-and-key'?200:503);await refreshed.text();
+ assert.deepEqual(dispatches,[{baseURL:'https://old-provider.test/v1',key:'old-account-key',maxTokens:999},
+  ...change==='endpoint-and-key'?[{baseURL:'https://new-provider.test/v1',key:'new-account-key',maxTokens:32}]:[]]);
 });

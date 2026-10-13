@@ -18,6 +18,7 @@ import {loadPortfolioReaders} from './kb-portfolio-config.mjs';
 import {openModelConfig,createModelRelay} from './model-relay.mjs';
 import {openGlobalModels,restrictModelSchema} from './global-models.mjs';
 import {createDesktopModels} from './desktop-models.mjs';
+import {resolveModelKeyPoolPolicy,createModelKeyPool} from './model-key-pool.mjs';
 import {createDesktopRelay} from './desktop-relay.mjs';
 import {desktopRoute,desktopPrefix} from './desktop-route.mjs';
 import {desktopPicker} from './desktop-picker.mjs';
@@ -42,7 +43,7 @@ const style='*{box-sizing:border-box}body{margin:0;background:#f7f6f2;color:#191
 const polish='body{background:#f5f5f3;-webkit-font-smoothing:antialiased}main{box-shadow:0 16px 70px #00000005}h1{font-size:30px;letter-spacing:-.04em;margin:16px 0}h2{font-size:20px;margin-top:32px}nav{flex-wrap:wrap;margin:24px 0}nav a{font-size:14px;text-decoration:none;border:1px solid #e3e3df;padding:9px 14px;border-radius:10px}a:hover{color:#000}input{background:#fafafa;transition:border-color .15s}input:focus{outline:2px solid #222;outline-offset:2px}button:hover{background:#404040}button:focus-visible,a:focus-visible{outline:2px solid #222;outline-offset:3px}.eyebrow{font-size:11px;letter-spacing:.2em;color:#888}.model-form{max-width:680px;margin:30px 0}.model-form input{display:block;width:100%;margin-top:8px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.notice{padding:14px 18px;border:1px solid #d5dfd6;background:#f4f8f4;border-radius:12px;font-size:14px}small{display:block;line-height:1.8}th{color:#777;font-size:12px;font-weight:500}td{font-size:14px}.auth h1{letter-spacing:.14em}.auth>img{display:block;margin-bottom:22px}.auth form{margin:24px 0}.auth input{margin-top:8px}.auth small{font-size:12px}.auth>p{line-height:1.7}main:not(.auth)>form:not(.model-form){max-width:520px}main:not(.auth)>form>label input{display:block;width:100%;margin-top:8px}@media(max-width:600px){.form-grid{grid-template-columns:1fr;gap:0}h1{font-size:26px}main{border-radius:18px}}';
 function page(title,body,auth=false){return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.ico"><title>${escape(title)} · MUSE</title><style>${style}${polish}</style><main class="${auth?'auth':''}">${body}</main></html>`;}
 function loginPage(register=false){return page(register?'注册':'登录',`<img src="/spider.png" alt="MUSE"><h1>MUSE</h1><p>让灵感成形，让故事发生。</p><form action="/${register?'register':'login'}" method="post"><label>用户名<input name="username" autocomplete="username" minlength="2" maxlength="32" required autofocus></label><label>密码<input name="password" type="password" autocomplete="${register?'new-password':'current-password'}" maxlength="128" required></label><button>${register?'注册并进入工作间':'进入工作间 →'}</button></form><p>${register?'已有账号？<a href="/login">登录</a>':'<a href="/register">免费注册个人工作间</a>'}</p><small>每个账号拥有独立的文档与会话。</small>`,true);}
-export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},modelConfig,globalModels,modelForward,desktopModelTransport='relay',feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
+export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},modelConfig,globalModels,modelForward,desktopModelTransport='relay',modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
  if(!['cloud','desktop'].includes(workspaceMode))throw Error('Invalid workspace mode');
  if(!['development','production'].includes(environment))throw Error('Invalid environment');
  if(!/^__Host-[A-Za-z0-9_-]+$/.test(cookieName))throw Error('Invalid secure session cookie name');
@@ -51,7 +52,7 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
   const kbEndpoint=kb?.vaultRoot&&typeof kb.secret==='string'&&kb.secret.length>=32?createKbMcp({vaultRoot:kb.vaultRoot,personalRoot:kb.personalRoot,accounts:store,secret:kb.secret,documentGrants:kb.documentGrants,portfolioReaders:kb.portfolioReaders,authorize:authorizeKbToken,embedder:kb.embedder,vectors:kb.vectors,semanticWeight:kb.semanticWeight,semanticFloor:kb.semanticFloor,onWarn:message=>console.error('[muse-kb]',message)}):null;
  async function maintenance(){if(!maintenanceFile)return false;try{await access(maintenanceFile);return true;}catch(e){if(e.code==='ENOENT')return false;throw e;}}
  function workspaceMutation(path){return /^\/api\/workspace[./](create|delete|rename|update|change|insertBefore)(?:\/|$)/.test(decodeURIComponent(path));}
- const desktopModels=createDesktopModels({globalModels,modelConfig,forward:modelForward,now,transport:desktopModelTransport});
+ const desktopModels=createDesktopModels({globalModels,modelConfig,forward:modelForward,now,transport:desktopModelTransport,keyPoolPolicy:modelKeyPoolPolicy,keyPool:modelKeyPool});
  publicOrigin=new URL(publicOrigin).origin;const rates=new Map(),connections=new Map(),cookies=new Map(),httpStreams=new Map(),kbAccessTokens=new Map(),activeTokens=new Map(),accountRevocations=new Map();
  let desktopRelay;
  function disconnect(token){desktopRelay?.revoke(token);desktopModels.revoke(token);activeTokens.delete(token);for(const [key,grant] of kbAccessTokens)if(grant.sessionToken===token)kbAccessTokens.delete(key);adminAccess?.revoke(token);for(const socket of connections.get(token)||[])socket.destroy();connections.delete(token);for(const stream of httpStreams.get(token)||[])stream.destroy();httpStreams.delete(token);}
@@ -274,8 +275,10 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
  const sessionTtlMs=resolveSessionTtlMs();
  const {createRuntime}=await import('./runtime.mjs');const store=await openStore(accountFile);const runtime=await createRuntime();
  const modelConfig=process.env.MUSE_MODEL_CONFIG?await openModelConfig(process.env.MUSE_MODEL_CONFIG):undefined;
- let globalModels;
- if(modelConfig){const {Config,discoverModels}=await import('../node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js');globalModels=await openGlobalModels(process.env.MUSE_MODEL_CONFIG+'.native',{legacyConfig:modelConfig,schema:restrictModelSchema(Config.toJSON()),discover:discoverModels});const secret=(await readFile(process.env.MUSE_MODEL_SECRET,'utf8')).trim();if(secret.length<32)throw Error('Invalid model relay secret');createModelRelay({config:modelConfig,globalModels,secret,accounts:store}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);}
+ let globalModels,modelRelay,modelSecret;
+ if(modelConfig){const {Config,discoverModels}=await import('../node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js');globalModels=await openGlobalModels(process.env.MUSE_MODEL_CONFIG+'.native',{legacyConfig:modelConfig,schema:restrictModelSchema(Config.toJSON()),discover:discoverModels});modelSecret=(await readFile(process.env.MUSE_MODEL_SECRET,'utf8')).trim();if(modelSecret.length<32)throw Error('Invalid model relay secret');}
+ const modelKeyPoolPolicy=resolveModelKeyPoolPolicy(process.env);
+ const modelKeyPool=createModelKeyPool({keys:()=>globalModels?.credentialPool?.('zhipu-official')??[],...modelKeyPoolPolicy});
  const feedback=await openFeedback(join(dirname(accountFile),'feedback'));
  const adminAccess=process.env.MUSE_ADMIN_ROOT?await openAdminAccess(process.env.MUSE_ADMIN_ROOT):undefined;
  const adminHosts=process.env.MUSE_ADMIN_HOSTS?JSON.parse(await readFile(process.env.MUSE_ADMIN_HOSTS,'utf8')):{};
@@ -304,7 +307,9 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
   await asr.ready();
   asrSweepIntervalSeconds=config.sweepIntervalSeconds;
  }
- const accountServer=createAccountServer({store,runtime,workspaceMode,modelConfig,globalModels,desktopModelTransport,feedback,adminAccess,adminHosts,kb,asr,asrStorage,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
+ const accountServer=createAccountServer({store,runtime,workspaceMode,modelConfig,globalModels,desktopModelTransport,modelKeyPoolPolicy,modelKeyPool,feedback,adminAccess,adminHosts,kb,asr,asrStorage,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
+ if(modelConfig)modelRelay=createModelRelay({config:modelConfig,globalModels,secret:modelSecret,accounts:store,keyPool:modelKeyPool,keyPoolPolicy:modelKeyPoolPolicy}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);
+ accountServer.once('close',()=>{modelRelay?.closeAllConnections();modelRelay?.close();modelKeyPool.close();});
  accountServer.listen(Number(process.env.MUSE_PORT||19388),'127.0.0.1',()=>{console.log('MUSE accounts gateway listening on loopback:'+accountServer.address().port);if(asr)void asr.start().catch(()=>console.error('MUSE ASR startup failed'));});
  if(asr){
   const sweep=()=>void asr.sweep().catch(()=>console.error('MUSE ASR retention cleanup failed'));

@@ -1033,3 +1033,37 @@ it('resolves the older request without replacing a newer choice committed before
   expect(fixture.ctx.sessionProjections.snapshot(fixture.agent.session).values.modelSelection?.next)
     .toEqual({ provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' })
 })
+
+
+it('routes a pooled provider through Muse while another provider streams directly', async () => {
+  const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+  await writeMuseSession(sessionFile(), { baseUrl: server.url, username: 'alice', cookie: '__Host-muse=alice-session' })
+  const providers = [
+    { ...catalog.providers[0], access: { baseURL: server.url + '/v1', apiKey: 'direct-studio-key' } },
+    { ...catalog.providers[0], id: 'zhipu-official', transport: 'relay' },
+  ]
+  models = new MuseModels(ctx, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async (_url, init) => {
+      expect(new Headers(init?.headers).get('x-muse-provider-routing')).toBe('mixed-v1')
+      return Response.json({ transport: 'direct', providers })
+    } })
+  await models.refresh()
+  expect((await assemble(ctx, { provider: 'muse-cloud-studio', model: 'writer', messages: [] })).finish).toEqual({ kind: 'stop' })
+  expect((await assemble(ctx, { provider: 'muse-cloud-zhipu-official', model: 'writer', messages: [] })).finish).toEqual({ kind: 'stop' })
+  expect(server.paths).toEqual(['/v1/chat/completions', '/api/desktop-models/zhipu-official/chat/completions'])
+  expect(server.headers.map(headers => headers.authorization)).toEqual(['Bearer direct-studio-key', 'Bearer alice-session'])
+  expect(server.headers[0]?.origin).toBeUndefined()
+  expect(server.headers[1]?.origin).toBe(server.url)
+  const stored: unknown = JSON.parse(await readFile(join(root, 'model-access.json'), 'utf8'))
+  expect(stored).toMatchObject({ baseUrl: server.url,
+    providers: [{ id: 'studio', access: { baseURL: server.url + '/v1', apiKey: 'direct-studio-key' } }] })
+})
+
+it('rejects supplier credentials attached to an explicitly pooled relay route', async () => {
+  await login()
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json({ transport: 'direct', providers: [{ ...catalog.providers[0], transport: 'relay',
+      access: { baseURL: 'https://provider.test/v1', apiKey: 'must-not-be-issued' } }] }) })
+  await expect(models.refresh()).rejects.toMatchObject({ code: 'gateway-rejected' })
+  expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal'])
+})

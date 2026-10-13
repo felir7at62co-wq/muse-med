@@ -64,6 +64,24 @@ export async function runMedia(ctx: Context, argv: readonly string[], policy: Sa
   }
 }
 
+/** Probe a verified local media path within the calling session's subprocess limits.
+ * @param ctx - Same-world subprocess and confinement services.
+ * @param executable - Configured FFprobe executable name or path.
+ * @param source - Filesystem-owned local process path.
+ * @param policy - Calling session's execution policy.
+ * @param signal - Cancels executable resolution and probing.
+ * @param limits - Deployment timeout and termination grace period.
+ * @returns Validated source metadata without inferred visual observations.
+ */
+export async function probeVideo(ctx: Context, executable: string, source: string, policy: SandboxExecutionPolicy,
+  signal: AbortSignal, limits: { timeoutMs: number; graceMs: number }): Promise<VideoMetadata> {
+  const ffprobe = await ctx.subprocess.resolveExecutable(executable, undefined, signal)
+  const probe = await runMedia(ctx, [ffprobe, '-v', 'error', '-protocol_whitelist', 'file,pipe', '-show_entries',
+    'format=duration:stream=index,codec_type,codec_name,width,height', '-of', 'json', source], policy, signal,
+  { ...limits, maxBytes: 128 * 1024 })
+  return parseVideoMetadata(probe.bytes)
+}
+
 /** Probed source facts; no observations of actions or speech are inferred. */
 export interface VideoMetadata {
   duration_seconds: number

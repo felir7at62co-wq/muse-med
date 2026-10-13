@@ -9,16 +9,17 @@ import { LlmAdapter, ToolCallId, type StreamChunk, type GenerateOptions } from '
 export const name = 'screenplay-self-check-fixture'
 export const inject = ['llm', 'tools', 'fs', 'attachments']
 
-export async function apply(ctx: Context): Promise<void> {
+export async function apply(ctx: Context, config: { cwd?: string } = {}): Promise<void> {
+  const workspace = config.cwd ?? process.cwd()
   const phase = process.env.SCREENPLAY_SELF_CHECK_FIXTURE_MODE ?? 'full'
   let image: Awaited<ReturnType<typeof ctx.attachments.saveImage>> | undefined
   if (phase === 'full') {
-    const video = join(process.cwd(), 'source.mp4'), signal = new AbortController().signal
+    const video = join(workspace, 'source.mp4'), signal = new AbortController().signal
     await writeFile(video, 'fixture video bytes')
     const target = await ctx.fs.resolve(video, { signal }), version = (await ctx.fs.stat(target, signal))!.version
     image = await ctx.attachments.saveImage({ mediaType: 'image/png',
       data: await sharp({ create: { width: 8, height: 8, channels: 3, background: 'blue' } }).png().toBuffer() })
-    await writeFile(join(process.cwd(), 'inspection.json'), JSON.stringify({ path: video, source_version: version,
+    await writeFile(join(workspace, 'inspection.json'), JSON.stringify({ path: video, source_version: version,
       inspection: 'sampled_frames', verified_readback: true, duration_seconds: 10,
       frames: [{ requested_seconds: 1, timestamp_seconds: 1, image }] }))
   }

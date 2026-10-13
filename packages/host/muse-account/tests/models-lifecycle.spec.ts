@@ -101,6 +101,31 @@ it('does not publish a saved catalog after another login replaces it before regi
   expect(await readFile(f.accessFile, 'utf8')).toContain('bob-fixture-key')
 })
 
+it('ignores an old provider-catalog rejection after a new login has saved its credentials', async () => {
+  const f = await fixture()
+  await f.models.refresh()
+  const entered = gate(), release = gate()
+  f.fetcher.mockImplementationOnce(async () => {
+    entered.resolve()
+    await release.promise
+    return new Response('', { status: 401 })
+  })
+  const refreshing = f.models.refresh()
+  f.cleanups.push(async () => { release.resolve(); await Promise.allSettled([refreshing]) })
+  await entered.promise
+  await writeMuseSession(f.sessionFile, { baseUrl: f.baseUrl, username: 'bob', cookie: '__Host-muse=bob-session' })
+  const bob = await readMuseSession(f.sessionFile, f.baseUrl)
+  if (!bob) throw new Error('Missing replacement login')
+  await modelAccess.saveModelAccess(f.sessionFile, f.baseUrl, bob.revision,
+    [{ id: 'studio', access: { baseURL: 'https://supplier.test/v1', apiKey: 'bob-fixture-key' } }])
+  release.resolve()
+  await expect(refreshing).resolves.toBeUndefined()
+  expect(await readMuseSession(f.sessionFile, f.baseUrl)).toMatchObject({ username: 'bob', revision: bob.revision })
+  expect(JSON.parse(await readFile(f.accessFile, 'utf8'))).toMatchObject({ revision: bob.revision,
+    providers: [{ id: 'studio', access: { apiKey: 'bob-fixture-key' } }] })
+  expect(f.ctx.llm.listProviders().map(provider => provider.id)).toEqual(['muse-cloud-studio'])
+})
+
 it('does not issue an old login request after waiting for private-file cleanup', async () => {
   const f = await fixture()
   const current = await readMuseSession(f.sessionFile, f.baseUrl)
