@@ -306,7 +306,6 @@ const VIDEO_OUTPUT = {
  * @param run - The domain method, given the argument bag its own signature declares.
  * @returns An execute function for `defineTool`.
  */
-// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- jubian_find passes FindArgs, not MethodArgs.
 function guarded<A = MethodArgs>(
   tool: string,
   run: (args: A) => Promise<Record<string, unknown>>,
