@@ -9,7 +9,7 @@
   - button "打开配置文件"
   - button "关闭"
   - heading "Agent 预设" [level=2]
-  - paragraph: 选择 Agent 的工具和工作方式。日常任务用「标准模式」，扩展 DSH 的能力用「创造模式」。
+  - paragraph: 从本应用可用的预设中，选择新任务使用的工具和工作方式。
   - heading "内置" [level=3]
   - list:
     - listitem:
