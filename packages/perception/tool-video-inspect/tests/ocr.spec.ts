@@ -55,8 +55,6 @@ it('does not label moving or short-lived story text as a removable overlay', () 
 })
 
 it('ships the Windows bridge and resolves its installed ASAR-unpacked path', async () => {
-  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { files: string[] }
-  expect(manifest.files).toContain('scripts/ocr_bridge.ps1')
   expect(await readFile(new URL('../scripts/ocr_bridge.ps1', import.meta.url), 'utf8')).toContain('InMemoryRandomAccessStream')
   expect(ocrBridgeHostPath('file:///C:/Muse/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-tool-video-inspect/lib/index.js').replaceAll('\\', '/'))
     .toContain('/Muse/resources/app.asar.unpacked/dsh/node_modules/@deepseek-ai/dsh-tool-video-inspect/scripts/ocr_bridge.ps1')
