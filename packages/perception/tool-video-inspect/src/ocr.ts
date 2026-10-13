@@ -192,7 +192,10 @@ function line(value: unknown): RawOcrLine | undefined {
   return { text: source.text, bounding_box: bounding, words }
 }
 
-/** Parse and validate the bounded JSON returned by the PowerShell OCR bridge. */
+/** Parse and validate the bounded JSON returned by the PowerShell OCR bridge.
+ * @param bytes - UTF-8 JSON emitted by the bounded bridge process.
+ * @returns Validated OCR bridge success or failure data.
+ */
 export function parseOcrBridgeResult(bytes: Uint8Array): BridgeResult {
   const value: unknown = JSON.parse(Buffer.from(bytes).toString('utf8'))
   if (!value || typeof value !== 'object' || !('ok' in value)) throw Error('OCR bridge returned an invalid result')
@@ -222,7 +225,10 @@ export function parseOcrBridgeResult(bytes: Uint8Array): BridgeResult {
   return { ok: true, language_used: source.language_used, frames }
 }
 
-/** Split a complete bounded MJPEG stream without accepting partial images. */
+/** Split a complete bounded MJPEG stream without accepting partial images.
+ * @param bytes - Complete bounded MJPEG process output.
+ * @returns Complete JPEG frames in source order.
+ */
 export function splitMjpeg(bytes: Uint8Array): Uint8Array[] {
   const frames: Uint8Array[] = []
   let start = -1
@@ -240,7 +246,10 @@ export function splitMjpeg(bytes: Uint8Array): Uint8Array[] {
   return frames
 }
 
-/** Extract all FFmpeg showinfo presentation timestamps in output order. */
+/** Extract all FFmpeg showinfo presentation timestamps in output order.
+ * @param diagnostic - Bounded FFmpeg diagnostic text.
+ * @returns Finite non-negative presentation timestamps in output order.
+ */
 export function showinfoTimestamps(diagnostic: string): number[] {
   return Array.from(diagnostic.matchAll(/\bpts_time:([\d.e+-]+)/g), match => Number(match[1]))
     .filter(value => Number.isFinite(value) && value >= 0)
@@ -262,7 +271,11 @@ function overlap(left: Box, right: Box): number {
   return union <= 0 ? 0 : intersection / union
 }
 
-/** Classify only long-lived identical overlays and merge adjacent identical evidence conservatively. */
+/** Classify only long-lived identical overlays and merge adjacent identical evidence conservatively.
+ * @param frames - Validated timestamped OCR frame evidence.
+ * @param options - Sampling interval and conservative overlay thresholds.
+ * @returns Time-ordered merged OCR segments retaining evidence identifiers.
+ */
 export function classifyAndMerge(frames: RawOcrFrame[], options: {
   frameIntervalSeconds: number
   persistentOverlayMinFrames: number
@@ -336,7 +349,10 @@ function mergedText(evidence: OcrEvidence): string {
   return [...header, ...evidence.segments.map(segment => `[${timecode(segment.start_seconds)} - ${timecode(segment.end_seconds)}] [${segment.classification}] ${segment.text}`), ''].join('\n')
 }
 
-/** Resolve an executable package asset outside Electron ASAR while retaining source-tree paths in development. */
+/** Resolve an executable package asset outside Electron ASAR while retaining source-tree paths in development.
+ * @param moduleUrl - URL of the source or packaged OCR module.
+ * @returns Host path to the directly executable PowerShell bridge.
+ */
 export function ocrBridgeHostPath(moduleUrl = import.meta.url): string {
   return fileURLToPath(new URL('../scripts/ocr_bridge.ps1', moduleUrl))
     .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
@@ -386,7 +402,11 @@ function textStatus(scanStatus: ScanStatus, frames: RawOcrFrame[], segments: Ocr
   return frames.every(frame => frame.lines.length === 0) ? 'no_text_detected' : 'indeterminate'
 }
 
-/** Register local OCR without adding any cloud or ASR fallback path. */
+/** Register local OCR without adding any cloud or ASR fallback path.
+ * @param ctx - Host context owning tool, filesystem, subprocess and sandbox services.
+ * @param config - Validated video inspection and OCR deployment limits.
+ * @param runtime - Shared operation lifecycle and concurrency owner.
+ */
 export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime): void {
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'video_ocr',
