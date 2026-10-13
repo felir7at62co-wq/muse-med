@@ -825,6 +825,9 @@ importers:
       '@deepseek-ai/dsh-tool-bgm-compose':
         specifier: workspace:*
         version: link:../../packages/drama/tool-bgm-compose
+      '@deepseek-ai/dsh-tool-character-reference':
+        specifier: workspace:*
+        version: link:../../packages/drama/tool-character-reference
       '@deepseek-ai/dsh-tool-drama-assets':
         specifier: workspace:*
         version: link:../../packages/drama/tool-drama-assets
@@ -7735,6 +7738,27 @@ importers:
       '@deepseek-ai/dsh-subprocess':
         specifier: workspace:*
         version: link:../../subprocess/subprocess
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:*
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:*
+        version: link:../../core/tools
+
+  packages/drama/tool-character-reference:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: workspace:~
+        version: link:../../../vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:~
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:*
+        version: link:../../llm/llm
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:*
         version: link:../../core/system-prompt

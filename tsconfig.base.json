@@ -512,6 +512,7 @@
       "@deepseek-ai/dsh-tool-bash-persistent": ["./packages/shell/tool-bash-persistent/src"],
       "@deepseek-ai/dsh-tool-bgm-compose": ["./packages/drama/tool-bgm-compose/src"],
       "@deepseek-ai/dsh-tool-cordis": ["./packages/extensions/tool-cordis/src"],
+      "@deepseek-ai/dsh-tool-character-reference": ["./packages/drama/tool-character-reference/src"],
       "@deepseek-ai/dsh-tool-drama-assets": ["./packages/drama/tool-drama-assets/src"],
       "@deepseek-ai/dsh-tool-episode-render": ["./packages/drama/tool-episode-render/src"],
       "@deepseek-ai/dsh-tool-fs": ["./packages/fs/tool-fs/src"],
