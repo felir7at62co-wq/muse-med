@@ -1,6 +1,6 @@
-/** MUSE account settings page. The Host returns identity and verification state without secrets. */
+/** MUSE account settings page. Each mount verifies the saved login through the Host without exposing secrets. */
 
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from '@deepseek-ai/dsh-muse-account/types'
@@ -49,41 +49,48 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
   const [registerIfMissing, setRegisterIfMissing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<MuseAccountLocaleKey | undefined>(undefined)
+  const lifecycle = useRef(0)
+
+  const showStatus = (result: MuseAccountOutcome<MuseAccountStatus>): void => {
+    if (result.ok) {
+      setAccount(result.value)
+      if (result.value.state === 'signed-in') onSignedIn?.()
+    } else setNotice(ERROR_COPY[result.code] ?? 'error.generic')
+  }
 
   useEffect(() => {
-    let current = true
-    void status({ verify: false }).then((result) => {
-      if (!current) return
-      if (result.ok) {
-        setAccount(result.value)
-        if (result.value.state === 'signed-in') onSignedIn?.()
-      }
-      else setNotice(ERROR_COPY[result.code] ?? 'error.generic')
-    }).catch(() => { if (current) setNotice('error.generic') })
-    return () => { current = false }
+    const current = ++lifecycle.current
+    void status({ verify: true }).then((result) => {
+      if (current !== lifecycle.current) return
+      showStatus(result)
+    }).catch(() => { if (current === lifecycle.current) setNotice('error.generic') })
+    return () => { lifecycle.current++ }
   }, [status])
 
-  const readStatus = async (verify: boolean): Promise<void> => {
+  const readStatus = async (): Promise<void> => {
+    const current = lifecycle.current
     setBusy(true)
     setNotice(undefined)
     try {
-      const result = await status({ verify })
-      if (result.ok) setAccount(result.value)
-      else setNotice(ERROR_COPY[result.code] ?? 'error.generic')
+      const result = await status({ verify: true })
+      if (current !== lifecycle.current) return
+      showStatus(result)
     } catch {
-      setNotice('error.generic')
+      if (current === lifecycle.current) setNotice('error.generic')
     } finally {
-      setBusy(false)
+      if (current === lifecycle.current) setBusy(false)
     }
   }
 
   const signIn = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
     if (busy || username.trim().length === 0 || password.length === 0) return
+    const current = lifecycle.current
     setBusy(true)
     setNotice(undefined)
     try {
       const result = await login({ username: username.trim(), password, registerIfMissing })
+      if (current !== lifecycle.current) return
       if (result.ok) {
         setAccount(result.value.status)
         onSignedIn?.()
@@ -93,18 +100,22 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
         setNotice(ERROR_COPY[result.code] ?? 'error.generic')
       }
     } catch {
-      setNotice('error.generic')
+      if (current === lifecycle.current) setNotice('error.generic')
     } finally {
-      setPassword('')
-      setBusy(false)
+      if (current === lifecycle.current) {
+        setPassword('')
+        setBusy(false)
+      }
     }
   }
 
   const signOut = async (): Promise<void> => {
+    const current = lifecycle.current
     setBusy(true)
     setNotice(undefined)
     try {
       const result = await logout()
+      if (current !== lifecycle.current) return
       if (result.ok) {
         setAccount(result.value)
         setUsername('')
@@ -113,10 +124,12 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
         setNotice(ERROR_COPY[result.code] ?? 'error.generic')
       }
     } catch {
-      setNotice('error.generic')
+      if (current === lifecycle.current) setNotice('error.generic')
     } finally {
-      setPassword('')
-      setBusy(false)
+      if (current === lifecycle.current) {
+        setPassword('')
+        setBusy(false)
+      }
     }
   }
 
@@ -127,7 +140,7 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
       {account === undefined
         ? <div className={css.actions}>
           {notice === undefined ? <p className={css.status} aria-busy="true">{t('loading')}</p> : null}
-          {notice === undefined ? null : <Button disabled={busy} onClick={() => { void readStatus(false) }}>{t('retry')}</Button>}
+          {notice === undefined ? null : <Button disabled={busy} onClick={() => { void readStatus() }}>{t('retry')}</Button>}
         </div>
         : account.state === 'signed-in'
           ? <div className={css.group}>
@@ -135,7 +148,7 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
             <p className={css.status}>{t(account.verified ? 'verified' : 'verificationPending')}</p>
             {account.workspaceLabel === undefined ? null : <p className={css.status}>{t('workspaceNamed', { workspace: account.workspaceLabel })}</p>}
             <div className={css.actions}>
-              <Button disabled={busy} onClick={() => { void readStatus(true) }}>{t('verify')}</Button>
+              <Button disabled={busy} onClick={() => { void readStatus() }}>{t('verify')}</Button>
               <Button disabled={busy} onClick={() => { void signOut() }}>{t('signOut')}</Button>
             </div>
           </div>

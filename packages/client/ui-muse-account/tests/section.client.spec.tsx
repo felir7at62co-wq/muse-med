@@ -87,22 +87,44 @@ describe('MuseAccountSection', () => {
     expect(login).toHaveBeenCalledWith({ username: 'writer', password: 'private-password', registerIfMissing: false })
   })
 
-  it('checks an existing session on request and signs out', async () => {
+  it('revalidates an existing session after verification and reopening, then signs out', async () => {
     const status = vi.fn(async ({ verify }: MuseAccountStatusRequest) => ({
       ok: true as const,
       value: verify ? SIGNED_IN : { ...SIGNED_IN, verified: false },
     }))
     const logout = vi.fn(async () => ({ ok: true as const, value: SIGNED_OUT }))
-    render(<MuseAccountSection {...props({ status, logout })} />)
+    const account = props({ status, logout })
+    const page = render(<MuseAccountSection {...account} />)
 
-    expect(await screen.findByText('verificationPending')).toBeDefined()
-    expect(status).toHaveBeenCalledWith({ verify: false })
-    fireEvent.click(screen.getByRole('button', { name: 'verify' }))
     expect(await screen.findByText('verified')).toBeDefined()
-    expect(status).toHaveBeenCalledWith({ verify: true })
+    expect(status).toHaveBeenNthCalledWith(1, { verify: true })
+    fireEvent.click(screen.getByRole('button', { name: 'verify' }))
+    await waitFor(() => { expect(status).toHaveBeenCalledTimes(2) })
+    expect(status).toHaveBeenNthCalledWith(2, { verify: true })
+    page.unmount()
+    render(<MuseAccountSection {...account} />)
+    expect(await screen.findByText('verified')).toBeDefined()
+    expect(screen.queryByText('verificationPending')).toBeNull()
+    expect(status).toHaveBeenNthCalledWith(3, { verify: true })
     fireEvent.click(screen.getByRole('button', { name: 'signOut' }))
     expect(logout).toHaveBeenCalledTimes(1)
     expect(await screen.findByRole('button', { name: 'signIn' })).toBeDefined()
+  })
+
+  it('shows sign-in when the gateway rejects the session after reopening', async () => {
+    const status = vi.fn<MuseAccountInjected['status']>()
+      .mockResolvedValueOnce({ ok: true, value: SIGNED_IN })
+      .mockResolvedValueOnce({ ok: true, value: SIGNED_OUT })
+    const account = props({ status })
+    const page = render(<MuseAccountSection {...account} />)
+    expect(await screen.findByText('verified')).toBeDefined()
+    page.unmount()
+    render(<MuseAccountSection {...account} />)
+
+    expect(await screen.findByRole('button', { name: 'signIn' })).toBeDefined()
+    expect(status).toHaveBeenNthCalledWith(2, { verify: true })
+    expect(screen.queryByText('verified')).toBeNull()
+    expect(screen.queryByText('accountNamed')).toBeNull()
   })
 
   it('shows fixed copy for a login refusal without exposing the password', async () => {
@@ -118,15 +140,23 @@ describe('MuseAccountSection', () => {
     expect(screen.queryByText('private-password')).toBeNull()
   })
 
-  it('offers retry after a status refusal', async () => {
+  it('retries online verification when reopening after a successful check encounters a gateway outage', async () => {
     const status = vi.fn()
+      .mockResolvedValueOnce({ ok: true as const, value: SIGNED_IN })
       .mockResolvedValueOnce({ ok: false as const, code: 'muse-account/gateway-unavailable' })
-      .mockResolvedValueOnce({ ok: true as const, value: SIGNED_OUT })
-    render(<MuseAccountSection {...props({ status })} />)
+      .mockResolvedValueOnce({ ok: true as const, value: SIGNED_IN })
+    const account = props({ status })
+    const page = render(<MuseAccountSection {...account} />)
+    expect(await screen.findByText('verified')).toBeDefined()
+    page.unmount()
+    render(<MuseAccountSection {...account} />)
 
     expect(await screen.findByText('error.gatewayUnavailable')).toBeDefined()
+    expect(screen.queryByText('verified')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'retry' }))
-    await waitFor(() => { expect(screen.getByRole('button', { name: 'signIn' })).toBeDefined() })
+    expect(await screen.findByText('verified')).toBeDefined()
+    expect(status).toHaveBeenNthCalledWith(2, { verify: true })
+    expect(status).toHaveBeenNthCalledWith(3, { verify: true })
   })
 
   it('clears a password and permits a new sign-in after the Host connection drops', async () => {
@@ -170,6 +200,67 @@ it('uses Muse sign-in to advance the desktop first-run flow', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'signIn' }))
   await waitFor(() => { expect(complete).toHaveBeenCalledOnce() })
   expect(screen.queryByDisplayValue('private-password')).toBeNull()
+})
+
+it('advances onboarding when retry confirms an already saved login', async () => {
+  const complete = vi.fn()
+  const status = vi.fn<MuseAccountInjected['status']>()
+    .mockResolvedValueOnce({ ok: false, code: 'muse-account/gateway-unavailable' })
+    .mockResolvedValueOnce({ ok: true, value: SIGNED_IN })
+  render(<MuseAccountOnboarding {...props({ status })} stepId="muse-account" complete={complete} openSection={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'retry' }))
+  await screen.findByText('verified')
+  expect(complete).toHaveBeenCalledOnce()
+})
+
+it('does not advance a dismissed onboarding page when its pending login succeeds', async () => {
+  const complete = vi.fn()
+  let finish!: (value: Awaited<ReturnType<MuseAccountInjected['login']>>) => void
+  const login: MuseAccountInjected['login'] = () => new Promise((resolve) => { finish = resolve })
+  const page = render(<MuseAccountOnboarding {...props({ login })} stepId="muse-account" complete={complete} openSection={vi.fn()} />)
+  fireEvent.change(await screen.findByLabelText('username'), { target: { value: 'writer' } })
+  fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
+  fireEvent.click(screen.getByRole('button', { name: 'signIn' }))
+  fireEvent.click(screen.getByRole('button', { name: 'onboardingLater' }))
+  page.unmount()
+  await act(async () => { finish({ ok: true, value: { outcome: 'signed-in', status: SIGNED_IN } }) })
+  expect(complete).toHaveBeenCalledOnce()
+})
+
+it.each(['verify', 'login', 'logout'] as const)('ignores %s completion after page close', async (operation) => {
+  for (const reject of [false, true]) {
+    let finishStatus!: (value: Awaited<ReturnType<MuseAccountInjected['status']>>) => void
+    let finishLogin!: (value: Awaited<ReturnType<MuseAccountInjected['login']>>) => void
+    let fail!: (reason: Error) => void
+    const statusPending = new Promise<Awaited<ReturnType<MuseAccountInjected['status']>>>((resolve, no) => {
+      finishStatus = resolve
+      if (operation !== 'login') fail = no
+    })
+    const loginPending = new Promise<Awaited<ReturnType<MuseAccountInjected['login']>>>((resolve, no) => {
+      finishLogin = resolve
+      if (operation === 'login') fail = no
+    })
+    const onSignedIn = vi.fn()
+    const status = vi.fn<MuseAccountInjected['status']>().mockResolvedValueOnce({ ok: true, value: operation === 'login' ? SIGNED_OUT : SIGNED_IN })
+    status.mockImplementation(() => statusPending)
+    const page = render(<MuseAccountSection
+      {...props({ status, login: () => loginPending, logout: () => statusPending })} onSignedIn={onSignedIn}
+    />)
+    if (operation === 'login') {
+      fireEvent.change(await screen.findByLabelText('username'), { target: { value: 'writer' } })
+      fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
+    }
+    fireEvent.click(await screen.findByRole('button', { name: operation === 'login' ? 'signIn' : operation === 'logout' ? 'signOut' : 'verify' }))
+    onSignedIn.mockClear()
+    page.unmount()
+    await act(async () => {
+      if (reject) fail(new Error('private delayed failure'))
+      else if (operation === 'login') finishLogin({ ok: true, value: { outcome: 'signed-in', status: SIGNED_IN } })
+      else finishStatus({ ok: true, value: SIGNED_OUT })
+    })
+    expect(onSignedIn).not.toHaveBeenCalled()
+    expect(screen.queryByText('private delayed failure')).toBeNull()
+  }
 })
 
 it.each([false, true])('restores the page inert state after onboarding (previous=%s)', async (previous) => {

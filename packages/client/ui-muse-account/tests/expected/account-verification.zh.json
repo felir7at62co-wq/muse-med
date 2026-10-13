@@ -1,0 +1,66 @@
+{
+  "verified": {
+    "paragraphs": [
+      "登录失败时可选择尝试注册新账号；已有账号的错误密码不会更改该账号。密码只用于本次登录，不会发给 Agent。",
+      "当前账号：writer",
+      "账号已验证。",
+      "工作空间：First studio"
+    ],
+    "buttons": [
+      {
+        "name": "验证登录状态",
+        "disabled": false
+      },
+      {
+        "name": "退出登录",
+        "disabled": false
+      }
+    ],
+    "inputs": []
+  },
+  "reopened": {
+    "paragraphs": [
+      "登录失败时可选择尝试注册新账号；已有账号的错误密码不会更改该账号。密码只用于本次登录，不会发给 Agent。",
+      "当前账号：writer",
+      "账号已验证。",
+      "工作空间：Changed studio"
+    ],
+    "buttons": [
+      {
+        "name": "验证登录状态",
+        "disabled": false
+      },
+      {
+        "name": "退出登录",
+        "disabled": false
+      }
+    ],
+    "inputs": []
+  },
+  "signedOut": {
+    "paragraphs": [
+      "登录失败时可选择尝试注册新账号；已有账号的错误密码不会更改该账号。密码只用于本次登录，不会发给 Agent。",
+      "已退出登录。"
+    ],
+    "buttons": [
+      {
+        "name": "登录",
+        "disabled": true
+      }
+    ],
+    "inputs": [
+      {
+        "name": "账号",
+        "type": "text"
+      },
+      {
+        "name": "密码",
+        "type": "password"
+      },
+      {
+        "name": "登录失败时尝试注册新账号",
+        "type": "checkbox"
+      }
+    ]
+  }
+}
