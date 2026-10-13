@@ -4609,7 +4609,13 @@ export interface Config {
   maxContactPixels: number
   /** Maximum complete overview-page bytes per call. */
   maxContactBytes: number
-  /** Default Windows OCR recognition language. */
+  /** Local OCR engine; the RapidOCR deployment includes its Python runtime and pinned models. */
+  ocrEngine: 'windows-native' | 'rapidocr'
+  /** Same-world Python interpreter for the RapidOCR bridge. */
+  ocrPythonPath: string
+  /** CPU threads used by the RapidOCR engine. */
+  ocrCpuThreads: number
+  /** Default OCR recognition language. */
   ocrLanguage: 'auto' | 'zh-Hans-CN' | 'zh-Hant-TW' | 'en-US'
   /** Default seconds between OCR frame samples. */
   ocrFrameIntervalSeconds: number

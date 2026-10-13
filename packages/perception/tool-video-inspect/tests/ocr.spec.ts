@@ -60,6 +60,12 @@ it('ships the Windows bridge and resolves its installed ASAR-unpacked path', asy
     .toContain('/Muse/resources/app.asar.unpacked/dsh/node_modules/@deepseek-ai/dsh-tool-video-inspect/scripts/ocr_bridge.ps1')
 })
 
+it('ships the offline Python bridge and resolves its installed ASAR-unpacked path', async () => {
+  expect(await readFile(new URL('../scripts/ocr_bridge.py', import.meta.url), 'utf8')).toContain('model_path')
+  expect(ocrBridgeHostPath('file:///Applications/Muse.app/Contents/Resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-tool-video-inspect/lib/index.js', 'rapidocr'))
+    .toContain('/app.asar.unpacked/dsh/node_modules/@deepseek-ai/dsh-tool-video-inspect/scripts/ocr_bridge.py')
+})
+
 it('keeps a long-held narrative subtitle as content even when its visual persistence matches a watermark', () => {
   const frames = Array.from({ length: 24 }, (_, index) => frame(`f-${index}`, index / 2,
     [line('我终于找到你了', 20, 70), line('I finally found you.', 10, 50)]))

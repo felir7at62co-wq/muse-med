@@ -82,7 +82,13 @@ export interface Config {
   maxContactPixels: number
   /** Maximum complete overview-page bytes per call. */
   maxContactBytes: number
-  /** Default Windows OCR recognition language. */
+  /** Local OCR engine; the RapidOCR deployment includes its Python runtime and pinned models. */
+  ocrEngine: 'windows-native' | 'rapidocr'
+  /** Same-world Python interpreter for the RapidOCR bridge. */
+  ocrPythonPath: string
+  /** CPU threads used by the RapidOCR engine. */
+  ocrCpuThreads: number
+  /** Default OCR recognition language. */
   ocrLanguage: 'auto' | 'zh-Hans-CN' | 'zh-Hant-TW' | 'en-US'
   /** Default seconds between OCR frame samples. */
   ocrFrameIntervalSeconds: number
@@ -149,6 +155,9 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   maxContactRangeSeconds: Schema.number().min(1).max(3600).default(300),
   maxContactPixels: Schema.number().step(1).min(1).max(33_177_600).default(16_000_000),
   maxContactBytes: Schema.number().step(1).min(1024).max(32 * 1024 * 1024).default(8 * 1024 * 1024),
+  ocrEngine: Schema.union(['windows-native', 'rapidocr']).default('windows-native'),
+  ocrPythonPath: Schema.string().default('python3'),
+  ocrCpuThreads: Schema.number().step(1).min(1).max(16).default(2),
   ocrLanguage: Schema.union(['auto', 'zh-Hans-CN', 'zh-Hant-TW', 'en-US']).default('auto'),
   ocrFrameIntervalSeconds: Schema.number().min(0.1).max(60).default(0.5),
   ocrMinFrameIntervalSeconds: Schema.number().min(0.1).max(60).default(0.25),

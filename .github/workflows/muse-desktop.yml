@@ -52,8 +52,10 @@ jobs:
         run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
       - name: Check download bundle packaging
         run: node --test third_party/plugins/download-pack.test.mjs
-      - name: Check optional 3D anime skill preflight
+      - name: Check bundled 3D anime skill preflight
         run: python -B -m unittest discover -s packages/drama/skills/tests/anime_3d
+      - name: Check offline OCR process protocol
+        run: python -B -m unittest discover -s packages/perception/tool-video-inspect/tests -p test_ocr_bridge.py
       - name: Verify shipped drama skill resources
         run: |
           python -m unittest discover -s packages/drama/skills/tests -p test_pack.py
@@ -66,6 +68,9 @@ jobs:
           node --input-type=module -e "import { writeFileSync } from 'node:fs';
           writeFileSync('apps/desktop/.env.' + (process.platform === 'win32' ? 'windows' : 'macos'),
           'DSH_DESKTOP_APP_ID=cn.muse.med\nDSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false\n');"
+      - name: Check native Windows install and automatic update UI
+        if: matrix.target == 'win-x64'
+        run: pnpm --dir apps/desktop run test:installer
       - name: Build and verify the assembled application
         run: pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned
       - name: Record the exact unsigned build
@@ -108,4 +113,12 @@ jobs:
           name: muse-${{ matrix.target }}-diagnostics-${{ github.sha }}
           path: apps/desktop/.desktop-build/packaging-runs/
           if-no-files-found: ignore
+          retention-days: 14
+      - name: Retain Windows installer UI evidence
+        if: always() && matrix.target == 'win-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: muse-win-x64-installer-ui-${{ github.sha }}
+          path: apps/desktop/.desktop-build/installer-tests/
+          if-no-files-found: warn
           retention-days: 14

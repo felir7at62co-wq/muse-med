@@ -226,6 +226,42 @@ try {
     $registration = Get-ItemProperty ('HKCU:\Software\' + $RegistryKey)
     if ($registration.InstallLocation.TrimEnd('\') -ne $installPath) { throw 'Silent update changed InstallLocation' }
     $results.Add('silent-update-retains-directory-and-ignores-unrelated-process')
+    # The /S argument models older Muse updaters; this automatic restart must still expose installation progress.
+    $process = Start-Process -FilePath $Installer -ArgumentList '/S --updated --force-run /THEME=dark' -PassThru -WindowStyle Hidden
+    $processes.Add($process)
+    $window = [InstallerCapture]::Find($process.Id)
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    $observedProgress = $false
+    $observedComplete = $false
+    $previous = 0
+    while (-not $process.HasExited) {
+        if ($timer.Elapsed.TotalSeconds -gt 30) { throw 'Visible automatic update did not complete' }
+        if ([InstallerCapture]::FindButton($process.Id, $copy.INSTALLER_FINISH) -ne [IntPtr]::Zero) { throw 'Automatic update waited for a manual finish click' }
+        $visible = [InstallerCapture]::VisibleText($process.Id)
+        if ($visible -match 'HarnessInstallerProgress[^\r\n]*?(\d+)%') {
+            $percent = [int]$Matches[1]
+            if ($percent -lt $previous) { throw 'Automatic update progress went backwards' }
+            if ($percent -eq 100 -and [InstallerCapture]::GetProp($window, 'HarnessInstaller.Succeeded') -eq [IntPtr]::Zero) { throw 'Automatic update showed completion before installation succeeded' }
+            if (-not $observedProgress) { [void][InstallerCapture]::Save($window, (Join-Path $OutputDirectory 'automatic-update-progress.png')) }
+            $observedProgress = $true
+            $previous = $percent
+        }
+        if ([InstallerCapture]::GetProp($window, 'HarnessInstaller.CompletedPercent').ToInt32() -eq 100) { $observedComplete = $true }
+        Start-Sleep -Milliseconds 25
+    }
+    if ($process.ExitCode -ne 0 -or -not $observedProgress -or -not $observedComplete) { throw 'Automatic update did not paint verified progress through successful completion' }
+    $timer.Restart()
+    $app = $null
+    while (-not $app -and $timer.Elapsed.TotalSeconds -lt 10) {
+        $app = Get-Process -Name $ProductName -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $appPath } | Select-Object -First 1
+        if (-not $app) { Start-Sleep -Milliseconds 25 }
+    }
+    if (-not $app) { throw 'Automatic update did not relaunch its own installed application' }
+    $processes.Add($app)
+    [void](Wait-Control $app 'Installer test application is running.' -Dialog)
+    Dismiss $app 'Installer test application is running.'
+    if (-not $app.WaitForExit(10000)) { throw 'Automatically reopened test application did not exit' }
+    $results.Add('automatic-update-shows-progress-and-relaunches-without-finish-click')
     Run-Silent ('/S /allusers /D=' + $installPath) 2
     $foreign = Join-Path $OutputDirectory 'Foreign App'
     New-Item -ItemType Directory -Path $foreign | Out-Null

@@ -359,6 +359,8 @@
 - id: tool-video-inspect
   name: '@deepseek-ai/dsh-tool-video-inspect'
   config:
+    ocrEngine: rapidocr
+    ocrPythonPath: !!js process.env.MUSE_OCR_PYTHON_PATH || 'python3'
     ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
     ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
 

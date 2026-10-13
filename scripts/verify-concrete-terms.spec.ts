@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -7,6 +7,14 @@ import { findConcreteTermViolations, readTrackedSource } from './verify-concrete
 const blockedTerm = 'prove' + 'nance'
 
 describe('concrete terminology policy', () => {
+  it('retains only the hash-pinned upstream OCR notice at its exact path', () => {
+    const path = 'scripts/primary-runtime/ocr-models-notice.txt'
+    const source = readFileSync(new URL('./primary-runtime/ocr-models-notice.txt', import.meta.url), 'utf8')
+    expect(findConcreteTermViolations(path, source)).toEqual([])
+    expect(() => findConcreteTermViolations(path, source + '\n')).toThrow('pinned upstream OCR notice changed')
+    expect(findConcreteTermViolations(path + '.copy', source)).toHaveLength(2)
+    expect(findConcreteTermViolations('scripts/primary-runtime/owned-notice.txt', blockedTerm)).toHaveLength(1)
+  })
   it('keeps pinned community text while checking owned plugins', () => {
     const term = 'prove' + 'nance'
     expect(findConcreteTermViolations('third_party/plugins/dsh-bridge/src/index.ts', term)).toEqual([])

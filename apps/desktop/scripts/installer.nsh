@@ -136,6 +136,11 @@ ManifestDPIAware true
 !endif
 
 !macro customInit
+  ${If} ${isUpdated}
+  ${AndIf} ${isForceRun}
+    ; Older Muse updaters pass /S; an authorized automatic update still shows its installation progress.
+    SetSilent normal
+  ${EndIf}
   ${If} ${isForAllUsers}
     MessageBox MB_OK|MB_ICONEXCLAMATION "$(INSTALLER_PER_USER)" /SD IDOK
     SetErrorLevel 2

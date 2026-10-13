@@ -208,6 +208,8 @@
 - id: tool-video-inspect
   name: '@deepseek-ai/dsh-tool-video-inspect'
   config:
+    ocrEngine: rapidocr
+    ocrPythonPath: !!js process.env.MUSE_OCR_PYTHON_PATH || 'python3'
     trustedEvidence: true
     frameFormat: jpeg
     frameJpegQuality: 2

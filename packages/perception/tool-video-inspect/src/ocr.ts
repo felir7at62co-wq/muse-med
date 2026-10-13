@@ -1,4 +1,4 @@
-/** Windows-local OCR over bounded, timestamped video frame batches. */
+/** Local OCR over bounded, timestamped video frame batches. */
 import { randomUUID } from 'node:crypto'
 import { platform } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -30,7 +30,7 @@ interface OcrWord {
   bounding_box: Box
 }
 
-/** One unmodified OCR line from the Windows bridge. */
+/** One unmodified OCR line from the selected local bridge. */
 export interface RawOcrLine {
   text: string
   bounding_box: Box
@@ -193,7 +193,7 @@ function line(value: unknown): RawOcrLine | undefined {
   return { text: source.text, bounding_box: bounding, words }
 }
 
-/** Parse and validate the bounded JSON returned by the PowerShell OCR bridge.
+/** Parse and validate the bounded JSON returned by the selected local OCR bridge.
  * @param bytes - UTF-8 JSON emitted by the bounded bridge process.
  * @returns Validated OCR bridge success or failure data.
  */
@@ -358,10 +358,11 @@ function mergedText(evidence: OcrEvidence): string {
 
 /** Resolve an executable package asset outside Electron ASAR while retaining source-tree paths in development.
  * @param moduleUrl - URL of the source or packaged OCR module.
- * @returns Host path to the directly executable PowerShell bridge.
+ * @param engine - Selected bridge, defaulting to the existing Windows engine.
+ * @returns Host path to the directly executable local bridge.
  */
-export function ocrBridgeHostPath(moduleUrl = import.meta.url): string {
-  return fileURLToPath(new URL('../scripts/ocr_bridge.ps1', moduleUrl))
+export function ocrBridgeHostPath(moduleUrl = import.meta.url, engine: Config['ocrEngine'] = 'windows-native'): string {
+  return fileURLToPath(new URL(engine === 'rapidocr' ? '../scripts/ocr_bridge.py' : '../scripts/ocr_bridge.ps1', moduleUrl))
     .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
 }
 
@@ -388,14 +389,15 @@ async function extractBatch(ctx: Context, config: Config, source: string, ffmpeg
 }
 
 async function runBridge(ctx: Context, config: Config, policy: ReturnType<Context['sandboxPolicy']['resolve']>, signal: AbortSignal,
-  powershell: string, script: string, language: OcrLanguage, frames: ExtractedFrame[]): Promise<BridgeResult> {
-  const stdin = JSON.stringify({ language, frames: frames.map(frame => ({ id: frame.id,
+  executable: string, script: string, language: OcrLanguage, frames: ExtractedFrame[]): Promise<BridgeResult> {
+  const stdin = JSON.stringify({ language, ...(config.ocrEngine === 'rapidocr' ? { cpu_threads: config.ocrCpuThreads } : {}), frames: frames.map(frame => ({ id: frame.id,
     timestamp_seconds: frame.timestamp_seconds, image_base64: Buffer.from(frame.bytes).toString('base64') })) })
   if (Buffer.byteLength(stdin, 'utf8') > config.maxOcrBridgeInputBytes) throw Error('OCR bridge input exceeds its byte limit')
-  const output = await Media.runMedia(ctx, [powershell, '-NoLogo', '-NoProfile', '-NonInteractive',
-    '-ExecutionPolicy', 'Bypass', '-File', script],
-  policy, signal, { timeoutMs: config.ocrCommandTimeoutMs, graceMs: config.graceMs,
-    maxBytes: config.maxOcrOutputBytes, maxDiagnosticBytes: config.maxOcrDiagnosticBytes, stdin })
+  const command = config.ocrEngine === 'rapidocr' ? [executable, '-I', '-B', script]
+    : [executable, '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script]
+  const output = await Media.runMedia(ctx, command,
+    policy, signal, { timeoutMs: config.ocrCommandTimeoutMs, graceMs: config.graceMs,
+      maxBytes: config.maxOcrOutputBytes, maxDiagnosticBytes: config.maxOcrDiagnosticBytes, stdin })
   return parseOcrBridgeResult(output.bytes)
 }
 
@@ -413,7 +415,7 @@ function textStatus(scanStatus: ScanStatus, frames: RawOcrFrame[], segments: Ocr
 export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime): void {
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'video_ocr',
-    description: 'Recognize visible text from bounded, timestamped samples of a local video with Windows OCR. '
+    description: 'Recognize visible text from bounded, timestamped samples of a local video with the configured offline OCR engine. '
       + 'Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. '
       + 'A partial or failed scan is indeterminate, never proof that the video has no subtitles. '
       + 'Persistent text remains a content candidate; visual persistence does not identify watermarks or non-narrative text. This tool never invokes audio transcription.',
@@ -422,7 +424,7 @@ export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime)
       start_seconds: { type: 'number', description: 'Inclusive source range start; default 0.' },
       end_seconds: { type: 'number', description: `Exclusive source range end; default video end. One call scans at most ${config.ocrMaxRangeSeconds}s and ${config.ocrMaxFrames} frames; continue from next_start_seconds.` },
       frame_interval_seconds: { type: 'number', description: `OCR sample spacing; default ${config.ocrFrameIntervalSeconds}s.` },
-      language: { type: 'string', enum: ['auto', 'zh-Hans-CN', 'zh-Hant-TW', 'en-US'], description: `Windows OCR language; default ${config.ocrLanguage}. Missing requested language returns an explicit failure and never falls back to ASR.` },
+      language: { type: 'string', enum: ['auto', 'zh-Hans-CN', 'zh-Hant-TW', 'en-US'], description: `OCR language; default ${config.ocrLanguage}. Missing requested language returns an explicit failure and never falls back to ASR.` },
       raw_json_path: { type: 'string', description: 'Optional new raw evidence JSON path inside the workspace. Existing files are never replaced.' },
       merged_text_path: { type: 'string', description: 'Optional new timestamped text path inside the workspace. Existing files are never replaced.' },
     },
@@ -469,25 +471,25 @@ export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime)
       }
       const frames: RawOcrFrame[] = [], failed: number[] = []
       let languageUsed: string | undefined, failureCode: OcrEvidence['failure_code']
-      if (platform() !== 'win32') {
+      if (config.ocrEngine === 'windows-native' && platform() !== 'win32') {
         failed.push(...planned)
         failureCode = 'windows_only'
       } else {
-        const scriptHostPath = ocrBridgeHostPath()
+        const scriptHostPath = ocrBridgeHostPath(import.meta.url, config.ocrEngine)
         const script = ctx.fs.processPathFromHostPath(scriptHostPath)
         if (script === undefined) {
           failed.push(...planned)
           failureCode = 'ocr_runtime_unavailable'
         } else {
-          let ffmpeg: string | undefined, powershell: string | undefined
+          let ffmpeg: string | undefined, executable: string | undefined
           try {
             ffmpeg = await ctx.subprocess.resolveExecutable(config.ffmpegPath, undefined, signal)
-            powershell = await ctx.subprocess.resolveExecutable(config.powershellPath, undefined, signal)
+            executable = await ctx.subprocess.resolveExecutable(config.ocrEngine === 'rapidocr' ? config.ocrPythonPath : config.powershellPath, undefined, signal)
           } catch {
             signal.throwIfAborted()
             failureCode = 'ocr_runtime_unavailable'
           }
-          if (!ffmpeg || !powershell) failed.push(...planned)
+          if (!ffmpeg || !executable) failed.push(...planned)
           else for (let offset = 0; offset < planned.length; offset += config.ocrBatchFrames) {
             const batchPlan = planned.slice(offset, offset + config.ocrBatchFrames)
             let extracted: ExtractedFrame[]
@@ -504,7 +506,7 @@ export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime)
             failed.push(...missing)
             let result: BridgeResult
             try {
-              result = await runBridge(ctx, config, policy, signal, powershell, script,
+              result = await runBridge(ctx, config, policy, signal, executable, script,
                 args.language ?? config.ocrLanguage, extracted)
             }
             catch {

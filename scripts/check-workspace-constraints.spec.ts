@@ -280,7 +280,7 @@ describe('package payload constraints', () => {
   it('requires only the exact Windows OCR bridge beside the video inspection runtime', () => {
     const dir = 'packages/perception/tool-video-inspect'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
-    const canonical = ['lib/index.js', 'scripts/ocr_bridge.ps1', 'lib/types/**/*.d.ts']
+    const canonical = ['lib/index.js', 'scripts/ocr_bridge.ps1', 'scripts/ocr_bridge.py', 'lib/types/**/*.d.ts']
     expect(expectedDshPackageFiles(manifest)).toEqual(canonical)
     expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: canonical } })).toEqual([])
     for (const files of [
@@ -321,6 +321,15 @@ describe('package payload constraints', () => {
       .toContainEqual(expect.stringContaining('release member must not set "private": true'))
   })
 
+
+  it('rejects undeclared reference pictures without widening skill publication', () => {
+    const dir = 'packages/drama/skills'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    for (const file of ['skills/anime-3d-assets/references/images/other.png', 'skills/tweet-drama-core/references/images/target-quality.png']) {
+      expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, file] } }))
+        .toContainEqual(expect.stringContaining('resource package file must be a declared skill resource'))
+    }
+  })
   it.each([
     ['./art/icon.svg', ['art/icon.svg']],
     [{ import: './art/icon.svg', default: './art/fallback.svg' }, ['art/icon.svg', 'art/fallback.svg']],

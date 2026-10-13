@@ -1,4 +1,4 @@
-"""Offline generation preflight regressions for the optional anime asset skill."""
+"""Offline generation preflight regressions for the bundled anime asset skill."""
 import copy
 import importlib.util
 import json
@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 PACKAGE = Path(__file__).resolve().parents[2]
-SKILL = PACKAGE / "optional-skills/anime-3d-assets"
+SKILL = PACKAGE / "skills/anime-3d-assets"
 SCRIPT = SKILL / "scripts/validate_generation_request.py"
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 STYLE_URL = "https://example.invalid/style.png"
@@ -454,10 +454,11 @@ class OptionalResources(unittest.TestCase):
         self.assertIn(command, workflow)
         self.assertLess(workflow.index(command), workflow.index("Build and verify the assembled application"))
 
-    def test_optional_source_is_excluded_from_the_default_package(self):
+    def test_complete_asset_skill_is_included_in_the_default_package(self):
         package = json.loads((PACKAGE / "package.json").read_text(encoding="utf-8"))
-        self.assertTrue(all(not name.startswith("optional-skills") for name in package["files"]))
-        self.assertFalse((PACKAGE / "skills/anime-3d-assets").exists())
+        expected = {path.relative_to(PACKAGE).as_posix() for path in SKILL.rglob("*") if path.is_file()}
+        self.assertTrue(expected.issubset(set(package["files"])))
+        self.assertIn("skills/anime-3d-assets/SKILL.md", expected)
 
 
 if __name__ == "__main__":

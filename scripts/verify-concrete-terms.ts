@@ -1,6 +1,7 @@
 /** Reject one ambiguous origin label from maintained tracked files. */
 
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync, readlinkSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -36,8 +37,15 @@ function containsBlockedTerm(value: string): boolean {
  * @param file - repository-relative tracked path.
  * @param source - text contents or symlink target.
  * @returns Violations outside retained source copies, frozen Agent Notes, historical schemas and their generated regions.
+ * @throws When the pinned upstream OCR notice has changed.
  */
 export function findConcreteTermViolations(file: string, source: string): ConcreteTermViolation[] {
+  if (file === 'scripts/primary-runtime/ocr-models-notice.txt') {
+    if (createHash('sha256').update(source).digest('hex') !== 'c5fd0e8603d3df743355b546121e6fe0f4ef8ff455c5a85c1681fd3ae520e153') {
+      throw new Error('verify-concrete-terms: pinned upstream OCR notice changed')
+    }
+    return []
+  }
   if (isExcluded(file)) return []
   const violations: ConcreteTermViolation[] = []
   if (containsBlockedTerm(file)) violations.push({ file, line: null })

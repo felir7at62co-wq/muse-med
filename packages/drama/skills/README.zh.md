@@ -32,7 +32,7 @@ kind: "package-reference"
 
 从[总控](skills/tweet-drama-pipeline/SKILL.md)开始，调用脚本前读取相关技能。保留技能目录相邻：草稿、渲染和交付共用 core 的视频禁用检查。使用 Python 3.11 或更新版本。图片辅助模块需要 Pillow，文档辅助模块需要 python-docx，草稿生成需要 pyJianYingDraft；其他可选依赖由各技能说明。同名草稿已存在时拒绝生成，不删除旧目录；每个候选版本须使用不同的 `name_prefix`，且不能包含路径分隔符或 Windows 保留字符。包内不附带 Python 解释器、依赖环境或 FFmpeg 二进制。
 
-如需手动安装个人版 [3D 动漫资产技能](optional-skills/anime-3d-assets/SKILL.md)，将整个 `optional-skills/anime-3d-assets` 目录复制到独立个人技能目录，保留其中的 `scripts`、`references` 和 `assets`。消费方加载器负责启用；生成前读取[首轮要求](optional-skills/anime-3d-assets/references/first-pass-cg.md)。
+内置的 [3D 动漫资产技能](skills/anime-3d-assets/SKILL.md)为已明确确认的 3D 项目提供人物、场景、道具设计、参考图与视觉检查。生成前读取[首轮要求](skills/anime-3d-assets/references/first-pass-cg.md)；既有项目圣经和资产清单仍是权威记录。
 
 [项目圣经技能](skills/tweet-drama-project-bible/SKILL.md) 用一次集中问题询问缺少的创意与实时 SD 模型选择，复用已给答案，并通过 drama_project 保存审阅后的更新。风格题提供仿真人、3D 和其他（自行输入）；用户自填的原文作为风格保存。生成分辨率与交付尺寸分开；可选角色声音指导伴随说话人核对与实际听音审核。Wiki 参考指导写作，不阻塞启动。已有项目保留稳定视频包/分镜身份、已完成任务和版本记录。
 
@@ -72,7 +72,7 @@ npm test
 
 `package.json#files` 逐文件列出分发内容，不使用家庭目录整树或宽泛目录 glob。包排除凭据、cookies、缓存、日志、虚拟环境、可执行文件、用户索引、逐项目媒体和第三方模板 PDF；包内唯一的用户媒体是渲染器要用的两份片尾素材。测试只保留在源码中，不打包。这个私有、未授权许可的资源包没有 Cordis 入口或 TypeScript 项目。不发布运行时 invariant 伴随模块，因为静态技能文件没有可独立变化的运行时观测。
 
-`optional-skills` 不在 npm 文件清单中，不自动启用。维护这些源码不会同步已安装副本，也不会更改生产配置。
+完整的 `anime-3d-assets` 资源树随包提供给文件系统技能加载器。更新源码不会同步个人技能副本或已安装版本。
 
 发布检查会逐一比对实际 npm 压缩包和文件清单，包括[导演镜头格式指南](skills/tweet-drama-early-shot-script/references/director-format.md)；遗漏、未登记或内容过期的资源会在桌面端打包前报错。
 

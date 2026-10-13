@@ -343,22 +343,58 @@ async function addAudioTail(h: Awaited<ReturnType<typeof setup>>): Promise<Media
   return container
 }
 
-function mockWindowsOcr(result?: { ok: false; code: string }) {
-  vi.mocked(Os.platform).mockReturnValue('win32')
+function mockWindowsOcr(result?: { ok: false; code: string }, engine: 'windows-native' | 'rapidocr' = 'windows-native') {
+  vi.mocked(Os.platform).mockReturnValue(engine === 'rapidocr' ? 'darwin' : 'win32')
+  const bridge = engine === 'rapidocr' ? 'ocr_bridge.py' : 'ocr_bridge.ps1'
   const original = Media.runMedia
   return vi.spyOn(Media, 'runMedia').mockImplementation(async (...args) => {
-    if (!args[1].some(value => value.endsWith('ocr_bridge.ps1'))) return await original(...args)
+    if (!args[1].some(value => value.endsWith(bridge))) return await original(...args)
     if (result) return { bytes: Buffer.from(JSON.stringify(result)), diagnostic: '' }
     const input = JSON.parse(args[4].stdin ?? '{}') as { language: string; frames: { id: string; timestamp_seconds: number }[] }
     return { bytes: Buffer.from(JSON.stringify({ ok: true,
       language_used: input.language === 'auto' ? 'zh-Hans-CN' : input.language,
       frames: input.frames.map((item, index) => ({ ...item, image_width: 64, image_height: 48, lines: [{
         text: index === 0 ? '你好 Hello' : '第二句', bounding_box: { x: 8, y: 32, width: 48, height: 10 },
-        words: [{ text: index === 0 ? '你好 Hello' : '第二句', bounding_box: { x: 8, y: 32, width: 48, height: 10 } }],
+        words: engine === 'rapidocr' ? [] : [{ text: index === 0 ? '你好 Hello' : '第二句', bounding_box: { x: 8, y: 32, width: 48, height: 10 } }],
       }] })),
     })), diagnostic: '' }
   })
 }
+
+it('uses the isolated Python engine on macOS and preserves timestamped line evidence without inventing word boxes', async () => {
+  const h = await setup({ ocrEngine: 'rapidocr', ocrPythonPath: process.execPath,
+    ocrCpuThreads: 3, ocrFrameIntervalSeconds: 1, ocrBatchFrames: 4 })
+  const run = mockWindowsOcr(undefined, 'rapidocr')
+  const result = await h.ocr({ start_seconds: 1, end_seconds: 3,
+    raw_json_path: 'qa/rapid.json', merged_text_path: 'qa/rapid.txt' })
+  expect(result.value).toMatchObject({ scan_status: 'complete', text_source: 'ocr',
+    language_used: 'zh-Hans-CN', coverage: { processed_frame_count: 2, failed_frame_count: 0 } })
+  const bridgeCalls = run.mock.calls.filter(call => call[1].some(value => value.endsWith('ocr_bridge.py')))
+  expect(bridgeCalls).toHaveLength(1)
+  expect(bridgeCalls[0]![1].slice(0, 3)).toEqual([process.execPath, '-I', '-B'])
+  expect(JSON.parse(bridgeCalls[0]![4].stdin!)).toMatchObject({ cpu_threads: 3 })
+  const raw = JSON.parse(await readFile(join(h.root, 'qa/rapid.json'), 'utf8')) as {
+    frames: { timestamp_seconds: number; lines: { words: unknown[] }[] }[] }
+  expect(raw.frames.map(item => item.timestamp_seconds)).toEqual([1, 2])
+  expect(raw.frames.every(item => item.lines.every(line => line.words.length === 0))).toBe(true)
+  expect(h.ctx.tools.get('audio_transcribe')).toBeUndefined()
+}, 30_000)
+
+it.each(['language_unavailable', 'ocr_engine_unavailable'] as const)('reports Python OCR %s without claiming an empty successful scan', async (code) => {
+  const h = await setup({ ocrEngine: 'rapidocr', ocrPythonPath: process.execPath, ocrFrameIntervalSeconds: 1 })
+  mockWindowsOcr({ ok: false, code }, 'rapidocr')
+  expect((await h.ocr({ end_seconds: 1 })).value).toMatchObject({ scan_status: 'failed',
+    text_status: 'indeterminate', failure_code: code, coverage: { processed_frame_count: 0, failed_frame_count: 1 } })
+})
+
+it('reports a missing Python interpreter before OCR dispatch and keeps the native deployment default', async () => {
+  expect(VideoInspect.Config({}).ocrEngine).toBe('windows-native')
+  const h = await setup({ ocrEngine: 'rapidocr', ocrPythonPath: 'missing-ocr-python-executable', ocrFrameIntervalSeconds: 1 })
+  expect((await h.ocr({ end_seconds: 1 })).value).toMatchObject({ scan_status: 'failed', failure_code: 'ocr_runtime_unavailable' })
+  for (const options of [{ ocrCpuThreads: 0 }, { ocrCpuThreads: 17 }, { ocrCpuThreads: 1.5 }]) {
+    expect(() => VideoInspect.Config(options)).toThrow()
+  }
+})
 
 it('runs real bounded frame extraction with one mocked local OCR batch and publishes source-labelled evidence', async () => {
   const h = await setup({ ocrFrameIntervalSeconds: 1, ocrBatchFrames: 4 })

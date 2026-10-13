@@ -1,12 +1,16 @@
 """Exercise the relocated Office payload with its own isolated interpreter."""
 
 import importlib.metadata
+import hashlib
 import json
 from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
+
+from rapidocr import RapidOCR
+import rapidocr
 
 import numpy
 import pandas
@@ -36,8 +40,33 @@ def main():
     for name, expected in versions.items():
         actual = importlib.metadata.version(name)
         assert actual == expected, (name, actual, expected)
+    for name, source, license_file in [
+        ("certifi", "certifi/core.py", "licenses/LICENSE"),
+        ("tqdm", "tqdm/std.py", "licenses/LICENCE"),
+    ]:
+        distribution = importlib.metadata.distribution(name)
+        files = {str(file): file for file in distribution.files}
+        assert distribution.locate_file(files[source]).read_text(encoding="utf-8"), source
+        notice = next(file for path, file in files.items() if path.endswith(".dist-info/" + license_file))
+        assert "Mozilla Public" in distribution.locate_file(notice).read_text(encoding="utf-8"), str(notice)
     assert numpy.arange(4).sum() == 6
     assert pandas.DataFrame({"n": [1, 2]}).n.sum() == 3
+    model_root = Path(rapidocr.__file__).parent / "models"
+    model_hashes = {
+        "Det": ("PP-OCRv6_det_small.onnx", "090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f"),
+        "Cls": ("ch_ppocr_mobile_v2.0_cls_mobile.onnx", "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"),
+        "Rec": ("PP-OCRv6_rec_small.onnx", "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884"),
+    }
+    model_paths = {}
+    for task, (name, digest) in model_hashes.items():
+        model_path = model_root / name
+        assert hashlib.sha256(model_path.read_bytes()).hexdigest() == digest, name
+        model_paths[f"{task}.model_path"] = str(model_path)
+    ocr = RapidOCR(params={**model_paths, "EngineConfig.onnxruntime.intra_op_num_threads": 2,
+                          "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+                          "EngineConfig.onnxruntime.use_coreml": False,
+                          "Global.log_level": "error"})
+    assert not ocr(numpy.full((80, 160, 3), 255, dtype=numpy.uint8)).txts
 
     with tempfile.TemporaryDirectory(prefix="dsh-office-smoke-") as directory:
         root = Path(directory)

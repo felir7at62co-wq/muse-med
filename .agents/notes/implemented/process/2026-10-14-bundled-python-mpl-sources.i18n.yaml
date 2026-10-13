@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-14-bundled-python-mpl-sources.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-10-14-bundled-python-mpl-sources.md
+/agent-note-bundled-python-mpl-source-distribution:
+  en: bd4a93a418e03bd6
+  zh: e3c4e26b14c1ae00
+/agent-note-bundled-python-mpl-source-distribution/problem:
+  en: 0c7ae330d683e8c8
+  zh: 0dbc53bf980af342
+/agent-note-bundled-python-mpl-source-distribution/decision:
+  en: 5c40de72c866700a
+  zh: f043a7f5afdd7b32
+/agent-note-bundled-python-mpl-source-distribution/alternatives-considered:
+  en: 9d19b60ddec9a4c4
+  zh: b266faa8f3e89adf
+/agent-note-bundled-python-mpl-source-distribution/consequences:
+  en: d53127ec7ddd7e81
+  zh: f65fe0557c2b02a1

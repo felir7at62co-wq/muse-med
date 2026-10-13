@@ -85,6 +85,14 @@ Function InstallerFinish
         Quit
     ${EndIf}
     System::Call 'user32::DestroyWindow(p $InstallerProgressWindow)'
+    ${If} ${isUpdated}
+    ${AndIf} ${isForceRun}
+        HideWindow
+        Call InstallerStartApplication
+        ${IfNot} ${Errors}
+            Abort
+        ${EndIf}
+    ${EndIf}
     StrCpy $InstallerPhase "success"
     Call InstallerCreate
 FunctionEnd

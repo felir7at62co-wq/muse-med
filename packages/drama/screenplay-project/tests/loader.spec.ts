@@ -38,6 +38,8 @@ it('uses real PTC model steps, exposes unprinted rereads and refuses same-step o
   const patch = fileURLToPath(new URL('./fixtures/self-check.cordis.yml', import.meta.url))
   const { stderr } = await runLoaderSmoke({
     label: 'screenplay sequential self-check PTC', tempDirPrefix: 'screenplay-self-check-loader-',
+    // This fixture awaits all model steps and their managed PTC workers; use the coverage lane's existing budget.
+    processTimeoutMs: 60_000,
     binScript: fileURLToPath(new URL('../../../../apps/cli/src/bin.ts', import.meta.url)),
     configPath: patch, binArgs: ['--profile', 'headless', '--patch', patch, '--json', '按真实模型轮自检、验收并导出。'],
     tsconfigPath: fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url)), sourceImport: 'tsx/esm', mode: 'src',
@@ -70,7 +72,7 @@ it('uses real PTC model steps, exposes unprinted rereads and refuses same-step o
     },
   })
   expect(stderr).not.toContain('UNHANDLED')
-}, LOADER_SMOKE_TEST_TIMEOUT_MS)
+}, 90_000)
 
 it.each([
   { binding: 'apply', mutation: 'pre-init', denied: true },

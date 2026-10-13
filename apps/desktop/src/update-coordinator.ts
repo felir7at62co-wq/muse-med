@@ -74,6 +74,7 @@ export class DesktopUpdateCoordinator {
    * @param currentVersion - Actual installed application version.
    * @param downloadResult - Once per completed download attempt, including platform preparation failures.
    * @param sources - Sealed primary and fallback feeds; injected only by updater qualification fixtures.
+   * @param platform - Native updater platform; Windows uses the visible installer progress window.
    */
   constructor(
     private readonly publish: (state: DesktopUpdateState) => DesktopUpdateState,
@@ -84,6 +85,7 @@ export class DesktopUpdateCoordinator {
     private readonly downloadResult?: (success: boolean, reason?: string) => void,
     private readonly sources: readonly DesktopUpdateSource[] = updater === autoUpdater && app.isPackaged
       ? loadDesktopUpdateSources(join(process.resourcesPath, 'muse-update-sources.json'), currentVersion()) : [],
+    private readonly platform: NodeJS.Platform = process.platform,
   ) {
     if (updater === autoUpdater) {
       // electron-updater omits this internal transport property from its public declarations.
@@ -180,7 +182,7 @@ export class DesktopUpdateCoordinator {
         if (this.updater.installationMode === 'manual-dmg') {
           if (this.updater.openPreparedInstaller === undefined) throw new Error('desktop update: manual installation operation is missing')
           await this.updater.openPreparedInstaller()
-        } else this.updater.quitAndInstall(true, true)
+        } else this.updater.quitAndInstall(this.platform !== 'win32', true)
         return this.current
       } catch (error) {
         if (this.current.phase === 'error' && this.current.failedOperation === 'install') return this.current

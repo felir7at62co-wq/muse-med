@@ -1377,7 +1377,7 @@ interface ToolArgsMap {
     /** Optional new JSON output path inside the current workspace; default .muse/video-inspections/<unique-id>.json. An existing file is never replaced. */
     manifest_path?: string;
   } & Record<string, JsonValue>;
-  /** Recognize visible text from bounded, timestamped samples of a local video with Windows OCR. Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. A partial or failed scan is indeterminate, never proof that the video has no subtitles. Persistent text remains a content candidate; visual persistence does not identify watermarks or non-narrative text. This tool never invokes audio transcription. */
+  /** Recognize visible text from bounded, timestamped samples of a local video with the configured offline OCR engine. Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. A partial or failed scan is indeterminate, never proof that the video has no subtitles. Persistent text remains a content candidate; visual persistence does not identify watermarks or non-narrative text. This tool never invokes audio transcription. */
   video_ocr: {
     /** Local video path in the current Session filesystem. */
     file_path: string;
@@ -1387,7 +1387,7 @@ interface ToolArgsMap {
     end_seconds?: number;
     /** OCR sample spacing; default 0.5s. */
     frame_interval_seconds?: number;
-    /** Windows OCR language; default auto. Missing requested language returns an explicit failure and never falls back to ASR. */
+    /** OCR language; default auto. Missing requested language returns an explicit failure and never falls back to ASR. */
     language?: "auto" | "zh-Hans-CN" | "zh-Hant-TW" | "en-US";
     /** Optional new raw evidence JSON path inside the workspace. Existing files are never replaced. */
     raw_json_path?: string;

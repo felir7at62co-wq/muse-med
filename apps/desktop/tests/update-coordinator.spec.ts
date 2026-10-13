@@ -56,7 +56,7 @@ const mirrorInfo = { version: '1.1.0-rc.2', files: [{ url: 'payload.zip', sha512
 const coordinators: InstanceType<typeof DesktopUpdateCoordinator>[] = []
 afterEach(() => { for (const item of coordinators.splice(0)) item.dispose() })
 
-function fixture(channel?: string, sources: readonly DesktopUpdateSource[] = [], manual = false) {
+function fixture(channel?: string, sources: readonly DesktopUpdateSource[] = [], manual = false, platform: NodeJS.Platform = 'darwin') {
   const events = new EventEmitter()
   const checkForUpdates = vi.fn(async (): Promise<CheckResult | null> => ({
     isUpdateAvailable: true,
@@ -80,12 +80,22 @@ function fixture(channel?: string, sources: readonly DesktopUpdateSource[] = [],
     autoDownload: true, autoInstallOnAppQuit: true, allowPrerelease: false, allowDowngrade: false })
   const coordinator = new DesktopUpdateCoordinator(
     (state) => { states.push(state); return state },
-    beforeRestart, updater, () => true, () => '1.1.0-alpha.1', downloadResult, sources,
+    beforeRestart, updater, () => true, () => '1.1.0-alpha.1', downloadResult, sources, platform,
   )
   coordinators.push(coordinator)
   return { coordinator, updater, events, states, checkForUpdates, downloadUpdate, quitAndInstall,
     setFeedURL, beforeRestart, downloadResult, verifyPreparedUpdate, openPreparedInstaller }
 }
+
+it('hands an authorized Windows update to the visible installer and requests automatic reopening', async () => {
+  const f = fixture(undefined, [], false, 'win32')
+  await f.coordinator.check()
+  await f.coordinator.download('1.1.0-rc.2')
+  expect(f.quitAndInstall).not.toHaveBeenCalled()
+  await f.coordinator.install('1.1.0-rc.2')
+  expect(f.quitAndInstall).toHaveBeenCalledWith(false, true)
+  expect(f.beforeRestart).toHaveBeenCalledOnce()
+})
 
 describe('manual macOS installation authorization', () => {
   it('keeps a verified download ready when the user defers, without opening an installer or stopping tasks', async () => {

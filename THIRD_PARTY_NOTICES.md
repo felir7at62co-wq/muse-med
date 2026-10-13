@@ -279,20 +279,43 @@ Direct dependencies of the `pyproject.toml` manifests, plus `uv` as the developm
 
 The [shared runtime lock](scripts/primary-runtime/lock.json) records each distribution version and the wheel download hashes. The table includes every entry in `pythonPackages`, including transitive dependencies. Wheel extraction preserves distribution metadata and the license and notice files supplied by each archive. Project licenses below do not enumerate the separate licenses of native libraries bundled inside wheels.
 
+The [Python source distribution decision](.agents/notes/implemented/process/2026-10-14-bundled-python-mpl-sources.md) accepts only unmodified `certifi 2026.7.22` under MPL-2.0 and `tqdm 4.70.1` under MPL-2.0 AND MIT. Their complete Python source files, certificate data, copyright notices and license files remain in `dependencies/python-packages` inside the shared runtime; recipients may inspect and modify those sources under the stated terms. Other package identities, versions and terms still require review.
+
 | Distribution | Locked version | Project license |
 | --- | --- | --- |
+| [`certifi`](https://github.com/certifi/python-certifi) | 2026.7.22 | MPL-2.0 |
+| [`charset-normalizer`](https://github.com/jawah/charset_normalizer) | 3.5.2 | MIT |
+| [`coloredlogs`](https://github.com/xolox/python-coloredlogs) | 15.0.1 | MIT |
+| [`colorlog`](https://github.com/borntyping/python-colorlog) | 6.12.0 | MIT |
 | [`et-xmlfile`](https://foss.heptapod.net/openpyxl/et_xmlfile) | 2.0.0 | MIT |
+| [`flatbuffers`](https://github.com/google/flatbuffers) | 25.12.19 | Apache-2.0 |
+| [`humanfriendly`](https://github.com/xolox/python-humanfriendly) | 10.0 | MIT |
+| [`idna`](https://github.com/kjd/idna) | 3.20 | BSD-3-Clause |
 | [`lxml`](https://github.com/lxml/lxml) | 6.1.3 | BSD-3-Clause |
+| [`mpmath`](https://github.com/fredrik-johansson/mpmath) | 1.3.0 | BSD-3-Clause |
 | [`numpy`](https://github.com/numpy/numpy) | 2.3.5 | BSD-3-Clause |
+| [`omegaconf`](https://github.com/hydra-ecosystem/omegaconf) | 2.4.0 | BSD-3-Clause |
+| [`onnxruntime`](https://github.com/microsoft/onnxruntime) | 1.23.2 | MIT |
+| [`opencv-python-headless`](https://github.com/opencv/opencv-python) | 5.0.0.93 | Apache-2.0 |
 | [`openpyxl`](https://foss.heptapod.net/openpyxl/openpyxl) | 3.1.5 | MIT |
+| [`packaging`](https://github.com/pypa/packaging) | 26.3 | Apache-2.0 OR BSD-2-Clause |
 | [`pandas`](https://github.com/pandas-dev/pandas) | 3.0.1 | BSD-3-Clause |
 | [`pillow`](https://github.com/python-pillow/Pillow) | 12.3.0 | MIT-CMU |
+| [`protobuf`](https://github.com/protocolbuffers/protobuf) | 7.36.2 | BSD-3-Clause |
+| [`pyclipper`](https://github.com/fonttools/pyclipper) | 1.4.0 | MIT |
 | [`python-dateutil`](https://github.com/dateutil/dateutil) | 2.9.0.post0 | Apache-2.0 OR BSD-3-Clause |
 | [`python-docx`](https://github.com/python-openxml/python-docx) | 1.2.0 | MIT |
 | [`python-pptx`](https://github.com/scanny/python-pptx) | 1.0.2 | MIT |
+| [`pyyaml`](https://github.com/yaml/pyyaml) | 6.0.3 | MIT |
+| [`rapidocr`](https://github.com/RapidAI/RapidOCR) | 3.10.0 | Apache-2.0 |
+| [`requests`](https://github.com/psf/requests) | 2.34.2 | Apache-2.0 |
+| [`shapely`](https://github.com/shapely/shapely) | 2.2.0 | BSD-3-Clause |
 | [`six`](https://github.com/benjaminp/six) | 1.17.0 | MIT |
+| [`sympy`](https://github.com/sympy/sympy) | 1.14.0 | BSD-3-Clause |
+| [`tqdm`](https://github.com/tqdm/tqdm) | 4.70.1 | MPL-2.0 AND MIT |
 | [`typing-extensions`](https://github.com/python/typing_extensions) | 4.16.0 | PSF-2.0 |
 | [`tzdata`](https://github.com/python/tzdata) | 2025.2 | Apache-2.0 |
+| [`urllib3`](https://github.com/urllib3/urllib3) | 2.8.0 | MIT |
 | [`xlsxwriter`](https://github.com/jmcnamara/XlsxWriter) | 3.2.9 | BSD-2-Clause |
 
 ## First-party native packages

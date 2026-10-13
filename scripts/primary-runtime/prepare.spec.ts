@@ -115,6 +115,19 @@ it('rejects library files requiring an unsupported installation scheme', async (
   }
 })
 
+it('retains locked wheel manual pages without admitting arbitrary data installation paths', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-wheel-manual-'))
+  try {
+    const archive = join(root, 'manual.whl')
+    const path = 'sample-1.0.data/data/share/man/man1/sample.1'
+    await writeFile(archive, zipSync({ [path]: Buffer.from('manual page') }))
+    await unpackPrimaryRuntimeWheel(archive, root)
+    expect(await readFile(join(root, path), 'utf8')).toBe('manual page')
+    await writeFile(archive, zipSync({ 'sample-1.0.data/data/etc/sample': Buffer.from('outside data') }))
+    await expect(unpackPrimaryRuntimeWheel(archive, root)).rejects.toThrow('unsupported installation paths')
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 it('copies complete Office resources outside the application archive and removes obsolete assets', async () => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-office-assets-'))
   try {

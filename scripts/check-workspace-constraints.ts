@@ -191,8 +191,8 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // The CPython side ships as source .py files, published as-is rather than built.
   '@deepseek-ai/dsh-experimental-ptc-runtime-python': ['py/**/*.py'],
   '@deepseek-ai/dsh-experimental-speech-to-text-sensevoice': ['runtime/assets.json'],
-  // Windows OCR executes this fixed bridge relative to the bundled plugin entry.
-  '@deepseek-ai/dsh-tool-video-inspect': ['scripts/ocr_bridge.ps1'],
+  // Local OCR executes these fixed bridges relative to the bundled plugin entry.
+  '@deepseek-ai/dsh-tool-video-inspect': ['scripts/ocr_bridge.ps1', 'scripts/ocr_bridge.py'],
   // The isolated Node bootstrap is a separately launched bundle.
   '@deepseek-ai/dsh-ptc-runtime-node': ['lib/process.js'],
   // The Inspector owns a Worker and a mirrored frontend outside package export paths.
@@ -557,7 +557,11 @@ function checkDramaSkillsResourceManifest(manifest: PackageManifest): string[] {
     const resource = match?.[2]
     const nestedResource = resource !== undefined
       && /^(?:agents|assets|references|scripts)\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.(?:md|yaml|py|json|mp3|mp4|txt)$/u.test(resource)
-    if (match?.[1] === undefined || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource)) {
+    const styleReference = match?.[1] === 'anime-3d-assets' && resource !== undefined
+      && ['references/images/female-quality-reference.png', 'references/images/male-quality-layout.png',
+        'references/images/rejected-cartoon.png', 'references/images/rejected-flat-cg.png',
+        'references/images/target-quality.png'].includes(resource)
+    if (match?.[1] === undefined || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference)) {
       errors.push(`${label}: resource package file must be a declared skill resource: ${file}`)
       continue
     }

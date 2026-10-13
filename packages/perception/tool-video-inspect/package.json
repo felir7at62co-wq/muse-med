@@ -24,6 +24,7 @@
   "files": [
     "lib/index.js",
     "scripts/ocr_bridge.ps1",
+    "scripts/ocr_bridge.py",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
