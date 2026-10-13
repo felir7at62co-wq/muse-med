@@ -258,12 +258,14 @@ Function InstallerStartApplication
     ${If} ${Errors}
         ShowWindow $HWNDPARENT 5
         MessageBox MB_OK|MB_ICONEXCLAMATION "$(INSTALLER_LAUNCH_FAILED)"
+        ; IfErrors consumes the failure flag; the finish-page callback must receive it.
+        SetErrors
     ${EndIf}
     Return
 installer_start_requires_reboot:
-    SetErrors
     ShowWindow $HWNDPARENT 5
     MessageBox MB_OK|MB_ICONINFORMATION "$(INSTALLER_REBOOT_REQUIRED)"
+    SetErrors
 FunctionEnd
 
 Function InstallerExpandPath
