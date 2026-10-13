@@ -98,6 +98,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'update_goal',
   'video_contact_sheet',
   'video_inspect',
+  'video_ocr',
   'web_fetch',
   'web_search',
   'write',

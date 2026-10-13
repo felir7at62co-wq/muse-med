@@ -17,6 +17,10 @@ it('discovers WeChat acquisition with project state and verified transcription h
     const input = renderSkillContent(skill)
     expect(input).toContain('SHORTDRAMA_WORK')
     expect(input).toContain('audio-transcribe')
+    expect(input).toContain('video_ocr')
+    expect(input).toMatch(/视频转小说.*完整扫描.*用户选择和授权.*ASR 备用路径/su)
+    expect(input).toMatch(/视频转剧本.*purpose=screenplay/su)
+    expect(input).toContain('OCR 失败或部分覆盖不能静默回退')
     expect(input).toContain('不能说全集已完成')
   } finally {
     await ctx.fiber.dispose()

@@ -58,6 +58,14 @@ it('accepts binary output when a provider does not expose collected stderr', asy
   expect(await runMedia(f.ctx, ['media'], policy, undefined, limits)).toEqual({ bytes: Buffer.from('bytes'), diagnostic: '' })
 })
 
+it('forwards bounded in-memory input and a caller-owned diagnostic limit without using a shell', async () => {
+  const f = await fixture('success')
+  await runMedia(f.ctx, ['media', 'bridge.ps1'], policy, undefined,
+    { ...limits, stdin: '{"frames":[]}', maxDiagnosticBytes: 4096 })
+  expect(f.calls[0]).toMatchObject({ argv: ['media', 'bridge.ps1'],
+    stdio: { stdin: { data: '{"frames":[]}' }, stdout: 'pipe', stderr: { maxBytes: 4096 } } })
+})
+
 it('rejects an already-cancelled operation before spawning', async () => {
   const f = await fixture('success'), controller = new AbortController()
   controller.abort(new Error('cancelled before media'))

@@ -6,7 +6,7 @@ export const CREATION_GUIDANCE_SECTION = 'muse:creation-guidance'
 /** Shared task boundaries supplied before any skill has been loaded. */
 export const CREATION_GUIDANCE = `## 创作共用规则
 
-先核对用户目标、授权范围、已有项目与实际产物，只推进所需阶段。转写或字幕选 audio-transcribe；剧本按来源选 novel-to-script 或 transcript-to-script；
+先核对用户目标、授权范围、已有项目与实际产物，只推进所需阶段。视频画面字幕先用 video_ocr，音频对白与视频转剧本用 audio-transcribe；剧本按来源选 novel-to-script 或 transcript-to-script；
 短剧制作选 tweet-drama-pipeline；普通剪辑先核对素材再用现有 FFmpeg 工具，不强制完整短剧流程。其他专业技能按自动目录按需选择；
 需要精修、批注对账、修改说明模板或详细 QA 清单时再加载 muse-creation。
 

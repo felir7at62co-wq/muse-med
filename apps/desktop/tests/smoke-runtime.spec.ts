@@ -119,11 +119,14 @@ function fixture(packaged = false) {
   const mediaImportScript = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/media-link-import/scripts/import_media.py'))
   mkdirSync(dirname(mediaImportScript), { recursive: true })
   writeFileSync(mediaImportScript, '# fixture')
-  for (const script of ['doctor.py', 'discover.py', 'harvest.py', 'drive.py', 'finalize.py', 'win_bridge.ps1', 'ocr_bridge.ps1']) {
+  for (const script of ['doctor.py', 'discover.py', 'harvest.py', 'drive.py', 'finalize.py', 'win_bridge.ps1']) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/wechat-shortdrama-harvest/scripts', script))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
   }
+  const ocrBridge = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-tool-video-inspect/scripts/ocr_bridge.ps1'))
+  mkdirSync(dirname(ocrBridge), { recursive: true })
+  writeFileSync(ocrBridge, '# fixture')
   for (const name of ['muse-creation', 'office-docx', 'office-xlsx', 'office-pptx', 'video-review']) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
@@ -137,7 +140,7 @@ function fixture(packaged = false) {
   const mount = vi.fn(async (_context: object, _id: string) => {})
   const names = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
     'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
-    'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present', 'audio_transcribe', 'video_contact_sheet',
+    'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
     process.platform === 'win32' ? 'pwsh' : 'bash']
   type SmokeResponse = { statusCode: number; end(text: string): void }
   let route: { path: string; handler(request: object, response: SmokeResponse): Promise<void> } | undefined
@@ -170,7 +173,7 @@ function fixture(packaged = false) {
       return (key.preset === 'short-drama' ? names
         : key.preset === 'minimal' ? [shell]
           : key.preset === 'editing' ? ['read', 'skill', shell, 'present', ...editingCapabilityNames, ...accountMcpNames]
-            : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'audio_transcribe', 'video_contact_sheet',
+            : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
               'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', ...accountMcpNames]
               : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...accountMcpNames]
                 : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
@@ -265,7 +268,7 @@ it('rejects a shared Muse skill missing from the packaged Host', async () => {
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['drama_project', 'drama_draft_dir', 'jubian_budget', 'video_contact_sheet'])('rejects a missing project tool %s', async (name) => {
+it.each(['drama_project', 'drama_draft_dir', 'jubian_budget', 'video_contact_sheet', 'video_ocr'])('rejects a missing project tool %s', async (name) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'short-drama'
@@ -325,6 +328,14 @@ it('rejects WeChat acquisition without its packaged Windows bridge', async () =>
   await expect(f.apply(f.ctx)).rejects.toThrow('missing WeChat helper win_bridge.ps1')
 })
 
+it.runIf(process.platform === 'win32')('rejects an installed runtime without its packaged video OCR bridge', async () => {
+  const f = fixture(true)
+  const script = join(f.root, 'node_modules/@deepseek-ai/dsh-tool-video-inspect/scripts/ocr_bridge.ps1')
+    .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
+  rmSync(script)
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing packaged video OCR bridge')
+})
+
 it('rejects extra agent-local tools in the minimal preset', async () => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
@@ -345,7 +356,7 @@ it.each(['short-drama', 'ptc', 'standard', 'cordis', 'editing', 'creation'])('re
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['run_code', 'drama_assets', 'mcp__muse-account__muse_kb_read_opening', 'video_contact_sheet'])('rejects creation without %s', async (name) => {
+it.each(['run_code', 'drama_assets', 'mcp__muse-account__muse_kb_read_opening', 'video_contact_sheet', 'video_ocr'])('rejects creation without %s', async (name) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'creation'

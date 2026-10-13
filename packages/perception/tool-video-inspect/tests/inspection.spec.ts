@@ -53,8 +53,112 @@ async function setup(options: Partial<VideoInspect.Config> = {}) {
       ...withAgent ? { agent: agent(model, false) as never } : {} }),
     call: (args: Record<string, unknown>, model = 'vision', route: 'header' | 'options' | 'none' = 'header') => ctx.tools.execute({ callId: ToolCallId(`video-${++count}`), name: 'video_inspect',
       arguments: { file_path: input, ...args }, signal: new AbortController().signal, ...route === 'none' ? {} : { agent: agent(model, route === 'options') as never } }),
+    ocr: (args: Record<string, unknown>, signal = new AbortController().signal) => ctx.tools.execute({ callId: ToolCallId(`ocr-${++count}`), name: 'video_ocr',
+      arguments: { file_path: input, ...args }, signal, agent: agent('vision', false) as never }),
   }
 }
+
+function mockWindowsOcr(result?: { ok: false; code: string }) {
+  const original = Media.runMedia
+  return vi.spyOn(Media, 'runMedia').mockImplementation(async (...args) => {
+    if (!args[1].some(value => value.endsWith('ocr_bridge.ps1'))) return await original(...args)
+    if (result) return { bytes: Buffer.from(JSON.stringify(result)), diagnostic: '' }
+    const input = JSON.parse(args[4].stdin ?? '{}') as { language: string; frames: { id: string; timestamp_seconds: number }[] }
+    return { bytes: Buffer.from(JSON.stringify({ ok: true,
+      language_used: input.language === 'auto' ? 'zh-Hans-CN' : input.language,
+      frames: input.frames.map((item, index) => ({ ...item, image_width: 64, image_height: 48, lines: [{
+        text: index === 0 ? '你好 Hello' : '第二句', bounding_box: { x: 8, y: 32, width: 48, height: 10 },
+        words: [{ text: index === 0 ? '你好 Hello' : '第二句', bounding_box: { x: 8, y: 32, width: 48, height: 10 } }],
+      }] })),
+    })), diagnostic: '' }
+  })
+}
+
+it.runIf(process.platform === 'win32')('runs real bounded frame extraction with one mocked local OCR batch and publishes source-labelled evidence', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 1, ocrBatchFrames: 4 })
+  const run = mockWindowsOcr()
+  const result = await h.ocr({ end_seconds: 2, raw_json_path: 'qa/ocr.json', merged_text_path: 'qa/ocr.txt' })
+  expect(result.isError, JSON.stringify(result.content)).toBe(false)
+  expect(result.value).toMatchObject({ text_source: 'ocr', scan_status: 'complete', text_status: 'candidate_text_detected',
+    coverage: { planned_frame_count: 2, processed_frame_count: 2, failed_frame_count: 0 },
+    raw_json_path: join(h.root, 'qa/ocr.json'), merged_text_path: join(h.root, 'qa/ocr.txt') })
+  expect(run.mock.calls.filter(call => call[1].some(value => value.endsWith('ocr_bridge.ps1')))).toHaveLength(1)
+  expect(run.mock.calls.find(call => call[1].some(value => value.endsWith('ocr_bridge.ps1')))?.[1])
+    .toEqual(expect.arrayContaining(['-ExecutionPolicy', 'Bypass', '-NoProfile', '-NonInteractive']))
+  expect(run.mock.calls.filter(call => call[1].includes('mjpeg'))).toHaveLength(1)
+  const raw = JSON.parse(await readFile(join(h.root, 'qa/ocr.json'), 'utf8')) as { text_source: string; frames: unknown[]; segments: unknown[] }
+  expect(raw).toMatchObject({ text_source: 'ocr' })
+  expect(raw.frames).toHaveLength(2)
+  expect(raw.frames[0]).toMatchObject({ requested_seconds: 0, lines: [{ text: '你好 Hello' }] })
+  expect(raw.segments.length).toBeGreaterThan(0)
+  expect(await readFile(join(h.root, 'qa/ocr.txt'), 'utf8')).toContain('Text source: ocr')
+  expect(h.ctx.tools.get('audio_transcribe')).toBeUndefined()
+}, 30_000)
+
+it.runIf(process.platform === 'win32')('reports bounded long-video coverage and language failure without claiming no subtitles', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 1, ocrMaxRangeSeconds: 1, ocrMaxFrames: 1, ocrBatchFrames: 1 })
+  mockWindowsOcr()
+  const partial = await h.ocr({ end_seconds: 4, raw_json_path: 'qa/partial.json', merged_text_path: 'qa/partial.txt' })
+  expect(partial.isError, JSON.stringify(partial.content)).toBe(false)
+  expect(partial.value).toMatchObject({ scan_status: 'partial', text_status: 'candidate_text_detected', next_start_seconds: 1,
+    coverage: { unscanned_ranges: [{ start_seconds: 1, end_seconds: 4, reason: 'deployment_limit' }] } })
+  vi.restoreAllMocks()
+  const missingHarness = await setup({ ocrFrameIntervalSeconds: 1, ocrMaxRangeSeconds: 1, ocrMaxFrames: 1, ocrBatchFrames: 1 })
+  mockWindowsOcr({ ok: false, code: 'language_unavailable' })
+  const missing = await missingHarness.ocr({ end_seconds: 1, language: 'en-US',
+    raw_json_path: 'qa/missing.json', merged_text_path: 'qa/missing.txt' })
+  expect(missing.value).toMatchObject({ scan_status: 'failed', text_status: 'indeterminate', failure_code: 'language_unavailable',
+    coverage: { processed_frame_count: 0, failed_frame_count: 1 } })
+}, 30_000)
+
+it.runIf(process.platform === 'win32')('reports an empty completed sample as OCR no-text evidence without invoking ASR', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 1, ocrBatchFrames: 4 })
+  const original = Media.runMedia
+  vi.spyOn(Media, 'runMedia').mockImplementation(async (...args) => {
+    if (!args[1].some(value => value.endsWith('ocr_bridge.ps1'))) return await original(...args)
+    const input = JSON.parse(args[4].stdin ?? '{}') as { language: string; frames: { id: string; timestamp_seconds: number }[] }
+    return { bytes: Buffer.from(JSON.stringify({ ok: true, language_used: 'zh-Hans-CN',
+      frames: input.frames.map(frame => ({ ...frame, image_width: 64, image_height: 48, lines: [] })) })), diagnostic: '' }
+  })
+  const result = await h.ocr({ end_seconds: 2, raw_json_path: 'qa/empty.json', merged_text_path: 'qa/empty.txt' })
+  expect(result.isError, JSON.stringify(result.content)).toBe(false)
+  expect(result.value).toMatchObject({ text_source: 'ocr', scan_status: 'complete', text_status: 'no_text_detected',
+    segment_count: 0, persistent_overlay_count: 0 })
+  expect(h.ctx.tools.get('audio_transcribe')).toBeUndefined()
+}, 30_000)
+
+it.runIf(process.platform === 'win32')('rejects source mutation before publishing OCR evidence', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 1, ocrBatchFrames: 4 })
+  const original = Media.runMedia
+  vi.spyOn(Media, 'runMedia').mockImplementation(async (...args) => {
+    if (!args[1].some(value => value.endsWith('ocr_bridge.ps1'))) return await original(...args)
+    const input = JSON.parse(args[4].stdin ?? '{}') as { frames: { id: string; timestamp_seconds: number }[] }
+    await appendFile(h.input, Buffer.from([0]))
+    return { bytes: Buffer.from(JSON.stringify({ ok: true, language_used: 'zh-Hans-CN',
+      frames: input.frames.map(frame => ({ ...frame, image_width: 64, image_height: 48, lines: [] })) })), diagnostic: '' }
+  })
+  const result = await h.ocr({ end_seconds: 1, raw_json_path: 'qa/mutated.json', merged_text_path: 'qa/mutated.txt' })
+  expect(result.isError).toBe(true)
+  expect(result.content.some(block => block.type === 'text' && block.text.includes('changed during OCR'))).toBe(true)
+  await expect(readFile(join(h.root, 'qa/mutated.json'))).rejects.toThrow()
+  await expect(readFile(join(h.root, 'qa/mutated.txt'))).rejects.toThrow()
+}, 30_000)
+
+it('registers OCR as Windows-only, rejects unsafe output paths and never silently substitutes ASR', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 1 })
+  expect(h.ctx.tools.get('video_ocr')?.presentCall?.({ file_path: h.input })).toMatchObject({ kind: 'read', locations: [{ path: h.input }] })
+  const outside = await h.ocr({ end_seconds: 1, raw_json_path: '../outside.json', merged_text_path: 'qa/ocr.txt' })
+  expect(outside.isError).toBe(true)
+  await writeFile(join(h.root, 'qa-existing.json'), '{}')
+  const existing = await h.ocr({ end_seconds: 1, raw_json_path: 'qa-existing.json', merged_text_path: 'qa/new.txt' })
+  expect(existing.isError).toBe(true)
+  await expect(readFile(join(h.root, 'qa/new.txt'))).rejects.toThrow()
+  expect(h.ctx.tools.get('audio_transcribe')).toBeUndefined()
+  if (process.platform !== 'win32') {
+    const unsupported = await h.ocr({ end_seconds: 1, raw_json_path: 'qa/raw.json', merged_text_path: 'qa/text.txt' })
+    expect(unsupported.value).toMatchObject({ scan_status: 'failed', text_status: 'indeterminate', failure_code: 'windows_only' })
+  }
+}, 30_000)
 
 it('returns six-cell pages in source order with readable times and retained detail frames', async () => {
   const h = await setup()
@@ -334,7 +438,7 @@ it('reports an actual audio stream with separate speech-transcription advice', a
   { mode: 'danger-full-access', workspaceRoot: h.root }, undefined, { timeoutMs: 20_000, maxBytes: 1024, graceMs: 1000 })
   const result = await h.call({ method: 'metadata' })
   expect(result.value).toMatchObject({ has_audio: true })
-  expect(result.content.some(block => block.type === 'text' && block.text.includes('Discover audio_transcribe'))).toBe(true)
+  expect(result.content.some(block => block.type === 'text' && block.text.includes('Use audio_transcribe for spoken dialogue'))).toBe(true)
 }, 30_000)
 
 it('rejects non-file and unknown-size sources before probing', async () => {

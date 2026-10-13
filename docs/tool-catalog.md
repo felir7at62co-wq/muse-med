@@ -21,7 +21,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userQuestions` | `tool/call`, `tool/result after an answer or timeout`, `late user/message` | - | ask_user_question keeps the original blocking behavior by default; set `mode: timed` to opt into a foreground timeout and pending result while the question remains answerable. In timed mode, `timeout: -1` keeps that call blocking indefinitely. |
 | `@deepseek-ai/dsh-screenplay-project` | `screenplay_project` | `ctx.fs`, `ctx.tools`, `ctx.attachments`, `ctx.llm`, `ctx.sandboxPolicy when filesystem confinement is enabled` | `tool/call`, `tool/result`, `guarded project artifact`, `accepted screenplay and source map` | - | Source-unit identities, revisions, candidate digests, timestamps and rendered line references are issued by the host. Facts and episode candidates require a different reviewing session before acceptance. |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`, `ctx.museAccount`, `FFmpeg and FFprobe on PATH (or configured)` | `tool/call`, `tool/result`, `transcript/jobs task receipt`, `transcript/raw timed TXT and JSON when complete` | - | `start` submits compressed speech under the signed-in Muse account and returns a project receipt; `status` checks that receipt and publishes timed TXT and JSON when recognition completes. The same tool is available in every Muse mode, with provider credentials held by the account gateway. |
-| `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | - | Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
+| `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect`, `video_ocr` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | - | Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.ptcRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: ptc` / `mode: both` (see the PTC mode Agent Note). Under `ptc` it is the registry's only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime's language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`, `ctx.systemPrompt`, `ctx.userQuestions (execution time, opportunistic)` | `tool/call`, `plan/mode inactive on an approved review`, `tool/result` | - | exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-questions seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary. |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs for run_in_background and the job-backed foreground path` | `tool/call`, `tool/result` | - | The bash tool is the model-facing consumer of the bash executor seam. With a job registry composed every call registers with the generic `ctx.jobs` runtime as it starts, collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; without one, or with `enableRunInBackground: false`, the tool registers a foreground-only schema without the `run_in_background` parameter. |
@@ -1625,7 +1625,7 @@ Source: [`packages/perception/tool-video-inspect/src/index.ts`](../packages/perc
 
 ### `video_inspect`
 
-Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. For dialogue and subtitles, discover audio_transcribe.
+Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. Use audio_transcribe for spoken dialogue and video_ocr for visible or burned-in text.
 
 ```json
 {
@@ -1677,6 +1677,57 @@ Inspect local video metadata or view timestamped sampled frames. Returns actual 
     "manifest_path": {
       "type": "string",
       "description": "Optional new JSON output path inside the current workspace; default .muse/video-inspections/<unique-id>.json. An existing file is never replaced."
+    }
+  },
+  "required": [
+    "file_path"
+  ]
+}
+```
+
+Source: [`packages/perception/tool-video-inspect/src/index.ts`](../packages/perception/tool-video-inspect/src/index.ts)
+
+### `video_ocr`
+
+Recognize visible text from bounded, timestamped samples of a local video with Windows OCR. Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. A partial or failed scan is indeterminate, never proof that the video has no subtitles. Persistent overlays remain in evidence and are labelled, not silently removed. This tool never invokes audio transcription.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "file_path": {
+      "type": "string",
+      "description": "Local video path in the current Session filesystem."
+    },
+    "start_seconds": {
+      "type": "number",
+      "description": "Inclusive source range start; default 0."
+    },
+    "end_seconds": {
+      "type": "number",
+      "description": "Exclusive source range end; default video end. One call scans at most 120s and 240 frames; continue from next_start_seconds."
+    },
+    "frame_interval_seconds": {
+      "type": "number",
+      "description": "OCR sample spacing; default 0.5s."
+    },
+    "language": {
+      "type": "string",
+      "description": "Windows OCR language; default auto. Missing requested language returns an explicit failure and never falls back to ASR.",
+      "enum": [
+        "auto",
+        "zh-Hans-CN",
+        "zh-Hant-TW",
+        "en-US"
+      ]
+    },
+    "raw_json_path": {
+      "type": "string",
+      "description": "Optional new raw evidence JSON path inside the workspace. Existing files are never replaced."
+    },
+    "merged_text_path": {
+      "type": "string",
+      "description": "Optional new timestamped text path inside the workspace. Existing files are never replaced."
     }
   },
   "required": [
