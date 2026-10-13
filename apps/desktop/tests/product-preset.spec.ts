@@ -84,6 +84,12 @@ it('offers only short drama and editing while keeping registered legacy composit
     expect(source).toContain("subtitleFontFamily: !!js process.env.MUSE_FONT_FAMILY || 'SimHei'")
     expect(source).toContain("watermarkFontFamily: !!js process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'")
     const prompt = rows.find(row => row.id === 'persona')?.config?.prefix ?? ''
+    expect(prompt).toContain('视觉风格只取当前用户对本项目的明确要求和 project_bible.style')
+    expect(prompt).toContain('short-drama 是制作模式，上文“仿真人短剧制作 Agent”的称呼不构成真人默认值')
+    expect(prompt).toContain('不得加入“真人选角审美”“禁止动漫脸”“真人角色设定板”或“真实空间”等真人约束')
+    expect(prompt).toContain('风格缺失或语义不明确时询问确认')
+    expect(prompt.indexOf('视觉风格只取当前用户对本项目的明确要求和 project_bible.style'))
+      .toBeGreaterThan(prompt.indexOf('你是 muse-med 仿真人短剧制作 Agent'))
     for (const requirement of ['pipeline_state.json', 'assets_manifest.json', '1440×2560', '4.6 Mbps', 'asr_aligned', 'idempotency_key', 'CC-BY-NC-4.0', 'scriptName', 'episodeCount', 'stale']) {
       expect(prompt, requirement).toContain(requirement)
     }

@@ -25,6 +25,16 @@ FIXED_INSTALL_ROOT = re.compile(
 
 
 class CreationResourcesTests(unittest.TestCase):
+    @staticmethod
+    def _asset_prompt_templates():
+        text = (SKILLS / "tweet-drama-asset-extract/SKILL.md").read_text(encoding="utf-8")
+        matches = re.findall(
+            r"已确认(真人|动画)风格的角色 prompt 使用以下模板.*?```text\n(.*?)\n```",
+            text,
+            re.DOTALL,
+        )
+        return text, dict(matches)
+
     def test_central_reuse_remains_a_preview_without_agent_issued_approval(self):
         for name in ("tweet-drama-shot-asset-match", "tweet-drama-pipeline"):
             text = (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
@@ -150,6 +160,64 @@ class CreationResourcesTests(unittest.TestCase):
         self.assertNotIn("python _tools/", text)
         self.assertIn("jubian_asset", text)
         self.assertIn("blocking", text)
+
+    def test_asset_prompts_follow_confirmed_animation_style_without_live_action_constraints(self):
+        text, templates = self._asset_prompt_templates()
+        self.assertEqual(set(templates), {"真人", "动画"})
+        values = {
+            "identity": "守护云城的年轻女侠",
+            "appearance": "二十二岁，东方脸型，丹凤眼，身形修长",
+            "costume": "青色交领长袍，银色发冠，黑色长靴",
+            "state": "非孕期，警觉",
+        }
+        for style in ("国漫水墨二维动画", "东方幻想3D动画"):
+            with self.subTest(style=style):
+                prompt = templates["动画"].format(project_style=style, **values)
+                self.assertTrue(prompt.startswith(f"项目风格：{style}。"))
+                for value in values.values():
+                    self.assertIn(value, prompt)
+                for live_only in ("真人选角审美", "禁止动漫脸", "真人角色设定板", "真实空间", "照片级真人"):
+                    self.assertNotIn(live_only, prompt)
+        self.assertIn("不得从 short-drama 预设名", text)
+        self.assertIn("参考图服从已确认的项目风格", text)
+
+    def test_asset_prompts_keep_established_live_action_board_and_character_details(self):
+        _text, templates = self._asset_prompt_templates()
+        values = {
+            "identity": "豪门集团继承人",
+            "appearance": "三十岁，东方脸型，眉眼锐利，身形挺拔",
+            "costume": "深蓝双排扣西装，白衬衫，黑色皮鞋",
+            "state": "非孕期，克制",
+        }
+        prompt = templates["真人"].format(project_style="现代都市仿真人短剧", **values)
+        self.assertTrue(prompt.startswith("项目风格：现代都市仿真人短剧。"))
+        for value in values.values():
+            self.assertIn(value, prompt)
+        for established_rule in ("单张16:9真人角色设定板", "纯白背景", "正面半身特写", "无头正面、侧面、背面三视图"):
+            self.assertIn(established_rule, prompt)
+
+    def test_asset_prompts_wait_for_unknown_style_instead_of_forcing_a_branch(self):
+        text, _templates = self._asset_prompt_templates()
+        for requirement in (
+            "不填写可提交的最终 `prompt`",
+            "不发起付费生成",
+            "风格仍未确认时两个模板都不得使用",
+            "不得从 short-drama 预设名、本技能旧称、剧本题材、参考图是真人照片、模型名称或历史资产猜测项目风格",
+        ):
+            self.assertIn(requirement, text)
+        self.assertIn("只提取并保留角色身份、年龄、五官、体型、服装、发型、配饰、状态、场景和道具事实", text)
+
+    def test_asset_review_uses_the_confirmed_style_instead_of_unconditional_live_action(self):
+        text = (SKILLS / "tweet-drama-asset-vision-check/SKILL.md").read_text(encoding="utf-8")
+        self.assertNotIn("- 通用：真人感、", text)
+        for requirement in (
+            "与已确认项目风格一致",
+            "不得因缺少真人感判失败",
+            "风格缺失、宽泛或冲突时保持待确认",
+            "不得跨到另一风格分支",
+            "角色身份、外貌、服装与状态",
+        ):
+            self.assertIn(requirement, text)
 
     def test_only_maintenance_file_types_are_packaged(self):
         for name in NAMES:
