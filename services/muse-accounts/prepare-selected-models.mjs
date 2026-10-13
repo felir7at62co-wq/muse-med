@@ -59,6 +59,24 @@ async function publishNewPrivateFile(path,text){
  }finally{await unlink(temporary);}
 }
 
+function zhipuKeyFile(text){
+ const trimmed=text.trim();
+ if(trimmed.startsWith('[')){
+  let parsed;try{parsed=JSON.parse(trimmed);}catch{throw Error('Zhipu key file must contain one key per line or a JSON array');}
+  if(!Array.isArray(parsed))throw Error('Zhipu key file must contain one key per line or a JSON array');
+  return parsed;
+ }
+ const keys=trimmed.split(/\r?\n/).map(key=>key.trim()).filter(Boolean);
+ return keys.length===1?keys[0]:keys;
+}
+
+function zhipuKeyEnvironment(environment){
+ if(environment.MUSE_ZHIPU_API_KEYS===undefined)return environment.MUSE_ZHIPU_API_KEY;
+ let parsed;try{parsed=JSON.parse(environment.MUSE_ZHIPU_API_KEYS);}catch{throw Error('MUSE_ZHIPU_API_KEYS must be a JSON array');}
+ if(!Array.isArray(parsed))throw Error('MUSE_ZHIPU_API_KEYS must be a JSON array');
+ return parsed;
+}
+
 /** Produce an exclusive candidate and an exact private source backup without changing the source.
  * @param {string[]} args CLI options whose values are paths or a public API root, never keys.
  * @param {object} environment Optional operator-process credentials; never included in the receipt.
@@ -80,7 +98,7 @@ export async function prepareSelectedModelsFiles(args,environment=process.env){
  const original=await readPrivateModelFile(parsed.source);
  const deepseekKey=parsed['deepseek-key-file']?(await readPrivateModelFile(parsed['deepseek-key-file'])).trim():environment.DEEPSEEK_API_KEY;
  const yunyingKey=parsed['yunying-key-file']?(await readPrivateModelFile(parsed['yunying-key-file'])).trim():environment.MUSE_YUNYING_API_KEY;
- const zhipuKey=parsed['zhipu-key-file']?(await readPrivateModelFile(parsed['zhipu-key-file'])).trim():environment.MUSE_ZHIPU_API_KEY;
+ const zhipuKey=parsed['zhipu-key-file']?zhipuKeyFile(await readPrivateModelFile(parsed['zhipu-key-file'])):zhipuKeyEnvironment(environment);
  let current;
  try{current=JSON.parse(original);}catch(_error){throw Error('Private model input must contain valid JSON');}
  const prepared=prepareSelectedModels(current,{deepseekKey,yunyingKey,zhipuKey,yunyingBaseURL:parsed['yunying-base-url']});

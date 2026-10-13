@@ -34,6 +34,14 @@ test('selected directory contains two DeepSeek, seven Yunying and two Zhipu mode
  assert.doesNotMatch(JSON.stringify(prepared.providers),/synthetic-/);
 });
 
+test('selected directory stores a deduplicated Zhipu pool while retaining scalar compatibility',()=>{
+ const source=original(),prepared=prepareSelectedModels(source,{deepseekKey:officialKey,zhipuKey:['zhipu-one','zhipu-two','zhipu-one']});
+ assert.deepEqual(prepared.credentials.MUSE_ZHIPU_API_KEY,['zhipu-one','zhipu-two']);
+ assert.equal(prepareSelectedModels(source,{deepseekKey:officialKey,zhipuKey:'zhipu-one'}).credentials.MUSE_ZHIPU_API_KEY,'zhipu-one');
+ assert.throws(()=>prepareSelectedModels(source,{deepseekKey:officialKey,zhipuKey:[]}),/credentials/);
+ assert.throws(()=>prepareSelectedModels(source,{deepseekKey:officialKey,zhipuKey:['zhipu-one',cloudKey]}),/separate from Yunying/);
+});
+
 test('official capacity and each selected model budget are explicit public metadata',()=>{
  const providers=selectedModelProviders('https://wy6688.token6688.com/v1/');
  const official=providers['deepseek-official'].models;
@@ -146,4 +154,23 @@ test('fresh account catalog routes every selected model with only server credent
  assert.equal(calls.length,16);
  await fetch(base+'/logout',{method:'POST',headers:{origin,cookie},redirect:'manual'});
  assert.equal((await fetch(base+'/api/desktop-models/providers',{headers:{cookie}})).status,401);
+});
+
+test('Desktop relay assigns the Zhipu pool per request without changing Yunying credentials',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'muse-selected-zhipu-pool-'));let server;
+ t.after(async()=>{if(server){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}await rm(root,{recursive:true,force:true});});
+ const zhipuKeys=['zhipu-one','zhipu-two','zhipu-three'];
+ const prepared=prepareSelectedModels(original(),{deepseekKey:officialKey,zhipuKey:zhipuKeys}),file=join(root,'models');
+ await writeFile(file,JSON.stringify(prepared),{mode:0o600});const globalModels=await openGlobalModels(file);
+ const store=await openStore(join(root,'accounts'));await store.create('editor','pw');const calls=[];
+ const origin='https://muse.test';server=createAccountServer({workspaceMode:'desktop',store,globalModels,publicOrigin:origin,
+  modelForward:async({config,res})=>{calls.push(config.apiKey);res.writeHead(200,{'content-type':'application/json'});res.end('{}');}});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+server.address().port;
+ const login=await fetch(base+'/login',{method:'POST',headers:{origin},body:'username=editor&password=pw',redirect:'manual'});
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ const request=async(route,model)=>{const response=await fetch(base+'/api/desktop-models/'+route+'/chat/completions',{method:'POST',
+  headers:{origin,cookie,'content-type':'application/json'},body:JSON.stringify({model,messages:[]})});assert.equal(response.status,200);await response.text();};
+ for(let index=0;index<4;index++)await request('zhipu-official','glm-5.3-flashx');
+ await request('yunying','gpt-6-sol');await request('yunying','gpt-6-sol');
+ assert.deepEqual(calls,[...zhipuKeys,zhipuKeys[0],cloudKey,cloudKey]);
 });
