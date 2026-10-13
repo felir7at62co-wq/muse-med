@@ -42,7 +42,8 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     mkdirSync(join(host, 'lib'), { recursive: true })
     writeFileSync(join(host, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-desktop-host', version, dsh: { bundle: { patch: './cordis.patch.yml' } } }))
     writeFileSync(join(host, 'lib/index.js'), '')
-    writeFileSync(join(host, 'cordis.patch.yml'), '[]\n')
+    const defaults = loadOverlayPatches('muse-med', join(repositoryRoot, 'apps/desktop-host/config/defaults.cordis.patch.yml'))
+    writeFileSync(join(host, 'cordis.patch.yml'), JSON.stringify(defaults.filter(patch => patch.insert?.some(row => row.id === 'drama-settings'))))
     const project = prepareDevelopmentProject({
       repositoryRoot, communityArtifactsDir: artifacts, projectDir: join(home, 'project'),
       cliDir: join(repositoryRoot, 'apps/cli'), hostDir: host,
