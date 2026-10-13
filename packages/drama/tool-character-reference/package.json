@@ -1,6 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-character-reference",
   "version": "0.2.1-alpha.1",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
