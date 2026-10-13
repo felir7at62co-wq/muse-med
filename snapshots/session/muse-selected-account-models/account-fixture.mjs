@@ -128,8 +128,12 @@ export async function apply(ctx) {
           if (!refusal) assert.ok(message)
           requests.push(payload)
           if (refusal) {
-            response.writeHead(400, { 'content-type': 'application/json' })
-            response.end(JSON.stringify({ error: { message: 'Invalid request using supplier-fixture-deepseek-official' } }))
+            response.writeHead(429, {
+              'content-type': 'application/json',
+              'retry-after': '0.001',
+              'x-request-id': 'snapshot-upstream-request',
+            })
+            response.end(JSON.stringify({ error: { message: 'Opaque supplier refusal' } }))
             return
           }
           if (requests.length === 2) {
@@ -266,7 +270,7 @@ export async function apply(ctx) {
   })))
   ctx.on('agent/turn-stopping', async ({ agent }) => {
     if (rejected) throw rejected
-    assert.equal(requests.length, refusal ? 1 : 2)
+    assert.equal(requests.length, refusal ? 6 : 2)
     const config = agent.session.requestHeader()?.config
     assert.equal(config.reasoningEffort, officialGlm ? 'max' : preservesNewerDefault ? undefined : 'low')
     assert.deepEqual({ provider: config.provider, model: config.model }, selectedModel)

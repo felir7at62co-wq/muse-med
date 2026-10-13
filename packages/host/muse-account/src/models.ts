@@ -129,6 +129,13 @@ export class MuseModels {
       },
       resolveAttachments: () => ctx.get('attachments'),
       resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(attachments, () => undefined, ref),
+      onProviderFailure: ({ provider, model, code, status, requestId }) => {
+        ctx.logger.warn(
+          `Muse model request failed: provider=${JSON.stringify(provider)}`
+          + ` model=${JSON.stringify(model)} code=${JSON.stringify(code)}`
+          + ` status=${status ?? 'unavailable'} requestId=${JSON.stringify(requestId ?? null)}`,
+        )
+      },
     }, (provider, model) => this.defaultEfforts.get(`${provider}:${model}`), () => this.authorization.signal)
     this.disposeRequestRoute = ctx.on('agent/request', async ({ agent, signal }, next) => {
       const config = await next()
