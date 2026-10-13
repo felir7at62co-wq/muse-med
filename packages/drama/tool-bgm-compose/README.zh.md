@@ -58,7 +58,7 @@ kind: "package-reference"
 | `compose` | 48 kHz 双声道 `pcm_s16le` WAV 及相邻 `.generation.json` | 预检事实，加上实测媒体参数与输出 SHA-256 |
 | `verify` | 无 | 现有 WAV 的实测容器与音频参数；不读取原始源曲，`segments` 为空 |
 
-三个方法都会在打开任何文件、写出任何产物之前先跑批次门禁：违反复用规则的计划直接失败，不产出任何文件。批次 = 计划文件所在目录里所有含 `episodes` 数组的 JSON（流水线的布局就是 `episodes/segments/<集>.json`），返回的 `batch_episodes` 说明这次核对了哪些集。该目录里读不动的文件会直接失败——批次悄悄少一个成员，就会让一首曲子超限而无人报告；能解析但没有 `episodes` 数组的文件则只是「不是计划」。规则是：每集至少 `minTracksPerEpisode` 首不同曲目、一集内不得重复同一首、整批之内同一首最多出现在 `maxEpisodesPerTrack` 集、每集至少 `freshTracksPerEpisode` 首是本批其它集没用过的、每个切点必须落在时间线的镜头包边界 `boundaryToleranceSeconds` 秒以内、每段 `reason` 非空。曲目身份按解析后的 `source` 路径判定；`track` 只是展示名，从不参与比较——线上计划出现过同一文件两个名字、以及同一名字两个文件。门禁没有包边界就无法运行，所以时间线缺 `clips` 会直接失败，而不是悄悄跳过这项检查。
+三个方法都会在 `policy_findings` 中报告曲目复用与切点位置的问题；这些报告用于指导选曲，不阻止合成。批次是计划文件所在目录里所有含 `episodes` 数组的 JSON（`episodes/segments/<集>.json`），`batch_episodes` 说明核对了哪些集。无法读取或解析的批次文件会使调用失败；能解析但没有 `episodes` 数组的文件不属于计划。建议为：每集至少 `minTracksPerEpisode` 首不同曲目、一集内不重复同一首、整批之内同一首最多出现在 `maxEpisodesPerTrack` 集、每集至少 `freshTracksPerEpisode` 首未被其它批次集使用的曲目、每个切点距时间线的镜头包边界不超过 `boundaryToleranceSeconds` 秒、每段 `reason` 非空。曲目身份按解析后的 `source` 路径判定；`track` 仅为展示名。时间线必须包含 `clips`，工具才能核对包边界。无效媒体、项目路径和输出时长仍会在发布产物前使调用失败。
 
 `compose` 以 `-17.5 dB` 为平均音量目标，自动提升最多 `+9 dB`，让每个交叉淡化以剧情边界为中心，开头淡入 1.5 秒，结尾 2.5 秒淡出。它在无覆盖发布前暂存并探测两个产物；命令或校验失败会清除暂存文件，并保留已有目标不变。把返回的绝对 `output` 传给 `drama_render.bgm`，把返回的绝对 `plan` 传给 `drama_render.bgm_plan`。
 
