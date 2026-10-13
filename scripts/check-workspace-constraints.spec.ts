@@ -277,6 +277,34 @@ describe('dsh family version coherence', () => {
 })
 
 describe('package payload constraints', () => {
+  it('requires only the exact Windows OCR bridge beside the video inspection runtime', () => {
+    const dir = 'packages/perception/tool-video-inspect'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    const canonical = ['lib/index.js', 'scripts/ocr_bridge.ps1', 'lib/types/**/*.d.ts']
+    expect(expectedDshPackageFiles(manifest)).toEqual(canonical)
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: canonical } })).toEqual([])
+    for (const files of [
+      ['lib/index.js', 'lib/types/**/*.d.ts'],
+      ['lib/index.js', 'scripts/**', 'lib/types/**/*.d.ts'],
+      ['lib/index.js', 'scripts/*.ps1', 'lib/types/**/*.d.ts'],
+      ['lib/index.js', 'scripts/other_bridge.ps1', 'lib/types/**/*.d.ts'],
+      [...canonical, 'scripts/extra.ps1'],
+    ]) {
+      expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files } }))
+        .toEqual([expect.stringContaining('package.json files must be')])
+    }
+  })
+
+  it('does not permit another public package to publish the video inspection bridge', () => {
+    const dir = 'packages/drama/tool-character-reference'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    expect(expectedDshPackageFiles(manifest)).not.toContain('scripts/ocr_bridge.ps1')
+    expect(checkWorkspaceManifest({ dir, manifest: {
+      ...manifest, files: [...manifest.files!, 'scripts/ocr_bridge.ps1'],
+    } })).toEqual([expect.stringContaining('package.json files must be')])
+  })
+
   it('accepts only the private drama skill resource package and its declared files', () => {
     const dir = 'packages/drama/skills'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
