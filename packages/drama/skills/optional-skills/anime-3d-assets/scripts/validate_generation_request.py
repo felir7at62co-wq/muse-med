@@ -13,6 +13,31 @@ MEDIA = {
 PURPOSES = {"style", "layout", "identity", "costume", "structure", "edit_source", "edit_base"}
 
 
+def explicit_pbr_prohibition(clause):
+    """Recognize complete PBR removal instructions, not material-quality advice."""
+    scope = r"(?:\s*(?:用于|应用于|加到|出现在|\b(?:for|on|in)\b)\s*[^，,。.!?！？;；\n]+)?\s*$"
+    return bool(re.search(
+        r"(?:禁止|禁用|不要(?:使用)?|不使用|不用|去掉|移除|取消)\s*PBR\s*(?:材质|材料|着色|渲染)?" + scope
+        + r"|(?:(?:do\s+not|don't)\s+(?:use|include)|without|no)\s+(?:any\s+)?PBR"
+        r"(?:\s+(?:materials?|rendering|shading))?" + scope, clause, re.IGNORECASE))
+
+
+def positive_photography_instruction(clause):
+    """Identify photographic medium requests while retaining local exclusions."""
+    for match in re.finditer(r"真人(?:摄影|实拍)|(?<![A-Za-z0-9_])photo[- ]?realistic\s*"
+                             r"(?:人物摄影|真人摄影|人像摄影|portrait\s+photography|human\s+photography|photography|photos?)(?![A-Za-z0-9_])"
+                             r"|(?<![A-Za-z0-9_])live[- ]action(?:\s+(?:film|photography|footage|movie|video)\b|(?=\s*$))",
+                             clause, re.IGNORECASE):
+        prefix = clause[:match.start()]
+        if re.search(r"(?:不要|禁止|禁用|避免|排除|不是|非|不)(?:使用|采用|生成|制作)?\s*$"
+                     r"|\b(?:not|no|without|avoid|exclude|(?:do\s+not|don't|never)"
+                     r"\s+(?:use|generate|make(?:\s+it)?|render|create))\s+(?:(?:a|an|the|any)\s+)?$"
+                     r"|\bnon-\s*$", prefix, re.IGNORECASE):
+            continue
+        return True
+    return False
+
+
 def https_url(value):
     """Accept an upload URL, never a local path or an upload status message."""
     if not isinstance(value, str) or not value or any(char.isspace() for char in value):
@@ -50,6 +75,11 @@ def validate_generation_request(record, request):
     opening = re.split(r"[。\n.!?！？]", prompt, maxsplit=1)[0]
     if not re.search(r"(?<![A-Za-z0-9_])PBR(?![A-Za-z0-9_])", opening, re.IGNORECASE):
         errors.append("request.prompt opening must retain the PBR material requirement")
+    clauses = re.split(r"[，,。.!?！？;；\n]", prompt)
+    if any(explicit_pbr_prohibition(clause) for clause in clauses):
+        errors.append("request.prompt explicitly prohibits PBR materials")
+    if any(positive_photography_instruction(clause) for clause in clauses):
+        errors.append("request.prompt positively requests live-action photography")
 
     references = generation.get("references")
     if not isinstance(references, list):

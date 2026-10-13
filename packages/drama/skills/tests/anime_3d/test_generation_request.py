@@ -45,7 +45,9 @@ def planned_request(medium="3D动漫"):
     }
     request = {
         "method": "image_generate", "prompt": prompt,
-        "references": [STYLE_URL, MATERIAL_URL], "ratio": "16:9",
+        "script_id": 123, "asset_name": "离线测试角色", "asset_type": 1,
+        "idempotency_key": "offline-only-no-submit",
+        "references": [STYLE_URL, MATERIAL_URL], "image_aspect_ratio": "16:9",
     }
     return record, request
 
@@ -239,6 +241,85 @@ class GenerationRequestCLI(unittest.TestCase):
         self.assertTrue(report["generation_ready"])
         self.assertEqual(report["errors"], [])
 
+    def test_explicit_pbr_prohibition_is_not_a_positive_material_requirement(self):
+        for prompt in ("3D动漫，禁止PBR材质。", "3D动漫，物理可信PBR材质。其他要求：不要使用PBR材质。",
+                       "3D动漫，物理可信PBR材质。不要使用PBR材质用于任何角色。",
+                       "3D anime, do not use PBR materials.",
+                       "3D anime, PBR materials. Do not use PBR materials for any character."):
+            with self.subTest(prompt=prompt):
+                record, request = planned_request("3D anime" if prompt.startswith("3D anime") else "3D动漫")
+                record["generation"]["final_prompt"] = request["prompt"] = prompt
+                code, report = self.invoke(request, [record])
+                self.assertEqual(code, 1)
+                self.assertFalse(report["generation_ready"])
+                self.assertIn("items[0]: request.prompt explicitly prohibits PBR materials", report["errors"])
+
+    def test_positive_live_action_or_photorealistic_instruction_is_rejected(self):
+        for prompt in ("3D动漫，不是动画而是真人摄影，物理可信PBR材质。",
+                       "3D动漫，物理可信PBR材质。使用photorealistic人物摄影。",
+                       "3D anime, PBR materials. Not animation but photorealistic portrait photography."):
+            with self.subTest(prompt=prompt):
+                record, request = planned_request("3D anime" if prompt.startswith("3D anime") else "3D动漫")
+                record["generation"]["final_prompt"] = request["prompt"] = prompt
+                code, report = self.invoke(request, [record])
+                self.assertEqual(code, 1)
+                self.assertFalse(report["generation_ready"])
+                self.assertIn("items[0]: request.prompt positively requests live-action photography", report["errors"])
+
+    def test_negative_photography_exclusions_and_material_quality_advice_remain_valid(self):
+        for medium, suffix in (("3D动漫", "不要真人摄影，不使用photorealistic人物摄影。避免PBR材质粗糙度不一致。"),
+                               ("3D动漫", "禁止使用photorealistic，不要生成真人摄影。"),
+                               ("3D anime", "Not photorealistic portrait photography, no live-action photography. Avoid inconsistent PBR material roughness."),
+                               ("3D anime", "Non-photorealistic shading, do not make it photorealistic.")):
+            with self.subTest(medium=medium):
+                record, request = planned_request(medium)
+                record["generation"]["final_prompt"] = request["prompt"] = request["prompt"] + suffix
+                before = copy.deepcopy((record, request))
+                code, report = self.invoke(request, [record])
+                self.assertEqual(code, 0)
+                self.assertTrue(report["generation_ready"])
+                self.assertEqual(report["errors"], [])
+                self.assertEqual((record, request), before)
+
+    def test_conflicting_prompt_report_matches_the_owner_local_cli_snapshot(self):
+        record, request = planned_request()
+        record["generation"]["final_prompt"] = request["prompt"] = (
+            "3D动漫，禁止PBR材质，使用photorealistic人物摄影。")
+        code, report = self.invoke(request, [record])
+        expected = json.loads((Path(__file__).parent / "expected/conflicting-request.json").read_text(encoding="utf-8"))
+        self.assertEqual(code, 1)
+        self.assertEqual(report, expected)
+
+    def test_realistic_cg_lighting_and_materials_do_not_assert_a_photographic_medium(self):
+        for prompt in ("3D动漫，物理可信PBR材质，photorealistic lighting and material textures, retain CGI characters.",
+                       "3D动漫，物理可信PBR材质，写实3D角色，photorealistic PBR materials."):
+            with self.subTest(prompt=prompt):
+                record, request = planned_request()
+                record["generation"]["final_prompt"] = request["prompt"] = prompt
+                before = copy.deepcopy((record, request))
+                code, report = self.invoke(request, [record])
+                self.assertEqual(code, 0)
+                self.assertEqual(report["errors"], [])
+                self.assertEqual((record, request), before)
+
+    def test_explicit_2d_direction_is_not_rewritten_or_rejected_by_photography_check(self):
+        record, request = planned_request("风格化动画")
+        record["generation"]["final_prompt"] = request["prompt"] = (
+            "风格化动画，用户明确要求2D cel shading，物理可信PBR材质。不要真人摄影。")
+        before = copy.deepcopy((record, request))
+        code, report = self.invoke(request, [record])
+        self.assertEqual(code, 0)
+        self.assertTrue(report["generation_ready"])
+        self.assertEqual((record, request), before)
+
+    def test_unknown_reference_upload_stays_blocked_without_text_only_fallback(self):
+        record, request = planned_request()
+        record["generation"]["references"][0]["upload_status"] = "unknown"
+        code, report = self.invoke(request, [record])
+        self.assertEqual(code, 1)
+        self.assertFalse(report["generation_ready"])
+        self.assertEqual(request["references"], [STYLE_URL, MATERIAL_URL])
+
     def test_failed_upload_exits_one_before_generation(self):
         record, request = planned_request()
         record["generation"]["references"][0].update(upload_status="failed", submitted=False, url=None)
@@ -251,7 +332,8 @@ class GenerationRequestCLI(unittest.TestCase):
     def test_valid_batch_pairs_records_in_item_order(self):
         first, first_request = planned_request()
         second, second_request = planned_request("三维动画")
-        code, report = self.invoke({"method": "image_generate_batch", "items": [first_request, second_request]}, [first, second])
+        items = [self.batch_item(first_request, "offline-first"), self.batch_item(second_request, "offline-second")]
+        code, report = self.invoke({"method": "image_generate_batch", "script_id": 123, "items": items}, [first, second])
         self.assertEqual(code, 0)
         self.assertTrue(report["generation_ready"])
 
@@ -259,7 +341,8 @@ class GenerationRequestCLI(unittest.TestCase):
         first, first_request = planned_request()
         second, second_request = planned_request("三维动画")
         second["generation"]["references"][0].update(upload_status="failed", submitted=False)
-        code, report = self.invoke({"method": "image_generate_batch", "items": [first_request, second_request]}, [first, second])
+        items = [self.batch_item(first_request, "offline-first"), self.batch_item(second_request, "offline-second")]
+        code, report = self.invoke({"method": "image_generate_batch", "script_id": 123, "items": items}, [first, second])
         self.assertEqual(code, 1)
         self.assertFalse(report["generation_ready"])
         self.assertTrue(report["errors"])
@@ -269,9 +352,18 @@ class GenerationRequestCLI(unittest.TestCase):
         second, second_request = planned_request("三维动画")
         for records in ([first], [second, first]):
             with self.subTest(records=len(records)):
-                code, report = self.invoke({"method": "image_generate_batch", "items": [first_request, second_request]}, records)
+                items = [self.batch_item(first_request, "offline-first"), self.batch_item(second_request, "offline-second")]
+                code, report = self.invoke({"method": "image_generate_batch", "script_id": 123, "items": items}, records)
                 self.assertEqual(code, 1)
                 self.assertFalse(report["generation_ready"])
+
+    def batch_item(self, request, key):
+        """Project single arguments onto the existing batch item's wire fields."""
+        item = {name: value for name, value in request.items()
+                if name not in {"method", "script_id", "image_aspect_ratio"}}
+        item["idempotency_key"] = key
+        item["asset_name"] = key
+        return item
 
     def test_unrelated_method_does_not_get_generation_approval(self):
         record, request = planned_request()
@@ -320,10 +412,14 @@ class OptionalResources(unittest.TestCase):
         self.assertNotIn("不使用三维动画等泛化风格词", skill)
 
     def test_copyable_design_and_production_prompts_keep_medium_and_pbr(self):
+        validator = load_script(SCRIPT)
         for name in ("design-and-prompts.md", "production-examples.md"):
             for index, prompt in enumerate(self.copyable_prompts(name)):
                 with self.subTest(reference=name, prompt=index):
                     self.assert_positive_opening(prompt)
+                    record, request = planned_request()
+                    record["generation"]["final_prompt"] = request["prompt"] = prompt
+                    self.assertEqual(validator.validate_generation_request(record, request), [])
 
     def test_project_style_lock_keeps_the_medium_and_pbr_at_both_ends(self):
         project = json.loads((SKILL / "assets/project-template.json").read_text(encoding="utf-8"))

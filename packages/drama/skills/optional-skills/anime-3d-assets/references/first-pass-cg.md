@@ -53,6 +53,6 @@
 python -B scripts/validate_generation_request.py --request request.json --records record.json
 ```
 
-单条 `image_generate` 提供一份记录；`image_generate_batch` 按 `items` 顺序传入全部记录，遗漏任何一项都会失败。脚本只读、不联网、不修改 prompt 或参考、不调用模型；检查正向媒介开头和 PBR、最终文本一致性、至少一张风格参考上传成功，以及完整计划与实际有序参考 URL 一致。仅退出码0且 `generation_ready=true` 才可按原样提交；Agent、persona、preset 或翻译若再次改写参数，须重新保存并检查。上传检查失败不能改为空引用重投。原有本地结构检查仍允许未生成的规划记录通过，但不代表生成已就绪。
+单条 `image_generate` 提供一份记录；`image_generate_batch` 按 `items` 顺序传入全部记录，遗漏任何一项都会失败。脚本只读、不联网、不修改 prompt 或参考、不调用模型；检查正向媒介开头和 PBR、最终文本一致性、至少一张风格参考上传成功，以及完整计划与实际有序参考 URL 一致。明确的禁止／不使用 PBR 指令不能作为正向材质要求；开头之外同样不得追加矛盾禁用要求。正向真人摄影／photorealistic 指令会失败，直接的“不要真人摄影”“not photorealistic”等排除语句不因出现这些词而失败；2D、cel shading 等用户风格词不被这项摄影检查删除或改写。这些是有限文本规则，不是自然语言或图像的完整语义审核，完整工具字段仍由现有 `jubian_video` 校验。仅退出码0且 `generation_ready=true` 才可按原样提交；Agent、persona、preset 或翻译若再次改写参数，须重新保存并检查。上传检查失败不能改为空引用重投。原有本地结构检查仍允许未生成的规划记录通过，但不代表生成已就绪。
 
-这是 Skill 工作流的提交前条件，不是剧变 API 或全局工具拦截。通过检查仅代表记录和候选参数符合这些条件；远端可访问性、参考隔离、实际像素及3D动漫风格仍需真实工具结果和看图验收。
+这是 Skill 工作流的提交前条件，不是剧变 API 或全局工具拦截。摄影冲突检查要求明确的摄影媒介目标，例如 photorealistic portrait photography、photorealistic人物摄影或真人实拍；photorealistic 仅描述 CG 灯光和 PBR 材质时不据此断言真人风格。通过检查仅代表记录和候选参数符合这些条件；远端可访问性、参考隔离、实际像素及3D动漫风格仍需真实工具结果和看图验收。
