@@ -274,11 +274,13 @@ it('continues polling after a Desktop connection refresh fails without logging i
   const timer = vi.spyOn(globalThis, 'setTimeout')
   await apply(ctx, Config({ baseUrl, accountHome: home, modelRefreshMs: 10000, remoteAccess: true }))
   await account(ctx).status({})
-  await vi.waitFor(() => expect(timer.mock.calls.some(([, delay]) => delay === 10000)).toBe(true))
+  await vi.waitFor(() => { expect(timer.mock.calls.some(([, delay]) => delay === 10000)).toBe(true) })
   const previous = refresh.mock.calls.length
   refresh.mockRejectedValueOnce(new Error('PRIVATE_DESKTOP_DETAIL'))
   await vi.advanceTimersByTimeAsync(10000)
-  await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('Muse desktop connection is unavailable; open account settings to retry.'))
+  await vi.waitFor(() => {
+    expect(warn).toHaveBeenCalledWith('Muse desktop connection is unavailable; open account settings to retry.')
+  })
   expect(warn.mock.calls.flat().some(value => String(value).includes('PRIVATE_DESKTOP_DETAIL'))).toBe(false)
   await vi.advanceTimersByTimeAsync(10000)
   await account(ctx).status({})
