@@ -15,8 +15,20 @@ function parseSourceJson(text) {
     && !Number.isSafeInteger(value) && /^-?\d+$/.test(context.source) ? context.source : value);
 }
 
-class RiskControlError extends DownloadError {
-  constructor() { super('platform_error', '红果原源 API 返回错误；没有生成下载成功结果'); }
+class SourceRetryError extends DownloadError {
+  constructor(details) { super('platform_error', '红果原源 API 返回错误；本次源请求重试已用尽，没有生成下载成功结果', details); }
+}
+
+/** Both platform response envelopes can report failure; a zero in one cannot hide another error. */
+function sourceStatus(result, sourceStage) {
+  const values = [result.code, result.Code, result.BaseResp?.StatusCode].filter(value => value !== undefined && value !== null);
+  const codes = values.map(value => typeof value === 'string' && /^-?\d+$/.test(value) ? Number(value) : value);
+  if (codes.some(code => !Number.isSafeInteger(code))) {
+    throw new DownloadError('platform_json', '原源平台错误码格式无效', { sourceStage, retryable: false });
+  }
+  const failures = [...new Set(codes.filter(code => code !== 0))];
+  if (failures.length > 1) throw new DownloadError('platform_json', '原源平台返回相互冲突的错误码', { sourceStage, retryable: false });
+  return failures[0];
 }
 
 async function jsonFile(path) {
@@ -110,14 +122,14 @@ export class SourceCatalog {
     catch (error) { return { configured: false, source: 'original-hongguo-api', verifiedLive: false, missing: [safeError(error).message] }; }
   }
 
-  /** Keep one session device until a risk response; retries use the configured budget. */
+  /** Keep one session device until a platform failure; retries use the configured budget. */
   async api(path, body, signal, method = 'POST', params = {}) {
     for (let attempt = 0; ; attempt++) {
       try { return await this.apiOnce(path, body, signal, method, params); }
       catch (error) {
-        if (!(error instanceof RiskControlError) || signal.aborted) throw error;
-        if (this.loaded.devices.length > 1) this.deviceIndex = (this.deviceIndex + 1) % this.loaded.devices.length;
+        if (!(error instanceof SourceRetryError) || signal.aborted) throw error;
         if (attempt >= this.config.retries) throw error;
+        if (this.loaded.devices.length > 1) this.deviceIndex = (this.deviceIndex + 1) % this.loaded.devices.length;
       }
     }
   }
@@ -148,10 +160,12 @@ export class SourceCatalog {
     try { result = parseSourceJson((await responseBytes(response, this.config.maxResponseBytes, signal)).toString('utf8')); }
     catch (error) { if (error instanceof DownloadError || signal.aborted) throw error; throw new DownloadError('platform_json', '原源平台返回无效 JSON'); }
     if (!record(result)) throw new DownloadError('platform_error', '红果原源 API 返回错误；没有生成下载成功结果');
-    const code = typeof result.code === 'string' && /^-?\d+$/.test(result.code) ? Number(result.code) : result.code;
-    if ([101001, 401, 403, 1001, 8].includes(code)) throw new DownloadError('platform_error', '红果原源 API 返回错误；没有生成下载成功结果');
-    const messages = [result.message, result.BaseResp?.StatusMessage].filter(value => typeof value === 'string').join(' ');
-    if ((code !== undefined && code !== null && code !== 0) || /verify|captcha|risk|频繁|稍后|验证|rate limit|too many/i.test(messages)) throw new RiskControlError();
+    const sourceStage = path.includes('multi_video_model') ? 'video_model' : path.includes('multi_video_detail') ? 'catalog' : 'source_api';
+    const code = sourceStatus(result, sourceStage);
+    const details = { ...(code !== undefined ? { upstreamCode: code } : {}), sourceStage, retryable: false };
+    if ([101001, 401, 403, 1001, 8].includes(code)) throw new DownloadError('platform_error', '红果原源 API 返回错误；没有生成下载成功结果', details);
+    const messages = [result.message, result.Message, result.BaseResp?.StatusMessage].filter(value => typeof value === 'string').join(' ');
+    if (code !== undefined || /verify|captcha|risk|频繁|稍后|验证|rate limit|too many/i.test(messages)) throw new SourceRetryError(details);
     return result;
   }
 

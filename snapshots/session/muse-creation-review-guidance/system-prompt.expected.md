@@ -310,7 +310,7 @@ interface ToolArgsMap {
     /** 默认当前会话工作区的downloads目录；可指定工作区内相对目录或绝对路径，拒绝越界或符号链接 */
     outputDir?: string;
   };
-  /** 先检查一部或多部红果的声明总集数与连续集号。默认使用 Hongguo source 的原接口；全集范围按原源真实总集数确定，不另设集数上限。Muse 安装包内置本地运行环境，首次使用初始化本机设备并自动启动原签名器；独立配置缺少原源或运行时明确失败。配置成功不等于下载验收；不返回Cookie、设备值、签名或媒体直链。公开播放器仅开放的试看集不能充作全剧。 */
+  /** 先检查一部或多部红果的声明总集数与连续集号。此工具只查询目录，不查询媒体地址；completeCatalog不代表可下载，mediaUrlsVerified为false，fullSeriesAvailable为null表示尚未验证，不得据此宣称全集可用。默认使用 Hongguo source 的原接口；全集范围按原源真实总集数确定，不另设集数上限。Muse 安装包内置本地运行环境，首次使用初始化本机设备并自动启动原签名器；独立配置缺少原源或运行时明确失败。不返回Cookie、设备值、签名或媒体直链。公开播放器仅开放的试看集不能充作全剧。 */
   hongguo_download_info: {
     /** 一部或多部系列 ID；红果 ID 保持十进制字符串，默认最多10部 */
     seriesIds: string[];
@@ -1840,7 +1840,7 @@ interface ToolOutputMap {
       }[];
     })[];
     /** 每包对应一次剧变提交；硬失败时为空数组。 */
-    packages: {
+    packages: ({
       /** 包序号，从 1 开始。 */
       index: number;
       /** 本包镜头号，按脚本顺序。 */
@@ -1861,7 +1861,18 @@ interface ToolOutputMap {
       material_keys: string[];
       /** 本包镜头绑定的资产名，按镜头顺序去重。 */
       material_names: string[];
-    }[];
+      /** 按提示词 key 顺序的明确素材身份；直接使用这些 key、父资产 ID 与 material ID，不按名称数组下标猜。 */
+      material_bindings: ({
+        material_key: string;
+        name: string;
+        type: string;
+        official: boolean;
+        asset_id: string;
+        material_id: string;
+        url: string;
+        reference_scope: "identity" | "appearance";
+      })[];
+    })[];
     /** severity=failure 表示必须先修好再编译，warning 不阻塞编译。 */
     failures: ({
       /** severity=failure 表示必须先修好再编译，warning 不阻塞编译。 */
@@ -2099,6 +2110,9 @@ interface ToolOutputMap {
     sourceMode?: string;
     code?: string;
     message?: string;
+    upstreamCode?: number;
+    sourceStage?: "catalog" | "video_model" | "source_api";
+    retryable?: boolean;
     items?: Record<string, JsonValue>[];
   } & Record<string, JsonValue>;
   hongguo_download_info: {
@@ -2107,6 +2121,9 @@ interface ToolOutputMap {
     sourceMode?: string;
     code?: string;
     message?: string;
+    upstreamCode?: number;
+    sourceStage?: "catalog" | "video_model" | "source_api";
+    retryable?: boolean;
     items?: Record<string, JsonValue>[];
   } & Record<string, JsonValue>;
   hongguo_rankings: {
