@@ -4381,15 +4381,15 @@ drama_project 维护权威 JSON、受版本检查保护的修订、视频包身�
     },
     "timeline": {
       "type": "string",
-      "description": "项目内时间线 JSON，必须含 body_end，通常为 editing/<集>-timeline.json。"
+      "description": "项目内时间线 JSON，必须含 body_end，通常为 editing/<集>-timeline.json；相对路径以 project 为基准。"
     },
     "plan": {
       "type": "string",
-      "description": "项目内 episodes/segments BGM 计划 JSON；段落必须连续完整覆盖正文，跨集复用规则见 policy_findings（每集至少 2 首、集内不重复、单曲最多 2 集、至少 1 首全新、切点在镜头包边界）。"
+      "description": "项目内 episodes/segments BGM 计划 JSON；用 write 创建时把 file_path 写成项目内绝对路径，并把 write 返回的绝对 path 原样传入；相对路径以 project 为基准。段落必须连续完整覆盖正文，跨集复用规则见 policy_findings（每集至少 2 首、集内不重复、单曲最多 2 集、至少 1 首全新、切点在镜头包边界）。"
     },
     "output": {
       "type": "string",
-      "description": "项目内 WAV 路径；省略为 audio/bgm/<集>.wav。"
+      "description": "项目内 WAV 路径；相对路径以 project 为基准，省略为 audio/bgm/<集>.wav。"
     }
   },
   "required": [
@@ -4450,7 +4450,7 @@ drama_project 维护权威 JSON、受版本检查保护的修订、视频包身�
     },
     "timeline": {
       "type": "string",
-      "description": "时间线 JSON 路径；render 与 verify 必填，通常是 prepare 写出的 editing/<集>-timeline.json。"
+      "description": "时间线 JSON 路径；render 与 verify 必填，相对路径以 project 为基准；跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。"
     },
     "subtitle_srt": {
       "type": "string",
@@ -4462,11 +4462,11 @@ drama_project 维护权威 JSON、受版本检查保护的修订、视频包身�
     },
     "bgm": {
       "type": "string",
-      "description": "本集实际使用的 BGM 文件路径；render 必填，会循环铺到正片结束。"
+      "description": "本集实际使用的 BGM 文件路径；render 必填，相对路径以 project 为基准；优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束。"
     },
     "bgm_plan": {
       "type": "string",
-      "description": "render 可选：现有 episodes/segments 配乐计划 JSON；校验时间、记录曲目与复用提醒，不代替试听。"
+      "description": "render 可选：现有 episodes/segments 配乐计划 JSON；相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；校验时间、记录曲目与复用提醒，不代替试听。"
     },
     "ending_audio": {
       "type": "string",

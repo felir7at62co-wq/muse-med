@@ -50,6 +50,8 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 The plan uses `episodes[].segments[]`. Each selected episode declares `body_duration_seconds`, optional `crossfade_seconds`, and contiguous segments with `track`, `source`, `start_seconds`, `end_seconds`, and `reason`. A segment may freeze `source_start_seconds` and `source_sha256`; `valence` and `arousal` preserve optional candidate measurements without invoking `bgm_match`.
 
+`project` is the base for every relative `timeline`, `plan`, and `output`; none of them uses the process working directory. For a cross-tool handoff, write a control file to an absolute path inside the project and pass the absolute `path` returned by `write` unchanged. Results return normalized absolute paths. A rejected project path reports the input, project, resolved path, and reason.
+
 | Method | Writes | Result |
 |---|---|---|
 | `preview` | Nothing permanent | Resolved source hashes, source starts, measured mean volume, applied gains, and the batch episodes the reuse rules were checked against |
@@ -58,7 +60,7 @@ The plan uses `episodes[].segments[]`. Each selected episode declares `body_dura
 
 All three methods run the batch gate before anything is opened or written, so a plan that breaks the reuse rules fails without producing a file. The batch is every JSON in the plan's own directory that carries an `episodes` array — how the pipeline lays episodes out (`episodes/segments/<集>.json`) — and `batch_episodes` reports what was checked. A file in that directory that cannot be parsed at all is a failure, because a batch quietly missing one member would let a track exceed its limit unnoticed; a parseable file without an `episodes` array is simply not a plan. The rules are: at least `minTracksPerEpisode` distinct tracks per episode, no track twice inside one episode, no track in more than `maxEpisodesPerTrack` episodes of the batch, at least `freshTracksPerEpisode` tracks that no other batch episode uses, every cut within `boundaryToleranceSeconds` of a package boundary from the timeline, and a non-empty `reason` on every segment. A track is identified by its resolved `source` path; the `track` label is a display name and is never compared, because production plans have carried two labels for one file and one label for two files. The gate cannot run without package boundaries, so a timeline that carries no `clips` is a failure rather than a silently skipped check.
 
-`compose` targets mean volume `-17.5 dB`, caps automatic boost at `+9 dB`, centers each crossfade on the story boundary, fades in for 1.5 seconds, and fades out over the last 2.5 seconds. It stages and probes both artifacts before no-clobber publication; a failed command or validation removes staged files and leaves an existing destination untouched. Pass the returned `output` to `drama_render.bgm` and the same plan to `drama_render.bgm_plan`.
+`compose` targets mean volume `-17.5 dB`, caps automatic boost at `+9 dB`, centers each crossfade on the story boundary, fades in for 1.5 seconds, and fades out over the last 2.5 seconds. It stages and probes both artifacts before no-clobber publication; a failed command or validation removes staged files and leaves an existing destination untouched. Pass the returned absolute `output` to `drama_render.bgm` and the returned absolute `plan` to `drama_render.bgm_plan`.
 
 -----
 

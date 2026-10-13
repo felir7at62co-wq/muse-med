@@ -87,6 +87,8 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 | `output` | `verify` (`render` optional) | The delivered file; `render` defaults to `exports/<集>.mp4` |
 | `force` | optional | `render` ignores its per-shot cache and re-encodes every clip |
 
+Relative `timeline`, `bgm`, and `bgm_plan` paths resolve from `project`, not the process working directory. Cross-tool calls should pass the absolute `output` and `plan` returned by `drama_bgm`; absolute paths remain unchanged.
+
 Tool calls use the snake_case parameter names above; the registered executor maps them to the renderer's internal camelCase arguments. A method missing one of its own arguments fails before any file is opened. Everything that makes a render impossible — a missing input, a failed command, an ending file whose bytes are not the shipped asset's, an ending effect longer than the ending window, a tail frame that cannot be proved — throws with a Chinese repair instruction. The delivered file's own properties do not throw: they come back as checks, so one call reports every defect while still handing back the measurement.
 
 ### Delivery prerequisites: the two ending files and the 2-second window

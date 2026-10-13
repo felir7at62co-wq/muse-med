@@ -6,6 +6,7 @@ import {
   appliedGain,
   auditBgmBatch,
   buildMixFilter,
+  resolveProjectPath,
   resolveOutputPath,
   segmentInputDurations,
   trackIdentity,
@@ -189,5 +190,29 @@ describe('resolveOutputPath', () => {
     expect(resolveOutputPath(project, 'audio/bgm/05.wav')).toBe(join(project, 'audio/bgm/05.wav'))
     expect(() => resolveOutputPath(project, '../05.wav')).toThrow('项目目录')
     expect(() => resolveOutputPath(project, resolve('outside/05.wav'))).toThrow('项目目录')
+  })
+
+  it('resolves relative and absolute project paths to the same canonical path', () => {
+    const project = resolve('剧变项目')
+    const absolute = join(project, 'editing', '配乐计划.json')
+    expect(resolveProjectPath(project, 'editing/配乐计划.json', 'BGM 计划')).toEqual({
+      input: 'editing/配乐计划.json',
+      project,
+      resolved: absolute,
+    })
+    expect(resolveProjectPath(project, absolute, 'BGM 计划')).toEqual({
+      input: absolute,
+      project,
+      resolved: absolute,
+    })
+  })
+
+  it('reports every path field and the reason when a path escapes the project', () => {
+    const project = resolve('剧变项目')
+    const operation = () => resolveProjectPath(project, '../outside.json', 'BGM 计划')
+    expect(operation).toThrow('input="../outside.json"')
+    expect(operation).toThrow(`project="${project}"`)
+    expect(operation).toThrow(/resolved=".+outside\.json"/u)
+    expect(operation).toThrow('reason=路径越出项目目录')
   })
 })
