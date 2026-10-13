@@ -182,6 +182,67 @@ it('uses Muse sign-in to advance the desktop first-run flow', async () => {
   expect(screen.queryByDisplayValue('private-password')).toBeNull()
 })
 
+it('advances onboarding when retry confirms an already saved login', async () => {
+  const complete = vi.fn()
+  const status = vi.fn<MuseAccountInjected['status']>()
+    .mockResolvedValueOnce({ ok: false, code: 'muse-account/gateway-unavailable' })
+    .mockResolvedValueOnce({ ok: true, value: SIGNED_IN })
+  render(<MuseAccountOnboarding {...props({ status })} stepId="muse-account" complete={complete} openSection={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'retry' }))
+  await screen.findByText('verified')
+  expect(complete).toHaveBeenCalledOnce()
+})
+
+it('does not advance a dismissed onboarding page when its pending login succeeds', async () => {
+  const complete = vi.fn()
+  let finish!: (value: Awaited<ReturnType<MuseAccountInjected['login']>>) => void
+  const login: MuseAccountInjected['login'] = () => new Promise((resolve) => { finish = resolve })
+  const page = render(<MuseAccountOnboarding {...props({ login })} stepId="muse-account" complete={complete} openSection={vi.fn()} />)
+  fireEvent.change(await screen.findByLabelText('username'), { target: { value: 'writer' } })
+  fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
+  fireEvent.click(screen.getByRole('button', { name: 'signIn' }))
+  fireEvent.click(screen.getByRole('button', { name: 'onboardingLater' }))
+  page.unmount()
+  await act(async () => { finish({ ok: true, value: { outcome: 'signed-in', status: SIGNED_IN } }) })
+  expect(complete).toHaveBeenCalledOnce()
+})
+
+it.each(['verify', 'login', 'logout'] as const)('ignores %s completion after page close', async (operation) => {
+  for (const reject of [false, true]) {
+    let finishStatus!: (value: Awaited<ReturnType<MuseAccountInjected['status']>>) => void
+    let finishLogin!: (value: Awaited<ReturnType<MuseAccountInjected['login']>>) => void
+    let fail!: (reason: Error) => void
+    const statusPending = new Promise<Awaited<ReturnType<MuseAccountInjected['status']>>>((resolve, no) => {
+      finishStatus = resolve
+      if (operation !== 'login') fail = no
+    })
+    const loginPending = new Promise<Awaited<ReturnType<MuseAccountInjected['login']>>>((resolve, no) => {
+      finishLogin = resolve
+      if (operation === 'login') fail = no
+    })
+    const onSignedIn = vi.fn()
+    const status = vi.fn<MuseAccountInjected['status']>().mockResolvedValueOnce({ ok: true, value: operation === 'login' ? SIGNED_OUT : SIGNED_IN })
+    status.mockImplementation(() => statusPending)
+    const page = render(<MuseAccountSection
+      {...props({ status, login: () => loginPending, logout: () => statusPending })} onSignedIn={onSignedIn}
+    />)
+    if (operation === 'login') {
+      fireEvent.change(await screen.findByLabelText('username'), { target: { value: 'writer' } })
+      fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
+    }
+    fireEvent.click(await screen.findByRole('button', { name: operation === 'login' ? 'signIn' : operation === 'logout' ? 'signOut' : 'verify' }))
+    onSignedIn.mockClear()
+    page.unmount()
+    await act(async () => {
+      if (reject) fail(new Error('private delayed failure'))
+      else if (operation === 'login') finishLogin({ ok: true, value: { outcome: 'signed-in', status: SIGNED_IN } })
+      else finishStatus({ ok: true, value: SIGNED_OUT })
+    })
+    expect(onSignedIn).not.toHaveBeenCalled()
+    expect(screen.queryByText('private delayed failure')).toBeNull()
+  }
+})
+
 it.each([false, true])('restores the page inert state after onboarding (previous=%s)', async (previous) => {
   const root = document.createElement('main')
   root.id = 'root'

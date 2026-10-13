@@ -27,7 +27,7 @@ This client plugin adds a Muse account entry to the Desktop sidebar and Settings
 
 Desktop mounts this plugin beside the Host `muse-account` row. Open **Settings → MUSE Account** or the sidebar entry to enter account credentials. Registration requires a separate choice, which starts clear; a failed sign-in does not create an account automatically.
 
-Each opening verifies the saved login with the gateway before displaying account status. Retry and **Verify sign-in** also request online verification. A gateway outage shows an error and retry action without deleting the saved session; a confirmed invalid session shows the sign-in form. Verification success is not persisted as a trusted flag.
+Each opening verifies the saved login with the gateway before displaying account status. Retry and **Verify sign-in** also request online verification. A gateway outage shows an error and retry action without deleting the saved session; a confirmed invalid session shows the sign-in form. Verification success is not persisted as a trusted flag. Successful verification on retry also advances the first-run sign-in page. Closing a page ignores its delayed status, sign-in and sign-out results; an accepted Host sign-in can still update the saved session.
 
 Set the required `feedbackUrl` to the product's HTTPS feedback page. The sidebar **Feedback** button opens that page without appending credentials. Desktop configures `/feedback` on the Muse gateway; browser sign-in is separate from the saved desktop session.
 
