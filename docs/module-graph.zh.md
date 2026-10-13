@@ -258,6 +258,7 @@ flowchart TD
     pkg_screenplay_project["screenplay-project"]
     pkg_tool_audio_transcribe["tool-audio-transcribe"]
     pkg_tool_bgm_compose["tool-bgm-compose"]
+    pkg_tool_character_reference["tool-character-reference"]
     pkg_tool_drama_assets["tool-drama-assets"]
     pkg_tool_episode_render["tool-episode-render"]
     pkg_tool_shot_script["tool-shot-script"]
@@ -898,6 +899,8 @@ flowchart TD
   pkg_tool_bgm_compose --> pkg_llm
   pkg_tool_bgm_compose --> pkg_subprocess
   pkg_tool_bgm_compose --> pkg_tools
+  pkg_tool_character_reference --> pkg_llm
+  pkg_tool_character_reference --> pkg_tools
   pkg_tool_drama_assets --> pkg_credentials
   pkg_tool_drama_assets --> pkg_llm
   pkg_tool_drama_assets --> pkg_tools
@@ -1715,6 +1718,7 @@ flowchart TD
 | [`drama-settings`](../packages/drama/drama-settings) | `drama` | [`tools`](../packages/core/tools) |
 | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-bgm-compose`](../packages/drama/tool-bgm-compose) | `drama` | [`llm`](../packages/llm/llm), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
+| [`tool-character-reference`](../packages/drama/tool-character-reference) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-drama-assets`](../packages/drama/tool-drama-assets) | `drama` | [`credentials`](../packages/credentials/credentials), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-episode-render`](../packages/drama/tool-episode-render) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-shot-script`](../packages/drama/tool-shot-script) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
