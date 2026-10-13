@@ -47,6 +47,62 @@ it('decodes every FFmpeg batch and continues from a nonzero source range', async
   expect(run.mock.calls.filter(call => call[1].includes('mjpeg'))).toHaveLength(4)
 })
 
+it('plans OCR to the real video EOF without changing container metadata or contact-sheet bounds', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 2 })
+  const container = await addAudioTail(h)
+  const metadata = await h.call({ method: 'metadata' })
+  expect(metadata.isError, JSON.stringify(metadata.content)).toBe(false)
+  expect(metadata.value).toMatchObject({ duration_seconds: container.duration_seconds,
+    interval: { start_seconds: 0, end_seconds: container.duration_seconds } })
+  const sheet = await h.sheet({ frame_count: 2 })
+  expect(sheet.isError, JSON.stringify(sheet.content)).toBe(false)
+  expect(sheet.value).toMatchObject({ duration_seconds: container.duration_seconds,
+    interval: { start_seconds: 0, end_seconds: container.duration_seconds } })
+  const run = mockWindowsOcr()
+  const result = await h.ocr({ raw_json_path: 'qa/video-eof.json', merged_text_path: 'qa/video-eof.txt' })
+  expect(result.isError, JSON.stringify(result.content)).toBe(false)
+  expect(result.value).toMatchObject({ duration_seconds: 4, scan_status: 'complete',
+    interval: { start_seconds: 0, end_seconds: 4 }, coverage: { planned_frame_count: 8,
+      processed_frame_count: 8, failed_frame_count: 0, failed_timestamps_seconds: [], unscanned_ranges: [] } })
+  const raw = JSON.parse(await readFile(join(h.root, 'qa/video-eof.json'), 'utf8')) as {
+    frames: { requested_seconds: number; timestamp_seconds: number }[] }
+  expect(raw.frames.map(frame => frame.requested_seconds)).toEqual([0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5])
+  expect(raw.frames.every(frame => frame.timestamp_seconds < 4)).toBe(true)
+  expect(run.mock.calls.filter(call => call[1].includes('mjpeg'))).toHaveLength(4)
+}, 30_000)
+
+it('retains an internal decode failure as partial OCR coverage after selecting video EOF', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 2 })
+  await addAudioTail(h)
+  const run = mockWindowsOcr(), complete = run.getMockImplementation()!
+  run.mockImplementation(async (...args) => {
+    const seek = args[1].indexOf('-ss')
+    if (args[1].includes('mjpeg') && args[1][seek + 1] === '1') throw Error('Synthetic internal decode failure')
+    return await complete(...args)
+  })
+  const result = await h.ocr({ raw_json_path: 'qa/internal-gap.json', merged_text_path: 'qa/internal-gap.txt' })
+  expect(result.isError, JSON.stringify(result.content)).toBe(false)
+  expect(result.value).toMatchObject({ duration_seconds: 4, scan_status: 'partial',
+    coverage: { planned_frame_count: 8, processed_frame_count: 6, failed_frame_count: 2,
+      failed_timestamps_seconds: [1, 1.5], scanned_ranges: [
+        { start_seconds: 0, end_seconds: 1 }, { start_seconds: 2, end_seconds: 4 },
+      ] } })
+  expect(run.mock.calls.filter(call => call[1].includes('mjpeg'))).toHaveLength(4)
+}, 30_000)
+
+it('keeps an EOF gap partial when the probe cannot establish a video-stream duration', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 2 })
+  const container = await addAudioTail(h)
+  mockWindowsOcr()
+  // The parser regressions cover unknown stream duration; this valid fallback drives the real decoder.
+  vi.spyOn(Media, 'probeVideo').mockResolvedValue(container)
+  const result = await h.ocr({ raw_json_path: 'qa/unknown-eof.json', merged_text_path: 'qa/unknown-eof.txt' })
+  expect(result.isError, JSON.stringify(result.content)).toBe(false)
+  expect(result.value).toMatchObject({ duration_seconds: container.duration_seconds, scan_status: 'partial',
+    coverage: { planned_frame_count: 9, processed_frame_count: 8, failed_frame_count: 1,
+      failed_timestamps_seconds: [4] } })
+}, 30_000)
+
 it('keeps persistent narrative text usable and stops after a recognizer deadline', async () => {
   const h = await setup({ ocrFrameIntervalSeconds: 0.25, ocrBatchFrames: 2,
     ocrPersistentTextMinFrames: 2, ocrPersistentTextMinSeconds: 1 })
@@ -216,6 +272,20 @@ async function setup(options: Partial<VideoInspect.Config> = {}) {
     ocr: (args: Record<string, unknown>, signal = new AbortController().signal, withAgent = true) => ctx.tools.execute({ callId: ToolCallId(`ocr-${++count}`), name: 'video_ocr',
       arguments: { file_path: input, ...args }, signal, ...withAgent ? { agent: agent('vision', false) as never } : {} }),
   }
+}
+
+async function addAudioTail(h: Awaited<ReturnType<typeof setup>>): Promise<Media.VideoMetadata> {
+  const ffmpeg = await h.ctx.subprocess.resolveExecutable(h.config.ffmpegPath)
+  const policy = { mode: 'danger-full-access', workspaceRoot: h.root } as const
+  await runMedia(h.ctx, [ffmpeg, '-nostdin', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=red:size=64x48:rate=30:d=4',
+    '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4.1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac',
+    '-movflags', '+faststart', h.input], policy, undefined, { timeoutMs: 20_000, maxBytes: 1024, graceMs: 1000 })
+  const limits = { timeoutMs: 20_000, graceMs: 1000 }, signal = new AbortController().signal
+  const container = await Media.probeVideo(h.ctx, h.config.ffprobePath, h.input, policy, signal, limits)
+  expect(container.duration_seconds).toBeGreaterThan(4)
+  expect(container.duration_seconds).toBeLessThan(4.5)
+  expect((await Media.probeVideo(h.ctx, h.config.ffprobePath, h.input, policy, signal, limits, 'video')).duration_seconds).toBe(4)
+  return container
 }
 
 function mockWindowsOcr(result?: { ok: false; code: string }) {

@@ -72,19 +72,21 @@ export async function runMedia(ctx: Context, argv: readonly string[], policy: Sa
  * @param policy - Calling session's execution policy.
  * @param signal - Cancels executable resolution and probing.
  * @param limits - Deployment timeout and termination grace period.
+ * @param durationBasis - Container duration by default; video uses a known zero-origin video stream when available.
  * @returns Validated source metadata without inferred visual observations.
  */
 export async function probeVideo(ctx: Context, executable: string, source: string, policy: SandboxExecutionPolicy,
-  signal: AbortSignal, limits: { timeoutMs: number; graceMs: number }): Promise<VideoMetadata> {
+  signal: AbortSignal, limits: { timeoutMs: number; graceMs: number }, durationBasis: 'container' | 'video' = 'container'): Promise<VideoMetadata> {
   const ffprobe = await ctx.subprocess.resolveExecutable(executable, undefined, signal)
   const probe = await runMedia(ctx, [ffprobe, '-v', 'error', '-protocol_whitelist', 'file,pipe', '-show_entries',
-    'format=duration:stream=index,codec_type,codec_name,width,height', '-of', 'json', source], policy, signal,
+    'format=duration,start_time:stream=index,codec_type,codec_name,width,height,duration,start_time', '-of', 'json', source], policy, signal,
   { ...limits, maxBytes: 128 * 1024 })
-  return parseVideoMetadata(probe.bytes)
+  return parseVideoMetadata(probe.bytes, durationBasis)
 }
 
 /** Probed source facts; no observations of actions or speech are inferred. */
 export interface VideoMetadata {
+  /** Container duration unless explicitly selecting a known zero-origin video stream. */
   duration_seconds: number
   width: number
   height: number
@@ -92,16 +94,23 @@ export interface VideoMetadata {
   has_audio: boolean
 }
 
+function probeNumber(value: unknown): number | undefined {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return undefined
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
 /**
  * Validate an FFprobe JSON report before accepting source metadata.
  * @param bytes - Complete bounded FFprobe stdout.
+ * @param durationBasis - Container by default; video falls back when stream duration or zero-origin timestamps are unavailable.
  * @returns Duration, encoded dimensions, codec and audio-track presence.
  */
-export function parseVideoMetadata(bytes: Uint8Array): VideoMetadata {
+export function parseVideoMetadata(bytes: Uint8Array, durationBasis: 'container' | 'video' = 'container'): VideoMetadata {
   const raw: unknown = JSON.parse(Buffer.from(bytes).toString('utf8'))
   if (!raw || typeof raw !== 'object' || !('streams' in raw) || !Array.isArray(raw.streams) || !('format' in raw)
     || !raw.format || typeof raw.format !== 'object' || !('duration' in raw.format)) throw new Error('Media probe did not return video metadata')
-  const duration = Number(raw.format.duration)
+  let duration = Number(raw.format.duration)
   const streams: readonly unknown[] = raw.streams
   const stream = streams.find(row => row && typeof row === 'object' && 'codec_type' in row && row.codec_type === 'video')
   if (!stream || typeof stream !== 'object' || !('width' in stream) || !('height' in stream) || !('codec_name' in stream)) throw new Error('Input has no decodable video track')
@@ -109,6 +118,11 @@ export function parseVideoMetadata(bytes: Uint8Array): VideoMetadata {
   if (!Number.isFinite(duration) || duration <= 0 || !Number.isSafeInteger(width) || width <= 0
     || !Number.isSafeInteger(height) || height <= 0
     || typeof stream.codec_name !== 'string') throw new Error('Video metadata is invalid')
+  if (durationBasis === 'video' && 'start_time' in raw.format && probeNumber(raw.format.start_time) === 0
+    && 'start_time' in stream && probeNumber(stream.start_time) === 0 && 'duration' in stream) {
+    const videoDuration = probeNumber(stream.duration)
+    if (videoDuration !== undefined && videoDuration > 0) duration = videoDuration
+  }
   return { duration_seconds: duration, width, height, video_codec: stream.codec_name,
     has_audio: streams.some(row => Boolean(row && typeof row === 'object' && 'codec_type' in row && row.codec_type === 'audio')) }
 }

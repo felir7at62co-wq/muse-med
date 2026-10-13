@@ -443,11 +443,8 @@ export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime)
       }
       await ctx.fs.readByteRange(target, { offset: 0, length: 1 }, signal)
       const source = ctx.fs.processPath(target)
-      const ffprobe = await ctx.subprocess.resolveExecutable(config.ffprobePath, undefined, signal)
-      const probe = await Media.runMedia(ctx, [ffprobe, '-v', 'error', '-protocol_whitelist', 'file,pipe', '-show_entries',
-        'format=duration:stream=index,codec_type,codec_name,width,height', '-of', 'json', source], policy, signal,
-      { timeoutMs: config.commandTimeoutMs, graceMs: config.graceMs, maxBytes: 128 * 1024 })
-      const metadata = Media.parseVideoMetadata(probe.bytes)
+      const metadata = await Media.probeVideo(ctx, config.ffprobePath, source, policy, signal,
+        { timeoutMs: config.commandTimeoutMs, graceMs: config.graceMs }, 'video')
       if (metadata.duration_seconds > config.maxDurationSeconds || metadata.width * metadata.height > config.maxSourcePixels) {
         throw Error('Video duration or encoded image area exceeds deployment limits')
       }
