@@ -12,11 +12,14 @@
   en: 2a25ab611c404ce7
   zh: 2afdad2b7e85393a
 /muse-accounts-gateway/release-inputs:
-  en: 52ba9c320e13c12e
-  zh: 508b622f65411432
+  en: cc1c5f9f8891e2f9
+  zh: e99986fa909e9b88
+/muse-accounts-gateway/release-inputs/account-sessions:
+  en: d29314be46edbc1f
+  zh: 26477557c68b56ba
 /muse-accounts-gateway/release-inputs/asr-application-pools:
-  en: ef0cf4c0a6a8a8f9
-  zh: d8a12f2e4484df4c
+  en: 4135ec53aa71de85
+  zh: 345a677af42e9d4f
 /muse-accounts-gateway/desktop-website-access:
   en: be46fcba84d45a11
   zh: d2ee59e91d359fa8

@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import {desktopRoute,validDeviceId} from './desktop-route.mjs';
+import {scheduleSessionExpiry} from './session-expiry.mjs';
 
 const hiddenHeaders = new Set(['cookie','authorization','host','origin','connection','upgrade','keep-alive','proxy-authenticate','proxy-authorization','te','trailer','transfer-encoding','set-cookie']);
 const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -38,7 +39,7 @@ export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now
  let closed=false;
  function fail(state,code=503) {
   if(state.done)return;state.done=true;
-  state.rejectAck?.(Error('Desktop request closed'));clearTimeout(state.expiry);
+  state.rejectAck?.(Error('Desktop request closed'));state.cancelExpiry();
   state.desktop.requests.delete(state.id);
   if(state.kind==='http') {
    if(!state.res.headersSent&&!state.res.destroyed)state.res.writeHead(code,{'content-type':'application/json','cache-control':'no-store'}).end(JSON.stringify({error:'desktop-unavailable'}));
@@ -49,7 +50,7 @@ export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now
  function disconnect(desktop) {
   if(desktop.disconnected)return;desktop.disconnected=true;
   for(const state of [...desktop.requests.values()])fail(state);
-  clearTimeout(desktop.expiry);clearTimeout(desktop.handshake);clearInterval(desktop.heartbeat);clearTimeout(desktop.pongDeadline);
+  desktop.cancelExpiry();clearTimeout(desktop.handshake);clearInterval(desktop.heartbeat);clearTimeout(desktop.pongDeadline);
   const account=accountDesktops(desktop.accountId);
   if(account?.get(desktop.deviceId)===desktop){account.delete(desktop.deviceId);if(!account.size)desktops.delete(desktop.accountId);}
   desktop.ws.terminate();
@@ -122,7 +123,7 @@ export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now
    }
    case 'response-end':
     if(state.kind!=='http'||!state.res.headersSent||state.incoming)throw Error('Invalid desktop response end');
-    state.done=true;clearTimeout(state.expiry);desktop.requests.delete(id);state.res.end(state.observePresence?`<script src="${state.route?.prefix??'/'}desktop-presence.js" data-name="${escape(desktop.name)}"></script>`:undefined);break;
+    state.done=true;state.cancelExpiry();desktop.requests.delete(id);state.res.end(state.observePresence?`<script src="${state.route?.prefix??'/'}desktop-presence.js" data-name="${escape(desktop.name)}"></script>`:undefined);break;
    case 'ws-accept': {
     if(state.kind!=='ws'||state.accepted||!Number.isInteger(msg.statusCode)||(msg.statusCode!==101&&(msg.statusCode<200||msg.statusCode>599))||!msg.replyHeaders||typeof msg.replyHeaders!=='object'||Array.isArray(msg.replyHeaders))throw Error('Invalid desktop WebSocket upgrade');
     const accepted=msg.statusCode===101;
@@ -130,7 +131,7 @@ export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now
     const text=`HTTP/1.1 ${msg.statusCode} ${accepted?'Switching Protocols':'Rejected'}\r\n`+Object.entries(headers).map(([key,value])=>`${key}: ${value}\r\n`).join('')+'\r\n';
     if(text.length>16384||Object.entries(headers).some(([key,value])=>/[\r\n]/.test(key)||/[\r\n]/.test(String(value))))throw Error('Invalid upgrade headers');
     if(!accepted) {
-     state.done=true;clearTimeout(state.expiry);desktop.requests.delete(id);state.rejectAck?.(Error('Desktop upgrade refused'));
+     state.done=true;state.cancelExpiry();desktop.requests.delete(id);state.rejectAck?.(Error('Desktop upgrade refused'));
      state.socket.end(text);await send(desktop.ws,{type:'ws-close',wsId:id});break;
     }
     state.accepted=true;await write(state,Buffer.from(text));state.socket.resume();break;
@@ -146,7 +147,7 @@ export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now
   wss.handleUpgrade(req,socket,head,ws=>{
    const desktop={ws,session,accountId:session.id,ready:false,requests:new Map()};
    desktop.handshake=setTimeout(()=>disconnect(desktop),ackTimeoutMs);desktop.handshake.unref();
-   desktop.expiry=setTimeout(()=>disconnect(desktop),Math.max(1,session.expiry-now()));desktop.expiry.unref();
+   desktop.cancelExpiry=scheduleSessionExpiry(session.expiry,()=>disconnect(desktop),{now});
    ws.on('message',bytes=>{
     let parsed;try{parsed=JSON.parse(bytes.toString());}catch(error){ws.close(1008,'Invalid control JSON');return;}
     void message(desktop,parsed).catch(()=>{ws.close(1008,'Invalid desktop message');disconnect(desktop);});
@@ -165,7 +166,7 @@ export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now
  function createState(desktop,session,kind,target) {
   if(desktop.requests.size>=maxRequests)return null;
   const id=randomUUID(),state={id,desktop,session,kind,...target,nextResponse:0,done:false,incoming:false};
-  state.expiry=setTimeout(()=>fail(state,401),Math.max(1,session.expiry-now()));state.expiry.unref();
+  state.cancelExpiry=scheduleSessionExpiry(session.expiry,()=>fail(state,401),{now});
   desktop.requests.set(id,state);return state;
  }
  async function upload(state,source,bytesType='request-chunk') {
