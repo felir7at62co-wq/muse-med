@@ -108,3 +108,10 @@ test('flash local audio failures omit the local path and do not invoke the suppl
  assertSafeError(error,{operation:'flash',code:'provider_unavailable'});
  assert.equal(calls,0);
 });
+
+for(const code of ['45000092','55001010']){
+ test(`query records explicit terminal supplier ${code} as a failed task without a new submission`,async()=>{
+  let calls=0;const result=await provider.queryAsr(config,input.id,async()=>{calls++;return new Response('{}',{headers:{'X-Api-Status-Code':code,'X-Api-Message':'secret-response'}});});
+  assert.deepEqual(result,{status:'failed',providerCode:code});assert.equal(calls,1);
+ });
+}

@@ -29,7 +29,7 @@ kind: "package-reference"
 | 组 `submitQps`、`queryQps` | 标准版提交与查询的独立频率，各默认 10；合计不超过 20 QPS，不表示在途任务数。 |
 | 组 `rollingAudioWindowSeconds`、`maxRollingAudioSeconds` | 可选且成对配置的组时长上限，覆盖所有账号与版本。标准版部署使用 1,800 秒／1,800,000 音频秒，对应官方半小时提交 500 小时限制。 |
 | `legacyAppId` | 用于迁移无资源字段收据的原应用 ID，默认取保留的顶层 `appId`。显式资源池存在旧收据时必须提供此归属，并与默认应用一致。 |
-| `maxConcurrentJobs`、`maxQueuedJobs` | 全局工作线程上限与真实等待容量（默认 20）。旧线程默认 5 且不能超过 5；资源池按组与应用／服务组合计算容量，显式全局上限不得更大。标准版名额保留到完成，包括未知结果；等待队列满时返回 429。 |
+| `maxConcurrentJobs`、`maxQueuedJobs` | 全局工作线程上限与真实等待容量（默认 20）。旧线程默认 5 且不能超过 5；资源池按组与应用／服务组合计算容量，显式全局上限不得更大。标准版名额保留到完成，包括未知结果；连续确认终止失败时释放名额，不重提原任务；等待队列满时返回 429。 |
 | `maxPendingUploadsPerAccount` | 每账号未完成上传上限（默认 4）；请求等待前次账号上传与额度预约后才暂存，超过上限返回 429。 |
 | `storageKind`、`gatewayStorage` | 标准版存储：`tos`（旧默认）或显式 `gateway`。网关需要独立的绝对私有 `root`、路径严格为 `/api/asr/audio/` 的 HTTPS `baseURL` 及至少 32 UTF-8 字节的服务器私密 `secret`；极速版均不需要。 |
 | `accessKeyId`、`secretAccessKey` | 服务器私密 TOS 凭据，仅标准版 `storageKind: tos` 需要。 |
@@ -38,6 +38,7 @@ kind: "package-reference"
 | `ffprobePath` | 服务器 `ffprobe`，核验真实编码和时长以执行限额。 |
 | `timeoutMs`、`signedUrlTtlSeconds`、`pollIntervalMs` | 提供方／验证超时；覆盖媒体时长加一小时且不超过七天的签名期限；标准版查询间隔默认 5,000 毫秒，允许 1,000–60,000 毫秒。 |
 | `maxAudioBytes`、`maxDurationSeconds` | 上传大小与时长上限；极速版逐请求另限 100,000,000 字节／7,200 秒，标准版时长不超过 18,000 秒。混合池可使用较长的标准版时长，同时保留极速版限制。 |
+| `terminalQueryConfirmations` | 标准任务连续返回相同明确终止状态的确认次数，默认3次；随后失败并释放 worker。处理中或查询不可用会重置计数。 |
 | `maxDailySeconds`、`maxDailyJobs`、`maxActiveJobs` | 每账号计费上限；兼容字段 `maxActiveJobs` 保持 1，预约串行执行。已受理任务可按共享工作线程限制排队。 |
 | `retentionSeconds`、`sweepIntervalSeconds` | 音频留存覆盖媒体时长加一小时；标准版留存不得超过下载签名有效期。清理间隔至少 60 秒且不超过留存时间。 |
 
@@ -51,13 +52,15 @@ kind: "package-reference"
 
 极速版对客户端允许的 `zh` 和 `auto` 都使用提供方默认语言检测，不发送显式语言选项。标准版中文转剧本请求使用提供方默认中英模型以保留说话人分离能力；旧标准版请求保留原有语言参数。
 
+标准查询返回 45000092（任务不存在）或 55001010（任务超时）时，只有连续 terminalQueryConfirmations 次相同响应才记为 failed。保留原回执和任务 ID，已提交的失败 key 不再提交，已预留的计费额度仍保留；这不证明退款或实际收费结果。其他未知响应继续查询原任务。调度在每个账号内选择当前可用资源，避免被堵住的标准任务阻止该账号的快速转写。
+
 ### ASR 应用资源池
 
-资源／组 ID 为稳定的小写 ASCII 标识；应用 ID 接受 ASCII 字母、数字、下划线与连字符，不允许前后空白。服务为 `flash`（`volc.bigasr.auc_turbo`）、`standard-v1`（`volc.bigasr.auc`）及 `standard-v2`（`volc.seedasr.auc`）。容量按 `(appId, resourceId)` 识别，同一组合的两个 key 须声明同组及同并发，key 不扩大组容量。三个独立 5 路极速版额度提供 15 个工作线程；两个标准版本在三个应用间共享保守配置的 5 路组，总本地容量 20。这是调度策略，不表示提供方授权 20 个在途任务；九条服务资源不表示九份独立额度。
+资源／组 ID 为稳定的小写 ASCII 标识；应用 ID 接受 ASCII 字母、数字、下划线与连字符，不允许前后空白。服务为 `flash`（`volc.bigasr.auc_turbo`）、`standard-v1`（`volc.bigasr.auc`）及 `standard-v2`（`volc.seedasr.auc`）。容量按 `(appId, resourceId)` 识别，同一组合的两个 key 须声明同组及同并发，key 不扩大组容量。只有供应商独立授予的资源组才扩大可用线程容量。标准版可在多个应用间共享一个保守资源组，该组上限与全局上限由部署显式配置；服务行数及 key 数量不证明独立的供应商额度。
 
 可选 `X-Muse-Asr-Purpose: subtitles|screenplay` 选择服务器路由：字幕用极速版，混合池剧本转写默认标准 2.0，可显式配置标准 1.0。未提供用途时保留旧客户端默认路由；每个幂等键永久保留原用途，包括未提供用途，改变则返回 409。路由变更只影响新键；等待容量与日额度独立，部署保留等待 30、每账号每天 1,000 任务／180,000 秒。组日额度按 UTC 日统一预约所有账号；滚动时长额度跨午夜计入未知计费及排队预约，在接受新计费收据前返回 `provider_rate`。
 
-预约优先使用有空位的应用／服务；调度轮流处理账号，保留各账号顺序并执行资源／组／全局限制。计费前收据持久记录 `poolId`、`appId`、`quotaGroup`、`serviceVersion`、`resourceId` 及新预约时间戳；未知结果不转投其他应用或版本。启动先核验全部归属，再给已完成或未解决的旧收据补缺失绑定，原字段、`providerKind` 与未提供用途不变。缺应用字段时要求 `legacyAppId` 与保留默认资源一致；资源缺失或应用／组／服务／存储变更会拒绝启动。存在收据时保留定义，旧单应用代码不能恢复新绑定；私有账本字段不改变已发布 Session 数据。
+预约优先使用有空位的应用／服务；调度轮流处理账号，在可用资源内保留等待顺序并执行资源／组／全局限制。计费前收据持久记录 `poolId`、`appId`、`quotaGroup`、`serviceVersion`、`resourceId` 及新预约时间戳；未知结果不转投其他应用或版本。启动先核验全部归属，再给已完成或未解决的旧收据补缺失绑定，原字段、`providerKind` 与未提供用途不变。缺应用字段时要求 `legacyAppId` 与保留默认资源一致；资源缺失或应用／组／服务／存储变更会拒绝启动。存在收据时保留定义，旧单应用代码不能恢复新绑定；私有账本字段不改变已发布 Session 数据。
 
 响应保留旧状态值与可选 `queued: true`，带用途请求增加 `purpose` 与 `service_version`。失败可报告 `provider_rejected`、`provider_unavailable` 或提交前的 `storage_unavailable`，诊断不表示计费确定性。私有诊断仅含操作、固定错误码、校验过的 HTTP 状态与纯数字提供方状态；凭据、签名 URL、响应正文、原始异常与应用身份不进入响应。旧桌面版本接受额外字段，但不显示队列／错误元数据。
 
