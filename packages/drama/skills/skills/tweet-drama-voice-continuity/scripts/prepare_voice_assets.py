@@ -10,8 +10,11 @@ import shutil
 import subprocess
 import tempfile
 import wave
+from urllib.parse import urlsplit
 
-from extract_voice_reference import digest, extract, NO_WINDOW
+from extract_voice_reference import digest, extract
+
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def inside(root, path, exists=True):
@@ -98,6 +101,60 @@ def mixed_audio(source, target, timeout):
     return duration
 
 
+def period_profile(character, row):
+    """Explicit periods never inherit a legacy or another period's reference."""
+    period = row.get("voice_period_id")
+    if period is not None and (not isinstance(period, str) or not period.strip()):
+        raise ValueError("voice_period_id must be exact nonempty text")
+    profiles = character.get("voice_profiles", [])
+    if not isinstance(profiles, list) or any(not isinstance(profile, dict) for profile in profiles):
+        raise ValueError("voice_profiles must be an array of objects")
+    ids = [profile.get("voice_period_id") for profile in profiles]
+    if any(not isinstance(value, str) or not value.strip() for value in ids) or len(set(ids)) != len(ids):
+        raise ValueError("Voice periods need unique stable IDs")
+    if period is not None:
+        selected = next((profile for profile in profiles if profile["voice_period_id"] == period), None)
+        return selected, "needs_voice_period_configuration" if selected is None else None
+    if profiles:
+        return None, "needs_voice_period"
+    profile = character.get("voice_profile", {})
+    if not isinstance(profile, dict):
+        raise ValueError("Voice profile must be an object")
+    return profile, None
+
+
+def archive_duplicates(root, ledger, character_id, period, profile):
+    """Archive local candidates only after the current profile pins a complete remote reference."""
+    asset_id = profile.get("reference_audio_asset_id")
+    reference = profile.get("reference_audio")
+    sha = profile.get("reference_audio_sha256")
+    duration = profile.get("reference_audio_duration_seconds")
+    if type(asset_id) is not int or asset_id <= 0 or not isinstance(reference, str):
+        return []
+    try:
+        parsed = urlsplit(reference)
+    except ValueError:
+        return []
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        return []
+    if not isinstance(sha, str) or len(sha) != 64 or any(c not in "0123456789abcdefABCDEF" for c in sha):
+        return []
+    if type(duration) not in (int, float) or not math.isfinite(duration) or not 0 < duration <= 15:
+        return []
+    archived = []
+    for sample in ledger["samples"]:
+        if sample.get("character_id") != character_id or sample.get("voice_period_id") != period:
+            continue
+        if sample.get("status") != "candidate" or sample.get("asset_id") == asset_id:
+            continue
+        if digest(inside(root, sample["path"])) != sample["sha256"]:
+            raise ValueError("Candidate bytes changed; preserve them for reconciliation")
+        sample.update({"status": "archived", "archive_reason": "existing_voice_for_period",
+                       "reused_asset_id": asset_id, "reused_reference_audio": reference})
+        archived.append(sample["id"])
+    return archived
+
+
 def prepare(project, request_path, timeout=120):
     """Keep all approved samples; deduplicate new candidates by source, character and interval."""
     root = Path(project).resolve(strict=True)
@@ -136,6 +193,14 @@ def prepare(project, request_path, timeout=120):
     manifest_path = inside(root, "audio/voice-references/manifest.json", exists=False)
     results = []
     with ledger_lock(directory / ".prepare.lock"):
+        # A collaborator may have updated the current voice while this extraction waited.
+        config_bytes = config_file.read_bytes()
+        config = json.loads(config_bytes.decode("utf-8-sig"))
+        if not isinstance(config, dict) or config.get("jubian_script_id") != script_id or request_file.read_bytes() != request_bytes:
+            raise ValueError("Project identity or request changed while waiting")
+        characters = config.get("project_bible", {}).get("characters", [])
+        if not isinstance(characters, list) or any(not isinstance(c, dict) for c in characters):
+            raise ValueError("Project bible characters must be an array")
         ledger = load(manifest_path) if manifest_path.exists() else {"version": 1, "script_id": script_id, "samples": [], "tracks": []}
         if ledger.get("script_id", script_id) != script_id or not isinstance(ledger.get("samples"), list) or not isinstance(ledger.get("tracks", []), list):
             raise ValueError("Voice ledger project or arrays are invalid")
@@ -149,8 +214,9 @@ def prepare(project, request_path, timeout=120):
             matches = [c for c in characters if isinstance(c, dict) and c.get("character_id") == row["character_id"]]
             if len(matches) != 1:
                 raise ValueError("Speaker character_id is missing or ambiguous in the project bible")
-        if len({row["character_id"] for row in request["characters"]}) != len(request["characters"]):
-            raise ValueError("One character appears once per request, independent of costume versions")
+            period_profile(matches[0], row)
+        if len({(row["character_id"], row.get("voice_period_id")) for row in request["characters"]}) != len(request["characters"]):
+            raise ValueError("One character/voice period appears once per request, independent of costume versions")
         config_hash = hashlib.sha256(config_bytes).hexdigest()
         track_id = hashlib.sha256((task + "\0" + source_hash).encode()).hexdigest()
         track_path = directory / (track_id + ".mixed.wav")
@@ -177,19 +243,28 @@ def prepare(project, request_path, timeout=120):
             save(manifest_path, ledger)
         for row in request["characters"]:
             character = next(c for c in characters if c.get("character_id") == row["character_id"])
-            voice = character.get("voice_profile", {})
-            if not isinstance(voice, dict):
-                raise ValueError("Voice profile must be an object")
+            voice, missing = period_profile(character, row)
+            period = row.get("voice_period_id")
+            period_fields = {} if period is None else {"voice_period_id": period}
+            if missing:
+                results.append({"character_id": row["character_id"], **period_fields, "status": missing})
+                continue
             if voice.get("reference_audio"):
                 # Local extraction does not decide remote validity or revoke an approved reference.
-                results.append({"character_id": row["character_id"], "status": "current_voice_preserved",
+                archived = archive_duplicates(root, ledger, row["character_id"], period, voice)
+                if archived:
+                    if digest(config_file) != config_hash:
+                        raise ValueError("Current voice changed before candidate archive")
+                    save(manifest_path, ledger)
+                results.append({"character_id": row["character_id"], **period_fields, "status": "current_voice_preserved",
+                                **({"archived_sample_ids": archived, "reused_asset_id": voice["reference_audio_asset_id"]} if archived else {}),
                                 "next": "Use match_preview to verify the approved remote voice before binding"})
                 continue
             intervals = row.get("intervals", [])
             if not isinstance(intervals, list) or len(intervals) > 100:
                 raise ValueError("Provide a bounded list of real speech intervals")
             if not intervals:
-                results.append({"character_id": row["character_id"], "status": "needs_interval"})
+                results.append({"character_id": row["character_id"], **period_fields, "status": "needs_interval"})
             for interval in intervals:
                 if not isinstance(interval, dict):
                     raise ValueError("Voice interval must be an object")
@@ -198,13 +273,16 @@ def prepare(project, request_path, timeout=120):
                     raise ValueError("Voice interval requires numeric times")
                 if not math.isfinite(start) or not math.isfinite(duration) or start < 0 or not 0 < duration <= 15:
                     raise ValueError("Sample interval must be finite, nonnegative and at most 15 seconds")
-                sample_id = hashlib.sha256(json.dumps([task, source_hash, row["character_id"], float(start), float(duration)], separators=(",", ":")).encode()).hexdigest()
+                identity = [task, source_hash, row["character_id"], float(start), float(duration)]
+                if period is not None:
+                    identity.append(period)
+                sample_id = hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
                 existing = [r for r in ledger["samples"] if r.get("id") == sample_id]
                 if len(existing) > 1:
                     raise ValueError("Sample identity is ambiguous")
                 if existing:
                     sample = existing[0]
-                    expected = {"character_id": row["character_id"], "source_task_id": task,
+                    expected = {"character_id": row["character_id"], **period_fields, "source_task_id": task,
                                 "source_sha256": source_hash, "source_path": str(source.relative_to(root)),
                                 "start_seconds": start, "duration_seconds": duration}
                     if any(sample.get(key) != value for key, value in expected.items()):
@@ -216,7 +294,7 @@ def prepare(project, request_path, timeout=120):
                     if sample_path.exists():
                         sample_path.unlink()
                     evidence = extract(source, sample_path, start, duration, timeout=timeout)
-                    sample = {**evidence, "id": sample_id, "character_id": row["character_id"],
+                    sample = {**evidence, "id": sample_id, "character_id": row["character_id"], **period_fields,
                               "version": sample_id, "status": "candidate", "source_task_id": task,
                               "path": str(sample_path.relative_to(root)), "source_path": str(source.relative_to(root))}
                     if digest(source) != source_hash or digest(inside(root, "project_config.json")) != config_hash or request_file.read_bytes() != request_bytes:
@@ -224,7 +302,7 @@ def prepare(project, request_path, timeout=120):
                         raise ValueError("Source, identity or request changed during extraction")
                     ledger["samples"].append(sample)
                     save(manifest_path, ledger)
-                results.append({"character_id": row["character_id"], "status": sample["status"], "sample_id": sample_id, "path": sample["path"], "speaker_verified": False})
+                results.append({"character_id": row["character_id"], **period_fields, "status": sample["status"], "sample_id": sample_id, "path": sample["path"], "speaker_verified": False})
         if digest(source) != source_hash or digest(inside(root, "project_config.json")) != config_hash or request_file.read_bytes() != request_bytes:
             raise ValueError("Source, identity or request changed during extraction")
     return {"script_id": script_id, "track": track, "characters": results, "manifest": str(manifest_path),

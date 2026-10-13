@@ -76,6 +76,8 @@ After a successful video download, the consuming preset loads the voice continui
 {"version":1,"documents":[{"path":"episode_packages/54-compile.json","sha256":"<actual-file-sha256>","episode":54}]}
 ```
 
+Voice requirements may specify an exact `voice_period_id`. A character with configured `voice_profiles` must select that period explicitly; no child/adult or legacy fallback occurs. Matching and use states distinguish each period, and archived samples are not approved references or active candidates. Shared-library voice metadata and registration convergence are owned by the [Jubian tool](../../jubian/tool-jubian/README.md), not this local projection.
+
 ### Read-only matching preview
 
 Call `method=match_preview` with `project_dir` and project-contained `requirements_path`. The [input and decision rules](../skills/skills/tweet-drama-core/references/match-preview.md) define version-1 requirements, exact source lines/SHA-256, registered identity links, scene conditions and approved voice samples. The result reports `reuse_ready`, `needs_review`, `missing` or `blocked`, candidate IDs and reasons. Names alone never establish identity. Every supplied stable and character identity must agree with the manifest and project bible; contradictory identities return `IDENTITY_FIELDS_CONFLICT`. Registered costume versions may have different parent IDs when the project reference asset is also registered to that character, official, and present in the current project inventory. Failed reads, incomplete pagination, conflicting project bindings or changed sources block instead of claiming absence.

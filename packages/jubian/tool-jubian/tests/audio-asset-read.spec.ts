@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { JubianClient } from '@deepseek-ai/dsh-jubian'
 import { getAudioAsset, listAudioAssetMaterialUrls, listAudioAssets, readAudioAsset } from '../src/audio-asset-read.ts'
+import { encodeVoiceSlot } from '../src/voice-slot.ts'
 
 const AUDIO_URL = 'https://media.example/zhou.wav'
 const AUDIO = { id: 77, scriptId: 2708, assetType: 4, assetName: '周海生声音', url: AUDIO_URL, isLocal: 1 }
@@ -150,4 +151,20 @@ describe('listAudioAssetMaterialUrls', () => {
     const f = fixture([], 404)
     await expect(listAudioAssetMaterialUrls(f.client, 2708, 77)).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
   })
+})
+
+
+it('projects shared character and period IDs from complete list and exact asset reads', async () => {
+  const tag = encodeVoiceSlot(2708, 'zhou', 'adult'), tagged = { ...AUDIO, assetName: `周海生 ${tag}` }
+  const expected = { ...EXPECTED, name: tagged.assetName, character_id: 'zhou', voice_period_id: 'adult', voice_slot_tag: tag }
+  expect(await getAudioAsset(fixture(tagged).client, 2708, 77)).toEqual(expected)
+  const listed = await listAudioAssets(fixture({ total: 1, rows: [tagged] }).client,
+    { script_id: 2708, page_num: 1, page_size: 20 })
+  expect(listed.assets).toEqual([expected])
+})
+
+it('preserves legacy and malformed names without granting shared identity metadata', () => {
+  for (const name of ['周海生 ⟦muse-voice:v1:broken⟧', `周海生 ${encodeVoiceSlot(2709, 'zhou', 'adult')}`]) {
+    expect(readAudioAsset({ ...AUDIO, assetName: name }, 2708)).toEqual({ ...EXPECTED, name })
+  }
 })

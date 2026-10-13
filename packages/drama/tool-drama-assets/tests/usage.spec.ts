@@ -62,6 +62,52 @@ it('distinguishes missing voices from candidates and never promotes candidate sa
   await edit(root, 'audio/voice-references/manifest.json', (doc) => { doc.samples[0]!.status = 'candidate' })
   expect((await usagePreview(provider().client, root, undefined, undefined, 100)).voice_states[0]?.status).toBe('candidate')
 })
+it('reports current and missing voices separately for each period and excludes archived and untagged candidates', async () => {
+  const root = await fixture()
+  await edit(root, 'project_config.json', (doc) => {
+    const row = doc.project_bible.characters[0]
+    if (!row) throw new Error('Missing character fixture')
+    row.voice_profiles = [{ ...row.voice_profile, voice_period_id: 'adult', label: '成年' },
+      { voice_period_id: 'child', description: '童声' }, { voice_period_id: 'elder', label: '老年', description: '低哑' }]
+  })
+  await edit(root, 'audio/voice-references/manifest.json', (doc) => {
+    doc.samples = [{ character_id: 'lu', voice_period_id: 'child', status: 'candidate' },
+      { character_id: 'lu', voice_period_id: 'child', status: 'archived_duplicate' },
+      { character_id: 'lu', voice_period_id: 'elder', status: 'archived' },
+      { character_id: 'lu', status: 'candidate' }]
+  })
+  const result = await usagePreview(provider().client, root, undefined, undefined, 100)
+  expect(result.voice_states).toEqual([
+    { character_id: 'lu', name: '陆沉舟', voice_period_id: 'adult', voice_period_label: '成年',
+      status: 'current_reference_needs_verification', candidate_count: 0 },
+    { character_id: 'lu', name: '陆沉舟', voice_period_id: 'child', status: 'candidate', candidate_count: 1 },
+    { character_id: 'lu', name: '陆沉舟', voice_period_id: 'elder', voice_period_label: '老年', status: 'missing', candidate_count: 0 },
+  ])
+  expect(result.usage_rows).toHaveLength(1)
+  expect(result.usage_rows[0]).toMatchObject({ asset_id: 13, voice_period_id: 'adult', voice_period_label: '成年' })
+})
+it('reports the precise period with an unregistered reference and refuses an overflowing period inventory', async () => {
+  const root = await fixture()
+  await edit(root, 'project_config.json', (doc) => {
+    const row = doc.project_bible.characters[0]
+    if (!row) throw new Error('Missing character fixture')
+    row.voice_profiles = [{ voice_period_id: 'child', description: '童声', reference_audio: 'https://example.invalid/child.wav' },
+      { ...row.voice_profile, voice_period_id: 'adult' }]
+  })
+  const result = await usagePreview(provider().client, root, undefined, undefined, 100)
+  expect(result.issues[0]).toEqual({ code: 'VOICE_ID_MISSING', message: 'lu/child: reference has no verified parent ID' })
+  await expect(usagePreview(provider().client, root, undefined, undefined, 1)).rejects.toThrow('bounded voice periods')
+})
+it('retains an empty legacy voice with no added period fields', async () => {
+  const root = await fixture()
+  await edit(root, 'project_config.json', (doc) => {
+    const row = doc.project_bible.characters[0]
+    if (!row) throw new Error('Missing character fixture')
+    delete row.voice_profile; row.voice_profiles = []
+  })
+  const result = await usagePreview(provider().client, root, undefined, undefined, 100)
+  expect(result.voice_states).toEqual([{ character_id: 'lu', name: '陆沉舟', status: 'missing', candidate_count: 0 }])
+})
 it('refuses stale output fingerprints, duplicate keys and foreign project data', async () => {
   const root = await fixture()
   await writeFile(join(root, 'compiled.json'), '{}')

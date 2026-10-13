@@ -20,6 +20,7 @@
     "src/storyboard-audio.ts",
     "src/audio-asset-read.ts",
     "src/audio-asset-register.ts",
+    "src/voice-slot.ts",
     "src/audio-operation-lock.ts",
     "src/audio-asset-delete.ts",
     "src/json-file.ts",

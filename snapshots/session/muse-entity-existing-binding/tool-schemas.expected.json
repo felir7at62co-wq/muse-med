@@ -377,6 +377,14 @@
             "type": "string",
             "description": "register 必填：已有图片或音频 HTTPS 地址；只登记，不生成新媒体。"
           },
+          "character_id": {
+            "type": "string",
+            "description": "register 音频可选：稳定角色 ID；须与 voice_period_id 同时提供。完整音频库已有同角色/时期条目时复用，不重复登记。"
+          },
+          "voice_period_id": {
+            "type": "string",
+            "description": "register 音频可选：明确人生时期 ID，如 child/adult；与 character_id 组成共享声线位置。自动登记标签不能手写进 asset_name。"
+          },
           "project_dir": {
             "type": "string",
             "description": "prepare_video 必填、submit_video 可选：项目目录，必须含 project_config.json，且其 jubian_script_id 必须等于实时 scriptId。"
@@ -930,6 +938,14 @@
                 "audio_asset_id": {
                   "type": "integer",
                   "description": "已登记的真实音频资产 ID；工具复验同项目、类别4与URL，字段不伪造图片父资产 ID。"
+                },
+                "character_id": {
+                  "type": "string",
+                  "description": "可选本地稳定角色 ID；提供后须与当前项目该角色声线的资产 ID、URL 精确一致，不发送给视频提供方。"
+                },
+                "voice_period_id": {
+                  "type": "string",
+                  "description": "同角色的明确人生时期 ID，如 child/adult；角色有分期声线时必须提供，不能回退或混用。须同时提供 character_id。"
                 }
               },
               "required": [

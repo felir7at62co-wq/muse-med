@@ -54,6 +54,8 @@ npm test
 
 -----
 
+The voice continuity skill separates the same character's life periods, reuses the shared project library across Muse accounts, and archives duplicate local candidates after an existing voice is verified. A first authorized video package may generate without a voice reference; extraction supplies subsequent packages rather than creating an additional paid audition.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 

@@ -102,11 +102,23 @@ async function inspectReferences(client: JubianClient, root: string, asset: Audi
   const bindings: Row[] = []
   for (const value of characters) {
     const character = row(value)
-    if (character.voice_profile === undefined) continue
-    const voice = row(character.voice_profile)
-    if (voice.reference_audio_asset_id === asset.asset_id
-      || (typeof voice.reference_audio === 'string' && urls.includes(voice.reference_audio))) {
-      bindings.push({ character_id: character.character_id, name: character.name ?? null })
+    const voices = character.voice_profile === undefined ? [] : [row(character.voice_profile)]
+    const periods = character.voice_profiles ?? []
+    if (!Array.isArray(periods) || character.voice_profiles === null) fail('Unreadable project voice periods')
+    const ids = new Set<string>()
+    for (const value of periods) {
+      const voice = row(value)
+      if (typeof voice.voice_period_id !== 'string' || !voice.voice_period_id.trim()
+        || ids.has(voice.voice_period_id)) fail('Unreadable or ambiguous project voice period identity')
+      ids.add(voice.voice_period_id)
+      voices.push(voice)
+    }
+    for (const voice of voices) {
+      if (voice.reference_audio_asset_id === asset.asset_id
+        || (typeof voice.reference_audio === 'string' && urls.includes(voice.reference_audio))) {
+        bindings.push({ character_id: character.character_id, name: character.name ?? null,
+          ...(voice.voice_period_id === undefined ? {} : { voice_period_id: voice.voice_period_id }) })
+      }
     }
   }
   const storyboards: Row[] = [], seen = new Set<number>()

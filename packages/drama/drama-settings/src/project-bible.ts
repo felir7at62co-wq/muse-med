@@ -16,6 +16,15 @@ export interface ProjectBudgetReader {
   read(scriptId: number): Promise<ProjectBudget>
 }
 
+const VOICE_PROFILE_FIELDS = {
+  speaker_id: { type: 'string' }, description: { type: 'string',
+    description: 'Approved gender/age, timbre, speaking style and accent to reuse in each package.' },
+  reference_audio: { oneOf: [{ type: 'string' }, { type: 'null' }], description: 'Approved reference path, ID or URL. Set null to remove the current reference and its asset ID, hash and duration; voice guidance remains.' },
+  reference_audio_asset_id: { type: 'integer', description: 'Actual approved audio-category asset ID. Set together with its HTTPS reference_audio URL, measured SHA-256 and duration.' },
+  reference_audio_sha256: { type: 'string', description: '64 hexadecimal SHA-256 characters of the approved audio bytes.' },
+  reference_audio_duration_seconds: { type: 'number', description: 'Measured reference duration in seconds, greater than zero and at most 15; the usual sample is 2 seconds.' },
+} as const
+
 /** Changes accepted by the project tool; omitted fields preserve their current value. */
 export const PROJECT_BIBLE_CHANGES = {
   title: { type: 'string', description: 'Project title.' },
@@ -46,13 +55,12 @@ export const PROJECT_BIBLE_CHANGES = {
     type: 'object', additionalProperties: false, properties: {
       character_id: { type: 'string', required: true }, name: { type: 'string' },
       aliases: { type: 'array', items: { type: 'string' } }, asset_id: { type: 'integer' },
-      voice_profile: { type: 'object', additionalProperties: false, description: 'Partial updates preserve approved guidance. Supply description when first creating a voice profile.', properties: {
-        speaker_id: { type: 'string' }, description: { type: 'string',
-          description: 'Approved gender/age, timbre, speaking style and accent to reuse in each package.' },
-        reference_audio: { oneOf: [{ type: 'string' }, { type: 'null' }], description: 'Approved reference path, ID or URL. Set null to remove the current reference and its asset ID, hash and duration; voice guidance remains.' },
-        reference_audio_asset_id: { type: 'integer', description: 'Actual approved audio-category asset ID. Set together with its HTTPS reference_audio URL, measured SHA-256 and duration.' },
-        reference_audio_sha256: { type: 'string', description: '64 hexadecimal SHA-256 characters of the approved audio bytes.' },
-        reference_audio_duration_seconds: { type: 'number', description: 'Measured reference duration in seconds, greater than zero and at most 15; the usual sample is 2 seconds.' },
+      voice_profile: { type: 'object', additionalProperties: false, description: 'Legacy default voice. Partial updates preserve approved guidance. Supply description when first creating a voice profile.', properties: VOICE_PROFILE_FIELDS },
+      voice_profiles: { type: 'array', description: 'Voice periods of the same stable character, such as child and adult. Merge by voice_period_id; omissions and [] preserve existing periods. Costume changes preserve their period voice. Each new period requires description.', items: {
+        type: 'object', additionalProperties: false, properties: {
+          voice_period_id: { type: 'string', required: true, description: 'Stable explicit life-period ID, independent of costume and emotion.' },
+          label: { type: 'string', description: 'Optional readable period label.' }, ...VOICE_PROFILE_FIELDS,
+        },
       } },
     },
   } },
@@ -173,6 +181,21 @@ function mergeVoice(previous: JsonValue | undefined, value: JsonValue): JsonObje
   return voice
 }
 
+/** Merge explicit periods without discarding another period or the legacy default voice. */
+function mergeVoicePeriods(previous: JsonValue | undefined, added: JsonValue): JsonObject[] {
+  const profiles = records(previous, 'voice_profiles'), ids = new Set<string>()
+  for (const profile of records(added, 'voice_profiles')) {
+    const id = text(profile.voice_period_id, 'voice_period_id')
+    if (ids.has(id)) throw new Error('voice_profiles must contain unique voice_period_id values.')
+    ids.add(id)
+    const index = profiles.findIndex(candidate => candidate.voice_period_id === id)
+    const merged = mergeVoice(index < 0 ? undefined : profiles[index], profile)
+    if (index < 0) profiles.push(merged)
+    else profiles[index] = merged
+  }
+  return profiles
+}
+
 /** Printable JSON value with a label for an omitted optional field. */
 function display(value: JsonValue | undefined, fallback = ''): string {
   if (value === undefined) return fallback
@@ -270,6 +293,14 @@ function validateBible(bible: JsonObject): void {
     if (row.voice_profile !== undefined) {
       validateVoice(object(row.voice_profile, 'voice_profile'))
     }
+    const periods = new Set<string>()
+    for (const profile of records(row.voice_profiles, 'voice_profiles')) {
+      const period = text(profile.voice_period_id, 'voice_period_id')
+      if (periods.has(period)) throw new Error('voice_profiles must contain unique voice_period_id values.')
+      periods.add(period)
+      if (profile.label !== undefined) text(profile.label, 'voice_profiles.label')
+      validateVoice(profile)
+    }
   }
   const tasks = new Set<string>()
   for (const row of records(bible.completed_tasks, 'completed_tasks')) {
@@ -349,10 +380,12 @@ function candidate(config: JsonObject, initial: JsonObject, changes: JsonObject,
         const existing = characters.find(character => character.character_id === row.character_id)
         if (existing === undefined) characters.push({ ...row, ...(row.voice_profile === undefined ? {} : {
           voice_profile: mergeVoice(undefined, row.voice_profile),
-        }) })
+        }), ...(row.voice_profiles === undefined ? {} : { voice_profiles: mergeVoicePeriods(undefined, row.voice_profiles) }) })
         else {
           characters[characters.indexOf(existing)] = { ...existing, ...row, ...(row.voice_profile === undefined ? {} : {
             voice_profile: mergeVoice(existing.voice_profile, row.voice_profile),
+          }), ...(row.voice_profiles === undefined ? {} : {
+            voice_profiles: mergeVoicePeriods(existing.voice_profiles, row.voice_profiles),
           }) }
         }
       }

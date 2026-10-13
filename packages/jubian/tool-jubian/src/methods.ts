@@ -84,6 +84,10 @@ export interface MethodArgs {
   task_id?: number
   asset_name?: string
   asset_type?: number
+  /** Shared audio registration's stable character identity; supplied together with voice_period_id. */
+  character_id?: string
+  /** Shared audio registration's explicit life period; costume changes keep this value. */
+  voice_period_id?: string
   /** `jubian_asset register`: the existing image or audio URL the new asset will reference. */
   asset_url?: string
   prompt?: string
@@ -709,6 +713,8 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
       }
       if (assetType === 4) return registerAudioAsset(client, ledger, {
         script_id: positiveInteger(scriptId), asset_name: assetName, asset_url: assetUrl, idempotency_key: args.idempotency_key,
+        ...(args.character_id === undefined ? {} : { character_id: args.character_id }),
+        ...(args.voice_period_id === undefined ? {} : { voice_period_id: args.voice_period_id }),
       }, deps.audioReferenceScan ?? resolveAudioReferenceScanOptions())
       // Existing media registration uses isLocal without modelConfig or
       // isGenerate; it creates a library entry without starting generation.

@@ -1,0 +1,31 @@
+{
+  "jubian_script_id": 2708,
+  "project_bible": {
+    "characters": [
+      {
+        "character_id": "lu",
+        "name": "陆沉舟",
+        "aliases": [
+          "阿舟"
+        ],
+        "asset_id": 11,
+        "voice_profiles": [
+          {
+            "voice_period_id": "child",
+            "label": "童年",
+            "description": "低沉；普通话",
+            "reference_audio": "https://example.invalid/lu.wav",
+            "reference_audio_asset_id": 13,
+            "reference_audio_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "reference_audio_duration_seconds": 2
+          },
+          {
+            "voice_period_id": "adult",
+            "label": "成年",
+            "description": "成年普通话声线"
+          }
+        ]
+      }
+    ]
+  }
+}

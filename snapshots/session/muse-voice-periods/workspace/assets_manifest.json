@@ -1,0 +1,40 @@
+{
+  "script_id": 2708,
+  "lead_readonly_records": [],
+  "items": [
+    {
+      "stable_id": "lu-office",
+      "character_id": "lu",
+      "type": "character",
+      "name": "陆沉舟（职场装）",
+      "aliases": [
+        "阿舟"
+      ],
+      "identity": "总裁",
+      "episodes": [
+        1
+      ],
+      "state_or_costume": "非孕期；青年；职场装",
+      "official": true,
+      "jubian_asset_id": 11,
+      "jubian_material_id": 111,
+      "url": "https://example.invalid/lu.png"
+    },
+    {
+      "stable_id": "lobby",
+      "type": "scene",
+      "name": "大厅",
+      "episodes": [
+        "all"
+      ],
+      "scene_conditions": [
+        "室内",
+        "日间"
+      ],
+      "official": true,
+      "jubian_asset_id": 12,
+      "jubian_material_id": 112,
+      "url": "https://example.invalid/lobby.png"
+    }
+  ]
+}

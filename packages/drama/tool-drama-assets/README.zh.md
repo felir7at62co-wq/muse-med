@@ -76,6 +76,8 @@ token 本身就是凭据引用 `JUBIANAI_ADMIN_TOKEN`，每次读取都经 `ctx.
 {"version":1,"documents":[{"path":"episode_packages/54-compile.json","sha256":"<actual-file-sha256>","episode":54}]}
 ```
 
+声音需求可指定精确 voice_period_id。角色配置 voice_profiles 时必须明确选时期，不能在儿童／成年或旧默认间回退。匹配与用途状态分别列出各时期，归档样本不是认可引用或活跃候选。共享音频身份元数据与登记收敛由[剧变工具](../../jubian/tool-jubian/README.zh.md)负责，不由这份本地投影授予。
+
 ### 只读匹配预览
 
 调用 `method=match_preview`，传 `project_dir` 与项目内 `requirements_path`。[输入和判断规则](../skills/skills/tweet-drama-core/references/match-preview.md)规定版本1需求、精确原文行/SHA-256、已登记身份关系、场景条件和认可声线样本。结果返回 `reuse_ready`、`needs_review`、`missing` 或 `blocked`，附候选ID与原因。同名不证明身份；明确提供的稳定身份和人物身份必须与清单、项目圣经一致，矛盾时返回 `IDENTITY_FIELDS_CONFLICT`。已登记的服装版本允许不同母资产ID，但项目参考资产也必须登记为同一人物、已正式确认且存在于当前项目资产目录中。读取失败、分页不完整、项目冲突或来源变化均阻断，不能当作缺素材。

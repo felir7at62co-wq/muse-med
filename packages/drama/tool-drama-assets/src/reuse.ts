@@ -14,6 +14,8 @@ export interface ReuseGroup {
   kind: MatchRequirement['kind']
   name: string
   identity: string
+  /** Explicit voice period; absent for visual and legacy unperioded groups. */
+  voice_period_id?: string
   status: Status
   requirement_ids: string[]
   episodes: number[]
@@ -75,6 +77,7 @@ function groupsOf(snapshot: MatchingSnapshot): ReuseGroup[] {
     const identity = req.kind === 'scene' ? req.stable_id : req.character_id ?? req.stable_id
     const identityType = req.kind === 'scene' || req.character_id === undefined ? 'stable_id' : 'character_id'
     const scope = { kind: req.kind, identity_type: identityType, identity: identity ?? `unverified:${req.id}`,
+      ...(req.kind !== 'voice' || req.voice_period_id === undefined ? {} : { voice_period_id: req.voice_period_id }),
       conditions: req.conditions.map(normalize).sort(), state: normalize(req.state_or_costume ?? ''),
       status: match.status, asset: match.selected_asset_id ?? null, candidates: match.candidate_asset_ids }
     const key = stableSha256(scope)
@@ -86,6 +89,7 @@ function groupsOf(snapshot: MatchingSnapshot): ReuseGroup[] {
       continue
     }
     groups.set(key, { fingerprint: key, kind: req.kind, name: req.name, identity: identity ?? '',
+      ...(req.kind !== 'voice' || req.voice_period_id === undefined ? {} : { voice_period_id: req.voice_period_id }),
       status: match.status, requirement_ids: [req.id], episodes: req.episode === undefined ? [] : [req.episode],
       conditions: req.conditions, state_or_costume: req.state_or_costume ?? '',
       candidate_asset_ids: match.candidate_asset_ids,

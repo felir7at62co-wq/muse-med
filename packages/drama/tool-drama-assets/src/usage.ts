@@ -2,7 +2,7 @@
 import type { JubianClient } from '@deepseek-ai/dsh-jubian'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import { readManifest } from './manifest.ts'
-import { ProjectFiles } from './matching.ts'
+import { configuredVoiceProfiles, ProjectFiles } from './matching.ts'
 import { realpath } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 
@@ -41,6 +41,10 @@ export interface AssetUsage {
   source_path: string
   source_sha256: string
   status: 'local_package_reference' | 'project_voice_reference'
+  /** Exact voice period; visual references and legacy voices omit it. */
+  voice_period_id?: string
+  /** Display label of the configured voice period. */
+  voice_period_label?: string
 }
 /** A character's local voice state never establishes remote existence or audio quality. */
 export interface VoiceState {
@@ -48,6 +52,10 @@ export interface VoiceState {
   name: string
   status: 'missing' | 'candidate' | 'current_reference_needs_verification'
   candidate_count: number
+  /** Exact voice period, absent for the legacy default. */
+  voice_period_id?: string
+  /** Display label of the configured voice period. */
+  voice_period_label?: string
 }
 /** Current local uses and voice gaps, bounded without implying a complete remote inventory. */
 export interface UsagePreview {
@@ -106,18 +114,26 @@ export async function usagePreview(_client: JubianClient, projectDir: string, pl
     const character = object(value), characterId = text(character.character_id)
     if (!characterId || identities.has(characterId)) throw new JubianError('INVALID_ARGUMENT', 'Every voice needs one unique stable character_id')
     identities.add(characterId)
-    const profile = character.voice_profile === undefined ? {} : object(character.voice_profile)
-    const candidates = samples.filter(sample => sample.character_id === characterId && sample.status === 'candidate')
-    voices.push({ character_id: characterId, name: text(character.name), candidate_count: candidates.length,
-      status: profile.reference_audio ? 'current_reference_needs_verification' : candidates.length ? 'candidate' : 'missing' })
-    if (profile.reference_audio) {
-      const voiceId = id(profile.reference_audio_asset_id)
-      if (voiceId === undefined) issues.push({ code: 'VOICE_ID_MISSING', message: `${characterId}: reference has no verified parent ID` })
-      else if (assetId === undefined || voiceId === assetId) uses.push({ stable_id: characterId, character_id: characterId,
-        name: text(character.name), kind: 'voice', asset_id: voiceId, material_id: 0, episode: 0, package_index: 0, shots: [],
-        material_key: '', state_or_costume: '', source_path: 'project_config.json',
-        source_sha256: configSha, status: 'project_voice_reference' })
+    for (const configured of configuredVoiceProfiles(character)) {
+      const profile = configured.profile, period = configured.voice_period_id
+      const periodFields = { ...(period === undefined ? {} : { voice_period_id: period }),
+        ...(configured.label === undefined ? {} : { voice_period_label: configured.label }) }
+      const candidates = samples.filter(sample => sample.character_id === characterId
+        && sample.voice_period_id === period && sample.status === 'candidate')
+      voices.push({ character_id: characterId, name: text(character.name), candidate_count: candidates.length,
+        status: profile.reference_audio ? 'current_reference_needs_verification' : candidates.length ? 'candidate' : 'missing',
+        ...periodFields })
+      if (profile.reference_audio) {
+        const voiceId = id(profile.reference_audio_asset_id)
+        if (voiceId === undefined) issues.push({ code: 'VOICE_ID_MISSING',
+          message: `${characterId}${period === undefined ? '' : `/${period}`}: reference has no verified parent ID` })
+        else if (assetId === undefined || voiceId === assetId) uses.push({ stable_id: characterId, character_id: characterId,
+          name: text(character.name), kind: 'voice', asset_id: voiceId, material_id: 0, episode: 0, package_index: 0, shots: [],
+          material_key: '', state_or_costume: '', source_path: 'project_config.json',
+          source_sha256: configSha, status: 'project_voice_reference', ...periodFields })
+      }
     }
+    if (voices.length > limit) throw new JubianError('INVALID_ARGUMENT', 'Project bible needs bounded voice periods')
   }
   if (planPath !== undefined) {
     const plan = await files.json(planPath)

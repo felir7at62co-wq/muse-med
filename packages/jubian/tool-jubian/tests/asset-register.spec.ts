@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { assetMethod } from '../src/methods.ts'
+import { encodeVoiceSlot } from '../src/voice-slot.ts'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -117,4 +118,15 @@ it('does not resend a registration recorded under the same key', async () => {
   expect(second.replayed).toBe(true)
   expect(f.calls).toHaveLength(1)
   expect(second.created_asset_id).toBeNull()
+})
+
+
+it('dispatches shared character/period registration and reports actual project-bound slot identity', async () => {
+  const tag = encodeVoiceSlot(2708, 'zhou', 'adult'), name = '周海生声线', url = 'https://media.example/adult.wav'
+  const f = await fixture({ id: 900101, scriptId: 2708, assetType: 4, assetName: `${name} ${tag}`, url })
+  const result = await assetMethod(f.client, f.ledger, { ...ARGS, asset_type: 4, asset_name: name, asset_url: url,
+    character_id: 'zhou', voice_period_id: 'adult', idempotency_key: 'shared-dispatch' })
+  expect(result).toMatchObject({ canonical_voice_asset_id: 900101, registration_created_asset_id: 900101, reuse_current: false,
+    canonical_voice_asset: { character_id: 'zhou', voice_period_id: 'adult', voice_slot_tag: tag, url } })
+  expect(f.calls[0]?.body).toEqual({ scriptId: 2708, assetName: `${name} ${tag}`, assetType: 4, isLocal: 1, url })
 })

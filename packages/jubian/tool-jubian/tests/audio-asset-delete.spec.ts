@@ -96,6 +96,41 @@ it('reports character and card references and refuses deletion until they are re
   expect(deletes).toEqual([])
 })
 
+it.each([{ reference_audio_asset_id: 7 }, { reference_audio: url }])(
+  'reports a child voice reference separately from the adult voice and refuses deletion: %j', async (reference) => {
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708,
+      project_bible: { characters: [{ character_id: 'zhou', name: '周海生', voice_profiles: [
+        { voice_period_id: 'child', label: '童年', ...reference },
+        { voice_period_id: 'adult', reference_audio_asset_id: 8, reference_audio: 'https://other.invalid/adult.wav' },
+      ] }] } }))
+    const plan = await preview()
+    expect(plan).toMatchObject({ references: { characters: [
+      { character_id: 'zhou', name: '周海生', voice_period_id: 'child' },
+    ], storyboards: [], complete: true } })
+    await expect(apply(plan)).rejects.toThrow(/引用|reference/)
+    expect(deletes).toEqual([])
+  })
+
+it('retains both legacy and period references when they use the same audio asset', async () => {
+  await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708,
+    project_bible: { characters: [{ character_id: 'zhou', voice_profile: { reference_audio_asset_id: 7 },
+      voice_profiles: [{ voice_period_id: 'adult', reference_audio_asset_id: 7 }] }] } }))
+  expect(await preview()).toMatchObject({ references: { characters: [
+    { character_id: 'zhou', name: null }, { character_id: 'zhou', name: null, voice_period_id: 'adult' },
+  ] } })
+  expect(deletes).toEqual([])
+})
+
+it('rechecks a period voice added after the deletion preview without sending a DELETE', async () => {
+  const plan = await preview()
+  await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708,
+    project_bible: { characters: [{ character_id: 'zhou', voice_profiles: [
+      { voice_period_id: 'adult', reference_audio_asset_id: 7 },
+    ] }] } }))
+  await expect(apply(plan)).rejects.toThrow(/Stale|changed|引用|reference/)
+  expect(deletes).toEqual([])
+})
+
 it('checks historical audio version URLs even when the parent URL changed or is absent', async () => {
   for (const parentUrl of ['https://media.example/new.wav', null]) {
     audio = { ...audio, assetUrl: parentUrl }
@@ -227,6 +262,10 @@ it('requires at least one media URL before reference absence can be established'
 it.each([
   { project_bible: null }, { project_bible: [] }, { project_bible: { characters: {} } },
   { project_bible: { characters: [null] } }, { project_bible: { characters: [{ voice_profile: null }] } },
+  ...[null, {}, [null], [{}], [{ voice_period_id: ' ' }], [{ voice_period_id: 3 }],
+    [{ voice_period_id: 'child' }, { voice_period_id: 'child' }]].map(voice_profiles => ({ project_bible: {
+    characters: [{ voice_profiles }],
+  } })),
 ])('refuses unreadable persisted character references without deleting', async (fields) => {
   await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708, ...fields }))
   await expect(preview()).rejects.toThrow('Unreadable')

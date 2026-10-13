@@ -1555,6 +1555,18 @@ describe('headless recorded-session snapshots', () => {
                 usage_rows: [{ asset_id: 13, status: 'project_voice_reference' }, { asset_id: 11, episode: 54, status: 'local_package_reference' }],
                 voice_states: [{ character_id: 'lu', status: 'current_reference_needs_verification' }] })
             }
+            if (scenario.name === 'muse-voice-periods') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_usage_preview')
+              if (result?.type !== 'tool/result') throw new Error('Missing persisted period voice usage result')
+              const block = result.data.message.content.find(item => item.type === 'text')
+              if (block?.type !== 'text') throw new Error('Missing period voice output')
+              expect(JSON.parse(block.text)).toMatchObject({ method: 'usage_preview', total: 2, read_only: true, paid_requests: 0,
+                usage_rows: [{ asset_id: 13, voice_period_id: 'child', status: 'project_voice_reference' },
+                  { asset_id: 11, episode: 54, status: 'local_package_reference' }],
+                voice_states: [{ character_id: 'lu', voice_period_id: 'child', status: 'current_reference_needs_verification' },
+                  { character_id: 'lu', voice_period_id: 'adult', status: 'missing', candidate_count: 0 }] })
+            }
             if (['muse-entity-match-preview', 'muse-entity-reuse-preview', 'muse-entity-existing-binding'].includes(scenario.name)) {
               const events = parseSessionLog(actualLogs[0]!.content)
               const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])

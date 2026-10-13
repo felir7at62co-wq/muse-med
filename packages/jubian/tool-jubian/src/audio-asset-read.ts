@@ -1,6 +1,7 @@
 /** Audio asset identities from the provider's project asset endpoints. */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import type { JubianClient } from '@deepseek-ai/dsh-jubian'
+import { readVoiceSlot } from './voice-slot.ts'
 
 /** One project audio asset; duration is unavailable until a media read measures the sample. */
 export interface AudioAsset {
@@ -11,6 +12,12 @@ export interface AudioAsset {
   url: string | null
   audio_duration: number | null
   is_local: boolean
+  /** Stable character ID decoded from a canonical project-bound voice suffix; absent on legacy or malformed names. */
+  character_id?: string
+  /** Explicit life period decoded with the shared character ID; not inferred from a human name. */
+  voice_period_id?: string
+  /** Canonical shared-identity suffix; it is metadata, not evidence of speaker quality. */
+  voice_slot_tag?: string
 }
 
 /** Explicit page selection for the project's audio parents. */
@@ -68,10 +75,10 @@ export function readAudioAsset(data: unknown, scriptId: number, assetId?: number
   if (project !== scriptId || (assetId !== undefined && id !== assetId) || source.assetType !== 4) {
     fail('Audio asset identity, project or category mismatch')
   }
-  return { asset_id: id, script_id: project, asset_type: 4,
-    name: optionalText(source.assetName) ?? optionalText(source.name),
+  const name = optionalText(source.assetName) ?? optionalText(source.name)
+  return { asset_id: id, script_id: project, asset_type: 4, name,
     url: optionalText(source.assetUrl) ?? optionalText(source.url), audio_duration: null,
-    is_local: source.isLocal === 1 || source.isLocal === true }
+    is_local: source.isLocal === 1 || source.isLocal === true, ...readVoiceSlot(name, scriptId) }
 }
 
 /**

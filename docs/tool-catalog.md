@@ -4023,6 +4023,14 @@ web_search and web_fetch keep provider selection behind ctx.web so model-visible
       "type": "string",
       "description": "register 必填：已有图片或音频 HTTPS 地址；只登记，不生成新媒体。"
     },
+    "character_id": {
+      "type": "string",
+      "description": "register 音频可选：稳定角色 ID；须与 voice_period_id 同时提供。完整音频库已有同角色/时期条目时复用，不重复登记。"
+    },
+    "voice_period_id": {
+      "type": "string",
+      "description": "register 音频可选：明确人生时期 ID，如 child/adult；与 character_id 组成共享声线位置。自动登记标签不能手写进 asset_name。"
+    },
     "project_dir": {
       "type": "string",
       "description": "prepare_video 必填、submit_video 可选：项目目录，必须含 project_config.json，且其 jubian_script_id 必须等于实时 scriptId。"
@@ -4621,6 +4629,14 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
           "audio_asset_id": {
             "type": "integer",
             "description": "已登记的真实音频资产 ID；工具复验同项目、类别4与URL，字段不伪造图片父资产 ID。"
+          },
+          "character_id": {
+            "type": "string",
+            "description": "可选本地稳定角色 ID；提供后须与当前项目该角色声线的资产 ID、URL 精确一致，不发送给视频提供方。"
+          },
+          "voice_period_id": {
+            "type": "string",
+            "description": "同角色的明确人生时期 ID，如 child/adult；角色有分期声线时必须提供，不能回退或混用。须同时提供 character_id。"
           }
         },
         "required": [
@@ -5193,7 +5209,7 @@ Read the authoritative project bible, preview a confirmed change and its downstr
               },
               "voice_profile": {
                 "type": "object",
-                "description": "Partial updates preserve approved guidance. Supply description when first creating a voice profile.",
+                "description": "Legacy default voice. Partial updates preserve approved guidance. Supply description when first creating a voice profile.",
                 "additionalProperties": false,
                 "properties": {
                   "speaker_id": {
@@ -5226,6 +5242,57 @@ Read the authoritative project bible, preview a confirmed change and its downstr
                     "type": "number",
                     "description": "Measured reference duration in seconds, greater than zero and at most 15; the usual sample is 2 seconds."
                   }
+                }
+              },
+              "voice_profiles": {
+                "type": "array",
+                "description": "Voice periods of the same stable character, such as child and adult. Merge by voice_period_id; omissions and [] preserve existing periods. Costume changes preserve their period voice. Each new period requires description.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "voice_period_id": {
+                      "type": "string",
+                      "description": "Stable explicit life-period ID, independent of costume and emotion."
+                    },
+                    "label": {
+                      "type": "string",
+                      "description": "Optional readable period label."
+                    },
+                    "speaker_id": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "Approved gender/age, timbre, speaking style and accent to reuse in each package."
+                    },
+                    "reference_audio": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Approved reference path, ID or URL. Set null to remove the current reference and its asset ID, hash and duration; voice guidance remains."
+                    },
+                    "reference_audio_asset_id": {
+                      "type": "integer",
+                      "description": "Actual approved audio-category asset ID. Set together with its HTTPS reference_audio URL, measured SHA-256 and duration."
+                    },
+                    "reference_audio_sha256": {
+                      "type": "string",
+                      "description": "64 hexadecimal SHA-256 characters of the approved audio bytes."
+                    },
+                    "reference_audio_duration_seconds": {
+                      "type": "number",
+                      "description": "Measured reference duration in seconds, greater than zero and at most 15; the usual sample is 2 seconds."
+                    }
+                  },
+                  "required": [
+                    "voice_period_id"
+                  ]
                 }
               }
             },

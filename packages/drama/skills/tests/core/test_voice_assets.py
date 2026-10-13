@@ -199,6 +199,153 @@ class GeneratedVoiceAssets(unittest.TestCase):
             self.assertEqual({sample["character_id"] for sample in saved["samples"]}, {"lu", "lin"})
             self.assertEqual(len(saved["tracks"]), 1)
 
+    def periods(self, root):
+        file = root / "project_config.json"
+        config = json.loads(file.read_text())
+        config["project_bible"]["characters"][0]["voice_profiles"] = [
+            {"voice_period_id": "child", "label": "童年", "description": "儿童声线"},
+            {"voice_period_id": "adult", "label": "成年", "description": "成年声线"}]
+        file.write_text(json.dumps(config))
+        return config
+
+    def test_child_and_adult_candidates_coexist_without_legacy_hash_changes(self):
+        module = self.load()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = self.project(root)
+            first = module.prepare(root, "request.json")
+            legacy_id = first["characters"][0]["sample_id"]
+            self.periods(root)
+            self.request(root, source, [{"character_id": "lu", "voice_period_id": period,
+                                        "intervals": [{"start_seconds": 1}]} for period in ["child", "adult"]])
+            result = module.prepare(root, "request.json")
+            self.assertEqual([row["voice_period_id"] for row in result["characters"]], ["child", "adult"])
+            samples = self.ledger(root)["samples"]
+            self.assertEqual(len(samples), 3)
+            self.assertEqual(samples[0]["id"], legacy_id)
+            self.assertEqual(len({row["id"] for row in samples}), 3)
+            self.assertEqual(module.prepare(root, "request.json"), result)
+
+    def test_explicit_period_never_reuses_other_period_or_legacy_and_missing_period_does_not_guess(self):
+        module = self.load()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = self.project(root)
+            config = self.periods(root)
+            character = config["project_bible"]["characters"][0]
+            character["voice_profile"] = {"reference_audio": "https://example.invalid/legacy.wav"}
+            character["voice_profiles"][0]["reference_audio"] = "https://example.invalid/child.wav"
+            (root / "project_config.json").write_text(json.dumps(config))
+            self.request(root, source, [{"character_id": "lu", "voice_period_id": "adult", "intervals": [{"start_seconds": 1}]}])
+            self.assertEqual(module.prepare(root, "request.json")["characters"][0]["status"], "candidate")
+            self.request(root, source, [{"character_id": "lu", "intervals": [{"start_seconds": 1}]}])
+            self.assertEqual(module.prepare(root, "request.json")["characters"][0]["status"], "needs_voice_period")
+            self.request(root, source, [{"character_id": "lu", "voice_period_id": "elder"}])
+            self.assertEqual(module.prepare(root, "request.json")["characters"][0]["status"], "needs_voice_period_configuration")
+
+    def test_existing_period_voice_archives_duplicate_without_deleting_it_or_touching_other_period(self):
+        module = self.load()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = self.project(root)
+            config = self.periods(root)
+            rows = [{"character_id": "lu", "voice_period_id": period, "intervals": [{"start_seconds": 1}]} for period in ["child", "adult"]]
+            self.request(root, source, rows)
+            module.prepare(root, "request.json")
+            before = self.ledger(root)
+            original_bytes = {sample["id"]: (root / sample["path"]).read_bytes() for sample in before["samples"]}
+            config["project_bible"]["characters"][0]["voice_profiles"][0].update({
+                "reference_audio": "https://example.invalid/shared-child.wav", "reference_audio_asset_id": 501,
+                "reference_audio_sha256": "a" * 64, "reference_audio_duration_seconds": 2})
+            (root / "project_config.json").write_text(json.dumps(config))
+            result = module.prepare(root, "request.json")
+            child = next(sample for sample in self.ledger(root)["samples"] if sample["voice_period_id"] == "child")
+            adult = next(sample for sample in self.ledger(root)["samples"] if sample["voice_period_id"] == "adult")
+            self.assertEqual(child["status"], "archived")
+            self.assertEqual(child["reused_asset_id"], 501)
+            self.assertEqual(adult["status"], "candidate")
+            self.assertEqual(result["characters"][0]["archived_sample_ids"], [child["id"]])
+            for sample in self.ledger(root)["samples"]:
+                self.assertEqual((root / sample["path"]).read_bytes(), original_bytes[sample["id"]])
+            module.prepare(root, "request.json")
+            self.assertEqual(len(self.ledger(root)["samples"]), 2)
+
+    def test_reference_without_full_metadata_does_not_archive_candidate_and_approved_history_remains(self):
+        module = self.load()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            self.project(root)
+            module.prepare(root, "request.json")
+            config = json.loads((root / "project_config.json").read_text())
+            config["project_bible"]["characters"][0]["voice_profile"] = {"reference_audio": "https://example.invalid/shared.wav"}
+            (root / "project_config.json").write_text(json.dumps(config))
+            module.prepare(root, "request.json")
+            self.assertEqual(self.ledger(root)["samples"][0]["status"], "candidate")
+
+    def test_config_updated_while_waiting_uses_existing_reference_instead_of_stale_candidate(self):
+        module = self.load()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            self.project(root)
+            original_lock = module.ledger_lock
+            from contextlib import contextmanager
+            @contextmanager
+            def updated_lock(path):
+                config_file = root / "project_config.json"
+                config = json.loads(config_file.read_text())
+                config["project_bible"]["characters"][0]["voice_profile"] = {"reference_audio": "https://example.invalid/current.wav"}
+                config_file.write_text(json.dumps(config))
+                with original_lock(path):
+                    yield
+            with patch.object(module, "ledger_lock", updated_lock):
+                result = module.prepare(root, "request.json")
+            self.assertEqual(result["characters"][0]["status"], "current_voice_preserved")
+            self.assertEqual(self.ledger(root)["samples"], [])
+
+    def test_two_independent_workspaces_archive_their_own_candidates_after_shared_voice_adoption(self):
+        module = self.load()
+        with tempfile.TemporaryDirectory() as left, tempfile.TemporaryDirectory() as right:
+            copies = [Path(left), Path(right)]
+            candidates = []
+            for index, root in enumerate(copies):
+                source = self.project(root)
+                self.periods(root)
+                request = self.request(root, source, [{"character_id": "lu", "voice_period_id": "adult", "intervals": [{"start_seconds": 1}]}])
+                request["source_task_id"] = f"collaborator-original-task-{index}"
+                (root / "request.json").write_text(json.dumps(request))
+                module.prepare(root, "request.json")
+                candidates.append(self.ledger(root)["samples"][0]["id"])
+            self.assertNotEqual(candidates[0], candidates[1])
+            for root in copies:
+                config_file = root / "project_config.json"
+                config = json.loads(config_file.read_text())
+                config["project_bible"]["characters"][0]["voice_profiles"][1].update({
+                    "reference_audio": "https://example.invalid/shared-adult.wav", "reference_audio_asset_id": 801,
+                    "reference_audio_sha256": "b" * 64, "reference_audio_duration_seconds": 2})
+                config_file.write_text(json.dumps(config))
+                module.prepare(root, "request.json")
+                sample = self.ledger(root)["samples"][0]
+                self.assertEqual(sample["status"], "archived")
+                self.assertEqual(sample["reused_asset_id"], 801)
+                self.assertTrue((root / sample["path"]).is_file())
+
+    def test_ambiguous_period_inputs_and_same_period_duplicates_do_not_create_samples(self):
+        module = self.load()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = self.project(root)
+            config = self.periods(root)
+            for rows in [[{"character_id": "lu", "voice_period_id": ""}],
+                         [{"character_id": "lu", "voice_period_id": "child"}] * 2]:
+                self.request(root, source, rows)
+                with self.assertRaises(ValueError):
+                    module.prepare(root, "request.json")
+            config["project_bible"]["characters"][0]["voice_profiles"].append({"voice_period_id": "child"})
+            (root / "project_config.json").write_text(json.dumps(config))
+            self.request(root, source, [{"character_id": "lu", "voice_period_id": "child"}])
+            with self.assertRaisesRegex(ValueError, "unique stable IDs"):
+                module.prepare(root, "request.json")
+
 
 if __name__ == "__main__":
     unittest.main()
