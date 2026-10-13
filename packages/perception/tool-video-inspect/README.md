@@ -29,6 +29,8 @@ Mount the function plugin with `tools`, `fs`, `subprocess`, `attachments` and `s
 
 Uniform samples use the middle of equally sized intervals. `timestamps_seconds` selects specific source moments instead. The default maximum is 12 frames over 120 seconds per call; the default interval is at most 60 seconds. `next_start_seconds` names the next interval when part of the source remains. Use `video_ocr` for visible or burned-in text and the existing `audio_transcribe` tool separately for spoken dialogue, under its account and billing requirements.
 
+OCR samples use a valid positive video-stream duration when both the video and container explicitly start at zero. Otherwise they use the container duration. This avoids planning a nonexistent frame at the video endpoint when audio runs slightly longer. General inspection metadata, contact sheets and ASR range checks retain the container duration; failed samples inside the requested interval remain incomplete coverage.
+
 `video_ocr` samples a requested video range, sends bounded JPEG batches to one Windows OCR bridge process per batch, and creates both raw JSON evidence and a timestamped merged TXT file inside the workspace. The raw evidence retains every recognized line, word box, source timestamp, scan range and conservative classification. Long-lived, spatially stable exact text may be labelled `persistent_text_candidate`; this describes visual persistence, not whether the text is narrative. Both classes remain content candidates and count toward `segment_count`; text is never silently removed. Equal-time lines retain OCR reading order.
 
 ```json

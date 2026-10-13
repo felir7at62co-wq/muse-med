@@ -1,7 +1,7 @@
 /** Publication cancellation waits for the current write, then preserves the receipt and staged audio. */
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { finishAudioTranscription, startAudioTranscription, type AudioAccount } from '../src/runner.ts'
 
@@ -48,7 +48,8 @@ it.each([5, 25].flatMap(duration => ['mkdir', 'output-write', 'receipt-write', '
       maxDurationSeconds: 100, maxAudioBytes: 1024, chunkSeconds: 10 }
     const media = { probe: async () => duration, encode: async (_source: string, target: string) => { await writeFile(target, 'audio') } }
     const first = await startAudioTranscription(project, input, 'zh', account, config, media)
-    const before = await readFile(first.receipt, 'utf8')
+    const receiptPath = resolve(first.receipt)
+    const before = await readFile(receiptPath, 'utf8')
     const receipt = JSON.parse(before) as { mp3: string; parts?: { mp3: string }[] }
     const staged = receipt.parts?.map(part => part.mp3) ?? [receipt.mp3]
     const raw = join(project, 'transcript', 'raw')
@@ -57,8 +58,8 @@ it.each([5, 25].flatMap(duration => ['mkdir', 'output-write', 'receipt-write', '
     io.pause = async (operation, path) => {
       if (phase === 'mkdir' ? operation === 'mkdir' && path === raw
         : phase === 'output-write' ? operation === 'write' && dirname(path) === raw
-          : phase === 'receipt-write' ? operation === 'write' && path.startsWith(`${first.receipt}.`)
-            : operation === 'rename' && path === first.receipt) {
+          : phase === 'receipt-write' ? operation === 'write' && path.startsWith(`${receiptPath}.`)
+            : operation === 'rename' && path === receiptPath) {
         entered.resolve(undefined); await release.promise
       }
     }
@@ -75,7 +76,7 @@ it.each([5, 25].flatMap(duration => ['mkdir', 'output-write', 'receipt-write', '
     await expect(task).rejects.toBe(reason)
     expect(io.links).toHaveLength(phase.startsWith('receipt-') ? 3 : 0)
     expect(io.writes).toHaveLength(phase === 'mkdir' ? 0 : phase === 'output-write' ? 1 : 4)
-    expect(io.renames).toEqual(phase === 'receipt-rename' ? [first.receipt] : [])
+    expect(io.renames).toEqual(phase === 'receipt-rename' ? [receiptPath] : [])
     const after = await readFile(first.receipt, 'utf8')
     if (phase === 'receipt-rename') expect(JSON.parse(after)).toMatchObject({ status: 'complete' })
     else expect(after).toBe(before)

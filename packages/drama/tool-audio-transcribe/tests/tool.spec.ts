@@ -6,7 +6,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { afterEach, expect, it, vi } from 'vitest'
 import { apply, Config } from '../src/index.ts'
-import { finishAudioTranscription, startAudioTranscription } from '../src/runner.ts'
+import { finishAudioTranscription, startAudioTranscription, type AudioAccount } from '../src/runner.ts'
 
 vi.mock('../src/runner.ts', () => ({
   startAudioTranscription: vi.fn(async () => ({ status: 'processing', receipt: 'project/transcript/jobs/source-v1.json', job_id: 'job' })),
@@ -14,7 +14,7 @@ vi.mock('../src/runner.ts', () => ({
 }))
 
 const contexts: Context[] = []
-function originalAccount(service: MuseAccountService): MuseAccountService {
+function originalAccount(service: AudioAccount): MuseAccountService {
   const original: unknown = Reflect.get(service, symbols.original)
   if (!(original instanceof MuseAccountService)) throw new Error('Expected a Cordis account service receiver')
   return original
