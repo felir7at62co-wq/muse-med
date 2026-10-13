@@ -71,7 +71,7 @@ kind: "package-reference"
 
 HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`、`daily_quota`、`provider_rate`、`request_rate`、`invalid_request` 或 `idempotency_conflict`。队列／上传上限带 `Retry-After: 2`，滚动额度给出最早重试间隔；提交与查询共享每账号／IP 每分钟 60 次限制，超出带 `Retry-After: 60`，日额度不提示立即重试。未受理上传在容量恢复后沿用原 ID；已受理或未知收据须对账，不以新 ID 重提；旧桌面客户端将这些错误统一为 `request-rejected`。
 
-`GET /api/admin/asr/diagnostics` 只允许已登录且短时提升权限仍有效的管理员访问，并把访问写入管理员审计日志。响应禁止缓存，只包含内存聚合数量和配置上限：active、worker 与 waiting 占用，按服务版本和额度组汇总的使用量，标准版未解决任务的年龄桶，以及本次网关进程启动以来的 `queue_full` 类别。该接口不读取或修改收据，也不返回账号、任务、应用、音频、路径、提供方响应或凭据数据；网关重启后计数清零。
+`GET /api/admin/asr/diagnostics` 只允许已登录且短时提升权限仍有效的管理员访问，并把访问写入管理员审计日志。审计持久化后重新核验授权；已取消的请求不读取诊断。响应禁止缓存，只包含内存聚合数量和配置上限：active、worker 与 waiting 占用，按服务版本和额度组汇总的使用量，标准版未解决任务的年龄桶，以及本次网关进程启动以来的 `queue_full` 类别。该接口不读取或修改收据，也不返回账号、任务、应用、音频、路径、提供方响应或凭据数据；网关重启后计数清零。
 
 凭据值不得进入 Git、systemd `Environment=`、桌面设置、日志或模型工具结果。开发环境和正式环境都通过 `MUSE_KB_VAULT` 与私有 `MUSE_KB_SECRET` 文件启用知识库机器端点。`MUSE_KB_DOCUMENT_GRANTS` 指向由管理员维护、位于可写共享 vault 和编辑器可写目录外的普通 JSON 文件；在 POSIX 上，用户组和其他用户不能写入该文件。未设置文件路径时，不授权任何共享文档。网关在检索或阅读前核对每份共享文档的完整 SHA-256。不能仅凭开发 vault 的文件数量或标题把它复制到正式环境。未配置知识库时机器端点不存在；启用后，未鉴权的 `/api/kb/mcp` 请求返回 401。
 

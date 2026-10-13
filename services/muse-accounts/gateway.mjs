@@ -126,6 +126,9 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
    if(!asr){answer(503,{error:'Muse cloud transcription is not configured on this server'});return;}
    if(!rate(req,'asr-diagnostics:'+s.id,12)){answer(429,{error:'ASR diagnostics request rate exceeded'});return;}
    await adminAccess.record(s.account,'GET /api/admin/asr/diagnostics','server');
+   if(res.destroyed)return;
+   const current=session(req);
+   if(!current||current.token!==s.token||!current.account.admin||!adminAccess.elevated(current.account,current.token)){answer(403,{error:'Elevated administrator access required'});return;}
    answer(200,asr.diagnostics());return;
   }
   if(path==='/api/asr/jobs'||path.startsWith('/api/asr/jobs/')){

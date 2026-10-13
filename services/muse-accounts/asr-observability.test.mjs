@@ -128,3 +128,36 @@ test('an elevated administrator receives an uncached unavailable response when A
  assert.equal(response.status,503);assert.equal(response.headers.get('cache-control'),'no-store');
  assert.deepEqual(await response.json(),{error:'Muse cloud transcription is not configured on this server'});
 });
+
+for(const interruption of ['logout','elevation expiry','request cancellation'])test('HTTP diagnostics do not read ASR after '+interruption+' during audit persistence',{timeout:5000},async t=>{
+ const root=await mkdtemp(join(tmpdir(),'muse-asr-observe-revocation-')),entered=deferred(),release=deferred(),closed=deferred();let clock=Date.now(),reads=0,auditPending;
+ const servers=[];
+ t.after(async()=>{release.resolve();await auditPending;for(const server of servers){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}await rm(root,{recursive:true,force:true});});
+ const store=await openStore(join(root,'accounts'));await store.create('admin','pw',{admin:true});
+ const access=await openAdminAccess(join(root,'privileged'),{now:()=>clock,ttlMs:1000});await access.configure('test-admin-secret');
+ const adminAccess={...access,record:(...args)=>{entered.resolve();auditPending=(async()=>{await release.promise;await access.record(...args);})();return auditPending;}};
+ const asr={diagnostics:()=>{reads++;return {schema_version:1,occupancy:{active:0}};}};
+ const origin='https://muse.test',server=createAccountServer({store,adminAccess,asr,publicOrigin:origin,now:()=>clock});servers.push(server);
+ server.on('request',(req,res)=>{if(req.url==='/api/admin/asr/diagnostics')res.once('close',()=>closed.resolve());});
+ const base=await new Promise(resolve=>server.listen(0,'127.0.0.1',()=>resolve('http://127.0.0.1:'+server.address().port)));
+ const login=await fetch(base+'/login',{method:'POST',headers:{origin},body:new URLSearchParams({username:'admin',password:'pw'}),redirect:'manual'});
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ const unlock=await fetch(base+'/admin/control/unlock',{method:'POST',headers:{cookie,origin},body:new URLSearchParams({password:'test-admin-secret'}),redirect:'manual'});assert.equal(unlock.status,303);
+ const controller=new AbortController();
+ const pending=fetch(base+'/api/admin/asr/diagnostics',{headers:{cookie},redirect:'manual',signal:controller.signal});
+ const result=pending.then(response=>({response}),error=>({error}));
+ await entered.promise;
+ if(interruption==='logout'){
+  const logout=await fetch(base+'/logout',{method:'POST',headers:{cookie,origin},redirect:'manual'});assert.equal(logout.status,303);
+ }else if(interruption==='elevation expiry')clock+=1001;
+ else{controller.abort();assert.equal((await result).error?.name,'AbortError');await closed.promise;}
+ assert.equal(reads,0);release.resolve();await auditPending;
+ if(interruption==='request cancellation')await new Promise(resolve=>setImmediate(resolve));
+ else{
+  const {response}=await result;assert.equal(response.status,403);assert.equal(response.headers.get('cache-control'),'no-store');
+  assert.deepEqual(await response.json(),{error:'Elevated administrator access required'});
+ }
+ assert.equal(reads,0);
+ const audit=(await readFile(join(root,'privileged','audit.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
+ assert.equal(audit.filter(row=>row.event==='GET /api/admin/asr/diagnostics').length,1);
+});
