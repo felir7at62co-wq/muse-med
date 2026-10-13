@@ -123,7 +123,8 @@ FunctionEnd
   Push $R9
   ReadEnvStr $R8 "DSH_DESKTOP_UPDATE_JOURNAL_DIR"
   ${If} $R8 != ""
-    System::Call /NOUNLOAD '$PLUGINSDIR\window-frame.dll::InstallerRecordTiming(w r8, w "${VERSION}", i ${EventCode}) i.R9 ?c'
+    ; System's R8 source reads $R8; its r8 source reads the unrelated $8 register.
+    System::Call /NOUNLOAD '$PLUGINSDIR\window-frame.dll::InstallerRecordTiming(w R8, w "${VERSION}", i ${EventCode}) i.R9 ?c'
   ${EndIf}
   Pop $R9
   Pop $R8
