@@ -171,7 +171,7 @@ describe('registration', () => {
 
   it('exposes the method enum and every path argument', () => {
     const parameters = dramaRender().parameters as {
-      properties: Record<string, { enum?: string[] }>
+      properties: Record<string, { enum?: string[]; description?: string }>
       required: string[]
     }
     expect(Object.keys(parameters.properties).sort()).toEqual([
@@ -179,6 +179,9 @@ describe('registration', () => {
       'method', 'output', 'project', 'shots', 'subtitle_srt', 'timeline',
     ])
     expect(parameters.properties.method?.enum).toEqual(['prepare', 'render', 'verify', 'subtitles'])
+    expect(parameters.properties.timeline?.description).toContain('相对路径以 project 为基准')
+    expect(parameters.properties.bgm?.description).toContain('drama_bgm 返回的绝对 output')
+    expect(parameters.properties.bgm_plan?.description).toContain('drama_bgm 返回的绝对 plan')
     expect(parameters.required.sort()).toEqual(['episode', 'method', 'project'])
   })
 
@@ -311,23 +314,37 @@ describe('resolveCall', () => {
   })
 
   it('defaults a render call\u2019s output to the project\u2019s export path', () => {
+    const project = resolve('C:/proj')
     const call = resolveCall({
       method: 'render', project: 'C:/proj', episode: 2, timeline: 't.json', subtitleSrt: 's.srt',
-      lastShot: 9, bgm: 'b.mp3', endingAudio: 'e.mp3', endingEffect: 'fx.mp4',
+      lastShot: 9, bgm: 'b.mp3', bgmPlan: 'editing/bgm-plan.json', endingAudio: 'e.mp3', endingEffect: 'fx.mp4',
     })
     expect(call).toEqual({
       method: 'render',
-      project: resolve('C:/proj'),
+      project,
       episode: '02',
-      timelinePath: resolve('t.json'),
+      timelinePath: join(project, 't.json'),
       subtitleSrt: resolve('s.srt'),
       lastShot: 9,
-      bgm: resolve('b.mp3'),
+      bgm: join(project, 'b.mp3'),
+      bgmPlan: join(project, 'editing', 'bgm-plan.json'),
       endingAudio: resolve('e.mp3'),
       endingEffect: resolve('fx.mp4'),
-      output: join(resolve('C:/proj'), 'exports', '02.mp4'),
+      output: join(project, 'exports', '02.mp4'),
       force: false,
     })
+  })
+
+  it('preserves absolute BGM handoff paths while the process cwd differs from the project', () => {
+    const project = resolve('剧变项目')
+    const timeline = join(project, 'editing', '02-timeline.json')
+    const bgm = join(project, 'audio', 'bgm', '02.wav')
+    const bgmPlan = join(project, 'editing', 'bgm-plan.json')
+    const call = resolveCall({
+      method: 'render', project, episode: 2, timeline, subtitleSrt: 's.srt', lastShot: 9,
+      bgm, bgmPlan, endingAudio: 'e.mp3', endingEffect: 'fx.mp4',
+    })
+    expect(call).toMatchObject({ timelinePath: timeline, bgm, bgmPlan })
   })
 
   it('keeps an explicit render output and force flag', () => {
@@ -341,12 +358,14 @@ describe('resolveCall', () => {
   })
 
   it('resolves a verify call from the delivered file and its two inputs', () => {
+    const project = resolve('C:/proj')
     const call = resolveCall({
       method: 'verify', project: 'C:/proj', episode: 12, output: 'C:/out/final.mp4',
       timeline: 't.json', subtitleSrt: 's.srt',
     })
     expect(call.method).toBe('verify')
     expect(call.episode).toBe('12')
+    expect(call.method === 'verify' ? call.timelinePath : '').toBe(join(project, 't.json'))
     expect(call.method === 'verify' ? call.output : '').toBe(resolve('C:/out/final.mp4'))
   })
 

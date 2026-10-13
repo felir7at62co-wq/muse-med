@@ -14,11 +14,12 @@ import {
 import {
   appliedGain,
   buildMixFilter,
+  resolveProjectPath,
   resolveOutputPath,
   auditBgmBatch,
   validateEpisodePlan,
 } from './plan.ts'
-import type { BgmBatchPolicy, BgmBatchRow } from './plan.ts'
+import type { BgmBatchPolicy, BgmBatchRow, ResolvedProjectPath } from './plan.ts'
 import type {
   BgmEpisodePlan,
   BgmMediaReport,
@@ -98,18 +99,47 @@ async function requireFile(path: string, label: string, displayPath = path): Pro
   if (!info.isFile() || info.size === 0) throw new Error(`${label}不是非空文件：${displayPath}`)
 }
 
+/** Render one resolved project path in every model-facing path failure. */
+function pathContext(path: ResolvedProjectPath, reason: string): string {
+  return `input="${path.input}"; project="${path.project}"; resolved="${path.resolved}"; reason=${reason}`
+}
+
 /** Reject a real path outside the project's real root. */
-function assertProjectOwned(project: string, path: string, label: string): void {
+function assertProjectOwned(
+  project: string,
+  path: string,
+  label: string,
+  context?: ResolvedProjectPath,
+): void {
   const relation = relative(project, path)
   if (relation === '..' || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
+    if (context !== undefined) {
+      throw new Error(`${label}必须位于项目目录内：${pathContext(context, `真实路径越出项目目录（${path}）`)}。`)
+    }
     throw new Error(`${label}必须位于项目目录内：${path}`)
   }
 }
 
 /** Require an existing project-owned file, including after symlink resolution. */
-async function requireProjectFile(project: string, path: string, label: string, displayPath = path): Promise<void> {
-  await requireFile(path, label, displayPath)
-  assertProjectOwned(project, await realpath(path), label)
+async function requireProjectFile(project: string, path: ResolvedProjectPath, label: string): Promise<void> {
+  let info
+  try {
+    info = await stat(path.resolved)
+  } catch (error) {
+    const filesystem = error as NodeJS.ErrnoException
+    const reason = filesystem.code === 'ENOENT'
+      ? 'ENOENT（解析后的路径不存在）'
+      : `${filesystem.code ?? '文件系统错误'}（${filesystem.message}）`
+    const failure = new Error(`${label}${filesystem.code === 'ENOENT' ? '不存在' : '无法访问'}：`
+      + `${pathContext(path, reason)}。`, { cause: error }) as NodeJS.ErrnoException
+    failure.code = filesystem.code
+    failure.path = filesystem.path
+    throw failure
+  }
+  if (!info.isFile() || info.size === 0) {
+    throw new Error(`${label}不是非空文件：${pathContext(path, '解析后的路径不是普通非空文件')}。`)
+  }
+  assertProjectOwned(project, await realpath(path.resolved), label, path)
 }
 
 /** Create an output directory only when its nearest existing ancestor is project-owned. */
@@ -202,13 +232,13 @@ async function loadBatch(directory: string): Promise<BgmBatchRow[]> {
 }
 
 /** Read and select one episode while reporting repeated ordered source sequences. */
-async function loadPlan(path: string, episode: string, project: string): Promise<LoadedPlan> {
+async function loadPlan(path: ResolvedProjectPath, episode: string, project: string): Promise<LoadedPlan> {
   let plan: { episodes: BgmEpisodePlan[] }
   try {
-    const document: unknown = JSON.parse((await readFile(path, 'utf8')).replace(/^\ufeff/u, ''))
+    const document: unknown = JSON.parse((await readFile(path.resolved, 'utf8')).replace(/^\ufeff/u, ''))
     plan = PlanSchema(document as Parameters<typeof PlanSchema>[0])
   } catch (error) {
-    throw new Error(`BGM 计划不可读：${path}`, { cause: error })
+    throw new Error(`BGM 计划不可读：${pathContext(path, 'JSON 或计划字段无效')}。`, { cause: error })
   }
   const ids = plan.episodes.map(row => row.episode.padStart(2, '0'))
   if (ids.some(id => !/^\d+$/u.test(id)) || new Set(ids).size !== ids.length) {
@@ -219,7 +249,7 @@ async function loadPlan(path: string, episode: string, project: string): Promise
   const signature = (row: BgmEpisodePlan): string => JSON.stringify(row.segments.map(segment =>
     isAbsolute(segment.source) ? resolve(segment.source) : resolve(project, segment.source)))
   const selectedSignature = signature(selected)
-  const batch = await loadBatch(dirname(path))
+  const batch = await loadBatch(dirname(path.resolved))
   return {
     selected,
     repeated: plan.episodes
@@ -312,12 +342,12 @@ export async function runDramaBgm(
   if (!Number.isSafeInteger(args.episode) || args.episode <= 0) throw new Error('episode 必须是正安全整数。')
   const project = resolve(args.project)
   const projectRoot = await realpath(project)
-  const timeline = resolveOutputPath(project, args.timeline)
-  const planPath = resolveOutputPath(project, args.plan)
-  await requireProjectFile(projectRoot, timeline, '时间线', args.timeline)
-  await requireProjectFile(projectRoot, planPath, 'BGM 计划', args.plan)
+  const timelinePath = resolveProjectPath(project, args.timeline, '时间线')
+  const planPath = resolveProjectPath(project, args.plan, 'BGM 计划')
+  await requireProjectFile(projectRoot, timelinePath, '时间线')
+  await requireProjectFile(projectRoot, planPath, 'BGM 计划')
   const episode = String(args.episode).padStart(2, '0')
-  const { bodyEndSeconds, boundaries } = await readTimeline(timeline)
+  const { bodyEndSeconds, boundaries } = await readTimeline(timelinePath.resolved)
   const loaded = await loadPlan(planPath, episode, project)
   const plan = validateEpisodePlan(loaded.selected, bodyEndSeconds)
   // The reuse rules are reported, not enforced: the agent reads them in this
@@ -336,8 +366,8 @@ export async function runDramaBgm(
   const base = {
     episode,
     project,
-    plan: planPath,
-    timeline,
+    plan: planPath.resolved,
+    timeline: timelinePath.resolved,
     output,
     body_duration_seconds: bodyEndSeconds,
     crossfade_seconds: plan.crossfadeSeconds,
@@ -346,7 +376,8 @@ export async function runDramaBgm(
     policy_findings: policyFindings,
   }
   if (args.method === 'verify') {
-    await requireProjectFile(projectRoot, output, 'BGM 输出', args.output ?? `audio/bgm/${episode}.wav`)
+    await requireProjectFile(projectRoot,
+      resolveProjectPath(project, args.output ?? `audio/bgm/${episode}.wav`, 'BGM 输出'), 'BGM 输出')
     const probe = await probeAudio(settings.ffprobePath, settings.channel, output, settings.signal)
     validateOutput(probe, bodyEndSeconds)
     return { method: 'verify', ...base, segments: [], report: '', media: await mediaReport(output, probe) }

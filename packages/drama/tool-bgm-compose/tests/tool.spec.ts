@@ -31,9 +31,15 @@ describe('registration', () => {
     expect(tool.description).toContain('CC-BY-NC-4.0')
     expect(tool.description).toContain('仅限非商业用途')
     expect(tool.description).toContain('drama_render.bgm')
-    const parameters = tool.parameters as { properties: Record<string, { enum?: string[] }>; required: string[] }
+    const parameters = tool.parameters as {
+      properties: Record<string, { enum?: string[]; description?: string }>
+      required: string[]
+    }
     expect(Object.keys(parameters.properties).sort()).toEqual(['episode', 'method', 'output', 'plan', 'project', 'timeline'])
     expect(parameters.properties.method?.enum).toEqual(['preview', 'compose', 'verify'])
+    expect(parameters.properties.plan?.description).toContain('write 返回的绝对 path')
+    expect(parameters.properties.timeline?.description).toContain('相对路径以 project 为基准')
+    expect(parameters.properties.output?.description).toContain('相对路径以 project 为基准')
     expect(parameters.required.sort()).toEqual(['episode', 'method', 'plan', 'project', 'timeline'])
   })
 

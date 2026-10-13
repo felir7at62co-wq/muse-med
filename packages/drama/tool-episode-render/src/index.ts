@@ -284,13 +284,13 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
       method: 'render',
       project,
       episode,
-      timelinePath: resolve(required(args.timeline, 'render', 'timeline',
+      timelinePath: resolve(project, required(args.timeline, 'render', 'timeline',
         '时间线 JSON 的路径，通常是 prepare 写出的 editing/<集>-timeline.json。')),
       subtitleSrt: resolve(required(args.subtitleSrt, 'render', 'subtitleSrt',
         '本集 SRT 字幕的路径，通常是 prepare 装好的 editing/<集>.srt。')),
       lastShot,
-      bgm: resolve(required(args.bgm, 'render', 'bgm', '本集实际使用的 BGM 文件路径。')),
-      ...(args.bgmPlan === undefined ? {} : { bgmPlan: resolve(args.bgmPlan) }),
+      bgm: resolve(project, required(args.bgm, 'render', 'bgm', '本集实际使用的 BGM 文件路径。')),
+      ...(args.bgmPlan === undefined ? {} : { bgmPlan: resolve(project, args.bgmPlan) }),
       endingAudio: resolve(required(args.endingAudio, 'render', 'endingAudio',
         '片尾音文件路径（技能的 assets/ending_audio.mp3）。')),
       endingEffect: resolve(required(args.endingEffect, 'render', 'endingEffect',
@@ -303,7 +303,7 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
     method: 'verify',
     project,
     episode,
-    timelinePath: resolve(required(args.timeline, 'verify', 'timeline',
+    timelinePath: resolve(project, required(args.timeline, 'verify', 'timeline',
       '被检查成片所依据的时间线 JSON 路径。')),
     subtitleSrt: resolve(required(args.subtitleSrt, 'verify', 'subtitleSrt',
       '被检查成片所烧录的 SRT 字幕路径。')),
@@ -632,14 +632,17 @@ export function apply(ctx: Context, config: Config = {}): void {
           + '只取它的时间：字幕文字仍来自 lines，识别文本仅用于核对是不是同一段表演。'
           + '缺某一镜、段数与台词条数不符、或文本对不上，都会按 failure 报出。' },
       timeline: { type: 'string',
-        description: '时间线 JSON 路径；render 与 verify 必填，通常是 prepare 写出的 editing/<集>-timeline.json。' },
+        description: '时间线 JSON 路径；render 与 verify 必填，相对路径以 project 为基准；'
+          + '跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。' },
       subtitle_srt: { type: 'string',
         description: '本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），'
           + 'prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。' },
       last_shot: { type: 'integer',
         description: '本次交付的最后一个镜头号（如 9）；render 必填，时间线里 shot <= last_shot 的镜头数必须正好等于它。' },
-      bgm: { type: 'string', description: '本集实际使用的 BGM 文件路径；render 必填，会循环铺到正片结束。' },
-      bgm_plan: { type: 'string', description: 'render 可选：现有 episodes/segments 配乐计划 JSON；校验时间、记录曲目与复用提醒，不代替试听。' },
+      bgm: { type: 'string', description: '本集实际使用的 BGM 文件路径；render 必填，相对路径以 project 为基准；'
+        + '优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束。' },
+      bgm_plan: { type: 'string', description: 'render 可选：现有 episodes/segments 配乐计划 JSON；'
+        + '相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；校验时间、记录曲目与复用提醒，不代替试听。' },
       ending_audio: { type: 'string',
         description: '片尾音文件路径；render 必填。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3'
           + '（SHA-256 d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f，全长 3.474 秒）：'
