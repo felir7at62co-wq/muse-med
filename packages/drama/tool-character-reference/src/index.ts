@@ -8,6 +8,7 @@ import { recommendCharacterReference } from './reference.ts'
 export const name = 'tool-character-reference'
 export const inject = ['tools']
 
+/** Local draft index configuration for the isolated QA reference tool. */
 export interface Config {
   /** Absolute local path to the unpublished draft index; never an Agent argument or TOS URL. */
   referenceIndexPath: string

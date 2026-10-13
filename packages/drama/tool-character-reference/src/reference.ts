@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 
+/** Role requirements used to search the configured local reference draft. */
 export interface CharacterReferenceRequest {
   role_description: string
   style?: 'urban' | 'ancient'
@@ -35,6 +36,7 @@ interface DraftObject {
   }
 }
 
+/** Read-only recommendation or abstention with evidence and unresolved fit questions. */
 export interface CharacterReferenceResult {
   status: 'recommended' | 'no_match' | 'needs_review'
   search_scope: 'local_draft_public_reference'
@@ -169,7 +171,12 @@ async function loadDraft(indexPath: string): Promise<{ root: string; objects: Dr
   return { root, objects }
 }
 
-/** Recommend at most one local reference; unknown eras and tied evidence never imply a safe fit. */
+/**
+ * Recommend at most one local reference; unknown eras and tied evidence never imply a safe fit.
+ * @param indexPath - Absolute local path to the QA-configured unpublished reference index.
+ * @param request - Role requirements and optional style, appearance tags, and era.
+ * @returns A single reference recommendation, no match, or a request for review with read-only guarantees.
+ */
 export async function recommendCharacterReference(
   indexPath: string, request: CharacterReferenceRequest,
 ): Promise<CharacterReferenceResult> {
