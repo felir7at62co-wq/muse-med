@@ -165,8 +165,8 @@ it('rejects empty and relative plugin configuration before registering a tool', 
   const empty = new Context()
   const relative = new Context()
   try {
-    expect(() => Assets.apply(empty, { referenceIndexPath: '' })).toThrow('absolute local referenceIndexPath')
-    expect(() => Assets.apply(relative, { referenceIndexPath: 'relative/index.json' }))
+    expect(() => { Assets.apply(empty, { referenceIndexPath: '' }) }).toThrow('absolute local referenceIndexPath')
+    expect(() => { Assets.apply(relative, { referenceIndexPath: 'relative/index.json' }) })
       .toThrow('absolute local referenceIndexPath')
   } finally {
     await empty.fiber.dispose()
@@ -180,8 +180,9 @@ it('rejects malformed requests before reading the configured draft', async () =>
     .rejects.toThrow('bounded role description')
   await expect(recommendCharacterReference(missing, { role_description: '角'.repeat(2001) }))
     .rejects.toThrow('bounded role description')
-  await expect(recommendCharacterReference(missing,
-    { role_description: '角色', desired_tags: '标签' as unknown as string[] }))
+  const malformedTags = { role_description: '角色', desired_tags: ['标签'] }
+  Reflect.set(malformedTags, 'desired_tags', '标签')
+  await expect(recommendCharacterReference(missing, malformedTags))
     .rejects.toThrow('bounded role description')
   await expect(recommendCharacterReference(missing,
     { role_description: '角色', desired_tags: Array.from({ length: 21 }, (_, index) => `标签${index}`) }))
@@ -244,7 +245,7 @@ it('rejects missing, malformed, unsafe, and duplicate entry fields', async () =>
     ['unconfirmed eras', (entry) => { asRecord(asRecord(entry.search).role_fit).unconfirmed_eras = null }],
   ]
   for (const [name, mutate] of entryMutations) {
-    await expectInvalidIndex(index => mutate(firstEntry(index)), /invalid or duplicate entry/, name)
+    await expectInvalidIndex((index) => { mutate(firstEntry(index)) }, /invalid or duplicate entry/, name)
   }
   const sourcedMutations: [string, (value: Record<string, unknown>) => void][] = [
     ['null descriptor', (value) => { asRecord(asRecord(value.search).appearance).descriptors = [null] }],
@@ -262,7 +263,7 @@ it('rejects missing, malformed, unsafe, and duplicate entry fields', async () =>
     }],
   ]
   for (const [name, mutate] of sourcedMutations) {
-    await expectInvalidIndex(index => mutate(firstEntry(index)), /invalid or duplicate entry/, name)
+    await expectInvalidIndex((index) => { mutate(firstEntry(index)) }, /invalid or duplicate entry/, name)
   }
   await expectInvalidIndex((index) => {
     const objects = asArray(index.objects)
