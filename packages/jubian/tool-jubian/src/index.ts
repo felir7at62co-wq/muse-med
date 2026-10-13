@@ -294,10 +294,9 @@ const VIDEO_OUTPUT = {
  * Adapt one domain method to the tool registry.
  *
  * The registry types arguments from the authored parameter spec and requires a
- * losslessly-JSON return value, while these methods take one wide argument bag
- * and may carry provider values the transport kept as `unknown`. Both casts are
- * at this single seam rather than at every call site; the runtime shape is the
- * same either way.
+ * losslessly-JSON return value. Domain methods use different argument types;
+ * this adapter converts the registry's JSON argument bag and provider-valued
+ * result at this one seam, after the required-argument check.
  *
  * The required-argument check runs here, before dispatch, so a call missing an
  * argument its method cannot run without fails without a request, a ledger line
@@ -306,6 +305,7 @@ const VIDEO_OUTPUT = {
  * @param run - The domain method, given the argument bag its own signature declares.
  * @returns An execute function for `defineTool`.
  */
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- Distinct domain types adapt unknown registry input.
 function guarded<A = MethodArgs>(
   tool: string,
   run: (args: A) => Promise<Record<string, unknown>>,
