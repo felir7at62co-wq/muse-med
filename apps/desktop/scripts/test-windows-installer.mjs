@@ -99,6 +99,8 @@ SectionEnd
   const sourceStrings = await readFile(join(appRoot, 'installer', 'strings.nsh'), 'utf8')
   for (const language of ['en_US', 'zh_CN']) {
     const config = createElectronBuilderConfig()
+    config.nsis.installerSidebar = join(output, 'ui', 'uninstaller-sidebar.bmp')
+    config.nsis.uninstallerSidebar = config.nsis.installerSidebar
     if (sign) {
       config.win.forceCodeSigning = true
       config.win.signtoolOptions.sign = sign
