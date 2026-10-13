@@ -32,6 +32,8 @@ kind: "package-reference"
 
 从[总控](skills/tweet-drama-pipeline/SKILL.md)开始，调用脚本前读取相关技能。保留技能目录相邻：草稿、渲染和交付共用 core 的视频禁用检查。使用 Python 3.11 或更新版本。图片辅助模块需要 Pillow，文档辅助模块需要 python-docx，草稿生成需要 pyJianYingDraft；其他可选依赖由各技能说明。同名草稿已存在时拒绝生成，不删除旧目录；每个候选版本须使用不同的 `name_prefix`，且不能包含路径分隔符或 Windows 保留字符。包内不附带 Python 解释器、依赖环境或 FFmpeg 二进制。
 
+如需手动安装个人版 [3D 动漫资产技能](optional-skills/anime-3d-assets/SKILL.md)，将整个 `optional-skills/anime-3d-assets` 目录复制到独立个人技能目录，保留其中的 `scripts`、`references` 和 `assets`。消费方加载器负责启用；生成前读取[首轮要求](optional-skills/anime-3d-assets/references/first-pass-cg.md)。
+
 [项目圣经技能](skills/tweet-drama-project-bible/SKILL.md) 用一次集中问题询问缺少的创意与实时 SD 模型选择，复用已给答案，并通过 drama_project 保存审阅后的更新。风格题提供仿真人、3D 和其他（自行输入）；用户自填的原文作为风格保存。生成分辨率与交付尺寸分开；可选角色声音指导伴随说话人核对与实际听音审核。Wiki 参考指导写作，不阻塞启动。已有项目保留稳定视频包/分镜身份、已完成任务和版本记录。
 
 草稿生成通过 `drama_draft_dir` 读取本机设置；编辑器根目录缺失或无效时询问用户，再通过同一工具保存用户提供的路径。字幕对齐默认使用已完成的 Muse 云端收据，核对字词时间戳与源文件 SHA-256。全部匹配的台词保留实测时间；锚点无效、重叠或超出镜头时失败，不改写时间后仍标为已对齐。草稿字幕导入同样保留起止时间，拒绝没有逐句对齐时间的长句，详见[输入要求](skills/tweet-drama-draft-build/references/io-contract.md)。显式离线识别需要另行准备依赖和模型。
@@ -62,6 +64,8 @@ npm test
 
 `package.json#files` 逐文件列出分发内容，不使用家庭目录整树或宽泛目录 glob。包排除凭据、cookies、缓存、日志、虚拟环境、可执行文件、用户索引、逐项目媒体和第三方模板 PDF；包内唯一的用户媒体是渲染器要用的两份片尾素材。测试只保留在源码中，不打包。这个私有、未授权许可的资源包没有 Cordis 入口或 TypeScript 项目。不发布运行时 invariant 伴随模块，因为静态技能文件没有可独立变化的运行时观测。
 
+`optional-skills` 不在 npm 文件清单中，不自动启用。维护这些源码不会同步已安装副本，也不会更改生产配置。
+
 发布检查会逐一比对实际 npm 压缩包和文件清单，包括[导演镜头格式指南](skills/tweet-drama-early-shot-script/references/director-format.md)；遗漏、未登记或内容过期的资源会在桌面端打包前报错。
 
 </details>
@@ -87,6 +91,7 @@ npm test
 
 <a id="known-limitations-and-deferred-work"></a>
 
+- 动漫技能的请求预检是只读离线工作流检查，不是全局工具拦截；它不发起提供方请求，也不能证明生成图片的视觉质量。
 - 当前 Web profile 仍需消费方显式配置技能加载器、凭据注入和 Python 依赖。本包不改变根配置，也不宣称正在运行的 Web 会话已使用这些资源。
 - 草稿脚本使用调用方指定的输出目录；它既不会定位组员已安装剪映的真实草稿根目录，也不会自动将渲染的 MP4 与经过验证的可编辑草稿配对。
 - 操作者已明确授权公开再分发维护中的技能源码和两份片尾素材。`private: true` 与 `UNLICENSED` 不向其他人授予修改或再分发本包的许可；外部 Python 库、字体、模型及其他媒体仍须分别确认权利。
