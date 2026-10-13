@@ -16,6 +16,7 @@ import * as VideoInspect from '../src/index.ts'
 import { runMedia, parseVideoMetadata } from '../src/media.ts'
 import * as Media from '../src/media.ts'
 import { contactTimecode } from '../src/contact.ts'
+import { showinfoTimestamps, splitMjpeg } from '../src/ocr.ts'
 
 vi.mock('node:os', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:os')>()
@@ -45,6 +46,60 @@ it('decodes every FFmpeg batch and continues from a nonzero source range', async
   expect(raw.frames.map(frame => [frame.requested_seconds, frame.timestamp_seconds]))
     .toEqual([[2, 2], [2.5, 2.5], [3, 3], [3.5, 3.5]])
   expect(run.mock.calls.filter(call => call[1].includes('mjpeg'))).toHaveLength(4)
+})
+
+it('logs only encoded batch samples when FFmpeg reads ahead of a low-rate source', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 0.25, ocrBatchFrames: 2 })
+  const run = mockWindowsOcr(), recognize = run.getMockImplementation()!
+  const batches: { argv: readonly string[]; output: Media.MediaOutput }[] = []
+  run.mockImplementation(async (...args) => {
+    const output = await recognize(...args)
+    if (args[1].includes('mjpeg')) batches.push({ argv: args[1], output })
+    return output
+  })
+  const result = await h.ocr({ start_seconds: 0.5, end_seconds: 1.5 })
+  const diagnostics = JSON.stringify(batches.map(({ argv, output }) => ({ argv, diagnostic: output.diagnostic,
+    image_count: splitMjpeg(output.bytes).length, timestamps: showinfoTimestamps(output.diagnostic) })))
+  expect(result.value, diagnostics).toMatchObject({ scan_status: 'complete', coverage: {
+    planned_frame_count: 4, processed_frame_count: 4, failed_frame_count: 0,
+  } })
+  expect(batches, diagnostics).toHaveLength(2)
+  expect(batches.map(({ output }) => [splitMjpeg(output.bytes).length, showinfoTimestamps(output.diagnostic)]), diagnostics)
+    .toEqual([[2, [0.5, 0.75]], [2, [1, 1.25]]])
+})
+
+it('rejects mismatched batch diagnostics instead of discarding extra timestamps', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 2 })
+  const run = mockWindowsOcr(), recognize = run.getMockImplementation()!
+  const batches: { argv: readonly string[]; output: Media.MediaOutput }[] = []
+  run.mockImplementation(async (...args) => {
+    const output = await recognize(...args)
+    if (!args[1].includes('mjpeg')) return output
+    batches.push({ argv: args[1], output })
+    const image = splitMjpeg(output.bytes)[0]
+    if (!image) throw Error('Real decoder did not return the negative-control image')
+    return { bytes: image, diagnostic: output.diagnostic }
+  })
+  const result = await h.ocr({ end_seconds: 1 })
+  expect(result.value).toMatchObject({ scan_status: 'failed', coverage: {
+    planned_frame_count: 2, processed_frame_count: 0, failed_frame_count: 2,
+  } })
+  expect(batches).toHaveLength(1)
+  const batch = batches[0]!
+  expect(splitMjpeg(batch.output.bytes)).toHaveLength(2)
+  expect(showinfoTimestamps(batch.output.diagnostic)).toEqual([0, 0.5])
+  expect(batch.argv[batch.argv.indexOf('-vf') + 1]).toContain('trim=end_frame=2,')
+  expect(run.mock.calls.filter(call => call[1].some(value => value.endsWith('ocr_bridge.ps1')))).toHaveLength(0)
+})
+
+it.each([
+  [{ ocrMinFrameIntervalSeconds: 2, ocrFrameIntervalSeconds: 1 }, 'OCR frame interval bounds'],
+  [{ ocrFrameIntervalSeconds: 2, ocrMaxFrameIntervalSeconds: 1 }, 'OCR frame interval bounds'],
+  [{ ocrBatchFrames: 4, ocrMaxFrames: 2 }, 'ocrBatchFrames'],
+] as const)('rejects contradictory OCR deployment limits before registering tools: %j', (options, message) => {
+  const ctx = new Context()
+  contexts.push(ctx)
+  expect(() => { VideoInspect.apply(ctx, VideoInspect.Config(options)) }).toThrow(message)
 })
 
 it('plans OCR to the real video EOF without changing container metadata or contact-sheet bounds', async () => {

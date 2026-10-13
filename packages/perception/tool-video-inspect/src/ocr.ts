@@ -371,7 +371,7 @@ async function extractBatch(ctx: Context, config: Config, source: string, ffmpeg
   const duration = count * interval
   const output = await Media.runMedia(ctx, [ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'info',
     '-protocol_whitelist', 'file,pipe', '-ss', String(start), '-copyts', '-i', source, '-to', String(start + duration),
-    '-map', '0:v:0', '-an', '-sn', '-dn', '-vf', `fps=1/${interval},scale=w='min(${config.ocrFrameMaxDimension},iw)':h='min(${config.ocrFrameMaxDimension},ih)':force_original_aspect_ratio=decrease,showinfo`,
+    '-map', '0:v:0', '-an', '-sn', '-dn', '-vf', `fps=1/${interval},trim=end_frame=${count},scale=w='min(${config.ocrFrameMaxDimension},iw)':h='min(${config.ocrFrameMaxDimension},ih)':force_original_aspect_ratio=decrease,showinfo`,
     '-frames:v', String(count), '-c:v', 'mjpeg', '-q:v', String(config.ocrFrameJpegQuality),
     '-f', 'image2pipe', 'pipe:1'], policy, signal, { timeoutMs: config.ocrCommandTimeoutMs,
     graceMs: config.graceMs, maxBytes: config.maxOcrBatchImageBytes, maxDiagnosticBytes: config.maxOcrDiagnosticBytes })

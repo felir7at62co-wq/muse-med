@@ -32,7 +32,7 @@ kind: "package-reference"
 
 视频流和容器都明确从零开始且视频流时长有效、大于零时，OCR 按视频流时长规划抽帧；其他情况使用容器时长。这避免音轨稍长时在视频终点请求不存在的画面。普通视频检查元数据、宫格和 ASR 范围校验仍使用容器时长；请求区间内真正失败的采样仍表示覆盖不完整。
 
-`video_ocr` 对请求的视频区间抽样，每批把数量和大小受限的 JPEG 交给一个 Windows OCR bridge 进程，并在工作区创建原始 JSON 证据和带时间码的合并 TXT。原始证据保留每行文字、词框、源时间码、扫描范围和保守分类。长时间、位置稳定且完全相同的文字可以标记为 `persistent_text_candidate`，这只表示视觉重复，不表示该文字不是剧情。两类文字都保留为内容候选并计入 `segment_count`，绝不静默删除；同一时间的多行文字保留 OCR 阅读顺序。
+`video_ocr` 对请求的视频区间抽样，每批把数量和大小受限的 JPEG 交给一个 Windows OCR bridge 进程，并在工作区创建原始 JSON 证据和带时间码的合并 TXT。每批抽帧先限制滤镜输出，再记录时间戳，诊断仅对应本批实际编码的画面。原始证据保留每行文字、词框、源时间码、扫描范围和保守分类。长时间、位置稳定且完全相同的文字可以标记为 `persistent_text_candidate`，这只表示视觉重复，不表示该文字不是剧情。两类文字都保留为内容候选并计入 `segment_count`，绝不静默删除；同一时间的多行文字保留 OCR 阅读顺序。
 
 ```json
 {"file_path":"source/episode-01.mp4","start_seconds":0,"end_seconds":120,"frame_interval_seconds":0.5,"language":"zh-Hans-CN","raw_json_path":"transcript/raw/episode-01-ocr.json","merged_text_path":"transcript/raw/episode-01-ocr.txt"}
