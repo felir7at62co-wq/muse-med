@@ -17,6 +17,14 @@ Startup reports the actual loopback port after the gateway begins listening. `MU
 
 The gateway requires Node 22 or newer and the release-root DSH dependencies used by its account, model, and KB routes. Cloud workspace mode and administrator runtime contexts additionally require the matching `muse-runtime` and `global` release directories; desktop workspace mode does not start a cloud agent. Run `npm ci --omit=dev` in this directory after copying it into each new immutable release; `package-lock.json` pins the TOS SDK and WebSocket transport. `ffprobe` must exist on the server when ASR is enabled. Never copy account databases, KB vaults, credentials, or ASR job ledgers into the release tree.
 
+### Account sessions
+
+The gateway resolves `MUSE_ACCOUNTS_FILE` to an absolute path and stores login sessions in `sessions.json` beside it. `MUSE_SESSIONS_FILE` can select another absolute path. Keep both files in the same private durable-data area outside immutable releases and backups exposed to users. Session writes use the account store's owner-only directory and atomic 0600-file pattern. The session file contains only SHA-256 token digests, account IDs, account revisions, and expiries; it never contains the bearer token or cookie value. Run only one gateway against a session file.
+
+`MUSE_SESSION_TTL_MS` configures newly issued sessions from 60,000 milliseconds through 7,776,000,000 milliseconds (90 days). The default is 2,592,000,000 milliseconds (30 days): long enough for normal next-day Desktop recovery, but still bounded rather than permanent. Existing sessions keep the expiry recorded when they were issued. Expired records are omitted during startup and removed from the file. Logout, password change or reset, and every account enable/disable revision change revoke the affected records.
+
+An absent session file is valid and starts empty, so deployments that omit the new settings retain their existing account configuration. A session that existed only in an older gateway process cannot be reconstructed; the first rollout can therefore require one login from existing users. Sessions issued after the durable store is active survive later gateway restarts and release-pointer changes. Preserve the session file during upgrade and rollback, and do not copy session data between development and production.
+
 The service reads a private JSON file named by `MUSE_ASR_CONFIG`. Omit the variable to disable ASR; authenticated ASR calls then return 503. The file must be a regular file, mode 0600 on Linux, and contain these fields:
 
 | Field | Use |

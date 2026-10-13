@@ -9,6 +9,7 @@ import {promisify} from 'node:util';
 import {fileURLToPath} from 'node:url';
 import {openStore} from './store.mjs';
 import {createAccountServer} from './gateway.mjs';
+import {openSessionStore} from './session-store.mjs';
 
 test('Muse login exposes website models, streams through account auth and revokes on logout',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'muse-desktop-models-'));let server;
@@ -39,6 +40,30 @@ test('Muse login exposes website models, streams through account auth and revoke
   assert.equal((await pending).status,401);
   assert.equal(requests.length,2);
  }finally{if(server){server.closeAllConnections();await new Promise(r=>server.close(r));}await rm(dir,{recursive:true,force:true});}
+});
+
+test('Desktop login survives gateway restart while expiry and account revocation stay durable',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'muse-session-restart-'));
+ const accountsFile=join(dir,'accounts.json'),sessionsFile=join(dir,'sessions.json'),origin='https://muse.test';let clock=100000,active;
+ t.after(async()=>{if(active?.server.listening){active.server.closeAllConnections();await new Promise(resolve=>active.server.close(resolve));}await rm(dir,{recursive:true,force:true});});
+ const setup=await openStore(accountsFile),account=await setup.create('editor','pw');
+ const start=async()=>{
+  const store=await openStore(accountsFile),sessionStore=await openSessionStore(sessionsFile,{now:()=>clock});
+  const server=createAccountServer({store,sessionStore,sessionTtlMs:1000,now:()=>clock,publicOrigin:origin});
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+server.address().port;
+  return {store,sessionStore,server,call:(path,options={})=>fetch(base+path,{redirect:'manual',...options})};
+ };
+ const stop=async()=>{active.server.closeAllConnections();await new Promise(resolve=>active.server.close(resolve));};
+ const login=async password=>{const response=await active.call('/login',{method:'POST',headers:{origin},body:new URLSearchParams({username:'editor',password})});assert.equal(response.status,303);return response.headers.get('set-cookie').split(';')[0];};
+ active=await start();const first=await login('pw'),token=first.slice(first.indexOf('=')+1);await stop();
+ active=await start();assert.equal((await active.call('/api/desktop-models/providers',{headers:{cookie:first}})).status,200);assert.equal((await active.call('/api/desktop-models/providers',{headers:{authorization:'Bearer '+token}})).status,200);
+ assert.equal((await active.call('/logout',{method:'POST',headers:{cookie:first,origin}})).status,303);await stop();
+ active=await start();assert.equal((await active.call('/api/desktop-models/providers',{headers:{authorization:'Bearer '+token}})).status,401);
+ const changed=await login('pw');assert.equal((await active.call('/account/password',{method:'POST',headers:{cookie:changed,origin},body:new URLSearchParams({originalPassword:'pw',password:'new-pw'})})).status,303);await stop();
+ active=await start();assert.equal((await active.call('/api/desktop-models/providers',{headers:{cookie:changed}})).status,401);
+ const disabled=await login('new-pw');await active.store.setDisabled(account.id,true);await active.sessionStore.flush();await stop();
+ active=await start();assert.equal((await active.call('/api/desktop-models/providers',{headers:{cookie:disabled}})).status,401);await active.store.setDisabled(account.id,false);await active.sessionStore.flush();
+ const expiring=await login('new-pw');clock+=1000;await stop();active=await start();assert.equal((await active.call('/api/desktop-models/providers',{headers:{cookie:expiring}})).status,401);await stop();
 });
 
 test('native DeepSeek metadata exposes capacity and reasoning without private configuration',()=>{
