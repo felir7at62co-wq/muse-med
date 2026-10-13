@@ -67,13 +67,20 @@ function account(ctx: Context): MuseAccountService {
   return service
 }
 
-it('defaults account provider exclusions to an empty list and rejects malformed IDs before activation', () => {
-  expect(Config({ baseUrl })).toMatchObject({ excludedProviderIds: [], excludedModels: [] })
-  expect(Config({ baseUrl, excludedProviderIds: ['aa', 'deepseek-official'] })).toMatchObject({
+it('defaults account provider filters to empty lists and rejects malformed IDs before activation', () => {
+  expect(Config({ baseUrl })).toMatchObject({ excludedProviderIds: [], hiddenProviderIds: [], excludedModels: [] })
+  expect(Config({
+    baseUrl,
     excludedProviderIds: ['aa', 'deepseek-official'],
+    hiddenProviderIds: ['yunying'],
+  })).toMatchObject({
+    excludedProviderIds: ['aa', 'deepseek-official'],
+    hiddenProviderIds: ['yunying'],
   })
-  for (const excludedProviderIds of ['aa', [1], [''], ['../aa'], ['AA']]) {
-    expect(() => { Reflect.apply(Config, undefined, [{ baseUrl, excludedProviderIds }]) }).toThrow()
+  for (const field of ['excludedProviderIds', 'hiddenProviderIds'] as const) {
+    for (const value of ['aa', [1], [''], ['../aa'], ['AA']]) {
+      expect(() => { Reflect.apply(Config, undefined, [{ baseUrl, [field]: value }]) }).toThrow()
+    }
   }
   expect(Config({ baseUrl, excludedModels: [{ providerId: 'yunying', modelId: 'glm-5.3-flash' }] }))
     .toMatchObject({ excludedModels: [{ providerId: 'yunying', modelId: 'glm-5.3-flash' }] })
@@ -203,7 +210,7 @@ it('exchanges the real loopback Host token for a cookie and stops the account tu
   expect(stops).toEqual(tunnels)
 })
 
-it.each(['http', 'no-cookie'] as const)('reports local Host bootstrap failure and can refresh again (%s)', async (failure) => {
+it.each(['http', 'no-cookie'] as const)('keeps the saved account signed in after local Host bootstrap failure and can refresh again (%s)', async (failure) => {
   const { ctx, home, sessionFile } = await fixture()
   const { tunnels } = await host(ctx)
   await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=account-private' })
@@ -217,8 +224,11 @@ it.each(['http', 'no-cookie'] as const)('reports local Host bootstrap failure an
   }))
   const warn = vi.spyOn(ctx.logger, 'warn')
   await apply(ctx, Config({ baseUrl, accountHome: home, remoteAccess: true }))
-  await expect(account(ctx).status({})).rejects.toMatchObject({ code: 'muse-account/storage-failed' })
-  expect(warn).toHaveBeenCalledWith('Muse desktop connection is unavailable; open account settings to retry.')
+  expect(await account(ctx).status({})).toMatchObject({ state: 'signed-in', username: 'alice', verified: false })
+  expect(warn).toHaveBeenCalledWith(
+    'Muse desktop connection refresh failed while reading account status; the saved account state remains authoritative.',
+    expect.any(Error),
+  )
   expect(tunnels).toHaveLength(0)
   failed = false
   expect(await account(ctx).status({})).toMatchObject({ state: 'signed-in', username: 'alice' })

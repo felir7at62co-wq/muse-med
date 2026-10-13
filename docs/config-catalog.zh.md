@@ -2340,6 +2340,8 @@ export interface Config {
   }[]
   /** Exact provider IDs excluded from the account-supplied catalog; personal adapters are unaffected. */
   readonly excludedProviderIds: string[]
+  /** Exact account provider IDs retained for saved Sessions but hidden from new model selections. */
+  readonly hiddenProviderIds: string[]
   /** Product-private account directory; omission selects the active DSH home. */
   readonly accountHome?: string
   /** Timeout for account and knowledge-base gateway requests in milliseconds. */

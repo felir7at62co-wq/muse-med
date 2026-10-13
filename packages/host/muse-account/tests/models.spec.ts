@@ -135,13 +135,81 @@ it.each(['network', 'unauthorized', 'unavailable', 'malformed', 'oversized', 'do
         access: { baseURL: 'not-a-url', apiKey: 'test-key' } })) })
     })
     models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000 })
+    await expect(models.refresh()).rejects.toThrow(/^MUSE account gateway: gateway-(?:unavailable|rejected)$/)
     if (failure === 'unauthorized') {
-      await models.refresh(); expect(await readMuseSession(sessionFile(), baseUrl)).toBeNull()
-    } else await expect(models.refresh()).rejects.toThrow(/^MUSE account gateway: gateway-(?:unavailable|rejected)$/)
+      expect(await readMuseSession(sessionFile(), baseUrl)).toMatchObject({ username: 'alice' })
+    }
     expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal'])
     await expect(readFile(join(root, 'model-access.json'))).rejects.toMatchObject({ code: 'ENOENT' })
   },
 )
+
+it('keeps the session but removes matching direct access when the access endpoint returns 401 after restart', async () => {
+  await login()
+  let rejectAccess = false
+  const fetcher: typeof fetch = async (url) => {
+    const path = new URL(url instanceof Request ? url.url : url).pathname
+    if (path.endsWith('/providers')) return Response.json({ ...catalog, transport: 'direct' })
+    return rejectAccess ? new Response('', { status: 401 }) : Response.json({ transport: 'direct',
+      providers: catalog.providers.map(provider => ({ ...provider,
+        access: { baseURL: 'https://provider.test/v1', apiKey: 'direct-test-key' } })) })
+  }
+  const accessFile = join(root, 'model-access.json')
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000, fetcher })
+  await models.refresh()
+  expect(JSON.parse(await readFile(accessFile, 'utf8'))).toMatchObject({ providers: [{ access: { apiKey: 'direct-test-key' } }] })
+  await models.dispose()
+
+  rejectAccess = true
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000, fetcher })
+  await expect(models.refresh()).rejects.toMatchObject({ code: 'gateway-rejected' })
+  expect(await readMuseSession(sessionFile(), baseUrl)).toMatchObject({ username: 'alice' })
+  await expect(readFile(accessFile)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal'])
+
+  rejectAccess = false
+  await models.refresh()
+  expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal', 'muse-cloud-studio'])
+})
+
+it('ignores an old revision access 401 without deleting or withdrawing a newer login', async () => {
+  await login()
+  let mode: 'ready' | 'stale' | 'recovered' = 'ready'
+  let entered!: () => void, release!: () => void
+  const started = new Promise<void>((resolve) => { entered = resolve })
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const fetcher: typeof fetch = async (url) => {
+    const path = new URL(url instanceof Request ? url.url : url).pathname
+    if (path.endsWith('/providers')) return Response.json({ ...catalog, transport: 'direct' })
+    if (mode === 'stale') { entered(); await gate; return new Response('', { status: 401 }) }
+    return Response.json({ transport: 'direct', providers: catalog.providers.map(provider => ({ ...provider,
+      access: { baseURL: 'https://provider.test/v1', apiKey: mode === 'recovered' ? 'bob-key' : 'alice-key' } })) })
+  }
+  const accessFile = join(root, 'model-access.json')
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000, fetcher })
+  await models.refresh()
+
+  mode = 'stale'
+  const stale = models.refresh()
+  await started
+  await login('bob')
+  const bob = await readMuseSession(sessionFile(), baseUrl)
+  if (!bob) throw new Error('Missing replacement account')
+  await modelAccess.saveModelAccess(sessionFile(), baseUrl, bob.revision, [{ id: 'studio',
+    access: { baseURL: 'https://provider.test/v1', apiKey: 'bob-key' } }])
+  release()
+
+  await expect(stale).resolves.toBeUndefined()
+  expect(await readMuseSession(sessionFile(), baseUrl)).toMatchObject({ username: 'bob' })
+  expect(JSON.parse(await readFile(accessFile, 'utf8'))).toMatchObject({ revision: bob.revision,
+    providers: [{ access: { apiKey: 'bob-key' } }] })
+  expect(ctx.llm.listProviders().map(provider => provider.id)).toContain('muse-cloud-studio')
+
+  mode = 'recovered'
+  await models.refresh()
+  expect(ctx.llm.listProviders().map(provider => provider.id)).toContain('muse-cloud-studio')
+  expect(await readMuseSession(sessionFile(), baseUrl)).toMatchObject({ username: 'bob' })
+})
 
 it('does not distribute excluded supplier credentials and rejects issuance raced by a new login', async () => {
   await login()
@@ -194,16 +262,34 @@ it('does not publish catalog fetched for an account that changed during the requ
   expect(ctx.llm.listProviders().map(p => p.id)).toContain('muse-cloud-studio')
 })
 
-it('withdraws expired sessions and rejects malformed model metadata', async () => {
+it('withdraws Muse routes without deleting the account session when the provider catalog returns 401', async () => {
   await login()
-  let response = Response.json(catalog)
+  let rejectProviders = false
+  const accessFile = join(root, 'model-access.json')
   models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async () => response.clone() })
+    fetcher: async (url) => {
+      const path = new URL(url instanceof Request ? url.url : url).pathname
+      if (path.endsWith('/providers')) return rejectProviders ? new Response('', { status: 401 })
+        : Response.json({ ...catalog, transport: 'direct' })
+      return Response.json({ transport: 'direct', providers: catalog.providers.map(provider => ({ ...provider,
+        access: { baseURL: 'https://provider.test/v1', apiKey: 'direct-test-key' } })) })
+    } })
   await models.refresh()
-  response = new Response('', { status: 401 }); await models.refresh()
-  expect(await readMuseSession(sessionFile(), baseUrl)).toBeNull()
+  expect(JSON.parse(await readFile(accessFile, 'utf8'))).toMatchObject({ providers: [{ access: { apiKey: 'direct-test-key' } }] })
+  rejectProviders = true
+  await expect(models.refresh()).rejects.toMatchObject({ code: 'gateway-rejected' })
+  expect(await readMuseSession(sessionFile(), baseUrl)).toMatchObject({ username: 'alice' })
+  await expect(readFile(accessFile)).rejects.toMatchObject({ code: 'ENOENT' })
   expect(ctx.llm.listProviders().map(p => p.id)).toEqual(['personal'])
-  await login(); response = Response.json({ providers: [{ ...catalog.providers[0], id: '../admin' }] })
+  rejectProviders = false
+  await models.refresh()
+  expect(ctx.llm.listProviders().map(p => p.id)).toContain('muse-cloud-studio')
+})
+
+it('rejects malformed model metadata', async () => {
+  await login()
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json({ providers: [{ ...catalog.providers[0], id: '../admin' }] }) })
   await expect(models.refresh()).rejects.toThrow()
   expect(ctx.llm.listProviders().map(p => p.id)).toEqual(['personal'])
 })
@@ -379,6 +465,55 @@ it('hides exact Yunying model IDs while retaining other Yunying, Zhipu, and pers
     expect((await ctx.llm.listModels('muse-cloud-zhipu-official')).map(model => model.id))
       .toEqual(['glm-5.3-flash', 'glm-5.3-flashx'])
   } finally { personal() }
+})
+
+it('hides Yunying from new selections while retaining its route and the visible DeepSeek and GLM providers', async () => {
+  await login()
+  const entry = suppliedCatalog.providers[0]!.models[0]!
+  models = new MuseModels(ctx, {
+    baseUrl,
+    sessionFile: sessionFile(),
+    requestTimeoutMs: 1000,
+    hiddenProviderIds: ['yunying'],
+    fetcher: async () => Response.json({ providers: [
+      { id: 'yunying', name: '云映', models: [
+        { ...entry, id: 'gpt-6-sol', name: 'GPT 6 Sol' },
+        { ...entry, id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5' },
+        { ...entry, id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro' },
+      ] },
+      suppliedCatalog.providers[1],
+      { id: 'zhipu-official', name: '智谱官方', models: [
+        { ...entry, id: 'glm-5.3-flash', name: 'GLM-5.3-Flash' },
+      ] },
+    ] }),
+  })
+  await models.refresh()
+
+  expect(ctx.llm.listProviders()).toEqual([
+    { id: 'personal', name: 'personal' },
+    { id: 'muse-cloud-yunying', name: 'Muse · 云映', selectable: false },
+    { id: 'muse-cloud-deepseek-official', name: 'Muse · DeepSeek' },
+    { id: 'muse-cloud-zhipu-official', name: 'Muse · 智谱官方' },
+  ])
+  expect((await ctx.llm.listModels('muse-cloud-yunying')).map(model => model.id)).toEqual([
+    'gpt-6-sol', 'claude-sonnet-5-5', 'gemini-3.1-pro',
+  ])
+  await expect(ctx.llm.resolveModelInfo('muse-cloud-yunying', 'gpt-6-sol')).resolves.toMatchObject({
+    provider: 'muse-cloud-yunying', id: 'gpt-6-sol', name: 'GPT 6 Sol',
+  })
+  const browser = await buildModelCatalog(ctx, {
+    provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash',
+  })
+  expect(browser.groups.map(group => group.id)).toEqual([
+    'muse-cloud-deepseek-official', 'muse-cloud-zhipu-official',
+  ])
+  expect(browser.groups.find(group => group.id === 'muse-cloud-deepseek-official')?.models.map(model => model.id))
+    .toEqual(['deepseek-flash'])
+  expect(browser.groups.find(group => group.id === 'muse-cloud-zhipu-official')?.models.map(model => model.id))
+    .toEqual(['glm-5.3-flash'])
+  expect(ctx.llm.listProviders().find(provider => provider.id === 'personal')).toBeDefined()
+  expect(browser.groups.find(group => group.id === 'muse-cloud-yunying')).toBeUndefined()
+  expect(browser.failures.find(group => group.id === 'muse-cloud-yunying')).toBeUndefined()
 })
 
 it.each(['plugin', 'desktop'] as const)('routes an existing unconfigured direct session through the %s Muse scope and records the actual selection and request', async (composition) => {
@@ -724,6 +859,30 @@ it('preserves a configured Muse default that is still advertised', async () => {
   await models.refresh()
   expect(replace).not.toHaveBeenCalled()
   expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'muse-cloud-studio', model: 'writer' })
+})
+
+it('moves a hidden Muse default to the first selectable account provider', async () => {
+  const fixture = await directProviderFixture(false)
+  await fixture.ctx.settings.replace('agent-default-model', { provider: 'muse-cloud-yunying', model: 'gpt-6-sol' })
+  await login()
+  const entry = suppliedCatalog.providers[0]!.models[0]!
+  models = new MuseModels(fixture.ctx, {
+    baseUrl,
+    sessionFile: sessionFile(),
+    requestTimeoutMs: 1000,
+    hiddenProviderIds: ['yunying'],
+    fetcher: async () => Response.json({ providers: [
+      { id: 'yunying', name: '云映', models: [{ ...entry, id: 'gpt-6-sol', name: 'GPT 6 Sol' }] },
+      suppliedCatalog.providers[1],
+      { id: 'zhipu-official', name: '智谱官方', models: [{ ...entry, id: 'glm-5.3-flash', name: 'GLM-5.3-Flash' }] },
+    ] }),
+  })
+  await models.refresh()
+
+  expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual({
+    provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash',
+  })
+  expect((await fixture.ctx.llm.listModels('muse-cloud-yunying')).map(model => model.id)).toEqual(['gpt-6-sol'])
 })
 
 it('keeps a saved default when the supplied catalog contains no available model', async () => {

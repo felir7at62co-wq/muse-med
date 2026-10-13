@@ -119,6 +119,7 @@
           - { providerId: yunying, modelId: gpt-6-astra }
           - { providerId: yunying, modelId: glm-5.3-flash }
         excludedProviderIds: ['aa']
+        hiddenProviderIds: ['yunying']
         requestTimeoutMs: 60000
         remoteAccess: true
 
