@@ -29,6 +29,8 @@ import type { DisposedEvidence } from './reconcile.ts'
 import { matchPreview } from './matching.ts'
 import type { MatchLimits, MatchPreview } from './matching.ts'
 import { reusePreview } from './reuse.ts'
+import { usagePreview } from './usage.ts'
+import type { UsagePreview } from './usage.ts'
 import type { ReusePreview } from './reuse.ts'
 import type { DanglingItem, DramaAssetsMethod, ReconcileReport, UnregisteredItem } from './types.ts'
 
@@ -320,11 +322,12 @@ export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments 
  *   `CONTRACT_CHANGED` for a manifest, a remote page, or existing evidence this call cannot read.
  */
 export function runDramaAssets(client: JubianClient, args: DramaAssetsArguments,
-  limits?: MatchLimits): Promise<PresentedReconcile | PresentedDispose | MatchPreview | ReusePreview>
+  limits?: MatchLimits): Promise<PresentedReconcile | PresentedDispose | MatchPreview | ReusePreview | UsagePreview>
 export async function runDramaAssets(client: JubianClient,
   args: DramaAssetsArguments, limits: MatchLimits = matchLimits({})):
-Promise<PresentedReconcile | PresentedDispose | MatchPreview | ReusePreview> {
+Promise<PresentedReconcile | PresentedDispose | MatchPreview | ReusePreview | UsagePreview> {
   const projectDir = resolveProjectDir(args.project_dir)
+  if (args.method === 'usage_preview') return await usagePreview(client, projectDir, args.plan_path, args.asset_id, limits.requirementsLimit)
   if (args.method === 'reuse_preview') {
     if (!args.requirements_path) throw new JubianError('INVALID_ARGUMENT', 'reuse_preview 需要 requirements_path。')
     return await reusePreview(client, projectDir, args.requirements_path, args.plan_path, limits)
@@ -427,8 +430,12 @@ const RESULT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    method: { type: 'string', required: true, enum: ['reconcile', 'dispose', 'match_preview', 'reuse_preview'],
+    method: { type: 'string', required: true, enum: ['reconcile', 'dispose', 'match_preview', 'reuse_preview', 'usage_preview'],
       description: '产生本结果的操作；两个方法的字段不同，本 schema 只强制共有字段。' },
+    usage_rows: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Current local package or project voice references; never remote binding receipts.' },
+    voice_states: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Stable character voice gaps and preserved current references; remote identity and sound remain to verify.' },
+    total: { type: 'integer', description: 'Number of matching local references before the result limit.' },
+    truncated: { type: 'boolean', description: 'True when some local references are omitted; query an exact asset_id.' },
     ready: { type: 'boolean',
       description: '证据是否已经可以让宿主钩子放行付费生图：issues 为空、blocking 与 ignored_without_note 都为空才为 true。' },
     ready_reason: { type: 'string', description: 'ready 的判定依据；放行时为 ok。' },
@@ -557,6 +564,8 @@ const DESCRIPTION = '短剧流水线的付费生成前资产对账（剧变）�
   + '匹配预览 → 复用建议 → 用户确认 → 模型调用原有 jubian_storyboard.select_assets。'
   + 'reuse_ready、already_bound 和 fingerprint 不是审批；apply_allowed=false 只表示预览不授予写入权限。'
   + '用户授权后可按 shots 的有序 selections 调用原工具，继续实时身份、顺序和回读校验；未授权不得绑定。声线沿 audio_preview → audio_apply。'
+  + 'usage_preview=读取当前资产清单、项目声音和可选打包结果，按实际父资产/材质ID查询引用位置与缺失声线；支持asset_id筛选，不猜人物、不审批、不绑定、不收费。'
+  + '下载成功视频后主动加载tweet-drama-voice-continuity，缺声线时用其prepare_voice_assets.py提取并登记候选；完整长音轨不直接作声线；实际讲话的2秒短参考可带背景声，同一包合计不超过15秒。'
   + '本工具绝不调用剧变的任何写方法、绝不计费：reconcile/dispose 本地只写 _probe/asset-reconcile.json，match_preview 完全只读。'
 
 /**
@@ -572,14 +581,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     name: 'drama_assets',
     description: DESCRIPTION,
     parameters: {
-      method: { type: 'string', required: true, enum: ['reconcile', 'dispose', 'match_preview', 'reuse_preview'],
+      method: { type: 'string', required: true, enum: ['reconcile', 'dispose', 'match_preview', 'reuse_preview', 'usage_preview'],
         description: 'reconcile=对账并写证据；dispose=只改处置记录；match_preview=只读人物、场景、声线匹配，不写文件、不审批。' },
       project_dir: { type: 'string', required: true,
         description: '项目根目录绝对路径，必须含 assets_manifest.json；证据写在它的 _probe/asset-reconcile.json。' },
       requirements_path: { type: 'string', description: 'match_preview/reuse_preview 必填：项目内 version=1 的需求 JSON，含 source_path、source_sha256 与 requirements；详情见工具 README。' },
-      plan_path: { type: 'string', description: 'reuse_preview 可选：项目内 version=1 的 shots JSON，含 storyboard_id、episode、episode_id 与 requirement_id/material_key 绑定映射；不得包含 approved 或审批字段。' },
+      plan_path: { type: 'string', description: 'usage_preview 可选：项目内 version=1 的 documents JSON（path/sha256/episode）；reuse_preview 可选：项目内 version=1 的 shots JSON，含 storyboard_id、episode、episode_id 与 requirement_id/material_key 绑定映射；不得包含 approved 或审批字段。' },
       asset_id: { type: 'integer',
-        description: 'dispose 必填：要处置的 unregistered 资产 ID（不是 material_id、不是任务 ID）。' },
+        description: 'usage_preview 可选精确父资产筛选；dispose 必填：要处置的 unregistered 资产 ID（不是 material_id、不是任务 ID）。' },
       status: { type: 'string', enum: ['registered', 'ignored'],
         description: 'dispose 必填：registered=已登记进清单（下次 reconcile 会自动确认）；'
           + 'ignored=确认不需要，必须同时给 note 说明原因。' },
@@ -593,6 +602,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     execute: async (args) => {
       const result = await runDramaAssets(client, args, limits)
+      if (result.method === 'usage_preview') return { ...result, usage_rows: result.usage_rows.map(row => ({ ...row })), voice_states: result.voice_states.map(row => ({ ...row })) }
       if (result.method === 'match_preview' || result.method === 'reuse_preview') return result
       return { ...result, disposition: Object.fromEntries(Object.entries(result.disposition).map(([key, value]) => [key, { ...value }])) }
     },

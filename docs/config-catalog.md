@@ -3939,7 +3939,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-drama-assets`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/drama/tool-drama-assets/src/index.ts:48`](../packages/drama/tool-drama-assets/src/index.ts)
+- `source`: [`packages/drama/tool-drama-assets/src/index.ts:50`](../packages/drama/tool-drama-assets/src/index.ts)
 
 ```ts config-catalog
 /**

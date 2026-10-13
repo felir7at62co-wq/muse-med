@@ -156,7 +156,7 @@ describe('canonical hashing and wire reading', () => {
   ('refuses excess audio references for %s before producing a preview', (modelId, limit) => {
     const audio = Array.from({ length: limit + 1 }, (_, index) => ({ materialType: 'audio',
       materialUrl: `https://jubian-aigc.tos-cn-beijing.volces.com/prod/voice-${index}.wav`,
-      materialKey: `voice-${index}`, fileName: `voice-${index}`, sortOrder: index + 1, audioDuration: 2 }))
+      materialKey: `voice-${index}`, fileName: `voice-${index}`, sortOrder: index + 1, audioDuration: 1 }))
     const storyboard = { ...STORYBOARD, storyboardMaterialList: [...MATERIALS, ...audio],
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, modelId,
         prompt: `${PROMPT} ${audio.map(item => `@[${item.fileName}](${item.materialKey})`).join(' ')}` }) }

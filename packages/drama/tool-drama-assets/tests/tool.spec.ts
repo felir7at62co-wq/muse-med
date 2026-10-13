@@ -117,7 +117,7 @@ describe('registration', () => {
       required: string[]
     }
     expect(Object.keys(parameters.properties).sort()).toEqual(['asset_id', 'method', 'note', 'plan_path', 'project_dir', 'requirements_path', 'status'])
-    expect(parameters.properties['method']?.enum).toEqual(['reconcile', 'dispose', 'match_preview', 'reuse_preview'])
+    expect(parameters.properties['method']?.enum).toEqual(['reconcile', 'dispose', 'match_preview', 'reuse_preview', 'usage_preview'])
     expect(parameters.properties['status']?.enum).toEqual(['registered', 'ignored'])
     expect(parameters.required).toEqual(['method', 'project_dir'])
   })

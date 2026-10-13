@@ -53,17 +53,28 @@ token 本身就是凭据引用 `JUBIANAI_ADMIN_TOKEN`，每次读取都经 `ctx.
 | `reconcile` | 剧变项目的资产与材质，以及清单 | `<project_dir>/_probe/asset-reconcile.json` | 在任何付费生成之前，知道哪些已选用资产清单里没有 |
 | `dispose` | 证据文件 | 同一个证据文件 | 记录对某条未登记资产的一个决定——`registered` 或 `ignored` |
 | `reuse_preview` | 匹配输入及可选的分镜卡 GET | 无 | 集中审核和保留原卡的绑定建议，不审批或执行 |
+| `usage_preview` | 当前清单、项目圣经及可选的摘要锁定编译结果 | 无 | 精确的本地资产用途与声线缺口 |
 | `match_preview` | 原文需求、清单、项目圣经、声线记录及完整当前项目 GET 列表 | 无 | 准备人物、场景与已认可声线复用建议 |
 
 | 参数 | 何时必填 | 含义 |
 |---|---|---|
-| `method` | 始终 | `reconcile`、`dispose`、`match_preview` 或 `reuse_preview` |
+| `method` | 始终 | `reconcile`、`dispose`、`match_preview`、`reuse_preview` 或 `usage_preview` |
 | `project_dir` | 始终 | 含 `assets_manifest.json` 的项目根目录，绝对路径 |
 | `asset_id` | `dispose` | 这个决定针对的未登记资产 |
 | `status` | `dispose` | `registered` 或 `ignored` |
 | `note` | `ignored` | 为什么这个资产不需要；判 `ignored` 时必须非空 |
 
 `reconcile` 只发两个请求，都是提供方自己的列表接口，不计费。`dispose` 一个都不发。两个方法写的文件只有证据文件一个，原子替换，并在支持的平台上使用仅所有者可访问的权限。
+
+### 音频准备与当前用途
+
+视频成功下载后，消费预设主动加载声线连续性技能。随包 `prepare_voice_assets.py` 提取完整混合音轨及缺声线角色的 PCM WAV 候选，保留当前 voice_profile，并在操作系统释放的锁内原子合并本地声音清单。原任务 ID、来源摘要、角色 ID 和区间共同确定候选，重复运行及换装仍复用同一条。提取不上传、不认可；完整长音轨不直接上传为人物声线，包含背景声的两秒讲话短参考允许选用。实际听音和既有上传、登记、回读工具负责选用。
+
+`usage_preview` 只读当前项目文件，不联网、不写文件。省略 `plan_path` 可查看项目声线引用和缺口。提供 version=1 的索引，documents 的每项包含已保存且成功的 `drama_shot compile` 完整结果文件的 path、实际 SHA-256 sha256 和正整数 episode。工具核对每包明确的父资产/材质 ID、名字、类别和 URL 是否与当前资产清单一致，随后返回包引用及逐镜实际绑定该资产的镜头和精确登记版本。可选 asset_id 按精确父资产筛选。total 统计符合条件的用途；truncated 表示 matchRequirementLimit 限制下有行未展示，该限制也约束文档和声音状态数量。视图明确区分本地计划引用与远端绑定回执；远端身份、认可状态和生成质量仍由既有回读负责。新登记下次读取即可显示，不增加另一份权威缓存。输入问题只定位相关引用或拒绝该查询，不增加项目流程门禁。
+
+```json
+{"version":1,"documents":[{"path":"episode_packages/54-compile.json","sha256":"<actual-file-sha256>","episode":54}]}
+```
 
 ### 只读匹配预览
 

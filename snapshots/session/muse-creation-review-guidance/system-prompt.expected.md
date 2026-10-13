@@ -21,6 +21,8 @@ You are an AI agent powered by DeepSeek Harness.
 
 以下规则用于将剧本制作为视频，不把视频转写或小说改剧本的来源正文强行改成分镜。专业技能按当前制作任务加载，用户明确的项目要求优先。
 
+视频任务成功并下载后，主动加载tweet-drama-voice-continuity，保留当前已确认声线，为缺声线角色提取并登记本地候选，不能等用户另提音频提取。完整视频的长音轨供剪辑/转写，人物参考默认截实际讲话的2秒，可保留背景声；同一视频包全部参考音频实测时长之和不超过15秒，发声角色核对后按制作授权上传和选用。用drama_assets usage_preview查询当前资产在包、镜头和声音中的引用位置，新资产或妆造变化以稳定角色ID和真实材质核对，不按名字或列表顺序套用。
+
 当编写短剧镜头脚本时，建议每个镜头控制在1–4秒。有台词时按8个有效字/秒计算预算：max(1, ceil(有效字数/8))；有效字计汉字、拉丁字母和数字，标点、空格不计。 超过4秒的台词按原文语义拆到连续镜头，保持原文、说话人、顺序和发声连续；可以切到对方反应并让原说话人画外续说，不能为了限时删词、改台词或让别人接说。 无台词的反应、道具信息和简单动作优先1–2秒；只有完整复杂动作确实需要时才用3–4秒，避免空停、重复动作和无信息的环境展示。 同时发生的动作与台词放在同一镜头，不重复拆出动作停留。分镜明确景别、主要动作、可见情绪和唯一主要运镜，关键道具或屏幕信息给合适的特写。
 
 拍摄时间只写入本地预算、时间线或请求的duration/content_duration_ms参数。发送剧变的modelConfig.prompt及分镜画面正文禁止镜头时长字段、0–3秒等时间段、秒数倒排和总时长说明； 结尾只描述自然动作收束，不写收束秒数。原剧本台词或画面内容本身的时间信息保留，不能误删台词里的“三秒”或剧情要求的倒计时。 使用drama_shot preview/compile返回的包prompt，不按时间线重写一份带时间的提交稿；提交前回读实际保存的model_config.prompt与独立时长参数。 各包按完整连续镜头预算加自然收束，符合当前模型实际时长范围；视频包总时长不是单镜时长。成片按实际切点复核镜头节奏，预算通过不代表成片遵守。
@@ -133,17 +135,17 @@ interface ToolArgsMap {
   douyin_data: unknown;
   /** Download one or several user-selected Douyin video/share URLs into the current workspace and return file-backed receipts after full decoding. Public playback is tried first, then MUSE opens its internal official page automatically. Complete normal login or verification there if required; workspace-scoped Douyin login survives application restarts. No external browser profiles, Cookie files, DRM or verification bypass. Browser transport requires Desktop Host protocol 6. Report blocked or partial results accurately */
   douyin_download: unknown;
-  /** 短剧流水线的付费生成前资产对账（剧变）。reconcile=只读剧变、免费：把「剧变远端这个项目里已选用的资产」与「assets_manifest.json 里写了什么」逐条比一遍，产出机读证据 <project_dir>/_probe/asset-reconcile.json。判定口径：远端存活 = asset/list 里 delFlag == "0"；已选用 = material/list 里 isUsed == 1 且 hsAssetStatus == "Active"；unregistered = 已选用但清单里没有（不许直接生成，先登记复用或写明不需要）；dangling = 清单里有但远端没有；matched = 两端都有的数量。dispose=给某条 unregistered 写处置：status=registered（已登记进清单）或 ignored（确认不需要，必须带非空 note）；只更新证据里的 disposition 并重算 blocking / ignored_without_note / ready，不重新对账、不联网。ready = issues 为空且 blocking 与 ignored_without_note 都为空，宿主侧的付费前置钩子只认这一条，证据 24 小时内有效。清单读不全不报错、也不拒绝运行：缺 items 资产数组（或只写在 assets 键下）、缺 lead_readonly_records、某条记录不是对象，都写进 issues 并让 ready=false，好让 agent 一次看全所有要修的地方。为什么清单不够：清单只记录我们生成过什么，不等于剧变项目里已经有什么——2026-09-20 就因为只看清单，给一张项目里早就存在的正式资产重新生成了两次（花掉 1.17 元）。match_preview=只读当前项目人物、场景与已认可声线；需要项目内 requirements_path，返回 reuse_ready/needs_review/missing/blocked 与证据。它不写任何文件，不生成、不绑定、不审批；同名不能证明身份，分页不全或来源变化必须 blocked。missing 仅限当前项目，不允许据此直接付费生成。reuse_preview=集中归组并生成只读复用计划；可带 plan_path 预检各镜素材选择，保留无关素材和配置，失败即停止后续预检。匹配预览 → 复用建议 → 用户确认 → 模型调用原有 jubian_storyboard.select_assets。reuse_ready、already_bound 和 fingerprint 不是审批；apply_allowed=false 只表示预览不授予写入权限。用户授权后可按 shots 的有序 selections 调用原工具，继续实时身份、顺序和回读校验；未授权不得绑定。声线沿 audio_preview → audio_apply。本工具绝不调用剧变的任何写方法、绝不计费：reconcile/dispose 本地只写 _probe/asset-reconcile.json，match_preview 完全只读。 */
+  /** 短剧流水线的付费生成前资产对账（剧变）。reconcile=只读剧变、免费：把「剧变远端这个项目里已选用的资产」与「assets_manifest.json 里写了什么」逐条比一遍，产出机读证据 <project_dir>/_probe/asset-reconcile.json。判定口径：远端存活 = asset/list 里 delFlag == "0"；已选用 = material/list 里 isUsed == 1 且 hsAssetStatus == "Active"；unregistered = 已选用但清单里没有（不许直接生成，先登记复用或写明不需要）；dangling = 清单里有但远端没有；matched = 两端都有的数量。dispose=给某条 unregistered 写处置：status=registered（已登记进清单）或 ignored（确认不需要，必须带非空 note）；只更新证据里的 disposition 并重算 blocking / ignored_without_note / ready，不重新对账、不联网。ready = issues 为空且 blocking 与 ignored_without_note 都为空，宿主侧的付费前置钩子只认这一条，证据 24 小时内有效。清单读不全不报错、也不拒绝运行：缺 items 资产数组（或只写在 assets 键下）、缺 lead_readonly_records、某条记录不是对象，都写进 issues 并让 ready=false，好让 agent 一次看全所有要修的地方。为什么清单不够：清单只记录我们生成过什么，不等于剧变项目里已经有什么——2026-09-20 就因为只看清单，给一张项目里早就存在的正式资产重新生成了两次（花掉 1.17 元）。match_preview=只读当前项目人物、场景与已认可声线；需要项目内 requirements_path，返回 reuse_ready/needs_review/missing/blocked 与证据。它不写任何文件，不生成、不绑定、不审批；同名不能证明身份，分页不全或来源变化必须 blocked。missing 仅限当前项目，不允许据此直接付费生成。reuse_preview=集中归组并生成只读复用计划；可带 plan_path 预检各镜素材选择，保留无关素材和配置，失败即停止后续预检。匹配预览 → 复用建议 → 用户确认 → 模型调用原有 jubian_storyboard.select_assets。reuse_ready、already_bound 和 fingerprint 不是审批；apply_allowed=false 只表示预览不授予写入权限。用户授权后可按 shots 的有序 selections 调用原工具，继续实时身份、顺序和回读校验；未授权不得绑定。声线沿 audio_preview → audio_apply。usage_preview=读取当前资产清单、项目声音和可选打包结果，按实际父资产/材质ID查询引用位置与缺失声线；支持asset_id筛选，不猜人物、不审批、不绑定、不收费。下载成功视频后主动加载tweet-drama-voice-continuity，缺声线时用其prepare_voice_assets.py提取并登记候选；完整长音轨不直接作声线；实际讲话的2秒短参考可带背景声，同一包合计不超过15秒。本工具绝不调用剧变的任何写方法、绝不计费：reconcile/dispose 本地只写 _probe/asset-reconcile.json，match_preview 完全只读。 */
   drama_assets: {
     /** reconcile=对账并写证据；dispose=只改处置记录；match_preview=只读人物、场景、声线匹配，不写文件、不审批。 */
-    method: "reconcile" | "dispose" | "match_preview" | "reuse_preview";
+    method: "reconcile" | "dispose" | "match_preview" | "reuse_preview" | "usage_preview";
     /** 项目根目录绝对路径，必须含 assets_manifest.json；证据写在它的 _probe/asset-reconcile.json。 */
     project_dir: string;
     /** match_preview/reuse_preview 必填：项目内 version=1 的需求 JSON，含 source_path、source_sha256 与 requirements；详情见工具 README。 */
     requirements_path?: string;
-    /** reuse_preview 可选：项目内 version=1 的 shots JSON，含 storyboard_id、episode、episode_id 与 requirement_id/material_key 绑定映射；不得包含 approved 或审批字段。 */
+    /** usage_preview 可选：项目内 version=1 的 documents JSON（path/sha256/episode）；reuse_preview 可选：项目内 version=1 的 shots JSON，含 storyboard_id、episode、episode_id 与 requirement_id/material_key 绑定映射；不得包含 approved 或审批字段。 */
     plan_path?: string;
-    /** dispose 必填：要处置的 unregistered 资产 ID（不是 material_id、不是任务 ID）。 */
+    /** usage_preview 可选精确父资产筛选；dispose 必填：要处置的 unregistered 资产 ID（不是 material_id、不是任务 ID）。 */
     asset_id?: number;
     /** dispose 必填：registered=已登记进清单（下次 reconcile 会自动确认）；ignored=确认不需要，必须同时给 note 说明原因。 */
     status?: "registered" | "ignored";
@@ -1439,7 +1441,15 @@ interface ToolOutputMap {
   } & Record<string, JsonValue>;
   drama_assets: {
     /** 产生本结果的操作；两个方法的字段不同，本 schema 只强制共有字段。 */
-    method: "reconcile" | "dispose" | "match_preview" | "reuse_preview";
+    method: "reconcile" | "dispose" | "match_preview" | "reuse_preview" | "usage_preview";
+    /** Current local package or project voice references; never remote binding receipts. */
+    usage_rows?: Record<string, JsonValue>[];
+    /** Stable character voice gaps and preserved current references; remote identity and sound remain to verify. */
+    voice_states?: Record<string, JsonValue>[];
+    /** Number of matching local references before the result limit. */
+    total?: number;
+    /** True when some local references are omitted; query an exact asset_id. */
+    truncated?: boolean;
     /** 证据是否已经可以让宿主钩子放行付费生图：issues 为空、blocking 与 ignored_without_note 都为空才为 true。 */
     ready?: boolean;
     /** ready 的判定依据；放行时为 ok。 */
@@ -1840,7 +1850,7 @@ interface ToolOutputMap {
       }[];
     })[];
     /** 每包对应一次剧变提交；硬失败时为空数组。 */
-    packages: {
+    packages: ({
       /** 包序号，从 1 开始。 */
       index: number;
       /** 本包镜头号，按脚本顺序。 */
@@ -1861,7 +1871,18 @@ interface ToolOutputMap {
       material_keys: string[];
       /** 本包镜头绑定的资产名，按镜头顺序去重。 */
       material_names: string[];
-    }[];
+      /** 按提示词 key 顺序的明确素材身份；直接使用这些 key、父资产 ID 与 material ID，不按名称数组下标猜。 */
+      material_bindings: ({
+        material_key: string;
+        name: string;
+        type: string;
+        official: boolean;
+        asset_id: string;
+        material_id: string;
+        url: string;
+        reference_scope: "identity" | "appearance";
+      })[];
+    })[];
     /** severity=failure 表示必须先修好再编译，warning 不阻塞编译。 */
     failures: ({
       /** severity=failure 表示必须先修好再编译，warning 不阻塞编译。 */

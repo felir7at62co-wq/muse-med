@@ -50,6 +50,8 @@ kind: "package-reference"
 npm test
 ```
 
+随包 `prepare_voice_assets.py` 还在视频成功下载后提取完整混合音轨及缺声线角色候选，保留当前 voice_profile，并按任务/来源/角色/区间身份继续执行。操作系统释放的锁和原子清单合并保留其他样本及音轨记录。整段长音轨留供剪辑，含背景声的两秒讲话参考允许选用；没有区间时报告缺口，不猜说话人。请求字段和选用流程由声线技能负责。
+
 -----
 
 <a id="understand-the-implementation"></a>

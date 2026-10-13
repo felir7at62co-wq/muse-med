@@ -55,3 +55,24 @@ it('rejects invalid matching deployment limits before registering tools', async 
     expect(loaded.ctx.tools.get('drama_assets')).toBeUndefined()
   } finally { await loaded.ctx.fiber.dispose() }
 })
+
+it('queries local voice gaps and asset uses through Loader without provider credentials or writes', async () => {
+  const root = await matchingProject(), before = await tree(root)
+  const loaded = await configurationFixture({ hmr: false, rows: [
+    { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
+    { id: 'credentials', name: 'cordis:credentials', config: {} },
+    { id: 'assets', name: 'cordis:assets', config: { workspaceSecrets: false } },
+  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, assets: Assets } })
+  try {
+    const definition = loaded.ctx.tools.get('drama_assets')!
+    const result = await loaded.ctx.tools.execute({ callId: ToolCallId('usage-loader'), name: 'drama_assets',
+      arguments: { method: 'usage_preview', project_dir: root }, signal: new AbortController().signal })
+    expect(result.isError, JSON.stringify(result.content)).not.toBe(true)
+    expect(validateJsonSchemaValue(definition.output.schema, result.value, '')).toEqual([])
+    expect(result.value).toMatchObject({ method: 'usage_preview', total: 1, paid_requests: 0, remote_writes: 0, local_writes: 0 })
+    expect(await tree(root)).toEqual(before)
+    const tools = loaded.ctx.tools
+    await loaded.ctx.fiber.dispose()
+    expect(tools.get('drama_assets')).toBeUndefined()
+  } finally { await loaded.ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) }
+})

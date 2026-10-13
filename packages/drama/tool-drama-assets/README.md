@@ -53,17 +53,28 @@ The token itself is the credential reference `JUBIANAI_ADMIN_TOKEN`, resolved th
 | `reconcile` | The remote project's assets and materials, and the manifest | `<project_dir>/_probe/asset-reconcile.json` | Knowing which used assets the manifest does not record, before any paid generation |
 | `dispose` | The evidence file | The same evidence file | Recording one decision — `registered` or `ignored` — about one unregistered asset |
 | `reuse_preview` | Matching inputs and optional live storyboard GETs | None | Centralized review and preserved-card binding suggestions without approval or execution |
+| `usage_preview` | Current manifests, bible and optional hash-pinned compiler outputs | None | Exact local asset references and missing voices |
 | `match_preview` | Source-backed requirements, manifest, project bible, voice records and complete current-project GET inventories | None | Preparing character, scene and approved voice reuse recommendations |
 
 | Parameter | Required | Meaning |
 |---|---|---|
-| `method` | always | `reconcile`, `dispose`, `match_preview` or `reuse_preview` |
+| `method` | always | `reconcile`, `dispose`, `match_preview`, `reuse_preview` or `usage_preview` |
 | `project_dir` | always | Project root holding `assets_manifest.json`, absolute |
 | `asset_id` | `dispose` | The unregistered asset the decision is about |
 | `status` | `dispose` | `registered` or `ignored` |
 | `note` | `ignored` | Why the asset is not needed; must be non-empty for `ignored` |
 
 `reconcile` sends exactly two requests, both the provider's own list endpoints, and charges nothing. `dispose` sends none. The only file either method writes is the evidence file, atomically replaced with owner-only permissions where supported.
+
+### Audio preparation and current uses
+
+After a successful video download, the consuming preset loads the voice continuity skill proactively. Its packaged `prepare_voice_assets.py` extracts the complete mix and missing-character PCM WAV candidates, preserves current voice profiles, and atomically merges the local voice ledger under an OS-released lock. Task ID, source digest, character ID and interval identify a candidate across reruns and costume changes. Extraction neither uploads nor approves; the complete long mix is not uploaded as a character reference, while a two-second speech sample may retain background sound. Actual listening and the existing upload/register/readback tools own adoption.
+
+`usage_preview` reads current project files without network or file writes. Omit `plan_path` to inspect project voice references and gaps. Supply a version-1 index with `documents` containing `path`, SHA-256 `sha256` and positive `episode` for each saved successful `drama_shot compile` result. The tool checks each package's explicit parent/material IDs, name, category and URL against the current asset manifest, then reports package references and only the shots whose explicit bindings use that asset, with its exact registered version. Optional `asset_id` selects an exact parent. `total` counts matching uses; `truncated` reports omitted rows under `matchRequirementLimit`, which also bounds documents and voice states. The view distinguishes local planned references from remote binding receipts; remote identity, approval and generated quality remain subject to existing readback. New registrations are visible on the next read, without another authoritative cache. Input failures report related issues or refuse the query; they add no project workflow gate.
+
+```json
+{"version":1,"documents":[{"path":"episode_packages/54-compile.json","sha256":"<actual-file-sha256>","episode":54}]}
+```
 
 ### Read-only matching preview
 

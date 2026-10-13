@@ -82,10 +82,16 @@ function https(value: unknown): boolean {
 }
 
 /** Reads retain byte digests so changes during remote queries invalidate the whole preview. */
-class ProjectFiles {
+export class ProjectFiles {
+  /** Byte digests of every file observed during this read operation. */
   readonly observed = new Map<string, string>()
+  /** Canonical locations retained to detect retargeted directory links. */
   readonly resolved = new Map<string, string>()
   constructor(readonly root: string) {}
+  /** Resolve an existing project-contained path.
+   * @param input - Project-relative or absolute local input path.
+   * @returns Canonical path, refusing external or retargeted links.
+   */
   async path(input: string): Promise<string> {
     const requested = resolve(this.root, input)
     const path = await realpath(requested)
@@ -95,6 +101,10 @@ class ProjectFiles {
     this.resolved.set(requested, path)
     return path
   }
+  /** Read bytes and retain their digest for final revalidation.
+   * @param input - Project-contained local input path.
+   * @returns Current file bytes, refusing changes since an earlier read.
+   */
   async bytes(input: string): Promise<Buffer> {
     const path = await this.path(input)
     const bytes = await readFile(path)
@@ -103,9 +113,14 @@ class ProjectFiles {
     this.observed.set(path, digest)
     return bytes
   }
+  /** Parse a tracked project file as a JSON object.
+   * @param input - Project-contained JSON input path.
+   * @returns Parsed object, refusing invalid documents.
+   */
   async json(input: string): Promise<Row> {
     return object(JSON.parse((await this.bytes(input)).toString('utf8').replace(/^\uFEFF/, '')), input)
   }
+  /** Refuse byte changes or link retargeting since any tracked read. */
   async unchanged(): Promise<void> {
     for (const requested of this.resolved.keys()) await this.path(requested)
     for (const [path, digest] of this.observed) {

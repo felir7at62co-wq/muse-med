@@ -1,33 +1,53 @@
 ---
 name: tweet-drama-voice-continuity
-description: Use when 角色跨镜头音色变化、串台词、缺少声线样本，或需要复用、绑定、替换、删除剧变音频资产与原卡参考。
+description: Use when 视频生成成功并下载后主动补齐音频，或角色跨镜头音色变化、串台词、缺少声线样本，或需要复用、绑定、替换、删除剧变音频资产与原卡参考。
 ---
 
 # 角色声线参考与复用
 
 按项目圣经的 character_id 保存角色声线；同角色的服装版本共用声线，角色与动物不得互换。参考音频用于音色引导，原剧本的说话人、台词、顺序和旁白仍分别核对。固定提示词和参考音频不能保证 SD 原生跨镜音色完全一致，生成后由能实际听音的 Agent 或用户/组员检查，纯文本转写不能证明音色一致。
 
+## 生成后主动提取与登记
+
+视频子任务成功、原 task_id 和 video_url 已核对且下载后，主动加载本技能，不等用户另提“提取音频”。先查项目圣经与 `drama_assets usage_preview` 返回的 voice_states：当前默认声线保留，同角色换装不重建声音；仅为缺样本的角色准备候选。没有已生成视频时按已授权的初始制作范围推进，不能为了填声线额外收费。声线身份未核只影响该声音的选用，不作为整部项目开工或继续写作的统一门禁。
+
+在项目内保存 version=1 的请求 JSON，source_path 指向实际下载文件，source_sha256 为该文件实际摘要，source_task_id 保留原任务 ID；characters 按稳定 character_id 列出本包实际发声角色。每项 intervals 可提供实测 start_seconds、duration_seconds（默认2，最多15）；无法定位该角色讲话区间时留空，不按每个画面角色或仅凭脚本预算猜音色身份。
+
+```json
+{"version":1,"source_path":"video_tasks/p01.mp4","source_sha256":"<实际64位摘要>","source_task_id":"<原任务ID>","characters":[{"character_id":"role_01","intervals":[{"start_seconds":1.2,"duration_seconds":2}]}]}
+```
+
+```sh
+python -B <本技能目录>/scripts/prepare_voice_assets.py --project <项目根目录> --request <项目内请求JSON>
+```
+
+脚本先剥离完整 mixed_track，供后续剪辑或转写；完整长音轨仅供留存，usable_as_voice_reference=false，不直接上传为声线；从中裁出的实际人物讲话两秒短参考允许保留音乐、环境声，无需强行分离人声。缺默认声线且提供了可靠区间时同时裁短 WAV，自动以 candidate 记入同一 voice-references/manifest.json；没有区间返回 needs_interval。候选恒为 speaker_verified=false，实际发声角色和截取区间核对后按已授权的制作范围沿用下面的登记、绑定流程，不因包含背景声反复向用户确认。此命令不上传、不登记剧变、不收费、不更换项目默认声音。
+
+按原任务、源字节、角色ID和区间生成稳定候选 ID，重复运行核对文件摘要后复用；不同妆造共用角色 ID。并发执行使用同一操作系统锁和原子清单替换，不覆盖其他记录。中断已写入清单的产物可继续复用；未登记的临时文件重新提取，已登记文件变化时报错，不悄悄重建。重新下载成不同字节时建立新候选版本，历史保留。更新认可状态或资产 ID/URL 时总控暂停该清单的 prepare 写入，读取完整当前清单后合并更新，不能覆盖 tracks 或其他角色记录。
+
+资产使用查询用 `drama_assets usage_preview project_dir=<项目> plan_path=<使用索引JSON>`，可加精确 asset_id。使用索引 version=1 的 documents 列出当前 drama_shot compile 完整结果 JSON 的 path、sha256、episode。工具核对每个包 material_bindings 的实际父资产、材质、名字、类别与 URL，输出包、逐镜实际绑定的镜头、妆造版本和项目声线引用。该结果是本地计划引用，不是远端已绑定或已生成证明；远端仍用原卡 GET 回读。登记新资产或修改版本后重新查询当前文件，不能沿用旧摘要或靠名称/列表顺序套用。truncated=true 时按资产分查，不声称展示了全量用途；issues 只用于定位相关引用，不强制全局工作流程。
+
 ## 建立第一个样本
 
 先读项目圣经的当前声线，再用 `jubian_asset audio_list(script_id)` 分页查询同项目的音频类别（asset_type=4），用 `audio_get(script_id,asset_id)` 回读真实归属和 URL。同名不证明是同一说话人；核对声线清单、来源与实际听音后复用认可版本，不能把其他角色或动物的声音套给这个角色。已有服装版本继续使用同一 character_id 的当前声线；新音频先记为候选，**不自动替换**已认可的默认版本。
 
-缺少认可样本时，从第一版已生成视频里挑该角色清晰、无其他人抢话、无 BGM 干扰的真实独白，默认保存 **2 秒**，不是保存时间只留两秒钟。没有已生成版本时，把建立首个声线作为独立初始生产范围：用项目选定 SD 模型制作真实镜头包，核查该范围的内容、全部 preview 和费用，在用户已授权的范围内提交，再从成片提取；不额外开独立 TTS 服务，不为了试音新建重复分镜。其余包等声线参考齐备后按总流程整批检查并行提交。所有参考最长 **15 秒**，不能把全包视频时长当作音频参考时长。
+缺少认可样本时，从第一版已生成视频里定位该角色实际讲话的真实区间（可包含背景音乐、环境声），默认保存 **2 秒**，不是保存时间只留两秒钟。没有已生成版本时，把建立首个声线作为独立初始生产范围：用项目选定 SD 模型制作真实镜头包，核查该范围的内容、全部 preview 和费用，在用户已授权的范围内提交，再从成片提取；不额外开独立 TTS 服务，不为了试音新建重复分镜。缺声线时为相关角色补齐短参考，其他独立工作继续，不将声音清单变成全项目门禁。同一视频包的全部参考音频实测时长之和最长 **15 秒**，默认每角色 **2 秒**，不能把全包视频时长当作音频参考时长。
 
-运行随技能脚本，start 必须来自已听过的单角色发声区间：
+运行随技能脚本，start 来自已核对该角色讲话的实际区间：
 
 ```sh
 python -B <本技能目录>/scripts/extract_voice_reference.py --source <首次清晰发声的原视频或音频> --output <项目>/audio/voice-references/<character_id>-v1.wav --start-seconds <实测开始秒>
 ```
 
-非 WAV 输入使用 Muse 随包 FFmpeg；WAV 输入直接提取 PCM。脚本默认裁 2 秒、拒绝超出真实音轨或超过 15 秒，不补静音，不覆盖既有声线。返回 source_sha256、sha256、实测 duration_seconds；speaker_verified=false 表示说话人仍需实际听音核对，不能仅凭文件名认定角色。运行环境不能听音时，用 ask_user_question 让用户或其授权组员确认这个样本。试听不合格时选其他真实区间、保存新版本，保留旧版本和来源。
+非 WAV 输入使用 Muse 随包 FFmpeg；WAV 输入直接提取 PCM。脚本默认裁 2 秒、拒绝超出真实音轨或超过 15 秒，不补静音，不覆盖既有声线。返回 source_sha256、sha256、实测 duration_seconds；speaker_verified=false 表示说话人仍需实际听音核对，不能仅凭文件名认定角色。可通过同段视频、说话人证据或实际听音核对角色；已能核实时按制作授权登记使用，不额外反复确认。身份无法确认时保留候选并报告相关缺项，独立工作继续。试听不合格时选其他真实区间、保存新版本，保留旧版本和来源。
 
 ## 登记音频资产与认可版本
 
 用 `jubian_asset method=upload_audio audio_path=<已核对的短 WAV>`，读取返回的 materialUrl、SHA-256 和实测 audioDuration；已有 URL 则先检查已登记资产，避免重复上传、登记。用 `jubian_asset method=register script_id=<本项目ID> asset_type=4 asset_name=<角色声线版本名> asset_url=<上传返回URL> idempotency_key=<本次稳定登记key>` 入音频类别。登记和上传不提交视频生成；结果未知时沿用原 key 查账及 audio_list/audio_get，不换 key 重发。登记结果无法唯一定位时继续核对新资产，不猜 ID。
 
-用 audio_get 回读实际 asset_id、项目、类别和 URL，将角色、版本、候选/认可状态、来源镜头/任务 ID、截取区间、实测时长、文件哈希及远端 ID/URL 记入 `<项目>/audio/voice-references/manifest.json` 的 samples 数组，字段为 character_id、version、status（candidate/approved/superseded/deleted）、asset_id、url、sha256、duration_seconds、source_task_id、source_path、start_seconds、source_sha256；缺少真实来源 ID 时省略，不能编造。总控读取旧清单后按角色与版本合并保存，子代理返回记录，不并发覆盖。清单保存候选和历史，当前默认仍以项目圣经为准，旧版本不因更换被删。
+用 audio_get 回读实际 asset_id、项目、类别和 URL，将角色、版本、候选/认可状态、来源镜头/任务 ID、截取区间、实测时长、文件哈希及远端 ID/URL 记入 `<项目>/audio/voice-references/manifest.json` 的 samples 数组，字段为 character_id、version、status（candidate/approved/superseded/deleted）、asset_id、url、sha256、duration_seconds、source_task_id、source_path、start_seconds、source_sha256；缺少真实来源 ID 时省略，不能编造。总控读取旧清单后按角色与版本合并保存，保留 tracks；子代理返回记录，不并发覆盖。清单保存候选和历史，当前默认仍以项目圣经为准，旧版本不因更换被删。
 
-父资产未提供实测时长时下载原音频并探测，不能猜测或套用视频包时长。首个样本试听确认后才通过 `drama_project preview/update` 更新当前角色的 voice_profile，保持原 description；四项 reference_audio、reference_audio_asset_id、reference_audio_sha256、reference_audio_duration_seconds 一起提交。新候选不得覆盖既有默认；替换须由用户或其授权组员明确认可从旧版换为指定新版，授权不明确时用 ask_user_question 确认，独立工作继续。写入 reason 并保留旧版本及来源；update 结果未知先 read 核对当前版本与四项引用，已落地就沿用，未落地再按真实修订重预览，不能盲重写。字段与版本规则见 [项目圣经技能](../tweet-drama-project-bible/SKILL.md)。
+父资产未提供实测时长时下载原音频并探测，不能猜测或套用视频包时长。首个样本的实际发声角色核对后按制作授权通过 `drama_project preview/update` 更新当前角色的 voice_profile，保持原 description；四项 reference_audio、reference_audio_asset_id、reference_audio_sha256、reference_audio_duration_seconds 一起提交。新候选不得覆盖既有默认；替换须由用户或其授权组员明确认可从旧版换为指定新版，授权不明确时用 ask_user_question 确认，独立工作继续。写入 reason 并保留旧版本及来源；update 结果未知先 read 核对当前版本与四项引用，已落地就沿用，未落地再按真实修订重预览，不能盲重写。字段与版本规则见 [项目圣经技能](../tweet-drama-project-bible/SKILL.md)。
 
 ## 预览并绑定原任务卡
 
@@ -53,4 +73,4 @@ prompt 保留全部镜头正文和图片标记，明确写“周海生声音参�
 
 ## 声线匹配预览
 
-建立样本或逐镜绑定前，可按 [匹配预览字段](../tweet-drama-core/references/match-preview.md) 用 `drama_assets match_preview` 核对角色 `character_id`、现有 `voice_profile`、认可样本记录及来源摘要。姓名或音频名相似不证明说话人；样本未认可、来源不明或描述不符为 `needs_review`，读取失败、分页不全、引用或来源变化为 `blocked`。`reuse_ready` 仅建议复用既有认可版本，不更新声线、不替换默认、不调用后台角色音色接口，不保证成片音色一致。正式采用及替换须人工确认，再沿原卡 `audio_preview/audio_apply` 与 `prepare_video` 链路执行。
+建立样本或逐镜绑定前，可按 [匹配预览字段](../tweet-drama-core/references/match-preview.md) 用 `drama_assets match_preview` 核对角色 `character_id`、现有 `voice_profile`、认可样本记录及来源摘要。姓名或音频名相似不证明说话人；样本未认可、来源不明或描述不符为 `needs_review`，读取失败、分页不全、引用或来源变化为 `blocked`。`reuse_ready` 仅建议复用既有认可版本，不更新声线、不替换默认、不调用后台角色音色接口，不保证成片音色一致。首个样本的说话人和区间核对后按用户已有制作授权采用；替换已有默认版本仍按上文取得明确认可，再沿原卡 `audio_preview/audio_apply` 与 `prepare_video` 链路执行。

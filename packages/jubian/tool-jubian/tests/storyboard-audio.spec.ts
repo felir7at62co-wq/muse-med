@@ -585,3 +585,10 @@ it('refuses an audio-asset deletion or URL change after preview before saving th
   await expect(apply(plan)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
   expect(writes()).toEqual([])
 })
+
+it('refuses a combined reference duration above fifteen seconds before any binding PUT', async () => {
+  const references = Array.from({ length: 8 }, (_, index) => ({ ...voice, materialKey: `voice-${index}`, sortOrder: index + 1 }))
+  await expect(preview(references)).rejects.toThrow('Total reference audio duration exceeds 15 seconds')
+  expect(calls.some(call => call.method === 'PUT')).toBe(false)
+  expect(board.storyboardMaterialList).toEqual([image])
+})
