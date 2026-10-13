@@ -42,11 +42,13 @@ import {
   contentHasImage,
   LlmAdapter,
   LlmError,
+  ProviderRequestId,
   ReasoningEffortId,
 } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions,
   ImageAttachmentAccess,
+  LlmFailure,
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
@@ -68,6 +70,18 @@ interface PiAiSnapshot {
   profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>
   /** Providers for exactly those profiles; never mutated once published. */
   models: Models
+}
+
+type ProviderResponseFacts = Pick<LlmFailure, 'status' | 'providerRetryAfterMs' | 'requestId'>
+
+/** Safe structured facts emitted for one terminal provider failure. */
+export interface PiAiProviderFailureObservation extends ProviderResponseFacts {
+  /** Configured provider route used by the request. */
+  readonly provider: string
+  /** Configured model identifier used by the request. */
+  readonly model: string
+  /** Provider-neutral failure code consumed by recovery policy. */
+  readonly code: string
 }
 
 /** Constructor options for {@link PiAiAdapter}: the two resolution hooks the plugin owns. */
@@ -101,6 +115,13 @@ export interface PiAiAdapterOptions {
    * conversion because its stored replay state is unusable by this build.
    */
   onReplayDegrade?: (detail: { provider: string; model: string; reason: string }) => void
+  /**
+   * Observe a terminal provider failure using safe structured facts only.
+   * HTTP status, retry delay, and a bounded request identifier survive pi-ai's
+   * text-only error conversion. Provider response text and headers are never
+   * exposed to this hook.
+   */
+  onProviderFailure?: (detail: PiAiProviderFailureObservation) => void
 }
 
 /** The two auth injectables a pi-ai collection is built with. */
@@ -211,6 +232,37 @@ function requestHeaders(headers: Readonly<Record<string, string>> | undefined): 
   }
 }
 
+/** Parse a provider delay without retaining the rest of its response headers. */
+function providerRetryAfterMs(headers: Headers): number | undefined {
+  const milliseconds = headers.get('retry-after-ms')
+  const standard = headers.get('retry-after')
+  const delay = milliseconds !== null && /^\d+(?:\.\d+)?$/u.test(milliseconds)
+    ? Number(milliseconds)
+    : standard === null ? NaN
+      : /^\d+(?:\.\d+)?$/u.test(standard) ? Number(standard) * 1000 : Date.parse(standard) - Date.now()
+  return Number.isFinite(delay) && delay > 0 ? delay : undefined
+}
+
+/** Retain a bounded printable request id from known provider header names. */
+function providerRequestId(headers: Headers): LlmFailure['requestId'] {
+  const value = headers.get('request-id')
+    ?? headers.get('x-request-id')
+    ?? headers.get('x-deepseek-request-id')
+    ?? headers.get('x-amzn-requestid')
+  return value !== null && /^[\x21-\x7e]{1,256}$/u.test(value) ? ProviderRequestId(value) : undefined
+}
+
+/** Select the structured response facts allowed to outlive the SDK request. */
+function providerResponseFacts(response: Response): ProviderResponseFacts {
+  const retryAfter = providerRetryAfterMs(response.headers)
+  const requestId = providerRequestId(response.headers)
+  return {
+    ...response.ok ? {} : { status: response.status },
+    ...retryAfter === undefined ? {} : { providerRetryAfterMs: retryAfter },
+    ...requestId === undefined ? {} : { requestId },
+  }
+}
+
 /**
  * pi-ai-backed multi-provider adapter. Each operation reads the current
  * profiles, so a configuration change reaches the next request without a
@@ -221,6 +273,22 @@ export class PiAiAdapter extends LlmAdapter {
 
   constructor(private readonly config: PiAiAdapterOptions) {
     super()
+  }
+
+  /** Notify diagnostics without allowing an observer failure to replace the model outcome. */
+  private observeProviderFailure(options: GenerateOptions, failure: LlmFailure): void {
+    try {
+      this.config.onProviderFailure?.({
+        provider: options.provider,
+        model: options.model,
+        code: failure.code,
+        ...failure.status === undefined ? {} : { status: failure.status },
+        ...failure.providerRetryAfterMs === undefined ? {} : { providerRetryAfterMs: failure.providerRetryAfterMs },
+        ...failure.requestId === undefined ? {} : { requestId: failure.requestId },
+      })
+    } catch (_observerFailure) {
+      // Diagnostics must not alter classification, retry, or the user-facing outcome.
+    }
   }
 
   /**
@@ -346,6 +414,12 @@ export class PiAiAdapter extends LlmAdapter {
       options.reasoningEffort ?? profile.reasoning,
     )
     const apiKey = await this.config.resolveApiKey(options.provider, profile)
+    let responseFacts: ProviderResponseFacts | undefined
+    const captureResponse: typeof globalThis.fetch = async (input, init) => {
+      const response = await globalThis.fetch(input, init)
+      responseFacts = providerResponseFacts(response)
+      return response
+    }
 
     const consumer = new AbortController()
     const upstream = options.signal === undefined
@@ -390,11 +464,18 @@ export class PiAiAdapter extends LlmAdapter {
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
         signal: watchdog.signal,
+        fetch: captureResponse,
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
         headers: requestHeaders(profile.headers),
       })
-      const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
+      const iterator = toStreamChunks(
+        events,
+        model.contextWindow,
+        options.signal,
+        model.id,
+        () => responseFacts,
+      )[Symbol.asyncIterator]()
       let exhausted = false
       try {
         while (true) {
@@ -405,7 +486,11 @@ export class PiAiAdapter extends LlmAdapter {
             exhausted = true
             return
           }
-          yield result.value
+          const chunk = result.value
+          if (chunk.type === 'finish' && chunk.reason.kind === 'error') {
+            this.observeProviderFailure(options, chunk.reason.failure)
+          }
+          yield chunk
         }
       } finally {
         if (!exhausted) {
@@ -419,7 +504,12 @@ export class PiAiAdapter extends LlmAdapter {
       }
     } catch (error: unknown) {
       if (timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT') !== undefined) {
-        throw new LlmError(`pi-ai stream idle timeout after ${streamIdleTimeoutMs}ms`, 'TIMEOUT', { cause: error })
+        const timeout = new LlmError(`pi-ai stream idle timeout after ${streamIdleTimeoutMs}ms`, 'TIMEOUT', {
+          cause: error,
+          ...responseFacts,
+        })
+        this.observeProviderFailure(options, timeout.failure)
+        throw timeout
       }
       if (options.signal?.aborted) {
         throw new LlmError('pi-ai request aborted by caller', 'ABORTED', { cause: error })

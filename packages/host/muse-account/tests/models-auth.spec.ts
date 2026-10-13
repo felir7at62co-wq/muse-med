@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { ProviderRequestId } from '@deepseek-ai/dsh-llm'
 import { AttachmentId, AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { PiAiAdapterOptions } from '@deepseek-ai/dsh-llm-pi-ai'
@@ -29,6 +29,28 @@ it('keeps the account adapter outside provider credential storage and ambient au
     await expect(options.auth.credentials.delete('provider')).resolves.toBeUndefined()
     expect(await options.auth.authContext.env('MUSE_AUTH_TEST_TOKEN')).toBeUndefined()
     expect(await options.auth.authContext.fileExists('/private/provider/credentials')).toBe(false)
+  } finally { await owner.dispose(); await context.fiber.dispose() }
+})
+
+it('logs only safe structured facts for provider failures', async () => {
+  const context = new Context()
+  await context.plugin(LlmRuntime)
+  const warn = vi.spyOn(context.logger, 'warn').mockImplementation(() => {})
+  const owner = new MuseModels(context, { baseUrl: 'https://muse.example', sessionFile: '/unused/account/session.json', requestTimeoutMs: 1000 })
+  try {
+    const options = captured.options
+    if (!options?.onProviderFailure) throw new Error('Provider failure observer was not supplied')
+    options.onProviderFailure({
+      provider: 'muse-cloud-zhipu-official',
+      model: 'glm-5.3-flashx',
+      code: 'RATE_LIMIT',
+      status: 429,
+      requestId: ProviderRequestId('request-429'),
+    })
+    expect(warn).toHaveBeenCalledWith(
+      'Muse model request failed: provider="muse-cloud-zhipu-official" model="glm-5.3-flashx"'
+      + ' code="RATE_LIMIT" status=429 requestId="request-429"',
+    )
   } finally { await owner.dispose(); await context.fiber.dispose() }
 })
 

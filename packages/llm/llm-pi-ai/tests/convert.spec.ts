@@ -938,6 +938,13 @@ describe('mapStopReason / mapUsage', () => {
     }))).toMatchObject({ kind: 'error', failure: { code: 'PI_AI_ERROR' } })
   })
 
+  it('uses structured HTTP facts when provider text no longer contains the status', () => {
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'insufficient_quota' }), undefined, { status: 429 }))
+      .toMatchObject({ kind: 'error', failure: { code: 'QUOTA', status: 429 } })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'opaque failure' }), undefined, { status: 402 }))
+      .toMatchObject({ kind: 'error', failure: { code: 'QUOTA', status: 402 } })
+  })
+
   it.each([
     'other side closed',
     'HTTP2 request did not get a response',
