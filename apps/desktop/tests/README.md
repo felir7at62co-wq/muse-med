@@ -4,6 +4,8 @@ English | [中文](README.zh.md)
 
 The Muse package workflow also exercises the production Windows NSIS pages with an isolated test application in both installer languages. Native UI checks cover visible automatic-update progress, completion before 100%, and automatic application reopening, including the silent flag emitted by older updaters. Reboot-required cases refuse both manual and automatic launch, and an injected post-relaunch failure verifies owned process and installation cleanup. Screenshots and results are retained in the installer UI artifact; this check never installs over the user's Muse application.
 
+Button and checkbox waits use the native button class and exact localized text, including disabled launch checkboxes. Dialog messages and status labels are identified separately; one caption containing another does not signal button readiness.
+
 ## Summary
 
 Local download and mandatory-dialog evidence is separate from production backend integration, visual acceptance, and installed-application upgrades. Run the command in the [Desktop README](../README.md) to produce a fresh isolated report.

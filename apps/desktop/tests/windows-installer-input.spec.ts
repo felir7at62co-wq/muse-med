@@ -2,10 +2,30 @@
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 
-const [ui, smoke] = await Promise.all([
+const [ui, smoke, strings] = await Promise.all([
   readFile(new URL('./windows-installer-ui.ps1', import.meta.url), 'utf8'),
   readFile(new URL('./windows-installer-smoke.ps1', import.meta.url), 'utf8'),
+  readFile(new URL('../installer/strings.nsh', import.meta.url), 'utf8'),
 ])
+
+function buttonReadinessFailures(helper: string, scenario: string): string[] {
+  const wait = scenario.slice(scenario.indexOf('function Wait-Control('), scenario.indexOf('function Start-Setup('))
+  const click = scenario.slice(scenario.indexOf('function Click-Control('), scenario.indexOf('function Dismiss('))
+  const finder = helper.slice(helper.indexOf('public static IntPtr FindButton('), helper.indexOf('static IntPtr FindTextCore('))
+  const buttonWaits = [...scenario.matchAll(/Wait-Control \$\w+ \$copy\.INSTALLER_(?:INSTALL|BROWSE|FINISH|LAUNCH)\b([^\n]*)/gu)]
+  const requirements: Record<string, boolean> = {
+    exactButtonRoute: wait.includes('[switch]$Button') && wait.includes('if ($Button) { [InstallerCapture]::FindButton($Process.Id, $Text) }'),
+    buttonClicks: click.includes('Wait-Control $Process $Text -Button'),
+    buttonWaits: buttonWaits.length > 0 && buttonWaits.every(match => match[1]?.includes('-Button')),
+    buttonPredicate: finder.includes('kind.ToString() == "Button" && text.ToString() == expected'),
+    disabledCheckboxLookup: !finder.includes('IsWindowEnabled'),
+    dialogTextRoute: wait.includes('elseif ($Dialog) { [InstallerCapture]::FindDialogText($Process.Id, $Text) }')
+      && scenario.includes('Wait-Control $Process $Text -Dialog'),
+    rebootStatusText: scenario.includes('Wait-Control $Process $copy.INSTALLER_REBOOT_REQUIRED)')
+      && !scenario.includes('Wait-Control $Process $copy.INSTALLER_REBOOT_REQUIRED -Button'),
+  }
+  return Object.entries(requirements).filter(([, satisfied]) => !satisfied).map(([name]) => name)
+}
 
 function inputEvidenceFailures(helper: string, scenario: string): string[] {
   const action = scenario.slice(scenario.indexOf('function Set-PathInput('), scenario.indexOf('function Finish-Setup('))
@@ -37,6 +57,30 @@ function inputEvidenceFailures(helper: string, scenario: string): string[] {
 }
 
 describe('Windows installer input evidence source preflight', () => {
+  it('uses exact Button lookup for waits and clicks while retaining disabled checkbox and dialog lookup', () => {
+    expect(buttonReadinessFailures(ui, smoke)).toEqual([])
+  })
+
+  it('rejects the former default text route and omitted button waits', () => {
+    const containsRoute = smoke.replace('[InstallerCapture]::FindButton($Process.Id, $Text)',
+      '[InstallerCapture]::FindText($Process.Id, $Text)')
+    expect(buttonReadinessFailures(ui, containsRoute)).toContain('exactButtonRoute')
+    expect(buttonReadinessFailures(ui, smoke.replaceAll(' -Button', ''))).toEqual(['buttonClicks', 'buttonWaits'])
+    const disabledFiltered = ui.replace('&& text.ToString() == expected)', '&& text.ToString() == expected && IsWindowEnabled(child))')
+    expect(buttonReadinessFailures(disabledFiltered, smoke)).toContain('disabledCheckboxLookup')
+  })
+
+  it('covers the actual Chinese Browse caption contained in Choose location without accepting substring readiness', () => {
+    const choose = /^LangString INSTALLER_CHOOSE_PATH \$\{LANG_SIMPCHINESE\} "(.*)"$/mu.exec(strings)?.[1]
+    const browse = /^LangString INSTALLER_BROWSE \$\{LANG_SIMPCHINESE\} "(.*)"$/mu.exec(strings)?.[1]
+    if (choose === undefined || browse === undefined) throw new Error('Chinese installer captions are missing')
+    expect(choose).toBe('选择安装位置')
+    expect(browse).toBe('选择')
+    expect(choose.includes(browse)).toBe(true)
+    expect(choose === browse).toBe(false)
+    expect(buttonReadinessFailures(ui, smoke)).toEqual([])
+  })
+
   it('requires owned Unicode readback and focus evidence before Enter', () => {
     expect(inputEvidenceFailures(ui, smoke)).toEqual([])
     expect(smoke).not.toMatch(/SendMessage\(\$edit, 0xC/u)
