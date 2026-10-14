@@ -109,11 +109,38 @@ it('owns a bounded credential-scrubbed observer and drains it before installer c
   expect(worker).toContain('[InstallerDiagnostics]::RegisterComCallbacksForObserver()')
   expect(worker.indexOf("$receipt.status = 'before-wct'")).toBeLessThan(worker.indexOf('[InstallerDiagnostics]::PopulateWaitChains'))
   expect(worker).toContain('[IO.FileMode]::CreateNew')
-  expect(worker).toContain('[IO.File]::Replace($temporaryPath, $script:observerReceiptPath, $null)')
+  expect(worker).toContain('[IO.File]::Replace($temporaryPath, $script:observerReceiptPath, [System.Management.Automation.Language.NullString]::Value)')
   expect(worker).toContain('if ($null -ne $process) { $process.Dispose() }')
   expect(worker).not.toContain('$errorObject.Message')
   expect(smoke).toContain("$observerControl.receipt.status -ne 'complete'")
   expect(smoke).toContain('native-observer-exact-installer-and-quiescent-return')
+})
+
+function observerPublicationFailures(smoke: string, worker: string): string[] {
+  const observer = smoke.slice(smoke.indexOf('function Read-NativeFailureObserver('), smoke.indexOf('function Finish-Setup('))
+  const wrapperWrite = observer.indexOf("[IO.File]::WriteAllText($receiptPath + '.process.json'")
+  const requirements: Record<string, boolean> = {
+    nullableBackupName: worker.includes('[IO.File]::Replace($temporaryPath, $script:observerReceiptPath, [System.Management.Automation.Language.NullString]::Value)'),
+    dispositionBeforeReturn: wrapperWrite > observer.indexOf('$quiescent = $true')
+      && wrapperWrite < observer.indexOf('return [ordered]@{'),
+    originalPositiveFailure: smoke.includes("$observerControl.receipt.status -ne 'complete'")
+      && smoke.includes("throw 'Native observer did not complete for its exact idle installer and window'"),
+  }
+  return Object.entries(requirements).filter(([, satisfied]) => !satisfied).map(([name]) => name)
+}
+
+it('publishes observer updates with actual null backup semantics and saves worker disposition before the consuming failure', async () => {
+  const [smoke, worker] = await Promise.all([
+    readFile(new URL('./windows-installer-smoke.ps1', import.meta.url), 'utf8'),
+    readFile(new URL('./windows-installer-failure-observer.ps1', import.meta.url), 'utf8'),
+  ])
+  expect(observerPublicationFailures(smoke, worker)).toEqual([])
+  expect(observerPublicationFailures(smoke, worker.replace('[System.Management.Automation.Language.NullString]::Value', '$null')))
+    .toContain('nullableBackupName')
+  expect(observerPublicationFailures(smoke.replace("[IO.File]::WriteAllText($receiptPath + '.process.json'", '[IO.File]::ReadAllText($receiptPath'), worker))
+    .toContain('dispositionBeforeReturn')
+  expect(observerPublicationFailures(smoke.replace("throw 'Native observer did not complete for its exact idle installer and window'", 'return'), worker))
+    .toContain('originalPositiveFailure')
 })
 
 function reusableAssemblyFailures(smoke: string, helper: string, worker: string): string[] {
@@ -139,7 +166,7 @@ it('compiles the reviewed diagnostic helper once into a private assembly and loa
   expect(smoke).toContain('installer-diagnostics-$([Guid]::NewGuid().ToString(\'N\')).dll')
   expect(smoke).toContain("'windows-installer-diagnostics.ps1') -AssemblyPath $diagnosticAssembly")
   expect(smoke).toContain('-AssemblyPath \'$($diagnosticAssembly.Replace')
-  expect(smoke).toContain('assemblySha256 = (Get-FileHash -LiteralPath $diagnosticAssembly -Algorithm SHA256)')
+  expect(smoke).toContain('assemblySha256 = Read-DiagnosticFileHash $diagnosticAssembly')
   expect(helper).toContain('-OutputAssembly $installerDiagnosticsAssemblyFile')
   expect(worker).toContain('Add-Type -LiteralPath $observerAssemblyFile')
   expect(worker).not.toMatch(/-TypeDefinition|windows-installer-diagnostics\.ps1/u)
@@ -152,6 +179,23 @@ it('compiles the reviewed diagnostic helper once into a private assembly and loa
     .toContain('sameGeneratedFile')
   expect(reusableAssemblyFailures(smoke, helper, worker.replace('Add-Type -LiteralPath $observerAssemblyFile',
     'Add-Type -TypeDefinition $source'))).toContain('noObserverCompilation')
+})
+
+it('hashes private diagnostics with disposed .NET objects rather than optional PowerShell modules', async () => {
+  const smoke = await readFile(new URL('./windows-installer-smoke.ps1', import.meta.url), 'utf8')
+  const hash = smoke.slice(smoke.indexOf('function Read-DiagnosticFileHash('), smoke.indexOf('$assemblyReceipt ='))
+  expect(hash).toContain('[Security.Cryptography.SHA256]::Create()')
+  expect(hash).toContain('[IO.File]::OpenRead($Path)')
+  expect(hash).toContain('$hasher.ComputeHash($stream)')
+  expect(hash).toContain('finally { $stream.Dispose() }')
+  expect(hash).toContain('finally { $hasher.Dispose() }')
+  expect(smoke).not.toMatch(/Get-FileHash|Import-Module/u)
+  expect(smoke).toContain("'powershell-runtime.json'")
+  expect(smoke).toContain('psVersion = $PSVersionTable.PSVersion.ToString()')
+  expect(smoke).toContain('clrVersion = [Environment]::Version.ToString()')
+  expect(smoke).toContain('executablePath = $runtimeProcess.MainModule.FileName')
+  expect(smoke).toContain('finally { $runtimeProcess.Dispose() }')
+  expect(smoke).not.toMatch(/PSModulePath|GetEnvironmentVariables|\.CommandLine/u)
 })
 
 const receipt = { primaryFailure: 'Injected automatic update failure after relaunch', cleanupFailures: [],

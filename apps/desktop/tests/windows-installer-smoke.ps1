@@ -5,13 +5,34 @@ param([Parameter(Mandatory)][string]$Installer, [Parameter(Mandatory)][string]$P
     [Parameter(Mandatory)][string]$OutputDirectory,
     [switch]$FailAfterAutomaticRelaunch)
 $ErrorActionPreference = 'Stop'
+$runtimeProcess = [Diagnostics.Process]::GetCurrentProcess()
+try {
+    $runtimeReceipt = [ordered]@{
+        psVersion = $PSVersionTable.PSVersion.ToString()
+        psEdition = $PSVersionTable.PSEdition
+        clrVersion = [Environment]::Version.ToString()
+        executablePath = $runtimeProcess.MainModule.FileName
+    } | ConvertTo-Json
+} finally { $runtimeProcess.Dispose() }
+[IO.File]::WriteAllText((Join-Path $OutputDirectory 'powershell-runtime.json'),
+    $runtimeReceipt + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 . (Join-Path $PSScriptRoot 'windows-installer-ui.ps1')
 $diagnosticAssembly = Join-Path $OutputDirectory ("installer-diagnostics-$([Guid]::NewGuid().ToString('N')).dll")
 . (Join-Path $PSScriptRoot 'windows-installer-diagnostics.ps1') -AssemblyPath $diagnosticAssembly
+function Read-DiagnosticFileHash([string]$Path) {
+    # .NET hashing does not depend on optional PowerShell cmdlet modules or module search paths.
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [IO.File]::OpenRead($Path)
+        try {
+            return [BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+        } finally { $stream.Dispose() }
+    } finally { $hasher.Dispose() }
+}
 $assemblyReceipt = [ordered]@{
     assemblyPath = $diagnosticAssembly
-    assemblySha256 = (Get-FileHash -LiteralPath $diagnosticAssembly -Algorithm SHA256).Hash.ToLowerInvariant()
-    sourceSha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'windows-installer-diagnostics.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
+    assemblySha256 = Read-DiagnosticFileHash $diagnosticAssembly
+    sourceSha256 = Read-DiagnosticFileHash (Join-Path $PSScriptRoot 'windows-installer-diagnostics.ps1')
     compiledInParent = $true
 } | ConvertTo-Json
 # This source-generated assembly remains in this run's private diagnostic artifacts, outside the installed payload.
@@ -189,6 +210,15 @@ function Read-NativeFailureObserver([Diagnostics.Process]$Process) {
             if (-not $observer.WaitForExit(10000)) { throw 'Native observer survived termination' }
         }
         $quiescent = $true
+        $disposition = [ordered]@{
+            processId = $Process.Id
+            observerProcessId = $observer.Id
+            timedOut = $timedOut
+            exitCode = $observer.ExitCode
+            quiescent = $true
+        } | ConvertTo-Json
+        [IO.File]::WriteAllText($receiptPath + '.process.json',
+            $disposition + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
         return [ordered]@{
             observerProcessId = $observer.Id
             timedOut = $timedOut

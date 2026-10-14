@@ -29,7 +29,8 @@ function Write-ObserverReceipt {
             $stream.Flush()
         } finally { $stream.Dispose() }
         if ($script:observerReceiptOwned) {
-            [IO.File]::Replace($temporaryPath, $script:observerReceiptPath, $null)
+            # Windows PowerShell binds $null to an empty string; this API needs an actual null backup name.
+            [IO.File]::Replace($temporaryPath, $script:observerReceiptPath, [System.Management.Automation.Language.NullString]::Value)
         } else {
             # Move refuses an existing destination; this observer never adopts another run's receipt.
             [IO.File]::Move($temporaryPath, $script:observerReceiptPath)
