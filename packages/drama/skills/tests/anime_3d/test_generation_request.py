@@ -300,6 +300,19 @@ class GenerationRequestCLI(unittest.TestCase):
         self.assertFalse(report["generation_ready"])
         self.assertIn("items[1]: request.image_style must be anime for the declared animation medium", report["errors"])
 
+    def test_top_level_batch_image_style_is_rejected(self):
+        for image_style in ("anime", "live_action", None):
+            with self.subTest(image_style=image_style):
+                record, item_request = planned_request()
+                request = {"method": "image_generate_batch", "script_id": 123,
+                           "image_style": image_style,
+                           "items": [self.batch_item(item_request, "offline-batch-style")]}
+                code, report = self.invoke(request, [record])
+                self.assertEqual(code, 1)
+                self.assertFalse(report["generation_ready"])
+                self.assertIn("image_generate_batch requires per-item image_style, not a top-level image_style",
+                              report["errors"])
+
     def test_explicit_pbr_prohibition_is_not_a_positive_material_requirement(self):
         for prompt in ("3D动漫，禁止PBR材质。", "3D动漫，物理可信PBR材质。其他要求：不要使用PBR材质。",
                        "3D动漫，物理可信PBR材质。不要使用PBR材质用于任何角色。",

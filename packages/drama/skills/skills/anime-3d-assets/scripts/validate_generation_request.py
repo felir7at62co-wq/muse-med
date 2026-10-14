@@ -129,6 +129,8 @@ def validate_batch(records, request):
     if method == "image_generate":
         items = [request]
     elif method == "image_generate_batch":
+        if "image_style" in request:
+            return ["image_generate_batch requires per-item image_style, not a top-level image_style"]
         items = request.get("items")
         if not isinstance(items, list) or not items:
             return ["image_generate_batch needs non-empty items"]
