@@ -132,6 +132,8 @@ export function buildReport(input: ReportInput): DramaRenderReport {
     .map(check => `${check.id}: ${check.detail} 修法：${check.fix}`)
   const warnings = [
     ...input.warnings,
+    ...(input.bgmPlan?.license_records ?? []).flatMap(record =>
+      record.warnings.map(warning => `BGM ${record.track}：${warning}`)),
     ...input.checks
       .filter(check => check.severity === 'warning' && !check.ok)
       .map(check => `${check.id}: ${check.detail} 修法：${check.fix}`),
@@ -174,9 +176,10 @@ export function buildReport(input: ReportInput): DramaRenderReport {
       'black_frames', 'silence', 'subtitle_bounds', 'subtitle_present',
       'speech_alignment', 'embedded_subtitles', 'content_review', 'bgm_listening', 'bgm_plan_audio_match',
       ...(input.method === 'verify' ? ['output_source_mapping'] : []),
-      ...(input.bgmPlan?.path ? [] : ['bgm_plan']),
+      ...(input.bgmPlan?.path ? [] : ['bgm_plan', 'bgm_license_info']),
     ].filter(id => !input.checks.some(check => check.id === id)),
-    bgm_plan: input.bgmPlan ?? { path: '', bed_sha256: '', segments: [], repeated_sequence_episodes: [] },
+    bgm_plan: input.bgmPlan ?? { path: '', bed_sha256: '', segments: [], repeated_sequence_episodes: [],
+      intended_use: 'unknown', license_records: [] },
     failures,
     warnings,
     log_path: input.logPath,

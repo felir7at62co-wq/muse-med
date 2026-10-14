@@ -17,6 +17,7 @@ import { REPO_ROOT, saveFailureShot, ZH_BROWSER_LOCALE } from './support.ts'
 
 const MODE = webSnapshotMode()
 const EXPECTED = fileURLToPath(new URL('./expected/desktop-onboarding', import.meta.url))
+const ACCOUNT_OBSERVER = fileURLToPath(new URL('./fixtures/plugins/fixture-onboarding-account', import.meta.url))
 const NS = 'ui-settings-account'
 const INITIAL = { version: 1, step: 'welcome', purpose: null, process: null, completion: null, usage: 'compact', developerTools: false }
 
@@ -60,7 +61,10 @@ describe.skipIf(MODE === 'record')('web e2e: App-only desktop onboarding', () =>
     origin = `http://127.0.0.1:${address.port}`
     const overlay = join(root, 'account.patch.yml')
     await writeFile(overlay, `- id: deepseek-account\n  config:\n    platformOrigin: ${origin}\n    allowLoopbackHttp: true\n`)
-    scaffold = await launchWebScaffold({ deepSeekMissingCredential: true, extraOverlayPath: overlay })
+    scaffold = await launchWebScaffold({
+      deepSeekMissingCredential: true, extraOverlayPath: overlay,
+      profile: { packages: [{ dir: ACCOUNT_OBSERVER, enabled: true }] },
+    })
     await scaffold.ctx.credentials.modifyRecord(credentialKey('deepseek-account-platform', 'default'), async () => ({
       kind: 'grant', payload: { version: 1, issuer: origin, token: 'onboarding-fixture-token' },
     }))
@@ -238,6 +242,7 @@ describe.skipIf(MODE === 'record')('web e2e: App-only desktop onboarding', () =>
     acknowledgeReloadConnectionLoss(tripwire, warningsBefore)
     await page.getByRole('heading', { name: '准备可用额度', exact: true }).waitFor()
     expect(await page.getByRole('button', { name: '开始设置', exact: true }).count()).toBe(0)
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.onboardingBalanceStatus)).toBe('ready')
     await page.getByRole('button', { name: '下一步', exact: true }).click()
     await page.getByRole('heading', { name: '暂时跳过充值？', exact: true }).waitFor()
     expect(await page.locator('[data-desktop-onboarding]').evaluate(element => getComputedStyle(element).filter)).toBe('none')
@@ -245,14 +250,32 @@ describe.skipIf(MODE === 'record')('web e2e: App-only desktop onboarding', () =>
     await page.getByRole('button', { name: '前往充值', exact: true }).click()
     await page.getByRole('button', { name: '返回 DeepSeek Harness', exact: true }).waitFor()
     expect((scaffold.ctx.settings.describe().find(row => row.ns === NS)?.value as { step: string }).step).toBe('credit')
-    balanceFailure = true
-    const readsBefore = balanceReads
-    await page.getByRole('button', { name: '返回 DeepSeek Harness', exact: true }).click()
-    await page.getByRole('heading', { name: '准备可用额度', exact: true }).waitFor()
-    await expect.poll(() => balanceReads).toBeGreaterThan(readsBefore)
-    await expect.poll(() => page.getByRole('button', { name: '下一步', exact: true }).isEnabled()).toBe(true)
-    await page.getByRole('button', { name: '下一步', exact: true }).click()
-    await page.getByRole('checkbox', { name: '办公与创作', exact: true }).waitFor()
+    const balanceHeld = Promise.withResolvers<undefined>()
+    const releaseBalance = Promise.withResolvers<undefined>()
+    await page.route('**/api/account/getBalance', async (route) => {
+      const response = await route.fetch()
+      balanceHeld.resolve(undefined)
+      await releaseBalance.promise
+      await route.fulfill({ response })
+    })
+    try {
+      balanceFailure = true
+      const readsBefore = balanceReads
+      await page.getByRole('button', { name: '返回 DeepSeek Harness', exact: true }).click()
+      await page.getByRole('heading', { name: '准备可用额度', exact: true }).waitFor()
+      await balanceHeld.promise
+      expect(balanceReads).toBeGreaterThan(readsBefore)
+      expect(await page.getByRole('button', { name: '下一步', exact: true }).isEnabled()).toBe(true)
+      // Request arrival and enabled navigation do not mean the old zero balance has been replaced.
+      expect(await page.evaluate(() => document.documentElement.dataset.onboardingBalanceStatus)).toBe('ready')
+      releaseBalance.resolve(undefined)
+      await expect.poll(() => page.evaluate(() => document.documentElement.dataset.onboardingBalanceStatus)).toBe('failed')
+      await page.getByRole('button', { name: '下一步', exact: true }).click()
+      await page.getByRole('checkbox', { name: '办公与创作', exact: true }).waitFor()
+    } finally {
+      releaseBalance.resolve(undefined)
+      await page.unrouteAll({ behavior: 'wait' })
+    }
     await snapshot('purpose')
     await page.emulateMedia({ reducedMotion: 'no-preference' })
     const development = page.getByRole('checkbox', { name: '代码与开发', exact: true })

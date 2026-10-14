@@ -5,6 +5,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
+import { BGM_LICENSE_RECORD_TOOL_SCHEMA, LICENSE_INFO_TOOL_SCHEMA } from '@deepseek-ai/dsh-bgm-license-info'
 import { runDramaBgm } from './compose.ts'
 import { createSubprocessChannel } from './media.ts'
 import { DEFAULT_BGM_BATCH_POLICY } from './plan.ts'
@@ -59,6 +60,8 @@ const SegmentSchema = {
   properties: {
     track: { type: 'string', required: true, description: '计划里的曲目名。' },
     source: { type: 'string', required: true, description: '源曲绝对路径。' },
+    track_id: { type: 'string', description: '计划可选：曲库稳定曲目 ID。' },
+    license_info: { ...LICENSE_INFO_TOOL_SCHEMA, required: true },
     source_sha256: { type: 'string', required: true, description: '实际源文件 SHA-256。' },
     start_seconds: { type: 'number', required: true, description: '正文时间线起点。' },
     end_seconds: { type: 'number', required: true, description: '正文时间线终点。' },
@@ -78,6 +81,10 @@ const RESULT_SCHEMA = {
   type: 'object', additionalProperties: false,
   properties: {
     method: { type: 'string', required: true, enum: ['preview', 'compose', 'verify'] },
+    intended_use: { type: 'string', required: true, enum: ['commercial', 'non_commercial', 'unknown'],
+      description: '计划声明的发行用途；未声明为 unknown。' },
+    license_records: { type: 'array', required: true, items: BGM_LICENSE_RECORD_TOOL_SCHEMA,
+      description: '选定曲目的音频许可声明与用途风险；三种方法都保留，verify 不核验源曲或法律授权。' },
     episode: { type: 'string', required: true },
     project: { type: 'string', required: true },
     plan: { type: 'string', required: true },
@@ -127,6 +134,8 @@ const DESCRIPTION = '短剧整集 BGM 合成工具；只执行 Agent 已确认�
   + '阈值是部署配置项（minTracksPerEpisode、maxEpisodesPerTrack、freshTracksPerEpisode、boundaryToleranceSeconds）。'
   + 'timeline、plan、output 的相对路径都以 project 为基准，不使用进程 cwd；跨工具调用优先传上一步返回的绝对路径。'
   + 'compose 返回的绝对 output 传给 drama_render.bgm，返回的绝对 plan 传给 drama_render.bgm_plan。'
+  + 'episodes 可声明 intended_use=商业 commercial、非商业 non_commercial 或 unknown；segments 可保留 track_id 和 license_info。'
+  + '许可缺失返回 unknown；许可事实与用途风险随结果和 generation.json 保留，不认证版权，也不因风险阻止合成。'
   + '本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。'
 
 /**

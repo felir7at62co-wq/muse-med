@@ -47,6 +47,8 @@ const USER_AGENTS_RANK = 500
 const DEFAULT_WATCH_STABILITY_THRESHOLD_MS = 200
 const DEFAULT_WATCH_POLL_INTERVAL_MS = 100
 const DEFAULT_WATCH_MAX_PROJECTS = 128
+const DEFAULT_WATCH_READY_TIMEOUT_MS = 10_000
+const DEFAULT_DISCOVERY_TIMEOUT_MS = 30_000
 
 export const name = 'skill-filesystem'
 export const inject = ['skills']
@@ -75,6 +77,10 @@ export interface Config {
   watchPollIntervalMs?: number
   /** Maximum distinct project roots whose skill directories remain watched. */
   watchMaxProjects?: number
+  /** Maximum milliseconds for an existing root watcher to become ready. */
+  watchReadyTimeoutMs?: number
+  /** Maximum milliseconds for one complete root discovery, including watcher readiness. */
+  discoveryTimeoutMs?: number
   /** Whether watched symbolic links follow their target files. */
   watchFollowSymlinks?: boolean
   /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR` when default roots are included, otherwise mounts none. */
@@ -94,6 +100,8 @@ export const Config: Schema<Config> = z.object({
   watchPollIntervalMs: z.number().default(DEFAULT_WATCH_POLL_INTERVAL_MS),
   watchMaxProjects: z.number().default(DEFAULT_WATCH_MAX_PROJECTS),
   watchFollowSymlinks: z.boolean().default(true),
+  watchReadyTimeoutMs: z.number().default(DEFAULT_WATCH_READY_TIMEOUT_MS),
+  discoveryTimeoutMs: z.number().default(DEFAULT_DISCOVERY_TIMEOUT_MS),
   bundledSkillDir: z.string(),
 })
 
@@ -137,6 +145,7 @@ interface ResolvedWatchConfig {
   pollIntervalMs: number
   maxProjects: number
   followSymlinks: boolean
+  readyTimeoutMs: number
 }
 
 /** Register the local filesystem skill provider on `ctx.skills`. */
@@ -165,6 +174,8 @@ export class FileSystemSkillProvider implements SkillProvider {
   private readonly customSkillDirs: string[]
   private readonly watchManager: SkillWatchManager
   private readonly bundledSkillDir: string | undefined
+  private readonly discoveryTimeoutMs: number
+  private readonly signal: AbortSignal
   private disposal: Promise<void> | undefined
 
   constructor(
@@ -173,6 +184,9 @@ export class FileSystemSkillProvider implements SkillProvider {
     config: Config = {},
   ) {
     this.name = config.providerName ?? 'filesystem'
+    this.signal = control.signal
+    this.discoveryTimeoutMs = config.discoveryTimeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS
+    assertTimerDelay('discoveryTimeoutMs', this.discoveryTimeoutMs)
     this.includeDefaultRoots = config.includeDefaultRoots ?? true
     this.dshHome = resolveDshHome(config.dshHome)
     this.museHome = resolveMuseHome(config.museHome)
@@ -192,23 +206,43 @@ export class FileSystemSkillProvider implements SkillProvider {
    * Discover local skill summaries for a cwd-sensitive workspace.
    * @param options - lookup options; `cwd` selects the project roots to scan.
    * @returns local provider candidates with stable root ranks; watcher startup
-   *   failure returns readable candidates as an incomplete observation.
+   *   failure returns readable candidates as an incomplete observation. Discovery
+   *   cancellation and its configured deadline reject without publishing partial results.
    */
   async list(options: SkillLookupOptions): Promise<SkillCandidate[] | SkillProviderObservation> {
-    const roots = await this.roots(options.cwd)
+    const timeout = new AbortController()
+    const signal = AbortSignal.any([this.signal, timeout.signal, ...options.signal === undefined ? [] : [options.signal]])
+    signal.throwIfAborted()
+    const timer = setTimeout(() => {
+      timeout.abort(new Error(`skill-filesystem: discovery timed out after ${this.discoveryTimeoutMs}ms`))
+    }, this.discoveryTimeoutMs)
+    try {
+      return await waitForDiscovery(this.discover({ ...options, signal }), signal)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  private async discover(options: SkillLookupOptions & { signal: AbortSignal }): Promise<SkillCandidate[] | SkillProviderObservation> {
+    options.signal.throwIfAborted()
+    const roots = await this.roots(options.cwd, options.signal)
+    options.signal.throwIfAborted()
     let complete = true
     try {
-      await this.watchManager.observeRoots(roots)
+      await waitForDiscovery(this.watchManager.observeRoots(roots), options.signal)
     } catch (error) {
+      options.signal.throwIfAborted()
       if (this.disposal !== undefined) throw error
       complete = false
     }
     const candidates: SkillCandidate[] = []
     for (const root of roots) {
-      for (const skill of await discoverRoot(root, this.ctx, this.name)) {
+      options.signal.throwIfAborted()
+      for (const skill of await discoverRoot(root, this.ctx, this.name, options.signal)) {
         candidates.push(skill)
       }
     }
+    options.signal.throwIfAborted()
     return complete ? candidates : { candidates, complete }
   }
 
@@ -253,10 +287,10 @@ export class FileSystemSkillProvider implements SkillProvider {
     return this.disposal
   }
 
-  private async roots(cwd: string | undefined): Promise<SkillRoot[]> {
+  private async roots(cwd: string | undefined, signal: AbortSignal): Promise<SkillRoot[]> {
     const roots: SkillRoot[] = []
     if (this.includeDefaultRoots && cwd !== undefined) {
-      const projectRoot = await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx))
+      const projectRoot = await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx), signal)
       roots.push(
         { path: join(projectRoot, '.muse/skills'), source: 'project-muse', rank: PROJECT_MUSE_RANK, projectRoot },
         { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
@@ -542,10 +576,14 @@ class SkillWatchManager {
       this.handleWatcherError(state, error)
     }
     watcher.on('error', onError)
-    watcher.once('ready', () => {
+    const onReady = (): void => {
       ready = true
       readiness.resolve(undefined)
-    })
+    }
+    watcher.once('ready', onReady)
+    const timer = setTimeout(() => {
+      readiness.reject(new Error(`skill-filesystem: watcher readiness timed out after ${this.config.readyTimeoutMs}ms`))
+    }, this.config.readyTimeoutMs)
     for (const event of ['add', 'addDir', 'change', 'unlink', 'unlinkDir'] as const) {
       watcher.on(event, (path) => { this.handleWatchEvent(state, mode, event, path) })
     }
@@ -555,6 +593,8 @@ class SkillWatchManager {
       await this.closeWatcher(handle)
       throw error
     } finally {
+      clearTimeout(timer)
+      watcher.removeListener('ready', onReady)
       signal.removeEventListener('abort', onAbort)
     }
     return handle
@@ -630,6 +670,8 @@ function resolveWatchConfig(config: Config): ResolvedWatchConfig {
   const stabilityThresholdMs = config.watchStabilityThresholdMs ?? DEFAULT_WATCH_STABILITY_THRESHOLD_MS
   const pollIntervalMs = config.watchPollIntervalMs ?? DEFAULT_WATCH_POLL_INTERVAL_MS
   const maxProjects = config.watchMaxProjects ?? DEFAULT_WATCH_MAX_PROJECTS
+  const readyTimeoutMs = config.watchReadyTimeoutMs ?? DEFAULT_WATCH_READY_TIMEOUT_MS
+  assertTimerDelay('watchReadyTimeoutMs', readyTimeoutMs)
   assertPositiveInteger('watchStabilityThresholdMs', stabilityThresholdMs)
   assertPositiveInteger('watchPollIntervalMs', pollIntervalMs)
   assertPositiveInteger('watchMaxProjects', maxProjects)
@@ -639,6 +681,7 @@ function resolveWatchConfig(config: Config): ResolvedWatchConfig {
     stabilityThresholdMs,
     pollIntervalMs,
     maxProjects,
+    readyTimeoutMs,
     followSymlinks: config.watchFollowSymlinks ?? true,
   }
 }
@@ -723,6 +766,24 @@ function assertPositiveInteger(field: string, value: number): void {
   }
 }
 
+function assertTimerDelay(field: string, value: number): void {
+  assertPositiveInteger(field, value)
+  if (value > 2_147_483_647) throw new TypeError(`skill-filesystem: ${field} exceeds the maximum timer delay`)
+}
+
+function waitForDiscovery<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      signal.removeEventListener('abort', onAbort)
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- AbortSignal reasons retain caller identity.
+      reject(signal.reason)
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) onAbort()
+    void work.then(resolve, reject).finally(() => { signal.removeEventListener('abort', onAbort) })
+  })
+}
+
 function isAbsentPathError(error: unknown): boolean {
   return hasErrorCode(error, 'ENOENT') || hasErrorCode(error, 'ENOTDIR')
 }
@@ -737,10 +798,11 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code
 }
 
-async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Promise<SkillCandidate[]> {
+async function discoverRoot(root: SkillRoot, ctx: Context, provider: string, signal: AbortSignal): Promise<SkillCandidate[]> {
   const skills: SkillCandidate[] = []
-  const entries = await listSkillRootEntries(root, ctx)
+  const entries = await listSkillRootEntries(root, ctx, signal)
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    signal.throwIfAborted()
     if (root.skipSystem && entry.name === '.system') continue
     const locator = entry.type === 'directory'
       ? { path: join(entry.path, 'SKILL.md'), directory: entry.path }
@@ -748,7 +810,7 @@ async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Pr
         ? { path: entry.path, directory: root.path }
         : undefined
     if (locator === undefined) continue
-    const parsed = await parseSkillFile(locator.path, ctx, undefined, root.trustedHost === true)
+    const parsed = await parseSkillFile(locator.path, ctx, signal, root.trustedHost === true)
     if (parsed === undefined) continue
     skills.push({
       name: parsed.name,
@@ -767,34 +829,37 @@ async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Pr
   return skills
 }
 
-async function listSkillRootEntries(root: SkillRoot, ctx: Context): Promise<SkillRootEntry[]> {
+async function listSkillRootEntries(root: SkillRoot, ctx: Context, signal: AbortSignal): Promise<SkillRootEntry[]> {
   const fs = optionalFileSystem(ctx)
-  if (fs !== undefined && root.trustedHost !== true) return await listSkillRootEntriesFromFileSystem(root, fs)
-  return await listSkillRootEntriesFromNode(root, ctx)
+  if (fs !== undefined && root.trustedHost !== true) return await listSkillRootEntriesFromFileSystem(root, fs, signal)
+  return await listSkillRootEntriesFromNode(root, ctx, signal)
 }
 
-async function listSkillRootEntriesFromFileSystem(root: SkillRoot, fs: FileSystem): Promise<SkillRootEntry[]> {
+async function listSkillRootEntriesFromFileSystem(root: SkillRoot, fs: FileSystem, signal: AbortSignal): Promise<SkillRootEntry[]> {
   try {
-    return (await fsListDir(fs, root.path)).map(entryFromFs)
+    return (await fsListDir(fs, root.path, signal)).map(entryFromFs)
   } catch (error) {
     if (isAbsentSkillPathError(error)) return []
     throw error
   }
 }
 
-async function fsListDir(fs: FileSystem, path: string): Promise<FsDirEntry[]> {
-  const target = await fs.resolve(path)
-  return await fs.listDir(target)
+async function fsListDir(fs: FileSystem, path: string, signal: AbortSignal): Promise<FsDirEntry[]> {
+  signal.throwIfAborted()
+  const target = await fs.resolve(path, { signal })
+  return await fs.listDir(target, signal)
 }
 
 function entryFromFs(entry: FsDirEntry): SkillRootEntry {
   return { name: entry.name, type: entry.type, path: entry.target.displayPath }
 }
 
-async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context): Promise<SkillRootEntry[]> {
+async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context, signal: AbortSignal): Promise<SkillRootEntry[]> {
   let entries
   try {
+    signal.throwIfAborted()
     entries = await readdir(root.path, { withFileTypes: true, encoding: 'utf8' })
+    signal.throwIfAborted()
   } catch (error) {
     /* v8 ignore else -- Native non-absence directory failures are provider-dependent; the ctx.fs path pins incomplete discovery. */
     if (isAbsentSkillPathError(error)) return []
@@ -804,8 +869,10 @@ async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context): Prom
 
   const result: SkillRootEntry[] = []
   for (const entry of entries) {
+    signal.throwIfAborted()
     const path = join(root.path, entry.name)
     const type = await nodeEntryKind(path, entry, ctx)
+    signal.throwIfAborted()
     result.push({ name: entry.name, type: type ?? 'other', path })
   }
   return result
@@ -883,7 +950,7 @@ async function readSkillTextFromFileSystem(
   signal?.throwIfAborted()
   let target
   try {
-    target = await fs.resolve(path)
+    target = await fs.resolve(path, signal === undefined ? undefined : { signal })
   } catch (error) {
     if (isAbsentSkillPathError(error)) return undefined
     throw error
@@ -959,10 +1026,11 @@ function findClosingFrontmatter(raw: string, start: number): { start: number; bo
   }
 }
 
-async function findProjectRoot(cwd: string, fs: FileSystem | undefined): Promise<string> {
+async function findProjectRoot(cwd: string, fs: FileSystem | undefined, signal: AbortSignal): Promise<string> {
   let current = cwd
   while (true) {
-    if (await pathExists(join(current, '.git'), fs)) {
+    signal.throwIfAborted()
+    if (await pathExists(join(current, '.git'), fs, signal)) {
       return current
     }
     const parent = dirname(current)
@@ -971,24 +1039,26 @@ async function findProjectRoot(cwd: string, fs: FileSystem | undefined): Promise
   }
 }
 
-async function pathExists(path: string, fs: FileSystem | undefined): Promise<boolean> {
+async function pathExists(path: string, fs: FileSystem | undefined, signal: AbortSignal): Promise<boolean> {
   if (fs !== undefined) {
-    return await pathExistsInFileSystem(path, fs)
+    return await pathExistsInFileSystem(path, fs, signal)
   }
   return await pathExistsInNode(path)
 }
 
-async function pathExistsInFileSystem(path: string, fs: FileSystem): Promise<boolean> {
+async function pathExistsInFileSystem(path: string, fs: FileSystem, signal: AbortSignal): Promise<boolean> {
   let target
   try {
-    target = await fs.resolve(path)
+    target = await fs.resolve(path, { signal })
   } catch {
+    signal.throwIfAborted()
     // A backend may reject or hide this candidate; continue walking upward.
     return false
   }
   try {
-    return await fs.stat(target) !== undefined
+    return await fs.stat(target, signal) !== undefined
   } catch {
+    signal.throwIfAborted()
     // Transient stat failures make only this git-root candidate unusable.
     return false
   }

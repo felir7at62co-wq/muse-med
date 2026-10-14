@@ -126,6 +126,31 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
   })
 
+  it('finishes and closes a completed Chat Completions body without waiting for HTTP EOF', async () => {
+    const server = await mockServer([
+      { holdOpen: true, events: [
+        ...textEvents.slice(0, -1),
+        '{"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}',
+        '[DONE]',
+      ] },
+      { events: textEvents },
+    ])
+    const ctx = await harness(server.url)
+    const controller = new AbortController()
+    onTestFinished(() => { controller.abort() })
+    const result = await assemble(ctx, {
+      model: 'deepseek-flash', messages: [], signal: controller.signal,
+    })
+    expect(result.finish).toEqual({ kind: 'stop' })
+    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    expect(result.usage).toEqual({ inputTokens: 11, outputTokens: 7, totalTokens: 18 })
+    await server.responseClosed
+    expect(controller.signal.aborted).toBe(false)
+    const next = await assemble(ctx, { model: 'deepseek-flash', messages: [], signal: controller.signal })
+    expect(next.finish).toEqual({ kind: 'stop' })
+    expect(server.requests).toHaveLength(2)
+  })
+
   it('forwards common stream options and profile reasoning', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, {

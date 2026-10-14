@@ -829,10 +829,11 @@ const TOOL_PACKAGES: ToolPackage[] = [
     note:
       '`drama_video` stores reversible, labelled SHA256 exclusions without review evidence; release is not approval. '
       + '`drama_render` refuses banned selected bytes in `prepare`/`render`, while `verify` reports risks without deleting media. '
-      + 'Its three methods: `prepare` lays out render inputs without encoding picture, `render` produces the delivery and reports its measured '
-      + 'resolution, frame rate, bitrate, duration, size, and encoder, and `verify` checks the delivered file. The delivery style is fixed — 1440x2560 at '
-      + '60 fps, 24M target with a 30M ceiling and a 4.6 Mbps floor, SimHei 68 subtitles with the single bottom-right AI-content mark, and a two-second ending '
-      + 'frozen from the last shot\u2019s proved tail frame. A render that cannot proceed throws with its repair instruction; a delivered file that misses the '
+      + 'Its methods: `prepare` lays out render inputs without encoding picture, `render` produces the delivery and reports its measured '
+      + 'resolution, frame rate, bitrate, duration, size, and encoder, and `verify` checks the delivered file. Prepare snapshots project delivery canvas and medium. '
+      + 'Animation adds no ending or watermark; photorealistic keeps the AI-content mark and a two-second ending frozen from the proved tail frame. '
+      + 'Missing legacy medium preserves marked delivery with a warning. The bitrate target is 24M, ceiling 30M and floor 4.6 Mbps. '
+      + 'A render that cannot proceed throws with its repair instruction; a delivered file that misses the '
       + 'specification returns `ok: false` with per-check repairs.',
   },
   {

@@ -88,9 +88,11 @@ it('loads the composer, previews public arguments, and removes its tool on dispo
       body_end: 12, clips: [{ shot: 1, start_us: 0 }, { shot: 2, start_us: 6_000_000 }],
     }))
     await writeFile(join(root, 'editing', 'bgm-plan.json'), JSON.stringify({ episodes: [{
-      episode: '01', body_duration_seconds: 12,
+      episode: '01', intended_use: 'commercial', body_duration_seconds: 12,
       segments: [
-        { track: 'cue', source: 'music/cue.mp3', start_seconds: 0, end_seconds: 6, reason: '开场' },
+        { track: 'cue', source: 'music/cue.mp3', start_seconds: 0, end_seconds: 6, reason: '开场',
+          track_id: 'catalog-cue', license_info: { license: 'Project grant', commercial_use: true,
+            source: 'https://music.example/license', attribution: 'Music provider', scope: 'Short drama distribution' } },
         { track: 'tail', source: 'music/tail.mp3', start_seconds: 6, end_seconds: 12, reason: '收束' },
       ],
     }] }))
@@ -137,7 +139,11 @@ it('loads the composer, previews public arguments, and removes its tool on dispo
     expect(validateJsonSchemaValue(tool.output.schema, report, '')).toEqual([])
     expect(report).toMatchObject({
       method: 'preview', episode: '01', body_duration_seconds: 12, crossfade_seconds: 1.5,
-      batch_episodes: ['01'],
+      batch_episodes: ['01'], intended_use: 'commercial',
+      license_records: [
+        { track_id: 'catalog-cue', license_info: { status: 'declared', commercial_use: true }, warnings: [] },
+        { license_info: { status: 'unknown', commercial_use: 'unknown' }, warnings: ['音乐授权信息未知或不完整；不能据此认定已获使用授权。'] },
+      ],
       segments: [
         { track: 'cue', source_start_seconds: 1.75, source_start_kind: 'onset',
           source_mean_db: -20, applied_gain_db: 2.5, reason: '开场' },
@@ -146,6 +152,12 @@ it('loads the composer, previews public arguments, and removes its tool on dispo
       ],
       media: { codec: '', sample_rate: 0, channels: 0, duration_seconds: 0, size_bytes: 0, sha256: '' },
     })
+    const rendered = tool.output.render(
+      args, report as Parameters<typeof tool.output.render>[1],
+    ) as { type: string; text: string }[]
+    const visible = JSON.parse(rendered[0]?.text ?? '') as Record<string, unknown>
+    expect(visible.intended_use).toBe('commercial')
+    expect(visible.license_records).toHaveLength(2)
     const entry = [...ctx.loader.entries()].find(row => row.options.name === '@deepseek-ai/dsh-tool-bgm-compose')
     await entry?.fiber?.dispose()
     expect(ctx.tools.get('drama_bgm')).toBeUndefined()

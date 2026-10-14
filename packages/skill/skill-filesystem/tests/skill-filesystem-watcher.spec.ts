@@ -22,6 +22,7 @@ interface FakeWatchFileControl {
 interface FakeStatGate {
   started: PromiseWithResolvers<undefined>
   release: PromiseWithResolvers<undefined>
+  completed?: PromiseWithResolvers<undefined>
 }
 
 const watcherHarness = vi.hoisted(() => ({
@@ -31,6 +32,7 @@ const watcherHarness = vi.hoisted(() => ({
   deferredReady: 0,
   watchFiles: [] as FakeWatchFileControl[],
   statGates: [] as FakeStatGate[],
+  statCalls: [] as string[],
 }))
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -52,12 +54,15 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return {
     ...actual,
     async stat(...args: Parameters<typeof actual.stat>) {
+      watcherHarness.statCalls.push(String(args[0]))
       const gate = watcherHarness.statGates.shift()
       if (gate !== undefined) {
         gate.started.resolve(undefined)
         await gate.release.promise
       }
-      return await actual.stat(...args)
+      const result = await actual.stat(...args)
+      gate?.completed?.resolve(undefined)
+      return result
     },
   }
 })
@@ -123,6 +128,7 @@ beforeEach(async () => {
   watcherHarness.deferredReady = 0
   watcherHarness.watchFiles.length = 0
   watcherHarness.statGates.length = 0
+  watcherHarness.statCalls.length = 0
   // The muse user root defaults to `$MUSE_HOME` or `~/.muse`; pin it inside a
   // temp dir so no case here probes or watches the machine's real muse home.
   previousMuseHome = process.env.MUSE_HOME
@@ -130,6 +136,134 @@ beforeEach(async () => {
 })
 
 describe('skill-filesystem watcher failures', () => {
+  it('bounds missing readiness, closes the failed watcher, and reuses recovered hot catalogs', async () => {
+    const root = await tempDir('skill-watch-ready-deadline')
+    await writeSkill(root, 'ready-skill')
+    watcherHarness.deferredReady = 1
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    const fiber = await ctx.plugin(SkillFileSystem, {
+      includeDefaultRoots: false, customSkillDirs: [root], watchReadyTimeoutMs: 20,
+    })
+    try {
+      const cold = await ctx.skills.snapshot()
+      expect(cold).toMatchObject({ skills: [{ name: 'ready-skill' }], complete: false })
+      expect(watcherHarness.watchers[0]?.closeCalls).toBe(1)
+      expect(watcherHarness.watchers[0]?.emitter.listenerCount('ready')).toBe(0)
+      expect(await ctx.skills.snapshot()).toMatchObject({ skills: [{ name: 'ready-skill' }], complete: true })
+      expect(watcherHarness.watchers).toHaveLength(2)
+      await ctx.skills.snapshot()
+      await ctx.skills.snapshot({ cwd: join(root, 'other') })
+      expect(watcherHarness.watchers).toHaveLength(2)
+    } finally {
+      await fiber.dispose()
+    }
+    expect(watcherHarness.watchers.every(watcher => watcher.closeCalls === 1)).toBe(true)
+  })
+
+  it('cancels one discovery without cancelling a shared watcher or another waiting caller', async () => {
+    const root = await tempDir('skill-watch-cancel-caller')
+    await writeSkill(root, 'shared-skill')
+    watcherHarness.deferredReady = 1
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    let provider!: InstanceType<typeof SkillFileSystem.FileSystemSkillProvider>
+    const unregister = ctx.skills.registerProvider((control) => {
+      provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
+        includeDefaultRoots: false, customSkillDirs: [root],
+      })
+      return provider
+    })
+    const cancellation = new AbortController()
+    const cancelled = provider.list({ signal: cancellation.signal })
+    const rejected = expect(cancelled).rejects.toThrow('cancel preparation')
+    const survivor = provider.list({})
+    try {
+      await vi.waitFor(() => { expect(watcherHarness.watchers).toHaveLength(1) })
+      cancellation.abort(new Error('cancel preparation'))
+      await rejected
+      expect(watcherHarness.watchers[0]?.closeCalls).toBe(0)
+      watcherHarness.watchers[0]?.emitter.emit('ready')
+      expect(await survivor).toMatchObject([{ name: 'shared-skill' }])
+    } finally {
+      await provider.dispose()
+      unregister()
+      await Promise.allSettled([cancelled, survivor])
+    }
+    expect(watcherHarness.watchers[0]?.closeCalls).toBe(1)
+  })
+
+  it('bounds the complete discovery while a root probe is stalled and stops after cancellation', async () => {
+    const root = await tempDir('skill-watch-discovery-deadline')
+    await writeSkill(root, 'delayed-skill')
+    const gate: FakeStatGate = {
+      started: Promise.withResolvers<undefined>(), release: Promise.withResolvers<undefined>(),
+    }
+    watcherHarness.statGates.push(gate)
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    let provider!: InstanceType<typeof SkillFileSystem.FileSystemSkillProvider>
+    const unregister = ctx.skills.registerProvider((control) => {
+      provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
+        includeDefaultRoots: false, customSkillDirs: [root], discoveryTimeoutMs: 20,
+      })
+      return provider
+    })
+    const discovery = provider.list({})
+    const rejected = expect(discovery).rejects.toThrow('discovery timed out after 20ms')
+    try {
+      await gate.started.promise
+      await rejected
+    } finally {
+      gate.release.resolve(undefined)
+      await provider.dispose()
+      unregister()
+    }
+    expect(watcherHarness.watchers.every(watcher => watcher.closeCalls === 1)).toBe(true)
+  })
+
+  it('stops inspecting native symlinks after discovery cancellation', async () => {
+    const root = await tempDir('skill-native-cancel')
+    const target = await tempDir('skill-native-target')
+    for (const name of ['first', 'second', 'third']) {
+      await symlink(target, join(root, name), process.platform === 'win32' ? 'junction' : 'dir')
+    }
+    const gate = {
+      started: Promise.withResolvers<undefined>(), release: Promise.withResolvers<undefined>(),
+      completed: Promise.withResolvers<undefined>(),
+    }
+    watcherHarness.statGates.push(gate)
+    const provider = new SkillFileSystem.FileSystemSkillProvider(new Context(), {
+      signal: new AbortController().signal, invalidate() {},
+    }, { includeDefaultRoots: false, customSkillDirs: [root], watch: false })
+    const cancellation = new AbortController()
+    const discovery = provider.list({ signal: cancellation.signal })
+    const rejected = expect(discovery).rejects.toThrow('stop discovery')
+    try {
+      await gate.started.promise
+      cancellation.abort(new Error('stop discovery'))
+      await rejected
+      await provider.dispose()
+      gate.release.resolve(undefined)
+      await gate.completed.promise
+      await new Promise<void>((resolve) => { setImmediate(resolve) })
+      expect(watcherHarness.statCalls.filter(path => path.startsWith(root))).toHaveLength(1)
+    } finally {
+      gate.release.resolve(undefined)
+      await provider.dispose()
+    }
+  })
+
+  it.each(['watchReadyTimeoutMs', 'discoveryTimeoutMs'] as const)('rejects invalid %s timer bounds', async (field) => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    for (const value of [0, -1, 0.5, 2_147_483_648, Infinity]) {
+      expect(() => ctx.skills.registerProvider(control => new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
+        includeDefaultRoots: false, [field]: value,
+      }))).toThrow(field)
+    }
+  })
+
   it('canonicalizes an existing root before opening its native watcher', async () => {
     const target = await tempDir('skill-watch-canonical-target')
     const aliasParent = await tempDir('skill-watch-canonical-alias')

@@ -251,6 +251,8 @@ flowchart TD
     pkg_office_to_pdf["office-to-pdf"]
   end
   subgraph group_drama["packages/drama"]
+    pkg_bgm_license_info["bgm-license-info"]
+    pkg_character_asset_catalog["character-asset-catalog"]
     pkg_drama_settings["drama-settings"]
     pkg_drama_skills["drama-skills"]
     pkg_screenplay_project["screenplay-project"]
@@ -894,6 +896,7 @@ flowchart TD
   pkg_drama_settings --> pkg_tools
   pkg_tool_audio_transcribe --> pkg_llm
   pkg_tool_audio_transcribe --> pkg_tools
+  pkg_tool_bgm_compose --> pkg_bgm_license_info
   pkg_tool_bgm_compose --> pkg_llm
   pkg_tool_bgm_compose --> pkg_subprocess
   pkg_tool_bgm_compose --> pkg_tools
@@ -902,6 +905,7 @@ flowchart TD
   pkg_tool_drama_assets --> pkg_credentials
   pkg_tool_drama_assets --> pkg_llm
   pkg_tool_drama_assets --> pkg_tools
+  pkg_tool_episode_render --> pkg_bgm_license_info
   pkg_tool_episode_render --> pkg_llm
   pkg_tool_episode_render --> pkg_tools
   pkg_tool_shot_script --> pkg_llm
@@ -964,6 +968,7 @@ flowchart TD
   pkg_mcp_resources --> pkg_scope
   pkg_mcp_resources --> pkg_system_prompt
   pkg_mcp_resources --> pkg_tools
+  pkg_perception_bgm --> pkg_bgm_license_info
   pkg_perception_bgm --> pkg_tools
   pkg_agent_preset_registry --> pkg_agent
   pkg_agent_preset_registry --> pkg_scope
@@ -1557,6 +1562,8 @@ flowchart TD
 | [`client-web`](../packages/client/web) | `client` | — |
 | [`credentials`](../packages/credentials/credentials) | `credentials` | — |
 | [`office-to-pdf`](../packages/document/office-to-pdf) | `document` | — |
+| [`bgm-license-info`](../packages/drama/bgm-license-info) | `drama` | — |
+| [`character-asset-catalog`](../packages/drama/character-asset-catalog) | `drama` | — |
 | [`drama-skills`](../packages/drama/skills) | `drama` | — |
 | [`experimental-agent-team-profile`](../packages/experimental/agent-team-profile) | `experimental` | — |
 | [`experimental-inspector-profile`](../packages/experimental/inspector-profile) | `experimental` | — |
@@ -1716,10 +1723,10 @@ flowchart TD
 | [`workspace-changes`](../packages/deliverables/workspace-changes) | `deliverables` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
 | [`drama-settings`](../packages/drama/drama-settings) | `drama` | [`tools`](../packages/core/tools) |
 | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
-| [`tool-bgm-compose`](../packages/drama/tool-bgm-compose) | `drama` | [`llm`](../packages/llm/llm), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
+| [`tool-bgm-compose`](../packages/drama/tool-bgm-compose) | `drama` | [`bgm-license-info`](../packages/drama/bgm-license-info), [`llm`](../packages/llm/llm), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
 | [`tool-character-reference`](../packages/drama/tool-character-reference) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-drama-assets`](../packages/drama/tool-drama-assets) | `drama` | [`credentials`](../packages/credentials/credentials), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
-| [`tool-episode-render`](../packages/drama/tool-episode-render) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
+| [`tool-episode-render`](../packages/drama/tool-episode-render) | `drama` | [`bgm-license-info`](../packages/drama/bgm-license-info), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-shot-script`](../packages/drama/tool-shot-script) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`experimental-browser-use-chrome-devtools-mcp`](../packages/experimental/browser-use-chrome-devtools-mcp) | `experimental` | [`agent`](../packages/core/agent), [`browser-use`](../packages/browser-use/browser-use), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`experimental-browser-use-playwright-mcp`](../packages/experimental/browser-use-playwright-mcp) | `experimental` | [`agent`](../packages/core/agent), [`browser-use`](../packages/browser-use/browser-use), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
@@ -1735,7 +1742,7 @@ flowchart TD
 | [`tool-jubian`](../packages/jubian/tool-jubian) | `jubian` | [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`jubian`](../packages/jubian/jubian), [`jubian-api`](../packages/jubian/jubian-api), [`muse-account`](../packages/host/muse-account), [`tools`](../packages/core/tools) |
 | [`tool-lsp`](../packages/lsp/tool-lsp) | `lsp` | [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`system-prompt`](../packages/core/system-prompt), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`mcp-resources`](../packages/mcp/mcp-resources) | `mcp` | [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
-| [`perception-bgm`](../packages/perception/perception-bgm) | `perception` | [`tools`](../packages/core/tools) |
+| [`perception-bgm`](../packages/perception/perception-bgm) | `perception` | [`bgm-license-info`](../packages/drama/bgm-license-info), [`tools`](../packages/core/tools) |
 | [`agent-preset-registry`](../packages/preset/agent-preset-registry) | `preset` | [`agent`](../packages/core/agent), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`settings`](../packages/settings/settings), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol) |
 | [`session-checkpoint-policy`](../packages/session/session-checkpoint-policy) | `session` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`tools`](../packages/core/tools) |
 | [`session-title-all-prompts-llm`](../packages/session/session-title-all-prompts-llm) | `session` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-title`](../packages/session/session-title), [`session-title-llm`](../packages/session/session-title-llm) |

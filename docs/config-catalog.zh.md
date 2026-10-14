@@ -3200,7 +3200,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-skill-filesystem`
 
 - `inject`: `skills`
-- `source`: [`packages/skill/skill-filesystem/src/index.ts:55`](../packages/skill/skill-filesystem/src/index.ts)
+- `source`: [`packages/skill/skill-filesystem/src/index.ts:57`](../packages/skill/skill-filesystem/src/index.ts)
 
 ```ts config-catalog
 /** Local filesystem skill provider configuration. */
@@ -3227,6 +3227,10 @@ export interface Config {
   watchPollIntervalMs?: number
   /** Maximum distinct project roots whose skill directories remain watched. */
   watchMaxProjects?: number
+  /** Maximum milliseconds for an existing root watcher to become ready. */
+  watchReadyTimeoutMs?: number
+  /** Maximum milliseconds for one complete root discovery, including watcher readiness. */
+  discoveryTimeoutMs?: number
   /** Whether watched symbolic links follow their target files. */
   watchFollowSymlinks?: boolean
   /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR` when default roots are included, otherwise mounts none. */
@@ -3910,7 +3914,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-bgm-compose`
 
 - `inject`: `tools` · `subprocess`
-- `source`: [`packages/drama/tool-bgm-compose/src/index.ts:22`](../packages/drama/tool-bgm-compose/src/index.ts)
+- `source`: [`packages/drama/tool-bgm-compose/src/index.ts:23`](../packages/drama/tool-bgm-compose/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-varying executable, subprocess limits, and batch policy. */
@@ -4000,8 +4004,8 @@ export interface Config {
  * Plugin config. Every field is a deployment-varying choice: where the media
  * binaries are, the two audio gains the operator approved, whether the GPU
  * encoder is probed, and the font directory and families. The delivery
- * specification itself — geometry, frame rate, bitrates, subtitle layout, ending
- * length — is not configurable.
+ * geometry and frame rate are captured from the project into the timeline;
+ * ending and watermark treatment are selected by the explicit visual medium.
  */
 export interface Config {
   /** ffmpeg executable; defaults to `ffmpeg` from `PATH`. */
@@ -5209,7 +5213,9 @@ export interface Config {
 | `@deepseek-ai/dsh-app-boot` | — | [`packages/boot/app-boot/src/index.ts`](../packages/boot/app-boot/src/index.ts) |
 | `@deepseek-ai/dsh-atomic-write` | — | [`packages/util/atomic-write/src/index.ts`](../packages/util/atomic-write/src/index.ts) |
 | `@deepseek-ai/dsh-base` | — | [`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts) |
+| `@deepseek-ai/dsh-bgm-license-info` | — | [`packages/drama/bgm-license-info/src/index.ts`](../packages/drama/bgm-license-info/src/index.ts) |
 | `@deepseek-ai/dsh-brand` | — | [`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts) |
+| `@deepseek-ai/dsh-character-asset-catalog` | — | [`packages/drama/character-asset-catalog/src/index.ts`](../packages/drama/character-asset-catalog/src/index.ts) |
 | `@deepseek-ai/dsh-chunked-list` | — | [`packages/util/chunked-list/src/index.ts`](../packages/util/chunked-list/src/index.ts) |
 | `@deepseek-ai/dsh-client-store` | — | [`packages/client/store/src/index.ts`](../packages/client/store/src/index.ts) |
 | `@deepseek-ai/dsh-client-test-runtime` | — | [`packages/test-support/client-runtime/src/index.ts`](../packages/test-support/client-runtime/src/index.ts) |

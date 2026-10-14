@@ -48,7 +48,9 @@ kind: "package-bundle"
 
 `drama_project` 在已有绝对项目目录中读取、预览和更新项目。没有结构化圣经时，`read` 返回 `unconfigured`，保留旧配置并给出当前 Settings 默认值，不创建文件。新项目记录交付默认值与不可变的 `initial_budget_cents` 初始快照。`current_settings_budget_cents` 返回默认值；已绑定项目还返回来自计费调用同一授权来源的实时 `budget` 账务。明确项目额度覆盖默认值。可编辑项目 JSON 不复制当前金额；工具返回的 Markdown 包含实时回读，磁盘圣经指向实际授权。通过 `jubian_budget` 或项目预算编辑器调整额度。`preview` 合并已确认的修改并列出受影响阶段；`update` 要求相同 changes/reason、精确 `expected_revision` 和匹配的 `preview_fingerprint`。
 
-`project_config.json` 是权威数据。`project_bible` 保存风格、比例、精确视频模型/平台/生成分辨率、独立的交付宽高/帧率/码率、灵活分集计划、可选角色身份与已确认声音描述、稳定视频包与分镜映射、已完成任务引用和版本历史。风格接受自由文本，保留已确认的自填答案。顶层 `jubian_script_id` 与 `delivery.max_effective_chars_per_shot` 继续供现有读取方使用。其他旧字段在更新后保留。已有项目和视频包绑定不能被静默替换；已完成任务引用只追加，不抹掉旧记录。
+`project_config.json` 是权威数据。`project_bible` 保存风格、明确的视觉类型、比例、精确视频模型/平台/生成分辨率、独立的交付宽高/帧率/码率、灵活分集计划、可选角色身份与已确认声音描述、稳定视频包与分镜映射、已完成任务引用和版本历史。风格接受自由文本，保留已确认的自填答案。顶层 `jubian_script_id` 与 `delivery.max_effective_chars_per_shot` 继续供现有读取方使用。其他旧字段在更新后保留。已有项目和视频包绑定不能被静默替换；已完成任务引用只追加，不抹掉旧记录。
+
+`visual_medium` 接受 `animation_3d` 和 `photorealistic`，与自由文本 `style` 独立。3D 漫的草稿和成片不新增片尾或水印；仿真人保留二者。旧项目缺值时保留缺值并明确提示类型未确认，沿用旧版带标识交付，绝不从风格文本或比例猜测。类型变化写入版本记录，并提示复核资产、镜头、视频、草稿和成片阶段，不删除已完成任务。[项目圣经技能](../skills/skills/tweet-drama-project-bible/SKILL.md) 负责明确选择，[渲染器](../tool-episode-render/README.zh.md) 负责时间线快照与交付规则执行。
 
 每个角色的 `voice_profile` 可用 `reference_audio`（HTTPS URL）、`reference_audio_asset_id`、`reference_audio_sha256`（64 位十六进制）和 `reference_audio_duration_seconds`（实测，大于 0 且不超过 15）绑定已认可音频资产。替换已绑定参考须同时提供四项；更换服装或省略声音字段会保留当前声线。在已预览的更新中设 `reference_audio: null` 会删除这四项引用，保留描述和说话人 ID，落盘不存 null。旧的未绑定路径或 ID 参考仍有效。[声音连续性技能](../skills/skills/tweet-drama-voice-continuity/SKILL.md) 负责音频库回读、样本认可和原卡绑定；存储这些字段不验证远端媒体，也不能替代实际听音。
 
@@ -176,7 +178,7 @@ Client 构建从已声明的 `@deepseek-ai/dsh-typert-protocol` 构建依赖内�
 
 - **项目预览报告影响但不改变制作状态**——流程持有 stale 阶段对账和真实媒体 QA。项目工具记录目录选择与已确认声音指导，不发送远端请求，无法保证原生生成音色固定或支持参考音频。
 - **设置页接受路径字符串** —— 不检查存在性，也不展开环境变量。`drama_draft_dir` 在返回路径供生成使用前验证宿主上的草稿根目录；这不能证明编辑器实际配置使用了哪个目录，因此该位置由用户提供。单集渲染器不创建原生草稿。
-- **交付规格只被存下，尚未被应用** —— `dsh-tool-episode-render` 目前仍按自己固定的 1440x2560 样式出片；这个设置段是那份契约将来被读取的地方，在那之前改这里不会改变成片。
+- **交付变更不会重写已有产物** —— 明确修改类型或画布后，重新准备时间线并重建受影响的草稿与成片。源素材保持不变；交付规则只控制新增片尾和水印。渲染器继续使用自己的码率下限。
 - **默认值属于本包** —— 想要不同默认值的部署要改 schema；这个命名空间的组合没有声明 `base` 层，所以每个默认值只有一处出处。反面是升级可能改掉某个部署正在依赖的默认值，这也是页面把每个解析后的值都显示出来的原因。
 - **路径框留空会清除其覆盖值** —— 解析后的 `deliveryDir` 表示 `<项目>/delivery`；解析后的 `jianyingDraftDir` 仍为空，不能因此认为已找到本机安装的剪映目录。这个页面不拿路径对宿主文件系统作校验。
 - **组件清单的可信度取决于它所读的清单** —— 状态来自 `pluginInventory`，而部署未必组合它；那时页面对每个包都报无法查询，而不是做任何假设。即便有清单，如果某个包实际挂载的模块说明符与列出的不同，它会显示为「清单里没有」；只带条件的 preset 行显示为「按条件加载」，因为这个判断归 Loader。多个组合都点名同一个包时（两个 preset，或 preset 与宿主 Loader），由带 fiber 状态的那一行作答，因为已挂载的组合才是会话能跑的组合；页面每个包只显示一行，不说明它来自哪个组合。

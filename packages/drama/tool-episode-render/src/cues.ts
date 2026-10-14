@@ -21,6 +21,7 @@ import { ALIGNED_STRATEGY, cueRateFindings, effectiveCharacterCount, parseAlignm
   placeAlignedCues } from './speech.ts'
 import type { CueRateFinding, ShotPlacement } from './speech.ts'
 import { formatSrtDocument } from './subtitles.ts'
+import { deliveryPolicyFor, readProjectDelivery } from './delivery-policy.ts'
 import { appendClips } from './timeline.ts'
 import type { MediaToolkit, SubtitleCue, Timeline } from './types.ts'
 
@@ -80,17 +81,18 @@ export interface BuiltCues {
  * @throws {Error} When the manifest, the plan, or the alignment document is unusable.
  */
 export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues> {
+  const delivery = await readProjectDelivery(input.project)
   const rows = parseShotManifest(await readJsonDocument(input.shotsPath, '成片清单'), input.shotsPath)
   const plan = parseLinePlan(await readJsonDocument(input.linesPath, '台词计划'), input.linesPath)
   const aligned = new Map(parseAlignment(await readJsonDocument(input.alignmentPath, '对齐文档'),
     input.alignmentPath).map(row => [row.shot, row]))
   const shots = await resolveShots(input.toolkit, input.project, rows)
-  const timeline = appendClips(shots.map(shot => shot.durationUs))
+  const timeline = { ...appendClips(shots.map(shot => shot.durationUs)), delivery }
   const planned = new Map(plan.map(row => [row.shot, row.lines]))
 
   const placements: ShotPlacement[] = []
   const failures: CueDefect[] = []
-  const warnings: string[] = []
+  const warnings: string[] = [...deliveryPolicyFor(delivery).warnings]
   let cursorUs = 0
   for (const shot of shots) {
     const durationSeconds = shot.durationUs / 1_000_000

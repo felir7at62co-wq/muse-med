@@ -95,7 +95,7 @@ A read (`list`/`snapshot`) collects each layer's candidates: runtime skills firs
 
 ### Loading and staleness
 
-`get()` selects the winning candidate, races the provider's load against the lookup's abort signal, and rechecks cancellation after selection or a cache hit. The returned definition must match the selected candidate's name; a mismatch invalidates the cached catalogs so the next snapshot rediscovers the provider's skills. Definitions are never cached — every load asks the provider for the current body.
+`get()` selects the winning candidate, races the provider's load against the lookup's abort signal, and rechecks cancellation after selection or a cache hit. Cancelled discovery and loading reject with the signal's original reason, including non-Error values; a provider that cancels synchronously still has its pending rejection contained. The returned definition must match the selected candidate's name; a mismatch invalidates the cached catalogs so the next snapshot rediscovers the provider's skills. Definitions are never cached — every load asks the provider for the current body.
 
 ### Invalidation
 

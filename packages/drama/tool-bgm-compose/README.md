@@ -50,6 +50,8 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 The plan uses `episodes[].segments[]`. Each selected episode declares `body_duration_seconds`, optional `crossfade_seconds`, and contiguous segments with `track`, `source`, `start_seconds`, `end_seconds`, and `reason`. A segment may freeze `source_start_seconds` and `source_sha256`; `valence` and `arousal` preserve optional candidate measurements without invoking `bgm_match`.
 
+Episodes may declare `intended_use` as `commercial`, `non_commercial`, or `unknown`; segments may retain `track_id` and `license_info` from the selected download. All methods return `intended_use` and per-track `license_records`, and analyzed segments retain normalized license declarations. The [license metadata library](../bgm-license-info/README.md) defines the fields and missing-data rules. Audio `source` remains the file path; `license_info.source` names the rights evidence. Commercial-use conflicts are warnings and do not block composition. `preview` and `compose` bind each license record to the measured `source_sha256`; `verify` retains only an optional digest declared by the plan, without reading the source tracks or certifying rights.
+
 `project` is the base for every relative `timeline`, `plan`, and `output`; none of them uses the process working directory. For a cross-tool handoff, write a control file to an absolute path inside the project and pass the absolute `path` returned by `write` unchanged. Results return normalized absolute paths. A rejected project path reports the input, project, resolved path, and reason.
 
 | Method | Writes | Result |
@@ -106,7 +108,7 @@ A mounted row contributes `drama_bgm`; the generated [tool catalog](../../../doc
 
 #### Token effect
 
-The request gains one fixed tool schema. `preview` and `compose` results grow linearly with the selected episode's segment count because every analyzed segment returns its source identity, timing, measured volume, gain, and selection reason; `verify` returns no segment analysis.
+The request gains one fixed tool schema. `preview` and `compose` results grow linearly with the selected episode's segment count because every analyzed segment returns its source identity, timing, measured volume, gain, and selection reason; `verify` returns no segment analysis. All methods also return one license record per planned segment, so their rights metadata grows linearly with the plan.
 
 #### KV Cache effect
 

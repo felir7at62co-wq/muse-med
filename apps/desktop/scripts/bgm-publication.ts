@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { licenseRiskWarnings, normalizeLicenseInfo, type LicenseInfo } from '@deepseek-ai/dsh-bgm-license-info'
 
 /** Public track metadata; local filesystem paths and credentials are excluded. */
 export interface PublishedBgmTrack {
@@ -14,6 +15,8 @@ export interface PublishedBgmTrack {
   readonly valence: number
   readonly arousal: number
   readonly moods: readonly string[]
+  readonly license_info: LicenseInfo
+  readonly license_warnings: readonly string[]
 }
 
 /** Versioned catalog consumed by the BGM matching plugin. */
@@ -106,8 +109,10 @@ export async function prepareBgmPublication(indexPath: string, libraryDir: strin
     if (!contentType) throw new Error('BGM publication: unsupported audio extension')
     await verifyBgmSource(source, row.bytes, row.sha256)
     const key = `bgm/tracks/${row.sha256.slice(7)}${extension}`
+    const licenseInfo = normalizeLicenseInfo(row.license_info)
     tracks.push({ id: row.sha256, name: basename(row.path), sha256: row.sha256, bytes: row.bytes,
-      url: `${origin.origin}/${key}`, valence, arousal, moods: row.moods as string[] })
+      url: `${origin.origin}/${key}`, valence, arousal, moods: row.moods as string[],
+      license_info: licenseInfo, license_warnings: licenseRiskWarnings(licenseInfo, 'unknown') })
     artifacts.push({ source, key, sha256: row.sha256, bytes: row.bytes, contentType })
   }
   tracks.sort((a, b) => a.id.localeCompare(b.id))

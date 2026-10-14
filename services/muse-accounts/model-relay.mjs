@@ -10,6 +10,7 @@ import {pipeline} from 'node:stream/promises';
 import {Readable} from 'node:stream';
 import {readModelFailure,modelFailure} from './model-errors.mjs';
 import {createModelKeyPool,resolveModelKeyPoolPolicy,ModelKeyPoolError} from './model-key-pool.mjs';
+import {closeModelUpstream,modelSseBytes} from './model-sse.mjs';
 
 export function publicIPv4(address){
  if(isIP(address)!==4)return false;
@@ -72,26 +73,41 @@ export async function fetchPublicModelListing(url,init){
   request.on('error',reject);request.end();
  });
 }
-export async function forwardModel({config,body,res,signal}){
+/** Forward one request without retries, ending SSE on [DONE] rather than transport EOF.
+ * @param {object} options Private settings, body, client response, cancellation and optional admission wait milliseconds.
+ * @returns {Promise<void>} Settles after forwarding and upstream teardown; rejects transport failures.
+ */
+export async function forwardModel({config,body,res,signal,queueMs}){
  const target=completionEndpoint(config.baseURL);
- await new Promise((resolve,reject)=>{
-  const upstream=https.request(target,{method:'POST',lookup:publicLookup,signal,headers:{'content-type':'application/json',authorization:'Bearer '+config.apiKey,accept:body.stream?'text/event-stream':'application/json'}},response=>{
-   if(response.statusCode<200||response.statusCode>=300){
-    console.error('[muse-model-relay] upstream status',response.statusCode);
-    readModelFailure(response).then(failure=>{
-     const retryAfter=response.headers['retry-after'];
-     res.writeHead(response.statusCode>=400&&response.statusCode<500?response.statusCode:502,{'content-type':'application/json','cache-control':'no-store',
-      ...(response.statusCode===429&&typeof retryAfter==='string'&&/^\d{1,5}$/.test(retryAfter)?{'retry-after':retryAfter}:{})});
-     res.end(JSON.stringify(failure));resolve();
-    },reject);return;}
-   if(body.stream&&!String(response.headers['content-type']||'').toLowerCase().includes('text/event-stream')){
-    response.resume();res.writeHead(502,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(modelFailure(502,'')));resolve();return;}
-   res.writeHead(200,{'content-type':body.stream?'text/event-stream; charset=utf-8':'application/json','cache-control':'no-store','x-accel-buffering':'no'});
-   pipeline(response,res).then(resolve,reject);
+ let upstream,response;
+ try{
+  const started=performance.now();
+  response=await new Promise((resolve,reject)=>{
+   upstream=https.request(target,{method:'POST',lookup:publicLookup,signal,headers:{'content-type':'application/json',authorization:'Bearer '+config.apiKey,accept:body.stream?'text/event-stream':'application/json'}},resolve);
+   upstream.setTimeout(300000,()=>upstream.destroy(Error('Upstream idle timeout')));
+   upstream.on('error',reject);upstream.end(JSON.stringify(body));
   });
-  upstream.setTimeout(300000,()=>upstream.destroy(Error('Upstream idle timeout')));
-  upstream.on('error',reject);upstream.end(JSON.stringify(body));
- });
+  const timings={'server-timing':[
+   ...(queueMs===undefined?[]:['gateway-queue;dur='+queueMs.toFixed(1)]),
+   'upstream-headers;dur='+(performance.now()-started).toFixed(1),
+  ].join(', ')};
+  if(response.statusCode<200||response.statusCode>=300){
+   console.error('[muse-model-relay] upstream status',response.statusCode);
+   const failure=await readModelFailure(response);
+   const retryAfter=response.headers['retry-after'];
+   res.writeHead(response.statusCode>=400&&response.statusCode<500?response.statusCode:502,{'content-type':'application/json','cache-control':'no-store',...timings,
+    ...(response.statusCode===429&&typeof retryAfter==='string'&&/^\d{1,5}$/.test(retryAfter)?{'retry-after':retryAfter}:{})});
+   res.end(JSON.stringify(failure));return;
+  }
+  if(body.stream&&!String(response.headers['content-type']||'').toLowerCase().includes('text/event-stream')){
+   res.writeHead(502,{'content-type':'application/json','cache-control':'no-store',...timings});res.end(JSON.stringify(modelFailure(502,'')));return;
+  }
+  res.writeHead(200,{'content-type':body.stream?'text/event-stream; charset=utf-8':'application/json','cache-control':'no-store','x-accel-buffering':'no',...timings});
+  await pipeline(body.stream?modelSseBytes(response):response,res);
+ }finally{
+  if(response)await closeModelUpstream(response);
+  if(upstream)await closeModelUpstream(upstream);
+ }
 }
 /** Resolve the model's declared default effort while retaining an explicit request choice.
  * @param {object} config Resolved private model settings.
@@ -118,7 +134,7 @@ export function createModelRelay({config,globalModels,secret,accounts,forward=fo
  const changed=id=>{for(const controller of active.get(id)||[])controller.abort();};accounts.on('change',changed);
  const server=http.createServer(async(req,res)=>{
   const fail=(status,message,headers={})=>{if(res.headersSent){res.destroy();return;}res.writeHead(status,{'content-type':'application/json','cache-control':'no-store',...headers});res.end(JSON.stringify({error:{message}}));};
-  let controllers,controller,abort,id,lease;
+  let controllers,controller,abort,id,lease,queueMs;
   try{
    const token=req.headers.authorization?.replace(/^Bearer /,'');id=token?.split('.')[0];
    if(!/^[a-f0-9]{16}\.[a-f0-9]{64}$/.test(token||'')||!timingSafeEqual(Buffer.from(token),Buffer.from(accountToken(secret,id)))||!accounts.get(id)||accounts.get(id).disabled){fail(401,'工作间认证失效');return;}
@@ -142,7 +158,7 @@ export function createModelRelay({config,globalModels,secret,accounts,forward=fo
    for(const key of ['max_tokens','max_completion_tokens'])if(body[key]!==undefined&&(!Number.isSafeInteger(body[key])||body[key]<1)){fail(400,'输出上限无效');return;}
    try{resolveModelReasoning(current,{...body});}catch(error){fail(400,error.message);return;}
    if(route==='zhipu-official'&&poolKeys().length){
-    lease=await pool.acquire(controller.signal);controller.signal.throwIfAborted();
+    const queuedAt=performance.now();lease=await pool.acquire(controller.signal);queueMs=performance.now()-queuedAt;controller.signal.throwIfAborted();
     const latest=globalModels.resolve(route,body.model);
     if(!latest?.apiKey||!poolKeys().includes(lease.key)){fail(503,'模型配置已变化，请刷新模型列表');return;}
     current={...latest,apiKey:lease.key};
@@ -152,7 +168,7 @@ export function createModelRelay({config,globalModels,secret,accounts,forward=fo
    try{resolveModelReasoning(current,body);}catch(error){fail(400,error.message);return;}
    for(const key of ['max_tokens','max_completion_tokens'])if(body[key]!==undefined)body[key]=Math.min(body[key],current.maxTokens);
    if(body.max_tokens===undefined&&body.max_completion_tokens===undefined)body.max_tokens=current.maxTokens;
-   await forward({config:current,body,res,signal:controller.signal});
+   await forward({config:current,body,res,signal:controller.signal,queueMs});
   }catch(error){if(controller?.signal.aborted)fail(401,'账户失效或请求已取消');
    else if(error instanceof ModelKeyPoolError)fail(503,'模型请求正在排队，请稍后重试',{'retry-after':'1'});
    else{console.error('[muse-model-relay] 连接失败');fail(502,'模型服务连接失败，请联系管理员检查配置。');}}
