@@ -5,7 +5,7 @@ description: 推文短剧剧本拆分 skill。用于 agents 从 txt/doc/docx/mar
 
 # 剧本拆分
 
-把用户上传的整本剧本拆成 `episodes/<episode>.txt`。
+把用户上传的剧本在已确认分工范围内拆成 `episodes/<episode>.txt`。
 
 ## 流程
 
@@ -17,7 +17,7 @@ description: 推文短剧剧本拆分 skill。用于 agents 从 txt/doc/docx/mar
 
 ## 脚本接口
 
-需要 Python 3.11+ 与 `python-docx`。从本技能实际目录导入 `scripts/script_processor.py` 的 `ScriptProcessor`；`.doc` / `.md` 先用 `tweet-drama-script-convert` 转成 `.txt`。先调用 `analyze(script_path)`，审核候选、过滤决定及原文差异后，再调用 `save(project_dir, analysis)`；仅在用户要求重新生成时允许覆盖分集。无标题时脚本提供单集候选，仍需人工确认。`save` 仅写分集和 `episodes/manifest.json`，不管理制作状态；审核通过后由 `tweet-drama-core` 维护唯一 `pipeline_state`。
+需要 Python 3.11+ 与 `python-docx`。从本技能实际目录导入 `scripts/script_processor.py` 的 `ScriptProcessor`；`.doc` / `.md` 先用 `tweet-drama-script-convert` 转成 `.txt`。先调用 `analyze(script_path)`，审核候选、过滤决定及原文差异后，再调用 `save(project_dir, analysis, work_scope=..., expected_episode_count=...)`；分工字段来自用户明确范围，格式见 [Core 范围契约](../tweet-drama-core/references/io-contract.md#episode-work-scope-and-coverage)。已声明范围和整剧总数在参数省略或为 None 时保留，分析集号必须与分工集合完全一致；显式分工保存只替换范围内分集，保留协作者其他文件和清单条目。未声明分工的旧调用保留整批替换行为，不能用于合并多人分集；仅在用户要求重新生成时允许覆盖分集。无标题时脚本提供单集候选，仍需人工确认。复制技能时保持相邻 `tweet-drama-core` 目录，复用其范围验证器。`save` 仅写分集和 `episodes/manifest.json`，不管理制作状态；审核通过后由 `tweet-drama-core` 维护唯一 `pipeline_state`。
 
 ## 输出
 

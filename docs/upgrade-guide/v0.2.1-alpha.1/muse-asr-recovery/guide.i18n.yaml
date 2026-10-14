@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/muse-asr-recovery/guide.md
+/:
+  en: 427ccc30ecf61f90
+  zh: b4863b307d2f77f5
+/muse-transcription-recovery:
+  en: 88dcec3aebf29da9
+  zh: 35c22a2f25a3b55b
+/muse-transcription-recovery/change:
+  en: 424941b0e43e340d
+  zh: caa5070d15eedb86
+/muse-transcription-recovery/migration:
+  en: 3b75067ba4f64b3a
+  zh: f437a2c6cae0d9eb

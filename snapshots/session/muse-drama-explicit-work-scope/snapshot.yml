@@ -1,0 +1,14 @@
+version: 1
+scenario: muse-drama-explicit-work-scope
+profile: headless
+composition: muse-drama-explicit-work-scope
+recording: authored
+platform: posix
+header:
+  class: muse-drama-explicit-work-scope
+  pin: true
+  systemPromptSource: text-turn
+  toolSchemasSource: text-turn
+workspace:
+  setup: muse-drama-explicit-work-scope
+writerOutput: true

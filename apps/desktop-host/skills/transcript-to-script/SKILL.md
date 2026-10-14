@@ -35,7 +35,7 @@ qa/report-v1.md                来源时间码、处理范围、疑点及交付�
 
 ## 核对材料
 
-需要从本地音视频取得转写时，加载 `audio-transcribe`，调用 `audio_transcribe start` 明确传 `purpose: "screenplay"`，然后用同一收据查询；已有原始转写可直接核对，不为改写剧本重复识别。
+需要从本地音视频取得转写时，加载 `audio-transcribe`，调用 `audio_transcribe start` 明确传 `purpose: "screenplay"`，然后按实际 `recovery` 用原收据恢复；已有原始转写可直接核对，不为改写剧本重复识别。视频转剧本以 ASR 为主要语音文字来源，队列确实满时，只把尚未受理且有可靠可见文字的几集按实测效率分给 OCR；具体容量、未知结果和版本选择沿 `audio-transcribe`，不把排队或网络错误当成改用 OCR 的充分依据。OCR 与 ASR 保留独立原稿，动作、人物、场景和转场继续依真实画面核对。
 
 ### 视频全时段采样与实际看图
 
