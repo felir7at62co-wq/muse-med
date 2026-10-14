@@ -9,13 +9,15 @@ import { join } from 'node:path'
 export function createInstallerTestSource(source, appRoot) {
   const sourceDirectory = '!define INSTALLER_SOURCE_DIR "${__FILEDIR__}\\..\\installer"'
   const directoriesInclude = '!include "${__FILEDIR__}\\installer-directories.nsh"'
+  const pagesInclude = '!include "${INSTALLER_SOURCE_DIR}\\pages.nsh"'
   const prerequisiteCall = '  Call MuseEnsureVCRuntime'
-  for (const marker of [sourceDirectory, directoriesInclude, prerequisiteCall]) {
+  for (const marker of [sourceDirectory, directoriesInclude, pagesInclude, prerequisiteCall]) {
     if (source.split(marker).length !== 2) throw new Error(`Installer fixture requires one production marker: ${marker}`)
   }
   return source
     .replace(sourceDirectory, `!define INSTALLER_SOURCE_DIR "${join(appRoot, 'installer')}"`)
     .replace(directoriesInclude, `!include "${join(appRoot, 'scripts', 'installer-directories.nsh')}"`)
+    .replace(pagesInclude, '!include "${INSTALLER_TEST_PAGES_FILE}"')
     .replace(prerequisiteCall, `${prerequisiteCall}
   Push $0
   Push $1
@@ -30,6 +32,76 @@ export function createInstallerTestSource(source, appRoot) {
   ClearErrors
   Pop $1
   Pop $0`)
+}
+
+/** Instrument a private copy of the actual Finish callbacks and resolve includes at their original locations.
+ * @param {string} source - Production page callbacks.
+ * @returns {string} Unchanged launch/error operations with per-process, credential-free stage receipts.
+ */
+export function createInstallerTestPagesSource(source) {
+  const replacements = [
+    ['!include "${__FILEDIR__}\\path.nsh"', '!include "${INSTALLER_SOURCE_DIR}\\path.nsh"'],
+    ['!include "${__FILEDIR__}\\drawing.nsh"', '!include "${INSTALLER_SOURCE_DIR}\\drawing.nsh"'],
+    ['    SendMessage $HWNDPARENT ${WM_NOTIFY_OUTER_NEXT} 1 0',
+      '    SendMessage $HWNDPARENT ${WM_NOTIFY_OUTER_NEXT} 1 0\n    !insertmacro InstallerFixtureTrace "outer-next-return" "" ""'],
+    ['Function InstallerFinishLeave\n',
+      'Function InstallerFinishLeave\n    !insertmacro InstallerFixtureTrace "finish-leave-entry" "" ""\n'],
+    ['        Call InstallerStartApplication\n',
+      '        Call InstallerStartApplication\n        !insertmacro InstallerFixtureTrace "finish-launch-return" "" ""\n'],
+    ['        ${If} ${Errors}\n            Abort\n        ${EndIf}\n',
+      '        ${If} ${Errors}\n            !insertmacro InstallerFixtureTrace "finish-leave-abort" "" ""\n            Abort\n        ${EndIf}\n'],
+    ['    ${EndIf}\nFunctionEnd\n\nFunction InstallerStartApplication',
+      '    ${EndIf}\n    !insertmacro InstallerFixtureTrace "finish-leave-return" "" ""\nFunctionEnd\n\nFunction InstallerStartApplication'],
+    ['Function InstallerStartApplication\n',
+      'Function InstallerStartApplication\n    !insertmacro InstallerFixtureTrace "application-launch-entry" "" ""\n'],
+    ['        ${StdUtils.ExecShellAsUser} $1 "$INSTDIR\\${APP_EXECUTABLE_FILENAME}" "open" "$0"',
+      '        !insertmacro InstallerFixtureTrace "before-launch" "elevated-shell" ""\n        ${StdUtils.ExecShellAsUser} $1 "$INSTDIR\\${APP_EXECUTABLE_FILENAME}" "open" "$0"\n        !insertmacro InstallerFixtureTrace "after-launch" "elevated-shell" "$1"'],
+    ['        Exec \'"$INSTDIR\\${APP_EXECUTABLE_FILENAME}" $0\'', [
+      '        !insertmacro InstallerFixtureTrace "before-launch" "direct-exec" ""',
+      '        Exec \'"$INSTDIR\\${APP_EXECUTABLE_FILENAME}" $0\'',
+      '        !insertmacro InstallerFixtureTrace "after-launch" "direct-exec" ""',
+    ].join('\n')],
+  ]
+  for (const [marker, replacement] of replacements) {
+    if (source.split(marker).length !== 2) throw new Error(`Installer page fixture requires one production marker: ${marker}`)
+    source = source.replace(marker, replacement)
+  }
+  if (source.includes('${__FILEDIR__}')) throw new Error('Installer page fixture has an unresolved source-relative path')
+  return `; Private test receipts preserve the NSIS error flag, stack and caller registers.
+Var InstallerFixtureTraceStarted
+!macro InstallerFixtureTrace Event Mode Result
+    Push $0
+    Push $1
+    Push $2
+    Push $3
+    StrCpy $3 0
+    IfErrors 0 +2
+        StrCpy $3 1
+    StrCpy $2 "\${Result}"
+    System::Call 'kernel32::GetCurrentProcessId() i.r0'
+    \${If} $InstallerFixtureTraceStarted == 1
+        FileOpen $1 "\${INSTALLER_TEST_TRACE_DIR}\\finish-$0.jsonl" a
+    \${Else}
+        StrCpy $InstallerFixtureTraceStarted 1
+        FileOpen $1 "\${INSTALLER_TEST_TRACE_DIR}\\finish-$0.jsonl" w
+    \${EndIf}
+    \${IfNot} \${Errors}
+        FileSeek $1 0 END
+        FileWrite $1 '{"event":"\${Event}","mode":"\${Mode}","result":"$2","errors":$3}$\\r$\\n'
+        FileClose $1
+    \${EndIf}
+    \${If} $3 == 1
+        SetErrors
+    \${Else}
+        ClearErrors
+    \${EndIf}
+    Pop $3
+    Pop $2
+    Pop $1
+    Pop $0
+!macroend
+
+` + source
 }
 
 /** Confirm the real Registry64 receipt before running the native UI scenarios.

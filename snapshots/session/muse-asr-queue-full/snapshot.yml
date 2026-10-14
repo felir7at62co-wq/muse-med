@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-asr-queue-full
+profile: headless
+composition: muse-asr-queue-full
+recording: authored
+header:
+  class: muse-asr-purpose
+  pin: true
+  systemPromptSource: muse-asr-purpose
+  toolSchemasSource: muse-asr-purpose
+workspace:
+  setup: muse-asr-purpose
+writerOutput: true

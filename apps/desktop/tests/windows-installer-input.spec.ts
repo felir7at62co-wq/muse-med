@@ -105,7 +105,7 @@ describe('Windows installer input evidence source preflight', () => {
     ['native second wait', ui.replace('WaitForSingleObject(handle, 0)', 'WaitForSingleObject(handle, 10000)'), smoke, 'nonblockingNative'],
     ['unsignaled exit read', ui.replace('else if (result.NativeWaitResult == 0)', 'else if (true)'), smoke, 'nonblockingNative'],
     ['missing Win32 error', ui.replaceAll('result.NativeWin32Error = Marshal.GetLastWin32Error();', 'result.NativeWin32Error = 0;'), smoke, 'nativeErrors'],
-    ['wait timeout forgiven', ui, smoke.replace('if ($waitError -or $waitReturned -ne $true)', 'if ($waitError)'), 'originalWait'],
+    ['wait timeout forgiven', ui, smoke.replaceAll('if ($waitError -or $waitReturned -ne $true)', 'if ($waitError)'), 'originalWait'],
     ['managed null accepted', ui, smoke.replace('$null -eq $observation.ManagedExitCode -or', ''), 'managedFailurePreserved'],
     ['native nonzero accepted', ui, smoke.replace('$observation.NativeExitCode -ne 0', '$observation.NativeExitCode -lt 0'), 'nativeZeroRequired'],
     ['no durable exit receipt', ui, smoke.replace("'finish-exit.jsonl'", "'unused.jsonl'"), 'receiptBeforeFailure'],
@@ -152,7 +152,7 @@ describe('Windows installer input evidence source preflight', () => {
     ['foreign owner', ui.replace('owner != process || kind.ToString() != "Edit"', 'kind.ToString() != "Edit"'), smoke, 'ownedEdit'],
     ['unverified focus', ui.replace('if (info.Focus != edit) throw', 'if (false) throw'), smoke, 'focus'],
     ['missing actual input', ui, smoke.replace('actual = $actual', 'caption = $actual'), 'beforeEnter'],
-    ['missing durable input receipt', ui, smoke.replace('[IO.File]::AppendAllText', '[IO.File]::WriteAllText'), 'beforeEnter'],
+    ['missing durable input receipt', ui, smoke.replaceAll('[IO.File]::AppendAllText', '[IO.File]::WriteAllText'), 'beforeEnter'],
     ['unchecked Enter', ui, smoke.replace('$PressEnter -and -not [InstallerCapture]::PostMessage', '$PressEnter -and [InstallerCapture]::PostMessage'), 'enterResult'],
     ['weakened path rejection', ui, smoke.replace('Dismiss $process $copy.INSTALLER_PATH_INVALID', 'Dismiss $process $copy.INSTALLER_PATH_OWNERSHIP'), 'strictInvalid'],
   ])('rejects %s source regression', (_name, helper, scenario, requirement) => {
