@@ -58,6 +58,16 @@ class EpisodeScopeTests(unittest.TestCase):
         self.manifest["work_scope"] = {"episode_ids": ids}
         self.save_manifest()
 
+    def editing_inputs(self, ep, prefix=""):
+        video = f"video/{ep}/shot_001.mp4"
+        self.put(video, "source fixture")
+        self.put_json(f"editing/{prefix}{ep}-timeline.json", {
+            "clips": [{"shot": 1, "start_us": 0, "duration_us": 1_000_000}], "body_end": 1,
+        })
+        self.put_json(f"editing/{prefix}{ep}-sources.json", {
+            "shots": [{"shot": 1, "video": video}],
+        })
+
     def test_explicit_140_to_219_of_300_accepts_without_earlier_episode_work(self):
         ids = [str(ep) for ep in range(140, 220)]
         for ep in ids:
@@ -265,7 +275,7 @@ class EpisodeScopeTests(unittest.TestCase):
             self.put_json(f"matches/{ep}.matched.json", {})
             self.put_json(f"episode_packages/{ep}/package.json", {})
             self.put(f"media/ep{ep}/p01.mp4", "fake")
-            self.put_json(f"editing/ep{ep}-timeline.json", {})
+            self.editing_inputs(ep, prefix="ep")
             self.put(f"export/delivery-ep{ep}.mp4", "fake")
         self.scope(["140"])
         before = PipelineState(self.root).project_stages(dry_run=True)
@@ -309,6 +319,130 @@ class EpisodeScopeTests(unittest.TestCase):
                     self.assertFalse(result["episodes"]["140"]["accepted"])
                     self.assertEqual(result["episodes"]["140"]["status"], "pending")
 
+    def test_scoped_editing_projection_reads_prepared_and_legacy_episode_names(self):
+        ids = ["14", "140", "1000"]
+        self.manifest["expected_episode_count"] = 1000
+        for ep in ids:
+            self.add_episode(ep)
+            self.editing_inputs(ep)
+        self.scope(ids)
+        self.assertEqual(write_pass_records(self.root)["accept_status"], "passed")
+        for ep in ("01", "0140", "1400", "10000", "١٤٠"):
+            for prefix in ("", "ep"):
+                self.put_json(f"editing/{prefix}{ep}-timeline.json", {})
+
+        state = PipelineState(self.root)
+        self.assertEqual({path.name for path in state._facts()["editing"]}, {
+            f"{ep}-{suffix}.json" for ep in ids for suffix in ("timeline", "sources")
+        })
+        draft = state.project_stages(dry_run=True)["draft"]
+        self.assertEqual(draft["projected"], "completed")
+        self.assertEqual(draft["note"]["episodes_with_draft"], 3)
+        self.assertEqual(draft["note"]["files"], 6)
+
+        for suffix in ("timeline", "sources"):
+            (self.root / f"editing/140-{suffix}.json").unlink()
+        draft = state.project_stages(dry_run=True)["draft"]
+        self.assertEqual(draft["projected"], "review")
+        self.assertEqual(draft["note"]["episodes_with_draft"], 2)
+        self.editing_inputs("140", prefix="ep")
+        draft = state.project_stages(dry_run=True)["draft"]
+        self.assertEqual(draft["projected"], "completed")
+        self.assertEqual(draft["note"]["episodes_with_draft"], 3)
+
+    def test_legacy_full_story_projection_reads_prepared_editing_names(self):
+        self.manifest["expected_episode_count"] = 1
+        self.add_episode("01")
+        self.save_manifest()
+        self.assertEqual(write_pass_records(self.root)["accept_status"], "passed")
+        self.editing_inputs("01")
+        state = PipelineState(self.root)
+        self.assertEqual(state.project_stages(dry_run=True)["draft"]["projected"], "completed")
+        (self.root / "editing/01-timeline.json").unlink()
+        (self.root / "editing/01-sources.json").unlink()
+        self.editing_inputs("01", prefix="ep")
+        self.assertEqual(state.project_stages(dry_run=True)["draft"]["projected"], "completed")
+
+    def test_scoped_draft_projection_rejects_unrelated_partial_and_invalid_editing_evidence(self):
+        self.add_episode("140")
+        self.scope(["140"])
+        self.assertEqual(write_pass_records(self.root)["accept_status"], "passed")
+        self.put("editing/140-notes.txt", "notes")
+        self.put("editing/ep140-transcript.md", "transcript")
+        timeline = self.root / "editing/140-timeline.json"
+        sources = self.root / "editing/140-sources.json"
+        timeline.mkdir()
+        state = PipelineState(self.root)
+        self.assertEqual(state._facts()["editing"], [])
+        self.assertEqual(state.project_stages(dry_run=True)["draft"]["projected"], "pending")
+        timeline.rmdir()
+        self.editing_inputs("14")
+        self.assertEqual(state.project_stages(dry_run=True)["draft"]["projected"], "pending")
+        self.editing_inputs("140")
+        draft = state.project_stages(dry_run=True)["draft"]
+        self.assertEqual(draft["projected"], "completed")
+        self.assertEqual(draft["note"]["completion_basis"], "editing_inputs")
+        self.assertFalse(draft["note"]["editable_draft_verified"])
+        original = {path: path.read_bytes() for path in (timeline, sources)}
+        for missing in (timeline, sources):
+            with self.subTest(missing=missing.name):
+                missing.unlink()
+                self.assertNotEqual(state.project_stages(dry_run=True)["draft"]["projected"], "completed")
+                missing.write_bytes(original[missing])
+        for path, document in (
+            (timeline, "not JSON"), (sources, "not JSON"),
+            (timeline, {"clips": []}), (sources, {"shots": []}),
+            (timeline, {"clips": [{"shot": 1, "start_us": 0, "duration_us": True}]}),
+            (sources, {"shots": [{"shot": 1, "video": "video/absent.mp4"}]}),
+            (sources, {"shots": [{"shot": 14, "video": "video/140/shot_001.mp4"}]}),
+        ):
+            with self.subTest(path=path.name, document=document):
+                path.write_text(document if isinstance(document, str) else json.dumps(document), encoding="utf-8")
+                self.assertNotEqual(state.project_stages(dry_run=True)["draft"]["projected"], "completed")
+                path.write_bytes(original[path])
+        self.editing_inputs("140", prefix="ep")
+        sources.unlink()
+        self.assertNotEqual(state.project_stages(dry_run=True)["draft"]["projected"], "completed")
+        sources.mkdir()
+        self.assertNotEqual(state.project_stages(dry_run=True)["draft"]["projected"], "completed")
+        sources.rmdir()
+        timeline.unlink()
+        self.assertEqual(state.project_stages(dry_run=True)["draft"]["projected"], "completed")
+
+    def test_prepared_editing_clock_rejects_overlap_gaps_and_invalid_body_end(self):
+        self.add_episode("140")
+        self.scope(["140"])
+        self.assertEqual(write_pass_records(self.root)["accept_status"], "passed")
+        self.put("video/140/shot_001.mp4", "first source")
+        self.put("video/140/shot_002.mp4", "second source")
+        self.put_json("editing/140-sources.json", {"shots": [
+            {"shot": number, "video": f"video/140/shot_{number:03}.mp4"} for number in (1, 2)
+        ]})
+        clips = [
+            {"shot": 1, "start_us": 0, "duration_us": 1_000_000},
+            {"shot": 2, "start_us": 1_000_000, "duration_us": 1_000_000},
+        ]
+        state = PipelineState(self.root)
+        self.put_json("editing/140-timeline.json", {"clips": clips, "body_end": 2})
+        self.assertEqual(state.project_stages(dry_run=True)["draft"]["projected"], "completed")
+        for first_start, second_start in ((0, 0), (0, 9_000_000), (5_000_000, 6_000_000)):
+            with self.subTest(first_start=first_start, second_start=second_start):
+                changed = [{**clips[0], "start_us": first_start}, {**clips[1], "start_us": second_start}]
+                self.put_json("editing/140-timeline.json", {"clips": changed})
+                self.assertNotEqual(state.project_stages(dry_run=True)["draft"]["projected"], "completed")
+        for body_end in (None, True, "2", -1, 0.5, 3, float("nan"), float("inf")):
+            with self.subTest(body_end=body_end):
+                self.put_json("editing/140-timeline.json", {"clips": clips, "body_end": body_end})
+                self.assertNotEqual(state.project_stages(dry_run=True)["draft"]["projected"], "completed")
+        self.put_json("editing/140-timeline.json", {"clips": clips})
+        self.assertEqual(state.project_stages(dry_run=True)["draft"]["projected"], "completed")
+        included = [clips[0], {**clips[1], "duration_us": 3_000_000}]
+        self.put_json("editing/140-timeline.json", {"clips": included, "body_end": 2})
+        self.assertEqual(state.project_stages(dry_run=True)["draft"]["projected"], "completed")
+        invalid_included = [clips[0], {**clips[1], "duration_us": 2_000_000}]
+        self.put_json("editing/140-timeline.json", {"clips": invalid_included, "body_end": 1})
+        self.assertNotEqual(state.project_stages(dry_run=True)["draft"]["projected"], "completed")
+
     def test_cli_gate_reports_scope_and_blocks_unaccepted_episode(self):
         self.add_episode("140")
         self.add_episode("141", reviewed=False)
@@ -324,6 +458,12 @@ class EpisodeScopeTests(unittest.TestCase):
 
 
 class ConservativeActionTests(unittest.TestCase):
+    def test_four_digit_scene_ids_do_not_include_five_digits_or_numeric_speech(self):
+        for line in ("1000-1 老宅 日内", "9999-1 山路 日外"):
+            self.assertEqual(_non_speech_kind(line), "scene")
+        for line in ("10000-1 老宅 日内", "1000：收到。", "1000-1：收到。"):
+            self.assertIsNone(_non_speech_kind(line))
+
     def test_written_object_words_are_not_automatically_speech(self):
         for line in ("△他拿起说明书。", "▲她翻开问卷。", "动作：放下答题卡。", "画面：两人合上说明文件。"):
             with self.subTest(line=line):

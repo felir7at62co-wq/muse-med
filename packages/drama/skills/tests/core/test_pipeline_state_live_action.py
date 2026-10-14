@@ -54,7 +54,14 @@ class EpisodeProjectionTests(unittest.TestCase):
             self.put(f"matches/{episode}.matched.json", "{}")
             self.put(f"episode_packages/{episode}/package.json", "{}")
             self.put(f"media/ep{episode}/p01.mp4", "mock video")
-            self.put(f"editing/ep{episode}-timeline.json", "{}")
+            video = f"video/{episode}/shot_001.mp4"
+            self.put(video, "mock video")
+            self.put(f"editing/ep{episode}-timeline.json", json.dumps({
+                "clips": [{"shot": 1, "start_us": 0, "duration_us": 1_000_000}], "body_end": 1,
+            }))
+            self.put(f"editing/ep{episode}-sources.json", json.dumps({
+                "shots": [{"shot": 1, "video": video}],
+            }))
             self.put(f"export/delivery-ep{episode}.mp4", "mock delivery")
 
     def projected(self, expected, accepted):

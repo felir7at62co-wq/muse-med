@@ -13,6 +13,8 @@ New coverage records use `version: 2` and `episode_manifest_sha256`; older skill
 
 An explicit `work_scope.episode_ids` defines local assigned episodes independently from the whole-story `expected_episode_count`. Scoped state completion describes that assignment, not the whole story. Scoped splitting preserves other contributors' files and rows; malformed existing manifests now fail before writes. Delivery names retain complete canonical episode IDs from `01` through `9999`; zero and out-of-range IDs are rejected.
 
+Draft projection requires a valid timeline/source pair. Its `completion_basis=editing_inputs` and `editable_draft_verified=false` describe prepared editing inputs, not verification of the external editor's actual editable draft.
+
 ## Migration
 
 1. Update the adjacent `tweet-drama-core`, `tweet-drama-script-split`, `tweet-drama-pipeline`, and `tweet-drama-delivery` skill directories together. Personal installed copies do not synchronize automatically.

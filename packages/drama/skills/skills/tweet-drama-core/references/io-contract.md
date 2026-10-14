@@ -32,6 +32,10 @@ Without `work_scope`, legacy projects require the full `01..expected_episode_cou
 
 `source_inventory` in `episode_coverage.py` supplies both coverage and pipeline source validation. `pipeline_state.py` projects explicit assignments only and reports `completion_scope=work_scope`, `scope_episodes`, and `story_episode_count`. A completed assignment is not a completed whole story. Existing manual state remains an annotation; it cannot authorize production or replace the current projection.
 
+Editing input projection requires both prepared `editing/<ID>-timeline.json` and `editing/<ID>-sources.json`: nonempty matching shot lists, continuous integer microsecond clocks starting at zero and existing source files. Existing pairs using `editing/ep<ID>-...` remain readable; a partially written current pair does not fall back to an older pair. Notes, directories and other filenames are not completion evidence. Projection compares complete canonical episode IDs, so `14`, `140`, and `1000` remain distinct.
+
+An optional `body_end` follows the [draft input rules](../../tweet-drama-draft-build/references/io-contract.md): it ends at the last clip, except for an explicitly included two-second freeze inside the final clip. `completion_basis=editing_inputs` and `editable_draft_verified=false` distinguish input preparation from the external editor's actual editable draft and its media QA.
+
 ### Source mapping and acceptance
 
 `shots_and_matches/ep<ID>-source-map.json` keeps `version: 1`, the canonical `episode`, `source_sha256`, project-relative `shot_script`, and `entries`. Each nonempty source line has `source_line`, exact `source_text`, `kind`, and ascending unique `shots`. Speech uses `dialogue`, `os`, or `vo` plus exact `speaker` and `speech_text`; other kinds are `action`, `scene`, `state`, `transition`, or `heading`. Unrecognized speech/action remains pending; written-object recognition does not certify performance or video quality.

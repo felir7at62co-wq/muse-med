@@ -13,6 +13,8 @@ description: 覆盖验收记录使用逐集 v2 摘要，显式短剧分工需要
 
 显式 `work_scope.episode_ids` 定义本地分工集号，与表示整剧总集数的 `expected_episode_count` 分离。分工状态完成仅表示该工作范围完成，不代表整剧完成。分工拆分保留其他协作者的文件和清单条目；无效既有清单在写入前即报错。交付文件名保留 `01` 至 `9999` 的完整规范集号；零和越界集号会被拒绝。
 
+草稿投影要求有效的时间线和来源清单成对存在。`completion_basis=editing_inputs` 与 `editable_draft_verified=false` 表示编辑输入已准备，不能证明外部编辑器的实际可编辑草稿已经通过验证。
+
 ## 迁移
 
 1. 同步更新相邻的 `tweet-drama-core`、`tweet-drama-script-split`、`tweet-drama-pipeline` 和 `tweet-drama-delivery` 技能目录。个人安装副本不会自动同步。

@@ -74,6 +74,39 @@ class SplitWorkScopeTests(unittest.TestCase):
         self.assertEqual(list(manifest["episodes"]), ids)
         self.assertEqual({path.stem for path in self.episodes.glob("*.txt")}, set(ids))
 
+    def test_split_four_digit_scene_preserves_source_and_passes_episode_coverage(self):
+        from episode_coverage import paid_ready, write_pass_records
+        for number in ("1000", "9999"):
+            with self.subTest(number=number):
+                source = self.root / "source.txt"
+                source.write_text(f"第{number}集\n{number}-1 老宅 日内\n甲：收到。\n△甲转身。", encoding="utf-8")
+                analysis = self.processor.analyze(str(source))
+                result = self.processor.save(str(self.project), analysis,
+                                             work_scope={"episode_ids": [number]}, expected_episode_count=9999)
+                self.assertTrue(result.success, result.error)
+                text = (self.episodes / f"{number}.txt").read_text(encoding="utf-8")
+                self.assertEqual(text.splitlines(), [f"{number}-1 老宅 日内", "甲：收到。", "△甲转身。"])
+                shots = self.project / "shots" / f"第{number}集镜头脚本.md"
+                shots.parent.mkdir(exist_ok=True)
+                shots.write_text("【镜头1】\n台词：甲：收到。\n【镜头2】\n发声类型：action\n画面：甲转身。\n",
+                                 encoding="utf-8")
+                mapping = {
+                    "version": 1, "episode": number,
+                    "source_sha256": self.read_manifest()["episodes"][number]["sha256"],
+                    "shot_script": str(shots.relative_to(self.project)),
+                    "entries": [
+                        {"source_line": 1, "source_text": f"{number}-1 老宅 日内", "kind": "scene", "shots": [1]},
+                        {"source_line": 2, "source_text": "甲：收到。", "kind": "dialogue", "shots": [1],
+                         "speaker": "甲", "speech_text": "收到。"},
+                        {"source_line": 3, "source_text": "△甲转身。", "kind": "action", "shots": [2]},
+                    ],
+                }
+                maps = self.project / "shots_and_matches"
+                maps.mkdir(exist_ok=True)
+                (maps / f"ep{number}-source-map.json").write_text(json.dumps(mapping), encoding="utf-8")
+                self.assertEqual(write_pass_records(self.project, [number])["accept_status"], "passed")
+                self.assertEqual(paid_ready(self.project, [number])["status"], "passed")
+
     def test_scoped_save_preserves_collaborator_rows_files_and_unknown_metadata(self):
         previous = self.seed(["01", "140", "220", "300"], expected_episode_count=300,
                              project_note={"editors": ["A", "B"]})

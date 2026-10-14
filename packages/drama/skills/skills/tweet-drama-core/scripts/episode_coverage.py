@@ -115,7 +115,7 @@ def _non_speech_kind(line: str) -> str | None:
     stripped = line.strip()
     if EPISODE_HEADER.fullmatch(stripped) or re.fullmatch(r"(?:第\s*\d+\s*集|EP\s*\d+)[：:].+", stripped, re.IGNORECASE):
         return "heading"
-    if re.match(r"^\d{1,3}[-－]\d{1,3}(?:\s|$)", stripped) or re.match(r"^(?:场景|地点|时间|环境)[：:]", stripped):
+    if re.match(r"^[0-9]{1,4}[-－]\d{1,3}(?:\s|$)", stripped) or re.match(r"^(?:场景|地点|时间|环境)[：:]", stripped):
         return "scene"
     if stripped.startswith(("△", "▲")) or re.match(r"^(?:动作|画面)[：:]", stripped):
         if WRITTEN_OBJECT_ACTION.fullmatch(stripped):
