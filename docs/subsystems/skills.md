@@ -200,7 +200,7 @@ Full definitions are not cached by the registry. Each `get()` calls the winning 
 interface SkillLookupOptions {
   /** Workspace selector for the current lookup. */
   readonly cwd?: string | undefined
-  /** Abort discovery or loading work for the current caller. */
+  /** Abort discovery or loading; rejection preserves this signal's original reason. */
   readonly signal?: AbortSignal | undefined
 }
 ```

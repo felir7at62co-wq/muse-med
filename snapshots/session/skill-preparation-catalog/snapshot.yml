@@ -1,0 +1,11 @@
+version: 1
+scenario: skill-preparation-catalog
+profile: headless
+composition: skill-preparation-catalog
+recording: authored
+header:
+  class: skill-preparation-catalog
+  pin: true
+environment:
+  DSH_SKILL_PREPARATION_FIXTURE: catalog
+writerOutput: true

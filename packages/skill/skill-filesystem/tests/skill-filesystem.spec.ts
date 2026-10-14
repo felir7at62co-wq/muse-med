@@ -761,6 +761,51 @@ describe('FileSystemSkillProvider', () => {
     expect(fs.readTextSignals).toEqual([controller.signal])
   })
 
+  it.each(['waiting', 'resolving'] as const)('retains a non-Error cancellation reason while %s', async (phase) => {
+    const home = await tempDir('skill-cancel-reason')
+    await writeSkill(join(home, '.dsh/skills'), 'cancelled-skill', 'Cancelled skill')
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    const cancellation = new AbortController()
+    const reason = { cancelled: phase }
+    const started = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<string>()
+    const provider = new SkillFileSystem.FileSystemSkillProvider(ctx, {
+      signal: new AbortController().signal, invalidate() {},
+    }, {
+      dshHome: join(home, '.dsh'), museHome: join(home, '.muse'), agentsHome: join(home, '.agents'), watch: false,
+    })
+    const originalResolve = fs.resolve.bind(fs)
+    if (phase === 'resolving') {
+      vi.spyOn(fs, 'resolve').mockImplementation((path) => {
+        cancellation.abort(reason)
+        return originalResolve(path)
+      })
+    } else {
+      fs.readTextOverride = async () => {
+        started.resolve(undefined)
+        return await release.promise
+      }
+    }
+    const discovery = provider.list({ cwd: home, signal: cancellation.signal })
+    const rejected = expect(discovery).rejects.toBe(reason)
+    try {
+      if (phase === 'waiting') {
+        await started.promise
+        cancellation.abort(reason)
+      }
+      await rejected
+      release.resolve('---\nname: cancelled-skill\ndescription: cancelled\n---\nLate result.\n')
+      await provider.dispose()
+      expect(fs.listDirCalls === 0 || phase === 'waiting').toBe(true)
+    } finally {
+      release.resolve('')
+      await provider.dispose()
+      vi.restoreAllMocks()
+    }
+  })
+
   it('refreshes additions, metadata changes, deletions, and a recreated missing root', { timeout: 20000 }, async () => {
     const home = await tempDir('skill-watch-home')
     const agentsRoot = join(home, '.agents/skills')

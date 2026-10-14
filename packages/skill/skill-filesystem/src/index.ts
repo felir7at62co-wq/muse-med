@@ -223,26 +223,26 @@ export class FileSystemSkillProvider implements SkillProvider {
     }
   }
 
-  private async discover(options: SkillLookupOptions): Promise<SkillCandidate[] | SkillProviderObservation> {
-    options.signal?.throwIfAborted()
+  private async discover(options: SkillLookupOptions & { signal: AbortSignal }): Promise<SkillCandidate[] | SkillProviderObservation> {
+    options.signal.throwIfAborted()
     const roots = await this.roots(options.cwd, options.signal)
-    options.signal?.throwIfAborted()
+    options.signal.throwIfAborted()
     let complete = true
     try {
       await waitForDiscovery(this.watchManager.observeRoots(roots), options.signal)
     } catch (error) {
-      options.signal?.throwIfAborted()
+      options.signal.throwIfAborted()
       if (this.disposal !== undefined) throw error
       complete = false
     }
     const candidates: SkillCandidate[] = []
     for (const root of roots) {
-      options.signal?.throwIfAborted()
+      options.signal.throwIfAborted()
       for (const skill of await discoverRoot(root, this.ctx, this.name, options.signal)) {
         candidates.push(skill)
       }
     }
-    options.signal?.throwIfAborted()
+    options.signal.throwIfAborted()
     return complete ? candidates : { candidates, complete }
   }
 
@@ -287,7 +287,7 @@ export class FileSystemSkillProvider implements SkillProvider {
     return this.disposal
   }
 
-  private async roots(cwd: string | undefined, signal?: AbortSignal): Promise<SkillRoot[]> {
+  private async roots(cwd: string | undefined, signal: AbortSignal): Promise<SkillRoot[]> {
     const roots: SkillRoot[] = []
     if (this.includeDefaultRoots && cwd !== undefined) {
       const projectRoot = await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx), signal)
@@ -771,13 +771,12 @@ function assertTimerDelay(field: string, value: number): void {
   if (value > 2_147_483_647) throw new TypeError(`skill-filesystem: ${field} exceeds the maximum timer delay`)
 }
 
-function waitForDiscovery<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (signal === undefined) return work
+function waitForDiscovery<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const onAbort = (): void => {
       signal.removeEventListener('abort', onAbort)
-      const reason: unknown = signal.reason
-      reject(reason instanceof Error ? reason : new Error(errorMessage(reason)))
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- AbortSignal reasons retain caller identity.
+      reject(signal.reason)
     }
     signal.addEventListener('abort', onAbort, { once: true })
     if (signal.aborted) onAbort()
@@ -799,11 +798,11 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code
 }
 
-async function discoverRoot(root: SkillRoot, ctx: Context, provider: string, signal?: AbortSignal): Promise<SkillCandidate[]> {
+async function discoverRoot(root: SkillRoot, ctx: Context, provider: string, signal: AbortSignal): Promise<SkillCandidate[]> {
   const skills: SkillCandidate[] = []
   const entries = await listSkillRootEntries(root, ctx, signal)
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    signal?.throwIfAborted()
+    signal.throwIfAborted()
     if (root.skipSystem && entry.name === '.system') continue
     const locator = entry.type === 'directory'
       ? { path: join(entry.path, 'SKILL.md'), directory: entry.path }
@@ -830,13 +829,13 @@ async function discoverRoot(root: SkillRoot, ctx: Context, provider: string, sig
   return skills
 }
 
-async function listSkillRootEntries(root: SkillRoot, ctx: Context, signal?: AbortSignal): Promise<SkillRootEntry[]> {
+async function listSkillRootEntries(root: SkillRoot, ctx: Context, signal: AbortSignal): Promise<SkillRootEntry[]> {
   const fs = optionalFileSystem(ctx)
   if (fs !== undefined && root.trustedHost !== true) return await listSkillRootEntriesFromFileSystem(root, fs, signal)
   return await listSkillRootEntriesFromNode(root, ctx, signal)
 }
 
-async function listSkillRootEntriesFromFileSystem(root: SkillRoot, fs: FileSystem, signal?: AbortSignal): Promise<SkillRootEntry[]> {
+async function listSkillRootEntriesFromFileSystem(root: SkillRoot, fs: FileSystem, signal: AbortSignal): Promise<SkillRootEntry[]> {
   try {
     return (await fsListDir(fs, root.path, signal)).map(entryFromFs)
   } catch (error) {
@@ -845,9 +844,9 @@ async function listSkillRootEntriesFromFileSystem(root: SkillRoot, fs: FileSyste
   }
 }
 
-async function fsListDir(fs: FileSystem, path: string, signal?: AbortSignal): Promise<FsDirEntry[]> {
-  signal?.throwIfAborted()
-  const target = await fs.resolve(path, signal === undefined ? undefined : { signal })
+async function fsListDir(fs: FileSystem, path: string, signal: AbortSignal): Promise<FsDirEntry[]> {
+  signal.throwIfAborted()
+  const target = await fs.resolve(path, { signal })
   return await fs.listDir(target, signal)
 }
 
@@ -855,12 +854,12 @@ function entryFromFs(entry: FsDirEntry): SkillRootEntry {
   return { name: entry.name, type: entry.type, path: entry.target.displayPath }
 }
 
-async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context, signal?: AbortSignal): Promise<SkillRootEntry[]> {
+async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context, signal: AbortSignal): Promise<SkillRootEntry[]> {
   let entries
   try {
-    signal?.throwIfAborted()
+    signal.throwIfAborted()
     entries = await readdir(root.path, { withFileTypes: true, encoding: 'utf8' })
-    signal?.throwIfAborted()
+    signal.throwIfAborted()
   } catch (error) {
     /* v8 ignore else -- Native non-absence directory failures are provider-dependent; the ctx.fs path pins incomplete discovery. */
     if (isAbsentSkillPathError(error)) return []
@@ -870,10 +869,10 @@ async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context, signa
 
   const result: SkillRootEntry[] = []
   for (const entry of entries) {
-    signal?.throwIfAborted()
+    signal.throwIfAborted()
     const path = join(root.path, entry.name)
     const type = await nodeEntryKind(path, entry, ctx)
-    signal?.throwIfAborted()
+    signal.throwIfAborted()
     result.push({ name: entry.name, type: type ?? 'other', path })
   }
   return result
@@ -1027,10 +1026,10 @@ function findClosingFrontmatter(raw: string, start: number): { start: number; bo
   }
 }
 
-async function findProjectRoot(cwd: string, fs: FileSystem | undefined, signal?: AbortSignal): Promise<string> {
+async function findProjectRoot(cwd: string, fs: FileSystem | undefined, signal: AbortSignal): Promise<string> {
   let current = cwd
   while (true) {
-    signal?.throwIfAborted()
+    signal.throwIfAborted()
     if (await pathExists(join(current, '.git'), fs, signal)) {
       return current
     }
@@ -1040,26 +1039,26 @@ async function findProjectRoot(cwd: string, fs: FileSystem | undefined, signal?:
   }
 }
 
-async function pathExists(path: string, fs: FileSystem | undefined, signal?: AbortSignal): Promise<boolean> {
+async function pathExists(path: string, fs: FileSystem | undefined, signal: AbortSignal): Promise<boolean> {
   if (fs !== undefined) {
     return await pathExistsInFileSystem(path, fs, signal)
   }
   return await pathExistsInNode(path)
 }
 
-async function pathExistsInFileSystem(path: string, fs: FileSystem, signal?: AbortSignal): Promise<boolean> {
+async function pathExistsInFileSystem(path: string, fs: FileSystem, signal: AbortSignal): Promise<boolean> {
   let target
   try {
-    target = await fs.resolve(path, signal === undefined ? undefined : { signal })
+    target = await fs.resolve(path, { signal })
   } catch {
-    signal?.throwIfAborted()
+    signal.throwIfAborted()
     // A backend may reject or hide this candidate; continue walking upward.
     return false
   }
   try {
     return await fs.stat(target, signal) !== undefined
   } catch {
-    signal?.throwIfAborted()
+    signal.throwIfAborted()
     // Transient stat failures make only this git-root candidate unusable.
     return false
   }

@@ -94,7 +94,7 @@ interface ToolArgsMap {
   } & Record<string, JsonValue>;
   /** 使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；用 status 查询同一任务，完成后取得文字、字词时间戳 JSON 和 SRT。长音频自动分段并合并时间轴；可用于素材转写与字幕校时。需要先登录 Muse。 */
   audio_transcribe: {
-    /** start=提取音轨并提交；status=按原收据查询、补传确认未受理的音轨并发布结果，补传可能计费。限流按 retry_after_seconds 等待后用原收据恢复；日额度、登录或任务冲突先处理，不直接重投。 */
+    /** start=提取音轨并提交；status=回读原收据，按服务端恢复指示查询或补传确认未受理的同 ID 音轨并发布结果，补传可能计费。inspect_receipt 停止反复轮询，保留收据核对；网络超时仍先回读原任务。限流按 retry_after_seconds 恢复；日额度、登录或冲突先处理，不直接重投。 */
     method: "start" | "status";
     /** 项目根目录，保存 transcript/jobs 收据及 transcript/raw 版本结果。 */
     project: string;
@@ -104,7 +104,7 @@ interface ToolArgsMap {
     receipt?: string;
     /** start 识别语种；默认 zh。 */
     language?: "zh" | "auto";
-    /** start 用途：字幕校时用 subtitles（默认，极速）；音视频转剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。 */
+    /** start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。 */
     purpose?: "subtitles" | "screenplay";
   } & Record<string, JsonValue>;
   /** 在本地索引或部署配置的公开 BGM 库里按情绪选曲。match：给出目标「愉悦度」与「能量」（都用 1–9 的刻度，1=最消极/最平静，9=最积极/最激烈），返回最接近的候选及每首的实际测量值。index：扫描一个目录，逐首分析情绪并入库；约 15–30 秒一首，按内容哈希增量更新，可随时中断续跑。inspect：只分析一首并返回它的数值。公开库 match 仅返回 track_id/name/url 和测量值，不自动下载；选定后用 download + track_id 下载并校验，返回可供配乐合成使用的真实本地 path。match/download 不需要 Python。**返回的是候选排序，不是决定**——最终选哪首由你判断；每首附带的 valence/arousal 原值就是判断依据。**注意：底层音乐理解骨干 m-a-p/MERT-v1-95M 采用 CC-BY-NC-4.0 许可，仅限非商业用途。** */
@@ -1429,10 +1429,28 @@ interface ToolOutputMap {
     status: string;
     receipt: string;
     job_id: string;
+    /** 长音轨结果中的诊断对应此原始分段 ID；所有分段的服务版本和诊断保留在原收据，不代表其他分段同样失败。 */
+    diagnostic_job_id?: string;
     output_txt?: string;
     output_json?: string;
     output_srt?: string;
     purpose?: "subtitles" | "screenplay";
+    /** 原任务实际识别服务；旧任务未提供时不推断版本。 */
+    service_version?: "flash" | "standard-v1" | "standard-v2";
+    /** 原任务已受理并正在等容量；不等于整个 ASR 池已满，不重复提交。 */
+    queued?: boolean;
+    provider_diagnostic?: {
+      reason?: "timeout" | "transport" | "http" | "response" | "json" | "result" | "audio";
+      operation?: "submit" | "query" | "flash";
+      http_status?: number;
+      provider_code?: string;
+    };
+    /** 按原任务实际恢复能力行动。no_query+inspect_receipt 表示该极速任务不能再向提供方查询，不继续盲等、不自动重投；客户端网络错误仍先回读服务端原任务。 */
+    recovery?: {
+      capability: "query_original_task" | "no_query" | "none";
+      next_action: "poll_original" | "wait" | "inspect_receipt" | "use_result" | "resume_upload";
+      automatic_resubmit: false;
+    };
     /** 安全错误类别；provider_rate 是服务额度或提交频率限制，按等待秒数恢复；daily_quota 先处理账号日额度，sign-in-required 先登录，idempotency_conflict 先核对原任务，不直接重投。 */
     error_code?: string;
     /** 服务端建议等待的秒数；等待后沿用原收据。 */

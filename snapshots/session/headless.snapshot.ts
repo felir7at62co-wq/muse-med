@@ -565,6 +565,22 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       language: 'zh', purpose: 'screenplay', sha256: 'a'.repeat(64), mp3: join(workspace, `transcript/jobs/.${id}.wav`), status: 'processing',
     }) + '\n')
   },
+  async 'muse-asr-recovery-guard'(cwd) {
+    const workspace = await realpath(cwd)
+    await workspaceSetups['muse-editing-skill']!(cwd)
+    await mkdir(join(cwd, 'transcript/jobs'), { recursive: true })
+    for (const [index, stem] of ['flash', 'standard'].entries()) {
+      const id = `71000000-0000-4000-8000-00000000000${index + 1}`
+      const flash = stem === 'flash'
+      await writeFile(join(cwd, `transcript/jobs/${stem}-v1.json`), JSON.stringify({
+        id, source: join(workspace, `source/${stem}.mp4`), accountUsername: 'fixture', stem, version: 1,
+        language: 'zh', purpose: 'screenplay', sha256: 'a'.repeat(64), mp3: join(workspace, `transcript/jobs/.${id}.wav`),
+        status: 'uncertain', service_version: flash ? 'flash' : 'standard-v2', error_code: 'provider_unavailable',
+        provider_diagnostic: { reason: 'timeout', operation: flash ? 'flash' : 'query' },
+        recovery: { capability: flash ? 'no_query' : 'query_original_task', next_action: flash ? 'inspect_receipt' : 'poll_original', automatic_resubmit: false },
+      }, null, 2) + '\n')
+    }
+  },
   async 'muse-drama-pipeline-skill'(cwd) {
     const target = join(cwd, '.dsh', 'skills', 'tweet-drama-pipeline', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })
@@ -1642,6 +1658,19 @@ describe('headless recorded-session snapshots', () => {
                 expect(evidence.boards.every((row: JsonObject) => row.scriptId === 2708 && row.isGenerate === 0)).toBe(true)
                 expect(evidence.boards[0].privateProviderField).toEqual({ retained: true })
                 expect(evidence.boards[0].storyboardMaterialList[2]).toMatchObject({ materialType: 'audio', materialUrl: 'https://example.invalid/lu.wav' })
+              }
+            }
+            if (scenario.name.startsWith('skill-preparation-')) {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const prepared = scenario.name === 'skill-preparation-catalog'
+              expect(events.filter(event => event.type === 'step/start')).toHaveLength(prepared ? 1 : 0)
+              expect(events.filter(event => event.type === 'request/header')).toHaveLength(prepared ? 1 : 0)
+              expect(events.filter(event => event.type === 'assistant/message')).toHaveLength(prepared ? 1 : 0)
+              const catalog = events.filter(event => event.type === 'user/message'
+                && event.data.source.kind === 'skill-catalog')
+              expect(catalog).toHaveLength(prepared ? 1 : 0)
+              if (scenario.name === 'skill-preparation-cancel') {
+                expect(turnReasonFromSession(actualLogs[0]!.content)).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
               }
             }
             if (scenario.name === 'session-query-spill') {

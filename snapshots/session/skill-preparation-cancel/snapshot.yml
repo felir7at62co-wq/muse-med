@@ -1,0 +1,10 @@
+version: 1
+scenario: skill-preparation-cancel
+profile: headless
+composition: skill-preparation-catalog
+recording: authored
+header:
+  class: skill-preparation-catalog
+environment:
+  DSH_SKILL_PREPARATION_FIXTURE: cancel
+writerOutput: true

@@ -6146,7 +6146,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MuseAsrJob',
-    declaration: 'export type MuseAsrJob = {\n    readonly id: string;\n    readonly status: \'preparing\' | \'processing\' | \'submitting\' | \'uncertain\' | \'complete\' | \'silent\' | \'failed\';\n    readonly purpose?: MuseAsrPurpose;\n    readonly service_version?: \'flash\' | \'standard-v1\' | \'standard-v2\';\n    readonly retentionExpired?: boolean;\n    readonly segments?: readonly MuseAsrSegment[];\n};',
+    declaration: 'export type MuseAsrJob = MuseAsrMetadata & {\n    readonly id: string;\n    readonly status: \'preparing\' | \'processing\' | \'submitting\' | \'uncertain\' | \'complete\' | \'silent\' | \'failed\';\n    readonly purpose?: MuseAsrPurpose;\n    readonly retentionExpired?: boolean;\n    readonly segments?: readonly MuseAsrSegment[];\n};',
+  },
+  {
+    name: 'MuseAsrMetadata',
+    declaration: 'export interface MuseAsrMetadata {\n    readonly service_version?: \'flash\' | \'standard-v1\' | \'standard-v2\';\n    readonly queued?: boolean;\n    readonly error_code?: \'provider_rejected\' | \'provider_unavailable\' | \'storage_unavailable\';\n    readonly provider_diagnostic?: {\n        readonly reason?: \'timeout\' | \'transport\' | \'http\' | \'response\' | \'json\' | \'result\' | \'audio\';\n        readonly operation?: \'submit\' | \'query\' | \'flash\';\n        readonly http_status?: number;\n        readonly provider_code?: string;\n    };\n    readonly recovery?: {\n        readonly capability: \'query_original_task\' | \'no_query\' | \'none\';\n        readonly next_action: \'poll_original\' | \'wait\' | \'inspect_receipt\' | \'use_result\' | \'resume_upload\';\n        readonly automatic_resubmit: false;\n    };\n}',
   },
   {
     name: 'MuseAsrPurpose',
