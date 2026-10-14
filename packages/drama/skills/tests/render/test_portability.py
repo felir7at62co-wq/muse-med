@@ -178,6 +178,15 @@ class PortabilityTests(unittest.TestCase):
         self.assertIn('tpad=stop_mode=add:stop_duration=2.000:color=black', value)
         self.assertIn('trim=0:2.000', value)
 
+    def test_ending_effect_layout_follows_landscape_canvas_without_portrait_stretch(self):
+        render = load('render_ending_canvas_test', RENDER / 'scripts/render_episode.py')
+        portrait = render.ending_effect_filter(2.0)
+        landscape = render.ending_effect_filter(2.0, width=1920, height=1080, fps=30)
+        self.assertIn('crop=540:960,minterpolate=', portrait)
+        self.assertIn('crop=960:540,minterpolate=', landscape)
+        self.assertNotIn('crop=540:960', landscape)
+        self.assertIn('fps=30,scale=1920:1080:flags=lanczos', landscape)
+
     def test_ending_assets_are_the_shipped_bytes(self):
         render = load('render_ending_asset_test', RENDER / 'scripts/render_episode.py')
         assets = RENDER / 'assets'

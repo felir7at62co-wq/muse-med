@@ -589,7 +589,8 @@ it.each(['silent', 'failed', 'complete'] as const)('combines terminal split resu
   const firstPart = f.receipt.parts[0]
   if (firstPart === undefined) throw new Error('missing first split part')
   const account: AudioAccount = { ...f.account, audioStatus: async id => id === firstPart.id
-    ? { id, status, ...(status === 'complete' ? { segments: [{ start: 0, end: 1, text: 'speech' }] } : {}) }
+    ? { id, status, ...(status === 'failed' ? { error_code: 'provider_rejected',
+      recovery: { capability: 'none', next_action: 'inspect_receipt', automatic_resubmit: false } } as const : {}), ...(status === 'complete' ? { segments: [{ start: 0, end: 1, text: 'speech' }] } : {}) }
     : { id, status: 'silent' } }
   const result = await finishAudioTranscription(f.project, f.first.receipt, account)
   expect(result.status).toBe(status)
@@ -610,4 +611,170 @@ it('cleans every prepared part when an extraction produces an oversized chunk', 
     { ...shortMedia, encode: async (_source, target) => { await writeFile(target, Buffer.alloc(config.maxAudioBytes + 1)) } })).rejects.toThrow('part exceeds cloud limit')
   expect(await readdir(join(f.project, 'transcript', 'jobs'))).toEqual([])
   expect(f.counts().submits).toBe(0)
+})
+
+const flashUnknown = { service_version: 'flash', error_code: 'provider_unavailable',
+  provider_diagnostic: { reason: 'timeout', operation: 'flash' },
+  recovery: { capability: 'no_query', next_action: 'inspect_receipt', automatic_resubmit: false } } as const
+
+it('persists Flash unknown-outcome diagnostics and never replaces its paid identity', async () => {
+  const f = await setup()
+  const account: AudioAccount = { ...f.account,
+    submitAudio: async (_file, id) => ({ id, status: 'uncertain', ...flashUnknown }),
+    audioStatus: async id => ({ id, status: 'uncertain', ...flashUnknown }),
+  }
+  const first = await startAudioTranscription(f.project, f.input, 'zh', account, config, shortMedia)
+  expect(first).toMatchObject({ status: 'uncertain', ...flashUnknown })
+  expect(JSON.parse(await readFile(first.receipt, 'utf8'))).toMatchObject(flashUnknown)
+  expect(await finishAudioTranscription(f.project, first.receipt, account)).toMatchObject(flashUnknown)
+  expect((await startAudioTranscription(f.project, f.input, 'zh', account, config, shortMedia)).job_id).toBe(first.job_id)
+  const offline: AudioAccount = { ...account, audioStatus: async () => { throw new MuseAsrError('server-unavailable') } }
+  expect(await finishAudioTranscription(f.project, first.receipt, offline)).not.toHaveProperty('resume_status')
+  await expect(stat(join(f.project, 'transcript', 'raw'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('keeps client transport uncertainty queryable until the gateway supplies recovery facts', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', { ...f.account,
+    submitAudio: async () => { throw new MuseAsrError('server-unavailable') },
+  }, config, shortMedia)
+  expect(first).toMatchObject({ status: 'uncertain', resume_status: { method: 'status' } })
+  expect(first).not.toHaveProperty('service_version')
+  expect(first).not.toHaveProperty('recovery')
+  const result = await finishAudioTranscription(f.project, first.receipt, { ...f.account,
+    audioStatus: async id => ({ id, status: 'processing', service_version: 'standard-v2', queued: true,
+      recovery: { capability: 'none', next_action: 'wait', automatic_resubmit: false } }),
+  })
+  expect(result).toMatchObject({ status: 'processing', service_version: 'standard-v2', queued: true })
+})
+
+it('retains the pinned service through completion and refuses a service change before publication', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', { ...f.account,
+    submitAudio: async (_file, id) => ({ id, status: 'processing', service_version: 'standard-v2' }),
+  }, config, shortMedia, 'screenplay')
+  await expect(finishAudioTranscription(f.project, first.receipt, { ...f.account,
+    audioStatus: async id => ({ id, status: 'complete', service_version: 'flash', segments: [{ start: 0, end: 1, text: 'speech' }] }),
+  })).rejects.toThrow('service does not match')
+  const account: AudioAccount = { ...f.account, audioStatus: async id => ({ id, status: 'complete', service_version: 'standard-v2',
+    recovery: { capability: 'none', next_action: 'use_result', automatic_resubmit: false }, segments: [{ start: 0, end: 1, text: 'speech' }] }) }
+  expect(await finishAudioTranscription(f.project, first.receipt, account)).toMatchObject({ service_version: 'standard-v2' })
+  expect(await finishAudioTranscription(f.project, first.receipt, account)).toMatchObject({ service_version: 'standard-v2' })
+})
+
+it.each(['preparing', 'failed'] as const)('uploads %s only when gateway confirms the original paid request has not started', async (status) => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  let uploads = 0
+  const account: AudioAccount = { ...f.account,
+    audioStatus: async id => ({ id, status, service_version: 'flash',
+      recovery: { capability: 'none', next_action: 'inspect_receipt', automatic_resubmit: false } }),
+    submitAudio: async (_file, id) => { uploads++; return { id, status: 'processing', service_version: 'flash' } },
+  }
+  expect((await finishAudioTranscription(f.project, first.receipt, account)).status).toBe(status)
+  expect(uploads).toBe(0)
+  const another = await setup()
+  const second = await startAudioTranscription(another.project, another.input, 'zh', another.account, config, shortMedia)
+  account.audioStatus = async id => ({ id, status, service_version: 'flash',
+    recovery: { capability: 'none', next_action: 'resume_upload', automatic_resubmit: false } })
+  expect((await finishAudioTranscription(another.project, second.receipt, account)).status).toBe('processing')
+  expect(uploads).toBe(1)
+})
+
+it('does not recreate a known accepted task after gateway ledger loss', async () => {
+  const f = await setup()
+  let submits = 0
+  const account: AudioAccount = { ...f.account,
+    submitAudio: async (_file, id) => { submits++; return { id, status: 'uncertain', ...flashUnknown } },
+    audioStatus: async () => { throw new MuseAsrError('job-not-found') },
+  }
+  const first = await startAudioTranscription(f.project, f.input, 'zh', account, config, shortMedia)
+  await expect(finishAudioTranscription(f.project, first.receipt, account)).rejects.toMatchObject({ code: 'job-not-found' })
+  expect(submits).toBe(1)
+})
+
+it('retains each split task service and unknown-outcome reason while preserving all original IDs', async () => {
+  const f = await setup()
+  const ids: string[] = []
+  const account: AudioAccount = { ...f.account,
+    submitAudio: async (_file, id) => { ids.push(id); return { id, status: 'uncertain', ...flashUnknown } },
+    audioStatus: async id => ({ id, status: 'uncertain', ...flashUnknown }),
+  }
+  const first = await startAudioTranscription(f.project, f.input, 'zh', account, { ...config, chunkSeconds: 20 }, shortMedia)
+  expect(first).toMatchObject({ status: 'uncertain', diagnostic_job_id: ids[0], ...flashUnknown })
+  expect(await finishAudioTranscription(f.project, first.receipt, account)).toMatchObject({ status: 'uncertain', diagnostic_job_id: ids[0], ...flashUnknown })
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as { parts: object[] }
+  expect(receipt.parts).toHaveLength(2)
+  for (const part of receipt.parts) expect(part).toMatchObject(flashUnknown)
+  expect(ids).toHaveLength(2)
+  const absent: AudioAccount = { ...account, audioStatus: async () => { throw new MuseAsrError('job-not-found') } }
+  await expect(finishAudioTranscription(f.project, first.receipt, absent)).rejects.toMatchObject({ code: 'job-not-found' })
+  expect(ids).toHaveLength(2)
+})
+
+const preSubmitFailure = { service_version: 'flash', error_code: 'storage_unavailable',
+  recovery: { capability: 'none', next_action: 'resume_upload', automatic_resubmit: false } } as const
+
+it.each([false, true])('retains safe pre-submit failure audio during %s-part original-ID recovery without retry loops', async (split) => {
+  const f = await setup()
+  const submitted: string[] = []
+  let recovered = false
+  const account: AudioAccount = { ...f.account,
+    submitAudio: async (_file, id) => { submitted.push(id); return recovered
+      ? { id, status: 'processing', service_version: 'flash', queued: true,
+        recovery: { capability: 'none', next_action: 'wait', automatic_resubmit: false } }
+      : { id, status: 'failed', ...preSubmitFailure } },
+    audioStatus: async id => ({ id, status: 'failed', ...preSubmitFailure }),
+  }
+  const first = await startAudioTranscription(f.project, f.input, 'zh', account,
+    { ...config, chunkSeconds: split ? 20 : 600 }, shortMedia)
+  const initialIds = [...submitted]
+  const resumed = await startAudioTranscription(f.project, f.input, 'zh', account,
+    { ...config, chunkSeconds: split ? 20 : 600 }, shortMedia)
+  expect(resumed.job_id).toBe(first.job_id)
+  expect(submitted).toEqual(initialIds)
+  const pending = await finishAudioTranscription(f.project, first.receipt, account)
+  expect(pending).toMatchObject({ status: 'failed', ...preSubmitFailure })
+  expect(submitted).toEqual([...initialIds, ...initialIds])
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as { mp3: string; parts?: Array<{ id: string; mp3: string }> }
+  for (const part of receipt.parts ?? [receipt]) expect(await stat(part.mp3)).toBeDefined()
+  recovered = true
+  expect(await finishAudioTranscription(f.project, first.receipt, account)).toMatchObject({ status: 'processing', queued: true })
+  expect(submitted).toEqual([...initialIds, ...initialIds, ...initialIds])
+  for (const part of receipt.parts ?? [receipt]) expect(await stat(part.mp3)).toBeDefined()
+})
+
+it('cleans a terminal provider failure separately from a recoverable unsubmitted split task', async () => {
+  const f = await setup(), ids: string[] = []
+  const account: AudioAccount = { ...f.account,
+    submitAudio: async (_file, id) => { ids.push(id); return { id, status: 'processing', service_version: 'flash' } },
+    audioStatus: async id => ({ id, status: 'processing', service_version: 'flash' }),
+  }
+  const first = await startAudioTranscription(f.project, f.input, 'zh', account, { ...config, chunkSeconds: 20 }, shortMedia)
+  const initialIds = [...ids]
+  account.audioStatus = async id => id === initialIds[0]
+    ? { id, status: 'failed', service_version: 'flash', error_code: 'provider_rejected',
+      recovery: { capability: 'none', next_action: 'inspect_receipt', automatic_resubmit: false } }
+    : { id, status: 'failed', ...preSubmitFailure }
+  account.submitAudio = async (_file, id) => { ids.push(id); return { id, status: 'failed', ...preSubmitFailure } }
+  expect((await finishAudioTranscription(f.project, first.receipt, account)).status).toBe('failed')
+  expect(ids).toEqual([...initialIds, initialIds[1]])
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as { parts: Array<{ mp3: string }> }
+  await expect(stat(receipt.parts[0]!.mp3)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await stat(receipt.parts[1]!.mp3)).toBeDefined()
+})
+
+it('queries each accepted queued split task without another upload or loss of pinned service', async () => {
+  const f = await setup(), ids: string[] = []
+  const queued = { service_version: 'standard-v2', queued: true,
+    recovery: { capability: 'none', next_action: 'wait', automatic_resubmit: false } } as const
+  const account: AudioAccount = { ...f.account,
+    submitAudio: async (_file, id) => { ids.push(id); return { id, status: 'processing', ...queued } },
+    audioStatus: async id => ({ id, status: 'processing', ...queued }),
+  }
+  const first = await startAudioTranscription(f.project, f.input, 'zh', account, { ...config, chunkSeconds: 20 }, shortMedia, 'screenplay')
+  expect(await finishAudioTranscription(f.project, first.receipt, account)).toMatchObject({ status: 'processing', ...queued })
+  expect(ids).toHaveLength(2)
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as { parts: Array<{ mp3: string }> }
+  for (const part of receipt.parts) { expect(part).toMatchObject(queued); expect(await stat(part.mp3)).toBeDefined() }
 })

@@ -79,7 +79,7 @@ test('standard jobs retain their worker until completion and queued accounts sha
 test('omitted purpose preserves the default flash route while explicit screenplay can select standard 1.0',async t=>{
  const calls=[];const env=await fixture(t,(app,version)=>({recognize:async()=>{calls.push(version);return {status:'silent'};},submit:async()=>{calls.push(version);},query:async()=>({status:'silent'})}),{routes:{subtitles:'flash',screenplay:'standard-v1'}});
  const old=await env.submit(undefined),script=await env.submit('screenplay');await env.service.idle();
- assert.equal(old.purpose,undefined);assert.equal(old.service_version,undefined);assert.equal(script.service_version,'standard-v1');assert.deepEqual(calls,['flash','standard-v1']);
+ assert.equal(old.purpose,undefined);assert.equal(old.service_version,'flash');assert.equal(script.service_version,'standard-v1');assert.deepEqual(calls,['flash','standard-v1']);
  await assert.rejects(env.submit('subtitles','alice',old.id),{status:409});
 });
 

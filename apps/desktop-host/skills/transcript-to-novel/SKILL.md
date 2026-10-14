@@ -29,12 +29,11 @@ qa/report-v1.md                来源时间码、处理范围、疑点及交付�
 
 记录原件的标题或资料 ID、来源、版本或读取时间，以及本次处理的集数或时间范围。输入是音频文件且没有文字时，沿现有 `audio-transcribe` 授权、上传、计费、收据和恢复流程生成可核对的 ASR 转写，原始 TXT 和 JSON 写入 `transcript/raw/`，并标记文字来源为 ASR。
 
-优先复用用户已提供且覆盖本次范围的字幕或转写，保留原来源；不要为已有文字重复调用识别。输入是视频且没有文字时，先核对本机 OCR 能力。在支持 Windows OCR 时调用 `video_ocr`，把原始 JSON 与合并 TXT 写入 `transcript/raw/`；按 `next_start_seconds` 扫完本次授权范围，保留每段时间码、文字来源、扫描范围、失败帧以及 `content_candidate`/`persistent_text_candidate` 分类。所有文字都保留在原始证据中；长时间位置稳定只表示 `persistent_text_candidate`，不能据此认定水印、平台 UI 或非剧情文字，也不能据此删除字幕。`video_ocr` 的抽帧扫描不能证明百分之百没有字幕：
+优先复用用户已提供且覆盖本次范围的字幕或转写，保留原来源，不为已有文字重复识别。输入是有语音的视频且缺少文字时，加载 `audio-transcribe`，用已获授权的 ASR 和 `purpose: "screenplay"` 取得原稿。识别服务与任务恢复按该技能执行，不把 `uncertain` 当成仍在识别无限查询，不自动切换版本或重新付费。
 
-- `scan_status=complete` 且 `text_status=candidate_text_detected` 时，先核对文字是否足够覆盖目标范围，再以 OCR 为小说的主要文字来源；可在用户授权后用 `video_inspect` 辅助核对场景、人物和动作，但不能从画面猜对白或补剧情。
-- `scan_status=partial/failed`、语言包缺失、超时、失败帧或 `text_status=indeterminate` 时，如实列出已扫与缺失范围，提供继续/重扫、复用已有文字、只按已核对范围生成部分稿或停止；不得当作无字幕，也不得自动发起新的付费 ASR。
-- OCR 只有部分可用文字时，不生成或命名为完整小说。只有用户明确选择部分稿后，才按可核对时间范围写作，并在标题、正文说明和 QA 中标明缺口。
-- 本机不支持 OCR（如 Mac）、OCR 运行时或语言不可用时，说明实际能力与缺口，可复用用户提供的字幕/转写；已有明确覆盖本素材、用途和扣费的 ASR 授权时，可沿现有 ASR 路径继续，无需声称 OCR 已完成。否则请用户选择是否授权 ASR，不自动发起新的付费调用。完成计划扫描仍无可用字幕时，也应说明抽帧局限并让用户选择备用来源，不能断言视频绝对无字幕。用户选择 ASR 后仍须沿 `audio-transcribe` 的既有授权、用途、计费、收据和恢复流程；不能由分流绕过授权。OCR 与 ASR 结果分文件保存并明确标记来源，不混写成同一原始证据。
+队列分流沿 `audio-transcribe`：只有明确 `queue_full` 的尚未受理任务或未提交集，且可靠画面文字可覆盖目标范围时，才按实测效率分几集给 `video_ocr`。已受理的 `queued=true` 任务保留原身份，不假称取消。纯文字无发声的视频也可按可见文字选择 OCR；ASR 的 `silent` 不算失败。OCR 的 JSON、TXT 与 ASR 原稿分文件保存，标明文字来源、时间码、扫描范围、失败帧与 `content_candidate`/`persistent_text_candidate`，按 `next_start_seconds` 继续实际范围；稳定位置不是非剧情水印证据。
+
+OCR 的 `scan_status=partial/failed` 或 `text_status=indeterminate` 表示覆盖不足，列出缺口并复用已有文字、继续可靠范围或交付明确的部分稿，不补写漏掉的对白。抽帧扫描不能证明百分之百没有字幕，完成扫描也不等于小说内容完整。无法取得足够可靠文字时说明缺口；是否另起付费识别沿现有授权处理，不由分流绕过授权。
 
 人工校订另存 `transcript/reviewed/`，保留时间码、原稿和文字来源。无法取得足够文字时说明缺口，不凭推测写对白。核对事件顺序、关键对白、反转和结尾停点，先写有来源范围的 `outline/source-v1.md`，再写不增造事实的 `outline/adaptation-v1.md`；按修订版本续作。根据原稿中的“我”或可确认的主角确定第一人称叙述者；无法确认且会改变故事事实时，先指出缺口。
 

@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-asr-recovery-guard
+profile: headless
+composition: muse-asr-recovery-guard
+recording: authored
+header:
+  class: muse-asr-recovery-guard
+  pin: true
+workspace:
+  setup: muse-asr-recovery-guard
+writerOutput: true

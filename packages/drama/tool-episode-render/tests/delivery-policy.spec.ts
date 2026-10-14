@@ -1,5 +1,5 @@
 /** Explicit medium selection, persisted snapshots, and legacy fallbacks. */
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -45,6 +45,10 @@ describe('delivery metadata', () => {
     const timeline = appendClips([1_000_000])
     expect(parseTimelineDocument(JSON.parse(formatTimelineDocument(timeline)), 't.json')).toEqual({ ...timeline, declaredBodyEndSeconds: 1 })
   })
+  it('reads an old timeline without a declared body end and derives its clip end', () => {
+    expect(parseTimelineDocument({ clips: [{ shot: 1, start_us: 0, duration_us: 1_000_000 }] }, 't.json'))
+      .toEqual(appendClips([1_000_000]))
+  })
   it.each([null, [], 'animation_3d', {}, { ...animation, visual_medium: null },
     { ...animation, visual_medium: '3D' }, { ...animation, width: 1919 },
     { ...animation, height: 0 }, { ...animation, fps: 0 }, { ...animation, fps: 241 },
@@ -73,6 +77,16 @@ describe('delivery metadata', () => {
     await writeFile(join(path, 'project_config.json'), 'broken')
     await expect(readProjectDelivery(path)).rejects.toThrow()
   })
+  it('uses legacy geometry when the project config has no bible', async () => {
+    const path = await project()
+    await writeFile(join(path, 'project_config.json'), '{}')
+    expect(await readProjectDelivery(path)).toEqual(DEFAULT_DELIVERY)
+  })
+  it('reports an unreadable project config instead of treating it as missing', async () => {
+    const path = await project()
+    await mkdir(join(path, 'project_config.json'))
+    await expect(readProjectDelivery(path)).rejects.toThrow()
+  })
 })
 
 describe('medium delivery resolution', () => {
@@ -80,6 +94,11 @@ describe('medium delivery resolution', () => {
     const policy = await resolveDeliveryPolicy(await project({ style: '3D动画', aspect_ratio: '16:9' }))
     expect(policy).toMatchObject({ endingSeconds: 2, addWatermark: true, delivery: DEFAULT_DELIVERY })
     expect(policy.warnings[0]).toContain('未设置 visual_medium')
+  })
+  it('keeps a 2D style as free text and does not silently select 3D treatment', async () => {
+    const policy = await resolveDeliveryPolicy(await project({ style: '二维国漫', aspect_ratio: '16:9' }))
+    expect(policy).toMatchObject({ endingSeconds: 2, addWatermark: true, delivery: DEFAULT_DELIVERY })
+    expect(policy.warnings).toHaveLength(1)
   })
   it('accepts an explicit project medium for an old timeline without guessing its geometry', async () => {
     const policy = await resolveDeliveryPolicy(await project({ visual_medium: 'animation_3d', delivery: animation }))

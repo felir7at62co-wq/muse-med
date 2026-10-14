@@ -275,12 +275,15 @@ def ending_effect_filter(ending_duration: float, width: int = WIDTH, height: int
     what makes that remainder the freeze, because a black effect frame screens over
     the frozen frame without changing it.
     """
+    scale = DESIGN_WIDTH / min(width, height)
+    canvas_width, canvas_height = (math.floor(value * scale + 0.5) for value in (width, height))
+    effect_width, effect_height = (math.floor(value / 2 + 0.5) for value in (canvas_width, canvas_height))
     return (
         f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height},fps={fps:g},format=gbrp[base];"
         "[1:v]setpts=PTS-STARTPTS,"
-        "scale=540:960:force_original_aspect_ratio=increase,"
-        "crop=540:960,minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,"
+        f"scale={effect_width}:{effect_height}:force_original_aspect_ratio=increase,"
+        f"crop={effect_width}:{effect_height},minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,"
         "tmix=frames=2:weights='1 1',"
         f"tpad=stop_mode=add:stop_duration={ending_duration:.3f}:color=black,"
         f"trim=0:{ending_duration:.3f},fps={fps:g},scale={width}:{height}:flags=lanczos,"

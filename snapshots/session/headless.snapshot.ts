@@ -565,6 +565,22 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       language: 'zh', purpose: 'screenplay', sha256: 'a'.repeat(64), mp3: join(workspace, `transcript/jobs/.${id}.wav`), status: 'processing',
     }) + '\n')
   },
+  async 'muse-asr-recovery-guard'(cwd) {
+    const workspace = await realpath(cwd)
+    await workspaceSetups['muse-editing-skill']!(cwd)
+    await mkdir(join(cwd, 'transcript/jobs'), { recursive: true })
+    for (const [index, stem] of ['flash', 'standard'].entries()) {
+      const id = `71000000-0000-4000-8000-00000000000${index + 1}`
+      const flash = stem === 'flash'
+      await writeFile(join(cwd, `transcript/jobs/${stem}-v1.json`), JSON.stringify({
+        id, source: join(workspace, `source/${stem}.mp4`), accountUsername: 'fixture', stem, version: 1,
+        language: 'zh', purpose: 'screenplay', sha256: 'a'.repeat(64), mp3: join(workspace, `transcript/jobs/.${id}.wav`),
+        status: 'uncertain', service_version: flash ? 'flash' : 'standard-v2', error_code: 'provider_unavailable',
+        provider_diagnostic: { reason: 'timeout', operation: flash ? 'flash' : 'query' },
+        recovery: { capability: flash ? 'no_query' : 'query_original_task', next_action: flash ? 'inspect_receipt' : 'poll_original', automatic_resubmit: false },
+      }, null, 2) + '\n')
+    }
+  },
   async 'muse-drama-pipeline-skill'(cwd) {
     const target = join(cwd, '.dsh', 'skills', 'tweet-drama-pipeline', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })
