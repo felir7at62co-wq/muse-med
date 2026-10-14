@@ -69,9 +69,48 @@ class GenerationRequest(unittest.TestCase):
         self.assertIn("局部粗糙度与反射层次", request["prompt"])
 
     def test_supported_positive_medium_names(self):
-        for medium in ("3D动漫", "3D国漫", "三维动漫", "3D动画", "三维动画", "风格化三维动画", "风格化动画", "3D动漫／风格化三维动画", "stylized animation", "3D anime", "3d Anime", "3D 动漫", "Stylized   Animation"):
+        for medium in ("3D动漫", "3D国漫", "三维动漫", "3D动画", "三维动画", "风格化三维动画", "风格化动画", "3D动漫／风格化三维动画", "3danime", "stylizedanimation", "stylized animation", "3D anime", "3d Anime", "3D 动漫", "Stylized   Animation"):
             with self.subTest(medium=medium):
                 self.assertEqual(self.validate(*planned_request(medium)), [])
+
+    def test_exact_project_prefix_preserves_all_published_media_and_full_request(self):
+        for medium in sorted(self.validator.MEDIA) + ["3D anime", "stylized animation", "Stylized   Animation", "3D 动漫"]:
+            for prefix in ("项目风格: ", "项目风格："):
+                with self.subTest(medium=medium, prefix=prefix):
+                    record, request = planned_request(medium)
+                    record["generation"]["final_prompt"] = request["prompt"] = prefix + request["prompt"]
+                    request["image_style"] = "anime"
+                    before = copy.deepcopy((record, request))
+                    self.assertEqual(self.validate(record, request), [])
+                    self.assertEqual((record, request), before)
+
+    def test_nonleading_negative_or_inexact_prefix_does_not_supply_the_medium(self):
+        for prefix in ("说明：", "项目风格 ：", "项目风格：\n", "项目风格：\r\n", "项目风格：不要", "不要"):
+            with self.subTest(prefix=prefix):
+                record, request = planned_request()
+                record["generation"]["final_prompt"] = request["prompt"] = prefix + request["prompt"]
+                self.assertIn("request.prompt must open with the declared positive animation medium",
+                              self.validate(record, request))
+
+    def test_provided_image_style_must_agree_with_confirmed_animation(self):
+        for image_style in ("live_action", None, "unsupported", 1, ["anime"]):
+            with self.subTest(image_style=image_style):
+                record, request = planned_request()
+                request["image_style"] = image_style
+                self.assertIn("request.image_style must be anime for the declared animation medium",
+                              self.validate(record, request))
+        record, request = planned_request()
+        request["image_style"] = "anime"
+        self.assertEqual(self.validate(record, request), [])
+
+    def test_lone_carriage_return_does_not_join_a_project_declaration(self):
+        for medium in ("风格化动画", "stylized animation"):
+            for prefix in ("项目风格:", "项目风格："):
+                with self.subTest(medium=medium, prefix=prefix):
+                    record, request = planned_request(medium)
+                    record["generation"]["final_prompt"] = request["prompt"] = prefix + "\r" + request["prompt"]
+                    self.assertIn("request.prompt must open with the declared positive animation medium",
+                                  self.validate(record, request))
 
     def test_local_review_images_are_not_submitted(self):
         record, request = planned_request()
@@ -240,6 +279,39 @@ class GenerationRequestCLI(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(report["generation_ready"])
         self.assertEqual(report["errors"], [])
+
+    def test_exact_project_prefix_passes_the_read_only_cli(self):
+        record, request = planned_request("stylized animation")
+        record["generation"]["final_prompt"] = request["prompt"] = "项目风格：" + request["prompt"]
+        request["image_style"] = "anime"
+        before = copy.deepcopy((record, request))
+        code, report = self.invoke(request, [record])
+        self.assertEqual(code, 0)
+        self.assertTrue(report["generation_ready"])
+        self.assertEqual((record, request), before)
+
+    def test_later_conflicting_image_style_blocks_the_complete_batch(self):
+        first, first_request = planned_request()
+        second, second_request = planned_request("风格化动画")
+        second_request["image_style"] = "live_action"
+        items = [self.batch_item(first_request, "offline-first"), self.batch_item(second_request, "offline-second")]
+        code, report = self.invoke({"method": "image_generate_batch", "script_id": 123, "items": items}, [first, second])
+        self.assertEqual(code, 1)
+        self.assertFalse(report["generation_ready"])
+        self.assertIn("items[1]: request.image_style must be anime for the declared animation medium", report["errors"])
+
+    def test_top_level_batch_image_style_is_rejected(self):
+        for image_style in ("anime", "live_action", None):
+            with self.subTest(image_style=image_style):
+                record, item_request = planned_request()
+                request = {"method": "image_generate_batch", "script_id": 123,
+                           "image_style": image_style,
+                           "items": [self.batch_item(item_request, "offline-batch-style")]}
+                code, report = self.invoke(request, [record])
+                self.assertEqual(code, 1)
+                self.assertFalse(report["generation_ready"])
+                self.assertIn("image_generate_batch requires per-item image_style, not a top-level image_style",
+                              report["errors"])
 
     def test_explicit_pbr_prohibition_is_not_a_positive_material_requirement(self):
         for prompt in ("3D动漫，禁止PBR材质。", "3D动漫，物理可信PBR材质。其他要求：不要使用PBR材质。",

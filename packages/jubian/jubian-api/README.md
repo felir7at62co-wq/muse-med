@@ -34,6 +34,8 @@ Choose this library when you read or submit Jubian business data and you do not 
 
 Pool rows expose `claim_leader_id` and `claim_member_id` when available. The claim tool checks these account IDs against the authenticated user because claimant names cannot verify ownership.
 
+`ImageRequestInput.imageStyle` selects `anime` or `live_action`; the provider receives `style: 1` or `style: 0`. `resolveImageStyle` recognizes a leading positive anime or live-action declaration, optionally preceded by the exact `项目风格:` or `项目风格：` prefix on the same first line, when the field is omitted; unmarked legacy prompts retain live action. Other text and negative instructions do not supply a medium. An explicit choice conflicting with the leading declaration fails before submission. The prompt remains byte-for-byte unchanged, including the 3D subtype. This selector describes the request medium and does not establish generated-image quality.
+
 `readImageGeneration(data)` reads the generated-image endpoint's task/result identity and state independently of image availability. It classifies reference-limit, content-refusal and other provider failures without returning remote error text. URL-only legacy replies return null. `buildImageRequest` refuses more than five reference images on KU_AI before a billable request is constructed.
 
 Readers take the `data` field of a Jubian response envelope, through `JubianResponse.data`; `readStoryboardPage(data, scriptId)` additionally checks each row against the requested project. It returns bounded identity rows without requiring generation settings, preserves missing totals and episode bindings as null, and accepts empty pages. The transport returns that field untouched, and this library is what gives it a type.

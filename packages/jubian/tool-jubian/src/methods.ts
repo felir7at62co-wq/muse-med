@@ -19,11 +19,11 @@ import {
   MODEL_TASK_TYPES as TASKS, FAILED_STATUSES, SUCCESS_STATUSES, buildImageRequest, buildSubtitleEraseRequest,
   buildVideoUpscaleRequest, downloadMedia, readAssetList, readAssetPage, readEpisodes, readGeneratedImage,
   readImageDisplayPrice, readImageGeneration, readMaterialList, readModels, readScript, readStoryboard, readStoryboardPage, readSubtaskPage,
-  readTaskList, readTaskPage, readSubtitleTaskId, readUpscaleTaskId, needsUpscale, resolveImageModel,
+  readTaskList, readTaskPage, readSubtitleTaskId, readUpscaleTaskId, needsUpscale, resolveImageModel, resolveImageStyle,
   validateImageRequestInput, responseRecords, wireText,
   withGenerationDisabled, withGenerationEnabled,
 } from '@deepseek-ai/dsh-jubian-api'
-import type { ImageAspectRatio, ImageModelSelection, ImageModelSelectors, MediaKind,
+import type { ImageAspectRatio, ImageModelSelection, ImageModelSelectors, ImageStyle, MediaKind,
   SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
 import { positiveInteger, prepareVideoMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
 import type { VideoBatchItem, VideoBatchOptions } from './native.ts'
@@ -100,6 +100,8 @@ export interface MethodArgs {
   estimated_cost_cny?: string
   /** Current price and usage assumptions supporting the reservation. */
   estimate_basis?: string
+  /** Image medium; 2D and 3D animation both use anime. */
+  image_style?: ImageStyle
   /** `image_generate`: one-call platform choice; omitting it uses the configured or saved route. */
   image_platform_id?: string
   /** `image_generate`: requested image ratio; omitted calls retain 16:9. */
@@ -165,6 +167,8 @@ export interface ImageBatchItem {
   asset_category?: AssetCategory
   episode?: string
   prompt?: string
+  /** This item's image medium; its complete 3D substyle remains in prompt. */
+  image_style?: ImageStyle
   image_platform_id?: string
   references?: string[]
   parent_asset_id?: number
@@ -506,6 +510,9 @@ function preparedImageBatch(args: MethodArgs, naming: Naming, maxItems: number):
   assetName: string
   assetType: number
 }> {
+  if (args.image_style !== undefined) {
+    throw new JubianError('INVALID_ARGUMENT', 'image_generate_batch image_style belongs in each items entry, not at the top level')
+  }
   if (!Number.isSafeInteger(args.script_id) || (args.script_id as number) <= 0) {
     throw new JubianError('INVALID_ARGUMENT', 'image_generate_batch requires a positive script_id')
   }
@@ -550,7 +557,8 @@ function preparedImageBatch(args: MethodArgs, naming: Naming, maxItems: number):
     }
     try {
       validateImageRequestInput({ scriptId: need(args.script_id), assetName, assetType,
-        prompt: item.prompt, references: item.references === undefined ? [] : item.references,
+        prompt: item.prompt, imageStyle: resolveImageStyle(need(item.prompt), item.image_style),
+        references: item.references === undefined ? [] : item.references,
         ...(item.parent_asset_id === undefined ? {} : { parentAssetId: item.parent_asset_id }) })
     } catch {
       throw new JubianError('INVALID_ARGUMENT', `items[${index}] has an invalid image request`)
@@ -840,7 +848,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         const selection: ImageModelSelection = item.image_platform_id === undefined
           ? deps.image?.selection ?? {} : { platformId: item.image_platform_id }
         buildImageRequest({ scriptId: need(args.script_id), assetName,
-          assetType, prompt: need(item.prompt),
+          assetType, prompt: need(item.prompt), imageStyle: resolveImageStyle(need(item.prompt), item.image_style),
           references: item.references ?? [],
           ...(item.parent_asset_id === undefined ? {} : { parentAssetId: item.parent_asset_id }) }, catalogueRows, selection)
       }
@@ -915,6 +923,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         ? deps.image?.selection ?? {}
         : { platformId: args.image_platform_id }
       const { assetName, assetType } = imageIdentity(args, deps.naming ?? resolveNaming())
+      const imageStyle = resolveImageStyle(need(args.prompt), args.image_style)
       // Ordinary replays skip this catalogue read. A batch supplies its one
       // preflight catalogue so every row is validated before any paid request.
       let cached: ClientResponse | undefined
@@ -930,7 +939,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           const rows = await catalogue()
           selectors = resolveImageModel(rows, selection, args.image_aspect_ratio)
           return buildImageRequest({ scriptId: need(args.script_id), assetName,
-            assetType, prompt: need(args.prompt), references: args.references ?? [],
+            assetType, prompt: need(args.prompt), imageStyle, references: args.references ?? [],
             ...(args.image_aspect_ratio === undefined ? {} : { aspectRatio: args.image_aspect_ratio }),
             ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }) }, rows, selection)
         },
@@ -958,6 +967,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         idempotency_key: args.idempotency_key, response_sha256: result.response_sha256,
         budget: result.budget ?? null,
         parent_asset_id: assetId,
+        image_style: imageStyle,
         resolution: model.resolution,
         // Which catalogue row was actually bought from, echoed so a price can never
         // be attributed to the wrong platform.
