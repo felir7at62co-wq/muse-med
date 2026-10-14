@@ -113,6 +113,8 @@ kind: "package-reference"
 <a id="dev-note"></a>
 ### 开发备注
 
+视频 EOF 比较夹具启动真实媒体进程，并沿用已配置的[测试和清理预算](../../../docs/testing.zh.md)。
+
 聚焦测试使用原创合成 FFmpeg 素材、真实 PTC 执行、文件系统读取、规范化附件与无密钥脚本模型，检查实际请求中的图片块，并覆盖注册丢失与已验收记录的日志恢复。记录 Session 场景通过正式 profile 加载插件，只替换确定性的媒体进程输出。
 
 `frameFormat` 可选 `png`（默认）或 `jpeg`；`frameJpegQuality` 指定 FFmpeg JPEG 量化值，范围 1–31（默认 2，PNG 忽略）。创作模式使用 JPEG，每次默认返回四帧，降低请求上传体积并保留源时间戳。画面尺寸应足以辨认字幕和人物；编码完成不代表模型已观察画面。
