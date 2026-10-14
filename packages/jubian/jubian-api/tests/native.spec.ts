@@ -395,15 +395,20 @@ describe('preview construction and validation', () => {
   })
 
   it.each([
-    { label: 'wrong first-seen order', prompt: '@[苏晚](guest) @[陆沉舟](lead) @[苏晚](guest)',
+    { label: 'conflicting image group order', prompt: '@[苏晚](guest) @[陆沉舟](lead) @[苏晚](guest)',
       keys: ['guest', 'lead'] },
     { label: 'unknown marker', prompt: '@[陆沉舟](lead) @[未知](unknown) @[苏晚](guest)',
       keys: ['lead', 'unknown', 'guest'] },
-  ])('rejects $label with a local marker error', ({ prompt, keys }) => {
+  ])('rejects $label before preparing a payable preview', ({ label, prompt, keys }) => {
     const storyboard = { ...STORYBOARD, modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) }
-    expect(() => buildNativeVideoPreview({ storyboard, assets: ASSETS, models: CATALOGUE, createdAt: 'now' }))
-      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT',
+    const prepare = () => buildNativeVideoPreview({ storyboard, assets: ASSETS, models: CATALOGUE, createdAt: 'now' })
+    if (label === 'conflicting image group order') {
+      expect(prepare).toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED',
+        detail: 'Image material sortOrder conflicts with prompt group order' }))
+    } else {
+      expect(prepare).toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT',
         detail: `PREPARE_VIDEO_IMAGE_MARKER_MISMATCH: prompt keys=${JSON.stringify(keys)}, bound keys=["lead","guest"]; no PUT sent` }))
+    }
   })
 
   it('keeps the bound image identity check when repeated markers are valid', () => {
@@ -516,10 +521,10 @@ describe('preview construction and validation', () => {
       assets: [{ ...ASSETS[0]!, official: false }, ASSETS[1]!], models: CATALOGUE, createdAt: 'now' })).toThrow()
   })
 
-  it('refuses a payload whose material identity or prompt order disagrees', () => {
+  it('normalizes physical row order while still refusing a missing trusted identity', () => {
     const reordered = { ...STORYBOARD, storyboardMaterialList: [MATERIALS[1]!, MATERIALS[0]!] }
-    expect(() => buildNativeVideoPreview({ storyboard: reordered, assets: [ASSETS[1]!, ASSETS[0]!],
-      models: CATALOGUE, createdAt: 'now' })).toThrow()
+    expect(buildNativeVideoPreview({ storyboard: reordered, assets: [ASSETS[1]!, ASSETS[0]!],
+      models: CATALOGUE, createdAt: 'now' }).idempotencyKey).toBe(PREVIEW.idempotencyKey)
     // A local upload has no generated material id, so its usability rests
     // entirely on the trusted hsAssetId the subject row carries.
     const localWithoutTrust = { ...ASSETS[0]!, hsAssetId: '', isLocal: 1 }
@@ -795,4 +800,81 @@ describe('native episode scope', () => {
     expect(classifyNewNativeCandidates([{ ...candidate, task: { ...candidate.task, episode_count: 85 } }], expected).status).toBe('none')
     expect(classifyExistingNativeMatches([{ ...candidate, task: { ...candidate.task, episode_count: 85 } }], expected).status).toBe('none')
   })
+})
+
+describe('keyed storyboard binding normalization', () => {
+  it('resolves A/C/B parent assets and material rows into A/B/C prompt order with one fingerprint', () => {
+    const keys = ['A', 'B', 'C']
+    const materials = keys.map((key, index) => ({ assetId: `asset-${key}`, materialAssetId: index + 1,
+      fileName: key, materialKey: key, materialType: 'image', materialUrl: `https://media.example/${key}.jpg`,
+      sortOrder: index + 1 }))
+    const assets = materials.map(material => ({ id: material.materialAssetId, scriptId: 2708,
+      assetUrl: material.materialUrl, hsAssetId: material.assetId, hsAssetStatus: 'Active', isUsed: 1,
+      official: true, asset_status: 'confirmed' }))
+    const storyboard = { ...STORYBOARD, modelConfig: JSON.stringify({ ...MODEL_CONFIG,
+      prompt: keys.map(key => `@[${key}](${key})`).join(' ') }), storyboardMaterialList: materials }
+    const expected = buildNativeVideoPreview({ storyboard, assets, models: CATALOGUE, createdAt: 'now' })
+    const actual = buildNativeVideoPreview({ storyboard: { ...storyboard,
+      storyboardMaterialList: [materials[0]!, materials[2]!, materials[1]!] },
+    assets: [assets[0]!, assets[2]!, assets[1]!], models: CATALOGUE, createdAt: 'later' })
+    for (const input of [
+      { storyboard, assets: [assets[0]!, assets[2]!, assets[1]!] },
+      { storyboard: { ...storyboard, storyboardMaterialList: [materials[0]!, materials[2]!, materials[1]!] }, assets },
+    ]) {
+      expect(buildNativeVideoPreview({ ...input, models: CATALOGUE, createdAt: 'now' }).idempotencyKey)
+        .toBe(expected.idempotencyKey)
+    }
+    expect(actual.assetSummary.orderedAssets.map(asset => asset.materialKey)).toEqual(keys)
+    expect(actual.payload).toEqual(expected.payload)
+    expect(actual.idempotencyKey).toBe(expected.idempotencyKey)
+    expect(validateNativeVideoPreview(actual)).toEqual(actual)
+  })
+
+  it('preserves image/audio interleaving in both PUT material lists while retaining separate group order', () => {
+    const audio = [
+      { materialType: 'audio', materialKey: 'voice-lead', materialUrl: 'https://media.example/lead.wav',
+        fileName: 'lead voice', sortOrder: 1, audioDuration: 2 },
+      { materialType: 'audio', materialKey: 'voice-guest', materialUrl: 'https://media.example/guest.wav',
+        fileName: 'guest voice', sortOrder: 2, audioDuration: 2 },
+    ]
+    const storyboard = { ...STORYBOARD, storyboardMaterialList: [audio[1]!, MATERIALS[1]!, audio[0]!, MATERIALS[0]!],
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG,
+        prompt: '@[陆沉舟](lead) @[陆沉舟声线](voice-lead) @[苏晚](guest) @[苏晚声线](voice-guest) @[陆沉舟](lead)' }) }
+    const actual = buildNativeVideoPreview({ storyboard, assets: [ASSETS[1]!, ASSETS[0]!],
+      models: CATALOGUE, createdAt: 'now' })
+    const ordered = actual.payload.storyboardMaterialList as Record<string, unknown>[]
+    expect(ordered.map(material => material.materialKey)).toEqual(['lead', 'voice-lead', 'guest', 'voice-guest'])
+    expect(ordered.map(material => material.sortOrder)).toEqual([1, 1, 2, 2])
+    expect((JSON.parse(String(actual.payload.modelConfig)) as Record<string, unknown>).materialList).toEqual(ordered)
+    expect(actual.assetSummary.orderedAssets.map(asset => asset.materialKey)).toEqual(['lead', 'guest'])
+    expect(validateNativeVideoPreview(actual)).toEqual(actual)
+    const repeated = buildNativeVideoPreview({ storyboard: { ...storyboard, storyboardMaterialList: [...ordered].reverse() },
+      assets: ASSETS, models: CATALOGUE, createdAt: 'later' })
+    expect(repeated.idempotencyKey).toBe(actual.idempotencyKey)
+  })
+
+  it.each([
+    ['missing key', [{ ...MATERIALS[0]!, materialKey: undefined }, MATERIALS[1]!]],
+    ['duplicate key', [MATERIALS[0]!, { ...MATERIALS[1]!, materialKey: 'lead' }]],
+    ['extra key', [...MATERIALS, { ...MATERIALS[0]!, materialKey: 'extra' }]],
+    ['wrong identity', [{ ...MATERIALS[0]!, assetId: 'asset-elsewhere' }, MATERIALS[1]!]],
+    ['conflicting group order', [{ ...MATERIALS[0]!, sortOrder: 2 }, MATERIALS[1]!]],
+  ])('refuses %s rather than rebinding another asset', (_label, materials) => {
+    expect(() => validatedVideoMaterials({ ...STORYBOARD, storyboardMaterialList: materials }, ASSETS)).toThrow()
+  })
+
+  it('refuses duplicate, missing, foreign-project and audio parent assets', () => {
+    for (const assets of [[ASSETS[0]!, ASSETS[0]!], [ASSETS[0]!],
+      [{ ...ASSETS[0]!, scriptId: 999 }, ASSETS[1]!], [{ ...ASSETS[0]!, assetType: 4 }, ASSETS[1]!]]) {
+      expect(() => validatedVideoMaterials(STORYBOARD, assets)).toThrow()
+    }
+  })
+})
+
+it('refuses two image keys sharing one parent and a non-text material key', () => {
+  expect(() => validatedVideoMaterials({ ...STORYBOARD,
+    storyboardMaterialList: [MATERIALS[0]!, { ...MATERIALS[1]!, materialAssetId: 81285 }] }, ASSETS))
+    .toThrow('unique parent IDs')
+  expect(() => validatedVideoMaterials({ ...STORYBOARD,
+    storyboardMaterialList: [{ ...MATERIALS[0]!, materialKey: 1 }, MATERIALS[1]!] }, ASSETS)).toThrow('materialKey')
 })

@@ -206,14 +206,14 @@ async function storyboardSnapshot(client: JubianClient, storyboardId: number): P
 /**
  * Load the trusted inputs a native preview is built from.
  *
- * Every ordered image is resolved to exactly one active subject-setting row
+ * Every image is resolved to exactly one active subject-setting row
  * and one parent asset in the same project, and the asset's official URL must
  * equal the row's: these are the identities the paid PUT will translate, so a
  * field that disagrees is refused while the call is still free. Uploaded audio
  * remains a file reference and has no character-image parent to resolve.
  * @param client - Jubian transport.
  * @param storyboardId - The storyboard to prepare.
- * @returns The live storyboard and its ordered, enriched parent assets.
+ * @returns The live storyboard and its uniquely keyed, enriched parent assets.
  */
 async function loadLiveInputs(client: JubianClient, storyboardId: number):
 Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[] }> {
@@ -241,7 +241,6 @@ Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[]
     resolved = true
   }
   const byId = new Map<string, Record<string, unknown>>()
-  const ordered: Record<string, unknown>[] = []
   for (const material of orderedMaterials) {
     if (material.materialType === 'audio') continue
     // The resolution pass accepts only positive numeric parents or replaces them from an official row.
@@ -252,7 +251,6 @@ Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[]
       if (positiveInteger(asset.scriptId) !== scriptId) throw new JubianError('CONTRACT_CHANGED')
       byId.set(key, asset)
     }
-    ordered.push(asset)
   }
   rows ??= await preflightRead('subject_list_read', () => listAllSubjectMaterials(client, scriptId))
   const rowsByParent = new Map<string, Record<string, unknown>[]>()
@@ -294,7 +292,7 @@ Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[]
     asset.assetUrl = rowUrl
   }
   return { storyboard: resolved ? { ...storyboard, storyboardMaterialList: orderedMaterials } : storyboard,
-    assets: ordered }
+    assets: [...byId.values()] }
 }
 
 /** The live catalogue of video-generation models. */

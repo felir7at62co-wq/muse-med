@@ -181,6 +181,89 @@ it('preserves unrelated images, reference audio, prompt, model and provider fiel
   expect(JSON.stringify(original)).toBe(before)
 })
 
+it.each([
+  { order: ['lead', 'voice', 'bg'] },
+  { order: ['bg', 'lead', 'voice'] },
+  { order: ['voice', 'bg', 'lead'] },
+])('preserves unselected material identities when physical order is $order', async ({ order }) => {
+  const root = await project(), original = card()
+  const materials = original.storyboardMaterialList
+  if (!Array.isArray(materials)) throw new Error('Missing fixture materials')
+  original.storyboardMaterialList = order.map(key => (materials as Record<string, unknown>[]).find(row => row.materialKey === key))
+  const before = JSON.stringify(original), filesBefore = await tree(root)
+  const mock = reuseProvider({ cards: [original] })
+  const result = await reusePreview(mock.client, root, 'requirements.json', 'reuse.json', limits)
+  expect(result.status).toBe('reuse_ready')
+  expect(result.shots[0]).toMatchObject({ status: 'awaiting_confirmation', selections: [
+    { material_key: 'lead', asset_id: 11 }, { material_key: 'bg', asset_id: 12 },
+  ] })
+  expect(result).toMatchObject({ apply_allowed: false, local_writes: 0, remote_writes: 0, paid_requests: 0 })
+  expect(JSON.stringify(original)).toBe(before)
+  expect(await tree(root)).toEqual(filesBefore)
+  expect(mock.calls.every(call => call.method === 'GET')).toBe(true)
+})
+
+it('preserves unselected images and audio in an interleaved prompt and repeat preview', async () => {
+  const root = await project(), original = card()
+  original.modelConfig = { prompt: '@[阿舟](lead)说话，@[声线](voice)响起，进入@[大厅](bg)，@[阿舟](lead)停下。' }
+  const materials = original.storyboardMaterialList
+  if (!Array.isArray(materials)) throw new Error('Missing fixture materials')
+  original.storyboardMaterialList = [materials[1], materials[0], materials[2]]
+  const before = JSON.stringify(original), filesBefore = await tree(root)
+  const mock = reuseProvider({ cards: [original] })
+  const first = await reusePreview(mock.client, root, 'requirements.json', 'reuse.json', limits)
+  const second = await reusePreview(mock.client, root, 'requirements.json', 'reuse.json', limits)
+  expect(first.status).toBe('reuse_ready')
+  expect(first.shots[0]).toMatchObject({ status: 'awaiting_confirmation', selections: [
+    { material_key: 'lead', asset_id: 11 }, { material_key: 'bg', asset_id: 12 },
+  ] })
+  expect(second).toEqual(first)
+  expect(JSON.stringify(original)).toBe(before)
+  expect(await tree(root)).toEqual(filesBefore)
+  expect(mock.calls.every(call => call.method === 'GET')).toBe(true)
+})
+
+it.each([
+  { field: 'assetId', value: 'different-subject' },
+  { field: 'materialAssetId', value: 99 },
+  { field: 'materialUrl', value: 'https://example.invalid/different.png' },
+  { field: 'materialType', value: 'audio' },
+  { field: 'sortOrder', value: 7 },
+])('refuses a real unselected material $field change instead of treating it as reorder', async ({ field, value }) => {
+  const root = await project(), original = card()
+  const background: Record<string, unknown> = image(12, 'bg', '大厅', 'https://example.invalid/lobby.png', 2)
+  background[field] = value
+  const materials = original.storyboardMaterialList
+  if (!Array.isArray(materials)) throw new Error('Missing fixture materials')
+  materials[1] = background
+  const before = JSON.stringify(original), filesBefore = await tree(root)
+  const mock = reuseProvider({ cards: [original] })
+  const result = await reusePreview(mock.client, root, 'requirements.json', 'reuse.json', limits)
+  expect(result.status).toBe('blocked')
+  expect(result.shots[0]).toMatchObject({ status: 'blocked', selections: [], apply_allowed: false })
+  expect(result).toMatchObject({ local_writes: 0, remote_writes: 0, paid_requests: 0 })
+  expect(JSON.stringify(original)).toBe(before)
+  expect(await tree(root)).toEqual(filesBefore)
+  expect(mock.calls.every(call => call.method === 'GET')).toBe(true)
+})
+
+it.each(['no-key', 'unknown-key', 'duplicate-key'] as const)('rejects a %s request without selecting another key', async (kind) => {
+  const root = await project(), shot = mapping()
+  if (kind === 'no-key') shot.bindings = []
+  else if (kind === 'unknown-key') shot.bindings[0]!.material_key = 'missing'
+  else shot.bindings.push({ ...shot.bindings[0]! })
+  await writeFile(join(root, 'reuse.json'), JSON.stringify({ version: 1, shots: [shot] }))
+  const filesBefore = await tree(root), original = card(), before = JSON.stringify(original)
+  const mock = reuseProvider({ cards: [original] })
+  const result = await reusePreview(mock.client, root, 'requirements.json', 'reuse.json', limits)
+  expect(result.status).toBe('blocked')
+  expect(result.shots.every(row => row.selections.length === 0)).toBe(true)
+  expect(result).toMatchObject({ apply_allowed: false, local_writes: 0, remote_writes: 0, paid_requests: 0 })
+  expect(JSON.stringify(original)).toBe(before)
+  expect(await tree(root)).toEqual(filesBefore)
+  expect(mock.calls.every(call => call.method === 'GET')).toBe(true)
+})
+
 it.each([undefined, 'asset-12', '12'] as const)(
   'safely rejects an unchanged legacy image with non-numeric materialAssetId %s', async (parentId) => {
     const root = await project(), original = card()

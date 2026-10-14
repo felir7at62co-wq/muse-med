@@ -176,7 +176,8 @@ describe('selection-only save', () => {
   it('audits preexisting related tasks and reports a newly created task as a billing violation', async () => {
     const provider: FakeProvider = { calls: [], tasks: [{ id: 1, scriptId: 2708, storyboardId: 999999 },
       { id: 2, scriptId: 2708, storyboardId: 916953 }], subtasks: {},
-    storyboard: { ...STORYBOARD, storyboardMaterialList: [...MATERIALS].reverse() } }
+    storyboard: { ...STORYBOARD, storyboardMaterialList: [MATERIALS[1]!,
+      { ...MATERIALS[0]!, assetId: 'stale-lead' }] } }
     provider.onPut = () => { provider.tasks.push({ id: 3, scriptId: 2708, storyboardId: 916953 }) }
     expect(await selectAssetsMethod(clientFor(provider), ledger,
       { storyboard_id: 916953, idempotency_key: 'free-selection', selections }))
@@ -185,9 +186,10 @@ describe('selection-only save', () => {
     expect(putCalls(provider)[0]!.body).toMatchObject({ isGenerate: 0 })
   })
 
-  it('checks the saved material order and reads inline model config after selection', async () => {
+  it('checks saved keyed fields and reads inline model config after selection', async () => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
-      storyboard: { ...STORYBOARD, modelConfig: MODEL_CONFIG, storyboardMaterialList: [...MATERIALS].reverse() } }
+      storyboard: { ...STORYBOARD, modelConfig: MODEL_CONFIG, storyboardMaterialList: [MATERIALS[1]!,
+        { ...MATERIALS[0]!, assetId: 'stale-lead' }] } }
     provider.onPut = () => {
       if (typeof provider.storyboard.modelConfig === 'string') {
         provider.storyboard.modelConfig = JSON.parse(provider.storyboard.modelConfig)
@@ -199,8 +201,10 @@ describe('selection-only save', () => {
       { storyboard_id: 916953, idempotency_key: 'already-selection', selections }))
       .toMatchObject({ status: 'already_applied', applied: false })
     expect(putCalls(provider)).toHaveLength(1)
-    provider.storyboard = { ...STORYBOARD, storyboardMaterialList: [...MATERIALS].reverse() }
-    provider.onPut = () => { provider.storyboard.storyboardMaterialList = [...MATERIALS].reverse() }
+    provider.storyboard = { ...STORYBOARD, storyboardMaterialList: [{ ...MATERIALS[0]!, assetId: 'stale-lead' }, MATERIALS[1]!] }
+    provider.onPut = () => {
+      provider.storyboard.storyboardMaterialList = [{ ...MATERIALS[0]!, materialUrl: 'https://example.test/wrong.jpg' }, MATERIALS[1]!]
+    }
     await expect(selectAssetsMethod(clientFor(provider), ledger,
       { storyboard_id: 916953, idempotency_key: 'broken-selection-readback', selections })).rejects.toThrow('POST_PUT_VERIFY_MISMATCH')
   })
@@ -547,16 +551,18 @@ describe('prepare_video', () => {
   })
 
   it.each([
-    { label: 'wrong first-seen order', prompt: '@[苏晚](guest) @[陆沉舟](lead) @[苏晚](guest)' },
+    { label: 'conflicting image group order', prompt: '@[苏晚](guest) @[陆沉舟](lead) @[苏晚](guest)' },
     { label: 'unknown marker', prompt: '@[陆沉舟](lead) @[未知](unknown) @[苏晚](guest)' },
-  ])('rejects $label locally before writing a preview or sending PUT', async ({ prompt }) => {
+  ])('rejects $label locally before writing a preview or sending PUT', async ({ label, prompt }) => {
     const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) }, tasks: [], subtasks: {} }
     const directory = await project()
     const preparation = prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953,
       project_dir: directory })
-    await expect(preparation).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
-    await expect(preparation).rejects.toThrow('PREPARE_VIDEO_IMAGE_MARKER_MISMATCH')
+    await expect(preparation).rejects.toMatchObject({ code: label === 'conflicting image group order'
+      ? 'CONTRACT_CHANGED' : 'INVALID_ARGUMENT' })
+    await expect(preparation).rejects.toThrow(label === 'conflicting image group order'
+      ? 'prepare_video stage=preview_validation; paid_request_sent=false' : 'PREPARE_VIDEO_IMAGE_MARKER_MISMATCH')
     expect(await readdir(directory)).toEqual(['project_config.json'])
     expect(await ledger.records()).toEqual([])
     expect(putCalls(provider)).toEqual([])
@@ -902,6 +908,33 @@ describe('submit_video', () => {
     expect(putCalls(provider)[0]?.body?.isGenerate).toBe(1)
     expect(result).toMatchObject({ replayed: false, outcome: 'accepted', status: 'submitted', task_id: '335343' })
     expect((await ledger.find(idempotencyKey))?.method).toBe('storyboard_native_submit')
+  })
+
+
+  it('submits interleaved materials once and reconciles the original key after physical reorder', async () => {
+    const audio = { materialType: 'audio', materialKey: 'voice-lead', materialUrl: 'https://media.example/voice.wav',
+      fileName: '陆沉舟声线', sortOrder: 1, audioDuration: 2 }
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      storyboardMaterialList: [MATERIALS[1]!, audio, MATERIALS[0]!],
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG,
+        prompt: '@[陆沉舟](lead) @[陆沉舟声线](voice-lead) @[苏晚](guest)' }) } }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    provider.onPut = (payload) => {
+      provider.tasks = [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1, taskStatus: 'submit' }]
+      provider.subtasks['335343'] = [childOf(payload, {
+        imageMaterials: (payload.storyboardMaterialList as Record<string, unknown>[]).filter(row => row.materialType === 'image'),
+        audioMaterials: [{ audioUrl: audio.materialUrl }],
+      })]
+    }
+    const client = clientFor(provider), args = { preview_path: previewPath, idempotency_key: idempotencyKey }
+    expect(await submitVideoMethod(client, ledger, args)).toMatchObject({ replayed: false, status: 'submitted' })
+    provider.storyboard.storyboardMaterialList = [...provider.storyboard.storyboardMaterialList as Record<string, unknown>[]].reverse()
+    expect(await submitVideoMethod(client, ledger, args)).toMatchObject({ replayed: true, status: 'submitted' })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]!.body!.isGenerate).toBe(1)
+    expect((putCalls(provider)[0]!.body!.storyboardMaterialList as Record<string, unknown>[])
+      .map(row => row.materialKey)).toEqual(['lead', 'voice-lead', 'guest'])
+    expect(await ledger.records()).toHaveLength(1)
   })
 
   it('submits preserved audio once and reconciles when the child loses its voice reference', async () => {
@@ -1607,15 +1640,15 @@ describe('select_assets', () => {
     expect(provider.calls).toHaveLength(0)
   })
 
-  it('refuses a storyboard whose saved order no longer matches the plan', async () => {
+  it('accepts a storyboard whose physical array order changed without changing keyed fields', async () => {
     const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {} }
     provider.onPut = (payload) => {
-      // Simulate a provider that silently reorders: the read-back must catch it.
+      // Provider physical row order does not change the saved identities.
       const materials = payload.storyboardMaterialList as Record<string, unknown>[]
       provider.storyboard = { ...provider.storyboard, storyboardMaterialList: [...materials].reverse() }
     }
-    await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953,
-      selections, idempotency_key: 'select-4' })).rejects.toThrow()
+    expect(await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953,
+      selections, idempotency_key: 'select-4' })).toMatchObject({ status: 'applied', verification: { matches: true } })
     expect((await ledger.find('select-4'))?.outcome).toBe('accepted')
   })
 })
@@ -1652,4 +1685,46 @@ it.each([
   })).rejects.toThrow('estimated_cost_cny')
   expect(putCalls(provider)).toHaveLength(0)
   expect(await ledger.records()).toEqual([])
+})
+
+describe('keyed binding executor regressions', () => {
+  const selections = [{ material_key: 'lead', asset_id: 81285 }, { material_key: 'guest', asset_id: 83670 }]
+  it('accepts reordered selection readback and makes a repeated call without a second PUT', async () => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+      storyboard: { ...STORYBOARD, storyboardMaterialList: [] } }
+    provider.onPut = (payload) => {
+      provider.storyboard.storyboardMaterialList = [...payload.storyboardMaterialList as Record<string, unknown>[]].reverse()
+    }
+    const client = clientFor(provider)
+    const first = await selectAssetsMethod(client, ledger,
+      { storyboard_id: 916953, idempotency_key: 'keyed-selection', selections })
+    expect(first).toMatchObject({ status: 'applied', verification: { matches: true }, paid_requests: 0 })
+    const second = await selectAssetsMethod(client, ledger,
+      { storyboard_id: 916953, idempotency_key: 'keyed-selection', selections })
+    expect(second).toMatchObject({ status: 'already_applied', applied: false })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]!.body!.isGenerate).toBe(0)
+  })
+
+  it('prepares interleaved audio and reordered images with restored numeric parent IDs without a PUT', async () => {
+    const audio = { materialType: 'audio', materialKey: 'voice-lead', materialUrl: 'https://media.example/lead.wav',
+      fileName: '陆沉舟声线', sortOrder: 1, audioDuration: 2 }
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+      storyboard: { ...STORYBOARD, storyboardMaterialList: [MATERIALS[1]!, audio,
+        { ...MATERIALS[0]!, materialAssetId: null }],
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG,
+        prompt: '@[陆沉舟](lead) @[陆沉舟声线](voice-lead) @[苏晚](guest)' }) } }
+    const directory = await project()
+    const result = await prepareVideoMethod(clientFor(provider), ledger, {
+      storyboard_id: 916953, project_dir: directory })
+    expect(result).toMatchObject({ status: 'prepared' })
+    const preview = JSON.parse(await readFile(String(result.preview_path), 'utf8')) as NativeVideoPreview
+    expect((preview.payload.storyboardMaterialList as Record<string, unknown>[]).map(material => material.materialKey))
+      .toEqual(['lead', 'voice-lead', 'guest'])
+    expect(preview.assetSummary.orderedAssets.map(asset => asset.materialAssetId)).toEqual([81285, 83670])
+    expect(provider.calls.some(call => call.path.includes('asset-'))).toBe(false)
+    expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+    expect(await ledger.records()).toEqual([])
+    expect(putCalls(provider)).toEqual([])
+  })
 })

@@ -168,13 +168,15 @@ async function downloadVideo(row: VideoSubtask) {
 
 原生任务认领从子项 `modelConfig` 读取模型选择器和提示词；该字段缺失或为 null 时读取子项直接携带的字段。直接字段 `modelVideoStandardId` 是提供方对 `videoStandardId` 的命名。两种格式都要求全部十个冻结模型字段、提示词及完整有序主体身份；证据缺失或损坏时均不允许再次付费提交。不能用当前分镜补充任务缺失的证据。
 
+原生素材按 `materialKey` 和数字父资产 ID 关联，不依赖数组位置。缺失、多余或重复 key，以及身份、URL、类型或组内顺序冲突均拒绝。主体选源回读比较各 key 对应的字段；仅改变数组物理顺序不会要求再次保存选择。
+
 原生主体视频准备至少需要一张已选定的图片主体。`buildNativeVideoPreview()` 对空主体或仅有音频的选择返回 `INVALID_ARGUMENT`，不生成 prepared 预览。`validateNativeVideoPreview()` 对历史空主体预览返回明确的本地参数错误；本次提交调用尚未进入账本，也尚未发出远端付费请求。现有身份校验和提交指纹规则仍然适用。
 
 主体选源把远端已删除的父资产报告为 `PRE_PUT_ASSET_REMOVED`，即使主体列表已经排除了它的材质。已采用的有效材质缺失或不唯一时报告 `PRE_PUT_SUBJECT_UNAVAILABLE`。两种错误均发生在选源 PUT 之前；应刷新真实项目并选择有效的现有资产，不反复重试失效引用。提供方对已保存分镜（包括免费保存）也会存储 `isGenerate=1`，因此仅凭这个回读值不能判断是否已经生成视频。
 
 原生视频任务对账比较明确的集 ID 和集号，不把缺失值转成零。`nativeEpisodeScope()` 校验 camelCase 与 snake_case 别名；`matchesNativeEpisode()` 排除能够证明属于其他集的任务，并拒绝矛盾证据。字段缺失不能证明任务属于其他集。这些失败使用 `VIDEO_TASK_EVIDENCE_INVALID`；主体、模型、提示词和音频匹配仍为必要条件。
 
-上传的音频参考使用 `materialType=audio`、`materialUrl`、`materialKey` 和音频组独立的 `sortOrder`；无需图片父资产或确认出演。原生准备保留这些行，排在已确认图片之后，并将其保存字段纳入指纹。主体选源保留已有音频。视频认领要求子结果的有序 `audioMaterials[].audioUrl` 与提交参考一致；证据缺失或变化时只允许对账，不再次付费提交。`readReferenceAudio()` 测量完整 16 位 PCM WAV 字节，拒绝超过 15 秒的参考。保存的远端 `audioDuration` 存在时会校验，同一音频组所有已知时长之和不得超过15秒。通常每个角色截取实际讲话的两秒区间，背景声不改变时长预算；未知时长仍未核，须测量后才能声称总时长符合限制。
+上传的音频参考使用 `materialType=audio`、`materialUrl`、`materialKey` 和音频组独立的 `sortOrder`；无需图片父资产或确认出演。原生准备按提示词标记首次出现的顺序交错排列图片和音频，校验各类型连续的组内 `sortOrder`，并将保存字段纳入指纹。主体选源保留已有音频。视频认领要求子结果的有序 `audioMaterials[].audioUrl` 与提交参考一致；证据缺失或变化时只允许对账，不再次付费提交。`readReferenceAudio()` 测量完整 16 位 PCM WAV 字节，拒绝超过 15 秒的参考。保存的远端 `audioDuration` 存在时会校验，同一音频组所有已知时长之和不得超过15秒。通常每个角色截取实际讲话的两秒区间，背景声不改变时长预算；未知时长仍未核，须测量后才能声称总时长符合限制。
 
 `VIDEO_TASK_TYPES` 把 `1` 映射为 `generate`、`10` 映射为 `erase_subtitle`、`20` 映射为 `upscale`；`versions` 携带结果历史。`subtitle_erased` 要求存在当前 URL，且最新类型 10 结果成功并有显式输出 URL，或存在成功的类型 10 历史条目且其 URL 等于当前 URL。只有阶段 10 不足以成立，该标记也不代表字幕视觉审核通过。`upscaled` 要求转高清次数为正或最新阶段为 20，不能仅凭 URL 变化判断。
 

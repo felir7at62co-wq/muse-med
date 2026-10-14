@@ -187,9 +187,12 @@ async function shotPreview(client: JubianClient, snapshot: MatchingSnapshot, req
     }
     const plan = buildSubjectSelection({ storyboard: board, selections, subjectRows: snapshot.materials, parentAssets: parents })
     const proposed = parsed(plan.payload.storyboardMaterialList) as Row[]
-    for (const [index, row] of current.entries()) {
-      if (!resolved.some(binding => binding.material_key === row.materialKey)
-        && stableSha256(proposed[index]) !== stableSha256(row)) block('PRESERVATION_CONFLICT')
+    const proposedByKey = new Map(proposed.map(row => [text(row.materialKey), row]))
+    for (const row of current) {
+      const key = text(row.materialKey)
+      const next = proposedByKey.get(key)
+      if (!resolved.some(binding => binding.material_key === key)
+        && stableSha256(next) !== stableSha256(row)) block('PRESERVATION_CONFLICT')
     }
     result.selections = selections
     result.before_sha256 = stableSha256(board)

@@ -90,14 +90,37 @@ export function trustedSubjectId(value: unknown): string | number | null {
   return null
 }
 
+/** Read each prompt marker once while retaining the reserved audio display name. */
+function promptMarkers(prompt: string): { name: string; key: string }[] {
+  const seen = new Set<string>()
+  return [...prompt.matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)]
+    .map(match => ({ name: String(match[1]), key: String(match[2]) }))
+    .filter(marker => !seen.has(marker.key) && Boolean(seen.add(marker.key)))
+}
+
+/** Compare rows by their prompt keys, retaining every identity and group-order field. */
+function promptOrderedMaterials(materials: Record<string, unknown>[], prompt: string): Record<string, unknown>[] {
+  const order = new Map(promptMarkers(prompt).map((marker, index) => [marker.key, index]))
+  return [...materials].sort((left, right) => {
+    const leftKey = wireText(left.materialKey), rightKey = wireText(right.materialKey)
+    return (order.get(leftKey ?? '') ?? Number.MAX_SAFE_INTEGER)
+      - (order.get(rightKey ?? '') ?? Number.MAX_SAFE_INTEGER)
+  })
+}
+
+function rejectAudioSelection(key: string): never {
+  throw new JubianError('INVALID_ARGUMENT',
+    `AUDIO_MARKER_NOT_ALLOWED_IN_SELECT_ASSETS: key=${JSON.stringify(key)}; use audio_preview/audio_apply; no PUT sent`)
+}
+
 /**
- * Reduce one ordered material list to the state that must survive the PUT.
+ * Reduce one keyed material list to the state that must survive the PUT.
  * @param materials - The storyboard's ordered materials.
  * @param prompt - The already normalized prompt.
  * @returns The ordered identity, a hash of the server-independent material content, and the prompt hash.
  */
 export function selectionState(materials: Record<string, unknown>[], prompt: string): SelectionState {
-  const canonical = materials.map(material => ({
+  const canonical = promptOrderedMaterials(materials, prompt).map(material => ({
     assetId: wireText(material.assetId), materialKey: wireText(material.materialKey),
     assetName: material.assetName ?? material.fileName ?? material.materialName ?? null,
     materialAssetId: wireText(material.materialAssetId),
@@ -153,13 +176,26 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
   const config = object(configField.value)
   if (typeof config.prompt !== 'string') invalid()
   const prompt = normalizedPrompt(config.prompt)
-  const preserved = materials.filter(material => material.materialType === 'audio')
+  const markers = promptMarkers(prompt)
+  const preservedByKey = new Map<string, Record<string, unknown>>()
+  for (const material of materials.filter(material => material.materialType === 'audio')) {
+    const key = wireText(material.materialKey)
+    if (key === null || !key.trim() || preservedByKey.has(key)) invalid()
+    preservedByKey.set(key, material)
+  }
+  const preserved = markers.flatMap((marker) => {
+    const material = preservedByKey.get(marker.key)
+    return material === undefined ? [] : [material]
+  })
+  if (preserved.length !== preservedByKey.size) invalid()
   referenceAudioUrls(preserved)
   const preservedKeys = preserved.map(material => String(material.materialKey))
+  // Existing audio collisions retain the established provider-field diagnostic.
   if (preservedKeys.some(key => keys.includes(key))) invalid()
-  const promptKeys = [...new Set([...prompt.matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)]
-    .map(match => match[0].slice(match[0].lastIndexOf('(') + 1, -1)))]
-    .filter(key => !preservedKeys.includes(key))
+  const namedAudio = markers.find(marker => keys.includes(marker.key)
+    && /^音频(?:[0-9]+)?(?:\s|[（(]|$)/u.test(marker.name.trim()))
+  if (namedAudio !== undefined) rejectAudioSelection(namedAudio.key)
+  const promptKeys = markers.map(marker => marker.key).filter(key => !preservedKeys.includes(key))
   if (promptKeys.join('\u0000') !== keys.join('\u0000')) {
     throw new JubianError('INVALID_ARGUMENT', `PRE_PUT_MARKER_MISMATCH: prompt keys=${JSON.stringify(promptKeys)}, selection keys=${JSON.stringify(keys)}; no PUT sent`)
   }
@@ -201,6 +237,7 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
       throw new JubianError('CONTRACT_CHANGED',
         `PRE_PUT_SUBJECT_UNAVAILABLE: parent asset ${parentKey} has ${rows.length} active confirmed materials; refresh the project selection; no PUT sent`)
     }
+    if (Number(row.assetType) === 4 || Number(asset.assetType) === 4) rejectAudioSelection(key)
     if (integer(row.scriptId) !== scriptId || integer(asset.scriptId) !== scriptId) invalid()
     if (!strictlyUsed(row.isUsed)) invalid()
     if ((wireText(row.hsAssetStatus) ?? '').trim().toLowerCase() !== 'active') invalid()
@@ -228,14 +265,15 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
     material.sortOrder = index + 1
     selected.push(material)
   })
-  selected.push(...preserved.map(material => ({ ...material })))
+  const selectedByKey = new Map([...selected, ...preserved].map(material => [String(material.materialKey), material]))
+  const orderedMaterials = markers.map(marker => ({ ...selectedByKey.get(marker.key) as Record<string, unknown> }))
 
   const before = selectionState(materials, prompt)
-  const after = selectionState(selected, prompt)
+  const after = selectionState(orderedMaterials, prompt)
   const payload: Record<string, unknown> = { ...storyboard }
   payload.isGenerate = 0
   payload.storyboardMaterialList = materialsField.serialized
-    ? JSON.stringify(selected) : selected.map(material => ({ ...material }))
+    ? JSON.stringify(orderedMaterials) : orderedMaterials
   // `is_generate` is not part of this test: the provider stores 1 on every storyboard, so requiring 0
   // would make `already_applied` unreachable and turn every call into a PUT.
   const alreadyApplied = stableJson(before) === stableJson(after)
@@ -273,7 +311,7 @@ export function verifySubjectSelection(storyboard: Record<string, unknown>, expe
     if (typeof config.prompt !== 'string') invalid()
     const state = selectionState(materials.map(object), normalizedPrompt(config.prompt))
     return { state, matches: stableJson(state) === stableJson(expected), is_generate: Number(storyboard.isGenerate),
-      verified_readback: materials.map((item) => {
+      verified_readback: promptOrderedMaterials(materials.map(object), normalizedPrompt(config.prompt)).map((item) => {
         const material = object(item)
         return { materialKey: wireText(material.materialKey), materialAssetId: wireText(material.materialAssetId),
           assetId: wireText(material.assetId), sortOrder: Number(material.sortOrder) }
