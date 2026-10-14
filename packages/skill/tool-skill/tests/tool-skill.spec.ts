@@ -347,7 +347,7 @@ describe('dsh-tool-skill', () => {
     expect(await composePrefixForAgent(ctx, agent)).toEqual([])
   })
 
-  it('omits an incomplete initial catalog and retries on a later request boundary', async () => {
+  it('blocks a model request with an incomplete initial catalog and permits a retry after recovery', async () => {
     const home = await tempDir('tool-incomplete-prefix')
     const ctx = await setup(home)
     let failing = true
@@ -370,7 +370,9 @@ describe('dsh-tool-skill', () => {
     const agent = sessionAgent(session)
     openMessageTurn(session)
 
-    await composePrefixForAgent(ctx, agent)
+    await expect(composePrefixForAgent(ctx, agent)).rejects.toThrowErrorMatchingInlineSnapshot(
+      `[Error: Skill preparation did not complete; no model request was sent. Check skill folders and retry.]`,
+    )
     expect(catalogMessages(session)).toEqual([])
     failing = false
     invalidate()

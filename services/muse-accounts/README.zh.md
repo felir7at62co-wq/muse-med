@@ -106,6 +106,8 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 
 智谱数组凭据使用网关统一排队，其他供应商仍可直连。新桌面客户端使用 `X-Muse-Provider-Routing: mixed-v1` 协商供应商级路由；直连目录中的智谱项返回 `transport: relay`，不包含供应商 Key。旧客户端刷新时收到兼容的全转发目录。网关启动时让桌面和云端工作间请求共用一个资源池；独立的中转构造器可接收同一个运营者拥有的 `keyPool`，未提供时创建自身资源池。每个独立凭据的在途请求数由 `MUSE_ZHIPU_KEY_CONCURRENCY` 配置（默认 20）；`MUSE_ZHIPU_QUEUE_LIMIT`（默认 1000）和 `MUSE_ZHIPU_QUEUE_TIMEOUT_MS`（默认 120000）限制等待队列。每条请求只发送一次，整个流结束或取消后释放名额；全部占满时等待，不重复分发请求。队列超时或溢出在供应商调用前返回 503。排队后的请求重新解析全部当前模型配置，并在转发前核对所保留的凭据。实际账户并发权益以供应商控制台为准；多进程服务或其他客户端共享这些凭据时，单进程计数不能保证供应商总并发。
 
+流式中转原样转发字节，直到完整的 SSE `data: [DONE]` 事件，随后关闭上游响应和请求，并在下游发送完成后释放名额。仅收到 `finish_reason` 不会结束转发：后续工具调用片段、其他候选回复和用量仍然保留。支持分片 UTF-8 以及 LF、CRLF 和 CR 事件分隔符；最后一个 CR 立即结束事件，已收到的可选 LF 一并保留。不含 `[DONE]` 的流仍在普通 EOF 时结束；非流式 JSON 保持不变。已转发响应的 `Server-Timing` 字段仅包含耗时：`gateway-queue` 表示使用 Key 资源池时的名额等待时间，`upstream-headers` 表示从发送请求到收到上游 HTTP 响应头的时间，包含建连。这两项都不是模型首 token 延迟，也不包含请求内容、账号标识或凭据。
+
 ## Desktop website access
 
 网关入口默认使用 `MUSE_WORKSPACE_MODE=desktop`。桌面安装通过 `/api/desktop/connect` 连接。浏览器登录后，`/` 在仅一台电脑在线时自动进入；多台或没有电脑在线时显示电脑选择页。`/computers` 始终打开选择页，显示账号所属电脑的名称、操作系统、在线状态和最近连接时间。普通浏览器访问不会启动云端 agent。显式设置 `MUSE_WORKSPACE_MODE=cloud` 可保留云端工作间；`createAccountServer` 库工厂为兼容现有调用者，仍保留该默认值。

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -679,6 +679,47 @@ describe('FileSystemSkillProvider', () => {
     const ctx = await setupLocal(home)
 
     expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: false })
+  })
+
+  it('aborts a stalled discovery read at its deadline without caching a partial catalog', async () => {
+    const home = await tempDir('skill-discovery-read-timeout')
+    const root = join(home, 'skills')
+    await writeSkill(root, 'waiting-skill', 'Waiting skill')
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    await ctx.plugin(SkillRegistry)
+    const fiber = await ctx.plugin(SkillFileSystem, {
+      includeDefaultRoots: false, customSkillDirs: [root], watch: false, discoveryTimeoutMs: 20,
+    })
+    const started = Promise.withResolvers<undefined>()
+    const stopped = Promise.withResolvers<undefined>()
+    fs.readTextOverride = async (_target, signal) => {
+      if (signal === undefined) throw new Error('expected a discovery signal')
+      started.resolve(undefined)
+      return await new Promise<string>((_resolve, reject) => {
+        const abort = (): void => { stopped.resolve(undefined); reject(signal.reason) }
+        signal.addEventListener('abort', abort, { once: true })
+        if (signal.aborted) abort()
+      })
+    }
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const discovery = ctx.skills.snapshot()
+      await started.promise
+      await vi.advanceTimersByTimeAsync(20)
+      expect(await discovery).toEqual({ skills: [], complete: false })
+      await stopped.promise
+      vi.useRealTimers()
+      delete fs.readTextOverride
+      expect(await ctx.skills.snapshot()).toMatchObject({ skills: [{ name: 'waiting-skill' }], complete: true })
+      const reads = fs.readTextSignals.length
+      await ctx.skills.snapshot()
+      expect(fs.readTextSignals).toHaveLength(reads)
+    } finally {
+      vi.useRealTimers()
+      await fiber.dispose()
+    }
   })
 
   it('forwards cancellation to filesystem reads while loading a skill', async () => {
