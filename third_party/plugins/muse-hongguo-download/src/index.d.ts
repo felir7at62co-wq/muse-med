@@ -25,7 +25,10 @@ export interface DownloadedEpisode {
   sourceBytes: number; sourceSha256: string; encryptedSource: boolean;
   format: 'mp4'; validationLevel: 'ffprobe-full-decode-sha256'; fullDecodeChecked: true;
 }
-export interface DownloadFailure { ok: false; complete: false; code: string; message: string }
+export interface DownloadFailure {
+  ok: false; complete: false; code: string; message: string;
+  upstreamCode?: number; sourceStage?: 'catalog' | 'video_model' | 'source_api'; retryable?: false;
+}
 export interface DownloadResult {
   ok: true; sourceMode: 'legacy' | 'manifest' | 'public'; complete: boolean; path: string; validatedBytes: number;
   validationLevel: 'ffprobe-full-decode-sha256'; fullDecodeChecked: true; note: string;
@@ -33,8 +36,8 @@ export interface DownloadResult {
 }
 export interface DownloadInfo {
   ok: true; sourceMode: 'legacy' | 'manifest' | 'public'; verifiedDownload: false; note: string;
-  items: { seriesId: string; title: string; source: string; episodeCount: number; accessibleEpisodeCount: number;
-    completeCatalog: boolean; downloaded: false; fullSeriesAvailable: boolean }[];
+  items: { seriesId: string; title: string; source: string; episodeCount: number; accessibleEpisodeCount: number | null;
+    completeCatalog: boolean; downloaded: false; mediaUrlsVerified: false; fullSeriesAvailable: false | null }[];
 }
 /** Standalone downloads require a managed subprocess provider and an explicit workspace; Muse supplies both. */
 export class HongguoDownloadClient {
