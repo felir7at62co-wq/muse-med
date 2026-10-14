@@ -6,6 +6,7 @@ param([Parameter(Mandatory)][string]$Installer, [Parameter(Mandatory)][string]$P
     [switch]$FailAfterAutomaticRelaunch)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'windows-installer-ui.ps1')
+. (Join-Path $PSScriptRoot 'windows-installer-diagnostics.ps1')
 [InstallerCapture]::Initialize()
 [InstallerCapture]::ProductName = $ProductName
 $installPath = Join-Path $OutputDirectory 'Installed App'
@@ -35,6 +36,12 @@ function Start-TestProcess([string]$FilePath, [string]$Arguments = '', [Diagnost
     try {
         $processHandles.Add($process.Id, [InstallerCapture]::RetainProcessHandle($process))
         $processes.Add($process)
+        $tokenReceipt = [ordered]@{
+            processId = $process.Id
+            token = [InstallerDiagnostics]::ObserveTokenElevation($processHandles[$process.Id])
+        } | ConvertTo-Json -Depth 3 -Compress
+        [IO.File]::AppendAllText((Join-Path $OutputDirectory 'process-tokens.jsonl'),
+            $tokenReceipt + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
         return $process
     } catch {
         $acquisitionFailure = $_
@@ -117,7 +124,93 @@ function Set-PathInput([Diagnostics.Process]$Process, [IntPtr]$Window, [IntPtr]$
         throw 'Could not post Enter to the verified path input'
     }
 }
-function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$Theme, [string]$Bounds) {
+function Read-FinishTrace([Diagnostics.Process]$Process) {
+    $path = Join-Path (Split-Path -Parent $Installer) ("finish-$($Process.Id).jsonl")
+    if (-not (Test-Path -LiteralPath $path)) { return }
+    $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8)
+    try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    # A receipt becomes observable only after its complete line has been appended.
+    $lines = $text -split "`n"
+    for ($index = 0; $index -lt $lines.Length - 1; $index++) {
+        if ($lines[$index].Trim()) { $lines[$index] | ConvertFrom-Json }
+    }
+}
+function Wait-FinishCallbackReturn([Diagnostics.Process]$Process, [int]$PreviousReturns) {
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        $returns = @(Read-FinishTrace $Process | Where-Object { $_.event -eq 'outer-next-return' })
+        if ($returns.Count -gt $PreviousReturns) { return }
+        if ($Process.HasExited) { throw 'Installer exited before the failed Finish callback returned' }
+        Start-Sleep -Milliseconds 25
+    } while ($timer.Elapsed.TotalSeconds -lt 5)
+    throw 'Failed Finish callback did not return before retry'
+}
+function Read-NativeFailureObserver([Diagnostics.Process]$Process) {
+    $observerPath = Join-Path $PSScriptRoot 'windows-installer-failure-observer.ps1'
+    $receiptPath = Join-Path $OutputDirectory ("native-observer-$($Process.Id)-$([Guid]::NewGuid().ToString('N')).json")
+    $command = "& '$($observerPath.Replace("'", "''"))' -ProcessId $($Process.Id) -InstallerPath '$($Installer.Replace("'", "''"))' -OutputPath '$($receiptPath.Replace("'", "''"))'"
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = Join-Path $PSHOME 'powershell.exe'
+    $startInfo.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' +
+        [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($name in @($startInfo.EnvironmentVariables.Keys)) {
+        if ([string]$name -match '(KEY|SECRET|TOKEN|PASSWORD)') { $startInfo.EnvironmentVariables.Remove($name) }
+    }
+    $observer = [Diagnostics.Process]::new()
+    $observer.StartInfo = $startInfo
+    $started = $false
+    $quiescent = $false
+    $stdout = $null
+    $stderr = $null
+    try {
+        $started = $observer.Start()
+        if (-not $started) { throw 'Native observer process did not start' }
+        $processes.Add($observer)
+        $stdout = $observer.StandardOutput.ReadToEndAsync()
+        $stderr = $observer.StandardError.ReadToEndAsync()
+        $timedOut = -not $observer.WaitForExit(5000)
+        if ($timedOut) {
+            $observer.Kill()
+            if (-not $observer.WaitForExit(10000)) { throw 'Native observer survived termination' }
+        }
+        $quiescent = $true
+        return [ordered]@{
+            observerProcessId = $observer.Id
+            timedOut = $timedOut
+            exitCode = $observer.ExitCode
+            quiescent = $true
+            receipt = if (Test-Path -LiteralPath $receiptPath) {
+                [IO.File]::ReadAllText($receiptPath) | ConvertFrom-Json
+            } else { $null }
+        }
+    } finally {
+        if ($started -and -not $quiescent) {
+            if (-not $observer.HasExited) { $observer.Kill() }
+            $quiescent = $observer.WaitForExit(10000)
+        }
+        if (-not $started -or $quiescent) {
+            try {
+                # The only writer has exited; both streams must drain even when one read fails.
+                if ($stdout) { [void]$stdout.GetAwaiter().GetResult() }
+            } finally {
+                try {
+                    if ($stderr) { [void]$stderr.GetAwaiter().GetResult() }
+                } finally {
+                    [void]$processes.Remove($observer)
+                    $observer.Dispose()
+                }
+            }
+        }
+        # Failed termination leaves the registered Process for the ordinary final cleanup.
+    }
+}
+function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$Theme, [string]$Bounds,
+    [bool]$InjectLaunchFailure = $true) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $previous = 0
     $window = [InstallerCapture]::Find($Process.Id)
@@ -149,12 +242,18 @@ function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$The
     if ([InstallerCapture]::GetProp($window, 'HarnessInstaller.Stage').ToInt32() -ne 4) { throw 'Installation did not reach cleanup' }
     if ([InstallerCapture]::Bounds($window) -ne $Bounds) { throw 'Completion page moved or resized the installer' }
     [void][InstallerCapture]::Save($window, (Join-Path $OutputDirectory ($Theme + '-finish.png')))
-    if ($Launch) {
+    if ($Launch -and (Test-Path -LiteralPath (Join-Path $installPath 'launched.txt'))) {
+        Remove-Item -LiteralPath (Join-Path $installPath 'launched.txt')
+    }
+    if ($Launch -and $InjectLaunchFailure) {
+        $previousReturns = @(Read-FinishTrace $Process | Where-Object { $_.event -eq 'outer-next-return' }).Count
         $hiddenApp = $appPath + '.hold'
         Move-Item -LiteralPath $appPath -Destination $hiddenApp
         try {
             Click-Control $Process $copy.INSTALLER_FINISH
             Dismiss $Process $copy.INSTALLER_LAUNCH_FAILED
+            # The outer-next return receipt is written after NSIS's page-leave call actually returns.
+            Wait-FinishCallbackReturn $Process $previousReturns
             if (-not [InstallerCapture]::IsWindowVisible($window)) { throw 'Launch failure did not restore the finish page' }
         } finally {
             Move-Item -LiteralPath $hiddenApp -Destination $appPath
@@ -204,6 +303,30 @@ function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$The
     [IO.File]::AppendAllText((Join-Path $OutputDirectory 'finish-exit.jsonl'),
         $exitReceipt + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
     Write-Output "Installer finish exit: $exitReceipt"
+    if ($waitError -or $waitReturned -ne $true) {
+        try {
+            $ownedApps = @(Get-OwnApplications)
+            try {
+                $diagnosticReceipt = [ordered]@{
+                    theme = $Theme
+                    injectedLaunchFailure = $InjectLaunchFailure
+                    finishTrace = @(Read-FinishTrace $Process)
+                    launchMarkerExists = Test-Path -LiteralPath (Join-Path $installPath 'launched.txt')
+                    launchMarkerExpected = (Test-Path -LiteralPath (Join-Path $installPath 'launched.txt')) -and
+                        [IO.File]::ReadAllText((Join-Path $installPath 'launched.txt')) -ceq 'launched'
+                    exactAppProcessIds = @($ownedApps | ForEach-Object { $_.Id })
+                    process = Read-NativeFailureObserver $Process
+                } | ConvertTo-Json -Depth 9
+            } finally {
+                foreach ($ownedApp in $ownedApps) { $ownedApp.Dispose() }
+            }
+            [IO.File]::WriteAllText((Join-Path $OutputDirectory ("finish-hang-$($Process.Id).json")),
+                $diagnosticReceipt + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+        } catch {
+            # Diagnostic failure must not replace the independently observed exit failure.
+            Write-Output "Installer hang evidence could not be saved: $_"
+        }
+    }
     if ($waitError -or $waitReturned -ne $true) { throw "Finish wait failed for PID $($Process.Id): returned=$waitReturned error=$waitError" }
     if ($observation.ManagedHasExited -ne $true -or $observation.ManagedHasExitedError -or
         $observation.ManagedExitCodeError -or $null -eq $observation.ManagedExitCode -or $observation.ManagedExitCode -ne 0) {
@@ -266,6 +389,14 @@ try {
     $process = Start-Setup light
     $results.Add('welcome-presented-on-first-show')
     $window = [InstallerCapture]::Find($process.Id)
+    $observerControl = Read-NativeFailureObserver $process
+    if ($observerControl.timedOut -or $observerControl.exitCode -ne 0 -or -not $observerControl.quiescent -or
+        $observerControl.receipt.status -ne 'complete' -or -not $observerControl.receipt.installerMatched -or
+        $observerControl.receipt.processId -ne $process.Id -or -not $observerControl.receipt.comRegistration.Registered -or
+        @($observerControl.receipt.observation.Windows | Where-Object { $_.Handle -eq $window.ToInt64() }).Count -ne 1) {
+        throw 'Native observer did not complete for its exact idle installer and window'
+    }
+    $results.Add('native-observer-exact-installer-and-quiescent-return')
     [void][InstallerCapture]::Save($window, (Join-Path $OutputDirectory 'light-welcome.png'))
     Click-Control $process $copy.INSTALLER_CHOOSE_PATH
     [void](Wait-Control $process $copy.INSTALLER_BROWSE -Button)
@@ -322,6 +453,23 @@ try {
     $results.Add('completion-preserves-window-position')
     $results.Add('welcome-ready-before-first-show')
     $results.Add('successful-install-paints-100-before-finish')
+
+    # This ordinary checked launch has no preceding missing-file failure or modal retry.
+    $process = Start-Setup dark
+    $bounds = [InstallerCapture]::Bounds([InstallerCapture]::Find($process.Id))
+    Click-Control $process $copy.INSTALLER_INSTALL
+    Finish-Setup $process $true pristine-dark $bounds $false
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    $pristineApp = $null
+    while (-not $pristineApp -and $timer.Elapsed.TotalSeconds -lt 15) {
+        $pristineApp = Get-OwnApplications | Select-Object -First 1
+        if (-not $pristineApp) { Start-Sleep -Milliseconds 25 }
+    }
+    if (-not $pristineApp) { throw 'Pristine checked Finish did not launch its installed test application' }
+    $processes.Add($pristineApp)
+    Dismiss $pristineApp 'Installer test application is running.'
+    if (-not $pristineApp.WaitForExit(10000) -or $pristineApp.ExitCode -ne 0) { throw 'Pristine launched application did not exit cleanly' }
+    $results.Add('pristine-checked-launch-before-failure-retry')
 
     Set-RegisteredPathForUpdate ($installPath + '\')
     $process = Start-Setup dark ''
