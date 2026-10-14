@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 94503b6b13de09f7
 /tool-schema-catalog/tool-package-map:
-  en: 7bf081918a86656e
-  zh: 92584227c43559dd
+  en: 08257a5b1916fb71
+  zh: 9bda5f27e0e214b8
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -75,8 +75,11 @@
   en: fad008633b25483d
   zh: 70745c9c2dd03d02
 /tool-schema-catalog/deepseek-ai-dsh-tool-video-inspect/video-inspect:
-  en: 3094460252510b6b
-  zh: 3818966a84bf1fe5
+  en: 4eb1332a3b7837bd
+  zh: db5d621562a315d1
+/tool-schema-catalog/deepseek-ai-dsh-tool-video-inspect/video-ocr:
+  en: 1cfe16106e5fc0e8
+  zh: 76ff14fb0a3f9463
 /tool-schema-catalog/deepseek-ai-dsh-tools:
   en: 76fbbf0fe38aef10
   zh: 76fbbf0fe38aef10
@@ -396,7 +399,7 @@
   en: 33840d6c4d94babf
   zh: 33840d6c4d94babf
 /tool-schema-catalog/deepseek-ai-dsh-tool-bgm-compose/drama-bgm:
-  en: 0ab23680f438c127
+  en: bfd2ec42d75c6ddd
   zh: 8f6ffba1462f5740
 /tool-schema-catalog/deepseek-ai-dsh-tool-episode-render:
   en: cd8c46a68524b061
@@ -411,5 +414,11 @@
   en: 5b59780fe2ae6f03
   zh: 5b59780fe2ae6f03
 /tool-schema-catalog/deepseek-ai-dsh-tool-drama-assets/drama-assets:
-  en: 525047aec2d7481b
-  zh: 525047aec2d7481b
+  en: b2ce161edf6e198b
+  zh: b2ce161edf6e198b
+/tool-schema-catalog/deepseek-ai-dsh-tool-character-reference:
+  en: 0baaab921b5c5c52
+  zh: 0baaab921b5c5c52
+/tool-schema-catalog/deepseek-ai-dsh-tool-character-reference/drama-character-references:
+  en: 2ab92f1f7f9354cb
+  zh: b043561f76034806

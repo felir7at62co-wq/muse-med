@@ -10,6 +10,8 @@
 #include <gdiplus.h>
 #include <new>
 #include <algorithm>
+#include <cstdio>
+#include <string>
 #include "progress.h"
 #include "extract.h"
 #include "extract-report.h"
@@ -80,6 +82,161 @@ extern "C" __declspec(dllexport) int __cdecl InstallerFindProcess(LPCWSTR execut
     }
     if (!present && GetLastError() != ERROR_NO_MORE_FILES) result = -1;
     CloseHandle(snapshot);
+    return result;
+}
+
+namespace {
+struct InstallerTimingState {
+    SRWLOCK lock = SRWLOCK_INIT;
+    std::wstring path;
+    ULONGLONG installerStarted = 0;
+    ULONGLONG processWaitStarted = 0;
+    ULONGLONG extractionStarted = 0;
+    unsigned sequence = 0;
+};
+
+InstallerTimingState installerTiming;
+
+DWORD ParentProcessId() {
+    const DWORD current = GetCurrentProcessId();
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) return 0;
+    PROCESSENTRY32W entry = {};
+    entry.dwSize = sizeof(entry);
+    DWORD parent = 0;
+    BOOL present = Process32FirstW(snapshot, &entry);
+    while (present) {
+        if (entry.th32ProcessID == current) { parent = entry.th32ParentProcessID; break; }
+        present = Process32NextW(snapshot, &entry);
+    }
+    CloseHandle(snapshot);
+    return parent;
+}
+
+bool SafeVersion(LPCWSTR version) {
+    if (!version || !*version) return false;
+    size_t length = 0;
+    for (; version[length] != L'\0' && length <= 128; ++length) {
+        const WCHAR value = version[length];
+        if (!((value >= L'0' && value <= L'9') || (value >= L'A' && value <= L'Z')
+            || (value >= L'a' && value <= L'z') || value == L'.' || value == L'-' || value == L'+')) return false;
+    }
+    return length > 0 && length <= 128;
+}
+
+std::string NarrowVersion(LPCWSTR version) {
+    std::string result;
+    for (size_t index = 0; version[index] != L'\0'; ++index) result.push_back(static_cast<char>(version[index]));
+    return result;
+}
+
+bool AppendInstallerTiming(LPCWSTR version, const char* event, ULONGLONG elapsed, ULONGLONG* duration) {
+    SYSTEMTIME time = {};
+    GetSystemTime(&time);
+    char line[1024];
+    const std::string release = NarrowVersion(version);
+    const int length = duration
+        ? std::snprintf(line, sizeof(line),
+            "{\"schemaVersion\":2,\"sequence\":%u,\"time\":\"%04u-%02u-%02uT%02u:%02u:%02u.%03uZ\","
+            "\"elapsedMs\":%llu,\"durationMs\":%llu,\"processType\":\"windows-installer\",\"pid\":%lu,"
+            "\"ppid\":%lu,\"platform\":\"win32\",\"arch\":\"x86\",\"version\":\"%s\",\"event\":\"%s\"}\n",
+            installerTiming.sequence, static_cast<unsigned>(time.wYear), static_cast<unsigned>(time.wMonth),
+            static_cast<unsigned>(time.wDay), static_cast<unsigned>(time.wHour), static_cast<unsigned>(time.wMinute),
+            static_cast<unsigned>(time.wSecond), static_cast<unsigned>(time.wMilliseconds),
+            static_cast<unsigned long long>(elapsed), static_cast<unsigned long long>(*duration),
+            GetCurrentProcessId(), ParentProcessId(), release.c_str(), event)
+        : std::snprintf(line, sizeof(line),
+            "{\"schemaVersion\":2,\"sequence\":%u,\"time\":\"%04u-%02u-%02uT%02u:%02u:%02u.%03uZ\","
+            "\"elapsedMs\":%llu,\"processType\":\"windows-installer\",\"pid\":%lu,\"ppid\":%lu,"
+            "\"platform\":\"win32\",\"arch\":\"x86\",\"version\":\"%s\",\"event\":\"%s\"}\n",
+            installerTiming.sequence, static_cast<unsigned>(time.wYear), static_cast<unsigned>(time.wMonth),
+            static_cast<unsigned>(time.wDay), static_cast<unsigned>(time.wHour), static_cast<unsigned>(time.wMinute),
+            static_cast<unsigned>(time.wSecond), static_cast<unsigned>(time.wMilliseconds),
+            static_cast<unsigned long long>(elapsed), GetCurrentProcessId(), ParentProcessId(), release.c_str(), event);
+    if (length <= 0 || static_cast<size_t>(length) >= sizeof(line)) return false;
+    HANDLE file = CreateFileW(installerTiming.path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    DWORD written = 0;
+    const BOOL wrote = WriteFile(file, line, static_cast<DWORD>(length), &written, nullptr);
+    const BOOL flushed = wrote && written == static_cast<DWORD>(length) && FlushFileBuffers(file);
+    CloseHandle(file);
+    if (flushed) ++installerTiming.sequence;
+    return flushed != FALSE;
+}
+}
+
+// Append fixed, opt-in installer timings. Diagnostic failure never changes installation behavior.
+extern "C" __declspec(dllexport) int __cdecl InstallerRecordTiming(LPCWSTR directory, LPCWSTR version, int eventCode) {
+    if (!directory || !*directory || !SafeVersion(version)) return 0;
+    AcquireSRWLockExclusive(&installerTiming.lock);
+    int result = 0;
+    try {
+        const ULONGLONG now = GetTickCount64();
+        if (eventCode == 0) {
+            installerTiming.path.clear();
+            installerTiming.installerStarted = 0;
+            installerTiming.processWaitStarted = 0;
+            installerTiming.extractionStarted = 0;
+            installerTiming.sequence = 0;
+            const DWORD attributes = GetFileAttributesW(directory);
+            if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                ReleaseSRWLockExclusive(&installerTiming.lock);
+                return 0;
+            }
+            SYSTEMTIME time = {};
+            GetSystemTime(&time);
+            WCHAR name[160];
+            swprintf_s(name, L"installer-%04u%02u%02uT%02u%02u%02u%03uZ-%lu.jsonl",
+                static_cast<unsigned>(time.wYear), static_cast<unsigned>(time.wMonth), static_cast<unsigned>(time.wDay),
+                static_cast<unsigned>(time.wHour), static_cast<unsigned>(time.wMinute), static_cast<unsigned>(time.wSecond),
+                static_cast<unsigned>(time.wMilliseconds), GetCurrentProcessId());
+            installerTiming.path = directory;
+            if (!installerTiming.path.empty() && installerTiming.path.back() != L'\\') installerTiming.path += L'\\';
+            installerTiming.path += name;
+            HANDLE file = CreateFileW(installerTiming.path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file == INVALID_HANDLE_VALUE) {
+                installerTiming.path.clear();
+                ReleaseSRWLockExclusive(&installerTiming.lock);
+                return 0;
+            }
+            CloseHandle(file);
+            installerTiming.installerStarted = now;
+            result = AppendInstallerTiming(version, "installer-started", 0, nullptr) ? 1 : 0;
+        } else if (!installerTiming.path.empty() && installerTiming.installerStarted != 0) {
+            const ULONGLONG elapsed = now - installerTiming.installerStarted;
+            ULONGLONG duration = 0;
+            const char* event = nullptr;
+            ULONGLONG* durationField = nullptr;
+            switch (eventCode) {
+                case 1: installerTiming.processWaitStarted = now; event = "previous-process-wait-started"; break;
+                case 2:
+                    if (installerTiming.processWaitStarted == 0) break;
+                    event = "previous-process-wait-completed";
+                    duration = now - installerTiming.processWaitStarted;
+                    durationField = &duration;
+                    break;
+                case 3: installerTiming.extractionStarted = now; event = "installer-extract-started"; break;
+                case 4:
+                    if (installerTiming.extractionStarted == 0) break;
+                    event = "installer-extract-completed";
+                    duration = now - installerTiming.extractionStarted;
+                    durationField = &duration;
+                    break;
+                case 5:
+                    event = "installer-completed";
+                    duration = elapsed;
+                    durationField = &duration;
+                    break;
+                default: break;
+            }
+            if (event) result = AppendInstallerTiming(version, event, elapsed, durationField) ? 1 : 0;
+        }
+    } catch (const std::bad_alloc&) {
+        result = 0;
+    }
+    ReleaseSRWLockExclusive(&installerTiming.lock);
     return result;
 }
 

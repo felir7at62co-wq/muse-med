@@ -54,13 +54,15 @@ export function primaryRuntimePayloadDigest(
   // Identity preserves key order within the selected target, wheel records and distribution map, plus wheel-entry order.
   // Bump format when extraction or assembly changes payload bytes without changing locked inputs.
   return createHash('sha256').update(JSON.stringify({
-    format: 4, target, pythonVersion, pythonRelease, nodeVersion: pnpmVersion === undefined ? undefined : nodeVersion,
+    format: 5, target, pythonVersion, pythonRelease, nodeVersion: pnpmVersion === undefined ? undefined : nodeVersion,
     artifact: runtimeLock.targets[target], wheels, pythonPackages, pnpm: pnpmVersion,
+    ocrNotices: ['ocr-models-notice.txt', 'ocr-models-license.txt'].map(filename =>
+      createHash('sha256').update(readFileSync(join(import.meta.dirname, filename))).digest('hex')),
   })).digest('hex')
 }
 
 /**
- * Unpack a locked library wheel, retaining auxiliary scripts in its distribution data directory.
+ * Unpack a locked library wheel, retaining auxiliary scripts and manual pages in its distribution data directory.
  * @param archive - Hash-verified wheel archive.
  * @param destination - Absolute site-packages directory.
  * @returns Resolves after extraction without command wrappers; rejects other wheel installation schemes.
@@ -70,7 +72,8 @@ export async function unpackPrimaryRuntimeWheel(archive: string, destination: st
     dir: destination,
     onEntry: (entry) => {
       const [directory, scheme] = entry.fileName.split('/')
-      if (directory?.endsWith('.data') && scheme !== '' && scheme !== 'scripts') {
+      const manualPage = scheme === 'data' && /\.data\/data\/share\/man\/man[1-9]\/[a-zA-Z0-9_.-]+\.[1-9]$/u.test(entry.fileName)
+      if (directory?.endsWith('.data') && scheme !== '' && scheme !== 'scripts' && !manualPage) {
         throw new Error(`primary runtime: wheel requires unsupported installation paths: ${entry.fileName}`)
       }
     },
@@ -154,6 +157,9 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
     const entries = workspaceDependencyPaths(output, manifest)
     for (const wheel of [...artifact.wheels, ...lock.wheels]) {
       await unpackPrimaryRuntimeWheel(await downloadPrimaryRuntimeAsset(wheel.url, wheel.sha256, paths.downloads), entries.pythonPackages)
+    }
+    for (const filename of ['ocr-models-notice.txt', 'ocr-models-license.txt']) {
+      cpSync(join(import.meta.dirname, filename), join(output, filename))
     }
     writeFileSync(join(output, 'runtime.json'), `${JSON.stringify(manifest, undefined, 2)}\n`)
     const destination = join(paths.runtime, 'primary-runtime')

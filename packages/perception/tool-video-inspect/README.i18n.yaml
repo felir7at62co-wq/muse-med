@@ -9,17 +9,17 @@
   en: 38f2d3aa2b875353
   zh: fbf02e9565317673
 /deepseek-ai-dsh-tool-video-inspect/summary:
-  en: 672e094aeb57d4ab
-  zh: 350fe9d5c212c4ab
+  en: f45299d638ce9d64
+  zh: 40332cbf23682483
 /deepseek-ai-dsh-tool-video-inspect/table-of-contents:
   en: a440c3eca6422a79
   zh: b1dbab00189814be
 /deepseek-ai-dsh-tool-video-inspect/use-this-package:
-  en: b7faf6f54cc4e249
-  zh: cc0747d6ebb684ea
+  en: 165272e1fc594ed2
+  zh: 1fc25f1a515875bc
 /deepseek-ai-dsh-tool-video-inspect/execution-and-storage:
-  en: 5da676737e0d15c3
-  zh: a925818b6597418f
+  en: bca692be79f5607f
+  zh: b7cb113d0b393afe
 /deepseek-ai-dsh-tool-video-inspect/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
@@ -34,10 +34,22 @@
   zh: 4406c0a7a1e247c2
 /deepseek-ai-dsh-tool-video-inspect/model-experience/the-video-inspect-tool/kv-cache-effect:
   en: 14be05d66d30f892
-  zh: 73ba01f42f694912
+  zh: 354ea58f00787fb1
+/deepseek-ai-dsh-tool-video-inspect/model-experience/the-video-ocr-tool:
+  en: 491828bd2db20323
+  zh: 7843099c779419e4
+/deepseek-ai-dsh-tool-video-inspect/model-experience/the-video-ocr-tool/what-the-model-sees:
+  en: 4408d76ff46d61fd
+  zh: a6323e5ae866958b
+/deepseek-ai-dsh-tool-video-inspect/model-experience/the-video-ocr-tool/token-effect:
+  en: d4a8fb2775d4a55b
+  zh: 77fc84e5cd342374
+/deepseek-ai-dsh-tool-video-inspect/model-experience/the-video-ocr-tool/kv-cache-effect:
+  en: a5d2770f8092ba00
+  zh: 9f9ce0408ded5c54
 /deepseek-ai-dsh-tool-video-inspect/known-limitations-and-deferred-work:
-  en: 24767faa7be92e16
-  zh: 0a93e625e3658bb6
+  en: ff7a2b4d09c6670d
+  zh: cb175e1cce50111f
 /deepseek-ai-dsh-tool-video-inspect/known-limitations-and-deferred-work/dev-note:
-  en: c741f7b42e273bb6
-  zh: 6fc4cc6701fa084a
+  en: 2e8eace95b74ead2
+  zh: 7ed9b6ca709549e8

@@ -24,7 +24,8 @@ const REPORT = "const s=await current(),c=s.pending.at(-1),r=await call({method:
  * Register the keyless adapter; only its model output and authored source transcript are synthetic.
  * @param ctx - Real headless Loader services and persistent Session.
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config: { cwd?: string } = {}): void {
+  const workspace = config.cwd ?? process.cwd()
   const phase = process.env.SCREENPLAY_STORY_FIXTURE_MODE ?? 'full'
   const spillReview = process.env.SCREENPLAY_STORY_REVIEW_SPILL === '1'
   let step = 0
@@ -40,7 +41,7 @@ export function apply(ctx: Context): void {
     tools.push({ name: exec.name, ...exec.name === 'screenplay_project' ? { method: requestMethod.parse(exec.arguments).request.method } : {}, isError: result.isError })
     if (exec.name === 'run_code') {
       step += 1
-      writeFileSync(join(process.cwd(), 'story-fixture-tools.json'), JSON.stringify(tools))
+      writeFileSync(join(workspace, 'story-fixture-tools.json'), JSON.stringify(tools))
     }
   })
   class FixtureAdapter extends LlmAdapter {
@@ -71,7 +72,7 @@ export function apply(ctx: Context): void {
           content.some(actual => JSON.stringify(actual) === JSON.stringify(block))))
         if (expected.length !== 3 || !canonical) throw Error('story fixture actual Adapter request omitted canonical video-inspect text or images')
         observations.push({ phase, step, images: actualImages, canonical })
-        await writeFile(join(process.cwd(), 'story-fixture-observations.json'), JSON.stringify(observations))
+        await writeFile(join(workspace, 'story-fixture-observations.json'), JSON.stringify(observations))
       }
       if ((phase === 'full' && step === 10) || (phase === 'resume-pending' && step === 2)) {
         const reads = options.messages.filter(message => message.source?.kind === 'screenplay-project-read')
@@ -94,7 +95,7 @@ export function apply(ctx: Context): void {
         const images = reads.flatMap(message => message.content.filter(block => block.type === 'image'))
         if (index === -1 || images.length !== 3) throw Error('cold-resumed C request omitted fresh B source images')
         observations.push({ phase, step, images: images.map(block => block.attachment.attachmentId), canonical: true })
-        await writeFile(join(process.cwd(), 'story-fixture-observations.json'), JSON.stringify(observations))
+        await writeFile(join(workspace, 'story-fixture-observations.json'), JSON.stringify(observations))
       }
       const programs: [
         string, string, string, string, string, string,
@@ -136,12 +137,12 @@ export function apply(ctx: Context): void {
         ][step]
       }
       if (!['resume-pending', 'accepted-cold', 'export-negative'].includes(phase) && step === 2) {
-        const sample = VIDEO_INSPECTION.parse(JSON.parse(await readFile(join(process.cwd(), 'sample-1.json'), 'utf8')))
-        await writeFile(join(process.cwd(), 'fake-inspection.json'), JSON.stringify({ ...sample, duration_seconds: 256, verified_readback: true }))
-        await writeFile(join(process.cwd(), 'fake-samples.json'), JSON.stringify({ ...sample, verified_readback: true,
+        const sample = VIDEO_INSPECTION.parse(JSON.parse(await readFile(join(workspace, 'sample-1.json'), 'utf8')))
+        await writeFile(join(workspace, 'fake-inspection.json'), JSON.stringify({ ...sample, duration_seconds: 256, verified_readback: true }))
+        await writeFile(join(workspace, 'fake-samples.json'), JSON.stringify({ ...sample, verified_readback: true,
           frames: sample.frames.map(frame => ({ ...frame, requested_seconds: 31, timestamp_seconds: 31 })) }))
-        await writeFile(join(process.cwd(), 'forged-verified.json'), JSON.stringify({ ...sample, verified_readback: true,
-          manifest_path: join(process.cwd(), 'forged-verified.json') }))
+        await writeFile(join(workspace, 'forged-verified.json'), JSON.stringify({ ...sample, verified_readback: true,
+          manifest_path: join(workspace, 'forged-verified.json') }))
       }
       if (program === undefined) {
         const text = '原创合成夹具流程完成。语义报告是固定测试输入，不是代码理解剧情或真实20集视觉验收。'

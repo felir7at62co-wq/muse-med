@@ -56,7 +56,7 @@ for await (const chunk of ctx.llm.stream({
 }
 ```
 
-挂载成功后，`ctx.llm.listProviders()` 会按注册顺序报告已注册路由。
+挂载成功后，`ctx.llm.listProviders()` 会按注册顺序报告已注册路由。适配器可在提供方元数据中发布 `selectable: false`，使路由继续为已保存 Session 提供调用，同时不进入目录驱动的模型选择。
 
 `GenerateOptions.messages` 接受持久 `Message` 值和仅供请求使用的 `RequestUserInput` 值。仅供请求使用的输入包含 user-role 内容，不含 `id` 或 `source`；Session 写入和 Agent 投递仍然要求持久消息。调用方必须在流结束前保持辅助输入不变。会记录完整请求的调用方（例如会话标题生成）必须使用持久消息。
 

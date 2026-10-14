@@ -486,6 +486,45 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('omits non-selectable providers from the catalog while preserving their registered routes', async () => {
+    const { ctx, sessionId } = await harness()
+    ctx.llm.registerAdapter(['muse-cloud-yunying'], new class extends CatalogAdapter {
+      override providerInfo(provider: string): LlmProviderInfo {
+        return { id: provider, name: 'Muse · 云映', selectable: false }
+      }
+    }('Muse · 云映', [
+      { provider: 'muse-cloud-yunying', id: 'gpt-6-sol', name: 'GPT 6 Sol' },
+      { provider: 'muse-cloud-yunying', id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5' },
+    ]))
+    ctx.llm.registerAdapter(['muse-cloud-zhipu-official'], new CatalogAdapter('Muse · 智谱官方', [
+      { provider: 'muse-cloud-zhipu-official', id: 'glm-5.3-flash', name: 'GLM-5.3-Flash' },
+    ]))
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+
+    const catalog = await buildModelCatalog(ctx)
+    expect(catalog.groups.map(group => group.id)).toEqual(expect.arrayContaining([
+      'deepseek-official', 'muse-cloud-zhipu-official',
+    ]))
+    expect(catalog.groups.map(group => group.id)).not.toContain('muse-cloud-yunying')
+    expect(catalog.failures.map(group => group.id)).not.toContain('muse-cloud-yunying')
+    expect(catalog.routableProviders).not.toContain('muse-cloud-yunying')
+    expect(ctx.llm.listProviders()).toContainEqual({
+      id: 'muse-cloud-yunying', name: 'Muse · 云映', selectable: false,
+    })
+    await expect(ctx.llm.listModels('muse-cloud-yunying')).resolves.toEqual([
+      { provider: 'muse-cloud-yunying', id: 'gpt-6-sol', name: 'GPT 6 Sol' },
+      { provider: 'muse-cloud-yunying', id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5' },
+    ])
+    expect(await remote.selectModel({
+      sessionId, provider: 'muse-cloud-yunying', model: 'gpt-6-sol',
+    })).toMatchObject({ ok: false, error: { code: 'session/model-unavailable' } })
+    expect(currentSelection(ctx, sessionId)).toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
+    await ctx.fiber.dispose()
+  })
+
   it('rejects unlisted models and switches available models only after the next assembly', async () => {
     const { ctx, agent, sessionId } = await harness()
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })

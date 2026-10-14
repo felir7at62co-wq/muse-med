@@ -6,6 +6,7 @@ import primaryRuntimeLock from './primary-runtime/lock.json' with { type: 'json'
 import {
   CLAUDE_AGENT_SDK_PACKAGE,
   assertRuntimeLicenses,
+  assertBundledPythonLicenses,
   claudeDistributionFromManifest,
   collectPythonDependencies,
   collectBundledPythonDependencies,
@@ -358,11 +359,27 @@ describe('collectBundledPythonDependencies', () => {
   })
 
   it('applies the runtime license check to bundled Python distributions', () => {
-    expect(() => { assertRuntimeLicenses(collectBundledPythonDependencies(primaryRuntimeLock.pythonPackages)) }).not.toThrow()
+    expect(() => { assertBundledPythonLicenses(collectBundledPythonDependencies(primaryRuntimeLock.pythonPackages)) }).not.toThrow()
     const dependencies = collectBundledPythonDependencies({ 'copyleft-wheel': '1.0' }, {
       'copyleft-wheel': { license: 'GPL-3.0-only', repo: 'https://example.com/project' },
     })
     expect(() => { assertRuntimeLicenses(dependencies) }).toThrow('copyleft-wheel (GPL-3.0-only)')
+  })
+
+  it('limits source distribution approval to the reviewed Python names, versions and terms', () => {
+    for (const dependency of [
+      { name: 'certifi', version: '2026.7.22', license: 'MPL-2.0' },
+      { name: 'tqdm', version: '4.70.1', license: 'MPL-2.0 AND MIT' },
+    ]) {
+      expect(() => { assertBundledPythonLicenses([dependency]) }).not.toThrow()
+      expect(() => { assertRuntimeLicenses([dependency]) }).toThrow(dependency.name)
+      for (const changed of [
+        { ...dependency, version: '999.0' },
+        { ...dependency, license: 'GPL-3.0-only' },
+        { ...dependency, name: 'unreviewed-wheel' },
+      ]) expect(() => { assertBundledPythonLicenses([changed]) }).toThrow(changed.name)
+    }
+    expect(isPermissive('MPL-2.0 AND MIT')).toBe(false)
   })
 })
 

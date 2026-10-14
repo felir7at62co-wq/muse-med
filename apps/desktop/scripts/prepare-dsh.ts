@@ -145,6 +145,14 @@ async function main(): Promise<void> {
         recursive: true, dereference: true,
         filter: source => desktopRuntimeFileExclusion(relative(modules, source), target, officeEngine) === undefined,
       })
+      if (target.platform === 'win32') {
+        const bridgeRoot = join(DSH_OUTPUT_ROOT, 'node_modules', '@deepseek-ai', 'dsh-tool-video-inspect', 'scripts')
+        mkdirSync(bridgeRoot, { recursive: true })
+        copyFileSync(
+          resolve(APP_ROOT, '../../packages/perception/tool-video-inspect/scripts/ocr_bridge.ps1'),
+          join(bridgeRoot, 'ocr_bridge.ps1'),
+        )
+      }
     })
     writeFileSync(join(DSH_OUTPUT_ROOT, 'package.json'), `${JSON.stringify({
       name: '@deepseek-ai/dsh-desktop-runtime', private: true, version: release.version, type: 'module',

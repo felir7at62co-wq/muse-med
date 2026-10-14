@@ -195,7 +195,7 @@ export async function verifyPreparedMediaRuntime(root: string, lock: MediaLock, 
 }
 
 async function verifyVisualCpp(path: string, version: string, environment: NodeJS.ProcessEnv): Promise<void> {
-  const systemRoot = process.env.SystemRoot
+  const systemRoot = environment.SystemRoot
   if (!systemRoot) throw new Error('media: Windows SystemRoot is required for Authenticode verification')
   await run(join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', [
     "$ErrorActionPreference = 'Stop'",
@@ -206,6 +206,27 @@ async function verifyVisualCpp(path: string, version: string, environment: NodeJ
     "if ($version -ne $env:DSH_MEDIA_VC_VERSION) { throw 'VC runtime product version mismatch' }",
     "Write-Output 'media: official Microsoft VC signature and version verified; installer not executed'",
   ].join('; ')], { ...environment, DSH_MEDIA_VC_FILE: path, DSH_MEDIA_VC_VERSION: version })
+}
+
+/** Prepare only the locked, Microsoft-signed offline prerequisite without executing it.
+ * @param options - Private output directory, download cache, validated resource lock and scrubbed subprocess environment.
+ * @returns Verified redistributable path in the output directory.
+ */
+export async function prepareVisualCppPrerequisite(options: {
+  output: string
+  cache: string
+  lock: MediaLock
+  environment: NodeJS.ProcessEnv
+}): Promise<string> {
+  const lock = validateMediaLock(options.lock)
+  await mkdir(options.cache, { recursive: true })
+  const cached = await obtain(lock.vcRedist, options.cache)
+  await mkdir(options.output, { recursive: true })
+  const destination = join(options.output, lock.vcRedist.filename)
+  await cp(cached, destination, { force: false, errorOnExist: true })
+  await verifyMediaResource(destination, lock.vcRedist)
+  await verifyVisualCpp(destination, lock.vcRedist.productVersion, options.environment)
+  return destination
 }
 
 async function smoke(root: string, environment: NodeJS.ProcessEnv, bgm: boolean): Promise<void> {
@@ -342,11 +363,20 @@ export async function prepareMediaRuntime(options: {
 
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: { output: { type: 'string' }, cache: { type: 'string' },
-    'build-python': { type: 'string', default: 'python' }, 'bgm-cache': { type: 'string' } } })
+    'build-python': { type: 'string', default: 'python' }, 'bgm-cache': { type: 'string' },
+    'vc-redist-only': { type: 'boolean' } } })
   if (!values.output || !values.cache) {
     throw new Error('Required: --output <new directory> --cache <download directory> [--bgm-cache <emotion-model download directory>]')
   }
   const lock = validateMediaLock(JSON.parse(await readFile(new URL('./media-runtime.lock.json', import.meta.url), 'utf8')))
+  if (values['vc-redist-only']) {
+    if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('Visual C++ verification requires Windows x64')
+    if (values['bgm-cache'] !== undefined) throw new Error('Visual C++ prerequisite preparation does not prepare BGM')
+    const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+      /^(?:PATH|SystemRoot|WINDIR|TEMP|TMP|COMSPEC|PATHEXT|USERPROFILE|LOCALAPPDATA)$/iu.test(key)))
+    await prepareVisualCppPrerequisite({ output: values.output, cache: values.cache, lock, environment })
+    return
+  }
   // Naming the emotion-model cache is what adds that runtime to the payload.
   const bgm = values['bgm-cache'] === undefined ? {} : {
     bgmCache: resolve(values['bgm-cache']),

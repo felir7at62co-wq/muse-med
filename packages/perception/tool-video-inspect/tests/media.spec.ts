@@ -58,6 +58,14 @@ it('accepts binary output when a provider does not expose collected stderr', asy
   expect(await runMedia(f.ctx, ['media'], policy, undefined, limits)).toEqual({ bytes: Buffer.from('bytes'), diagnostic: '' })
 })
 
+it('forwards bounded in-memory input and a caller-owned diagnostic limit without using a shell', async () => {
+  const f = await fixture('success')
+  await runMedia(f.ctx, ['media', 'bridge.ps1'], policy, undefined,
+    { ...limits, stdin: '{"frames":[]}', maxDiagnosticBytes: 4096 })
+  expect(f.calls[0]).toMatchObject({ argv: ['media', 'bridge.ps1'],
+    stdio: { stdin: { data: '{"frames":[]}' }, stdout: 'pipe', stderr: { maxBytes: 4096 } } })
+})
+
 it('rejects an already-cancelled operation before spawning', async () => {
   const f = await fixture('success'), controller = new AbortController()
   controller.abort(new Error('cancelled before media'))
@@ -105,4 +113,50 @@ it.each([
 it('reports audio presence without inventing video observations', () => {
   expect(parseVideoMetadata(Buffer.from(JSON.stringify({ format: { duration: '4' }, streams: [null, 2, {},
     { codec_type: 'video', width: 2, height: 2, codec_name: 'h264' }, { codec_type: 'audio' }] })))).toMatchObject({ has_audio: true })
+})
+
+const longAudioProbe = { format: { duration: '67.523628', start_time: '0.000000' }, streams: [
+  { codec_type: 'video', width: 64, height: 48, codec_name: 'h264', duration: '67.500000', start_time: '0.000000' },
+  { codec_type: 'audio', duration: '67.523628', start_time: '0.000000' },
+] }
+
+it('selects video EOF for explicit video planning while preserving default container duration', () => {
+  const bytes = Buffer.from(JSON.stringify(longAudioProbe))
+  expect(parseVideoMetadata(bytes).duration_seconds).toBe(67.523628)
+  expect(parseVideoMetadata(bytes, 'video')).toMatchObject({ duration_seconds: 67.5, has_audio: true })
+  expect(parseVideoMetadata(Buffer.from(JSON.stringify({ ...longAudioProbe,
+    format: { duration: 67.523628, start_time: 0 }, streams: [{ ...longAudioProbe.streams[0], duration: 67.5, start_time: 0 }],
+  })), 'video').duration_seconds).toBe(67.5)
+})
+
+it.each([undefined, 'N/A', '', ' ', 'bad', 'Infinity', 0, -1, false, null, [], {}])(
+  'keeps container duration when video stream duration is unavailable: %j', (duration) => {
+    const bytes = Buffer.from(JSON.stringify({ ...longAudioProbe, streams: [{ ...longAudioProbe.streams[0], duration }] }))
+    expect(parseVideoMetadata(bytes, 'video').duration_seconds).toBe(67.523628)
+  })
+
+it.each(['container', 'video'] as const)('rejects invalid container duration even for %s planning', (basis) => {
+  expect(() => parseVideoMetadata(Buffer.from(JSON.stringify({ ...longAudioProbe,
+    format: { duration: 'N/A', start_time: 0 },
+  })), basis)).toThrow('invalid')
+})
+
+it.each(['container', 'video'] as const)('does not infer %s duration from frame counts or duration tags', (basis) => {
+  const bytes = Buffer.from(JSON.stringify({ format: longAudioProbe.format, streams: [
+    { codec_type: 'video', width: 64, height: 48, codec_name: 'h264', start_time: 0,
+      nb_frames: '2025', avg_frame_rate: '30/1', tags: { DURATION: '00:01:07.500000000' } },
+  ] }))
+  expect(parseVideoMetadata(bytes, basis).duration_seconds).toBe(67.523628)
+})
+
+it.each([
+  { format: { ...longAudioProbe.format, start_time: undefined } },
+  { format: { ...longAudioProbe.format, start_time: 'N/A' } },
+  { format: { ...longAudioProbe.format, start_time: 5 } },
+  { streams: [{ ...longAudioProbe.streams[0], start_time: undefined }] },
+  { streams: [{ ...longAudioProbe.streams[0], start_time: 'N/A' }] },
+  { streams: [{ ...longAudioProbe.streams[0], start_time: -0.02 }] },
+  { streams: [{ ...longAudioProbe.streams[0], start_time: 5 }] },
+])('preserves container timestamp bounds when either media origin is unknown or offset: %j', (change) => {
+  expect(parseVideoMetadata(Buffer.from(JSON.stringify({ ...longAudioProbe, ...change })), 'video').duration_seconds).toBe(67.523628)
 })

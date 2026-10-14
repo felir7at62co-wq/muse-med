@@ -21,7 +21,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userQuestions` | `tool/call`, `tool/result after an answer or timeout`, `late user/message` | - | ask_user_question keeps the original blocking behavior by default; set `mode: timed` to opt into a foreground timeout and pending result while the question remains answerable. In timed mode, `timeout: -1` keeps that call blocking indefinitely. |
 | `@deepseek-ai/dsh-screenplay-project` | `screenplay_project` | `ctx.fs`, `ctx.tools`, `ctx.attachments`, `ctx.llm`, `ctx.sandboxPolicy when filesystem confinement is enabled` | `tool/call`, `tool/result`, `guarded project artifact`, `accepted screenplay and source map` | - | Source-unit identities, revisions, candidate digests, timestamps and rendered line references are issued by the host. Facts and episode candidates require a different reviewing session before acceptance. |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`, `ctx.museAccount`, `FFmpeg and FFprobe on PATH (or configured)` | `tool/call`, `tool/result`, `transcript/jobs task receipt`, `transcript/raw timed TXT and JSON when complete` | - | `start` submits compressed speech under the signed-in Muse account and returns a project receipt; `status` checks that receipt and publishes timed TXT and JSON when recognition completes. The same tool is available in every Muse mode, with provider credentials held by the account gateway. |
-| `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | - | Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
+| `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect`, `video_ocr` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | - | Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.ptcRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: ptc` / `mode: both` (see the PTC mode Agent Note). Under `ptc` it is the registry's only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime's language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`, `ctx.systemPrompt`, `ctx.userQuestions (execution time, opportunistic)` | `tool/call`, `plan/mode inactive on an approved review`, `tool/result` | - | exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-questions seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary. |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs for run_in_background and the job-backed foreground path` | `tool/call`, `tool/result` | - | The bash tool is the model-facing consumer of the bash executor seam. With a job registry composed every call registers with the generic `ctx.jobs` runtime as it starts, collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; without one, or with `enableRunInBackground: false`, the tool registers a foreground-only schema without the `run_in_background` parameter. |
@@ -54,7 +54,8 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-perception-bgm` | `bgm_match` | `ctx.tools`, `a local track index or configured public catalogue; Python and model resources only for index/inspect` | `tool/call`, `tool/result`, `on index: the local emotion index; on download: verified audio in the configured cache` | - | `match` ranks candidates without choosing a track; public mode returns IDs and URLs without downloading. `download` accepts a selected catalogue track ID and returns a verified local file. The default is local-index mode; public matching requires deployment configuration. `index` and `inspect` start Python only when executed, never during schema collection. The MERT analysis backbone is non-commercial (CC-BY-NC-4.0); audio rights remain separate. |
 | `@deepseek-ai/dsh-tool-bgm-compose` | `drama_bgm` | `ctx.tools`, `ctx.subprocess`, `ffmpeg and ffprobe on PATH (or configured)`, `an episode timeline and explicit BGM plan` | `tool/call`, `tool/result`, `on compose: a 48 kHz stereo PCM WAV and adjacent generation report under the project root` | - | `preview` validates complete story coverage and reports source hashes, offsets, measured mean volume, and gains without publishing; `compose` crossfades the selected tracks and publishes only after the staged WAV passes ffprobe; `verify` measures an existing WAV without rewriting it. The tool does not choose music or call `bgm_match`; the agent owns plot interpretation and final track selection. |
 | `@deepseek-ai/dsh-tool-episode-render` | `drama_render`, `drama_video` | `ctx.tools`, `ffmpeg and ffprobe on PATH (or configured), the project layout it reads and writes (video/, audio/, editing/, exports/)` | `tool/call`, `tool/result`, `on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt`, `on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/`, `on drama_video ban/unban: project-local video-bans.json; media bytes are unchanged` | - | `drama_video` stores reversible, labelled SHA256 exclusions without review evidence; release is not approval. `drama_render` refuses banned selected bytes in `prepare`/`render`, while `verify` reports risks without deleting media. Its three methods: `prepare` lays out render inputs without encoding picture, `render` produces the delivery and reports its measured resolution, frame rate, bitrate, duration, size, and encoder, and `verify` checks the delivered file. The delivery style is fixed — 1440x2560 at 60 fps, 24M target with a 30M ceiling and a 4.6 Mbps floor, SimHei 68 subtitles with the single bottom-right AI-content mark, and a two-second ending frozen from the last shot’s proved tail frame. A render that cannot proceed throws with its repair instruction; a delivered file that misses the specification returns `ok: false` with per-check repairs. |
-| `@deepseek-ai/dsh-tool-drama-assets` | `drama_assets` | `ctx.tools`, `ctx.credentials`, `the project layout (assets_manifest.json, _probe/asset-reconcile.json, project_config.json, source-backed requirements and optional shot plans)` | `tool/call`, `tool/result`, `on reconcile/dispose: _probe/asset-reconcile.json under the project root` | - | Four methods: `reconcile` reads the remote project’s asset and material lists and the manifest and writes the evidence the host’s reconcile gate reads, and `dispose` records one disposition in it without any remote read. `match_preview` reads source-backed requirements, the project bible, formal assets and recognized voice references, returning `reuse_ready`, `needs_review`, `missing` or `blocked`. `reuse_preview` groups those recommendations across shots and optionally checks an ordered material-selection plan while preserving unrelated materials and card configuration. Both previews are read-only and verify source-file byte SHA-256, line numbers and exact source text; a candidate digest is not source SHA-256. `apply_allowed=false` means the preview grants no write permission. After user authorization, the model uses the existing `jubian_storyboard.select_assets` tool; voices remain on `audio_preview` / `audio_apply`. The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate’s inputs. |
+| `@deepseek-ai/dsh-tool-drama-assets` | `drama_assets` | `ctx.tools`, `ctx.credentials`, `the project layout (assets_manifest.json, _probe/asset-reconcile.json, project_config.json, source-backed requirements and optional shot plans)` | `tool/call`, `tool/result`, `on reconcile/dispose: _probe/asset-reconcile.json under the project root` | - | `shared_usage_preview` reads complete current shared-project asset, material, episode and package inventories, counts distinct bound packages and reports same-period voice candidates without granting deletion. `usage_preview` reads exact local compiled references and voice gaps without network or writes. `reconcile` reads the remote project’s asset and material lists and the manifest and writes the evidence the host’s reconcile gate reads, and `dispose` records one disposition in it without any remote read. `match_preview` reads source-backed requirements, the project bible, formal assets and recognized voice references, returning `reuse_ready`, `needs_review`, `missing` or `blocked`. `reuse_preview` groups those recommendations across shots and optionally checks an ordered material-selection plan while preserving unrelated materials and card configuration. Both previews are read-only and verify source-file byte SHA-256, line numbers and exact source text; a candidate digest is not source SHA-256. `apply_allowed=false` means the preview grants no write permission. After user authorization, the model uses the existing `jubian_storyboard.select_assets` tool; voices remain on `audio_preview` / `audio_apply`. The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate’s inputs. |
+| `@deepseek-ai/dsh-tool-character-reference` | `drama_character_references` | `ctx.tools`, `an absolute deployment-configured local character reference draft index path` | `tool/call`, `tool/result` | - | `drama_character_references` is an opt-in isolated-QA lookup over a deployment-configured local draft index. It returns at most one evidence-backed reference with reasons and uncertainty, and reports explicit zero local writes, remote writes, and paid requests. It does not upload, import, bind, approve, generate, or publish assets and is not registered in the production profile. |
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 
@@ -1505,7 +1506,7 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
   "properties": {
     "method": {
       "type": "string",
-      "description": "start=提取音轨并提交；status=按原收据查询、补传确认未受理的音轨并发布结果，补传可能计费。限流按 retry_after_seconds 等待后用原收据恢复；日额度、登录或任务冲突先处理，不直接重投。",
+      "description": "start=提取音轨并提交；status=回读原收据，按服务端恢复指示查询或补传确认未受理的同 ID 音轨并发布结果，补传可能计费。inspect_receipt 停止反复轮询，保留收据核对；网络超时仍先回读原任务。限流按 retry_after_seconds 恢复；日额度、登录或冲突先处理，不直接重投。",
       "enum": [
         "start",
         "status"
@@ -1533,7 +1534,7 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
     },
     "purpose": {
       "type": "string",
-      "description": "start 用途：字幕校时用 subtitles（默认，极速）；音视频转剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。",
+      "description": "start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。",
       "enum": [
         "subtitles",
         "screenplay"
@@ -1625,7 +1626,7 @@ Source: [`packages/perception/tool-video-inspect/src/index.ts`](../packages/perc
 
 ### `video_inspect`
 
-Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. For dialogue and subtitles, discover audio_transcribe.
+Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. Use audio_transcribe for spoken dialogue and video_ocr for visible or burned-in text.
 
 ```json
 {
@@ -1677,6 +1678,57 @@ Inspect local video metadata or view timestamped sampled frames. Returns actual 
     "manifest_path": {
       "type": "string",
       "description": "Optional new JSON output path inside the current workspace; default .muse/video-inspections/<unique-id>.json. An existing file is never replaced."
+    }
+  },
+  "required": [
+    "file_path"
+  ]
+}
+```
+
+Source: [`packages/perception/tool-video-inspect/src/index.ts`](../packages/perception/tool-video-inspect/src/index.ts)
+
+### `video_ocr`
+
+Recognize visible text from bounded, timestamped samples of a local video with the configured offline OCR engine. Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. A partial or failed scan is indeterminate, never proof that the video has no subtitles. Persistent text remains a content candidate; visual persistence does not identify watermarks or non-narrative text. This tool never invokes audio transcription.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "file_path": {
+      "type": "string",
+      "description": "Local video path in the current Session filesystem."
+    },
+    "start_seconds": {
+      "type": "number",
+      "description": "Inclusive source range start; default 0."
+    },
+    "end_seconds": {
+      "type": "number",
+      "description": "Exclusive source range end; default video end. One call scans at most 120s and 240 frames; continue from next_start_seconds."
+    },
+    "frame_interval_seconds": {
+      "type": "number",
+      "description": "OCR sample spacing; default 0.5s."
+    },
+    "language": {
+      "type": "string",
+      "description": "OCR language; default auto. Missing requested language returns an explicit failure and never falls back to ASR.",
+      "enum": [
+        "auto",
+        "zh-Hans-CN",
+        "zh-Hant-TW",
+        "en-US"
+      ]
+    },
+    "raw_json_path": {
+      "type": "string",
+      "description": "Optional new raw evidence JSON path inside the workspace. Existing files are never replaced."
+    },
+    "merged_text_path": {
+      "type": "string",
+      "description": "Optional new timestamped text path inside the workspace. Existing files are never replaced."
     }
   },
   "required": [
@@ -4023,6 +4075,14 @@ web_search and web_fetch keep provider selection behind ctx.web so model-visible
       "type": "string",
       "description": "register 必填：已有图片或音频 HTTPS 地址；只登记，不生成新媒体。"
     },
+    "character_id": {
+      "type": "string",
+      "description": "register 新分期角色音频必须提供稳定角色 ID，并同时提供 voice_period_id；仅未分期旧音频可省略两者。完整音频库已有同角色/时期条目时复用，不重复登记。"
+    },
+    "voice_period_id": {
+      "type": "string",
+      "description": "register 新分期角色音频必须提供明确人生时期 ID，如 child/adult；与 character_id 组成共享声线位置。仅未分期旧音频可省略两者，自动登记标签不能手写进 asset_name。"
+    },
     "project_dir": {
       "type": "string",
       "description": "prepare_video 必填、submit_video 可选：项目目录，必须含 project_config.json，且其 jubian_script_id 必须等于实时 scriptId。"
@@ -4621,6 +4681,14 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
           "audio_asset_id": {
             "type": "integer",
             "description": "已登记的真实音频资产 ID；工具复验同项目、类别4与URL，字段不伪造图片父资产 ID。"
+          },
+          "character_id": {
+            "type": "string",
+            "description": "可选本地稳定角色 ID；提供后须与当前项目该角色声线的资产 ID、URL 精确一致，不发送给视频提供方。"
+          },
+          "voice_period_id": {
+            "type": "string",
+            "description": "同角色的明确人生时期 ID，如 child/adult；角色有分期声线时必须提供，不能回退或混用。须同时提供 character_id。"
           }
         },
         "required": [
@@ -5193,7 +5261,7 @@ Read the authoritative project bible, preview a confirmed change and its downstr
               },
               "voice_profile": {
                 "type": "object",
-                "description": "Partial updates preserve approved guidance. Supply description when first creating a voice profile.",
+                "description": "Legacy default voice. Partial updates preserve approved guidance. Supply description when first creating a voice profile.",
                 "additionalProperties": false,
                 "properties": {
                   "speaker_id": {
@@ -5226,6 +5294,57 @@ Read the authoritative project bible, preview a confirmed change and its downstr
                     "type": "number",
                     "description": "Measured reference duration in seconds, greater than zero and at most 15; the usual sample is 2 seconds."
                   }
+                }
+              },
+              "voice_profiles": {
+                "type": "array",
+                "description": "Voice periods of the same stable character, such as child and adult. Merge by voice_period_id; omissions and [] preserve existing periods. Costume changes preserve their period voice. Each new period requires description.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "voice_period_id": {
+                      "type": "string",
+                      "description": "Stable explicit life-period ID, independent of costume and emotion."
+                    },
+                    "label": {
+                      "type": "string",
+                      "description": "Optional readable period label."
+                    },
+                    "speaker_id": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "Approved gender/age, timbre, speaking style and accent to reuse in each package."
+                    },
+                    "reference_audio": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Approved reference path, ID or URL. Set null to remove the current reference and its asset ID, hash and duration; voice guidance remains."
+                    },
+                    "reference_audio_asset_id": {
+                      "type": "integer",
+                      "description": "Actual approved audio-category asset ID. Set together with its HTTPS reference_audio URL, measured SHA-256 and duration."
+                    },
+                    "reference_audio_sha256": {
+                      "type": "string",
+                      "description": "64 hexadecimal SHA-256 characters of the approved audio bytes."
+                    },
+                    "reference_audio_duration_seconds": {
+                      "type": "number",
+                      "description": "Measured reference duration in seconds, greater than zero and at most 15; the usual sample is 2 seconds."
+                    }
+                  },
+                  "required": [
+                    "voice_period_id"
+                  ]
                 }
               }
             },
@@ -5402,7 +5521,7 @@ Source: [`packages/perception/perception-bgm/src/index.ts`](../packages/percepti
 
 ### `drama_bgm`
 
-短剧整集 BGM 合成工具；只执行 Agent 已确认的 episodes/segments 计划，不选曲、不替代试听。可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。preview=安全预检：验证时间线、来源和完整连续覆盖，检测 1–5 秒内的起音，测量源窗口平均响度并计算目标 -17.5 dB、最大 +9 dB 的增益，不写正式产物。compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。**跨集复用规则以 policy_findings 返回，不拦截调用；读到了就必须照 fix 改完再交付**：每集至少 2 首不同曲目（R1）、一集内不得重复同一首（R2）、整批之内同一首最多出现在 2 集（R3）、每集至少 1 首是本批其它集没用过的（R4）、每个切点必须落在镜头包边界上（R5，容差 0.05 秒）。批次 = 计划文件所在目录里所有含 episodes 数组的 JSON（通常 episodes/segments/*.json），因此同目录放不相关的 JSON 没关系，但读不动的文件会直接报错；返回的 batch_episodes 就是本次核对过的集号。同一首曲子的身份按解析后的绝对 source 路径判定，track 只当展示名。阈值是部署配置项（minTracksPerEpisode、maxEpisodesPerTrack、freshTracksPerEpisode、boundaryToleranceSeconds）。compose 返回的 output 传给 drama_render.bgm，同一 plan 传给 drama_render.bgm_plan。本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。
+短剧整集 BGM 合成工具；只执行 Agent 已确认的 episodes/segments 计划，不选曲、不替代试听。可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。preview=安全预检：验证时间线、来源和完整连续覆盖，检测 1–5 秒内的起音，测量源窗口平均响度并计算目标 -17.5 dB、最大 +9 dB 的增益，不写正式产物。compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。**跨集复用规则以 policy_findings 返回，不拦截调用；读到了就必须照 fix 改完再交付**：每集至少 2 首不同曲目（R1）、一集内不得重复同一首（R2）、整批之内同一首最多出现在 2 集（R3）、每集至少 1 首是本批其它集没用过的（R4）、每个切点必须落在镜头包边界上（R5，容差 0.05 秒）。批次 = 计划文件所在目录里所有含 episodes 数组的 JSON（通常 episodes/segments/*.json），因此同目录放不相关的 JSON 没关系，但读不动的文件会直接报错；返回的 batch_episodes 就是本次核对过的集号。同一首曲子的身份按解析后的绝对 source 路径判定，track 只当展示名。阈值是部署配置项（minTracksPerEpisode、maxEpisodesPerTrack、freshTracksPerEpisode、boundaryToleranceSeconds）。timeline、plan、output 的相对路径都以 project 为基准，不使用进程 cwd；跨工具调用优先传上一步返回的绝对路径。compose 返回的绝对 output 传给 drama_render.bgm，返回的绝对 plan 传给 drama_render.bgm_plan。本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。
 
 ```json
 {
@@ -5427,15 +5546,15 @@ Source: [`packages/perception/perception-bgm/src/index.ts`](../packages/percepti
     },
     "timeline": {
       "type": "string",
-      "description": "项目内时间线 JSON，必须含 body_end，通常为 editing/<集>-timeline.json。"
+      "description": "项目内时间线 JSON，必须含 body_end，通常为 editing/<集>-timeline.json；相对路径以 project 为基准。"
     },
     "plan": {
       "type": "string",
-      "description": "项目内 episodes/segments BGM 计划 JSON；段落必须连续完整覆盖正文，跨集复用规则见 policy_findings（每集至少 2 首、集内不重复、单曲最多 2 集、至少 1 首全新、切点在镜头包边界）。"
+      "description": "项目内 episodes/segments BGM 计划 JSON；用 write 创建时把 file_path 写成项目内绝对路径，并把 write 返回的绝对 path 原样传入；相对路径以 project 为基准。段落必须连续完整覆盖正文，跨集复用规则见 policy_findings（每集至少 2 首、集内不重复、单曲最多 2 集、至少 1 首全新、切点在镜头包边界）。"
     },
     "output": {
       "type": "string",
-      "description": "项目内 WAV 路径；省略为 audio/bgm/<集>.wav。"
+      "description": "项目内 WAV 路径；相对路径以 project 为基准，省略为 audio/bgm/<集>.wav。"
     }
   },
   "required": [
@@ -5496,7 +5615,7 @@ Source: [`packages/drama/tool-bgm-compose/src/index.ts`](../packages/drama/tool-
     },
     "timeline": {
       "type": "string",
-      "description": "时间线 JSON 路径；render 与 verify 必填，通常是 prepare 写出的 editing/<集>-timeline.json。"
+      "description": "时间线 JSON 路径；render 与 verify 必填，相对路径以 project 为基准；跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。"
     },
     "subtitle_srt": {
       "type": "string",
@@ -5508,11 +5627,11 @@ Source: [`packages/drama/tool-bgm-compose/src/index.ts`](../packages/drama/tool-
     },
     "bgm": {
       "type": "string",
-      "description": "本集实际使用的 BGM 文件路径；render 必填，会循环铺到正片结束。"
+      "description": "本集实际使用的 BGM 文件路径；render 必填，相对路径以 project 为基准；优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束。"
     },
     "bgm_plan": {
       "type": "string",
-      "description": "render 可选：现有 episodes/segments 配乐计划 JSON；校验时间、记录曲目与复用提醒，不代替试听。"
+      "description": "render 可选：现有 episodes/segments 配乐计划 JSON；相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；校验时间、记录曲目与复用提醒，不代替试听。"
     },
     "ending_audio": {
       "type": "string",
@@ -5599,7 +5718,7 @@ Source: [`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/to
 
 ### `drama_assets`
 
-短剧流水线的付费生成前资产对账（剧变）。reconcile=只读剧变、免费：把「剧变远端这个项目里已选用的资产」与「assets_manifest.json 里写了什么」逐条比一遍，产出机读证据 <project_dir>/_probe/asset-reconcile.json。判定口径：远端存活 = asset/list 里 delFlag == "0"；已选用 = material/list 里 isUsed == 1 且 hsAssetStatus == "Active"；unregistered = 已选用但清单里没有（不许直接生成，先登记复用或写明不需要）；dangling = 清单里有但远端没有；matched = 两端都有的数量。dispose=给某条 unregistered 写处置：status=registered（已登记进清单）或 ignored（确认不需要，必须带非空 note）；只更新证据里的 disposition 并重算 blocking / ignored_without_note / ready，不重新对账、不联网。ready = issues 为空且 blocking 与 ignored_without_note 都为空，宿主侧的付费前置钩子只认这一条，证据 24 小时内有效。清单读不全不报错、也不拒绝运行：缺 items 资产数组（或只写在 assets 键下）、缺 lead_readonly_records、某条记录不是对象，都写进 issues 并让 ready=false，好让 agent 一次看全所有要修的地方。为什么清单不够：清单只记录我们生成过什么，不等于剧变项目里已经有什么——2026-09-20 就因为只看清单，给一张项目里早就存在的正式资产重新生成了两次（花掉 1.17 元）。match_preview=只读当前项目人物、场景与已认可声线；需要项目内 requirements_path，返回 reuse_ready/needs_review/missing/blocked 与证据。它不写任何文件，不生成、不绑定、不审批；同名不能证明身份，分页不全或来源变化必须 blocked。missing 仅限当前项目，不允许据此直接付费生成。reuse_preview=集中归组并生成只读复用计划；可带 plan_path 预检各镜素材选择，保留无关素材和配置，失败即停止后续预检。匹配预览 → 复用建议 → 用户确认 → 模型调用原有 jubian_storyboard.select_assets。reuse_ready、already_bound 和 fingerprint 不是审批；apply_allowed=false 只表示预览不授予写入权限。用户授权后可按 shots 的有序 selections 调用原工具，继续实时身份、顺序和回读校验；未授权不得绑定。声线沿 audio_preview → audio_apply。本工具绝不调用剧变的任何写方法、绝不计费：reconcile/dispose 本地只写 _probe/asset-reconcile.json，match_preview 完全只读。
+短剧流水线的付费生成前资产对账（剧变）。reconcile=只读剧变、免费：把「剧变远端这个项目里已选用的资产」与「assets_manifest.json 里写了什么」逐条比一遍，产出机读证据 <project_dir>/_probe/asset-reconcile.json。判定口径：远端存活 = asset/list 里 delFlag == "0"；已选用 = material/list 里 isUsed == 1 且 hsAssetStatus == "Active"；unregistered = 已选用但清单里没有（不许直接生成，先登记复用或写明不需要）；dangling = 清单里有但远端没有；matched = 两端都有的数量。dispose=给某条 unregistered 写处置：status=registered（已登记进清单）或 ignored（确认不需要，必须带非空 note）；只更新证据里的 disposition 并重算 blocking / ignored_without_note / ready，不重新对账、不联网。ready = issues 为空且 blocking 与 ignored_without_note 都为空，宿主侧的付费前置钩子只认这一条，证据 24 小时内有效。清单读不全不报错、也不拒绝运行：缺 items 资产数组（或只写在 assets 键下）、缺 lead_readonly_records、某条记录不是对象，都写进 issues 并让 ready=false，好让 agent 一次看全所有要修的地方。为什么清单不够：清单只记录我们生成过什么，不等于剧变项目里已经有什么——2026-09-20 就因为只看清单，给一张项目里早就存在的正式资产重新生成了两次（花掉 1.17 元）。match_preview=只读当前项目人物、场景与已认可声线；需要项目内 requirements_path，返回 reuse_ready/needs_review/missing/blocked 与证据。它不写任何文件，不生成、不绑定、不审批；同名不能证明身份，分页不全或来源变化必须 blocked。missing 仅限当前项目，不允许据此直接付费生成。reuse_preview=集中归组并生成只读复用计划；可带 plan_path 预检各镜素材选择，保留无关素材和配置，失败即停止后续预检。匹配预览 → 复用建议 → 用户确认 → 模型调用原有 jubian_storyboard.select_assets。reuse_ready、already_bound 和 fingerprint 不是审批；apply_allowed=false 只表示预览不授予写入权限。用户授权后可按 shots 的有序 selections 调用原工具，继续实时身份、顺序和回读校验；未授权不得绑定。声线沿 audio_preview → audio_apply。shared_usage_preview=完整查询共享剧变项目的资产、材质、剧集和视频包，按实际绑定汇总不同包的引用数及集数；支持精确asset_id或character_id筛选。重复音频仅在同人物同人生时期归组，先迁移引用再清理；历史任务与其他账号本地计划未扫描，不授予删除权限。usage_preview=读取当前资产清单、项目声音和可选打包结果，按实际父资产/材质ID查询引用位置与缺失声线；支持asset_id筛选，不猜人物、不审批、不绑定、不收费。下载成功视频后主动加载tweet-drama-voice-continuity，缺声线时用其prepare_voice_assets.py提取并登记候选；完整长音轨不直接作声线；实际讲话的2秒短参考可带背景声，同一包合计不超过15秒。本工具绝不调用剧变的任何写方法、绝不计费：reconcile/dispose 本地只写 _probe/asset-reconcile.json，match_preview 完全只读。
 
 ```json
 {
@@ -5612,12 +5731,14 @@ Source: [`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/to
         "reconcile",
         "dispose",
         "match_preview",
-        "reuse_preview"
+        "reuse_preview",
+        "usage_preview",
+        "shared_usage_preview"
       ]
     },
     "project_dir": {
       "type": "string",
-      "description": "项目根目录绝对路径，必须含 assets_manifest.json；证据写在它的 _probe/asset-reconcile.json。"
+      "description": "项目根目录绝对路径；shared_usage_preview只需project_config.json中的jubian_script_id，其余方法需要assets_manifest.json。对账证据写在_probe/asset-reconcile.json。"
     },
     "requirements_path": {
       "type": "string",
@@ -5625,11 +5746,19 @@ Source: [`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/to
     },
     "plan_path": {
       "type": "string",
-      "description": "reuse_preview 可选：项目内 version=1 的 shots JSON，含 storyboard_id、episode、episode_id 与 requirement_id/material_key 绑定映射；不得包含 approved 或审批字段。"
+      "description": "usage_preview 可选：项目内 version=1 的 documents JSON（path/sha256/episode）；reuse_preview 可选：项目内 version=1 的 shots JSON，含 storyboard_id、episode、episode_id 与 requirement_id/material_key 绑定映射；不得包含 approved 或审批字段。"
     },
     "asset_id": {
       "type": "integer",
-      "description": "dispose 必填：要处置的 unregistered 资产 ID（不是 material_id、不是任务 ID）。"
+      "description": "usage_preview/shared_usage_preview 可选精确父资产筛选；dispose 必填：要处置的 unregistered 资产 ID（不是 material_id、不是任务 ID）。"
+    },
+    "character_id": {
+      "type": "string",
+      "description": "shared_usage_preview 可选：精确稳定人物ID，查询此人的已明确登记妆造和不同人生时期声线；不按名字猜。"
+    },
+    "output_offset": {
+      "type": "integer",
+      "description": "shared_usage_preview 输出分页偏移，默认0；后续页使用返回的pagination.next_offset及相同筛选条件，仅query_sha256相同才可拼接，不能把本页空数组当作资产不存在。"
     },
     "status": {
       "type": "string",
@@ -5653,4 +5782,50 @@ Source: [`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/to
 
 Source: [`packages/drama/tool-drama-assets/src/index.ts`](../packages/drama/tool-drama-assets/src/index.ts)
 
-Four methods: `reconcile` reads the remote project’s asset and material lists and the manifest and writes the evidence the host’s reconcile gate reads, and `dispose` records one disposition in it without any remote read. `match_preview` reads source-backed requirements, the project bible, formal assets and recognized voice references, returning `reuse_ready`, `needs_review`, `missing` or `blocked`. `reuse_preview` groups those recommendations across shots and optionally checks an ordered material-selection plan while preserving unrelated materials and card configuration. Both previews are read-only and verify source-file byte SHA-256, line numbers and exact source text; a candidate digest is not source SHA-256. `apply_allowed=false` means the preview grants no write permission. After user authorization, the model uses the existing `jubian_storyboard.select_assets` tool; voices remain on `audio_preview` / `audio_apply`. The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate’s inputs.
+`shared_usage_preview` reads complete current shared-project asset, material, episode and package inventories, counts distinct bound packages and reports same-period voice candidates without granting deletion. `usage_preview` reads exact local compiled references and voice gaps without network or writes. `reconcile` reads the remote project’s asset and material lists and the manifest and writes the evidence the host’s reconcile gate reads, and `dispose` records one disposition in it without any remote read. `match_preview` reads source-backed requirements, the project bible, formal assets and recognized voice references, returning `reuse_ready`, `needs_review`, `missing` or `blocked`. `reuse_preview` groups those recommendations across shots and optionally checks an ordered material-selection plan while preserving unrelated materials and card configuration. Both previews are read-only and verify source-file byte SHA-256, line numbers and exact source text; a candidate digest is not source SHA-256. `apply_allowed=false` means the preview grants no write permission. After user authorization, the model uses the existing `jubian_storyboard.select_assets` tool; voices remain on `audio_preview` / `audio_apply`. The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate’s inputs.
+
+<a id="deepseek-aidsh-tool-character-reference"></a>
+
+## `@deepseek-ai/dsh-tool-character-reference`
+
+### `drama_character_references`
+
+仅从部署配置指定的本地公共人物参考草稿读取一个最佳参考。输入角色描述、风格与已知外观标签；返回理由和不确定项。这是 QA 只读建议，不是已批准素材或剧变资产。不得调用导入、select_assets、生成或任何写入工具。年代未被明确证实或候选同分时不推荐。调用方提供的角色需求尚未自动核验剧本原文。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "role_description": {
+      "type": "string",
+      "description": "角色需求摘要；必须来自当前剧本，不可编造。"
+    },
+    "style": {
+      "type": "string",
+      "description": "已知风格，未确认时省略。",
+      "enum": [
+        "urban",
+        "ancient"
+      ]
+    },
+    "desired_tags": {
+      "type": "array",
+      "description": "从需求中提取的具体服装或外观标签。",
+      "items": {
+        "type": "string"
+      }
+    },
+    "era": {
+      "type": "string",
+      "description": "明确要求的年代；草稿未确认该年代则不给出推荐。"
+    }
+  },
+  "required": [
+    "role_description"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-character-reference/src/index.ts`](../packages/drama/tool-character-reference/src/index.ts)
+
+`drama_character_references` is an opt-in isolated-QA lookup over a deployment-configured local draft index. It returns at most one evidence-backed reference with reasons and uncertainty, and reports explicit zero local writes, remote writes, and paid requests. It does not upload, import, bind, approve, generate, or publish assets and is not registered in the production profile.

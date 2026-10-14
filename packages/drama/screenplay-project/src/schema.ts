@@ -224,6 +224,14 @@ const semanticInput = { type: 'object', additionalProperties: false, properties:
   unverified: { ...strings, description: 'Required story preservation judgments still unverified. Keep source identity or sampling limits in story_notes.unresolved when the output preserves those limits without unsupported claims.' },
 } } as const
 const storyFact = { ...refinementFact, properties: { ...refinementFact.properties, story_supplement: supplement } } as const
+const storyScope = {
+  work_title: string,
+  videos: { type: 'array', required: true, items: { type: 'object', additionalProperties: false,
+    properties: { path: string, source_version: string, episode: { type: 'integer' } } } },
+  episodes: { type: 'array', required: true, items: { type: 'integer' } }, scope_instructions: string,
+  authorization_quote: string, consent_assessment: string,
+  allowed_categories: { type: 'array', required: true, items: { type: 'string', enum: ['performance_detail', 'minimal_os', 'supporting_dialogue'] } },
+} as const
 /** Default-off story commands; strict and V1 schemas remain unchanged when disabled. */
 export const REQUEST_STORY = { oneOf: [
   REQUEST_REFINEMENT.oneOf[0], REQUEST_REFINEMENT.oneOf[2], REQUEST_REFINEMENT.oneOf[3],
@@ -236,12 +244,7 @@ export const REQUEST_STORY = { oneOf: [
   { ...REQUEST.oneOf[11], properties: { ...REQUEST.oneOf[11].properties, semantic_report: semanticInput } },
   ...REQUEST_REFINEMENT.oneOf.slice(12),
   { type: 'object', additionalProperties: false, properties: {
-    method: { type: 'string', const: 'init_story_faithful', required: true }, project: string, work_title: string,
-    videos: { type: 'array', required: true, items: { type: 'object', additionalProperties: false,
-      properties: { path: string, source_version: string, episode: { type: 'integer' } } } },
-    episodes: { type: 'array', required: true, items: { type: 'integer' } }, scope_instructions: string,
-    authorization_quote: string, consent_assessment: string,
-    allowed_categories: { type: 'array', required: true, items: { type: 'string', enum: ['performance_detail', 'minimal_os', 'supporting_dialogue'] } },
+    method: { type: 'string', const: 'init_story_faithful', required: true }, project: string, ...storyScope,
   } },
   { type: 'object', additionalProperties: false, properties: {
     method: { type: 'string', const: 'propose_story_inventory', required: true }, ...mutation, episode: integer, coverage: { ...coverage, required: true },
@@ -264,9 +267,7 @@ export const REQUEST_STORY = { oneOf: [
 
   { type: 'object', additionalProperties: false, properties: {
     method: { type: 'string', const: 'fork_story_faithful', required: true }, ...mutation, destination: string, before_episode: integer,
-    work_title: string, videos: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: { path: string, source_version: string, episode: { type: 'integer' } } } },
-    episodes: { type: 'array', required: true, items: { type: 'integer' } }, scope_instructions: string, authorization_quote: string, consent_assessment: string,
-    allowed_categories: { type: 'array', required: true, items: { type: 'string', enum: ['performance_detail', 'minimal_os', 'supporting_dialogue'] } },
+    ...storyScope,
     baseline_candidate_ids: strings,
     source_links: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: { source_id: string, video_path: string } } },
   } },

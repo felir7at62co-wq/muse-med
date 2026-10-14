@@ -83,6 +83,7 @@ import * as ToolBgmCompose from '@deepseek-ai/dsh-tool-bgm-compose'
 import * as PerceptionBgm from '@deepseek-ai/dsh-perception-bgm'
 import * as ToolEpisodeRender from '@deepseek-ai/dsh-tool-episode-render'
 import * as ToolDramaAssets from '@deepseek-ai/dsh-tool-drama-assets'
+import * as ToolCharacterReference from '@deepseek-ai/dsh-tool-character-reference'
 import McpResources from '@deepseek-ai/dsh-mcp-resources'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import { registerListSubagentModels } from '../packages/subagent/tool-subagent/src/list-models.ts'
@@ -851,7 +852,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolDramaAssets)
     },
     note:
-      'Four methods: `reconcile` reads the remote project\u2019s asset and material lists and the manifest and writes the evidence the host\u2019s '
+      '`shared_usage_preview` reads complete current shared-project asset, material, episode and package inventories, counts distinct bound packages and reports same-period voice candidates without granting deletion. `usage_preview` reads exact local compiled references and voice gaps without network or writes. `reconcile` reads the remote project\u2019s asset and material lists and the manifest and writes the evidence the host\u2019s '
       + 'reconcile gate reads, and `dispose` records one disposition in it without any remote read. '
       + '`match_preview` reads source-backed requirements, the project bible, formal assets and recognized voice references, '
       + 'returning `reuse_ready`, `needs_review`, `missing` or `blocked`. `reuse_preview` groups those recommendations across shots '
@@ -860,6 +861,26 @@ const TOOL_PACKAGES: ToolPackage[] = [
       + '`apply_allowed=false` means the preview grants no write permission. After user authorization, the model uses the existing '
       + '`jubian_storyboard.select_assets` tool; voices remain on `audio_preview` / `audio_apply`. '
       + 'The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate\u2019s inputs.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-character-reference',
+    dir: 'tool-character-reference',
+    source: 'packages/drama/tool-character-reference/src/index.ts',
+    requires: ['ctx.tools', 'an absolute deployment-configured local character reference draft index path'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // Schema harvest only: apply validates that the configured path is absolute,
+      // while the tool reads it only when executed. Point at this real package
+      // directory so catalog generation needs no production path, temporary
+      // directory, or fabricated character-reference asset.
+      await ctx.plugin(ToolCharacterReference, {
+        referenceIndexPath: resolve(root, 'packages/drama/tool-character-reference'),
+      })
+    },
+    note:
+      '`drama_character_references` is an opt-in isolated-QA lookup over a deployment-configured local draft index. '
+      + 'It returns at most one evidence-backed reference with reasons and uncertainty, and reports explicit zero local writes, remote writes, and paid requests. '
+      + 'It does not upload, import, bind, approve, generate, or publish assets and is not registered in the production profile.',
   },
 ]
 

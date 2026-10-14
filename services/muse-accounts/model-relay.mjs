@@ -9,6 +9,7 @@ import {dirname} from 'node:path';
 import {pipeline} from 'node:stream/promises';
 import {Readable} from 'node:stream';
 import {readModelFailure,modelFailure} from './model-errors.mjs';
+import {createModelKeyPool,resolveModelKeyPoolPolicy,ModelKeyPoolError} from './model-key-pool.mjs';
 
 export function publicIPv4(address){
  if(isIP(address)!==4)return false;
@@ -106,12 +107,18 @@ export function resolveModelReasoning(config,body){
  if(body.reasoning_effort===undefined&&body.thinking?.type!=='disabled'&&config.defaultReasoningEffort!==undefined)body.reasoning_effort=config.reasoningEfforts[config.defaultReasoningEffort];
  if(glm&&body.reasoning_effort!==undefined)body.thinking={type:'enabled',clear_thinking:false};
 }
-export function createModelRelay({config,globalModels,secret,accounts,forward=forwardModel}){
+/** Create the cloud-workspace relay with cancellable supplier-key reservations.
+ * @param {object} options Account authentication, private models, forwarding and an optional shared key pool.
+ * @returns {http.Server} HTTP relay; closing it releases only an internally created pool.
+ */
+export function createModelRelay({config,globalModels,secret,accounts,forward=forwardModel,keyPoolPolicy=resolveModelKeyPoolPolicy(),keyPool}){
  const active=new Map();
+ const poolKeys=()=>globalModels?.credentialPool?.('zhipu-official')??[];
+ const pool=keyPool??createModelKeyPool({keys:poolKeys,...keyPoolPolicy});
  const changed=id=>{for(const controller of active.get(id)||[])controller.abort();};accounts.on('change',changed);
  const server=http.createServer(async(req,res)=>{
-  const fail=(status,message)=>{if(res.headersSent){res.destroy();return;}res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify({error:{message}}));};
-  let controllers,controller,abort,id;
+  const fail=(status,message,headers={})=>{if(res.headersSent){res.destroy();return;}res.writeHead(status,{'content-type':'application/json','cache-control':'no-store',...headers});res.end(JSON.stringify({error:{message}}));};
+  let controllers,controller,abort,id,lease;
   try{
    const token=req.headers.authorization?.replace(/^Bearer /,'');id=token?.split('.')[0];
    if(!/^[a-f0-9]{16}\.[a-f0-9]{64}$/.test(token||'')||!timingSafeEqual(Buffer.from(token),Buffer.from(accountToken(secret,id)))||!accounts.get(id)||accounts.get(id).disabled){fail(401,'工作间认证失效');return;}
@@ -132,13 +139,23 @@ export function createModelRelay({config,globalModels,secret,accounts,forward=fo
    }
    if(!current.apiKey){fail(503,'管理员尚未配置模型凭据');return;}
    if(!accounts.get(id)||accounts.get(id).disabled){fail(401,'账户不可用');return;}
+   for(const key of ['max_tokens','max_completion_tokens'])if(body[key]!==undefined&&(!Number.isSafeInteger(body[key])||body[key]<1)){fail(400,'输出上限无效');return;}
+   try{resolveModelReasoning(current,{...body});}catch(error){fail(400,error.message);return;}
+   if(route==='zhipu-official'&&poolKeys().length){
+    lease=await pool.acquire(controller.signal);controller.signal.throwIfAborted();
+    const latest=globalModels.resolve(route,body.model);
+    if(!latest?.apiKey||!poolKeys().includes(lease.key)){fail(503,'模型配置已变化，请刷新模型列表');return;}
+    current={...latest,apiKey:lease.key};
+   }
+   controller.signal.throwIfAborted();
    body.model=current.model;
    try{resolveModelReasoning(current,body);}catch(error){fail(400,error.message);return;}
-   for(const key of ['max_tokens','max_completion_tokens'])if(body[key]!==undefined)body[key]=Math.min(Number(body[key])||current.maxTokens,current.maxTokens);
+   for(const key of ['max_tokens','max_completion_tokens'])if(body[key]!==undefined)body[key]=Math.min(body[key],current.maxTokens);
    if(body.max_tokens===undefined&&body.max_completion_tokens===undefined)body.max_tokens=current.maxTokens;
    await forward({config:current,body,res,signal:controller.signal});
   }catch(error){if(controller?.signal.aborted)fail(401,'账户失效或请求已取消');
+   else if(error instanceof ModelKeyPoolError)fail(503,'模型请求正在排队，请稍后重试',{'retry-after':'1'});
    else{console.error('[muse-model-relay] 连接失败');fail(502,'模型服务连接失败，请联系管理员检查配置。');}}
-  finally{if(abort){req.off('aborted',abort);res.off('close',abort);}if(controller)controllers?.delete(controller);if(controllers?.size===0)active.delete(id);}
- });server.on('close',()=>{accounts.off('change',changed);for(const controllers of active.values())for(const controller of controllers)controller.abort();});return server;
+  finally{lease?.release();if(abort){req.off('aborted',abort);res.off('close',abort);}if(controller)controllers?.delete(controller);if(controllers?.size===0)active.delete(id);}
+ });server.on('close',()=>{accounts.off('change',changed);for(const controllers of active.values())for(const controller of controllers)controller.abort();if(!keyPool)pool.close();});return server;
 }

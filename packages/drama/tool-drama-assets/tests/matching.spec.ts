@@ -166,6 +166,83 @@ it('blocks changes to the original voice source', async () => {
   const root = await project([voice]); await writeFile(join(root, 'voice-source.txt'), 'changed source')
   expect((await preview(root)).result.matches[0]?.reason_codes).toContain('VOICE_SOURCE_CHANGED')
 })
+it('matches a configured voice period without falling back to another period or the legacy voice', async () => {
+  const root = await project([{ ...voice, voice_period_id: 'adult' }])
+  await edit(root, 'project_config.json', (doc) => {
+    const row = fixtureRow(doc.project_bible.characters)
+    row.voice_profiles = [{ voice_period_id: 'child', label: '童年', description: '童声' },
+      { ...row.voice_profile, voice_period_id: 'adult', label: '成年' }]
+  })
+  await edit(root, 'audio/voice-references/manifest.json', (doc) => { fixtureRow(doc.samples).voice_period_id = 'adult' })
+  const result = (await preview(root)).result
+  expect(result.matches[0]).toMatchObject({ status: 'reuse_ready', voice_period_id: 'adult', selected_asset_id: 13 })
+  expect(result.matches[0]?.evidence).toContain('voice_period_id=adult')
+  await edit(root, 'requirements.json', (doc) => {
+    doc.requirements = [{ ...voice, voice_period_id: 'child' }]
+  })
+  expect((await preview(root)).result.matches[0]?.status).toBe('needs_review')
+  await edit(root, 'requirements.json', (doc) => { doc.requirements = [{ ...voice, voice_period_id: 'elder' }] })
+  expect((await preview(root)).result.matches[0]?.reason_codes).toEqual(['VOICE_PERIOD_NOT_CONFIGURED'])
+})
+it.each([1, 2])('requires an explicit requested period when %s periods are configured', async (count) => {
+  const root = await project([voice])
+  await edit(root, 'project_config.json', (doc) => {
+    const row = fixtureRow(doc.project_bible.characters)
+    row.voice_profiles = Array.from({ length: count }, (_, index) => ({ ...row.voice_profile, voice_period_id: `period-${index}` }))
+  })
+  expect((await preview(root)).result.matches[0]?.reason_codes).toEqual(['VOICE_PERIOD_REQUIRED'])
+})
+it('does not reuse an untagged or archived approved sample for an explicit voice period', async () => {
+  const root = await project([{ ...voice, voice_period_id: 'adult' }])
+  await edit(root, 'project_config.json', (doc) => {
+    const row = fixtureRow(doc.project_bible.characters)
+    row.voice_profiles = [{ ...row.voice_profile, voice_period_id: 'adult' }]
+  })
+  expect((await preview(root)).result.matches[0]?.reason_codes).toEqual(['VOICE_APPROVAL_OR_SOURCE_UNVERIFIED'])
+  for (const status of ['archived', 'archived_duplicate']) {
+    await edit(root, 'audio/voice-references/manifest.json', (doc) => {
+      fixtureRow(doc.samples).voice_period_id = 'adult'; fixtureRow(doc.samples).status = status
+    })
+    expect((await preview(root)).result.matches[0]?.reason_codes).toEqual(['VOICE_APPROVAL_OR_SOURCE_UNVERIFIED'])
+  }
+})
+it('refuses an explicit period on a legacy voice and preserves legacy output with an empty period list', async () => {
+  const root = await project([{ ...voice, voice_period_id: 'adult' }])
+  expect((await preview(root)).result.matches[0]?.reason_codes).toEqual(['VOICE_PERIOD_NOT_CONFIGURED'])
+  await edit(root, 'requirements.json', (doc) => { doc.requirements = [voice] })
+  const prior = (await preview(root)).result
+  await edit(root, 'project_config.json', (doc) => { fixtureRow(doc.project_bible.characters).voice_profiles = [] })
+  expect((await preview(root)).result).toEqual(prior)
+  expect(prior.matches[0]).not.toHaveProperty('voice_period_id')
+})
+it.each([
+  'not-an-array', [null], [{ voice_period_id: 42 }], [{ voice_period_id: '' }], [{ voice_period_id: 'adult', label: '' }],
+  [{ voice_period_id: 'adult' }, { voice_period_id: 'adult' }],
+])('blocks unreadable or ambiguous configured periods %#', async (profiles) => {
+  const root = await project([{ ...voice, voice_period_id: 'adult' }])
+  await edit(root, 'project_config.json', (doc) => { fixtureRow(doc.project_bible.characters).voice_profiles = profiles })
+  expect((await preview(root)).result.matches[0]?.status).toBe('blocked')
+})
+it.each([42, '', ' '])('refuses an unreadable requested voice period %j before provider reads', async (period) => {
+  const root = await project([voice])
+  await edit(root, 'requirements.json', (doc) => { doc.requirements = [{ ...voice, voice_period_id: period }] })
+  const { result, calls } = await preview(root)
+  expect(result.issues[0]?.code).toBe('INVALID_REQUIREMENTS')
+  expect(calls).toEqual([])
+})
+it('preserves exact voice-period IDs and does not merge surrounding whitespace into another period', async () => {
+  const root = await project([{ ...voice, voice_period_id: 'adult' }])
+  await edit(root, 'project_config.json', (doc) => {
+    const row = fixtureRow(doc.project_bible.characters)
+    row.voice_profiles = [{ ...row.voice_profile, voice_period_id: ' adult ' }]
+  })
+  await edit(root, 'audio/voice-references/manifest.json', (doc) => { fixtureRow(doc.samples).voice_period_id = ' adult ' })
+  expect((await preview(root)).result.matches[0]?.reason_codes).toEqual(['VOICE_PERIOD_NOT_CONFIGURED'])
+  await edit(root, 'requirements.json', (doc) => { doc.requirements = [{ ...voice, voice_period_id: ' adult ' }] })
+  const result = (await preview(root)).result
+  expect(result.matches[0]).toMatchObject({ status: 'reuse_ready', voice_period_id: ' adult ', selected_asset_id: 13 })
+  expect(result.matches[0]?.evidence).toContain('voice_period_id= adult ')
+})
 it('keeps a conflicting requested voice description for human review', async () => {
   const root = await project([{ ...voice, conditions: ['高亢'] }])
   expect((await preview(root)).result.matches[0]?.reason_codes).toContain('VOICE_DESCRIPTION_CONFLICT')

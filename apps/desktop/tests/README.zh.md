@@ -2,6 +2,12 @@
 
 [English](README.md) | 中文
 
+Muse 打包流程还会用独立测试应用检验正式 Windows NSIS 页面，覆盖安装器的两种语言。原生 UI 检查包含自动更新的可见进度、成功前不得显示 100%、自动重新打开应用，并兼容旧更新器传入的静默参数。需要重启时会拒绝手动与自动启动；自动重新打开后的故障注入检验自有进程和安装目录清理。截图和结果保留在安装器 UI 产物中；该检查不会覆盖用户的 Muse 应用。
+
+按钮和复选框等待按原生按钮类型及本地化文案精确匹配，也能查询禁用的启动复选框。对话框消息和状态标签独立识别；一个标题包含另一个标题不代表按钮已经就绪。
+
+私有测试进程从启动到清理持续保留由 Process 自身拥有的句柄。完成阶段在报告失败前，将十秒等待结果、托管退出状态和属性读取错误，以及不阻塞的原生退出观察写入 `finish-exit.jsonl`。验收要求等待成功、两种观察均报告退出码零；原生结果不能替代缺失或失败的托管观察。
+
 ## 概述
 
 本地下载和强更弹窗证据与生产后端联调、视觉验收、已安装应用升级分开记录。运行 [Desktop README](../README.zh.md) 中的命令可生成新的隔离报告。
@@ -10,7 +16,7 @@
 
 macOS 手动更新验收使用真实 Electron HTTPS 下载和 Apple 只读 DMG 检查，不修改已安装的应用。编译 Desktop Host 源码并准备目标 Electron 运行时后，在仓库根运行 `node apps/desktop/scripts/test-macos-manual-updater.mjs`；`DSH_DESKTOP_TEST_ELECTRON` 可选择其他已准备的 Electron 可执行文件。每次运行使用独立 profile、缓存、证书和随机回环端口，只信任本次夹具的证书，Electron 退出后清理临时数据。六个场景覆盖下载、稍后安装、明确批准打开、打开失败、缓存变化拒绝及重新下载，以及错误 hash、资源签名或架构元数据。保留的 `result.json` 记录原生 Squirrel 调用为零。安装包打开和应用退出被拦截，Host 任务检查为模拟；这不验证拖动替换安装、生产更新源或重新构建的 Muse 安装包。无需密钥的 `macos-update-package.e2e.ts` 另用真实 codesign、lipo 和 hdiutil，拒绝签名有效但实际可执行文件架构错误的应用，以及变化的身份、版本、资源和文件字节。[Desktop README](../README.zh.md#unsigned-installers)定义生产安装流程。
 
-已安装应用验收可显式启用 `DSH_DESKTOP_UPDATE_JOURNAL_DIR`，使用安装目录树之外、两个版本共同保留的绝对路径。每个主进程将已安装版本、状态转换和人工操作标记刷新到单独的 JSONL 文件。原始诊断和请求数据被排除；存储错误会向上传播。[日志决策](../../../.agents/notes/implemented/testing/2026-09-14-desktop-installed-update-journal.zh.md)定义证据的局限。单元与主入口测试覆盖该日志；签名安装版升级仍未验证。
+已安装应用验收可显式启用 `DSH_DESKTOP_UPDATE_JOURNAL_DIR`，使用安装目录树之外、两个版本共同保留的绝对路径。每个主进程将固定的更新、profile、Hongguo、Host、窗口、客户端插件和可交互里程碑，以及进程累计耗时和阶段耗时刷新到单独的 JSONL 文件。在 Windows 上，继承该显式开关的安装器还会单独记录等待旧进程、解压和安装步骤完成时间。`main-window-shown`、`workspace-ready` 与 `ui-interactive` 被刻意区分。`ui-interactive` 表示客户端插件挂载已完成，且渲染器又完成了两个动画帧；它是比窗口可见更强的就绪代理，不代表已经执行模拟或人工输入。记录只包含版本、时间戳、固定分类、架构和进程标识，不包含原始诊断、请求数据、凭据或路径。主进程中的存储错误会向上传播，安装器诊断写入失败不会改变安装行为。[日志决策](../../../.agents/notes/implemented/testing/2026-09-14-desktop-installed-update-journal.zh.md)定义证据的局限。单元与主入口测试覆盖该日志；安装器源码回归检查目录寄存器、显式启用条件和寄存器恢复。签名安装版升级仍未验证。
 
 ## 目录
 

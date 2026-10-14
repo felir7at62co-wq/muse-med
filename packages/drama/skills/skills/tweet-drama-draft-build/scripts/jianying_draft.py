@@ -4,10 +4,14 @@ import json
 import logging
 import shutil
 import sys
+import subprocess
+import hashlib
+import math
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tweet-drama-core' / 'scripts'))
 from video_bans import check_videos, find_project
+from draft_timing import ENDING_DURATION_US
 
 _VENDOR_DIR = Path(__file__).resolve().parent / "vendor"
 if _VENDOR_DIR.is_dir() and str(_VENDOR_DIR) not in sys.path:
@@ -26,6 +30,7 @@ if _FFPROBE_EXE.is_file():
 import pyJianYingDraft as draft
 
 logger = logging.getLogger(__name__)
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 class DraftInputError(ValueError):
@@ -52,7 +57,7 @@ SUBTITLE_TRANSFORM_Y = -0.465625
 # 字段名不一致（例如上游写 shots + start/end）不是"缺时间线"，必须报错而不是退回默认时长。
 TIMELINE_CLIP_FIELDS = ("shot", "start_us", "duration_us")
 DEFAULT_SHOT_DURATION_US = 5_000_000
-"""没有时间线时每段视频的时长；这类草稿会被交付校验拒绝，只是让预览还能生成。"""
+"""旧版每段默认时长；正式生成要求实际时间线，不使用该值替代镜头时长。"""
 TIMELINE_TOLERANCE_US = 200_000
 """时间线、实测音频与容器自报时长之间的容差（微秒）：容器比时间线多报几帧是正常的。"""
 
@@ -66,6 +71,148 @@ SUBTITLE_PUNCTUATION = "，。！？；：、,.!?;:\"'“”‘’（）()《》
 # 放大必然削波。BGM 轨保持 pyJianYingDraft 的 1.0，与主音频同时单位增益。
 VOICE_VOLUME = 1.0
 BGM_VOLUME = 1.0
+WATERMARK_TEXT = "内容由AI生成"
+WATERMARK_TRACK = "AI内容标识"
+WATERMARK_FONT_SIZE = 6.0
+
+
+def watermark_position(width: int, height: int) -> tuple[float, float]:
+    """Place the text center inside the lower-right safe area on either canvas orientation."""
+    text_width = len(WATERMARK_TEXT) * 44 * height / 1920
+    return max(0.0, 0.90 - text_width / width), -0.8625
+
+
+def draft_ending_plan(timeline_path, clips: dict) -> dict:
+    """Resolve the body clock, optional canvas, and an already included two-second ending."""
+    payload = json.loads(Path(timeline_path).read_text(encoding="utf-8")) if clips else {}
+    end = max((clip["start_us"] + clip["duration_us"] for clip in clips.values()), default=0)
+    declared = payload.get("body_end", end / 1e6)
+    if (isinstance(declared, bool) or not isinstance(declared, (int, float))
+            or not math.isfinite(declared) or declared <= 0):
+        raise DraftInputError("时间线 body_end 必须是实际正文结束的正数秒数。")
+    body_end = round(declared * 1e6)
+    included = end - body_end == ENDING_DURATION_US
+    if body_end != end and not included:
+        raise DraftInputError("时间线 body_end 与镜头末尾不符；只有已包含的 2 秒定格可位于正文之后。")
+    body_clips = {shot: dict(clip) for shot, clip in clips.items()}
+    last_shot = max(clips, key=lambda shot: clips[shot]["start_us"] + clips[shot]["duration_us"]) if clips else None
+    if included:
+        if body_clips[last_shot]["duration_us"] <= ENDING_DURATION_US:
+            raise DraftInputError("已包含的定格必须位于最后一个正文视频末尾，不能替代整段正文镜头。")
+        body_clips[last_shot]["duration_us"] -= ENDING_DURATION_US
+    cursor = 0
+    for clip in sorted(body_clips.values(), key=lambda clip: clip["start_us"]):
+        if clip["start_us"] != cursor:
+            raise DraftInputError("正文时间线必须连续，不能有重叠或空隙。")
+        cursor += clip["duration_us"]
+    canvas = payload.get("canvas", {"width": 1440, "height": 2560})
+    if not isinstance(canvas, dict) or any(isinstance(canvas.get(key), bool)
+            or not isinstance(canvas.get(key), int) or canvas[key] <= 0 for key in ("width", "height")):
+        raise DraftInputError("时间线 canvas 必须包含正整数 width 和 height。")
+    return {"body_clips": body_clips, "body_end_us": body_end, "included": included,
+            "duration_us": body_end + ENDING_DURATION_US, "last_shot": last_shot, "canvas": canvas}
+
+
+def draft_decode_timeout_seconds() -> float:
+    """Read the per-process decode deadline; invalid deployment settings fail before draft creation."""
+    setting = os.environ.get("MUSE_DRAFT_DECODE_TIMEOUT_SECONDS", "120")
+    try:
+        seconds = float(setting)
+    except ValueError as error:
+        raise DraftInputError("MUSE_DRAFT_DECODE_TIMEOUT_SECONDS 必须是正数秒数。") from error
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise DraftInputError("MUSE_DRAFT_DECODE_TIMEOUT_SECONDS 必须是有限的正数秒数。")
+    return seconds
+
+
+def _ffmpeg_output(arguments: list[str]) -> str:
+    executable = (os.environ.get("DSH_FFMPEG_PATH") or os.environ.get("FFMPEG_PATH")
+                  or os.environ.get("FFMPEG_BINARY") or shutil.which("ffmpeg") or "ffmpeg")
+    timeout = draft_decode_timeout_seconds()
+    try:
+        result = subprocess.run([executable, "-v", "error", *arguments], capture_output=True,
+                                text=True, encoding="utf-8", errors="replace", timeout=timeout,
+                                creationflags=NO_WINDOW)
+    except subprocess.TimeoutExpired as error:
+        raise DraftInputError(f"定格解码超过 {timeout:g} 秒，已终止进程；请检查视频，"
+                              "或调整 MUSE_DRAFT_DECODE_TIMEOUT_SECONDS 后重试。") from error
+    if result.returncode:
+        raise DraftInputError(f"定格提取失败：{result.stderr[-2000:]}")
+    return result.stdout
+
+
+def decoded_frame_hashes(source: Path, duration_us: int | None = None) -> list[str]:
+    """Hash only decoded RGB video frames, optionally limited to the selected source interval."""
+    limit = ["-t", f"{duration_us / 1e6:.6f}"] if duration_us is not None else []
+    output = _ffmpeg_output(["-i", str(source), *limit, "-map", "0:v:0", "-pix_fmt", "rgb24",
+                             "-f", "framemd5", "-"])
+    return [line.split(",")[-1].strip() for line in output.splitlines()
+            if line and not line.startswith("#")]
+
+
+def extract_draft_tail(source: Path, duration_us: int, target: Path) -> str:
+    """Extract and verify the last decoded frame of the source interval used in the draft."""
+    expected = decoded_frame_hashes(source, duration_us)
+    if not expected:
+        raise DraftInputError(f"{source} 没有可解码画面，不能制作末帧定格。")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _ffmpeg_output(["-y", "-i", str(source), "-map", "0:v:0", "-vf",
+                    f"select=eq(n\\,{len(expected) - 1})", "-frames:v", "1", str(target)])
+    if not target.is_file() or target.stat().st_size == 0 or decoded_frame_hashes(target) != expected[-1:]:
+        raise DraftInputError(f"{source} 的定格图与实际末帧不一致，拒绝交付。")
+    return expected[-1]
+
+
+def append_draft_ending(script, video_track, source: Path, selected_duration_us: int,
+                        draft_path: Path, plan: dict, materials_root: Path) -> None:
+    """Add a separately editable freeze and any explicitly supplied ending sound/effect."""
+    from pyJianYingDraft.track import TrackSpec
+    from pyJianYingDraft.time_util import Timerange
+    image = draft_path / "Resources" / "last_video_tail_frame.png"
+    frame_md5 = extract_draft_tail(source, selected_duration_us, image)
+    segment = draft.VideoSegment(draft.VideoMaterial(str(image)),
+                                 Timerange(plan["body_end_us"], ENDING_DURATION_US))
+    script.add_segment(segment, video_track)
+    ending_assets = materials_root / "06_ending"
+    for filename, kind, track_name in (("ending_audio.mp3", "audio", "片尾音"),
+                                      ("ending_effect.mp4", "video", "片尾特效")):
+        path = ending_assets / filename
+        if kind == "audio" and plan["included"]:
+            continue
+        if not path.is_file():
+            continue
+        local = draft_path / "Resources" / filename
+        shutil.copy2(path, local)
+        track = script.append_track(TrackSpec(getattr(draft.TrackType, kind), track_name))
+        material = draft.AudioMaterial(str(local)) if kind == "audio" else draft.VideoMaterial(str(local))
+        timerange = Timerange(plan["body_end_us"], min(ENDING_DURATION_US, material.duration))
+        ending = draft.AudioSegment(material, timerange) if kind == "audio" else draft.VideoSegment(material, timerange)
+        if kind == "video":
+            ending.set_mix_mode(draft.MixModeType.滤色)
+        script.add_segment(ending, track)
+    with source.open("rb") as stream:
+        source_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
+    evidence = {"source": str(source), "source_sha256": source_sha256,
+                "source_duration_us": selected_duration_us, "frame_rgb_md5": frame_md5,
+                "image": str(image), "image_sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+                "body_end_us": plan["body_end_us"], "duration_us": plan["duration_us"],
+                "already_included": plan["included"]}
+    (draft_path / "ending-evidence.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
+                                                     encoding="utf-8")
+
+
+def append_draft_watermark(script, duration_us: int, canvas: dict) -> None:
+    """Add one editable white AI notice spanning the body and ending, independently of subtitles."""
+    from pyJianYingDraft.track import TrackSpec
+    from pyJianYingDraft.time_util import Timerange
+    from pyJianYingDraft.text_segment import TextSegment, TextStyle
+    from pyJianYingDraft.segment import ClipSettings
+    x, y = watermark_position(canvas["width"], canvas["height"])
+    track = script.append_track(TrackSpec(draft.TrackType.text, WATERMARK_TRACK))
+    segment = TextSegment(WATERMARK_TEXT, Timerange(0, duration_us),
+                          style=TextStyle(size=WATERMARK_FONT_SIZE, color=(1.0, 1.0, 1.0), align=2),
+                          clip_settings=ClipSettings(transform_x=x, transform_y=y))
+    script.add_segment(segment, track)
 
 # 音频文件分析相关导入
 try:
@@ -158,7 +305,8 @@ def find_all_folders_by_type(root_path, material_type):
     if not config:
         return []
 
-    subdirs = [p for p in root_path.iterdir() if p.is_dir() and p.name.lower() != "silence"]
+    subdirs = [p for p in root_path.iterdir() if p.is_dir() and p.name.lower() != "silence"
+               and not (material_type == "bgm" and p.name == "06_ending")]
     matches = []
 
     for subdir in subdirs:
@@ -300,7 +448,8 @@ def find_material_folder_smart(root: Path, material_type: str, exclude_folders: 
         return None
 
     # 排除指定的文件夹
-    subdirs = [p for p in root.iterdir() if p.is_dir() and p not in exclude_folders]
+    subdirs = [p for p in root.iterdir() if p.is_dir() and p not in exclude_folders
+               and not (material_type == "bgm" and p.name == "06_ending")]
     if not subdirs:
         return None
 
@@ -563,7 +712,7 @@ def replace_material(script, old_name, new_material, material_type):
 def load_edit_timeline(timeline_path) -> dict:
     """读取一集的时间线：{"clips": [{"shot": 1, "start_us": 0, "duration_us": 10080000}]}。
 
-    文件不存在表示这一集显式没有时间线，返回空字典（调用方按默认时长预览并 warn）。
+    文件不存在时返回空字典；正式生成会报告缺少时间线，不创建可交付草稿。
     文件存在但不是这个形状时抛 DraftInputError 并指出缺什么，绝不退回默认时长。
 
     Args:
@@ -768,61 +917,100 @@ def _duration_us(segment: dict) -> int:
     return int((segment.get("target_timerange") or {}).get("duration", 0))
 
 
-def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normalized_cues) -> None:
+def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normalized_cues, ending=None) -> None:
     """交付前校验一份草稿：对不上就拒绝交付并列出全部失败项。
 
-    校验的是将要写出的 draft_content.json：视频总时长 == 音频时长、视频段数 == 镜头数、
-    没有任何段使用默认时长、字幕条数 == 规范化后的字幕行数、字幕样式字段是草稿契约的值，
-    字幕文本已按共用文本规则规范化。
+    正文镜头和主音频保持原时间线，主轨另含恰好 2 秒的可编辑真实末帧定格。
+    AI 标识独立覆盖正文与片尾，字幕轨仍只计实际发声字幕。
 
     Args:
         content: 即将写出的草稿内容（json.loads(script.dumps())）。
         clips: 本集时间线的镜头表，空字典表示这一集没有时间线。
         audio_duration_us: 实测主音频时长（微秒），None 表示音频没能加入。
         normalized_cues: normalize_srt 返回的规范化字幕 cue 列表，None 表示没有导入字幕。
+        ending: draft_ending_plan 的结果；省略时正文来自 clips，自动追加 2 秒。
 
     Raises:
         DraftInputError: 有任何一项不成立，报文逐条列出失败项与实测值。
     """
     failures = []
-    video_segments = _segments_of(content, "video")
-    audio_segments = _segments_of(content, "audio")
+    video_segments = [segment for track in content.get("tracks", [])
+                      if track.get("type") == "video" and track.get("name") == "视频轨道"
+                      for segment in track.get("segments", [])]
+    audio_segments = [segment for track in content.get("tracks", [])
+                      if track.get("type") == "audio" and track.get("name") == "主音频轨道"
+                      for segment in track.get("segments", [])]
     video_total = sum(_duration_us(segment) for segment in video_segments)
     audio_total = sum(_duration_us(segment) for segment in audio_segments)
-
+    body_end = max((clip["start_us"] + clip["duration_us"] for clip in clips.values()), default=0)
+    total_duration = body_end + ENDING_DURATION_US
+    expected_audio = audio_duration_us
+    if ending is not None:
+        total_duration = ending["duration_us"]
     if not audio_segments:
         failures.append("主音频轨没有任何片段：音频没能加入草稿。")
-    elif audio_duration_us is not None and abs(audio_total - audio_duration_us) > TIMELINE_TOLERANCE_US:
-        failures.append(f"音频轨总时长 {audio_total / 1e6:.3f} 秒与实测音频 "
-                        f"{audio_duration_us / 1e6:.3f} 秒不一致。")
+    elif expected_audio is not None and abs(audio_total - expected_audio) > TIMELINE_TOLERANCE_US:
+        failures.append(f"主音频轨总时长 {audio_total / 1e6:.3f} 秒与实测音频 "
+                        f"{expected_audio / 1e6:.3f} 秒不一致。")
     if not video_segments:
         failures.append("视频轨没有任何片段。")
-    elif abs(video_total - audio_total) > TIMELINE_TOLERANCE_US:
-        failures.append(f"视频总时长 {video_total / 1e6:.3f} 秒 != 音频时长 {audio_total / 1e6:.3f} 秒"
-                        f"（容差 {TIMELINE_TOLERANCE_US / 1e6:.1f} 秒）。")
+    elif abs(video_total - total_duration) > TIMELINE_TOLERANCE_US:
+        failures.append(f"视频总时长 {video_total / 1e6:.3f} 秒 != 正文加 2 秒定格 "
+                        f"{total_duration / 1e6:.3f} 秒。")
     if clips:
-        if len(video_segments) != len(clips):
-            failures.append(f"视频段数 {len(video_segments)} != 镜头数 {len(clips)}。")
+        if len(video_segments) != len(clips) + 1:
+            failures.append(f"视频段数 {len(video_segments)} != 镜头数 {len(clips)} + 1 个定格。")
     else:
-        failures.append("这一集没有时间线（05_timeline/<集>.timeline.json）：无法证明每段时长来自镜头，"
-                        "按每段 5 秒铺的草稿不能交付。")
+        failures.append("这一集没有时间线（05_timeline/<集>.timeline.json）：无法核对正文镜头时长。")
 
     video_paths = {material.get("id"): material.get("path")
                    for material in content.get("materials", {}).get("videos", [])}
+    freeze_segments = []
     for segment in video_segments:
-        shot = _media_shot_number(Path(video_paths.get(segment.get("material_id")) or ""))
-        clip = clips.get(shot)
+        path = Path(video_paths.get(segment.get("material_id")) or "")
         duration = _duration_us(segment)
+        start = int((segment.get("target_timerange") or {}).get("start", 0))
+        if path.name == "last_video_tail_frame.png":
+            freeze_segments.append(segment)
+            if duration != ENDING_DURATION_US or start != body_end:
+                failures.append("末帧定格必须恰好 2 秒并从正文结束开始。")
+            continue
+        shot = _media_shot_number(path)
+        clip = clips.get(shot)
         if clip is None:
             failures.append(f"镜头 {shot} 用的是默认时长 {duration / 1e6:.3f} 秒，时间线里没有这个镜头。")
-        elif duration == DEFAULT_SHOT_DURATION_US and clip["duration_us"] != DEFAULT_SHOT_DURATION_US:
-            failures.append(f"镜头 {shot} 的时长是默认的 {DEFAULT_SHOT_DURATION_US / 1e6:.1f} 秒，"
-                            f"时间线要求 {clip['duration_us'] / 1e6:.3f} 秒。")
-        elif abs(duration - clip["duration_us"]) > TIMELINE_TOLERANCE_US:
-            failures.append(f"镜头 {shot} 的时长 {duration / 1e6:.3f} 秒与时间线的 "
-                            f"{clip['duration_us'] / 1e6:.3f} 秒不一致。")
+        elif abs(duration - clip["duration_us"]) > TIMELINE_TOLERANCE_US or start != clip["start_us"]:
+            failures.append(f"镜头 {shot} 的时间范围与正文时间线不一致。")
+    if len(freeze_segments) != 1:
+        failures.append("主轨必须包含恰好一个可编辑末帧定格图片片段。")
 
-    text_segments = _segments_of(content, "text")
+    watermark_segments = [segment for track in content.get("tracks", [])
+                          if track.get("type") == "text" and track.get("name") == WATERMARK_TRACK
+                          for segment in track.get("segments", [])]
+    texts = {material.get("id"): material for material in content.get("materials", {}).get("texts", [])}
+    if len(watermark_segments) != 1:
+        failures.append("草稿必须包含一个独立可编辑的 AI 内容标识。")
+    else:
+        watermark = watermark_segments[0]
+        material = texts.get(watermark.get("material_id"), {})
+        data = json.loads(material.get("content") or "{}")
+        styles = data.get("styles") or [{}]
+        style = styles[0]
+        expected_x, expected_y = watermark_position(content["canvas_config"]["width"],
+                                                     content["canvas_config"]["height"])
+        if (data.get("text") != WATERMARK_TEXT or _duration_us(watermark) != total_duration
+                or watermark.get("target_timerange", {}).get("start") != 0):
+            failures.append("AI 内容标识必须为“内容由AI生成”并覆盖正文和 2 秒片尾。")
+        if (style.get("size") != WATERMARK_FONT_SIZE or style.get("strokes")
+                or style.get("fill", {}).get("content", {}).get("solid", {}).get("color") != [1.0, 1.0, 1.0]):
+            failures.append("AI 内容标识必须使用白色、无描边的小字。")
+        transform = (watermark.get("clip") or {}).get("transform", {})
+        if transform.get("x") != expected_x or transform.get("y") != expected_y:
+            failures.append("AI 内容标识必须位于画布右下安全区。")
+
+    text_segments = [segment for track in content.get("tracks", [])
+                     if track.get("type") == "text" and track.get("name") != WATERMARK_TRACK
+                     for segment in track.get("segments", [])]
     if normalized_cues is None:
         failures.append("草稿里没有字幕轨；交付草稿必须带规范化字幕。")
     elif len(text_segments) != len(normalized_cues):
@@ -870,6 +1058,7 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
 def main_with_args(args):
     if not isinstance(args.name_prefix, str) or re.search(r'[<>:"/\\|?*\x00-\x1f]', args.name_prefix):
         raise DraftInputError('name_prefix 只能包含合法的草稿名称字符，不能包含路径或 Windows 保留字符。')
+    draft_decode_timeout_seconds()
     drafts_dir = Path(args.drafts)
     if not drafts_dir.is_absolute() or not drafts_dir.is_dir():
         raise DraftInputError('drafts_dir must be the existing absolute editor root returned by drama_draft_dir')
@@ -909,7 +1098,7 @@ def main_with_args(args):
         logger.info(f"  [bgm] 未找到明确的BGM文件夹，尝试查找其他音频文件夹...")
         all_audio_folders = []
         for subdir in root.iterdir():
-            if subdir.is_dir() and subdir != audio_dir:
+            if subdir.is_dir() and subdir != audio_dir and subdir.name != "06_ending":
                 try:
                     has_audio = any(f.is_file() and f.name.lower().endswith(('.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'))
                                    for f in subdir.iterdir())
@@ -1008,7 +1197,10 @@ def main_with_args(args):
 
         videos = [path for path in media_files if path.suffix.lower() in video_extensions]
         if videos:
-            check_videos(find_project(root, getattr(args, 'project', None)), videos)
+            source_hashes = check_videos(find_project(root, getattr(args, 'project', None)), videos)
+        ending_effect = root / "06_ending" / "ending_effect.mp4"
+        if ending_effect.is_file():
+            check_videos(find_project(root, getattr(args, 'project', None)), [ending_effect])
 
         # 使用简单的名称格式，只包含前缀和序列编号
         draft_name = f"{args.name_prefix}{seq}"
@@ -1016,6 +1208,24 @@ def main_with_args(args):
         draft_path = drafts_dir / draft_name
         if draft_path.exists():
             raise DraftInputError(f"{draft_path} 已存在，拒绝覆盖；请为新候选指定唯一 name_prefix。")
+
+        if not timeline_clips:
+            raise DraftInputError(f"这一集没有时间线 {timeline_path}，不能交付草稿。")
+        ending_plan = draft_ending_plan(timeline_path, timeline_clips)
+        body_clips = ending_plan["body_clips"]
+        canvas = ending_plan["canvas"]
+
+        # 同编号视频优先，参考图片不重复成为正文镜头。
+        selected_media = {}
+        for path in media_files:
+            shot = _media_shot_number(path)
+            prior = selected_media.get(shot)
+            if prior is not None and prior.suffix.lower() in video_extensions:
+                if path.suffix.lower() in video_extensions:
+                    raise DraftInputError(f"镜头 {shot} 有多个视频版本，请只保留本次选定版本。")
+                continue
+            selected_media[shot] = path
+        media_files = sorted(selected_media.values(), key=_media_shot_number)
 
         if srt_path and srt_path.exists():
             normalize_srt(srt_path)
@@ -1032,8 +1242,9 @@ def main_with_args(args):
             try:
                 logger.info(f"[{draft_name}] Attempt {attempt}: Trying to create draft...")
                 # 首先尝试创建新草稿
-                script = output_folder.create_draft(draft_name, width=1440, height=2560, fps=60)
-                logger.info(f"[{draft_name}] Successfully created new draft: {draft_name} with 1440x2560 at 60fps")
+                script = output_folder.create_draft(draft_name, width=canvas["width"], height=canvas["height"], fps=60)
+                logger.info(f"[{draft_name}] Successfully created new draft: {draft_name} "
+                            f"with {canvas['width']}x{canvas['height']} at 60fps")
                 break
             except Exception as ex:
                 logger.info(f"[{draft_name}] Failed to create draft: {ex}")
@@ -1081,41 +1292,8 @@ def main_with_args(args):
             # 1) 添加主音频轨道和音频
             logger.info(f"[{draft_name}] Adding main audio...")
             try:
-                # 分析音频文件是否有静音间隙
-                logger.info(f"[{draft_name}] Analyzing audio file for gaps...")
-                # The corrected subtitle timeline is the single source of truth.
-                # Never remove pauses from the master audio in a formal draft.
-                gaps = []
+                # 保留主音频的停顿和字幕时钟，不做去静音处理。
                 processed_audio_path = str(a)
-                audio_duration_probe_ms = None
-                try:
-                    if PYDUB_AVAILABLE:
-                        audio_duration_probe_ms = len(AudioSegment.from_file(str(a)))
-                except Exception:
-                    audio_duration_probe_ms = None
-                entire_audio_is_silence = (
-                    audio_duration_probe_ms is not None
-                    and len(gaps) == 1
-                    and gaps[0][0] <= 10
-                    and gaps[0][1] >= audio_duration_probe_ms - 10
-                )
-                if gaps and not entire_audio_is_silence:
-                    logger.info(f"[{draft_name}] 警告: 音频文件包含 {len(gaps)} 个静音间隙")
-                    total_gap_time = sum(gap[2] for gap in gaps)
-                    logger.info(f"[{draft_name}] 总静音时长: {total_gap_time}ms")
-
-                    # 消除音频内部的静音
-                    processed_audio_path = remove_audio_gaps(str(a), keep_silence=130)
-                    if processed_audio_path != str(a):
-                        logger.info(f"[{draft_name}] 已成功消除音频内部静音")
-                    else:
-                        logger.info(f"[{draft_name}] 音频静音消除失败，将使用原始音频")
-                elif entire_audio_is_silence:
-                    logger.info(f"[{draft_name}] 音频是整段静音测试音频，跳过去静音处理")
-                else:
-                    logger.info(f"[{draft_name}] 音频文件分析完成，未发现明显的静音间隙")
-
-                # 使用处理后的音频
                 voice_new = draft.AudioMaterial(processed_audio_path)
 
                 # 添加音频轨道
@@ -1168,49 +1346,16 @@ def main_with_args(args):
                 from pyJianYingDraft.track import TrackSpec
                 video_track = script.append_track(TrackSpec(draft.TrackType.video, "视频轨道"))
 
-                # 获取媒体文件列表 - 检测当前序列文件夹中的媒体类型，支持图片+视频混合
-                image_extensions = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif']
-                video_extensions = ['.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.webm', '.m4v']
-
-                # 搜索当前序列文件夹中的所有媒体文件（图片和视频）
-                media_files = []
-                for p in img_pack.iterdir():
-                    if p.is_file():
-                        if any(p.name.lower().endswith(ext) for ext in image_extensions + video_extensions):
-                            media_files.append(p)
-
-                if not media_files:
-                    logger.info(f"[{draft_name}] 序列 {seq} 的媒体文件夹为空")
-                    continue
-
-                # 对媒体文件进行排序
-                def sort_media_files(files):
-                    def get_file_number(file):
-                        match = re.search(r'(\d+)', file.name)
-                        if match:
-                            return int(match.group(1))
-                        return 0
-
-                    return sorted(files, key=get_file_number)
-
-                media_files = sort_media_files(media_files)
-                logger.info(f"[{draft_name}] Sorted media files: {[f.name for f in media_files]}")
-
-                # 有时间线时按时间线铺镜头；没有时间线时按默认时长预览，但那种草稿不通过交付校验
+                # 正文时间线与实测主音频共用同一时钟。
                 from pyJianYingDraft.time_util import Timerange, tim
 
-                if timeline_clips and audio_duration is not None:
+                if audio_duration is not None:
                     try:
                         assert_timeline_matches_audio(timeline_clips, audio_duration, timeline_path)
                     except DraftInputError as error:
                         refuse(str(error))
-                elif not timeline_clips:
-                    logger.warning(
-                        f"[{draft_name}] 这一集没有时间线 {timeline_path}，按每段 "
-                        f"{DEFAULT_SHOT_DURATION_US / 1e6:.0f} 秒铺；这样的草稿会在交付前校验被拒绝，"
-                        "要交付先补 05_timeline/<集>.timeline.json。")
-
-                current_time = 0
+                last_source = None
+                last_duration = None
 
                 for idx, media_file in enumerate(media_files, start=1):
                     try:
@@ -1219,14 +1364,10 @@ def main_with_args(args):
                         media_material = draft.VideoMaterial(str(media_file))
 
                         shot = _media_shot_number(media_file)
-                        clip = timeline_clips.get(shot)
+                        clip = body_clips.get(shot)
                         if clip is None:
-                            if timeline_clips:
-                                refuse(f"时间线 {timeline_path} 里没有镜头 {shot}"
-                                       f"（{media_file.name}）；媒体素材与时间线不是同一集，"
-                                       "修好时间线再重跑，不要按默认 5 秒铺。")
-                            start_time = current_time
-                            duration = DEFAULT_SHOT_DURATION_US
+                            refuse(f"时间线 {timeline_path} 里没有镜头 {shot}（{media_file.name}）；"
+                                   "请重新整理这一集的选定媒体和时间线。")
                         else:
                             start_time = int(clip["start_us"])
                             duration = int(clip["duration_us"])
@@ -1241,7 +1382,8 @@ def main_with_args(args):
                         logger.info(f"[{draft_name}] Successfully added media {idx} to timeline")
                         media_added_count += 1
 
-                        current_time = max(current_time + DEFAULT_SHOT_DURATION_US, start_time + duration)
+                        if shot == ending_plan["last_shot"]:
+                            last_source, last_duration = media_file, duration
 
                     except DraftInputError:
                         raise
@@ -1253,6 +1395,14 @@ def main_with_args(args):
                 logger.info(f"[{draft_name}] Failed to add media: {e}")
 
             logger.info(f"[{draft_name}] Added {media_added_count} out of {len(media_files)} media files to timeline")
+            try:
+                if last_source is None or last_duration is None:
+                    raise DraftInputError("最后一个正文镜头未成功加入，不能生成定格。")
+                append_draft_ending(script, video_track, last_source, last_duration, draft_path,
+                                    ending_plan, root)
+                append_draft_watermark(script, ending_plan["duration_us"], canvas)
+            except Exception as error:
+                refuse(f"定格或AI标识创建失败：{error}")
 
             # 4) 导入字幕：先按共用文本规则规范化，再导入规范化后的那份
             if srt_path and srt_path.exists():
@@ -1449,8 +1599,10 @@ def main_with_args(args):
 
         # 交付前校验：校验的是马上要写出的那份内容，失败就不写、并清掉这次新建的草稿目录
         try:
-            verify_draft_delivery(json.loads(script.dumps()), timeline_clips, audio_duration,
-                                  normalized_cues)
+            if videos and check_videos(find_project(root, getattr(args, 'project', None)), videos) != source_hashes:
+                raise DraftInputError("正文视频在草稿生成期间变化，请重新读取当前版本。")
+            verify_draft_delivery(json.loads(script.dumps()), body_clips, audio_duration,
+                                  normalized_cues, ending_plan)
         except DraftInputError as error:
             refuse(str(error))
 

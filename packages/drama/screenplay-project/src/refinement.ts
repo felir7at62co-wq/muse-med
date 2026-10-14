@@ -124,8 +124,8 @@ function preserveSourceExpressions(project: ProjectFile, baseline: Candidate, ca
     throw Error('refinement_source_order: 原来源事实须保持唯一首次出现顺序，不得移除事件或提前揭示；重复表达可合并。')
   }
   for (const [id, signatures] of before.signatures) {
-    const actual = after.signatures.get(id)
-    if (actual === undefined || signatures.size !== actual.size || [...signatures].some(value => !actual.has(value))) {
+    const actual = after.signatures.get(id) as Set<string>
+    if (signatures.size !== actual.size || [...signatures].some(value => !actual.has(value))) {
       throw Error('refinement_source_channel: 原来源表达须保留对白、OS/VO、动作、人物、实际听者及知情条件。')
     }
   }
@@ -134,9 +134,7 @@ function factsFor(project: ProjectFile, candidate: Candidate): Fact[] {
   const ids = new Set(candidate.scenes.flatMap(scene => scene.beats.flatMap(beat => [...beat.fact_ids, ...beat.requires_knowledge])))
   return project.facts.filter(fact => ids.has(fact.id))
 }
-function derivedNotes(project: ProjectFile, candidate: Candidate, input: Notes): NonNullable<Candidate['refinement']>['notes'] {
-  const policy = project.refinement
-  if (policy === undefined) throw Error('refinement_policy_required: 精修说明缺少项目策略。')
+function derivedNotes(project: ProjectFile, policy: Policy, candidate: Candidate, input: Notes): NonNullable<Candidate['refinement']>['notes'] {
   const baseline = baselineFor(project, candidate)
   const facts = factsFor(project, candidate)
   return { ...input,
@@ -164,7 +162,7 @@ export function buildRefinement(project: ProjectFile, candidate: Candidate, inpu
   const baseline = baselineFor(project, candidate)
   const refinement = { policy_sha256: project.refinement.sha256, baseline_candidate_id: baseline.id,
     baseline_sha256: baseline.sha256, output_content_sha256: refinementContentDigest(candidate),
-    notes: derivedNotes(project, candidate, MODIFICATION_NOTES.parse(input)) }
+    notes: derivedNotes(project, project.refinement, candidate, MODIFICATION_NOTES.parse(input)) }
   const bound = { ...candidate, refinement }
   bound.sha256 = candidateDigest(bound)
   validateRefinement(project, bound)
@@ -211,7 +209,7 @@ export function validateRefinement(project: ProjectFile, candidate: Candidate): 
   const notes = refinement.notes
   const metadata = (scene: Candidate['scenes'][number]) => { const { beats: _beats, ...content } = scene; return content }
   if (candidate.scenes.length !== baseline.scenes.length || candidate.scenes.some((scene, index) =>
-    baseline.scenes[index] === undefined || JSON.stringify(metadata(scene)) !== JSON.stringify(metadata(baseline.scenes[index])))) {
+    JSON.stringify(metadata(scene)) !== JSON.stringify(metadata(baseline.scenes[index] as Candidate['scenes'][number])))) {
     throw Error('refinement_scene_metadata: 此保源版本仅精修节拍表达；场次时间、地点、人物及叙述结构变更需要单独授权流程。')
   }
   for (const change of notes.changes) {
@@ -230,10 +228,6 @@ export function validateRefinement(project: ProjectFile, candidate: Candidate): 
     for (const id of beat.fact_ids) {
       const fact = project.facts.find(fact => fact.id === id)
       if (fact?.supplemental === undefined) continue
-      validateSupplement(project, fact)
-      if (fact.anchors.some(anchor => !baselineSourceUnits(project, baseline).has(anchor.unit_id))) {
-        throw Error('refinement_context_scope: 本集补充只能依据本集实际基线与知情前提，不能借未来集来源提前揭示。')
-      }
       const expected = { performance_detail: 'action', minimal_os: 'os', supporting_dialogue: 'dialogue' }[fact.supplemental.category]
       if (beat.kind !== expected || beat.actor !== fact.actor || scene.layer !== fact.layer) {
         throw Error('refinement_category: 补充表达渠道、人物及叙述层须与获准类别一致。')
@@ -267,7 +261,7 @@ export function validateRefinement(project: ProjectFile, candidate: Candidate): 
     || (visual.status === 'not_run') !== (visual.source_units.length === 0)) {
     throw Error('refinement_validation_range: 语义及视觉声明须列实际有限范围，未检查必须留空。')
   }
-  if (JSON.stringify(notes) !== JSON.stringify(derivedNotes(project, candidate, MODIFICATION_NOTES.strip().parse(notes)))) {
+  if (JSON.stringify(notes) !== JSON.stringify(derivedNotes(project, policy, candidate, MODIFICATION_NOTES.strip().parse(notes)))) {
     throw Error('refinement_report_digest: 修改说明的输入、输出、补充或机器检查引用已过期。')
   }
 }
@@ -296,8 +290,7 @@ export function renderModificationNotes(project: ProjectFile, candidate: Candida
   if (candidate.refinement === undefined) return ''
   validateRefinement(project, candidate)
   const notes = candidate.refinement.notes
-  const policy = project.refinement
-  if (policy === undefined) throw Error('refinement_policy_required: 修改说明缺少项目授权。')
+  const policy = project.refinement as Policy
   const location = (value: Notes['changes'][number]['before']) => value === undefined ? '无（新增或删除）' : `场${value.scene}/节拍${value.beat}：${value.text}`
   const label = (change: Notes['changes'][number]) => {
     const beat = change.after === undefined ? undefined : candidate.scenes[change.after.scene - 1]?.beats[change.after.beat - 1]

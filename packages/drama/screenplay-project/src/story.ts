@@ -117,9 +117,9 @@ export function validateInventory(project: ProjectFile, inventory: StoryInventor
       .some(value => value.dimension === dimension))) {
     throw Error('story_dimensions_required: 五维故事项须完整列出，确实不适用须明确理由，不可用单一非关键项替代复原清单。')
   }
-  const itemIds = new Set(inventory.items.map(item => item.id))
+  const itemsById = new Map(inventory.items.map(item => [item.id, item]))
   for (const item of inventory.items) {
-    if (item.source_units.some(id => !units.has(id)) || item.depends_on.some(id => !itemIds.has(id) || id === item.id)) {
+    if (item.source_units.some(id => !units.has(id)) || item.depends_on.some(id => !itemsById.has(id) || id === item.id)) {
       throw Error('story_item_scope: 故事项来源或因果依赖须在当前集清单中。')
     }
     for (const id of [...item.fact_ids, ...item.knowledge.map(value => value.fact_id)]) {
@@ -136,14 +136,15 @@ export function validateInventory(project: ProjectFile, inventory: StoryInventor
     }
   }
   const visiting = new Set<string>(), visited = new Set<string>()
-  const visit = (id: string): void => {
+  const visit = (item: StoryInventory['items'][number]): void => {
+    const id = item.id
     if (visiting.has(id)) throw Error('story_causal_cycle: 同一事件链的因果依赖不能成环。')
     if (visited.has(id)) return
     visiting.add(id)
-    for (const dependency of inventory.items.find(item => item.id === id)?.depends_on ?? []) visit(dependency)
+    for (const id of item.depends_on) visit(itemsById.get(id) as StoryInventory['items'][number])
     visiting.delete(id); visited.add(id)
   }
-  for (const id of itemIds) visit(id)
+  for (const item of inventory.items) visit(item)
 }
 /**
  * Describe remaining sampled-window evidence without claiming continuous visual coverage.
@@ -368,7 +369,7 @@ export function validateStoryCandidate(project: ProjectFile, candidate: Candidat
     positions.set(item.id, Math.min(...mapping.outputs.map(output => output.scene * 1_000_000 + output.beat)))
   }
   for (const item of inventory.items) for (const dependency of item.depends_on) {
-    if ((positions.get(dependency) ?? Infinity) > (positions.get(item.id) ?? -Infinity)) throw Error('story_causal_order: 因果及揭晓依赖不能提前于其前提。')
+    if ((positions.get(dependency) as number) > (positions.get(item.id) as number)) throw Error('story_causal_order: 因果及揭晓依赖不能提前于其前提。')
   }
   const unitIds = new Set(inventoryReads(project, inventory).filter(read => read.kind === 'source').map(read => read.id))
   const scopedFacts = project.facts.filter(fact => fact.origin === 'source' && fact.created_at <= inventory.created_at && fact.withdrawal === undefined
@@ -379,9 +380,7 @@ export function validateStoryCandidate(project: ProjectFile, candidate: Candidat
     throw Error('story_source_disposition: 本集每个已批准来源事实须说明保留、合并或非故事性省略。')
   }
   for (const disposition of notes.dispositions) {
-    const fact = scopedFacts.find(value => value.id === disposition.fact_id)
-    if (fact === undefined) throw Error('story_source_disposition: 处置引用超出实际本集来源。')
-    if (disposition.disposition === 'omitted_non_story' && inventory.items.some(item => item.critical && item.fact_ids.includes(fact.id))) {
+    if (disposition.disposition === 'omitted_non_story' && inventory.items.some(item => item.critical && item.fact_ids.includes(disposition.fact_id))) {
       throw Error('story_key_omitted: 关键事件、动作、关系和因果不能声明为非故事性省略。')
     }
   }
@@ -435,9 +434,9 @@ export function validateStoryCandidate(project: ProjectFile, candidate: Candidat
       for (const id of [...beat.fact_ids, ...beat.requires_knowledge]) {
         const fact = project.facts.find(fact => fact.id === id)
         const priorKnowledge = !beat.fact_ids.includes(id) && priorFacts.has(id)
-        if (!priorKnowledge && (fact === undefined || !fact.anchors.some(anchor => unitIds.has(anchor.unit_id)))) throw Error('story_fact_scope: 正文事实须属于本集真实范围；知情前提只能引用本集或已验收前情，不能借未来来源。')
         if (priorKnowledge) continue
-        if (fact?.origin === 'source' && beat.fact_ids.includes(id)) {
+        if (fact === undefined || !fact.anchors.some(anchor => unitIds.has(anchor.unit_id))) throw Error('story_fact_scope: 正文事实须属于本集真实范围；知情前提只能引用本集或已验收前情，不能借未来来源。')
+        if (fact.origin === 'source' && beat.fact_ids.includes(id)) {
           if (beat.kind === 'action' && (fact.actor !== beat.actor || !fact.anchors.some(anchor => unitIds.has(anchor.unit_id)
             && project.sources.some(source => source.units.some(unit => unit.id === anchor.unit_id && unit.image !== undefined))))) {
             throw Error('story_visual_fact_evidence: 来源动作须保留实际行动者和本集已观察画面证据，不能由ASR猜动作。')
@@ -447,7 +446,7 @@ export function validateStoryCandidate(project: ProjectFile, candidate: Candidat
             throw Error('story_voice_source_evidence: 来源发声/心理须有实际文本依据，不由图片冒称原声。')
           }
         }
-        if (fact?.origin === 'adaptation') {
+        if (fact.origin === 'adaptation') {
           validateStorySupplement(project, fact)
           if (fact.story_supplement === undefined || fact.anchors.some(anchor => !unitIds.has(anchor.unit_id))) {
             throw Error('story_supplement_scope: 新增演绎不能由mode/reason自开或引用未来集。')
@@ -472,7 +471,7 @@ export function validateStoryCandidate(project: ProjectFile, candidate: Candidat
 export function buildSemanticReport(project: ProjectFile, candidate: Candidate, input: z.input<typeof SEMANTIC_INPUT>): NonNullable<NonNullable<Candidate['review']>['semantic_report']> {
   const inventory = inventoryFor(project, candidate)
   const report = { ...SEMANTIC_INPUT.parse(input), protocol: 'story-faithful-semantic-v2' as const, sha256: '',
-    policy_sha256: project.story_policy?.sha256 ?? '', inventory_sha256: inventory.sha256, scope_sha256: inventory.scope_sha256,
+    policy_sha256: inventory.policy_sha256, inventory_sha256: inventory.sha256, scope_sha256: inventory.scope_sha256,
     candidate_id: candidate.id, candidate_sha256: candidate.sha256 }
   const { sha256: _hash, ...content } = report
   report.sha256 = sha256(JSON.stringify(content))
@@ -558,7 +557,7 @@ export function renderStoryNotes(project: ProjectFile, candidate: Candidate): st
 export function buildStoryAcceptance(project: ProjectFile, candidate: Candidate): NonNullable<NonNullable<Candidate['review']>['story_acceptance']> {
   const review = candidate.review, report = review?.semantic_report, evidence = review?.evidence
   if (review === undefined || report === undefined || evidence === undefined) throw Error('story_acceptance_evidence: 最终绑定需要实际C报告与真实分轮证据。')
-  const sources = [...new Set(candidate.coverage?.windows.map(window => window.source_id) ?? [])].flatMap((id) => {
+  const sources = [...new Set(inventoryFor(project, candidate).coverage.windows.map(window => window.source_id))].flatMap((id) => {
     const source = project.sources.find(value => value.id === id)
     return source?.video === undefined ? [] : [{ source_id: id, manifest_sha256: source.trusted_video_receipt?.manifest_sha256 ?? '', receipt_sha256: sha256(JSON.stringify(source.trusted_video_receipt)) }]
   })
@@ -607,7 +606,10 @@ export function storyReviewResultReceipt(value: unknown): z.infer<typeof REVIEW_
 function loggedCandidate(content: readonly { type: string; text?: string }[], candidate: Candidate): boolean {
   for (const block of content) if (block.type === 'text' && block.text !== undefined) {
     let parsed: unknown
-    try { parsed = JSON.parse(block.text) } catch (error) { if (!(error instanceof SyntaxError)) throw error; continue }
+    try { parsed = JSON.parse(block.text) } catch (_error) {
+      // Unstructured text blocks cannot provide a logged review receipt.
+      continue
+    }
     const receipt = REVIEW_RECEIPT.safeParse(parsed)
     if (receipt.success) {
       const review = candidate.review, evidence = review?.evidence, acceptance = review?.story_acceptance
@@ -686,8 +688,11 @@ approvalVerifier?: (candidate: Candidate) => Promise<void>): Promise<void> {
   const candidates = project.candidates.filter(candidate => project.accepted.includes(candidate.id)
     && candidate.story_adaptation !== undefined)
   for (const candidate of candidates) { validateStoryCandidate(project, candidate, true); await approvalVerifier(candidate) }
-  const sources = new Set(candidates.flatMap(candidate => candidate.coverage?.windows.map(window => window.source_id) ?? []))
-  for (const source of project.sources) if (sources.has(source.id) && source.video !== undefined) {
+  const sources = new Set(candidates.flatMap(candidate => inventoryFor(project, candidate).coverage.windows
+    .map(window => window.source_id)))
+  for (const source of project.sources) {
+    if (!sources.has(source.id)) continue
+    if (source.video === undefined) continue
     if (source.trusted_video_receipt === undefined || source.trusted_video_manifest === undefined) throw Error('story_video_evidence_pending: 本集缺少真实probe/sample日志证据，不能正式交付。')
     await verify(source.trusted_video_manifest, source.trusted_video_receipt)
   }

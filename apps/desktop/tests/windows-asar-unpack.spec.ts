@@ -206,6 +206,12 @@ it.each([true, false])('validates the real builder hook for unsigned=%s', async 
   }
 })
 
+it('keeps the Windows OCR bridge outside ASAR for direct PowerShell execution', async () => {
+  const input = await fixture(false)
+  const config = unsignedWindowsConfig('com.example.video-ocr', input.source)
+  expect(config.asarUnpack).toContain('**/@deepseek-ai/dsh-tool-video-inspect/scripts/**')
+})
+
 it.each([false, true])('unpacks platform ripgrep executables with external source=%s', async (external) => {
   const input = await fixture(external)
   // Windows rg.exe uses the general executable rule; macOS rg uses the platform-package rule.

@@ -29,6 +29,13 @@ it.each(Object.entries(lock.targets))('records every locked wheel distribution a
   expect(Object.fromEntries(distributions)).toEqual(Object.fromEntries(declared))
 })
 
+it('records the shared locked distributions in the current SDK authoring output', () => {
+  const projection = JSON.parse(readFileSync(new URL('../snapshots/python-sdk-single-exe/authoring/model-visible.json', import.meta.url), 'utf8')) as {
+    result: { pythonDistributions: Record<string, string> }
+  }
+  expect(projection.result.pythonDistributions).toEqual(lock.pythonPackages)
+})
+
 it('keeps a target payload identity independent of other target archives', () => {
   const changed = structuredClone(lock)
   changed.targets['win-x64'].wheels[0]!.sha256 = 'a'.repeat(64)
@@ -113,6 +120,19 @@ it('rejects library files requiring an unsupported installation scheme', async (
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+it('retains locked wheel manual pages without admitting arbitrary data installation paths', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-wheel-manual-'))
+  try {
+    const archive = join(root, 'manual.whl')
+    const path = 'sample-1.0.data/data/share/man/man1/sample.1'
+    await writeFile(archive, zipSync({ [path]: Buffer.from('manual page') }))
+    await unpackPrimaryRuntimeWheel(archive, root)
+    expect(await readFile(join(root, path), 'utf8')).toBe('manual page')
+    await writeFile(archive, zipSync({ 'sample-1.0.data/data/etc/sample': Buffer.from('outside data') }))
+    await expect(unpackPrimaryRuntimeWheel(archive, root)).rejects.toThrow('unsupported installation paths')
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
 
 it('copies complete Office resources outside the application archive and removes obsolete assets', async () => {

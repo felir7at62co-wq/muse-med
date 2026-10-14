@@ -1,4 +1,9 @@
 # Product defaults remain below user profile settings.
+# Shared drama settings must be declared before the user profile layer.
+- insert:
+    - id: drama-settings
+      name: '@deepseek-ai/dsh-drama-settings'
+
 - id: agent-preset-registry
   config:
     default: short-drama

@@ -2318,7 +2318,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-muse-account`
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel`
-- `source`: [`packages/host/muse-account/src/index.ts:34`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:37`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -2338,6 +2338,8 @@ export interface Config {
   }[]
   /** Exact provider IDs excluded from the account-supplied catalog; personal adapters are unaffected. */
   readonly excludedProviderIds: string[]
+  /** Exact account provider IDs retained for saved Sessions but hidden from new model selections. */
+  readonly hiddenProviderIds: string[]
   /** Product-private account directory; omission selects the active DSH home. */
   readonly accountHome?: string
   /** Timeout for account and knowledge-base gateway requests in milliseconds. */
@@ -3933,13 +3935,30 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-bgm-compose -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-character-reference -->
+<a id="deepseek-aidsh-tool-character-reference"></a>
+
+## `@deepseek-ai/dsh-tool-character-reference`
+
+- `inject`: `tools`
+- `source`: [`packages/drama/tool-character-reference/src/index.ts:12`](../packages/drama/tool-character-reference/src/index.ts)
+
+```ts config-catalog
+/** Deployment-owned location of the local QA reference draft. */
+export interface Config {
+  /** Absolute local path to the unpublished draft index; never an Agent argument or TOS URL. */
+  referenceIndexPath: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-character-reference -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-drama-assets -->
 <a id="deepseek-aidsh-tool-drama-assets"></a>
 
 ## `@deepseek-ai/dsh-tool-drama-assets`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/drama/tool-drama-assets/src/index.ts:48`](../packages/drama/tool-drama-assets/src/index.ts)
+- `source`: [`packages/drama/tool-drama-assets/src/index.ts:52`](../packages/drama/tool-drama-assets/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -3956,11 +3975,11 @@ export interface Config {
   timeoutMs?: number
   /** Whether the workspace's own pipeline secret file may stand in for a missing credential-store value; defaults to true. */
   workspaceSecrets?: boolean
-  /** Matching-only provider page size, 1–1000; defaults to 1000. */
+  /** Matching and shared-query provider page size, 1–1000; defaults to 1000. */
   matchPageSize?: number
-  /** Matching-only page limit per inventory; defaults to 100. */
+  /** Matching and shared-query page limit per inventory; defaults to 100. */
   matchPageLimit?: number
-  /** Matching-only requirement limit per call; defaults to 100. */
+  /** Matching requirements and query output-row limit per call; defaults to 100. */
   matchRequirementLimit?: number
 }
 ```
@@ -4122,7 +4141,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:56`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:57`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
@@ -4527,7 +4546,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-video-inspect`
 
 - `inject`: `tools` · `fs` · `subprocess` · `attachments` · `sandboxPolicy`
-- `source`: [`packages/perception/tool-video-inspect/src/index.ts:27`](../packages/perception/tool-video-inspect/src/index.ts)
+- `source`: [`packages/perception/tool-video-inspect/src/index.ts:28`](../packages/perception/tool-video-inspect/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-resolved media executables and inspection bounds. */
@@ -4538,6 +4557,8 @@ export interface Config {
   ffmpegPath: string
   /** Same-world FFprobe executable. */
   ffprobePath: string
+  /** Windows PowerShell executable used by the local OCR bridge. */
+  powershellPath: string
   /** Largest source file accepted, in bytes. */
   maxSourceBytes: number
   /** Largest encoded source image area accepted before decoding, in pixels. */
@@ -4586,6 +4607,48 @@ export interface Config {
   maxContactPixels: number
   /** Maximum complete overview-page bytes per call. */
   maxContactBytes: number
+  /** Local OCR engine; the RapidOCR deployment includes its Python runtime and pinned models. */
+  ocrEngine: 'windows-native' | 'rapidocr'
+  /** Same-world Python interpreter for the RapidOCR bridge. */
+  ocrPythonPath: string
+  /** CPU threads used by the RapidOCR engine. */
+  ocrCpuThreads: number
+  /** Default OCR recognition language. */
+  ocrLanguage: 'auto' | 'zh-Hans-CN' | 'zh-Hant-TW' | 'en-US'
+  /** Default seconds between OCR frame samples. */
+  ocrFrameIntervalSeconds: number
+  /** Smallest allowed OCR frame spacing. */
+  ocrMinFrameIntervalSeconds: number
+  /** Largest allowed OCR frame spacing. */
+  ocrMaxFrameIntervalSeconds: number
+  /** Largest source interval scanned by one OCR call. */
+  ocrMaxRangeSeconds: number
+  /** Largest planned frame count in one OCR call. */
+  ocrMaxFrames: number
+  /** Largest frame count sent to one persistent OCR bridge process. */
+  ocrBatchFrames: number
+  /** Largest decoded OCR frame dimension. */
+  ocrFrameMaxDimension: number
+  /** FFmpeg JPEG quantizer used for OCR input frames. */
+  ocrFrameJpegQuality: number
+  /** Largest complete MJPEG extraction batch. */
+  maxOcrBatchImageBytes: number
+  /** Largest JSON input sent to the OCR bridge. */
+  maxOcrBridgeInputBytes: number
+  /** Largest JSON output accepted from the OCR bridge. */
+  maxOcrOutputBytes: number
+  /** Largest diagnostic output retained from OCR subprocesses. */
+  maxOcrDiagnosticBytes: number
+  /** Deadline for one OCR extraction or bridge batch. */
+  ocrCommandTimeoutMs: number
+  /** Minimum identical observations before labelling visual text persistence. */
+  ocrPersistentTextMinFrames: number
+  /** Minimum seconds identical text must persist before labelling. */
+  ocrPersistentTextMinSeconds: number
+  /** Minimum spatial overlap for identical text evidence. */
+  ocrOverlayMinIou: number
+  /** Maximum merged segments returned inline; full evidence remains in files. */
+  ocrPreviewSegments: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-video-inspect -->

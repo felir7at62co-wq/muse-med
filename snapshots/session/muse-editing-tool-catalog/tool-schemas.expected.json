@@ -71,7 +71,7 @@
         "properties": {
           "method": {
             "type": "string",
-            "description": "start=提取音轨并提交；status=按原收据查询、补传确认未受理的音轨并发布结果，补传可能计费。限流按 retry_after_seconds 等待后用原收据恢复；日额度、登录或任务冲突先处理，不直接重投。",
+            "description": "start=提取音轨并提交；status=回读原收据，按服务端恢复指示查询或补传确认未受理的同 ID 音轨并发布结果，补传可能计费。inspect_receipt 停止反复轮询，保留收据核对；网络超时仍先回读原任务。限流按 retry_after_seconds 恢复；日额度、登录或冲突先处理，不直接重投。",
             "enum": [
               "start",
               "status"
@@ -99,7 +99,7 @@
           },
           "purpose": {
             "type": "string",
-            "description": "start 用途：字幕校时用 subtitles（默认，极速）；音视频转剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。",
+            "description": "start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。",
             "enum": [
               "subtitles",
               "screenplay"
@@ -2658,7 +2658,7 @@
     },
     {
       "name": "video_inspect",
-      "description": "Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. For dialogue and subtitles, discover audio_transcribe.",
+      "description": "Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. Use audio_transcribe for spoken dialogue and video_ocr for visible or burned-in text.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -2708,6 +2708,52 @@
           "manifest_path": {
             "type": "string",
             "description": "Optional new JSON output path inside the current workspace; default .muse/video-inspections/<unique-id>.json. An existing file is never replaced."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "video_ocr",
+      "description": "Recognize visible text from bounded, timestamped samples of a local video with the configured offline OCR engine. Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. A partial or failed scan is indeterminate, never proof that the video has no subtitles. Persistent text remains a content candidate; visual persistence does not identify watermarks or non-narrative text. This tool never invokes audio transcription.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Local video path in the current Session filesystem."
+          },
+          "start_seconds": {
+            "type": "number",
+            "description": "Inclusive source range start; default 0."
+          },
+          "end_seconds": {
+            "type": "number",
+            "description": "Exclusive source range end; default video end. One call scans at most 120s and 240 frames; continue from next_start_seconds."
+          },
+          "frame_interval_seconds": {
+            "type": "number",
+            "description": "OCR sample spacing; default 0.5s."
+          },
+          "language": {
+            "type": "string",
+            "description": "OCR language; default auto. Missing requested language returns an explicit failure and never falls back to ASR.",
+            "enum": [
+              "auto",
+              "zh-Hans-CN",
+              "zh-Hant-TW",
+              "en-US"
+            ]
+          },
+          "raw_json_path": {
+            "type": "string",
+            "description": "Optional new raw evidence JSON path inside the workspace. Existing files are never replaced."
+          },
+          "merged_text_path": {
+            "type": "string",
+            "description": "Optional new timestamped text path inside the workspace. Existing files are never replaced."
           }
         },
         "required": [

@@ -41,3 +41,5 @@ export { FAILED_STATUSES, NATIVE_MODEL_FIELDS, SUCCESS_STATUSES, buildNativeVide
   terminalOutcome, validateNativeVideoPreview, validatedVideoMaterials, wireText } from './native.ts'
 export type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeEpisodeScope, NativeOrderedAsset, NativePreviewInput,
   NativeVideoPreview, SeedanceVideoModel, SubjectIdentityItem } from './native.ts'
+export { encodeVoiceSlot, readVoiceSlot } from './voice-slot.ts'
+export type { VoiceSlotIdentity } from './voice-slot.ts'

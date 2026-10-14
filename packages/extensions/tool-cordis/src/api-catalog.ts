@@ -1614,6 +1614,55 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'museAccount',
+    summary: 'MUSE account Remote namespace.',
+    description: 'MUSE account Remote namespace. The Connection carrier authenticates every call.',
+    methods: [
+      {
+        signature: 'async requestVoiceSlot(request: MuseVoiceSlotRequest, jubianToken: string): Promise<unknown>',
+        description: 'Coordinate a voice registration through the current private Muse account. This Host-only method is deliberately absent from the renderer\'s Remote interface.',
+        parameters: [{ name: 'request', description: 'Exact original operation and project/person/life-period identifiers.' }, { name: 'jubianToken', description: 'Private provider token for project-access verification.' }],
+        returns: 'Wire response validated by the Jubian registration consumer.',
+      },
+      {
+        signature: '@Remote(\'feedback\') async feedback(request: MuseFeedbackRequest): Promise<MuseFeedbackReceipt>',
+        description: 'Submit one explicitly authored remark to the signed-in Muse account\'s inbox.',
+        parameters: [{ name: 'request', description: 'Target, category, note and optional related-excerpt choice.' }],
+        returns: 'A confirmed durable inbox receipt, without a cookie or transcript.',
+      },
+      {
+        signature: 'async submitAudio(file: string, id: string, sha256: string, language: \'zh\' | \'auto\', purpose?: MuseAsrPurpose, signal?: AbortSignal): Promise<MuseAsrJob>',
+        description: 'Submit audio through the current MUSE account; Host callers retain the job ID.',
+        parameters: [{ name: 'file', description: 'Local audio created from the authorized media.' }, { name: 'id', description: 'Persisted idempotency UUID.' }, { name: 'sha256', description: 'SHA-256 digest of the audio.' }, { name: 'language', description: 'Recognition language.' }, { name: 'purpose', description: 'Receipt-bound use; omit only for a legacy receipt without a purpose.' }, { name: 'signal', description: 'Cancellation of the local upload, without cancelling an accepted gateway task.' }],
+        returns: 'Account-scoped task status without session or provider credentials.',
+      },
+      {
+        signature: 'async audioStatus(id: string, signal?: AbortSignal): Promise<MuseAsrJob>',
+        description: 'Query a previously submitted transcription without making another paid submission.',
+        parameters: [{ name: 'id', description: 'Persisted idempotency UUID.' }, { name: 'signal', description: 'Cancellation of this status request.' }],
+        returns: 'Task state and timed segments when complete.',
+      },
+      {
+        signature: '@Remote(\'status\') async status(request: MuseAccountStatusRequest): Promise<MuseAccountStatus>',
+        description: 'Read the stored identity or confirm it with the gateway.',
+        parameters: [{ name: 'request', description: 'Whether to verify the cookie online.' }],
+        returns: 'A browser-safe status without a cookie.',
+      },
+      {
+        signature: '@Remote(\'login\') async login(request: MuseAccountLoginRequest): Promise<MuseAccountLoginResult>',
+        description: 'Sign in using UI-submitted credentials; registration requires an explicit choice.',
+        parameters: [{ name: 'request', description: 'Username, password and registration choice.' }],
+        returns: 'The confirmed account identity and actual outcome, without credentials; post-login refresh failures do not replace it.',
+      },
+      {
+        signature: '@Remote(\'logout\') async logout(): Promise<MuseAccountStatus>',
+        description: 'End and forget the current account session.',
+        parameters: [],
+        returns: 'Signed-out status after the gateway accepts the logout.',
+      },
+    ],
+  },
+  {
     key: 'museDesktopBridge',
     summary: 'Provider factory for an account-bound desktop, using the existing Host authority.',
     description: 'Provider factory for an account-bound desktop, using the existing Host authority.',
@@ -5841,7 +5890,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmProviderInfo',
-    declaration: 'export interface LlmProviderInfo {\n    id: string;\n    name: string;\n}',
+    declaration: 'export interface LlmProviderInfo {\n    id: string;\n    name: string;\n    selectable?: false;\n}',
   },
   {
     name: 'LlmReasoningEffortInfo',
@@ -6080,6 +6129,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ModTier = \'prepend\' | \'user\' | \'append\' | \'builtin\' | \'core\';',
   },
   {
+    name: 'MuseAccountLoginRequest',
+    declaration: 'export interface MuseAccountLoginRequest {\n    readonly username: string;\n    readonly password: string;\n    readonly registerIfMissing: boolean;\n}',
+  },
+  {
+    name: 'MuseAccountLoginResult',
+    declaration: 'export interface MuseAccountLoginResult {\n    readonly outcome: \'signed-in\' | \'registered\';\n    readonly status: Extract<MuseAccountStatus, {\n        readonly state: \'signed-in\';\n    }>;\n}',
+  },
+  {
+    name: 'MuseAccountStatus',
+    declaration: 'export type MuseAccountStatus = {\n    readonly state: \'signed-out\';\n} | {\n    readonly state: \'signed-in\';\n    readonly username: string;\n    readonly verified: boolean;\n    readonly environment?: string;\n    readonly workspaceLabel?: string;\n};',
+  },
+  {
+    name: 'MuseAccountStatusRequest',
+    declaration: 'export interface MuseAccountStatusRequest {\n    readonly verify?: boolean;\n}',
+  },
+  {
+    name: 'MuseAsrJob',
+    declaration: 'export type MuseAsrJob = MuseAsrMetadata & {\n    readonly id: string;\n    readonly status: \'preparing\' | \'processing\' | \'submitting\' | \'uncertain\' | \'complete\' | \'silent\' | \'failed\';\n    readonly purpose?: MuseAsrPurpose;\n    readonly retentionExpired?: boolean;\n    readonly segments?: readonly MuseAsrSegment[];\n};',
+  },
+  {
+    name: 'MuseAsrMetadata',
+    declaration: 'export interface MuseAsrMetadata {\n    readonly service_version?: \'flash\' | \'standard-v1\' | \'standard-v2\';\n    readonly queued?: boolean;\n    readonly error_code?: \'provider_rejected\' | \'provider_unavailable\' | \'storage_unavailable\';\n    readonly provider_diagnostic?: {\n        readonly reason?: \'timeout\' | \'transport\' | \'http\' | \'response\' | \'json\' | \'result\' | \'audio\';\n        readonly operation?: \'submit\' | \'query\' | \'flash\';\n        readonly http_status?: number;\n        readonly provider_code?: string;\n    };\n    readonly recovery?: {\n        readonly capability: \'query_original_task\' | \'no_query\' | \'none\';\n        readonly next_action: \'poll_original\' | \'wait\' | \'inspect_receipt\' | \'use_result\' | \'resume_upload\';\n        readonly automatic_resubmit: false;\n    };\n}',
+  },
+  {
+    name: 'MuseAsrPurpose',
+    declaration: 'export type MuseAsrPurpose = \'subtitles\' | \'screenplay\';',
+  },
+  {
+    name: 'MuseAsrSegment',
+    declaration: 'export interface MuseAsrSegment {\n    readonly start: number;\n    readonly end: number;\n    readonly text: string;\n    readonly speaker_id?: string;\n    readonly words?: readonly {\n        readonly start: number;\n        readonly end: number;\n        readonly text: string;\n    }[];\n}',
+  },
+  {
     name: 'MuseDesktopConnectionState',
     declaration: 'export type MuseDesktopConnectionState = \'connecting\' | \'online\' | \'offline\' | \'rejected\';',
   },
@@ -6094,6 +6175,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MuseDesktopTunnelOptions',
     declaration: 'export interface MuseDesktopTunnelOptions {\n    readonly serverUrl: string;\n    readonly headers: Readonly<Record<string, string>>;\n    readonly localPort: number;\n    readonly loopbackCookie: string;\n    readonly deviceId: MuseDesktopDeviceId;\n    readonly deviceName: string;\n    readonly platform: \'win32\' | \'darwin\' | \'linux\' | \'unknown\';\n    readonly chunkBytes: number;\n    readonly ackTimeoutMs: number;\n    readonly reconnectMaxIntervalMs: number;\n    readonly onState: (state: MuseDesktopConnectionState) => void;\n}',
+  },
+  {
+    name: 'MuseFeedbackId',
+    declaration: 'export type MuseFeedbackId = Branded<\'MuseFeedbackId\'>;',
+  },
+  {
+    name: 'MuseFeedbackReceipt',
+    declaration: 'export interface MuseFeedbackReceipt {\n    readonly id: MuseFeedbackId;\n    readonly revision: number;\n}',
+  },
+  {
+    name: 'MuseFeedbackRequest',
+    declaration: 'export interface MuseFeedbackRequest {\n    readonly sessionId: SessionId;\n    readonly target: {\n        readonly kind: \'session\';\n    } | {\n        readonly kind: \'message\';\n        readonly messageId: MessageId;\n        readonly rating: \'positive\' | \'negative\';\n    };\n    readonly category?: FeedbackCategory;\n    readonly text?: string;\n    readonly includeDiagnostics: boolean;\n}',
+  },
+  {
+    name: 'MuseVoiceLeaseId',
+    declaration: 'export type MuseVoiceLeaseId = Branded<\'MuseVoiceLeaseId\'>;',
+  },
+  {
+    name: 'MuseVoiceSlotRequest',
+    declaration: 'export interface MuseVoiceSlotRequest {\n    readonly action: \'acquire\' | \'start\' | \'complete\' | \'abandon\' | \'read\';\n    readonly script_id: number;\n    readonly character_id: string;\n    readonly voice_period_id: string;\n    readonly operation_key: string;\n    readonly lease_id?: MuseVoiceLeaseId;\n    readonly asset_id?: number;\n}',
   },
   {
     name: 'NativeFileApplication',

@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-video-novel-ocr-capability
+profile: headless
+composition: muse-video-novel-ocr-capability
+recording: authored
+header:
+  class: muse-video-novel-ocr-capability
+  pin: true
+workspace:
+  setup: muse-editing-skill
+writerOutput: true

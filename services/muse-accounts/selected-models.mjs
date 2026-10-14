@@ -50,6 +50,11 @@ export function selectedModelProviders(yunyingBaseURL){
 }
 
 const keyOK = value => typeof value==='string'&&value.length>0&&value.length<=4096&&!/[^\x21-\x7e]/.test(value);
+const zhipuKeys = value => {
+ const keys=Array.isArray(value)?value:[value];
+ if(!keys.length||keys.length>64||keys.some(key=>!keyOK(key)))return;
+ return [...new Set(keys)];
+};
 
 /** Prepare a private replacement directory while retaining unrelated stored credentials.
  * @param {object} current Valid version-two directory, unchanged by this operation.
@@ -66,14 +71,15 @@ export function prepareSelectedModels(current,{yunyingBaseURL,yunyingKey,deepsee
  const base=yunyingBaseURL??(endpoints.size===1?[...endpoints][0]:undefined);
  const cloudKey=yunyingKey??current.credentials.MUSE_YUNYING_API_KEY??(keys.size===1?[...keys][0]:undefined);
  const officialKey=deepseekKey??current.credentials.MUSE_DEEPSEEK_API_KEY??current.credentials.DEEPSEEK_API_KEY;
- const zhipuOfficialKey=zhipuKey??current.credentials.MUSE_ZHIPU_API_KEY;
+ const zhipuOfficialKeys=zhipuKeys(zhipuKey??current.credentials.MUSE_ZHIPU_API_KEY);
  if(!base)throw Error('Yunying API root is missing or ambiguous');
- if(!keyOK(cloudKey)||!keyOK(officialKey)||!keyOK(zhipuOfficialKey))throw Error('Selected model credentials are missing or invalid');
- if(zhipuOfficialKey===cloudKey)throw Error('Zhipu credential must be separate from Yunying');
+ if(!keyOK(cloudKey)||!keyOK(officialKey)||!zhipuOfficialKeys)throw Error('Selected model credentials are missing or invalid');
+ if(zhipuOfficialKeys.includes(cloudKey))throw Error('Zhipu credential must be separate from Yunying');
  if(current.revision===Number.MAX_SAFE_INTEGER||current.metadataRevision===Number.MAX_SAFE_INTEGER)throw Error('Model directory revision cannot be incremented');
  const next={...structuredClone(current),revision:current.revision+1,metadataRevision:current.metadataRevision+1,
   providers:selectedModelProviders(base),credentials:{...current.credentials,
-   MUSE_DEEPSEEK_API_KEY:officialKey,MUSE_YUNYING_API_KEY:cloudKey,MUSE_ZHIPU_API_KEY:zhipuOfficialKey}};
+   MUSE_DEEPSEEK_API_KEY:officialKey,MUSE_YUNYING_API_KEY:cloudKey,
+   MUSE_ZHIPU_API_KEY:zhipuOfficialKeys.length===1?zhipuOfficialKeys[0]:zhipuOfficialKeys}};
  validateGlobalModelDocument(next);
  return next;
 }

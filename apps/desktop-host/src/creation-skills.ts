@@ -9,6 +9,7 @@ export const inject = ['skills']
 
 /** Reviewed creative and Office skills, with no runtime/plugin-authoring skill discovery. */
 export const CREATION_SKILL_NAMES: readonly string[] = [
+  'anime-3d-assets',
   'audio-transcribe',
   'douyin-download',
   'jubian-asset-library',

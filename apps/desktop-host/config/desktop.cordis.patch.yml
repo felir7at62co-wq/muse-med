@@ -90,11 +90,6 @@
     - id: ui-directory-picker-native
       name: '@deepseek-ai/dsh-client-ui-directory-picker-native'
 
-    # One host settings namespace, shared by desktop sessions. The per-script
-    # budget defaults to ¥4000 and authorizes priced Jubian calls automatically.
-    - id: drama-settings
-      name: '@deepseek-ai/dsh-drama-settings'
-
     # Jubian also publishes Remote services consumed by Desktop Settings, so
     # it belongs on the Host rather than inside one agent preset.
     - id: tool-jubian
@@ -119,6 +114,7 @@
           - { providerId: yunying, modelId: gpt-6-astra }
           - { providerId: yunying, modelId: glm-5.3-flash }
         excludedProviderIds: ['aa']
+        hiddenProviderIds: ['yunying']
         requestTimeoutMs: 60000
         remoteAccess: true
 

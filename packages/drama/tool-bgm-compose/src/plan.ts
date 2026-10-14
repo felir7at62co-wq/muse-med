@@ -264,6 +264,36 @@ export function buildMixFilter(
   return filters.join(';')
 }
 
+/** A caller path and the absolute project-owned path it resolves to. */
+export interface ResolvedProjectPath {
+  /** Path supplied by the caller. */
+  readonly input: string
+  /** Absolute project root used for relative resolution. */
+  readonly project: string
+  /** Absolute normalized path. */
+  readonly resolved: string
+}
+
+/**
+ * Resolve a project-owned path without consulting the process working directory.
+ * @param project - Project root.
+ * @param candidate - Absolute or project-relative path.
+ * @param label - Model-facing subject used by a rejection.
+ * @returns The original input and its absolute project-owned path.
+ * @throws {Error} When the resolved path escapes the project.
+ */
+export function resolveProjectPath(project: string, candidate: string, label: string): ResolvedProjectPath {
+  const root = resolve(project)
+  const output = isAbsolute(candidate) ? resolve(candidate) : resolve(root, candidate)
+  const resolved = { input: candidate, project: root, resolved: output }
+  const relation = relative(root, output)
+  if (relation === '..' || relation.startsWith('..\\') || relation.startsWith('../') || isAbsolute(relation)) {
+    throw new Error(`${label}必须位于项目目录内：input="${candidate}"; project="${root}"; `
+      + `resolved="${output}"; reason=路径越出项目目录。`)
+  }
+  return resolved
+}
+
 /**
  * Resolve an output path while rejecting every path outside the project root.
  * @param project - Project root.
@@ -271,11 +301,5 @@ export function buildMixFilter(
  * @returns Absolute path inside the project.
  */
 export function resolveOutputPath(project: string, candidate: string): string {
-  const root = resolve(project)
-  const output = isAbsolute(candidate) ? resolve(candidate) : resolve(root, candidate)
-  const relation = relative(root, output)
-  if (relation === '..' || relation.startsWith('..\\') || relation.startsWith('../') || isAbsolute(relation)) {
-    throw new Error('BGM 输出必须位于项目目录内。')
-  }
-  return output
+  return resolveProjectPath(project, candidate, 'BGM 输出').resolved
 }

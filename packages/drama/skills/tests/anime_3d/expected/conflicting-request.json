@@ -1,0 +1,8 @@
+{
+  "generation_ready": false,
+  "visual_review": "not_performed",
+  "errors": [
+    "items[0]: request.prompt explicitly prohibits PBR materials",
+    "items[0]: request.prompt positively requests live-action photography"
+  ]
+}

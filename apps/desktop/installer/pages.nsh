@@ -155,7 +155,13 @@ Function InstallerCreate
     System::Call 'user32::MoveWindow(p $InstallerLaunch, i r0, i r1, i r2, i r3, i 1)'
     !insertmacro InstallerControlColors $InstallerLaunch
     ${NSD_OnNotify} $InstallerLaunch InstallerPaintCheckbox
+    IfRebootFlag installer_launch_requires_reboot
     ${NSD_Check} $InstallerLaunch
+    Goto installer_launch_configured
+installer_launch_requires_reboot:
+    ${NSD_Uncheck} $InstallerLaunch
+    EnableWindow $InstallerLaunch 0
+installer_launch_configured:
 
     ${NSD_CreateButton} 0 0 0 0 "$(INSTALLER_INSTALL)"
     Pop $InstallerButton
@@ -189,6 +195,9 @@ Function InstallerRender
     ${If} $InstallerPhase == "success"
         ${NSD_SetText} $InstallerButton "$(INSTALLER_FINISH)"
         ShowWindow $InstallerLaunch 5
+        IfRebootFlag 0 installer_render_done
+        ${NSD_SetText} $InstallerStatus "$(INSTALLER_REBOOT_REQUIRED)"
+        ShowWindow $InstallerStatus 5
     ${Else}
         ${NSD_SetText} $InstallerButton "$(INSTALLER_INSTALL)"
         ${If} $InstallerExpanded == 1
@@ -199,6 +208,7 @@ Function InstallerRender
             ShowWindow $InstallerChoose 5
         ${EndIf}
     ${EndIf}
+installer_render_done:
 FunctionEnd
 
 Function InstallerStart
@@ -220,28 +230,42 @@ Function InstallerFinishLeave
     ${NSD_GetState} $InstallerLaunch $0
     HideWindow
     ${If} $0 == ${BST_CHECKED}
-        StrCpy $0 ""
-        ${If} ${isUpdated}
-            StrCpy $0 "--updated"
-        ${EndIf}
-        ClearErrors
-        ${If} ${UAC_IsAdmin}
-            ; An explicitly elevated installer must still launch through the user's shell.
-            ${StdUtils.ExecShellAsUser} $1 "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "open" "$0"
-            ${If} $1 != "ok"
-            ${AndIf} $1 != "fallback"
-                SetErrors
-            ${EndIf}
-        ${Else}
-            ; Per-user installation can create the process without Explorer/shortcut dispatch.
-            Exec '"$INSTDIR\${APP_EXECUTABLE_FILENAME}" $0'
-        ${EndIf}
+        Call InstallerStartApplication
         ${If} ${Errors}
-            ShowWindow $HWNDPARENT 5
-            MessageBox MB_OK|MB_ICONEXCLAMATION "$(INSTALLER_LAUNCH_FAILED)"
             Abort
         ${EndIf}
     ${EndIf}
+FunctionEnd
+
+Function InstallerStartApplication
+    IfRebootFlag installer_start_requires_reboot
+    StrCpy $0 ""
+    ${If} ${isUpdated}
+        StrCpy $0 "--updated"
+    ${EndIf}
+    ClearErrors
+    ${If} ${UAC_IsAdmin}
+        ; An explicitly elevated installer must still launch through the user's shell.
+        ${StdUtils.ExecShellAsUser} $1 "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "open" "$0"
+        ${If} $1 != "ok"
+        ${AndIf} $1 != "fallback"
+            SetErrors
+        ${EndIf}
+    ${Else}
+        ; Per-user installation can create the process without Explorer/shortcut dispatch.
+        Exec '"$INSTDIR\${APP_EXECUTABLE_FILENAME}" $0'
+    ${EndIf}
+    ${If} ${Errors}
+        ShowWindow $HWNDPARENT 5
+        MessageBox MB_OK|MB_ICONEXCLAMATION "$(INSTALLER_LAUNCH_FAILED)"
+        ; IfErrors consumes the failure flag; the finish-page callback must receive it.
+        SetErrors
+    ${EndIf}
+    Return
+installer_start_requires_reboot:
+    ShowWindow $HWNDPARENT 5
+    MessageBox MB_OK|MB_ICONINFORMATION "$(INSTALLER_REBOOT_REQUIRED)"
+    SetErrors
 FunctionEnd
 
 Function InstallerExpandPath

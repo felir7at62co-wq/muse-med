@@ -21,11 +21,39 @@ describe('desktop qualification update journal', () => {
       next.action('workspace-ready')
       const first = (await readFile(old.path, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
       const second = (await readFile(next.path, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
-      expect(first.map(row => row.sequence)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
-      expect(first[3]).toMatchObject({ failedOperation: 'download', errorCode: 'ETIMEDOUT' })
-      expect(second).toMatchObject([{ event: 'started', version: '1.0.0-nightly.2' }, { event: 'workspace-ready' }])
+      expect(first.map(row => row.sequence)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8])
+      expect(first[4]).toMatchObject({ failedOperation: 'download', errorCode: 'ETIMEDOUT' })
+      expect(second).toMatchObject([{ event: 'started', version: '1.0.0-nightly.2' }, { event: 'app-ready' },
+        { event: 'workspace-ready' }])
+      expect(first[0]).toMatchObject({ schemaVersion: 2, elapsedMs: 0, processType: 'desktop-main',
+        pid: process.pid, ppid: process.ppid, platform: process.platform, arch: process.arch })
       expect(JSON.stringify(first)).not.toContain('private-data')
       expect(next.path).not.toBe(old.path)
+    } finally { await rm(directory, { recursive: true, force: true }) }
+  })
+
+  it('records fixed stage outcomes and durations without retaining paths or arbitrary details', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-update-journal-stage-'))
+    try {
+      const journal = new DesktopUpdateJournal(directory, '1.0.0')
+      const profile = journal.stage('profile-apply')
+      profile.complete({ result: 'rebuilt' })
+      const host = journal.stage('desktop-host-start')
+      host.complete({ hostPid: 4321 })
+      expect(() => { host.fail() }).toThrow('already settled')
+      journal.stage('hongguo-prepare').fail()
+      const rows = (await readFile(journal.path, 'utf8')).trim().split('\n')
+        .map(line => JSON.parse(line) as Record<string, unknown>)
+      expect(rows.map(row => row.event)).toEqual(['started', 'app-ready', 'profile-apply-started',
+        'profile-apply-completed', 'desktop-host-start-started', 'desktop-host-start-completed',
+        'hongguo-prepare-started', 'hongguo-prepare-failed'])
+      expect(rows[3]?.result).toBe('rebuilt')
+      expect(typeof rows[3]?.durationMs).toBe('number')
+      expect(rows[5]?.hostPid).toBe(4321)
+      expect(typeof rows[5]?.durationMs).toBe('number')
+      expect(typeof rows[7]?.durationMs).toBe('number')
+      expect(rows.every(row => Number.isSafeInteger(row.elapsedMs) && (row.elapsedMs as number) >= 0)).toBe(true)
+      expect(JSON.stringify(rows)).not.toContain(directory)
     } finally { await rm(directory, { recursive: true, force: true }) }
   })
 

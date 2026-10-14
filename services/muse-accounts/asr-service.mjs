@@ -16,10 +16,10 @@ const digest=value=>createHash('sha256').update(value).digest('hex');
 
 /** Resolve and validate private gateway configuration before creating workers or storage clients. */
 export function resolveAsrConfig(input){
- const config={providerKind:'standard',maxQueuedJobs:20,maxPendingUploadsPerAccount:4,pollIntervalMs:5000,storageKind:'tos',speakerDiarization:true,speakerDiarizationVersion:'200',speakerLongAudioSeconds:180,...input,...resolveAsrResources(input,true)};
+ const config={providerKind:'standard',requestRatePerMinute:60,maxQueuedJobs:20,maxPendingUploadsPerAccount:4,pollIntervalMs:5000,terminalQueryConfirmations:3,storageKind:'tos',speakerDiarization:true,speakerDiarizationVersion:'200',speakerLongAudioSeconds:180,...input,...resolveAsrResources(input,true)};
  if(typeof config.speakerDiarization!=='boolean'||!['200','300'].includes(config.speakerDiarizationVersion)||!Number.isSafeInteger(config.speakerLongAudioSeconds)||config.speakerLongAudioSeconds<=0)throw Error('Invalid MUSE ASR speaker configuration');
  const onlyFlash=config.resources.every(row=>row.serviceVersion==='flash');
- const positive=['timeoutMs','maxAudioBytes','maxDurationSeconds','maxDailySeconds','maxDailyJobs','maxActiveJobs','retentionSeconds','sweepIntervalSeconds','maxConcurrentJobs','maxQueuedJobs','maxPendingUploadsPerAccount'];
+ const positive=['requestRatePerMinute','timeoutMs','maxAudioBytes','maxDurationSeconds','maxDailySeconds','maxDailyJobs','maxActiveJobs','retentionSeconds','sweepIntervalSeconds','maxConcurrentJobs','maxQueuedJobs','maxPendingUploadsPerAccount','terminalQueryConfirmations'];
  if(!['standard','flash'].includes(config.providerKind)||typeof config.ffprobePath!=='string'||!config.ffprobePath.trim()||typeof config.root!=='string'||!isAbsolute(config.root)||!positive.every(key=>Number.isSafeInteger(config[key])&&config[key]>0)||config.timeoutMs<1000||config.maxActiveJobs!==1||config.sweepIntervalSeconds<60||config.sweepIntervalSeconds>config.retentionSeconds||config.retentionSeconds<config.maxDurationSeconds+3600||config.maxDurationSeconds>(onlyFlash?7200:18000)||onlyFlash&&config.maxAudioBytes>100_000_000)throw Error('Invalid MUSE ASR server configuration');
  if(!Number.isSafeInteger(config.pollIntervalMs)||config.pollIntervalMs<1000||config.pollIntervalMs>60000||!['tos','gateway'].includes(config.storageKind))throw Error('Invalid MUSE ASR server configuration');
  const usesStorage=config.resources.some(row=>row.serviceVersion!=='flash')||['accessKeyId','secretAccessKey','bucket','region','endpoint','prefix','signedUrlTtlSeconds'].some(key=>config[key]!==undefined);
@@ -58,21 +58,36 @@ export function parseAudioMetadata(result){
  * The caller injects private storage and provider operations; no secrets enter receipts.
  */
 export function createAsrService(options){
- const {root,storage,providerKind='standard',storageKind='tos',maxQueuedJobs=20,maxPendingUploadsPerAccount=4,pollIntervalMs=5000,autoStart=true,probe=probeAudio,now=Date.now,maxAudioBytes,maxDurationSeconds,maxDailySeconds,maxDailyJobs,maxActiveJobs,retentionSeconds}=options;
+ const {root,storage,providerKind='standard',storageKind='tos',maxQueuedJobs=20,maxPendingUploadsPerAccount=4,pollIntervalMs=5000,terminalQueryConfirmations=3,autoStart=true,probe=probeAudio,now=Date.now,maxAudioBytes,maxDurationSeconds,maxDailySeconds,maxDailyJobs,maxActiveJobs,retentionSeconds}=options;
  const pool=resolveAsrResources(options),{maxConcurrentJobs}=pool;
  const resources=new Map(pool.resources.map(row=>[row.poolId,row])),groups=new Map(pool.quotaGroups.map(row=>[row.id,row]));
- if(!root||pool.resources.some(row=>row.serviceVersion!=='flash')&&!storage||![maxAudioBytes,maxDurationSeconds,maxDailySeconds,maxDailyJobs,maxActiveJobs,retentionSeconds,maxConcurrentJobs,maxQueuedJobs,maxPendingUploadsPerAccount,pollIntervalMs].every(n=>Number.isSafeInteger(n)&&n>0)||maxActiveJobs!==1||!['tos','gateway'].includes(storageKind))throw Error('Invalid ASR gateway configuration');
+ if(!root||pool.resources.some(row=>row.serviceVersion!=='flash')&&!storage||![maxAudioBytes,maxDurationSeconds,maxDailySeconds,maxDailyJobs,maxActiveJobs,retentionSeconds,maxConcurrentJobs,maxQueuedJobs,maxPendingUploadsPerAccount,pollIntervalMs,terminalQueryConfirmations].every(n=>Number.isSafeInteger(n)&&n>0)||maxActiveJobs!==1||!['tos','gateway'].includes(storageKind))throw Error('Invalid ASR gateway configuration');
  if(!['standard','flash'].includes(providerKind)||pool.resources.some(row=>row.serviceVersion==='flash'?typeof row.provider?.recognize!=='function':typeof row.provider?.submit!=='function'||typeof row.provider?.query!=='function'))throw Error('Invalid ASR resource provider configuration');
  if(pool.resources.every(row=>row.serviceVersion==='flash')&&(maxDurationSeconds>7200||maxAudioBytes>100_000_000))throw Error('Invalid ASR provider configuration');
- const jobs=join(root,'jobs'),audio=join(root,'audio'),active=new Map(),waiting=[],workers=new Map();
+ const jobs=join(root,'jobs'),audio=join(root,'audio'),active=new Map(),waiting=[],workers=new Map(),sweeps=new Set();
  const accountTails=new Map(),fileTails=new Map(),rateTails=new Map(),nextRequestAt=new Map(),shutdown=new AbortController();let reservationTail=Promise.resolve(),lastAccount,started=autoStart;
+ const queueFullSinceStart=new Map(['occupied_total','waiting_capacity'].map(category=>[category,{category,count:0,lastSeenAt:null}])),startedAt=now();
  let workerFailure,closing=false;
  const jobKey=job=>job.account+'\0'+job.id;
  const busy=key=>workers.has(key)||waiting.some(job=>jobKey(job)===key);
 
+ function queueFull(category){const summary=queueFullSinceStart.get(category);summary.count++;summary.lastSeenAt=now();return fail(429,'Cloud transcription queue is full','queue_full',2);}
+ function ageBucket(job,observedAt){
+  const since=job.submittedAtMs??job.reservedAtMs??job.objectStagedAt;
+  if(!Number.isFinite(since))return 'unknown';
+  const seconds=Math.max(0,Math.floor((observedAt-since)/1000));
+  if(seconds<300)return 'under_5_minutes';if(seconds<1800)return '5_to_30_minutes';if(seconds<7200)return '30_minutes_to_2_hours';if(seconds<86400)return '2_to_24_hours';return '24_hours_or_more';
+ }
+ const unresolvedSummary=()=>({count:0,age_buckets:{under_5_minutes:0,'5_to_30_minutes':0,'30_minutes_to_2_hours':0,'2_to_24_hours':0,'24_hours_or_more':0,unknown:0}});
+
  const audioPath=(account,key)=>join(audio,digest(account+'\0'+key)+'.mp3');
  const path=(account,key)=>join(jobs,digest(account+'\0'+key)+'.json');
- const publicJob=job=>({id:job.id,status:job.status==='queued'?'processing':job.status,...job.status==='queued'&&waiting.some(entry=>jobKey(entry)===jobKey(job))?{queued:true}:{},...job.purpose?{purpose:job.purpose}:{},...job.purpose&&job.serviceVersion?{service_version:job.serviceVersion}:{},...job.status==='complete'?{segments:job.segments}:{},...job.retentionExpired?{retentionExpired:true}:{},...job.failureCode&&['uncertain','failed'].includes(job.status)?{error_code:job.failureCode}:{}});
+ function publicJob(job){
+  const flash=job.providerKind==='flash',unresolved=['submitting','processing','uncertain'].includes(job.status);
+  const recovery={capability:flash&&unresolved?'no_query':!flash&&unresolved?'query_original_task':'none',next_action:['complete','silent'].includes(job.status)?'use_result':['preparing','failed'].includes(job.status)&&job.submittedAtMs===undefined&&!job.providerFailure&&!job.retentionExpired&&!busy(jobKey(job))?'resume_upload':job.status==='failed'||flash&&job.status==='uncertain'&&!workers.has(jobKey(job))?'inspect_receipt':!flash&&unresolved?'poll_original':'wait',automatic_resubmit:false};
+  const failure=job.providerFailure,diagnostic=failure?{...['timeout','transport','http','response','json','result','audio'].includes(failure.reason)?{reason:failure.reason}:{},...['submit','query','flash'].includes(failure.operation)?{operation:failure.operation}:{},...Number.isInteger(failure.httpStatus)&&failure.httpStatus>=100&&failure.httpStatus<=599?{http_status:failure.httpStatus}:{},...typeof failure.providerCode==='string'&&/^\d{5,10}$/.test(failure.providerCode)?{provider_code:failure.providerCode}:{}}:undefined;
+  return {id:job.id,status:job.status==='queued'?'processing':job.status,...job.status==='queued'&&waiting.some(entry=>jobKey(entry)===jobKey(job))?{queued:true}:{},...job.purpose?{purpose:job.purpose}:{},...job.serviceVersion?{service_version:job.serviceVersion}:{},recovery,...diagnostic&&Object.keys(diagnostic).length?{provider_diagnostic:diagnostic}:{},...job.status==='complete'?{segments:job.segments}:{},...job.retentionExpired?{retentionExpired:true}:{},...['provider_rejected','provider_unavailable','storage_unavailable'].includes(job.failureCode)&&['uncertain','failed'].includes(job.status)?{error_code:job.failureCode}:{}};
+ }
  const resourceOf=job=>resourceForJob(job,resources,pool.defaultPoolId);
  async function fileOperation(target,operation){
   const prior=fileTails.get(target)??Promise.resolve(),pending=prior.then(operation),tail=pending.then(()=>{},()=>{});fileTails.set(target,tail);
@@ -87,7 +102,7 @@ export function createAsrService(options){
   const pending=(async()=>{
    await prior;if(workerFailure||closing)throw fail(503,'ASR job storage is unavailable');
    const all=await entries(),today=new Date(now()).toISOString().slice(0,10);
-   const billed=all.filter(entry=>entry.day===today&&!(entry.id===job.id&&entry.account===job.account)&&entry.status!=='failed');
+   const billed=all.filter(entry=>entry.day===today&&!(entry.id===job.id&&entry.account===job.account)&&(entry.status!=='failed'||entry.submittedAtMs!==undefined));
    const accountJobs=billed.filter(entry=>entry.account===job.account);
    if(accountJobs.length>=maxDailyJobs||accountJobs.reduce((sum,entry)=>sum+entry.duration,0)+job.duration>maxDailySeconds)throw fail(429,'Daily cloud transcription limit reached','daily_quota');
    const candidates=existing?[resourceOf(existing)]:[...resources.values()].filter(row=>row.serviceVersion===job.serviceVersion);
@@ -100,7 +115,7 @@ export function createAsrService(options){
    eligible=eligible.filter(resource=>{
     const group=groups.get(resource.quotaGroup);if(group.rollingAudioWindowSeconds===undefined)return true;
     const start=now()-group.rollingAudioWindowSeconds*1000;
-    const recent=all.filter(entry=>entry.status!=='failed'&&!(entry.id===job.id&&entry.account===job.account)&&resourceOf(entry).quotaGroup===group.id&&(entry.status==='queued'||(entry.submittedAtMs??entry.reservedAtMs??entry.objectStagedAt)>start));
+    const recent=all.filter(entry=>(entry.status!=='failed'||entry.submittedAtMs!==undefined)&&!(entry.id===job.id&&entry.account===job.account)&&resourceOf(entry).quotaGroup===group.id&&(entry.status==='queued'||(entry.submittedAtMs??entry.reservedAtMs??entry.objectStagedAt)>start));
     if(recent.reduce((sum,entry)=>sum+entry.duration,0)+job.duration<=group.maxRollingAudioSeconds)return true;
     const oldest=Math.min(...recent.map(entry=>entry.submittedAtMs??entry.reservedAtMs??entry.objectStagedAt).filter(Number.isFinite));
     retryAfter.push(Number.isFinite(oldest)?Math.max(1,Math.ceil((oldest+group.rollingAudioWindowSeconds*1000-now())/1000)):group.rollingAudioWindowSeconds);return false;
@@ -108,15 +123,15 @@ export function createAsrService(options){
    if(!eligible.length)throw fail(429,'Provider audio submission window is full','provider_rate',Math.min(...retryAfter));
    const load=resource=>all.filter(entry=>['queued','preparing','submitting','processing','uncertain'].includes(entry.status)&&resourceOf(entry).appId===resource.appId&&resourceOf(entry).resourceId===resource.resourceId).length/resource.maxConcurrentJobs;
    eligible.sort((a,b)=>Number(available(b))-Number(available(a))||load(a)-load(b));const resource=eligible[0];
-   const canRun=available(resource)&&!waiting.some(entry=>entry.account===job.account);
-   if(!canRun&&waiting.length>=maxQueuedJobs)throw fail(429,'Cloud transcription queue is full','queue_full',2);
+   const canRun=available(resource)&&!waiting.some(entry=>entry.account===job.account&&eligibleForDispatch(entry,all).length>0);
+   if(!canRun&&waiting.length>=maxQueuedJobs)throw queueFull('waiting_capacity');
    Object.assign(job,{poolId:resource.poolId,appId:resource.appId,quotaGroup:resource.quotaGroup,serviceVersion:resource.serviceVersion,resourceId:resource.resourceId});
    job.day=today;job.reservedAtMs=now();
    job.objectStagedAt=now();job.status='queued';
    await save(job.account,job.id,job);
    // Queue publication shares the quota reservation lock, so competing uploads cannot overfill it.
-   waiting.push(job);dispatch();
-   return resource;
+   waiting.push(job);await dispatchReady(all.filter(entry=>jobKey(entry)!==jobKey(job)).concat(job));
+   return resourceOf(job);
   })();
   // A rejected reservation releases the shared billing lock without hiding its caller's error.
   reservationTail=pending.then(()=>{},()=>{});return await pending;
@@ -136,9 +151,17 @@ export function createAsrService(options){
   }
  }
  async function poll(job,account,key){let result;
-  try{result=await resourceOf(job).provider.query(job.taskId);}catch(error){job.status='uncertain';recordProviderFailure(job,error);await save(account,key,job);return publicJob(job);}
-  if(result.status==='processing'){job.status='processing';await save(account,key,job);return publicJob(job);}
-  if(result.status==='silent'){job.status='silent';await save(account,key,job);await cleanup(job,account,key);return publicJob(job);}
+  try{result=await resourceOf(job).provider.query(job.taskId);}catch(error){job.status='uncertain';recordProviderFailure(job,error);delete job.terminalQuery;await save(account,key,job);return publicJob(job);}
+  if(result.status==='failed'&&['45000092','55001010'].includes(result.providerCode)){
+   const count=job.terminalQuery?.code===result.providerCode?job.terminalQuery.count+1:1;
+   job.terminalQuery={code:result.providerCode,count};job.failureCode='provider_rejected';
+   job.providerFailure={code:job.failureCode,operation:'query',reason:'response',providerCode:result.providerCode};
+   job.status=count>=terminalQueryConfirmations?'failed':'uncertain';
+   await save(account,key,job);if(job.status==='failed')await cleanup(job,account,key);return publicJob(job);
+  }
+  delete job.terminalQuery;
+  if(result.status==='processing'){job.status='processing';delete job.failureCode;delete job.providerFailure;await save(account,key,job);return publicJob(job);}
+  if(result.status==='silent'){job.status='silent';delete job.failureCode;delete job.providerFailure;await save(account,key,job);await cleanup(job,account,key);return publicJob(job);}
   if(result.status!=='complete'||!Array.isArray(result.segments)||!result.segments.length)throw Error('Invalid ASR provider result');
   job.status='complete';job.segments=result.segments;delete job.failureCode;delete job.providerFailure;await save(account,key,job);await cleanup(job,account,key);return publicJob(job);
  }
@@ -146,7 +169,7 @@ export function createAsrService(options){
   job.failureCode=error instanceof AsrProviderError?error.code:'provider_unavailable';
   job.providerFailure={code:job.failureCode};
   if(error instanceof AsrProviderError){
-   job.providerFailure.operation=error.operation;
+   job.providerFailure.operation=error.operation;job.providerFailure.reason=error.reason;
    if(error.httpStatus!==undefined)job.providerFailure.httpStatus=error.httpStatus;
    if(error.providerCode!==undefined)job.providerFailure.providerCode=error.providerCode;
   }
@@ -155,7 +178,7 @@ export function createAsrService(options){
   try{
    if(now()-job.objectStagedAt>=retentionSeconds*1000){job.status='failed';job.retentionExpired=true;await save(job.account,job.id,job);await cleanup(job,job.account,job.id);return;}
    const file=audioPath(job.account,job.id);await stat(file);
-   job.status='submitting';await save(job.account,job.id,job);
+   job.status='submitting';job.submittedAtMs=now();await save(job.account,job.id,job);
    const result=await resourceOf(job).provider.recognize({id:job.taskId,file,language:job.language});
    if(result.status!=='silent'&&(result.status!=='complete'||!Array.isArray(result.segments)||!result.segments.length))throw Error('Invalid ASR provider result');
    job.status=result.status;if(result.status==='complete')job.segments=result.segments;
@@ -217,18 +240,45 @@ export function createAsrService(options){
   }
   return count<resource.maxConcurrentJobs&&appCount<resource.maxConcurrentJobs&&groupCount<groups.get(resource.quotaGroup).maxConcurrentJobs;
  }
- function dispatch(){
+ function eligibleForDispatch(job,all){
+  if(job.status!=='queued'||job.submittedAtMs!==undefined)return available(resourceOf(job))?[resourceOf(job)]:[];
+  const billed=all.filter(entry=>jobKey(entry)!==jobKey(job)&&(entry.status!=='failed'||entry.submittedAtMs!==undefined));
+  const eligible=[...resources.values()].filter(resource=>resource.serviceVersion===job.serviceVersion&&available(resource)).filter(resource=>{
+   const group=groups.get(resource.quotaGroup),owned=billed.filter(entry=>resourceOf(entry).quotaGroup===group.id),daily=owned.filter(entry=>entry.day===job.day);
+   if(group.maxDailyJobs!==undefined&&daily.length>=group.maxDailyJobs||group.maxDailySeconds!==undefined&&daily.reduce((sum,entry)=>sum+entry.duration,0)+job.duration>group.maxDailySeconds)return false;
+   if(group.rollingAudioWindowSeconds===undefined)return true;
+   const start=now()-group.rollingAudioWindowSeconds*1000,recent=owned.filter(entry=>entry.status==='queued'||(entry.submittedAtMs??entry.reservedAtMs??entry.objectStagedAt)>start);
+   return recent.reduce((sum,entry)=>sum+entry.duration,0)+job.duration<=group.maxRollingAudioSeconds;
+  });
+  const occupied=resource=>[...workers.values()].filter(item=>item.resource.appId===resource.appId&&item.resource.resourceId===resource.resourceId).length/resource.maxConcurrentJobs;
+  return eligible.sort((a,b)=>occupied(a)-occupied(b)||Number(b.poolId===job.poolId)-Number(a.poolId===job.poolId));
+ }
+ async function dispatchReady(all){
   if(workerFailure||closing||!started)return;
   while(waiting.length&&workers.size<maxConcurrentJobs){
    const accounts=[...new Set(waiting.map(job=>job.account))],last=accounts.indexOf(lastAccount);
    if(last>=0)accounts.push(...accounts.splice(0,last+1));
-   let index=-1;
-   for(const account of accounts){const candidate=waiting.findIndex(job=>job.account===account);if(available(resourceOf(waiting[candidate]))){index=candidate;break;}}
+   let index=-1,resource;
+   for(const account of accounts){
+    for(let candidate=0;candidate<waiting.length;candidate++){
+     const job=waiting[candidate];if(job.account!==account)continue;
+     const selected=eligibleForDispatch(job,all)[0];if(selected){index=candidate;resource=selected;break;}
+    }
+    if(index>=0)break;
+   }
    if(index<0)return;
-   const [job]=waiting.splice(index,1),key=jobKey(job),resource=resourceOf(job);lastAccount=job.account;
+   const job=waiting[index],key=jobKey(job);
+   if(resource.poolId!==job.poolId){Object.assign(job,{poolId:resource.poolId,appId:resource.appId,quotaGroup:resource.quotaGroup,resourceId:resource.resourceId});await save(job.account,job.id,job);const receipt=all.findIndex(entry=>jobKey(entry)===key);if(receipt>=0)all[receipt]=job;}
+   if(closing)return;
+   waiting.splice(index,1);lastAccount=job.account;
    const promise=(resource.serviceVersion==='flash'?runFlash(job):runStandard(job)).catch(error=>{workerFailure=error;}).finally(()=>{workers.delete(key);dispatch();});
-   workers.set(key,{promise,resource});
+   workers.set(key,{promise,resource,job});
   }
+ }
+ function dispatch(){
+  const pending=reservationTail.then(async()=>{if(!closing)await dispatchReady(await entries());});
+  reservationTail=pending.catch(error=>{workerFailure=error;});
+  return pending;
  }
  const initialized=(async()=>{
   await mkdir(jobs,{recursive:true,mode:0o700});await mkdir(audio,{recursive:true,mode:0o700});
@@ -241,13 +291,14 @@ export function createAsrService(options){
    if(legacyJobs.includes(job)||job.serviceVersion===undefined||job.resourceId===undefined){const resource=resourceOf(job);Object.assign(job,{poolId:resource.poolId,appId:resource.appId,quotaGroup:resource.quotaGroup,serviceVersion:resource.serviceVersion,resourceId:resource.resourceId});await save(job.account,job.id,job);}
   }
   for(const job of persisted){
+   if(job.status==='queued'&&job.submittedAtMs!==undefined){job.status='uncertain';await save(job.account,job.id,job);}
    if(job.providerKind==='flash'){
     if(typeof resourceOf(job).provider.recognize!=='function')throw Error('Flash receipt recovery requires a flash provider');
     if(job.status==='submitting'||job.status==='processing'){job.status='uncertain';await save(job.account,job.id,job);}
     else if(job.status==='queued')waiting.push(job);
    }else if(['queued','submitting','processing','uncertain'].includes(job.status))waiting.push(job);
   }
-  waiting.sort((a,b)=>a.objectStagedAt-b.objectStagedAt);dispatch();
+  waiting.sort((a,b)=>a.objectStagedAt-b.objectStagedAt);await dispatch();
  })();
  // ready() and requests report initialization errors; suppress an unobserved startup rejection.
  initialized.catch(error=>{void error;});
@@ -255,11 +306,18 @@ export function createAsrService(options){
   /** Recover unsubmitted work before accepting gateway traffic. */
   async ready(){await initialized;},
   /** Enable dispatch after an external signed-audio endpoint is listening. */
-  async start(){await initialized;if(closing)throw fail(503,'ASR job storage is unavailable');started=true;dispatch();},
-  /** Stop admission and polling, then await owned work without resubmitting charged tasks. */
-  async close(){closing=true;shutdown.abort();await initialized;await Promise.allSettled([...active.values()].map(item=>item.promise).concat([...workers.values()].map(item=>item.promise)));},
+  async start(){await initialized;if(closing)throw fail(503,'ASR job storage is unavailable');started=true;await dispatch();},
+  /** Stop admission, settle owned work, and report ledger failures without resubmitting charged tasks. */
+  async close(){
+   closing=true;shutdown.abort();await initialized;await reservationTail;
+   const swept=Promise.allSettled([...sweeps]);
+   await Promise.allSettled([...active.values()].map(item=>item.promise).concat([...workers.values()].map(item=>item.promise)));
+   const cleanup=await swept;await reservationTail;
+   if(workerFailure)throw workerFailure;
+   for(const result of cleanup)if(result.status==='rejected')throw result.reason;
+  },
   /** Await accepted jobs through completion and report durable-ledger failures. */
-  async idle(){await initialized;while(active.size||workers.size)await Promise.all([...active.values()].map(item=>item.promise).concat([...workers.values()].map(item=>item.promise)));if(workerFailure)throw workerFailure;},
+  async idle(){await initialized;await reservationTail;while(active.size||workers.size){await Promise.all([...active.values()].map(item=>item.promise).concat([...workers.values()].map(item=>item.promise)));await reservationTail;}if(workerFailure)throw workerFailure;},
   /** Upload verified audio and make at most one billable submit per account/key. */
   async submit(account,key,expectedHash,language,req,purpose){
    await initialized;if(workerFailure||closing)throw fail(503,'ASR job storage is unavailable');
@@ -279,12 +337,12 @@ export function createAsrService(options){
      if(conflict(running))throw fail(409,'Idempotency key already belongs to different audio or purpose','idempotency_conflict');
      return await running.promise;
     }
-    if(existing&&!['preparing','failed'].includes(existing.status)){
+    if(existing&&(!['preparing','failed'].includes(existing.status)||existing.submittedAtMs!==undefined)){
      req.resume();if(conflict(existing))throw fail(409,'Idempotency key already belongs to different audio or purpose','idempotency_conflict');return publicJob(existing);
     }
     if(busy(activeKey)) {req.resume();throw fail(429,'Too many active cloud transcription jobs','upload_busy',2);}
     const occupied=new Set([...active.keys(),...workers.keys(),...waiting.map(jobKey)]).size;
-    if(occupied>=maxConcurrentJobs+maxQueuedJobs){req.resume();throw fail(429,'Cloud transcription queue is full','queue_full',2);}
+    if(occupied>=maxConcurrentJobs+maxQueuedJobs){req.resume();throw queueFull('occupied_total');}
    }
    const pendingLimit=maxPendingUploadsPerAccount;
    if([...active.values()].filter(item=>item.account===account).length>=pendingLimit){req.resume();throw fail(429,'Too many active cloud transcription jobs','upload_busy',2);}
@@ -294,8 +352,9 @@ export function createAsrService(options){
     await previous;
     const existing=await read(account,key);
     if(existing){if(conflict(existing))throw fail(409,'Idempotency key already belongs to different audio or purpose','idempotency_conflict');
-     if(!['preparing','failed'].includes(existing.status)){req.resume();return publicJob(existing);}}
+     if((!['preparing','failed'].includes(existing.status)||existing.submittedAtMs!==undefined)){req.resume();return publicJob(existing);}}
     const version=existing?resourceOf(existing).serviceVersion:serviceVersion,kind=version==='flash'?'flash':'standard';
+    active.get(activeKey).serviceVersion=version;
     await mkdir(jobs,{recursive:true,mode:0o700});await mkdir(audio,{recursive:true,mode:0o700});
     ownsAudio=true;await rm(file,{force:true});
     await stage(req,file,expectedHash);const probed=await probe(file),duration=typeof probed==='number'?probed:probed.duration,audioFormat=typeof probed==='number'?'mp3':probed.format;
@@ -303,9 +362,10 @@ export function createAsrService(options){
     if(kind==='flash'&&(await stat(file)).size>100_000_000)throw fail(413,'Audio exceeds the gateway limit');
     const taskHash=digest(account+'\0'+key),taskId=`${taskHash.slice(0,8)}-${taskHash.slice(8,12)}-4${taskHash.slice(13,16)}-8${taskHash.slice(17,20)}-${taskHash.slice(20,32)}`;
     const job={id,taskId,account,hash:expectedHash,language,...purpose?{purpose}:{},duration,audioFormat,day:new Date(now()).toISOString().slice(0,10),providerKind:kind,serviceVersion:version,...kind==='standard'?{storageKind}:{},status:'preparing'};
-    await reserve(job,existing);retainAudio=true;return publicJob({...job,status:workers.has(jobKey(job))?'processing':'queued'});
+    const resource=await reserve(job,existing),activeJob=active.get(activeKey);activeJob.quotaGroup=resource.quotaGroup;
+    retainAudio=true;return publicJob({...job,status:workers.has(jobKey(job))?'processing':'queued'});
    }finally{if(ownsAudio&&!retainAudio)await rm(file,{force:true});}
-   })();active.set(activeKey,{account,hash:expectedHash,language,purpose,promise:pending});
+   })();active.set(activeKey,{account,hash:expectedHash,language,purpose,serviceVersion,promise:pending});
    const tail=pending.then(()=>{},()=>{});accountTails.set(account,tail);
    try{return await pending;}finally{active.delete(activeKey);if(accountTails.get(account)===tail)accountTails.delete(account);}
   },
@@ -315,14 +375,33 @@ export function createAsrService(options){
    const current=await read(account,key);await expire(current);
    return publicJob(current);
   },
+  /** Return an in-memory, task-anonymous operational snapshot without reading or changing receipts. */
+  diagnostics(){
+   const observedAt=now(),occupied=new Set([...active.keys(),...workers.keys(),...waiting.map(jobKey)]);
+   const versions=new Map([...new Set([...resources.values()].map(resource=>resource.serviceVersion))].map(serviceVersion=>[serviceVersion,{service_version:serviceVersion,active:0,workers:0,waiting:0,occupied:new Set()}]));
+   const quotaGroups=new Map([...groups.values()].map(group=>[group.id,{quota_group:group.id,configured_worker_limit:group.maxConcurrentJobs,active:0,workers:0,waiting:0,occupied:new Set()}]));let unassignedActive=0;
+   for(const [key,item]of active){const row=versions.get(item.serviceVersion);row.active++;row.occupied.add(key);if(item.quotaGroup===undefined)unassignedActive++;else{const group=quotaGroups.get(item.quotaGroup);group.active++;group.occupied.add(key);}}
+   for(const job of waiting){const key=jobKey(job),resource=resourceOf(job),version=versions.get(resource.serviceVersion),group=quotaGroups.get(resource.quotaGroup);version.waiting++;version.occupied.add(key);group.waiting++;group.occupied.add(key);}
+   for(const [key,item]of workers){const version=versions.get(item.resource.serviceVersion),group=quotaGroups.get(item.resource.quotaGroup);version.workers++;version.occupied.add(key);group.workers++;group.occupied.add(key);}
+   const unresolved={processing:unresolvedSummary(),uncertain:unresolvedSummary()},standardJobs=new Map();
+   for(const job of waiting)if(job.providerKind!=='flash'&&['processing','uncertain'].includes(job.status))standardJobs.set(jobKey(job),job);
+   for(const [key,item]of workers)if(item.job.providerKind!=='flash'&&['processing','uncertain'].includes(item.job.status))standardJobs.set(key,item.job);
+   for(const job of standardJobs.values()){const summary=unresolved[job.status];summary.count++;summary.age_buckets[ageBucket(job,observedAt)]++;}
+   const queueFullCategories=[...queueFullSinceStart.values()].map(row=>({category:row.category,count:row.count,last_seen_seconds_ago:row.lastSeenAt===null?null:Math.max(0,Math.floor((observedAt-row.lastSeenAt)/1000))}));
+   return {schema_version:1,occupancy:{active:active.size,workers:workers.size,waiting:waiting.length,occupied_unique:occupied.size,worker_limit:maxConcurrentJobs,waiting_limit:maxQueuedJobs},by_service_version:[...versions.values()].sort((a,b)=>a.service_version.localeCompare(b.service_version)).map(({occupied:keys,...row})=>({...row,occupied_unique:keys.size})),by_quota_group:[...quotaGroups.values()].sort((a,b)=>a.quota_group.localeCompare(b.quota_group)).map(({occupied:keys,...row})=>({...row,occupied_unique:keys.size})),active_unassigned_to_quota_group:unassignedActive,standard_unresolved:unresolved,queue_full_since_start:{observed_window_seconds:Math.max(0,Math.floor((observedAt-startedAt)/1000)),total:queueFullCategories.reduce((sum,row)=>sum+row.count,0),categories:queueFullCategories}};
+  },
   /** Remove expired temporary objects while retaining receipts and original task IDs. */
   async sweep(){
-   await initialized;
-   for(const name of await readdir(jobs).catch(error=>error.code==='ENOENT'?[]:Promise.reject(error))){
-    if(!name.endsWith('.json'))continue;
-    const job=await readTarget(join(jobs,name));if(!job)continue;
-    await expire(job);
-   }
+   if(closing)return;
+   const pending=(async()=>{
+    await initialized;
+    for(const name of await readdir(jobs).catch(error=>error.code==='ENOENT'?[]:Promise.reject(error))){
+     if(!name.endsWith('.json'))continue;
+     const job=await readTarget(join(jobs,name));if(!job)continue;
+     await expire(job);
+    }
+   })();
+   sweeps.add(pending);try{await pending;}finally{sweeps.delete(pending);}
   },
  };
 }

@@ -1,5 +1,6 @@
 /** Keyless sequential self-check through actual PTC, including unprinted reads and failed outer programs. */
-import { writeFile } from 'node:fs/promises'
+import { readFile, stat, utimes, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import sharp from 'sharp'
 import { z } from 'zod'
@@ -9,25 +10,55 @@ import { LlmAdapter, ToolCallId, type StreamChunk, type GenerateOptions } from '
 export const name = 'screenplay-self-check-fixture'
 export const inject = ['llm', 'tools', 'fs', 'attachments']
 
-export async function apply(ctx: Context): Promise<void> {
+export async function apply(ctx: Context, config: { cwd?: string } = {}): Promise<void> {
+  const workspace = config.cwd ?? process.cwd()
   const phase = process.env.SCREENPLAY_SELF_CHECK_FIXTURE_MODE ?? 'full'
+  const binding = process.env.SCREENPLAY_SELF_CHECK_FIXTURE_VIDEO_BINDING ?? 'after-ptc'
+  const mutation = process.env.SCREENPLAY_SELF_CHECK_FIXTURE_VIDEO_MUTATION
+  const expectedVideoChange = mutation === 'post-bind' || (binding === 'apply' && mutation === 'pre-init')
   let image: Awaited<ReturnType<typeof ctx.attachments.saveImage>> | undefined
+  let prepareInspection: (() => Promise<void>) | undefined
   if (phase === 'full') {
-    const video = join(process.cwd(), 'source.mp4'), signal = new AbortController().signal
+    const video = join(workspace, 'source.mp4'), signal = new AbortController().signal
     await writeFile(video, 'fixture video bytes')
-    const target = await ctx.fs.resolve(video, { signal }), version = (await ctx.fs.stat(target, signal))!.version
-    image = await ctx.attachments.saveImage({ mediaType: 'image/png',
+    const target = await ctx.fs.resolve(video, { signal })
+    const frame = await ctx.attachments.saveImage({ mediaType: 'image/png',
       data: await sharp({ create: { width: 8, height: 8, channels: 3, background: 'blue' } }).png().toBuffer() })
-    await writeFile(join(process.cwd(), 'inspection.json'), JSON.stringify({ path: video, source_version: version,
-      inspection: 'sampled_frames', verified_readback: true, duration_seconds: 10,
-      frames: [{ requested_seconds: 1, timestamp_seconds: 1, image }] }))
+    image = frame
+    const beforePtc = (await ctx.fs.stat(target, signal))!.version
+    const beforeBytes = await readFile(video)
+    let boundVersion = beforePtc
+    const bind = async () => {
+      boundVersion = (await ctx.fs.stat(target, signal))!.version
+      await writeFile(join(workspace, 'inspection.json'), JSON.stringify({ path: video, source_version: boundVersion,
+        inspection: 'sampled_frames', verified_readback: true, duration_seconds: 10,
+        frames: [{ requested_seconds: 1, timestamp_seconds: 1, image: frame }] }))
+    }
+    const mutateMetadata = async () => {
+      const info = await stat(video)
+      await utimes(video, info.atime, new Date(info.mtimeMs + 1000))
+    }
+    if (binding === 'apply') await bind()
+    prepareInspection = async () => {
+      if (mutation === 'pre-init') await mutateMetadata()
+      if (binding !== 'apply') await bind()
+      if (mutation === 'post-bind') await mutateMetadata()
+      const afterBytes = await readFile(video)
+      if (!beforeBytes.equals(afterBytes)) throw Error('fixture metadata mutation changed source bytes')
+      await writeFile(join(workspace, 'self-check-video-binding.json'), JSON.stringify({ binding, mutation,
+        before_ptc_version: beforePtc, bound_version: boundVersion, current_version: (await ctx.fs.stat(target, signal))!.version,
+        before_sha256: createHash('sha256').update(beforeBytes).digest('hex'),
+        after_sha256: createHash('sha256').update(afterBytes).digest('hex') }))
+    }
   }
   let step = 0
   let interruptedRead = false
   ctx.on('tools/execute', async (exec, next) => {
-    if (phase !== 'full' || step !== 4 || exec.name !== 'screenplay_project') return next()
+    if (phase !== 'full' || exec.name !== 'screenplay_project') return next()
     const method = z.object({ request: z.object({ method: z.string() }) }).parse(exec.arguments).request.method
-    if (method !== 'read_source') return next()
+    // This Host tool is reached after the first PTC worker's Windows workspace ACL grant.
+    if (method === 'init' && prepareInspection !== undefined) { await prepareInspection(); prepareInspection = undefined }
+    if (step !== 4 || method !== 'read_source') return next()
     const controller = new AbortController()
     exec.signal = controller.signal
     const result = next()
@@ -110,6 +141,7 @@ export async function apply(ctx: Context): Promise<void> {
           : step === 1 ? [call + state + 'await call({method:\'read_source\',project,source_id:status.sources[0].id,start:1,count:1});']
             : step === 2 ? [call + state + 'await call({method:\'review_fact\',project,expected_revision:status.revision,fact_id:facts.facts[0].id,decision:\'approve\',reason:\'冷恢复后已重新读回，当前真实模型轮自检。\'});'] : []
       }
+      if (expectedVideoChange && step >= 2) codes = []
       if (codes.length > 0) {
         for (const [index, code] of codes.entries()) {
           const id = ToolCallId(`self-check-${step}-${index}`), args = JSON.stringify({ description: 'Verify sequential screenplay self-check', code })
@@ -120,7 +152,7 @@ export async function apply(ctx: Context): Promise<void> {
         yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } }
         yield { type: 'finish', reason: { kind: 'tool-calls' } }
       } else {
-        const text = '同会话分轮自检已验收并导出；不是独立审校。'
+        const text = expectedVideoChange ? '已验证视频源版本变化被拒绝。' : '同会话分轮自检已验收并导出；不是独立审校。'
         yield { type: 'block-start', index: 0, blockType: 'text' }
         yield { type: 'text-delta', index: 0, text }
         yield { type: 'block-end', index: 0, block: { type: 'text', text } }

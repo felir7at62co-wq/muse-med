@@ -258,6 +258,7 @@ flowchart TD
     pkg_screenplay_project["screenplay-project"]
     pkg_tool_audio_transcribe["tool-audio-transcribe"]
     pkg_tool_bgm_compose["tool-bgm-compose"]
+    pkg_tool_character_reference["tool-character-reference"]
     pkg_tool_drama_assets["tool-drama-assets"]
     pkg_tool_episode_render["tool-episode-render"]
     pkg_tool_shot_script["tool-shot-script"]
@@ -893,19 +894,13 @@ flowchart TD
   pkg_workspace_changes --> pkg_subprocess
   pkg_workspace_changes --> pkg_tools
   pkg_drama_settings --> pkg_tools
-  pkg_screenplay_project --> pkg_attachment
-  pkg_screenplay_project --> pkg_brand
-  pkg_screenplay_project --> pkg_fs
-  pkg_screenplay_project --> pkg_llm
-  pkg_screenplay_project --> pkg_sandbox
-  pkg_screenplay_project --> pkg_sandbox_policy
-  pkg_screenplay_project --> pkg_tools
-  pkg_screenplay_project --> pkg_util_values
   pkg_tool_audio_transcribe --> pkg_llm
   pkg_tool_audio_transcribe --> pkg_tools
   pkg_tool_bgm_compose --> pkg_llm
   pkg_tool_bgm_compose --> pkg_subprocess
   pkg_tool_bgm_compose --> pkg_tools
+  pkg_tool_character_reference --> pkg_llm
+  pkg_tool_character_reference --> pkg_tools
   pkg_tool_drama_assets --> pkg_credentials
   pkg_tool_drama_assets --> pkg_llm
   pkg_tool_drama_assets --> pkg_tools
@@ -960,6 +955,7 @@ flowchart TD
   pkg_tool_jubian --> pkg_credentials
   pkg_tool_jubian --> pkg_jubian
   pkg_tool_jubian --> pkg_jubian_api
+  pkg_tool_jubian --> pkg_muse_account
   pkg_tool_jubian --> pkg_tools
   pkg_tool_lsp --> pkg_llm
   pkg_tool_lsp --> pkg_lsp
@@ -971,13 +967,6 @@ flowchart TD
   pkg_mcp_resources --> pkg_system_prompt
   pkg_mcp_resources --> pkg_tools
   pkg_perception_bgm --> pkg_tools
-  pkg_tool_video_inspect --> pkg_attachment
-  pkg_tool_video_inspect --> pkg_fs
-  pkg_tool_video_inspect --> pkg_llm
-  pkg_tool_video_inspect --> pkg_sandbox
-  pkg_tool_video_inspect --> pkg_sandbox_policy
-  pkg_tool_video_inspect --> pkg_subprocess
-  pkg_tool_video_inspect --> pkg_tools
   pkg_agent_preset_registry --> pkg_agent
   pkg_agent_preset_registry --> pkg_scope
   pkg_agent_preset_registry --> pkg_session
@@ -1231,6 +1220,15 @@ flowchart TD
   pkg_experimental_claude_code_mods --> pkg_tools
   pkg_experimental_claude_code_mods --> pkg_typert_protocol
   pkg_experimental_claude_code_mods --> pkg_user_questions
+  pkg_tool_video_inspect --> pkg_attachment
+  pkg_tool_video_inspect --> pkg_fs
+  pkg_tool_video_inspect --> pkg_llm
+  pkg_tool_video_inspect --> pkg_sandbox
+  pkg_tool_video_inspect --> pkg_sandbox_policy
+  pkg_tool_video_inspect --> pkg_session
+  pkg_tool_video_inspect --> pkg_session_query
+  pkg_tool_video_inspect --> pkg_subprocess
+  pkg_tool_video_inspect --> pkg_tools
   pkg_webhook_github --> pkg_credentials
   pkg_webhook_github --> pkg_host_webserver
   pkg_webhook_github --> pkg_session
@@ -1326,6 +1324,19 @@ flowchart TD
   pkg_session_reference --> pkg_subagent
   pkg_session_reference --> pkg_system_prompt
   pkg_session_reference --> pkg_typert_protocol
+  pkg_screenplay_project --> pkg_agent
+  pkg_screenplay_project --> pkg_attachment
+  pkg_screenplay_project --> pkg_brand
+  pkg_screenplay_project --> pkg_fs
+  pkg_screenplay_project --> pkg_llm
+  pkg_screenplay_project --> pkg_sandbox
+  pkg_screenplay_project --> pkg_sandbox_policy
+  pkg_screenplay_project --> pkg_session
+  pkg_screenplay_project --> pkg_session_projection
+  pkg_screenplay_project --> pkg_session_query
+  pkg_screenplay_project --> pkg_tool_video_inspect
+  pkg_screenplay_project --> pkg_tools
+  pkg_screenplay_project --> pkg_util_values
   pkg_experimental_agent_team --> pkg_agent
   pkg_experimental_agent_team --> pkg_llm
   pkg_experimental_agent_team --> pkg_session
@@ -1706,9 +1717,9 @@ flowchart TD
 | [`tool-present`](../packages/deliverables/tool-present) | `deliverables` | [`agent`](../packages/core/agent), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol) |
 | [`workspace-changes`](../packages/deliverables/workspace-changes) | `deliverables` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
 | [`drama-settings`](../packages/drama/drama-settings) | `drama` | [`tools`](../packages/core/tools) |
-| [`screenplay-project`](../packages/drama/screenplay-project) | `drama` | [`attachment`](../packages/attachment/attachment), [`brand`](../packages/util/brand), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`tools`](../packages/core/tools), [`util-values`](../packages/util/values) |
 | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-bgm-compose`](../packages/drama/tool-bgm-compose) | `drama` | [`llm`](../packages/llm/llm), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
+| [`tool-character-reference`](../packages/drama/tool-character-reference) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-drama-assets`](../packages/drama/tool-drama-assets) | `drama` | [`credentials`](../packages/credentials/credentials), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-episode-render`](../packages/drama/tool-episode-render) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-shot-script`](../packages/drama/tool-shot-script) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
@@ -1723,11 +1734,10 @@ flowchart TD
 | [`tool-call-timeout-policy`](../packages/guard/timeout-policy) | `guard` | [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`tool-ask-user`](../packages/interaction/tool-ask-user) | `interaction` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools), [`user-questions`](../packages/interaction/user-questions) |
 | [`tool-jobs`](../packages/jobs/tool-jobs) | `jobs` | [`agent`](../packages/core/agent), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`output-retention`](../packages/util/output-retention), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
-| [`tool-jubian`](../packages/jubian/tool-jubian) | `jubian` | [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`jubian`](../packages/jubian/jubian), [`jubian-api`](../packages/jubian/jubian-api), [`tools`](../packages/core/tools) |
+| [`tool-jubian`](../packages/jubian/tool-jubian) | `jubian` | [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`jubian`](../packages/jubian/jubian), [`jubian-api`](../packages/jubian/jubian-api), [`muse-account`](../packages/host/muse-account), [`tools`](../packages/core/tools) |
 | [`tool-lsp`](../packages/lsp/tool-lsp) | `lsp` | [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`system-prompt`](../packages/core/system-prompt), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`mcp-resources`](../packages/mcp/mcp-resources) | `mcp` | [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`perception-bgm`](../packages/perception/perception-bgm) | `perception` | [`tools`](../packages/core/tools) |
-| [`tool-video-inspect`](../packages/perception/tool-video-inspect) | `perception` | [`attachment`](../packages/attachment/attachment), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
 | [`agent-preset-registry`](../packages/preset/agent-preset-registry) | `preset` | [`agent`](../packages/core/agent), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`settings`](../packages/settings/settings), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol) |
 | [`session-checkpoint-policy`](../packages/session/session-checkpoint-policy) | `session` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`tools`](../packages/core/tools) |
 | [`session-title-all-prompts-llm`](../packages/session/session-title-all-prompts-llm) | `session` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-title`](../packages/session/session-title), [`session-title-llm`](../packages/session/session-title-llm) |
@@ -1768,6 +1778,7 @@ flowchart TD
 | [`compaction-tool-result-pruner`](../packages/compaction/compaction-tool-result-pruner) | `compaction` | [`compaction`](../packages/compaction/compaction), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
 | [`experimental-browser-use-runtime`](../packages/experimental/browser-use-runtime) | `experimental` | [`agent`](../packages/core/agent), [`browser-use`](../packages/browser-use/browser-use), [`mcp-client`](../packages/mcp/mcp-client), [`scope`](../packages/core/scope), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`experimental-claude-code-mods`](../packages/experimental/claude-code-mods) | `experimental` | [`agent`](../packages/core/agent), [`commands`](../packages/interaction/commands), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`storage-domain`](../packages/storage/storage-domain), [`subprocess`](../packages/subprocess/subprocess), [`token-meter`](../packages/llm/token-meter), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol), [`user-questions`](../packages/interaction/user-questions) |
+| [`tool-video-inspect`](../packages/perception/tool-video-inspect) | `perception` | [`attachment`](../packages/attachment/attachment), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`session-query`](../packages/session-query/session-query), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
 | [`webhook-github`](../packages/webhook/webhook-github) | `webhook` | [`credentials`](../packages/credentials/credentials), [`host-webserver`](../packages/host/webserver), [`session`](../packages/core/session), [`webhook`](../packages/webhook/webhook) |
 | [`subagent-acp`](../packages/subagent/subagent-acp) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`subagent-claude-code`](../packages/subagent/subagent-claude-code) | `subagent` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
@@ -1779,6 +1790,7 @@ flowchart TD
 | [`api-session-controller`](../packages/api/session-controller) | `api` | [`agent`](../packages/core/agent), [`agent-default-model`](../packages/core/agent-default-model), [`agent-preset-registry`](../packages/preset/agent-preset-registry), [`api-gateway`](../packages/api/gateway), [`attachment`](../packages/attachment/attachment), [`client-connection`](../packages/client/connection), [`client-file-upload`](../packages/client/file-upload), [`commands`](../packages/interaction/commands), [`credentials`](../packages/credentials/credentials), [`file-reference`](../packages/context/file-reference), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`native-command`](../packages/util/native-command), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-projection`](../packages/session/session-projection), [`session-projection-cache`](../packages/session/session-projection-cache), [`session-query`](../packages/session-query/session-query), [`session-title`](../packages/session/session-title), [`settings`](../packages/settings/settings), [`skill`](../packages/skill/skill), [`subagent`](../packages/subagent/subagent), [`typert-protocol`](../packages/typert/protocol), [`typert-registry`](../packages/typert/registry), [`util-time`](../packages/util/time), [`util-values`](../packages/util/values), [`util-workspace-path`](../packages/util/workspace-path), [`workspace`](../packages/workspace/workspace) |
 | [`compaction-basic`](../packages/compaction/compaction-basic) | `compaction` | [`agent`](../packages/core/agent), [`commands`](../packages/interaction/commands), [`compaction`](../packages/compaction/compaction), [`compaction-tool-result-pruner`](../packages/compaction/compaction-tool-result-pruner), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
 | [`session-reference`](../packages/context/session-reference) | `context` | [`agent`](../packages/core/agent), [`compaction`](../packages/compaction/compaction), [`llm`](../packages/llm/llm), [`output-retention`](../packages/util/output-retention), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`session-projection-cache`](../packages/session/session-projection-cache), [`session-query`](../packages/session-query/session-query), [`session-title`](../packages/session/session-title), [`spill`](../packages/spill/spill), [`subagent`](../packages/subagent/subagent), [`system-prompt`](../packages/core/system-prompt), [`typert-protocol`](../packages/typert/protocol) |
+| [`screenplay-project`](../packages/drama/screenplay-project) | `drama` | [`agent`](../packages/core/agent), [`attachment`](../packages/attachment/attachment), [`brand`](../packages/util/brand), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`session-query`](../packages/session-query/session-query), [`tool-video-inspect`](../packages/perception/tool-video-inspect), [`tools`](../packages/core/tools), [`util-values`](../packages/util/values) |
 | [`experimental-agent-team`](../packages/experimental/agent-team) | `experimental` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-projection`](../packages/session/session-projection), [`subagent`](../packages/subagent/subagent) |
 | [`sdk-protocol`](../packages/sdk/protocol) | `sdk` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent) |
 | [`tool-ralph`](../packages/workflow/tool-ralph) | `workflow` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |

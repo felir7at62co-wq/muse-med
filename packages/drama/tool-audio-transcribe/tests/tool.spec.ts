@@ -1,12 +1,12 @@
 /** Registered transcription calls keep account operations private and route receipt-bound requests. */
-import { Context } from '@deepseek-ai/cordis'
+import { Context, symbols } from '@deepseek-ai/cordis'
 import { MuseAccountService, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { afterEach, expect, it, vi } from 'vitest'
 import { apply, Config } from '../src/index.ts'
-import { finishAudioTranscription, startAudioTranscription } from '../src/runner.ts'
+import { finishAudioTranscription, startAudioTranscription, type AudioAccount } from '../src/runner.ts'
 
 vi.mock('../src/runner.ts', () => ({
   startAudioTranscription: vi.fn(async () => ({ status: 'processing', receipt: 'project/transcript/jobs/source-v1.json', job_id: 'job' })),
@@ -14,6 +14,11 @@ vi.mock('../src/runner.ts', () => ({
 }))
 
 const contexts: Context[] = []
+function originalAccount(service: AudioAccount): MuseAccountService {
+  const original: unknown = Reflect.get(service, symbols.original)
+  if (!(original instanceof MuseAccountService)) throw new Error('Expected a Cordis account service receiver')
+  return original
+}
 afterEach(async () => {
   vi.clearAllMocks()
   for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
@@ -48,8 +53,14 @@ it('uses the Host account for start and preserves explicit language and purpose'
     const result = await call({ method: 'start', project: 'project', input: 'source.mp4', ...fields })
     expect(result.isError).toBe(false)
     expect(result.value).toMatchObject({ status: 'processing', job_id: 'job' })
-    expect(startAudioTranscription).toHaveBeenLastCalledWith('project', 'source.mp4',
-      'language' in fields ? 'auto' : 'zh', account, config, undefined, 'purpose' in fields ? 'screenplay' : undefined, expect.any(AbortSignal))
+    const args = vi.mocked(startAudioTranscription).mock.calls.at(-1)
+    if (!args) throw new Error('Expected a transcription start call')
+    const [project, input, language, receiver, options, unused, purpose, signal] = args
+    expect([project, input, language, unused, purpose]).toEqual(['project', 'source.mp4',
+      'language' in fields ? 'auto' : 'zh', undefined, 'purpose' in fields ? 'screenplay' : undefined])
+    expect(originalAccount(receiver) === originalAccount(account)).toBe(true)
+    expect(options).toBe(config)
+    expect(signal).toBeInstanceOf(AbortSignal)
   }
   expect(tool.parameters).not.toHaveProperty('properties.cookie')
   expect(tool.parameters).not.toHaveProperty('properties.token')
@@ -58,7 +69,13 @@ it('uses the Host account for start and preserves explicit language and purpose'
 it('queries the original receipt and renders the canonical response', async () => {
   const { call, account } = await fixture()
   const result = await call({ method: 'status', project: 'project', receipt: 'original.json' })
-  expect(finishAudioTranscription).toHaveBeenCalledExactlyOnceWith('project', 'original.json', account, expect.any(AbortSignal))
+  expect(finishAudioTranscription).toHaveBeenCalledOnce()
+  const args = vi.mocked(finishAudioTranscription).mock.calls[0]
+  if (!args) throw new Error('Expected a transcription status call')
+  const [project, receipt, receiver, signal] = args
+  expect([project, receipt]).toEqual(['project', 'original.json'])
+  expect(originalAccount(receiver) === originalAccount(account)).toBe(true)
+  expect(signal).toBeInstanceOf(AbortSignal)
   expect(startAudioTranscription).not.toHaveBeenCalled()
   expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(result.value) }])
 })

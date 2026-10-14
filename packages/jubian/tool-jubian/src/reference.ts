@@ -253,6 +253,7 @@ export async function uploadAudioReferenceMethod(args: { audio_path?: string | u
     duration_verified: true, bytes: bytes.byteLength, paidRequests: 0,
     sha256: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
     next: '先按项目 audio_list/audio_get 核对已有声线，未登记时 register asset_type=4，再回读真实音频资产 ID。'
-      + '试听认可后把 URL、资产 ID、裸64位 SHA-256（去 sha256: 前缀）与实测时长一起写入角色 voice_profile。'
-      + '用原 storyboard_id 的 audio_preview/audio_apply 更新最终完整音频列表与声音标记，回读后重新 prepare_video。不要重建卡。' }
+      + '已有同角色、同人生时期声线就复用并归档本地候选；没有时，把 URL、资产 ID、裸64位 SHA-256 与实测时长写入对应 voice_profiles 项。'
+      + '时期用 voice_period_id 区分儿童与成年，换装不换声线；旧项目没有分期时才用 voice_profile。'
+      + '用原 storyboard_id 的 audio_preview/audio_apply，引用带 character_id、voice_period_id、audio_asset_id，更新最终列表后回读并重新 prepare_video。不要重建卡。' }
 }

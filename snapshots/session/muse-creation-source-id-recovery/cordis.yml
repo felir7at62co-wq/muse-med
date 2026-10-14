@@ -10,3 +10,11 @@
         default: creation
     - id: snapshot-creation-preset
       name: './creation-preset-fixture.mjs'
+      config:
+        stableBindingDiagnostics: true
+
+# Keep unrelated host stack locations out of this source-id diagnostic replay.
+- id: ptc-runtime
+  config:
+    bootstrapPath: !!js >-
+      process.cwd() + '/ptc-binding-bootstrap.mjs'

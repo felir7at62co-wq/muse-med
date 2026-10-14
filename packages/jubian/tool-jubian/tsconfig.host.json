@@ -20,6 +20,8 @@
     "src/storyboard-audio.ts",
     "src/audio-asset-read.ts",
     "src/audio-asset-register.ts",
+    "src/voice-slot.ts",
+    "src/voice-coordination.ts",
     "src/audio-operation-lock.ts",
     "src/audio-asset-delete.ts",
     "src/json-file.ts",
@@ -35,6 +37,7 @@
     "src/watch.ts"
   ],
   "references": [
+    { "path": "../../host/muse-account/tsconfig.host.json" },
     {
       "path": "../../../vendor/cordis"
     },

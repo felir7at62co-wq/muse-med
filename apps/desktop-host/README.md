@@ -9,7 +9,9 @@ English | [中文](README.zh.md)
 
 The private Host supplies the Muse compositions used by the [Desktop application](../desktop/README.md). Its bundled preset files remain ordinary Cordis configuration. User-owned model providers and credentials stay separate from the Muse account catalog.
 
-The Desktop account composition excludes the standalone Gemini provider `aa` through [`excludedProviderIds`](../../packages/host/muse-account/README.md#minimal-configuration). The account picker retains Yunying's `gemini-3.1-pro` and its other supplied models, plus official DeepSeek. Saved standalone Gemini selections require choosing an available model before another request; [the migration guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-gemini-provider/guide.md) describes that step.
+The Desktop defaults bundle registers [short-drama settings](../../packages/drama/drama-settings/README.md) before user profile patches. The JianyingPro draft root persists in the profile across restarts; explicit home and command-line overrides still take precedence. Saving this setting grants no filesystem access for draft export.
+
+The Desktop account composition excludes the standalone Gemini provider `aa` through [`excludedProviderIds`](../../packages/host/muse-account/README.md#minimal-configuration). It also places `yunying` in `hiddenProviderIds`: the Yunying route remains registered for saved Sessions, but new model selections expose the official DeepSeek and Zhipu GLM account providers instead. Personal and other registered providers are unchanged. Saved standalone Gemini selections require choosing an available model before another request; [the migration guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-gemini-provider/guide.md) describes that step.
 
 The Desktop account composition also excludes Yunying's exact `claude-opus-5-5`, `claude-fable-5-1`, `gpt-6-astra`, and `glm-5.3-flash` IDs from new selections. The gateway directory and other providers, including official Zhipu GLM routes, remain unchanged. Existing conversations keep their saved model ID and show a switch prompt when that route is absent from the catalog.
 

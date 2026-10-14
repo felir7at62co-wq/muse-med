@@ -21,7 +21,7 @@ export async function buildModelCatalog(
   ctx: Context,
   defaultSelection: ModelSelection = ctx.agentDefaultModel.currentSelection(),
 ): Promise<ModelCatalog> {
-  const providers = ctx.llm.listProviders()
+  const providers = ctx.llm.listProviders().filter(provider => provider.selectable !== false)
   const catalog = await Promise.all(providers.map(async (provider) => {
     try {
       const models = await ctx.llm.listModels(provider.id)
@@ -78,7 +78,7 @@ export async function buildModelCatalog(
  * @returns whether the exact model is currently advertised as available.
  */
 export async function modelAvailable(ctx: Context, selection: ModelSelection): Promise<boolean> {
-  if (!ctx.llm.listProviders().some(provider => provider.id === selection.provider)) return false
+  if (!ctx.llm.listProviders().some(provider => provider.id === selection.provider && provider.selectable !== false)) return false
   let models: readonly LlmModelInfo[]
   try { models = await ctx.llm.listModels(selection.provider) }
   catch (error) {

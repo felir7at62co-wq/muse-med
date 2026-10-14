@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "episode": "140",
+  "source_sha256": "bcce89bfd24660bd16d0f501f41435114a2a511557c0eb097ff37d0cde4b0d6e",
+  "shot_script": "shots/第140集镜头脚本.md",
+  "entries": [
+    {
+      "source_line": 1,
+      "source_text": "第140集",
+      "kind": "heading",
+      "shots": [
+        1
+      ]
+    },
+    {
+      "source_line": 2,
+      "source_text": "1-1 公司大厅 日 内",
+      "kind": "scene",
+      "shots": [
+        1
+      ]
+    },
+    {
+      "source_line": 3,
+      "source_text": "江屹：第140集原文。",
+      "kind": "dialogue",
+      "shots": [
+        1
+      ],
+      "speaker": "江屹",
+      "speech_text": "第140集原文。"
+    }
+  ]
+}

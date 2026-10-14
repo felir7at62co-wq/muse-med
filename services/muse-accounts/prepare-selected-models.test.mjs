@@ -49,6 +49,19 @@ test('operator environment credentials and explicit supplier settings need no lo
  assert.equal(JSON.parse(await readFile(f2.output,'utf8')).credentials.MUSE_ZHIPU_API_KEY,'private-zhipu-fixture');
 });
 
+test('Zhipu key pools accept owner-only line files and a plural JSON environment value',async t=>{
+ const f=await fixture(t);await writeFile(f.zhipuFile,'zhipu-file-one\nzhipu-file-two\n',{mode:0o600});
+ await prepareSelectedModelsFiles(f.args,{});
+ assert.deepEqual(JSON.parse(await readFile(f.output,'utf8')).credentials.MUSE_ZHIPU_API_KEY,['zhipu-file-one','zhipu-file-two']);
+ const f2=await fixture(t);await prepareSelectedModelsFiles(['--source',f2.source,'--output',f2.output,
+  '--deepseek-key-file',f2.keyFile,'--yunying-base-url','https://wy6688.token6688.com/v1'],
+ {MUSE_YUNYING_API_KEY:'environment-cloud',MUSE_ZHIPU_API_KEYS:'["zhipu-env-one","zhipu-env-two"]'});
+ assert.deepEqual(JSON.parse(await readFile(f2.output,'utf8')).credentials.MUSE_ZHIPU_API_KEY,['zhipu-env-one','zhipu-env-two']);
+ const f3=await fixture(t);await assert.rejects(prepareSelectedModelsFiles(['--source',f3.source,'--output',f3.output,
+  '--deepseek-key-file',f3.keyFile,'--yunying-base-url','https://wy6688.token6688.com/v1'],
+ {MUSE_YUNYING_API_KEY:'environment-cloud',MUSE_ZHIPU_API_KEYS:'not-json'}),/JSON array/);
+});
+
 test('options, existing outputs, malformed JSON and missing keys leave all input files intact',async t=>{
  const f=await fixture(t);
  await assert.rejects(prepareSelectedModelsFiles(['--source',f.source,'--output',f.output,'--deepseek-key-file',f.keyFile],{}),/credentials/);

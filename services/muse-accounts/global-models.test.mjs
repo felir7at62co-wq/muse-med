@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {openGlobalModels,restrictModelSchema} from './global-models.mjs';
@@ -30,6 +30,18 @@ test('per-model effort defaults survive private storage and public metadata with
  assert.equal(resolved.defaultReasoningEffort,'low');assert.equal(resolved.maxTokens,32768);assert.equal(resolved.apiKey,'synthetic-private-key');
  const catalog=desktopModelCatalog(reopened);assert.equal(catalog.providers[0].models[0].defaultReasoningEffort,'low');
  assert.doesNotMatch(JSON.stringify(catalog),/synthetic-private-key|GLM_KEY|provider.example/);
+});
+
+test('Zhipu official credential pools resolve round robin without changing scalar providers',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'muse-model-zhipu-pool-'));t.after(()=>rm(dir,{recursive:true,force:true}));const file=join(dir,'models');
+ const document={version:2,revision:1,metadataRevision:1,providers:{
+  'zhipu-official':{...provider,apiKeyEnv:'MUSE_ZHIPU_API_KEY'},studio:provider,
+ },credentials:{MUSE_ZHIPU_API_KEY:['zhipu-one','zhipu-two','zhipu-three'],GLM_KEY:'studio-key'}};
+ await writeFile(file,JSON.stringify(document),{mode:0o600});const directory=await openGlobalModels(file);
+ assert.deepEqual(Array.from({length:7},()=>directory.resolve('zhipu-official',model.id).apiKey),
+  ['zhipu-one','zhipu-two','zhipu-three','zhipu-one','zhipu-two','zhipu-three','zhipu-one']);
+ assert.equal(directory.resolve('studio',model.id).apiKey,'studio-key');
+ assert.equal(directory.resolve('studio',model.id).apiKey,'studio-key');
 });
 
 test('model defaults require an offered enabled effort',async t=>{

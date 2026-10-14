@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-shared-asset-usage
+profile: headless
+composition: muse-shared-asset-usage
+recording: authored
+header:
+  class: muse-shared-asset-usage
+  pin: true
+workspace:
+  setup: muse-entity-match-preview
+writerOutput: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-match-fixture

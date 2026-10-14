@@ -6,6 +6,9 @@ interface DesktopBootGlobal {
   dshDesktopBoot?: {
     failed(message: string): Promise<void>
     ready(): Promise<{ injections: Parameters<typeof applyIndexInjections>[0]; streamBaseUrl: string }>
+    clientPluginsLoading(): void
+    clientPluginsLoaded(): void
+    uiInteractive(): void
   }
 }
 const desktop = (globalThis as DesktopBootGlobal).dshDesktopBoot
@@ -34,7 +37,20 @@ try {
       gate.resolve()
     }).catch((error: unknown) => { gate.reject(error) })
   }
-  void entry.run(desktop === undefined ? undefined : reportFailure)
+  let failed = false
+  const onFailure = desktop === undefined ? undefined : (reason: unknown): void => {
+    failed = true
+    reportFailure(reason)
+  }
+  desktop?.clientPluginsLoading()
+  void entry.run(onFailure).then(async () => {
+    if (desktop === undefined || failed) return
+    desktop.clientPluginsLoaded()
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => { requestAnimationFrame(() => { resolve() }) })
+    })
+    desktop.uiInteractive()
+  }).catch(reportFailure)
 } catch (reason) {
   reportFailure(reason)
 }

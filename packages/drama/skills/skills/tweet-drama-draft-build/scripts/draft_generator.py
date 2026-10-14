@@ -49,6 +49,8 @@ class DraftGenerator:
         bgm_dir: Optional[str] = None,
         fallback_video_dir: Optional[str] = None,
         project: Optional[str] = None,
+        ending_audio: Optional[str] = None,
+        ending_effect: Optional[str] = None,
     ) -> str:
         """
         将项目各步骤的输出整理为 jianji 期望的目录结构。
@@ -62,6 +64,9 @@ class DraftGenerator:
               03_subtitle/    ← 01.srt, 02.srt, ... (可选)
               04_bgm/         ← bgm.mp3 (可选)
               05_timeline/    ← 01.timeline.json, ... (可选)
+              06_ending/      ← 与成片相同的已选 ending_audio.mp3/ending_effect.mp4 (可选)
+
+        ending_audio/ending_effect 是显式选定的片尾文件；在正文后 2 秒内保持原速独立可编辑。
         """
         selected = {}
         for directory in (fallback_video_dir, video_dir):
@@ -72,6 +77,12 @@ class DraftGenerator:
         videos = [path for path in selected.values() if path.suffix.lower() in {'.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.webm', '.m4v'}]
         if videos:
             check_videos(find_project(Path(video_dir), project), videos)
+        ending_files = {"ending_audio.mp3": ending_audio, "ending_effect.mp4": ending_effect}
+        for source in ending_files.values():
+            if source is not None and not Path(source).is_file():
+                raise FileNotFoundError(f"Missing selected ending asset: {source}")
+        if ending_effect:
+            check_videos(find_project(Path(video_dir), project), [Path(ending_effect)])
         # 先清空已存在的素材目录，确保每次都是全新的素材
         if os.path.exists(output_materials_dir):
             shutil.rmtree(output_materials_dir)
@@ -145,6 +156,13 @@ class DraftGenerator:
                 if os.path.isfile(src):
                     shutil.copy2(src, bgm_out)
                     break
+
+        if any(ending_files.values()):
+            ending_out = Path(output_materials_dir) / "06_ending"
+            ending_out.mkdir()
+            for filename, source in ending_files.items():
+                if source:
+                    shutil.copy2(source, ending_out / filename)
 
         return output_materials_dir
 

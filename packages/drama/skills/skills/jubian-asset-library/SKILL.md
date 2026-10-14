@@ -9,6 +9,12 @@ description: Use when 新剧本需要角色、场景或道具，想在生图之�
 
 **本技能只读**：不写远端、不改库、不碰 token。正式采用仍然要经过当前项目自己的「生成 → 视觉审核 → 确认出演」门禁。
 
+## 公共人物参考草稿（仅隔离 QA）
+
+如果当前隔离 QA profile 显式提供 `drama_character_references`，先从同一部剧本提取角色描述、确定有依据的风格、外观标签与年代要求，再调用该工具。内部比较索引后，只向用户给出工具返回的**一个最佳参考**、匹配理由和全部不确定项；若返回 `no_match` 或 `needs_review`，如实说明暂不能推荐，不要列候选供用户筛选或自行打破平局。不得把 Agent 填写的角色要求写成已经核验的剧本原文。
+
+这里的 `pending_review` 可作为参考候选，但仍未获素材复用与权利确认。`read_only=true`、`apply_allowed=false`、`local_writes=0`、`remote_writes=0` 仅描述这次参考检索。止步于推荐：不得调用导入、`select_assets`、上传、生成或项目文件写入工具；不得把本地图片路径当作正式 TOS key 或剧变资产 ID。未启用该 QA 工具时，以下历史素材流程保持原样。
+
 ## 数据根
 
 默认 `$DSH_HOME/data/jubian-asset-library`（未设 DSH_HOME 时用 `~/.dsh`），可用环境变量 `JUBIAN_ASSET_LIBRARY_ROOT` 覆盖。资源包不带用户资产；下表规模是来源库的历史记录，不代表安装后已有数据。检索按当前数据根的 `media/` 文件名解析本地图片，不采用可能指向旧机器的 `tags.local_path`，也不改写源索引。

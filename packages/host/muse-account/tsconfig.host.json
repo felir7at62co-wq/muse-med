@@ -8,6 +8,7 @@
   "files": [
     "src/account.ts",
     "src/asr.ts",
+    "src/voice-slots.ts",
     "src/gateway.ts",
     "src/index.ts",
     "src/kb.ts",

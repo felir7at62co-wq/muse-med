@@ -8,6 +8,7 @@ import { stableSha256 } from '@deepseek-ai/dsh-jubian-api'
 import { storyboardAudioMethod } from '../src/storyboard-audio.ts'
 import { bodyHash } from '../src/write.ts'
 import * as audioOperationLock from '../src/audio-operation-lock.ts'
+import { encodeVoiceSlot } from '../src/voice-slot.ts'
 
 const storage = vi.hoisted(() => ({ lockFailure: false }))
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -50,7 +51,7 @@ beforeEach(async () => {
     modelConfig: JSON.stringify(model), storyboardMaterialList: [image], custom: 'preserve' }
   calls = []; onPut = undefined; onRead = undefined; otherBoard = undefined; readOverride = undefined; storage.lockFailure = false
   assets = new Map([[77, { id: 77, scriptId: 2708, assetType: 4, assetName: '周海生声音',
-    assetUrl: voice.materialUrl, isLocal: 1 }]])
+    assetUrl: voice.materialUrl, isLocal: 1, delFlag: '0' }]])
   client = new JubianClient({ credential: async () => 'token', fetch: async (url, init) => {
     const path = new URL(url instanceof Request ? url.url : url.toString()).pathname.replace('/prod-api', '')
     const method = String(init?.method)
@@ -584,4 +585,218 @@ it('refuses an audio-asset deletion or URL change after preview before saving th
   assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetUrl: 'https://media.example/replaced.wav', isLocal: 1 })
   await expect(apply(plan)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
   expect(writes()).toEqual([])
+})
+
+it('refuses a combined reference duration above fifteen seconds before any binding PUT', async () => {
+  const references = Array.from({ length: 8 }, (_, index) => ({ ...voice, materialKey: `voice-${index}`, sortOrder: index + 1 }))
+  await expect(preview(references)).rejects.toThrow('Total reference audio duration exceeds 15 seconds')
+  expect(calls.some(call => call.method === 'PUT')).toBe(false)
+  expect(board.storyboardMaterialList).toEqual([image])
+})
+
+
+const adultProfile = { description: '成年周海生', reference_audio_asset_id: 77, reference_audio: voice.materialUrl,
+  reference_audio_sha256: 'a'.repeat(64), reference_audio_duration_seconds: 2 }
+const childProfile = { description: '童年周海生', reference_audio_asset_id: 78,
+  reference_audio: 'https://media.example/zhou-child.wav', reference_audio_sha256: 'b'.repeat(64), reference_audio_duration_seconds: 2 }
+const phasedCharacter = { character_id: 'zhou', voice_profile: adultProfile,
+  voice_profiles: [{ voice_period_id: 'adult', ...adultProfile }, { voice_period_id: 'child', ...childProfile }] }
+const adultReference = { ...voice, audio_asset_id: 77, character_id: 'zhou', voice_period_id: 'adult' }
+async function voices(characters: unknown): Promise<void> {
+  await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708, project_bible: { characters } }))
+  assets.set(78, { id: 78, scriptId: 2708, assetType: 4, assetName: '童年周海生声音', assetUrl: childProfile.reference_audio, isLocal: 1, delFlag: '0' })
+}
+
+it('binds adult and child voices independently and strips local identities from both provider lists', async () => {
+  await voices([phasedCharacter])
+  const child = { ...voice, materialKey: 'child-voice', materialUrl: childProfile.reference_audio,
+    sortOrder: 2, audio_asset_id: 78, character_id: 'zhou', voice_period_id: 'child' }
+  const plan = await preview([adultReference, child], `${audioPrompt}，童年参照@[童年声音](child-voice)`)
+  expect(plan.audio_asset_bindings).toEqual([
+    { asset_id: 77, material_key: voice.materialKey, url: voice.materialUrl, character_id: 'zhou',
+      voice_period_id: 'adult', voice_profile_fingerprint: stableSha256(phasedCharacter.voice_profiles[0]) },
+    { asset_id: 78, material_key: 'child-voice', url: child.materialUrl, character_id: 'zhou',
+      voice_period_id: 'child', voice_profile_fingerprint: stableSha256(phasedCharacter.voice_profiles[1]) },
+  ])
+  expect(await apply(plan)).toMatchObject({ status: 'applied', verified_readback: true })
+  const put = writes()[0]?.body
+  expect(put).toBeDefined()
+  if (!put) throw new Error('Missing PUT payload')
+  for (const rows of [put.storyboardMaterialList, (JSON.parse(String(put.modelConfig)) as Row).materialList]) {
+    expect(rows).toEqual([image, voice, { materialType: 'audio', materialUrl: child.materialUrl,
+      materialKey: 'child-voice', sortOrder: 2, audioDuration: 2, fileName: voice.fileName }])
+  }
+})
+
+it('supports the legacy default only when a character has no voice periods', async () => {
+  await voices([{ character_id: 'zhou', voice_profile: adultProfile }])
+  const plan = await preview([{ ...voice, audio_asset_id: 77, character_id: 'zhou' }])
+  expect(plan.audio_asset_bindings).toEqual([{ asset_id: 77, material_key: voice.materialKey, url: voice.materialUrl,
+    character_id: 'zhou', voice_profile_fingerprint: stableSha256(adultProfile) }])
+  expect(await apply(plan)).toMatchObject({ status: 'applied' })
+  await voices([{ character_id: 'zhou', voice_profile: adultProfile, voice_profiles: [] }])
+  expect(await preview([{ ...voice, audio_asset_id: 77, character_id: 'zhou' }])).toMatchObject({ status: 'ready' })
+})
+
+it.each([
+  { identity: { character_id: '' }, message: 'character_id' },
+  { identity: { character_id: 3 }, message: 'character_id' },
+  { identity: { voice_period_id: 'adult' }, message: 'character_id' },
+  { identity: { character_id: 'zhou', voice_period_id: '' }, message: 'voice_period_id' },
+  { identity: { character_id: 'zhou', voice_period_id: 3 }, message: 'voice_period_id' },
+])('refuses malformed local voice identity $identity without a provider save', async ({ identity, message }) => {
+  await voices([phasedCharacter])
+  await expect(preview([{ ...voice, audio_asset_id: 77, ...identity }])).rejects.toThrow(message)
+  expect(writes()).toEqual([])
+})
+
+it('requires an actual asset ID for character-aware binding', async () => {
+  await voices([phasedCharacter])
+  await expect(preview([{ ...voice, character_id: 'zhou', voice_period_id: 'adult' }])).rejects.toThrow('require audio_asset_id')
+  expect(writes()).toEqual([])
+})
+
+it.each([
+  { characters: null, reference: adultReference, message: 'not configured' },
+  { characters: [null], reference: adultReference, message: 'JSON object' },
+  { characters: [], reference: adultReference, message: 'exact stable character' },
+  { characters: [phasedCharacter, phasedCharacter], reference: adultReference, message: 'exact stable character' },
+  { characters: [{ ...phasedCharacter, voice_profiles: {} }], reference: adultReference, message: 'material list' },
+  { characters: [phasedCharacter], reference: { ...voice, audio_asset_id: 77, character_id: 'zhou' }, message: 'requires voice_period_id' },
+  { characters: [phasedCharacter], reference: { ...adultReference, voice_period_id: 'elder' }, message: 'missing or ambiguous' },
+  { characters: [{ ...phasedCharacter, voice_profiles: [phasedCharacter.voice_profiles[0], phasedCharacter.voice_profiles[0]] }],
+    reference: adultReference, message: 'missing or ambiguous' },
+  { characters: [{ character_id: 'zhou', voice_profile: adultProfile }], reference: adultReference, message: 'no legacy voice fallback' },
+  { characters: [{ character_id: 'zhou' }], reference: { ...voice, audio_asset_id: 77, character_id: 'zhou' }, message: 'JSON object' },
+  { characters: [phasedCharacter], reference: { ...adultReference, voice_period_id: 'child' }, message: 'ID and URL differ' },
+  { characters: [{ ...phasedCharacter, voice_profiles: [{ voice_period_id: 'adult', ...adultProfile,
+    reference_audio: childProfile.reference_audio }] }], reference: adultReference, message: 'ID and URL differ' },
+])('refuses unresolved character-period associations $message', async ({ characters, reference, message }) => {
+  await voices(characters)
+  await expect(preview([reference])).rejects.toThrow(message)
+  expect(writes()).toEqual([])
+})
+
+it('refuses unreadable or changed project voice identities during asynchronous preview reads', async () => {
+  await voices([phasedCharacter])
+  onRead = async () => { await writeFile(join(root, 'project_config.json'), 'broken') }
+  await expect(preview([adultReference])).rejects.toThrow('Cannot read current project voice identities')
+  await voices([phasedCharacter])
+  onRead = async () => { await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2709 })) }
+  await expect(preview([adultReference])).rejects.toThrow('another project')
+  await voices([phasedCharacter])
+  onRead = async () => { await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 })) }
+  await expect(preview([adultReference])).rejects.toThrow('JSON object')
+  expect(writes()).toEqual([])
+})
+
+it('rechecks a selected voice profile after current-card read before sending a new save', async () => {
+  await voices([phasedCharacter])
+  const plan = await preview([adultReference])
+  onRead = async () => { await voices([{ ...phasedCharacter, voice_profiles: [
+    { ...phasedCharacter.voice_profiles[0], description: '另一个版本' }, phasedCharacter.voice_profiles[1],
+  ] }]) }
+  await expect(apply(plan)).rejects.toThrow('changed since audio preview')
+  expect(writes()).toEqual([])
+})
+
+it('allows other-period and costume updates but a claimed key never saves again after voice removal', async () => {
+  await voices([phasedCharacter])
+  const plan = await preview([adultReference])
+  await voices([{ ...phasedCharacter, asset_id: 99, voice_profiles: [phasedCharacter.voice_profiles[0],
+    { ...phasedCharacter.voice_profiles[1], description: '童年新版本' }] }])
+  expect(await apply(plan)).toMatchObject({ status: 'applied', replayed: false })
+  await voices([])
+  expect(await apply(plan)).toMatchObject({ status: 'applied', replayed: true })
+  expect(writes()).toHaveLength(1)
+})
+
+it.each([
+  { character_id: 'zhou' },
+  { voice_period_id: 'adult' },
+  { voice_profile_fingerprint: 'a'.repeat(64) },
+  { character_id: 'zhou', voice_profile_fingerprint: 3 },
+  { character_id: 'zhou', voice_profile_fingerprint: 'broken' },
+  { character_id: '', voice_profile_fingerprint: 'a'.repeat(64) },
+  { character_id: 'zhou', voice_period_id: '', voice_profile_fingerprint: 'a'.repeat(64) },
+])('refuses malformed frozen identity fields %j without saving', async (fields) => {
+  const plan = await preview([{ ...voice, audio_asset_id: 77 }])
+  const changed = await revisedPlan(plan, (prepared) => {
+    const [binding] = prepared.audio_asset_bindings as Row[]
+    if (!binding) throw new Error('Missing audio binding fixture')
+    Object.assign(binding, fields)
+  })
+  await expect(apply(changed)).rejects.toThrow()
+  expect(writes()).toEqual([])
+})
+
+
+it.each(['audio_asset_id', 'character_id', 'voice_period_id'])('refuses %s injected into a frozen provider audio row', async (field) => {
+  const plan = await preview([voice])
+  const changed = await revisedPlan(plan, (prepared) => {
+    const [row] = prepared.audio_references as Row[]
+    if (!row) throw new Error('Missing audio reference fixture')
+    row[field] = field === 'audio_asset_id' ? 77 : 'zhou'
+  })
+  await expect(apply(changed)).rejects.toThrow('omit local identity fields')
+  expect(writes()).toEqual([])
+})
+
+
+it.each([{ character: 'other', period: 'adult' }, { character: 'zhou', period: 'child' }])(
+  'refuses a remote shared slot contradicting the local selected voice %j', async ({ character, period }) => {
+    await voices([phasedCharacter])
+    assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: `声音 ${encodeVoiceSlot(2708, character, period)}`,
+      url: voice.materialUrl, isLocal: 1, delFlag: '0' })
+    await expect(preview([adultReference])).rejects.toThrow('Remote voice slot differs')
+    expect(writes()).toEqual([])
+  },
+)
+
+it('accepts an exact remote character/period slot but refuses a later remote rename before a new save', async () => {
+  await voices([phasedCharacter])
+  assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: `声音 ${encodeVoiceSlot(2708, 'zhou', 'adult')}`,
+    url: voice.materialUrl, isLocal: 1, delFlag: '0' })
+  const plan = await preview([adultReference])
+  assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: `声音 ${encodeVoiceSlot(2708, 'zhou', 'child')}`,
+    url: voice.materialUrl, isLocal: 1, delFlag: '0' })
+  await expect(apply(plan)).rejects.toThrow('Remote voice slot differs')
+  expect(writes()).toEqual([])
+})
+
+it('does not label a URL-only legacy association as speaker-verified despite a structured remote name', async () => {
+  assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: `声音 ${encodeVoiceSlot(2708, 'zhou', 'adult')}`,
+    url: voice.materialUrl, isLocal: 1, delFlag: '0' })
+  expect(await preview([{ ...voice, audio_asset_id: 77 }])).toMatchObject({ status: 'ready' })
+})
+
+
+it.each([false, true])('refuses deleted audio on %s character-aware preview without any PUT', async (phased) => {
+  await voices([phasedCharacter])
+  assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: '周海生声音', assetUrl: voice.materialUrl, delFlag: '1' })
+  await expect(preview([phased ? adultReference : { ...voice, audio_asset_id: 77 }])).rejects.toThrow('Only this storyboard audio binding is pending')
+  expect(writes()).toEqual([])
+})
+
+it.each([undefined, 'pending', null])('requires explicit active detail on a phased voice with flag %s before preview', async (delFlag) => {
+  await voices([phasedCharacter])
+  assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: '周海生声音', assetUrl: voice.materialUrl, delFlag })
+  await expect(preview([adultReference])).rejects.toThrow('continue independent work')
+  expect(writes()).toEqual([])
+})
+
+it.each(['deleted', 'unknown'] as const)('rechecks %s phased voice state before applying the prepared original-card edit', async (state) => {
+  await voices([phasedCharacter])
+  const plan = await preview([adultReference])
+  assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: '周海生声音', assetUrl: voice.materialUrl,
+    ...(state === 'deleted' ? { delFlag: '1' } : {}) })
+  await expect(apply(plan)).rejects.toThrow('Only this storyboard audio binding is pending')
+  expect(writes()).toEqual([])
+})
+
+it('retains legacy unphased binding compatibility when deletion evidence is unavailable', async () => {
+  assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: '周海生声音', assetUrl: voice.materialUrl })
+  const plan = await preview([{ ...voice, audio_asset_id: 77 }])
+  expect(await apply(plan)).toMatchObject({ status: 'applied', verified_readback: true })
+  expect(writes()).toHaveLength(1)
 })

@@ -46,7 +46,9 @@ project_bible 的 style、aspect_ratio、video（model_id/platform_id/resolution
 
 characters 用稳定 character_id 记录角色姓名、aliases 和实际 asset_id。用当前项目主体设定核对角色，别名不当成另一个角色，姓名相似不自动绑定；画面身份、服装状态、说话人与台词分别检查。voice_profile.description 保存用户确认的年龄、性别、音色、口音和语气，每个涉及该角色的镜头包复用同一声音档案，并按原文核对谁说哪句话、dialogue/vo 与对白顺序。speaker_id 仅在当前服务实际提供且支持选择时记录；旧 reference_audio 路径或真实远端 ID 可保留，提交前核实精确模型/平台是否支持参考音频和字段。
 
-音频类别资产经真实回读与试听认可后，将 voice_profile 的 reference_audio（HTTPS URL）、reference_audio_asset_id（本项目真实音频资产 ID）、reference_audio_sha256（实测 64 位十六进制哈希）与 reference_audio_duration_seconds（实测大于 0 且不超过 15 秒）一起保存。服装变更保留当前声线；新音频先作为候选，不自动替换已认可版本。替换四项一起提交，不能让新 URL 沿用旧资产或测量；只修改描述等字段时省略引用字段。明确解除引用时提交 reference_audio=null，工具删除当前四项引用而保留 description/speaker_id；省略字段不会清除旧引用。上述操作均通过同一 preview/update、expected_revision 与 reason 记录，完整版本与来源保留在声线清单。
+新项目即使人物目前只有一个明确时期，也优先建立分期档案，沿用项目共享的时期 ID（如 child、adult）；来源尚未确定时期时先查证，不凭空起年龄。儿童、成年等不同时期使用同一 character_id 下的 voice_profiles 数组，每项有稳定 voice_period_id、可选 label 及既有声音字段；按时期 ID 合并更新，不覆盖其他时期。同人物同时期换装共用声线；时期未定时依据来源补充，不靠集数、衣服或姓名猜。未分期的旧项目继续使用 voice_profile。分期音频引用带 character_id、voice_period_id，镜头与闪回各选真实时期；同包可以引用不同年龄的声音，合计仍不超过15秒。共享项目从剧变音频库核对现有声线和共享身份，不将不同 Muse 账号的私有 Wiki 或本地文件锁当成团队登记表。
+
+音频类别资产经真实回读与试听认可后，将对应 voice_profiles 时期条目（旧项目为 voice_profile）的 reference_audio（HTTPS URL）、reference_audio_asset_id（本项目真实音频资产 ID）、reference_audio_sha256（实测 64 位十六进制哈希）与 reference_audio_duration_seconds（实测大于 0 且不超过 15 秒）一起保存。服装变更保留当前声线；新音频先作为候选，不自动替换已认可版本。替换四项一起提交，不能让新 URL 沿用旧资产或测量；只修改描述等字段时省略引用字段。明确解除引用时提交 reference_audio=null，工具删除当前四项引用而保留 description/speaker_id；省略字段不会清除旧引用。上述操作均通过同一 preview/update、expected_revision 与 reason 记录，完整版本与来源保留在声线清单。
 
 固定声音提示词不能保证 SD 原生生成的跨镜音色一致。生成后实际听音核对同角色声音与说话人，发现串角色、错台词或音色漂移就标记受影响包并复核，不凭提示词宣称已解决，也不自动建立独立 TTS 通道。修改别名或其他角色字段时保留既有声音档案；新版本按受影响角色和镜头包复核。
 

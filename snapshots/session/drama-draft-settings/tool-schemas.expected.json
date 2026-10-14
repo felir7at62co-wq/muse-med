@@ -299,7 +299,7 @@
                     },
                     "voice_profile": {
                       "type": "object",
-                      "description": "Partial updates preserve approved guidance. Supply description when first creating a voice profile.",
+                      "description": "Legacy default voice. Partial updates preserve approved guidance. Supply description when first creating a voice profile.",
                       "additionalProperties": false,
                       "properties": {
                         "speaker_id": {
@@ -332,6 +332,57 @@
                           "type": "number",
                           "description": "Measured reference duration in seconds, greater than zero and at most 15; the usual sample is 2 seconds."
                         }
+                      }
+                    },
+                    "voice_profiles": {
+                      "type": "array",
+                      "description": "Voice periods of the same stable character, such as child and adult. Merge by voice_period_id; omissions and [] preserve existing periods. Costume changes preserve their period voice. Each new period requires description.",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "voice_period_id": {
+                            "type": "string",
+                            "description": "Stable explicit life-period ID, independent of costume and emotion."
+                          },
+                          "label": {
+                            "type": "string",
+                            "description": "Optional readable period label."
+                          },
+                          "speaker_id": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string",
+                            "description": "Approved gender/age, timbre, speaking style and accent to reuse in each package."
+                          },
+                          "reference_audio": {
+                            "oneOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Approved reference path, ID or URL. Set null to remove the current reference and its asset ID, hash and duration; voice guidance remains."
+                          },
+                          "reference_audio_asset_id": {
+                            "type": "integer",
+                            "description": "Actual approved audio-category asset ID. Set together with its HTTPS reference_audio URL, measured SHA-256 and duration."
+                          },
+                          "reference_audio_sha256": {
+                            "type": "string",
+                            "description": "64 hexadecimal SHA-256 characters of the approved audio bytes."
+                          },
+                          "reference_audio_duration_seconds": {
+                            "type": "number",
+                            "description": "Measured reference duration in seconds, greater than zero and at most 15; the usual sample is 2 seconds."
+                          }
+                        },
+                        "required": [
+                          "voice_period_id"
+                        ]
                       }
                     }
                   },

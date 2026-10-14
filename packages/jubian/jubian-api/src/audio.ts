@@ -80,9 +80,13 @@ export function validateAudioMaterial(material: Record<string, unknown>): Record
  * @returns Audio URLs in consecutive group order; absent duration metadata stays unverified.
  */
 export function referenceAudioUrls(materials: Record<string, unknown>[]): string[] {
+  let total = 0
   return materials.filter(material => material.materialType === 'audio')
     .map((material, index) => {
       const audio = validateAudioMaterial(material)
+      if (typeof audio.audioDuration === 'number') total += audio.audioDuration
+      if (total > REFERENCE_AUDIO_MAX_SECONDS) throw new JubianError('INVALID_ARGUMENT',
+        'Total reference audio duration exceeds 15 seconds; use short speech samples (normally 2 seconds per character)')
       if (Number(audio.sortOrder) !== index + 1) {
         throw new JubianError('CONTRACT_CHANGED',
           'Audio reference sortOrder must match its consecutive group position and prompt key order')

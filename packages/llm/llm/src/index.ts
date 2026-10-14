@@ -441,7 +441,11 @@ export class LlmRuntime extends TypertRemoteService {
         ?? resolveRetryPolicy(undefined, `llm: provider "${provider}" retryPolicy`)
       registrations.push({
         adapter,
-        provider: { id: info.id, name: info.name },
+        provider: {
+          id: info.id,
+          name: info.name,
+          ...(info.selectable === false ? { selectable: false as const } : {}),
+        },
         retryPolicy,
       })
     }

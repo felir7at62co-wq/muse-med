@@ -209,6 +209,6 @@ it('rebinds policy updates and reloads to a replacement Windows main window', ()
 it.each(['darwin', 'win32'] as const)('includes the installation wait notice only on Windows: %s', (platform) => {
   const f = setup(platform)
   expect(f.view().locale.messages.mandatoryReadyDetail).toBe(platform === 'win32'
-    ? '更新期间应用将暂时关闭，完成后会自动打开。\n\n更新可能需要一些时间，请耐心等待，期间请勿重复启动应用。'
+    ? 'Muse 将暂时关闭，安装窗口会显示安装进度，完成后自动重新打开 Muse。\n\n请保持安装窗口打开，安装期间不要重复启动 Muse。'
     : '更新期间应用将暂时关闭，完成后会自动打开。')
 })

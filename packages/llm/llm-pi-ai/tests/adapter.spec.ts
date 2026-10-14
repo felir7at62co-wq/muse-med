@@ -59,11 +59,13 @@ async function harness(baseURL: string, overrides: Record<string, unknown> = {})
 function adapterOf(
   providers: Record<string, LlmPiAi.PiAiProviderProfile>,
   apiKey: string | undefined = 'test-key',
+  options: Pick<LlmPiAi.PiAiAdapterOptions, 'onProviderFailure'> = {},
 ): PiAiAdapter {
   return new PiAiAdapter({
     profiles: () => resolveProfiles(providers),
     resolveApiKey: () => Promise.resolve(apiKey),
     auth: memoryAuth(),
+    ...options,
   })
 }
 
@@ -382,11 +384,106 @@ describe('PiAiAdapter provider routing', () => {
     [429, 'RATE_LIMIT'],
     [500, 'SERVER'],
   ] as const)('maps HTTP %s failures to %s', async (status, code) => {
-    const server = await mockServer([{ status, body: JSON.stringify({ error: { message: `provider ${status}` } }) }])
-    const ctx = await harness(server.url)
+    const requestId = `request-${status}`
+    const server = await mockServer([{
+      status,
+      headers: { 'x-request-id': requestId, ...status === 429 ? { 'retry-after': '2' } : {} },
+      body: JSON.stringify({ error: { message: 'opaque provider failure' } }),
+    }])
+    const onProviderFailure = vi.fn()
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['deepseek'], adapterOf({
+      deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url },
+    }, 'test-key', { onProviderFailure }))
     const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
-    expect(result.finish).toMatchObject({ kind: 'error', failure: { code } })
+    expect(result.finish).toMatchObject({
+      kind: 'error',
+      failure: {
+        code,
+        status,
+        requestId,
+        ...status === 429 ? { providerRetryAfterMs: 2000 } : {},
+      },
+    })
+    expect(onProviderFailure).toHaveBeenCalledWith({
+      provider: 'deepseek',
+      model: 'deepseek-flash',
+      code,
+      status,
+      requestId,
+      ...status === 429 ? { providerRetryAfterMs: 2000 } : {},
+    })
     expect(server.paths).toEqual(['/chat/completions'])
+  })
+
+  it('retains response facts when no diagnostics observer is installed', async () => {
+    const server = await mockServer([{
+      status: 429,
+      headers: { 'retry-after': '2', 'x-request-id': 'request-without-observer' },
+      body: JSON.stringify({ error: { message: 'opaque provider failure' } }),
+    }])
+    const ctx = await harness(server.url)
+
+    const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
+
+    expect(result.finish).toMatchObject({ kind: 'error', failure: {
+      code: 'RATE_LIMIT', status: 429, providerRetryAfterMs: 2000, requestId: 'request-without-observer',
+    } })
+  })
+
+  it('normalizes provider retry delays and bounded request-id header variants', async () => {
+    const future = new Date(Date.now() + 60_000).toUTCString()
+    const responses = [
+      { headers: { 'retry-after-ms': '25', 'request-id': 'request-ms' }, delay: 25, requestId: 'request-ms' },
+      { headers: { 'retry-after-ms': 'invalid', 'retry-after': '2', 'x-deepseek-request-id': 'request-seconds' }, delay: 2000, requestId: 'request-seconds' },
+      { headers: { 'retry-after': future, 'x-amzn-requestid': 'request-date' }, requestId: 'request-date' },
+      { headers: { 'retry-after': 'invalid', 'request-id': 'not printable' } },
+      { headers: { 'retry-after': '0' } },
+    ]
+    const server = await mockServer(responses.map(({ headers }) => ({
+      status: 429,
+      headers,
+      body: JSON.stringify({ error: { message: 'opaque provider failure' } }),
+    })))
+    const observations: LlmPiAi.PiAiProviderFailureObservation[] = []
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['deepseek'], adapterOf({
+      deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url },
+    }, 'test-key', { onProviderFailure: detail => observations.push(detail) }))
+
+    for (const expected of responses) {
+      const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
+      const hasDateDelay = expected.requestId === 'request-date'
+      expect(result.finish).toMatchObject({ kind: 'error', failure: {
+        code: 'RATE_LIMIT',
+        status: 429,
+        ...expected.delay === undefined ? {} : { providerRetryAfterMs: expected.delay },
+        ...expected.requestId === undefined ? {} : { requestId: expected.requestId },
+      } })
+      if (expected.delay === undefined && !hasDateDelay && result.finish.kind === 'error') {
+        expect(result.finish.failure).not.toHaveProperty('providerRetryAfterMs')
+      }
+      if (expected.requestId === undefined && result.finish.kind === 'error') {
+        expect(result.finish.failure).not.toHaveProperty('requestId')
+      }
+    }
+    const dated = observations[2]?.providerRetryAfterMs
+    expect(dated).toBeGreaterThan(0)
+    expect(dated).toBeLessThanOrEqual(60_000)
+  })
+
+  it('contains provider failure observer exceptions', async () => {
+    const server = await mockServer([{ status: 500, body: JSON.stringify({ error: { message: 'opaque failure' } }) }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['deepseek'], adapterOf({
+      deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url },
+    }, 'test-key', { onProviderFailure: () => { throw new Error('observer failed') } }))
+
+    const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'SERVER', status: 500 } })
   })
 
   it('uses the resolved catalog context window for usage-based overflow detection', async () => {
@@ -415,8 +512,13 @@ describe('PiAiAdapter provider routing', () => {
   })
 
   it('stops the SDK request when the adapter idle watchdog expires', async () => {
-    const server = await mockServer([{ holdOpen: true }])
-    const ctx = await harness(server.url, { streamIdleTimeoutMs: 20 })
+    const server = await mockServer([{ holdOpen: true, headers: { 'x-request-id': 'request-timeout' } }])
+    const onProviderFailure = vi.fn()
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['deepseek'], adapterOf({
+      deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url, streamIdleTimeoutMs: 20 },
+    }, 'test-key', { onProviderFailure }))
     const controller = new AbortController()
     onTestFinished(async () => {
       controller.abort()
@@ -436,6 +538,9 @@ describe('PiAiAdapter provider routing', () => {
 
     expect(server.paths).toEqual(['/chat/completions'])
     expect(server.closedResponses).toBe(1)
+    expect(onProviderFailure).toHaveBeenCalledWith({
+      provider: 'deepseek', model: 'deepseek-flash', code: 'TIMEOUT',
+    })
   })
 })
 

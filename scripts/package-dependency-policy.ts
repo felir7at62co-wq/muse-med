@@ -18,6 +18,7 @@ const HOST_DEPENDENCY_PACKAGES: readonly string[] = [
 /** Required Cordis services whose Host imports are type-only. */
 const REQUIRED_SERVICE_PEERS = {
   '@deepseek-ai/dsh-api-terminal-controller': ['@deepseek-ai/dsh-subprocess'],
+  '@deepseek-ai/dsh-tool-jubian': ['@deepseek-ai/dsh-muse-account'],
 } as const satisfies Readonly<Record<string, readonly string[]>>
 
 /** Development-only package relationships not represented by source imports. */
@@ -73,13 +74,13 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'FAILED_STATUSES', 'MODEL_TASK_TYPES', 'SUCCESS_STATUSES', 'VIDEO_TASK_TYPES',
     'alignedReferenceSize', 'buildImageRequest', 'buildNativeVideoPreview', 'buildReferenceObjectKey',
     'buildSubjectSelection', 'buildSubtitleEraseRequest', 'buildVideoUpscaleRequest', 'childrenOf',
-    'classifyExistingNativeMatches', 'classifyNewNativeCandidates', 'downloadMedia', 'extractAppScriptUrl',
+    'classifyExistingNativeMatches', 'classifyNewNativeCandidates', 'downloadMedia', 'encodeVoiceSlot', 'extractAppScriptUrl',
     'extractTosUploadConfig', 'findFolder', 'findFolderById', 'imageCandidates', 'isRelatedTaskCandidate',
     'matchesNativeEpisode', 'nativeEpisodeScope', 'nativeResultUrls', 'needsUpscale', 'normalizedPrompt', 'readAssetList', 'readAssetPage',
     'readEpisodes', 'readFolderTree', 'readGeneratedImage', 'readImageDisplayPrice', 'readImageGeneration',
     'readMaterialList', 'readModels', 'readReferenceAudio', 'readReferenceImage', 'readScript',
     'readScriptList', 'readStoryboard', 'readStoryboardPage', 'readSubtaskPage', 'readSubtitleTaskId',
-    'readTaskList', 'readTaskPage', 'readUpscaleTaskId', 'referenceAudioUrls', 'referenceMaterialItem',
+    'readTaskList', 'readTaskPage', 'readUpscaleTaskId', 'readVoiceSlot', 'referenceAudioUrls', 'referenceMaterialItem',
     'resolveImageModel', 'resolveVideoModel', 'responseRecords', 'signTosObjectPut', 'stableJson',
     'stableSha256', 'storyboardMaterials', 'taskIdOf', 'taskSemanticFields', 'taskStatusOf',
     'terminalOutcome', 'validateAudioMaterial', 'validateImageRequestInput', 'validateNativeVideoPreview',

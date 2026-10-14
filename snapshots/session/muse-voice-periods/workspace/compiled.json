@@ -1,0 +1,44 @@
+{
+  "method": "compile",
+  "ok": true,
+  "packages": [
+    {
+      "index": 1,
+      "shots": [
+        1,
+        2
+      ],
+      "material_bindings": [
+        {
+          "material_key": "person",
+          "name": "陆沉舟（职场装）",
+          "type": "角色",
+          "official": true,
+          "asset_id": "11",
+          "material_id": "111",
+          "url": "https://example.invalid/lu.png"
+        }
+      ]
+    }
+  ],
+  "shots": [
+    {
+      "shot": 1,
+      "bindings": [
+        {
+          "material_key": "person",
+          "name": "陆沉舟（职场装）",
+          "type": "角色",
+          "official": true,
+          "asset_id": "11",
+          "material_id": "111",
+          "url": "https://example.invalid/lu.png"
+        }
+      ]
+    },
+    {
+      "shot": 2,
+      "bindings": []
+    }
+  ]
+}

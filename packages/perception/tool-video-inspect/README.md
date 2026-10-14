@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`video_inspect` probes local video or returns a bounded set of decoded frames to an image-capable model. Every image carries its source presentation timestamp. A new JSON manifest retains the source version, selected interval, frame references and metadata; the tool returns only after reading the manifest back.
+`video_inspect` probes local video or returns a bounded set of decoded frames to an image-capable model. `video_ocr` recognizes visible text from bounded local frame batches without invoking a model or cloud speech service. Both preserve source presentation timestamps and version evidence.
 
 ## Table of Contents
 
@@ -27,7 +27,17 @@ Mount the function plugin with `tools`, `fs`, `subprocess`, `attachments` and `s
 {"file_path":"source/episode-01.mp4","method":"sample","start_seconds":0,"end_seconds":60,"frame_count":6,"manifest_path":"qa/video-01.json"}
 ```
 
-Uniform samples use the middle of equally sized intervals. `timestamps_seconds` selects specific source moments instead. The default maximum is 12 frames over 120 seconds per call; the default interval is at most 60 seconds. `next_start_seconds` names the next interval when part of the source remains. Use the existing `audio_transcribe` tool separately for dialogue and subtitles, under its account and billing requirements.
+Uniform samples use the middle of equally sized intervals. `timestamps_seconds` selects specific source moments instead. The default maximum is 12 frames over 120 seconds per call; the default interval is at most 60 seconds. `next_start_seconds` names the next interval when part of the source remains. Use `video_ocr` for visible or burned-in text and the existing `audio_transcribe` tool separately for spoken dialogue, under its account and billing requirements.
+
+OCR samples use a valid positive video-stream duration when both the video and container explicitly start at zero. Otherwise they use the container duration. This avoids planning a nonexistent frame at the video endpoint when audio runs slightly longer. General inspection metadata, contact sheets and ASR range checks retain the container duration; failed samples inside the requested interval remain incomplete coverage.
+
+`video_ocr` samples a requested video range, sends bounded JPEG batches to one configured local OCR bridge process per batch, and creates both raw JSON evidence and a timestamped merged TXT file inside the workspace. Each extraction batch limits filter output before recording timestamps, so diagnostics refer only to the encoded batch frames. The raw evidence retains every recognized line, available word box, source timestamp, scan range and conservative classification. Long-lived, spatially stable exact text may be labelled `persistent_text_candidate`; this describes visual persistence, not whether the text is narrative. Both classes remain content candidates and count toward `segment_count`; text is never silently removed. Equal-time lines retain OCR reading order.
+
+```json
+{"file_path":"source/episode-01.mp4","start_seconds":0,"end_seconds":120,"frame_interval_seconds":0.5,"language":"zh-Hans-CN","raw_json_path":"transcript/raw/episode-01-ocr.json","merged_text_path":"transcript/raw/episode-01-ocr.txt"}
+```
+
+`scan_status` distinguishes `complete`, `partial` and `failed`. `text_status=no_text_detected` is possible only after every planned sample in that call was processed, but sampled OCR still cannot prove that the video has no subtitles. `next_start_seconds`, unscanned ranges and failed timestamps make incomplete coverage explicit. A missing requested Windows language, decode failure or timeout remains `indeterminate`; the tool has no ASR fallback and cannot authorize or bill a cloud request. Deployments configure language, interval bounds, range/frame/batch limits, image and JSON byte limits, deadlines and text-persistence thresholds. A bridge failure stops subsequent batches rather than repeating an unavailable recognizer. No OCR engine, model or language pack is installed at runtime. `ocrEngine=windows-native` (the package default) uses installed Windows recognizers. `ocrEngine=rapidocr` uses `ocrPythonPath` and the pinned CPU models on Windows, macOS or Linux, with `ocrCpuThreads` (default 2). The Muse Desktop composition selects RapidOCR from its bundled interpreter. Its Chinese/English recognition model accepts `auto`, `zh-Hans-CN` and `en-US`; `zh-Hant-TW` fails explicitly rather than silently changing recognizers. Missing runtime or model support remains an explicit failure. A consumer may use separately authorized ASR for this material and purpose under its existing billing and receipt flow; OCR failure never authorizes a new paid request or changes ASR evidence into OCR.
 
 `video_contact_sheet` returns timestamp-labelled overview images. The default layout is three columns and three rows; `columns: 3, rows: 2` gives six cells. Cells run left to right and top to bottom in source order. `frame_count` can span multiple pages; `timestamps_seconds` selects exact moments, or `frame_interval_seconds` requests uniform spacing without a frame count. `strategy: scene` prioritizes detected cut sides. Each manifest retains the full extracted frame references for detail follow-up. First obtain successful `video_inspect method=metadata` for the current source, then sample a bounded interval containing the selected time. Only overview pages enter this result as image blocks; grids do not issue trusted inspection receipts.
 
@@ -42,6 +52,10 @@ Creation deployments can enable `trustedEvidence` (default false). A real `metad
 ## Execution and storage
 
 Reads resolve through `ctx.fs`; probes and decoders execute through `ctx.subprocess` under the current Session file policy. Confined execution requires an available sandbox provider. FFmpeg accepts only local file and pipe protocols. Source size, encoded image area (`maxSourcePixels`, default 33,177,600), duration, frame dimensions, complete image bytes, process deadlines and concurrent inspections are deployment-configurable. Each command awaits process-range termination, including cancellation and failure. Removing the plugin cancels and awaits its active inspections.
+
+For `windows-native`, the packaged `scripts/ocr_bridge.ps1` receives bounded base64 JPEG JSON through stdin. It creates one Windows OCR engine per batch and returns bounded JSON through stdout; it does not use predictable temporary images, shell interpolation, network access or runtime installation. The fixed packaged script uses process-scoped `ExecutionPolicy Bypass` so the application never changes the machine or user policy. Explicit language selection fails closed when that recognizer is unavailable. Source mutation aborts publication, output paths must be distinct and inside the workspace, and existing files are never replaced.
+
+For `rapidocr`, `scripts/ocr_bridge.py` checks RapidOCR 3.10.0, ONNX Runtime 1.23.2 and all three model SHA-256 digests before CPU inference. Models ship in the pinned wheel, are selected by explicit paths, and are not downloaded during recognition. The bridge returns line boxes with empty word arrays because this model does not provide word positions. Input/output bounds, cancellation, source version checks and file publication are shared with the Windows engine.
 
 Frames enter the normalized attachment store before returning as image blocks. The manifest is created inside the current workspace without replacing an existing file, then read back. A changed source version aborts publication. Source media is unchanged, and no remote media URL or account credential enters the result. No invariant companion is published because each manifest and attachment has one authoritative storage owner.
 
@@ -67,9 +81,25 @@ The schema adds a fixed request cost. Results add bounded text and at most the c
 
 Tool results append without rewriting earlier messages. Schema or description changes alter the reusable request prefix; frame attachments add visual inputs to later requests until the ordinary image offload policy applies.
 
+### The `video_ocr` tool
+
+#### What the model sees
+
+The model receives a compact source-labelled summary: source version, requested and scanned interval, scan and text status, coverage counts and ranges, a bounded segment preview, and paths to the full raw JSON and merged TXT. Full word boxes and all segments remain in files rather than inflating every tool result. OCR and ASR source records are never merged by this tool.
+
+#### Token effect
+
+The schema adds a fixed request cost. A result adds bounded text only, controlled by `ocrPreviewSegments`; frame bytes and raw OCR JSON do not enter model context. Continuing a long scan requires further tool calls, but each call exposes an explicit continuation point and never adds a model round or ASR request internally.
+
+#### KV Cache effect
+
+The result appends without rewriting earlier messages. The fixed schema changes the reusable request prefix; evidence-file contents enter context only when the caller deliberately reads them.
+
 ## Known Limitations and Deferred Work
 
 - Sampled frames can miss short actions, transitions and lip movement. Inspect uncertain timecodes and additional intervals; sampling does not establish complete video coverage.
+- Sampled OCR can miss short-lived, stylized, moving or low-contrast subtitles. Even `complete` plus `no_text_detected` describes the planned samples, not mathematical proof that the video contains no subtitles. A user-facing workflow must keep fallback decisions explicit.
+- Windows OCR quality and supported languages depend on locally installed recognizers. This package reports missing language or engine support and does not install it.
 - Visual observations do not establish dialogue, speaker identity or consistent timbre. Speech transcription and human listening remain separate.
 - Decode support depends on the installed FFmpeg build. This tool does not fetch web links, use native provider video input or identify characters automatically.
 - A later image-input receipt requires every target frame to remain visible, excluding offloaded images. It establishes delivery of sampled frames, without proving attention, story interpretation, artistic quality or continuous viewing. Story coverage, unresolved critical issues and semantic decisions remain the caller's responsibility.
@@ -80,3 +110,5 @@ Tool results append without rewriting earlier messages. Schema or description ch
 Focused tests use original synthetic FFmpeg media, real PTC execution, filesystem reads, normalized attachments and a keyless scripted model. They inspect actual image blocks in its requests and exercise registration loss and log-backed accepted recovery. The recorded Session scenario loads the plugin through the shipped profile and substitutes only deterministic media process output.
 
 `frameFormat` selects `png` (default) or `jpeg`; `frameJpegQuality` selects the FFmpeg JPEG quantizer from 1 to 31 (default 2, ignored for PNG). Creation mode uses JPEG and four default observations per call to reduce request upload size while preserving source timestamps. Choose sufficient frame dimensions for subtitle and identity inspection; encoding does not establish that the model observed a frame.
+
+OCR unit tests exercise multilingual evidence, MJPEG boundaries, exact overlay labelling and partial coverage without a recognizer. Bridge-path fixtures use native absolute file URLs and compare complete ASAR-expanded, source and already-unpacked paths with native separators. Windows integration tests use real FFmpeg frame extraction and a deterministic in-process substitute only for the OCR bridge output. The packaged PowerShell bridge and installed-language behavior still require Windows package acceptance testing.

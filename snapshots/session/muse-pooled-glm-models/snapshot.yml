@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-pooled-glm-models
+profile: headless
+composition: muse-glm-tool-stream
+recording: authored
+header:
+  class: muse-glm-tool-stream
+writerOutput: true
+environment:
+  DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS: "true"
+  DSH_SNAPSHOT_GLM_TOOL_STREAM: "true"
+  DSH_SNAPSHOT_ZHIPU_POOL_RELAY: "true"

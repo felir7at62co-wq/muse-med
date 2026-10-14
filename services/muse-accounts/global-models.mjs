@@ -8,6 +8,7 @@ const own=(o,k)=>Object.hasOwn(o,k),plain=o=>o!==null&&typeof o==='object'&&!Arr
 const banned=new Set(['__proto__','prototype','constructor']);
 const refOK=r=>typeof r==='string'&&/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(r)&&!banned.has(r);
 const text=(v,max=200)=>typeof v==='string'&&v.trim().length>0&&v.length<=max&&!/[\x00-\x1f]/.test(v);
+const privateKey=v=>typeof v==='string'&&v.length>0&&v.length<=4096&&!/[^\x21-\x7e]/.test(v);
 const effortIds=['off','minimal','low','medium','high','xhigh','max'];
 const providerFields=['displayName','baseURL','api','apiKeyEnv','models'],modelFields=['id','name','contextWindow','maxTokens','input','reasoningEfforts','defaultReasoningEffort'];
 export function restrictModelSchema(source){
@@ -48,21 +49,31 @@ function validate(providers){
 export function validateGlobalModelDocument(document){
  if(!plain(document)||document.version!==2||!Number.isSafeInteger(document.revision)||document.revision<0||!Number.isSafeInteger(document.metadataRevision)||document.metadataRevision<0||!plain(document.credentials))throw Error('Invalid global model file');
  validate(document.providers);
+ const zhipu=document.providers['zhipu-official'],credential=zhipu?.apiKeyEnv===undefined?undefined:document.credentials[zhipu.apiKeyEnv];
+ if(Array.isArray(credential)&&(credential.length<1||credential.length>64||credential.some(key=>!privateKey(key))||new Set(credential).size!==credential.length))throw Error('Invalid Zhipu credential pool');
 }
 export async function openGlobalModels(file,{legacyConfig,schema={type:'object'},official,discover}={}){
  let current={version:2,revision:0,metadataRevision:0,providers:{},credentials:{}};
- async function save(next){await mkdir(dirname(file),{recursive:true,mode:0o700});const tmp=file+'.'+randomBytes(8).toString('hex')+'.tmp';try{await writeFile(tmp,JSON.stringify(next),{mode:0o600,flag:'wx'});await chmod(tmp,0o600);await rename(tmp,file);}finally{await unlink(tmp).catch(()=>{});}current=next;}
+ let zhipuKeyIndex=0;
+ async function save(next){await mkdir(dirname(file),{recursive:true,mode:0o700});const tmp=file+'.'+randomBytes(8).toString('hex')+'.tmp';try{await writeFile(tmp,JSON.stringify(next),{mode:0o600,flag:'wx'});await chmod(tmp,0o600);await rename(tmp,file);}finally{await unlink(tmp).catch(()=>{});}current=next;zhipuKeyIndex=0;}
  try{current=JSON.parse(await readFile(file,'utf8'));validateGlobalModelDocument(current);}catch(e){if(e.code!=='ENOENT')throw e;const old=legacyConfig?.private();if(old?.apiKey&&old.model&&old.baseURL){current.providers={'muse-shared':{displayName:old.name,baseURL:old.baseURL,api:'openai-completions',apiKeyEnv:'MUSE_LEGACY_KEY',models:[{id:old.model,name:old.name,contextWindow:old.contextWindow,maxTokens:old.maxTokens,input:['text'],reasoningEfforts:false}]}};current.credentials={MUSE_LEGACY_KEY:old.apiKey};validate(current.providers);}await save(current);}
  let queue=Promise.resolve();const serial=fn=>{const task=queue.then(fn);queue=task.catch(()=>{});return task;};
  const view=()=>({ns:'llm-pi-ai',schema:structuredClone(schema),value:{providers:structuredClone(current.providers)},user:{providers:structuredClone(current.providers)},applies:'live',secrets:[],writable:true,revision:current.revision});
  if(official)officialValue(official,current.deepseek);
  const officialView=()=>({ns:'llm-deepseek',schema:structuredClone(official.schema),value:officialValue(official,current.deepseek),user:structuredClone(current.deepseek||{}),base:structuredClone(official.defaults),applies:'live',secrets:[],writable:true,revision:current.revision});
  const credential=ref=>{if(!refOK(ref))reject('凭据引用无效','gateway/bad-request');};
- return {view,describe:()=>({writable:true,hasDocument:false,namespaces:[view(),...official?[officialView()]:[]]}),
+ const apiKey=(route,provider,rotate=true)=>{
+ const value=current.credentials[provider.apiKeyEnv];
+ if(route!=='zhipu-official'||!Array.isArray(value))return value;
+  if(!rotate)return value[0];
+  const key=value[zhipuKeyIndex];zhipuKeyIndex=(zhipuKeyIndex+1)%value.length;
+  return key;
+ };
+ return {credentialPool:route=>{const p=current.providers[route],value=p&&current.credentials[p.apiKeyEnv];return route==='zhipu-official'&&Array.isArray(value)?[...value]:undefined;},view,describe:()=>({writable:true,hasDocument:false,namespaces:[view(),...official?[officialView()]:[]]}),
   listProviders:()=>[...official?[{id:'deepseek-official',name:'DeepSeek'}]:[],...Object.entries(current.providers).map(([id,p])=>({id,name:p.displayName||id}))],
   listConfigurableProviders:()=>[...official?[{provider:'deepseek-official',displayName:'DeepSeek',settingsNs:'llm-deepseek',settingsPath:[]}]:[],...Object.entries(current.providers).map(([provider,p])=>({provider,displayName:p.displayName||provider,settingsNs:'llm-pi-ai',settingsPath:['providers',provider],declared:true}))],
   metadata:()=>({revision:current.metadataRevision,...official?{deepseek:officialMetadata(official,current.deepseek)}:{},providers:Object.fromEntries(Object.entries(current.providers).map(([route,p])=>[route,{displayName:p.displayName||route,models:p.models.map(m=>({...structuredClone(m),name:m.name||m.id,contextWindow:m.contextWindow??128000,maxTokens:m.maxTokens??8192,input:m.input??['text'],reasoningEfforts:m.reasoningEfforts??false}))}]))}),
-  resolve:(route,id)=>{if(official&&route==='deepseek-official'){const p=officialValue(official,current.deepseek),m=p.models.find(m=>m.id===id);return m?{baseURL:p.baseURL,apiKey:current.credentials[p.apiKeyEnv],model:m.id,maxTokens:m.maxTokens??p.maxTokens,thinking:p.thinking,reasoningEfforts:p.thinking==='disabled'?false:{low:'low',high:'high',max:'max'}}:undefined;}const p=own(current.providers,route)?current.providers[route]:undefined,m=p?.models.find(m=>m.id===id);return m?{baseURL:p.baseURL,apiKey:current.credentials[p.apiKeyEnv],model:m.id,maxTokens:m.maxTokens??8192,reasoningEfforts:structuredClone(m.reasoningEfforts??false),...m.defaultReasoningEffort===undefined?{}:{defaultReasoningEffort:m.defaultReasoningEffort}}:undefined;},
+   resolve:(route,id)=>{if(official&&route==='deepseek-official'){const p=officialValue(official,current.deepseek),m=p.models.find(m=>m.id===id);return m?{baseURL:p.baseURL,apiKey:current.credentials[p.apiKeyEnv],model:m.id,maxTokens:m.maxTokens??p.maxTokens,thinking:p.thinking,reasoningEfforts:p.thinking==='disabled'?false:{low:'low',high:'high',max:'max'}}:undefined;}const p=own(current.providers,route)?current.providers[route]:undefined,m=p?.models.find(m=>m.id===id);return m?{baseURL:p.baseURL,apiKey:apiKey(route,p),model:m.id,maxTokens:m.maxTokens??8192,reasoningEfforts:structuredClone(m.reasoningEfforts??false),...m.defaultReasoningEffort===undefined?{}:{defaultReasoningEffort:m.defaultReasoningEffort}}:undefined;},
   discoverModels:async args=>{
    if(args.settingsNs!=='llm-pi-ai')reject('模型发现命名空间无效','llm/model-discovery-rejected');
    const request=args.request;if(!plain(request))reject('模型发现请求无效','llm/model-discovery-rejected');
@@ -73,7 +84,7 @@ export async function openGlobalModels(file,{legacyConfig,schema={type:'object'}
    if(!discover)reject('此环境暂不支持自动发现，请手动添加模型 ID','llm/model-discovery-rejected');
    const baseURL=request.baseURL??p?.baseURL;try{baseAddress(baseURL);}catch{reject('请填写有效的 HTTPS API 地址','llm/model-discovery-rejected');}
    if((request.api??p?.api??'openai-completions')!=='openai-completions')reject('当前仅支持 OpenAI Chat Completions','llm/model-discovery-rejected');
-   const storedKey=p?.apiKeyEnv?current.credentials[p.apiKeyEnv]:undefined;
+   const storedKey=p?.apiKeyEnv?apiKey(request.provider,p,false):undefined;
    try{return await discover({baseURL,api:'openai-completions',
     ...request.apiKey===undefined?{}:{apiKey:request.apiKey},signal:AbortSignal.timeout(30000)},
     ()=>({headers:undefined,resolveApiKey:async()=>storedKey}),fetchPublicModelListing);}

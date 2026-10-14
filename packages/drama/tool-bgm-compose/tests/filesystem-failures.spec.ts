@@ -7,12 +7,13 @@ import { runDramaBgm } from '../src/compose.ts'
 import { publishNoClobber } from '../src/media.ts'
 import type { ProcessChannel } from '../src/types.ts'
 
-const faults = vi.hoisted(() => ({ stat: '', unlink: '', unavailableAncestors: false, rollback: '' }))
+const faults = vi.hoisted(() => ({ stat: '', plainStat: '', unlink: '', unavailableAncestors: false, rollback: '' }))
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   return { ...actual,
     stat: async (...args: Parameters<typeof actual.stat>) => {
       if (String(args[0]) === faults.stat) throw Object.assign(new Error('delivery access denied'), { code: 'EACCES' })
+      if (String(args[0]) === faults.plainStat) throw new Error('filesystem metadata unavailable')
       return await actual.stat(...args)
     },
     realpath: async (...args: Parameters<typeof actual.realpath>) => {
@@ -33,7 +34,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 
 const roots: string[] = []
 afterEach(async () => {
-  faults.stat = ''; faults.unlink = ''; faults.rollback = ''; faults.unavailableAncestors = false
+  faults.stat = ''; faults.plainStat = ''; faults.unlink = ''; faults.rollback = ''; faults.unavailableAncestors = false
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
@@ -74,6 +75,30 @@ it('preserves a plan access failure and does not create a delivery', async () =>
   faults.stat = f.args.plan
   await expect(runDramaBgm(f.args, f.settings)).rejects.toThrow('delivery access denied')
   expect(await readFile(join(f.project, 'source.mp3'), 'utf8')).toBe('music')
+  expect(await readdir(f.project)).toEqual(['plan.json', 'source.mp3', 'timeline.json'])
+})
+
+it('retains a source access failure code before any media process or publication', async () => {
+  const f = await fixture()
+  faults.stat = join(f.project, 'source.mp3')
+  const run = vi.fn<ProcessChannel['run']>(async () => { throw new Error('Unexpected media process after denied source access') })
+  await expect(runDramaBgm(f.args, { ...f.settings, channel: { run } }))
+    .rejects.toMatchObject({ code: 'EACCES', message: 'delivery access denied' })
+  expect(run).not.toHaveBeenCalled()
+  expect(await readFile(faults.stat, 'utf8')).toBe('music')
+  expect(await readdir(f.project)).toEqual(['plan.json', 'source.mp3', 'timeline.json'])
+})
+
+it('reports a control-file metadata failure without a code using the complete project path context', async () => {
+  const f = await fixture()
+  faults.plainStat = f.args.timeline
+  const run = vi.fn<ProcessChannel['run']>(async () => { throw new Error('Unexpected media process without readable control metadata') })
+  const failure = runDramaBgm({ ...f.args, timeline: 'timeline.json' }, { ...f.settings, channel: { run } })
+  await expect(failure).rejects.toThrow('时间线无法访问')
+  await expect(failure).rejects.toThrow(`input="timeline.json"; project="${f.project}"; resolved="${f.args.timeline}"`)
+  await expect(failure).rejects.toThrow('reason=文件系统错误（filesystem metadata unavailable）')
+  await expect(failure).rejects.toMatchObject({ cause: { message: 'filesystem metadata unavailable' } })
+  expect(run).not.toHaveBeenCalled()
   expect(await readdir(f.project)).toEqual(['plan.json', 'source.mp3', 'timeline.json'])
 })
 

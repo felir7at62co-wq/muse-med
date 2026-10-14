@@ -20,7 +20,7 @@ def digest(path):
     return value.hexdigest()
 
 
-def extract(source, target, start, duration=2):
+def extract(source, target, start, duration=2, timeout=120):
     """Save PCM WAV for an explicit interval and return measured evidence."""
     source, target = Path(source).resolve(strict=True), Path(target).absolute()
     if not all(math.isfinite(value) for value in (start, duration)) or start < 0 or not 0 < duration <= 15:
@@ -29,6 +29,9 @@ def extract(source, target, start, duration=2):
         raise ValueError("Voice reference output must be .wav")
     if target.exists() or target.is_symlink() or source == target:
         raise FileExistsError("Saved voice reference already exists; reuse it or choose a reviewed new version")
+    if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("Extraction timeout must be positive")
+    source_hash = digest(source)
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="muse-voice-", dir=target.parent) as folder:
         prepared = Path(folder) / "prepared.wav"
@@ -49,18 +52,20 @@ def extract(source, target, start, duration=2):
             ffmpeg = next((os.environ[name] for name in (
                 "DSH_FFMPEG_PATH", "FFMPEG_PATH", "MUSE_FFMPEG_EXECUTABLE"
             ) if os.environ.get(name)), "ffmpeg")
-            subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(source),
+            subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-protocol_whitelist", "file,pipe", "-i", str(source),
                             "-ss", str(start), "-t", str(duration), "-map", "0:a:0", "-vn",
                             "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", str(prepared)],
-                           check=True, capture_output=True, creationflags=NO_WINDOW)
+                           check=True, capture_output=True, timeout=timeout, creationflags=NO_WINDOW)
         with wave.open(str(prepared), "rb") as audio:
             actual = audio.getnframes() / audio.getframerate()
             if abs(actual - duration) > 1 / audio.getframerate():
                 raise ValueError("Source did not contain the complete requested voice interval")
+        if digest(source) != source_hash:
+            raise ValueError("Source bytes changed during extraction")
         payload = prepared.read_bytes()
         with target.open("xb") as output:
             output.write(payload)
-    return {"path": str(target), "source_path": str(source), "source_sha256": digest(source),
+    return {"path": str(target), "source_path": str(source), "source_sha256": source_hash,
             "sha256": hashlib.sha256(payload).hexdigest(), "duration_seconds": actual,
             "start_seconds": start, "speaker_verified": False, "paid_requests": 0}
 

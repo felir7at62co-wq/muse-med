@@ -1,0 +1,114 @@
+{
+  "schema_version": 2,
+  "project_id": "example-only",
+  "asset_id": "KITCHEN",
+  "variant_id": "night-rain",
+  "revision": "r001",
+  "parent_revision": null,
+  "name": "虚构住家厨房",
+  "type": "scene",
+  "aliases": [],
+  "episodes": [],
+  "scenes": [],
+  "script_evidence": [
+    {
+      "basis": "虚构示例中的用户追加雨夜设计；真实使用集数未确认"
+    }
+  ],
+  "deliverable_type": "image_reference",
+  "style_revision": "s001",
+  "identity": {
+    "layout": "后墙灶台、右窗、左门、左前木案、左后收纳架",
+    "fixtures": [
+      "铁锅和锅盖",
+      "粗陶盆",
+      "木砧板",
+      "两只素陶碗",
+      "干柴"
+    ]
+  },
+  "state": {
+    "time": "night",
+    "weather": "rain"
+  },
+  "dependencies": [
+    {
+      "project_id": "example-only",
+      "asset_id": "KITCHEN",
+      "variant_id": "base",
+      "revision": "r001",
+      "purpose": "scene_parent"
+    }
+  ],
+  "source": {
+    "mode": "original",
+    "project_id": null,
+    "asset_id": null,
+    "variant_id": null,
+    "revision": null,
+    "location": null,
+    "usage_basis": null
+  },
+  "generation": {
+    "prompt_parts": {
+      "scene_continuity": {
+        "role": "STATE_VARIANT",
+        "family_id": "HOME",
+        "locked": {
+          "layout": "后墙灶台、右窗、左门、左前木案、左后收纳架",
+          "fixtures": [
+            "铁锅和锅盖",
+            "粗陶盆",
+            "木砧板",
+            "两只素陶碗",
+            "干柴"
+          ],
+          "materials": "抹灰墙、木构件、压实地面、砌筑灶台、铁锅、粗陶",
+          "palette": [
+            "暖灰",
+            "灰蓝",
+            "土黄",
+            "自然木色"
+          ],
+          "camera": "前部中间偏左，高约1.5米，中等广角朝灶台后墙，16:9单图"
+        },
+        "delta": {
+          "time": "night",
+          "weather": "rain",
+          "lighting": "右窗弱冷灰夜光与环境反射，不增加灯具",
+          "wetness": "窗玻璃与露天窗框外侧局部湿润，室内干燥"
+        }
+      },
+      "medium": "3D动漫"
+    },
+    "final_prompt": "3D动漫／风格化三维动画，次世代高精度建模 CG，物理可信 PBR 材质，纯环境场景，清晰三维空间，精细构件厚度、表面微结构和接触阴影统一。\n交付内容：同一住家厨房的雨夜环境状态单图，画面无人，只改变已登记的时间光照、窗外天气和外侧湿润。\n实际参考用途：审核通过的本厨房白天图同时作为3D风格、布局与编辑底图；保持其相机、构图、完整空间和固定物。没有该真实底图时本稿保持待生成，不使用人物设定板补位。\n时代与场所：1980 年农村普通住家，正常维护，结构完整，使用磨痕局部可读，不表现废弃或灾后破败。\n固定色卡：暖灰抹灰墙、灰蓝木门、土黄压实地面，木案保留自然木色；沿用白天版的材质固有色。\n区域结构：以相机面向灶台后墙为观察基准，后墙中右部一座完整砌筑灶台，带铁锅和锅盖；右墙中部一扇木框窗；左墙近前部一扇关闭的灰蓝木门，门后空间不入画。左前方厚木操作案与左后方木收纳架保持固定位置，中央及门前通道无遮挡。\n固定陈设：木案上一个无文字粗陶盆和一块木砧板，收纳架上两只素陶碗；干柴整齐收于灶台侧下方。维持上述种类、数量和位置，无额外灯具、现代厨电、包装或装饰。\n本次变化：右窗外为雨夜，低照度冷灰环境光从同一窗口进入，窗玻璃外侧可见稀疏雨迹，露天窗框外侧局部湿润；室内地面和陈设仍干燥。环境反射提供克制补光，门、灶台与通道暗部可辨，不靠新增煤油灯、电灯或火光补亮。保持原材质微结构、木纹、灰缝与接触阴影，只改变明暗、环境反射和符合遮蔽关系的湿润。\n机位与输出：16:9 横向单图，相机在厨房前部中间偏左，约高1.5米，中等广角朝向灶台后墙，与白天版完全同机位同构图；左门、右窗、灶台和中央通道相对位置不变，垂直线稳定，不拼接多机位。\n保留布局、门窗、家具、数量、尺度、材料和固有色。排除人物、路人、人影、剪影、身体局部、玻璃或金属中的人物倒影、意外文字、水印、新增灯具、室内凭空漏雨、家具移动、场景重建和实拍背景。\n最终保持3D动漫／风格化三维动画媒介、次世代高精度建模 CG 与物理可信 PBR 质感，建筑、陈设、道具、材质和光照使用一致的造型精度与渲染体系，画面保持纯环境。",
+    "negative_prompt": null,
+    "references": [],
+    "attempts": []
+  },
+  "files": [],
+  "review": {
+    "result": "not_checked",
+    "checks": [],
+    "reviewed_at": null,
+    "style_gate": {
+      "result": "not_checked",
+      "evidence": []
+    },
+    "quality_checks": []
+  },
+  "adoption": {
+    "status": "candidate",
+    "basis": null,
+    "adopted_at": null
+  },
+  "remote": null,
+  "change": {
+    "reason": null,
+    "preserve": [],
+    "modify": [],
+    "affected_shots": [],
+    "impact_status": "unknown"
+  },
+  "style_family": "3d_anime"
+}

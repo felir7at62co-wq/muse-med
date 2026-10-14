@@ -48,7 +48,9 @@ export async function apply(ctx) {
   const direct = process.env.DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS === 'true'
   const refusal = process.env.DSH_SNAPSHOT_SUPPLIER_REFUSAL === 'true'
   const officialGlm = process.env.DSH_SNAPSHOT_GLM_TOOL_STREAM === 'true'
+  const pooledZhipu = process.env.DSH_SNAPSHOT_ZHIPU_POOL_RELAY === 'true'
   assert.ok(!officialGlm || direct)
+  assert.ok(!pooledZhipu || direct && officialGlm)
   assert.ok(!refusal || direct)
   const excludedProvider = process.env.DSH_SNAPSHOT_EXCLUDED_ACCOUNT_PROVIDER
   assert.ok(excludedProvider === undefined || excludedProvider === 'aa')
@@ -74,7 +76,8 @@ export async function apply(ctx) {
     ? { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro' }
     : { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }
   assert.deepEqual({ provider: selection?.provider, model: selection?.model }, selectedModel)
-  const completionPath = `${direct ? '/supplier' : '/api/desktop-models'}/${selectedModel.provider.slice('muse-cloud-'.length)}/chat/completions`
+  const directCompletion = direct && !pooledZhipu
+  const completionPath = `${directCompletion ? '/supplier' : '/api/desktop-models'}/${selectedModel.provider.slice('muse-cloud-'.length)}/chat/completions`
   const script = recorded.filter(event => event.type === 'assistant/message').map(event => event.data.message)
   assert.equal(script.length, refusal ? 0 : 2)
   const requests = []
@@ -100,15 +103,18 @@ export async function apply(ctx) {
         if (request.url === '/api/desktop-models/access' && direct) {
           assert.equal(request.headers.cookie, '__Host-muse=snapshot-session')
           assert.equal(request.headers['x-muse-model-access'], 'direct-v1')
+          assert.equal(request.headers['x-muse-provider-routing'], 'mixed-v1')
           response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ transport: 'direct',
-            providers: catalog.providers.map(provider => ({ ...provider, access: {
+            providers: catalog.providers.map(provider => pooledZhipu && provider.id === 'zhipu-official'
+              ? { ...provider, transport: 'relay' } : ({ ...provider, access: {
               baseURL: `${baseUrl}/supplier/${provider.id}`, apiKey: `supplier-fixture-${provider.id}`,
             } })) })); return
         }
         if (request.url === completionPath) {
           const payload = JSON.parse(body)
-          assert.equal(request.headers.authorization, direct ? `Bearer supplier-fixture-${selectedModel.provider.slice('muse-cloud-'.length)}` : 'Bearer snapshot-session')
-          if (direct) { assert.equal(request.headers.cookie, undefined); assert.equal(request.headers.origin, undefined) }
+          assert.equal(request.headers.authorization, directCompletion ? `Bearer supplier-fixture-${selectedModel.provider.slice('muse-cloud-'.length)}` : 'Bearer snapshot-session')
+          if (directCompletion) { assert.equal(request.headers.cookie, undefined); assert.equal(request.headers.origin, undefined) }
+          else assert.equal(request.headers.origin, baseUrl)
           assert.equal(payload.model, selectedModel.model)
           if (officialGlm) {
             assert.equal(payload.max_tokens, 128000)
@@ -128,8 +134,12 @@ export async function apply(ctx) {
           if (!refusal) assert.ok(message)
           requests.push(payload)
           if (refusal) {
-            response.writeHead(400, { 'content-type': 'application/json' })
-            response.end(JSON.stringify({ error: { message: 'Invalid request using supplier-fixture-deepseek-official' } }))
+            response.writeHead(429, {
+              'content-type': 'application/json',
+              'retry-after': '0.001',
+              'x-request-id': 'snapshot-upstream-request',
+            })
+            response.end(JSON.stringify({ error: { message: 'Opaque supplier refusal' } }))
             return
           }
           if (requests.length === 2) {
@@ -266,7 +276,7 @@ export async function apply(ctx) {
   })))
   ctx.on('agent/turn-stopping', async ({ agent }) => {
     if (rejected) throw rejected
-    assert.equal(requests.length, refusal ? 1 : 2)
+    assert.equal(requests.length, refusal ? 6 : 2)
     const config = agent.session.requestHeader()?.config
     assert.equal(config.reasoningEffort, officialGlm ? 'max' : preservesNewerDefault ? undefined : 'low')
     assert.deepEqual({ provider: config.provider, model: config.model }, selectedModel)
@@ -275,7 +285,8 @@ export async function apply(ctx) {
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('supplier-fixture-'))
     if (direct) {
       const access = JSON.parse(await readFile(join(home, 'model-access.json'), 'utf8'))
-      assert.equal(access.providers.length, 3)
+      assert.equal(access.providers.length, pooledZhipu ? 2 : 3)
+      if (pooledZhipu) assert.ok(!access.providers.some(provider => provider.id === 'zhipu-official'))
     }
   })
 }

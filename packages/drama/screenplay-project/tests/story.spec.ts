@@ -17,6 +17,8 @@ import type { ProjectFile, ProjectRequest } from '../src/schema.ts'
 import type { ProjectReadReceipt } from '../src/review.ts'
 import { acceptedScripts, acceptedKnowledge, renderEpisode, sha256, candidateDigest } from '../src/episode.ts'
 import { storyReviewResultReceipt, validateAcceptedStoryEvidence, validateStoryApprovalLog, validateStoryPolicy, storyPolicyDigest, validateInventory, inventoryDigest, storyScopeDigest, validateStoryCandidate, storyContentDigest } from '../src/story.ts'
+import { storyEvidencePending, inventoryEvidence, inventoryReads, validInventoryReview, validateStorySupplement,
+  buildSemanticReport, validateSemanticReport, buildStoryAdaptation, renderStoryNotes, buildStoryAcceptance } from '../src/story.ts'
 import type { ActorId, FactId, UnitId } from '../src/ids.ts'
 import type { HumanAuthorization } from '../src/refinement.ts'
 import { stageScenes, stageCoverage, stageStoryNotes } from './fixtures/stage-input.ts'
@@ -387,6 +389,9 @@ it('retains an accepted prefix after later sources append and invalidates overla
   await run({ method: 'import_source', project, expected_revision: before.revision, path: join(root, 'later.txt'), source_kind: 'text', story_video_path: join(root, 'original.mp4') })
   expect(acceptedScripts(await current())[0]).toEqual(original)
   await run({ method: 'status', project })
+  let verified = 0
+  await validateAcceptedStoryEvidence(await current(), async () => { verified++; return proof }, async () => {})
+  expect(verified).toBe(1)
 })
 it('keeps the ordinary import branch unique while disabled deployments retain their existing request schema', () => {
   expect(REQUEST_STORY.oneOf.filter(entry => entry.properties.method.const === 'import_source')).toHaveLength(1)
@@ -413,6 +418,8 @@ it('preserves genuine old independent accepted prefixes in an explicit new story
   project = destination
   const fork = await current(); expect(fork.candidates[0]!.review).toEqual(old.candidates[0]!.review)
   expect(fork.candidates[0]!.review!.kind).toBeUndefined(); expect(acceptedScripts(fork)[0]).toEqual(oldScript)
+  expect(renderStoryNotes(fork, fork.candidates[0]!)).toBe('')
+  await expect(validateStoryApprovalLog(ctx, fork, fork.candidates[0]!, new AbortController().signal)).resolves.toBeUndefined()
   commands = new ProjectCommands(ctx.fs, limits, ctx.attachments)
   await run({ method: 'status', project })
   let newProofChecks = 0
@@ -421,11 +428,18 @@ it('preserves genuine old independent accepted prefixes in an explicit new story
   // The new episode receives fresh V2 evidence while the retained prefix remains independent.
   commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'self-check', 'disabled', 'story-faithful-v2')
   await run({ method: 'import_source', project, expected_revision: 0, path: join(root, 'inspection.json'), source_kind: 'video_inspection' })
-  await sourcesAndFacts(true); await reviewedInventory(); const second = await stage(); await rereadCandidate(); await approveCandidate()
+  await sourcesAndFacts(true); await reviewedInventory(); const nextDraft = await draft(); step = 100
+  nextDraft.scenes[0]!.beats[1]!.requires_knowledge = [old.facts[0]!.id]
+  await run({ method: 'stage', project, expected_revision: nextDraft.file.revision, episode: 2,
+    scenes: stageScenes(nextDraft.scenes), coverage: stageCoverage(nextDraft.item.coverage),
+    story_notes: stageStoryNotes(nextDraft.notes) })
+  const second = (await current()).candidates.at(-1)!
+  await rereadCandidate(); await approveCandidate()
   const next = await current()
   await run({ method: 'commit', project, expected_revision: next.revision, candidate_id: second.id, candidate_sha256: second.sha256 })
   const complete = await current(); expect(complete.candidates[0]!.review).toEqual(old.candidates[0]!.review)
   expect(acceptedScripts(complete)).toHaveLength(2); expect(acceptedScripts(complete)[0]).toEqual(oldScript)
+  expect(second.scenes[0]!.beats[1]!.requires_knowledge).toEqual([old.facts[0]!.id])
   let approved = 0, inspected = 0
   await validateAcceptedStoryEvidence(complete, async () => { inspected++; return proof },
     async (item) => { expect(item.id).toBe(second.id); approved++ })
@@ -482,8 +496,9 @@ it('rejects future-only source facts and unauthorized adaptation knowledge even 
   scenes[1]!.beats[0]!.requires_knowledge = [future.id]
   await expect(run({ method: 'stage', project, expected_revision: file.revision, episode: 1, scenes: stageScenes(scenes), coverage: stageCoverage(item.coverage), story_notes: stageStoryNotes(notes) })).rejects.toThrow(/source_quote_mismatch|invalid_project|story_fact_scope/)
 })
-it.each(['receipt', 'legacy'] as const)('matches an actual successful C result using its %s projection after commit', async (projection) => {
+it.each(['receipt', 'legacy', 'direct', 'nested'] as const)('matches an actual successful C result using its %s projection after commit', async (projection) => {
   await accepted(); const file = await current(), candidate = file.candidates[0]!, input = await report()
+  await expect(validateStoryApprovalLog(ctx, file, candidate, new AbortController().signal)).rejects.toThrow('story_approval_log_pending')
   const receipt = storyReviewResultReceipt({ revision: candidate.review!.evidence!.project_revision + 1, candidate })!
   const rootCallId = ToolCallId('review-root'), subCallId = ToolCallId('review-root:ptc:1')
   const events: SessionEvent[] = Array.from({ length: 120 }, (_, index) => ({ type: 'turn/end', seq: SessionSeq(index), time: 0, data: { turn: 0, reason: { kind: 'completed' } } }))
@@ -494,11 +509,40 @@ it.each(['receipt', 'legacy'] as const)('matches an actual successful C result u
     { type: 'tool/result', surfaceOp: 'append', seq: SessionSeq(122), time: 0, data: { turn: 1, step: 1,
       message: createToolResultMessage({ callId: rootCallId, isError: false, content: [{ type: 'text', text: 'Successful outer result preview [...]' }] }) } },
     { type: 'step/end', seq: SessionSeq(123), time: 0, data: { turn: 1, step: 1 } })
+  if (projection === 'direct') {
+    events[121] = { type: 'tool/call', seq: SessionSeq(121), time: 0, data: { turn: 1, step: 1, callId: rootCallId,
+      name: 'screenplay_project', arguments: JSON.stringify({ request: { method: 'review', candidate_id: candidate.id,
+        candidate_sha256: candidate.sha256, decision: 'approve', semantic_report: input } }) } }
+    events[122] = { type: 'tool/result', surfaceOp: 'append', seq: SessionSeq(122), time: 0, data: { turn: 1, step: 1,
+      message: createToolResultMessage({ callId: rootCallId, isError: false, content: [{ type: 'text', text: JSON.stringify(receipt) }] }) } }
+  }
+  if (projection === 'nested') {
+    const parent = ToolCallId('nested-parent'), child = events[121]!
+    if (child.type !== 'tool/ptc-dispatch') throw Error('C dispatch fixture missing')
+    child.data.parentCallId = parent
+    events[122] = { type: 'tool/ptc-dispatch', seq: SessionSeq(122), time: 0, data: { name: 'run_code', rootCallId,
+      parentCallId: rootCallId, subCallId: parent, arguments: {}, isError: false, content: [] } }
+    events[123] = { type: 'tool/result', surfaceOp: 'append', seq: SessionSeq(123), time: 0, data: { turn: 1, step: 1,
+      message: createToolResultMessage({ callId: rootCallId, isError: false, content: [] }) } }
+    events[124] = { type: 'step/end', seq: SessionSeq(124), time: 0, data: { turn: 1, step: 1 } }
+  }
   // This query double supplies only the original C event window; the subprocess fixture exercises real spill storage.
   ctx.provide('sessionQuery', { observeSession: async () => ({ events, [Symbol.dispose]() {} }) } as never)
   await expect(validateStoryApprovalLog(ctx, file, candidate, new AbortController().signal)).resolves.toBeUndefined()
+  const beginning = events[120]!
+  events[120] = { type: 'turn/end', seq: SessionSeq(120), time: 0, data: { turn: 1, reason: { kind: 'completed' } } }
+  await expect(validateStoryApprovalLog(ctx, file, candidate, new AbortController().signal)).rejects.toThrow('story_approval_log_pending')
+  events[120] = beginning
+  if (projection === 'nested') {
+    const parent = events[122]!
+    if (parent.type !== 'tool/ptc-dispatch') throw Error('Nested parent fixture missing')
+    parent.data.isError = true
+    await expect(validateStoryApprovalLog(ctx, file, candidate, new AbortController().signal)).rejects.toThrow('story_approval_log_pending')
+  }
   if (projection === 'receipt') {
     for (const changed of [
+      { candidate: { ...candidate, sha256: '0'.repeat(64) } },
+      { unrelated: 'not a review result' },
       { ...receipt, revision: receipt.revision + 1 },
       ...(['candidate_id', 'candidate_sha256', 'review_sha256', 'acceptance_sha256', 'decision'] as const)
         .map(field => ({ ...receipt, review_receipt: { ...receipt.review_receipt, [field]: 'altered' } })),
@@ -508,6 +552,15 @@ it.each(['receipt', 'legacy'] as const)('matches an actual successful C result u
       event.data.content = [{ type: 'text', text: JSON.stringify(changed) }]
       await expect(validateStoryApprovalLog(ctx, file, candidate, new AbortController().signal)).rejects.toThrow('story_approval_log_pending')
     }
+    const event = events[121]!
+    if (event.type !== 'tool/ptc-dispatch') throw Error('C dispatch fixture missing')
+    event.data.content = [{ type: 'text', text: 'unstructured model prose {' }, { type: 'text', text: JSON.stringify(receipt) }]
+    await expect(validateStoryApprovalLog(ctx, file, candidate, new AbortController().signal)).resolves.toBeUndefined()
+    event.data.content.unshift({ type: 'image', attachment: (await ctx.attachments.saveImage({ mediaType: 'image/png',
+      data: await sharp({ create: { width: 8, height: 8, channels: 3, background: 'blue' } }).png().toBuffer() })) })
+    await expect(validateStoryApprovalLog(ctx, file, candidate, new AbortController().signal)).resolves.toBeUndefined()
+    events.pop()
+    await expect(validateStoryApprovalLog(ctx, file, candidate, new AbortController().signal)).resolves.toBeUndefined()
   }
 })
 it('retains complete content for ordinary or rejected review results', async () => {
@@ -778,3 +831,324 @@ it.each(['duplicate_mapping', 'missing_mapping', 'unknown_mapping', 'changed_quo
     }
   },
 )
+
+
+it.each([
+  ['original fact', 'story_original_fact', (file: ProjectFile) => {
+    file.story_policy!.original_facts = [{ id: file.facts[0]!.id, sha256: '0'.repeat(64) }]
+  }],
+  ['original source', 'story_original_source', (file: ProjectFile) => {
+    file.story_policy!.original_sources = [{ id: file.sources[0]!.id, sha256: file.sources[0]!.sha256, index_sha256: '0'.repeat(64) }]
+  }],
+  ['input candidate', 'story_input_digest', (file: ProjectFile) => {
+    file.story_policy!.input_candidates = [JSON.stringify({ ...file.candidates[0]!, sha256: '0'.repeat(64) })]
+  }],
+  ['unmapped source', 'story_source_scope', (file: ProjectFile) => {
+    delete file.sources[0]!.story_video_path
+  }],
+] as const)('refuses a changed %s even when the enclosing policy digest is recomputed', async (_name, error, mutate) => {
+  await ready()
+  const file = await current(), before = await readFile(project, 'utf8')
+  mutate(file)
+  file.story_policy!.sha256 = storyPolicyDigest(file.story_policy!)
+  expect(() => { validateStoryPolicy(file) }).toThrow(error)
+  expect(await readFile(project, 'utf8')).toBe(before)
+})
+
+it.each(['missing_policy', 'policy_binding', 'episode', 'digest', 'scope_digest', 'wrong_video_episode',
+  'duplicate_not_applicable', 'uncovered_unit', 'unknown_dependency', 'rejected_fact', 'invalid_fact_review',
+  'uncovered_fact_anchor'] as const)('refuses a parsed inventory with %s', async (variant) => {
+  await sourcesAndFacts(); await inventory(); const file = await current(), item = file.story_inventories![0]!
+  if (variant === 'missing_policy') { delete file.story_policy; file.story_inventories = [] }
+  if (variant === 'policy_binding') item.policy_sha256 = '0'.repeat(64)
+  if (variant === 'episode') item.episode = 3
+  if (variant === 'digest') item.sha256 = '0'.repeat(64)
+  if (variant === 'scope_digest') item.scope_sha256 = '0'.repeat(64)
+  if (variant === 'wrong_video_episode') item.episode = 2
+  if (variant === 'duplicate_not_applicable') item.not_applicable = [
+    { dimension: 'emotion_conflict', reason: '尚未核对。' }, { dimension: 'emotion_conflict', reason: '重复声明。' },
+  ]
+  if (variant === 'uncovered_unit') item.items[0]!.source_units = [brandString<UnitId>('unit:missing')]
+  if (variant === 'unknown_dependency') item.items[0]!.depends_on = ['missing']
+  if (variant === 'rejected_fact') file.facts[0]!.review!.decision = 'reject'
+  if (variant === 'invalid_fact_review') file.facts[0]!.review!.actor = brandString<ActorId>('other')
+  if (variant === 'uncovered_fact_anchor') file.facts[0]!.anchors = [{ unit_id: brandString<UnitId>('unit:missing'), quote: '未知来源。' }]
+  if (variant !== 'scope_digest') item.scope_sha256 = storyScopeDigest(file, item)
+  if (variant !== 'digest') item.sha256 = inventoryDigest(item)
+  expect(() => { validateInventory(file, item) }).toThrow('story_')
+})
+
+it('accepts an explicit nonapplicable dimension and refuses inventories bound to another actor or step', async () => {
+  await sourcesAndFacts(); await inventory(); const file = await current(), item = file.story_inventories![0]!
+  item.items = item.items.filter(value => value.dimension !== 'emotion_conflict')
+  item.not_applicable = [{ dimension: 'emotion_conflict', reason: '当前清单只核对事件，情绪依据不适用。' }]
+  item.scope_sha256 = storyScopeDigest(file, item); item.sha256 = inventoryDigest(item)
+  expect(() => { validateInventory(file, item) }).not.toThrow()
+  expect(() => inventoryEvidence(file, '0'.repeat(64), item, brandString<ActorId>('other'), SessionSeq(90), []))
+    .toThrow('self_check_actor')
+  expect(() => inventoryEvidence(file, '0'.repeat(64), item, actor, undefined, [])).toThrow('self_check_step')
+})
+
+it.each(['missing', 'actor', 'creation', 'context', 'subject', 'length', 'read_kind', 'read_id', 'read_digest',
+  'read_creation', 'read_review'] as const)('rejects saved inventory review evidence with %s', async (variant) => {
+  await sourcesAndFacts(); await reviewedInventory(); const file = await current(), item = file.story_inventories![0]!
+  const evidence = item.review!.evidence!, read = evidence.reads[0]!
+  if (variant === 'missing') delete item.review
+  if (variant === 'actor') item.review!.actor = brandString<ActorId>('other')
+  if (variant === 'creation') evidence.creation_step = SessionSeq(evidence.creation_step + 1)
+  if (variant === 'context') evidence.context_sha256 = '0'.repeat(64)
+  if (variant === 'subject') evidence.subject_sha256 = '0'.repeat(64)
+  if (variant === 'length') evidence.reads.pop()
+  if (variant === 'read_kind') read.kind = 'candidate'
+  if (variant === 'read_id') read.id += '-other'
+  if (variant === 'read_digest') read.sha256 = '0'.repeat(64)
+  if (variant === 'read_creation') read.step = item.created_step
+  if (variant === 'read_review') read.step = evidence.review_step
+  expect(validInventoryReview(PROJECT_FILE.parse(JSON.parse(JSON.stringify(file))), item)).toBe(false)
+})
+
+it.each(['missing_policy', 'missing_video_episode', 'missing_receipt', 'receipt_path', 'receipt_version', 'receipt_duration',
+  'receipt_digest', 'missing_window', 'critical_unresolved'] as const)('keeps %s inspection evidence pending', async (variant) => {
+  await sourcesAndFacts(); await inventory(); const file = await current(), item = file.story_inventories![0]!, source = file.sources[1]!
+  if (variant === 'missing_policy') delete file.story_policy
+  if (variant === 'missing_video_episode') item.episode = 2
+  if (variant === 'missing_receipt') delete source.trusted_video_receipt
+  if (variant === 'receipt_path') source.trusted_video_receipt!.video_path += '.other'
+  if (variant === 'receipt_version') source.trusted_video_receipt!.source_version = FsVersion('other')
+  if (variant === 'receipt_duration') source.trusted_video_receipt!.duration_seconds += 1
+  if (variant === 'receipt_digest') source.trusted_video_receipt!.manifest_sha256 = '0'.repeat(64)
+  if (variant === 'missing_window') source.trusted_video_receipt!.plan.push({ start_seconds: 3, end_seconds: 4 })
+  if (variant === 'critical_unresolved') source.trusted_video_receipt!.unresolved = [{ time: 2, critical: true, reason: '行动者未核实。' }]
+  expect(storyEvidencePending(file, item).length).toBeGreaterThan(0)
+})
+
+it('keeps missing video sources recoverable and excludes noncritical or out-of-range unresolved points', async () => {
+  await sourcesAndFacts(); await inventory(); const file = await current(), item = file.story_inventories![0]!, source = file.sources[1]!
+  source.trusted_video_receipt!.unresolved = [{ time: 2, critical: false, reason: '非关键点。' },
+    { time: 5, critical: true, reason: '本片范围外。' }]
+  source.trusted_video_receipt!.plan.push({ start_seconds: 5, end_seconds: 6 })
+  expect(storyEvidencePending(file, item)).toEqual([])
+  file.sources.pop()
+  expect(storyEvidencePending(file, item)).toEqual(['本集没有实际视频图像证据'])
+  expect(inventoryReads(file, item).every(read => read.id !== source.units[0]!.id)).toBe(true)
+})
+
+it.each(['missing_policy', 'origin', 'policy', 'grant', 'category', 'kind', 'actor', 'commentary', 'anchors'] as const)(
+  'refuses a persisted story supplement with %s', async (variant) => {
+    await sourcesAndFacts(); const file = await current(), fact = file.facts.at(-1)!
+    if (variant === 'missing_policy') delete file.story_policy
+    if (variant === 'origin') fact.origin = 'source'
+    if (variant === 'policy') fact.story_supplement!.policy_sha256 = '0'.repeat(64)
+    if (variant === 'grant') fact.story_supplement!.authorization_sha256 = '0'.repeat(64)
+    if (variant === 'category') file.story_policy!.allowed_categories = []
+    if (variant === 'kind') fact.kind = 'speech'
+    if (variant === 'actor') delete fact.actor
+    if (variant === 'commentary') fact.layer = 'commentary'
+    if (variant === 'anchors') fact.anchors = []
+    expect(() => { validateStorySupplement(PROJECT_FILE.parse(JSON.parse(JSON.stringify(file))), fact) })
+      .toThrow('story_supplement_authorization')
+  },
+)
+
+it.each(['candidate_id', 'candidate_digest', 'policy_digest', 'inventory_digest', 'scope_digest', 'checks_length',
+  'duplicate_check', 'unknown_check', 'source_length', 'source_id', 'output'] as const)(
+  'rejects a final semantic report with %s after its content digest is refreshed', async (variant) => {
+    await ready(); const file = await current(), candidate = file.candidates[0]!
+    const semantic = buildSemanticReport(file, candidate, await report())
+    if (variant === 'candidate_id') semantic.candidate_id = brandString<typeof candidate.id>('c:12345678-1234-4234-8234-123456789012')
+    if (variant === 'candidate_digest') semantic.candidate_sha256 = '0'.repeat(64)
+    if (variant === 'policy_digest') semantic.policy_sha256 = '0'.repeat(64)
+    if (variant === 'inventory_digest') semantic.inventory_sha256 = '0'.repeat(64)
+    if (variant === 'scope_digest') semantic.scope_sha256 = '0'.repeat(64)
+    if (variant === 'checks_length') semantic.checks.pop()
+    if (variant === 'duplicate_check') semantic.checks[1] = structuredClone(semantic.checks[0]!)
+    if (variant === 'unknown_check') semantic.checks[0]!.item_id = 'missing'
+    if (variant === 'source_length') semantic.checks[0]!.source_units.push(file.sources[1]!.units[0]!.id)
+    if (variant === 'source_id') semantic.checks[0]!.source_units = [file.sources[1]!.units[0]!.id]
+    if (variant === 'output') semantic.checks[0]!.outputs = semantic.checks[1]!.outputs
+    const { sha256: _digest, ...content } = semantic; semantic.sha256 = sha256(JSON.stringify(content))
+    expect(() => { validateSemanticReport(file, candidate, semantic, false) }).toThrow('story_semantic_')
+  },
+)
+
+it('uses a video source path when the explicit story alias is absent and keeps unrelated plans pending', async () => {
+  await sourcesAndFacts(); await inventory(); const file = await current(), item = file.story_inventories![0]!, source = file.sources[1]!
+  delete source.story_video_path
+  item.scope_sha256 = storyScopeDigest(file, item); item.sha256 = inventoryDigest(item)
+  expect(() => { validateInventory(file, item) }).not.toThrow()
+  expect(storyEvidencePending(file, item)).toEqual([])
+  source.video!.duration_seconds += 1
+  expect(storyEvidencePending(file, item)).toContain(`${source.id} 缺少本原件实际probe与抽帧日志证明`)
+  file.story_policy!.videos.push({ path: join(root, 'not-inspected.mp4'), source_version: FsVersion('new-version'), episode: 1 })
+  expect(storyEvidencePending(file, item)).toContain(`${join(root, 'not-inspected.mp4')} 本集原视频尚未实际probe/抽帧覆盖`)
+  delete file.story_policy
+  expect(inventoryReads(file, item).find(read => read.kind === 'policy')!.sha256).toBe('')
+})
+
+it.each(['unknown_inventory', 'missing_policy', 'unknown_input', 'wrong_input_episode'] as const)(
+  'refuses story adaptation metadata with %s', async (variant) => {
+    await ready(); const file = await current(), candidate = structuredClone(file.candidates[0]!)
+    const notes = structuredClone(candidate.story_adaptation!.notes)
+    if (variant === 'unknown_inventory') notes.inventory_id = 'not-the-inventory'
+    if (variant === 'missing_policy') delete file.story_policy
+    if (variant === 'unknown_input') notes.input_candidate_id = brandString<typeof candidate.id>('c:12345678-1234-4234-8234-123456789012')
+    if (variant === 'wrong_input_episode') { notes.input_candidate_id = candidate.id; candidate.episode = 2 }
+    expect(() => buildStoryAdaptation(file, candidate, notes)).toThrow(variant === 'unknown_inventory' || variant === 'missing_policy'
+      ? 'story_inventory_required' : 'story_input_candidate')
+  },
+)
+
+it.each(['no_grant', 'no_metadata', 'unknown_inventory', 'unknown_fact', 'foreign_fact', 'wrong_actor', 'text_only_action',
+  'image_only_voice', 'missing_supplement', 'foreign_supplement_anchor', 'wrong_change_fact', 'missing_semantic'] as const)(
+  'refuses altered saved story candidates with %s', async (variant) => {
+    await ready(); const file = await current(), candidate = file.candidates[0]!, notes = candidate.story_adaptation!.notes
+    if (variant === 'no_grant') { delete file.story_policy; file.story_inventories = [] }
+    if (variant === 'no_metadata') delete candidate.story_adaptation
+    if (variant === 'unknown_inventory') candidate.story_adaptation!.inventory_id = 'missing-inventory'
+    if (variant === 'unknown_fact') candidate.scenes[0]!.beats[1]!.requires_knowledge = [brandString<FactId>('f:missing')]
+    if (variant === 'foreign_fact') {
+      const foreign = structuredClone(file.facts[0]!); foreign.id = brandString<FactId>('f:foreign')
+      foreign.anchors = [{ unit_id: brandString<UnitId>('u:foreign'), quote: '另一集来源。' }]; file.facts.push(foreign)
+      candidate.scenes[0]!.beats[1]!.requires_knowledge = [foreign.id]
+    }
+    if (variant === 'wrong_actor') candidate.scenes[1]!.beats[0]!.actor = '乙'
+    if (variant === 'text_only_action' || variant === 'image_only_voice') {
+      const beat = variant === 'text_only_action'
+        ? { ...candidate.scenes[1]!.beats[0]!, fact_ids: [file.facts[0]!.id] }
+        : { ...candidate.scenes[0]!.beats[0]!, fact_ids: [file.facts[2]!.id] }
+      candidate.scenes[1]!.beats.push(beat)
+      notes.changes.push({ source: { unit_id: file.facts[variant === 'text_only_action' ? 0 : 2]!.anchors[0]!.unit_id },
+        after: { scene: 2, beat: 2, text: beat.text }, reason: '重复引用测试必须仍保持证据种类。' })
+    }
+    if (variant === 'missing_supplement') delete file.facts[3]!.story_supplement
+    if (variant === 'foreign_supplement_anchor') file.facts[3]!.anchors.push({ unit_id: brandString<UnitId>('u:future'), quote: '未来集材料。' })
+    if (variant === 'wrong_change_fact') notes.changes[0]!.source!.fact_id = file.facts[2]!.id
+    if (variant === 'missing_semantic') candidate.review = { actor, decision: 'approve', reason: '缺少实际复原报告。', time: new Date().toISOString() }
+    if (candidate.story_adaptation !== undefined) candidate.story_adaptation.output_content_sha256 = storyContentDigest(candidate)
+    candidate.sha256 = candidateDigest(candidate)
+    const codes = { no_grant: 'story_policy_required', no_metadata: 'story_report_required', unknown_inventory: 'story_inventory_required',
+      unknown_fact: 'story_fact_scope', foreign_fact: 'story_fact_scope', wrong_actor: 'story_visual_fact_evidence',
+      text_only_action: 'story_visual_fact_evidence', image_only_voice: 'story_voice_source_evidence', missing_supplement: 'story_supplement_scope',
+      foreign_supplement_anchor: 'story_supplement_scope', wrong_change_fact: 'story_change_source', missing_semantic: 'story_semantic_required' }
+    expect(() => { validateStoryCandidate(file, candidate, variant === 'missing_semantic') }).toThrow(codes[variant])
+  },
+)
+
+it('preserves source omissions and pending editor comments in separate notes without inventing output locations', async () => {
+  await ready(); const file = await current(), candidate = file.candidates[0]!, notes = candidate.story_adaptation!.notes
+  notes.changes.push({ source: { unit_id: file.sources[0]!.units[1]!.id }, reason: '作者分析保留在来源索引，正文通过已有本人OS表达。' })
+  notes.editor_comments.push({ comment: '待原作者确认节奏。', disposition: 'unknown', reason: '尚未采用，不关联实际修改。', change_indices: [] })
+  delete candidate.coverage!.windows[1]!.interval
+  delete file.story_inventories![0]!.coverage.windows[1]!.interval
+  delete file.sources[1]!.video!.interval
+  const item = file.story_inventories![0]!
+  item.scope_sha256 = storyScopeDigest(file, item); item.sha256 = inventoryDigest(item)
+  item.review!.evidence!.context_sha256 = item.scope_sha256; item.review!.evidence!.subject_sha256 = item.sha256
+  item.review!.evidence!.reads = inventoryReads(file, item).map(read => ({ ...read, step: SessionSeq(80) }))
+  candidate.story_adaptation!.scope_sha256 = item.scope_sha256; candidate.story_adaptation!.inventory_sha256 = item.sha256
+  candidate.story_adaptation!.output_content_sha256 = storyContentDigest(candidate); candidate.sha256 = candidateDigest(candidate)
+  const output = renderStoryNotes(file, candidate)
+  expect(output).toContain('省略或合并'); expect(output).toContain('修改条目 无'); expect(output).toContain('范围 0–4s')
+})
+
+it('refuses final acceptance without a real C report and rejects missing saved video verification material', async () => {
+  await ready(); const file = await current(), candidate = file.candidates[0]!
+  expect(() => buildStoryAcceptance(file, candidate)).toThrow('story_acceptance_evidence')
+  await approveCandidate(); const approved = await current(), reviewed = approved.candidates[0]!
+  approved.accepted.push(reviewed.id)
+  const source = approved.sources[1]!
+  delete source.trusted_video_manifest
+  await expect(validateAcceptedStoryEvidence(approved, async () => proof, async () => {})).rejects.toThrow('story_video_evidence_pending')
+  delete approved.story_policy; approved.story_inventories = []
+  await expect(validateAcceptedStoryEvidence(approved, async () => proof)).resolves.toBeUndefined()
+})
+
+it('binds a revision to the exact candidate retained in the story-fork input archive', async () => {
+  const original = new ProjectCommands(ctx.fs, limits, ctx.attachments), reviewer = brandString<ActorId>('original-reviewer')
+  const invoke = (request: ProjectRequest, asActor = actor) => original.execute(request,
+    { actor: asActor, signal: new AbortController().signal })
+  await invoke({ method: 'init', project, mode: 'faithful', instructions: '独立来源草稿。' })
+  await invoke({ method: 'import_source', project, expected_revision: 0, path: join(root, 'source.txt'), source_kind: 'text' })
+  const source = (await current()).sources[0]!, unit = source.units[0]!
+  await invoke({ method: 'propose_fact', project, expected_revision: 1, fact: { kind: 'speech', actor: '甲', origin: 'source',
+    layer: 'present', summary: '甲让乙离开。', anchors: [{ unit_id: unit.id, quote: unit.text }] } })
+  const fact = (await current()).facts[0]!
+  await invoke({ method: 'review_fact', project, expected_revision: 2, fact_id: fact.id, decision: 'approve', reason: '原来源审校。' }, reviewer)
+  await invoke({ method: 'stage', project, expected_revision: 3, episode: 1, scenes: [{ location: '门前', time: '日', layer: 'present',
+    transition: 'opening', characters: ['甲', '乙'], beats: [{ kind: 'dialogue', actor: '甲', text: '你走吧。', fact_ids: [fact.id],
+      requires_knowledge: [], witnesses: ['乙'] }] }] })
+  const old = await current(), baseline = old.candidates[0]!, destination = join(root, 'story-revision-fork.json')
+  const version = (await ctx.fs.stat(await ctx.fs.resolve(join(root, 'original.mp4'), { signal: new AbortController().signal }), new AbortController().signal))!.version
+  await run({ method: 'fork_story_faithful', project, expected_revision: old.revision, destination, before_episode: 1,
+    work_title: '同集来源与真实修改输入', videos: [{ path: join(root, 'original.mp4'), source_version: version }], episodes: [1],
+    scope_instructions: '保持原事件与源定位，修改已存在草稿。', authorization_quote: grant.quote, consent_assessment: grant.consent_assessment,
+    allowed_categories: ['performance_detail', 'minimal_os', 'supporting_dialogue'], baseline_candidate_ids: [baseline.id],
+    source_links: old.sources.map(source => ({ source_id: source.id, video_path: join(root, 'original.mp4') })) })
+  project = destination
+  await run({ method: 'import_source', project, expected_revision: 0, path: join(root, 'inspection.json'), source_kind: 'video_inspection' })
+  await sourcesAndFacts(true); await reviewedInventory(); const { file, item, scenes, notes } = await draft()
+  notes.input_candidate_id = baseline.id
+  notes.changes[0]!.before = { scene: 1, beat: 1, text: baseline.scenes[0]!.beats[0]!.text }
+  delete notes.changes[0]!.source
+  step = 100
+  await run({ method: 'stage', project, expected_revision: file.revision, episode: 1, scenes: stageScenes(scenes),
+    coverage: stageCoverage(item.coverage), story_notes: stageStoryNotes(notes) })
+  const staged = await current(), candidate = staged.candidates[0]!
+  expect(staged.candidates.some(value => value.id === baseline.id)).toBe(false)
+  expect(renderStoryNotes(staged, candidate)).toContain(`输入：真实候选 ${baseline.id}`)
+  const corrupted = structuredClone(candidate)
+  const snapshot = JSON.parse(corrupted.story_adaptation!.input_candidate_json!) as { id: string }
+  snapshot.id = 'c:12345678-1234-4234-8234-123456789012'
+  corrupted.story_adaptation!.input_candidate_json = JSON.stringify(snapshot); corrupted.sha256 = candidateDigest(corrupted)
+  expect(() => { validateStoryCandidate(staged, corrupted) }).toThrow('story_input_digest')
+  const unreported = structuredClone(candidate), changed = unreported.story_adaptation!.notes.changes[0]!
+  delete changed.before
+  changed.source = { unit_id: source.units[0]!.id, fact_id: fact.id }
+  unreported.sha256 = candidateDigest(unreported)
+  expect(() => { validateStoryCandidate(staged, unreported) }).toThrow('story_input_change_unhandled')
+})
+
+function refreshStoryBindings(file: ProjectFile) {
+  const item = file.story_inventories![0]!, candidate = file.candidates[0]!, metadata = candidate.story_adaptation!
+  item.scope_sha256 = storyScopeDigest(file, item); item.sha256 = inventoryDigest(item)
+  item.review!.evidence!.context_sha256 = item.scope_sha256; item.review!.evidence!.subject_sha256 = item.sha256
+  item.review!.evidence!.reads = inventoryReads(file, item).map(read => ({ ...read, step: SessionSeq(80) }))
+  metadata.scope_sha256 = item.scope_sha256; metadata.inventory_sha256 = item.sha256
+  metadata.output_content_sha256 = storyContentDigest(candidate); candidate.sha256 = candidateDigest(candidate)
+}
+
+it.each([false, true])('preserves actual scene hearers only when VO is explicitly audible=%s', async (audible) => {
+  await ready(); const file = await current(), candidate = file.candidates[0]!, speech = candidate.scenes[0]!.beats[0]!
+  speech.kind = 'vo'; speech.audible_in_scene = audible
+  file.story_inventories![0]!.items[0]!.knowledge[0]!.recipients.push('甲')
+  refreshStoryBindings(file)
+  if (audible) expect(() => { validateStoryCandidate(PROJECT_FILE.parse(JSON.parse(JSON.stringify(file))), candidate) }).not.toThrow()
+  else expect(() => { validateStoryCandidate(PROJECT_FILE.parse(JSON.parse(JSON.stringify(file))), candidate) }).toThrow('story_knowledge_preservation')
+})
+
+it('rejects a reordered prerequisite even when each individual event retains a valid actual output location', async () => {
+  await ready(); const file = await current(), item = file.story_inventories![0]!
+  item.items[0]!.depends_on = ['door']; item.items[1]!.depends_on = []
+  refreshStoryBindings(file)
+  expect(() => { validateStoryCandidate(file, file.candidates[0]!) }).toThrow('story_causal_order')
+})
+
+it('explains an unsupplemented source-only candidate without presenting unused adaptation facts as output', async () => {
+  await ready(); const file = await current(), item = file.story_inventories![0]!, candidate = file.candidates[0]!
+  item.items = item.items.filter(value => value.id !== 'tension')
+  item.not_applicable = [{ dimension: 'emotion_conflict', reason: '本稿只恢复明确事件与动作，不新增主观表达。' }]
+  candidate.scenes[0]!.beats.pop()
+  const notes = candidate.story_adaptation!.notes
+  notes.mapping = notes.mapping.filter(mapping => mapping.item_id !== 'tension')
+  notes.changes.splice(1, 1)
+  notes.dispositions[1]!.disposition = 'omitted_non_story'
+  refreshStoryBindings(file)
+  expect(renderStoryNotes(file, candidate)).toContain('无本候选新增演绎事实。')
+  expect(renderStoryNotes(file, candidate)).not.toContain('adaptation / minimal_os')
+})
+
+it('cannot build a final approval binding after its recorded video receipt disappears', async () => {
+  await accepted(); const file = await current(), candidate = file.candidates[0]!
+  delete file.sources[1]!.trusted_video_receipt
+  expect(() => buildStoryAcceptance(file, candidate)).toThrow(TypeError)
+})

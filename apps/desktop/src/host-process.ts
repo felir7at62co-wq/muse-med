@@ -169,6 +169,7 @@ async function exitsWithin(exit: Promise<void>, milliseconds: number): Promise<b
 
 /** Browser authentication URL reported by the running Web application. */
 export interface DesktopHostReady {
+  readonly pid: number
   readonly url: string
   readonly injections?: readonly unknown[] | undefined
 }
@@ -330,7 +331,13 @@ export class DesktopHostProcess {
         child.kill('SIGTERM')
         return
       }
-      if (message.type === 'ready') this.readyResolve({ url: message.url, injections: message.injections })
+      if (message.type === 'ready') {
+        if (child.pid === undefined) {
+          this.fail(new Error('muse-med host reached ready without a process id'))
+          return
+        }
+        this.readyResolve({ pid: child.pid, url: message.url, injections: message.injections })
+      }
       else if (message.type === 'platform-session') this.onPlatformSession?.(message.session)
       else if (message.type === 'attention-sound') this.onAttentionSound?.(message.kind)
       else if (message.type === 'shutdown-complete') {

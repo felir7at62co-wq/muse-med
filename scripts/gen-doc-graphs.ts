@@ -132,6 +132,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Describes, stores and clears the credential through the existing credential provider; the browser receives status without the stored token.',
   },
   {
+    key: 'museAccount',
+    pkg: 'muse-account',
+    title: 'Muse authenticated account operations',
+    mode: 'service',
+    consumers: ['tool-audio-transcribe', 'tool-jubian', 'ui-muse-account'],
+    note: 'Muse Account owns the service definition and Host implementation; tools use authenticated transcription and shared voice registration, while the account UI uses its public Remote methods. Voice-slot transport remains Host-only.',
+  },
+  {
     key: 'museDesktopBridge',
     pkg: 'muse-account',
     title: 'Muse authenticated desktop tunnel',

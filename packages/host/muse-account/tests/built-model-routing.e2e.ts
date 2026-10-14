@@ -11,6 +11,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { oldSessionFixture, waitForIdle } from './model-routing-fixture.ts'
 import { textEvents } from '../../../llm/llm-pi-ai/tests/mock-server.ts'
+import { buildModelCatalog } from '../../../api/session-controller/src/catalog.ts'
 
 const artifact = fileURLToPath(new URL('../lib/index.js', import.meta.url))
 
@@ -44,6 +45,10 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
             { id: 'deepseek-official', name: 'DeepSeek', models: [{
               id: 'deepseek-flash', name: 'DeepSeek-Flash', contextWindow: 1000000, maxTokens: 256000,
               input: ['text'], reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' },
+            }] },
+            { id: 'zhipu-official', name: '智谱官方', models: [{
+              id: 'glm-5.3-flash', name: 'GLM-5.3-Flash', contextWindow: 1000000, maxTokens: 128000,
+              input: ['text', 'image'], reasoningEfforts: { max: 'max' },
             }] }] }))
           return
         case '/api/desktop-models/deepseek-official/chat/completions':
@@ -94,6 +99,20 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
     .toMatchObject({ outcome: 'signed-in', status: { state: 'signed-in', username: 'alice' } })
   expect(fixture.ctx.llm.listProviders().some(provider => provider.id === 'muse-cloud-aa')).toBe(composition === 'package')
   expect((await fixture.ctx.llm.listModels('muse-cloud-yunying')).map(model => model.id)).toEqual(['gemini-3.1-pro'])
+  if (composition === 'desktop') {
+    const catalog = await buildModelCatalog(fixture.ctx, {
+      provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash',
+    })
+    const accountGroups = catalog.groups.filter(group => group.id.startsWith('muse-cloud-'))
+    expect(accountGroups.map(group => group.id)).toEqual([
+      'muse-cloud-deepseek-official', 'muse-cloud-zhipu-official',
+    ])
+    expect(accountGroups.flatMap(group => group.models.map(model => model.id)))
+      .toEqual(['deepseek-flash', 'glm-5.3-flash'])
+    expect(catalog.groups.some(group => group.id === 'muse-cloud-yunying')).toBe(false)
+    expect(fixture.ctx.llm.listProviders().find(provider => provider.id === 'muse-cloud-yunying'))
+      .toMatchObject({ selectable: false })
+  }
   expect(fixture.ctx.agentDefaultModel.currentSelection()).toMatchObject({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
   for (const text of ['Continue the script.', 'Continue the next scene.']) {
     const idle = waitForIdle(fixture.ctx, fixture.agent)

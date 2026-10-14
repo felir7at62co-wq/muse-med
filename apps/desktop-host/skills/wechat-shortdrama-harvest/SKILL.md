@@ -27,4 +27,4 @@ description: Use when 用户提供微信小程序、视频号或 #小程序:// �
 
 ## 进入转写与编辑
 
-取得可读视频后加载 `audio-transcribe`，再按需求加载 `transcript-to-script` 或 `transcript-to-novel`。原始转写放项目 `transcript/raw/`，校订稿放 `transcript/reviewed/`，大纲放 `outline/`，过程稿放 `draft/`，最终交付放 `final/`，核对记录放 `qa/`。剧本正文不带时间轴；原始转写可保留时间码供核对。编辑模式再沿用案例入库、换梗方案、用户定大纲和写作交付流程；缺集须在交付说明中标明，不编造缺失情节作为转写结果。
+取得可读视频后按目标分流。视频转小说加载 `transcript-to-novel`，优先复用已有字幕/转写，缺少文字且有语音时用已获授权的 `audio-transcribe` 取得 ASR 原稿；只有明确 `queue_full` 的尚未受理任务或未提交集且有可靠可见文字时，才按实测效率分几集给 `video_ocr`，纯文字无发声视频也可按可靠文字使用 OCR。已受理排队不等于全池满，不假称取消、不重投。OCR 失败或部分覆盖不能静默回退或编造完整文字，计费、用途、原收据与恢复沿 `audio-transcribe`。视频转剧本先加载 `audio-transcribe`，保持 `purpose=screenplay` 的收据、恢复和计费流程，再加载 `transcript-to-script`。原始 OCR/ASR 证据放项目 `transcript/raw/` 并标明来源，校订稿放 `transcript/reviewed/`，大纲放 `outline/`，过程稿放 `draft/`，最终交付放 `final/`，核对记录放 `qa/`。剧本正文不带时间轴；原始证据保留时间码、扫描或转写范围供核对。编辑模式再沿用案例入库、换梗方案、用户定大纲和写作交付流程；缺集须在交付说明中标明，不编造缺失情节作为识别结果。

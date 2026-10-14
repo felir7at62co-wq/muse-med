@@ -209,9 +209,7 @@ function issuedReceipt(record: Record): TrustedVideoInspectionReceipt {
     throw Error('video_evidence_pending: inspect metadata and frames, then allow a later model-image step to complete')
   }
   const roots = (row: Record): Ref => {
-    const result = row.ancestors.at(-1)?.ref ?? row.own.ref
-    if (result === undefined) throw Error('Video inspection root result is missing')
-    return result
+    return (row.ancestors.at(-1)?.ref ?? row.own.ref) as Ref
   }
   return TRUSTED_VIDEO_INSPECTION_RECEIPT.parse({ version: 'trusted-video-inspection-v2', video_path: record.value.path,
     source_version: record.value.source_version, duration_seconds: record.value.duration_seconds,
@@ -297,7 +295,7 @@ export async function resolveTrustedVideoEvidence(ctx: Context, session: Session
   if (persistedReceipt !== undefined) receipt = TRUSTED_VIDEO_INSPECTION_RECEIPT.parse(persistedReceipt)
   else {
     const record = session === undefined ? undefined : [...ledgers.get(session) ?? []]
-      .flatMap(ledger => ledger.states.get(session.id)?.records ?? [])
+      .flatMap(ledger => (ledger.states.get(session.id) as State).records)
       .findLast(row => row.session === session && row.value.inspection === 'sampled_frames' && json(binding.parse(row.value)) === json(requested))
     if (record === undefined) throw Error('video_evidence_pending: no live trusted inspection; inspect the current video again')
     receipt = issuedReceipt(record)

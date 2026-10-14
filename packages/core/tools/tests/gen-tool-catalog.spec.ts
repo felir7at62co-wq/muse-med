@@ -28,7 +28,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
     expect(names).toEqual([
       'ask_user_question', 'audio_transcribe', 'bash', 'bash', 'bgm_match',
       'cordis_inspect_list', 'cordis_inspect_query', 'create_goal', 'drama_assets', 'drama_bgm',
-      'drama_draft_dir', 'drama_project', 'drama_render', 'drama_shot', 'drama_video',
+      'drama_character_references', 'drama_draft_dir', 'drama_project', 'drama_render', 'drama_shot', 'drama_video',
       'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep',
       'interrupt_agent', 'interrupt_agent', 'job_kill', 'job_list', 'job_output',
       'jubian_asset', 'jubian_budget', 'jubian_catalog', 'jubian_claim', 'jubian_find', 'jubian_media',
@@ -42,7 +42,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
       'stagehand_act', 'stagehand_extract', 'stagehand_navigate', 'stagehand_observe', 'stagehand_screenshot',
       'stagehand_tabs', 'str_replace_editor', 'subagent', 'team_task_create', 'team_task_get',
       'team_task_list', 'team_task_update', 'terminal_close', 'terminal_list', 'terminal_open',
-      'terminal_read', 'terminal_send', 'terminal_signal', 'todo_write', 'update_goal', 'video_contact_sheet', 'video_inspect',
+      'terminal_read', 'terminal_send', 'terminal_signal', 'todo_write', 'update_goal', 'video_contact_sheet', 'video_inspect', 'video_ocr',
       'wait_agent', 'web_fetch', 'web_search', 'workflow', 'write',
     ])
     // Every tool carries a JSON-Schema `parameters` object (what the model sees).

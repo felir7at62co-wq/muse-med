@@ -225,7 +225,7 @@ function renderWithFacts(scenes: ProjectFile['candidates'][number]['scenes'], pr
       output.push(`${prefix}${beat.text}`)
       const displayed = linked === undefined ? [beat] : linked.index < beatIndex ? [linked.beat, beat] : [beat, linked.beat]
       const ids = linked === undefined ? [...beat.fact_ids] : [...new Set(displayed.flatMap(value => value.fact_ids))]
-      const displayFacts = ids.flatMap((id) => { const fact = facts.get(id); return fact === undefined ? [] : [fact] })
+      const displayFacts = ids.map(id => facts.get(id) as ProjectFile['facts'][number])
       lines.push({ line: output.length, scene: sceneIndex + 1, fact_ids: ids,
         source_units: [...new Set(displayFacts.flatMap(fact => fact.anchors.map(anchor => anchor.unit_id)))].sort() })
     }

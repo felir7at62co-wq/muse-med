@@ -9,12 +9,51 @@ using System.Text;
 
 public static class InstallerCapture {
     public static string ProductName;
+    [DllImport("kernel32.dll", SetLastError = true)] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+
+    public sealed class ProcessExitObservation {
+        public bool? ManagedHasExited;
+        public int? ManagedExitCode;
+        public string ManagedHasExitedError, ManagedExitCodeError;
+        public uint NativeWaitResult;
+        public uint? NativeExitCode;
+        public int? NativeWin32Error;
+    }
+
+    // The Process owns this borrowed handle until its existing Dispose cleanup.
+    public static IntPtr RetainProcessHandle(System.Diagnostics.Process process) {
+        IntPtr handle = process.Handle;
+        if (handle == IntPtr.Zero) throw new InvalidOperationException("Test process has no retained handle");
+        return handle;
+    }
+
+    public static ProcessExitObservation ObserveProcessExit(System.Diagnostics.Process process, IntPtr handle) {
+        var result = new ProcessExitObservation();
+        try { result.ManagedHasExited = process.HasExited; }
+        catch (Exception error) { result.ManagedHasExitedError = error.ToString(); }
+        if (result.ManagedHasExited == true) {
+            try { result.ManagedExitCode = process.ExitCode; }
+            catch (Exception error) { result.ManagedExitCodeError = error.ToString(); }
+        }
+        result.NativeWaitResult = WaitForSingleObject(handle, 0);
+        if (result.NativeWaitResult == UInt32.MaxValue) {
+            result.NativeWin32Error = Marshal.GetLastWin32Error();
+        } else if (result.NativeWaitResult == 0) {
+            uint code;
+            if (GetExitCodeProcess(handle, out code)) result.NativeExitCode = code;
+            else result.NativeWin32Error = Marshal.GetLastWin32Error();
+        }
+        return result;
+    }
+
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
     public static void Initialize() { SetProcessDPIAware(); }
     public delegate bool WindowCallback(IntPtr window, IntPtr data);
     [DllImport("user32.dll")] static extern bool EnumWindows(WindowCallback callback, IntPtr data);
     [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, WindowCallback callback, IntPtr data);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr window);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr window);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetProp(IntPtr window, string name);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
@@ -34,10 +73,89 @@ public static class InstallerCapture {
     [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr window, int id);
     [DllImport("user32.dll")] static extern int GetDlgCtrlID(IntPtr window);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder text, int count);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wparam, string text);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool SetWindowText(IntPtr window, string text);
     [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wparam, IntPtr lparam);
+    [DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr WriteTextMessage(IntPtr window, uint message, UIntPtr wparam, string text, uint flags, uint timeout, out UIntPtr result);
+    [DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr ReadTextMessage(IntPtr window, uint message, UIntPtr wparam, StringBuilder text, uint flags, uint timeout, out UIntPtr result);
+    [DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW", SetLastError = true)]
+    static extern IntPtr SendPointerMessage(IntPtr window, uint message, IntPtr wparam, IntPtr lparam, uint flags, uint timeout, out UIntPtr result);
+    [DllImport("user32.dll")] static extern bool IsChild(IntPtr parent, IntPtr child);
+    [DllImport("user32.dll", SetLastError = true)] static extern bool GetGUIThreadInfo(uint thread, ref GuiThreadInfo info);
     [StructLayout(LayoutKind.Sequential)] struct Rect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] struct GuiThreadInfo {
+        public uint Size, Flags;
+        public IntPtr Active, Focus, Capture, MenuOwner, MoveSize, Caret;
+        public Rect CaretBounds;
+    }
+
+    static uint RequireOwnedEdit(int process, IntPtr edit, bool writable) {
+        if (edit == IntPtr.Zero || !IsWindow(edit) || !IsWindowVisible(edit) || (writable && !IsWindowEnabled(edit)))
+            throw new ArgumentException("Path input must be a visible owned Edit control", "edit");
+        uint owner;
+        uint thread = GetWindowThreadProcessId(edit, out owner);
+        var kind = new StringBuilder(64);
+        GetClassName(edit, kind, kind.Capacity);
+        if (owner != process || kind.ToString() != "Edit") throw new ArgumentException("Path input is not this installer's Edit control", "edit");
+        return thread;
+    }
+
+    // Other-process edit contents require WM_GETTEXT, rather than the cached GetWindowText caption.
+    public static string ReadEditText(int process, IntPtr edit) {
+        RequireOwnedEdit(process, edit, false);
+        var text = new StringBuilder(4096);
+        UIntPtr result;
+        if (ReadTextMessage(edit, 0xD, new UIntPtr((uint)text.Capacity), text, 0x22, 5000, out result) == IntPtr.Zero)
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "Could not read the owned Edit with WM_GETTEXT");
+        if (result.ToUInt64() >= (ulong)text.Capacity - 1) throw new InvalidOperationException("Owned Edit text was truncated");
+        return text.ToString();
+    }
+
+    public static void SetEditText(int process, IntPtr edit, string expected) {
+        RequireOwnedEdit(process, edit, true);
+        UIntPtr result;
+        if (WriteTextMessage(edit, 0xC, UIntPtr.Zero, expected, 0x22, 5000, out result) == IntPtr.Zero || result == UIntPtr.Zero)
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "Could not write the owned Edit with WM_SETTEXT");
+        string actual = ReadEditText(process, edit);
+        if (actual != expected) throw new InvalidOperationException("Owned Edit readback differs: expected '" + expected + "', actual '" + actual + "'");
+    }
+
+    public static IntPtr FindPathEdit(int process, IntPtr parent) {
+        uint parentOwner;
+        GetWindowThreadProcessId(parent, out parentOwner);
+        if (parent == IntPtr.Zero || !IsWindow(parent) || parentOwner != process)
+            throw new ArgumentException("Path input parent is not this installer's window", "parent");
+        IntPtr result = IntPtr.Zero;
+        int count = 0;
+        EnumChildWindows(parent, delegate(IntPtr child, IntPtr unused) {
+            var kind = new StringBuilder(64);
+            GetClassName(child, kind, kind.Capacity);
+            uint owner;
+            GetWindowThreadProcessId(child, out owner);
+            if (owner == process && kind.ToString() == "Edit" && IsWindowVisible(child) && IsWindowEnabled(child)) {
+                count++;
+                result = child;
+            }
+            return true;
+        }, IntPtr.Zero);
+        if (count != 1) throw new InvalidOperationException("Expected one visible path Edit control, found " + count);
+        return result;
+    }
+
+    public static IntPtr FocusEdit(int process, IntPtr parent, IntPtr edit) {
+        uint thread = RequireOwnedEdit(process, edit, true);
+        uint owner;
+        GetWindowThreadProcessId(parent, out owner);
+        if (owner != process || !IsChild(parent, edit)) throw new ArgumentException("Path Edit does not belong to the installer window", "parent");
+        UIntPtr result;
+        if (SendPointerMessage(parent, 0x28, edit, new IntPtr(1), 0x22, 5000, out result) == IntPtr.Zero)
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "Could not focus the owned Edit");
+        var info = new GuiThreadInfo();
+        info.Size = (uint)Marshal.SizeOf(typeof(GuiThreadInfo));
+        if (!GetGUIThreadInfo(thread, ref info)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "Could not inspect installer thread focus");
+        if (info.Focus != edit) throw new InvalidOperationException("Installer focus differs: expected " + edit + ", actual " + info.Focus);
+        return info.Focus;
+    }
 
     public static string Bounds(IntPtr window) {
         Rect rect;
@@ -151,9 +269,14 @@ public static class InstallerCapture {
             output.AppendLine("WINDOW " + window + " OK=" + GetDlgItem(window, 1) + " YES=" + GetDlgItem(window, 6));
             EnumChildWindows(window, delegate(IntPtr child, IntPtr unused) {
                 var text = new StringBuilder(1024);
-                GetWindowText(child, text, text.Capacity);
                 var kind = new StringBuilder(256);
                 GetClassName(child, kind, kind.Capacity);
+                if (IsWindowVisible(child) && kind.ToString() == "Edit") {
+                    try { text.Append(ReadEditText(process, child)); }
+                    catch (Exception error) { text.Append("<WM_GETTEXT failed: " + error.Message + ">"); }
+                } else {
+                    GetWindowText(child, text, text.Capacity);
+                }
                 Rect rect;
                 GetWindowRect(child, out rect);
                 if (IsWindowVisible(child)) output.AppendLine(kind + " " + child + " ID=" + GetDlgCtrlID(child) + " " + rect.Left + "," + rect.Top + "," + rect.Right + "," + rect.Bottom + " " + text.ToString());
@@ -164,11 +287,49 @@ public static class InstallerCapture {
         return output.ToString();
     }
 
+    public static IntPtr[] VisibleWindows(int process) {
+        var windows = new System.Collections.Generic.List<IntPtr>();
+        EnumWindows(delegate(IntPtr window, IntPtr unused) {
+            uint owner;
+            GetWindowThreadProcessId(window, out owner);
+            if (owner == process && IsWindowVisible(window)) windows.Add(window);
+            return true;
+        }, IntPtr.Zero);
+        return windows.ToArray();
+    }
+
+    public static string SaveVisibleDesktop(IntPtr window, string path) {
+        Rect rect;
+        if (window == IntPtr.Zero || !IsWindowVisible(window) || !GetWindowRect(window, out rect))
+            throw new ArgumentException("Failure screenshot window is not visible", "window");
+        int width = rect.Right - rect.Left, height = rect.Bottom - rect.Top;
+        if (width <= 0 || height <= 0) throw new InvalidOperationException("Failure screenshot window has no visible area");
+        using (var bitmap = new Bitmap(width, height, PixelFormat.Format24bppRgb)) {
+            using (var graphics = Graphics.FromImage(bitmap)) {
+                graphics.CopyFromScreen(rect.Left, rect.Top, 0, 0, new Size(width, height));
+            }
+            bitmap.Save(path, ImageFormat.Png);
+        }
+        return width + "x" + height;
+    }
+
     public static IntPtr TopLevel(IntPtr child) { return GetAncestor(child, 2); }
     [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr window, uint flags);
 
     public static void Click(IntPtr control) {
+        if (control == IntPtr.Zero || !IsWindow(control) || !IsWindowVisible(control) || !IsWindowEnabled(control))
+            throw new ArgumentException("Native button must be a visible enabled window", "control");
         if (!PostMessage(control, 0xF5, IntPtr.Zero, IntPtr.Zero)) throw new InvalidOperationException("Could not click native button");
+    }
+
+    public static IntPtr DialogDismissButton(IntPtr dialog) {
+        if (dialog == IntPtr.Zero || !IsWindow(dialog)) throw new ArgumentException("Native dialog is missing", "dialog");
+        // Folder pickers use Cancel; an MB_OK message box has only OK.
+        foreach (int id in new[] { 2, 1 }) {
+            IntPtr button = GetDlgItem(dialog, id);
+            if (button != IntPtr.Zero && IsWindow(button) && IsWindowVisible(button) && IsWindowEnabled(button)) return button;
+        }
+        throw new InvalidOperationException("Native dialog has no visible enabled Cancel or OK button");
     }
 
     public static IntPtr Find(int process) {

@@ -32,6 +32,8 @@ export interface MatchRequirement {
   stable_id?: string
   episode?: number
   state_or_costume?: string
+  /** Explicit story period for a voice; never inferred from costume or age wording. */
+  voice_period_id?: string
 }
 
 /** Candidate IDs and explanations, without a writable binding or approval. */
@@ -44,6 +46,8 @@ export interface EntityMatch {
   selected_asset_id?: number
   reason_codes: string[]
   evidence: string[]
+  /** Period requested for this voice, absent for legacy unperioded requirements. */
+  voice_period_id?: string
 }
 
 /** A preview is scoped to this project, not a claim that the historical library is empty. */
@@ -81,11 +85,49 @@ function https(value: unknown): boolean {
   catch (_error) { return false }
 }
 
+/** One configured voice period, or the legacy unperioded default. */
+export interface ConfiguredVoiceProfile {
+  /** Exact configured voice period; absent only for the legacy default. */
+  voice_period_id?: string
+  /** Human-readable period label, which does not determine identity. */
+  label?: string
+  /** Flat reference fields and voice guidance for this period. */
+  profile: Row
+}
+
+/** Read explicit voice periods without mixing them with a legacy default.
+ * @param character - Current persisted character entry.
+ * @returns Unique configured periods, or one legacy profile when no periods exist.
+ */
+export function configuredVoiceProfiles(character: Row): ConfiguredVoiceProfile[] {
+  if (character.voice_profiles !== undefined && !Array.isArray(character.voice_profiles)) {
+    block('VOICE_PERIODS_UNREADABLE', 'voice_profiles must be an array of explicit periods.')
+  }
+  if (Array.isArray(character.voice_profiles) && character.voice_profiles.length > 0) {
+    const seen = new Set<string>()
+    return character.voice_profiles.map((value) => {
+      const profile = object(value, 'voice period'), period = profile.voice_period_id
+      if (typeof period !== 'string' || !period.trim() || seen.has(period) || profile.label !== undefined && !text(profile.label)) {
+        block('VOICE_PERIODS_AMBIGUOUS', 'Voice periods need unique nonempty voice_period_id values and readable labels.')
+      }
+      seen.add(period)
+      return { voice_period_id: period, ...(profile.label === undefined ? {} : { label: text(profile.label) }), profile }
+    })
+  }
+  return [{ profile: character.voice_profile === undefined ? {} : object(character.voice_profile, 'voice_profile') }]
+}
+
 /** Reads retain byte digests so changes during remote queries invalidate the whole preview. */
-class ProjectFiles {
+export class ProjectFiles {
+  /** Byte digests of every file observed during this read operation. */
   readonly observed = new Map<string, string>()
+  /** Canonical locations retained to detect retargeted directory links. */
   readonly resolved = new Map<string, string>()
   constructor(readonly root: string) {}
+  /** Resolve an existing project-contained path.
+   * @param input - Project-relative or absolute local input path.
+   * @returns Canonical path, refusing external or retargeted links.
+   */
   async path(input: string): Promise<string> {
     const requested = resolve(this.root, input)
     const path = await realpath(requested)
@@ -95,6 +137,10 @@ class ProjectFiles {
     this.resolved.set(requested, path)
     return path
   }
+  /** Read bytes and retain their digest for final revalidation.
+   * @param input - Project-contained local input path.
+   * @returns Current file bytes, refusing changes since an earlier read.
+   */
   async bytes(input: string): Promise<Buffer> {
     const path = await this.path(input)
     const bytes = await readFile(path)
@@ -103,9 +149,14 @@ class ProjectFiles {
     this.observed.set(path, digest)
     return bytes
   }
+  /** Parse a tracked project file as a JSON object.
+   * @param input - Project-contained JSON input path.
+   * @returns Parsed object, refusing invalid documents.
+   */
   async json(input: string): Promise<Row> {
     return object(JSON.parse((await this.bytes(input)).toString('utf8').replace(/^\uFEFF/, '')), input)
   }
+  /** Refuse byte changes or link retargeting since any tracked read. */
   async unchanged(): Promise<void> {
     for (const requested of this.resolved.keys()) await this.path(requested)
     for (const [path, digest] of this.observed) {
@@ -145,6 +196,9 @@ function requirements(document: Row, limit: number): MatchRequirement[] {
     for (const key of ['character_id', 'stable_id', 'state_or_costume']) {
       if (row[key] !== undefined && !text(row[key])) block('INVALID_REQUIREMENTS', `${key} must be nonempty text.`)
     }
+    if (row.voice_period_id !== undefined && (typeof row.voice_period_id !== 'string' || !row.voice_period_id.trim())) {
+      block('INVALID_REQUIREMENTS', 'voice_period_id must be nonempty text.')
+    }
     if (row.episode !== undefined && !positive(row.episode)) block('INVALID_REQUIREMENTS', 'episode must be a positive integer.')
     ids.add(text(row.id))
     return { id: text(row.id), kind: text(row.kind) as Kind, name: text(row.name),
@@ -152,7 +206,8 @@ function requirements(document: Row, limit: number): MatchRequirement[] {
       ...(row.character_id === undefined ? {} : { character_id: text(row.character_id) }),
       ...(row.stable_id === undefined ? {} : { stable_id: text(row.stable_id) }),
       ...(row.episode === undefined ? {} : { episode: row.episode }),
-      ...(row.state_or_costume === undefined ? {} : { state_or_costume: text(row.state_or_costume) }) }
+      ...(row.state_or_costume === undefined ? {} : { state_or_costume: text(row.state_or_costume) }),
+      ...(row.voice_period_id === undefined ? {} : { voice_period_id: row.voice_period_id }) }
   })
 }
 
@@ -186,7 +241,8 @@ async function inventory(client: JubianClient, scriptId: number, kind: 'asset' |
 function base(requirement: MatchRequirement, status: Status, rows: Row[], code: string, evidence: string[] = []): EntityMatch {
   return { id: requirement.id, kind: requirement.kind, name: requirement.name, status,
     candidate_asset_ids: [...new Set(rows.map(row => row.jubian_asset_id ?? row.asset_id ?? row.id).filter(positive))],
-    reason_codes: [code], evidence }
+    reason_codes: [code], evidence,
+    ...(requirement.kind !== 'voice' || requirement.voice_period_id === undefined ? {} : { voice_period_id: requirement.voice_period_id }) }
 }
 function names(row: Row): string[] { return [text(row.name ?? row.assetName), ...strings(row.aliases)] }
 function covers(row: Row, episode: number | undefined): boolean {
@@ -277,8 +333,15 @@ async function voiceMatch(client: JubianClient, files: ProjectFiles, scriptId: n
     && normalized(text(row.assetName ?? row.name)).includes(normalized(req.name)))
   if (!character) return base(req, 'needs_review', named, 'CHARACTER_VOICE_IDENTITY_UNVERIFIED')
   if (!names(character).some(name => normalized(name) === normalized(req.name))) return base(req, 'needs_review', named, 'IDENTITY_NAME_CONFLICT')
-  const voice = character.voice_profile === undefined ? {} : object(character.voice_profile, 'voice_profile')
-  const references = samples.filter(sample => sample.character_id === req.character_id)
+  const profiles = configuredVoiceProfiles(character)
+  if (req.voice_period_id === undefined && profiles.some(profile => profile.voice_period_id !== undefined)) {
+    return base(req, 'needs_review', named, 'VOICE_PERIOD_REQUIRED')
+  }
+  const configured = profiles.find(profile => profile.voice_period_id === req.voice_period_id)
+  if (configured === undefined) return base(req, 'needs_review', named, 'VOICE_PERIOD_NOT_CONFIGURED')
+  const voice = configured.profile
+  const references = samples.filter(sample => sample.character_id === req.character_id
+    && sample.voice_period_id === req.voice_period_id && !['archived', 'archived_duplicate'].includes(text(sample.status)))
   if (!voice.reference_audio) return base(req, references.length || named.length ? 'needs_review' : 'missing', named,
     references.length || named.length ? 'NO_APPROVED_CURRENT_VOICE' : 'NO_CURRENT_PROJECT_VOICE')
   const selected = references.filter(sample => sample.status === 'approved' && sample.asset_id === voice.reference_audio_asset_id)
@@ -305,7 +368,8 @@ async function voiceMatch(client: JubianClient, files: ProjectFiles, scriptId: n
   if (remote.length !== 1 || remoteVoice === undefined || remoteVoice.assetType !== 4 || String(remoteVoice.delFlag) !== '0') return base(req, 'blocked', [sample], 'VOICE_ASSET_IDENTITY_CHANGED')
   await checkedParent(client, scriptId, sample.asset_id, 4, text(sample.url), parents)
   return { ...base(req, 'reuse_ready', [sample], 'APPROVED_CURRENT_CHARACTER_VOICE',
-    [`character_id=${req.character_id}`, `audio_asset_id=${String(sample.asset_id)}`, `sha256=${text(sample.sha256)}`, 'Approved sample/source matches current voice profile; generated voice still requires listening.']),
+    [`character_id=${req.character_id}`, ...(req.voice_period_id === undefined ? [] : [`voice_period_id=${req.voice_period_id}`]),
+      `audio_asset_id=${String(sample.asset_id)}`, `sha256=${text(sample.sha256)}`, 'Approved sample/source matches current voice profile; generated voice still requires listening.']),
   selected_asset_id: sample.asset_id }
 }
 

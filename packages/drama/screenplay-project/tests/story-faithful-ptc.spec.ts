@@ -1,7 +1,7 @@
 /** Supported-source headless PTC round trips with real video tools, original logs, and fixed synthetic semantics. */
 import { appendFile, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { z } from 'zod'
 import sharp from 'sharp'
 import { readImageFile } from '@deepseek-ai/dsh-attachment-local'
@@ -73,7 +73,7 @@ it('creates a fresh accepted V2 work with three actual sampled windows, exact ne
       .parse(JSON.parse(await readFile(join(cwd, 'story-fixture-tools.json'), 'utf8')))
     expect(tools.some(tool => tool.name === 'video_inspect' || tool.method === 'review')).toBe(false)
     expect(tools.find(tool => tool.method === 'export')?.isError).toBe(false)
-    expect(await readFile(join(cwd, 'cold-delivery', fixture.input!.split('/').at(-1)!), 'utf8')).toBe(rendered.script)
+    expect(await readFile(join(cwd, 'cold-delivery', basename(fixture.input!)), 'utf8')).toBe(rendered.script)
 
     const originalProject = await readFile(fixture.projectPath, 'utf8')
     const edited = PROJECT_FILE.parse(JSON.parse(originalProject))
@@ -141,7 +141,7 @@ it('commits and cold-exports a large real PTC review whose outer log is spilled 
     expect(outer.data.message.content.some(block => block.text.includes('Omitted'))).toBe(true)
     const cold = await runStoryFixture(cwd, { phase: 'accepted-cold', sessionId: fixture.sessionId, patches: [patch] })
     expect(cold.stderr).not.toContain('UNHANDLED')
-    expect(await readFile(join(cwd, 'cold-delivery', fixture.input!.split('/').at(-1)!), 'utf8')).toBe(acceptedScripts(fixture.project)[0]!.script)
+    expect(await readFile(join(cwd, 'cold-delivery', basename(fixture.input!)), 'utf8')).toBe(acceptedScripts(fixture.project)[0]!.script)
   } finally { await cleanup(cwd) }
 }, DEADLINE)
 

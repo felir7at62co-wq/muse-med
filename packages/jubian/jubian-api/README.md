@@ -11,8 +11,6 @@ English | [中文](README.zh.md)
 
 `@deepseek-ai/dsh-jubian-api` validates Jubian response data and builds request bodies for catalog, asset, video, storyboard, image, subtitle, and upscale operations. It also downloads bounded media. Readers return typed values or throw `JubianError` with `CONTRACT_CHANGED` when a payload does not match. `@deepseek-ai/dsh-jubian` owns Jubian request transport and credentials; `@deepseek-ai/dsh-tool-jubian` uses these functions.
 
-Pool rows expose `claim_leader_id` and `claim_member_id` when available. The claim tool checks these account IDs against the authenticated user because claimant names cannot verify ownership.
-
 ## Table of Contents
 
 - [Use this package](#use-this-package)
@@ -31,6 +29,10 @@ Import the library from any package that already holds a Jubian response envelop
 ### When to choose it
 
 Choose this library when you read or submit Jubian business data and you do not want to re-derive the provider's wire shape. It is a dependency, not a composition row: it registers no Cordis service, tool, prompt section, or session event, so nothing mounts it and no `cordis.yml` entry exists for it. Reach for it from a plugin or a test that owns the transport itself. Reach for `@deepseek-ai/dsh-tool-jubian` instead when a model should call Jubian through tools.
+
+`encodeVoiceSlot` and `readVoiceSlot` retain exact project, character and life-period metadata in a canonical audio asset name suffix. A decoded tag identifies the intended voice, not speaker quality or interchangeable recordings.
+
+Pool rows expose `claim_leader_id` and `claim_member_id` when available. The claim tool checks these account IDs against the authenticated user because claimant names cannot verify ownership.
 
 `readImageGeneration(data)` reads the generated-image endpoint's task/result identity and state independently of image availability. It classifies reference-limit, content-refusal and other provider failures without returning remote error text. URL-only legacy replies return null. `buildImageRequest` refuses more than five reference images on KU_AI before a billable request is constructed.
 
@@ -172,7 +174,7 @@ Subject selection reports a remotely removed parent as `PRE_PUT_ASSET_REMOVED`, 
 
 Native task reconciliation compares explicit episode IDs and numbers without converting absent values to zero. `nativeEpisodeScope()` validates camelCase and snake_case aliases; `matchesNativeEpisode()` excludes proven different episodes and refuses contradictory evidence. Missing axes do not prove another episode. These failures use `VIDEO_TASK_EVIDENCE_INVALID`; subject, model, prompt and audio matching remain required.
 
-Uploaded audio references use `materialType=audio`, `materialUrl`, `materialKey`, and a separate audio-group `sortOrder`; they do not require an image parent asset or a casting approval. Native preparation preserves those rows after the confirmed images and fingerprints their saved fields. Subject selection preserves existing audio. Video claims require the ordered child `audioMaterials[].audioUrl` to match the submitted references; absent or changed evidence requires reconciliation, never another paid submission. `readReferenceAudio()` measures complete 16-bit PCM WAV bytes and rejects references longer than 15 seconds. Saved remote `audioDuration` is checked when present, but its absence remains unverified.
+Uploaded audio references use `materialType=audio`, `materialUrl`, `materialKey`, and a separate audio-group `sortOrder`; they do not require an image parent asset or a casting approval. Native preparation preserves those rows after the confirmed images and fingerprints their saved fields. Subject selection preserves existing audio. Video claims require the ordered child `audioMaterials[].audioUrl` to match the submitted references; absent or changed evidence requires reconciliation, never another paid submission. `readReferenceAudio()` measures complete 16-bit PCM WAV bytes and rejects references longer than 15 seconds. Saved remote `audioDuration` is checked when present, and known durations across the complete audio group must sum to at most 15 seconds. Normally use a two-second speech interval per character; background sound does not change this time budget. Absent durations remain unverified and must be measured before claiming the total is within budget.
 
 `VIDEO_TASK_TYPES` maps `1` to `generate`, `10` to `erase_subtitle`, and `20` to `upscale`; `versions` carries the result history. `subtitle_erased` requires a current URL and either a successful latest type-10 result with an explicit output URL or a successful type-10 history entry whose URL equals the current URL. Stage 10 alone is insufficient, and this flag does not imply visual subtitle review. `upscaled` requires a positive upscale count or latest stage 20, not merely a changed URL.
 

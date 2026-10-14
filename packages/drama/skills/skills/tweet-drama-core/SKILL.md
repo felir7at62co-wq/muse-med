@@ -20,9 +20,11 @@ source、episodes、style、asset_prompts、asset_candidates、official_assets�
 - `python -B scripts/pipeline_state.py <项目目录> sync` —— **产物投影**：按磁盘上的产物重算每个阶段（completed / review / pending），写 `status_source: "projection"`。**开工第一件事就是跑它**，把「现在在哪一阶段、哪几集走到哪」报出来再动手，不要凭记忆推进。
 - `… set --stage <阶段> --status <状态>` —— **人工批注**：写 `status_source: "manual"`，此后 `sync` 只报告不覆盖，用来表达产物看不出来的事（预算、批准、已知缺口、阻塞）。
 - 状态 = 产物投影 + 人工批注；手写自述必然腐烂，所以不要手改 JSON，也不要指望谁记得回写。
-- 后段阶段（脚本匹配 / 生成 / 审片 / 草稿 / 成片）是**整部剧口径**：全部分集都走到才算 completed，否则是 review——否则「3/50 集交付」会被读成「整部已导出」。
+- 后段阶段（脚本匹配 / 生成 / 审片 / 草稿 / 成片）以**声明工作范围**为口径：范围内全部分集完成才算 completed，否则是 review。`note.completion_scope=work_scope` 只代表分工完成，不能报告整部剧完成；未声明分工的旧项目仍按整剧核对。
 
-多集镜头的覆盖证据是业务产物，不是第二套流程状态：`episodes/manifest.json` 列出预期集号与每集原文 SHA；若已从用户或正式剧本确认总集数，在清单顶层记录可选的整数 `expected_episode_count`（例如 52），以阻断连续但缺少末集的清单。`shots_and_matches/epNN-source-map.json` 的 `version=1`、`episode="NN"`、`source_sha256`、`shot_script` 和 `entries` 明确连接原文与镜头。每条非空原文行记录 `source_line`、`source_text`、`kind`、`shots`；发声行还记录 `speaker`、`speech_text`，类型用 `dialogue`、`os` 或 `vo`，其他行用 `action`、`scene`、`state`、`transition` 或 `heading`。运行 `python -B scripts/episode_coverage.py <项目目录> audit` 只读核对，再运行 `accept <本集号>` 为该集签发绑定原文、镜头、映射摘要的记录；未来集尚待验收时，`accept_status=passed` 与整剧 `status=pending` 可同时成立。`gate <集号...>` 是新多集自动付费清单的前置检查。缺映射、格式无法独立识别或摘要变化时不放行；不能用 Agent 自述、手工 `set completed` 或文件存在代替 `gate`。该检查不判定动作表演和视频视觉质量。
+多集镜头的覆盖证据是业务产物，不是第二套流程状态。先根据用户或正式分工确认 `episodes/manifest.json` 的 `work_scope.episode_ids`；`expected_episode_count` 始终表示整剧总集数，不能把 300 改成分工的 80。用户只负责 140–219 集时显式列出这 80 个原始集号，不补做 01–139 或 220–300，不从现有最小/最大集号推断授权或完整性。schema、逐行来源映射和旧记录迁移见 [Core I/O contract](references/io-contract.md#episode-work-scope-and-coverage)。
+
+运行 `python -B scripts/episode_coverage.py <项目目录> audit` 只读核对，再运行 `accept <本集号...>` 为已通过的集签发绑定当前依赖的记录。显式分工允许独立集先验收，其他集缺镜头映射时 `accept_status=passed` 与工作范围 `status=pending` 可同时成立；范围内原文缺失或 SHA 变化仍阻断签发。`gate <集号...>` 是新多集自动付费清单的前置检查，只放行本次范围内有当前有效验收的集。缺映射、格式无法独立识别或依赖摘要变化时不放行；不能用 Agent 自述、手工 `set completed` 或文件存在代替 `gate`。机器可识别的书面物件动作不因“说明书/问卷/答题卡”中的单字判为发声，含糊的“说明来路”“一边铺纸一边说”等仍保留待核对；本检查不判定动作表演和视频视觉质量。
 
 ## 资产硬字段
 

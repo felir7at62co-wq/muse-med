@@ -8,7 +8,16 @@ import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import sharp from 'sharp'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, ToolCallId, createUserMessage, markAgentLoopRequest, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import NodeRuntime from '@deepseek-ai/dsh-ptc-runtime-node'
+import LocalSandbox from '@deepseek-ai/dsh-sandbox-local'
+import * as SelfCheckFixture from './fixtures/self-check-model.ts'
+import * as RefinementFixture from './fixtures/refinement-model.ts'
+import * as StoryFixture from './fixtures/story-faithful-model.ts'
+import { prepareStoryFixture, STORY_FIXTURE_REQUEST } from './fixtures/story-faithful-fixture.ts'
+import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
+import * as Video from '@deepseek-ai/dsh-tool-video-inspect'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, expect, it, vi } from 'vitest'
 import { apply, Config, inject, name } from '../src/index.ts'
@@ -22,7 +31,7 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
-async function fixture(reviewMode: 'independent' | 'self-check' = 'independent') {
+async function fixture(config: Partial<Config> = {}) {
   const root = await mkdtemp(join(tmpdir(), 'screenplay-tool-'))
   const ctx = new Context()
   fixtures.push({ ctx, root })
@@ -32,15 +41,43 @@ async function fixture(reviewMode: 'independent' | 'self-check' = 'independent')
   const driver = await mountAgentLoopTestHarness(ctx)
   const agent = await driver.create(SessionId('screenplay-writer'), {}, { cwd: root })
   const register = vi.spyOn(ctx.tools, 'register')
-  apply(ctx, Config({ reviewMode }))
+  const projections = vi.spyOn(ctx.sessionProjections, 'register')
+  apply(ctx, Config(config))
   const tool = register.mock.calls[0]![0]
   let ordinal = 0
   const call = (request: Record<string, unknown>, initiated = true) => ctx.tools.execute({
     name: 'screenplay_project', callId: ToolCallId(`screenplay-${++ordinal}`), arguments: { request },
     signal: new AbortController().signal, ...(initiated ? { agent } : {}),
   })
-  return { ctx, root, agent, driver, tool, call }
+  return { ctx, root, agent, driver, tool, call, projections }
 }
+
+it('rejects dependent creation settings before mounting without their projection owner', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'screenplay-composition-')), ctx = new Context()
+  fixtures.push({ ctx, root })
+  await ctx.plugin(LocalFileSystem, { cwd: root })
+  expect(() => { apply(ctx, Config({ storyFaithfulMode: 'story-faithful-v2' })) }).toThrow('requires explicit self-check')
+  for (const config of [{ reviewMode: 'self-check' }, { refinementMode: 'source-preserving-v1' },
+    { reviewMode: 'self-check', storyFaithfulMode: 'story-faithful-v2' }] satisfies Partial<Config>[]) {
+    expect(() => { apply(ctx, Config(config)) }).toThrow('requires live sessionProjections')
+  }
+})
+
+it('rejects empty, unprojected, and superseded genuine story grants before writing a work', async () => {
+  const { agent, call, projections, root } = await fixture({ reviewMode: 'self-check', storyFaithfulMode: 'story-faithful-v2' })
+  const request = { method: 'init_story_faithful', project: 'story.json', work_title: '第一部', videos: [], episodes: [1],
+    scope_instructions: '保持来源故事。', authorization_quote: ' ', consent_assessment: '仅第一部。', allowed_categories: [] }
+  expect(JSON.stringify((await call(request)).content)).toContain('请引用真实用户')
+  agent.session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '将第一部转剧本。' }] }), { surfaceOp: 'append' })
+  agent.session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '改为第二部。' }] }), { surfaceOp: 'append' })
+  const oldGrant = { ...request, authorization_quote: '将第一部转剧本。' }
+  expect(JSON.stringify((await call(oldGrant)).content)).toContain('新作品必须引用最新真实用户请求')
+  const registration = projections.mock.results[0]
+  if (registration?.type !== 'return') throw Error('Refinement projection registration is missing')
+  registration.value()
+  expect(JSON.stringify((await call(oldGrant)).content)).toContain('真实用户消息投影尚未就绪')
+  await expect(readFile(join(root, 'story.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
 
 it('validates configurable allocation budgets and rejects nonpositive or fractional values', () => {
   expect(name).toBe('screenplay-project')
@@ -130,3 +167,201 @@ it('renders canonical text-only source windows without inserting images', async 
   expect(result.isError).toBe(false)
   expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(result.value, null, 2) }])
 })
+
+class NativeReadAdapter extends LlmAdapter {
+  private readonly steps = new Map<string, number>()
+  constructor(private readonly root: string, private readonly failAfterRead = false) { super() }
+  override async resolveModel(provider: string, model: string) {
+    return { provider, id: model, name: model, inputModalities: ['text'] as const }
+  }
+  async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    if (options.sessionId === undefined) {
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
+    const session = options.sessionId, step = this.steps.get(session) ?? 0
+    this.steps.set(session, step + 1)
+    const project = `${session}.json`
+    let requests: Record<string, unknown>[] = []
+    if (step === 0) requests = [
+      { method: 'init', project, mode: 'faithful', instructions: '保留来源。' },
+      { method: 'import_source', project, expected_revision: 0, path: 'source.txt', source_kind: 'text' },
+    ]
+    if (step === 1) {
+      const source = PROJECT_FILE.parse(JSON.parse(await readFile(join(this.root, project), 'utf8'))).sources[0]!
+      requests = [{ method: 'read_source', project, source_id: source.id, start: 1, count: 1 }]
+    }
+    if (step === 2) {
+      expect(options.messages.some(message => message.source?.kind === 'screenplay-project-read')).toBe(true)
+      if (this.failAfterRead) {
+        yield { type: 'finish', reason: { kind: 'error', failure: { code: 'SERVER_ERROR', message: 'Read observation failed' } } }
+        return
+      }
+      requests = [{ method: 'status', project }]
+    }
+    if (step === 3 && this.failAfterRead) requests = [{ method: 'status', project }]
+    for (const [index, request] of requests.entries()) {
+      const id = ToolCallId(`${session}-${step}-${index}`), args = JSON.stringify({ request })
+      yield { type: 'block-start', index, blockType: 'tool-call' }
+      yield { type: 'tool-call-delta', index, id, name: 'screenplay_project', argumentsDelta: args }
+      yield { type: 'block-end', index, block: { type: 'tool-call', id, name: 'screenplay_project', arguments: args } }
+    }
+    yield { type: 'finish', reason: { kind: requests.length ? 'tool-calls' : 'stop' } }
+  }
+}
+
+it.each([false, true])('retains native reads only through successful model observation, failed request=%s', async (failed) => {
+  const { ctx, root } = await fixture({ reviewMode: 'self-check' })
+  await writeFile(join(root, 'source.txt'), '甲推门。')
+  ctx.llm.registerAdapter(['native-read-fixture'], new NativeReadAdapter(root, failed))
+  const handle = await ctx.agents.create({ sessionId: SessionId('native-reader'),
+    agentOptions: { provider: 'native-read-fixture', model: 'native-read-fixture' }, meta: { cwd: root } })
+  const { agent } = handle
+  const send = () => { agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '读取当前来源。' }] })) }
+  send()
+  await agent.whenIdle()
+  const read = agent.session.snapshotEvents().findLast(event => event.type === 'user/message' && event.data.source.kind === 'screenplay-project-read')
+  if (read?.type !== 'user/message') throw Error('Native read context is missing')
+  expect(read.data.content).toHaveLength(1)
+  const content = read.data.content[0]
+  if (content?.type !== 'text') throw Error('Native text read context is missing')
+  expect(content.text).toContain('甲推门。')
+  if (failed) {
+    agent.session.append('user/message', { ...read.data, content: [{ type: 'text', text: '已替换的读取上下文。' }] },
+      { surfaceOp: { op: 'replace', startSeq: read.seq, endSeq: read.seq }, sourceEventSeqs: [read.seq] })
+    send()
+    await agent.whenIdle()
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'tool/result' && event.data.message.isError)).toEqual([])
+  } else {
+    const secondHandle = await ctx.agents.create({ sessionId: SessionId('native-reader-second'),
+      agentOptions: { provider: 'native-read-fixture', model: 'native-read-fixture' }, meta: { cwd: root } })
+    const second = secondHandle.agent
+    second.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '读取第二个项目。' }] }))
+    await second.whenIdle()
+    await handle.dispose()
+    await secondHandle.dispose()
+  }
+  for (const loopMarked of [false, true]) {
+    const options: GenerateOptions = { provider: 'native-read-fixture', model: 'native-read-fixture',
+      messages: [{ role: 'user', content: [{ type: 'text', text: '没有持久消息身份的辅助输入。' }] }], purpose: 'session-title' }
+    // The process-local marker alone cannot grant an identity-free input a read receipt.
+    if (loopMarked) markAgentLoopRequest(options)
+    const chunks: StreamChunk[] = []
+    for await (const chunk of ctx.llm.stream(options)) chunks.push(chunk)
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'stop' } })
+  }
+})
+
+
+it.each([false, true])('observes actual rereads before self approval in PTC, with observed images offloaded=%s', async (offload) => {
+  const root = await mkdtemp(join(tmpdir(), 'screenplay-loop-self-check-')), ctx = new Context()
+  fixtures.push({ ctx, root })
+  const errors: string[] = []
+  ctx.on('agent/error', ({ error }) => { errors.push(String(error)) })
+  await mountAgentLoopTestDependencies(ctx, { tools: { mode: 'ptc' } })
+  await ctx.plugin(LocalFileSystem, { cwd: root })
+  await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
+  await ctx.plugin(LocalSubprocessRuntime)
+  await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root })
+  await ctx.plugin(LocalSandbox)
+  await ctx.plugin(NodeRuntime).await()
+  await writeFile(join(root, 'source.txt'), '甲想：钥匙在我手里。\n甲推门。\n')
+  apply(ctx, Config({ reviewMode: 'self-check' }))
+  await ctx.plugin(SelfCheckFixture, { cwd: root }).await()
+  let completedPrograms = 0, replaced = false
+  ctx.on('tools/result', (exec) => { if (exec.name === 'run_code') completedPrograms++ })
+  ctx.on('tools/execute', async (exec, next) => {
+    if (offload && !replaced && completedPrograms === 16 && exec.agent !== undefined && exec.name === 'screenplay_project') {
+      const source = exec.agent.session.snapshotEvents().findLast(event => event.type === 'user/message'
+        && event.data.source.kind === 'screenplay-project-read' && event.data.content.some(block => block.type === 'image'))
+      if (source?.type !== 'user/message') throw Error('Observed image read is missing')
+      exec.agent.session.append('user/message', { ...source.data,
+        content: source.data.content.map(block => block.type === 'image' ? { ...block, offloaded: true } : block) },
+      { surfaceOp: { op: 'replace', startSeq: source.seq, endSeq: source.seq }, sourceEventSeqs: [source.seq] })
+      replaced = true
+    }
+    return next()
+  })
+  const driver = await mountAgentLoopTestHarness(ctx)
+  const agent = await driver.create(SessionId('screenplay-self-check-loop'), {
+    provider: 'screenplay-self-check-fixture', model: 'screenplay-self-check-fixture',
+  }, { cwd: root })
+  agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '按实际来源自检并交付第一集。' }] }))
+  await agent.whenIdle()
+  expect(errors).toEqual([])
+  const project = PROJECT_FILE.parse(JSON.parse(await readFile(join(root, 'project.json'), 'utf8')))
+  expect(project.accepted).toHaveLength(1)
+  expect(replaced).toBe(offload)
+  expect(project.candidates.at(-1)?.review).toMatchObject({ decision: 'approve', kind: 'self-check' })
+  expect(agent.session.snapshotEvents().filter(event => event.type === 'tool/result' && event.data.message.isError))
+    .not.toHaveLength(0)
+}, 60_000)
+
+
+it('binds a real user refinement grant and delivers separately through the PTC loop', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'screenplay-loop-refinement-')), ctx = new Context()
+  fixtures.push({ ctx, root })
+  const errors: string[] = []
+  ctx.on('agent/error', ({ error }) => { errors.push(String(error)) })
+  await mountAgentLoopTestDependencies(ctx, { tools: { mode: 'ptc' } })
+  await ctx.plugin(LocalFileSystem, { cwd: root })
+  await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
+  await ctx.plugin(LocalSubprocessRuntime)
+  await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root })
+  await ctx.plugin(LocalSandbox)
+  await ctx.plugin(NodeRuntime).await()
+  const original = '甲想：钥匙在我手里。'
+  await writeFile(join(root, 'source.txt'), original)
+  apply(ctx, Config({ reviewMode: 'self-check', refinementMode: 'source-preserving-v1' }))
+  await ctx.plugin(RefinementFixture).await()
+  const driver = await mountAgentLoopTestHarness(ctx)
+  const agent = await driver.create(SessionId('screenplay-refinement-loop'), {
+    provider: 'screenplay-refinement-fixture', model: 'screenplay-refinement-fixture',
+  }, { cwd: root })
+  agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '只精修第一集，可以补最小 OS，不改变事件。' }] }))
+  await agent.whenIdle()
+  expect(errors).toEqual([])
+  const baseline = PROJECT_FILE.parse(JSON.parse(await readFile(join(root, 'original.json'), 'utf8')))
+  const refined = PROJECT_FILE.parse(JSON.parse(await readFile(join(root, 'refinement-v1/qa/screenplay-project.json'), 'utf8')))
+  expect(baseline.accepted).toHaveLength(1)
+  expect(refined.accepted).toHaveLength(1)
+  expect(refined.refinement?.authorization.quote).toBe('只精修第一集，可以补最小 OS，不改变事件。')
+  expect(refined.candidates.at(-1)?.refinement?.notes.changes).toHaveLength(1)
+  expect(await readFile(join(root, 'source.txt'), 'utf8')).toBe(original)
+}, 60_000)
+
+
+class CurrentLogQuery extends SessionQueryEngine {
+  async searchSessions(): Promise<never> { throw Error('This fixture reads its original Session only') }
+  async searchEvents(): Promise<never> { throw Error('This fixture reads its original Session only') }
+}
+
+it('creates a story from decoded original frames and verifies final C approval in the running loop', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'screenplay-loop-story-')), ctx = new Context()
+  fixtures.push({ ctx, root })
+  const errors: string[] = []
+  ctx.on('agent/error', ({ error }) => { errors.push(String(error)) })
+  await mountAgentLoopTestDependencies(ctx, { tools: { mode: 'ptc' } })
+  await ctx.plugin(LocalFileSystem, { cwd: root })
+  await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
+  await ctx.plugin(LocalSubprocessRuntime)
+  await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root })
+  await ctx.plugin(LocalSandbox)
+  await ctx.plugin(NodeRuntime).await()
+  await ctx.plugin(CurrentLogQuery)
+  await ctx.plugin(Video, Video.Config({ trustedEvidence: true })).await()
+  await prepareStoryFixture(root)
+  apply(ctx, Config({ reviewMode: 'self-check', storyFaithfulMode: 'story-faithful-v2' }))
+  await ctx.plugin(StoryFixture, { cwd: root }).await()
+  const driver = await mountAgentLoopTestHarness(ctx)
+  const agent = await driver.create(SessionId('screenplay-story-loop'), {
+    provider: 'screenplay-story-faithful-fixture', model: 'screenplay-story-faithful-fixture',
+  }, { cwd: root })
+  agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: STORY_FIXTURE_REQUEST }] }))
+  await agent.whenIdle()
+  expect(errors).toEqual([])
+  const project = PROJECT_FILE.parse(JSON.parse(await readFile(join(root, 'project.json'), 'utf8')))
+  expect(project.accepted).toHaveLength(1)
+  expect(project.sources.some(source => source.trusted_video_receipt !== undefined)).toBe(true)
+  expect(project.candidates.at(-1)?.review?.story_acceptance?.sha256).toMatch(/^[a-f0-9]{64}$/u)
+}, 60_000)

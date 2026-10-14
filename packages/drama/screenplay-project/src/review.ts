@@ -93,13 +93,13 @@ export function requiredReads(project: ProjectFile, subject: Fact | Candidate, k
   return [...new Map(reads.map(read => [`${read.kind}:${read.id}`, read])).values()].sort((a, b) => `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`))
 }
 
-function contextDigest(project: ProjectFile, subject?: Fact | Candidate): string {
+function contextDigest(project: ProjectFile, subject: Fact | Candidate): string {
   if (project.story_policy !== undefined) {
-    const inherited = subject !== undefined && ('scenes' in subject
+    const inherited = 'scenes' in subject
       ? project.story_policy.retained_candidates?.some(value => value.id === subject.id && value.sha256 === subject.sha256)
-      : project.story_policy.original_facts?.some(value => value.id === subject.id && value.sha256 === factDigest(subject)))
+      : project.story_policy.original_facts?.some(value => value.id === subject.id && value.sha256 === factDigest(subject))
     if (inherited && project.story_policy.legacy_context_sha256 !== undefined) return project.story_policy.legacy_context_sha256
-    const candidate = subject !== undefined && 'scenes' in subject ? subject : undefined
+    const candidate = 'scenes' in subject ? subject : undefined
     return sha256(JSON.stringify({ protocol: 'story-faithful-self-check-v2', mode: project.mode, instructions: project.instructions,
       workflow: project.workflow, review_mode: project.review_mode, policy_sha256: project.story_policy.sha256,
       ...(candidate?.story_adaptation === undefined ? {} : { inventory_sha256: candidate.story_adaptation.inventory_sha256,
@@ -122,7 +122,8 @@ export function validReview(project: ProjectFile, subject: Fact | Candidate, kin
   const review = subject.review
   if (kind === 'candidate' && project.story_policy !== undefined) {
     try { validateStoryCandidate(project, subject as Candidate) } catch (error) {
-      if (!(error instanceof Error)) throw error
+      // An invalid story candidate cannot provide a valid review.
+      void error
       return false
     }
   }

@@ -1,6 +1,6 @@
 /** End-to-end preview, compose, verify, and failure cleanup over an injected process channel. */
 
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -22,8 +22,8 @@ interface Fixture {
   readonly report: string
 }
 
-async function fixture(): Promise<Fixture> {
-  const project = await mkdtemp(join(tmpdir(), 'dsh-bgm-compose-run-'))
+async function fixture(prefix = 'dsh-bgm-compose-run-'): Promise<Fixture> {
+  const project = await mkdtemp(join(tmpdir(), prefix))
   temporary.push(project)
   await mkdir(join(project, 'editing'), { recursive: true })
   await mkdir(join(project, 'music'), { recursive: true })
@@ -102,12 +102,106 @@ function settings(channel: ProcessChannel): DramaBgmSettings {
 }
 
 describe('runDramaBgm', () => {
+  it.each(['missing', 'empty', 'directory'] as const)('rejects a %s source before any media process or publication', async (kind) => {
+    const files = await fixture(), source = join(files.project, 'music', 'light.mp3')
+    await rm(source)
+    if (kind === 'empty') await writeFile(source, '')
+    if (kind === 'directory') await mkdir(source)
+    const run = vi.fn<ProcessChannel['run']>(async () => { throw new Error('Unexpected media process for a rejected source') })
+    const failure = runDramaBgm({
+      method: 'compose', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan,
+    }, settings({ run }))
+    await expect(failure).rejects.toThrow(kind === 'missing' ? `BGM 源曲不存在：${source}` : `BGM 源曲不是非空文件：${source}`)
+    expect(run).not.toHaveBeenCalled()
+    await expect(stat(files.output)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(stat(files.report)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(stat(join(files.project, 'audio'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('rejects a control file redirected outside the project and reports its original and resolved paths', async () => {
+    const files = await fixture(), outside = await mkdtemp(join(tmpdir(), 'bgm-external-control-'))
+    temporary.push(outside)
+    const target = join(outside, 'timeline.json'), text = await readFile(files.timeline, 'utf8')
+    await writeFile(target, text)
+    await symlink(outside, join(files.project, 'linked-controls'), process.platform === 'win32' ? 'junction' : 'dir')
+    const input = 'linked-controls/timeline.json', resolved = join(files.project, input)
+    const run = vi.fn<ProcessChannel['run']>(async () => { throw new Error('Unexpected media process outside the project') })
+    const failure = runDramaBgm({
+      method: 'compose', project: files.project, episode: 5, timeline: input, plan: files.plan,
+    }, settings({ run }))
+    await expect(failure).rejects.toThrow('时间线必须位于项目目录内')
+    await expect(failure).rejects.toThrow(`input="${input}"; project="${files.project}"; resolved="${resolved}"`)
+    await expect(failure).rejects.toThrow(`真实路径越出项目目录（${await realpath(target)}）`)
+    expect(run).not.toHaveBeenCalled()
+    expect(await readFile(target, 'utf8')).toBe(text)
+    await expect(stat(files.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('names a missing project control file instead of exposing a raw stat failure', async () => {
     const files = await fixture()
     await rm(files.timeline)
-    await expect(runDramaBgm({
+    const operation = runDramaBgm({
       method: 'preview', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan,
-    }, settings(processChannel()))).rejects.toThrow('时间线不存在')
+    }, settings(processChannel()))
+    await expect(operation).rejects.toThrow('时间线不存在')
+    await expect(operation).rejects.toThrow(`input="${files.timeline}"`)
+    await expect(operation).rejects.toThrow(`project="${files.project}"`)
+    await expect(operation).rejects.toThrow(`resolved="${files.timeline}"`)
+    await expect(operation).rejects.toThrow('reason=ENOENT')
+  })
+
+  it('reads the absolute path returned after a write when the session and Unicode project roots differ', async () => {
+    const sessionCwd = await mkdtemp(join(tmpdir(), 'dsh-bgm-session-'))
+    temporary.push(sessionCwd)
+    const files = await fixture('剧变-配乐项目-')
+    expect(join(sessionCwd, 'editing', 'bgm-plan.json')).not.toBe(files.plan)
+
+    const planDocument = await readFile(files.plan, 'utf8')
+    await rm(files.plan)
+    const previousCwd = process.cwd()
+    process.chdir(sessionCwd)
+    try {
+      const writeResult = { path: files.plan }
+      await writeFile(writeResult.path, planDocument)
+      const report = await runDramaBgm({
+        method: 'preview', project: files.project, episode: 5,
+        timeline: 'editing/05-timeline.json', plan: writeResult.path,
+      }, settings(processChannel()))
+
+      expect(report.project).toBe(files.project)
+      expect(report.plan).toBe(files.plan)
+      expect(report.timeline).toBe(files.timeline)
+    } finally {
+      process.chdir(previousCwd)
+    }
+  })
+
+  it('explains a missing relative plan with its project and resolved paths', async () => {
+    const files = await fixture()
+    await rm(files.plan)
+    const operation = runDramaBgm({
+      method: 'preview', project: files.project, episode: 5,
+      timeline: 'editing/05-timeline.json', plan: 'editing/bgm-plan.json',
+    }, settings(processChannel()))
+    await expect(operation).rejects.toThrow('BGM 计划不存在')
+    await expect(operation).rejects.toThrow('input="editing/bgm-plan.json"')
+    await expect(operation).rejects.toThrow(`project="${files.project}"`)
+    await expect(operation).rejects.toThrow(`resolved="${files.plan}"`)
+    await expect(operation).rejects.toThrow('reason=ENOENT')
+  })
+
+  it('returns identical canonical paths for relative and absolute control inputs', async () => {
+    const files = await fixture()
+    const relative = await runDramaBgm({
+      method: 'preview', project: files.project, episode: 5,
+      timeline: 'editing/05-timeline.json', plan: 'editing/bgm-plan.json',
+    }, settings(processChannel()))
+    const absolute = await runDramaBgm({
+      method: 'preview', project: files.project, episode: 5,
+      timeline: files.timeline, plan: files.plan,
+    }, settings(processChannel()))
+
+    expect(relative).toEqual(absolute)
   })
 
   it('previews starts, source-window gains, reasons, and matcher measurements without publishing files', async () => {
@@ -252,7 +346,8 @@ describe('runDramaBgm', () => {
     const operation = runDramaBgm({ method: 'preview', project: files.project, episode: 5, timeline, plan: files.plan }, settings({ run }))
     if (kind === 'not-directory') {
       if (process.platform === 'win32') {
-        await expect(operation).rejects.toMatchObject({ message: `时间线不存在：${timeline}` })
+        await expect(operation).rejects.toThrow('时间线不存在')
+        await expect(operation).rejects.toThrow(`resolved="${timeline}"`)
         await expect(operation).rejects.toHaveProperty('cause.code', 'ENOENT')
       } else await expect(operation).rejects.toMatchObject({ code: 'ENOTDIR' })
     } else await expect(operation).rejects.toThrow('不是非空文件')
@@ -288,8 +383,15 @@ describe('runDramaBgm', () => {
     if (kind === 'invalid-id') selected.episode = 'unknown'
     if (kind === 'missing') selected.episode = '06'
     await writeFile(files.plan, kind === 'malformed' ? '{' : JSON.stringify(document))
-    await expect(runDramaBgm({ method: 'preview', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan },
-      settings(processChannel()))).rejects.toThrow(kind === 'missing' ? '缺少第 05 集' : kind === 'malformed' ? '计划不可读' : '集号重复或无效')
+    const operation = runDramaBgm({ method: 'preview', project: files.project, episode: 5,
+      timeline: files.timeline, plan: files.plan }, settings(processChannel()))
+    await expect(operation).rejects.toThrow(kind === 'missing' ? '缺少第 05 集' : kind === 'malformed' ? '计划不可读' : '集号重复或无效')
+    if (kind === 'malformed') {
+      await expect(operation).rejects.toThrow(`input="${files.plan}"`)
+      await expect(operation).rejects.toThrow(`project="${files.project}"`)
+      await expect(operation).rejects.toThrow(`resolved="${files.plan}"`)
+      await expect(operation).rejects.toThrow('reason=JSON 或计划字段无效')
+    }
   })
 
   it.each(['json', 'fields'] as const)('rejects a sibling plan with unreadable %s before publishing', async (kind) => {

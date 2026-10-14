@@ -58,7 +58,7 @@
           },
           "timeline": {
             "type": "string",
-            "description": "时间线 JSON 路径；render 与 verify 必填，通常是 prepare 写出的 editing/<集>-timeline.json。"
+            "description": "时间线 JSON 路径；render 与 verify 必填，相对路径以 project 为基准；跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。"
           },
           "subtitle_srt": {
             "type": "string",
@@ -70,11 +70,11 @@
           },
           "bgm": {
             "type": "string",
-            "description": "本集实际使用的 BGM 文件路径；render 必填，会循环铺到正片结束。"
+            "description": "本集实际使用的 BGM 文件路径；render 必填，相对路径以 project 为基准；优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束。"
           },
           "bgm_plan": {
             "type": "string",
-            "description": "render 可选：现有 episodes/segments 配乐计划 JSON；校验时间、记录曲目与复用提醒，不代替试听。"
+            "description": "render 可选：现有 episodes/segments 配乐计划 JSON；相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；校验时间、记录曲目与复用提醒，不代替试听。"
           },
           "ending_audio": {
             "type": "string",

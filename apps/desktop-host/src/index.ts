@@ -14,6 +14,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-deepseek-account'
 import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import * as desktopOffice from './office.ts'
+import { readPrimaryRuntime, workspaceDependencyPaths } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 
 import { installDesktopUpdateTaskControl } from './update-tasks.ts'
 import { installDesktopQuitInspection } from './quit-inspection.ts'
@@ -118,6 +119,7 @@ async function main(): Promise<void> {
     throw new Error('muse-med: expected runtime and profile directories, optional primary runtime and paired package-manager paths, and Node IPC')
   }
   const primarySource = primaryRuntime ?? join(runtimeDir, '..', 'runtime', 'primary-runtime')
+  process.env.MUSE_OCR_PYTHON_PATH = workspaceDependencyPaths(primarySource, await readPrimaryRuntime(primarySource)).python
   const downloadEnvironment = await desktopDownloadEnvironment(primarySource, process.env)
   process.env.MUSE_DOUYIN_PYTHON_PATH = downloadEnvironment.MUSE_DOUYIN_PYTHON_PATH
   for (const field of ['DSH_FFMPEG_PATH', 'DSH_FFPROBE_PATH']) {

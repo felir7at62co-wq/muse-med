@@ -9,10 +9,18 @@ import type { MuseModels } from './models.ts'
 import { MuseFeedbackError, type MuseFeedbackClient } from './feedback.ts'
 import type { MuseFeedbackRequest, MuseFeedbackReceipt } from './types.ts'
 import type { MuseDesktopRemote } from './desktop-remote.ts'
+import { MuseVoiceSlotError, type MuseVoiceSlotRequest, type MuseVoiceSlotsClient } from './voice-slots.ts'
 import type { MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
 
 /** Account operations implemented by the product-home controller. */
 type AccountOperations = Pick<MuseAccountController, 'status' | 'login' | 'logout'>
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Private account service; voice coordination is Host-only. */
+    museAccount: MuseAccountService
+  }
+}
 
 /** The controller passed by the mounted product plugin. */
 export interface MuseAccountServiceOptions {
@@ -21,15 +29,18 @@ export interface MuseAccountServiceOptions {
   readonly models?: Pick<MuseModels, 'refresh'>
   readonly feedback?: Pick<MuseFeedbackClient, 'submit'>
   readonly remote?: Pick<MuseDesktopRemote, 'refresh' | 'pause'>
+  readonly voiceSlots?: Pick<MuseVoiceSlotsClient, 'request'>
 }
 
 /** MUSE account Remote namespace. The Connection carrier authenticates every call. */
 export class MuseAccountService extends TypertRemoteService {
+  private readonly logger: Context['logger']
   private readonly controller: AccountOperations
   private readonly asr: MuseAsrClient | undefined
   private readonly models: Pick<MuseModels, 'refresh'> | undefined
   private readonly feedbackClient: Pick<MuseFeedbackClient, 'submit'> | undefined
   private readonly remote: Pick<MuseDesktopRemote, 'refresh' | 'pause'> | undefined
+  private readonly voiceSlots: Pick<MuseVoiceSlotsClient, 'request'> | undefined
 
   /**
    * @param ctx - Host context owning the service.
@@ -37,11 +48,25 @@ export class MuseAccountService extends TypertRemoteService {
    */
   constructor(ctx: Context, options: MuseAccountServiceOptions) {
     super(ctx, 'museAccount')
+    this.logger = ctx.logger
     this.controller = options.controller
     this.asr = options.asr
     this.models = options.models
     this.feedbackClient = options.feedback
     this.remote = options.remote
+    this.voiceSlots = options.voiceSlots
+  }
+
+  /**
+   * Coordinate a voice registration through the current private Muse account.
+   * This Host-only method is deliberately absent from the renderer's Remote interface.
+   * @param request - Exact original operation and project/person/life-period identifiers.
+   * @param jubianToken - Private provider token for project-access verification.
+   * @returns Wire response validated by the Jubian registration consumer.
+   */
+  async requestVoiceSlot(request: MuseVoiceSlotRequest, jubianToken: string): Promise<unknown> {
+    if (!this.voiceSlots) throw new MuseVoiceSlotError('not-configured')
+    return await this.voiceSlots.request(request, jubianToken)
   }
 
   /**
@@ -94,9 +119,18 @@ export class MuseAccountService extends TypertRemoteService {
   @Remote('status')
   async status(request: MuseAccountStatusRequest): Promise<MuseAccountStatus> {
     try {
-      await this.models?.refresh()
-      await this.remote?.refresh()
-      return await this.controller.status(request)
+      const status = await this.controller.status(request)
+      try {
+        await this.remote?.refresh()
+      } catch (error) {
+        this.logger.warn('Muse desktop connection refresh failed while reading account status; the saved account state remains authoritative.', error)
+      }
+      try {
+        await this.models?.refresh()
+      } catch (error) {
+        this.logger.warn('Muse model catalog refresh failed while reading account status; the saved account state remains authoritative.', error)
+      }
+      return status
     } catch (error) {
       throw remoteFailure(error)
     }
@@ -105,14 +139,22 @@ export class MuseAccountService extends TypertRemoteService {
   /**
    * Sign in using UI-submitted credentials; registration requires an explicit choice.
    * @param request - Username, password and registration choice.
-   * @returns The confirmed account identity and actual outcome, without credentials.
+   * @returns The confirmed account identity and actual outcome, without credentials; post-login refresh failures do not replace it.
    */
   @Remote('login')
   async login(request: MuseAccountLoginRequest): Promise<MuseAccountLoginResult> {
     try {
       const result = await this.controller.login(request)
-      await this.remote?.refresh()
-      await this.models?.refresh()
+      try {
+        await this.remote?.refresh()
+      } catch (error) {
+        this.logger.warn('Muse desktop connection refresh failed after login; the saved account remains signed in.', error)
+      }
+      try {
+        await this.models?.refresh()
+      } catch (error) {
+        this.logger.warn('Muse model catalog refresh failed after login; the saved account remains signed in.', error)
+      }
       return result
     } catch (error) {
       throw remoteFailure(error)
