@@ -164,3 +164,90 @@ it('re-analyses changed audio and persists an empty directory as a valid index',
   await mkdir(empty)
   expect((await f.run({ method: 'index', directory: empty })).value).toMatchObject({ scanned: 0, indexed: 1, failures: [] })
 })
+
+it('keeps rights for unchanged bytes and clears them after a source change, including failed re-analysis', async () => {
+  const worker = analysis(), f = await fixture()
+  const music = join(f.root, 'music')
+  await mkdir(music)
+  const audio = join(music, 'licensed.mp3')
+  await writeFile(audio, 'owned original audio')
+  await f.run({ method: 'index', directory: music })
+  let index = JSON.parse(await readFile(f.indexPath, 'utf8')) as Record<string, unknown>[]
+  expect(index[0]?.license_info).toMatchObject({ status: 'unknown', commercial_use: 'unknown' })
+  const licenseInfo = { status: 'declared', license: 'Fixture commercial licence', commercial_use: true,
+    source: 'https://rights.example/licence', attribution: 'Fixture composer', scope: 'Commercial short-drama release' }
+  index[0] = { ...index[0], license_info: licenseInfo }
+  await writeFile(f.indexPath, JSON.stringify(index))
+  const first = await stat(audio)
+  await utimes(audio, first.atime, new Date(first.mtimeMs + 10_000))
+  expect((await f.run({ method: 'index', directory: music })).value).toMatchObject({ analysed: 0, unchanged: 1 })
+  index = JSON.parse(await readFile(f.indexPath, 'utf8')) as Record<string, unknown>[]
+  expect(index[0]?.license_info).toEqual(licenseInfo)
+  expect((await f.run({ method: 'match', valence: 6, arousal: 4, intended_use: 'commercial' })).value)
+    .toMatchObject({ candidates: [{ license_info: licenseInfo, license_warnings: [] }] })
+  await writeFile(audio, 'changed audio content')
+  await f.run({ method: 'index', directory: music })
+  index = JSON.parse(await readFile(f.indexPath, 'utf8')) as Record<string, unknown>[]
+  expect(index[0]?.license_info).toMatchObject({ status: 'unknown', commercial_use: 'unknown' })
+  index[0] = { ...index[0], license_info: licenseInfo }
+  await writeFile(f.indexPath, JSON.stringify(index))
+  await writeFile(audio, 'second changed audio content that fails analysis')
+  worker.call.mockRejectedValueOnce(new Error('cannot decode changed file'))
+  expect((await f.run({ method: 'index', directory: music })).value).toMatchObject({ analysed: 0, failures: [expect.any(Object)] })
+  index = JSON.parse(await readFile(f.indexPath, 'utf8')) as Record<string, unknown>[]
+  expect(index[0]?.license_info).toMatchObject({ status: 'unknown', commercial_use: 'unknown' })
+})
+
+it('normalizes local legacy and unsupported rights declarations before matching', async () => {
+  const f = await fixture()
+  await mkdir(join(f.root, 'state'))
+  await writeFile(f.indexPath, JSON.stringify([{ path: 'commercial.mp3', valence: 5, arousal: 5, moods: ['commercial'],
+    license_info: { status: 'declared', commercial_use: true }, license_warnings: [] }]))
+  const result = await f.run({ method: 'match', valence: 5, arousal: 5, intended_use: 'commercial' })
+  expect(result.isError).toBe(false)
+  expect(result.value).toMatchObject({ candidates: [{
+    license_info: { status: 'unknown', commercial_use: 'unknown' }, license_warnings: ['音乐授权信息未知或不完整；不能据此认定已获使用授权。'],
+  }] })
+})
+
+it('rejects approval claims in the local index instead of treating them as music permissions', async () => {
+  const f = await fixture()
+  await mkdir(join(f.root, 'state'))
+  await writeFile(f.indexPath, JSON.stringify([{ path: 'track.mp3', valence: 5, arousal: 5, moods: [],
+    license_info: { status: 'verified', commercial_use: true } }]))
+  const result = await f.run({ method: 'match', valence: 5, arousal: 5 })
+  expect(result.isError).toBe(true)
+  expect(result.content.some(block => block.type === 'text' && block.text.includes('license_info.status'))).toBe(true)
+})
+
+it('checks bytes before reusing a declaration when replacement audio has the same size and mtime', async () => {
+  const worker = analysis(), f = await fixture()
+  const music = join(f.root, 'music')
+  await mkdir(music)
+  const audio = join(music, 'licensed.mp3')
+  await writeFile(audio, 'owned audio')
+  const fixedTime = new Date('2026-01-01T00:00:00.000Z')
+  await utimes(audio, fixedTime, fixedTime)
+  await f.run({ method: 'index', directory: music })
+  const originalInfo = await stat(audio)
+  const originalHash = 'sha256:' + createHash('sha256').update('owned audio').digest('hex')
+  const index = JSON.parse(await readFile(f.indexPath, 'utf8')) as Record<string, unknown>[]
+  const licenseInfo = { status: 'declared', license: 'Fixture commercial licence', commercial_use: true,
+    source: 'https://rights.example/licence', attribution: 'Fixture composer', scope: 'Commercial short-drama release' }
+  index[0] = { ...index[0], license_info: licenseInfo }
+  await writeFile(f.indexPath, JSON.stringify(index))
+  expect((await f.run({ method: 'match', valence: 6, arousal: 4, intended_use: 'commercial' })).value)
+    .toMatchObject({ candidates: [{ path: audio, source_sha256: originalHash, license_info: licenseInfo }] })
+  await writeFile(audio, 'other audio')
+  await utimes(audio, originalInfo.atime, originalInfo.mtime)
+  const replacedInfo = await stat(audio)
+  expect(replacedInfo.size).toBe(originalInfo.size)
+  expect(replacedInfo.mtimeMs).toBe(originalInfo.mtimeMs)
+  expect((await f.run({ method: 'index', directory: music })).value).toMatchObject({ analysed: 1, unchanged: 0 })
+  expect(worker.call).toHaveBeenCalledTimes(2)
+  const replacementHash = 'sha256:' + createHash('sha256').update('other audio').digest('hex')
+  expect(replacementHash).not.toBe(originalHash)
+  expect((await f.run({ method: 'match', valence: 6, arousal: 4, intended_use: 'commercial' })).value)
+    .toMatchObject({ candidates: [{ path: audio, source_sha256: replacementHash,
+      license_info: { status: 'unknown', commercial_use: 'unknown' } }] })
+})
