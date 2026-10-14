@@ -3,7 +3,8 @@
 param(
     [Parameter(Mandatory)][ValidateRange(1, 2147483647)][int]$ProcessId,
     [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$InstallerPath,
-    [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$OutputPath
+    [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$OutputPath,
+    [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$AssemblyPath
 )
 $ErrorActionPreference = 'Stop'
 $process = $null
@@ -28,7 +29,8 @@ function Write-ObserverReceipt {
             $stream.Flush()
         } finally { $stream.Dispose() }
         if ($script:observerReceiptOwned) {
-            [IO.File]::Replace($temporaryPath, $script:observerReceiptPath, $null)
+            # Windows PowerShell binds $null to an empty string; this API needs an actual null backup name.
+            [IO.File]::Replace($temporaryPath, $script:observerReceiptPath, [System.Management.Automation.Language.NullString]::Value)
         } else {
             # Move refuses an existing destination; this observer never adopts another run's receipt.
             [IO.File]::Move($temporaryPath, $script:observerReceiptPath)
@@ -40,8 +42,18 @@ function Write-ObserverReceipt {
     }
 }
 try {
+    $receipt.stage = 'load-helper-assembly'
     Write-ObserverReceipt
-    . (Join-Path $PSScriptRoot 'windows-installer-diagnostics.ps1')
+    if ($AssemblyPath -notmatch '^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+(?:\\|$))') {
+        throw 'Installer observer requires a fully qualified helper assembly path'
+    }
+    $observerAssemblyFile = [IO.Path]::GetFullPath($AssemblyPath)
+    if (-not [string]::Equals([IO.Path]::GetExtension($observerAssemblyFile), '.dll', [StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath $observerAssemblyFile -PathType Leaf)) {
+        throw 'Installer observer requires the existing private helper DLL'
+    }
+    Add-Type -LiteralPath $observerAssemblyFile
+    if (-not ('InstallerDiagnostics' -as [type])) { throw 'Installer observer helper type is unavailable' }
     $receipt.stage = 'acquire-installer'
     $process = [Diagnostics.Process]::GetProcessById($ProcessId)
     # Retaining this object's handle prevents PID reuse until this observer disposes it.
