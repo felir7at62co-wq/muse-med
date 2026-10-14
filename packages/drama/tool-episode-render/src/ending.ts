@@ -20,7 +20,7 @@
 import { stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileSha256 } from './cache.ts'
-import { ENDING_SECONDS, endingEffectFilter, type ShippedEndingAsset } from './delivery.ts'
+import { DEFAULT_DELIVERY, ENDING_SECONDS, endingEffectFilter, type ShippedEndingAsset } from './delivery.ts'
 import { probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { pathExists } from './paths.ts'
 import type { TimelineDelivery, MediaToolkit, TailFrameEvidence } from './types.ts'
@@ -270,11 +270,11 @@ export async function buildEndingClip(
   target: string,
   encoder: string,
   encoderArgs: readonly string[],
-  delivery?: TimelineDelivery,
+  delivery: TimelineDelivery = DEFAULT_DELIVERY,
 ): Promise<void> {
   await runFfmpeg(toolkit, [
     '-y', '-v', 'error', '-loop', '1', '-i', tailFrame, '-i', effect,
     '-filter_complex', endingEffectFilter(delivery), '-map', '[v]',
-    '-t', ENDING_SECONDS.toFixed(3), '-an', '-c:v', encoder, ...encoderArgs, target,
+    '-t', ENDING_SECONDS.toFixed(3), '-an', '-r', String(delivery.fps), '-c:v', encoder, ...encoderArgs, target,
   ])
 }

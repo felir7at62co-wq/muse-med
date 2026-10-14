@@ -45,9 +45,10 @@ describe('delivery metadata', () => {
     const timeline = appendClips([1_000_000])
     expect(parseTimelineDocument(JSON.parse(formatTimelineDocument(timeline)), 't.json')).toEqual({ ...timeline, declaredBodyEndSeconds: 1 })
   })
-  it('reads an old timeline without a declared body end and derives its clip end', () => {
-    expect(parseTimelineDocument({ clips: [{ shot: 1, start_us: 0, duration_us: 1_000_000 }] }, 't.json'))
-      .toEqual(appendClips([1_000_000]))
+  it('accepts a legacy timeline without declaring a body boundary', () => {
+    const timeline = parseTimelineDocument({ clips: [{ shot: 1, start_us: 0, duration_us: 1_000_000 }] }, 't.json')
+    expect(timeline).toEqual(appendClips([1_000_000]))
+    expect(timeline).not.toHaveProperty('declaredBodyEndSeconds')
   })
   it.each([null, [], 'animation_3d', {}, { ...animation, visual_medium: null },
     { ...animation, visual_medium: '3D' }, { ...animation, width: 1919 },
@@ -77,12 +78,12 @@ describe('delivery metadata', () => {
     await writeFile(join(path, 'project_config.json'), 'broken')
     await expect(readProjectDelivery(path)).rejects.toThrow()
   })
-  it('uses legacy geometry when the project config has no bible', async () => {
+  it('preserves legacy geometry when an existing configuration has no project bible', async () => {
     const path = await project()
-    await writeFile(join(path, 'project_config.json'), '{}')
+    await writeFile(join(path, 'project_config.json'), JSON.stringify({ project_name: 'Legacy project' }))
     expect(await readProjectDelivery(path)).toEqual(DEFAULT_DELIVERY)
   })
-  it('reports an unreadable project config instead of treating it as missing', async () => {
+  it('reports unreadable project configuration instead of treating it as missing', async () => {
     const path = await project()
     await mkdir(join(path, 'project_config.json'))
     await expect(readProjectDelivery(path)).rejects.toThrow()
@@ -139,7 +140,7 @@ describe('medium delivery resolution', () => {
     expect(graph).toContain('atrim=0:10.000000,alimiter')
   })
   it('carries snapshot canvas and rate into scale and burn filters', () => {
-    expect(deliveryScaleFilter('yuv420p', animation)).toContain('crop=1920:1080,fps=30')
+    expect(deliveryScaleFilter('yuv420p', animation)).toContain('crop=1920:1080,tpad=stop_mode=clone:stop_duration=0.033333333,fps=30')
     expect(subtitleBurnFilter('display.ass', 'fonts', animation)).toContain('scale=3840:2160')
     expect(subtitleBurnFilter('display.ass', 'fonts', animation)).toContain('fps=30,setpts=N/(30*TB)')
   })

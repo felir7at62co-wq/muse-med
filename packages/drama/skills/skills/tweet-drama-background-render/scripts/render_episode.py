@@ -286,7 +286,8 @@ def ending_effect_filter(ending_duration: float, width: int = WIDTH, height: int
         f"crop={effect_width}:{effect_height},minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,"
         "tmix=frames=2:weights='1 1',"
         f"tpad=stop_mode=add:stop_duration={ending_duration:.3f}:color=black,"
-        f"trim=0:{ending_duration:.3f},fps={fps:g},scale={width}:{height}:flags=lanczos,"
+        f"trim=0:{ending_duration:.3f},tpad=stop_mode=clone:stop_duration={1/fps:.9f},"
+        f"fps={fps:g},scale={width}:{height}:flags=lanczos,"
         "eq=contrast=1.28:brightness=-0.14:saturation=1.15,format=gbrp[fx];"
         "[base][fx]blend=all_mode=screen:all_opacity=0.90:shortest=1,"
         "format=yuv420p[v]"
@@ -337,8 +338,13 @@ def render(args: argparse.Namespace) -> dict:
     cache.mkdir(parents=True, exist_ok=True)
     encoder, encoder_args, encoder_fallback_reason = choose_encoder(fps)
     identity = cache / 'source-hashes.json'
+    common_vf = (
+        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},tpad=stop_mode=clone:stop_duration={1/fps:.9f},fps={fps:g},format=yuv420p"
+    )
     cache_inputs = {"sources": source_hashes, "clips": clips, "encoder": encoder,
-                    "encoder_args": encoder_args, "width": width, "height": height, "fps": fps}
+                    "encoder_args": encoder_args, "video_filter": common_vf,
+                    "width": width, "height": height, "fps": fps}
     if ending_duration and args.freeze_image:
         cache_inputs["freeze_image_sha256"] = hashlib.sha256(args.freeze_image.read_bytes()).hexdigest()
     try:
@@ -347,11 +353,6 @@ def render(args: argparse.Namespace) -> dict:
         cached_inputs = None
     force = args.force or cached_inputs != cache_inputs
     identity.unlink(missing_ok=True)
-    common_vf = (
-        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height},fps={fps:g},format=yuv420p"
-    )
-
     rendered = []
     for clip in clips:
         shot = int(clip["shot"])
@@ -362,7 +363,7 @@ def render(args: argparse.Namespace) -> dict:
         duration = int(clip["duration_us"]) / 1_000_000
         if force or not target.exists():
             run([FFMPEG, "-y", "-v", "error", "-i", str(source), "-t", f"{duration:.6f}",
-                 "-vf", common_vf, "-an", "-c:v", encoder, *encoder_args, str(target)])
+                 "-vf", common_vf, "-an", "-r", f"{fps:g}", "-c:v", encoder, *encoder_args, str(target)])
         rendered.append(target)
 
     if ending_duration:
@@ -381,7 +382,7 @@ def render(args: argparse.Namespace) -> dict:
             effect_filter = ending_effect_filter(ending_duration, width, height, fps)
             run([FFMPEG, "-y", "-v", "error", "-loop", "1", "-i", str(freeze_image),
                  "-i", str(ending_effect), "-filter_complex", effect_filter, "-map", "[v]",
-                 "-t", f"{ending_duration:.3f}", "-an",
+                 "-t", f"{ending_duration:.3f}", "-an", "-r", f"{fps:g}",
                  "-c:v", encoder, *encoder_args, str(freeze)])
         rendered.append(freeze)
 
@@ -394,8 +395,8 @@ def render(args: argparse.Namespace) -> dict:
     write_ass(args.subtitle_srt, ass, policy["add_watermark"], width, height)
     subtitled = cache / "subtitled.mp4"
     ass_filter = subtitle_filter(ass, width, height, fps)
-    run([FFMPEG, "-y", "-v", "error", "-i", str(base), "-vf", ass_filter,
-         "-an", "-c:v", encoder, *encoder_args, str(subtitled)])
+    run([FFMPEG, "-y", "-v", "error", "-i", str(base), "-t", f"{total_duration:.6f}", "-vf", ass_filter,
+         "-an", "-r", f"{fps:g}", "-c:v", encoder, *encoder_args, str(subtitled)])
 
     master = find_audio(project, episode)
     bgm = args.bgm.resolve()
@@ -451,13 +452,15 @@ def subtitle_filter(ass: Path, width: int = WIDTH, height: int = HEIGHT, fps: fl
     own time base, so a frame-rate change placed before it does not survive into the
     encode - the container still reports the delivery rate while far fewer frames
     decode. Ending the chain with both makes the burned stream constant-rate and
-    anchored at zero before the encoder sees it.
+    anchored at zero before the encoder sees it. The one-frame EOF hold preserves
+    the decoded tail; callers cap the output duration and set the output frame rate.
     """
     fonts = os.environ.get('MUSE_FONTS_DIR') or os.environ.get('DSH_FONTS_DIR', '')
     font_option = ":fontsdir='" + Path(fonts).as_posix().replace(":", "\\:") + "'" if fonts else ""
     return (f"scale={width * 2}:{height * 2}:flags=lanczos,"
             + "ass='" + ass.as_posix().replace(":", "\\:") + "'" + font_option
             + f",scale={width}:{height}:flags=lanczos"
+            + f",tpad=stop_mode=clone:stop_duration={1/fps:.9f}"
             + f",fps={fps:g},setpts=N/({fps:g}*TB)")
 
 

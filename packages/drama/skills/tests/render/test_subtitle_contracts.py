@@ -61,7 +61,7 @@ class BurnedSubtitleContractTests(unittest.TestCase):
         burn = chain.index('ass=')
         self.assertGreater(chain.index('fps=60'), burn)
         self.assertGreater(chain.index('setpts=N/(60*TB)'), chain.index('fps=60'))
-        self.assertTrue(chain.endswith('scale=1440:2560:flags=lanczos,fps=60,setpts=N/(60*TB)'))
+        self.assertTrue(chain.endswith('scale=1440:2560:flags=lanczos,tpad=stop_mode=clone:stop_duration=0.016666667,fps=60,setpts=N/(60*TB)'))
 
     def test_ai_mark_is_written_once_in_the_bottom_right_and_nothing_top_right(self):
         text = self.write_ass()
@@ -90,7 +90,7 @@ class BurnedSubtitleContractTests(unittest.TestCase):
             self.assertIn('PlayResY: 1080', text)
             self.assertIn(',40,40,293,1', self.style_line(text))
         chain = self.render.subtitle_filter(Path('display.ass'), 2560, 1440, 30)
-        self.assertTrue(chain.endswith('scale=2560:1440:flags=lanczos,fps=30,setpts=N/(30*TB)'))
+        self.assertTrue(chain.endswith('scale=2560:1440:flags=lanczos,tpad=stop_mode=clone:stop_duration=0.033333333,fps=30,setpts=N/(30*TB)'))
 
     def test_decode_probe_counts_decoded_frames_not_the_exit_code(self):
         outcome = type('Outcome', (), {'returncode': 0, 'stderr': '[Parsed_showinfo_0 @ 0x1] n:   0 pts: 0\n'})()

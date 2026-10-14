@@ -342,7 +342,7 @@ class RenderDeliveryMediaTests(unittest.TestCase):
                 raise unittest.SkipTest(f'{binary} is not on PATH')
         cls.render = load('render_delivery_media_test', RENDER / 'scripts/render_episode.py')
 
-    def inputs(self, medium):
+    def inputs(self, medium, fps=12, distinctive_tail=False, source_duration=0.5):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -350,9 +350,12 @@ class RenderDeliveryMediaTests(unittest.TestCase):
         (root / 'audio').mkdir()
         source = root / 'video/01/shot_001.mp4'
         # The white source box stands in for an existing source mark; it must survive delivery.
+        source_filter = 'drawbox=x=5:y=5:w=20:h=10:color=white:t=fill'
+        if distinctive_tail:
+            source_filter += f",drawbox=x=70:y=5:w=40:h=20:color=red:t=fill:enable='eq(n,{fps//2-1})'"
         subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
-                        'color=blue:s=160x96:r=12:d=0.5', '-vf',
-                        'drawbox=x=5:y=5:w=20:h=10:color=white:t=fill', '-pix_fmt', 'yuv420p',
+                        f'color=blue:s=160x96:r={fps}:d={source_duration}', '-vf',
+                        source_filter, '-pix_fmt', 'yuv420p',
                         str(source)], check=True)
         audio = root / 'audio/01.wav'
         subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
@@ -360,7 +363,7 @@ class RenderDeliveryMediaTests(unittest.TestCase):
         mix = root / 'mix.wav'
         shutil.copy2(audio, mix)
         timeline = root / 'timeline.json'
-        delivery = {'width': 160, 'height': 96, 'fps': 12}
+        delivery = {'width': 160, 'height': 96, 'fps': fps}
         if medium is not None:
             delivery['visual_medium'] = medium
         timeline.write_text(json.dumps({'delivery': delivery, 'body_end': 0.5,
@@ -423,6 +426,34 @@ class RenderDeliveryMediaTests(unittest.TestCase):
         self.assertEqual(len(rebuilt), 1)
         self.assertAlmostEqual(result['duration'], 0.25, delta=0.05)
         self.assertEqual(result['expected_duration'], 0.25)
+
+    def test_animation_preserves_frame_count_and_distinctive_tail_through_repeated_burns(self):
+        for fps in (12, 24, 30, 60):
+            with self.subTest(fps=fps):
+                args = self.inputs('animation_3d', fps=fps, distinctive_tail=True)
+                for _ in range(2):
+                    result = self.render_tiny(args)
+                    pixels = subprocess.run(['ffmpeg', '-v', 'error', '-i', result['output'],
+                                             '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'],
+                                            capture_output=True, check=True).stdout
+                    frame_bytes = 160 * 96 * 3
+                    self.assertEqual(len(pixels) // frame_bytes, fps // 2)
+                    tail = pixels[-frame_bytes:]
+                    red, green, blue = tail[(15 * 160 + 90) * 3:(15 * 160 + 90) * 3 + 3]
+                    self.assertGreater(red, 220, 'the original last frame must survive, not a cloned penultimate frame')
+                    self.assertLess(green, 30)
+                    self.assertLess(blue, 30)
+                    self.assertAlmostEqual(result['duration'], 0.5, delta=0.01)
+                    shutil.copy2(result['output'], args.project / 'video/01/shot_001.mp4')
+
+    def test_truncated_picture_cannot_be_filled_to_the_declared_body_end(self):
+        args = self.inputs('animation_3d', source_duration=0.25)
+        old = args.project / 'exports/01.mp4'
+        old.parent.mkdir()
+        old.write_bytes(b'previous approved export')
+        with self.assertRaisesRegex(RuntimeError, 'Render validation failed'):
+            self.render_tiny(args)
+        self.assertEqual(old.read_bytes(), b'previous approved export')
 
     def test_photorealistic_and_missing_medium_keep_two_second_ending_and_ai_notice(self):
         for medium in ('photorealistic', None):

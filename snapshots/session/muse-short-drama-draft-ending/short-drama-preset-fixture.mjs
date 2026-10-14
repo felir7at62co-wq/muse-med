@@ -14,10 +14,12 @@ export async function apply(ctx) {
       .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
       .join('\n')
     for (const rule of [
-      'project_bible.visual_medium 为准，style 原文独立保留',
+      'project_bible.visual_medium',
+      '不从“写实 3D”等风格词或画幅推断',
       'animation_3d 的成片与剪映草稿都不新增任何水印或片尾',
+      '不创建水印文字轨、定格片尾轨或片尾音效轨，也不要求片尾素材',
       '不删除或遮盖源素材已有的第三方标记',
-      'photorealistic 的成片与剪映草稿保留右下角全程纯白无描边「内容由AI生成」，覆盖正文和片尾定格，右上角不加水印',
+      'photorealistic 的成片与剪映草稿保留右下角全程纯白无描边「内容由AI生成」',
       '草稿保留可编辑独立文字轨',
       '仅仿真人和未确认类型的旧项目保留片尾 2 秒，用最后一镜真实尾帧定格',
       '草稿保留可编辑独立定格片段',
@@ -31,6 +33,10 @@ export async function apply(ctx) {
     ]) assert.ok(system.includes(rule), 'The actual short-drama model request contains: ' + rule)
     assert.equal(system.includes('右上角与草稿都不加水印'), false,
       'The retired instruction cannot contradict the editable draft watermark')
+    assert.equal(system.includes('成片与剪映草稿都在右下角全程显示'), false,
+      'The retired unconditional watermark rule cannot contradict animation delivery')
+    assert.equal(system.includes('片尾音频、特效与定格严格等长'), false,
+      'The native-rate effect must not be stretched to the ending duration')
     assert.ok(options.tools.some(tool => tool.name === 'drama_render'))
     assert.ok(options.tools.some(tool => tool.name === 'drama_shot'))
     requests++

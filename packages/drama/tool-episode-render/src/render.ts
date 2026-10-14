@@ -187,7 +187,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     const args = [
       '-y', '-v', 'error', '-i', source,
       '-t', (clip.durationUs / MICROSECONDS_PER_SECOND).toFixed(6),
-      '-vf', scaleFilter, '-an', '-c:v', choice.encoder, ...choice.args, target,
+      '-vf', scaleFilter, '-an', '-r', String(policy.delivery.fps), '-c:v', choice.encoder, ...choice.args, target,
     ]
     const sourceHash = await fileSha256(source)
     consumedHashes.push(sourceHash)
@@ -237,8 +237,9 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   await writeFile(ass, `\ufeff${buildAssDocument(cues, settings, policy)}`, 'utf8')
   const subtitled = resolve(paths.cacheDir, 'subtitled.mp4')
   await runFfmpeg(toolkit, [
-    '-y', '-v', 'error', '-i', base, '-vf', subtitleBurnFilter(ass, settings.fontsDir, policy.delivery),
-    '-an', '-c:v', choice.encoder, ...choice.args, subtitled,
+    '-y', '-v', 'error', '-i', base, '-t', totalSeconds.toFixed(6),
+    '-vf', subtitleBurnFilter(ass, settings.fontsDir, policy.delivery),
+    '-an', '-r', String(policy.delivery.fps), '-c:v', choice.encoder, ...choice.args, subtitled,
   ])
 
   consumedHashes.push(await fileSha256(subtitled))

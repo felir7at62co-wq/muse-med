@@ -352,7 +352,7 @@ describe('renderEpisode', () => {
     expect(burnFilter).toContain("fontsdir='C\\:/Windows/Fonts'")
     // The burn chain ends on the rate filters, so nothing after the subtitles can
     // anchor the picture back to the source frame rate.
-    expect(burnFilter.endsWith('scale=1440:2560:flags=lanczos,fps=60,setpts=N/(60*TB)')).toBe(true)
+    expect(burnFilter.endsWith('scale=1440:2560:flags=lanczos,tpad=stop_mode=clone:stop_duration=0.016666667,fps=60,setpts=N/(60*TB)')).toBe(true)
     expect(await readFile(join(prepared.paths.cacheDir, 'display.ass'), 'utf8')).toContain('内容由AI生成')
 
     const mux = channel.calls.find(call => call.args.includes('+faststart'))

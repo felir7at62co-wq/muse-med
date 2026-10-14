@@ -183,14 +183,16 @@ export function assCanvas(delivery: TimelineDelivery = DEFAULT_DELIVERY): { widt
  *
  * `increase` plus `crop` fills the delivery frame from any source aspect ratio
  * without letterboxing, and the pixel format is fixed to what the encoder and
- * the blend expect.
+ * the blend expect. One frame of EOF hold preserves the last decoded source
+ * frame through rate conversion; callers must cap the encoded output duration.
  * @param pixelFormat - The format the chain ends in; `gbrp` when the frame is blended instead of encoded.
  * @param delivery - Output geometry and frame rate.
  * @returns The scale, crop, frame-rate, and pixel-format chain.
  */
 export function deliveryScaleFilter(pixelFormat = 'yuv420p', delivery: TimelineDelivery = DEFAULT_DELIVERY): string {
   return `scale=${String(delivery.width)}:${String(delivery.height)}:force_original_aspect_ratio=increase,`
-    + `crop=${String(delivery.width)}:${String(delivery.height)},fps=${String(delivery.fps)},format=${pixelFormat}`
+    + `crop=${String(delivery.width)}:${String(delivery.height)},`
+    + `tpad=stop_mode=clone:stop_duration=${(1 / delivery.fps).toFixed(9)},fps=${String(delivery.fps)},format=${pixelFormat}`
 }
 
 /**
@@ -237,7 +239,8 @@ export function endingEffectFilter(delivery: TimelineDelivery = DEFAULT_DELIVERY
     + `crop=${String(effectWidth)}:${String(effectHeight)},minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,`
     + "tmix=frames=2:weights='1 1',"
     + `tpad=stop_mode=add:stop_duration=${ENDING_SECONDS.toFixed(3)}:color=black,`
-    + `trim=0:${ENDING_SECONDS.toFixed(3)},fps=${String(delivery.fps)},`
+    + `trim=0:${ENDING_SECONDS.toFixed(3)},`
+    + `tpad=stop_mode=clone:stop_duration=${(1 / delivery.fps).toFixed(9)},fps=${String(delivery.fps)},`
     + `scale=${String(delivery.width)}:${String(delivery.height)}:flags=lanczos,`
     + 'eq=contrast=1.28:brightness=-0.14:saturation=1.15,format=gbrp[fx];'
     + `[base][fx]blend=all_mode=screen:all_opacity=${EFFECT_BLEND_OPACITY}:shortest=1,format=yuv420p[v]`
@@ -256,6 +259,8 @@ export function endingEffectFilter(delivery: TimelineDelivery = DEFAULT_DELIVERY
  * container reported the delivery rate while only a third of its frames decoded.
  * Ending the chain with `fps` plus a timestamp rewrite is what makes the burned
  * stream constant-rate and anchored at zero before the encoder sees it.
+ * One frame of EOF hold preserves the decoded tail; callers must cap the burn
+ * to the declared delivery duration and set the output frame rate explicitly.
  * @param assPath - Absolute path of the ASS script to burn.
  * @param fontsDir - Directory libass resolves the style's font from.
  * @param delivery - Output geometry and frame rate.
@@ -265,6 +270,7 @@ export function subtitleBurnFilter(assPath: string, fontsDir: string, delivery: 
   return `scale=${String(delivery.width * 2)}:${String(delivery.height * 2)}:flags=lanczos,`
     + `ass='${escapeFilterPath(assPath)}':fontsdir='${escapeFilterPath(fontsDir)}',`
     + `scale=${String(delivery.width)}:${String(delivery.height)}:flags=lanczos,`
+    + `tpad=stop_mode=clone:stop_duration=${(1 / delivery.fps).toFixed(9)},`
     + `fps=${String(delivery.fps)},setpts=N/(${String(delivery.fps)}*TB)`
 }
 
