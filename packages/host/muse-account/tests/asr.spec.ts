@@ -254,3 +254,47 @@ it('retains a bounded rejection when the unused response body is already errored
   }), { status: 401 }))
   await expect(f.client.get(randomUUID())).rejects.toMatchObject({ code: 'sign-in-required' })
 })
+
+it('retains safe gateway diagnostics and recovery without response bodies or private identities', async () => {
+  const id = randomUUID()
+  const metadata = { service_version: 'flash', queued: false, error_code: 'provider_unavailable',
+    provider_diagnostic: { reason: 'timeout', operation: 'flash', http_status: 504, provider_code: '55000000' },
+    recovery: { capability: 'no_query', next_action: 'inspect_receipt', automatic_resubmit: false } }
+  const setup = await fixture(async () => Response.json({ id, status: 'uncertain', ...metadata, cookie: 'SECRET',
+    provider_diagnostic: { ...metadata.provider_diagnostic, body: 'SECRET', app_id: 'PRIVATE' },
+    recovery: { ...metadata.recovery, token: 'SECRET' } }))
+  expect(await setup.client.get(id)).toEqual({ id, status: 'uncertain', ...metadata })
+})
+
+it.each([
+  { queued: 1 }, { error_code: 'PRIVATE' }, { provider_diagnostic: null }, { provider_diagnostic: [] },
+  { provider_diagnostic: { reason: 'PRIVATE' } }, { provider_diagnostic: { operation: ['flash'] } },
+  { provider_diagnostic: { http_status: '504' } }, { provider_diagnostic: { http_status: 99 } },
+  { provider_diagnostic: { http_status: 600 } }, { provider_diagnostic: { http_status: 200.5 } },
+  { provider_diagnostic: { provider_code: 'PRIVATE' } }, { provider_diagnostic: { provider_code: 55000000 } },
+  { recovery: null }, { recovery: [] }, { recovery: { capability: 'PRIVATE' } },
+  { recovery: { capability: 'no_query', next_action: 'PRIVATE', automatic_resubmit: false } },
+  { recovery: { capability: 'no_query', next_action: 'wait', automatic_resubmit: true } },
+  { recovery: { capability: ['no_query'], next_action: 'wait', automatic_resubmit: false } },
+])('rejects unsafe optional recovery metadata (%j)', async (metadata) => {
+  const id = randomUUID(), setup = await fixture(async () => Response.json({ id, status: 'uncertain', ...metadata }))
+  await expect(setup.client.get(id)).rejects.toMatchObject({ code: 'response-invalid' })
+})
+
+it('accepts sparse legacy diagnostics and every published recovery action', async () => {
+  const id = randomUUID()
+  for (const provider_diagnostic of [{}, { reason: 'json' }, { operation: 'query' }, { http_status: 200 }, { provider_code: '20000000' }]) {
+    const setup = await fixture(async () => Response.json({ id, status: 'uncertain', provider_diagnostic }))
+    expect((await setup.client.get(id)).provider_diagnostic).toEqual(provider_diagnostic)
+  }
+  for (const next_action of ['poll_original', 'wait', 'inspect_receipt', 'use_result', 'resume_upload']) {
+    const recovery = { capability: 'none', next_action, automatic_resubmit: false }
+    const setup = await fixture(async () => Response.json({ id, status: 'processing', recovery }))
+    expect((await setup.client.get(id)).recovery).toEqual(recovery)
+  }
+})
+
+it('reports a confirmed gateway admission pause without calling it a full ASR pool', async () => {
+  const setup = await fixture(async () => Response.json({ error_code: 'server_draining' }, { status: 503, headers: { 'retry-after': '2' } }))
+  await expect(setup.client.submit(setup.file, randomUUID(), 'a'.repeat(64), 'zh')).rejects.toMatchObject({ code: 'server_draining', retryAfterSeconds: 2 })
+})

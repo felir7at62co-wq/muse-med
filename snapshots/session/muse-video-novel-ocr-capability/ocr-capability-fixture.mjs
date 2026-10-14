@@ -50,9 +50,9 @@ export function apply(ctx) {
     const text = options.messages.flatMap(message => message.content)
       .filter(block => block.type === 'text').map(block => block.text).join('\n')
     if (text.includes('<skill_content name="transcript-to-novel">')) {
-      for (const phrase of ['优先复用用户已提供', 'persistent_text_candidate', '不能据此认定水印',
-        '本机不支持 OCR（如 Mac）', '已有明确覆盖本素材、用途和扣费的 ASR 授权',
-        'OCR 与 ASR 结果分文件保存', '不得自动发起新的付费 ASR']) {
+      for (const phrase of ['优先复用用户已提供', 'persistent_text_candidate', '稳定位置不是非剧情水印证据',
+        '已获授权的 ASR', '只有明确 `queue_full` 的尚未受理任务或未提交集',
+        'OCR 的 JSON、TXT 与 ASR 原稿分文件保存', '不由分流绕过授权', '不补写漏掉的对白']) {
         assert.ok(text.includes(phrase), `The actual model request retains ${phrase}`)
       }
       assert.ok(!text.includes('只有完成计划扫描、没有可用字幕'), 'Unsupported OCR does not block explicitly authorized ASR')
