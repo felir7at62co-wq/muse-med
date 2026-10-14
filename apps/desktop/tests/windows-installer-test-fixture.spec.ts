@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
-import { assertInstallerNegativeControl, assertVisualCppPrerequisiteReceipt, createInstallerTestSource } from '../scripts/windows-installer-test-fixture.mjs'
+import { assertInstallerNegativeControl, assertVisualCppPrerequisiteReceipt, createInstallerTestPagesSource, createInstallerTestSource } from '../scripts/windows-installer-test-fixture.mjs'
 
 it('copies production prerequisite checks and confines the reboot switch to private fixtures', async () => {
   const source = await readFile(new URL('../scripts/installer.nsh', import.meta.url), 'utf8')
@@ -11,11 +11,95 @@ it('copies production prerequisite checks and confines the reboot switch to priv
   expect(source).not.toContain('TEST_REBOOT_REQUIRED')
   expect(fixture).toContain(`!define INSTALLER_SOURCE_DIR "${join(root, 'installer')}"`)
   expect(fixture).toContain(`!include "${join(root, 'scripts', 'installer-directories.nsh')}"`)
+  expect(source).not.toContain('INSTALLER_TEST_PAGES_FILE')
+  expect(fixture).toContain('!include "${INSTALLER_TEST_PAGES_FILE}"')
   expect(fixture).toContain('ReadRegDWORD $4 HKLM "SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64" "Installed"')
   expect(fixture).toContain('${VersionCompare} "$0.$1.$2.$3" "14.51.36247.0" $5')
   expect(fixture).toMatch(/Call MuseEnsureVCRuntime[\s\S]*?GetOptions[\s\S]*?SetRebootFlag true[\s\S]*?ClearErrors/u)
   expect(() => createInstallerTestSource(source.replace('  Call MuseEnsureVCRuntime', ''), root)).toThrow('requires one production marker')
   expect(() => createInstallerTestSource(source + '\n  Call MuseEnsureVCRuntime', root)).toThrow('requires one production marker')
+})
+
+it('retains each actual page operation and confines stage receipts to the private fixture', async () => {
+  const source = await readFile(new URL('../installer/pages.nsh', import.meta.url), 'utf8')
+  const fixture = createInstallerTestPagesSource(source)
+  expect(source).not.toContain('InstallerFixtureTrace')
+  const callbacks = fixture.slice(fixture.indexOf('!macroend\n\n') + '!macroend\n\n'.length)
+  expect(callbacks.split('\n').filter(line => !line.includes('!insertmacro InstallerFixtureTrace')).join('\n')).toBe(source)
+  expect(callbacks).toContain('"before-launch" "elevated-shell"')
+  expect(callbacks).toContain('"after-launch" "elevated-shell" "$1"')
+  expect(callbacks).toContain('"before-launch" "direct-exec"')
+  expect(callbacks).toContain('"after-launch" "direct-exec"')
+  expect(callbacks).toMatch(/SendMessage \$HWNDPARENT[^\n]*\n\s*!insertmacro InstallerFixtureTrace "outer-next-return"/u)
+  expect(fixture).toContain('IfErrors 0 +2')
+  expect(fixture).toContain('${If} $3 == 1\n        SetErrors\n    ${Else}\n        ClearErrors')
+  for (const register of ['$0', '$1', '$2', '$3']) {
+    expect(fixture).toContain(`Push ${register}`)
+    expect(fixture).toContain(`Pop ${register}`)
+  }
+  expect(fixture).toContain('FileOpen $1 "${INSTALLER_TEST_TRACE_DIR}\\finish-$0.jsonl" w')
+  expect(fixture).toContain('FileClose $1')
+  expect(() => createInstallerTestPagesSource(source.replace('Function InstallerFinishLeave\n', '')))
+    .toThrow('requires one production marker')
+  expect(() => createInstallerTestPagesSource(source + '\nFunction InstallerFinishLeave\n'))
+    .toThrow('requires one production marker')
+})
+
+it('separates pristine checked launch, waits for error-callback return, and retains the original exit failure', async () => {
+  const smoke = await readFile(new URL('./windows-installer-smoke.ps1', import.meta.url), 'utf8')
+  const positive = smoke.indexOf('Finish-Setup $process $true pristine-dark $bounds $false')
+  const retry = smoke.indexOf('Finish-Setup $process $true dark $bounds')
+  expect(positive).toBeGreaterThan(0)
+  expect(retry).toBeGreaterThan(positive)
+  expect(smoke).toContain('Wait-FinishCallbackReturn $Process $previousReturns')
+  expect(smoke).toContain("$_.event -eq 'outer-next-return'")
+  const failedFinish = smoke.slice(smoke.indexOf('function Finish-Setup('), smoke.indexOf('function Run-Silent('))
+  expect(failedFinish.indexOf('Wait-FinishCallbackReturn')).toBeLessThan(failedFinish.indexOf('PostMessage($finish'))
+  expect(failedFinish).toContain('$waitReturned = $Process.WaitForExit(10000)')
+  expect(failedFinish).toContain('if ($waitError -or $waitReturned -ne $true) { throw "Finish wait failed')
+  expect(failedFinish.indexOf('Read-NativeFailureObserver $Process')).toBeGreaterThan(failedFinish.indexOf('$Process.WaitForExit(10000)'))
+  expect(failedFinish.indexOf('Read-NativeFailureObserver $Process')).toBeLessThan(failedFinish.indexOf('throw "Finish wait failed'))
+  expect(failedFinish).toContain('Remove-Item -LiteralPath (Join-Path $installPath \'launched.txt\')')
+  expect(failedFinish).toContain('foreach ($ownedApp in $ownedApps) { $ownedApp.Dispose() }')
+})
+
+it('limits native failure observations to numeric waits and owned windows without process contents', async () => {
+  const helper = await readFile(new URL('./windows-installer-diagnostics.ps1', import.meta.url), 'utf8')
+  expect(helper).toContain('if (owner == result.ProcessId && seen.Add(window.ToInt64()))')
+  expect(helper).toContain('TokenQuery = 0x0008')
+  expect(helper).toContain('if (!CloseHandle(token))')
+  expect(helper).not.toContain('CloseHandle(processHandle)')
+  expect(helper).toContain('[StructLayout(LayoutKind.Explicit, Size = 280)]')
+  expect(helper).toContain('WctMaxNodeCount = 16, WctThreadType = 8')
+  expect(helper).toContain('if (node.ObjectType == WctThreadType)')
+  expect(helper).toContain('CloseThreadWaitChainSession(session)')
+  expect(helper).not.toMatch(/\b(?:MiniDumpWriteDump|ReadProcessMemory|GetEnvironmentVariables|CreateToolhelp32Snapshot)\b/u)
+  expect(helper).not.toMatch(/(?:public|FieldOffset[^\n]*public)[^\n]*\bObjectName\b/u)
+})
+
+it('owns a bounded credential-scrubbed observer and drains it before installer cleanup', async () => {
+  const smoke = await readFile(new URL('./windows-installer-smoke.ps1', import.meta.url), 'utf8')
+  const observer = smoke.slice(smoke.indexOf('function Read-NativeFailureObserver('), smoke.indexOf('function Finish-Setup('))
+  expect(observer).toContain('[Text.Encoding]::Unicode.GetBytes($command)')
+  expect(observer).toContain("-match '(KEY|SECRET|TOKEN|PASSWORD)'")
+  expect(observer.indexOf('$processes.Add($observer)')).toBeLessThan(observer.indexOf('ReadToEndAsync()'))
+  expect(observer).toContain('$observer.WaitForExit(5000)')
+  expect(observer).toContain('$observer.Kill()')
+  expect(observer).toContain('$observer.WaitForExit(10000)')
+  expect(observer).toContain('[void]$stdout.GetAwaiter().GetResult()')
+  expect(observer).toContain('[void]$stderr.GetAwaiter().GetResult()')
+  expect(observer).toContain('if (-not $started -or $quiescent)')
+  expect(observer).not.toMatch(/Write-Output.*\$(?:stdout|stderr)|Start-Sleep/u)
+  const worker = await readFile(new URL('./windows-installer-failure-observer.ps1', import.meta.url), 'utf8')
+  expect(worker).toContain('[InstallerDiagnostics]::MatchesInstallerPath($retainedProcessHandle, $InstallerPath)')
+  expect(worker).toContain('[InstallerDiagnostics]::RegisterComCallbacksForObserver()')
+  expect(worker.indexOf("$receipt.status = 'before-wct'")).toBeLessThan(worker.indexOf('[InstallerDiagnostics]::PopulateWaitChains'))
+  expect(worker).toContain('[IO.FileMode]::CreateNew')
+  expect(worker).toContain('[IO.File]::Replace($temporaryPath, $script:observerReceiptPath, $null)')
+  expect(worker).toContain('if ($null -ne $process) { $process.Dispose() }')
+  expect(worker).not.toContain('$errorObject.Message')
+  expect(smoke).toContain("$observerControl.receipt.status -ne 'complete'")
+  expect(smoke).toContain('native-observer-exact-installer-and-quiescent-return')
 })
 
 const receipt = { primaryFailure: 'Injected automatic update failure after relaunch', cleanupFailures: [],
