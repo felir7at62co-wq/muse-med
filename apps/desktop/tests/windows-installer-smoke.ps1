@@ -507,8 +507,24 @@ try {
     }
     if (-not $pristineApp) { throw 'Pristine checked Finish did not launch its installed test application' }
     $processes.Add($pristineApp)
+    $processHandles.Add($pristineApp.Id, [InstallerCapture]::RetainProcessHandle($pristineApp))
     Dismiss $pristineApp 'Installer test application is running.'
-    if (-not $pristineApp.WaitForExit(10000) -or $pristineApp.ExitCode -ne 0) { throw 'Pristine launched application did not exit cleanly' }
+    $pristineWaitReturned = $null
+    $pristineWaitFailure = $null
+    $pristineWaitTimer = [Diagnostics.Stopwatch]::StartNew()
+    try { $pristineWaitReturned = $pristineApp.WaitForExit(10000) } catch { $pristineWaitFailure = $_ }
+    $pristineWaitTimer.Stop()
+    $pristineExitReceipt = [ordered]@{
+        processId = $pristineApp.Id
+        waitReturned = $pristineWaitReturned
+        waitElapsedMs = $pristineWaitTimer.ElapsedMilliseconds
+        waitErrorType = if ($pristineWaitFailure) { $pristineWaitFailure.Exception.GetType().FullName } else { $null }
+        observation = [InstallerCapture]::ObserveProcessExit($pristineApp, $processHandles[$pristineApp.Id])
+    } | ConvertTo-Json -Depth 3
+    [IO.File]::WriteAllText((Join-Path $OutputDirectory 'pristine-application-exit.json'),
+        $pristineExitReceipt + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    if ($pristineWaitFailure) { throw $pristineWaitFailure }
+    if (-not $pristineWaitReturned -or $pristineApp.ExitCode -ne 0) { throw 'Pristine launched application did not exit cleanly' }
     $results.Add('pristine-checked-launch-before-failure-retry')
 
     Set-RegisteredPathForUpdate ($installPath + '\')
@@ -535,6 +551,7 @@ try {
     } while ($timer.Elapsed.TotalSeconds -lt 15)
     if (-not $app -or $app.Path -ne $appPath) { throw 'Finish did not launch the installed test application' }
     $processes.Add($app)
+    $processHandles.Add($app.Id, [InstallerCapture]::RetainProcessHandle($app))
     $results.Add('registered-directory-and-checked-launch')
     $results.Add('launch-failure-retry-and-prompt-dismissal')
 
@@ -632,6 +649,7 @@ try {
     }
     if (-not $app) { throw 'Automatic update did not relaunch its own installed application' }
     $processes.Add($app)
+    $processHandles.Add($app.Id, [InstallerCapture]::RetainProcessHandle($app))
     [void](Wait-Control $app 'Installer test application is running.' -Dialog)
     Dismiss $app 'Installer test application is running.'
     if (-not $app.WaitForExit(10000)) { throw 'Automatically reopened test application did not exit' }
