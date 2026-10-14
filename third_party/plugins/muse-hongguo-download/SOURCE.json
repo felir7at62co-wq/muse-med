@@ -15,7 +15,7 @@
       "sha256": "36ba2d34b6c939f09d4534e086724cb46587fa96a9ce8ae1b5a5c3e78fd25bf5"
     }
   ],
-  "legacyInterface": "Original hongguo.pyc full episode and multi_video_model API; FqTrace loopback signer; original offline_decrypt.pyc modules",
+  "legacyInterface": "Original full episode API and v1.0.0.73 single video_model API; FqTrace loopback signer; original offline_decrypt.pyc modules",
   "credentialFilesIncluded": false,
   "originalRuntimeIncluded": false,
   "originalSourceFiles": [
@@ -49,5 +49,17 @@
     "frida/extract_keybox_pairs.pyc"
   ],
   "desktopRuntimeLock": "apps/desktop/scripts/hongguo-runtime.lock.json",
-  "deviceBootstrap": "original devicepool.pyc, fresh per-install device; saved source device pool excluded"
+  "deviceBootstrap": "original devicepool.pyc, fresh per-install device; saved source device pool excluded",
+  "protocolReference": {
+    "releaseUrl": "https://github.com/M4St3r0/hongguo-downloader/releases/tag/1.0.0.73",
+    "installer": "HongguoDownloader-Setup-1.0.0.73.exe",
+    "installerSha256": "df7cb1fae6f0e8637fb630d85f8205b9d2b3ae59cde7c83bf6e37f67af83612f",
+    "module": "app/app/hongguo.pyc",
+    "moduleSha256": "7a5b66a67dac3629c7d4c92a564ec1b4b90134e020670b1e7d348943b82be479",
+    "methods": [
+      "get_video_urls",
+      "get_video_tracks"
+    ],
+    "bundled": false
+  }
 }

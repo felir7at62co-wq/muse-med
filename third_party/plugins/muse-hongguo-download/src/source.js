@@ -15,8 +15,20 @@ function parseSourceJson(text) {
     && !Number.isSafeInteger(value) && /^-?\d+$/.test(context.source) ? context.source : value);
 }
 
-class RiskControlError extends DownloadError {
-  constructor() { super('platform_error', '红果原源 API 返回错误；没有生成下载成功结果'); }
+class SourceRetryError extends DownloadError {
+  constructor(details) { super('platform_error', '红果原源 API 返回错误；本次源请求重试已用尽，没有生成下载成功结果', details); }
+}
+
+/** Both platform response envelopes can report failure; a zero in one cannot hide another error. */
+function sourceStatus(result, sourceStage) {
+  const values = [result.code, result.Code, result.BaseResp?.StatusCode].filter(value => value !== undefined && value !== null);
+  const codes = values.map(value => typeof value === 'string' && /^-?\d+$/.test(value) ? Number(value) : value);
+  if (codes.some(code => !Number.isSafeInteger(code))) {
+    throw new DownloadError('platform_json', '原源平台错误码格式无效', { sourceStage, retryable: false });
+  }
+  const failures = [...new Set(codes.filter(code => code !== 0))];
+  if (failures.length > 1) throw new DownloadError('platform_json', '原源平台返回相互冲突的错误码', { sourceStage, retryable: false });
+  return failures[0];
 }
 
 async function jsonFile(path) {
@@ -110,14 +122,14 @@ export class SourceCatalog {
     catch (error) { return { configured: false, source: 'original-hongguo-api', verifiedLive: false, missing: [safeError(error).message] }; }
   }
 
-  /** Keep one session device until a risk response; retries use the configured budget. */
+  /** Keep one session device; only explicit risk responses use the configured retry budget. */
   async api(path, body, signal, method = 'POST', params = {}) {
     for (let attempt = 0; ; attempt++) {
       try { return await this.apiOnce(path, body, signal, method, params); }
       catch (error) {
-        if (!(error instanceof RiskControlError) || signal.aborted) throw error;
-        if (this.loaded.devices.length > 1) this.deviceIndex = (this.deviceIndex + 1) % this.loaded.devices.length;
+        if (!(error instanceof SourceRetryError) || signal.aborted) throw error;
         if (attempt >= this.config.retries) throw error;
+        if (this.loaded.devices.length > 1) this.deviceIndex = (this.deviceIndex + 1) % this.loaded.devices.length;
       }
     }
   }
@@ -148,10 +160,13 @@ export class SourceCatalog {
     try { result = parseSourceJson((await responseBytes(response, this.config.maxResponseBytes, signal)).toString('utf8')); }
     catch (error) { if (error instanceof DownloadError || signal.aborted) throw error; throw new DownloadError('platform_json', '原源平台返回无效 JSON'); }
     if (!record(result)) throw new DownloadError('platform_error', '红果原源 API 返回错误；没有生成下载成功结果');
-    const code = typeof result.code === 'string' && /^-?\d+$/.test(result.code) ? Number(result.code) : result.code;
-    if ([101001, 401, 403, 1001, 8].includes(code)) throw new DownloadError('platform_error', '红果原源 API 返回错误；没有生成下载成功结果');
-    const messages = [result.message, result.BaseResp?.StatusMessage].filter(value => typeof value === 'string').join(' ');
-    if ((code !== undefined && code !== null && code !== 0) || /verify|captcha|risk|频繁|稍后|验证|rate limit|too many/i.test(messages)) throw new RiskControlError();
+    const sourceStage = path.includes('video_model') ? 'video_model' : path.includes('multi_video_detail') ? 'catalog' : 'source_api';
+    const code = sourceStatus(result, sourceStage);
+    const details = { ...(code !== undefined ? { upstreamCode: code } : {}), sourceStage, retryable: false };
+    if ([101001, 401, 403, 1001, 8].includes(code)) throw new DownloadError('platform_error', '红果原源 API 返回业务错误；请检查失败阶段与错误码，不要立即重复下载', details);
+    const messages = [result.message, result.Message, result.BaseResp?.StatusMessage].filter(value => typeof value === 'string').join(' ');
+    if (/verify|captcha|risk|频繁|稍后|验证|rate limit|too many/i.test(messages)) throw new SourceRetryError(details);
+    if (code !== undefined) throw new DownloadError('platform_error', '红果原源 API 返回业务错误；请检查失败阶段与错误码，不要立即重复下载', details);
     return result;
   }
 
@@ -181,37 +196,33 @@ export class SourceCatalog {
     return { seriesId: id, title: String(video.series_title || id).slice(0, 200), episodeCount: count, source: 'original-hongguo-api', episodes };
   }
 
-  /** Accumulate every five-video batch and deduplicate requested video ids. */
+  /** Resolve each unique episode through the source's single-video endpoint. */
   async videoUrls(vids, signal) {
     const out = new Map();
     const unique = [...new Set(vids)];
-    for (let start = 0; start < unique.length; start += 5) {
-      const batch = unique.slice(start, start + 5);
-      const result = await this.api('/novel/player/multi_video_model/v1/', { biz_param: {
+    for (const vid of unique) {
+      const result = await this.api('/novel/player/video_model/v1/', { biz_param: {
         detail_page_version: 0, device_level: 3, disable_digg_stat: false, disable_video_relate_book: false,
         need_all_video_definition: true, need_mp4_align: false, use_os_player: false, use_server_dns: false, video_platform: 1024,
-      }, mixed_video_id_map: { '1': batch } }, signal);
-      for (const vid of batch) {
-        const item = result.data?.[vid];
-        let model = item?.video_model ?? item;
-        if (typeof model === 'string') { try { model = parseSourceJson(model); } catch (error) { throw new DownloadError('platform_json', '原源视频模型 JSON 无效'); } }
-        const choices = Array.isArray(model?.video_list) ? model.video_list : record(model?.video_list) ? Object.values(model.video_list) : [];
-        const best = choices.filter(choice => record(choice) && typeof choice.main_url === 'string' && choice.main_url)
-          .sort((a, b) => (Number(b.video_meta?.size) || 0) - (Number(a.video_meta?.size) || 0))[0];
-        if (!best) throw new DownloadError('missing_episode_url', '原源某集没有媒体地址；整剧尚未完成');
-        let encryption = null;
-        if (best.encrypt_info?.encrypt) {
-          const spade = best.encrypt_info.spade_a;
-          if (typeof spade !== 'string' || !spade.trim() || Buffer.byteLength(spade, 'utf8') > 16 * 1024) {
-            throw new DownloadError('encrypted_media', '原源加密媒体缺少有效的本地解密信息');
-          }
-          encryption = { spade };
+      }, video_id: vid }, signal);
+      let model = result.data?.video_model;
+      if (typeof model === 'string') { try { model = parseSourceJson(model); } catch (error) { throw new DownloadError('platform_json', '原源视频模型 JSON 无效'); } }
+      const choices = Array.isArray(model?.video_list) ? model.video_list : record(model?.video_list) ? Object.values(model.video_list) : [];
+      const best = choices.filter(choice => record(choice) && typeof choice.main_url === 'string' && choice.main_url)
+        .sort((a, b) => (Number(b.video_meta?.size) || 0) - (Number(a.video_meta?.size) || 0))[0];
+      if (!best) throw new DownloadError('missing_episode_url', '原源某集没有媒体地址；整剧尚未完成');
+      let encryption = null;
+      if (best.encrypt_info?.encrypt) {
+        const spade = best.encrypt_info.spade_a;
+        if (typeof spade !== 'string' || !spade.trim() || Buffer.byteLength(spade, 'utf8') > 16 * 1024) {
+          throw new DownloadError('encrypted_media', '原源加密媒体缺少有效的本地解密信息');
         }
-        let url = best.main_url;
-        if (!url.startsWith('https://')) url = Buffer.from(url, 'base64').toString('utf8');
-        checkedUrl(url, 'media', this.config.mediaHosts, this.config.mediaPorts);
-        out.set(vid, { url, expectedBytes: Number(best.video_meta?.size) || null, sha256: null, encryption });
+        encryption = { spade };
       }
+      let url = best.main_url;
+      if (!url.startsWith('https://')) url = Buffer.from(url, 'base64').toString('utf8');
+      checkedUrl(url, 'media', this.config.mediaHosts, this.config.mediaPorts);
+      out.set(vid, { url, expectedBytes: Number(best.video_meta?.size) || null, sha256: null, encryption });
     }
     return out;
   }
