@@ -960,11 +960,13 @@ it.each(['credential', 'catalog', 'session'] as const)('retains an assembled rou
   const started = new Promise<void>((resolve) => { entered = resolve })
   const gate = new Promise<void>((resolve) => { release = resolve })
   if (boundary === 'credential') {
+    await fixture.ctx.settings.replace('agent-default-model', { provider: 'deepseek-official', model: 'deepseek-flash' })
     const original = fixture.ctx.credentials.describe.bind(fixture.ctx.credentials)
-    vi.spyOn(fixture.ctx.credentials, 'describe').mockImplementation(async (ref) => { entered(); await gate; return await original(ref) })
+    // Refresh also reads the default route's credential; pause only the assembled request.
+    vi.spyOn(fixture.ctx.credentials, 'describe').mockImplementationOnce(async (ref) => { entered(); await gate; return await original(ref) })
   } else {
     const original = fixture.ctx.llm.listModels.bind(fixture.ctx.llm)
-    vi.spyOn(fixture.ctx.llm, 'listModels').mockImplementation(async (provider) => { entered(); await gate; return await original(provider) })
+    vi.spyOn(fixture.ctx.llm, 'listModels').mockImplementationOnce(async (provider) => { entered(); await gate; return await original(provider) })
   }
   const config = { provider: fixture.initialSelection.provider, model: fixture.initialSelection.model,
     ...(fixture.initialSelection.reasoningEffort === undefined ? {}
@@ -972,10 +974,15 @@ it.each(['credential', 'catalog', 'session'] as const)('retains an assembled rou
   const routed = agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request', {
     turn: 1, step: 1, signal: new AbortController().signal,
   }, async () => config)
-  await started
-  await login('bob')
-  if (boundary !== 'session') await models.refresh()
-  release()
+  try {
+    await started
+    await login('bob')
+    if (boundary !== 'session') await models.refresh()
+    if (boundary === 'credential') expect(fixture.ctx.credentials.describe).toHaveBeenCalledTimes(2)
+  } finally {
+    release()
+    await routed
+  }
   expect(await routed).toEqual(config)
 })
 
