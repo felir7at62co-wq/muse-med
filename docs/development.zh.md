@@ -153,6 +153,8 @@ keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若�
 
 仓库链接与具体术语检查读取完整的受跟踪文件清单，输出上限为 16 MiB。更大的清单会导致发现阶段失败；两项检查都不会扫描截断后的清单。
 
+[手动 npm 解析](../scripts/benchmark-npm-resolution.ts)在硬超时后报告子进程退出状态、捕获的输出和回环 registry 请求计数。临时 consumer 会在这些观测值采集完成后删除。
+
 ### Profile 运行
 
 从源码 checkout 运行这些演示前，请单独执行仓库构建：
