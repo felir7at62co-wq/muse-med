@@ -5,6 +5,7 @@ The generation tests run the real generator against real (tiny) media through th
 temporary directory.
 """
 import argparse
+import errno
 import importlib.util
 import json
 import shutil
@@ -30,6 +31,14 @@ def load_draft_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def windows_start_error(winerror, filename=None):
+    """Model Windows startup metadata on both Windows and POSIX test hosts."""
+    error = OSError(0, 'decoder startup failed', filename, winerror)
+    if os.name != 'nt':
+        error.winerror = winerror
+    return error
 
 
 class DraftDeliveryContractTests(unittest.TestCase):
@@ -108,6 +117,91 @@ class DraftDeliveryContractTests(unittest.TestCase):
         by_id = {material['id']: material for material in content['materials']['texts']}
         return [json.loads(by_id[segment['material_id']]['content'])
                 for segment in DraftDeliveryContractTests.segments(content, 'text')]
+
+    @staticmethod
+    def delivery_timeline(medium, **extra):
+        return {**TIMELINE, 'delivery': {'visual_medium': medium, 'width': 2560, 'height': 1440, 'fps': 30}, **extra}
+
+    def test_animation_draft_has_only_body_and_never_reads_or_generates_ending_assets(self):
+        root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+        (root / '06_ending').mkdir()
+        for name in ('ending_audio.mp3', 'ending_effect.mp4'):
+            (root / '06_ending' / name).write_bytes(b'stale unusable ending asset')
+        with patch.object(self.module, 'extract_draft_tail', side_effect=AssertionError('no tail extraction')), \
+                patch.object(self.module, 'append_draft_watermark', side_effect=AssertionError('no added mark')):
+            draft_dir = self.generate(root)
+        content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+        self.assertEqual(content['duration'], 4_000_000)
+        self.assertEqual(content['canvas_config']['width'], 2560)
+        self.assertEqual(content['canvas_config']['height'], 1440)
+        self.assertEqual(content['fps'], 30)
+        self.assertEqual(len(self.segments(content, 'video')), 2)
+        self.assertFalse({'片尾音', '片尾特效', 'AI内容标识'} & {track['name'] for track in content['tracks']})
+        self.assertNotIn('内容由AI生成', json.dumps(content, ensure_ascii=False))
+        self.assertFalse((draft_dir / 'Resources/last_video_tail_frame.png').exists())
+        self.assertFalse((draft_dir / 'ending-evidence.json').exists())
+        self.assertEqual(len(self.texts(content)), 3)
+
+    def test_landscape_delivery_snapshot_preserves_unit_scale_for_854_by_480_source(self):
+        timeline = self.delivery_timeline('animation_3d')
+        timeline['delivery'].update(width=1920, height=1080, fps=30)
+        root = self.build_root(timeline=timeline)
+        for shot in (1, 2):
+            subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                            'color=blue:s=854x480:r=24:d=2', '-pix_fmt', 'yuv420p',
+                            str(root / f'02_media/25/p{shot}.mp4')], check=True)
+        content = self.generate_content(root)
+        self.assertEqual((content['canvas_config']['width'], content['canvas_config']['height']), (1920, 1080))
+        for segment in self.segments(content, 'video'):
+            self.assertEqual(segment['clip']['scale'], {'x': 1.0, 'y': 1.0})
+        self.assertEqual({(item['width'], item['height']) for item in content['materials']['videos']}, {(854, 480)})
+
+    def test_explicit_photorealistic_draft_retains_ending_and_notice(self):
+        content = self.generate_content(self.build_root(timeline=self.delivery_timeline('photorealistic')))
+        self.assertEqual(content['duration'], 6_000_000)
+        self.assertEqual(len(self.segments(content, 'video')), 3)
+        self.assertEqual(len([track for track in content['tracks'] if track['name'] == 'AI内容标识']), 1)
+
+    def test_animation_draft_verifier_rejects_generated_mark_ending_and_extra_duration(self):
+        root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+        content = self.generate_content(root)
+        plan = self.module.draft_ending_plan(root / '05_timeline/25.timeline.json', self.clips())
+        cues = [{'text': text['text']} for text in self.texts(content)]
+        self.module.verify_draft_delivery(content, self.clips(), 4_000_000, cues, plan)
+        for track_name, message in (('AI内容标识', '不得添加 AI'), ('片尾音', '不得包含生成的片尾')):
+            bad = json.loads(json.dumps(content))
+            bad['tracks'].append({'type': 'text' if track_name == 'AI内容标识' else 'audio',
+                                  'name': track_name, 'segments': []})
+            with self.subTest(track=track_name), self.assertRaisesRegex(self.module.DraftInputError, message):
+                self.module.verify_draft_delivery(bad, self.clips(), 4_000_000, cues, plan)
+        content['duration'] = 6_000_000
+        with self.assertRaisesRegex(self.module.DraftInputError, '总时长必须等于正文'):
+            self.module.verify_draft_delivery(content, self.clips(), 4_000_000, cues, plan)
+
+    def test_conflicting_medium_or_included_animation_ending_refuses_before_draft_creation(self):
+        for mode in ('conflict', 'included'):
+            timeline = self.delivery_timeline('animation_3d', **({'body_end': 2} if mode == 'included' else {}))
+            root = self.build_root(timeline=timeline)
+            if mode == 'conflict':
+                (root / 'project_config.json').write_text(json.dumps({
+                    'project_bible': {'visual_medium': 'photorealistic'}}), encoding='utf-8')
+            with self.subTest(mode=mode), self.assertRaisesRegex(self.module.DraftInputError, 'prepare'):
+                self.generate(root)
+            self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+
+    def test_preparing_animation_ignores_missing_selected_endings_and_preserves_snapshot(self):
+        root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+        spec = importlib.util.spec_from_file_location('draft_prepare_animation', SCRIPT.with_name('draft_generator.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        materials = root / 'materials'
+        module.DraftGenerator().prepare_materials(
+            str(root / '01_audio'), str(root / '02_media'), str(materials),
+            timeline_dir=str(root / '05_timeline'), project=str(root),
+            ending_audio=str(root / 'missing.mp3'), ending_effect=str(root / 'missing.mp4'))
+        self.assertFalse((materials / '06_ending').exists())
+        self.assertEqual((materials / '05_timeline/25.timeline.json').read_bytes(),
+                         (root / '05_timeline/25.timeline.json').read_bytes())
 
     def test_a_timeline_with_other_field_names_refuses_instead_of_defaulting_to_five_seconds(self):
         root = self.build_root(timeline={'shots': [{'shot': 1, 'start': 0, 'end': 2},
@@ -478,6 +572,64 @@ class DraftDeliveryContractTests(unittest.TestCase):
                 self.assertIsInstance(raised.exception.__context__, OSError)
                 self.assertFalse((editor / DRAFT_NAME).exists())
                 self.assertEqual(sentinel.read_bytes(), b'keep old draft on decoder startup error')
+
+    def test_windows_decoder_start_errors_without_filename_report_selected_executable(self):
+        decoder = str(Path('configured decoder') / '中文 ffmpeg.exe')
+        for winerror in (2, 5):
+            with self.subTest(winerror=winerror):
+                error = windows_start_error(winerror)
+                self.assertIsNone(error.filename)
+                original_errno, original_args, original_strerror = error.errno, error.args, error.strerror
+                with patch.dict(os.environ, {'DSH_FFMPEG_PATH': decoder}), \
+                     patch.object(self.module.subprocess, 'run', side_effect=error) as run:
+                    with self.assertRaises(OSError) as raised:
+                        self.module._ffmpeg_output(['-f', 'null', '-'])
+                self.assertIs(raised.exception, error)
+                self.assertIsNone(error.filename)
+                self.assertIn(decoder, str(error))
+                self.assertEqual(error.strerror, f'{original_strerror}（解码器：{decoder}）')
+                self.assertEqual(error.errno, original_errno)
+                self.assertEqual(error.winerror, winerror)
+                self.assertEqual(error.args, original_args)
+                self.assertEqual(run.call_args.args[0], [decoder, '-v', 'error', '-f', 'null', '-'])
+
+    def test_other_decoder_start_oserrors_keep_original_filename_and_text(self):
+        errors = [FileNotFoundError(errno.ENOENT, 'file missing'),
+                  FileNotFoundError(errno.ENOENT, 'file missing', '/usr/bin/missing decoder'),
+                  PermissionError(errno.EACCES, 'permission denied'),
+                  PermissionError(errno.EACCES, 'permission denied', '/usr/bin/blocked decoder'),
+                  OSError(5, 'input/output error'), OSError(5, 'input/output error', '/usr/bin/ffmpeg'),
+                  windows_start_error(193), windows_start_error(2, 'original filename'),
+                  windows_start_error(5, 'original filename')]
+        for error in errors:
+            with self.subTest(error=str(error)):
+                original_filename, original_text = error.filename, str(error)
+                with patch.dict(os.environ, {'DSH_FFMPEG_PATH': 'configured decoder'}), \
+                     patch.object(self.module.subprocess, 'run', side_effect=error):
+                    with self.assertRaises(OSError) as raised:
+                        self.module._ffmpeg_output(['-f', 'null', '-'])
+                self.assertIs(raised.exception, error)
+                self.assertEqual(error.filename, original_filename)
+                self.assertEqual(str(error), original_text)
+
+    def test_decoder_non_oserror_is_not_reclassified(self):
+        error = RuntimeError('original subprocess failure')
+        with patch.object(self.module.subprocess, 'run', side_effect=error):
+            with self.assertRaises(RuntimeError) as raised:
+                self.module._ffmpeg_output(['-f', 'null', '-'])
+        self.assertIs(raised.exception, error)
+
+    def test_decoder_timeout_and_nonzero_exit_keep_existing_diagnostics(self):
+        error = subprocess.TimeoutExpired(['decoder'], 3)
+        with patch.dict(os.environ, {'MUSE_DRAFT_DECODE_TIMEOUT_SECONDS': '3'}), \
+             patch.object(self.module.subprocess, 'run', side_effect=error):
+            with self.assertRaisesRegex(self.module.DraftInputError, '定格解码超过 3 秒') as raised:
+                self.module._ffmpeg_output(['-f', 'null', '-'])
+        self.assertIs(raised.exception.__cause__, error)
+        result = subprocess.CompletedProcess(['decoder'], 1, stdout='', stderr='original decoder stderr')
+        with patch.object(self.module.subprocess, 'run', return_value=result):
+            with self.assertRaisesRegex(self.module.DraftInputError, '定格提取失败：original decoder stderr'):
+                self.module._ffmpeg_output(['-f', 'null', '-'])
 
 
 if __name__ == '__main__':

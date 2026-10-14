@@ -65,11 +65,11 @@ Host 账号服务读取绑定网关源地址的已保存会话，把音频发送
 
 #### 模型看到什么
 
-[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-audio-transcribe)记录 start/status schema。结果包含状态、收据路径、任务 ID 和完成产物路径。通用持久化工具卡展示调用与结果。媒体字节、账号 cookie、对象 URL 和提供方凭据不进入参数或结果；工具调用及返回路径仍属于 Session 数据。
+[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-audio-transcribe)记录 start/status schema。结果包含状态、收据路径、任务 ID 和完成产物路径。通用持久化工具卡展示调用与结果。`queue_full` 结果在原样 JSON 前增加“Muse 转写队列已满，请稍后重试”，明确指向 Muse 自身队列，而非提供方容量；其他错误码保留原有输出。媒体字节、账号 cookie、对象 URL 和提供方凭据不进入参数或结果；工具调用及返回路径仍属于 Session 数据。
 
 #### Token 影响
 
-可选用途枚举增加有限的请求开销；每次结果增加简短状态、收据已有的用途和本地路径。
+可选用途枚举增加有限的请求开销；每次结果增加简短状态、收据已有的用途和本地路径；队列拒绝另增加一句解释。
 
 #### KV Cache 影响
 

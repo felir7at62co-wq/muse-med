@@ -29,6 +29,11 @@ it('prepares content-addressed public tracks without machine paths', async () =>
     id: f.track.sha256, name: '情绪曲目.mp3', sha256: f.track.sha256, bytes: f.track.bytes,
     url: `https://muse.tos-cn-beijing.volces.com/bgm/tracks/${f.track.sha256.slice(7)}.mp3`,
     valence: 5, arousal: 6, moods: ['dramatic'],
+    license_info: { status: 'unknown', license: 'unknown', commercial_use: 'unknown',
+      source: 'unknown', attribution: 'unknown', scope: 'unknown' }, license_warnings: [
+      '音乐授权信息未知或不完整；不能据此认定已获使用授权。',
+      '本次用途未指定，尚未核对音乐声明是否覆盖发行用途。',
+    ],
   }] })
   expect(JSON.stringify(plan.manifest)).not.toContain(f.root)
   expect(plan.artifacts[0]?.source).toBe(realpathSync.native(f.audio))
@@ -66,4 +71,30 @@ it('rejects duplicate track identity and an empty index', async () => {
 it.each(['http://music.example', 'https://user:pass@music.example', 'https://music.example/subdir', 'https://music.example/?token=x'])('rejects a non-origin public URL %s', async (origin) => {
   const f = await fixture()
   await expect(prepareBgmPublication(f.index, f.root, origin)).rejects.toThrow(/origin/)
+})
+
+it('publishes the supplied rights declaration without converting it into verified authorization', async () => {
+  const f = await fixture()
+  const licenseInfo = { status: 'declared', license: 'Fixture commercial licence', commercial_use: true,
+    source: 'https://rights.example/licence', attribution: 'Fixture composer', scope: 'Commercial short-drama release' }
+  await writeFile(f.index, JSON.stringify([{ ...f.track, license_info: licenseInfo, license_warnings: [] }]))
+  const plan = await prepareBgmPublication(f.index, f.root, 'https://music.example')
+  expect(plan.manifest.tracks[0]?.license_info).toEqual(licenseInfo)
+  expect(plan.manifest.tracks[0]?.license_warnings).toEqual(expect.any(Array))
+})
+
+it('does not publish commercial permission from an incomplete declaration or a commercial mood tag', async () => {
+  const f = await fixture()
+  await writeFile(f.index, JSON.stringify([{ ...f.track, moods: ['commercial'],
+    license_info: { status: 'declared', commercial_use: true }, license_warnings: [] }]))
+  const plan = await prepareBgmPublication(f.index, f.root, 'https://music.example')
+  expect(plan.manifest.tracks[0]?.license_info).toMatchObject({ commercial_use: 'unknown' })
+  expect(plan.manifest.tracks[0]?.license_info.status).not.toBe('verified')
+  expect(plan.manifest.tracks[0]?.license_warnings.length).toBeGreaterThan(0)
+})
+
+it('rejects a fabricated verified status before publication planning', async () => {
+  const f = await fixture()
+  await writeFile(f.index, JSON.stringify([{ ...f.track, license_info: { status: 'verified', commercial_use: true } }]))
+  await expect(prepareBgmPublication(f.index, f.root, 'https://music.example')).rejects.toThrow(/license_info.status/)
 })

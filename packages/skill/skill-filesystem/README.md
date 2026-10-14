@@ -77,6 +77,8 @@ Load the plugin alongside the skill registry; it requires `ctx.skills`.
 | `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills |
 | `customSkillDirs` | `[]` | Additional local skill roots, after project roots and before user roots |
 | `watch` | `true` | Watch local roots and invalidate the provider when the catalog may have changed |
+| `watchReadyTimeoutMs` | `10000` | Deadline for each existing-root watcher to become ready |
+| `discoveryTimeoutMs` | `30000` | Deadline for one complete discovery, including root lookup, watching, and reads |
 | `bundledSkillDir` | — | Bundled skill root scanned at rank 600 when configured |
 
 The remaining `watch*` fields tune Chokidar behavior — polling, stability window, interval, project cap, and symlink following. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-skill-filesystem) is the exhaustive source for every field.
@@ -87,7 +89,7 @@ Existing roots are watched, so adding, renaming, or deleting a skill (or editing
 
 ### Observable success and failures
 
-A valid skill under any scanned root appears in the session catalog sorted by name, and loading it returns the current file body. A file without valid frontmatter, an invalid name, or an invalid invocation value is skipped with a warning, so the model catalog receives no per-skill diagnostic and cannot distinguish an absent skill from an invalid one. Unexpected discovery or read failures leave the catalog observation incomplete rather than replacing the last-good view with a misleading deletion.
+A valid skill under any scanned root appears in the session catalog sorted by name, and loading it returns the current file body. A file without valid frontmatter, an invalid name, or an invalid invocation value is skipped with a warning, so the model catalog receives no per-skill diagnostic and cannot distinguish an absent skill from an invalid one. Unexpected discovery or read failures leave the catalog observation incomplete rather than replacing the last-good view with a misleading deletion. Discovery cancellation and `discoveryTimeoutMs` reject the caller promptly and stop further scanning; supported filesystem operations receive the signal. A cancelled caller does not cancel a watcher shared with another lookup. Watcher readiness failures close the handle and remain retryable, without caching the incomplete catalog.
 
 -----
 

@@ -8,10 +8,17 @@ import { MemoryCredentials } from '../../../credentials/credentials/tests/memory
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
 import * as Assets from '../src/index.ts'
 import { tree } from './matching-fixture.ts'
-import { mapping, reuseProject, reuseProvider } from './reuse-fixture.ts'
+import { card, mapping, reuseProject, reuseProvider } from './reuse-fixture.ts'
 
 it('executes centralized multi-shot preview through Loader with zero writes and no approval', async () => {
-  const root = await reuseProject(undefined, [mapping(), mapping(902)]), before = await tree(root), mock = reuseProvider()
+  const root = await reuseProject(undefined, [mapping(), mapping(902)]), before = await tree(root)
+  const reordered = card(901), interleaved = card(902)
+  const firstMaterials = reordered.storyboardMaterialList, secondMaterials = interleaved.storyboardMaterialList
+  if (!Array.isArray(firstMaterials) || !Array.isArray(secondMaterials)) throw new Error('Missing fixture materials')
+  reordered.storyboardMaterialList = [firstMaterials[0], firstMaterials[2], firstMaterials[1]]
+  interleaved.storyboardMaterialList = [secondMaterials[1], secondMaterials[0], secondMaterials[2]]
+  interleaved.modelConfig = { prompt: '@[阿舟](lead)说话，@[声线](voice)响起，进入@[大厅](bg)。' }
+  const cardsBefore = JSON.stringify([reordered, interleaved]), mock = reuseProvider({ cards: [reordered, interleaved] })
   const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(mock.fetch)
   const loaded = await configurationFixture({ hmr: false, rows: [
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
@@ -31,6 +38,7 @@ it('executes centralized multi-shot preview through Loader with zero writes and 
       shots: [{ storyboard_id: 901, status: 'awaiting_confirmation' }, { storyboard_id: 902, status: 'awaiting_confirmation' }],
       local_writes: 0, remote_writes: 0, paid_requests: 0 })
     expect(await tree(root)).toEqual(before)
+    expect(JSON.stringify([reordered, interleaved])).toBe(cardsBefore)
     expect(mock.calls.every(call => call.method === 'GET')).toBe(true)
     const tools = loaded.ctx.tools
     await loaded.ctx.fiber.dispose()

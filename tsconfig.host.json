@@ -122,6 +122,7 @@
     "apps/web/tests/ptc-escalation.e2e.ts",
     "apps/web/tests/present.e2e.ts",
     "apps/web/tests/present-svg.e2e.ts",
+    "apps/web/tests/websocket-host-diagnostics.ts",
     "apps/web/tests/composer-draft-scroll.e2e.ts",
     "apps/web/tests/composer-placeholder.e2e.ts",
     "apps/web/tests/context-meter.e2e.ts",
@@ -217,6 +218,7 @@
     "scripts/client-bundle-purity.spec.ts"
   ],
   "references": [
+    { "path": "./packages/drama/bgm-license-info" },
     { "path": "./packages/drama/screenplay-project" },
     { "path": "./packages/client/ui-muse-account/tsconfig.host.json" },
     { "path": "./packages/client/product-analytics/tsconfig.host.json" },
@@ -467,6 +469,7 @@
     { "path": "./packages/drama/tool-audio-transcribe" },
     { "path": "./packages/perception/tool-video-inspect" },
     { "path": "./packages/drama/tool-episode-render" },
+    { "path": "./packages/drama/character-asset-catalog" },
     { "path": "./packages/drama/tool-character-reference" },
     { "path": "./packages/drama/tool-drama-assets" },
     { "path": "./packages/drama/drama-settings/tsconfig.host.json" },

@@ -6,15 +6,22 @@ import argparse
 import hashlib
 import os
 import json
+import math
 import re
 import shutil
 import subprocess
 import tempfile
 import sys
+import importlib.util
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tweet-drama-core' / 'scripts'))
 from video_bans import check_videos
+
+_policy_spec = importlib.util.spec_from_file_location(
+    "drama_delivery_policy", Path(__file__).with_name("delivery_policy.py"))
+_delivery_policy = importlib.util.module_from_spec(_policy_spec)
+_policy_spec.loader.exec_module(_delivery_policy)
 
 # FFmpeg/ffprobe resolve from the deployment's own variables first: this machine keeps them off PATH.
 FFMPEG = os.environ.get('DSH_FFMPEG_PATH') or os.environ.get('FFMPEG_PATH') or 'ffmpeg'
@@ -117,7 +124,7 @@ def probe(path: Path) -> dict:
     return json.loads(proc.stdout)
 
 
-def choose_encoder() -> tuple[str, list[str], str]:
+def choose_encoder(fps: float = FPS) -> tuple[str, list[str], str]:
     test = subprocess.run([
         # Some NVIDIA generations reject 64x64 as below NVENC's minimum frame size.
         FFMPEG, "-v", "error", "-f", "lavfi", "-i", "color=black:s=256x256:d=0.1",
@@ -127,14 +134,14 @@ def choose_encoder() -> tuple[str, list[str], str]:
         return "h264_nvenc", [
             "-preset", "p5", "-rc", "vbr", "-cq", "19",
             "-b:v", TARGET_BITRATE, "-maxrate", MAX_BITRATE,
-            "-bufsize", BUFFER_SIZE, "-g", str(FPS * 2),
+            "-bufsize", BUFFER_SIZE, "-g", str(round(fps * 2)),
             "-profile:v", "high", "-level", "5.1",
         ], ""
     reason = (test.stderr or test.stdout or "NVENC probe failed").strip()[-1000:]
     return "libx264", [
         "-preset", "medium", "-b:v", TARGET_BITRATE,
         "-maxrate", MAX_BITRATE, "-bufsize", BUFFER_SIZE,
-        "-g", str(FPS * 2), "-profile:v", "high", "-level", "5.1",
+        "-g", str(round(fps * 2)), "-profile:v", "high", "-level", "5.1",
     ], reason
 
 
@@ -166,18 +173,25 @@ def ass_outline(target_px: float = SUBTITLE_OUTLINE_TARGET_PX,
     return round(target_px * play_res_y / output_height)
 
 
-def write_ass(srt: Path, ass: Path) -> None:
+def write_ass(srt: Path, ass: Path, add_watermark: bool = True,
+              width: int = WIDTH, height: int = HEIGHT) -> None:
+    """Write speech cues and only the delivery policy's requested AI notice."""
+    scale = DESIGN_WIDTH / min(width, height)
+    design_width, design_height = (math.floor(value * scale + 0.5) for value in (width, height))
+    margin_v = math.floor(design_height * 520 / DESIGN_HEIGHT + 0.5)
+    watermark_style = ("Style: Watermark,Microsoft YaHei,44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,"
+                       "0,0,0,0,100,100,0,0,1,0,0,2,20,20,20,1") if add_watermark else ""
     header = f"""[Script Info]
 ScriptType: v4.00+
-PlayResX: {DESIGN_WIDTH}
-PlayResY: {DESIGN_HEIGHT}
+PlayResX: {design_width}
+PlayResY: {design_height}
 WrapStyle: 2
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Default,SimHei,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,{ass_outline()},0,2,40,40,520,1
-Style: Watermark,Microsoft YaHei,44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,20,20,20,1
+Style: Default,SimHei,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,{ass_outline(play_res_y=design_height, output_height=height)},0,2,40,40,{margin_v},1
+{watermark_style}
 
 [Events]
 Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
@@ -194,10 +208,9 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
             return f"{int(h)}:{int(m):02d}:{float(sec):05.2f}"
         safe = text.replace("{", "（").replace("}", "）")
         events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Default,,0,0,0,,{safe}")
-    # The top-right vertical notice was removed at the operator's request; only the
-    # bottom-right AI-content mark is emitted now. The Watermark style stays because
-    # that remaining event uses it.
-    events.append(r"Dialogue: 1,0:00:00.00,9:59:59.00,Watermark,,0,0,0,,{\an3\pos(1025,1810)}内容由AI生成")
+    if add_watermark:
+        events.append(r"Dialogue: 1,0:00:00.00,9:59:59.00,Watermark,,0,0,0,,{\an3\pos("
+                      + f"{design_width - 55},{design_height - 110})" + r"}内容由AI生成")
     ass.write_text(header + "\n".join(events) + "\n", encoding="utf-8-sig")
 
 
@@ -253,7 +266,8 @@ def verify_ending_asset(path: Path, asset: tuple[str, str, str]) -> None:
                          "请改用随包素材，不要换成其它文件。")
 
 
-def ending_effect_filter(ending_duration: float) -> str:
+def ending_effect_filter(ending_duration: float, width: int = WIDTH, height: int = HEIGHT,
+                         fps: float = FPS) -> str:
     """Blend the ending effect over the frozen frame, at the effect's own speed.
 
     Nothing retimes the effect, so it covers the opening of the ending for as long
@@ -261,15 +275,19 @@ def ending_effect_filter(ending_duration: float) -> str:
     what makes that remainder the freeze, because a black effect frame screens over
     the frozen frame without changing it.
     """
+    scale = DESIGN_WIDTH / min(width, height)
+    canvas_width, canvas_height = (math.floor(value * scale + 0.5) for value in (width, height))
+    effect_width, effect_height = (math.floor(value / 2 + 0.5) for value in (canvas_width, canvas_height))
     return (
-        f"[0:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
-        f"crop={WIDTH}:{HEIGHT},fps={FPS},format=gbrp[base];"
+        f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},fps={fps:g},format=gbrp[base];"
         "[1:v]setpts=PTS-STARTPTS,"
-        "scale=540:960:force_original_aspect_ratio=increase,"
-        "crop=540:960,minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,"
+        f"scale={effect_width}:{effect_height}:force_original_aspect_ratio=increase,"
+        f"crop={effect_width}:{effect_height},minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,"
         "tmix=frames=2:weights='1 1',"
         f"tpad=stop_mode=add:stop_duration={ending_duration:.3f}:color=black,"
-        f"trim=0:{ending_duration:.3f},fps={FPS},scale={WIDTH}:{HEIGHT}:flags=lanczos,"
+        f"trim=0:{ending_duration:.3f},tpad=stop_mode=clone:stop_duration={1/fps:.9f},"
+        f"fps={fps:g},scale={width}:{height}:flags=lanczos,"
         "eq=contrast=1.28:brightness=-0.14:saturation=1.15,format=gbrp[fx];"
         "[base][fx]blend=all_mode=screen:all_opacity=0.90:shortest=1,"
         "format=yuv420p[v]"
@@ -278,43 +296,69 @@ def ending_effect_filter(ending_duration: float) -> str:
 
 def render(args: argparse.Namespace) -> dict:
     project = args.project.resolve()
-    for resource in (args.bgm, args.ending_audio, args.ending_effect):
-        if not resource.is_file():
-            raise FileNotFoundError(resource)
-    verify_ending_asset(args.ending_audio.resolve(), ENDING_AUDIO)
-    verify_ending_asset(args.ending_effect.resolve(), ENDING_EFFECT)
-    episode = str(args.episode).zfill(2)
+    args.project = project
+    for field in ('timeline', 'subtitle_srt', 'bgm', 'ending_audio', 'ending_effect',
+                  'output', 'freeze_image'):
+        path = getattr(args, field, None)
+        if path is not None:
+            setattr(args, field, (project / path).resolve())
+    if not args.bgm.is_file():
+        raise FileNotFoundError(args.bgm)
     timeline = json.loads(args.timeline.read_text(encoding="utf-8"))
+    policy = _delivery_policy.resolve_delivery(timeline, project)
+    width, height, fps = policy["width"], policy["height"], policy["fps"]
+    ending_duration = policy["ending_duration_us"] / 1_000_000
+    if ending_duration:
+        if args.ending_duration != ending_duration:
+            raise ValueError('photorealistic/legacy delivery requires a 2-second ending')
+        for name in ('ending_audio', 'ending_effect'):
+            resource = getattr(args, name, None)
+            if resource is None:
+                raise ValueError(f'--{name.replace("_", "-")} is required for photorealistic/legacy delivery')
+            if not resource.is_file():
+                raise FileNotFoundError(resource)
+        verify_ending_asset(args.ending_audio.resolve(), ENDING_AUDIO)
+        verify_ending_asset(args.ending_effect.resolve(), ENDING_EFFECT)
+    episode = str(args.episode).zfill(2)
+    full_end_us = max((int(item["start_us"]) + int(item["duration_us"])
+                       for item in timeline.get("clips", [])), default=0)
+    _delivery_policy.reject_animation_ending(timeline, full_end_us, policy)
     clips = [item for item in timeline.get("clips", []) if int(item.get("shot", 0)) <= args.last_shot]
     if len(clips) != args.last_shot:
         raise ValueError(f"Expected {args.last_shot} body clips, got {len(clips)}")
     sources = [project / 'video' / episode / f"shot_{int(clip['shot']):03d}.mp4" for clip in clips]
     source_hashes = check_videos(project, sources)
-    sources.append(args.ending_effect.resolve())
-    source_hashes.update(check_videos(project, [sources[-1]]))
+    if ending_duration:
+        sources.append(args.ending_effect.resolve())
+        source_hashes.update(check_videos(project, [sources[-1]]))
     body_end_us = max(int(item["start_us"]) + int(item["duration_us"]) for item in clips)
     body_end = body_end_us / 1_000_000
-    total_duration = body_end + args.ending_duration
+    total_duration = body_end + ending_duration
     output = args.output or project / "exports" / f"{episode}.mp4"
     output.parent.mkdir(parents=True, exist_ok=True)
     final_output = output
     staging = Path(tempfile.mkdtemp(prefix='.render-', dir=output.parent))
     output = staging / 'output.mp4'
-    cache = project / "exports" / ".render_cache" / episode / "2k60_h264_24m"
+    cache = (project / "exports" / ".render_cache" / episode
+             / f"{policy['visual_medium'] or 'legacy'}_{width}x{height}_{fps:g}_h264_24m")
     cache.mkdir(parents=True, exist_ok=True)
+    encoder, encoder_args, encoder_fallback_reason = choose_encoder(fps)
     identity = cache / 'source-hashes.json'
-    try:
-        cached_hashes = json.loads(identity.read_text(encoding='utf-8'))
-    except (OSError, ValueError):
-        cached_hashes = None
-    force = args.force or cached_hashes != source_hashes
-    identity.unlink(missing_ok=True)
-    encoder, encoder_args, encoder_fallback_reason = choose_encoder()
     common_vf = (
-        f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
-        f"crop={WIDTH}:{HEIGHT},fps={FPS},format=yuv420p"
+        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},tpad=stop_mode=clone:stop_duration={1/fps:.9f},fps={fps:g},format=yuv420p"
     )
-
+    cache_inputs = {"sources": source_hashes, "clips": clips, "encoder": encoder,
+                    "encoder_args": encoder_args, "video_filter": common_vf,
+                    "width": width, "height": height, "fps": fps}
+    if ending_duration and args.freeze_image:
+        cache_inputs["freeze_image_sha256"] = hashlib.sha256(args.freeze_image.read_bytes()).hexdigest()
+    try:
+        cached_inputs = json.loads(identity.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        cached_inputs = None
+    force = args.force or cached_inputs != cache_inputs
+    identity.unlink(missing_ok=True)
     rendered = []
     for clip in clips:
         shot = int(clip["shot"])
@@ -325,27 +369,28 @@ def render(args: argparse.Namespace) -> dict:
         duration = int(clip["duration_us"]) / 1_000_000
         if force or not target.exists():
             run([FFMPEG, "-y", "-v", "error", "-i", str(source), "-t", f"{duration:.6f}",
-                 "-vf", common_vf, "-an", "-c:v", encoder, *encoder_args, str(target)])
+                 "-vf", common_vf, "-an", "-r", f"{fps:g}", "-c:v", encoder, *encoder_args, str(target)])
         rendered.append(target)
 
-    if args.freeze_image:
-        freeze_image = args.freeze_image.resolve()
-    else:
-        last_video = project / "video" / episode / f"shot_{args.last_shot:03d}.mp4"
-        freeze_image = cache / "last_video_tail_frame.png"
-        if force or not freeze_image.exists():
-            extract_tail_frame(last_video, freeze_image)
-    freeze = cache / "ending.mp4"
-    if force or not freeze.exists():
-        ending_effect = args.ending_effect.resolve()
-        if not ending_effect.exists():
-            raise FileNotFoundError(ending_effect)
-        effect_filter = ending_effect_filter(args.ending_duration)
-        run([FFMPEG, "-y", "-v", "error", "-loop", "1", "-i", str(freeze_image),
-             "-i", str(ending_effect), "-filter_complex", effect_filter, "-map", "[v]",
-             "-t", f"{args.ending_duration:.3f}", "-an",
-             "-c:v", encoder, *encoder_args, str(freeze)])
-    rendered.append(freeze)
+    if ending_duration:
+        if args.freeze_image:
+            freeze_image = args.freeze_image.resolve()
+        else:
+            last_video = project / "video" / episode / f"shot_{args.last_shot:03d}.mp4"
+            freeze_image = cache / "last_video_tail_frame.png"
+            if force or not freeze_image.exists():
+                extract_tail_frame(last_video, freeze_image)
+        freeze = cache / "ending.mp4"
+        if force or not freeze.exists():
+            ending_effect = args.ending_effect.resolve()
+            if not ending_effect.exists():
+                raise FileNotFoundError(ending_effect)
+            effect_filter = ending_effect_filter(ending_duration, width, height, fps)
+            run([FFMPEG, "-y", "-v", "error", "-loop", "1", "-i", str(freeze_image),
+                 "-i", str(ending_effect), "-filter_complex", effect_filter, "-map", "[v]",
+                 "-t", f"{ending_duration:.3f}", "-an", "-r", f"{fps:g}",
+                 "-c:v", encoder, *encoder_args, str(freeze)])
+        rendered.append(freeze)
 
     check_videos(project, rendered)
     concat_file = cache / "concat.txt"
@@ -353,24 +398,28 @@ def render(args: argparse.Namespace) -> dict:
     base = cache / "base.mp4"
     run([FFMPEG, "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(concat_file), "-c", "copy", str(base)])
     ass = cache / "display.ass"
-    write_ass(args.subtitle_srt, ass)
+    write_ass(args.subtitle_srt, ass, policy["add_watermark"], width, height)
     subtitled = cache / "subtitled.mp4"
-    ass_filter = subtitle_filter(ass)
-    run([FFMPEG, "-y", "-v", "error", "-i", str(base), "-vf", ass_filter,
-         "-an", "-c:v", encoder, *encoder_args, str(subtitled)])
+    ass_filter = subtitle_filter(ass, width, height, fps)
+    run([FFMPEG, "-y", "-v", "error", "-i", str(base), "-t", f"{total_duration:.6f}", "-vf", ass_filter,
+         "-an", "-r", f"{fps:g}", "-c:v", encoder, *encoder_args, str(subtitled)])
 
     master = find_audio(project, episode)
     bgm = args.bgm.resolve()
-    ending_audio = args.ending_audio.resolve()
+    audio_inputs = ["-i", str(master), "-stream_loop", "-1", "-i", str(bgm)]
     filter_audio = (
         f"[1:a]apad,atrim=0:{total_duration:.6f},volume={args.master_volume}[a0];"
         f"[2:a]atrim=0:{body_end:.6f},volume={args.bgm_volume}[a1];"
-        f"[3:a]atrim=0:{args.ending_duration:.6f},adelay={round(body_end*1000)}|{round(body_end*1000)},volume=1[a2];"
-        f"[a0][a1][a2]amix=inputs=3:duration=longest:normalize=0,"
-        f"atrim=0:{total_duration:.6f},alimiter=limit=0.95:level=false[a]"
     )
-    run([FFMPEG, "-y", "-v", "error", "-i", str(subtitled), "-i", str(master),
-         "-stream_loop", "-1", "-i", str(bgm), "-i", str(ending_audio),
+    mix = "[a0][a1]amix=inputs=2:duration=longest:normalize=0,"
+    if ending_duration:
+        audio_inputs += ["-i", str(args.ending_audio.resolve())]
+        filter_audio += (
+            f"[3:a]atrim=0:{ending_duration:.6f},adelay={round(body_end*1000)}|{round(body_end*1000)},volume=1[a2];"
+        )
+        mix = "[a0][a1][a2]amix=inputs=3:duration=longest:normalize=0,"
+    filter_audio += mix + f"atrim=0:{total_duration:.6f},alimiter=limit=0.95:level=false[a]"
+    run([FFMPEG, "-y", "-v", "error", "-i", str(subtitled), *audio_inputs,
          "-filter_complex", filter_audio, "-map", "0:v:0", "-map", "[a]", "-c:v", "copy",
          "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", str(output)])
     info = probe(output)
@@ -380,8 +429,8 @@ def render(args: argparse.Namespace) -> dict:
     rate = video.get("avg_frame_rate") or video.get("r_frame_rate") or "0/1"
     numerator, denominator = (int(value) for value in rate.split("/"))
     actual_fps = numerator / denominator if denominator else 0
-    if (video.get("width") != WIDTH or video.get("height") != HEIGHT
-            or abs(actual_fps - FPS) > 0.01 or video.get("codec_name") != "h264"
+    if (video.get("width") != width or video.get("height") != height
+            or abs(actual_fps - fps) > 0.01 or video.get("codec_name") != "h264"
             or not audio or abs(actual - total_duration) > 0.15):
         raise RuntimeError(f"Render validation failed: {video.get('width')}x{video.get('height')}, audio={bool(audio)}, duration={actual}")
     assert_decodes_throughout(output, actual)
@@ -391,16 +440,17 @@ def render(args: argparse.Namespace) -> dict:
     output.replace(final_output)
     staging.rmdir()
     output = final_output
-    identity.write_text(json.dumps(source_hashes), encoding='utf-8')
+    identity.write_text(json.dumps(cache_inputs), encoding='utf-8')
     return {"episode": episode, "status": "succeeded", "output": str(output), "encoder": encoder,
             "gpu_requested": True, "gpu_used": encoder == "h264_nvenc",
             "encoder_fallback_reason": encoder_fallback_reason,
-            "codec": "h264", "fps": FPS, "target_bitrate": TARGET_BITRATE,
+            "codec": "h264", "fps": fps, "target_bitrate": TARGET_BITRATE,
             "max_bitrate": MAX_BITRATE, "duration": actual,
-            "expected_duration": total_duration, "width": WIDTH, "height": HEIGHT}
+            "expected_duration": total_duration, "width": width, "height": height,
+            "visual_medium": policy["visual_medium"], "warnings": policy["warnings"]}
 
 
-def subtitle_filter(ass: Path) -> str:
+def subtitle_filter(ass: Path, width: int = WIDTH, height: int = HEIGHT, fps: float = FPS) -> str:
     """Burn the ASS into the picture, with the frame-rate filters last.
 
     Use system font discovery unless a licensed font directory is configured.
@@ -408,14 +458,16 @@ def subtitle_filter(ass: Path) -> str:
     own time base, so a frame-rate change placed before it does not survive into the
     encode - the container still reports the delivery rate while far fewer frames
     decode. Ending the chain with both makes the burned stream constant-rate and
-    anchored at zero before the encoder sees it.
+    anchored at zero before the encoder sees it. The one-frame EOF hold preserves
+    the decoded tail; callers cap the output duration and set the output frame rate.
     """
     fonts = os.environ.get('MUSE_FONTS_DIR') or os.environ.get('DSH_FONTS_DIR', '')
     font_option = ":fontsdir='" + Path(fonts).as_posix().replace(":", "\\:") + "'" if fonts else ""
-    return (f"scale={WIDTH * 2}:{HEIGHT * 2}:flags=lanczos,"
+    return (f"scale={width * 2}:{height * 2}:flags=lanczos,"
             + "ass='" + ass.as_posix().replace(":", "\\:") + "'" + font_option
-            + f",scale={WIDTH}:{HEIGHT}:flags=lanczos"
-            + f",fps={FPS},setpts=N/({FPS}*TB)")
+            + f",scale={width}:{height}:flags=lanczos"
+            + f",tpad=stop_mode=clone:stop_duration={1/fps:.9f}"
+            + f",fps={fps:g},setpts=N/({fps:g}*TB)")
 
 
 def main() -> None:
@@ -427,8 +479,8 @@ def main() -> None:
     parser.add_argument("--last-shot", type=int, required=True)
     parser.add_argument("--freeze-image", type=Path)
     parser.add_argument("--bgm", type=Path, required=True)
-    parser.add_argument("--ending-audio", type=Path, required=True)
-    parser.add_argument("--ending-effect", type=Path, required=True)
+    parser.add_argument("--ending-audio", type=Path)
+    parser.add_argument("--ending-effect", type=Path)
     parser.add_argument("--ending-duration", type=float, default=2.0)
     parser.add_argument("--master-volume", type=float, default=1.45)
     parser.add_argument("--bgm-volume", type=float, default=0.24)

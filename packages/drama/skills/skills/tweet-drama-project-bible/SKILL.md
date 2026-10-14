@@ -11,7 +11,7 @@ description: Use when 创建短剧、确认项目参数、维护项目圣经或�
 
 先调用 `drama_project action=read`，读取项目状态和当前 Settings 的预算、delivery 默认值；默认预算为 Settings 当前值，未改设置时为人民币 4000 元。沿用用户本轮已给出的参数及已确认的项目设定。查询 `jubian_catalog models` 的实际目录，准备当前账户能选的 SD2.0/SD2.5 精确模型、平台、比例和 generation 分辨率组合；没有读到的模型或通道不能写成可选项。
 
-新剧只用一次 `ask_user_question` 集中询问仍缺少的核心参数：风格、画面比例、SD 视频模型、平台和生成分辨率。把当前目录中的精确组合与用户已有答案列在同一问题里；用户已提供的字段不再询问。成片 delivery 的 width/height/fps/min_bitrate_mbps 分别保留，展示从 Settings 读到的默认值，用户有明确变更就记录；生成分辨率不能冒充成片尺寸。episode_plan 的提纲、集数和每集目标时长可灵活确定，不要求固定集数或填满模型单条上限；用户只指定方向时先拟提纲并推进写作。
+新剧只用一次 `ask_user_question` 集中询问仍缺少的核心参数：风格、交付类型、画面比例、SD 视频模型、平台和生成分辨率。把当前目录中的精确组合与用户已有答案列在同一问题里；用户已提供的字段不再询问。成片 delivery 的 width/height/fps/min_bitrate_mbps 分别保留，展示从 Settings 读到的默认值，用户有明确变更就记录；生成分辨率不能冒充成片尺寸。episode_plan 的提纲、集数和每集目标时长可灵活确定，不要求固定集数或填满模型单条上限；用户只指定方向时先拟提纲并推进写作。
 
 风格缺失时，把以下风格题与其他缺项放入同一次 `ask_user_question`；风格已明确时省略此题。
 
@@ -32,13 +32,15 @@ description: Use when 创建短剧、确认项目参数、维护项目圣经或�
 
 读取 `project-style` 的答案时，优先把非空 `custom` 原文保存为 `project_bible.style`，否则保存已选的具体风格。`style` 接受自由文本，不能把“其他（自行输入）”或“其他”当作实际风格保存；只有这个选项而没有自填内容时，继续确认具体风格。用户已经给出自定义风格时直接沿用，不限制为示例选项。
 
+交付类型独立保存为 `project_bible.visual_medium`：用户明确选择 3D 漫/三维动画时用 `animation_3d`，明确选择仿真人时用 `photorealistic`。3D 漫的剪映草稿与成片都不新增片尾或任何水印；仿真人保留现有两秒片尾和 AI 标识。`style` 仍完整保存创作原文，“写实 3D”、画面比例或横竖屏都不能作为类型判断规则。自定义风格未明确交付类型时，将“3D 漫（无片尾/无新增水印）”与“仿真人（保留片尾/AI 标识）”作为同次缺项确认的独立选择；其他类型不强行归类，说明暂沿用旧版片尾/水印并确认所需交付方式。旧项目缺少类型时不静默去掉标识；补充明确类型后重新准备时间线和交付。这里的无水印指 Muse 不添加水印，不删除或遮盖源素材已有的第三方标记。
+
 已给出的参数足够写作时可以立即继续。Wiki、模板和技能参考是创作指导，不作为写作或项目启动的前置门禁；缺少参考文本时保留用户的要求并继续独立工作。正式生成前仍用实时目录与既有 `jubian_model`/`prepare_video` 核实真实供应商能力。SD2.0 常用单条总时长为 4–15 秒，SD2.5 为 4–30 秒，均含收束；以精确模型和当前工具确认的支持范围为准，不按简称猜模型 ID，不为延长时长切换用户的已选模型。
 
 ## 写入与版本
 
 用 `drama_project action=preview` 提交已确认的 changes 和 reason，查看 proposed、changed_fields 与 affected_stages；核对生成规格与 delivery、项目归属、预算和提纲。随后 `action=update` 使用同一 changes/reason，并原样传回 preview 的 expected_revision 与 preview_fingerprint。版本过期或预览不一致时重新 read/preview，不能绕过版本检查。初建无需远端任务、镜头包映射或已完成记录，得到真实身份后再补入。
 
-project_bible 的 style、aspect_ratio、video（model_id/platform_id/resolution）、delivery 与 episode_plan 分别保存。initial_budget_cents 只记录初建时的预算，current_settings_budget_cents 是未单独授权项目的默认值；实际项目额度和已花/预留从 drama_project 结果的 budget 或 jubian_budget action=read 读取。单独明确授权的项目额度覆盖默认值，不被默认4000再次压低；不要改 cordis.patch.yml 或 project_config.json 来提高额度。video 只记录当前目录验证的精确选择；工具不代替供应商能力检查，也不自动收费生成。不同生成分辨率和导出尺寸可以并存，不因导出较大就强制购买转高清；普通缩放须如实区分源分辨率与输出尺寸。
+project_bible 的 style、visual_medium、aspect_ratio、video（model_id/platform_id/resolution）、delivery 与 episode_plan 分别保存。initial_budget_cents 只记录初建时的预算，current_settings_budget_cents 是未单独授权项目的默认值；实际项目额度和已花/预留从 drama_project 结果的 budget 或 jubian_budget action=read 读取。单独明确授权的项目额度覆盖默认值，不被默认4000再次压低；不要改 cordis.patch.yml 或 project_config.json 来提高额度。video 只记录当前目录验证的精确选择；工具不代替供应商能力检查，也不自动收费生成。不同生成分辨率和导出尺寸可以并存，不因导出较大就强制购买转高清；普通缩放须如实区分源分辨率与输出尺寸。
 
 额度不够时先核对已花、在途预留及所需总额度。用户已明确该项目与新总金额就直接用 jubian_budget update 保存并真实回读，不重复询问；没有明确额度授权时用 ask_user_question，id 固定为 jubian-budget-<script_id>，正文说明“项目<真实ID>的总预算调整为多少元”，选项或用户填写答案必须包含新总金额。普通聊天金额应明确项目ID，或使用当前真实项目根目录的会话；较宽工作区内未指明项目的“预算5000”不能套给任意项目。update 的 project_dir 必须绑定同一 script_id，limit_cny 是新总额度而非追加金额，expected_revision 原样取 read 结果。版本冲突先重读，再用同一仍有效授权金额提交；撤回、拒绝或金额不符不能写入。设置页的“项目实际预算”与工具读写同一 authorization.json，保存后下一次计费立即生效，无需重启。保留已有花费、在途预留及历史估算；不能通过清账或新建项目规避额度。
 

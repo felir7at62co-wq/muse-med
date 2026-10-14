@@ -1660,6 +1660,19 @@ describe('headless recorded-session snapshots', () => {
                 expect(evidence.boards[0].storyboardMaterialList[2]).toMatchObject({ materialType: 'audio', materialUrl: 'https://example.invalid/lu.wav' })
               }
             }
+            if (scenario.name.startsWith('skill-preparation-')) {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const prepared = scenario.name === 'skill-preparation-catalog'
+              expect(events.filter(event => event.type === 'step/start')).toHaveLength(prepared ? 1 : 0)
+              expect(events.filter(event => event.type === 'request/header')).toHaveLength(prepared ? 1 : 0)
+              expect(events.filter(event => event.type === 'assistant/message')).toHaveLength(prepared ? 1 : 0)
+              const catalog = events.filter(event => event.type === 'user/message'
+                && event.data.source.kind === 'skill-catalog')
+              expect(catalog).toHaveLength(prepared ? 1 : 0)
+              if (scenario.name === 'skill-preparation-cancel') {
+                expect(turnReasonFromSession(actualLogs[0]!.content)).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
+              }
+            }
             if (scenario.name === 'session-query-spill') {
               await verifySessionQuerySpill(actualLogs[0]!.content, spillRoot, locatorRoot)
             }

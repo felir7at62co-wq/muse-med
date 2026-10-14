@@ -39,17 +39,28 @@ export type RemoteStreamFailureMapper = (error: unknown) => RemoteStreamFailure
 
 const MAX_MISSED_HEARTBEATS = 2
 
+interface PendingPing {
+  readonly pongRevision: number
+  writeChecks: number
+}
+
+interface HeartbeatState {
+  missedPongs: number
+  pongRevision: number
+  pendingPing: PendingPing | undefined
+}
+
 /** Own the no-server WebSocket acceptor and every active logical stream. */
 export class RemoteStreamMuxServer {
   private readonly server = new WebSocketServer({ noServer: true })
   private readonly connections = new Set<Promise<void>>()
-  private readonly missedHeartbeats = new WeakMap<WebSocket, number>()
+  private readonly heartbeats = new WeakMap<WebSocket, HeartbeatState>()
   private heartbeatTimer: NodeJS.Timeout | undefined
 
   /**
    * @param open - Gateway stream dispatcher.
    * @param failure - Gateway error-to-wire mapper.
-   * @param heartbeatIntervalMs - interval between WebSocket Ping control frames.
+   * @param heartbeatIntervalMs - cadence for Ping attempts and bounded write/Pong checks.
    * @param streamInboxBytes - buffered uplink frame bytes one logical stream may hold before it fails.
    */
   constructor(
@@ -72,8 +83,13 @@ export class RemoteStreamMuxServer {
     this.server.handleUpgrade(req, socket, head, (websocket) => {
       const release = bindPeer(websocket, peer)
       if (release === undefined) return
-      this.missedHeartbeats.set(websocket, 0)
-      websocket.on('pong', () => { this.missedHeartbeats.set(websocket, 0) })
+      const heartbeat: HeartbeatState = { missedPongs: 0, pongRevision: 0, pendingPing: undefined }
+      this.heartbeats.set(websocket, heartbeat)
+      websocket.on('pong', () => {
+        heartbeat.missedPongs = 0
+        heartbeat.pongRevision += 1
+      })
+      websocket.once('close', () => { this.heartbeats.delete(websocket) })
       this.startHeartbeat()
       const bound: BoundStreamOpener = (endpoint, payload, uplink, control) =>
         this.open(endpoint, payload, uplink, peer, control)
@@ -91,7 +107,10 @@ export class RemoteStreamMuxServer {
   async close(): Promise<void> {
     clearInterval(this.heartbeatTimer)
     this.heartbeatTimer = undefined
-    for (const socket of this.server.clients) socket.terminate()
+    for (const socket of this.server.clients) {
+      this.heartbeats.delete(socket)
+      socket.terminate()
+    }
     const closed = Promise.withResolvers<void>()
     this.server.close((error) => {
       if (error === undefined) closed.resolve()
@@ -107,20 +126,41 @@ export class RemoteStreamMuxServer {
     this.heartbeatTimer = setInterval(() => {
       for (const socket of this.server.clients) {
         if (socket.readyState !== WebSocket.OPEN) continue
-        const missed = this.missedHeartbeats.get(socket) as number
-        if (missed >= MAX_MISSED_HEARTBEATS) {
-          setImmediate(() => {
-            if ((this.missedHeartbeats.get(socket) as number) >= MAX_MISSED_HEARTBEATS) {
-              socket.terminate()
-            }
-          })
+        const heartbeat = this.heartbeats.get(socket) as HeartbeatState
+        const pending = heartbeat.pendingPing
+        if (pending !== undefined) {
+          pending.writeChecks += 1
+          if (pending.writeChecks < MAX_MISSED_HEARTBEATS) continue
+        } else if (heartbeat.missedPongs < MAX_MISSED_HEARTBEATS) {
+          this.sendPing(socket, heartbeat)
           continue
         }
-        this.missedHeartbeats.set(socket, missed + 1)
-        socket.ping()
+        setImmediate(() => {
+          if (socket.readyState !== WebSocket.OPEN || this.heartbeats.get(socket) !== heartbeat) return
+          if (pending === undefined
+            ? heartbeat.missedPongs >= MAX_MISSED_HEARTBEATS
+            : heartbeat.pendingPing === pending) {
+            socket.terminate()
+          }
+        })
       }
     }, this.heartbeatIntervalMs)
     this.heartbeatTimer.unref()
+  }
+
+  /** One outstanding write keeps queued Pings out of the missed-Pong count. */
+  private sendPing(socket: WebSocket, heartbeat: HeartbeatState): void {
+    const pending: PendingPing = { pongRevision: heartbeat.pongRevision, writeChecks: 0 }
+    heartbeat.pendingPing = pending
+    socket.ping(undefined, false, (error?: Error | null) => {
+      if (socket.readyState !== WebSocket.OPEN || this.heartbeats.get(socket) !== heartbeat) return
+      if (error) {
+        socket.terminate()
+        return
+      }
+      heartbeat.pendingPing = undefined
+      if (heartbeat.pongRevision === pending.pongRevision) heartbeat.missedPongs += 1
+    })
   }
 }
 

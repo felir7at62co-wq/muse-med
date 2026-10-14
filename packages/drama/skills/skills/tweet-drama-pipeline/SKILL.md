@@ -9,7 +9,7 @@ Agent 处理文本与质量决策，剧变插件（`jubian_*`）是唯一多媒�
 
 ## 项目启动与后续修改
 
-新建、续跑或修改先加载 [项目圣经技能](../tweet-drama-project-bible/SKILL.md)，用 drama_project 读取唯一 project_config.json。新剧一次集中确认用户尚未给出的风格、比例、SD 视频模型/平台及生成分辨率；delivery 四项独立保存，episode_plan 灵活确定。Wiki 和模板提供指导，不作为写作或项目启动的前置门禁；参数够用即可推进写作。已有角色身份和 voice_profile 用于提示词及说话人核对，生成后仍实际听音检查，固定提示词不能保证 SD 跨镜音色一致。后续修改在原项目、原 storyboard_id 上通过 edit_preview/edit_apply 完成，保留 package_id、已完成任务与版本记录。
+新建、续跑或修改先加载 [项目圣经技能](../tweet-drama-project-bible/SKILL.md)，用 drama_project 读取唯一 project_config.json。新剧一次集中确认用户尚未给出的风格、交付类型、比例、SD 视频模型/平台及生成分辨率；visual_medium 按明确答案保存为 animation_3d 或 photorealistic，前者的草稿与成片不添加片尾/水印，后者保留；不从“写实”或画幅猜类型，旧项目未确认时告警并沿用原交付；delivery 四项独立保存，episode_plan 灵活确定。Wiki 和模板提供指导，不作为写作或项目启动的前置门禁；参数够用即可推进写作。已有角色身份和 voice_profile 用于提示词及说话人核对，生成后仍实际听音检查，固定提示词不能保证 SD 跨镜音色一致。后续修改在原项目、原 storyboard_id 上通过 edit_preview/edit_apply 完成，保留 package_id、已完成任务与版本记录。
 
 涉及声音统一、声线样本或音频资产操作先加载 [声音连续性技能](../tweet-drama-voice-continuity/SKILL.md)，按角色复用已认可声线，音频类别入库、原卡绑定、替换与删除均按该技能执行。缺声线的初始生产与后续整批生成分别核查授权范围、全部预览与预算；冻结失败不默认删除声音或新建重复分镜。
 
@@ -35,6 +35,8 @@ Agent 处理文本与质量决策，剧变插件（`jubian_*`）是唯一多媒�
 ## 资产图通道
 
 没有用户已选通道时，Muse 的默认生图平台是 `KU_AI`；先读实时 `gpt-image-2` 目录，核对平台、标准行、报价和本次预算。用户在设置中明确选择的通道优先，不覆盖既有选择。`DUO_YUAN_TAN_SUO` 只在目录仍提供且主通道已确认无法完成时作为备用；使用 `jubian_video image_generate` 的 `image_platform_id` 仅为本次指定备用平台。切换前核对较高报价是否在本次授权范围内，超出时询问用户。
+
+单项和批量生图都按 `tweet-drama-asset-extract` 已确认的项目风格显式填写 `image_style`：真人为 `live_action`，二维／三维动画为 `anime`；批量逐项填写，顶层不接受该字段。完整自定义画风、3D细分风格与资产版本保留在各项提示词中。
 
 主通道或备用通道长时间无响应、返回 timeout/pending、连接中断或结果未知时，先按原 `idempotency_key` 和父资产 ID 用 `jubian_asset list/get/generated_image` 回读；已受理的任务继续查原任务，不换 key 或平台重投。备用通道确认终止失败、无有效生成图且费用和剩余授权已对账后，优先评估回到主通道（未设置时为 `KU_AI`），有修正原因才用新 key 发起一次新请求。两条通道都不能完成时停止受影响资产，继续独立工作，并在最终汇报中列出通道、任务 ID、已知费用、未决状态、阻塞的交付物和下一步。
 

@@ -12,6 +12,7 @@
  */
 
 import { readFile } from 'node:fs/promises'
+import { parseTimelineDelivery } from './delivery-policy.ts'
 import type { Timeline, TimelineClip } from './types.ts'
 
 /** Microseconds in one second. */
@@ -69,7 +70,30 @@ export function parseTimelineDocument(document: unknown, path: string): Timeline
         + '请确认该镜的成片文件没有被截断成空；必要时重新导出该镜。')
     }
   }
-  return { clips, bodyEndSeconds: bodyEndSecondsOf(clips) }
+  const row = document as Record<string, unknown>
+  const delivery = Object.hasOwn(row, 'delivery') ? parseTimelineDelivery(row.delivery, `${path}.delivery`) : undefined
+  if (Object.hasOwn(row, 'body_end')
+    && (typeof row.body_end !== 'number' || !Number.isFinite(row.body_end) || row.body_end < 0)) {
+    throw new Error(`${path}.body_end 必须是非负有限秒数。请重跑 prepare。`)
+  }
+  if (Object.hasOwn(row, 'canvas')) {
+    const canvas = row.canvas
+    if (typeof canvas !== 'object' || canvas === null || Array.isArray(canvas)
+      || !('width' in canvas) || !('height' in canvas)
+      || !Number.isSafeInteger(canvas.width) || !Number.isSafeInteger(canvas.height)
+      || typeof canvas.width !== 'number' || typeof canvas.height !== 'number'
+      || canvas.width <= 0 || canvas.height <= 0) {
+      throw new Error(`${path}.canvas 必须声明正整数 width 和 height。请重跑 prepare。`)
+    }
+    if (delivery !== undefined && (canvas.width !== delivery.width || canvas.height !== delivery.height)) {
+      throw new Error(`${path}.canvas 与 delivery 的画幅冲突。请重跑 prepare。`)
+    }
+  }
+  return {
+    clips, bodyEndSeconds: bodyEndSecondsOf(clips),
+    ...(delivery === undefined ? {} : { delivery }),
+    ...(typeof row.body_end === 'number' ? { declaredBodyEndSeconds: row.body_end } : {}),
+  }
 }
 
 /**
@@ -148,6 +172,7 @@ export function appendClips(durations: readonly number[]): Timeline {
 export function formatTimelineDocument(timeline: Timeline): string {
   return `${JSON.stringify({
     clips: timeline.clips.map(clip => ({ shot: clip.shot, start_us: clip.startUs, duration_us: clip.durationUs })),
-    body_end: timeline.bodyEndSeconds,
+    body_end: timeline.declaredBodyEndSeconds ?? timeline.bodyEndSeconds,
+    ...(timeline.delivery === undefined ? {} : { delivery: timeline.delivery }),
   }, null, 2)}\n`
 }

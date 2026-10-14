@@ -37,7 +37,8 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
-    "@deepseek-ai/dsh-tools": "workspace:*"
+    "@deepseek-ai/dsh-tools": "workspace:*",
+    "@deepseek-ai/dsh-bgm-license-info": "workspace:*"
   },
   "dependencies": {
     "@deepseek-ai/dsh-home-paths": "workspace:*",
@@ -46,6 +47,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
-    "@deepseek-ai/dsh-tools": "workspace:*"
+    "@deepseek-ai/dsh-tools": "workspace:*",
+    "@deepseek-ai/dsh-bgm-license-info": "workspace:*"
   }
 }

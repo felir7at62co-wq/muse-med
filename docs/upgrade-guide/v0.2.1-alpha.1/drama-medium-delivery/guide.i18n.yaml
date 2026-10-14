@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/drama-medium-delivery/guide.md
+/:
+  en: d826262491ac6ec6
+  zh: aa7daad366033422
+/drama-delivery-by-visual-medium:
+  en: 7c6c5f7728a21df2
+  zh: b47de9fd7a3b207e
+/drama-delivery-by-visual-medium/change:
+  en: 74aae1141f80e6e0
+  zh: f66cd21c332de41e
+/drama-delivery-by-visual-medium/migration:
+  en: e7e7876f963a13fa
+  zh: 980eac40461ef6fb

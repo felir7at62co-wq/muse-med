@@ -42,6 +42,7 @@ exports[`records an active candidate without confirming its casting or charging 
     "reservedCents": 0
   },
   "parent_asset_id": 163126,
+  "image_style": "anime",
   "resolution": "1K",
   "model_selection": {
     "standard_id": 66,

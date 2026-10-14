@@ -34,6 +34,8 @@ kind: "package-reference"
 
 `encodeVoiceSlot` 与 `readVoiceSlot` 在规范的音频资产名称后缀中保留精确的项目、人物及人生时期标识。解码后的标签表示预期声线身份，不证明说话人质量，也不表示不同录音可以互换。
 
+`ImageRequestInput.imageStyle` 选择 `anime` 或 `live_action`，分别向提供方发送 `style: 1` 或 `style: 0`。省略字段时，`resolveImageStyle` 识别提示词开头的正向动漫或真人声明，可带首行内精确的 `项目风格:` 或 `项目风格：` 前缀；未标记的旧提示词保留真人。其他位置的文字及否定指令不提供媒介。显式选择与开头声明冲突时，在提交前失败。完整提示词保持原字节，包括3D细分画风。该选择只描述请求媒介，不证明生成图像质量。
+
 `readImageGeneration(data)` 独立读取生成图接口中的任务与结果身份、状态，不以图片 URL 是否存在替代状态。它将参考图上限、内容拒绝与其他供应商失败分类，不返回远端错误原文。仅含 URL 的旧回复返回 null。`buildImageRequest` 在构造付费请求前拒绝 KU_AI 超过五张参考图的参数。
 
 读取器接收剧变响应信封的 `data` 字段，即 `JubianResponse.data`；`readStoryboardPage(data, scriptId)` 还会逐行核对请求项目。它无需生成设置即可返回当前页身份行，缺失的总数和分集归属保留为 null，并接受空页。传输层把这个字段原样返回，而赋予它类型的就是本库。
@@ -168,13 +170,15 @@ async function downloadVideo(row: VideoSubtask) {
 
 原生任务认领从子项 `modelConfig` 读取模型选择器和提示词；该字段缺失或为 null 时读取子项直接携带的字段。直接字段 `modelVideoStandardId` 是提供方对 `videoStandardId` 的命名。两种格式都要求全部十个冻结模型字段、提示词及完整有序主体身份；证据缺失或损坏时均不允许再次付费提交。不能用当前分镜补充任务缺失的证据。
 
+原生素材按 `materialKey` 和数字父资产 ID 关联，不依赖数组位置。缺失、多余或重复 key，以及身份、URL、类型或组内顺序冲突均拒绝。主体选源回读比较各 key 对应的字段；仅改变数组物理顺序不会要求再次保存选择。
+
 原生主体视频准备至少需要一张已选定的图片主体。`buildNativeVideoPreview()` 对空主体或仅有音频的选择返回 `INVALID_ARGUMENT`，不生成 prepared 预览。`validateNativeVideoPreview()` 对历史空主体预览返回明确的本地参数错误；本次提交调用尚未进入账本，也尚未发出远端付费请求。现有身份校验和提交指纹规则仍然适用。
 
 主体选源把远端已删除的父资产报告为 `PRE_PUT_ASSET_REMOVED`，即使主体列表已经排除了它的材质。已采用的有效材质缺失或不唯一时报告 `PRE_PUT_SUBJECT_UNAVAILABLE`。两种错误均发生在选源 PUT 之前；应刷新真实项目并选择有效的现有资产，不反复重试失效引用。提供方对已保存分镜（包括免费保存）也会存储 `isGenerate=1`，因此仅凭这个回读值不能判断是否已经生成视频。
 
 原生视频任务对账比较明确的集 ID 和集号，不把缺失值转成零。`nativeEpisodeScope()` 校验 camelCase 与 snake_case 别名；`matchesNativeEpisode()` 排除能够证明属于其他集的任务，并拒绝矛盾证据。字段缺失不能证明任务属于其他集。这些失败使用 `VIDEO_TASK_EVIDENCE_INVALID`；主体、模型、提示词和音频匹配仍为必要条件。
 
-上传的音频参考使用 `materialType=audio`、`materialUrl`、`materialKey` 和音频组独立的 `sortOrder`；无需图片父资产或确认出演。原生准备保留这些行，排在已确认图片之后，并将其保存字段纳入指纹。主体选源保留已有音频。视频认领要求子结果的有序 `audioMaterials[].audioUrl` 与提交参考一致；证据缺失或变化时只允许对账，不再次付费提交。`readReferenceAudio()` 测量完整 16 位 PCM WAV 字节，拒绝超过 15 秒的参考。保存的远端 `audioDuration` 存在时会校验，同一音频组所有已知时长之和不得超过15秒。通常每个角色截取实际讲话的两秒区间，背景声不改变时长预算；未知时长仍未核，须测量后才能声称总时长符合限制。
+上传的音频参考使用 `materialType=audio`、`materialUrl`、`materialKey` 和音频组独立的 `sortOrder`；无需图片父资产或确认出演。原生准备按提示词标记首次出现的顺序交错排列图片和音频，校验各类型连续的组内 `sortOrder`，并将保存字段纳入指纹。主体选源保留已有音频。视频认领要求子结果的有序 `audioMaterials[].audioUrl` 与提交参考一致；证据缺失或变化时只允许对账，不再次付费提交。`readReferenceAudio()` 测量完整 16 位 PCM WAV 字节，拒绝超过 15 秒的参考。保存的远端 `audioDuration` 存在时会校验，同一音频组所有已知时长之和不得超过15秒。通常每个角色截取实际讲话的两秒区间，背景声不改变时长预算；未知时长仍未核，须测量后才能声称总时长符合限制。
 
 `VIDEO_TASK_TYPES` 把 `1` 映射为 `generate`、`10` 映射为 `erase_subtitle`、`20` 映射为 `upscale`；`versions` 携带结果历史。`subtitle_erased` 要求存在当前 URL，且最新类型 10 结果成功并有显式输出 URL，或存在成功的类型 10 历史条目且其 URL 等于当前 URL。只有阶段 10 不足以成立，该标记也不代表字幕视觉审核通过。`upscaled` 要求转高清次数为正或最新阶段为 20，不能仅凭 URL 变化判断。
 
@@ -231,7 +235,7 @@ async function downloadVideo(row: VideoSubtask) {
 - **分镜请求体从不从零拼装**——读取与免费保存保留非空宽高比/分辨率标签与 `genNum=1`。非法的已存时长保留在 `model_config` 中，附带修复说明，`content_duration_ms` 为 null；计费生成仍要求可安全表示为毫秒的正整数时长。传统 `withGenerationEnabled()` 路径保留 9:16/720p 与 4–14 秒内容时长，要求保存时长等于内容加一秒，并校验精确模型的时长能力。它不解析目录选择器；其他比例/分辨率返回可操作的 `INVALID_ARGUMENT`，指引调用方保留已存设置并使用原生准备流程。已存储的 `isGenerate=1` 不能证明生成已发生。
 - **没有任何传输行为会被重试或续跑**——除媒体下载外，本包不自己发起任何请求，因此每一次重试、超时与轮询决定都属于调用方。
 
-项目读取通过 `project_settings` 返回已保存的视频配置，包括解码后的 `globalConfig`，不代选模型、不合并独立配置。分集行将提供方的显示集号保留为 `episode_count`，它独立于 `episode_id` 和分页顺序；缺失或不可读的集号保持 null。素材选源按 key 首次出现的顺序处理，允许提示词重复引用；回读比较身份、名称、URL、类型、顺序与提示词，不比较服务端附加元数据。媒体下载也接受 HTTPS 域名 `101.aigc.jubianai.net`，沿用大小、文件头与重定向检查。
+项目读取通过 `project_settings` 返回已保存的视频配置，包括解码后的 `globalConfig`，不代选模型、不合并独立配置。分集行将提供方的显示集号保留为 `episode_count`，它独立于 `episode_id` 和分页顺序；缺失或不可读的集号保持 null。素材选源按 key 首次出现的顺序处理，允许提示词重复引用同一资产及媒体用途；回读比较身份、名称、URL、类型、顺序与提示词，不比较服务端附加元数据。选定 key 的任意一次引用使用 `音频` 标记名称时，图片选源在 PUT 前拒绝；重复引用不能把图片 key 改成音频 key。媒体下载也接受 HTTPS 域名 `101.aigc.jubianai.net`，沿用大小、文件头与重定向检查。
 
 图片请求构造器默认使用 `16:9`，也接受显式 `9:16`。它从实时 `taskType=2` 目录中已选模型／平台行按画幅挑选 `videoStandardId`，而 `standardId` 仍是该计价模型行的 ID。参考图 URL 按原顺序进入 `materialList`；缺少或无效的规格在返回计费请求体之前被拒绝。这仅证明本地请求构造能力，远端是否受理 9:16 尚未验证。
 
