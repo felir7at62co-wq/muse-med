@@ -10,19 +10,19 @@ const failureMessages={
 
 /**
  * Safe provider diagnostics. A rejection records a response, never a known charge outcome.
- * Only operation, code, message, validated HTTP status, and numeric supplier code are retained.
+ * Only operation, reason, code, message, validated HTTP status, and numeric supplier code are retained.
  */
 export class AsrProviderError extends Error{
  /**
   * @param {'submit'|'query'|'flash'} operation Provider operation that failed.
-  * @param {'transport'|'http'|'response'|'json'|'result'|'audio'} reason Failure category selecting a fixed message.
+  * @param {'timeout'|'transport'|'http'|'response'|'json'|'result'|'audio'} reason Failure category selecting a fixed message.
   * @param {Response} [response] Supplier response supplying only status fields.
   */
  constructor(operation,reason,response){
   super(failureMessages[operation][reason]??failureMessages[operation].response);
   // Stack frames contain gateway paths; durable diagnostics retain only the allowed fields.
   delete this.stack;
-  this.operation=operation;
+  this.operation=operation;this.reason=reason;
   if(Number.isInteger(response?.status)&&response.status>=100&&response.status<=599)this.httpStatus=response.status;
   const providerCode=response?.headers.get('X-Api-Status-Code');
   if(typeof providerCode==='string'&&/^\d{5,10}$/.test(providerCode))this.providerCode=providerCode;
@@ -37,7 +37,7 @@ export async function submitAsr(config,{id,url,language,format='mp3',purpose,dur
  const speakers=purpose==='screenplay'&&config.speakerDiarization?{enable_speaker_info:true,ssd_version:config.speakerDiarizationVersion,...config.speakerDiarizationVersion==='200'?{ssd_mode:durationSeconds>=config.speakerLongAudioSeconds?1:0}:{}}:{};
  let response;
  try{response=await fetcher(endpoint+'/submit',{method:'POST',headers:{...headers(config,id),'X-Api-Sequence':'-1'},body:JSON.stringify({user:{uid:'muse-audio-transcribe'},audio:{format,url,rate:16000,channel:1},request:{model_name:'bigmodel',enable_itn:true,enable_punc:true,show_utterances:true,...speakers,...language==='auto'?{enable_auto_lang:true}:purpose==='screenplay'?{}:{language}}}),signal:AbortSignal.timeout(config.timeoutMs)});}
- catch(error){throw new AsrProviderError('submit','transport');}
+ catch(error){throw new AsrProviderError('submit',error?.name==='TimeoutError'?'timeout':'transport');}
  const code=response.headers.get('X-Api-Status-Code');
  if(response.ok&&['20000000','20000001','20000002'].includes(code))return;
  throw new AsrProviderError('submit','response',response);
@@ -47,7 +47,7 @@ export async function submitAsr(config,{id,url,language,format='mp3',purpose,dur
 export async function queryAsr(config,id,fetcher=fetch){
  let response;
  try{response=await fetcher(endpoint+'/query',{method:'POST',headers:headers(config,id),body:'{}',signal:AbortSignal.timeout(config.timeoutMs)});}
- catch(error){throw new AsrProviderError('query','transport');}
+ catch(error){throw new AsrProviderError('query',error?.name==='TimeoutError'?'timeout':'transport');}
  const code=response.headers.get('X-Api-Status-Code');
  if(!response.ok)throw new AsrProviderError('query','http',response);
  if(['20000001','20000002'].includes(code))return {status:'processing'};
@@ -96,7 +96,7 @@ export async function recognizeFlashAsr(config,{id,url,file},fetcher=fetch){
  catch(error){throw new AsrProviderError('flash','audio');}
  let response;
  try{response=await fetcher(endpoint+'/recognize/flash',{method:'POST',headers:{...headers(config,id),'X-Api-Resource-Id':'volc.bigasr.auc_turbo','X-Api-Sequence':'-1'},body:JSON.stringify({user:{uid:'muse-audio-transcribe'},audio,request:{model_name:'bigmodel',enable_itn:true,enable_punc:true,show_utterances:true}}),signal:AbortSignal.timeout(config.timeoutMs)});}
- catch(error){throw new AsrProviderError('flash','transport');}
+ catch(error){throw new AsrProviderError('flash',error?.name==='TimeoutError'?'timeout':'transport');}
  const code=response.headers.get('X-Api-Status-Code');
  if(!response.ok)throw new AsrProviderError('flash','http',response);
  if(code==='20000003')return {status:'silent'};

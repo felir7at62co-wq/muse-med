@@ -58,8 +58,14 @@ class CreationResourcesTests(unittest.TestCase):
         for name in ("tweet-drama-asset-extract", "tweet-drama-shot-asset-match",
                      "tweet-drama-voice-continuity", "tweet-drama-pipeline"):
             text = (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
-            for requirement in ("match_preview", "reuse_ready", "needs_review", "blocked", "人工确认"):
+            for requirement in ("match_preview", "reuse_ready", "needs_review", "blocked"):
                 self.assertIn(requirement, text)
+            if name == "tweet-drama-voice-continuity":
+                for requirement in ("实际听音核对", "首个样本的说话人和区间核对后按用户已有制作授权采用",
+                                    "新候选不得覆盖既有默认", "替换须由用户或其授权组员明确认可"):
+                    self.assertIn(requirement, text)
+            else:
+                self.assertIn("人工确认", text)
             self.assertIn("references/match-preview.md", text)
         contract = "skills/tweet-drama-core/references/match-preview.md"
         manifest = json.loads((PACK / "package.json").read_text(encoding="utf-8"))

@@ -14,7 +14,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
+import re
 import tempfile
 import sys
 from datetime import datetime
@@ -23,7 +25,9 @@ from typing import Any, Dict, Iterable, List
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from video_bans import check_videos
-from episode_coverage import audit_project
+from episode_coverage import audit_project, source_inventory
+from episode_scope import is_episode_id
+from draft_timing import ENDING_DURATION_US
 
 
 VERSION = 3
@@ -60,6 +64,13 @@ def record(status: str = "pending", **extra: Any) -> Dict[str, Any]:
     if status not in STATUSES:
         raise ValueError(f"invalid status: {status}")
     return {"status": status, "updated_at": now(), "error": "", "outputs": [], "metadata": {}, **extra}
+
+
+def _editing_episode(path: Path) -> str | None:
+    """Read canonical episode IDs from prepared and legacy editing filenames."""
+    match = re.fullmatch(r"(?:ep)?([0-9]{2,4})-(?:timeline|sources)\.json", path.name)
+    episode = match.group(1) if match else None
+    return episode if is_episode_id(episode) else None
 
 
 class PipelineState:
@@ -197,7 +208,7 @@ class PipelineState:
         packs = [path for path in glob("media/ep*/*.mp4") if path.stem.startswith("p") and path.stem[1:].isdigit()]
         cleaned = [path for path in glob("media/ep*/*.mp4")
                    if "-clean" in path.stem or "-deliver" in path.stem]
-        return {
+        facts = {
             "source_script": glob("source/source_script.txt") + glob("source/original/*"),
             "episodes": glob("episodes/*.txt"),
             "style_bible": glob("assets/style_bible.md") + glob("style_bible.md"),
@@ -217,62 +228,37 @@ class PipelineState:
             "episodes_packed": {path.parent.name for path in glob("episode_packages/*/package.json")},
             "episodes_generated": {path.parent.name[2:] for path in packs},
             "episodes_rendered": {episode_of_export(path) for path in glob("export/*成片*.mp4")},
-            "episodes_delivered": {path.name.split("-ep", 1)[1][:2] for path in glob("export/delivery-ep*.mp4")},
+            "episodes_delivered": {match.group(1) for path in glob("export/delivery-ep*.mp4")
+                                   if (match := re.fullmatch(r"delivery-ep([0-9]{2,4})\.mp4", path.name))},
             "episode_inventory": self._episode_inventory(),
             "coverage": audit_project(project),
         }
+        if facts["episode_inventory"]["explicit_scope"]:
+            scope = facts["episode_inventory"]["expected"]
+            for key in ("episodes_with_text", "episodes_with_script", "episodes_matched", "episodes_packed",
+                        "episodes_generated", "episodes_rendered", "episodes_delivered"):
+                facts[key] &= scope
+            selectors = {
+                "episodes": lambda path: path.stem,
+                "scripts": episode_of_shots,
+                "matched": lambda path: path.name.split(".", 1)[0],
+                "packages": lambda path: path.parent.name,
+                "packs": lambda path: path.parent.name[2:],
+                "cleaned": lambda path: path.parent.name[2:],
+                "editing": _editing_episode,
+                "masters": episode_of_export,
+                "deliveries": lambda path: path.stem.removeprefix("delivery-ep"),
+            }
+            for key, episode_of in selectors.items():
+                facts[key] = [path for path in facts[key] if episode_of(path) in scope]
+        return facts
 
     def _episode_inventory(self) -> Dict[str, Any]:
-        """Compare split files with the manifest's consecutive episode IDs and hashes."""
-        directory = self.project / "episodes"
-        manifest_path = directory / "manifest.json"
-        actual = {path.stem for path in directory.glob("*.txt") if path.is_file()}
-        if not manifest_path.is_file():
-            return {"expected": set(), "actual": actual, "issues": ["episodes/manifest.json is missing"] if actual else [],
-                    "manifest_exists": False}
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-            entries = manifest["episodes"]
-            if not isinstance(entries, dict) or not entries:
-                raise ValueError("episodes must be a nonempty object")
-        except (OSError, ValueError, KeyError, TypeError) as error:
-            return {"expected": set(), "actual": actual, "issues": [f"episodes/manifest.json: {error}"],
-                    "manifest_exists": True}
-
-        expected = set(entries)
-        issues = []
-        declared_count = manifest.get("expected_episode_count")
-        if declared_count is not None:
-            if type(declared_count) is not int or not 1 <= declared_count <= 9999:
-                issues.append("expected_episode_count must be an integer from 1 to 9999")
-            else:
-                declared_ids = {f"{number:02d}" for number in range(1, declared_count + 1)}
-                if expected != declared_ids:
-                    missing = sorted(declared_ids - expected)
-                    extra = sorted(expected - declared_ids)
-                    issues.append(f"expected_episode_count={declared_count}: missing {missing}, extra {extra}")
-        if expected != {f"{number:02d}" for number in range(1, len(expected) + 1)}:
-            issues.append(f"episode IDs must be consecutive from 01: {sorted(expected)}")
-        for episode in sorted(expected):
-            row = entries[episode]
-            if not isinstance(row, dict) or not isinstance(row.get("sha256"), str) or len(row["sha256"]) != 64:
-                issues.append(f"EP{episode}: missing valid manifest sha256")
-                continue
-            path = directory / f"{episode}.txt"
-            if not path.is_file():
-                issues.append(f"EP{episode}: split text is missing")
-                continue
-            try:
-                # The splitter hashes cleaned text before Windows newline conversion on save.
-                actual_hash = hashlib.sha256(path.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
-            except (OSError, UnicodeError) as error:
-                issues.append(f"EP{episode}: cannot read split text ({error})")
-                continue
-            if actual_hash != row["sha256"]:
-                issues.append(f"EP{episode}: split text sha256 differs from manifest")
-        for episode in sorted(actual - expected):
-            issues.append(f"EP{episode}: split text is absent from manifest")
-        return {"expected": expected, "actual": actual, "issues": issues, "manifest_exists": True}
+        """Use the same scope, identity and source validation as coverage acceptance."""
+        inventory = source_inventory(self.project)
+        if not inventory["manifest_exists"] and not inventory["actual"]:
+            inventory["issues"] = []
+        return {**inventory, "expected": set(inventory["expected"]), "actual": set(inventory["actual"])}
 
     def _reviewed_sources(self, episodes: Iterable[str]) -> tuple:
         """Check prepared selections against each expected package's byte-bound review.
@@ -392,6 +378,63 @@ class PipelineState:
         return {"official": sum(1 for item in records if item.get("official") is True),
                 "items": len(records)}
 
+    def _draft_inputs(self, episodes: Iterable[str]) -> tuple[set[str], List[str]]:
+        """Validate prepared editing pairs, without certifying external editable drafts."""
+        ready, issues = set(), []
+        for ep in sorted(episodes, key=int):
+            pair = None
+            for prefix in ("", "ep"):
+                paths = [self.project / "editing" / f"{prefix}{ep}-{kind}.json"
+                         for kind in ("timeline", "sources")]
+                if any(path.exists() for path in paths):
+                    pair = paths
+                    break
+            if pair is None:
+                issues.append(f"EP{ep}: 缺少 editing 时间线与来源清单")
+                continue
+            try:
+                if not all(path.is_file() for path in pair):
+                    raise ValueError("时间线与来源清单必须同时是文件")
+                timeline, sources = [json.loads(path.read_text(encoding="utf-8-sig")) for path in pair]
+                clips = timeline.get("clips") if isinstance(timeline, dict) else None
+                shots = sources.get("shots") if isinstance(sources, dict) else None
+                if not isinstance(clips, list) or not clips or not isinstance(shots, list) or not shots:
+                    raise ValueError("时间线 clips 与来源 shots 必须是非空数组")
+                cursor = 0
+                for clip in clips:
+                    if (not isinstance(clip, dict) or type(clip.get("shot")) is not int or clip["shot"] < 1
+                            or type(clip.get("start_us")) is not int or clip["start_us"] < 0
+                            or type(clip.get("duration_us")) is not int or clip["duration_us"] <= 0):
+                        raise ValueError("时间线镜号与微秒时钟无效")
+                    if clip["start_us"] != cursor:
+                        raise ValueError("时间线必须从零开始，镜头不得重叠或留空")
+                    cursor += clip["duration_us"]
+                if "body_end" in timeline:
+                    body_end = timeline["body_end"]
+                    if (type(body_end) not in (int, float) or not math.isfinite(body_end)
+                            or not 0 < body_end <= cursor / 1_000_000):
+                        raise ValueError("body_end 必须是时间线范围内的有限正数秒")
+                    declared_us = round(body_end * 1_000_000)
+                    if (declared_us != cursor and (cursor - declared_us != ENDING_DURATION_US
+                                                  or clips[-1]["duration_us"] <= ENDING_DURATION_US)):
+                        raise ValueError("body_end 必须对应正文结束；已含片尾仅允许末镜内的两秒定格")
+                for shot in shots:
+                    if not isinstance(shot, dict) or type(shot.get("shot")) is not int or shot["shot"] < 1:
+                        raise ValueError("来源镜号无效")
+                    video = shot.get("video")
+                    if not isinstance(video, str) or not video.strip() or not (self.project / video).is_file():
+                        raise ValueError("来源 video 必须指向已有文件")
+                clip_numbers = [clip["shot"] for clip in clips]
+                source_numbers = [shot["shot"] for shot in shots]
+                if (sorted(source_numbers) != list(range(1, len(shots) + 1))
+                        or clip_numbers != source_numbers):
+                    raise ValueError("时间线与来源镜号必须一致、连续且无重复")
+            except (OSError, ValueError, OverflowError) as error:
+                issues.append(f"EP{ep}: {error}")
+                continue
+            ready.add(ep)
+        return ready, issues
+
     def _project_stage(self, stage: str, facts: Dict[str, Any]) -> tuple:
         """一个阶段的 (状态, 证据路径, metadata 备注)。completed 的判据都在这里。"""
         project = self.project
@@ -431,9 +474,7 @@ class PipelineState:
                 except (OSError, ValueError):
                     note["reconcile_ready"] = None
             return (status, relative(facts["manifest"]), note)
-        # 后段阶段（脚本匹配 / 生成 / 审片 / 草稿 / 成片）是「整部剧」的口径：只有全部分集都
-        # 走到这一步才算 completed，否则是 review（在推进中）。否则 3/50 集交付会让整个
-        # 项目显示成「已导出」，比不写还误导。
+        # 完成状态覆盖全部已声明工作集；显式分工不代表整剧完成。
         inventory = facts["episode_inventory"]
         expected = inventory["expected"]
         total = len(expected)
@@ -443,7 +484,7 @@ class PipelineState:
         coverage_ready = (bool(expected) and not inventory["issues"]
                           and coverage["status"] == "passed" and accepted == expected)
         coverage_files = project / "shots_and_matches"
-        legacy_single = (len(expected) == 1 and not inventory["issues"]
+        legacy_single = (not inventory["explicit_scope"] and len(expected) == 1 and not inventory["issues"]
                          and coverage.get("source_integrity") is True
                          and not any(coverage_files.glob("ep*-source-map.json"))
                          and not any(coverage_files.glob("ep*-coverage-acceptance.json")))
@@ -493,15 +534,17 @@ class PipelineState:
                                       "legacy_single_without_coverage": legacy_single})
         if stage in {'draft', 'export'}:
             try:
-                videos = list((self.project / 'video').glob('*/shot_*.mp4'))
+                videos = [path for path in (self.project / 'video').glob('*/shot_*.mp4')
+                          if not inventory['explicit_scope'] or path.parent.name in expected]
                 if stage == 'export':
-                    videos += facts['masters'] + facts['deliveries'] + list((self.project / 'exports').glob('*.mp4'))
+                    videos += facts['masters'] + facts['deliveries']
+                    if not inventory['explicit_scope']:
+                        videos += list((self.project / 'exports').glob('*.mp4'))
                 check_videos(self.project, videos)
             except (OSError, ValueError) as error:
                 return ('blocked', [], {'video_bans': str(error)})
         if stage == "draft":
-            draft_episodes = {path.name.split("-", 1)[0][2:] for path in facts["editing"]
-                              if path.name.startswith("ep")}
+            draft_episodes, missing = self._draft_inputs(expected)
             if stage_ready and draft_episodes == expected:
                 status = "completed"
             elif facts["editing"]:
@@ -512,7 +555,10 @@ class PipelineState:
                      {"episodes_total": total, "episodes_with_draft": len(draft_episodes),
                       "files": len(facts["editing"]), "coverage_pending": sorted(expected - accepted),
                       "legacy_single_without_coverage": legacy_single,
-                      "unexpected_drafts": sorted(draft_episodes - expected)})
+                      "missing_evidence": missing, "completion_basis": "editing_inputs",
+                      "editable_draft_verified": False,
+                      "unexpected_drafts": sorted({ep for path in facts["editing"]
+                                                    if (ep := _editing_episode(path)) is not None} - expected)})
         if stage == "export":
             rendered, delivered = len(facts["episodes_rendered"]), len(facts["episodes_delivered"])
             if stage_ready and facts["episodes_delivered"] == expected:
@@ -535,6 +581,10 @@ class PipelineState:
         for stage in STAGES:
             current = self.data["stages"].get(stage, {})
             status, evidence, note = self._project_stage(stage, facts)
+            inventory = facts["episode_inventory"]
+            note.update(completion_scope="work_scope" if inventory["explicit_scope"] else "whole_story",
+                        scope_episodes=sorted(inventory["expected"], key=int),
+                        story_episode_count=inventory["story_episode_count"])
             manual = current.get("status_source") == "manual"
             summary[stage] = {"status": current.get("status") if manual else status,
                               "projected": status, "manual": manual, "note": note}

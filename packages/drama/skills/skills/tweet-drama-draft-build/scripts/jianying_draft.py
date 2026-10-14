@@ -11,6 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tweet-drama-core' / 'scripts'))
 from video_bans import check_videos, find_project
+from draft_timing import ENDING_DURATION_US
 
 _VENDOR_DIR = Path(__file__).resolve().parent / "vendor"
 if _VENDOR_DIR.is_dir() and str(_VENDOR_DIR) not in sys.path:
@@ -70,7 +71,6 @@ SUBTITLE_PUNCTUATION = "，。！？；：、,.!?;:\"'“”‘’（）()《》
 # 放大必然削波。BGM 轨保持 pyJianYingDraft 的 1.0，与主音频同时单位增益。
 VOICE_VOLUME = 1.0
 BGM_VOLUME = 1.0
-ENDING_DURATION_US = 2_000_000
 WATERMARK_TEXT = "内容由AI生成"
 WATERMARK_TRACK = "AI内容标识"
 WATERMARK_FONT_SIZE = 6.0

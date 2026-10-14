@@ -21,10 +21,10 @@ function assertSafeError(error,expected){
  assert.equal(error.code,expected.code);
  assert.equal(typeof provider.AsrProviderError,'function');
  assert.ok(error instanceof provider.AsrProviderError);
- assert.equal(error.operation,expected.operation);
+ assert.equal(error.operation,expected.operation);assert.ok(['timeout','transport','http','response','json','result','audio'].includes(error.reason));
  assert.equal(error.httpStatus,expected.httpStatus);
  assert.equal(error.providerCode,expected.providerCode);
- assert.deepEqual(Object.getOwnPropertyNames(error).sort(),['message','code','operation',...expected.httpStatus===undefined?[]:['httpStatus'],...expected.providerCode===undefined?[]:['providerCode']].sort());
+ assert.deepEqual(Object.getOwnPropertyNames(error).sort(),['message','code','operation','reason',...expected.httpStatus===undefined?[]:['httpStatus'],...expected.providerCode===undefined?[]:['providerCode']].sort());
  assert.equal(error.stack,undefined);
  assert.equal(error.cause,undefined);
  for(const representation of [String(error),JSON.stringify(error),inspect(error)]){

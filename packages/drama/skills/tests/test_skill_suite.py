@@ -13,6 +13,7 @@ sys.path.insert(0, str(SKILLS / "tweet-drama-core/scripts"))
 from validate_live_action_skills import validate_skill_package
 
 EXPECTED = {
+    "anime-3d-assets",
     "jubian-asset-library", "jubian-snatch", "shot-script-creator-9-16", "shot-script-creator-16-9-3d", "xiaohongshu-reference",
     "tweet-drama-asset-extract", "tweet-drama-asset-vision-check",
     "tweet-drama-background-render", "tweet-drama-core", "tweet-drama-delivery",
