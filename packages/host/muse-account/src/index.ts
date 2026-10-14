@@ -20,10 +20,10 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 
 export { MuseAccountService } from './service.ts'
 export { MuseAccountController } from './account.ts'
-export { MuseAsrClient, MuseAsrError } from './asr.ts'
+export { MuseAsrClient, MuseAsrError, parseMuseAsrMetadata } from './asr.ts'
 export { MuseVoiceSlotsClient, MuseVoiceSlotError } from './voice-slots.ts'
 export type { MuseVoiceLeaseId, MuseVoiceSlotRequest, MuseVoiceSlotsOptions } from './voice-slots.ts'
-export type { MuseAsrJob, MuseAsrSegment, MuseAsrPurpose } from './asr.ts'
+export type { MuseAsrJob, MuseAsrSegment, MuseAsrPurpose, MuseAsrMetadata } from './asr.ts'
 export { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
 export type * from './types.ts'
 
