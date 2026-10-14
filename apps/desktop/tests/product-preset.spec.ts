@@ -122,6 +122,14 @@ it('offers only short drama and editing while keeping registered legacy composit
     for (const requirement of ['每集至少 2 首不同曲目', '按情绪分段', 'policy_findings', '1.5 秒三角交叉淡化', '24 小时', 'max_review_attempts=3', 'content_duration_ms', '计费云端语音服务', 'purpose=screenplay', 'purpose=subtitles', '不自动删除', '片尾 2 秒', '被委派的子代理只返回调用方要的分片结果', '给了 schema 就用 structured_output 返回']) {
       expect(prompt, requirement).toContain(requirement)
     }
+    for (const requirement of ['project_bible.visual_medium', 'drama_project preview/update', 'style 原文独立保留',
+      'animation_3d 的成片与剪映草稿都不新增任何水印或片尾', 'photorealistic 的成片与剪映草稿保留',
+      '旧项目未注明 visual_medium 时明确告警', '不从“写实 3D”等风格词或画幅推断', 'timeline.delivery',
+      '特效按自身原速播放一次，余下为纯定格，不变速或拉伸']) {
+      expect(prompt, requirement).toContain(requirement)
+    }
+    expect(prompt).not.toContain('成片与剪映草稿都在右下角全程显示')
+    expect(prompt).not.toContain('片尾音频、特效与定格严格等长')
     let calls = 0
     ctx.tools.register(defineContentToolFixture({
       name: 'jubian_storyboard', description: 'No-network provider fixture',

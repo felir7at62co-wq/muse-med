@@ -12,7 +12,7 @@
  * @module @deepseek-ai/dsh-tool-episode-render/encoder
  */
 
-import { ENCODER_PROBE_SOURCE, encoderArguments } from './delivery.ts'
+import { DELIVERY_FPS, ENCODER_PROBE_SOURCE, encoderArguments } from './delivery.ts'
 import type { EncoderChoice, MediaToolkit } from './types.ts'
 
 /** The CPU encoder used when no GPU encoder is available. */
@@ -38,13 +38,14 @@ export function collapseReason(text: string): string {
  * Choose the encoder one render uses.
  * @param toolkit - The binaries and channel to use.
  * @param preferNvenc - Whether the GPU encoder is probed at all.
+ * @param fps - Delivery frame rate for the two-second GOP.
  * @returns The encoder, its arguments, and the probe failure that forced the CPU encoder.
  */
-export async function chooseEncoder(toolkit: MediaToolkit, preferNvenc: boolean): Promise<EncoderChoice> {
+export async function chooseEncoder(toolkit: MediaToolkit, preferNvenc: boolean, fps = DELIVERY_FPS): Promise<EncoderChoice> {
   if (!preferNvenc) {
     return {
       encoder: CPU_ENCODER,
-      args: encoderArguments(CPU_ENCODER),
+      args: encoderArguments(CPU_ENCODER, fps),
       fallbackReason: 'preferNvenc=false：本次不探测 GPU 编码器，直接用 libx264。',
     }
   }
@@ -53,11 +54,11 @@ export async function chooseEncoder(toolkit: MediaToolkit, preferNvenc: boolean)
     '-frames:v', '1', '-c:v', GPU_ENCODER, '-f', 'null', '-',
   ])
   if (outcome.code === 0) {
-    return { encoder: GPU_ENCODER, args: encoderArguments(GPU_ENCODER), fallbackReason: '' }
+    return { encoder: GPU_ENCODER, args: encoderArguments(GPU_ENCODER, fps), fallbackReason: '' }
   }
   return {
     encoder: CPU_ENCODER,
-    args: encoderArguments(CPU_ENCODER),
+    args: encoderArguments(CPU_ENCODER, fps),
     fallbackReason: `h264_nvenc 探测失败（退出码 ${String(outcome.code)}）：`
       + collapseReason(outcome.stderr.trim() === '' ? outcome.stdout : outcome.stderr),
   }
