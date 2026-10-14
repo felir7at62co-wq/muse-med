@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -681,6 +681,78 @@ describe('FileSystemSkillProvider', () => {
     expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: false })
   })
 
+  it.each(['cancelled during root resolution', new Error('cancelled during root resolution')])(
+    'contains cancellation raised before the discovery wait subscribes (%s)',
+    async (reason) => {
+      const home = await tempDir('skill-resolve-cancellation')
+      const cancellation = new AbortController()
+      const ctx = new Context()
+      await ctx.plugin(class extends TestFileSystem {
+        override async resolve(path: string): Promise<FsTarget> {
+          cancellation.abort(reason)
+          throw new FsError(`Cancelled resolution: ${path}`, 'FS_NOT_FOUND')
+        }
+      })
+      const provider = new SkillFileSystem.FileSystemSkillProvider(ctx, {
+        signal: new AbortController().signal, invalidate() {},
+      }, { watch: false })
+      try {
+        const discovery = provider.list({ cwd: home, signal: cancellation.signal })
+        expect(cancellation.signal.aborted).toBe(true)
+        await expect(discovery).rejects.toBe(reason)
+        expect((ctx.fs as TestFileSystem).statSignals).toEqual([])
+        expect((ctx.fs as TestFileSystem).listDirCalls).toBe(0)
+      } finally {
+        await provider.dispose()
+      }
+    },
+  )
+
+  it('aborts a stalled discovery read at its deadline without caching a partial catalog', async () => {
+    const home = await tempDir('skill-discovery-read-timeout')
+    const root = join(home, 'skills')
+    await writeSkill(root, 'waiting-skill', 'Waiting skill')
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    await ctx.plugin(SkillRegistry)
+    const fiber = await ctx.plugin(SkillFileSystem, {
+      includeDefaultRoots: false, customSkillDirs: [root], watch: false, discoveryTimeoutMs: 20,
+    })
+    const started = Promise.withResolvers<undefined>()
+    const stopped = Promise.withResolvers<undefined>()
+    fs.readTextOverride = async (_target, signal) => {
+      if (signal === undefined) throw new Error('expected a discovery signal')
+      started.resolve(undefined)
+      return await new Promise<string>((_resolve, reject) => {
+        const abort = (): void => {
+          stopped.resolve(undefined)
+          const reason: unknown = signal.reason
+          reject(reason instanceof Error ? reason : new Error(String(reason)))
+        }
+        signal.addEventListener('abort', abort, { once: true })
+        if (signal.aborted) abort()
+      })
+    }
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const discovery = ctx.skills.snapshot()
+      await started.promise
+      await vi.advanceTimersByTimeAsync(20)
+      expect(await discovery).toEqual({ skills: [], complete: false })
+      await stopped.promise
+      vi.useRealTimers()
+      delete fs.readTextOverride
+      expect(await ctx.skills.snapshot()).toMatchObject({ skills: [{ name: 'waiting-skill' }], complete: true })
+      const reads = fs.readTextSignals.length
+      await ctx.skills.snapshot()
+      expect(fs.readTextSignals).toHaveLength(reads)
+    } finally {
+      vi.useRealTimers()
+      await fiber.dispose()
+    }
+  })
+
   it('forwards cancellation to filesystem reads while loading a skill', async () => {
     const home = await tempDir('skill-read-abort')
     await writeSkill(join(home, '.dsh/skills'), 'abortable-skill', 'Abortable skill')
@@ -714,6 +786,51 @@ describe('FileSystemSkillProvider', () => {
     await expect(loading).rejects.toBe(reason)
     expect(fs.statSignals).toEqual([controller.signal])
     expect(fs.readTextSignals).toEqual([controller.signal])
+  })
+
+  it.each(['waiting', 'resolving'] as const)('retains a non-Error cancellation reason while %s', async (phase) => {
+    const home = await tempDir('skill-cancel-reason')
+    await writeSkill(join(home, '.dsh/skills'), 'cancelled-skill', 'Cancelled skill')
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    const cancellation = new AbortController()
+    const reason = { cancelled: phase }
+    const started = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<string>()
+    const provider = new SkillFileSystem.FileSystemSkillProvider(ctx, {
+      signal: new AbortController().signal, invalidate() {},
+    }, {
+      dshHome: join(home, '.dsh'), museHome: join(home, '.muse'), agentsHome: join(home, '.agents'), watch: false,
+    })
+    const originalResolve = fs.resolve.bind(fs)
+    if (phase === 'resolving') {
+      vi.spyOn(fs, 'resolve').mockImplementation((path) => {
+        cancellation.abort(reason)
+        return originalResolve(path)
+      })
+    } else {
+      fs.readTextOverride = async () => {
+        started.resolve(undefined)
+        return await release.promise
+      }
+    }
+    const discovery = provider.list({ cwd: home, signal: cancellation.signal })
+    const rejected = expect(discovery).rejects.toBe(reason)
+    try {
+      if (phase === 'waiting') {
+        await started.promise
+        cancellation.abort(reason)
+      }
+      await rejected
+      release.resolve('---\nname: cancelled-skill\ndescription: cancelled\n---\nLate result.\n')
+      await provider.dispose()
+      expect(fs.listDirCalls === 0 || phase === 'waiting').toBe(true)
+    } finally {
+      release.resolve('')
+      await provider.dispose()
+      vi.restoreAllMocks()
+    }
   })
 
   it('refreshes additions, metadata changes, deletions, and a recreated missing root', { timeout: 20000 }, async () => {

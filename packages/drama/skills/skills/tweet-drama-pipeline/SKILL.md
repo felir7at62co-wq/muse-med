@@ -9,7 +9,7 @@ Agent 处理文本与质量决策，剧变插件（`jubian_*`）是唯一多媒�
 
 ## 项目启动与后续修改
 
-新建、续跑或修改先加载 [项目圣经技能](../tweet-drama-project-bible/SKILL.md)，用 drama_project 读取唯一 project_config.json。新剧一次集中确认用户尚未给出的风格、比例、SD 视频模型/平台及生成分辨率；delivery 四项独立保存，episode_plan 灵活确定。Wiki 和模板提供指导，不作为写作或项目启动的前置门禁；参数够用即可推进写作。已有角色身份和 voice_profile 用于提示词及说话人核对，生成后仍实际听音检查，固定提示词不能保证 SD 跨镜音色一致。后续修改在原项目、原 storyboard_id 上通过 edit_preview/edit_apply 完成，保留 package_id、已完成任务与版本记录。
+新建、续跑或修改先加载 [项目圣经技能](../tweet-drama-project-bible/SKILL.md)，用 drama_project 读取唯一 project_config.json。新剧一次集中确认用户尚未给出的风格、交付类型、比例、SD 视频模型/平台及生成分辨率；visual_medium 按明确答案保存为 animation_3d 或 photorealistic，前者的草稿与成片不添加片尾/水印，后者保留；不从“写实”或画幅猜类型，旧项目未确认时告警并沿用原交付；delivery 四项独立保存，episode_plan 灵活确定。Wiki 和模板提供指导，不作为写作或项目启动的前置门禁；参数够用即可推进写作。已有角色身份和 voice_profile 用于提示词及说话人核对，生成后仍实际听音检查，固定提示词不能保证 SD 跨镜音色一致。后续修改在原项目、原 storyboard_id 上通过 edit_preview/edit_apply 完成，保留 package_id、已完成任务与版本记录。
 
 涉及声音统一、声线样本或音频资产操作先加载 [声音连续性技能](../tweet-drama-voice-continuity/SKILL.md)，按角色复用已认可声线，音频类别入库、原卡绑定、替换与删除均按该技能执行。缺声线的初始生产与后续整批生成分别核查授权范围、全部预览与预算；冻结失败不默认删除声音或新建重复分镜。
 

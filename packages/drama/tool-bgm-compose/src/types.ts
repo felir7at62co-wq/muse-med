@@ -1,11 +1,17 @@
 /** Types shared by the short-drama BGM composer. */
 
+import type { BgmLicenseRecord, BgmUsage, LicenseInfo } from '@deepseek-ai/dsh-bgm-license-info'
+
 /** One story interval assigned to one source track. */
 export interface BgmPlanSegment {
   /** Human-readable track name. */
   readonly track: string
   /** Source audio path; absolute or relative to the project. */
   readonly source: string
+  /** Optional stable catalog track identity. */
+  readonly track_id?: string
+  /** Declared audio license facts; omission remains unknown. */
+  readonly license_info?: Partial<LicenseInfo>
   /** First second on the episode body timeline. */
   readonly start_seconds: number
   /** Exclusive end second on the episode body timeline. */
@@ -26,6 +32,8 @@ export interface BgmPlanSegment {
 export interface BgmEpisodePlan {
   /** Episode number, conventionally two digits. */
   readonly episode: string
+  /** Declared distribution use; omission remains unknown. */
+  readonly intended_use?: BgmUsage
   /** Body duration excluding the ending. */
   readonly body_duration_seconds: number
   /** Crossfade duration centered on each adjacent segment boundary. */
@@ -111,6 +119,10 @@ export interface DramaBgmArguments {
 
 /** One analyzed segment in a composer report. */
 export interface BgmSegmentReport {
+  /** Stable catalog identity, when supplied by the plan. */
+  readonly track_id?: string
+  /** Normalized audio license declaration, not independently verified rights. */
+  readonly license_info: LicenseInfo
   /** Track label from the plan. */
   readonly track: string
   /** Resolved source path. */
@@ -173,6 +185,10 @@ export interface BgmMediaReport {
 
 /** Canonical report returned by every composer operation. */
 export interface DramaBgmReport {
+  /** Declared use of the selected episode. */
+  readonly intended_use: BgmUsage
+  /** License declarations and use risks, including for verify without source analysis. */
+  readonly license_records: BgmLicenseRecord[]
   /** Operation that produced the report. */
   readonly method: DramaBgmMethod
   /** Two-digit episode number. */

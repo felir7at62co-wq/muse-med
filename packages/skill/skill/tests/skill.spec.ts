@@ -386,9 +386,7 @@ describe('SkillRegistry registry', () => {
     })
     const outcome = pending.then(
       () => 'resolved',
-      (error: unknown) => error instanceof Error && error.message === '[unrenderable thrown value]'
-        ? 'aborted'
-        : 'other-error',
+      (error: unknown) => error === hostileReason ? 'aborted' : 'other-error',
     )
     await started
     controller.abort(hostileReason)
@@ -1004,7 +1002,7 @@ describe('SkillRegistry registry', () => {
     const pending = ctx.skills.list({ signal: controller.signal })
     const outcome = pending.then(
       () => 'resolved',
-      (error: unknown) => error instanceof Error && error.message === reason ? 'aborted' : 'other-error',
+      (error: unknown) => error === reason ? 'aborted' : 'other-error',
     )
     await started
     controller.abort(reason)
@@ -1018,6 +1016,39 @@ describe('SkillRegistry registry', () => {
 
     expect(seenSignal).toBe(controller.signal)
     expect(settled).toBe('aborted')
+  })
+
+  it.each(['list', 'get'] as const)('contains a provider rejection when %s synchronously cancels its lookup', async (operation) => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    const cancellation = new AbortController()
+    const reason = { kind: 'caller-cancellation' }
+    const skill = { ...memorySkill('reentrant-skill', 'Reentrant cancellation', 1), provider: 'reentrant' }
+    let lists = 0
+    let loads = 0
+    registerProvider(ctx, {
+      name: 'reentrant',
+      async list() {
+        lists += 1
+        if (operation === 'list') {
+          cancellation.abort(reason)
+          throw reason
+        }
+        return [skill]
+      },
+      async get() {
+        loads += 1
+        cancellation.abort(reason)
+        throw reason
+      },
+    })
+    const result = operation === 'list'
+      ? ctx.skills.list({ signal: cancellation.signal })
+      : ctx.skills.get('reentrant-skill', { signal: cancellation.signal })
+    await expect(result).rejects.toBe(reason)
+    await new Promise<void>((resolve) => { setImmediate(resolve) })
+    expect(lists).toBe(1)
+    expect(loads).toBe(operation === 'get' ? 1 : 0)
   })
 
   it('rejects invalid runtime skill registrations and ignores duplicates', async () => {

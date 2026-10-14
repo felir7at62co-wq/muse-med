@@ -248,8 +248,9 @@ describe('prepareEpisode', () => {
         { shot: 2, startUs: 5_050_000, durationUs: 13_083_333 },
       ],
       bodyEndSeconds: 18.133333,
+      delivery: { width: 1440, height: 2560, fps: 60 },
     })
-    expect(prepared.warnings).toEqual([])
+    expect(prepared.warnings[0]).toContain('未设置 visual_medium')
     expect(prepared.written).toEqual([
       join(paths.videoDir, 'shot_001.mp4'),
       join(paths.videoDir, 'shot_002.mp4'),
@@ -273,6 +274,7 @@ describe('prepareEpisode', () => {
         { shot: 2, start_us: 5_050_000, duration_us: 13_083_333 },
       ],
       body_end: 18.133333,
+      delivery: { width: 1440, height: 2560, fps: 60 },
     })
     expect(await readFile(paths.subtitle, 'utf8')).toBe(await readFile(subtitle, 'utf8'))
     expect(await sizeOf(paths.masterAudio)).toBe(3)
@@ -304,8 +306,8 @@ describe('prepareEpisode', () => {
       shotsPath,
       subtitleSrt: subtitle,
     })
-    expect(prepared.warnings).toHaveLength(1)
-    expect(prepared.warnings[0]).toContain('字幕第 1 条结束于 12.000s')
+    expect(prepared.warnings).toHaveLength(2)
+    expect(prepared.warnings[1]).toContain('字幕第 1 条结束于 12.000s')
   })
 
   it('fails loud when the manifest is not JSON', async () => {

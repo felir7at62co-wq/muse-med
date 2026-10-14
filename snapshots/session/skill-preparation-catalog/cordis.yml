@@ -1,0 +1,8 @@
+- id: skill-filesystem
+  config:
+    includeDefaultRoots: false
+    customSkillDirs: []
+    watch: false
+- insert:
+    - id: snapshot-skill-preparation
+      name: './preparation-fixture.mjs'
