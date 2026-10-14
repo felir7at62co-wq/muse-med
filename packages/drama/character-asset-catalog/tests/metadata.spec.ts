@@ -71,6 +71,34 @@ function reader(objects: Record<string, Uint8Array>): CharacterObjectReader {
 }
 
 describe('character catalog metadata adaptation', () => {
+  it('retains prototype-named unknown keys as own JSON data', () => {
+    const json = JSON.stringify(flat()).slice(0, -1)
+      + ',"__proto__":{"review_claim":"unconfirmed"},"constructor":"source constructor","prototype":{"id":"source prototype"}}'
+    const item = parseCharacterMetadata(json, source, flatKey)
+    const fields = item.unknown.metadata_fields
+    expect(Object.hasOwn(fields, '__proto__')).toBe(true)
+    expect(fields['__proto__']).toEqual({ review_claim: 'unconfirmed' })
+    expect(Object.hasOwn(fields, 'constructor')).toBe(true)
+    expect(fields['constructor']).toBe('source constructor')
+    expect(Object.hasOwn(fields, 'prototype')).toBe(true)
+    expect(fields['prototype']).toEqual({ id: 'source prototype' })
+    expect(fields).not.toHaveProperty('review_claim')
+    expect(JSON.parse(JSON.stringify(fields))).toEqual({
+      ['__proto__']: { review_claim: 'unconfirmed' },
+      constructor: 'source constructor',
+      prototype: { id: 'source prototype' },
+    })
+    expect(item.safety).toEqual({ can_publish: false, can_reuse: false, can_bind: false })
+  })
+
+  it('does not expose unknown metadata values through an inherited prototype', () => {
+    const json = JSON.stringify(flat()).slice(0, -1) + ',"__proto__":{"review_claim":"unconfirmed"}}'
+    const item = parseCharacterMetadata(json, source, flatKey)
+    expect(item.unknown.metadata_fields).not.toHaveProperty('review_claim')
+    expect(item.unknown.authoritative_review).toBeNull()
+    expect(item.safety).toEqual({ can_publish: false, can_reuse: false, can_bind: false })
+  })
+
   it('accepts flat metadata without inventing a Phase 1 reference or authorization', () => {
     const input = flat()
     const before = JSON.stringify(input)

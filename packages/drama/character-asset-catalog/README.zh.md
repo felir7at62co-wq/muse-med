@@ -44,7 +44,7 @@ kind: "package-reference"
 
 记录区分保留的 metadata、适配后的声明、推导的 key、实测字节和未知权限依据。明确标明 v2 的 `style` 转为场景时代分类声明；扁平格式的 `style` 转为画风声明。无版本旧别名不推断这两种风格含义。年代、性别和外观仍是来源声明，外观条目保留其 metadata 位置。`approved` 和 `rejected` 状态文字转为批准或拒绝声明，不成为权威决定。审核、权利、复用范围和 TOS 对象版本保持未知；`can_publish`、`can_reuse` 和 `can_bind` 保持 false。
 
-`raw.metadata` 保留完整的解析后来源对象。`unknown.metadata_fields` 另行原样保存未识别的顶层键和值，与未知的审核、权利、复用及 TOS 权限字段分别保存。保留字段不表示其含义已经校验，也不使其成为权威依据。
+`raw.metadata` 保留完整的解析后来源对象。`unknown.metadata_fields` 将未识别的顶层键和值原样保存为自身的数据属性，包括 `__proto__` 这样的名称，与未知的审核、权利、复用及 TOS 权限字段分别保存。保留字段不表示其含义已经校验，也不使其成为权威依据。
 
 -----
 

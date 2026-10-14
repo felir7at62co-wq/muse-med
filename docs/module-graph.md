@@ -251,6 +251,7 @@ flowchart TD
     pkg_office_to_pdf["office-to-pdf"]
   end
   subgraph group_drama["packages/drama"]
+    pkg_character_asset_catalog["character-asset-catalog"]
     pkg_drama_settings["drama-settings"]
     pkg_drama_skills["drama-skills"]
     pkg_screenplay_project["screenplay-project"]
@@ -1557,6 +1558,7 @@ flowchart TD
 | [`client-web`](../packages/client/web) | `client` | — |
 | [`credentials`](../packages/credentials/credentials) | `credentials` | — |
 | [`office-to-pdf`](../packages/document/office-to-pdf) | `document` | — |
+| [`character-asset-catalog`](../packages/drama/character-asset-catalog) | `drama` | — |
 | [`drama-skills`](../packages/drama/skills) | `drama` | — |
 | [`experimental-agent-team-profile`](../packages/experimental/agent-team-profile) | `experimental` | — |
 | [`experimental-inspector-profile`](../packages/experimental/inspector-profile) | `experimental` | — |

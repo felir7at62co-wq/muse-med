@@ -163,7 +163,7 @@ function statusClass(status: string): MetadataStatusClass {
  * @param json - Raw JSON text read by the caller; it is never rewritten.
  * @param source - Operator-owned stable namespace, not a bucket or request parameter from an Agent.
  * @param key - Exact metadata object key, including its real directory levels.
- * @returns A read-only candidate with source claims separated from derived keys and unknown authority.
+ * @returns A read-only candidate with own-property metadata keys, separate source claims, derived keys and unknown authority.
  */
 export function parseCharacterMetadata(
   json: string,
@@ -222,10 +222,9 @@ export function parseCharacterMetadata(
   const catalogId = brandString<CatalogAssetId>('character:' + storageId + ':' + id)
   const referenceId = format === 'phase1_v2' ? brandString<Phase1ReferenceId>(oldId as string) : null
   const rawMetadata = raw as CharacterMetadataJsonObject
-  const unknownMetadataFields: CharacterMetadataJsonObject = {}
-  for (const [name, value] of Object.entries(rawMetadata)) {
-    if (!knownMetadataFields.has(name)) unknownMetadataFields[name] = value
-  }
+  const unknownMetadataFields: CharacterMetadataJsonObject = Object.fromEntries(
+    Object.entries(rawMetadata).filter(([name]) => !knownMetadataFields.has(name)),
+  )
   return {
     identity: {
       catalog_asset_id: catalogId,

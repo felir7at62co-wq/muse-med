@@ -44,7 +44,7 @@ Use this library when a caller needs consistent character records from metadata 
 
 The record separates retained metadata, adapted claims, derived keys, observed bytes and unknown authority. An explicit v2 `style` becomes a setting claim; a flat `style` becomes an art-style claim. Unversioned legacy aliases infer neither style meaning. Era, gender and appearance remain source claims, and appearance entries retain their metadata locations. `approved` and `rejected` status text becomes an approval or rejection claim, never an authoritative decision. Review, rights, reuse scope and TOS object version remain unknown; `can_publish`, `can_reuse` and `can_bind` remain false.
 
-`raw.metadata` retains the complete parsed source object. `unknown.metadata_fields` separately preserves unrecognized top-level keys and their values verbatim; it is distinct from the unknown review, rights, reuse and TOS authority fields. Retaining a field does not validate its meaning or make it authoritative.
+`raw.metadata` retains the complete parsed source object. `unknown.metadata_fields` separately preserves unrecognized top-level keys and their values verbatim as own data properties, including names such as `__proto__`; it is distinct from the unknown review, rights, reuse and TOS authority fields. Retaining a field does not validate its meaning or make it authoritative.
 
 -----
 
